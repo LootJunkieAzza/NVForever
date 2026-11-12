@@ -385,14 +385,26 @@ fn read_pictures(data: &GameData, images: &mut Assets<Image>) -> Result<Pictures
 }
 
 /// The splats hits on the player add (`HitFeedback::player_hurt`).
-fn take_hurts(mut splatter: ResMut<ScreenSplatter>, feedback: Option<ResMut<crate::combat::HitFeedback>>, sim: Option<Res<SimState>>) {
+fn take_hurts(mut splatter: ResMut<ScreenSplatter>, feedback: Option<ResMut<crate::combat::HitFeedback>>, sim: Option<Res<SimState>>, tweaks: Option<Res<crate::tweaks::TweakSettings>>) {
+    use crate::tweaks::wears_power_armor;
     let Some(mut feedback) = feedback else { return };
     if feedback.player_hurt.is_empty() {
         return;
     }
+    // The player's tweak: no blood on the screen while the player wears power armour on
+    // the body [design: docs/design/tweaks.md].
+    if tweaks.as_ref().is_some_and(|t| t.power_armor_no_screen_blood) && sim.as_deref().is_some_and(|s| wears_power_armor(&s.world, fnv_sim::FormId::PLAYER_REF)) {
+        feedback.player_hurt.clear();
+        return;
+    }
     let sp = &mut *splatter;
     let settings = *sp.settings.get_or_insert_with(|| settings_of(sim.as_deref()));
+    // The player's tweak: hits below this much health put no blood up [design: docs/design/tweaks.md].
+    let least = tweaks.as_ref().map_or(0.0, |t| t.min_splatter_damage);
     for (lost, max) in std::mem::take(&mut feedback.player_hurt) {
+        if lost < least {
+            continue;
+        }
         let new = hurt_splats(lost, max, sp.splats.len(), &settings, &mut sp.rng);
         if new.is_empty() {
             continue;

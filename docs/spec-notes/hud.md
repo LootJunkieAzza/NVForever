@@ -534,6 +534,14 @@ menu's (`dialogue_menu.rs`).
   actors' moving bodies, unrounded (`compass::place`), before the tile HUD's writes, so
   both drawings move the marks with this frame's strip. Until T12d the places were whole
   units and only ten a second: the marks stepped while turning (§14.9).
+- [documented: the HUD file's `compass_icon` kinds (§2) and `template_compass_icon_player`
+  in `hudtemplates.xml`] The player's marker is the custom map marker (the Pip-Boy's
+  Place Marker, SetCustomMapMarker; pipboy.md §5.3), drawn as
+  `glow_hud_compass_pc_marker.dds`. [hypothesis] NVForever marks it only while it is in
+  the player's interior or worldspace (no door is followed to it), lays it out and holds
+  it at the band's ends as a quest target, and draws it over the quest marks, as the
+  Pip-Boy's maps do (`compass::Mark::Player`). Which the original does is open: a
+  capture with a marker placed behind the player, and one placed in another cell, says.
 - Log: `compass: <n> actors (<h> hostile), <m> map markers (<f> found) on the compass,
   Perception <p>, <s> sneaking left off` when the counts change; `compass: discovered <name> (<FormID>), +<xp> XP`;
   `compass: <n> quest target(s) placed, <m> on the compass, <k> held at an end` when

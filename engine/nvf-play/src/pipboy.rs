@@ -289,6 +289,9 @@ pub struct PipBoy {
     /// Hidden rendering interval; a real opening still reports its page [design: pipboy_arm.rs].
     pub warming: Option<Warming>,
     pub warmed: bool,
+    /// A page and tab to open on, asked by a Tweaks tab key before the inventory opens
+    /// (`crate::tweaks`) [design: docs/design/tweaks.md].
+    pub open_at: Option<(Page, usize)>,
     /// [design: nvforever/player_body.rs] True until the borrowed pose is restored.
     pub pose_hidden: bool,
 }
@@ -664,10 +667,19 @@ fn setup_screen(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
 
 /// The Pip-Boy is up while the player's inventory is open, and in first person (on the
 /// arm; the screen menu leaves the view alone).
-fn follow_menu(active: Res<ActiveMenu>, mut pip: ResMut<PipBoy>, mut control: ResMut<PlayerControl>, use_pipboy: Res<UsePipBoy>, sim: Option<Res<crate::sim::SimState>>) {
+fn follow_menu(active: Res<ActiveMenu>, mut pip: ResMut<PipBoy>, mut control: ResMut<PlayerControl>, use_pipboy: Res<UsePipBoy>, sim: Option<Res<crate::sim::SimState>>, tweaks: Option<Res<crate::tweaks::TweakSettings>>) {
     let inventory = active.0.as_ref().is_some_and(|m| m.mode == Mode::Inventory);
     if inventory && !matches!(pip.phase, Phase::Raising | Phase::Up) {
         if pip.phase == Phase::Down {
+            // The player's tweak always opens on the inventory [design: docs/design/tweaks.md].
+            if tweaks.is_some_and(|t| t.pipboy_opens_items) {
+                pip.page = Page::Items;
+            }
+            // A Tweaks tab key asked for a page and tab [design: docs/design/tweaks.md].
+            if let Some((page, tab)) = pip.open_at.take() {
+                pip.page = page;
+                pip.tabs[page.index()] = tab;
+            }
             pip.frame = frame_for(!use_pipboy.on, sim.as_deref().is_some_and(wears_pipboy));
             info!("pipboy: frame {:?}", pip.frame);
             if pip.frame == Frame::Device {

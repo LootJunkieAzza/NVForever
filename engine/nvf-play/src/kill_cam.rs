@@ -553,8 +553,13 @@ fn update(
     mut control: ResMut<PlayerControl>,
     mut models: ModelCtx,
     setting: Option<Res<KillCamSetting>>,
+    mouse: Option<Res<ButtonInput<MouseButton>>>,
+    tweaks: Option<Res<crate::tweaks::TweakSettings>>,
 ) {
     let setting = setting.map_or_else(KillCamSetting::default, |s| *s);
+    // The player's tweak: a right click ends the camera [design: docs/design/tweaks.md;
+    // the plugin also uses Tab, which opens the Pip-Boy here].
+    let skip_key = tweaks.as_ref().is_some_and(|t| t.kill_cam_exit_key) && mouse.is_some_and(|m| m.just_pressed(MouseButton::Right));
     let cam = &mut *cam;
     let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else { return };
     let playing = *state.get() == PlayState::Playing;
@@ -600,6 +605,12 @@ fn update(
             }
             _ => false,
         };
+        // The player's tweak plays the camera only by chance [design: docs/design/tweaks.md].
+        let chance = tweaks.as_ref().map_or(1.0, |t| t.kill_cam_chance);
+        let skip = skip || (chance < 1.0 && {
+            use rand_core::RngCore;
+            (rt.game.rng.next_u32() as f32 / u32::MAX as f32) >= chance
+        });
         if skip {
             killed = None;
         }
@@ -726,6 +737,8 @@ fn update(
         Some("the player died")
     } else if !playing {
         Some("a menu opened")
+    } else if skip_key {
+        Some("the player skipped it")
     } else if matches!(show.kind, Kind::Attack(_)) && vats.phase != Phase::Firing {
         Some("the attacks stopped")
     } else {
@@ -903,6 +916,20 @@ fn place(
     }
 }
 
+/// The player's tweak: walking and running stay the player's while the camera plays
+/// [design: docs/design/tweaks.md].
+static MOVE_DURING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Set by the Tweaks tab.
+pub fn set_move_during(on: bool) {
+    MOVE_DURING.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Walking and running are left to the player while the camera plays (the tweak).
+pub fn move_during() -> bool {
+    MOVE_DURING.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 /// Strike from what the frame asked of the character (the keys, held already by
 /// `bindings::ControlInput`, and the test aids that stand in for them) what a playing
 /// kill camera holds (module notes): moving, jumping, the trigger, aiming, reload and
@@ -910,7 +937,11 @@ fn place(
 pub fn hold_input(mut cam: ResMut<KillCam>, mut intent: ResMut<MoveIntent>, mut control: ResMut<PlayerControl>) {
     let Some(show) = cam.show.as_mut() else { return };
     let (mut i, mut c) = (*intent, *control);
-    (i.forward, i.right, i.jump) = (0.0, 0.0, false);
+    if move_during() {
+        i.jump = false;
+    } else {
+        (i.forward, i.right, i.jump) = (0.0, 0.0, false);
+    }
     (c.trigger, c.aiming, c.reload, c.ammo_swap, c.ready_held) = (false, false, false, false, None);
     if (i, c) != (*intent, *control) {
         show.held += 1;

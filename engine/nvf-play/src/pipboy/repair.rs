@@ -235,6 +235,24 @@ pub fn after_repair(groups: &[(FormId, Extra, i32)], forms: &FormStore, repair_l
     offer(groups, forms, repair_list, o.item, Pick::row(Some(to), o.extra.mods), o.extra.equipped).filter(Offer::usable)
 }
 
+/// The player's repair list tweaks [design: docs/design/tweaks.md]: parts that are the item itself first
+/// (Sort Repair List), and lower condition before higher (Low Condition First).
+pub fn tweak_order(o: Option<Offer>, script: Option<&ScriptState>) -> Option<Offer> {
+    let Some(t) = script.and_then(|s| s.rt.as_ref()).map(|rt| &rt.game.tweaks) else { return o };
+    let (same_first, low_first) = (t.repair_same_first, t.repair_low_first);
+    o.map(|mut o| {
+        if same_first || low_first {
+            let item = o.item;
+            o.parts.sort_by(|a, b| {
+                let same = (same_first && a.item != item).cmp(&(same_first && b.item != item));
+                let by = if low_first { a.condition.total_cmp(&b.condition).then(a.name.cmp(&b.name)) } else { a.name.cmp(&b.name).then(b.condition.total_cmp(&a.condition)) };
+                same.then(by)
+            });
+        }
+        o
+    })
+}
+
 /// The ITEMS page's selected row's offer, now.
 pub fn current(active: &ActiveMenu, sim: &mut SimState, script: Option<&ScriptState>) -> Option<Offer> {
     let m = active.0.as_ref().filter(|m| m.mode == Mode::Inventory)?;
@@ -244,7 +262,16 @@ pub fn current(active: &ActiveMenu, sim: &mut SimState, script: Option<&ScriptSt
     // The item's repair list, and with Jury Rigging the like items carried
     // (`fnv_game::Game::player_repair_list`, perk-entry-points.md §9).
     let list = script.and_then(|s| s.rt.as_ref()).map(|rt| rt.game.player_repair_list(r.item, groups.iter().map(|g| g.0))).unwrap_or_default();
-    offer(&groups, forms, &list, r.item, r.pick(), r.equipped)
+    let o = tweak_order(offer(&groups, forms, &list, r.item, r.pick(), r.equipped), script);
+    // The player's tweak keeps things on a hotkey out of the parts [design: docs/design/tweaks.md].
+    if !m.hide_hotkeyed_repair {
+        return o;
+    }
+    o.map(|mut o| {
+        o.parts.retain(|p| !m.hotkeyed.contains(&p.item));
+        o
+    })
+    .filter(|o| !o.parts.is_empty())
 }
 
 /// The keys of the repair list and R on the ITEMS page.
@@ -260,6 +287,7 @@ pub fn keys(
     mut sounds: MessageWriter<UiSound>,
     prompt: Res<crate::menu::PromptKeys>,
     modding: Res<super::item_mod::PipItemMod>,
+    combat: Option<Res<crate::combat::Combat>>,
 ) {
     // Laid out in the Pip-Boy's screen texture, at its size whatever the UI scale (#1631).
     let _canvas = crate::interface::original_units();
@@ -296,6 +324,14 @@ pub fn keys(
                     continue;
                 }
                 let skill = script.as_deref_mut().and_then(|s| s.rt.as_mut()).map_or(0.0, |rt| crate::script::with_world(rt, &mut sim, |rt| fnv_game::functions::actor_value_capped(&mut rt.game, FormId::PLAYER_REF, fnv_game::actor_values::REPAIR)) as f32);
+                // The player's tweak: a weapon's skill requirement asks as much Repair [design: docs/design/tweaks.md].
+                let wanted = script.as_deref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.repair_needs_weapon_skill);
+                let need = combat.as_ref().filter(|_| wanted).and_then(|c| c.forms.weapons.get(&o.item)).map_or(0, |w| w.skill_req);
+                if need as f32 > skill {
+                    info!("pipboy repair: {} needs Repair {need} (tweak), the player has {skill:.0}", o.name);
+                    sounds.write(UiSound { menu: UiMenu::Repair, event: UiEvent::Refused });
+                    continue;
+                }
                 info!(
                     "pipboy repair: open {} at {}% (Repair {:.0}): {}",
                     o.name,
@@ -335,12 +371,17 @@ pub fn keys(
                 if done {
                     if let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) {
                         rt.game.count_stat(fnv_game::misc_stats::ITEMS_REPAIRED, 1.0);
+                        // The player's tweak: a repair gives experience [design: docs/design/tweaks.md].
+                        let xp = rt.game.tweaks.repair_xp;
+                        if xp > 0.0 {
+                            fnv_game::experience::award(&mut rt.game, fnv_game::experience::Source::Repair, xp);
+                        }
                     }
                     info!("pipboy repair: {} {}% with {} {}% -> {}% (Repair {:.0})", o.name, fnv_combat::condition::percent(o.condition), part.name, fnv_combat::condition::percent(part.condition), fnv_combat::condition::percent(to), s.skill);
                     sounds.write(UiSound { menu: UiMenu::Repair, event: UiEvent::Picked });
                     let groups: Vec<(FormId, Extra, i32)> = sim.world.inventory_mut(FormId::PLAYER_REF).map(|i| i.groups().collect()).unwrap_or_default();
                     let list = script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| rt.game.player_repair_list(o.item, groups.iter().map(|g| g.0))).unwrap_or_default();
-                    let after = after_repair(&groups, sim.forms, &list, o, to);
+                    let after = tweak_order(after_repair(&groups, sim.forms, &list, o, to), script.as_deref());
                     match &after {
                         Some(n) => info!("pipboy repair: stays open: {} at {}%, {} part(s) left", n.name, fnv_combat::condition::percent(n.condition), n.parts.len()),
                         None if to >= SHOWN_FULL => info!("pipboy repair: closed: {} is at full condition", o.name),

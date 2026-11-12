@@ -1098,6 +1098,7 @@ pub(crate) struct FeedOut<'w> {
     modding: MessageWriter<'w, ModInput>,
     hold: ResMut<'w, HotkeyHold>,
     hotkeys: ResMut<'w, Hotkeys>,
+    tweaks: Option<Res<'w, crate::tweaks::TweakSettings>>,
 }
 
 /// Commands on a row behind a guard saying what its tile stood for, checked as they apply.
@@ -1194,7 +1195,9 @@ pub(crate) fn feed(mut script: ResMut<ScriptState>, switch: Res<TileMenus>, from
                 match out.hold.slot {
                     Some(slot) => {
                         if let Some(row) = m.list(Side::Player).rows.get(index) {
-                            let said = hotkey_panel::assign_row(&mut out.hotkeys, slot, row);
+                            // The player's tweak: the slot holding it already lets it go [design: docs/design/tweaks.md].
+                            let deselect = out.tweaks.as_ref().is_some_and(|t| t.deselect_hotkeys);
+                            let said = hotkey_panel::assign_row(&mut out.hotkeys, slot, row, deselect);
                             out.hold.said = Some(said);
                         }
                     }

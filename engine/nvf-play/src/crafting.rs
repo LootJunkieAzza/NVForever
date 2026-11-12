@@ -248,8 +248,17 @@ fn listed(rt: &mut crate::script::Runtime, category: FormId) -> Vec<&'static Rec
     out
 }
 
+/// God mode with the Free Crafting tweak: recipes need nothing.
+fn free_crafting(rt: &crate::script::Runtime) -> bool {
+    crate::combat::god_mode() && rt.game.tweaks.god_mode_free_crafting
+}
+
 /// What the player lacks to make `r` once (with the world in the runtime).
 fn lacks(rt: &mut crate::script::Runtime, r: &RecipeDef) -> Vec<fnv_game::crafting::Missing> {
+    // The player's tweak: in god mode a recipe needs nothing [design: docs/design/tweaks.md].
+    if free_crafting(rt) {
+        return Vec::new();
+    }
     let skill = r.skill.map_or(0.0, |(av, _)| fnv_game::functions::actor_value_capped(&mut rt.game, FormId::PLAYER_REF, av));
     let counts: Vec<(FormId, i64)> = r.ingredients.iter().map(|&(i, _)| (i, rt.game.world.item_count(FormId::PLAYER_REF, i).unwrap_or(0) as i64)).collect();
     missing(r, 1, |_| skill, |i| counts.iter().find(|c| c.0 == i).map_or(0, |c| c.1))
@@ -267,7 +276,9 @@ pub(crate) fn view(rt: &mut crate::script::Runtime, sim: &mut SimState, open: &O
         let data = rt.game.data;
         let all = listed(rt, open.category);
         // The subcategories in the list, by name.
-        let mut subs: Vec<(String, FormId)> = all.iter().filter_map(|r| r.subcategory).filter(|s| *s != open.category).map(|s| (data.recipe_categories.get(&s).map_or_else(String::new, |c| c.name.clone()), s)).collect();
+        // The player's tweak shows them in capitals [design: docs/design/tweaks.md].
+        let caps = rt.game.tweaks.capitalize_recipe_categories;
+        let mut subs: Vec<(String, FormId)> = all.iter().filter_map(|r| r.subcategory).filter(|s| *s != open.category).map(|s| (data.recipe_categories.get(&s).map_or_else(String::new, |c| if caps { c.name.to_uppercase() } else { c.name.clone() }), s)).collect();
         subs.sort();
         subs.dedup();
         let filter = subs.get(open.filter.wrapping_sub(1)).map(|s| s.1);
@@ -534,15 +545,36 @@ fn make_recipe(rt: &mut crate::script::Runtime, sim: &mut SimState, recipe: &Rec
         let skill = recipe.skill.map_or(0.0, |(av, _)| fnv_game::functions::actor_value_capped(&mut rt.game, FormId::PLAYER_REF, av));
         let counts: Vec<(FormId, i64)> = recipe.ingredients.iter().map(|&(i, _)| (i, rt.game.world.item_count(FormId::PLAYER_REF, i).unwrap_or(0) as i64)).collect();
         let lack = missing(recipe, times, |_| skill, |i| counts.iter().find(|c| c.0 == i).map_or(0, |c| c.1));
-        if !lack.is_empty() {
+        let free = free_crafting(rt);
+        if !lack.is_empty() && !free {
             return Err(format!("{lack:?}"));
         }
         for &(i, k) in &recipe.ingredients {
-            rt.game.world.remove_item(FormId::PLAYER_REF, i, (k * times) as i32).map_err(|e| format!("{e:?}"))?;
+            // Free crafting takes what there is of each part.
+            let want = (k * times) as i64;
+            let n = if free { want.min(counts.iter().find(|c| c.0 == i).map_or(0, |c| c.1)) } else { want };
+            if n > 0 {
+                rt.game.world.remove_item(FormId::PLAYER_REF, i, n as i32).map_err(|e| format!("{e:?}"))?;
+            }
         }
         let mut added = Vec::new();
+        // The player's tweak: weapons and armour come out at a condition of the
+        // player's Repair [design: docs/design/tweaks.md].
+        let condition = rt.game.tweaks.repair_scales_crafting.then(|| {
+            let repair = fnv_game::functions::actor_value_capped(&mut rt.game, FormId::PLAYER_REF, fnv_game::actor_values::REPAIR) as f32;
+            fnv_game::tweaks::crafted_condition(repair)
+        });
         for &(i, k) in &recipe.outputs {
-            rt.game.world.add_item(FormId::PLAYER_REF, i, (k * times) as i32).map_err(|e| format!("{e:?}"))?;
+            let worn = matches!(rt.game.data.sig(i), Some(s) if &s == b"WEAP" || &s == b"ARMO");
+            match condition.filter(|c| worn && *c < 1.0) {
+                Some(c) => {
+                    rt.game.world.add_item_at_condition(FormId::PLAYER_REF, i, (k * times) as i32, Some(c)).map_err(|e| format!("{e:?}"))?;
+                    info!("recipe menu: made at {:.0} % condition (Repair tweak)", c * 100.0);
+                }
+                None => {
+                    rt.game.world.add_item(FormId::PLAYER_REF, i, (k * times) as i32).map_err(|e| format!("{e:?}"))?;
+                }
+            }
             added.push((i, k * times));
         }
         Ok(added)
@@ -736,7 +768,7 @@ fn forget_closed(menu: Res<RecipeMenu>, script: Option<ResMut<ScriptState>>, mut
 fn spawn_prompt(root: &mut ChildSpawnerCommands, (amount, most): (i32, i32), words: &[String; 2], kit: &mut crate::menu::look::Kit, data: Option<&GameData>, images: &mut Assets<Image>, bc: bool, glyphs: &crate::pad::PadGlyphs) {
     let screen = Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() };
     let q = crate::menu::model::Quantity { cmd: crate::menu::model::Command::One, side: crate::menu::model::Side::Player, row: 0, max: most, amount };
-    root.spawn(screen).with_children(|s| crate::menu::look::spawn_quantity(s, &q, words, kit, data, images, bc, glyphs));
+    root.spawn(screen).with_children(|s| crate::menu::look::spawn_quantity(s, &q, words, kit, data, images, bc, glyphs, None));
 }
 
 /// [`view`] with the selected output's effects (`forms`: where they are read from).

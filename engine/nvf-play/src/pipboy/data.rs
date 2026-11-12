@@ -413,6 +413,9 @@ pub struct DataState {
     discovered: BTreeSet<u32>,
     /// Markers found since `crate::compass` last took them (for "You have discovered").
     newly_found: Vec<u32>,
+    /// Markers found since this run started, not saved (the Color Recently Added Map
+    /// Markers tweak) [design: docs/design/tweaks.md].
+    found_this_run: BTreeSet<u32>,
     /// Where the player was last outdoors: worldspace, feet, heading.
     outdoors: Option<(u32, [f32; 3], f32)>,
     // The plugins' records, read when first wanted.
@@ -490,6 +493,9 @@ pub struct DataState {
     /// The place under each map's highlight box when last drawn: where Place Marker puts
     /// the marker.
     spot: [Option<CustomMarker>; 2],
+    /// Where each map drew the custom marker when last drawn (window units), for the No
+    /// Place Marker Popup tweak's "on it".
+    custom_on_map: [Option<Vec2>; 2],
     /// Where each map showed the custom marker when last logged (whole units; `None`:
     /// not shown).
     custom_logged: [Option<Option<(i32, i32)>>; 2],
@@ -538,6 +544,8 @@ struct MapMark {
     highlighted: bool,
     /// The marker's middle in the map's window.
     at: Vec2,
+    /// Drawn in red: found in this run, under the player's tweak.
+    recent: bool,
 }
 
 impl MapMark {
@@ -983,6 +991,19 @@ impl DataState {
     pub fn markers_of(&self, world: u32) -> Vec<(u32, [f32; 3], bool)> {
         self.markers.iter().flatten().filter(|m| m.world == world).map(|m| (m.form, m.pos, self.discovered.contains(&m.form))).collect()
     }
+
+    /// The markers of `world` not found yet that the map does not show either (no
+    /// Visible flag, not shown by a script), for the compass's Hide Unmapped Places tweak
+    /// [design: docs/design/tweaks.md].
+    pub fn unmapped_of(&self, world: u32, game: Option<&fnv_game::Game>) -> std::collections::HashSet<u32> {
+        self.markers
+            .iter()
+            .flatten()
+            .filter(|m| m.world == world && !self.discovered.contains(&m.form) && m.flags & 1 == 0)
+            .filter(|m| !game.is_some_and(|g| g.map_marker_shown(FormId(m.form), m.flags & 4 != 0)))
+            .map(|m| m.form)
+            .collect()
+    }
 }
 
 /// The custom map marker in a save (#1954), under `custom_map_marker`: the game's marker
@@ -1062,6 +1083,7 @@ fn track(st: &mut DataState, game: &Game) {
             if st.discovered.insert(f) {
                 info!("pipboy data: map marker {} found", FormId(f));
                 st.newly_found.push(f);
+                st.found_this_run.insert(f);
             }
         }
     }
@@ -1087,7 +1109,10 @@ fn listed(g: &fnv_game::game::Game, q: FormId, s: &fnv_game::quest::QuestState) 
 /// The Pip-Boy came up on this page: the maps centre on the player, the quest list on
 /// the active quest.
 fn opened(st: &mut DataState, game: &Game) {
-    st.centre = [None, None];
+    // The player's tweak leaves the maps where they were [design: docs/design/tweaks.md].
+    if !game.script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.remember_map_position) {
+        st.centre = [None, None];
+    }
     st.cursor = [None, None];
     st.boxed = false;
     st.text_first = 0.0;
@@ -1120,7 +1145,8 @@ fn lists(st: &mut DataState, game: &Game) -> Lists {
     out.quests = g
         .quests
         .iter()
-        .filter(|(q, s)| listed(g, **q, s))
+        // The player's tweak lists only quests under way [design: docs/design/tweaks.md].
+        .filter(|(q, s)| listed(g, **q, s) && !(g.tweaks.hide_completed_quests && (s.completed || s.failed)))
         .map(|(q, s)| QuestKey { seen: st.seen.get(&q.0).copied().unwrap_or(st.seen_count + 1), form: q.0, done: s.completed || s.failed })
         .collect();
     model::sort_quests(&mut out.quests);
@@ -1134,14 +1160,24 @@ fn lists(st: &mut DataState, game: &Game) -> Lists {
         }
     }
     if !st.active_quest.is_some_and(|a| out.quests.iter().any(|q| q.form == a && !q.done)) {
-        st.active_quest = out.quests.iter().find(|q| !q.done).map(|q| q.form);
+        // The player's tweaks: no quest is made the active one by itself, neither when
+        // the active one is done nor when objectives come with none active [design: docs/design/tweaks.md].
+        let by_hand_only = g.tweaks.no_quest_set_on_objective || g.tweaks.no_quest_set_on_complete;
+        st.active_quest = if by_hand_only { None } else { out.quests.iter().find(|q| !q.done).map(|q| q.form) };
     }
     out.has_notes = !g.player.notes.is_empty();
     if let Some(w) = game.world.as_ref() {
         for n in &g.player.notes {
+            // The player's tweak: notes already read are left out, but for the one on
+            // screen (showing a note reads it) [design: docs/design/tweaks.md].
+            if g.tweaks.hide_read_notes && g.note_read(*n) && st.note_shown != Some(n.0) {
+                continue;
+            }
             let note = st.notes.entry(n.0).or_insert_with(|| read::note(w.lo, w.schema, n.0));
             if let Some(note) = note {
-                if !st.notes_of_active || (note.quest.is_some() && note.quest == st.active_quest) {
+                // The player's tweak takes in every quest under way [design: docs/design/tweaks.md].
+                let under_way = g.tweaks.notes_of_all_quests && note.quest.and_then(|q| g.quests.get_key_value(&FormId(q))).is_some_and(|(q, s)| listed(g, *q, s) && !s.completed && !s.failed);
+                if !st.notes_of_active || (note.quest.is_some() && note.quest == st.active_quest) || under_way {
                     // The player string codes as they read now (the bounty notices'
                     // "&PCName;", "&PCRace;" [observed: FalloutNV.esm]); the cache keeps
                     // the record's text.
@@ -1246,11 +1282,25 @@ fn take_input(st: &mut DataState, tab: usize, l: &Lists, game: &mut Game, input:
     if tab == NOTES && input.keys.just_pressed(KeyR) {
         st.acts.push(Act::Button(ButtonKind::Challenges));
     }
+    // The player's tweak: a right click marks the selected note unread [design: docs/design/tweaks.md].
+    if tab == NOTES && !st.challenges && input.buttons.just_pressed(MouseButton::Right) {
+        if let (Some(note), Some(rt)) = (l.notes.get(st.sel[NOTES]).map(|n| n.form), game.script.as_mut().and_then(|s| s.rt.as_mut()).filter(|rt| rt.game.tweaks.mark_notes_unread)) {
+            rt.game.mark_note_unread(FormId(note));
+            info!("pipboy data: note {} marked unread (tweak)", FormId(note));
+        }
+    }
+    // The player's tweak: C puts a map back on the player [design: docs/design/tweaks.md].
+    let recentre = game.script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.map_recentre_key);
+    if recentre && (tab == LOCAL || tab == WORLD) && input.keys.just_pressed(KeyC) && st.centre[tab].take().is_some() {
+        info!("pipboy data: map centred on the player again (C, tweak)");
+    }
     // X (with a controller X, `crate::pad::menu_buttons`) is the tab's X button (#1897).
     if input.keys.just_pressed(KeyX) {
+        // The player's tweak drops Show Location [design: docs/design/tweaks.md].
+        let show_location = !game.script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.no_show_quest_location);
         match tab {
             LOCAL | WORLD => st.acts.push(Act::Button(ButtonKind::PlaceMarker)),
-            QUESTS if !l.quests.is_empty() => st.acts.push(Act::Button(ButtonKind::ShowLocation)),
+            QUESTS if !l.quests.is_empty() && show_location => st.acts.push(Act::Button(ButtonKind::ShowLocation)),
             NOTES if l.challenges.is_none() => st.acts.push(Act::Button(ButtonKind::NotesFilter)),
             NOTES => st.acts.push(Act::Button(ButtonKind::NextChallenge)),
             _ => {}
@@ -1277,7 +1327,17 @@ fn take_input(st: &mut DataState, tab: usize, l: &Lists, game: &mut Game, input:
     }
     if notches != 0.0 {
         match tab {
-            LOCAL | WORLD => st.magnify[tab] = (st.magnify[tab].max(ZOOM.0) * ZOOM_STEP.powf(notches)).clamp(ZOOM.0, ZOOM.1),
+            LOCAL | WORLD => {
+                let before = st.magnify[tab].max(ZOOM.0);
+                st.magnify[tab] = (before * ZOOM_STEP.powf(notches)).clamp(ZOOM.0, ZOOM.1);
+                // The player's tweak keeps the place under the pointer there: the map is
+                // moved as a drag would by the pointer's offset from the middle times the
+                // growth [design: docs/design/tweaks.md].
+                let at_pointer = game.script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.map_zoom_at_pointer);
+                if let Some(p) = in_map(pointer).filter(|_| at_pointer) {
+                    st.drag -= (p - MAP_MID) * (st.magnify[tab] / before - 1.0);
+                }
+            }
             NOTES | QUESTS if wheel_on_pane(tab, pointer, st.pane_rect) => pane.notches += notches,
             // The tile page's list scrolls itself (`crate::tiles::map_menu`).
             _ if tiles_list => st.list_notches += notches,
@@ -1329,7 +1389,8 @@ fn take_input(st: &mut DataState, tab: usize, l: &Lists, game: &mut Game, input:
             }
             // The A button's hints do what Enter does on the tab.
             Act::Button(k) if k.is_a() => use_it = true,
-            Act::Button(k) => button(st, tab, k, input),
+            Act::Button(ButtonKind::PlaceMarker) => place_marker(st, tab, game, &input.keys),
+            Act::Button(k) => button(st, k, input),
             Act::Bar(b) if tab == QUESTS || tab == NOTES => bar_act(st, b, pointer, &mut pane),
             Act::PaneTo(v) if tab == QUESTS || tab == NOTES => pane.drag += v - st.text_first,
             _ => {}
@@ -1693,12 +1754,22 @@ fn choose(p: &mut Popup, hold: &mut BoxHold, pointer: Option<Vec2>, b: &BoxInput
 
 /// Place Marker: ask about the place under the highlight box ([`marker::ask`]) in the
 /// question box, its words from the load order's settings, else NVForever's own
-/// ([`marker::Words`]).
-fn place_marker(st: &mut DataState, tab: usize) {
+/// ([`marker::Words`]). Under the player's No Place Marker Popup tweak it answers at once
+/// ([`marker::quick`]) [design: docs/design/tweaks.md].
+fn place_marker(st: &mut DataState, tab: usize, game: &mut Game, keys: &ButtonInput<KeyCode>) {
     let Some(at) = st.spot.get(tab).copied().flatten() else {
         info!("pipboy map: Place Marker: no place under the highlight box");
         return;
     };
+    let quick = game.script.as_ref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game.tweaks).filter(|t| t.no_marker_popup).map(|t| marker::Quick::of(t.marker_shift_removes, t.marker_removed_on_it));
+    if let Some(how) = quick {
+        let shift = keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]);
+        let box_at = st.cursor.get(tab).copied().flatten();
+        let on_it = matches!((box_at, st.custom_on_map[tab]), (Some(b), Some(c)) if b.distance(c) <= SNAP);
+        info!("pipboy map: Place Marker answers at once ({how:?}, tweak)");
+        answer_marker(st, game, marker::quick(st.custom, at, how, shift, on_it));
+        return;
+    }
     let ask = marker::ask(st.custom, at);
     let (text, buttons) = marker::Words::of(ask, |(name, ours)| super::labels::label(name, ours).to_string());
     info!("pipboy map: Place Marker asks {text:?} ({} answers) for ({:.0}, {:.0}) in {}", buttons.len(), at.pos[0], at.pos[1], FormId(at.space));
@@ -1723,7 +1794,7 @@ fn answer_marker(st: &mut DataState, game: &mut Game, a: marker::MarkerAnswer) {
     }
 }
 
-fn button(st: &mut DataState, tab: usize, k: ButtonKind, input: &mut Input) {
+fn button(st: &mut DataState, k: ButtonKind, input: &mut Input) {
     match k {
         ButtonKind::NotesFilter => {
             st.notes_of_active = !st.notes_of_active;
@@ -1740,7 +1811,8 @@ fn button(st: &mut DataState, tab: usize, k: ButtonKind, input: &mut Input) {
             st.text_first = 0.0;
             info!("pipboy data: {} shown", if st.challenges { "challenges" } else { "notes" });
         }
-        ButtonKind::PlaceMarker => place_marker(st, tab),
+        // With the game, in the acts' loop ([`place_marker`]).
+        ButtonKind::PlaceMarker => {}
         ButtonKind::NextChallenge => info!("pipboy data: {k:?} is not built"),
         // Taken as Enter in `take_input`.
         ButtonKind::Travel | ButtonKind::MakeActive | ButtonKind::PlayAudio | ButtonKind::Tune => {}
@@ -1768,7 +1840,8 @@ fn build(st: &mut DataState, tab: usize, l: &Lists, game: &Game, pointer: Option
     // Under the question box the map stands still.
     let pointer = pointer.filter(|_| st.popup.is_none());
     let place = place(st, game);
-    let when = game.sim.as_ref().and_then(|s| s.world.calendar().ok()).map(|c| model::date_time(&c)).unwrap_or_default();
+    let twelve = game.script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.pipboy_12_hour);
+    let when = game.sim.as_ref().and_then(|s| s.world.calendar().ok()).map(|c| model::date_time_with(&c, twelve)).unwrap_or_default();
     let body = match tab {
         LOCAL | WORLD => Body::Map(if tab == WORLD { world_map(st, game, pointer, aiming) } else { local_map(st, game, pointer) }),
         QUESTS => {
@@ -1785,6 +1858,8 @@ fn build(st: &mut DataState, tab: usize, l: &Lists, game: &Game, pointer: Option
             let rows = list.iter().map(|c| Row { text: c.name.clone(), mark: Mark::None, done: c.completed }).collect();
             let right = list.get(st.sel[NOTES]).map_or(Right::None, |c| {
                 let state = if c.completed { "Completed".to_string() } else { format!("{}/{}", c.progress, c.threshold) };
+                // The player's tweak says a challenge repeats [design: docs/design/tweaks.md].
+                let state = if c.recurring { format!("{state} (repeats)") } else { state };
                 Right::Text { text: format!("{}\n\n{state}", c.description), first: st.text_first }
             });
             Body::List { rows, first: st.first[NOTES], boxed: st.boxed.then_some(st.sel[NOTES]), right }
@@ -1815,6 +1890,7 @@ fn build(st: &mut DataState, tab: usize, l: &Lists, game: &Game, pointer: Option
         pad: crate::pad::labels() != crate::pad::Labels::Keys,
         marker: st.travel_marker.is_some(),
         quests: !l.quests.is_empty(),
+        no_show_location: game.script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.no_show_quest_location),
         quest_done: l.quests.get(st.sel[QUESTS]).map(|q| q.done),
         notes: l.has_notes,
         notes_of_active: st.notes_of_active,
@@ -1854,6 +1930,8 @@ struct HintFacts {
     /// Quests are listed, and whether the selected one is done.
     quests: bool,
     quest_done: Option<bool>,
+    /// The player's tweak drops Show Location [design: docs/design/tweaks.md].
+    no_show_location: bool,
     /// The player has a note (whatever the filter keeps); the notes' filter is on; the
     /// selected note is an audio note, and whether it plays; Misc shows the challenges.
     notes: bool,
@@ -1915,7 +1993,7 @@ fn tab_buttons(tab: usize, f: &HintFacts) -> Vec<Button> {
         // the original's World Map and Local Map with no controller, `MM_ButtonX` visible and a
         // target, "Place Marker" at the top right with no key; capture 2026-11-10].
         LOCAL | WORLD => Some(b(built_in_label("sPlaceMarker"), if f.pad { x_key() } else { String::new() }, false, ButtonKind::PlaceMarker)),
-        QUESTS if f.quests => Some(b(built_in_label("sShowLocation"), x_key(), false, ButtonKind::ShowLocation)),
+        QUESTS if f.quests && !f.no_show_location => Some(b(built_in_label("sShowLocation"), x_key(), false, ButtonKind::ShowLocation)),
         NOTES if f.notes && f.challenges => Some(b(built_in_label("sNextChallenge"), x_key(), true, ButtonKind::NextChallenge)),
         NOTES if f.notes => {
             let filter = built_in_label(if f.notes_of_active { "sShowAllNotes" } else { "sShowActiveNotes" });
@@ -2118,18 +2196,29 @@ fn world_map(st: &mut DataState, game: &Game, pointer: Option<Vec2>, aiming: boo
     let mut names = Vec::new();
     let mut forms = Vec::new();
     let mut details = Vec::new();
+    let show_distance = game.script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.map_marker_distance);
     let mut total = 0;
     let mut drawn_other = 0;
+    let red_recent = game.script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.recent_markers_red);
     let all = markers(st, game).cloned().unwrap_or_default();
     for mk in &all {
         let Some(projection) = map_for(st, game, mk.world).filter(|p| p.root == m.root) else { continue };
         total += 1;
         let Some(found) = known(st, game, mk) else { continue };
         drawn_other += usize::from(mk.world != world);
-        marks.push(MapMark { icon: Some((mk.kind, found)), highlighted: false, at: on_map(projection.uv(mk.pos[0], mk.pos[1])) });
+        let recent = red_recent && st.found_this_run.contains(&mk.form);
+        marks.push(MapMark { icon: Some((mk.kind, found)), highlighted: false, at: on_map(projection.uv(mk.pos[0], mk.pos[1])), recent });
         names.push(mk.name.clone());
         forms.push(mk.form);
-        details.push(mk.reputation.as_ref().map(|(rep, name)| model::reputation_line(name, standing(game, *rep))));
+        // The player's tweak leaves the reputation line out [design: docs/design/tweaks.md].
+        let rep_off = game.script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.hide_marker_reputation);
+        let rep = mk.reputation.as_ref().filter(|_| !rep_off).map(|(rep, name)| model::reputation_line(name, standing(game, *rep)));
+        // The player's tweak: how far the marker is, on the same line [design: docs/design/tweaks.md].
+        let far = player.filter(|_| show_distance && mk.world == world).map(|(p, _)| model::distance_text(((mk.pos[0] - p[0]).powi(2) + (mk.pos[1] - p[1]).powi(2)).sqrt()));
+        details.push(match (rep, far) {
+            (Some(r), Some(d)) => Some(format!("{r}, {d}")),
+            (r, d) => r.or(d),
+        });
     }
     let mut quests = Vec::new();
     let mut targets = Vec::new();
@@ -2145,6 +2234,7 @@ fn world_map(st: &mut DataState, game: &Game, pointer: Option<Vec2>, aiming: boo
         Some((c, on_map(projection.uv(c.pos[0], c.pos[1]))))
     });
     log_custom(st, WORLD, custom.map(|c| c.0));
+    st.custom_on_map[WORLD] = custom.map(|c| c.1);
     let drawn_found = marks.iter().filter(|mk| matches!(mk.icon, Some((_, true)))).count();
     let logged = (world, total, marks.len(), drawn_found, drawn_other);
     if st.world_logged != Some(logged) {
@@ -2310,7 +2400,7 @@ fn local_map(st: &mut DataState, game: &Game, pointer: Option<Vec2>) -> MapShown
     for d in st.doors.get(&key).into_iter().flatten().filter(|d| enabled(d.form)) {
         let at = on_map(d.pos[0], d.pos[1]);
         if inside(at) {
-            marks.push(MapMark { icon: None, highlighted: false, at });
+            marks.push(MapMark { icon: None, highlighted: false, at, recent: false });
             names.push(d.name.clone());
         }
     }
@@ -2320,7 +2410,7 @@ fn local_map(st: &mut DataState, game: &Game, pointer: Option<Vec2>) -> MapShown
             let Some(found) = known(st, game, mk) else { continue };
             let at = on_map(mk.pos[0], mk.pos[1]);
             if inside(at) {
-                marks.push(MapMark { icon: Some((mk.kind, found)), highlighted: false, at });
+                marks.push(MapMark { icon: Some((mk.kind, found)), highlighted: false, at, recent: false });
                 names.push(mk.name.clone());
             }
         }
@@ -2342,6 +2432,7 @@ fn local_map(st: &mut DataState, game: &Game, pointer: Option<Vec2>) -> MapShown
     st.spot[LOCAL] = Some(CustomMarker { space, pos: [spot[0], spot[1], feet[2]] });
     let custom = st.custom.filter(|c| c.space == space);
     log_custom(st, LOCAL, custom);
+    st.custom_on_map[LOCAL] = custom.map(|c| on_map(c.pos[0], c.pos[1]));
     let custom = custom.map(|c| local_quest_corner(on_map(c.pos[0], c.pos[1])));
     MapShown { picture: None, outline, marks, player: Some((on_map(feet[0], feet[1]), heading)), quests, custom, nodes: Arc::default(), lines: Arc::default(), cursor, label, detail: None }
 }
@@ -3030,7 +3121,9 @@ fn map(p: &mut ChildSpawnerCommands, c: &mut Ctx, m: &MapShown) {
         // 7, the highlighted marker 11 [documented: map_menu.xml].
         let marker = |p: &mut ChildSpawnerCommands, c: &mut Ctx, mk: &MapMark| {
             let (size, brightness) = if mk.highlighted { (MARKER * MARKER_GROW, MARKER_BRIGHTNESS.1) } else { (MARKER, MARKER_BRIGHTNESS.0) };
-            c.image(p, &mk.picture(), at(mk.at.x - size / 2.0, mk.at.y - size / 2.0, size, size), amber(brightness));
+            // The player's tweak draws a marker found in this run red [design: docs/design/tweaks.md].
+            let colour = if mk.recent { Color::srgb(1.0, 0.25, 0.2).with_alpha(amber(brightness).alpha()) } else { amber(brightness) };
+            c.image(p, &mk.picture(), at(mk.at.x - size / 2.0, mk.at.y - size / 2.0, size, size), colour);
         };
         for mk in m.marks.iter().filter(|mk| !mk.highlighted) {
             marker(p, c, mk);
@@ -3282,6 +3375,15 @@ mod tests {
         assert!(!st.was_open, "no body: the drawing closed the page, as before");
         assert!(st.prepared.is_none() && st.last_tab.is_none());
         assert!(!prepares_early(None) && !prepares_early(Some(&crate::tiles::vanilla::TileMenus::default())));
+    }
+
+    #[test]
+    fn unmapped_places_are_the_unfound_ones_without_the_visible_flag() {
+        let marker = |form, world, flags| read::Marker { form, world, pos: [0.0; 3], name: format!("Place {form}"), kind: 1, flags, radius: 10.0, reputation: None };
+        let mut st = DataState { markers: Some(vec![marker(10, 1, 0), marker(20, 1, 1), marker(30, 1, 0), marker(40, 2, 0)]), ..DataState::default() };
+        st.discovered.insert(30);
+        assert_eq!(st.unmapped_of(1, None), [10].into_iter().collect());
+        assert_eq!(st.unmapped_of(2, None), [40].into_iter().collect());
     }
 
     #[test]
@@ -4004,7 +4106,7 @@ mod tests {
         st.cursor[WORLD] = Some(MAP_MID + off);
         let shown = world_map(&mut st, &game, None, false);
         assert_eq!((shown.custom, shown.nodes.len(), shown.lines.len()), (None, 0, 0));
-        place_marker(&mut st, WORLD);
+        place_marker(&mut st, WORLD, &mut game, &ButtonInput::default());
         let (ask, answers) = asked(&st);
         assert!(matches!(ask, marker::MarkerAsk::Set(_)));
         assert_eq!(answers, 2);
@@ -4030,7 +4132,7 @@ mod tests {
         // Moved from the Local Map: 100 left of its middle is 2800 west of the player.
         st.cursor[LOCAL] = Some(MAP_MID - Vec2::new(100.0, 0.0));
         local_map(&mut st, &game, None);
-        place_marker(&mut st, LOCAL);
+        place_marker(&mut st, LOCAL, &mut game, &ButtonInput::default());
         let (ask, answers) = asked(&st);
         assert_eq!(answers, 3);
         answer_marker(&mut st, &mut game, marker::answer(ask, 0));
@@ -4041,7 +4143,7 @@ mod tests {
         let left = -2800.0 / (4.0 * model::CELL) * model::MAP_SPAN * 2048.0;
         assert!(near(shown.custom.unwrap(), quest_corner(MAP_MID + Vec2::new(left, 0.0))), "{:?}", shown.custom);
         // Keep leaves it; remove takes it away from both maps.
-        place_marker(&mut st, WORLD);
+        place_marker(&mut st, WORLD, &mut game, &ButtonInput::default());
         let (ask, _) = asked(&st);
         answer_marker(&mut st, &mut game, marker::answer(ask, 2));
         assert_eq!(st.custom, Some(moved));

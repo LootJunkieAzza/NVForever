@@ -416,6 +416,16 @@ pub struct VatsMode {
     /// or the next), and whether that rule has the sights up (`None`: not decided yet).
     aim_mark: usize,
     sights_up: Option<bool>,
+    /// Whether the player aimed down the sights just before the mode began (kept while
+    /// it is off), for the V.A.T.S. Hip Fire tweak.
+    aimed_before: bool,
+    /// The mode drew the weapon itself, and, once it ended with nothing fired, the weapon
+    /// is to go away again (the Entering V.A.T.S. Doesn't Unholster tweak).
+    drew_weapon: bool,
+    put_away: bool,
+    /// The view before the First Person V.A.T.S. tweak took the firing into first
+    /// person, given back when the mode ends.
+    pov_before: Option<crate::control::Pov>,
     /// The hit rolls' generator (seeded, so a run repeats) and this stay's hits and misses.
     rng: Option<SplitMix>,
     hits: u32,
@@ -1095,6 +1105,10 @@ impl Sounds<'_> {
     }
 }
 
+/// Shift is held (for the Shift Ignores Friendly V.A.T.S. tweak, read by [`barred`])
+/// [design: docs/design/tweaks.md].
+static SHIFT_HELD: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 /// The keys the mode takes (after the frame's input, test aids and script locks), and
 /// what it holds back from the rest of the game (§11.5): the trigger, reloading and Ammo
 /// Swap while it is on. Aiming down the sights is the player's while marking (a tap of
@@ -1111,9 +1125,33 @@ fn read_keys(
     mut control: ResMut<PlayerControl>,
     (player, mut intent): (Res<Player>, ResMut<MoveIntent>),
     mut sounds: Sounds,
+    tweaks: Option<Res<crate::tweaks::TweakSettings>>,
     tiles: Option<Res<crate::tiles::vats_menu::VatsTiles>>,
 ) {
     let playing = *state.get() == PlayState::Playing && !input.suppressed();
+    SHIFT_HELD.store(input.keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]), std::sync::atomic::Ordering::Relaxed);
+    if vats.phase == Phase::Off {
+        vats.aimed_before = control.aiming;
+    }
+    // The player's tweak: a weapon the mode drew goes away again when nothing was fired
+    // [design: docs/design/tweaks.md].
+    if std::mem::take(&mut vats.put_away) && tweaks.as_ref().is_some_and(|t| t.vats_keeps_holstered) && vats.phase == Phase::Off {
+        control.weapon_out = false;
+        info!("vats mode: the weapon it drew is put away again, nothing was fired (tweak)");
+    }
+    // The player's tweak: the firing in first person, the view given back after [design: docs/design/tweaks.md].
+    let first_person = tweaks.as_ref().is_some_and(|t| t.first_person_vats);
+    if first_person && vats.phase == Phase::Firing && vats.pov_before.is_none() {
+        vats.pov_before = Some(control.pov);
+        control.pov = crate::control::Pov::First;
+    }
+    if vats.phase == Phase::Off {
+        if let Some(p) = vats.pov_before.take() {
+            control.pov = p;
+        }
+    }
+    // The player's tweak: entered not aiming, every shot from the hip [design: docs/design/tweaks.md].
+    let hip_fire = tweaks.as_ref().is_some_and(|t| t.vats_hip_fire) && !vats.aimed_before;
     let pressed = |c: Control| playing && input.just_pressed(c);
     let now = real.elapsed_secs_f64();
     vats.keys = Keys { toggle: pressed(Control::Vats), mark: pressed(Control::Use), unmark: false, accept: pressed(Control::Activate), target_step: 0, part_step: 0, special: false, hover_part: None, pointer_moved: false, ray: None, near_part: None };
@@ -1231,6 +1269,7 @@ fn read_keys(
     }
     if vats.phase == Phase::Off && vats.keys.toggle && !control.weapon_out && !locks.fighting {
         control.weapon_out = true;
+        vats.drew_weapon = true;
         vats.phase = Phase::Drawing;
         vats.drawing_at = Some(now);
         vats.keys.toggle = false;
@@ -1246,6 +1285,13 @@ fn read_keys(
         Phase::Firing => {
             let gun = vats.weapon.as_ref().filter(|w| matches!(w.style, AttackStyle::Single | AttackStyle::Burst { .. }));
             match gun.map(|w| w.sight_fov) {
+                Some(_) if hip_fire => {
+                    if vats.sights_up != Some(false) {
+                        vats.sights_up = Some(false);
+                        info!("vats mode: fires from the hip (entered not aiming, tweak)");
+                    }
+                    control.aiming = false;
+                }
                 // The body's clips show it: a gun's sights up for a far mark, from the hip
                 // for a near one, as the NPCs fire (`crate::combat::aims_down_sights`).
                 Some(fov) if control.third_person_view() => {
@@ -1458,6 +1504,15 @@ fn update(
             } else {
                 match v.run.as_mut() {
                     Some(Run::Volley(vo)) => match (!wait).then_some(vo).and_then(|vo| vo.step(pace)) {
+                        // The player's tweak: the rest of a burst is held once its target is
+                        // dead [design: docs/design/tweaks.md].
+                        Some(VolleyEvent::Shot { mark, round })
+                            if round > 0
+                                && script.as_deref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.vats_burst_stops_on_kill)
+                                && v.queue.marks().get(mark).is_some_and(|m| crate::combat::is_dead(script.as_deref(), m.target.0)) =>
+                        {
+                            debug!("vats mode: round {} of mark {} held, the target is dead (tweak)", round + 1, mark + 1);
+                        }
                         Some(VolleyEvent::Shot { mark, round }) => {
                             shoot(v, mark, round, script.as_deref_mut(), &mut sim, &mut phys, &mut player, &control, &mut sounds);
                         }
@@ -1490,7 +1545,9 @@ fn regenerate(script: Option<&mut ScriptState>, sim: &mut SimState, rate: f32, d
         if damage <= 0.0 {
             return None;
         }
-        let mult = g.ap_regen_mult();
+        // The player's tweak slows the return while over-encumbered [design: docs/design/tweaks.md].
+        let over = g.world.encumbrance(FormId::PLAYER_REF).is_ok_and(|e| e.over);
+        let mult = g.ap_regen_mult() * if over { g.tweaks.encumbered_ap_regen } else { 1.0 };
         let max = base + modifier + fnv_game::functions::actor_value_temporary(g, FormId::PLAYER_REF, ACTION_POINTS);
         let left = restored_damage(damage as f32, max as f32, rate * mult as f32, dt) as f64;
         fnv_game::functions::restore_actor_value_damage(g, FormId::PLAYER_REF, ACTION_POINTS, damage - left);
@@ -1527,6 +1584,17 @@ fn try_enter(v: &mut VatsMode, combat: &Combat, mut script: Option<&mut ScriptSt
     // Not even one mark: no AP for it, or (a burst) not a whole burst loaded.
     if let Err(r) = v.queue.check(ap_now) {
         return refused(v, r.message(), hud, sounds);
+    }
+    // The player's tweak: entering costs Action Points, and is refused without them [design: docs/design/tweaks.md].
+    let entry = script.as_ref().and_then(|s| s.rt.as_ref()).map_or(0.0, |rt| rt.game.tweaks.vats_entry_ap);
+    if entry > 0.0 && !crate::combat::god_mode() {
+        if ap_now < entry as f32 {
+            return refused(v, "Not enough Action Points to enter V.A.T.S.", hud, sounds);
+        }
+        if let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) {
+            crate::script::with_world(rt, sim, |rt| fnv_game::functions::add_actor_value_damage(&mut rt.game, FormId::PLAYER_REF, fnv_game::actor_values::ACTION_POINTS, entry));
+            info!("vats mode: entering cost {entry:.0} AP (tweak)");
+        }
     }
     v.phase = Phase::Marking;
     v.spots.clear();
@@ -1571,6 +1639,7 @@ fn try_enter(v: &mut VatsMode, combat: &Combat, mut script: Option<&mut ScriptSt
 fn end(v: &mut VatsMode, why: &str, sounds: &mut Sounds) {
     let was = v.phase;
     v.phase = Phase::Off;
+    v.put_away = std::mem::take(&mut v.drew_weapon) && v.fired == 0;
     if was == Phase::Firing {
         v.reward_due = v.kills_at_fire.take();
     }
@@ -1971,6 +2040,8 @@ enum Bar {
     Cloaked,
     /// No VATS Melee, with a melee weapon in hand.
     NoVatsMelee,
+    /// A companion, under the player's Ignore Companions tweak.
+    Companion,
     /// Never a VATS target (`fnv_game::Game::vats_untargetable`), with the reason.
     NoTarget(&'static str),
 }
@@ -1980,6 +2051,18 @@ enum Bar {
 fn barred(v: &VatsMode, mut script: Option<&mut ScriptState>, sim: &mut SimState, actor: u32) -> Result<bool, Bar> {
     if crate::combat::is_dead(script.as_deref(), actor) {
         return Err(Bar::Dead);
+    }
+    // The player's tweak: companions are not targets [design: docs/design/tweaks.md].
+    if script.as_deref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.vats_ignores_companions && rt.game.is_teammate(FormId(actor))) {
+        return Err(Bar::Companion);
+    }
+    // The player's tweak: with Shift held, no one who would not fight the player [design: docs/design/tweaks.md].
+    if SHIFT_HELD.load(std::sync::atomic::Ordering::Relaxed) {
+        if let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()).filter(|rt| rt.game.tweaks.vats_shift_ignores_friends) {
+            if !crate::script::with_world(rt, sim, |rt| rt.game.would_attack(FormId(actor), FormId::PLAYER_REF)) {
+                return Err(Bar::Companion);
+            }
+        }
     }
     // SetVATSTargetable 0 (`fnv_game::nvse_jip14`): no target of the classic style either.
     if script.as_deref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| !rt.game.actor_vats_targetable(FormId(actor))) {
@@ -2358,6 +2441,11 @@ fn mark_actor(
         Err(Bar::NoVatsMelee) => {
             v.stats.refused += 1;
             info!("vats mode: {actor:08X} is flagged No VATS Melee: not marked with a melee weapon");
+            return;
+        }
+        Err(Bar::Companion) => {
+            v.stats.refused += 1;
+            info!("vats mode: {actor:08X} is a companion: not marked (tweak)");
             return;
         }
         Ok(true) => info!("vats mode: {actor:08X} is cloaked: marked through Enhanced Sensors"),

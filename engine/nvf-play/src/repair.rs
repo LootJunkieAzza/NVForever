@@ -253,9 +253,15 @@ pub(crate) struct View {
 /// What `open` lists now (with the world in the runtime).
 fn view(rt: &mut crate::script::Runtime, sim: &mut SimState, combat: Option<&crate::combat::Combat>, open: &Open) -> View {
     let forms = sim.forms;
-    let settings = RepairSettings::from_settings(|n| forms.setting_f32(n));
+    let mut settings = RepairSettings::from_settings(|n| forms.setting_f32(n));
     crate::script::with_world(rt, sim, |rt| {
         let skill = fnv_game::functions::actor_value_capped(&mut rt.game, open.vendor, fnv_game::actor_values::REPAIR) as f32;
+        // The player's tweak: the player's Barter takes off part of the price [design: docs/design/tweaks.md].
+        let off = rt.game.tweaks.barter_repair_discount;
+        if off > 0.0 {
+            let barter = fnv_game::functions::actor_value_capped(&mut rt.game, FormId::PLAYER_REF, fnv_game::actor_values::BARTER) as f32;
+            settings.cost_mult *= fnv_game::tweaks::barter_repair_factor(off, barter);
+        }
         let caps = rt.game.world.item_count(FormId::PLAYER_REF, CAPS).unwrap_or(0);
         let groups: Vec<(FormId, Extra, i32)> = rt.game.world.inventory_mut(FormId::PLAYER_REF).map(|i| i.groups().collect()).unwrap_or_default();
         let mut rows = Vec::new();
@@ -267,7 +273,9 @@ fn view(rt: &mut crate::script::Runtime, sim: &mut SimState, combat: Option<&cra
                 _ => continue,
             };
             let condition = extra.condition_or_whole();
-            if !vendor_lists(gear, it.health, it.armor_dt, condition) {
+            // The player's tweak lists armour with no DT too [design: docs/design/tweaks.md].
+            let dt = if rt.game.tweaks.repair_any_armor { Some(it.armor_dt.unwrap_or(1.0).max(1.0)) } else { it.armor_dt };
+            if !vendor_lists(gear, it.health, dt, condition) {
                 continue;
             }
             let quote = vendor_quote(&settings, it.value.unwrap_or(0), condition, skill);
@@ -312,8 +320,10 @@ fn repair_one(rt: &mut crate::script::Runtime, vendor: FormId, r: &RowView) -> R
     }
     if cost > 0 && vendor != FormId::PLAYER_REF {
         rt.game.world.remove_item(FormId::PLAYER_REF, CAPS, cost as i32).map_err(|e| format!("{e:?}"))?;
-        // A vendor without an inventory keeps nothing [design].
-        let _ = rt.game.world.add_item(vendor, CAPS, cost as i32);
+        // A vendor without an inventory keeps nothing [design]. The player's tweak puts
+        // the caps in the merchant's container, out of a pickpocket's reach [design: docs/design/tweaks.md].
+        let to = if rt.game.tweaks.repair_caps_to_container { rt.game.merchant_container(vendor).unwrap_or(vendor) } else { vendor };
+        let _ = rt.game.world.add_item(to, CAPS, cost as i32);
     }
     Ok((to, cost))
 }

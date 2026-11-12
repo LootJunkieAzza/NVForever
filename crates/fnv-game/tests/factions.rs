@@ -1483,3 +1483,31 @@ fn an_old_save_has_no_live_plants_and_empty_plants_are_omitted() {
     assert!(!h.is_dead(victim));
     assert_eq!(h.world.item_count(victim, item).unwrap(), 1);
 }
+
+#[test]
+fn the_pickpocket_tweak_leaves_the_caught_player_detected() {
+    // bPickpocketCaughtCausesDetection (docs/design/tweaks.md): without the tweak being
+    // caught changes nothing the sneak word reads; with it the victim detects the player.
+    let f = fixture();
+    for on in [false, true] {
+        let mut g = game(&f);
+        g.tweaks.pickpocket_caught_detects = on;
+        g.pickpocket_caught(FormId(WATCHMAN_REF));
+        assert_eq!(g.player_detected_for_sneak(), on, "tweak {on}");
+    }
+}
+
+#[test]
+fn the_frenzy_tweak_gives_a_frenzied_kill_to_the_player() {
+    // bFrenzyGrantsPlayerXP (docs/design/tweaks.md): Aggression 3 is Frenzied.
+    const SET_AV: u16 = 0x100F;
+    let f = fixture();
+    let watchman = FormId(WATCHMAN_REF);
+    for on in [false, true] {
+        let mut g = game(&f);
+        g.tweaks.frenzy_kill_xp = on;
+        assert!(!g.kill_earns_xp(watchman), "not frenzied, tweak {on}");
+        call(&mut g, SET_AV, WATCHMAN_REF, &[ArgValue::Enum(av::AGGRESSION), ArgValue::Value(fnv_script::vm::Value::Num(3.0))]);
+        assert_eq!(g.kill_earns_xp(watchman), on, "frenzied, tweak {on}");
+    }
+}

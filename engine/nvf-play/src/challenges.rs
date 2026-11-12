@@ -6,7 +6,7 @@ use crate::corner_messages::CornerMessages;
 use crate::script::ScriptState;
 use crate::script_events::Note;
 use bevy::prelude::*;
-use fnv_game::challenges::{Notice, SHOW_ZERO_PROGRESS, START_DISABLED};
+use fnv_game::challenges::{Notice, RECURRING, SHOW_ZERO_PROGRESS, START_DISABLED};
 use fnv_sim::FormId;
 
 /// The completion message's icon, the game's one challenge picture [hypothesis: the only
@@ -47,6 +47,8 @@ pub struct Row {
     pub progress: u32,
     pub threshold: u32,
     pub completed: bool,
+    /// Marked as starting again when done, under the player's tweak [design: docs/design/tweaks.md].
+    pub recurring: bool,
 }
 
 /// The challenges the list shows: unlocked ones (not Start Disabled, or unlocked by
@@ -66,7 +68,8 @@ pub fn rows(g: &fnv_game::Game) -> Vec<Row> {
             let shown = unlocked && (completed || progress > 0 || d.has(SHOW_ZERO_PROGRESS));
             // A nameless challenge has nothing to list.
             let name = d.name.clone()?;
-            shown.then(|| Row { challenge: d.form, name, description: d.description.clone().unwrap_or_default(), progress, threshold: d.goal(), completed })
+            let recurring = g.tweaks.mark_recurring_challenges && d.has(RECURRING) && !s.is_some_and(|s| s.not_recurring);
+            shown.then(|| Row { challenge: d.form, name, description: d.description.clone().unwrap_or_default(), progress, threshold: d.goal(), completed, recurring })
         })
         .collect();
     out.sort_by(|a, b| a.completed.cmp(&b.completed).then_with(|| a.name.cmp(&b.name)).then_with(|| a.challenge.cmp(&b.challenge)));

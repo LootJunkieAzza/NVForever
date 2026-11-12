@@ -139,7 +139,8 @@ impl Limits {
 
 /// The help message to show as the menu opens, the first time only (as roulette's).
 pub fn first_help(g: &mut Game) -> Option<(String, String)> {
-    if g.player.slots_help_shown {
+    // The player's tweak: no first-time help [design: docs/design/tweaks.md].
+    if g.player.slots_help_shown || g.tweaks.no_tutorials {
         return None;
     }
     let m = g.data.messages.get(&HELP_MESSAGE)?;

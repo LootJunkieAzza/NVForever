@@ -219,6 +219,9 @@ pub fn read_keys(c: &mut Controls, intent: &mut MoveIntent, pressed: impl Fn(Key
     }
 }
 
+/// Jump is held now (the Jump Swims Upwards tweak reads it in the step) [design: docs/design/tweaks.md].
+static JUMP_HELD: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 /// Speed backwards as a fraction of the forward speed [observed: 272.8 against 344 units/s
 /// running, capture mv_values, physics.md §6.3]. Sideways and diagonal speeds were not
 /// measured (the strafe runs hit a wall); they take the forward speed [hypothesis].
@@ -447,7 +450,15 @@ fn grab_cursor(
     look: Option<Res<crate::dialogue::FreeLook>>,
     over_lock: Option<Res<crate::lockpick::PointerOverLock>>,
     free_cam: Option<Res<crate::free_cam::FreeCam>>,
-    (intro, view, creator, vats): (Option<Res<crate::intro::Intro>>, Option<Res<ViewDriven>>, Option<Res<crate::creator::CreatorMenu>>, Option<Res<crate::vats_mode::VatsMode>>),
+    (intro, view, creator, panel, talk, tweaks, vats): (
+        Option<Res<crate::intro::Intro>>,
+        Option<Res<ViewDriven>>,
+        Option<Res<crate::creator::CreatorMenu>>,
+        Option<Res<crate::message_menu::MessagePanel>>,
+        Option<Res<crate::dialogue_menu::DialogueMenu>>,
+        Option<Res<crate::tweaks::TweakSettings>>,
+        Option<Res<crate::vats_mode::VatsMode>>,
+    ),
     mut windows: Query<(&Window, &mut CursorOptions), With<PrimaryWindow>>,
     mut wanted_before: Local<Option<(bool, bool)>>,
     switches: Option<Res<crate::script_switches::ScriptSwitches>>,
@@ -494,7 +505,11 @@ fn grab_cursor(
     };
     // Out of focus or under a test aid the mouse is the desktop's: its pointer stays. The
     // lockpicking menu hides the pointer over the lock (`crate::lockpick`).
-    let visible = !grab && (wanted || driven || !window.focused || hud_cursor) && !over_lock.is_some_and(|o| o.0);
+    // The player's tweak hides it over a message box, worked with the keys then [design: docs/design/tweaks.md].
+    // So does its other tweak over a conversation's choices.
+    let message_box = tweaks.as_ref().is_some_and(|t| t.no_pointer_in_message_box) && panel.is_some_and(|p| p.view.is_some()) && window.focused && !driven;
+    let message_box = message_box || (tweaks.as_ref().is_some_and(|t| t.no_pointer_in_dialogue) && talk.is_some_and(|t| t.view.is_some()) && window.focused && !driven);
+    let visible = !grab && (wanted || driven || !window.focused || hud_cursor) && !over_lock.is_some_and(|o| o.0) && !message_box;
     if cursor.grab_mode != mode || cursor.visible != visible {
         cursor.grab_mode = mode;
         cursor.visible = visible;
@@ -511,6 +526,7 @@ fn read_input(
     mut intent: ResMut<MoveIntent>,
     mut seat: ResMut<crate::furniture::PlayerSeat>,
     driven: Option<Res<ViewDriven>>,
+    tweaks: Option<Res<crate::tweaks::TweakSettings>>,
 ) {
     if *state.get() != PlayState::Playing {
         *intent = MoveIntent::default();
@@ -551,9 +567,12 @@ fn read_input(
         }
     }
     intent.sneak = control.sneak;
-    if input.just_pressed(Control::Jump) {
+    // The player's tweak: holding Jump jumps again on landing [design: docs/design/tweaks.md].
+    let repeat = tweaks.as_ref().is_some_and(|t| t.repeat_jumping);
+    if input.just_pressed(Control::Jump) || (repeat && input.pressed(Control::Jump)) {
         intent.jump = true;
     }
+    JUMP_HELD.store(input.pressed(Control::Jump), std::sync::atomic::Ordering::Relaxed);
 }
 
 /// Actors walked by another system whose moves are planned on the compute pool when at
@@ -566,8 +585,9 @@ const MOVE_CHUNK: usize = 4;
 /// running, and the body walks [design: the owner's wish, playtest of 2026-10-11, "reduced
 /// to walk speed while aiming"; the original's rule is not captured]. Sneaking still
 /// slows the walk. NPCs that aim are for the combat AI (docs/design/combat-ai.md, open).
-pub fn aiming_walks(control: Res<PlayerControl>, mut intent: ResMut<MoveIntent>, mut was: Local<bool>) {
-    let aiming = control.aiming && control.weapon_out;
+pub fn aiming_walks(control: Res<PlayerControl>, mut intent: ResMut<MoveIntent>, mut was: Local<bool>, tweaks: Option<Res<crate::tweaks::TweakSettings>>) {
+    // The player's tweak keeps the pace while aiming or blocking [design: docs/design/tweaks.md].
+    let aiming = control.aiming && control.weapon_out && !tweaks.is_some_and(|t| t.no_aiming_slowdown);
     if aiming && !intent.walk {
         intent.walk = true;
     }
@@ -582,12 +602,26 @@ pub fn aiming_walks(control: Res<PlayerControl>, mut intent: ResMut<MoveIntent>,
 /// docs/spec-notes/simulation.md §3; the owner's playtest list 5 item 21]. Not in god
 /// mode [hypothesis: the original's tgm lifts the carry limit]. The weight is read twice
 /// a second [design].
-pub fn encumbered_walks(time: Res<Time>, sim: Option<ResMut<crate::sim::SimState>>, mut intent: ResMut<MoveIntent>, mut st: Local<(f32, bool)>) {
+/// The player is over the carry limit now (for the Overencumbered Running tweak,
+/// `crate::tweaks`) [design: docs/design/tweaks.md].
+pub static OVERENCUMBERED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+pub fn encumbered_walks(time: Res<Time>, sim: Option<ResMut<crate::sim::SimState>>, mut intent: ResMut<MoveIntent>, mut st: Local<(f32, bool)>, tweaks: Option<Res<crate::tweaks::TweakSettings>>, grab: Option<Res<crate::grab::GrabState>>) {
     let Some(mut sim) = sim else { return };
     st.0 -= time.delta_secs();
     if st.0 <= 0.0 {
         st.0 = ENCUMBRANCE_CHECK;
-        let e = sim.world.encumbrance(fnv_sim::FormId::PLAYER_REF).ok();
+        let mut e = sim.world.encumbrance(fnv_sim::FormId::PLAYER_REF).ok();
+        // The player's tweak: an item held up by the grab weighs as if carried [design: docs/design/tweaks.md].
+        let held = grab.as_ref().and_then(|g| g.held.as_ref()).filter(|_| tweaks.as_ref().is_some_and(|t| t.grabbed_weighs)).map(|h| h.on);
+        if let (Some(e), Some(fnv_phys::GripOn::Ref(id))) = (e.as_mut(), held) {
+            let id = fnv_sim::FormId(id);
+            let base = sim.base_of(id.0);
+            let weight = base.and_then(|b| sim.forms.item(b)).and_then(|i| i.weight).unwrap_or(0.0);
+            let count = sim.world.peek(id).map(|s| s.count).or_else(|| base.map(|b| sim.forms.placed_count(b, sim.refs.get(id).and_then(|p| p.count)))).unwrap_or(1);
+            e.weight += f64::from(weight) * f64::from(count.max(1));
+            e.over |= e.weight > e.capacity;
+        }
         let over = e.as_ref().is_some_and(|e| e.over) && !crate::combat::god_mode();
         if over != st.1 {
             st.1 = over;
@@ -597,7 +631,9 @@ pub fn encumbered_walks(time: Res<Time>, sim: Option<ResMut<crate::sim::SimState
             }
         }
     }
-    if st.1 && !intent.walk {
+    OVERENCUMBERED.store(st.1, std::sync::atomic::Ordering::Relaxed);
+    // The player's tweak lets them run, paying Action Points (`crate::tweaks::ap_costs`).
+    if st.1 && !intent.walk && !tweaks.is_some_and(|t| t.run_overencumbered) {
         intent.walk = true;
     }
 }
@@ -652,12 +688,15 @@ type Paces<'w> = (Option<Res<'w, crate::combat::PlayerLimbs>>, Option<Res<'w, Ru
 /// The player's Speed Mult and body armour's factor on its movement, walking, running
 /// and sneaking, as people's (`fnv_game::Game::move_speed_mult`, `crate::combat`'s
 /// `stat_speed`; actors.md §8.10, issue #1364).
+/// The second number is the player's Agility Scales Jump Height tweak, a factor on the
+/// jump height (1 with the tweak off); the third the Armor Causes Sinking tweak's sinking
+/// speed in water, units a second (0 off) [design: docs/design/tweaks.md].
 #[derive(Resource, Debug, Clone, Copy, PartialEq)]
-pub struct StatSpeed(pub f32);
+pub struct StatSpeed(pub f32, pub f32, pub f32);
 
 impl Default for StatSpeed {
     fn default() -> Self {
-        StatSpeed(1.0)
+        StatSpeed(1.0, 1.0, 0.0)
     }
 }
 
@@ -725,6 +764,10 @@ fn take_knockbacks(knocks: Option<MessageReader<crate::combat::Knockback>>, mut 
     }
 }
 
+/// How fast the Smooth Camera tweak's look catches up with the input, per second (ours)
+/// [design: docs/design/tweaks.md].
+const SMOOTH_LOOK_RATE: f32 = 8.0;
+
 /// Mouse look while the cursor is grabbed, or with a controller working the controls the
 /// right stick's (`crate::pad`); while Toggle POV is held it circles the camera instead
 /// (control.rs). Not while a script has locked looking: the view stays where it is
@@ -745,7 +788,8 @@ fn mouse_look(
     free_cam: Option<Res<crate::free_cam::FreeCam>>,
     kill_cam: Option<Res<crate::kill_cam::KillCam>>,
     assist: Option<Res<crate::aim_assist::AimAssistState>>,
-    (talk, switches): (Option<Res<crate::dialogue_zoom::DialogueZoom>>, Option<Res<crate::script_switches::ScriptSwitches>>),
+    (talk, switches, mut smooth): (Option<Res<crate::dialogue_zoom::DialogueZoom>>, Option<Res<crate::script_switches::ScriptSwitches>>, Local<Vec2>),
+    tweaks: Option<Res<crate::tweaks::TweakSettings>>,
 ) {
     // The classic VATS style turns the view itself (`crate::vats_mode`, vats-classic.md §5).
     if vats.is_some_and(|v| v.holds_view()) {
@@ -767,7 +811,11 @@ fn mouse_look(
     // mouse).
     let (delta, s) = if bindings.device == crate::bindings::InputDevice::Controller {
         let v = crate::pad::stick(&pads, false);
-        let curve = |x: f32| x * x.abs();
+        // The player's tweak: the turn grows straight with the push past the dead zone,
+        // not with its square, so a small push turns at once [design: docs/design/tweaks.md].
+        let linear = tweaks.as_ref().is_some_and(|t| t.responsive_stick);
+        let dz = crate::pad::dead_zone(false);
+        let curve = |x: f32| if linear { x.signum() * ((x.abs() - dz) / (1.0 - dz).max(0.01)).max(0.0) } else { x * x.abs() };
         // The Controls tab's Stick Sensitivity scales the stick's look speeds.
         let dt = time.delta_secs() * assist.map_or(1.0, |a| a.look_scale) * bindings.stick_sensitivity;
         (Vec2::new(curve(v.x) * bindings.look_speed[0] * dt, -curve(v.y) * bindings.look_speed[1] * dt), STICK_LOOK_RADIANS)
@@ -775,13 +823,40 @@ fn mouse_look(
         // The axes ToggleMouseMovement left on (`crate::script_switches`).
         (switches.as_deref().map_or(motion.delta, |s| s.look(motion.delta)), bindings.mouse_sensitivity)
     };
+    // The player's tweak: the look eases after the mouse or stick, a cinematic camera;
+    // not while aiming [design: docs/design/tweaks.md].
+    let smoothing = tweaks.as_ref().is_some_and(|t| t.smooth_look) && !control.aiming;
+    let delta = if smoothing {
+        *smooth += delta;
+        let out = *smooth * (1.0 - (-time.delta_secs() * SMOOTH_LOOK_RATE).exp());
+        *smooth -= out;
+        if smooth.length() < 1e-3 {
+            *smooth = Vec2::ZERO;
+        }
+        out
+    } else {
+        *smooth = Vec2::ZERO;
+        delta
+    };
     if !grabbed || !playing || locks.looking || delta == Vec2::ZERO {
         return;
     }
     // A conversation's zoom: the picture moves as far as it does unzoomed.
     let s = s * talk.as_deref().map_or(1.0, crate::dialogue_zoom::DialogueZoom::look_scale);
     let inv = bindings.invert_y;
+    // The player's tweak: left and right at their own speed [design: docs/design/tweaks.md].
+    let delta = Vec2::new(delta.x * tweaks.as_ref().map_or(1.0, |t| t.horizontal_look as f32), delta.y);
+    // The player's tweak turns the other way left and right [design: docs/design/tweaks.md].
+    let delta = if tweaks.as_ref().is_some_and(|t| t.invert_x) { Vec2::new(-delta.x, delta.y) } else { delta };
+    // The player's tweak turns slower while aiming [design: docs/design/tweaks.md].
+    let delta = match tweaks.as_deref().filter(|_| control.aiming && control.weapon_out) {
+        Some(t) => delta * Vec2::new(t.aim_turn_x, t.aim_turn_y),
+        None => delta,
+    };
     if control.orbit.held {
+        // The player's tweak: a controller turns the circling camera twice as fast [design: docs/design/tweaks.md].
+        let fast = bindings.device == crate::bindings::InputDevice::Controller && tweaks.as_ref().is_some_and(|t| t.faster_pad_orbit);
+        let delta = if fast { delta * 2.0 } else { delta };
         let o = &mut control.orbit;
         let (yaw, pitch) = look_with(o.yaw, o.pitch, delta, s, inv);
         // Keep the yaw in (−π, π] so the swing back takes the short way.
@@ -1066,6 +1141,7 @@ fn step(
     (mut seat, mut landed): (ResMut<crate::furniture::PlayerSeat>, MessageWriter<crate::rumble::Landed>),
     (mut blocks, noclip): (Option<ResMut<crate::blocking::ActorBlocks>>, Res<NoClip>),
     (mut falls, mut fell, mut lunge): (Option<ResMut<crate::falls::Falls>>, MessageWriter<crate::falls::Fell>, ResMut<Lunge>),
+    tweaks: Option<Res<crate::tweaks::TweakSettings>>,
 ) {
     if *state.get() != PlayState::Playing {
         phys.stepper = default();
@@ -1183,7 +1259,13 @@ fn step(
         } else if c.swimming {
             // Running strokes follow the stroke cycle from when the swimmer started to
             // move [observed]; walking stays at its start speed [hypothesis].
-            let v = swim_velocity(&intent, player.heading, player.pitch, SWIM_SPEEDS);
+            let mut v = swim_velocity(&intent, player.heading, player.pitch, SWIM_SPEEDS);
+            // The player's tweak: heavy armour pulls the swimmer down (`StatSpeed`'s third).
+            v[2] -= stat_pace.as_deref().map_or(0.0, |p| p.2);
+            // The player's tweak: Jump held swims up, at the walking stroke's speed [design: docs/design/tweaks.md].
+            if tweaks.as_deref().is_some_and(|t| t.jump_swims_up) && JUMP_HELD.load(std::sync::atomic::Ordering::Relaxed) {
+                v[2] = v[2].max(SWIM_SPEEDS.walk);
+            }
             match Stroke::of(intent.forward, intent.right) {
                 Some(stroke) => {
                     let f = if intent.walk { 1.0 } else { stroke.factor(*stroke_time + dt / 2.0) };
@@ -1207,6 +1289,25 @@ fn step(
             let k = k * reload_pace.as_deref().map_or(1.0, |p| p.0);
             // Speed Mult and the body armour's class, as people's (`StatSpeed`).
             let k = k * stat_pace.as_deref().map_or(1.0, |p| p.0);
+            // The player's tweak: wading slows the player, the deeper the more [design: docs/design/tweaks.md].
+            let wade = tweaks.as_deref().map_or(1.0, |t| t.wading_pace);
+            let k = if wade < 1.0 && !c.swimming {
+                let depth = p.world.water_surface_at(c.feet[0], c.feet[1]).map_or(0.0, |w| w - c.feet[2]);
+                let t = (depth / c.params.swim_depth.max(1.0)).clamp(0.0, 1.0);
+                k * (1.0 - t * (1.0 - wade))
+            } else {
+                k
+            };
+            // The player's movement penalty tweaks: backwards and sideways at their own
+            // share of the pace, a diagonal between them by how much of each it is [design: docs/design/tweaks.md].
+            let k = match tweaks.as_deref() {
+                Some(t) if t.back_pace < 1.0 || t.strafe_pace < 1.0 => {
+                    let (f, r) = (intent.forward.abs(), intent.right.abs());
+                    let ahead = if intent.forward < 0.0 { t.back_pace } else { 1.0 };
+                    if f + r > 0.0 { k * (f * ahead + r * t.strafe_pace) / (f + r) } else { k }
+                }
+                _ => k,
+            };
             let [x, y] = velocity(&intent, player.heading, *speeds);
             // An attack's clip carries the player (`Lunge`).
             if lunge.carrying && lunge.from.is_none() {
@@ -1283,6 +1384,16 @@ fn step(
         let move_span = info_span!("phys::player_move").entered();
         let was_swimming = c.swimming;
         let was_on_ground = c.grounded && !c.swimming;
+        // The player's tweaks: the steepest walkable slope, and a crippled leg's jump [design: docs/design/tweaks.md].
+        if let Some(t) = tweaks.as_deref() {
+            let base = fnv_phys::CharacterParams::default();
+            c.params.max_slope_deg = t.walk_angle;
+            let legs = limbs.as_deref().map_or(0, |l| i32::from(l.crippled(29)) + i32::from(l.crippled(30)));
+            // Speed Mult (and armour) scale it too with the player's tweak [design: docs/design/tweaks.md].
+            let speed = if t.game.speed_scales_jump { stat_pace.as_deref().map_or(1.0, |p| p.0) } else { 1.0 };
+            let agility = stat_pace.as_deref().map_or(1.0, |p| p.1);
+            c.params.jump_height = base.jump_height * t.crippled_leg_jump.powi(legs) * speed * agility;
+        }
         let s = p.world.move_character(c, CharacterInput { velocity: go, jump: intent.jump && i == 0, vertical: vz, view });
         // The drawn body and view climb steps and bumps smoothly (`phys::step_lift`).
         let moved = (c.feet[0] - p.prev_feet[0]).hypot(c.feet[1] - p.prev_feet[1]);

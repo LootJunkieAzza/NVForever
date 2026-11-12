@@ -184,10 +184,13 @@ impl Game<'_> {
             return Some(Refusal::NotAllowed);
         }
         let fighting_player = self.awareness.get(r).is_some_and(|a| a.state.in_combat() && a.targets.contains_key(&FormId::PLAYER_REF));
-        if fighting_player || self.would_attack(r, FormId::PLAYER_REF) {
+        // The player's tweak lets a fleeing actor's pockets be picked [design: docs/design/tweaks.md].
+        let fleeing = self.tweaks.pickpocket_fleeing && self.awareness.tactics.flights.contains_key(&r);
+        if !fleeing && (fighting_player || self.would_attack(r, FormId::PLAYER_REF)) {
             return Some(Refusal::NotAllowed);
         }
-        if self.extra.get(&r).is_some_and(|e| e.caught_pickpocket) {
+        // The player's tweak lets the player try again [design: docs/design/tweaks.md].
+        if !self.tweaks.pickpocket_after_caught && self.extra.get(&r).is_some_and(|e| e.caught_pickpocket) {
             return Some(Refusal::CaughtBefore);
         }
         None
@@ -212,7 +215,7 @@ impl Game<'_> {
     /// EquippedItems 1, and the victim is no child ("Child actors still cannot have their
     /// equipped items stolen" [documented: SetPlayerCanPickpocketEquippedItems]).
     pub fn pickpocket_worn(&self, victim: FormId) -> bool {
-        self.pickpocket.worn_items && !self.actor_race(victim).is_some_and(|race| self.data.child_races.contains(&race))
+        (self.pickpocket.worn_items || self.tweaks.pickpocket_worn_items) && !self.actor_race(victim).is_some_and(|race| self.data.child_races.contains(&race))
     }
 
     /// The rules as read from the load order.
@@ -248,9 +251,26 @@ impl Game<'_> {
             return false;
         }
         let turned = self.crime_turn(victim, Kind::Pickpocket);
+        // The player's tweak: the victim that caught the player detects them [design: docs/design/tweaks.md].
+        if self.tweaks.pickpocket_caught_detects {
+            self.caught_detects(victim);
+        }
         let owner = base_of(self, victim);
         self.crimes.notes.push(Note::Crime { kind: Kind::Pickpocket, victim: owner, seen_by: vec![victim], hostile: if turned { vec![victim] } else { Vec::new() } });
         turned
+    }
+
+    /// `victim` caught the player's hand in its pocket: it has the player in the detected
+    /// band now (the sneak word's `[DETECTED]` until the engine measures the pair again),
+    /// and one that would attack the player takes them as a known target
+    /// (`Game::observe_threat`) [design: docs/design/tweaks.md].
+    pub fn caught_detects(&mut self, victim: FormId) {
+        let det = crate::detection::Detection { value: 100.0, band: crate::detection::Band::Detected, seen: true, clear: true, ..Default::default() };
+        let now = self.time;
+        self.detection.record(victim, FormId::PLAYER_REF, det, now);
+        if let Some(at) = crate::awareness::position(self, FormId::PLAYER_REF) {
+            self.observe_threat(victim, FormId::PLAYER_REF, &det, at);
+        }
     }
 
     /// The player placed `item` in `victim`'s pocket, a live explosive (the engine knows

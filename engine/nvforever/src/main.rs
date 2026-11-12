@@ -2061,25 +2061,53 @@ fn keys(
     input: Res<ButtonInput<KeyCode>>,
     play_state: Option<Res<State<nvf_play::PlayState>>>,
     mut commands: Commands,
+    tweaks: Option<Res<nvf_play::tweaks::TweakSettings>>,
+    mut hidden: Option<ResMut<nvf_play::free_cam::MenusHidden>>,
+    mut held: Local<Option<(u8, bool, std::path::PathBuf)>>,
 ) {
+    // A screenshot under the Shift Hides Menus tweak: the HUD goes for a few frames, the
+    // picture is taken in the third, and the HUD comes back as it was (docs/design/tweaks.md).
+    if let Some((frame, was, path)) = held.as_mut() {
+        *frame += 1;
+        if *frame == 3 {
+            commands.spawn(Screenshot::primary_window()).observe(save_to_disk(path.clone()));
+        }
+        if *frame >= 6 {
+            if let Some(h) = hidden.as_mut() {
+                h.0 = *was;
+            }
+            *held = None;
+        }
+        return;
+    }
     // With --play, Esc is nvf-play's: it opens the pause menu (Continue / Save / Load / Settings / Quit) or closes
     // the open menu, instead of quitting.
     if input.just_pressed(KeyCode::Escape) && play_state.is_none() {
         commands.write_message(AppExit::Success);
     }
-    // F12: a shot in the home's screenshots folder at the first free number, through the
-    // write guard. It went to the working folder unguarded, and the count restarted at 1
-    // each run, over the last run's shots [#1987].
-    if input.just_pressed(KeyCode::F12) {
+    // The screenshot key (F12, or the player's Screenshot Key tweak, docs/design/tweaks.md):
+    // a shot in the home's screenshots folder at the first free number, through the write
+    // guard. It went to the working folder unguarded, and the count restarted at 1 each
+    // run, over the last run's shots [#1987].
+    if input.just_pressed(nvf_play::tweaks::screenshot_key(tweaks.as_deref())) {
         let dir = fnv_install::EngineHome::user().map_or_else(|| std::path::PathBuf::from("."), |h| h.screenshots());
         let path = fnv_install::first_unused(&dir, "nvforever-", "png");
         let ready = fnv_install::guard_write(&path, None)
             .map_err(|e| e.to_string())
             .and_then(|()| std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display())));
+        let shift = input.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]);
         match ready {
             Ok(()) => {
                 info!("screenshot: {}", path.display());
-                commands.spawn(Screenshot::primary_window()).observe(save_to_disk(path));
+                match hidden.as_mut().filter(|_| shift && tweaks.as_ref().is_some_and(|t| t.shift_screenshot_hides)) {
+                    Some(h) => {
+                        *held = Some((0, h.0, path));
+                        h.0 = true;
+                    }
+                    None => {
+                        commands.spawn(Screenshot::primary_window()).observe(save_to_disk(path));
+                    }
+                }
             }
             Err(e) => warn!("screenshot not taken: {e}"),
         }

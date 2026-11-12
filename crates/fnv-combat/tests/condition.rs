@@ -117,6 +117,9 @@ fn worn_armour_protects_less() {
     // Full DT and DR down to half condition, then 1 − (0.5 − condition): half at zero
     // (GECK wiki SetArmorConditionPenalty).
     assert!([(1.0, 1.0), (0.5, 1.0), (0.3, 0.8), (0.0, 0.5)].iter().all(|&(c, m)| close(condition::armor_mult(c), m)));
+    // The Custom Armor Condition Penalty tweak: x2 runs to none at zero, x0 keeps it all.
+    assert!([(0.5, 1.0), (0.3, 0.6), (0.0, 0.0)].iter().all(|&(c, m)| close(condition::armor_mult_with(c, 2.0), m)));
+    assert!(close(condition::armor_mult_with(0.0, 0.0), 1.0));
     let (dt, _) = f.armor_values_worn(&[(SUIT, 1.0), (HELMET, 1.0)]);
     assert!(close(dt, 11.0));
     assert_eq!([0.0, 0.002, 0.456, 0.999, 1.0].map(condition::percent), [0, 1, 46, 99, 100]);

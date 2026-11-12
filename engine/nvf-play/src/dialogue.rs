@@ -298,7 +298,8 @@ fn response_text(g: &Game) -> Option<String> {
     let l = c.line.as_ref()?;
     let def = g.data.infos.get(&l.info)?;
     let r = *def.response_order().get(l.response)?;
-    let text = shown_text(&g.expand_codes(&def.responses[r].text));
+    // The player's tweak keeps the acting notes [design: docs/design/tweaks.md].
+    let text = if g.tweaks.keep_acting_notes { g.expand_codes(&def.responses[r].text).trim().to_string() } else { shown_text(&g.expand_codes(&def.responses[r].text)) };
     (!text.is_empty()).then_some(text)
 }
 
@@ -370,7 +371,8 @@ pub(crate) fn view_named(g: &Game, speaker: String) -> Option<MenuView> {
         .iter()
         .map(|ch| {
             let fallback = g.data.name(ch.topic);
-            let tag = ch.challenge.as_ref().map(|t| tag_of(g, t));
+            // The player's tweak leaves the skill tags off [design: docs/design/tweaks.md].
+            let tag = ch.challenge.as_ref().filter(|_| !g.tweaks.no_skill_tags).map(|t| tag_of(g, t));
             let short = ch.challenge.as_ref().is_some_and(|t| matches!((t.needed, t.have), (Some(n), Some(h)) if h < n));
             ChoiceRow { label: row_label(&g.shown_choice_text(ch), &fallback, tag), darkened: ch.darkened, short }
         })
@@ -901,7 +903,9 @@ pub(crate) fn input(
                 act = Some((Act::BreakOff, "Shift+Tab"));
             }
         } else if speaking.is_some() {
-            if confirm || controls.mouse.just_pressed(MouseButton::Left) || asked.skip {
+            // The player's tweak: spoken lines are not cut short by the player [design: docs/design/tweaks.md].
+            let no_skip = rt.game.tweaks.no_skip_dialogue;
+            if !no_skip && (confirm || controls.mouse.just_pressed(MouseButton::Left) || asked.skip) {
                 act = Some((Act::Skip, if asked.skip { "tile click" } else { "key or click" }));
             }
         } else if choosing {

@@ -85,6 +85,8 @@ pub struct TargetHealth {
     pub hostile: bool,
     /// With Living Anatomy: its health and DT.
     pub anatomy: Option<(f32, f32)>,
+    /// The target's DR for the line too (the Living Anatomy DR tweak, `crate::tweaks`).
+    pub anatomy_dr: Option<f32>,
     /// In VATS: its health as a share once the damage in sight is taken off
     /// (`crate::vats_mode::VatsMode::expected_damage`); the ticks between this and
     /// `health` are drawn faint. `None` outside VATS or with no damage in sight.
@@ -96,7 +98,11 @@ impl TargetHealth {
     /// whole and the DT to two places [observed: the original's "HP:250 DT:15.00", the
     /// owner's screenshot 2026-10-24].
     pub fn anatomy_line(&self) -> Option<String> {
-        self.anatomy.map(|(h, dt)| format!("HP:{:.0} DT:{:.2}", h.max(0.0), dt))
+        // The player's tweak adds the DR, whole [design: docs/design/tweaks.md].
+        self.anatomy.map(|(h, dt)| match self.anatomy_dr {
+            Some(dr) => format!("HP:{:.0} DT:{:.2} DR:{:.0}", h.max(0.0), dt, dr),
+            None => format!("HP:{:.0} DT:{:.2}", h.max(0.0), dt),
+        })
     }
 }
 
@@ -244,7 +250,7 @@ fn aim(
     mut target: ResMut<HudTarget>,
     mut aim_hostile: ResMut<AimHostile>,
     combat: Option<Res<Combat>>,
-    (pick, locks, vats): (Option<Res<crate::activate::Target>>, Option<Res<crate::control::ControlLocks>>, Option<Res<crate::vats_mode::VatsMode>>),
+    (pick, locks, tweaks, vats): (Option<Res<crate::activate::Target>>, Option<Res<crate::control::ControlLocks>>, Option<Res<crate::tweaks::TweakSettings>>, Option<Res<crate::vats_mode::VatsMode>>),
     mut memory: Local<Memory>,
 ) {
     // The classic VATS style's selected target has the bar while targets are chosen,
@@ -291,11 +297,18 @@ fn aim(
     let hit_last = latest.or_else(|| hit_ago.iter().min_by(|a, b| a.1.total_cmp(b.1)).map(|(id, _)| *id));
     let eye = player.eye();
     let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else { return };
+    let hide_cloaked = tweaks.as_ref().is_some_and(|t| t.no_red_crosshair_on_cloaked);
     let (found, foe, anatomy) = with_world(rt, &mut sim, |rt| {
         let foe = aimed.is_some_and(|a| {
             let (r, g) = (FormId(a), &mut rt.game);
             let fighting = g.awareness.get(r).and_then(|x| x.combat_target()).is_some_and(|(t, _)| t == FormId::PLAYER_REF);
-            !g.is_dead(r) && (fighting || g.would_attack(r, FormId::PLAYER_REF))
+            // The player's tweak: an unseen (Invisibility, Chameleon) foe does not give
+            // itself away [design: docs/design/tweaks.md].
+            let cloaked = hide_cloaked && {
+                let av = |g: &mut fnv_game::Game, v: u16| fnv_game::functions::actor_value_capped(g, r, v);
+                av(g, fnv_game::detection::INVISIBILITY) >= 1.0 || av(g, fnv_game::detection::CHAMELEON) >= 1.0
+            };
+            !cloaked && !g.is_dead(r) && (fighting || g.would_attack(r, FormId::PLAYER_REF))
         });
         // In order ([`candidates`]).
         let away = |at: Option<[f32; 3]>| at.map_or(f32::INFINITY, |p| ((p[0] - eye[0]).powi(2) + (p[1] - eye[1]).powi(2) + (p[2] - eye[2]).powi(2)).sqrt());
@@ -317,6 +330,9 @@ fn aim(
             let gone = !(g.present(r) && g.cell_of(r).is_some_and(|c| g.loaded_cells.contains(&c)));
             let fighting = g.awareness.get(r).and_then(|a| a.combat_target()).is_some_and(|(t, _)| t == FormId::PLAYER_REF);
             let max = g.max_health(r);
+            // The player's tweak counts a raised Health (Buffout and the like) in the
+            // bar's whole [design: docs/design/tweaks.md].
+            let max = if g.tweaks.buffed_health_bars { max + fnv_game::functions::actor_value_temporary(g, r, fnv_game::actor_values::HEALTH).max(0.0) } else { max };
             let health = fnv_game::functions::actor_health(g, r).unwrap_or(max);
             let hostile = fighting || g.would_attack(r, FormId::PLAYER_REF);
             let case = Case {
@@ -336,18 +352,22 @@ fn aim(
         let anatomy = found.is_some() && rt.game.player_has_entry(fnv_game::perks::SEE_ENEMY_HEALTH);
         (found, foe, anatomy)
     });
+    // The player's tweak keeps the crosshair its own colour [design: docs/design/tweaks.md].
+    let foe = foe && !tweaks.as_ref().is_some_and(|t| t.no_red_crosshair);
     aim_hostile.set_if_neq(AimHostile(foe));
-    let dt = match (found, combat.as_deref()) {
-        (Some((id, ..)), Some(c)) if anatomy => Some(crate::combat::target_armor(c, script.as_deref_mut(), &mut sim, FormId(id)).0),
+    let armor = match (found, combat.as_deref()) {
+        (Some((id, ..)), Some(c)) if anatomy => Some(crate::combat::target_armor(c, script.as_deref_mut(), &mut sim, FormId(id))),
         _ => None,
     };
+    let dt = armor.map(|a| a.0);
+    let anatomy_dr = armor.map(|a| a.1).filter(|_| tweaks.as_ref().is_some_and(|t| t.living_anatomy_dr));
     *held = held_next(kept, found.map(|f| f.0), aimed);
     let now = found.map(|(form_id, health, hp, hostile, _)| {
         let name = sim.ref_name(script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game), form_id).unwrap_or_default().to_string();
         // The share after the damage in sight: the health's full value is its figure over
         // its share.
         let after = in_sight.filter(|(a, d)| *a == form_id && *d > 0.0 && health > 0.0 && hp > 0.0).map(|(_, d)| ((hp - d) / (hp / health)).clamp(0.0, 1.0));
-        TargetHealth { form_id, name, health, hostile, anatomy: dt.map(|dt| (hp, dt)), after }
+        TargetHealth { form_id, name, health, hostile, anatomy: dt.map(|dt| (hp, dt)), anatomy_dr, after }
     });
     let key = |t: &Option<TargetHealth>| t.as_ref().map(|t| (t.form_id, (t.health * 100.0).round() as i32, t.anatomy_line()));
     // The damage in sight, told when it changes by a whole percent.
@@ -383,10 +403,12 @@ mod tests {
 
     #[test]
     fn living_anatomy_reads_as_the_original() {
-        let t = |anatomy| TargetHealth { form_id: 1, name: "Deathclaw".into(), health: 1.0, hostile: true, anatomy, after: None };
+        let t = |anatomy| TargetHealth { form_id: 1, name: "Deathclaw".into(), health: 1.0, hostile: true, anatomy, anatomy_dr: None, after: None };
         assert_eq!(t(Some((250.0, 15.0))).anatomy_line().as_deref(), Some("HP:250 DT:15.00"));
         assert_eq!(t(Some((-3.0, 0.5))).anatomy_line().as_deref(), Some("HP:0 DT:0.50"));
         assert_eq!(t(None).anatomy_line(), None);
+        let with_dr = TargetHealth { anatomy_dr: Some(20.4), ..t(Some((250.0, 15.0))) };
+        assert_eq!(with_dr.anatomy_line().as_deref(), Some("HP:250 DT:15.00 DR:20"), "the DR tweak");
     }
 
     /// A hurt actor out of combat: nothing picked, no prompt, not hit, not held.

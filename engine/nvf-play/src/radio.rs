@@ -123,6 +123,11 @@ const TABLE: u32 = u32::MAX - 2;
 /// at the table, away from them].
 #[derive(Resource, Default, Debug, Clone, Copy, PartialEq)]
 pub struct TableStation(pub Option<u32>);
+/// The Radiation Causes Radio Static tweak: rads a second that bring the most static,
+/// and that most, as a share (ours) [design: docs/design/tweaks.md].
+const RADS_FOR_FULL_STATIC: f64 = 10.0;
+const MAX_RAD_STATIC: f32 = 0.8;
+
 /// The Pip-Boy's static (see the module notes).
 const STATIC_SOUND: &str = "UIRadioStaticLP";
 
@@ -738,7 +743,10 @@ fn play(
     data: Option<Res<nvf_assets::GameData>>,
     (mut assets, mut panned): (ResMut<Assets<RadioSound>>, ResMut<Assets<Panned<RadioSound>>>),
     (sinks, mut placed): (Query<&AudioSink, With<RadioEntity>>, Query<&mut SoundAt, With<RadioEntity>>),
+    tweaks: Option<Res<crate::tweaks::TweakSettings>>,
 ) {
+    // The player's tweak turns the radio down in a conversation [design: docs/design/tweaks.md].
+    let talk = if *state.get() == PlayState::Dialogue { tweaks.as_ref().map_or(1.0, |t| t.dialogue_radio_volume) } else { 1.0 };
     let (Some(places), Some(sfx), Some(player), Some(data)) = (places, sfx, player, data) else { return };
     let Some(bank) = voice.bank.clone() else { return };
     let Some(rt) = script.rt.as_mut() else { return };
@@ -766,7 +774,7 @@ fn play(
         interior: loc.interior,
         position: radio.outdoors.filter(|(w, _)| *w == loc.world).map_or(eye, |(_, p)| p),
     };
-    let volume = settings.volume.max(0.0);
+    let volume = settings.volume.max(0.0) * talk;
     let static_sound = radio.static_sound.get_or_insert_with(|| sfx.forms.sounds.values().find(|s| s.edid.as_deref() == Some(STATIC_SOUND)).cloned()).clone();
 
     // Receivers of this place switched on or off since the last frame.
@@ -794,6 +802,9 @@ fn play(
         info!("pipboy radio: stations received: {}", radio.pipboy_list.iter().map(|&b| name(&places, b)).collect::<Vec<_>>().join(", "));
         radio.logged_list = Some(radio.pipboy_list.clone());
     }
+    // The player's tweak: radiation taken now brings static into the Pip-Boy's radio,
+    // whole at `RADS_FOR_FULL_STATIC` a second, never all of it [design: docs/design/tweaks.md].
+    let rad_static = if rt.game.tweaks.radiation_radio_static { (rt.game.radiation().rate / RADS_FOR_FULL_STATIC).clamp(0.0, 1.0) as f32 * MAX_RAD_STATIC } else { 0.0 };
     let pip = &mut rt.game.radio.pipboy;
     if let Some(t) = pip.tune.take() {
         if received(&sim, &places, t.0, &listener).is_some() {
@@ -808,7 +819,7 @@ fn play(
         pip.station = radio.pipboy_list.first().map(|b| FormId(places.station_ref[b]));
     }
     let pip_station = pip.station.filter(|_| pip.on).and_then(|s| Some((s, places.base_of(s.0)?)));
-    let pip_share = pip_station.and_then(|(s, _)| received(&sim, &places, s.0, &listener));
+    let pip_share = pip_station.and_then(|(s, _)| received(&sim, &places, s.0, &listener)).map(|share| share.max(rad_static));
     let logged = (pip.on, pip.station, pip_share.is_some());
     if radio.logged_pipboy != Some(logged) {
         match pip_station {
@@ -985,7 +996,8 @@ fn play(
                     station: st,
                     track: Track::Line { info: on.info, part: on.part },
                     path,
-                    level: part.gain * dgain,
+                    // The player's tweak sets songs and talk apart [design: docs/design/tweaks.md].
+                    level: part.gain * dgain * tweaks.as_ref().map_or(1.0, |t| if part.song { t.radio_music_volume } else { t.radio_talk_volume }),
                     into: now - on.started,
                     response: Some((on.info, part.response, part.song)),
                     at,

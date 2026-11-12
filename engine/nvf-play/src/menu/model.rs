@@ -532,6 +532,9 @@ pub enum Command {
     Stack,
     /// Container menu: take everything from the container.
     TakeAll,
+    /// Container menu: put everything listed on the player's side in the container, but
+    /// what is worn or a quest's (the Store All tweak [design: docs/design/tweaks.md]).
+    StoreAll,
     /// Barter: make the trade.
     Accept,
     /// Inventory: drop one unit of the selected stack into the world.
@@ -718,6 +721,47 @@ pub struct MenuModel {
     pub lists: [Listing; 2],
     /// The category each column shows.
     pub category: [Category; 2],
+    /// The two columns change category together (the Matching Categories tweak, set
+    /// by `crate::tweaks`).
+    pub sync_categories: bool,
+    /// The player cannot offer items in a barter (the No Selling tweak, set by
+    /// `crate::tweaks`).
+    pub no_selling: bool,
+    /// The merchant's buy and sell list holds the player's side too (the Vendors Keep to
+    /// Their Lists tweak, set by `crate::tweaks`).
+    pub vendor_lists_both: bool,
+    /// The Pip-Boy's Misc list leaves quest items out (the tweak, set by `crate::tweaks`).
+    pub hide_misc_quest: bool,
+    /// The player's menu tweaks, set by `crate::tweaks`: Take All leaves the menu open;
+    /// equipped items are left out of the player's side in barter and containers;
+    /// category titles in title case.
+    pub take_all_stays: bool,
+    /// The player's Store All tweak: Shift with Take All stores instead.
+    pub store_all: bool,
+    /// The player's tweak: the barter figure shows the whole total, past what the
+    /// merchant can pay [design: docs/design/tweaks.md].
+    pub full_barter_total: bool,
+    /// The player's tweak: each side's caps after the trade beside its caps now.
+    pub barter_caps_change: bool,
+    pub hide_equipped_barter: bool,
+    pub hide_equipped_containers: bool,
+    /// The player's tweaks: items on a hotkey kept off the player's side of a container
+    /// and of a barter [design: docs/design/tweaks.md].
+    pub hide_hotkeyed_containers: bool,
+    pub hide_hotkeyed_barter: bool,
+    /// And out of the Pip-Boy's repair parts (`crate::pipboy::repair::current`).
+    pub hide_hotkeyed_repair: bool,
+    /// The items on the hotkeys (base forms), for those tweaks.
+    pub hotkeyed: Vec<FormId>,
+    /// The ammo the player's carried weapons can fire, listed first in the inventory
+    /// under the player's Sort Equipable Ammo tweak (empty: no such order) [design: docs/design/tweaks.md].
+    pub usable_ammo: Vec<FormId>,
+    pub title_case_categories: bool,
+    /// The price of things worth nothing in a barter (the tweak; 0: as they are).
+    pub free_item_price: f32,
+    /// The player's weight in red when taking the selected row would put them over (the
+    /// tweak, set by `crate::tweaks`).
+    pub warn_encumbrance: bool,
     /// The player's encumbrance, or why it is unknown.
     pub encumbrance: Result<Encumbrance, String>,
     /// Heading: the container's or merchant's name, or "Inventory".
@@ -885,6 +929,24 @@ impl MenuModel {
             filtered: [0; 2],
             lists: [Listing::default(), Listing::default()],
             category: [Category::All; 2],
+            sync_categories: false,
+            no_selling: false,
+            vendor_lists_both: false,
+            hide_misc_quest: false,
+            take_all_stays: false,
+            store_all: false,
+            full_barter_total: false,
+            barter_caps_change: false,
+            hide_equipped_barter: false,
+            hide_equipped_containers: false,
+            hide_hotkeyed_containers: false,
+            hide_hotkeyed_barter: false,
+            hide_hotkeyed_repair: false,
+            hotkeyed: Vec::new(),
+            usable_ammo: Vec::new(),
+            title_case_categories: false,
+            free_item_price: 0.0,
+            warn_encumbrance: false,
             encumbrance: Err(String::new()),
             title,
             status: None,
@@ -952,7 +1014,24 @@ impl MenuModel {
                 if side == Side::Container && self.steal.as_ref().is_some_and(|s| !s.worn) {
                     l.rows.retain(|r| !r.equipped);
                 }
+                // The player's tweak keeps worn things out of a container's exchange [design: docs/design/tweaks.md].
+                if side == Side::Player && self.hide_equipped_containers && matches!(self.mode, Mode::Container(_)) {
+                    l.rows.retain(|r| !r.equipped);
+                }
+                // And things on a hotkey [design: docs/design/tweaks.md].
+                if side == Side::Player && self.hide_hotkeyed_containers && matches!(self.mode, Mode::Container(_)) {
+                    l.rows.retain(|r| !self.hotkeyed.contains(&r.item));
+                }
+                // The player's tweak: ammo a carried weapon fires first, in name order
+                // within each part [design: docs/design/tweaks.md].
+                if self.mode == Mode::Inventory && !self.usable_ammo.is_empty() {
+                    l.rows.sort_by_key(|r| !self.usable_ammo.contains(&r.item));
+                }
                 if self.mode == Mode::Inventory && self.category[side as usize] == Category::Misc {
+                    // The player's tweak leaves quest items out of Misc [design: docs/design/tweaks.md].
+                    if self.hide_misc_quest {
+                        l.rows.retain(|r| !r.quest);
+                    }
                     self.fold(&mut l, forms);
                 }
                 self.lists[side as usize] = l;
@@ -972,6 +1051,10 @@ impl MenuModel {
     /// The barter lists: each side's own rows less what it put up, and what the other
     /// side put up; prices; the caps on each side and the trade's balance.
     fn refresh_trade(&mut self, world: &mut World<'_>) -> Result<(), SimError> {
+        let both_sides = self.vendor_lists_both;
+        let hide_equipped = self.hide_equipped_barter;
+        let hotkeyed: Vec<FormId> = if self.hide_hotkeyed_barter { self.hotkeyed.clone() } else { Vec::new() };
+        let free_price = self.free_item_price;
         let Some(t) = self.trade.as_mut() else { return Ok(()) };
         let mut own: [Vec<Row>; 2] = [Vec::new(), Vec::new()];
         let mut weights = [0.0; 2];
@@ -986,16 +1069,18 @@ impl MenuModel {
             own[i] = l
                 .rows
                 .into_iter()
-                .filter(|r| r.item != t.caps && !r.quest)
+                .filter(|r| r.item != t.caps && !r.quest && !(side == Side::Player && hide_equipped && r.equipped) && !(side == Side::Player && hotkeyed.contains(&r.item)))
                 .filter(|r| {
-                    let why = (side == Side::Container).then(|| t.sells.as_ref().and_then(|s| (s.0)(r.item))).flatten();
+                    // The player's tweak holds the player's side to the merchant's list too [design: docs/design/tweaks.md].
+                    let why = (side == Side::Container || both_sides).then(|| t.sells.as_ref().and_then(|s| (s.0)(r.item))).flatten();
                     if let Some(w) = why.filter(|_| !withheld.iter().any(|(i, _)| *i == r.item)) {
                         withheld.push((r.item, w));
                     }
                     why.is_none()
                 })
                 .map(|mut r| {
-                    r.price = r.worth(&prices).map(|v| v * mult);
+                    // The player's tweak puts a price on things that are worth nothing [design: docs/design/tweaks.md].
+                    r.price = r.worth(&prices).map(|v| v * mult).map(|p| if p <= 0.0 && free_price > 0.0 { free_price } else { p });
                     r
                 })
                 .collect();
@@ -1190,6 +1275,12 @@ impl MenuModel {
                 self.folder = None;
                 self.selected[i] = 0;
                 self.scroll[i] = 0;
+                if self.sync_categories {
+                    let o = 1 - i;
+                    self.category[o] = cat;
+                    self.selected[o] = 0;
+                    self.scroll[o] = 0;
+                }
                 if let Err(e) = self.refresh(world) {
                     self.status = Some(format!("Cannot list the inventories: {e}"));
                 }
@@ -1202,6 +1293,13 @@ impl MenuModel {
                 self.category[i] = self.category[i].step(by);
                 self.selected[i] = 0;
                 self.scroll[i] = 0;
+                // The player's tweak keeps the other side on the same category [design: docs/design/tweaks.md].
+                if self.sync_categories {
+                    let o = 1 - i;
+                    self.category[o] = self.category[i];
+                    self.selected[o] = 0;
+                    self.scroll[o] = 0;
+                }
                 if let Err(e) = self.refresh(world) {
                     self.status = Some(format!("Cannot list the inventories: {e}"));
                 }
@@ -1304,11 +1402,22 @@ impl MenuModel {
                     }
                 }
                 out.changed = !moved.is_empty();
-                // Taking everything closes the menu (owner, list 5 item 60).
-                out.close = out.changed;
+                // Taking everything closes the menu (owner, list 5 item 60), unless the
+                // player's tweak keeps it open [design: docs/design/tweaks.md].
+                out.close = out.changed && !self.take_all_stays;
                 let n: i64 = moved.iter().map(|m| m.1 as i64).sum();
                 out.taken.clone_from(&moved);
                 Ok(if moved.is_empty() { "Nothing to take".into() } else { format!("Took everything ({n} items)") })
+            }
+            (Mode::Container(_), Command::StoreAll) if self.steal.is_some() => Ok("Give items one at a time".into()),
+            (Mode::Container(c), Command::StoreAll) => {
+                let rows: Vec<Row> = self.lists[Side::Player as usize].rows.iter().filter(|r| r.folder.is_none() && !r.equipped && !r.quest).cloned().collect();
+                let mut n: i64 = 0;
+                for r in &rows {
+                    n += world.transfer_at(PLAYER, c, r.item, r.count, r.pick())? as i64;
+                }
+                out.changed = n > 0;
+                Ok(if n == 0 { "Nothing to store".into() } else { format!("Stored everything ({n} items)") })
             }
             (Mode::Container(c), Command::One | Command::Stack) => {
                 let Some(r) = sel else { return Ok("Nothing selected".into()) };
@@ -1354,6 +1463,10 @@ impl MenuModel {
                         t.offered[from].remove(&r.units());
                     }
                     return Ok(format!("Took back {} x{want}", name(&r)));
+                }
+                // The player's tweak: nothing of the player's is sold [design: docs/design/tweaks.md].
+                if self.focus == Side::Player && self.no_selling {
+                    return Ok("You cannot sell here.".into());
                 }
                 *t.offered[self.focus as usize].entry(r.units()).or_insert(0) += want;
                 let verb = if self.focus == Side::Player { "Selling" } else { "Buying" };
@@ -1429,7 +1542,7 @@ impl MenuModel {
                 Ok(format!("Dropped {} x{want}", name(&r)))
             }
             (Mode::Container(_) | Mode::Barter(_), Command::Drop | Command::DropStack) => Ok("Drop from the inventory menu (Tab)".into()),
-            (Mode::Inventory, Command::Stack | Command::TakeAll) => Ok("No container open".into()),
+            (Mode::Inventory, Command::Stack | Command::TakeAll | Command::StoreAll) => Ok("No container open".into()),
             _ => Ok(String::new()),
         }
     }

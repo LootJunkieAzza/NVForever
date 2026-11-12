@@ -53,15 +53,21 @@ pub const RADAWAY: usize = 2;
 /// doctor is required"]; a Doctor's Bag when no limb is hurt. `hp` is current and whole,
 /// `limbs` each part's condition from 0 to 1 (as [`Snapshot::limbs`]).
 pub fn refusal(hint: usize, limb: Option<usize>, count: i32, hp: (f64, f64), limbs: &[f64; 6], hardcore: bool) -> Option<String> {
+    refusal_with(hint, limb, count, hp, limbs, hardcore, false)
+}
+
+/// [`refusal`], with the player's Aid at Full Health tweak: nothing hurt is no reason
+/// [design: docs/design/tweaks.md].
+pub fn refusal_with(hint: usize, limb: Option<usize>, count: i32, hp: (f64, f64), limbs: &[f64; 6], hardcore: bool, at_full: bool) -> Option<String> {
     const WHOLE: f64 = 1.0 - 1e-6;
     if count <= 0 {
         return Some("none carried".into());
     }
     match (hint, limb) {
         (STIMPAK, Some(_)) if hardcore => Some("a Stimpak mends no limb in Hardcore mode".into()),
-        (STIMPAK, Some(i)) if limbs.get(i).is_none_or(|&c| c >= WHOLE) => Some(format!("the {} is not hurt", LIMB_NAMES.get(i).unwrap_or(&"limb"))),
-        (STIMPAK, None) if hp.0 >= hp.1 - 1e-6 => Some("health is full".into()),
-        (DOCTORS_BAG, _) if limbs.iter().all(|&c| c >= WHOLE) => Some("no limb is hurt".into()),
+        (STIMPAK, Some(i)) if !at_full && limbs.get(i).is_none_or(|&c| c >= WHOLE) => Some(format!("the {} is not hurt", LIMB_NAMES.get(i).unwrap_or(&"limb"))),
+        (STIMPAK, None) if !at_full && hp.0 >= hp.1 - 1e-6 => Some("health is full".into()),
+        (DOCTORS_BAG, _) if !at_full && limbs.iter().all(|&c| c >= WHOLE) => Some("no limb is hurt".into()),
         (STIMPAK | DOCTORS_BAG, _) => None,
         _ => Some("not used from the STATS page".into()),
     }
@@ -131,7 +137,7 @@ pub struct Row {
     pub key: RowKey,
     pub name: String,
     pub value: Option<String>,
-    pub mark: Option<&'static str>,
+    pub mark: Option<String>,
     pub description: String,
     /// The picture, a path under `textures\`.
     pub icon: Option<String>,
@@ -193,6 +199,12 @@ pub struct Snapshot {
     pub ap: Option<(f64, f64)>,
     /// Experience and what the next level needs.
     pub xp: Option<(f64, f64)>,
+    /// The way through this level, in percent, under the player's Stats Menu Percentage
+    /// XP tweak (shown instead of `xp`) [design: docs/design/tweaks.md].
+    pub xp_percent: Option<f64>,
+    /// No reputation to list and the player's Hide Empty Reputation tweak on: General
+    /// shows the statistics only, with no switch [design: docs/design/tweaks.md].
+    pub hide_reputation: bool,
     pub name: String,
     /// Each body part's condition, 0 to 1 ([`LIMBS`]).
     pub limbs: [f64; 6],

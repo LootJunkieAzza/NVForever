@@ -53,7 +53,7 @@ impl Plugin for ActivatePlugin {
             .init_resource::<HudMessage>()
             .init_resource::<ActivateNext>()
             .insert_resource(AutoActivate::from_env())
-            .add_systems(Update, (find_target, activate).chain().in_set(PlaySet::Activation).run_if(in_state(PlayState::Playing)))
+            .add_systems(Update, (shift_talks, find_target, activate).chain().in_set(PlaySet::Activation).run_if(in_state(PlayState::Playing)))
             .add_systems(Update, sync_visuals.in_set(PlaySet::Sync));
     }
 }
@@ -305,6 +305,13 @@ pub(crate) fn find_target(
                     Action::Activate if rt.as_deref().is_some_and(|rt| rt.game.drink_water(FormId(id)).is_some()) => (n, Action::Drink),
                     Action::Talk => {
                         let name = sim.ref_name(rt.as_deref().map(|rt| &rt.game), id).map_or(n, str::to_string);
+                        // The player's tweak marks someone not yet spoken to [design: docs/design/tweaks.md].
+                        let unspoken = rt.as_deref().is_some_and(|rt| rt.game.tweaks.mark_unspoken && !rt.game.extra.get(&FormId(id)).is_some_and(|e| e.talked_to_pc));
+                        let name = if unspoken { format!("{name} *") } else { name };
+                        // The player's tweak: no name for someone who has not spoken to the
+                        // player (a body is named still, as Search) [design: docs/design/tweaks.md].
+                        let unknown = rt.as_deref().is_some_and(|rt| rt.game.tweaks.hide_unknown_names && !rt.game.extra.get(&FormId(id)).is_some_and(|e| e.talked_to_pc));
+                        let name = if unknown { String::new() } else { name };
                         (name, actor_action(rt.as_deref_mut(), &mut sim, id, &mut talkers))
                     }
                     Action::Access => (n, terminal_action(rt.as_deref_mut(), &mut sim, id)),
@@ -313,7 +320,10 @@ pub(crate) fn find_target(
                     Action::Travel { to } => {
                         let cell = sim.refs.get(FormId(id)).and_then(|p| p.teleport).and_then(|tp| sim.refs.get(tp.door)?.cell);
                         let renamed = rt.as_deref().zip(cell).and_then(|(rt, c)| rt.game.script_name(c));
-                        (n, Action::Travel { to: renamed.map(str::to_string).or(to) })
+                        // The player's tweak marks a place never visited [design: docs/design/tweaks.md].
+                        let unseen = rt.as_deref().zip(cell).is_some_and(|(rt, c)| rt.game.tweaks.mark_unvisited_doors && !rt.game.forms.visited_cells.contains(&c));
+                        let to = renamed.map(str::to_string).or(to).map(|t| if unseen { format!("{t} *") } else { t });
+                        (n, Action::Travel { to })
                     }
                     a => (n, a),
                 })
@@ -369,9 +379,22 @@ fn actor_action(rt: Option<&mut crate::script::Runtime>, sim: &mut SimState, id:
     crate::script::with_world(rt, sim, |rt| actor_action_in(&mut rt.game, creature, id, talkers))
 }
 
+/// The player's Talk While Sneaking tweak: Shift held while sneaking talks instead of
+/// picking a pocket [design: docs/design/tweaks.md]. Set each frame by [`shift_talks`].
+static SHIFT_TALKS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+fn shift_talks(keys: Res<ButtonInput<KeyCode>>, tweaks: Option<Res<crate::tweaks::TweakSettings>>, mut sim: ResMut<SimState>) {
+    let shift = keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]);
+    let on = tweaks.as_ref().is_some_and(|t| t.shift_talks_sneaking) && shift;
+    SHIFT_TALKS.store(on, std::sync::atomic::Ordering::Relaxed);
+    // The player's tweak: with Shift the lock is picked though the player has its key [design: docs/design/tweaks.md].
+    sim.world.set_player_ignores_keys(tweaks.is_some_and(|t| t.pick_locks_with_key) && shift);
+}
+
 fn actor_action_in(g: &mut fnv_game::Game, creature: bool, id: u32, talkers: &mut HashMap<u32, (bool, f64)>) -> Action {
     let r = FormId(id);
-    if g.is_dead(r) {
+    // The player's tweak lets an unconscious actor be searched as a dead one is [design: docs/design/tweaks.md].
+    if g.is_dead(r) || (g.tweaks.loot_unconscious && g.knockout(r).is_some()) {
         return Action::Search;
     }
     let fighting_player = g.awareness.get(r).is_some_and(|a| a.state.in_combat() && a.targets.contains_key(&FormId::PLAYER_REF));
@@ -380,7 +403,8 @@ fn actor_action_in(g: &mut fnv_game::Game, creature: bool, id: u32, talkers: &mu
     }
     // Sneaking, the player picks pockets instead (`crate::pickpocket`); one that caught
     // the player before still shows Steal and says so on E.
-    if g.is_sneaking(FormId::PLAYER_REF) && g.pickpocket_refusal(r) != Some(fnv_game::pickpocket::Refusal::NotAllowed) {
+    let shift = SHIFT_TALKS.load(std::sync::atomic::Ordering::Relaxed);
+    if !shift && g.is_sneaking(FormId::PLAYER_REF) && g.pickpocket_refusal(r) != Some(fnv_game::pickpocket::Refusal::NotAllowed) {
         return Action::Steal;
     }
     if !creature {
@@ -410,6 +434,10 @@ fn actor_action_in(g: &mut fnv_game::Game, creature: bool, id: u32, talkers: &mu
 /// accessed. Without the scripts: Access.
 fn terminal_action(rt: Option<&mut crate::script::Runtime>, sim: &mut SimState, id: u32) -> Action {
     let (Some(rt), Some(base)) = (rt, sim.base_of(id)) else { return Action::Access };
+    // The player's tweak: a locked terminal the note opens says so [design: docs/design/tweaks.md].
+    if crate::script::with_world(rt, sim, |rt| fnv_game::terminal::opens_by_password(&mut rt.game, FormId(id), base)) {
+        return Action::UsePassword;
+    }
     let lock = crate::script::with_world(rt, sim, |rt| fnv_game::terminal::still_locked(&mut rt.game, FormId(id), base));
     lock.map_or(Action::Access, |d| Action::Locked { level: outcome::terminal_lock_level(d.code()) })
 }
@@ -417,7 +445,7 @@ fn terminal_action(rt: Option<&mut crate::script::Runtime>, sim: &mut SimState, 
 /// Whether acting on the target is a crime: an item to take, a container to open or a
 /// lock to pick (a terminal to hack among them) that someone other than the player owns
 /// (`fnv_game::crime`). A dead actor's inventory is not [hypothesis].
-fn owned_by_other(game: Option<&fnv_game::Game>, sim: &SimState, form_id: u32, action: &Action) -> bool {
+pub(crate) fn owned_by_other(game: Option<&fnv_game::Game>, sim: &SimState, form_id: u32, action: &Action) -> bool {
     // Picking a pocket is theft: the prompt shows as a crime's does [design: the
     // original's steal prompt is red].
     if *action == Action::Steal {
@@ -508,6 +536,7 @@ pub(crate) fn activate(
     script: Option<ResMut<crate::script::ScriptState>>,
     locks: Option<Res<crate::control::ControlLocks>>,
     stats: Option<ResMut<crate::control::LockStats>>,
+    (mut mines, mut disarm_rolls): (Option<ResMut<crate::mines::Mines>>, Local<u64>),
 ) {
     // A reference queued by a lock just opened, or by the perks' choice list answered
     // with the default action: activated as if E were pressed on it.
@@ -554,7 +583,8 @@ pub(crate) fn activate(
     let Some(t) = queued.as_ref().or(target.0.as_ref()) else {
         // On furniture with nothing under the crosshair (lying on a bed, the bed is out
         // of view): Activate gets up [design].
-        seat.leave |= seat.hold.is_some();
+        // (Not under the player's Activate Doesn't Stand Up tweak, docs/design/tweaks.md.)
+        seat.leave |= seat.hold.is_some() && !crate::tweaks::SEAT_KEEPS_ON_ACTIVATE.load(std::sync::atomic::Ordering::Relaxed);
         return;
     };
     // E pressed on something the player can hold: a tap activates it when E comes up,
@@ -591,6 +621,36 @@ pub(crate) fn activate(
     if t.action == Action::Inaccessible {
         info!("activate 0x{:08X} {}: nothing to do (an inaccessible door)", t.form_id, t.name);
         return;
+    }
+    // The player's tweak: a mine's disarm is a roll on the player's skill against the
+    // mine's skill requirement, and a failed one may set it off [design: docs/design/tweaks.md].
+    if t.action == Action::Disarm {
+        let item = sim.base_of(t.form_id).and_then(|b| sim.forms.get(b)).and_then(|b| match b.data {
+            BaseData::Projectile { item, .. } => item,
+            _ => None,
+        });
+        let chances = item.zip(script.as_deref_mut().and_then(|s| s.rt.as_mut())).and_then(|(item, rt)| crate::script::with_world(rt, &mut sim, |rt| rt.game.disarm_chances(item)));
+        if let Some((disarm, explode)) = chances {
+            let mut roll = || {
+                *disarm_rolls = disarm_rolls.wrapping_add(0x9E37_79B9_7F4A_7C15 ^ u64::from(t.form_id));
+                let mut z = *disarm_rolls;
+                z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+                z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+                ((z ^ (z >> 31)) >> 11) as f64 / (1u64 << 53) as f64 * 100.0
+            };
+            if roll() >= disarm {
+                if roll() < explode {
+                    info!("activate 0x{:08X} {}: the disarm fails and sets it off ({disarm:.0} % to disarm, {explode:.0} % to go off; tweak)", t.form_id, t.name);
+                    if let Some(m) = mines.as_mut() {
+                        m.set_off.push(FormId(t.form_id));
+                    }
+                } else {
+                    info!("activate 0x{:08X} {}: the disarm fails ({disarm:.0} % to disarm; tweak)", t.form_id, t.name);
+                    hud.show(crate::tweaks::DISARM_FAILED_LINE.to_string());
+                }
+                return;
+            }
+        }
     }
     // The actor's place before, to put back if a teleport cannot be followed.
     let before = sim.world.peek(FormId::PLAYER_REF).map(|p| (p.cell, p.pos, p.rot));

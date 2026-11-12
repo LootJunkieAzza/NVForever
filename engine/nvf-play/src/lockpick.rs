@@ -476,6 +476,14 @@ fn open(
         Opening::Refused(r) => {
             stats.refused += 1;
             let line = refusal_line(r);
+            // The player's tweak names the key a lock needs [design: docs/design/tweaks.md].
+            let key = matches!(r, Refusal::RequiresKey).then(|| rt.game.tweaks.lock_needs_key_name).unwrap_or(false).then(|| rt.game.world.peek(reference).and_then(|s| s.lock).and_then(|l| l.key)).flatten();
+            // The player's tweak says the player's own skill [design: docs/design/tweaks.md].
+            let line = if matches!(r, Refusal::Skill { .. }) && rt.game.tweaks.show_current_skill { format!("{} (yours: {skill:.0})", line.trim_end_matches('.')) } else { line };
+            let line = match key.and_then(|k| sim.name(k)) {
+                Some(k) => format!("{}: {k}.", line.trim_end_matches('.')),
+                None => line,
+            };
             info!("lockpick: {reference} {name} refused (Lockpick {skill:.0}): on screen: {line:?}");
             // A top-left corner message (owner, list 5 item 45).
             if let Some(c) = corner.as_deref_mut() {
@@ -486,7 +494,16 @@ fn open(
         Opening::Pick { level, skill, pins } => {
             stats.opened += 1;
             let mut rng = ChaCha8Rng::seed_from_u64(seed(reference, now));
-            let game = Picking::new(level, skill, pins, unit(&mut rng), Settings::default());
+            // The player's tweak: a force chance that grows near the sweet spot [design: docs/design/tweaks.md].
+            let settings = Settings { force_near_bonus: rt.game.tweaks.lockpick_force_near_bonus, force_spares_lock: rt.game.tweaks.force_spares_lock, ..Settings::default() };
+            let mut game = Picking::new(level, skill, pins, unit(&mut rng), settings);
+            // The player's tweak: the pin in the lock is as worn as the last one left
+            // (kept in the save) [design: docs/design/tweaks.md].
+            if rt.game.tweaks.remember_pin_health {
+                if let Some(h) = rt.game.extra.get(&FormId::PLAYER_REF).and_then(|e| e.pin_health) {
+                    game.health = h;
+                }
+            }
             info!(
                 "lockpick: open {reference} {name}: {} lock (Lockpick {skill:.0}, {pins} bobby pins): sweet spot {:.1}° ± {:.1}°, Force Lock {:.0}%",
                 level.name(),
@@ -522,6 +539,7 @@ fn open(
 }
 
 /// The keys and the mouse.
+#[allow(clippy::too_many_arguments)]
 fn keys(
     keys: Res<ButtonInput<KeyCode>>,
     motion: Option<Res<AccumulatedMouseMotion>>,
@@ -529,6 +547,8 @@ fn keys(
     screen: Res<LockpickScreen>,
     over_button: Query<&PointerState, With<screen::LockButton>>,
     mut out: MessageWriter<LockpickInput>,
+    input: ControlInput,
+    script: Option<Res<ScriptState>>,
 ) {
     let Some(s) = screen.0.as_ref() else { return };
     if s.leaving.is_some() {
@@ -556,6 +576,23 @@ fn keys(
     if keys.pressed(KeyCode::ArrowRight) {
         turn += KEY_DEGREES * dt;
     }
+    // The player's tweak: the strafe keys move the pin, Shift faster and Ctrl slower
+    // [design: docs/design/tweaks.md].
+    if moving_keys(script.as_deref()) {
+        let k = if keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]) {
+            2.0
+        } else if keys.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight]) {
+            0.5
+        } else {
+            1.0
+        };
+        if input.pressed(Control::SlideLeft) {
+            turn -= KEY_DEGREES * k * dt;
+        }
+        if input.pressed(Control::SlideRight) {
+            turn += KEY_DEGREES * k * dt;
+        }
+    }
     // The pointer on a button moves no pin [design: the original hides the pointer over
     // the lock only, `LPM_DetectArea`].
     let on_button = over_button.iter().any(|i| *i != PointerState::None);
@@ -568,9 +605,16 @@ fn keys(
 }
 
 /// Whether torque is held: any of the four movement controls [documented: the help
-/// message].
-fn torque_held(input: &ControlInput) -> bool {
-    [Control::Forward, Control::Back, Control::SlideLeft, Control::SlideRight].into_iter().any(|c| input.pressed(c))
+/// message]; with the player's Keyboard Movement tweak Forward, Back and Jump, the strafe
+/// keys moving the pin instead [design: docs/design/tweaks.md].
+fn torque_held(input: &ControlInput, moving_keys: bool) -> bool {
+    let controls: &[Control] = if moving_keys { &[Control::Forward, Control::Back, Control::Jump] } else { &[Control::Forward, Control::Back, Control::SlideLeft, Control::SlideRight] };
+    controls.iter().any(|&c| input.pressed(c))
+}
+
+/// The Keyboard Movement tweak is on.
+fn moving_keys(script: Option<&ScriptState>) -> bool {
+    script.and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.lockpick_move_keys)
 }
 
 fn buttons(screen: Res<LockpickScreen>, pressed: Query<(&PointerState, &screen::LockButton), Changed<PointerState>>, mut out: MessageWriter<LockpickInput>) {
@@ -679,6 +723,18 @@ fn apply(
                         s.ended = Some(now);
                         sounds.write(UiSound { menu: UiMenu::Lockpick, event: UiEvent::Unlocked });
                     }
+                    // The player's tweak: the lock holds, the pin broke [design: docs/design/tweaks.md].
+                    Some(false) if g.phase != Phase::LockBroken => {
+                        stats.pins_broken += 1;
+                        with_world(rt, &mut sim, |rt| rules::pin_broke(&mut rt.game));
+                        info!("lockpick: Force Lock ({chance:.0}%, roll {roll:.1}): failed, the pin broke and the lock holds ({} left, tweak)", g.pins);
+                        s.status = Some(if g.pins > 0 { "The bobby pin broke".into() } else { "You have no bobby pins left".into() });
+                        if g.pins == 0 {
+                            s.ended = Some(now);
+                        }
+                        s.pin(PinClip::Break, now);
+                        sounds.write(UiSound { menu: UiMenu::Lockpick, event: UiEvent::PinBroke });
+                    }
                     Some(false) => {
                         stats.broken += 1;
                         if !s.practice {
@@ -719,7 +775,10 @@ fn step(
 ) {
     let Some(s) = screen.0.as_mut() else { return };
     let now = time.elapsed_secs();
-    let dt = time.delta_secs_f64() as f32;
+    // The player's tweak runs the lock at the world clock's speed (a script's
+    // SetGlobalTimeMultiplier) [design: docs/design/tweaks.md].
+    let speed = script.as_deref().and_then(|s| s.rt.as_ref()).filter(|rt| rt.game.tweaks.minigames_timescale).map_or(1.0, |rt| rt.game.ui.time_multiplier.unwrap_or(1.0).max(0.0) as f32);
+    let dt = time.delta_secs_f64() as f32 * speed;
     if let Some((since, why)) = s.leaving {
         if now - since >= LEAVE_SECONDS {
             leave(&mut next, why);
@@ -751,10 +810,15 @@ fn step(
     if s.aid_torque_until.is_some() && !aid {
         s.aid_torque_until = None;
     }
-    let torque = torque_held(&input) || aid;
+    // The player's tweak: the left mouse button turns the screwdriver too [design: docs/design/tweaks.md].
+    let mouse_turns = script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.lockpick_mouse_turn);
+    let torque = torque_held(&input, moving_keys(script.as_deref())) || aid || (mouse_turns && input.mouse.pressed(MouseButton::Left));
     let strained = s.game.stopped;
     let reference = s.reference;
     let events = s.game.step(dt, torque);
+    if let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()).filter(|rt| rt.game.tweaks.remember_pin_health) {
+        rt.game.extra.entry(FormId::PLAYER_REF).or_default().pin_health = Some(s.game.health);
+    }
     for e in events {
         match e {
             rules::Event::Turning => {
@@ -821,11 +885,19 @@ fn close(
     script: Option<ResMut<ScriptState>>,
     mut sounds: MessageWriter<UiSound>,
     next: Option<ResMut<crate::activate::ActivateNext>>,
+    sim: Option<Res<SimState>>,
 ) {
     let Some(s) = screen.0.take() else { return };
     // Picked or forced open: the door or container is used as if the player activated
     // it (playtest list 5 item 64; `crate::activate::ActivateNext`).
-    if s.game.phase == Phase::Open && !s.practice {
+    // The player's tweaks can leave the door or the container shut after the pick [design: docs/design/tweaks.md].
+    let tw = script.as_ref().and_then(|s| s.rt.as_ref()).map(|rt| (rt.game.tweaks.no_door_after_pick, rt.game.tweaks.no_container_after_pick));
+    let base = sim.as_ref().and_then(|sim| sim.base_of(s.reference.0).and_then(|b| sim.forms.get(b)).map(|b| (matches!(b.data, fnv_sim::forms::BaseData::Door(_)), matches!(b.data, fnv_sim::forms::BaseData::Container(_)))));
+    let held = matches!((tw, base), (Some((true, _)), Some((true, _))) | (Some((_, true)), Some((_, true))));
+    if held {
+        info!("lockpick: {} stays shut after the pick (tweak)", s.reference);
+    }
+    if s.game.phase == Phase::Open && !s.practice && !held {
         if let Some(mut n) = next {
             n.0 = Some(s.reference.0);
         }

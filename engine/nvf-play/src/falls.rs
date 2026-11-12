@@ -120,6 +120,10 @@ pub struct Falls {
     rng: Option<ChaCha8Rng>,
     /// The hard landing's sounds, heavy and light, once looked up.
     sounds: Option<[Option<FormId>; 2]>,
+    /// The top of the player's fall a loaded save was made in, under the player's Keep
+    /// Fall Height on Load tweak: the player's next step in the air falls from at least
+    /// there ([`FALL_SAVE_HOOK`]) [design: docs/design/tweaks.md].
+    loaded_top: Option<f32>,
 }
 
 /// WRLD DATA "Don't Allow NPC Fall Damage" (module notes).
@@ -152,6 +156,8 @@ impl Falls {
     /// One physics step of character `id` that started with the feet at `start_z`; the
     /// fall's height when the step landed it on land.
     pub fn step(&mut self, id: u32, start_z: f32, s: &CharacterStep) -> Option<f32> {
+        // The loaded save's fall top goes with the player's first step after the load.
+        let loaded = if self.player == Some(id) { self.loaded_top.take() } else { None };
         if s.swimming {
             self.open.remove(&id);
             return None;
@@ -161,16 +167,21 @@ impl Falls {
             let fall = self.open.remove(&id);
             return s.landed_speed.and(fall).map(|(apex, last)| {
                 let apex = if (start_z - last).abs() > PLACED_JUMP { start_z } else { apex.max(start_z) };
-                (apex - end).max(0.0)
+                (apex.max(loaded.unwrap_or(f32::MIN)) - end).max(0.0)
             });
         }
         let e = self.open.entry(id).or_insert((start_z, start_z));
         if (start_z - e.1).abs() > PLACED_JUMP {
             e.0 = start_z;
         }
-        e.0 = e.0.max(start_z).max(end);
+        e.0 = e.0.max(start_z).max(end).max(loaded.unwrap_or(f32::MIN));
         e.1 = end;
         None
+    }
+
+    /// The top of the player's fall now, when the player is in the air.
+    pub fn player_top(&self) -> Option<f32> {
+        self.player.and_then(|id| self.open.get(&id)).map(|e| e.0)
     }
 
     /// The player's character id, for ResetFallTime.
@@ -197,12 +208,34 @@ pub struct FallsPlugin;
 
 impl Plugin for FallsPlugin {
     fn build(&self, app: &mut App) {
+        crate::save::add_save_hook(app, FALL_SAVE_HOOK);
         app.init_resource::<Falls>().add_message::<Fell>().add_systems(Update, hurt.in_set(PlaySet::Activation).run_if(resource_exists::<SimState>).run_if(resource_exists::<CombatStats>).run_if(resource_exists::<HitFeedback>));
     }
 }
 
+/// The top of the player's fall when a save is made in the air (a height in game units),
+/// kept with the save; a loaded one is used only under the player's Keep Fall Height on
+/// Load tweak, else the fall counts from where the load put the player, as before
+/// [design: docs/design/tweaks.md].
+pub const FALL_SAVE_HOOK: crate::save::SaveHook = crate::save::SaveHook {
+    key: "player_fall_top",
+    save: |w| w.get_resource::<Falls>()?.player_top().map(serde_json::Value::from),
+    load: |w, v| {
+        let keep = w.get_resource::<crate::tweaks::TweakSettings>().is_some_and(|t| t.keep_fall_height_on_load);
+        let top = v.as_f64().map(|t| t as f32).filter(|t| keep && t.is_finite());
+        if let Some(mut f) = w.get_resource_mut::<Falls>() {
+            f.loaded_top = top;
+        }
+    },
+    remap: None,
+};
+
+/// The body part locations a deadly fall takes off with the Fall Deaths Cause
+/// Dismemberment tweak: Left Leg 1 and Right Leg 1 (`fnv_combat::data` part types) [design: docs/design/tweaks.md].
+const FALL_DISMEMBER_LOCATIONS: [i32; 2] = [7, 10];
+
 /// Apply the falls' damage.
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn hurt(
     mut falls: ResMut<Falls>,
     mut fell: MessageReader<Fell>,
@@ -213,7 +246,11 @@ fn hurt(
     mut messages: MessageWriter<ActorHit>,
     play: Option<Res<crate::PlayWorld>>,
     (sfx, mut sounds): (Option<Res<Sfx>>, MessageWriter<PlaySound>),
+    tweaks: Option<Res<crate::tweaks::TweakSettings>>,
+    (mut dm, combat, parts): (Option<ResMut<crate::dismember::Dismemberment>>, Option<Res<crate::combat::Combat>>, Option<Res<crate::hitvol::ActorParts>>),
 ) {
+    // The player's tweak: no hard-landing sound for the player in god mode [design: docs/design/tweaks.md].
+    let quiet_god = tweaks.as_ref().is_some_and(|t| t.god_mode_quiet_landing) && crate::combat::god_mode();
     // ResetFallTime's actors (`fnv_game::nvse_jip11`).
     if let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) {
         for a in rt.game.take_fall_resets() {
@@ -222,9 +259,20 @@ fn hurt(
     }
     for f in fell.read() {
         let rules = *falls.rules.get_or_insert_with(|| FallRules::from_world(&sim.world));
+        // The player's tweak: Endurance raises the safe height [design: docs/design/tweaks.md].
+        let per = script.as_deref().and_then(|s| s.rt.as_ref()).map_or(0.0, |rt| rt.game.tweaks.fall_height_per_endurance);
+        let rules = if per != 0.0 && f.actor == FormId::PLAYER_REF {
+            let end = script.as_deref_mut().and_then(|s| s.rt.as_mut()).and_then(|rt| fnv_game::functions::actor_value(&mut rt.game, FormId::PLAYER_REF, fnv_game::actor_values::ENDURANCE).ok()).unwrap_or(5.0) as f32;
+            FallRules { min: rules.min * (1.0 + per * (end - 5.0)).max(0.1), ..rules }
+        } else {
+            rules
+        };
         // ITR's SetFallDamageMult: the actor's multiplier, else the global one
         // (`fnv_game::nvse_itr1`, docs/spec-notes/ext-itr.md §2).
         let mult = script.as_deref().and_then(|s| s.rt.as_ref()).map_or(1.0, |rt| rt.game.fall_damage_mult(f.actor));
+        // The player's tweak scales the fall in power armour [design: docs/design/tweaks.md].
+        let armored = tweaks.as_ref().map_or(1.0, |t| t.power_armor_fall_damage).ne(&1.0) && crate::tweaks::wears_power_armor(&sim.world, f.actor);
+        let mult = if armored { mult * f64::from(tweaks.as_ref().map_or(1.0, |t| t.power_armor_fall_damage)) } else { mult };
         let dmg = rules.damage(f.height) * mult as f32;
         if dmg <= 0.0 {
             debug!("falls: {} lands from {:.0} units, no damage (from {:.0})", f.actor, f.height, rules.min);
@@ -240,7 +288,7 @@ fn hurt(
             }
         }
         // The hard landing's sound.
-        if let Some(sfx) = sfx.as_deref() {
+        if let Some(sfx) = sfx.as_deref().filter(|_| !(quiet_god && f.actor == FormId::PLAYER_REF)) {
             let found = *falls.sounds.get_or_insert_with(|| [HARD_LANDING_HEAVY, HARD_LANDING_LIGHT].map(|e| sfx.forms.sounds.iter().find(|(_, s)| s.edid.as_deref().is_some_and(|x| x.eq_ignore_ascii_case(e))).map(|(f, _)| *f)));
             let heavy = fnv_game::combat::worn_armor_class(&sim.world, f.actor) == fnv_sim::forms::ArmorClass::Heavy;
             let (edid, sound) = if heavy { (HARD_LANDING_HEAVY, found[0]) } else { (HARD_LANDING_LIGHT, found[1]) };
@@ -268,6 +316,18 @@ fn hurt(
                 if r.immune { " (immune: god mode)" } else if r.died { ", dead" } else { "" }
             ),
             None => info!("falls: {} lands from {:.0} units: {dmg:.1} fall damage (no script runtime)", f.actor, f.height),
+        }
+        // The player's tweak: a fall that kills takes the legs off [design: docs/design/tweaks.md].
+        let killed = r.as_ref().is_some_and(|r| r.died);
+        if killed && f.actor != FormId::PLAYER_REF && script.as_deref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.fall_deaths_dismember) {
+            if let (Some(dm), Some(c), Some(parts)) = (dm.as_deref_mut(), combat.as_deref(), parts.as_deref()) {
+                for location in FALL_DISMEMBER_LOCATIONS {
+                    if let Some(check) = crate::dismember::scripted_check(c, parts, &sim, f.actor, location, None, None) {
+                        dm.checks.push(check);
+                    }
+                }
+                info!("falls: {} died of the fall: its legs go (tweak)", f.actor);
+            }
         }
         if let Some(((code, condition), crippled)) = r.and_then(|r| r.limb.map(|l| (l, r.crippled))) {
             let side = if code == fnv_game::combat::LEFT_MOBILITY { "left" } else { "right" };
@@ -320,6 +380,28 @@ mod tests {
         assert!((h - 160.0).abs() < 1e-3);
         // Walking on: no fall.
         assert_eq!(f.step(1, 0.0, &step(0.0, true, None, false)), None);
+    }
+
+    #[test]
+    fn a_loaded_fall_top_counts_for_the_player_once() {
+        let mut f = Falls::default();
+        f.note_player(14);
+        // Saved falling from 900; loaded, the player is put at 500 in the air.
+        f.loaded_top = Some(900.0);
+        f.step(14, 500.0, &step(490.0, false, None, false));
+        assert_eq!(f.player_top(), Some(900.0));
+        let h = f.step(14, 490.0, &step(0.0, true, Some(800.0), false)).expect("landed");
+        assert!((h - 900.0).abs() < 1e-3);
+        // Only once, and only for the player.
+        f.loaded_top = Some(900.0);
+        f.step(5, 500.0, &step(490.0, false, None, false));
+        assert_eq!(f.loaded_top, Some(900.0));
+        f.step(14, 100.0, &step(90.0, false, None, false));
+        f.step(14, 90.0, &step(80.0, false, None, false));
+        assert_eq!(f.player_top(), Some(900.0));
+        f.step(14, 80.0, &step(0.0, true, Some(10.0), false));
+        f.step(14, 100.0, &step(90.0, false, None, false));
+        assert_eq!(f.player_top(), Some(100.0));
     }
 
     #[test]

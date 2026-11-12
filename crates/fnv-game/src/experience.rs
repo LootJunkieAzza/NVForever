@@ -45,6 +45,8 @@ pub enum Source {
     Discovery,
     /// `RewardXP` (quests, challenges, dialogue result scripts).
     Script,
+    /// A Pip-Boy repair (the Repairs Give XP tweak, `crate::tweaks`).
+    Repair,
 }
 
 impl Source {
@@ -57,6 +59,7 @@ impl Source {
             Source::SpeechChallenge => "a speech challenge",
             Source::Discovery => "a place found",
             Source::Script => "a script",
+            Source::Repair => "a repair",
         }
     }
 }
@@ -79,6 +82,8 @@ pub fn award(g: &mut Game, source: Source, amount: f64) -> f64 {
     }
     let (gained, by) = if amount > 0.0 {
         let (v, by) = g.entry_point(FormId::PLAYER_REF, crate::perks::ADJUST_EXPERIENCE_POINTS, amount);
+        // The player's XP tweak, after the perks [design: docs/design/tweaks.md].
+        let v = v * g.tweaks.xp_multiplier;
         // The factors are 32-bit (1.3 is 1.2999999523): to thousandths first, so that
         // 100 × 1.3 is 130, not 129.
         (((v.max(0.0) * 1000.0).round() / 1000.0).trunc(), by)
@@ -161,6 +166,10 @@ pub fn xp_for_level(g: &Game, level: i32) -> f64 {
 
 /// The highest level the player can reach in this load order.
 pub fn max_level(g: &Game) -> i32 {
+    // The player's tweak: a cap of its own, with no levels added for the add-ons [design: docs/design/tweaks.md].
+    if g.tweaks.max_level > 0 {
+        return g.tweaks.max_level as i32;
+    }
     let base = setting(g, "iMaxCharacterLevel", DEFAULT_MAX_LEVEL as f64) as i32;
     level_cap(base, &g.data.load_order)
 }

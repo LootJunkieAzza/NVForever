@@ -221,6 +221,11 @@ impl Game<'_> {
     fn knock(&mut self, r: FormId, cause: Cause, by: Option<FormId>, shove: Option<[f32; 3]>) -> bool {
         // The player is knocked down but never knocked out (§2.1, §5.4).
         if (r == FormId::PLAYER_REF && !cause.awake()) || self.is_dead(r) {
+            // The player's tweak: a killing knockdown by the player still counts for the
+            // challenges [design: docs/design/tweaks.md].
+            if self.is_dead(r) && self.tweaks.lethal_knockdowns_count && by == Some(FormId::PLAYER_REF) && cause.knockdown() {
+                self.challenge_knockdown(r);
+            }
             return false;
         }
         let old = self.knockout(r);
@@ -266,6 +271,10 @@ impl Game<'_> {
             return false;
         }
         if r == FormId::PLAYER_REF {
+            // The player's tweak: never in god mode [design: docs/design/tweaks.md].
+            if self.tweaks.no_knockdown_in_god_mode && self.toggles.god_mode {
+                return false;
+            }
             return self.furniture_use(r).is_none() && self.dialogue.is_none();
         }
         self.def_following(r, |_| false).is_some_and(|d| !d.no_knockdowns && !d.immobile)

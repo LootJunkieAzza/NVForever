@@ -42,6 +42,9 @@ pub struct LevelUp {
     /// The level brings a perk: Continue leads to the perks page [documented: the menu's
     /// `_EndPage`, the button "Continue" before the last page and "Done" on it].
     pub perk_due: bool,
+    /// The player's Preview Perks tweak: with no perk due the perks page still comes, to
+    /// look at, with none to take [design: docs/design/tweaks.md].
+    pub preview_perks: bool,
     /// The perks page's sheet, while it is shown.
     pub perks: Option<PerkSheet>,
     pub page: Page,
@@ -92,7 +95,7 @@ pub struct View {
 
 impl LevelUp {
     pub fn new(level: i32, skills: SkillSheet, perk_due: bool) -> LevelUp {
-        LevelUp { level, skills, perk_due, perks: None, page: Page::Skills, selected: 0, scroll: 0, hover: None, title: None, perks_only: false }
+        LevelUp { level, skills, perk_due, preview_perks: false, perks: None, page: Page::Skills, selected: 0, scroll: 0, hover: None, title: None, perks_only: false }
     }
 
     /// The menu for `level`, from the player as the game holds them.
@@ -204,6 +207,8 @@ impl LevelUp {
                 let id = p.perks.get(self.selected).copied();
                 let d = id.and_then(|id| g.data.perks.get(&id));
                 let info = match (id, d) {
+                    // The player's tweak names the perk's plugins [design: docs/design/tweaks.md].
+                    (Some(id), Some(d)) if g.tweaks.perk_plugin_names => format!("{}\n\n({})", rules::perk_info(&chargen::requirement_line(g, id), d.ranks.max(1), &d.description), g.data.form_plugins(id).join(", ")),
                     (Some(id), Some(d)) => rules::perk_info(&chargen::requirement_line(g, id), d.ranks.max(1), &d.description),
                     _ => String::new(),
                 };
@@ -224,7 +229,7 @@ impl LevelUp {
                 (rows, a.and_then(|a| a.icon.clone()), a.map(|a| a.description.clone()).unwrap_or_default(), rules::skill_counter(skills.remaining()))
             }
         };
-        let last = self.page == Page::Perks || !self.perk_due;
+        let last = self.page == Page::Perks || !(self.perk_due || self.preview_perks);
         View {
             page: self.page,
             title: self.title.clone().unwrap_or_else(|| rules::title(self.level)),

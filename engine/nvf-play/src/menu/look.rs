@@ -155,11 +155,32 @@ fn first_line(font: &Font, s: &str) -> Line {
 /// other categories is not observed].
 pub fn half_title(m: &MenuModel, side: Side) -> String {
     let c = m.category[side as usize];
+    // The player's tweak: "Weapons", not "WEAPONS" [design: docs/design/tweaks.md].
+    let title = |t: &str| if m.title_case_categories { title_case(t) } else { t.to_string() };
     match side {
-        Side::Player => c.title().into(),
+        Side::Player => title(c.title()),
         Side::Container if c == Category::All => m.title.clone(),
-        Side::Container => c.title().into(),
+        Side::Container => title(c.title()),
     }
+}
+
+/// Whether taking the container's selected row would put the player over the carry
+/// limit (the Weight Warning tweak; only the player's half of a container).
+fn over_if_taken(m: &MenuModel, side: Side) -> bool {
+    if !m.warn_encumbrance || side != Side::Player || !matches!(m.mode, Mode::Container(_)) {
+        return false;
+    }
+    let Ok(e) = m.encumbrance.as_ref() else { return false };
+    let row = m.list(Side::Container).rows.get(m.selected[Side::Container as usize]);
+    row.and_then(|r| r.weight.map(|w| w * r.count.max(1) as f32)).is_some_and(|w| e.weight + f64::from(w) > e.capacity)
+}
+
+/// `WEAPONS` as `Weapons`: each word's first letter kept, the rest lower case.
+fn title_case(t: &str) -> String {
+    t.split(' ').map(|w| {
+        let mut c = w.chars();
+        c.next().map_or_else(String::new, |f| f.to_string() + &c.as_str().to_lowercase())
+    }).collect::<Vec<_>>().join(" ")
 }
 
 /// A row's text: the name, and the count when there is more than one [observed].
@@ -175,6 +196,12 @@ pub fn row_text(r: &Row) -> String {
 /// player's weight in a container's [observed: "Caps 35877", "Wg 35/165"].
 pub fn half_figure(m: &MenuModel, side: Side) -> Option<String> {
     match (m.mode, side, &m.trade) {
+        // The player's tweak: the caps after the trade beside those now (our words) [design: docs/design/tweaks.md].
+        (Mode::Barter(_), _, Some(t)) if m.barter_caps_change && t.balance != 0 => {
+            let now = i64::from(t.purse[side as usize]);
+            let after = if side == Side::Player { now + t.paid() } else { now - t.paid() };
+            Some(format!("Caps  {now} (to {after})"))
+        }
         (Mode::Barter(_), _, Some(t)) => Some(format!("Caps  {}", t.purse[side as usize])),
         (Mode::Container(_), Side::Player, _) => {
             m.encumbrance.as_ref().ok().map(|e| format!("Wg  {:.0}/{:.0}", e.weight, e.capacity))
@@ -379,7 +406,9 @@ pub fn spawn(root: &mut ChildSpawnerCommands, m: &MenuModel, note: Option<&str>,
         match (m.mode, &m.trade) {
             (Mode::Barter(_), Some(t)) => {
                 if let Some(flow) = barter::flow(t.balance) {
-                    caps_flow(p, &mut c, flow, t.paid().unsigned_abs(), t.affordable());
+                    // The player's tweak: the whole total, past the merchant's caps [design: docs/design/tweaks.md].
+                    let shown = if m.full_barter_total { t.balance } else { t.paid() };
+                    caps_flow(p, &mut c, flow, shown.unsigned_abs(), t.affordable());
                 }
             }
             (Mode::Container(_), _) if m.selected_row(m.focus).is_some() => {
@@ -428,7 +457,10 @@ fn half(p: &mut ChildSpawnerCommands, c: &mut Ctx, m: &MenuModel, side: Side) {
     p.spawn((at(x0 + zone_x, TOP - 10.0, zone_w, ARROW.y), FocusPolicy::Pass, PointerState::default(), CategoryTitle(side)));
     c.line(p, x0 + line_x, TOP, line_len, THICK, bright);
     if let Some(f) = half_figure(m, side) {
-        c.text(p, false, &f, x0 + FIGURE_RIGHT, TOP + 20.0, Align::Right, bright);
+        // The player's tweak: the weight in red when taking the container's selected row
+        // would put the player over [design: docs/design/tweaks.md].
+        let colour = if over_if_taken(m, side) { crate::reticle::crime_colour() } else { bright };
+        c.text(p, false, &f, x0 + FIGURE_RIGHT, TOP + 20.0, Align::Right, colour);
     }
     c.fade(p, x0 + HALF_W - THICK, TOP, false, bright);
     // The footer.
@@ -609,6 +641,18 @@ const Q_PROMPT_Y: f32 = 50.0;
 const Q_METER: Rect = Rect { min: Vec2::new(149.5, 115.0), max: Vec2::new(540.5, 139.0) };
 const Q_ARROWS: [f32; 2] = [130.0, 549.0];
 const Q_AMOUNT_Y: f32 = 170.0;
+/// The tweaks' weight or price line, under the amount [design: docs/design/tweaks.md].
+const Q_EXTRA_Y: f32 = 215.0;
+
+/// The line the quantity tweaks add under the amount: in a barter what `amount` units
+/// fetch, in a container what they weigh (our words) [design: docs/design/tweaks.md].
+pub fn quantity_line(price: Option<f32>, weight: Option<f32>, amount: i32) -> Option<String> {
+    match (price, weight) {
+        (Some(p), _) => Some(format!("Price: {:.0} caps", p * amount as f32)),
+        (None, Some(w)) => Some(format!("Weight: {}", format!("{:.1}", w * amount as f32).trim_end_matches(".0"))),
+        _ => None,
+    }
+}
 const Q_BUTTONS_RIGHT: f32 = 665.0;
 const Q_BUTTONS_Y: [f32; 2] = [155.0, 200.0];
 /// A tick of the meter: 8 apart [observed], the picture's top 8 × 20 texels stretched to
@@ -639,7 +683,7 @@ pub fn quantity_words(game: Option<&fnv_game::Game<'_>>) -> [String; 2] {
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn spawn_quantity(root: &mut ChildSpawnerCommands, q: &Quantity, words: &[String; 2], kit: &mut Kit, data: Option<&GameData>, images: &mut Assets<Image>, bc: bool, glyphs: &crate::pad::PadGlyphs) {
+pub fn spawn_quantity(root: &mut ChildSpawnerCommands, q: &Quantity, words: &[String; 2], kit: &mut Kit, data: Option<&GameData>, images: &mut Assets<Image>, bc: bool, glyphs: &crate::pad::PadGlyphs, extra: Option<&str>) {
     let mut c = Ctx { kit, data, images, bc, glyphs };
     let bright = amber(255.0);
     let sheet = Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() };
@@ -683,6 +727,10 @@ pub fn spawn_quantity(root: &mut ChildSpawnerCommands, q: &Quantity, words: &[St
                 }
             }
             c.text(p, true, &q.amount.to_string(), Q_CENTRE, Q_AMOUNT_Y, Align::Centre, bright);
+            // The player's tweaks: what the amount weighs or costs, under it [design: docs/design/tweaks.md].
+            if let Some(line) = extra {
+                c.text(p, false, line, Q_CENTRE, Q_EXTRA_Y, Align::Centre, bright);
+            }
             let h = 31.0 + BUTTON_PAD;
             // The prompt's own keys over any menu: A (Enter) and B (Esc) on a controller.
             let any = crate::pad::MenuAt::default();

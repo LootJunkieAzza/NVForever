@@ -272,11 +272,28 @@ fn read_words(sim: Res<SimState>, mut commands: Commands) {
     commands.insert_resource(refusals);
 }
 
-fn rest_opens(input: ControlInput, mut out: MessageWriter<OpenWait>) {
+fn rest_opens(input: ControlInput, mut out: MessageWriter<OpenWait>, time: Res<Time<Real>>, tweaks: Option<Res<crate::tweaks::TweakSettings>>, mut held: Local<Option<f32>>) {
+    // The player's tweak: the key is held a while, not tapped [design: docs/design/tweaks.md].
+    if tweaks.is_some_and(|t| t.hold_to_wait) {
+        if input.pressed(Control::Rest) {
+            let t = held.get_or_insert(0.0);
+            let before = *t;
+            *t += time.delta_secs();
+            if before < REST_HOLD && *t >= REST_HOLD {
+                out.write(OpenWait::default());
+            }
+        } else {
+            *held = None;
+        }
+        return;
+    }
     if input.just_pressed(Control::Rest) {
         out.write(OpenWait::default());
     }
 }
+
+/// How long the Hold to Wait tweak wants the key held, seconds [design].
+const REST_HOLD: f32 = 0.5;
 
 /// What scripts asked of the menu since the last frame (`fnv_game::rest`).
 fn script_requests(mut script: Option<ResMut<ScriptState>>, mut menu: ResMut<WaitMenu>, mut open: MessageWriter<OpenWait>, mut input: MessageWriter<WaitInput>) {
@@ -322,12 +339,22 @@ fn refusal(
     indoors: bool,
     actors: &[(u32, [f32; 3])],
     distance: f32,
+    seated: bool,
 ) -> Option<(Refusal, String)> {
+    // The player's tweak: waiting only while sitting (god mode excepted) [design:
+    // docs/design/tweaks.md].
+    if !sleep && !seated && !crate::combat::god_mode() && rt.as_ref().is_some_and(|rt| rt.game.tweaks.wait_only_seated) {
+        return Some((Refusal::NotSeated, "the player does not sit (Wait Only Seated)".into()));
+    }
     // A script forbade waiting (`EnableFastTravel`'s canWait): the same flag refuses
     // sleeping, and its text is the "cannot wait in this cell" one [documented: GECK wiki
     // SetPCHasSleepWaitOverride, GetPCHasSleepWaitOverride].
     if rt.as_ref().is_some_and(|rt| rt.game.player.fast_travel.wait_disabled) {
         return Some((Refusal::Forbidden, "a script has turned waiting off (EnableFastTravel)".into()));
+    }
+    // The player's tweak: nothing else refuses [design: docs/design/tweaks.md].
+    if rt.as_ref().is_some_and(|rt| rt.game.tweaks.wait_anywhere) {
+        return None;
     }
     // [hypothesis: "under water" is the swimming state; the text's name speaks of
     // waiting only, and nobody lies on a bed swimming.]
@@ -381,7 +408,8 @@ fn refusal(
         if let Some((cell, _)) = g.trespass_cell() {
             return Some((Refusal::Trespassing, format!("the player trespasses in {}", g.data.name(cell))));
         }
-        let owner = bed.filter(|_| sleep).and_then(|b| fnv_game::rest::bed_owned_by_another(g, FormId(b)))?;
+        // The player's tweak lets them sleep in it [design: docs/design/tweaks.md].
+        let owner = bed.filter(|_| sleep && !g.tweaks.sleep_in_owned_beds).and_then(|b| fnv_game::rest::bed_owned_by_another(g, FormId(b)))?;
         Some((Refusal::OwnedBed, format!("the bed belongs to {}", g.data.name(owner))))
     })
 }
@@ -517,7 +545,9 @@ fn open(
         info!("wait menu: request ignored, the player is not in the world (a menu, a conversation or a loading screen is up)");
         return;
     }
-    let sleep = asked.sleep.unwrap_or(seat.bed);
+    // The player's tweak: waiting on a chair is sleeping [design: docs/design/tweaks.md].
+    let chair_sleep = seat.on.is_some() && script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.sleep_on_chairs);
+    let sleep = asked.sleep.unwrap_or(seat.bed || chair_sleep);
     let bed = seat.on.filter(|_| seat.bed);
     if !asked.unchecked {
         let player = phys.player.as_ref();
@@ -530,7 +560,7 @@ fn open(
         let rt = script.as_mut().and_then(|s| s.rt.as_mut());
         // Furniture holds the player off the ground's rules (a bed, a chair).
         let airborne = seat.on.is_none() && player.is_some_and(|c| !c.grounded && !c.swimming);
-        let no = refusal(sleep, bed, rt, &mut sim, player.is_some_and(|c| c.swimming), airborne, player.map(|c| c.feet), indoors, &actors.living, distance);
+        let no = refusal(sleep, bed, rt, &mut sim, player.is_some_and(|c| c.swimming), airborne, player.map(|c| c.feet), indoors, &actors.living, distance, seat.on.is_some());
         if let Some((why, detail)) = no {
             let line = refusals.line(why, sleep);
             info!("wait menu: refused ({}): {detail}; on screen: {line:?}", if sleep { "sleep" } else { "wait" });

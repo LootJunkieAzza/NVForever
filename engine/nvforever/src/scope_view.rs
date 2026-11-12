@@ -446,6 +446,7 @@ fn sway(
     mut player: ResMut<Player>,
     mut lens_sway: ResMut<nvf_play::aim_zoom::LensSway>,
     mut st: Local<SwayState>,
+    tweaks: Option<Res<nvf_play::tweaks::TweakSettings>>,
 ) {
     let want = if scope.on {
         if st.wobble.is_none() {
@@ -463,6 +464,9 @@ fn sway(
         let spread = combat.player_spread.unwrap_or(0.0);
         let attacking = combat.since_last_shot() < ATTACK_SECONDS;
         let radius = spread * SPREAD_TO_DEG / 2.0 * setting("fGunWobbleMultScope", 1.0) * if attacking { 1.0 } else { setting("fNonAttackGunWobbleMult", 0.5) };
+        // The player's Hold Breath tweak steadies it (docs/design/tweaks.md).
+        let held = nvf_play::tweaks::BREATH_HELD.load(std::sync::atomic::Ordering::Relaxed);
+        let radius = if held { radius * tweaks.as_ref().map_or(1.0, |t| t.breath_sway) } else { radius };
         if !st.told {
             st.told = true;
             info!("scope sway: PSp {spread:.3}, radius {radius:.2}°");

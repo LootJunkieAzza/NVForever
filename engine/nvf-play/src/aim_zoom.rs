@@ -55,11 +55,20 @@ pub struct AimZoom {
     applied: Option<f32>,
     /// The full zoom has been reported (smoke tests read the line).
     told: bool,
+    /// How long the zoom has been full, seconds (the Scope Delay tweak).
+    full_for: f32,
+    /// The wheel's share of a scope's Sight FOV under the Adjustable Scope Zoom tweak
+    /// (0: none set, as 1); back to none when the scope goes down.
+    scope_zoom: f32,
 }
 
 /// With a 3D scope (`Scope3d`) the main view goes only this share of the way to the
 /// Sight FOV; the lens shows the full zoom [design: test version, docs/design/scope-3d-lens.md §4.1].
 pub const LENS_MAIN_SHARE: f32 = 0.2;
+
+/// What a wheel notch multiplies a scope's field of view by under the Adjustable Scope
+/// Zoom tweak (up divides) [design: docs/design/tweaks.md].
+const SCOPE_WHEEL_STEP: f32 = 1.1;
 
 impl AimZoom {
     /// The unzoomed vertical field of view (radians), once known.
@@ -146,6 +155,8 @@ pub(crate) fn zoom(
     lens: Res<Scope3d>,
     talk: Option<Res<crate::dialogue_zoom::DialogueZoom>>,
     mut cams: Query<&mut Projection, With<PlayerCamera>>,
+    tweaks: Option<Res<crate::tweaks::TweakSettings>>,
+    scroll: Option<Res<bevy::input::mouse::AccumulatedMouseScroll>>,
 ) {
     let Ok(mut proj) = cams.single_mut() else { return };
     // Read first: a write every frame would mark the projection changed.
@@ -161,11 +172,25 @@ pub(crate) fn zoom(
     // A reload or a jam holds the sights down (`combat::sights_held_down`): the zoom and a
     // scope go, and come back after it while Block is still held.
     let sight = combat.as_deref().filter(|c| !c.player_sights_held_down()).and_then(Combat::sight_fov).filter(|_| playing && control.aiming && control.weapon_out && anim.ready);
+    // The player's tweak: the wheel zooms a scope in (up) and out, from half to double
+    // its Sight FOV; set again each time the scope comes up [design: docs/design/tweaks.md].
+    if !scope.on {
+        z.scope_zoom = 0.0;
+    } else if tweaks.as_ref().is_some_and(|t| t.scope_wheel_zoom) {
+        let notches = scroll.as_ref().map_or(0.0, |s| s.delta.y);
+        if notches != 0.0 {
+            z.scope_zoom = (if z.scope_zoom > 0.0 { z.scope_zoom } else { 1.0 } * SCOPE_WHEEL_STEP.powf(-notches)).clamp(0.5, 2.0);
+        }
+    }
+    let wheel = if z.scope_zoom > 0.0 { z.scope_zoom } else { 1.0 };
+    let sight = sight.map(|(w, deg)| (w, if scope.on { deg * wheel } else { deg }));
     if let Some((_, deg)) = sight {
         z.sight = Some(vertical_fov(deg));
     }
     z.aimed = sight.is_some();
-    let step = time.delta_secs().min(0.25) / ZOOM_SECONDS;
+    // The player's tweak times a scope's zoom its own way [design: docs/design/tweaks.md].
+    let secs = if scope.on { ZOOM_SECONDS * tweaks.as_ref().map_or(1.0, |t| t.scope_zoom_time).max(0.1) } else { ZOOM_SECONDS };
+    let step = time.delta_secs().min(0.25) / secs;
     let was = z.blend;
     z.blend = if sight.is_some() { (z.blend + step).min(1.0) } else { (z.blend - step).max(0.0) };
     // The scope: up at full zoom in first person, down as soon as the aim is let go.
@@ -177,10 +202,16 @@ pub(crate) fn zoom(
     // A 3D scope zooms the main view only a little, from the start of the aim.
     if let Some(s) = &scoped {
         z.main = if s.lens_3d { LENS_MAIN_SHARE } else { 1.0 };
+    } else if tweaks.as_ref().is_some_and(|t| t.no_sight_zoom) {
+        // The player's tweak: iron sights do not zoom [design: docs/design/tweaks.md].
+        z.main = 0.0;
     } else if sight.is_some() || z.main == 0.0 {
         z.main = 1.0;
     }
-    let scoped = scoped.filter(|_| z.blend >= 1.0).unwrap_or_default();
+    // The player's tweak holds the scope back a while after the zoom is full [design: docs/design/tweaks.md].
+    z.full_for = if z.blend >= 1.0 { z.full_for + time.delta_secs().min(0.25) } else { 0.0 };
+    let delay = tweaks.as_ref().map_or(0.0, |t| t.scope_delay_ms) / 1000.0;
+    let scoped = scoped.filter(|_| z.blend >= 1.0 && (delay <= 0.0 || z.full_for >= delay)).unwrap_or_default();
     if scoped != *scope {
         if scoped.on && (scope.weapon != scoped.weapon || !scope.on) {
             let edid = combat.as_deref().and_then(|c| c.forms.weapons.get(&scoped.weapon?)).and_then(|ws| ws.edid.clone()).unwrap_or_else(|| "?".into());

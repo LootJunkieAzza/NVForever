@@ -456,6 +456,35 @@ fn semi_automatic_cycle_and_reload() {
 }
 
 #[test]
+fn the_tweaks_keep_a_semi_auto_pull_and_reload_in_recovery() {
+    // docs/design/tweaks.md: bSemiAutoQueue and bReloadWhileFiring.
+    let t = CombatTuning::default();
+    let w = WeaponStats { clip_size: 20, ..gun(20) };
+    let timing = Timing::of(&w, &ClipTiming::default(), &t);
+    // Pulls every 0.45 s at a 0.5 s interval: plain, each second pull lands early and
+    // is lost; with a 0.1 s queue it is kept.
+    let pulls = |k: usize| k.is_multiple_of(9);
+    let mut plain = Cycle::new(&w, timing, false, 20);
+    let mut queued = Cycle::new(&w, timing, false, 20);
+    queued.semi_auto_queue = 0.1;
+    let a = shots(&run(&mut plain, &t, 60, 0.05, pulls, 0));
+    let b = shots(&run(&mut queued, &t, 60, 0.05, pulls, 0));
+    assert!(b > a, "plain {a}, queued {b}");
+    // A reload asked for while the shot recovers starts at once.
+    let mut c = Cycle::new(&w, timing, false, 5);
+    c.reload_in_recovery = true;
+    let mut ev = c.step(&t, Input { trigger: true, reload: false, dt: 0.05, carried: 10 });
+    for _ in 0..10 {
+        if ev.iter().any(|e| matches!(e, Event::Fired { .. })) {
+            break;
+        }
+        ev.extend(c.step(&t, Input { trigger: false, reload: false, dt: 0.01, carried: 10 }));
+    }
+    ev.extend(c.step(&t, Input { trigger: false, reload: true, dt: 0.01, carried: 10 }));
+    assert!(ev.contains(&Event::ReloadStarted), "{ev:?}");
+}
+
+#[test]
 fn every_fourth_shot_is_free_with_a_regenerate_ammo_shots_mod() {
     // weapon-data-fields.md §5: shots 4 and 8 of eight use no ammunition.
     let t = CombatTuning::default();
@@ -1556,4 +1585,14 @@ fn companion_nerve_raises_damage_and_armour() {
     let t = Target { dt: 8.0, dr: 10.0, nerve: 0.25, ..Target::default() };
     let d = hit(&w, 1, &skilled(), &t, &[], HitPart::default(), 0.99);
     assert!(close(d.dt, 10.0) && close(d.dr, 12.5) && close(d.dealt, 10.0 * 0.875), "{d:?}");
+}
+
+#[test]
+fn the_radius_buff_keeps_the_inner_part_whole() {
+    // bExplosionRadiusBuff (docs/design/tweaks.md): full damage to 30% of the radius,
+    // 20% at its edge.
+    let t = CombatTuning { explosion_inner: 0.3, explosion_inner_edge: 0.2, ..CombatTuning::default() };
+    assert_eq!(fnv_combat::damage::explosion_damage(&t, 100.0, 100.0, 20.0), 100.0);
+    assert!((fnv_combat::damage::explosion_damage(&t, 100.0, 100.0, 100.0) - 20.0).abs() < 1e-3);
+    assert!((fnv_combat::damage::explosion_damage(&CombatTuning::default(), 100.0, 100.0, 100.0) - 25.0).abs() < 1e-3);
 }

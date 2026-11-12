@@ -184,7 +184,13 @@ fn sync(mut st: ResMut<LevelUpMenu>, script: Option<ResMut<ScriptState>>, sim: O
             }
         }
         g.showoff.b5.levelup.can_exit_early = false;
+        m.preview_perks = g.tweaks.preview_perks && !m.perks_only && !m.perk_due;
         info!("levelup: menu open, level {level}, {} skill points, perk {}", m.skills.points, if m.perk_due { "due" } else { "not due" });
+        // The player's tweak: nothing to spend on skills, so straight to the perks [design: docs/design/tweaks.md].
+        if g.tweaks.skip_skill_page_without_points && !m.perks_only && m.skills.points == 0 && m.perk_due {
+            info!("levelup: no skill points to spend, the perks page first (tweak)");
+            m.to_perks(rules::PerkSheet::of_player(g, level));
+        }
         m
     });
     sounds.write(UiSound { menu: UiMenu::LevelUp, event: UiEvent::Opened });
@@ -234,6 +240,7 @@ fn input(
     script: Option<ResMut<ScriptState>>,
     sim: Option<ResMut<SimState>>,
     mut sounds: MessageWriter<UiSound>,
+    tweaks: Option<Res<crate::tweaks::TweakSettings>>,
 ) {
     use KeyCode::*;
     let typed: Vec<KeyboardInput> = typed.read().cloned().collect();
@@ -275,7 +282,14 @@ fn input(
                 _ => {}
             }
         }
-        if wheel.abs() >= 1.0 {
+        // The player's tweak: on the skills page the wheel raises and lowers the chosen
+        // skill (the one under the pointer) instead of scrolling [design: docs/design/tweaks.md].
+        let wheel_sets = tweaks.as_ref().is_some_and(|t| t.levelup_wheel) && st.open.as_ref().is_some_and(|m| m.page == model::Page::Skills);
+        if wheel.abs() >= 1.0 && wheel_sets {
+            for _ in 0..wheel.abs().round() as i32 {
+                ops.push((if wheel > 0.0 { Op::Raise(None) } else { Op::Lower(None) }, "wheel"));
+            }
+        } else if wheel.abs() >= 1.0 {
             ops.push((Op::Scroll(-wheel.round() as i32), "wheel"));
         }
         for (i, r) in &rows {
@@ -441,12 +455,18 @@ fn press(st: &mut LevelUpMenu, script: &mut ScriptState, sim: &mut SimState, how
         return UiEvent::Refused;
     }
     let gains = with_game(script, sim, |g| m.skills.gains().iter().map(|&(s, d)| format!("{} +{d}", fnv_game::chargen::skill_name(g, s))).collect::<Vec<_>>().join(", ")).unwrap_or_default();
-    if m.page == Page::Skills && m.perk_due && !done {
+    if m.page == Page::Skills && (m.perk_due || m.preview_perks) && !done {
         let skills = m.skills.clone();
         let level = m.level;
+        // The player's tweak: a preview takes no perk [design: docs/design/tweaks.md].
+        let preview = !m.perk_due;
         let perks = with_game(script, sim, |g| {
             skills.apply(g);
-            rules::PerkSheet::of_player(g, level)
+            let mut p = rules::PerkSheet::of_player(g, level);
+            if preview {
+                p.count = 0;
+            }
+            p
         });
         let Some(perks) = perks else { return UiEvent::Refused };
         info!("levelup: skills {}; perks page: {} perks listed, {} can be taken", or_none(&gains), perks.perks.len(), perks.available.iter().filter(|&&a| a).count());

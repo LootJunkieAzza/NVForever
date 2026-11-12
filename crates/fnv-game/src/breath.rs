@@ -96,7 +96,11 @@ impl Game<'_> {
     /// a second, and the breath back at once above the water.
     pub fn breath_rules(&mut self, r: FormId) -> BreathRules {
         let end = actor::actor_value(self, r, crate::actor_values::ENDURANCE).unwrap_or(5.0);
-        BreathRules { seconds: breath_seconds(end), damage: DROWN_SHARE * self.max_health(r) as f32, recover: f32::INFINITY }
+        // The player's Slow Breath Regen tweak: breath comes back at a rate, not at once
+        // [design: docs/design/tweaks.md].
+        let rate = self.tweaks.breath_regain;
+        let recover = if r == FormId::PLAYER_REF && rate > 0.0 { rate } else { f32::INFINITY };
+        BreathRules { seconds: breath_seconds(end), damage: DROWN_SHARE * self.max_health(r) as f32, recover }
     }
 
     /// Whether `r` breathes under water: its Water Breathing above 0, or an active effect

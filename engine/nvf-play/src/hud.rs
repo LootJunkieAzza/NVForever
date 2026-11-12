@@ -220,6 +220,9 @@ const CND_LABEL_GAP: f32 = 11.0;
 /// original draws it left of the divider, right-justified at `AmmoTypeLabel`'s W - 236,
 /// and moves the condition row left to make room (hud.md §4; the tile HUD does that).
 const AMMO_LABEL_X: f32 = 214.0;
+/// How far below the count's baseline the ammo label goes with the Move Ammo Type Label
+/// tweak, within the panel [design: docs/design/tweaks.md].
+const AMMO_LABEL_DROP: f32 = 17.0;
 /// The enemy bar's pips: as many as fit between the bracket's corner marks.
 const ENEMY_PIPS: usize = 31;
 /// The enemy's name: the line it stands on in its piece, centred.
@@ -505,6 +508,7 @@ fn gather(
     (vats, wheel): (Option<Res<crate::vats_mode::VatsMode>>, Option<Res<crate::weapon_wheel::WeaponWheel>>),
     driven: Option<Res<crate::player::ViewDriven>>,
     kill_cam: Option<Res<crate::kill_cam::KillCam>>,
+    tweaks: Option<Res<crate::tweaks::TweakSettings>>,
 ) {
     // [documented: GECK wiki DisablePlayerControls, the movement flag: "HUD is partially
     // disabled: Action Points, Health, Crosshair".]
@@ -534,8 +538,16 @@ fn gather(
     }
     if let Some(c) = &combat {
         now.weapon = c.hud_weapon(&sim);
+        // The player's tweak hides the ammo counter [design: docs/design/tweaks.md].
+        if tweaks.as_ref().is_some_and(|t| t.hide_ammo_label) {
+            now.weapon.ammo = None;
+            now.weapon.abbrev = None;
+        }
     }
-    let sneaking = control.is_some_and(|c| c.sneak);
+    // The player's tweak leaves the sneak label off [design: docs/design/tweaks.md].
+    // The player's tweaks: the label off, or shown standing too [design: docs/design/tweaks.md].
+    let standing = tweaks.as_ref().is_some_and(|t| t.sneak_label_standing);
+    let sneaking = (control.is_some_and(|c| c.sneak) || standing) && !tweaks.is_some_and(|t| t.no_sneak_label);
     if let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) {
         now.sneak = sneaking.then(|| sneak_now(&rt.game));
         (now.health, now.action_points) = with_world(rt, &mut sim, |rt| {
@@ -885,9 +897,9 @@ fn draw(
     mut root: Query<&mut Visibility, (With<HudRoot>, Without<ConditionRow>, Without<EnemyPiece>)>,
     mut condition: Query<&mut Visibility, (With<ConditionRow>, Without<HudRoot>, Without<EnemyPiece>)>,
     mut enemy: Query<(&mut Visibility, &mut Node), (With<EnemyPiece>, Without<HudRoot>, Without<ConditionRow>, Without<ConditionBar>, Without<Strip>)>,
-    mut bar: Query<&mut Node, (With<ConditionBar>, Without<Strip>, Without<EnemyPiece>)>,
+    mut bar: Query<(&mut Node, &mut BackgroundColor), (With<ConditionBar>, Without<Strip>, Without<EnemyPiece>)>,
     mut strip: Query<(&mut Strip, &mut Node), (Without<ConditionBar>, Without<EnemyPiece>)>,
-    vats: Option<Res<crate::vats_mode::VatsMode>>,
+    (tweaks, time, vats): (Option<Res<crate::tweaks::TweakSettings>>, Res<Time<Real>>, Option<Res<crate::vats_mode::VatsMode>>),
 ) {
     // The HUD's lengths at the UI scale (`crate::interface::hud_units`, #1631).
     let _hud = crate::interface::hud_units();
@@ -923,10 +935,20 @@ fn draw(
             node.bottom = bottom;
         }
     }
-    let width = u(condition_width(view.weapon.condition.unwrap_or(0.0)));
-    for mut node in &mut bar {
+    let cnd = view.weapon.condition.unwrap_or(0.0);
+    let width = u(condition_width(cnd));
+    // The player's tweak: the weapon's condition bar red when low, flashing when lower
+    // [design: docs/design/tweaks.md].
+    let (red_below, flash_below) = tweaks.as_ref().map_or((0.0, 0.0), |t| (t.weapon_cnd_red_below, t.weapon_cnd_flash_below));
+    let flashing = flash_below > 0.0 && cnd < flash_below;
+    let red = (red_below > 0.0 && cnd < red_below) || (flashing && time.elapsed_secs().fract() < 0.5);
+    let colour = if red { crime_colour() } else { amber(CONDITION_BRIGHTNESS) };
+    for (mut node, mut background) in &mut bar {
         if node.width != width {
             node.width = width;
+        }
+        if background.0 != colour {
+            background.0 = colour;
         }
     }
     for (mut strip, node) in &mut strip {
@@ -950,6 +972,7 @@ fn pips(
     real: Res<Time<Real>>,
     mut set_for: Local<Option<(f32, f32)>>,
     mut tick: Local<Option<Option<Handle<Image>>>>,
+    tweaks: Option<Res<crate::tweaks::TweakSettings>>,
 ) {
     if !view.shown {
         return;
@@ -985,10 +1008,28 @@ fn pips(
         return;
     }
     let enemy = target.0.as_ref().map_or(0.0, |t| t.health);
+    // The player's tweak: the HP and AP bars red when low [design: docs/design/tweaks.md].
+    let (red_hp, red_ap) = tweaks.as_ref().map_or((0.0, 0.0), |t| (t.red_hp_below, t.red_ap_below));
+    let low = |value: f32, below: f32| below > 0.0 && value < below;
+    let (hp_red, ap_red) = (low(view.health, red_hp), low(view.action_points, red_ap));
     // In VATS the ticks the damage in sight would take are faint (`TargetHealth::after`):
     // the bar empties towards its middle, so they are its outer lit ticks.
     let after = target.0.as_ref().and_then(|t| t.after).map(|a| lit_middle(a, ENEMY_PIPS));
-    for (pip, mut v, image, fill) in &mut ticks {
+    for (pip, mut v, mut image, mut fill) in &mut ticks {
+        let red = match pip.bar {
+            Bar::Health => Some(hp_red),
+            Bar::ActionPoints => Some(ap_red),
+            Bar::Enemy => None,
+        };
+        if let Some(red) = red {
+            let colour = if red { crime_colour() } else { amber(METER_BRIGHTNESS) };
+            if let Some(i) = image.as_mut().filter(|i| i.color != colour) {
+                i.color = colour;
+            }
+            if let Some(b) = fill.as_mut().filter(|b| b.0 != colour) {
+                b.0 = colour;
+            }
+        }
         let on = match pip.bar {
             Bar::Health => pip.index < lit(view.health, PIPS),
             Bar::ActionPoints => PIPS - 1 - pip.index < lit(view.action_points, PIPS),
@@ -1031,6 +1072,7 @@ fn texts(
     name: Query<Entity, With<EnemyName>>,
     stats: Query<Entity, With<EnemyStats>>,
     sneak: Query<Entity, With<SneakText>>,
+    tweaks: Option<Res<crate::tweaks::TweakSettings>>,
 ) {
     // The HUD's lengths at the UI scale (`crate::interface::hud_units`, #1631).
     let _hud = crate::interface::hud_units();
@@ -1042,7 +1084,9 @@ fn texts(
     let text = ammo_text(view.weapon.ammo);
     let abbrev = view.weapon.abbrev.as_deref().unwrap_or("");
     // Both texts make the key: swapping ammo of the same count changes only the label.
-    let key = format!("{abbrev}|{text}");
+    // The player's tweak: the ammo's label under the count [design: docs/design/tweaks.md].
+    let under = tweaks.as_ref().is_some_and(|t| t.ammo_label_under);
+    let key = format!("{abbrev}|{text}|{under}");
     if shown.0.as_deref() != Some(key.as_str()) {
         if let Ok(e) = ammo.single() {
             let places = Places::new(font);
@@ -1050,7 +1094,11 @@ fn texts(
                 if let Some(line) = font.lines(&text, None).into_iter().next() {
                     set_line(p, face_, &line, places.ammo_right - line.width, LOWER_BASE, amber(255.0));
                     if let Some(label) = font.lines(abbrev, None).into_iter().next().filter(|_| !abbrev.is_empty()) {
-                        set_line(p, face_, &label, AMMO_LABEL_X, LOWER_BASE, amber(255.0));
+                        if under {
+                            set_line(p, face_, &label, places.ammo_right - label.width, LOWER_BASE + AMMO_LABEL_DROP, amber(255.0));
+                        } else {
+                            set_line(p, face_, &label, AMMO_LABEL_X, LOWER_BASE, amber(255.0));
+                        }
                     }
                 }
             });
@@ -1142,7 +1190,7 @@ mod tests {
     fn enemy_ink_tracks_hostility_without_rebuilding_any_children() {
         use crate::hud_target::TargetHealth;
         let mut app = App::new();
-        app.insert_resource(HudTarget(Some(TargetHealth { form_id: 1, name: "Target".into(), health: 0.5, hostile: false, anatomy: Some((50.0, 2.0)), after: None })))
+        app.insert_resource(HudTarget(Some(TargetHealth { form_id: 1, name: "Target".into(), health: 0.5, hostile: false, anatomy: Some((50.0, 2.0)), anatomy_dr: None, after: None })))
             .add_systems(Update, enemy_colours);
         let bracket = app.world_mut().spawn(ImageNode::default()).id();
         let tick = app.world_mut().spawn(BackgroundColor(Color::WHITE)).id();

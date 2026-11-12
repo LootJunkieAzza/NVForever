@@ -124,6 +124,7 @@ pub mod space;
 pub mod terminal;
 pub mod tiles;
 pub mod tutorial_menu;
+pub mod tweaks;
 pub mod ui_pointer;
 pub mod credits;
 mod test_aid;
@@ -421,6 +422,7 @@ impl Plugin for PlayPlugin {
             .add_plugins(weapon_wheel::WeaponWheelPlugin)
             .add_plugins(grab::GrabPlugin)
             .add_plugins(difficulty::DifficultyPlugin)
+            .add_plugins(tweaks::TweaksPlugin)
             .add_plugins(hardcore::HardcorePlugin)
             .add_plugins((ui_colour::UiColourPlugin, language::LanguagePlugin));
         test_aid::setup(app);

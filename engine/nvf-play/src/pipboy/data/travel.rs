@@ -45,10 +45,14 @@ pub enum Refusal {
     Combat,
     HostilesNear,
     Encumbered,
+    /// The player's No Travel on a Crippled Leg tweak [design: docs/design/tweaks.md].
+    CrippledLeg,
+    /// The player's Fast Travel Costs a Nuka-Cola tweak, with no bottle carried [design: docs/design/tweaks.md].
+    NoBottle,
 }
 
 impl Refusal {
-    pub const ALL: [Refusal; 7] = [Refusal::Undiscovered, Refusal::Script, Refusal::Place, Refusal::InAir, Refusal::Combat, Refusal::HostilesNear, Refusal::Encumbered];
+    pub const ALL: [Refusal; 9] = [Refusal::Undiscovered, Refusal::Script, Refusal::Place, Refusal::InAir, Refusal::Combat, Refusal::HostilesNear, Refusal::Encumbered, Refusal::CrippledLeg, Refusal::NoBottle];
 
     /// The game setting holding the refusal's text [documented: GECK wiki, game settings
     /// list].
@@ -61,6 +65,8 @@ impl Refusal {
             Refusal::Combat => "sNoFastTravelCombat",
             Refusal::HostilesNear => "sNoFastTravelHostileActorsNear",
             Refusal::Encumbered => "sNoFastTravelOverencumbered",
+            // No game setting holds these: NVForever's words only.
+            Refusal::CrippledLeg | Refusal::NoBottle => "",
         }
     }
 
@@ -75,6 +81,8 @@ impl Refusal {
             Refusal::Combat => "You cannot fast travel during combat.",
             Refusal::HostilesNear => "You cannot fast travel when enemies are nearby.",
             Refusal::Encumbered => "You cannot fast travel while carrying too much.",
+            Refusal::CrippledLeg => "You cannot fast travel with a crippled leg.",
+            Refusal::NoBottle => "Fast travel needs a Nuka-Cola Quantum, Quartz or Victory.",
         }
     }
 }
@@ -94,6 +102,20 @@ pub struct Checks {
     pub combat: bool,
     pub hostiles_near: bool,
     pub encumbered: bool,
+    /// A leg is crippled and the tweak refuses travel then.
+    pub crippled_leg: bool,
+    /// The Nuka-Cola tweak is on and the player carries none of its bottles.
+    pub no_bottle: bool,
+}
+
+/// The player's fast-travel tweaks [design: docs/design/tweaks.md]: No Fast Travel
+/// refuses as a script's block does; the others drop their refusal.
+pub fn tweak_checks(c: &mut Checks, t: &crate::tweaks::TweakSettings) {
+    c.script_block |= t.disable_fast_travel;
+    c.in_air &= !t.midair_fast_travel;
+    c.hostiles_near &= !t.fast_travel_enemies_nearby;
+    c.encumbered &= !t.fast_travel_overencumbered;
+    c.place &= !t.unsafe_fast_travel;
 }
 
 /// The first refusal that applies, if any.
@@ -106,8 +128,20 @@ pub fn refusal(c: &Checks) -> Option<Refusal> {
         Refusal::Combat => c.combat,
         Refusal::HostilesNear => c.hostiles_near,
         Refusal::Encumbered => c.encumbered,
+        Refusal::CrippledLeg => c.crippled_leg,
+        Refusal::NoBottle => c.no_bottle,
     };
     Refusal::ALL.into_iter().find(|&r| applies(r))
+}
+
+/// The bottles the Fast Travel Costs a Nuka-Cola tweak takes, by editor ID [observed:
+/// FalloutNV.esm] [design: docs/design/tweaks.md].
+const TRAVEL_BOTTLES: [&str; 3] = ["NukaColaQuantum", "NukaColaQuartz", "NukaColaVictory"];
+
+/// One of [`TRAVEL_BOTTLES`] the player carries.
+fn travel_bottle(sim: &mut SimState) -> Option<FormId> {
+    let bottles: Vec<FormId> = TRAVEL_BOTTLES.iter().filter_map(|e| sim.forms.by_edid(e)).collect();
+    bottles.into_iter().find(|&b| sim.world.item_count(FormId::PLAYER_REF, b).is_ok_and(|n| n > 0))
 }
 
 /// The CELL `DATA` flag "Can't Travel From Here" and the WRLD `DATA` flag "Can't Fast
@@ -228,6 +262,8 @@ pub fn answer(
     mut sim: ResMut<SimState>,
     mut script: Option<ResMut<ScriptState>>,
     (phys, location, actors, cues, world): Around,
+    tweaks: Option<Res<crate::tweaks::TweakSettings>>,
+    limbs: Option<Res<crate::combat::PlayerLimbs>>,
 ) {
     let Some(&FastTravelAsk(marker)) = asks.read().last() else { return };
     let Some(mut st) = state else { return };
@@ -265,7 +301,8 @@ pub fn answer(
         info!("fast travel: over-encumbered, but Has Fast Travel Always (Long Haul) lets the player travel");
     }
     let encumbered = over && !long_haul;
-    let checks = Checks {
+    let tw = tweaks.as_deref().cloned().unwrap_or_default();
+    let mut checks = Checks {
         target: travel_target(&st, script.as_deref(), &m),
         script_block,
         place,
@@ -274,7 +311,15 @@ pub fn answer(
         combat: cues.is_some_and(|c| c.combat),
         hostiles_near: hostile.is_some(),
         encumbered,
+        crippled_leg: tw.no_travel_crippled_leg && limbs.as_ref().is_some_and(|l| l.limping()),
+        no_bottle: tw.game.travel_costs_bottle && travel_bottle(&mut sim).is_none(),
     };
+    tweak_checks(&mut checks, &tw);
+    // The player's tweak: an undiscovered marker refuses quietly [design: docs/design/tweaks.md].
+    if tw.quiet_undiscovered && refusal(&checks) == Some(Refusal::Undiscovered) {
+        info!("fast travel: to {} refused quietly (undiscovered, tweak)", FormId(marker));
+        return;
+    }
     st.popup = Some(match refusal(&checks) {
         Some(r) => {
             let text = setting_str(&sim, r.setting()).unwrap_or_else(|| r.own_text().to_string());
@@ -312,11 +357,12 @@ struct Trip {
 pub fn go(
     mut goes: MessageReader<FastTravelGo>,
     state: Option<Res<DataState>>,
-    sim: Res<SimState>,
+    mut sim: ResMut<SimState>,
     phys: Res<PhysState>,
     location: Res<Location>,
     mut pending: ResMut<Pending>,
     mut menu: MessageWriter<MenuInput>,
+    tweaks: Option<Res<crate::tweaks::TweakSettings>>,
 ) {
     let Some(&FastTravelGo(marker)) = goes.read().last() else { return };
     let Some(m) = state.as_ref().and_then(|st| st.markers.iter().flatten().find(|m| m.form == marker).cloned()) else { return };
@@ -339,7 +385,8 @@ pub fn go(
     };
     let distance = from.map_or(0.0, |f| (dest.pos[0] - f[0]).hypot(dest.pos[1] - f[1]));
     let scale = sim.world.time_scale().unwrap_or(OWN_TIME_SCALE);
-    let hours = travel_hours(distance, crate::player::MoveSpeeds::OBSERVED.walk, scale);
+    // The player's tweak: no time passes on the trip (and so no needs) [design: docs/design/tweaks.md].
+    let hours = if tweaks.as_ref().is_some_and(|t| t.no_travel_time) { 0.0 } else { travel_hours(distance, crate::player::MoveSpeeds::OBSERVED.walk, scale) };
     let travel = Travel { world, interior, feet: dest.pos, heading_deg: crate::activate::outcome::heading_deg(dest.rot) };
     info!(
         "fast travel: to {} ({}): arrive at {} {:?}, {:.0} units away, {hours:.2} hours on the clock",
@@ -349,6 +396,13 @@ pub fn go(
         dest.pos,
         distance
     );
+    // The player's tweak: the trip takes a bottle [design: docs/design/tweaks.md].
+    if tweaks.as_ref().is_some_and(|t| t.game.travel_costs_bottle) {
+        if let Some(b) = travel_bottle(&mut sim) {
+            let _ = sim.world.remove_item(FormId::PLAYER_REF, b, 1);
+            info!("fast travel: one {} taken for the trip (tweak)", sim.name(b).unwrap_or("bottle"));
+        }
+    }
     pending.0 = Some(Trip { travel, to: dest.id.0, cell: dest.cell.map(|c| c.0), rot: dest.rot, hours });
     menu.write(MenuInput(Command::Close));
 }
@@ -417,14 +471,29 @@ mod tests {
     use super::*;
 
     #[test]
+    fn the_tweaks_drop_or_add_refusals() {
+        let all = Checks { target: true, in_air: true, combat: true, hostiles_near: true, encumbered: true, ..Checks::default() };
+        let mut c = all;
+        tweak_checks(&mut c, &crate::tweaks::TweakSettings::default());
+        assert_eq!(c, all, "no tweak changes nothing");
+        let t = crate::tweaks::TweakSettings { midair_fast_travel: true, fast_travel_enemies_nearby: true, fast_travel_overencumbered: true, ..Default::default() };
+        tweak_checks(&mut c, &t);
+        assert_eq!(refusal(&c), Some(Refusal::Combat), "combat itself still refuses");
+        let mut open = Checks { target: true, ..Checks::default() };
+        tweak_checks(&mut open, &crate::tweaks::TweakSettings { disable_fast_travel: true, ..Default::default() });
+        assert_eq!(refusal(&open), Some(Refusal::Script));
+    }
+
+    #[test]
     fn the_refusals_go_in_order() {
         let open = Checks { target: true, ..Checks::default() };
         assert_eq!(refusal(&open), None);
         assert_eq!(refusal(&Checks::default()), Some(Refusal::Undiscovered));
-        let all = Checks { target: true, script_block: true, place: true, in_air: true, combat: true, hostiles_near: true, encumbered: true };
+        let all = Checks { target: true, script_block: true, place: true, in_air: true, combat: true, hostiles_near: true, encumbered: true, crippled_leg: true, no_bottle: true };
         assert_eq!(refusal(&all), Some(Refusal::Script));
         assert_eq!(refusal(&Checks { script_block: false, place: false, ..all }), Some(Refusal::InAir));
         assert_eq!(refusal(&Checks { target: true, hostiles_near: true, ..Checks::default() }), Some(Refusal::HostilesNear));
+        assert_eq!(refusal(&Checks { target: true, crippled_leg: true, ..Checks::default() }), Some(Refusal::CrippledLeg), "the tweak's refusal, last");
     }
 
     #[test]

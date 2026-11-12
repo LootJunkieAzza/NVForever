@@ -395,12 +395,15 @@ impl Plugin for SavePlugin {
 const GROUP: &str = "Saving";
 
 /// The QuickSave and QuickLoad keys and the [`SaveRequest`]s.
-fn requests(input: crate::bindings::ControlInput, state: Res<State<PlayState>>, mut asked: MessageReader<SaveRequest>, mut queue: ResMut<SaveQueue>, cfg: Res<SaveConfig>, mut load: MessageWriter<LoadRequest>, mut log: ResMut<SaveLog>) {
+#[allow(clippy::too_many_arguments)]
+fn requests(input: crate::bindings::ControlInput, state: Res<State<PlayState>>, mut asked: MessageReader<SaveRequest>, mut queue: ResMut<SaveQueue>, cfg: Res<SaveConfig>, mut load: MessageWriter<LoadRequest>, mut log: ResMut<SaveLog>, tweaks: Option<Res<crate::tweaks::TweakSettings>>) {
     queue.0.extend(asked.read().cloned());
-    if *state.get() != PlayState::Playing {
+    // The player's tweak: QuickLoad works in the main and pause menus too [design: docs/design/tweaks.md].
+    let menu_load = tweaks.is_some_and(|t| t.quick_load_in_menus) && *state.get() == PlayState::Menu;
+    if *state.get() != PlayState::Playing && !menu_load {
         return;
     }
-    if input.just_pressed(crate::bindings::Control::QuickSave) {
+    if !menu_load && input.just_pressed(crate::bindings::Control::QuickSave) {
         info!("save: QuickSave key");
         queue.0.push(SaveRequest { name: fnv_save::QUICK_NAME.into(), kind: SaveKind::Quick });
     }
@@ -865,6 +868,14 @@ fn apply_engine(world: &mut World) {
         return;
     }
     let Some(PendingEngine(e, path, order)) = world.remove_resource::<PendingEngine>() else { return };
+    // The player's tweak: a load turns god mode off [design: docs/design/tweaks.md].
+    if world.get_resource::<crate::tweaks::TweakSettings>().is_some_and(|t| t.game.god_mode_off_on_load) && crate::combat::god_mode() {
+        crate::combat::set_god_mode(false);
+        if let Some(rt) = world.get_resource_mut::<ScriptState>().and_then(|s| s.into_inner().rt.as_mut()) {
+            rt.game.toggles.god_mode = false;
+        }
+        info!("save: god mode off after the load (tweak)");
+    }
     // GetLoadOrderChanged (`fnv_game::nvse_jip12`): the save's plugins moved or are gone
     // [hypothesis: plugins only added after the save's own do not count].
     if let Some(rt) = world.get_resource_mut::<ScriptState>().and_then(|s| s.into_inner().rt.as_mut()) {

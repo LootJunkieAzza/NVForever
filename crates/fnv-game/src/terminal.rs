@@ -44,6 +44,9 @@ pub struct Terminals {
     /// ForceTerminalBack was called by the result script running now
     /// ([`choose`] hands it on as [`Chosen::back`]).
     pub back: bool,
+    /// Terminals opened at their menu this session: the Show Use Password tweak's prompt
+    /// stops once one has been opened with its note [design: docs/design/tweaks.md]. Not saved.
+    pub opened: std::collections::BTreeSet<FormId>,
 }
 
 /// What activating a terminal does.
@@ -85,7 +88,18 @@ pub fn still_locked(g: &mut Game, reference: FormId, base: FormId) -> Option<Dif
     let unlocked = script.is_none() && t.has(terminal_flag::UNLOCKED);
     // [hypothesis, hacking.md §6] The password note opens a terminal without hacking,
     // even one locked out (GECK wiki Lock: the note keeps access); it is checked first.
-    if unlocked || g.terminals.access.get(&reference) == Some(&Access::Hacked) || has_password(g, t) {
+    let hacked = g.terminals.access.get(&reference) == Some(&Access::Hacked);
+    let with_note = has_password(g, t);
+    if unlocked || hacked || with_note {
+        // The player's tweak: the password earns a share of the hack's experience,
+        // once (the terminal counts as hacked after) [design: docs/design/tweaks.md].
+        let share = g.tweaks.password_xp_share;
+        if with_note && !hacked && !unlocked && share > 0.0 {
+            let d = Difficulty::from_code(t.difficulty);
+            let x = xp(g, d) * f64::from(share);
+            g.terminals.access.insert(reference, Access::Hacked);
+            crate::experience::award(g, crate::experience::Source::HackTerminal, x.round());
+        }
         return None;
     }
     // The Leveled flag is not applied: how the level would change with the player's
@@ -97,11 +111,29 @@ pub fn still_locked(g: &mut Game, reference: FormId, base: FormId) -> Option<Dif
     Some(Difficulty::from_code(code))
 }
 
+/// The player's Show Use Password tweak [design: docs/design/tweaks.md]: a terminal that is locked to others but
+/// opens to the player's password note, and has not been opened yet, shows as locked
+/// with the password to use.
+pub fn opens_by_password(g: &mut Game, reference: FormId, base: FormId) -> bool {
+    if !g.tweaks.terminal_password_prompt || g.terminals.opened.contains(&reference) {
+        return false;
+    }
+    let Some(t) = g.data.terminals.get(&base) else { return false };
+    let script = g.terminals.script_locks.get(&reference).copied();
+    if script.is_some_and(|l| !l.locked) || (script.is_none() && t.has(terminal_flag::UNLOCKED)) || g.terminals.access.get(&reference) == Some(&Access::Hacked) {
+        return false;
+    }
+    has_password(g, t)
+}
+
 /// What activating the terminal reference `reference` of base `base` does, for a player
 /// of Science skill `sci` ([`science`]).
 pub fn opening(g: &mut Game, reference: FormId, base: FormId, sci: f32) -> Option<Opening> {
     g.data.terminals.get(&base)?;
-    let Some(difficulty) = still_locked(g, reference, base) else { return Some(Opening::Menu) };
+    let Some(difficulty) = still_locked(g, reference, base) else {
+        g.terminals.opened.insert(reference);
+        return Some(Opening::Menu);
+    };
     if g.terminals.access.get(&reference) == Some(&Access::LockedOut) {
         // Computer Whiz's Ignore Locked Terminal: one more try at a locked-out terminal
         // [documented: GECK wiki Entry Point, "run when the player attempts to activate a
@@ -113,7 +145,14 @@ pub fn opening(g: &mut Game, reference: FormId, base: FormId, sci: f32) -> Optio
         tracing::info!("terminal: {reference} is locked out; Ignore Locked Terminal (Computer Whiz) gives one more try");
     }
     let s = Settings::default();
-    Some(match hacking::may_hack(sci, difficulty, &s) {
+    // The player's tweak: the skill is not asked for (the words are as before) [design: docs/design/tweaks.md].
+    // The player's tweak: Science well over the lock skips the game [design: docs/design/tweaks.md].
+    if g.tweaks.auto_unlock_terminals && hacking::Difficulty::lock_level(difficulty, &s).is_some_and(|needed| sci >= needed + g.tweaks.auto_unlock_margin) {
+        tracing::info!("terminal: {reference} opened without the hacking game (Science {sci}, tweak)");
+        return Some(Opening::Menu);
+    }
+    let asked = if g.tweaks.hack_terminals_without_skill { sci.max(100.0) } else { sci };
+    Some(match hacking::may_hack(asked, difficulty, &s) {
         Err(r) => Opening::Refused(r),
         Ok(()) => Opening::Hack { difficulty, words: hacking::word_count(sci, difficulty, &s) },
     })
@@ -169,6 +208,11 @@ pub fn lock_level(g: &Game, reference: FormId) -> i32 {
 /// The hacking game ended; a hacked terminal gives the player its XP ([`xp`]). The
 /// experience earned.
 pub fn hacked(g: &mut Game, reference: FormId, success: bool) -> f64 {
+    // The player's tweak: a failure leaves the terminal as it was [design: docs/design/tweaks.md].
+    if !success && g.tweaks.no_terminal_lockout {
+        tracing::info!("terminal: {reference} hack failed; not locked out (tweak)");
+        return 0.0;
+    }
     let a = if success { Access::Hacked } else { Access::LockedOut };
     // Locked out again on Computer Whiz's try: that try is spent.
     if g.terminals.access.insert(reference, a) == Some(Access::LockedOut) && !success {

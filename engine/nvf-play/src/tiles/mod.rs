@@ -245,6 +245,7 @@ struct HudTiles<'w> {
     bindings: Option<Res<'w, crate::bindings::Bindings>>,
     enemy: Option<Res<'w, crate::hud_target::HudTarget>>,
     aim_hostile: Option<Res<'w, crate::hud_target::AimHostile>>,
+    tweaks: Option<Res<'w, crate::tweaks::TweakSettings>>,
     limbs: Option<Res<'w, crate::hud_limbs::Indicator>>,
     player_limbs: Option<Res<'w, crate::combat::PlayerLimbs>>,
     breath: Option<Res<'w, crate::drowning::PlayerBreath>>,
@@ -305,8 +306,8 @@ impl HudTiles<'_> {
             root,
             aiming: playing && self.zoom.as_ref().is_some_and(|z| z.aimed),
             corners,
-            sneak: corners && self.control.as_ref().is_some_and(|c| c.sneak),
-            reticle: reticle && !locks.movement,
+            sneak: corners && self.control.as_ref().is_some_and(|c| c.sneak) && !self.tweaks.as_ref().is_some_and(|t| t.no_sneak_label),
+            reticle: reticle && !locks.movement && !self.tweaks.as_ref().is_some_and(|t| t.crosshair_hidden),
             enemy: corners && enemy.is_some(),
             quests: notices && quest.is_some() && !location,
             messages: notices && self.corner.as_ref().is_some_and(|c| c.showing().is_some()),
@@ -423,6 +424,7 @@ impl HudTiles<'_> {
                 lock_text: self.target.as_ref().and_then(|t| t.0.as_ref()).map_or_else(|| "Locked".into(), |t| {
                     match t.action {
                         crate::activate::outcome::Action::Locked { level } => format!("[Locked - {}]", crate::activate::outcome::lock_text(level)),
+                        crate::activate::outcome::Action::UsePassword => "[Locked - Use Password]".into(),
                         _ => "Locked".into(),
                     }
                 }),
@@ -430,7 +432,7 @@ impl HudTiles<'_> {
                     .target
                     .as_ref()
                     .and_then(|t| t.0.as_ref())
-                    .is_some_and(|t| matches!(t.action, crate::activate::outcome::Action::Locked { .. })),
+                    .is_some_and(|t| matches!(t.action, crate::activate::outcome::Action::Locked { .. } | crate::activate::outcome::Action::UsePassword)),
                 // Only the two captured heights; further lines/wrapping await text
                 // layout [hypothesis: hud.md §14.3; design: widths deferred].
                 height: if p.name.lines().count() > 1 { 80.0 } else { 42.0 },
@@ -443,11 +445,12 @@ impl HudTiles<'_> {
                         use fnv_game::ui_hud::MarkKind;
                         fnv_game::ui_hud::CompassMark {
                             kind: match kind {
-                                Mark::Actor => MarkKind::Actor,
+                                Mark::Actor | Mark::Companion => MarkKind::Actor,
                                 Mark::Hostile => MarkKind::Hostile,
                                 Mark::Place => MarkKind::Place,
                                 Mark::Found => MarkKind::Found,
                                 Mark::Quest => MarkKind::Quest,
+                                Mark::Player => MarkKind::Player,
                             },
                             heading: 139.0 + f64::from(*offset), // [observed: hud.md §14.5].
                             distance: 1.0,                       // [hypothesis: hud.md §14.6; drawing stores no distances].

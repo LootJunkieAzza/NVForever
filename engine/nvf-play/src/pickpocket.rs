@@ -115,6 +115,16 @@ fn results(
         for &(item, n) in &p.given {
             match combat.as_deref().and_then(|c| live_explosive(c, item)) {
                 Some(explosion) => {
+                    // The player's tweak: under the weapon's skill requirement the explosive
+                    // stays a plain item [design: docs/design/tweaks.md].
+                    let need = combat.as_deref().and_then(|c| c.forms.weapons.get(&item)).and_then(|w| Some((fnv_game::functions::av_by_name(w.skill.as_deref()?)?, w.skill_req)));
+                    if let Some((skill, req)) = need.filter(|_| rt.game.tweaks.planting_needs_skill) {
+                        let has = crate::script::with_world(rt, &mut sim, |rt| fnv_game::functions::actor_value_capped(&mut rt.game, FormId::PLAYER_REF, skill));
+                        if has < f64::from(req) {
+                            info!("pickpocket: placed {} x{n} not live on {name} {victim} (skill {has:.0} under {req}, tweak)", item_name(&sim, item));
+                            continue;
+                        }
+                    }
                     let blast = combat.as_deref().map(|c| blast_of(c, item, explosion)).unwrap_or_default();
                     let mut refused = None;
                     for _ in 0..n {

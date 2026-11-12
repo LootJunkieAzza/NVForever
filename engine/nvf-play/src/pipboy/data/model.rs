@@ -11,14 +11,34 @@ pub const CELL: f32 = 4096.0;
 /// then the time of day as the wait menu writes it ("10.25.81, 9:29") [observed: the
 /// owner's screenshots show "10.25.81, 9:29" on 25 October 2281; hypothesis: no leading
 /// zero on the month or the day, a 24-hour clock as the wait menu's, wait-menu.md §4].
-pub fn date_time(c: &Calendar) -> String {
-    format!(
-        "{}.{}.{:02}, {}",
-        c.month as i64 + 1,
-        c.day as i64,
-        (c.year as i64).rem_euclid(100),
-        crate::wait::model::clock(crate::wait::model::minute_of_day(c))
-    )
+/// The clock in 12 hours with the player's tweak ("9:29 PM") [design: docs/design/tweaks.md].
+pub fn date_time_with(c: &Calendar, twelve: bool) -> String {
+    let minute = crate::wait::model::minute_of_day(c);
+    let clock = if twelve { clock_12(minute) } else { crate::wait::model::clock(minute) };
+    let date = crate::wait::model::styled_date(c).unwrap_or_else(|| format!("{}.{}.{:02}", c.month as i64 + 1, c.day as i64, (c.year as i64).rem_euclid(100)));
+    format!("{date}, {clock}")
+}
+
+/// Game units in a metre, for the map's distance line [hypothesis: the scale commonly
+/// given for Gamebryo games, 1 unit about 1.43 cm].
+pub const UNITS_PER_METRE: f32 = 70.0;
+
+/// A distance in game units as the World Map's tweak line writes it: metres under a
+/// kilometre, else kilometres to a tenth ("350 m away", "2.4 km away"; our words) [design: docs/design/tweaks.md].
+pub fn distance_text(units: f32) -> String {
+    let m = units / UNITS_PER_METRE;
+    if m < 1000.0 {
+        format!("{:.0} m away", (m / 10.0).round() * 10.0)
+    } else {
+        format!("{:.1} km away", m / 1000.0)
+    }
+}
+
+/// `minute_of_day` as a 12-hour clock: 0:05 is "12:05 AM", 13:30 "1:30 PM".
+pub fn clock_12(minute_of_day: u32) -> String {
+    let h = minute_of_day / 60 % 24;
+    let shown = if h.is_multiple_of(12) { 12 } else { h % 12 };
+    format!("{shown}:{:02} {}", minute_of_day % 60, if h < 12 { "AM" } else { "PM" })
 }
 
 /// A quest in the list: when it was first seen listed (a running count; larger is newer),
@@ -206,9 +226,13 @@ mod tests {
     #[test]
     fn the_heading_writes_the_date_month_first() {
         let c = Calendar { year: 2281.0, month: 9.0, day: 25.0, hour: 9.0 + 29.0 / 60.0, days_passed: 12.0 };
-        assert_eq!(date_time(&c), "10.25.81, 9:29");
+        assert_eq!(date_time_with(&c, false), "10.25.81, 9:29");
         let c = Calendar { year: 2282.0, month: 0.0, day: 3.0, hour: 21.05, days_passed: 0.0 };
-        assert_eq!(date_time(&c), "1.3.82, 21:03");
+        assert_eq!(date_time_with(&c, false), "1.3.82, 21:03");
+        assert_eq!(date_time_with(&c, true), "1.3.82, 9:03 PM", "the 12-hour tweak");
+        assert_eq!(distance_text(70.0 * 347.0), "350 m away");
+        assert_eq!(distance_text(70.0 * 2400.0), "2.4 km away");
+        assert_eq!(clock_12(5), "12:05 AM");
     }
 
     #[test]

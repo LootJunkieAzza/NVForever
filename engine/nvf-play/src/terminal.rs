@@ -552,6 +552,8 @@ fn open(
                     fnv_util::words::trf("You need a Science skill of {needed} to hack this terminal.", &[("needed", &format!("{needed:.0}"))])
                 }
             };
+            // The player's tweak says the player's own Science [design: docs/design/tweaks.md].
+            let line = if matches!(r, fnv_game::hacking::Refusal::Science { .. }) && rt.game.tweaks.show_current_skill { format!("{} (yours: {sci:.0})", line.trim_end_matches('.')) } else { line };
             info!("terminal: {reference} {name} refused (Science {sci:.0}): on screen: {line:?}");
             // A top-left corner message (owner, list 5 item 45).
             if let Some(c) = corner.as_deref_mut() {
@@ -562,10 +564,13 @@ fn open(
         }
         Opening::Hack { difficulty, words: n } => {
             let mut rng = ChaCha8Rng::seed_from_u64(seed(reference, now));
-            let Some(puzzle) = Puzzle::new(&words.0, difficulty, n, &mut rng) else {
+            let Some(mut puzzle) = Puzzle::new(&words.0, difficulty, n, &mut rng) else {
                 warn!("terminal: {reference} {name}: the word list has too few words for {}", difficulty.name());
                 return;
             };
+            // The player's hacking tweaks [design: docs/design/tweaks.md].
+            let t = &rt.game.tweaks;
+            puzzle.rules = fnv_game::hacking::HackRules { no_single_chars: t.hack_no_single_chars, no_repeat_words: t.hack_no_repeat_words, dud_when_full: t.hack_dud_when_full, spare_guessed: t.hack_spare_guessed };
             stats.hacks += 1;
             info!(
                 "terminal: open {reference} {name}: hacking, {} (Science {sci:.0}): {} words of {} letters, {} bracket pairs",
@@ -627,13 +632,19 @@ pub fn step_cursor(p: &Puzzle, cursor: usize, dx: i32, dy: i32) -> usize {
     }
 }
 
-fn keys(keys: Res<ButtonInput<KeyCode>>, screen: Res<TerminalScreen>, mut out: MessageWriter<TerminalInput>) {
+/// How long the granted screen stays with the Faster Hacking tweak [design: docs/design/tweaks.md].
+const FAST_GRANTED_SECONDS: f32 = 0.5;
+
+fn keys(keys: Res<ButtonInput<KeyCode>>, screen: Res<TerminalScreen>, mut out: MessageWriter<TerminalInput>, tweaks: Option<Res<crate::tweaks::TweakSettings>>) {
     use KeyCode::*;
     let Some(s) = screen.0.as_ref() else { return };
     let mut send = |i| {
         out.write(i);
     };
-    if keys.just_pressed(Escape) {
+    // The player's tweak: Tab closes the terminal from any page (Backspace still goes
+    // back) [design: docs/design/tweaks.md].
+    let tab_closes = tweaks.as_ref().is_some_and(|t| t.tab_closes_terminals);
+    if keys.just_pressed(Escape) || (tab_closes && keys.just_pressed(Tab)) {
         send(TerminalInput::Exit);
         return;
     }
@@ -645,6 +656,16 @@ fn keys(keys: Res<ButtonInput<KeyCode>>, screen: Res<TerminalScreen>, mut out: M
         send(TerminalInput::Select);
     }
     let hacking = matches!(s.page, Page::Hacking(_));
+    // The player's tweak: 1 to 9 and 0 (the tenth) choose a row [design: docs/design/tweaks.md].
+    if !hacking && tweaks.as_ref().is_some_and(|t| t.numbered_terminal_keys) {
+        let digits = [Digit1, Digit2, Digit3, Digit4, Digit5, Digit6, Digit7, Digit8, Digit9, Digit0];
+        let pads = [Numpad1, Numpad2, Numpad3, Numpad4, Numpad5, Numpad6, Numpad7, Numpad8, Numpad9, Numpad0];
+        if let Some(row) = (0..10).find(|&i| keys.just_pressed(digits[i]) || keys.just_pressed(pads[i])) {
+            send(TerminalInput::Row(row));
+            send(TerminalInput::Select);
+            return;
+        }
+    }
     if keys.any_just_pressed([ArrowUp, KeyW]) {
         send(TerminalInput::Step(0, -1));
     }
@@ -756,6 +777,11 @@ fn apply(
         let (reference, base) = (s.reference, s.base);
         match &mut s.page {
             Page::Hacking(h) => {
+                // The player's tweak: no leaving once a guess is made, until the game ends [design: docs/design/tweaks.md].
+                if matches!(cmd, TerminalInput::Back | TerminalInput::Exit) && h.ended.is_none() && !h.puzzle.log.is_empty() && rt.game.tweaks.no_exit_hacking {
+                    info!("terminal: leaving refused, a guess was made (tweak)");
+                    continue;
+                }
                 if matches!(cmd, TerminalInput::Back | TerminalInput::Exit) {
                     // Leaving keeps nothing: the next visit is a new game with every
                     // attempt [the owner, 2026-10-11]; a lockout stays.
@@ -984,7 +1010,10 @@ fn timers(time: AidTime, mut screen: ResMut<TerminalScreen>, mut sim: ResMut<Sim
     let Page::Hacking(h) = &s.page else { return };
     let Some(ended) = h.ended else { return };
     let won = h.puzzle.state == GameState::Granted;
-    if now - ended < if won { GRANTED_SECONDS } else { LOCKED_SECONDS } {
+    // The player's tweak keeps the granted screen up briefly only [design: docs/design/tweaks.md].
+    let fast = script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.faster_hacking_transition);
+    let granted = if fast { FAST_GRANTED_SECONDS } else { GRANTED_SECONDS };
+    if now - ended < if won { granted } else { LOCKED_SECONDS } {
         return;
     }
     let Some(rt) = script.as_mut().and_then(|s| s.rt.as_mut()) else { return };
@@ -1146,7 +1175,7 @@ mod tests {
             }
         }
         let words = vec![Word { text: "LOOTING".into(), len: 7, start: 9, removed: false }, Word { text: "MEETING".into(), len: 7, start: 204, removed: false }];
-        Puzzle { chars, address: 0xF650, words, password: 1, attempts: ATTEMPTS, used: Vec::new(), log: Vec::new(), state: GameState::Guessing }
+        Puzzle { chars, address: 0xF650, words, password: 1, attempts: ATTEMPTS, used: Vec::new(), log: Vec::new(), state: GameState::Guessing, rules: Default::default(), guessed: Vec::new() }
     }
 
     #[test]

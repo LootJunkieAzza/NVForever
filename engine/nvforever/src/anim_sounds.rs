@@ -359,6 +359,10 @@ fn sound_heard(
             }
             s.counts.rustles += 1;
             debug!("anim sounds: {:?} rustle {} {gait:?}", h.who, if armor { "armour" } else { "cloth" });
+            // The player's tweak: in third person the player's own rustle is heard from the
+            // body, not at the ear (docs/design/tweaks.md).
+            let body = h.who == Who::Player(false) && nvf_play::tweaks::ARMOR_3D.load(std::sync::atomic::Ordering::Relaxed);
+            let at = if body { at.or(Some(feet)) } else { at };
             out.write(PlaySound { sound: FormId(f.sound), at });
         }
     }
@@ -499,9 +503,14 @@ fn actor_keys(
         };
         let exclude: Vec<Key> = reference.map(|r| vec![Key::Actor(r), Key::Character(r)]).unwrap_or_default();
         let swimming = reference.and_then(|r| phys.as_deref().and_then(|p| p.npcs.get(&r))).is_some_and(|n| n.ch.swimming);
+        let quiet_team = reference.is_some_and(|r| script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.quiet_teammate_steps && rt.game.is_teammate(fnv_sim::FormId(r))));
         let mut stepped = HashSet::new();
         for (clip, key) in heard {
             if let KeySound::Foot(side) = key {
+                // The player's tweak keeps teammates' feet quiet [design: docs/design/tweaks.md].
+                if quiet_team {
+                    continue;
+                }
                 if !stepped.insert(side) {
                     continue;
                 }

@@ -131,5 +131,5 @@ fn draw(
     let words = crate::menu::look::quantity_words(script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game));
     let q = Quantity { cmd: Command::One, side: Side::Player, row: 0, max: most, amount };
     let screen = Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() };
-    commands.spawn((QuantityRoot, screen, GlobalZIndex(crate::tiles::draw::QUANTITY_Z))).with_children(|s| crate::menu::look::spawn_quantity(s, &q, &words, kit, data.as_deref(), &mut images, bc, &glyphs));
+    commands.spawn((QuantityRoot, screen, GlobalZIndex(crate::tiles::draw::QUANTITY_Z))).with_children(|s| crate::menu::look::spawn_quantity(s, &q, &words, kit, data.as_deref(), &mut images, bc, &glyphs, None));
 }

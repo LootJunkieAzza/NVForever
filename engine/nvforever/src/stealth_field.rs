@@ -103,7 +103,9 @@ pub(crate) fn apply(
     mut materials: ResMut<Assets<NifMaterial>>,
 ) {
     let chameleon = script.as_ref().and_then(|s| s.rt.as_ref()).map_or(0.0, |rt| fnv_game::functions::actor_value_temporary(&rt.game, FormId::PLAYER_REF, CHAMELEON));
-    let want = chameleon >= 1.0;
+    // The player's tweak drops the shimmer while the Pip-Boy is up [design: docs/design/tweaks.md].
+    let in_pipboy = pip_screen.as_ref().is_some_and(|s| s.on_model) && script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.no_stealth_shimmer_in_pipboy);
+    let want = chameleon >= 1.0 && !in_pipboy;
     if want {
         // Every frame: a weapon drawn or an outfit changed brings new meshes.
         let mut fresh = 0;

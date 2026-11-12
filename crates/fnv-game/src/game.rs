@@ -479,6 +479,10 @@ pub struct RefExtra {
     /// The actor has been in a conversation with the player (GetTalkedToPC).
     #[serde(skip_serializing_if = "std::ops::Not::not", default)]
     pub talked_to_pc: bool,
+    /// The player's bobby pin's health left at the last lock, for the Remember Bobby Pin
+    /// Health tweak (the player's only) [design: docs/design/tweaks.md].
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub pin_health: Option<f32>,
     /// SetDisposition: the disposition towards an actor, set by a script
     /// (`functions::actor::get_disposition`).
     #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
@@ -1394,6 +1398,8 @@ pub struct Game<'a> {
     pub ui_pointer: fnv_ui::input::Pointer,
     /// The game's difficulty (`crate::difficulty`): the engine sets it from its settings.
     pub difficulty: crate::difficulty::Difficulty,
+    /// The player's tweaks (`crate::tweaks`): the engine sets them from its settings.
+    pub tweaks: crate::tweaks::Tweaks,
     /// What scripts asked of the engine's combat (`crate::combat::CombatRequest`), for
     /// the engine to take.
     pub combat_requests: Vec<crate::combat::CombatRequest>,
@@ -2330,6 +2336,7 @@ impl<'a> Game<'a> {
             ui_extra: Default::default(),
             ui_pointer: fnv_ui::input::Pointer::default(),
             difficulty: Default::default(),
+            tweaks: Default::default(),
             combat_requests: Vec::new(),
             destruction_changes: Vec::new(),
             due_children: Vec::new(),
@@ -3734,8 +3741,8 @@ impl<'a> Game<'a> {
         // set them again (`functions::navigation::FrameSwitches`).
         self.frame_switches = Default::default();
         // The world refuses power armour on an untrained player (a loaded game's flag
-        // reaches it here too).
-        self.world.set_power_armor_training(self.player.power_armor);
+        // reaches it here too); the player's tweak lets anyone wear it.
+        self.world.set_power_armor_training(self.player.power_armor || self.tweaks.power_armor_needs_no_training);
         // Cannibal's and Mister Sandman's acts that are over (`crate::activate_choices`).
         if !self.perk_acts.is_empty() {
             self.finish_perk_acts();
@@ -4872,6 +4879,14 @@ impl<'a> Game<'a> {
             self.world.activate_scripted(actor, target).map_err(|e| e.to_string())?
         };
         let v = serde_json::to_value(&act).map_err(|e| e.to_string())?;
+        // The player's tweak: a key's opening earns a share of the picking's experience
+        // [design: docs/design/tweaks.md].
+        if act.unlocked_with.is_some() && actor == FormId::PLAYER_REF && self.tweaks.key_xp_share > 0.0 {
+            if let Some(lock) = self.world.peek(target).and_then(|s| s.lock) {
+                let x = crate::lockpick::xp(self, crate::lockpick::Level::of(lock.level)) * f64::from(self.tweaks.key_xp_share);
+                crate::experience::award(self, crate::experience::Source::PickLock, x.round());
+            }
+        }
         self.note_activating(actor, target);
         let activated_event = self.events.len();
         self.emit(EventKind::Activated { reference: target, by: actor, outcome: Some(v) });
@@ -4904,6 +4919,14 @@ impl<'a> Game<'a> {
                 self.count_stat(crate::misc_stats::MINES_DISARMED, 1.0);
                 let x = crate::experience::mine_disarm_xp(self);
                 crate::experience::award(self, crate::experience::Source::DisarmMine, x);
+                // The player's tweak picks the disarmed mine up [design: docs/design/tweaks.md].
+                if let (true, Outcome::Disarmed { placed: Some(p), .. }) = (self.tweaks.pick_up_disarmed, &act.outcome) {
+                    let p = *p;
+                    match self.world.activate(actor, p) {
+                        Ok(_) => tracing::info!("mines: disarmed {p} picked up (tweak)"),
+                        Err(e) => tracing::info!("mines: disarmed {p} not picked up: {e}"),
+                    }
+                }
             }
             _ => {}
         }
@@ -5295,7 +5318,8 @@ impl<'a> Game<'a> {
     /// name; hypothesis: when, docs/spec-notes/default-objects.md].
     fn drug_wore_off(&mut self, target: FormId, source: FormId) {
         let chem = self.data.ingestibles.get(&source).is_some_and(|i| i.equip_type == crate::data::IngestibleDef::CHEMS);
-        if target != FormId::PLAYER_REF || !chem || self.effects.iter().any(|x| x.target == target && x.source == source) {
+        // The player's tweak can leave the effect out [design: docs/design/tweaks.md].
+        if target != FormId::PLAYER_REF || !chem || self.tweaks.no_chem_wore_off_effect || self.effects.iter().any(|x| x.target == target && x.source == source) {
             return;
         }
         if let Some(m) = self.data.default_object(crate::data::DefaultObject::DrugWearsOffImageSpace).filter(|m| self.data.image_modifiers.contains_key(m)) {
@@ -6050,7 +6074,13 @@ impl Host for Exec<'_, '_> {
 
     fn print(&mut self, text: &str) {
         let unit = self.unit.key();
-        self.game.console_out.push(text.to_string());
+        // The player's tweak names the plugin the script is from (the key's first part)
+        // [design: docs/design/tweaks.md].
+        let line = match unit.split_once('|').filter(|_| self.game.tweaks.print_plugin_names) {
+            Some((plugin, _)) => format!("[{plugin}] {text}"),
+            None => text.to_string(),
+        };
+        self.game.console_out.push(line);
         self.game.emit(EventKind::ScriptPrint { unit, text: text.to_string() });
     }
 

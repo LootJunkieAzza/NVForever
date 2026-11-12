@@ -612,7 +612,7 @@ pub fn draw(
             Card::new(LVL.0, LVL.1, label("sStatsLVLAbbrev", "LVL"), snap.level.map_or("--".into(), |l| l.to_string())),
             Card::new(HP.0, HP.1, label("sStatsHP", "HP"), value(snap.hp)),
             Card::new(AP.0, AP.1, label("sStatsAP", "AP"), value(snap.ap)),
-            Card::new(XP.0, XP.1, label("sStatsXP", "XP"), value(snap.xp)),
+            Card::new(XP.0, XP.1, label("sStatsXP", "XP"), snap.xp_percent.map_or_else(|| value(snap.xp), |p| format!("{p:.0}%"))),
         ];
         frame::heading(p, &mut c, Page::Stats.title(), &cards);
         match tab {
@@ -650,7 +650,7 @@ fn describe(view: &StatsView, snap: &Snapshot, tab: usize) -> String {
             };
             match rows.get(view.selected[tab]) {
                 Some(r) => {
-                    let figure: Vec<&str> = [Some(r.name.as_str()), r.value.as_deref(), r.mark].into_iter().flatten().collect();
+                    let figure: Vec<&str> = [Some(r.name.as_str()), r.value.as_deref(), r.mark.as_deref()].into_iter().flatten().collect();
                     format!("{name}{mode}: {} selected", figure.join(" "))
                 }
                 None => format!("{name}{mode}: empty"),
@@ -1018,7 +1018,7 @@ fn list(p: &mut ChildSpawnerCommands, c: &mut Ctx, v: &StatsView, tab: usize, ro
         if let Some(n) = &row.value {
             c.text(p, 2, n, num_x, y + NAME_Y, Align::Right, c.bright());
         }
-        if let Some(m) = row.mark {
+        if let Some(m) = &row.mark {
             c.text(p, 2, m, num_x + 10.0, y + NAME_Y, Align::Left, c.bright());
         }
         spots.push((Rect::new(item_x, y, item_x + item_w, y + row_h), Spot::Row(i)));
@@ -1097,6 +1097,10 @@ fn listed(p: &mut ChildSpawnerCommands, c: &mut Ctx, v: &mut StatsView, s: &Snap
 /// beside, the switch at the top right.
 fn general(p: &mut ChildSpawnerCommands, c: &mut Ctx, v: &mut StatsView, s: &Snapshot) {
     v.set_rows_shown(4, VISIBLE);
+    // The player's tweak: no reputations, no reputation list [design: docs/design/tweaks.md].
+    if s.hide_reputation {
+        v.reputation = false;
+    }
     let rows = s.rows(4, v.reputation);
     let mut spots = Vec::new();
     let th = c.line_height(2);
@@ -1135,21 +1139,23 @@ fn general(p: &mut ChildSpawnerCommands, c: &mut Ctx, v: &mut StatsView, s: &Sna
         }
         centred(p, c, &model::whole(karma), mid, y, bw);
     }
-    // The switch: the other list's name [hypothesis], its key after it.
-    let name = if v.reputation { label("sStatsGeneral", "General") } else { "Reputation" };
-    let size = text_box(c, name, HINT_HORBUF, HINT_VERBUF);
-    let right = GENERAL.x + GENERAL_SWITCH.x;
-    let top = GENERAL.y + GENERAL_SWITCH.y;
-    let sr = Rect::new(right - size.x, top, right, top + size.y);
-    if v.hover == Some(Spot::Switch) {
-        c.boxed(p, sr, amber(LINE), None);
+    if !s.hide_reputation {
+        // The switch: the other list's name [hypothesis], its key after it.
+        let name = if v.reputation { label("sStatsGeneral", "General") } else { "Reputation" };
+        let size = text_box(c, name, HINT_HORBUF, HINT_VERBUF);
+        let right = GENERAL.x + GENERAL_SWITCH.x;
+        let top = GENERAL.y + GENERAL_SWITCH.y;
+        let sr = Rect::new(right - size.x, top, right, top + size.y);
+        if v.hover == Some(Spot::Switch) {
+            c.boxed(p, sr, amber(LINE), None);
+        }
+        let ty = box_text_top(c, top, size.y);
+        c.text(p, 2, name, right - HINT_HORBUF / 2.0, ty, Align::Right, c.bright());
+        // R, with a controller X (`stats_menu.xml`'s, `crate::pad::menu_buttons`).
+        let key = crate::pad::hint(&[KeyCode::KeyR], crate::pad::MenuAt { code: Some(fnv_game::game::menus::STATS), tab: 4 });
+        c.text(p, 2, &key, right + HINT_KEY_GAP, ty, Align::Left, c.bright());
+        spots.push((sr, Spot::Switch));
     }
-    let ty = box_text_top(c, top, size.y);
-    c.text(p, 2, name, right - HINT_HORBUF / 2.0, ty, Align::Right, c.bright());
-    // R, with a controller X (`stats_menu.xml`'s, `crate::pad::menu_buttons`).
-    let key = crate::pad::hint(&[KeyCode::KeyR], crate::pad::MenuAt { code: Some(fnv_game::game::menus::STATS), tab: 4 });
-    c.text(p, 2, &key, right + HINT_KEY_GAP, ty, Align::Left, c.bright());
-    spots.push((sr, Spot::Switch));
     if rows.is_empty() && v.reputation {
         // [hypothesis: the words.]
         c.text(p, 2, "No reputations yet", r.min.x + r.width() / 2.0, r.min.y + (r.height() - th) / 2.0, Align::Centre, amber(DIMMED));
@@ -1204,7 +1210,9 @@ pub fn use_hints(
     mut used: MessageWriter<crate::ItemUsed>,
     mut sounds: MessageWriter<crate::ui_sounds::UiSound>,
     mut active: ResMut<crate::menu::ActiveMenu>,
+    after: Option<Res<crate::after_combat::AfterCombat>>,
 ) {
+    let fighting = after.is_some_and(|a| a.fighting);
     // Laid out in the Pip-Boy's screen texture, at its size whatever the UI scale (#1631).
     let _canvas = crate::interface::original_units();
     use crate::ui_sounds::{UiEvent, UiMenu, UiSound};
@@ -1215,16 +1223,24 @@ pub fn use_hints(
         };
         let name = sim.name(item).unwrap_or("?").to_string();
         let count = sim.world.item_count(FormId::PLAYER_REF, item).unwrap_or(0);
+        // The player's tweak: no healing aid in a fight [design: docs/design/tweaks.md].
+        if let Some(rt) = script.as_mut().and_then(|s| s.rt.as_mut()) {
+            if crate::tweaks::healing_barred(rt, &mut sim, item, fighting) {
+                info!("pipboy stats: {name} not used: healing in combat (tweak)");
+                sounds.write(UiSound { menu: UiMenu::Inventory, event: UiEvent::Refused });
+                continue;
+            }
+        }
         let why = if hint == model::RADAWAY {
             // [design] Like the inventory's aid action, carried RadAway can be used
             // regardless of health or limb condition; no item means a dim hint.
             (count <= 0).then(|| "none carried".to_string())
         } else {
-            let Some((hp, limbs, hardcore)) = read::condition(&mut sim, script.as_mut().map(|s| s.bypass_change_detection())) else {
+            let Some((hp, limbs, hardcore, at_full)) = read::condition(&mut sim, script.as_mut().map(|s| s.bypass_change_detection())) else {
                 info!("pipboy stats: {name} not used: the scripts' game is not running");
                 continue;
             };
-            model::refusal(hint, limb, count, hp, &limbs, hardcore)
+            model::refusal_with(hint, limb, count, hp, &limbs, hardcore, at_full)
         };
         if let Some(why) = why {
             info!("pipboy stats: {name} not used: {why}");

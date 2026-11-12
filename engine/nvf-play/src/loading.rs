@@ -124,6 +124,17 @@ struct StartHold {
 /// The loading screen's state.
 #[derive(Resource, Default)]
 pub struct Loading {
+    /// The player's tweak: no tip text or band (`crate::tweaks`).
+    pub hide_tips: bool,
+    /// The player's Click to Exit Load Screens tweak: a finished screen stays up, saying
+    /// so, until a key or a button is pressed [design: docs/design/tweaks.md].
+    pub click_to_exit: bool,
+    /// The player's No Exterior Load Screens tweak: a trip out of an interior shows the
+    /// black alone, no picture or tip [design: docs/design/tweaks.md].
+    pub plain_going_out: bool,
+    /// The next screen is the plain one (set for one [`spawn_screen`]).
+    plain_once: bool,
+    waiting_click: bool,
     trip: Option<Trip>,
     /// The start of the run, held until the world can be played ([`StartCover`]).
     start: Option<StartHold>,
@@ -367,6 +378,7 @@ fn begin(
         return;
     }
     let to = (!std::mem::take(&mut loading.generic_next)).then(|| destination(&travel, *location));
+    loading.plain_once = loading.plain_going_out && location.interior.is_some() && travel.destination(*location).interior.is_none();
     spawn_screen(&mut commands, &mut loading, &mut art, to.as_ref());
     clock.pause();
     next.set(PlayState::Loading);
@@ -426,7 +438,11 @@ fn spawn_screen(commands: &mut Commands, loading: &mut Loading, art: &mut Art, t
     let anywhere = Destination { interior: None, exterior: None };
     let to = to.unwrap_or(&anywhere);
     loading.shown += 1;
-    let screen = art.screens.as_deref().and_then(|s| choose(&s.0, to, roll(loading.shown)));
+    let plain = std::mem::take(&mut loading.plain_once);
+    let screen = art.screens.as_deref().filter(|_| !plain).and_then(|s| choose(&s.0, to, roll(loading.shown)));
+    if plain {
+        info!("loading screen: out of an interior, no picture (tweak)");
+    }
     let picture = match (screen.and_then(|s| s.texture.as_deref()), art.data.as_deref(), art.textures.as_mut(), art.images.as_mut()) {
         (Some(path), Some(data), Some(textures), Some(images)) => textures.get(path, true, data, images, art.formats.as_deref()),
         _ => None,
@@ -459,7 +475,7 @@ fn spawn_screen(commands: &mut Commands, loading: &mut Loading, art: &mut Art, t
         commands.spawn((ImageNode { image_mode: NodeImageMode::Stretch, ..ImageNode::new(image) }, picture_node(), ChildOf(root)));
     }
     // Drawn by `look::fit_tip` (this frame too). No text, no band.
-    if let Some(text) = screen.map(|s| s.text.trim()).filter(|t| !t.is_empty()) {
+    if let Some(text) = screen.map(|s| s.text.trim()).filter(|t| !t.is_empty() && !loading.hide_tips) {
         let style = screen.and_then(|s| s.tip).unwrap_or(TipStyle::FALLBACK);
         let node = Node { position_type: PositionType::Absolute, left: Val::Px(0.0), top: Val::Px(0.0), width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() };
         commands.spawn((look::Tip { text: text.to_string(), style, drawn_for: None }, node, ChildOf(root)));
@@ -560,20 +576,39 @@ fn settled(ready: &mut Option<(f64, u32)>, ok: bool, now: f64) -> bool {
     *frames >= SETTLE_FRAMES && now - *since >= SETTLE_SECS
 }
 
+/// What a finished loading screen says under the Click to Exit tweak (our words) [design: docs/design/tweaks.md].
+const PRESS_LINE: &str = "Press any key to continue";
+
 /// Everything is in: take the screen down and let the game go on. A travel's screen waits
 /// for the destination's cells (drawn and in physics) and its actors; the start's
 /// ([`StartCover`]) for those and the scripts too (made, and a save put back).
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn finish(
     mut commands: Commands,
     mut loading: ResMut<Loading>,
     phys: Option<Res<PhysState>>,
-    scripts: Option<Res<crate::script::ScriptState>>,
+    mut scripts: Option<ResMut<crate::script::ScriptState>>,
     real: Res<Time<Real>>,
     mut clock: ResMut<Time<Virtual>>,
     mut next: ResMut<NextState<PlayState>>,
     roots: Query<Entity, With<LoadingRoot>>,
+    (keys, mouse): (Option<Res<ButtonInput<KeyCode>>>, Option<Res<ButtonInput<MouseButton>>>),
 ) {
+    // The player's tweak: the screen waits for a press once all is in [design: docs/design/tweaks.md].
+    if loading.waiting_click {
+        let pressed = keys.is_some_and(|k| k.get_just_pressed().next().is_some()) || mouse.is_some_and(|m| m.get_just_pressed().next().is_some());
+        if !pressed {
+            return;
+        }
+        loading.waiting_click = false;
+        info!("loading screen: taken down on a press (tweak)");
+        for e in &roots {
+            commands.entity(e).despawn();
+        }
+        clock.unpause();
+        next.set(PlayState::Playing);
+        return;
+    }
     let now = real.elapsed_secs_f64();
     let starting = loading.start.is_some();
     if loading.trip.as_ref().is_some_and(|t| t.sent) {
@@ -606,10 +641,30 @@ fn finish(
         }
         loading.start = None;
         info!("loading screen down after {waited:.2} s (the start: cells, actors and scripts ready); the test aids and --run-seconds count from now");
+        // The player's tweak: a loaded save starts in the pause menu [design: docs/design/tweaks.md]; asked as
+        // ShowPauseMenu asks (`crate::pause`).
+        if let Some(rt) = scripts.as_deref_mut().and_then(|s| s.rt.as_mut()).filter(|rt| rt.restored_from_save && rt.game.tweaks.pause_on_load) {
+            rt.game.showoff.b5.pause_asks += 1;
+            rt.game.showoff.b5.pause_mode = 0;
+            info!("loading screen: the save starts paused (tweak)");
+        }
     } else {
         return;
     }
     (loading.pipelines_since, loading.pipelines_capped) = (None, false);
+    if loading.click_to_exit {
+        loading.waiting_click = true;
+        for e in &roots {
+            commands.entity(e).with_children(|p| {
+                let node = Node { position_type: PositionType::Absolute, bottom: Val::Percent(6.0), width: Val::Percent(100.0), justify_content: JustifyContent::Center, ..default() };
+                p.spawn(node).with_children(|n| {
+                    n.spawn((Text::new(PRESS_LINE), TextFont { font_size: FontSize::Px(22.0), ..default() }, TextColor(Color::srgb(1.0, 0.75, 0.3))));
+                });
+            });
+        }
+        info!("loading screen: all is in, waiting for a press (tweak)");
+        return;
+    }
     for e in &roots {
         commands.entity(e).despawn();
     }
