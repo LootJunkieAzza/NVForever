@@ -3,7 +3,8 @@
 # Each [[scenario]] is one check that used to be prose in CLAUDE.md. Rules:
 # - Carry every expectation over; never loosen one to make a run pass (the parity-lab
 #   rules apply in spirit). A check that fails on main stays, marked
-#   `known_failing = "why"` on the expectation.
+#   `known_failing = "why"` on the expectation, or `known_failing = { linux = "why" }`
+#   when the check fails on named platforms only.
 # - "about N" in the prose is N ± 25 % (rounded outwards); "a dozen" is 9–15; counts
 #   the prose says vary are not checked beyond "at least one".
 # - `paths` are globs over the files a branch changed (`**` any depth); `areas` are
@@ -155,7 +156,7 @@ env = { NVF_PLAY_TEST_VRAM_MB = "512" }
 args = ["--cell", "Goodsprings", "--auto-fly", "4000"]
 run_seconds = 40
 expect = [
-  { re = 'memory budget: RAM \d+ MB .*GPU budget 512 MB \(test aid; the device.s \d+ MB, VK_EXT_memory_budget, device-local heaps; this process uses \d+ MB', label = "the GPU budget read, then capped by the test aid" },
+  { re = 'memory budget: RAM \d+ MB .*GPU budget 512 MB \(test aid; the device.s \d+ MB, VK_EXT_memory_budget, device-local heaps; this process uses \d+ MB', label = "the GPU budget read, then capped by the test aid", known_failing = { linux = "Linux 2026-11-10: wgpu-hal 30 leaves VK_EXT_memory_budget off on Mesa's RADV, so the line names amdgpu sysfs and this process's use from fdinfo instead of the extension" } },
   "caches keep unused models and textures 30 s, at most 128 per cache",
   { re = 'memory budget: near a budget, caches pressed \(GPU: this process uses \d+ of 512 MB', label = "the flight's use of the device-local heaps near the 512 MB budget presses the caches" },
 ]
