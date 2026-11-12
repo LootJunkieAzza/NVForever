@@ -48,7 +48,7 @@ pub enum StickDir {
 impl StickDir {
     pub const ALL: [StickDir; 4] = [StickDir::Up, StickDir::Down, StickDir::Left, StickDir::Right];
 
-    fn index(self) -> usize {
+    pub(crate) fn index(self) -> usize {
         self as usize
     }
 
@@ -920,7 +920,7 @@ pub fn stick(pads: &Query<&Gamepad>, left: bool) -> Vec2 {
     }
 }
 
-fn update_stick_buttons(pads: Query<&Gamepad>, mut s: ResMut<StickButtons>) {
+pub(crate) fn update_stick_buttons(pads: Query<&Gamepad>, mut s: ResMut<StickButtons>) {
     let v = stick(&pads, true);
     s.before = s.now;
     for d in StickDir::ALL {
