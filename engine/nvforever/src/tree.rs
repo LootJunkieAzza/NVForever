@@ -134,6 +134,7 @@ impl MaterialExtension for BarkWind {
         descriptor.vertex.shader_defs.push("TREE_BARK".into());
         // Trees fade in and out with their cells (fade.rs).
         nvf_assets::fade_prepass(descriptor, key.mesh_key);
+        nvf_assets::depth_equal(descriptor, key.mesh_key);
         Ok(())
     }
 }

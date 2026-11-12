@@ -1042,7 +1042,7 @@ name = "auto-fire-burst-sound"
 source = "#1098: an automatic weapon's shots cut out in sustained fire; the sound voice limit (sfx.rs MAX_SAME, 8 of one SOUN) refused the newest shots. Now a sound at its limit takes over the oldest voice of the same SOUN"
 note = "the 10mm SMG (00004321, automatic, 9 shots a second, 30 rounds) fired into the sky above Goodsprings for 3 s (each `fire` press toggles the trigger: held, then let go): about 27 shots of WPN10mmSMGFire2D"
 areas = ["audio", "combat"]
-paths = ["engine/nvf-play/src/sfx.rs"]
+paths = ["engine/nvf-play/src/sfx.rs", "engine/nvf-play/src/audio_out.rs"]
 env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_EQUIP = "00004321", NVF_PLAY_TEST_GIVE = "00004241:60", NVF_PLAY_TEST_CONTROL = "4:weapon,8:fire,11:fire" }
 args = ["--cell", "Goodsprings", "--pos=-68375,4800,8700", "--heading", "0", "--pitch", "60", "--play", "--hour", "12", "--no-voice", "--no-messages"]
 run_seconds = 16
@@ -1050,8 +1050,31 @@ expect = [
   { re = 'sfx: WPN10mmSMGFire2D: (?P<n>\d+) started', range = [20, 40], label = "every shot of the 3 s burst starts its sound" },
   { re = 'sfx: WPN10mmSMGFire2D: .* (?P<n>\d+) refused at the voice limit', range = [0, 0], label = "none of the burst's shots is refused (#1098: some were)" },
   { re = 'not started at the voice limit, at most (?P<n>\d+) one-shots at once', range = [1, 64], label = "the voices stay within the limit" },
-  { re = 'sfx files: (?P<n>\d+) sounds began in the frame they were asked for, \d+ later while their file was read', range = [10, 100000], label = "#1428: the exit report's sfx files line, with at least 10 sounds of the run beginning to play in the frame they were asked for (their file already decoded; it does not check how late the others were)" },
-  { re = 'sfx files: \d+ sounds began in the frame they were asked for, \d+ later while their file was read \(\d+ more than one frame later, at most (?P<n>\d+) frames\)', range = [0, 3], label = "#1428: no sound of the run began more than 3 frames after it was asked for (start delays growing)" },
+  { re = 'sfx files: (?P<n>\d+) sounds began in the frame they were asked for, \d+ later while their file was read', range = [10, 100000], label = "#1428: the exit report's sfx files line, with at least 10 sounds of the run beginning to play in the frame they were asked for (their file already decoded and, since #2217, no wait for a voice slot either: counted from the request to the actual start; it does not check how late the others were)" },
+  { re = 'sfx files: \d+ sounds began in the frame they were asked for, \d+ later while their file was read \(\d+ more than one frame later, at most (?P<n>\d+) frames\)', range = [0, 3], label = "#1428: no sound of the run began more than 3 frames after it was asked for (start delays growing; since #2217 from the request to the actual start, a wait for a voice slot's fade included)" },
+  { re = 'sfx hard stops: 0 steals, 0 loop stops, 0 script stops, 0 ambient stops, 0 radio stops, 0 voice stops', label = "#2217: no playing sound cut mid-waveform (each stop fades out)" },
+  { re = 'sfx declicks: (?P<n>\d+) steals', range = [1, 100000], label = "#2217: the shots over the oldest voice fade it out first" },
+]
+
+[[scenario]]
+name = "audio-minigun-declick"
+source = "#2217: crackle when many sounds play (packs of mantises, radscorpions, the minigun): voices cut mid-waveform at the voice limit, loops and scripts' sounds removed at once, nothing limiting the summed mix (audio_out.rs mix bus, stop counts)"
+note = "the minigun (0000433F, 600 5mm rounds) drawn at 3 s and fired into the sky above Goodsprings from 6 to 16 s (each `fire` press toggles the trigger: held, then let go), as auto-fire-burst-sound's setup; god mode. The exit report's audio mix line measures the summed mix, the sfx lines the stops and the voices"
+areas = ["audio", "combat"]
+paths = ["engine/nvf-play/src/audio_out.rs", "engine/nvf-play/src/sfx.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_EQUIP = "0000433F", NVF_PLAY_TEST_GIVE = "0006B53D:600", NVF_PLAY_TEST_CONTROL = "3:weapon,6:fire,16:fire" }
+args = ["--cell", "Goodsprings", "--pos=-68375,4800,8700", "--heading", "0", "--pitch", "60", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 20
+expect = [
+  { re = 'combat: (?P<n>\d+) shots \(', range = [50, 100000], label = "the minigun fires through the 10 s hold" },
+  { re = 'audio mix: pre peak [0-9.]+, \d+ samples over full scale; post peak [0-9.]+, \d+ samples over full scale; \d+ frames limited', label = "the mix bus's measurements at the end" },
+  { re = 'audio mix: .*; post peak [0-9.]+, (?P<n>\d+) samples over full scale;', range = [0, 0], all = true, label = "#2217: after the limiter no sample of the run is over full scale" },
+  { re = 'audio mix: .*; post peak (?P<n>[0-9.]+),', range = [0, 1], all = true, label = "#2217: the loudest sample after the limiter within full scale" },
+  { re = 'sfx voices: at most (?P<n>\d+) total,', range = [1, 64], all = true, label = "the voices stay within the limit" },
+  { re = 'sfx voices: at most \d+ total, (?P<n>\d+) of one SOUN;', range = [1, 8], all = true, label = "the shots stay within their SOUN's limit" },
+  { re = 'sfx hard stops: 0 steals, 0 loop stops, 0 script stops, 0 ambient stops, 0 radio stops, 0 voice stops', label = "#2217: no playing sound cut mid-waveform (each stop fades out)" },
+  { re = 'sfx declicks: \d+ steals, (?P<n>\d+) loop stops', range = [1, 100000], label = "the weapon's loop fades out when the trigger is let go" },
+  { re = 'sfx declicks: .*; (?P<n>\d+) completed', range = [1, 100000], label = "the fades play out and their sounds go" },
 ]
 
 [[scenario]]
@@ -4522,6 +4545,22 @@ expect = [
 ]
 
 [[scenario]]
+name = "hacking-hover-sound"
+source = "#2216 [design]: a pointer sweep over the hacking dump moves the cursor on every character, but its hover sound (UiEvent::Focus, UIHackingCharScroll) starts at most once every 70 ms of real time (terminal.rs HOVER_SOUND_GAP); the held-back sounds are dropped"
+note = "The Easy terminal of the hacking scenario (000D74D5 in BisonSteve01, Science 25). 120 point:<index> steps from 32 s, 1/144 s apart, each onto the next dump character (0 to 119), as a 144 Hz sweep; several fall in one frame, which shares one real time, so at most one of a frame's sounds. Every point changes the cursor (the first shows it), so P = 120; at least one sounds and at least one is held back. That P = F + S and the 70 ms spacing are the unit tests' (terminal.rs a_mouse_sweep_limits_focus_sounds and the rest): the runner does not compare captured numbers. The real pointer resting on the window's dump adds a point of its own at the open, so P may be 121; moving the real mouse during the run adds more, and that run proves nothing."
+areas = ["hacking", "terminal"]
+paths = ["engine/nvf-play/src/terminal.rs", "engine/nvf-play/src/ui_sounds.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_TERMINAL = "30:science:25,31:open:000D74D5,32.0000:point:0,32.0069:point:1,32.0139:point:2,32.0208:point:3,32.0278:point:4,32.0347:point:5,32.0417:point:6,32.0486:point:7,32.0556:point:8,32.0625:point:9,32.0694:point:10,32.0764:point:11,32.0833:point:12,32.0903:point:13,32.0972:point:14,32.1042:point:15,32.1111:point:16,32.1181:point:17,32.1250:point:18,32.1319:point:19,32.1389:point:20,32.1458:point:21,32.1528:point:22,32.1597:point:23,32.1667:point:24,32.1736:point:25,32.1806:point:26,32.1875:point:27,32.1944:point:28,32.2014:point:29,32.2083:point:30,32.2153:point:31,32.2222:point:32,32.2292:point:33,32.2361:point:34,32.2431:point:35,32.2500:point:36,32.2569:point:37,32.2639:point:38,32.2708:point:39,32.2778:point:40,32.2847:point:41,32.2917:point:42,32.2986:point:43,32.3056:point:44,32.3125:point:45,32.3194:point:46,32.3264:point:47,32.3333:point:48,32.3403:point:49,32.3472:point:50,32.3542:point:51,32.3611:point:52,32.3681:point:53,32.3750:point:54,32.3819:point:55,32.3889:point:56,32.3958:point:57,32.4028:point:58,32.4097:point:59,32.4167:point:60,32.4236:point:61,32.4306:point:62,32.4375:point:63,32.4444:point:64,32.4514:point:65,32.4583:point:66,32.4653:point:67,32.4722:point:68,32.4792:point:69,32.4861:point:70,32.4931:point:71,32.5000:point:72,32.5069:point:73,32.5139:point:74,32.5208:point:75,32.5278:point:76,32.5347:point:77,32.5417:point:78,32.5486:point:79,32.5556:point:80,32.5625:point:81,32.5694:point:82,32.5764:point:83,32.5833:point:84,32.5903:point:85,32.5972:point:86,32.6042:point:87,32.6111:point:88,32.6181:point:89,32.6250:point:90,32.6319:point:91,32.6389:point:92,32.6458:point:93,32.6528:point:94,32.6597:point:95,32.6667:point:96,32.6736:point:97,32.6806:point:98,32.6875:point:99,32.6944:point:100,32.7014:point:101,32.7083:point:102,32.7153:point:103,32.7222:point:104,32.7292:point:105,32.7361:point:106,32.7431:point:107,32.7500:point:108,32.7569:point:109,32.7639:point:110,32.7708:point:111,32.7778:point:112,32.7847:point:113,32.7917:point:114,32.7986:point:115,32.8056:point:116,32.8125:point:117,32.8194:point:118,32.8264:point:119,34:exit" }
+args = ["--cell", "BisonSteve01", "--play", "--no-voice"]
+run_seconds = 38
+expect = [
+  "hacking, Easy (Science 25): 20 words",
+  { re = 'terminal hover: (\d+) changed points', range = [120, 121], label = "every point moved the cursor (P = 120, or 121 with the real pointer resting on the dump)" },
+  { re = 'terminal hover: \d+ changed points, (\d+) focus sounds', range = [1, 119], label = "some of the sweep's points sounded, not all (F)" },
+  { re = 'terminal hover: \d+ changed points, \d+ focus sounds, (\d+) suppressed', range = [1, 119], label = "the points within 70 ms of a sound were held back (S)" },
+]
+
+[[scenario]]
 name = "hacking-notice-held"
 source = "issue #1239: a quest line pushed while the hacking terminal is open is not drawn under it and its time does not run there; it is shown once after the power button closes the terminal (as the rest of the HUD, hud.md §14.3)"
 areas = ["hacking", "terminal", "quest-messages", "corner-messages", "hud"]
@@ -6046,14 +6085,20 @@ name = "combat-cover-room"
 launch = "ncr-fiends"
 source = "owner's screenshot 2026-10-23: an NCR trooper in cover in Goodsprings stood half inside a house's wall and drainpipe (docs/design/combat-ai.md §12.6.2)"
 note = "cover spots keep combat_tactics::SPOT_ROOM (26) round them, measured by rays at the body's heights; where a fighter stands when it reaches its cover and when it has hid there is measured the same way, and under the capsule's radius (22) it is inside something. Which fighters take cover, and whether one reaches it before the fight is over, varies (Take Cover Chance every 10 s); the cover edges of this fight are in the open (all 25 spots of a run of 2026-10-23 had full room), so the wall case is checked by combat_tactics' unit tests"
-areas = ["combat", "combat-groups"]
-paths = ["engine/nvforever/src/combat_tactics.rs", "engine/nvforever/src/npc_combat.rs", "engine/nvforever/src/residents.rs", "crates/fnv-nav/src/graph.rs", "crates/fnv-nav/src/follow.rs"]
+areas = ["combat", "combat-groups", "audio"]
+paths = ["engine/nvforever/src/combat_tactics.rs", "engine/nvforever/src/npc_combat.rs", "engine/nvforever/src/residents.rs", "crates/fnv-nav/src/graph.rs", "crates/fnv-nav/src/follow.rs", "engine/nvf-play/src/audio_out.rs", "engine/nvf-play/src/sfx.rs"]
 env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_UNSEEN = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:moveto:0x000F36F5:player:-400:600:0,3:moveto:0x000F36F6:player:-200:650:0,3:moveto:0x0015CE0A:player:0:600:0,3:moveto:0x0015CE08:player:200:650:0,3:moveto:0x000FCEB1:player:400:600:0,3:moveto:0x000FD572:player:600:550:0" }
 args = ["--cell", "Goodsprings", "--pos=-43200,72000,7000", "--play", "--hour", "12", "--no-voice"]
 run_seconds = 120
 expect = [
   { re = 'npc combat: .* takes (low )?cover .*; room round its cover spot (?P<n>\d+)', range = [26, 1000], all = true, label = "every cover spot has room for the capsule" },
   { re = 'npc combat: .* takes (low )?cover .*; room round its cover spot \d+, its peek (?P<n>\d+)', range = [26, 1000], all = true, label = "every peek point has room for the capsule" },
+  { re = 'audio mix: pre peak [0-9.]+, \d+ samples over full scale; post peak [0-9.]+, \d+ samples over full scale; \d+ frames limited', label = "#2217: the mix bus's measurements of the battle" },
+  { re = 'audio mix: .*; post peak [0-9.]+, (?P<n>\d+) samples over full scale;', range = [0, 0], all = true, label = "#2217: after the limiter no sample of the battle is over full scale" },
+  { re = 'audio mix: .*; post peak (?P<n>[0-9.]+),', range = [0, 1], all = true, label = "#2217: the loudest sample after the limiter within full scale" },
+  { re = 'sfx voices: at most (?P<n>\d+) total,', range = [1, 64], all = true, label = "#2217: the battle's voices stay within the limit" },
+  { re = 'sfx voices: at most \d+ total, (?P<n>\d+) of one SOUN;', range = [1, 8], all = true, label = "#2217: and within each SOUN's" },
+  { re = 'sfx hard stops: 0 steals, 0 loop stops, 0 script stops, 0 ambient stops, 0 radio stops, 0 voice stops', label = "#2217: no sound of the battle cut mid-waveform (each stop fades out)" },
 ]
 forbid = [{ re = 'npc combat: .* in cover at .*\(inside geometry\)', label = "a fighter in cover stands inside a wall or model" }]
 
@@ -12514,6 +12559,8 @@ order = [[
 ]]
 expect = [
   { re = 'film: .*not played', count = 0, label = "the film is not passed over" },
+  { re = 'sfx declicks: .*; \d+ holotape stops, (?P<n>\d+) film stops', range = [1, 1], label = "#2217: the skipped film's sound fades out, not cut" },
+  { re = 'sfx hard stops: .*, 0 film stops', label = "#2217: no film sound cut mid-waveform" },
 ]
 manual = "film.png: the intro film's frame at 3 s fitted inside the window with black bars, nothing of the world or the HUD over it"
 
@@ -12534,6 +12581,10 @@ order = [[
   "film: the game goes on",
   "ambient: world sounds go on (",
 ]]
+expect = [
+  { re = 'sfx declicks: .*; \d+ holotape stops, (?P<n>\d+) film stops', range = [1, 1], label = "#2217: the skipped film's sound fades out, not cut (the missing fnvlogo1.bik made none)" },
+  { re = 'sfx hard stops: .*, 0 film stops', label = "#2217: no film sound cut mid-waveform" },
+]
 manual = "film.png: the intro film stretched over the whole window (no black bars); film_after.png: Doc Mitchell's house again, nothing of the film left"
 
 [[scenario]]
@@ -14245,7 +14296,7 @@ name = "mantis-egg-spawn"
 source = "playtest list 7 item 4 (docs/design/frame-rate-audit.md §1-§2): shooting the Goodsprings schoolhouse's mantis ootheca dropped the frame rate to about one frame a second"
 note = "at 10 s DamageObject breaks the ootheca 0x0010AC54 (V22MantisOotheca): its script places 12 nymphs at each of its two destruction stages, all at the egg's centre against the lockers. Each must stand on a free floor spot near it (created_spots.rs), not inside the egg or each other; their footsteps are held to the voice limit (sfx.rs). From about 24 s they reach the player and die at its feet (their script kills a nymph within 50 units of the player); the heap of corpses is set at rest after 3 s (ragdoll.rs). Before: 1% low 1,162 ms, the characters' controller ran out its iterations every step. God mode: the nymphs fight the player"
 areas = ["actors", "physics", "audio", "performance"]
-paths = ["engine/nvf-play/src/created_spots.rs", "engine/nvf-play/src/sfx.rs", "engine/nvforever/src/residents.rs", "engine/nvf-play/src/player/safe.rs", "engine/nvforever/src/ragdoll.rs"]
+paths = ["engine/nvf-play/src/created_spots.rs", "engine/nvf-play/src/sfx.rs", "engine/nvf-play/src/audio_out.rs", "engine/nvforever/src/residents.rs", "engine/nvf-play/src/player/safe.rs", "engine/nvforever/src/ragdoll.rs"]
 env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SAMPLE = "2", NVF_PLAY_TEST_SCRIPT = "10:call:0x0010AC54:DamageObject:5" }
 args = ["--cell", "GSSchoolHouse", "--pos", "700,-900,3340", "--play", "--no-voice", "--no-messages"]
 run_seconds = 50
@@ -14254,6 +14305,12 @@ expect = [
   { text = "created where no free spot is near", count = 0, label = "every nymph found a spot" },
   { re = 'stress frames: .*1% low (?P<n>[\d.]+) ms', range = [0, 400], label = "no run of second-long frames (was 1,162 ms)" },
   { re = 'at most (?P<n>\d+) one-shots at once', range = [1, 64], label = "the footsteps are held to the voice limit" },
+  { re = 'audio mix: pre peak [0-9.]+, \d+ samples over full scale; post peak [0-9.]+, \d+ samples over full scale; \d+ frames limited', label = "#2217: the mix bus's measurements of the crowd" },
+  { re = 'audio mix: .*; post peak [0-9.]+, (?P<n>\d+) samples over full scale;', range = [0, 0], all = true, label = "#2217: after the limiter no sample of the crowd is over full scale" },
+  { re = 'audio mix: .*; post peak (?P<n>[0-9.]+),', range = [0, 1], all = true, label = "#2217: the loudest sample after the limiter within full scale" },
+  { re = 'sfx voices: at most (?P<n>\d+) total,', range = [1, 64], all = true, label = "#2217: the crowd's voices stay within the limit" },
+  { re = 'sfx voices: at most \d+ total, (?P<n>\d+) of one SOUN;', range = [1, 8], all = true, label = "#2217: and within each SOUN's" },
+  { re = 'sfx hard stops: 0 steals, 0 loop stops, 0 script stops, 0 ambient stops, 0 radio stops, 0 voice stops', label = "#2217: no sound of the crowd cut mid-waveform (each stop fades out)" },
   { re = 'ragdolls: (?P<n>\d+) started', range = [5, 1e9], label = "nymphs die at the player's feet (their script kills them within 50 units)" },
   { re = '(?P<n>\d+) in the world at exit \((?P=n) at rest\)', label = "every corpse of the heap is at rest by the end (ragdoll.rs MAX_AWAKE)" },
 ]
@@ -23664,15 +23721,15 @@ forbid = ["FSR dispatch failed", "FSR 3.1 unavailable", "Shader validation error
 
 [[scenario]]
 name = "latency-reduction"
-source = "#1778, docs/design/latency-reduction.md: --latency-reduction turns the switch on; the start says whether the GPU's Vulkan driver offers VK_AMD_anti_lag, and the game runs on either way"
+source = "#1778, docs/design/latency-reduction.md: --latency-reduction turns the switch on; the start says whether the GPU's Vulkan driver offers VK_AMD_anti_lag or VK_NV_low_latency2, and the game runs on with either or neither"
 areas = ["graphics"]
-paths = ["engine/nvforever/src/anti_lag.rs", "engine/nvforever/src/frame_pace.rs", "engine/vendor/bevy_render/src/renderer/**", "engine/vendor/bevy_render/src/settings.rs", "engine/Cargo.toml"]
+paths = ["engine/nvforever/src/anti_lag.rs", "engine/nvforever/src/nv_low_latency.rs", "engine/nvforever/src/frame_pace.rs", "engine/vendor/bevy_render/src/renderer/**", "engine/vendor/bevy_render/src/settings.rs", "engine/vendor/wgpu-hal/src/vulkan/**", "engine/Cargo.toml"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
 args = ["--cell", "GSDocMitchellHouse", "--play", "--size", "1280x720", "--latency-reduction", "--no-voice", "--no-lodgen"]
 run_seconds = 12
 expect = [
-  { re = 'latency reduction: (AMD Anti-Lag \(VK_AMD_anti_lag\) available|not available) on ', label = "the start says whether the driver offers Anti-Lag" },
-  { re = 'latency reduction: on \((AMD Anti-Lag|not available on this GPU)\)', label = "--latency-reduction turns the switch on" },
+  { re = 'latency reduction: (AMD Anti-Lag \(VK_AMD_anti_lag\) available|NVIDIA low latency \(VK_NV_low_latency2\) available|not available) on ', label = "the start says which technique the driver offers, or that it has neither" },
+  { re = 'latency reduction: on \((AMD Anti-Lag|NVIDIA low latency|not available on this GPU)\)', label = "--latency-reduction turns the switch on" },
 ]
 forbid = [{ text = "Validation Error", label = "a Vulkan validation error" }, { text = "Caught rendering error", label = "a rendering error" }]
 
@@ -23680,7 +23737,7 @@ forbid = [{ text = "Validation Error", label = "a Vulkan validation error" }, { 
 name = "frame-generation"
 source = "#1778, docs/design/frame-generation.md: --frame-generation with FSR Quality while walking outdoors: generated frames presented between the real ones, the HUD kept, latency reduction turned on with it, no validation errors; the performance overlay (--fps, its readings logged by NVF_FPS_LOG) reads the frames shown and the rendered ones apart"
 areas = ["graphics"]
-paths = ["engine/nvforever/src/frame_gen.rs", "engine/nvforever/src/fg_presenter.rs", "engine/nvforever/src/fsr.rs", "engine/nvforever/src/frame_pace.rs", "engine/nvforever/src/anti_lag.rs", "engine/nvforever/src/perf_overlay/*", "engine/vendor/wgpu-ffx/**", "engine/vendor/bevy_render/src/view/window/**"]
+paths = ["engine/nvforever/src/frame_gen.rs", "engine/nvforever/src/fg_presenter.rs", "engine/nvforever/src/fsr.rs", "engine/nvforever/src/frame_pace.rs", "engine/nvforever/src/anti_lag.rs", "engine/nvforever/src/nv_low_latency.rs", "engine/nvforever/src/perf_overlay/*", "engine/vendor/wgpu-ffx/**", "engine/vendor/bevy_render/src/view/window/**", "engine/vendor/wgpu-hal/src/vulkan/swapchain/**"]
 env = { WGPU_BACKEND = "vulkan", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_MOVE = "4:0:1,9:0.5:-1", NVF_FPS_LOG = "2" }
 args = ["--cell", "Goodsprings", "--play", "--size", "1280x720", "--fsr", "quality", "--frame-generation", "--graphics", "enhanced", "--no-voice", "--no-lodgen", "--fps"]
 run_seconds = 26
@@ -23691,7 +23748,7 @@ expect = [
   { text = "frame generation: presenting on a thread of its own", label = "the presenter thread takes the window's images (h9x000/NVForever#1)" },
   { re = 'frame generation: \d+ real frames and (\d+) generated in ', range = [200, 1000000], label = "generated frames presented over ten seconds" },
   { text = "frame generation: … presents took … on the presenter thread", label = "presented from the presenter thread, not the render thread" },
-  { re = 'latency reduction: on \((AMD Anti-Lag|not available on this GPU), with frame generation\)', label = "frame generation turns latency reduction on" },
+  { re = 'latency reduction: on \((AMD Anti-Lag|NVIDIA low latency|not available on this GPU), with frame generation\)', label = "frame generation turns latency reduction on" },
   { re = 'fps counter: FPS \d+ +\(\d+ rendered\) +[\d.]+ ms ', label = "the overlay's FPS row reads the frames shown and the rendered ones apart while generated frames are shown" },
 ]
 forbid = [
