@@ -45,10 +45,16 @@ const CCD_SUBSTEPS: usize = 4;
 const NOTE_TURN_MOST: f32 = 4.0;
 /// The fall runs at this much of real time, so a 15 cm drop reads [design].
 const PACE: f32 = 0.7;
-/// The first piece falls this long after the pot is laid, then one every this many seconds
-/// [design].
+/// Each kind falls together, as one handful: all the notes, then all the coins, then all
+/// the caps (the owner, 2026-11-12: "all bills and then coins and then caps"). A handful
+/// is let go this long after the pot is laid or the one before it is down [design].
 const FIRST_DROP: f32 = 0.15;
-const DROP_GAP: f32 = 0.05;
+/// Pieces of one handful that would start in each other are let go one over the other,
+/// this far apart (m) [design].
+const DROP_SPACE: f32 = 0.002;
+/// How long a handful of coins may take to lie still before the caps follow anyway (s)
+/// [design].
+const COIN_WAIT_MOST: f32 = 1.5;
 /// How high a piece starts over the planks, and how far off its place it is thrown from
 /// (m) [design].
 const DROP_HIGH: (f32, f32) = (0.10, 0.18);
@@ -196,6 +202,27 @@ fn half_extent(kind: Money) -> Vec3 {
     if kind.note() { Vec3::new(half.x, half.y, NOTE_THICK / 2.0) } else { Vec3::new(half.x * ROUND_REACH, half.x * ROUND_REACH, kind.thick() / UNITS_PER_M / 2.0) }
 }
 
+/// The handfuls the pot falls in, in order: notes, coins, caps.
+const WAVES: usize = 3;
+
+/// Which handful a piece falls with.
+fn handful(kind: Money) -> usize {
+    if kind.note() {
+        0
+    } else if matches!(kind, Money::Cap | Money::NukaCap) {
+        2
+    } else {
+        1
+    }
+}
+
+/// How far a piece reaches round its middle across the table, and up and down as it is let
+/// go (m), tipped as [`PotSim::drop`] tips it.
+fn drop_reach(kind: Money) -> (f32, f32) {
+    let e = half_extent(kind);
+    if kind.note() { (e.truncate().length(), e.z) } else { (e.x, e.z + e.x * ROUND_TIP.sin()) }
+}
+
 /// A piece's lowest point (m) with its middle at `c` turned by `rot`: a note's lowest
 /// corner, a cap's or coin's lowest point of its rim.
 fn lowest_point(kind: Money, c: Vec3, rot: Quat) -> Vec3 {
@@ -230,9 +257,10 @@ fn to_m(p: Vec2) -> Vec2 {
 /// One piece of the pot: where it is aimed, when it falls, its body once it has.
 pub struct PotPiece {
     pub piece: Piece,
-    /// When it is let go (s): for a note from when the pot was laid, for a cap or coin
-    /// from when the notes are down ([`PotSim::round_from`]).
-    pub release: f32,
+    /// Its handful ([`handful`]), let go all at once, and how high over the planks it is
+    /// let go from (m).
+    wave: usize,
+    high: f32,
     body: Option<RigidBodyHandle>,
     seed: usize,
     /// A note's bend now (table units), eased.
@@ -275,10 +303,8 @@ pub struct PotSim {
     clock: f32,
     carry: f32,
     still: f32,
-    /// When the notes were all down and the caps and coins began to be let go.
-    round_from: Option<f32>,
-    /// When the last note was let go.
-    notes_out: f32,
+    /// When each handful (notes, coins, caps) is let go, once the one before is down.
+    wave_from: [Option<f32>; WAVES],
     /// When the last piece was let go.
     last_out: f32,
     /// The planks: touching them, or a piece that has landed, is landing (a wall only
@@ -314,45 +340,61 @@ impl PotSim {
             let wall = ColliderBuilder::cuboid(half.x, half.y, WALL_HIGH / 2.0).translation(Vector::new(mid.x, mid.y, WALL_HIGH / 2.0)).friction(0.0).restitution(0.2);
             w.insert_collider(wall, None);
         }
-        PotSim { w, pieces: Vec::new(), clock: 0.0, carry: 0.0, still: 0.0, round_from: None, notes_out: 0.0, last_out: f32::MAX, planks }
+        PotSim { w, pieces: Vec::new(), clock: 0.0, carry: 0.0, still: 0.0, wave_from: [None; WAVES], last_out: f32::MAX, planks }
     }
 
-    /// The pieces to drop: the notes first, each [`DROP_GAP`] after the one before, from
-    /// now; then, once the notes lie still, the caps and coins the same way.
+    /// The pieces to drop, in handfuls ([`handful`]): all the notes together from now, then
+    /// once they lie still all the coins together, then all the caps. Pieces of one
+    /// handful that would start in each other start one over the other instead.
     pub fn add(&mut self, pieces: &[Piece], first_seed: usize) {
         let mut order: Vec<(usize, Piece)> = pieces.iter().copied().enumerate().map(|(k, p)| (first_seed + k, p)).collect();
-        order.sort_by_key(|(_, p)| !p.kind.note());
-        let start = self.clock + FIRST_DROP;
-        let (mut notes, mut round) = (0, 0);
+        order.sort_by_key(|(_, p)| handful(p.kind));
+        let first = self.pieces.len();
         for (seed, piece) in order {
-            let release = if piece.kind.note() {
-                notes += 1;
-                start + DROP_GAP * (notes - 1) as f32
-            } else {
-                round += 1;
-                FIRST_DROP + DROP_GAP * (round - 1) as f32
-            };
-            self.pieces.push(PotPiece { piece, release, body: None, seed, bend: 0.0, flattened: 0.0, collider: None, touched: false, air: 1.0, release_clock: 0.0, drift: Vec3::ZERO, touched_at: 0.0, pinned: false, still_for: 0.0 });
+            let kind = piece.kind;
+            let wave = handful(kind);
+            let (reach, up) = drop_reach(kind);
+            let aim = to_m(piece.at);
+            let mut high = between(if kind.note() { DROP_HIGH } else { ROUND_HIGH }, roll(seed, 1)) + piece.lift / UNITS_PER_M;
+            // Raised over every piece of its handful it would start in, until clear: each
+            // raise only goes up, so this ends.
+            loop {
+                let clash = self.pieces[first..].iter().filter(|o| o.wave == wave).find_map(|o| {
+                    let (r, u) = drop_reach(o.piece.kind);
+                    let near = (to_m(o.piece.at) - aim).length() < reach + r + 2.0 * THROW_OFF.1;
+                    let over = o.high + u + up + DROP_SPACE;
+                    // Already raised over it (to rounding): not a clash.
+                    (near && (o.high - high).abs() < up + u + DROP_SPACE && over > high + 1e-6).then_some(over)
+                });
+                match clash {
+                    Some(h) => high = h,
+                    None => break,
+                }
+            }
+            self.pieces.push(PotPiece { piece, wave, high, body: None, seed, bend: 0.0, flattened: 0.0, collider: None, touched: false, air: 1.0, release_clock: 0.0, drift: Vec3::ZERO, touched_at: 0.0, pinned: false, still_for: 0.0 });
         }
-        self.notes_out = start + DROP_GAP * notes.max(1) as f32;
-        self.round_from = None;
+        self.wave_from = [None; WAVES];
+        self.wave_from[0] = Some(self.clock + FIRST_DROP);
         self.last_out = f32::MAX;
         self.still = 0.0;
     }
 
-    /// Whether every note has been let go and lies still (or has had long enough).
-    fn notes_down(&self) -> bool {
-        let mut notes = self.pieces.iter().filter(|p| p.piece.kind.note());
-        let all_out = notes.clone().all(|p| p.body.is_some());
-        all_out
-            && (self.clock >= self.notes_out + NOTE_WAIT_MOST
-                || notes.all(|p| p.body.and_then(|h| self.w.bodies.get(h)).is_some_and(|b| b.is_sleeping() || b.linvel().length() < NOTE_STILL)))
+    /// Whether every piece of handful `wave` has been let go and lies still (or has had
+    /// long enough); a handful with no pieces is down at once.
+    fn wave_down(&self, wave: usize) -> bool {
+        let Some(from) = self.wave_from[wave] else { return false };
+        let mut of = self.pieces.iter().filter(|p| p.wave == wave);
+        if !of.clone().all(|p| p.body.is_some()) {
+            return false;
+        }
+        let most = if wave == 0 { NOTE_WAIT_MOST } else { COIN_WAIT_MOST };
+        self.clock >= from + most
+            || of.all(|p| p.pinned || p.body.and_then(|h| self.w.bodies.get(h)).is_some_and(|b| b.is_sleeping() || (p.touched && b.linvel().length() < NOTE_STILL)))
     }
 
     /// When piece `k` is let go, if that is known yet.
     fn release_at(&self, k: usize) -> Option<f32> {
-        let p = &self.pieces[k];
-        if p.piece.kind.note() { Some(p.release) } else { self.round_from.map(|t| t + p.release) }
+        self.wave_from[self.pieces[k].wave]
     }
 
     /// Whether every piece has fallen and lies still: nothing more to step.
@@ -385,8 +427,12 @@ impl PotSim {
 
     fn step(&mut self) {
         self.clock += STEP;
-        if self.round_from.is_none() && self.notes_down() {
-            self.round_from = Some(self.clock);
+        for wave in 1..WAVES {
+            if self.wave_from[wave].is_none() && self.wave_down(wave - 1) {
+                // A handful with no pieces takes no time.
+                let empty = !self.pieces.iter().any(|p| p.wave == wave);
+                self.wave_from[wave] = Some(if empty { self.clock } else { self.clock + FIRST_DROP });
+            }
         }
         for k in 0..self.pieces.len() {
             if self.pieces[k].body.is_none() && self.release_at(k).is_some_and(|t| self.clock >= t) {
@@ -566,7 +612,7 @@ impl PotSim {
         let (piece, s) = (self.pieces[k].piece, self.pieces[k].seed);
         let kind = piece.kind;
         let aim = to_m(piece.at);
-        let high = between(if kind.note() { DROP_HIGH } else { ROUND_HIGH }, roll(s, 1)) + piece.lift / UNITS_PER_M;
+        let high = self.pieces[k].high;
         let off = Vec2::from_angle(roll(s, 2) * std::f32::consts::TAU) * between(THROW_OFF, roll(s, 3));
         // A note sinks at its own pace ([`flutter`](Self::flutter)), a cap or coin falls.
         let fall = if kind.note() { high / NOTE_FALL } else { (2.0 * high / 9.81).sqrt() };
@@ -755,6 +801,50 @@ mod tests {
     }
 
     #[test]
+    fn each_kind_falls_together_notes_then_coins_then_caps() {
+        let mut s = PotSim::new(&zones());
+        s.add(&money(10_434), 0);
+        let mut out_at = vec![f32::NAN; s.pieces.len()];
+        for _ in 0..(30.0 / STEP) as u32 {
+            s.advance(STEP / PACE);
+            for (k, p) in s.pieces.iter().enumerate() {
+                if p.body.is_some() && out_at[k].is_nan() {
+                    out_at[k] = s.clock;
+                }
+            }
+            if s.settled() {
+                break;
+            }
+        }
+        let mut when = [Vec::new(), Vec::new(), Vec::new()];
+        for (k, p) in s.pieces.iter().enumerate() {
+            assert!(!out_at[k].is_nan(), "piece {k} never fell");
+            when[p.wave].push(out_at[k]);
+        }
+        assert!(when.iter().all(|w| !w.is_empty()), "a big pot has notes, coins and caps");
+        for (wave, w) in when.iter().enumerate() {
+            let (lo, hi) = w.iter().fold((f32::MAX, f32::MIN), |(a, b), &t| (a.min(t), b.max(t)));
+            assert!(hi - lo < STEP * 1.5, "handful {wave} let go over {:.3} s, not at once", hi - lo);
+            if wave > 0 {
+                let before = when[wave - 1].iter().fold(f32::MIN, |a, &t| a.max(t));
+                assert!(lo > before, "handful {wave} fell before handful {} was let go", wave - 1);
+            }
+        }
+        // Pieces let go together never start inside each other.
+        for a in 0..s.pieces.len() {
+            for b in a + 1..s.pieces.len() {
+                let (pa, pb) = (&s.pieces[a], &s.pieces[b]);
+                if pa.wave != pb.wave {
+                    continue;
+                }
+                let ((ra, ua), (rb, ub)) = (drop_reach(pa.piece.kind), drop_reach(pb.piece.kind));
+                let near = (to_m(pa.piece.at) - to_m(pb.piece.at)).length() < ra + rb + 2.0 * THROW_OFF.1;
+                assert!(!near || (pa.high - pb.high).abs() >= ua + ub, "pieces {a} {:?} and {b} {:?} start inside each other: highs {} {}, reaches {ra} {ua} {rb} {ub}, apart {}", pa.piece.kind, pb.piece.kind, pa.high, pb.high, (to_m(pa.piece.at) - to_m(pb.piece.at)).length());
+            }
+        }
+    }
+
+    #[test]
     fn the_notes_land_first_and_never_bounce() {
         let mut s = PotSim::new(&zones());
         s.add(&money(10_434), 0);
@@ -788,7 +878,7 @@ mod tests {
                 }
                 low[k] = low[k].min(z);
                 if round_out {
-                    assert!(b.linvel().length() < 0.05 || s.clock >= s.notes_out + NOTE_WAIT_MOST, "note {k} still falling when the caps came");
+                    assert!(b.linvel().length() < 0.05 || s.clock >= s.wave_from[0].unwrap_or(0.0) + NOTE_WAIT_MOST, "note {k} still falling when the caps came");
                 }
             }
             // As drawn, no note is ever inside the table.
