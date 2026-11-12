@@ -155,10 +155,14 @@ environment: §14.6.
   sound is not played when the file arrives, the marker plays on a later roll. The
   exit line `sfx files: …` counts the
   sounds that began in the frame they were asked for, those that waited, those decided
-  silent and the rolls skipped; at its end, the one-shots dropped as too late. A
-  one-shot that waits for a voice slot as well (below) is counted when it starts there
-  or is silenced, by the frames its file took (the slot's wait is `sfx voices: …`'s);
-  one dropped while it waits for the slot is not in this line.
+  silent and the rolls skipped; at its end, the one-shots dropped as too late. The
+  frames are counted from the frame a sound was asked in to the frame it began,
+  whatever it waited for: its file, a voice slot's sound fading out (below), or both; a
+  one-shot waiting for a slot is counted when it starts there or is silenced, one
+  dropped while it waits for the slot is not in this line (`sfx voices: …` counts it).
+  At the line's end, apart, how soon the files were ready: `N requests found their file
+  ready in the frame they were asked for, M later (at most F frames)`, counted as each
+  file is ready, whatever became of the request.
 - A second chance late in each frame (`late_start`, `PostUpdate`, before the audio
   output takes up new players) starts the requests whose file finished decoding since
   the frame's requests were played, as they would have started then, so a file decoded
@@ -1420,14 +1424,18 @@ run-long `MixBus`):
   `a = 0.98 / max(|left|, |right|)` when its louder sample is over 0.98, else 1. A frame
   goes out 144 frames later at `min(ceiling, the last gain + release step)`, the ceiling
   being the lowest of `a[n + k] + k / 144` over the next 144 frames and itself (at most
-  1): the gain starts down in a straight line before a peak, so even a single frame over
-  cannot pass, and is never above what the frame itself needs.
+  1): the gain starts down in a straight line within the look-ahead before a peak, from
+  the farthest frame whose `a + k / 144` is below 1 (the deeper the cut, the earlier: a
+  peak needing 0.49 is met 73 frames, 1.5 ms, ahead), so even a single frame over cannot
+  pass, and is never above what the frame itself needs. A frame turned down also has
+  its samples held to 0.98, so the product's rounding (one f32 step) cannot pass it.
 - **Release** 50 ms from no gain to unity at most (`LIMIT_RELEASE`, a step of 1/2400 a
   frame), so the gain does not pump between peaks close together.
 - **One gain for both channels** of a frame: a sound's place in stereo is kept.
 - **Unity below the threshold**: a mix that stays at or below 0.98 comes out exactly as
   it went in, 144 frames later. Around an overload the look-ahead and the release turn
-  some quieter samples down with it (up to 3 ms before a peak and up to 50 ms after).
+  some quieter samples down with it (less than 3 ms before a peak and up to 50 ms
+  after).
 - **Latency**: all sound reaches the device 3 ms later than it did.
 - A frame with a sample that is not a number (or infinite) goes out as silence (each
   sound's own guard, `audio_out.rs` `GuardedSource`, turns such samples to silence

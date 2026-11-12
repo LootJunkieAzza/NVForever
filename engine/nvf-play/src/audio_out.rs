@@ -68,8 +68,9 @@
 //!   loudest sample and the samples over full scale (`abs(sample) > 1`, each channel
 //!   counted apart; exactly ±1 is not over), before and after the output's protection.
 //!   The protection is a look-ahead limiter ([`Limiter`]): one gain for both channels of
-//!   a frame, no sample out over [`LIMIT_THRESHOLD`] (0.98), turned down over the
-//!   [`LIMIT_LOOKAHEAD`] (3 ms) before a peak and back up over at most [`LIMIT_RELEASE`]
+//!   a frame, no sample out over [`LIMIT_THRESHOLD`] (0.98), turned down in a straight
+//!   line within the [`LIMIT_LOOKAHEAD`] (3 ms) before a peak (the deeper the cut, the
+//!   earlier it starts) and back up over at most [`LIMIT_RELEASE`]
 //!   (50 ms); a mix that stays at or below the threshold passes exactly as it is, 3 ms
 //!   later (all sound is 3 ms later for it). Its delay and gain are the bus's, kept
 //!   across a device reopen. Each pull measures its block locally and publishes the
@@ -663,14 +664,18 @@ const LIMIT_QUEUE: usize = 256;
 /// at `gain[n] = min(ceiling[n], gain[n-1] + 1 / (48000 × LIMIT_RELEASE))`, where
 /// `ceiling[n] = min(1, a[n+k] + k / L for k in 0..=L)`: the gain is never above what the
 /// frame itself needs (no sample leaves over the threshold), starts down in a straight
-/// line `L` frames before a peak, and comes back no faster than the release. The future
+/// line within the look-ahead before a peak (from the farthest frame whose `a + k / L` is
+/// below 1: about 73 frames ahead for a peak needing 0.49, the whole `L` only for one
+/// needing next to nothing), and comes back no faster than the release. The future
 /// minimum is kept in a queue whose values rise from front to back (a frame's
 /// `a + (m - n) / L`, compared by frame numbers' differences, so the numbers can wrap);
 /// frames needing no turn-down are not queued. A stream that stays at or below the
 /// threshold comes out exactly as it went in, `L` frames later; around an overload some
 /// quieter samples are turned down with it. A frame with a sample that is not a number
-/// (or infinite) is silence. Buffers allocated at creation; per frame a few compares and
-/// two multiplies, nothing allocated, no lock, no log.
+/// (or infinite) is silence. A frame turned down has its samples held to the threshold
+/// as well, so the product's rounding (one f32 step at most) cannot put one over it.
+/// Buffers allocated at creation; per frame a few compares, two multiplies and two
+/// clamps, nothing allocated, no lock, no log.
 pub(crate) struct Limiter {
     /// The frames on their way out, `L` of them, and where the next goes in.
     delay: Box<[[f32; 2]]>,
@@ -745,7 +750,9 @@ impl Limiter {
         self.pos = (self.pos + 1) % LIMIT_LOOKAHEAD;
         self.frame = i.wrapping_add(1);
         if self.gain < 1.0 {
-            (ol * self.gain, or * self.gain, true)
+            // `|x| × gain` can round one f32 step over the threshold; held to it.
+            let held = |s: f32| (s * self.gain).clamp(-LIMIT_THRESHOLD, LIMIT_THRESHOLD);
+            (held(ol), held(or), true)
         } else {
             (ol, or, false)
         }
@@ -1539,7 +1546,7 @@ mod tests {
             assert_eq!((m.pre_peak, m.pre_over), (peak, over), "{blocks:?}");
             // After it: none over full scale, nothing over its threshold.
             assert_eq!(m.post_over, 0, "{blocks:?}");
-            assert!(m.post_peak <= LIMIT_THRESHOLD + 1e-6 && m.post_peak > 0.5, "{blocks:?}: post peak {}", m.post_peak);
+            assert!(m.post_peak <= LIMIT_THRESHOLD && m.post_peak > 0.5, "{blocks:?}: post peak {}", m.post_peak);
             assert!(m.limited > 0, "{blocks:?}");
             assert_eq!(stats.frames.load(Ordering::Relaxed), 5120 / CHANNELS as u64);
             meters.push(m);
@@ -1662,13 +1669,14 @@ mod tests {
         let reach = (0..=la).rev().find(|&k| a + k as f32 / (la as f32) < 1.0).unwrap();
         assert!(reach > la / 2 && reach < la);
         let (out, limited) = limit(&frames, 0);
-        assert!(out.iter().flatten().all(|s| s.abs() <= LIMIT_THRESHOLD + 1e-6), "nothing out over the threshold");
+        assert!(out.iter().flatten().all(|s| s.abs() <= LIMIT_THRESHOLD), "nothing out over the threshold");
         assert!((out[at][0] - LIMIT_THRESHOLD).abs() < 1e-6 && (ratio(out[at]) + 0.5).abs() < 1e-6, "the peak at the threshold: {:?}", out[at]);
         assert!(out.iter().all(|f| (ratio(*f) + 0.5).abs() < 1e-5), "one gain for both channels: the stereo kept");
         // Turned down in a straight line within the look-ahead before it, not before.
         assert_eq!(out[at - reach - 1], quiet);
         assert!(out[at - reach][0] < quiet[0]);
-        let gain = |n: usize| out[n][0] / quiet[0];
+        // The gain each frame played at: its output over its own input (the peak's too).
+        let gain = |n: usize| out[n][0] / frames[n][0];
         assert!((gain(at - la / 2) - (a + 0.5)).abs() < 1e-5, "{}", gain(at - la / 2));
         assert!((at - reach + 1..=at).all(|n| gain(n) < gain(n - 1)), "falling to the peak");
         // Back up no faster than the release, all the way to unity, then as it was.
@@ -1684,11 +1692,12 @@ mod tests {
             *f = [1.5, -0.75];
         }
         let (out, _) = limit(&frames, 0);
-        assert!(out.iter().flatten().all(|s| s.abs() <= LIMIT_THRESHOLD + 1e-6));
+        assert!(out.iter().flatten().all(|s| s.abs() <= LIMIT_THRESHOLD));
         assert!(out[1000..3000].iter().all(|f| (f[0] - LIMIT_THRESHOLD).abs() < 1e-5 && (ratio(*f) + 0.5).abs() < 1e-5));
         let released = 3000 + ((1.0 - LIMIT_THRESHOLD / 1.5) / step).ceil() as usize + 2;
         assert!(out[released..] == frames[released..], "released to unity by frame {released}");
-        // Peaks close together, of every size: the queue's minimum is the plain one, and
+        // Peaks close together, of every size (some of whose products round one f32 step
+        // over the threshold before the hold): the queue's minimum is the plain one, and
         // the frame numbers wrapping round (a day of 48 kHz frames) change nothing.
         let mut frames = vec![quiet; 6000];
         for (k, n) in (300..5500).step_by(37).enumerate() {
@@ -1700,9 +1709,10 @@ mod tests {
         let plain = limit_plainly(&frames);
         assert_eq!(out.len(), plain.len());
         for (n, (o, p)) in out.iter().zip(&plain).enumerate() {
+            // The plain one is not held to the threshold: a step apart at most.
             assert!((o[0] - p[0]).abs() < 1e-6 && (o[1] - p[1]).abs() < 1e-6, "frame {n}: {o:?} against {p:?}");
         }
-        assert!(out.iter().flatten().all(|s| s.abs() <= LIMIT_THRESHOLD + 1e-6));
+        assert!(out.iter().flatten().all(|s| s.abs() <= LIMIT_THRESHOLD));
         assert!(limit(&frames, u32::MAX - 2000).0 == out, "across the wrap of the frame numbers");
         // A frame that is not a number is silence, not a gain of nothing for ever.
         let mut frames = vec![quiet; 1000];

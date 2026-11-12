@@ -78,7 +78,9 @@
 //!   at once over one not heard yet` ([`Sfx::voices_line`]; Q: requests that waited for
 //!   a slot, Q = R + C + E + M + P; R: those started in their slot; I: one-shots that
 //!   took over one of their SOUN started in the same frame, no wait). `sfx files: …`
-//!   counts a replacement when it starts or is silenced, not when it takes its slot.
+//!   counts a replacement when it starts or is silenced, not when it takes its slot, by
+//!   the frames from its request to its start (its slot's wait in them); at its end, how
+//!   soon the requests' files were ready, apart.
 //! - **Things that sound while they are there** ([`SoundSource`]): a creature's conscious
 //!   loop, an activator's or a container's looping sound; sent every frame they should
 //!   sound and played by [`crate::ambient`] as it plays sound markers.
@@ -898,16 +900,23 @@ fn take_decided(waiting: &mut Vec<Waiting>, pending: impl Fn(&Waiting) -> bool) 
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct Waits {
     /// Sounds that began playing in the frame they were asked in, those that began
-    /// later, those more than one frame later, and the most frames one waited: by the
-    /// frames its file took to be ready. Counted when a sound begins, or is decided
-    /// silent: a one-shot that then waited for a voice slot ([`Replacement`]) is counted
-    /// when it starts (or is silenced) in the slot, by its file's frames still, the
-    /// slot's wait not in them (that is `sfx voices: …`'s); one dropped while it waited
-    /// for the slot is not counted here.
+    /// later, those more than one frame later, and the most frames one waited: from the
+    /// frame it was asked in to the frame it began, whatever it waited for (its file, a
+    /// voice slot's sound fading out, or both). Counted when a sound begins, or is decided
+    /// silent: a one-shot that waited for a voice slot ([`Replacement`]) is counted when it
+    /// starts (or is silenced) in the slot; one dropped while it waited for the slot is not
+    /// counted here (that is `sfx voices: …`'s).
     pub at_once: u32,
     pub late: u32,
     pub over_one: u32,
     pub most_frames: u64,
+    /// How soon the file was ready, apart from when the sound began: the requests that
+    /// found their file ready in the frame they were asked in, those that found it later,
+    /// and the most frames one waited for it; counted as the file is ready, whatever then
+    /// became of the request (begun, waiting for a slot, silent).
+    pub files_at_once: u32,
+    pub files_late: u32,
+    pub files_most_frames: u64,
     /// Requests decided silent (too quiet, under water, sounds off, the voice limit),
     /// at once or after waiting.
     pub silent: u32,
@@ -946,6 +955,16 @@ impl Waits {
             self.over_one += (waited > 1) as u32;
         }
         self.most_frames = self.most_frames.max(waited);
+    }
+
+    /// A request whose file is ready, `waited` frames after it was asked for.
+    fn file_ready(&mut self, waited: u64) {
+        if waited == 0 {
+            self.files_at_once += 1;
+        } else {
+            self.files_late += 1;
+        }
+        self.files_most_frames = self.files_most_frames.max(waited);
     }
 
     /// A request decided as [`Begun`] says: begun or silent; one waiting for a voice slot
@@ -1345,6 +1364,9 @@ fn begin(out: &mut Out, sfx: &mut Sfx, heard: &mut Vec<(u32, Option<f32>)>, r: &
     if let Some(waited) = waited {
         debug!("sfx: {} {} decided {waited} frames after it was asked for (its file was being read)", r.name, r.path);
     }
+    sfx.waits.file_ready(waited.unwrap_or(0));
+    // The frame it was asked in, for a replacement's count of frames to its start.
+    let asked_frame = sfx.frame.saturating_sub(waited.unwrap_or(0));
     let begun = match wanted {
         Wanted::Loop => start_looping(out, sfx, r, handle, sound, false).map_or(Begun::Refused, Begun::Started),
         // A SOUN with the Loop flag goes round until StopSound stops it [observed:
@@ -1357,7 +1379,7 @@ fn begin(out: &mut Out, sfx: &mut Sfx, heard: &mut Vec<(u32, Option<f32>)>, r: &
             begun
         }
         Wanted::Script { looping: false, .. } | Wanted::Once(_) => {
-            let (seconds, begun) = one_shot_ready(out, sfx, r, handle, sound, wanted, asked, waited.unwrap_or(0), None);
+            let (seconds, begun) = one_shot_ready(out, sfx, r, handle, sound, wanted, asked, asked_frame, None);
             one_shot_decided(out, sfx, heard, sound, wanted, seconds, begun);
             begun
         }
@@ -1744,7 +1766,9 @@ pub(crate) fn one_shot_heard(out: &mut Out, sfx: &mut Sfx, vfs: &Arc<fnv_vfs::Vf
             OneShotNow::NoFile
         }
         FileNow::Ready(h) => {
-            let (seconds, begun) = one_shot_ready(out, sfx, &r, h, sound, Wanted::Once(at), Instant::now(), 0, None);
+            sfx.waits.file_ready(0);
+            let frame = sfx.frame;
+            let (seconds, begun) = one_shot_ready(out, sfx, &r, h, sound, Wanted::Once(at), Instant::now(), frame, None);
             sfx.waits.decided_unless_waiting(0, begun);
             OneShotNow::Played(seconds)
         }
@@ -1771,8 +1795,9 @@ struct Slot {
 /// A one-shot asked for at its SOUN's [`MAX_SAME`] waiting for a slot whose sound fades
 /// out after the steal (#2217): the slot's entity and start number, what it plays (the
 /// file picked and the pitch chosen when it was asked for, a Random Frequency Shift
-/// rolled then, once), when it was asked for and the frames its file took (`waited`,
-/// for [`Waits`]). It starts once that sound has ended, with the listener as it is then
+/// rolled then, once), when it was asked for and the frame it was asked in (`frame`,
+/// [`Sfx::frame`]: [`Waits`] counts its frames from there to its start). It starts once
+/// that sound has ended, with the listener as it is then
 /// (its gain, pan and place worked out again; nothing rolled again); a game event's one
 /// waiting longer than [`MAX_ONE_SHOT_WAIT`] in all is dropped. One per slot at most, so
 /// at most [`MAX_VOICES`].
@@ -1785,7 +1810,7 @@ struct Replacement {
     speed: f32,
     wanted: Wanted,
     asked: Instant,
-    waited: u64,
+    frame: u64,
 }
 
 impl Sfx {
@@ -1844,13 +1869,14 @@ fn start_replacements(out: &mut Out, sfx: &mut Sfx, heard: &mut Vec<(u32, Option
             sfx.replacements_expired += 1;
             continue;
         }
-        let (seconds, begun) = one_shot_ready(out, sfx, &p.r, p.handle, p.sound, p.wanted, p.asked, p.waited, Some((p.slot, p.speed)));
+        let (seconds, begun) = one_shot_ready(out, sfx, &p.r, p.handle, p.sound, p.wanted, p.asked, p.frame, Some((p.slot, p.speed)));
         match begun {
             Begun::Started(_) => sfx.replacements_started += 1,
             _ => sfx.replacements_silenced += 1,
         }
-        // Decided now as far as the file statistics go, by its file's frames.
-        sfx.waits.decided(p.waited, matches!(begun, Begun::Started(_)));
+        // Begun (or silent) now: counted by the frames from its request to this one, the
+        // wait for its file and for its slot both.
+        sfx.waits.decided(sfx.frame.saturating_sub(p.frame), matches!(begun, Begun::Started(_)));
         one_shot_decided(out, sfx, heard, p.sound, p.wanted, seconds, begun);
     }
 }
@@ -1866,11 +1892,11 @@ fn slot_to_take(list: &[Slot]) -> Option<usize> {
 /// panned for them) or at the listener: the seconds it lasts as played, also when it is
 /// too quiet to be heard or sounds are switched off, and what became of it ([`Begun`]:
 /// the entity playing it, waiting for a voice slot, or nothing heard). `wanted`, `asked`
-/// and `waited` (the frames its file took) are kept for a [`Replacement`]; `kept`: a
+/// and `asked_frame` (the frame it was asked in) are kept for a [`Replacement`]; `kept`: a
 /// replacement starting, the slot reserved for it (its sound ended, not counted against
 /// the limits again) and the pitch chosen when it was asked for (not rolled again).
 #[allow(clippy::too_many_arguments)]
-fn one_shot_ready(out: &mut Out, sfx: &mut Sfx, r: &Resolved, handle: Handle<PcmSound>, sound: FormId, wanted: Wanted, asked: Instant, waited: u64, kept: Option<(Entity, f32)>) -> (f32, Begun) {
+fn one_shot_ready(out: &mut Out, sfx: &mut Sfx, r: &Resolved, handle: Handle<PcmSound>, sound: FormId, wanted: Wanted, asked: Instant, asked_frame: u64, kept: Option<(Entity, f32)>) -> (f32, Begun) {
     let slot = kept.map(|k| k.0);
     let at = match wanted {
         Wanted::Once(at) | Wanted::Script { at, .. } => at,
@@ -1954,7 +1980,7 @@ fn one_shot_ready(out: &mut Out, sfx: &mut Sfx, r: &Resolved, handle: Handle<Pcm
                     out.commands.entity(taken.entity).try_remove::<(ScriptPlayed, ScriptFade)>();
                     stop_sound(out.commands, taken.entity, StopReason::Steal);
                 }
-                sfx.pending.push(Replacement { slot: taken.entity, start: taken.start, sound, r: r.clone(), handle, speed, wanted, asked, waited });
+                sfx.pending.push(Replacement { slot: taken.entity, start: taken.start, sound, r: r.clone(), handle, speed, wanted, asked, frame: asked_frame });
                 sfx.replacements_waited += 1;
                 return (seconds, Begun::Waiting);
             }
@@ -2054,8 +2080,8 @@ fn report(mut exit: MessageReader<AppExit>, sfx: Option<Res<Sfx>>, stops: Option
             // Sounds whose file was still being read when they were asked for (#1428).
             let w = &s.waits;
             info!(
-                "sfx files: {} sounds began in the frame they were asked for, {} later while their file was read ({} more than one frame later, at most {} frames); {} decided silent (too quiet, under water, sounds off or the voice limit); {} dropped while they waited, {} waited for a file that could not be played, {} still waiting at the end; {} random sound rolls skipped while their file was read; {} started late in a frame once their file came in, {} of them in the frame they were asked for, those at most {:.1} ms from joining the waiting list to their start (not the delay until heard); {} one-shots dropped, their file in after more than {} ms",
-                w.at_once, w.late, w.over_one, w.most_frames, w.silent, w.cancelled, w.broken, s.waiting.len(), w.rolls_skipped, w.late_started, w.late_same_frame, w.late_most_ms, w.too_late, MAX_ONE_SHOT_WAIT.as_millis()
+                "sfx files: {} sounds began in the frame they were asked for, {} later while their file was read ({} more than one frame later, at most {} frames); {} decided silent (too quiet, under water, sounds off or the voice limit); {} dropped while they waited, {} waited for a file that could not be played, {} still waiting at the end; {} random sound rolls skipped while their file was read; {} started late in a frame once their file came in, {} of them in the frame they were asked for, those at most {:.1} ms from joining the waiting list to their start (not the delay until heard); {} one-shots dropped, their file in after more than {} ms; {} requests found their file ready in the frame they were asked for, {} later (at most {} frames)",
+                w.at_once, w.late, w.over_one, w.most_frames, w.silent, w.cancelled, w.broken, s.waiting.len(), w.rolls_skipped, w.late_started, w.late_same_frame, w.late_most_ms, w.too_late, MAX_ONE_SHOT_WAIT.as_millis(), w.files_at_once, w.files_late, w.files_most_frames
             );
             if s.voice_stolen > 0 {
                 info!("sfx: {} one-shots took over the oldest voice of their sound at {MAX_SAME} playing", s.voice_stolen);
@@ -3162,17 +3188,24 @@ mod tests {
     fn replacement_outcomes_are_counted() {
         let (mut app, _files) = sound_app_with_output();
         beep_ready(&mut app);
-        let before = app.world().resource::<Sfx>().waits.clone();
-        // A ninth waiting is not yet a sound begun (the file statistics count it when it
-        // starts or is silenced, not when it takes a slot).
+        // Counted from here (the cold file's wait before is not this test's).
+        app.world_mut().resource_mut::<Sfx>().waits = Waits::default();
+        let before = Waits::default();
+        // A ninth waiting is not yet a sound begun (counted when it starts or is
+        // silenced, not when it takes a slot); its file was ready at once all the same.
         a_ninth_waits(&mut app);
         let waits = |app: &App| app.world().resource::<Sfx>().waits.clone();
-        assert_eq!((waits(&app).at_once - before.at_once, waits(&app).silent - before.silent), (MAX_SAME as u32, 0));
-        // Started once its slot has emptied: begun now.
+        let w = waits(&app);
+        assert_eq!((w.at_once - before.at_once, w.late - before.late, w.silent - before.silent), (MAX_SAME as u32, 0, 0));
+        assert_eq!((w.files_at_once - before.files_at_once, w.files_late - before.files_late), (MAX_SAME as u32 + 1, 0));
+        // Started once its slot has emptied, in the next frame: begun a frame after it was
+        // asked for (its slot's wait counted), though its file was ready at once.
         play_for(&app, 10);
         app.update();
         assert_eq!(app.world().resource::<Sfx>().replacements_started, 1);
-        assert_eq!(waits(&app).at_once - before.at_once, MAX_SAME as u32 + 1);
+        let w = waits(&app);
+        assert_eq!((w.at_once - before.at_once, w.late - before.late, w.over_one - before.over_one), (MAX_SAME as u32, 1, 0));
+        assert_eq!((w.most_frames, w.files_most_frames), (1, 0), "a frame to its start, none for its file");
         // Past the age bound when its slot empties: dropped, counted as expired only.
         a_ninth_waits(&mut app);
         app.world_mut().resource_mut::<Sfx>().one_shot_wait = Duration::ZERO;
