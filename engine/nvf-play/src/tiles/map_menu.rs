@@ -824,6 +824,7 @@ fn num_of(v: f32) -> Value {
 fn write_world(ui: &mut Ui, s: &WorldShown, rows: &mut WorldRows) -> Result<(), String> {
     let paths = s.paths();
     let parent = ui.find_tile(paths.picture).ok_or("the map's picture is gone")?;
+    give_arrow_brightness(ui, paths.cursor);
     ui.write_changed(parent, "filename", text(&s.texture));
     ui.write_changed(parent, "filewidth", num_of(s.usable.x));
     ui.write_changed(parent, "fileheight", num_of(s.usable.y));
@@ -872,10 +873,6 @@ fn write_world(ui: &mut Ui, s: &WorldShown, rows: &mut WorldRows) -> Result<(), 
             ui.write_changed(row.tile, "_x", num_of(uv[0]));
             ui.write_changed(row.tile, "_y", num_of(uv[1]));
         }
-        // The node's picture as the hand-built page draws it: stretched over its box, at full
-        // brightness (the template copies the arrow's, which the file does not give).
-        ui.write_changed(row.tile, "zoom", Value::Num(-1.0));
-        ui.write_changed(row.tile, "brightness", Value::Num(255.0));
     }
     match (start, rows.nodes.iter().find(|r| r.key == NodeRow::Start)) {
         (Some(from), Some(node)) => {
@@ -886,10 +883,6 @@ fn write_world(ui: &mut Ui, s: &WorldShown, rows: &mut WorldRows) -> Result<(), 
                 let (len, angle) = path_line(from, to, s.usable);
                 ui.write_changed(row.tile, "user0", num_of(len));
                 ui.write_changed(row.tile, "rotateangle", num_of(angle));
-                // The dotted picture repeated as the hand-built line repeats it: kept in shape at
-                // the line's height (`data::PATH_TILE` a repeat), at full brightness.
-                ui.write_changed(row.tile, "zoom", Value::Num(f64::from(data::PATH_TILE) / PATH_TEXELS_W * 100.0));
-                ui.write_changed(row.tile, "brightness", Value::Num(255.0));
             }
         }
         _ => {
@@ -912,9 +905,17 @@ fn write_world(ui: &mut Ui, s: &WorldShown, rows: &mut WorldRows) -> Result<(), 
     Ok(())
 }
 
-/// The dotted line's picture's width in texels [documented: `waypoint_path.dds`'s header in
-/// `Fallout - Textures2.bsa`, 64 × 16].
-const PATH_TEXELS_W: f64 = 64.0;
+/// The arrow's `brightness`, which the waypoint nodes and the dotted lines copy [documented:
+/// `WaypointTemplate`'s and `PathLineTemplate`'s `brightness`, a copy of `MM_WorldMapCursor`'s],
+/// given the painter's own default, 255, while the arrow has none: the file gives it none, and a
+/// trait a tile does not have reads 0 in the tree (`fnv_ui`) where the painter draws a tile without
+/// one at 255 (`super::layout`), so the copies would draw black [design: the code-owned value
+/// put in before the copies are worked out; a value the file, a mod or a script gave stays].
+fn give_arrow_brightness(ui: &mut Ui, cursor: &str) {
+    if let Some(c) = ui.find_tile(cursor).filter(|&c| ui.tile(c).get("brightness").is_none()) {
+        ui.set_trait(c, "brightness", Value::Num(255.0));
+    }
+}
 
 /// A dotted line from texture coordinates `from` to `to` on a picture `usable` across at a
 /// magnification of 1: its length there (the file takes 4 off and multiplies by the
@@ -959,13 +960,6 @@ fn keep_world(ui: &mut Ui, s: &WorldShown) {
     }
     if let Some(c) = ui.find_tile(paths.cursor) {
         keep(ui, c, "visible", if s.arrow.is_some() { 1.0 } else { 0.0 });
-        // The arrow's picture as the hand-built page draws it: the whole of `glow_cursor.dds`
-        // stretched over the arrow's 40 × 51.2, at full brightness (the nodes and lines copy it).
-        // The file's `zoom` (its width × 3.5) would draw the picture at 1.4 times its texels cut
-        // to the box, a corner of it at the hand-built page's width [design: which width the
-        // original's code gives it is not known].
-        keep(ui, c, "zoom", -1.0);
-        keep(ui, c, "brightness", 255.0);
     }
     // The box's middle on the model's highlight, in its own window's units.
     let (Some(b), Some(clip), Some(map)) = (ui.find_tile(HIGHLIGHT_BOX), ui.find_tile(HIGHLIGHT_CLIP), ui.find_tile(paths.clip)) else { return };
@@ -3195,12 +3189,15 @@ mod tests {
         assert!((trait_of(&ui, lines[0].tile, "user0") - 100.0).abs() < 1e-3);
         assert!((trait_of(&ui, lines[0].tile, "rotateangle") - std::f64::consts::PI).abs() < 1e-6);
         assert!(trait_of(&ui, lines[1].tile, "rotateangle").abs() < 1e-6);
-        // The arrow: the player's place and heading, shown; its picture, the nodes' and the lines'
-        // as the hand-built page draws them (stretched, full brightness, the dots kept in shape).
+        // The arrow: the player's place and heading, shown; its brightness the painter's default,
+        // which the file does not give and the nodes and lines copy; its zoom the file's.
         assert_eq!((at(&ui, WORLD_CURSOR, "_x"), at(&ui, WORLD_CURSOR, "_y"), at(&ui, WORLD_CURSOR, "rotateangle"), at(&ui, WORLD_CURSOR, "visible")), (0.5, 0.5, 0.25, 1.0));
-        assert_eq!((at(&ui, WORLD_CURSOR, "zoom"), at(&ui, WORLD_CURSOR, "brightness")), (-1.0, 255.0));
-        assert!(nodes.iter().all(|n| trait_of(&ui, n.tile, "zoom") == -1.0 && trait_of(&ui, n.tile, "brightness") == 255.0));
-        assert!(lines.iter().all(|l| (trait_of(&ui, l.tile, "zoom") - f64::from(data::PATH_TILE) / 64.0 * 100.0).abs() < 1e-9));
+        assert_eq!(at(&ui, WORLD_CURSOR, "brightness"), 255.0);
+        assert!(ui.tile(ui.find_tile(WORLD_CURSOR).unwrap()).get("zoom").is_none(), "nothing written over the file's zoom");
+        let c = ui.find_tile(WORLD_CURSOR).unwrap();
+        ui.set_trait(c, "brightness", Value::Num(90.0));
+        give_arrow_brightness(&mut ui, WORLD_CURSOR);
+        assert_eq!(trait_of(&ui, c, "brightness"), 90.0, "a brightness given stays");
         // The highlight box on the model's highlight (the window's middle, on marker 20), shown,
         // its title the name and the reputation's line.
         assert_eq!((at(&ui, HIGHLIGHT_BOX, "x"), at(&ui, HIGHLIGHT_BOX, "y"), at(&ui, HIGHLIGHT_BOX, "visible")), (427.5 - 80.0, 250.0 - 80.0, 1.0));
