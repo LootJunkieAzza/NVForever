@@ -41,6 +41,7 @@ pub mod coop_tables;
 pub mod coop_progress;
 pub mod armwrestle;
 pub mod darts_foes;
+pub mod drink_contest;
 pub mod emotes;
 pub mod minigames;
 pub mod corner_messages;
@@ -430,6 +431,7 @@ impl Plugin for PlayPlugin {
             .add_plugins(terminal::TerminalPlugin)
             .add_plugins((coop_tables::CoopTablesPlugin, coop_social::CoopSocialPlugin, coop_downed::CoopDownedPlugin, coop_heads::CoopHeadsPlugin, coop_audio::CoopAudioPlugin, coop_companions::CoopCompanionsPlugin, coop_subtitles::CoopSubtitlesPlugin, coop_talk::CoopTalkPlugin, minigames::MinigamesPlugin, pool::PoolPlugin, bash::BashPlugin, flourish::FlourishPlugin, match_lobby::MatchLobbyPlugin, table_spots::TableSpotsPlugin, casino_hud::CasinoHudPlugin))
             .add_plugins(armwrestle::ArmWrestlePlugin)
+            .add_plugins(drink_contest::DrinkContestPlugin)
             .add_plugins(armwrestle_coop::ArmCoopPlugin)
             .add_plugins(tutorial_menu::TutorialMenuPlugin)
             .add_plugins(campfire::CampfirePlugin)
