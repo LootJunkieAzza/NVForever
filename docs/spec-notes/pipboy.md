@@ -1811,7 +1811,10 @@ when that line changes (an audio note playing changes the time left every frame,
 over the file's panel; `… tab world map, <n> markers, <m> quest markers, custom marker|no custom
 marker, <k> dotted lines, "<name>"|"nothing" highlighted, magnification <x>, hints: <…>` when that
 line changes; `pipboy data: question box over the tiles (<n> answers)` when the box is painted over
-the page; `MapMenu drawn by hand: <reason>` (a warning)
+the page; `tiles: MapMenu <tab> frames: <n> from tiles, <m> by hand, <k> before it was prepared` when a
+visit to a tab drawn from the file ends (another tab, the page down), every frame of it counted by
+what drew it, so a run shows a page that never fell back even for a frame (a fallback is warned of
+only after three passes); `MapMenu drawn by hand: <reason>` (a warning)
 for a failure; the painter's `tiles: MapMenu drawn from tiles (…)` and `set out for the Pip-Boy's
 image: …` lines.
 

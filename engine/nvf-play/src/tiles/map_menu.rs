@@ -1421,6 +1421,8 @@ pub struct MapTiles {
     pub(crate) pieces: Vec<Piece>,
     /// Radio's waveform panel, while the page is ready on Radio ([`settle`]).
     pub wave: Option<WaveShown>,
+    /// The frames of this visit to a tab drawn from the file, by what drew them ([`settle`]).
+    frames: Frames,
     /// [`CUT_AID`] and its time.
     pub cut: Option<String>,
     pub cut_until: Option<f32>,
@@ -1812,6 +1814,18 @@ pub(crate) fn settle(mut p: MapPage) {
             (None, state)
         }
     };
+    // Every frame on a tab drawn from the file counted by what drew it, told when the visit ends,
+    // so a run can show that the page never fell back, not even for a frame (smoke reads these).
+    let counted = on_data.then_some(tab).filter(|t| TILED_TABS.contains(t));
+    let drew = match (&ready, &state) {
+        (Some(_), _) => Drew::Tiles,
+        (None, Some(Err(_))) => Drew::Hand,
+        (None, _) if p.tiles.written.failing > 0 => Drew::Hand,
+        (None, _) => Drew::Waiting,
+    };
+    if let Some((tab, [tiles, hand, waiting])) = p.tiles.frames.step(counted, drew) {
+        info!("tiles: {MAP_MENU} {} frames: {tiles} from tiles, {hand} by hand, {waiting} before it was prepared", tab_name(tab));
+    }
     // One line a change of the page's draw state, on DATA (smoke reads these).
     if let Some(state) = state.filter(|_| on_data) {
         let now = Some((tab, state.clone()));
@@ -1845,6 +1859,43 @@ pub(crate) fn settle(mut p: MapPage) {
 fn wave_of(w: &Written) -> Option<WaveShown> {
     let Pane::Wave { on } = w.shown.as_ref()?.pane else { return None };
     Some(WaveShown { rect: w.counted.wave?, on })
+}
+
+/// What drew a frame of a tab drawn from the file ([`Frames`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Drew {
+    /// The page from its tiles.
+    Tiles,
+    /// The hand-built page, the tiles' pass having failed.
+    Hand,
+    /// The hand-built page, nothing prepared for the tab yet (the Pip-Boy coming up the first
+    /// time).
+    Waiting,
+}
+
+/// The frames of one visit to a tab drawn from the file, by what drew them: a positive record
+/// that it never fell back (a fallback is warned of only after [`FAILING_PASSES`]) [design].
+#[derive(Default, Debug)]
+pub(crate) struct Frames {
+    tab: Option<usize>,
+    counts: [u32; 3],
+}
+
+impl Frames {
+    /// Count a frame on tab `tab` (none: off DATA, or a tab drawn by hand), drawn by `drew`; the
+    /// visit that ended, with its counts (from tiles, by hand, before it was prepared), when the
+    /// tab changed.
+    fn step(&mut self, tab: Option<usize>, drew: Drew) -> Option<(usize, [u32; 3])> {
+        let ended = (self.tab != tab).then(|| self.tab.map(|t| (t, std::mem::take(&mut self.counts)))).flatten();
+        if self.tab != tab {
+            self.tab = tab;
+            self.counts = [0; 3];
+        }
+        if tab.is_some() {
+            self.counts[drew as usize] += 1;
+        }
+        ended
+    }
 }
 
 /// Whether [`CUT_AID`]'s time is over now: only with the switch on, as nothing else of the page runs
@@ -3254,6 +3305,21 @@ mod tests {
         let tries: Vec<usize> = (1..=150).filter(|_| !w.waits(data::QUESTS, true, tree, false)).collect();
         assert_eq!(tries.len(), 2, "tried again every {LAYOUT_RETRY_PASSES} passes");
         assert!(!Written { failing: FAILING_PASSES - 1, ..Default::default() }.waits(data::QUESTS, true, tree, false), "not before it lasted");
+    }
+
+    /// [design] Each visit to a tab drawn from the file is told with its frames by what drew them,
+    /// when it ends: another tab, off DATA.
+    #[test]
+    fn each_visit_counts_its_frames_by_what_drew_them() {
+        let mut f = Frames::default();
+        assert_eq!(f.step(None, Drew::Waiting), None, "off DATA: nothing counted");
+        assert_eq!(f.step(Some(data::WORLD), Drew::Waiting), None);
+        assert_eq!(f.step(Some(data::WORLD), Drew::Tiles), None);
+        assert_eq!(f.step(Some(data::WORLD), Drew::Tiles), None);
+        assert_eq!(f.step(Some(data::WORLD), Drew::Hand), None);
+        assert_eq!(f.step(Some(data::QUESTS), Drew::Tiles), Some((data::WORLD, [2, 1, 1])), "the World Map's visit ends");
+        assert_eq!(f.step(None, Drew::Waiting), Some((data::QUESTS, [1, 0, 0])), "the Pip-Boy down");
+        assert_eq!(f.step(None, Drew::Waiting), None);
     }
 
     #[test]

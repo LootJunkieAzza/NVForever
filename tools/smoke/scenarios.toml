@@ -24587,8 +24587,8 @@ order = [[{ re = 'pipboy data: note .+ \(0x001618BF\) picked' }, "pipboy data: c
 
 [[scenario]]
 name = "tiles-data-world"
-source = "[design] pipboy.md section 5.3.1, issue 1513: with [UI] TileMenus=MapMenu the DATA page's World Map is drawn from map_menu.xml through the viewport the hand-built page shares (MapView): the picture under MM_WorldMap_ParentImage, the markers as MapMarkerTemplate rows kept by record, the custom marker and its dotted line from the file's templates, the arrow and the highlight box; Place Marker's question box is painted over the tiles and answered both ways (Yes places the marker, Remove takes it off), and fast travel's question is painted over them and cancelled (No), the page staying drawn from its tiles throughout"
-note = "pipboy-custom-marker's pointer (canvas 527, 350, 50 right of the map window's middle) and fast-travel-primm's ShowMap of Primm (0x000CDF46) as a travel target; placemarker is the maps' X button, key=use the chosen answer, key=down the next one; travel= asks as a click on that marker would. Shots: tiles_data_world.png (the map with the custom marker and its line, unturned until the painter turns pictures), tiles_data_world_box.png (the question box over the tiles), to compare with tiles-data-world-off's."
+source = "[design] pipboy.md section 5.3.1, issue 1513: with [UI] TileMenus=MapMenu the DATA page's World Map is drawn from map_menu.xml through the viewport the hand-built page shares (MapView): the picture painted from MM_WorldMap_ParentImage's traits, the markers as MapMarkerTemplate rows kept by record, the custom marker and its dotted line from the file's templates, the arrow and the highlight box; Place Marker's question box is painted over the tiles and answered by keys both ways (Yes places the marker, Remove takes it off), and fast travel's question, asked by the test aid as a click on Primm's marker would, is painted over them and cancelled by keys; every frame on the World Map is counted by what drew it. The pointer's own clicks on the map and on a box, Tab with a box up and a reopening: tiles-data-world-pointer"
+note = "pipboy-custom-marker's pointer (canvas 527, 350, 50 right of the map window's middle) and fast-travel-primm's ShowMap of Primm (0x000CDF46) as a travel target; placemarker is the maps' X button, key=use the chosen answer, key=down the next one; travel= asks as a click on that marker would. Shots: tiles_data_world.png (the map with the custom marker and its line, turned by the tile painter), tiles_data_world_box.png (the question box over the tiles), to compare with tiles-data-world-off's."
 areas = ["ui", "menus", "pipboy", "fast-travel"]
 paths = ["engine/nvf-play/src/tiles/map_menu.rs", "engine/nvf-play/src/pipboy/data.rs", "engine/nvf-play/src/pipboy/data/view.rs", "engine/nvf-play/src/pipboy/data/marker.rs", "engine/nvf-play/src/pipboy/data/travel.rs", "engine/nvf-play/src/pipboy.rs", "engine/nvf-play/src/tiles/draw.rs", "engine/nvf-play/src/tiles/layout.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "6:call:-:ShowMap:0x000CDF46:1,9:objective:VCG02:3", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=data,13.5:tab=1,14:point=527:350,15:placemarker,16:key=use,18:placemarker,19:key=down,19.5:key=use,21:travel=000CDF46,22:key=down,23:key=use,25:tab=2,27:close", NVF_PLAY_TEST_TILE_MENUS = "MapMenu", NVF_PLAY_TEST_SHOTS = "17:tiles_data_world.png,18.5:tiles_data_world_box.png" }
@@ -24606,11 +24606,54 @@ expect = [
   { re = 'fast travel: asks "Do you want to travel to Primm\?" \(0x000CDF46\)', count = 1, label = "fast travel asks" },
   { text = 'fast travel: answered "No"', count = 1, label = "and is cancelled" },
   { re = 'fast travel: to Primm .*arrive', count = 0, label = "no travel" },
-  { text = "MapMenu drawn by hand", count = 0, label = "no fallback" },
-  { text = "tiles: MapMenu leaves world map hand-built", count = 0, label = "the page stays drawn from its tiles under the question boxes: no frame of the hand-built page" },
-  { re = 'tiles: MapMenu Button\(.\) on its tiles', count = 0, label = "no click on the page's tiles went through the question boxes" },
+  { text = "MapMenu drawn by hand", count = 0, label = "no fallback was warned of (one shorter than three passes is not: the frame count below shows those)" },
+  { re = 'tiles: MapMenu world map frames: [1-9]\d* from tiles, 0 by hand, \d+ before it was prepared', count = 1, label = "every frame of the visit to the World Map was drawn from its tiles, the question boxes up or not" },
+  { re = 'tiles: MapMenu Button\(.\) on its tiles', count = 0, label = "no tile of the page acted (the boxes were answered by keys here)" },
 ]
-order = [["tiles: MapMenu draws world map from tiles", { re = 'pipboy data: question box over the tiles \(2 answers\)' }, "pipboy map: custom marker placed at", { re = 'pipboy data: question box over the tiles \(3 answers\)' }, "pipboy map: custom marker removed", { re = 'fast travel: asks "Do you want to travel to Primm' }, 'fast travel: answered "No"', "tiles: MapMenu draws quests from tiles"]]
+order = [["tiles: MapMenu draws world map from tiles", { re = 'pipboy data: question box over the tiles \(2 answers\)' }, "pipboy map: custom marker placed at", { re = 'pipboy data: question box over the tiles \(3 answers\)' }, "pipboy map: custom marker removed", { re = 'fast travel: asks "Do you want to travel to Primm' }, 'fast travel: answered "No"', { re = 'tiles: MapMenu world map frames: ' }, "tiles: MapMenu draws quests from tiles"]]
+
+[[scenario]]
+name = "tiles-data-world-pointer"
+source = "[design] pipboy.md section 5.3.1, Astra's review of #1513's World Map: the pointer's own input on the World Map drawn from its tiles: a real left press and release on the map at the player's place asks to travel to the marker the highlight box takes there (the model's picking, one owner); the box is answered by keys; Place Marker's box is answered by the pointer's click on its No while the left button is held down across its closing (nothing under it acts, on the page's tiles or the map); Tab with Place Marker's box up closes the Pip-Boy and the box with it; opened again the World Map is drawn from its tiles with no box; every frame of each visit drawn from the tiles"
+note = "the pointer at canvas 477, 350, the map window's middle, where the map is centred on the player; Goodsprings' map marker is taken to lie within the highlight box's reach of the player's start [hypothesis until the first run: if none does, the press asks nothing and the travel lines fail; then point at a marker the run's 'world map highlights' line names]. The real press is NVF_PLAY_TEST_KEYS' mouse-left (the button state the model's picking reads); the box's answer is the Pip-Boy aid's click (the pointer events its answers take) at 477, 400, Place Marker's second answer No [hypothesis until the first run: the box's rows from its middle at 350, a line of font 2 and 20 a row; move the point to the No row the shot tiles_data_world_pointer_box.png shows]. The held mouse-left from 18.5 to 19.5 spans the aid's click at 19 that closes the box."
+areas = ["ui", "menus", "pipboy", "fast-travel"]
+paths = ["engine/nvf-play/src/tiles/map_menu.rs", "engine/nvf-play/src/pipboy/data.rs", "engine/nvf-play/src/pipboy/data/view.rs", "engine/nvf-play/src/pipboy/data/travel.rs", "engine/nvf-play/src/pipboy.rs", "engine/nvf-play/src/tiles/input.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:objective:VCG02:3", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=data,13.5:tab=1,14:point=477:350,16.5:key=down,17:key=use,18:placemarker,19:click=477:400,21:placemarker,23.5:open,24.5:point=off,26:tab=2,28:close", NVF_PLAY_TEST_KEYS = "15:mouse-left:0.15,18.5:mouse-left:1.0,22:tab", NVF_PLAY_TEST_TILE_MENUS = "MapMenu", NVF_PLAY_TEST_SHOTS = "18.7:tiles_data_world_pointer_box.png,24:tiles_data_world_pointer_reopened.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
+run_seconds = 31
+expect = [
+  { re = 'test aid: real input Mouse\(Left\) pressed', min = 2, label = "the real left presses" },
+  { re = 'fast travel: (asks ".+" \(0x[0-9A-F]{8}\)|to .+ refused)', count = 1, label = "the press and release on the map at the marker asked to travel, once (the model's picking)" },
+  { re = 'fast travel: answered "(No|OK)"', count = 1, label = "the travel box answered by keys" },
+  { re = 'pipboy data: question box over the tiles \(2 answers\)', min = 2, label = "Place Marker's box over the tiles, twice" },
+  { re = 'test aid: pipboy clicked the screen at \(477, 400\)', count = 1, label = "the pointer's click on the box's answer" },
+  { text = 'pipboy map: answered "No"', count = 1, label = "the click answered No" },
+  { re = 'pipboy map: custom marker placed', count = 0, label = "no marker placed: the click took No, and the second box went with the Pip-Boy" },
+  { re = 'tiles: MapMenu (Button|Tab)\(.\) on its tiles', count = 0, label = "no click reached the page's tiles under the boxes, the left button held across the box's closing" },
+  { text = "pipboy: down", min = 2, label = "Tab with the second box up closed the Pip-Boy (as on the hand-built page), and the close at the end" },
+  { re = 'pipboy map: answered', count = 1, label = "the box closed by Tab took no answer" },
+  { text = "tiles: MapMenu draws world map from tiles", min = 2, label = "the World Map from its tiles, and again after the reopening" },
+  { re = 'tiles: MapMenu world map frames: [1-9]\d* from tiles, 0 by hand, \d+ before it was prepared', count = 2, label = "each visit to the World Map, before and after the reopening, drawn from its tiles every frame" },
+  { text = "MapMenu drawn by hand", count = 0, label = "no fallback warned of" },
+]
+order = [[{ re = 'fast travel: (asks|to .+ refused)' }, { re = 'fast travel: answered' }, { re = 'test aid: pipboy clicked the screen at \(477, 400\)' }, 'pipboy map: answered "No"', "pipboy: down", "tiles: MapMenu draws world map from tiles"]]
+
+[[scenario]]
+name = "tiles-data-world-pointer-off"
+source = "[design] pipboy.md section 5.3.1: tiles-data-world-pointer's steps without the switch: the hand-built World Map's picking, its box's click and Tab with a box up, as before"
+note = "the same steps and times as tiles-data-world-pointer."
+areas = ["ui", "menus", "pipboy", "fast-travel"]
+paths = ["engine/nvf-play/src/pipboy/data.rs", "engine/nvf-play/src/pipboy/data/view.rs", "engine/nvf-play/src/pipboy.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:objective:VCG02:3", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=data,13.5:tab=1,14:point=477:350,16.5:key=down,17:key=use,18:placemarker,19:click=477:400,21:placemarker,23.5:open,24.5:point=off,26:tab=2,28:close", NVF_PLAY_TEST_KEYS = "15:mouse-left:0.15,18.5:mouse-left:1.0,22:tab", NVF_PLAY_TEST_SHOTS = "18.7:tiles_data_world_pointer_box_off.png,24:tiles_data_world_pointer_reopened_off.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
+run_seconds = 31
+expect = [
+  { re = 'tiles: MapMenu|MapMenu drawn by hand|question box over the tiles', count = 0, label = "switch off: nothing of the tile page runs" },
+  { re = 'fast travel: (asks ".+" \(0x[0-9A-F]{8}\)|to .+ refused)', count = 1, label = "switch off: the press and release asks to travel, as before" },
+  { text = 'pipboy map: answered "No"', count = 1, label = "switch off: the click answers No, as before" },
+  { text = "pipboy: down", min = 2, label = "switch off: Tab closes the Pip-Boy with the box up, as before" },
+]
+order = [[{ re = 'fast travel: (asks|to .+ refused)' }, 'pipboy map: answered "No"', "pipboy: down"]]
 
 [[scenario]]
 name = "tiles-data-world-off"
