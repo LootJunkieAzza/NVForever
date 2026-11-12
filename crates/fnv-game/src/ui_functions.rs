@@ -177,6 +177,45 @@ fn inherited(ui: &fnv_ui::Ui, path: &str, exclude_root: bool) -> Option<f64> {
     Some(sum)
 }
 
+/// MCM's slider buttons, as MCM's own scripts are told of them: the `MCM_Scale` rect's
+/// traits and the `MCM` quest's variables they go to.
+const MCM_METER_INPUTS: [(&str, &str); 7] = [
+    ("_Accept", "iInputMeterAccept"),
+    ("_Cancel", "iInputMeterCancel"),
+    ("_Default", "iInputMeterDefault"),
+    ("_MeterL", "iInputMeterL"),
+    ("_MeterL2", "iInputMeterL2"),
+    ("_MeterR", "iInputMeterR"),
+    ("_MeterR2", "iInputMeterR2"),
+];
+
+/// What MCM.dll tells MCM's main script of its slider each frame: `MCM.iInputMeterAccept`
+/// … `iInputMeterR2` from `StartMenu/MCM/MCM_Scale`'s `_Accept` … `_MeterR2`, 1 while
+/// the trait is above 0, else 0 [hypothesis, from MCM's files alone (owner item
+/// 2026-11-11, slider settings not saved): Scale.xml gives the rect `_Accept`,
+/// `_Cancel`, `_Default` (its Accept, Cancel and Default buttons' `_clicked`) and
+/// `_MeterL`, `_MeterL2`, `_MeterR`, `_MeterR2` (the arrows' `_clicked`); MCMMainScript
+/// reads `iInputMeterAccept` … `iInputMeterR2`, never sets them, and on Accept sets
+/// `MCMScale.iNewValue`, which is what writes the slider's value to the mod; no script
+/// reads the rect's traits, so the plugin's DLL is what joins them. The keyboard and
+/// controller inputs (`iInputClick`, `iInputB`, …) are not joined here]. Run before
+/// the start menu's MenuMode blocks; a quest without MCM's variables is left alone.
+pub fn mcm_meter_inputs(g: &mut Game) {
+    let Some(scale) = g.ui_tree.find_tile("StartMenu/MCM/MCM_Scale") else { return };
+    let data = g.data;
+    let Some(q) = data.by_edid("MCM").filter(|&q| data.is_quest(q)) else { return };
+    let Some(script) = data.quests[&q].script else { return };
+    let Some(code) = data.script(script) else { return };
+    for (from, to) in MCM_METER_INPUTS {
+        let Some(i) = code.var_index(to) else { continue };
+        let on = g.ui_tree.tile(scale).get(from).is_some_and(|v| v.num() > 0.0);
+        let now = g.var(crate::game::InstKey::Quest { quest: q }, i).num();
+        if now != f64::from(u8::from(on)) {
+            g.store(crate::game::InstKey::Quest { quest: q }, Some(script), i, fnv_script::vm::Value::Num(f64::from(u8::from(on))), "MCM", false);
+        }
+    }
+}
+
 /// The UI function `name` (any case) with its arguments; `None` when it is not one of
 /// these.
 pub fn call(g: &mut Game, name: &str, args: &[XVal]) -> Option<Result<XVal, String>> {

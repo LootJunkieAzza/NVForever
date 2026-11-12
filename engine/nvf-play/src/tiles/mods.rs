@@ -87,6 +87,8 @@ pub fn own_back(ui: &Ui) -> bool {
 /// the game first (`crate::script::with_world`).
 pub fn tick(game: &mut fnv_game::Game<'_>) {
     column(&mut game.ui_tree);
+    // MCM's slider buttons reach its script as MCM.dll's do (`fnv_game::ui_functions`).
+    fnv_game::ui_functions::mcm_meter_inputs(game);
     game.page_tick(menus::START);
 }
 

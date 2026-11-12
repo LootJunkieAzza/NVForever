@@ -615,8 +615,36 @@ Shiftclicked, Ref, Input, Hotrect, Wheelmoved pages and "Tutorial: Understanding
   a ref to another trait is reported, not followed [design].
 - [documented: ClickMenuButton, SetOnMenuClickEventHandler] `Menu#<id>` names the tile
   of that `<id>` in the menu. [hypothesis] The first in file order when two share one.
-- [documented] Wheelmoved, Draggable (`dragx` …), Repeathorizontal: not built (T8 left
-  them; `wheelable` is the next step for lists).
+- [documented] Wheelmoved, Repeathorizontal: not built (T8 left them; `wheelable` is the
+  next step for lists).
+- Draggable (owner item 2026-11-11, MCM sliders not saving). [observed: MCM's Scale.xml]
+  The meter's handle is a hotrect with `<draggable> &true;</draggable>`; the meter's
+  `_drag` reads `child(Meter1_Drag).dragx` less the bar's x over its width, and
+  MCMScaleScript reads that through `_Drag1` each frame, steps the value toward it and
+  sets `dragx` back to 0. With no `dragx` written the meter never moves and the value
+  the accept writes is the one it opened with. [hypothesis] A press on a draggable tile
+  starts a drag; while the left button stays down the tile's `dragx` and `dragy` are the
+  pointer's position in interface units (the same units as `x`), written each frame
+  before the menu's scripts read them; the release ends it. [design] Only for a
+  draggable hotrect with no `target` (MCM's handle): the vanilla lists' scroll markers
+  are draggable targets that NVForever's list code moves itself, and a written `dragy`
+  fought it (smoke `tiles-container`).
+  `fnv_ui::input::Pointer::step` (`Pointer::dragging`).
+- MCM's slider buttons (the same owner item). [observed: MCM's Scale.xml and scripts]
+  Accept, Cancel, Default and the meter arrows are hotrects with no `target`; each one's
+  `_clicked` reads its own `clicked`, and the `MCM_Scale` rect gathers them as `_Accept`,
+  `_Cancel`, `_Default`, `_MeterL`, `_MeterL2`, `_MeterR`, `_MeterR2`. No script reads
+  those traits; MCMMainScript reads `iInputMeterAccept` … `iInputMeterR2` (and
+  `iInputClick`, `iInputB` … for the keyboard and controller) and never sets them, so
+  MCM.dll joins the two. [hypothesis] A press over a hotrect with no `target` sets its
+  `clicked` for the frame (it already has `mouseover`; the list arrows' rule, the raw
+  button over `mouseover`, still works), and each frame of the Mods page the rect's seven
+  traits go to the seven `MCM` quest variables (1 above 0, else 0) before the start
+  menu's MenuMode blocks run. On Accept MCMMainScript sets `MCMScale.iNewValue`, whose
+  finish writes `_NewValue` 1, which the mod's own script reads to take the value.
+  [design] `fnv_ui::input::Pointer::step` (`Report::bare_clicks`),
+  `fnv_game::ui_functions::mcm_meter_inputs` (called by `nvf-play` `tiles::mods::tick`).
+  The keyboard and controller inputs are not joined yet.
 - [design] NVForever: `fnv_ui::input::hit` (the tile under a pointer in interface units,
   960 to the view's height as the tile renderer draws), `Pointer::step` (one frame:
   pulses ended, the pointer followed, the press, the keys), `fnv_game::ui_input::step`
