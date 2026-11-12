@@ -4716,6 +4716,7 @@ dependencies = [
  "half",
  "nvf-assets",
  "nvf-play",
+ "png",
  "rfd",
  "serde_json",
  "sysinfo",
