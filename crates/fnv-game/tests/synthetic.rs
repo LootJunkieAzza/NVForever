@@ -3935,7 +3935,14 @@ fn extender_census() {
     let enc: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(format!("{root}/crates/fnv-script/data/encodings.json")).unwrap()).unwrap();
     let not_commands: Vec<String> = enc["compiler"]["not_commands"].as_array().into_iter().flatten().filter_map(|v| v.as_str()).map(str::to_ascii_lowercase).collect();
     let mut not_registered = Vec::new();
-    for x in fs.iter().filter(|x| x["family"] == "extender") {
+    // `NVF_CENSUS_FAMILY=vanilla`: the base game's functions the catalogue has no opcode
+    // for (no shipped script calls them). A mod's source reaches them by name, as it
+    // reaches an extender's, so an unbuilt one is skipped the same way; the extender
+    // count alone did not show them (the owner's run of 2026-11-12: SetDefaultOpen and
+    // IsActorDetected "not built yet" in Just Assorted Mods and CASM). The list then goes
+    // to `target/tmp/vanilla-census.txt`.
+    let family = std::env::var("NVF_CENSUS_FAMILY").unwrap_or_else(|_| "extender".to_string());
+    for x in fs.iter().filter(|x| x["family"] == family.as_str() && (family == "extender" || x["opcodes"].is_null())) {
         let n = x["name"].as_str().unwrap_or_default();
         if not_commands.contains(&n.to_ascii_lowercase()) {
             not_registered.push(n.to_string());
@@ -3982,7 +3989,7 @@ fn extender_census() {
     out += &format!("not registered by the original, left out {}: {}\n", not_registered.len(), not_registered.join(", "));
     let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../target/tmp");
     std::fs::create_dir_all(dir).unwrap();
-    std::fs::write(format!("{dir}/extender-census.txt"), &out).unwrap();
+    std::fs::write(format!("{dir}/{family}-census.txt"), &out).unwrap();
     println!("unbuilt: {}", unbuilt.values().map(Vec::len).sum::<usize>());
 }
 
