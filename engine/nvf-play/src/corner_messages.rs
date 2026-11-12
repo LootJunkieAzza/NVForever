@@ -233,18 +233,14 @@ pub(crate) fn held(panel_open: bool, state: Option<crate::PlayState>, driven: bo
     panel_open || state.is_some_and(|s| s != crate::PlayState::Playing) || driven || kill_cam
 }
 
-/// The keys of NVForever's own mini-games that run in the world, the game going on, and
-/// hold the player's controls through `Game.other.alt_locks` under a key with this start
-/// (the drinking contest's `nvforever:drink_contest`).
-pub(crate) const GAME_LOCK_PREFIX: &str = "nvforever:";
-
-/// One of NVForever's own mini-games in the world holds the controls: the corner messages
+/// One of NVForever's own mini-games in the world holds the controls (an Alt lock under
+/// `fnv_game::nvse_other::ENGINE_GAME_LOCK_PREFIX`): the corner messages
 /// and the quest lines wait (hidden, their clocks stopped) until it is over, as they do
 /// behind the mini-games that are menus (arm wrestling, slots, cards) [owner 2026-11-12,
 /// on the drinking contest's screen: "These messages need to stop showing up during
 /// games! And quest messages too"].
 pub(crate) fn in_world_game(script: Option<&crate::script::ScriptState>) -> bool {
-    script.and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.other.alt_locks.keys().any(|k| k.starts_with(GAME_LOCK_PREFIX)))
+    script.and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.other.alt_locks.keys().any(|k| k.starts_with(fnv_game::nvse_other::ENGINE_GAME_LOCK_PREFIX)))
 }
 
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]

@@ -3601,6 +3601,10 @@ fn only_a_story_scripts_lock_is_a_story_lock() {
     q(&mut g, "EnablePlayerControls", fnv_game::game::RunCtx::default());
     assert_eq!(g.story_locks(), [false; 7]);
     assert_eq!(g.controls_locked(), [false; 7]);
+    // An NVForever mini-game's own lock (the drinking contest's) holds this game only.
+    g.other.alt_locks.insert(format!("{}drink_contest", fnv_game::nvse_other::ENGINE_GAME_LOCK_PREFIX), [true; 7]);
+    assert_eq!(g.controls_locked(), [true; 7], "the player at the table is held");
+    assert_eq!(g.story_locks(), [false; 7], "a mini-game's lock is no scene for the guests");
 }
 
 /// The runner's `created:<base>` names the newest reference made at run time from a

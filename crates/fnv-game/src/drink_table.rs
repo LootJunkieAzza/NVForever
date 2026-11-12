@@ -94,7 +94,7 @@ const SALOON_FLOOR: f32 = 3456.0;
 /// 24 above and below its origin].
 const SALOON_TABLE: TableDef = TableDef { edid: "Table01", pos: [215.0, -725.0, SALOON_FLOOR + 30.0], heading: 0.0, scale: 1.2 };
 /// Table01's top above its origin at scale 1 [observed: the top of the collision mesh of
-/// `meshesurniture	able01.nif`, 30.99 above the origin (`fnvtool collide objects`), its
+/// `meshes\furniture\table01.nif`, 30.99 above the origin (`fnvtool collide objects`), its
 /// foot 25.35 below; the record's bounds say 24 and put the bill inside the top, seen in
 /// the first shot].
 pub const TABLE01_TOP: f32 = 31.0;
