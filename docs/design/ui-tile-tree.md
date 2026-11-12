@@ -311,7 +311,9 @@ at the same view size). That is the work of each migration task, not guessed up 
      prompt rule) [design: `tiles/barter_menu.rs`], `RepairServicesMenu` (candidate:
      repair.md §3.1) [design: `tiles/repair_services_menu.rs`], `RepairMenu`, the Pip-Boy's
      repair page painted in its image (candidate: repair.md §5.1) [design: `tiles/repair_menu.rs`],
-     and `RecipeMenu` (candidate: crafting.md section 4; its prompt stays hand-built) [design:
+     `ItemModMenu`, the Pip-Boy's weapon mod menu painted there too (candidate: weapon-mods.md
+     §5.1, issue #1513; the card writer shared with the repair pages) [design:
+     `tiles/item_mod_menu.rs`], and `RecipeMenu` (candidate: crafting.md section 4; its prompt stays hand-built) [design:
      `tiles/recipe_menu.rs`].
      Also `TraitMenu` (chargen.md §4.1), `CharGenMenu` (tag skills only, chargen.md §3.1), `DialogMenu` (its contract and fallback:
      spec-notes/dialogue-menu.md §6), `StatsMenu` for the Pip-Boy's STATS page,

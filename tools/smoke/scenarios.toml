@@ -23679,6 +23679,90 @@ expect = [
 order = [["pipboy repair: open", "pipboy repair: 10mm Pistol", "pipboy repair: stays open:", "pipboy repair: cancel"]]
 
 [[scenario]]
+name = "tiles-pipboy-mod"
+source = "[design] weapon-mods.md section 5.1, issue #1513: the Pip-Boy's weapon mod menu from its file, in the Pip-Boy's image: the weapon first, the carried extended magazines under it with their effect line, the figures before and after (Clip 12 to 16, +4), the pointer choosing the mod and a click attaching it, the menu staying open on the modded weapon, Cancel; the rules, sounds and log lines of pipboy-item-mod unchanged; one ready line for the one opening, so no pass fell back"
+note = "[hypothesis until a first run] The points are the canvas's, from the file's places as the repair page's (tiles-pipboy-repair): the weapon's row at 250:151, the magazines' (two lines) at 250:210, Cancel 855:148 (the Mod button is hidden on a PC, so Cancel stands first). The Pip-Boy aid's click stands a frame on the spot before its press, so the mod is chosen by the hover and the click attaches it. Shots: opening, the mod chosen, after attaching."
+areas = ["ui", "pipboy", "menus", "combat"]
+paths = ["engine/nvf-play/src/tiles/item_mod_menu.rs", "engine/nvf-play/src/tiles/repair_cards.rs", "engine/nvf-play/src/tiles/repair_menu.rs", "engine/nvf-play/src/tiles/list.rs", "engine/nvf-play/src/tiles/input.rs", "engine/nvf-play/src/tiles/draw.rs", "engine/nvf-play/src/tiles/mod.rs", "engine/nvf-play/src/tiles/menus.rs", "engine/nvf-play/src/tiles/vanilla.rs", "engine/nvf-play/src/tiles/stats_menu.rs", "engine/nvf-play/src/pipboy/item_mod.rs", "engine/nvf-play/src/pipboy/frame.rs", "engine/nvf-play/src/pipboy.rs"]
+env = { NVFOREVER_HOME = "tiles-pipboy-mod-home", NVF_PLAY_TEST_TILE_MENUS = "ItemModMenu", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:call:player:AddItem:Weap10mmPistol:1,9.3:call:player:EquipItem:Weap10mmPistol,9.6:call:player:AddItem:ModNV10mmPistolExtMags:1", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=items,13.5:tab=0,15:mod=open,17:point=250:151,19:point=250:210,21:click=250:210,25:point=855:148,26:click=855:148,28:close", NVF_PLAY_TEST_SHOTS = "16:tiles_pipboy_mod_open.png,20:tiles_pipboy_mod_chosen.png,23:tiles_pipboy_mod_attached.png" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--no-messages", "--size", "1280x720"]
+run_seconds = 31
+expect = [
+  { re = 'tiles: \[UI\] TileMenus=ItemModMenu .*ItemModMenu drawn from tiles', label = "opt-in switch" },
+  { re = 'tiles: ItemModMenu drawn from tiles \(\d+ file tiles, [1-9]\d* code tiles\)', label = "file with code rows" },
+  { text = "ItemModMenu drawn by hand:", count = 0, label = "complete file" },
+  { text = "tiles: ItemModMenu ready: drawn from tiles", count = 1, label = "ready once for the one opening: no pass fell back" },
+  { re = 'tiles: ItemModMenu no longer drawn from tiles after [1-9]\d* passes: closed', count = 1, label = "until it closed" },
+  { re = "tiles: ItemModMenu set out for the Pip-Boy's image: \\d+ pieces, 2 row names", label = "painted in the Pip-Boy's image" },
+  { re = 'tiles: ItemModMenu drawn from tiles: 2 rows \(1 with an effect line\); weapon "10mm Pistol"; highlight "10mm Pistol"', label = "it opens on the weapon, the mod's effect under its name" },
+  { re = 'tiles: ItemModMenu drawn from tiles: 2 rows .*; highlight "10mm Pistol Extended Mags"; figures: .*Clip 12, .*Clip 16, \+4', label = "the mod shows its figures and gain" },
+  { text = "tiles: ItemModMenu Hover(1) on its tiles", label = "the pointer chooses the mod" },
+  { text = "tiles: ItemModMenu Click(1) on its tiles", count = 1, label = "a click on the chosen mod, once" },
+  { re = 'pipboy mod: 10mm Pistol \+ 10mm Pistol Extended Mags \(slot 1, flags 1\)', label = "the model attaches it" },
+  { re = 'tiles: ItemModMenu drawn from tiles: 2 rows .*weapon "10mm Pistol \+"; highlight "10mm Pistol Extended Mags"', label = "the menu stays open on the modded weapon, the same mod chosen" },
+  { text = "tiles: ItemModMenu Cancel on its tiles", count = 1, label = "Cancel on its tiles, once" },
+  "pipboy mod: cancel",
+  "pipboy: menu code 1061",
+  { text = "tiles: InventoryMenu", count = 0, label = "the mod menu only" },
+]
+order = [["pipboy mod: open", "tiles: ItemModMenu ready: drawn from tiles", "tiles: ItemModMenu Hover(1) on its tiles", "tiles: ItemModMenu Click(1) on its tiles", "pipboy mod: 10mm Pistol + 10mm", "tiles: ItemModMenu Cancel on its tiles", "pipboy mod: cancel", "tiles: ItemModMenu no longer drawn from tiles"]]
+
+[[scenario]]
+name = "tiles-pipboy-mod-off"
+source = "[design] weapon-mods.md section 5.1, issue #1513: with the tile switch empty the hand-built mod menu stays the default; the same weapon and mod as tiles-pipboy-mod and comparison shots"
+note = "The Pip-Boy aid's keys only, at 1280x720."
+areas = ["ui", "pipboy", "menus"]
+paths = ["engine/nvf-play/src/tiles/item_mod_menu.rs", "engine/nvf-play/src/tiles/input.rs", "engine/nvf-play/src/tiles/vanilla.rs", "engine/nvf-play/src/pipboy/item_mod.rs", "engine/nvf-play/src/pipboy/frame.rs", "engine/nvf-play/src/pipboy.rs"]
+env = { NVFOREVER_HOME = "tiles-pipboy-mod-off-home", NVF_PLAY_TEST_TILE_MENUS = "", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:call:player:AddItem:Weap10mmPistol:1,9.3:call:player:EquipItem:Weap10mmPistol,9.6:call:player:AddItem:ModNV10mmPistolExtMags:1", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=items,13.5:tab=0,15:mod=open,19:mod=down,21:mod=use,26:mod=cancel,28:close", NVF_PLAY_TEST_SHOTS = "16:default_pipboy_mod_open.png,20:default_pipboy_mod_chosen.png,23:default_pipboy_mod_attached.png" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--no-messages", "--size", "1280x720"]
+run_seconds = 31
+expect = [
+  { text = "tiles: ItemModMenu", count = 0, label = "no mod menu adapter runs" },
+  { text = "pipboy hints: mod menu: ", min = 1, label = "the hand-built menu draws" },
+  { re = 'pipboy mod: 10mm Pistol \+ 10mm Pistol Extended Mags \(slot 1, flags 1\)', label = "the hand-built menu attaches" },
+  "pipboy mod: cancel",
+]
+order = [["pipboy mod: open", "pipboy mod: 10mm Pistol + 10mm", "pipboy mod: cancel"]]
+
+[[scenario]]
+name = "tiles-pipboy-mod-items-only"
+source = "[design] weapon-mods.md section 5.1, pipboy.md section 5.2.1, issue #1513: with the ITEMS page drawn from its file and ItemModMenu off, the mod menu is the hand-built one as before: the page gives way while it is open, with no warning, and is drawn from its tiles again when it closes"
+note = "As tiles-items-repair-fallback, for the mod menu; the Pip-Boy aid's keys only."
+areas = ["ui", "pipboy", "menus"]
+paths = ["engine/nvf-play/src/tiles/inventory_menu.rs", "engine/nvf-play/src/tiles/item_mod_menu.rs", "engine/nvf-play/src/pipboy/item_mod.rs", "engine/nvf-play/src/pipboy/frame.rs"]
+env = { NVFOREVER_HOME = "tiles-pipboy-mod-items-home", NVF_PLAY_TEST_TILE_MENUS = "InventoryMenu", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:call:player:AddItem:Weap10mmPistol:1,9.3:call:player:EquipItem:Weap10mmPistol,9.6:call:player:AddItem:ModNV10mmPistolExtMags:1", NVF_PLAY_TEST_PIPBOY = "25:open,26:page=items,27:tab=0,29:mod=open,31:mod=cancel,33:close", NVF_PLAY_TEST_SHOTS = "30:tiles_items_mod_menu.png" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--no-messages", "--size", "1280x720"]
+run_seconds = 36
+expect = [
+  { re = 'pipboy mod: open 10mm Pistol \(flags 0\): 10mm Pistol Extended Mags \(slot 1\)', label = "the aid opens the mod menu" },
+  { text = "pipboy hints: mod menu: ", min = 1, label = "the hand-built menu draws" },
+  { text = "tiles: ItemModMenu", count = 0, label = "no mod menu adapter runs" },
+  { text = "InventoryMenu drawn by hand", count = 0, label = "giving way is no failure" },
+  { re = 'tiles: InventoryMenu page from tiles: ', min = 2, label = "from its tiles before the menu and after it" },
+  "pipboy mod: cancel",
+]
+order = [[{ re = 'tiles: InventoryMenu page from tiles: ' }, "pipboy mod: open", "pipboy mod: cancel", { re = 'tiles: InventoryMenu page from tiles: ', label = "written again when the menu closes" }]]
+
+[[scenario]]
+name = "tiles-pipboy-mod-cut-down"
+source = "[design] weapon-mods.md section 5.1, issue #1513: a mod menu tree short of a tile the page needs keeps the whole hand-built menu, says why once, and the model's keys still attach and cancel"
+note = "The script aid unloads the description's tile from the always-loaded ItemModMenu at 10 s, before the menu opens, standing in for a mod's cut-down file: a smoke run has no such mod folder. A file missing altogether or a template lacking a piece is the unit tests'."
+areas = ["ui", "pipboy", "menus"]
+paths = ["engine/nvf-play/src/tiles/item_mod_menu.rs", "engine/nvf-play/src/pipboy/item_mod.rs", "engine/nvf-play/src/pipboy/frame.rs"]
+env = { NVFOREVER_HOME = "tiles-pipboy-mod-cut-home", NVF_PLAY_TEST_TILE_MENUS = "ItemModMenu", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:call:player:AddItem:Weap10mmPistol:1,9.3:call:player:EquipItem:Weap10mmPistol,9.6:call:player:AddItem:ModNV10mmPistolExtMags:1,10:call:-:UnloadUIComponent:\"ItemModMenu/GLOW_BRANCH/IMM_MainRect/IMM_ModDesc\"", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=items,13.5:tab=0,15:mod=open,19:mod=down,21:mod=use,26:mod=cancel,28:close", NVF_PLAY_TEST_SHOTS = "17:tiles_pipboy_mod_by_hand.png" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--no-messages", "--size", "1280x720"]
+run_seconds = 31
+expect = [
+  { re = 'script: test aid calls UnloadUIComponent', label = "the tile goes" },
+  { text = "ItemModMenu drawn by hand: ItemModMenu/GLOW_BRANCH/IMM_MainRect/IMM_ModDesc missing", count = 1, label = "said once" },
+  { text = "tiles: ItemModMenu ready: drawn from tiles", count = 0, label = "never drawn from tiles" },
+  { text = "pipboy hints: mod menu: ", min = 1, label = "the hand-built menu takes over" },
+  { re = 'pipboy mod: 10mm Pistol \+ 10mm Pistol Extended Mags \(slot 1, flags 1\)', label = "the model's keys still attach" },
+  "pipboy mod: cancel",
+]
+order = [["script: test aid calls UnloadUIComponent", "pipboy mod: open", "ItemModMenu drawn by hand:", "pipboy mod: 10mm Pistol + 10mm", "pipboy mod: cancel"]]
+
+[[scenario]]
 name = "tiles-recipe-places"
 source = "[design] crafting.md section 4, issue #1468: where the recipe menu's tiles stand at 1280x720 and that the pointer finds them, read before any click"
 note = "[observed 2026-11-07, first run at 1280x720, interface units] Rows at 600:186 and 600:238, and the bar's page area 362:480 were read from the pointer lines. [observed, the original's capture, where they were clicked by id] The arrows 400:107 and 543:107, the title 468:109, Accept 1304:693 and Exit 1321:740. Move-only: the lines name what is under each place. Accept takes the pointer only while the selected recipe can be made (its target), so Survival is set first and the pointer is back on the first row before it. No click, so nothing here changes the model but the hover."
