@@ -2858,7 +2858,7 @@ fn follow_npcs(
                 let eye = [s.feet[0], s.feet[1], s.feet[2] + 100.0];
                 let (sy, cy) = s.heading.sin_cos();
                 let (sp, cp) = s.pitch.sin_cos();
-                fired.write(nvf_play::combat::ShotFired { projectile, weapon: w, shooter: FormId(r), at: Some(eye), dir: Some([sy * cp, cy * cp, -sp]) });
+                fired.write(nvf_play::combat::ShotFired { projectile, weapon: w, shooter: FormId(r), at: Some(eye), dir: Some([sy * cp, cy * cp, -sp]), mods: 0 });
             }
         }
     }

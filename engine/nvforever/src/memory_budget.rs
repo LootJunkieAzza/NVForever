@@ -639,7 +639,8 @@ fn watch_loads(
     let loading = state.is_some_and(|s| *s.get() == nvf_play::PlayState::Loading);
     let aid_vram = budget.aid_vram;
     let read = || {
-        let gpu = read_vram(device.as_deref(), integrated(adapter.as_deref())).ok().map(|(vb, used)| (capped(Some(vb), aid_vram).unwrap_or(vb), used));
+        let pci = adapter.as_deref().map(|a| a.device_pci_bus_id.as_str());
+        let gpu = read_vram(device.as_deref(), integrated(adapter.as_deref()), pci).ok().and_then(|v| v.used_mb.map(|used| (capped(Some(v.budget_mb), aid_vram).unwrap_or(v.budget_mb), used)));
         let ram_free = read_ram().map(|r| r.1);
         (gpu, ram_free)
     };

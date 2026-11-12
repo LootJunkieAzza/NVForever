@@ -1528,6 +1528,7 @@ fn entry_style(shared_clock: bool, style: VatsStyle, slowdown: f32) -> (VatsStyl
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn try_enter(v: &mut VatsMode, combat: &Combat, mut script: Option<&mut ScriptState>, sim: &mut SimState, gravity: f32, allowed: bool, hud: &mut HudMessage, sounds: &mut Sounds) {
     let ap = player_ap(script.as_deref_mut(), sim);
     let refused = |v: &mut VatsMode, why: &str, hud: &mut HudMessage, sounds: &mut Sounds| {
