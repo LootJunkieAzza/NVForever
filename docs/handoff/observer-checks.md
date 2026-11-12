@@ -234,6 +234,18 @@ engine if needed, and delete the item here.
    So the spawned troopers' 0 in o14_detect was the trooper, not the readout. Not yet
    enough for the light, FOV or flashlight rules: next, sneak at noon vs midnight from
    the same spot and distances, by settler, with the flashlight on.
+   Added 2026-11-11 (#2121), what scripts read once the target is out of sight. Ours:
+   GetIsAlerted 0 in a fight (SetAlert's alone); GetCombatTarget keeps the target it
+   fought, unseen, through Combat and Lost, until the target dies or is forgotten, StopCombat,
+   a new target or Normal (our Lost lasts until its alarms run out, `Timers::alarm`, 20 s); Lost reads procedure 13
+   and package 5; an Alert that never fought reads procedure 36, package 29, no target
+   (alert.md §6). To check, on a lone hostile with no other actor near (a bighorner took
+   the gecko's attention in Goodsprings, #2121's comment): (a) how long GetCombatTarget
+   stays the player with GetDetected player 0 before it reads 0, and whether IsInCombat
+   drops with it (73 stretches of under 10 to 293 real s are recorded, 8 that ended unseen
+   after 1.1-11.9 real s; no rule yet, #2010); (b) an Alert without combat, a hostile
+   given a sound with no sight line at all (npc-behaviour-compare.md §11): its
+   GetIsAlerted, procedure, package and combat target.
 7. **Casino payouts.**
    - Slots: ours pays back about 1.35 per chip, so max winnings come fast. Check the
      reading of "= BET × N", the cherry rule and the middle row.
@@ -351,7 +363,15 @@ engine if needed, and delete the item here.
       as if 100) stays the one exception, asked in owner-review.md.
     - People walking with a weapon drawn (77–78 seen outside combat, about 100 in
       combat) are not built.
-    - Follow distances: stand within distance + 64, run beyond 512.
+    - Follow distances: stand within distance + 64, run beyond 512. Where a follower
+      stops once its leader stops: ours 150 inside the distance, not nearer than 128
+      (#2122, from two arrivals: Boone 177 of 330, the pack brahmin about 300 of 450).
+      To tell a fixed inset from a share of the distance (or a game setting such as
+      fFollowStopZoneMinMult, whose meaning is not documented): two followers with
+      different distances (DefaultFollowPlayerFar 512 and a 256 one) on open ground, the
+      player walking 2,000 units and standing; the settled gap of each, a few seconds
+      after it stops, several runs each, with the follower's speed as it comes in (does
+      it slow before it stops?).
     - Aiming or blocking slows you to a walk.
     - Swimming starts at 115 units deep.
     - The step-up is 24 units with a 45° slope limit.
@@ -1429,7 +1449,17 @@ to the decoded file by cross-correlation and a per-band transfer estimate.
     (`GetDetected` on it, then hostility after the blast)? (e) The panic on a creature that
     can be pickpocketed (a giant rat): does it play anything, does it stop, or does it go
     on walking? (f) Seen by a third NPC halfway through the fuse, then hidden at the blast:
-    does that NPC turn hostile? NVForever counts it as a witness.
+    does that NPC turn hostile? NVForever counts it as a witness. (g) The live item
+    (#1640 item 5): plant one Frag Grenade on an NPC who already carries Frag Grenades,
+    then reopen the pocket before the blast. Is the planted one a row of its own, and what
+    does that row say? Does the count of the victim's own row change? Can the player take
+    the planted one back, and does that roll? NVForever: a separate "(Armed)" row, refused,
+    no roll. (h) During the fuse, run `<victim>.RemoveItem <grenade> 1`, `<victim>.Drop
+    <grenade> 1` and `<victim>.EquipItem <grenade>` from the console, then
+    `GetItemCount`: which unit goes, the planted one or the victim's own? Does the blast
+    still happen? NVForever: only the victim's own units move; the blast takes the planted
+    unit. (i) The same NPC with the planted grenade its only grenade, in combat with
+    someone else during the fuse: does it throw the planted one? NVForever: no.
 
 ## Added 2026-11-06 (the power fist's hand, issue #1586)
 
@@ -1741,3 +1771,100 @@ Fallout Behavior, Weapon Drawn, Continue During Combat).
     (`knife_guard512_500_away`), and did not follow. The troopers are not hostile to
     the player by themselves, so a teleport ends a StartCombat fight; it measures no
     leash.
+
+## Added 2026-11-11 (a Use Weapon package with Continue During Combat, issue #2120)
+
+112. **Attacked, does a Use Weapon package's actor with Continue During Combat keep firing at
+    its package's target, or turn on its attacker?** (P3; use-weapon.md §3, spec note.) The
+    GECK wiki's Use Weapon Package page says the actor "will continue to fire and stand at the
+    designated position, even during Combat" [documented], not at whom. NVForever keeps it at
+    its stand firing the package's volleys at the package's target, ignoring its attacker,
+    while the use is one the shooter can act on (in place, its target among the drawn
+    standing actors); when it is not (a marker target, a target not drawn, not yet at its
+    stand) it fights its attacker with the ordinary attacks while its package still moves
+    it
+    [design, #2145]; the other reading is that it holds its stand and fights its attacker
+    (owner-review item 57). Pick a package with the flag whose target 2 is an actor and whose
+    conditions hold from a save (`fnvtool ai packages` lists the flag), watch the actor fire at
+    its target, then attack it from the side: (a) does it keep firing
+    at the package's target, turn to the player and fight from its stand, or leave its stand;
+    (b) for a Repeat Fire package, does that last, or does it go back to the package's target
+    after a while? A package aiming at a marker (the Ultra-Luxe kitchen's) is worth the same
+    look: does it fire at the marker in combat at all?
+
+## Added 2026-11-11 (sandbox meals and seats, issue #2011)
+
+113. **Does a sandboxer that may eat ever enter EAT, and does a free seat decide it?**
+    (P3; actor-behaviour.md §5.5 Choosing step 2.) Under Sandbox packages that allow eating
+    the original reported no EAT procedure: GoodspringsSettler01Ref
+    (GSSettlerAAMSandbox6x16) and GoodspringsSettler03Ref (GSSettlerSandbox) over 24 game
+    hours from 06:00 (AI observer, 2026-11-09), and none in about 240 actor-hours under
+    Sandbox records (npc-behaviour-compare.md §6a) [observed]. NVForever now takes a
+    sandbox meal only on a free seat and otherwise goes on with its choices [design,
+    #2011]. Put an eating-allowed sandboxer whose area has a free chair (an interior with
+    a table, e.g. the Prospector Saloon's sandboxers) through its breakfast, lunch and
+    dinner windows (06:00-09:00, 11:00-14:00, 17:00-20:00) and log GetCurrentAIProcedure
+    with the furniture it sits on: EAT on the chair says seated meals happen; SITTING only
+    says the original's sandbox does not run meals as a procedure at all, and step 2 should
+    go.
+
+## Added 2026-11-11 (a sandbox's only object, issue #1505)
+
+114. **Does a sandboxer with one seat and nothing else to use sit on it again, and when?**
+    (P3; actor-behaviour.md §5.5, "The only object, used again"; packages.md §3.) NVForever
+    lets the object just used come back once it is the only one open and the actor has
+    stood or wandered for 60 s [design, #1505]. The GECK wiki documents
+    `iSandBoxPreventRepeatedActionTime`, default 30: no repeated action on the same object
+    until that many seconds have passed [documented: GECK wiki], without saying when the
+    seconds start. In the original: an NPC whose sandbox area holds a single free chair
+    (idle markers and wandering off or absent, outside meal and sleep windows), watched for
+    about 10 minutes with GetSitting (or the furniture it uses) sampled each second: does it
+    sit again, and how long after getting up (or after sitting down)? Never, a fixed wait
+    near 30 s from either end, or random gaps each settle the number; record the package's
+    flags and the cell's other objects.
+
+## Added 2026-11-11 (a guard's wander, #2027)
+
+115. **How does a Guard package with a location radius wander: how often, how far, and
+    round what?** (P3; actor-behaviour.md §5.5, packages.md §3.) The wiki says only that a
+    guard whose location has a radius over 0 "will wander within that radius" [documented:
+    GECK wiki, Guard Package]. The 2026-11-10 capture (issue #2027) saw two placed
+    GSSettlerAAM on DefaultGuardStayAtPosition01 (radius 128) moving in 20 % and 39 % of
+    the samples, one walking 4,212 units in 317 s, spread 235 × 206 units, at most 152 from
+    its average spot [observed]. NVForever wanders as a sandbox does: a random point of the
+    navmesh within the radius, a walk there, a pause of 4 to 12 s, the walk not kept inside
+    the circle [design, #2027]. Record a placed (editor-located) settler given that package,
+    10:00 to 13:00, sampling position and IsMoving every 10 game loops: the pauses' lengths,
+    the walks' lengths, whether any sample lies past the radius from the editor location
+    (and by how much), and whether a radius round a reference that moves (the player, a
+    walking actor as the location) follows it or stays where the package began.
+
+## Added 2026-11-11 (fidgets with the weapon away, issue #2026)
+
+116. **How often does the original ask its idle tree for a standing NPC's fidget, and
+    what cuts one short?** (P2; idles.md §11.4, §11.3.) NVForever asks every 2 s
+    [design, not calibrated]; with `NPCGeneralIdles`' random < 1 that gives a general
+    fidget about every 200 s, where the 2026-11-10 capture saw a travelling merchant
+    (GeneralIdleFaction only) begin 3 in 360 real s [observed]. The GECK wiki says an
+    actor picks an idle when its "energy level timer has run down", and that actors
+    with low Energy idle more often [documented: Idle Animations], with no numbers.
+    Place NVMerchantMale and GSSettlerAAM by AddScriptPackage
+    DefaultSandboxNoMoveCurrentLocation200 (as in #2026), sample IsIdlePlaying and JIP
+    GetPlayedIdle every game loop for 20 real minutes, and count the general fidgets
+    begun per minute; repeat with an NPC of low and of high Energy (AI data) to see
+    whether the rate moves. In the same run, walk the player into one of them mid-fidget
+    and start a conversation: does the fidget stop, or play out?
+
+## Added 2026-11-11 (NPCs at doors and the extender's OnActivate, issue #2123)
+
+117. **Which doors fire the extender's OnActivate for an NPC, and in which order?** (P3;
+    doors.md §5.2.) NVForever dispatches it at every door an NPC walks through, before the
+    door's block, once per asking [documented: NVSE Event Handling; design for the rest].
+    With an unfiltered OnActivate handler logging both references and the time: (a) a door
+    with no script at all on a resident's way (the Goodsprings gas station's door, base
+    OffDoorMetalSmL01, which Ringo uses): does an event name the NPC? (b) a door whose
+    block refuses NPCs (VStripGate, GomorraElevatorDoor): one event per crossing, or one
+    per try? (c) at a door whose block calls `Activate` for NPCs, one event or two? (d) a
+    `Begin OnActivate player` door (IndDoorSmAnim01): does the block run for the NPC (a
+    variable it sets), as the GECK wiki's OnActivate page (Bugs) has it, or not, as
+    NVForever does?

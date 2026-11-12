@@ -1612,7 +1612,8 @@ stopped and started, as Victor's walk had before #258). Code:
   (`fnv_ai::keep_step_speed`, `catch_up`: up to 1.5 × the run, 333).
   The brahmin kept 440–530 units behind it while both walked, closed to
   about 300 when the merchant stopped, and ran when about 800–1,060 behind
-  (docs/design/actor-behaviour.md, Follow).
+  (docs/design/actor-behaviour.md, Follow; since #2122 ours closes to 150 inside the
+  distance once its target stops, 300 for 450).
 - **People** (added 2026-10-24; `fnv_ai::NPC_WALK`, `NPC_RUN`,
   `fnv_game::combat::armor_speed`, `creature_pace::person_pace`). Before this every person
   walked at 86.8 and ran at 344, the player's speeds (physics.md §6.3).

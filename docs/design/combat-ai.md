@@ -122,7 +122,7 @@ their reach and field of view.
 |---|---|---|
 | StartCombat | the actor fights the target from now on, hostile whatever its records say, until StopCombat; it counts as detecting the target at once (Combat) | [documented: catalogue notes]; the target's combat group: not built |
 | StopCombat | the actor leaves its combat state; StartCombat's hostility is undone | [documented] |
-| IsInCombat, GetCombatTarget | as alert.md §6 | |
+| IsInCombat, GetCombatTarget, GetIsAlerted, GetCurrentAIProcedure / Package | as alert.md §6: a fight reads GetIsAlerted 0 (SetAlert's alone); GetCombatTarget keeps the target it fought while it is out of sight, through Lost; Lost reads procedure COMBAT 13 and package COMBAT 5 (#2121) | |
 | StopCombatAlarmOnActor | every actor fighting or hunting the calling actor stops (StopCombat) | [documented: GECK wiki StopCombatAlarmOnActor] |
 | GetFriendHit | the friendly hits of the target on the actor that still count (§10.1) | [documented: GECK wiki GetFriendHit, Friendly Fire] |
 | GetAttacked | 1 once anyone attacked the actor, cleared when it leaves combat | [documented: GECK wiki GetAttacked] |
@@ -464,7 +464,7 @@ for a later workstream (2026-10-12). Every behaviour in the second column is
 | Confidence | Frenzied actors never flee | missing | with fleeing (next) |
 | Combat Flee | Door, cover or run away; at the flee spot wait, more confident when hurt or cornered | missing | next (fleeing); `would flee` logged |
 | Combat Package Flags | No Combat Alert | have | alert.md §2 |
-| Combat Package Flags | Continue During Combat | wrong | built as "the package goes on in every combat state", which pins melee fighters (#2155). The original, by package type [documented, and observed 2026-11-12]: Travel holds only on the way, Guard only while the target is outside the guard radius; the rule to build is alert.md §5.2. No cover on the way |
+| Combat Package Flags | Continue During Combat | wrong | built as "the package goes on in every combat state", which pins melee fighters (#2155). The original, by package type [documented, and observed 2026-11-12]: Travel holds only on the way, Guard only while the target is outside the guard radius; the rule to build is alert.md §5.2. No cover on the way; a Use Weapon package fires its own volleys at its own target instead of the ordinary attacks (use-weapon.md §3, #2120) |
 | Combat Package Flags | Pretend In Combat | missing | next |
 | Combat Package Flags | Follow and Guard radii in combat (fCombatFollowRadiusMult, fCombatGuardRadiusMult) | missing | next, with #2155: Guard radius = package radius × 1.5, at least 384, measured from the post to the target [documented; observed for two Guard packages, not for three with type-flag bit 2]; Follow radius × 3, at least 512 [documented]; alert.md §5.2 |
 | Combat Search | Alert and Lost actors search | partial | alert.md §5: each alone, not the combat group splitting the navmesh |
