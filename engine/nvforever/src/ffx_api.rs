@@ -34,6 +34,7 @@ use ash::vk::{self, Handle};
 use bevy::log::{error, info, warn};
 
 /// A library looked for, and how its upscale context is asked for.
+#[cfg_attr(not(windows), allow(dead_code))] // read only by the Windows loader
 pub(crate) struct Candidate {
     /// Loaded by this bare name, so a tool that hooks the load sees the name it looks for
     /// [observed 2026-11-12: OptiScaler's `LibraryLoad_Hooks.cpp` compares the file name].
@@ -317,6 +318,7 @@ pub(crate) fn give_up(why: &str) {
 enum LoadError {
     /// No such file: the usual case.
     NotThere,
+    #[cfg_attr(not(windows), allow(dead_code))] // only the Windows loader can fail
     Failed(String),
 }
 
