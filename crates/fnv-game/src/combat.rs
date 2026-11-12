@@ -708,6 +708,18 @@ impl Game<'_> {
         }
     }
 
+    /// Whether a living actor has its weapon out now, as IsWeaponOut reads it
+    /// (`functions::actor::is_weapon_out`): what the animating side told in the last second
+    /// ([`Game::set_weapon_out`]; the player's always), else the rule
+    /// ([`Game::wants_weapon_out`]).
+    pub fn weapon_is_out(&self, actor: FormId) -> bool {
+        let told = self.senses.weapon_told.get(&actor).is_some_and(|&t| (self.time - t).abs() < 1.0);
+        if actor == FormId::PLAYER_REF || told {
+            return self.extra.get(&actor).is_some_and(|e| e.weapon_out);
+        }
+        self.wants_weapon_out(actor)
+    }
+
     /// Whether an actor wants its weapon out: alerted (SetAlert, or fighting), its
     /// package's Weapon Drawn flag, or a scripted weapon use (UseWeapon); never under its
     /// package's Weapons Unequipped flag while it does not fight, nor while it flees a

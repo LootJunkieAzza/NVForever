@@ -16,7 +16,8 @@
 //! (beside `[Settings]`, `crate::settings::SettingsFile`), one line per control by its
 //! game INI name, the key and mouse button by name: `Forward=W`, `Block=Left Alt, Right
 //! Mouse`, `Use=Left Mouse`, `Auto Move=None` ([`KEY_NAMES`], [`MOUSE_NAMES`]), and
-//! `Always Run By Default`, `Invert Y` (1/0) and `Mouse Sensitivity`. Each start reads
+//! `Always Run By Default`, `Invert Y` (1/0), `Mouse Sensitivity` and `Mouse Vertical
+//! Sensitivity` (#2201, read as 1 when missing). Each start reads
 //! them ([`apply_stored`], `PostStartup`); a line missing from an INI that exists is
 //! written with the control's key then, so the file always lists every control to edit.
 //! A value that does not parse is skipped with a warning (the default stays). The pause
@@ -305,6 +306,19 @@ pub struct Bindings {
     pub rumble: bool,
     /// The Controls tab's Stick Sensitivity: the right stick's look speeds times this.
     pub stick_sensitivity: f32,
+    /// The Controls tab's Vertical Sensitivity of keyboard and mouse and of the controller
+    /// ([`device_slot`]): the vertical look's speed as a multiple of the horizontal's, 1 as
+    /// the game has it (the mouse's one value for both axes, the stick's own vertical look
+    /// speed) [design: #2201; the original has no such setting].
+    pub vertical: [f32; 2],
+}
+
+/// The place of `device` in [`Bindings::vertical`].
+pub fn device_slot(device: InputDevice) -> usize {
+    match device {
+        InputDevice::KeyboardMouse => 0,
+        InputDevice::Controller => 1,
+    }
 }
 
 impl Default for Bindings {
@@ -323,6 +337,11 @@ impl Bindings {
         }
     }
 
+    /// The Vertical Sensitivity of the device in use ([`Bindings::vertical`]).
+    pub fn vertical_sensitivity(&self) -> f32 {
+        self.vertical[device_slot(self.device)]
+    }
+
     pub fn game_defaults() -> Bindings {
         Bindings {
             map: GAME_CONTROLS.iter().map(|&(c, _, v)| (c, Binding::from_ini(v))).collect(),
@@ -334,6 +353,7 @@ impl Bindings {
             look_speed: [LOOK_SPEED_HORIZONTAL, LOOK_SPEED_VERTICAL],
             rumble: RUMBLE,
             stick_sensitivity: 1.0,
+            vertical: [1.0, 1.0],
         }
     }
 
@@ -599,6 +619,9 @@ pub const PAD_SECTION: &str = "Controller";
 const LOOK_KEYS: [&str; 2] = ["Look Speed Horizontal", "Look Speed Vertical"];
 pub const RUMBLE_KEY: &str = "Rumble";
 const STICK_SENSITIVITY_KEY: &str = "Stick Sensitivity";
+/// Where each device's Vertical Sensitivity is kept ([`Bindings::vertical`]): a multiple,
+/// two decimals.
+const VERTICAL_KEYS: [(&str, &str); 2] = [(SECTION, "Mouse Vertical Sensitivity"), (PAD_SECTION, "Stick Vertical Sensitivity")];
 
 fn bit(on: bool) -> &'static str {
     if on {
@@ -630,6 +653,9 @@ pub fn with_controls(text: &str, b: &Bindings) -> String {
         t = ini_set(&t, PAD_SECTION, k, &format!("{v:.0}"));
     }
     t = ini_set(&t, PAD_SECTION, STICK_SENSITIVITY_KEY, &format!("{:.2}", b.stick_sensitivity));
+    for ((section, k), v) in VERTICAL_KEYS.iter().zip(b.vertical) {
+        t = ini_set(&t, section, k, &format!("{v:.2}"));
+    }
     ini_set(&t, PAD_SECTION, RUMBLE_KEY, bit(b.rumble))
 }
 
@@ -737,12 +763,27 @@ pub fn read_controls(text: &str, b: &mut Bindings, bad: &mut Vec<String>) -> (us
             _ => bad.push(format!("[{PAD_SECTION}] {STICK_SENSITIVITY_KEY}={v} (not a number above 0)")),
         }
     }
+    for (i, (section, k)) in VERTICAL_KEYS.iter().enumerate() {
+        let Some(v) = ini_get(text, section, k) else { continue };
+        found += 1;
+        let name = if *section == PAD_SECTION { format!("[{PAD_SECTION}] {k}") } else { k.to_string() };
+        match v.trim().parse::<f32>() {
+            Ok(m) if m.is_finite() && m > 0.0 => {
+                let m = clamp_to_least(m, SENSITIVITY_LEAST);
+                if (m - b.vertical[i]).abs() > 1e-4 {
+                    changed.push(format!("{name} {m}"));
+                    b.vertical[i] = m;
+                }
+            }
+            _ => bad.push(format!("{name}={v} (not a number above 0)")),
+        }
+    }
     switch(PAD_SECTION, RUMBLE_KEY, &mut b.rumble, &mut found, &mut changed, bad);
     (found, changed)
 }
 
 /// The number of `[Controls]` lines a full section has.
-const LINES: usize = 2 * GAME_CONTROLS.len() + 4 + LOOK_KEYS.len() + 2;
+const LINES: usize = 2 * GAME_CONTROLS.len() + 4 + LOOK_KEYS.len() + 2 + VERTICAL_KEYS.len();
 
 /// Read the player's keys from the INI (module notes) and fill in the lines it lacks.
 pub fn apply_stored(world: &mut World) {
@@ -900,6 +941,20 @@ pub fn set_sensitivity(world: &mut World, m: f32) {
     store(world);
 }
 
+/// Set the Vertical Sensitivity of the device in use to multiple `m` of its horizontal
+/// look (the Controls tab's Vertical Sensitivity, on the steps of the sensitivity sliders);
+/// acts at once.
+pub fn set_vertical(world: &mut World, m: f32) {
+    let Some(mut b) = world.get_resource_mut::<Bindings>() else { return };
+    let i = device_slot(b.device);
+    if (b.vertical[i] - m).abs() <= 1e-4 {
+        return;
+    }
+    b.vertical[i] = m;
+    info!("controls: {} vertical sensitivity {}", if i == 1 { "stick" } else { "mouse" }, sensitivity_text(m));
+    store(world);
+}
+
 /// Take the key off `c` (the Controls page's Delete), keeping its mouse button.
 pub fn clear_key(world: &mut World, c: Control) {
     let Some(mut b) = world.get_resource_mut::<Bindings>() else { return };
@@ -946,6 +1001,7 @@ pub fn changed_controls(b: &Bindings) -> Vec<crate::settings_view::ControlRow> {
         R::Invert => b.invert_y == d.invert_y,
         R::Sensitivity(InputDevice::KeyboardMouse) => ((b.mouse_sensitivity - d.mouse_sensitivity) / MOUSE_SENSITIVITY).abs() <= 1e-4,
         R::Sensitivity(InputDevice::Controller) => (b.stick_sensitivity - d.stick_sensitivity).abs() <= 1e-4,
+        R::Vertical(dev) => (b.vertical[device_slot(dev)] - d.vertical[device_slot(dev)]).abs() <= 1e-4,
         R::Rumble => b.rumble == d.rumble,
     };
     R::all().into_iter().filter(|r| !same(*r)).collect()
@@ -970,6 +1026,7 @@ pub fn restore_rows(world: &mut World, rows: &[crate::settings_view::ControlRow]
             R::Invert => b.invert_y = d.invert_y,
             R::Sensitivity(InputDevice::KeyboardMouse) => b.mouse_sensitivity = d.mouse_sensitivity,
             R::Sensitivity(InputDevice::Controller) => b.stick_sensitivity = d.stick_sensitivity,
+            R::Vertical(dev) => b.vertical[device_slot(dev)] = d.vertical[device_slot(dev)],
             R::Rumble => b.rumble = d.rumble,
         }
     }
@@ -1160,6 +1217,47 @@ mod tests {
         let (_, changed) = read_controls(&ini_set(&with_controls("", &b), PAD_SECTION, STICK_SENSITIVITY_KEY, "2.00"), &mut back, &mut bad);
         assert!(bad.is_empty(), "{bad:?}");
         assert!(near(back.stick_sensitivity, 2.0) && near(back.mouse_sensitivity, 0.003), "{changed:?}");
+    }
+
+    /// #2201: each device's Vertical Sensitivity is kept in the INI and read back apart; an
+    /// INI written before it (no such lines) reads as 1, the look as before.
+    #[test]
+    fn the_vertical_sensitivities_are_kept_apart_and_missing_lines_read_as_one() {
+        let near = |a: f32, b: f32| (a - b).abs() < 1e-5;
+        let mut b = Bindings::game_defaults();
+        assert_eq!(b.vertical, [1.0, 1.0]);
+        b.vertical = [0.8, 1.2];
+        assert!(near(b.vertical_sensitivity(), 0.8));
+        b.device = InputDevice::Controller;
+        assert!(near(b.vertical_sensitivity(), 1.2));
+        let text = with_controls("", &b);
+        assert!(text.contains("Mouse Vertical Sensitivity=0.80") && text.contains("Stick Vertical Sensitivity=1.20"), "{text}");
+        let (mut back, mut bad) = (Bindings::game_defaults(), vec![]);
+        let (found, changed) = read_controls(&text, &mut back, &mut bad);
+        assert!(bad.is_empty(), "{bad:?}");
+        assert_eq!(found, LINES);
+        assert!(near(back.vertical[0], 0.8) && near(back.vertical[1], 1.2), "{changed:?}");
+        assert!(changed.contains(&"Mouse Vertical Sensitivity 0.8".to_string()) && changed.contains(&"[Controller] Stick Vertical Sensitivity 1.2".to_string()), "{changed:?}");
+        // Without the lines: 1 each, and two lines fewer found (written at the start).
+        let old: String = text.lines().filter(|l| !l.contains("Vertical Sensitivity")).map(|l| format!("{l}\n")).collect();
+        let mut back = Bindings::game_defaults();
+        let (found, _) = read_controls(&old, &mut back, &mut bad);
+        assert_eq!((found, back.vertical), (LINES - 2, [1.0, 1.0]));
+        // Below the slider's least: clamped; not a number: refused.
+        let low = ini_set(&ini_set(&text, SECTION, "Mouse Vertical Sensitivity", "0.01"), PAD_SECTION, "Stick Vertical Sensitivity", "x");
+        let mut back = Bindings::game_defaults();
+        read_controls(&low, &mut back, &mut bad);
+        assert!(near(back.vertical[0], SENSITIVITY_LEAST) && near(back.vertical[1], 1.0));
+        assert_eq!(bad, ["[Controller] Stick Vertical Sensitivity=x (not a number above 0)"]);
+        // Away from the default: in the Changed list, and its Defaults puts it back.
+        use crate::settings_view::ControlRow as R;
+        let mut b = Bindings::game_defaults();
+        b.vertical[1] = 0.5;
+        assert_eq!(changed_controls(&b), [R::Vertical(InputDevice::Controller)]);
+        let mut app = App::new();
+        app.insert_resource(b);
+        restore_rows(app.world_mut(), &[R::Vertical(InputDevice::Controller)]);
+        assert_eq!(app.world().resource::<Bindings>().vertical, [1.0, 1.0]);
     }
 
     /// #1632: centimetres of mouse travel for a full turn at 1600 dpi, reading the

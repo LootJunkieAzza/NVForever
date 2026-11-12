@@ -361,8 +361,20 @@ engine if needed, and delete the item here.
     - Speed Mult on people: answered 2026-11-01 (o18_air): a trooper ran 305 units/s at
       100 and about 460 at 150, proportional as ours (actors §8.10); Cook-Cook (110, ran
       as if 100) stays the one exception, asked in owner-review.md.
-    - People walking with a weapon drawn (77–78 seen outside combat, about 100 in
-      combat) are not built.
+    - People walking with a weapon drawn: built only for the measured case (#2124), a
+      person in light armour or clothes with a pistol out, outside combat: its walk /
+      fMoveNoWeaponMult, 77.5 (77.5–78.3 seen with a 10mm pistol). Still open, ours: every
+      other stance and armour class walks drawn at the holstered pace. A capture that
+      tells the three candidates apart (the setting, the stance's walk clip, fMoveBaseSpeed
+      77): people walking a package outside combat with a rifle (`2hr` clip 85.26; the
+      setting gives 77.5), a knife or fists (`1hm`/`h2h` 77.5), and a pistol in medium
+      armour (the setting gives 71.7), each next to a holstered walker. Walking drawn in
+      combat (about 100) is not built. Whether a follower walking after its leader takes
+      the drawn walk is not known either (ours: a follower in step keeps its leader's pace, the
+      drawn walk showing only where that pace is not known or as the slowest it eases to,
+      actors §8.10): a person with a
+      pistol drawn given a Follow package after a holstered walker (85): does it keep
+      step, or drop back at 77.5?
     - Follow distances: stand within distance + 64, run beyond 512. Where a follower
       stops once its leader stops: ours 150 inside the distance, not nearer than 128
       (#2122, from two arrivals: Boone 177 of 330, the pack brahmin about 300 of 450).
@@ -1158,6 +1170,12 @@ The numbers above stay put so links to them hold; each item here gives its own p
     `…/x`, `…/y`, `…/width`, `…/_alpha`, `…/_enabled`, and `StartMenu/_isPauseMenu`; then
     the same with the Settings page open.
 
+    Answered for the pause menu 2026-11-12 (job mcm976e, nvftest, MCM 1.5 and Just
+    Assorted Mods active) [observed]: `childcount` 8, `x` 1301.67, `y` 336, `width` 375,
+    `_alpha` 255, `_enabled` 1, `_isPauseMenu` 0; the column's six rows and MCM's trigger
+    are in [menu-xml §10.1](../spec-notes/menu-xml.md). Still open: the main menu's
+    column and the Settings page's.
+
 ## Added 2026-11-01 (explosions' limb damage, issue #1338; open part since 2026-11-06, #1741)
 
 74. **How much of a blast reaches each limb, at stock Health and on the player?** (P2;
@@ -1868,3 +1886,15 @@ Fallout Behavior, Weapon Drawn, Continue During Combat).
     `Begin OnActivate player` door (IndDoorSmAnim01): does the block run for the NPC (a
     variable it sets), as the GECK wiki's OnActivate page (Bugs) has it, or not, as
     NVForever does?
+
+## Added 2026-11-12 (MCM's list functions, issue #976)
+
+118. **Why did `SetMCMFloatMass 1 36 37` leave ArrowUp alone?** (P3; menu-xml.md §10.2.)
+     In the original `SetMCMFloatMass 1 36 37 "depth" 33` set Option36's depth but not
+     ArrowUp's, though ArrowUp is MCM_Options' 37th child in MCM.xml, while MCM's own
+     `5 24 33` reaches MCM_ModList's 24th to 33rd children [observed: job mcm976e;
+     hypothesis: the function counts only children of the first row's kind, or its range
+     stops at a row without the trait]. NVForever counts every child. To check, with the
+     pause menu and MCM's window open: `SetMCMFloatMass 1 37 38 "depth" 33` and `1 36 37
+     "visible" 0`, reading ArrowUp, ArrowDown and Option36 before and after in one script;
+     and `5 23 24 "_enable" 1` reading Mod23 and SubMenu1.

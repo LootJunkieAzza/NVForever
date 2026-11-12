@@ -1252,6 +1252,13 @@ impl Residents {
         self.core.ai.alert_speeds(actor)
     }
 
+    /// `actor`'s walk as the AI has it: whether it is on its way, its walker's speed and
+    /// its calm run (`walk_probe.rs`).
+    pub fn walk_of(&self, actor: FormId) -> Option<(bool, f32, f32)> {
+        let a = self.core.ai.agents.get(&actor)?;
+        Some((a.activity == fnv_ai::Activity::Travelling, a.walker.speed, self.core.ai.calm_speeds(actor).run))
+    }
+
     /// The share of its speed `actor` moves at (crippled legs, `limping.rs`).
     pub fn set_pace(&mut self, actor: FormId, pace: f32) {
         self.core.ai.set_pace(actor, pace);
@@ -2506,6 +2513,7 @@ impl Core {
                 | AiEvent::SearchOver { .. }
                 | AiEvent::SearchBack { .. }
                 | AiEvent::Resettles { .. }
+                | AiEvent::TakesUpAgain { .. }
                 | AiEvent::BackHome { .. }
                 | AiEvent::BackUp { .. }
                 | AiEvent::WeaponUse { .. }
@@ -2813,6 +2821,7 @@ fn describe(data: &GameData, world: &WorldData, e: &AiEvent) -> String {
         AiEvent::SearchOver { why } => format!("stops searching: {why}"),
         AiEvent::SearchBack { package, away } => format!("has searched: back to the place of {}, {away:.0} units off", n(package)),
         AiEvent::Resettles { package } => format!("is back in the place of {}: settles there again", n(package)),
+        AiEvent::TakesUpAgain { package } => format!("takes up {} afresh", n(package)),
         AiEvent::BackHome { away, length } => format!(
             "has no package: walks back to where it was placed, {} off, {length:.0} units to go",
             if away.is_finite() { format!("{away:.0} units") } else { "in another space".to_string() }

@@ -147,7 +147,9 @@
 //! (`fMouseSensitivity`), Stick Sensitivity with a controller (the right stick's look
 //! speeds), each kept apart (Left/Right or the arrows a step of `crate::bindings::SENSITIVITY_STEPS`,
 //! about a tenth apart, a press or drag on the logarithmic meter the value under the
-//! pointer; `crate::bindings::SENSITIVITY_LEAST`..`SENSITIVITY_MOST`, 5%-300%)
+//! pointer; `crate::bindings::SENSITIVITY_LEAST`..`SENSITIVITY_MOST`, 5%-300%), and under
+//! it Vertical Sensitivity, each device's own, sets the vertical look's speed as a
+//! percentage of the horizontal's on the same steps (100% as the game has it, #2201)
 //! [design: owner 2026-11-03, #1451; #1632]; with a controller Rumble comes after, then
 //! the registered controller rows, Button style and the aim assist's (`crate::pad`,
 //! `crate::aim_assist`; shown with the controller only) [design: #1953].
@@ -155,11 +157,12 @@
 //! **Quit** asks first [observed: the original's question and its choices]: Main Menu
 //! (nvforever starts again with `--menu`, [`MainMenuRequest`]), Exit Game, Cancel.
 //!
-//! **Mods** (issue #976, T11; `crate::tiles::mods`): with `[UI] TileMenus=StartMenu` and a
-//! mod's tiles in the start menu (MCM's include), a Mods entry stands before Quit
-//! ([`ModsEntry`]). Its page draws the mod's tiles from the tree over this menu, gives them
-//! the pointer and keys, and runs the start menu's MenuMode scripts each frame; Esc,
-//! Backspace or Back go back to the column [design: owner-review.md #34]. Off by default.
+//! **Mods** (issue #976, T11; `crate::tiles::mods`): with a mod's tiles in the start menu
+//! (MCM's include), a Mods entry stands before Quit ([`ModsEntry`]). Its page draws the
+//! mod's tiles from the tree over this menu, gives them the pointer and keys, and runs the
+//! start menu's MenuMode scripts each frame; MCM's window opens with it. Esc, Backspace,
+//! Back or MCM's own Back go back to the column [design: owner-review.md #34]. On by
+//! default; `[UI] TileMenus=-StartMenu` turns it off.
 //!
 //! **What a menu holds** (docs/design/dialogue.md §8, Pausing). Every menu holds game
 //! logic by its own means (`PlayState`, the runtime's menu mode). Whether the picture
@@ -190,7 +193,8 @@
 //! would, `padbind:<control>=<button>` (`padbind:Jump=RB`) a controller button,
 //! `device:<name>` (`device:Controller`) picks the input device, `rumble:1` or `rumble:0`
 //! sets the controller's Rumble row, `invert:1` or `invert:0` the Invert Y row and
-//! `sensitivity:<percent>` (`sensitivity:150`) the sensitivity slider of the device in use;
+//! `sensitivity:<percent>` (`sensitivity:150`) the sensitivity slider of the device in use,
+//! `vertical:<percent>` (`vertical:80`) its Vertical Sensitivity;
 //! `tab:<name>` (`tab:Tweaks`, an empty tab too) shows a tab on its first row,
 //! `select:<key>` chooses a row without changing it (a hidden one: the row that stands for
 //! it), `layout` logs the tabs and each row's place (`settings layout: menu-pause ->
@@ -560,11 +564,10 @@ impl Page {
 #[derive(Resource, Default, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Listening(pub Option<(crate::bindings::Control, crate::bindings::InputDevice)>);
 
-/// Whether the column has a Mods entry this frame: with `[UI] TileMenus=StartMenu` on, a
-/// mod added tiles to `StartMenu` (MCM's include) [design: owner-review.md #34, "a Mods
-/// entry appears only when a mod added one"; ui-tile-tree.md §7]. Written by
-/// `crate::tiles` each frame; off by default, as the page shows only what the mod's own
-/// scripts draw (docs/handoff/ui-tile-tree-tasks.md, T11).
+/// Whether the column has a Mods entry this frame: with the start menu's switch on (the
+/// default, `crate::tiles::vanilla::TileMenus::for_run`), a mod added tiles to `StartMenu`
+/// (MCM's include) [design: owner-review.md #34, "a Mods entry appears only when a mod
+/// added one"; ui-tile-tree.md §7]. Written by `crate::tiles` each frame.
 #[derive(Resource, Default, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ModsEntry(pub bool);
 
@@ -826,6 +829,8 @@ const RUMBLE_ROW: &str = "Rumble";
 const INVERT_ROW: &str = "Invert Y";
 /// The Controls tab's slider after Invert Y, with keyboard and mouse and with a controller.
 const SENSITIVITY_ROWS: [&str; 2] = ["Mouse Sensitivity", "Stick Sensitivity"];
+/// The Controls tab's slider under the sensitivity, each device's own (#2201).
+const VERTICAL_ROW: &str = "Vertical Sensitivity";
 
 const OPTION_ROW: f32 = 52.0;
 /// The scroll bar right of the settings page's rows when not all of them fit, 32 wide
@@ -1102,6 +1107,9 @@ struct Drawn {
     column: Vec<(&'static str, bool)>,
     /// Under the main menu (its entries make the column; no pause screen).
     under_main: bool,
+    /// The Mods page shows a mod's own window with its own Back (MCM's): ours is not
+    /// drawn over it (`crate::tiles::mods::ModsPage::mcm_open`) [design].
+    mod_window: bool,
     /// The load page's thumbnail: the row it is of and whether there is one.
     thumb: Option<(usize, bool)>,
     /// The Controls tab's values, in `GAME_CONTROLS`' order, on the device in use.
@@ -1114,6 +1122,8 @@ struct Drawn {
     invert_y: bool,
     /// The device in use's look sensitivity, a multiple of the game's.
     sensitivity: f32,
+    /// The device in use's Vertical Sensitivity, a multiple of its horizontal look.
+    vertical: f32,
     /// The settings page's (or the load page's) first row shown ([`PauseView::scroll`]).
     scroll: usize,
     /// The list rows: each one's row, choices and chosen one.
@@ -1275,6 +1285,7 @@ impl Plugin for PausePlugin {
             .init_resource::<FormOver>()
             .init_resource::<ReportEntry>()
             .init_resource::<ModsEntry>()
+            .init_resource::<crate::tiles::mods::ModsPage>()
             .add_message::<MainMenuRequest>()
             .init_resource::<MenuPause>()
             .init_resource::<PlayClock>()
@@ -1327,6 +1338,20 @@ fn from_right(right: f32, top: f32, width: f32, height: f32) -> Node {
 /// A node whose left edge is `left` from the view's middle.
 fn from_middle(left: f32, top: f32, width: f32, height: f32) -> Node {
     Node { position_type: PositionType::Absolute, left: Val::Percent(50.0), margin: UiRect::left(u(left)), top: u(top), width: u(width), height: u(height), ..default() }
+}
+
+/// Back at the bottom right with its hint, as Delete has its own: "Back  Esc)", with a
+/// controller "Back  B)" [observed, issue #1893: the original's Settings pages show
+/// "Back" with the controller's B; the keyboard's key in the same place: design].
+/// Defaults keeps no hint: the original's is Y, which here puts the keys on the rail
+/// (#1953), not a press of Defaults.
+fn back_label() -> String {
+    back_label_as(crate::pad::labels())
+}
+
+/// [`back_label`] with the labels `l`.
+fn back_label_as(l: crate::pad::Labels) -> String {
+    format!("{}  {}", tr("Back"), crate::pad::hint_as(&[KeyCode::Escape], crate::pad::PAUSE_AT, l))
 }
 
 /// A right-aligned list entry: the whole row takes the pointer, the box round it when
@@ -1460,9 +1485,9 @@ fn spawn_page(commands: &mut Commands, d: &Drawn, look: &PauseLook, settings: &[
                 Page::Mods => {}
             }
             // Back (and Defaults) at the bottom right.
-            if d.page != Page::Main {
+            if d.page != Page::Main && !d.mod_window {
                 let on = |item| matches!(d.page, Page::Settings { .. }) && d.focus == SettingsFocus::Rail(item);
-                right_entry(root, &f.entry, tr("Back"), from_right(RIGHT, BACK_TOP, 200.0, ITEM), 200.0, Shade::Bright, on(RailItem::Back), PauseButton::Back, glyphs);
+                right_entry(root, &f.entry, &back_label(), from_right(RIGHT, BACK_TOP, 200.0, ITEM), 200.0, Shade::Bright, on(RailItem::Back), PauseButton::Back, glyphs);
                 if matches!(d.page, Page::Settings { .. }) {
                     right_entry(root, &f.entry, tr("Defaults"), from_right(RIGHT, BACK_TOP - ITEM, 200.0, ITEM), 200.0, Shade::Bright, on(RailItem::Defaults), PauseButton::Defaults, glyphs);
                 }
@@ -1669,8 +1694,9 @@ fn row_line(root: &mut ChildSpawnerCommands, d: &Drawn, look: &PauseLook, list: 
             let (name, value) = control_line(d, c);
             root.spawn((Button, PauseButton::Row(id), node)).with_children(|r| {
                 sm_text(r, &f.entry, name, 10.0, BASE + 2.0, color(Shade::Bright));
-                if matches!(c, ControlRow::Sensitivity(_)) {
-                    slider_row(r, look, id, crate::bindings::sensitivity_part(d.sensitivity), &value);
+                if let ControlRow::Sensitivity(_) | ControlRow::Vertical(_) = c {
+                    let m = if matches!(c, ControlRow::Vertical(_)) { d.vertical } else { d.sensitivity };
+                    slider_row(r, look, id, crate::bindings::sensitivity_part(m), &value);
                     return;
                 }
                 let vw = crate::pad::button_width(&f.entry, &value, glyphs);
@@ -1694,6 +1720,7 @@ fn control_line(d: &Drawn, c: ControlRow) -> (&'static str, String) {
         }
         ControlRow::Invert => (INVERT_ROW, on_off(d.invert_y)),
         ControlRow::Sensitivity(_) => (SENSITIVITY_ROWS[usize::from(controller)], crate::bindings::sensitivity_text(d.sensitivity)),
+        ControlRow::Vertical(_) => (VERTICAL_ROW, crate::bindings::sensitivity_text(d.vertical)),
         ControlRow::Rumble => (RUMBLE_ROW, on_off(d.rumble)),
     }
 }
@@ -1715,6 +1742,16 @@ fn row_note(list: &[Setting], id: RowId, d: &Drawn) -> String {
         ),
         ControlRow::Sensitivity(_) => format!(
             "Left/Right or a click on the meter: how far the view turns as the mouse moves, a step of about a tenth ({} to {} of the game's). Kept as \"Mouse Sensitivity\" (radians a mouse count) in [Controls] of NVForever.ini.",
+            crate::bindings::sensitivity_text(crate::bindings::SENSITIVITY_LEAST),
+            crate::bindings::sensitivity_text(crate::bindings::SENSITIVITY_MOST)
+        ),
+        ControlRow::Vertical(_) if controller => format!(
+            "Left/Right or a click on the meter: how fast the right stick turns the view up and down, as a part of its speed left and right (100% as the game has it, {} to {}). Kept as \"Stick Vertical Sensitivity\" in [Controller] of NVForever.ini.",
+            crate::bindings::sensitivity_text(crate::bindings::SENSITIVITY_LEAST),
+            crate::bindings::sensitivity_text(crate::bindings::SENSITIVITY_MOST)
+        ),
+        ControlRow::Vertical(_) => format!(
+            "Left/Right or a click on the meter: how far the view turns up and down as the mouse moves, as a part of how far it turns left and right (100% the same, as the game has it, {} to {}). Kept as \"Mouse Vertical Sensitivity\" in [Controls] of NVForever.ini.",
             crate::bindings::sensitivity_text(crate::bindings::SENSITIVITY_LEAST),
             crate::bindings::sensitivity_text(crate::bindings::SENSITIVITY_MOST)
         ),
@@ -2113,6 +2150,7 @@ struct ControlState {
     rumble: bool,
     invert: bool,
     sensitivity: f32,
+    vertical: f32,
 }
 
 /// Whether row `id` takes A and D as Left and Right (a slider, a list; a switch takes the
@@ -2120,7 +2158,7 @@ struct ControlState {
 fn takes_letters(settings: &Settings, id: RowId) -> bool {
     match id {
         RowId::Setting(i) => settings.choices(i).is_some() || settings.list().get(i).is_some_and(|s| s.slider.is_some()),
-        RowId::Control(c) => matches!(c, ControlRow::Sensitivity(_)),
+        RowId::Control(c) => matches!(c, ControlRow::Sensitivity(_) | ControlRow::Vertical(_)),
     }
 }
 
@@ -2181,6 +2219,11 @@ fn act_on_row(id: RowId, action: RowAction, settings: &Settings, view: &mut Paus
             (ControlRow::Sensitivity(_), Step(s)) => {
                 let m = crate::bindings::step_sensitivity(controls.sensitivity, s);
                 commands.queue(move |world: &mut World| crate::bindings::set_sensitivity(world, m));
+                sounds.write(flipped);
+            }
+            (ControlRow::Vertical(_), Step(s)) => {
+                let m = crate::bindings::step_sensitivity(controls.vertical, s);
+                commands.queue(move |world: &mut World| crate::bindings::set_vertical(world, m));
                 sounds.write(flipped);
             }
             _ => {}
@@ -2407,12 +2450,12 @@ fn refresh_search(view: &mut PauseView, layout: &ResolvedLayout, list: &[Setting
 /// rows are not registered settings, so this stands in for their label and note].
 fn control_words(c: ControlRow) -> String {
     use crate::bindings::InputDevice;
-    let controller = matches!(c, ControlRow::Binding(_, InputDevice::Controller) | ControlRow::Sensitivity(InputDevice::Controller) | ControlRow::Rumble);
+    let controller = matches!(c, ControlRow::Binding(_, InputDevice::Controller) | ControlRow::Sensitivity(InputDevice::Controller) | ControlRow::Vertical(InputDevice::Controller) | ControlRow::Rumble);
     let d = Drawn { device: ("", controller), ..default() };
     let (label, _) = control_line(&d, c);
     let key = match c {
         ControlRow::Binding(k, _) => crate::bindings::Bindings::name(k),
-        ControlRow::Device | ControlRow::Invert | ControlRow::Sensitivity(_) | ControlRow::Rumble => label,
+        ControlRow::Device | ControlRow::Invert | ControlRow::Sensitivity(_) | ControlRow::Vertical(_) | ControlRow::Rumble => label,
     };
     let note = row_note(&[], RowId::Control(c), &d);
     crate::settings_view::haystack(&[label, note.as_str(), key])
@@ -2616,6 +2659,7 @@ fn log_inspect(list: &[Setting], view: &PauseView, selected: Option<RowId>, entr
     }
     info!("pause menu: inspect: words {}", words.join(" | "));
     info!("pause menu: inspect: hovered {}", view.rail_hover.map_or("none", |r| r.name()));
+    info!("pause menu: inspect: back {}", back_label());
 }
 
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
@@ -2633,7 +2677,7 @@ fn choose(
     mut commands: Commands,
     mut sounds: MessageWriter<crate::ui_sounds::UiSound>,
     mut menu: SaveMenu,
-    (mut request, main_menu, intro, mut to_main, mouse, typed_in, mut input_aid): (
+    (mut request, main_menu, intro, mut to_main, mouse, typed_in, mut input_aid, mut mods_page): (
         ResMut<PageRequest>,
         Option<Res<crate::main_menu::MainMenu>>,
         Option<Res<crate::intro::Intro>>,
@@ -2641,6 +2685,7 @@ fn choose(
         Res<ButtonInput<MouseButton>>,
         Option<Res<SearchKeys>>,
         Option<ResMut<PauseInputAid>>,
+        Option<ResMut<crate::tiles::mods::ModsPage>>,
     ),
     (bindings, pads, sticks, pending, mods, mut listening, mut layout, colours): (
         Option<Res<crate::bindings::Bindings>>,
@@ -2781,6 +2826,19 @@ fn choose(
                     commands.queue(move |world: &mut World| crate::bindings::set_sensitivity(world, m));
                 }
                 _ => warn!("NVF_PLAY_TEST_SETTINGS: {item:?}: expected sensitivity:<percent>"),
+            }
+            continue;
+        }
+        if let Some(v) = item.strip_prefix("vertical:") {
+            // `vertical:<percent>`: the device in use's Vertical Sensitivity set to it (onto
+            // the sliders' steps).
+            match v.trim_end_matches('%').parse::<f32>() {
+                Ok(p) if p.is_finite() => {
+                    let m = crate::bindings::step_sensitivity(p / 100.0, 0);
+                    show_row(&mut page, &mut view, layout, control(ControlRow::Vertical(device)));
+                    commands.queue(move |world: &mut World| crate::bindings::set_vertical(world, m));
+                }
+                _ => warn!("NVF_PLAY_TEST_SETTINGS: {item:?}: expected vertical:<percent>"),
             }
             continue;
         }
@@ -3008,6 +3066,7 @@ fn choose(
         rumble: bindings.as_ref().is_some_and(|b| b.rumble),
         invert: bindings.as_ref().is_some_and(|b| b.invert_y),
         sensitivity: bindings.as_ref().map_or(1.0, |b| b.sensitivity()),
+        vertical: bindings.as_ref().map_or(1.0, |b| b.vertical_sensitivity()),
     };
     // The settings page made whole for what the aids chose ([`sv::normalize`]).
     let mut rows: Vec<ViewEntry> = Vec::new();
@@ -3352,6 +3411,9 @@ fn choose(
                 }
                 Some(Entry::Mods) => {
                     info!("pause menu: mods page");
+                    if let Some(m) = mods_page.as_deref_mut() {
+                        *m = Default::default();
+                    }
                     *page = Page::Mods;
                 }
                 Some(Entry::Continue) if !resume.pending() => {
@@ -3612,6 +3674,12 @@ fn choose(
                                 commands.queue(move |world: &mut World| crate::bindings::set_sensitivity(world, m));
                             }
                         }
+                        (RowId::Control(ControlRow::Vertical(_)), Some(p)) => {
+                            let m = crate::bindings::sensitivity_at_part(p.x + 0.5);
+                            if (m - controls.vertical).abs() > 1e-4 {
+                                commands.queue(move |world: &mut World| crate::bindings::set_vertical(world, m));
+                            }
+                        }
                         _ => {}
                     }
                 } else {
@@ -3621,8 +3689,10 @@ fn choose(
         }
         // The mod's page takes the pointer and the keys through its tiles
         // (`crate::tiles::input`); Esc, Backspace or Back go back to the column.
+        // MCM's window closing itself (its Back) closes the page too (`crate::tiles::mods`).
         Page::Mods => {
-            if keys.any_just_pressed([KeyCode::Escape, KeyCode::Backspace]) || clicked == Some(PauseButton::Back) || act("back") {
+            let by_mod = mods_page.as_deref().is_some_and(|m| m.closed);
+            if by_mod || keys.any_just_pressed([KeyCode::Escape, KeyCode::Backspace]) || clicked == Some(PauseButton::Back) || act("back") {
                 info!("pause menu: mods page closed");
                 *page = Page::Main;
             }
@@ -4025,6 +4095,7 @@ fn drawn_now(world: &mut World) -> Drawn {
         disabled,
         status: world.resource::<PauseStatus>().line.clone(),
         under_main: main.is_some(),
+        mod_window: page == Page::Mods && world.get_resource::<crate::tiles::mods::ModsPage>().is_some_and(|m| m.mcm_open),
         column: main.unwrap_or_else(|| entries(world.get_resource::<ModsEntry>().is_some_and(|m| m.0)).iter().map(|e| (e.label(), true)).collect()),
         thumb,
         controls: world.get_resource::<crate::bindings::Bindings>().map(|b| b.all().map(|(c, _)| b.text_on(c)).collect()).unwrap_or_default(),
@@ -4032,6 +4103,7 @@ fn drawn_now(world: &mut World) -> Drawn {
         rumble: world.get_resource::<crate::bindings::Bindings>().is_some_and(|b| b.rumble),
         invert_y: world.get_resource::<crate::bindings::Bindings>().is_some_and(|b| b.invert_y),
         sensitivity: world.get_resource::<crate::bindings::Bindings>().map_or(1.0, |b| b.sensitivity()),
+        vertical: world.get_resource::<crate::bindings::Bindings>().map_or(1.0, |b| b.vertical_sensitivity()),
         scroll: view.scroll,
         lists,
         looks,
@@ -4053,11 +4125,11 @@ fn stand_in_name(list: &[Setting], id: RowId) -> String {
     match id {
         RowId::Setting(i) => list.get(i).map_or_else(String::new, |s| tr(s.label).to_string()),
         RowId::Control(c) => {
-            let controller = matches!(c, ControlRow::Binding(_, InputDevice::Controller) | ControlRow::Sensitivity(InputDevice::Controller) | ControlRow::Rumble);
+            let controller = matches!(c, ControlRow::Binding(_, InputDevice::Controller) | ControlRow::Sensitivity(InputDevice::Controller) | ControlRow::Vertical(InputDevice::Controller) | ControlRow::Rumble);
             let d = Drawn { device: ("", controller), ..default() };
             let (label, _) = control_line(&d, c);
             match c {
-                ControlRow::Binding(_, dev) => format!("{label} ({})", tr(dev.name())),
+                ControlRow::Binding(_, dev) | ControlRow::Vertical(dev) => format!("{label} ({})", tr(dev.name())),
                 _ => label.to_string(),
             }
         }
@@ -4202,6 +4274,15 @@ fn finish_resume(world: &mut World) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Issue #1893: Back carries its hint, the keyboard's Esc or the controller's B.
+    #[test]
+    fn back_names_its_key_and_button() {
+        use crate::pad::Labels;
+        assert_eq!(back_label_as(Labels::Keys), format!("{}  Esc)", tr("Back")));
+        assert_eq!(back_label_as(Labels::Xbox), format!("{}  B)", tr("Back")));
+        assert_eq!(back_label_as(Labels::PlayStation), format!("{}  Circle)", tr("Back")));
+    }
 
     fn resume_app() -> App {
         let mut app = App::new();

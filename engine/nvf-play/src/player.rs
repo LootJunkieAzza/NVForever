@@ -775,6 +775,8 @@ fn mouse_look(
         // The axes ToggleMouseMovement left on (`crate::script_switches`).
         (switches.as_deref().map_or(motion.delta, |s| s.look(motion.delta)), bindings.mouse_sensitivity)
     };
+    // The Controls tab's Vertical Sensitivity of the device in use (#2201).
+    let delta = vertical_scaled(delta, bindings.vertical_sensitivity());
     if !grabbed || !playing || locks.looking || delta == Vec2::ZERO {
         return;
     }
@@ -805,6 +807,13 @@ fn mouse_look(
         seat.look[0] += delta.x * s;
         seat.look[1] -= dy * s;
     }
+}
+
+/// `delta` (mouse counts, or the right stick's turn) with its vertical part times
+/// `vertical`, the Controls tab's Vertical Sensitivity of the device in use [design:
+/// #2201]; 1 leaves it exactly as it is.
+pub fn vertical_scaled(delta: Vec2, vertical: f32) -> Vec2 {
+    Vec2::new(delta.x, delta.y * vertical)
 }
 
 /// Radians per unit of the right stick's turn (a look speed of 1000 turns a radian a
@@ -1515,6 +1524,31 @@ mod tests {
     use std::f32::consts::{FRAC_PI_2, PI};
 
     const SPEEDS: MoveSpeeds = MoveSpeeds { walk: 77.0, run: 308.0 };
+
+    /// #2201: at the default Vertical Sensitivity (1) the mouse and the right stick turn the
+    /// view exactly as before; another value changes the pitch only.
+    #[test]
+    fn the_vertical_sensitivity_at_its_default_leaves_the_look_as_it_was() {
+        let b = crate::bindings::Bindings::game_defaults();
+        let mut pad = b.clone();
+        pad.device = crate::bindings::InputDevice::Controller;
+        // A mouse's counts, and a stick's turn as the look system builds it.
+        let mouse = Vec2::new(37.0, -21.0);
+        let stick = Vec2::new(0.6 * b.look_speed[0] * 0.016, -0.4 * b.look_speed[1] * 0.016);
+        for (bind, delta, s) in [(&b, mouse, b.mouse_sensitivity), (&pad, stick, STICK_LOOK_RADIANS)] {
+            assert_eq!(bind.vertical_sensitivity(), 1.0);
+            let scaled = vertical_scaled(delta, bind.vertical_sensitivity());
+            assert_eq!(scaled, delta);
+            for inv in [false, true] {
+                assert_eq!(look_with(0.3, 0.1, scaled, s, inv), look_with(0.3, 0.1, delta, s, inv));
+            }
+            // Half: the heading as before, the pitch turned half as far.
+            let (h, p) = look_with(0.3, 0.1, vertical_scaled(delta, 0.5), s, false);
+            let (h1, p1) = look_with(0.3, 0.1, delta, s, false);
+            assert_eq!(h, h1);
+            assert!(((p - 0.1) - (p1 - 0.1) / 2.0).abs() < 1e-6, "{p} {p1}");
+        }
+    }
 
     fn close(a: [f32; 2], b: [f32; 2]) -> bool {
         (a[0] - b[0]).abs() < 1e-3 && (a[1] - b[1]).abs() < 1e-3

@@ -1,8 +1,13 @@
 //! The two pairs of cards a repair shows [documented: repair_services_menu.xml, repair_menu.xml,
 //! names only]: the item's condition and its figure now, the same after the repair, the arrow
-//! and the gains between them. The vendor's menu writes them (`super::repair_services_menu`);
-//! the Pip-Boy's page has the same tiles under its own prefix and comes later (issue #1468).
+//! and the gains between them. The vendor's menu writes them (`super::repair_services_menu`),
+//! the Pip-Boy's repair page under its own prefix (`super::repair_menu`), and the weapon mod menu
+//! its own pair of cards named its own way (`super::item_mod_menu`, item_mod_menu.xml).
 //!
+//! - **The values are words** ([`CardValues`]): the repair menus' whole positive gains
+//!   ([`Figures`], "+N%" and "+N" as before) and the mod menu's figures, which can be decimal,
+//!   negative or worded ("0.40", "-0.50", "Silent"), go through one writer; each menu's model
+//!   words its own figures [design].
 //! - A card's `_Title` and `_Value` show through its `CI_TitleText` and `CI_ValueText`
 //!   [documented: card_info.xml]. The condition card has a meter in place of a number.
 //! - The stat card's title is the setting of the figure it shows (`sInventoryDamage`,
@@ -64,22 +69,105 @@ fn stat(root: &str, prefix: &str, side: &str) -> String {
     format!("{root}/{prefix}{side}Stat")
 }
 
-fn meter(root: &str, prefix: &str, side: &str) -> String {
-    format!("{}/{prefix}{side}HealthMeter", health(root, prefix, side))
+/// The paths of a menu's card tiles: the two pairs, the arrow and the gains. A condition card's
+/// meter is the card's child named after it with `Meter` after the name [documented: the repair
+/// files' and item_mod_menu.xml's names]. The repair menus name all of them by one prefix and
+/// side ([`CardTiles::repair`]); the weapon mod menu by its own (`super::item_mod_menu`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CardTiles {
+    pub now_health: String,
+    pub now_stat: String,
+    pub after_health: String,
+    pub after_stat: String,
+    pub arrow: String,
+    pub health_gain: String,
+    pub stat_gain: String,
+}
+
+impl CardTiles {
+    /// The repair menus' cards under `root`, named with `prefix`.
+    pub fn repair(root: &str, prefix: &str) -> Self {
+        CardTiles {
+            now_health: health(root, prefix, NOW),
+            now_stat: stat(root, prefix, NOW),
+            after_health: health(root, prefix, AFTER),
+            after_stat: stat(root, prefix, AFTER),
+            arrow: format!("{root}/{prefix}ArrowIcon"),
+            health_gain: format!("{root}/{prefix}HealthImprovementText"),
+            stat_gain: format!("{root}/{prefix}StatImprovementText"),
+        }
+    }
+
+    /// A condition card's meter.
+    pub fn meter(card: &str) -> String {
+        let name = card.rsplit('/').next().unwrap_or(card);
+        format!("{card}/{name}Meter")
+    }
+
+    fn sides(&self) -> [(&str, &str); 2] {
+        [(&self.now_health, &self.now_stat), (&self.after_health, &self.after_stat)]
+    }
+
+    /// The paths [`write_values`] needs, for an adapter's check that its file was built.
+    pub fn paths(&self) -> Vec<String> {
+        let mut out = vec![self.arrow.clone(), self.health_gain.clone(), self.stat_gain.clone()];
+        for (health, stat) in self.sides() {
+            for card in [health, stat] {
+                out.extend(super::item_card::CARD_TEXTS.map(|t| format!("{card}/{t}")));
+                out.push(card.to_string());
+            }
+            let meter = Self::meter(health);
+            let image = format!("{meter}/MeterImage");
+            out.extend([meter, image]);
+        }
+        out
+    }
+}
+
+/// One side of the cards as shown: the condition, 0 to 1, and the stat card's value in words.
+#[derive(Clone, Debug, PartialEq)]
+pub struct SideShown {
+    pub condition: f32,
+    /// `None` hides the stat card.
+    pub stat: Option<String>,
+}
+
+/// What the cards show, as words: the repair menus' whole positive gains ([`Figures`]) and the
+/// weapon mod menu's figures, which can be decimal, negative or worded ("0.40", "-0.40",
+/// "Silent"), alike. The figures are worded by the menu's model; the cards only show them.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CardValues {
+    /// For a condition card whose file gives no title.
+    pub condition_title: String,
+    /// The stat cards' title.
+    pub stat_title: String,
+    pub now: SideShown,
+    /// `None` hides that pair, the arrow (the file's rule) and the gains.
+    pub after: Option<SideShown>,
+    /// The gains' words, shown only with `after`; `None` hides one.
+    pub health_gain: Option<String>,
+    pub stat_gain: Option<String>,
+}
+
+impl From<&Figures> for CardValues {
+    /// The repair menus' words: "+N%" for the condition whenever there is an after, "+N" for the
+    /// stat when it has a gain.
+    fn from(f: &Figures) -> Self {
+        let side = |c: &Card| SideShown { condition: c.condition, stat: c.stat.map(|n| n.to_string()) };
+        CardValues {
+            condition_title: f.condition_title.clone(),
+            stat_title: f.stat_title.clone(),
+            now: side(&f.now),
+            after: f.after.as_ref().map(side),
+            health_gain: f.after.is_some().then(|| format!("+{}%", f.gain_percent)),
+            stat_gain: f.after.and(f.gain_stat).map(|n| format!("+{n}")),
+        }
+    }
 }
 
 /// The paths [`write`] needs under `root`, for an adapter's check that its file was built.
 pub fn paths(root: &str, prefix: &str) -> Vec<String> {
-    let mut out = vec![format!("{root}/{prefix}ArrowIcon"), format!("{root}/{prefix}HealthImprovementText"), format!("{root}/{prefix}StatImprovementText")];
-    for side in [NOW, AFTER] {
-        for card in [health(root, prefix, side), stat(root, prefix, side)] {
-            out.extend(super::item_card::CARD_TEXTS.map(|t| format!("{card}/{t}")));
-            out.push(card);
-        }
-        out.push(meter(root, prefix, side));
-        out.push(format!("{}/MeterImage", meter(root, prefix, side)));
-    }
-    out
+    CardTiles::repair(root, prefix).paths()
 }
 
 /// `_Title` from `title`, only where the file left the card without one.
@@ -90,42 +178,50 @@ pub(super) fn write_title_if_none(ui: &mut Ui, path: &str, title: &str) {
     }
 }
 
-fn write_side(ui: &mut Ui, root: &str, prefix: &str, side: &str, card: Option<&Card>, figures: Option<&Figures>) {
-    let (health, stat) = (health(root, prefix, side), stat(root, prefix, side));
-    set(ui, &health, "visible", on(card.is_some()));
-    let shown = card.and_then(|c| c.stat);
-    set(ui, &stat, "visible", on(shown.is_some()));
-    set(ui, &stat, "_Value", Value::Str(shown.map_or_else(String::new, |n| n.to_string())));
-    if let Some(f) = figures {
-        write_title_if_none(ui, &health, &f.condition_title);
-        set(ui, &stat, "_Title", Value::Str(f.stat_title.clone()));
+fn write_side(ui: &mut Ui, (health, stat): (&str, &str), card: Option<&SideShown>, values: Option<&CardValues>) {
+    set(ui, health, "visible", on(card.is_some()));
+    let shown = card.and_then(|c| c.stat.as_deref());
+    set(ui, stat, "visible", on(shown.is_some()));
+    set(ui, stat, "_Value", Value::Str(shown.unwrap_or_default().to_string()));
+    if let Some(v) = values {
+        write_title_if_none(ui, health, &v.condition_title);
+        set(ui, stat, "_Title", Value::Str(v.stat_title.clone()));
     }
-    set(ui, &health, "_Value", Value::Str(String::new()));
-    set(ui, &health, "user0", Value::Num(f64::from(card.map_or(0.0, |c| c.condition).clamp(0.0, 1.0))));
+    set(ui, health, "_Value", Value::Str(String::new()));
+    set(ui, health, "user0", Value::Num(f64::from(card.map_or(0.0, |c| c.condition).clamp(0.0, 1.0))));
 }
 
-/// Write the cards under `root` whose tiles are named with `prefix`. `None`: nothing chosen, all
-/// hidden. Every tile is written, so nothing stays of the item before.
+/// Write the cards `tiles`. `None`: nothing chosen, all hidden. Every tile is written, so nothing
+/// stays of the item before.
+pub fn write_values(ui: &mut Ui, tiles: &CardTiles, values: Option<&CardValues>) {
+    let [now, after] = tiles.sides();
+    write_side(ui, now, values.map(|v| &v.now), values);
+    write_side(ui, after, values.and_then(|v| v.after.as_ref()), values);
+    let after = values.filter(|v| v.after.is_some());
+    for (path, gain) in [(&tiles.health_gain, after.and_then(|v| v.health_gain.as_deref())), (&tiles.stat_gain, after.and_then(|v| v.stat_gain.as_deref()))] {
+        set(ui, path, "visible", on(gain.is_some()));
+        set(ui, path, "string", Value::Str(gain.unwrap_or_default().to_string()));
+    }
+}
+
+/// Write the repair cards under `root` whose tiles are named with `prefix`. `None`: nothing
+/// chosen, all hidden. Every tile is written, so nothing stays of the item before.
 pub fn write(ui: &mut Ui, root: &str, prefix: &str, figures: Option<&Figures>) {
-    write_side(ui, root, prefix, NOW, figures.map(|f| &f.now), figures);
-    write_side(ui, root, prefix, AFTER, figures.and_then(|f| f.after.as_ref()), figures);
-    let after = figures.filter(|f| f.after.is_some());
-    let gain = format!("{root}/{prefix}HealthImprovementText");
-    set(ui, &gain, "visible", on(after.is_some()));
-    set(ui, &gain, "string", Value::Str(after.map_or_else(String::new, |f| format!("+{}%", f.gain_percent))));
-    let gain_stat = after.and_then(|f| f.gain_stat);
-    let gain = format!("{root}/{prefix}StatImprovementText");
-    set(ui, &gain, "visible", on(gain_stat.is_some()));
-    set(ui, &gain, "string", Value::Str(gain_stat.map_or_else(String::new, |n| format!("+{n}"))));
+    write_values(ui, &CardTiles::repair(root, prefix), figures.map(CardValues::from).as_ref());
 }
 
 /// Make room for a title wider than the file's place for it (module notes), on the texts as
 /// measured: the meter starts past the title and ends where it did. Nothing moves for a title
 /// that fits, or one that would leave the meter no room.
 pub fn fit_meters(ui: &mut Ui, root: &str, prefix: &str) {
-    for side in [NOW, AFTER] {
-        let title = ui.find_tile(&format!("{}/CI_TitleText", health(root, prefix, side)));
-        let (Some(title), Some(m)) = (title, ui.find_tile(&meter(root, prefix, side))) else { continue };
+    fit_meters_of(ui, &CardTiles::repair(root, prefix));
+}
+
+/// [`fit_meters`] for the cards `tiles`.
+pub fn fit_meters_of(ui: &mut Ui, tiles: &CardTiles) {
+    for (health, _) in tiles.sides() {
+        let title = ui.find_tile(&format!("{health}/CI_TitleText"));
+        let (Some(title), Some(m)) = (title, ui.find_tile(&CardTiles::meter(health))) else { continue };
         let read = |t, name| ui.tile(t).get(name).map_or(0.0, Value::num);
         let start = read(title, "x") + read(title, "width") + METER_GAP;
         let (x, end) = (read(m, "x"), read(m, "x") + read(m, "width"));
@@ -138,9 +234,14 @@ pub fn fit_meters(ui: &mut Ui, root: &str, prefix: &str) {
 
 /// A line of the cards shown, for the log (smoke reads it).
 pub fn describe(ui: &Ui, root: &str, prefix: &str) -> String {
+    describe_of(ui, &CardTiles::repair(root, prefix))
+}
+
+/// [`describe`] for the cards `tiles`.
+pub fn describe_of(ui: &Ui, tiles: &CardTiles) -> String {
     let mut out = Vec::new();
-    for side in [NOW, AFTER] {
-        for (card, condition) in [(health(root, prefix, side), true), (stat(root, prefix, side), false)] {
+    for (health, stat) in tiles.sides() {
+        for (card, condition) in [(health, true), (stat, false)] {
             if ui.get_float(&format!("{card}/visible")).is_none_or(|v| v == 0.0) {
                 continue;
             }
@@ -153,8 +254,7 @@ pub fn describe(ui: &Ui, root: &str, prefix: &str) -> String {
             out.push(format!("{title} {value}").trim().to_string());
         }
     }
-    for gain in ["HealthImprovementText", "StatImprovementText"] {
-        let path = format!("{root}/{prefix}{gain}");
+    for path in [&tiles.health_gain, &tiles.stat_gain] {
         if ui.get_float(&format!("{path}/visible")).is_some_and(|v| v != 0.0) {
             out.push(ui.get_string(&format!("{path}/string")).unwrap_or_default());
         }
@@ -285,6 +385,26 @@ mod tests {
         assert_eq!((at(&ui, "x"), at(&ui, "width")), (73.0, 67.0));
         fit_meters(&mut ui, "M/R", "XX_");
         assert_eq!((at(&ui, "x"), at(&ui, "width")), (73.0, 67.0), "every frame's call changes nothing");
+    }
+
+    /// The general values: decimal, negative and worded figures as given, a gain with no condition
+    /// gain, and the repair words through `From<&Figures>` unchanged.
+    #[test]
+    fn card_values_show_any_words_and_the_repair_words_are_unchanged() {
+        let mut ui = fixture();
+        let tiles = CardTiles::repair("M/R", "XX_");
+        let side = |stat: &str| SideShown { condition: 0.5, stat: Some(stat.into()) };
+        let values = CardValues { condition_title: "State".into(), stat_title: "Spread".into(), now: side("0.90"), after: Some(side("0.40")), health_gain: None, stat_gain: Some("-0.50".into()) };
+        write_values(&mut ui, &tiles, Some(&values));
+        assert_eq!(describe_of(&ui, &tiles), "Own state 50%, Spread 0.90, State 50%, Spread 0.40, -0.50");
+        assert_eq!(number(&ui, "XX_HealthImprovementText/visible"), 0.0);
+        let words = CardValues { now: side(""), after: Some(side("Silent")), stat_gain: None, ..values };
+        write_values(&mut ui, &tiles, Some(&words));
+        assert_eq!(text(&ui, "XX_FixedItemStat/_Value"), "Silent");
+        assert_eq!(number(&ui, "XX_StatImprovementText/visible"), 0.0);
+        let repair = CardValues::from(&figures());
+        assert_eq!((repair.health_gain.as_deref(), repair.stat_gain.as_deref()), (Some("+50%"), Some("+5")));
+        assert_eq!(CardValues::from(&Figures { after: None, ..figures() }).health_gain, None);
     }
 
     #[test]

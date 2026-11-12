@@ -198,7 +198,9 @@ impl Plugin for FrameGenPlugin {
             .add_systems(RenderGraph, write_capture.after(RenderGraphSystems::Finish))
             // After `render_system`, whose screenshot copy draws into the stand-in after the
             // render graph.
-            .add_systems(Render, hand_to_presenter.in_set(RenderSystems::Render).after(render_system));
+            // Before NVIDIA low latency's present-end marker: handing the frame over stands for
+            // the render thread's present (nv_low_latency.rs).
+            .add_systems(Render, hand_to_presenter.in_set(RenderSystems::Render).after(render_system).before(crate::nv_low_latency::present_end));
     }
 
     fn finish(&self, app: &mut App) {
@@ -728,9 +730,12 @@ fn hand_to_presenter(
     queue: Res<RenderQueue>,
     stats: Res<Stats>,
     generated: Res<GeneratedFrames>,
+    latency: (Option<Res<crate::anti_lag::Presenting>>, Option<Res<crate::nv_low_latency::NvLowLatency>>),
     windows: Query<(Entity, MainEntity, &DeferredSwapchain, &SurfaceData)>,
 ) {
     let refresh = request.refresh_millihertz.filter(|m| *m > 0).map_or(std::time::Duration::ZERO, |m| std::time::Duration::from_secs_f64(1000.0 / f64::from(m)));
+    // NVIDIA low latency: the presenter's presents of this frame name it (nv_low_latency.rs).
+    let out_of_band = latency.0.and_then(|presenting| crate::nv_low_latency::OutOfBandPresents::of(&presenting, latency.1.as_deref()));
     // Those of windows without a stand-in this frame are dropped with it.
     let mut generated_frames = std::mem::take(&mut *pending.0.lock().unwrap());
     for (entity, main, deferred, surface) in &windows {
@@ -758,7 +763,7 @@ fn hand_to_presenter(
         };
         use crate::fg_presenter::Handed;
         let presenter = &mut presenters.running[at].1;
-        match if presenter.running() { presenter.send(frames, refresh) } else { Handed::Ended } {
+        match if presenter.running() { presenter.send(frames, refresh, out_of_band.clone()) } else { Handed::Ended } {
             Handed::Over => {}
             // Not shown: the presenter still has the frames before it to copy.
             Handed::Behind => {
@@ -787,12 +792,21 @@ fn presenter_failed(presenters: &mut Presenters, window: Entity, paired: bool, g
 
 /// `NVF_FG_PRESENTER=0`: present the window's image (the generated frame) from the render
 /// thread; Bevy's `prepare_windows` then takes the next.
-fn present_generated(pending: Res<PendingReal>, queue: Res<RenderQueue>, stats: Res<Stats>, mut windows: Query<(MainEntity, &mut ExtractedWindow)>) {
+fn present_generated(
+    pending: Res<PendingReal>,
+    queue: Res<RenderQueue>,
+    stats: Res<Stats>,
+    latency: (Option<Res<crate::anti_lag::Presenting>>, Option<Res<crate::nv_low_latency::NvLowLatency>>),
+    mut windows: Query<(MainEntity, &mut ExtractedWindow)>,
+) {
     let pending = pending.0.lock().unwrap();
+    // NVIDIA low latency: the generated frame's present belongs to this rendered frame too; the
+    // real frame's, from Bevy's `render_system`, is the frame's own (nv_low_latency.rs).
+    let out_of_band = latency.0.and_then(|presenting| crate::nv_low_latency::OutOfBandPresents::of(&presenting, latency.1.as_deref()));
     for (entity, mut window) in &mut windows {
         if pending.iter().any(|(w, _)| *w == entity) {
             let started = Instant::now();
-            window.present(&queue);
+            crate::nv_low_latency::OutOfBandPresents::around(out_of_band.as_ref(), || window.present(&queue));
             stats.generated_present_nanos.fetch_add(started.elapsed().as_nanos() as u64, Ordering::Relaxed);
             stats.presents.lock().unwrap().push(Instant::now());
         }

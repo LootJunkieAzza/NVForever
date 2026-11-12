@@ -176,6 +176,14 @@ original") [design]:
   "Back", "OK") stays what the use calls for even if it is the original's word. A longer
   label (a prompt, a sentence) is written fresh from what the menu needs. The menu files'
   comments are not copied into labels.
+- The two heading labels `sInventoryItems` ("ITEMS") and `sData` ("DATA") are in capitals:
+  every use of them is a heading (the Pip-Boy's ITEMS and DATA pages, the repair page, the
+  weapon mod menu, the container menu, the barter menu's all-items heading), and NVForever's
+  own hand-built Pip-Boy pages already write their headings so ("STATS", "ITEMS", "DATA",
+  `pipboy::Page::title`); a page drawn from its file then reads as the hand-built one beside
+  it. That is consistency with our own words, not a transcription of the original [design:
+  #2212]. The buttons and cards beside them (`sInventoryMod`, `sInventoryRepair`,
+  `sRepairItem`, `sRepairSkill` and the rest) keep their spelling.
 
 How NVForever answers `Source::game_string` (`fnv_ui::strings::GameStrings`, task T10)
 [design]:
@@ -308,7 +316,11 @@ docs/handoff/ui-tile-tree-tasks.md]: `x` `y` `width` `height` `depth` `alpha` `v
   as a raw value for later atlas resolution using interface.rs's existing `.tai` reader.
   [hypothesis] Missing `zoom` means 100 percent. [design] Explicit `zoom`, `tile`,
   `cropx` and `cropy` are passed as numbers without changing the box; absent tile/crop
-  inputs remain absent. Their effects on texture sampling await the renderer.
+  inputs remain absent. The renderer applies `cropx`/`cropy` to a picture drawn at its
+  texels' size times its zoom: the point of the zoomed picture put at the box's top left
+  [documented: GECK wiki "Tutorial: Understanding XML" and "Cropx", "applied after the
+  zoom trait"] (`tiles::draw::Piece::crop`); a stretched or repeated picture takes no crop
+  [design].
 - [design] Text `string` (empty if absent), numeric `font` (zero if absent) and optional
   `wrapwidth` go to a caller's measuring callback. Only absent width/height are replaced
   by the measured dimensions; explicit zero dimensions stay zero.
@@ -505,6 +517,67 @@ stands unchanged: every picture stretched, the shared atlas only.
   own `_NVFSequenceFraction` gives (hud.md §14.12, `tiles/model.rs`). [hypothesis] The
   model's origin stands at the tile's `x`, `y`, a model unit an interface unit; the
   tile's `width` and `height` do not scale it.
+
+### 3.1.4 Turned tiles: `rotateangle`, `rotateaxisx`, `rotateaxisy`
+
+What the traits mean, as read:
+
+- [documented: GECK wiki "Rotation UI directives", revision 39961] `rotateangle` turns a
+  tile by an angle in radians (its example: 1.570796, "Pi/2 rotation"); `rotateaxisx` and
+  `rotateaxisy` name the point turned about, "relative to X coordinate of an element" and
+  to its Y coordinate (its example: `width` / 2, "the X center of the element"); "Those
+  traits won't work if element has children".
+- [documented: `menus\main\map_menu.xml`] Only the map menu uses them, and only the axis
+  traits: the two player arrows (`MM_LocalMapCursor`, `MM_WorldMapCursor`) turn "about its
+  center" (`width` / 2, `height` / 2), and `PathLineTemplate`'s dotted line about its
+  "leftmost-center point" (0, `height` / 2). No file writes `rotateangle`: the original's
+  code writes it (the arrows by the player's heading, the lines by their direction
+  [hypothesis: by what they show]). No file turns a text, a rect or a tile with children;
+  none of the turned tiles has `target`.
+- [hypothesis] A positive angle turns clockwise on the screen (the view's y runs down):
+  the wiki gives no sense, and a heading runs clockwise from north. Without the axis
+  traits the point is the tile's top left (0, 0).
+
+What the code does (`nvf-play/src/tiles/layout.rs` `Turn`, `tiles/draw.rs` `turned`):
+
+- [design] Layout keeps the tile's unturned box and adds its turn (angle, and the point
+  from the box's top left in interface units) to its item; none at angle 0 or an angle that
+  is not a number, so an unturned tile behaves as before (no transform, rounded as before); none for a tile with
+  live children (the wiki's rule), and a turn never passes to children.
+- [design] A box's or a picture's piece is drawn turned (its outer node takes a Bevy
+  `UiTransform`: the rotation, and the move that puts the turn about the point instead of
+  the node's middle, `Turn::shift`); a piece only turned further is turned in place, its
+  nodes kept. A turned node and its clip wrapper are laid out unrounded (Bevy's
+  `LayoutConfig`), as the shift is worked out from the box's unrounded size and place and
+  Bevy turns about the middle of the size it lays out; unturned nodes are rounded as
+  before. The clips above it (`clips`, a turned-on `clipwindow`) stay unturned boxes
+  and cut the turned quad on the screen (Bevy clips a transformed node by its clip
+  rectangles). A `tile` picture is turned whole, its repeats with it.
+- [design] Texts, models and the compass strip are not turned (no file turns one).
+- [design] The pointer is tested against a turned tile's unturned box (`fnv_ui::input`),
+  as no turned tile in the files takes the pointer.
+
+### 3.1.5 Pictures the code sets: runtime images
+
+[documented: `menus\main\map_menu.xml`] Some images have no picture in their file and are
+given one by the original's code (the Local Map's `MM_LocalMap_ParentImage`; pipboy.md
+§5.3.1). NVForever's code makes such pictures itself (the Local Map's outline,
+`nvf-play/src/pipboy/data/outline.rs`). What the code does (`nvf-play/src/tiles/runtime_images.rs`):
+
+- [design] A `filename` that starts with `nvf:` (any case) names a picture the code made,
+  kept in the `RuntimeImages` resource by name with its texture, its size in texels and a
+  revision. No game path starts so (the menu files name pictures under `textures\` by
+  relative paths; in Windows paths a colon only follows a drive letter). It is looked up
+  before the atlas indexes and the files, and never enters the file-name cache.
+- [design] Each `RuntimeImages::set` or `touch` is a new revision. The renderer stamps the
+  picture's piece with its entry's revision and size before comparing the frame's pieces
+  with the last ones, so a new texture, the same texture changed, an entry set late,
+  removed or resized repaints the piece under the same name.
+- [design] It fills its box as any picture by `zoom` and `tile` (§3.1.3; `zoom` -1
+  stretches it over the box). Its `tile` repeats are drawn by Bevy's tiles, not baked
+  into one image (the baking reads files); SetUITexOffset and SetUIAlphaMap are not
+  applied to it (they read files); each said once in the log. A name with no entry draws
+  nothing and says so once.
 
 ### 3.2 The pointer and keys (T8)
 
@@ -1038,3 +1111,113 @@ read.
   chain while the start menu is open and runs a compiled `MenuMode 1013` quest script
   written in FOV Slider's way, checking the traits it sets. The files and the script are
   written for the test; no mod data is used.
+
+### 10.1 The pause column MCM waits for (observer check 73, 2026-11-12)
+
+Measured in the original with nvf_capture (job `mcm976*`, save `nvftest`, load order with
+MCM 1.5 and Just Assorted Mods active, window 1280 x 720), with the pause menu open
+(`GetActiveMenuMode` 1013, `MenuMode 1013` true) [observed 2026-11-12]:
+
+- `StartMenu/NOGLOW_BRANCH/main_container`: `childcount` 8, `x` 1301.67, `y` 336,
+  `width` 375, `height` 288, `_alpha` 255, `_enabled` 1. `StartMenu/_isPauseMenu` reads 0
+  (so it is not the pause menu's mark; MCM tests it only against DarN's start menu).
+  `StartMenu/MCM/visible` 1, `StartMenu/MCM/_MCM` 1.5.
+- Of these the file sets `x`, `y` (from `parent()`'s size), `width` (375) and `height`
+  (`_number_of_visible_items` times `_item_height` 48: 288 is 6 rows); the code writes
+  `childcount`, `_alpha` and `_enabled` (the file leaves `_alpha` empty and `_enabled`
+  false) [observed: start_menu.xml; the values above].
+- MCM's `MenuMode 1013` script shows its trigger only while that `childcount` is 8 and
+  places it from `main_container`'s `x`, `y`, `width`, `_alpha` and `_enabled` and
+  `StartMenu/_item_height` [observed: MCM's script source in its plugin (SCTX)].
+- **What the player sees** [observed: the owner's screenshots of the original, 2026-11-12,
+  1280 x 720]: "Mod Configuration" stands as the first row of the pause column, above
+  Continue, Save, Load, Settings, Help, Quit. Chosen, it opens MCM's window left of the
+  column (the column stays, dimmed, with "Mod Configuration" lit): the mod list on the
+  left (one row per mod, Just Assorted Mods as "Just Mods"; a mod with sub-menus shows them
+  indented under it once chosen), the chosen page's title in the top bracket, its
+  options in two columns of label and value (check boxes, words, numbers), arrows at the
+  foot of each list, an info box under the window for the option under the pointer, and
+  Defaults and Back at the bottom right of the screen. With no mod chosen the window
+  shows MCM's logo, its version (v1.50) at the top right and "Select a mod to configure
+  from the list on the left." in the info box (MCM's own text, from its files).
+- **The column's rows** [observed, the same run]: `main_container`'s children are the
+  file's `lb_highlight_box` and `lb_scrollbar` and six copies of the file's
+  `lb_item_template` (`lb_item_hotrect`, `string` Continue, Save, Load, Settings, Help and
+  Quit in the original's words, `listindex` 0-5, `y` 0 to 240 in steps of 48, `height` 48,
+  `width` 370, `target` 1, `_enabled` 1): 8 children. `GetUIFloat` with `*:N` under it
+  read `*:1` the highlight box, `*:2` the scroll bar, `*:3`-`*:7` the rows Continue to
+  Help, `*:0` the last row (Quit) and `*:8` nothing; `lb_item_hotrect` read Quit and
+  `lb_item_hotrect:1` Continue.
+- **MCM's trigger in the original** [observed]: once placed, `MCM_Trigger` has `x` 1301.67
+  (the column's), `y` 288 (the column's less `_item_height` 48), `width` 370, `height` 48,
+  `_alpha` 255, `_enabled` 1, and its text "Mod Configuration". `SetUIFloat` of its
+  `_clicked` to 1 opened MCM's window (MCM's `_Menu` 1, `_Reset` 1, the mod list's
+  `_visible` 1 and `_count` 2, Mod1 "Just Mods" with `_modIndex` 12, Just Assorted Mods'
+  load index).
+- **MCM's quests in the original** [observed 2026-11-12, jobs mcm976q, mcm976r, mcm976s,
+  save nvftest]: right after the load MCM's quest runs and its mod list (`MCMMods`)
+  already holds Just Assorted Mods' item (count 1), so the mod added it before the save
+  loaded, under the main menu (its `MenuMode 1013` block adds it after half a second).
+  `MCMModList` does not run in play nor under the pause menu; two frames after MCM's
+  trigger was clicked it runs, the list's `_count` is 2 and Mod1 reads "Just Mods"
+  (MCM's stage 0 starts it). ResetQuest from a job script stopped a running `MCMList`
+  and left the stopped `MCMList` and `MCMModList` stopped (as o41, layer5-captures.md
+  §5.7).
+- **NVForever** (`nvf-play` `tiles::mods`, `script`) [design unless marked]:
+  - when the Mods page opens it writes the column's code traits (`childcount` 8,
+    `_alpha` 255, `_enabled` 1), StartMenu's `alpha` 255 (its fade-in done, as the VATS
+    menu's) and one code `lb_item_hotrect` row (MCM reads only its `target`), then holds
+    MCM's trigger clicked until MCM's window opens and lets go in that frame (a click
+    held into the next frame closes MCM again, by MCM's script); MCM's window closing
+    (`_Menu` 0) closes the page;
+  - when a game starts, the start menu's `MenuMode 1013` blocks run for a second
+    (`Game::came_through_start_menu`), standing for the main menu the player came
+    through, where MCM mods add themselves [hypothesis from the observations above]; no
+    shipped script has such a block;
+  - GetSecondsPassed in a block run under the page counts the page's own clock
+    (`Game::page_time`), so a mod's MenuMode timer runs there [hypothesis: Just Assorted
+    Mods' does in the original];
+  - the page lays MCM's tiles out by the `locus` rule (a tile's `x`, `y` count from the
+    nearest tile above with `locus` on) [documented: GetUIFloatInherited], measures the
+    start menu's texts as the code does (`MCM_ModList_Size`, 31 high; "Just Mods" 117
+    wide, both as in the original), and writes `screen()` in interface units while it is
+    up (MCM centres its window by it: `x` 353.33 on a 16:9 view in the original);
+  - MCM's trigger is not drawn (NVForever's column and its Mods entry stand for that
+    row) and the pause menu's own Back is not drawn while MCM's window, which has its
+    own Back and Defaults, is open.
+  - Open: the list's `_count` read 1 here where the original's read 2 with the same
+    mod; the main menu's column.
+
+### 10.2 MCM.dll's list functions (2026-11-12)
+
+No page or source describes them; their call shapes are MCM 1.5's own scripts (its
+plugin's source text), their effects measured in the original with job `mcm976e`
+(pause menu open, MCM's window open), each call read before and after in one script
+[observed 2026-11-12]. Child numbers count MCM's children from 1 in file order (§10):
+1 `MCM_Options`, 3 `MCM_List`, 5 `MCM_ModList`.
+
+- **SetMCMFloatMass child first last setting value**: sets `setting` on child `child`'s
+  children `first` to `last`, both included, counted from 1. `3 1 2 "alpha" 77`: Item1
+  and Item2 0 to 77, Item3 and MCM_List unchanged. `3 0 1 "alpha" 66`: Item1 only.
+  `3 3 2 "alpha" 55`: nothing. `1 1 2 "image/depth" 21`: each row's `image` child (a
+  path below the row works). A trait that is not there is not made (`"_nvfm"` stayed
+  missing). MCM's own `5 24 33 "_enable" 0` reaches SubMenu1-SubMenu10, MCM_ModList's 24th
+  to 33rd children (after Mod1-Mod23). One reading differs: `1 36 37 "depth" 33` set
+  Option36 but not ArrowUp, MCM_Options' 37th child in the file; why is open (observer
+  check 118).
+- **SetMCMStringMass child first last setting "format" values…**: the same for text, the
+  format filled as SetMCMString's: `3 1 2 "text/string" "nvf"` set Item1 and Item2, not
+  Item3; `"a%gb" 5` gave "a5b"; a missing trait was not made.
+- **SetMCMModList row enable modIndex value form**: MCM_ModList's row `row` (Mod`row`)
+  gets the form's name as its `text/string`, `enable` as `_enable`, `modIndex` as
+  `_modIndex` and `value` as `_modIndex2`; nothing else of the row changed.
+  `22 1 6 5 caps`: "Bottle Cap", 1, 6, 5; `22 2 7 9`: 2, 7, 9 (still Mod22); `21 0 0 0`:
+  the name and zeros. `3 2 7 9` left SubMenu3 as it was. MCM calls it with the row, 1,
+  the mod's load index and its form's value.
+- **GetMCMListWidth list row**: the `width` of a mod-list row's text: list 1 Mod`row`
+  (`1 1` 117, Mod1's "Just Mods"; 14 for an empty row), list 2 SubMenu`row` (`2 1` 14,
+  empty); `1 0` and `3 1` give 0. Read in the frame a string was set, it gave the width
+  before (the text's own `width` too, so it reads that trait, re-measured later).
+- Built in `fnv_game::ui_functions` (names in `schemas/script/functions.json` from
+  `tools/capture/script_functions.py`'s `PAGELESS`); the setting of every MCM shorthand
+  may be a path below the tile (`"ArrowUp/y"`, `"/visible"`, as MCM's scripts pass).

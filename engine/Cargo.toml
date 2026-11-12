@@ -61,3 +61,4 @@ opt-level = 3
 gpu-allocator = { path = "vendor/gpu-allocator" }
 bevy_pbr = { path = "vendor/bevy_pbr" }
 bevy_render = { path = "vendor/bevy_render" }
+wgpu-hal = { path = "vendor/wgpu-hal" }

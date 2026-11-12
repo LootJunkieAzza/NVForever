@@ -446,6 +446,71 @@ fn an_actor_walks_up_to_a_player_who_enters_its_trigger_box_and_greets() {
     assert_eq!(s.events().len(), 4, "{:?}", s.events());
 }
 
+/// A pistol (WEAP animation type 3, Pistol - Ballistic [documented: xEdit
+/// wbWeaponAnimTypeEnum]) for the drawn walk (#2124, `fnv_ai::carry::drawn_walk_share`).
+const PISTOL: u32 = 0xA00;
+
+fn with_pistol(mut f: Fixture) -> Fixture {
+    use fnv_sim::forms::{ArmorClass, BaseData, BaseForm, Item, ItemKind};
+    let it = Item {
+        kind: ItemKind::Weapon,
+        value: Some(1),
+        money: None,
+        weight: Some(1.0),
+        slots: None,
+        projectile: None,
+        health: Some(100),
+        non_playable: false,
+        cant_drop: false,
+        armor_class: ArmorClass::Light,
+        power_armor: false,
+        armor_dr: None,
+        armor_dt: None,
+        weapon_damage: Some(10.0),
+        weight_mods: [0.0; 3],
+        drawable: true,
+        not_for_npcs: false,
+        thrown: false,
+        quest_item: false,
+        icon: None,
+        placed_count: None,
+        teaches: None,
+        cant_be_taken: false,
+        modulates_voice: false,
+        weapon_traits: None,
+    };
+    let id = FormId(PISTOL);
+    f.forms.sigs.insert(id, *b"WEAP");
+    f.forms.bases.insert(id, BaseForm { id, sig: *b"WEAP", edid: None, name: None, script: None, prompt: None, voice_filter: false, data: BaseData::Item(it) });
+    f.data.weapon_anim_types.insert(id, 3);
+    f
+}
+
+/// A Dialogue package's walk to the player takes the drawn walk while the actor's pistol
+/// is out and gives it back when it is put away, the player standing (no new way).
+#[test]
+fn a_dialogue_approach_follows_the_pistol_drawn_and_put_away() {
+    let f = with_pistol(fixture());
+    let mut s = sim(&f, R_GREET, [600.0, 300.0, 0.0]);
+    let me = FormId(R_GREET);
+    s.game.world.add_item(me, FormId(PISTOL), 1).unwrap();
+    s.game.world.outfit(me).unwrap();
+    s.game.world.equip(me, FormId(PISTOL)).unwrap();
+    s.game.hud.forced_out.insert(me);
+    s.run(0.25);
+    assert!(matches!(s.events()[1], AiEvent::Approach { running: false, .. }), "{:?}", s.events());
+    let speed = |s: &Sim| s.agent(R_GREET).walker.speed;
+    assert!((speed(&s) - 100.0 / 1.1).abs() < 1e-3, "{}", speed(&s));
+    s.game.hud.forced_out.remove(&me);
+    s.run(0.25);
+    assert_eq!(s.agent(R_GREET).activity, Activity::Travelling);
+    assert!((speed(&s) - 100.0).abs() < 1e-3, "{}", speed(&s));
+    s.game.hud.forced_out.insert(me);
+    s.run(0.25);
+    assert!((speed(&s) - 100.0 / 1.1).abs() < 1e-3, "{}", speed(&s));
+    assert_eq!(s.events().iter().filter(|e| matches!(e, AiEvent::Approach { .. })).count(), 1, "one way, not planned again");
+}
+
 /// ResetAI on an actor whose Dialogue package has talked and is chosen again (#2119):
 /// the package starts over, so it greets once more and is then done again; ResetAI does
 /// not make it greet over and over by itself [design: ResetAI takes the package up

@@ -140,8 +140,9 @@ Limits and notes:
   78 fps), as before within 0.1 ms. The generated frame is presented when the presenter sees the
   GPU finish the frame (polled about every 0.5 ms), where the driver showed it before: about
   0.3-0.5 ms later at the same frame rate, and much earlier where the old path fell below the
-  cap. Latency reduction is turned on to offset it where the driver has it (AMD). NVIDIA's
-  `VK_NV_low_latency2` is not used (needs swapchain hooks wgpu lacks).
+  cap. Latency reduction is turned on to offset it where the driver has it: AMD Anti-Lag, or
+  NVIDIA low latency, whose markers map both presents to the rendered frame
+  ([latency-reduction](latency-reduction.md), "Frame generation").
 - **Catching up**: at the cap two paced presents take nearly a whole real frame, so a backlog
   (a late frame followed by an early one) drained by only about 0.2 ms a frame, and frames
   waited in the presenter for up to another frame [observed 2026-11-09, 4K, 78 real fps: the
