@@ -7,7 +7,9 @@
 //! As in the header, `wintrust.dll` and `crypt32.dll` are loaded from System32 and their
 //! functions looked up at run time (`sl_security.h:146-164, 346-354`), so the program's import
 //! table is unchanged and nothing is loaded unless the spike runs. Differences from the header
-//! [design]: handles are closed on every path (guards), where the header's early returns leak
+//! [design]: the secondary signature (index 1) is verified against the file by `WinVerifyTrust`
+//! too, where the header only compares its signer's public key (see
+//! [`verify_embedded_signature`]); handles are closed on every path (guards), where the header's early returns leak
 //! some (`:178-192, 238-242`); the signer-info buffers are `Vec`s, not `LocalAlloc`; a nested
 //! signature attribute without a value is treated as no signature instead of read.
 //!
@@ -108,16 +110,88 @@ fn system_library(name: &str) -> Option<HMODULE> {
     (!module.is_null()).then_some(module)
 }
 
-/// `verifyEmbeddedSignature` (`sl_security.h:331-459`): the file's Authenticode signature
-/// verified by Windows (`WINTRUST_ACTION_GENERIC_VERIFY_V2`, no revocation check, the current
-/// OS strong-signature policy), exactly one secondary signature, and that one by Streamline's
-/// NVIDIA key. `path` must be a full path (`:328-330`).
+/// `verifyEmbeddedSignature` (`sl_security.h:331-459`), with one check the header lacks: the
+/// file's primary Authenticode signature (index 0) verified by Windows
+/// (`WINTRUST_ACTION_GENERIC_VERIFY_V2`, no revocation check, the current OS strong-signature
+/// policy), exactly one secondary signature, that secondary signature (index 1) verified by
+/// Windows against the file too, and its signer's key Streamline's NVIDIA key. A file passes only
+/// when all four hold. `path` must be a full path (`:328-330`).
+///
+/// The header verifies only index 0 and then compares the nested signer's public key
+/// (`:407-456`); the key comparison alone does not show that the nested signature signs this
+/// file [design, from the stage-1 review], so index 1 goes through `WinVerifyTrust` as well.
 pub fn verify_embedded_signature(path: &Path) -> Result<(), String> {
     let path_w = wide(path.as_os_str());
     let wintrust = system_library("wintrust.dll").ok_or("wintrust.dll did not load")?;
     // SAFETY: windows-sys's signature of `WinVerifyTrust`.
     let verify: WinVerifyTrust = unsafe { get_proc(wintrust, c"WinVerifyTrust") }.ok_or("wintrust.dll has no WinVerifyTrust")?;
 
+    // 1. The primary signature, also counting the secondary ones (`sl_security.h:407-426`).
+    let primary = verify_signature(verify, &path_w, 0, WSS_GET_SECONDARY_SIG_COUNT | WSS_VERIFY_SPECIFIC);
+    if primary.status != 0 {
+        return Err(format!("Windows did not verify its primary signature, index 0 (WinVerifyTrust 0x{:08x})", primary.status as u32));
+    }
+    // 2. Exactly one secondary signature (`:433-438`).
+    if primary.secondary_sigs != 1 {
+        return Err(format!("{} secondary signatures where Streamline wants exactly 1 (NVIDIA's)", primary.secondary_sigs));
+    }
+    // 3. That secondary signature verified against the file. `dwVerifiedSigIndex` is "the index
+    // used for verification ... set on return" [documented: WINTRUST_SIGNATURE_SETTINGS, see
+    // `verify_signature`], so anything but 1 means Windows checked some other signature.
+    let secondary = verify_signature(verify, &path_w, 1, WSS_VERIFY_SPECIFIC);
+    if secondary.status != 0 {
+        return Err(format!("Windows did not verify its secondary signature, index 1 (WinVerifyTrust 0x{:08x})", secondary.status as u32));
+    }
+    if secondary.verified_index != 1 {
+        return Err(format!("Windows reported verifying signature index {} when index 1 was asked for", secondary.verified_index));
+    }
+    // 4. The secondary signature's signer is Streamline's NVIDIA key (`:441-442`).
+    if !is_signed_by_nvidia(&path_w) {
+        return Err("its secondary signature is not by Streamline's NVIDIA key".to_string());
+    }
+    Ok(())
+}
+
+/// What one [`verify_signature`] pass returned.
+struct SignatureCheck {
+    /// `WinVerifyTrust`'s result for the VERIFY call; 0 (`ERROR_SUCCESS`) when trusted.
+    status: i32,
+    /// `cSecondarySigs`, meaningful only when `WSS_GET_SECONDARY_SIG_COUNT` was set.
+    secondary_sigs: u32,
+    /// `dwVerifiedSigIndex`.
+    verified_index: u32,
+}
+
+/// One `WinVerifyTrust` pass over the file's embedded signature number `index`: a VERIFY call,
+/// then always a CLOSE call on the same structure, so every pass releases its own state.
+///
+/// Field meanings [documented: Microsoft Learn, "WINTRUST_SIGNATURE_SETTINGS structure
+/// (wintrust.h)" and "WINTRUST_DATA structure (wintrust.h)", read 2026-11-12; declarations as
+/// windows-sys 0.61.2 has them, `Win32/Security/WinTrust/mod.rs:775-789, 856-863, 960, 969,
+/// 1085, 1087`]:
+/// - `dwIndex`: "the index of the signature to be validated if the dwFlags member is set to
+///   WSS_VERIFY_SPECIFIC"; `WSS_VERIFY_SPECIFIC` (1): "set this value if you set the dwIndex
+///   parameter".
+/// - `WSS_GET_SECONDARY_SIG_COUNT` (2): return the number of secondary signatures found in
+///   `cSecondarySigs`.
+/// - `dwVerifiedSigIndex`: "the index used for verification ... set on return from Wintrust".
+/// - `pCryptoPolicy`: the `CERT_STRONG_SIGN_PARA` policy "a signature must pass to be considered
+///   valid".
+/// - `WTD_STATEACTION_VERIFY` (1): verify the object; `hWVTStateData` receives a state handle that
+///   "must be freed by specifying the WTD_STATEACTION_CLOSE action in a subsequent call";
+///   `WTD_STATEACTION_CLOSE` (2) "must be specified for every use of the WTD_STATEACTION_VERIFY
+///   action".
+/// - `pSignatureSettings` is honoured from "Windows 7 with KB3033929, Windows 8, and Windows
+///   Server 2012".
+///
+/// [hypothesis] Not confirmed by the documentation: that index 1 names the same nested signature
+/// `is_signed_by_nvidia` reads (the first value of the file signer's nested-signature attribute)
+/// when Windows counts exactly one secondary signature; that the CLOSE call is needed even when
+/// VERIFY failed (made here, as the header does, `sl_security.h:454-456`); and that NVIDIA's
+/// secondary signature chains to a root Windows trusts and meets the same strong-signature policy
+/// as the primary. If the last does not hold, the genuine bundle fails check 3 and the log says
+/// so with the `WinVerifyTrust` value.
+fn verify_signature(verify: WinVerifyTrust, path_w: &[u16], index: u32, flags: u32) -> SignatureCheck {
     let mut file = WINTRUST_FILE_INFO {
         cbStruct: size_of::<WINTRUST_FILE_INFO>() as u32,
         pcwszFilePath: path_w.as_ptr(),
@@ -131,8 +205,8 @@ pub fn verify_embedded_signature(path: &Path) -> Result<(), String> {
     };
     let mut settings = WINTRUST_SIGNATURE_SETTINGS {
         cbStruct: size_of::<WINTRUST_SIGNATURE_SETTINGS>() as u32,
-        dwIndex: 0,
-        dwFlags: WSS_GET_SECONDARY_SIG_COUNT | WSS_VERIFY_SPECIFIC,
+        dwIndex: index,
+        dwFlags: flags,
         pCryptoPolicy: &mut policy,
         ..Default::default()
     };
@@ -149,25 +223,14 @@ pub fn verify_embedded_signature(path: &Path) -> Result<(), String> {
     let mut action = WINTRUST_ACTION_GENERIC_VERIFY_V2;
     // SAFETY: every pointer in `data` points at a local that outlives both calls.
     let status = unsafe { verify(std::ptr::null_mut(), &mut action, std::ptr::from_mut(&mut data).cast()) };
-    let verdict = if status != 0 {
-        Err(format!("Windows did not verify its signature (WinVerifyTrust 0x{:08x})", status as u32))
-    } else {
-        // Read through the pointer Windows wrote through (`sl_security.h:436`).
-        // SAFETY: `pSignatureSettings` still points at `settings`.
-        let secondary = unsafe { (*data.pSignatureSettings).cSecondarySigs };
-        if secondary != 1 {
-            Err(format!("{secondary} secondary signatures where Streamline wants exactly 1 (NVIDIA's)"))
-        } else if !is_signed_by_nvidia(&path_w) {
-            Err("its secondary signature is not by Streamline's NVIDIA key".to_string())
-        } else {
-            Ok(())
-        }
-    };
-    // Any state must be released by a call with CLOSE (`sl_security.h:452-456`).
+    // Read through the pointer Windows wrote through (`sl_security.h:434`).
+    // SAFETY: `pSignatureSettings` still points at `settings`.
+    let (secondary_sigs, verified_index) = unsafe { ((*data.pSignatureSettings).cSecondarySigs, (*data.pSignatureSettings).dwVerifiedSigIndex) };
+    // Any state must be released by a call with CLOSE (`sl_security.h:454-456`).
     data.dwStateAction = WTD_STATEACTION_CLOSE;
     // SAFETY: as above.
     unsafe { verify(std::ptr::null_mut(), &mut action, std::ptr::from_mut(&mut data).cast()) };
-    verdict
+    SignatureCheck { status, secondary_sigs, verified_index }
 }
 
 /// crypt32's functions used by [`is_signed_by_nvidia`] (`sl_security.h:150-162`).

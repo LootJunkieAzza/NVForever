@@ -141,7 +141,13 @@ pub(super) fn start(app: &mut App) {
         note(Level::INFO, "inactive: the interposer's signature did not verify; the stock Vulkan path");
         return;
     }
-    note(Level::INFO, format!("signature: {} verified (Windows' Authenticode check, then Streamline's NVIDIA secondary signature)", FILES[0]));
+    note(
+        Level::INFO,
+        format!(
+            "signature: {} verified (Windows' Authenticode check of the primary signature, index 0; exactly one secondary signature; Windows' check of that secondary signature, index 1; Streamline's NVIDIA key on it)",
+            FILES[0]
+        ),
+    );
     let Some(api) = load(&interposer) else { return };
 
     let folder_w = wide(folder.as_os_str());
@@ -318,14 +324,44 @@ pub(super) fn shutdown() {
             // 2. slShutdown while the Vulkan device and instance are alive (held here).
             // SAFETY: after slInit; the device Streamline stored is still alive.
             let down = unsafe { (spike.api.shutdown)() };
-            note(Level::INFO, format!("shutdown: GPU drained (poll {polled:?}, vkDeviceWaitIdle {idle:?}), then slShutdown {}", down.name()));
+            // Each headline only when its calls succeeded; a failure is named with its value.
+            let poll_ok = matches!(&polled, Ok(status) if status.wait_finished());
+            let idle_ok = matches!(idle, Some(Ok(())));
+            if poll_ok && idle_ok {
+                note(Level::INFO, format!("shutdown: GPU drained (poll {polled:?}, vkDeviceWaitIdle {idle:?})"));
+            } else {
+                if !poll_ok {
+                    note(Level::WARN, format!("shutdown: GPU drain failed: wgpu poll (wait indefinitely) returned {polled:?}"));
+                }
+                match idle {
+                    Some(Ok(())) => {}
+                    Some(Err(error)) => note(Level::WARN, format!("shutdown: GPU drain failed: vkDeviceWaitIdle returned {error:?} ({})", error.as_raw())),
+                    None => note(Level::WARN, "shutdown: GPU drain failed: vkDeviceWaitIdle not called, the device is not a Vulkan device"),
+                }
+            }
+            if down.is_ok() {
+                note(Level::INFO, format!("shutdown: slShutdown {}", down.name()));
+            } else {
+                note(Level::WARN, format!("shutdown: slShutdown failed: {} ({})", down.name(), down.0));
+            }
             // 3. Then the Vulkan objects: the spike's handles were the last ones.
             let Held { queue, device, adapter, instance } = held;
             drop(queue);
             drop(device);
             drop(adapter);
             drop(instance);
-            note(Level::INFO, "shutdown done: Streamline down before the Vulkan device and instance were released; the interposer stays loaded");
+            if down.is_ok() && poll_ok && idle_ok {
+                note(Level::INFO, "shutdown done: Streamline down before the Vulkan device and instance were released; the interposer stays loaded");
+            } else {
+                note(
+                    Level::WARN,
+                    format!(
+                        "shutdown finished with failures (GPU drain {}, slShutdown {}); the Vulkan device and instance were released after slShutdown returned; the interposer stays loaded",
+                        if poll_ok && idle_ok { "ok" } else { "failed" },
+                        down.name()
+                    ),
+                );
+            }
         }
         Phase::InstanceUp => note(
             Level::WARN,
@@ -334,7 +370,11 @@ pub(super) fn shutdown() {
         Phase::Initialised => {
             // SAFETY: no Vulkan object was made through Streamline.
             let down = unsafe { (spike.api.shutdown)() };
-            note(Level::INFO, format!("shutdown done: slShutdown {} (no Vulkan object was made through Streamline)", down.name()));
+            if down.is_ok() {
+                note(Level::INFO, format!("shutdown done: slShutdown {} (no Vulkan object was made through Streamline)", down.name()));
+            } else {
+                note(Level::WARN, format!("shutdown: slShutdown failed: {} ({}) (no Vulkan object was made through Streamline)", down.name(), down.0));
+            }
         }
         Phase::Down => {}
     }
