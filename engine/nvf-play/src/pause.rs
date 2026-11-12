@@ -146,11 +146,12 @@
 //! **Quit** asks first [observed: the original's question and its choices]: Main Menu
 //! (nvforever starts again with `--menu`, [`MainMenuRequest`]), Exit Game, Cancel.
 //!
-//! **Mods** (issue #976, T11; `crate::tiles::mods`): with `[UI] TileMenus=StartMenu` and a
-//! mod's tiles in the start menu (MCM's include), a Mods entry stands before Quit
-//! ([`ModsEntry`]). Its page draws the mod's tiles from the tree over this menu, gives them
-//! the pointer and keys, and runs the start menu's MenuMode scripts each frame; Esc,
-//! Backspace or Back go back to the column [design: owner-review.md #34]. Off by default.
+//! **Mods** (issue #976, T11; `crate::tiles::mods`): with a mod's tiles in the start menu
+//! (MCM's include), a Mods entry stands before Quit ([`ModsEntry`]). Its page draws the
+//! mod's tiles from the tree over this menu, gives them the pointer and keys, and runs the
+//! start menu's MenuMode scripts each frame; MCM's window opens with it. Esc, Backspace,
+//! Back or MCM's own Back go back to the column [design: owner-review.md #34]. On by
+//! default; `[UI] TileMenus=-StartMenu` turns it off.
 //!
 //! **What a menu holds** (docs/design/dialogue.md §8, Pausing). Every menu holds game
 //! logic by its own means (`PlayState`, the runtime's menu mode). Whether the picture
@@ -524,11 +525,10 @@ impl Page {
 #[derive(Resource, Default, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Listening(pub Option<(crate::bindings::Control, crate::bindings::InputDevice)>);
 
-/// Whether the column has a Mods entry this frame: with `[UI] TileMenus=StartMenu` on, a
-/// mod added tiles to `StartMenu` (MCM's include) [design: owner-review.md #34, "a Mods
-/// entry appears only when a mod added one"; ui-tile-tree.md §7]. Written by
-/// `crate::tiles` each frame; off by default, as the page shows only what the mod's own
-/// scripts draw (docs/handoff/ui-tile-tree-tasks.md, T11).
+/// Whether the column has a Mods entry this frame: with the start menu's switch on (the
+/// default, `crate::tiles::vanilla::TileMenus::for_run`), a mod added tiles to `StartMenu`
+/// (MCM's include) [design: owner-review.md #34, "a Mods entry appears only when a mod
+/// added one"; ui-tile-tree.md §7]. Written by `crate::tiles` each frame.
 #[derive(Resource, Default, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ModsEntry(pub bool);
 
@@ -1196,6 +1196,7 @@ impl Plugin for PausePlugin {
             .init_resource::<PauseInputAid>()
             .init_resource::<crate::bindings::KeyboardCapture>()
             .init_resource::<ModsEntry>()
+            .init_resource::<crate::tiles::mods::ModsPage>()
             .add_message::<MainMenuRequest>()
             .init_resource::<MenuPause>()
             .init_resource::<PlayClock>()
@@ -2525,7 +2526,7 @@ fn choose(
     mut commands: Commands,
     mut sounds: MessageWriter<crate::ui_sounds::UiSound>,
     mut menu: SaveMenu,
-    (mut request, main_menu, intro, mut to_main, mouse, typed_in, mut input_aid): (
+    (mut request, main_menu, intro, mut to_main, mouse, typed_in, mut input_aid, mut mods_page): (
         ResMut<PageRequest>,
         Option<Res<crate::main_menu::MainMenu>>,
         Option<Res<crate::intro::Intro>>,
@@ -2533,6 +2534,7 @@ fn choose(
         Res<ButtonInput<MouseButton>>,
         Option<Res<SearchKeys>>,
         Option<ResMut<PauseInputAid>>,
+        Option<ResMut<crate::tiles::mods::ModsPage>>,
     ),
     (bindings, pads, sticks, pending, mods, mut listening, mut layout, colours): (
         Option<Res<crate::bindings::Bindings>>,
@@ -3206,6 +3208,9 @@ fn choose(
                 }
                 Some(Entry::Mods) => {
                     info!("pause menu: mods page");
+                    if let Some(m) = mods_page.as_deref_mut() {
+                        *m = Default::default();
+                    }
                     *page = Page::Mods;
                 }
                 Some(Entry::Continue) if !resume.pending() => {
@@ -3475,8 +3480,10 @@ fn choose(
         }
         // The mod's page takes the pointer and the keys through its tiles
         // (`crate::tiles::input`); Esc, Backspace or Back go back to the column.
+        // MCM's window closing itself (its Back) closes the page too (`crate::tiles::mods`).
         Page::Mods => {
-            if keys.any_just_pressed([KeyCode::Escape, KeyCode::Backspace]) || clicked == Some(PauseButton::Back) || act("back") {
+            let by_mod = mods_page.as_deref().is_some_and(|m| m.closed);
+            if by_mod || keys.any_just_pressed([KeyCode::Escape, KeyCode::Backspace]) || clicked == Some(PauseButton::Back) || act("back") {
                 info!("pause menu: mods page closed");
                 *page = Page::Main;
             }

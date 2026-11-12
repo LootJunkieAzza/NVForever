@@ -1038,3 +1038,84 @@ read.
   chain while the start menu is open and runs a compiled `MenuMode 1013` quest script
   written in FOV Slider's way, checking the traits it sets. The files and the script are
   written for the test; no mod data is used.
+
+### 10.1 The pause column MCM waits for (observer check 73, 2026-11-12)
+
+Measured in the original with nvf_capture (job `mcm976*`, save `nvftest`, load order with
+MCM 1.5 and Just Assorted Mods active, window 1280 x 720), with the pause menu open
+(`GetActiveMenuMode` 1013, `MenuMode 1013` true) [observed 2026-11-12]:
+
+- `StartMenu/NOGLOW_BRANCH/main_container`: `childcount` 8, `x` 1301.67, `y` 336,
+  `width` 375, `height` 288, `_alpha` 255, `_enabled` 1. `StartMenu/_isPauseMenu` reads 0
+  (so it is not the pause menu's mark; MCM tests it only against DarN's start menu).
+  `StartMenu/MCM/visible` 1, `StartMenu/MCM/_MCM` 1.5.
+- Of these the file sets `x`, `y` (from `parent()`'s size), `width` (375) and `height`
+  (`_number_of_visible_items` times `_item_height` 48: 288 is 6 rows); the code writes
+  `childcount`, `_alpha` and `_enabled` (the file leaves `_alpha` empty and `_enabled`
+  false) [observed: start_menu.xml; the values above].
+- MCM's `MenuMode 1013` script shows its trigger only while that `childcount` is 8 and
+  places it from `main_container`'s `x`, `y`, `width`, `_alpha` and `_enabled` and
+  `StartMenu/_item_height` [observed: MCM's script source in its plugin (SCTX)].
+- **What the player sees** [observed: the owner's screenshots of the original, 2026-11-12,
+  1280 x 720]: "Mod Configuration" stands as the first row of the pause column, above
+  Continue, Save, Load, Settings, Help, Quit. Chosen, it opens MCM's window left of the
+  column (the column stays, dimmed, with "Mod Configuration" lit): the mod list on the
+  left (one row per mod, Just Assorted Mods as "Just Mods"; a mod with sub-menus shows them
+  indented under it once chosen), the chosen page's title in the top bracket, its
+  options in two columns of label and value (check boxes, words, numbers), arrows at the
+  foot of each list, an info box under the window for the option under the pointer, and
+  Defaults and Back at the bottom right of the screen. With no mod chosen the window
+  shows MCM's logo, its version (v1.50) at the top right and "Select a mod to configure
+  from the list on the left." in the info box (MCM's own text, from its files).
+- **The column's rows** [observed, the same run]: `main_container`'s children are the
+  file's `lb_highlight_box` and `lb_scrollbar` and six copies of the file's
+  `lb_item_template` (`lb_item_hotrect`, `string` Continue, Save, Load, Settings, Help and
+  Quit in the original's words, `listindex` 0-5, `y` 0 to 240 in steps of 48, `height` 48,
+  `width` 370, `target` 1, `_enabled` 1): 8 children. `GetUIFloat` with `*:N` under it
+  read `*:1` the highlight box, `*:2` the scroll bar, `*:3`-`*:7` the rows Continue to
+  Help, `*:0` the last row (Quit) and `*:8` nothing; `lb_item_hotrect` read Quit and
+  `lb_item_hotrect:1` Continue.
+- **MCM's trigger in the original** [observed]: once placed, `MCM_Trigger` has `x` 1301.67
+  (the column's), `y` 288 (the column's less `_item_height` 48), `width` 370, `height` 48,
+  `_alpha` 255, `_enabled` 1, and its text "Mod Configuration". `SetUIFloat` of its
+  `_clicked` to 1 opened MCM's window (MCM's `_Menu` 1, `_Reset` 1, the mod list's
+  `_visible` 1 and `_count` 2, Mod1 "Just Mods" with `_modIndex` 12, Just Assorted Mods'
+  load index).
+- **NVForever** (`nvf-play` `tiles::mods`): the Mods page writes the column's code traits
+  (`childcount` 8, `_alpha` 255, `_enabled` 1) and makes one code `lb_item_hotrect` row
+  (MCM reads only its `target`) when it opens, then clicks MCM's trigger once, so the
+  page opens on MCM's window; MCM's window closing (`_Menu` 0) closes the page [design].
+
+### 10.2 MCM.dll's list functions (2026-11-12)
+
+No page or source describes them; their call shapes are MCM 1.5's own scripts (its
+plugin's source text), their effects measured in the original with job `mcm976e`
+(pause menu open, MCM's window open), each call read before and after in one script
+[observed 2026-11-12]. Child numbers count MCM's children from 1 in file order (§10):
+1 `MCM_Options`, 3 `MCM_List`, 5 `MCM_ModList`.
+
+- **SetMCMFloatMass child first last setting value**: sets `setting` on child `child`'s
+  children `first` to `last`, both included, counted from 1. `3 1 2 "alpha" 77`: Item1
+  and Item2 0 to 77, Item3 and MCM_List unchanged. `3 0 1 "alpha" 66`: Item1 only.
+  `3 3 2 "alpha" 55`: nothing. `1 1 2 "image/depth" 21`: each row's `image` child (a
+  path below the row works). A trait that is not there is not made (`"_nvfm"` stayed
+  missing). MCM's own `5 24 33 "_enable" 0` reaches SubMenu1-SubMenu10, MCM_ModList's 24th
+  to 33rd children (after Mod1-Mod23). One reading differs: `1 36 37 "depth" 33` set
+  Option36 but not ArrowUp, MCM_Options' 37th child in the file; why is open (observer
+  check 106).
+- **SetMCMStringMass child first last setting "format" values…**: the same for text, the
+  format filled as SetMCMString's: `3 1 2 "text/string" "nvf"` set Item1 and Item2, not
+  Item3; `"a%gb" 5` gave "a5b"; a missing trait was not made.
+- **SetMCMModList row enable modIndex value form**: MCM_ModList's row `row` (Mod`row`)
+  gets the form's name as its `text/string`, `enable` as `_enable`, `modIndex` as
+  `_modIndex` and `value` as `_modIndex2`; nothing else of the row changed.
+  `22 1 6 5 caps`: "Bottle Cap", 1, 6, 5; `22 2 7 9`: 2, 7, 9 (still Mod22); `21 0 0 0`:
+  the name and zeros. `3 2 7 9` left SubMenu3 as it was. MCM calls it with the row, 1,
+  the mod's load index and its form's value.
+- **GetMCMListWidth list row**: the `width` of a mod-list row's text: list 1 Mod`row`
+  (`1 1` 117, Mod1's "Just Mods"; 14 for an empty row), list 2 SubMenu`row` (`2 1` 14,
+  empty); `1 0` and `3 1` give 0. Read in the frame a string was set, it gave the width
+  before (the text's own `width` too, so it reads that trait, re-measured later).
+- Built in `fnv_game::ui_functions` (names in `schemas/script/functions.json` from
+  `tools/capture/script_functions.py`'s `PAGELESS`); the setting of every MCM shorthand
+  may be a path below the tile (`"ArrowUp/y"`, `"/visible"`, as MCM's scripts pass).

@@ -1741,7 +1741,7 @@ type ScreenAndMenus<'w, 's> = (
     Option<Res<'w, crate::bindings::Bindings>>,
     crate::tiles::MenuFiles<'w, 's>,
     Res<'w, crate::pause::Page>,
-    Local<'s, u64>,
+    ResMut<'w, crate::tiles::mods::ModsPage>,
     Option<Res<'w, crate::main_menu::MainMenuStart>>,
 );
 
@@ -1890,17 +1890,16 @@ pub(crate) fn run_scripts(
         if let Some(rt) = st.rt.as_mut() {
             rt.game.cfg.frame_seconds = time.delta_secs_f64();
             // In the played world, as every run of the game's scripts (`with_world`).
-            with_world(rt, &mut sim, |rt| with_ray_caster(&mut phys, &play.0, location.world, || crate::tiles::mods::tick(&mut rt.game)));
-            *mods_ticks += 1;
-            if *mods_ticks == 1 {
+            with_world(rt, &mut sim, |rt| with_ray_caster(&mut phys, &play.0, location.world, || crate::tiles::mods::tick(&mut rt.game, &mut mods_ticks)));
+            if mods_ticks.frames == 1 {
                 info!("scripts: MenuMode {} blocks run under the pause menu's Mods page", fnv_game::game::menus::START);
             }
         }
         return;
     }
-    if *mods_ticks > 0 {
-        info!("scripts: the Mods page closed after {} MenuMode frames", *mods_ticks);
-        *mods_ticks = 0;
+    if mods_ticks.frames > 0 {
+        info!("scripts: the Mods page closed after {} MenuMode frames", mods_ticks.frames);
+        mods_ticks.frames = 0;
     }
     if paused.0 || screen.active() {
         // Under a loading screen the game is held for everyone, not only for the

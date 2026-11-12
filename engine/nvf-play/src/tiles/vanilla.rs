@@ -144,6 +144,18 @@ impl TileMenus {
         (menus, other)
     }
 
+    /// The switches for a run from its list ([`TileMenus::parse`]) with the defaults: the
+    /// start menu's Mods page on unless the list names `-StartMenu` (its entry shows only
+    /// when a mod added tiles to the start menu, `super::mods`) [design: owner 2026-11-12,
+    /// issue #976]; every other menu off unless named. No list is an empty one.
+    pub fn for_run(list: Option<&str>) -> (TileMenus, Vec<String>) {
+        let (mut menus, mut other) = TileMenus::parse(list.unwrap_or(""));
+        let off = |n: &String| n.eq_ignore_ascii_case(&format!("-{}", super::mods::START_MENU));
+        menus.start |= !other.iter().any(off);
+        other.retain(|n| !off(n));
+        (menus, other)
+    }
+
     /// The list for this run and where it was read: the test aid, else the INI's
     /// `[UI] TileMenus=`; `None` when neither gives one.
     pub fn list_for_run(aid: Option<String>, ini: &SettingsFile) -> Option<(String, String)> {
@@ -160,7 +172,7 @@ impl TileMenus {
 pub(crate) fn setup(app: &mut App) {
     let unattended = crate::test_aid::Unattended::from_env().0;
     let list = TileMenus::list_for_run(std::env::var(AID).ok(), &SettingsFile::for_run(unattended));
-    let (menus, other) = list.as_ref().map_or_else(|| (TileMenus::default(), Vec::new()), |(l, _)| TileMenus::parse(l));
+    let (menus, other) = TileMenus::for_run(list.as_ref().map(|(l, _)| l.as_str()));
     app.insert_resource(menus);
     app.add_systems(Startup, move || {
         let Some((list, from)) = &list else { return };
@@ -543,6 +555,11 @@ mod tests {
         // T11: the start menu's Mods page.
         let start = TileMenus { start: true, ..TileMenus::default() };
         assert_eq!(TileMenus::parse(" startmenu "), (start, Vec::new()));
+        // A run: the Mods page on by default, with or without a list, off by `-StartMenu`.
+        assert_eq!(TileMenus::for_run(None), (start, Vec::new()));
+        assert_eq!(TileMenus::for_run(Some("HUDMainMenu")), (TileMenus { start: true, ..hud }, Vec::new()));
+        assert_eq!(TileMenus::for_run(Some("HUDMainMenu, -startmenu")), (hud, Vec::new()));
+        assert_eq!(TileMenus::for_run(Some("-StartMenu")), (TileMenus::default(), Vec::new()));
         assert_eq!(start.line(), "StartMenu drawn from tiles");
         assert_eq!(hud.line(), "HUDMainMenu drawn from tiles");
         assert_eq!(TileMenus::default().line(), "no menu drawn from tiles");
