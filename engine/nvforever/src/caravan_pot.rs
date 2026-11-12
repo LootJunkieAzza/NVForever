@@ -455,6 +455,13 @@ impl PotSim {
                 p.still_for >= ROUND_PIN_STILL || clock - p.touched_at >= ROUND_PIN_AFTER
             };
             if pin {
+                // Pinned clear of the planks: a hard landing may still have it pressed in.
+                let low = lowest_point(p.piece.kind, bv(b.translation()), q(b.rotation())).z;
+                if low < 0.0 {
+                    let mut at = bv(b.translation());
+                    at.z -= low;
+                    b.set_translation(v(at), false);
+                }
                 b.set_linvel(Vector::ZERO, false);
                 b.set_angvel(Vector::ZERO, false);
                 b.set_body_type(RigidBodyType::Fixed, false);
@@ -626,6 +633,25 @@ impl PotSim {
         Some(Shown { at, grow, rot, bend, moving })
     }
 
+    /// How the pot lies, for the log: its pieces, how many caps and coins rest on another,
+    /// how many are pinned, whether it came to rest by itself (not by [`SETTLE_MOST`]),
+    /// and how many bodies lie more than a millimetre into the planks.
+    pub fn report(&self) -> String {
+        let (mut n, mut raised, mut pinned, mut sunk) = (0, 0, 0, 0);
+        for p in &self.pieces {
+            let Some(b) = p.body.and_then(|h| self.w.bodies.get(h)) else { continue };
+            n += 1;
+            pinned += usize::from(p.pinned);
+            let low = lowest_point(p.piece.kind, bv(b.translation()), q(b.rotation())).z;
+            // Raised: its middle higher than a flat one's on the notes, so it rests on, or
+            // leans on, another cap or coin.
+            let flat_middle = p.piece.kind.thick() / UNITS_PER_M / 2.0 + 2.0 * NOTE_THICK;
+            raised += usize::from(!p.piece.kind.note() && b.translation().z > flat_middle + 0.001);
+            sunk += usize::from(low < -0.001);
+        }
+        format!("{n} pieces, {raised} caps and coins resting on others, {pinned} pinned, at rest by itself: {}, in the planks: {sunk}", self.still >= SETTLE)
+    }
+
     /// The deepest any two bodies (or a body and the planks or a wall) overlap now (m).
     #[cfg(test)]
     pub fn deepest(&self) -> f32 {
@@ -646,6 +672,10 @@ mod tests {
     use super::*;
     use crate::caravan_view::money;
     use nvf_play::caravan::screen::{card_zones, text_zones};
+
+    /// The most a piece at rest leans (rad, 40 degrees): one leaning on a heap may lie past
+    /// [`FLAT_TIP`] (from where it is turned, while it can be), one on its rim stands near 90.
+    const REST_TIP_MOST: f32 = 0.70;
 
     fn zones() -> Vec<(Vec2, Vec2)> {
         let mut z = card_zones(4.0);
@@ -701,11 +731,11 @@ mod tests {
             assert!(sh.at.x > -50.0 && sh.at.x < nvf_play::caravan::screen::FRAME_W + 50.0 && sh.at.y < 50.0 && sh.at.y > -1010.0, "{kind:?} off the table: {sh:?}");
         }
         assert!(s.deepest() < 0.0015, "pieces sink into each other: {} m", s.deepest());
-        // No cap or coin rests on its rim or leans steeply: each lies on a face, crown up or
-        // down; and nothing leaves the screen.
+        // No cap, coin or note rests on its rim or edge: each lies on a face, crown up or
+        // down, at most leaning on the heap under it; and nothing leaves the screen.
         for (kind, sh) in &shown {
             let tip = (sh.rot * Vec3::Z).z.abs().clamp(0.0, 1.0).acos();
-            assert!(tip <= FLAT_TIP + 0.05, "{kind:?} at {} rests {:.0} degrees off flat", sh.at, tip.to_degrees());
+            assert!(tip <= REST_TIP_MOST, "{kind:?} at {} rests {:.0} degrees off flat", sh.at, tip.to_degrees());
         }
         for (kind, sh) in &shown {
             assert!(sh.at.x > 0.0 && sh.at.x < FRAME_W && sh.at.y < 0.0 && sh.at.y > -FRAME_H, "{kind:?} off the screen: {sh:?}");

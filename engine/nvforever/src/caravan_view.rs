@@ -426,6 +426,9 @@ fn note_shape(bend: f32, length: f32) -> (Vec<[f32; 3]>, Vec<[f32; 3]>) {
 struct PotDrawn {
     sim: PotSim,
     pieces: Vec<(Entity, Option<NoteDrawn>)>,
+    /// The pot's caps, and whether its coming to rest was logged.
+    pot: u32,
+    told: bool,
 }
 
 /// A note's own mesh and the bend it was last drawn with.
@@ -463,7 +466,7 @@ fn place_money(commands: &mut Commands, models: &mut ModelCtx, b: &mut Built, po
         drawn.push((holder, note));
     }
     info!("caravan view: the pot of {pot} on the table as {} pieces, falling in", pieces.len());
-    b.pot = Some(PotDrawn { sim, pieces: drawn });
+    b.pot = Some(PotDrawn { sim, pieces: drawn, pot, told: false });
 }
 
 /// Runs the pot on by `dt` and draws each piece where its body is.
@@ -473,6 +476,10 @@ fn move_money(models: &mut ModelCtx, b: &mut Built, transforms: &mut Query<&mut 
         return;
     }
     pot.sim.advance(dt);
+    if pot.sim.settled() && !pot.told {
+        pot.told = true;
+        info!("caravan view: the pot of {} settled: {}", pot.pot, pot.sim.report());
+    }
     for k in 0..pot.pieces.len() {
         let Some(sh) = pot.sim.shown(k, dt) else { continue };
         let (e, note) = &mut pot.pieces[k];
