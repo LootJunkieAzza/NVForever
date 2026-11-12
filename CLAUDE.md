@@ -88,6 +88,10 @@ python tools/smoke run --exe <engine target>/release/nvforever.exe --data <Data>
 # (--changed origin/main is the default selection; add --checks to run the push checks it lists)
 ```
 
+- While iterating, build with `cargo quick` (in `engine/` for nvforever, at the root for
+  fnvtool): release with incremental compilation in `target/release-quick`, a rebuild after
+  a one-line edit in 10-25 s instead of 2-4 min. The runner takes it when it is newer than
+  `target/release`'s. Profile, measure and ship from `--release` (#1956).
 - It picks the scenarios whose paths your branch changed (`--only NAME…`, `--area A…`,
   `--all` otherwise), shares a game launch between scenarios where that was checked to be
   safe, and runs up to 3 nvforever games on the machine at once (smoke slots,
