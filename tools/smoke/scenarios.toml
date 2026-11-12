@@ -12485,6 +12485,8 @@ order = [[
 ]]
 expect = [
   { re = 'film: .*not played', count = 0, label = "the film is not passed over" },
+  { re = 'sfx declicks: .*; \d+ holotape stops, (?P<n>\d+) film stops', range = [1, 1], label = "#2217: the skipped film's sound fades out, not cut" },
+  { re = 'sfx hard stops: .*, 0 film stops', label = "#2217: no film sound cut mid-waveform" },
 ]
 manual = "film.png: the intro film's frame at 3 s fitted inside the window with black bars, nothing of the world or the HUD over it"
 
@@ -12505,6 +12507,10 @@ order = [[
   "film: the game goes on",
   "ambient: world sounds go on (",
 ]]
+expect = [
+  { re = 'sfx declicks: .*; \d+ holotape stops, (?P<n>\d+) film stops', range = [1, 1], label = "#2217: the skipped film's sound fades out, not cut (the missing fnvlogo1.bik made none)" },
+  { re = 'sfx hard stops: .*, 0 film stops', label = "#2217: no film sound cut mid-waveform" },
+]
 manual = "film.png: the intro film stretched over the whole window (no black bars); film_after.png: Doc Mitchell's house again, nothing of the film left"
 
 [[scenario]]

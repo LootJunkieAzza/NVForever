@@ -155,7 +155,10 @@ environment: §14.6.
   sound is not played when the file arrives, the marker plays on a later roll. The
   exit line `sfx files: …` counts the
   sounds that began in the frame they were asked for, those that waited, those decided
-  silent and the rolls skipped; at its end, the one-shots dropped as too late.
+  silent and the rolls skipped; at its end, the one-shots dropped as too late. A
+  one-shot that waits for a voice slot as well (below) is counted when it starts there
+  or is silenced, by the frames its file took (the slot's wait is `sfx voices: …`'s);
+  one dropped while it waits for the slot is not in this line.
 - A second chance late in each frame (`late_start`, `PostUpdate`, before the audio
   output takes up new players) starts the requests whose file finished decoding since
   the frame's requests were played, as they would have started then, so a file decoded
@@ -191,7 +194,9 @@ environment: §14.6.
   (below), so 8 of a SOUN and 64 in all are never passed, not even for a fade. A
   one-shot beyond 8 of its SOUN has one slot's sound fade out (one fading already,
   else the oldest voice) and waits for it: it starts once that sound has ended, about
-  5 ms and a frame or two after it was asked for, with the listener as it is then. A
+  5 ms and a frame or two after it was asked for, with the file and the pitch chosen
+  when it was asked for (a Random Frequency Shift is rolled once) and the listener as
+  it is then (its gain, pan and place worked out again). A
   slot has one waiting replacement at most, so with every slot of the SOUN promised
   one more is refused; nothing else (a placed sound, a late start) can take a promised
   slot. A game event's one-shot whose wait for its file and its slot comes to more
@@ -208,10 +213,14 @@ environment: §14.6.
   built yet, so both are the same and no frame is limited. Every stop of a playing sound
   before its end goes through `audio_out::stop_sound`, which counts it by why: a one-shot
   taken over at the voice limit, a LoopSound stopped, a script's StopSound without a
-  fade, an ambient loop, a radio or a voice line no longer wanted. Since stage 2 every
+  fade, an ambient loop, a radio or a voice line no longer wanted, a holotape stopped
+  (by a script, or another note picked), a film skipped. Since stage 2 every
   such stop fades the sound out over 5 ms (`audio_out::DECLICK_FADE`, a straight fall of
-  the amplitude, timed by the sound's rate and its playing speed, slow motion's
-  included) and the sound goes once the fade has played; removing a playing sound at
+  the amplitude, timed by the rate the player plays the sound at: its rate times the
+  sink's speed, as rodio's speed stage reports it, whatever that speed, slow motion's
+  and a script's time multiplier included) and the sound goes once the fade has
+  played (a skipped film's sound fades on what it has queued, silence after); a film
+  played to its end lets its sound play out; removing a playing sound at
   once, which cut its waveform, is counted as a hard stop and should not happen any
   more. One asked for but not attached to the output yet, or already over, is not
   counted. The fades of their own (music's layers, a background loop giving way, a
@@ -219,12 +228,19 @@ environment: §14.6.
   cuts or fades voices it stops, or what its limits are, is not known. Exit lines:
   `audio mix: pre peak P, N samples over full scale; post peak Q, M samples over full
   scale; K frames limited` (peaks to nine decimals), `sfx hard stops: S steals, L loop
-  stops, T script stops, A ambient stops, R radio stops, V voice stops`, `sfx declicks:
-  … ; C completed, W pending` (the same fields, for stops faded out; C the fades played
-  out, W those not over at the end) and `sfx voices: at most V total, S of one SOUN; Q
-  replacements waiting, R replacements started` (the most slots taken, fading ones
-  counted; Q the one-shots that waited for a slot, R those started over the oldest
-  voice of their SOUN).
+  stops, T script stops, A ambient stops, R radio stops, V voice stops, H holotape
+  stops, F film stops`, `sfx declicks: S steals, … V voice stops; C completed, W
+  pending; H holotape stops, F film stops` (the same reasons, for stops faded out; C
+  the fades played out, W those of every reason not over at the end; the holotape and
+  film reasons came later and close each line) and `sfx voices: at most V total, S of
+  one SOUN; Q replacements waiting, R replacements started, C replacements cancelled,
+  E replacements expired, M replacements silenced at start, P replacements still
+  waiting; I one-shots started at once over one not heard yet` (the most slots taken,
+  fading ones counted; Q the one-shots that waited for a slot, and what became of
+  them, Q = R + C + E + M + P: R started in their slot, C dropped by a StopSound, E
+  dropped past the 150 ms bound, M decided silent when their turn came, P waiting at
+  the end; I the one-shots that took over one of their SOUN started in the same frame,
+  with no wait; `S of them over its oldest voice` counts both kinds).
 
 ## 8. Tools
 

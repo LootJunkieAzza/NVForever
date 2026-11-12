@@ -74,12 +74,14 @@
 //!   known.
 //! - **Stopping a playing sound** ([`stop_sound`], #2217) [design]: a sound stopped before
 //!   its end (a voice taken over at the voice limit, a loop or a script's sound stopped,
-//!   an ambient loop, a radio or a voice line no longer wanted) goes through one call,
+//!   an ambient loop, a radio or a voice line no longer wanted, a holotape stopped, a
+//!   film skipped) goes through one call,
 //!   which counts why ([`SoundStops`]). Every sound plays through a [`DeclickSource`]
 //!   round the whole of it (after its skip, take and repeat), and its entity carries the
 //!   [`StopControl`] the source reads: a stop fades the sound out in a straight line over
-//!   [`DECLICK_FADE`] (5 ms as heard: the fade follows the source's rate and its player's
-//!   speed, slow motion's included), reverb tail and all, then one frame of silence and
+//!   [`DECLICK_FADE`] (5 ms as heard: the fade is timed by the rate the player plays the
+//!   source at, its rate times the sink's speed as rodio's speed stage reports it, slow
+//!   motion's and a script's time multiplier included), reverb tail and all, then one frame of silence and
 //!   its end for good. Its entity stays, [`Retiring`], until the fade has played out
 //!   (a paused one is resumed for it), and [`cleanup_finished`] then removes it whatever
 //!   its playback mode. One not attached to the output yet (it has made no sound) or
@@ -630,10 +632,21 @@ pub enum StopReason {
     Radio,
     /// A voice line cut or replaced.
     Voice,
+    /// A holotape's response cut: the tape stopped, by a script or by picking another
+    /// (`crate::holotape`).
+    Holotape,
+    /// A film's sound cut: the film skipped (`crate::intro`).
+    Film,
 }
 
 impl StopReason {
-    pub const ALL: [StopReason; 6] = [StopReason::Steal, StopReason::Loop, StopReason::Script, StopReason::Ambient, StopReason::Radio, StopReason::Voice];
+    /// How many reasons there are.
+    pub const COUNT: usize = 8;
+    pub const ALL: [StopReason; StopReason::COUNT] =
+        [StopReason::Steal, StopReason::Loop, StopReason::Script, StopReason::Ambient, StopReason::Radio, StopReason::Voice, StopReason::Holotape, StopReason::Film];
+    /// The reasons the summary lines first had; the later ones are told at the end of each
+    /// line, so what reads the earlier fields reads them as before.
+    const FIRST: usize = 6;
 
     fn index(self) -> usize {
         self as usize
@@ -647,6 +660,8 @@ impl StopReason {
             StopReason::Ambient => "ambient stops",
             StopReason::Radio => "radio stops",
             StopReason::Voice => "voice stops",
+            StopReason::Holotape => "holotape stops",
+            StopReason::Film => "film stops",
         }
     }
 }
@@ -656,26 +671,35 @@ impl StopReason {
 /// `completed`). One not attached to the output yet, or already over, counts as neither.
 #[derive(Resource, Clone, Debug, Default, PartialEq)]
 pub struct SoundStops {
-    pub hard: [u32; 6],
-    pub declicked: [u32; 6],
+    pub hard: [u32; StopReason::COUNT],
+    pub declicked: [u32; StopReason::COUNT],
     pub completed: u32,
 }
 
 impl SoundStops {
-    /// `N steals, N loop stops, …` of `counts`.
-    fn fields(counts: &[u32; 6]) -> String {
-        StopReason::ALL.map(|r| format!("{} {}", counts[r.index()], r.name())).join(", ")
+    /// `N steals, N loop stops, …` of `counts`, for `reasons`.
+    fn fields(counts: &[u32; StopReason::COUNT], reasons: &[StopReason]) -> String {
+        reasons.iter().map(|r| format!("{} {}", counts[r.index()], r.name())).collect::<Vec<_>>().join(", ")
     }
 
-    /// The `sfx hard stops: …` summary line.
+    /// The `sfx hard stops: …` summary line, every reason.
     pub fn hard_line(&self) -> String {
-        format!("sfx hard stops: {}", SoundStops::fields(&self.hard))
+        format!("sfx hard stops: {}", SoundStops::fields(&self.hard, &StopReason::ALL))
     }
 
-    /// The `sfx declicks: …` summary line.
+    /// The `sfx declicks: …` summary line: the first reasons, the fades played out and
+    /// not, then the later reasons (`…; C completed, W pending; H holotape stops, F film
+    /// stops`); W counts every reason's.
     pub fn declick_line(&self) -> String {
         let started: u32 = self.declicked.iter().sum();
-        format!("sfx declicks: {}; {} completed, {} pending", SoundStops::fields(&self.declicked), self.completed, started.saturating_sub(self.completed))
+        let (first, later) = StopReason::ALL.split_at(StopReason::FIRST);
+        format!(
+            "sfx declicks: {}; {} completed, {} pending; {}",
+            SoundStops::fields(&self.declicked, first),
+            self.completed,
+            started.saturating_sub(self.completed),
+            SoundStops::fields(&self.declicked, later)
+        )
     }
 }
 
@@ -749,12 +773,21 @@ impl<S: Source> DeclickSource<S> {
     }
 
     /// How much the gain falls in a frame of the source: [`DECLICK_FADE`] of playing time
-    /// at the source's rate and its player's speed (slowed, a frame lasts longer).
+    /// at the rate its player plays it at ([`played_rate`]: slowed, a frame lasts longer).
     fn step(&self) -> f32 {
         let speed = f32::from_bits(self.control.speed.load(Ordering::Relaxed));
-        let speed = if speed.is_finite() && speed > 0.0 { speed.clamp(0.05, 20.0) } else { 1.0 };
-        1.0 / (self.inner.sample_rate().get() as f32 * speed * DECLICK_FADE.as_secs_f32())
+        1.0 / (played_rate(self.inner.sample_rate().get(), speed) * DECLICK_FADE.as_secs_f32())
     }
+}
+
+/// The frames a second a source of `rate` Hz is played at by a player at `speed`: what
+/// the player's speed stage reports to the mixer, `rate × speed` in whole hertz, at least
+/// 1 (rodio 0.22's `Speed::sample_rate`, which `Player::set_speed` drives; Bevy's
+/// `AudioSink::set_speed` passes the speed on as it is). The fade is timed by the same
+/// number, so it lasts [`DECLICK_FADE`] as heard at any speed the sink is given (a speed
+/// that is not a number, or not above 0, plays at 1 Hz there and here).
+fn played_rate(rate: u32, speed: f32) -> f32 {
+    (rate as f32 * speed).max(1.0) as u32 as f32
 }
 
 impl<S: Source> Iterator for DeclickSource<S> {
@@ -1474,12 +1507,46 @@ mod tests {
     }
 
     #[test]
+    fn the_fade_lasts_its_time_at_any_playback_speed() {
+        // Speeds far outside the old [0.05, 20] guess (a script's SetGlobalTimeMultiplier
+        // 0.01, a fast one): the fade is timed by the rate the player plays the source at,
+        // so it lasts about 5 ms of output, give or take a frame of the source.
+        for speed in [0.01f32, 0.02, 40.0, 100.0] {
+            let control = StopControl::new(speed);
+            let mut d = DeclickSource::new(steady(RATE as usize), &control);
+            d.by_ref().take(20).count();
+            let frames = fade_of(&mut d, &control, 0);
+            assert_eq!(*frames.last().unwrap(), (0.0, 0.0), "speed {speed}: a final frame of silence");
+            let played = played_rate(RATE, speed) as f64;
+            let heard = frames.len() as f64 / played;
+            let slack = (1.0 / played).max(DECLICK_FADE.as_secs_f64() * 0.02);
+            assert!((heard - DECLICK_FADE.as_secs_f64()).abs() <= slack, "speed {speed}: {} frames, {:.3} ms of output", frames.len(), heard * 1000.0);
+        }
+        // The rate the player's speed stage reports: whole hertz, never below 1.
+        assert_eq!(played_rate(RATE, 0.01), 480.0);
+        assert_eq!(played_rate(RATE, 40.0), 1_920_000.0);
+        for odd in [0.0, -1.0, f32::NAN] {
+            assert_eq!(played_rate(RATE, odd), 1.0, "{odd}");
+        }
+        // A speed that is not a number still ends at once, not never.
+        let control = StopControl::new(f32::NAN);
+        let mut d = DeclickSource::new(steady(100), &control);
+        assert!(fade_of(&mut d, &control, 0).len() <= 2);
+    }
+
+    #[test]
     fn stop_lines_name_every_reason() {
         let mut stops = SoundStops::default();
-        assert_eq!(stops.hard_line(), "sfx hard stops: 0 steals, 0 loop stops, 0 script stops, 0 ambient stops, 0 radio stops, 0 voice stops");
-        stops.declicked = [1, 2, 3, 4, 5, 6];
+        assert_eq!(
+            stops.hard_line(),
+            "sfx hard stops: 0 steals, 0 loop stops, 0 script stops, 0 ambient stops, 0 radio stops, 0 voice stops, 0 holotape stops, 0 film stops"
+        );
+        stops.declicked = [1, 2, 3, 4, 5, 6, 7, 8];
         stops.completed = 20;
-        assert_eq!(stops.declick_line(), "sfx declicks: 1 steals, 2 loop stops, 3 script stops, 4 ambient stops, 5 radio stops, 6 voice stops; 20 completed, 1 pending");
+        assert_eq!(
+            stops.declick_line(),
+            "sfx declicks: 1 steals, 2 loop stops, 3 script stops, 4 ambient stops, 5 radio stops, 6 voice stops; 20 completed, 16 pending; 7 holotape stops, 8 film stops"
+        );
     }
 
     #[test]
