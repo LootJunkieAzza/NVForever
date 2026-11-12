@@ -450,6 +450,7 @@ impl HudTiles<'_> {
                                 Mark::Place => MarkKind::Place,
                                 Mark::Found => MarkKind::Found,
                                 Mark::Quest => MarkKind::Quest,
+                                Mark::Player => MarkKind::Player,
                             },
                             heading: 139.0 + f64::from(*offset), // [observed: hud.md §14.5].
                             distance: 1.0,                       // [hypothesis: hud.md §14.6; drawing stores no distances].

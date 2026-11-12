@@ -578,6 +578,7 @@ unless the player binds them, so nothing changes until then.
 | Clear Marker When Near | `bClearNearbyPlayerMarker` | `tweaks::clear_near_marker` clears the game's marker (`jg8.custom_marker`) when `marker::near` (same space, across the ground) after the player was once farther, so a marker placed underfoot stays |
 | Place Marker Here | `iPlaceMapMarkerAtPlayerPosKey` | a new unbound control, `Control::PlaceMarkerHere`; `tweaks::place_marker_here` sets the game's marker to the player's space and feet, with a corner line in our words unless switched off |
 | Keep Fall Height on Load | `bKeepFallHeightOnLoad` | `falls::FALL_SAVE_HOOK` keeps `Falls::player_top` with a save made in the air; loaded under the switch, `Falls::loaded_top` is the floor of the player's next fall step (after the load's placement reset) |
+| Quest Marker Height, Your Marker's Height | `bCompassQuestHeightIndicator`, `bPlacedMarkerHeightIndicator` | `compass::gather` sets `Near::rise` (`rise_of`: more than `HEIGHT_STEP`, 256 units, above or below the feet) for quest marks and the new player's-marker mark (`Mark::Player`, the custom map marker in the player's place); `compass::draw` puts a 12 x 3 bar over or under the picture (ours); the tile-drawn HUD shows none |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -599,8 +600,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 507 |
-| to do | 96 |
+| done | 509 |
+| to do | 94 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -936,6 +937,7 @@ game's Data folder, read-only).
 | `bCompassFadeLeftSide` | done |  |  | Compass Fades on the Left (down to a fifth at the left end, ours; quest marks stay whole) |
 | `bCompassLocationDistanceBasedAlpha` | done |  |  | Fade Places by Distance |
 | `bCompassNPCDistanceBasedAlpha` | done |  |  | Fade Pips by Distance |
+| `bCompassQuestHeightIndicator` | done |  |  | Quest Marker Height (a bar over or under it on the hand-built HUD's compass) |
 | `bCustomAddToInventoryMessageTimer` | done |  | 1 | Item Added Line Time (slider, seconds) |
 | `bCustomSubtitleDistance` | done |  | 1 | Subtitle Distance (slider, game units) |
 | `bDisableCompassEdgeAlpha` | done |  |  | already so: the marks are not faded at the edge |
@@ -964,6 +966,7 @@ game's Data folder, read-only).
 | `bNoXPBarInCombat` | done |  | 1 | No XP Meter in Combat (no delay option) |
 | `bNoXPMessages` | done |  | 7 | Quiet Experience (all sources at once; LEVEL UP still shows) |
 | `bPatchUnseenCellName` | done |  | 3 | Mark Unvisited Doors (a star; the rename and respawn options not built) |
+| `bPlacedMarkerHeightIndicator` | done |  | 1 | Your Marker's Height (a bar over or under it on the hand-built HUD's compass); the door-icon option is not built (the plugin's own picture) |
 | `bRaceMenuAllowFemaleFacialHair` | done |  |  | Facial Hair for Women (creator and barber rows) |
 | `bRecentlyDeadNPCIndicator` | done |  | 4 | Recently Dead on the Compass (seconds slider; the killer filters not built) |
 | `bRemoveDeadNPCCrippleCriticalMessages` | done |  |  | already so: no cripple or critical messages |
@@ -982,7 +985,6 @@ game's Data folder, read-only).
 | `bHideGrenadeIndicatorForNoDamageExplosions` | to do | yes |  | not built: no grenade indicator |
 | `bMorePreciseRadMeter` | to do | yes | 1 | unclear whether the HUD gain or the Pip-Boy total is meant |
 | `bArmorConditionLabel` | to do |  | 9 | no armour condition text on the HUD yet |
-| `bCompassQuestHeightIndicator` | to do |  |  | the compass marks are 2D; needs art |
 | `bCriticalHitMessagesIncludeLimbName` | to do |  |  | not built: no critical-hit messages |
 | `bDetectedByWhom` | to do |  | 5 | Sneak is a Copy enum; names need a new type |
 | `bDisableNeedsMessages` | to do |  | 4 | those messages are the game's own scripts; needs a filter by message |
@@ -993,7 +995,6 @@ game's Data folder, read-only).
 | `bHUDWeaponNameLabel` | unsure, skipped |  | 5 | needs the plugin's own menu XML |
 | `bShowDoorsOnCompass` | to do |  | 5 | a door mark kind, icons and gathering |
 | `bWaterSourcesShowH2O` | to do |  | 1 | not built: water prompts carry no line |
-| `bPlacedMarkerHeightIndicator` | to do |  | 1 | the compass draws no custom marker yet |
 
 ### Menus
 

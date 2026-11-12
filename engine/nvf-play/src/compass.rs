@@ -32,6 +32,17 @@
 //!   locked doors if possible"] (docs/spec-notes/hud.md §11). The original's compass
 //!   shows no distance: its icon file sets `_Distance` and nothing reads it [documented:
 //!   `menus/prefabs/compassicon.xml`].
+//! - **The player's marker**: the custom map marker (Place Marker, SetCustomMapMarker;
+//!   `fnv_game::Game::custom_map_marker`) while it is in the player's interior or
+//!   worldspace, as `glow_hud_compass_pc_marker.dds` [documented: the HUD file's
+//!   `compass_icon` kinds, hud.md §2, and `template_compass_icon_player`], laid out and
+//!   held at the band's ends as a quest target is, drawn over the quest marks
+//!   [hypothesis: as the Pip-Boy's maps draw it over theirs, pipboy.md §5.3; a marker in
+//!   another place has no mark, no door is followed to it].
+//! - **Above or below** (the player's Quest and Player Marker Height Indicator tweaks):
+//!   a quest mark or the player's marker more than [`HEIGHT_STEP`] above or below the
+//!   player's feet gets a short bar over or under its picture on the hand-built HUD
+//!   [design: docs/design/tweaks.md; NVForever's own sign, the tile-drawn HUD shows none].
 //! - The ranges are guesses: no game setting for them is in the masters [hypothesis].
 //! - Who and what is near is looked at ten times a second ([`gather`], [`CompassNear`]);
 //!   where each mark stands on the compass is worked out every frame from the camera's
@@ -76,6 +87,13 @@ const TICK: &str = "textures\\interface\\hud\\glow_hud_tick_mark.dds";
 const LANDMARK: &str = "textures\\interface\\hud\\glow_hud_compass_landmark.dds";
 const LANDMARK_FOUND: &str = "textures\\interface\\hud\\glow_hud_compass_landmark_discovered.dds";
 const QUEST: &str = "textures\\interface\\hud\\glow_hud_compass_objective_marker.dds";
+const PLAYER_MARKER: &str = "textures\\interface\\hud\\glow_hud_compass_pc_marker.dds";
+/// How far above or below the feet a mark is for the height tweaks' bar (game units, a
+/// storey) [design].
+pub const HEIGHT_STEP: f32 = 256.0;
+/// The bar: its size, and its gap from the picture's box [design].
+const RISE_BAR: Vec2 = Vec2::new(12.0, 3.0);
+const RISE_GAP: f32 = 2.0;
 /// The tick (a 32-texel picture, its bar at texel 9 [observed: hud.md §14.5]) drawn this
 /// size, its top this far down the compass window, its bar's middle on the bearing
 /// [design: fitted to the owner's screenshots, hud.md §11].
@@ -99,8 +117,10 @@ pub enum Mark {
     /// A map marker the player has not been to, and one it has.
     Place,
     Found,
-    /// A target of the active quest (drawn last, over the others).
+    /// A target of the active quest (drawn over the others but the player's marker).
     Quest,
+    /// The player's custom map marker (drawn last).
+    Player,
 }
 
 /// Compass units right of the heading point at which a thing at `to` stands for a
@@ -157,7 +177,25 @@ pub struct Near {
     pub mark: Mark,
     pub at: [f32; 2],
     pub body: Option<u32>,
+    /// Above (1) or below (-1) the player by more than [`HEIGHT_STEP`] under a height
+    /// tweak, else 0.
+    pub rise: i8,
 }
+
+/// Whether a mark `dz` above the player's feet (negative: below) shows as above or below.
+pub fn rise_of(dz: f32) -> i8 {
+    if dz > HEIGHT_STEP {
+        1
+    } else if dz < -HEIGHT_STEP {
+        -1
+    } else {
+        0
+    }
+}
+
+/// Each mark's [`Near::rise`] in [`CompassView`]'s order.
+#[derive(Resource, Default, Debug, PartialEq, Clone)]
+pub struct CompassRise(pub Vec<i8>);
 
 /// The marks in range at the last look, whatever their bearing.
 #[derive(Resource, Default, Debug, Clone)]
@@ -168,20 +206,20 @@ pub struct CompassNear(pub Vec<Near>);
 /// then place [design]. A quest target outside the visible band stays on the compass,
 /// pinned at the band's end on its side ([`pinned`]).
 pub fn marks(near: &[Near], heading: f32, here: [f32; 2], bodies: &dyn Fn(u32) -> Option<[f32; 2]>) -> Vec<(Mark, f32)> {
-    marks_far(near, heading, here, bodies).into_iter().map(|(m, x, _)| (m, x)).collect()
+    marks_far(near, heading, here, bodies).into_iter().map(|(m, x, _, _)| (m, x)).collect()
 }
 
-/// [`marks`] with each mark's distance from the player (game units).
-pub fn marks_far(near: &[Near], heading: f32, here: [f32; 2], bodies: &dyn Fn(u32) -> Option<[f32; 2]>) -> Vec<(Mark, f32, f32)> {
-    let mut out: Vec<(Mark, f32, f32)> = near
+/// [`marks`] with each mark's distance from the player (game units) and its rise.
+pub fn marks_far(near: &[Near], heading: f32, here: [f32; 2], bodies: &dyn Fn(u32) -> Option<[f32; 2]>) -> Vec<(Mark, f32, f32, i8)> {
+    let mut out: Vec<(Mark, f32, f32, i8)> = near
         .iter()
         .filter_map(|n| {
             let at = n.body.and_then(bodies).unwrap_or(n.at);
             let x = offset(heading, here, at);
             let d = (at[0] - here[0]).hypot(at[1] - here[1]);
             match n.mark {
-                Mark::Quest => Some((n.mark, pinned(x), d)),
-                _ => on_compass(x).then_some((n.mark, x, d)),
+                Mark::Quest | Mark::Player => Some((n.mark, pinned(x), d, n.rise)),
+                _ => on_compass(x).then_some((n.mark, x, d, n.rise)),
             }
         })
         .collect();
@@ -214,6 +252,7 @@ impl Plugin for CompassPlugin {
         // HUD's writes (`crate::tiles`), so both drawings put them with this frame's strip.
         app.init_resource::<CompassView>()
             .init_resource::<CompassAlpha>()
+            .init_resource::<CompassRise>()
             .init_resource::<CompassNear>()
             .add_systems(Update, place.after(PlaySet::Physics).before(PlaySet::Activation))
             .add_systems(Update, (discover, crate::challenges::notices, gather, draw).chain().in_set(PlaySet::Ui).after(crate::hud::HudSet))
@@ -346,6 +385,8 @@ fn gather(
     let neutral_foes = tweaks.as_ref().is_some_and(|t| t.neutral_foes_on_compass);
     let companion_pips = tweaks.as_ref().is_some_and(|t| t.companion_pip > 0);
     let nearest_unfound = tweaks.as_ref().is_some_and(|t| t.nearest_unfound_on_compass);
+    // The player's tweaks: above or below for quest marks and the player's marker.
+    let (quest_height, marker_height) = tweaks.as_ref().map_or((false, false), |t| (t.compass_quest_height, t.compass_marker_height));
     // The player's tweak keeps the newly dead on the compass for a while, until the
     // crosshair has been on them [design: docs/design/tweaks.md].
     let dead_secs = tweaks.as_ref().map_or(0.0, |t| t.recent_dead_secs);
@@ -389,7 +430,7 @@ fn gather(
                         *seen |= looked == Some(r.0);
                         if !*seen && now - *since < dead_secs {
                             let shown = on_compass(offset(heading, here, [at[0], at[1]]));
-                            out.push((Near { mark: Mark::Actor, at: [at[0], at[1]], body: None }, shown));
+                            out.push((Near { mark: Mark::Actor, at: [at[0], at[1]], body: None, rise: 0 }, shown));
                         }
                     }
                     continue;
@@ -424,7 +465,7 @@ fn gather(
                 } else {
                     Mark::Actor
                 };
-                out.push((Near { mark, at: [at[0], at[1]], body: bodies.contains_key(&r.0).then_some(r.0) }, shown));
+                out.push((Near { mark, at: [at[0], at[1]], body: bodies.contains_key(&r.0).then_some(r.0), rise: 0 }, shown));
             }
             g.other.jg9.compass_hostile = nearest.map(|n| n.map(|(_, x)| direction_of(x)));
             out
@@ -455,7 +496,7 @@ fn gather(
                 if on_compass(offset(heading, here, [pos[0], pos[1]])) {
                     marks.push(mark);
                 }
-                found_near.push(Near { mark, at: [pos[0], pos[1]], body: None });
+                found_near.push(Near { mark, at: [pos[0], pos[1]], body: None, rise: 0 });
             }
             // The player's tweak: the nearest place not yet found shows at any distance
             // [design: docs/design/tweaks.md].
@@ -466,7 +507,7 @@ fn gather(
                     if on_compass(offset(heading, here, [pos[0], pos[1]])) {
                         marks.push(Mark::Place);
                     }
-                    found_near.push(Near { mark: Mark::Place, at: [pos[0], pos[1]], body: None });
+                    found_near.push(Near { mark: Mark::Place, at: [pos[0], pos[1]], body: None, rise: 0 });
                 }
             }
         }
@@ -489,7 +530,20 @@ fn gather(
             }
             // A target that walks is followed by its body; a door stays.
             let body = (itself && bodies.contains_key(&c.target.0)).then_some(c.target.0);
-            found_near.push(Near { mark: Mark::Quest, at: [pos[0], pos[1]], body });
+            let rise = if quest_height { rise_of(pos[2] - feet[2]) } else { 0 };
+            found_near.push(Near { mark: Mark::Quest, at: [pos[0], pos[1]], body, rise });
+        }
+    }
+    // The player's custom map marker, in the player's own place (module notes).
+    let custom = script.as_deref().and_then(|s| s.rt.as_ref()).and_then(|rt| rt.game.custom_map_marker());
+    if let (Some((space, pos)), Some(loc)) = (custom, location.as_deref()) {
+        if space.0 == loc.interior.unwrap_or(loc.world) {
+            let pos = pos.map(|v| v as f32);
+            if on_compass(offset(heading, here, [pos[0], pos[1]])) {
+                marks.push(Mark::Player);
+            }
+            let rise = if marker_height { rise_of(pos[2] - feet[2]) } else { 0 };
+            found_near.push(Near { mark: Mark::Player, at: [pos[0], pos[1]], body: None, rise });
         }
     }
     if *logged_quest != Some((placed, shown)) {
@@ -510,6 +564,7 @@ fn gather(
 /// Where the marks stand this frame (see the module notes): from the last look's
 /// marks, the camera's heading (shared with the strip [observed: hud.md §14.5]) and the
 /// player's and the actors' places now.
+#[allow(clippy::type_complexity)]
 pub(crate) fn place(
     state: Res<State<PlayState>>,
     player: Option<Res<Player>>,
@@ -517,7 +572,7 @@ pub(crate) fn place(
     phys: Option<Res<PhysState>>,
     near: Res<CompassNear>,
     mut view: ResMut<CompassView>,
-    (mut alpha, sim, tweaks): (ResMut<CompassAlpha>, Option<Res<SimState>>, Option<Res<crate::tweaks::TweakSettings>>),
+    (mut alpha, sim, tweaks, mut rise): (ResMut<CompassAlpha>, Option<Res<SimState>>, Option<Res<crate::tweaks::TweakSettings>>, ResMut<CompassRise>),
 ) {
     if *state.get() != PlayState::Playing {
         return;
@@ -527,7 +582,8 @@ pub(crate) fn place(
     let here = [player.feet[0], player.feet[1]];
     let body = |id: u32| phys.as_deref().and_then(|p| p.npcs.get(&id)).map(|b| [b.ch.feet[0], b.ch.feet[1]]);
     let far = marks_far(&near.0, heading, here, &body);
-    view.set_if_neq(CompassView(far.iter().map(|&(m, x, _)| (m, x)).collect()));
+    view.set_if_neq(CompassView(far.iter().map(|&(m, x, _, _)| (m, x)).collect()));
+    rise.set_if_neq(CompassRise(far.iter().map(|m| m.3).collect()));
     // The player's tweak: the sneak range, fSneakMaxDistance (times
     // fSneakExteriorDistanceMult outdoors), fades actors' pips [design: docs/design/tweaks.md].
     let fade = tweaks.as_ref().is_some_and(|t| t.compass_pips_fade);
@@ -541,7 +597,7 @@ pub(crate) fn place(
     };
     // And its other tweak fades places over the reach they show at.
     let places = if tweaks.as_ref().is_some_and(|t| t.compass_places_fade) { f32::from_bits(PLACE_RANGE.load(std::sync::atomic::Ordering::Relaxed)) } else { 0.0 };
-    let shade = |&(m, _, d): &(Mark, f32, f32)| match m {
+    let shade = |&(m, _, d, _): &(Mark, f32, f32, i8)| match m {
         Mark::Actor | Mark::Hostile | Mark::Companion if range > 0.0 => (1.0 - d / range).clamp(FARTHEST_PIP, 1.0),
         Mark::Place | Mark::Found if places > 0.0 => (1.0 - d / places).clamp(FARTHEST_PIP, 1.0),
         _ => 1.0,
@@ -580,6 +636,7 @@ struct Art {
     landmark: Option<Handle<Image>>,
     found: Option<Handle<Image>>,
     quest: Option<Handle<Image>>,
+    player: Option<Handle<Image>>,
 }
 
 /// The Compass Fade Left Side tweak's shade of a mark `x` right of the heading point:
@@ -604,9 +661,22 @@ fn mark_left(mark: Mark, x: f32, picture: bool) -> f32 {
     }
 }
 
-/// The marks' nodes as spawned: each mark's kind and node, in [`CompassView`]'s order.
+/// The marks' nodes as spawned: each mark's kind and node, and its above-or-below bar
+/// with the rise it shows, in [`CompassView`]'s order.
 #[derive(Default)]
-struct Spawned(Vec<(Mark, Entity)>);
+struct Spawned(Vec<(Mark, Entity, Option<RiseBar>)>);
+
+/// A drawn above-or-below bar: the rise it shows and its node.
+type RiseBar = (i8, Entity);
+
+/// The above-or-below bar of a mark whose picture's box has its left edge at `left`:
+/// its left and top in the compass window.
+fn rise_bar_at(left: f32, rise: i8) -> (f32, f32) {
+    let top = LANDMARK_Y - LANDMARK_MIDDLE.y * LANDMARK_SIZE;
+    let x = left + LANDMARK_MIDDLE.x * LANDMARK_SIZE - RISE_BAR.x / 2.0;
+    let y = if rise > 0 { top - RISE_GAP - RISE_BAR.y } else { top + LANDMARK_SIZE + RISE_GAP };
+    (x, y)
+}
 
 #[allow(clippy::too_many_arguments)]
 fn draw(
@@ -621,26 +691,28 @@ fn draw(
     mut art: Local<Option<Art>>,
     mut spawned: Local<Spawned>,
     tweaks: Option<Res<crate::tweaks::TweakSettings>>,
-    alpha: Option<Res<CompassAlpha>>,
+    (alpha, rise): (Option<Res<CompassAlpha>>, Option<Res<CompassRise>>),
 ) {
+    let rise_of_mark = |k: usize| rise.as_ref().and_then(|r| r.0.get(k)).copied().unwrap_or(0);
     let companion = crate::tweaks::companion_colour(tweaks.as_deref());
     // The HUD's lengths at the UI scale (`crate::interface::hud_units`, #1631).
     let _hud = crate::interface::hud_units();
     let Ok(layer) = layers.single() else { return };
     let fresh = added.get(layer).is_ok();
-    let alpha_changed = alpha.as_ref().is_some_and(|a| a.is_changed());
+    let alpha_changed = alpha.as_ref().is_some_and(|a| a.is_changed()) || rise.as_ref().is_some_and(|r| r.is_changed());
     if !view.is_changed() && !fresh && !alpha_changed {
         return;
     }
     let art = art.get_or_insert_with(|| {
         let bc = bc_supported(formats.as_deref());
         let mut read = |p: &str| data.as_deref().and_then(|d| texture(p, d, &mut images, bc)).map(|t| t.0);
-        Art { tick: read(TICK), landmark: read(LANDMARK), found: read(LANDMARK_FOUND), quest: read(QUEST) }
+        Art { tick: read(TICK), landmark: read(LANDMARK), found: read(LANDMARK_FOUND), quest: read(QUEST), player: read(PLAYER_MARKER) }
     });
     let image_of = |mark: Mark| match mark {
         Mark::Actor | Mark::Hostile | Mark::Companion => &art.tick,
         Mark::Found => &art.found,
         Mark::Quest => &art.quest,
+        Mark::Player => &art.player,
         Mark::Place => &art.landmark,
     };
     // The same kinds in the same order: the nodes move, every frame while the player
@@ -649,9 +721,15 @@ fn draw(
     // frame for their shade [design: docs/design/tweaks.md].
     let fade_left = tweaks.as_ref().is_some_and(|t| t.compass_fade_left);
     if !fade_left && !alpha_changed && !fresh && spawned.0.len() == view.0.len() && spawned.0.iter().zip(&view.0).all(|(a, b)| a.0 == b.0) {
-        for (&(mark, entity), &(_, x)) in spawned.0.iter().zip(&view.0) {
+        for (&(mark, entity, bar), &(_, x)) in spawned.0.iter().zip(&view.0) {
+            let left = mark_left(mark, x, image_of(mark).is_some());
             if let Ok(mut node) = nodes.get_mut(entity) {
-                node.left = u(mark_left(mark, x, image_of(mark).is_some()));
+                node.left = u(left);
+            }
+            if let Some((r, bar)) = bar {
+                if let Ok(mut node) = nodes.get_mut(bar) {
+                    node.left = u(rise_bar_at(left, r).0);
+                }
             }
         }
         return;
@@ -672,9 +750,9 @@ fn draw(
                 }
                 // The quest marker in the map marker's box (the same 40 x 50 at y 5 in the
                 // HUD file) [hypothesis: its picture is laid out as the landmark's].
-                Mark::Place | Mark::Found | Mark::Quest => (at(left, LANDMARK_Y - LANDMARK_MIDDLE.y * LANDMARK_SIZE, LANDMARK_SIZE, LANDMARK_SIZE), amber(255.0)),
+                Mark::Place | Mark::Found | Mark::Quest | Mark::Player => (at(left, LANDMARK_Y - LANDMARK_MIDDLE.y * LANDMARK_SIZE, LANDMARK_SIZE, LANDMARK_SIZE), amber(255.0)),
             };
-            let colour = if fade_left && mark != Mark::Quest { colour.with_alpha(left_fade(x)) } else { colour };
+            let colour = if fade_left && !matches!(mark, Mark::Quest | Mark::Player) { colour.with_alpha(left_fade(x)) } else { colour };
             // The Fade Pips by Distance tweak (`CompassAlpha`).
             let colour = match alpha.as_ref().and_then(|a| a.0.get(k)).copied().filter(|a| *a < 1.0) {
                 Some(a) => colour.with_alpha(colour.alpha() * a),
@@ -685,7 +763,13 @@ fn draw(
                 // Without the game's pictures: a small block.
                 None => p.spawn((at(left, if matches!(mark, Mark::Actor | Mark::Hostile | Mark::Companion) { 10.0 } else { 40.0 }, 4.0, 12.0), BackgroundColor(colour))).id(),
             };
-            out.push((mark, id));
+            // The height tweaks' bar over or under the picture.
+            let r = rise_of_mark(k);
+            let bar = (r != 0).then(|| {
+                let (bx, by) = rise_bar_at(left, r);
+                (r, p.spawn((at(bx, by, RISE_BAR.x, RISE_BAR.y), BackgroundColor(colour))).id())
+            });
+            out.push((mark, id, bar));
         }
     });
     spawned.0 = out;
@@ -716,9 +800,9 @@ mod tests {
     #[test]
     fn the_marks_move_smoothly_with_the_heading_and_the_bodies() {
         let near = [
-            Near { mark: Mark::Actor, at: [0.0, 100.0], body: Some(7) },
-            Near { mark: Mark::Place, at: [0.0, 100.0], body: None },
-            Near { mark: Mark::Quest, at: [0.0, -100.0], body: None },
+            Near { mark: Mark::Actor, at: [0.0, 100.0], body: Some(7), rise: 0 },
+            Near { mark: Mark::Place, at: [0.0, 100.0], body: None, rise: 0 },
+            Near { mark: Mark::Quest, at: [0.0, -100.0], body: None, rise: 0 },
         ];
         let none = |_: u32| None;
         // Turning a tenth of a degree moves the marks 1024 / 3600 units, not 0 or 1.
@@ -735,7 +819,7 @@ mod tests {
         let c = marks(&near, 0.0, [0.0, 0.0], &walked);
         assert!((c[0].1 - offset(0.0, [0.0, 0.0], [10.0, 100.0])).abs() < 1e-4 && c[0].1 > 1.0);
         // An actor behind the player has none.
-        let behind = [Near { mark: Mark::Actor, at: [0.0, -100.0], body: None }];
+        let behind = [Near { mark: Mark::Actor, at: [0.0, -100.0], body: None, rise: 0 }];
         assert!(marks(&behind, 0.0, [0.0, 0.0], &none).is_empty());
         assert_eq!(c[1].1, a[1].1);
         // The quest target behind the player is held at the band's left end (T12e).
@@ -749,7 +833,7 @@ mod tests {
     #[test]
     fn a_quest_target_off_the_compass_is_held_at_its_end() {
         let none = |_: u32| None;
-        let at = |to: [f32; 2]| marks(&[Near { mark: Mark::Quest, at: to, body: None }], 0.0, [0.0, 0.0], &none);
+        let at = |to: [f32; 2]| marks(&[Near { mark: Mark::Quest, at: to, body: None, rise: 0 }], 0.0, [0.0, 0.0], &none);
         // Due east (256 right) and due west: held at the right and the left end.
         assert_eq!(at([100.0, 0.0]), [(Mark::Quest, COMPASS_VISIBLE)]);
         assert_eq!(at([-100.0, 0.0]), [(Mark::Quest, -COMPASS_VISIBLE)]);
@@ -758,6 +842,22 @@ mod tests {
         assert!((at(thirty)[0].1 - 30.0 * 1024.0 / 360.0).abs() < 1e-2);
         assert_eq!(pinned(-140.0), -139.0);
         assert_eq!(pinned(12.5), 12.5);
+    }
+
+    #[test]
+    fn the_players_marker_is_held_at_an_end_and_keeps_its_rise() {
+        let none = |_: u32| None;
+        let near = [Near { mark: Mark::Player, at: [100.0, 0.0], body: None, rise: 1 }, Near { mark: Mark::Quest, at: [0.0, 100.0], body: None, rise: -1 }];
+        let far = marks_far(&near, 0.0, [0.0, 0.0], &none);
+        // Sorted by kind: the quest mark first, the player's marker drawn over it.
+        assert_eq!(far.iter().map(|m| (m.0, m.3)).collect::<Vec<_>>(), [(Mark::Quest, -1), (Mark::Player, 1)]);
+        assert_eq!(far[1].1, COMPASS_VISIBLE);
+        assert_eq!((rise_of(HEIGHT_STEP + 1.0), rise_of(-HEIGHT_STEP - 1.0), rise_of(HEIGHT_STEP)), (1, -1, 0));
+        // The bar stands over the picture for above, under it for below, on its middle.
+        let (x, above) = rise_bar_at(100.0, 1);
+        let (_, below) = rise_bar_at(100.0, -1);
+        assert!(above < LANDMARK_Y && below > LANDMARK_Y);
+        assert!((x + RISE_BAR.x / 2.0 - (100.0 + LANDMARK_MIDDLE.x * LANDMARK_SIZE)).abs() < 1e-4);
     }
 
     #[test]
