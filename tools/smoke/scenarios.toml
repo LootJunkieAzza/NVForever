@@ -25015,3 +25015,28 @@ expect = [
   { re = 'ai: Lucky38MrHouseREF never turns \(flagged Immobile, Turning Speed 0\)', label = "the screen is marked as never turning" },
   { re = 'console: GetAngle on Lucky38MrHouseREF >> 135\.00', min = 2, label = "its heading is the placed 135 degrees before the fight and 6 s into it" },
 ]
+
+[[scenario]]
+name = "dpad-points-pad"
+source = "issue #1910: with a controller, D-pad left removes a point and right adds one on the SPECIAL page and the level-up skills page, as in the original (owner's play on a controller); the D-pad reaches the menus as arrow keys with no keyboard event (pad.rs sideways, menu_keys)"
+note = "Controller chosen in the settings at 2 s. The SPECIAL page (AddSPECIALPoints 1) at 8 s: D-pad right spends the point on the selected attribute, left takes it back, right spends it again, Done at 13 s. The level-up menu at 16 s: D-pad right twice raises the selected skill, left lowers it once. Before the fix none of the D-pad presses changed a value"
+areas = ["chargen", "levelup", "menus", "controller"]
+paths = ["engine/nvf-play/src/pad.rs", "engine/nvf-play/src/levelup.rs", "engine/nvf-play/src/chargen.rs"]
+env = { NVFOREVER_HOME = "dpad-points-pad-home", NVF_PLAY_TEST_PAUSE = "1:4", NVF_PLAY_TEST_SETTINGS = "2:device:Controller", NVF_PLAY_TEST_SCRIPT_MENUS = "off", NVF_PLAY_TEST_SCRIPT = "8:call:-:AddSPECIALPoints:1", NVF_PLAY_TEST_KEYS = "10:pad-D-Pad Right,11:pad-D-Pad Left,12:pad-D-Pad Right,18:pad-D-Pad Right,19:pad-D-Pad Right,20:pad-D-Pad Left", NVF_PLAY_TEST_CHARGEN = "13:done", NVF_PLAY_TEST_LEVELUP = "16:advance" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 23
+expect = [
+  { text = "test aid: real input Pad(DPadLeft) pressed", count = 2, label = "two D-pad left presses" },
+  { text = "test aid: real input Pad(DPadRight) pressed", count = 4, label = "four D-pad right presses" },
+]
+order = [[
+  { re = 'chargen: attributes menu open', label = "the SPECIAL page opens" },
+  { re = 'chargen: \w+ raised; 0 points left', label = "D-pad right adds a point" },
+  { re = 'chargen: \w+ lowered; 1 points left', label = "D-pad left takes it back" },
+  { re = 'chargen: \w+ raised; 0 points left', label = "D-pad right spends it again" },
+  { re = 'chargen: done', label = "and the page is done" },
+  { re = 'levelup: menu open, level 2, \d+ skill points', label = "the level-up menu opens" },
+  { re = 'levelup: (\w+ ?)+ (\d+) -> \d+; \d+ points left', label = "D-pad right adds a skill point" },
+  { re = 'levelup: (\w+ ?)+ \d+ -> \d+; \d+ points left', label = "and another" },
+  { re = 'levelup: (\w+ ?)+ \d+ -> \d+; \d+ points left', label = "D-pad left takes one back" },
+]]
