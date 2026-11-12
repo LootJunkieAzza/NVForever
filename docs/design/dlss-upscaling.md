@@ -95,17 +95,26 @@ detail in the module notes of the file named.
   now (put there since the start, or kept out by `NVF_DLSS_PRELOAD=0`): the request is saved,
   what drew keeps drawing, and the Upscaler row reads "DLSS (restart)", its note saying why.
   With the files still missing, DLSS is dimmed as "files missing" instead (the status looks
-  at the folder at most once a second). Once DLSS stopped working (`EvaluateFailed`, below), a
-  DLSS request draws natively with the reason for the rest of the session; FSR and Off still
-  follow at once. (Steps 2, 8; the play-test follow-up replaced the earlier rule that entering
-  or leaving DLSS took a restart.)
+  at the folder at most once a second). The same look serves a start that chose DLSS and whose
+  loader stopped at the missing files: it stopped before loading the interposer, so nothing of
+  Streamline is in the process, and once the four files are there DLSS turns from "files
+  missing" to restart pending (`upscaler::state_now`; from the review of 2026-11-12). Every
+  other reason the loader stopped at (the updater, the signature, the device check, Streamline
+  refusing) stays for the session. Once DLSS stopped working (`EvaluateFailed`, below), DLSS
+  stays unavailable for the rest of the session: a DLSS request draws natively with the reason,
+  and FSR 3.1 and Off can still be chosen, live as ever [design: a deliberate change from the
+  plan's "native for the rest of the session", which predates live switching; the review of
+  2026-11-12, answer 7]. (Steps 2, 8; the play-test follow-up replaced the earlier rule that
+  entering or leaving DLSS took a restart.)
 - **Native fallback, not FSR** (`dlss/mod.rs`, `dlss_pass`). When DLSS cannot draw a frame
   (the first frame, a missing input, no options for the frame's mode and size, a render size
   outside the range DLSS reports, a failed call), the common spatial fallback draws it and the
   history is invalidated. 60 such frames in a row (`FAILED_FRAMES`) mark DLSS unavailable for
   the session (`EvaluateFailed`): the status then draws the camera natively, with the reason on
-  the DLSS entries. When DLSS reports no usable render size for a mode, the view renders
-  natively. The spike's fallback to FSR's dispatch is gone. (Step 5; the status, step 8.)
+  the DLSS entries, until another upscaler is chosen (FSR 3.1 or Off, which take effect at
+  once; the log line says so). DLSS itself is not tried again until the next start. When DLSS
+  reports no usable render size for a mode, the view renders natively. The spike's fallback
+  to FSR's dispatch is gone. (Step 5; the status, step 8.)
 - **No FSR state while DLSS runs** (`upscaler/prep.rs`, `dlss/mod.rs`). DLSS gets the common
   preparation (render size, jitter, mip bias, depth, motion) but no FSR context, masks or
   history textures, and draws in its own pass. Step 4 split the common preparation out of

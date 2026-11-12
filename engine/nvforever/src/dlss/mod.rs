@@ -450,7 +450,7 @@ fn record(evaluated: bool) {
         EVALUATE_FAILED.store(true, Ordering::Relaxed);
         note(
             Level::WARN,
-            format!("{FAILED_FRAMES} frames running without DLSS's output: DLSS is unavailable for the rest of the session ({}); the camera draws natively from the next frame", Unavailable::EvaluateFailed.key()),
+            format!("{FAILED_FRAMES} frames running without DLSS's output: DLSS is unavailable for the rest of the session ({}); the camera draws natively from the next frame until another upscaler is chosen (FSR 3.1 or Off take effect at once)", Unavailable::EvaluateFailed.key()),
         );
     }
 }

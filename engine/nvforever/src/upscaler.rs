@@ -503,6 +503,13 @@ pub fn dlss_state_now() -> DlssState {
 
 /// [`dlss_state_now`]'s rule over its inputs. `loader_ran`: the DLSS loader ran at start;
 /// `files`: the four files are in the DLSS folder now (asked only when it decides).
+///
+/// A loader that stopped at missing files (`FilesMissing`) stopped before it loaded the
+/// interposer (`dlss/win.rs` `start` checks the folder first), so nothing of Streamline is in
+/// the process and the files are looked at again as for a loader that never ran: once all four
+/// are there, a restart brings DLSS. Every other reason the loader stopped at (the updater, the
+/// signature, the device check, Streamline refusing) and DLSS given up on later stay for the
+/// session.
 fn state_now(session: DlssState, windows: bool, vulkan: bool, loader_ran: bool, files: impl FnOnce() -> bool) -> DlssState {
     match session {
         DlssState::NotLoaded => match before_loading(windows, vulkan) {
@@ -513,6 +520,8 @@ fn state_now(session: DlssState, windows: bool, vulkan: bool, loader_ran: bool, 
             DlssState::NotLoaded if !files() => DlssState::Unavailable(Unavailable::FilesMissing),
             state => state,
         },
+        // The files put there since the start: a restart brings DLSS.
+        DlssState::Unavailable(Unavailable::FilesMissing) if files() => DlssState::NotLoaded,
         state => state,
     }
 }
@@ -870,6 +879,41 @@ mod tests {
         assert_eq!(state_now(DlssState::NotLoaded, false, true, false, never), DlssState::Unavailable(Unavailable::NotWindows));
         assert_eq!(state_now(DlssState::NotLoaded, true, false, false, never), DlssState::Unavailable(Unavailable::NotVulkan));
         assert_eq!(state_now(DlssState::Ready, true, true, true, never), DlssState::Ready);
+    }
+
+    /// The loader ran with DLSS chosen and stopped at missing files (before the interposer):
+    /// files put there since are found by the same once-a-second look, and DLSS becomes a
+    /// restart away (`NotLoaded`), in reach again. The loader's other reasons and DLSS given up
+    /// on stay for the session, whatever the folder holds.
+    #[test]
+    fn files_added_after_a_start_that_missed_them_bring_dlss_at_the_next_start() {
+        let missing = DlssState::Unavailable(Unavailable::FilesMissing);
+        assert_eq!(state_now(missing, true, true, true, || false), missing, "still missing");
+        assert_eq!(state_now(missing, true, true, true, || true), DlssState::NotLoaded, "there now: a restart brings DLSS");
+        let never = || -> bool { panic!("the files are not asked about here") };
+        for why in [
+            Unavailable::UpdaterInFolder,
+            Unavailable::SignatureRejected,
+            Unavailable::StreamlineRefused,
+            Unavailable::DeviceUnsuitable,
+            Unavailable::GpuNotSupported,
+            Unavailable::EvaluateFailed,
+            Unavailable::NotVulkan,
+        ] {
+            assert_eq!(state_now(DlssState::Unavailable(why), true, true, true, never), DlssState::Unavailable(why), "{why:?} stays");
+        }
+        // What the status makes of it: missing, DLSS asked for draws natively with the reason;
+        // the files there, what drew (FSR) keeps drawing until the restart, no reason left.
+        let mut status = UpscalerStatus::new(Session { streamline_loaded: false, dlss: missing, fsr: None });
+        status.update(UpscalerChoice::Fsr(Quality));
+        status.update(UpscalerChoice::Dlss(Quality));
+        assert_eq!((status.effective(), status.reason()), (UpscalerChoice::Off, Some(Unavailable::FilesMissing)), "missing: native with the reason");
+        assert_eq!(status.dlss_unavailable(), Some(Unavailable::FilesMissing));
+        status.session.dlss = state_now(missing, true, true, true, || true);
+        status.update(UpscalerChoice::Fsr(Quality));
+        status.update(UpscalerChoice::Dlss(Quality));
+        assert_eq!((status.effective(), status.restart_pending(), status.reason()), (UpscalerChoice::Fsr(Quality), true, None));
+        assert_eq!(status.dlss_unavailable(), None, "in reach again");
     }
 
     /// DLSS's own pass giving up (`dlss::session_state` says `EvaluateFailed`) reaches the

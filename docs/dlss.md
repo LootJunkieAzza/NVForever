@@ -51,7 +51,9 @@ dimmed while Upscaler is Off.
 With the four files in the `dlss` folder when the game starts, every change takes effect at
 once: Off, FSR 3.1 and DLSS, and every quality. Files put into the folder while the game runs
 are found at the next start: until then a DLSS choice reads **DLSS (restart)** and the picture
-stays as it was. Loading a save starts the game again too.
+stays as it was. That holds too when the game started with DLSS chosen and the files missing:
+once all four are in the folder, DLSS is no longer greyed out and reads DLSS (restart). Loading
+a save starts the game again too.
 
 On the command line, `--upscaler dlss --upscaler-quality balanced` (or `native-aa`,
 `quality`, `performance`, `ultra-performance`) chooses DLSS; as with every setting, a choice
@@ -94,22 +96,22 @@ through Streamline too; remove the folder to keep NVIDIA's code out altogether.
 
 When DLSS cannot run, the Upscaler row's DLSS entry is greyed out with the reason. If DLSS is
 the upscaler you chose, the game then draws without upscaling; an FSR 3.1 choice keeps working
-as before. A DLSS
-choice already saved stays saved, so it is tried again at every start: fix
-what the reason says and start the game again. The log
+as before, and FSR 3.1 or Off can still be chosen, taking effect at once. A DLSS choice already
+saved stays saved, so it is tried again at every start: fix what the reason says and start the
+game again. The log
 (`Documents\My Games\NVForever\logs`) has the details in its lines starting `DLSS:`.
 
 | Reason shown | What it means |
 |---|---|
 | DLSS needs Windows | DLSS runs on Windows only. Elsewhere, FSR 3.1 is the upscaler. |
 | DLSS needs the Vulkan renderer | The game was started with another renderer (the `WGPU_BACKEND` variable, for example `dx12`). Start it with Vulkan, the default. |
-| DLSS files missing: put them in the dlss folder beside nvforever.exe, then restart | The `dlss` folder is not next to `nvforever.exe`, or one of the four files is not in it. The log names the missing files. |
+| DLSS files missing: put them in the dlss folder beside nvforever.exe, then restart | The `dlss` folder is not next to `nvforever.exe`, or one of the four files is not in it. The log names the missing files. Once all four are there, DLSS reads DLSS (restart). |
 | The dlss folder holds NVIDIA's updater (nvngx_update.exe): remove it, then restart | Delete `nvngx_update.exe` from the `dlss` folder. This is also shown when the folder could not be read. |
 | The DLSS files are not signed by NVIDIA | `sl.interposer.dll` did not pass the signature check. Download the release again from NVIDIA's page and copy the files unchanged. |
 | DLSS did not start (the log says why) | NVIDIA's Streamline would not load or start. The log's `DLSS:` lines say where it stopped. |
 | A graphics card the game may use cannot run DLSS | A graphics card Vulkan can see lacks what DLSS needs. This is typical on laptops whose built-in graphics also show up in Vulkan beside the NVIDIA card: the game checks every card Vulkan shows, since it could end up starting on any of them. DLSS stays off rather than risk a crash at start. The log names the card. |
 | Not on this GPU or driver (DLSS needs an NVIDIA RTX card) | DLSS does not run on this graphics card or driver. It needs an NVIDIA RTX card; updating the driver may help. |
-| DLSS stopped working this session; it is tried again at the next start | DLSS gave no picture for a while in this session, so the game draws without it until the next start. |
+| DLSS stopped working this session; it is tried again at the next start | DLSS gave no picture for a while in this session. For the rest of the session a DLSS choice draws without upscaling; FSR 3.1 and Off can still be chosen and take effect at once. DLSS is tried again at the next start. |
 
 ## Removing it
 
