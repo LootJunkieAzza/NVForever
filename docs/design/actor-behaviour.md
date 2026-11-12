@@ -190,15 +190,26 @@ when the target has moved 64 units, at most twice a second. On its way after a t
 that moves it keeps step (`carry::follow_speed`): the target's own pace since the last
 plan plus the gap beyond the distance closed in 3 seconds, between half its walk and its
 run, so the walk clip plays faster or slower and the run clip comes only when it is well
-behind; it stops once within the distance when the target has stopped (no new plan for a
-second, or slower than 20 units/s), else only 64 units inside it [our choice; owner's
+behind [our choice; owner's
 playtest 2026-10-24: the Novac pack brahmin, kept about 450 units back by its package, stood,
 set off running past a fixed 512, caught up and stood again all the way after its
 merchant]. In the original game the same brahmin walked at its merchant's pace 440–530
 units behind it, ran only once it was about 800–1,060 behind, and closed to about 300
 when the merchant stopped [observed: AI observer 2026-10-24, docs/spec-notes/actors.md
-§8.10, Brahmin]: the rule above agrees except for that last stop, which is at the
-distance here. A target that is gone or dead
+§8.10, Brahmin]. A follower on its way stops 150 units inside its distance
+(`FOLLOW_STOP_INSET`), but not nearer than 128 (`COLUMN_GAP`) and never beyond the
+distance (`carry::follow_stop_at`); in step with a moving target it stays near the
+distance, so in practice it comes in once the target stops or slows: 180 for Boone's 330,
+300 for the brahmin's 450, 362 for DefaultFollowPlayerFar's 512, 128 for the usual 256
+[design, #2122: Boone came to 177 of his 330 once the player stopped
+(docs/spec-notes/npc-behaviour-compare.md, Boone) and the brahmin to about 300 of 450,
+both about 150 inside [observed]; one share of the distance fits the two less well (0.54
+and 0.67), and the original's rule is not known; in owner-review.md]. Distances of 128
+and less keep the earlier rule: within the distance once the target has stopped (no new
+plan for a second, or slower than 20 units/s), else 64 units inside it; so do the gaps of
+a column (below). Before #2122 every follower used that rule, and a run of main
+(bdd4cb8ba) had GoodspringsSettler01Ref on DefaultFollowPlayerFar stop at 404 of 512
+[observed: issue #2122]. A target that is gone or dead
 is not followed. The goal counts as met at once (`package_goal_met`), so the periodic
 choice may replace the package as it may any other. The target being attacked and the
 Wait/StopWaiting functions (used by no script of the masters) are not built. The
@@ -207,7 +218,8 @@ of cells, fighting the player's foes, waiting by their Guard packages. `fnvtool 
 reach`: 256 of the 265 follow-type actor-package pairs of FalloutNV.esm are now
 "follows: goes after its target from where it is"; 5 name no reference (not carried
 out) and 4 are Escort; every other verdict is unchanged. Log: `ai [h] <actor>: walks
-after <target> (<package>): <n> units away, …` and `: has caught up with <target>`.
+after <target> (<package>): <n> units away, …` and `: has caught up with <target>: <n>
+units away, stops within <n>`.
 
 *Followers in a line* (`Ai::ahead_in_column`; owner playtest 2026-10-24: three
 mercenaries following one leader should walk behind it in single file, not bunch up on
@@ -452,7 +464,7 @@ Wander packages in the masters):
 
 | Flag | In the record | Sandbox packages with the behaviour on | What we do |
 |---|---|---|---|
-| Eating | type-specific bit 0 "No Eating" | 465 of 791 | meals at the rolled times, on a seat if one is free; no food is picked up or eaten |
+| Eating | type-specific bit 0 "No Eating" | 465 of 791 | meals at the rolled times, only on a free seat (furniture on); no seat, no meal (#2011); no food is picked up or eaten |
 | Sleeping | bit 1 "No Sleeping" | 305 | to a bed of the area for the rolled night; no bed, no sleep [hypothesis] |
 | Conversation | bit 2 "No Conversation" | 654 | the actor takes part in no random conversation (`fnv_ai::social`, docs/spec-notes/dialogue.md §5.2) |
 | Idle markers | bit 3 "No Idle Markers" | 706 | goes to a marker and faces its way, and plays the marker's idles there (docs/spec-notes/idles.md §5) |
@@ -478,8 +490,17 @@ packages.md §2). Wander packages are treated as sandboxes with their own flags
    between `fSandboxSleepStartMin` and `Max` (19:00 to 01:00), length between
    `fSandboxSleepDurationMin` and `Max` (6 to 10 hours) [documented defaults; the
    masters do not set them].
-2. In a meal window, with eating on: a meal until the window ends (breakfast starting
-   6 to 9, lunch 11 to 14, dinner 17 to 20, lasting 0.5 to 2 hours, rolled likewise).
+2. In a meal window, with eating and furniture on and a seat free in the area: a meal on
+   that seat until the window ends (breakfast starting 6 to 9, lunch 11 to 14, dinner 17
+   to 20, lasting 0.5 to 2 hours, rolled likewise). With no free seat (none in the area,
+   each one kept for another actor or waiting out a failed way to it) the meal is not
+   chosen and step 3 goes on (each such choice is counted, `Sandbox::seatless_meal_choices`:
+   the exit report's `ai sandbox meals` line for named residents, `seatless_meal_choices`
+   in `fnvtool ai run`); a seat that comes free within the window is taken at the next
+   choice [design, #2011: the original reported no EAT procedure under Sandbox
+   packages that allow eating, observed: npc-behaviour-compare.md §6a; until 2026-11-11
+   a seatless meal held the actor standing on the spot to the window's end. Whether the
+   original's sandbox eats on a seat at all is observer check 113].
 3. Otherwise one of: a seat, an idle marker, a wander. Each kind has a weight that drops
    to zero when the kind was just chosen and grows back by half each time another is;
    the object just used is not chosen again at once [documented]. Low energy (AIDT
@@ -517,7 +538,7 @@ delays.
 
 **The only object, used again** [design, #1505: the maintainer's handed-off choice, under
 review in owner-review.md; no vanilla-parity claim, the original is unmeasured: observer
-check 108]: the object just used stays out of the choices, and with several objects open
+check 114]: the object just used stays out of the choices, and with several objects open
 the actor goes from one to another as above. When the object used last is the only one
 open (no other seat or idle marker the package allows that is present, not given to
 another actor and not waiting out a failed way), it comes back once the actor has done
