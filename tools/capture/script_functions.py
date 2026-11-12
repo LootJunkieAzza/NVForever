@@ -296,6 +296,33 @@ PARAM_FIXES = {
                              "optional": True}],
 }
 
+# Extender functions with no wiki page, from their call shapes in a plugin's script
+# source and what they did in the original (issue #976, menu-xml.md §10.2): MCM.dll's
+# list functions [observed 2026-11-12: MCM 1.5's own scripts (SCTX) call them with these
+# arguments; job mcm976e measured their effects]. No opcode: they go by name.
+def _i(name):
+    return {"name": name, "type": "int", "kind": "int"}
+
+
+PAGELESS = [
+    {"name": "GetMCMListWidth", "page": None, "origin": "MCM", "returns": {"type": "float", "name": None},
+     "params": [_i("List"), _i("Row")], "categories": ["Functions (MCM)"]},
+    {"name": "SetMCMFloatMass", "page": None, "origin": "MCM", "returns": {"type": "void", "name": None},
+     "params": [_i("Child"), _i("First"), _i("Last"),
+                {"name": "Setting", "type": "string", "kind": "string"},
+                {"name": "Value", "type": "float", "kind": "float"}], "categories": ["Functions (MCM)"]},
+    {"name": "SetMCMModList", "page": None, "origin": "MCM", "returns": {"type": "void", "name": None},
+     "params": [_i("Row"), _i("Enable"), _i("ModIndex"),
+                _i("Value"), {"name": "Form", "type": "form", "kind": "form"}],
+     "categories": ["Functions (MCM)"]},
+    {"name": "SetMCMStringMass", "page": None, "origin": "MCM", "returns": {"type": "void", "name": None},
+     "params": [_i("Child"), _i("First"), _i("Last"),
+                {"name": "Setting", "type": "string", "kind": "string"},
+                {"name": "text", "type": "formattedString", "kind": "string"},
+                {"name": "formatVars(up to 20)", "type": None, "kind": "unknown", "optional": True}],
+     "categories": ["Functions (MCM)"]},
+]
+
 # Pages whose template `name` is another function's (copied from a sibling page): the
 # page title is the function's name [documented: each page's title and its example,
 # e.g. "GetConditionFormOneFloat HitReactionIdles 0 1"; the template says
@@ -631,6 +658,8 @@ def build(wiki, scan, xedit, notes):
 
     entries = [dict(rec) for rec in wiki]
     wiki_keys = {rec["name"].lower() for rec in wiki}
+    entries += [dict(rec) for rec in PAGELESS if rec["name"].lower() not in wiki_keys]
+    wiki_keys |= {rec["name"].lower() for rec in PAGELESS}
     xedit_names = {name.lower(): name for name, _ in xedit.values()}
     for key in observed:
         if key not in extra:

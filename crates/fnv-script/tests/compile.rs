@@ -1303,14 +1303,15 @@ fn a_mods_unknown_functions_compile_as_calls() {
         // On an element, and standing for a value (ySI's functions).
         "string_var s\narray_var a\nbegin GameMode\nlet s := a[0].ySIGetTagTrait \"string\"\nend",
         "string_var s\nref r\nbegin GameMode\ns = ySIGetTagTrait \"filename\" r\nend",
-        // In a vanilla set (MCM's function).
-        "float f\nshort i\nbegin GameMode\nset f to GetMCMListWidth 2 i + 15 + i * 4\nend",
+        // In a vanilla set: a name the table lacks, shaped like MCM's GetMCMListWidth (the
+        // example until 22b75d255 put that function in the table).
+        "float f\nshort i\nbegin GameMode\nset f to NvfModListWidth 2 i + 15 + i * 4\nend",
     ] {
         let (c, _) = build_mod(src);
         assert!(c.diags.iter().any(|d| d.kind == "unknown_function" && !d.error), "{src}: {:?}", c.diags);
     }
     // The editor-parity compile keeps the error.
-    let c = compile("float f\nshort i\nbegin GameMode\nset f to GetMCMListWidth 2 i\nend", &table(), &World, None);
+    let c = compile("float f\nshort i\nbegin GameMode\nset f to NvfModListWidth 2 i\nend", &table(), &World, None);
     assert!(c.errors().next().is_some());
 }
 

@@ -294,9 +294,35 @@ fn hittable_kind(kind: &str) -> bool {
 /// main script reads their `mouseover` to scroll its mod list, by a click (the raw mouse
 /// button, `IsKeyPressed 256`, never their `clicked`) and by the wheel; the arrows light
 /// on it; documented: Target, a tile needs `target` to react to the pointer, which these
-/// would not if `mouseover` needed it too].
+/// would not if `mouseover` needed it too]. A press over one sets its `clicked` for the
+/// frame too, though it takes no target's click and reports none [hypothesis, from MCM's
+/// Scale.xml: its slider's Accept, Cancel and Default buttons and its arrows are such
+/// hotrects, their `_clicked` reads their own `clicked`, and no script reads their
+/// `mouseover`; owner item 2026-11-11, MCM sliders not saving].
 fn bare_hotrect(tile: &Tile) -> bool {
     tile.kind == "hotrect" && tile.get("target").is_none()
+}
+
+/// The topmost `draggable` [`bare_hotrect`] under the pointer at `at` in `menus` (MCM's
+/// meter handle is one), and the point its `x` and `y` count from. A draggable target is
+/// left out: the vanilla lists' scroll markers are targets, moved by the engine's own
+/// list code, which a written `dragy` would fight [observed: smoke `tiles-container`, the
+/// marker drag scrolled to 9 rows instead of 14 with the markers taken too; design].
+fn draggable_under(ui: &Ui, menus: &[TileId], at: (f64, f64), measure: &Measure<'_>) -> Option<(TileId, (f64, f64))> {
+    let mut found = None;
+    for &menu in menus {
+        let mut bare = Vec::new();
+        walk(ui, menu, measure, &mut Vec::new(), &mut bare);
+        let top = bare
+            .into_iter()
+            .filter(|c| c.under_point(at) && ui.tile(c.under).get(DRAGGABLE).is_some_and(Value::truthy))
+            .max_by(|a, b| a.depth.total_cmp(&b.depth).then(a.order.cmp(&b.order)));
+        // A later menu is over an earlier one ([`hit`]).
+        if let Some(c) = top {
+            found = Some((c.under, (c.area.left - num(ui, c.under, "x", 0.0), c.area.top - num(ui, c.under, "y", 0.0))));
+        }
+    }
+    found
 }
 
 /// A tile the pointer can hit, as the tree stood when it was worked out ([`hit_candidates`]):
@@ -474,6 +500,9 @@ pub struct Input {
     /// The left mouse button went down this frame [hypothesis: a click is the press, not
     /// the release].
     pub press: bool,
+    /// The left mouse button is down this frame (pressed now or earlier): a drag goes on
+    /// while it is ([`Pointer::dragging`]).
+    pub held: bool,
     /// Shift is held: a click also pulses `shiftclicked` [documented: Shiftclicked].
     pub shift: bool,
     /// Keyboard keys pressed this frame, by the name after `_PCButton_` (`"E"`).
@@ -497,6 +526,9 @@ pub struct Report {
     pub clicks: Vec<Click>,
     /// Keys whose trait named nothing this code follows, one line each.
     pub unfollowed: Vec<String>,
+    /// The [`bare_hotrect`]s a press this frame set `clicked` on ([`Pointer::step`]); not
+    /// in `clicks`, which are the target tiles' alone.
+    pub bare_clicks: Vec<TileId>,
 }
 
 /// The pointer's state between frames.
@@ -519,7 +551,23 @@ pub struct Pointer {
     bare: Vec<TileId>,
     /// Copied to each click as it is made: the engine's to set ([`Click::stamp`]).
     pub stamp: u64,
+    /// The `draggable` tile a press started on, while the button stays down, and where its
+    /// `x` and `y` count from: its `dragx` and `dragy` follow the pointer ([`DRAGX`]).
+    pub dragging: Option<(TileId, (f64, f64))>,
 }
+
+/// A `draggable` tile's traits while the pointer drags it: where the pointer is, in the
+/// units and from the point the tile's own `x` and `y` count from, each frame the button stays down after a press on the tile; written
+/// only during the drag, so a script that sets them back to 0 reads 0 between drags
+/// [hypothesis, from MCM's `Scale.xml` and `MCMScaleScript`: the meter's `_drag` is
+/// (`dragx` less the bar's `x`) over the bar's `width`, clamped to 1, and -0.1 while
+/// `dragx` is 0; the script takes the value under that fraction and writes `dragx` 0
+/// each frame. Units observed in no original; overnight item, owner 2026-11-11: MCM
+/// sliders did not change].
+pub const DRAGX: &str = "dragx";
+pub const DRAGY: &str = "dragy";
+/// Marks a tile the pointer can drag [observed: MCM's meters, `<draggable> &true;`].
+pub const DRAGGABLE: &str = "draggable";
 
 impl Pointer {
     /// The highlighted tile, if it is still in the tree.
@@ -580,6 +628,26 @@ impl Pointer {
             if let Some(t) = self.over {
                 report.clicks.push(self.click(ui, t, input.shift, By::Pointer));
             }
+            // A press clicks the bare hotrects under the pointer too, as it gives them
+            // `mouseover` [hypothesis, from MCM's files: its slider's Accept, Cancel and
+            // Default buttons and arrows are hotrects with no `target`, and Scale.xml reads
+            // their `clicked` (owner item 2026-11-11: MCM sliders did not save)].
+            for t in self.bare.clone() {
+                self.click(ui, t, input.shift, By::Pointer);
+                report.bare_clicks.push(t);
+            }
+            self.dragging = input.at.and_then(|at| draggable_under(ui, menus, at, measure));
+        }
+        // The drag: the pointer onto its tile while the button stays down; it ends with the
+        // button, or when the tile goes.
+        self.dragging = self.dragging.filter(|&(t, _)| (input.held || input.press) && ui.is_live(t));
+        if let (Some((t, origin)), Some((x, y))) = (self.dragging, input.at) {
+            ui.set_trait(t, DRAGX, Value::Num(x - origin.0));
+            ui.set_trait(t, DRAGY, Value::Num(y - origin.1));
+            // The traits read from it are worked out before the frame's scripts read them:
+            // MCM's script writes `dragx` 0 after each read, so a drag left to the tree's
+            // next update would only ever be read as 0 [hypothesis, from MCMScaleScript].
+            ui.update();
         }
         let top = menus.iter().rev().copied().find(|&m| ui.is_live(m));
         for key in &input.keys {
@@ -918,7 +986,7 @@ mod tests {
     </menu>"#;
 
     #[test]
-    fn a_hotrect_without_target_is_moused_over_but_takes_no_click() {
+    fn a_hotrect_without_target_is_moused_over_and_pressed_but_takes_no_pointer() {
         let src = MemSource::default().with("menus\\list.xml", SCROLLED_LIST);
         let mut ui = Ui::new();
         let menu = ui.load_menu(&src, "menus\\list.xml").unwrap();
@@ -932,12 +1000,18 @@ mod tests {
         assert_eq!(ui.get_float("ListMenu/List/Scroll/mouseover"), Some(1.0));
         // The hidden arrow is not.
         assert_eq!(ui.get_float("ListMenu/List/ArrowUp/mouseover"), None);
-        // Below the row: no target there, the scroll area alone; a press clicks nothing.
+        // Below the row: no target there, the scroll area alone; a press takes no target's
+        // click but sets the scroll area's `clicked` (MCM's slider buttons read theirs),
+        // for the frame.
         let r = p.step(&mut ui, &[menu], &Input { at: Some((50.0, 200.0)), press: true, ..Input::default() }, &no_measure);
         assert_eq!(p.over, None);
         assert!(r.clicks.is_empty());
+        let scroll = id(&ui, "ListMenu/List/Scroll");
+        assert_eq!(r.bare_clicks, [scroll]);
         assert_eq!(ui.get_float("ListMenu/List/Scroll/mouseover"), Some(1.0));
-        assert_eq!(ui.get_float("ListMenu/List/Scroll/clicked"), None);
+        assert_eq!(ui.get_float("ListMenu/List/Scroll/clicked"), Some(1.0));
+        p.step(&mut ui, &[menu], &at(50.0, 200.0), &no_measure);
+        assert_eq!(ui.get_float("ListMenu/List/Scroll/clicked"), Some(0.0));
         assert_eq!(ui.get_float("ListMenu/List/Row/mouseover"), Some(0.0));
         // Scrolled: the arrow shows and is moused over with the scroll area.
         let list = id(&ui, "ListMenu/List");
@@ -1203,6 +1277,41 @@ mod tests {
         p.stamp = 6;
         let r = p.step(&mut ui, &[menu], &Input { at: Some((1.0, 1.0)), press: true, ..Input::default() }, &no_measure);
         assert_eq!(r.clicks.iter().map(|c| c.stamp).collect::<Vec<_>>(), [5, 6], "queued, then the frame's own");
+    }
+
+    #[test]
+    fn a_press_on_a_draggable_tile_writes_where_the_pointer_is_while_held() {
+        // MCM's slider (Scale.xml) reads the meter's drag handle `dragx` each frame; the
+        // handle is a hotrect with no `target`.
+        let src = MemSource::default().with(
+            "m.xml",
+            r#"<menu name="M"><_seen><copy src="child(D)" trait="dragx"/></_seen><hotrect name="D"><draggable>&true;</draggable><width>50</width><height>9</height></hotrect>
+               <hotrect name="B"><target>1</target><y>20</y><width>50</width><height>9</height></hotrect>
+               <hotrect name="T"><target>1</target><draggable>&true;</draggable><y>40</y><width>50</width><height>9</height></hotrect></menu>"#,
+        );
+        let mut ui = Ui::new();
+        let menu = ui.load_menu(&src, "m.xml").unwrap();
+        ui.update();
+        let (d, b) = (ui.find_tile("M/D").unwrap(), ui.find_tile("M/B").unwrap());
+        let num = |ui: &Ui, t, n| ui.tile(t).get(n).map(Value::num);
+        let mut p = Pointer::default();
+        p.step(&mut ui, &[menu], &Input { at: Some((10.0, 4.0)), press: true, held: true, ..Input::default() }, &no_measure);
+        assert_eq!((num(&ui, d, DRAGX), num(&ui, d, DRAGY)), (Some(10.0), Some(4.0)));
+        // What reads it is worked out already, as MCM's meter `_drag` is.
+        assert_eq!(ui.get_float("M/_seen"), Some(10.0));
+        // Held: the drag follows the pointer even off the tile.
+        p.step(&mut ui, &[menu], &Input { at: Some((70.0, 30.0)), held: true, ..Input::default() }, &no_measure);
+        assert_eq!(num(&ui, d, DRAGX), Some(70.0));
+        // Released: the script's own write stands.
+        ui.set_trait(d, DRAGX, Value::Num(0.0));
+        p.step(&mut ui, &[menu], &Input { at: Some((30.0, 4.0)), ..Input::default() }, &no_measure);
+        assert_eq!(num(&ui, d, DRAGX), Some(0.0));
+        // A tile that is not draggable gets no drag, nor does a draggable target (the
+        // engine moves the vanilla lists' markers itself).
+        p.step(&mut ui, &[menu], &Input { at: Some((5.0, 22.0)), press: true, held: true, ..Input::default() }, &no_measure);
+        assert_eq!(num(&ui, b, DRAGX), None);
+        p.step(&mut ui, &[menu], &Input { at: Some((5.0, 42.0)), press: true, held: true, ..Input::default() }, &no_measure);
+        assert_eq!(num(&ui, ui.find_tile("M/T").unwrap(), DRAGX), None);
     }
 
     #[test]
