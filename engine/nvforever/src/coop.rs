@@ -1453,7 +1453,10 @@ fn send(coop: Res<Coop>, player: Option<Res<Player>>, loc: Option<Res<Location>>
         *slot = w.0;
         s.worn_len += 1;
     }
-    s.furniture = doing.seat.as_deref().and_then(|seat| seat.on).unwrap_or(0);
+    // Getting off is sent as off: the others' puppet starts its getting-off clip with this
+    // player's, not once it has ended (3.4 s late on both screens otherwise; ship13's
+    // slots-coop-2p-exit, as armwrestle-c found for NPCs).
+    s.furniture = doing.seat.as_deref().filter(|seat| !seat.getting_off).and_then(|seat| seat.on).unwrap_or(0);
     // An emote: the others' puppets play it, facing where the body does (the mouse turns
     // the camera meanwhile, not the body).
     if let Some(e) = doing.emote.as_deref() {

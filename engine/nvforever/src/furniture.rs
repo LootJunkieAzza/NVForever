@@ -1022,6 +1022,7 @@ pub fn drive_player(
             seat.bed = lying && u.usage.phase != Phase::GettingOff;
             seat.on = Some(u.plan.furniture);
             seat.seated = u.usage.phase == Phase::On;
+            seat.getting_off = u.usage.phase == Phase::GettingOff;
             body.0 = Some(b);
         }
         None => {
@@ -1035,6 +1036,7 @@ pub fn drive_player(
             seat.bed = false;
             seat.on = None;
             seat.seated = false;
+            seat.getting_off = false;
             body.0 = None;
             f.stats.player_stood += 1;
             f.release(u.plan.furniture, who.reference);

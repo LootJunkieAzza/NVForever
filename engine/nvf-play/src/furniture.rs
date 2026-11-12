@@ -38,6 +38,10 @@ pub struct PlayerSeat {
     /// (Space is its tap key and was Jump's, which stood the player up: owner's playtest,
     /// ship13) [design]. Set by that game each frame.
     pub game: bool,
+    /// Getting off it (its getting-off clip plays): co-op sends the player as off from
+    /// now, so the other screens' puppet starts its own getting-off clip with this one
+    /// (nvforever `coop.rs`).
+    pub getting_off: bool,
 }
 
 /// Tell the script runtime which furniture `actor` uses, so GetSitting and the other

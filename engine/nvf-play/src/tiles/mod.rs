@@ -240,7 +240,8 @@ impl HudTiles<'_> {
             && !self.loading.as_ref().is_some_and(|l| l.active());
         // A playing kill camera hides all of it, as an idle holding the camera does
         // (`crate::kill_cam`) [owner's playtest request #1034].
-        let driven = self.driven.as_ref().is_some_and(|d| d.0) || self.bars.as_ref().is_some_and(|b| b.kill_cam);
+        // So does a match's end view (`HudView::end_view`) [owner 2026-11-12, ship 14].
+        let driven = self.driven.as_ref().is_some_and(|d| d.0) || self.bars.as_ref().is_some_and(|b| b.kill_cam || b.end_view);
         let wheel = self.wheel.as_ref().is_some_and(|w| w.is_open());
         let creating = self.creator.as_ref().is_some_and(|c| c.is_open());
         let locks = self.locks.as_deref().copied().unwrap_or_default();
