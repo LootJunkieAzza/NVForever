@@ -595,6 +595,14 @@ pub(super) fn configure(key: Key, model: DlssModel, range: Optimal) {
     eval.configure(api, held, OptionsKey { key, model }, range);
 }
 
+/// DLSS stopped drawing: its resources for the viewport freed, the GPU drained first, when
+/// options are set (`evaluate.rs` `Evaluator::release`); nothing otherwise.
+pub(super) fn release() {
+    let mut guard = state();
+    let Some(Spike { api, phase: Phase::Holding(held), eval: Some(eval) }) = guard.as_mut() else { return };
+    eval.release(api, held);
+}
+
 /// The adapter's `VkPhysicalDevice` and its LUID when the driver says the LUID is valid
 /// (`VkPhysicalDeviceIDProperties`, Vulkan 1.1).
 fn adapter_identity(adapter: &wgpu::Adapter) -> Option<(vk::PhysicalDevice, Option<[u8; 8]>)> {

@@ -63,7 +63,9 @@
 //!   when DLSS may already hold resources for the viewport, the GPU is drained (`Device::poll`
 //!   wait) and `slFreeResources` runs first, so no feature is released while the GPU may still
 //!   use it (Streamline itself releases a replaced feature three frames later [documented:
-//!   `src/dlssEntry.cpp:357-369`]).
+//!   `src/dlssEntry.cpp:357-369`]). When DLSS stops drawing (the effective upscaler is FSR or
+//!   off) with options set, the same drain and `slFreeResources` free its resources at once
+//!   rather than at the shutdown, and the next DLSS frame sets the options again.
 //! - **Evaluate** ([`dlss_pass`], DLSS's own pass, where `fsr::fsr_pass` sits for FSR: after the
 //!   ambient occlusion, before bloom, the bright pass and the other full-resolution effects): the
 //!   common corrected depth, one DLSS evaluate (`evaluate.rs` says the order), the scene's alpha
@@ -545,28 +547,42 @@ impl Plugin for DlssPassPlugin {
 }
 
 /// What the render world needs of the main world's DLSS settings each frame (render world,
-/// [`extract_main_state`]): the DLSS model asked for.
+/// [`extract_main_state`]): the DLSS model asked for, and whether DLSS is the effective upscaler
+/// (`None` before the upscaler status exists: nothing is released then).
 #[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct DlssMainState {
     pub model: DlssModel,
+    pub drawing: Option<bool>,
 }
 
-/// Copies [`DlssMainState`] from the main world: `Graphics::dlss_model`.
-fn extract_main_state(mut state: ResMut<DlssMainState>, graphics: Extract<Option<Res<crate::graphics::Graphics>>>) {
-    let next = DlssMainState { model: graphics.as_ref().map_or_else(DlssModel::default, |g| g.dlss_model) };
+/// Copies [`DlssMainState`] from the main world: `Graphics::dlss_model` and
+/// `upscaler::UpscalerStatus::effective`.
+fn extract_main_state(mut state: ResMut<DlssMainState>, graphics: Extract<Option<Res<crate::graphics::Graphics>>>, status: Extract<Option<Res<crate::upscaler::UpscalerStatus>>>) {
+    let next = DlssMainState { model: graphics.as_ref().map_or_else(DlssModel::default, |g| g.dlss_model), drawing: status.as_ref().map(|s| s.effective().is_dlss()) };
     state.set_if_neq(next);
+}
+
+/// Whether DLSS's resources are to be freed this frame ([`configure`]): DLSS is not the
+/// effective upscaler and no view is DLSS's. A frame without a DLSS view while DLSS is still
+/// the effective choice (a loading screen, a camera made again) keeps them.
+fn release_now(main: DlssMainState, dlss_view: bool) -> bool {
+    main.drawing == Some(false) && !dlss_view
 }
 
 /// The options for the DLSS camera's key (mode, output size, HDR-ness) and the DLSS model, set
 /// before anything of the frame is recorded: on a change the GPU is drained and the viewport's
-/// resources freed first (`win::configure`). One viewport, so the first DLSS camera only.
+/// resources freed first (`win::configure`). One viewport, so the first DLSS camera only. Once
+/// DLSS stops drawing ([`release_now`]), its resources are freed the same way (`win::release`),
+/// also when DLSS was given up on.
 pub(crate) fn configure(views: Query<(&ExtractedView, &PreparedUpscale)>, sizes: Res<OptimalSizes>, main: Res<DlssMainState>) {
-    let Some((view, quality)) = views.iter().find_map(|(view, prepared)| match prepared.camera.settings {
+    let dlss_view = views.iter().find_map(|(view, prepared)| match prepared.camera.settings {
         UpscaleSettings::Dlss(quality) => Some((view, quality)),
         UpscaleSettings::Fsr(_) => None,
-    }) else {
-        return;
-    };
+    });
+    if release_now(*main, dlss_view.is_some()) {
+        release();
+    }
+    let Some((view, quality)) = dlss_view else { return };
     if !ready() {
         return;
     }
@@ -577,6 +593,15 @@ pub(crate) fn configure(views: Query<(&ExtractedView, &PreparedUpscale)>, sizes:
     #[cfg(not(windows))]
     let _ = (optimal, main.model);
 }
+
+/// DLSS's resources freed when options are set (`win::release`); off Windows nothing is held.
+#[cfg(windows)]
+fn release() {
+    win::release();
+}
+
+#[cfg(not(windows))]
+fn release() {}
 
 /// DLSS's own pass for a view DLSS draws: the common corrected depth, the evaluate, the
 /// scene's alpha restored where a shape marks it, the depth expanded for the screen-space
@@ -722,6 +747,20 @@ fn missing_files(folder: &Path) -> Vec<&'static str> {
 mod tests {
     use super::*;
     use std::ffi::OsStr;
+
+    /// DLSS's resources are freed once DLSS is not the effective upscaler and no view is DLSS's;
+    /// a frame without a DLSS view while DLSS still draws, or before the status exists, keeps
+    /// them.
+    #[test]
+    fn resources_are_freed_only_when_dlss_stopped_drawing() {
+        let state = |drawing| DlssMainState { model: DlssModel::L, drawing };
+        assert!(release_now(state(Some(false)), false), "FSR or off is the effective choice");
+        assert!(!release_now(state(Some(false)), true), "a DLSS view this frame: not yet");
+        assert!(!release_now(state(Some(true)), false), "DLSS still the choice (a loading screen, a camera made again)");
+        assert!(!release_now(state(Some(true)), true));
+        assert!(!release_now(state(None), false), "no status yet");
+        assert_eq!(DlssMainState::default(), DlssMainState { model: DlssModel::Default, drawing: None });
+    }
 
     #[test]
     fn loader_state_reports_what_the_loader_set() {

@@ -12,7 +12,9 @@
 //! feature at once [documented: `src/dlssEntry.cpp:884-902`], which is safe only with the GPU
 //! done with it), so a resize, a mode or a model change never leaves a feature to Streamline's
 //! three-frame delay [documented: `src/dlssEntry.cpp:357-369`]. The render size is the optimal
-//! one the view preparation asked for (`sizing.rs`).
+//! one the view preparation asked for (`sizing.rs`). When DLSS stops drawing (FSR or off is the
+//! effective choice) with options set, [`Evaluator::release`] drains and frees the same way and
+//! forgets the options, so the next DLSS frame sets them again.
 //!
 //! **Per frame**, in this order:
 //! 1. The options checked: set for this frame's mode, output size and HDR-ness, and the render
@@ -403,7 +405,7 @@ pub(super) struct Evaluator {
     set_options: SlDlssSetOptions,
     options: Option<Options>,
     /// Options were set and their resources not freed since: DLSS may hold resources for the
-    /// viewport (freed before the next options and at shutdown).
+    /// viewport (freed before the next options, when DLSS stops drawing and at shutdown).
     pub(super) options_set: bool,
     /// DLSS drew the last frame (else its history is stale and the next evaluate resets).
     previous_was_dlss: bool,
@@ -414,6 +416,8 @@ pub(super) struct Evaluator {
     skipped: u64,
     /// Options set again after the first time (each with the GPU drained and the viewport freed).
     recreated: u64,
+    /// Times DLSS's resources were freed because DLSS stopped drawing ([`Self::release`]).
+    released: u64,
     /// Each failed call and result, with how often it came.
     results: Vec<(&'static str, SlResult, u64)>,
     said: Vec<&'static str>,
@@ -442,6 +446,7 @@ impl Evaluator {
             failed: 0,
             skipped: 0,
             recreated: 0,
+            released: 0,
             results: Vec::new(),
             said: Vec::new(),
             alpha: None,
@@ -532,6 +537,51 @@ impl Evaluator {
         super::set_generation(self.proof.start(wanted));
         note(Level::INFO, format!("options: {} (auto exposure on, alpha upscaling off)", wanted.describe()));
         self.options = Some(Options { key: wanted, range, active_said: false, outside_said: None });
+    }
+
+    /// DLSS stopped drawing (the effective upscaler is FSR or off, `mod.rs` `configure`) while
+    /// options are set: at the point a recreation uses, before anything of the frame is
+    /// recorded, the GPU drained (every frame that used the viewport's feature finished) and
+    /// `slFreeResources(DLSS, viewport 0)`, so DLSS's resources do not stay allocated until the
+    /// shutdown. The options are forgotten: the next DLSS frame sets them again, a new
+    /// generation. Nothing when no options are set ([`Self::release_due`]).
+    pub(super) fn release(&mut self, api: &Api, held: &Held) {
+        if !self.release_due() {
+            return;
+        }
+        if let Err(polled) = drain(held) {
+            note(
+                Level::WARN,
+                format!("free: DLSS stopped drawing: the GPU drain returned {polled}; DLSS's resources stay until the options are set again or the shutdown"),
+            );
+            // Not tried again every frame: the options are forgotten, the resources still
+            // counted as held (freed before the next options and at shutdown).
+            self.forget_options(false);
+            return;
+        }
+        let freed = free(api);
+        note(
+            if freed.is_ok() { Level::INFO } else { Level::WARN },
+            format!("free: DLSS stopped drawing: GPU drained, slFreeResources(DLSS, viewport {VIEWPORT}) {}", freed.name()),
+        );
+        self.forget_options(freed.is_ok());
+    }
+
+    /// Whether [`Self::release`] has anything to do: options are set for a key.
+    pub(super) fn release_due(&self) -> bool {
+        self.options.is_some()
+    }
+
+    /// The bookkeeping of [`Self::release`]: the options forgotten, so the next DLSS frame sets
+    /// them again (a new generation); with `freed`, nothing is held any more (no free before the
+    /// next options, none at shutdown), else the resources count as held still.
+    fn forget_options(&mut self, freed: bool) {
+        self.options = None;
+        self.options_set = !freed;
+        self.previous_was_dlss = false;
+        if freed {
+            self.released += 1;
+        }
     }
 
     /// One frame: the module comment's order. Any failure leaves the frame to the spatial
@@ -890,7 +940,7 @@ impl Evaluator {
 
     /// The counts, for the shutdown.
     pub(super) fn report(&self) {
-        let mut line = format!("evaluates: {} ok, {} failed; options set again {} times", self.ok, self.failed, self.recreated);
+        let mut line = format!("evaluates: {} ok, {} failed; options set again {} times; resources freed {} times when DLSS stopped drawing", self.ok, self.failed, self.recreated, self.released);
         if self.skipped > 0 {
             line.push_str(&format!("; {} more frames left to the spatial fallback without a failed call (no options for the frame, render size outside DLSS's range or no previous view)", self.skipped));
         }
@@ -1149,6 +1199,36 @@ mod tests {
         // A mode change at the same model is one too, as before.
         let balanced = OptionsKey { key: Key { quality: crate::upscaler::UpscaleQuality::Balanced, ..first.key }, ..first };
         assert_eq!(eval.plan(balanced), Plan::Set { free_first: true });
+    }
+
+    /// The bookkeeping of `release`, without Streamline: once DLSS stopped drawing and its
+    /// resources were freed, the options are forgotten and the next DLSS frame sets them again,
+    /// a new generation, with nothing to free first.
+    #[test]
+    fn a_release_forgets_the_options_and_the_next_dlss_frame_sets_them_again() {
+        let mut eval = Evaluator::new(no_optimal_settings, no_options);
+        let first = key(1280);
+        assert!(!eval.release_due(), "nothing to free before any options");
+        eval.set_for(first, range());
+        assert_eq!(eval.proof.started, 1);
+        // DLSS stops drawing: freed, the options forgotten.
+        eval.previous_was_dlss = true;
+        assert!(eval.release_due());
+        eval.forget_options(true);
+        assert!(!eval.release_due(), "released once, not every frame after");
+        assert!(eval.options.is_none() && !eval.options_set && !eval.previous_was_dlss);
+        assert_eq!(eval.released, 1);
+        // The next DLSS frame sets them again: a new generation, nothing to free first.
+        assert_eq!(eval.plan(first), Plan::Set { free_first: false });
+        eval.set_for(first, range());
+        assert_eq!(eval.proof.started, 2, "a new generation");
+        assert!(eval.options_set);
+        // A free that failed (or a drain that failed) forgets the options but counts the
+        // resources as held: freed before the next options.
+        eval.forget_options(false);
+        assert!(!eval.release_due() && eval.options_set);
+        assert_eq!(eval.plan(first), Plan::Set { free_first: true });
+        assert_eq!(eval.released, 1, "only a free that worked counts");
     }
 
     #[test]

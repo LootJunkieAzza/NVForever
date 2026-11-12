@@ -23714,7 +23714,7 @@ expect = [
   "settings: dlss-model Preset J",
   "settings: dlss-model Preset M",
   "settings: dlss-model Default",
-  { re = 'DLSS: evaluates: [1-9]\d* ok, 0 failed; options set again (\d+) times', range = [5, 1000], label = "every evaluate ok, the options set again at least once per model" },
+  { re = 'DLSS: evaluates: [1-9]\d* ok, 0 failed; options set again (\d+) times; resources freed 0 times when DLSS stopped drawing', range = [5, 1000], label = "every evaluate ok, the options set again at least once per model; nothing freed for a model change" },
   "DLSS: shutdown: slFreeResources(DLSS, viewport 0) eOk",
 ]
 order = [[
@@ -23747,7 +23747,7 @@ order = [[
   { re = 'DLSS: evaluate active: Quality \(MaxQuality\), 1280x720 output, HDR on, 853x480 -> 1280x720, optimal 853x480, min \d+x\d+ max \d+x\d+, model Default', label = "DLSS draws with Default again" },
   { re = 'DLSS: output observed: Quality \(MaxQuality\), 1280x720 output, HDR on, generation 6, mean RGB .* texels, model Default', label = "its output seen (generation 6)" }
 ]]
-forbid = [{ re = 'DLSS: output not (observed|valid)' }, "DLSS: NGX reported an evaluate error", "dlss_output_proof", { text = "settings: dlss-model has no such choice", label = "a model not taken" }, { text = "slEvaluateFeature: ", label = "a failed evaluate" }, { text = "slDLSSSetOptions: ", label = "options refused" }, { text = "frames running without DLSS's output", label = "DLSS given up on" }, { text = "FSR dispatch active", label = "FSR drawing in a DLSS session" }, { re = 'DLSS: render size .* outside the range DLSS reports', label = "a render size DLSS does not take" }, { text = "Shader validation error", label = "a shader validation error" }, { text = "Validation Error", label = "a Vulkan validation error" }]
+forbid = [{ re = 'DLSS: output not (observed|valid)' }, "DLSS: NGX reported an evaluate error", "dlss_output_proof", { text = "DLSS: free:", label = "DLSS's resources freed as if it stopped drawing" }, { text = "settings: dlss-model has no such choice", label = "a model not taken" }, { text = "slEvaluateFeature: ", label = "a failed evaluate" }, { text = "slDLSSSetOptions: ", label = "options refused" }, { text = "frames running without DLSS's output", label = "DLSS given up on" }, { text = "FSR dispatch active", label = "FSR drawing in a DLSS session" }, { re = 'DLSS: render size .* outside the range DLSS reports', label = "a render size DLSS does not take" }, { text = "Shader validation error", label = "a shader validation error" }, { text = "Validation Error", label = "a Vulkan validation error" }]
 
 [[scenario]]
 name = "dlss-resize"
@@ -23805,6 +23805,7 @@ expect = [{ re = 'DLSS: output observed: .*, generation 1, mean RGB', label = "D
   "settings: fsr-upscaling Off",
   { text = "upscaler: Off asked for, Off draws", label = "Off draws natively at once" },
   { text = "graphics: multisampling 8x", label = "the saved 8x is back once DLSS is off" },
+  { text = "DLSS: free: DLSS stopped drawing: GPU drained, slFreeResources(DLSS, viewport 0) eOk", label = "DLSS's resources freed once Off draws (dlss/evaluate.rs `Evaluator::release`)" },
   { re = 'DLSS: evaluates: ([1-9]\d*) ok, 0 failed', label = "evaluates ok, none failed" },
 ]
 order = [["graphics: DLSS NativeAa active; native anti-aliasing off", "settings: fsr-upscaling Off", "graphics: multisampling 8x"]]
@@ -23813,7 +23814,7 @@ forbid = [{ re = 'DLSS: output not (observed|valid)' }, "DLSS: NGX reported an e
 [[scenario]]
 name = "dlss-live-switch"
 source = "#2198's play-test, docs/design/dlss-upscaling.md \"Switching\": with NVIDIA's files in the folder the start loads Streamline although FSR is chosen; DLSS picked on the Upscaler row then draws at once (its output observed), and FSR picked again draws at once, without a restart"
-note = "needs NVF_DLSS_DIR (NVIDIA's files): the files alone load the loader (no NVF_DLSS_PRELOAD). The picks use the two rows' own keys (settings: upscaler <name>)"
+note = "needs NVF_DLSS_DIR (NVIDIA's files): the files alone load the loader (no NVF_DLSS_PRELOAD). The picks use the two rows' own keys (settings: upscaler <name>). Leaving DLSS for FSR frees DLSS's resources at once (dlss/evaluate.rs `Evaluator::release`, the free: line), so the shutdown has none left to free"
 areas = ["graphics", "ui"]
 paths = ["engine/nvforever/src/dlss/**", "engine/nvforever/src/upscaler*", "engine/nvforever/src/upscaler/**", "engine/nvforever/src/settings.rs", "engine/nvforever/src/main.rs", "engine/nvforever/src/fsr*", "engine/nvf-play/src/settings.rs", "engine/nvf-play/src/pause.rs"]
 requires = ["NVF_DLSS_DIR"]
@@ -23826,7 +23827,7 @@ expect = [
   { re = 'DLSS: output observed: Quality \(MaxQuality\), 1280x720 output, HDR on, generation 1, mean RGB', label = "DLSS's output seen after the live switch" },
   "settings: upscaler DLSS",
   "settings: upscaler FSR 3.1",
-  { re = 'DLSS: evaluates: ([1-9]\d*) ok, 0 failed', label = "evaluates ok, none failed" },
+  { re = 'DLSS: evaluates: ([1-9]\d*) ok, 0 failed; options set again 0 times; resources freed 1 times when DLSS stopped drawing', label = "evaluates ok, none failed; freed once on leaving DLSS" },
   "DLSS: shutdown done: Streamline down before the Vulkan device and instance were released",
 ]
 order = [[
@@ -23835,8 +23836,9 @@ order = [[
   { text = "upscaler: DLSS Quality asked for, DLSS Quality draws", label = "DLSS at once" },
   { re = 'DLSS: evaluate active: Quality \(MaxQuality\), 1280x720 output, HDR on, 853x480 -> 1280x720', label = "DLSS draws in its own pass" },
   { text = "upscaler: FSR 3.1 Quality asked for, FSR 3.1 Quality draws", label = "FSR again at once" },
+  { text = "DLSS: free: DLSS stopped drawing: GPU drained, slFreeResources(DLSS, viewport 0) eOk", label = "DLSS's resources freed once DLSS stopped drawing" },
 ]]
-forbid = [{ text = "until the next start", label = "a switch waiting for a restart" }, { text = "settings: upscaler DLSS not taken", label = "DLSS held out of reach" }, { re = 'DLSS: output not (observed|valid)' }, "DLSS: NGX reported an evaluate error", "dlss_output_proof", { text = "slEvaluateFeature: ", label = "a failed evaluate" }, { text = "frames running without DLSS's output", label = "DLSS given up on" }, { text = "FSR dispatch failed", label = "FSR failing" }, { text = "Validation Error", label = "a Vulkan validation error" }, { text = "Caught rendering error", label = "a rendering error" }]
+forbid = [{ text = "until the next start", label = "a switch waiting for a restart" }, { text = "settings: upscaler DLSS not taken", label = "DLSS held out of reach" }, { text = "DLSS: shutdown: slFreeResources", label = "DLSS's resources still held at shutdown" }, { re = 'DLSS: output not (observed|valid)' }, "DLSS: NGX reported an evaluate error", "dlss_output_proof", { text = "slEvaluateFeature: ", label = "a failed evaluate" }, { text = "frames running without DLSS's output", label = "DLSS given up on" }, { text = "FSR dispatch failed", label = "FSR failing" }, { text = "Validation Error", label = "a Vulkan validation error" }, { text = "Caught rendering error", label = "a rendering error" }]
 
 [[scenario]]
 name = "dlss-restart-pick"

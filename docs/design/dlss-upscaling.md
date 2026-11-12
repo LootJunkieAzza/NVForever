@@ -124,6 +124,17 @@ detail in the module notes of the file named.
   anything of the frame is recorded drains the GPU, frees the viewport (`slFreeResources`) and
   sets the options again; the history resets. A drain that fails leaves the options unset, and
   the spatial fallback draws. (Step 5; the model, below.)
+- **Released when DLSS stops drawing** (`dlss::configure`, `evaluate.rs` `Evaluator::release`)
+  [design]. When the effective upscaler stops being DLSS (FSR or Off picked, or DLSS given up
+  on) while options are set, the same render system, at the same point, drains the GPU and
+  calls `slFreeResources(DLSS, viewport 0)` (`free: DLSS stopped drawing: GPU drained,
+  slFreeResources(DLSS, viewport 0) eOk`), and forgets the options: the next DLSS frame sets
+  them again, a new generation, with nothing to free first. Before this, DLSS's viewport
+  resources stayed allocated until the shutdown or the next DLSS options change. The release
+  waits for the upscaler status to say DLSS is not the choice and for no view to be DLSS's, so
+  a frame without the camera while DLSS stays chosen (a loading screen) keeps them. A drain that
+  fails forgets the options but counts the resources as held, freed before the next options or
+  at the shutdown, which frees only what is still held.
 - **The DLSS model** (`settings.rs`, `upscaler::DlssModel`, `dlss/sizing.rs` `preset`)
   [design: the user's request, 2026-11-12]. A row **DLSS model** (key `dlss-model`) right under
   Upscaling quality: `Default`, `Preset J`, `Preset K`, `Preset L`, `Preset M`, NVIDIA's
@@ -324,8 +335,9 @@ only where `NVF_DLSS_DIR` names a bundle.
   ([spec notes](../spec-notes/streamline.md), "Viewports and resize"). Step 5 drains the GPU
   and frees the viewport explicitly before setting the new options, which releases the old
   context at once and leaves Streamline's delayed release nothing to do [documented:
-  `src/dlssEntry.cpp:363-373`, `:884-902`]. Not yet observed in a run of step 5. The
-  `dlss-model` scenario expects the recreation per model.
+  `src/dlssEntry.cpp:363-373`, `:884-902`]. Not yet observed in a run of step 5. The same drain
+  and free run when DLSS stops drawing; the `dlss-live-switch` and `dlss-aa-lock` scenarios
+  expect its line, and `dlss-model` the recreation per model.
 - **NVIDIA's model cache.** NGX looked for DLSS in the driver's model cache before loading the
   player's `nvngx_dlss.dll` [observed in the spike]; a DLSS there may be used instead of the
   player's file [hypothesis] (spec notes, "NVIDIA's updater").
@@ -351,6 +363,7 @@ All built.
    files are there, so every switch is live, and the one row split into Upscaler and Upscaling
    quality (the older key still read and taken by the test aid).
 9. Smoke scenarios: the no-files path in every run, hardware scenarios gated on `NVF_DLSS_DIR`.
-   After the play-test: the DLSS model row (`dlss-model`, `--dlss-model`).
+   After the play-test: the DLSS model row (`dlss-model`, `--dlss-model`), and DLSS's
+   resources freed when DLSS stops drawing.
 10. The player's page ([dlss.md](../dlss.md)), the status page, the dependency notes, and
     Streamline's MIT notice in the generated licences.
