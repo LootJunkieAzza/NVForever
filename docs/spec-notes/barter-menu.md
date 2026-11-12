@@ -561,7 +561,8 @@ explicit QuantityMenu switch still works independently.
 [design: LEGAL.md, `tiles/barter_menu.rs`, `tiles/item_card.rs`] String audit:
 
 - All-items heading: `sInventoryItems` through `ui_loading::game_string`, with the
-  load order's GMST winning over `fnv_ui::strings`. Merchant heading: the model's
+  load order's GMST winning over `fnv_ui::strings` (whose label reads "ITEMS", in capitals
+  as NVForever's own hand-built Pip-Boy headings, menu-xml.md §2.4, #2212). Merchant heading: the model's
   record or script name. Filtered categories use our own words: Weapons, Clothing,
   Consumables, Other items, Ammunition. `look::half_title`'s transcribed uppercase
   headings are replaced before anything is written.

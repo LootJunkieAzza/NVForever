@@ -308,12 +308,26 @@ it), `engine/nvf-assets/src/texture.rs` (`pc_texture`).
   files' 255 (`frame.rs` `TEXT`). The flat image shown when the Pip-Boy model has no screen
   is the device's drawing and keeps its 213 [design].
   The pages drawn from their menu files (`[UI] TileMenus=StatsMenu`, `InventoryMenu`,
-  `RepairMenu`, `MapMenu`; all off by default) take their file's brightness, 255, on
-  the device too. By default every page on the device is hand-built, so all of them are at
-  213. With a tile-drawn page switched on, its text and pictures stand about a fifth brighter
-  than the hand-built pages next to it (255 against 213, so a text-to-line ratio near the
-  earlier 1.57 rather than the original's 1.31) [design: the arithmetic; not measured on the
-  tile pages]. Putting the same factor on the tile-drawn text on the device is open.
+  `RepairMenu`, `ItemModMenu`, `MapMenu`; all off by default) take the same device
+  brightness, by role as the hand-built pages do, not by a flat factor [design: #2212,
+  `tiles::draw::device_brightness`, applied in the tile painter before it compares the
+  pieces, for every Pip-Boy page and the DATA page's map picture]: while the Pip-Boy is on
+  the device (`Frame::Device`, its flat fallback image included), a piece painted at the
+  page's colour at the file's full level (resolved `brightness` 255 over `&pipboy;`) takes
+  213 of 255: the texts, the Vault Boy and icons, the bars, the map's picture (its alpha
+  128 kept). A piece the file already dims keeps the file's value: the boxes' lines at 200
+  (the hand-built lines' 200), the dimmed texts and the highlight fills at 128, the
+  background at 90; so do the maps' location icons (`MapMarker`, 220 and 255 under the
+  highlight box, as the hand-built page keeps them in both frames) and any piece in another
+  colour. The alpha is never changed. One difference the rule keeps: the file's heading
+  lines (`MM_Headline_h*`/`_v*` and the like, `line.xml` with its brightness picked as
+  255 by the heading) resolve at 255 [observed: fnvtool `ui tree` of map_menu.xml and
+  item_mod_menu.xml at 1280 x 720, `_brightness` 2, `brightness` 255], so on the device they
+  come out at 213 where the hand-built heading's lines are 200; the rule is kept whole
+  rather than special-cased by picture [design; to be checked on shots]. In the screen menu
+  the tile pages keep the file's values, as the hand-built pages keep 255 there. The
+  hotkey panel over the pages and the radio's waveform are drawn by hand and keep their
+  own colours. With every tile switch off nothing changes.
 - **Background**: `Interface\Shared\Background\pipboy.dds` over the whole canvas at
   brightness 90 [documented: inventory_menu.xml]; `ScreenGlare.dds` and this picture are
   512 × 512 DXT1, alpha 1 throughout [observed].
