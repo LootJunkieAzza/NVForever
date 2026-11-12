@@ -614,14 +614,18 @@ All of it is in `GameSnapshot`.
   the player like the rest; said in the world, a quest's line can be interrupted in
   play]. From 2026-11-05 (#1606) until then every chosen Goodbye line closed its
   conversation at once, a topic's last line with its quest stage as much as "Goodbye.".
-- **Only the plain goodbye ends the conversation at once**: a chosen Goodbye line of
-  the GOODBYE topic (`GameData::goodbye`; `Game::choose`, `Game::say_farewell`, issue
-  #1606). The dialogue menu closes as the line starts, the game is no longer
+  One rule for all of them: the data does not tell a plain goodbye from a quest's last
+  line, since actors' own "Goodbye." lines are ordinary topics (Chet's is
+  VFreeformGoodspringsGoodspringsChetTopic001, not the GOODBYE topic [observed: the
+  `goodbye-choice-holds` smoke log]).
+- **Kept behind a switch, off by default** (`GameConfig::goodbye_at_once`; nothing in
+  the engine sets it): a chosen Goodbye line ends the conversation at once
+  (`Game::choose`, `Game::say_farewell`, issue #1606). The dialogue menu closes as the
+  line starts, the game is no longer
   paused, and the actor finishes the line in the world, said at the player
   [observed: owner's playtest 2026-11-05, against the original: choosing a Goodbye
   closes the menu at once and the actor finishes the line as the player walks away;
-  hypothesis: that the GOODBYE topic is where the original draws the line, it being
-  the topic the choice "Goodbye" names; §7 item 18].
+  which lines the original does this for is open, §7 item 18].
   In the runtime the line moves to `Game::speech` as a farewell (`Speech::farewell`)
   with the time it has left (the rest of the response being said and the responses
   after it), and `dialogue_ended` (`goodbye`, the line counted) comes before its
@@ -645,7 +649,7 @@ All of it is in `GameSnapshot`.
   line (Say) leave its conversation: it ends it when it is over, and the other line is
   not cut [design: a begin script that makes the actor say another line keeps today's
   behaviour]; a begin result that ended or replaced the conversation leaves nothing to
-  move. **Open:** a conversation through a talking activator keeps the plain goodbye
+  move. **Open:** a conversation through a talking activator keeps a chosen Goodbye line
   in the conversation until it is over, as before [hypothesis: the statement was face to
   face; a farewell is heard from its speaker, and the activator it went through is not
   carried by `Speech`]; whether the original closes that menu at once too is a question
@@ -1004,8 +1008,8 @@ up to C and F):
     random conversations; general bit 12 as the switch between the default and the
     package's own Fallout behaviour (packages.md §1).
 18. A chosen Goodbye line said on in the world (§5, issues #1606 and #2157): which
-    chosen Goodbye lines close the menu at once in the original (the runtime: those of
-    the GOODBYE topic only; every other holds the player until it is said); whether it
+    chosen Goodbye lines close the menu at once in the original, if any (the runtime:
+    none, every one holds the player until it is said; the switch closes all); whether it
     closes the menu at once also for a conversation through a talking activator; whether
     the end result runs when the line ends or as the menu closes; whether the actor stops
     to finish the line or walks on; what ends the line early (another line, a fight, the
@@ -1093,7 +1097,7 @@ gains `dialogue`.
   85 at its end. 15 lines; tag skills Guns, Science, Sneak as before. The test up to
   the last answer happens in paused time (real time passes for the lines, script time
   does not). That last line is the fourteenth `choose` (15 lines: the opening line and
-  fourteen answers), a chosen Goodbye line of its own topic, not the GOODBYE topic: it
+  fourteen answers), a chosen Goodbye line: it
   holds the player until it is said (§5, issue #2157) and stage 85 is set by its end
   script as the conversation ends. VCG01Test's quest script does the tag-skill
   calculation in GameMode once `bDoFinalCalculation` is 1, which that line's begin

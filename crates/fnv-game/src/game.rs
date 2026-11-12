@@ -161,6 +161,12 @@ pub struct GameConfig {
     /// interval is about 10 seconds [documented: GECK wiki, How Are Packages Evaluated].
     #[serde(default)]
     pub package_interval: Option<f64>,
+    /// A Goodbye line the player chooses closes the conversation at once and the actor
+    /// finishes it in the world (`Game::say_farewell`, issue #1606). Off (the default):
+    /// the line is said in the conversation and holds the player like the lines before
+    /// it [owner statement 2026-11-11, issue #2157].
+    #[serde(default)]
+    pub goodbye_at_once: bool,
 }
 
 fn yes() -> bool {
@@ -169,7 +175,7 @@ fn yes() -> bool {
 
 impl Default for GameConfig {
     fn default() -> Self {
-        GameConfig { frame_seconds: 1.0 / 60.0, strict: false, trace_locals: false, seed: 0, max_steps: 100_000, modal_message_boxes: true, package_interval: None }
+        GameConfig { frame_seconds: 1.0 / 60.0, strict: false, trace_locals: false, seed: 0, max_steps: 100_000, modal_message_boxes: true, package_interval: None, goodbye_at_once: false }
     }
 }
 
@@ -1098,10 +1104,10 @@ pub struct Speech {
     /// Topics are applied and no SayToDone block runs [hypothesis for both].
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub greeting: bool,
-    /// The plain goodbye the player chose (a Goodbye line of the GOODBYE topic; any other
-    /// chosen Goodbye line stays in its conversation, #2157), said at the player after
-    /// its conversation closed
-    /// at once (`Game::choose`, docs/spec-notes/dialogue.md §5) [observed: owner's
+    /// A Goodbye line the player chose, said at the player after its conversation closed
+    /// at once: only with `GameConfig::goodbye_at_once`, off by default since #2157 (the
+    /// line holds the player in its conversation instead)
+    /// (`Game::choose`, docs/spec-notes/dialogue.md §5) [observed: owner's
     /// playtest 2026-11-05, against the original: choosing a Goodbye closes the menu at
     /// once and the actor finishes the line as the player walks away]. It ends as a
     /// Goodbye greeting does: its end script and Add Topics, no SayToDone block; it is
