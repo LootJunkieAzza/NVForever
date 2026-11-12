@@ -63,6 +63,7 @@ python -m unittest discover -s parity-lab/tests
 python -m unittest discover -s tools/capture/tests
 python -m unittest discover -s tools/smoke/tests
 python -m unittest discover -s tools/stress/tests
+python -m unittest discover -s tools/release/tests   # .github/workflows/ or tools/release/ changed
 python -m unittest discover -s tools/profile/tests
 (cd engine && cargo clippy --release --all-targets -- -D warnings)   # Bevy workspace (viewer + game)
 ```

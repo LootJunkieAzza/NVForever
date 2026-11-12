@@ -39,7 +39,11 @@
 //! read straight from the loose file (it is 353 MB), a few frames ahead; each frame is
 //! shown when its time has come by the wall clock since the film started (late frames are
 //! dropped), the sound plays from a queue the decoder fills. The picture is fitted inside
-//! the window, black around it.
+//! the window, black around it. A film skipped stops its decoder and fades its sound
+//! out over the sound it has queued (`crate::audio_out::stop_sound`, #2217: not cut
+//! mid-waveform; counted as a film stop in `sfx declicks: …`), silence once that runs
+//! out, then the sound ends; a film played to its end lets its sound play out what it
+//! has queued and end on its own.
 //!
 //! Built with the cargo feature `intro-video`, on by default (its decoder is
 //! GPL-3.0-or-later, as NVForever is: owner decision 2026-10-15). A build without it
@@ -62,7 +66,7 @@ use crate::{PlaySet, PlayState};
 #[cfg(feature = "intro-video")]
 use bevy::asset::RenderAssetUsages;
 use bevy::audio::{ChannelCount, Decodable, Sample, SampleRate, Source};
-use crate::audio_out::AddAudioSource;
+use crate::audio_out::{stop_sound, AddAudioSource, StopReason};
 use bevy::prelude::*;
 #[cfg(feature = "intro-video")]
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
@@ -228,8 +232,12 @@ impl Iterator for IntroDecoder {
         let s = self.0.shared.sound.lock().ok()?.pop_front();
         match s {
             Some(v) => Some(v as f32 / 32768.0),
-            // Waiting for the decoder: silence; once it is done and the queue empty, the end.
-            None if self.0.shared.done.load(Ordering::Relaxed) || self.0.shared.stop.load(Ordering::Relaxed) => None,
+            // Skipped: silence once the queue is played, until the sound's fade out ends it
+            // (`audio_out::stop_sound`; the decoder thread sets `done` as it stops, so the
+            // stop is read first). Played to its end: the end once the queue is empty.
+            // Waiting for the decoder: silence.
+            None if self.0.shared.stop.load(Ordering::Relaxed) => Some(0.0),
+            None if self.0.shared.done.load(Ordering::Relaxed) => None,
             None => Some(0.0),
         }
     }
@@ -553,10 +561,13 @@ fn play(
     } else {
         info!("{tag}: ended after {elapsed:.1} s");
     }
-    p.shared.stop.store(true, Ordering::Relaxed);
-    if let Some(e) = p.sound.take() {
-        if let Ok(mut e) = commands.get_entity(e) {
-            e.despawn();
+    if skipped {
+        // The decoder stops; the sound fades out (#2217), or goes at once if it has made
+        // none yet. Played to its end, its decoder is done already and the sound plays out
+        // what it has queued, then ends (`PlaybackSettings::DESPAWN`).
+        p.shared.stop.store(true, Ordering::Relaxed);
+        if let Some(e) = p.sound.take() {
+            stop_sound(&mut commands, e, StopReason::Film);
         }
     }
     commands.entity(p.root).despawn();
