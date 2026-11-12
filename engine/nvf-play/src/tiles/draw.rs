@@ -515,7 +515,9 @@ pub enum Select<'a> {
     /// [`fnv_ui::Ui::mod_tile_drawn`] accepts it against these vanilla names), every
     /// picture stretched over its box from the shared atlas or its own file, as T5 drew
     /// them.
-    Mods { vanilla: Option<&'a HashSet<String>> },
+    /// `by_locus`: laid out by the `locus` rule (`layout::layout_by_locus`; the start
+    /// menu's Mods page).
+    Mods { vanilla: Option<&'a HashSet<String>>, by_locus: bool },
     /// T12a, `[UI] TileMenus=HUDMainMenu`: every tile of the menu (the file's, the
     /// code-made copies and the mods'), but the file's and the code's under `kept` (the
     /// pieces NVForever still draws by hand, `super::vanilla::KEPT_PIECES`); `zoom`,
@@ -613,7 +615,10 @@ fn under(ui: &Ui, id: TileId, of: &[TileId]) -> bool {
 pub fn pieces(ui: &Ui, menu: TileId, measure: &layout::Measure<'_>, select: Select<'_>, t15: bool) -> (Vec<Piece>, usize) {
     let roots = ui.mod_added_tiles(menu);
     let items: Vec<(Option<TileId>, layout::DrawItem)> = match select {
-        Select::Mods { .. } => roots.iter().flat_map(|&r| layout::layout(ui, r, measure, t15).into_iter().map(move |i| (Some(r), i))).collect(),
+        Select::Mods { by_locus, .. } => roots
+            .iter()
+            .flat_map(|&r| if by_locus { layout::layout_by_locus(ui, r, measure, t15) } else { layout::layout(ui, r, measure, t15) }.into_iter().map(move |i| (Some(r), i)))
+            .collect(),
         Select::Whole { .. } => layout::layout(ui, menu, measure, t15).into_iter().map(|i| (roots.iter().copied().find(|&r| under(ui, i.tile, &[r])), i)).collect(),
     };
     let whole = matches!(select, Select::Whole { .. });
@@ -621,7 +626,7 @@ pub fn pieces(ui: &Ui, menu: TileId, measure: &layout::Measure<'_>, select: Sele
     let mut drawn_roots = HashSet::new();
     for (root, item) in items {
         let wanted = match select {
-            Select::Mods { vanilla } => ui.mod_tile_drawn(item.tile, vanilla),
+            Select::Mods { vanilla, .. } => ui.mod_tile_drawn(item.tile, vanilla),
             // A mod's own tiles draw under the kept pieces too [design].
             Select::Whole { kept, .. } => !under(ui, item.tile, kept) || (root.is_some() && ui.mod_tile_drawn(item.tile, None)),
         };
@@ -1428,7 +1433,13 @@ fn mods_page(commands: &mut Commands, script: &ScriptState, on: bool, kit: &mut 
             }
             let measured = |font: f64, text: &str, wrap: Option<f64>| kit.face(font).map_or((0.0, 0.0), |face| measure(&face.font, font_number(font), text, wrap));
             let vanilla = files.and_then(|files| archived_names(ui, menu, files, &mut drawn.vanilla));
-            pieces(ui, menu, &measured, Select::Mods { vanilla }, true)
+            let (mut drawn, roots) = pieces(ui, menu, &measured, Select::Mods { vanilla, by_locus: true }, true);
+            // MCM's trigger is its row in the original's pause column, which NVForever's
+            // column stands for (its Mods entry): not drawn over it [design: owner-review.md #34].
+            if let Some(trigger) = ui.find_tile(super::mods::MCM_TRIGGER) {
+                drawn.retain(|p| !under(ui, p.tile, &[trigger]));
+            }
+            (drawn, roots)
         }
         None => (Vec::new(), 0),
     };
@@ -1541,7 +1552,7 @@ fn hud(commands: &mut Commands, script: &ScriptState, view: &View, kit: &mut Fon
                 pieces(ui, menu, &measured, Select::Whole { kept: &kept, strip: ui.find_tile(STRIP_TILE) }, t15)
             } else {
                 let vanilla = files.and_then(|files| archived_names(ui, menu, files, &mut drawn.vanilla));
-                pieces(ui, menu, &measured, Select::Mods { vanilla }, t15)
+                pieces(ui, menu, &measured, Select::Mods { vanilla, by_locus: false }, t15)
             }
         }
         _ => (Vec::new(), 0),
@@ -2095,7 +2106,7 @@ mod tests {
     fn only_the_mods_tiles_draw_and_code_copies_never() {
         let (mut ui, src) = hud();
         let menu = ui.menu(HUD_MENU).unwrap();
-        assert_eq!(pieces(&ui, menu, &plain, Select::Mods { vanilla: None }, false), (Vec::new(), 0));
+        assert_eq!(pieces(&ui, menu, &plain, Select::Mods { vanilla: None, by_locus: false }, false), (Vec::new(), 0));
         ui.add_code_tile_from_template(&src, "HUDMainMenu/Piece", "row", None).unwrap();
         assert!(ui.inject_text(
             &src,
@@ -2106,7 +2117,7 @@ mod tests {
                 <rect name="Empty"/><nif name="Model"/></rect>"#
         ));
         ui.update();
-        let (drawn, roots) = pieces(&ui, menu, &plain, Select::Mods { vanilla: None }, false);
+        let (drawn, roots) = pieces(&ui, menu, &plain, Select::Mods { vanilla: None, by_locus: false }, false);
         assert_eq!(roots, 1);
         let names: Vec<_> = drawn.iter().map(|p| ui.tile(p.tile).name.as_str()).collect();
         assert_eq!(names, ["Mod", "Pic", "Words"]);
@@ -2124,10 +2135,10 @@ mod tests {
         // The HUD hidden hides them; a zero alpha too.
         let hidden = ui.find_tile("HUDMainMenu").unwrap();
         ui.set_trait(hidden, "visible", Value::Num(0.0));
-        assert_eq!(pieces(&ui, menu, &plain, Select::Mods { vanilla: None }, false).1, 0);
+        assert_eq!(pieces(&ui, menu, &plain, Select::Mods { vanilla: None, by_locus: false }, false).1, 0);
         ui.set_trait(hidden, "visible", Value::Num(1.0));
         ui.set_float("HUDMainMenu/Piece/Mod/alpha", 0.0);
-        assert_eq!(pieces(&ui, menu, &plain, Select::Mods { vanilla: None }, false).1, 0);
+        assert_eq!(pieces(&ui, menu, &plain, Select::Mods { vanilla: None, by_locus: false }, false).1, 0);
     }
 
     #[test]
@@ -2143,7 +2154,7 @@ mod tests {
               <text name="Zero"><string>x</string><font>0</font><wrapwidth>0</wrapwidth></text>"#
         ));
         ui.update();
-        let (drawn, roots) = pieces(&ui, menu, &plain, Select::Mods { vanilla: None }, false);
+        let (drawn, roots) = pieces(&ui, menu, &plain, Select::Mods { vanilla: None, by_locus: false }, false);
         assert_eq!(roots, 2);
         let names: Vec<_> = drawn.iter().map(|p| ui.tile(p.tile).name.as_str()).collect();
         assert_eq!(names, ["Back", "Clip", "Zero", "Front"]);
@@ -2175,9 +2186,9 @@ mod tests {
         let mut ui = Ui::new();
         let menu = ui.load_menu(&src, "hud.xml").unwrap();
         ui.update();
-        assert_eq!(pieces(&ui, menu, &plain, Select::Mods { vanilla: None }, false).1, 0);
+        assert_eq!(pieces(&ui, menu, &plain, Select::Mods { vanilla: None, by_locus: false }, false).1, 0);
         let vanilla: HashSet<String> = ["hudmainmenu".to_string()].into();
-        assert_eq!(pieces(&ui, menu, &plain, Select::Mods { vanilla: Some(&vanilla) }, false).1, 1);
+        assert_eq!(pieces(&ui, menu, &plain, Select::Mods { vanilla: Some(&vanilla), by_locus: false }, false).1, 1);
         // No archived copy under it: nothing to compare with, nothing drawn (#975).
         let mut kept = None;
         assert_eq!(archived_names(&ui, menu, &src, &mut kept), None);
@@ -2198,7 +2209,7 @@ mod tests {
         let mut kept = None;
         let vanilla = archived_names(&ui, menu, &src, &mut kept).cloned();
         assert_eq!(vanilla, Some(["hudmainmenu".to_string(), "hudmainmenu/old".to_string()].into()));
-        let (drawn, roots) = pieces(&ui, menu, &plain, Select::Mods { vanilla: vanilla.as_ref() }, false);
+        let (drawn, roots) = pieces(&ui, menu, &plain, Select::Mods { vanilla: vanilla.as_ref(), by_locus: false }, false);
         assert_eq!((drawn.len(), roots), (1, 1));
         assert_eq!(drawn[0].tile, ui.find_tile("HUDMainMenu/New").unwrap());
     }
@@ -2343,7 +2354,7 @@ mod tests {
     fn with_the_switch_on_the_files_and_the_codes_tiles_draw_but_the_kept_pieces() {
         let (mut ui, src, menu) = vanilla_hud();
         // Off (T5): none of them.
-        assert_eq!(pieces(&ui, menu, &plain, Select::Mods { vanilla: None }, false).0, Vec::new());
+        assert_eq!(pieces(&ui, menu, &plain, Select::Mods { vanilla: None, by_locus: false }, false).0, Vec::new());
         let kept = [ui.find_tile("HUDMainMenu/Info").unwrap()];
         let strip = ui.find_tile("HUDMainMenu/HitPoints/compass_window");
         let whole = |ui: &Ui| pieces(ui, menu, &plain, Select::Whole { kept: &kept, strip }, false);
@@ -2529,7 +2540,7 @@ mod tests {
               <text name="Eight"><string>LEVEL UP</string><font>8</font></text>"#
         ));
         ui.update();
-        let (drawn, _) = pieces(&ui, menu, &plain, Select::Mods { vanilla: None }, false);
+        let (drawn, _) = pieces(&ui, menu, &plain, Select::Mods { vanilla: None, by_locus: false }, false);
         let font = plain_font(36.0, 15.0);
         let bases = |name: &str| {
             let piece = drawn.iter().find(|p| ui.tile(p.tile).name == name).expect("a text piece");
