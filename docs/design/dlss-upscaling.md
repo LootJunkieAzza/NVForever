@@ -116,9 +116,12 @@ detail in the module notes of the file named.
   path never makes these calls. The change lasts for the rest of the process and cannot be
   undone [documented: Microsoft Learn, "SetDefaultDllDirectories function"]. What is known
   about its effect: from then on, DLLs loaded by name come from the program's folder, the DLSS
-  folder and System32 only [documented: same page]; wgpu, the Vulkan loader, audio (COM) and
-  gamepads (Windows Gaming Input) were seen working in runs that took this path [observed:
-  TODO, the main session adds the run]; a component that is found only through `PATH` (a
+  folder and System32 only [documented: same page]; wgpu, the Vulkan loader and audio (COM)
+  were seen working in runs that took this path [observed: 2026-11-12, Windows 11, RTX 5070
+  Ti: every DLSS smoke scenario and the FSR and frame-generation scenarios with the DLSS files
+  present, the Khronos validation layer loaded from its registered path, `audio output: opened`
+  in each run]; gamepads (Windows Gaming Input) were not exercised (no pad connected in those
+  runs) [hypothesis: unaffected, as WGI is a system component]; a component that is found only through `PATH` (a
   Vulkan layer registered with a bare file name, for example) would no longer load in a session
   that took the Streamline path. (The second review of #2206; its follow-up review.)
 - **Loaded whenever the files are there** (`main.rs`, `upscaler.rs` `UpscalerStartup`,
