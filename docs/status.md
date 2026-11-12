@@ -138,3 +138,8 @@ counts them).
   combat style's attack chance).
 - Not reproduced from the playtest lists: shadow flicker after leaving an interior (debug
   lines kept); the Crimson Caravan crash (the next one leaves a report).
+
+### TypeOf missing-key inspection
+
+Implemented the focused behavior correction and authored synthetic regression coverage;
+contract and limits: [TypeOf missing-key inspection](spec-notes/typeof-missing-key.md). This entry does not establish full mod compatibility.
