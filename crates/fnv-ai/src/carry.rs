@@ -1875,7 +1875,7 @@ impl Ai {
         a.activity = Activity::There;
         if talk.say_to {
             let Some(topic) = talk.topic else { return };
-            match game.say(actor, Some(talk.target), topic, true) {
+            match game.say_package_line(actor, talk.target, topic) {
                 Some(line) => self.log(game, actor, AiEvent::Talk { package, target: talk.target, line, away, say_to: true, greeting: false }),
                 None => {
                     let why = format!("it has no line of {} to say", game.data.name(topic));

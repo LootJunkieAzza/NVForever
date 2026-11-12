@@ -810,6 +810,18 @@ Cobb's line (8.80 s, its voice file's length), Trudy's answer (3.85 s), bArgumen
 package 0010663E chosen, the conversation ended `no_links` after 2 lines. Before this
 section StartConversation with an actor was a stub, so the argument was never heard.
 
+**A Dialogue package's Say To line to another actor leads on** (issue #2229,
+`Game::say_package_line`): when the line is a Conversation line, once it ends and its
+SayToDone blocks ran the two go on as above (`Game::next_conversation_line`: its next
+speaker, follow-ups, Link To and choice topics, until a Goodbye line or none). A
+scripted SayTo stays one line: scripts chain those themselves through SayToDone
+[hypothesis, from the data: TTW's CG04MaryHoldenTalkToTom (Say To, topic
+CG04AtriumConv1) says "We should just go back to our quarters" to Tom (INFO 0A0574FC:
+Conversation, next speaker Target, its choice CG04AtriumConv1, begin script atrium
+stage +1), and only Tom's answer from that topic (INFO 0A0574FE, Goodbye, at atrium
+stage 1) sets the stage 3 his CG04TomHoldenDeathRun needs; before, Tom never answered
+and never ran].
+
 ### 5.2 Actors who talk on their own (`fnv_ai::social`)
 
 Two behaviours, each allowed by the actor's current package ("Enable Fallout Behavior":
