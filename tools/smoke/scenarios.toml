@@ -24967,3 +24967,24 @@ order = [[
   { text = "GoodspringsSettler03Ref: package DefaultFollowPlayerFar", label = "the script package is taken up" },
   { text = "script: test aid calls GetIsCurrentPackage on GoodspringsSettler03Ref = 1", label = "still its package at 40 s" },
 ]]
+
+[[scenario]]
+name = "tutorial-stick-scroll-pad"
+source = "issue #1905: with a controller, the left stick Up and Down scroll the tutorial menu's text as the D-pad does, as in the original (owner's play on a PS3 pad); tutorial_menu.rs stick_scroll, the left stick read as crate::pad::StickButtons"
+note = "Controller chosen in the settings at 2 s; the long Movement and Combat tutorial at 6 s, held open; the scripted controller's left stick pushed down at 8 s and 9 s and up at 10 s (the pad- key aid's stick directions). Before the fix the stick did not scroll"
+areas = ["menus", "controller"]
+paths = ["engine/nvf-play/src/tutorial_menu.rs", "engine/nvf-play/src/test_aid.rs"]
+env = { NVFOREVER_HOME = "tutorial-stick-scroll-pad-home", NVF_PLAY_TEST_PAUSE = "1:4", NVF_PLAY_TEST_SETTINGS = "2:device:Controller", NVF_PLAY_TEST_SCRIPT_MENUS = "off", NVF_PLAY_TEST_SCRIPT = "6:call:-:ShowTutorialMenu:0x0006D914", NVF_PLAY_TEST_KEYS = "8:pad-Left Stick Down,9:pad-Left Stick Down,10:pad-Left Stick Up" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 13
+expect = [
+  { text = "test aid: real input Stick(Down) pressed", count = 2, label = "two pushes down" },
+  { text = "test aid: real input Stick(Up) pressed", count = 1, label = "one push up" },
+]
+order = [[
+  { text = "controls: input device Controller", label = "the controller is picked" },
+  { re = 'tutorial menu: page 1/\d+ "', label = "the tutorial opens" },
+  { re = 'tutorial menu: scroll 30 of \d+', label = "the stick down scrolls a step" },
+  { re = 'tutorial menu: scroll 60 of \d+', label = "and another" },
+  { re = 'tutorial menu: scroll 30 of \d+', label = "the stick up scrolls back a step" },
+]]

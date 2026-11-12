@@ -334,6 +334,7 @@ pub fn keys(
     clicks: Query<(&PointerState, &TmButton), Changed<PointerState>>,
     mut view: ResMut<TutorialView>,
     mut script: ResMut<ScriptState>,
+    (sticks, bindings): (Option<Res<crate::pad::StickButtons>>, Option<Res<Bindings>>),
 ) {
     use KeyCode::*;
     let n = pages(&script, None).len();
@@ -386,7 +387,8 @@ pub fn keys(
             return;
         }
     }
-    let mut by = 0.0;
+    let controller = bindings.is_some_and(|b| b.device == crate::bindings::InputDevice::Controller);
+    let mut by = stick_scroll(sticks.as_deref().filter(|_| controller));
     if keys.just_pressed(ArrowDown) {
         by += STEP;
     }
@@ -403,6 +405,24 @@ pub fn keys(
     if by != 0.0 {
         view.apply(n, Command::Scroll(by));
     }
+}
+
+/// How far the left stick scrolls the text this frame, with a controller working the
+/// controls: a step down or up for each push past [`crate::pad::STICK_PRESS`], as the
+/// D-pad's (issue #1905: in the original the left stick's Up and Down scroll the text as
+/// the D-pad's do, owner's play on a controller). A held push does not repeat [design:
+/// as the D-pad here].
+fn stick_scroll(sticks: Option<&crate::pad::StickButtons>) -> f32 {
+    use crate::pad::StickDir;
+    let Some(s) = sticks else { return 0.0 };
+    let mut by = 0.0;
+    if s.just_pressed(StickDir::Down) {
+        by += STEP;
+    }
+    if s.just_pressed(StickDir::Up) {
+        by -= STEP;
+    }
+    by
 }
 
 // ---- drawing -------------------------------------------------------------------------------
@@ -566,6 +586,22 @@ fn spawn_page(b: &mut ChildSpawnerCommands, c: &mut Ctx, l: &Layout, p: &Page, w
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Issue #1905: the left stick's push down or up scrolls a step, once per push.
+    #[test]
+    fn the_left_stick_scrolls_a_step_a_push() {
+        use crate::pad::{StickButtons, StickDir};
+        let mut s = StickButtons::default();
+        assert_eq!(stick_scroll(Some(&s)), 0.0);
+        s.now[StickDir::Down.index()] = true;
+        assert_eq!(stick_scroll(Some(&s)), STEP);
+        s.before = s.now;
+        assert_eq!(stick_scroll(Some(&s)), 0.0, "a held push does not repeat");
+        s = StickButtons::default();
+        s.now[StickDir::Up.index()] = true;
+        assert_eq!(stick_scroll(Some(&s)), -STEP);
+        assert_eq!(stick_scroll(None), 0.0, "no controller at work");
+    }
 
     #[test]
     fn the_marks_become_paragraphs() {

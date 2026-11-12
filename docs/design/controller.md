@@ -76,7 +76,7 @@ Start cannot be bound.
   | Blackjack | A Hit, Y Double/Deal, RT Split/Raise, LT Switch/Lower, X Surrender/Max Bet, B Stay/Exit |
   | Roulette | A Place, Y Remove, X Finish, LT Lower, RT Raise, B Exit |
   | Slot machine | A Spin, RT Raise, LT Lower, Y Payouts, X Max Bet, B Exit |
-  | Tutorial | RT Next, LT Previous |
+  | Tutorial | RT Next, LT Previous; the D-pad or the left stick up / down scrolls the text, a step a push [observed, #1905: the left stick in the original] |
   | Caravan bet [design, #1662] | A Accept, Y Auto Match, RT Raise, B Exit |
   | Caravan deck [design, #1662] | A Add, X Remove, Y Randomize, RT Play Caravan (B, the shared Esc, leaves) |
   | Caravan game [design, #1662] | A Select Card, X Discard Card, Y Discard Track, B Cancel; D-pad left / right the hand |
