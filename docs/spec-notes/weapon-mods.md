@@ -246,7 +246,7 @@ open the ITEMS page drawn from its file (`InventoryMenu`) gives way, as for the 
 | --- | --- | --- |
 | `IMM_Headline_Title` | not written | the file's (`sInventoryItems`) |
 | `IMM_ItemName` `string` | the weapon's name, "+" when modded | the record's name; "+" is ours (§5) |
-| `IMM_Headline_h2` `_length` | from where the line starts (after the title; the lead line's end in the screen menu) to 20 before the name's words, as the hand-built heading | [design]: the file's own reads `IMM_Headline_PlayerSkillInfo`, a tile only the repair file has, and comes to 0 |
+| `IMM_Headline_h2` `_length` | from where the line starts (after the title; the lead line's end in the screen menu) to 20 before the name's words, as the hand-built heading; written last each pass, so a script's own write to it does not last | [design]: the file's own reads `IMM_Headline_PlayerSkillInfo`, a tile only the repair file has, and comes to 0 |
 | `WMM_Background` `visible` | 0: the Pip-Boy's own backing | [design, as RM_Background] |
 | a row's `ListItemText` `string` | name, count, and under a mod's name its effect on a second line | the record's name; "(n)" and the effect words are ours (`item_mod::effect_text`) |
 | a row's `ListItemText` `alpha` | 255 | the file leaves it to code [hypothesis: no row dims] |
@@ -278,8 +278,9 @@ still clicks Cancel by the file's `_PCButton_E`. A click and a key in the same f
 arbitrated: each is acted on in turn, as with the hand-built menu (a click on the chosen mod and
 Enter in one frame attach it and take it off again); only one key is kept from acting twice
 (`menus::key_click_acts`). A hover and an arrow key in one frame: the model applies the hover
-first and the key after, so the key decides the chosen row (and the list follows it as a key's
-move).
+first and the key after, so the key decides the chosen row. The list treats that as a key's move
+(and brings the row into view) only when the chosen row changes in the frame; a hover and a key
+that end on the row already chosen move nothing [design].
 
 **The description** [design]: the file gives `IMM_ModDesc` a `height` of 100 at y 220 and the
 cards stand at y 400, but a text tile is measured to its words here and not clipped by its own

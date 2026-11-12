@@ -308,8 +308,8 @@ impl ItemModTiles {
     /// have applied this frame's requests by then, so the pointer's request is used up there: a
     /// key's later move back onto a row the pointer once asked for is the keys' (and brings the
     /// row into view). In a frame with both a hover and a key's move the model applies the hover
-    /// first and the key after (`crate::pipboy::item_mod::keys`), so the key decides the row and
-    /// the move is the keys'; the pointer does not win that frame.
+    /// first and the key after (`crate::pipboy::item_mod::keys`), so the key decides the row; the
+    /// move counts as the keys' only when the chosen row changes, as anywhere else here.
     fn follow_model(&mut self, selected: usize, late: bool) {
         if self.selected != Some(selected) {
             if self.asked == Some(selected) {
