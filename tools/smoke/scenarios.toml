@@ -25949,3 +25949,18 @@ expect = [
   { json = "roundtrip_identical", schema = "fnv.bsa.verify/1", equals = true, label = "it rewrites as 103, byte for byte" },
   { json = "decode_errors.#", schema = "fnv.bsa.verify/1", equals = 0, label = "no decode errors" },
 ]
+
+[[scenario]]
+name = "main-menu-disabled-glyphs"
+source = "[design, #2247] main_menu::show_entries must reach glyphs under the line anchor (docs/spec-notes/fonts.md section 3.2), using the existing start_menu::color shades"
+areas = ["main-menu", "save"]
+paths = ["engine/nvf-play/src/main_menu.rs", "engine/nvf-play/src/interface.rs", "engine/nvf-play/src/start_menu.rs"]
+env = { NVFOREVER_HOME = "menu-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
+args = ["--play", "--menu"]
+run_seconds = 8
+expect = [
+  { re = 'main menu: open \(\d+ loading screens, 0 saves\)', label = "the isolated empty home has no saves" },
+  { re = 'main menu: Continue glyph colour rgba \[127, 91, 33, 127\] \([1-9]\d* glyphs\)', label = "Continue glyphs carry the existing Dim RGBA" },
+  { re = 'main menu: Load Game glyph colour rgba \[127, 91, 33, 127\] \([1-9]\d* glyphs\)', label = "Load Game glyphs carry the existing Dim RGBA" },
+  { re = 'main menu: New Game glyph colour rgba \[255, 182, 66, 255\] \([1-9]\d* glyphs\)', label = "New Game glyphs stay Bright" },
+]
