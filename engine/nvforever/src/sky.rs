@@ -283,11 +283,6 @@ pub struct SkyState {
     /// The game clock has moved the sky (fades take game time; without a clock a change
     /// is at once).
     pub(crate) clock_seen: bool,
-    /// The game clock's hour this frame (`follow_game_clock`), which `hour` follows in
-    /// steps of half a game minute: the sun's light turns with it every frame, so shadows
-    /// creep instead of jumping once a step (a real second at TimeScale 30). `None` when the
-    /// hour was set by hand.
-    pub(crate) clock_hour: Option<f32>,
     /// The list (region FormID, `None` for the climate) and its eligible weathers the
     /// last roll was made for.
     rolled_for: Option<(Option<u32>, Vec<u32>)>,
@@ -500,7 +495,6 @@ impl SkyState {
             source: None,
             placed: false,
             clock_seen: false,
-            clock_hour: None,
             rolled_for: None,
             pick: wid,
             rolls: 0,
@@ -757,7 +751,6 @@ impl SkyState {
     /// Set the hour; `instant` skips weather fades (a jump rather than time passing).
     pub fn set_hour(&mut self, hour: f32, instant: bool) {
         self.hour = hour.rem_euclid(24.0);
-        self.clock_hour = None;
         self.follow_climate(instant);
         self.changed = true;
     }
@@ -776,11 +769,6 @@ impl SkyState {
             // The game's clock was set back (or far on): a jump, not time passing.
             self.days_passed = days_passed.floor();
             self.set_hour(hour, true);
-        }
-        // Within a step of `hour` (or just set to it): the sun follows the clock itself
-        // (test aid `NVF_PLAY_TEST_SMOOTH_SUN=0`: in the sky's steps, as before).
-        if smooth_sun() && (hour - self.hour).rem_euclid(24.0) < 1.0 / 120.0 {
-            self.clock_hour = Some(hour.rem_euclid(24.0));
         }
     }
 
@@ -1449,86 +1437,6 @@ pub fn reach_toward_light(cascade: &mut bevy::light::cascade::Cascade, extra: f3
     cascade.clip_from_world = remap * cascade.clip_from_world;
 }
 
-fn smooth_sun() -> bool {
-    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ON.get_or_init(|| std::env::var("NVF_PLAY_TEST_SMOOTH_SUN").map_or(true, |v| v != "0"))
-}
-
-/// The sun cascades from this one on are fitted to the sun as it stood at the sky's last
-/// half-minute step, not to the light itself ([`step_far_cascades`]).
-pub const STEPPED_CASCADES_FROM: usize = 1;
-
-/// The sun's light turns with the game clock every frame (`SkyState::clock_hour`), and a
-/// shadow map drawn for a turned light falls on a turned texel grid: in the far cascades,
-/// whose texels are several game units, shadow edges then flicker from frame to frame
-/// [observed by the owner, 2026-11-10]. Those cascades are fitted again here to the sun's
-/// direction at the sky's last step (half a game minute, a real second at TimeScale 30),
-/// so their grid turns once a step, where a 0.125° jump is hardest to see; the nearest
-/// cascade, with the finest texels, follows the light smoothly. Each cascade carries its
-/// own matrices, so the lit passes read each map as it was drawn. Bevy's own fitting
-/// (bevy_light `calculate_cascade`, `build_directional_light_cascades`), with another
-/// light direction. Runs after Bevy builds the cascades and before [`reach_toward_sun`].
-pub fn step_far_cascades(
-    sky: Res<SkyState>,
-    map: Res<bevy::light::DirectionalLightShadowMap>,
-    views: Query<(Entity, &GlobalTransform, &Projection, &Camera)>,
-    mut suns: Query<(&CascadeShadowConfig, &mut bevy::light::Cascades), With<Sun>>,
-) {
-    if sky.clock_hour.is_none() || sky.interior.is_some() {
-        return;
-    }
-    let dir = game_to_bevy().rotation * Vec3::from_array(sun_direction(&sky.climate, sky.hour, SUN_SOUTH));
-    let from = if dir.y >= 0.0 { dir } else { -dir };
-    let world_from_light = Mat4::from_quat(Transform::IDENTITY.looking_to(-from, Vec3::Y).rotation);
-    let light_from_world = world_from_light.transpose();
-    for (config, mut cascades) in &mut suns {
-        let overlap = 1.0 - config.overlap_proportion;
-        let nears: Vec<f32> = std::iter::once(config.minimum_distance).chain(config.bounds.iter().map(|b| overlap * b)).collect();
-        for (view, world_from_view, projection, camera) in &views {
-            if !camera.is_active {
-                continue;
-            }
-            let Some(list) = cascades.cascades.get_mut(&view) else { continue };
-            let light_from_view = light_from_world * world_from_view.to_matrix();
-            for (i, c) in list.iter_mut().enumerate().skip(STEPPED_CASCADES_FROM) {
-                let (Some(near), Some(far)) = (nears.get(i), config.bounds.get(i)) else { continue };
-                let corners = projection.get_frustum_corners(-near, -far);
-                *c = fit_cascade(corners, map.size as f32, world_from_light, light_from_view);
-            }
-        }
-    }
-}
-
-/// Bevy's cascade fitting (bevy_light 0.20.1 `calculate_cascade`, private there): the
-/// frustum slice's corners seen from the light, a square of the slice's largest diagonal,
-/// its centre snapped to whole texels.
-pub fn fit_cascade(corners: [bevy::math::Vec3A; 8], size: f32, world_from_light: Mat4, light_from_camera: Mat4) -> bevy::light::cascade::Cascade {
-    use bevy::math::Vec3A;
-    let mut min = Vec3A::splat(f32::MAX);
-    let mut max = Vec3A::splat(f32::MIN);
-    for corner in corners {
-        let p = light_from_camera.transform_point3a(corner);
-        min = min.min(p);
-        max = max.max(p);
-    }
-    let body = (corners[0] - corners[6]).length_squared();
-    let far_plane = (corners[4] - corners[6]).length_squared();
-    let diameter = body.max(far_plane).sqrt().ceil();
-    let texel = diameter / size;
-    let centre = Vec3A::new((0.5 * (min.x + max.x) / texel).floor() * texel, (0.5 * (min.y + max.y) / texel).floor() * texel, max.z);
-    let t = world_from_light.transpose();
-    let cascade_from_world = Mat4::from_cols(t.x_axis, t.y_axis, t.z_axis, (-centre).extend(1.0));
-    let world_from_cascade = Mat4::from_cols(world_from_light.x_axis, world_from_light.y_axis, world_from_light.z_axis, world_from_light * centre.extend(1.0));
-    let r = (max.z - min.z).recip();
-    let clip_from_cascade = Mat4::from_cols(
-        Vec4::new(2.0 / diameter, 0.0, 0.0, 0.0),
-        Vec4::new(0.0, 2.0 / diameter, 0.0, 0.0),
-        Vec4::new(0.0, 0.0, r, 0.0),
-        Vec4::new(0.0, 0.0, 1.0, 1.0),
-    );
-    bevy::light::cascade::Cascade { world_from_cascade, clip_from_cascade, clip_from_world: clip_from_cascade * cascade_from_world, texel_size: texel }
-}
-
 /// Stretch the sun's shadow cascades [`SUN_REACH_BACK`] toward the sun (PostUpdate, after
 /// Bevy builds them each frame and before their frusta and shadow views are made).
 pub fn reach_toward_sun(mut suns: Query<&mut bevy::light::Cascades, With<Sun>>) {
@@ -1969,16 +1877,6 @@ pub fn update_sky(
         }
         t.scale = sky_transform(cam_pos).scale;
     }
-    // The sun's light turns with the game clock every frame (`clock_hour`); its colour and
-    // strength, the sky and the weather follow the half-minute steps below.
-    if let (Some(clock), Ok((_, mut t))) = (sky.clock_hour, sun.single_mut()) {
-        let dir = to_bevy.rotation * Vec3::from_array(sun_direction(c, clock, SUN_SOUTH));
-        let from = if dir.y >= 0.0 { dir } else { -dir };
-        let turned = Transform::IDENTITY.looking_to(-from, Vec3::Y);
-        if t.rotation != turned.rotation {
-            t.rotation = turned.rotation;
-        }
-    }
     if !changed {
         return;
     }
@@ -2035,10 +1933,7 @@ pub fn update_sky(
         // Below the horizon the light comes from the opposite side (moonlight colour is
         // the weather's night "sunlight") [hypothesis].
         let from = if sun_dir.y >= 0.0 { sun_dir } else { -sun_dir };
-        // Following the game clock, the light has already been turned this frame.
-        if sky.clock_hour.is_none() {
-            *t = Transform::IDENTITY.looking_to(-from, Vec3::Y);
-        }
+        *t = Transform::IDENTITY.looking_to(-from, Vec3::Y);
         light.color = crate::lights::display_color(sunlight.map(crate::lights::linear_to_display));
         // Fade out while the sun (or moon) is within HORIZON_FADE of the horizon, so the
         // switch between the two does not flip shadows at full strength [interim].
@@ -2147,7 +2042,6 @@ mod tests {
             source: None,
             placed: false,
             clock_seen: false,
-            clock_hour: None,
             rolled_for: None,
             pick: SAVED,
             rolls: 0,
@@ -2183,45 +2077,6 @@ mod tests {
 
     /// A sky as the start makes it for a save showing `HELD`, which no list holds; the
     /// list's other entry waits for global `GATE`.
-    #[test]
-    fn a_far_cascade_is_fitted_on_whole_texels_of_the_stepped_light() {
-        // A camera looking north, a light from the south-west and above.
-        let view = Mat4::from_translation(Vec3::new(1234.5, 80.0, -987.25));
-        let projection = Projection::Perspective(PerspectiveProjection::default());
-        let corners = projection.get_frustum_corners(-500.0, -4000.0);
-        let world_from_light = Mat4::from_quat(Transform::IDENTITY.looking_to(-Vec3::new(-1.0, 1.5, 1.0).normalize(), Vec3::Y).rotation);
-        let c = fit_cascade(corners, 2048.0, world_from_light, world_from_light.transpose() * view);
-        let diameter = 2.0 / c.clip_from_cascade.x_axis.x;
-        assert_eq!(diameter, diameter.ceil(), "a whole number of units across");
-        assert_eq!(c.texel_size, diameter / 2048.0);
-        // The square's centre, in the light's frame, lies on the texel grid.
-        let centre = world_from_light.transpose().transform_point3(c.world_from_cascade.w_axis.truncate());
-        for v in [centre.x, centre.y] {
-            let k = v / c.texel_size;
-            assert!((k - k.round()).abs() < 1e-3, "{v} is {k} texels");
-        }
-        // Every corner of the slice falls inside the cascade.
-        for p in corners {
-            let q = c.clip_from_world.project_point3(view.transform_point3(p.into()));
-            assert!(q.x.abs() <= 1.0 + 1e-4 && q.y.abs() <= 1.0 + 1e-4 && (-1e-4..=1.0 + 1e-4).contains(&q.z), "{q}");
-        }
-    }
-
-    #[test]
-    fn the_sun_follows_the_clock_between_the_skys_half_minute_steps() {
-        let mut sky = SkyState { hour: 12.0, ..Default::default() };
-        // A tenth of a game minute on: the sky keeps its hour, the sun takes the clock's.
-        sky.follow_game_clock(12.0 + 0.1 / 60.0, 25.0);
-        assert_eq!(sky.hour, 12.0);
-        assert_eq!(sky.clock_hour, Some(12.0 + 0.1 / 60.0));
-        // A whole minute on: the sky steps, and both are the clock's.
-        sky.follow_game_clock(12.0 + 1.0 / 60.0, 25.0);
-        assert_eq!((sky.hour, sky.clock_hour), (12.0 + 1.0 / 60.0, Some(12.0 + 1.0 / 60.0)));
-        // An hour set by hand: the sun follows the sky's hour again.
-        sky.set_hour(15.0, true);
-        assert_eq!(sky.clock_hour, None);
-    }
-
     fn sky_started_on_held() -> SkyState {
         let weather = |id| Weather { form_id: id, edid: Some(format!("W{id}")), ..Default::default() };
         let gate = Gate { id: GATE, edid: None, stored: Some(0.0) };
@@ -2252,7 +2107,6 @@ mod tests {
             source: None,
             placed: false,
             clock_seen: false,
-            clock_hour: None,
             rolled_for: None,
             pick: HELD,
             rolls: 0,
