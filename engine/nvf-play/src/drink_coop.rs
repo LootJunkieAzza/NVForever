@@ -861,7 +861,10 @@ fn run(
             CEvent::PassedOut { slot, why } => {
                 let who = tk.drinkers.get(slot).copied();
                 let name = who.map(|w| name_of(tables.as_deref(), w, &sim)).unwrap_or_default();
-                info!("drink: slot {slot} ({name}) passed out ({why:?}) at tick {tick}");
+                // The tick it passed out on as the slot keeps it (the same on every game; an
+                // event's own tick is the one after on the deciding game).
+                let at = screen.0.as_ref().map(|d| &d.contest).or(coop.headless.as_ref()).and_then(|c| c.slots.get(slot)).and_then(|s| s.out).map_or(tick, |o| o.0);
+                info!("drink: slot {slot} ({name}) passed out ({why:?}) at tick {at}");
                 if let (Some(Who::Player(id)), Some(b)) = (who, coop.book.as_mut().filter(|_| tk.here)) {
                     b.passed_out(id);
                 }
