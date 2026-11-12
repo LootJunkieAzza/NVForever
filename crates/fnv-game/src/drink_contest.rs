@@ -173,9 +173,10 @@ impl PushPlan {
 }
 
 /// Why a drinker passed out.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum Why {
     /// Outside the target for [`OUT_LIMIT`] ticks.
+    #[default]
     Outside,
     /// Not wholly inside the new target when a drink came.
     OffCentre,

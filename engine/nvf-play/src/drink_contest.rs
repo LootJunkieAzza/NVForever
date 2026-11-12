@@ -100,6 +100,8 @@ pub struct SlotSnap {
     pub radius: f32,
     /// The tick it passed out.
     pub out: Option<u32>,
+    /// Why, when `out` is set (the host's reason, so every screen names the same one).
+    pub why: Why,
 }
 
 /// The co-op hook (drink-b fills it; the default, off, is one player alone).
@@ -363,7 +365,7 @@ fn follow(d: &mut Drink, link: &mut DrinkLink) {
             s.radius = n.radius;
         }
         for (i, n) in snaps.iter().enumerate() {
-            if let Some(e) = n.out.and_then(|t| d.contest.mark_out(i, t, Why::Outside)) {
+            if let Some(e) = n.out.and_then(|t| d.contest.mark_out(i, t, n.why)) {
                 d.inbox.push(e);
             }
         }
@@ -704,14 +706,16 @@ mod tests {
         let mut d = Drink::new(&start, &link, 0.0);
         assert_eq!(d.me, Some(1));
         assert!(d.contest.follower);
-        let snap = |x: f32, out| SlotSnap { pos: [x, 0.0], drift: [0.0; 2], radius: 0.85, out };
+        let snap = |x: f32, out| SlotSnap { pos: [x, 0.0], drift: [0.0; 2], radius: 0.85, out, why: Why::Outside };
         // Its own slot: near the host's place it keeps its own; slot 0 takes the host's.
         d.contest.slots[1].pos = [0.1, 0.0];
-        link.snap = Some((80, vec![snap(0.3, None), snap(0.2, None), snap(0.0, Some(79))]));
+        let mut gone = snap(0.0, Some(79));
+        gone.why = Why::OffCentre;
+        link.snap = Some((80, vec![snap(0.3, None), snap(0.2, None), gone]));
         follow(&mut d, &mut link);
         assert_eq!(d.contest.slots[0].pos, [0.3, 0.0]);
         assert_eq!(d.contest.slots[1].pos, [0.1, 0.0]);
-        assert_eq!(d.inbox, [Event::PassedOut { slot: 2, why: Why::Outside }]);
+        assert_eq!(d.inbox, [Event::PassedOut { slot: 2, why: Why::OffCentre }]);
         link.snap = Some((81, vec![snap(0.3, None), snap(0.6, None), snap(0.0, Some(79))]));
         follow(&mut d, &mut link);
         assert_eq!(d.contest.slots[1].pos, [0.6, 0.0], "past the hard limit");
