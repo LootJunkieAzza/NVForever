@@ -374,7 +374,7 @@ pub(crate) fn prepare(
             info!("FSR 3.1 shaders: {shaders}");
             (context, AuxiliaryPipelines::new(device.wgpu_device()))
         });
-        usages.0 |= wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::COPY_SRC;
+        usages.0 |= wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::COPY_SRC | crate::dlss_spike::main_texture_usages();
         let phases = wgpu_ffx::get_jitter_phase_count(render_size.x as i32, output_size.x as i32);
         let offset = Vec2::from_array(wgpu_ffx::get_jitter_offset((camera.frame % i32::MAX as u32) as i32, phases));
         // Bevy applies its projection jitter with the opposite displacement sign.

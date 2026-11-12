@@ -47,7 +47,7 @@ pub(super) struct Api {
 /// `slShutdown` has run. Dropped in field order after it.
 pub(super) struct Held {
     queue: wgpu::Queue,
-    device: wgpu::Device,
+    pub(super) device: wgpu::Device,
     pub(super) adapter: wgpu::Adapter,
     instance: wgpu::Instance,
 }
@@ -183,6 +183,44 @@ pub(super) fn start(app: &mut App) {
     // intercept to the system's loader [documented: `src/wrapper.cpp:2365-2403`]; `load` keeps it
     // loaded for the rest of the process.
     unsafe { settings.set_vulkan_library(interposer, instance_report) };
+    // Something in Streamline's or NGX's path calls `vkCreatePrivateDataSlot`, which needs the
+    // `privateData` feature (core in Vulkan 1.3) that wgpu does not enable [observed: Khronos
+    // validation layer, `VUID-vkCreatePrivateDataSlot-privateData-04564`, 2026-11-12]. Enabled
+    // when the instance and device are 1.3 and the device offers it.
+    // SAFETY: adds one feature structure (wgpu-hal 30 chains no `PhysicalDevicePrivateDataFeatures`
+    // or `PhysicalDeviceVulkan13Features` of its own) and removes nothing.
+    unsafe {
+        settings.add_create_device_callback(|args, adapter, _features| {
+            if !private_data_supported(adapter) {
+                return;
+            }
+            // Must outlive the device's creation, which only the callback's caller sees the end
+            // of: one small allocation is kept for each device made (as anti_lag.rs does).
+            let chained = Box::leak(Box::new(vk::PhysicalDevicePrivateDataFeatures::default().private_data(true)));
+            chained.p_next = args.create_info.p_next.cast_mut();
+            args.create_info.p_next = std::ptr::from_ref(chained).cast();
+            note(Level::INFO, "device: privateData enabled for Streamline");
+        });
+    }
+}
+
+/// Whether the device offers Vulkan 1.3's `privateData` feature through a 1.3 instance.
+fn private_data_supported(adapter: &wgpu::hal::vulkan::Adapter) -> bool {
+    let shared = adapter.shared_instance();
+    if shared.instance_api_version() < vk::API_VERSION_1_3 {
+        return false;
+    }
+    let instance = shared.raw_instance();
+    // SAFETY: a query on the adapter's own physical device.
+    let properties = unsafe { instance.get_physical_device_properties(adapter.raw_physical_device()) };
+    if properties.api_version < vk::API_VERSION_1_3 {
+        return false;
+    }
+    let mut private_data = vk::PhysicalDevicePrivateDataFeatures::default();
+    let mut features = vk::PhysicalDeviceFeatures2::default().push_next(&mut private_data);
+    // SAFETY: one core 1.3 structure in the chain of a 1.3 device.
+    unsafe { instance.get_physical_device_features2(adapter.raw_physical_device(), &mut features) };
+    private_data.private_data == vk::TRUE
 }
 
 /// The interposer loaded by full path (its own folder searched first for what it imports) and

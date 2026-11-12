@@ -32,7 +32,13 @@
 //!    wgpu-core 30.0.1 `command/mod.rs:561-572`]), finished and queued with
 //!    `add_command_buffer`, which flushes Bevy's encoder first [design:
 //!    vendor/bevy_render/src/renderer/render_context.rs:456-461]: submission order is Bevy's
-//!    work with the transitions, then the evaluate, then what follows.
+//!    work with the transitions, then the evaluate, then what follows. A full memory barrier
+//!    (all commands, all writes before it against all reads and writes after it) is recorded
+//!    just before and just after the evaluate: NGX clears its output with
+//!    `vkCmdClearColorImage`, a transfer write that wgpu's barriers (shader stages for a storage
+//!    texture) order neither after the transition before it nor before the layout transition
+//!    after it [observed: Khronos synchronization validation, `SYNC-HAZARD-WRITE-AFTER-WRITE`
+//!    on both sides of `nv.ngx.dlss.Evaluate`, 2026-11-12].
 //! 6. On Bevy's next encoder: the output's alpha set to 1 (the passes after FSR expect it unless
 //!    FSR's alpha copy runs, fsr.rs `restore_alpha`, which `fsr_pass` still runs after this).
 //!
@@ -144,6 +150,9 @@ pub(super) struct Evaluator {
     results: Vec<(&'static str, SlResult, u64)>,
     said: Vec<&'static str>,
     alpha: Option<(wgpu::TextureFormat, wgpu::RenderPipeline)>,
+    /// The device's function table for the barriers around the evaluate, taken once (a clone of
+    /// ash's table; the device itself outlives the spike, `win::Held`).
+    raw_device: Option<ash::Device>,
 }
 
 impl Evaluator {
@@ -160,6 +169,7 @@ impl Evaluator {
             results: Vec::new(),
             said: Vec::new(),
             alpha: None,
+            raw_device: None,
         }
     }
 
@@ -252,6 +262,15 @@ impl Evaluator {
             self.failed += 1;
             return self.fsr();
         };
+        if self.raw_device.is_none() {
+            // SAFETY: only the function table and handle are cloned; the guard is dropped at once.
+            self.raw_device = unsafe { held.device.as_hal::<wgpu::hal::api::Vulkan>() }.map(|d| d.raw_device().clone());
+        }
+        let Some(raw_device) = self.raw_device.as_ref() else {
+            self.say_once("raw device", Level::WARN, "the device is not a Vulkan one: FSR's dispatch draws these frames");
+            self.failed += 1;
+            return self.fsr();
+        };
 
         // 2. Frame token and constants.
         let mut token: *mut FrameToken = std::ptr::null_mut();
@@ -335,7 +354,24 @@ impl Evaluator {
             dlss_encoder.as_hal_mut::<wgpu::hal::api::Vulkan, _, _>(|hal| {
                 hal.map(|hal| {
                     let command_buffer = hal.raw_handle();
-                    (api.evaluate_feature)(FEATURE_DLSS, token, inputs.as_ptr(), inputs.len() as u32, handle_ptr(command_buffer.as_raw()))
+                    let barrier = [vk::MemoryBarrier::default()
+                        .src_access_mask(vk::AccessFlags::MEMORY_WRITE)
+                        .dst_access_mask(vk::AccessFlags::MEMORY_READ | vk::AccessFlags::MEMORY_WRITE)];
+                    let full_barrier = || {
+                        raw_device.cmd_pipeline_barrier(
+                            command_buffer,
+                            vk::PipelineStageFlags::ALL_COMMANDS,
+                            vk::PipelineStageFlags::ALL_COMMANDS,
+                            vk::DependencyFlags::empty(),
+                            &barrier,
+                            &[],
+                            &[],
+                        )
+                    };
+                    full_barrier();
+                    let r = (api.evaluate_feature)(FEATURE_DLSS, token, inputs.as_ptr(), inputs.len() as u32, handle_ptr(command_buffer.as_raw()));
+                    full_barrier();
+                    r
                 })
             })
         };

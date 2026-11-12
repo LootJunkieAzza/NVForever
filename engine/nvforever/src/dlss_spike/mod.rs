@@ -174,6 +174,18 @@ pub fn frame_generation_forced_off() -> bool {
     active
 }
 
+/// Usages the main textures need beyond FSR's while the spike is active: NGX clears its
+/// output with `vkCmdClearColorImage`, which needs `TRANSFER_DST` [observed: Khronos validation
+/// layer, `VUID-vkCmdClearColorImage-image-00002` inside `nv.ngx.dlss.Evaluate`, 2026-11-12].
+/// Added in `fsr::prepare` beside FSR's own; nothing while the spike is inactive.
+pub(crate) fn main_texture_usages() -> wgpu::TextureUsages {
+    if ACTIVE.load(Ordering::Relaxed) {
+        wgpu::TextureUsages::COPY_DST
+    } else {
+        wgpu::TextureUsages::empty()
+    }
+}
+
 /// What `fsr::fsr_pass` hands the spike for one frame: FSR's prepared inputs, the camera and
 /// FSR's reset.
 #[cfg_attr(not(windows), allow(dead_code))]
