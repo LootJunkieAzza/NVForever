@@ -437,7 +437,7 @@ type PlayAndPipBoy<'w> = (Res<'w, State<PlayState>>, Option<Res<'w, crate::pipbo
 #[allow(clippy::too_many_arguments)]
 fn draw(
     mut commands: Commands,
-    (tags, hidden): (Res<NameTags>, Res<HiddenTags>),
+    (tags, hidden, drink): (Res<NameTags>, Res<HiddenTags>, Option<Res<crate::drink_contest::DrinkScreen>>),
     pings: Res<Pings>,
     mates: Res<SocialMates>,
     heads: Res<crate::emotes::MateHeads>,
@@ -471,7 +471,10 @@ fn draw(
             let d = Vec2::new((s.x - 0.5) * size.x / size.y.max(1.0), s.y - 0.5);
             d.length_squared() <= FOCUS_RADIUS * FOCUS_RADIUS
         };
-        if tags.on {
+        // Not over the drinking contest's screen (its roster names the drinkers; a tag lay
+        // over its result banner, parity 2026-11-12).
+        let contest = drink.as_deref().is_some_and(|d| d.0.is_some());
+        if tags.on && !contest {
             for m in mates.mates.iter().filter(|m| m.here && !m.lost && !hidden.0.contains(&m.reference)) {
                 // Over its drawn head (queue item 137; seated on furniture too); its feet
                 // until its puppet is drawn.
