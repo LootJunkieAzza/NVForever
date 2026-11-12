@@ -26070,3 +26070,16 @@ order = [[
   { re = 'music: read music.+ off the main thread', label = "its files are read first" },
   { text = "music: musSetLOCDesExplBothABC day started, layers outer+middle+inner", label = "then the track starts, with its three layers" },
 ]]
+
+[[scenario]]
+name = "holster-turn-faces-player"
+source = "issue #2246 (TTW: Lucas Simms, a holstered 2ha rifle, talked with his chest 90° off the player): the 2ha/2hh Holster clips turn Bip01 90° with no Bip01 NonAccum track, doubling the idle's pelvis turn; docs/spec-notes/floating-actors.md §8. Sunny Smiles is given a flamer (2hh, holstered) and greets the player at the saloon door: her chest stays on the player (-86° before the fix, +4° after)"
+areas = ["actors", "animation", "dialogue"]
+paths = ["engine/nvf-assets/src/anim_play.rs", "engine/nvforever/src/dialogue_look.rs", "engine/nvforever/src/weapons.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "2:call:SunnyRef:AddItem:WeapFlamer:1,2.5:call:SunnyRef:EquipItem:WeapFlamer,14:activate:ProspectorSaloonDoor", NVF_PLAY_TEST_TALK = "5:*=0", NVF_PLAY_TEST_TALK_DELAY = "3" }
+args = ["--cell", "Goodsprings", "--play", "--npc-packages", "SunnyRef", "--no-voice"]
+run_seconds = 45
+expect = [
+  "dialogue: conversation with SunnyRef started (topic GREETING)",
+  { re = 'dialogue look: SunnyRef stops facing the player: .*; its chest is (?P<n>[+-]?\d+)° off the player', range = [-20, 20], label = "Sunny's chest on the player after the conversation (holstered 2hh)" },
+]
