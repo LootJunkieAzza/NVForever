@@ -1217,13 +1217,13 @@ fn run(
                             };
                             if tick != tk.view_tick && !v.slots.is_empty() {
                                 tk.view_tick = tick;
-                                link.snap = Some((tick, v.slots.iter().map(|s| SlotSnap { pos: s.pos, drift: s.drift, radius: s.radius, out: s.out }).collect()));
+                                link.snap = Some((tick, v.slots.iter().map(snap_of).collect()));
                                 link.steer = v.slots.iter().enumerate().map(|(i, s)| (Some(i) != link.local).then_some(s.steer)).collect();
                             }
                             if let DrinkPhase::Over { winner, pot, .. } = v.phase {
                                 tk.winner_given = true;
                                 if !v.slots.is_empty() {
-                                    link.snap = Some((tk.view_tick, v.slots.iter().map(|s| SlotSnap { pos: s.pos, drift: s.drift, radius: s.radius, out: s.out }).collect()));
+                                    link.snap = Some((tk.view_tick, v.slots.iter().map(snap_of).collect()));
                                 }
                                 let slot = winner.and_then(|w| tk.drinkers.iter().position(|x| *x == Who::Player(w)));
                                 info!("drink: the deciding game names the winner {winner:?} (slot {slot:?}), pot {pot}");
@@ -1344,6 +1344,19 @@ fn why_code(w: Why) -> u8 {
         Why::OffCentre => 1,
         Why::Left => 2,
     }
+}
+
+fn why_of(c: u8) -> Why {
+    match c {
+        1 => Why::OffCentre,
+        2 => Why::Left,
+        _ => Why::Outside,
+    }
+}
+
+/// A slot of the deciding game's view, as the screen's follower takes it.
+fn snap_of(s: &SlotView) -> SlotSnap {
+    SlotSnap { pos: s.pos, drift: s.drift, radius: s.radius, out: s.out, why: why_of(s.why) }
 }
 
 /// The deciding game's ticks (see the module notes): this player's slot steered by its keys,
@@ -1931,6 +1944,15 @@ mod tests {
         // The host gets up: with one left, that one wins.
         let ev = drive_host(&mut c, &mut started, 1.3, Some(0), [0.0; 2], true, &b, &who, &mut sent);
         assert!(ev.iter().any(|e| matches!(e, CEvent::Winner { slot: Some(1), pot: 150 })));
+    }
+
+    #[test]
+    fn a_pass_outs_reason_reaches_the_guests_screen() {
+        for w in [Why::Outside, Why::OffCentre, Why::Left] {
+            let v = SlotView { out: Some(9), why: why_code(w), ..Default::default() };
+            let back = DrinkView::decode(&DrinkView { slots: vec![v], ..running_view() }.encode()).unwrap();
+            assert_eq!(snap_of(&back.slots[0]).why, w);
+        }
     }
 
     #[test]
