@@ -113,6 +113,14 @@ impl GivenSwitches {
 /// decided when the app is built, before `apply_stored` runs (nvforever's frame split
 /// takes its GPU timestamps from the start or not at all), so the two cannot disagree.
 pub fn switch_after_ini(command_line: bool, stored: Option<bool>, given: &GivenSwitches, note: &str) -> bool {
+    after_ini(command_line, stored, given, note)
+}
+
+/// [`switch_after_ini`] for a row of any kind, a list's too: `stored` is the INI's text
+/// already read by the row's own `load` rule (`None`: no such key, or text the row would
+/// skip as not one of its states, so the command line's state stays, as [`apply_stored`]
+/// leaves it). nvforever's upscaler is chosen with it before the renderer starts.
+pub fn after_ini<T>(command_line: T, stored: Option<T>, given: &GivenSwitches, note: &str) -> T {
     match stored {
         Some(v) if given.keeping(note).is_none() => v,
         _ => command_line,
@@ -1038,6 +1046,19 @@ ui-scale={stored}
         assert!(!start(&["--lamp"], false), "otherwise the stored state wins (with a warning)");
         assert!(!start(&["--other"], true), "a switch the row does not name is no reason to keep it");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn after_ini_is_the_same_precedence_for_any_kind_of_row() {
+        let note = "Which one. (--pick)";
+        let given = |win: bool| GivenSwitches { given: vec!["--pick".into()], win };
+        assert_eq!(after_ini("cli", Some("ini"), &given(false), note), "ini", "normal play: the INI wins");
+        assert_eq!(after_ini("cli", Some("ini"), &given(true), note), "cli", "a test run keeps a switch it was given");
+        assert_eq!(after_ini("cli", None, &given(false), note), "cli", "no stored state (or text the row skips)");
+        assert_eq!(after_ini("cli", Some("ini"), &GivenSwitches { given: vec!["--other".into()], win: true }, note), "ini");
+        for (cmd, stored, win) in [(true, Some(false), false), (true, Some(false), true), (false, None, true)] {
+            assert_eq!(switch_after_ini(cmd, stored, &given(win), note), after_ini(cmd, stored, &given(win), note));
+        }
     }
 
     #[test]
