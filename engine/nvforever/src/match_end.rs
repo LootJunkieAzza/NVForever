@@ -97,6 +97,17 @@ pub const END_VIEW: Portrait = Portrait { yaw: 0.35, distance: 150.0, drop: 30.0
 /// against the chest; at 105 units the cheer's raised fist left the frame, slots-seated
 /// 2026-11-11].
 pub const SEATED_VIEW: Portrait = Portrait { yaw: 1.5, distance: 165.0, drop: 12.0, pitch: 0.12, shift: 0.0 };
+/// The sides [`SEATED_VIEW`] tries, in order, as its yaw: round at the player's right,
+/// at their left, then further round towards their back on each side. The first one
+/// with a clear line is taken, else the clearest [design: ship13's slots-coop-2p-exit,
+/// 2026-11-12: at The Tops' 0016546A the right side ran into the next stool's player and
+/// the camera stood behind his head; the pillar beside such machines can block a side].
+pub const SEATED_YAWS: [f32; 6] = [1.5, -1.5, 2.0, -2.0, 2.5, -2.5];
+/// A side counts as clear when this part of its distance is free [design].
+const SEATED_CLEAR: f32 = 0.97;
+/// How near another player's head may pass the seated end camera's line (game units)
+/// [design: a head's half width and a margin].
+pub const MATE_CLEAR: f32 = 40.0;
 /// Seconds the camera takes to swing from the game's camera to the end view [design].
 pub const EASE_IN: f32 = 0.6;
 /// Seconds to black after the result menu closes, held black, and back [design].
@@ -317,6 +328,50 @@ pub fn end_camera_of(view: Portrait, eye: [f32; 3], heading: f32) -> ([f32; 3], 
     (at, [eye[0], eye[1], eye[2] - view.drop])
 }
 
+/// The seated end camera's side ([`SEATED_YAWS`]): the first whose line from the look
+/// point is clear, else the one clear furthest. `reach` is how far the line from the look
+/// point to the camera is free (game units), for a camera at `at` looking at `look`.
+pub fn pick_seated(eye: [f32; 3], heading: f32, mut reach: impl FnMut([f32; 3], [f32; 3]) -> f32) -> (Portrait, f32) {
+    let mut best = (SEATED_VIEW, -1.0);
+    for yaw in SEATED_YAWS {
+        let view = Portrait { yaw, ..SEATED_VIEW };
+        let (at, look) = end_camera_of(view, eye, heading);
+        let free = (reach(at, look) / view.distance).clamp(0.0, 1.0);
+        if free >= SEATED_CLEAR {
+            return (view, free);
+        }
+        if free > best.1 {
+            best = (view, free);
+        }
+    }
+    best
+}
+
+/// How far the line from `look` to `at` runs before it passes within [`MATE_CLEAR`] of
+/// one of `heads` (game space), or its whole length.
+pub fn mates_reach(look: [f32; 3], at: [f32; 3], heads: impl IntoIterator<Item = [f32; 3]>) -> f32 {
+    let (a, b) = (Vec3::from(look), Vec3::from(at));
+    let d = b - a;
+    let len = d.length();
+    if len < 1e-3 {
+        return len;
+    }
+    let mut reach = len;
+    for h in heads {
+        let h = Vec3::from(h);
+        let t = (h - a).dot(d) / (len * len);
+        // Behind the look point, or past the camera by more than the margin: not in the way.
+        if t <= 0.0 || (t - 1.0) * len > MATE_CLEAR {
+            continue;
+        }
+        let near = a + d * t.min(1.0);
+        if near.distance(h) < MATE_CLEAR {
+            reach = reach.min((t.min(1.0) * len - MATE_CLEAR).max(0.0));
+        }
+    }
+    reach
+}
+
 /// A reaction waiting for its clip or its body.
 #[derive(Debug, Clone, Copy)]
 struct Pending {
@@ -353,6 +408,8 @@ pub struct MatchEnd {
     /// the upper body over the sitting clip, the legs left on the stool [owner 2026-11-11:
     /// "it should be in the seat"].
     pub seated: bool,
+    /// The seated end camera's side was picked for this result ([`pick_seated`]).
+    picked: bool,
 }
 
 impl MatchEnd {
@@ -371,7 +428,7 @@ impl Plugin for MatchEndPlugin {
         app.init_resource::<MatchEnd>()
             .add_systems(Startup, spawn_blackout)
             .add_systems(Update, (ends, watch, stand, cards, react).chain().before(nvf_play::player::BodySet).before(crate::idles::drive))
-            .add_systems(PostUpdate, (camera, blackout).after(TransformSystems::Propagate).before(VisibilitySystems::UpdateFrusta));
+            .add_systems(PostUpdate, (camera, blackout, arms_clear).after(TransformSystems::Propagate).before(VisibilitySystems::UpdateFrusta));
     }
 }
 
@@ -426,6 +483,7 @@ fn watch(
             st.seat = e.seat;
             st.stood = false;
             st.view = st.seated.then_some(SEATED_VIEW);
+            st.picked = false;
         }
         if st.shown != Some((e.kind, e.table, e.winner)) {
             st.shown = Some((e.kind, e.table, e.winner));
@@ -742,6 +800,7 @@ fn camera(
     player: Option<Res<Player>>,
     body: Option<Res<BodyView>>,
     mut phys: Option<ResMut<nvf_play::phys::PhysState>>,
+    heads: Option<Res<nvf_play::emotes::MateHeads>>,
     mut cams: Query<(&mut Transform, &mut GlobalTransform, Has<ChildOf>), With<PlayerCamera>>,
 ) {
     let since = match st.phase {
@@ -751,6 +810,19 @@ fn camera(
     };
     let (Some(p), Ok((mut t, mut g, parented))) = (player, cams.single_mut()) else { return };
     let eye = body.as_deref().and_then(BodyView::portrait_eye).unwrap_or_else(|| p.eye());
+    if st.seated && !st.picked {
+        st.picked = true;
+        let mates: Vec<[f32; 3]> = heads.as_deref().map(|h| h.0.values().copied().collect()).unwrap_or_default();
+        let (view, free) = pick_seated(eye, p.heading, |at, look| {
+            let walls = match phys.as_deref_mut() {
+                Some(phys) => crate::death_cam::clear(phys, space::to_bevy(look), space::to_bevy(at)).distance(space::to_bevy(look)),
+                None => f32::INFINITY,
+            };
+            walls.min(mates_reach(look, at, mates.iter().copied()))
+        });
+        info!("match end: the seated end view stands at yaw {:.1} ({:.0}% of its distance clear)", view.yaw, free * 100.0);
+        st.view = Some(view);
+    }
     let (at, look) = end_camera_of(st.view(), eye, p.heading);
     let (at, look) = (space::to_bevy(at), space::to_bevy(look));
     let at = match phys.as_deref_mut() {
@@ -767,6 +839,48 @@ fn camera(
     // After propagation: the camera is a root, so its global transform is its own.
     if !parented {
         *g = GlobalTransform::from(out);
+    }
+}
+
+/// The arm bones a seated reaction is traced along, shoulder to hand, each side.
+const ARM_CHAIN: [[&str; 3]; 2] = [["Bip01 R UpperArm", "Bip01 R Forearm", "Bip01 R Hand"], ["Bip01 L UpperArm", "Bip01 L Forearm", "Bip01 L Hand"]];
+/// How far past the hand bone the fist reaches (game units) [design: a fist's length].
+const FIST: f32 = 9.0;
+
+/// A seated reaction's arms against the world (a slot machine's stool beside a pillar,
+/// ship13's slots-coop-2p-exit): each arm's segments, shoulder to fist, traced against
+/// what the camera's wall check sees, every frame of the end view; one line when the view
+/// ends: the arms stayed clear, or the first bone that went into something.
+fn arms_clear(
+    st: Res<MatchEnd>,
+    body: Option<Res<crate::player_body::PlayerBody>>,
+    mut phys: Option<ResMut<nvf_play::phys::PhysState>>,
+    globals: Query<&GlobalTransform>,
+    mut seen: Local<Option<(Option<&'static str>, u32)>>,
+) {
+    if !(st.seated && matches!(st.phase, Phase::Result { .. })) {
+        match seen.take() {
+            Some((Some(bone), _)) => info!("match end: the seated reaction's {bone} went into the world"),
+            Some((None, frames)) => info!("match end: the seated reaction's arms stayed clear of the world ({frames} frames traced)"),
+            None => {}
+        }
+        return;
+    }
+    let (Some(rig), Some(phys)) = (body.as_deref().and_then(|b| b.third_rig()).map(|r| r.1), phys.as_deref_mut()) else { return };
+    let s = seen.get_or_insert((None, 0));
+    s.1 += 1;
+    for chain in ARM_CHAIN {
+        let pts: Vec<Vec3> = chain.iter().filter_map(|b| crate::knockouts::bone(&rig, &globals, b)).collect();
+        if pts.len() != 3 {
+            continue;
+        }
+        let fist = pts[2] + (pts[2] - pts[1]).normalize_or_zero() * FIST;
+        for (k, (a, b)) in [(pts[0], pts[1]), (pts[1], fist)].into_iter().enumerate() {
+            // `clear` stops WALL_MARGIN short of a hit; a free segment comes back whole.
+            if s.0.is_none() && crate::death_cam::clear(phys, a, b).distance(b) > 0.5 {
+                s.0 = Some(chain[k + 1]);
+            }
+        }
     }
 }
 
@@ -833,6 +947,24 @@ mod tests {
             // Looking at the chest, under the eye; from above it.
             assert!((look[2] - (eye[2] - END_VIEW.drop)).abs() < 1e-4 && at[2] > look[2]);
         }
+    }
+
+    #[test]
+    fn the_seated_end_view_takes_the_first_clear_side_else_the_clearest() {
+        let eye = [0.0, 0.0, 100.0];
+        // All clear: the right side, as before.
+        assert_eq!(pick_seated(eye, 0.0, |_, _| 1000.0).0.yaw, SEATED_YAWS[0]);
+        // Another player on the stool to the right (+x, heading north): the left side.
+        let mate = [125.0, 0.0, 100.0];
+        let (v, free) = pick_seated(eye, 0.0, |at, look| mates_reach(look, at, [mate]));
+        assert_eq!(v.yaw, -1.5, "{v:?}");
+        assert!(free >= SEATED_CLEAR);
+        // Nothing clear: the side clear furthest.
+        let (v, _) = pick_seated(eye, 0.0, |at, _| if at[0] < 0.0 && at[1] < 0.0 { 120.0 } else { 30.0 });
+        assert!(v.yaw < -1.9, "{v:?}");
+        // A head behind the look point or well past the camera is not in the way.
+        assert_eq!(mates_reach([0.0; 3], [100.0, 0.0, 0.0], [[-30.0, 0.0, 0.0], [200.0, 0.0, 0.0]]), 100.0);
+        assert!(mates_reach([0.0; 3], [100.0, 0.0, 0.0], [[60.0, 10.0, 0.0]]) < 30.0);
     }
 
     #[test]
