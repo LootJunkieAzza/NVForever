@@ -25,6 +25,8 @@
 //!   (`RefExtra::unconscious`, as SetUnconscious holds a lying actor) until the contest
 //!   is over. The others see the puppet fall by co-op's own rule for a player lying in
 //!   its own game.
+//! - **The winner dances** ([`WIN_DANCE`], the tap dance) from its `Winner` until the
+//!   contest's end, in place by the table, then stands as before.
 //! - **Waking up**: when the contest ends (`DrinkEnded`, or its screen gone), the hold
 //!   is let go: the body gets up by the game's get-up clip (`GetUpFaceUp` /
 //!   `GetUpFaceDown`), the view and the controls come back with it, and the view the
@@ -33,14 +35,14 @@
 //! Log lines start `drink world:`.
 
 use crate::control::{PlayerControl, Pov};
-use crate::drink_contest::{DrinkEnded, DrinkEvent, DrinkScreen, DrinkStart};
+use crate::drink_contest::{DrinkEnded, DrinkEvent, DrinkLink, DrinkScreen, DrinkStart};
 use crate::phys::PhysState;
 use crate::player::Player;
 use crate::script::{with_world, ScriptState};
 use crate::sim::SimState;
 use crate::{PlaySet, PlayState};
 use bevy::prelude::*;
-use fnv_game::drink_contest::Event;
+use fnv_game::drink_contest::{Event, Who};
 use fnv_game::drink_table::{self as dt, Bar};
 use fnv_sim::FormId;
 
@@ -63,6 +65,12 @@ pub struct ContestDrink {
 pub const TIP_SPEED: f32 = 70.0;
 /// ... and upwards [design: none, it drops].
 pub const TIP_RISE: f32 = 0.0;
+/// The winner's dance, by its emote key (`crate::emotes::CATALOG`): the tap dance
+/// [design: owner 2026-11-11, "it should be tap dance or something silly", not the
+/// cheer; observed: FalloutNV.esm IDLE 0x0012CF9D `SpecialIdleNVTapDance`,
+/// `SpecialIdle_NVTapDance.kf`, danced in place]. Played as the emote, so the others
+/// see it on this player's puppet through the emotes' co-op channel.
+pub const WIN_DANCE: &str = "tap-dance";
 
 /// This player at a contest's table.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -76,6 +84,8 @@ pub struct AtTable {
     pub held: bool,
     /// The contest is over: waiting for the player to be up to give the view back.
     pub over: bool,
+    /// Won: dancing until the contest's end.
+    pub dancing: bool,
 }
 
 /// The contest this player drinks in, if any.
@@ -87,6 +97,7 @@ pub struct DrinkWorld {
     pub drinks: u32,
     pub passed_out: u32,
     pub woke: u32,
+    pub dances: u32,
 }
 
 pub struct DrinkWorldPlugin;
@@ -128,6 +139,7 @@ fn activated(mut used: MessageReader<BottleUsed>, mut out: MessageWriter<crate::
 /// A contest starts at one of the bottles: this player (a drinker) steps onto its mark.
 fn started(
     mut starts: MessageReader<DrinkStart>,
+    link: Res<DrinkLink>,
     mut world: ResMut<DrinkWorld>,
     mut phys: Option<ResMut<PhysState>>,
     mut player: ResMut<Player>,
@@ -135,7 +147,9 @@ fn started(
 ) {
     for s in starts.read() {
         let Some(bar) = dt::bar_of_bottle(FormId(s.bottle)) else { continue };
-        let Some(slot) = s.drinkers.iter().position(|d| d.who == s.me) else {
+        // This player's slot: the co-op link's, else (alone) the first player's.
+        let slot = if link.on { link.local } else { s.drinkers.iter().position(|d| matches!(d.who, Who::Player(_))) };
+        let Some(slot) = slot else {
             info!("drink world: a contest starts at bottle {:08X} ({}): this player watches", s.bottle, bar.key);
             continue;
         };
@@ -147,7 +161,7 @@ fn started(
         let pov = control.pov;
         control.weapon_out = false;
         control.pov = Pov::Third;
-        world.at = Some(AtTable { bottle: s.bottle, bar, slot, pov, held: false, over: false });
+        world.at = Some(AtTable { bottle: s.bottle, bar, slot, pov, held: false, over: false, dancing: false });
         world.joined += 1;
         info!(
             "drink world: {}: this player drinks in slot {slot} of {}, at mark ({:.0}, {:.0}, {:.0}) facing {:.0} deg; weapon away, view outside",
@@ -163,7 +177,16 @@ fn started(
 
 /// The contest's events for this player: a drink at each shrink, the body laid down when
 /// passing out.
-fn events(mut events: MessageReader<DrinkEvent>, mut world: ResMut<DrinkWorld>, mut drinks: MessageWriter<ContestDrink>, mut script: Option<ResMut<ScriptState>>, mut sim: ResMut<SimState>, player: Res<Player>) {
+#[allow(clippy::too_many_arguments)]
+fn events(
+    mut events: MessageReader<DrinkEvent>,
+    mut world: ResMut<DrinkWorld>,
+    mut drinks: MessageWriter<ContestDrink>,
+    mut emotes: MessageWriter<crate::emotes::EmoteAsk>,
+    mut script: Option<ResMut<ScriptState>>,
+    mut sim: ResMut<SimState>,
+    player: Res<Player>,
+) {
     let w = &mut *world;
     for e in events.read() {
         let Some(at) = w.at.as_mut().filter(|a| a.bottle == e.bottle && !a.over) else { continue };
@@ -192,6 +215,15 @@ fn events(mut events: MessageReader<DrinkEvent>, mut world: ResMut<DrinkWorld>, 
                     shove[2]
                 );
             }
+            Event::Winner { slot: Some(slot), .. } if slot == at.slot && !at.held => match crate::emotes::by_key(WIN_DANCE) {
+                Some(emote) => {
+                    emotes.write(crate::emotes::EmoteAsk::Play { emote, cancel_after: None, variant: None });
+                    at.dancing = true;
+                    w.dances += 1;
+                    info!("drink world: {}: this player wins: the {WIN_DANCE} until the contest's end", at.bar.key);
+                }
+                None => warn!("drink world: no emote {WIN_DANCE}: the winner does not dance"),
+            },
             _ => {}
         }
     }
@@ -206,6 +238,7 @@ fn ended(
     mut world: ResMut<DrinkWorld>,
     mut script: Option<ResMut<ScriptState>>,
     mut control: ResMut<PlayerControl>,
+    mut emotes: MessageWriter<crate::emotes::EmoteAsk>,
     mut since: Local<u32>,
 ) {
     let w = &mut *world;
@@ -225,6 +258,10 @@ fn ended(
     let game = script.as_deref_mut().and_then(|s| s.rt.as_mut()).map(|rt| &mut rt.game);
     if over && !at.over {
         at.over = true;
+        if std::mem::take(&mut at.dancing) {
+            emotes.write(crate::emotes::EmoteAsk::Cancel);
+            info!("drink world: {}: the contest is over: the dance ends, back to standing", at.bar.key);
+        }
         if at.held {
             if let Some(g) = game {
                 g.extra.entry(FormId::PLAYER_REF).or_default().unconscious = false;
@@ -254,7 +291,7 @@ fn report(mut exit: MessageReader<AppExit>, world: Res<DrinkWorld>) {
         return;
     }
     if world.joined > 0 {
-        info!("drink world summary: {} contest(s) joined, {} drink(s), {} pass-out(s), {} wake-up(s){}", world.joined, world.drinks, world.passed_out, world.woke, if world.at.is_some_and(|a| a.held) { "; still held down at exit" } else { "" });
+        info!("drink world summary: {} contest(s) joined, {} drink(s), {} pass-out(s), {} wake-up(s), {} win dance(s){}", world.joined, world.drinks, world.passed_out, world.woke, world.dances, if world.at.is_some_and(|a| a.held) { "; still held down at exit" } else { "" });
     }
 }
 
