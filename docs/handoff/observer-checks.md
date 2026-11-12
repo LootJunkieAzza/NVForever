@@ -361,8 +361,20 @@ engine if needed, and delete the item here.
     - Speed Mult on people: answered 2026-11-01 (o18_air): a trooper ran 305 units/s at
       100 and about 460 at 150, proportional as ours (actors §8.10); Cook-Cook (110, ran
       as if 100) stays the one exception, asked in owner-review.md.
-    - People walking with a weapon drawn (77–78 seen outside combat, about 100 in
-      combat) are not built.
+    - People walking with a weapon drawn: built only for the measured case (#2124), a
+      person in light armour or clothes with a pistol out, outside combat: its walk /
+      fMoveNoWeaponMult, 77.5 (77.5–78.3 seen with a 10mm pistol). Still open, ours: every
+      other stance and armour class walks drawn at the holstered pace. A capture that
+      tells the three candidates apart (the setting, the stance's walk clip, fMoveBaseSpeed
+      77): people walking a package outside combat with a rifle (`2hr` clip 85.26; the
+      setting gives 77.5), a knife or fists (`1hm`/`h2h` 77.5), and a pistol in medium
+      armour (the setting gives 71.7), each next to a holstered walker. Walking drawn in
+      combat (about 100) is not built. Whether a follower walking after its leader takes
+      the drawn walk is not known either (ours: a follower in step keeps its leader's pace, the
+      drawn walk showing only where that pace is not known or as the slowest it eases to,
+      actors §8.10): a person with a
+      pistol drawn given a Follow package after a holstered walker (85): does it keep
+      step, or drop back at 77.5?
     - Follow distances: stand within distance + 64, run beyond 512. Where a follower
       stops once its leader stops: ours 150 inside the distance, not nearer than 128
       (#2122, from two arrivals: Boone 177 of 330, the pack brahmin about 300 of 450).
