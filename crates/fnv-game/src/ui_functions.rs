@@ -212,7 +212,14 @@ pub fn call(g: &mut Game, name: &str, args: &[XVal]) -> Option<Result<XVal, Stri
         let started = g.cost.is_some().then(std::time::Instant::now);
         crate::ui_hud::flush(g);
         if lname.starts_with("getui") {
-            crate::ui_hud::size_texts(g);
+            // The one trait read, when the read is of one trait (GetUIFloatInherited reads
+            // its parents' too).
+            let read = match lname.as_str() {
+                "getuifloatalt" => g.ui_tree.find_trait(&path),
+                "getuifloat" | "getuistring" => g.ui_tree.find_trait_nvse(&path),
+                _ => None,
+            };
+            crate::ui_hud::ready_read(g, read);
         }
         if let (Some(t), Some(c)) = (started, g.cost.as_mut()) {
             c.add_named("(HUD writes and text sizes before a UI call)", t.elapsed());

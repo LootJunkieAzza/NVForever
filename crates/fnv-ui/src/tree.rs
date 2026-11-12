@@ -1322,6 +1322,70 @@ impl Ui {
         changed
     }
 
+    /// Works out one trait (tile `t`, index `k`) and, first, the traits it read when last
+    /// worked out, as [`Ui::update`] would work them out, leaving the rest of the tree for
+    /// the next update: a script that sets a trait and reads another, again and again in one
+    /// frame, works out only what it reads [design: owner's playtest 2026-11-11, Main And
+    /// Pause Menus Overhaul's HUD script read 36 traits a frame, each after a write, and each
+    /// read worked the whole tree out]. False when it cannot tell what the trait reads now
+    /// (the tree's shape changed since it was worked out, a loop, a deep chain, or a source
+    /// it now reads that it did not): then call [`Ui::update`].
+    pub fn refresh(&mut self, t: TileId, k: usize) -> bool {
+        if !self.dirty {
+            return true;
+        }
+        let Some(i) = self.slot(t) else { return false };
+        let mut visiting = Vec::new();
+        self.refresh_at(i, k, &mut visiting)
+    }
+
+    fn refresh_at(&mut self, i: usize, k: usize, visiting: &mut Vec<(usize, usize)>) -> bool {
+        let Some(tr) = self.tiles[i].traits.get(k) else { return false };
+        if tr.expr.is_none() {
+            return true;
+        }
+        if tr.evaluated == 0 || tr.seen != self.shape || visiting.len() >= 64 || visiting.contains(&(i, k)) {
+            return false;
+        }
+        let read = tr.sources.clone();
+        visiting.push((i, k));
+        for &(st, sk) in &read {
+            let Some(si) = self.slot(st) else { return false };
+            if !self.refresh_at(si, sk as usize, visiting) {
+                return false;
+            }
+        }
+        visiting.pop();
+        let tr = &self.tiles[i].traits[k];
+        if read.iter().all(|&(st, sk)| self.tiles[st.index as usize].traits[sk as usize].changed <= tr.evaluated) {
+            return true;
+        }
+        // As `update` works one out.
+        let tid = self.id_at(i);
+        let Some(ops) = tr.expr.as_ref() else { return true };
+        let mut deps = 0;
+        let mut sources = Vec::new();
+        let v = self.eval_reading(tid, ops, &mut deps, &mut sources);
+        let known = sources.iter().all(|s| read.contains(s));
+        let shape = self.shape;
+        let tr = &mut self.tiles[i].traits[k];
+        tr.sources = sources;
+        tr.seen = shape;
+        if tr.evaluated != 0 && deps <= tr.evaluated {
+            return known;
+        }
+        let differs = v.differs(&tr.value);
+        self.gen += 1;
+        let gen = self.gen;
+        let tr = &mut self.tiles[i].traits[k];
+        tr.evaluated = gen;
+        if differs {
+            tr.value = v;
+            tr.changed = gen;
+        }
+        known
+    }
+
     /// Whether [`Ui::update`] has something to work out.
     #[cfg(test)]
     pub(crate) fn dirty(&self) -> bool {
