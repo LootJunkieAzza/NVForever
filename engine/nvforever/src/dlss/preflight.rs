@@ -5,7 +5,7 @@
 //! - **The updater** [design]: Streamline starts an `nvngx_update.exe` lying beside the
 //!   interposer in place of the driver's own, without checking its signature, and does so even
 //!   with both over-the-air flags cleared [documented: `src/ota.cpp:194-230, 232-246`;
-//!   `src/pluginManager.cpp:961-969`; `fork-notes/dlss-streamline/updater-notes.md` §1]. So the
+//!   `src/pluginManager.cpp:961-969`; `docs/spec-notes/streamline.md`, "NVIDIA's updater"]. So the
 //!   DLSS folder is listed before the interposer is loaded and again just before `slInit`; an
 //!   entry of that name in any case refuses Streamline, and so does a folder that cannot be
 //!   listed (fail closed). [`check_folder`].
@@ -39,7 +39,8 @@
 //! Features DLSS asks for are still required here (DLSS needs them even where the device
 //! creation would not fail), and so is `privateData`: something in Streamline's or NGX's path
 //! calls `vkCreatePrivateDataSlot` [observed: Khronos validation layer,
-//! `VUID-vkCreatePrivateDataSlot-privateData-04564`, 2026-11-12, PLAN.md], which `win.rs`
+//! `VUID-vkCreatePrivateDataSlot-privateData-04564`, 2026-11-12; `docs/design/dlss-upscaling.md`,
+//! "What the runs showed"], which `win.rs`
 //! enables when the device offers it.
 
 use std::collections::BTreeSet;

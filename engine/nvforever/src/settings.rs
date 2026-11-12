@@ -1067,7 +1067,7 @@ fn load_quality(world: &mut World, value: &str) -> bool {
 /// `upscaler`; `None` with the upscaler Off. FSR's from its own ratio (`fsr::FsrQuality::ratio`,
 /// what `render_size` divides by); DLSS's from the render sizes DLSS 310.9.16 chose at
 /// 1280x720: 1280x720, 853x480, 742x418, 640x360, 427x240 [observed, 2026-11-12:
-/// fork-notes PLAN.md "Final checks"], since DLSS's own sizes are known only once Streamline
+/// the DLSS runs recorded with #2206], since DLSS's own sizes are known only once Streamline
 /// answers for a view (`dlss::sizing`) and may differ with the output size and DLSS's version.
 fn render_share(upscaler: Upscaler, mode: UpscaleQuality) -> Option<u32> {
     match upscaler {

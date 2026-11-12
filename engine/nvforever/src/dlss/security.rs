@@ -1,8 +1,7 @@
 //! The interposer's signature check: Streamline's `sl::security::verifyEmbeddedSignature` and
-//! `isSignedByNVIDIA` (`include/sl_security.h:134-459`, v2.14.16, saved in
-//! `fork-notes/dlss-streamline/sources/include/`), written in Rust. Streamline's guide asks the
-//! host to check `sl.interposer.dll` this way, by full path, before loading it
-//! (`ProgrammingGuide.md:96-104`) [documented].
+//! `isSignedByNVIDIA` (NVIDIA-RTX/Streamline v2.14.16 `include/sl_security.h:134-459`), written
+//! in Rust. Streamline's guide asks the host to check `sl.interposer.dll` this way, by full
+//! path, before loading it (`docs/ProgrammingGuide.md:96-104`) [documented].
 //!
 //! As in the header, `wintrust.dll` and `crypt32.dll` are loaded from System32 and their
 //! functions looked up at run time (`sl_security.h:146-164, 346-354`), so the program's import

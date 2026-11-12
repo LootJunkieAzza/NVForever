@@ -1,7 +1,7 @@
 //! One DLSS Super Resolution evaluate per frame, in DLSS's own pass (`mod.rs` `dlss_pass`,
 //! which draws the common corrected depth before it and restores alpha and expands the depth
-//! after it; design decision 6 and change F in `fork-notes/dlss-streamline/spike-design.md`,
-//! moved out of `fsr::fsr_pass` in the plan's step 5). Nothing of FSR's is read or made.
+//! after it; `docs/design/dlss-upscaling.md`, "How it works"; moved out of
+//! `fsr::fsr_pass` in the plan's step 5). Nothing of FSR's is read or made.
 //!
 //! **Before the frame** ([`Evaluator::configure`], from `mod.rs` `configure`): DLSS's options
 //! (`slDLSSSetOptions`) when the mode, the output size, the colour's HDR-ness or the DLSS model
@@ -1071,7 +1071,7 @@ fn vk_usage(usage: wgpu::TextureUsages, depth: bool) -> u32 {
 /// without jitter [design: vendor/bevy_pbr/src/prepass/mod.rs:196-216]). A glam matrix is
 /// column-major for column vectors; written column by column it is Streamline's row-major
 /// matrix for row vectors (`sl_consts.h:131-141`, `clipToPrevClip = clipToView *
-/// viewToViewPrev * viewToClipPrev`, `:193-196`) [hypothesis: derived, spike-facts-sl.md §5;
+/// viewToViewPrev * viewToClipPrev`, `:193-196`) [hypothesis: derived from those lines;
 /// with camera motion in the motion vectors DLSS passes none of the matrices to NGX
 /// [documented: `src/dlssEntry.cpp:683-736`], so a mistake here would not show].
 fn constants(frame: &Frame, previous: &PreviousViewData, reset: bool) -> Constants {
@@ -1089,7 +1089,7 @@ fn constants(frame: &Frame, previous: &PreviousViewData, reset: bool) -> Constan
     c.clip_to_prev_clip = rows(prev_clip_from_clip.as_mat4());
     c.prev_clip_to_clip = rows(prev_clip_from_clip.inverse().as_mat4());
     // Pixels of the render size, Bevy's sign reversed as FSR and Bevy's own DLSS node give it
-    // (fsr.rs `jitter_offset`; spike-facts-sl.md §5).
+    // (fsr.rs `jitter_offset`).
     c.jitter_offset = (-frame.jitter).to_array();
     // Bevy's motion is current minus previous in render-viewport UV; Streamline multiplies the
     // scale by the render size for NGX [documented: src/dlssEntry.cpp:684-685], matching FSR's

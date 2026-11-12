@@ -1,13 +1,14 @@
 //! The Streamline 2.14.16 types, constants and functions the spike's first stage uses, written
 //! in Rust from Streamline's public headers (`include/sl_struct.h`, `sl_core_types.h`,
 //! `sl_core_api.h`, `sl_result.h`, `sl_version.h`, `sl_appidentity.h`,
-//! `sl_device_wrappers.h`), saved for the spike in `fork-notes/dlss-streamline/sources/include/`
-//! (tag v2.14.16), and `sl_consts.h`, `sl_dlss.h` for the evaluate. Line references below are
-//! to those files. Only what the spike uses is here: start-up, the support check, and one DLSS
+//! `sl_device_wrappers.h`, all in NVIDIA-RTX/Streamline v2.14.16 `include/`), and `sl_consts.h`,
+//! `sl_dlss.h` for the evaluate. Line references below are to those files at that tag; a
+//! `src/<file>` is that file in the tag's `source/` tree (`docs/spec-notes/streamline.md`,
+//! "Sources"). Only what the spike uses is here: start-up, the support check, and one DLSS
 //! Super Resolution evaluate per frame with local tags (no `slSetTag`/`slSetTagForFrame`).
 //!
-//! The layouts were checked against the headers by an MSVC `offsetof` probe (the probe table in
-//! `fork-notes/dlss-streamline/spike-facts-sl.md` §1); the tests at the end assert the same sizes
+//! The layouts were checked against the headers by an MSVC `offsetof` probe during the spike
+//! (the probe is not kept in the repository); the tests at the end assert the same sizes
 //! and offsets, and Streamline's own `static_assert`s on them (`src/sl.cpp:210, 358-360, 404,
 //! 732, 868-876`).
 //!
@@ -787,7 +788,7 @@ mod tests {
     use super::*;
     use std::mem::{align_of, offset_of, size_of};
 
-    // Sizes and offsets from the probe table (spike-facts-sl.md §1.1, 1.3, 1.4, 1.14).
+    // Sizes and offsets from the spike's MSVC `offsetof` probe of the v2.14.16 headers.
 
     #[test]
     fn small_types_match_the_probe() {
@@ -840,7 +841,7 @@ mod tests {
         assert_eq!(offset_of!(FeatureVersion, version_ngx), 44);
     }
 
-    // The evaluate's structures, from the probe table (spike-facts-sl.md §1.1, 1.5-1.7, 1.9-1.12).
+    // The evaluate's structures, from the same probe.
 
     fn check(name: &str, offsets: &[(usize, usize)]) {
         for (i, (got, want)) in offsets.iter().enumerate() {

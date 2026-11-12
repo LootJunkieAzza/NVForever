@@ -8,7 +8,14 @@ NVIDIA Streamline 2.14.16 expects of a host and does on its side, as far as
 Sources: the public repository NVIDIA-RTX/Streamline at tag v2.14.16 (MIT). `include/…` and the
 guides (`docs/ProgrammingGuide.md`, `docs/ProgrammingGuideDLSS.md`) are cited by their path;
 `src/<file>` means the source file of that name in the repository's `source/` tree (the copy read
-kept file names only). Line numbers are those files' at the tag. Everything is described in our
+kept file names only; each name cited is unique there): `src/sl.cpp` and `src/internal.h` are in
+`source/core/sl.api/`, `src/wrapper.cpp` in `source/core/sl.interposer/vulkan/`, `src/hook.cpp`
+and `src/exports.def` in `source/core/sl.interposer/`, `src/log.cpp` in `source/core/sl.log/`,
+`src/ota.cpp` in `source/core/sl.ota/`, `src/pluginManager.cpp` in
+`source/core/sl.plugin-manager/`, `src/vulkan.cpp` in `source/platforms/sl.chi/`,
+`src/commonEntry.cpp` and `src/commonInterface.cpp` in `source/plugins/sl.common/`, and
+`src/dlssEntry.cpp` in `source/plugins/sl.dlss/` (the tag's file list, read 2026-11-12). Line
+numbers are those files' at the tag. Everything is described in our
 words; no NVIDIA text or code is reproduced here beyond names.
 
 ## Files
