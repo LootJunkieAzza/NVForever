@@ -845,18 +845,18 @@ fn close(
     mut screen: ResMut<SlotsScreen>,
     script: Option<ResMut<ScriptState>>,
     mut slots_seat: ResMut<SlotsSeat>,
-    mut seat: ResMut<crate::furniture::PlayerSeat>,
+    seat: Res<crate::furniture::PlayerSeat>,
     mut events: MessageWriter<SlotsSpin>,
     time: AidTime,
 ) {
     let Some(s) = screen.0.take() else { return };
     events.write(SlotsSpin { machine: s.machine, phase: SpinPhase::Closed });
-    // Off the stool by its getting-off clip; standing, free at once.
+    // Seated: the end view plays on the stool first, then the getting-off clip (nvforever
+    // `slots_seat.rs` gets the player up); standing, free at once.
     match s.stance {
         Some(Stance::Seated { stool }) if seat.on == Some(stool) => {
-            seat.leave = true;
-            *slots_seat = SlotsSeat { phase: SeatPhase::Leaving, since: time.elapsed_secs(), ..*slots_seat };
-            info!("slots seat: the player gets up from stool {stool:08X}");
+            *slots_seat = SlotsSeat { phase: SeatPhase::Ending, since: time.elapsed_secs(), ..*slots_seat };
+            info!("slots seat: the menu closed; the player stays on stool {stool:08X} for the end view");
         }
         _ => {
             if slots_seat.busy() {

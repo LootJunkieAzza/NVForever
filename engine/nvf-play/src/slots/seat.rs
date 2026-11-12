@@ -76,6 +76,10 @@ pub enum SeatPhase {
     Sitting,
     /// The menu is open.
     Playing,
+    /// The menu closed, still on the stool: the visit's end view (nvforever
+    /// `match_end.rs`, item 127/166) plays seated, and the player gets up once it is over
+    /// (nvforever `slots_seat.rs`) [owner 2026-11-11: "it should be in the seat"].
+    Ending,
     /// Getting up from the stool after the menu closed.
     Leaving,
 }

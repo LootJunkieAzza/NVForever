@@ -10,7 +10,10 @@
 //!   practice won). Five Finger Fillet once a game or a race is settled, and the card
 //!   tables (blackjack, roulette, slots, poker, Caravan) when the player leaves after
 //!   playing: a timed end view ([`TIMED`] s) that cheers a win, or chips won over the
-//!   visit, and looks beaten otherwise ([`timed_end`]). Arm wrestling (item 199) once
+//!   visit, and looks beaten otherwise ([`timed_end`]). At a slot machine with a stool the
+//!   player stays seated for it (`nvf_play::slots::seat::SeatPhase::Ending`): the reaction
+//!   plays on the upper body over the sitting clip, and the getting-off clip follows the
+//!   fade back (`slots_seat.rs`) [owner 2026-11-11: "it should be in the seat"]. Arm wrestling (item 199) once
 //!   both are up from the stools: a timed end view with the stranger reacting too
 //!   ([`arm_end`]). Card games ([`cards`]): each
 //!   player who won the hand (blackjack, poker) or the game (Caravan) cheers once and each
@@ -86,6 +89,12 @@ const PASSES: u32 = 2;
 /// left so the opponent standing beside is seen too, looking a little down at the chest
 /// [design].
 pub const END_VIEW: Portrait = Portrait { yaw: 0.35, distance: 150.0, drop: 30.0, pitch: 0.12, shift: 0.0 };
+/// The camera while a seated player's result shows (a slot machine's stool): the machine
+/// is right in front of them, so the camera stands round at their side, a little above
+/// the eye, looking at their face and raised arms from there [design: [`END_VIEW`]'s
+/// 150 units straight ahead are inside the machine; the wall check then pulled the camera
+/// against the chest, slots-seated 2026-11-11].
+pub const SEATED_VIEW: Portrait = Portrait { yaw: 1.5, distance: 105.0, drop: 25.0, pitch: 0.3, shift: 0.0 };
 /// Seconds the camera takes to swing from the game's camera to the end view [design].
 pub const EASE_IN: f32 = 0.6;
 /// Seconds to black after the result menu closes, held black, and back [design].
@@ -338,6 +347,10 @@ pub struct MatchEnd {
     view: Option<Portrait>,
     /// A timed end (fillet, the card tables) and when it began (real seconds).
     pub timed: Option<(Ended, f32)>,
+    /// This player reacts seated (a slot machine's stool, item 170): its reaction plays on
+    /// the upper body over the sitting clip, the legs left on the stool [owner 2026-11-11:
+    /// "it should be in the seat"].
+    pub seated: bool,
 }
 
 impl MatchEnd {
@@ -410,7 +423,7 @@ fn watch(
             st.from = None;
             st.seat = e.seat;
             st.stood = false;
-            st.view = None;
+            st.view = st.seated.then_some(SEATED_VIEW);
         }
         if st.shown != Some((e.kind, e.table, e.winner)) {
             st.shown = Some((e.kind, e.table, e.winner));
@@ -444,7 +457,10 @@ fn watch(
             stop_own(st, pi.as_deref_mut());
             info!("match end: black; back to the player's view");
         }
-        Phase::FadeIn { since } if now - since >= HOLD + FADE_IN => st.phase = Phase::Off,
+        Phase::FadeIn { since } if now - since >= HOLD + FADE_IN => {
+            st.phase = Phase::Off;
+            st.seated = false;
+        }
         _ => {}
     }
 }
@@ -581,11 +597,10 @@ fn ends(
     } else {
         None
     };
-    // Getting up from a slot machine's stool (item 170): the visit ends once the player
-    // is up, so the end view does not cheer over the getting-off clip.
-    if open.is_none() && visit.as_ref().is_some_and(|v| v.kind == Kind::Slots) && slots_seat.as_deref().is_some_and(|s| s.busy()) {
-        return;
-    }
+    // Leaving a slot machine's stool (item 170): the end view plays while the player still
+    // sits (`SeatPhase::Ending`); it gets up once the view is over (`slots_seat.rs`)
+    // [owner 2026-11-11: "it should be in the seat"].
+    let seated = slots_seat.as_deref().is_some_and(|s| s.phase == nvf_play::slots::seat::SeatPhase::Ending);
     match (open, visit.as_mut()) {
         (Some(o), Some(v)) if v.kind == o.kind && v.table == o.table => {
             v.now = o.now;
@@ -603,8 +618,10 @@ fn ends(
             *visit = None;
             match visit_end(v.played, v.won, v.start, v.now) {
                 Some(won) => {
-                    info!("match end: left {:?} ({} to {}); {}; the end view", v.kind, v.start, v.now, if won { "won" } else { "lost" });
+                    let seated = seated && v.kind == Kind::Slots;
+                    info!("match end: left {:?} ({} to {}); {}; the end view{}", v.kind, v.start, v.now, if won { "won" } else { "lost" }, if seated { ", seated" } else { "" });
                     st.timed = Some((timed_end(v.kind, v.table, won), now));
+                    st.seated = seated;
                 }
                 None => info!("match end: left {:?} without playing; no end view", v.kind),
             }
@@ -664,8 +681,10 @@ fn react(
         let reference = match p.who {
             Who::Me => {
                 let Some(pi) = pi.as_deref_mut() else { continue };
-                st.own = Some(pi.third.start_clip(IdleSource::Script, clip.clone(), play()));
-                info!("match end: this player plays {path}");
+                // Seated: the upper body only, as the slot idles (`slots_seat.rs`).
+                let clip = if st.seated { Arc::new(crate::pipboy_check::upper_clip(&clip)) } else { clip.clone() };
+                st.own = Some(pi.third.start_clip(IdleSource::Script, clip, play()));
+                info!("match end: this player plays {path}{}", if st.seated { " (upper body, seated)" } else { "" });
                 continue;
             }
             Who::Peer(id) => match coop.as_deref() {
