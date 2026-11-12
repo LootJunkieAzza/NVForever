@@ -714,6 +714,7 @@ fn register_graphics(app: &mut App) {
     nvf_play::settings::set_choice_labels(app, UPSCALER_KEY, upscaler_label);
     nvf_play::settings::set_choice_unavailable(app, UPSCALER_KEY, upscaler_unavailable);
     nvf_play::settings::set_older_key(app, UPSCALER_KEY, LEGACY_KEY);
+    nvf_play::settings::set_older_split(app, LEGACY_KEY, split_legacy);
     add_choice_list(
         app,
         Setting { key: QUALITY_KEY, group: GROUP_GRAPHICS, label: "Upscaling quality", note: QUALITY_NOTE, get: |_| false, set: |_, _| {}, slider: None },
@@ -995,6 +996,22 @@ pub(crate) fn parse_legacy(value: &str) -> Option<UpscalerChoice> {
     Some(UpscalerChoice::from_fsr(graphics::FSR_CHOICES[choice_index(part, graphics::FSR_CHOICES.len())].1.quality()))
 }
 
+/// The older row's value (`fsr-upscaling`) as the two rows' own values, for
+/// `nvf_play::settings::set_older_split`: the Upscaler row's name and, for FSR or DLSS, the
+/// quality's. So in a test run whose command line keeps both rows, both keep the stored value
+/// and a save writes it, not the command line's quality beside the stored upscaler (the review
+/// of 2026-11-12). Off has no quality: the quality row keeps its own. Nothing for a value that
+/// is not one of the older row's (the Upscaler row then reads it as it is, and skips it).
+fn split_legacy(value: &str) -> Vec<(&'static str, String)> {
+    let Some(choice) = parse_legacy(value) else { return Vec::new() };
+    let Some((name, _)) = UPSCALERS.iter().find(|(_, u)| *u == choice.upscaler()) else { return Vec::new() };
+    let mut rows = vec![(UPSCALER_KEY, (*name).to_string())];
+    if let Some(q) = choice.quality() {
+        rows.push((QUALITY_KEY, q.name().to_string()));
+    }
+    rows
+}
+
 /// The Upscaler row's INI text applied to `state`: one of its own names (`Off`, `FSR 3.1`,
 /// `DLSS`) at the quality shown, or the older `fsr-upscaling` row's text, a whole choice (the
 /// row reads that key while the INI lacks its own). The start reads the INI with it too
@@ -1099,7 +1116,9 @@ fn legacy_unavailable(world: &World, name: &str) -> Option<String> {
 }
 
 /// The INI's texts for the two rows, as `nvf_play::settings::apply_stored` finds them:
-/// `upscaler` (or, without it, the older `fsr-upscaling`) and `upscaler-quality`.
+/// `upscaler` and `upscaler-quality`, the older `fsr-upscaling` split into them first where
+/// the INI lacks `upscaler` ([`split_legacy`], `nvf_play::settings::with_older_split`), else
+/// read as it is.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct UpscalerIni {
     pub upscaler: Option<String>,
@@ -1109,7 +1128,8 @@ pub(crate) struct UpscalerIni {
 impl UpscalerIni {
     /// From an INI's text.
     pub(crate) fn read(text: &str) -> Self {
-        let get = |key: &str| fnv_install::ini_get(text, nvf_play::settings::SECTION, key);
+        let text = nvf_play::settings::with_older_split(text, UPSCALER_KEY, LEGACY_KEY, split_legacy);
+        let get = |key: &str| fnv_install::ini_get(&text, nvf_play::settings::SECTION, key);
         UpscalerIni { upscaler: get(UPSCALER_KEY).or_else(|| get(LEGACY_KEY)), quality: get(QUALITY_KEY) }
     }
 }
@@ -1470,6 +1490,39 @@ mod fsr_settings_tests {
         let both = "[Settings]\nfsr-upscaling=DLSS Balanced\nupscaler=FSR 3.1\nupscaler-quality=Performance\n";
         assert_eq!(requested(&ini_app(&path, both, UpscalerChoice::Off, GivenSwitches::default())), UpscalerChoice::Fsr(Performance), "the rows' own keys win");
         assert_eq!(UpscalerIni::read(both), UpscalerIni { upscaler: Some("FSR 3.1".into()), quality: Some("Performance".into()) });
+        assert_eq!(UpscalerIni::read("[Settings]\nfsr-upscaling=Performance\n"), UpscalerIni { upscaler: Some("FSR 3.1".into()), quality: Some("Performance".into()) }, "split into the two rows' values");
+        assert_eq!(UpscalerIni::read("[Settings]\nfsr-upscaling=Off\nupscaler-quality=Balanced\n"), UpscalerIni { upscaler: Some("Off".into()), quality: Some("Balanced".into()) }, "the quality row's own key kept");
+        assert_eq!(UpscalerIni::read("[Settings]\nfsr-upscaling=nonsense\n"), UpscalerIni { upscaler: Some("nonsense".into()), quality: None }, "not one of its values: as it is");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The review's P2 (2026-11-12): an INI with only the older `fsr-upscaling=Performance`, a
+    /// test run whose `--fsr quality` keeps both rows at the command line's FSR Quality, then a
+    /// change of another row: the save writes the stored FSR Performance for both rows, not
+    /// FSR with the command line's Quality, and the next start loads FSR Performance.
+    #[test]
+    fn a_test_run_keeps_the_older_inis_quality_through_a_save() {
+        let dir = std::env::temp_dir().join(format!("nvf-upscaler-kept-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("NVForever.ini");
+        let test_run = GivenSwitches { given: vec!["--fsr".into()], win: true };
+        let mut app = ini_app(&path, "[Settings]\nfsr-upscaling=Performance\n", UpscalerChoice::Fsr(Quality), test_run);
+        assert_eq!(requested(&app), UpscalerChoice::Fsr(Quality), "the test run's command line");
+        let bloom = row(&app, "bloom");
+        nvf_play::settings::flip(app.world_mut(), bloom);
+        let ini = std::fs::read_to_string(&path).unwrap();
+        let get = |key: &str| fnv_install::ini_get(&ini, nvf_play::settings::SECTION, key);
+        assert_eq!((get(UPSCALER_KEY), get(QUALITY_KEY)), (Some("FSR 3.1".to_string()), Some("Performance".to_string())), "both rows as the INI had them: {ini}");
+        let reloaded = ini_app(&path, &ini, UpscalerChoice::Off, GivenSwitches::default());
+        assert_eq!(requested(&reloaded), UpscalerChoice::Fsr(Performance), "the next normal start: FSR Performance");
+        assert_eq!(upscaler_after_ini(UpscalerChoice::Off, Some(&UpscalerIni::read(&ini)), Some(&GivenSwitches::default())), UpscalerChoice::Fsr(Performance), "the start agrees");
+        // DLSS through the older key alike.
+        let test_run = GivenSwitches { given: vec!["--upscaler".into()], win: true };
+        let mut app = ini_app(&path, "[Settings]\nfsr-upscaling=DLSS Ultra Performance\n", UpscalerChoice::Fsr(Quality), test_run);
+        nvf_play::settings::flip(app.world_mut(), bloom);
+        let ini = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(requested(&ini_app(&path, &ini, UpscalerChoice::Off, GivenSwitches::default())), UpscalerChoice::Dlss(UltraPerformance), "{ini}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

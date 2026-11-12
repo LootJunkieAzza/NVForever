@@ -55,7 +55,10 @@
 //! A list that took over from an older row can read that row's INI key when its own is not in
 //! the file ([`set_older_key`]; its `load` takes the older row's text), and the test aids can
 //! still name the older row ([`set_list_alias`], [`pick_alias`]): nvforever's `fsr-upscaling`,
-//! now its Upscaler and Upscaling quality rows.
+//! now its Upscaler and Upscaling mode rows. Where the older row's one value stands for
+//! several rows, it is split into each row's own value before the INI is read
+//! ([`set_older_split`], [`with_older_split`]), so each row loads it, and a test run keeps
+//! ([`KeptRows`]) and later writes, a value of its own.
 //!
 //! What is not here: choices fixed when the game starts (which NPCs live by their
 //! packages, FaceGen, the load order), most numbers (the volumes, the field of view and the
@@ -328,7 +331,15 @@ pub struct Settings(
     Vec<(&'static str, &'static str)>,
     /// The test aids' older list keys ([`set_list_alias`]).
     Vec<(&'static str, ListAlias)>,
+    /// How an older INI key's value splits into the rows' own ([`set_older_split`]): (the
+    /// older key, the split).
+    Vec<(&'static str, OlderSplit)>,
 );
+
+/// An older row's INI value read as the values of the rows that took over from it
+/// ([`set_older_split`]): (a row's key, its text) for each row the older value decides; none
+/// when the value is not one of the older row's.
+pub type OlderSplit = fn(&str) -> Vec<(&'static str, String)>;
 
 /// An older list's key the test aids still take ([`set_list_alias`]): its choices by the
 /// older row's names, set on the rows that took over from it (module notes).
@@ -406,6 +417,16 @@ impl Settings {
     /// The test aids' older list key `key` ([`set_list_alias`]), with its name as registered.
     pub fn alias(&self, key: &str) -> Option<(&'static str, ListAlias)> {
         self.6.iter().find(|(k, _)| *k == key).copied()
+    }
+
+    /// `text` (the INI) with each older key's value split into the rows' own
+    /// ([`with_older_split`]), for every list with an older key ([`set_older_key`]) whose older
+    /// key has a split ([`set_older_split`]).
+    pub fn split_older(&self, text: &str) -> String {
+        self.5.iter().fold(text.to_string(), |t, (key, older)| match self.7.iter().find(|(o, _)| o == older) {
+            Some((_, split)) => with_older_split(&t, key, older, *split),
+            None => t,
+        })
     }
 
     /// Every row's state as a number: [`Setting::value`], a list's chosen index (-1: not
@@ -494,6 +515,35 @@ pub fn set_older_key(app: &mut App, key: &'static str, older: &'static str) {
     let mut settings = app.world_mut().resource_mut::<Settings>();
     settings.5.retain(|(k, _)| *k != key);
     settings.5.push((key, older));
+}
+
+/// Let the older INI key `older` ([`set_older_key`]) stand for several rows: `split` gives
+/// each row's own value for the older value, put in place of the older key before the INI is
+/// read ([`apply_stored`], [`with_older_split`]). So each of those rows loads, and in a test
+/// run keeps ([`KeptRows`]), a value of its own, not only the row that reads the older key.
+pub fn set_older_split(app: &mut App, older: &'static str, split: OlderSplit) {
+    app.init_resource::<Settings>();
+    let mut settings = app.world_mut().resource_mut::<Settings>();
+    settings.7.retain(|(o, _)| *o != older);
+    settings.7.push((older, split));
+}
+
+/// `text` (an INI) with `older`'s value split into the rows' own (`split`), when the INI lacks
+/// `key`, the row that reads `older` ([`set_older_key`]), and has `older`: each row the split
+/// names is set to its value unless the INI has that row's own key already (it wins, as it
+/// did over the older text). Otherwise `text` as it is. Only the text read is changed; the
+/// file is not written (the older line stays, as [`set_older_key`] leaves it). Shared with
+/// what reads the INI before the settings exist (nvforever's upscaler at the start), so the
+/// two read it alike.
+pub fn with_older_split(text: &str, key: &str, older: &str, split: OlderSplit) -> String {
+    if ini_get(text, SECTION, key).is_some() {
+        return text.to_string();
+    }
+    let Some(value) = ini_get(text, SECTION, older) else { return text.to_string() };
+    split(value.trim())
+        .into_iter()
+        .filter(|(row, _)| ini_get(text, SECTION, row).is_none())
+        .fold(text.to_string(), |t, (row, v)| ini_set(&t, SECTION, row, &v))
 }
 
 /// Let the test aids name `key`, an older list the rows of `alias` took over from (module
@@ -836,6 +886,8 @@ pub fn apply_stored(world: &mut World) {
             return;
         }
     };
+    // An older row's value as the values of the rows that took over from it (set_older_split).
+    let text = world.resource::<Settings>().split_older(&text);
     let list = world.resource::<Settings>().list().to_vec();
     let lists: Vec<(usize, ChoiceList)> = (0..list.len()).filter_map(|i| Some((i, world.resource::<Settings>().choices(i)?))).collect();
     let keys: Vec<&str> = lists.iter().map(|(i, _)| list[*i].key).collect();
@@ -1487,6 +1539,78 @@ size=1920x1080;kept
         let ini = std::fs::read_to_string(&path).unwrap();
         assert!(ini.contains("size=800x600;kept"), "kept in the INI under the row's own key: {ini}");
         assert!(w.resource::<Settings>().alias("old-size").is_some_and(|(_, a)| a.rows == ["size"]));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// An older value split into two rows' own (`set_older_split`): only while the row that
+    /// reads the older key lacks its own, each row's own key winning; in a test run whose
+    /// command line keeps both rows, both keep their split values, so a save of another row
+    /// writes them and the next start loads them.
+    #[test]
+    fn an_older_value_splits_into_the_rows_and_a_test_run_keeps_both() {
+        fn split(v: &str) -> Vec<(&'static str, String)> {
+            match v.split_once('/') {
+                Some((a, b)) => vec![("first", a.to_string()), ("second", b.to_string())],
+                None => Vec::new(),
+            }
+        }
+        let text = "[Settings]\nold=x/y\n";
+        let split_text = with_older_split(text, "first", "old", split);
+        assert_eq!((ini_get(&split_text, SECTION, "first"), ini_get(&split_text, SECTION, "second")), (Some("x".into()), Some("y".into())));
+        assert_eq!(ini_get(&split_text, SECTION, "old"), Some("x/y".into()), "the older line stays");
+        let own_first = "[Settings]\nold=x/y\nfirst=z\n";
+        assert_eq!(with_older_split(own_first, "first", "old", split), own_first, "the row's own key: the older value is not read");
+        let own_second = with_older_split("[Settings]\nold=x/y\nsecond=w\n", "first", "old", split);
+        assert_eq!((ini_get(&own_second, SECTION, "first"), ini_get(&own_second, SECTION, "second")), (Some("x".into()), Some("w".into())), "the second row's own key wins");
+        assert_eq!(with_older_split("[Settings]\nold=nothing\n", "first", "old", split), "[Settings]\nold=nothing\n", "not one of its values");
+
+        #[derive(Resource)]
+        struct Pair(String, String);
+        let dir = std::env::temp_dir().join(format!("nvf-settings-split-{}", std::process::id()));
+        let path = dir.join("NVForever.ini");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let start = |text: &str, win: bool| {
+            std::fs::write(&path, text).unwrap();
+            let mut app = App::new();
+            app.init_resource::<Lamp>().insert_resource(Pair("a".into(), "b".into()));
+            app.insert_resource(SettingsFile(Some(path.clone())));
+            app.insert_resource(GivenSwitches { given: vec!["--pair".into()], win });
+            add_setting(&mut app, setting("lamp", "Test"));
+            for (key, get, set) in [
+                ("first", (|w: &World| w.resource::<Pair>().0.clone()) as fn(&World) -> String, (|w: &mut World, v: &str| {
+                    w.resource_mut::<Pair>().0 = v.to_string();
+                    true
+                }) as fn(&mut World, &str) -> bool),
+                ("second", |w: &World| w.resource::<Pair>().1.clone(), |w: &mut World, v: &str| {
+                    w.resource_mut::<Pair>().1 = v.to_string();
+                    true
+                }),
+            ] {
+                add_choice_list(
+                    &mut app,
+                    Setting { key, group: "Test", label: key, note: "(--pair)", get: |_| false, set: |_, _| {}, slider: None },
+                    ChoiceList { names: |_| vec!["a".into(), "b".into(), "x".into(), "y".into()], chosen: get, pick: set, save: get, load: set, ask_keep: false },
+                );
+            }
+            set_older_key(&mut app, "first", "old");
+            set_older_split(&mut app, "old", split);
+            app.add_systems(PostStartup, apply_stored);
+            app.update();
+            app
+        };
+        let pair = |app: &App| (app.world().resource::<Pair>().0.clone(), app.world().resource::<Pair>().1.clone());
+        // Normal play: both rows load their split values.
+        assert_eq!(pair(&start("[Settings]\nold=x/y\n", false)), ("x".into(), "y".into()));
+        // A test run: both rows keep the command line's; a save of another row writes both
+        // split values, not the command line's second one; the next start loads them.
+        let mut app = start("[Settings]\nold=x/y\n", true);
+        assert_eq!(pair(&app), ("a".into(), "b".into()), "the command line's, kept");
+        let lamp = app.world().resource::<Settings>().index("lamp").unwrap();
+        flip(app.world_mut(), lamp);
+        let ini = std::fs::read_to_string(&path).unwrap();
+        assert!(ini.contains("first=x") && ini.contains("second=y"), "both stored values written: {ini}");
+        assert_eq!(pair(&start(&ini, false)), ("x".into(), "y".into()), "and loaded again");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

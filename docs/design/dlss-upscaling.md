@@ -180,7 +180,12 @@ detail in the module notes of the file named.
   FSR is never dimmed. The earlier single row, `fsr-upscaling` with its eleven values
   (`graphics::FSR_UPSCALING_CHOICES`: Off, the five FSR qualities, `DLSS Native AA` …
   `DLSS Ultra Performance`) and the early slider build's numbers, still loads from an INI that
-  lacks `upscaler` (`set_older_key`), into both rows; the test aid's `fsr-upscaling=<value>`
+  lacks `upscaler` (`set_older_key`), into both rows: before anything else reads the INI, the
+  older value is split into the two rows' own values (`set_older_split`, `split_legacy`; a row
+  whose own key is in the INI keeps it), so a test run whose command line keeps both rows
+  (below) keeps both stored values too and a later save writes them, not the command line's
+  quality (from the review of 2026-11-12); the start's early read splits it alike
+  (`UpscalerIni::read`). The test aid's `fsr-upscaling=<value>`
   still sets both rows and logs `settings: fsr-upscaling <value>` (`set_list_alias`), so the
   scenarios written for it keep working. Both rows' notes name `--upscaler`,
   `--upscaler-quality` and `--fsr`, so a test run that gives any of them keeps both at the
