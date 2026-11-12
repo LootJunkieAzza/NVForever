@@ -603,6 +603,9 @@ pub struct Agent {
     /// `Game::take_ai_reset`): the engine gets a seated actor up when this changes, even
     /// when the package gives it the same furniture again (issue #2119).
     pub restarts: u32,
+    /// The door it was last asked at and has not yet left behind, with the package it
+    /// was walking for (`fnv_game::Game::npc_door_left`, [`Ai::ask_door`]).
+    pub(crate) asked_door: Option<(u32, Option<FormId>)>,
 }
 
 #[derive(Default)]
@@ -962,7 +965,7 @@ impl Ai {
             own_turning(&mut walker, s);
         }
         walker.pace = self.paces.get(&actor).copied().unwrap_or(1.0);
-        self.agents.insert(actor, Agent { walker, activity: Activity::None, package: None, goal: None, route_at: 0, trip_started: 0.0, trip_from: 0.0, waiting_at: None, using: None, held_seat: None, sandbox: None, wait_until: None, talk: None, pushed_at: None, chat: None, search: None, face_to: None, following: None, rooted: false, fixed: false, weapon_order: None, errand: None, backing: None, walk_up: None, restarts: 0 });
+        self.agents.insert(actor, Agent { walker, activity: Activity::None, package: None, goal: None, route_at: 0, trip_started: 0.0, trip_from: 0.0, waiting_at: None, using: None, held_seat: None, sandbox: None, wait_until: None, talk: None, pushed_at: None, chat: None, search: None, face_to: None, following: None, rooted: false, fixed: false, asked_door: None, weapon_order: None, errand: None, backing: None, walk_up: None, restarts: 0 });
         Ok(())
     }
 
@@ -1296,6 +1299,13 @@ impl Ai {
     /// ([`Ai::publish_phase`]).
     pub(crate) fn step_actor(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId, dt: f32, open: &mut dyn Mover, quiet: bool) {
         self.step_actor_inner(game, nav, actor, dt, open, quiet);
+        // A walk ended or set aside: the door it was coming up to is behind it too
+        // ([`Ai::ask_door`]).
+        if let Some(a) = self.agents.get_mut(&actor).filter(|a| a.activity != Activity::Travelling) {
+            if let Some((left, _)) = a.asked_door.take() {
+                game.npc_door_left(actor, FormId(left));
+            }
+        }
         self.publish_phase(game, actor);
     }
 
@@ -2132,7 +2142,21 @@ impl Ai {
     /// Whether it may walk on.
     fn ask_door(&mut self, game: &mut Game, actor: FormId, reach: f32) -> bool {
         let a = self.agents.get_mut(&actor).expect("listed");
-        let Some(door) = a.walker.follower.as_ref().and_then(|f| f.door_ahead(a.walker.feet, reach)) else { return true };
+        let follower = a.walker.follower.as_ref();
+        // The next door of its way, however far, and that door when it is within reach.
+        let next = follower.and_then(|f| f.door_ahead(a.walker.feet, f32::INFINITY));
+        let ahead = follower.and_then(|f| f.door_ahead(a.walker.feet, reach));
+        // Asked every step while it comes up to the door, the extender hears it once a
+        // crossing (`fnv_game::npc_doors`) [design, #2123]. The crossing ends where the
+        // follower goes through the door ([`Ai::walk`], `Follower::passed`), and here when
+        // it is called off: the way cleared or planned without that door next, or another
+        // package taken up; not when a shorter step leaves the door just out of reach.
+        if let Some((left, _)) = a.asked_door.filter(|&(d, p)| Some(d) != next || p != a.package) {
+            a.asked_door = None;
+            game.npc_door_left(actor, FormId(left));
+        }
+        let Some(door) = ahead else { return true };
+        a.asked_door = Some((door, a.package));
         if game.npc_door(actor, FormId(door)) != fnv_game::npc_doors::DoorAnswer::Refused {
             return true;
         }
@@ -2620,6 +2644,17 @@ impl Ai {
             Some(ev) => ev,
             None => a.walker.update_with(nav, dt, &mut |door| mover.open(actor, door)),
         };
+        // The door asked last gone through on this step (`Walker::passed` for the walker's
+        // own steps, `Follower::passed` for a mover's): its crossing is over here, before
+        // an arrival can plan the way back through it (#2123).
+        let mut passed = std::mem::take(&mut a.walker.passed);
+        if let Some(f) = a.walker.follower.as_mut() {
+            passed.append(&mut f.passed);
+        }
+        if let Some((left, _)) = a.asked_door.filter(|(d, _)| passed.contains(d)) {
+            a.asked_door = None;
+            game.npc_door_left(actor, FormId(left));
+        }
         let waived = a.walker.height_waivers != waivers;
         a.waiting_at = match ev {
             WalkEvent::WaitingForDoor(d) => Some(d),

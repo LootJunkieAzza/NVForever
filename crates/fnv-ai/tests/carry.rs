@@ -282,6 +282,8 @@ fn plugin_bytes() -> Vec<u8> {
         glob(0x804, "GameHour", 12.0),
         glob(G_DAYS, "GameDaysPassed", 5.0),
         glob(0x806, "TimeScale", 30.0),
+        // Counted by the tests' extender handlers.
+        glob(0x807, "TestGlobal", 0.0),
     ]
     .concat();
     let packs = [
@@ -641,6 +643,167 @@ fn a_travel_package_walks_through_the_door_and_meets_its_goal() {
     assert!(dist(st.pos, [5250.0, 5250.0, 50.0]) < 5.0);
     assert!(s.game.extra[&actor].package_goal_met);
     assert_eq!(s.game.package_held(actor), None);
+}
+
+/// #2123: the extender's OnActivate hears an actor the AI walks through a door once a
+/// crossing. Asked on every short step as it comes up to DoorA (no script), it is heard
+/// once; put back before the door and sent through it again with no game time gone (so
+/// not by `ASKED_SECONDS` running out), it is heard again, as the first crossing was
+/// closed when the door fell behind it.
+#[test]
+fn the_extender_hears_each_crossing_of_a_door_once() {
+    let f = fixture();
+    let mut s = sim(&f, &[R_TRAVEL]);
+    let actor = FormId(R_TRAVEL);
+    s.game.run_source("SetEventHandler \"OnActivate\" (begin function {ref rT, ref rA}
+if rT == DoorA
+let TestGlobal := TestGlobal + 1
+endif
+end)", Default::default()).expect("compiles");
+    let heard = |s: &Sim| s.game.world.global(FormId(0x807)).unwrap();
+    let crossings = |s: &Sim| s.events(R_TRAVEL).iter().filter(|e| matches!(e, AiEvent::Door { door, .. } if door.0 == DOOR_A)).count();
+    s.run(1.0);
+    assert_eq!(s.ai.agents[&actor].activity, Activity::Travelling);
+    // Short steps, the game's clock standing.
+    let step = |s: &mut Sim| s.ai.update(&mut s.game, &s.nav, 0.1);
+    let mut steps = 0;
+    while heard(&s) == 0.0 {
+        step(&mut s);
+        steps += 1;
+        assert!(steps < 400, "never asked at the door");
+    }
+    // The walker as it stands at its first asking, to send it through again.
+    let before = s.ai.agents[&actor].walker.clone();
+    let time = s.game.time;
+    let mut asks = 1;
+    while crossings(&s) == 0 {
+        step(&mut s);
+        asks += 1;
+        assert!(asks < 100, "never went through");
+    }
+    assert!(asks >= 5, "asked over several steps, {asks}");
+    assert_eq!(heard(&s), 1.0, "one crossing, one event");
+    step(&mut s);
+    let a = s.ai.agents.get_mut(&actor).unwrap();
+    a.walker = before;
+    a.activity = Activity::Travelling;
+    let mut steps = 0;
+    while crossings(&s) < 2 {
+        step(&mut s);
+        steps += 1;
+        assert!(steps < 100, "never went through again");
+    }
+    assert_eq!(s.game.time, time, "no game time gone");
+    assert_eq!(heard(&s), 2.0, "a second crossing, a second event");
+}
+
+/// #2123, review: the asking distance is a step's length plus a margin, so it changes
+/// with the frame time. An actor held at its edge (turning on the spot, `NoProgress`) by
+/// long and short frames by turns, then taken on through the door in long and short
+/// steps by turns, is on one crossing of the door: one event.
+#[test]
+fn frame_times_at_the_asking_edge_make_no_second_event() {
+    let f = fixture();
+    let mut s = sim(&f, &[R_TRAVEL]);
+    let actor = FormId(R_TRAVEL);
+    s.game.run_source("SetEventHandler \"OnActivate\" (begin function {ref rT, ref rA}
+if rT == DoorA
+let TestGlobal := TestGlobal + 1
+endif
+end)", Default::default()).expect("compiles");
+    let heard = |s: &Sim| s.game.world.global(FormId(0x807)).unwrap();
+    let crossings = |s: &Sim| s.events(R_TRAVEL).iter().filter(|e| matches!(e, AiEvent::Door { door, .. } if door.0 == DOOR_A)).count();
+    // How far the actor is from where its leg ends at the door.
+    let to_door = |s: &Sim| {
+        let w = &s.ai.agents[&actor].walker;
+        let f = w.follower.as_ref().expect("on its way");
+        dist(w.feet, *f.path.legs[f.leg].points.last().unwrap())
+    };
+    s.run(1.0);
+    assert_eq!(s.ai.agents[&actor].activity, Activity::Travelling);
+    // Short steps (reach 97 units) up to 120 units from the door: not asked yet.
+    let mut steps = 0;
+    while to_door(&s) > 120.0 {
+        s.ai.update(&mut s.game, &s.nav, 0.01);
+        steps += 1;
+        assert!(steps < 100_000, "never came near the door");
+    }
+    assert_eq!(heard(&s), 0.0);
+    // Held there: a long frame (reach 146) asks it, a short one (reach 97) leaves it out
+    // of reach, by turns.
+    for i in 0..8 {
+        let dt = if i % 2 == 0 { 0.5 } else { 0.01 };
+        s.ai.update_moved(&mut s.game, &s.nav, dt, &mut NoProgress);
+    }
+    assert!(to_door(&s) > 100.0, "held where it stood, {}", to_door(&s));
+    assert_eq!(heard(&s), 1.0, "held at the edge: one crossing");
+    // On in long and short steps by turns, through the door.
+    let mut steps = 0;
+    while crossings(&s) == 0 {
+        let dt = if steps % 2 == 0 { 0.2 } else { 0.01 };
+        s.ai.update(&mut s.game, &s.nav, dt);
+        steps += 1;
+        assert!(steps < 400, "never went through");
+    }
+    assert_eq!(heard(&s), 1.0, "one crossing, one event");
+}
+
+/// A door that opens in place across the corner at L2 of the sentry's round, at 45°:
+/// the way up from L1 crosses it 20 units before L2, the way on to L3 20 units after.
+fn door_at_l2() -> fnv_nav::InPlaceDoor {
+    let (c, si) = (std::f32::consts::FRAC_1_SQRT_2, std::f32::consts::FRAC_1_SQRT_2);
+    fnv_nav::InPlaceDoor {
+        door: DOOR_A,
+        space: A,
+        position: [240.0, 240.0, 0.0],
+        rotation: [c, si, 0.0, -si, c, 0.0, 0.0, 0.0, 1.0],
+        scale: 1.0,
+        bounds: ([-40.0, -4.0, 0.0], [40.0, 4.0, 200.0]),
+    }
+}
+
+/// #2123, review: the sentry (PatrolRound, no idle time at its points) goes through the
+/// door at L2, reaches L2 and is sent on to L3 through the same door, under the same
+/// package, at once (its arrival plans the next way in the same update). Two crossings,
+/// two events, whatever the frame time: the first crossing ends where the follower went
+/// through the door, not when a later step finds the door no longer next.
+#[test]
+fn a_patrol_back_through_the_door_it_just_passed_is_heard_again() {
+    let f = fixture();
+    let mut nav = nav();
+    nav.set_in_place_doors(vec![door_at_l2()], |_| None);
+    let at = |p: [f32; 3]| fnv_nav::Place { space: A, pos: p };
+    for (from, to) in [([250.0, 50.0, 0.0], [250.0, 250.0, 0.0]), ([250.0, 250.0, 0.0], [50.0, 250.0, 0.0])] {
+        let way = nav.find_path(at(from), at(to), &fnv_nav::PathParams::default()).unwrap();
+        assert_eq!(way.legs[0].door_stops.len(), 1, "the way from {from:?} to {to:?} stops at the door");
+    }
+    // Short frames, and the long ones of an actor out of the high process, which can
+    // take it from the door's stop (104 units before the door) to L2 in one step.
+    for dt in [0.5f32, 0.3, 1.8, 2.0, 2.5, 3.0, 4.0] {
+        let mut s = sim(&f, &[R_LOOP]);
+        s.nav.set_in_place_doors(vec![door_at_l2()], |_| None);
+        s.game.run_source("SetEventHandler \"OnActivate\" (begin function {ref rT, ref rA}
+if rT == DoorA
+let TestGlobal := TestGlobal + 1
+endif
+end)", Default::default()).expect("compiles");
+        let points = |s: &Sim| -> Vec<u32> {
+            s.events(R_LOOP).iter().filter_map(|e| match e {
+                AiEvent::Arrived { patrol_point: Some(p), .. } => Some(p.0),
+                _ => None,
+            }).collect()
+        };
+        let mut steps = 0;
+        while points(&s).len() < 4 {
+            s.game.tick();
+            s.ai.update(&mut s.game, &s.nav, dt);
+            steps += 1;
+            assert!(steps < 2000, "the round did not come round at {dt}: {:x?}", points(&s));
+        }
+        assert_eq!(&points(&s)[..4], &[L3, L1, L2, L3], "at {dt}");
+        let heard = s.game.world.global(FormId(0x807)).unwrap();
+        assert_eq!(heard, 2.0, "up to L2 and on from it, through the door both times, at {dt}");
+    }
 }
 
 #[test]

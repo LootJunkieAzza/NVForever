@@ -1854,3 +1854,17 @@ Fallout Behavior, Weapon Drawn, Continue During Combat).
     begun per minute; repeat with an NPC of low and of high Energy (AI data) to see
     whether the rate moves. In the same run, walk the player into one of them mid-fidget
     and start a conversation: does the fidget stop, or play out?
+
+## Added 2026-11-11 (NPCs at doors and the extender's OnActivate, issue #2123)
+
+117. **Which doors fire the extender's OnActivate for an NPC, and in which order?** (P3;
+    doors.md §5.2.) NVForever dispatches it at every door an NPC walks through, before the
+    door's block, once per asking [documented: NVSE Event Handling; design for the rest].
+    With an unfiltered OnActivate handler logging both references and the time: (a) a door
+    with no script at all on a resident's way (the Goodsprings gas station's door, base
+    OffDoorMetalSmL01, which Ringo uses): does an event name the NPC? (b) a door whose
+    block refuses NPCs (VStripGate, GomorraElevatorDoor): one event per crossing, or one
+    per try? (c) at a door whose block calls `Activate` for NPCs, one event or two? (d) a
+    `Begin OnActivate player` door (IndDoorSmAnim01): does the block run for the NPC (a
+    variable it sets), as the GECK wiki's OnActivate page (Bugs) has it, or not, as
+    NVForever does?

@@ -9346,6 +9346,23 @@ expect = [
 ]
 
 [[scenario]]
+name = "npc-door-onactivate"
+source = "issue #2123 (crates/fnv-game/src/npc_doors.rs, docs/spec-notes/doors.md section 5.2): an NPC the AI walks through a door without a script is heard by the extender's OnActivate handlers, the door first and the NPC second, once for the walk through [documented: NVSE Event Handling; design for the once]"
+note = "the npc-door-fade run with an OnActivate handler set from the console at 1 s: Ringo (00104C7D) leaves the gas station by its door 0010903F (base OffDoorMetalSmL01, no script: XTEL to 00109040 [observed: fnvtool esm decode]); the handler prints both references"
+areas = ["ai", "doors", "scripts"]
+paths = ["crates/fnv-game/src/npc_doors.rs", "crates/fnv-ai/src/carry.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_FACE = "4:0010903F", NVF_PLAY_TEST_ACTIVATE = "5", NVF_PLAY_TEST_SCRIPT = "15:info:0x00105D09", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_CONSOLE = "1:SetEventHandler \"OnActivate\" ({ref rT, ref rA} => PrintC \"nvf npc-door event %i %i\", rT, rA);1.5:close" }
+args = ["--cell", "GSGasStation", "--play", "--no-voice", "--hour", "10", "--npc-packages", "all,RingoRef"]
+run_seconds = 60
+expect = [
+  { re = 'script: print "nvf npc-door event 0010903F 00104C7D"', count = 1, label = "the handler hears Ringo at the unscripted door once, the door first" },
+]
+order = [[
+  { re = 'script: print "nvf npc-door event 0010903F 00104C7D"', label = "heard as he is asked at the door" },
+  { re = 'world sounds: an actor passed load door (0010903F|00109040), sound ', label = "then he goes through" },
+]]
+
+[[scenario]]
 name = "npc-sneak-sunny"
 source = "playtest list 5 items 34-37 (engine/nvforever/src/sneaking.rs, alert.rs; fnv_game::Game::sneaks): Sunny's VCG02 packages: Weapon Drawn on the run to the wells, Always Sneak on the walk to the geckos"
 note = "the sunny-wells run (Sunny takes the player to the wells), then at 115 s VCG02's two geckos go for the player (StartCombat, as when the player opens fire), who stands by Sunny; she and Cheyenne join in as the geckos come up (the geckos, Very Aggressive, would attack them too)"
