@@ -66,7 +66,7 @@ pub(crate) mod read;
 pub mod travel;
 pub mod view;
 
-use super::frame::{Align, Ctx, Hint, Kit, FADE, FILL, LINE, MAIN, THICK};
+use super::frame::{Align, Ctx, Hint, Kit, FADE, FILL, LINE, MAIN, TEXT, THICK};
 use super::{Page, PageBody, PipBoy, PipBoyAid, PipBoyInput, PipBoyScreen};
 use crate::interface::{pipboy_amber as amber, at, u};
 use crate::menu::model::Command;

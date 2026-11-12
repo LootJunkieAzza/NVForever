@@ -2585,7 +2585,6 @@ mod tests {
             clip: None,
             colour: [1.0, 0.7, 0.3, 1.0],
             depth: 0.0,
-            turn: None,
             tex: None,
             turn: None,
             crop: None,

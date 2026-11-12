@@ -373,7 +373,7 @@ fn real_taps(time: crate::pause::AidTime, mut taps: ResMut<RealTaps>, mut typed:
                 RealInput::Mouse(button) => {
                     clicked.write(bevy::input::mouse::MouseButtonInput { button, state, window: Entity::PLACEHOLDER });
                 }
-                RealInput::Pad(_) | RealInput::Wheel(_) => {}
+                RealInput::Pad(_) | RealInput::Stick(_) | RealInput::Wheel(_) => {}
             }
         }
         info!("test aid: real input {input:?} tapped (pressed and let go in one frame)");
