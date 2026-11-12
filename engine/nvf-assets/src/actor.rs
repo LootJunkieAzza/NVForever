@@ -1503,7 +1503,7 @@ mod tests {
             geometry_index: 0,
         };
         let product = |b: usize, chain: &[(Option<String>, Affine3A)], local: Affine3A| (b, chain.iter().fold(Affine3A::IDENTITY, |acc, (_, t)| acc * *t) * local);
-        let close = |a: Affine3A, b: Affine3A| (Mat4::from(a) - Mat4::from(b)).abs().max_element() < 1e-4;
+        let close = |a: Affine3A, b: Affine3A| Mat4::from(a).abs_diff_eq(Mat4::from(b), 1e-4);
         // `gutsybuzzsaw.nif`: the blade's shape under `Buzzsawblad` under the root, `Prn`
         // the foot. A root of its own when it is not the identity, then the blade node with
         // its own transform (what the clip's keys replace), then the shape.

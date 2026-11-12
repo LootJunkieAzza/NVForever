@@ -22000,7 +22000,7 @@ run_seconds = 11
 expect = [
   { re = 'creature parts: CG02Andy \(00020456\): part node\(s\) .*Buzzsawblad.* for its clips to drive', label = "the saw's blade is a node of its own for the clips" },
   { re = 'creature parts: CG02Andy \(00020456\): \S*fxmrhandyjetaddon\.nif plays its own controllers on Bip01 Pelvis', label = "the jet plays its own controllers on the pelvis" },
-  { re = 'idle: Andy plays \S*CutCake', label = "Andy cuts the cake" },
+  { re = 'idle: 0xFF000000 plays CutCake ', label = "Andy cuts the cake" },
 ]
 
 [[scenario]]
