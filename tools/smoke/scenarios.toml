@@ -25678,6 +25678,24 @@ order = [[
 ]]
 
 [[scenario]]
+name = "patrol-resumes-after-fight"
+source = "issue #2137: a patroller whose walk to a point a fight cut off walks on along its route once the search ends (fnv-ai carry.rs Ai::back_to_package)"
+note = "the issue's scene: Nipton at 12:00, Oliver Swanick (vNiptonSurvivorREF 0x001349B6) on his celebrate patrol, the player some 1,300 units off (god mode). A gecko (0x0016518B) is brought beside him at 20 s and the two are set on each other at 23 s; the gecko is killed at 32 s. Before the fix he stood mid-leg for the 118 s left of the run. Base game only"
+areas = ["ai", "packages", "combat"]
+paths = ["crates/fnv-ai/src/carry.rs", "crates/fnv-ai/src/alert.rs", "crates/fnv-ai/src/errand.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "5:set_av:vNiptonSurvivorREF:Health:500,20:moveto:0x0016518B:vNiptonSurvivorREF:200:0:0,23:combat:0x0016518B:vNiptonSurvivorREF,23:combat:vNiptonSurvivorREF:0x0016518B,32:kill:0x0016518B" }
+args = ["--play", "--plugins", "FalloutNV.esm", "--world", "WastelandNV", "--pos=-33500,-96800,6900", "--hour", "12", "--npc-packages", "001349B6", "--no-voice", "--no-messages"]
+run_seconds = 90
+# The AI lines name him by his reference, 001349B6.
+order = [[
+  { text = "001349B6: stops searching: back to Normal", label = "the fight is over and his search ends" },
+  { text = "001349B6: has searched: back to the place of vNiptonSurvivorCelebrate01", label = "he goes back to his patrol" },
+  { re = '001349B6: (walks|runs) to .*\(patrol point ', label = "he walks on to a patrol point" },
+  { re = '001349B6: arrived after ', label = "and gets there" },
+  { re = '001349B6: (walks|runs) to .*\(patrol point ', label = "then on along his route" },
+]]
+
+[[scenario]]
 name = "alt-enter-full-screen"
 source = "issue #2209: Alt+Enter switches between a window and full screen, flipping the settings page's Full screen row, and its Enter reaches no menu (nvf-play full_screen_key.rs; engine/nvforever/src/window_mode.rs logs the modes)"
 note = "The pause menu is open from 10 s to 16 s, so an Enter that got through would act on its selected row. Left Alt is held from 11 s for 1 s with Enter at 11.3 s (full screen), then again from 13 s with Enter at 13.3 s (back to a window). The pause menu then resumes by its test aid only. Before #2209 Alt+Enter did nothing but Enter's own work"
