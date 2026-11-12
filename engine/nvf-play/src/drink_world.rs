@@ -39,7 +39,11 @@
 //!   from behind, the dance read as a lean on the table; from the front against the bright
 //!   windows the winner was a silhouette, and on the loser's screen its puppet was a dark
 //!   shape behind the bottle. One fixed shot shows the same lit frame on every screen].
-//!   The camera is pulled in to the first thing between it and the winner (a ray).
+//!   The camera is pulled in to the first thing between it and the winner (a ray). It
+//!   stands back and high enough that the winner's head is under the contest screen's
+//!   banner and board (the top third). The shot and the dance hold until the winner's own
+//!   contest screen closes ([`stage_seconds`]), on every screen alike: a loser's screen,
+//!   which closes sooner, keeps the shot until then.
 //! - **Waking up**: when the contest ends (`DrinkEnded`, or its screen gone), the hold
 //!   is let go: the body gets up by the game's get-up clip (`GetUpFaceUp` /
 //!   `GetUpFaceDown`), the view and the controls come back with it, and the view the
@@ -136,8 +140,11 @@ pub struct StageView {
 #[derive(Resource, Default, Debug)]
 pub struct DrinkWorld {
     pub at: Option<AtTable>,
-    /// The win shot, from a player's `Winner` to the contest's end.
+    /// The win shot, from a player's `Winner` until [`DrinkWorld::stage_until`].
     pub stage: Option<StageView>,
+    /// When the win shot lets go (the app's elapsed seconds): the winner's own contest
+    /// screen's close, the same on every screen ([`stage_seconds`]).
+    pub stage_until: f32,
     /// Counts for the exit line: contests joined, drinks, pass-outs, wake-ups.
     pub joined: u32,
     pub drinks: u32,
@@ -170,10 +177,21 @@ pub fn tip(feet: [f32; 3], centre: [f32; 3]) -> [f32; 3] {
     [dx / len * TIP_SPEED, dy / len * TIP_SPEED, TIP_RISE]
 }
 
-/// How far short of what it hits the win camera is pulled in, and how far above it the
-/// fill light hangs (game units) [design].
+/// How far short of what it hits the win camera is pulled in, and where the fill light
+/// hangs: this far from the point the camera looks at, towards the camera, and this much
+/// above that line (game units) [design: the light as near the dancer as before the
+/// camera stood back, 2026-11-12].
 pub const STAGE_CLEAR: f32 = 8.0;
+pub const STAGE_LIGHT_OUT: f32 = 110.0;
 pub const STAGE_LIGHT_UP: f32 = 30.0;
+
+/// How long the win shot holds after the `Winner`: until the winner's contest screen
+/// closes (drink-a's highlight, then its leaderboard's hold), on every screen, so the
+/// losers' screens, which close sooner, let go of it with the winner's [design: parity,
+/// 2026-11-12: both screens close together].
+pub fn stage_seconds() -> f32 {
+    crate::drink_contest::board_after(true) + crate::drink_contest::RESULT_HOLD
+}
 
 /// The win shot of `bar`: its stage camera, pulled in to the first thing between it and
 /// the point it looks at (`phys`, when there is one), never nearer than 40% of the way.
@@ -184,7 +202,9 @@ pub fn stage_view(bar: &Bar, phys: Option<&mut PhysState>) -> StageView {
     let dir = [d[0] / len, d[1] / len, d[2] / len];
     let reach = phys.and_then(|p| p.ray(st.look_at, dir, len, crate::table_spots::filter())).map_or(len, |h| (h.distance - STAGE_CLEAR).max(len * 0.4));
     let camera = [st.look_at[0] + dir[0] * reach, st.look_at[1] + dir[1] * reach, st.look_at[2] + dir[2] * reach];
-    StageView { camera, look_at: st.look_at, light: [camera[0], camera[1], camera[2] + STAGE_LIGHT_UP] }
+    let out = reach.min(STAGE_LIGHT_OUT);
+    let light = [st.look_at[0] + dir[0] * out, st.look_at[1] + dir[1] * out, st.look_at[2] + dir[2] * out + STAGE_LIGHT_UP];
+    StageView { camera, look_at: st.look_at, light }
 }
 
 /// E on a bottle: drink-b's stake page.
@@ -252,6 +272,7 @@ fn events(
     mut sim: ResMut<SimState>,
     mut player: ResMut<Player>,
     (mut phys, mut control): (Option<ResMut<PhysState>>, ResMut<PlayerControl>),
+    time: Res<Time>,
 ) {
     let w = &mut *world;
     for e in events.read() {
@@ -285,6 +306,7 @@ fn events(
                 // Every drinker at the table sees a player's win through the stage camera.
                 let view = stage_view(at.bar, phys.as_deref_mut());
                 w.stage = Some(view);
+                w.stage_until = time.elapsed_secs() + stage_seconds();
                 let ([cx, cy, cz], [lx, ly, lz]) = (view.camera, view.look_at);
                 info!("drink world: {}: player slot {winner} wins: the win camera at ({cx:.0}, {cy:.0}, {cz:.0}) looks at the stage ({lx:.0}, {ly:.0}, {lz:.0}), the fill light over it", at.bar.key);
                 if winner != at.slot || at.held {
@@ -321,7 +343,7 @@ fn ended(
     mut world: ResMut<DrinkWorld>,
     mut script: Option<ResMut<ScriptState>>,
     (mut control, mut emotes): (ResMut<PlayerControl>, MessageWriter<crate::emotes::EmoteAsk>),
-    mut since: Local<u32>,
+    (mut since, time): (Local<u32>, Res<Time>),
 ) {
     let w = &mut *world;
     let Some(at) = w.at.as_mut() else {
@@ -330,22 +352,21 @@ fn ended(
         return;
     };
     let mut over = ends.read().any(|e| e.bottle == at.bottle);
+    let mut gone = false;
     // No screen for a few frames while at a table: the contest went (a load, a
     // disconnect) without its end.
     *since = if screen.0.as_ref().is_some_and(|d| d.bottle == at.bottle) { 0 } else { *since + 1 };
     if !at.over && *since > 5 && *state.get() == PlayState::Playing {
         info!("drink world: {}: the contest's screen is gone: treated as over", at.bar.key);
         over = true;
+        gone = true;
     }
     let game = script.as_deref_mut().and_then(|s| s.rt.as_mut()).map(|rt| &mut rt.game);
     if over && !at.over {
         at.over = true;
-        if w.stage.take().is_some() {
-            info!("drink world: {}: the contest is over: the win camera lets go", at.bar.key);
-        }
-        if std::mem::take(&mut at.dancing) {
-            emotes.write(crate::emotes::EmoteAsk::Cancel);
-            info!("drink world: {}: the contest is over: the dance ends, back to standing", at.bar.key);
+        // A contest gone without its end (a load, a disconnect) takes the win shot with it.
+        if gone || *state.get() != PlayState::Playing {
+            w.stage_until = 0.0;
         }
         if at.held {
             if let Some(g) = game {
@@ -360,6 +381,18 @@ fn ended(
     }
     if !at.over {
         return;
+    }
+    // The win shot and the dance hold until the winner's screen closes, then let go on
+    // every screen at once.
+    if w.stage.is_some() && time.elapsed_secs() < w.stage_until {
+        return;
+    }
+    if w.stage.take().is_some() {
+        info!("drink world: {}: the contest is over: the win camera lets go", at.bar.key);
+    }
+    if std::mem::take(&mut at.dancing) {
+        emotes.write(crate::emotes::EmoteAsk::Cancel);
+        info!("drink world: {}: the contest is over: the dance ends, back to standing", at.bar.key);
     }
     // Up again (the knockdown over, its get-up clip played): the view comes back.
     let down = script.as_deref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.knockout(FormId::PLAYER_REF).is_some());

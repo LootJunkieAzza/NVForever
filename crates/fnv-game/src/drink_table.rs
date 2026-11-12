@@ -132,13 +132,16 @@ pub const BARS: &[Bar] = &[Bar {
 }];
 
 /// The win camera's distance from the winner's feet, flat (game units) [design: the whole
-/// body in the frame at the play camera's field of view].
-pub const STAGE_CAMERA_DISTANCE: f32 = 120.0;
+/// body in the lower two thirds of the frame at the play camera's field of view, under
+/// the contest screen's banner and board; fitted to drink-b's 2026-11-12 frames, where at
+/// 120 out, 140 up and the waist (70) the head reached the top sixth].
+pub const STAGE_CAMERA_DISTANCE: f32 = 150.0;
 /// ... its height over the floor [design: above the head, looking down, so the room's
 /// floor and not its windows is behind the dancer].
-pub const STAGE_CAMERA_UP: f32 = 140.0;
-/// The point it looks at, over the winner's feet [design: about the waist].
-pub const STAGE_LOOK_UP: f32 = 70.0;
+pub const STAGE_CAMERA_UP: f32 = 160.0;
+/// The point it looks at, over the winner's feet [design: the chest, so the body sits low
+/// in the frame].
+pub const STAGE_LOOK_UP: f32 = 100.0;
 
 /// Where a player who wins stands and dances, and the one camera every drinker at the
 /// table sees the dance through [design: one fixed shot, so that every screen shows the
