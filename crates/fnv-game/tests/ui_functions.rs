@@ -317,14 +317,8 @@ fn mcm_paths_mass_setters_and_the_mod_list() {
     }
     run(&mut g, "SetMCMStringMass", &[XVal::Num(1.0), XVal::Num(1.0), XVal::Num(36.0), s("value/text/string"), s("")]);
     assert_eq!(run(&mut g, "GetUIString", &[s("StartMenu/MCM/Options/Option1/value/text/string")]), s(""));
-    // A mod-list row: its traits, shown, with a name.
-    run(&mut g, "SetMCMModList", &[XVal::Num(1.0), XVal::Num(1.0), XVal::Num(12.0), XVal::Num(3.0), s("Just Assorted Mods")]);
-    assert_eq!(n(run(&mut g, "GetUIFloat", &[s("StartMenu/MCM/MCM_ModList/Mod1/_modIndex")])), 12.0);
-    assert_eq!(n(run(&mut g, "GetUIFloat", &[s("StartMenu/MCM/MCM_ModList/Mod1/_modIndex2")])), 3.0);
-    assert_eq!(n(run(&mut g, "GetUIFloat", &[s("StartMenu/MCM/MCM_ModList/Mod1/_enable")])), 1.0);
-    assert_eq!(run(&mut g, "GetUIString", &[s("StartMenu/MCM/MCM_ModList/Mod1/text/string")]), s("Just Assorted Mods"));
-    assert_eq!(n(run(&mut g, "GetMCMListWidth", &[XVal::Num(1.0), XVal::Num(1.0)])), 88.0);
-    assert_eq!(n(run(&mut g, "GetMCMListWidth", &[XVal::Num(2.0), XVal::Num(1.0)])), 0.0);
+    // SetMCMModList and GetMCMListWidth find their rows by position in MCM's own layout
+    // (MCM_ModList is MCM's 5th child; menu-xml.md 10.2, observed): tests/ui_mcm.rs.
 }
 
 // ---- the pointer on tiles (task T8, fnv_game::ui_input, fnv_ui::input) --------------
