@@ -119,11 +119,30 @@ detail in the module notes of the file named.
   (never zero, never larger than the output), never FSR's ratio. DLSS has its own jitter phase
   count and mip bias (spec notes, "Modes and sizes"); FSR's `NVF_FSR_MIP_BIAS_OFFSET` does not
   apply. (Step 5.)
-- **Recreation on resize or mode change** (`dlss::configure`). When the mode, output size or
-  HDR-ness changes after DLSS's options were set, a render system before anything of the frame
-  is recorded drains the GPU, frees the viewport (`slFreeResources`) and sets the options
-  again; the history resets. A drain that fails leaves the options unset, and the spatial
-  fallback draws. (Step 5.)
+- **Recreation on resize, mode or model change** (`dlss::configure`). When the mode, output
+  size, HDR-ness or DLSS model changes after DLSS's options were set, a render system before
+  anything of the frame is recorded drains the GPU, frees the viewport (`slFreeResources`) and
+  sets the options again; the history resets. A drain that fails leaves the options unset, and
+  the spatial fallback draws. (Step 5; the model, below.)
+- **The DLSS model** (`settings.rs`, `upscaler::DlssModel`, `dlss/sizing.rs` `preset`)
+  [design: the user's request, 2026-11-12]. A row **DLSS model** (key `dlss-model`) right under
+  Upscaling quality: `Default`, `Preset J`, `Preset K`, `Preset L`, `Preset M`, NVIDIA's
+  names as Streamline's header spells them (`ePresetJ` …). Only these four presets are offered:
+  the header marks A to D removed, E and F deprecated, and G, H, I, N and O as reverting to the
+  default (spec notes, "DLSS presets"). Default sends `eDefault`, NVIDIA's pick per mode, and is
+  the default and the recommendation. The row's note gives each choice in NVForever's words
+  (the settings page has no note per choice). It is dimmed with "DLSS only" while DLSS is not
+  the effective upscaler and keeps its model meanwhile; the INI's `dlss-model=` loads into it
+  all the same, and a stored value that is not one of the five loads as Default (with a
+  warning). The model goes into all six per-mode preset fields of `DLSSOptions`, so it holds
+  whatever the quality; it is part of the options key (`evaluate.rs` `OptionsKey`, beside the
+  sizing key, since the optimal sizes do not depend on it), so a change sets the options again
+  by the drained recreation above and starts a new output-proof generation: it switches live.
+  The `options:`, `recreate:`, `evaluate active:` and `output observed:` lines name it
+  (`model Default`, `model Preset L`), after the key's text, so the earlier scenarios' patterns
+  still match. `--dlss-model default|j|k|l|m`, with the settings' precedence (the INI wins in
+  normal play, the command line in test runs). Which model NGX then runs is NGX's to report in
+  Streamline's log; NVForever does not check it.
 - **Proof that DLSS drew.** `eOk` from the evaluate is not proof that NGX wrote anything (spec
   notes, "Evaluate"), so once per DLSS setup NVForever checks that DLSS wrote the picture
   (step 6, `dlss/evaluate.rs` `OutputProof`) [design]. A setup (a generation) begins with each
@@ -301,11 +320,12 @@ only where `NVF_DLSS_DIR` names a bundle.
   enforced before the device is made, with a way back to the stock loader. The pin stays set
   when Streamline later falls back to the stock path.
 - **Context release on resize.** Streamline itself releases a replaced DLSS context three
-  frames after a resize or mode change, not when the GPU has finished with it
+  frames after a resize, mode or preset change, not when the GPU has finished with it
   ([spec notes](../spec-notes/streamline.md), "Viewports and resize"). Step 5 drains the GPU
   and frees the viewport explicitly before setting the new options, which releases the old
   context at once and leaves Streamline's delayed release nothing to do [documented:
-  `src/dlssEntry.cpp:363-373`, `:884-902`]. Not yet observed in a run of step 5.
+  `src/dlssEntry.cpp:363-373`, `:884-902`]. Not yet observed in a run of step 5. The
+  `dlss-model` scenario expects the recreation per model.
 - **NVIDIA's model cache.** NGX looked for DLSS in the driver's model cache before loading the
   player's `nvngx_dlss.dll` [observed in the spike]; a DLSS there may be used instead of the
   player's file [hypothesis] (spec notes, "NVIDIA's updater").
@@ -331,5 +351,6 @@ All built.
    files are there, so every switch is live, and the one row split into Upscaler and Upscaling
    quality (the older key still read and taken by the test aid).
 9. Smoke scenarios: the no-files path in every run, hardware scenarios gated on `NVF_DLSS_DIR`.
+   After the play-test: the DLSS model row (`dlss-model`, `--dlss-model`).
 10. The player's page ([dlss.md](../dlss.md)), the status page, the dependency notes, and
     Streamline's MIT notice in the generated licences.

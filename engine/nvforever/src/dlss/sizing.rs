@@ -10,7 +10,7 @@ use bevy::prelude::*;
 
 use super::note;
 use crate::upscaler::prep::Policy;
-use crate::upscaler::UpscaleQuality;
+use crate::upscaler::{DlssModel, UpscaleQuality};
 use bevy::log::Level;
 
 /// `sl::DLSSMode` values, a `uint32_t` enum: eOff 0, eMaxPerformance 1, eBalanced 2,
@@ -37,6 +37,22 @@ pub(crate) fn mode(quality: UpscaleQuality) -> u32 {
     }
 }
 
+/// The `sl::DLSSPreset` value (a `uint32_t` enum) a model sends: eDefault 0, ePresetJ 10,
+/// ePresetK 11, ePresetL 12, ePresetM 13 [documented: `sl_dlss.h:46-65`]. It goes into all six
+/// per-mode preset fields of `DLSSOptions` (`evaluate.rs` `options`), so it applies whatever the
+/// mode; Default leaves each mode to NVIDIA's own pick.
+// Read by the Windows-only options (`evaluate.rs`).
+#[cfg_attr(not(windows), allow(dead_code))]
+pub(crate) fn preset(model: DlssModel) -> u32 {
+    match model {
+        DlssModel::Default => 0,
+        DlssModel::J => 10,
+        DlssModel::K => 11,
+        DlssModel::L => 12,
+        DlssModel::M => 13,
+    }
+}
+
 /// The mode's header name without its `e`, for the log.
 pub(crate) fn mode_name(quality: UpscaleQuality) -> &'static str {
     match quality {
@@ -54,7 +70,11 @@ pub(crate) fn hdr_format(format: wgpu::TextureFormat) -> bool {
 }
 
 /// What DLSS's options and its optimal settings depend on here: the mode, the output size and
-/// whether the colour is HDR.
+/// whether the colour is HDR. The DLSS model is not part of it: for the optimal settings
+/// Streamline sets only the output size and the mode before asking NGX [documented:
+/// `src/dlssEntry.cpp:823-827`] [hypothesis: the sizes do not depend on the preset], so a model
+/// change asks nothing again; the options are set again for it (`evaluate.rs` keeps the model
+/// beside the key, `OptionsKey`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct Key {
     pub quality: UpscaleQuality,
@@ -198,6 +218,16 @@ mod tests {
         assert!(!modes.contains(&5), "UltraQuality is not offered");
         assert_eq!(mode_name(NativeAa), "DLAA");
         assert_eq!(mode_name(Performance), "MaxPerformance");
+    }
+
+    #[test]
+    fn each_model_is_its_streamline_preset() {
+        let presets: Vec<u32> = DlssModel::ALL.iter().map(|&m| preset(m)).collect();
+        // sl_dlss.h:46-65: eDefault 0, ePresetJ 10, ePresetK 11, ePresetL 12, ePresetM 13.
+        assert_eq!(presets, [0, 10, 11, 12, 13]);
+        for removed_or_reverting in [1, 2, 3, 4, 5, 6, 7, 8, 9, 14, 15] {
+            assert!(!presets.contains(&removed_or_reverting), "preset {removed_or_reverting} is not offered");
+        }
     }
 
     fn key(quality: UpscaleQuality, output: UVec2, hdr: bool) -> Key {

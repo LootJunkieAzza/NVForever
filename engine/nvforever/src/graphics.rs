@@ -45,7 +45,7 @@ use bevy::anti_alias::fxaa::Fxaa;
 use bevy::anti_alias::smaa::Smaa;
 use bevy::render::camera::{MipBias, TemporalJitter};
 use crate::fsr::{FsrQuality, FsrUpscaling};
-use crate::upscaler::{DlssUpscaling, UpscaleQuality, UpscalerChoice, UpscalerStatus};
+use crate::upscaler::{DlssModel, DlssUpscaling, UpscaleQuality, UpscalerChoice, UpscalerStatus};
 
 /// The command line and saved settings expose the same upscaling modes.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, clap::ValueEnum)]
@@ -149,6 +149,9 @@ pub struct Graphics {
     /// selected AA while active; UI is drawn at output resolution. FSR's code reads and writes
     /// it through [`Graphics::fsr`] and [`Graphics::set_fsr`].
     pub upscaler: UpscalerChoice,
+    /// The DLSS model asked for (the DLSS model row, `--dlss-model`; `upscaler::DlssModel`):
+    /// used while DLSS draws, kept meanwhile. Default: NVIDIA's own pick for each quality.
+    pub dlss_model: DlssModel,
     pub light_shafts: bool,
     pub water_reflections: bool,
     /// Water mirrors the world through the reflection camera (`reflection.rs`; on in
@@ -207,6 +210,7 @@ impl Graphics {
             // §3.6). The shadow filter stays Bevy's default too (§3.9).
             screen_aa: ScreenAa::Off,
             upscaler: UpscalerChoice::Off,
+            dlss_model: DlssModel::Default,
             light_shafts: on,
             water_reflections: on,
             water_mirror: true,

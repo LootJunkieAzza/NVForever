@@ -99,6 +99,7 @@ pub const SECTIONS: &[Section] = &[
             "sun-shadows",
             "upscaler",
             "upscaler-quality",
+            "dlss-model",
             "frame-generation",
             "anti-aliasing",
             "latency-reduction",
@@ -303,9 +304,9 @@ mod tests {
 
     /// Every row the registry can hold today (upstream main 9af0a4552 and f4015fae8, with #1966's
     /// quality and enhanced rows, #2014's counter rows, the two VATS rows and #2198's Upscaler
-    /// and Upscaling quality rows in place of the one upscaling row), by the group it registers
-    /// with.
-    const KNOWN: [(&str, &str); 105] = [
+    /// and Upscaling quality rows in place of the one upscaling row, and its DLSS model row), by
+    /// the group it registers with.
+    const KNOWN: [(&str, &str); 106] = [
         ("detached-camera", "Gameplay"),
         ("menu-pause", "Gameplay"),
         ("dialogue-goodbye-hint", "Gameplay"),
@@ -380,6 +381,7 @@ mod tests {
         ("grass-distance", "Display"),
         ("upscaler", "Graphics"),
         ("upscaler-quality", "Graphics"),
+        ("dlss-model", "Graphics"),
         ("frame-generation", "Graphics"),
         ("anti-aliasing", "Graphics"),
         ("latency-reduction", "Graphics"),

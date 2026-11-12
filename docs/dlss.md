@@ -57,6 +57,25 @@ On the command line, `--upscaler dlss --upscaler-quality balanced` (or `native-a
 `quality`, `performance`, `ultra-performance`) chooses DLSS; as with every setting, a choice
 saved in the settings wins in normal play.
 
+## The DLSS model
+
+Under Upscaling quality, **DLSS model** chooses which of NVIDIA's DLSS models rebuilds the
+picture. It can be set while DLSS draws (it is dimmed with "DLSS only" otherwise) and takes
+effect at once.
+
+| Choice | What it is |
+|---|---|
+| Default (recommended) | NVIDIA picks for each quality. With NVIDIA's DLSS 310.9.16 that was K for Native AA, Quality and Balanced, M for Performance and L for Ultra Performance; a newer DLSS may pick others. |
+| Preset J | Like K, with a little less ghosting and a little more flicker. |
+| Preset K | NVIDIA's transformer model with the most detail, at a higher cost in frame rate. |
+| Preset L | Sharper and steadier than J and K, with less ghosting; the dearest of the four. |
+| Preset M | Close to L in looks, closer to J and K in speed. |
+
+The names are the ones NVIDIA gives these presets. NVIDIA's other presets are left out: some are
+withdrawn and the rest fall back to the default. On the command line: `--dlss-model default`
+(or `j`, `k`, `l`, `m`). It is saved as `dlss-model=` in `NVForever.ini`; a value that is not
+one of the five loads as Default.
+
 While DLSS is on:
 
 - the anti-aliasing row reads "Off (upscaling active)": DLSS does the anti-aliasing, and the

@@ -4,12 +4,13 @@
 //! moved out of `fsr::fsr_pass` in the plan's step 5). Nothing of FSR's is read or made.
 //!
 //! **Before the frame** ([`Evaluator::configure`], from `mod.rs` `configure`): DLSS's options
-//! (`slDLSSSetOptions`) when the mode, the output size or the colour's HDR-ness changes: the
-//! mode (`sizing::mode`), auto exposure, alpha upscaling off. When options were set before, DLSS
+//! (`slDLSSSetOptions`) when the mode, the output size, the colour's HDR-ness or the DLSS model
+//! changes ([`OptionsKey`]): the mode (`sizing::mode`), auto exposure, alpha upscaling off, the
+//! model's preset in every mode's field (`sizing::preset`). When options were set before, DLSS
 //! may hold a feature for the viewport: the GPU is drained first (`Device::poll` wait, every
 //! submitted frame finished) and `slFreeResources` frees the viewport (it releases the NGX
 //! feature at once [documented: `src/dlssEntry.cpp:884-902`], which is safe only with the GPU
-//! done with it), so a resize or a mode change never leaves a feature to Streamline's
+//! done with it), so a resize, a mode or a model change never leaves a feature to Streamline's
 //! three-frame delay [documented: `src/dlssEntry.cpp:357-369`]. The render size is the optimal
 //! one the view preparation asked for (`sizing.rs`).
 //!
@@ -101,6 +102,7 @@ use super::ffi::{
     FEATURE_DLSS, LIFECYCLE_VALID_UNTIL_EVALUATE,
 };
 use super::sizing::{self, size, Key, Optimal};
+use crate::upscaler::DlssModel;
 use super::win::{Api, Held};
 use super::{note, Frame, Outcome};
 
@@ -194,7 +196,7 @@ enum Verdict {
 #[derive(Clone, Copy, Debug)]
 struct Generation {
     number: u64,
-    key: Key,
+    key: OptionsKey,
     /// Samples read back all black.
     black: u32,
     /// Readbacks that failed (the map was refused).
@@ -228,7 +230,7 @@ pub(super) struct OutputProof {
 impl OutputProof {
     /// New options were set for `key`: a new generation, sampled at the next evaluated frame.
     /// Returns its number.
-    pub(super) fn start(&mut self, key: Key) -> u64 {
+    pub(super) fn start(&mut self, key: OptionsKey) -> u64 {
         if self.current.is_some_and(|g| g.verdict == Verdict::Pending) {
             self.replaced += 1;
         }
@@ -261,12 +263,15 @@ impl OutputProof {
             Some(Sample::Observed { mean: [r, gr, b], texels }) => {
                 g.verdict = Verdict::Observed;
                 self.observed += 1;
-                return Some((Level::INFO, format!("output observed: {}, generation {generation}, mean RGB {r:.4} {gr:.4} {b:.4} over {texels} texels", g.key.describe())));
+                return Some((
+                    Level::INFO,
+                    format!("output observed: {}, generation {generation}, mean RGB {r:.4} {gr:.4} {b:.4} over {texels} texels, model {}", g.key.key.describe(), g.key.model.name()),
+                ));
             }
             Some(Sample::NotFinite { bad, texels }) => {
                 g.verdict = Verdict::NotValid;
                 self.not_valid += 1;
-                return Some((Level::WARN, format!("output not valid: {}, generation {generation}: {bad} of {texels} sampled texels not finite (NaN or infinity)", g.key.describe())));
+                return Some((Level::WARN, format!("output not valid: {}, generation {generation}: {bad} of {texels} sampled texels not finite (NaN or infinity)", g.key.key.describe())));
             }
             Some(Sample::Black { .. }) => g.black += 1,
             None => g.unread += 1,
@@ -282,7 +287,7 @@ impl OutputProof {
             format!(
                 "output not observed after {} tries {PROOF_RETRY_FRAMES} frames apart: {}, generation {generation}: {} samples all black ({PROOF_TEXELS} texels each), {} not read back; a black scene looks the same, so DLSS is not counted as failed for it",
                 g.tries(),
-                g.key.describe(),
+                g.key.key.describe(),
                 g.black,
                 g.unread
             ),
@@ -331,9 +336,30 @@ struct Kept {
     _views: [wgpu::TextureView; 4],
 }
 
+/// What DLSS's options are set for: the sizing [`Key`] (mode, output size, HDR-ness) and the
+/// DLSS model beside it (the DLSS model row). A change of either sets the options again, the GPU
+/// drained and the viewport freed first ([`Evaluator::configure`]), and starts a new generation
+/// of the output proof. Streamline itself would recreate the NGX feature on a preset change too
+/// (it compares the mode, the output size and the five presets it sends [documented:
+/// `src/dlssEntry.cpp:346-356`]), with its three-frame delay; this keeps it to the drained path.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct OptionsKey {
+    pub key: Key,
+    pub model: DlssModel,
+}
+
+impl OptionsKey {
+    /// For the log: the key's text, then `model <name>` (`model Default` when NVIDIA picks).
+    pub(super) fn describe(&self) -> String {
+        format!("{}, model {}", self.key.describe(), self.model.name())
+    }
+}
+
 /// DLSS's options for a key (`slDLSSGetOptimalSettings` takes the same structure): the mode,
-/// the output size, the HDR-ness, auto exposure on and alpha upscaling off.
-fn options(key: Key) -> DlssOptions {
+/// the output size, the HDR-ness, auto exposure on, alpha upscaling off, and the model's preset
+/// (`sizing::preset`) in all six per-mode preset fields (`sl_dlss.h:90-96`; Default 0 in each).
+fn options(wanted: OptionsKey) -> DlssOptions {
+    let key = wanted.key;
     let mut options = DlssOptions::new();
     options.mode = sizing::mode(key.quality);
     options.output_width = key.output.x;
@@ -341,12 +367,29 @@ fn options(key: Key) -> DlssOptions {
     options.color_buffers_hdr = if key.hdr { BOOL_TRUE } else { BOOL_FALSE };
     options.use_auto_exposure = BOOL_TRUE;
     options.alpha_upscaling_enabled = BOOL_FALSE;
+    let preset = sizing::preset(wanted.model);
+    options.dlaa_preset = preset;
+    options.quality_preset = preset;
+    options.balanced_preset = preset;
+    options.performance_preset = preset;
+    options.ultra_performance_preset = preset;
+    options.ultra_quality_preset = preset;
     options
+}
+
+/// What [`Evaluator::configure`] does for the options a frame wants ([`Evaluator::plan`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Plan {
+    /// Set already for them.
+    Keep,
+    /// Set them; `free_first` when DLSS may hold resources for the viewport (options were set
+    /// before and not freed since): the GPU drained and the viewport freed first.
+    Set { free_first: bool },
 }
 
 /// The options last set for the viewport.
 struct Options {
-    key: Key,
+    key: OptionsKey,
     range: Optimal,
     /// "evaluate active" said for these options.
     active_said: bool,
@@ -359,7 +402,8 @@ pub(super) struct Evaluator {
     get_optimal_settings: SlDlssGetOptimalSettings,
     set_options: SlDlssSetOptions,
     options: Option<Options>,
-    /// Options were set once at least: DLSS may hold resources for the viewport.
+    /// Options were set and their resources not freed since: DLSS may hold resources for the
+    /// viewport (freed before the next options and at shutdown).
     pub(super) options_set: bool,
     /// DLSS drew the last frame (else its history is stale and the next evaluate resets).
     previous_was_dlss: bool,
@@ -411,7 +455,8 @@ impl Evaluator {
 
     /// `slDLSSGetOptimalSettings` for a key (the view preparation asks, `sizing::OptimalSizes`).
     pub(super) fn optimal_settings(&self, key: Key) -> Result<Optimal, String> {
-        let options = options(key);
+        // The model does not enter the optimal settings (`sizing::Key`).
+        let options = options(OptionsKey { key, model: DlssModel::Default });
         let mut settings = DlssOptimalSettings::new();
         // SAFETY: both structures from their constructors, alive for the call.
         let r = unsafe { (self.get_optimal_settings)(&options, &mut settings) };
@@ -425,50 +470,68 @@ impl Evaluator {
         })
     }
 
-    /// The options for `key`, before anything of the frame is recorded (the module comment's
-    /// "Before the frame"). Nothing when they are set already.
-    pub(super) fn configure(&mut self, api: &Api, held: &Held, key: Key, range: Optimal) {
+    /// What [`Self::configure`] does for `wanted`: nothing when the options are set for it, else
+    /// set them, freeing the viewport's resources first while DLSS may hold some.
+    pub(super) fn plan(&self, wanted: OptionsKey) -> Plan {
+        if self.options.as_ref().is_some_and(|o| o.key == wanted) {
+            Plan::Keep
+        } else {
+            Plan::Set { free_first: self.options_set }
+        }
+    }
+
+    /// The options for `wanted` (the key and the model), before anything of the frame is
+    /// recorded (the module comment's "Before the frame"). Nothing when they are set already.
+    pub(super) fn configure(&mut self, api: &Api, held: &Held, wanted: OptionsKey, range: Optimal) {
         self.frames = self.frames.wrapping_add(1);
-        if let Some(options) = self.options.as_mut().filter(|o| o.key == key) {
-            options.range = range;
+        let plan = self.plan(wanted);
+        if plan == Plan::Keep {
+            if let Some(options) = self.options.as_mut() {
+                options.range = range;
+            }
             return;
         }
         let previous = self.options.take().map(|o| o.key);
-        let viewport = ViewportHandle::new(VIEWPORT);
-        if self.options_set {
+        if plan == (Plan::Set { free_first: true }) {
             // Every submitted frame finished, so no evaluate still uses the viewport's feature.
-            let polled = held.device.poll(wgpu::PollType::wait_indefinitely());
-            if !matches!(&polled, Ok(status) if status.wait_finished()) {
-                note(Level::WARN, format!("recreate: the GPU drain returned {polled:?}; the options stay unset and the spatial fallback draws"));
+            if let Err(polled) = drain(held) {
+                note(Level::WARN, format!("recreate: the GPU drain returned {polled}; the options stay unset and the spatial fallback draws"));
                 self.failed += 1;
                 return;
             }
-            // SAFETY: after the drain; a viewport handle from its constructor.
-            let freed = unsafe { (api.free_resources)(FEATURE_DLSS, &viewport) };
+            let freed = free(api);
             self.recreated += 1;
             note(
                 if freed.is_ok() { Level::INFO } else { Level::WARN },
                 format!(
-                    "recreate: {} -> {}: GPU drained, slFreeResources(DLSS, viewport {VIEWPORT}) {}",
-                    previous.map_or_else(|| "none".to_string(), |k| k.describe()),
-                    key.describe(),
-                    freed.name()
+                    "recreate: {} -> {}: GPU drained, slFreeResources(DLSS, viewport {VIEWPORT}) {} (model {} -> {})",
+                    previous.map_or_else(|| "none".to_string(), |k| k.key.describe()),
+                    wanted.key.describe(),
+                    freed.name(),
+                    previous.map_or("none", |k| k.model.name()),
+                    wanted.model.name()
                 ),
             );
         }
-        let options = options(key);
+        let viewport = ViewportHandle::new(VIEWPORT);
+        let options = options(wanted);
         // SAFETY: from its constructor; Streamline copies the options [documented: src/dlssEntry.cpp:1058-1063].
         let r = unsafe { (self.set_options)(&viewport, &options) };
         if !r.is_ok() {
             self.count_failure("slDLSSSetOptions", r);
             return;
         }
+        self.set_for(wanted, range);
+    }
+
+    /// The bookkeeping of options set for `wanted`: DLSS may hold resources now, its history went
+    /// with the old options, and the output proof starts a new generation.
+    fn set_for(&mut self, wanted: OptionsKey, range: Optimal) {
         self.options_set = true;
-        // DLSS's history went with the old options; the output proof starts again.
         self.previous_was_dlss = false;
-        super::set_generation(self.proof.start(key));
-        note(Level::INFO, format!("options: {} (auto exposure on, alpha upscaling off)", key.describe()));
-        self.options = Some(Options { key, range, active_said: false, outside_said: None });
+        super::set_generation(self.proof.start(wanted));
+        note(Level::INFO, format!("options: {} (auto exposure on, alpha upscaling off)", wanted.describe()));
+        self.options = Some(Options { key: wanted, range, active_said: false, outside_said: None });
     }
 
     /// One frame: the module comment's order. Any failure leaves the frame to the spatial
@@ -484,7 +547,7 @@ impl Evaluator {
 
         // 1. The options for this frame and the render size within DLSS's range.
         let key = Key { quality: frame.quality, output: frame.output_size, hdr: sizing::hdr_format(frame.target.main_texture_format()) };
-        let Some(options) = self.options.as_mut().filter(|o| o.key == key) else {
+        let Some(options) = self.options.as_mut().filter(|o| o.key.key == key) else {
             self.say_once("no options", Level::WARN, "no DLSS options are set for this frame's mode and size: the spatial fallback draws these frames");
             self.skipped += 1;
             return self.fallback();
@@ -701,13 +764,14 @@ impl Evaluator {
             note(
                 Level::INFO,
                 format!(
-                    "evaluate active: {}, {} -> {}, optimal {}, min {} max {}",
+                    "evaluate active: {}, {} -> {}, optimal {}, min {} max {}, model {}",
                     key.describe(),
                     size(frame.render_size),
                     size(frame.output_size),
                     size(options.range.render),
                     size(options.range.min),
-                    size(options.range.max)
+                    size(options.range.max),
+                    options.key.model.name()
                 ),
             );
         }
@@ -836,6 +900,25 @@ impl Evaluator {
         }
         note(Level::INFO, format!("{}; NGX evaluate errors reported: {}", self.proof.summary(), super::ngx_errors_total()));
     }
+}
+
+/// The GPU drained: every submitted frame finished (`Device::poll` wait). `Err`: what the poll
+/// returned instead.
+fn drain(held: &Held) -> Result<(), String> {
+    let polled = held.device.poll(wgpu::PollType::wait_indefinitely());
+    if matches!(&polled, Ok(status) if status.wait_finished()) {
+        Ok(())
+    } else {
+        Err(format!("{polled:?}"))
+    }
+}
+
+/// `slFreeResources(DLSS, viewport 0)`: it releases the NGX feature at once [documented:
+/// `src/dlssEntry.cpp:884-902`], so only after [`drain`].
+fn free(api: &Api) -> SlResult {
+    let viewport = ViewportHandle::new(VIEWPORT);
+    // SAFETY: called after the GPU drain; a viewport handle from its constructor.
+    unsafe { (api.free_resources)(FEATURE_DLSS, &viewport) }
 }
 
 /// The mapped readback as texels (four little-endian `f32` each, `vec4<f32>` in the buffer).
@@ -1034,8 +1117,45 @@ mod tests {
         assert!(eval.optimal_settings(key).unwrap_err().starts_with("slDLSSGetOptimalSettings"));
     }
 
-    fn key(width: u32) -> Key {
-        Key { quality: crate::upscaler::UpscaleQuality::Quality, output: UVec2::new(width, 720), hdr: true }
+    fn key(width: u32) -> OptionsKey {
+        OptionsKey { key: Key { quality: crate::upscaler::UpscaleQuality::Quality, output: UVec2::new(width, 720), hdr: true }, model: DlssModel::Default }
+    }
+
+    fn range() -> Optimal {
+        Optimal { render: UVec2::new(853, 480), min: UVec2::new(427, 240), max: UVec2::new(1280, 720) }
+    }
+
+    /// The options' bookkeeping as `configure` keeps it, without Streamline: a model change is a
+    /// change of the options (set again, the viewport freed first, a new generation).
+    #[test]
+    fn a_model_change_sets_the_options_again() {
+        let mut eval = Evaluator::new(no_optimal_settings, no_options);
+        let first = key(1280);
+        assert_eq!(eval.plan(first), Plan::Set { free_first: false }, "nothing held yet");
+        eval.set_for(first, range());
+        assert_eq!(eval.plan(first), Plan::Keep, "set for this key and model");
+        assert_eq!(eval.proof.started, 1);
+        // Each model: options set again, the viewport freed first.
+        for model in [DlssModel::J, DlssModel::K, DlssModel::L, DlssModel::M, DlssModel::Default] {
+            let wanted = OptionsKey { model, ..first };
+            if model != DlssModel::Default {
+                assert_eq!(eval.plan(wanted), Plan::Set { free_first: true }, "{model:?}");
+            }
+            eval.set_for(wanted, range());
+            assert_eq!(eval.plan(wanted), Plan::Keep);
+        }
+        assert_eq!(eval.proof.started, 6, "a generation per model");
+        assert!(eval.proof.current.is_some_and(|g| g.key.model == DlssModel::Default));
+        // A mode change at the same model is one too, as before.
+        let balanced = OptionsKey { key: Key { quality: crate::upscaler::UpscaleQuality::Balanced, ..first.key }, ..first };
+        assert_eq!(eval.plan(balanced), Plan::Set { free_first: true });
+    }
+
+    #[test]
+    fn the_options_line_and_the_key_name_the_model() {
+        assert_eq!(key(1280).describe(), "Quality (MaxQuality), 1280x720 output, HDR on, model Default");
+        assert_eq!(OptionsKey { model: DlssModel::L, ..key(1280) }.describe(), "Quality (MaxQuality), 1280x720 output, HDR on, model Preset L");
+        assert_ne!(OptionsKey { model: DlssModel::J, ..key(1280) }, key(1280), "the model is part of the options key");
     }
 
     #[test]
@@ -1091,8 +1211,8 @@ mod tests {
         let (level, text) = proof.sampled(1, Some(Sample::Observed { mean: [0.5, 0.25, 0.125], texels: 256 })).unwrap();
         assert_eq!(level, Level::INFO);
         assert!(text.starts_with("output observed: "), "{text}");
-        assert!(text.ends_with(", generation 1, mean RGB 0.5000 0.2500 0.1250 over 256 texels"), "{text}");
-        assert!(text.contains(&key(1280).describe()));
+        assert!(text.ends_with(", generation 1, mean RGB 0.5000 0.2500 0.1250 over 256 texels, model Default"), "{text}");
+        assert!(text.starts_with(&format!("output observed: {}, generation 1,", key(1280).key.describe())), "the key's text as before: {text}");
         for _ in 0..100 {
             assert_eq!(proof.due(false), None, "once per generation");
         }
@@ -1147,7 +1267,7 @@ mod tests {
         // Generation 2 untouched by it: sampled at once, its own verdict.
         assert_eq!(proof.due(false), Some(2));
         let (_, text) = proof.sampled(2, Some(Sample::Observed { mean: [0.25; 3], texels: 256 })).unwrap();
-        assert!(text.contains(&key(1920).describe()) && text.contains("generation 2,"), "{text}");
+        assert!(text.contains(&key(1920).key.describe()) && text.contains("generation 2,"), "{text}");
         // A third generation left pending at shutdown.
         assert_eq!(proof.start(key(1280)), 3);
         assert!(
@@ -1169,11 +1289,29 @@ mod tests {
     #[test]
     fn options_carry_the_mode_size_and_hdr() {
         use crate::upscaler::UpscaleQuality;
-        let o = options(Key { quality: UpscaleQuality::UltraPerformance, output: UVec2::new(2560, 1440), hdr: true });
+        let o = options(OptionsKey { key: Key { quality: UpscaleQuality::UltraPerformance, output: UVec2::new(2560, 1440), hdr: true }, model: DlssModel::Default });
         assert_eq!((o.mode, o.output_width, o.output_height), (sizing::MODE_ULTRA_PERFORMANCE, 2560, 1440));
         assert_eq!((o.color_buffers_hdr, o.use_auto_exposure, o.alpha_upscaling_enabled), (BOOL_TRUE, BOOL_TRUE, BOOL_FALSE));
-        let o = options(Key { quality: UpscaleQuality::NativeAa, output: UVec2::new(1280, 720), hdr: false });
+        let o = options(OptionsKey { key: Key { quality: UpscaleQuality::NativeAa, output: UVec2::new(1280, 720), hdr: false }, model: DlssModel::Default });
         assert_eq!((o.mode, o.color_buffers_hdr), (sizing::MODE_DLAA, BOOL_FALSE));
+    }
+
+    /// The model's preset reaches all six per-mode fields (whatever the mode), Default 0 in each.
+    #[test]
+    fn the_model_reaches_every_modes_preset() {
+        use crate::upscaler::UpscaleQuality;
+        let presets = |o: &DlssOptions| [o.dlaa_preset, o.quality_preset, o.balanced_preset, o.performance_preset, o.ultra_performance_preset, o.ultra_quality_preset];
+        for quality in UpscaleQuality::ALL {
+            for model in DlssModel::ALL {
+                let o = options(OptionsKey { key: Key { quality, output: UVec2::new(1280, 720), hdr: true }, model });
+                assert_eq!(presets(&o), [sizing::preset(model); 6], "{quality:?} {model:?}");
+                assert_eq!(o.mode, sizing::mode(quality), "the mode untouched");
+            }
+        }
+        let o = options(OptionsKey { model: DlssModel::Default, ..key(1280) });
+        assert_eq!(presets(&o), [0; 6], "Default: eDefault in every field, as before");
+        let o = options(OptionsKey { model: DlssModel::M, ..key(1280) });
+        assert_eq!(presets(&o), [13; 6], "ePresetM");
     }
 
     #[test]

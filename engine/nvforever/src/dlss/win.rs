@@ -14,7 +14,7 @@ use bevy::render::renderer::{RenderAdapter, RenderAdapterInfo, RenderContext, Re
 use bevy::render::RenderApp;
 use windows_sys::Win32::System::LibraryLoader::{LoadLibraryExW, LOAD_WITH_ALTERED_SEARCH_PATH};
 
-use super::evaluate::{Evaluator, VIEWPORT};
+use super::evaluate::{Evaluator, OptionsKey, VIEWPORT};
 use super::ffi::{
     get_proc, wide, AdapterInfo, FeatureRequirements, FeatureVersion, Preferences, SlDlssGetOptimalSettings, SlDlssSetOptions, SlEvaluateFeature, SlFreeResources,
     SlGetFeatureFunction, SlGetFeatureRequirements, SlGetFeatureVersion, SlGetNewFrameToken, SlInit, SlIsFeatureLoaded, SlIsFeatureSupported, SlResult, SlSetConstants,
@@ -23,7 +23,7 @@ use super::ffi::{
 use super::preflight::{self, Checked, Pin, Requirements, Snapshot};
 use super::sizing::{Key, Optimal};
 use super::{missing_files, note, note_ngx_line, note_sl, resolve_folder, set_loader_state, FolderSource, Frame, Outcome, ACTIVE, ENV_DIR, FILES, STREAMLINE_DEVICE};
-use crate::upscaler::{DlssState, Unavailable};
+use crate::upscaler::{DlssModel, DlssState, Unavailable};
 
 /// `Preferences::projectId`: a fixed GUID written for NVForever (not one NVIDIA issued).
 /// Streamline passes it with the engine version to NGX when no application id is given
@@ -587,11 +587,12 @@ pub(super) fn optimal_settings(key: Key) -> Result<Optimal, String> {
     eval.optimal_settings(key)
 }
 
-/// DLSS's options for a key before the frame is recorded (`evaluate.rs` "Before the frame").
-pub(super) fn configure(key: Key, range: Optimal) {
+/// DLSS's options for a key and a model before the frame is recorded (`evaluate.rs` "Before the
+/// frame").
+pub(super) fn configure(key: Key, model: DlssModel, range: Optimal) {
     let mut guard = state();
     let Some(Spike { api, phase: Phase::Holding(held), eval: Some(eval) }) = guard.as_mut() else { return };
-    eval.configure(api, held, key, range);
+    eval.configure(api, held, OptionsKey { key, model }, range);
 }
 
 /// The adapter's `VkPhysicalDevice` and its LUID when the driver says the LUID is valid

@@ -25,7 +25,7 @@ use crate::nav::NavState;
 use crate::perf_overlay::{FpsCounter, Low};
 use crate::player_body::PlayerBody;
 use crate::sky::SkyState;
-use crate::upscaler::{UpscaleQuality, Upscaler, UpscalerChoice};
+use crate::upscaler::{DlssModel, UpscaleQuality, Upscaler, UpscalerChoice};
 use crate::window_mode;
 use crate::world::Streamer;
 use crate::{Args, Overlay};
@@ -682,6 +682,16 @@ pub(crate) const LEGACY_KEY: &str = "fsr-upscaling";
 pub(crate) const UPSCALER_NOTE: &str = "Reconstruct the world at display resolution with FSR 3.1 or NVIDIA DLSS, at the Upscaling quality below. Disables MSAA, FXAA, SMAA and TAA while active. Menus stay sharp. Requires Vulkan; unsupported devices keep native rendering. DLSS needs an NVIDIA RTX graphics card and NVIDIA's DLSS files in the dlss folder beside nvforever.exe (NVForever ships none). With the files there when the game starts, every choice takes effect at once; files put there later are found at the next start, so DLSS chosen until then reads DLSS (restart) (loading a save starts the game again). Sharpening controls FSR sharpening. Frame generation needs FSR. (--upscaler, --upscaler-quality, --fsr)";
 pub(crate) const QUALITY_NOTE: &str = "How much smaller than the display the world is drawn before the upscaler rebuilds it: Native AA keeps full resolution and only smooths the edges (DLSS: DLAA); Quality, Balanced, Performance and Ultra Performance draw it ever smaller, for more frames and a softer picture. Takes effect at once. With Upscaler Off there is nothing to set. (--upscaler-quality, --upscaler, --fsr)";
 
+/// The DLSS model row's key, right under Upscaling quality (#2198, the user's request): which
+/// of NVIDIA's DLSS models DLSS uses (`Graphics::dlss_model`).
+pub(crate) const MODEL_KEY: &str = "dlss-model";
+
+/// The DLSS model row's note: each choice in NVForever's own words, from what Streamline's
+/// header says of the presets [documented: `sl_dlss.h:46-65`] and the defaults NGX reported in
+/// the runs at 1280x720 [observed, 2026-11-12: docs/spec-notes/streamline.md, "DLSS presets"].
+/// The settings page has no note per choice, so the row's note holds them all.
+pub(crate) const MODEL_NOTE: &str = "Which of NVIDIA's DLSS models rebuilds the picture. Default (recommended): NVIDIA picks per quality: K for Native AA, Quality and Balanced, M for Performance, L for Ultra Performance. Preset J: like K with a little less ghosting and more flicker. Preset K: transformer model, best detail, costs more. Preset L: sharper and steadier, less ghosting, costs the most. Preset M: close to L in looks, closer to K in speed. Takes effect at once. Only while DLSS draws. (--dlss-model)";
+
 /// The engine-level improvements of `graphics.rs` (`--graphics enhanced` starts with all
 /// of them on, `vanilla` with none).
 fn register_graphics(app: &mut App) {
@@ -718,6 +728,21 @@ fn register_graphics(app: &mut App) {
     );
     nvf_play::settings::set_choice_labels(app, QUALITY_KEY, |_, name| fnv_util::words::tr_str(name).to_string());
     nvf_play::settings::set_disabled_status(app, QUALITY_KEY, |w| w.resource::<Graphics>().upscaler.quality().is_none().then_some("Needs an upscaler"));
+    // The DLSS model, under the quality: dimmed while DLSS is not what draws.
+    add_choice_list(
+        app,
+        Setting { key: MODEL_KEY, group: GROUP_GRAPHICS, label: "DLSS model", note: MODEL_NOTE, get: |_| false, set: |_, _| {}, slider: None },
+        ChoiceList {
+            names: |_| DlssModel::ALL.iter().map(|m| m.name().to_string()).collect(),
+            chosen: model_chosen,
+            pick: pick_model,
+            save: model_chosen,
+            load: load_model,
+            ask_keep: false,
+        },
+    );
+    nvf_play::settings::set_choice_labels(app, MODEL_KEY, |_, name| fnv_util::words::tr_str(name).to_string());
+    nvf_play::settings::set_disabled_status(app, MODEL_KEY, model_dimmed);
     nvf_play::settings::set_list_alias(
         app,
         LEGACY_KEY,
@@ -874,6 +899,37 @@ fn register_pipeline_waits(app: &mut App) {
     ] {
         nvf_play::settings::wait_for_pipelines(app, key);
     }
+}
+
+/// The DLSS model row's choice: the model's name (`DlssModel::name`).
+fn model_chosen(world: &World) -> String {
+    world.resource::<Graphics>().dlss_model.name().to_string()
+}
+
+/// The page's and the test aids' pick: one of the five names (any case); false otherwise.
+fn pick_model(world: &mut World, name: &str) -> bool {
+    let Some(model) = DlssModel::named(name) else { return false };
+    world.resource_mut::<Graphics>().dlss_model = model;
+    true
+}
+
+/// The INI's text: one of the five names, else Default (said once in the log), so a stored
+/// value from elsewhere never leaves an unknown model.
+fn load_model(world: &mut World, value: &str) -> bool {
+    let model = DlssModel::named(value).unwrap_or_else(|| {
+        let names: Vec<&str> = DlssModel::ALL.iter().map(|m| m.name()).collect();
+        warn!("settings: {MODEL_KEY}={} is not one of {}: DLSS model {}", value.trim(), names.join(", "), DlssModel::Default.name());
+        DlssModel::Default
+    });
+    world.resource_mut::<Graphics>().dlss_model = model;
+    true
+}
+
+/// The DLSS model row stands dimmed while DLSS is not the effective upscaler
+/// (`upscaler::effective`): FSR or off draws, DLSS waits for a restart or cannot run. The model
+/// is kept meanwhile.
+fn model_dimmed(world: &World) -> Option<&'static str> {
+    crate::upscaler::effective(world).dlss().is_none().then_some("DLSS only")
 }
 
 /// The Upscaler row's choices by the names the INI, the log and the test aids use (the page
@@ -1434,6 +1490,115 @@ mod fsr_settings_tests {
         assert!(nvf_play::settings::pick_alias(app.world_mut(), LEGACY_KEY, "quality"), "any case");
         assert_eq!(requested(&app), UpscalerChoice::Fsr(Quality));
         assert!(!nvf_play::settings::pick_alias(app.world_mut(), LEGACY_KEY, "0.40"), "names only");
+    }
+
+    /// The DLSS model row: right under the quality, NVIDIA's names, every choice round-trips the
+    /// INI's text, an unknown stored value loads as Default, and its note names the switch.
+    #[test]
+    fn the_dlss_model_row_round_trips_and_an_unknown_value_loads_as_default() {
+        let mut app = rows_app();
+        app.insert_resource(UpscalerStatus::new(READY));
+        app.world_mut().resource_mut::<Graphics>().upscaler = UpscalerChoice::Dlss(Quality);
+        app.world_mut().resource_mut::<UpscalerStatus>().update(UpscalerChoice::Dlss(Quality));
+        let (q, m) = (row(&app, QUALITY_KEY), row(&app, MODEL_KEY));
+        let settings = app.world().resource::<Settings>();
+        assert_eq!(m, q + 1, "right under Upscaling quality");
+        assert_eq!(settings.list()[m].label, "DLSS model");
+        let models = settings.choices(m).expect("a dropdown");
+        assert_eq!((models.names)(app.world()), ["Default", "Preset J", "Preset K", "Preset L", "Preset M"]);
+        assert_eq!(model_chosen(app.world()), "Default", "Default by default");
+        for model in DlssModel::ALL {
+            nvf_play::settings::pick(app.world_mut(), m, model.name());
+            assert_eq!(app.world().resource::<Graphics>().dlss_model, model);
+            let saved = (models.save)(app.world());
+            assert_eq!(saved, model.name());
+            app.world_mut().resource_mut::<Graphics>().dlss_model = DlssModel::Default;
+            assert!((models.load)(app.world_mut(), &saved));
+            assert_eq!(app.world().resource::<Graphics>().dlss_model, model, "{saved}");
+        }
+        assert!(pick_model(app.world_mut(), "preset k"), "any case");
+        assert_eq!(app.world().resource::<Graphics>().dlss_model, DlssModel::K);
+        assert!(!pick_model(app.world_mut(), "Preset A"), "not one of the five: not taken");
+        assert_eq!(app.world().resource::<Graphics>().dlss_model, DlssModel::K);
+        for unknown in ["Preset A", "Preset N", "", "13", "transformer"] {
+            app.world_mut().resource_mut::<Graphics>().dlss_model = DlssModel::L;
+            assert!(load_model(app.world_mut(), unknown), "{unknown:?}");
+            assert_eq!(app.world().resource::<Graphics>().dlss_model, DlssModel::Default, "{unknown:?} loads as Default");
+        }
+        assert_eq!(nvf_play::settings::note_switches(MODEL_NOTE), ["--dlss-model"], "a test run's --dlss-model keeps the row at the command line's model");
+        let label = |name: &str| app.world().resource::<Settings>().choice_label(app.world(), m, name);
+        assert_eq!(label("Preset L"), "Preset L", "NVIDIA's names");
+    }
+
+    /// The DLSS model row stands dimmed with a reason while DLSS is not the effective upscaler
+    /// (FSR, off, DLSS waiting for a restart or given up on); the model is kept meanwhile and
+    /// the INI still loads into it.
+    #[test]
+    fn the_dlss_model_row_is_dimmed_while_dlss_does_not_draw() {
+        let mut app = rows_app();
+        let m = row(&app, MODEL_KEY);
+        let dimmed = |app: &App| app.world().resource::<Settings>().disabled_status(app.world(), m);
+        let ask = |app: &mut App, choice: UpscalerChoice| {
+            app.world_mut().resource_mut::<Graphics>().upscaler = choice;
+            app.world_mut().resource_mut::<UpscalerStatus>().update(choice);
+        };
+        app.insert_resource(UpscalerStatus::new(READY));
+        ask(&mut app, UpscalerChoice::Off);
+        assert_eq!(dimmed(&app), Some("DLSS only"));
+        assert!(!nvf_play::settings::pick(app.world_mut(), m, "Preset L"), "dimmed: not taken from the page or a test aid");
+        ask(&mut app, UpscalerChoice::Fsr(Quality));
+        assert_eq!(dimmed(&app), Some("DLSS only"), "FSR draws");
+        ask(&mut app, UpscalerChoice::Dlss(Balanced));
+        assert_eq!(dimmed(&app), None, "DLSS draws");
+        assert!(nvf_play::settings::pick(app.world_mut(), m, "Preset L"));
+        ask(&mut app, UpscalerChoice::Fsr(Balanced));
+        assert_eq!(dimmed(&app), Some("DLSS only"));
+        assert_eq!(model_chosen(app.world()), "Preset L", "kept while FSR draws");
+        assert!(load_model(app.world_mut(), "Preset M"), "the INI loads into it all the same");
+        assert_eq!(app.world().resource::<Graphics>().dlss_model, DlssModel::M);
+        // DLSS asked for but waiting for a restart (FSR drawing until then), or given up on.
+        let mut waiting = UpscalerStatus::new(STOCK);
+        waiting.update(UpscalerChoice::Fsr(Quality));
+        app.insert_resource(waiting);
+        ask(&mut app, UpscalerChoice::Dlss(Quality));
+        assert!(app.world().resource::<UpscalerStatus>().restart_pending());
+        assert_eq!(dimmed(&app), Some("DLSS only"), "DLSS asked for, not drawing yet");
+        app.insert_resource(UpscalerStatus::new(Session { streamline_loaded: true, dlss: DlssState::Unavailable(Unavailable::EvaluateFailed), fsr: None }));
+        ask(&mut app, UpscalerChoice::Dlss(Quality));
+        assert_eq!(dimmed(&app), Some("DLSS only"), "DLSS given up on: native draws");
+    }
+
+    /// The INI's `dlss-model` line by the settings' precedence: applied in normal play; in a test
+    /// run a given `--dlss-model` keeps the command line's model.
+    #[test]
+    fn the_dlss_model_follows_the_settings_precedence() {
+        let dir = std::env::temp_dir().join(format!("nvf-dlss-model-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("NVForever.ini");
+        let model = |app: &App| app.world().resource::<Graphics>().dlss_model;
+        let given = |switches: &[&str], win: bool| GivenSwitches { given: switches.iter().map(|s| s.to_string()).collect(), win };
+        let app = ini_app(&path, "[Settings]
+dlss-model=Preset J
+", UpscalerChoice::Off, GivenSwitches::default());
+        assert_eq!(model(&app), DlssModel::J, "the INI's model");
+        let app = ini_app(&path, "[Settings]
+dlss-model=Preset J
+", UpscalerChoice::Off, given(&["--dlss-model"], false));
+        assert_eq!(model(&app), DlssModel::J, "normal play: the INI wins over --dlss-model");
+        let app = ini_app(&path, "[Settings]
+dlss-model=Preset J
+", UpscalerChoice::Off, given(&["--dlss-model"], true));
+        assert_eq!(model(&app), DlssModel::Default, "a test run: --dlss-model (the command line's Default here) is kept");
+        let app = ini_app(&path, "[Settings]
+dlss-model=Preset J
+", UpscalerChoice::Off, given(&["--upscaler"], true));
+        assert_eq!(model(&app), DlssModel::J, "another switch given keeps nothing of this row");
+        let app = ini_app(&path, "[Settings]
+dlss-model=Preset Z
+", UpscalerChoice::Off, GivenSwitches::default());
+        assert_eq!(model(&app), DlssModel::Default, "an unknown stored value loads as Default");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

@@ -111,6 +111,32 @@ words; no NVIDIA text or code is reproduced here beyond names.
   tuning term. NVForever uses a native bias and tuning term of 0 (`dlss/sizing.rs`).
 - [documented] Jitter offsets are given in pixels (`ProgrammingGuideDLSS.md:340`).
 
+## DLSS presets
+
+- [documented] `DLSSPreset` is a 32-bit enumeration (`include/sl_dlss.h:46-67`): `eDefault` 0
+  ("may or may not change after an OTA"); presets A to D removed (the header says to use J or
+  K); E 5 and F 6 deprecated; G 7, H 8, I 9, N 14 and O 15 "revert to default, not recommended";
+  J 10, K 11, L 12, M 13. The header's notes on those four: J is similar to K, with slightly less
+  ghosting at the cost of extra flickering, and K is generally recommended over it; K is the
+  default for DLAA, Balanced and Quality, transformer based, the best image quality at a higher
+  performance cost; L is the default for Ultra Performance, a sharper, more stable image with
+  less ghosting than J and K, more expensive; M is the default for Performance, similar to L in
+  quality, closer to J and K in speed (`:60-63`).
+- [documented] Streamline 2.10.0 added L and M as "two additional DLSS Super Resolution
+  Transformer Models" (`changelog.txt:243-248`).
+- [documented] `DLSSOptions` holds one preset per mode: DLAA, quality, balanced, performance,
+  ultra performance and ultra quality, each `eDefault` unless set (`include/sl_dlss.h:90-96`).
+  Setting the options hands the first five to NGX as render-preset hints
+  (`src/dlssEntry.cpp:288-292`); ultra quality's is not handed on. A change of any of those five
+  recreates the context like a mode change (below, "Viewports and resize").
+- [documented] For the optimal settings Streamline sets only the output size, the mode and the
+  RTX flag before asking NGX (`src/dlssEntry.cpp:823-827`). [hypothesis] The optimal sizes do
+  not depend on the preset.
+- [observed: the main session's runs at 1280x720 with DLSS 310.9.16, 2026-11-12, every preset
+  left `eDefault`] NGX's log said it used the title default preset K for DLAA, Quality and
+  Balanced, M for Performance and L for Ultra Performance, as the header's notes say.
+- NVForever offers Default, J, K, L and M (design note, "The DLSS model").
+
 ## Evaluate
 
 - [documented] DLSS needs depth, motion vectors, the render-size colour and the output colour

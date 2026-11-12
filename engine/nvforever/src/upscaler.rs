@@ -97,6 +97,44 @@ impl UpscaleQuality {
     }
 }
 
+/// Which DLSS Super Resolution model DLSS uses (the DLSS model row, `--dlss-model`,
+/// `Graphics::dlss_model`): NVIDIA's own pick for each quality, or one of the four presets
+/// offered, J, K, L and M, by the names Streamline's header gives them (`ePresetJ` …) [design:
+/// docs/design/dlss-upscaling.md, "The DLSS model"]. The others are left out: A to D are
+/// removed, E and F deprecated, G, H, I, N and O "revert to default, not recommended"
+/// [documented: Streamline 2.14.16 `include/sl_dlss.h:46-65`]. The number each sends is
+/// `dlss::sizing::preset`'s. The `clap` names are `default`, `j`, `k`, `l`, `m`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, clap::ValueEnum)]
+pub enum DlssModel {
+    #[default]
+    Default,
+    J,
+    K,
+    L,
+    M,
+}
+
+impl DlssModel {
+    /// Every model, in the row's order.
+    pub const ALL: [DlssModel; 5] = [DlssModel::Default, DlssModel::J, DlssModel::K, DlssModel::L, DlssModel::M];
+
+    /// The name the DLSS model row saves and the log says.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Default => "Default",
+            Self::J => "Preset J",
+            Self::K => "Preset K",
+            Self::L => "Preset L",
+            Self::M => "Preset M",
+        }
+    }
+
+    /// The model of this name (any case, spaces around it ignored); `None`: not one of the five.
+    pub fn named(name: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|m| m.name().eq_ignore_ascii_case(name.trim()))
+    }
+}
+
 /// What the player asks for: the one requested upscaler setting (`Graphics::upscaler`). One
 /// value, so FSR and DLSS can never both be asked for.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
@@ -921,6 +959,25 @@ mod tests {
         assert_eq!(start(fsr, None, true, true).describe(), "FSR 3.1 Quality chosen at start; the DLSS files are in the dlss folder: Streamline loaded before the renderer, so DLSS switches without a restart");
         assert_eq!(UpscalerStartup::new(fsr, on, true, never).describe(), "FSR 3.1 Quality chosen at start; NVF_DLSS_PRELOAD=1: Streamline loaded before the renderer all the same");
         assert_eq!(UpscalerStartup::new(fsr, off, true, never).describe(), "FSR 3.1 Quality chosen at start; NVF_DLSS_PRELOAD=0: Streamline not loaded (DLSS takes a restart)");
+    }
+
+    #[test]
+    fn dlss_models_have_their_names_and_command_line_names() {
+        assert_eq!(DlssModel::default(), DlssModel::Default);
+        let names: Vec<&str> = DlssModel::ALL.iter().map(|m| m.name()).collect();
+        assert_eq!(names, ["Default", "Preset J", "Preset K", "Preset L", "Preset M"], "NVIDIA's names, as the header spells them");
+        for model in DlssModel::ALL {
+            assert_eq!(DlssModel::named(model.name()), Some(model));
+            assert_eq!(DlssModel::named(&format!(" {} ", model.name().to_uppercase())), Some(model), "any case");
+        }
+        assert_eq!(DlssModel::named("Preset A"), None, "removed presets are not offered");
+        assert_eq!(DlssModel::named("Preset N"), None, "nor the ones that revert to the default");
+        assert_eq!(DlssModel::named(""), None);
+        let cli: Vec<String> = DlssModel::value_variants().iter().map(|m| m.to_possible_value().unwrap().get_name().to_string()).collect();
+        assert_eq!(cli, ["default", "j", "k", "l", "m"], "--dlss-model default|j|k|l|m");
+        assert_eq!(DlssModel::value_variants(), DlssModel::ALL);
+        assert_eq!(DlssModel::from_str("L", true), Ok(DlssModel::L));
+        assert!(DlssModel::from_str("a", true).is_err());
     }
 
     #[test]

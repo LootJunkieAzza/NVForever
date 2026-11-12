@@ -58,7 +58,8 @@
 //!   `slDLSSGetOptimalSettings` for the mode, output size and HDR-ness, once per change, and
 //!   draws at the size DLSS reports, with DLSS's jitter phases and mip bias.
 //! - **Options** ([`configure`], a render system after the view preparation, before anything of
-//!   the frame is recorded): `slDLSSSetOptions` when the mode, output size or HDR-ness changes;
+//!   the frame is recorded): `slDLSSSetOptions` when the mode, output size, HDR-ness or the DLSS
+//!   model (the settings' DLSS model row, `Graphics::dlss_model`, [`DlssMainState`]) changes;
 //!   when DLSS may already hold resources for the viewport, the GPU is drained (`Device::poll`
 //!   wait) and `slFreeResources` runs first, so no feature is released while the GPU may still
 //!   use it (Streamline itself releases a replaced feature three frames later [documented:
@@ -109,10 +110,10 @@ use bevy::render::camera::TemporalJitter;
 use bevy::render::diagnostic::RecordDiagnostics;
 use bevy::render::renderer::{RenderContext, RenderDevice, ViewQuery};
 use bevy::render::view::{ExtractedView, ViewTarget};
-use bevy::render::{Render, RenderApp, RenderSystems};
+use bevy::render::{Extract, ExtractSchedule, Render, RenderApp, RenderSystems};
 
 use crate::upscaler::prep::{self, PreparedUpscale, UpscaleRenderer, UpscaleSettings};
-use crate::upscaler::{DlssState, UpscaleQuality, Unavailable, Upscaler};
+use crate::upscaler::{DlssModel, DlssState, UpscaleQuality, Unavailable, Upscaler};
 
 #[cfg(windows)]
 mod evaluate;
@@ -525,6 +526,8 @@ impl Plugin for DlssPassPlugin {
     fn build(&self, app: &mut App) {
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else { return };
         render_app
+            .init_resource::<DlssMainState>()
+            .add_systems(ExtractSchedule, extract_main_state)
             .add_systems(Render, configure.in_set(RenderSystems::PrepareResources).after(prep::prepare))
             .add_systems(
                 bevy::core_pipeline::Core3d,
@@ -541,10 +544,23 @@ impl Plugin for DlssPassPlugin {
     }
 }
 
-/// The options for the DLSS camera's key (mode, output size, HDR-ness), set before anything
-/// of the frame is recorded: on a change the GPU is drained and the viewport's resources freed
-/// first (`win::configure`). One viewport, so the first DLSS camera only.
-pub(crate) fn configure(views: Query<(&ExtractedView, &PreparedUpscale)>, sizes: Res<OptimalSizes>) {
+/// What the render world needs of the main world's DLSS settings each frame (render world,
+/// [`extract_main_state`]): the DLSS model asked for.
+#[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct DlssMainState {
+    pub model: DlssModel,
+}
+
+/// Copies [`DlssMainState`] from the main world: `Graphics::dlss_model`.
+fn extract_main_state(mut state: ResMut<DlssMainState>, graphics: Extract<Option<Res<crate::graphics::Graphics>>>) {
+    let next = DlssMainState { model: graphics.as_ref().map_or_else(DlssModel::default, |g| g.dlss_model) };
+    state.set_if_neq(next);
+}
+
+/// The options for the DLSS camera's key (mode, output size, HDR-ness) and the DLSS model, set
+/// before anything of the frame is recorded: on a change the GPU is drained and the viewport's
+/// resources freed first (`win::configure`). One viewport, so the first DLSS camera only.
+pub(crate) fn configure(views: Query<(&ExtractedView, &PreparedUpscale)>, sizes: Res<OptimalSizes>, main: Res<DlssMainState>) {
     let Some((view, quality)) = views.iter().find_map(|(view, prepared)| match prepared.camera.settings {
         UpscaleSettings::Dlss(quality) => Some((view, quality)),
         UpscaleSettings::Fsr(_) => None,
@@ -557,9 +573,9 @@ pub(crate) fn configure(views: Query<(&ExtractedView, &PreparedUpscale)>, sizes:
     let key = sizing::Key { quality, output: view.viewport.zw(), hdr: sizing::hdr_format(view.target_format) };
     let Some(optimal) = sizes.cached(key) else { return };
     #[cfg(windows)]
-    win::configure(key, optimal);
+    win::configure(key, main.model, optimal);
     #[cfg(not(windows))]
-    let _ = optimal;
+    let _ = (optimal, main.model);
 }
 
 /// DLSS's own pass for a view DLSS draws: the common corrected depth, the evaluate, the

@@ -485,6 +485,11 @@ struct Args {
     /// full resolution (DLSS: DLAA).
     #[arg(long, value_enum)]
     upscaler_quality: Option<upscaler::UpscaleQuality>,
+    /// The DLSS model: default (NVIDIA's pick for each quality) or NVIDIA's preset j, k, l or m
+    /// (upscaler.rs `DlssModel`, docs/dlss.md). Used while DLSS draws. Saved Graphics settings
+    /// take precedence in normal play, as for other switches. Default: default.
+    #[arg(long, value_enum)]
+    dlss_model: Option<upscaler::DlssModel>,
     /// Instead of --graphics: exactly these improvements on, by the settings page's keys
     /// (ambient-occlusion, fine-shadows, bloom, sharpen, anisotropic, light-shafts,
     /// water-reflections) and choices (fxaa, smaa or taa instead of --msaa;
@@ -1312,6 +1317,7 @@ fn main() -> AppExit {
         Err(e) => return fail(e),
     };
     graphics.upscaler = requested_upscaler;
+    graphics.dlss_model = args.dlss_model.unwrap_or_default();
     let frame_times = match (args.log_frame_times, args.graphics_cycle.as_deref()) {
         (None, _) => None,
         (Some(every), cycle) => {
@@ -2357,6 +2363,19 @@ mod tests {
     fn parse(a: &[&str]) -> Args {
         let line: Vec<String> = std::iter::once("nvforever").chain(a.iter().copied()).map(String::from).collect();
         Args::try_parse_from(with_default_mode(line)).unwrap()
+    }
+
+    #[test]
+    fn dlss_model_takes_default_or_a_preset() {
+        use crate::upscaler::DlssModel;
+        assert_eq!(parse(&[]).dlss_model, None, "not given: the default model, the INI's in normal play");
+        for (name, model) in [("default", DlssModel::Default), ("j", DlssModel::J), ("k", DlssModel::K), ("l", DlssModel::L), ("m", DlssModel::M)] {
+            assert_eq!(parse(&["--dlss-model", name]).dlss_model, Some(model), "{name}");
+        }
+        assert_eq!(parse(&["--dlss-model=l"]).dlss_model, Some(DlssModel::L));
+        let line = |m: &str| with_default_mode(["nvforever", "--dlss-model", m].map(String::from).to_vec());
+        assert!(Args::try_parse_from(line("a")).is_err(), "removed presets are not offered");
+        assert!(Args::try_parse_from(line("n")).is_err());
     }
 
     #[test]
