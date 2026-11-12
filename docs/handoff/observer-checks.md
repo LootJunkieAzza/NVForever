@@ -363,7 +363,15 @@ engine if needed, and delete the item here.
       as if 100) stays the one exception, asked in owner-review.md.
     - People walking with a weapon drawn (77–78 seen outside combat, about 100 in
       combat) are not built.
-    - Follow distances: stand within distance + 64, run beyond 512.
+    - Follow distances: stand within distance + 64, run beyond 512. Where a follower
+      stops once its leader stops: ours 150 inside the distance, not nearer than 128
+      (#2122, from two arrivals: Boone 177 of 330, the pack brahmin about 300 of 450).
+      To tell a fixed inset from a share of the distance (or a game setting such as
+      fFollowStopZoneMinMult, whose meaning is not documented): two followers with
+      different distances (DefaultFollowPlayerFar 512 and a 256 one) on open ground, the
+      player walking 2,000 units and standing; the settled gap of each, a few seconds
+      after it stops, several runs each, with the follower's speed as it comes in (does
+      it slow before it stops?).
     - Aiming or blocking slows you to a walk.
     - Swimming starts at 115 units deep.
     - The step-up is 24 units with a 45° slope limit.

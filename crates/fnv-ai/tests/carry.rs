@@ -4987,3 +4987,141 @@ fn a_failed_object_can_be_chosen_from_the_moment_its_wait_ends() {
     assert_eq!(choosing_at(60.0), (Vec::new(), Some((60.0, Doing::Standing))), "half a second before the deadline");
     assert_eq!(choosing_at(60.5), (vec![60.5], Some((60.5, Doing::Sitting(FormId(CHAIR_C))))), "at the deadline");
 }
+
+// ---- #2122: how near a follower comes once its leader stops ---------------------------
+
+/// Where a follower on its way stops (`carry::follow_stop_at`, [design, #2122]):
+/// `FOLLOW_STOP_INSET` (150) inside its distance, not nearer than `COLUMN_GAP` (128), in
+/// step or not; short distances and a column's gaps as before.
+#[test]
+fn a_follower_stops_well_inside_its_distance() {
+    use fnv_ai::carry::follow_stop_at;
+    let arrive = AiConfig::default().arrive;
+    // Boone's 330, the pack brahmin's 450, DefaultFollowPlayerFar's 512: about the
+    // original's arrivals (177 and about 300 for the first two).
+    for (keep, at) in [(330.0, 180.0), (450.0, 300.0), (512.0, 362.0), (256.0, 128.0), (200.0, 128.0)] {
+        assert_eq!(follow_stop_at(keep, arrive, false, false), at, "{keep}");
+        assert_eq!(follow_stop_at(keep, arrive, true, false), at, "{keep} in step");
+    }
+    // At 128 and less: within the distance, or 64 inside it in step, as before.
+    assert_eq!(follow_stop_at(128.0, arrive, false, false), 128.0);
+    assert_eq!(follow_stop_at(128.0, arrive, true, false), 64.0);
+    assert_eq!(follow_stop_at(80.0, arrive, false, false), 80.0);
+    assert_eq!(follow_stop_at(80.0, arrive, true, false), arrive);
+    // In a column the gap to the one ahead is kept as before.
+    assert_eq!(follow_stop_at(128.0, arrive, false, true), 128.0);
+    assert_eq!(follow_stop_at(128.0, arrive, true, true), 64.0);
+}
+
+/// The fixture with the companion's Accompany package (after the player) at `distance`.
+fn companion_at(distance: i32) -> Fixture {
+    let mut f = fixture();
+    f.data.package_defs.get_mut(&FormId(P_WITH_PLAYER)).unwrap().target.as_mut().unwrap().count_distance = distance;
+    f
+}
+
+/// Cell C's navmesh made 40 × 40 squares (4,000 units a side) from (10000, 10000), for
+/// walks longer than the cell's own 1,000.
+fn wide_c() -> NavGraph {
+    let c = grid_of(3, [10000.0, 10000.0], 40, 100.0, 0.0);
+    NavGraph::assemble(&[(&c, Some(CELL_C), Some(C))])
+}
+
+/// The companion 100 units behind the player in a wide cell C; the player walks `walk`
+/// units north at 100 units/s, then stands for 12 s; an update every `dt` seconds.
+/// Returns the sim and the gap at each update while the player stands.
+fn walk_then_stand(f: &Fixture, walk: f32, dt: f64) -> (Sim<'_>, Vec<f32>) {
+    let world = World::new(&f.forms, &f.refs, SimConfig::default());
+    let game = Game::new(&f.data, world, GameConfig { strict: true, frame_seconds: dt, package_interval: Some(10.0), ..GameConfig::default() });
+    let mut s = Sim { game, ai: Ai::new(AiConfig { walk_speed: 100.0, run_speed: 400.0, ..AiConfig::default() }), nav: wide_c() };
+    let (mate, player) = (FormId(R_COMPANION), FormId::PLAYER_REF);
+    for (r, y) in [(player, 10300.0), (mate, 10200.0)] {
+        let p = s.game.world.get(r).unwrap();
+        (p.cell, p.pos, p.rot) = (Some(FormId(CELL_C)), [10500.0, y, 0.0], [0.0; 3]);
+    }
+    s.ai.add(&s.game, mate).unwrap();
+    let own = fnv_ai::Speeds { walk: 70.0, run: 300.0 };
+    s.ai.set_speeds(mate, fnv_ai::ActorSpeeds { calm: own, alert: own, turn_rate: None, spot_turn_start: None });
+    let step = |s: &mut Sim, moved: f32| {
+        s.game.world.get(player).unwrap().pos[1] += moved;
+        s.game.tick();
+        s.ai.update(&mut s.game, &s.nav, dt as f32);
+        dist(s.feet(R_COMPANION), s.game.world.peek(player).unwrap().pos)
+    };
+    step(&mut s, 0.0);
+    for _ in 0..(walk as f64 / (100.0 * dt)).round() as usize {
+        step(&mut s, (100.0 * dt) as f32);
+    }
+    let gaps = (0..(12.0 / dt) as usize).map(|_| step(&mut s, 0.0)).collect();
+    (s, gaps)
+}
+
+/// A follower walking after the player comes in well inside its package's distance once
+/// the player stops, and stands there (issue #2122: Boone came to 177 of his 330 in the
+/// original; before, ours stood at 404 of 512 in a run of main). In step on the way: it
+/// sets off once and does not stop and start.
+#[test]
+fn a_follower_comes_in_when_its_leader_stops() {
+    let inset = |keep: f32| fnv_ai::carry::follow_stop_at(keep, AiConfig::default().arrive, false, false);
+    for distance in [330, 450, 512, 256] {
+        let f = companion_at(distance);
+        for dt in [0.5, 0.1] {
+            let (s, gaps) = walk_then_stand(&f, 2000.0, dt);
+            let mate = FormId(R_COMPANION);
+            let ev = s.events(R_COMPANION);
+            let at = inset(distance as f32);
+            // One Follow, one CaughtUp after the player stopped: no stop and start.
+            assert_eq!(ev.iter().filter(|e| matches!(e, AiEvent::Follow { .. })).count(), 1, "{distance} {dt}: {ev:?}");
+            let caught: Vec<_> = ev.iter().filter_map(|e| match e {
+                AiEvent::CaughtUp { away, stop_at, .. } => Some((*away, *stop_at)),
+                _ => None,
+            }).collect();
+            assert_eq!(caught.len(), 1, "{distance} {dt}: {ev:?}");
+            assert_eq!(caught[0].1, at, "{distance} {dt}");
+            assert_eq!(s.ai.agents[&mate].activity, Activity::There, "{distance} {dt}");
+            // It stands at most one step (its pace, at most 160 units/s, over an update)
+            // inside where it was to stop.
+            let last = *gaps.last().unwrap();
+            assert!(last <= at + 1.0 && last >= at - 160.0 * dt as f32, "{distance} {dt}: stands {last} from the player, to stop at {at}");
+            assert!((last - caught[0].0).abs() < 1.0, "{distance} {dt}: it moved after it caught up");
+            // And well inside the distance: about the original's arrivals for 330 and 450.
+            if distance >= 330 {
+                assert!(last < distance as f32 - 100.0, "{distance} {dt}: {last}");
+            }
+        }
+    }
+}
+
+/// A short distance is kept as before: within it once the leader stops (in step, 64
+/// units inside it).
+#[test]
+fn a_follower_with_a_short_distance_stops_as_before() {
+    let f = companion_at(128);
+    let (s, gaps) = walk_then_stand(&f, 1000.0, 0.5);
+    let ev = s.events(R_COMPANION);
+    assert!(ev.iter().any(|e| matches!(e, AiEvent::CaughtUp { stop_at, .. } if *stop_at == 64.0 || *stop_at == 128.0)), "{ev:?}");
+    let last = *gaps.last().unwrap();
+    assert!((64.0 - 80.0..=128.0 + 1.0).contains(&last), "{last}");
+}
+
+/// A follower already standing outside its distance but within the slack does not set
+/// off (in the original Boone stood 383 units off, his distance 330, after a door, and
+/// did not set off: docs/spec-notes/npc-behaviour-compare.md); nor does it close in.
+#[test]
+fn a_follower_standing_within_the_slack_stays() {
+    let f = companion_at(330);
+    let world = World::new(&f.forms, &f.refs, SimConfig::default());
+    let game = Game::new(&f.data, world, GameConfig { strict: true, frame_seconds: 0.5, package_interval: Some(10.0), ..GameConfig::default() });
+    let mut s = Sim { game, ai: Ai::new(AiConfig { walk_speed: 100.0, run_speed: 400.0, ..AiConfig::default() }), nav: wide_c() };
+    let (mate, player) = (FormId(R_COMPANION), FormId::PLAYER_REF);
+    for (r, y) in [(player, 10683.0), (mate, 10300.0)] {
+        let p = s.game.world.get(r).unwrap();
+        (p.cell, p.pos, p.rot) = (Some(FormId(CELL_C)), [10500.0, y, 0.0], [0.0; 3]);
+    }
+    s.ai.add(&s.game, mate).unwrap();
+    s.run(15.0);
+    let ev = s.events(R_COMPANION);
+    assert!(!ev.iter().any(|e| matches!(e, AiEvent::Follow { .. })), "{ev:?}");
+    assert_eq!(s.ai.agents[&mate].activity, Activity::There);
+    assert!((dist(s.feet(R_COMPANION), s.game.world.peek(player).unwrap().pos) - 383.0).abs() < 1.0);
+}

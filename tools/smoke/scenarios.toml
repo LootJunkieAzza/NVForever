@@ -25187,3 +25187,20 @@ order = [[
   { re = 'activate 0x00153FCE  \(Activate\): its script.s OnActivate ran', label = "E runs the panel's script" },
   { text = 'message box shown: This control box is connected to the main computer banks at Hoover Dam. ["Leave it alone.", "Install the override chip."]', label = "the box offers to install the override chip" },
 ]]
+
+[[scenario]]
+name = "follower-stop-inset"
+source = "issue #2122: a follower on its way stops 150 units inside its package's distance once its leader stands (carry::follow_stop_at, FOLLOW_STOP_INSET; in the original Boone came to 177 of his 330, the Novac pack brahmin to about 300 of 450). A run of main (bdd4cb8ba) had GoodspringsSettler01Ref on DefaultFollowPlayerFar stop at 404 of 512"
+note = "Written 2026-11-11 without running the game. GoodspringsSettler03Ref is put 1,000 units from the standing player at 3 s (as script-follow-stays, farther) and given DefaultFollowPlayerFar (distance 512, so it stops within 362) at 4 s; it goes after the player once, stops within 362 and stands. GetDistance at 20 s and 30 s measures where it settled (3D: the slope adds a little; before #2122 it stood near 512, 404 in the run above). If the 1,000-unit spot is not open ground (a first run shows it), move the offset rather than the ranges"
+areas = ["ai", "followers"]
+paths = ["crates/fnv-ai/src/carry.rs", "engine/nvforever/src/residents.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:moveto:GoodspringsSettler03Ref:player:1000:0:0,4:call:GoodspringsSettler03Ref:AddScriptPackage:DefaultFollowPlayerFar,20:call:GoodspringsSettler03Ref:GetDistance:player,30:call:GoodspringsSettler03Ref:GetDistance:player" }
+args = ["--cell", "Goodsprings", "--pos=-71400,3600,8352", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "GoodspringsSettler03Ref"]
+run_seconds = 35
+expect = [
+  { text = "GoodspringsSettler03Ref: package DefaultFollowPlayerFar", label = "the script package is taken up" },
+  { re = 'GoodspringsSettler03Ref: (runs|walks) after ', count = 1, label = "it sets off after the player once, and does not set off again while the player stands" },
+  { re = 'GoodspringsSettler03Ref: has caught up with .*: (\d+) units away, stops within 362$', range = [200, 362], label = "it stops 150 inside DefaultFollowPlayerFar's 512" },
+  { re = 'script: test aid calls GetDistance on GoodspringsSettler03Ref = ([\d.]+)', count = 2, label = "both distance checks ran" },
+  { re = 'script: test aid calls GetDistance on GoodspringsSettler03Ref = ([\d.]+)', range = [150, 380], all = true, label = "it stands well inside 512 (before #2122: 404)" },
+]

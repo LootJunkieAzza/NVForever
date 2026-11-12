@@ -2685,7 +2685,7 @@ fn describe(data: &GameData, world: &WorldData, e: &AiEvent) -> String {
             away.map(|a| format!("{a:.0} units away, ")).unwrap_or_else(|| "in another cell, ".into()),
             doors.len()
         ),
-        AiEvent::CaughtUp { target, .. } => format!("has caught up with {}", n(target)),
+        AiEvent::CaughtUp { target, away, stop_at, .. } => format!("has caught up with {}: {away:.0} units away, stops within {stop_at:.0}", n(target)),
         AiEvent::NoTalk { package, why } => format!("does not talk ({}): {why}", n(package)),
         AiEvent::TalkUnseen { package, target, away } => format!("waits to talk to {} ({}): {away:.0} units away, with something solid between", n(target), n(package)),
         AiEvent::Hello { line, away } => format!("says hello to the player from {away:.0} units, line {line}"),
