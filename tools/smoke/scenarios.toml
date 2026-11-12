@@ -2923,6 +2923,24 @@ order = [[
 ]]
 expect = [{ re = 'SwapTexture: .* not found', count = 0, label = "no swapped texture missing" }]
 
+[[scenario]]
+name = "end-slides"
+source = "issue #2226: the ending's MoveTo puts the player on the slide room's XMarkerHeading (0x001639F6, heading 0), which faces the slide SlideGS01 (0x001680A7); the slides' SwapTexture names the shape \"##gs01:0\", which gs01.nif spells ##GS01:0 (texture_swap.rs same_shape). The player is turned to 90 degrees first, so the travel's heading 0 is the marker's; two end-slide lines' result scripts then swap two slides"
+areas = ["scripts", "rendering", "quests"]
+paths = ["engine/nvforever/src/texture_swap.rs", "crates/fnv-game/src/functions/refs.rs", "engine/nvf-play/src/script.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "2:player.SetAngle Z 90;2.5:close;4:player.MoveTo 001639F6;4.5:close", NVF_PLAY_TEST_SCRIPT = "6:info:0x00161859,8:info:0x0015C1C4", NVF_PLAY_TEST_SHOTS = "5.5:end_slides_start.png,7:end_slides_rm01.png,9.5:end_slides_rg01.png" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--size", "1280x720"]
+run_seconds = 11
+note = "From a new game no ending is set, so most of the narrator's topics have no line: the chain that the slide room's trigger starts runs to its end at once (its last swap, endscrn_pf03, the only one drawn) and the credits timer calls ExitGame about 13 s in; the run ends before that"
+manual = "end_slides_start.png, end_slides_rm01.png and end_slides_rg01.png: the slide straight ahead, filling the view, a different picture in each"
+order = [[
+  { re = 'script: travel to Some\(1449624\) / None at .* heading 0\.0', label = "the player travels to the slide room facing the marker's heading" },
+  'SwapTexture: reference 001680A7 shape gs01:0: textures\interface\endgame\endscrn_pf03.dds',
+  'SwapTexture: reference 001680A7 shape gs01:0: textures\interface\endgame\endscrn_rm01.dds',
+  'SwapTexture: reference 001680A7 shape gs01:0: textures\interface\endgame\endscrn_rg01.dds',
+]]
+expect = [{ re = 'SwapTexture: .* not found', count = 0, label = "no swapped texture missing" }]
+
 # ------------------------------------------------------------------ messages and menus
 
 [[scenario]]

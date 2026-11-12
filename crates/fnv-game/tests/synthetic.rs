@@ -1385,6 +1385,22 @@ fn a_moved_player_runs_no_on_load_at_a_cell_load() {
     assert_eq!(on_loads(&g, FormId::PLAYER_REF), 0.0);
 }
 
+/// A player moved to a marker turns to the marker's heading and keeps the view's pitch;
+/// moved to itself it keeps its heading (issue #2226: the ending's XMarkerHeading faces
+/// the slide).
+#[test]
+fn a_moved_player_takes_the_markers_heading() {
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    g.world.get(FormId(OTHER_REF)).unwrap().rot = [0.4, 0.0, 1.5];
+    g.world.get(FormId::PLAYER_REF).unwrap().rot = [0.3, 0.0, 2.5];
+    g.run_source("player.MoveTo TestOtherREF", Default::default()).unwrap();
+    assert_eq!(g.world.get(FormId::PLAYER_REF).unwrap().rot, [0.3, 0.0, 1.5]);
+    g.run_source("player.MoveTo player 0 0 10", Default::default()).unwrap();
+    assert_eq!(g.world.get(FormId::PLAYER_REF).unwrap().rot, [0.3, 0.0, 1.5]);
+}
+
 /// An OnLoad event handler that counts in TestGlobal: 1 for the activator, 10 for the
 /// trigger, 100 for the unscripted reference of the other cell.
 const COUNT_ON_LOADS: &str = "SetEventHandler \"OnLoad\" (begin function {ref rOn, ref rSame}\nif rOn == TestActivatorREF\nlet TestGlobal := TestGlobal + 1\nelseif rOn == TestTriggerREF\nlet TestGlobal := TestGlobal + 10\nelseif rOn == TestOtherREF\nlet TestGlobal := TestGlobal + 100\nendif\nend)";
