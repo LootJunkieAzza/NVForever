@@ -841,9 +841,19 @@ a five-line exchange at Nellis. 1,065 have Link From blank, so can start one
   forth; the fiend just goes back to what he was doing" [owner statement 2026-10-11].
   In the engine in Vault 3 (Vault3a, 200 s, the player put by a Fiend) 6 hellos were
   said, among them GenericFiend's openers 00175369 and 0017536A, and one random
-  conversation started (a one-line remark, 00175374, which links nowhere). When: the player within 300 units; again only
-  after the player has gone beyond 600; one hello at a time [stand-ins: no distance or
-  timer for hellos is documented, and none is set in the masters].
+  conversation started (a one-line remark, 00175374, which links nowhere). When: the player within 200 units
+  (300 until 2026-11-11) with nothing solid between the two (the engine's measurement
+  that a force greet uses, `Game::greet_sight`); again only after the player has gone
+  beyond 600 [stand-ins: no distance or timer for hellos is documented, and none is set
+  in the masters]. Since 2026-11-11 idle lines (hellos and idle chatter) keep apart
+  [design: owner's playtest, #2156: NPCs "way too talkative", everyone in the Legion's
+  Fort saying the same line, idle lines through walls, "the proximity cut down 33%"]:
+  after one, nobody in the loaded area says another for 20 s and the same actor none
+  for 60 s; an actor the player comes up to during the area's wait has missed its hello;
+  and a line said within the last 180 s is not said again by anyone
+  (`Game::say_hello_fresh`): a Random pool picks among its other lines, and an actor
+  whose plain line, or whose whole pool, was said of late says nothing rather than a
+  line stored further down (`crates/fnv-ai/src/social.rs`).
 - **Which lines**: a hello to the player may be a Topic or a Conversation line (the
   Fiends' openers are Conversation lines, owner statement above); a random
   conversation uses Conversation lines only (§5.1). In the engine in Vault 3 (200 s)

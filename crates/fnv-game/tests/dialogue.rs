@@ -2389,6 +2389,41 @@ fn between_actors_a_link_from_reply_answers_a_line_that_links_nowhere() {
     assert!(g.events.iter().any(|e| matches!(e.kind, EventKind::ActorConversationEnded { reason: "goodbye", lines: 2, .. })));
 }
 
+/// #2156 (owner's playtest 2026-11-11: everyone in the Legion's Fort said the same line,
+/// the slaves' stories came "one after another without variations"): a hello or idle
+/// chatter line said of late is not said again by anyone. A Random pool picks among its
+/// other lines; once they are all said the actor says nothing, and never a line stored
+/// after the pool in its place.
+#[test]
+fn an_idle_line_said_of_late_is_not_said_again() {
+    use fnv_game::dialogue::IDLE_LINE_MEMORY;
+    let f = fixture();
+    let a = FormId(NPC1_REF);
+    // A plain hello: once, then not until the memory is over.
+    let mut g = game(&f);
+    assert_eq!(g.say_hello_fresh(a), Some(FormId(K_HELLO)));
+    g.speech.clear();
+    assert_eq!(g.say_hello_fresh(a), None);
+    assert!(g.speech.is_empty(), "nothing is said");
+    g.time += IDLE_LINE_MEMORY;
+    assert_eq!(g.say_hello_fresh(a), Some(FormId(K_HELLO)));
+    // A pool of two (P1, P2), then a second pool (P3, P4): whatever the seed, two calls
+    // say both lines of the first pool, and a third says nothing.
+    for seed in 0..16 {
+        let mut g = game_seeded(&f, seed);
+        let mut said = Vec::new();
+        for _ in 0..2 {
+            said.push(g.say_chatter(a, FormId(T_POOL)).expect("a fresh line of the pool").0);
+            g.speech.clear();
+        }
+        said.sort();
+        assert_eq!(said, vec![P1, P2], "seed {seed}");
+        assert_eq!(g.say_chatter(a, FormId(T_POOL)), None, "seed {seed}: the second pool is not said in its place");
+        g.time += IDLE_LINE_MEMORY;
+        assert!(g.say_chatter(a, FormId(T_POOL)).is_some_and(|l| l.0 == P1 || l.0 == P2), "seed {seed}");
+    }
+}
+
 #[test]
 fn a_hello_to_the_player_is_one_line() {
     let f = fixture();

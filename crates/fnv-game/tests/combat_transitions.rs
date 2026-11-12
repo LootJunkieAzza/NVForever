@@ -26,7 +26,7 @@ const RAIDER_REF: u32 = 0x320;
 const WATCHMAN_REF: u32 = 0x321;
 
 /// The topics, with one line each (line id = topic id + 0x100).
-const TOPICS: [(u32, &str, u8); 8] = [
+const TOPICS: [(u32, &str, u8); 9] = [
     (0xA00, "CombatToNormal", topic_type::DETECTION),
     (0xA01, "CombatToLost", topic_type::DETECTION),
     (0xA02, "LostToNormal", topic_type::DETECTION),
@@ -35,6 +35,7 @@ const TOPICS: [(u32, &str, u8); 8] = [
     (0xA05, "KOed", topic_type::COMBAT),
     (0xA06, "Wake", topic_type::COMBAT),
     (0xA07, "Death", topic_type::COMBAT),
+    (0xA08, "DeathResponse", topic_type::COMBAT),
 ];
 
 fn u32b(v: u32) -> Vec<u8> {
@@ -304,6 +305,32 @@ fn a_death_line_cut_after_one_cry_ends_early_and_brings_its_answer_forward() {
     assert_eq!(remaining(&g), Some((death, cut)));
     assert!((g.combat_lines.responses[0].at - (g.time + cut)).abs() < 1e-9, "the answer comes when the cry ends");
     assert_eq!(g.combat_lines.responses[1].at, g.time + 3.0, "an answer about someone else stays");
+}
+
+#[test]
+fn death_responses_wait_for_each_other() {
+    // #2156 (owner's playtest 2026-11-11): a DeathResponse was said after every death.
+    // One is said, then none for DEATH_RESPONSE_SECONDS, whoever would say it.
+    use fnv_game::combat_lines::{Due, DEATH_RESPONSE_SECONDS};
+    let f = fixture();
+    let mut g = game(&f);
+    let (raider, watchman) = (FormId(RAIDER_REF), FormId(WATCHMAN_REF));
+    let answer = line_of(&f, "DeathResponse");
+    let said = |g: &Game| g.combat_lines.said.iter().filter(|s| *s == &("DeathResponse", watchman, Some(answer))).count();
+    let due = |g: &mut Game| {
+        g.speech.clear();
+        let at = g.time;
+        g.combat_lines.responses.push(Due { at, who: watchman, about: raider, topic: "DeathResponse" });
+        g.tick();
+    };
+    due(&mut g);
+    assert_eq!(said(&g), 1, "the first death is answered");
+    due(&mut g);
+    assert_eq!(said(&g), 1, "a death soon after is answered by nobody");
+    assert!(g.combat_lines.responses.is_empty(), "and its answer does not wait: it is dropped");
+    g.time += DEATH_RESPONSE_SECONDS;
+    due(&mut g);
+    assert_eq!(said(&g), 2, "once the wait is over a death is answered again");
 }
 
 #[test]
