@@ -818,3 +818,318 @@ for the merged build jobs (#1887, the same main build); the 1440p ones were run 
 with this change. Screenshots of Goodsprings (the town, the ground below the player) and Novac
 against main: bare ground differs by at most 1 of 255 in any channel; the sky and grass
 differ as much as two runs of main do (clouds drift and grass sways with time since start).
+
+## 9. 2560 × 1440 with 4x multisampling: what the GPU does in a frame (2026-11-10)
+
+Asked for: 180 frames a second at 2560 × 1440 on a contributor's machine with their saved
+settings. Reached: Goodsprings at noon 106 → 130, Novac at noon 89 → 111, the Strip
+156 → 176; what is left, and why 180 outdoors is not reached, is at the end.
+
+Every number here is [observed 2026-11-10, Ryzen 7 7700X, RTX 3070 (Vulkan), 2560 × 1440
+borderless, 4x multisampling, ambient occlusion, longer shadows, bloom, light glow, sun
+shafts, sun shadows in 3 cascades, grass and distant LOD on, vsync off, standing still,
+release builds unless a `profile` build is named, main at f4015fae8]. Runs of 30-45 s, the
+first 15 s left out, the two builds interleaved; a scene's 5-second windows differ by
+about 0.1 ms.
+
+### Measuring
+
+- **Which side holds the frame.** The same scene at 1280 × 720: 5.9 ms against 9.4 ms at
+  1440p, so at 1440p the frame waits for the GPU (the render thread sits 4 ms in
+  `window::prepare_windows`, waiting for the next image), and the main thread is the next
+  limit, at 5.7-5.9 ms.
+- **GPU time per command encoder** (`NVF_PLAY_TEST_PROFILE_ENCODERS=1` with
+  `NVF_PLAY_TEST_PROFILE`, a `profile` build; engine/vendor/README.md, bevy_render). Bevy's
+  render diagnostics time each pass from inside it, which leaves out what a system records
+  around its passes. With a span around each system's encoder the `profile gpu:` line lists
+  `enc:<system>` beside the passes, and up to 80 entries. At Goodsprings the encoders summed
+  to 8.2 ms of a 9.2 ms frame:
+
+  | Encoder | ms | of which outside its pass |
+  |---|---|---|
+  | opaque pass | 3.28 | 0.20 (the resolve) |
+  | depth prepass | 1.08 | 0.23 (the copy of the multisampled depth) |
+  | transparent pass | 0.94 | 0.16 (the resolve) |
+  | ambient occlusion | 0.63 | |
+  | culling and indirect parameters (5 compute encoders) | 0.79 | |
+  | sun and arms shadow maps | 0.30 | |
+  | transmissive pass | 0.26 | 0.26 (the copy of the frame and a resolve) |
+  | bloom, sharpen, grade, auto exposure, tonemapping, upscaling, eye mask, UI | 0.95 | |
+
+- **Features off, one at a time** (frame, release): multisampling off 9.4 → 7.6 ms, sun
+  shadows off 9.4 → 7.9, both 6.0; grass off 8.5 and distant LOD off 8.7 (`profile` build,
+  9.2 with both).
+- **A RenderDoc capture** of the same view (replayed with per-event GPU durations): the main
+  view draws 1.93 million triangles in the prepass and again in the opaque pass, and the
+  third shadow cascade 1.24 million.
+- **SpeedTree trees.** 57 in view. Without them the frame is 8.0 ms instead of 9.3; without
+  their leaf cards alone 8.05. The leaves were 0.68 ms of the opaque pass and 0.13 ms of the
+  prepass: thousands of overlapping alpha-tested cards a tree.
+
+### What was changed
+
+1. **The main pass tests depth for equality with the prepass and writes none**
+   (`nvf_assets::depth_equal`): opaque NIF surfaces and tree bark, and alpha-tested shapes
+   without a soft edge. Goodsprings 9.32 → 9.03 ms. Screenshots differ from main as two
+   runs of main do.
+2. **Cut-outs' soft edges are written by the depth prepass** (`nvf_assets::soft_edges`,
+   coverage.wesl; nif_material.rs "Prepass coverage"). With multisampling an alpha-tested
+   shape covered, where its alpha falls below the cutoff, a share of the pixel's samples,
+   through alpha to coverage in the main pass and in front of the depth the prepass (which
+   tested at the cutoff) had written. So the shader ran for the transparent texels and soft
+   edges of every card nearer than the visible one, and no depth test could reject them
+   early. Now the prepass fragment returns the share as a sample mask, and the main pass of
+   NIF surfaces, grass, leaf cards and tree billboards tests for equality with it, without
+   an alpha test or alpha to coverage. Kept as they were: shadow passes, first-person and
+   refracting shapes, views whose prepass also writes normals or motion vectors (TAA, FSR),
+   views without multisampling.
+   - What differs in the picture: which samples a partly covered pixel takes (this module's
+     order, rotated from pixel to pixel, instead of the GPU's pattern), and the depth
+     prepass that ambient occlusion and soft intersections read now holds the soft edge.
+     Screenshots at Goodsprings, Novac, Freeside and the Lucky 38 floor differ from main in
+     0.03-1.2 % of their pixels by more than 24 of 255 (two runs of main: 0.06 %): swaying
+     grass, actors that moved, and single pixels along cut-out edges.
+   - A first try without the sample mask (depth equality with the old prepass) lost the
+     soft edges: grass thinned out and fence wires broke up. That is why the prepass writes
+     them.
+3. **One multisample resolve instead of three** (engine/vendor/README.md, "one resolve").
+   The opaque, transmissive and transparent passes each resolved the 4x HDR target, and the
+   transmissive pass copied the resolved frame. Now the samples are resolved once into the
+   transmission texture and once at the end of the transparent pass. Goodsprings
+   7.85 → 7.64 ms (three interleaved pairs, the `fast` test profile).
+4. **`Update` runs on Bevy's single-threaded executor** (main.rs; test aid
+   `NVF_PLAY_TEST_UPDATE_EXECUTOR=multi` for the default). With frames held by the CPU:
+   Goodsprings at 720p 5.67 → 5.36 ms, the Strip 5.93 → 5.68, a 25-a-side battle
+   10.72 → 10.62 (two runs each), the Prospector Saloon unchanged. `PreUpdate`,
+   `PostUpdate`, `First` and `Last` measured no different and keep the default.
+
+Tried and dropped: making Bevy's copy of the frame only when an additive shape needs it
+(7.78 against 7.75 ms without the transmission anchor: nothing); the arms' shade light
+off (7.56 against 7.49 ms).
+
+### Result
+
+Release builds of main (f4015fae8) and of the four changes together, two interleaved
+runs of each scene, frame time in ms and the frames a second of their mean:
+
+| Scene | main | changed | |
+|---|---|---|---|
+| Goodsprings 12:00 | 9.43, 9.39 (106) | 7.69, 7.62 (131) | −19 % |
+| Novac 12:00 | 11.20, 11.15 (89) | 9.04, 8.95 (111) | −20 % |
+| Primm 12:00 | 11.72, 11.72 (85) | 10.14, 10.06 (99) | −14 % |
+| The Strip by Gomorrah 20:00 | 6.52, 6.28 (156) | 5.87, 5.46 (176) | −11 % |
+| Freeside 14:00 | 9.05, 8.75 (112) | 7.64, 7.25 (134) | −16 % |
+| Prospector Saloon | 4.61, 4.60 (217) | 4.21, 4.28 (236) | −8 % |
+| Lucky 38 casino floor | 6.46, 6.39 (156) | 5.65, 5.61 (178) | −12 % |
+
+Only the saloon is past 180 a second; the Strip and the Lucky 38 floor are within 2-4 of it.
+
+### After the table: anti-aliasing other than 4x, and the terrain's layers
+
+5. **Cut-outs test depth for equality without multisampling too.** With FXAA, SMAA, TAA or
+   no anti-aliasing, grass, leaf cards and tree billboards had kept the old main pass
+   (change 2 covers multisampled views; only NIF surfaces took change 1). Both passes test
+   the alpha at the cutoff there, so they now test for equality as well.
+6. **A quadrant's first four texture layers are drawn with its base** (terrain.rs, "One
+   draw for the base and its first layers"; terrain.wesl), where the GPU has bindless
+   textures. A ground triangle at Goodsprings carries 2.2 painted layers on average (50
+   cells: 102,400 base triangles, 224,778 painted layer triangles), each a blended copy lit
+   in full. Up to 6 layers a quadrant were seen; the first four hold 85 % of the painted
+   triangles at Goodsprings and 95 % at Novac, and the rest keep their blended draws.
+   Goodsprings, the same exe with `NVF_PLAY_TEST_TERRAIN_LAYERS=blended` and without:
+   FXAA 6.39, 6.32 → 6.17, 6.13 ms; 4x multisampling 7.72 → 7.52 ms. A screenshot folded
+   against blended differs in 0.07 % of its pixels by more than 24 of 255 and in 0.6 % by
+   more than 8. Less than the 0.56 ms the layers cost: the folded shader samples every
+   layer's two textures over the whole quadrant.
+
+Goodsprings by anti-aliasing choice (release, changes 1-5; frames a second, before change 5
+in brackets where it differs): 4x multisampling 131-134, 2x 149 (151), none 161 (144),
+FXAA 158 (142), SMAA 154 (142), TAA 155 (141).
+
+With FXAA and changes 1-6 (release, one run a scene): Goodsprings 163, Novac 130, Primm 125,
+the Strip 190, Freeside 171, the Prospector Saloon 276, the Lucky 38 floor 204.
+
+Looked at and left: a layer hidden under a later, fully opaque one (0.3 % of the layer
+triangles: opacities seldom reach 1); the swapchain's frame latency (1 to 4: 7.62-7.70 ms,
+the GPU 97-98 % busy at each); the depth-only passes reading single fields of the material
+instead of whole structs (Primm's prepass 1.74 against 1.77 ms: the driver already did).
+
+### Sun shadows, and Goodsprings at 180 with SMAA
+
+What the sun's shadows cost at Goodsprings with SMAA (release, 6.3 ms a frame): off
+5.06 ms. No single part of them explains it:
+
+| Tried, one at a time | Frame (ms) |
+|---|---|
+| as they are (3 cascades, Gaussian filter, reach 8,000 x 1.5) | 6.23-6.40 |
+| hardware 2x2 filter | 6.20 |
+| reach x 1 instead of x 1.5 | 6.30 |
+| shadow distance halved | 6.16 |
+| `--shadow-thin` 0.02, 0.05, 0.1 | 6.28, 6.28, 6.12 |
+| the maps drawn but never sampled (a shader edit for the measurement) | 6.08-6.21 |
+| no shade light for the first-person arms | 6.21 |
+| 2 cascades; 1 cascade | 6.24; 6.09 |
+| trees cast no shadow (leaves only cast: 6.39; bark only: 6.29) | 6.21 |
+| off | 5.06-5.08 |
+
+So the cost is not the filter, the reach or the map size, and no one view or kind of
+caster: sampling is about 0.2 ms, each view about 0.13, the trees 0.19, and the rest goes
+only with the last view.
+
+7. **Lighter sun shadows, a settings switch, off by default** (nvforever shadow_rate.rs;
+   key `lighter-shadows`, Graphics tab). With it on: the sun's shadow maps are drawn
+   every other frame and kept in between, with the cascades of the frame that drew them
+   (a patched bevy_pbr, engine/vendor/README.md "held shadow maps"); 2 cascades instead of
+   3; trees cast within 3,000 units of the camera only; no shade light for the arms.
+   Goodsprings with SMAA: held maps alone 6.40 → 6.03 ms (two pairs); the whole switch
+   6.41 → 5.67 ms (two pairs). What it costs in the picture: shadows a little coarser at
+   mid distance, the shadow of a moving thing at half the frame rate, no tree shadows
+   beyond about 43 m, and on a fast turn the edge of the view can lie outside a held
+   cascade for a frame. A screenshot with the switch on against off differs in 0.6 % of
+   its pixels by more than 24 of 255 (shadow edges).
+8. **Every layer of a quadrant is folded into its base** where the texture repeat divides
+   the cell (change 6 folded four): the texture coordinate is the fragment's place in its
+   mesh over the repeat, which terrain.wesl works out, and its vertex slot carries the
+   fifth and sixth opacities. The two layers left blended had cost 0.18 ms; a screenshot
+   folded against blended differs in 0.25 % of its pixels by more than 24 of 255.
+
+Goodsprings at 12:00 with SMAA, the switch on and changes 1-8 (release): 5.51, 5.55 ms
+(181.6, 180.2 a second) in two runs, and 5.49-5.56 ms in the undisturbed 5-second windows
+of five more made while the machine was in use (two of those runs had a 0.9 s stall at
+their start and one was held at 60 a second for part of it; they are left out). With the
+switch off: 6.23 ms (160). That is at the 5.56 ms of 180 a second with nothing to spare.
+The smoke scenario `lighter-sun-shadows` was added for the switch and has not been run.
+
+### What is left, and why Goodsprings is not at 180
+
+At 7.7 ms Goodsprings still waits for the GPU; 180 a second is 5.56 ms. Per feature, on
+the changed build: sun shadows off 6.3 ms, multisampling off 7.0 ms, terrain texture
+layers off 7.2 ms. So no single piece that keeps the settings is worth the 2.1 ms
+missing; the pieces, largest first:
+
+- **Sun shadows, 1.3 ms**: 0.3 the three cascade passes (1.4 million triangles), about
+  0.3 culling and indirect parameters for the four shadow views, about 0.5 sampling them in
+  the lit passes (Gaussian filter, 9 taps a fragment), the rest uploads.
+- **Culling compute passes, 0.7 ms**: `uniform_allocation` and `bin_unpacking` dispatch
+  once per batch set of each phase of each view (94 dispatches a pass), each reading what
+  the one before wrote. Bevy's design; merging them is a patch to its GPU preprocessing.
+- **Terrain texture layers, 0.56 ms**: each layer is a blended copy of the ground, lit in
+  full (terrain.rs, module notes). The single-pass splatting shader its notes plan would
+  light the ground once.
+- **Ambient occlusion, 0.6 ms**, 0.3 of it reading the multisampled depth; a depth resolved
+  once to one sample would serve it, soft intersections and the water, and replace the
+  0.23 ms copy of the multisampled depth. That changes Bevy's prepass textures.
+- **The main thread** is at 5.4 ms outdoors once the GPU is out of the way.
+- **About 1 ms of GPU time a frame is in no encoder** (a `profile` run held by the GPU, 8x
+  multisampling: the frame 9.81 ms, the encoders 8.80 ms; the same gap at 4x and with
+  FXAA). The frame's 340 buffer uploads are 0.8 MB in all (a RenderDoc replay); batching
+  them was tried before (#1955) for about 3 % and parked. The rest is not found.
+- **Alpha-tested overdraw in the depth prepass**: Primm's view, a quarter of it a dry
+  bush, spends 1.74 ms in the prepass against Goodsprings' 0.56 ms.
+- **Shadow passes at Novac and Primm**, 0.7 ms (about 1,500 casters in the third cascade)
+  against Goodsprings' 0.25 ms.
+
+## 10. The four follow-ups of §9: uploads, culling dispatches, leaf cards, shadows (#2063-#2066, 2026-11-10)
+
+[observed 2026-11-10 throughout: Ryzen 7 7700X, RTX 3070 (Vulkan, driver 621.01), 2560 ×
+1440 borderless, vsync off, standing still, release builds unless a `profile` build is
+named; runs of 30 s with the first 15 s left out, two runs per variant.] Settings: the
+owner's (SMAA, Lighter sun shadows on) unless said otherwise.
+
+### Where the GPU time outside the encoders went (#2064)
+
+The encoder-span aid now also reports `zz:wall` (the frame's first encoder to its last),
+`zz:gaps` (the time inside that no encoder covers) and `zz:between_frames` (the last
+encoder of one frame to the first of the next) [vendored bevy_render, `NVForever encoder
+gaps`]. Inside a frame the encoders leave 0.04-0.06 ms uncovered; the missing time was
+between frames: 0.60-0.65 ms when the GPU holds the frame (Primm, 8x multisampling,
+`profile` build), whether windowed or borderless and at 2560 × 1400 as at full screen.
+
+- Not the swapchain: wgpu makes the first submission that uses a swapchain image wait at
+  the top of the pipe for the presentation engine [documented: wgpu-hal 30
+  `vulkan/mod.rs` `Queue::submit`], and the frame is one submission; submitting the scene
+  before the upscaling pass (a `FlushCommands` system before `upscaling`) changed nothing
+  (11.45 against 11.47 ms, 11.40 against 11.13 ms) and was dropped.
+- An Nsight Graphics GPU Trace (5 frames, Goodsprings, clocks locked to base) put the
+  graphics front end in wait-for-idle for 40 % of the frame, with 261 go-idle commands a
+  frame: barriers.
+- `RenderQueue::write_buffer` calls counted by caller (a measurement build): 379 a frame
+  at Goodsprings, 297 of them the three buffers of each of the 99 multi-drawn batch sets
+  (`gpu_preprocessing.rs`, binned mesh instances, bin metadata, bin index map), written
+  again every frame whether they changed or not. Each is a copy with its own barrier in
+  the frame's submission, before its first pass.
+
+Change: `RawBufferVec::write_buffer_if_changed` (vendored bevy_render, `NVForever
+unchanged uploads`) skips a write whose bytes match the last write into the same buffer,
+used for those three, which the compute shaders only read. Writes 395 → 73 a frame, GPU
+time between frames 0.60 → 0.12 ms, Primm at 8x 11.52 → 10.83 ms (`profile` build). With
+the owner's settings: Goodsprings 5.45 → 5.20 ms, Novac 6.16 → 5.70, Primm 6.81 → 6.45.
+Test aid `NVF_PLAY_TEST_SAME_WRITES=1` writes every frame.
+
+### Culling dispatches per batch set (#2065): measured, not changed
+
+`uniform_allocation` and `bin_unpacking` cost 0.36 ms a frame at Goodsprings and 0.5 ms at
+Novac after the change above (0.54 and 0.73 with every cascade drawn). Each batch set is a
+dispatch in each, so fewer batch sets would be the game's lever. A dump of the batch sets'
+pipelines (a measurement build) shows what splits them: vertex layouts (with or without
+colours, tangents, a second UV set, skinning), cull mode, depth bias and the material
+slab (4-5 per phase: `NifSurface`'s bindless slabs hold 512 resources, chosen in
+streaming-hitches.md §3.1 against night stutter). Pipelines with identical descriptors
+are 2-3 a phase; merging them would leave 98 of 102 batch sets at Goodsprings and 125 of
+132 at Novac. What remains is Bevy's design, one dispatch (and a barrier) per batch set;
+merging the dispatches of a phase means one set of buffers per phase instead of per batch
+set, a rework of its GPU preprocessing, left for upstream.
+
+### Leaf cards in the depth prepass (#2066)
+
+Pipeline statistics (a measurement build): Primm's prepass runs 166 million fragment
+invocations a frame (Goodsprings 14 million; the main pass, depth-equal, 3.7 million at
+both). Without grass: the same. Without SpeedTree leaf cards: 6 million and 0.37 ms. The
+shrub at the start of Primm is a SpeedTree shrub whose camera-facing cards stack about 45
+deep. An alpha-tested fragment shader may discard, so the GPU tests its depth after
+running it; only the coarse per-tile test spares a card behind others, and only if the
+nearer ones were drawn first [hypothesis: the order experiment below bears it out].
+
+- Cards cut to their cell's visible part (alpha above 8, two texels wider; tree.rs,
+  `AlphaMap::kept_part`): 89 % of the card area left, 166 → 149 million, 1.76 → 1.59 ms.
+- Draw order, cut cards: outermost cards first 86 million (1.13 ms), innermost first 209
+  million; nearest the camera first (8 orders per leaf mesh, one per heading around the
+  trunk, chosen each frame by `order_leaves`) 67 million, 0.91 ms. Goodsprings and Novac
+  unchanged (no dense tree near the camera).
+- Screenshots against whole cards in one order: Primm 1.9 % of pixels over 24/255 (two
+  runs of the old 2.9 %: the leaves move in the wind), Goodsprings 0.05 % (0.14 %).
+
+Test aids `NVF_PLAY_TEST_LEAF_CARDS=whole`, `NVF_PLAY_TEST_LEAF_ORDER=authored`.
+
+### Staggered sun cascades (#2063)
+
+With Lighter sun shadows off, all three cascades were drawn every frame: the shadow pass
+0.26 / 0.62 / 0.49 ms at Goodsprings / Novac / Primm, plus about 0.15 ms of culling for
+the three views; the farthest cascade holds 1,148 / 1,571 / 1,485 of the 1,418 / 2,138 /
+1,870 casters. Now (shadow_rate.rs `STAGGERED_SCHEDULE`) the nearest is drawn every frame,
+the middle one every other frame, the farthest every fourth, on different frames; a held
+cascade keeps its map and the matrices of the frame that drew it
+(`HoldDirectionalShadowMaps`, now a bit per cascade). With the switch off: Goodsprings
+5.78 → 5.42 ms, Novac 7.02 → 6.34, Primm 6.70 → 6.21. Screenshots against every frame:
+0.26 % and 0.61 % of pixels over 24/255 at Goodsprings and Novac (two runs drawing every
+frame: 0.20 % and 0.42 %; NPCs' shadows move). The Lighter switch keeps its schedule, both
+cascades every other frame. A cache of static casters (#2063's proposal) needs a shadow
+renderer of its own in vendored bevy_pbr and was not attempted.
+
+### Result
+
+The owner's settings (SMAA, Lighter sun shadows on), the branch before these changes
+(337d21dd7) against after, two interleaved runs each, mean frame time:
+
+| Scene | Before (ms) | After (ms) | Frames a second |
+|---|---|---|---|
+| Goodsprings 12:00 | 5.49, 5.39 | 5.13, 5.23 | 184 → 193 |
+| Novac 12:00 | 6.20, 6.12 | 5.66, 5.68 | 162 → 176 |
+| Primm 12:00 | 6.82, 6.73 | 5.58, 5.56 | 148 → 180 |
+| the Strip 20:00 | 5.27, 5.12 | 5.18, 5.22 | 193 → 192 |
+| Freeside 14:00 | 5.29, 5.21 | 4.86, 4.78 | 191 → 208 |
+| Prospector Saloon | 3.48, 3.46 | 3.37, 3.34 | 288 → 298 |
+| Lucky 38 floor | 4.55, 4.62 | 4.48, 4.37 | 218 → 226 |
+
+Every outdoor scene measured but the Strip (unchanged within noise) is now over 175 a
+second, Primm over 180.
