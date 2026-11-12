@@ -596,7 +596,18 @@ pub struct Agent {
     /// The seat it was last sent to over its package (`fnv_game::game::RefExtra::seat_override`):
     /// a change begins its package again ([`Ai::step`]).
     pub(crate) seat: Option<FormId>,
+    /// Let go of that seat: it stays where getting up leaves it until this `Game::time`
+    /// ([`SEAT_LINGER`]), then walks on its package.
+    pub(crate) linger: Option<f64>,
 }
+
+/// How long an actor let go of the seat it was sent to (the arm-wrestling opponent,
+/// `fnv_game::armwrestle_table`) stays where it stands up before its package walks it off,
+/// seconds of `Game::time` [design: its getting-off clip (about 3.3 s) and its reaction to
+/// the match (`nvforever`'s match_end: standingmourning.kf 5.7 s, cheeringbotharmsup.kf
+/// 4.67 s) play where it stood up; walked off at once, the beaten idle played as he
+/// strode past the cheering winner (the night pass's run of 2026-11-12 00:16)].
+pub const SEAT_LINGER: f64 = 9.0;
 
 #[derive(Default)]
 pub struct Ai {
@@ -880,7 +891,7 @@ impl Ai {
             own_turning(&mut walker, s);
         }
         walker.pace = self.paces.get(&actor).copied().unwrap_or(1.0);
-        self.agents.insert(actor, Agent { walker, activity: Activity::None, package: None, goal: None, route_at: 0, trip_started: 0.0, trip_from: 0.0, waiting_at: None, idle_door_hold: None, using: None, held_seat: None, sandbox: None, wait_until: None, talk: None, pushed_at: None, chat: None, search: None, face_to: None, following: None, rooted: false, weapon_order: None, errand: None, backing: None, walk_up: None, seat: None });
+        self.agents.insert(actor, Agent { walker, activity: Activity::None, package: None, goal: None, route_at: 0, trip_started: 0.0, trip_from: 0.0, waiting_at: None, idle_door_hold: None, using: None, held_seat: None, sandbox: None, wait_until: None, talk: None, pushed_at: None, chat: None, search: None, face_to: None, following: None, rooted: false, weapon_order: None, errand: None, backing: None, walk_up: None, seat: None, linger: None });
         Ok(())
     }
 
@@ -1217,7 +1228,18 @@ impl Ai {
             self.coast(game, actor, dt, open);
             return;
         }
-        let restrained = game.extra.get(&actor).is_some_and(|e| e.restrained);
+        let mut restrained = game.extra.get(&actor).is_some_and(|e| e.restrained);
+        // Let go of the seat it was sent to: held where it stood up a while ([`SEAT_LINGER`]),
+        // as if restrained (here only: not for detection or a fight).
+        let let_go = game.extra.get(&actor).is_some_and(|e| e.seat_override.is_none()) && self.agents[&actor].seat.is_some();
+        if let_go {
+            self.agents.get_mut(&actor).expect("listed").linger = Some(game.time + SEAT_LINGER);
+        }
+        match self.agents[&actor].linger {
+            Some(t) if game.time < t => restrained = true,
+            Some(_) => self.agents.get_mut(&actor).expect("listed").linger = None,
+            None => {}
+        }
         // Released: its package begins again, now with the walk to its place.
         if !restrained && self.restrained.remove(&actor) {
             self.agents.get_mut(&actor).expect("listed").package = None;
