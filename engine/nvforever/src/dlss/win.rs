@@ -20,7 +20,7 @@ use super::ffi::{
     SlGetFeatureFunction, SlGetFeatureRequirements, SlGetFeatureVersion, SlGetNewFrameToken, SlInit, SlIsFeatureLoaded, SlIsFeatureSupported, SlResult, SlSetConstants,
     SlShutdown, ViewportHandle, FEATURE_DLSS, LOG_TYPE_ERROR, LOG_TYPE_WARN, PREFERENCE_ALLOW_OTA, PREFERENCE_LOAD_DOWNLOADED_PLUGINS, RENDER_API_VULKAN, SDK_VERSION,
 };
-use super::preflight::{self, Checked, Pin, Requirements, Selection, Snapshot};
+use super::preflight::{self, Checked, Pin, Requirements, Snapshot};
 use super::sizing::{Key, Optimal};
 use super::{missing_files, note, note_ngx_line, note_sl, resolve_folder, set_loader_state, FolderSource, Frame, Outcome, ACTIVE, ENV_DIR, FILES, STREAMLINE_DEVICE};
 use crate::upscaler::{DlssState, Unavailable};
@@ -299,27 +299,28 @@ fn folder_allows_streamline(folder: &Path) -> bool {
     }
 }
 
-/// DLSS's requirements fetched and copied, and every GPU the renderer could pick checked
-/// against them (preflight.rs). After `slInit`, before `set_vulkan_library`.
+/// DLSS's requirements fetched and copied, and every GPU Vulkan exposes checked against them
+/// (preflight.rs `candidates`). After `slInit`, before `set_vulkan_library`.
 fn device_check(api: &Api, snapshot: &Snapshot) -> Result<(), (Unavailable, String)> {
     let requirements = requirements(api).map_err(|why| (Unavailable::StreamlineRefused, why))?;
     note(Level::INFO, format!("requirements: DLSS asks for {requirements}"));
-    let selection = Selection::from_env();
-    let checked = preflight::judge(snapshot, &requirements, &selection).map_err(|d| (d.reason, d.why))?;
-    note(Level::INFO, format!("device check: passed for {} (every GPU the renderer could pick)", checked.join(", ")));
-    // The same candidates `judge` checked, for the pin (preflight.rs `pin`).
-    let picks = preflight::candidates(&snapshot.devices, &selection);
-    let pin = match preflight::pin(&snapshot.devices, &picks, selection.adapter_name.as_deref()) {
+    let checked = preflight::judge(snapshot, &requirements).map_err(|d| (d.reason, d.why))?;
+    note(Level::INFO, format!("device check: passed for {} (every GPU Vulkan exposes)", checked.join(", ")));
+    // The same candidates `judge` checked, for the pin (preflight.rs `pin`); Bevy reads
+    // `WGPU_ADAPTER_NAME` the same way (vendor/bevy_render/src/renderer/mod.rs:273-275).
+    let picks = preflight::candidates(&snapshot.devices);
+    let user_name = std::env::var("WGPU_ADAPTER_NAME").ok();
+    let pin = match preflight::pin(&snapshot.devices, &picks, user_name.as_deref()) {
         Pin::Set(pin) => {
             note(Level::INFO, format!("adapter pin: the renderer is asked for {} (Bevy's adapter name), the one checked NVIDIA GPU", pin.name));
             Some(pin)
         }
         Pin::UserChose => {
-            note(Level::INFO, "adapter pin: none, WGPU_ADAPTER_NAME is set and the device check followed it");
+            note(Level::INFO, "adapter pin: none, WGPU_ADAPTER_NAME is set; every GPU Vulkan exposes passed the device check");
             None
         }
         Pin::Declined(why) => {
-            note(Level::INFO, format!("adapter pin: none ({why}); every GPU the renderer could pick passed the device check"));
+            note(Level::INFO, format!("adapter pin: none ({why}); every GPU Vulkan exposes passed the device check"));
             None
         }
     };

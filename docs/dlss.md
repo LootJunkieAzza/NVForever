@@ -81,7 +81,7 @@ what the reason says and start the game again. The log
 | The dlss folder holds NVIDIA's updater (nvngx_update.exe): remove it, then restart | Delete `nvngx_update.exe` from the `dlss` folder. This is also shown when the folder could not be read. |
 | The DLSS files are not signed by NVIDIA | `sl.interposer.dll` did not pass the signature check. Download the release again from NVIDIA's page and copy the files unchanged. |
 | DLSS did not start (the log says why) | NVIDIA's Streamline would not load or start. The log's `DLSS:` lines say where it stopped. |
-| A graphics card the game may use cannot run DLSS | Usually on a PC with two graphics cards, such as a laptop with built-in graphics beside its NVIDIA card: a card the game could start on lacks what DLSS needs, or the game cannot tell which card it will use. DLSS stays off rather than risk a crash at start. The log names the card. |
+| A graphics card the game may use cannot run DLSS | A graphics card Vulkan can see lacks what DLSS needs. This is typical on laptops whose built-in graphics also show up in Vulkan beside the NVIDIA card: the game checks every card Vulkan shows, since it could end up starting on any of them. DLSS stays off rather than risk a crash at start. The log names the card. |
 | Not on this GPU or driver (DLSS needs an NVIDIA RTX card) | DLSS does not run on this graphics card or driver. It needs an NVIDIA RTX card; updating the driver may help. |
 | DLSS stopped working this session; it is tried again at the next start | DLSS gave no picture for a while in this session, so the game draws without it until the next start. |
 
