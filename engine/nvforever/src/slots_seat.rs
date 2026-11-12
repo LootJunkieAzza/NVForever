@@ -24,7 +24,11 @@
 //!   (`PlayerState::furniture`), so the puppet sits on it with its getting-on and
 //!   getting-off clips; the idle goes out in the emote's place (`PlayerState::emote`) with
 //!   an id from [`SLOT_EMOTE`] on, which the emotes leave alone (`crate::emote_play`), and
-//!   is played here on the puppet's upper body.
+//!   is played here on the puppet's upper body. The seated end view's reaction after the
+//!   menu closes (`crate::match_end`, the cheer or the beaten look) goes out the same way,
+//!   so the others see what this player's own screen shows [design: ship 14's laptop
+//!   slots-coop exit, 2026-11-12: the puppet sat still through it, the last spin's Loose
+//!   cut at the exit, while its player's screen showed the cheer].
 //!
 //! Log lines start `slots seat:`.
 
@@ -57,6 +61,8 @@ pub enum Act {
     InsertCoin = 0,
     Loose = 1,
     Cheer = 2,
+    /// The end view's beaten look (`crate::match_end::DEFEAT`), seated.
+    Defeat = 3,
 }
 
 impl Act {
@@ -65,6 +71,7 @@ impl Act {
             Act::InsertCoin => INSERT_COIN,
             Act::Loose => LOOSE,
             Act::Cheer => crate::match_end::CHEER,
+            Act::Defeat => crate::match_end::DEFEAT,
         }
     }
 
@@ -77,6 +84,7 @@ impl Act {
             0 => Some(Act::InsertCoin),
             1 => Some(Act::Loose),
             2 => Some(Act::Cheer),
+            3 => Some(Act::Defeat),
             _ => None,
         }
     }
@@ -188,10 +196,12 @@ fn get_up(
 }
 
 /// This player's body: the idle for each event, and what goes to the others.
+#[allow(clippy::too_many_arguments)]
 fn own(
     real: Res<Time<Real>>,
     mut spins: MessageReader<SlotsSpin>,
     slots_seat: Res<SlotsSeat>,
+    match_end: Option<Res<crate::match_end::MatchEnd>>,
     mut idle: ResMut<SlotIdle>,
     mut clips: ResMut<SlotClips>,
     pi: Option<ResMut<PlayerIdles>>,
@@ -209,7 +219,7 @@ fn own(
     let mut ctx = ActorCtx { cache: &mut parts, models: &mut models };
     // At a machine: load them now, so the first spin does not wait for the files.
     if slots_seat.busy() && !idle.loaded {
-        for a in [Act::InsertCoin, Act::Loose, Act::Cheer] {
+        for a in [Act::InsertCoin, Act::Loose, Act::Cheer, Act::Defeat] {
             clips.get(&mut ctx, a);
         }
         idle.loaded = true;
@@ -247,9 +257,18 @@ fn own(
         idle.cheer_until = cheer;
         info!("slots seat: the player plays {act:?} ({})", act.path());
     }
-    // What the others see: the act while its idle plays.
-    let state = match idle.playing {
-        Some((act, serial, since)) if pi.third.cur.as_ref().is_some_and(|c| c.serial == serial && !c.play.ended()) => {
+    // What the others see: the act while its idle plays; on the stool after the menu,
+    // the end view's reaction while it plays.
+    let playing = |serial: u32| pi.third.cur.as_ref().is_some_and(|c| c.serial == serial && !c.play.ended());
+    let end_view = match_end.as_deref().filter(|_| slots_seat.phase == SeatPhase::Ending).and_then(|m| m.own_reaction()).filter(|&(serial, ..)| playing(serial));
+    let state = match (idle.playing, end_view) {
+        (Some((act, serial, since)), _) if playing(serial) => EmoteState { id: act.id(), variant: 0, phase: phase::ONCE, step: 0, t: now - since },
+        (_, Some((_, mood, since))) => {
+            idle.playing = None;
+            let act = match mood {
+                crate::match_end::Mood::Cheer => Act::Cheer,
+                crate::match_end::Mood::Defeat => Act::Defeat,
+            };
             EmoteState { id: act.id(), variant: 0, phase: phase::ONCE, step: 0, t: now - since }
         }
         _ => {
@@ -281,7 +300,7 @@ fn puppets(
         let Some((ent, rig, idle)) = rigs.iter_mut().find(|(_, r, _)| r.reference == reference) else { continue };
         let Some(clip) = clips.get(&mut ctx, act) else { continue };
         let bound = Arc::new(bind_clip(&rig.skel, clip.clone()));
-        let mut play = IdlePlay::new(IdleKeys::read(clip.start, clip.stop, &clip.text_keys), Some(if act == Act::Cheer { 2 } else { 1 }));
+        let mut play = IdlePlay::new(IdleKeys::read(clip.start, clip.stop, &clip.text_keys), Some(if matches!(act, Act::Cheer | Act::Defeat) { 2 } else { 1 }));
         // Seen first under way: from where its player is.
         if e.t > 0.3 {
             play.advance(e.t);
@@ -318,10 +337,10 @@ mod tests {
     #[test]
     fn slot_acts_have_emote_ids_past_the_catalogue() {
         assert!(nvf_play::emotes::CATALOG.len() < SLOT_EMOTE as usize);
-        for a in [Act::InsertCoin, Act::Loose, Act::Cheer] {
+        for a in [Act::InsertCoin, Act::Loose, Act::Cheer, Act::Defeat] {
             assert_eq!(Act::from_id(a.id()), Some(a));
             assert!(is_slot_emote(a.id()));
         }
-        assert!(!is_slot_emote(1) && !is_slot_emote(0) && Act::from_id(SLOT_EMOTE + 3).is_none());
+        assert!(!is_slot_emote(1) && !is_slot_emote(0) && Act::from_id(SLOT_EMOTE + 4).is_none());
     }
 }

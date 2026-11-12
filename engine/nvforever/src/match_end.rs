@@ -119,6 +119,19 @@ pub const MATE_BEHIND: (f32, f32) = (0.21, 0.44);
 pub const MATE_BEHIND_REACH: f32 = 350.0;
 /// The chest under a mate's head (game units) [design].
 const MATE_CHEST: f32 = 45.0;
+/// A seated mate's lap under its head (game units) [design: a seated body's head about
+/// 80 above its thighs].
+const MATE_LAP: f32 = 80.0;
+/// The shot's frame (radians across, up and down from its centre): the screen's 75°
+/// across (`nvf_play::aim_assist::SCREEN_FOV_DEGREES`, 16:9). A mate nearer the camera
+/// than the player with its head, chest or lap in it, give or take [`MATE_HALF_WIDTH`]
+/// to the side, is in the shot's foreground: that side counts a quarter clear [design:
+/// ship 14's laptop slots-coop exit, 2026-11-12: at 0016546A the side towards the next
+/// stool, 113 units over, had the guest's back filling the lower right, its head cut off
+/// by the frame's edge].
+pub const MATE_FRAME: (f32, f32) = (0.65, 0.41);
+/// Half a body's width across the shoulders (game units) [design].
+pub const MATE_HALF_WIDTH: f32 = 25.0;
 /// Seconds the camera takes to swing from the game's camera to the end view [design].
 pub const EASE_IN: f32 = 0.6;
 /// Seconds to black after the result menu closes, held black, and back [design].
@@ -420,7 +433,8 @@ pub fn pick_seated(eye: [f32; 3], heading: f32, mut reach: impl FnMut([f32; 3], 
 
 /// How far the line from `look` to `at` runs before it passes within [`MATE_CLEAR`] of
 /// one of `heads` (game space), or its whole length; half that when a head stands in the
-/// shot's background ([`MATE_BEHIND`]).
+/// shot's background ([`MATE_BEHIND`]), a quarter when a mate is in its foreground
+/// ([`MATE_FRAME`]).
 pub fn mates_reach(look: [f32; 3], at: [f32; 3], heads: impl IntoIterator<Item = [f32; 3]>) -> f32 {
     let (a, b) = (Vec3::from(look), Vec3::from(at));
     let d = b - a;
@@ -429,35 +443,34 @@ pub fn mates_reach(look: [f32; 3], at: [f32; 3], heads: impl IntoIterator<Item =
         return len;
     }
     let mut reach = len;
-    let mut behind = false;
+    let (mut behind, mut front) = (false, false);
     for h in heads {
         let h = Vec3::from(h);
         let t = (h - a).dot(d) / (len * len);
         // Behind the player as the camera sees them: the shot's background, if near its
         // centre on screen.
         if t <= 0.0 {
-            behind |= -t * len <= MATE_BEHIND_REACH && [h, h - Vec3::Z * MATE_CHEST].into_iter().any(|p| in_window(b, a, p));
+            behind |= -t * len <= MATE_BEHIND_REACH && [h, h - Vec3::Z * MATE_CHEST].into_iter().any(|p| in_window(b, a, p, MATE_BEHIND, 0.0));
             continue;
         }
         // Past the camera by more than the margin: not in the way.
         if (t - 1.0) * len > MATE_CLEAR {
             continue;
         }
+        // Between the player and the camera: in the foreground, if seen at all.
+        front |= [h, h - Vec3::Z * MATE_CHEST, h - Vec3::Z * MATE_LAP].into_iter().any(|p| in_window(b, a, p, MATE_FRAME, MATE_HALF_WIDTH));
         let near = a + d * t.min(1.0);
         if near.distance(h) < MATE_CLEAR {
             reach = reach.min((t.min(1.0) * len - MATE_CLEAR).max(0.0));
         }
     }
-    if behind {
-        reach * 0.5
-    } else {
-        reach
-    }
+    reach * if behind { 0.5 } else { 1.0 } * if front { 0.25 } else { 1.0 }
 }
 
 /// Whether `p` is seen from a camera at `cam` looking at `look` (game space, z up) within
-/// [`MATE_BEHIND`]'s window of the centre.
-fn in_window(cam: Vec3, look: Vec3, p: Vec3) -> bool {
+/// `window` (radians across, up and down) of the centre, an ellipse; a body `half` units
+/// wide to each side of `p` when any of it is.
+fn in_window(cam: Vec3, look: Vec3, p: Vec3, window: (f32, f32), half: f32) -> bool {
     let fwd = (look - cam).normalize_or_zero();
     let right = fwd.cross(Vec3::Z).normalize_or_zero();
     let up = right.cross(fwd);
@@ -466,7 +479,8 @@ fn in_window(cam: Vec3, look: Vec3, p: Vec3) -> bool {
     if ahead <= 0.0 {
         return false;
     }
-    let (x, y) = (v.dot(right).atan2(ahead) / MATE_BEHIND.0, v.dot(up).atan2(ahead) / MATE_BEHIND.1);
+    let across = (v.dot(right).atan2(ahead).abs() - half.atan2(ahead)).max(0.0);
+    let (x, y) = (across / window.0, v.dot(up).atan2(ahead) / window.1);
     x * x + y * y < 1.0
 }
 
@@ -485,8 +499,9 @@ pub struct MatchEnd {
     /// The match whose reactions were started (kind, table, winner).
     shown: Option<(Kind, u32, usize)>,
     pending: Vec<Pending>,
-    /// The serial of this player's own reaction on the third-person body.
-    own: Option<u32>,
+    /// This player's own reaction: its serial on the third-person body, its mood and when
+    /// it began (real seconds).
+    own: Option<(u32, Mood, f32)>,
     /// The portrait flag was set here (for the fade out) and is to be cleared.
     portrait: bool,
     /// The camera as the game placed it when the end view began, to ease from.
@@ -516,6 +531,13 @@ pub struct MatchEnd {
 impl MatchEnd {
     fn view(&self) -> Portrait {
         self.view.unwrap_or(END_VIEW)
+    }
+
+    /// This player's own reaction while the end view shows: its serial on the
+    /// third-person body, its mood and when it began (real seconds). A seated one goes to
+    /// the others as the slot idles do (`slots_seat.rs`).
+    pub fn own_reaction(&self) -> Option<(u32, Mood, f32)> {
+        self.own.filter(|_| matches!(self.phase, Phase::Result { .. } | Phase::FadeOut { .. }))
     }
 }
 
@@ -650,7 +672,7 @@ fn give_back(st: &mut MatchEnd, control: Option<&mut PlayerControl>) {
 
 /// This player's reaction ends (fading out), if it still plays.
 fn stop_own(st: &mut MatchEnd, pi: Option<&mut PlayerIdles>) {
-    let (Some(serial), Some(pi)) = (st.own.take(), pi) else { return };
+    let (Some((serial, ..)), Some(pi)) = (st.own.take(), pi) else { return };
     if let Some(c) = pi.third.cur.as_mut().filter(|c| c.serial == serial && !c.play.ended()) {
         c.play.stop();
     }
@@ -867,7 +889,7 @@ fn react(
                 let Some(pi) = pi.as_deref_mut() else { continue };
                 // Seated: the upper body only, as the slot idles (`slots_seat.rs`).
                 let clip = if st.seated { Arc::new(crate::pipboy_check::upper_clip(&clip)) } else { clip.clone() };
-                st.own = Some(pi.third.start_clip(IdleSource::Script, clip, play()));
+                st.own = Some((pi.third.start_clip(IdleSource::Script, clip, play()), p.mood, now));
                 info!("match end: this player plays {path}{}", if st.seated { " (upper body, seated)" } else { "" });
                 continue;
             }
@@ -1120,12 +1142,19 @@ mod tests {
         // All clear: the right side, as before.
         assert_eq!(pick_seated(eye, 0.0, |_, _| 1000.0).0.yaw, SEATED_YAWS[0]);
         // Another player on the stool to the right (+x, heading north): not the right side
-        // (his head in the line), nor round the left while he stands in the background
-        // behind the player: one further round towards the back.
+        // (his head in the line, then his back in the foreground), nor round the left
+        // while he is in the background behind the player: round the left towards the
+        // back, where he is off to the side.
         let mate = [125.0, 0.0, 100.0];
         let (v, free) = pick_seated(eye, 0.0, |at, look| mates_reach(look, at, [mate]));
-        assert!(v.yaw.abs() > 1.9, "{v:?}");
+        assert_eq!(v.yaw, -2.5, "{v:?}");
         assert!(free >= SEATED_CLEAR);
+        // ... as at The Tops' 0016546A, the guest 113 over on the next stool: not 2.0,
+        // where his back filled the lower right.
+        let (v, _) = pick_seated(eye, 0.0, |at, look| mates_reach(look, at, [[113.0, 0.0, 100.0]]));
+        assert!(v.yaw < 0.0, "{v:?}");
+        let r = mates_reach([0.0, 0.0, 88.0], end_camera_of(Portrait { yaw: 2.0, ..SEATED_VIEW }, eye, 0.0).0, [[113.0, 0.0, 100.0]]);
+        assert!((r - 0.25 * 165.0).abs() < 0.01, "{r}");
         // One upstairs (well clear of the frame): the right side.
         let (v, _) = pick_seated(eye, 0.0, |at, look| mates_reach(look, at, [[125.0, 0.0, 100.0 + 300.0]]));
         assert_eq!(v.yaw, SEATED_YAWS[0], "{v:?}");
