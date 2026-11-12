@@ -547,6 +547,13 @@ pub fn feed(bet: &mut Stake, me: u8, entrants: &[Entrant], agreed: bool, stake: 
     }
 }
 
+/// The players a lobby waits for: the others near and, in co-op, the deciding game's own
+/// player (it may be at the bottle and not yet have activated it; [`JOIN_SECONDS`] ends
+/// the wait when it does not).
+pub fn waiting_for(near: &[u8], me: u8, on: bool) -> Vec<u8> {
+    near.iter().copied().chain(on.then_some(me)).collect()
+}
+
 /// What this player's game says it offers: its last offer, and whether that is the
 /// leader's word on the stake.
 pub fn my_offer(bet: &Stake) -> Option<(u32, bool)> {
@@ -1112,7 +1119,7 @@ fn run(
                     say(&mut corner, format!("{} lost the connection and counts as passed out.", t.name(id)));
                 }
             }
-            if matches!(b.phase, BookPhase::Lobby { .. }) && b.ready(&near, now) && page.0.as_ref().is_none_or(|p| p.staked || b.entrant(me).is_none()) {
+            if matches!(b.phase, BookPhase::Lobby { .. }) && b.ready(&waiting_for(&near, me, on), now) && page.0.as_ref().is_none_or(|p| p.staked || b.entrant(me).is_none()) {
                 let seed = crate::minigames::seed(b.bottle, now);
                 b.start(seed, now);
                 let npcs = if on { Vec::new() } else { page.0.as_ref().map(|p| p.npcs.clone()).unwrap_or_default() };
@@ -1297,7 +1304,8 @@ fn run(
     // ---- watchers: a contest near this player that it does not drink in -----------------------
     let mut w = None;
     if let Some(t) = tables.as_deref().filter(|t| t.on) {
-        let mine = coop.ticket.as_ref().is_some_and(|k| !k.settled);
+        // Watching: not drinking in it (the deciding game that does not drink watches its own).
+        let mine = coop.ticket.as_ref().is_some_and(|k| !k.settled && k.drinking);
         if !mine && page.0.is_none() {
             w = t.near.iter().find_map(|p| t.view(*p).filter(|(_, g, _)| *g == game::DRINK).and_then(|(_, _, b)| DrinkView::decode(b)).filter(|v| v.owner == *p && !matches!(v.phase, DrinkPhase::Lobby { .. })));
             if w.is_none() && here {
@@ -1566,6 +1574,7 @@ struct AidState {
     aid: Option<Option<Aid>>,
     did: [bool; 3],
     space_at: f32,
+    open_at: f32,
     shot: usize,
 }
 
@@ -1575,9 +1584,15 @@ fn drink_aid(mut commands: Commands, time: Res<Time<Real>>, mut page: ResMut<Sta
     let Some(aid) = aid else { return };
     let now = time.elapsed_secs();
     coop.aid_skill = Some(aid.skill);
-    if let Some(t) = aid.open.filter(|t| now >= *t && !st.did[0]) {
+    // Activates the bottle at `open`, and again each second until the stake page or the
+    // contest is up (an activation while a menu or a conversation is open is not taken,
+    // as a player's press would not be).
+    if page.0.is_some() || screen.0.is_some() || coop.ticket.is_some() {
         st.did[0] = true;
-        info!("drink aid: activate 0x{:08X} at {t:.0} s", aid.bottle);
+    }
+    if let Some(t) = aid.open.filter(|t| now >= *t && !st.did[0] && now - st.open_at >= 1.0) {
+        st.open_at = now;
+        info!("drink aid: activate 0x{:08X} at {now:.0} s (from {t:.0} s)", aid.bottle);
         activate.write(DrinkActivate { bottle: aid.bottle, npcs: Vec::new() });
     }
     if let Some(p) = page.0.as_mut() {
@@ -1699,6 +1714,14 @@ mod tests {
         assert!(!b.ready(&[1], JOIN_SECONDS - 1.0));
         assert!(b.ready(&[1], JOIN_SECONDS));
         assert!(b.ready(&[], 0.5), "alone: at once");
+        // A guest opened the deciding game's lobby: it waits for the host's own player too.
+        let mut b = Book::new(SALOON_BOTTLE, 2, 0.0);
+        b.open(1, 5, 300);
+        b.offer(1, 50, 300, true);
+        b.stake(1, 2, 5, 250);
+        assert!(!b.ready(&waiting_for(&[1], 0, true), 1.0), "the host has not joined");
+        assert!(b.ready(&waiting_for(&[1], 0, true), JOIN_SECONDS));
+        assert!(b.ready(&waiting_for(&[], 0, false), 1.0), "single player: no one else");
     }
 
     #[test]

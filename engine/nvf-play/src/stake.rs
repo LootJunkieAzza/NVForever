@@ -97,9 +97,10 @@ impl Stake {
     }
 
     /// Accept sends the stake on the screen once every player's caps are in: the leader at
-    /// any time, the others once an offer came; never the same offer twice.
+    /// any time, the others once an offer came, and only at or above the highest offer
+    /// (a lower stake is matched or raised first); never the same offer twice.
     pub fn can_accept(&self) -> bool {
-        self.open() && self.others.values().all(|s| s.funds.is_some()) && (self.leads || self.highest().is_some()) && self.sent != Some(self.mine) && self.mine <= self.max()
+        self.open() && self.others.values().all(|s| s.funds.is_some()) && self.highest().map_or(self.leads, |o| self.mine >= o) && self.sent != Some(self.mine) && self.mine <= self.max()
     }
 
     /// The offer to send, if Accept may be pressed. The leader may agree at once (see
