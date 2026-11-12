@@ -678,7 +678,7 @@ pub fn alpha_map(bytes: &[u8]) -> Option<AlphaMap> {
                 *a = p[3];
             }
         }
-        Format::R8G8B8 | Format::X8R8G8B8 | Format::X8B8G8R8 | Format::R5G6B5 | Format::X1R5G5B5 | Format::L8 => return None,
+        Format::R8G8B8 | Format::X8R8G8B8 | Format::X8B8G8R8 | Format::R5G6B5 | Format::X1R5G5B5 | Format::L8 | Format::Bc7 => return None,
     }
     Some(AlphaMap { width, height, alpha })
 }
