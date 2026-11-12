@@ -23653,7 +23653,7 @@ args = ["--cell", "Goodsprings", "--size", "1280x720", "--upscaler", "dlss", "--
 run_seconds = 18
 expect = [{ re = 'DLSS: output observed: .*, generation 1, mean RGB', label = "DLSS's output seen after the black pre-clear, so NGX wrote it (dlss/evaluate.rs output proof)" }, 
   "upscaler: DLSS Quality chosen at start: Streamline loaded before the renderer",
-  { re = 'DLSS: device check: passed for .+ \(every GPU the renderer could pick\)', label = "the device check passed" },
+  { re = 'DLSS: device check: passed for .+ \(every GPU Vulkan exposes\)', label = "the device check passed" },
   "DLSS: route: interposer (the Vulkan instance was made through sl.interposer.dll)",
   { re = 'DLSS: adapter check: the renderer made its device on .+, (the pinned GPU|a GPU the device check passed)', label = "the device is on a GPU the check saw" },
   { re = 'DLSS: supported=true sl=\S+ dlss=\S+', label = "DLSS supported here" },
@@ -23686,7 +23686,7 @@ expect = [{ re = 'DLSS: output observed: .*, generation 1, mean RGB', label = "D
   { text = "upscaler: FSR 3.1 Quality asked for, DLSS Quality draws until the next start", label = "FSR picked in a DLSS session waits for a restart" },
   { re = 'DLSS: evaluates: [1-9]\d* ok, 0 failed; options set again (\d+) times', range = [5, 1000], label = "every evaluate ok, the options set again at least once per mode change" },
 ]
-order = [[
+order = [[{ re = 'DLSS: output observed: Quality \(MaxQuality\), 1280x720 output, HDR on, generation 1,' }, { re = 'DLSS: output observed: Native AA \(DLAA\), 1280x720 output, HDR on, generation 2,' }, { re = 'DLSS: output observed: Balanced \(Balanced\), 1280x720 output, HDR on, generation 3,' }, { re = 'DLSS: output observed: Performance \(MaxPerformance\), 1280x720 output, HDR on, generation 4,' }, { re = 'DLSS: output observed: Ultra Performance \(UltraPerformance\), 1280x720 output, HDR on, generation 5,' }, { re = 'DLSS: output observed: Quality \(MaxQuality\), 1280x720 output, HDR on, generation 6,' }], [
   { re = 'DLSS: evaluate active: Quality \(MaxQuality\), 1280x720 output, HDR on, \d+x\d+ -> 1280x720', label = "Quality at start" },
   { re = 'DLSS: evaluate active: Native AA \(DLAA\), 1280x720 output, HDR on, \d+x\d+ -> 1280x720', label = "Native AA (DLAA)" },
   { re = 'DLSS: evaluate active: Balanced \(Balanced\), 1280x720 output, HDR on, \d+x\d+ -> 1280x720', label = "Balanced" },
@@ -23715,6 +23715,7 @@ expect = [{ re = 'DLSS: output observed: .*, generation 1, mean RGB', label = "D
   { re = 'DLSS: evaluates: ([1-9]\d*) ok, 0 failed', label = "evaluates ok, none failed" },
   "DLSS: shutdown: slFreeResources(DLSS, viewport 0) eOk",
 ]
+order = [[{ re = 'DLSS: output observed: Quality \(MaxQuality\), 1280x720 output, HDR on, generation 1,' }, { re = 'DLSS: output observed: Quality \(MaxQuality\), 1600x900 output, HDR on, generation 2,' }, { re = 'DLSS: output observed: Ultra Performance \(UltraPerformance\), 1600x900 output, HDR on, generation 3,' }, { re = 'DLSS: output observed: Quality \(MaxQuality\), 1600x900 output, HDR on, generation 4,' }]]
 forbid = [{ re = 'DLSS: output not (observed|valid)' }, "DLSS: NGX reported an evaluate error", "dlss_output_proof", { text = "FSR dispatch active", label = "FSR drawing in a DLSS session" }, { text = "slEvaluateFeature: ", label = "a failed evaluate" }, { text = "frames running without DLSS's output", label = "DLSS given up on" }, { re = 'DLSS: render size .* outside the range DLSS reports', label = "a render size DLSS does not take" }, { text = "Shader validation error", label = "a shader validation error" }, { text = "Validation Error", label = "a Vulkan validation error" }]
 
 [[scenario]]

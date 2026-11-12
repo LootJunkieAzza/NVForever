@@ -68,8 +68,9 @@ while DLSS is on. NVForever cannot switch that off.
 
 ## When the DLSS entries are greyed out
 
-When DLSS cannot run, its entries are greyed out with the reason, and the game draws without
-upscaling. A DLSS choice already saved stays saved, so it is tried again at every start: fix
+When DLSS cannot run, its entries are greyed out with the reason. If DLSS is the upscaler you
+chose, the game then draws without upscaling; an FSR 3.1 choice keeps working as before. A DLSS
+choice already saved stays saved, so it is tried again at every start: fix
 what the reason says and start the game again. The log
 (`Documents\My Games\NVForever\logs`) has the details in its lines starting `DLSS:`.
 

@@ -841,7 +841,9 @@ impl Evaluator {
 /// The mapped readback as texels (four little-endian `f32` each, `vec4<f32>` in the buffer).
 fn texels(bytes: &[u8]) -> Vec<[f32; 4]> {
     bytes
-        .chunks_exact(16)
+        .as_chunks::<16>()
+        .0
+        .iter()
         .map(|t| {
             let f = |i: usize| f32::from_le_bytes([t[i], t[i + 1], t[i + 2], t[i + 3]]);
             [f(0), f(4), f(8), f(12)]
