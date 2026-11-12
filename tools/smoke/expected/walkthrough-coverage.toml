@@ -41,7 +41,10 @@ run = 1652
 
 [summary.lines]
 total = 28896
-said = 2490
+# 2490 -> 2489: #2156 says DeathResponse at most once per 20 s. tops-ambush kills the four
+# goons back to back; Lucky38Marilyn answered more than one of them and now answers the
+# first only (0x001751AF, a Random DeathResponse line of GenericAdultCombat, is no longer said).
+said = 2489
 
 [summary.actors]
 with_lines = 704
