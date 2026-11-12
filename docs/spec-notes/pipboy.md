@@ -1728,9 +1728,11 @@ painted in the Pip-Boy's image above the page's tiles, in the middle of the map 
 (`data::popup_over_tiles`), its answers taking the pointer as the hand-built box's do, spawned again
 when its choice moves (which forgets the answer under the pointer, as the hand-built drawing does).
 The page stays drawn from its tiles under it (no frame of the hand-built page). While it is up, and
-after it is answered until the left button is let go, it owns the frame's input
-(`MapTiles::popup_owns`, set by the tile input before it acts): the tile input takes nothing and the
-shell's keys (`pipboy::takes_keys`) wait, so no click goes through it and no key acts twice. Its own
+after it is answered until the left button is let go, it owns the frame's tile input
+(`MapTiles::popup_owns`, set by the tile input before it acts): the page's tiles take neither the
+pointer nor the file's key bindings, so no click goes through it and no key acts twice. The
+shell's keys are not held (`pipboy::takes_keys`): Tab and Esc close the Pip-Boy, the box going
+with it, as on the hand-built page. Its own
 keys and clicks are the model's (`popup_input`, which returns before anything else on the page
 moves). A menu over the page is not used for it (`MapTiles::over_data` stops the model's input
 altogether).

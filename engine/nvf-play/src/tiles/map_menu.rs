@@ -14,8 +14,8 @@
 //! - **The one decision** ([`MapTiles::ready`]): the switch on, DATA showing on a tab it draws, the
 //!   page prepared for that tab (`crate::pipboy::data::prepare`, before this), the file's tiles
 //!   there ([`built`]), the tabs made and a usable measured layout ([`usable`]). A question box up
-//!   does not change it: the box is drawn over the page, and while it is up it takes the frame's
-//!   input ([`MapTiles::popup_owns`]).
+//!   does not change it: the box is drawn over the page, and while it is up it takes the page's
+//!   tile input ([`MapTiles::popup_owns`]); Tab and Esc still close the Pip-Boy.
 //!   Painting (`super::draw`), the frame (`crate::pipboy::frame::draw`) and input read it and
 //!   nothing else; [`settle`] publishes it before them. A pass that fails leaves the whole
 //!   hand-built page, says why once, and after [`FAILING_PASSES`] in a row is tried again only when
@@ -1392,12 +1392,13 @@ pub struct MapTiles {
     /// holds through the frame that menu closes in. The page's own input waits
     /// (`crate::pipboy::data::prepare`), with the switch on only.
     pub over_data: bool,
-    /// The question box over the page drawn from its tiles owns this frame's input: set by
-    /// [`feed`] before the tile input and the shell's keys (`crate::pipboy::takes_keys`) while the
-    /// box is up, and held after it is answered until the left button is let go, so the answer's
-    /// click goes through to nothing under it [design]. The box's own keys and clicks are the
-    /// model's (`data::popup_input`); `over_data` is not used for it, as that stops the model's
-    /// input altogether.
+    /// The question box over the page drawn from its tiles owns this frame's tile input (the
+    /// pointer and the file's key bindings on the page's tiles): set by [`feed`] before it acts
+    /// while the box is up, and held after it is answered until the left button is let go, so the
+    /// answer's click goes through to nothing under it [design]. The shell's keys are not held
+    /// (`crate::pipboy::takes_keys`): Tab and Esc close the Pip-Boy, the box with it, as on the
+    /// hand-built page. The box's own keys and clicks are the model's (`data::popup_input`);
+    /// `over_data` is not used for it, as that stops the model's input altogether.
     pub popup_owns: bool,
     /// Another menu took this frame's tile input (`super::input::feed`).
     pub others: bool,
@@ -1903,7 +1904,7 @@ pub(crate) fn feed(mut script: ResMut<ScriptState>, switch: Res<TileMenus>, from
         tiles.modal = modal;
     }
     let is_paused = paused.as_ref().is_some_and(|p| p.0);
-    // The question box over the page drawn from its tiles owns the frame's input while it is up,
+    // The question box over the page drawn from its tiles owns the frame's tile input while it is up,
     // and until the left button is let go after it (its answer's click acts on nothing under it).
     let box_up = tiles.shown.is_some() && pip.open() && pip.page == Page::Data && out.data.as_ref().is_some_and(|d| d.popup().is_some());
     let button_held = (aid.click > 0 && !aid.right) || devices.mouse.pressed(MouseButton::Left);
@@ -2022,7 +2023,7 @@ pub(crate) fn feed(mut script: ResMut<ScriptState>, switch: Res<TileMenus>, from
     }
 }
 
-/// Whether the question box owns this frame's input ([`MapTiles::popup_owns`]): while it is up
+/// Whether the question box owns this frame's tile input ([`MapTiles::popup_owns`]): while it is up
 /// over the page drawn from its tiles (`up`), and after, while it owned the last frame (`owned`)
 /// and the left button is still held (`held`), so the press that answered it, or one begun under
 /// it, never reaches a tile.
@@ -3051,7 +3052,7 @@ mod tests {
         assert_eq!(Shown::of(&p(data::WORLD, bare), true), Err("the world map has no picture here".to_string()));
     }
 
-    /// [design] The question box owns the frame's input while it is up, and after it is answered
+    /// [design] The question box owns the frame's tile input while it is up, and after it is answered
     /// until the left button is let go; a press begun with no box never makes it own anything.
     #[test]
     fn the_question_box_owns_the_input_until_the_button_is_let_go() {

@@ -578,10 +578,12 @@ pub fn pipboy_open(pip: Res<PipBoy>) -> bool {
 /// page drawn from its tiles not in the frame a menu over it closes either: that key was the
 /// menu's (`crate::tiles::stats_menu::StatsTiles::modal`,
 /// `crate::tiles::repair_menu::RepairTiles::modal`, `crate::tiles::inventory_menu::InventoryTiles::modal`,
-/// `crate::tiles::map_menu::MapTiles::modal`); nor while the question box over the DATA page drawn
-/// from its tiles holds the frame's input (`crate::tiles::map_menu::MapTiles::popup_owns`).
+/// `crate::tiles::map_menu::MapTiles::modal`). A question box over the DATA page (fast travel's,
+/// Place Marker's) holds none of them, whichever drawing shows it: Tab and Esc close the Pip-Boy
+/// and the box with it, as they always did; the box over the page drawn from its tiles holds only
+/// the tile input (`crate::tiles::map_menu::MapTiles::popup_owns`).
 fn takes_keys(script: Option<Res<crate::script::ScriptState>>, tiles: Option<Res<crate::tiles::stats_menu::StatsTiles>>, repair_tiles: Option<Res<crate::tiles::repair_menu::RepairTiles>>, inventory: Option<Res<crate::tiles::inventory_menu::InventoryTiles>>, map: Option<Res<crate::tiles::map_menu::MapTiles>>) -> bool {
-    !box_holds_keys(script.as_ref().and_then(|s| s.rt.as_ref()).and_then(|rt| rt.game.menu), tiles.as_deref()) && !repair_tiles.is_some_and(|t| t.modal) && !inventory.is_some_and(|t| t.modal) && !map.is_some_and(|t| t.modal || t.popup_owns)
+    !box_holds_keys(script.as_ref().and_then(|s| s.rt.as_ref()).and_then(|rt| rt.game.menu), tiles.as_deref()) && !repair_tiles.is_some_and(|t| t.modal) && !inventory.is_some_and(|t| t.modal) && !map.is_some_and(|t| t.modal)
 }
 
 /// The rule of [`takes_keys`], by the scripts' open menu and the tiles' state: a box over the
