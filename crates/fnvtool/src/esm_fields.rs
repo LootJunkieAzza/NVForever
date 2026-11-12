@@ -147,8 +147,8 @@ pub fn fields(args: &LoadOrderArgs, schema_dir: &Path) -> anyhow::Result<Value> 
     let names: Vec<String> = plugins.iter().map(|p| p.name.clone()).collect();
     let mut recs: BTreeMap<String, RecStat> = BTreeMap::new();
     let mut stats: HashMap<String, Stat> = HashMap::new();
-    for pi in 0..plugins.len() {
-        for r in &lo.records[pi] {
+    for (pi, plugin_recs) in lo.records.iter().enumerate().take(plugins.len()) {
+        for r in plugin_recs {
             let sig = r.sig_str();
             let rs = recs.entry(sig.clone()).or_default();
             rs.count += 1;

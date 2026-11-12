@@ -727,9 +727,9 @@ impl Game {
         let me = &self.sides[by];
         for (i, c) in me.hand.iter().enumerate() {
             if c.rank.is_face() {
-                for side in 0..2 {
-                    for track in 0..TRACKS {
-                        for on in 0..self.sides[side].caravans[track].cards.len() {
+                for (side, s) in self.sides.iter().enumerate() {
+                    for (track, caravan) in s.caravans.iter().enumerate() {
+                        for on in 0..caravan.cards.len() {
                             out.push(Move::Play { card: i, side, track, on: Some(on) });
                         }
                     }
@@ -845,9 +845,9 @@ impl Game {
             Rank::Num(1) => c.suit == target.suit,
             r => c.rank == r,
         };
-        for side in 0..2 {
-            for track in 0..TRACKS {
-                let pile = std::mem::take(&mut self.sides[side].caravans[track].cards);
+        for (side, s) in self.sides.iter_mut().enumerate() {
+            for (track, caravan) in s.caravans.iter_mut().enumerate() {
+                let pile = std::mem::take(&mut caravan.cards);
                 let mut gone = Vec::new();
                 let mut kept = Vec::with_capacity(pile.len());
                 for (i, p) in pile.into_iter().enumerate() {
@@ -858,7 +858,7 @@ impl Game {
                         kept.push(p);
                     }
                 }
-                self.sides[side].caravans[track].cards = kept;
+                caravan.cards = kept;
                 if !gone.is_empty() {
                     ev.push(Event::Removed { side, track, cards: gone });
                 }

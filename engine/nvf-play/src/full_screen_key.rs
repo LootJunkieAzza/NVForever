@@ -70,8 +70,8 @@ pub(crate) fn step(alts: &mut Alts, pressed: [bool; 2], keyboard: ([bool; 2], [b
     let down = |i: usize| pressed[i] || alts.held[i];
     let fire = enter && (down(0) || down(1));
     if fire {
-        for i in 0..2 {
-            alts.taken[i] |= down(i);
+        for (i, taken) in alts.taken.iter_mut().enumerate() {
+            *taken |= down(i);
         }
     }
     fire

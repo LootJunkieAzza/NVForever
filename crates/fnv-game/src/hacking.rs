@@ -387,8 +387,7 @@ impl Puzzle {
     pub fn pair_at(&self, index: usize) -> Option<usize> {
         let close = closing(*self.chars.get(index)?)?;
         let row_end = (index / ROW_CHARS + 1) * ROW_CHARS;
-        for j in index + 1..row_end {
-            let c = self.chars[j];
+        for (j, &c) in self.chars.iter().enumerate().take(row_end).skip(index + 1) {
             if c.is_alphabetic() {
                 return None;
             }

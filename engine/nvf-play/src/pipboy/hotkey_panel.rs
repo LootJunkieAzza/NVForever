@@ -26,7 +26,7 @@
 
 use super::frame::{Align, Ctx, Kit, LINE, MAIN, THICK};
 use crate::bindings::Bindings;
-use crate::hotkeys::{Hotkeys, Refused, Slot, AMMO_SWAP, SLOTS};
+use crate::hotkeys::{Hotkeys, Refused, Slot, AMMO_SWAP};
 use crate::interface::{amber, at};
 use crate::menu::model::Row;
 use crate::sim::SimState;
@@ -166,7 +166,7 @@ pub fn draw(p: &mut ChildSpawnerCommands, c: &mut Ctx, hotkeys: &Hotkeys, hold: 
         let r = Rect::from_corners(o + CENTRE_ICON.min, o + CENTRE_ICON.max);
         c.image(p, icon, at(r.min.x, r.min.y, r.width(), r.height()), bright);
     }
-    for slot in 0..SLOTS {
+    for (slot, hotkey) in hotkeys.0.iter().enumerate() {
         let b = o + box_at(slot);
         if slot == AMMO_SWAP {
             if hold.slot == Some(slot) {
@@ -180,7 +180,7 @@ pub fn draw(p: &mut ChildSpawnerCommands, c: &mut Ctx, hotkeys: &Hotkeys, hold: 
         }
         let inner = Rect::from_corners(b + Vec2::splat(INSET), b + Vec2::splat(BOX - INSET));
         c.boxed(p, inner, line, None);
-        if let Some(icon) = hotkeys.0[slot].and_then(|s| icon_of(FormId(s.item), sim, combat)) {
+        if let Some(icon) = hotkey.and_then(|s| icon_of(FormId(s.item), sim, combat)) {
             c.image(p, icon, at(inner.min.x + THICK, inner.min.y + THICK, inner.width() - 2.0 * THICK, inner.height() - 2.0 * THICK), bright);
         }
         // The number at the box's right foot: its bottom 5 under the box's [documented:

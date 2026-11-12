@@ -2922,8 +2922,8 @@ mod tests {
         v.status = 3;
         let menu = run_tab(&mut ui, &s, &mut v, STATUS_TAB, &mut t).unwrap();
         let st = status_paths(&ui);
-        for i in 3..6 {
-            assert_eq!(num(&ui, st.subs[i], "visible"), 1.0);
+        for &sub in &st.subs[3..6] {
+            assert_eq!(num(&ui, sub, "visible"), 1.0);
         }
         assert_eq!(num(&ui, st.container, "user0"), 3.0);
         assert_eq!(num(&ui, menu, "user1"), 710.0, "the page's own meter");
