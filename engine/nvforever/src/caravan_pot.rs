@@ -45,10 +45,13 @@ const CCD_SUBSTEPS: usize = 4;
 const NOTE_TURN_MOST: f32 = 4.0;
 /// The fall runs at this much of real time, so a 15 cm drop reads [design].
 const PACE: f32 = 0.7;
-/// Each kind falls together, as one handful: all the notes, then all the coins, then all
-/// the caps (the owner, 2026-11-12: "all bills and then coins and then caps"). A handful
-/// is let go this long after the pot is laid or the one before it is down [design].
+/// Each kind falls as one handful: all the notes, then all the coins, then all the caps
+/// (the owner, 2026-11-12: "all bills and then coins and then caps"). A handful is let go
+/// this long after the pot is laid or the one before it is down; every stack in it starts
+/// at that moment, and its pieces follow one after another, this far apart (s) (the owner:
+/// "each stack starts falling at the same time ... individual items still fall") [design].
 const FIRST_DROP: f32 = 0.15;
+const STACK_GAP: f32 = 0.06;
 /// Pieces of one handful that would start in each other are let go one over the other,
 /// this far apart (m) [design].
 const DROP_SPACE: f32 = 0.002;
@@ -257,9 +260,10 @@ fn to_m(p: Vec2) -> Vec2 {
 /// One piece of the pot: where it is aimed, when it falls, its body once it has.
 pub struct PotPiece {
     pub piece: Piece,
-    /// Its handful ([`handful`]), let go all at once, and how high over the planks it is
-    /// let go from (m).
+    /// Its handful ([`handful`]); how long after the handful starts it is let go (its
+    /// place up its stack, [`STACK_GAP`] apart); and how high over the planks (m).
     wave: usize,
+    delay: f32,
     high: f32,
     body: Option<RigidBodyHandle>,
     seed: usize,
@@ -355,6 +359,10 @@ impl PotSim {
             let wave = handful(kind);
             let (reach, up) = drop_reach(kind);
             let aim = to_m(piece.at);
+            // Its place up its stack: the pieces of its handful laid before it that it lies
+            // on (their footprints overlap).
+            let under = self.pieces[first..].iter().filter(|o| o.wave == wave && (to_m(o.piece.at) - aim).length() < reach + drop_reach(o.piece.kind).0).count();
+            let delay = STACK_GAP * under as f32;
             let mut high = between(if kind.note() { DROP_HIGH } else { ROUND_HIGH }, roll(seed, 1)) + piece.lift / UNITS_PER_M;
             // Raised over every piece of its handful it would start in, until clear: each
             // raise only goes up, so this ends.
@@ -371,7 +379,7 @@ impl PotSim {
                     None => break,
                 }
             }
-            self.pieces.push(PotPiece { piece, wave, high, body: None, seed, bend: 0.0, flattened: 0.0, collider: None, touched: false, air: 1.0, release_clock: 0.0, drift: Vec3::ZERO, touched_at: 0.0, pinned: false, still_for: 0.0 });
+            self.pieces.push(PotPiece { piece, wave, delay, high, body: None, seed, bend: 0.0, flattened: 0.0, collider: None, touched: false, air: 1.0, release_clock: 0.0, drift: Vec3::ZERO, touched_at: 0.0, pinned: false, still_for: 0.0 });
         }
         self.wave_from = [None; WAVES];
         self.wave_from[0] = Some(self.clock + FIRST_DROP);
@@ -394,7 +402,8 @@ impl PotSim {
 
     /// When piece `k` is let go, if that is known yet.
     fn release_at(&self, k: usize) -> Option<f32> {
-        self.wave_from[self.pieces[k].wave]
+        let p = &self.pieces[k];
+        self.wave_from[p.wave].map(|t| t + p.delay)
     }
 
     /// Whether every piece has fallen and lies still: nothing more to step.
@@ -801,7 +810,7 @@ mod tests {
     }
 
     #[test]
-    fn each_kind_falls_together_notes_then_coins_then_caps() {
+    fn each_kind_falls_as_stacks_notes_then_coins_then_caps() {
         let mut s = PotSim::new(&zones());
         s.add(&money(10_434), 0);
         let mut out_at = vec![f32::NAN; s.pieces.len()];
@@ -822,9 +831,14 @@ mod tests {
             when[p.wave].push(out_at[k]);
         }
         assert!(when.iter().all(|w| !w.is_empty()), "a big pot has notes, coins and caps");
+        // Every stack of a handful starts at once; the pieces up a stack follow one by one.
+        assert!(s.pieces.iter().any(|p| p.delay > 0.0), "some stack has more than one piece");
+        for (k, p) in s.pieces.iter().enumerate() {
+            let start = s.wave_from[p.wave].unwrap();
+            assert!((out_at[k] - (start + p.delay)).abs() < STEP * 1.5, "piece {k} let go at {:.3} s, not {:.3} s", out_at[k], start + p.delay);
+        }
         for (wave, w) in when.iter().enumerate() {
-            let (lo, hi) = w.iter().fold((f32::MAX, f32::MIN), |(a, b), &t| (a.min(t), b.max(t)));
-            assert!(hi - lo < STEP * 1.5, "handful {wave} let go over {:.3} s, not at once", hi - lo);
+            let lo = w.iter().fold(f32::MAX, |a, &t| a.min(t));
             if wave > 0 {
                 let before = when[wave - 1].iter().fold(f32::MIN, |a, &t| a.max(t));
                 assert!(lo > before, "handful {wave} fell before handful {} was let go", wave - 1);
