@@ -43,13 +43,15 @@ it.
 
 ## Turning it on
 
-1. In the pause menu, **Settings > Graphics**, set **Upscaling** to one of the `DLSS:`
-   entries: Native AA (DLSS at full resolution, also called DLAA), Quality, Balanced,
-   Performance or Ultra Performance.
-2. Start NVForever again. DLSS is loaded only when the game starts, so choosing it, or
-   leaving it for FSR or Off, takes effect at the next start; until then the entry reads
-   "(from the next start)" and the picture stays as it was. Loading a save starts the game
-   again too. Changing between DLSS's own qualities takes effect at once.
+In the pause menu, **Settings > Graphics**, set **Upscaler** to **DLSS**, and
+**Upscaling quality** to Native AA (DLSS at full resolution, also called DLAA), Quality,
+Balanced, Performance or Ultra Performance. The quality row serves FSR 3.1 the same way; it is
+dimmed while Upscaler is Off.
+
+With the four files in the `dlss` folder when the game starts, every change takes effect at
+once: Off, FSR 3.1 and DLSS, and every quality. Files put into the folder while the game runs
+are found at the next start: until then a DLSS choice reads **DLSS (restart)** and the picture
+stays as it was. Loading a save starts the game again too.
 
 On the command line, `--upscaler dlss --upscaler-quality balanced` (or `native-aa`,
 `quality`, `performance`, `ultra-performance`) chooses DLSS; as with every setting, a choice
@@ -58,18 +60,22 @@ saved in the settings wins in normal play.
 While DLSS is on:
 
 - the anti-aliasing row reads "Off (upscaling active)": DLSS does the anti-aliasing, and the
-  saved anti-aliasing comes back when Upscaling is Off;
+  saved anti-aliasing comes back when Upscaler is Off;
 - the Sharpening switch drives NVForever's ordinary sharpening pass;
 - frame generation is not available: its row reads "Not with DLSS" (frame generation works
   with FSR 3.1 only).
 
-Like other games that use DLSS, NVIDIA's driver may update its DLSS files in the background
-while DLSS is on. NVForever cannot switch that off.
+Whenever the files are in the `dlss` folder, NVIDIA's driver may update DLSS in the background,
+as it does for other games that use DLSS, whichever upscaler is chosen: NVForever loads NVIDIA's
+Streamline at every start the files are there, so that DLSS can be switched to without a
+restart. NVForever cannot switch the driver's updates off. With the files there, FSR 3.1 runs
+through Streamline too; remove the folder to keep NVIDIA's code out altogether.
 
-## When the DLSS entries are greyed out
+## When DLSS is greyed out
 
-When DLSS cannot run, its entries are greyed out with the reason. If DLSS is the upscaler you
-chose, the game then draws without upscaling; an FSR 3.1 choice keeps working as before. A DLSS
+When DLSS cannot run, the Upscaler row's DLSS entry is greyed out with the reason. If DLSS is
+the upscaler you chose, the game then draws without upscaling; an FSR 3.1 choice keeps working
+as before. A DLSS
 choice already saved stays saved, so it is tried again at every start: fix
 what the reason says and start the game again. The log
 (`Documents\My Games\NVForever\logs`) has the details in its lines starting `DLSS:`.
@@ -88,8 +94,15 @@ what the reason says and start the game again. The log
 
 ## Removing it
 
-Set Upscaling to Off or to an FSR 3.1 entry and start the game again, then delete the `dlss`
-folder. If the folder is deleted while DLSS is still chosen, the next start draws without
-upscaling and the DLSS entries read "DLSS files missing".
+Set Upscaler to Off or to FSR 3.1, quit the game, then delete the `dlss` folder. If the folder
+is deleted while DLSS is still chosen, the next start draws without upscaling and DLSS reads
+"DLSS files missing".
+
+## Settings saved by an earlier build
+
+Earlier builds kept the upscaler in one row, `fsr-upscaling` in `NVForever.ini` (for example
+`fsr-upscaling=DLSS Balanced` or `fsr-upscaling=Quality`). Such a line still loads into the two
+rows; once a row is changed, the two rows are saved as `upscaler=` and `upscaler-quality=`, and
+those win over the older line.
 
 How DLSS is built into NVForever: [design/dlss-upscaling.md](design/dlss-upscaling.md).

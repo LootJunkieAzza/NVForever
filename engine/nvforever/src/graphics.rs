@@ -81,10 +81,11 @@ pub const FSR_CHOICES: [(&str, FsrMode); 6] = [
     ("Ultra Performance", FsrMode::UltraPerformance),
 ];
 
-/// The `fsr-upscaling` row's choices by the names the INI, the log and the test aids use:
+/// The older `fsr-upscaling` row's choices by the names its INI lines and the test aids use:
 /// [`FSR_CHOICES`]' six as they always were (off and FSR 3.1 at each quality), then DLSS at
-/// each quality (#2198). The page shows them by other words (`settings.rs`).
-pub const UPSCALER_CHOICES: [(&str, UpscalerChoice); 11] = [
+/// each quality (#2198). The Upscaler and Upscaling quality rows took over from it and still
+/// read these (`settings.rs` `parse_legacy`, the test aid's `fsr-upscaling=<name>`).
+pub const FSR_UPSCALING_CHOICES: [(&str, UpscalerChoice); 11] = [
     ("Off", UpscalerChoice::Off),
     ("Native AA", UpscalerChoice::Fsr(UpscaleQuality::NativeAa)),
     ("Quality", UpscalerChoice::Fsr(UpscaleQuality::Quality)),

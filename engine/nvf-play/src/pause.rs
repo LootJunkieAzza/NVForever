@@ -196,7 +196,9 @@
 //! it), `layout` logs the tabs and each row's place (`settings layout: menu-pause ->
 //! Gameplay > Dialogue`), `search:<text>` opens the search on that text with the keys on
 //! its results (`pause menu: search "<text>": <n> result(s); keys …`) and `changed` the
-//! Changed list [design: #1953].
+//! Changed list [design: #1953]. An older list's key (`crate::settings::set_list_alias`:
+//! nvforever's `fsr-upscaling=<choice>`) shows the row that took over and takes the older
+//! row's choice there.
 //! `NVF_PLAY_TEST_PAUSE_MENU=<seconds>:<action>[,…]`: with the pause menu open, `save` (the
 //! Save button), `load` (the load page), `down`, `up`, `pick` (Enter on the load page, the
 //! quit question, a settings row or its open dropdown, where `down` and `up` move too),
@@ -2862,6 +2864,22 @@ fn choose(
             (Some(i), _) => {
                 show_row(&mut page, &mut view, layout, RowId::Setting(i));
                 fx.flips.push(i);
+            }
+            (None, _) if settings.alias(&key).is_some() => {
+                // An older list's key (settings::set_list_alias): its row shown, its choice taken
+                // by the older row's name.
+                if let Some(i) = settings.alias(&key).and_then(|(_, a)| a.rows.first()).and_then(|row| settings.index(row)) {
+                    show_row(&mut page, &mut view, layout, RowId::Setting(i));
+                }
+                match item.split_once('=') {
+                    Some((_, v)) => {
+                        let (key, name) = (key.clone(), v.trim().to_string());
+                        commands.queue(move |world: &mut World| {
+                            crate::settings::pick_alias(world, &key, &name);
+                        });
+                    }
+                    None => warn!("NVF_PLAY_TEST_SETTINGS: {key} is a list: give it a choice, {key}=<choice>"),
+                }
             }
             (None, "page") => show_scope(&mut page, &mut view, SettingsScope::default()),
             (None, "controls") => show_row(&mut page, &mut view, layout, RowId::Control(ControlRow::Device)),

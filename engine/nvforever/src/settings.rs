@@ -25,7 +25,7 @@ use crate::nav::NavState;
 use crate::perf_overlay::{FpsCounter, Low};
 use crate::player_body::PlayerBody;
 use crate::sky::SkyState;
-use crate::upscaler::UpscalerChoice;
+use crate::upscaler::{UpscaleQuality, Upscaler, UpscalerChoice};
 use crate::window_mode;
 use crate::world::Streamer;
 use crate::{Args, Overlay};
@@ -550,11 +550,17 @@ fn set_counter_low(world: &mut World, name: &str) -> bool {
 /// the CPU placement (`cpu_placement.rs`), the frame split's GPU timestamps
 /// (`perf_overlay::split`). None without the INI or the key.
 pub(crate) fn stored_at_start(key: &str) -> Option<String> {
+    fnv_install::ini_get(&settings_text_at_start()?, nvf_play::settings::SECTION, key)
+}
+
+/// The text of the INI this run reads (`SettingsFile::for_run`), as [`stored_at_start`] reads
+/// it: for the upscaler's rows, read before the renderer exists (`UpscalerIni`). None without
+/// the INI.
+pub(crate) fn settings_text_at_start() -> Option<String> {
     // Unattended: a test aid drives this run (as nvf_play's test_aid::Unattended).
     let unattended = std::env::vars_os().any(|(k, _)| k.to_str().is_some_and(nvf_play::drives_run));
     let path = nvf_play::settings::SettingsFile::for_run(unattended).0?;
-    let text = std::fs::read_to_string(path).ok()?;
-    fnv_install::ini_get(&text, nvf_play::settings::SECTION, key)
+    std::fs::read_to_string(path).ok()
 }
 
 /// The display sync of this name (or INI text, `DisplaySync::parse`); false: not one.
@@ -657,34 +663,37 @@ fn register_distances(app: &mut App) {
     }
 }
 
-/// The upscaling row's key; it kept the name it had when FSR 3.1 was its only upscaler, so
-/// the INIs and test aids written then still work.
-pub(crate) const UPSCALING_KEY: &str = "fsr-upscaling";
+/// The Upscaler row's key and the Upscaling quality row's: two rows for the one request
+/// (`Graphics::upscaler`) since #2198's play-test, where the one dropdown of eleven choices
+/// was too long for its box [design: the user's, 2026-11-12].
+pub(crate) const UPSCALER_KEY: &str = "upscaler";
+pub(crate) const QUALITY_KEY: &str = "upscaler-quality";
 
-/// The upscaling row's note. It names the command-line switches the row starts from, so a test
-/// run that gives one keeps it over the INI (`nvf_play::settings::GivenSwitches`), at the start
-/// ([`upscaler_after_ini`]) as at `PostStartup`.
-pub(crate) const UPSCALING_NOTE: &str = "Reconstruct the world at display resolution with FSR 3.1 or NVIDIA DLSS; Native AA keeps full resolution. Disables MSAA, FXAA, SMAA and TAA while active. Menus stay sharp. Requires Vulkan; unsupported devices keep native rendering. DLSS needs an NVIDIA RTX graphics card and NVIDIA's DLSS files in the dlss folder beside nvforever.exe (NVForever ships none); choosing DLSS or leaving it takes effect at the next start (loading a save starts the game again). Sharpening controls FSR sharpening. Frame generation is the row below and needs FSR. (--upscaler, --upscaler-quality, --fsr)";
+/// The one row the two took over from, under the name it had when FSR 3.1 was its only
+/// upscaler: still read from an INI that lacks `upscaler` (`set_older_key`) and still taken by
+/// the test aids (`set_list_alias`), by its eleven names (`graphics::FSR_UPSCALING_CHOICES`)
+/// and the early slider build's numbers.
+pub(crate) const LEGACY_KEY: &str = "fsr-upscaling";
+
+/// The two rows' notes. Each names all three command-line switches, so a test run that gives
+/// any of them keeps both rows at the command line's choice over the INI
+/// (`nvf_play::settings::GivenSwitches`), at the start ([`upscaler_after_ini`]) as at
+/// `PostStartup`.
+pub(crate) const UPSCALER_NOTE: &str = "Reconstruct the world at display resolution with FSR 3.1 or NVIDIA DLSS, at the Upscaling quality below. Disables MSAA, FXAA, SMAA and TAA while active. Menus stay sharp. Requires Vulkan; unsupported devices keep native rendering. DLSS needs an NVIDIA RTX graphics card and NVIDIA's DLSS files in the dlss folder beside nvforever.exe (NVForever ships none). With the files there when the game starts, every choice takes effect at once; files put there later are found at the next start, so DLSS chosen until then reads DLSS (restart) (loading a save starts the game again). Sharpening controls FSR sharpening. Frame generation needs FSR. (--upscaler, --upscaler-quality, --fsr)";
+pub(crate) const QUALITY_NOTE: &str = "How much smaller than the display the world is drawn before the upscaler rebuilds it: Native AA keeps full resolution and only smooths the edges (DLSS: DLAA); Quality, Balanced, Performance and Ultra Performance draw it ever smaller, for more frames and a softer picture. Takes effect at once. With Upscaler Off there is nothing to set. (--upscaler-quality, --upscaler, --fsr)";
 
 /// The engine-level improvements of `graphics.rs` (`--graphics enhanced` starts with all
 /// of them on, `vanilla` with none).
 fn register_graphics(app: &mut App) {
     type Switch = (&'static str, &'static str, &'static str, fn(&World) -> bool, fn(&mut World, bool));
-    // One row for every temporal upscaler (#2198): off, FSR 3.1 at each quality under the
-    // names it always had, then DLSS at each quality (`graphics::UPSCALER_CHOICES`).
+    // Two rows for the one temporal upscaler request (#2198): which upscaler, then its
+    // quality; both keep `Graphics::upscaler`. The quality row stands dimmed while no upscaler
+    // is chosen. The older single row's INI key and test-aid key still work.
     add_choice_list(
         app,
-        Setting {
-            key: UPSCALING_KEY,
-            group: GROUP_GRAPHICS,
-            label: "Upscaling",
-            note: UPSCALING_NOTE,
-            get: |_| false,
-            set: |_, _| {},
-            slider: None,
-        },
+        Setting { key: UPSCALER_KEY, group: GROUP_GRAPHICS, label: "Upscaler", note: UPSCALER_NOTE, get: |_| false, set: |_, _| {}, slider: None },
         ChoiceList {
-            names: |_| graphics::UPSCALER_CHOICES.iter().map(|(name, _)| (*name).to_string()).collect(),
+            names: |_| UPSCALERS.iter().map(|(name, _)| (*name).to_string()).collect(),
             chosen: upscaler_chosen,
             pick: pick_upscaler,
             save: upscaler_chosen,
@@ -692,14 +701,34 @@ fn register_graphics(app: &mut App) {
             ask_keep: false,
         },
     );
-    nvf_play::settings::set_choice_labels(app, UPSCALING_KEY, upscaler_label);
-    nvf_play::settings::set_choice_unavailable(app, UPSCALING_KEY, upscaler_unavailable);
+    nvf_play::settings::set_choice_labels(app, UPSCALER_KEY, upscaler_label);
+    nvf_play::settings::set_choice_unavailable(app, UPSCALER_KEY, upscaler_unavailable);
+    nvf_play::settings::set_older_key(app, UPSCALER_KEY, LEGACY_KEY);
+    add_choice_list(
+        app,
+        Setting { key: QUALITY_KEY, group: GROUP_GRAPHICS, label: "Upscaling quality", note: QUALITY_NOTE, get: |_| false, set: |_, _| {}, slider: None },
+        ChoiceList {
+            names: |_| UpscaleQuality::ALL.iter().map(|q| q.name().to_string()).collect(),
+            chosen: quality_chosen,
+            pick: load_quality,
+            save: quality_chosen,
+            load: load_quality,
+            ask_keep: false,
+        },
+    );
+    nvf_play::settings::set_choice_labels(app, QUALITY_KEY, |_, name| fnv_util::words::tr_str(name).to_string());
+    nvf_play::settings::set_disabled_status(app, QUALITY_KEY, |w| w.resource::<Graphics>().upscaler.quality().is_none().then_some("Needs an upscaler"));
+    nvf_play::settings::set_list_alias(
+        app,
+        LEGACY_KEY,
+        nvf_play::settings::ListAlias { rows: &[UPSCALER_KEY, QUALITY_KEY], chosen: legacy_chosen, pick: pick_legacy, unavailable: legacy_unavailable },
+    );
     let choices = [
         Setting::slider(
             "anti-aliasing",
             GROUP_GRAPHICS,
             "Anti-aliasing",
-            "How edges are smoothed: multisampling Off, 2x, 4x or 8x (--msaa; the cut-out edges of plants too), or the picture smoothed afterwards: FXAA (cheapest, softest), SMAA (sharper, a little dearer) or TAA (over the frames; plants too, soft while moving; --graphics-only fxaa, smaa or taa). Multisampling is the dearest, more at each step: at 1920x1080 on an RTX 4070, 2x added about 0.8 ms a frame, 4x about 1.3 ms and 8x about 2.3 ms (Goodsprings and Novac at noon); FXAA, SMAA and TAA cost less than 4x. Where the processor sets the pace (the Strip at night) the choice costs next to nothing. While Upscaling (FSR 3.1 or DLSS) is on it does the anti-aliasing itself, so this row reads Off (upscaling active); your choice comes back when Upscaling is Off.",
+            "How edges are smoothed: multisampling Off, 2x, 4x or 8x (--msaa; the cut-out edges of plants too), or the picture smoothed afterwards: FXAA (cheapest, softest), SMAA (sharper, a little dearer) or TAA (over the frames; plants too, soft while moving; --graphics-only fxaa, smaa or taa). Multisampling is the dearest, more at each step: at 1920x1080 on an RTX 4070, 2x added about 0.8 ms a frame, 4x about 1.3 ms and 8x about 2.3 ms (Goodsprings and Novac at noon); FXAA, SMAA and TAA cost less than 4x. Where the processor sets the pace (the Strip at night) the choice costs next to nothing. While an upscaler (FSR 3.1 or DLSS) is on it does the anti-aliasing itself, so this row reads Off (upscaling active); your choice comes back when Upscaler is Off.",
             Slider::choice(graphics::AA_CHOICES.len(), |w| choice_part(graphics::aa_choice(w), graphics::AA_CHOICES.len()), |w, v| graphics::set_aa_choice(w, choice_index(v, graphics::AA_CHOICES.len())), |v| {
                 graphics::AA_CHOICES[choice_index(v, graphics::AA_CHOICES.len())].0.to_string()
             }),
@@ -839,7 +868,7 @@ fn register_graphics(app: &mut App) {
 
 fn register_pipeline_waits(app: &mut App) {
     for key in [
-        "anti-aliasing", "shadow-filter", "fsr-upscaling", "ambient-occlusion",
+        "anti-aliasing", "shadow-filter", "upscaler", "upscaler-quality", "ambient-occlusion",
         "fine-shadows", "bloom", "glow", "eye-adaptation", "neon-glow", "sharpen",
         "light-shafts", "water-reflections", "water-mirror", "sun-shadows", "grade",
     ] {
@@ -847,70 +876,140 @@ fn register_pipeline_waits(app: &mut App) {
     }
 }
 
-/// The requested upscaler's name in the row (`graphics::UPSCALER_CHOICES`).
-fn upscaler_chosen(world: &World) -> String {
-    let requested = world.resource::<Graphics>().upscaler;
-    graphics::UPSCALER_CHOICES.iter().find(|(_, choice)| *choice == requested).map_or("Off", |(name, _)| *name).to_string()
+/// The Upscaler row's choices by the names the INI, the log and the test aids use (the page
+/// shows them by [`upscaler_label`]).
+const UPSCALERS: [(&str, Upscaler); 3] = [("Off", Upscaler::Off), ("FSR 3.1", Upscaler::Fsr), ("DLSS", Upscaler::Dlss)];
+
+/// The quality the Upscaling quality row holds while the upscaler is Off, when the request
+/// (`Graphics::upscaler`) has none: an upscaler chosen again takes it up.
+#[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct KeptQuality(pub UpscaleQuality);
+
+/// What the two rows hold: the request, and the quality kept for while it is Off.
+type RowsState = (UpscalerChoice, UpscaleQuality);
+
+fn rows_state(world: &World) -> RowsState {
+    (world.resource::<Graphics>().upscaler, world.get_resource::<KeptQuality>().map_or_else(UpscaleQuality::default, |k| k.0))
 }
 
-/// The choice of this name (any case).
-fn upscaler_named(name: &str) -> Option<UpscalerChoice> {
-    graphics::UPSCALER_CHOICES.iter().find(|(label, _)| label.eq_ignore_ascii_case(name.trim())).map(|(_, choice)| *choice)
-}
-
-fn pick_upscaler(world: &mut World, name: &str) -> bool {
-    let Some(choice) = upscaler_named(name) else { return false };
+fn set_rows_state(world: &mut World, (choice, kept): RowsState) {
     world.resource_mut::<Graphics>().upscaler = choice;
-    true
+    world.insert_resource(KeptQuality(kept));
 }
 
-/// The row's INI text read as the row reads it: a choice's name, or a number written by the
-/// early local slider build of the FSR row (a part of its six FSR choices, which is all that
-/// build had; new files store the choice's name). `None`: not one of the row's states. The
-/// start reads the INI with it too ([`upscaler_after_ini`]), so the two cannot disagree.
-pub(crate) fn parse_upscaler(value: &str) -> Option<UpscalerChoice> {
-    if let Some(choice) = upscaler_named(value) {
-        return Some(choice);
+/// The quality the quality row shows: the request's, or the one kept while it is Off.
+fn shown_quality((choice, kept): RowsState) -> UpscaleQuality {
+    choice.quality().unwrap_or(kept)
+}
+
+/// `upscaler` chosen, at the quality the quality row shows.
+fn with_upscaler(state: RowsState, upscaler: Upscaler) -> RowsState {
+    let q = shown_quality(state);
+    (UpscalerChoice::new(upscaler, q), q)
+}
+
+/// The quality `q` chosen: the request's when it has one, else kept for later.
+fn with_quality((choice, _): RowsState, q: UpscaleQuality) -> RowsState {
+    (UpscalerChoice::new(choice.upscaler(), q), q)
+}
+
+/// The whole of `choice` chosen (the older row's choices).
+fn with_choice(state: RowsState, choice: UpscalerChoice) -> RowsState {
+    (choice, choice.quality().unwrap_or(shown_quality(state)))
+}
+
+/// The Upscaler row's choice of this name (any case).
+fn upscaler_named(name: &str) -> Option<Upscaler> {
+    UPSCALERS.iter().find(|(n, _)| n.eq_ignore_ascii_case(name.trim())).map(|(_, u)| *u)
+}
+
+/// The quality of this name (any case).
+fn quality_named(name: &str) -> Option<UpscaleQuality> {
+    UpscaleQuality::ALL.into_iter().find(|q| q.name().eq_ignore_ascii_case(name.trim()))
+}
+
+/// The older row's text read as it read it: one of its eleven names, or a number written by
+/// the early local slider build of the FSR row (a part of its six FSR choices, which is all
+/// that build had). `None`: not one of its states.
+pub(crate) fn parse_legacy(value: &str) -> Option<UpscalerChoice> {
+    if let Some((_, choice)) = graphics::FSR_UPSCALING_CHOICES.iter().find(|(n, _)| n.eq_ignore_ascii_case(value.trim())) {
+        return Some(*choice);
     }
     let part = value.trim().parse::<f32>().ok().filter(|v| v.is_finite() && (0.0..=1.0).contains(v))?;
     Some(UpscalerChoice::from_fsr(graphics::FSR_CHOICES[choice_index(part, graphics::FSR_CHOICES.len())].1.quality()))
 }
 
-/// Loads the INI's text, also a DLSS choice DLSS cannot meet this run: the request is kept
-/// and native draws with the reason (`upscaler::resolve`).
-fn load_upscaler(world: &mut World, value: &str) -> bool {
-    let Some(choice) = parse_upscaler(value) else { return false };
-    world.resource_mut::<Graphics>().upscaler = choice;
+/// The Upscaler row's INI text applied to `state`: one of its own names (`Off`, `FSR 3.1`,
+/// `DLSS`) at the quality shown, or the older `fsr-upscaling` row's text, a whole choice (the
+/// row reads that key while the INI lacks its own). The start reads the INI with it too
+/// ([`upscaler_after_ini`]), so the two cannot disagree.
+fn upscaler_text(state: RowsState, text: &str) -> Option<RowsState> {
+    match upscaler_named(text) {
+        Some(upscaler) => Some(with_upscaler(state, upscaler)),
+        None => parse_legacy(text).map(|choice| with_choice(state, choice)),
+    }
+}
+
+/// The quality row's INI text applied to `state`.
+fn quality_text(state: RowsState, text: &str) -> Option<RowsState> {
+    quality_named(text).map(|q| with_quality(state, q))
+}
+
+/// The requested upscaler's name in the Upscaler row.
+fn upscaler_chosen(world: &World) -> String {
+    let upscaler = world.resource::<Graphics>().upscaler.upscaler();
+    UPSCALERS.iter().find(|(_, u)| *u == upscaler).map_or("Off", |(name, _)| *name).to_string()
+}
+
+fn pick_upscaler(world: &mut World, name: &str) -> bool {
+    let Some(upscaler) = upscaler_named(name) else { return false };
+    set_rows_state(world, with_upscaler(rows_state(world), upscaler));
     true
 }
 
-/// The words the row shows for a choice: `Off`, `FSR 3.1: Quality`, `DLSS: Quality`, the
-/// quality in the language shown; the requested one with "(from the next start)" while a
-/// restart is pending for it (`upscaler::UpscalerStatus::restart_pending`).
+/// Loads the INI's text, also a DLSS choice DLSS cannot meet this run: the request is kept
+/// and native draws with the reason (`upscaler::resolve`).
+fn load_upscaler(world: &mut World, value: &str) -> bool {
+    let Some(state) = upscaler_text(rows_state(world), value) else { return false };
+    set_rows_state(world, state);
+    true
+}
+
+fn quality_chosen(world: &World) -> String {
+    shown_quality(rows_state(world)).name().to_string()
+}
+
+/// The quality row's pick and load (the page holds the row dimmed while the upscaler is Off;
+/// the INI's text then sets the quality kept for later).
+fn load_quality(world: &mut World, value: &str) -> bool {
+    let Some(state) = quality_text(rows_state(world), value) else { return false };
+    set_rows_state(world, state);
+    true
+}
+
+/// The words the Upscaler row shows for a choice: `Off` in the language shown, `FSR 3.1`,
+/// `DLSS`; the requested DLSS as `DLSS (restart)` while a restart is pending for it
+/// (`upscaler::UpscalerStatus::restart_pending`; the row's note says why).
 fn upscaler_label(world: &World, name: &str) -> String {
-    use fnv_util::words::{tr_str, trf};
-    let Some(choice) = upscaler_named(name) else { return name.to_string() };
-    let words = match choice {
-        UpscalerChoice::Off => tr_str("Off").to_string(),
-        UpscalerChoice::Fsr(q) => trf("FSR 3.1: {quality}", &[("quality", &tr_str(q.name()))]),
-        UpscalerChoice::Dlss(q) => trf("DLSS: {quality}", &[("quality", &tr_str(q.name()))]),
-    };
-    let pending = world.get_resource::<crate::upscaler::UpscalerStatus>().is_some_and(|s| s.restart_pending());
-    if pending && world.get_resource::<Graphics>().is_some_and(|g| g.upscaler == choice) {
-        trf("{choice} (from the next start)", &[("choice", &words)])
-    } else {
-        words
+    use fnv_util::words::tr_str;
+    match upscaler_named(name) {
+        Some(Upscaler::Off) => tr_str("Off").to_string(),
+        Some(Upscaler::Dlss) => {
+            let pending = world.get_resource::<crate::upscaler::UpscalerStatus>().is_some_and(|s| s.restart_pending());
+            if pending && world.get_resource::<Graphics>().is_some_and(|g| g.upscaler.is_dlss()) {
+                tr_str("DLSS (restart)").to_string()
+            } else {
+                "DLSS".to_string()
+            }
+        }
+        Some(Upscaler::Fsr) | None => name.to_string(),
     }
 }
 
-/// Why a DLSS choice cannot be taken this run: DLSS unavailable for a reason a restart with
-/// DLSS chosen would meet again (`upscaler::Unavailable::words`). Off and FSR are always in
-/// reach (FSR on a device without it draws natively, as before). A stored DLSS choice still
-/// loads from the INI.
-fn upscaler_unavailable(world: &World, name: &str) -> Option<String> {
-    if !upscaler_named(name)?.is_dlss() {
-        return None;
-    }
+/// Why DLSS cannot be taken this run (`upscaler::Unavailable::words`), by the status's rule.
+/// Off and FSR are always in reach (FSR on a device without it draws natively, as before).
+/// A stored DLSS choice still loads from the INI.
+fn dlss_unavailable(world: &World) -> Option<String> {
     let why = match world.get_resource::<crate::upscaler::UpscalerStatus>() {
         Some(status) => status.dlss_unavailable(),
         None => match crate::upscaler::dlss_state_now() {
@@ -921,14 +1020,59 @@ fn upscaler_unavailable(world: &World, name: &str) -> Option<String> {
     why.map(|why| why.words().to_string())
 }
 
-/// The upscaler this run starts with, decided before the renderer exists (Streamline is only
-/// loaded for DLSS; `main`): the command line's choice, then the INI's text by
-/// `nvf_play::settings::apply_stored`'s precedence (`after_ini`), read with the row's own rule
-/// ([`parse_upscaler`]). `given`: the switches this run was given, `None` when it has no
-/// settings page (not `--play`: the INI is not applied, the command line decides).
-pub(crate) fn upscaler_after_ini(command_line: UpscalerChoice, stored: Option<&str>, given: Option<&nvf_play::settings::GivenSwitches>) -> UpscalerChoice {
+fn upscaler_unavailable(world: &World, name: &str) -> Option<String> {
+    (upscaler_named(name)? == Upscaler::Dlss).then(|| dlss_unavailable(world)).flatten()
+}
+
+/// The older row's name for the request now (the test aid's `settings: fsr-upscaling <name>`).
+fn legacy_chosen(world: &World) -> String {
+    let requested = world.resource::<Graphics>().upscaler;
+    graphics::FSR_UPSCALING_CHOICES.iter().find(|(_, choice)| *choice == requested).map_or("Off", |(name, _)| *name).to_string()
+}
+
+/// The test aid's `fsr-upscaling=<name>`: the older row's whole choice, set on both rows.
+fn pick_legacy(world: &mut World, name: &str) -> bool {
+    let Some((_, choice)) = graphics::FSR_UPSCALING_CHOICES.iter().find(|(n, _)| n.eq_ignore_ascii_case(name.trim())) else { return false };
+    set_rows_state(world, with_choice(rows_state(world), *choice));
+    true
+}
+
+fn legacy_unavailable(world: &World, name: &str) -> Option<String> {
+    let (_, choice) = graphics::FSR_UPSCALING_CHOICES.iter().find(|(n, _)| n.eq_ignore_ascii_case(name.trim()))?;
+    choice.is_dlss().then(|| dlss_unavailable(world)).flatten()
+}
+
+/// The INI's texts for the two rows, as `nvf_play::settings::apply_stored` finds them:
+/// `upscaler` (or, without it, the older `fsr-upscaling`) and `upscaler-quality`.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct UpscalerIni {
+    pub upscaler: Option<String>,
+    pub quality: Option<String>,
+}
+
+impl UpscalerIni {
+    /// From an INI's text.
+    pub(crate) fn read(text: &str) -> Self {
+        let get = |key: &str| fnv_install::ini_get(text, nvf_play::settings::SECTION, key);
+        UpscalerIni { upscaler: get(UPSCALER_KEY).or_else(|| get(LEGACY_KEY)), quality: get(QUALITY_KEY) }
+    }
+}
+
+/// The upscaler this run starts with, decided before the renderer exists (the DLSS loader runs
+/// for a DLSS choice; `main`): the command line's choice, then the INI's two rows by
+/// `nvf_play::settings::apply_stored`'s order (Upscaler, then quality) and precedence
+/// (`after_ini`), each read with its row's own rule ([`upscaler_text`], [`quality_text`]).
+/// `given`: the switches this run was given, `None` when it has no settings page (not
+/// `--play`: the INI is not applied, the command line decides).
+pub(crate) fn upscaler_after_ini(command_line: UpscalerChoice, ini: Option<&UpscalerIni>, given: Option<&nvf_play::settings::GivenSwitches>) -> UpscalerChoice {
     let Some(given) = given else { return command_line };
-    nvf_play::settings::after_ini(command_line, stored.and_then(parse_upscaler), given, UPSCALING_NOTE)
+    // The quality kept while Off starts as the rows' (KeptQuality's default).
+    let start = (command_line, UpscaleQuality::default());
+    let stored = ini.filter(|ini| ini.upscaler.is_some() || ini.quality.is_some()).map(|ini| {
+        let after_upscaler = ini.upscaler.as_deref().and_then(|t| upscaler_text(start, t.trim())).unwrap_or(start);
+        ini.quality.as_deref().and_then(|t| quality_text(after_upscaler, t.trim())).unwrap_or(after_upscaler).0
+    });
+    nvf_play::settings::after_ini(command_line, stored, given, UPSCALER_NOTE)
 }
 
 /// Distant LOD on or off now; indoors there is none either way, and the door out goes
@@ -966,7 +1110,7 @@ mod fsr_settings_tests {
         let rows = app.world().resource::<settings::Settings>();
         let aa = rows.index("anti-aliasing").unwrap();
         let ao = rows.index("ambient-occlusion").unwrap();
-        let fsr = rows.index("fsr-upscaling").unwrap();
+        let fsr = rows.index(UPSCALER_KEY).unwrap();
         let world = app.world_mut();
         settings::set_slider(world, aa, 0.0);
         settings::restore(world, ao, 0.0);
@@ -981,7 +1125,7 @@ mod fsr_settings_tests {
         settings::flip(world, ao);
         assert!(!world.resource_mut::<GraphicsResume>().request(0.0));
         world.resource_mut::<GraphicsResume>().reset();
-        settings::pick(world, fsr, "Quality");
+        settings::pick(world, fsr, "FSR 3.1");
         assert!(!world.resource_mut::<GraphicsResume>().request(0.0));
         world.resource_mut::<GraphicsResume>().reset();
         settings::restore(world, fsr, 0.0);
@@ -1051,227 +1195,318 @@ mod fsr_settings_tests {
         assert_eq!(locked(&app), None);
     }
 
-    #[test]
-    fn upscaling_is_one_named_dropdown_and_round_trips_every_choice() {
+    use crate::upscaler::{DlssState, Session, Unavailable, UpscalerStatus};
+    use nvf_play::settings::{apply_stored, GivenSwitches, Settings, SettingsFile};
+    use UpscaleQuality::*;
+
+    /// The graphics rows registered, without an INI.
+    fn rows_app() -> App {
         let mut app = App::new();
         app.insert_resource(Graphics::preset(graphics::Preset::Vanilla));
         register_graphics(&mut app);
-        let settings = app.world().resource::<nvf_play::settings::Settings>();
-        let row = settings.index("fsr-upscaling").unwrap();
-        assert!(settings.list()[row].slider.is_none());
-        assert_eq!(settings.list()[row].label, "Upscaling");
-        let dropdown = settings.choices(row).expect("the upscaler must use the native dropdown widget");
-        let names = (dropdown.names)(app.world());
-        assert_eq!(names.len(), 11);
-        // The six FSR names first and unchanged, so old INIs and test aids still work.
-        let fsr: Vec<&str> = graphics::FSR_CHOICES.iter().map(|(n, _)| *n).collect();
-        assert_eq!(&names[..6], fsr.as_slice());
-        for (name, choice) in graphics::UPSCALER_CHOICES {
-            assert!((dropdown.pick)(app.world_mut(), name));
-            assert_eq!(app.world().resource::<Graphics>().upscaler, choice);
-            let saved = (dropdown.save)(app.world());
-            assert_eq!(saved, name);
-            app.world_mut().resource_mut::<Graphics>().set_fsr(None);
-            assert!((dropdown.load)(app.world_mut(), &saved));
-            assert_eq!((dropdown.chosen)(app.world()), name);
+        app
+    }
+
+    fn row(app: &App, key: &str) -> usize {
+        app.world().resource::<Settings>().index(key).unwrap()
+    }
+
+    fn requested(app: &App) -> UpscalerChoice {
+        app.world().resource::<Graphics>().upscaler
+    }
+
+    /// The two rows' chosen names, as the page and the INI have them.
+    fn chosen(app: &App) -> (String, String) {
+        (upscaler_chosen(app.world()), quality_chosen(app.world()))
+    }
+
+    const READY: Session = Session { streamline_loaded: true, dlss: DlssState::Ready, fsr: None };
+    const STOCK: Session = Session { streamline_loaded: false, dlss: DlssState::NotLoaded, fsr: None };
+
+    #[test]
+    fn the_upscaler_and_its_quality_are_two_named_dropdowns_that_round_trip_every_choice() {
+        let mut app = rows_app();
+        app.insert_resource(UpscalerStatus::new(READY));
+        let (u, q) = (row(&app, UPSCALER_KEY), row(&app, QUALITY_KEY));
+        let settings = app.world().resource::<Settings>();
+        assert_eq!(q, u + 1, "the quality row right after the Upscaler row");
+        assert_eq!((settings.list()[u].label, settings.list()[q].label), ("Upscaler", "Upscaling quality"));
+        assert!(settings.index(LEGACY_KEY).is_none(), "the older row is no row of its own");
+        let upscalers = settings.choices(u).expect("a native dropdown");
+        let qualities = settings.choices(q).expect("a native dropdown");
+        assert_eq!((upscalers.names)(app.world()), ["Off", "FSR 3.1", "DLSS"]);
+        assert_eq!((qualities.names)(app.world()), ["Native AA", "Quality", "Balanced", "Performance", "Ultra Performance"]);
+        assert_eq!(settings.older_key(u), Some(LEGACY_KEY));
+        assert_eq!(chosen(&app), ("Off".to_string(), "Quality".to_string()), "off, the quality kept at Quality");
+        for upscaler in [Upscaler::Fsr, Upscaler::Dlss] {
+            let name = if upscaler == Upscaler::Fsr { "FSR 3.1" } else { "DLSS" };
+            assert!(nvf_play::settings::pick(app.world_mut(), u, name), "{name}");
+            for quality in UpscaleQuality::ALL {
+                nvf_play::settings::pick(app.world_mut(), q, quality.name());
+                let want = UpscalerChoice::new(upscaler, quality);
+                assert_eq!(requested(&app), want);
+                // What the INI keeps loads back into the same request, from any other.
+                let saved = ((upscalers.save)(app.world()), (qualities.save)(app.world()));
+                app.world_mut().resource_mut::<Graphics>().upscaler = UpscalerChoice::Off;
+                assert!((upscalers.load)(app.world_mut(), &saved.0) && (qualities.load)(app.world_mut(), &saved.1));
+                assert_eq!(requested(&app), want, "{saved:?}");
+            }
         }
-        for (name, mode) in graphics::FSR_CHOICES {
-            assert!((dropdown.pick)(app.world_mut(), name));
-            assert_eq!(app.world().resource::<Graphics>().fsr(), mode.quality(), "FSR's names still mean FSR");
-        }
-        assert!((dropdown.pick)(app.world_mut(), "dlss balanced"), "any case");
-        assert_eq!(app.world().resource::<Graphics>().upscaler, UpscalerChoice::Dlss(crate::upscaler::UpscaleQuality::Balanced));
-        assert!(!pick_upscaler(app.world_mut(), "unknown"));
-        assert!(!load_upscaler(app.world_mut(), "NaN"));
-        assert!(!load_upscaler(app.world_mut(), "2"));
-        // The early slider build's numbers: a part of the six FSR choices.
-        assert!(load_upscaler(app.world_mut(), "0.40"));
-        assert_eq!(upscaler_chosen(app.world()), "Quality");
-        assert_eq!(parse_upscaler("0"), Some(UpscalerChoice::Off));
-        assert_eq!(parse_upscaler("1"), Some(UpscalerChoice::Fsr(crate::upscaler::UpscaleQuality::UltraPerformance)), "never DLSS");
-        assert_eq!(parse_upscaler(" DLSS Native AA "), Some(UpscalerChoice::Dlss(crate::upscaler::UpscaleQuality::NativeAa)));
+        assert!((upscalers.pick)(app.world_mut(), "fsr 3.1"), "any case");
+        assert!((qualities.pick)(app.world_mut(), "ultra performance"));
+        assert_eq!(requested(&app), UpscalerChoice::Fsr(UltraPerformance));
+        assert!(!pick_upscaler(app.world_mut(), "XeSS") && !load_quality(app.world_mut(), "Extreme") && !load_upscaler(app.world_mut(), "NaN"));
+        assert_eq!(requested(&app), UpscalerChoice::Fsr(UltraPerformance), "nothing taken");
+    }
+
+    /// The quality row stands dimmed with a reason while the upscaler is Off, as the other rows
+    /// that wait on a switch do; the quality is kept meanwhile, so the next upscaler takes it up.
+    #[test]
+    fn the_quality_row_is_dimmed_while_the_upscaler_is_off_and_keeps_its_quality() {
+        let mut app = rows_app();
+        app.insert_resource(UpscalerStatus::new(READY));
+        let (u, q) = (row(&app, UPSCALER_KEY), row(&app, QUALITY_KEY));
+        let status = |app: &App| app.world().resource::<Settings>().disabled_status(app.world(), q);
+        assert_eq!(status(&app), Some("Needs an upscaler"));
+        assert!(!nvf_play::settings::pick(app.world_mut(), q, "Balanced"), "dimmed: not taken from the page or a test aid");
+        assert!(nvf_play::settings::pick(app.world_mut(), u, "FSR 3.1"));
+        assert_eq!(status(&app), None);
+        assert!(nvf_play::settings::pick(app.world_mut(), q, "Balanced"));
+        assert!(nvf_play::settings::pick(app.world_mut(), u, "Off"));
+        assert_eq!((requested(&app), status(&app)), (UpscalerChoice::Off, Some("Needs an upscaler")));
+        assert_eq!(quality_chosen(app.world()), "Balanced", "kept while Off");
+        assert!(nvf_play::settings::pick(app.world_mut(), u, "FSR 3.1"));
+        assert_eq!(requested(&app), UpscalerChoice::Fsr(Balanced), "taken up again");
+        // The INI's text loads into the kept quality while Off (loading is not the page).
+        assert!(nvf_play::settings::pick(app.world_mut(), u, "Off"));
+        assert!(load_quality(app.world_mut(), "Performance"));
+        assert_eq!(requested(&app), UpscalerChoice::Off);
+        assert!(nvf_play::settings::pick(app.world_mut(), u, "DLSS"));
+        assert_eq!(requested(&app), UpscalerChoice::Dlss(Performance));
     }
 
     #[test]
-    fn choices_are_shown_by_upscaler_and_quality() {
-        let mut app = App::new();
-        app.insert_resource(Graphics::preset(graphics::Preset::Vanilla));
-        register_graphics(&mut app);
-        let settings = app.world().resource::<nvf_play::settings::Settings>();
-        let row = settings.index("fsr-upscaling").unwrap();
-        let label = |name: &str| settings.choice_label(app.world(), row, name);
-        assert_eq!(label("Off"), "Off");
-        assert_eq!(label("Quality"), "FSR 3.1: Quality");
-        assert_eq!(label("Ultra Performance"), "FSR 3.1: Ultra Performance");
-        assert_eq!(label("DLSS Native AA"), "DLSS: Native AA");
-        assert_eq!(label("DLSS Balanced"), "DLSS: Balanced");
+    fn choices_are_shown_in_short_words_and_dlss_says_restart_only_while_it_waits() {
+        let mut app = rows_app();
+        let (u, q) = (row(&app, UPSCALER_KEY), row(&app, QUALITY_KEY));
+        let label = |app: &App, i: usize, name: &str| app.world().resource::<Settings>().choice_label(app.world(), i, name);
+        assert_eq!([label(&app, u, "Off"), label(&app, u, "FSR 3.1"), label(&app, u, "DLSS")], ["Off", "FSR 3.1", "DLSS"]);
+        for quality in UpscaleQuality::ALL {
+            assert_eq!(label(&app, q, quality.name()), quality.name());
+        }
+        // DLSS asked for in a session that started without Streamline, the files there now.
+        app.insert_resource(UpscalerStatus::new(STOCK));
+        assert!(nvf_play::settings::pick(app.world_mut(), u, "DLSS"));
+        let requested = requested(&app);
+        app.world_mut().resource_mut::<UpscalerStatus>().update(requested);
+        assert!(app.world().resource::<UpscalerStatus>().restart_pending());
+        assert_eq!(label(&app, u, "DLSS"), "DLSS (restart)");
+        assert_eq!(label(&app, u, "FSR 3.1"), "FSR 3.1", "only DLSS says so");
+        assert!("DLSS (restart)".len() <= "Ultra Performance".len(), "short enough for the box");
+        // With Streamline loaded nothing waits.
+        app.insert_resource(UpscalerStatus::new(READY));
+        app.world_mut().resource_mut::<UpscalerStatus>().update(requested);
+        assert_eq!(label(&app, u, "DLSS"), "DLSS");
     }
 
     #[test]
-    fn dlss_choices_are_out_of_reach_with_the_reason_but_a_stored_one_loads() {
-        use crate::upscaler::{DlssState, Session, Unavailable, UpscaleQuality, UpscalerStatus};
-        for why in [Unavailable::FilesMissing, Unavailable::NotWindows, Unavailable::NotVulkan, Unavailable::GpuNotSupported, Unavailable::UpdaterInFolder] {
-            let mut app = App::new();
-            app.insert_resource(Graphics::preset(graphics::Preset::Vanilla));
-            register_graphics(&mut app);
-            let session = Session { streamline_loaded: false, dlss: DlssState::Unavailable(why), fsr: None };
-            app.insert_resource(UpscalerStatus::new(session));
-            let row = app.world().resource::<nvf_play::settings::Settings>().index("fsr-upscaling").unwrap();
-            let settings = app.world().resource::<nvf_play::settings::Settings>();
-            for q in UpscaleQuality::ALL {
-                let name = format!("DLSS {}", q.name());
-                assert_eq!(settings.choice_unavailable(app.world(), row, &name).as_deref(), Some(why.words()), "{why:?} {name}");
+    fn dlss_is_out_of_reach_with_the_reason_but_a_stored_one_loads() {
+        for why in [Unavailable::FilesMissing, Unavailable::NotWindows, Unavailable::NotVulkan, Unavailable::GpuNotSupported, Unavailable::UpdaterInFolder, Unavailable::EvaluateFailed] {
+            let mut app = rows_app();
+            app.insert_resource(UpscalerStatus::new(Session { streamline_loaded: false, dlss: DlssState::Unavailable(why), fsr: None }));
+            let (u, q) = (row(&app, UPSCALER_KEY), row(&app, QUALITY_KEY));
+            let settings = app.world().resource::<Settings>();
+            assert_eq!(settings.choice_unavailable(app.world(), u, "DLSS").as_deref(), Some(why.words()), "{why:?}");
+            assert_eq!(settings.choice_unavailable(app.world(), u, "Off"), None);
+            assert_eq!(settings.choice_unavailable(app.world(), u, "FSR 3.1"), None);
+            for quality in UpscaleQuality::ALL {
+                assert_eq!(settings.choice_unavailable(app.world(), q, quality.name()), None, "the qualities are FSR's too");
             }
-            for (name, _) in graphics::FSR_CHOICES {
-                assert_eq!(settings.choice_unavailable(app.world(), row, name), None, "Off and FSR stay in reach");
-            }
-            assert!(!nvf_play::settings::pick(app.world_mut(), row, "DLSS Quality"), "{why:?}: not taken from the page or a test aid");
-            assert_eq!(app.world().resource::<Graphics>().upscaler, UpscalerChoice::Off);
-            assert!(nvf_play::settings::pick(app.world_mut(), row, "Balanced"));
+            assert!(!nvf_play::settings::pick(app.world_mut(), u, "DLSS"), "{why:?}: not taken from the page or a test aid");
+            assert!(!nvf_play::settings::pick_alias(app.world_mut(), LEGACY_KEY, "DLSS Quality"), "{why:?}: nor by the older key");
+            assert_eq!(requested(&app), UpscalerChoice::Off);
+            assert!(nvf_play::settings::pick(app.world_mut(), u, "FSR 3.1"));
             // The INI's text still loads: the request survives the run.
-            let load = app.world().resource::<nvf_play::settings::Settings>().choices(row).unwrap().load;
-            assert!(load(app.world_mut(), "DLSS Performance"));
-            assert_eq!(app.world().resource::<Graphics>().upscaler, UpscalerChoice::Dlss(UpscaleQuality::Performance));
+            assert!(load_upscaler(app.world_mut(), "DLSS"));
+            assert_eq!(requested(&app), UpscalerChoice::Dlss(Quality));
+            assert!(load_upscaler(app.world_mut(), "DLSS Performance"), "the older row's text too");
+            assert_eq!(requested(&app), UpscalerChoice::Dlss(Performance));
         }
-        // Ready, or not loaded in a session that may load it at the next start: in reach.
-        for dlss in [DlssState::Ready, DlssState::NotLoaded] {
-            let mut app = App::new();
-            app.insert_resource(Graphics::preset(graphics::Preset::Vanilla));
-            register_graphics(&mut app);
-            app.insert_resource(UpscalerStatus::new(Session { streamline_loaded: dlss == DlssState::Ready, dlss, fsr: None }));
-            let row = app.world().resource::<nvf_play::settings::Settings>().index("fsr-upscaling").unwrap();
-            assert_eq!(app.world().resource::<nvf_play::settings::Settings>().choice_unavailable(app.world(), row, "DLSS Quality"), None, "{dlss:?}");
+        // Ready, or not loaded with the files there (a restart brings it): in reach.
+        for session in [READY, STOCK] {
+            let mut app = rows_app();
+            app.insert_resource(UpscalerStatus::new(session));
+            let u = row(&app, UPSCALER_KEY);
+            assert_eq!(app.world().resource::<Settings>().choice_unavailable(app.world(), u, "DLSS"), None, "{session:?}");
         }
     }
 
-    /// DLSS given up on in a DLSS session (`dlss::session_state` `EvaluateFailed`, read by
-    /// `upscaler::session_now`): the DLSS entries are out of reach with the reason, the stored
-    /// DLSS request stays the request, and the camera draws natively.
+    /// DLSS given up on (`EvaluateFailed`): DLSS is out of reach with the reason, the stored
+    /// DLSS request stays the request and the camera draws natively; FSR and off follow.
     #[test]
-    fn dlss_that_stopped_working_says_why_in_the_dropdown() {
-        use crate::upscaler::{DlssState, Session, Unavailable, UpscaleQuality, UpscalerStatus};
-        let mut app = App::new();
-        app.insert_resource(Graphics::preset(graphics::Preset::Vanilla));
-        register_graphics(&mut app);
-        let requested = UpscalerChoice::Dlss(UpscaleQuality::Quality);
-        app.world_mut().resource_mut::<Graphics>().upscaler = requested;
-        let ready = Session { streamline_loaded: true, dlss: DlssState::Ready, fsr: None };
-        let mut status = UpscalerStatus::new(ready);
-        status.update(requested);
+    fn dlss_that_stopped_working_says_why_and_fsr_still_follows() {
+        let mut app = rows_app();
+        let u = row(&app, UPSCALER_KEY);
+        let want = UpscalerChoice::Dlss(Quality);
+        app.world_mut().resource_mut::<Graphics>().upscaler = want;
+        let mut status = UpscalerStatus::new(READY);
+        status.update(want);
         status.session.dlss = DlssState::Unavailable(Unavailable::EvaluateFailed);
-        status.update(requested);
+        status.update(want);
         app.insert_resource(status);
-        let row = app.world().resource::<nvf_play::settings::Settings>().index("fsr-upscaling").unwrap();
-        let settings = app.world().resource::<nvf_play::settings::Settings>();
-        for q in UpscaleQuality::ALL {
-            let name = format!("DLSS {}", q.name());
-            assert_eq!(settings.choice_unavailable(app.world(), row, &name).as_deref(), Some(Unavailable::EvaluateFailed.words()), "{name}");
-        }
-        for (name, _) in graphics::FSR_CHOICES {
-            assert_eq!(settings.choice_unavailable(app.world(), row, name), None, "Off and FSR stay in reach");
-        }
-        assert_eq!(upscaler_chosen(app.world()), "DLSS Quality", "the request is kept");
+        assert_eq!(app.world().resource::<Settings>().choice_unavailable(app.world(), u, "DLSS").as_deref(), Some(Unavailable::EvaluateFailed.words()));
+        assert_eq!(chosen(&app), ("DLSS".to_string(), "Quality".to_string()), "the request is kept");
         assert_eq!(app.world().resource::<UpscalerStatus>().effective(), UpscalerChoice::Off, "native, not FSR");
+        assert!(nvf_play::settings::pick(app.world_mut(), u, "FSR 3.1"));
+        app.world_mut().resource_mut::<UpscalerStatus>().update(UpscalerChoice::Fsr(Quality));
+        assert_eq!(app.world().resource::<UpscalerStatus>().effective(), UpscalerChoice::Fsr(Quality), "FSR at once");
     }
 
     #[test]
-    fn dlss_without_streamline_shows_the_restart_and_with_it_every_switch_is_live() {
-        use crate::upscaler::{DlssState, Session, UpscaleQuality, UpscalerStatus};
-        let mut app = App::new();
-        app.insert_resource(Graphics::preset(graphics::Preset::Vanilla));
-        register_graphics(&mut app);
-        let row = app.world().resource::<nvf_play::settings::Settings>().index("fsr-upscaling").unwrap();
-        let stock = Session { streamline_loaded: false, dlss: DlssState::NotLoaded, fsr: None };
-        app.insert_resource(UpscalerStatus::new(stock));
+    fn with_streamline_every_switch_is_live_and_without_it_dlss_waits_for_a_restart() {
+        let mut app = rows_app();
+        let (u, q) = (row(&app, UPSCALER_KEY), row(&app, QUALITY_KEY));
         // What follow_request does each frame, without the process-wide loader state.
-        let pick = |app: &mut App, name: &str| {
-            assert!(nvf_play::settings::pick(app.world_mut(), row, name), "{name}");
-            let requested = app.world().resource::<Graphics>().upscaler;
+        let pick = |app: &mut App, i: usize, name: &str| {
+            assert!(nvf_play::settings::pick(app.world_mut(), i, name), "{name}");
+            let requested = requested(app);
             app.world_mut().resource_mut::<UpscalerStatus>().update(requested);
             let status = *app.world().resource::<UpscalerStatus>();
-            let shown = app.world().resource::<nvf_play::settings::Settings>().choice_label(app.world(), row, name);
-            (status.effective(), status.restart_pending(), shown)
+            (status.effective(), status.restart_pending())
         };
-        assert_eq!(pick(&mut app, "Quality"), (UpscalerChoice::Fsr(UpscaleQuality::Quality), false, "FSR 3.1: Quality".to_string()), "FSR at once");
-        assert_eq!(
-            pick(&mut app, "DLSS Balanced"),
-            (UpscalerChoice::Fsr(UpscaleQuality::Quality), true, "DLSS: Balanced (from the next start)".to_string()),
-            "entering DLSS: saved, FSR keeps drawing"
-        );
-        assert_eq!(upscaler_chosen(app.world()), "DLSS Balanced", "the request is what the INI keeps");
-        assert_eq!(
-            app.world().resource::<nvf_play::settings::Settings>().choice_label(app.world(), row, "Quality"),
-            "FSR 3.1: Quality",
-            "only the requested choice says so"
-        );
-        assert_eq!(pick(&mut app, "Off"), (UpscalerChoice::Off, false, "Off".to_string()), "off at once");
-        assert_eq!(pick(&mut app, "Performance"), (UpscalerChoice::Fsr(UpscaleQuality::Performance), false, "FSR 3.1: Performance".to_string()));
+        app.insert_resource(UpscalerStatus::new(READY));
+        assert_eq!(pick(&mut app, u, "FSR 3.1"), (UpscalerChoice::Fsr(Quality), false));
+        assert_eq!(pick(&mut app, u, "DLSS"), (UpscalerChoice::Dlss(Quality), false), "entering DLSS at once");
+        assert_eq!(pick(&mut app, q, "Ultra Performance"), (UpscalerChoice::Dlss(UltraPerformance), false));
+        assert_eq!(pick(&mut app, u, "FSR 3.1"), (UpscalerChoice::Fsr(UltraPerformance), false), "leaving DLSS at once");
+        assert_eq!(pick(&mut app, u, "Off"), (UpscalerChoice::Off, false));
+        assert_eq!(pick(&mut app, u, "DLSS"), (UpscalerChoice::Dlss(UltraPerformance), false));
+        // A session that started without Streamline (the files put there since).
+        app.insert_resource(UpscalerStatus::new(STOCK));
+        assert_eq!(pick(&mut app, u, "FSR 3.1"), (UpscalerChoice::Fsr(UltraPerformance), false), "FSR at once");
+        assert_eq!(pick(&mut app, u, "DLSS"), (UpscalerChoice::Fsr(UltraPerformance), true), "DLSS saved, FSR keeps drawing");
+        assert_eq!(chosen(&app).0, "DLSS", "the request is what the INI keeps");
+        assert_eq!(pick(&mut app, q, "Balanced"), (UpscalerChoice::Fsr(UltraPerformance), true), "DLSS's quality waits with it");
+        assert_eq!(pick(&mut app, u, "Off"), (UpscalerChoice::Off, false), "off at once");
+    }
 
-        // Streamline loaded at start: entering and leaving DLSS at once, nothing pending.
-        let ready = Session { streamline_loaded: true, dlss: DlssState::Ready, fsr: None };
-        let mut status = UpscalerStatus::new(ready);
-        status.update(app.world().resource::<Graphics>().upscaler);
-        app.insert_resource(status);
-        assert_eq!(pick(&mut app, "DLSS Ultra Performance"), (UpscalerChoice::Dlss(UpscaleQuality::UltraPerformance), false, "DLSS: Ultra Performance".to_string()));
-        assert_eq!(pick(&mut app, "Balanced"), (UpscalerChoice::Fsr(UpscaleQuality::Balanced), false, "FSR 3.1: Balanced".to_string()), "leaving DLSS at once");
-        assert_eq!(pick(&mut app, "Off"), (UpscalerChoice::Off, false, "Off".to_string()));
-        assert_eq!(pick(&mut app, "DLSS Quality"), (UpscalerChoice::Dlss(UpscaleQuality::Quality), false, "DLSS: Quality".to_string()), "entering DLSS at once");
+    /// An INI written before the two rows has only `fsr-upscaling`: every one of its eleven
+    /// names and the early slider build's numbers load into both rows. With the rows' own keys
+    /// there, those win.
+    #[test]
+    fn an_older_ini_loads_into_both_rows() {
+        let dir = std::env::temp_dir().join(format!("nvf-upscaler-older-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("NVForever.ini");
+        let mut cases: Vec<(String, UpscalerChoice)> = graphics::FSR_UPSCALING_CHOICES.iter().map(|(n, c)| (n.to_string(), *c)).collect();
+        cases.extend([("0".to_string(), UpscalerChoice::Off), ("0.2".to_string(), UpscalerChoice::Fsr(NativeAa)), ("0.40".to_string(), UpscalerChoice::Fsr(Quality)), ("1".to_string(), UpscalerChoice::Fsr(UltraPerformance))]);
+        cases.push(("dlss balanced".to_string(), UpscalerChoice::Dlss(Balanced)));
+        for (text, want) in cases {
+            let ini = format!("[Settings]\nfsr-upscaling={text}\n");
+            let app = ini_app(&path, &ini, UpscalerChoice::Off, GivenSwitches::default());
+            assert_eq!(requested(&app), want, "{text}");
+            assert_eq!(upscaler_after_ini(UpscalerChoice::Off, Some(&UpscalerIni::read(&ini)), Some(&GivenSwitches::default())), want, "{text}: the start agrees");
+            let (u, q) = chosen(&app);
+            assert_eq!(u, UPSCALERS.iter().find(|(_, k)| *k == want.upscaler()).unwrap().0, "{text}");
+            assert_eq!(q, want.quality().unwrap_or_default().name(), "{text}");
+        }
+        let both = "[Settings]\nfsr-upscaling=DLSS Balanced\nupscaler=FSR 3.1\nupscaler-quality=Performance\n";
+        assert_eq!(requested(&ini_app(&path, both, UpscalerChoice::Off, GivenSwitches::default())), UpscalerChoice::Fsr(Performance), "the rows' own keys win");
+        assert_eq!(UpscalerIni::read(both), UpscalerIni { upscaler: Some("FSR 3.1".into()), quality: Some("Performance".into()) });
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The test aid's `fsr-upscaling=<name>` (the scenarios written for the one row) sets both
+    /// rows, logged under the older key.
+    #[test]
+    fn the_older_key_is_still_taken_by_the_test_aid() {
+        let mut app = rows_app();
+        app.insert_resource(UpscalerStatus::new(READY));
+        let alias = app.world().resource::<Settings>().alias(LEGACY_KEY).map(|(_, a)| a.rows);
+        assert_eq!(alias, Some(&[UPSCALER_KEY, QUALITY_KEY][..]), "shown on the Upscaler row");
+        for (name, want) in graphics::FSR_UPSCALING_CHOICES {
+            let taken = nvf_play::settings::pick_alias(app.world_mut(), LEGACY_KEY, name);
+            assert_eq!(taken, requested(&app) == want && name != "Off", "{name}");
+            assert_eq!(requested(&app), want, "{name}");
+            assert_eq!(legacy_chosen(app.world()), name, "the log line's name");
+        }
+        assert!(nvf_play::settings::pick_alias(app.world_mut(), LEGACY_KEY, "quality"), "any case");
+        assert_eq!(requested(&app), UpscalerChoice::Fsr(Quality));
+        assert!(!nvf_play::settings::pick_alias(app.world_mut(), LEGACY_KEY, "0.40"), "names only");
+    }
+
+    #[test]
+    fn both_notes_name_the_same_switches() {
+        let switches = |note| {
+            let mut s = nvf_play::settings::note_switches(note);
+            s.sort();
+            s
+        };
+        assert_eq!(switches(UPSCALER_NOTE), ["--fsr", "--upscaler", "--upscaler-quality"]);
+        assert_eq!(switches(QUALITY_NOTE), switches(UPSCALER_NOTE), "a switch given keeps both rows or neither");
+    }
+
+    /// A settings page with the INI at `path` holding `text`, `apply_stored` run once.
+    fn ini_app(path: &std::path::Path, text: &str, command_line: UpscalerChoice, given: GivenSwitches) -> App {
+        std::fs::write(path, text).unwrap();
+        let mut app = App::new();
+        let mut graphics = Graphics::preset(graphics::Preset::Vanilla);
+        graphics.upscaler = command_line;
+        app.insert_resource(graphics)
+            .insert_resource(graphics::MsaaSetting(Msaa::Off))
+            .insert_resource(crate::frame_gen::FrameGeneration { on: false })
+            .insert_resource(crate::anti_lag::LatencyReduction { on: false, by_frame_generation: false })
+            .insert_resource(SettingsFile(Some(path.to_path_buf())))
+            .insert_resource(given);
+        register_graphics(&mut app);
+        app.add_systems(PostStartup, apply_stored);
+        app.update();
+        app
     }
 
     /// The start's choice (before the renderer, `main`) and `apply_stored`'s at `PostStartup`
-    /// agree for every precedence case.
+    /// agree for every precedence case, for the rows' keys and the older one.
     #[test]
     fn the_start_and_the_settings_read_the_upscaler_alike() {
-        use crate::upscaler::UpscaleQuality;
-        use nvf_play::settings::{apply_stored, GivenSwitches, SettingsFile};
         let dir = std::env::temp_dir().join(format!("nvf-upscaler-start-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("NVForever.ini");
-        let fsr_q = UpscalerChoice::Fsr(UpscaleQuality::Quality);
-        let dlss_b = UpscalerChoice::Dlss(UpscaleQuality::Balanced);
-        // The INI's text, the command line, the switches given, whether they win, the result.
-        type Case<'a> = (Option<&'a str>, UpscalerChoice, &'a [&'a str], bool, UpscalerChoice);
-        let cases: [Case; 10] = [
-            (Some("DLSS Balanced"), fsr_q, &["--fsr"], false, dlss_b),
-            (Some("DLSS Balanced"), fsr_q, &["--fsr"], true, fsr_q),
-            (Some("DLSS Balanced"), fsr_q, &["--upscaler"], true, fsr_q),
-            (Some("DLSS Balanced"), fsr_q, &["--upscaler-quality"], true, fsr_q),
-            (Some("DLSS Balanced"), UpscalerChoice::Off, &["--msaa"], true, dlss_b),
-            (Some("Quality"), dlss_b, &[], false, fsr_q),
-            (Some("0.40"), UpscalerChoice::Off, &[], false, fsr_q),
-            (Some("2"), dlss_b, &[], false, dlss_b),
-            (Some("nonsense"), fsr_q, &[], false, fsr_q),
-            (None, dlss_b, &[], false, dlss_b),
+        let fsr_q = UpscalerChoice::Fsr(Quality);
+        let dlss_b = UpscalerChoice::Dlss(Balanced);
+        // The INI's lines, the command line, the switches given, whether they win, the result.
+        type Case<'a> = (&'a str, UpscalerChoice, &'a [&'a str], bool, UpscalerChoice);
+        let cases: [Case; 18] = [
+            ("fsr-upscaling=DLSS Balanced", fsr_q, &["--fsr"], false, dlss_b),
+            ("fsr-upscaling=DLSS Balanced", fsr_q, &["--fsr"], true, fsr_q),
+            ("fsr-upscaling=DLSS Balanced", fsr_q, &["--upscaler"], true, fsr_q),
+            ("fsr-upscaling=DLSS Balanced", fsr_q, &["--upscaler-quality"], true, fsr_q),
+            ("fsr-upscaling=DLSS Balanced", UpscalerChoice::Off, &["--msaa"], true, dlss_b),
+            ("fsr-upscaling=Quality", dlss_b, &[], false, fsr_q),
+            ("fsr-upscaling=0.40", UpscalerChoice::Off, &[], false, fsr_q),
+            ("fsr-upscaling=2", dlss_b, &[], false, dlss_b),
+            ("fsr-upscaling=nonsense", fsr_q, &[], false, fsr_q),
+            ("bloom=0", dlss_b, &[], false, dlss_b),
+            ("upscaler=DLSS\nupscaler-quality=Balanced", fsr_q, &[], false, dlss_b),
+            ("upscaler=DLSS\nupscaler-quality=Balanced", fsr_q, &["--upscaler"], true, fsr_q),
+            ("upscaler=DLSS\nupscaler-quality=Balanced", fsr_q, &["--upscaler-quality"], true, fsr_q),
+            ("upscaler=DLSS", UpscalerChoice::Fsr(Performance), &[], false, UpscalerChoice::Dlss(Performance)),
+            ("upscaler-quality=Balanced", fsr_q, &[], false, UpscalerChoice::Fsr(Balanced)),
+            ("upscaler-quality=Balanced", UpscalerChoice::Off, &[], false, UpscalerChoice::Off),
+            ("upscaler=Off\nupscaler-quality=Balanced", dlss_b, &[], false, UpscalerChoice::Off),
+            ("fsr-upscaling=Performance\nupscaler=DLSS\nupscaler-quality=Ultra Performance", fsr_q, &[], false, UpscalerChoice::Dlss(UltraPerformance)),
         ];
-        for (stored, command_line, given, win, want) in cases {
-            let text = stored.map_or_else(|| "[Settings]\nbloom=0\n".to_string(), |v| format!("[Settings]\nfsr-upscaling={v}\n"));
-            std::fs::write(&path, &text).unwrap();
+        for (lines, command_line, given, win, want) in cases {
+            let text = format!("[Settings]\n{lines}\n");
             let given = GivenSwitches { given: given.iter().map(|g| g.to_string()).collect(), win };
-            let early = upscaler_after_ini(command_line, stored_in(&text).as_deref(), Some(&given));
-            let mut app = App::new();
-            let mut graphics = Graphics::preset(graphics::Preset::Vanilla);
-            graphics.upscaler = command_line;
-            app.insert_resource(graphics)
-                .insert_resource(graphics::MsaaSetting(Msaa::Off))
-                .insert_resource(crate::frame_gen::FrameGeneration { on: false })
-                .insert_resource(crate::anti_lag::LatencyReduction { on: false, by_frame_generation: false })
-                .insert_resource(SettingsFile(Some(path.clone())))
-                .insert_resource(given.clone());
-            register_graphics(&mut app);
-            app.add_systems(PostStartup, apply_stored);
-            app.update();
-            let late = app.world().resource::<Graphics>().upscaler;
-            assert_eq!(early, want, "{stored:?} {command_line:?} {given:?}");
-            assert_eq!(late, early, "{stored:?} {command_line:?} {given:?}: the start and the settings disagree");
+            let early = upscaler_after_ini(command_line, Some(&UpscalerIni::read(&text)), Some(&given));
+            let late = requested(&ini_app(&path, &text, command_line, given.clone()));
+            assert_eq!(early, want, "{lines:?} {command_line:?} {given:?}");
+            assert_eq!(late, early, "{lines:?} {command_line:?} {given:?}: the start and the settings disagree");
         }
         // No settings page (not --play): the INI is not applied, the command line decides.
-        assert_eq!(upscaler_after_ini(fsr_q, Some("DLSS Balanced"), None), fsr_q);
+        assert_eq!(upscaler_after_ini(fsr_q, Some(&UpscalerIni::read("[Settings]\nupscaler=DLSS\n")), None), fsr_q);
         let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    /// `[Settings] fsr-upscaling` of an INI's text, as `stored_at_start` reads it.
-    fn stored_in(text: &str) -> Option<String> {
-        fnv_install::ini_get(text, nvf_play::settings::SECTION, UPSCALING_KEY)
     }
 }

@@ -49,15 +49,20 @@ detail in the module notes of the file named.
 - **The signature** (`dlss/security.rs`). The interposer is checked as Streamline's header
   helper does before it is loaded by its full path; the limit of that check is the first open
   point below. (Spike.)
-- **Loaded only when asked for at start** (`main.rs`, `upscaler.rs` `UpscalerStartup`).
-  `main` works out the requested choice before the renderer exists, from the command line
-  (`upscaler::command_line_choice`) and then the INI by the settings' own precedence
-  (`settings::upscaler_after_ini`), because Streamline must be loaded before the Vulkan
-  instance is made. Only a DLSS choice adds `dlss::DlssInitPlugin`; the test aid
-  `NVF_DLSS_PRELOAD=1` adds it with FSR or Off chosen too, so FSR can be tried through the
-  interposer. Without either, no DLL is looked for and the renderer starts exactly as without
-  this feature. The same INI line is applied again with the other rows at `PostStartup`, by
-  the row's same rule, so the two readings agree. (Step 8.)
+- **Loaded whenever the files are there** (`main.rs`, `upscaler.rs` `UpscalerStartup`,
+  `dlss::bundle_present`) [design: the user's decision after the play-test of #2206,
+  2026-11-12]. `main` works out the requested choice before the renderer exists, from the
+  command line (`upscaler::command_line_choice`) and then the INI by the settings' own
+  precedence (`settings::upscaler_after_ini`), because Streamline must be loaded before the
+  Vulkan instance is made. `dlss::DlssInitPlugin` is added for a DLSS choice, or, on Windows
+  with Vulkan among the renderer's backends, when the four files are in the DLSS folder (a
+  cheap existence check; the loader's own checks, the updater, the signature and the device
+  check, still decide), so that every later switch is live. The test aid `NVF_DLSS_PRELOAD=1`
+  adds it always, `=0` only for a DLSS choice (the earlier behaviour, for tests). Without the
+  files and without a DLSS choice, no DLL is loaded and the renderer starts exactly as
+  without this feature. The start's log line says which case it was (`StartLoad`). The same
+  INI lines are applied again with the other rows at `PostStartup`, by the rows' same rules,
+  so the two readings agree. (Step 8; the play-test follow-up.)
 - **A device check before the interposer** (`dlss/preflight.rs`). Streamline's device proxy
   refuses a device that lacks an extension it asks for, and wgpu then panics at device
   creation; features it asks for are masked to what the device supports rather than refused
@@ -83,14 +88,17 @@ detail in the module notes of the file named.
 - **Support** (`dlss/win.rs`). Once the device exists, `slIsFeatureSupported` with the
   physical device's LUID, the versions Streamline reports, and DLSS's two functions fetched.
   (Spike.)
-- **Restart to enter or leave DLSS** (`upscaler::resolve`, `Boundary`, `follow_request`).
-  Choosing DLSS while the game runs without Streamline, or leaving DLSS while it runs with it,
-  is saved at once but takes effect at the next start; until then the renderer keeps drawing
-  what it drew, and the row shows the requested entry with "(from the next start)". Switching
-  between FSR and Off stays live, and so does changing DLSS's quality. What the start loaded
-  Streamline for (`Boundary`: DLSS, the preload, or nothing) is fixed for the session and kept
-  apart from the latest effective choice, so a DLSS session whose DLSS stopped working still
-  needs a restart to leave it, however often a request repeats. (Steps 2, 8.)
+- **Switching** (`upscaler::resolve`, `follow_request`). With Streamline loaded at start, Off,
+  FSR 3.1 and DLSS all switch at once, every quality too; FSR then draws through the
+  interposer (smoke `dlss-preload-fsr`, `dlss-live-switch`). A restart is pending only for DLSS
+  asked for in a session that started without Streamline while the files are in the folder
+  now (put there since the start, or kept out by `NVF_DLSS_PRELOAD=0`): the request is saved,
+  what drew keeps drawing, and the Upscaler row reads "DLSS (restart)", its note saying why.
+  With the files still missing, DLSS is dimmed as "files missing" instead (the status looks
+  at the folder at most once a second). Once DLSS stopped working (`EvaluateFailed`, below), a
+  DLSS request draws natively with the reason for the rest of the session; FSR and Off still
+  follow at once. (Steps 2, 8; the play-test follow-up replaced the earlier rule that entering
+  or leaving DLSS took a restart.)
 - **Native fallback, not FSR** (`dlss/mod.rs`, `dlss_pass`). When DLSS cannot draw a frame
   (the first frame, a missing input, no options for the frame's mode and size, a render size
   outside the range DLSS reports, a failed call), the common spatial fallback draws it and the
@@ -130,20 +138,25 @@ detail in the module notes of the file named.
   evaluator's lock and each counts as one frame without output for the 60-frame rule above. This
   proves NGX wrote the picture, not that it is a good picture; that stays with screenshots and
   the smoke scenarios.
-- **One Upscaling row** (`settings.rs`, `graphics::UPSCALER_CHOICES`). The settings row,
-  **Upscaling**, keeps its key `fsr-upscaling` and its six saved values (Off, Native AA,
-  Quality, Balanced, Performance, Ultra Performance, which stay FSR's) and gains five DLSS
-  values (`DLSS Native AA` … `DLSS Ultra Performance`). Saved files from before keep working
-  without a migration. The page shows them as "Off", "FSR 3.1: <quality>" and
-  "DLSS: <quality>". A DLSS entry that cannot run is dimmed with its reason
-  (`Unavailable::words`), using the per-choice labels and disabled entries of step 7
-  ([settings-page](settings-page.md)); a stored DLSS choice still loads, so the request
-  survives a start in which it cannot run. In a session that did not load Streamline the DLSS
-  entries stay pickable (a restart may bring DLSS), except where no restart could: not
-  Windows, or Vulkan left out of the renderer's backends; missing files are only found by the
-  loader at the next start. FSR's entries are never dimmed. (Steps 7, 8.)
+- **Two rows: Upscaler and Upscaling quality** (`settings.rs`) [design: the user's, after the
+  play-test of #2206, where the one dropdown of eleven entries was too long for its box].
+  **Upscaler** (key `upscaler`: `Off`, `FSR 3.1`, `DLSS`) and, below it, **Upscaling quality**
+  (key `upscaler-quality`: Native AA, Quality, Balanced, Performance, Ultra Performance) both
+  keep the one request, `Graphics::upscaler`. The quality row is dimmed with "Needs an
+  upscaler" while Upscaler is Off, and keeps its quality meanwhile (`KeptQuality`), so the next
+  upscaler takes it up. DLSS that cannot run is dimmed with its reason (`Unavailable::words`),
+  using the per-choice labels and disabled entries of step 7 ([settings-page](settings-page.md));
+  a stored DLSS choice still loads, so the request survives a start in which it cannot run.
+  FSR is never dimmed. The earlier single row, `fsr-upscaling` with its eleven values
+  (`graphics::FSR_UPSCALING_CHOICES`: Off, the five FSR qualities, `DLSS Native AA` …
+  `DLSS Ultra Performance`) and the early slider build's numbers, still loads from an INI that
+  lacks `upscaler` (`set_older_key`), into both rows; the test aid's `fsr-upscaling=<value>`
+  still sets both rows and logs `settings: fsr-upscaling <value>` (`set_list_alias`), so the
+  scenarios written for it keep working. Both rows' notes name `--upscaler`,
+  `--upscaler-quality` and `--fsr`, so a test run that gives any of them keeps both at the
+  command line's choice. (Steps 7, 8; the play-test follow-up.)
 - **The anti-aliasing row** reads "Off (upscaling active)" while FSR or DLSS draws
-  (`upscaler::temporal_active`) and the saved choice comes back when Upscaling is Off. DLSS
+  (`upscaler::temporal_active`) and the saved choice comes back when Upscaler is Off. DLSS
   sharpens nothing itself: the Sharpening switch drives the separate sharpening pass with DLSS,
   as it does natively. (Step 8.)
 - **Frame generation is off with DLSS** (`frame_gen::usable`). FSR's frame generation assumes
@@ -158,9 +171,10 @@ detail in the module notes of the file named.
 - **NVIDIA's updater.** With NVIDIA's release DLLs, `slInit` starts the driver's NGX updater
   even with Streamline's over-the-air flags cleared, and nothing an application sets stops it
   (spec notes, "NVIDIA's updater"). NVForever clears both flags (no optional updates, no
-  downloaded plugins) and the player's page says in one sentence that NVIDIA's driver may
-  update DLSS's files in the background, as in other DLSS games, and that NVForever cannot
-  switch that off. (Steps 3, 10.)
+  downloaded plugins) and the player's page says that whenever the files are in the dlss
+  folder NVIDIA's driver may update DLSS in the background, as in other DLSS games, whichever
+  upscaler is chosen (Streamline is loaded whenever the files are there), and that NVForever
+  cannot switch that off. (Steps 3, 10; the play-test follow-up.)
 
 ### Combinations not supported
 
@@ -189,16 +203,18 @@ detail in the module notes of the file named.
   in the folder, the signature refused, Streamline refused, the device unsuitable, the GPU not
   supported, the evaluate failing, FSR unsupported), with a stable key for logs and tests and
   the settings' words (`words`).
-- `DlssState`: whether DLSS can run in this session: not loaded (the start did not ask for it,
-  so a restart might), ready, or unavailable with a reason. `dlss_state_now` reads it from the
-  loader (`dlss::session_state`, which also reports `EvaluateFailed` once DLSS's pass gave up),
-  else from what is known without loading anything.
+- `DlssState`: whether DLSS can run in this session: not loaded (Streamline was not loaded at
+  start and the files are in the folder now, so a restart brings it), ready, or unavailable
+  with a reason. `dlss_state_now` reads it from the loader (`dlss::session_state`, which also
+  reports `EvaluateFailed` once DLSS's pass gave up), else from what is known without loading
+  anything (the platform, the files in the folder now).
 - `Session`: what this session can do: whether the device came through Streamline
   (`dlss::streamline_loaded`, true also when DLSS turned out unsupported or stopped working),
   `DlssState`, FSR's support.
-- `UpscalerStartup` (a resource): the requested choice the start resolved, and whether the
-  preload aid was on. `Boundary::at_start` makes the session's boundary from it.
-- `UpscalerStatus` (a resource): the session, its `Boundary`, and the last `Resolution`: the
+- `UpscalerStartup` (a resource): the requested choice the start resolved, and whether and why
+  the loader runs (`StartLoad`: DLSS chosen, the files present, the preload aid on or off, no
+  files, an unsupported platform).
+- `UpscalerStatus` (a resource): the session and the last `Resolution`: the
   **effective** choice, whether a **restart is pending**, and the reason when the request
   cannot run. `upscaler::resolve` is the pure rule (the restart point above).
   `upscaler::follow_request` makes the status on the first frame and refreshes it every frame
@@ -259,7 +275,7 @@ After steps 3, 4 and 7: the FSR, frame-generation and SSAO scenarios (19) and th
 passed, and a folder holding `nvngx_update.exe` was refused. The two runs meant to decline the
 interposer for an unsuitable second GPU cannot decline on that PC, whose Vulkan loader sees only
 the RTX: the hybrid cases are covered by unit tests only. Runs of steps 5, 6 and 8 (the five
-modes, resize, the restart rule, the output check) are recorded with the pull request as they
+modes, resize, the switching rule, the output check) are recorded with the pull request as they
 are made; the smoke scenarios of step 9 run the no-files path everywhere and the hardware cases
 only where `NVF_DLSS_DIR` names a bundle.
 
@@ -311,7 +327,9 @@ All built.
 7. Per-entry labels and dimmed entries with a reason in the settings widgets (`nvf-play`).
 8. The Upscaling row, the early start-up resolution of the setting, `--upscaler`, frame
    generation gated on effective FSR; `NVF_DLSS_SPIKE` removed (`NVF_DLSS_DIR` kept,
-   `NVF_DLSS_PRELOAD` added).
+   `NVF_DLSS_PRELOAD` added). After the play-test of #2206: Streamline loaded whenever the
+   files are there, so every switch is live, and the one row split into Upscaler and Upscaling
+   quality (the older key still read and taken by the test aid).
 9. Smoke scenarios: the no-files path in every run, hardware scenarios gated on `NVF_DLSS_DIR`.
 10. The player's page ([dlss.md](../dlss.md)), the status page, the dependency notes, and
     Streamline's MIT notice in the generated licences.

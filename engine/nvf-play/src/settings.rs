@@ -52,6 +52,11 @@
 //! but the INI's text still loads it ([`apply_stored`]): a stored request survives a run in
 //! which it cannot be met.
 //!
+//! A list that took over from an older row can read that row's INI key when its own is not in
+//! the file ([`set_older_key`]; its `load` takes the older row's text), and the test aids can
+//! still name the older row ([`set_list_alias`], [`pick_alias`]): nvforever's `fsr-upscaling`,
+//! now its Upscaler and Upscaling quality rows.
+//!
 //! What is not here: choices fixed when the game starts (which NPCs live by their
 //! packages, FaceGen, the load order), most numbers (the volumes, the field of view and the
 //! draw distances are sliders) and the test aids.
@@ -313,7 +318,31 @@ pub struct ChoiceLooks {
 /// page shows a row (its tab and heading) is `crate::settings_layout`'s, not this order
 /// [design: #1953].
 #[derive(Resource, Default)]
-pub struct Settings(Vec<Setting>, Vec<(&'static str, ChoiceList)>, Vec<(&'static str, DisabledStatus)>, Vec<&'static str>, Vec<(&'static str, ChoiceLooks)>);
+pub struct Settings(
+    Vec<Setting>,
+    Vec<(&'static str, ChoiceList)>,
+    Vec<(&'static str, DisabledStatus)>,
+    Vec<&'static str>,
+    Vec<(&'static str, ChoiceLooks)>,
+    /// A list's older INI key ([`set_older_key`]): (the row's key, the older key).
+    Vec<(&'static str, &'static str)>,
+    /// The test aids' older list keys ([`set_list_alias`]).
+    Vec<(&'static str, ListAlias)>,
+);
+
+/// An older list's key the test aids still take ([`set_list_alias`]): its choices by the
+/// older row's names, set on the rows that took over from it (module notes).
+#[derive(Clone, Copy)]
+pub struct ListAlias {
+    /// The rows it sets, the first the one the page shows for it.
+    pub rows: &'static [&'static str],
+    /// The older row's name for the state now.
+    pub chosen: fn(&World) -> String,
+    /// Take the older row's choice of this name (any case); false: not one of its.
+    pub pick: fn(&mut World, &str) -> bool,
+    /// Why the older row's choice of this name cannot be taken now; `None`: it can.
+    pub unavailable: ChoiceUnavailable,
+}
 
 impl Settings {
     /// Add a switch, after the last one of its group. A key added twice is kept once.
@@ -366,6 +395,17 @@ impl Settings {
     /// holds none out of reach).
     pub fn choice_unavailable(&self, world: &World, i: usize, name: &str) -> Option<String> {
         (self.choice_looks(i)?.unavailable?)(world, name)
+    }
+
+    /// The older INI key list row `i` reads when the INI lacks its own ([`set_older_key`]).
+    pub fn older_key(&self, i: usize) -> Option<&'static str> {
+        let key = self.0.get(i)?.key;
+        self.5.iter().find(|(k, _)| *k == key).map(|(_, old)| *old)
+    }
+
+    /// The test aids' older list key `key` ([`set_list_alias`]), with its name as registered.
+    pub fn alias(&self, key: &str) -> Option<(&'static str, ListAlias)> {
+        self.6.iter().find(|(k, _)| *k == key).copied()
     }
 
     /// Every row's state as a number: [`Setting::value`], a list's chosen index (-1: not
@@ -444,6 +484,61 @@ fn choice_looks_mut<'a>(settings: &'a mut Settings, key: &'static str) -> &'a mu
         }
     };
     &mut settings.4[at].1
+}
+
+/// Let list `key` read `older` from the INI when the INI has no `key` (module notes): its
+/// `load` is given the older row's text, and the row is written under its own key from then
+/// on (the older line is left as it is).
+pub fn set_older_key(app: &mut App, key: &'static str, older: &'static str) {
+    app.init_resource::<Settings>();
+    let mut settings = app.world_mut().resource_mut::<Settings>();
+    settings.5.retain(|(k, _)| *k != key);
+    settings.5.push((key, older));
+}
+
+/// Let the test aids name `key`, an older list the rows of `alias` took over from (module
+/// notes; [`pick_alias`]).
+pub fn set_list_alias(app: &mut App, key: &'static str, alias: ListAlias) {
+    app.init_resource::<Settings>();
+    let mut settings = app.world_mut().resource_mut::<Settings>();
+    settings.6.retain(|(k, _)| *k != key);
+    settings.6.push((key, alias));
+}
+
+/// Take the older list `key`'s choice `name` ([`set_list_alias`]) as [`pick`] takes a list's:
+/// refused with a log line while out of reach, logged as `settings: <key> <name>` once taken,
+/// the rows it sets the player's, every row kept in the INI. False: no such alias, not one of
+/// its choices, chosen already or out of reach.
+pub fn pick_alias(world: &mut World, key: &str, name: &str) -> bool {
+    let Some(settings) = world.get_resource::<Settings>() else { return false };
+    let Some((key, alias)) = settings.alias(key) else { return false };
+    if (alias.chosen)(world) == name {
+        return false;
+    }
+    if let Some(reason) = (alias.unavailable)(world, name) {
+        info!("settings: {key} {name} not taken: {reason}");
+        return false;
+    }
+    let rows: Vec<(usize, &'static str, String)> = alias
+        .rows
+        .iter()
+        .filter_map(|k| {
+            let i = settings.index(k)?;
+            Some((i, *k, (settings.choices(i)?.save)(world)))
+        })
+        .collect();
+    if !(alias.pick)(world, name) {
+        warn!("settings: {key} has no such choice");
+        return false;
+    }
+    for (i, row, before) in rows {
+        let now = world.resource::<Settings>().choices(i).map(|c| (c.save)(world));
+        pipeline_change(world, row, now.as_ref() != Some(&before));
+        own(world, i);
+    }
+    info!("settings: {key} {}", (alias.chosen)(world));
+    store(world);
+    true
 }
 
 /// Register a row of named choices (a dropdown) with its [`Setting`] (`slider` `None`).
@@ -752,7 +847,9 @@ pub fn apply_stored(world: &mut World) {
     let mut kept_rows = Vec::new();
     let mut listed = 0;
     for (i, c) in lists {
-        let Some(v) = ini_get(&text, SECTION, list[i].key) else { continue };
+        // Its own key, else the older row's it took over from (set_older_key).
+        let older = world.resource::<Settings>().older_key(i);
+        let Some(v) = ini_get(&text, SECTION, list[i].key).or_else(|| older.and_then(|o| ini_get(&text, SECTION, o))) else { continue };
         let v = v.trim();
         let key = list[i].key;
         if (c.save)(world) == v {
@@ -1325,6 +1422,71 @@ reach=0.5
         assert!(pick(w, 1, "1920x1080"));
         let ini = std::fs::read_to_string(&path).unwrap();
         assert!(ini.contains("size=1920x1080;kept") && !ini.contains("pixels"), "{ini}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A list that took over from an older row reads the older key while its own is not in
+    /// the INI (`set_older_key`), and the test aids still take the older key's choices
+    /// (`set_list_alias`, `pick_alias`): refused while out of reach, logged and kept like a pick.
+    #[test]
+    fn an_older_key_loads_and_its_alias_picks_like_the_row() {
+        let dir = std::env::temp_dir().join(format!("nvf-settings-older-{}", std::process::id()));
+        let path = dir.join("NVForever.ini");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let start = |text: &str| {
+            std::fs::write(&path, text).unwrap();
+            let mut app = App::new();
+            app.init_resource::<Lamp>().insert_resource(Size("1280x800".into())).insert_resource(Big(false));
+            app.insert_resource(SettingsFile(Some(path.clone())));
+            looked_sizes(&mut app);
+            set_older_key(&mut app, "size", "old-size");
+            set_list_alias(
+                &mut app,
+                "old-size",
+                ListAlias {
+                    rows: &["size"],
+                    chosen: |w| w.resource::<Size>().0.replace('x', " by "),
+                    pick: |w, n| {
+                        let name = n.to_ascii_lowercase().replace(" by ", "x");
+                        let ok = ["800x600", "1280x800", "1920x1080"].contains(&name.as_str());
+                        if ok {
+                            w.resource_mut::<Size>().0 = name;
+                        }
+                        ok
+                    },
+                    unavailable: |w, n| (n.eq_ignore_ascii_case("1920 by 1080") && !w.resource::<Big>().0).then(|| "Needs a bigger monitor".to_string()),
+                },
+            );
+            app.add_systems(PostStartup, apply_stored);
+            app.update();
+            app
+        };
+        // Only the older key: it loads through the row's load.
+        let app = start("[Settings]
+old-size=800x600;kept
+");
+        assert_eq!(app.world().resource::<Size>().0, "800x600");
+        assert_eq!(app.world().resource::<Settings>().older_key(0), Some("old-size"));
+        // Both: the row's own key wins.
+        let mut app = start("[Settings]
+old-size=800x600;kept
+size=1920x1080;kept
+");
+        assert_eq!(app.world().resource::<Size>().0, "1920x1080");
+        let w = app.world_mut();
+        w.resource_mut::<Size>().0 = "1280x800".into();
+        // The alias: by the older row's names, any case; out of reach refused; chosen already: no.
+        assert!(!pick_alias(w, "no-such", "800 by 600"));
+        assert!(!pick_alias(w, "old-size", "1280 by 800"), "chosen already");
+        assert!(!pick_alias(w, "old-size", "1920 by 1080"), "out of reach");
+        assert_eq!(w.resource::<Size>().0, "1280x800");
+        assert!(!pick_alias(w, "old-size", "huge"), "not one of its choices");
+        assert!(pick_alias(w, "old-size", "800 BY 600"));
+        assert_eq!(w.resource::<Size>().0, "800x600");
+        let ini = std::fs::read_to_string(&path).unwrap();
+        assert!(ini.contains("size=800x600;kept"), "kept in the INI under the row's own key: {ini}");
+        assert!(w.resource::<Settings>().alias("old-size").is_some_and(|(_, a)| a.rows == ["size"]));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

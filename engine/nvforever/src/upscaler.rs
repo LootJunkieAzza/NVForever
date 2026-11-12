@@ -84,7 +84,8 @@ impl UpscaleQuality {
     pub const ALL: [UpscaleQuality; 5] =
         [UpscaleQuality::NativeAa, UpscaleQuality::Quality, UpscaleQuality::Balanced, UpscaleQuality::Performance, UpscaleQuality::UltraPerformance];
 
-    /// The name the `fsr-upscaling` row saves for FSR at this quality (`graphics::FSR_CHOICES`).
+    /// The name the Upscaling quality row saves, and the older `fsr-upscaling` row saved for FSR at
+    /// this quality (`graphics::FSR_CHOICES`).
     pub fn name(self) -> &'static str {
         match self {
             Self::NativeAa => "Native AA",

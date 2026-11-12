@@ -1341,14 +1341,14 @@ fn main() -> AppExit {
     app.add_plugins(anti_lag::AntiLagInitPlugin);
     // The upscaler this run starts with, before the renderer exists: Streamline must be loaded
     // and initialised before the Vulkan instance is made (dlss/, #2198), so the settings' INI is
-    // read here by the row's own rule and precedence, as `apply_stored` applies it at
+    // read here by the rows' own rules and precedence, as `apply_stored` applies them at
     // PostStartup (settings.rs `upscaler_after_ini`). The DLSS loader runs for a DLSS choice or
     // when NVIDIA's four files are in the DLSS folder, so every later switch is live; the test
     // aid NVF_DLSS_PRELOAD=1 runs it always, =0 only for DLSS (upscaler.rs, "Start").
     let start_upscaler = {
         let given = play.is_some().then(|| settings::given_switches(&args, &command_line()));
-        let stored = given.as_ref().and_then(|_| settings::stored_at_start(settings::UPSCALING_KEY));
-        settings::upscaler_after_ini(graphics.upscaler, stored.as_deref(), given.as_ref())
+        let ini = given.as_ref().and_then(|_| settings::settings_text_at_start()).map(|text| settings::UpscalerIni::read(&text));
+        settings::upscaler_after_ini(graphics.upscaler, ini.as_ref(), given.as_ref())
     };
     let startup = upscaler::UpscalerStartup::new(start_upscaler, std::env::var_os(upscaler::PRELOAD_ENV).as_deref(), upscaler::platform_supports_dlss(), dlss::bundle_present);
     app.insert_resource(startup);

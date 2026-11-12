@@ -14,20 +14,21 @@ is the other upscaler of the same settings row, on the same common preparation:
 
 ## Using it
 
-**Settings > Graphics > Picture > Upscaling** offers Off (the default), FSR 3.1 at Native AA,
-Quality, Balanced, Performance and Ultra Performance (shown as `FSR 3.1: Quality` and so on),
-then DLSS at the same five ([dlss-upscaling](dlss-upscaling.md)). The row keeps its key
-`fsr-upscaling` and FSR's choices keep the names they were always saved by (`Off`,
-`Native AA`, `Quality`, …), so older INIs still read. `--fsr <mode>` (`off`, `native-aa`,
-`quality`, `balanced`, `performance`, `ultra-performance`), or `--upscaler fsr
---upscaler-quality <mode>`, sets the starting choice; a saved setting wins in play, as for
-every setting. Changing between FSR and Off is live; entering or leaving DLSS takes a
-restart. The render size per axis is 1, 1/1.5, 1/1.7, 1/2 or 1/3 of the window's
+**Settings > Graphics > Picture > Upscaler** offers Off (the default), FSR 3.1 and DLSS
+([dlss-upscaling](dlss-upscaling.md)); **Upscaling quality** below it, Native AA, Quality,
+Balanced, Performance and Ultra Performance, for either (dimmed while Upscaler is Off). They
+are saved as `upscaler` and `upscaler-quality`; an older INI's single `fsr-upscaling` line,
+with the names FSR's choices were always saved by (`Off`, `Native AA`, `Quality`, …), still
+loads into both, and the test aids still take `fsr-upscaling=<choice>`. `--fsr <mode>`
+(`off`, `native-aa`, `quality`, `balanced`, `performance`, `ultra-performance`), or
+`--upscaler fsr --upscaler-quality <mode>`, sets the starting choice; a saved setting wins in
+play, as for every setting. Every change is live; only DLSS asked for in a session that
+started without NVIDIA's files takes a restart. The render size per axis is 1, 1/1.5, 1/1.7, 1/2 or 1/3 of the window's
 [documented: AMD's FSR 3.1 guide, see the spec notes].
 
 FSR does its own anti-aliasing, so while it is on, the anti-aliasing row is dimmed, reads
 `Off (upscaling active)` (the same for DLSS) and takes no edits. The saved choice (MSAA,
-FXAA, SMAA or TAA) comes back when Upscaling is Off. The Sharpening switch drives FSR's own RCAS sharpening in place of the
+FXAA, SMAA or TAA) comes back when Upscaler is Off. The Sharpening switch drives FSR's own RCAS sharpening in place of the
 separate pass. The HUD and menus are drawn after FSR, at the window's resolution.
 
 FSR runs on wgpu's Vulkan backend only (SPIR-V passthrough). On another backend, or a GPU
