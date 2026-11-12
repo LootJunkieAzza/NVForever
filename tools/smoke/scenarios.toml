@@ -24983,6 +24983,26 @@ order = [[
 ]]
 
 [[scenario]]
+name = "tutorial-close-hint-pad"
+source = "issue #1904: the tutorial menu's Close hint is in the usual button style and follows the input device, \"Close E)\" with the keyboard and \"Close B)\" with a controller, as in the original (owner's play); Next and Previous the same way (tutorial_menu.rs hints, docs/spec-notes/tutorial-menu.md)"
+note = "Healing Limbs opens at 3 s with the keyboard (the aid closes it after 2 s); the pause menu at 6 s picks Controller at 7 s; the same tutorial at 11 s then names the controller's buttons. Before the fix both read \"[A]\", \"[S]\", \"[E]\""
+areas = ["menus", "controller"]
+paths = ["engine/nvf-play/src/tutorial_menu.rs", "engine/nvf-play/src/pad.rs"]
+env = { NVFOREVER_HOME = "tutorial-close-hint-pad-home", NVF_PLAY_TEST_SCRIPT_MENUS = "2", NVF_PLAY_TEST_SCRIPT = "3:call:-:ShowTutorialMenu:0x00072358,11:call:-:ShowTutorialMenu:0x00072358", NVF_PLAY_TEST_PAUSE = "6:9", NVF_PLAY_TEST_SETTINGS = "7:device:Controller" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 16
+order = [[
+  { re = 'tutorial menu: page 1/1 "Healing Limbs"', label = "the tutorial opens with the keyboard" },
+  { re = 'tutorial menu: hints [^,]+ A\), [^,]+ S\), [^,]+ E\)', label = "its hints name the keys: Close E)" },
+  { text = "controls: input device Controller", label = "the controller is picked" },
+  { re = 'tutorial menu: page 1/1 "Healing Limbs"', label = "the tutorial opens again" },
+  { re = 'tutorial menu: hints [^,]+ RT\), [^,]+ LT\), [^,]+ B\)', label = "its hints name the buttons: Close B)" },
+]]
+expect = [
+  { re = 'tutorial menu: hints .*\[', max = 0, label = "no hint in square brackets" },
+]
+
+[[scenario]]
 name = "house-screen-never-turns"
 source = "#2150 (owner's playtest 2026-11-11): Mr. House's screen turned when a conversation ended and in a fight. An Immobile creature with a Turning Speed of 0 never turns (fnv-ai carry.rs fix_heading and face, nvforever residents.rs never_turns and the drawn aim heading); turrets (Turning Speed 30 and more) turn as before (helios-ceiling-turrets)"
 note = "Lucky38World (the penthouse): Lucky38MrHouseREF (0x001264C5, base MrHouse 0x00125BB5: Immobile, TNAM 0) placed at (-1039, 5335, 18949) facing 135 degrees; the player due south of it (a turn to the player would read 180), the console sets it on the player and reads its angle before and after"
