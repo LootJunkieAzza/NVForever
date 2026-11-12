@@ -337,6 +337,22 @@ fn once_per_day_is_not_chosen_again_within_a_day() {
     assert_eq!(g.evaluate_package(d), Some(id(P_ONCE)));
 }
 
+/// A Once Per Day package that reached its goal is done for the day: though still
+/// current and its conditions still passing, it is not chosen again and the next valid
+/// package takes over (TTW's CG02AndyCutCake, whose change script sets the cake stage
+/// once Andy leaves it; issue #2221).
+#[test]
+fn a_finished_once_per_day_package_gives_way() {
+    let f = fixture();
+    let mut g = game(&f, None);
+    let d = id(REF_D);
+    set(&mut g, G_SWITCH, 1.0);
+    assert_eq!(g.evaluate_package(d), Some(id(P_ONCE)));
+    g.package_goal_met(d);
+    assert_eq!(g.check_package(d, id(P_ONCE)), PackageCheck::OncePerDay);
+    assert_eq!(g.evaluate_package(d), Some(id(P_DEFAULT)));
+}
+
 #[test]
 fn must_complete_holds_the_periodic_choice_but_not_evaluate_package() {
     let f = fixture();

@@ -133,7 +133,12 @@ impl<'a> Game<'a> {
     ///    cannot carry out is not documented];
     /// 4. a Once Per Day package is not chosen again within 24 game hours of the
     ///    moment the actor chose it [documented]; one that is still running may go on
-    ///    [hypothesis] until its duration ends it ([`Game::end_timed_packages`]);
+    ///    [hypothesis] until its duration ends it ([`Game::end_timed_packages`]) or its
+    ///    goal is met: a finished one is "not immediately selected again after being
+    ///    completed" [documented: GECK wiki, Category:Packages], so the next valid
+    ///    package takes over [observed: TTW's CG02AndyCutCake, Must Complete and Once
+    ///    Per Day, sets the cake stage CG02 16 only from its change script, which
+    ///    needs Andy to leave it once he has cut the cake; issue #2221];
     /// 5. the conditions, with the actor as the subject.
     pub fn check_package(&mut self, actor: FormId, package: FormId) -> PackageCheck {
         let Some(def) = self.package_def(&package) else { return PackageCheck::Missing };
@@ -149,7 +154,7 @@ impl<'a> Game<'a> {
         }
         if def.has(flags::ONCE_PER_DAY) {
             let e = self.extra.get(&actor);
-            let running = e.is_some_and(|e| e.current_package == Some(package));
+            let running = e.is_some_and(|e| e.current_package == Some(package) && !e.package_goal_met);
             let chosen = e.and_then(|e| e.package_chosen_at.get(&package)).copied();
             if !running && chosen.is_some_and(|t| now - t < 1.0) {
                 return PackageCheck::OncePerDay;
@@ -219,16 +224,19 @@ impl<'a> Game<'a> {
     /// Make `package` the actor's current package. A change is traced
     /// (`package_chosen`), starts the Once Per Day clock of the new package and, when
     /// the AI runs packages, runs the old package's change script and OnPackageChange
-    /// (unless it had finished) and the new one's begin script and OnPackageStart
-    /// [documented: GECK wiki, Category:Packages, Begin / End / Change; hypothesis: no
-    /// change event after the end event].
+    /// and the new one's begin script and OnPackageStart [documented: GECK wiki,
+    /// Category:Packages, Begin / End / Change]. The change script runs when the actor
+    /// leaves a package for another, also one whose goal was met (its end script ran
+    /// then) [hypothesis, from the data: TTW's CG02AndyCutCake (Must Complete, Once Per
+    /// Day, nothing else ends it) has only its change script set the cake stage CG02 16
+    /// the birthday party waits for; issue #2221. Most of the 99 packages of the TTW
+    /// load order with both scripts give them the same lines].
     pub(crate) fn set_package(&mut self, actor: FormId, package: Option<FormId>) {
         let e = self.extra.entry(actor).or_default();
         let old = e.current_package;
         if old == package {
             return;
         }
-        let finished = e.package_goal_met;
         e.current_package = package;
         e.package_goal_met = false;
         if let Some(p) = package.filter(|p| self.package_def(p).is_some_and(|d| d.has(flags::ONCE_PER_DAY))) {
@@ -247,7 +255,7 @@ impl<'a> Game<'a> {
                 self.package_doors(actor, p, flags::LOCK_DOORS_AT_START, flags::UNLOCK_DOORS_AT_START);
                 self.package_doors(actor, p, flags::LOCK_DOORS_AT_LOCATION, flags::UNLOCK_DOORS_AT_LOCATION);
             }
-            if let Some(o) = old.filter(|_| !finished) {
+            if let Some(o) = old {
                 self.package_event(actor, o, 2);
             }
             if let Some(p) = package {

@@ -1438,14 +1438,17 @@ fn an_ai_that_runs_packages_runs_their_begin_end_and_change_scripts() {
     add(&mut g);
     assert_eq!(g.evaluate_package(npc), Some(FormId(PACK_EVENTS)));
     assert_eq!(global(&g), 21.0);
-    // It reaches its goal: the end script; being replaced afterwards is not a change.
+    // It reaches its goal: the end script, once; being replaced afterwards is a change
+    // too (its change script runs as the actor leaves it, issue #2221).
     g.package_goal_met(npc);
     assert_eq!(global(&g), 22.0);
     g.package_goal_met(npc);
+    assert_eq!(global(&g), 22.0);
     remove(&mut g);
     g.world.set_global(FormId(GLOBAL), 0.0).unwrap();
     assert_eq!(g.evaluate_package(npc), Some(FormId(PACK_IDLE)));
-    assert_eq!(global(&g), 0.0);
+    assert_eq!(global(&g), 23.0, "the change script ran as the finished package was left");
+    g.world.set_global(FormId(GLOBAL), 0.0).unwrap();
     // Replaced before its goal: the change script.
     add(&mut g);
     g.evaluate_package(npc);
