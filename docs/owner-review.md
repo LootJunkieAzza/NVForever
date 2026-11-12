@@ -315,6 +315,14 @@ the spec it links to.
    went from 4.4–6.2 to 3.4–3.6 ms a frame. Say if re-shot corpses should move longer
    (or not at all). ([ragdoll §4](spec-notes/ragdoll.md),
    [frame-rate-audit §5](design/frame-rate-audit.md))
+60. **Guards wander inside a location radius of 16 or more (#2027).** The GECK wiki says a
+   guard "will wander within that radius" when it is greater than 0, and guards now do. A
+   radius of 1 to 15 is left standing, as 0 is (`GUARD_WANDER_MIN_RADIUS`): its spots
+   would lie within a step of the guard, so the walk would only twitch it on the spot.
+   The pauses and walk pace are the sandbox's own. Say if every positive radius should
+   wander (that needs a finer arrival tolerance for guard walks), or if the floor should
+   differ. ([actor-behaviour §5.5](design/actor-behaviour.md),
+   [packages](spec-notes/packages.md))
 
 59. **A sandbox's only object comes back after 60 s (#1505).** Your handed-off rule: the
     object just used stays out while any other seat or idle marker is open, and when it is
