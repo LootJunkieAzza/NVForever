@@ -156,6 +156,14 @@ local units, times the reference's scale.
 - **The guide**: a line from the white along the aim to the first ball it would touch (or a
   cushion); from that ball, the line it would go along (centre at contact to the ball's
   centre), up to 420 or the next ball [observed: Aim.txt].
+- **NVForever's aiming line** (owner, 2026-11-11: the lines did not match the shot; their
+  range should come from Perception, and every 4 Intelligence shows one more bounce): the
+  line is the shot's own path, from the physics run on a copy of the table at the power
+  charged so far (half power while not charging), because the angle the balls leave at
+  depends on speed (a touch is found by overlap after a step) [design]. It draws the white's
+  path and the first ball it touches, each up to 150 + 100 x Perception (1-10) sim units
+  long, with the first leg and Intelligence / 4 more turns (a cushion or a ball); a path ends
+  early where its ball stops or drops [design: `pool::guide_reach`, `pool::guide_bounces`].
 
 ## 8. Sounds
 

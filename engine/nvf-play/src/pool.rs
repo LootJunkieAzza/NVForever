@@ -177,6 +177,9 @@ pub struct Pool {
     pub cursor: Option<[f32; 2]>,
     /// The left button held since, charging.
     pub charge: Option<f32>,
+    /// The player's Perception and Intelligence, for the aiming line's length and turns
+    /// (`pool::guide_reach`, `pool::guide_bounces`; owner 2026-11-11).
+    pub sight: (u32, u32),
     /// Practice: the white in hand (a match keeps it in [`Game::in_hand`]).
     pub practice_hand: bool,
     pub ai: Option<AiTurn>,
@@ -418,6 +421,7 @@ fn open(
             last_soft: 9,
             last_hard: 9,
             rng: ChaCha8Rng::seed_from_u64(seed(a.reference, now)),
+            sight: (5, 5),
         });
         next.set(PlayState::Menu);
     }
@@ -727,6 +731,24 @@ fn step(
     let now = time.elapsed_secs();
     let dt = (now - p.now).max(0.0);
     p.now = now;
+    // The aiming line's reach and turns, from the player's Perception and Intelligence.
+    if let Some(rt) = script.as_mut().and_then(|s| s.rt.as_mut()) {
+        // The played world (`with_world`): the player's own values, setav and perks included.
+        let sight = crate::script::with_world(rt, &mut sim, |rt| {
+            let mut av = |code| fnv_game::functions::actor_value_capped(&mut rt.game, FormId::PLAYER_REF, code).max(0.0) as u32;
+            (av(fnv_game::actor_values::PERCEPTION), av(fnv_game::actor_values::INTELLIGENCE))
+        });
+        if sight != p.sight {
+            p.sight = sight;
+            info!(
+                "pool: aiming line {:.0} long (Perception {}), {} bounces (Intelligence {})",
+                pool::guide_reach(sight.0),
+                sight.0,
+                pool::guide_bounces(sight.1),
+                sight.1
+            );
+        }
+    }
     // Players near; "Waiting for all players..." while a game gathers here.
     if let Some(t) = tables.as_deref() {
         p.at_hand = 1 + t.near.iter().filter(|x| t.at_table(**x).is_none_or(|g| g == game::POOL)).count();
@@ -1643,7 +1665,11 @@ fn draw(
                     t.balls[0].pos = q;
                     t.balls[0].on = true;
                 }
-                let g = t.guide(p.aim);
+                // The shot's own path (`Table::predict`), at the power charged so far, else
+                // at half power: as long as Perception reaches, Intelligence's turns.
+                let power = if p.charge.is_some() { p.power(now) } else { 0.5 };
+                let breaking = !p.practice() && p.break_shot();
+                let g = t.predict(p.aim, pool::shot_speed(power, breaking), pool::guide_reach(p.sight.0), pool::guide_bounces(p.sight.1));
                 let line = |ui: &mut ChildSpawnerCommands, a: [f32; 2], b: [f32; 2], color: Color| {
                     let n = (((b[0] - a[0]).hypot(b[1] - a[1])) / 14.0).ceil().max(1.0) as usize;
                     for k in 1..=n {
@@ -1653,13 +1679,17 @@ fn draw(
                         }
                     }
                 };
-                let white = t.balls[0].pos;
-                line(ui, white, g.contact, Color::srgba(1.0, 1.0, 1.0, 0.75));
-                if let Some(q) = on_screen(g.contact, f, c, w) {
+                for k in g.white.windows(2) {
+                    line(ui, k[0], k[1], Color::srgba(1.0, 1.0, 1.0, 0.75));
+                }
+                // Where the white turns: a ball or a cushion.
+                for q in g.white.iter().skip(1).filter_map(|q| on_screen(*q, f, c, w)) {
                     dot(ui, q, 5.0, Color::srgba(1.0, 1.0, 1.0, 0.35));
                 }
-                if let Some((_, at, to)) = g.target {
-                    line(ui, at, to, Color::srgba(1.0, 0.85, 0.4, 0.75));
+                if let Some((_, path)) = &g.target {
+                    for k in path.windows(2) {
+                        line(ui, k[0], k[1], Color::srgba(1.0, 0.85, 0.4, 0.75));
+                    }
                 }
             }
         }
