@@ -108,8 +108,12 @@ const CAP_SIZE: Vec2 = Vec2::new(32.0 * MM, 32.0 * MM);
 const DENARIUS_SIZE: Vec2 = Vec2::new(24.3 * MM, 24.3 * MM);
 const AUREUS_SIZE: Vec2 = Vec2::new(20.0 * MM, 20.0 * MM);
 const NOTE_SIZE: Vec2 = Vec2::new(156.0 * MM, 156.0 * MM * 740.0 / 1312.0);
-/// The most pieces on the table.
-const MONEY_MAX: usize = 90;
+/// The most pieces on the table (the owner, 2026-11-12, of a pot of 10434 shown as 48:
+/// "There should be way more money for a pot that big").
+const MONEY_MAX: usize = 240;
+/// The first this many heaps are laid side by side; pieces past them pile on those heaps
+/// again, a layer at a time, so a big pot grows taller heaps, not more of them [design].
+const HEAPS_SIDE: usize = 6;
 /// How far a piece keeps from where a card can lie, and how many places it tries.
 const MONEY_CLEAR: f32 = 10.0;
 const MONEY_TRIES: u32 = 96;
@@ -277,7 +281,18 @@ pub fn money(pot: u32) -> Vec<Piece> {
         } else {
             Money::Cap
         };
-        let heap = i / HEAP_PIECES;
+        // Past the first heaps, the next layer goes on them again (one with no room is
+        // passed over for the next one that has).
+        let (heap, layer) = if i < HEAPS_SIDE * HEAP_PIECES {
+            (i / HEAP_PIECES, 0)
+        } else {
+            let j = i / HEAP_PIECES;
+            let layer = j / HEAPS_SIDE;
+            match (0..HEAPS_SIDE).map(|d| (j + d) % HEAPS_SIDE).find(|&h| sites.get(h).is_some_and(|s| s.is_some())) {
+                Some(h) => (h, layer),
+                None => continue,
+            }
+        };
         while sites.len() <= heap {
             let j = sites.len();
             let site = (0..MONEY_TRIES)
@@ -297,9 +312,13 @@ pub fn money(pot: u32) -> Vec<Piece> {
             }
             continue;
         }
-        let k = heaps[heap].len();
-        let a = k as f32 * GOLDEN + scatter(heap, 503) * 2.0 * PI;
-        let at = c + Vec2::from_angle(a) * HEAP_STEP * (k as f32).sqrt();
+        // Each layer spirals over the one under it, turned a little and spread a little wider,
+        // so the heap slopes gently rather than piling into a steep cone where a cap wedges
+        // on its edge (the first try, 2026-11-12, left one leaning 50 degrees).
+        let k = heaps[heap].len() % HEAP_PIECES;
+        let a = k as f32 * GOLDEN + scatter(heap, 503) * 2.0 * PI + layer as f32 * 1.3;
+        let spread = 1.0 + 0.1 * layer.min(2) as f32;
+        let at = c + Vec2::from_angle(a) * HEAP_STEP * spread * (k as f32 + 0.5 * layer.min(1) as f32).sqrt();
         let me = kind.size().x / 2.0;
         if !disc_clear(&zones, at, me) {
             continue;
