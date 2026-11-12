@@ -1571,6 +1571,7 @@ fn a_farewell_ending_inside_another_farewells_end_script_keeps_the_outer_hand_of
         force_subtitles: false,
         two_d: false,
         end_ran: false,
+        leads_on: false,
     });
     for _ in 0..20_000 {
         if !g.speech.iter().any(|s| s.farewell && s.speaker == actor()) {
@@ -1624,6 +1625,7 @@ fn a_farewell_ending_inside_a_conversation_lines_end_script_leaves_the_conversat
         force_subtitles: false,
         two_d: false,
         end_ran: false,
+        leads_on: false,
     });
     listen(&mut g);
     // ChatterREF's farewell ended as said inside the conversation's end script, its Add
@@ -2344,6 +2346,32 @@ fn two_actors_talk_to_each_other() {
     assert!(g.events.iter().any(|e| matches!(e.kind, EventKind::ActorConversationEnded { speaker, target, reason: "goodbye", lines: 3 } if speaker == b && target == a)));
     assert_eq!(out(&g), 32.0);
     assert!(!g.in_actor_conversation(a) && g.dialogue.is_none());
+}
+
+/// A Dialogue package's Say To line to another actor goes on as their conversation once
+/// its SayToDone has run (TTW's Mary and Tom Holden, issue #2229); a scripted SayTo of
+/// the same topic stays one line.
+#[test]
+fn a_package_say_to_line_leads_on_to_the_reply() {
+    let f = fixture();
+    let (a, b) = (FormId(NPC1_REF), FormId(NPC2_REF));
+    let said = |g: &Game| -> Vec<(FormId, u32)> { g.events.iter().filter_map(|e| if let EventKind::LineStarted { speaker, info, .. } = e.kind { Some((speaker, info.0)) } else { None }).collect() };
+    let run = |g: &mut Game| {
+        for _ in 0..20_000 {
+            if g.speech.is_empty() {
+                break;
+            }
+            g.tick();
+        }
+    };
+    let mut g = game(&f);
+    assert_eq!(g.say_package_line(a, b, FormId(T_ARGUE)), Some(FormId(K_OPEN)));
+    run(&mut g);
+    assert_eq!(said(&g), vec![(a, K_OPEN), (b, K_REPLY), (b, K_LAST)]);
+    let mut h = game(&f);
+    assert_eq!(h.say(a, Some(b), FormId(T_ARGUE), true), Some(FormId(K_OPEN)));
+    run(&mut h);
+    assert_eq!(said(&h), vec![(a, K_OPEN)], "a scripted SayTo is one line");
 }
 
 #[test]
