@@ -43,9 +43,13 @@
 //!   side it is (straight ahead, behind, above or below: both ears alike). A panned sound
 //!   is played in stereo, its channels mixed to one first. The listener is the player's
 //!   eye, facing the player's heading; [`pan_sounds`] follows the listener while a sound
-//!   plays ([`SoundAt`]). Sounds at the listener (the player's own, interface sounds)
-//!   and the background loops are not panned. Other modules' positioned streams use
-//!   [`Panned`] (placed loops in [`crate::ambient`], radios in [`crate::radio`]).
+//!   plays ([`SoundAt`]), and the sound's gains ease to the new ones, a whole unit over
+//!   [`PAN_EASE`] (20 ms, #2217), its first frame at them as they are, one pair of gains
+//!   for both ears of a frame ([`PanEase`], in both decoders: so also for the other
+//!   modules' panned streams). Sounds at the listener (the player's own, interface
+//!   sounds) and the background loops are not panned. Other modules' positioned streams
+//!   use [`Panned`] (placed loops in [`crate::ambient`], radios in [`crate::radio`],
+//!   voices said at a place in `crate::voice`).
 //! - **Pitch**: the frequency adjustment, and ±5% at random with the Random Frequency
 //!   Shift flag [design: the size of the shift].
 //! - **Loops.** A [`LoopSound`] starts a SOUN going round and stops it again (a
@@ -246,7 +250,8 @@ pub fn pan_gains(eye: [f32; 3], heading: f32, at: [f32; 3]) -> [f32; 2] {
     }
 }
 
-/// Left and right gains shared with the audio thread while a sound plays.
+/// Left and right gains shared with the audio thread while a sound plays: the targets
+/// the main thread sets; the sound eases to them ([`PanEase`]).
 #[derive(Clone, Debug)]
 pub struct Pan(Arc<[AtomicU32; 2]>);
 
@@ -280,9 +285,44 @@ impl SoundAt {
     }
 }
 
-/// One frame of `channels` samples mixed to one and placed by `pan`: the left sample
-/// and the right one; `None` when the input has ended.
-fn pan_frame(frame: impl Iterator<Item = Sample>, channels: usize, pan: &Pan, filter: Option<&mut VoiceFilter>) -> Option<(Sample, Sample)> {
+/// How long a panned sound's gain takes to move a whole unit to a new target (#2217)
+/// [design: the same scale as `audio_out::VOLUME_EASE`, so a turn of the listener or a
+/// sound passing does not step the gains between two blocks of samples; how the original
+/// moves its pan is not known]. Timed in the sound's own frames, so slowed playing
+/// stretches it as it stretches the sound.
+pub const PAN_EASE: Duration = Duration::from_millis(20);
+
+/// The gains a panned sound plays at, its decoder's own (never the shared [`Pan`]'s):
+/// the first frame plays at the targets as they are, each one after moves each gain
+/// toward its target by at most `step` (a whole unit over [`PAN_EASE`] at the source's
+/// rate); one pair for both channels of a frame. A target that is not a number leaves
+/// its gain where it is (centred, 1, before the first frame). Nothing allocated, no lock.
+#[derive(Clone, Debug)]
+struct PanEase {
+    now: Option<[f32; 2]>,
+    step: f32,
+}
+
+impl PanEase {
+    fn new(rate: u32) -> PanEase {
+        PanEase { now: None, step: 1.0 / (rate.max(1) as f32 * PAN_EASE.as_secs_f32()) }
+    }
+
+    /// The gains of the next frame, for `target`.
+    fn next(&mut self, target: [f32; 2]) -> [f32; 2] {
+        let now = match self.now {
+            None => target.map(|t| if t.is_finite() { t } else { 1.0 }),
+            Some(now) => [0, 1].map(|i| if target[i].is_finite() { now[i] + (target[i] - now[i]).clamp(-self.step, self.step) } else { now[i] }),
+        };
+        self.now = Some(now);
+        now
+    }
+}
+
+/// One frame of `channels` samples mixed to one and placed by `pan`, at the gains `ease`
+/// has reached: the left sample and the right one; `None` when the input has ended (the
+/// gains not moved for it).
+fn pan_frame(frame: impl Iterator<Item = Sample>, channels: usize, pan: &Pan, ease: &mut PanEase, filter: Option<&mut VoiceFilter>) -> Option<(Sample, Sample)> {
     let mut sum = 0.0;
     let mut n = 0;
     for s in frame.take(channels.max(1)) {
@@ -296,7 +336,7 @@ fn pan_frame(frame: impl Iterator<Item = Sample>, channels: usize, pan: &Pan, fi
     if let Some(f) = filter {
         m = f.run(m);
     }
-    let [l, r] = pan.get();
+    let [l, r] = ease.next(pan.get());
     Some((m * l, m * r))
 }
 
@@ -322,6 +362,7 @@ impl<T: Decodable + TypePath + Clone> Panned<T> {
 pub struct PanDecoder<S> {
     input: S,
     pan: Pan,
+    ease: PanEase,
     right: Option<Sample>,
     reverb: Option<Reverb>,
     filter: Option<VoiceFilter>,
@@ -335,7 +376,7 @@ impl<S: Source> Iterator for PanDecoder<S> {
             return Some(r);
         }
         let c = self.input.channels().get() as usize;
-        let (l, r) = with_reverb(pan_frame(&mut self.input, c, &self.pan, self.filter.as_mut()), &mut self.reverb)?;
+        let (l, r) = with_reverb(pan_frame(&mut self.input, c, &self.pan, &mut self.ease, self.filter.as_mut()), &mut self.reverb)?;
         self.right = Some(r);
         Some(l)
     }
@@ -377,7 +418,8 @@ impl<T: Decodable + TypePath + Clone> Decodable for Panned<T> {
         let input = self.inner.decoder();
         let reverb = self.reverb.map(|p| p.reverb(input.sample_rate().get()));
         let filter = self.voice_filter.then(|| VoiceFilter::new(input.sample_rate().get()));
-        PanDecoder { input, pan: self.pan.clone(), right: None, reverb, filter }
+        let ease = PanEase::new(input.sample_rate().get());
+        PanDecoder { input, pan: self.pan.clone(), ease, right: None, reverb, filter }
     }
 }
 
@@ -396,6 +438,8 @@ pub struct PcmSound {
 pub struct PcmDecoder {
     sound: PcmSound,
     at: usize,
+    /// The gains a placed sound has reached ([`PanEase`]).
+    ease: PanEase,
     right: Option<Sample>,
     reverb: Option<Reverb>,
 }
@@ -408,7 +452,7 @@ impl PcmDecoder {
         let frame = self.sound.samples.get(self.at..self.at + c)?;
         self.at += c;
         match &self.sound.pan {
-            Some(pan) => pan_frame(frame.iter().copied(), c, pan, None),
+            Some(pan) => pan_frame(frame.iter().copied(), c, pan, &mut self.ease, None),
             None if c == 1 => Some((frame[0], frame[0])),
             None => Some((frame[0], frame[1])),
         }
@@ -459,7 +503,7 @@ impl Decodable for PcmSound {
 
     fn decoder(&self) -> PcmDecoder {
         let reverb = self.reverb.map(|p| p.reverb(self.rate));
-        PcmDecoder { sound: self.clone(), at: 0, right: None, reverb }
+        PcmDecoder { sound: self.clone(), at: 0, ease: PanEase::new(self.rate), right: None, reverb }
     }
 }
 
@@ -2152,6 +2196,52 @@ mod tests {
         let other = Panned::new(plain, pan);
         assert_eq!(other.decoder().channels().get(), 2);
         assert_eq!(other.decoder().collect::<Vec<_>>(), vec![0.8, 0.4, -0.4, -0.2]);
+    }
+
+    #[test]
+    fn pan_gains_ease_in_both_decoders() {
+        const RATE: u32 = 48_000;
+        let step = 1.0 / (RATE as f32 * PAN_EASE.as_secs_f32());
+        let ones = |pan: Option<Pan>| PcmSound { samples: vec![1.0; RATE as usize].into(), channels: 1, rate: RATE, pan, reverb: None };
+        // A placed PCM sound, and another module's source panned (the same file unplaced
+        // under `Panned`): a constant 1, so each frame plays its gains as they are.
+        let pcm_pan = Pan::new([1.0, 0.3]);
+        let other_pan = Pan::new([1.0, 0.3]);
+        let decoders: Vec<(&str, Pan, Box<dyn Iterator<Item = Sample>>)> = vec![
+            ("pcm", pcm_pan.clone(), Box::new(ones(Some(pcm_pan)).decoder())),
+            ("panned", other_pan.clone(), Box::new(Panned::new(ones(None), other_pan).decoder())),
+        ];
+        for (name, pan, mut d) in decoders {
+            let mut frame = || (d.next().unwrap(), d.next().unwrap());
+            // The first frames at the targets as they are, not eased in from anywhere.
+            for _ in 0..3 {
+                assert_eq!(frame(), (1.0, 0.3), "{name}");
+            }
+            // The listener turns: the sound swaps sides. Each gain moves by a step at most
+            // a frame, steadily, both of a frame from one pair (the two moves mirror each
+            // other, so a right sample of another frame than its left would show).
+            pan.set([0.3, 1.0]);
+            let mut last = (1.0f32, 0.3f32);
+            let mut frames = 0;
+            while last != (0.3, 1.0) {
+                let (l, r) = frame();
+                frames += 1;
+                assert!(l <= last.0 && last.0 - l <= step * 1.001, "{name} frame {frames}: left {} -> {l}", last.0);
+                assert!(r >= last.1 && r - last.1 <= step * 1.001, "{name} frame {frames}: right {} -> {r}", last.1);
+                assert!((l + r - 1.3).abs() < 1e-4, "{name} frame {frames}: {l} {r}, not one pair");
+                last = (l, r);
+                assert!(frames < RATE as usize / 10, "{name}: never settles");
+            }
+            // 0.7 of a unit takes 0.7 of PAN_EASE, give or take a frame; then it stays.
+            let expected = 0.7 / step;
+            assert!((frames as f32 - expected).abs() <= 2.0, "{name}: {frames} frames, about {expected} expected");
+            for _ in 0..100 {
+                assert_eq!(frame(), (0.3, 1.0), "{name}: settled at the targets");
+            }
+            // A target that is not a number holds the gain where it is.
+            pan.set([f32::NAN, 1.0]);
+            assert_eq!(frame(), (0.3, 1.0), "{name}");
+        }
     }
 
     #[test]

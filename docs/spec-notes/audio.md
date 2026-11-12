@@ -964,6 +964,19 @@ loops and random markers, objects' and creatures' sources, radios. Not panned: s
 the listener (the player's own, interface), background loops, music, voices (a
 recorded decision: voice plays flat, voice.md).
 
+**Pan easing** (#2217, since stage 3) [design: how the original moves a sound's pan is
+not known]. The listener's turn or a sound passing changes a playing sound's left and
+right gains once a game frame; set at once, the gains jump between two samples, which
+can click on a loud sound. Each panned sound's decoder (`PcmDecoder`, and
+`PanDecoder` for the other modules' panned streams: placed loops, radios, voices) keeps
+the gains it plays at, its own (the shared targets are the main thread's): its first
+frame plays at the targets as they are, then each gain moves toward its target by at
+most `1 / (rate × PAN_EASE)` a frame, `PAN_EASE` = 20 ms for a whole unit (the scale of
+the volume sliders' easing), `rate` the sound's own sample rate, so slowed playing
+stretches it with the sound. Both ears of a frame play one pair of gains. A sound
+swapping sides (a gain moving 0.7) gets there in 14 ms; a sound that moves follows
+slightly behind. A target that is not a number leaves the gain where it is.
+
 ### 14.6 Reverb
 
 **The records.**

@@ -65,7 +65,8 @@
 //!   `INAM`, else the receiver's) minimum and maximum distance and attenuation curve as
 //!   `crate::sfx::distance_gain` uses them; without either template 150 and 1800 units
 //!   (the AMLRadio template's). Receivers and actors are panned as the sound effects are
-//!   (`crate::sfx::Panned`, `SoundAt`); the Pip-Boy plays flat, at the listener. A
+//!   (`crate::sfx::Panned`, `SoundAt`, its gains eased over `crate::sfx::PAN_EASE`); the
+//!   Pip-Boy plays flat, at the listener. A
 //!   receiver is heard only within that maximum distance.
 //! - **No subtitles**: a station's talk lines are heard, never subtitled (owner, list 5
 //!   item 27).

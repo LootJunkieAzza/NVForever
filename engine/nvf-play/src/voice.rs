@@ -36,7 +36,7 @@
 //!   player's eye, falling as minimum ÷ distance beyond it and fading to nothing at
 //!   [`DIALOG_MAX_DISTANCE`] ([`voice_gain`]),
 //!   and panned to the side it is on (`crate::sfx::pan_gains`), following the speaker and
-//!   the player while it plays. A speaker in another cell (an interior other than the
+//!   the player while it plays (its gains eased, `crate::sfx::PAN_EASE`). A speaker in another cell (an interior other than the
 //!   player's, or inside while the player is outside) is not heard. While a line is not
 //!   heard it is silent and shows no subtitle (`crate::script_hud`; [`audible`]): both
 //!   follow the distance while the line lasts; the log says `voice: … out of hearing`

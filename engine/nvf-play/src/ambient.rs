@@ -19,7 +19,8 @@
 //!   that sound at that place [design], following it as it moves.
 //! - Loops are decoded as they play (WAV or Ogg Vorbis, [`LayeredMusic`] with one file),
 //!   so a long one costs no more memory than its file. Placed loops are panned
-//!   ([`crate::sfx::Panned`], as the sound effects are), the background loop is not.
+//!   ([`crate::sfx::Panned`], as the sound effects are, their gains eased over
+//!   [`crate::sfx::PAN_EASE`]), the background loop is not.
 //! - The Esc pause menu, a loading screen and the poker table (`crate::poker`) hold the
 //!   loops; other menus do not [design].
 //! - **SOUN flags** (audio.md §15.2): a 2D sound is not panned; a loop with Start at
