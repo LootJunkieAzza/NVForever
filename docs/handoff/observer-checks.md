@@ -1657,6 +1657,11 @@ Fallout Behavior, Weapon Drawn, Continue During Combat).
       two that held have not (raw values 6, 6, 4 against 2, 2) [observed over these five
       packages; that the bit is the cause is a hypothesis: xEdit names no Guard flag
       there, and the packages differ in other fields too].
+    - **Not run yet** (in the campaign, queued behind other sessions' smoke runs when
+      this was written): a Guard with no type-specific flags, as most have
+      (`knife_ed0plain_walk300`, `_walk750`); the 384 line more closely
+      (`knife_ed0_walk450`, `_walk550`); the radius-128 Guard at 1,900 units
+      (`knife_ed128_walk1900`).
     - **Not measured**: an engaged guard whose target then leaves the radius on foot
       (the teleport sessions end the fight for any trooper, check 109); a Guard near a
       reference or the linked reference; an NPC hostile by its own faction instead of
