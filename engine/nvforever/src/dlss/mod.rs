@@ -64,6 +64,19 @@
 //!   [`FAILED_FRAMES`] frames running without DLSS's output and DLSS is unavailable for the
 //!   session ([`session_state`]): the status then draws the camera natively. FSR's frame
 //!   generation never runs on a DLSS camera (`frame_gen::usable` asks for FSR drawing).
+//! - **Output proof** (`evaluate.rs` `OutputProof`): `slEvaluateFeature` answers `eOk` even
+//!   when NGX's evaluate failed (Streamline's DLSS plugin ignores NGX's result [documented:
+//!   `src/dlssEntry.cpp:738`]), so a call that worked is not output. Once per generation of
+//!   DLSS's options (each `slDLSSSetOptions`: the start, a mode change, a resize) a grid of the
+//!   output's texels is read back asynchronously right after the evaluate, before anything
+//!   else writes the output, which is cleared to black just before the evaluate: finite RGB
+//!   that is not all zero can only be DLSS's (`output observed`); all black is inconclusive (a
+//!   black scene looks the same) and is tried again later, a bounded number of times. Beside
+//!   it, the lines `sl.common` logs when NGX's evaluate fails (`NGX evaluate feature ...
+//!   failed` [documented: `src/commonEntry.cpp:792, 1047`]) are latched from Streamline's log
+//!   callback (`note_ngx_line`) and each counts as a frame without DLSS's output toward
+//!   [`FAILED_FRAMES`]. Neither proves image quality (motion, stability): that still takes
+//!   pictures and movement [design: the plan's risk P2].
 //! - **Shutdown** ([`shutdown`], from `main` after `App::run` returns): by then the app,
 //!   its render world and its render thread are gone (Bevy waits for the render app to come back
 //!   before dropping it [design: vendor/bevy_render/src/pipelined_rendering.rs:67-80]), but the
@@ -79,7 +92,7 @@
 
 #[cfg(any(windows, test))]
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Mutex, PoisonError};
 
 use bevy::core_pipeline::prepass::{PreviousViewData, ViewPrepassTextures};
@@ -142,6 +155,84 @@ fn note(level: Level, text: impl AsRef<str>) {
 #[cfg(windows)]
 fn note_sl(level: Level, text: &str) {
     push(level, format!("DLSS: sl: {text}"));
+}
+
+/// Whether a line of Streamline's log is `sl.common` reporting that NGX's evaluate failed: its
+/// format strings are `"[%s] NGX evaluate feature failed 0x%x"` and, for D3D12, `"[%s] NGX
+/// evaluate feature (D3D12) failed 0x%x"` [documented: `src/commonEntry.cpp:792, 1047`]; the
+/// callback gets them after Streamline's own header (`src/log.cpp:352-371`). The create
+/// failure (`"NGX create feature failed"`, `:768`) is not one: DLSS's evaluate then returns
+/// `eErrorNGXFailed` itself [documented: `src/dlssEntry.cpp:472-483`], counted as a failed call.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn ngx_evaluate_error(line: &str) -> bool {
+    line.find("NGX evaluate feature").is_some_and(|at| line[at..].contains(" failed 0x"))
+}
+
+/// The NGX evaluate errors Streamline's log reported: atomics only, because the log callback
+/// runs on Streamline's log thread, possibly while a Streamline call made with the loader's
+/// lock held is under way (so it never takes that lock).
+struct NgxLatch {
+    /// Reported and not yet taken by the failure count ([`record`]).
+    pending: AtomicU32,
+    /// Reported in all, for the shutdown.
+    total: AtomicU64,
+    /// The options' generation whose first error was said (`u64::MAX`: none yet).
+    said: AtomicU64,
+}
+
+impl NgxLatch {
+    const fn new() -> Self {
+        Self { pending: AtomicU32::new(0), total: AtomicU64::new(0), said: AtomicU64::new(u64::MAX) }
+    }
+
+    /// One line of Streamline's error log during `generation`: latched when it is an NGX
+    /// evaluate error, and the WARN to say returned the first time in the generation.
+    #[cfg_attr(not(windows), allow(dead_code))]
+    fn latch(&self, line: &str, generation: u64) -> Option<String> {
+        if !ngx_evaluate_error(line) {
+            return None;
+        }
+        self.pending.fetch_add(1, Ordering::Relaxed);
+        self.total.fetch_add(1, Ordering::Relaxed);
+        (self.said.swap(generation, Ordering::Relaxed) != generation).then(|| format!("NGX reported an evaluate error: {line}"))
+    }
+
+    /// The errors reported since the last take.
+    fn take(&self) -> u32 {
+        self.pending.swap(0, Ordering::Relaxed)
+    }
+
+    #[cfg_attr(not(windows), allow(dead_code))]
+    fn total(&self) -> u64 {
+        self.total.load(Ordering::Relaxed)
+    }
+}
+
+static NGX: NgxLatch = NgxLatch::new();
+
+/// The generation of DLSS's options now (`evaluate.rs` `OutputProof`; 0 before the first),
+/// for the log callback, which cannot take the loader's lock.
+#[cfg_attr(not(windows), allow(dead_code))]
+static GENERATION: AtomicU64 = AtomicU64::new(0);
+
+#[cfg(windows)]
+fn set_generation(generation: u64) {
+    GENERATION.store(generation, Ordering::Relaxed);
+}
+
+/// An error line of Streamline's log (`win.rs` `sl_log`): an NGX evaluate error is latched
+/// ([`NgxLatch`]) and said once per generation.
+#[cfg(windows)]
+fn note_ngx_line(line: &str) {
+    if let Some(say) = NGX.latch(line, GENERATION.load(Ordering::Relaxed)) {
+        note(Level::WARN, say);
+    }
+}
+
+/// NGX evaluate errors reported this session, for the shutdown's counts.
+#[cfg(windows)]
+fn ngx_errors_total() -> u64 {
+    NGX.total()
 }
 
 /// Writes the waiting lines to the log.
@@ -275,6 +366,9 @@ pub(crate) const FAILED_FRAMES: u32 = 60;
 pub(crate) struct FailureRun {
     run: u32,
     failed: bool,
+    /// NGX evaluate errors reported and not yet charged to an evaluated frame (at most
+    /// [`FAILED_FRAMES`]).
+    ngx_debt: u32,
 }
 
 impl FailureRun {
@@ -292,14 +386,30 @@ impl FailureRun {
         }
         false
     }
+
+    /// One DLSS camera's frame with the NGX evaluate errors reported since the last frame
+    /// (`NgxLatch::take`). Streamline's log thread delivers them later than the evaluate they
+    /// belong to and sometimes several at once, so each is charged to one evaluated frame, this
+    /// one or a later one: an evaluated frame with an error owing counts as a frame without
+    /// DLSS's output [design]. Returns what [`Self::push`] returns.
+    pub(crate) fn frame(&mut self, evaluated: bool, ngx_errors: u32) -> bool {
+        self.ngx_debt = self.ngx_debt.saturating_add(ngx_errors).min(FAILED_FRAMES);
+        let wrote = evaluated && self.ngx_debt == 0;
+        if evaluated && !wrote {
+            self.ngx_debt -= 1;
+        }
+        self.push(wrote)
+    }
 }
 
-static FAILURE_RUN: Mutex<FailureRun> = Mutex::new(FailureRun { run: 0, failed: false });
+static FAILURE_RUN: Mutex<FailureRun> = Mutex::new(FailureRun { run: 0, failed: false, ngx_debt: 0 });
 
-/// Counts a DLSS camera's frame toward [`FAILED_FRAMES`]; at the limit DLSS is marked
-/// unavailable for the session, said once.
+/// Counts a DLSS camera's frame toward [`FAILED_FRAMES`], with the NGX evaluate errors latched
+/// since the last ([`FailureRun::frame`]); at the limit DLSS is marked unavailable for the
+/// session, said once.
 fn record(evaluated: bool) {
-    if FAILURE_RUN.lock().unwrap_or_else(PoisonError::into_inner).push(evaluated) {
+    let ngx_errors = NGX.take();
+    if FAILURE_RUN.lock().unwrap_or_else(PoisonError::into_inner).frame(evaluated, ngx_errors) {
         EVALUATE_FAILED.store(true, Ordering::Relaxed);
         note(
             Level::WARN,
@@ -595,6 +705,60 @@ mod tests {
         }
         assert!(!run.push(false), "said once");
         assert!(!run.push(true) && !run.push(false));
+    }
+
+    #[test]
+    fn ngx_evaluate_errors_are_told_from_other_lines() {
+        // Sample lines written here in the shape of `sl.common`'s format strings after
+        // Streamline's header (`src/commonEntry.cpp:768, 792, 1047`; `src/log.cpp:352-371`).
+        let header = "[10-20-30][streamline][error][tid:4242][1.234s]commonEntry.cpp:792[evaluateNGXFeature]";
+        assert!(ngx_evaluate_error(&format!("{header} [sl.dlss] NGX evaluate feature failed 0xbad00005")));
+        assert!(ngx_evaluate_error(&format!("{header} [sl.dlss] NGX evaluate feature (D3D12) failed 0xbad00002")));
+        assert!(!ngx_evaluate_error(&format!("{header} [sl.dlss] NGX create feature failed 0xbad00001")), "a create failure is a failed call");
+        assert!(!ngx_evaluate_error("[sl.dlss] NGX evaluate feature"), "no failure in it");
+        assert!(!ngx_evaluate_error("failed 0x1 before NGX evaluate feature"), "the failure must follow");
+        assert!(!ngx_evaluate_error(""));
+    }
+
+    #[test]
+    fn ngx_errors_are_latched_and_said_once_per_generation() {
+        let latch = NgxLatch::new();
+        let line = "[sl.dlss] NGX evaluate feature failed 0xbad00005";
+        assert_eq!(latch.latch("[sl.dlss] something else failed 0x1", 1), None);
+        assert_eq!(latch.take(), 0, "only NGX evaluate errors are latched");
+        assert_eq!(latch.latch(line, 1).as_deref(), Some("NGX reported an evaluate error: [sl.dlss] NGX evaluate feature failed 0xbad00005"));
+        assert_eq!(latch.latch(line, 1), None, "said once in the generation");
+        assert_eq!(latch.take(), 2, "both counted");
+        assert_eq!(latch.take(), 0, "taken");
+        assert!(latch.latch(line, 2).is_some(), "said again in a new generation (a resize, a mode change)");
+        assert_eq!((latch.take(), latch.total()), (1, 3));
+    }
+
+    #[test]
+    fn a_latched_ngx_error_counts_as_a_frame_without_output() {
+        let mut run = FailureRun::default();
+        // An evaluated frame with an error owing is a failed frame; the next clean one resets.
+        assert!(!run.frame(true, 1));
+        assert_eq!(run.run, 1);
+        assert!(!run.frame(true, 0));
+        assert_eq!(run.run, 0);
+        // Errors arriving several at once are charged to the evaluated frames that follow; a
+        // fallback frame fails anyway and leaves them owing.
+        assert!(!run.frame(true, 3));
+        assert!(!run.frame(false, 0));
+        assert!(!run.frame(true, 0));
+        assert!(!run.frame(true, 0));
+        assert_eq!((run.run, run.ngx_debt), (4, 0));
+        assert!(!run.frame(true, 0));
+        assert_eq!(run.run, 0, "debt paid: DLSS's output again");
+        // NGX failing every evaluate gives DLSS up at the sixtieth frame, as fallbacks do.
+        for frame in 1..=FAILED_FRAMES {
+            assert_eq!(run.frame(true, 1), frame == FAILED_FRAMES, "frame {frame}");
+        }
+        // The debt is bounded.
+        let mut run = FailureRun::default();
+        run.frame(false, u32::MAX);
+        assert_eq!(run.ngx_debt, FAILED_FRAMES);
     }
 
     #[test]

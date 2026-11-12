@@ -22,7 +22,7 @@ use super::ffi::{
 };
 use super::preflight::{self, Checked, Pin, Requirements, Selection, Snapshot};
 use super::sizing::{Key, Optimal};
-use super::{missing_files, note, note_sl, resolve_folder, set_loader_state, FolderSource, Frame, Outcome, ACTIVE, ENV_DIR, FILES, STREAMLINE_DEVICE};
+use super::{missing_files, note, note_ngx_line, note_sl, resolve_folder, set_loader_state, FolderSource, Frame, Outcome, ACTIVE, ENV_DIR, FILES, STREAMLINE_DEVICE};
 use crate::upscaler::{DlssState, Unavailable};
 
 /// `Preferences::projectId`: a fixed GUID written for NVForever (not one NVIDIA issued).
@@ -114,7 +114,14 @@ unsafe extern "C" fn sl_log(kind: u32, message: *const c_char) {
             LOG_TYPE_WARN => Level::WARN,
             _ => Level::INFO,
         };
-        note_sl(level, text.trim_end());
+        let text = text.trim_end();
+        note_sl(level, text);
+        // `sl.common` logs NGX's evaluate failures as errors (`mod.rs` `ngx_evaluate_error`);
+        // latched with atomics only, never the loader's lock (this may run while a Streamline
+        // call made under it is under way).
+        if level == Level::ERROR {
+            note_ngx_line(text);
+        }
     }));
 }
 
@@ -734,5 +741,18 @@ mod tests {
         unsafe { sl_log(LOG_TYPE_ERROR, std::ptr::null()) };
         let pending = super::super::PENDING.lock().unwrap();
         assert!(pending.iter().any(|(l, t)| *l == Level::WARN && t == "DLSS: sl: [sl] test line"));
+    }
+
+    #[test]
+    fn an_ngx_evaluate_error_line_from_the_callback_is_latched() {
+        // A line written here in the shape of `sl.common`'s format string
+        // (`src/commonEntry.cpp:792`).
+        let before = super::super::ngx_errors_total();
+        // SAFETY: NUL-terminated messages, as Streamline passes.
+        unsafe { sl_log(LOG_TYPE_WARN, c"[sl.dlss] NGX evaluate feature failed 0x1\n".as_ptr()) };
+        assert_eq!(super::super::ngx_errors_total(), before, "only error lines");
+        // SAFETY: as above.
+        unsafe { sl_log(LOG_TYPE_ERROR, c"[sl.dlss] NGX evaluate feature failed 0xbad00005\n".as_ptr()) };
+        assert!(super::super::ngx_errors_total() > before);
     }
 }
