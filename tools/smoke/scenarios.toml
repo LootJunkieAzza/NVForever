@@ -115,6 +115,16 @@ paths = ["crates/", "Cargo.toml", "Cargo.lock", "schemas/", "deny.toml"]
 cmd = ["cargo", "clippy", "--workspace", "--all-targets", "--release", "--", "-D", "warnings"]
 
 [[check]]
+name = "cargo deny"
+paths = ["Cargo.toml", "Cargo.lock", "deny.toml"]
+cmd = ["cargo", "deny", "check", "licenses", "advisories", "bans", "sources"]
+
+[[check]]
+name = "engine cargo deny"
+paths = ["engine/Cargo.toml", "engine/Cargo.lock", "deny.toml"]
+cmd = ["cargo", "deny", "--manifest-path", "engine/Cargo.toml", "check", "licenses", "advisories", "bans", "sources"]
+
+[[check]]
 name = "engine clippy"
 paths = ["engine/", "crates/", "Cargo.toml", "schemas/"]
 cmd = ["cargo", "clippy", "--release", "--all-targets", "--", "-D", "warnings"]

@@ -64,8 +64,13 @@ still has to be re-run there (84/84 Layer 1 scenarios expected).
 placeholder): dependencies may be permissive or GPL-3.0-compatible copyleft. Most are
 MIT/Apache-2.0 or similar, one MPL-2.0 (`option-ext`, via `directories`), and the intro
 film's decoder (`infinitier_bik_decoder`, `infinitier_datasource`) GPL-3.0-or-later.
-`cargo deny check` enforces the allow-list in `deny.toml` and RustSec advisories; CI runs
-it on every push to main.
+`cargo deny check` enforces the allow-list in `deny.toml` and RustSec advisories, for the
+root workspace and, with `--manifest-path engine/Cargo.toml`, the engine workspace (the
+game binary, its own lock) against the same `deny.toml`; CI runs both (#1998). The engine
+adds BSD-2-Clause (`arrayref`), MIT-0 (`encase`) and ISC (`libloading`, `inotify`) to
+the allow-list. One advisory is ignored with its reason: RUSTSEC-2026-0192, `ttf-parser`
+unmaintained, which comes only through winit's Linux window decorations in Bevy 0.20
+(no upgrade available; look again at the next Bevy upgrade).
 
 ## CI
 
