@@ -67,7 +67,7 @@ use crate::reverb::{Preset, Reverb, RoomSend};
 use crate::voice_filter::VoiceFilter;
 use crate::PlayWorld;
 use bevy::audio::{ChannelCount, Decodable, Sample, SampleRate, Source, Volume};
-use crate::audio_out::{AddAudioSource, KeepsSpeed, SoundCategory};
+use crate::audio_out::{stop_sound, AddAudioSource, KeepsSpeed, SoundCategory, SoundStops, StopReason};
 use bevy::prelude::*;
 use bevy::tasks::{futures::check_ready, IoTaskPool, Task, TaskPool};
 use fnv_combat::fx::{FxForms, Sound, DEFAULT_ATTENUATION_CURVE};
@@ -657,6 +657,8 @@ pub struct Sfx {
     /// The start number of the next one-shot ([`OneShot`]), so the oldest is known.
     next_voice: u64,
     pub most_voices: usize,
+    /// The most one-shots of one SOUN at once.
+    pub most_same: usize,
     pub voice_limited: u32,
     /// One-shots that took over the oldest voice of their SOUN at [`MAX_SAME`].
     pub voice_stolen: u32,
@@ -704,6 +706,7 @@ impl Sfx {
             same: HashMap::new(),
             next_voice: 0,
             most_voices: 0,
+            most_same: 0,
             voice_limited: 0,
             voice_stolen: 0,
             per_sound: HashMap::new(),
@@ -1300,12 +1303,14 @@ fn play(
     for l in loops.read() {
         for (e, p) in &looping {
             if p.0 == l.sound {
-                out.commands.entity(e).try_despawn();
+                stop_sound(out.commands, e, StopReason::Loop);
             }
         }
+        // One started earlier in this frame is not attached to the output yet: removed
+        // with no sound made (`stop_sound` counts no stop for it).
         new_loops.retain(|&(s, e)| {
             if s == l.sound {
-                out.commands.entity(e).try_despawn();
+                stop_sound(out.commands, e, StopReason::Loop);
             }
             s != l.sound
         });
@@ -1335,7 +1340,7 @@ fn play(
                     Some(seconds) => {
                         out.commands.entity(e).remove::<ScriptPlayed>().insert(ScriptFade::new(seconds, true));
                     }
-                    None => out.commands.entity(e).try_despawn(),
+                    None => stop_sound(out.commands, e, StopReason::Script),
                 }
             }
         }
@@ -1582,7 +1587,7 @@ fn one_shot_ready(out: &mut Out, sfx: &mut Sfx, r: &Resolved, handle: Handle<Pcm
             let list = sfx.same.get_mut(&sound).expect("counted above");
             let oldest = (0..list.len()).min_by_key(|&i| list[i].0).expect("not empty");
             let (_, e) = list.swap_remove(oldest);
-            out.commands.entity(e).try_despawn();
+            stop_sound(out.commands, e, StopReason::Steal);
             sfx.voices = sfx.voices.saturating_sub(1);
             sfx.voice_stolen += 1;
             sfx.per_sound.entry(sound).or_default()[1] += 1;
@@ -1623,7 +1628,9 @@ fn one_shot_ready(out: &mut Out, sfx: &mut Sfx, r: &Resolved, handle: Handle<Pcm
         sfx.next_voice += 1;
         e.insert(OneShot(sound, n));
         let id = e.id();
-        sfx.same.entry(sound).or_default().push((n, id));
+        let list = sfx.same.entry(sound).or_default();
+        list.push((n, id));
+        sfx.most_same = sfx.most_same.max(list.len());
         sfx.per_sound.entry(sound).or_default()[0] += 1;
     }
     (seconds, Some(e.id()))
@@ -1636,8 +1643,16 @@ pub(crate) fn is_interface(edid: Option<&str>) -> bool {
     edid.and_then(|e| e.get(..2)).is_some_and(|p| p.eq_ignore_ascii_case("UI"))
 }
 
-fn report(mut exit: MessageReader<AppExit>, sfx: Option<Res<Sfx>>) {
+fn report(mut exit: MessageReader<AppExit>, sfx: Option<Res<Sfx>>, stops: Option<Res<SoundStops>>) {
     if let (Some(_), Some(s)) = (exit.read().last(), sfx) {
+        // The sounds stopped before their end and the voice slots (#2217), told whether
+        // or not anything played.
+        if let Some(stops) = stops {
+            info!("{}", stops.hard_line());
+            info!("{}", stops.declick_line());
+        }
+        // A one-shot over the oldest voice of its SOUN starts in its place at once.
+        info!("sfx voices: at most {} total, {} of one SOUN; {} replacements waiting, {} replacements started", s.most_voices, s.most_same, 0, s.voice_stolen);
         if s.played + s.silent + s.failed + s.waits.cancelled + s.waits.rolls_skipped + s.waits.too_late > 0 || !s.waiting.is_empty() {
             info!(
                 "sfx: {} sounds played, {} too quiet or switched off, {} without a file we can play; {} silenced under water (at most {:.0} under a surface), {} 2D sounds not panned; {} not started at the voice limit, at most {} one-shots at once; {} placed by a curve of their own",

@@ -1050,6 +1050,22 @@ expect = [
 ]
 
 [[scenario]]
+name = "audio-minigun-declick"
+source = "#2217: crackle when many sounds play (packs of mantises, radscorpions, the minigun): voices cut mid-waveform at the voice limit, loops and scripts' sounds removed at once, nothing limiting the summed mix (audio_out.rs mix bus, stop counts)"
+note = "the minigun (0000433F, 600 5mm rounds) drawn at 3 s and fired into the sky above Goodsprings from 6 to 16 s (each `fire` press toggles the trigger: held, then let go), as auto-fire-burst-sound's setup; god mode. The exit report's audio mix line measures the summed mix, the sfx lines the stops and the voices"
+areas = ["audio", "combat"]
+paths = ["engine/nvf-play/src/audio_out.rs", "engine/nvf-play/src/sfx.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_EQUIP = "0000433F", NVF_PLAY_TEST_GIVE = "0006B53D:600", NVF_PLAY_TEST_CONTROL = "3:weapon,6:fire,16:fire" }
+args = ["--cell", "Goodsprings", "--pos=-68375,4800,8700", "--heading", "0", "--pitch", "60", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 20
+expect = [
+  { re = 'combat: (?P<n>\d+) shots \(', range = [50, 100000], label = "the minigun fires through the 10 s hold" },
+  { re = 'audio mix: pre peak [0-9.]+, \d+ samples over full scale; post peak [0-9.]+, \d+ samples over full scale; \d+ frames limited', label = "the mix bus's measurements at the end" },
+  { re = 'sfx voices: at most (?P<n>\d+) total,', range = [1, 64], all = true, label = "the voices stay within the limit" },
+  { re = 'sfx voices: at most \d+ total, (?P<n>\d+) of one SOUN;', range = [1, 8], all = true, label = "the shots stay within their SOUN's limit" },
+]
+
+[[scenario]]
 name = "observe-combat-comment"
 source = "GECK wiki Misc Tab: ObserveCombat is said by \"actors in 'spectator' mode -- watching a combat but not joining in\"; the package's Fallout behaviour Observe Combat allows it (fnv-ai social.rs, packages.md §7.7): a cazador fights the player (god mode) beside Easy Pete, who says one of his ObserveCombat lines (\"Look at 'em go!\" or \"Get 'em! Yeah!\"); 300 units from the player in the fight, he runs from it (spectators \"run away if they get too close\" [documented: GECK wiki Packages], #960)"
 areas = ["ai", "dialogue"]
@@ -6023,14 +6039,17 @@ name = "combat-cover-room"
 launch = "ncr-fiends"
 source = "owner's screenshot 2026-10-23: an NCR trooper in cover in Goodsprings stood half inside a house's wall and drainpipe (docs/design/combat-ai.md §12.6.2)"
 note = "cover spots keep combat_tactics::SPOT_ROOM (26) round them, measured by rays at the body's heights; where a fighter stands when it reaches its cover and when it has hid there is measured the same way, and under the capsule's radius (22) it is inside something. Which fighters take cover, and whether one reaches it before the fight is over, varies (Take Cover Chance every 10 s); the cover edges of this fight are in the open (all 25 spots of a run of 2026-10-23 had full room), so the wall case is checked by combat_tactics' unit tests"
-areas = ["combat", "combat-groups"]
-paths = ["engine/nvforever/src/combat_tactics.rs", "engine/nvforever/src/npc_combat.rs", "engine/nvforever/src/residents.rs", "crates/fnv-nav/src/graph.rs", "crates/fnv-nav/src/follow.rs"]
+areas = ["combat", "combat-groups", "audio"]
+paths = ["engine/nvforever/src/combat_tactics.rs", "engine/nvforever/src/npc_combat.rs", "engine/nvforever/src/residents.rs", "crates/fnv-nav/src/graph.rs", "crates/fnv-nav/src/follow.rs", "engine/nvf-play/src/audio_out.rs", "engine/nvf-play/src/sfx.rs"]
 env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_UNSEEN = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:moveto:0x000F36F5:player:-400:600:0,3:moveto:0x000F36F6:player:-200:650:0,3:moveto:0x0015CE0A:player:0:600:0,3:moveto:0x0015CE08:player:200:650:0,3:moveto:0x000FCEB1:player:400:600:0,3:moveto:0x000FD572:player:600:550:0" }
 args = ["--cell", "Goodsprings", "--pos=-43200,72000,7000", "--play", "--hour", "12", "--no-voice"]
 run_seconds = 120
 expect = [
   { re = 'npc combat: .* takes (low )?cover .*; room round its cover spot (?P<n>\d+)', range = [26, 1000], all = true, label = "every cover spot has room for the capsule" },
   { re = 'npc combat: .* takes (low )?cover .*; room round its cover spot \d+, its peek (?P<n>\d+)', range = [26, 1000], all = true, label = "every peek point has room for the capsule" },
+  { re = 'audio mix: pre peak [0-9.]+, \d+ samples over full scale; post peak [0-9.]+, \d+ samples over full scale; \d+ frames limited', label = "#2217: the mix bus's measurements of the battle" },
+  { re = 'sfx voices: at most (?P<n>\d+) total,', range = [1, 64], all = true, label = "#2217: the battle's voices stay within the limit" },
+  { re = 'sfx voices: at most \d+ total, (?P<n>\d+) of one SOUN;', range = [1, 8], all = true, label = "#2217: and within each SOUN's" },
 ]
 forbid = [{ re = 'npc combat: .* in cover at .*\(inside geometry\)', label = "a fighter in cover stands inside a wall or model" }]
 
@@ -14191,7 +14210,7 @@ name = "mantis-egg-spawn"
 source = "playtest list 7 item 4 (docs/design/frame-rate-audit.md §1-§2): shooting the Goodsprings schoolhouse's mantis ootheca dropped the frame rate to about one frame a second"
 note = "at 10 s DamageObject breaks the ootheca 0x0010AC54 (V22MantisOotheca): its script places 12 nymphs at each of its two destruction stages, all at the egg's centre against the lockers. Each must stand on a free floor spot near it (created_spots.rs), not inside the egg or each other; their footsteps are held to the voice limit (sfx.rs). From about 24 s they reach the player and die at its feet (their script kills a nymph within 50 units of the player); the heap of corpses is set at rest after 3 s (ragdoll.rs). Before: 1% low 1,162 ms, the characters' controller ran out its iterations every step. God mode: the nymphs fight the player"
 areas = ["actors", "physics", "audio", "performance"]
-paths = ["engine/nvf-play/src/created_spots.rs", "engine/nvf-play/src/sfx.rs", "engine/nvforever/src/residents.rs", "engine/nvf-play/src/player/safe.rs", "engine/nvforever/src/ragdoll.rs"]
+paths = ["engine/nvf-play/src/created_spots.rs", "engine/nvf-play/src/sfx.rs", "engine/nvf-play/src/audio_out.rs", "engine/nvforever/src/residents.rs", "engine/nvf-play/src/player/safe.rs", "engine/nvforever/src/ragdoll.rs"]
 env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SAMPLE = "2", NVF_PLAY_TEST_SCRIPT = "10:call:0x0010AC54:DamageObject:5" }
 args = ["--cell", "GSSchoolHouse", "--pos", "700,-900,3340", "--play", "--no-voice", "--no-messages"]
 run_seconds = 50
@@ -14200,6 +14219,9 @@ expect = [
   { text = "created where no free spot is near", count = 0, label = "every nymph found a spot" },
   { re = 'stress frames: .*1% low (?P<n>[\d.]+) ms', range = [0, 400], label = "no run of second-long frames (was 1,162 ms)" },
   { re = 'at most (?P<n>\d+) one-shots at once', range = [1, 64], label = "the footsteps are held to the voice limit" },
+  { re = 'audio mix: pre peak [0-9.]+, \d+ samples over full scale; post peak [0-9.]+, \d+ samples over full scale; \d+ frames limited', label = "#2217: the mix bus's measurements of the crowd" },
+  { re = 'sfx voices: at most (?P<n>\d+) total,', range = [1, 64], all = true, label = "#2217: the crowd's voices stay within the limit" },
+  { re = 'sfx voices: at most \d+ total, (?P<n>\d+) of one SOUN;', range = [1, 8], all = true, label = "#2217: and within each SOUN's" },
   { re = 'ragdolls: (?P<n>\d+) started', range = [5, 1e9], label = "nymphs die at the player's feet (their script kills them within 50 units)" },
   { re = '(?P<n>\d+) in the world at exit \((?P=n) at rest\)', label = "every corpse of the heap is at rest by the end (ragdoll.rs MAX_AWAKE)" },
 ]

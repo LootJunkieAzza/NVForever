@@ -186,6 +186,25 @@ environment: §14.6.
   the original cuts a previous shot's sound is not known (observer check). The exit log
   names every SOUN that met a limit: `sfx: <EDID>: N started, S of them over its oldest
   voice, R refused at the voice limit`.
+- **Measurements of the mix and of stopped sounds** (#2217: crackle with many sounds)
+  [design]. Every sound reaches the device (or the drain without one) through one mix
+  bus (`nvf-play/src/audio_out.rs` `MixBus`), which counts, for the whole run, the
+  loudest sample and the samples over full scale (`abs(sample) > 1`, each channel apart;
+  exactly ±1 is not over), before and after the output's protection. No protection is
+  built yet, so both are the same and no frame is limited. Every stop of a playing sound
+  before its end goes through `audio_out::stop_sound`, which counts it by why: a one-shot
+  taken over at the voice limit, a LoopSound stopped, a script's StopSound without a
+  fade, an ambient loop, a radio or a voice line no longer wanted. Removing a playing
+  sound cuts its waveform (a hard stop); one asked for but not attached to the output
+  yet, or already over, is not counted. Whether the original limits its mix, cuts or
+  fades voices it stops, or what its limits are, is not known. Exit lines:
+  `audio mix: pre peak P, N samples over full scale; post peak Q, M samples over full
+  scale; K frames limited` (peaks to nine decimals), `sfx hard stops: S steals, L loop
+  stops, T script stops, A ambient stops, R radio stops, V voice stops`, `sfx declicks:
+  … ; C completed, W pending` (the same fields, for stops faded out: none yet) and `sfx
+  voices: at most V total, S of one SOUN; Q replacements waiting, R replacements
+  started` (a replacement is a one-shot started over its SOUN's oldest voice; none waits
+  yet).
 
 ## 8. Tools
 

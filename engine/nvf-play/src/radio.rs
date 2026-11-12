@@ -90,7 +90,7 @@ use crate::sim::SimState;
 use crate::voice::VoiceState;
 use crate::{Location, PlayState, PlayWorld};
 use bevy::audio::{AudioSinkPlayback, ChannelCount, Decodable, Sample, SampleRate, Source};
-use crate::audio_out::{AddAudioSource, SoundCategory};
+use crate::audio_out::{stop_sound, AddAudioSource, SoundCategory, StopReason};
 use bevy::prelude::*;
 use fnv_combat::fx::Sound;
 use fnv_sim::FormId;
@@ -754,7 +754,7 @@ fn play(
     let space = Space::of(&loc);
     if radio.space != Some(space) {
         for (_, p) in radio.playing.drain() {
-            commands.entity(p.entity).try_despawn();
+            stop_sound(&mut commands, p.entity, StopReason::Radio);
         }
         radio.space = Some(space);
     }
@@ -1022,7 +1022,7 @@ fn play(
                 }
                 continue;
             }
-            commands.entity(p.entity).try_despawn();
+            stop_sound(&mut commands, p.entity, StopReason::Radio);
             radio.playing.remove(&w.key);
         }
         if held {
@@ -1086,7 +1086,7 @@ fn play(
     radio.playing.retain(|r, p| {
         let keep = sounding.contains(r);
         if !keep {
-            commands.entity(p.entity).try_despawn();
+            stop_sound(&mut commands, p.entity, StopReason::Radio);
         }
         keep
     });

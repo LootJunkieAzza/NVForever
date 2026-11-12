@@ -48,7 +48,7 @@ use crate::sim::SimState;
 use crate::sound_grid::FixedGrid;
 use crate::{Location, PlayState, PlayWorld};
 use bevy::audio::AudioSinkPlayback;
-use crate::audio_out::AddAudioSource;
+use crate::audio_out::{stop_sound, AddAudioSource, StopReason};
 use bevy::prelude::*;
 use fnv_sim::FormId;
 use fnv_world::audio::{self, SoundMarker};
@@ -287,7 +287,7 @@ fn play(
     if amb.space != Some(space) {
         // Another worldspace or interior: nothing of the last one is heard here.
         for (_, p) in amb.loops.drain() {
-            commands.entity(p.entity).try_despawn();
+            stop_sound(&mut commands, p.entity, StopReason::Ambient);
         }
         amb.busy_until.clear();
         amb.picks.clear();
@@ -394,7 +394,7 @@ fn play(
     amb.loops.retain(|r, p| {
         let keep = sounding.contains(r);
         if !keep {
-            commands.entity(p.entity).try_despawn();
+            stop_sound(&mut commands, p.entity, StopReason::Ambient);
         }
         keep
     });

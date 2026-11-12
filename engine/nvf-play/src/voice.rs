@@ -70,7 +70,7 @@ use crate::sfx::{pan_gains, Pan, Panned, PcmSound, PlaySound};
 use crate::sim::SimState;
 use crate::{PlaySet, PlayWorld};
 use bevy::audio::Volume;
-use crate::audio_out::{AddAudioSource, SoundCategory};
+use crate::audio_out::{stop_sound, AddAudioSource, SoundCategory, StopReason};
 use bevy::prelude::*;
 use fnv_game::game::Speech;
 use fnv_game::Game;
@@ -479,7 +479,7 @@ fn play(
         let said = said_now.iter().any(|s| s.speaker == *speaker && s.info == p.info);
         if !said && (p.held || now < p.ends_at - TAIL_SECONDS) {
             if let Some(e) = p.entity.take() {
-                commands.entity(e).try_despawn();
+                stop_sound(&mut commands, e, StopReason::Voice);
             }
             info!("voice: stopped {} line {} ({:.2} s before its end)", g.data.name(*speaker), g.data.name(p.info), p.ends_at - now);
         }
@@ -525,7 +525,7 @@ fn play(
         if let Some(old) = st.playing.remove(&s.speaker) {
             if old.held || now < old.ends_at - TAIL_SECONDS {
                 if let Some(e) = old.entity {
-                    commands.entity(e).try_despawn();
+                    stop_sound(&mut commands, e, StopReason::Voice);
                 }
             }
         }

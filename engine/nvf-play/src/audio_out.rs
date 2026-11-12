@@ -62,6 +62,21 @@
 //!   for sound unchanged (`script::time_multiplier`).
 //! - Spatial `PlaybackSettings` (Bevy's `SpatialAudioSink`) are not built: NVForever pans
 //!   its own sounds (`sfx::Panned`); a spatial request plays plain, with a warning.
+//! - **The mix bus** ([`MixBus`], #2217) [design]: the run-long mixer on its way to the
+//!   device (or to the drain without one) goes through one bus, kept with its state for
+//!   the whole run (a reopened device taps the same bus). It measures the summed mix: the
+//!   loudest sample and the samples over full scale (`abs(sample) > 1`, each channel
+//!   counted apart; exactly ±1 is not over), before and after the output's protection.
+//!   The protection (a limiter) is not built yet: the bus passes the mix as it is, so the
+//!   two measurements are the same and no frame is limited. Each pull measures its block
+//!   locally and publishes the totals once; the audio thread takes no other lock and
+//!   allocates nothing for it. Whether the original game limits or clips its mix is not
+//!   known.
+//! - **Stopping a playing sound** ([`stop_sound`], #2217): a sound stopped before its end
+//!   (a voice taken over at the voice limit, a loop or a script's sound stopped, an
+//!   ambient loop, a radio or a voice line no longer wanted) goes through one call, which
+//!   counts why ([`SoundStops`]). Today it is removed at once, mid-waveform (a hard stop);
+//!   one not attached to the output yet, or already over, is removed without a count.
 //!
 //! Log lines: `audio output: opened <device> (<rate> Hz, <channels> ch)`, `audio output:
 //! reopening (<why>)`, `audio output: no device (<why>); sound runs silent until one
@@ -70,7 +85,10 @@
 //! effects X s, radio X s heard; volumes master N%, music N%, …` (the seconds in which a
 //! category's mixer had sound, before its volume), then `audio categories after volumes:
 //! music X s, … audible` (the same after its volume and the master's: what a slider
-//! turned down leaves to be heard; #1077).
+//! turned down leaves to be heard; #1077), then `audio mix: pre peak P, N samples over
+//! full scale; post peak Q, M samples over full scale; K frames limited` (the mix bus's
+//! measurements, peaks to nine decimals). The stop counts are told by `crate::sfx`'s
+//! report (`sfx hard stops: …`).
 //!
 //! Test aid (unattended runs only; no effect unless set):
 //! `NVF_PLAY_TEST_AUDIO_REOPEN=<seconds>[,...]` drops the device and opens the default
@@ -460,6 +478,170 @@ struct Stats {
     reopens: AtomicU32,
     /// `frames` when the last device opened.
     frames_at_open: AtomicU64,
+    /// The mix bus's measurements ([`Meter`]), summed over the run: the peaks as the bits
+    /// of a non-negative `f32` (whose order is the numbers' order, so `fetch_max` keeps
+    /// the loudest), the samples over full scale and the frames limited.
+    pre_peak: AtomicU32,
+    pre_over: AtomicU64,
+    post_peak: AtomicU32,
+    post_over: AtomicU64,
+    limited: AtomicU64,
+}
+
+impl Stats {
+    /// Adds a pull's measurements to the run's.
+    fn publish(&self, m: &Meter) {
+        self.pre_peak.fetch_max(m.pre_peak.to_bits(), Ordering::Relaxed);
+        self.post_peak.fetch_max(m.post_peak.to_bits(), Ordering::Relaxed);
+        self.pre_over.fetch_add(m.pre_over, Ordering::Relaxed);
+        self.post_over.fetch_add(m.post_over, Ordering::Relaxed);
+        self.limited.fetch_add(m.limited, Ordering::Relaxed);
+    }
+
+    /// The run's measurements so far.
+    fn mix(&self) -> Meter {
+        Meter {
+            pre_peak: f32::from_bits(self.pre_peak.load(Ordering::Relaxed)),
+            pre_over: self.pre_over.load(Ordering::Relaxed),
+            post_peak: f32::from_bits(self.post_peak.load(Ordering::Relaxed)),
+            post_over: self.post_over.load(Ordering::Relaxed),
+            limited: self.limited.load(Ordering::Relaxed),
+        }
+    }
+}
+
+/// What the mix bus measured over some samples: the loudest sample and the samples over
+/// full scale (`abs > 1`) before the output's protection (`pre`) and after it (`post`),
+/// and the stereo frames the protection turned down.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+struct Meter {
+    pre_peak: f32,
+    pre_over: u64,
+    post_peak: f32,
+    post_over: u64,
+    limited: u64,
+}
+
+/// Counts one sample into a peak and an over-full-scale count (a sample that is not a
+/// number counts as neither).
+fn measure(peak: &mut f32, over: &mut u64, s: f32) {
+    let a = s.abs();
+    if a > *peak {
+        *peak = a;
+    }
+    if a > 1.0 {
+        *over += 1;
+    }
+}
+
+/// The run-long mix on its way to the output (module notes): the mixer every category
+/// plays into, measured before and after the output's protection. The limiter (#2217
+/// stage 4) will keep its state here, so a reopened device goes on with it; it is not
+/// built yet and the bus passes the mix unchanged.
+pub(crate) struct MixBus {
+    source: MixerSource,
+}
+
+impl MixBus {
+    fn new(source: MixerSource) -> MixBus {
+        MixBus { source }
+    }
+
+    /// `n` samples (whole frames) of the mix as the output gets them, each to `each`,
+    /// measured into `meter`; silence where nothing plays.
+    fn fill(&mut self, n: usize, meter: &mut Meter, mut each: impl FnMut(f32)) {
+        for _ in 0..n {
+            let pre = self.source.next().unwrap_or(0.0);
+            measure(&mut meter.pre_peak, &mut meter.pre_over, pre);
+            // The output's protection (the limiter) goes here; until it is built the
+            // output is the mix as it is.
+            let post = pre;
+            measure(&mut meter.post_peak, &mut meter.post_over, post);
+            each(post);
+        }
+    }
+}
+
+/// Why a playing sound was stopped before its end ([`stop_sound`]), as the summary lines
+/// name them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StopReason {
+    /// A one-shot taken over at its SOUN's voice limit (`crate::sfx::MAX_SAME`).
+    Steal,
+    /// A LoopSound stopped or started again.
+    Loop,
+    /// A script's StopSound (without a fade).
+    Script,
+    /// An ambient loop no longer heard, or of a place left.
+    Ambient,
+    /// A radio's track replaced, a receiver no longer heard, or of a place left.
+    Radio,
+    /// A voice line cut or replaced.
+    Voice,
+}
+
+impl StopReason {
+    pub const ALL: [StopReason; 6] = [StopReason::Steal, StopReason::Loop, StopReason::Script, StopReason::Ambient, StopReason::Radio, StopReason::Voice];
+
+    fn index(self) -> usize {
+        self as usize
+    }
+
+    fn name(self) -> &'static str {
+        match self {
+            StopReason::Steal => "steals",
+            StopReason::Loop => "loop stops",
+            StopReason::Script => "script stops",
+            StopReason::Ambient => "ambient stops",
+            StopReason::Radio => "radio stops",
+            StopReason::Voice => "voice stops",
+        }
+    }
+}
+
+/// The playing sounds stopped before their end, by [`StopReason`]: removed at once,
+/// mid-waveform (`hard`), or faded out (`declicked`, and of those the fades that ended,
+/// `completed`). One not attached to the output yet, or already over, counts as neither.
+#[derive(Resource, Clone, Debug, Default, PartialEq)]
+pub struct SoundStops {
+    pub hard: [u32; 6],
+    pub declicked: [u32; 6],
+    pub completed: u32,
+}
+
+impl SoundStops {
+    /// `N steals, N loop stops, …` of `counts`.
+    fn fields(counts: &[u32; 6]) -> String {
+        StopReason::ALL.map(|r| format!("{} {}", counts[r.index()], r.name())).join(", ")
+    }
+
+    /// The `sfx hard stops: …` summary line.
+    pub fn hard_line(&self) -> String {
+        format!("sfx hard stops: {}", SoundStops::fields(&self.hard))
+    }
+
+    /// The `sfx declicks: …` summary line.
+    pub fn declick_line(&self) -> String {
+        let started: u32 = self.declicked.iter().sum();
+        format!("sfx declicks: {}; {} completed, {} pending", SoundStops::fields(&self.declicked), self.completed, started.saturating_sub(self.completed))
+    }
+}
+
+/// Stops the sound `entity` plays, before its end, for `why` (module notes): removed at
+/// once, counted as a hard stop when it was attached to the output and still playing.
+/// A sound asked for but not attached yet, or already over, is removed without a count.
+pub fn stop_sound(commands: &mut Commands, entity: Entity, why: StopReason) {
+    commands.entity(entity).queue_silenced(move |e: EntityWorldMut| stop_now(e, why));
+}
+
+fn stop_now(mut e: EntityWorldMut, why: StopReason) {
+    let playing = e.get::<AudioSink>().is_some_and(|s| !s.empty());
+    if playing {
+        if let Some(mut stops) = e.get_resource_mut::<SoundStops>() {
+            stops.hard[why.index()] += 1;
+        }
+    }
+    e.despawn();
 }
 
 /// The output and the playing of every `AudioPlayer<T>` registered with [`AddAudioSource`].
@@ -475,7 +657,7 @@ impl Plugin for AudioOutPlugin {
             mixer.add(Gain::new(s, volumes.clone(), c));
             m
         });
-        let shared = Arc::new(Mutex::new(source));
+        let shared = Arc::new(Mutex::new(MixBus::new(source)));
         let stats = Arc::new(Stats::default());
         let (tx, rx) = channel();
         let thread_tx = tx.clone();
@@ -490,6 +672,7 @@ impl Plugin for AudioOutPlugin {
             .insert_resource(volumes)
             .init_resource::<GlobalVolume>()
             .init_resource::<SoundSpeed>()
+            .init_resource::<SoundStops>()
             .add_systems(Update, test_reopen)
             .add_systems(PostUpdate, follow_sound_speed.before(AudioOutSystems))
             .add_systems(Last, report)
@@ -635,10 +818,16 @@ fn cleanup_finished<T: Decodable + Asset>(
 /// The device's view of the run-long mixer: never ends (silence when nothing plays), so
 /// the device mixer keeps it.
 struct Tap {
-    shared: Arc<Mutex<MixerSource>>,
+    shared: Arc<Mutex<MixBus>>,
     stats: Arc<Stats>,
     buf: Vec<f32>,
     pos: usize,
+}
+
+impl Tap {
+    fn new(shared: Arc<Mutex<MixBus>>, stats: Arc<Stats>) -> Tap {
+        Tap { shared, stats, buf: Vec::with_capacity(BLOCK), pos: 0 }
+    }
 }
 
 impl Iterator for Tap {
@@ -670,13 +859,14 @@ impl Source for Tap {
     }
 }
 
-/// Takes `n` samples (even) from the mixer, silence where nothing plays.
-fn pull(shared: &Mutex<MixerSource>, stats: &Stats, n: usize, mut each: impl FnMut(f32)) {
-    let mut source = shared.lock().unwrap_or_else(|e| e.into_inner());
-    for _ in 0..n {
-        each(source.next().unwrap_or(0.0));
-    }
+/// Takes `n` samples (even) from the mix bus, silence where nothing plays: the device's
+/// tap and the drain without a device alike, so both are measured the same way. The
+/// block's measurements are published once, after the lock is let go.
+fn pull(shared: &Mutex<MixBus>, stats: &Stats, n: usize, each: impl FnMut(f32)) {
+    let mut meter = Meter::default();
+    shared.lock().unwrap_or_else(|e| e.into_inner()).fill(n, &mut meter, each);
     stats.frames.fetch_add((n / CHANNELS as usize) as u64, Ordering::Relaxed);
+    stats.publish(&meter);
 }
 
 fn default_id() -> Option<String> {
@@ -689,7 +879,7 @@ fn device_name(device: &rodio::cpal::Device) -> String {
 }
 
 /// Opens the default output device, else the first other one that opens, and taps the mixer.
-fn open(shared: &Arc<Mutex<MixerSource>>, tx: &Sender<Command>, stats: &Arc<Stats>) -> Result<MixerDeviceSink, String> {
+fn open(shared: &Arc<Mutex<MixBus>>, tx: &Sender<Command>, stats: &Arc<Stats>) -> Result<MixerDeviceSink, String> {
     let host = rodio::cpal::default_host();
     let mut candidates: Vec<rodio::cpal::Device> = host.default_output_device().into_iter().collect();
     let default = candidates.first().and_then(|d| d.id().ok());
@@ -713,7 +903,7 @@ fn open(shared: &Arc<Mutex<MixerSource>>, tx: &Sender<Command>, stats: &Arc<Stat
                 sink.log_on_drop(false);
                 let config = sink.config();
                 info!("audio output: opened {name} ({} Hz, {} ch)", config.sample_rate(), config.channel_count());
-                sink.mixer().add(Tap { shared: shared.clone(), stats: stats.clone(), buf: Vec::with_capacity(BLOCK), pos: 0 });
+                sink.mixer().add(Tap::new(shared.clone(), stats.clone()));
                 stats.opens.fetch_add(1, Ordering::Relaxed);
                 stats.frames_at_open.store(stats.frames.load(Ordering::Relaxed), Ordering::Relaxed);
                 return Ok(sink);
@@ -727,7 +917,7 @@ fn open(shared: &Arc<Mutex<MixerSource>>, tx: &Sender<Command>, stats: &Arc<Stat
 }
 
 /// The watcher thread: owns the device, reopens it on a change, drains the mixer without one.
-fn watch(shared: Arc<Mutex<MixerSource>>, rx: std::sync::mpsc::Receiver<Command>, tx: Sender<Command>, stats: Arc<Stats>) {
+fn watch(shared: Arc<Mutex<MixBus>>, rx: std::sync::mpsc::Receiver<Command>, tx: Sender<Command>, stats: Arc<Stats>) {
     let mut device: Option<MixerDeviceSink> = None;
     let mut last_default = default_id();
     let mut next_poll = Instant::now();
@@ -819,6 +1009,11 @@ fn report(mut exit: MessageReader<AppExit>, out: Res<AudioOut>, volumes: Res<Sou
         info!("audio categories: {} heard; volumes master {:.0}%, {}", heard.join(", "), volumes.master() * 100.0, levels.join(", "));
         let audible = SoundCategory::ALL.map(|c| format!("{} {:.1} s", c.name(), volumes.0.audible[c.index()].load(Ordering::Relaxed) as f64 / RATE as f64));
         info!("audio categories after volumes: {} audible", audible.join(", "));
+        let m = s.mix();
+        info!(
+            "audio mix: pre peak {:.9}, {} samples over full scale; post peak {:.9}, {} samples over full scale; {} frames limited",
+            m.pre_peak, m.pre_over, m.post_peak, m.post_over, m.limited
+        );
     }
 }
 
@@ -903,6 +1098,81 @@ mod tests {
         for c in [SoundCategory::Music, SoundCategory::Radio] {
             assert_eq!(speed_factor(0.5, c, false), 1.0, "{c:?}");
         }
+    }
+
+    /// A stereo 48 kHz mix of known samples: loud ones of either sign, ones exactly at
+    /// full scale (not over), quiet ones and silence.
+    fn known_mix() -> Vec<f32> {
+        let pattern = [0.5, -0.5, 1.0, -1.0, 1.25, -0.25, -2.5, 0.0, 0.0, 1.000_001, 0.0, 0.0, -0.999, 0.75];
+        pattern.iter().copied().cycle().take(4096).collect()
+    }
+
+    /// The peak and the count over full scale of `samples`, worked out plainly.
+    fn expected(samples: &[f32]) -> (f32, u64) {
+        let peak = samples.iter().fold(0.0f32, |p, s| p.max(s.abs()));
+        (peak, samples.iter().filter(|s| s.abs() > 1.0).count() as u64)
+    }
+
+    fn bus_of(samples: &[f32]) -> Mutex<MixBus> {
+        let (mixer, source) = rodio::mixer::mixer(NonZero::new(CHANNELS).unwrap(), NonZero::new(RATE).unwrap());
+        mixer.add(SamplesBuffer::new(NonZero::new(CHANNELS).unwrap(), NonZero::new(RATE).unwrap(), samples.to_vec()));
+        Mutex::new(MixBus::new(source))
+    }
+
+    #[test]
+    fn mix_measurements_count_before_and_after_limiting() {
+        let samples = known_mix();
+        let (peak, over) = expected(&samples);
+        assert_eq!((peak, over), (2.5, 3 * (4096 / 14) as u64 + 2), "the pattern's own count (1.25, -2.5 and 1.000001 per round; the last part round holds two)");
+        // Pulled in the device's blocks, in uneven blocks, and drained into nothing (the
+        // watcher without a device), past the end of the sound into silence.
+        let mut outputs = Vec::new();
+        for blocks in [vec![BLOCK; 10], vec![2, 6, 98, 1000, 40, 3974], vec![5120]] {
+            let (bus, stats) = (bus_of(&samples), Stats::default());
+            let mut out = Vec::new();
+            for (i, &n) in blocks.iter().enumerate() {
+                if i == blocks.len() - 1 && blocks.len() == 1 {
+                    pull(&bus, &stats, n, |_| {});
+                } else {
+                    pull(&bus, &stats, n, |s| out.push(s));
+                }
+            }
+            let m = stats.mix();
+            assert_eq!((m.pre_peak, m.pre_over), (peak, over), "{blocks:?}");
+            // No limiter yet: the output is the mix as it is.
+            assert_eq!((m.post_peak, m.post_over, m.limited), (m.pre_peak, m.pre_over, 0), "{blocks:?}");
+            assert_eq!(stats.frames.load(Ordering::Relaxed), 5120 / CHANNELS as u64);
+            outputs.push(out);
+        }
+        assert_eq!(&outputs[0][..samples.len()], &samples[..], "passed unchanged");
+        assert!(outputs[0][samples.len()..].iter().all(|&s| s == 0.0), "silence after the sound");
+        assert_eq!(outputs[0], outputs[1], "the same however it is split");
+    }
+
+    #[test]
+    fn reopening_preserves_the_mix_bus() {
+        let samples = known_mix();
+        let shared = Arc::new(bus_of(&samples));
+        let stats = Arc::new(Stats::default());
+        // One device's tap takes a block, then it goes and another taps the same bus.
+        let first: Vec<f32> = Tap::new(shared.clone(), stats.clone()).take(BLOCK).collect();
+        let second: Vec<f32> = Tap::new(shared.clone(), stats.clone()).take(BLOCK).collect();
+        assert_eq!(first, samples[..BLOCK], "the first tap");
+        assert_eq!(second, samples[BLOCK..2 * BLOCK], "the second goes on where the first stopped");
+        // The measurements go on across the taps.
+        let (peak, over) = expected(&samples[..2 * BLOCK]);
+        let m = stats.mix();
+        assert_eq!((m.pre_peak, m.pre_over, m.post_peak, m.post_over, m.limited), (peak, over, peak, over, 0));
+        assert_eq!(stats.frames.load(Ordering::Relaxed), (2 * BLOCK / CHANNELS as usize) as u64);
+    }
+
+    #[test]
+    fn stop_lines_name_every_reason() {
+        let mut stops = SoundStops::default();
+        assert_eq!(stops.hard_line(), "sfx hard stops: 0 steals, 0 loop stops, 0 script stops, 0 ambient stops, 0 radio stops, 0 voice stops");
+        stops.declicked = [1, 2, 3, 4, 5, 6];
+        stops.completed = 20;
+        assert_eq!(stops.declick_line(), "sfx declicks: 1 steals, 2 loop stops, 3 script stops, 4 ambient stops, 5 radio stops, 6 voice stops; 20 completed, 1 pending");
     }
 
     #[test]
