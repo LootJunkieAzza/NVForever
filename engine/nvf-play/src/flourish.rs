@@ -138,7 +138,7 @@ const FALLBACK: &str = "UIPopUpExperienceUp";
 const IN: f32 = 0.35;
 const HOLD: f32 = 1.6;
 const OUT: f32 = 0.5;
-const LIFE: f32 = IN + HOLD + OUT;
+pub const LIFE: f32 = IN + HOLD + OUT;
 /// A triple's pulses: this far apart, each this long.
 const PULSE: f32 = 0.2;
 const PULSE_LEN: f32 = 0.16;

@@ -18,8 +18,9 @@
 //! - **The bout** ([`Page::Bout`]): a countdown, then the one tap button ([`TAP`]); the
 //!   meter's lean is shown under one centred prompt. The opponent taps as
 //!   `fnv_game::armwrestle::NpcTapper`.
-//! - **The end** ([`Page::Result`]): the leaderboard and, for a win, the Strength
-//!   highlight (`flourish::Highlight::ArmWrestle`); after [`RESULT_HOLD`] the player gets
+//! - **The end** ([`Page::Result`]): for a win the Strength highlight
+//!   (`flourish::Highlight::ArmWrestle`) first, then ([`board_after`]) the leaderboard;
+//!   [`RESULT_HOLD`] after it the player gets
 //!   up, the game lets the Settler go back to his package, and the end view (nvforever
 //!   `match_end`, item 166) shows the winner cheering.
 //! - **Co-op** (part B, `crate::armwrestle_coop`): the match is the deciding game's (the
@@ -50,6 +51,17 @@ pub const TAP: KeyCode = KeyCode::Space;
 pub const TAP_NAME: &str = "Space";
 /// Seconds the result shows before the player gets up [design].
 pub const RESULT_HOLD: f32 = 2.6;
+
+/// Seconds after the bout's end before the leaderboard shows: after a win the YOU WIN
+/// highlight plays out first (`flourish::LIFE`) [design: owner 2026-11-11, "leaderboard
+/// should play after the you win anmimation"]; a loss has no highlight.
+pub fn board_after(won: bool) -> f32 {
+    if won {
+        crate::flourish::LIFE
+    } else {
+        0.0
+    }
+}
 /// Frames between looks for the table while in the saloon without it.
 const LOOK_EVERY: u32 = 30;
 
@@ -435,7 +447,8 @@ fn step(time: AidTime, mut screen: ResMut<ArmScreen>, mut flourish: MessageWrite
             flourish.write(crate::flourish::Flourish { kind: crate::flourish::Highlight::ArmWrestle, text: "YOU WIN".into() });
         }
     }
-    if a.page == Page::Result && !a.leaving && b.ended.is_some_and(|e| now - e >= RESULT_HOLD) {
+    let board = board_after(b.winner == Some(a.side));
+    if a.page == Page::Result && !a.leaving && b.ended.is_some_and(|e| now - e >= board + RESULT_HOLD) {
         a.leaving = true;
     }
 }
@@ -593,6 +606,10 @@ fn draw(mut commands: Commands, screen: Res<ArmScreen>, time: AidTime, casino: O
             crate::casino_hud::score_panel(p, f, &rows, Some("Taps"));
             if a.page == Page::Result {
                 let won = a.won() == Some(true);
+                // The YOU WIN highlight alone first, then the leaderboard.
+                if !b.ended.is_some_and(|e| now - e >= board_after(won)) {
+                    return;
+                }
                 let winner = if won { "You".to_string() } else { a.foe_name.clone() };
                 let loser = if won { a.foe_name.clone() } else { "You".to_string() };
                 let places = [crate::casino_hud::Place { name: winner.clone(), detail: "Arm down".into() }, crate::casino_hud::Place { name: loser, detail: String::new() }];
