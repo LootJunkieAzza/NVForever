@@ -59,11 +59,21 @@ words; no NVIDIA text or code is reproduced here beyond names.
   1.3 (`src/wrapper.cpp:129-132`) and, at device creation, adds features (timeline semaphores,
   descriptor indexing, buffer device address) and device extensions (timeline semaphore, push
   descriptor) of its own besides those its plugins ask for (`src/wrapper.cpp:281-294`). A device
-  lacking a required extension is refused (`src/wrapper.cpp:816-820` onwards), which wgpu-hal
-  30.0.1 turns into a panic (wgpu-hal `src/vulkan/adapter.rs:3044-3050`).
+  lacking an extension it asks for is refused (`src/wrapper.cpp:816-829`), which wgpu-hal
+  30.0.1 turns into a panic (wgpu-hal `src/vulkan/adapter.rs:3044-3050`). The 1.2 and 1.3
+  features it asks for are not refused but merged with the host's and masked to what the
+  device supports (`src/wrapper.cpp:767-789`; `include/sl_helpers_vk.h:124-216`), so a missing
+  feature reaches the device unasked rather than failing its creation.
 - [documented] After `slInit`, `slGetFeatureRequirements` tells a feature's requirements without
-  a device (`include/sl_core_api.h:187-190`): queue counts, instance and device extensions and
-  Vulkan 1.2 and 1.3 feature names among them (`include/sl_core_types.h:642-690`).
+  a device; before `slInit` it always fails (`include/sl_core_api.h:187-197`). Its
+  `FeatureRequirements` (version 2, `include/sl_core_types.h:642-692`) holds, in order: flags
+  (among them "Vulkan supported", bit 2, `:625-630`), the CPU threads the feature makes, the
+  viewports it supports, the buffer tags it requires (a count and a pointer), the OS and driver
+  versions detected and required, then for Vulkan the compute and graphics queues required,
+  the device and instance extensions (each a count and an array of names), the 1.2 and 1.3
+  feature names (likewise), and the optical-flow queues required. Streamline asserts that last
+  member's offset, 176 (`src/sl.cpp:924`). The pointers point into Streamline's own memory
+  (`src/sl.cpp:916-1096`).
 
 ## Support and functions
 
@@ -79,11 +89,27 @@ words; no NVIDIA text or code is reproduced here beyond names.
 
 ## Modes and sizes
 
-- [documented] DLSS's modes, in order: off, max performance, balanced, max quality, ultra
-  performance, ultra quality, DLAA (`include/sl_dlss.h:34-44`).
-- [documented] `slDLSSGetOptimalSettings` gives, for a mode and output size, the render size to
-  draw at, and minimum and maximum render sizes when dynamic resolution is supported
-  (`ProgrammingGuideDLSS.md:103-126`).
+- [documented] DLSS's modes are a 32-bit enumeration, in order from 0: off, max performance,
+  balanced, max quality, ultra performance, ultra quality, DLAA (`include/sl_dlss.h:34-44`), so
+  max quality is 3 and DLAA 6. NVForever's mapping from its qualities: the design note, "The
+  quality mapping".
+- [documented] `slDLSSGetOptimalSettings` takes DLSS's options (the mode and output size among
+  them) and fills a `DLSSOptimalSettings` (`include/sl_dlss.h:151, 177-180`): the render size to
+  draw at, a suggested sharpness, and minimum and maximum render sizes, all zero by default
+  (version 1, `include/sl_dlss.h:108-128`). The range is given when dynamic resolution is
+  supported (`ProgrammingGuideDLSS.md:103-126`). It is fetched by name like DLSS's other
+  functions (below, "Support and functions").
+- [documented] The jitter's phase count: NVIDIA's DLSS Programming Guide (31 March 2026, §3.7.1.1
+  "Pattern Phases", p. 22,
+  https://raw.githubusercontent.com/NVIDIA/DLSS/main/doc/DLSS_Programming_Guide_Release.pdf)
+  gives a base of 8 phases times the square of the display-to-render ratio, with a minimum per
+  mode in its table: 8 for DLAA, 18 for Quality, 24 for Balanced, 32 for Performance and 72
+  for Ultra Performance. NVForever rounds the product up and takes at least the minimum
+  (`engine/nvforever/src/dlss/sizing.rs`).
+- [documented] The texture mip bias: the same guide (§3.5 "Mip-Map Bias", p. 14) gives the
+  native bias plus log2 of the render width over the display width, minus one, plus a small
+  tuning term. NVForever uses a native bias and tuning term of 0 (`dlss/sizing.rs`).
+- [documented] Jitter offsets are given in pixels (`ProgrammingGuideDLSS.md:340`).
 
 ## Evaluate
 
@@ -116,7 +142,10 @@ words; no NVIDIA text or code is reproduced here beyond names.
   history; the old context is released three frames later, not when the GPU is done with it
   (`src/dlssEntry.cpp:346-376`).
 - [documented] `slFreeResources` frees a viewport's resources; a command list with a pending
-  evaluate must be submitted first (`include/sl_core_api.h:228-239`).
+  evaluate must be submitted first (`include/sl_core_api.h:228-239`). DLSS's version releases
+  the viewport's context at once and forgets the viewport (`src/dlssEntry.cpp:884-902`), so the
+  next options make a fresh context and the three-frame delayed release above, which runs only
+  for a viewport that still holds a context (`:363-373`), has nothing to release.
 - [documented] The tagging API assumes one swap chain (`ProgrammingGuide.md:1416-1418`).
 
 ## Shutdown
