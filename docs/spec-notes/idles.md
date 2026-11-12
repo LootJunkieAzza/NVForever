@@ -283,7 +283,7 @@ below 30).
 
 1. The idle manager: fidgets other than the drawn-weapon, weapon-away (§11, §11.4) and
    furniture ones, hit reactions from the tree; how often the original asks its tree
-   (observer check 107). (Talking gestures: §12.)
+   (observer check 116). (Talking gestures: §12.)
 2. Sounds and other text keys of idle clips; the response flag "Use Emotion Animation"
    and facial emotions. (Animated objects: §10.)
 3. Package begin / end / change **topics** (TNAM), and the idles of actors that are not
@@ -473,7 +473,7 @@ record order; `GetRandomPercent` in percent):
 ### 11.3 Open
 
 - How often the original looks at its tree, and the unit of the replay delay (observer
-  check 107).
+  check 116).
 - Whether the original walks on after a branch without a passing leaf (here: yes).
 - Whether a fidget is cut by moving or plays out on the upper body (here: cut).
 
@@ -532,7 +532,7 @@ nails) and never smoked, a Goodsprings settler (neither) none.
   capture. The replay delays (§11.2) space the smoking out (120 s). The original picks
   an idle when the actor's "energy level timer has run down", low Energy idling more
   often [documented: GECK wiki, Idle Animations], with no numbers given; Energy is not
-  used here. Observer check 107 asks the original's cadence; `docs/owner-review.md`
+  used here. Observer check 116 asks the original's cadence; `docs/owner-review.md`
   has the choice.
 - **Ends** [design]: the fidget fades out when its actor moves, draws its weapon (or
   starts to), is alerted, dies, is drawn into a conversation (so it can turn to the
@@ -830,7 +830,11 @@ combat branch that the engine never played.
   `GetIsAlerted == 1`, alone or joined by OR [hypothesis: the folder match and walk of
   §11]. The tree's own conditions decide: a warning gecko reads GetIsAlerted 0 and
   procedure 44, so it does not hiss until it fights (procedure 13) [observed in the
-  original, §14.3].
+  original, §14.3]. A fight does not set GetIsAlerted (#2121; GetIsAlerted read 0 in the
+  original's fights, npc-behaviour-compare.md §11): the gecko's combat idles pass on
+  procedure 13, which Lost reads too, and the warnings gated on `GetIsAlerted == 1` alone
+  (`MWarning`, `StBWarning`) play only for an actor SetAlert alerted [design: the tree's
+  own conditions, read as scripts read them].
 - It ends when the creature moves or is calm again [design]; an attack stops it as it
   stops any idle (`attack_anims.rs`), except that an idle flagged No Attacking (the
   hiss, the rat's growl) holds the attack until it has played (§9). Log: `npc combat:

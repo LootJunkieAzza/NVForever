@@ -92,8 +92,10 @@
 //!   checked every [`FIDGET_CHECK_SECONDS`] for an idle from the tree's branch that
 //!   names GetIsAlerted (the gecko's hiss and side hops, the mirelurk's and sentry bot's
 //!   warnings); the tree's own conditions decide: the gecko's want alerted, combat or
-//!   flee, so a gecko hisses standing in a fight and not while it warns (GetIsAlerted 0,
-//!   procedure 44 then, as observed in the original). It ends when the creature moves
+//!   flee, so a gecko hisses standing in a fight (procedure 13, Lost too) and not while
+//!   it warns (GetIsAlerted 0, procedure 44 then, as observed in the original). The
+//!   warnings that want GetIsAlerted alone play only for an actor SetAlert alerted: a
+//!   fight does not set GetIsAlerted (#2121, `Game::is_alerted`). It ends when the creature moves
 //!   or is calm again; an attack stops it as it stops any idle (`attack_anims.rs`).
 //!   People keep their drawn-weapon fidgets [design].
 //!
@@ -160,7 +162,7 @@ const CLIP_WAIT: std::time::Duration = std::time::Duration::from_millis(500);
 /// with the weapon away use it too [design, #2026: not calibrated; the general fidgets'
 /// node passes 1 check in 100, about one general fidget in 200 s here, where the
 /// original's AI observer saw three to six fidgets begun per NPC in 360 s (#2026);
-/// observer check 107, docs/owner-review.md].
+/// observer check 116, docs/owner-review.md].
 pub const FIDGET_CHECK_SECONDS: f32 = 2.0;
 
 /// Seconds between two looks at the idle tree for a fleeing actor's cower idle: short,
