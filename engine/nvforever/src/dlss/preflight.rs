@@ -119,6 +119,22 @@ pub(super) const RELEASE_DLLS: [(&str, &str); 12] = [
 /// The release that [`RELEASE_DLLS`] is.
 pub(super) const RELEASE: &str = "Streamline 2.14.16";
 
+/// 64 hex digits (either case) as 32 bytes; `None` for anything else. The one parser for the
+/// listed hashes here and in `security.rs`.
+pub(super) fn parse_sha256(hex: &str) -> Option<[u8; 32]> {
+    let (pairs, rest) = hex.as_bytes().as_chunks::<2>();
+    if pairs.len() != 32 || !rest.is_empty() {
+        return None;
+    }
+    let mut out = [0u8; 32];
+    for (byte, [high, low]) in out.iter_mut().zip(pairs) {
+        let high = char::from(*high).to_digit(16)?;
+        let low = char::from(*low).to_digit(16)?;
+        *byte = (high * 16 + low) as u8;
+    }
+    Some(out)
+}
+
 /// Why the folder refuses Streamline.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum FolderRefusal {
@@ -1333,11 +1349,15 @@ mod tests {
     fn release_hash(name: &OsStr) -> Result<[u8; 32], Fault> {
         let upper = upper(name);
         let (_, hex) = RELEASE_DLLS.iter().find(|(file, _)| file.to_ascii_uppercase() == upper).expect("asked only for release files");
-        let mut out = [0u8; 32];
-        for (byte, pair) in out.iter_mut().zip(hex.as_bytes().chunks_exact(2)) {
-            *byte = u8::from_str_radix(std::str::from_utf8(pair).unwrap(), 16).unwrap();
+        Ok(parse_sha256(hex).expect("the listed hashes parse"))
+    }
+
+    #[test]
+    fn every_listed_release_hash_parses() {
+        for (file, hex) in RELEASE_DLLS {
+            let digest = parse_sha256(hex).unwrap_or_else(|| panic!("{file}'s hash parses"));
+            assert_eq!(fnv_util::sha256::to_hex(&digest), hex, "{file}: the log writes the listed form");
         }
-        Ok(out)
     }
 
     /// The NVIDIA signature check's stand-in: every `nvngx_*.dll` signed by NVIDIA.

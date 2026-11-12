@@ -139,6 +139,7 @@ use windows_sys::Win32::Security::WinTrust::{
 use windows_sys::Win32::System::LibraryLoader::{LoadLibraryExW, LOAD_LIBRARY_SEARCH_SYSTEM32};
 
 use super::ffi::{get_proc, wide};
+use super::preflight::parse_sha256;
 use crate::upscaler::Unavailable;
 
 /// `szOID_CERT_STRONG_SIGN_OS_CURRENT` as an ANSI string: the header casts the ANSI macro to
@@ -179,21 +180,6 @@ pub(super) const TESTED_INTERPOSERS: [(&str, &str); 1] = [(
     // [observed: the release zip's file and the tested bundle, 2026-11-12].
     "b1d7395aebd7b9722841d64dcf7433680020b6a8e421f851c16d5ba0c2182edf",
 )];
-
-/// 64 hex digits (either case) as 32 bytes; `None` for anything else.
-fn parse_sha256(hex: &str) -> Option<[u8; 32]> {
-    let digits = hex.as_bytes();
-    if digits.len() != 64 {
-        return None;
-    }
-    let mut out = [0u8; 32];
-    for (byte, pair) in out.iter_mut().zip(digits.chunks_exact(2)) {
-        let high = char::from(pair[0]).to_digit(16)?;
-        let low = char::from(pair[1]).to_digit(16)?;
-        *byte = (high * 16 + low) as u8;
-    }
-    Some(out)
-}
 
 /// The tested build whose SHA-256 is `digest`, if any.
 fn tested_build(digest: &[u8; 32]) -> Option<&'static str> {
