@@ -490,7 +490,9 @@ impl Plugin for ReportsPlugin {
             .add_systems(Startup, (read_gpu, read_window))
             .add_systems(Update, (collect, track_loads, detect).chain())
             .add_systems(Update, refresh_snapshot)
-            .add_systems(Last, write_summary);
+            // After Bevy's window-closed exit (AppExit in Last): else a window closed by the
+            // player missed the clean end and the run was sent as a native crash (#2203).
+            .add_systems(Last, write_summary.after(bevy::window::ExitSystems));
     }
 }
 
