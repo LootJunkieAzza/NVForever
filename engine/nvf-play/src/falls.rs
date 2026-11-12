@@ -120,6 +120,10 @@ pub struct Falls {
     rng: Option<ChaCha8Rng>,
     /// The hard landing's sounds, heavy and light, once looked up.
     sounds: Option<[Option<FormId>; 2]>,
+    /// The top of the player's fall a loaded save was made in, under the player's Keep
+    /// Fall Height on Load tweak: the player's next step in the air falls from at least
+    /// there ([`FALL_SAVE_HOOK`]) [design: docs/design/tweaks.md].
+    loaded_top: Option<f32>,
 }
 
 /// WRLD DATA "Don't Allow NPC Fall Damage" (module notes).
@@ -152,6 +156,8 @@ impl Falls {
     /// One physics step of character `id` that started with the feet at `start_z`; the
     /// fall's height when the step landed it on land.
     pub fn step(&mut self, id: u32, start_z: f32, s: &CharacterStep) -> Option<f32> {
+        // The loaded save's fall top goes with the player's first step after the load.
+        let loaded = if self.player == Some(id) { self.loaded_top.take() } else { None };
         if s.swimming {
             self.open.remove(&id);
             return None;
@@ -161,16 +167,21 @@ impl Falls {
             let fall = self.open.remove(&id);
             return s.landed_speed.and(fall).map(|(apex, last)| {
                 let apex = if (start_z - last).abs() > PLACED_JUMP { start_z } else { apex.max(start_z) };
-                (apex - end).max(0.0)
+                (apex.max(loaded.unwrap_or(f32::MIN)) - end).max(0.0)
             });
         }
         let e = self.open.entry(id).or_insert((start_z, start_z));
         if (start_z - e.1).abs() > PLACED_JUMP {
             e.0 = start_z;
         }
-        e.0 = e.0.max(start_z).max(end);
+        e.0 = e.0.max(start_z).max(end).max(loaded.unwrap_or(f32::MIN));
         e.1 = end;
         None
+    }
+
+    /// The top of the player's fall now, when the player is in the air.
+    pub fn player_top(&self) -> Option<f32> {
+        self.player.and_then(|id| self.open.get(&id)).map(|e| e.0)
     }
 
     /// The player's character id, for ResetFallTime.
@@ -197,9 +208,27 @@ pub struct FallsPlugin;
 
 impl Plugin for FallsPlugin {
     fn build(&self, app: &mut App) {
+        crate::save::add_save_hook(app, FALL_SAVE_HOOK);
         app.init_resource::<Falls>().add_message::<Fell>().add_systems(Update, hurt.in_set(PlaySet::Activation).run_if(resource_exists::<SimState>).run_if(resource_exists::<CombatStats>).run_if(resource_exists::<HitFeedback>));
     }
 }
+
+/// The top of the player's fall when a save is made in the air (a height in game units),
+/// kept with the save; a loaded one is used only under the player's Keep Fall Height on
+/// Load tweak, else the fall counts from where the load put the player, as before
+/// [design: docs/design/tweaks.md].
+pub const FALL_SAVE_HOOK: crate::save::SaveHook = crate::save::SaveHook {
+    key: "player_fall_top",
+    save: |w| w.get_resource::<Falls>()?.player_top().map(serde_json::Value::from),
+    load: |w, v| {
+        let keep = w.get_resource::<crate::tweaks::TweakSettings>().is_some_and(|t| t.keep_fall_height_on_load);
+        let top = v.as_f64().map(|t| t as f32).filter(|t| keep && t.is_finite());
+        if let Some(mut f) = w.get_resource_mut::<Falls>() {
+            f.loaded_top = top;
+        }
+    },
+    remap: None,
+};
 
 /// The body part locations a deadly fall takes off with the Fall Deaths Cause
 /// Dismemberment tweak: Left Leg 1 and Right Leg 1 (`fnv_combat::data` part types) [design: docs/design/tweaks.md].
@@ -351,6 +380,28 @@ mod tests {
         assert!((h - 160.0).abs() < 1e-3);
         // Walking on: no fall.
         assert_eq!(f.step(1, 0.0, &step(0.0, true, None, false)), None);
+    }
+
+    #[test]
+    fn a_loaded_fall_top_counts_for_the_player_once() {
+        let mut f = Falls::default();
+        f.note_player(14);
+        // Saved falling from 900; loaded, the player is put at 500 in the air.
+        f.loaded_top = Some(900.0);
+        f.step(14, 500.0, &step(490.0, false, None, false));
+        assert_eq!(f.player_top(), Some(900.0));
+        let h = f.step(14, 490.0, &step(0.0, true, Some(800.0), false)).expect("landed");
+        assert!((h - 900.0).abs() < 1e-3);
+        // Only once, and only for the player.
+        f.loaded_top = Some(900.0);
+        f.step(5, 500.0, &step(490.0, false, None, false));
+        assert_eq!(f.loaded_top, Some(900.0));
+        f.step(14, 100.0, &step(90.0, false, None, false));
+        f.step(14, 90.0, &step(80.0, false, None, false));
+        assert_eq!(f.player_top(), Some(900.0));
+        f.step(14, 80.0, &step(0.0, true, Some(10.0), false));
+        f.step(14, 100.0, &step(90.0, false, None, false));
+        assert_eq!(f.player_top(), Some(100.0));
     }
 
     #[test]

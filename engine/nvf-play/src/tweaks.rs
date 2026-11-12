@@ -456,6 +456,8 @@ pub struct TweakSettings {
     /// `iPlaceMapMarkerAtPlayerPosKey`/`sMessage`: the Place Marker Here key says so in
     /// the corner.
     pub place_marker_here_says: bool,
+    /// `bKeepFallHeightOnLoad`: a save made in the air keeps the fall's top.
+    pub keep_fall_height_on_load: bool,
 }
 
 /// The colours a companion's compass pip may take, ours; the first leaves it as anyone's.
@@ -708,6 +710,7 @@ impl Default for TweakSettings {
             objectives_gap: 30.0,
             clear_marker_within: 0.0,
             place_marker_here_says: true,
+            keep_fall_height_on_load: false,
         }
     }
 }
@@ -1713,6 +1716,7 @@ impl Plugin for TweaksPlugin {
         switch!(app, "usable-ammo-first", "Usable Ammo First", "In the Pip-Boy's ammo list, ammo that a weapon you carry can fire comes first. (Stewie's Tweaks bSortEquipableAmmo)", usable_ammo_first);
         switch!(app, "better-flycam", "Better Free Camera", "The console's free camera (tfc) flies up with Space and down with Ctrl, keeps flying forward after Q (S stops it) and turns with Z and C; the wheel still sets its speed. (Stewie's Tweaks bBetterFlycam)", better_flycam);
         switch!(app, "recent-markers-red", "New Places Red on the Map", "Places you found since starting NVForever are drawn red on the world map. (Stewie's Tweaks bColorRecentlyAddedMapMarkers)", game.recent_markers_red);
+        switch!(app, "keep-fall-height-on-load", "Keep Fall Height on Load", "A save made while falling keeps how high the fall began, so landing after loading it hurts as much as it would have. (Stewie's Tweaks bKeepFallHeightOnLoad)", keep_fall_height_on_load);
         switch!(app, "no-marker-popup", "No Place Marker Question", "Place Marker on the Pip-Boy's maps asks nothing: it puts your marker there, or takes it away while one is placed. (Stewie's Tweaks bNoPlaceMarkerPopup)", game.no_marker_popup);
         switch!(app, "marker-shift-removes", "No Question: Shift Removes", "With No Place Marker Question, Place Marker always puts the marker there; with Shift held it takes it away. (Stewie's Tweaks bPlaceMarkerShiftToReset)", game.marker_shift_removes);
         switch!(app, "marker-removed-on-it", "No Question: Remove When On It", "With No Place Marker Question, Place Marker always puts the marker there, and takes it away when the highlight box is on it. (Stewie's Tweaks bResetIfHovered)", game.marker_removed_on_it);

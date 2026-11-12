@@ -577,6 +577,7 @@ unless the player binds them, so nothing changes until then.
 | No Place Marker Question | `bNoPlaceMarkerPopup` | `pipboy::data::place_marker` answers at once with `marker::quick`: toggled, or (`bPlaceMarkerShiftToReset`) always placed and taken away with Shift, or (`bResetIfHovered`) taken away when the highlight box is within the snap distance of the marker drawn (`DataState::custom_on_map`) |
 | Clear Marker When Near | `bClearNearbyPlayerMarker` | `tweaks::clear_near_marker` clears the game's marker (`jg8.custom_marker`) when `marker::near` (same space, across the ground) after the player was once farther, so a marker placed underfoot stays |
 | Place Marker Here | `iPlaceMapMarkerAtPlayerPosKey` | a new unbound control, `Control::PlaceMarkerHere`; `tweaks::place_marker_here` sets the game's marker to the player's space and feet, with a corner line in our words unless switched off |
+| Keep Fall Height on Load | `bKeepFallHeightOnLoad` | `falls::FALL_SAVE_HOOK` keeps `Falls::player_top` with a save made in the air; loaded under the switch, `Falls::loaded_top` is the floor of the player's next fall step (after the load's placement reset) |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -598,8 +599,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 504 |
-| to do | 99 |
+| done | 507 |
+| to do | 96 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -656,6 +657,7 @@ game's Data folder, read-only).
 | `bJumpingCostsAP` | done |  | 3 | Action Points per Jump (slider 0-50; the combat-only and jump-anyway options not built) |
 | `bJumpSwimsUpwards` | done |  | 2 | Jump Swims Upwards (at the walking stroke speed; the sub-options not offered) |
 | `bJumpWhileOverencumbered` | done |  |  | already so: NVForever never refuses the jump when over-encumbered |
+| `bKeepFallHeightOnLoad` | done |  |  | Keep Fall Height on Load (the save keeps the player's fall top) |
 | `bLevelDifferenceAffectsCombatXP` | done |  | 2 | Kill XP by Level (slider; scales the game's kill XP per level of difference instead of the plugin's base) |
 | `bLightStepAffectsCompanions` | done |  |  | Light Step for Companions |
 | `bLockNeedsKeyShowName` | done |  |  | Name the Key |
@@ -738,7 +740,6 @@ game's Data folder, read-only).
 | `bHipFireAnimsWhileScoped` | unsure, skipped |  |  | depends on alternate animations |
 | `bHoldToActivate` | to do |  | 9 | a hold on E is taken by grab; needs a timer and per-kind choices |
 | `bHostilesPrioritizePlayer` | to do |  | 3 | Awareness::combat_target has no game or rolls |
-| `bKeepFallHeightOnLoad` | to do |  |  | the fall top is not saved |
 | `bMapSelectableCompanions` | to do |  | 2 | not built: companions are not on the map and cannot be summoned |
 | `bNoLockEncounterZoneLevels` | unsure, skipped |  |  | encounter-zone level locking not yet checked in NVForever |
 | `bNPCsDropLiveGrenades` | to do |  |  | not built: NPC grenades have no in-hand phase |
@@ -1235,6 +1236,7 @@ game's Data folder, read-only).
 | `bPreventNPCComments` | done |  | 1 | already so: NPCs make no such comments |
 | `bPreventTeammateFootstepSounds` | done |  |  | Quiet Companion Footsteps |
 | `bRadiationCausesRadioStatic` | done |  | 1 | Radiation Brings Radio Static (whole at 10 rads/s, at most 80%: ours) |
+| `bRadioKeepPositionWhenLoading` | done |  |  | already so: the radio's programmes are not part of a save and run on through a load, so a song playing is never rewound |
 | `bRestoreLockedDoorSound` | done |  |  | already so: a refused lock plays DRSLocked |
 | `bScaleAshpileSize` | done |  | 2 | Ash Piles Fit the Body (the actor's scale, half to twice; not its bounds) |
 | `bScaleRadioVolume` | done |  | 2 | Radio Songs Volume / Radio Talk Volume (two sliders) |
@@ -1242,6 +1244,7 @@ game's Data folder, read-only).
 | `bSplashDamageTorsoGibbing` | done |  |  | Splash Kills Can Gib the Torso (one in four with Bloody Mess, ours) |
 | `bTogglePOVWhenHolsteringWeapon` | done |  |  | View Follows the Weapon |
 | `bUseConsoleOutputFile` | done |  | 1 | Console Output File (ConsoleOutput.txt in NVForever's folder; the name is ours, sFilename not offered) |
+| `bWeaponVisibleDuringDialogue` | done |  |  | already so by the code: nothing hides the player's weapon or hands while talking (not checked in game) |
 | `bAllowKeyboardAndMouseWithControllerConnected` | to do | yes |  | the Input Device setting picks one device; needs both at once |
 | `bArmorPreventsBloodDecals` | to do | yes |  | the impact is sent before DT is worked out |
 | `bConsoleBackground` | unsure, skipped | yes |  | needs the plugin's own menu XML |
@@ -1268,7 +1271,6 @@ game's Data folder, read-only).
 | `bNoPipboyOnAltTab` | n/a |  |  | the original's alt-tab handling |
 | `bPrintErrorsToConsole` | n/a |  | 5 | the original's error log |
 | `bPrintNewModsOnLoad` | n/a |  |  | the plugin's own load report |
-| `bRadioKeepPositionWhenLoading` | to do |  |  | the radio position is not saved |
 | `bReloadSoundsAffectedByTimescale` | to do |  |  | one global sound speed |
 | `bReplaceHelpWithConsole` | to do |  |  | no Help entry; the console opens only from play, so a pause-menu entry needs a state change |
 | `bSwapKeyboardYZKeys` | n/a |  |  | the original's keyboard handling; NVForever's keys can be rebound |
@@ -1277,7 +1279,6 @@ game's Data folder, read-only).
 | `bUseFallout3AudioDistortion` | unsure, skipped |  |  | needs the original sequel's filter described first |
 | `bUseHitLocationInCinematicKillcams` | to do |  |  | not built: no cinematic kill camera outside V.A.T.S. |
 | `bVanityCamReturnsToFirstPerson` | to do |  |  | not built: no vanity camera |
-| `bWeaponVisibleDuringDialogue` | to do |  |  | probably already so (nothing hides the weapon); confirm in game |
 
 ### Fixes
 
