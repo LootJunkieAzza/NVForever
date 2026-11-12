@@ -144,7 +144,7 @@ pub(super) fn start(app: &mut App) {
     note(
         Level::INFO,
         format!(
-            "signature: {} verified (Windows' Authenticode check of the primary signature, index 0; exactly one secondary signature; Windows' check of that secondary signature, index 1; Streamline's NVIDIA key on it)",
+            "signature: {} accepted (Windows' Authenticode check of the primary signature, index 0; exactly one secondary signature; Streamline's NVIDIA key on its signer; the secondary signature itself not verified against the file)",
             FILES[0]
         ),
     );
