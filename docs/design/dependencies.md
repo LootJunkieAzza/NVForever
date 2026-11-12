@@ -74,3 +74,13 @@ it on every push to main.
 self-tests. Pull requests, other branches, Windows and macOS are not run in CI (billed
 minutes); the local checks in CLAUDE.md cover them before each push. The parity job that needs game data stays in
 `parity-lab/ci/github-actions.yml` (self-hosted runner only).
+
+
+## Optional Linux GPU usage (#2249)
+
+[design, #2249: `engine/nvforever/Cargo.toml`, `perf_overlay/nvml.rs`]
+`nvforever` directly uses `libloading` 0.8.9 on Linux only, reusing the exact version
+already in `engine/Cargo.lock` through the graphics stack. This avoids another crate
+and hand-written loader bindings. NVML remains optional at run time; no NVIDIA SDK
+or link-time NVIDIA library is required. The library stays loaded through all calls
+and a matching `nvmlShutdown`, including initialization paths with no readable devices.

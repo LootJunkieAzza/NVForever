@@ -303,3 +303,58 @@ Smoke scenarios: `settings-layout`, `settings-headings`, `settings-scroll-headin
 `settings-changed`, `settings-heading-pointer`, `settings-search-language`,
 `settings-reopen`, `settings-tab-write` and `settings-tab-read` (a pair), `settings-rail-hover`
 (tools/smoke/scenarios.toml).
+
+
+## Performance usage availability (#2249)
+
+[design, #2249: `engine/nvforever/src/perf_overlay/{usage,readings,mod}.rs`,
+`engine/nvforever/src/settings.rs`] The existing switches and defaults stay the same.
+CPU and GPU rows each say **Not available** when their reading is missing, including
+while an initial rate awaits its second sample. A CPU row can still show the game's
+cores when the machine reading is missing. These are NVForever's own words; the new
+unavailable and game-GPU wording uses `lang/*.toml`.
+
+| Existing setting | Systems and scope [design: `perf_overlay/usage.rs`] |
+|---|---|
+| `fps-counter-cpu` | Windows PDH machine use and process time; Linux `/proc/stat` machine use and `/proc/self/stat` process time. Other systems show Not available. |
+| `fps-counter-gpu` | Windows PDH busiest engine over all programs. Linux tries runtime NVML, readable amdgpu `gpu_busy_percent`, then DRM client nanosecond counters. Unsupported telemetry shows Not available. |
+
+[design, #2249] `usage::linux::GPU_SOURCE_ORDER` prefers NVML then amdgpu to keep
+whole-device use where available; DRM is the fallback and shows **game 71%**, for
+example. NVML and amdgpu take the busiest readable device; these readers do not match
+a device to the renderer on a multi-GPU machine. Selection occurs at the first GPU
+request, logs once (including no available source), and keeps its reader. DRM rescans
+fdinfo each requested second so clients opened later can start reporting. A lost
+selected source shows unavailable; restarting retries the higher-priority sources.
+Hidden overlays and disabled GPU rows reset DRM rate baselines. The first numeric
+Windows usage log stays unchanged; a separate availability log waits at most ten
+half-second updates with both usage rows enabled, then spells out missing parts.
+
+[documented: Linux kernel, [DRM client usage stats](https://docs.kernel.org/gpu/drm-usage-stats.html)]
+The usage and identity fields are optional: `drm-engine-<name>` gives client busy nanoseconds,
+`drm-engine-capacity-<name>` gives grouped engine capacity (default one), and
+`drm-client-id` with `drm-pdev` identifies duplicate client descriptors. Counters can
+briefly decrease; readers must retain their high-water mark.
+[design, #2249: `perf_overlay/drm_usage.rs`] We sum distinct clients per device and
+engine, divide busy-time deltas by elapsed time and capacity, choose the busiest
+engine and clamp to 0-100%. New clients need two samples; unreadable files, malformed
+units, missing client IDs or unsupported counters cannot supply a percentage.
+Without a PCI device identity, clients are kept separate when choosing the busiest
+engine, so work on unknown devices is not added together [design, #2249].
+This applies to drivers exporting these fields (including supporting amdgpu, i915/xe
+and nouveau versions); a driver name alone does not guarantee telemetry.
+
+[documented: NVIDIA, [NVML Device Queries](https://docs.nvidia.com/deploy/nvml-api/620/api/group__nvmlDeviceQueries.html),
+[Initialization and Cleanup](https://docs.nvidia.com/deploy/nvml-api/620/api/group__nvmlInitializationAndCleanup.html),
+[nvmlUtilization_t](https://docs.nvidia.com/deploy/nvml-api/620/api/structnvmlUtilization__t.html)]
+NVML supplies device GPU utilization on supported NVIDIA proprietary drivers. We load
+`libnvidia-ml.so.1`, initialize with `nvmlInit_v2`, enumerate with
+`nvmlDeviceGetCount_v2` / `nvmlDeviceGetHandleByIndex_v2`, and read
+`nvmlDeviceGetUtilizationRates`; unavailable libraries, symbols, permissions and
+unsupported utilization allow fallback [design: `perf_overlay/nvml.rs`].
+
+[design, #2249] Synthetic fixtures test parser/arithmetic on every test platform.
+Smoke scenario `perf-overlay-usage-availability` accepts a numeric or explicit missing
+part independently. The older `fps-counter` numeric expectation is preserved.
+Linux validation still needs Intel/nouveau game-only rates and labels, NVIDIA with
+and without NVML, amdgpu fallback, no telemetry, and hide/show or GPU-row off/on.

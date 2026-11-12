@@ -495,17 +495,18 @@ fn register_counter_rows(app: &mut App) {
             |w| w.resource::<FpsCounter>().rows.split,
             |w, on| w.resource_mut::<FpsCounter>().rows.split = on,
         ),
+        // [design, #2249] Availability and scope follow perf_overlay/usage.rs.
         row(
             "fps-counter-cpu",
             "Counter: CPU use",
-            "The whole machine's processor use, as Task Manager shows it, and the game's own as cores kept busy: 1.0 is all of one core's time, so a thread held at its limit reads at least 1.0 however many cores the machine has. From Windows' performance counters and the game's processor time, read once a second while the counter shows. Windows only.",
+            "Machine and game CPU use, read once a second while shown. Windows uses performance counters; Linux uses /proc. Missing machine readings say Not available. Game use is cores kept busy: 1.0 is one full core.",
             |w| w.resource::<FpsCounter>().rows.cpu,
             |w, on| w.resource_mut::<FpsCounter>().rows.cpu = on,
         ),
         row(
             "fps-counter-gpu",
             "Counter: GPU use",
-            "The use of the graphics card's busiest engine by every program, as Task Manager shows it. From Windows' performance counters, read once a second while the counter shows. Windows only.",
+            "GPU use, read once a second while shown. Windows: busiest engine across programs. Linux: NVIDIA NVML, then amdgpu, then DRM client time. DRM reads game use and says game; the other Linux sources read whole-device use. Missing readings say Not available.",
             |w| w.resource::<FpsCounter>().rows.gpu,
             |w, on| w.resource_mut::<FpsCounter>().rows.gpu = on,
         ),
