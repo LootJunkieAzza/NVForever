@@ -11,14 +11,27 @@
 //!   [`resolve`] is its rule [design]: Streamline is only loaded when DLSS is asked for at start,
 //!   so entering or leaving DLSS takes a restart, and until then the effective choice stays.
 //!
-//! Nothing selects DLSS through the settings or the command line yet, and nothing reads the
-//! status (the design note's steps 4, 5 and 8 wire them); the types and the rule are here so
+//! - [`prep`] is the view preparation every temporal upscaler shares (step 4): camera history
+//!   and cuts, the render-size override, jitter and mip bias, the corrected and expanded depth,
+//!   the spatial fallback and the alpha copy. FSR adds its own state after it; DLSS gets it
+//!   without any of FSR's.
+//! - [`temporal_active`] is the question the shared parts ask (HDR, prepasses, cut-outs drawn
+//!   alpha-tested, the anti-aliasing lock, the ambient occlusion at the render size), where
+//!   `graphics::fsr_active` stays FSR's own (its sharpening, frame generation).
+//!
+//! Nothing selects DLSS through the settings or the command line yet, and nothing fills the
+//! status (the design note's steps 5 and 8 wire them); the types and the rule are here so
 //! those steps share them.
 
 // The status and the reasons are wired by later steps (module comment); remove this then.
 #![allow(dead_code)]
 
+pub(crate) mod prep;
+
+use bevy::camera::Hdr;
+use bevy::core_pipeline::prepass::{DepthPrepass, MotionVectorPrepass};
 use bevy::prelude::*;
+use bevy::render::camera::{MipBias, TemporalJitter};
 
 /// The backend kind (`--upscaler off|fsr|dlss` once the command line takes it).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, clap::ValueEnum)]
@@ -304,6 +317,35 @@ impl UpscalerStatus {
     }
 }
 
+/// DLSS on a perspective HDR camera, the counterpart of `fsr::FsrUpscaling`: the common
+/// preparation ([`prep`]) takes the camera, and DLSS draws it from step 5. The graphics
+/// settings put it on the main camera while DLSS is the effective choice
+/// ([`UpscalerStatus::effective`]) and enforce `Msaa::Off` and no other anti-aliasing, as for
+/// FSR. DLSS sharpens nothing itself: the separate sharpening pass stays available.
+#[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
+#[require(Hdr, DepthPrepass, MotionVectorPrepass, TemporalJitter, MipBias)]
+pub struct DlssUpscaling {
+    pub quality: UpscaleQuality,
+}
+
+/// The temporal upscaler the main camera draws with: DLSS while the status says DLSS draws,
+/// else FSR while it is asked for and `fsr_supported`, else off. Without a status (before
+/// step 8 inserts it) this is FSR's rule as it always was.
+pub fn effective_temporal(requested_fsr: Option<UpscaleQuality>, fsr_supported: bool, status: Option<&UpscalerStatus>) -> UpscalerChoice {
+    match status.map(UpscalerStatus::effective) {
+        Some(dlss @ UpscalerChoice::Dlss(_)) => dlss,
+        _ => UpscalerChoice::from_fsr(requested_fsr.filter(|_| fsr_supported)),
+    }
+}
+
+/// Whether a temporal upscaler (FSR or DLSS) draws the main camera on this device: the
+/// question for what both need (the HDR view, the prepasses, cut-outs drawn alpha-tested, the
+/// native anti-aliasing replaced). `graphics::fsr_active` is FSR's own.
+pub fn temporal_active(world: &World) -> bool {
+    let fsr_supported = world.get_resource::<crate::fsr::FsrSupport>().is_some_and(|s| s.0);
+    effective_temporal(world.resource::<crate::graphics::Graphics>().fsr(), fsr_supported, world.get_resource::<UpscalerStatus>()) != UpscalerChoice::Off
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -432,6 +474,26 @@ mod tests {
         let running = Some(UpscalerChoice::Dlss(Quality));
         assert_eq!(resolve(UpscalerChoice::Dlss(Quality), running, failed), Resolution { effective: UpscalerChoice::Off, restart_pending: false, reason: Some(Unavailable::EvaluateFailed) });
         assert_eq!(resolve(UpscalerChoice::Fsr(Quality), running, failed), Resolution { effective: UpscalerChoice::Off, restart_pending: true, reason: Some(Unavailable::EvaluateFailed) });
+    }
+
+    #[test]
+    fn the_camera_draws_with_dlss_only_while_dlss_is_effective() {
+        // No status (until step 8 inserts it): FSR's rule as it was.
+        assert_eq!(effective_temporal(Some(Quality), true, None), UpscalerChoice::Fsr(Quality));
+        assert_eq!(effective_temporal(Some(Quality), false, None), UpscalerChoice::Off, "unsupported FSR draws natively");
+        assert_eq!(effective_temporal(None, true, None), UpscalerChoice::Off);
+        // DLSS drawing: DLSS, whatever FSR request waits for the restart.
+        let mut status = UpscalerStatus::new(READY);
+        status.update(UpscalerChoice::Dlss(Balanced));
+        assert_eq!(effective_temporal(None, true, Some(&status)), UpscalerChoice::Dlss(Balanced));
+        status.update(UpscalerChoice::Fsr(Quality));
+        assert!(status.restart_pending());
+        assert_eq!(effective_temporal(Some(Quality), true, Some(&status)), UpscalerChoice::Dlss(Balanced), "never FSR and DLSS at once");
+        // A status without DLSS: FSR and off as without one.
+        let mut stock = UpscalerStatus::new(STOCK);
+        stock.update(UpscalerChoice::Fsr(Performance));
+        assert_eq!(effective_temporal(Some(Performance), true, Some(&stock)), UpscalerChoice::Fsr(Performance));
+        assert_eq!(effective_temporal(None, true, Some(&stock)), UpscalerChoice::Off);
     }
 
     #[test]

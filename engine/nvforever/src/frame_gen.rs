@@ -37,7 +37,7 @@
 //! before, for comparisons.
 //!
 //! **No generated frame** in menus, dialogue, loading screens, while paused (all
-//! `PlayState`s but Playing), on a camera cut (`FsrCamera::cut_from`) or the first frame after
+//! `PlayState`s but Playing), on a camera cut (`UpscaleCamera::cut_from`) or the first frame after
 //! any of them: those frames are presented once, as without frame generation. Nor on a frame a
 //! screenshot of the window is taken (F12, `--screenshot`): the passes run, but only the real
 //! frame is presented, and the screenshot gets it too ([`generate`]).
@@ -79,6 +79,7 @@ use wgpu_ffx::frameinterpolation::{
 use wgpu_ffx::opticalflow::{OpticalFlowContext, OpticalFlowDispatchInfo, OpticalFlowView};
 
 use crate::fsr::PreparedFsr;
+use crate::upscaler::prep::PreparedUpscale;
 
 /// The switch (the settings row, `--frame-generation`).
 #[derive(Resource, Clone, Copy, Debug, PartialEq, Eq)]
@@ -506,10 +507,12 @@ fn prepare(
     queue: Res<RenderQueue>,
     request: Res<FrameGenRequest>,
     mut renderer: ResMut<FrameGenRenderer>,
-    mut views: Query<(Entity, Option<&PreparedFsr>, &mut CameraMainTextureUsages, Option<&mut PreparedFrameGen>)>,
+    mut views: Query<(Entity, Option<&PreparedUpscale>, Has<PreparedFsr>, &mut CameraMainTextureUsages, Option<&mut PreparedFrameGen>)>,
 ) {
-    for (entity, fsr, mut usages, old) in &mut views {
-        let Some(fsr) = fsr.filter(|f| request.on && supports_size(f.output_size)) else {
+    for (entity, prepared, fsr_draws, mut usages, old) in &mut views {
+        // Only a view FSR draws (frame generation is FSR's own); its sizes are the common
+        // prepared view's.
+        let Some(fsr) = prepared.filter(|f| fsr_draws && request.on && supports_size(f.output_size)) else {
             if old.is_some() {
                 commands.entity(entity).remove::<PreparedFrameGen>();
             }
@@ -538,7 +541,7 @@ fn prepare(
 /// FSR's jitter (as FidelityFX SDK 1.1.4's `ffxFsr3ContextDispatchFrameGenerationPrepare`
 /// passes the upscaler's on; AMD's pass reads it only for display-resolution motion vectors).
 fn prepare_pass(
-    view: ViewQuery<(&PreparedFsr, &PreparedFrameGen, Option<&ViewPrepassTextures>, &TemporalJitter)>,
+    view: ViewQuery<(&PreparedUpscale, &PreparedFrameGen, Option<&ViewPrepassTextures>, &TemporalJitter), With<PreparedFsr>>,
     renderer: Res<FrameGenRenderer>,
     mut ctx: RenderContext,
 ) {
@@ -556,7 +559,7 @@ fn prepare_pass(
         &mut fg.interpolation.lock().unwrap(),
         ctx.command_encoder(),
         &FrameInterpolationPrepareInfo {
-            depth: &fsr.fsr_depth,
+            depth: &fsr.depth,
             motion_vectors: &motion.texture.texture,
             render_size: fsr.render_size.to_array(),
             // Bevy's offset is minus FSR's (fsr.rs `prepare`).
@@ -589,7 +592,7 @@ fn capture_hudless(view: ViewQuery<(&ViewTarget, &PreparedFrameGen)>, mut ctx: R
 /// upscaling shows it first) and the real one aside for [`show_real`].
 #[allow(clippy::too_many_arguments)]
 fn generate(
-    view: ViewQuery<(&ViewTarget, &PreparedFsr, &PreparedFrameGen, &ExtractedCamera)>,
+    view: ViewQuery<(&ViewTarget, &PreparedUpscale, &PreparedFrameGen, &ExtractedCamera), With<PreparedFsr>>,
     renderer: Res<FrameGenRenderer>,
     pending: Res<PendingReal>,
     pending_generated: Res<PendingGenerated>,
