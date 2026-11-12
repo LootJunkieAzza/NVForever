@@ -1210,7 +1210,10 @@ fn camera(
     // Arm wrestling cuts straight to its view: eased from the game's own camera, the first
     // frames showed a high corner view of the player getting up [observed: the laptop's
     // ship14 armwrestle-watch-close, P1 play-67.5s, then the pair at 68s].
-    let first = if arm_view.is_some() { want } else { *t };
+    // So does the seated end view (slots): eased, its first frames showed the machine's
+    // own win camera, a mate's back in the corner [observed: ship15 slots-coop-2p-exit,
+    // host play-64s].
+    let first = if arm_view.is_some() || st.seated { want } else { *t };
     let from = *st.from.get_or_insert(first);
     let out = ease(from, want, (real.elapsed_secs() - since) / EASE_IN);
     if !out.translation.is_finite() || !out.rotation.is_finite() {
