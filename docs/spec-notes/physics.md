@@ -2453,6 +2453,30 @@ overshoot (4.8 / 2.7) but doubled the drawn height's RMS on the broken road lane
 (shorter filter while the body is ahead of the feet) cost rough ground as much for less.
 With the bound alone the road run gave 2086 / 426 (0.20), as before.
 
+**Easing onto curbs** (2026-11-12, player feedback that walking onto obstacles of
+varying height "seems a bit jarring") [design; `step_lift.rs`]: the spring started the
+lift back towards 0 at full acceleration in the very step a curb was climbed or dropped
+off, so the view went from still to about 50 units/s within one fixed step. The lift now
+goes back through three first-order stages of rate 22/s one after the other (a triple
+critically damped pole; the change beyond the prediction is taken into all three), so
+after a curb the drawn height starts with no vertical speed and no vertical acceleration
+and is within a tenth of the step after about 0.24 s. The stiffening with the size of the
+lift is gone; the prediction, its bounds, the air, swimming and placements are as
+before. Replayed [observed: synthetic replays in the module's tests, 2026-11-12;
+before / now]: on a 10-unit curb the largest change of the drawn vertical speed from one
+step to the next is 0.66 / 0.34 units a step at a walk and 0.73 / 0.42 at a run, and
+the first step on it moves the drawn height 0.5 / 0.06 units; over the top of a flight
+of stairs the body is drawn 4.2 / 2.6 units over the top step running, 1.2 / 0.5
+walking. The cost: running onto and over a 30° slope the body lags and then overshoots
+by up to 13.3 units (9.9 before), walking 6.6 (6.1). A rate of 18/s was gentler
+still on a curb but made a run up the stairs far rougher (RMS vertical acceleration of
+the drawn height 356 → 1838 units/s² in the replay); 22/s also kept the replayed road
+ripples a little smoother than before (218 → 205). In game on the broken road lane
+[observed: smoke `road-run-smooth`, 2026-11-12] the exit report gave 2083 for the feet and
+365 for the drawn height over 596 steps (427 before, drawn/feet 0.21 → 0.18), largest lift
+14.3 units; `camper-steps`, `repconn-catwalk-stairs`, `pete-porch` and `pete-terrain`
+pass.
+
 ### 6.12 Fall damage (playtest list 7 item 21, 2026-10-23; `engine/nvf-play/src/falls.rs`)
 
 - **Settings** [observed: FalloutNV.esm GMST]: `fJumpFallHeightMin` 600,
