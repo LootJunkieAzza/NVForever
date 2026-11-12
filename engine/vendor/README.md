@@ -171,6 +171,27 @@ Review fixes (2026-11-09, h9x000/NVForever#6), marked `NVForever (2026-11-09)`:
 
 Upstream Bevy has no way for a thread other than the render thread to present a window.
 
+Vulkan library for the instance (2026-11-12, DLSS spike, #2198), in
+`src/renderer/raw_vulkan_init.rs`, each part marked by a comment starting `NVForever
+(2026-11-12, DLSS spike #2198)`, and an optional `ash` 0.38 dependency (the version wgpu-hal
+30 uses) under the `raw_vulkan_init` feature in `Cargo.toml`:
+
+- `RawVulkanInitSettings::set_vulkan_library` (unsafe): the raw Vulkan instance is made from
+  that library (`ash::Entry::load_from`) instead of the system's loader, for NVIDIA
+  Streamline's interposer. wgpu-hal 30.0.1's `Instance::init_with_callback` loads the loader
+  itself, so its steps are done here with wgpu-hal's public `desired_extensions` and
+  `from_raw`: the same application info, extensions, validation layer and features, and the
+  loader's API version. Instance callbacks cannot run on that path (their argument type has a
+  private field), so with any registered it is not taken. wgpu-hal's debug messenger cannot be
+  handed over (private fields), so when the instance flags ask for `VK_EXT_debug_utils` the
+  file's own messenger writes the layers' messages as wgpu-hal does (same log target, levels,
+  wording and suppressed ids) and is destroyed before the instance. On success
+  `VulkanLibraryInstance` is set in `AdditionalVulkanFeatures`; on any failure the caller's
+  report hears why and upstream's path runs.
+
+Without `set_vulkan_library` (every run without `NVF_DLSS_SPIKE=1`), upstream's path runs
+unchanged. Drop it if wgpu-hal gains a way to pass the entry in.
+
 ## wgpu-ffx 0.1.0 (MIT, the wgpu-ffx developers and Advanced Micro Devices)
 
 The FSR 3.1.4 upscaler (docs/design/fsr-upscaling.md) and, added here, FSR 3.1 frame

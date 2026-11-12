@@ -71,6 +71,7 @@ mod fog;
 mod fly;
 mod foot_ik;
 mod anti_lag;
+mod dlss_spike;
 mod frame_pace;
 mod frame_telemetry;
 mod blit_warm;
@@ -1319,6 +1320,9 @@ fn main() -> AppExit {
     }
     // Asks for VK_AMD_anti_lag when Bevy creates the device: before DefaultPlugins (anti_lag.rs).
     app.add_plugins(anti_lag::AntiLagInitPlugin);
+    // NVF_DLSS_SPIKE=1 only: Streamline loaded and initialised before the renderer starts
+    // (dlss_spike/, #2198); unset, nothing runs.
+    app.add_plugins(dlss_spike::DlssSpikeInitPlugin);
     app.add_plugins(
         DefaultPlugins
             .set(task_pools(cpu_placed.pool_threads))
@@ -1862,7 +1866,11 @@ fn main() -> AppExit {
             }
         });
     }
-    app.run()
+    let exit = app.run();
+    // The app and its renderer are gone; Streamline shut down before the device and instance it
+    // used (dlss_spike/, "Shutdown"). Nothing when the spike is off.
+    dlss_spike::shutdown();
+    exit
 }
 
 /// `--load <name>`: read the save in full for the plugins opened and start at its place
