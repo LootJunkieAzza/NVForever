@@ -291,7 +291,7 @@ pub fn money(pot: u32) -> Vec<Piece> {
         if kind.note() {
             // Flat round the middle, a hair over the notes before it.
             let a = scatter(i, 401) * 2.0 * PI;
-            let at = c + Vec2::from_angle(a) * scatter(i, 409) * NOTE_SIZE.y * 0.45;
+            let at = on_screen(c + Vec2::from_angle(a) * scatter(i, 409) * NOTE_SIZE.y * 0.45, kind.size(), turn);
             if clear_of(&zones, at, kind.size(), turn) {
                 out.push(Piece { kind, at, turn, lift: 0.004 * (i % HEAP_PIECES) as f32, lean: Vec2::ZERO });
             }
@@ -318,6 +318,19 @@ pub fn money(pot: u32) -> Vec<Piece> {
         out.push(Piece { kind, at, turn, lift, lean });
     }
     out
+}
+
+/// How far in from the screen's edges a note lies whole (frame units): past the pot's edge
+/// walls ([`crate::caravan_pot`]), which one placed across them could not be pushed out of
+/// (the fourth shots, 2026-11-12: two notes hung off the screen).
+const NOTE_EDGE: f32 = 20.0;
+
+/// `at` moved in just far enough that a piece `size` turned by `turn` lies whole inside
+/// the screen, [`NOTE_EDGE`] from its edges.
+fn on_screen(at: Vec2, size: Vec2, turn: f32) -> Vec2 {
+    let (s, c) = (turn.sin().abs(), turn.cos().abs());
+    let reach = Vec2::new(c * size.x + s * size.y, s * size.x + c * size.y) / 2.0 + Vec2::splat(NOTE_EDGE);
+    Vec2::new(at.x.clamp(reach.x, FRAME_W - reach.x), at.y.clamp(reach.y, 960.0 - reach.y))
 }
 
 /// A note's mesh: this many strips along its length, so it can bend.
@@ -882,6 +895,19 @@ mod tests {
             assert!(clear_of(&zones, *at, kind.size(), *turn), "{kind:?} at {at} lies where a card or the screen's words can");
         }
         assert!(big.len() > 40, "the big pot still fills the free planks: {}", big.len());
+    }
+
+    #[test]
+    fn every_note_lies_whole_on_the_screen() {
+        for pot in [40, 164, 600, 2000, 10_434, 100_000] {
+            for p in money(pot).into_iter().filter(|p| p.kind.note()) {
+                let (s, c) = (p.turn.sin().abs(), p.turn.cos().abs());
+                let size = p.kind.size();
+                let reach = Vec2::new(c * size.x + s * size.y, s * size.x + c * size.y) / 2.0;
+                assert!(p.at.x - reach.x >= NOTE_EDGE - 0.01 && p.at.x + reach.x <= FRAME_W - NOTE_EDGE + 0.01, "pot {pot}: {:?} at {} turned {} off the side", p.kind, p.at, p.turn);
+                assert!(p.at.y - reach.y >= NOTE_EDGE - 0.01 && p.at.y + reach.y <= 960.0 - NOTE_EDGE + 0.01, "pot {pot}: {:?} at {} turned {} off the top or bottom", p.kind, p.at, p.turn);
+            }
+        }
     }
 
     #[test]
