@@ -305,6 +305,8 @@ pub struct Shown {
     /// The arms have let go after this win: they stay so until the next bout (a wrestler
     /// who got up then sees the match as a watcher, whose hold is longer).
     released: bool,
+    /// How far each side's upper body follows its losing arm, eased ([`losing`]).
+    follow: [f32; 2],
 }
 
 /// The match this game shows: this player's own bout (after the card), else the one it
@@ -472,6 +474,11 @@ pub fn arms(
     let (pin_up, pin_down) = pin_sides(&pl, top, line, OPEN);
     let pin = if lean >= 0.0 { pin_up } else { pin_down };
     let theta = lean.clamp(-pin_down, pin_up);
+    for k in 0..2 {
+        // Side 0 loses towards the down pin, side 1 towards the up one.
+        let to = losing(theta, k, if k == 0 { pin_down } else { pin_up });
+        shown.follow[k] += (to - shown.follow[k]) * (dt * BODY_FOLLOW).min(1.0);
+    }
     let clasp_now = turned(&pl, theta, pl.clasp);
     let log = (shown.clock * 2.0).fract() < dt * 2.0;
     if log {
@@ -483,7 +490,11 @@ pub fn arms(
         let toward = if k == 0 { u } else { -u };
         // Leaning in over the table first, the shoulder over its planted elbow: the arm
         // hangs from the leaned chest.
-        match lean_in(*root, rig, pl.elbows[k], toward, w, &parents, &mut transforms, &globals) {
+        let follow = if both { shown.follow[k] } else { 0.0 };
+        if log && follow > 0.01 {
+            info!("arm wrestle arm: side {k}'s upper body follows its losing arm by {follow:.2}");
+        }
+        match lean_in(*root, rig, pl.elbows[k], toward, follow, w, &parents, &mut transforms, &globals) {
             Ok(Some(head)) if log => info!("arm wrestle arm: side {k}'s head {head:.1?}: {:.1} over the top, {:.1} over the clasp, {:.1} from it", head.y - top, head.y - clasp_now.y, head.distance(clasp_now)),
             Ok(_) => {}
             Err(why) => {
@@ -608,12 +619,45 @@ const GRIP_CURL: [[f32; 3]; 4] = [[0.8, 1.0, 0.55], [0.85, 1.0, 0.6], [0.9, 1.05
 const THUMB: [&str; 3] = ["Bip01 R Thumb1", "Bip01 R Thumb11", "Bip01 R Thumb12"];
 const THUMB_DIRS: [[f32; 3]; 3] = [[0.5, 0.6, 0.6], [0.75, 0.05, 0.65], [0.35, -0.35, 0.85]];
 
+/// The losing side's upper body follows its arm a little [design: owner 2026-11-12, "when
+/// someone is losing the torso should follow a little bit, keep the elbow anchored"; with
+/// only the arm bent, nothing on the body supported it]: at most this much rolled down to
+/// its own right (where the clasp goes), radians (about 17 degrees; 0.2 hardly showed from
+/// over the table, pvpwb run b-win-view12) ...
+const FOLLOW_ROLL: f32 = 0.3;
+/// ... and turned, the right shoulder opening back and out after the hand, radians (about
+/// 14 degrees) [design].
+const FOLLOW_TWIST: f32 = 0.25;
+/// How fast the upper body takes up the follow (per second) [design: it lags the hands a
+/// little, so the 0.25 s slam does not snap the chest].
+const BODY_FOLLOW: f32 = 6.0;
+
+/// How far side `k` is losing at the lean `theta` (0 even or winning, 1 at the pin `pin`),
+/// eased in: the clasp is going down towards that side's right.
+pub fn losing(theta: f32, k: usize, pin: f32) -> f32 {
+    let toward_loss = if k == 0 { -theta } else { theta };
+    let x = (toward_loss / pin.max(0.1)).clamp(0.0, 1.0);
+    x * x * (3.0 - 2.0 * x)
+}
+
+/// The turn of the upper body (world) for a wrestler facing `toward` (level) that follows
+/// its losing arm by `follow` (0 to 1): rolled down towards its own right and twisted, the
+/// right shoulder opening back.
+pub fn follow_turn(toward: Vec3, follow: f32) -> Quat {
+    // About the way in, a positive turn takes up towards the wrestler's right; about up, a
+    // negative one takes its right back.
+    let roll = Quat::from_axis_angle(toward, FOLLOW_ROLL * follow);
+    let twist = Quat::from_axis_angle(Vec3::Y, -FOLLOW_TWIST * follow);
+    twist * roll
+}
+
 /// Turns the upper body about the spine so the shoulder comes over its planted elbow
-/// `spot` (an upper arm from it), by `w`: first a twist about the vertical that brings the
-/// right shoulder forward ([`TWIST`]), then the bend in for what the twist leaves. Returns
-/// where the head's bone ends up (world), for the logs.
+/// `spot` (an upper arm from it), by `w`: first the follow of a losing arm (`follow`,
+/// [`follow_turn`]), then a twist about the vertical that brings the right shoulder forward
+/// ([`TWIST`]), then the bend in for what those leave, so the elbow stays on its plant.
+/// Returns where the head's bone ends up (world), for the logs.
 #[allow(clippy::too_many_arguments)]
-fn lean_in(root: Entity, rig: &ActorRig, spot: Vec3, toward: Vec3, w: f32, parents: &Query<&ChildOf>, transforms: &mut Query<&mut Transform>, globals: &Query<&GlobalTransform>) -> Result<Option<Vec3>, &'static str> {
+fn lean_in(root: Entity, rig: &ActorRig, spot: Vec3, toward: Vec3, follow: f32, w: f32, parents: &Query<&ChildOf>, transforms: &mut Query<&mut Transform>, globals: &Query<&GlobalTransform>) -> Result<Option<Vec3>, &'static str> {
     let node = |name: &str| rig.skel.names.iter().position(|n| n.as_deref() == Some(name)).and_then(|i| rig.nodes.get(i).copied());
     let spine = SPINE.iter().find_map(|n| node(n)).ok_or("no spine")?;
     let (Some(upper), Some(fore)) = (node(UPPER), node(FORE)) else { return Err("no right arm") };
@@ -623,16 +667,24 @@ fn lean_in(root: Entity, rig: &ActorRig, spot: Vec3, toward: Vec3, w: f32, paren
     let sh = world_of(upper, root, parents, transforms, globals).ok_or("the arm is not under the body")?.translation();
     let el = world_of(fore, root, parents, transforms, globals).ok_or("the arm is not under the body")?.translation();
     let pivot = gs.translation();
-    let twist = twist_towards(pivot, sh, spot, TWIST * w);
-    let sh_t = pivot + twist * (sh - pivot);
+    let qf = follow_turn(toward, follow * w);
+    let sh_f = pivot + qf * (sh - pivot);
+    let twist = twist_towards(pivot, sh_f, spot, TWIST * w);
+    let sh_t = pivot + twist * (sh_f - pivot);
     // Towards the planted elbow, not only straight at the table: a body seated off the
     // table's middle line rolls its shoulder in over the elbow [design: the player sat
     // with the right shoulder 16 to the right of the middle, run 2026-11-11 18:26].
-    let to_spot = Vec3::new(spot.x - sh_t.x, 0.0, spot.z - sh_t.z).normalize_or(toward);
+    // The way in is taken from where the shoulder would be without the follow: from the
+    // rolled shoulder it pointed back across under the roll, and the bend undid it, the
+    // chest leaning away from its pinned arm (owner 2026-11-12, pvpwb: "roll that way ...
+    // with the arm"). Bent along the unrolled way, the roll stays and the bend only keeps
+    // the shoulder an upper arm from the elbow.
+    let sh_0 = pivot + twist_towards(pivot, sh, spot, TWIST * w) * (sh - pivot);
+    let to_spot = Vec3::new(spot.x - sh_0.x, 0.0, spot.z - sh_0.z).normalize_or(toward);
     let axis = Vec3::Y.cross(to_spot).normalize_or(Vec3::X);
     let bend = lean_bend(pivot, sh_t, sh.distance(el), spot, axis) * w;
     // About Y x the way in, a positive turn takes up towards it.
-    let q = Quat::from_axis_angle(axis, bend) * twist;
+    let q = Quat::from_axis_angle(axis, bend) * twist * qf;
     let rp = rot(&gp);
     if let Ok(mut t) = transforms.get_mut(spine) {
         t.rotation = (rp.inverse() * q * rp * t.rotation).normalize();
@@ -643,7 +695,8 @@ fn lean_in(root: Entity, rig: &ActorRig, spot: Vec3, toward: Vec3, w: f32, paren
     let above = parents.get(neck).map_err(|_| "the neck hangs from nothing")?.parent();
     let gn = world_of(above, root, parents, transforms, globals).ok_or("the neck is not under the body")?;
     let rn = rot(&gn);
-    let back = Quat::from_axis_angle(axis, -bend * HEAD_UP) * twist.inverse().slerp(Quat::IDENTITY, 1.0 - HEAD_ROUND);
+    // Half the follow's roll is taken back too, the eyes kept nearer level.
+    let back = Quat::from_axis_angle(axis, -bend * HEAD_UP) * twist.inverse().slerp(Quat::IDENTITY, 1.0 - HEAD_ROUND) * Quat::from_axis_angle(toward, -FOLLOW_ROLL * follow * w * 0.5);
     if let Ok(mut t) = transforms.get_mut(neck) {
         t.rotation = (rn.inverse() * back * rn * t.rotation).normalize();
     }
@@ -948,6 +1001,36 @@ mod tests {
         }
         // Already too near: it unbends.
         assert!(lean_bend(pivot, Vec3::new(-14.0, 44.0, 0.0), 18.0, spot, axis) < 0.0);
+    }
+
+    #[test]
+    fn the_losing_body_follows_its_arm_and_the_shoulder_still_reaches_the_elbow() {
+        // Side 0 loses at a negative lean, side 1 at a positive one; even or winning, no
+        // follow.
+        assert_eq!(losing(0.0, 0, 1.2), 0.0);
+        assert_eq!(losing(0.5, 0, 1.2), 0.0);
+        assert!(losing(-0.6, 0, 1.2) > 0.3 && losing(-0.6, 0, 1.2) < 0.7);
+        assert!((losing(1.2, 1, 1.2) - 1.0).abs() < 1e-6);
+        // Facing -Z (right is +X): the right shoulder goes down, out to the right and back.
+        let toward = Vec3::NEG_Z;
+        let right = toward.cross(Vec3::Y);
+        assert!(right.x > 0.99);
+        let pivot = Vec3::new(0.0, 40.0, 0.0);
+        let sh = Vec3::new(8.0, 58.0, -2.0);
+        let moved = pivot + follow_turn(toward, 1.0) * (sh - pivot);
+        assert!(moved.y < sh.y && (moved - sh).dot(right) > 0.0 && (moved - sh).dot(toward) < 0.0, "{moved}");
+        // The bend in, solved from where the follow left the shoulder, still puts it an
+        // upper arm from the planted elbow.
+        // Bent along the way in from the unrolled shoulder (as lean_in does), the roll stays:
+        // the shoulder ends out to the wrestler's right of where the plain bend puts it.
+        let spot = Vec3::new(9.0, 45.0, -20.0);
+        let axis = Vec3::Y.cross(Vec3::new(spot.x - sh.x, 0.0, spot.z - sh.z).normalize());
+        let b = lean_bend(pivot, moved, 18.0, spot, axis);
+        let at = pivot + Quat::from_axis_angle(axis, b) * (moved - pivot);
+        assert!((at.distance(spot) - 18.0).abs() < 0.2, "{at}");
+        let b0 = lean_bend(pivot, sh, 18.0, spot, axis);
+        let plain = pivot + Quat::from_axis_angle(axis, b0) * (sh - pivot);
+        assert!((at - plain).dot(right) > 2.0, "{at} {plain}");
     }
 
     #[test]
