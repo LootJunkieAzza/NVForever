@@ -48,16 +48,7 @@ Both FSR changes are already in Bevy's `main`, written almost the same way: bevy
 2026-10-20). Neither is in a release yet; 0.20.1 is the latest. Drop those two with the first
 Bevy release that has both.
 
-Third change (#1803), in `src/material.rs`: `MaterialQueueProbe`, an optional resource
-that records watched main-pass entries and their pipeline IDs as `queue_material_meshes`
-queues them, for `nvforever/src/pipboy_ready.rs`; Bevy installs none, so without it the
-pass does what upstream does. Drop it when an upstream observation API replaces its
-caller or that readiness check is retired. Retries for meshes not yet uploaded and a
-per-view visibility filter of pending entries were tried with it and dropped: the
-`pipboy-first-open` scenarios passed with a clean first opening without them
-(2026-11-07).
-
-Fourth change (prepass coverage, docs/design/frame-rate-audit.md §9), in
+Another change (prepass coverage, docs/design/frame-rate-audit.md §9), in
 `src/render/pbr_prepass_functions.wesl`, marked `NVForever prepass coverage`:
 `nvf_prepass_sample_color` and its result struct, which hand out the base colour, flags and
 alpha cutoff that `prepass_sample_color_and_alpha_discard` samples, without testing them.
@@ -66,6 +57,15 @@ leaf cards and tree billboards, written by the depth prepass). Upstream's functi
 unchanged, so nothing else behaves differently. Upstream has no way to get the sampled alpha
 out of the prepass's own code; drop this when it has, or when the sampling is written in
 nvf-assets.
+
+Third change (#1803), in `src/material.rs`: `MaterialQueueProbe`, an optional resource
+that records watched main-pass entries and their pipeline IDs as `queue_material_meshes`
+queues them, for `nvforever/src/pipboy_ready.rs`; Bevy installs none, so without it the
+pass does what upstream does. Drop it when an upstream observation API replaces its
+caller or that readiness check is retired. Retries for meshes not yet uploaded and a
+per-view visibility filter of pending entries were tried with it and dropped: the
+`pipboy-first-open` scenarios passed with a clean first opening without them
+(2026-11-07).
 
 ## bevy_render 0.20.1 (MIT OR Apache-2.0, Bevy contributors)
 
