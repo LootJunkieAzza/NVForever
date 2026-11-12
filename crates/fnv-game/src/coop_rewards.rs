@@ -34,7 +34,10 @@
 //! item 123), unless the same script took caps from the player (a purchase); each run of
 //! a result script is one batch. A guest takes them with [`Game::take_coop_gift`]: ammo,
 //! aid and chips always; Caravan cards only if it had none when the batch began (one
-//! deck); anything else only if it has none of it yet (no second rifle).
+//! deck), into its Caravan cards as AddCardToPlayer puts them, not its inventory (the
+//! card's own script takes the card away on the host; playtest of 2026-11-11: a guest's
+//! deck builder listed none); anything else only if it has none of it yet (no second
+//! rifle).
 
 use crate::game::Game;
 use fnv_sim::FormId;
@@ -234,17 +237,22 @@ impl Game<'_> {
         let inv = self.world.peek(FormId::PLAYER_REF).and_then(|s| s.inventory.as_ref());
         let has = inv.map_or(0, |i| i.count(item));
         let kind = self.world.forms.item(item).map(|i| i.kind);
-        let has_cards = || inv.is_some_and(|i| i.groups().any(|(it, _, _)| self.world.forms.item(it).is_some_and(|f| f.kind == ItemKind::CaravanCard)));
+        let card = kind == Some(ItemKind::CaravanCard) || self.data.caravan_cards.contains_key(&item);
+        // The player's cards are its Caravan collection, not items: each card's script runs
+        // AddCardToPlayer and takes the card away (docs/spec-notes/caravan.md §2). A guest
+        // owns cards when its collection holds any (playtest of 2026-11-11: the deck
+        // builder of a guest given Ringo's deck listed none).
+        let had_cards = !self.player.caravan.cards.is_empty() || inv.is_some_and(|i| i.groups().any(|(it, _, _)| self.world.forms.item(it).is_some_and(|f| f.kind == ItemKind::CaravanCard)));
         let give = match kind {
-            Some(ItemKind::Ammo | ItemKind::Aid | ItemKind::CasinoChip | ItemKind::CaravanMoney) => true,
-            Some(ItemKind::CaravanCard) => {
+            _ if card => {
                 let had = match *last {
                     Some((b, had)) if b == batch => had,
-                    _ => has_cards(),
+                    _ => had_cards,
                 };
                 *last = Some((batch, had));
                 !had
             }
+            Some(ItemKind::Ammo | ItemKind::Aid | ItemKind::CasinoChip | ItemKind::CaravanMoney) => true,
             _ => has == 0,
         };
         // Lent by the host's story (`Game::follow_story_gear`: Sunny's script equips the
@@ -254,6 +262,16 @@ impl Game<'_> {
         }
         if !give {
             return Ok(0);
+        }
+        // A card joins the collection as its script's AddCardToPlayer does on the host;
+        // it is not left in the inventory.
+        if card {
+            let n = count.max(1);
+            for _ in 0..n {
+                crate::caravan::add_card(self, item);
+            }
+            tracing::info!("co-op: the host's hand-out: Caravan card {item} x{n} to this player's cards ({} now)", self.player.caravan.cards.len());
+            return Ok(n);
         }
         let n = if matches!(kind, Some(ItemKind::Ammo | ItemKind::Aid | ItemKind::CasinoChip | ItemKind::CaravanMoney | ItemKind::CaravanCard)) { count } else { 1 };
         let added = self.world.add_item(FormId::PLAYER_REF, item, n).map_err(|e| e.to_string())?;

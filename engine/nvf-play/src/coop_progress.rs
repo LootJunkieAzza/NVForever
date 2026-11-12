@@ -312,8 +312,14 @@ fn take_inbox(
                     continue;
                 };
                 let name = rt.game.data.name(FormId(item));
+                // Caravan cards (Ringo's deck: 54 of them) join the player's cards; one
+                // corner line for the first, not one per card.
+                let card = rt.game.data.caravan_cards.contains_key(&FormId(item));
+                let first_card = card && rt.game.player.caravan.cards.is_empty();
                 match rt.game.take_coop_gift(batch, FormId(item), count as i32, &mut p.gift_batch) {
                     Ok(0) => info!("co-op: the host's hand-out {name} ({count}): this player has its own"),
+                    Ok(_) if card && !first_card => {}
+                    Ok(_) if card => say(&mut corner, format!("{} handed out Caravan cards", mates.as_deref().and_then(|m| m.get(0)).map_or("The host's quest", |m| m.name.as_str()))),
                     Ok(n) => say(&mut corner, format!("{} handed out {name}{}", mates.as_deref().and_then(|m| m.get(0)).map_or("The host's quest", |m| m.name.as_str()), if n > 1 { format!(" ({n})") } else { String::new() })),
                     Err(e) => warn!("co-op: the hand-out {name} could not be given: {e}"),
                 }
