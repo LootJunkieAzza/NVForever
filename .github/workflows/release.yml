@@ -16,8 +16,14 @@ on:
         description: "Tag to publish (e.g. v0.1.0); created at the branch head if new"
         required: true
 
+# Read only for every job; the publish job alone may write (it creates the release and
+# uploads its files). The build job runs every dependency's build script, so it holds no
+# token that can push or change a release (#1999). Third-party actions are pinned to
+# commit SHAs, their tag in a comment (Dependabot moves tag pins; rust-toolchain's follows
+# its `stable` branch, which may need a hand update). tools/release/check_workflows.py
+# checks both rules.
 permissions:
-  contents: write
+  contents: read
 
 env:
   CARGO_TERM_COLOR: always
@@ -40,8 +46,10 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           workspaces: |
             . -> target
@@ -89,6 +97,8 @@ jobs:
   publish:
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v7
       - uses: actions/download-artifact@v8
@@ -97,7 +107,7 @@ jobs:
           merge-multiple: true
       - name: Checksums
         run: cd dist && sha256sum * > SHA256SUMS.txt
-      - uses: softprops/action-gh-release@v3
+      - uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3
         with:
           tag_name: ${{ env.TAG }}
           target_commitish: ${{ github.sha }}
