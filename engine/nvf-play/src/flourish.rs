@@ -148,6 +148,8 @@ const FALLBACK: &str = "UIPopUpExperienceUp";
 /// How long a stamp stays, seconds: it comes in, holds, then rises and fades [design].
 const IN: f32 = 0.35;
 const HOLD: f32 = 1.6;
+/// How long the drinking contest's stamp sways after it is in (`pose`).
+const SWAY: f32 = 1.2;
 const OUT: f32 = 0.5;
 pub const LIFE: f32 = IN + HOLD + OUT;
 /// A triple's pulses: this far apart, each this long.
@@ -241,8 +243,8 @@ pub fn pose(kind: Highlight, age: f32) -> Pose {
         }
         // Sways as a drunk does, wider then steadier, a little dip at each lean.
         Highlight::DrinkContest => {
-            if (0.0..1.2).contains(&after) {
-                let fall = 1.0 - after / 1.2;
+            if (0.0..SWAY).contains(&after) {
+                let fall = 1.0 - after / SWAY;
                 let w = (after / 0.6 * 2.0 * PI).sin();
                 turn = 12.0 * w * fall;
                 dx = 22.0 * w * fall;
@@ -594,7 +596,9 @@ mod tests {
     fn a_stamp_comes_in_holds_and_goes() {
         for kind in [Highlight::Bullseye, Highlight::Triple, Highlight::MultiBall, Highlight::HandWon, Highlight::ArmWrestle, Highlight::DrinkContest] {
             assert_eq!(pose(kind, 0.0).alpha, 0.0);
-            let held = pose(kind, IN + 1.0);
+            // Still once in: a second after, or once the drinking contest's sway is over.
+            let settled = if kind == Highlight::DrinkContest { IN + SWAY } else { IN + 1.0 };
+            let held = pose(kind, settled);
             assert_eq!((held.alpha, held.scale, held.turn, held.rule), (1.0, 1.0, 0.0, 1.0), "{kind:?}");
             assert!(pose(kind, LIFE).alpha <= 0.0);
         }
