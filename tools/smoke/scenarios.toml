@@ -25473,3 +25473,50 @@ order = [[
   { re = 'activate 0x00153FCE  \(Activate\): its script.s OnActivate ran', label = "E runs the panel's script" },
   { text = 'message box shown: This control box is connected to the main computer banks at Hoover Dam. ["Leave it alone.", "Install the override chip."]', label = "the box offers to install the override chip" },
 ]]
+
+[[scenario]]
+name = "tiles-pipboy-all"
+source = "[design] ui-tile-tree.md section 6.2, issue #1513: every Pip-Boy page with all of its switches on together (StatsMenu, InventoryMenu, RepairMenu, ItemModMenu, MapMenu and QuantityMenu for ITEMS' prompt), on the device: the five STATS tabs, the five ITEMS tabs, the weapon mod menu and the repair page opened and left, the five DATA tabs; no page falls back to its hand-built drawing"
+note = "The evidence for proposing the Pip-Boy switches on by default. Points as tiles-pipboy-repair's (Cancel at 855:148). Shots: tiles_all_*.png at 1280x720."
+areas = ["ui", "pipboy", "menus"]
+paths = ["engine/nvf-play/src/tiles/vanilla.rs", "engine/nvf-play/src/tiles/mod.rs", "engine/nvf-play/src/tiles/stats_menu.rs", "engine/nvf-play/src/tiles/inventory_menu.rs", "engine/nvf-play/src/tiles/repair_menu.rs", "engine/nvf-play/src/tiles/item_mod_menu.rs", "engine/nvf-play/src/tiles/map_menu.rs", "engine/nvf-play/src/pipboy/frame.rs", "engine/nvf-play/src/pipboy.rs"]
+env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_TILE_MENUS = "StatsMenu,InventoryMenu,RepairMenu,ItemModMenu,MapMenu,QuantityMenu", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "8:call:player:AddItemHealthPercent:Weap10mmPistol:1:0.4,8.3:call:player:AddItemHealthPercent:Weap10mmPistol:2:0.3,8.6:call:player:AddItem:ModNV10mmPistolExtMags:1,9:objective:VCG02:3", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=stats,13.5:tab=0,14.5:tab=1,15.5:tab=2,16.5:tab=3,17.5:tab=4,18.5:page=items,19:tab=0,20:tab=1,21:tab=2,22:tab=3,23:tab=4,24:tab=0,25:mod=open,27:mod=cancel,28:repair=open,30:click=855:148,31.5:page=data,32:tab=0,34:tab=1,36:tab=2,37.5:tab=3,39:tab=4,41:close", NVF_PLAY_TEST_SHOTS = "14:tiles_all_special.png,16:tiles_all_perks.png,19.5:tiles_all_weapons.png,21.5:tiles_all_aid.png,26:tiles_all_mod.png,29:tiles_all_repair.png,33:tiles_all_local.png,35:tiles_all_world.png,37:tiles_all_quests.png,38.5:tiles_all_misc.png,40:tiles_all_radio.png" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
+run_seconds = 44
+expect = [
+  { re = 'tiles: \[UI\] TileMenus=StatsMenu,InventoryMenu,RepairMenu,ItemModMenu,MapMenu,QuantityMenu ', label = "all the Pip-Boy switches on" },
+  { re = 'tiles: StatsMenu drawn from tiles \(\d+ file tiles, [1-9]\d* code tiles\)', min = 1, label = "STATS from its file" },
+  { re = 'tiles: InventoryMenu page from tiles: ', min = 1, label = "ITEMS from its file" },
+  { text = "tiles: ItemModMenu ready: drawn from tiles", min = 1, label = "the weapon mod menu from its file" },
+  { re = 'tiles: RepairMenu drawn from tiles \(\d+ file tiles, [1-9]\d* code tiles\)', min = 1, label = "the repair page from its file" },
+  { text = "tiles: RepairMenu Cancel on its tiles", count = 1, label = "the repair page left by its own Cancel" },
+  { text = "tiles: MapMenu draws local map from tiles", min = 1, label = "Local Map from its file" },
+  { text = "tiles: MapMenu draws world map from tiles", min = 1, label = "World Map from its file" },
+  { text = "tiles: MapMenu draws radio from tiles", min = 1, label = "Radio from its file" },
+  { re = 'tiles: MapMenu (local map|world map|quests|misc|radio) frames: [1-9]\d* from tiles, 0 by hand after a failed pass, 0 by hand with nothing prepared', min = 5, label = "each DATA tab's visit: no frame by hand while the Pip-Boy is up" },
+  { re = 'tiles: MapMenu (local map|world map|quests|misc|radio) frames: \d+ from tiles, [1-9]\d* by hand after a failed pass', count = 0, label = "no DATA tab fell back after a failed pass" },
+  { re = '(StatsMenu|InventoryMenu|RepairMenu|ItemModMenu|MapMenu) drawn by hand', count = 0, label = "no page warned of a fallback" },
+  { re = 'tiles: ItemModMenu no longer drawn from tiles after [1-9]\d* passes: closed', count = 1, label = "the mod menu drawn from tiles until it closed" },
+  "pipboy: menu code 1061",
+  "pipboy: menu code 1035",
+]
+
+[[scenario]]
+name = "tiles-pipboy-all-screen"
+source = "[design] ui-tile-tree.md section 6.2, screen-menu.md, issue #1513: tiles-pipboy-all in the screen menu (the Pip-Boy's menus full screen, no arm)"
+note = "As tiles-pipboy-all, frame=screen first. Shots: tiles_all_screen_*.png."
+areas = ["ui", "pipboy", "menus"]
+paths = ["engine/nvf-play/src/tiles/vanilla.rs", "engine/nvf-play/src/tiles/stats_menu.rs", "engine/nvf-play/src/tiles/inventory_menu.rs", "engine/nvf-play/src/tiles/item_mod_menu.rs", "engine/nvf-play/src/tiles/map_menu.rs", "engine/nvf-play/src/pipboy/frame.rs"]
+env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_TILE_MENUS = "StatsMenu,InventoryMenu,RepairMenu,ItemModMenu,MapMenu,QuantityMenu", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "8:call:player:AddItemHealthPercent:Weap10mmPistol:1:0.4,8.3:call:player:AddItemHealthPercent:Weap10mmPistol:2:0.3,8.6:call:player:AddItem:ModNV10mmPistolExtMags:1,9:objective:VCG02:3", NVF_PLAY_TEST_PIPBOY = "10:frame=screen,12:open,13:page=stats,13.5:tab=0,14.5:tab=1,15.5:tab=2,16.5:tab=3,17.5:tab=4,18.5:page=items,19:tab=0,20:tab=1,21:tab=2,22:tab=3,23:tab=4,24:tab=0,25:mod=open,27:mod=cancel,28:repair=open,30:click=855:148,31.5:page=data,32:tab=0,34:tab=1,36:tab=2,37.5:tab=3,39:tab=4,41:close", NVF_PLAY_TEST_SHOTS = "14:tiles_all_screen_special.png,19.5:tiles_all_screen_weapons.png,26:tiles_all_screen_mod.png,29:tiles_all_screen_repair.png,33:tiles_all_screen_local.png,35:tiles_all_screen_world.png,40:tiles_all_screen_radio.png" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
+run_seconds = 44
+expect = [
+  { re = 'tiles: \[UI\] TileMenus=StatsMenu,InventoryMenu,RepairMenu,ItemModMenu,MapMenu,QuantityMenu ', label = "all the Pip-Boy switches on" },
+  "pipboy: frame Screen",
+  { re = 'tiles: StatsMenu drawn from tiles \(\d+ file tiles, [1-9]\d* code tiles\)', min = 1, label = "STATS from its file" },
+  { re = 'tiles: InventoryMenu page from tiles: ', min = 1, label = "ITEMS from its file" },
+  { text = "tiles: ItemModMenu ready: drawn from tiles", min = 1, label = "the weapon mod menu from its file" },
+  { re = 'tiles: RepairMenu drawn from tiles \(\d+ file tiles, [1-9]\d* code tiles\)', min = 1, label = "the repair page from its file" },
+  { re = 'tiles: MapMenu (local map|world map|quests|misc|radio) frames: [1-9]\d* from tiles, 0 by hand after a failed pass, 0 by hand with nothing prepared', min = 5, label = "each DATA tab's visit: no frame by hand while the Pip-Boy is up" },
+  { re = '(StatsMenu|InventoryMenu|RepairMenu|ItemModMenu|MapMenu) drawn by hand', count = 0, label = "no page warned of a fallback" },
+]
