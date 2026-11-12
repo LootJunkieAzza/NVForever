@@ -112,8 +112,19 @@ pub struct SlotIdle {
 #[derive(Resource, Default)]
 pub struct SlotClips {
     clips: HashMap<&'static str, Option<Arc<Clip>>>,
-    /// Per puppet reference: the act it plays and its idle's serial.
-    puppets: HashMap<u32, (u8, u32)>,
+    /// Per puppet reference: the act it plays, its idle's serial and the act's time last
+    /// heard.
+    puppets: HashMap<u32, (u8, u32, f32)>,
+}
+
+/// How far back an act's time may go before it counts as played again from its start
+/// (seconds): the same act begun anew, as the end view's cheer straight after a spin's
+/// [design]. The time only grows while one act plays; a late packet is not this far back.
+const RESTART_BACK: f32 = 0.5;
+
+/// Whether a puppet's act, heard at `t` after `last` before, was begun again.
+fn restarted(last: f32, t: f32) -> bool {
+    t + RESTART_BACK < last
 }
 
 impl SlotClips {
@@ -294,8 +305,17 @@ fn puppets(
     for &(reference, e) in &peers.0 {
         let Some(act) = Act::from_id(e.id) else { continue };
         seen.push(reference);
-        if clips.puppets.get(&reference).is_some_and(|(id, _)| *id == e.id) {
-            continue;
+        // The same act still under way: its time follows. Begun again (the end view's
+        // reaction after the same act from the last spin): played again from where its
+        // player is, else the puppet ran on a second behind the player's own body
+        // [observed: ship15 slots-coop-2p-exit, the host's end-view cheer at 15:00:33.75
+        // and the guest's puppet of it still on the spin's cheer from 32.67].
+        if let Some(p) = clips.puppets.get_mut(&reference).filter(|p| p.0 == e.id) {
+            if !restarted(p.2, e.t) {
+                p.2 = p.2.max(e.t);
+                continue;
+            }
+            info!("slots seat: puppet {reference:08X}'s {act:?} begun again ({:.2}s after {:.2}s)", e.t, p.2);
         }
         let Some((ent, rig, idle)) = rigs.iter_mut().find(|(_, r, _)| r.reference == reference) else { continue };
         let Some(clip) = clips.get(&mut ctx, act) else { continue };
@@ -314,13 +334,13 @@ fn puppets(
                 s
             }
         };
-        clips.puppets.insert(reference, (e.id, serial));
+        clips.puppets.insert(reference, (e.id, serial, e.t));
         info!("slots seat: puppet {reference:08X} plays {act:?}");
     }
     // Those whose act ended (the celebration cut at its length): fade it out.
     let ended: Vec<u32> = clips.puppets.keys().copied().filter(|r| !seen.contains(r)).collect();
     for reference in ended {
-        let Some((id, serial)) = clips.puppets.remove(&reference) else { continue };
+        let Some((id, serial, _)) = clips.puppets.remove(&reference) else { continue };
         if let Some((_, _, Some(mut idle))) = rigs.iter_mut().find(|(_, r, _)| r.reference == reference) {
             if let Some(c) = idle.0.cur.as_mut().filter(|c| c.serial == serial && !c.play.ended()) {
                 c.play.stop();
@@ -342,5 +362,12 @@ mod tests {
             assert!(is_slot_emote(a.id()));
         }
         assert!(!is_slot_emote(1) && !is_slot_emote(0) && Act::from_id(SLOT_EMOTE + 4).is_none());
+    }
+
+    #[test]
+    fn an_act_begun_again_is_told_from_a_late_packet() {
+        // ship15: the spin's cheer 1.08 s in, the end view's from its start.
+        assert!(restarted(1.08, 0.0));
+        assert!(!restarted(1.08, 1.0) && !restarted(1.08, 1.2) && !restarted(0.2, 0.0));
     }
 }

@@ -386,9 +386,17 @@ impl Plugin for SlotsPlugin {
             .init_resource::<SlotsSeat>()
             .init_resource::<SlotsReels3d>()
             .init_resource::<machines::SlotMachines>()
+            // The input before the frame's state change: Exit closes the menu on the frame
+            // it is pressed, so that frame already draws the end view, not the menu
+            // [observed: ship15 slots-coop-2p-exit, host play-64s: the Exit frame drew the
+            // menu and the win's camera; the end view came a frame later].
+            .add_systems(
+                PreUpdate,
+                (run_aid, (keys, buttons, apply).chain().run_if(in_state(PlayState::Menu))).chain().after(bevy::ui::UiSystems::Focus),
+            )
             .add_systems(
                 Update,
-                (run_aid, open, (keys, buttons, apply).chain().run_if(in_state(PlayState::Menu)), coop::exchange, step.run_if(in_state(PlayState::Menu)), machines::track, screen::draw)
+                (open, coop::exchange, step.run_if(in_state(PlayState::Menu)), machines::track, screen::draw)
                     .chain()
                     .after(crate::menu::open_menus)
                     .in_set(PlaySet::Ui),
@@ -652,7 +660,7 @@ fn open(
     next.set(PlayState::Menu);
 }
 
-fn keys(keys: Res<ButtonInput<KeyCode>>, screen: Res<SlotsScreen>, mut out: MessageWriter<SlotsInput>) {
+fn keys(mut keys: ResMut<ButtonInput<KeyCode>>, screen: Res<SlotsScreen>, mut out: MessageWriter<SlotsInput>) {
     let Some(s) = screen.0.as_ref() else { return };
     if s.help.is_some() {
         if keys.any_just_pressed([KeyCode::KeyE, KeyCode::Escape, KeyCode::Tab, KeyCode::Enter]) {
@@ -662,6 +670,11 @@ fn keys(keys: Res<ButtonInput<KeyCode>>, screen: Res<SlotsScreen>, mut out: Mess
     }
     if keys.any_just_pressed([KeyCode::KeyR, KeyCode::Escape, KeyCode::Tab]) {
         out.write(SlotsInput::Exit);
+        // The game is back this same frame (the input runs before the state change): the
+        // press that closed the menu must not also reload, pause or open the Pip-Boy.
+        for k in [KeyCode::KeyR, KeyCode::Escape, KeyCode::Tab] {
+            keys.clear_just_pressed(k);
+        }
         return;
     }
     let pairs = [
@@ -684,12 +697,17 @@ fn buttons(
     pressed: Query<(&PointerState, &screen::SlotsButton), Changed<PointerState>>,
     help_close: Query<(&PointerState, &crate::lockpick::screen::LockButton), Changed<PointerState>>,
     mut out: MessageWriter<SlotsInput>,
+    mut mouse: ResMut<ButtonInput<MouseButton>>,
 ) {
     if screen.0.is_none() {
         return;
     }
     for (i, b) in &pressed {
         if *i == PointerState::Pressed {
+            // As with the keys ([`keys`]): the click on Exit does not also fire.
+            if b.0 == SlotsInput::Exit {
+                mouse.clear_just_pressed(MouseButton::Left);
+            }
             out.write(b.0.clone());
         }
     }

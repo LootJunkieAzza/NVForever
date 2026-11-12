@@ -24,6 +24,9 @@
 //! - `NVF_PLAY_TEST_SHOTS=<seconds>[:<path.png>][,...]`: save a screenshot at each time,
 //!   to the path given, else as `play-<seconds>s.png` in `NVF_PLAY_TEST_SHOT_DIR`
 //!   (default: the current folder).
+//! - `NVF_PLAY_TEST_SHOTS_WALL=<unix seconds>`: the `NVF_PLAY_TEST_SHOTS` items written
+//!   `w<seconds>` count from that wall-clock instant instead, so two windows started apart
+//!   (co-op) film the same moment under the same name.
 //! - `NVF_PLAY_TEST_FACE=<seconds:reference FormID hex,...>`: at each time, put the player
 //!   [`FACE_DISTANCE`] units in front of the reference, by the arrival rule, facing it
 //!   level. In front: towards the door's own arrival point (where its partner door's XTEL
@@ -517,6 +520,10 @@ impl Unattended {
 #[derive(Resource, Default)]
 struct Aids {
     shots: Vec<(f32, PathBuf)>,
+    /// The `w<seconds>` shots, on the wall clock from `shots_wall`.
+    wall_shots: Vec<(f32, PathBuf)>,
+    /// `NVF_PLAY_TEST_SHOTS_WALL`: the wall-clock instant (unix seconds) `wall_shots` count from.
+    shots_wall: Option<f64>,
     face: Vec<(f32, FormId)>,
     looks: Vec<(f32, (f32, f32))>,
     gotos: Vec<(f32, [f32; 3])>,
@@ -596,7 +603,10 @@ pub(crate) fn setup(app: &mut App) {
     let mut aids = Aids::default();
     if let Some(v) = var("NVF_PLAY_TEST_SHOTS") {
         let dir = std::env::var_os("NVF_PLAY_TEST_SHOT_DIR").map_or_else(|| PathBuf::from("."), PathBuf::from);
-        aids.shots = shots(&v, &dir);
+        let (wall, play): (Vec<&str>, Vec<&str>) = v.split(',').map(str::trim).partition(|i| i.starts_with('w'));
+        aids.shots = shots(&play.join(","), &dir);
+        aids.wall_shots = shots(&wall.iter().map(|i| &i[1..]).collect::<Vec<_>>().join(","), &dir);
+        aids.shots_wall = var("NVF_PLAY_TEST_SHOTS_WALL").and_then(|v| v.trim().parse().ok());
     }
     if let Some(v) = var("NVF_PLAY_TEST_FACE") {
         aids.face = faces(&v);
@@ -801,8 +811,15 @@ fn use_items(time: crate::pause::AidTime, mut aids: ResMut<Aids>, mut sim: ResMu
 }
 
 fn take_shots(time: crate::pause::AidTime, mut aids: ResMut<Aids>, mut commands: Commands) {
-    let Some(now) = time.world_secs() else { return };
-    for path in take_due(&mut aids.shots, now) {
+    let mut due = Vec::new();
+    if let Some(epoch) = aids.shots_wall {
+        let wall = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0.0, |d| (d.as_secs_f64() - epoch) as f32);
+        due.extend(take_due(&mut aids.wall_shots, wall));
+    }
+    if let Some(now) = time.world_secs() {
+        due.extend(take_due(&mut aids.shots, now));
+    }
+    for path in due {
         if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
             let _ = std::fs::create_dir_all(dir);
         }
