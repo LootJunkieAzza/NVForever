@@ -347,6 +347,21 @@ pub(crate) fn spawn_attached(commands: &mut Commands, parent: Entity, pm: &Prepa
     (holder, Some(root))
 }
 
+/// Spawn a model that moves by itself, as a part of a creature (Mister Handy's jet,
+/// `nvf_assets::actor::PreparedPart::plays_itself`, #2228), under `parent` at `place`: its
+/// rig playing its idle clip, which holds the controllers no sequence drives, each looping
+/// on its own cycle as a placed object's do (`nvf_assets::model` "free" tracks), with
+/// its billboards turning and its add-on nodes emitting; else its node tree
+/// ([`spawn_model`]). Returns the entity above it and the entities that carry meshes.
+pub(crate) fn spawn_playing_itself(commands: &mut Commands, parent: Entity, pm: &PreparedModel, place: Transform, source: &str) -> (Entity, Vec<Entity>) {
+    let Some((rig, clip)) = pm.rig.as_ref().and_then(|r| Some((r, r.idle.as_ref()?))) else {
+        let holder = spawn_model(commands, parent, pm, place);
+        return (holder, Vec::new());
+    };
+    let (holder, _, drawn) = spawn_rig(commands, parent, pm, rig, clip, place, source);
+    (holder, drawn)
+}
+
 /// On a beam's holder: the root of its rig, whose materials fade with the beam's
 /// strength, unless `own`: its model fades itself (an alpha track of its clip).
 #[derive(Component)]

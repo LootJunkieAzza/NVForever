@@ -249,7 +249,7 @@ impl Plugin for LoadingPlugin {
 /// buttons are let go before any system or the interface reads them (the controller's
 /// menu keys too, which `crate::pad` presses as keys). Test aids' presses are held the
 /// same way.
-fn hold_input(loading: Res<Loading>, keys: Option<ResMut<ButtonInput<KeyCode>>>, mouse: Option<ResMut<ButtonInput<MouseButton>>>) {
+pub(crate) fn hold_input(loading: Res<Loading>, keys: Option<ResMut<ButtonInput<KeyCode>>>, mouse: Option<ResMut<ButtonInput<MouseButton>>>) {
     if loading.active() {
         if let Some(mut k) = keys {
             k.reset_all();

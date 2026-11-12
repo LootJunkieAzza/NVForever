@@ -729,7 +729,7 @@ fn register_graphics(app: &mut App) {
             key: "latency-reduction",
             group: GROUP_GRAPHICS,
             label: "Latency reduction",
-            note: "AMD Anti-Lag: the graphics driver keeps the game from preparing frames ahead of the graphics card. It is meant to make what you do reach the screen sooner; that has not been measured on an AMD card yet. AMD graphics cards with Anti-Lag in their Vulkan driver (Windows: Adrenalin 24.9.1 or later; Linux: Mesa 26.3 or later). Not in the original. (--latency-reduction)",
+            note: "The graphics driver keeps the game from preparing frames ahead of the graphics card: AMD Anti-Lag on AMD cards (Windows: Adrenalin 24.9.1 or later; Linux: Mesa 26.3 or later), NVIDIA low latency on NVIDIA cards whose Vulkan driver has it. It is meant to make what you do reach the screen sooner; that has not been measured yet. The log says which of the two this graphics card uses, or why neither. Not in the original. (--latency-reduction)",
             get: |w| w.resource::<crate::anti_lag::LatencyReduction>().on,
             set: |w, on| w.resource_mut::<crate::anti_lag::LatencyReduction>().on = on,
             slider: None,

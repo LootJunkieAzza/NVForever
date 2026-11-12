@@ -639,6 +639,12 @@ pub struct BoundClip {
     /// whoever plays the clip moves the actor by [`BoundClip::travel`] instead. Set by
     /// [`BoundClip::carried`].
     pub carried: Option<Vec2>,
+    /// The tracks whose node the skeleton lacks: (node name, track, priority). A player
+    /// with nodes of its own beyond the skeleton's drives those it has by name
+    /// ([`BlendPlayer::add_part_node`]: a creature part's `Buzzsawblad`, which Mister
+    /// Handy's `SpecialIdle_CutCake.kf` spins, is in `gutsybuzzsaw.nif`, not in its
+    /// skeleton [observed: `fnvtool nif decode`, #2228]).
+    pub unbound: Arc<Vec<(String, Arc<TransformTrack>, i32)>>,
 }
 
 /// A clip whose root gets no farther than this from where it starts (game units, along
@@ -665,7 +671,14 @@ impl BoundClip {
             let start = at(clip.start);
             (k, finite_or_zero(at(clip.stop) - start), start.z)
         });
-        BoundClip { clip, tracks, root, root_track, carried: None }
+        let unbound: Vec<(String, Arc<TransformTrack>, i32)> = clip
+            .tracks
+            .iter()
+            .enumerate()
+            .filter(|(_, (n, _))| node(n).is_none())
+            .map(|(k, (n, t))| (n.clone(), t.clone(), clip.priorities.get(k).copied().unwrap_or(0)))
+            .collect();
+        BoundClip { clip, tracks, root, root_track, carried: None, unbound: Arc::new(unbound) }
     }
 
     /// This clip carrying its actor ([`BoundClip::carried`]), when its root travels
@@ -829,6 +842,9 @@ pub struct BlendPlayer {
     posed_from: Option<PosedFrom>,
     /// Each slot's whole cycles of the clip playing in it ([`Loops`]).
     loops: [Loops; MAX_LAYERS],
+    /// Nodes beyond the skeleton's ([`Self::add_part_node`]): name and node index (in
+    /// `nodes`), driven by the layers' [`BoundClip::unbound`] tracks of that name.
+    part_nodes: Vec<(String, usize)>,
 }
 
 /// How many whole cycles the clip in one [`BlendPlayer`] slot has looped, for the tracks
@@ -922,7 +938,31 @@ impl BlendPlayer {
             rest_changes: 0,
             posed_from: None,
             loops: Default::default(),
+            part_nodes: Vec::new(),
         }
+    }
+
+    /// Add a node that is not the skeleton's (a named node inside one of the actor's
+    /// parts, `nvf_assets::actor::SpawnedActor::part_nodes`) at `entity` with `rest` as
+    /// its local transform: a clip track of its name that no skeleton node took
+    /// ([`BoundClip::unbound`], letter case ignored) drives it, the rest as for any node.
+    /// A name the player has already keeps its first node.
+    pub fn add_part_node(&mut self, name: &str, entity: Entity, rest: Transform) {
+        if self.part_nodes.iter().any(|(n, _)| n.eq_ignore_ascii_case(name)) {
+            return;
+        }
+        let i = self.nodes.len();
+        self.nodes.push(entity);
+        Arc::make_mut(&mut self.bind).resize(i, Transform::IDENTITY);
+        Arc::make_mut(&mut self.bind).push(rest);
+        self.contribs.push(([CONTRIB_NONE; MAX_LAYERS], 0));
+        self.driven.push(false);
+        self.part_nodes.push((name.to_string(), i));
+    }
+
+    /// The node index of the part node named `name` ([`Self::add_part_node`]).
+    fn part_node(&self, name: &str) -> Option<usize> {
+        self.part_nodes.iter().find(|(n, _)| n.eq_ignore_ascii_case(name)).map(|(_, i)| *i)
     }
 
     /// Give node `i` a rest pose in place of its bind transform (`None`: the bind
@@ -989,6 +1029,18 @@ impl BlendPlayer {
                 let s = track.scale.sample(time).map_or(b.scale.x, |[s]| s);
                 self.add(*i, Contrib { t, r, s, w, p: *p });
                 sampled += 1;
+            }
+            // The player's part nodes, by the names the skeleton lacks.
+            if !self.part_nodes.is_empty() {
+                for (name, track, p) in bc.unbound.iter() {
+                    let Some(i) = self.part_node(name) else { continue };
+                    let b = self.rest_of(i);
+                    let t = track.translation.sample(time).map_or(b.translation, Vec3::from_array);
+                    let r = track.rotation_after(time, cycles).map_or(b.rotation, |[w, x, y, z]| Quat::from_xyzw(x, y, z, w).normalize());
+                    let s = track.scale.sample(time).map_or(b.scale.x, |[s]| s);
+                    self.add(i, Contrib { t, r, s, w, p: *p });
+                    sampled += 1;
+                }
             }
             if let (Some(root), None) = (bc.root, bc.root_track) {
                 self.add(root, Contrib { t: Vec3::ZERO, r: Quat::IDENTITY, s: 1.0, w, p: UNDRIVEN_ROOT_PRIORITY });
@@ -1422,6 +1474,40 @@ mod tests {
         let bind = vec![Transform::IDENTITY, Transform::from_xyz(0.0, 0.657, 67.771), Transform::IDENTITY, Transform::from_xyz(5.0, 0.0, 0.0)];
         let ix = |n: &str| ["Bip01", "Bip01 NonAccum", "Other"].iter().position(|x| *x == n).map(|i| i + 1);
         (BlendPlayer::new(nodes, Arc::new(bind)), ix)
+    }
+
+    #[test]
+    fn a_track_the_skeleton_lacks_drives_a_part_node_of_that_name() {
+        // `SpecialIdle_CutCake.kf` spins `Buzzsawblad`, a node of the saw part, not of the
+        // skeleton (#2228): bound, the track is left over; a player given the part node
+        // drives it, one without leaves it.
+        let q = |deg: f32| Quat::from_rotation_x(deg.to_radians());
+        let keys = (0..=4).map(|k| {
+            let r = q(90.0 * k as f32);
+            Key { time: k as f32 * 0.1, value: [r.w, r.x, r.y, r.z], forward: [0.0; 4], backward: [0.0; 4], tbc: [0.0; 3] }
+        });
+        let spin = track(Channel::Static(None), Channel::Keys(Keys { kind: KeyKind::Linear, keys: keys.collect() }));
+        let (mut p, ix) = player();
+        let bound = Arc::new(BoundClip::bind(clip(0.4, vec![("Other", track(Channel::Static(Some([1.0, 2.0, 3.0])), Channel::Static(None))), ("Buzzsawblad", spin)]), &ix));
+        assert_eq!(bound.tracks.len(), 1);
+        assert_eq!(bound.unbound.iter().map(|(n, ..)| n.as_str()).collect::<Vec<_>>(), ["Buzzsawblad"]);
+        let mut out = Vec::new();
+        p.layers[0] = Some(Layer { clip: bound.clone(), phase: 0.25, weight: 1.0 });
+        p.sample(&mut out);
+        assert!(out.iter().all(|(i, _)| *i < 4));
+        let blade = Entity::from_raw_u32(9).unwrap();
+        let rest = Transform::from_xyz(15.9, -0.7, 0.1);
+        p.add_part_node("buzzsawblad", blade, rest);
+        assert_eq!(p.nodes[4], blade);
+        p.sample(&mut out);
+        let (_, t) = *out.iter().find(|(i, _)| *i == 4).expect("the blade is posed");
+        assert!(t.rotation.dot(q(90.0)).abs() > 1.0 - 1e-5, "{:?}", t.rotation);
+        // No translation keys: it stays where its part puts it.
+        assert!((t.translation - rest.translation).length() < 1e-5);
+        // With the clip gone it goes back to its rest.
+        p.layers[0] = None;
+        p.sample(&mut out);
+        assert_eq!(out.iter().find(|(i, _)| *i == 4).map(|x| x.1), Some(rest));
     }
 
     #[test]

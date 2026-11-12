@@ -81,6 +81,43 @@ describes the algorithm; verified on every file and folder name in the corpus, o
   from index 1 up to (length − 2) exclusive, plus the same rolling value computed over the
   extension (including the dot), summed mod 2^32.
 
+## Version 103 (Oblivion's archives)
+
+The original game also loads version 103 archives, which some mods ship [observed by the
+owner, #2092]. NVForever reads them by these rules (`fnv_bsa::VERSION_103`); no v103
+archive was at hand to check them against (none of the 63 archives on the maintainer's
+machine is v103, 2026-11-12), so each rests on the public pages:
+
+- **Same layout as 104.** The UESP Oblivion page gives the same 36-byte header (magic,
+  version 103, offset 36, archive flags, folder and file counts, the two name lengths,
+  content-type flags), the same 16-byte folder records (hash, file count, an offset that
+  includes the total file name length), the same file-record blocks (a folder name with a
+  length byte when flag 0x1, then 16-byte file records: hash, size with bit 30 inverting
+  the default compression, absolute offset), the same file-name block and the same sort
+  by hash. The Skyrim page calls the two formats "nearly identical" and names 104 for
+  Fallout 3 and New Vegas, 103 for Oblivion [documented: UESP "Oblivion Mod:BSA File
+  Format", "Skyrim Mod:Archive File Format", read 2026-11-12].
+- **Compressed blocks:** a u32 uncompressed size, then zlib data, as in 104 [documented:
+  the Oblivion page].
+- **Flags 0x100, 0x200, 0x400:** the Oblivion page's flag table marks all three "set in
+  all official BSA files", 0x100 and 0x200 with "a different meaning for BSA v104", and
+  the footnotes say such bits have no effect on the file structure for 0x8/0x10/0x20/0x80
+  only [documented]. The Skyrim page gives 0x100 as "Embed File Names" (each block starts
+  with its path) for 104 [documented]. NVForever therefore never looks for a path before
+  a v103 block, and knows 0x200 and 0x400 in a v103 archive (no warning, kept on rewrite)
+  [hypothesis: the Oblivion page's file-block table still says the path is "only present
+  if bit 9 of the archive flags is set", which contradicts its own flag table; with a
+  path stripped, every official v103 archive, all of which set 0x100, would read wrong,
+  so the flag table is taken. Confirm on a real v103 archive: `fnvtool bsa verify` and the
+  `bsa-version-103` smoke scenario with `NVF_BSA_103` set].
+- **Flag 0x40** means big-endian (Xbox 360) in 103 as in 104 [documented]; not supported.
+- **Name hash:** the same algorithm [hypothesis: the Oblivion page links the same Hash
+  Calculation page; a mismatch would only warn, files are found by name].
+
+A v103 archive is rewritten as 103 (`rewrite`, `fnvtool bsa verify`); the writer's own
+archives are 104. Version 105 (Skyrim SE, wider folder records and LZ4) and any other
+version are refused with `unsupported BSA version N (expected 104, or Oblivion's 103)`.
+
 ## Anomalies
 
 - `Fallout - Invalidation.bsa` (83 bytes): its folder name has length byte 0 (no NUL,

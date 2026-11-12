@@ -313,7 +313,7 @@ fn head_or_neck(name: &str) -> bool {
 pub fn head_only(bound: &BoundClip, names: &[Option<String>]) -> Option<BoundClip> {
     let head = |i: usize| names.get(i).and_then(|n| n.as_deref()).is_some_and(head_or_neck);
     let tracks: Vec<_> = bound.tracks.iter().filter(|(i, _, _)| head(*i)).cloned().collect();
-    (!tracks.is_empty() && tracks.len() < bound.tracks.len()).then(|| BoundClip { clip: bound.clip.clone(), tracks, root: None, root_track: None, carried: None })
+    (!tracks.is_empty() && tracks.len() < bound.tracks.len()).then(|| BoundClip { clip: bound.clip.clone(), tracks, root: None, root_track: None, carried: None, unbound: Default::default() })
 }
 
 impl Attack {
@@ -609,7 +609,7 @@ impl AttackClips {
         let key = (skeleton.to_string(), fnv_vfs::normalize(path));
         self.carried
             .entry(key)
-            .or_insert_with(|| Arc::new(BoundClip { clip: clip.clip.clone(), tracks: clip.tracks.clone(), root: clip.root, root_track: clip.root_track, carried: None }.carried()))
+            .or_insert_with(|| Arc::new(BoundClip { clip: clip.clip.clone(), tracks: clip.tracks.clone(), root: clip.root, root_track: clip.root_track, carried: None, unbound: clip.unbound.clone() }.carried()))
             .clone()
     }
 

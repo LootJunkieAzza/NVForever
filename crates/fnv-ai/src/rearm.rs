@@ -231,7 +231,7 @@ impl Ai {
         let a = self.agents.get_mut(&actor).expect("listed");
         let space = a.walker.space;
         let Some((_, point)) = nav.nearest(space, leg.at, 256.0) else { return false };
-        a.walker.speed = speed;
+        (a.walker.speed, a.walk_pace) = (speed, None);
         if a.walker.go_to(nav, Place { space, pos: point }, &params).is_err() {
             return false;
         }
