@@ -240,11 +240,17 @@ fn open(
     mut player: ResMut<crate::player::Player>,
 ) {
     let on = seat.on.filter(|_| seat.hold.is_some());
+    // Sitting down during a menu is taken once play resumes: the preorder packs' message
+    // boxes opened in the very frame the player sat, and the card never opened (smoke
+    // armwrestle-solo, armwrestle-c's run 2026-11-12) [design].
+    if *state.get() != PlayState::Playing {
+        return;
+    }
     let fresh = on != *was;
     *was = on;
     let Some(stool) = on.filter(|_| fresh) else { return };
     let Some(i) = table.stool_index(stool) else { return };
-    if screen.0.is_some() || *state.get() != PlayState::Playing {
+    if screen.0.is_some() {
         return;
     }
     let Some(other) = table.stools[1 - i] else { return };
