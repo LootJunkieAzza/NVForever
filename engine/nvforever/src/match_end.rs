@@ -317,6 +317,17 @@ pub fn end_camera_of(view: Portrait, eye: [f32; 3], heading: f32) -> ([f32; 3], 
     (at, [eye[0], eye[1], eye[2] - view.drop])
 }
 
+/// The heading of the arm-wrestling end view: from the table's middle out to the player
+/// (game space, x and y), so the camera stands on the open side, looking back at the
+/// player with the table behind [design]. Up from the chair the player still faces across
+/// the table, where the opponent stands up from his: the end view along that heading
+/// stood inside him [observed: the night pass's lost match, 2026-11-11 23:56, the camera
+/// in the Goodsprings Settler as he cheered]. `None` at the table's middle.
+pub fn arm_heading(table: [f32; 2], feet: [f32; 2]) -> Option<f32> {
+    let (dx, dy) = (feet[0] - table[0], feet[1] - table[1]);
+    (dx.hypot(dy) > 1.0).then(|| dx.atan2(dy))
+}
+
 /// A reaction waiting for its clip or its body.
 #[derive(Debug, Clone, Copy)]
 struct Pending {
@@ -353,6 +364,9 @@ pub struct MatchEnd {
     /// the upper body over the sitting clip, the legs left on the stool [owner 2026-11-11:
     /// "it should be in the seat"].
     pub seated: bool,
+    /// The heading the end view is taken along instead of the player's (arm wrestling: out
+    /// from the table, [`arm_heading`]); kept for the fade out.
+    face: Option<f32>,
 }
 
 impl MatchEnd {
@@ -504,8 +518,19 @@ fn stand(
     }
     st.stood = true;
     let (Some(phys), Some(player)) = (phys.as_deref_mut(), player.as_deref_mut()) else { return };
+    // Arm wrestling: up where the chair's getting-off clip left it, turned out from the
+    // table to face the end view ([`arm_heading`]).
+    if kind == Kind::ArmWrestle {
+        if let Some(t) = sim.world.peek(fnv_sim::FormId(table)) {
+            if let Some(h) = arm_heading([t.pos[0], t.pos[1]], [player.feet[0], player.feet[1]]) {
+                player.heading = h;
+                info!("match end: this player turns out from the arm-wrestling table, heading {:.0} deg", h.to_degrees());
+            }
+        }
+        return;
+    }
     let Some(f) = nvf_play::table_spots::frame_of(&sim, table) else { return };
-    let lo = script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| rt.game.data.load_order.clone()).unwrap_or_default();
+    let lo =script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| rt.game.data.load_order.clone()).unwrap_or_default();
     let tkind = match kind {
         Kind::Darts => nvf_play::table_spots::Kind::Darts,
         Kind::Pool => nvf_play::table_spots::Kind::Pool,
@@ -747,6 +772,7 @@ fn camera(
     body: Option<Res<BodyView>>,
     mut phys: Option<ResMut<nvf_play::phys::PhysState>>,
     mut cams: Query<(&mut Transform, &mut GlobalTransform, Has<ChildOf>), With<PlayerCamera>>,
+    sim: Option<Res<nvf_play::sim::SimState>>,
 ) {
     let since = match st.phase {
         Phase::Result { since, .. } => since,
@@ -754,8 +780,14 @@ fn camera(
         _ => return,
     };
     let (Some(p), Ok((mut t, mut g, parented))) = (player, cams.single_mut()) else { return };
+    if let Phase::Result { kind, table, .. } = st.phase {
+        st.face = match kind {
+            Kind::ArmWrestle => sim.as_deref().and_then(|s| s.world.peek(fnv_sim::FormId(table))).and_then(|t| arm_heading([t.pos[0], t.pos[1]], [p.feet[0], p.feet[1]])),
+            _ => None,
+        };
+    }
     let eye = body.as_deref().and_then(BodyView::portrait_eye).unwrap_or_else(|| p.eye());
-    let (at, look) = end_camera_of(st.view(), eye, p.heading);
+    let (at, look) = end_camera_of(st.view(), eye, st.face.unwrap_or(p.heading));
     let (at, look) = (space::to_bevy(at), space::to_bevy(look));
     let at = match phys.as_deref_mut() {
         Some(phys) => crate::death_cam::clear(phys, look, at),
@@ -790,6 +822,18 @@ fn blackout(real: Res<Time<Real>>, st: Res<MatchEnd>, mut q: Query<(&mut Backgro
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_arm_wrestling_end_view_looks_from_the_open_side() {
+        // Up south-west of the table (the wall is north): the heading points south-west,
+        // so the camera, in front of the player along it, stands further out in the hall.
+        let h = arm_heading([350.0, 337.7], [300.0, 290.0]).unwrap();
+        assert!(h.sin() < 0.0 && h.cos() < 0.0, "{h}");
+        // Heading 0 faces +y, pi/2 +x.
+        assert!((arm_heading([0.0, 0.0], [0.0, 10.0]).unwrap()).abs() < 1e-6);
+        assert!((arm_heading([0.0, 0.0], [10.0, 0.0]).unwrap() - std::f32::consts::FRAC_PI_2).abs() < 1e-6);
+        assert!(arm_heading([5.0, 5.0], [5.0, 5.0]).is_none());
+    }
 
     #[test]
     fn the_winner_cheers_and_the_other_side_is_beaten() {

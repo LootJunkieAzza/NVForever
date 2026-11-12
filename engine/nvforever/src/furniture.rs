@@ -560,6 +560,11 @@ impl OnFurniture {
         matches!(self.stage, Stage::Using(_))
     }
 
+    /// On it, neither getting on nor getting off.
+    pub fn on(&self) -> bool {
+        matches!(&self.stage, Stage::Using(u) if u.state() == state::ON)
+    }
+
     /// Getting off it (its getting-off clip playing).
     pub fn getting_off(&self) -> bool {
         matches!(&self.stage, Stage::Using(u) if u.state() == state::GETTING_OFF)
