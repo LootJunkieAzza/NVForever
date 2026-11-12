@@ -1383,3 +1383,95 @@ fn runtime_refuses_an_untyped_result_for_a_form_parameter() {
     // A typed form getter under GetFormIDString compiles [observed: nvse.misc pkg.nth0].
     assert_eq!(runtime_errors("SetFunctionValue (GetFormIDString (rObj.GetNthPackage 0))"), Vec::<&str>::new());
 }
+
+/// The statements of a unit's first block, compiled as the engine compiles a mod's source
+/// (`Seed::unknown_calls`), with the compile's diagnostics.
+fn mod_source(src: &str) -> (Compiled, Program) {
+    let t = table();
+    let c = compile(src, &t, &World, Some(Seed { variables: &[], refs: &[], unknown_calls: true }));
+    let p = decode(&c.bytes, &t).program;
+    (c, p)
+}
+
+fn warnings<'a>(c: &'a Compiled, kind: &str) -> Vec<&'a str> {
+    c.diags.iter().filter(|d| !d.error && d.kind == kind).map(|d| d.detail.as_str()).collect()
+}
+
+#[test]
+fn an_eval_line_assigns_or_calls() {
+    // [observed: JustAssortedMods.esp 4.6, `eval iTemp = iTemp * (1 - …)` and `eval
+    // Quest.rRef.Activate PlayerRef 1`, shipped with compiled bytes.]
+    let (c, p) = build("short a\nref r\nbegin GameMode\nlet a := 3\neval a = a * (1 + 1)\neval r.Activate player 1\nend");
+    assert!(c.diags.iter().all(|d| d.kind != "assignment_to_a_value"), "{:?}", c.diags);
+    let b = body(&p);
+    assert!(matches!(&b[1], Stmt::Let { expr: fnv_script::ir::XExpr::Assign { .. } }), "{:?}", b[1]);
+    assert!(matches!(&b[2], Stmt::Eval { expr: fnv_script::ir::XExpr::Call { .. } }), "{:?}", b[2]);
+}
+
+#[test]
+fn the_let_macro_takes_a_division() {
+    // [observed: JustAssortedMods.esp 4.6, `fAP /= GetNumericGameSetting …`.]
+    let (_, p) = build("float f\nbegin GameMode\nf = 6\nf /= 3\nend");
+    assert!(matches!(&body(&p)[1], Stmt::Let { expr: fnv_script::ir::XExpr::Assign { op: fnv_script::ir::XAssign::Div, .. } }), "{:?}", body(&p)[1]);
+}
+
+#[test]
+fn a_lambdas_value_takes_an_assignment() {
+    // `r = ({} => a = b = 1)`: the lambda assigns when it runs; it is not `(r = lambda)
+    // = 1` [observed: JustAssortedMods.esp 4.6 JLMScript].
+    let (c, p) = build("short a\nshort b\nref r\nbegin GameMode\nr = ({} => a = b = 1)\nend");
+    assert!(c.diags.iter().all(|d| d.kind != "assignment_to_a_value"), "{:?}", c.diags);
+    let Stmt::Let { expr: fnv_script::ir::XExpr::Assign { target, value, .. } } = &body(&p)[0] else { panic!("{:?}", body(&p)[0]) };
+    assert!(matches!(**target, fnv_script::ir::XExpr::Var { .. }), "{target:?}");
+    let fnv_script::ir::XExpr::Lambda { value: Some(v), .. } = &**value else { panic!("{value:?}") };
+    assert!(matches!(**v, fnv_script::ir::XExpr::Assign { .. }), "{v:?}");
+}
+
+#[test]
+fn the_jump_groups_have_their_codes() {
+    // [observed: JustAssortedMods.esp 4.6 JVSAnimEffectScript's compiled bytes, 227 and 228.]
+    let c = compile("begin GameMode\nif IsAnimPlaying JumpStart == 0\nelseif IsAnimPlaying JumpLoop\nendif\nend", &table(), &World, None);
+    assert_eq!(c.errors().count(), 0, "{:?}", c.diags);
+    let at = |code: u16| c.bytes.windows(8).any(|w| w[..2] == 0x1128u16.to_le_bytes() && w[6..8] == code.to_le_bytes());
+    assert!(at(227) && at(228), "{:02X?}", c.bytes);
+}
+
+#[test]
+fn a_mods_source_survives_functions_nothing_knows() {
+    // Every place a call can stand [observed: JustAssortedMods.esp 4.6 calls
+    // DisableScriptedActivate, GetContainerOpenSound and ySIGetTagTrait, none with a page,
+    // on a quest's ref variable, in parentheses, after an element and in a let].
+    let src = "short a\nref r\narray_var ar\nbegin GameMode\n\
+        NoSuchFn 1\n\
+        let a := NoSuchFn 2\n\
+        a = r.NoSuchFn 3\n\
+        eval TestQuest.fTimer.NoSuchFn 4\n\
+        a = ar[0].NoSuchFn \"x\"\n\
+        if NoSuchFn 5\nendif\n\
+        if r.NoSuchFn\nendif\n\
+        set a to r.NoSuchFn 6\n\
+        PlaySound (TestQuest.fTimer.NoSuchFn)\n\
+        end";
+    let (c, _) = mod_source(src);
+    assert_eq!(c.errors().count(), 0, "{:?}", c.errors().collect::<Vec<_>>());
+    assert!(warnings(&c, "unknown_function").len() >= 9, "{:?}", c.diags);
+    // The editor-parity compile keeps the errors.
+    assert!(compile(src, &table(), &World, None).errors().count() > 0);
+    // A unit whose only extender use is one unknown function on a call line.
+    let (c, _) = mod_source("ref r\nbegin GameMode\nr.NoSuchFn 1\nNoSuchFn\nend");
+    assert_eq!(c.errors().count(), 0, "{:?}", c.errors().collect::<Vec<_>>());
+    // What does resolve is left as it was: a remote variable, a local, a form.
+    let (c, _) = mod_source("short a\nbegin GameMode\nset a to TestQuest.bDone\nif a == TestGlobal\nendif\nend");
+    assert_eq!(c.diags.iter().filter(|d| d.kind == "unknown_function").count(), 0, "{:?}", c.diags);
+}
+
+#[test]
+fn a_mods_source_survives_an_enum_name_the_table_lacks() {
+    let src = "begin GameMode\nif IsAnimPlaying NoSuchGroup\nendif\nend";
+    let (c, _) = mod_source(src);
+    assert_eq!(c.errors().count(), 0, "{:?}", c.errors().collect::<Vec<_>>());
+    assert_eq!(warnings(&c, "unknown_enum_name"), ["anim_group: NoSuchGroup"]);
+    // The code nothing has, not group 0 (Idle).
+    assert!(c.bytes.windows(8).any(|w| w[..2] == 0x1128u16.to_le_bytes() && w[6..8] == u16::MAX.to_le_bytes()), "{:02X?}", c.bytes);
+    assert_eq!(compile(src, &table(), &World, None).errors().map(|d| d.kind).collect::<Vec<_>>(), ["unknown_enum_name"]);
+}

@@ -54,6 +54,12 @@ pub enum Kw {
     /// `if eval <expression>` / `elseif eval …` [documented: Eval].
     IfEval(Vec<XTok>),
     ElseIfEval(Vec<XTok>),
+    /// `eval <expression>` on a line of its own: the tokens after `eval`. The expression
+    /// is run for what it does, an assignment included (`eval iTemp = iTemp * (1 - …)`,
+    /// `eval Quest.rRef.Activate PlayerRef 1`) [documented: Eval, an NVSE-aware command
+    /// taking an expression; observed: JustAssortedMods.esp 4.6 ships 32 such lines with
+    /// compiled bytes, two of them assignments].
+    Eval(Vec<XTok>),
     /// `while <condition>` [documented: While].
     While(Vec<XTok>),
     /// `foreach <var> <- <source>` [documented: ForEach]: the tokens after `foreach`.
@@ -67,8 +73,10 @@ pub enum Kw {
     GoTo(i32),
 }
 
-/// The assignments the Let macro takes without `let` [documented: Let Macro].
-const MACRO_OPS: [&str; 4] = ["=", "+=", "-=", "*="];
+/// The assignments the Let macro takes without `let` [documented: Let Macro: `=`, `+=`,
+/// `-=`, `*=`; observed: `/=`, JustAssortedMods.esp 4.6 ships `fAP /= GetNumericGameSetting
+/// …` (JBTOnFireWeaponUDF) with compiled bytes, so the original's compiler takes it].
+const MACRO_OPS: [&str; 5] = ["=", "+=", "-=", "*=", "/="];
 
 /// A line of the extender's grammar, by its first words.
 fn extender(l: &Line) -> Option<Kw> {
@@ -78,7 +86,8 @@ fn extender(l: &Line) -> Option<Kw> {
         ("let", _) => Some(Kw::Let(xtokens(&l.text)[1..].to_vec())),
         ("if", Some("eval")) => Some(Kw::IfEval(xtokens(&l.text)[2..].to_vec())),
         ("elseif", Some("eval")) => Some(Kw::ElseIfEval(xtokens(&l.text)[2..].to_vec())),
-        ("while", _) => Some(Kw::While(xtokens(&l.text)[1..].to_vec())),
+        ("eval", Some(_)) => Some(Kw::Eval(xtokens(&l.text)[1..].to_vec())),
+        ("while", _) =>Some(Kw::While(xtokens(&l.text)[1..].to_vec())),
         ("foreach", _) => Some(Kw::ForEach(xtokens(&l.text)[1..].to_vec())),
         ("loop", None) => Some(Kw::Loop),
         ("break", None) => Some(Kw::Break),
@@ -124,7 +133,7 @@ impl Kw {
     /// The extender tokens of a `let`, `if eval`, `elseif eval`, `while` or `foreach` line.
     fn xtoks_mut(&mut self) -> Option<&mut Vec<XTok>> {
         match self {
-            Kw::Let(t) | Kw::IfEval(t) | Kw::ElseIfEval(t) | Kw::While(t) | Kw::ForEach(t) => Some(t),
+            Kw::Let(t) | Kw::IfEval(t) | Kw::ElseIfEval(t) | Kw::Eval(t) | Kw::While(t) | Kw::ForEach(t) => Some(t),
             _ => None,
         }
     }
@@ -133,7 +142,7 @@ impl Kw {
     /// script-compiler.md §8).
     pub fn extended(&self) -> bool {
         match self {
-            Kw::Let(_) | Kw::IfEval(_) | Kw::ElseIfEval(_) | Kw::While(_) | Kw::ForEach(_) | Kw::Loop | Kw::Break | Kw::Continue | Kw::Label(_) | Kw::GoTo(_) => true,
+            Kw::Let(_) | Kw::IfEval(_) | Kw::ElseIfEval(_) | Kw::Eval(_) | Kw::While(_) | Kw::ForEach(_) | Kw::Loop | Kw::Break | Kw::Continue | Kw::Label(_) | Kw::GoTo(_) => true,
             Kw::Decl { ty, init, .. } => matches!(ty, DeclType::String | DeclType::Array) || init.is_some(),
             // `Begin _GameMode`: a compiler-override block [documented: Script Compiler Override].
             Kw::Begin { block, .. } => block.starts_with('_') || block.eq_ignore_ascii_case("function"),

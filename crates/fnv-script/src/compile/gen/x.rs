@@ -193,7 +193,17 @@ impl Gen<'_> {
             // Chained dot syntax, NVSE Expressions `.`].
             if t.kind == XKind::Word && t.text.starts_with('.') && t.text.len() > 1 && POSTFIX >= min {
                 let name = &t.text[1..];
-                let Some(f) = self.xfunction(name) else { return self.xerr("unknown_function", name.to_string()) };
+                let f = match self.xfunction(name) {
+                    Some(f) => f,
+                    // In a mod's source compiled by the engine: a call of that name, as
+                    // [`Self::unknown_call`] [observed: JustAssortedMods.esp 4.6,
+                    // `aA[0].ySIGetTagTrait "string"`, a function with no page].
+                    None if self.unknown_calls => {
+                        self.diag("unknown_function", false, name.to_string());
+                        XFn { func: FuncId::Name(name.to_string()), params: None, opcode: None, aware: false }
+                    }
+                    None => return self.xerr("unknown_function", name.to_string()),
+                };
                 p.next();
                 let args = self.xargs(p, &f)?;
                 left = XExpr::Call { call: XCall { on: Some(Box::new(left)), func: f.func, args } };
@@ -286,7 +296,13 @@ impl Gen<'_> {
                 if !p.next().is_some_and(|a| a.is(XKind::Op, "=>")) {
                     return self.xerr("syntax", "a lambda's {params} without =>");
                 }
-                let value = self.xexpr(p, 2)?;
+                // The value takes the rest of the expression, an assignment included:
+                // `({} => iInventory = iRefresh = 1)` assigns when the lambda runs
+                // [observed: JustAssortedMods.esp 4.6 ships that line in JLMScript, as an
+                // event handler and as a stored callback, with compiled bytes; hypothesis:
+                // the original binds it so. Stopping before the assignment made the line
+                // an assignment to the lambda itself, refused when it ran].
+                let value = self.xexpr(p, 0)?;
                 Some(XExpr::Lambda { params, body: Vec::new(), value: Some(Box::new(value)), index: self.next_lambda() })
             }
             _ => self.xerr("syntax", format!("unexpected {}", t.text)),
@@ -386,6 +402,11 @@ impl Gen<'_> {
                 return Some(XExpr::Call { call: XCall { on, func: f.func, args } });
             }
         }
+        // `Ref.Name args` or `Quest.refVar.Name args` where nothing knows `Name`, in a
+        // mod's source compiled by the engine: a call of that name on the reference.
+        if self.unknown_calls && head.is_some() && self.names_nothing(w) {
+            return self.unknown_call(p, w);
+        }
         if let Some(h) = head {
             let v = self.remote(h, name)?;
             return Some(val_expr(v));
@@ -412,19 +433,40 @@ impl Gen<'_> {
                 self.diag("unquoted_argument", false, name.to_string());
                 Some(XExpr::Str { s: name.to_string() })
             }
-            // A call line starting with an unknown name, in a mod's source compiled by the
+            // An unknown name where a call can stand (a call line's start, an operand of
+            // a `let`, an `if eval` or an `eval`), in a mod's source compiled by the
             // engine: a call of that name, reporting "not built" when it runs
             // ([`super::super::Seed::unknown_calls`]) [observed: TaleOfTwoWastelands.esm
             // SCPT 001880 calls TTW_EnableRadioFix and InitRockItLauncher, plugin functions
-            // the wiki does not document].
-            None if self.unknown_calls && self.call_line && !self.in_args && head.is_none() => {
-                self.diag("unknown_function", false, name.to_string());
-                let f = XFn { func: FuncId::Name(name.to_string()), params: None, opcode: None, aware: false };
-                let args = self.xargs(p, &f)?;
-                Some(XExpr::Call { call: XCall { on: None, func: f.func, args } })
-            }
+            // the wiki does not document; JustAssortedMods.esp 4.6, `sATag =
+            // ySIGetTagTrait "string" (aA[0])`]. As an argument the name stays its own
+            // text (the arm above).
+            None if self.unknown_calls && head.is_none() => self.unknown_call(p, name),
             None => self.xerr("unresolved_name", name.to_string()),
         }
+    }
+
+    /// A call of a function nothing knows, by its name: `Name`, `Ref.Name` or
+    /// `Quest.refVar.Name` ([`Gen::names_nothing`] said so for the dotted forms), with
+    /// every argument that follows. It compiles with a warning and reports "not built"
+    /// when it runs, which skips the statement or reads 0 and lets the script go on.
+    fn unknown_call(&mut self, p: &mut P<'_>, w: &str) -> Option<XExpr> {
+        let (target, name) = match w.rsplit_once('.') {
+            Some((t, n)) => (Some(t), n),
+            None => (None, w),
+        };
+        let on = match target.map(|t| (t, t.split_once('.'))) {
+            None => None,
+            Some((_, Some((q, v)))) => Some(Box::new(val_expr(self.remote(q, v)?))),
+            Some((t, None)) => match self.reference(t) {
+                Some(r) => Some(Box::new(XExpr::Ref { r: RefIndex(r) })),
+                None => return self.xerr("unresolved_name", t.to_string()),
+            },
+        };
+        self.diag("unknown_function", false, name.to_string());
+        let f = XFn { func: FuncId::Name(name.to_string()), params: None, opcode: None, aware: false };
+        let args = self.xargs(p, &f)?;
+        Some(XExpr::Call { call: XCall { on, func: f.func, args } })
     }
 
     /// The function is xNVSE's (or FOSE's) and its parameter `k` is a plain string, not a
@@ -609,6 +651,12 @@ impl Gen<'_> {
                     let code = t.text.parse::<u16>().ok().or_else(|| self.enums.get(kind).and_then(|m| m.get(&t.text.to_ascii_lowercase())).copied());
                     match code {
                         Some(code) => Some(XExpr::Enum { code }),
+                        // As the vanilla grammar's (`Gen::arg`): a warning and the code
+                        // nothing has, in a mod's source compiled by the engine.
+                        None if self.unknown_calls => {
+                            self.diag("unknown_enum_name", false, format!("{kind}: {}", t.text));
+                            Some(XExpr::Enum { code: super::UNKNOWN_ENUM })
+                        }
                         None => self.xerr("unknown_enum_name", format!("{kind}: {}", t.text)),
                     }
                 }

@@ -122,8 +122,10 @@ A function returning a string or array, or a user-defined function's result, mus
 assigned with `let`, not `set` [documented: Let; SetFunctionValue; Ar List].
 
 **The let macro** (xNVSE 6.1.0): a line `x = 10`, `x += 10`, `x -= 5`, `x *= 5` with no
-keyword is a `let` [documented: Let Macro]. Which other compound operators the macro
-takes: open (the page lists those four).
+keyword is a `let` [documented: Let Macro]. `x /= 5` is taken too [observed:
+JustAssortedMods.esp 4.6 ships `fAP /= GetNumericGameSetting …` in JBTOnFireWeaponUDF with
+compiled bytes, so the original's compiler takes it]. The remaining compound operators
+(`^=`, `%=`, `|=`, `&=`) as a macro: open (the page lists the first four).
 
 **eval / if eval** `if eval expr`, `elseif eval expr`: the condition is compiled as an
 extender expression and reduced to true or false. It is needed when the condition uses
@@ -131,6 +133,15 @@ a string, an array or a user-defined function, which the base compiler misreads;
 plain condition it is harmless but slightly slower, and a failing call then reports an
 error instead of failing silently [documented: Eval]. `while` does not need it
 [documented: Eval].
+
+**eval on a line of its own** `eval expr`: the expression is run for what it does. Mods
+write it before a call that needs the extender's reading of its arguments (`eval
+Quest.rRef.Activate PlayerRef 1`) and before an assignment (`eval iTemp = iTemp * (1 -
+Quest.rRef.GetAV Invisibility)`), which then assigns as a `let` does [documented: Eval, an
+NVSE-aware command taking an expression; observed: JustAssortedMods.esp 4.6 ships 32 such
+lines with compiled bytes, two of them assignments; hypothesis: the value the original's
+eval returns for an assignment, which a line of its own drops]. `fnv_script::compile`
+reads the tokens after `eval` as one expression (`Kw::Eval`).
 
 **TestExpr** `TestExpr expr` (NVSE 4.1): evaluates the expression, side effects
 included, and returns 1 if it ran without an extender error, 0 if it raised one; the

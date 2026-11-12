@@ -73,7 +73,7 @@
     "anim_group": {
       "0": "Idle", "2": "SpecialIdle", "3": "Forward", "4": "Backward", "5": "Left", "6": "Right",
       "7": "FastForward", "8": "FastBackward", "9": "FastLeft", "10": "FastRight", "15": "TurnLeft",
-      "17": "Aim", "24": "Equip", "25": "Unequip"
+      "17": "Aim", "24": "Equip", "25": "Unequip", "227": "JumpStart", "228": "JumpLoop"
     },
     "sex": {"0": "Male", "1": "Female"},
     "misc_stat": {

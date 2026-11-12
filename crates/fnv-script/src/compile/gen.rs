@@ -27,6 +27,11 @@ fn precedence(op: &str) -> u8 {
 
 const PLAYER_NAMES: [&str; 2] = ["player", "playerref"];
 
+/// The code compiled for an enumeration name the table lacks, in a mod's source compiled
+/// by the engine ([`super::Seed::unknown_calls`]): one no animation group, actor value or
+/// statistic has [design].
+pub(super) const UNKNOWN_ENUM: u16 = u16::MAX;
+
 /// Begin-block spellings in shipped source that differ from the catalogue's block name
 /// [observed: scripts.md §3.4].
 const BLOCK_ALIASES: [(&str, &str); 1] = [("onpackageend", "onpackagedone")];
@@ -615,10 +620,14 @@ impl<'a> Gen<'a> {
                 let code = t.text.parse::<u16>().ok().or_else(|| {
                     self.enums.get(kind).and_then(|m| m.get(&t.text.to_ascii_lowercase())).copied()
                 });
+                // In a mod's source compiled by the engine a name the table lacks is the
+                // code no group, value or stat has, with a warning, so the unit still
+                // runs: the call then finds nothing of that name [decision; the table
+                // holds only the names seen in compiled scripts].
                 if code.is_none() {
-                    self.diag("unknown_enum_name", true, format!("{kind}: {}", t.text));
+                    self.diag("unknown_enum_name", !self.unknown_calls, format!("{kind}: {}", t.text));
                 }
-                put16(b, code.unwrap_or(0));
+                put16(b, code.unwrap_or(if self.unknown_calls { UNKNOWN_ENUM } else { 0 }));
             }
             ParamEnc::Axis => {
                 let c = t.text.chars().next().unwrap_or('X').to_ascii_uppercase();
@@ -923,8 +932,8 @@ impl<'a> Gen<'a> {
         // GECK's "Mismatched quotes", ext-bytecode.md §7]; a vanilla line's unclosed string
         // runs to the end of the line.
         let x_line = self.co
-            || matches!(kw, Kw::Let(_) | Kw::IfEval(_) | Kw::ElseIfEval(_) | Kw::While(_) | Kw::ForEach(_))
-            || matches!(kw, Kw::Call(toks) if self.extended && (self.function(&toks[0]).is_none() || toks.iter().any(|t| t.kind == lex::Kind::Open)));
+            || matches!(kw, Kw::Let(_) | Kw::IfEval(_) | Kw::ElseIfEval(_) | Kw::Eval(_) | Kw::While(_) | Kw::ForEach(_))
+            || matches!(kw, Kw::Call(toks) if self.x_call_line(toks));
         if x_line && lex::unclosed_quote(&self.text) {
             self.diag("mismatched_quotes", true, self.text.clone());
             return;
@@ -933,7 +942,7 @@ impl<'a> Gen<'a> {
         // and so does a vanilla `if` or `set` that calls an extender function
         // (`if rItem.GetBaseObject == rGun`) [observed: the peer's nvse-inv probes compile in
         // the original with xNVSE].
-        if self.co || (matches!(kw, Kw::If(_) | Kw::ElseIf(_) | Kw::Set { .. }) && self.calls_extender()) {
+        if self.co || (matches!(kw, Kw::If(_) | Kw::ElseIf(_) | Kw::Set { .. }) && (self.calls_extender() || self.calls_unknown())) {
             let x = lex::xtokens(&self.text);
             let mapped = match kw {
                 Kw::If(_) => Some(Kw::IfEval(x[1..].to_vec())),
@@ -960,6 +969,62 @@ impl<'a> Gen<'a> {
             let name = t.text.rsplit('.').next().unwrap_or(&t.text);
             self.table.by_name(name).is_none() && self.table.unnumbered.contains_key(&name.to_ascii_lowercase()) && self.var(name).is_none()
         })
+    }
+
+    /// Whether a call line is one extended expression: in a unit of the extender's grammar,
+    /// one holding parentheses or calling a function the vanilla table lacks; and in a
+    /// mod's source compiled by the engine ([`super::Seed::unknown_calls`]), any line
+    /// whose function the vanilla table lacks, so a unit whose only extender use is one
+    /// undocumented function still compiles.
+    fn x_call_line(&mut self, toks: &[Tok]) -> bool {
+        let vanilla = self.function(&toks[0]).is_some();
+        (self.extended && (!vanilla || toks.iter().any(|t| t.kind == lex::Kind::Open))) || (self.unknown_calls && !vanilla)
+    }
+
+    /// In a mod's source compiled by the engine ([`super::Seed::unknown_calls`]): whether
+    /// the line calls a function nothing knows, `Name args` or `Ref.Name`. Such a vanilla
+    /// `if` or `set` is read with the extender's grammar, where the name becomes a call
+    /// that reports "not built" when it runs (`x::Gen::xword`), instead of failing the
+    /// whole unit as an unresolved name [decision: one undocumented plugin function must
+    /// not cost a mod's script; observed: JustAssortedMods.esp 4.6 calls four functions the
+    /// catalogue has no page for].
+    fn calls_unknown(&self) -> bool {
+        if !self.unknown_calls {
+            return false;
+        }
+        let x = lex::xtokens(&self.text);
+        (0..x.len()).any(|i| {
+            let t = &x[i];
+            // A word in a call's place: the line's first operand, or after an operator or
+            // an opening parenthesis; `set x to …` and `if …` lead with their keyword.
+            let operand_place = i > 0 && (matches!(x[i - 1].kind, lex::XKind::Op | lex::XKind::Open) || (x[i - 1].kind == lex::XKind::Word && matches!(x[i - 1].text.to_ascii_lowercase().as_str(), "if" | "elseif" | "to")));
+            t.kind == lex::XKind::Word && operand_place && self.names_nothing(&t.text)
+        })
+    }
+
+    /// Whether `word` (`Name`, `Ref.Name` or `Quest.refVar.Name`) names no function,
+    /// variable, form, enumeration name or number, while what stands before its last dot
+    /// does resolve: the shape of a call of a function the catalogue lacks.
+    pub(super) fn names_nothing(&self, word: &str) -> bool {
+        let (head, name) = match word.rsplit_once('.') {
+            Some((h, n)) => (Some(h), n),
+            None => (None, word),
+        };
+        let low = name.to_ascii_lowercase();
+        let ident = name.chars().next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_') && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+        if !ident || self.table.by_name(name).is_some() || self.table.unnumbered.contains_key(&low) || self.enums.values().any(|m| m.contains_key(&low)) {
+            return false;
+        }
+        match head {
+            None => self.var(name).is_none() && self.form(name).is_none(),
+            Some(h) => match h.split_once('.') {
+                // `Quest.refVar.Name`: the quest's script has the variable.
+                Some((q, v)) => self.var(q).is_none() && self.form(q).is_some_and(|f| self.env.script_vars(f.form).is_some_and(|vs| vs.iter().any(|x| x.name.eq_ignore_ascii_case(v)))),
+                // `refVar.Name`, or `Form.Name` where the form's script has no such variable.
+                None if self.var(h).is_some() => true,
+                None => self.form(h).is_some_and(|f| !self.env.script_vars(f.form).is_some_and(|vs| vs.iter().any(|x| x.name.eq_ignore_ascii_case(name)))),
+            },
+        }
     }
 
     fn statement_inner(&mut self, kw: &Kw) {
@@ -1090,6 +1155,12 @@ impl<'a> Gen<'a> {
                 }
                 self.emit(None, if matches!(kw, Kw::Break) { op::X_BREAK } else { op::X_CONTINUE }, &[]);
             }
+            // `eval <expression>`: run for what it does; an assignment is a `let`.
+            Kw::Eval(toks) => {
+                let Some(e) = self.xwhole(toks) else { return };
+                let json = serde_json::to_vec(&e).unwrap_or_default();
+                self.emit(None, if matches!(e, crate::ir::XExpr::Assign { .. }) { op::X_LET } else { op::X_EVAL }, &json);
+            }
             Kw::Let(toks) => {
                 let Some(e) = self.xwhole(toks) else { return };
                 if !matches!(e, crate::ir::XExpr::Assign { .. }) {
@@ -1131,7 +1202,7 @@ impl<'a> Gen<'a> {
                 body.extend_from_slice(&e);
                 self.emit(None, op::SET, &body);
             }
-            Kw::Call(toks) if self.co || (self.extended && (self.function(&toks[0]).is_none() || toks.iter().any(|t| t.kind == lex::Kind::Open))) => {
+            Kw::Call(toks) if self.co || self.x_call_line(toks) => {
                 // An inline expression among the arguments, or an extender function: the
                 // whole line is an extended expression run for what it does.
                 let x = lex::xtokens(&self.text);
