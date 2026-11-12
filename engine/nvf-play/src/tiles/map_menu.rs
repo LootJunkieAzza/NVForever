@@ -1798,10 +1798,28 @@ pub(crate) struct MapPage<'w> {
     pip: Option<Res<'w, PipBoy>>,
     data: Option<ResMut<'w, DataState>>,
     tiles: ResMut<'w, MapTiles>,
+    /// Holds the runtime pictures read-only too (`super::draw::FontKit`): the Local Map's outline
+    /// is given to them by [`give_outline`], a system of its own.
     fonts: super::draw::FontKit<'w>,
     time: crate::pause::AidTime<'w>,
-    /// The Local Map's outline picture, by its runtime name.
-    images: Option<ResMut<'w, super::runtime_images::RuntimeImages>>,
+}
+
+/// The Local Map's outline as its runtime picture ([`sync_outline`]), from what the preparation
+/// gathered this frame (`data::prepare`, before this), before the decision writes its name
+/// ([`settle`]): a system of its own, as the page's passes read the runtime pictures through the
+/// drawing's fonts and cannot also change them.
+pub(crate) fn give_outline(switch: Option<Res<TileMenus>>, pip: Option<Res<PipBoy>>, data: Option<Res<DataState>>, images: Option<ResMut<super::runtime_images::RuntimeImages>>, mut tiles: ResMut<MapTiles>) {
+    let (Some(switch), Some(pip), Some(data), Some(mut images)) = (switch, pip, data, images) else { return };
+    if !eligible(*switch, &pip) || pip.tab() != data::LOCAL {
+        return;
+    }
+    let Some(prepared) = data.prepared().filter(|p| p.view.tab == data::LOCAL) else { return };
+    let Body::Map(m) = &prepared.view.body else { return };
+    let outline = m.world.as_ref().and_then(|w| w.outline.as_ref());
+    let tiles = tiles.bypass_change_detection();
+    if sync_outline(&mut images, outline, &mut tiles.local_image) {
+        info!("tiles: {MAP_MENU} local map picture {}", outline.map_or_else(|| "taken away".to_string(), |o| format!("given, {} x {} texels", o.1.x, o.1.y)));
+    }
 }
 
 /// The Local Map's outline picture as the runtime picture [`LOCAL_IMAGE`]: given again for each
@@ -1860,12 +1878,7 @@ fn pass(p: &mut MapPage<'_>, late: bool) -> Option<Result<TileId, String>> {
     let new = new.map(|s| refit_to_tree(tree_ui, s));
     // What it would show changed since the last pass, written or not (a failure forgets what was
     // written, not what was asked for).
-    // The Local Map's outline as its runtime picture, before its name is written.
-    if let (Some(ws), Some(images)) = (new.as_ref().and_then(|s| s.world.as_ref()).filter(|w| w.local), p.images.as_mut()) {
-        if sync_outline(images, ws.outline.as_ref(), &mut p.tiles.local_image) {
-            info!("tiles: {MAP_MENU} local map picture {}", ws.outline.as_ref().map_or_else(|| "taken away".to_string(), |o| format!("given, {} x {} texels", o.1.x, o.1.y)));
-        }
-    }
+
     let changed = new.is_some() && new != p.tiles.written.asked;
     if new.is_some() {
         p.tiles.written.asked.clone_from(&new);
@@ -3623,6 +3636,18 @@ mod tests {
         assert_eq!(f.step(Some(data::QUESTS), Drew::Tiles), Some((data::WORLD, [2, 1, 1])), "the World Map's visit ends");
         assert_eq!(f.step(None, Drew::Waiting), Some((data::QUESTS, [1, 0, 0])), "the Pip-Boy down");
         assert_eq!(f.step(None, Drew::Waiting), None);
+    }
+
+    /// Every system this page and the DATA page add, with their neighbours, initialised in one
+    /// schedule: a system parameter that conflicts with another (B0002) panics here, in the tests,
+    /// not at the game's start (the 2026-11-12 smoke run: `write` held the runtime pictures twice).
+    #[test]
+    fn the_pages_systems_have_no_conflicting_parameters() {
+        let mut world = World::new();
+        let mut schedule = Schedule::default();
+        schedule.add_systems((feed, write, settle, give_outline, crate::pipboy::data::prepare, crate::pipboy::data::draw, crate::pipboy::data::trace_over_tiles, crate::pipboy::data::popup_over_tiles, crate::pipboy::data::wave_moves).chain());
+        schedule.add_systems((super::super::draw::draw, crate::pipboy::frame::draw));
+        schedule.initialize(&mut world).expect("the schedule builds");
     }
 
     #[test]

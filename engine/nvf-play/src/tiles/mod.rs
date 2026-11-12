@@ -1027,6 +1027,8 @@ impl Plugin for TilesPlugin {
             // the acts, what it shows) is `data::prepare`, before the decision and the frame.
             .add_systems(Update, map_menu::feed.after(input::feed).after(crate::pipboy::PointerSet).before(PlaySet::Activation))
             .add_systems(Update, map_menu::write.after(map_menu::feed).before(PlaySet::Activation))
+            // The Local Map's outline as its runtime picture, before the decision writes its name.
+            .add_systems(Update, map_menu::give_outline.in_set(PlaySet::Ui).after(crate::pipboy::data::prepare).before(map_menu::settle))
             .add_systems(Update, map_menu::settle.in_set(PlaySet::Ui).after(crate::pipboy::data::prepare).before(crate::pipboy::frame::draw))
             // The Pip-Boy's repair page, in the same three steps; its model's keys have run by
             // `prepare`, in the Pip-Boy's chain.
