@@ -79,6 +79,7 @@ pub mod followers;
 pub mod dialogue;
 pub mod dialogue_edits;
 pub mod difficulty;
+pub mod drink_table;
 pub mod experience;
 pub mod fillet;
 pub mod functions;

@@ -1367,12 +1367,30 @@ impl PhysState {
                 return false;
             }
         };
+        // The drinking contest's bill and bottle (`fnv_game::drink_table`) stay where they
+        // were made: a prop, not loose items a falling body knocks over.
+        let objects = if fnv_game::drink_table::fixed_in_place(FormId(id)) && objects.iter().any(|o| o.motion == Motion::Dynamic) {
+            *self.stats.counts.entry("created_fixed_prop").or_default() += 1;
+            Arc::new(objects.iter().cloned().map(|mut o| {
+                if o.motion == Motion::Dynamic {
+                    o.motion = Motion::Static;
+                }
+                o
+            }).collect())
+        } else {
+            objects
+        };
         let joined = one_dynamic_body(&objects).map(|o| (objects.len(), o));
         let objects = match &joined {
             Some((_, o)) => Arc::new(vec![o.clone()]),
             None => objects,
         };
-        let pose = RefPose { form_id: id, position: s.pos, rotation: ref_rotation(s.rot), scale: 1.0 };
+        // A created reference that does not move keeps its scale (a table made at 1.2,
+        // `fnv_game::drink_table`, `fnv_game::armwrestle_table`); a loose one is at 1, as
+        // its pose is read back from its body at 1 (`settle_created`).
+        let still = !objects.iter().any(|o| o.motion == Motion::Dynamic);
+        let scale = if still { s.scale.unwrap_or(1.0) } else { 1.0 };
+        let pose = RefPose { form_id: id, position: s.pos, rotation: ref_rotation(s.rot), scale };
         // A panic converting or adding the bodies (`nvf_assets::guard`): no collision for
         // this reference, and nothing of it left in the world.
         let rep = match nvf_assets::guard::guarded(|| Ok(self.world.add_ref(&pose, &objects))) {

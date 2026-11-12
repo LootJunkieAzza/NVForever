@@ -58,6 +58,7 @@ pub mod dismember;
 pub mod billboards;
 pub mod doors;
 pub mod created_spots;
+pub mod drink_world;
 pub mod dropped;
 pub mod effect_sounds;
 pub mod fade;
@@ -435,6 +436,7 @@ impl Plugin for PlayPlugin {
             .add_plugins(armwrestle_coop::ArmCoopPlugin)
             .add_plugins(tutorial_menu::TutorialMenuPlugin)
             .add_plugins(campfire::CampfirePlugin)
+            .add_plugins(drink_world::DrinkWorldPlugin)
             .add_plugins(credits::CreditsPlugin)
             .add_plugins(lockpick::LockpickPlugin)
             .add_plugins(roulette::RoulettePlugin)

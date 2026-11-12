@@ -5009,6 +5009,8 @@ impl<'a> Game<'a> {
         self.loaded_cells = cells;
         // The arm-wrestling table of the Prospector Saloon (`crate::armwrestle_table`).
         crate::armwrestle_table::ensure(self);
+        // The drinking contest's tables (`crate::drink_table`).
+        crate::drink_table::ensure(self);
         // The references of a reset cell run their OnReset blocks, before OnLoad
         // (`crate::respawn`).
         for c in reset {

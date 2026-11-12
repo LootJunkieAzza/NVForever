@@ -506,7 +506,7 @@ fn own(
     time: Res<Time>,
     mut st: ResMut<ConsumeAnims>,
     opts: Res<ConsumeOptions>,
-    (mut held, mut used): (ResMut<nvf_play::ConsumeAnims>, MessageReader<nvf_play::ItemUsed>),
+    (mut held, mut used, mut contest): (ResMut<nvf_play::ConsumeAnims>, MessageReader<nvf_play::ItemUsed>, MessageReader<nvf_play::drink_world::ContestDrink>),
     (script, sim, body, mut pi): (Option<Res<nvf_play::script::ScriptState>>, Res<nvf_play::sim::SimState>, Res<PlayerBody>, ResMut<PlayerIdles>),
     now: Now,
     (mut parts, mut models, world, objects): (ResMut<ActorParts>, ModelCtx, Res<WorldData>, Res<crate::anim_objects::AnimObjects>),
@@ -530,10 +530,12 @@ fn own(
     }
     let Some(ix) = st.index.clone() else {
         used.clear();
+        contest.clear();
         return;
     };
     let Some(rt) = script.as_deref().and_then(|s| s.rt.as_ref()) else {
         used.clear();
+        contest.clear();
         return;
     };
     let game = &rt.game;
@@ -571,6 +573,17 @@ fn own(
             }
             Decision::Refuse => {}
         }
+    }
+
+    // A drinking contest's drink (`nvf_play::drink_world`): the item's drink plays as if
+    // it were used, nothing used up.
+    for d in contest.read() {
+        let item = FormId(d.item);
+        let Some(def) = data.ingestibles.get(&item) else { continue };
+        let edid = data.edid_of.get(&item).cloned().unwrap_or_default();
+        let style = b42::style_of(&edid, def.equip_type);
+        info!("consume anim: {edid}: a drinking contest's drink");
+        st.pending.push(Pending { kind: AnimCue::CONSUME, item, edid, clips: Vec::new(), style, view: None, activate: None, grip: None });
     }
 
     // Start what waits, once nothing is in the way.
