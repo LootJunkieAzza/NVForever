@@ -234,6 +234,18 @@ engine if needed, and delete the item here.
    So the spawned troopers' 0 in o14_detect was the trooper, not the readout. Not yet
    enough for the light, FOV or flashlight rules: next, sneak at noon vs midnight from
    the same spot and distances, by settler, with the flashlight on.
+   Added 2026-11-11 (#2121), what scripts read once the target is out of sight. Ours:
+   GetIsAlerted 0 in a fight (SetAlert's alone); GetCombatTarget keeps the target it
+   fought, unseen, through Combat and Lost, until the target dies or is forgotten, StopCombat,
+   a new target or Normal (our Lost lasts until its alarms run out, `Timers::alarm`, 20 s); Lost reads procedure 13
+   and package 5; an Alert that never fought reads procedure 36, package 29, no target
+   (alert.md §6). To check, on a lone hostile with no other actor near (a bighorner took
+   the gecko's attention in Goodsprings, #2121's comment): (a) how long GetCombatTarget
+   stays the player with GetDetected player 0 before it reads 0, and whether IsInCombat
+   drops with it (73 stretches of under 10 to 293 real s are recorded, 8 that ended unseen
+   after 1.1-11.9 real s; no rule yet, #2010); (b) an Alert without combat, a hostile
+   given a sound with no sight line at all (npc-behaviour-compare.md §11): its
+   GetIsAlerted, procedure, package and combat target.
 7. **Casino payouts.**
    - Slots: ours pays back about 1.35 per chip, so max winnings come fast. Check the
      reading of "= BET × N", the cherry rule and the middle row.

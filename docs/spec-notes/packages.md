@@ -1044,7 +1044,8 @@ listed record data the engine ignored. What each piece means, and what is built:
   combat target. If the owning actor is the player, the target may also be any actor the
   player is currently aiming at, even outside of combat" [documented: GECK wiki
   Category:Conditions, Run On]. A condition run on it is evaluated on the subject's
-  combat target as GetCombatTarget gives it; with none (out of combat, or the player,
+  combat target as GetCombatTarget gives it (kept while out of sight, through Lost,
+  docs/design/alert.md §6); with none (out of combat, or the player,
   whose aim the engine does not hand to the conditions) the condition is run on nothing,
   as before.
 
