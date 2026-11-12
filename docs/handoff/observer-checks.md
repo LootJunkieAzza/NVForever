@@ -1763,3 +1763,23 @@ Fallout Behavior, Weapon Drawn, Continue During Combat).
     (`knife_guard512_500_away`), and did not follow. The troopers are not hostile to
     the player by themselves, so a teleport ends a StartCombat fight; it measures no
     leash.
+
+## Added 2026-11-11 (a Use Weapon package with Continue During Combat, issue #2120)
+
+112. **Attacked, does a Use Weapon package's actor with Continue During Combat keep firing at
+    its package's target, or turn on its attacker?** (P3; use-weapon.md §3, spec note.) The
+    GECK wiki's Use Weapon Package page says the actor "will continue to fire and stand at the
+    designated position, even during Combat" [documented], not at whom. NVForever keeps it at
+    its stand firing the package's volleys at the package's target, ignoring its attacker,
+    while the use is one the shooter can act on (in place, its target among the drawn
+    standing actors); when it is not (a marker target, a target not drawn, not yet at its
+    stand) it fights its attacker with the ordinary attacks while its package still moves
+    it
+    [design, #2145]; the other reading is that it holds its stand and fights its attacker
+    (owner-review item 57). Pick a package with the flag whose target 2 is an actor and whose
+    conditions hold from a save (`fnvtool ai packages` lists the flag), watch the actor fire at
+    its target, then attack it from the side: (a) does it keep firing
+    at the package's target, turn to the player and fight from its stand, or leave its stand;
+    (b) for a Repeat Fire package, does that last, or does it go back to the package's target
+    after a while? A package aiming at a marker (the Ultra-Luxe kitchen's) is worth the same
+    look: does it fire at the marker in combat at all?

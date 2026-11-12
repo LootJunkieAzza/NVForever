@@ -309,6 +309,23 @@ the spec it links to.
    (or not at all). ([ragdoll §4](spec-notes/ragdoll.md),
    [frame-rate-audit §5](design/frame-rate-audit.md))
 
+57. **A Use Weapon package with Continue During Combat keeps firing at its own target
+    when attacked (#2120, #2145).** With the flag, an actor attacked by the player (or
+    anyone) stays at its stand and goes on firing its package's volleys at the package's
+    target, not at its attacker, for as long as the use is one the shooter can act on (in
+    place, its target among the drawn standing actors); with Repeat Fire that can be for
+    good. When it is not (a marker target, a target not drawn, not yet at its stand) it
+    turns on its attacker with the ordinary attacks, while its package still moves it (on
+    to its stand, or keeping it there), not the ordinary combat movement.
+    The alternative: it holds its position and fights its attacker from there. This is
+    [design]: the GECK wiki's Use Weapon Package page says only "Actor will continue to
+    fire and stand at the designated position, even during Combat. Great for setting up
+    immobile enemies", not at whom. 43 of FalloutNV.esm's 82 Use Weapon packages set the
+    flag, by the PR's count (sniper posts, scripted kills, the Ultra-Luxe kitchen's
+    flamers); one whose target the shooter does not fire at (a marker) fights its attacker
+    either way. The question is for the maintainer; what the original does is
+    [observer check 112](handoff/observer-checks.md).
+    ([use-weapon spec §3](spec-notes/use-weapon.md), [use-weapon design §3](design/use-weapon.md))
 56. **A planted explosive is "Armed" and stays in the pocket (#1640).** Each live plant
     reserves one unit of the item. The victim's other units of that item stay usable.
     Nothing takes the reserved unit until its blast: not the victim (equip, use, drop,
