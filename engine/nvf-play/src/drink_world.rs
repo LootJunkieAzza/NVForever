@@ -27,7 +27,12 @@
 //!   its own game.
 //! - **The winner dances** ([`WIN_DANCE`], the tap dance) from its `Winner` until the
 //!   contest's end, in place by the table, then stands as before. A drink still playing
-//!   ends first ([`ContestDrinkStop`]), so the dance is not under its last seconds.
+//!   ends first ([`ContestDrinkStop`]), so the dance is not under its last seconds. The
+//!   winner turns its back to the table ([`win_heading`]) and the third-person camera
+//!   swings round to its front (the orbit, half a turn), so the whole dance is seen with
+//!   the table behind, as a match's end view shows its winner
+//!   [drink-b's co-op burst, 2026-11-12: from behind, over the table, the dance read as a
+//!   lean on it].
 //! - **Waking up**: when the contest ends (`DrinkEnded`, or its screen gone), the hold
 //!   is let go: the body gets up by the game's get-up clip (`GetUpFaceUp` /
 //!   `GetUpFaceDown`), the view and the controls come back with it, and the view the
@@ -105,6 +110,8 @@ pub struct AtTable {
     pub over: bool,
     /// Won: dancing until the contest's end.
     pub dancing: bool,
+    /// The camera is turned to the winner's front: given back at the contest's end.
+    pub win_cam: bool,
 }
 
 /// The contest this player drinks in, if any.
@@ -141,6 +148,38 @@ pub fn tip(feet: [f32; 3], centre: [f32; 3]) -> [f32; 3] {
         return [0.0, 0.0, TIP_RISE];
     }
     [dx / len * TIP_SPEED, dy / len * TIP_SPEED, TIP_RISE]
+}
+
+/// The heading the winner turns to: its back to the table, else a quarter turn either
+/// way, whichever leaves the camera in front of it the longest clear line (at most the
+/// tables' end camera distance, `crate::table_spots::CAM_DISTANCE`).
+pub fn win_heading(phys: &mut PhysState, feet: [f32; 3], table: [f32; 3]) -> f32 {
+    use crate::table_spots as ts;
+    let away = (feet[0] - table[0]).atan2(feet[1] - table[1]);
+    let eye = [feet[0], feet[1], feet[2] + ts::EYE];
+    let mut reach = |heading: f32| {
+        let (cam, chest) = ts::camera_for(eye, heading, ts::Pick::BASE);
+        let d = [cam[0] - chest[0], cam[1] - chest[1], cam[2] - chest[2]];
+        let len = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt().max(1e-3);
+        let dir = [d[0] / len, d[1] / len, d[2] / len];
+        phys.ray(chest, dir, len, ts::filter()).map_or(len, |h| h.distance)
+    };
+    let q = std::f32::consts::FRAC_PI_2;
+    let mut best = (away, reach(away));
+    for h in [away + q, away - q] {
+        let r = reach(h);
+        if r > best.1 + 10.0 {
+            best = (h, r);
+        }
+    }
+    best.0.rem_euclid(std::f32::consts::TAU)
+}
+
+/// The camera turned to look at the winner's front (half a turn of the third-person
+/// orbit, held as Toggle POV held holds it), kept while it dances.
+fn face_camera(control: &mut PlayerControl) {
+    let o = &mut control.orbit;
+    (o.yaw, o.pitch, o.held, o.moved, o.free) = (std::f32::consts::PI, 0.0, true, true, false);
 }
 
 /// E on a bottle: drink-b's stake page.
@@ -181,7 +220,7 @@ fn started(
         let pov = control.pov;
         control.weapon_out = false;
         control.pov = Pov::Third;
-        world.at = Some(AtTable { bottle: s.bottle, bar, slot, pov, held: false, over: false, dancing: false });
+        world.at = Some(AtTable { bottle: s.bottle, bar, slot, pov, held: false, over: false, dancing: false, win_cam: false });
         world.joined += 1;
         info!(
             "drink world: {}: this player drinks in slot {slot} of {}, at mark ({:.0}, {:.0}, {:.0}) facing {:.0} deg; weapon away, view outside",
@@ -205,7 +244,8 @@ fn events(
     mut emotes: MessageWriter<crate::emotes::EmoteAsk>,
     mut script: Option<ResMut<ScriptState>>,
     mut sim: ResMut<SimState>,
-    player: Res<Player>,
+    mut player: ResMut<Player>,
+    (mut phys, mut control): (Option<ResMut<PhysState>>, ResMut<PlayerControl>),
 ) {
     let w = &mut *world;
     for e in events.read() {
@@ -238,6 +278,15 @@ fn events(
             Event::Winner { slot: Some(slot), .. } if slot == at.slot && !at.held => match crate::emotes::by_key(WIN_DANCE) {
                 Some(emote) => {
                     stop.write(ContestDrinkStop);
+                    // Its back to the table, the camera in front: the dance seen whole.
+                    if let Some(p) = phys.as_deref_mut() {
+                        let heading = win_heading(p, player.feet, at.bar.top);
+                        let feet = player.feet;
+                        crate::table_spots::stand_player(p, &mut player, [feet[0], feet[1]], at.bar.floor, heading);
+                        info!("drink world: {}: the winner turns to {:.0} deg, the camera to its front", at.bar.key, heading.to_degrees());
+                    }
+                    face_camera(&mut control);
+                    at.win_cam = true;
                     emotes.write(crate::emotes::EmoteAsk::Play { emote, cancel_after: None, variant: None });
                     at.dancing = true;
                     w.dances += 1;
@@ -278,6 +327,9 @@ fn ended(
     let game = script.as_deref_mut().and_then(|s| s.rt.as_mut()).map(|rt| &mut rt.game);
     if over && !at.over {
         at.over = true;
+        if std::mem::take(&mut at.win_cam) {
+            control.orbit = crate::control::Orbit::default();
+        }
         if std::mem::take(&mut at.dancing) {
             emotes.write(crate::emotes::EmoteAsk::Cancel);
             info!("drink world: {}: the contest is over: the dance ends, back to standing", at.bar.key);
@@ -294,6 +346,9 @@ fn ended(
         return;
     }
     if !at.over {
+        if at.win_cam {
+            face_camera(&mut control);
+        }
         return;
     }
     // Up again (the knockdown over, its get-up clip played): the view comes back.
