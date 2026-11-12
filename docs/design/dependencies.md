@@ -64,13 +64,24 @@ still has to be re-run there (84/84 Layer 1 scenarios expected).
 placeholder): dependencies may be permissive or GPL-3.0-compatible copyleft. Most are
 MIT/Apache-2.0 or similar, one MPL-2.0 (`option-ext`, via `directories`), and the intro
 film's decoder (`infinitier_bik_decoder`, `infinitier_datasource`) GPL-3.0-or-later.
-`cargo deny check` enforces the allow-list in `deny.toml` and RustSec advisories; CI runs
-it on every push to main.
+`cargo deny check` enforces the allow-list in `deny.toml` and RustSec advisories, for the
+root workspace and, with `--manifest-path engine/Cargo.toml`, the engine workspace (the
+game binary, its own lock) against the same `deny.toml`; CI runs both (#1998). The engine
+adds BSD-2-Clause (`arrayref`), MIT-0 (`encase`) and ISC (`libloading`, `inotify`) to
+the allow-list. One advisory is ignored with its reason: RUSTSEC-2026-0192, `ttf-parser`
+unmaintained, which comes only through winit's Linux window decorations in Bevy 0.20
+(no upgrade available; look again at the next Bevy upgrade).
 
 ## CI
 
-`.github/workflows/ci.yml`: one Linux job, run on pushes to main (and manually), that does
-`cargo deny`, tests and clippy (`-D warnings`) for both workspaces and the Python lab/capture
-self-tests. Pull requests, other branches, Windows and macOS are not run in CI (billed
-minutes); the local checks in CLAUDE.md cover them before each push. The parity job that needs game data stays in
-`parity-lab/ci/github-actions.yml` (self-hosted runner only).
+`.github/workflows/ci.yml` (read 2026-11-12): one Linux job, so branch protection has a
+single check to require. It runs on every pull request, on pushes to main that change more
+than docs (`docs/` and `*.md`), and by hand. In order: `cargo deny` (licences, advisories,
+bans, sources) for the root workspace; the root workspace's tests and clippy (`--release
+--locked`, `-D warnings`); the Python self-tests of the parity lab, the capture tools, the
+smoke runner, the stress tool and the profile campaign; the engine workspace's tests and
+clippy. A pull request that changes only docs skips those steps and passes at once; a newer
+push to the same branch or pull request cancels the run still in progress. The repository
+is public, so runner minutes are free. Windows and macOS are not run in CI; the local
+checks in CLAUDE.md cover them before each push. The parity job that needs game data
+stays in `parity-lab/ci/github-actions.yml`, a template for a self-hosted runner only.

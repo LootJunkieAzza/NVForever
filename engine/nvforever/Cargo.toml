@@ -61,9 +61,11 @@ tracy-client = { version = "0.19", optional = true, default-features = false, fe
 # The first-start dialogs that ask for the game's folder (setup.rs); MIT.
 [target.'cfg(windows)'.dependencies]
 # Player reports (reports/upload.rs): HTTPS through the system's TLS (SChannel, the system's
-# certificates), not rustls, whose ring and webpki parts are ISC/CDLA, outside deny.toml.
-# ureq and native-tls MIT/Apache-2.0, schannel MIT.
-ureq = { version = "3", default-features = false, features = ["native-tls"] }
+# certificates), not rustls. `native-tls-no-default`, not `native-tls`: the latter also
+# bundles webpki's root certificates (webpki-root-certs, CDLA-Permissive-2.0, outside
+# deny.toml), which the reports never use (they ask for RootCerts::PlatformVerifier, the
+# system's roots) (#1998). ureq and native-tls MIT/Apache-2.0, schannel MIT.
+ureq = { version = "3", default-features = false, features = ["native-tls-no-default"] }
 # `common-controls-v6`: the Task Dialog, whose buttons can carry words of our own (the
 # reports popup's "Send reports" / "Not now"); needs the manifest build.rs embeds.
 rfd = { version = "0.15", default-features = false, features = ["common-controls-v6"] }

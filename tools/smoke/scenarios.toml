@@ -107,17 +107,33 @@ sep = ","
 [[check]]
 name = "root cargo test"
 paths = ["crates/", "Cargo.toml", "Cargo.lock", "schemas/", "deny.toml"]
-cmd = ["cargo", "test", "--workspace", "--release"]
+cmd = ["cargo", "test", "--workspace", "--release", "--locked"]
 
 [[check]]
 name = "root clippy"
 paths = ["crates/", "Cargo.toml", "Cargo.lock", "schemas/", "deny.toml"]
-cmd = ["cargo", "clippy", "--workspace", "--all-targets", "--release", "--", "-D", "warnings"]
+cmd = ["cargo", "clippy", "--workspace", "--all-targets", "--release", "--locked", "--", "-D", "warnings"]
+
+[[check]]
+name = "cargo deny"
+paths = ["Cargo.toml", "Cargo.lock", "deny.toml"]
+cmd = ["cargo", "deny", "check", "licenses", "advisories", "bans", "sources"]
+
+[[check]]
+name = "engine cargo deny"
+paths = ["engine/Cargo.toml", "engine/Cargo.lock", "deny.toml"]
+cmd = ["cargo", "deny", "--manifest-path", "engine/Cargo.toml", "check", "licenses", "advisories", "bans", "sources"]
+
+[[check]]
+name = "engine cargo test"
+paths = ["engine/", "crates/", "Cargo.toml", "schemas/"]
+cmd = ["cargo", "test", "--release", "--locked"]
+cwd = "engine"
 
 [[check]]
 name = "engine clippy"
 paths = ["engine/", "crates/", "Cargo.toml", "schemas/"]
-cmd = ["cargo", "clippy", "--release", "--all-targets", "--", "-D", "warnings"]
+cmd = ["cargo", "clippy", "--release", "--locked", "--all-targets", "--", "-D", "warnings"]
 cwd = "engine"
 
 [[check]]
@@ -930,6 +946,67 @@ order = [[
   "settings: field-of-view 75",
 ]]
 forbid = [{ text = "Caught rendering error", label = "a rendering (validation) error while anti-aliasing or the filters change" }]
+
+[[scenario]]
+name = "sun-shadows-performance"
+source = "docs/design/frame-rate-audit.md §9 and §10 (nvforever shadow_rate.rs, #2062, #2063): on Quality the sun's farther cascades keep their maps on a staggered schedule; the settings page's Sun shadows row goes to Performance and back to Quality while the game runs: two cascades, the sun's shadow maps kept on alternate frames, three staggered cascades again, without a rendering error"
+areas = ["renderer", "graphics", "settings"]
+paths = [
+  "engine/nvforever/src/shadow_rate.rs", "engine/nvforever/src/sky.rs", "engine/nvforever/src/player_body.rs",
+  "engine/nvforever/src/tree.rs", "engine/vendor/bevy_pbr/src/render/light.rs", "engine/vendor/bevy_pbr/src/render/gpu_preprocess.rs",
+  "engine/nvf-play/src/settings_layout.rs",
+]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:12,17:19", NVF_PLAY_TEST_SETTINGS = "11:sun-shadows=0.5,18:sun-shadows=1" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--sun-shadows"]
+run_seconds = 23
+order = [[
+  { text = "sun shadows: a frame kept its farther cascades' maps (staggered schedule", label = "on Quality from the start, the farther cascades are held" },
+  "sun shadows: performance (maps drawn every other frame, trees cast near the camera only, no arms shade light), 2 cascades",
+  "settings: sun-shadows Performance",
+  "sun shadows: a frame kept the shadow maps of the frame before",
+  "sun shadows: cascades on a staggered schedule (the nearest every frame, the farther ones less often), 3 cascades",
+  { text = "sun shadows: a frame kept its farther cascades' maps (staggered schedule", label = "Quality again: the staggered schedule holds cascades again" },
+]]
+forbid = [
+  { text = "Caught rendering error", label = "a rendering (validation) error while the shadow maps are kept or the cascades change" },
+  { re = 'NVF_PLAY_TEST_(SETTINGS|PAUSE_MENU): ("|no switch|\S+ is a (list|slider):)', label = "every aid step is understood" },
+]
+
+[[scenario]]
+name = "sun-shadow-hold-flashlight"
+source = "#2182 review (vendored bevy_pbr light.rs prepare_lights, nvforever shadow_rate.rs): the player's flashlight casts shadows, so switching it on or off gives the sun a new shadow texture; that frame draws every cascade instead of holding one, outdoors at noon with the staggered schedule"
+areas = ["renderer", "flashlight"]
+paths = ["engine/nvforever/src/shadow_rate.rs", "engine/vendor/bevy_pbr/src/render/light.rs", "engine/nvforever/src/flashlight.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONTROL = "8:flashlight,14:flashlight" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--sun-shadows"]
+run_seconds = 20
+order = [[
+  { text = "sun shadows: a frame kept its farther cascades' maps (staggered schedule", label = "the staggered schedule holds cascades" },
+  "flashlight: on",
+  { text = "held shadow maps: a new directional shadow texture", label = "the flashlight on: a new shadow texture, every cascade drawn" },
+  "flashlight: off",
+  { text = "held shadow maps: a new directional shadow texture", label = "the flashlight off: a new shadow texture, every cascade drawn" },
+]]
+forbid = [{ text = "Caught rendering error", label = "a rendering (validation) error while the shadow texture changes under held cascades" }]
+
+[[scenario]]
+name = "sun-shadow-stagger-off"
+source = "#2063 (nvforever shadow_rate.rs): the test aid NVF_PLAY_TEST_SHADOW_STAGGER=0 draws every cascade every frame on Quality; Performance still holds its maps"
+areas = ["renderer", "graphics", "settings"]
+paths = ["engine/nvforever/src/shadow_rate.rs", "engine/vendor/bevy_pbr/src/render/light.rs", "engine/vendor/bevy_pbr/src/render/gpu_preprocess.rs"]
+env = { NVF_PLAY_TEST_SHADOW_STAGGER = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:12,17:19", NVF_PLAY_TEST_SETTINGS = "11:sun-shadows=0.5,18:sun-shadows=1" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--sun-shadows"]
+run_seconds = 23
+order = [[
+  "sun shadows: performance (maps drawn every other frame, trees cast near the camera only, no arms shade light), 2 cascades",
+  "settings: sun-shadows Performance",
+  "sun shadows: a frame kept the shadow maps of the frame before",
+  "sun shadows: drawn every frame, 3 cascades",
+]]
+forbid = [
+  { text = "staggered schedule", label = "with the aid, no cascade is held on the staggered schedule" },
+  { text = "Caught rendering error", label = "a rendering (validation) error while the shadow maps are kept or the cascades change" },
+]
 
 [[scenario]]
 name = "settings-resume-pipelines"
@@ -9104,6 +9181,32 @@ expect = [
 ]
 
 [[scenario]]
+name = "novac-broken-road-walk"
+source = "owner 2026-11-12, issue #2256 (video NVForever 2026-11-12 21-01-47, docs/spec-notes/physics.md §6.11): walking west over Novac's broken road from the owner's save (cell -13,-13) the view still bobbed: the feet drop off the broken road pieces' edges in quick 8-10 unit drops, eased at a walk as fast as at a run, and every change of the drawn ground (the road model's drawn floor, drawn_sink) moved the view at once and eased it back"
+areas = ["physics", "controls"]
+paths = ["engine/nvf-play/src/phys/step_lift.rs", "engine/nvf-play/src/phys.rs", "engine/nvf-play/src/player.rs"]
+env = { NVF_PLAY_TEST_MOVE = "8:1:0:walk,18:0:0" }
+args = ["--play", "--pos=-52595,-52475,5810", "--heading", "269.2", "--hour", "12", "--no-actors", "--no-voice", "--no-messages"]
+run_seconds = 20
+expect = [
+  { re = 'physics: walking on the ground for (\d+) steps', range = [300, 2000], label = "walked over the broken road on the ground" },
+  { re = 'the view.s vertical acceleration while walking (\d+) units', range = [0, 100], label = "the view smooth over the broken road (61 on 2026-11-12; 203 before the view left out the drawn ground's share and the walk's slower ease)" },
+]
+
+[[scenario]]
+name = "rock-run-smooth"
+source = "player feedback 2026-11-12, issue #2256 (docs/spec-notes/physics.md §6.11): running over the small rocks south of Goodsprings the controller leaves the ground for a few steps off each rock (16-20 units down); the view dropped with the feet and stopped dead on landing. Those drops now count as the ground for the drawn height (`step_lift::footing`), so it must stay much smoother than the feet"
+areas = ["physics", "controls"]
+paths = ["engine/nvf-play/src/phys/step_lift.rs", "engine/nvf-play/src/player.rs", "crates/fnv-phys/src/character.rs"]
+env = { NVF_PLAY_TEST_MOVE = "8:1:0,13:0:0" }
+args = ["--play", "--pos=-70500,-2500,8140", "--heading", "121", "--hour", "12", "--no-actors", "--no-voice", "--no-messages"]
+run_seconds = 16
+expect = [
+  { re = 'physics: walking on the ground for (\d+) steps', range = [150, 2000], label = "ran over the rocks, counted as the ground" },
+  { re = 'drawn/feet (\d+\.\d+)', range = [0.0, 0.3], label = "the drawn height's vertical acceleration under a third of the feet's (drops off rocks eased)" },
+]
+
+[[scenario]]
 name = "repconn-catwalk-stairs"
 source = "owner's playtest 2026-10-23 (docs/spec-notes/physics.md §6.9.1): the REPCONN Facility's catwalk stairs up to Chris Haversam's and Jason Bright's intercom (RocketLabMid); walking east up the 312-448 flight (24-unit risers and treads), then left up the 450-504 flight onto the intercom catwalk, without a jump (the feral ghouls left out: they block the stairs and fight)"
 areas = ["physics", "controls"]
@@ -10422,7 +10525,7 @@ expect = [
 ]
 order = [[
   "settings: shadow-distance 25%",
-  "settings: sun-shadows off",
+  { text = "settings: sun-shadows Off", label = "bDrawShadows=0: Sun shadows Off" },
   "settings: shadow-filter Fast",
   "settings: actor-distance 20%",
   "settings: object-distance 40%",
@@ -10434,7 +10537,7 @@ order = [[
   "settings: quality Low",
   "quality presets: the Quality row reads Low",
   "settings: shadow-distance 50%",
-  "settings: sun-shadows on",
+  { text = "settings: sun-shadows Quality", label = "bDrawShadows=1: Sun shadows Quality (the row is a choice now, #2182)" },
   "settings: actor-distance 40%",
   "settings: object-distance 50%",
   "settings: item-distance 60%",
@@ -25948,4 +26051,35 @@ expect = [
   { json = "errors.#", schema = "fnv.bsa.listing/1", equals = 0, label = "every file decodes (no path stripped from a block)" },
   { json = "roundtrip_identical", schema = "fnv.bsa.verify/1", equals = true, label = "it rewrites as 103, byte for byte" },
   { json = "decode_errors.#", schema = "fnv.bsa.verify/1", equals = 0, label = "no decode errors" },
+]
+
+[[scenario]]
+name = "audio-reads-off-main-thread"
+source = "issue #1993: music and ambient loop files are read on the IO pool, not in the frame that starts them; each read logs its size and time (the stall the main thread used to take), and the track starts once its files are in (engine/nvf-play/src/file_bytes.rs)"
+note = "The music scenario's place: Goodsprings at noon, where musSetLOCDesExplBothABC plays three stems and the placed and background loops start"
+areas = ["audio", "music"]
+paths = ["engine/nvf-play/src/file_bytes.rs", "engine/nvf-play/src/music.rs", "engine/nvf-play/src/ambient.rs", "engine/nvf-play/src/radio.rs"]
+args = ["--cell", "Goodsprings", "--play", "--pos=-69000,3500,8900", "--hour", "12"]
+run_seconds = 40
+expect = [
+  { re = 'music: read music.+ off the main thread: \d+ KB in [0-9.]+ ms', count = 3, label = "the track's three stems are read off the main thread" },
+  { re = 'ambient: read sound.+ off the main thread: \d+ KB in [0-9.]+ ms', label = "the loops' files too" },
+  { text = "music summary: 1 started, 0 changes of layers, 0 files not played", label = "the track still starts, with every file played" },
+]
+order = [[
+  { re = 'music: read music.+ off the main thread', label = "its files are read first" },
+  { text = "music: musSetLOCDesExplBothABC day started, layers outer+middle+inner", label = "then the track starts, with its three layers" },
+]]
+
+[[scenario]]
+name = "holster-turn-faces-player"
+source = "issue #2246 (TTW: Lucas Simms, a holstered 2ha rifle, talked with his chest 90° off the player): the 2ha/2hh Holster clips turn Bip01 90° with no Bip01 NonAccum track, doubling the idle's pelvis turn; docs/spec-notes/floating-actors.md §8. Sunny Smiles is given a flamer (2hh, holstered) and greets the player at the saloon door: her chest stays on the player (-86° before the fix, +4° after)"
+areas = ["actors", "animation", "dialogue"]
+paths = ["engine/nvf-assets/src/anim_play.rs", "engine/nvforever/src/dialogue_look.rs", "engine/nvforever/src/weapons.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "2:call:SunnyRef:AddItem:WeapFlamer:1,2.5:call:SunnyRef:EquipItem:WeapFlamer,14:activate:ProspectorSaloonDoor", NVF_PLAY_TEST_TALK = "5:*=0", NVF_PLAY_TEST_TALK_DELAY = "3" }
+args = ["--cell", "Goodsprings", "--play", "--npc-packages", "SunnyRef", "--no-voice"]
+run_seconds = 45
+expect = [
+  "dialogue: conversation with SunnyRef started (topic GREETING)",
+  { re = 'dialogue look: SunnyRef stops facing the player: .*; its chest is (?P<n>[+-]?\d+)° off the player', range = [-20, 20], label = "Sunny's chest on the player after the conversation (holstered 2hh)" },
 ]

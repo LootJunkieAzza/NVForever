@@ -1120,6 +1120,8 @@ sequences): 70 directly in it, 9 in `male\`, 9 in `female\`, 8 in `child\` and 2
   copies) start `Bip01` off height 0, at a constant 67–68 with no `Bip01 NonAccum`
   track; taken as they are they lifted NPCs 66 units off the ground
   [observed; rule hypothesis, docs/spec-notes/floating-actors.md].
+  The same four clips also turn `Bip01` 90° about z: with no `Bip01 NonAccum` track a
+  clip's root rotation counts from its track's start too (floating-actors.md §8, #2246).
 
 ### 8.3 Selection, blending, phase and speed (engine)
 

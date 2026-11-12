@@ -1010,8 +1010,10 @@ struct Core {
     guard_wander: Option<guard_wander::Probe>,
     list: Vec<Resident>,
     known: HashSet<u32>,
-    /// Cells whose actors were handed over (`all`).
+    /// Cells whose actors were handed over (`all`), and the worldspace whose grid squares
+    /// the exterior ones are: a grid square names another cell in another worldspace.
     cells_seen: HashSet<CellKey>,
+    cells_seen_world: u32,
     /// The game's loaded cells when actors placed elsewhere were last looked for there.
     loaded_seen: BTreeSet<FormId>,
     clock: Clock,
@@ -1299,6 +1301,7 @@ impl Residents {
             list: Vec::new(),
             known: HashSet::new(),
             cells_seen: HashSet::new(),
+            cells_seen_world: 0,
             loaded_seen: BTreeSet::new(),
             clock,
             prepared: false,
@@ -1583,6 +1586,14 @@ impl Core {
             Some(c) => [CellKey::Interior(c)].into(),
             None => streamer.loaded.keys().map(|g| CellKey::Exterior(*g)).collect(),
         };
+        // A grid square of another worldspace is another cell: TTW's MegatonWorld lies on
+        // the grid squares of the Wasteland cells around its gate, so after the gate every
+        // square counted as handed over and Megaton's people never joined until an
+        // interior cleared the set (issue #2233).
+        if self.cells_seen_world != world.world {
+            self.cells_seen.retain(|k| !matches!(k, CellKey::Exterior(_)));
+            self.cells_seen_world = world.world;
+        }
         let new: Vec<CellKey> = now.difference(&self.cells_seen).copied().collect();
         self.cells_seen = now;
         let before = self.list.len();

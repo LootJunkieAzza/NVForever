@@ -1154,6 +1154,12 @@ pub struct Speech {
     /// `Game::wheel_command`): it does not run again when the line ends.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub end_ran: bool,
+    /// A Say To line an actor's Dialogue package said to another actor
+    /// (`Game::say_package_line`): when it ends, after its SayToDone blocks, the two go on
+    /// as a conversation between actors when the line leads on
+    /// (`Game::next_conversation_line`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub leads_on: bool,
 }
 
 /// Who a line said to someone ([`Speech::target`]) turns to whom ([`Game::facings`]).
@@ -4472,7 +4478,7 @@ impl<'a> Game<'a> {
         let (say_to, greeting, hello) = (kind == LineKind::SayTo, kind == LineKind::Greeting, kind == LineKind::Hello);
         // [design] Mark this line before callbacks can finish it or replace it.
         let immediate = def.has(crate::data::info_flag::RUN_IMMEDIATELY);
-        self.speech.push(Speech { speaker, target, topic, info, remaining: seconds, say_to, greeting, farewell: false, conversation, earlier_topics: Vec::new(), hello, look: LineLook::Both, response: 0, force_subtitles: false, two_d: false, end_ran: immediate });
+        self.speech.push(Speech { speaker, target, topic, info, remaining: seconds, say_to, greeting, farewell: false, conversation, earlier_topics: Vec::new(), hello, look: LineLook::Both, response: 0, force_subtitles: false, two_d: false, end_ran: immediate, leads_on: false });
         if let Some(&first) = def.response_order().first() {
             self.ask_response_idles(speaker, target, info, first);
         }
@@ -4664,6 +4670,32 @@ impl<'a> Game<'a> {
         // SayToDone follows a line said by Say as well as by SayTo [documented: GECK
         // tutorials, docs/spec-notes/level-design.md §11.2 D1].
         self.ref_event(speaker, event::SAY_TO_DONE, Some(Value::Ref(s.topic.0)), None);
+        // A Dialogue package's Say To line to another actor goes on as a conversation
+        // between them (`Game::say_package_line`).
+        if s.leads_on {
+            self.next_conversation_line(&s, 1);
+        }
+    }
+
+    /// An actor's Dialogue package with Say To says its topic to `target`
+    /// ([`Game::say`]). When the target is another actor and the line is a Conversation
+    /// line, the two go on as a conversation between actors once it ends: the line's next
+    /// speaker answers with a follow-up or a line of a topic it leads to, until a Goodbye
+    /// line or none ([`Game::next_conversation_line`]) [hypothesis, from the data: TTW's
+    /// CG04MaryHoldenTalkToTom says "We should just go back to our quarters" to Tom
+    /// (atrium stage 1, choice CG04AtriumConv1, next speaker Target), and only Tom's
+    /// answer from that topic ("It's our only chance", Goodbye) sets the stage 3 his
+    /// CG04TomHoldenDeathRun waits for; issue #2229]. Scripted SayTo lines do not go on:
+    /// scripts chain those themselves through SayToDone.
+    pub fn say_package_line(&mut self, speaker: FormId, target: FormId, topic: FormId) -> Option<FormId> {
+        let info = self.say(speaker, Some(target), topic, true)?;
+        let leads = target != FormId::PLAYER_REF && self.dialogue_view().info(&info).is_some_and(crate::dialogue::between_actors);
+        if leads {
+            if let Some(s) = self.speech.iter_mut().find(|s| s.speaker == speaker && s.info == info) {
+                s.leads_on = true;
+            }
+        }
+        Some(info)
     }
 
     /// `r` was enabled: when it is in a loaded cell and its script has an OnLoad block,
@@ -4970,6 +5002,13 @@ impl<'a> Game<'a> {
         if matches!(act.outcome, Outcome::Activated) {
             self.radio_activated(target);
             self.drink_from(actor, target);
+            // An activator that is not a radio opens or closes like a door, playing its
+            // Open or Close sequence when its model has one (`Game::set_ref_open`;
+            // the vault door its control pod activates, issue #2232).
+            if base.is_some_and(|b| self.data.sig(b).as_ref() == Some(b"ACTI") && !self.data.radio_receivers.contains(&b)) {
+                let open = self.world.peek(target).is_some_and(|p| p.open);
+                self.set_ref_open(target, !open)?;
+            }
         }
         // Its activate children go off (`crate::traps`).
         self.set_off_children(target);

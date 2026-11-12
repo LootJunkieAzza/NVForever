@@ -151,6 +151,14 @@ jobs:
         uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2
         with:
           command: check licenses advisories bans sources
+      # The engine workspace (the game binary) has its own lock; the same deny.toml (#1998).
+      - name: Licences and advisories (engine)
+        if: needs.changes.outputs.code == 'true'
+        uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2
+        with:
+          manifest-path: engine/Cargo.toml
+          command: check licenses advisories bans sources
+
       - name: Lab self-tests
         run: python -m unittest discover -s parity-lab/tests -v
       - name: Capture-tool self-tests

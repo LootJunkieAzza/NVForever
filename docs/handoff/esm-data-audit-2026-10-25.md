@@ -1,5 +1,10 @@
 # ESM data the engine does not use (audit 2026-10-25)
 
+> **Not the live audit.** A second snapshot of the same day by another method (record and
+> subrecord counts across the 10 masters, then a search of the code for readers), kept
+> for its counts. The audit to start from is
+> [esm-audit-2026-10-25](esm-audit-2026-10-25.md), which links here (#2005).
+
 Method: every record and subrecord in the 10 official masters (FalloutNV.esm + the four
 story DLCs, GRA and the four packs; 630k records, 108 record types) was counted with a
 private script, then checked against the code on origin/main (30ab0c8b). Project docs were

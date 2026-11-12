@@ -222,6 +222,20 @@ class ScenarioFileTests(unittest.TestCase):
         self.assertEqual(dead, [])
 
 
+class ExeTests(unittest.TestCase):
+    def test_the_newer_of_release_and_release_quick(self):
+        with tempfile.TemporaryDirectory() as d:
+            t = Path(d)
+            self.assertEqual(cli.newest_build(t, "x.exe"), t / "release" / "x.exe")
+            for sub, when in (("release", 1000), ("release-quick", 2000)):
+                (t / sub).mkdir()
+                (t / sub / "x.exe").write_text("")
+                os.utime(t / sub / "x.exe", (when, when))
+            self.assertEqual(cli.newest_build(t, "x.exe"), t / "release-quick" / "x.exe")
+            os.utime(t / "release" / "x.exe", (3000, 3000))
+            self.assertEqual(cli.newest_build(t, "x.exe"), t / "release" / "x.exe")
+
+
 class SelectionTests(unittest.TestCase):
     def test_globs(self):
         m = choose.matches
