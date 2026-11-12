@@ -1972,14 +1972,16 @@ pub(crate) fn settle(mut p: MapPage) {
     // Every frame on a tab drawn from the file counted by what drew it, told when the visit ends,
     // so a run can show that the page never fell back, not even for a frame (smoke reads these).
     let counted = on_data.then_some(tab).filter(|t| TILED_TABS.contains(t));
+    let up = p.pip.as_deref().is_some_and(PipBoy::open);
     let drew = match (&ready, &state) {
         (Some(_), _) => Drew::Tiles,
-        (None, Some(Err(_))) => Drew::Hand,
-        (None, _) if p.tiles.written.failing > 0 => Drew::Hand,
-        (None, _) => Drew::Waiting,
+        (None, Some(Err(_))) => Drew::Failed,
+        (None, _) if p.tiles.written.failing > 0 => Drew::Failed,
+        (None, _) if up => Drew::Unprepared,
+        (None, _) => Drew::Moving,
     };
-    if let Some((tab, [tiles, hand, waiting])) = p.tiles.frames.step(counted, drew) {
-        info!("tiles: {MAP_MENU} {} frames: {tiles} from tiles, {hand} by hand, {waiting} before it was prepared", tab_name(tab));
+    if let Some((tab, [tiles, failed, unprepared, moving])) = p.tiles.frames.step(counted, drew) {
+        info!("tiles: {MAP_MENU} {} frames: {tiles} from tiles, {failed} by hand after a failed pass, {unprepared} by hand with nothing prepared, {moving} by hand as the Pip-Boy came up or went down", tab_name(tab));
     }
     // One line a change of the page's draw state, on DATA (smoke reads these).
     if let Some(state) = state.filter(|_| on_data) {
@@ -2021,11 +2023,16 @@ fn wave_of(w: &Written) -> Option<WaveShown> {
 enum Drew {
     /// The page from its tiles.
     Tiles,
-    /// The hand-built page, the tiles' pass having failed.
-    Hand,
-    /// The hand-built page, nothing prepared for the tab yet (the Pip-Boy coming up the first
-    /// time).
-    Waiting,
+    /// The hand-built page, the tiles' pass having failed (warned of only after
+    /// [`FAILING_PASSES`]).
+    Failed,
+    /// The hand-built page with the Pip-Boy up, the tiles having nothing to draw from (nothing
+    /// prepared for the tab, no menu files, no game): a fallback shown as surely as a failure.
+    Unprepared,
+    /// The hand-built page while the Pip-Boy comes up or goes down (shown, not open) with
+    /// nothing prepared for the tab: the first time it comes up on the tab [design: the
+    /// preparation runs only while the Pip-Boy is open].
+    Moving,
 }
 
 /// The frames of one visit to a tab drawn from the file, by what drew them: a positive record
@@ -2033,18 +2040,18 @@ enum Drew {
 #[derive(Default, Debug)]
 pub(crate) struct Frames {
     tab: Option<usize>,
-    counts: [u32; 3],
+    counts: [u32; 4],
 }
 
 impl Frames {
     /// Count a frame on tab `tab` (none: off DATA, or a tab drawn by hand), drawn by `drew`; the
-    /// visit that ended, with its counts (from tiles, by hand, before it was prepared), when the
-    /// tab changed.
-    fn step(&mut self, tab: Option<usize>, drew: Drew) -> Option<(usize, [u32; 3])> {
+    /// visit that ended, with its counts by [`Drew`] (from tiles, after a failed pass, with nothing
+    /// prepared, as the Pip-Boy moved), when the tab changed.
+    fn step(&mut self, tab: Option<usize>, drew: Drew) -> Option<(usize, [u32; 4])> {
         let ended = (self.tab != tab).then(|| self.tab.map(|t| (t, std::mem::take(&mut self.counts)))).flatten();
         if self.tab != tab {
             self.tab = tab;
-            self.counts = [0; 3];
+            self.counts = [0; 4];
         }
         if tab.is_some() {
             self.counts[drew as usize] += 1;
@@ -3678,14 +3685,15 @@ mod tests {
     #[test]
     fn each_visit_counts_its_frames_by_what_drew_them() {
         let mut f = Frames::default();
-        assert_eq!(f.step(None, Drew::Waiting), None, "off DATA: nothing counted");
-        assert_eq!(f.step(Some(data::WORLD), Drew::Waiting), None);
+        assert_eq!(f.step(None, Drew::Moving), None, "off DATA: nothing counted");
+        assert_eq!(f.step(Some(data::WORLD), Drew::Moving), None);
         assert_eq!(f.step(Some(data::WORLD), Drew::Tiles), None);
         assert_eq!(f.step(Some(data::WORLD), Drew::Tiles), None);
-        assert_eq!(f.step(Some(data::WORLD), Drew::Hand), None);
-        assert_eq!(f.step(Some(data::QUESTS), Drew::Tiles), Some((data::WORLD, [2, 1, 1])), "the World Map's visit ends");
-        assert_eq!(f.step(None, Drew::Waiting), Some((data::QUESTS, [1, 0, 0])), "the Pip-Boy down");
-        assert_eq!(f.step(None, Drew::Waiting), None);
+        assert_eq!(f.step(Some(data::WORLD), Drew::Failed), None);
+        assert_eq!(f.step(Some(data::WORLD), Drew::Unprepared), None);
+        assert_eq!(f.step(Some(data::QUESTS), Drew::Tiles), Some((data::WORLD, [2, 1, 1, 1])), "the World Map's visit ends");
+        assert_eq!(f.step(None, Drew::Moving), Some((data::QUESTS, [1, 0, 0, 0])), "the Pip-Boy down");
+        assert_eq!(f.step(None, Drew::Moving), None);
     }
 
     /// Every system this page and the DATA page add, with their neighbours, initialised in one

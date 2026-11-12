@@ -1843,10 +1843,13 @@ line changes; `pipboy data: question box over the tiles (<n> answers)` when the 
 the page; `… tab local map, <n> markers, <m> quest markers, custom marker|no custom marker, picture
 <w> x <h>|not made yet, "<name>" highlighted, magnification <x>, hints: <…>` when that line changes;
 `tiles: MapMenu local map picture given, <w> x <h> texels|taken away` when the outline's runtime
-picture changes; `tiles: MapMenu <tab> frames: <n> from tiles, <m> by hand, <k> before it was prepared` when a
-visit to a tab drawn from the file ends (another tab, the page down), every frame of it counted by
-what drew it, so a run shows a page that never fell back even for a frame (a fallback is warned of
-only after three passes); `MapMenu drawn by hand: <reason>` (a warning)
+picture changes; `tiles: MapMenu <tab> frames: <n> from tiles, <f> by hand after a failed pass, <u> by hand with
+nothing prepared, <m> by hand as the Pip-Boy came up or went down` when a visit to a tab drawn from
+the file ends (another tab, the page down), every frame of it counted by what drew it: a failed
+pass (warned of only after three in a row), nothing to draw from with the Pip-Boy up (nothing
+prepared, no menu files, no game: a fallback shown as surely), and the Pip-Boy rising or lowering
+with nothing prepared yet (the preparation runs while it is open). A run shows a page that never
+fell back with the Pip-Boy up by 0 in the second and third; the counts say nothing of pixels; `MapMenu drawn by hand: <reason>` (a warning)
 for a failure; the painter's `tiles: MapMenu drawn from tiles (…)` and `set out for the Pip-Boy's
 image: …` lines.
 
