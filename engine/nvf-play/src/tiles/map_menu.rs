@@ -349,6 +349,8 @@ enum NodeRow {
 /// highlight box (the window's units), its name and the line under it.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct WorldShown {
+    /// The model's viewport, in the window it was made in (`window`).
+    pub view: data::MapView,
     pub texture: String,
     pub picture: Rect,
     pub window: Rect,
@@ -376,6 +378,7 @@ impl WorldShown {
             .collect();
         let (cursor, label, detail) = m.highlight();
         Some(WorldShown {
+            view: w.view,
             texture: w.texture.clone(),
             picture: w.view.picture(),
             window: w.view.window,
@@ -390,6 +393,27 @@ impl WorldShown {
             label: label.map(str::to_string),
             detail: detail.map(str::to_string),
         })
+    }
+
+    /// The same map in the window `window` (canvas units) the page laid out, when the model
+    /// gathered it in another (the first frame drawn from the file, a window a script moved): the
+    /// same point at the window's middle, the picture's size kept; the highlight box on the marker
+    /// it is on, else at its place on the canvas, kept in the window. The rows' texture coordinates
+    /// do not change [design: so the drawing and the window published for the next frame's pointer
+    /// agree from the first frame].
+    fn refit(&mut self, window: Rect) {
+        if self.window == window {
+            return;
+        }
+        let view = self.view.with_window(window);
+        let canvas = self.window.min + self.cursor;
+        self.cursor = match self.markers.iter().find(|m| m.selected) {
+            Some(m) => view.to_window(m.uv),
+            None => (canvas - window.min).clamp(Vec2::ZERO, window.size()),
+        };
+        self.picture = view.picture();
+        self.window = window;
+        self.view = view;
     }
 
     /// The highlight box's title: the name, and a marker's reputation on the line under it
@@ -1679,6 +1703,9 @@ fn pass(p: &mut MapPage<'_>, late: bool) -> Option<Result<TileId, String>> {
         view.scroll_to(v - f64::from(notches).round());
     }
     let tree = TreeMark::of(&script.rt.as_ref()?.game.ui_tree);
+    // A map in the window this page lays out, before anything is written of it.
+    let tree_ui = &script.rt.as_ref()?.game.ui_tree;
+    let new = new.map(|s| refit_to_tree(tree_ui, s));
     // What it would show changed since the last pass, written or not (a failure forgets what was
     // written, not what was asked for).
     let changed = new.is_some() && new != p.tiles.written.asked;
@@ -1699,6 +1726,26 @@ fn pass(p: &mut MapPage<'_>, late: bool) -> Option<Result<TileId, String>> {
         }
     }
     Some(out)
+}
+
+/// The map's window as the tree places it (canvas units: the clip window's place summed up its
+/// parents, its size), when it has one with a size.
+fn map_window_of(ui: &Ui, clip: &str) -> Option<Rect> {
+    let t = ui.find_tile(clip)?;
+    let (x, y) = origin(ui, t);
+    let (w, h) = (num(ui, t, "width"), num(ui, t, "height"));
+    (w > 0.0 && h > 0.0).then(|| Rect::new(x as f32, y as f32, (x + w) as f32, (y + h) as f32))
+}
+
+/// `s` with its map ([`WorldShown::refit`]) in the window the tree places, so the page writes it
+/// where it lays it out; any other page as it is.
+fn refit_to_tree(ui: &Ui, mut s: Shown) -> Shown {
+    if let Some(w) = s.world.as_mut() {
+        if let Some(window) = map_window_of(ui, WORLD_CLIP) {
+            w.refit(window);
+        }
+    }
+    s
 }
 
 /// Before the scripts, after the tile input: the scrolls written again over the file's own count of
@@ -2842,6 +2889,7 @@ mod tests {
             pane: Pane::None,
             hints: vec![HintShown { slot: Slot::X, kind: ButtonKind::PlaceMarker, word: "Put Marker".into(), key: String::new(), dim: false }],
             world: Some(WorldShown {
+                view,
                 texture: "map.dds".into(),
                 picture: view.picture(),
                 window: WORLD_W,
@@ -2999,6 +3047,34 @@ mod tests {
         assert_eq!(laid_left_top(&ui, rows[1].tile), (40.0 + 427.5 + 1000.0, 90.0 + 250.0 + 1000.0));
         assert_eq!(laid_left_top(&ui, rows[2].tile), laid_left_top(&ui, rows[3].tile));
         assert_eq!((at(&ui, HIGHLIGHT_BOX, "x"), at(&ui, HIGHLIGHT_BOX, "y")), (-80.0, 499.0 - 80.0));
+    }
+
+    /// The review's case: the file places the map's window apart from the window the model
+    /// gathered the map in (a moved, smaller window): the page writes the map in its own window,
+    /// the same point at its middle and the highlight box on its marker, and publishes that window.
+    #[test]
+    fn a_map_gathered_in_another_window_is_written_in_the_files() {
+        let moved = |x: String| with_world(x).replace(r#"<hotrect name="MM_WorldMap_ClipWindow"><y>50</y><width>855</width><height>500</height>"#, r#"<hotrect name="MM_WorldMap_ClipWindow"><x>100</x><y>80</y><width>600</width><height>400</height>"#);
+        let (mut ui, mut t) = (tree_changed(moved), MapTiles::default());
+        let s = refit_to_tree(&ui, world(1.0, [0.5, 0.5], vec![marker(20, [0.5, 0.5], true)]));
+        let measured = Rect::new(140.0, 120.0, 740.0, 520.0);
+        let ws = s.world.clone().unwrap();
+        assert_eq!((ws.window, ws.cursor), (measured, Vec2::new(300.0, 200.0)));
+        run(&mut ui, Some(s), &mut t).unwrap();
+        let parent = ui.find_tile(WORLD_PICTURE).unwrap();
+        assert_eq!((trait_of(&ui, parent, "x"), trait_of(&ui, parent, "y")), (300.0 - 500.0, 200.0 - 500.0), "the middle point at the measured window's middle");
+        assert_eq!((at(&ui, HIGHLIGHT_BOX, "x"), at(&ui, HIGHLIGHT_BOX, "y")), (300.0 + 100.0 - 80.0, 200.0 + 30.0 - 80.0), "on the marker, in the highlight box's own window");
+        assert_eq!(t.written.counted.map.as_ref().map(|m| m.0), Some(measured), "the window published for the model's pointer");
+        // A cursor on no marker keeps its place on the canvas, held in the window.
+        let mut s = world(1.0, [0.5, 0.5], vec![marker(20, [0.5, 0.5], false)]);
+        if let Some(w) = s.world.as_mut() {
+            w.cursor = Vec2::new(10.0, 450.0);
+        }
+        let ws = refit_to_tree(&ui, s).world.unwrap();
+        assert_eq!(ws.cursor, Vec2::new(0.0, 400.0), "(40 + 10, 90 + 450) in the window at (140, 120), held");
+        // The window the model gathered it in: nothing changes.
+        let same = refit_to_tree(&tree_changed(with_world), world(1.0, [0.5, 0.5], Vec::new()));
+        assert_eq!(same, world(1.0, [0.5, 0.5], Vec::new()));
     }
 
     #[test]

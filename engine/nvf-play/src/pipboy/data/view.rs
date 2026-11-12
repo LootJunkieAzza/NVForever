@@ -30,12 +30,26 @@ pub struct MapView {
     /// The picture's top left and its size, in the window's units (from its top left).
     pub left: Vec2,
     pub size: Vec2,
+    /// The World Map's point (texture coordinates) wanted at the window's middle.
+    pub centre: [f32; 2],
 }
 
 impl MapView {
     /// A window with no picture (the Local Map's, or before a map is read).
     pub fn bare(window: Rect) -> MapView {
-        MapView { window, left: Vec2::ZERO, size: Vec2::ZERO }
+        MapView { window, left: Vec2::ZERO, size: Vec2::ZERO, centre: [0.5, 0.5] }
+    }
+
+    /// The same view seen through another window: the picture's size kept, its place worked out
+    /// again about the new window's middle ([`MapView::world`]), so a drawing that measured its
+    /// window apart from the one the view was made in shows the same point at its middle
+    /// [design].
+    pub fn with_window(&self, window: Rect) -> MapView {
+        let mid = window.size() / 2.0;
+        if self.size == Vec2::ZERO {
+            return MapView { window, ..*self };
+        }
+        MapView { window, left: Vec2::new(model::pan(self.centre[0], self.size.x, mid.x), model::pan(self.centre[1], self.size.y, mid.y)), ..*self }
     }
 
     /// The World Map's view: a picture `usable` across at a magnification of 1 (the root's
@@ -45,7 +59,7 @@ impl MapView {
     pub fn world(window: Rect, centre: [f32; 2], usable: Vec2, mag: f32) -> MapView {
         let size = usable * mag;
         let mid = window.size() / 2.0;
-        MapView { window, left: Vec2::new(model::pan(centre[0], size.x, mid.x), model::pan(centre[1], size.y, mid.y)), size }
+        MapView { window, left: Vec2::new(model::pan(centre[0], size.x, mid.x), model::pan(centre[1], size.y, mid.y)), size, centre }
     }
 
     /// The window's size.
@@ -155,6 +169,19 @@ mod tests {
         let v = MapView::world(other, [0.5, 0.5], Vec2::splat(1000.0), 1.0);
         assert_eq!(v.to_window([0.5, 0.5]), Vec2::new(200.0, 150.0));
         assert_eq!(v.to_canvas(v.mid()), Vec2::new(210.0, 170.0));
+    }
+
+    /// [design] Another window: the same point at its middle, the picture's size kept.
+    #[test]
+    fn a_view_seen_through_another_window_keeps_its_middle_point() {
+        let v = MapView::world(window(), [0.3, 0.6], Vec2::splat(2048.0), 2.0);
+        let other = Rect::new(10.0, 20.0, 610.0, 420.0);
+        let w = v.with_window(other);
+        assert_eq!((w.window, w.size, w.centre), (other, v.size, v.centre));
+        assert_eq!(w.to_window([0.3, 0.6]), w.mid());
+        assert_eq!(w.with_window(window()), v, "and back");
+        let bare = MapView::bare(window()).with_window(other);
+        assert_eq!((bare.window, bare.size), (other, Vec2::ZERO));
     }
 
     #[test]

@@ -789,9 +789,22 @@ pub fn draw(
     let body = bodies.iter().find(|(_, b)| b.page == Page::Data && pip.open());
     let view = if prepares_early(switch.as_deref()) {
         // Prepared before the frame, for the tab the body was made for.
-        match (body, st.prepared.as_ref()) {
-            (Some((_, b)), Some(p)) if p.view.tab == b.tab => p.view.clone(),
+        let tab = match (body, st.prepared.as_ref()) {
+            (Some((_, b)), Some(p)) if p.view.tab == b.tab => b.tab,
             _ => return,
+        };
+        // A map prepared in the window the page drawn from the file published, now drawn by hand
+        // (the tile page fell back this frame): gathered again in the hand-built window, so what
+        // is drawn and where the pointer is read agree. No input is taken again.
+        let pointer = screen.as_deref().and_then(|s| s.pointer).filter(|_| !input.bindings.as_ref().is_some_and(|b| b.device == InputDevice::Controller));
+        match refit_hand_built(st, tab, &game, pointer) {
+            Some(v) => {
+                if let Some(p) = st.prepared.as_mut() {
+                    p.view = v.clone();
+                }
+                v
+            }
+            None => st.prepared.as_ref().map(|p| p.view.clone()).unwrap_or_else(|| unreachable!()),
         }
     } else {
         match step(st, body.map(|(_, b)| b.tab), screen.as_deref(), &mut game, &mut input, &mut tools.images, None) {
@@ -897,6 +910,29 @@ fn step(st: &mut DataState, open: Option<usize>, screen: Option<&PipBoyScreen>, 
             filtered: st.notes_of_active,
         });
     }
+    Some(view)
+}
+
+/// The map on tab `tab` gathered again in the hand-built window, when it was gathered in the
+/// window the page drawn from the file published (`map_window` for that tab) and is to be drawn by
+/// hand: that window is let go and the map's view, pointer and highlight box worked out again from
+/// the state as it is (no input taken). `None` when the view already is the hand-built window's.
+/// `pointer`: the pointer on the page, as the preparation reads it.
+fn refit_hand_built(st: &mut DataState, tab: usize, game: &Game, pointer: Option<Vec2>) -> Option<View> {
+    if !(tab == LOCAL || tab == WORLD) || !st.map_window.is_some_and(|w| w.0 == tab) {
+        return None;
+    }
+    let from = map_window(st, tab);
+    st.map_window = None;
+    // The highlight box keeps its place on the canvas, in the hand-built window.
+    let to = hand_built_window();
+    if let Some(c) = st.cursor[tab].as_mut() {
+        *c = (from.min + *c - to.min).clamp(Vec2::ZERO, to.size());
+    }
+    let lists = lists(st, game);
+    let on_map = pointer.filter(|_| !on_button(st, tab, pointer));
+    let view = build(st, tab, &lists, game, on_map, pointer.is_some());
+    info!("pipboy data: {} drawn by hand in its own window", TAB_NAMES[tab]);
     Some(view)
 }
 
@@ -3620,6 +3656,38 @@ mod tests {
         let parts = shown.world.unwrap();
         assert_eq!(parts.custom, Some(root.uv(2048.0, 0.0)));
         assert_eq!(parts.ends, vec![(LineTo::Marker, 0, root.uv(2048.0, 0.0))]);
+    }
+
+    /// [design] A World Map prepared in a window the tile page published, then drawn by hand (the
+    /// tile page fell back): gathered again in the hand-built window, the window let go, the
+    /// player at that window's middle; nothing to do once it is the hand-built window's.
+    #[test]
+    fn a_map_prepared_in_the_tile_window_is_gathered_again_when_drawn_by_hand() {
+        use bevy::ecs::system::SystemState;
+        use model::MapTransform;
+
+        let root = WorldMap { root: 1, transform: MapTransform::default(), texture: "root.dds".into(), usable: [2048.0; 2], nw: [-2, 3], se: [1, 2] };
+        let mut st = DataState { maps: [(1, Some(root))].into_iter().collect(), markers: Some(Vec::new()), ..DataState::default() };
+        let measured = Rect::new(150.0, 120.0, 750.0, 520.0);
+        st.publish_map(WORLD, measured, Vec::new());
+        let mut world = World::new();
+        world.insert_resource(Location { world: 1, interior: None });
+        world.insert_resource(Player { heading: 0.0, pitch: 0.0, eye_height: 0.0, feet: [0.0; 3], body_eye: None, body_view: None, placed: None });
+        let mut state = SystemState::<Game>::new(&mut world);
+        let game = state.get_mut(&mut world).unwrap();
+        let lists = Lists::default();
+        let prepared = build(&mut st, WORLD, &lists, &game, None, false);
+        let Body::Map(m) = &prepared.body else { panic!("a map") };
+        assert_eq!(m.player.map(|p| p.0), Some(Vec2::new(300.0, 200.0)), "prepared in the measured window");
+        assert_eq!(refit_hand_built(&mut st, QUESTS, &game, None), None, "not a map");
+        let again = refit_hand_built(&mut st, WORLD, &game, None).expect("gathered again");
+        let Body::Map(m) = &again.body else { panic!("a map") };
+        assert_eq!(m.player.map(|p| p.0), Some(MAP_MID), "at the hand-built window's middle");
+        assert_eq!(m.world.as_ref().map(|w| w.view.window), Some(hand_built_window()));
+        assert_eq!(st.map_window, None, "the measured window let go");
+        // The highlight box kept its place on the canvas: (150, 120) + (300, 200) less (50, 100).
+        assert_eq!(st.cursor[WORLD], Some(Vec2::new(400.0, 220.0)));
+        assert_eq!(refit_hand_built(&mut st, WORLD, &game, None), None, "already the hand-built window's");
     }
 
     fn shown(tab: usize, f: &HintFacts) -> Vec<(String, bool)> {
