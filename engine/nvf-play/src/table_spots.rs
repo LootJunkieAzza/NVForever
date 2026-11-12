@@ -45,7 +45,7 @@ pub const CAM_DROP: f32 = 30.0;
 pub const CAM_PITCH: f32 = 0.12;
 /// Eye height above the feet the camera check assumes [observed: the player's
 /// `eye_height` is about 120 in game units; design: a little lower for shorter bodies].
-const EYE: f32 = 115.0;
+pub(crate) const EYE: f32 = 115.0;
 
 /// What a table is for: which rows the finder tries.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -189,7 +189,7 @@ pub fn portrait(pick: Pick) -> crate::control::Portrait {
     crate::control::Portrait { yaw: pick.yaw, distance: pick.dist, drop: CAM_DROP, pitch: CAM_PITCH, shift: 0.0 }
 }
 
-fn filter() -> Filter {
+pub(crate) fn filter() -> Filter {
     Filter { no_actors: true, exclude_layers: fnv_phys::layers::character_ignores().union(fnv_phys::layers::actor_volumes()), ..Default::default() }
 }
 
