@@ -1088,8 +1088,7 @@ pub(crate) fn publish(
     (bj, rl, sl): (Option<Res<crate::blackjack::BlackjackScreen>>, Option<Res<crate::roulette::RouletteScreen>>, Option<Res<crate::slots::SlotsScreen>>),
     (darts, fillet, poker): (Option<Res<crate::minigames::DartsScreen>>, Option<Res<crate::minigames::FilletScreen>>, Option<Res<crate::poker::PokerScreen>>),
     (pvp, foe): (Option<Res<crate::caravan::PvpWire>>, Option<Res<crate::darts_foes::DartsOpponent>>),
-    (pool, arm, arm_seat): (Option<Res<crate::pool::PoolScreen>>, Option<Res<crate::armwrestle_coop::ArmOut>>, Option<Res<crate::armwrestle_coop::ArmSeat>>),
-    drink: Option<Res<crate::drink_coop::DrinkOut>>,
+    (pool, arm, arm_seat, drink): (Option<Res<crate::pool::PoolScreen>>, Option<Res<crate::armwrestle_coop::ArmOut>>, Option<Res<crate::armwrestle_coop::ArmSeat>>, Option<Res<crate::drink_coop::DrinkOut>>),
 ) {
     let now = time.elapsed_secs();
     let me = tables.me.unwrap_or(0);

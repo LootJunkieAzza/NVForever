@@ -242,8 +242,7 @@ fn ended(
     state: Res<State<PlayState>>,
     mut world: ResMut<DrinkWorld>,
     mut script: Option<ResMut<ScriptState>>,
-    mut control: ResMut<PlayerControl>,
-    mut emotes: MessageWriter<crate::emotes::EmoteAsk>,
+    (mut control, mut emotes): (ResMut<PlayerControl>, MessageWriter<crate::emotes::EmoteAsk>),
     mut since: Local<u32>,
 ) {
     let w = &mut *world;

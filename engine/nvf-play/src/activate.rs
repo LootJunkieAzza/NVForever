@@ -655,6 +655,8 @@ type ActivateFrom<'w> = (Res<'w, Target>, Option<ResMut<'w, ActivateNext>>, (Opt
 
 /// What holds activation back: scripts' control locks (and their count), and the player's
 /// control (a match's end view).
+/// The held activation, the picked-up items and the drinking contest's bottles.
+type ActivateHeld<'w> = (Option<ResMut<'w, HeldActivation>>, Option<ResMut<'w, Messages<PickedUp>>>, MessageWriter<'w, crate::drink_world::BottleUsed>);
 type ActivateHolds<'w> = (Option<Res<'w, crate::control::ControlLocks>>, Option<ResMut<'w, crate::control::LockStats>>, Option<Res<'w, crate::control::PlayerControl>>);
 
 /// Activate (E) activates the target; the outcome's effects go out as messages.
@@ -679,7 +681,7 @@ pub(crate) fn activate(
     (mut seat, mut steal, mut ui, mut screen): (ResMut<crate::furniture::PlayerSeat>, MessageWriter<crate::pickpocket::OpenPickpocket>, MessageWriter<crate::ui_sounds::UiSound>, Option<ResMut<crate::loading::Loading>>),
     script: Option<ResMut<crate::script::ScriptState>>,
     (locks, stats, control): ActivateHolds,
-    (mut hold, mut picked, mut bottles): (Option<ResMut<HeldActivation>>, Option<ResMut<Messages<PickedUp>>>, MessageWriter<crate::drink_world::BottleUsed>),
+    (mut hold, mut picked, mut bottles): ActivateHeld,
 ) {
     // A reference queued by a lock just opened, or by the perks' choice list answered
     // with the default action: activated as if E were pressed on it.
