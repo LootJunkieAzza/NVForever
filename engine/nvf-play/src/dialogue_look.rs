@@ -195,7 +195,8 @@ impl Ease {
         }
         if instant {
             self.t = self.seconds;
-            self.snaps += 1;
+            // Zoomed follow keeps stepping after completion [design, #2254].
+            self.snaps = self.snaps.saturating_add(1);
             self.last = (target.0.rem_euclid(TAU), target.1.clamp(-MAX_PITCH, MAX_PITCH));
             return if self.snaps >= SNAP_FRAMES { Step::Done(self.last) } else { Step::Turn(self.last) };
         }
@@ -685,6 +686,21 @@ mod tests {
         // And with the clock merely stopped (the pause menu) nothing moves.
         let mut e = Ease::new((0.0, 0.0), 0.4);
         assert_eq!(e.step((0.0, 0.0), (3.0, -0.5), 0.0, false), Step::Turn((0.0, 0.0)));
+    }
+
+    #[test]
+    fn frozen_zoom_follows_for_more_than_256_frames_in_both_lock_modes() {
+        for locked in [false, true] {
+            let mut e = Ease::new((0.0, 0.0), OPEN_SECONDS);
+            let mut now = e.from;
+            for frame in 0..1024 {
+                // Synthetic moving target with no virtual time passing [design, #2254].
+                let target = (3.0 + frame as f32 * 0.001, -0.5);
+                let Step::Turn(v) = e.follow(now, target, 0.0, true, true, locked) else { panic!("frozen follow ended at frame {frame}, locked={locked}") };
+                assert!(apart(v, target) < 1e-5, "frame {frame}, locked={locked}: {v:?}");
+                now = v;
+            }
+        }
     }
 
     #[test]
