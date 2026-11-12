@@ -144,7 +144,7 @@ impl Shared {
     }
 
     /// Store a collection made under `generation`, tagged with it (the sampler thread's,
-    /// none off Windows but in the tests).
+    /// Windows' or Linux's, and in the tests on any other target).
     #[cfg_attr(not(any(windows, target_os = "linux")), allow(dead_code))]
     fn publish(&self, generation: u32, u: Usage) {
         let percent = |v: Option<f32>| v.map_or(NONE, |p| (p.clamp(0.0, 100.0) * 10.0).round() as u32);
@@ -156,8 +156,9 @@ impl Shared {
     }
 }
 
-/// Where the sampler's readings come from: Windows' counters on the sampler thread
-/// (`windows::Counters`), a stand-in in the tests.
+/// Where the sampler's readings come from: Windows' counters (`windows::Counters`) or
+/// Linux's `/proc` and sysfs readers (`linux::Counters`), both on the sampler thread, and
+/// a stand-in in the tests.
 #[cfg_attr(not(any(windows, target_os = "linux")), allow(dead_code))]
 pub trait Source {
     /// Collect the machine's CPU counter and read it: a rate, so none until the second
