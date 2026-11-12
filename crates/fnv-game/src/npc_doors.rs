@@ -28,7 +28,7 @@
 //!   the block, so its own `Activate` of the door is heard and does not let the actor
 //!   through [design]. Whether the original fires it at doors with no script at all is
 //!   not known [hypothesis: as at those two, whose scripts have no block; observer
-//!   check 109].
+//!   check 117].
 //! - **The block decides.** An OnActivate block runs instead of the default activation;
 //!   the door opens only when the block calls `Activate` [documented: GECK wiki Activate,
 //!   "The OnActivate block of the object will be run instead of the default

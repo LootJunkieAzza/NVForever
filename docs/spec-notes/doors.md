@@ -218,7 +218,7 @@ to the player.
   with no script at all, and whether its OnActivate block's reference (`Begin OnActivate
   player`) is honoured at all: the GECK wiki's OnActivate page (Bugs) says the reference
   "will be ignored entirely", which this section's player-only rule does not follow
-  [documented: GECK wiki OnActivate; left as it is, observer check 109].
+  [documented: GECK wiki OnActivate; left as it is, observer check 117].
 - Not saved: after a load the doors are asked again.
 - A script's direct `door.Activate npc`, outside an AI door request, places the NPC at
   XTEL's destination and finishes the move through `Game::note_relocated`, shared with
