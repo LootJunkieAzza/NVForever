@@ -6,14 +6,21 @@ name: ci
 # - one Linux job runs every check in sequence, so there is a single status check to
 #   require in branch protection.
 # - every pull request reports a `ci` result, so it can be a required check; when a
-#   pull request changes only docs (docs/ or *.md) the steps after `changes` are skipped
-#   and the check passes at once. Docs-only pushes to main do not run at all.
-# - a newer push to the same branch or pull request cancels the run still in progress.
+#   pull request changes only docs (docs/ or *.md outside tools/) the build and the Rust
+#   checks are skipped, but the Python self-tests still run (seconds): tools read some
+#   docs (the capture plugin's package ships two spec notes, the function-coverage tool
+#   reads the script-function audit) and their tests catch a rename (#2000). A *.md
+#   under tools/ is a tool's input (release notes, probe READMEs) and counts as code.
+#   Docs-only pushes to main do not run at all (a *.md under tools/ does).
+# - a newer push to the same pull request cancels its run still in progress; on main every
+#   push's run completes, so a red main can be traced to the merge that caused it (#2000).
 # Windows/macOS are covered by the local checks in CLAUDE.md before each push.
 on:
   push:
     branches: [main]
-    paths-ignore: ["docs/**", "**/*.md"]
+    # Not for docs/ and *.md alone, except a *.md under tools/ (a tool's input; later
+    # patterns override earlier ones).
+    paths: ["**", "!docs/**", "!**/*.md", "tools/**/*.md"]
   pull_request:
   workflow_dispatch:
 
@@ -23,7 +30,7 @@ permissions:
 
 concurrency:
   group: ci-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   CARGO_TERM_COLOR: always
@@ -42,10 +49,12 @@ jobs:
           if [ "${{ github.event_name }}" != pull_request ]; then
             echo "code=true" >> "$GITHUB_OUTPUT"; exit 0
           fi
-          if git diff --name-only HEAD^1 HEAD | grep -qvE '^docs/|\.md$'; then
+          changed=$(git diff --name-only HEAD^1 HEAD)
+          # Code: anything but docs/ and *.md, and any *.md under tools/ (a tool's input).
+          if echo "$changed" | grep -qvE '^docs/|\.md$' || echo "$changed" | grep -qE '^tools/.*\.md$'; then
             echo "code=true" >> "$GITHUB_OUTPUT"
           else
-            echo "Docs-only pull request: skipping the build."
+            echo "Docs-only pull request: skipping the build (the Python self-tests still run)."
             echo "code=false" >> "$GITHUB_OUTPUT"
           fi
       # Two release target dirs (root and engine) fill the runner's disk: the build
@@ -70,7 +79,6 @@ jobs:
             . -> target
             engine -> target
       - uses: actions/setup-python@v7
-        if: steps.changes.outputs.code == 'true'
         with:
           python-version: "3.11"
       - name: Linux system libraries for Bevy
@@ -91,19 +99,14 @@ jobs:
         run: cargo clippy --workspace --all-targets --release --locked -- -D warnings
 
       - name: Lab self-tests
-        if: steps.changes.outputs.code == 'true'
         run: python -m unittest discover -s parity-lab/tests -v
       - name: Capture-tool self-tests
-        if: steps.changes.outputs.code == 'true'
         run: python -m unittest discover -s tools/capture/tests -v
       - name: Smoke-runner self-tests
-        if: steps.changes.outputs.code == 'true'
         run: python -m unittest discover -s tools/smoke/tests -v
       - name: Stress-tool self-tests
-        if: steps.changes.outputs.code == 'true'
         run: python -m unittest discover -s tools/stress/tests -v
       - name: Profile-campaign self-tests
-        if: steps.changes.outputs.code == 'true'
         run: python -m unittest discover -s tools/profile/tests -v
       - name: Workflow permissions and action pins
         if: steps.changes.outputs.code == 'true'
