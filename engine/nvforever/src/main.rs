@@ -71,6 +71,7 @@ mod fog;
 mod fly;
 mod foot_ik;
 mod anti_lag;
+mod dlss;
 mod nv_low_latency;
 mod frame_pace;
 mod frame_telemetry;
@@ -159,6 +160,7 @@ mod taa;
 mod fg_presenter;
 mod frame_gen;
 mod fsr;
+mod upscaler;
 mod speech_look;
 mod stress_sample;
 mod profile;
@@ -473,9 +475,27 @@ struct Args {
     #[arg(long, value_enum)]
     graphics: Option<graphics::Preset>,
     /// FSR 3.1 upscaling (frame generation: --frame-generation). Replaces other anti-aliasing while on.
-    /// Saved Graphics settings take precedence in normal play, as for other switches.
-    #[arg(long, value_enum, default_value = "off")]
-    fsr: graphics::FsrMode,
+    /// Saved Graphics settings take precedence in normal play, as for other switches. The older
+    /// form of `--upscaler fsr --upscaler-quality <mode>` (`off`: no upscaler); given with
+    /// --upscaler, both must say the same. Off when neither is given.
+    #[arg(long, value_enum)]
+    fsr: Option<graphics::FsrMode>,
+    /// The temporal upscaler: off, fsr (FSR 3.1) or dlss (NVIDIA DLSS through Streamline, with
+    /// NVIDIA's files in the dlss folder beside the program; upscaler.rs, dlss/), at
+    /// --upscaler-quality. Saved Graphics settings take precedence in normal play, as for other
+    /// switches. Streamline is loaded when the start chooses DLSS or the files are in the dlss
+    /// folder; then every switch takes effect at once.
+    #[arg(long, value_enum)]
+    upscaler: Option<upscaler::Upscaler>,
+    /// The quality of --upscaler fsr or dlss (default: quality). Native AA reconstructs at
+    /// full resolution (DLSS: DLAA).
+    #[arg(long, value_enum)]
+    upscaler_quality: Option<upscaler::UpscaleQuality>,
+    /// The DLSS model: default (NVIDIA's pick for each mode) or NVIDIA's preset k, l, m or j
+    /// (upscaler.rs `DlssModel`, docs/dlss.md). Used while DLSS draws. Saved Graphics settings
+    /// take precedence in normal play, as for other switches. Default: default.
+    #[arg(long, value_enum)]
+    dlss_model: Option<upscaler::DlssModel>,
     /// Instead of --graphics: exactly these improvements on, by the settings page's keys
     /// (ambient-occlusion, fine-shadows, bloom, sharpen, anisotropic, light-shafts,
     /// water-reflections) and choices (fxaa, smaa or taa instead of --msaa;
@@ -1301,7 +1321,13 @@ fn main() -> AppExit {
         },
         None => graphics::Graphics::preset(graphics_preset(&args)),
     };
-    graphics.fsr = args.fsr.quality();
+    // The requested upscaler: the command line's (upscaler.rs `command_line_choice`).
+    let requested_upscaler = match upscaler::command_line_choice(args.fsr, args.upscaler, args.upscaler_quality) {
+        Ok(choice) => choice,
+        Err(e) => return fail(e),
+    };
+    graphics.upscaler = requested_upscaler;
+    graphics.dlss_model = args.dlss_model.unwrap_or_default();
     let frame_times = match (args.log_frame_times, args.graphics_cycle.as_deref()) {
         (None, _) => None,
         (Some(every), cycle) => {
@@ -1330,9 +1356,29 @@ fn main() -> AppExit {
     // Asks for VK_AMD_anti_lag or VK_NV_low_latency2 when Bevy creates the device: before
     // DefaultPlugins (anti_lag.rs, nv_low_latency.rs).
     app.add_plugins(anti_lag::AntiLagInitPlugin);
+    // The upscaler this run starts with, before the renderer exists: Streamline must be loaded
+    // and initialised before the Vulkan instance is made (dlss/, #2198), so the settings' INI is
+    // read here by the rows' own rules and precedence, as `apply_stored` applies them at
+    // PostStartup (settings.rs `upscaler_after_ini`). The DLSS loader runs for a DLSS choice or
+    // when NVIDIA's four files are in the DLSS folder, so every later switch is live; the test
+    // aid NVF_DLSS_PRELOAD=1 runs it always, =0 only for DLSS (upscaler.rs, "Start").
+    let start_upscaler = {
+        let given = play.is_some().then(|| settings::given_switches(&args, &command_line()));
+        let ini = given.as_ref().and_then(|_| settings::settings_text_at_start()).map(|text| settings::UpscalerIni::read(&text));
+        settings::upscaler_after_ini(graphics.upscaler, ini.as_ref(), given.as_ref())
+    };
+    let startup = upscaler::UpscalerStartup::new(start_upscaler, std::env::var_os(upscaler::PRELOAD_ENV).as_deref(), upscaler::platform_supports_dlss(), dlss::bundle_present);
+    app.insert_resource(startup);
+    app.add_systems(Startup, move || info!("upscaler: {}", startup.describe()));
+    if startup.loads_streamline() {
+        app.add_plugins(dlss::DlssInitPlugin);
+    }
     app.add_plugins(
         DefaultPlugins
             .set(task_pools(cpu_placed.pool_threads))
+            // Bevy's own renderer plugin, with the GPU the DLSS loader checked asked for by
+            // name when it pinned one (dlss/ "Adapter pin"); otherwise `RenderPlugin::default()`.
+            .set(dlss::render_plugin())
             .set(ImagePlugin {
                 default_sampler: ImageSamplerDescriptor {
                     address_mode_u: ImageAddressMode::Repeat,
@@ -1897,7 +1943,11 @@ fn main() -> AppExit {
             s.set_executor(bevy::ecs::schedule::SingleThreadedExecutor::new());
         });
     }
-    app.run()
+    let exit = app.run();
+    // The app and its renderer are gone; Streamline shut down before the device and instance it
+    // used (dlss/, "Shutdown"). Nothing when Streamline was not loaded.
+    dlss::shutdown();
+    exit
 }
 
 /// `--load <name>`: read the save in full for the plugins opened and start at its place
@@ -2330,6 +2380,19 @@ mod tests {
     fn parse(a: &[&str]) -> Args {
         let line: Vec<String> = std::iter::once("nvforever").chain(a.iter().copied()).map(String::from).collect();
         Args::try_parse_from(with_default_mode(line)).unwrap()
+    }
+
+    #[test]
+    fn dlss_model_takes_default_or_a_preset() {
+        use crate::upscaler::DlssModel;
+        assert_eq!(parse(&[]).dlss_model, None, "not given: the default model, the INI's in normal play");
+        for (name, model) in [("default", DlssModel::Default), ("j", DlssModel::J), ("k", DlssModel::K), ("l", DlssModel::L), ("m", DlssModel::M)] {
+            assert_eq!(parse(&["--dlss-model", name]).dlss_model, Some(model), "{name}");
+        }
+        assert_eq!(parse(&["--dlss-model=l"]).dlss_model, Some(DlssModel::L));
+        let line = |m: &str| with_default_mode(["nvforever", "--dlss-model", m].map(String::from).to_vec());
+        assert!(Args::try_parse_from(line("a")).is_err(), "removed presets are not offered");
+        assert!(Args::try_parse_from(line("n")).is_err());
     }
 
     #[test]

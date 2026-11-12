@@ -8,20 +8,27 @@ names as missing. The upscaler is the MIT-licensed wgpu-ffx port of the Fidelity
 shaders, as SPIR-V, vendored with its shader sources and compile tool
 (engine/vendor/README.md). No AMD DLL is used. Frame generation, built on top of it, is
 [frame-generation](frame-generation.md). What FSR
-needs and what the engine gives it: [spec notes](../spec-notes/fsr-upscaling.md).
+needs and what the engine gives it: [spec notes](../spec-notes/fsr-upscaling.md). NVIDIA DLSS
+is the other upscaler of the same settings row, on the same common preparation:
+[dlss-upscaling](dlss-upscaling.md).
 
 ## Using it
 
-**Settings > Graphics > Picture > FSR 3.1 upscaling** offers Off (the default), Native AA, Quality,
-Balanced, Performance and Ultra Performance, saved by name. `--fsr <mode>` (`off`,
-`native-aa`, `quality`, `balanced`, `performance`, `ultra-performance`) sets the starting
-choice; a saved setting wins in play, as for every setting. The render size per axis is 1,
-1/1.5, 1/1.7, 1/2 or 1/3 of the window's [documented: AMD's FSR 3.1 guide, see the spec
-notes].
+**Settings > Graphics > Picture > Upscaler** offers Off (the default), FSR 3.1 and DLSS
+([dlss-upscaling](dlss-upscaling.md)); **Upscaling mode** below it, Native AA, Quality,
+Balanced, Performance and Ultra Performance, for either (dimmed while Upscaler is Off). They
+are saved as `upscaler` and `upscaler-quality`; an older INI's single `fsr-upscaling` line,
+with the names FSR's choices were always saved by (`Off`, `Native AA`, `Quality`, …), still
+loads into both, and the test aids still take `fsr-upscaling=<choice>`. `--fsr <mode>`
+(`off`, `native-aa`, `quality`, `balanced`, `performance`, `ultra-performance`), or
+`--upscaler fsr --upscaler-quality <mode>`, sets the starting choice; a saved setting wins in
+play, as for every setting. Every change is live; only DLSS asked for in a session that
+started without NVIDIA's files takes a restart. The render size per axis is 1, 1/1.5, 1/1.7, 1/2 or 1/3 of the window's
+[documented: AMD's FSR 3.1 guide, see the spec notes].
 
 FSR does its own anti-aliasing, so while it is on, the anti-aliasing row is dimmed, reads
-`Off (FSR active)` and takes no edits. The saved choice (MSAA, FXAA, SMAA or TAA) comes back
-when FSR is off. The Sharpening switch drives FSR's own RCAS sharpening in place of the
+`Off (upscaling active)` (the same for DLSS) and takes no edits. The saved choice (MSAA,
+FXAA, SMAA or TAA) comes back when Upscaler is Off. The Sharpening switch drives FSR's own RCAS sharpening in place of the
 separate pass. The HUD and menus are drawn after FSR, at the window's resolution.
 
 FSR runs on wgpu's Vulkan backend only (SPIR-V passthrough). On another backend, or a GPU
@@ -30,8 +37,14 @@ frame is drawn natively, and the anti-aliasing row stays editable.
 
 ## Render contract
 
-`fsr.rs` (`FsrPlugin`). The FSR context is made the first time a view uses it. Each view
-with `FsrUpscaling` (the player's camera) has its own history and textures.
+`fsr.rs` (`FsrPlugin`), on the view preparation every temporal upscaler shares,
+`upscaler/prep.rs` (`PrepPlugin`, split out of `fsr.rs` unchanged for DLSS, #2198): the
+history cuts, the render-size override, the jitter and mip bias on the camera, the corrected
+and expanded depth, the resolution uniform, the spatial fallback and the alpha copy are
+there, with FSR's own numbers (`fsr::policy`); FSR's context, masks and history textures
+(`PreparedFsr`) stay in `fsr.rs` and are made for FSR's cameras only. The FSR context is made
+the first time a view uses it. Each view with `FsrUpscaling` (the player's camera) has its
+own history and textures.
 
 - **Size.** Bevy's `MainPassResolutionOverride` draws the main passes into the top-left,
   render-size part of the display-size HDR target, and FSR fills the whole target. Native
@@ -49,7 +62,8 @@ with `FsrUpscaling` (the player's camera) has its own history and textures.
     `tree.wesl`);
   - a reactive mask and a transparency/composition mask (below);
   - the frame time.
-- **History resets** (`FsrCamera::cut_from`): a quality or size change, a skipped frame, a
+- **History resets** (`UpscaleCamera::cut_from`, `upscaler/prep.rs`): a change of upscaler,
+  a quality or size change, a skipped frame, a
   frame over 250 ms, a move of 400 units or more or a turn over 45° in one frame, a
   near-plane change, a magnification (tan(fov/2)) that changes by more than twice either
   way (`LENS_CUT_RATIO`), a new loading screen, and going into or out of dialogue or a
@@ -319,7 +333,8 @@ Performance, 1280x720] This laid a grey veil over the scene: a mean AO factor of
 against 0.993 without FSR.
 
 The normals now come from the neighbouring texels as drawn, at their centres (`normal_at`).
-`fsr.rs` sets `AmbientOcclusion::render_scale` while it upscales. At 1:1 the pass is
+The common preparation (`upscaler/prep.rs`) sets `AmbientOcclusion::render_scale` while an
+upscaler draws. At 1:1 the pass is
 unchanged.
 
 ## Performance
