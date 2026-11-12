@@ -24967,3 +24967,20 @@ order = [[
   { text = "GoodspringsSettler03Ref: package DefaultFollowPlayerFar", label = "the script package is taken up" },
   { text = "script: test aid calls GetIsCurrentPackage on GoodspringsSettler03Ref = 1", label = "still its package at 40 s" },
 ]]
+
+[[scenario]]
+name = "dam-panel-prompt"
+source = "#2160 (docs/spec-notes/cells-refs.md §3): Hoover Dam's control panel, a talking activator with no name and the Activation Prompt 'Activate', is offered under the crosshair by its prompt alone, and E runs its script (where the override chip is installed)"
+note = "VHDMainControlPanel1REF 0x00153FCE in HooverDamIntPowerPlant01b; its trigger's OnLoad marks it destroyed until the ending quests run, so the aid clears that at 8 s; E at 12 s"
+areas = ["activation", "hud"]
+paths = ["engine/nvf-play/src/activate.rs", "engine/nvf-play/src/reticle.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "00153FCE", NVF_PLAY_TEST_SCRIPT = "8:call:0x00153FCE:SetDestroyed:0", NVF_PLAY_TEST_ACTIVATE = "12" }
+args = ["--cell", "HooverDamIntPowerPlant01b", "--play", "--no-voice"]
+run_seconds = 20
+order = [[
+  "script: test aid calls SetDestroyed on …",
+  { re = 'target 0x00153FCE  \(Activate\)', label = "the nameless panel under the crosshair" },
+  { re = 'reticle: prompt "Activate" on ""', label = "its prompt is the XATO, with no name" },
+  { re = 'activate 0x00153FCE  \(Activate\): its script.s OnActivate ran', label = "E runs the panel's script" },
+  { text = 'message box shown: This control box is connected to the main computer banks at Hoover Dam. ["Leave it alone.", "Install the override chip."]', label = "the box offers to install the override chip" },
+]]
