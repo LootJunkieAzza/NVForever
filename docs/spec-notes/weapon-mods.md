@@ -246,6 +246,7 @@ open the ITEMS page drawn from its file (`InventoryMenu`) gives way, as for the 
 | --- | --- | --- |
 | `IMM_Headline_Title` | not written | the file's (`sInventoryItems`) |
 | `IMM_ItemName` `string` | the weapon's name, "+" when modded | the record's name; "+" is ours (§5) |
+| `IMM_Headline_h2` `_length` | from where the line starts (after the title; the lead line's end in the screen menu) to 20 before the name's words, as the hand-built heading | [design]: the file's own reads `IMM_Headline_PlayerSkillInfo`, a tile only the repair file has, and comes to 0 |
 | `WMM_Background` `visible` | 0: the Pip-Boy's own backing | [design, as RM_Background] |
 | a row's `ListItemText` `string` | name, count, and under a mod's name its effect on a second line | the record's name; "(n)" and the effect words are ours (`item_mod::effect_text`) |
 | a row's `ListItemText` `alpha` | 255 | the file leaves it to code [hypothesis: no row dims] |
@@ -273,7 +274,18 @@ chosen (`Hover`); leaving the rows keeps the choice, as the hand-built rows do. 
 sends `Click` (choose it, or on the chosen mod attach or remove it, `item_mod::resolve`), the Mod
 button `Use`, Cancel `Cancel`; the scrollbar's arrows, page areas and marker move the list's own
 view. The keys stay the model's (`item_mod_menu::HAND_BUILT_KEYS`); a script's MenuTapKey of E
-still clicks Cancel by the file's `_PCButton_E`.
+still clicks Cancel by the file's `_PCButton_E`. A click and a key in the same frame are not
+arbitrated: each is acted on in turn, as with the hand-built menu (a click on the chosen mod and
+Enter in one frame attach it and take it off again); only one key is kept from acting twice
+(`menus::key_click_acts`).
+
+**The description** [design]: the file gives `IMM_ModDesc` a `height` of 100 at y 220 and the
+cards stand at y 400, but a text tile is measured to its words here and not clipped by its own
+height, so an unlimited description could run over the cards. It is cut to the hand-built menu's
+three lines (`item_mod::DESC_LINES`, whole words, `item_mod_menu::first_lines`). Of the two ways
+to keep it off the cards, this is the one with a rule already in the code; clipping to the file's
+100 would need the renderer to clip a text tile by its height, which no menu does yet, and how
+the original fits a long description in that box was not seen [hypothesis].
 
 **Log lines** (smoke reads them): `tiles: ItemModMenu ready: drawn from tiles` and
 `tiles: ItemModMenu no longer drawn from tiles after <n> passes: <why>` at each change of the
@@ -288,12 +300,14 @@ changes; `tiles: ItemModMenu <Click(n)|Hover(n)|Use|Cancel> on its tiles`.
 - The Mod hint stands on a controller only (the file's `&xbox;`); on a PC the hand-built column
   shows "Mod Enter)" too (#1896). Enter and a click on the chosen mod still attach or remove it.
 - An item with no figure has no stat card; the hand-built menu draws an empty one.
-- The description is the file's text tile, not cut at three lines.
+- The description is cut at three lines as the hand-built one, but wrapped at the file's 350 in
+  its text tile (above).
 - The list scrolls as the file's list does (its own view), not by the model's eight rows.
 
-**Open** [hypothesis]: the original's mod menu was not captured: what it writes in `user0`,
-`user1`, `_IsItemModItem` and the choose text, whether its rows show the effect at all, and its
-cards' words for each effect.
+**Open** [hypothesis]: beyond the controller screenshot on issue #1896 (§5, the two hints), the
+original's mod menu was not captured, so these were not seen: what it writes in `user0`, `user1`,
+`_IsItemModItem` and the choose text, whether its rows show the effect at all, its cards' words
+for each effect, and how it fits a long description.
 
 ## 6. Not built
 

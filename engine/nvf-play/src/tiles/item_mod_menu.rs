@@ -23,6 +23,9 @@
 //!   its name as a second line of the row's own words (`ListItemText`): the file's row has one
 //!   text, so the effect wraps at the name's width, the file's 270, not the hand-built 338
 //!   [design; a known difference, weapon-mods.md §5.1].
+//! - **The headline and the description**: the line between the title and the weapon's name is
+//!   written (`write_headline_line`), the file's own coming to 0; the description is cut at
+//!   the hand-built menu's three lines (`cut_description`), so it stays off the cards below.
 //! - **Page content only**, as `super::repair_menu`: the page paints into the Pip-Boy's image,
 //!   whose background and scanlines are the shell's, so `WMM_Background` stays hidden. The screen
 //!   menu has no title and its heading line runs on (`super::stats_menu::write_frame_of`).
@@ -301,8 +304,11 @@ impl ItemModTiles {
         self.waiting = self.waited <= TREE_WAIT;
     }
 
-    /// The model's selection now: who moved it.
-    fn follow_model(&mut self, selected: usize) {
+    /// The model's selection now: who moved it. `late`: the pass after the model's keys, which
+    /// have applied this frame's requests by then, so the pointer's request is used up there: a
+    /// key's later move back onto a row the pointer once asked for is the keys' (and brings the
+    /// row into view).
+    fn follow_model(&mut self, selected: usize, late: bool) {
         if self.selected != Some(selected) {
             if self.asked == Some(selected) {
                 self.pointer_pick = true;
@@ -311,6 +317,9 @@ impl ItemModTiles {
                 self.navigated = self.navigated.wrapping_add(1);
             }
             self.selected = Some(selected);
+        }
+        if late {
+            self.asked = None;
         }
     }
 
@@ -380,6 +389,67 @@ fn write(ui: &mut Ui, s: &Shown, w: &mut Written) {
     set(ui, CANCEL, "_PCButtonText", Value::Str(s.cancel_hint.clone()));
 }
 
+/// Between the headline's line and the weapon's name, as between the title and the line
+/// [documented: the file starts the line 20 past the title; design: the same 20 before the name].
+const NAME_GAP: f64 = 20.0;
+
+/// The headline's line from where it starts (after the title on the device, the lead line's end in
+/// the screen menu, `super::stats_menu::write_frame_of`) to [`NAME_GAP`] before the name's words,
+/// as the hand-built heading draws it (`crate::pipboy::frame::heading_named`). The file's
+/// `_length` reads a tile it does not have (`IMM_Headline_PlayerSkillInfo`, the repair file's), so
+/// it comes to 0 and the line would not show [documented: item_mod_menu.xml; design: written
+/// here]. Called with the texts measured and the tree worked out; nothing for a name that leaves
+/// no room.
+fn write_headline_line(ui: &mut Ui) {
+    let (Some(line), Some(name), Some(words)) = (ui.find_tile(LINE), ui.find_tile(NAME), ui.find_tile(&format!("{NAME}/button_text"))) else { return };
+    let read = |t, n| ui.tile(t).get(n).map_or(0.0, Value::num);
+    let right_justified = matches!(ui.tile(words).get("justify"), Some(Value::Sym(s)) if s.eq_ignore_ascii_case("right"));
+    // A right-justified text's `x` is its right end (`super::layout`).
+    let left = read(name, "x") + read(words, "x") - if right_justified { read(words, "width") } else { 0.0 };
+    let length = (left - NAME_GAP - read(line, "x")).max(0.0);
+    ui.write_changed(line, "_length", Value::Num(length));
+}
+
+/// The longest start of `text`, whole words, that `height_of` gives no more than the height of
+/// `lines` lines: the first `lines` lines of its wrapping, as a start of the words wraps as the
+/// start of the whole. `height_of` measures a text in the tile's font and wrap.
+pub(super) fn first_lines(text: &str, lines: usize, height_of: &mut dyn FnMut(&str) -> f64) -> String {
+    let limit = height_of(&vec!["X"; lines.max(1)].join("\n"));
+    if height_of(text) <= limit {
+        return text.to_string();
+    }
+    // The ends of the words (before a space or a line break), the whole text last.
+    let ends: Vec<usize> = text.char_indices().filter(|&(_, c)| c == ' ' || c == '\n').map(|(i, _)| i).chain([text.len()]).collect();
+    let start = |k: usize| if k == 0 { "" } else { &text[..ends[k - 1]] };
+    // `lo` words fit, `hi` do not.
+    let (mut lo, mut hi) = (0, ends.len());
+    while hi - lo > 1 {
+        let mid = (lo + hi) / 2;
+        if height_of(start(mid)) <= limit {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    start(lo).to_string()
+}
+
+/// The description at most the hand-built menu's lines ([`model::DESC_LINES`]): a text tile is
+/// measured to its words and not clipped by the file's `height`, so a long one would run over the
+/// cards below it [design: weapon-mods.md §5.1]. Left whole when the page cannot measure.
+fn cut_description(ui: &mut Ui, desc: &str, fonts: &mut dyn PageFonts) {
+    let Some(t) = ui.find_tile(DESC).filter(|_| !desc.is_empty()) else { return };
+    let font = ui.tile(t).get("font").map_or(0.0, Value::num);
+    let wrap = ui.tile(t).get("wrapwidth").map(Value::num).filter(|w| *w > 0.0);
+    if fonts.text_size(font, "X", wrap).is_none() {
+        return;
+    }
+    let shown = first_lines(desc, model::DESC_LINES, &mut |text| fonts.text_size(font, text, wrap).map_or(0.0, |s| s.1));
+    if shown != desc {
+        ui.set_trait(t, "string", Value::Str(shown));
+    }
+}
+
 /// A line for the log when what the page shows changes (smoke reads these).
 fn describe(ui: &Ui, s: &Shown) -> String {
     let first_line = |i: usize| s.rows.get(i).and_then(|r| r.text.lines().next()).unwrap_or("none");
@@ -400,13 +470,16 @@ pub(crate) fn page(ui: &mut Ui, s: Shown, device: bool, late: bool, tiles: &mut 
         return Err(reason);
     }
     let menu = ui.menu(ITEM_MOD_MENU).ok_or_else(|| format!("{ITEM_MOD_MENU} is not in the tree"))?;
-    let w = &mut tiles.written;
-    if w.menu != Some(menu) {
-        *w = Written { menu: Some(menu), ..Default::default() };
+    if tiles.written.menu != Some(menu) {
+        tiles.written = Written { menu: Some(menu), ..Default::default() };
+        // A held press on the old tree's marker goes with it.
+        tiles.drag = None;
     }
+    let w = &mut tiles.written;
     let changed = w.shown.as_ref() != Some(&s);
     if changed {
         write(ui, &s, w);
+        cut_description(ui, &s.desc, fonts);
         w.shown = Some(s);
         w.tell = true;
     }
@@ -428,6 +501,7 @@ pub(crate) fn page(ui: &mut Ui, s: Shown, device: bool, late: bool, tiles: &mut 
         if let (Some(title), Some(line)) = (ui.find_tile(TITLE), ui.find_tile(LINE)) {
             write_frame_of(ui, title, line, device, &mut w.flat);
         }
+        write_headline_line(ui);
         if let Some(list_tile) = ui.find_tile(LIST) {
             list::settle_list(ui, list_tile, &w.rows, ROW_TEXT, &mut w.view, Some(s.highlight), 0, s.pointer_pick, s.navigated);
             w.view.rewrite(ui, list_tile);
@@ -507,7 +581,7 @@ fn pass(p: &mut ModPage<'_, '_>, late: bool) -> Option<Result<TileId, String>> {
         return None;
     }
     p.tiles.waiting = false;
-    p.tiles.follow_model(session.selected);
+    p.tiles.follow_model(session.selected, late);
     let shown = Shown::of(session, cmp.as_ref(), desc.as_deref(), p.tiles.pointer_pick, p.tiles.navigated, &Words::read(game));
     Some(page(&mut game.ui_tree, shown, device, late, &mut p.tiles, &mut p.fonts))
 }
@@ -734,7 +808,7 @@ mod tests {
         format!(
             r#"<menu name="ItemModMenu"><rect name="NOGLOW_BRANCH"/><rect name="GLOW_BRANCH"><image name="WMM_Background"/><rect name="IMM_MainRect"><x>20</x><y>30</y>
               <rect name="IMM_HeadlineRect"><text name="IMM_Headline_Title"><string>Own heading</string></text><image name="IMM_Headline_h2"><x>150</x><_length>200</_length></image>
-                <rect name="IMM_ItemName"><x>300</x><text name="button_text"><string><copy src="parent()" trait="string"/></string></text></rect></rect>
+                <rect name="IMM_ItemName"><x>300</x><text name="button_text"><x>200</x><justify>&right;</justify><string><copy src="parent()" trait="string"/></string></text></rect></rect>
               <hotrect name="IMM_ItemModList"><y>60</y><width>260</width><height>180</height><clipwindow>1</clipwindow><_scroll_delta>11</_scroll_delta>
                 <_offset><copy src="child(lb_scrollbar)" trait="_current_value"/><mul src="me()" trait="_scroll_delta"/></_offset>
                 <hotrect name="lb_highlight_box"/>
@@ -821,6 +895,9 @@ mod tests {
         }
         fn picture_texels(&mut self, name: &str) -> Option<(f64, f64)> {
             (name == "pics\\button.dds").then_some((32.0, 24.0))
+        }
+        fn text_size(&mut self, font: f64, text: &str, wrap: Option<f64>) -> Option<(f64, f64)> {
+            Some(measure(font, text, wrap))
         }
     }
 
@@ -1020,20 +1097,92 @@ mod tests {
         assert_eq!(number(&ui, LINE, "x"), 150.0);
     }
 
+    /// The fixture's own places: the line from 150, the name's words right-justified at 300 + 200,
+    /// eight units a letter.
+    #[test]
+    fn the_headline_line_runs_from_the_title_to_before_the_name() {
+        let (mut ui, mut tiles) = (fixture(|s| s), ItemModTiles::default());
+        run(&mut ui, shown(0), &mut tiles).unwrap();
+        let name_left = 300.0 + 200.0 - 8.0 * "Own gun +".len() as f64;
+        assert_eq!(number(&ui, LINE, "_length"), name_left - NAME_GAP - 150.0, "the file's own reads a tile it lacks");
+        // A longer name moves the end; the screen menu starts the line at the lead line's end.
+        let mut s = session(0);
+        s.offer.name = "Own much longer gun +".into();
+        let longer = Shown::of(&s, None, None, false, 0, &words());
+        run(&mut ui, longer.clone(), &mut tiles).unwrap();
+        let name_left = 300.0 + 200.0 - 8.0 * "Own much longer gun +".len() as f64;
+        assert_eq!(number(&ui, LINE, "_length"), name_left - NAME_GAP - 150.0);
+        page(&mut ui, longer, false, true, &mut tiles, &mut TestFonts).unwrap();
+        let from = f64::from(crate::pipboy::frame::lead_line_end());
+        assert_eq!(number(&ui, LINE, "x"), from);
+        assert_eq!(number(&ui, LINE, "_length"), (name_left - NAME_GAP - from).max(0.0));
+        // A name reaching the title leaves no line.
+        s.offer.name = "W".repeat(60);
+        run(&mut ui, Shown::of(&s, None, None, false, 0, &words()), &mut tiles).unwrap();
+        assert_eq!(number(&ui, LINE, "_length"), 0.0);
+    }
+
     #[test]
     fn who_moved_the_selection_decides_the_scroll() {
         let mut tiles = ItemModTiles::default();
-        tiles.follow_model(0);
+        tiles.follow_model(0, true);
         assert!(!tiles.pointer_pick);
+        // The pointer asks for row 2 (`feed`); the early pass sees no change yet, the late one
+        // the model's.
         tiles.asked = Some(2);
-        tiles.follow_model(2);
+        tiles.follow_model(0, false);
+        assert_eq!(tiles.asked, Some(2), "kept until the model has applied it");
+        tiles.follow_model(2, true);
         assert!(tiles.pointer_pick, "the pointer's pick leaves the list");
+        assert_eq!(tiles.asked, None, "used up");
         let before = tiles.navigated;
-        tiles.follow_model(3);
+        tiles.follow_model(3, true);
         assert!(!tiles.pointer_pick);
         assert_eq!(tiles.navigated, before + 1, "a key's move brings its row into view");
+        tiles.follow_model(2, true);
+        assert!(!tiles.pointer_pick, "a key back onto the row the pointer once chose is the keys'");
+        assert_eq!(tiles.navigated, before + 2);
+        // A hover on the row already chosen changes nothing; a later key's return is the keys'.
+        tiles.asked = Some(2);
+        tiles.follow_model(2, true);
+        tiles.follow_model(1, true);
+        tiles.follow_model(2, true);
+        assert!(!tiles.pointer_pick);
         tiles.closed();
         assert_eq!(tiles.selected, None);
+    }
+
+    #[test]
+    fn a_long_description_keeps_the_hand_built_lines_and_stays_off_the_cards() {
+        // Ten units a letter at a wrap of 100: as many words a line as fit in ten letters.
+        let mut wrapped = |text: &str| {
+            let mut lines = 0u32;
+            for para in text.split('\n') {
+                let mut len = 0usize;
+                lines += 1;
+                for w in para.split(' ') {
+                    let add = if len == 0 { w.len() } else { w.len() + 1 };
+                    if len > 0 && len + add > 10 {
+                        lines += 1;
+                        len = w.len();
+                    } else {
+                        len += add;
+                    }
+                }
+            }
+            20.0 * f64::from(lines)
+        };
+        assert_eq!(first_lines("short words", 3, &mut wrapped), "short words");
+        let text = "aaaa bbbb cccc dddd eeee ffff gggg hhhh";
+        assert_eq!(first_lines(text, 3, &mut wrapped), "aaaa bbbb cccc dddd eeee ffff", "two words a line, three lines");
+        assert_eq!(first_lines("", 3, &mut wrapped), "");
+        // On the page: the fixture's description has no wrap, so its lines are its line breaks.
+        let (mut ui, mut tiles) = (fixture(|s| s), ItemModTiles::default());
+        let s = session(3);
+        let long = Shown::of(&s, None, Some("one\ntwo\nthree\nfour\nfive"), false, 0, &words());
+        run(&mut ui, long, &mut tiles).unwrap();
+        assert_eq!(string(&ui, DESC, "string"), "one\ntwo\nthree", "the hand-built three lines");
+        assert_eq!(number(&ui, DESC, "height"), 60.0);
     }
 
     #[test]
