@@ -491,6 +491,10 @@ pub struct DataState {
     /// The World Map's waypoints as last worked out, by what they depend on
     /// ([`cached_waypoints`]).
     waypoints_cache: Option<(WaypointKey, Waypoints)>,
+    /// The preparation is the early one (`MapMenu` on, [`prepare`]): only then are the Local Map's
+    /// rows for the page drawn from the file gathered ([`WorldParts::rows`]); with the switch off
+    /// the hand-built page does no more than it did.
+    tile_rows: bool,
     /// The map window as the page drawn from the file laid it out, and the tab it drew (canvas
     /// units, [`DataState::publish_map`]); none from the hand-built drawing, whose window is the
     /// file's numbers ([`map_window`]).
@@ -850,6 +854,7 @@ pub fn draw(
 /// `None` for the hand-built drawing's, which keeps nothing more than it always did.
 #[allow(clippy::too_many_arguments)]
 fn step(st: &mut DataState, open: Option<usize>, screen: Option<&PipBoyScreen>, game: &mut Game, input: &mut Input, images: &mut Assets<Image>, early: Option<Early>) -> Option<View> {
+    st.tile_rows = early.is_some();
     st.poll += input.time.delta_secs();
     if st.poll >= POLL {
         st.poll = 0.0;
@@ -2524,24 +2529,34 @@ fn local_map(st: &mut DataState, game: &Game, pointer: Option<Vec2>) -> MapShown
     let enabled = |form: u32| game.sim.as_ref().is_none_or(|s| s.present(form));
     for d in st.doors.get(&key).into_iter().flatten().filter(|d| enabled(d.form)) {
         let at = on_map(d.pos[0], d.pos[1]);
+        if !(inside(at) || st.tile_rows) {
+            continue;
+        }
         let mark = MapMark { icon: None, highlighted: false, at, form: d.form, name: d.name.clone(), uv: Some(view.local_uv(d.pos[0], d.pos[1])) };
         if inside(at) {
             marks.push(mark.clone());
             names.push(d.name.clone());
         }
-        rows.push(mark);
+        if st.tile_rows {
+            rows.push(mark);
+        }
     }
     if loc.interior.is_none() {
         let all = markers(st, game).cloned().unwrap_or_default();
         for mk in all.iter().filter(|mk| mk.world == loc.world) {
             let Some(found) = known(st, game, mk) else { continue };
             let at = on_map(mk.pos[0], mk.pos[1]);
+            if !(inside(at) || st.tile_rows) {
+                continue;
+            }
             let mark = MapMark { icon: Some((mk.kind, found)), highlighted: false, at, form: mk.form, name: mk.name.clone(), uv: Some(view.local_uv(mk.pos[0], mk.pos[1])) };
             if inside(at) {
                 marks.push(mark.clone());
                 names.push(mk.name.clone());
             }
-            rows.push(mark);
+            if st.tile_rows {
+                rows.push(mark);
+            }
         }
     }
     // Quest markers stay inside the window [documented: map_menu.xml
@@ -2567,7 +2582,7 @@ fn local_map(st: &mut DataState, game: &Game, pointer: Option<Vec2>) -> MapShown
     log_custom(st, LOCAL, custom);
     let custom_uv = custom.map(|c| view.local_uv(c.pos[0], c.pos[1]));
     let custom = custom.map(|c| local_quest_corner(on_map(c.pos[0], c.pos[1])));
-    let world = WorldParts { view, texture: String::new(), mag, quests: target_uvs, custom: custom_uv, arrow: Some((view.local_uv(feet[0], feet[1]), heading)), ends: Vec::new(), outline: outline_texels, rows: Some(rows), want: st.cursor[LOCAL].unwrap_or(view.mid()) };
+    let world = WorldParts { view, texture: String::new(), mag, quests: target_uvs, custom: custom_uv, arrow: Some((view.local_uv(feet[0], feet[1]), heading)), ends: Vec::new(), outline: outline_texels, rows: st.tile_rows.then_some(rows), want: st.cursor[LOCAL].unwrap_or(view.mid()) };
     MapShown { picture: None, outline, marks, player: Some((on_map(feet[0], feet[1]), heading)), quests, custom, nodes: Arc::default(), lines: Arc::default(), cursor, label, detail: None, world: Some(world) }
 }
 
@@ -3787,7 +3802,8 @@ mod tests {
 
         let door = |form, x: f32, y: f32| read::Door { form, pos: [x, y, 0.0], name: format!("Door {form}") };
         for interior in [Some(0x0001_2345_u32), None] {
-            let mut st = DataState::default();
+            // The early preparation's (`MapMenu` on): the tile page's rows gathered too.
+            let mut st = DataState { tile_rows: true, ..DataState::default() };
             // The doors' cells: the interior, or the grid square at the map's middle (10, 20).
             let key = (interior, (0, 0));
             st.doors.insert(key, vec![door(7, 100.0, 50.0), door(8, -300.0, -200.0), door(9, 100_000.0, 20.0)]);
@@ -3819,6 +3835,10 @@ mod tests {
             assert_eq!(rows.iter().map(|m| m.form).collect::<Vec<_>>(), vec![7, 8, 9], "the tile page keeps it: its window cuts it, a pan keeps its row");
             let picked: Vec<u32> = shown.marks.iter().filter(|m| m.highlighted).map(|m| m.form).collect();
             assert_eq!(rows.iter().filter(|m| m.highlighted).map(|m| m.form).collect::<Vec<_>>(), picked, "the same one under the highlight box");
+            // With `MapMenu` off the hand-built page alone: no rows gathered for a tile page.
+            st.tile_rows = false;
+            let off = local_map(&mut st, &game, None);
+            assert_eq!((off.world.as_ref().and_then(|w| w.rows.clone()), off.marks.iter().map(|m| m.form).collect::<Vec<_>>()), (None, vec![7, 8]));
             assert_eq!((parts.outline.clone(), parts.texture.as_str(), parts.ends.len()), (None, "", 0), "no outline yet, no line");
             // The outline made: its picture and texels; a new outline (another place) another frame.
             let mut o = outline::Outline::new(interior, 1, [10.0, 20.0], 0.0, MAP.size(), p.scale);
