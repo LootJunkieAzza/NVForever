@@ -1872,6 +1872,20 @@ pub(crate) fn run_scripts(
                         info!("scripts: sources that do not compile, for example {s}");
                     }
                 }
+                // The functions mods call that NVForever has no entry for: their calls
+                // do nothing and read 0, so a mod relying on one works in part only. Named
+                // so a player's log says which (`fnvtool ext report` lists them by plugin).
+                let unknown = fnv_game::source_compile::unknown_functions(&data.source_units);
+                if !unknown.is_empty() {
+                    const SHOWN: usize = 20;
+                    let names: Vec<String> = unknown.iter().take(SHOWN).map(|(n, units)| format!("{n} ({units})")).collect();
+                    warn!(
+                        "scripts: {} functions the plugins' scripts call are not in NVForever, their calls do nothing (scripts calling each in brackets): {}{}",
+                        unknown.len(),
+                        names.join(", "),
+                        if unknown.len() > SHOWN { ", ..." } else { "" }
+                    );
+                }
                 let running = rt.game.quests.values().filter(|q| q.running).count();
                 info!(
                     "scripts ready in {secs:.2} s: {} units, {} scripts, {} quests ({running} start-game-enabled quests running)",

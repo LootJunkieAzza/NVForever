@@ -205,6 +205,33 @@ another script's variable that is gone. The headless intro walkthrough
 gives a trace byte-identical to the one from the bytes. Smoke `scripts-from-source`
 starts the game this way.
 
+**What a mod's source may hold that nothing here knows** (2026-11-12). The catalogue is the
+wiki's function pages, and mods call plugin functions that have no page. One such name
+used to fail the whole unit, which then kept bytes NVForever cannot run [observed:
+`fnvtool ext report` over The Mod Configuration Menu 1.5 and JustAssortedMods.esp 4.6, 8 of
+63 picked units kept their bytes: MCM's main menu script, and JAM's sprint, bullet-time
+and loot-menu handlers]. In the game's compile of a unit's source (`Seed::unknown_calls`;
+the editor-parity and runtime compiles keep their errors) [decision]:
+
+- **A function nothing knows** compiles, with a warning, as a call by its name with every
+  argument that follows, wherever a call can stand: at a line's start, as an operand of
+  `let`, `eval`, `if` or `set … to`, after a reference (`rRef.Name`), after a quest's ref
+  variable (`Quest.rRef.Name`) or after an element (`aItem[0].Name`). A vanilla `if` or
+  `set` holding such a name is read with the extender's grammar. Run, the call reports
+  "not built", which skips the statement or reads 0, and the script goes on. As a
+  function's argument an unknown bare word stays its own text, as before.
+- **An enumeration name the table lacks** (an animation group, an actor value, a
+  statistic) compiles, with a warning, to code 65535, which no entry has. The table holds
+  only the names seen in compiled scripts (scripts.md §2).
+
+What a load order's units came to is kept (`GameData::source_units`): the game's log
+names the functions not in NVForever (`scripts: N functions the plugins' scripts call are
+not in NVForever … `), and `fnvtool ext report <Data> <plugins…> --schema schemas/fnv`
+prints, per plugin, the units run from source, the units that kept their bytes with the
+line and kind of their first error, and those functions with the number of units calling
+each (fnv.ext.report/1; `--detail` adds the compiler's words, which may quote the mod's
+script and so stay private). A plugin outside the Data folder is given by its full path.
+
 **At the console** (docs/design/console.md): a statement the console's own reader does
 not take goes through the compiler and runs as a one-line result script
 (`Game::run_source`), on the selected reference. That covers a `set` whose value is an

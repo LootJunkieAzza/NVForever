@@ -1110,6 +1110,10 @@ pub struct GameData {
     pub class_services: HashMap<FormId, u32>,
     pub issues: Issues,
     pub read_issues: ReadIssues,
+    /// What the compile of mods' source text made of each unit it picked
+    /// (`crate::source_compile`): whether it compiled, and the names it calls that
+    /// nothing knows. For the engine's log and `fnvtool ext report`.
+    pub source_units: Vec<crate::source_compile::SourceUnit>,
 }
 
 /// An idle animation (IDLE) as far as playing it goes: the file it names and how often
@@ -1956,6 +1960,7 @@ impl GameData {
             class_services: HashMap::new(),
             issues: Issues::default(),
             read_issues: ReadIssues::default(),
+            source_units: Vec::new(),
         };
         // Decode every unit once.
         let mut all_units: Vec<ScriptUnit> = Vec::new();
@@ -1997,7 +2002,7 @@ impl GameData {
         let table = std::mem::take(&mut d.table);
         if long_way {
             let recompiled = crate::source_compile::compile_picked(lo, &table, &units);
-            crate::source_compile::apply(&mut units, recompiled, &mut d.issues);
+            d.source_units.extend(crate::source_compile::apply(&mut units, recompiled, &mut d.issues));
         }
         let recompiled = std::thread::scope(|scope| {
             let compile = scope.spawn(|| if long_way { crate::source_compile::Recompiled::none() } else { crate::source_compile::compile_picked(lo, &table, &units) });
@@ -2294,7 +2299,7 @@ impl GameData {
             recompiled
         });
         d.table = table;
-        crate::source_compile::apply(&mut units, recompiled, &mut d.issues);
+        d.source_units.extend(crate::source_compile::apply(&mut units, recompiled, &mut d.issues));
         d.units = units;
         clock.lap("source compile results put in");
         for stages in d.need_stages.values_mut() {
