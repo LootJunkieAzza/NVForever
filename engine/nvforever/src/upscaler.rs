@@ -278,6 +278,8 @@ impl Unavailable {
 
 /// Whether DLSS can run in this session.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+// `Ready` is made only by the Windows loader (`dlss/win.rs`).
+#[cfg_attr(not(windows), allow(dead_code))]
 pub enum DlssState {
     /// Streamline was not loaded at start, and the files are in the DLSS folder now: a restart
     /// brings it ([`dlss_state_now`]).
