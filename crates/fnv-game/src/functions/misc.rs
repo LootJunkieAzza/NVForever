@@ -98,6 +98,9 @@ pub fn show_warning(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String>
 
 /// 0 to 99 from the game's seeded generator (deterministic per seed).
 pub fn get_random_percent(g: &mut Game, _ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    if let Some(v) = g.fixed_random_percent {
+        return Ok(Value::Num(v.min(99) as f64));
+    }
     Ok(Value::Num((g.rng.next_u32() % 100) as f64))
 }
 
