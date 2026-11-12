@@ -1010,7 +1010,7 @@ fn drive_pointer(
     screen: Option<Res<PipBoyScreen>>,
     mut last: Local<Option<Vec2>>,
     mut spawned: Local<bool>,
-    mut window_events: MessageReader<WindowEvent>,
+    (mut window_events, bindings, mut switching_mouse): (MessageReader<WindowEvent>, Option<Res<crate::bindings::Bindings>>, Local<Vec<MouseButton>>),
     mut out: MessageWriter<PointerInput>,
     mut aid: ResMut<PipBoyAid>,
 ) {
@@ -1031,6 +1031,9 @@ fn drive_pointer(
     }
     for e in window_events.read() {
         let WindowEvent::MouseButtonInput(input) = e else { continue };
+        if crate::pad::device::consume_pointer_switch(bindings.as_deref(), &mut switching_mouse, input) {
+            continue;
+        }
         if at.is_none() {
             continue;
         }

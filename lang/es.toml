@@ -6,6 +6,9 @@
 name = "Español"
 
 [words]
+# [design, #2200; engine/nvf-play/src/pause.rs] NVForever's device selection.
+"Automatic Input Switching" = "Cambio automático de dispositivo"
+"On: a controller button or a stick or trigger past its dead zone selects Controller; a key or mouse click selects Keyboard and Mouse. The switching input is consumed until release. Mouse motion does not switch. Off: choose Input Device manually. Saved in [Controls] of NVForever.ini." = "Activado: un botón del mando, una palanca o un gatillo fuera de su zona muerta selecciona Mando; una tecla o un clic selecciona Teclado y ratón. La entrada que cambia el dispositivo se ignora hasta soltarla. Mover el ratón no cambia nada. Desactivado: elige el dispositivo manualmente. Se guarda en [Controls] de NVForever.ini."
 "Dialogue voice" = "Voces en los diálogos"
 "On: lines are spoken. Off: they are silent from the next line on, and still last as long as their sound. (--no-voice)" = "Activado: las frases se oyen. Desactivado: desde la siguiente frase se callan, aunque duran lo mismo que su sonido. (--no-voice)"
 "Gameplay" = "Juego"

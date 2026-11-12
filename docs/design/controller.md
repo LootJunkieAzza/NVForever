@@ -17,6 +17,35 @@ the console's key keep working with a controller chosen, so a player is never lo
 out. Any connected controller counts (Bevy's gilrs backend, on by default); its arrival
 and departure are logged (`controller: … connected`).
 
+[design, #2200] **Automatic Input Switching**, immediately after Input Device on the
+Controls tab, defaults to ON (`bindings::AUTOMATIC_INPUT_SWITCHING`). It is saved as
+`Automatic Input Switching=1` in `[Controls]`; `0` keeps device selection manual. Old
+INIs keep reading both existing Input Device names and gain the missing switch line.
+
+[design, #2200] A fresh controller button press, either stick crossing `pad::STICK_DEAD`
+(0.12), or either analog trigger crossing that dead zone selects Controller. A fresh key
+press or mouse button click selects Keyboard and Mouse. Connection, mouse motion, wheel
+and an already-held input do not select a device. When both devices become active in
+the same frame, the current choice wins; while rebinding, the selected device stays put.
+`pad/device.rs::switch_on_use` defines this rule; selection calls `bindings::set_device`,
+so the existing INI writer saves it, prompts follow, and the Controls tab shows the
+chosen device's rows, including Stick Sensitivity (`settings_view::ControlRow::rows`).
+
+[design, #2200] The switching input does **not** act: incoming keyboard/mouse buttons
+are consumed until release (including repeats and raw text events); a switching
+controller is consumed until its buttons and analog inputs return to neutral. This
+covers held attacks and stick movement as well as menu activation. Physical state is
+restored before Bevy's next input update, then masked before menu translation, gameplay
+and UI focus (`pad/device.rs`); analog crossings are tracked before masking so holding a
+stick cannot steal selection back. Each automatic change logs
+`controller: input device switched to Controller (button)` (or the selected device and
+cause: `stick`, `trigger`, `key`, `mouse button`). Synthetic coverage uses
+`NVF_PLAY_TEST_KEYS=13:pad-A:1,16:enter:1` (`test_aid.rs::real_presses`), not the pause
+menu's `pad:` shortcut, which already translates directly into a menu key.
+[design, #2200; `pipboy.rs::drive_pointer`] The Pip-Boy creates picking clicks from raw
+window events in `First`, before device selection. Its incoming controller-to-mouse
+click and matching release are consumed there as well (`device::consume_pointer_switch`).
+
 ## 2. Defaults are the game's
 
 Each control's controller input comes from the game's own `[Controls]` byte `JJ`

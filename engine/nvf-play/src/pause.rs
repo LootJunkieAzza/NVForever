@@ -185,6 +185,7 @@
 //! would, `padbind:<control>=<button>` (`padbind:Jump=RB`) a controller button,
 //! `device:<name>` (`device:Controller`) picks the input device, `rumble:1` or `rumble:0`
 //! sets the controller's Rumble row, `invert:1` or `invert:0` the Invert Y row and
+//! `automatic-input:0|1` toggles automatic device selection [design, #2200];
 //! `sensitivity:<percent>` (`sensitivity:150`) the sensitivity slider of the device in use,
 //! `vertical:<percent>` (`vertical:80`) its Vertical Sensitivity;
 //! `tab:<name>` (`tab:Tweaks`, an empty tab too) shows a tab on its first row,
@@ -813,6 +814,9 @@ const WAITING: &str = "Press a key...";
 const WAITING_PAD: &str = "Press a button...";
 /// The Controls tab's first row.
 const DEVICE_ROW: &str = "Input Device";
+// [design, #2200] NVForever's own label and help, translated by `tr`.
+const AUTOMATIC_INPUT_ROW: &str = "Automatic Input Switching";
+const AUTOMATIC_INPUT_NOTE: &str = "On: a controller button or a stick or trigger past its dead zone selects Controller; a key or mouse click selects Keyboard and Mouse. The switching input is consumed until release. Mouse motion does not switch. Off: choose Input Device manually. Saved in [Controls] of NVForever.ini.";
 /// The Controls tab's last row with a controller chosen (`crate::rumble`).
 const RUMBLE_ROW: &str = "Rumble";
 /// The Controls tab's row after the controls (`bInvertYValues`).
@@ -1106,6 +1110,7 @@ struct Drawn {
     controls: Vec<String>,
     /// The device in use: its name, and whether it is a controller.
     device: (&'static str, bool),
+    automatic_input: bool,
     /// The controller rumbles.
     rumble: bool,
     /// The vertical look is inverted.
@@ -1662,6 +1667,7 @@ fn control_line(d: &Drawn, c: ControlRow) -> (&'static str, String) {
     let on_off = |on: bool| tr(if on { "ON" } else { "OFF" }).to_string();
     match c {
         ControlRow::Device => (DEVICE_ROW, device.to_string()),
+        ControlRow::AutomaticInput => (AUTOMATIC_INPUT_ROW, on_off(d.automatic_input)),
         ControlRow::Binding(k, _) if d.listening == Some(k) => (crate::bindings::label(k), (if controller { WAITING_PAD } else { WAITING }).to_string()),
         ControlRow::Binding(k, _) => {
             let at = crate::bindings::GAME_CONTROLS.iter().position(|(x, _, _)| *x == k);
@@ -1683,6 +1689,7 @@ fn row_note(list: &[Setting], id: RowId, d: &Drawn) -> String {
         RowId::Control(c) => c,
     };
     match c {
+        ControlRow::AutomaticInput => tr(AUTOMATIC_INPUT_NOTE).to_string(),
         ControlRow::Invert => format!("Enter or a click: look up and down the other way round (the mouse and the right stick). Kept as \"{INVERT_ROW}\" in [Controls] of NVForever.ini."),
         ControlRow::Sensitivity(_) if controller => format!(
             "Left/Right or a click on the meter: how fast the right stick turns the view, a step of about a tenth ({} to {} of the game's). Kept as \"Stick Sensitivity\" in [Controller] of NVForever.ini.",
@@ -2094,6 +2101,7 @@ struct RowEffects {
 #[derive(Clone, Copy, Debug)]
 struct ControlState {
     device: crate::bindings::InputDevice,
+    automatic_input: bool,
     rumble: bool,
     invert: bool,
     sensitivity: f32,
@@ -2139,6 +2147,11 @@ fn act_on_row(id: RowId, action: RowAction, settings: &Settings, view: &mut Paus
             }
         }
         RowId::Control(c) => match (c, action) {
+            (ControlRow::AutomaticInput, Activate | Step(_)) => {
+                let on = !controls.automatic_input;
+                commands.queue(move |world: &mut World| crate::bindings::set_automatic_input_switching(world, on));
+                sounds.write(flipped);
+            }
             (ControlRow::Device, Activate | Step(_)) => {
                 let d = controls.device.other();
                 commands.queue(move |world: &mut World| crate::bindings::set_device(world, d));
@@ -2402,7 +2415,7 @@ fn control_words(c: ControlRow) -> String {
     let (label, _) = control_line(&d, c);
     let key = match c {
         ControlRow::Binding(k, _) => crate::bindings::Bindings::name(k),
-        ControlRow::Device | ControlRow::Invert | ControlRow::Sensitivity(_) | ControlRow::Vertical(_) | ControlRow::Rumble => label,
+        ControlRow::Device | ControlRow::AutomaticInput | ControlRow::Invert | ControlRow::Sensitivity(_) | ControlRow::Vertical(_) | ControlRow::Rumble => label,
     };
     let note = row_note(&[], RowId::Control(c), &d);
     crate::settings_view::haystack(&[label, note.as_str(), key])
@@ -2432,7 +2445,7 @@ fn search_keys(events: &[KeyboardInput], modifiers: bool) -> Vec<SearchKey> {
 /// [design: #1953].
 #[allow(clippy::too_many_arguments)]
 fn collect_search_keys(
-    mut typed: MessageReader<KeyboardInput>,
+    (mut typed, switching): (MessageReader<KeyboardInput>, Option<Res<crate::pad::SwitchingInput>>),
     keys: Res<ButtonInput<KeyCode>>,
     paused: Option<Res<Paused>>,
     page: Option<Res<Page>>,
@@ -2441,7 +2454,7 @@ fn collect_search_keys(
     mut out: ResMut<SearchKeys>,
     mut capture: ResMut<crate::bindings::KeyboardCapture>,
 ) {
-    let events: Vec<KeyboardInput> = typed.read().cloned().collect();
+    let events: Vec<KeyboardInput> = typed.read().filter(|e| switching.as_ref().is_none_or(|s| s.allows(e))).cloned().collect();
     let open = paused.is_some_and(|p| p.0) && page.is_some_and(|p| matches!(*p, Page::Settings { .. })) && view.is_some_and(|v| v.scope == SettingsScope::Search);
     let modifiers = keys.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight, KeyCode::AltLeft, KeyCode::AltRight, KeyCode::SuperLeft, KeyCode::SuperRight]);
     out.0 = if open { search_keys(&events, modifiers) } else { Vec::new() };
@@ -2763,6 +2776,17 @@ fn choose(
             }
             continue;
         }
+        if let Some(v) = item.strip_prefix("automatic-input:") {
+            match v {
+                "0" | "1" => {
+                    let on = v == "1";
+                    show_row(&mut page, &mut view, layout, control(ControlRow::AutomaticInput));
+                    commands.queue(move |world: &mut World| crate::bindings::set_automatic_input_switching(world, on));
+                }
+                _ => warn!("NVF_PLAY_TEST_SETTINGS: {item:?}: expected automatic-input:0 or 1"),
+            }
+            continue;
+        }
         if let Some(v) = item.strip_prefix("sensitivity:") {
             // `sensitivity:<percent>`: the device in use's sensitivity slider set to it (onto its
             // steps).
@@ -2994,6 +3018,7 @@ fn choose(
     }
     let controls = ControlState {
         device,
+        automatic_input: bindings.as_ref().is_some_and(|b| b.automatic_input_switching),
         rumble: bindings.as_ref().is_some_and(|b| b.rumble),
         invert: bindings.as_ref().is_some_and(|b| b.invert_y),
         sensitivity: bindings.as_ref().map_or(1.0, |b| b.sensitivity()),
@@ -3983,6 +4008,7 @@ fn drawn_now(world: &mut World) -> Drawn {
         thumb,
         controls: world.get_resource::<crate::bindings::Bindings>().map(|b| b.all().map(|(c, _)| b.text_on(c)).collect()).unwrap_or_default(),
         device: world.get_resource::<crate::bindings::Bindings>().map_or(("Keyboard and Mouse", false), |b| (b.device.name(), b.device == crate::bindings::InputDevice::Controller)),
+        automatic_input: world.get_resource::<crate::bindings::Bindings>().is_some_and(|b| b.automatic_input_switching),
         rumble: world.get_resource::<crate::bindings::Bindings>().is_some_and(|b| b.rumble),
         invert_y: world.get_resource::<crate::bindings::Bindings>().is_some_and(|b| b.invert_y),
         sensitivity: world.get_resource::<crate::bindings::Bindings>().map_or(1.0, |b| b.sensitivity()),
@@ -5244,6 +5270,10 @@ mod tests {
         assert_eq!(value_of(&mut app, is_jump).as_deref(), Some("Y"));
         assert_eq!(*app.world().resource::<Page>(), Page::Settings { selected: Some(control(ControlRow::Binding(Control::Jump, InputDevice::Controller))) });
         let choose_row = |app: &mut App, c: ControlRow| *app.world_mut().resource_mut::<Page>() = Page::Settings { selected: Some(RowId::Control(c)) };
+        choose_row(&mut app, ControlRow::AutomaticInput);
+        assert_eq!(value_of(&mut app, |r| *r == RowId::Control(ControlRow::AutomaticInput)).as_deref(), Some("ON"));
+        crate::bindings::set_automatic_input_switching(app.world_mut(), false);
+        assert_eq!(value_of(&mut app, |r| *r == RowId::Control(ControlRow::AutomaticInput)).as_deref(), Some("OFF"));
         choose_row(&mut app, ControlRow::Device);
         assert_eq!(value_of(&mut app, |r| *r == RowId::Control(ControlRow::Device)).as_deref(), Some("Controller"));
         // With a controller Rumble comes after the sensitivity, on by default.

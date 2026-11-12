@@ -4,7 +4,9 @@
 //!
 //! **Which device works the controls** is the player's choice, `Input Device` in
 //! `[Controls]` of `NVForever.ini` and the first row of the settings page's Controls tab
-//! (`crate::bindings::InputDevice`) [design; owner 2026-10-16: keyboard and mouse, or a
+//! (`crate::bindings::InputDevice`). Automatic Input Switching selects that saved
+//! choice on use and consumes the switching input (`device`) [design, #2200].
+//! The single-device controls remain [design; owner 2026-10-16: keyboard and mouse, or a
 //! controller, "depending on a setting under controls"]. With Controller chosen the
 //! controls answer the controller only (`crate::bindings::ControlInput`), the left stick
 //! moves, the right stick looks; Esc and the console's key still work.
@@ -27,6 +29,9 @@
 //! (`crate::pause::Listening`).
 
 use bevy::prelude::*;
+
+pub(crate) mod device;
+pub(crate) use device::SwitchingInput;
 
 /// A controller input a control can be bound to: a button, or the left stick pushed one
 /// way (the movement controls).
@@ -1355,11 +1360,13 @@ impl Plugin for PadPlugin {
     fn build(&self, app: &mut App) {
         use bevy::input::InputSystems;
         app.init_resource::<StickButtons>()
+            .init_resource::<SwitchingInput>()
             .init_resource::<MenuKeys>()
             .init_resource::<ButtonStyle>()
             .init_resource::<PadInUse>()
             .init_resource::<PadGlyphs>()
-            .add_systems(PreUpdate, (update_stick_buttons, menu_keys, track_pad, sync_labels.after(track_pad)).after(InputSystems))
+            .add_systems(PreUpdate, device::restore.before(InputSystems))
+            .add_systems(PreUpdate, (track_pad, device::automatic.before(crate::full_screen_key::read).before(bevy::ui::UiSystems::Focus), update_stick_buttons, menu_keys, sync_labels).chain().after(InputSystems))
             .add_systems(Update, (log_pads, load_pad_glyphs.before(crate::PlaySet::Ui)));
         crate::settings::add_choice_list(
             app,

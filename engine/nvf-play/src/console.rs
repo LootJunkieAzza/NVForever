@@ -409,7 +409,7 @@ fn close_on_exit(mut c: ResMut<Console>, mut commands: Commands, roots: Query<En
 
 #[allow(clippy::too_many_arguments)]
 fn typing(
-    mut typed: MessageReader<KeyboardInput>,
+    (mut typed, switching): (MessageReader<KeyboardInput>, Option<Res<crate::pad::SwitchingInput>>),
     time: crate::pause::AidTime,
     mut aid: ResMut<ConsoleAid>,
     mut c: ResMut<Console>,
@@ -424,7 +424,7 @@ fn typing(
     (mut saves, mut loads, save_cfg, mut save_log): (MessageWriter<crate::save::SaveRequest>, MessageWriter<crate::save::LoadRequest>, Res<crate::save::SaveConfig>, ResMut<crate::save::SaveLog>),
     (pipboy, data): (Option<Res<crate::pipboy::data::DataState>>, Option<Res<nvf_assets::GameData>>),
 ) {
-    let typed: Vec<KeyboardInput> = typed.read().cloned().collect();
+    let typed: Vec<KeyboardInput> = typed.read().filter(|e| switching.as_ref().is_none_or(|s| s.allows(e))).cloned().collect();
     if !c.open {
         return;
     }

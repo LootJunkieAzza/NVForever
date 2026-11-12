@@ -10011,7 +10011,7 @@ env = { NVFOREVER_HOME = "controls-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
 run_seconds = 12
 expect = [
-  { re = 'controls: 68 of 68 line\(s\) read from .*NVForever\.ini, 3 changed: Activate E -> F, Jump Space -> J, Toggle POV F, Middle Mouse -> E, Middle Mouse; input device Keyboard and Mouse', label = "the stored keys are bound at the start (the INI also lists the input device and the controller's buttons)" },
+  { re = 'controls: 69 of 69 line\(s\) read from .*NVForever\.ini, 3 changed: Activate E -> F, Jump Space -> J, Toggle POV F, Middle Mouse -> E, Middle Mouse; input device Keyboard and Mouse', label = "the stored keys are bound at the start (the INI also lists the input device and the controller's buttons)" },
 ]
 
 [[scenario]]
@@ -10607,7 +10607,7 @@ env = { NVFOREVER_HOME = "controller-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
 run_seconds = 12
 expect = [
-  { re = 'controls: 68 of 68 line\(s\) read from .*NVForever\.ini, 4 changed: Input Device Controller, \[Controller\] Jump Y -> RB, \[Controller\] Vats RB -> Y, \[Controller\] Rumble 0; input device Controller', label = "the stored device, buttons and Rumble off are taken at the start" },
+  { re = 'controls: 69 of 69 line\(s\) read from .*NVForever\.ini, 4 changed: Input Device Controller, \[Controller\] Jump Y -> RB, \[Controller\] Vats RB -> Y, \[Controller\] Rumble 0; input device Controller', label = "the stored device, buttons and Rumble off are taken at the start" },
 ]
 
 [[scenario]]
@@ -10636,7 +10636,7 @@ env = { NVFOREVER_HOME = "look-sensitivity-home", NVF_PLAY_TEST_SCRIPT_MENUS = "
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
 run_seconds = 12
 expect = [
-  { re = 'controls: 68 of 68 line\(s\) read from .*NVForever\.ini, 6 changed: Invert Y 1, Mouse Sensitivity 0\.003, Input Device Controller, \[Controller\] Stick Sensitivity 0\.5, Mouse Vertical Sensitivity 0\.8, \[Controller\] Stick Vertical Sensitivity 1\.2; input device Controller', label = "the stored Invert Y, the two sensitivities and the two vertical sensitivities (#2201) are taken at the start" },
+  { re = 'controls: 69 of 69 line\(s\) read from .*NVForever\.ini, 6 changed: Invert Y 1, Mouse Sensitivity 0\.003, Input Device Controller, \[Controller\] Stick Sensitivity 0\.5, Mouse Vertical Sensitivity 0\.8, \[Controller\] Stick Vertical Sensitivity 1\.2; input device Controller', label = "the stored Invert Y, the two sensitivities and the two vertical sensitivities (#2201) are taken at the start" },
 ]
 
 [[scenario]]
@@ -25949,3 +25949,23 @@ expect = [
   { json = "roundtrip_identical", schema = "fnv.bsa.verify/1", equals = true, label = "it rewrites as 103, byte for byte" },
   { json = "decode_errors.#", schema = "fnv.bsa.verify/1", equals = 0, label = "no decode errors" },
 ]
+
+[[scenario]]
+name = "controller-switch-on-use"
+source = "[design, #2200] fresh use switches the saved Input Device, consumes the switching input, refreshes controller rows/prompts, and respects the opt-out (docs/design/controller.md section 1)"
+note = "A synthetic pad from NVF_PLAY_TEST_KEYS exercises hardware-state detection; pad A on the Automatic Input Switching row must not turn it off. The second pad press with the opt-out off must not switch. No physical controller required."
+areas = ["main-menu", "save", "controller"]
+paths = ["engine/nvf-play/src/bindings.rs", "engine/nvf-play/src/pad.rs", "engine/nvf-play/src/pad/**", "engine/nvf-play/src/test_aid.rs", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings_view.rs"]
+env = { NVFOREVER_HOME = "controller-switch-on-use-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:26", NVF_PLAY_TEST_SETTINGS = "11:controls,11.5:device:Keyboard and Mouse,12:automatic-input:1,18:automatic-input:0,19:device:Keyboard and Mouse", NVF_PLAY_TEST_KEYS = "13:pad-A:1,16:enter:1,20:pad-A:1", NVF_PLAY_TEST_PAUSE_MENU = "14.5:inspect,17.5:inspect,22:inspect" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
+run_seconds = 28
+expect = [
+  { text = "controller: input device switched to Controller (button)", count = 1, label = "pad A selects and saves Controller exactly once; the disabled second press cannot switch" },
+  { text = "controller: input device switched to Keyboard and Mouse (key)", count = 1, label = "Enter switches back without activating the selected row" },
+  { text = "hints: Xbox labels", label = "prompts follow the controller" },
+  { text = "hints: Keys labels", label = "prompts follow the keyboard again" },
+  { text = "pause menu: inspect: rows device,automatic-input,padbind:Forward", label = "the open Controls tab refreshes to controller rows" },
+  { text = "pause menu: inspect: rows device,automatic-input,bind:Forward", count = 2, label = "keyboard rows return and stay selected with switching disabled" },
+  { text = "controls: automatic input switching off", count = 1, label = "only the explicit opt-out changes the switch; neither switching press activates its row" },
+]
+order = [["controls: automatic input switching on", "controller: input device switched to Controller (button)", "hints: Xbox labels", "controller: input device switched to Keyboard and Mouse (key)", "hints: Keys labels", "controls: automatic input switching off"]]

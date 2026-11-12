@@ -300,6 +300,8 @@ pub struct Bindings {
     pub invert_y: bool,
     pub mouse_sensitivity: f32,
     pub device: InputDevice,
+    /// Switch the saved device on use [design, #2200; `crate::pad`].
+    pub automatic_input_switching: bool,
     /// Right-stick look speeds (see [`LOOK_SPEED_HORIZONTAL`]).
     pub look_speed: [f32; 2],
     /// The controller rumbles (`crate::rumble`).
@@ -350,6 +352,7 @@ impl Bindings {
             invert_y: INVERT_Y,
             mouse_sensitivity: MOUSE_SENSITIVITY,
             device: InputDevice::KeyboardMouse,
+            automatic_input_switching: AUTOMATIC_INPUT_SWITCHING,
             look_speed: [LOOK_SPEED_HORIZONTAL, LOOK_SPEED_VERTICAL],
             rumble: RUMBLE,
             stick_sensitivity: 1.0,
@@ -614,6 +617,9 @@ const ALWAYS_RUN_KEY: &str = "Always Run By Default";
 const INVERT_Y_KEY: &str = "Invert Y";
 const SENSITIVITY_KEY: &str = "Mouse Sensitivity";
 const DEVICE_KEY: &str = "Input Device";
+/// Default policy, with a Controls opt-out [design, #2200].
+pub const AUTOMATIC_INPUT_SWITCHING: bool = true;
+pub const AUTOMATIC_INPUT_KEY: &str = "Automatic Input Switching";
 /// The INI section the controller's buttons are kept in.
 pub const PAD_SECTION: &str = "Controller";
 const LOOK_KEYS: [&str; 2] = ["Look Speed Horizontal", "Look Speed Vertical"];
@@ -648,6 +654,7 @@ pub fn with_controls(text: &str, b: &Bindings) -> String {
     t = ini_set(&t, SECTION, INVERT_Y_KEY, bit(b.invert_y));
     t = ini_set(&t, SECTION, SENSITIVITY_KEY, &mouse_sensitivity_text(b.mouse_sensitivity));
     t = ini_set(&t, SECTION, DEVICE_KEY, b.device.name());
+    t = ini_set(&t, SECTION, AUTOMATIC_INPUT_KEY, bit(b.automatic_input_switching));
     t = b.all().fold(t, |t, (c, _)| ini_set(&t, PAD_SECTION, Bindings::name(c), &pad_text(b.pad(c))));
     for (k, v) in LOOK_KEYS.iter().zip(b.look_speed) {
         t = ini_set(&t, PAD_SECTION, k, &format!("{v:.0}"));
@@ -692,6 +699,7 @@ pub fn read_controls(text: &str, b: &mut Bindings, bad: &mut Vec<String>) -> (us
     };
     switch(SECTION, ALWAYS_RUN_KEY, &mut b.always_run_by_default, &mut found, &mut changed, bad);
     switch(SECTION, INVERT_Y_KEY, &mut b.invert_y, &mut found, &mut changed, bad);
+    switch(SECTION, AUTOMATIC_INPUT_KEY, &mut b.automatic_input_switching, &mut found, &mut changed, bad);
     if let Some(v) = ini_get(text, SECTION, SENSITIVITY_KEY) {
         found += 1;
         match v.trim().parse::<f32>() {
@@ -783,7 +791,7 @@ pub fn read_controls(text: &str, b: &mut Bindings, bad: &mut Vec<String>) -> (us
 }
 
 /// The number of `[Controls]` lines a full section has.
-const LINES: usize = 2 * GAME_CONTROLS.len() + 4 + LOOK_KEYS.len() + 2 + VERTICAL_KEYS.len();
+const LINES: usize = 2 * GAME_CONTROLS.len() + 5 + LOOK_KEYS.len() + 2 + VERTICAL_KEYS.len();
 
 /// Read the player's keys from the INI (module notes) and fill in the lines it lacks.
 pub fn apply_stored(world: &mut World) {
@@ -844,6 +852,14 @@ pub fn set_device(world: &mut World, d: InputDevice) {
     let Some(mut b) = world.get_resource_mut::<Bindings>() else { return };
     b.device = d;
     info!("controls: input device {}", d.name());
+    store(world);
+}
+
+/// Set the Controls opt-out, saved with the device [design, #2200].
+pub fn set_automatic_input_switching(world: &mut World, on: bool) {
+    let Some(mut b) = world.get_resource_mut::<Bindings>() else { return };
+    b.automatic_input_switching = on;
+    info!("controls: automatic input switching {}", if on { "on" } else { "off" });
     store(world);
 }
 
@@ -996,6 +1012,7 @@ pub fn changed_controls(b: &Bindings) -> Vec<crate::settings_view::ControlRow> {
     let d = Bindings::game_defaults();
     let same = |row: R| match row {
         R::Device => b.device == d.device,
+        R::AutomaticInput => b.automatic_input_switching == d.automatic_input_switching,
         R::Binding(c, InputDevice::KeyboardMouse) => b.get(c) == d.get(c),
         R::Binding(c, InputDevice::Controller) => b.pad(c) == d.pad(c),
         R::Invert => b.invert_y == d.invert_y,
@@ -1021,6 +1038,7 @@ pub fn restore_rows(world: &mut World, rows: &[crate::settings_view::ControlRow]
     for row in rows {
         match *row {
             R::Device => b.device = d.device,
+            R::AutomaticInput => b.automatic_input_switching = d.automatic_input_switching,
             R::Binding(c, InputDevice::KeyboardMouse) => b.set(c, d.get(c)),
             R::Binding(c, InputDevice::Controller) => b.set_pad(c, d.pad(c)),
             R::Invert => b.invert_y = d.invert_y,
@@ -1184,6 +1202,34 @@ impl ControlInput<'_, '_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn automatic_input_switching_round_trips_and_legacy_devices_keep_their_meaning() {
+        for device in [InputDevice::KeyboardMouse, InputDevice::Controller] {
+            let mut b = Bindings::default();
+            let mut bad = Vec::new();
+            read_controls(&format!("[Controls]\nInput Device={}\n", device.name()), &mut b, &mut bad);
+            assert_eq!(b.device, device);
+            assert!(b.automatic_input_switching);
+            b.automatic_input_switching = false;
+            let text = with_controls("", &b);
+            let mut back = Bindings::default();
+            assert_eq!(read_controls(&text, &mut back, &mut bad).0, LINES);
+            assert_eq!(back.device, device);
+            assert!(!back.automatic_input_switching);
+            assert!(bad.is_empty());
+            read_controls("[Controls]\nAutomatic Input Switching=bad\n", &mut back, &mut bad);
+            assert!(!back.automatic_input_switching);
+            assert_eq!(bad.len(), 1);
+        }
+        use crate::settings_view::ControlRow;
+        let mut app = App::new();
+        app.init_resource::<Bindings>();
+        set_automatic_input_switching(app.world_mut(), false);
+        assert_eq!(changed_controls(app.world().resource::<Bindings>()), [ControlRow::AutomaticInput]);
+        restore_rows(app.world_mut(), &[ControlRow::AutomaticInput]);
+        assert!(changed_controls(app.world().resource::<Bindings>()).is_empty());
+    }
 
     #[test]
     fn the_sensitivity_steps_within_its_range() {
