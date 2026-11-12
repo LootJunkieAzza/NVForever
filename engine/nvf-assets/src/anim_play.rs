@@ -631,8 +631,13 @@ pub struct BoundClip {
     /// where the track starts, which sampling removes too: the root rises and falls only
     /// relative to it (actors.md §8.2; the 2ha/2hh `Holster` clips hold `Bip01` 67 units
     /// up with no `Bip01 NonAccum` track, which over an idle's pelvis height lifted the
-    /// whole body off the ground, docs/spec-notes/floating-actors.md).
-    pub root_track: Option<(usize, Vec3, f32)>,
+    /// whole body off the ground, docs/spec-notes/floating-actors.md). Last, the
+    /// rotation sampling takes out of the root's: the track's start rotation when the
+    /// clip has no `Bip01 NonAccum` track, so the root turns only relative to it (the same
+    /// holster clips also turn `Bip01` 90° about z, the pelvis turn an idle's `Bip01
+    /// NonAccum` already carries: over the idle the body stood turned 90° from its
+    /// heading, docs/spec-notes/floating-actors.md §8, #2246); else the identity.
+    pub root_track: Option<(usize, Vec3, f32, Quat)>,
     /// The clip's travel is its actor's (attack clips that lunge, actors.md §8.13): sampling holds
     /// the root's ground position (x, y) where the track starts, this, so all of the
     /// travel is taken out of the pose (not only the linear accumulation of §8.2), and
@@ -649,6 +654,17 @@ pub struct BoundClip {
 /// median 133 (smoke combat-dogs, npc-behaviour-compare.md §3); actors.md §8.13].
 pub const CARRY_MIN: f32 = 100.0;
 
+/// The rotation [`BoundClip::root_track`] takes out of a clip's accumulation-root track
+/// `tt`: its start rotation when `clip` has no `Bip01 NonAccum` track (the root's track
+/// then stands in for the pelvis's: the 2ha/2hh `Holster` clips), else the identity
+/// [hypothesis, as for the start height: the accumulation root's motion counts from the
+/// clip's start; docs/spec-notes/floating-actors.md §8].
+fn root_turn_out(clip: &Clip, tt: &TransformTrack) -> Quat {
+    let pelvis = clip.tracks.iter().any(|(n, _)| n.eq_ignore_ascii_case("Bip01 NonAccum"));
+    let start = tt.rotation_at(clip.start).map(|[w, x, y, z]| Quat::from_xyzw(x, y, z, w).normalize());
+    start.filter(|q| !pelvis && q.is_finite()).unwrap_or(Quat::IDENTITY)
+}
+
 impl BoundClip {
     /// Bind `clip`'s tracks to node indices by name (`node`).
     pub fn bind(clip: Arc<Clip>, node: impl Fn(&str) -> Option<usize>) -> BoundClip {
@@ -663,7 +679,7 @@ impl BoundClip {
             let tt = &tracks[k].1;
             let at = |t: f32| tt.translation.sample(t).map_or(Vec3::ZERO, Vec3::from_array);
             let start = at(clip.start);
-            (k, finite_or_zero(at(clip.stop) - start), start.z)
+            (k, finite_or_zero(at(clip.stop) - start), start.z, root_turn_out(&clip, tt))
         });
         BoundClip { clip, tracks, root, root_track, carried: None }
     }
@@ -975,8 +991,10 @@ impl BlendPlayer {
             for (j, (i, track, p)) in bc.tracks.iter().enumerate() {
                 let b = self.rest_of(*i);
                 let mut t = track.translation.sample(time).map_or(b.translation, Vec3::from_array);
-                if let Some((rj, per_cycle, start_z)) = bc.root_track {
+                let mut turn_out = None;
+                if let Some((rj, per_cycle, start_z, start_rot)) = bc.root_track {
                     if rj == j {
+                        turn_out = Some(start_rot);
                         match bc.carried {
                             // Its travel is the actor's: all of it out of the pose.
                             Some(at) => (t.x, t.y) = (at.x, at.y),
@@ -986,6 +1004,7 @@ impl BlendPlayer {
                     }
                 }
                 let r = track.rotation_after(time, cycles).map_or(b.rotation, |[w, x, y, z]| Quat::from_xyzw(x, y, z, w).normalize());
+                let r = turn_out.map_or(r, |q| (q.inverse() * r).normalize());
                 let s = track.scale.sample(time).map_or(b.scale.x, |[s]| s);
                 self.add(*i, Contrib { t, r, s, w, p: *p });
                 sampled += 1;
@@ -1848,7 +1867,7 @@ mod tests {
         let (_, ix) = player();
         let (walk, idle) = walk_and_idle(&ix);
         assert_eq!(walk.tracks.len(), 3);
-        assert_eq!((walk.root, walk.root_track), (Some(1), Some((0, Vec3::new(0.0, 100.0, 0.0), 0.0))));
+        assert_eq!((walk.root, walk.root_track), (Some(1), Some((0, Vec3::new(0.0, 100.0, 0.0), 0.0, Quat::IDENTITY))));
         // A track whose node the skeleton lacks is dropped; the idle drives no root.
         assert_eq!((idle.tracks.len(), idle.root, idle.root_track), (1, Some(1), None));
         assert_eq!(walk.time_at(0.25), 0.25);
@@ -1980,7 +1999,7 @@ mod tests {
         let (mut p, ix) = player();
         let holster = Arc::new(BoundClip::bind(prio_clip(1.0, vec![("Bip01", pose([0.0, 0.0, 67.0]), 40)]), &ix));
         let idle = Arc::new(BoundClip::bind(prio_clip(1.0, vec![("Bip01 NonAccum", pose([0.0, 0.0, 61.0]), 10)]), &ix));
-        assert_eq!(holster.root_track, Some((0, Vec3::ZERO, 67.0)));
+        assert_eq!(holster.root_track, Some((0, Vec3::ZERO, 67.0, Quat::IDENTITY)));
         let layer = |c: &Arc<BoundClip>| Some(Layer { clip: c.clone(), phase: 0.5, weight: 1.0 });
         p.layers = [layer(&idle), layer(&holster), None, None, None, None, None, None];
         let mut out = Vec::new();
@@ -1988,6 +2007,47 @@ mod tests {
         let get = |i: usize| out.iter().find(|(j, _)| *j == i).unwrap().1.translation;
         assert_eq!(get(1), Vec3::ZERO);
         assert_eq!(get(2).z, 61.0);
+    }
+
+    #[test]
+    fn root_turn_counts_from_the_track_start_without_a_pelvis_track() {
+        // `2haholster.kf` (and 2hh, pa2ha): `Bip01` 66.6 up and turned 90° about z, no
+        // `Bip01 NonAccum` track, over an idle whose `Bip01 NonAccum` carries the same
+        // 90° turn [observed: the files' NiTransformInterpolators]. The root stays
+        // unturned, so the body faces where the actor does (#2246: Lucas Simms in TTW
+        // stood 90° off the player he talked to).
+        let (mut p, ix) = player();
+        let (s, c) = (FRAC_PI_4.sin(), FRAC_PI_4.cos());
+        let quarter = [c, 0.0, 0.0, s];
+        let turned = |t: [f32; 3]| track(Channel::Static(Some(t)), Channel::Static(Some(quarter)));
+        let holster = Arc::new(BoundClip::bind(prio_clip(1.0, vec![("Bip01", turned([0.0, -0.3, 66.6]), 5)]), &ix));
+        let idle = Arc::new(BoundClip::bind(prio_clip(1.0, vec![("Bip01 NonAccum", turned([0.0, 0.0, 61.0]), 10)]), &ix));
+        let layer = |c: &Arc<BoundClip>| Some(Layer { clip: c.clone(), phase: 0.5, weight: 1.0 });
+        p.layers = [layer(&idle), None, layer(&holster), None, None, None, None, None];
+        let mut out = Vec::new();
+        p.sample(&mut out);
+        let get = |i: usize| out.iter().find(|(j, _)| *j == i).unwrap().1;
+        assert!(get(1).rotation.angle_between(Quat::IDENTITY) < 1e-4, "{:?}", get(1).rotation);
+        let (axis, angle) = get(2).rotation.to_axis_angle();
+        assert!(axis.z > 0.99 && (angle.to_degrees() - 90.0).abs() < 1e-3);
+        // The whole body (root then pelvis) is turned 90°, as by the idle alone, not 180°.
+        let body = get(1).rotation * get(2).rotation;
+        assert!((body.to_axis_angle().1.to_degrees() - 90.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn a_clip_with_a_pelvis_track_keeps_its_root_turn() {
+        // A clip that drives `Bip01 NonAccum` as well keeps whatever its root track turns.
+        let (mut p, ix) = player();
+        let (s, c) = (FRAC_PI_4.sin(), FRAC_PI_4.cos());
+        let turned = track(Channel::Static(Some([0.0; 3])), Channel::Static(Some([c, 0.0, 0.0, s])));
+        let both = Arc::new(BoundClip::bind(prio_clip(1.0, vec![("Bip01", turned, 30), ("Bip01 NonAccum", pose([0.0, 0.0, 61.0]), 30)]), &ix));
+        assert_eq!(both.root_track.map(|r| r.3), Some(Quat::IDENTITY));
+        p.layers = [Some(Layer { clip: both, phase: 0.5, weight: 1.0 }), None, None, None, None, None, None, None];
+        let mut out = Vec::new();
+        p.sample(&mut out);
+        let root = out.iter().find(|(j, _)| *j == 1).unwrap().1.rotation;
+        assert!((root.to_axis_angle().1.to_degrees() - 90.0).abs() < 1e-3);
     }
 
     #[test]
