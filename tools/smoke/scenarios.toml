@@ -24481,9 +24481,9 @@ expect = [
   { re = 'pipboy data: active quest ', min = 1, label = "the click made the quest active, the hand-built page's rule" },
   { text = "tiles: MapMenu Button(X) on its tiles", count = 1, label = "the click on the Show Location hint, through its tile" },
   { text = "pipboy: DATA World Map", min = 1, label = "Show Location shows the World Map" },
-  { text = "tiles: MapMenu leaves world map hand-built: not drawn from the file yet", min = 1, label = "the World Map keeps the whole hand-built page" },
+  { text = "tiles: MapMenu draws world map from tiles", min = 1, label = "the World Map is drawn from its file too since #1513's World Map slice (tiles-data-world); before: it kept the hand-built page" },
 ]
-order = [["tiles: MapMenu draws quests from tiles", "tiles: MapMenu Row(0) on its tiles", "tiles: MapMenu Button(X) on its tiles", "pipboy: DATA World Map", "tiles: MapMenu leaves world map hand-built", "pipboy: DATA Quests", "tiles: MapMenu draws quests from tiles", "pipboy: down", "pipboy: up, page DATA tab Quests"]]
+order = [["tiles: MapMenu draws quests from tiles", "tiles: MapMenu Row(0) on its tiles", "tiles: MapMenu Button(X) on its tiles", "pipboy: DATA World Map", "tiles: MapMenu draws world map from tiles", "pipboy: DATA Quests", "tiles: MapMenu draws quests from tiles", "pipboy: down", "pipboy: up, page DATA tab Quests"]]
 
 [[scenario]]
 name = "tiles-data-quests-screen"
@@ -24586,6 +24586,68 @@ expect = [
 order = [[{ re = 'pipboy data: note .+ \(0x001618BF\) picked' }, "pipboy data: challenges shown", "pipboy data: notes shown"]]
 
 [[scenario]]
+name = "tiles-data-world"
+source = "[design] pipboy.md section 5.3.1, issue 1513: with [UI] TileMenus=MapMenu the DATA page's World Map is drawn from map_menu.xml through the viewport the hand-built page shares (MapView): the picture under MM_WorldMap_ParentImage, the markers as MapMarkerTemplate rows kept by record, the custom marker and its dotted line from the file's templates, the arrow and the highlight box; Place Marker's question box is painted over the tiles and answered both ways (Yes places the marker, Remove takes it off), and fast travel's question is painted over them and cancelled (No), the page staying drawn from its tiles throughout"
+note = "pipboy-custom-marker's pointer (canvas 527, 350, 50 right of the map window's middle) and fast-travel-primm's ShowMap of Primm (0x000CDF46) as a travel target; placemarker is the maps' X button, key=use the chosen answer, key=down the next one; travel= asks as a click on that marker would. Shots: tiles_data_world.png (the map with the custom marker and its line, unturned until the painter turns pictures), tiles_data_world_box.png (the question box over the tiles), to compare with tiles-data-world-off's."
+areas = ["ui", "menus", "pipboy", "fast-travel"]
+paths = ["engine/nvf-play/src/tiles/map_menu.rs", "engine/nvf-play/src/pipboy/data.rs", "engine/nvf-play/src/pipboy/data/view.rs", "engine/nvf-play/src/pipboy/data/marker.rs", "engine/nvf-play/src/pipboy/data/travel.rs", "engine/nvf-play/src/pipboy.rs", "engine/nvf-play/src/tiles/draw.rs", "engine/nvf-play/src/tiles/layout.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "6:call:-:ShowMap:0x000CDF46:1,9:objective:VCG02:3", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=data,13.5:tab=1,14:point=527:350,15:placemarker,16:key=use,18:placemarker,19:key=down,19.5:key=use,21:travel=000CDF46,22:key=down,23:key=use,25:tab=2,27:close", NVF_PLAY_TEST_TILE_MENUS = "MapMenu", NVF_PLAY_TEST_SHOTS = "17:tiles_data_world.png,18.5:tiles_data_world_box.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
+run_seconds = 30
+expect = [
+  { text = "tiles: MapMenu draws world map from tiles", min = 1, label = "the World Map is drawn from its file" },
+  { re = 'tiles: MapMenu page from tiles: tab world map, [1-9]\d* markers, \d+ quest markers, (no )?custom marker, \d+ dotted lines, "[^"]*" highlighted, magnification \d\.\d\d, hints: X [^,]+, device$', min = 1, label = "the markers, the highlight and the hints written" },
+  { re = 'tiles: MapMenu page from tiles: tab world map, [1-9]\d* markers, \d+ quest markers, custom marker, [1-9]\d* dotted lines, ', min = 1, label = "the custom marker and its dotted line written from the file's templates" },
+  { re = 'tiles: MapMenu drawn from tiles \(\d+ file tiles, [1-9]\d* code tiles\)', min = 1, label = "structure only: the markers are code rows of the file's templates" },
+  { re = 'pipboy data: question box over the tiles \(2 answers\)', min = 1, label = "Place Marker's question over the tiles" },
+  { re = 'pipboy map: custom marker placed at \(-?\d+, -?\d+\) in 0x[0-9A-F]{8}', count = 1, label = "Yes places the marker" },
+  { re = 'pipboy data: question box over the tiles \(3 answers\)', min = 1, label = "the question with a marker placed, over the tiles" },
+  { text = "pipboy map: custom marker removed", count = 1, label = "the second answer removes it" },
+  { re = 'fast travel: asks "Do you want to travel to Primm\?" \(0x000CDF46\)', count = 1, label = "fast travel asks" },
+  { text = 'fast travel: answered "No"', count = 1, label = "and is cancelled" },
+  { re = 'fast travel: to Primm .*arrive', count = 0, label = "no travel" },
+  { text = "MapMenu drawn by hand", count = 0, label = "no fallback" },
+  { text = "tiles: MapMenu leaves world map hand-built", count = 0, label = "the page stays drawn from its tiles under the question boxes: no frame of the hand-built page" },
+  { re = 'tiles: MapMenu Button\(.\) on its tiles', count = 0, label = "no click on the page's tiles went through the question boxes" },
+]
+order = [["tiles: MapMenu draws world map from tiles", { re = 'pipboy data: question box over the tiles \(2 answers\)' }, "pipboy map: custom marker placed at", { re = 'pipboy data: question box over the tiles \(3 answers\)' }, "pipboy map: custom marker removed", { re = 'fast travel: asks "Do you want to travel to Primm' }, 'fast travel: answered "No"', "tiles: MapMenu draws quests from tiles"]]
+
+[[scenario]]
+name = "tiles-data-world-off"
+source = "[design] pipboy.md section 5.3.1: without the switch the World Map is the hand-built page: nothing of the tile page runs, no question box is painted over tiles, and Place Marker and fast travel work as before"
+note = "the same steps and times as tiles-data-world. Shots to compare with it."
+areas = ["ui", "menus", "pipboy", "fast-travel"]
+paths = ["engine/nvf-play/src/tiles/map_menu.rs", "engine/nvf-play/src/pipboy/data.rs", "engine/nvf-play/src/pipboy/data/view.rs", "engine/nvf-play/src/pipboy.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "6:call:-:ShowMap:0x000CDF46:1,9:objective:VCG02:3", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=data,13.5:tab=1,14:point=527:350,15:placemarker,16:key=use,18:placemarker,19:key=down,19.5:key=use,21:travel=000CDF46,22:key=down,23:key=use,25:tab=2,27:close", NVF_PLAY_TEST_SHOTS = "17:tiles_data_world_off.png,18.5:tiles_data_world_box_off.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
+run_seconds = 30
+expect = [
+  { re = 'tiles: MapMenu|MapMenu drawn by hand|question box over the tiles', count = 0, label = "switch off: nothing of the tile page runs without its switch" },
+  { re = 'pipboy map: custom marker placed at \(-?\d+, -?\d+\)', count = 1, label = "switch off: Yes places the marker, as before" },
+  { text = "pipboy map: custom marker removed", count = 1, label = "switch off: the second answer removes it, as before" },
+  { text = 'fast travel: answered "No"', count = 1, label = "switch off: fast travel cancelled, as before" },
+]
+order = [["pipboy map: custom marker placed at", "pipboy map: custom marker removed", 'fast travel: answered "No"']]
+
+[[scenario]]
+name = "tiles-data-world-missing-template"
+source = "[design] pipboy.md section 5.3.1: a file short of a World Map template keeps the World Map's whole hand-built page, says why once, and Place Marker works there; the other tabs are still drawn from the file"
+note = "NVF_PLAY_TEST_MAP_TILE_CUT takes MapMarkerTemplate as missing for the run (a World Map template only), so no changed game file is needed."
+areas = ["ui", "menus", "pipboy"]
+paths = ["engine/nvf-play/src/tiles/map_menu.rs", "engine/nvf-play/src/pipboy/data.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:objective:VCG02:3", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=data,13.5:tab=1,14:point=527:350,15:placemarker,16:key=use,18:tab=2,20:close", NVF_PLAY_TEST_TILE_MENUS = "MapMenu", NVF_PLAY_TEST_MAP_TILE_CUT = "MapMarkerTemplate" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
+run_seconds = 23
+expect = [
+  { text = "MapMenu drawn by hand: MapMarkerTemplate missing", count = 1, label = "the template cut, by hand: the reason, once" },
+  { text = "tiles: MapMenu leaves world map hand-built: MapMarkerTemplate missing", min = 1, label = "the draw state's line" },
+  { re = 'pipboy map: custom marker placed at \(-?\d+, -?\d+\)', count = 1, label = "Place Marker works on the hand-built page" },
+  { text = "question box over the tiles", count = 0, label = "the box is the hand-built page's" },
+  { text = "tiles: MapMenu draws quests from tiles", min = 1, label = "Quests needs none of the World Map's templates" },
+]
+order = [["tiles: MapMenu leaves world map hand-built: MapMarkerTemplate missing", "pipboy map: custom marker placed at", "tiles: MapMenu draws quests from tiles"]]
+
+[[scenario]]
 name = "tiles-data-radio"
 source = "[design] pipboy.md section 5.3.1, issue 1513: with [UI] TileMenus=MapMenu the DATA page's Radio tab is drawn from map_menu.xml: the stations in MM_RadioStationList (the playing one's square filled), the waveform's frame from MM_WaveformRect (MM_Waveform hidden) and the hand-built trace painted over it while the radio plays; a click on a station tunes to it through its tile, Enter on the playing one turns the radio off (the hand-built page's rules)"
 note = "the points are canvas units on the page as run [hypothesis until the first run: the first station's words about 200, 150, as the first quest's in tiles-data-quests]; Goodsprings is assumed to receive at least two stations at noon (Mojave Music Radio is the first the radio-pipboy scenario tunes to) and the Pip-Boy radio to be off at the start. The click tunes to the first station; Down and Enter (the test aid's key steps, the hand-built page's keys) tune to the second; Enter again turns it off. Shots: tiles_data_radio.png (the trace over the file's panel) against tiles-data-radio-off's at the same time."
@@ -24624,7 +24686,7 @@ order = [[{ re = 'pipboy data: radio tuned to ' }, { re = 'pipboy data: radio tu
 
 [[scenario]]
 name = "tiles-data-custom-marker"
-source = "#1954 with #1513 (docs/spec-notes/pipboy.md §5.3.1): with [UI] TileMenus=MapMenu the maps keep the whole hand-built page, prepared before the frame (data::prepare), and Place Marker's question box works there as with the switch off: placed on the World Map, moved from the Local Map, removed; the page goes back to its tiles on Quests"
+source = "#1954 with #1513 (docs/spec-notes/pipboy.md §5.3.1): with [UI] TileMenus=MapMenu the World Map is drawn from its file (its question box painted over the tiles) and the Local Map keeps the whole hand-built page, both prepared before the frame (data::prepare), and Place Marker's question box works on both as with the switch off: placed on the World Map, moved from the Local Map, removed; the page goes back to its tiles on Quests"
 note = "pipboy-custom-marker's steps with the switch on, then Quests; the question box's answers are the hand-built page's, its hover reset when they are spawned again (data::draw)."
 areas = ["pipboy", "ui"]
 paths = ["engine/nvf-play/src/pipboy/data.rs", "engine/nvf-play/src/pipboy/data/marker.rs", "engine/nvf-play/src/tiles/map_menu.rs"]
@@ -24632,7 +24694,8 @@ env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:objective
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--size", "1280x720"]
 run_seconds = 27
 expect = [
-  { text = "tiles: MapMenu leaves world map hand-built: not drawn from the file yet", min = 1, label = "the World Map keeps the hand-built page" },
+  { text = "tiles: MapMenu draws world map from tiles", min = 1, label = "the World Map is drawn from its file since #1513's World Map slice; before: it kept the hand-built page" },
+  { text = "tiles: MapMenu leaves local map hand-built: not drawn from the file yet", min = 1, label = "the Local Map keeps the hand-built page" },
   { re = 'pipboy map: Place Marker asks ".+" \(2 answers\)', count = 1, label = "with no marker the question has two answers" },
   { re = 'pipboy map: custom marker placed at \(-?\d+, -?\d+\) in 0x[0-9A-F]{8}', count = 1, label = "Yes places the marker" },
   { re = 'pipboy map: dotted line to custom marker \(\d+ segments\)', min = 1, label = "the World Map's dotted line to it" },

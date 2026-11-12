@@ -1553,18 +1553,20 @@ prefabs it includes, `list_box.xml`, `list_box_template.xml`, `text_box.xml`, `t
 capture of the original's MapMenu traits was read for this slice but run08's map markers (§5.3);
 what the original writes into the traits below is not known unless tagged.
 
-**This slice draws Quests, Misc and Radio** [design, #1513]. The Local Map and the World Map keep
-the whole hand-built page while they show: their drawing and picking need a shared viewport the
-file's map windows do not give yet. Radio's waveform in the file is `MM_Waveform`, an image the code
-gives an animation ("set in code", which one not known); it stays hidden, and the hand-built trace
-of the radio's loudness (§5.3) is painted over the file's own frame of the panel (below). The page
-goes over to its tiles and back as the tab changes, as STATS' tabs do; with the switch on the maps'
-hand-built page is prepared early as every tab is (below), so Place Marker's question box (#1954)
-and its hover reset work there unchanged.
+**This slice draws the World Map, Quests, Misc and Radio** [design, #1513]. The Local Map keeps the
+whole hand-built page while it shows: its picture is made in code (the outline, §5.3), which the
+tile painter cannot show yet. The World Map is drawn from the file through one viewport the
+hand-built page shares (`pipboy/data/view.rs`, `MapView`, below); its picking stays the model's.
+Radio's waveform in the file is `MM_Waveform`, an image the code gives an animation ("set in code",
+which one not known); it stays hidden, and the hand-built trace of the radio's loudness (§5.3) is
+painted over the file's own frame of the panel (below). The page goes over to its tiles and back as
+the tab changes, as STATS' tabs do; with the switch on every tab is prepared early (below), so the
+question boxes (fast travel's, Place Marker's, #1954) and their hover reset work on either drawing.
 
 **The one decision**: `MapTiles::ready`, as `InventoryTiles::ready` (§5.2.1): the switch on, DATA
-showing on a tab drawn from the file, no fast-travel question up, the file's tiles there, the tabs
-made, the model prepared for this tab, and a usable measured layout. A failure leaves the whole
+showing on a tab drawn from the file, the file's tiles there, the tabs made, the model prepared for
+this tab, and a usable measured layout. A question box up does not change it (below). A failure
+leaves the whole
 hand-built page, says why once (on the third final pass in a row that fails), and is tried again
 when what it would show or the tree changes. While the Pip-Boy goes down the page stays as last
 written [design].
@@ -1626,8 +1628,29 @@ page's rules read of the drawing: how many rows fit, how far the right pane can 
   foot, `cropy` 2), `MM_WaveformMeterVert` (`tickmark_vert.dds`, 32 wide at its right, `cropx` 2),
   `MM_WaveformCenterLine` (`solid.dds`, 345 × 2 at y 166) and `MM_Waveform` (hidden, an `animation`
   "Forward", set in code).
-- Not read in this slice: the maps' windows and templates, the highlight box,
-  `MM_Headline_ChallengeType`, the two square highlights above.
+- The World Map: `MM_WorldMap_ClipWindow` (a clip window 50 down, 855 × 500, shown on tab 1) holding
+  `MM_WorldMap_ParentImage`, a **hotrect** with the picture's `filename`, `filewidth` and
+  `fileheight` (2048), `_Magnification` (1), `user0`/`user1`/`user2` (the map markers', quest
+  markers' and arrow's widths, "set in code"), its `width`/`height` the file's size times the
+  magnification and its `x`/`y` its drag held between the window's middle less its size and the
+  middle; its children are the markers, which the original's code removes and makes again every
+  update (the file's comment). Beside it `MM_WorldMapCursor` (`glow_cursor.dds`, `_x`/`_y` in
+  texture coordinates times the picture's size plus its place less half its own size, `width` the
+  picture's `user2`, 1.28 as high, turned about its middle by `rotateaxisx`/`rotateaxisy`).
+  `MM_Highlight_ClipWindow` (the same box, shown on tabs 0 and 1) holds `MM_MapHighlightBox` (160
+  square, its `_Title` shown by `MM_HighlightLocationName`, font 1, centred 80 in and 180 down, a
+  centre dot and the corner lines).
+- The World Map's templates, each placed at `_x`/`_y` (texture coordinates 0..1) times its parent's
+  size less half its own: `MapMarkerTemplate` (`MapMarker`: `_LocationName`, `_MarkerIndex`,
+  `_selected` 1.75 times larger, brightness 255 not 220 and 10 deeper; `filename` set in code; width
+  the parent's `user0`), `WorldMapQuestMarkerTemplate` (`WorldMapQuestMarker`, the parent's `user1`
+  wide, 1.25 as high, 15 right and 5 down, depth 4), `WaypointTemplate` (`WaypointIcon`,
+  `waypoint_node.dds`, 0.8 of `user0`, depth 3) and `PathLineTemplate` (`PathLine`,
+  `waypoint_path.dds` repeated, from its parent's middle, a third of its parent's height, as long
+  as its `user0` less 4 times its grandparent's `_Magnification`, turned about its left middle,
+  depth -1). `LocalMapQuestMarkerTemplate` is the Local Map's.
+- Not read in this slice: the Local Map's window, `MM_Headline_ChallengeType`, the two square
+  highlights above.
 
 **What the code writes on Quests** [design]:
 
@@ -1667,6 +1690,50 @@ Quests where nothing is said:
 | The waveform panel | `MM_WaveformRect/visible` 1 on Radio, 0 on the other tabs; `MM_Waveform/visible` 0 | Put right on every pass, as the lists' `visible`. The file's frame draws: its two tick meters and its centre line. `MM_DataRect` is hidden (`visible` 0, `_ItemType` 0). |
 | The trace while the radio plays (`data::WaveScope`) | none: painted over the tiles (`data::trace_over_tiles`), inside `MM_WaveformRect`'s box as laid out, cut to it | The hand-built trace (§5.3), its proportions scaled from the 350 square to the box measured (at 350 exactly the hand-built numbers: the line 5 short and 8 over the middle, 110 high at the loudest), in the hand-built line's colour, above the page's tiles in the Pip-Boy's image, as the hotkey panel over ITEMS (§5.2.1). No flat line of its own: the file's centre line stands under it, and alone while the radio is off. |
 | The hints | A Tune with a controller, none with the keyboard | `tab_buttons`. |
+
+**What the code writes on the World Map** [design]: the model's (`pipboy::data::world_map`,
+§5.3) through one viewport, `MapView` (`pipboy/data/view.rs`): the window the map is seen through
+(the hand-built page's is the file's numbers; the tile page publishes the clip window as laid out,
+`DataState::publish_map`, which the model reads for that tab while it stands), the picture's place
+and size in it from the model's pan and zoom (centred on the player when the page comes up, a drag
+moves the middle point, 1.25 a wheel step from 1 to 4, the file's limits on the picture's edges),
+and the transform from texture coordinates to the window and back. The hand-built page and this one
+paint from it, and the model's pointer is read in its window, so what is under the pointer is what
+is drawn.
+
+| Model (`pipboy::data`) | Tile, trait | Notes |
+|---|---|---|
+| The picture, its size at 1 (`MNAM`) and the magnification | `MM_WorldMap_ParentImage`: `filename`, `filewidth`, `fileheight`, `_Magnification`; `x`, `y`, `width`, `height` and `dragdeltax`/`dragdeltay` from `MapView`, put right on every pass | The place is written, not left to the file's expressions: they would read a drag NVForever does not feed. The children keep the file's hierarchy and texture coordinates, so a pan or a zoom moves the picture alone and the file's expressions place the rows on it. |
+| The picture drawn | an image NVForever makes under the hotrect (`NVF_MapPicture`, from a template of its own, `NVF_MapPictureTemplate`, put on the menu once a tree): `filename`, `zoom` -1 (stretched over its box), `x`/`y` 0, `width`/`height` the hotrect's, `alpha` 128, `brightness` 255, depth -2 under the markers | The tile painter draws no hotrect's picture; the original's code draws this one in a way not known. |
+| The widths | the hotrect's `user0` 24, `user1` 56, `user2` 40 | The hand-built page's sizes (§5.3). |
+| The markers the player knows (`known`), by reference | `MapMarkerTemplate` rows under the hotrect, kept by the marker's FormID: `_x`/`_y` (§5.3's projection, each marker by its own worldspace's numbers), `filename` (its icon, `model::marker_icon`), `_selected` (the marker the highlight box is on, the model's pick), `_LocationName`, `_MarkerIndex` | Made once and kept across frames and while the page goes down and up; a marker found or gone adds or unloads its row alone, and a frame whose markers did not change writes none of them (a pan or a zoom writes only the picture). The original makes them every update. |
+| The active quest's targets, by reference; the custom marker | `WorldMapQuestMarkerTemplate` rows under the hotrect: `_x`/`_y`, `filename` (`glow_hud_compass_objective_marker.dds`; the custom marker's `glow_hud_compass_pc_marker.dds` at depth 5) | The custom marker from the quest markers' template [hypothesis: the capture shows it as wide as they are, §5.3]. |
+| The dotted lines (#2054) | `WaypointTemplate` nodes under the hotrect at the arrow (named `WaypointStart`) and at each line's end (`WaypointIcon`); under the start node a `PathLineTemplate` line to each end: `user0` its length at a magnification of 1 (the window's units), `rotateangle` its direction (radians, from the window's x axis, y down) | As the hand-built lines (§5.3); one line per end from the arrow [hypothesis there]. Until the tile painter turns a picture by `rotateangle` the lines draw unturned. |
+| The player's arrow | `MM_WorldMapCursor`: `_x`/`_y`, `rotateangle` the heading (radians, clockwise from north), `visible` while the player is on this map | Its place is the file's expression on the picture. Unturned until the painter turns pictures, as above. |
+| The highlight box, its name and a marker's reputation | `MM_MapHighlightBox`: `x`/`y` its middle on the model's highlight (in its own window's units: the map's window's offset from it added), `visible` 1, `_Title` the name and on a second line the reputation's (`model::reputation_line`) | The model's highlight: at the pointer over the map, else where it was left; on a marker within reach that marker's place [hypothesis there]. |
+| The windows | `MM_WorldMap_ClipWindow/visible`, `MM_Highlight_ClipWindow/visible` 1; the clip windows turned on (`item_menu::mark_menu`) | Put right on every pass. |
+| The place and the time | as on Quests | The shared headline writer. |
+| The hints | X Place Marker (bright), A Travel with a controller (dim with no Travel target) | `tab_buttons`, by what each does. |
+
+**The World Map's input** [design]: the tiles take the tabs and the hints (T8, as on the other
+tabs); the map's drag, the wheel's zoom, the controller's sticks, the highlight box and picking
+(the nearest marker within reach, a click a press and release with little movement), Enter and the
+controller's A asking to travel stay the model's (`data::take_input`, `place_cursor`,
+`travel_ask`), read in the window the tile page published, the hints' boxes as laid out excluded
+(the pointer over a hint is the hint's, never the map's). So one owner starts travel.
+
+**The question boxes** (fast travel's, Place Marker's) [design]: the model keeps the box
+(`DataState::popup`) whatever draws the page; over the page drawn from the file the same box is
+painted in the Pip-Boy's image above the page's tiles, in the middle of the map window as laid out
+(`data::popup_over_tiles`), its answers taking the pointer as the hand-built box's do, spawned again
+when its choice moves (which forgets the answer under the pointer, as the hand-built drawing does).
+The page stays drawn from its tiles under it (no frame of the hand-built page). While it is up, and
+after it is answered until the left button is let go, it owns the frame's input
+(`MapTiles::popup_owns`, set by the tile input before it acts): the tile input takes nothing and the
+shell's keys (`pipboy::takes_keys`) wait, so no click goes through it and no key acts twice. Its own
+keys and clicks are the model's (`popup_input`, which returns before anything else on the page
+moves). A menu over the page is not used for it (`MapTiles::over_data` stops the model's input
+altogether).
 
 **Every string written, and where it comes from** [design: LEGAL.md]: the tabs as above; the place,
 the quests', notes' and challenges' names and the challenges' descriptions (record data); a note's text (record data, `TNAM`) and picture's file (`XNAM`); the date and time and a
@@ -1719,12 +1786,14 @@ pane's window is published while it scrolls (the objectives, a text). A hint tha
 not take the pointer at its word is warned of and the page stays (its key still works); its key's
 text (`PCShortcutLabel`) stands beside the hint's box [documented: text_box.xml] and is not asked.
 
-**Falls back, whole page, with the reason** [design]: the maps; the question box up;
+**Falls back, whole page, with the reason** [design]: the Local Map;
 `MapMenu` not in the tree; a tile or template above missing (a mod's restructured file), each tab
 asking for its own (a file short of Misc's text still draws Quests from the file, and the other way
 round); the tabs or a row not made; nothing prepared yet for this tab (no failure); the layout not
 usable (on Radio also the waveform panel not shown, without a size or not wholly on the canvas: the
-trace would have no box). The test aid
+trace would have no box; on the World Map the map's window hidden, without a size or not wholly on
+the canvas, its picture not painted inside it, or the highlight box not shown; a World Map without
+a picture here). On the World Map each of its four templates is asked for too. The test aid
 `NVF_PLAY_TEST_MAP_TILE_CUT=<name>[@<seconds>]` takes a tile or template as missing, and at its end
 builds the menu again from its file, for the recovery (with the switch on only). After three failing
 passes a missing name waits for the tree to change; a layout that is not usable is tried again
@@ -1737,7 +1806,10 @@ objectives, hints: <…>` or `… tab misc notes|challenges, <n> rows, "<name>" 
 pane, hints: <…>` or `… tab radio stations, <n> rows, "<name>" selected, waveform on|off, hints: <…>`
 when that line changes (an audio note playing changes the time left every frame, not the line);
 `pipboy data: waveform trace over the tiles at (<x>, <y>) <w> x <h>` when the trace is painted again
-over the file's panel; `MapMenu drawn by hand: <reason>` (a warning)
+over the file's panel; `… tab world map, <n> markers, <m> quest markers, custom marker|no custom
+marker, <k> dotted lines, "<name>"|"nothing" highlighted, magnification <x>, hints: <…>` when that
+line changes; `pipboy data: question box over the tiles (<n> answers)` when the box is painted over
+the page; `MapMenu drawn by hand: <reason>` (a warning)
 for a failure; the painter's `tiles: MapMenu drawn from tiles (…)` and `set out for the Pip-Boy's
 image: …` lines.
 
@@ -1753,7 +1825,13 @@ on mouseover), which the hand-built page does not draw; the file's own hint rule
 Radio's waveform: the original animates `MM_Waveform` (which animation, and whether its centre line
 shows under it, is not known); here `MM_Waveform` stays hidden and the hand-built trace is painted
 over the file's frame, its centre line standing under the trace while the radio plays (the
-hand-built panel draws no flat line then).
+hand-built panel draws no flat line then). The World Map: the picture is an image NVForever makes
+under the file's hotrect; the markers are kept, not made every update; the arrow and the dotted
+lines draw unturned until the tile painter turns pictures by `rotateangle`; the question boxes are
+NVForever's own box painted over the tiles (the original's box is another menu, not read here); the
+reputation's line is the hand-built page's words; the sizes `user0`/`user1`/`user2` are the
+hand-built page's and do not change with the zoom (the file's comment says the arrow's does, by
+what the code writes, not known).
 **Not known**: what the original writes into `_TextAlpha`, `_ShowEmptyMarker` and the objectives'
 scroll; whether the original's objectives scroll by rows, as a `list_box.xml` list's rows move by
 `_current_value` × `_scroll_delta` [hypothesis: the file's expressions alone do not say what the
