@@ -773,7 +773,11 @@ fn map_picture_piece(ui: &Ui, clip: &str, picture: &str) -> Option<Piece> {
         depth += num(ui, t, "depth");
         at = ui.tile(t).parent;
     }
+    // A runtime picture's name (the Local Map's outline, `nvf:local_map`) before any atlas or file,
+    // as the tile painter takes an image tile's (`super::draw::pieces`), so it is resolved from the
+    // runtime pictures and stamped with their revision.
     let source = match tile.get("texatlas").map(|a| a.text().trim().to_string()).filter(|a| !a.is_empty()) {
+        _ if super::runtime_images::is_runtime(&name) => Source::Runtime(None),
         Some(atlas) => Source::Index(atlas),
         None => Source::Own,
     };
@@ -3383,7 +3387,7 @@ mod tests {
         assert_eq!(words(&ui, LOCAL_PICTURE, "filename"), "nvf:local_map", "the outline by its runtime name");
         // The picture painted from the hotrect's traits, outside the tree.
         let piece = t.pieces.iter().find(|p| p.tile == parent).expect("the outline painted");
-        assert_eq!(piece.look, Look::Picture { name: "nvf:local_map".into(), source: Source::Own, fit: Fit::Stretch });
+        assert_eq!(piece.look, Look::Picture { name: "nvf:local_map".into(), source: Source::Runtime(None), fit: Fit::Stretch }, "a runtime picture, not a file");
         // The doors and the quest and custom markers by record under the frame.
         let rows = &t.written.local.markers;
         assert_eq!(rows.iter().map(|r| r.key).collect::<Vec<_>>(), vec![7, 8]);
@@ -3438,6 +3442,49 @@ mod tests {
         assert!(r2.0 > r1.unwrap().0 && r2.1 == Vec2::new(300.0, 200.0), "a new revision: repainted");
         assert!(sync_outline(&mut images, None, &mut last));
         assert!(images.get("nvf:local_map").is_none(), "gone with the outline");
+    }
+
+    /// The review's case: the piece this page makes for the Local Map's picture goes through the
+    /// runtime pictures as the painter takes it (`runtime_images::mark`, `picture`): stamped with
+    /// the outline given, repainted (a new stamp) when another is given, and drawing nothing once
+    /// it is taken away; a World Map picture's file is never taken for a runtime one.
+    #[test]
+    fn the_local_maps_picture_piece_is_resolved_as_a_runtime_picture() {
+        use super::super::runtime_images::{self as runtime, RuntimeImages};
+        let (mut ui, mut t) = (tree_changed(with_local), MapTiles::default());
+        run(&mut ui, Some(local(Some(Vec2::new(250.0, 209.0)), 1.0)), &mut t).unwrap();
+        let parent = ui.find_tile(LOCAL_PICTURE).unwrap();
+        let piece = || t.pieces.iter().find(|p| p.tile == parent).cloned().expect("the outline's piece");
+        let mut images = RuntimeImages::default();
+        let mut assets = Assets::<Image>::default();
+        let mut last = None;
+        let mut told = runtime::Told::default();
+        let stamp = |images: &RuntimeImages, told: &mut runtime::Told| {
+            let mut set = vec![piece()];
+            runtime::mark(&mut set, Some(images), told);
+            match &set[0].look {
+                Look::Picture { source: Source::Runtime(s), .. } => *s,
+                other => panic!("{other:?}"),
+            }
+        };
+        let first = (assets.add(Image::default()), Vec2::new(250.0, 209.0));
+        sync_outline(&mut images, Some(&first), &mut last);
+        let s1 = stamp(&images, &mut told).expect("stamped with the outline given");
+        assert_eq!(s1.size, Vec2::new(250.0, 209.0));
+        assert_eq!(runtime::picture(Some(&images), "nvf:local_map", &mut told).map(|p| p.0), Some(first.0.clone()), "its texture");
+        let second = (assets.add(Image::default()), Vec2::new(300.0, 200.0));
+        sync_outline(&mut images, Some(&second), &mut last);
+        let s2 = stamp(&images, &mut told).unwrap();
+        assert!(s2 != s1 && s2.size == Vec2::new(300.0, 200.0), "another stamp: repainted");
+        assert_eq!(runtime::picture(Some(&images), "nvf:local_map", &mut told).map(|p| p.0), Some(second.0));
+        sync_outline(&mut images, None, &mut last);
+        assert_eq!(stamp(&images, &mut told), None, "taken away: no stamp");
+        assert!(runtime::picture(Some(&images), "nvf:local_map", &mut told).is_none(), "and nothing drawn");
+        // The World Map's picture is a file.
+        let (mut ui, mut t) = (tree_changed(with_world), MapTiles::default());
+        run(&mut ui, Some(world(1.0, [0.5, 0.5], Vec::new())), &mut t).unwrap();
+        let parent = ui.find_tile(WORLD_PICTURE).unwrap();
+        assert!(matches!(&t.pieces.iter().find(|p| p.tile == parent).unwrap().look, Look::Picture { source: Source::Own, .. }));
     }
 
     #[test]
