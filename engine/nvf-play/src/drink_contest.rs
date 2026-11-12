@@ -193,6 +193,16 @@ impl DrinkScreen {
 
 /// The leaderboard's order: the winner, then the rest by when they passed out, latest
 /// first.
+/// The drinks a slot finished: a drinker who passes out off centre does so on the drink
+/// that shrank the target, and that drink is not counted (parity, 2026-11-12: "Count only
+/// finished drinks"), so every screen shows the same count for the slot.
+pub fn finished_drinks(s: &dc::Slot) -> u32 {
+    match s.out {
+        Some((_, Why::OffCentre)) => s.step.saturating_sub(1),
+        _ => s.step,
+    }
+}
+
 pub fn standings(c: &Contest) -> Vec<usize> {
     let mut order: Vec<usize> = (0..c.slots.len()).collect();
     let winner = c.winner.flatten();
@@ -396,7 +406,7 @@ fn show_events(time: AidTime, mut screen: ResMut<DrinkScreen>, mut out: MessageW
                     Why::OffCentre => "off centre at a drink",
                     Why::Left => "got up",
                 };
-                info!("drink contest: {} passes out ({why}) at {:.1}s, drinks {}", d.name(slot), tick as f32 * dc::DT, d.contest.slots.get(slot).map_or(0, |s| s.step));
+                info!("drink contest: {} passes out ({why}) at {:.1}s, drinks {}", d.name(slot), tick as f32 * dc::DT, d.contest.slots.get(slot).map_or(0, finished_drinks));
             }
             Event::Winner { slot, pot } => {
                 let won = slot.is_some() && slot == d.me;
@@ -458,7 +468,8 @@ fn draw(mut commands: Commands, screen: Res<DrinkScreen>, time: AidTime, casino:
                 // Names and drinks only (owner, 2026-11-12: "The hud in the left should just
                 // say names and number of drinks").
                 let s = &c.slots[i];
-                ScoreRow { name: d.name(i), score: format!("{} {}", s.step, if s.step == 1 { "drink" } else { "drinks" }), note: String::new(), up: Some(i) == d.me && s.out.is_none() }
+                let n = finished_drinks(s);
+                ScoreRow { name: d.name(i), score: format!("{n} {}", if n == 1 { "drink" } else { "drinks" }), note: String::new(), up: Some(i) == d.me && s.out.is_none() }
             })
             .collect();
         // The leaderboard says it all once it shows; the roster under it would cross it
@@ -494,7 +505,7 @@ fn draw(mut commands: Commands, screen: Res<DrinkScreen>, time: AidTime, casino:
                     .map(|&i| {
                         let s = &c.slots[i];
                         let detail = match s.out {
-                            None => format!("{} drinks", s.step),
+                            None => format!("{} drinks", finished_drinks(s)),
                             Some((t, _)) => format!("out at {:.0}s", t as f32 * dc::DT),
                         };
                         Place { name: d.name(i), detail }
@@ -698,6 +709,25 @@ mod tests {
 
     /// A guest's screen follows the host: its link's slot, a follower's contest, the
     /// host's places past the hard limit, its pass-outs and winner.
+    /// The drink a drinker passes out on is not counted; one who leaves or slips outside
+    /// keeps every drink taken.
+    #[test]
+    fn the_drink_passed_out_on_does_not_count() {
+        let start = DrinkStart { bottle: 1, drinkers: drinkers(), seed: 5, stake: 10 };
+        let link = DrinkLink { on: true, authority: true, local: Some(0), ..default() };
+        let mut d = Drink::new(&start, &link, 0.0);
+        let s = &mut d.contest.slots[0];
+        s.step = 7;
+        assert_eq!(finished_drinks(s), 7);
+        s.out = Some((1221, Why::OffCentre));
+        assert_eq!(finished_drinks(s), 6);
+        s.out = Some((1221, Why::Outside));
+        assert_eq!(finished_drinks(s), 7);
+        s.step = 0;
+        s.out = Some((1, Why::OffCentre));
+        assert_eq!(finished_drinks(s), 0);
+    }
+
     #[test]
     fn a_guest_follows_the_host() {
         let start = DrinkStart { bottle: 1, drinkers: drinkers(), seed: 5, stake: 10 };

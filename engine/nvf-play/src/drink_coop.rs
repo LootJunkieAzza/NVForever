@@ -1589,6 +1589,11 @@ impl Aid {
 
 /// Seconds after the winner for the test aid's `drink_after_win.png`.
 const AFTER_WIN_SHOT: f32 = 2.0;
+/// The test aid's burst after the winner: `drink_win_<ms>.png` every WIN_BURST_STEP seconds
+/// up to WIN_BURST_END, on the window's clock, so the winner's dance shows on every screen
+/// (it goes on after the contest's screen closes).
+const WIN_BURST_STEP: f32 = 0.5;
+const WIN_BURST_END: f32 = 8.0;
 
 #[derive(Default)]
 struct AidState {
@@ -1600,6 +1605,8 @@ struct AidState {
     /// When this screen's contest got its winner, and the shot after it taken.
     won_at: Option<f32>,
     after_win: bool,
+    /// Burst shots taken after the winner.
+    burst: u32,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1648,20 +1655,34 @@ fn drink_aid(mut commands: Commands, time: Res<Time<Real>>, mut page: ResMut<Sta
         }
     }
     // `drink_after_win.png`: AFTER_WIN_SHOT seconds after the winner, before the screen
-    // closes (the loser's sees the winner's dance then).
+    // closes (the loser's sees the winner's dance then); the burst `drink_win_<ms>.png`.
     match screen.0.as_ref().map(|d| d.contest.winner.is_some()) {
-        Some(true) => {
-            let at = *st.won_at.get_or_insert(now);
-            if !st.after_win && now - at >= AFTER_WIN_SHOT {
-                st.after_win = true;
-                let dir = std::env::var_os("NVF_PLAY_TEST_SHOT_DIR").or_else(|| std::env::var_os("NVFOREVER_HOME")).map(std::path::PathBuf::from).unwrap_or_default();
-                let _ = std::fs::create_dir_all(&dir);
-                let path = dir.join("drink_after_win.png");
-                info!("drink aid: screenshot {} {AFTER_WIN_SHOT} s after the winner", path.display());
-                commands.spawn(bevy::render::view::screenshot::Screenshot::primary_window()).observe(bevy::render::view::screenshot::save_to_disk(path));
-            }
+        Some(true) if st.won_at.is_none() => {
+            st.won_at = Some(now);
+            st.after_win = false;
+            st.burst = 0;
         }
-        _ => st.won_at = None,
+        Some(false) => st.won_at = None,
+        _ => {}
+    }
+    if let Some(at) = st.won_at {
+        let due = st.burst as f32 * WIN_BURST_STEP;
+        if due <= WIN_BURST_END && now - at >= due {
+            st.burst += 1;
+            let dir = std::env::var_os("NVF_PLAY_TEST_SHOT_DIR").or_else(|| std::env::var_os("NVFOREVER_HOME")).map(std::path::PathBuf::from).unwrap_or_default();
+            let _ = std::fs::create_dir_all(&dir);
+            let path = dir.join(format!("drink_win_{:04}.png", (due * 1000.0) as u32));
+            info!("drink aid: screenshot {} {:.1} s after the winner", path.display(), now - at);
+            commands.spawn(bevy::render::view::screenshot::Screenshot::primary_window()).observe(bevy::render::view::screenshot::save_to_disk(path));
+        }
+        if !st.after_win && screen.0.is_some() && now - at >= AFTER_WIN_SHOT {
+            st.after_win = true;
+            let dir = std::env::var_os("NVF_PLAY_TEST_SHOT_DIR").or_else(|| std::env::var_os("NVFOREVER_HOME")).map(std::path::PathBuf::from).unwrap_or_default();
+            let _ = std::fs::create_dir_all(&dir);
+            let path = dir.join("drink_after_win.png");
+            info!("drink aid: screenshot {} {AFTER_WIN_SHOT} s after the winner", path.display());
+            commands.spawn(bevy::render::view::screenshot::Screenshot::primary_window()).observe(bevy::render::view::screenshot::save_to_disk(path));
+        }
     }
     if let Some(t) = aid.leave.filter(|t| now >= *t && !st.did[2]) {
         st.did[2] = true;
