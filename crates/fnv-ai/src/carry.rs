@@ -552,6 +552,9 @@ pub struct Agent {
     /// It cannot walk (a creature without movement animations, a raven): it stays where
     /// it is, whatever its packages say ([`Ai::root`]).
     pub rooted: bool,
+    /// A rooted actor that never turns either ([`Ai::fix_heading`]): nothing changes its
+    /// heading, in or out of combat.
+    pub fixed: bool,
     /// The heading it is to stand facing where it arrived (an idle marker's, a sandbox
     /// spot's): turned to on the spot at the standing turn rate, not taken at once
     /// [design; owner's playtest 2026-10-11: actors turned half about in a frame].
@@ -854,7 +857,7 @@ impl Ai {
             own_turning(&mut walker, s);
         }
         walker.pace = self.paces.get(&actor).copied().unwrap_or(1.0);
-        self.agents.insert(actor, Agent { walker, activity: Activity::None, package: None, goal: None, route_at: 0, trip_started: 0.0, trip_from: 0.0, waiting_at: None, using: None, held_seat: None, sandbox: None, wait_until: None, talk: None, pushed_at: None, chat: None, search: None, face_to: None, following: None, rooted: false, weapon_order: None, errand: None, backing: None, walk_up: None, restarts: 0 });
+        self.agents.insert(actor, Agent { walker, activity: Activity::None, package: None, goal: None, route_at: 0, trip_started: 0.0, trip_from: 0.0, waiting_at: None, using: None, held_seat: None, sandbox: None, wait_until: None, talk: None, pushed_at: None, chat: None, search: None, face_to: None, following: None, rooted: false, fixed: false, weapon_order: None, errand: None, backing: None, walk_up: None, restarts: 0 });
         Ok(())
     }
 
@@ -921,6 +924,23 @@ impl Ai {
         a.errand = None;
         self.set_using(game, actor, None);
         self.taken.retain(|_, user| *user != actor);
+    }
+
+    /// A rooted actor that never turns either: no conversation, spoken line, script Look
+    /// or combat target changes its heading from now on ([`Ai::face`], the Look turn of
+    /// `crate::social`). The engine decides who: an Immobile creature whose Turning Speed
+    /// is 0, which in FalloutNV.esm are Mr. House's and Yes Man's screens (MrHouse,
+    /// MrHouseOFFLINE, YesManMainframe) and CRVoid, while every Immobile turret has 30 or
+    /// more [observed: the masters' CREA ACBS and TNAM; documented: GECK wiki Stats Tab
+    /// for Creatures, Turning Speed "How quickly the creature rotates"]. The owner saw
+    /// the screen turn when a conversation ended and in a fight, where it is to stay
+    /// still under any circumstance [observed: playtest 2026-11-11, issue #2150]. An
+    /// actor that is not rooted is left as it is.
+    pub fn fix_heading(&mut self, actor: FormId) {
+        if let Some(a) = self.agents.get_mut(&actor).filter(|a| a.rooted) {
+            a.fixed = true;
+            a.face_to = None;
+        }
     }
 
     /// Whether `actor` stands where an actor walking into it pushes it aside: it is in
@@ -1781,14 +1801,13 @@ impl Ai {
         let _ = game.set_actor_place(actor, cell, feet.pos, heading);
     }
 
-    /// Turn a standing actor towards a place for `dt` seconds, and tell the game its
-    /// heading.
     /// A rooted actor (an Immobile turret, [`Ai::root`]) stays where it is but turns in
     /// place, at the combat turn rate, to its combat target (in Combat: the target it
     /// detects, else the one detected last) or to the place of its alarm (Alert, Lost), as
     /// a fighter standing its ground does (`crate::alert`). Before, it never turned, so a
     /// HELIOS One ceiling turret kept its placed heading and the player stayed out of its
-    /// view (#1537). SetActorsAI 0 holds it as any other actor.
+    /// view (#1537). SetActorsAI 0 holds it as any other actor. One that never turns
+    /// ([`Ai::fix_heading`], Mr. House's screen) does not here either (#2150).
     fn rooted_turn(&mut self, game: &mut Game, actor: FormId, dt: f32) {
         if game.ai_off(actor) || game.extra.get(&actor).is_some_and(|e| e.restrained) {
             return;
@@ -1818,8 +1837,14 @@ impl Ai {
         self.face(game, actor, to, dt * rate);
     }
 
+    /// Turn a standing actor towards a place for `dt` seconds, and tell the game its
+    /// heading. One that never turns ([`Ai::fix_heading`]) keeps its heading, whoever
+    /// asks: its conversation, a line it says to someone, a fight.
     pub(crate) fn face(&mut self, game: &mut Game, actor: FormId, to: Place, dt: f32) {
         let a = self.agents.get_mut(&actor).expect("listed");
+        if a.fixed {
+            return;
+        }
         let d = [to.pos[0] - a.walker.feet[0], to.pos[1] - a.walker.feet[1]];
         if d[0].hypot(d[1]) < 1.0 {
             return;
@@ -2377,7 +2402,7 @@ impl Ai {
                 let going = a.activity == Activity::Travelling;
                 let close = away > if holding { resume } else { stop };
                 match (close, a.search) {
-                    (true, Some(Search::Closing { target: t, to, since })) if t == target && going && goal::dist(to, at) < crate::alert::CLOSE_REPLAN_DISTANCE && game.time - since < crate::alert::CLOSE_REPLAN_SECONDS => {}
+                    (true, Some(Search::Closing { target: t, to, since, .. })) if t == target && going && crate::alert::keeps_way(to, since, at, away, stop, game.time) => {}
                     (true, _) => self.close_in(game, nav, actor, target, at, away, stop),
                     (false, Some(Search::Holding { target: t })) if t == target => {}
                     (false, _) => {

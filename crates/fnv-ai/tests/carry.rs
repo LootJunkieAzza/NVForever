@@ -2258,6 +2258,99 @@ fn a_fighter_whose_post_failed_beyond_its_distance_closes_in() {
     assert_eq!(post_counts(&s), (1, 0, 1));
 }
 
+/// A fighter stopping within 100 units of the player, who backs away from it at `speed`
+/// units/s for 2 s: the share of the updates of the last second it was within `reach`.
+fn within_reach_of_a_backing_target(speed: f32, reach: f32) -> f32 {
+    let f = fixture();
+    let mut s = sim(&f, &[R_SB_NOTHING]);
+    s.run(1.0);
+    let start = s.feet(R_SB_NOTHING);
+    // The target 120 units off, backing straight away from the fighter towards POST_TARGET.
+    let to = [POST_TARGET[0] - start[0], POST_TARGET[1] - start[1]];
+    let len = to[0].hypot(to[1]);
+    let dir = [to[0] / len, to[1] / len];
+    assert!(len > 120.0 + speed * 2.0, "room to back away: {len}");
+    let (dt, mut within, mut counted) = (0.05, 0, 0);
+    for i in 0..40 {
+        let gone = 120.0 + speed * dt * i as f32;
+        let at = [start[0] + dir[0] * gone, start[1] + dir[1] * gone, start[2]];
+        s.game.time += f64::from(dt);
+        fighting(&mut s, R_SB_NOTHING, at);
+        s.game.awareness.engage.insert(FormId(R_SB_NOTHING), (100.0, reach));
+        s.ai.update_moved(&mut s.game, &s.nav, dt, &mut OnFoot);
+        if i >= 20 {
+            counted += 1;
+            within += usize::from(dist(s.feet(R_SB_NOTHING), at) <= reach);
+        }
+    }
+    within as f32 / counted as f32
+}
+
+#[test]
+fn a_fighter_keeps_within_reach_of_a_target_backing_away() {
+    // #2163: a target that keeps moving off is followed, not left to walk out of reach.
+    for speed in [70.0, 150.0] {
+        let share = within_reach_of_a_backing_target(speed, 106.0);
+        assert!(share >= 0.9, "backing away at {speed}: within reach {share} of the time");
+    }
+}
+
+#[test]
+fn a_fighter_chases_its_detected_target_where_it_is_not_where_it_was_measured() {
+    // #2163: detection measures a target a few times a second; the player has moved on
+    // 150 units since. The fighter does not stop where the player was measured.
+    let f = fixture();
+    let mut s = sim(&f, &[R_SB_NOTHING]);
+    s.run(1.0);
+    let start = s.feet(R_SB_NOTHING);
+    let to = [POST_TARGET[0] - start[0], POST_TARGET[1] - start[1]];
+    let len = to[0].hypot(to[1]);
+    let point = |d: f32| [start[0] + to[0] / len * d, start[1] + to[1] / len * d, start[2]];
+    let (measured, really) = (point(150.0), point(300.0));
+    {
+        let p = s.game.world.get(FormId::PLAYER_REF).unwrap();
+        (p.cell, p.pos) = (Some(FormId(CELL_C)), really);
+    }
+    for _ in 0..60 {
+        s.game.time += 0.05;
+        fighting(&mut s, R_SB_NOTHING, measured);
+        s.game.awareness.engage.insert(FormId(R_SB_NOTHING), (100.0, 106.0));
+        s.ai.update_moved(&mut s.game, &s.nav, 0.05, &mut OnFoot);
+    }
+    let feet = s.feet(R_SB_NOTHING);
+    assert!(dist(feet, really) <= 100.0, "{} from the player, {} from where it was measured", dist(feet, really), dist(feet, measured));
+    assert_eq!(search(&s), holding());
+    assert_eq!(s.events(R_SB_NOTHING).iter().filter(|e| matches!(e, AiEvent::Hold { .. })).count(), 1, "it stopped once, at its distance");
+}
+
+#[test]
+fn a_chase_is_planned_again_sooner_near_its_target_and_leads_one_that_moves() {
+    use fnv_ai::alert::{keeps_way, lead, replan_slack, Drift, CHASE_LEAD_MAX, CLOSE_REPLAN_DISTANCE, CLOSE_REPLAN_NEAR};
+    // Far off, the target may move 96 units before the way is planned again; with 100
+    // units still to come, 25; at its distance, 12.
+    assert_eq!(replan_slack(2000.0, 150.0), CLOSE_REPLAN_DISTANCE);
+    assert_eq!(replan_slack(250.0, 150.0), 25.0);
+    assert_eq!(replan_slack(160.0, 150.0), CLOSE_REPLAN_NEAR);
+    assert_eq!(replan_slack(100.0, 150.0), CLOSE_REPLAN_NEAR);
+    let to = [0.0, 0.0, 0.0];
+    assert!(keeps_way(to, 10.0, [20.0, 0.0, 0.0], 250.0, 150.0, 10.5));
+    assert!(!keeps_way(to, 10.0, [30.0, 0.0, 0.0], 250.0, 150.0, 10.5), "the target moved 30 units, 25 allowed");
+    assert!(!keeps_way(to, 10.0, [20.0, 0.0, 0.0], 250.0, 150.0, 11.6), "1.5 s have passed");
+    // The target's speed: measured over 0.05 s or more, evened with the one before.
+    let d = Drift::begin(to, 10.0);
+    assert_eq!(d.speed, [0.0, 0.0]);
+    assert_eq!(d.on([5.0, 0.0, 0.0], 10.02), d, "too soon to measure");
+    let d = d.on([30.0, 0.0, 0.0], 10.1);
+    assert!((d.speed[0] - 150.0).abs() < 0.01 && d.speed[1] == 0.0, "{d:?}");
+    let d = d.on([60.0, 0.0, 0.0], 10.2);
+    assert!((d.speed[0] - 225.0).abs() < 0.01, "{d:?}");
+    // A moving target is closed in on 0.35 s ahead of it, at most 96 units; a slow one
+    // where it is.
+    assert_eq!(lead([100.0, 50.0, 7.0], [200.0, 0.0]), [170.0, 50.0, 7.0]);
+    assert_eq!(lead([100.0, 50.0, 7.0], [0.0, -1000.0]), [100.0, 50.0 - CHASE_LEAD_MAX, 7.0]);
+    assert_eq!(lead([100.0, 50.0, 7.0], [30.0, 0.0]), [100.0, 50.0, 7.0]);
+}
+
 #[test]
 fn a_door_wait_given_up_with_the_walk_is_not_a_passage() {
     use fnv_game::combat_group::PostKind;
@@ -2561,6 +2654,32 @@ fn a_rooted_actor_in_combat_turns_to_its_target_in_place() {
     assert!(off(heading).abs() < 0.05, "{heading} against {want}");
     assert_eq!(s.feet(R_TRAVEL), start);
     assert_eq!(s.ai.agents[&FormId(R_TRAVEL)].activity, Activity::None);
+}
+
+/// A rooted actor that never turns (an Immobile creature with a Turning Speed of 0, Mr.
+/// House's screen: `Ai::fix_heading`) keeps its heading in combat too, where a turret
+/// turns to its target (#2150). An actor that is not rooted is not fixed.
+#[test]
+fn a_fixed_actor_in_combat_keeps_its_heading() {
+    let f = fixture();
+    let mut s = sim(&f, &[R_TRAVEL, R_TO_CHAIR]);
+    let start = s.feet(R_TRAVEL);
+    s.ai.fix_heading(FormId(R_TRAVEL));
+    assert!(!s.ai.agents[&FormId(R_TRAVEL)].fixed, "only a rooted actor is fixed");
+    s.ai.root(&s.game, FormId(R_TRAVEL));
+    s.ai.fix_heading(FormId(R_TRAVEL));
+    assert!(s.ai.agents[&FormId(R_TRAVEL)].fixed);
+    let target = s.game.world.placed.get(FormId(R_TO_CHAIR)).unwrap().pos;
+    let want = fnv_nav::follow::heading_of([target[0] - start[0], target[1] - start[1]]);
+    let away = want + 2.0;
+    s.ai.agents.get_mut(&FormId(R_TRAVEL)).unwrap().walker.heading = away;
+    let rot = s.game.world.peek(FormId(R_TRAVEL)).map(|r| r.rot);
+    s.game.start_combat(FormId(R_TRAVEL), FormId(R_TO_CHAIR));
+    assert!(s.game.awareness.state(FormId(R_TRAVEL)).in_combat());
+    s.run(5.0);
+    assert_eq!(s.ai.agents[&FormId(R_TRAVEL)].walker.heading, away);
+    assert_eq!(s.game.world.peek(FormId(R_TRAVEL)).map(|r| r.rot), rot);
+    assert_eq!(s.feet(R_TRAVEL), start);
 }
 
 // ---- process levels (fnv_ai::process) -------------------------------------------------
