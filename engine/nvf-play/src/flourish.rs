@@ -594,7 +594,8 @@ mod tests {
     fn a_stamp_comes_in_holds_and_goes() {
         for kind in [Highlight::Bullseye, Highlight::Triple, Highlight::MultiBall, Highlight::HandWon, Highlight::ArmWrestle, Highlight::DrinkContest] {
             assert_eq!(pose(kind, 0.0).alpha, 0.0);
-            let held = pose(kind, IN + 1.0);
+            // Past each kind's own motion (the drink sway runs 1.2 s), inside HOLD.
+            let held = pose(kind, IN + 1.3);
             assert_eq!((held.alpha, held.scale, held.turn, held.rule), (1.0, 1.0, 0.0, 1.0), "{kind:?}");
             assert!(pose(kind, LIFE).alpha <= 0.0);
         }

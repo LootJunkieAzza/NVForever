@@ -180,6 +180,7 @@ fn scene(colliding: &[(u32, f32)]) -> App {
         .add_message::<crate::lockpick::OpenLockpick>()
         .add_message::<crate::pickpocket::OpenPickpocket>()
         .add_message::<crate::pickpocket::Pickpocketed>()
+        .add_message::<crate::drink_world::BottleUsed>()
         .add_message::<crate::ui_sounds::UiSound>()
         .add_systems(Update, (find_target, activate, sync_visuals).chain());
     app
