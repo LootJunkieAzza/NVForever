@@ -1261,6 +1261,10 @@ fn switching_cancels_quantity_meter_drag_and_preserves_the_mouse_release() {
     app.world_mut().write_message(MouseButtonInput { button: MouseButton::Left, state: ButtonState::Released, window: Entity::PLACEHOLDER });
     app.update();
     assert!(app.world().resource::<ButtonInput<MouseButton>>().just_released(MouseButton::Left));
+    assert_ne!(app.world().get::<PointerState>(meter), Some(&PointerState::Pressed));
+    // Isolate post-release travel from buffered commands from earlier drag frames
+    // [design, #2200; menu::quantity_mouse, bevy::ecs::message::Messages].
+    app.world_mut().resource_mut::<Messages<MenuInput>>().clear();
     app.world_mut().get_mut::<bevy::ui::RelativeCursorPosition>(meter).unwrap().normalized = Some(Vec2::splat(0.4));
     app.update();
     assert!(app.world().resource::<Messages<MenuInput>>().is_empty(), "pointer travel after release cannot change the quantity");
