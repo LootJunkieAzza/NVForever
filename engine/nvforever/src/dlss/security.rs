@@ -97,9 +97,8 @@
 //! ```
 
 use std::ffi::{c_void, CStr};
-use std::fs::{File, OpenOptions};
+use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
-use std::os::windows::fs::OpenOptionsExt;
 use std::os::windows::io::AsRawHandle;
 use std::path::Path;
 
@@ -114,7 +113,6 @@ use windows_sys::Win32::Security::WinTrust::{
     WINTRUST_ACTION_GENERIC_VERIFY_V2, WINTRUST_DATA, WINTRUST_DATA_0, WINTRUST_FILE_INFO, WINTRUST_SIGNATURE_SETTINGS, WSS_GET_SECONDARY_SIG_COUNT,
     WSS_VERIFY_SPECIFIC, WTD_CHOICE_FILE, WTD_REVOKE_NONE, WTD_STATEACTION_CLOSE, WTD_STATEACTION_VERIFY, WTD_UI_NONE,
 };
-use windows_sys::Win32::Storage::FileSystem::FILE_SHARE_READ;
 use windows_sys::Win32::System::LibraryLoader::{LoadLibraryExW, LOAD_LIBRARY_SEARCH_SYSTEM32};
 
 use super::ffi::{get_proc, wide};
@@ -228,10 +226,9 @@ pub(super) fn check_interposer(path: &Path) -> Result<Accepted, Refused> {
     Ok(Accepted { sha256, build, _file: file })
 }
 
-/// `path` opened for reading, sharing read access only: no one can write, delete or rename the
-/// file while the handle is open (std's default shares all three; `share_mode` replaces it).
+/// `path` opened for reading, sharing read access only (`preflight::open_shared_read`).
 fn open_for_checks(path: &Path) -> std::io::Result<File> {
-    OpenOptions::new().read(true).share_mode(FILE_SHARE_READ).open(path)
+    super::preflight::open_shared_read(path)
 }
 
 /// The whole file from its start, with the position put back at the start for the next reader
@@ -561,6 +558,7 @@ fn nested_signer_is_streamline(crypt: &Crypt32, encoding: u32, blob: &CRYPT_INTE
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs::OpenOptions;
 
     #[test]
     fn sha256_hex_is_parsed_strictly() {

@@ -9,6 +9,21 @@
 //!   DLSS folder is listed before the interposer is loaded and again just before `slInit`; an
 //!   entry of that name in any case refuses Streamline, and so does a folder that cannot be
 //!   listed (fail closed). [`check_folder`].
+//! - **Every DLL in the folder** [design: from the second review of #2206]: Streamline loads
+//!   every `sl.*.dll` in its plugin folder before it asks whether the host wants that feature
+//!   [documented: `src/pluginManager.cpp:541-560` lists them, `:722-745` loads each, then checks
+//!   whether it was requested], and checks each with the same signature helper whose limit is
+//!   `security.rs`'s open point (`src/secureLoadLibrary.cpp:31-41`, `include/sl_security.h:442`).
+//!   And since `win.rs` adds the folder to the process's DLL search, any DLL there could stand in
+//!   for one loaded by name. So in the same pass every entry whose name ends in `.dll` (any case)
+//!   must be either a file of Streamline 2.14.16's release `bin\x64` with that file's SHA-256
+//!   ([`RELEASE_DLLS`], so a player who copied the whole folder still gets DLSS), or an
+//!   `nvngx_*.dll`, NVIDIA's NGX runtimes, which NGX loads itself and which are not pinned so
+//!   that a newer DLSS can be used. Anything else, or a listed name with another hash, is
+//!   refused. Each listed DLL is hashed through a handle that shares read access only, and the
+//!   handles are kept ([`Pinned`]) until `slInit` has returned, so a checked plugin cannot be
+//!   changed before Streamline loads it; a file added to the folder after the second pass is
+//!   not seen [design: the window is the few calls between that pass and `slInit`].
 //! - **The device** [design]: once the interposer makes the instance there is no way back when
 //!   the device is made: Streamline's `vkCreateDevice` refuses a device that lacks an extension
 //!   it adds [documented: `src/wrapper.cpp:816-829`], and wgpu-hal panics on that [documented:
@@ -46,6 +61,8 @@
 use std::collections::BTreeSet;
 use std::ffi::{OsStr, OsString};
 use std::fmt;
+use std::fs::{File, OpenOptions};
+use std::io::Read;
 use std::path::Path;
 
 use ash::vk;
@@ -63,51 +80,184 @@ const FEATURE_REQUIREMENT_VULKAN_SUPPORTED: u32 = 1 << 2;
 /// `src/ota.cpp:206`].
 pub(super) const UPDATER_NAME: &str = "nvngx_update.exe";
 
+/// The DLLs of Streamline 2.14.16's release archive (`streamline-sdk-v2.14.16.zip`, `bin\x64`)
+/// and their SHA-256 in hex [observed: the official release zip, 2026-11-12]. Its
+/// `nvngx_dlss.dll` is left out on purpose: `nvngx_*.dll` are not pinned (the module comment).
+pub(super) const RELEASE_DLLS: [(&str, &str); 12] = [
+    ("NvLowLatencyVk.dll", "2a77dc3e1c724b7eea5755be0ae7423752e79a2459fae72181a9f00e3507e5d6"),
+    ("sl.common.dll", "38eea3b4209afc455636ea372b5933d65fcc13becec6c84d101dcfc4d8648f75"),
+    ("sl.deepdvc.dll", "2d493dccfefdc0580deb85afc65e70ae36adf77c6dd3c745c60623d9b8ac54f9"),
+    ("sl.directsr.dll", "e3bbaf3e5eb906a63b3f00413c2d1c4c585ab3a2ee1946fcfa9ee2d804001c8e"),
+    ("sl.dlss.dll", "18871eea87c90345da97d8109faa81ea7d5840e8d99b51b55b0e46cfa177f84e"),
+    ("sl.dlss_d.dll", "8dff36fd063094eb1f659e8d4dcd52c7423859a9c4a3df3796084c48412d60ac"),
+    ("sl.dlss_g.dll", "3ed9538df724993bea8a050195a6a78b9c8c8a566d5b05ade477aab3c390e90f"),
+    ("sl.interposer.dll", "b1d7395aebd7b9722841d64dcf7433680020b6a8e421f851c16d5ba0c2182edf"),
+    ("sl.nis.dll", "f9f3873c00e2737b22df1bf7605d4fdc7978dbf2955df4e152c5b52aada13b79"),
+    ("sl.nvperf.dll", "dc5a820b97943c4d697a9ddec59b0dcde86ecadc093b401cf55980f7f89be43b"),
+    ("sl.pcl.dll", "5698c38e722318681f215c9fe68e45b9bedd51378acc699d8eee26e961e57770"),
+    ("sl.reflex.dll", "443577e869352436ff7ec8f4d9c90418d3e95368436ce219261e0f4f07a38122"),
+];
+
+/// The release that [`RELEASE_DLLS`] is.
+pub(super) const RELEASE: &str = "Streamline 2.14.16";
+
 /// Why the folder refuses Streamline.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum FolderRefusal {
     /// An entry with the updater's name, as the folder spells it.
     Updater(String),
-    /// The folder or one of its entries could not be read.
+    /// The folder or one of its entries could not be listed.
     Unreadable(String),
+    /// A DLL that is neither a file of the release nor an `nvngx_*.dll`.
+    UnknownDll(String),
+    /// A DLL with a release file's name and another SHA-256 (the name as the folder spells it,
+    /// the hash in hex).
+    WrongHash(String, String),
+    /// A DLL that could not be opened (sharing read access only) or read to be hashed.
+    DllUnreadable(String, String),
+}
+
+impl FolderRefusal {
+    /// The reason the settings show for it.
+    pub(super) fn reason(&self) -> Unavailable {
+        match self {
+            Self::Updater(_) | Self::Unreadable(_) => Unavailable::UpdaterInFolder,
+            Self::UnknownDll(_) | Self::WrongHash(..) => Unavailable::SignatureRejected,
+            Self::DllUnreadable(..) => Unavailable::StreamlineRefused,
+        }
+    }
 }
 
 impl fmt::Display for FolderRefusal {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Updater(name) => write!(f, "the folder holds {name}, which Streamline would start without checking it"),
-            Self::Unreadable(why) => write!(f, "the folder could not be listed to rule out {UPDATER_NAME} ({why})"),
+            Self::Unreadable(why) => write!(f, "the folder could not be listed to check its files ({why})"),
+            Self::UnknownDll(name) => write!(f, "the folder holds {name}, which is not a DLL of {RELEASE}'s release nor an nvngx_*.dll"),
+            Self::WrongHash(name, sha256) => write!(f, "the folder's {name} has SHA-256 {sha256}, not that of {RELEASE}'s release"),
+            Self::DllUnreadable(name, why) => write!(f, "the folder's {name} could not be opened and read for its hash with writing kept out ({why})"),
         }
     }
 }
 
-/// Whether `name` is the updater's in any case. Windows' file names compare without case
-/// [documented: Microsoft, "Naming Files, Paths, and Namespaces"], so each character's full
-/// Unicode upper case is compared (`ſ` and `ı` upper-case to ASCII letters; a name that only
-/// looks close is refused too, which fails closed).
-fn is_updater_name(name: &OsStr) -> bool {
-    let upper: String = name.to_string_lossy().chars().flat_map(char::to_uppercase).collect();
-    upper == UPDATER_NAME.to_ascii_uppercase()
+/// What the folder pass accepted. It holds each hashed DLL open, shared for reading only, until
+/// it is dropped: `win.rs` keeps it until `slInit` has returned.
+#[derive(Debug, Default)]
+pub(super) struct Pinned {
+    /// The release DLLs whose hash matched, as the folder spells them.
+    pub(super) pinned: Vec<String>,
+    /// The `nvngx_*.dll` left to NGX, as the folder spells them.
+    pub(super) ngx: Vec<String>,
+    /// The handles the hashes were read through.
+    _held: Vec<File>,
 }
 
-/// The folder's entries, refused when one is the updater or one cannot be read.
-pub(super) fn check_entries<I>(entries: I) -> Result<(), FolderRefusal>
+impl fmt::Display for Pinned {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let list = |names: &[String]| if names.is_empty() { "none".to_string() } else { names.join(", ") };
+        write!(f, "{RELEASE}'s release files with their SHA-256: {}; NGX's own, not pinned: {}", list(&self.pinned), list(&self.ngx))
+    }
+}
+
+/// `name` in full Unicode upper case, the comparison the module's names use (Windows' file names
+/// compare without case [documented: Microsoft, "Naming Files, Paths, and Namespaces"]).
+fn upper(name: &OsStr) -> String {
+    name.to_string_lossy().chars().flat_map(char::to_uppercase).collect()
+}
+
+/// What a folder entry is, by its name.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Kind {
+    /// NVIDIA's updater (refused).
+    Updater,
+    /// A file of the release, with its SHA-256 in hex.
+    Release(&'static str),
+    /// An `nvngx_*.dll` (accepted, not pinned).
+    Ngx,
+    /// Any other DLL (refused).
+    UnknownDll,
+    /// Not a DLL (left alone).
+    Other,
+}
+
+fn kind(name: &OsStr) -> Kind {
+    let upper = upper(name);
+    if upper == UPDATER_NAME.to_ascii_uppercase() {
+        return Kind::Updater;
+    }
+    if let Some((_, sha256)) = RELEASE_DLLS.iter().find(|(file, _)| file.to_ascii_uppercase() == upper) {
+        return Kind::Release(sha256);
+    }
+    if !upper.ends_with(".DLL") {
+        Kind::Other
+    } else if upper.starts_with("NVNGX_") {
+        Kind::Ngx
+    } else {
+        Kind::UnknownDll
+    }
+}
+
+/// The folder's entries judged by name, and each release DLL by its SHA-256, which `hash` reads
+/// (and may keep a handle for). Refused at the first entry that is the updater, an unknown DLL, a
+/// release DLL with another hash, or that cannot be read. Names compare in full Unicode upper
+/// case (`ſ` and `ı` upper-case to ASCII letters; a name that only looks close to the updater's
+/// is refused too, and one that looks close to a release file's must have its hash, which fails
+/// closed).
+pub(super) fn check_entries<I, H>(entries: I, mut hash: H) -> Result<Pinned, FolderRefusal>
 where
     I: IntoIterator<Item = std::io::Result<OsString>>,
+    H: FnMut(&OsStr) -> std::io::Result<[u8; 32]>,
 {
+    let mut pinned = Pinned::default();
     for entry in entries {
         let name = entry.map_err(|e| FolderRefusal::Unreadable(e.to_string()))?;
-        if is_updater_name(&name) {
-            return Err(FolderRefusal::Updater(name.to_string_lossy().into_owned()));
+        let shown = || name.to_string_lossy().into_owned();
+        match kind(&name) {
+            Kind::Updater => return Err(FolderRefusal::Updater(shown())),
+            Kind::UnknownDll => return Err(FolderRefusal::UnknownDll(shown())),
+            Kind::Ngx => pinned.ngx.push(shown()),
+            Kind::Other => {}
+            Kind::Release(expected) => {
+                let digest = hash(&name).map_err(|e| FolderRefusal::DllUnreadable(shown(), e.to_string()))?;
+                let sha256 = fnv_util::sha256::to_hex(&digest);
+                if sha256 != expected {
+                    return Err(FolderRefusal::WrongHash(shown(), sha256));
+                }
+                pinned.pinned.push(shown());
+            }
         }
     }
-    Ok(())
+    pinned.pinned.sort();
+    pinned.ngx.sort();
+    Ok(pinned)
 }
 
-/// The DLSS folder listed: no `nvngx_update.exe` in any case, as a file, folder or link.
-pub(super) fn check_folder(folder: &Path) -> Result<(), FolderRefusal> {
+/// The DLSS folder listed: no `nvngx_update.exe` in any case, as a file, folder or link, and
+/// every DLL a release file with its hash or an `nvngx_*.dll` (the module comment). The release
+/// files stay open in the [`Pinned`] returned.
+pub(super) fn check_folder(folder: &Path) -> Result<Pinned, FolderRefusal> {
     let entries = std::fs::read_dir(folder).map_err(|e| FolderRefusal::Unreadable(e.to_string()))?;
-    check_entries(entries.map(|entry| entry.map(|e| e.file_name())))
+    let mut held = Vec::new();
+    let mut pinned = check_entries(entries.map(|entry| entry.map(|e| e.file_name())), |name| {
+        let mut file = open_shared_read(&folder.join(name))?;
+        let mut bytes = Vec::new();
+        file.read_to_end(&mut bytes)?;
+        held.push(file);
+        Ok(fnv_util::sha256::digest(&bytes))
+    })?;
+    pinned._held = held;
+    Ok(pinned)
+}
+
+/// `path` opened for reading, sharing read access only on Windows: no one can write, delete or
+/// rename the file while the handle is open (std's default shares all three; `share_mode`
+/// replaces it) [documented: Microsoft Learn, "CreateFileW function (fileapi.h)", dwShareMode].
+pub(super) fn open_shared_read(path: &Path) -> std::io::Result<File> {
+    let mut options = OpenOptions::new();
+    options.read(true);
+    #[cfg(windows)]
+    std::os::windows::fs::OpenOptionsExt::share_mode(&mut options, windows_sys::Win32::Storage::FileSystem::FILE_SHARE_READ);
+    options.open(path)
 }
 
 /// `VkPhysicalDeviceVulkan12Features`' members by the names Streamline reads them by
@@ -1049,33 +1199,104 @@ mod tests {
         assert_eq!(luid_text(None), "none");
     }
 
+    /// The release's hash for a name (any case), as the test's stand-in for reading the file.
+    fn release_hash(name: &OsStr) -> std::io::Result<[u8; 32]> {
+        let upper = upper(name);
+        let (_, hex) = RELEASE_DLLS.iter().find(|(file, _)| file.to_ascii_uppercase() == upper).expect("asked only for release files");
+        let mut out = [0u8; 32];
+        for (byte, pair) in out.iter_mut().zip(hex.as_bytes().chunks_exact(2)) {
+            *byte = u8::from_str_radix(std::str::from_utf8(pair).unwrap(), 16).unwrap();
+        }
+        Ok(out)
+    }
+
+    /// `names` judged, every release file holding the release's bytes.
+    fn judged(names: &[&str]) -> Result<Pinned, FolderRefusal> {
+        check_entries(names.iter().map(|n| Ok(OsString::from(n))), release_hash)
+    }
+
     #[test]
     fn the_updater_is_refused_in_any_case() {
-        let ok = |names: &[&str]| check_entries(names.iter().map(|n| Ok(OsString::from(n))));
-        assert_eq!(ok(&["sl.interposer.dll", "sl.common.dll", "sl.dlss.dll", "nvngx_dlss.dll"]), Ok(()));
-        assert_eq!(ok(&["sl.interposer.dll", "nvngx_update.exe"]), Err(FolderRefusal::Updater("nvngx_update.exe".into())));
-        assert_eq!(ok(&["NVNGX_Update.EXE"]), Err(FolderRefusal::Updater("NVNGX_Update.EXE".into())));
-        assert_eq!(ok(&["nvngx_update.exe.bak", "nvngx_update", "old_nvngx_update.exe"]), Ok(()));
+        assert!(judged(&["sl.interposer.dll", "sl.common.dll", "sl.dlss.dll", "nvngx_dlss.dll"]).is_ok());
+        assert_eq!(judged(&["sl.interposer.dll", "nvngx_update.exe"]).unwrap_err(), FolderRefusal::Updater("nvngx_update.exe".into()));
+        assert_eq!(judged(&["NVNGX_Update.EXE"]).unwrap_err(), FolderRefusal::Updater("NVNGX_Update.EXE".into()));
+        assert!(judged(&["nvngx_update.exe.bak", "nvngx_update", "old_nvngx_update.exe"]).is_ok());
+    }
+
+    #[test]
+    fn the_four_files_and_the_whole_release_folder_pass() {
+        let four = judged(&["sl.interposer.dll", "sl.common.dll", "sl.dlss.dll", "nvngx_dlss.dll"]).unwrap();
+        assert_eq!(four.pinned, ["sl.common.dll", "sl.dlss.dll", "sl.interposer.dll"]);
+        assert_eq!(four.ngx, ["nvngx_dlss.dll"]);
+        assert!(four.to_string().contains("not pinned: nvngx_dlss.dll"));
+        // The archive's whole bin\x64 copied, with its other files (not DLLs) beside them.
+        let mut all: Vec<&str> = RELEASE_DLLS.iter().map(|(file, _)| *file).collect();
+        all.extend(["nvngx_dlss.dll", "sl.interposer.pdb", "readme.txt"]);
+        let whole = judged(&all).unwrap();
+        assert_eq!(whole.pinned.len(), RELEASE_DLLS.len());
+        assert_eq!(whole.ngx, ["nvngx_dlss.dll"]);
+    }
+
+    #[test]
+    fn any_other_dll_is_refused() {
+        assert_eq!(judged(&["sl.interposer.dll", "version.dll"]).unwrap_err(), FolderRefusal::UnknownDll("version.dll".into()));
+        assert_eq!(judged(&["sl.extra.dll"]).unwrap_err(), FolderRefusal::UnknownDll("sl.extra.dll".into()), "an sl. name not in the release");
+        assert_eq!(judged(&["vulkan-1.DLL"]).unwrap_err(), FolderRefusal::UnknownDll("vulkan-1.DLL".into()), "the extension in any case");
+        assert!(FolderRefusal::UnknownDll("x.dll".into()).to_string().contains("not a DLL of Streamline 2.14.16's release"));
+        assert_eq!(FolderRefusal::UnknownDll("x.dll".into()).reason(), Unavailable::SignatureRejected);
+    }
+
+    #[test]
+    fn a_release_name_with_another_hash_is_refused() {
+        let zero = |_: &OsStr| Ok([0u8; 32]);
+        let refused = check_entries([Ok(OsString::from("sl.dlss.dll"))], zero).unwrap_err();
+        assert_eq!(refused, FolderRefusal::WrongHash("sl.dlss.dll".into(), "0".repeat(64)));
+        assert_eq!(refused.reason(), Unavailable::SignatureRejected);
+        assert!(refused.to_string().contains(&"0".repeat(64)), "the log names the hash");
+        // Each file has its own hash: sl.common.dll's bytes under sl.dlss.dll's name are refused.
+        let swapped = |_: &OsStr| release_hash(OsStr::new("sl.common.dll"));
+        assert!(matches!(check_entries([Ok(OsString::from("sl.dlss.dll"))], swapped), Err(FolderRefusal::WrongHash(..))));
+        let unreadable = |_: &OsStr| Err(std::io::Error::new(std::io::ErrorKind::PermissionDenied, "in use"));
+        let refused = check_entries([Ok(OsString::from("sl.common.dll"))], unreadable).unwrap_err();
+        assert!(matches!(&refused, FolderRefusal::DllUnreadable(name, why) if name == "sl.common.dll" && why.contains("in use")));
+        assert_eq!(refused.reason(), Unavailable::StreamlineRefused);
+    }
+
+    #[test]
+    fn names_compare_without_case() {
+        let pinned = judged(&["SL.Interposer.DLL", "Sl.Common.Dll", "SL.DLSS.DLL", "NVNGX_DLSS.DLL", "nvlowlatencyvk.dll"]).unwrap();
+        assert_eq!(pinned.pinned.len(), 4);
+        assert_eq!(pinned.ngx, ["NVNGX_DLSS.DLL"]);
+        assert_eq!(kind(OsStr::new("ſl.dlss.dll")), Kind::Release(RELEASE_DLLS[4].1), "ſ upper-cases to S: hashed as sl.dlss.dll");
+        assert_eq!(kind(OsStr::new("nvngx_dlssg.dll")), Kind::Ngx);
+        assert_eq!(kind(OsStr::new("nvngx_dlss.dll.bak")), Kind::Other);
     }
 
     #[test]
     fn an_unreadable_folder_is_refused() {
         let entries = vec![Ok(OsString::from("sl.interposer.dll")), Err(std::io::Error::new(std::io::ErrorKind::PermissionDenied, "denied"))];
-        assert!(matches!(check_entries(entries), Err(FolderRefusal::Unreadable(why)) if why.contains("denied")));
+        assert!(matches!(check_entries(entries, release_hash), Err(FolderRefusal::Unreadable(why)) if why.contains("denied")));
         let gone = std::env::temp_dir().join(format!("nvf-dlss-preflight-gone-{}", std::process::id()));
         assert!(matches!(check_folder(&gone), Err(FolderRefusal::Unreadable(_))));
         assert!(FolderRefusal::Unreadable("x".into()).to_string().contains("could not be listed"));
+        assert_eq!(FolderRefusal::Unreadable("x".into()).reason(), Unavailable::UpdaterInFolder);
     }
 
     #[test]
     fn the_updater_is_found_in_a_real_folder() {
         let dir = std::env::temp_dir().join(format!("nvf-dlss-preflight-{}-{}", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos())));
         std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join("sl.interposer.dll"), b"").unwrap();
-        assert_eq!(check_folder(&dir), Ok(()));
+        std::fs::write(dir.join("nvngx_dlss.dll"), b"").unwrap();
+        std::fs::write(dir.join("notes.txt"), b"").unwrap();
+        assert_eq!(check_folder(&dir).unwrap().ngx, ["nvngx_dlss.dll"]);
+        // A release file with other bytes is refused, its hash named.
+        std::fs::write(dir.join("sl.common.dll"), b"").unwrap();
+        let empty = fnv_util::sha256::hex(b"");
+        assert_eq!(check_folder(&dir).unwrap_err(), FolderRefusal::WrongHash("sl.common.dll".into(), empty));
+        std::fs::remove_file(dir.join("sl.common.dll")).unwrap();
         // A folder with the name counts too.
         std::fs::create_dir_all(dir.join("Nvngx_Update.exe")).unwrap();
-        assert_eq!(check_folder(&dir), Err(FolderRefusal::Updater("Nvngx_Update.exe".into())));
+        assert_eq!(check_folder(&dir).unwrap_err(), FolderRefusal::Updater("Nvngx_Update.exe".into()));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

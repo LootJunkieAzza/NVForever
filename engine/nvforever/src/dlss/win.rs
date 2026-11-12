@@ -179,10 +179,9 @@ pub(super) fn start(app: &mut App) {
         set_loader_state(DlssState::Unavailable(Unavailable::FilesMissing));
         return;
     }
-    // No updater beside the interposer, before it is loaded (preflight.rs).
-    if !folder_allows_streamline(&folder) {
-        return;
-    }
+    // No updater beside the interposer and every DLL a pinned release file or NGX's, before
+    // anything is loaded (preflight.rs). The checked files stay open until slInit has returned.
+    let Some(first_pass) = folder_allows_streamline(&folder) else { return };
     let interposer = folder.join(FILES[0]);
     let accepted = match super::security::check_interposer(&interposer) {
         Ok(accepted) => accepted,
@@ -223,11 +222,9 @@ pub(super) fn start(app: &mut App) {
     let loaded = load(&interposer);
     drop(accepted);
     let Some(api) = loaded else { return };
-    // Again just before slInit, where Streamline starts the updater (preflight.rs). The
-    // interposer is loaded but holds nothing yet.
-    if !folder_allows_streamline(&folder) {
-        return;
-    }
+    // Again just before slInit, where Streamline starts the updater and loads every sl.*.dll
+    // (preflight.rs). The interposer is loaded but holds nothing yet.
+    let Some(second_pass) = folder_allows_streamline(&folder) else { return };
 
     let folder_w = wide(folder.as_os_str());
     let paths = [folder_w.as_ptr()];
@@ -237,6 +234,8 @@ pub(super) fn start(app: &mut App) {
     // SAFETY: preferences built from the constructor's defaults with every pointer alive for the
     // call; the callback is a static function. Before any Vulkan call through the interposer.
     let result = unsafe { (api.init)(&prefs, SDK_VERSION) };
+    // Streamline has loaded its plugins; the folder's files may be opened by others again.
+    drop((first_pass, second_pass));
     if !result.is_ok() {
         note(Level::WARN, format!("slInit: {}; inactive, the stock Vulkan path", result.name()));
         // Whatever slInit loaded before it failed goes again (eErrorNotInitialized when nothing
@@ -303,15 +302,18 @@ fn private_data_supported(adapter: &wgpu::hal::vulkan::Adapter) -> bool {
     private_data.private_data == vk::TRUE
 }
 
-/// The folder listed for NVIDIA's updater (preflight.rs); `false`, with the line and the reason,
-/// when Streamline must stay out.
-fn folder_allows_streamline(folder: &Path) -> bool {
+/// The folder listed for NVIDIA's updater and its DLLs checked (preflight.rs); `None`, with the
+/// line and the reason, when Streamline must stay out.
+fn folder_allows_streamline(folder: &Path) -> Option<preflight::Pinned> {
     match preflight::check_folder(folder) {
-        Ok(()) => true,
+        Ok(pinned) => {
+            note(Level::INFO, format!("folder: no updater; DLLs: {pinned}"));
+            Some(pinned)
+        }
         Err(refusal) => {
             note(Level::WARN, format!("inactive: {refusal}; the stock Vulkan path"));
-            set_loader_state(DlssState::Unavailable(Unavailable::UpdaterInFolder));
-            false
+            set_loader_state(DlssState::Unavailable(refusal.reason()));
+            None
         }
     }
 }

@@ -46,6 +46,21 @@ detail in the module notes of the file named.
   listed again just before `slInit`: Streamline would start that file, unchecked, in place of
   the driver's updater (spec notes, "NVIDIA's updater"). A folder that cannot be listed is
   refused too. (Step 3.)
+- **Every DLL in the folder pinned** (`dlss/preflight.rs` `RELEASE_DLLS`, `check_folder`). The
+  same two passes check every DLL in the folder: Streamline loads every `sl.*.dll` there before
+  it asks whether that feature was requested (`src/pluginManager.cpp:541-560, 722-745`) and
+  checks each only with the signature helper whose limit is the first open point
+  (`src/secureLoadLibrary.cpp:31-41`) [documented]; and the folder is in the process's DLL
+  search (below). Each `.dll` (any case) must be a file of Streamline 2.14.16's `bin\x64` with
+  that file's SHA-256 (twelve, `NvLowLatencyVk.dll` among them [observed: the official release
+  zip, 2026-11-12]), so a player who copied the whole folder still gets DLSS, or an
+  `nvngx_*.dll`: NGX's runtimes, loaded by NGX, not pinned so that a newer DLSS can be used.
+  Anything else, or a listed name with another hash, is `SignatureRejected`, the log naming the
+  file and its hash; a DLL that cannot be opened and read is `StreamlineRefused`. The listed
+  DLLs are hashed through handles sharing read access only, held until `slInit` has returned.
+  A file added after the second pass is not seen; with the default folder beside the program,
+  whose own folder is searched first anyway, that adds no place an attacker could not already
+  write to. (The second review of #2206.)
 - **The signature** (`dlss/security.rs`). The interposer is checked as Streamline's header
   helper does before it is loaded by its full path; the limit of that check is the first open
   point below. (Spike.)
@@ -63,8 +78,8 @@ detail in the module notes of the file named.
   `LoadLibraryExW` and `CryptQueryObject` still open the file by path (neither takes a handle
   for this), while the handle is held; the module comment says what that rests on. (The review
   of #2206.)
-- **Who checks the other files.** Streamline checks the plugins it loads with its own signature
-  helper and refuses unsigned ones [observed, the DLSS runs: "File 'sl.common.dll' is signed by
+- **Who checks the other files.** Besides NVForever's hashes (above), Streamline checks the
+  plugins it loads with its own signature helper and refuses unsigned ones [observed, the DLSS runs: "File 'sl.common.dll' is signed by
   NVIDIA and the signature was verified", the same for `sl.dlss.dll`, and "... is NOT
   correctly signed - Streamline will not load unsecured modules" for a missing optional module].
   `nvngx_dlss.dll` is loaded by NVIDIA's NGX; whether NGX verifies it is not shown in our logs.
