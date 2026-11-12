@@ -25525,3 +25525,23 @@ expect = [
   { re = 'armwrestle: GSSettlerCM is called to seat 1', label = "the settler is called to the other chair" },
   { re = 'furniture: 00104F08 goes to FF[0-9A-F]{6}', label = "the settler gets onto the created chair" },
 ]
+
+[[scenario]]
+name = "drink-contest-solo"
+source = "Drinking contest (owner 2026-11-11, drink-a): fnv-game drink_contest.rs and nvf-play drink_contest.rs. In the Prospector Saloon the test aid starts a contest of the player against the two nearest NPCs (Endurance from their records); the aid steers the player back to the centre, the NPCs steer themselves from the seed. The targets shrink with every drink, the NPCs pass out one by one, the player wins, the Endurance highlight plays, the leaderboard shows and the screen closes"
+areas = ["minigames"]
+paths = ["crates/fnv-game/src/drink_contest.rs", "engine/nvf-play/src/drink_contest.rs", "engine/nvf-play/src/flourish.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_DRINK = "6:42:2:bot", NVF_PLAY_TEST_DRINK_SHOTS = "drink-shots" }
+args = ["--cell", "GSProspectorSaloonInterior", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 110
+manual = "in target/smoke/drink-shots: drink_shrink_<n>.png the ring smaller each drink, the small circle inside it, \"Keep it centered\" under it, the roster top left; drink_out_<slot>.png that NPC's row Out; drink_win.png the Endurance picture swaying over LAST ONE STANDING / YOU WIN; drink_board.png the leaderboard, the player first"
+expect = [
+  { re = 'drink contest: test aid starts a contest \(Bot\) with 2 NPCs', label = "two NPCs at the saloon drink against the player" },
+  { re = 'drink contest: starts at 00000000, seed 42, stake 25, pot 75', label = "the contest starts with a pot of every stake" },
+  "drink contest: You takes drink 1, target 0.85",
+  "drink contest: You takes drink 3, target 0.61",
+  { re = 'drink contest: (?!You)[^(]+ passes out', label = "an NPC passes out" },
+  { re = 'drink contest: slot 0 \(You\) wins, this player after (?P<s>[\d.]+)s', range = [30, 100], label = "the player wins in 30-100 s" },
+  "flourish: DrinkContest",
+  "drink contest: closed",
+]

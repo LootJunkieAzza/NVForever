@@ -69,6 +69,7 @@ pub mod crafting;
 pub mod crime;
 pub mod armwrestle;
 pub mod darts;
+pub mod drink_contest;
 pub mod data;
 pub mod source_compile;
 pub mod sweep;
