@@ -32,6 +32,11 @@
 //!   `GetUpFaceDown`), the view and the controls come back with it, and the view the
 //!   player had before the contest is put back once they stand.
 //!
+//! Test aid `NVF_PLAY_TEST_DRINK_TABLE=<seconds>:<seed>[:<skill>]`: that long after the
+//! start (world aid seconds), a contest at the first bar's bottle with this player alone,
+//! its steering held to the centre this well (0..1, `DrinkLink::aid_skill`; 0 drifts out
+//! and passes out). A test aid; not a game behaviour.
+//!
 //! Log lines start `drink world:`.
 
 use crate::control::{PlayerControl, Pov};
@@ -107,7 +112,7 @@ impl Plugin for DrinkWorldPlugin {
         app.add_message::<BottleUsed>()
             .add_message::<ContestDrink>()
             .init_resource::<DrinkWorld>()
-            .add_systems(Update, (activated, started, events, ended).chain().after(PlaySet::Activation))
+            .add_systems(Update, (test_aid, activated, started, events, ended).chain().after(PlaySet::Activation))
             .add_systems(Last, report);
     }
 }
@@ -284,6 +289,38 @@ fn ended(
     control.pov = at.pov;
     info!("drink world: {}: this player stands again; the view is {:?} again", at.bar.key, at.pov);
     w.at = None;
+}
+
+/// [`NVF_PLAY_TEST_DRINK_TABLE`](self): a solo contest at the first bar's bottle.
+fn test_aid(time: crate::pause::AidTime, mut done: Local<bool>, mut script: Option<ResMut<ScriptState>>, mut sim: ResMut<SimState>, mut start: MessageWriter<DrinkStart>, mut link: ResMut<DrinkLink>, state: Res<State<PlayState>>) {
+    if *done || *state.get() != PlayState::Playing {
+        return;
+    }
+    let Some((at, seed, skill)) = std::env::var("NVF_PLAY_TEST_DRINK_TABLE").ok().and_then(|v| {
+        let mut it = v.trim().split(':');
+        let at: f32 = it.next()?.trim().parse().ok()?;
+        let seed: u64 = it.next()?.trim().parse().ok()?;
+        let skill: Option<f32> = it.next().and_then(|s| s.trim().parse().ok());
+        Some((at, seed, skill))
+    }) else {
+        *done = true;
+        return;
+    };
+    if time.world_secs().is_none_or(|t| t < at) {
+        return;
+    }
+    let Some(rt) = script.as_mut().and_then(|s| s.rt.as_mut()) else { return };
+    let Some(bottle) = dt::BARS.first().map(|b| b.refs[2]) else { return };
+    if sim.world.peek(bottle).is_none() {
+        return;
+    }
+    *done = true;
+    let drinkers = vec![crate::drink_contest::player_drinker(rt, &mut sim, 0, "You")];
+    if let Some(k) = skill {
+        link.aid_skill = Some(k.clamp(0.0, 1.0));
+    }
+    info!("drink world: test aid starts a contest at bottle {:08X} (seed {seed}, skill {skill:?})", bottle.0);
+    start.write(DrinkStart { bottle: bottle.0, drinkers, seed, stake: 0 });
 }
 
 fn report(mut exit: MessageReader<AppExit>, world: Res<DrinkWorld>) {
