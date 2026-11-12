@@ -89,6 +89,10 @@ const PHYSICS_RETRY: f32 = 8.0;
 /// a brahmin's length, the longest of the common actors].
 const SKIP_AHEAD: f32 = 160.0;
 
+/// Height above the feet at which the way to a skip's spot is checked for keyframed
+/// collision, game units [design: below a protectron's waist, above a step].
+const BARRIER_PROBE_HEIGHT: f32 = 50.0;
+
 /// How far on along its path a stuck actor may be put down, from the first choice to the
 /// nearest place that still helps (0: back onto the path, for feet off it), the first
 /// that has ground and room for it [design, docs/design/navmesh.md §4: the same length of
@@ -294,6 +298,8 @@ struct PhysMover<'a> {
     /// The ledge each actor last went over (its path's leg and the hop's take-off point):
     /// counted and logged once.
     hopped: &'a mut HashMap<u32, (usize, usize)>,
+    /// The keyframed barrier (a force field, a gate) each actor stands held at: logged once.
+    barred: &'a mut HashMap<u32, u32>,
     now: f32,
     /// Actors moved by physics in this update; times physics gave up; stuck actors moved
     /// on along their paths; jumps up a ledge, drops off one and jumps over an obstacle
@@ -308,6 +314,9 @@ struct PhysMover<'a> {
     /// People in combat (`Core::aims`, from the last update): physics walks them to the
     /// end of their walks.
     fighting: &'a HashMap<FormId, [f32; 3]>,
+    /// Actors searching for a foe they lost or noticed (`fnv_ai::alert`): not moved on
+    /// past what blocks them.
+    searching: &'a HashSet<u32>,
 }
 
 /// An actor walking on with its AI off (SetActorsAI 0): where it was when the AI went
@@ -485,6 +494,31 @@ impl Mover for PhysMover<'_> {
                 }
                 // Stuck where detours did not help: moved on along the path, past what
                 // blocks it, to the first place with ground and room for it.
+                // Stuck at keyframed collision (a force field, a gate: what an animation or
+                // a script moves away), or stuck while searching (a place to look, not one
+                // it must reach): it stays where it is, pressing on, and is not moved past
+                // what blocks it or left to the walker, which would carry it through.
+                // [observed: HELIOS One's stasis protectrons stay in their pods behind the
+                // field VHELIOSStasisField*REF, one moving 12 units in 30 s while it
+                // fought, #1977 probe 3; the search: design]
+                Advice::Skip
+                    if let Some(gate) = f
+                        .skip_candidate(feet, SKIP_AHEAD)
+                        .and_then(|c| phys.keyframed_between(feet, c.pos, BARRIER_PROBE_HEIGHT))
+                        .or_else(|| self.searching.contains(&id).then_some(0)) =>
+                {
+                    if self.barred.insert(id, gate) != Some(gate) {
+                        if gate == 0 {
+                            info!("actor {id:08X} stuck at ({:.0}, {:.0}, {:.0}) while it searches: held, not moved past what blocks it", feet[0], feet[1], feet[2]);
+                        } else {
+                            info!("actor {id:08X} stuck at ({:.0}, {:.0}, {:.0}): held at {gate:08X}'s moving collision, not moved past it", feet[0], feet[1], feet[2]);
+                        }
+                    }
+                    if let Some(u) = self.unstuck.get_mut(&id) {
+                        u.skip_refused();
+                    }
+                    (WalkEvent::Moved, [0.0, 0.0])
+                }
                 Advice::Skip if f.skip_candidate(feet, SKIP_AHEAD).is_some() => match skip_spot(phys, nav, &f, id, walker.space, feet) {
                     Ok((c, to)) => {
                         info!(
@@ -702,6 +736,66 @@ impl Seat {
     }
 }
 
+/// What [`next_seat`] has the furniture do with a drawn resident.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum SeatOrder {
+    /// Sit on this furniture (`SitOn`); `true`: put on at once.
+    Sit(u32, bool),
+    /// Get up by the furniture's exit clip (`GetUp`); the walk waits.
+    GetUp,
+    /// It never got on: the order to sit is taken back.
+    Cancel,
+    /// Off the furniture: its walk goes on from where the furniture left it.
+    Stood,
+}
+
+/// One frame of a resident's seat: the next state and what to tell the furniture.
+/// `drawn`: its body is there to be told; `on`: it is on furniture (`OnFurniture`);
+/// `restart`: ResetAI took its package up afresh since the last frame (`fnv_ai::Agent::
+/// restarts`). Then an actor sitting where its package wants it gets up even when the
+/// package gives it the same furniture again, and is told to sit again only once it is
+/// off: the AI only says which furniture it is to use, so without this the reset showed
+/// nothing [design, issue #2119; the original's seated RingoRef read GET_UP one loop
+/// after ResetAI, observed: owner-decision-captures.md od_06].
+fn next_seat(seat: Seat, drawn: bool, on: bool, frame: &retry::Now, restart: bool) -> (Seat, Option<SeatOrder>) {
+    let wants = frame.wants;
+    match (seat, drawn) {
+        (Seat::Ordered(f, _), true) if restart && wants == Some(f) => {
+            if on {
+                (Seat::GettingUp(f), Some(SeatOrder::GetUp))
+            } else {
+                // Not on yet: told again from the start, through `Wanted`.
+                (Seat::None, Some(SeatOrder::Cancel))
+            }
+        }
+        (Seat::None, _) => (wants.map_or(Seat::None, |f| Seat::Wanted(f, false)), None),
+        // The order goes out in the frame that found it eligible, not through `Wanted`:
+        // by the next frame its AI may be off, or it may be held or out cold.
+        (Seat::Waiting(f, so_far), _) => match (retry::waiting(f, so_far, frame), drawn) {
+            (retry::Decision::Reissue { target }, true) => (Seat::Ordered(target, false), Some(SeatOrder::Sit(target, false))),
+            (decision, _) => (Seat::after(decision), None),
+        },
+        (Seat::Unavailable(f), _) => (Seat::after(retry::unavailable(f, frame)), None),
+        (Seat::Wanted(f, at_once), true) if wants == Some(f) => (Seat::Ordered(f, false), Some(SeatOrder::Sit(f, at_once))),
+        (Seat::Wanted(f, _), _) if wants != Some(f) => (Seat::None, None),
+        // Its visual went away (its cell unloaded): sit again when it is back, at once
+        // when it was on the furniture (or walking up to it) then.
+        (Seat::Ordered(f, was_on), false) if wants == Some(f) => (Seat::Wanted(f, was_on), None),
+        (Seat::Ordered(f, _), true) if wants != Some(f) => {
+            if on {
+                (Seat::GettingUp(f), Some(SeatOrder::GetUp))
+            } else {
+                // Never got on: nothing to undo.
+                (Seat::None, Some(SeatOrder::Cancel))
+            }
+        }
+        (Seat::Ordered(f, _), _) if on => (Seat::Ordered(f, true), None),
+        (Seat::Ordered(..) | Seat::GettingUp(_), false) => (Seat::None, None),
+        (Seat::GettingUp(_), true) if !on => (Seat::None, Some(SeatOrder::Stood)),
+        (s, _) => (s, None),
+    }
+}
+
 struct Resident {
     actor: FormId,
     base: u32,
@@ -729,6 +823,11 @@ struct Resident {
     seat: Seat,
     /// The furniture `fnv_ai` has the actor use now.
     wants: Option<u32>,
+    /// ResetAI restarts of its package seen so far (`fnv_ai::Agent::restarts`).
+    restarts: u32,
+    /// ResetAI took its package up afresh since the seat was last driven: off its
+    /// furniture even when the package gives it the same one again ([`next_seat`]).
+    restart: bool,
     /// Waiting after a refusal, with nothing to hold it from being told to sit again: its
     /// AI runs, it is awake and alive, and no conversation, stagger or idle holds it.
     may_ask_again: bool,
@@ -826,9 +925,18 @@ fn flies(world: &WorldData, base: u32) -> bool {
 /// without one an actor has no way to move; the ravens outside Doc Mitchell's house
 /// (NVCrRaven, `creatures\nvraven`: an idle and its fly-away idle only) sandboxed about
 /// the editor location, sliding along the ground (owner's playtest, 2026-10-11).
-fn cannot_walk(world: &WorldData, data: &nvf_assets::GameData, base: u32) -> bool {
+///
+/// The skeleton is the one the creature is drawn with: its Model/Animation source, a
+/// template's pick when that flag is set ([`ActorWorld::resolve_creature`]). Its own model
+/// may be only the editor's placeholder (`marker_creature.nif`): the Young Gecko Hunter
+/// VSpawnSpecialTier1GeckoSmallRoachHunter (0x00168D0B) takes its model and animations
+/// from its template 0x00159783 and was rooted by its placeholder (#1917) [observed:
+/// fnvtool, the issue]. Without the actors' data, or when the creature does not resolve,
+/// its own model is used.
+fn cannot_walk(world: &WorldData, data: &nvf_assets::GameData, actors: Option<&ActorWorld>, base: u32, reference: u32) -> bool {
     use fnv_actor::locomotion::{Body, LocomotionSet, Move};
-    let Some(skeleton) = fnv_world::placed::base_object(world.lo, world.schema, base).and_then(|b| b.model_path()) else { return false };
+    let drawn = actors.and_then(|w| w.resolve_creature(base, reference).ok()).map(|c| c.skeleton);
+    let Some(skeleton) = drawn.or_else(|| fnv_world::placed::base_object(world.lo, world.schema, base).and_then(|b| b.model_path())) else { return false };
     if !skeleton.to_ascii_lowercase().ends_with(".nif") {
         return false;
     }
@@ -869,6 +977,7 @@ struct Core {
     unstuck: HashMap<u32, Unstuck>,
     skip_until: HashMap<u32, f32>,
     hopped: HashMap<u32, (usize, usize)>,
+    barred: HashMap<u32, u32>,
     coasting: HashMap<u32, Coasting>,
     skip_refusals: SkipRefusals,
     /// Updates in which an actor was moved by physics; times physics gave up; the most
@@ -1138,6 +1247,7 @@ impl Residents {
             unstuck: HashMap::new(),
             skip_until: HashMap::new(),
             hopped: HashMap::new(),
+            barred: HashMap::new(),
             coasting: HashMap::new(),
             skip_refusals: SkipRefusals::default(),
             physics: [0; 4],
@@ -1288,13 +1398,16 @@ fn held_by_talk(game: &Game, ai: &Ai, actor: FormId) -> bool {
 impl Core {
     /// Look up who of the listed creatures cannot walk ([`cannot_walk`], or flagged
     /// Immobile), before they are handed to the AI.
-    fn check_rooted(&mut self, world: &WorldData, data: &nvf_assets::GameData) {
+    fn check_rooted(&mut self, world: &WorldData, data: &nvf_assets::GameData, actors: Option<&ActorWorld>) {
         let mut by_base: HashMap<u32, (bool, bool)> = HashMap::new();
         for r in self.list.iter_mut().filter(|r| r.rooted.is_none()) {
+            let reference = r.actor.0;
             let (rooted, perched) = *by_base.entry(r.base).or_insert_with(|| {
                 // An Immobile creature (the turrets, Mr. House's screens) is held too:
                 // the flag "prevents movement" [documented: GECK wiki Animation Tab].
-                let rooted = cannot_walk(world, data, r.base) || acbs_flag(world, r.base, ACBS_IMMOBILE);
+                // A leveled template's pick is the first resident's of that base
+                // [hypothesis: the picks of one base share a skeleton family].
+                let rooted = cannot_walk(world, data, actors, r.base, reference) || acbs_flag(world, r.base, ACBS_IMMOBILE);
                 (rooted, rooted && flies(world, r.base))
             });
             r.rooted = Some(rooted);
@@ -1384,6 +1497,8 @@ impl Core {
             stand: None,
             last_drawn: None,
             wants: None,
+            restarts: 0,
+            restart: false,
             // Only creatures: people walk with the race's clips.
             rooted: (!creature).then_some(false),
             perched: false,
@@ -2035,7 +2150,8 @@ impl Core {
             );
         }
         let mut moved = [0usize; 6];
-        let mut mover = PhysMover { doors, phys: phys.as_deref_mut(), unstuck: &mut self.unstuck, skip_until: &mut self.skip_until, hopped: &mut self.hopped, now, stats: &mut moved, held: &held, refusals: &mut self.skip_refusals, coasting: &mut self.coasting, fighting: &self.aims };
+        let searching: HashSet<u32> = self.ai.agents.iter().filter(|(_, a)| a.search.is_some()).map(|(f, _)| f.0).collect();
+        let mut mover = PhysMover { doors, phys: phys.as_deref_mut(), unstuck: &mut self.unstuck, skip_until: &mut self.skip_until, hopped: &mut self.hopped, barred: &mut self.barred, now, stats: &mut moved, held: &held, refusals: &mut self.skip_refusals, coasting: &mut self.coasting, fighting: &self.aims, searching: &searching };
         {
             // Every high-process actor's update and the low-process ones due (package,
             // goal and walk; path searches are `nav::find_path` inside).
@@ -2317,6 +2433,7 @@ impl Core {
                 | AiEvent::Cornered { .. }
                 | AiEvent::SearchOver { .. }
                 | AiEvent::SearchBack { .. }
+                | AiEvent::Resettles { .. }
                 | AiEvent::BackHome { .. }
                 | AiEvent::BackUp { .. }
                 | AiEvent::WeaponUse { .. }
@@ -2367,6 +2484,10 @@ impl Core {
             }
             // The furniture it is to use, once it stands there.
             r.wants = agent.using.filter(|_| agent.activity == Activity::There).map(|f| f.0);
+            if agent.restarts != r.restarts {
+                r.restarts = agent.restarts;
+                r.restart = true;
+            }
             // `held` dates from before this frame's `social`: a talk begun since counts too.
             r.may_ask_again = matches!(r.seat, Seat::Waiting(..)) && !held.contains(&r.actor.0) && !held_by_talk(game, &self.ai, r.actor) && !game.ai_off(r.actor) && !game.extra.get(&r.actor).is_some_and(|e| e.dead || e.out_cold());
             let still = agent.activity != Activity::Travelling && agent.walker.follower.is_none() && agent.using.is_none() && agent.talk.is_none();
@@ -2619,6 +2740,7 @@ fn describe(data: &GameData, world: &WorldData, e: &AiEvent) -> String {
         ),
         AiEvent::SearchOver { why } => format!("stops searching: {why}"),
         AiEvent::SearchBack { package, away } => format!("has searched: back to the place of {}, {away:.0} units off", n(package)),
+        AiEvent::Resettles { package } => format!("is back in the place of {}: settles there again", n(package)),
         AiEvent::BackHome { away, length } => format!(
             "has no package: walks back to where it was placed, {} off, {length:.0} units to go",
             if away.is_finite() { format!("{away:.0} units") } else { "in another space".to_string() }
@@ -2792,7 +2914,7 @@ pub fn drive(
             if all {
                 res.core.take_cells(&world, &streamer, game.world.placed);
             }
-            res.core.check_rooted(&world, &models.data);
+            res.core.check_rooted(&world, &models.data, actor_world.as_deref());
             res.core.take_moved(game, all, None);
             if all {
                 res.core.take_placed_elsewhere(game);
@@ -2816,7 +2938,7 @@ pub fn drive(
             if all {
                 res.core.take_cells(&world, &streamer, sim.refs);
             }
-            res.core.check_rooted(&world, &models.data);
+            res.core.check_rooted(&world, &models.data, actor_world.as_deref());
             let core = &mut res.core;
             let (phys, blocks) = (phys.as_deref_mut(), blocks.as_deref_mut());
             let (world_ref, streamer_ref) = (&*world, &*streamer);
@@ -2883,6 +3005,7 @@ pub fn drive(
         let on = on_furniture.contains(&r.actor.0);
         let entity = r.root.filter(|_| r.spawned);
         let wants = r.wants;
+        let restart = std::mem::take(&mut r.restart);
         // Hours passed in the Wait menu, or a script moved it (MoveTo), and its package
         // has it elsewhere: it is off its furniture at once (the AI has walked or put it
         // on already).
@@ -2922,54 +3045,33 @@ pub fn drive(
             seconds: dt,
             changed: waited > 0 || moved,
         };
-        r.seat = match (r.seat, entity) {
-            (Seat::None, _) => wants.map_or(Seat::None, |f| Seat::Wanted(f, false)),
-            // The order goes out in the frame that found it eligible, not through `Wanted`:
-            // by the next frame its AI may be off, or it may be held or out cold.
-            (Seat::Waiting(f, so_far), _) => match (retry::waiting(f, so_far, &frame), entity) {
-                (retry::Decision::Reissue { target }, Some(e)) => {
-                    commands.entity(e).insert(SitOn { furniture: target, stay: None, at_once: false });
+        let (seat, order) = next_seat(r.seat, entity.is_some(), on, &frame, restart);
+        r.seat = seat;
+        if let (Some(e), Some(order)) = (entity, order) {
+            match order {
+                SeatOrder::Sit(furniture, at_once) => {
+                    commands.entity(e).insert(SitOn { furniture, stay: None, at_once });
                     core.seats[0] += 1;
-                    Seat::Ordered(target, false)
                 }
-                (decision, _) => Seat::after(decision),
-            },
-            (Seat::Unavailable(f), _) => Seat::after(retry::unavailable(f, &frame)),
-            (Seat::Wanted(f, at_once), Some(e)) if wants == Some(f) => {
-                commands.entity(e).insert(SitOn { furniture: f, stay: None, at_once });
-                core.seats[0] += 1;
-                Seat::Ordered(f, false)
-            }
-            (Seat::Wanted(f, _), _) if wants != Some(f) => Seat::None,
-            // Its visual went away (its cell unloaded): sit again when it is back, at once
-            // when it was on the furniture (or walking up to it) then.
-            (Seat::Ordered(f, was_on), None) if wants == Some(f) => Seat::Wanted(f, was_on),
-            (Seat::Ordered(f, _), Some(e)) if wants != Some(f) => {
-                if on {
+                SeatOrder::GetUp => {
                     commands.entity(e).insert(GetUp);
                     core.seats[1] += 1;
-                    Seat::GettingUp(f)
-                } else {
-                    // Never got on: nothing to undo.
+                }
+                SeatOrder::Cancel => {
                     commands.entity(e).remove::<SitOn>();
-                    Seat::None
+                }
+                SeatOrder::Stood => {
+                    // Up: the walk goes on from where the furniture left the actor, turned
+                    // as it left it (its back to the furniture): the walker's heading was
+                    // the one it sat down with, and the body snapped half about to it.
+                    if let (Ok((t, _)), Some(a)) = (actors.get(e), core.ai.agents.get_mut(&r.actor)) {
+                        a.walker.feet = t.translation.to_array();
+                        a.walker.heading = nav::tr_heading(t);
+                        a.walker.tri = fnv_nav::graph::NONE;
+                    }
                 }
             }
-            (Seat::Ordered(f, _), _) if on => Seat::Ordered(f, true),
-            (Seat::Ordered(..) | Seat::GettingUp(_), None) => Seat::None,
-            (Seat::GettingUp(_), Some(e)) if !on => {
-                // Up: the walk goes on from where the furniture left the actor, turned
-                // as it left it (its back to the furniture): the walker's heading was the
-                // one it sat down with, and the body snapped half about to it.
-                if let (Ok((t, _)), Some(a)) = (actors.get(e), core.ai.agents.get_mut(&r.actor)) {
-                    a.walker.feet = t.translation.to_array();
-                    a.walker.heading = nav::tr_heading(t);
-                    a.walker.tri = fnv_nav::graph::NONE;
-                }
-                Seat::None
-            }
-            (s, _) => s,
-        };
+        }
         // A refusal of another request is over.
         if let Some(e) = entity.filter(|e| refusals.get(*e).is_ok_and(|x| r.seat.furniture() != Some(x.furniture))) {
             commands.entity(e).remove::<SitRefused>();
@@ -3298,6 +3400,41 @@ mod tests {
     use fnv_ai::ProcessLevel;
     use fnv_sim::FormId;
     use std::collections::HashMap;
+
+    /// ResetAI on a seated actor whose package gives it the same chair again: it gets up
+    /// by the exit clip, nothing tells it to sit while that plays, and once off it may sit
+    /// down again (issue #2119). Without the restart the same chair changes nothing.
+    #[test]
+    fn a_reset_gets_a_seated_actor_up_before_it_sits_on_the_same_chair_again() {
+        use super::{next_seat, retry::Now, Seat, SeatOrder};
+        let now = Now { wants: Some(7), eligible: true, seconds: 0.1, changed: false };
+        assert_eq!(next_seat(Seat::Ordered(7, true), true, true, &now, false), (Seat::Ordered(7, true), None));
+        let (seat, order) = next_seat(Seat::Ordered(7, true), true, true, &now, true);
+        assert_eq!((seat, order), (Seat::GettingUp(7), Some(SeatOrder::GetUp)));
+        // The exit clip plays: no order, even with the same chair wanted.
+        assert_eq!(next_seat(seat, true, true, &now, false), (Seat::GettingUp(7), None));
+        // Off: the walk goes on from where it stands; then it is told to sit again.
+        let (seat, order) = next_seat(seat, true, false, &now, false);
+        assert_eq!((seat, order), (Seat::None, Some(SeatOrder::Stood)));
+        let (seat, order) = next_seat(seat, true, false, &now, false);
+        assert_eq!((seat, order), (Seat::Wanted(7, false), None));
+        assert_eq!(next_seat(seat, true, false, &now, false), (Seat::Ordered(7, false), Some(SeatOrder::Sit(7, false))));
+    }
+
+    /// A reset of an actor not yet on its chair takes the order back (it is given again
+    /// through `Wanted`); one not drawn, or standing with no furniture, is left as it is;
+    /// another chair wanted is the usual getting up.
+    #[test]
+    fn a_reset_off_the_chair_or_unseen_orders_nothing_new() {
+        use super::{next_seat, retry::Now, Seat, SeatOrder};
+        let now = Now { wants: Some(7), eligible: true, seconds: 0.1, changed: false };
+        assert_eq!(next_seat(Seat::Ordered(7, false), true, false, &now, true), (Seat::None, Some(SeatOrder::Cancel)));
+        assert_eq!(next_seat(Seat::Ordered(7, true), false, false, &now, true), (Seat::Wanted(7, true), None));
+        assert_eq!(next_seat(Seat::None, true, false, &Now { wants: None, ..now }, true), (Seat::None, None));
+        let other = Now { wants: Some(8), ..now };
+        assert_eq!(next_seat(Seat::Ordered(7, true), true, true, &other, true), (Seat::GettingUp(7), Some(SeatOrder::GetUp)));
+        assert_eq!(next_seat(Seat::Ordered(7, true), true, true, &other, false), (Seat::GettingUp(7), Some(SeatOrder::GetUp)));
+    }
 
     #[test]
     fn refused_skips_add_up_over_one_blocked_episode_only() {

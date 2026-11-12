@@ -30,15 +30,19 @@ pub const DEFAULT_LEVELS_PER_PERK: i32 = 2;
 pub const PERKS_PER_LEVEL: usize = 1;
 
 /// The skill points a level brings at a permanent Intelligence:
-/// ⌊min(Intelligence, 9) × 0.5 + 10⌋, and one more when the level and Intelligence are
-/// both even [documented: GECK wiki "Skill Rate", New Vegas; observed: 12 points at
-/// level 3 on the owner's screenshot, which Intelligence 4 or 5 gives]. The settings
+/// ⌊min(Intelligence, 9) × 0.5 + 10⌋ [documented: GECK wiki "Skill Rate", New Vegas;
+/// observed: 12 points at level 3 on the owner's screenshot, which Intelligence 4 or 5
+/// gives], and the half point an odd Intelligence leaves over paid at even levels: one
+/// more when the level is even and min(Intelligence, 9) odd [observed: the L5.ext rerun,
+/// #2040: ShowOff's GetCalculatedSkillPoints gives 13 at even levels and 12 at odd ones on
+/// the save nvfairport, Intelligence 5; #2035]. The settings
 /// `iLevelUpSkillPointsBase` / `iLevelUpSkillPointsInterval` are Fallout 3's rule and are
 /// not read: "Unused in New Vegas" [documented: GECK wiki "Skill Rate", Individual
 /// Settings].
 pub fn skill_points(intelligence: i32, level: i32) -> i32 {
-    let base = (intelligence.min(9) as f64 * 0.5 + 10.0).floor() as i32;
-    base + i32::from(level % 2 == 0 && intelligence % 2 == 0)
+    let int = intelligence.min(9);
+    let base = (int as f64 * 0.5 + 10.0).floor() as i32;
+    base + i32::from(level % 2 == 0 && int % 2 != 0)
 }
 
 /// The Custom Skill Points tweak's rule: `base` + Intelligence × `per_int`, rounded up
@@ -391,11 +395,22 @@ mod tests {
         assert_eq!(skill_points(5, 3), 12);
         assert_eq!(skill_points(9, 3), 14);
         assert_eq!(skill_points(10, 3), 14);
-        // ... and one more when the level and Intelligence are both even.
-        assert_eq!(skill_points(4, 4), 13);
-        assert_eq!(skill_points(4, 3), 12);
-        assert_eq!(skill_points(5, 4), 12);
+        // ... and an odd Intelligence's half point paid at even levels [observed: #2040,
+        // Intelligence 5 gives 13 at levels 2 and 50, 12 at 3 and 11].
+        for (level, points) in [(2, 13), (3, 12), (4, 13), (11, 12), (50, 13)] {
+            assert_eq!(skill_points(5, level), points, "Intelligence 5, level {level}");
+        }
+        // An even Intelligence has no half point: the same at every level.
+        for level in [2, 3, 4, 11, 50] {
+            assert_eq!(skill_points(4, level), 12, "Intelligence 4, level {level}");
+            assert_eq!(skill_points(6, level), 13, "Intelligence 6, level {level}");
+        }
+        assert_eq!(skill_points(1, 2), 11);
+        assert_eq!(skill_points(9, 2), 15);
+        assert_eq!(skill_points(9, 3), 14);
+        // Past 9 the capped value counts, its half point too.
         assert_eq!(skill_points(10, 2), 15);
+        assert_eq!(skill_points(10, 3), 14);
     }
 
     /// A row capped by the Cap Skills by S.P.E.C.I.A.L. tweak stops there; Done lights

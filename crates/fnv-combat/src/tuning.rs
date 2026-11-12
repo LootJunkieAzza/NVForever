@@ -111,6 +111,8 @@ pub struct Rules {
     pub ap_restore_rate: f32,
     /// The VATS settings of VATS mode's hit chance (docs/design/vats-mode.md §17.1).
     pub vats_hit: crate::vats::HitTuning,
+    /// The VATS settings of the classic style (docs/design/vats-classic.md §3, §7).
+    pub vats_classic: crate::vats::ClassicTuning,
     /// Settings not found in the load order (their defaults were used).
     pub defaulted: Vec<&'static str>,
 }
@@ -194,6 +196,10 @@ const SETTINGS: &[(&str, f32)] = &[
     ("fVATSDistanceFactor", 2.0),
     ("fVATSSpreadMult", 0.5),
     ("iVATSConcentratedFireBonus", 5.0),
+    // The classic VATS style (docs/design/vats-classic.md §3, §7) [documented:
+    // fallout.wiki, "Fallout 3 V.A.T.S." settings table and "Fallout: New Vegas V.A.T.S."].
+    ("fVATSMaxEngageDistance", 5000.0),
+    ("fVATSPlayerDamageMult", 0.75),
 ];
 
 impl Rules {
@@ -292,6 +298,7 @@ impl Rules {
                 spread_mult: n(),
                 concentrated_fire_bonus: n(),
             },
+            vats_classic: crate::vats::ClassicTuning { max_engage: n(), player_damage_mult: n() },
             condition_damage_penalty: crate::damage::CONDITION_DAMAGE_PENALTY,
             condition_damage_threshold: crate::damage::CONDITION_DAMAGE_THRESHOLD,
             crit_ignores_fire_rate: false,

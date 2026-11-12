@@ -107,6 +107,7 @@ original lacks it); **Save?**: *yes* (must be saved), *have* (already in the sna
 |---|---|---|---|
 | NPC positions | written back into `RefState` through `Game::set_actor_place` | ACHR moved data | have |
 | Current package, goal met, chosen-at | `RefExtra.packages/current_package/...` | ACHR flags 18 etc. (not decoded) | have |
+| A ResetAI not yet taken by the AI | `RefExtra.ai_reset` (`Game::take_ai_reset`) | not decoded | have (since issue #2119): a save between the call and the AI's next update keeps the request, so the load cannot resume the progress it dropped |
 | Agent progress: patrol index, sandbox schedule (energy, rolled sleep/meal times), wait, furniture in use | `Agent` (`crates/fnv-ai/src/carry.rs`, `sandbox.rs`) | ACHR records change with time on every actor (§7 of the spec) | **saved since 2026-10-25** (`fnv_ai::progress`, engine save part `ai_progress`): the patrol point walked to and the sandbox's day (its random numbers, the day's sleep and meal times, energy), put back when the actor takes up the same package again; the rest rebuilt from the packages |
 | Process levels, furniture occupancy | `Ai` | none | drop |
 
@@ -162,7 +163,12 @@ body    u32 length + zstd(JSON or postcard) of SaveBody
   added to docs/design/dependencies.md with the licence check there.
 - Writing is atomic: write `<name>.nvfsave.tmp`, flush, rename over the old file; the
   previous file of a rolling slot (quick, auto) becomes `.bak`, as the original does with
-  `autosave.fos.bak` [observed: the backups held `.fos` and `.fos.bak` pairs].
+  `autosave.fos.bak` [observed: the backups held `.fos` and `.fos.bak` pairs]. The backup
+  is made as a second name for the old file (a hard link, or a copy), so the save never
+  leaves its own name, and one save is written at a time, so two saves to one slot a
+  frame apart cannot share the `.tmp` (#1982).
+- A name the player gives is refused when it is a Windows device name (`con`, `nul`,
+  `com1` …, on every system) or a rolling slot's own name (#1983).
 
 Form IDs in the snapshot are load-order form IDs (mod index = plugin position). The
 original stores a plugin list and resolves form IDs by position in it [observed: save M,
@@ -205,7 +211,10 @@ What NVForever does (`fnv_save::PluginRemap`, `fnv_save::remap_json`,
 4. A form of a missing plugin: where it is a map key, a list entry, or in a pair or tuple
    that is a list entry, that entry is removed (a reference of the plugin's, an item in an
    inventory, a quest's state, a global, a form-list entry, a remembered pair).
-   Anywhere else (a field) it is moved to the *gone* slot `FE` with its low bytes, which no
+   A tuple that is a field's value keeps its length, or the save could not be read
+   back: one of form IDs beside other values (`package_ends`) is known by its shape, one
+   of form IDs alone by its field's name (`fnv_game::game::SAVE_PAIR_FIELDS`) (#1981).
+   Anywhere else (a field, such a tuple) it is moved to the *gone* slot `FE` with its low bytes, which no
    plugin uses; then the game layer drops what stands on one: references whose base or
    cell is gone (created ones of the plugin's bases), script instances whose key or script
    is gone, magic effects whose effect, source, target or script is gone, the radio station

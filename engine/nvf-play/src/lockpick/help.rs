@@ -292,13 +292,46 @@ impl BoxWords {
 
 /// The box, over the whole view; `view_w`: the view's width in interface units.
 pub fn spawn(r: &mut ChildSpawnerCommands, c: &mut Ctx, help: &Help, view_w: f32) {
-    let w = view_w * BOX_PART;
-    let h = 960.0 * BOX_PART;
+    spawn_clear(r, c, help, view_w, Clear::NONE);
+}
+
+/// Where a menu's own words and buttons stand under the help box, in the view's units:
+/// the box's lines and its Close stay above `bottom` and left of `right`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Clear {
+    pub bottom: f32,
+    pub right: f32,
+}
+
+impl Clear {
+    pub const NONE: Clear = Clear { bottom: f32::INFINITY, right: f32::INFINITY };
+}
+
+/// The box's background (left, top, width, height): 0.8 of the view, centred, made
+/// smaller about the middle as far as `clear` needs, so its frame lines end above
+/// `clear.bottom` and left of `clear.right` (issue #1663: the Caravan bet box and buttons)
+/// [design]. Never smaller than half the view each way.
+pub fn box_rect(view_w: f32, clear: Clear) -> (f32, f32, f32, f32) {
+    let (mid_x, mid_y) = (view_w / 2.0, 480.0);
+    let w = (view_w * BOX_PART).min(2.0 * (clear.right - mid_x + SIDE)).max(view_w / 2.0);
+    let h = (960.0 * BOX_PART).min(2.0 * (clear.bottom - mid_y + TOP)).max(480.0);
+    (mid_x - w / 2.0, mid_y - h / 2.0, w, h)
+}
+
+/// Where the frame of a box at `rect` ([`box_rect`]) has its bottom line and its right
+/// line, in the view's units.
+pub fn frame_lines((left, top, w, h): (f32, f32, f32, f32)) -> (f32, f32) {
+    (top + h - TOP, left + w - SIDE)
+}
+
+/// [`spawn`], the box kept clear of a menu's words and buttons ([`box_rect`]).
+pub fn spawn_clear(r: &mut ChildSpawnerCommands, c: &mut Ctx, help: &Help, view_w: f32, clear: Clear) {
+    let (left, top, w, h) = box_rect(view_w, clear);
     let bright = amber(255.0);
     let bg = Node {
         position_type: PositionType::Absolute,
-        left: u((view_w - w) / 2.0),
-        top: u((960.0 - h) / 2.0),
+        left: u(left),
+        top: u(top),
         width: u(w),
         height: u(h),
         ..default()
@@ -371,6 +404,22 @@ pub fn spawn(r: &mut ChildSpawnerCommands, c: &mut Ctx, help: &Help, view_w: f32
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_box_stays_clear_of_a_menus_words() {
+        // No limits: 0.8 of the view, centred.
+        let (l, t, w, h) = box_rect(1600.0, Clear::NONE);
+        assert_eq!((l, t, w, h), (160.0, 96.0, 1280.0, 768.0));
+        // Its bottom line (the background's foot less TOP) above 700, its right line
+        // (the right edge less SIDE) left of 1300, still centred.
+        let (l, t, w, h) = box_rect(1600.0, Clear { bottom: 700.0, right: 1300.0 });
+        assert!(t + h - TOP <= 700.0 + 1e-3 && l + w - SIDE <= 1300.0 + 1e-3, "{l} {t} {w} {h}");
+        assert!((l + w / 2.0 - 800.0).abs() < 1e-3 && (t + h / 2.0 - 480.0).abs() < 1e-3);
+        // Limits it already keeps change nothing; it never shrinks below half the view.
+        assert_eq!(box_rect(1600.0, Clear { bottom: 900.0, right: 1500.0 }), (160.0, 96.0, 1280.0, 768.0));
+        let (_, _, w, h) = box_rect(1600.0, Clear { bottom: 0.0, right: 0.0 });
+        assert_eq!((w, h), (800.0, 480.0));
+    }
 
     #[test]
     fn the_help_names_the_keys_bound() {

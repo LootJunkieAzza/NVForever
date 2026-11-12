@@ -330,6 +330,9 @@ pub enum AiEvent {
     SearchOver { why: &'static str },
     /// After a search it goes back to its package's place, `away` units off.
     SearchBack { package: FormId, away: f32 },
+    /// Back to its package inside the package's place (after a search, a push or a
+    /// chat), it settles there again: its bed or chair, a sandbox ([`Ai::back_to_package`]).
+    Resettles { package: FormId },
     /// An actor without a package, moved away by a search, a fight or a push, walks back
     /// to where it was placed ([`Ai::back_to_package`]).
     BackHome { away: f32, length: f32 },
@@ -569,6 +572,10 @@ pub struct Agent {
     /// where the player was when the way was planned, and from when it may be planned
     /// again.
     pub(crate) walk_up: Option<(Place, f64)>,
+    /// How many times ResetAI had its package taken up afresh ([`Ai::step_actor`];
+    /// `Game::take_ai_reset`): the engine gets a seated actor up when this changes, even
+    /// when the package gives it the same furniture again (issue #2119).
+    pub restarts: u32,
 }
 
 #[derive(Default)]
@@ -847,7 +854,7 @@ impl Ai {
             own_turning(&mut walker, s);
         }
         walker.pace = self.paces.get(&actor).copied().unwrap_or(1.0);
-        self.agents.insert(actor, Agent { walker, activity: Activity::None, package: None, goal: None, route_at: 0, trip_started: 0.0, trip_from: 0.0, waiting_at: None, using: None, held_seat: None, sandbox: None, wait_until: None, talk: None, pushed_at: None, chat: None, search: None, face_to: None, following: None, rooted: false, weapon_order: None, errand: None, backing: None, walk_up: None });
+        self.agents.insert(actor, Agent { walker, activity: Activity::None, package: None, goal: None, route_at: 0, trip_started: 0.0, trip_from: 0.0, waiting_at: None, using: None, held_seat: None, sandbox: None, wait_until: None, talk: None, pushed_at: None, chat: None, search: None, face_to: None, following: None, rooted: false, weapon_order: None, errand: None, backing: None, walk_up: None, restarts: 0 });
         Ok(())
     }
 
@@ -979,7 +986,19 @@ impl Ai {
         }
         let (Some(package), Activity::There, None, None, None) = (a.package, a.activity, &a.sandbox, a.wait_until, a.talk) else { return };
         let feet = Place { space: a.walker.space, pos: a.walker.feet };
-        let Some(to) = a.goal.clone().and_then(|g| self.way_to(feet, &g)) else { return };
+        let Some(goal) = a.goal.clone() else { return };
+        let Some(to) = self.way_to(feet, &goal) else {
+            // Already in the package's place: taken off its bed or chair (an alert takes
+            // an actor off its furniture), it settles again as on arrival. In the original
+            // Easy Pete, fought off his chair, had his chair package back at the fight's
+            // end and sat again about 5 real seconds later [observed: AI observer
+            // 2026-11-10, issue #2013].
+            if a.using.is_none() {
+                self.log(game, actor, AiEvent::Resettles { package });
+                self.settle(game, actor);
+            }
+            return;
+        };
         self.log(game, actor, why(package, hdist(feet.pos, to.pos)));
         self.plan(game, nav, actor, package, to, None);
     }
@@ -1200,8 +1219,21 @@ impl Ai {
         } else if self.woken.remove(&actor) {
             self.agents.get_mut(&actor).expect("listed").package = None;
         }
+        // ResetAI (`Game::take_ai_reset`): the package is taken up afresh even when the
+        // same one is chosen again: off its furniture, the old goal, route and walk gone,
+        // what a loaded save kept of its progress forgotten, and begun again. The request
+        // waits while the AI does not run (off, dead, out cold, rooted: returned above). A
+        // plain evaluation choosing the same package changes nothing [design,
+        // actor-behaviour.md §5; the original's seated RingoRef read GET_UP one loop after
+        // ResetAI, then TRAVEL, observed: owner-decision-captures.md od_06].
+        let reset = game.take_ai_reset(actor);
+        if reset {
+            self.restored.remove(&actor);
+            let a = self.agents.get_mut(&actor).expect("listed");
+            a.restarts = a.restarts.wrapping_add(1);
+        }
         let current = game.current_package(actor);
-        if self.agents[&actor].package != current {
+        if reset || self.agents[&actor].package != current {
             self.log(game, actor, AiEvent::Package { package: current });
             let a = self.agents.get_mut(&actor).expect("listed");
             a.package = current;

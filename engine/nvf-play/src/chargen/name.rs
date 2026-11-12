@@ -66,6 +66,15 @@ pub struct ScriptInput {
     pub enter_closes: bool,
 }
 
+impl ScriptInput {
+    /// The rules of the script's menu; the box the script's size, the name box's when it
+    /// gives none [hypothesis: the size is the box's].
+    pub fn of(t: &fnv_game::nvse_jip12::TextInput) -> ScriptInput {
+        let size = Vec2::new(if t.size.0 > 0.0 { t.size.0 } else { BOX.x }, if t.size.1 > 0.0 { t.size.1 } else { BOX.y });
+        ScriptInput { size, min: t.min, max: t.max, digits_only: t.digits_only, enter_closes: t.enter_closes }
+    }
+}
+
 /// The Ok button.
 #[derive(Component, Clone, Copy, Debug)]
 pub struct OkButton;
@@ -89,8 +98,20 @@ impl NameMenu {
             Some(g) => fnv_game::ui_loading::game_string(g, OK_SETTING),
             None => fnv_ui::strings::built_in(OK_SETTING).unwrap_or_default().to_owned(),
         };
-        let size = Vec2::new(if t.size.0 > 0.0 { t.size.0 } else { BOX.x }, if t.size.1 > 0.0 { t.size.1 } else { BOX.y });
-        NameMenu { text: String::new(), hover_ok: false, prompt: t.title.clone(), ok, script: Some(ScriptInput { size, min: t.min, max: t.max, digits_only: t.digits_only, enter_closes: t.enter_closes }), limit: t.max }
+        NameMenu { text: String::new(), hover_ok: false, prompt: t.title.clone(), ok, script: Some(ScriptInput::of(t)), limit: t.max }
+    }
+
+    /// The script's rules as they stand now: SetTextInputExtendedProps may change them
+    /// while the box is open (#2018). The text is cut to a shorter limit.
+    pub fn update_rules(&mut self, t: &fnv_game::nvse_jip12::TextInput) -> bool {
+        let now = ScriptInput::of(t);
+        if self.script.as_ref().is_none_or(|r| *r == now) {
+            return false;
+        }
+        self.text = self.text.chars().take(now.max).collect();
+        self.limit = now.max;
+        self.script = Some(now);
+        true
     }
 
     /// The box's size.

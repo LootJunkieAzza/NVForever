@@ -372,7 +372,7 @@ impl Plugin for PlayerPlugin {
             .configure_sets(Update, BodySet.in_set(PlaySet::Physics).after(log_status).before(crate::control::place_camera))
             .add_systems(
                 Update,
-                (place_initial, interior_net, step, crate::phys::settle_created, sync_sim, log_status)
+                (place_initial, interior_net, crate::phys::piles_pass_their_corpses, step, crate::phys::settle_created, sync_sim, log_status)
                     .chain()
                     .in_set(PlaySet::Physics)
                     .after(crate::phys::PhysSystems),
@@ -450,13 +450,14 @@ fn grab_cursor(
     look: Option<Res<crate::dialogue::FreeLook>>,
     over_lock: Option<Res<crate::lockpick::PointerOverLock>>,
     free_cam: Option<Res<crate::free_cam::FreeCam>>,
-    (intro, view, creator, panel, talk, tweaks): (
+    (intro, view, creator, panel, talk, tweaks, vats): (
         Option<Res<crate::intro::Intro>>,
         Option<Res<ViewDriven>>,
         Option<Res<crate::creator::CreatorMenu>>,
         Option<Res<crate::message_menu::MessagePanel>>,
         Option<Res<crate::dialogue_menu::DialogueMenu>>,
         Option<Res<crate::tweaks::TweakSettings>>,
+        Option<Res<crate::vats_mode::VatsMode>>,
     ),
     mut windows: Query<(&Window, &mut CursorOptions), With<PrimaryWindow>>,
     mut wanted_before: Local<Option<(bool, bool)>>,
@@ -475,7 +476,10 @@ fn grab_cursor(
     let playing = !creating && (matches!(*state.get(), PlayState::Playing | PlayState::Loading) || look.is_some_and(|l| l.0) || free_cam.is_some_and(|f| f.active));
     let film = intro.as_ref().is_some_and(|i| i.is_playing());
     let scene = view.is_some_and(|v| v.0) && *state.get() != PlayState::Menu && !boxed && !creating;
-    let wanted = creating || ((!playing || boxed) && !film && !scene);
+    // The classic VATS style's target screen has the pointer: its parts and arrows are
+    // chosen with it [observed: the owner's screenshots of the original's VATS, 2026-11-10].
+    let targeting = vats.is_some_and(|v| v.pointer_wanted());
+    let wanted = creating || targeting || ((!playing || boxed) && !film && !scene);
     // Logged when it changes, and when a film starts or ends over a pointer already hidden.
     if *wanted_before != Some((wanted, film)) {
         let why = if creating {
@@ -492,7 +496,7 @@ fn grab_cursor(
         info!("pointer: {}{why}", if wanted { "shown" } else { "hidden" });
         *wanted_before = Some((wanted, film));
     }
-    let grab = playing && !driven && !boxed && window.focused && !hud_cursor;
+    let grab = playing && !driven && !boxed && window.focused && !hud_cursor && !targeting;
     // Windows cannot lock the cursor in place; confining it still gives raw motion.
     let mode = match (grab, cfg!(target_os = "windows")) {
         (false, _) => CursorGrabMode::None,
@@ -771,7 +775,7 @@ const SMOOTH_LOOK_RATE: f32 = 8.0;
 #[allow(clippy::too_many_arguments)]
 fn mouse_look(
     motion: Res<AccumulatedMouseMotion>,
-    (pads, time): (Query<&Gamepad>, Res<Time>),
+    (pads, time, vats): (Query<&Gamepad>, Res<Time>, Option<Res<crate::vats_mode::VatsMode>>),
     state: Res<State<PlayState>>,
     bindings: Res<Bindings>,
     cursor: Query<&CursorOptions, With<PrimaryWindow>>,
@@ -787,6 +791,10 @@ fn mouse_look(
     (talk, switches, mut smooth): (Option<Res<crate::dialogue_zoom::DialogueZoom>>, Option<Res<crate::script_switches::ScriptSwitches>>, Local<Vec2>),
     tweaks: Option<Res<crate::tweaks::TweakSettings>>,
 ) {
+    // The classic VATS style turns the view itself (`crate::vats_mode`, vats-classic.md §5).
+    if vats.is_some_and(|v| v.holds_view()) {
+        return;
+    }
     // The console's free camera takes the mouse (`crate::free_cam`), and so does the
     // weapon wheel while it is open (`crate::weapon_wheel`); a playing kill camera holds
     // it (`crate::kill_cam`). A script's HUD cursor has the mouse too (ToggleHUDCursor,

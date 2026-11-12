@@ -1362,6 +1362,25 @@ expect = [
 ]
 
 [[scenario]]
+name = "resetai-seated"
+source = "issue #2119: ResetAI on a seated actor takes its package up afresh even when the same one is chosen again: it gets up by the exit clip and its package begins again (Game::take_ai_reset, fnv_ai Ai::step_actor, residents::next_seat; owner-decision-captures.md od_06)"
+note = "Easy Pete at 09:00 on EasyPeteChairPackage8x4 (a Travel package to his porch chair 0010634A); ResetAI at 20 s. The package line after ResetAI is the restart (the first one is logged at 09:00, before the GetSitting probe). Sitting down again is what his package says; GetSitting is not read at a fixed late time, as he may already be back on the chair"
+areas = ["ai", "furniture"]
+paths = ["crates/fnv-game/src/functions/ai_state.rs", "crates/fnv-ai/src/carry.rs", "engine/nvforever/src/residents.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "15:call:EasyPeteRef:GetSitting,18:call:EasyPeteRef:GetCurrentPackage,20:call:EasyPeteRef:ResetAI,22:call:EasyPeteRef:GetSitting,26:call:EasyPeteRef:GetSitting,35:call:EasyPeteRef:GetCurrentPackage" }
+args = ["--play", "--cell", "Goodsprings", "--pos=-68375,4800,8700", "--hour", "9", "--npc-packages", "EasyPeteRef", "--no-voice", "--no-messages"]
+run_seconds = 40
+# The furniture lines name Easy Pete by his reference, 00104C80 (EasyPeteRef).
+order = [[
+  { text = "script: test aid calls GetSitting on EasyPeteRef = 3", label = "Easy Pete sits on his chair before ResetAI" },
+  { text = "script: test aid calls ResetAI on EasyPeteRef", label = "ResetAI is called on him" },
+  { re = 'EasyPeteRef: package EasyPeteChairPackage8x4', label = "his package is taken up afresh (the same one)" },
+  { re = 'furniture: 00104C80 gets off 0010634A by clip (?!none\b)\S', label = "he gets off his chair by its exit clip (not 'none': no clip played)" },
+  { text = "furniture: 00104C80 got off 0010634A", label = "and is off it" },
+  { text = "furniture: 00104C80 is on 0010634A", label = "then his package sits him down again" },
+]]
+
+[[scenario]]
 name = "wake-to-talk"
 source = "owner's playtest list 7 item 38: talking to a sleeping actor wakes it; it gets up, then talks (Runtime::talk_when_awake, Game::wake)"
 note = "Easy Pete is put by his bed (00176ACE) at 2:00 and his Sleep package lays him on it; at 30 s the player talks to him"
@@ -1834,6 +1853,22 @@ expect = [
 ]
 
 [[scenario]]
+name = "combat-voice-female"
+source = "issue #2088 (owner 2026-11-10): a female player said the male player's hurt and power attack sounds; the player speaks with the DefaultObjectManager's Player Voice (Female) while female (crates/fnv-game/src/voice.rs player_voice_type)"
+note = "combat-voice's fight with the player made female by SexChange first: the grunts come from playervoicefemale, none from playervoicemale"
+areas = ["combat", "dialogue", "audio"]
+paths = ["crates/fnv-game/src/voice.rs", "crates/fnv-voice/src/bank.rs", "engine/nvf-play/src/voice.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_CONSOLE = "1:sexchange 1;1.5:close", NVF_PLAY_TEST_SCRIPT = "3:combat:0x000F573F:player,3:combat:0x0013E5BB:player", NVF_PLAY_TEST_EQUIP = "00004337", NVF_PLAY_TEST_CONTROL = "3:weapon,6:aimflat,6.1:fire,7.6:fire,8.4:aimflat,8.5:fire,8.6:fire" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
+run_seconds = 22
+expect = [
+  { re = 'voice: playing \S+playervoicefemale\\genericplayer_hit_', label = "a female player's hurt sound plays" },
+  { re = 'voice: playing \S+playervoicefemale\\genericplayer_powerattack_', label = "her power attack sound plays" },
+  { re = 'voice: playing \S+playervoicefemale\\genericplayer_death_', label = "her death sound plays" },
+]
+forbid = [{ re = 'voice: playing \S+playervoicemale\\', label = "no line from the male player's voice" }]
+
+[[scenario]]
 name = "combat-sights"
 source = "playtest list 2026-10-11 items 32-33 (docs/design/combat-ai.md §10.6): NPCs aim down the sights beyond 20 m (1,400 units) and walk while aiming, fire from the hip nearer"
 note = "Violet (0x000F570B, placed at -46910,64897) starts about 1,900 units from the player, within her hunting rifle's reach (2,000; docs/design/combat-ai.md §16) and beyond the 1,800 at which a gunman sets off again, so she walks in aiming down the sights to about 1,600 units, beyond 20 m; at 38 s the player is put about 1,000 units from her, just above the ground (z 4,400; the ground is about 4,290 there: from z 7,000 the player fell for seconds 2,700 units above her, beyond her reach measured to the chest, and she held fire): from the hip. Until PR #444 the player started 3,000 units off; beyond her reach she now runs in with her sights lowered (combat-sights-beyond-reach)"
@@ -2001,6 +2036,39 @@ expect = ["furniture summary: 1 of 1 actors sat down, 1 got up again"]
 # The range of repeats catches excess retries only: it does not prove their spacing (retries
 # every 3 s would pass). The 5 s spacing is proved by the unit tests of
 # crates/fnv-actor/src/furniture_retry.rs.
+[[scenario]]
+name = "resident-resettles-after-fight"
+source = "issue #2013 (packages.md, furniture.md): Easy Pete on his chair by day is drawn into a fight with a spawned gecko, which gets him up; the gecko is taken away (disabled, as in the capture) and when his search ends inside his package's place he sits again [observed in the original: AI observer 2026-11-10, Easy Pete sat again about 5 real seconds after the fight]"
+areas = ["ai", "residents", "furniture"]
+paths = ["crates/fnv-ai/src/carry.rs", "crates/fnv-ai/src/alert.rs"]
+args = ["--cell", "Goodsprings", "--play", "--hour", "9", "--size", "1280x720", "--no-voice", "--no-messages", "--npc-packages", "EasyPeteRef"]
+env = { RUST_LOG = "info", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_NEAR = "00106349", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "20:call:EasyPeteRef:PlaceAtMe:NVCrGecko:1:200:0,20.5:combat:EasyPeteRef:0xFF000000,20.6:combat:0xFF000000:EasyPeteRef,26:call:0xFF000000:Disable,80:call:EasyPeteRef:GetSitting" }
+run_seconds = 85
+order = [[
+  "furniture: 00104C80 is on ",
+  "furniture: 00104C80 gets off ",
+  { re = 'EasyPeteRef: (is back in the place of|has searched: back to the place of) ', label = "his search over, he goes back to his chair" },
+  "furniture: 00104C80 is on ",
+  "script: test aid calls GetSitting on EasyPeteRef = 3",
+]]
+
+[[scenario]]
+name = "resident-resettles-in-bed"
+source = "issue #2013 (packages.md): Easy Pete asleep under his Sleep package (in cell) is drawn into a fight with a spawned gecko, which gets him off his bed; the gecko is taken away (disabled) and, his search over anywhere in the cell, his package's place, he lies down again instead of standing in the room until the package's hours end [design; the original's bed case is not settled by the 2026-11-10 capture]"
+note = "Easy Pete is put by his bed (00176ACE) at 2:00 as in wake-to-talk; a gecko is set on him at 20 s and disabled at 26 s"
+areas = ["ai", "residents", "furniture"]
+paths = ["crates/fnv-ai/src/carry.rs", "crates/fnv-ai/src/alert.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "00176ACE", NVF_PLAY_TEST_SCRIPT = "3:moveto:EasyPeteRef:0x00176ACE:0:60:0,20:call:EasyPeteRef:PlaceAtMe:NVCrGecko:1:150:0,20.5:combat:EasyPeteRef:0xFF000000,20.6:combat:0xFF000000:EasyPeteRef,26:call:0xFF000000:Disable,75:call:EasyPeteRef:GetSleeping" }
+args = ["--cell", "GSHouseInterior03", "--play", "--hour", "2", "--npc-packages", "EasyPeteRef", "--no-voice", "--no-messages"]
+run_seconds = 80
+order = [[
+  { text = "furniture: 00104C80 is on 00176ACE", label = "Easy Pete asleep on his bed" },
+  { text = "furniture: 00104C80 gets off 00176ACE", label = "the fight gets him up" },
+  { re = 'EasyPeteRef: is back in the place of \S+: settles there again', label = "his search over in the cell, he settles again (#2013)" },
+  { text = "furniture: 00104C80 is on 00176ACE", label = "back on his bed" },
+  { text = "script: test aid calls GetSleeping on EasyPeteRef = 3", label = "asleep" },
+]]
+
 [[scenario]]
 name = "resident-furniture-refusal-retry"
 source = "issue #1506, docs/spec-notes/furniture.md §7: the test aid's settler is on Easy Pete's chair when his AI resumes; refused (in use), he waits, asks again (logged once) and sits soon after the settler got off"
@@ -3022,7 +3090,7 @@ source = "ESM gap audit row 2 (docs/handoff/esm-gap-audit-2026-10-21.md): the co
 note = "god mode in Goodsprings: the console gives the player Bloody Mess, Confirmed Bachelor and Math Wrath at 4 s; Easy Pete is brought 300 units north at 6 s and again at 8.8 s (he walks off to the saloon); aimed at with aimnpc, the 10mm pistol, with no spread, shoots him twice at 9.5 s; V at 12 s enters VATS mode. Written 2026-10-21"
 areas = ["combat", "perks", "vats"]
 paths = ["crates/fnv-game/src/perks.rs", "crates/fnv-combat/src/damage.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_NO_SPREAD = "1", NVF_PLAY_TEST_EQUIP = "0000434F", NVF_PLAY_TEST_GIVE = "00004241:20", NVF_PLAY_TEST_CONSOLE = "4:player.addperk BloodyMess;4.2:player.addperk ConfirmedBachelor;4.4:player.addperk MathWrath;4.6:close", NVF_PLAY_TEST_SCRIPT = "6:moveto:EasyPeteRef:player:0:300:0,8.8:moveto:EasyPeteRef:player:0:300:0", NVF_PLAY_TEST_CONTROL = "7:weapon,9:aimnpc,9.5:fire,9.7:fire", NVF_PLAY_TEST_KEYS = "12:v" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_NO_SPREAD = "1", NVF_PLAY_TEST_EQUIP = "0000434F", NVF_PLAY_TEST_GIVE = "00004241:20", NVF_PLAY_TEST_CONSOLE = "4:player.addperk BloodyMess;4.2:player.addperk ConfirmedBachelor;4.4:player.addperk MathWrath;4.6:close", NVF_PLAY_TEST_SCRIPT = "6:moveto:EasyPeteRef:player:0:300:0,8.8:moveto:EasyPeteRef:player:0:300:0", NVF_PLAY_TEST_CONTROL = "7:weapon,9:aimnpc,9.5:fire,9.7:fire", NVF_PLAY_TEST_KEYS = "12:v", NVF_PLAY_TEST_VATS_STYLE = "dead-eye" }
 args = ["--play", "--cell", "Goodsprings", "--pos=-68375,4800,8700", "--heading", "0", "--hour", "12", "--no-voice", "--no-messages"]
 run_seconds = 16
 expect = [
@@ -4043,6 +4111,60 @@ forbid = [
 ]
 
 [[scenario]]
+name = "pipboy-screen-fx"
+source = "docs/spec-notes/pipboy.md §3 'Page changes': on the arm a page change washes the screen and, as the test aid forces them, rolls it once through the vertical hold or shudders; a tab change brightens it a little; the beam still sweeps and the pages still draw"
+areas = ["pipboy"]
+paths = ["engine/nvf-play/src/pipboy/transition.rs", "engine/nvf-play/src/pipboy/device_screen.rs", "engine/nvf-play/src/pipboy/test_aid.rs", "engine/nvforever/src/pipboy_arm.rs", "engine/nvf-assets/src/nif_material*", "engine/nvf-assets/src/nif_surface_bindings.wesl"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_PIPBOY = "12:open,13:glitch=hold,14:page=stats,15:glitch=shudder,15.5:page=data,16.5:glitch=plain,17:page=items,18:tab=1,19:glitch=off,19.5:page=stats,21:close", NVF_PLAY_TEST_SHOTS = "14.1:pipboy_fx_hold.png,15.6:pipboy_fx_shudder.png,17.05:pipboy_fx_plain.png,18.02:pipboy_fx_tab.png,20.5:pipboy_fx_after.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--hour", "12", "--size", "1280x720"]
+run_seconds = 23
+order = [[
+  "pipboy: up, page ITEMS tab Weapons",
+  "pipboy: the menus are on the model's screen",
+  "pipboy: page change transition vertical hold (270 ms)",
+  "pipboy: page change transition shudder (245 ms)",
+  "pipboy: page change transition plain (225 ms)",
+  "pipboy: tab change transition brighten (200 ms)",
+  { re = 'pipboy: page change transition (plain|shudder|vertical hold) \((225|245|270) ms\)', label = "the chances rolled again after glitch=off" },
+  "pipboy: down",
+]]
+manual = "the shots in the middle of each change (14.1 the roll, 15.6 the shudder, 17.05 the wash, 18.02 the tab's brighten) and after (20.5, STATS settled as before: pipboy.md section 3's numbers); the beam has no bands of about five rows on its rise"
+expect = [
+  { text = "pipboy: page change transition", count = 4, label = "one line a page change: the hold, the shudder, the plain one and the rolled one" },
+  { text = "pipboy: tab change transition brighten", count = 1, label = "one line for the tab change" },
+  { re = 'pipboy: the beam sweeps the screen \(2\.3 s, every 5\.12 s\)', label = "the beam at the measured speed and period" },
+  "pipboy: DATA",
+  "pipboy: STATS Status",
+]
+forbid = [
+  { text = "up, but the menus are not on the arm", label = "the arm up with nowhere to show the menus (#1330)" },
+  { re = '(?i)failed to process shader|wgpu error|validation error', label = "the screen's shader compiles (nif_material.wesl pipboy_picture)" },
+]
+
+[[scenario]]
+name = "pipboy-screen-text"
+source = "docs/spec-notes/pipboy.md §3 'Text edges': eight stills each of S.P.E.C.I.A.L., Status, Skills, ITEMS and DATA on the arm at 1280 x 720, for the edge measure (median of the eight, the beam drops out)"
+areas = ["pipboy"]
+paths = ["engine/nvf-play/src/pipboy/device_screen.rs", "engine/nvforever/src/pipboy_arm.rs", "engine/nvf-assets/src/nif_material.wesl"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_PIPBOY = "12:open,13.5:page=stats,14:tab=1,17.5:tab=0,21:tab=2,24.5:page=items,28:page=data,31.5:close", NVF_PLAY_TEST_SHOTS = "15.0:pipboy_text_special_1.png,15.3:pipboy_text_special_2.png,15.6:pipboy_text_special_3.png,15.9:pipboy_text_special_4.png,16.2:pipboy_text_special_5.png,16.5:pipboy_text_special_6.png,16.8:pipboy_text_special_7.png,17.1:pipboy_text_special_8.png,18.5:pipboy_text_status_1.png,18.8:pipboy_text_status_2.png,19.1:pipboy_text_status_3.png,19.4:pipboy_text_status_4.png,19.7:pipboy_text_status_5.png,20.0:pipboy_text_status_6.png,20.3:pipboy_text_status_7.png,20.6:pipboy_text_status_8.png,22.0:pipboy_text_skills_1.png,22.3:pipboy_text_skills_2.png,22.6:pipboy_text_skills_3.png,22.9:pipboy_text_skills_4.png,23.2:pipboy_text_skills_5.png,23.5:pipboy_text_skills_6.png,23.8:pipboy_text_skills_7.png,24.1:pipboy_text_skills_8.png,25.5:pipboy_text_items_1.png,25.8:pipboy_text_items_2.png,26.1:pipboy_text_items_3.png,26.4:pipboy_text_items_4.png,26.7:pipboy_text_items_5.png,27.0:pipboy_text_items_6.png,27.3:pipboy_text_items_7.png,27.6:pipboy_text_items_8.png,29.0:pipboy_text_data_1.png,29.3:pipboy_text_data_2.png,29.6:pipboy_text_data_3.png,29.9:pipboy_text_data_4.png,30.2:pipboy_text_data_5.png,30.5:pipboy_text_data_6.png,30.8:pipboy_text_data_7.png,31.1:pipboy_text_data_8.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--hour", "12", "--size", "1280x720"]
+run_seconds = 33
+order = [[
+  "pipboy: up, page ITEMS tab Weapons",
+  "pipboy: the menus are on the model's screen",
+  "pipboy: STATS S.P.E.C.I.A.L.",
+  "pipboy: STATS Status",
+  "pipboy: STATS Skills",
+  "pipboy: ITEMS",
+  "pipboy: DATA",
+  "pipboy: down",
+]]
+manual = "the edges: in target/smoke/…/pipboy_text_*.png (special, status, skills, items, data), on the median of the stills, the median 10-to-90 % width in pixels of every text edge with enough contrast, along rows and columns (a hard one-pixel step measures 0.8); the original's text measures about 1.6 px, titles 1.8 to 2.1 (pipboy.md section 3)"
+forbid = [
+  { text = "up, but the menus are not on the arm", label = "the arm up with nowhere to show the menus (#1330)" },
+]
+
+[[scenario]]
 name = "pipboy-menu-pause"
 source = "issue #1330: with menu pause on (--menu-pause original) the inventory stops the virtual clock; the Pip-Boy still comes up, on the menus' clock"
 areas = ["pipboy"]
@@ -4390,6 +4512,25 @@ expect = [
   { text = "lockpick: help message 0x0000017C", count = 1 },
   "ui sounds: lockpick lock broken by forcing: UILockpickingForceFail",
   "lockpick summary: 3 asked, 2 opened (1 refused); 0 picked, 0 forced, 1 broken by forcing; 1 torque tries, 0 pins broken, 0 times out of pins; 1 left before the end",
+]
+
+[[scenario]]
+name = "menu-camera-world-runs"
+source = "[design] issue #1753: a menu's own 3D camera (the lockpicking view's) beside the main view's does not stop the world's systems; they find the main view by its marker (fly::WorldCamera, docs/design/layer4-play.md §2), so streaming keeps running for the seconds the lock is up (world.rs `note_other_cameras`)"
+note = "lockpick's wall safe in GSHouseInterior02 at Lockpick 55: opened at 12 s, the help closed, left with the menu's Exit at 20 s"
+areas = ["lockpick", "streaming", "camera"]
+paths = ["engine/nvforever/src/fly.rs", "engine/nvforever/src/world.rs", "engine/nvforever/src/lockpick_view.rs", "engine/nvforever/src/lod.rs", "engine/nvforever/src/grass.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "00105229", NVF_PLAY_TEST_GIVE = "0000000A:3", NVF_PLAY_TEST_ACTIVATE = "12", NVF_PLAY_TEST_LOCKPICK = "1:skill:55,13.5:help,20:exit" }
+args = ["--cell", "GSHouseInterior02", "--play", "--no-voice", "--no-messages"]
+run_seconds = 26
+order = [[
+  "lockpick: open 0x00105229 Safe: Average lock (Lockpick 55, 3 bobby pins)",
+  { text = "world: streaming runs with another 3D camera active (Lockpicking camera)", label = "streaming runs while the lockpicking camera is up" },
+  "lockpick: closed (the player left)",
+  { re = 'world: streaming kept running behind another 3D camera \(Lockpicking camera\): [1-9]\d+ frames', label = "and kept running for the seconds the menu was open" },
+]]
+expect = [
+  { text = "lockpick view: the lock drawn", label = "the menu's own camera drew the lock" },
 ]
 
 [[scenario]]
@@ -6026,7 +6167,7 @@ source = "perk audit 2026-10-23 §3.8, owner 2026-10-24 (the rest of the perks):
 note = "vats-mode-miss's setup (a .357 among the Goodsprings dogs on their packages, god mode; Violetta killed) with the dog 000F573F given Chameleon 1 (set_av) at 3 s; VATS at 10 s and a mark on it"
 areas = ["combat", "vats", "perks"]
 paths = ["engine/nvf-play/src/vats_mode.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:kill:0x0013E5BB,3:set_av:0x000F573F:Chameleon:1", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,10.3:aimvats", NVF_PLAY_TEST_KEYS = "10:v,10.32:mouse-left" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:kill:0x0013E5BB,3:set_av:0x000F573F:Chameleon:1", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,10.3:aimvats", NVF_PLAY_TEST_KEYS = "10:v,10.32:mouse-left", NVF_PLAY_TEST_VATS_STYLE = "dead-eye" }
 args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
 run_seconds = 14
 expect = [
@@ -6040,7 +6181,7 @@ source = "perk audit 2026-10-23 §3.8, owner 2026-10-24 (the rest of the perks):
 note = "perk-vats-cloaked's setup with the perk EnhancedSensors at 3 s: the cloaked dog is marked"
 areas = ["combat", "vats", "perks"]
 paths = ["engine/nvf-play/src/vats_mode.rs", "engine/nvf-play/src/compass.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:kill:0x0013E5BB,3:set_av:0x000F573F:Chameleon:1,3:perk:EnhancedSensors", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,10.3:aimvats", NVF_PLAY_TEST_KEYS = "10:v,10.32:mouse-left" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:kill:0x0013E5BB,3:set_av:0x000F573F:Chameleon:1,3:perk:EnhancedSensors", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,10.3:aimvats", NVF_PLAY_TEST_KEYS = "10:v,10.32:mouse-left", NVF_PLAY_TEST_VATS_STYLE = "dead-eye" }
 args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
 run_seconds = 14
 order = [[
@@ -9624,11 +9765,11 @@ env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:16", NVF_P
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--window", "borderless"]
 run_seconds = 18
 expect = [
-  { text = "window: borderless full screen on the current monitor", label = "--window borderless starts borderless full screen" },
+  { re = 'window: borderless full screen$', label = "--window borderless starts borderless full screen" },
   { text = "settings: borderless off", label = "the Display switch is flipped" },
   { text = 'window: windowed, 1280x800', label = "the live window turns into a window of --size again" },
 ]
-order = [["window: borderless full screen on the current monitor", "settings: borderless off", { text = 'window: windowed, 1280x800' }]]
+order = [[{ re = 'window: borderless full screen$' }, "settings: borderless off", { text = 'window: windowed, 1280x800' }]]
 
 [[scenario]]
 name = "resolution-revert"
@@ -9708,7 +9849,7 @@ order = [[
 [[scenario]]
 name = "settings-scroll-headings"
 source = "#1953: the mouse wheel moves the window of a tab with headings (Gameplay) as of one without, the chosen row brought into the window (the top row once the chosen one leaves it) and the window not pulled back to the chosen row's heading; a notch up moves it back one line"
-note = "Gameplay's first lines: [Game], difficulty, hardcore, kill-camera, reload-slows, UsePipBoy, [Saving], the five autosave rows; the window is nine lines"
+note = "Gameplay's first lines: [Game], difficulty, hardcore, kill-camera, vats-style, vats-slowdown, reload-slows, UsePipBoy, [Saving], the autosave rows; the window is nine lines"
 areas = ["settings"]
 paths = ["engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings_view.rs", "engine/nvf-play/src/settings_layout.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:18", NVF_PLAY_TEST_SETTINGS = "11:tab:Gameplay", NVF_PLAY_TEST_PAUSE_MENU = "12:wheel-down,12.3:wheel-down,12.6:wheel-down,13.5:inspect,14:wheel-up,15:inspect" }
@@ -9754,7 +9895,7 @@ forbid = [
 name = "settings-tab-write"
 source = "#1953, the fork owner's request 2026-11-09: the settings page's tab is kept in NVForever.ini as [UI] SettingsTab=<tab> when it changes, so a new start (Continue, a save's load) opens on it; the first half of a round trip (settings-tab-read starts in the same home), run them together"
 areas = ["settings"]
-paths = ["engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings.rs", "crates/fnv-install/src/lib.rs"]
+paths = ["engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings.rs", "crates/fnv-install/src/lib.rs", "engine/nvforever/src/quality.rs"]
 env = { NVFOREVER_HOME = "settings-tab-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:15", NVF_PLAY_TEST_SETTINGS = "11:tab:Debug,12:tab:Graphics" }
 args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
 run_seconds = 17
@@ -9768,14 +9909,14 @@ forbid = [{ re = 'NVF_PLAY_TEST_(SETTINGS|PAUSE_MENU): ("|no switch|\S+ is a (li
 name = "settings-tab-read"
 source = "#1953, the fork owner's request 2026-11-09: the second half of the tab round trip: a new start in settings-tab-write's home opens the settings page on Graphics, the tab kept in [UI] SettingsTab="
 areas = ["settings"]
-paths = ["engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings.rs"]
+paths = ["engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings.rs", "engine/nvforever/src/quality.rs"]
 env = { NVFOREVER_HOME = "settings-tab-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:14", NVF_PLAY_TEST_PAUSE_MENU = "11:settings,12:inspect" }
 args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
 run_seconds = 16
 order = [[
   { re = 'settings page: \[UI\] SettingsTab=Graphics read from .*NVForever\.ini', label = "the kept tab is read at the start" },
-  { text = "pause menu: settings open on Graphics; selected grade", label = "Settings opens on it, on its first row" },
-  "pause menu: inspect: Graphics, keys on the rows, selected grade",
+  { text = "pause menu: settings open on Graphics; selected quality", label = "Settings opens on it, on its first row (the Quality row, #1966)" },
+  "pause menu: inspect: Graphics, keys on the rows, selected quality",
 ]]
 forbid = [
   { re = 'NVF_PLAY_TEST_(SETTINGS|PAUSE_MENU): ("|no switch|\S+ is a (list|slider):)', label = "every aid step is understood" },
@@ -10080,6 +10221,144 @@ order = [[
   { re = 'pause menu: inspect: words .*\| \[xx\] Display > \[xx\] Interface$', label = "where it lives, translated" },
 ]]
 forbid = [{ re = 'NVF_PLAY_TEST_(SETTINGS|PAUSE_MENU): ("|no switch|\S+ is a (list|slider):)', label = "every aid step is understood" }]
+
+[[scenario]]
+name = "settings-quality-presets"
+source = "#1966: the Graphics tab's Quality row, over its own heading at the top: each preset sets the rows its file's keys map to (docs/spec-notes/quality-presets.md), each logged with its value; a change to one of them reads Custom (engine/nvforever/src/quality.rs)"
+note = "the presets are the made-up files of tools/smoke/fixtures/quality-presets (NVF_PLAY_TEST_QUALITY_PRESETS), not an install's: a slider's part is the file's number against the largest of the four, so Very High is 100% and matches today's distances"
+areas = ["settings", "renderer"]
+paths = ["engine/nvforever/src/quality.rs", "engine/nvforever/src/settings.rs", "engine/nvf-play/src/settings_layout.rs", "engine/nvf-play/src/settings.rs", "tools/smoke/fixtures/quality-presets/"]
+env = { NVF_PLAY_TEST_QUALITY_PRESETS = "{repo}/tools/smoke/fixtures/quality-presets", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:21", NVF_PLAY_TEST_SETTINGS = "11:layout,12:quality=Low,14:quality=Medium,15:quality=High,16:quality=Very High,18:object-distance=0.5" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 23
+expect = [
+  { re = 'quality presets: Low, Medium, High, Very High from .*quality-presets; 9 key\(s\) set rows, 32 not used', count = 1, label = "the four made-up files are read once, at the start" },
+  { text = "settings layout: quality -> Graphics > Quality", label = "the Quality row under its own heading" },
+  { text = "settings layout: enhanced -> Graphics > Picture", label = "the Enhanced effects row under Picture" },
+]
+order = [[
+  "settings: shadow-distance 25%",
+  "settings: sun-shadows off",
+  "settings: shadow-filter Fast",
+  "settings: actor-distance 20%",
+  "settings: object-distance 40%",
+  "settings: item-distance 50%",
+  { text = "settings: grass-distance 10%", label = "0 in the file: the slider's least" },
+  "settings: water-mirror off",
+  "settings: glow off",
+  { re = 'quality presets: Low from .*quality-presets: 9 row\(s\) set', label = "Low sets its nine rows" },
+  "settings: quality Low",
+  "quality presets: the Quality row reads Low",
+  "settings: shadow-distance 50%",
+  "settings: sun-shadows on",
+  "settings: actor-distance 40%",
+  "settings: object-distance 50%",
+  "settings: item-distance 60%",
+  "settings: grass-distance 25%",
+  "settings: water-mirror on",
+  "settings: quality Medium",
+  "quality presets: the Quality row reads Medium",
+  "settings: shadow-distance 75%",
+  "settings: shadow-filter Smooth",
+  "settings: actor-distance 60%",
+  "settings: object-distance 80%",
+  "settings: item-distance 70%",
+  "settings: grass-distance 75%",
+  "settings: glow on",
+  "settings: quality High",
+  "quality presets: the Quality row reads High",
+  "settings: shadow-distance 100%",
+  "settings: actor-distance 100%",
+  "settings: object-distance 100%",
+  "settings: item-distance 100%",
+  "settings: grass-distance 100%",
+  "settings: quality Very High",
+  "quality presets: the Quality row reads Very High",
+  { text = "settings: object-distance 50%", label = "a covered row changed on its own" },
+  { text = "quality presets: the Quality row reads Custom", label = "the row reads Custom" },
+]]
+forbid = [
+  { re = 'NVF_PLAY_TEST_(SETTINGS|PAUSE_MENU): ("|no switch|\S+ is a (list|slider):)', label = "every aid step is understood" },
+  { re = 'quality presets: .*(is not offered|not a key|not a number|above 0 in no)', label = "every made-up file is read and every key known" },
+  { re = 'settings: (ambient-occlusion|fine-shadows|bloom|sharpen|anisotropic|light-shafts|water-reflections|anti-aliasing|fsr-upscaling) ', label = "a preset touches no enhanced effect, anti-aliasing or FSR" },
+]
+
+[[scenario]]
+name = "settings-quality-presets-missing"
+source = "#1966: without any of the preset files the Quality row is not registered, and the log says why once; the Enhanced effects row stays (engine/nvforever/src/quality.rs)"
+note = "NVF_PLAY_TEST_QUALITY_PRESETS names a folder that does not exist; the aid's quality=Low then finds no such row"
+areas = ["settings"]
+paths = ["engine/nvforever/src/quality.rs", "engine/nvforever/src/settings.rs"]
+env = { NVF_PLAY_TEST_QUALITY_PRESETS = "{repo}/tools/smoke/fixtures/quality-presets-none", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:15", NVF_PLAY_TEST_SETTINGS = "11:layout,12:quality=Low" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 17
+expect = [
+  { re = 'quality presets: none of low\.ini, medium\.ini, high\.ini, VeryHigh\.ini in .*quality-presets-none: the Quality row is not shown', count = 1, label = "said once" },
+  { text = "settings layout: enhanced -> Graphics > Picture", label = "the Enhanced effects row is there all the same" },
+  { re = 'settings layout: \d+ row\(s\) in 7 tab\(s\), 0 not in the table', label = "every row still has its place" },
+  { re = 'NVF_PLAY_TEST_SETTINGS: no switch "quality"', label = "there is no Quality row to take a preset" },
+]
+forbid = [
+  { text = "settings layout: quality ->", label = "no Quality row" },
+  { text = "the Quality row reads", label = "nothing to read" },
+]
+
+[[scenario]]
+name = "settings-quality-presets-part"
+source = "#1966: a missing preset file leaves that preset out of the list, said once in the log; the others still work (engine/nvforever/src/quality.rs)"
+note = "tools/smoke/fixtures/quality-presets-part holds only the made-up low.ini and high.ini"
+areas = ["settings"]
+paths = ["engine/nvforever/src/quality.rs", "tools/smoke/fixtures/quality-presets-part/"]
+env = { NVF_PLAY_TEST_QUALITY_PRESETS = "{repo}/tools/smoke/fixtures/quality-presets-part", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:17", NVF_PLAY_TEST_SETTINGS = "11:quality=Medium,12:quality=Low,14:quality=High" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 19
+expect = [
+  { re = 'quality presets: Medium is not offered: medium\.ini not found in .*quality-presets-part', count = 1, label = "Medium's file is missing, said once" },
+  { re = 'quality presets: Very High is not offered: VeryHigh\.ini not found in .*quality-presets-part', count = 1, label = "Very High's too" },
+  { re = 'quality presets: Low, High from .*quality-presets-part; ', count = 1, label = "the two found are offered" },
+  { text = "settings: quality has no such choice", count = 1, label = "Medium cannot be taken" },
+]
+order = [["settings: quality Low", "quality presets: the Quality row reads Low", "settings: quality High", "quality presets: the Quality row reads High"]]
+forbid = [{ text = "settings: quality Medium", label = "Medium is not taken" }]
+
+[[scenario]]
+name = "settings-enhanced-effects"
+source = "#1966: the Enhanced effects row under Graphics > Picture: On sets every effect --graphics enhanced turns on, Off every one off as vanilla, Custom when mixed; the Quality row reads the install's own preset files (engine/nvforever/src/quality.rs)"
+note = "test runs start with the vanilla look, so the row first reads Off; bloom flipped alone makes it Custom; Off then flips the six still on (bloom is off already)"
+areas = ["settings", "renderer"]
+paths = ["engine/nvforever/src/quality.rs", "engine/nvforever/src/settings.rs", "engine/nvforever/src/graphics.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:18", NVF_PLAY_TEST_SETTINGS = "11:enhanced=On,13:bloom,15:enhanced=Off" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 20
+expect = [
+  { re = 'quality presets: Low, Medium, High, Very High from .+; 9 key\(s\) set rows, 32 not used', count = 1, label = "the install's four preset files are read from its folder" },
+]
+order = [[
+  { text = "quality presets: the Enhanced effects row reads Off", label = "the vanilla look at the start" },
+  "settings: ambient-occlusion on",
+  "settings: fine-shadows on",
+  "settings: bloom on",
+  "settings: sharpen on",
+  "settings: anisotropic on",
+  "settings: light-shafts on",
+  "settings: water-reflections on",
+  "settings: enhanced On",
+  "quality presets: the Enhanced effects row reads On",
+  "settings: bloom off",
+  { text = "quality presets: the Enhanced effects row reads Custom", label = "one effect off: Custom" },
+  "settings: ambient-occlusion off",
+  "settings: fine-shadows off",
+  "settings: sharpen off",
+  "settings: anisotropic off",
+  "settings: light-shafts off",
+  "settings: water-reflections off",
+  "settings: enhanced Off",
+  "quality presets: the Enhanced effects row reads Off",
+]]
+forbid = [
+  { re = 'NVF_PLAY_TEST_(SETTINGS|PAUSE_MENU): ("|no switch|\S+ is a (list|slider):)', label = "every aid step is understood" },
+  { re = 'settings: (glow|eye-adaptation|neon-glow|water-mirror|shadow-filter|anti-aliasing|fsr-upscaling) ', label = "the row touches only the enhanced effects" },
+]
 
 [[scenario]]
 name = "controller-write"
@@ -11195,7 +11474,7 @@ source = "owner 2026-10-25: any action besides aiming, marking or accepting kick
 note = "vats-mode-two-marks' setup (the two Goodsprings dogs attack, GOD, a .357). V at 10 s enters; one mark at 10.32; T (Wait) at 10.36 ends the mode with the mark dropped and nothing spent (the Wait menu itself is refused with the dogs about). The clock is back at 1, so V at 10.6 enters again 0.2 s later; E at 10.9 with nothing marked leaves rather than firing (and would activate what is under the crosshair)"
 areas = ["combat", "vats"]
 paths = ["engine/nvf-play/src/vats_mode.rs", "engine/nvf-play/src/activate.rs", "engine/nvf-play/src/wait.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:combat:0x000F573F:player,3:combat:0x0013E5BB:player", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,10.3:aimvats", NVF_PLAY_TEST_KEYS = "10:v,10.32:mouse-left,10.36:t,10.6:v,10.9:e" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:combat:0x000F573F:player,3:combat:0x0013E5BB:player", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,10.3:aimvats", NVF_PLAY_TEST_KEYS = "10:v,10.32:mouse-left,10.36:t,10.6:v,10.9:e", NVF_PLAY_TEST_VATS_STYLE = "dead-eye" }
 args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
 run_seconds = 18
 order = [[
@@ -11216,7 +11495,7 @@ source = "owner's todo 6: VATS mode, a Dead Eye-style mark and fire (docs/design
 note = "the two Goodsprings dogs (combat-dogs' spot) attack the player, who cannot die (GOD) and holds a .357 (WeapNV357Revolver 0008F216: 26 AP a shot from its DNAM override, 6 rounds; god mode keeps the magazine full). V at 10 s enters VATS mode (after the add-on packs' start-up boxes, about 6.5 s of game time: any menu ends the mode, and one cut the firing short at 6 s, coordinator run 2026-10-18); the clock then runs at 0.05, so the aids 10.3-10.42 s (game time) come about 1 s apart in real time; aimvats turns to the nearest unmarked living actor, the left button marks it, twice; E fires both at half speed. 2 x 26 = 52 AP"
 areas = ["combat", "vats"]
 paths = ["engine/nvf-play/src/vats_mode.rs", "crates/fnv-combat/src/vats.rs", "crates/fnv-game/src/vats.rs", "engine/nvf-play/src/combat.rs", "engine/nvf-play/src/control.rs", "engine/nvf-play/src/audio_out.rs", "engine/nvf-play/src/sfx.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:combat:0x000F573F:player,3:combat:0x0013E5BB:player", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,10.3:aimvats,10.36:aimvats", NVF_PLAY_TEST_KEYS = "10:v,10.32:mouse-left,10.38:mouse-left,10.42:e" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:combat:0x000F573F:player,3:combat:0x0013E5BB:player", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,10.3:aimvats,10.36:aimvats", NVF_PLAY_TEST_KEYS = "10:v,10.32:mouse-left,10.38:mouse-left,10.42:e", NVF_PLAY_TEST_VATS_STYLE = "dead-eye" }
 args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
 run_seconds = 18
 order = [[
@@ -11236,12 +11515,127 @@ expect = [
 ]
 
 [[scenario]]
+name = "vats-classic-queue"
+source = "fork owner 2026-11-09: the original's VATS flow as the default style, the world stopped while targets are chosen (docs/design/vats-classic.md §2 to §7)"
+note = "vats-mode-two-marks's setup in the classic style at its default, a full stop: the player turns to a dog at 9.8 s, V at 10 s finds the targets and stops the clock (speed 0; the aids' clock then counts real time, so the later keys still come); S moves to another part, the left button queues two attacks on it, E plays them at half speed while the player takes fVATSPlayerDamageMult of a hit. 2 x 26 = 52 AP"
+areas = ["combat", "vats"]
+paths = ["engine/nvf-play/src/vats_mode.rs", "engine/nvf-play/src/vats_classic.rs", "crates/fnv-combat/src/vats.rs", "crates/fnv-game/src/vats.rs", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/player.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:combat:0x000F573F:player,3:combat:0x0013E5BB:player", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,9.8:aimvats", NVF_PLAY_TEST_KEYS = "10:v,11:s,11.5:mouse-left,12:mouse-left,12.5:e", NVF_PLAY_TEST_VATS_STYLE = "classic" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
+run_seconds = 20
+order = [[
+  { re = 'vats mode: on \(WeapNV357Revolver, 26 AP a shot, 6 rounds loaded', label = "V enters VATS mode with the .357" },
+  { re = 'vats mode: classic: \d+ targets, [0-9A-F]{8} selected; the clock at 0\.00', label = "the targets are found and the clock stops" },
+  { re = 'dialogue zoom: in on .* a VATS target, framed whole', label = "the view narrows onto the selected target, in real time with the clock stopped" },
+  { re = 'vats mode: classic: part ', label = "S moves to another part" },
+  { re = 'vats mode: marked .* mark 1; 26 AP reserved', label = "the first queued attack reserves 26 AP" },
+  { re = 'vats mode: marked .* mark 2; 52 AP reserved', label = "the second reserves 52 AP" },
+  "vats mode: firing 2 marked shots",
+  { re = 'vats mode: classic: while the attacks play the player takes 75% of a hit', label = "the playback damage share is on" },
+  { re = 'vats camera: attack 1 on .*, Shoot: angle [a-z ,]+; path \w+ \(0x[0-9A-F]{8}\), shots ', label = "the first attack's camera stands at one of the angles, its clocks chosen from the game's camera paths" },
+  { re = 'vats mode: shot 1 of 2 at .*, 26 AP spent', label = "the first shot leaves in its camera" },
+  { re = 'vats camera: attack 2 on .*, Shoot: angle [a-z ,]+; path ', label = "the second attack's camera" },
+  { re = 'vats mode: shot 2 of 2 at .*, 26 AP spent', label = "both shots are fired" },
+  { re = 'vats mode: off \(2 shots fired, 52 AP spent; all shots fired\)', label = "the mode ends after both shots" },
+]]
+expect = [
+  { re = 'vats mode summary: entered 1 times, 2 marks, 2 shots, 52 AP spent', label = "the summary: two queued, two fired, 52 AP" },
+  { text = "vats camera summary: 2 attack cameras shown", label = "an attack camera for each queued attack" },
+  { re = 'vats: style Classic \(NVF_PLAY_TEST_VATS_STYLE\)', label = "the style comes from the test aid" },
+]
+
+[[scenario]]
+name = "vats-classic-special"
+source = "fork owner 2026-11-09: melee special attacks in the classic style, from the weapon's own record (docs/design/vats-classic.md §9)"
+note = "vats-mode-melee's setup in the classic style: a machete (WeapNVMachete 000CE569: 20 AP a swing; its VATS data: no skill needed, damage x0.7, 16 AP [observed]) among the Goodsprings dogs. V at 16 s, R (the menu file's key for its special attack button) queues the special attack at its own 16 AP, the file's button and queue row say so, E plays it: the teleport, the swing, the blow's damage times 0.7. The roll is forced to hit, as vats-mode-melee's"
+areas = ["combat", "vats"]
+paths = ["engine/nvf-play/src/vats_mode.rs", "engine/nvf-play/src/vats_classic.rs", "crates/fnv-combat/src/vats.rs", "crates/fnv-combat/src/data.rs", "engine/nvf-play/src/combat.rs", "engine/nvf-play/src/tiles/vats_menu.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:combat:0x000F573F:player,3:combat:0x0013E5BB:player", NVF_PLAY_TEST_EQUIP = "000CE569", NVF_PLAY_TEST_VATS_ROLL = "hit", NVF_PLAY_TEST_CONTROL = "3:weapon,15.8:aimvats", NVF_PLAY_TEST_KEYS = "16:v,17:r,18:e", NVF_PLAY_TEST_VATS_STYLE = "classic" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
+run_seconds = 26
+order = [[
+  { re = 'vats mode: WeapNVMachete has a special attack: damage x0\.70, 16 AP', label = "the machete's special attack comes from its record" },
+  { re = 'tiles: VATSMenu drawn from tiles: [1-9]\d* parts, selected ".+" \d+, 0 queued \[\], special "special attack: damage x0\.7, 16 AP"', label = "the file's special attack button says what R queues" },
+  { re = 'vats mode: classic: mark 1 is a special attack: damage x0\.70, 16 AP', label = "R queues the special attack" },
+  { re = 'vats mode: marked .* mark 1; 16 AP reserved', label = "it reserves its own 16 AP, not the swing's 20" },
+  { re = 'tiles: VATSMenu drawn from tiles: [1-9]\d* parts, selected ".+" \d+, 1 queued \[.+ \(special\)\]', label = "its row in the file's queue says it is the special attack" },
+  "vats mode: firing 1 marked swings",
+  { re = 'vats mode: swing 1 of 1 at .*, 16 AP spent', label = "the swing spends 16 AP" },
+  { re = "combat: vats special attack: the blow's damage times 0\\.70", label = "the blow's damage is multiplied" },
+]]
+expect = [
+  { re = 'vats mode summary: entered 1 times, 1 marks, 1 shots, 16 AP spent', label = "the summary: one special attack, 16 AP" },
+]
+
+[[scenario]]
+name = "vats-classic-no-target"
+source = "fork owner 2026-11-09: V with nothing to target only plays the refusal sound (docs/design/vats-classic.md §3)"
+note = "vats-mode-unmark's spot with a .357 in hand and both dogs killed at 3 s: V at 10 s finds no living actor in front, in range and in sight, so the mode does not start and no stay is counted"
+areas = ["combat", "vats"]
+paths = ["engine/nvf-play/src/vats_mode.rs", "engine/nvf-play/src/vats_classic.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:kill:0x000F573F,3:kill:0x0013E5BB", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload", NVF_PLAY_TEST_KEYS = "10:v", NVF_PLAY_TEST_VATS_STYLE = "classic" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
+run_seconds = 14
+expect = [
+  { text = "vats mode: refused: no target in sight (classic)", label = "V is refused with nothing to target" },
+  { re = 'vats mode summary: entered 0 times, 0 marks, 0 shots, 0 AP spent, 1 refused', label = "no stay is counted" },
+]
+forbid = [{ re = 'vats mode: classic: \d+ targets', label = "the mode started" }]
+
+[[scenario]]
+name = "vats-classic-menu-file"
+source = "fork owner 2026-11-10: the classic style's target screen drawn from the game's own VATS menu file, the engine-drawn screen as the fallback (docs/design/vats-classic.md §11, docs/spec-notes/vats-menu.md)"
+note = "vats-classic-queue's run read for the screen: V builds VATSMenu from menus\\vats_menu.xml on the frame the targets are found (VATS is no menu to the runtime, so nothing else builds it), the tile renderer draws it, the model writes a box per body part with the selected one, then a row per queued attack; E plays the queue and the menu is dropped. The file never falls back to the engine-drawn screen"
+areas = ["combat", "vats", "ui"]
+paths = ["engine/nvf-play/src/tiles/vats_menu.rs", "engine/nvf-play/src/vats_mode.rs", "engine/nvf-play/src/tiles/mod.rs", "engine/nvf-play/src/tiles/draw.rs", "crates/fnv-game/src/ui_loading.rs", "engine/nvforever/src/vats_highlight.rs", "engine/nvf-play/src/hud_target.rs", "engine/nvf-play/src/hud.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:combat:0x000F573F:player,3:combat:0x0013E5BB:player", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,9.8:aimvats", NVF_PLAY_TEST_KEYS = "10:v,11:s,11.5:mouse-left,12:mouse-left,12.5:e", NVF_PLAY_TEST_VATS_STYLE = "classic" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
+run_seconds = 20
+order = [[
+  { re = 'vats mode: classic: \d+ targets, [0-9A-F]{8} selected', label = "the targets are found" },
+  { re = 'ui: built VATSMenu \(menus\\vats_menu\.xml, \d+ tiles\)', label = "the game's VATS menu file is built on that frame" },
+  { re = 'tiles: VATSMenu drawn from tiles \(\d+ file tiles, \d+ code tiles\)', label = "the tile renderer draws it" },
+  { re = 'tiles: VATSMenu drawn from tiles: [1-9]\d* parts, selected ".+" \d+, 0 queued \[\], no special attack', label = "a box per body part, one selected, nothing queued" },
+  { re = 'tiles: VATSMenu drawn from tiles: [1-9]\d* parts, selected ".+" \d+, 1 queued \[[^,\]]+\]', label = "the first queued attack is a row of the file's list" },
+  { re = 'tiles: VATSMenu drawn from tiles: [1-9]\d* parts, selected ".+" \d+, 2 queued \[[^,\]]+, [^,\]]+\]', label = "the second is another" },
+  "vats mode: firing 2 marked shots",
+  { text = "ui: dropped VATSMenu", label = "the menu goes when the attacks play" },
+]]
+expect = [
+  { re = 'vats mode summary: entered 1 times, 2 marks, 2 shots, 52 AP spent', label = "the mode's rules are unchanged: two queued, two fired, 52 AP" },
+  { re = 'vats highlight: [0-9A-F]{8} part \w+: [1-9]\d* triangles on [1-9]\d* shapes', label = "the selected part is lit on the target's body" },
+  { text = "vats highlight: off", label = "and no longer once the attacks play" },
+  { re = 'hud: hidden: (the VATS attacks play|the kill camera has the view)', label = "nothing of the HUD is drawn while the attacks play" },
+  { re = 'tiles: VATSMenu: the pointer can click Accept at \d+, \d+ \([1-9]\d* x [1-9]\d*\); Return at \d+, \d+ \([1-9]\d* x [1-9]\d*\)', label = "the file's Accept and Return buttons have boxes a click lands in" },
+  { re = 'hud: enemy health .* 0x[0-9A-F]{8} 100 %', label = "the HUD's enemy bar shows the selected target at full health" },
+]
+forbid = [{ text = "VATSMenu drawn by hand", label = "the file fell back to the engine-drawn screen" }]
+
+[[scenario]]
+name = "vats-classic-engine-screen"
+source = "fork owner 2026-11-10: the engine-drawn target screen stays as the fallback (docs/design/vats-classic.md §11)"
+note = "the same spot with the menu file switched off by its test aid (as [UI] VatsMenuFile=0): V finds the targets, the left button queues an attack, the right button takes it back and a second press leaves; the file is never built"
+areas = ["combat", "vats", "ui"]
+paths = ["engine/nvf-play/src/tiles/vats_menu.rs", "engine/nvf-play/src/vats_mode.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:combat:0x000F573F:player,3:combat:0x0013E5BB:player", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,9.8:aimvats", NVF_PLAY_TEST_KEYS = "10:v,11:mouse-left,12:mouse-right,12.5:mouse-right", NVF_PLAY_TEST_VATS_STYLE = "classic", NVF_PLAY_TEST_VATS_MENU_FILE = "0" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
+run_seconds = 16
+order = [[
+  { text = "tiles: VATSMenu not drawn from its file (test aid NVF_PLAY_TEST_VATS_MENU_FILE)", label = "the switch is off" },
+  { re = 'vats mode: classic: \d+ targets, [0-9A-F]{8} selected', label = "the targets are found" },
+  { re = 'vats mode: marked .* mark 1; 26 AP reserved', label = "the left button queues an attack" },
+  { re = 'vats mode: unmarked .*, 0 marks left', label = "the right button takes it back" },
+  { re = 'vats mode: off \(0 shots fired, 0 AP spent; right click with no marks\)', label = "and with none queued it leaves" },
+]]
+forbid = [{ text = "ui: built VATSMenu", label = "the menu file was built" }]
+
+[[scenario]]
 name = "vats-mark-forehead"
 source = "owner's playtest 2026-10-24: a VATS mark on the head needed the crosshair on the neck; the human head's capsule stopped at the base of the skull (Bip01 Head has no bone above it) and now reaches the crown (engine/nvforever/src/limbs.rs skull_tip, docs/design/combat.md §5.9)"
 note = "GSGeneralStore (energy-resist-hit's spot), god mode, a .357 drawn and loaded; V at 16 s (after the add-on packs' start-up boxes: a run that pressed V at 12 s met them, and an open menu keeps the mode off) enters VATS mode (clock 0.05), aimnpc=0.95@0 puts the crosshair on the nearest NPC's forehead (95 % of its height, over the centre of its head, part 0 of DefaultBodyPartData; above the top of the old head ball) and a click marks it: the mark is on the head. Right clicks at 16.5 and 16.55 take the mark back and end the mode (vats-mode-dof's way out): nothing else ends it now that the start-up boxes come behind the loading screen, before V (b8aa64a4), and the rest of the run at the 0.05 clock outlasted the runner's timeout (2026-10-27). A first run aimed over the body's middle (aimnpc=0.93): Chet leans, his head 17 units to the side of it, and the ray passed beside the head. 40 s: the interior is ready at once, and on a busy machine the scripts (whose start the aids wait for) were not running by 18 s, so two runs ended before any aid"
 areas = ["combat", "vats"]
 paths = ["engine/nvforever/src/limbs.rs", "engine/nvf-play/src/hitvol.rs", "engine/nvf-play/src/vats_mode.rs", "engine/nvf-play/src/test_aid.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "8:weapon,10:reload,16.3:aimnpc=0.95@0", NVF_PLAY_TEST_KEYS = "16:v,16.32:mouse-left,16.5:mouse-right,16.55:mouse-right" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "8:weapon,10:reload,16.3:aimnpc=0.95@0", NVF_PLAY_TEST_KEYS = "16:v,16.32:mouse-left,16.5:mouse-right,16.55:mouse-right", NVF_PLAY_TEST_VATS_STYLE = "dead-eye" }
 args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice", "--no-messages"]
 run_seconds = 40
 order = [[
@@ -11259,7 +11653,7 @@ source = "owner 2026-10-23: a hit chance in VATS mode, shown as a percentage bes
 note = "vats-mode-two-marks' setup (the Goodsprings dogs set on the player, god mode, a .357): two marks, each logged with its chance and the dog torso's or part's BPTD base; E fires both, each shot rolled (hit or missed, either is right: the check is that the chance is worked out and rolled, not the outcome). Frame vats_hit_chance.png at 10.4 s (game time at the 0.05 clock) shows the two labels beside the x's"
 areas = ["combat", "vats"]
 paths = ["engine/nvf-play/src/vats_mode.rs", "crates/fnv-combat/src/vats.rs", "crates/fnv-game/src/vats.rs", "engine/nvf-play/src/combat.rs", "crates/fnv-combat/src/tuning.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:combat:0x000F573F:player,3:combat:0x0013E5BB:player", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,10.3:aimvats,10.36:aimvats", NVF_PLAY_TEST_KEYS = "10:v,10.32:mouse-left,10.38:mouse-left,10.42:e", NVF_PLAY_TEST_SHOTS = "10.4:vats_hit_chance.png" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:combat:0x000F573F:player,3:combat:0x0013E5BB:player", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,10.3:aimvats,10.36:aimvats", NVF_PLAY_TEST_KEYS = "10:v,10.32:mouse-left,10.38:mouse-left,10.42:e", NVF_PLAY_TEST_SHOTS = "10.4:vats_hit_chance.png", NVF_PLAY_TEST_VATS_STYLE = "dead-eye" }
 args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
 run_seconds = 18
 order = [[
@@ -11283,7 +11677,7 @@ source = "owner 2026-10-23: a hit chance in VATS mode; a missed roll goes wide o
 note = "vats-mode-unmark's setup (a .357 among the Goodsprings dogs on their packages, god mode) with every roll forced to miss (NVF_PLAY_TEST_VATS_ROLL=miss): one mark, E; the shot leaves beside the dog and does not hit it. 2026-10-24: the forbid was any actor; a run's wide shot hit Violetta standing beside the mark, which a miss may do (vats-mode.md §17.4), so the check is now on the marked dog; and Violetta is killed at 3 s so the nearest living actor, the one marked, is always the Fiend Guard Dog (a run marked Violetta and the wide shot hit the Guard Dog)"
 areas = ["combat", "vats"]
 paths = ["engine/nvf-play/src/vats_mode.rs", "crates/fnv-combat/src/vats.rs", "engine/nvf-play/src/combat.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_VATS_ROLL = "miss", NVF_PLAY_TEST_SCRIPT = "3:kill:0x0013E5BB", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,10.3:aimvats", NVF_PLAY_TEST_KEYS = "10:v,10.32:mouse-left,10.36:e" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_VATS_ROLL = "miss", NVF_PLAY_TEST_SCRIPT = "3:kill:0x0013E5BB", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,10.3:aimvats", NVF_PLAY_TEST_KEYS = "10:v,10.32:mouse-left,10.36:e", NVF_PLAY_TEST_VATS_STYLE = "dead-eye" }
 args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
 run_seconds = 16
 order = [[
@@ -11300,7 +11694,7 @@ source = "issue #1384 (owner): in VATS mode every body part's hit chance is show
 note = "vats-mode-miss' setup without the forced roll (a .357 among the Goodsprings dogs on their packages, god mode, Violetta killed at 3 s so the nearest living actor is the Fiend Guard Dog): V at 10 s, aimvats turns the crosshair on the dog, the preview logs each part's chance; the click marks the part under the crosshair and the mark line carries the figure the preview showed for it, which must be its own chance; V again leaves without firing. Frame vats_preview.png (10.33 s game time, about 0.6 s real after the aim) shows the dog's parts' labels, the one under the crosshair in brackets and brighter"
 areas = ["combat", "vats"]
 paths = ["engine/nvf-play/src/vats_mode.rs", "crates/fnv-combat/src/vats.rs", "crates/fnv-game/src/vats.rs", "engine/nvf-play/src/hitvol.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:kill:0x0013E5BB", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,10.3:aimvats", NVF_PLAY_TEST_KEYS = "10:v,10.36:mouse-left,10.4:v", NVF_PLAY_TEST_SHOTS = "10.33:vats_preview.png" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:kill:0x0013E5BB", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,10.3:aimvats", NVF_PLAY_TEST_KEYS = "10:v,10.36:mouse-left,10.4:v", NVF_PLAY_TEST_SHOTS = "10.33:vats_preview.png", NVF_PLAY_TEST_VATS_STYLE = "dead-eye" }
 args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
 run_seconds = 16
 order = [[
@@ -11309,15 +11703,34 @@ order = [[
   { re = 'vats mode: marked Fiend Guard Dog 000F573F .* mark 1; .* AP left; (\d+)% to hit \(base .*; previewed \1%', label = "the mark's chance is the figure the preview showed for that part" },
   { re = 'vats mode: off \(0 shots fired, 0 AP spent; V pressed again\)', label = "V leaves without firing" },
 ]]
-manual = "vats_preview.png: amber 'part NN%' labels on the dog's head, torso and legs before any mark; the one under the crosshair in brackets and brighter"
+manual = "vats_preview.png: the game's VATS boxes (bracket, condition meter, 'NN%') on the dog's head, torso and legs before any mark; the one under the crosshair named and brighter (2026-11-10; before: amber 'part NN%' labels, the one under the crosshair in brackets)"
+
+[[scenario]]
+name = "vats-mode-preview-menu-file"
+source = "fork owner 2026-11-10: Dead Eye's body part labels are the same element as the classic style's, the game's VATS menu file's boxes with the chance and the condition meter (docs/design/vats-classic.md §13)"
+note = "vats-mode-preview's run read for the screen: V at 10 s builds VATSMenu for Dead Eye, aimvats turns the crosshair on the dog and the file's boxes show its parts, the one under the crosshair named; no arrows, buttons or pointer (those are the classic style's); V again leaves and the menu is dropped"
+areas = ["combat", "vats", "ui"]
+paths = ["engine/nvf-play/src/tiles/vats_menu.rs", "engine/nvf-play/src/vats_mode.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:kill:0x0013E5BB", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,10.3:aimvats", NVF_PLAY_TEST_KEYS = "10:v,10.36:mouse-left,10.4:v", NVF_PLAY_TEST_VATS_STYLE = "dead-eye" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
+run_seconds = 16
+order = [[
+  { re = 'vats mode: on \(WeapNV357Revolver, 26 AP a shot', label = "V enters VATS mode with the .357" },
+  { re = 'ui: built VATSMenu \(menus\\vats_menu\.xml, \d+ tiles\)', label = "the game's VATS menu file is built for Dead Eye too" },
+  { re = 'tiles: VATSMenu drawn from tiles for Dead Eye: [1-9]\d* parts, under the crosshair ".+" \d+', label = "the dog's parts are the file's boxes, the one under the crosshair named" },
+  { re = 'vats mode: off \(0 shots fired, 0 AP spent; V pressed again\)', label = "V leaves without firing" },
+  { text = "ui: dropped VATSMenu", label = "and the menu goes" },
+]]
+expect = [{ re = 'vats highlight: [0-9A-F]{8} part', label = "the part under the crosshair is lit on the body, as in the classic style (the fork owner 2026-11-10)" }]
+forbid = [{ text = "VATSMenu drawn by hand", label = "the file fell back to the engine-drawn labels" }]
 
 [[scenario]]
 name = "vats-kill-cam"
 source = "ESM full audit gap 10 (2026-10-24): the masters' camera paths and shots (CPTH, CAMS) play as VATS mode's kill cameras (docs/design/vats-mode.md §19); owner's playtest requests #1034 (the HUD hidden while it plays) and #1036 (the player's input held)"
-note = "vats-mode-miss' setup (a .357 among the Goodsprings dogs on their packages, god mode) with both dogs left at 1 health (set_av) and every roll forced to hit: one mark, E; Violet, her two Fiends and the other dog are killed at 3 s (they fight the player, and the camera plays only for the last enemy, #1035); the shot kills the dog, the camera path tree picks a path whose hit shots play (each its Max Time in real seconds at its Global time multiplier), then the view is the player's again. Which path and shots is the tree's choice (GetRandomPercent varies it), so only their form is checked; a shot whose model fails to load would leave the view where it is. While it plays the HUD is hidden and comes back after it; W held from 10.4 s and a look at 10.45 s (test aids standing in for the keys and the mouse) are held by it. The world aids' clock runs at the world's speed, which VATS mode and the kill camera slow (FirstPersonCam: 0.12), so the aids sit just after the shot (10.36 s) to land within the camera whatever shot the tree picks; at 10.8/10.9 they came after a slowed 3 s camera had ended (#1666)"
+note = "vats-mode-miss' setup (a .357 among the Goodsprings dogs on their packages, god mode) with both dogs left at 1 health (set_av) and every roll forced to hit: one mark, E; Violet, her two Fiends and the other dog are killed at 3 s (they fight the player, and the camera plays only for the last enemy, #1035); the shot kills the dog, the camera path tree picks a path whose hit shots play (each its Max Time in real seconds at its Global time multiplier), then the view is the player's again. Which path and shots is the tree's choice (GetRandomPercent varies it), so only their form is checked; a shot whose model fails to load would leave the view where it is. While it plays the HUD is hidden and comes back after it; W held from 10.4 s and a look at 10.45 s (test aids standing in for the keys and the mouse) are held by it. The world aids' clock runs at the world's speed, which VATS mode and the kill camera slow (FirstPersonCam: 0.12), so the aids sit just after the shot (10.36 s) to land within the camera whatever shot the tree picks; at 10.8/10.9 they came after a slowed 3 s camera had ended (#1666). V is at 7 s since 2026-11-11 (it was 10 s): the camera's last shot is held 3 s longer now, and at 10 s Gun Runners' Arsenal's message box, some 12.7 game seconds in, opened under a 10.5 s camera and ended it"
 areas = ["combat", "vats", "hud"]
 paths = ["engine/nvf-play/src/kill_cam.rs", "crates/fnv-game/src/camera_paths.rs", "engine/nvf-assets/src/camera_shot.rs", "engine/nvf-play/src/vats_mode.rs", "crates/fnv-game/src/vats.rs", "engine/nvf-play/src/hud.rs", "engine/nvf-play/src/bindings.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_VATS_ROLL = "hit", NVF_PLAY_TEST_SCRIPT = "3:set_av:0x000F573F:Health:1,3:set_av:0x0013E5BB:Health:1,3:kill:0x000F570B,3:kill:0x000F573C,3:kill:0x000F5741,3:kill:0x0013E5BB", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,10.3:aimvats", NVF_PLAY_TEST_KEYS = "10:v,10.32:mouse-left,10.36:e", NVF_PLAY_TEST_MOVE = "10.4:1:0,13:0:0", NVF_PLAY_TEST_LOOK = "10.45:90:0" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_VATS_ROLL = "hit", NVF_PLAY_TEST_SCRIPT = "3:set_av:0x000F573F:Health:1,3:set_av:0x0013E5BB:Health:1,3:kill:0x000F570B,3:kill:0x000F573C,3:kill:0x000F5741,3:kill:0x0013E5BB", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,7.3:aimvats", NVF_PLAY_TEST_KEYS = "7:v,7.32:mouse-left,7.36:e", NVF_PLAY_TEST_MOVE = "7.4:1:0,10:0:0", NVF_PLAY_TEST_LOOK = "7.45:90:0", NVF_PLAY_TEST_VATS_STYLE = "dead-eye" }
 args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
 run_seconds = 28
 order = [
@@ -11329,8 +11742,8 @@ order = [
     { re = 'kill camera: done \([\d.]+ s\)', label = "the kill camera ends by itself" },
   ],
   [
+    { text = "hud: hidden: the VATS attacks play", label = "the HUD goes as the marks are fired, and stays gone under the kill camera (#1034; from the shot on since 2026-11-10)" },
     { re = 'kill camera: .* killed by the last mark: path ', label = "the kill camera starts" },
-    { text = "hud: hidden: the kill camera has the view", label = "the HUD goes while it plays (#1034)" },
     { re = 'test aid: look heading 90\.0 pitch 0\.0 ignored: the kill camera has the view', label = "the look is held (#1036)" },
     { re = 'kill camera: done \([\d.]+ s\), input held [1-9]\d* frames', label = "the held W is struck from the frames it plays (#1036)" },
     { text = "hud: back after the kill camera", label = "the HUD comes back after it (#1034)" },
@@ -11346,10 +11759,10 @@ forbid = [
 [[scenario]]
 name = "vats-kill-cam-others-fighting"
 source = "owner's playtest request #1035: the VATS kill camera plays only when no other enemy is in combat with the player (engine/nvf-play/src/kill_cam.rs, docs/design/vats-mode.md §19)"
-note = "vats-kill-cam's setup with Violet and her two Fiends killed at 3 s; the other dog (0x0013E5BB, still alive) is set on the player (StartCombat, a script aid) between the mark and E, so the kill leaves an enemy in combat with the player: no kill camera, the view stays the player's"
+note = "vats-kill-cam's setup with Violet and her two Fiends killed at 3 s; the other dog (0x0013E5BB, still alive) is set on the player (StartCombat, a script aid) between the mark and E, so the kill leaves an enemy in combat with the player: no kill camera, the view stays the player's. A third Fiend dog (0x0013F85F, 1282 units off, out of sight) is killed at 3 s too: it heard the shot and entered combat within 10 to 80 ms of it, before or after the camera's check some 16 ms after the shot, so the line read 1 or 2 enemies by the frame's timing (2 of 4 runs alone failed, 2026-11-10). Which of the two dogs is nearer the crosshair at the click varies with where they have wandered (2026-11-11: Violetta was marked and the check named the other dog), so the view is turned to the Fiend Guard Dog itself (aimref=000F573F) and not to the nearest unmarked actor (aimvats)"
 areas = ["combat", "vats"]
 paths = ["engine/nvf-play/src/kill_cam.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_VATS_ROLL = "hit", NVF_PLAY_TEST_SCRIPT = "3:set_av:0x000F573F:Health:1,3:set_av:0x0013E5BB:Health:1,3:kill:0x000F570B,3:kill:0x000F573C,3:kill:0x000F5741,10.34:combat:0x0013E5BB:player", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,10.3:aimvats", NVF_PLAY_TEST_KEYS = "10:v,10.32:mouse-left,10.36:e" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_VATS_ROLL = "hit", NVF_PLAY_TEST_SCRIPT = "3:set_av:0x000F573F:Health:1,3:set_av:0x0013E5BB:Health:1,3:kill:0x000F570B,3:kill:0x000F573C,3:kill:0x000F5741,3:kill:0x0013F85F,10.34:combat:0x0013E5BB:player", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,10.3:aimref=000F573F", NVF_PLAY_TEST_KEYS = "10:v,10.32:mouse-left,10.36:e", NVF_PLAY_TEST_VATS_STYLE = "dead-eye" }
 args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
 run_seconds = 20
 order = [[
@@ -11369,7 +11782,7 @@ source = "owner's playtest request #1037: the settings page's Kill camera row tu
 note = "vats-kill-cam's setup with the settings page's Kill camera set to Off at 6.5 s (the pause menu open 6 to 7.5 s): the shot kills the dog and no kill camera plays"
 areas = ["combat", "vats", "settings"]
 paths = ["engine/nvf-play/src/kill_cam.rs", "engine/nvf-play/src/settings.rs", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings_layout.rs", "engine/nvf-play/src/settings_view.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_VATS_ROLL = "hit", NVF_PLAY_TEST_SCRIPT = "3:set_av:0x000F573F:Health:1,3:set_av:0x0013E5BB:Health:1", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,10.3:aimvats", NVF_PLAY_TEST_KEYS = "10:v,10.32:mouse-left,10.36:e", NVF_PLAY_TEST_PAUSE = "6:7.5", NVF_PLAY_TEST_SETTINGS = "6.5:kill-camera=Off" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_VATS_ROLL = "hit", NVF_PLAY_TEST_SCRIPT = "3:set_av:0x000F573F:Health:1,3:set_av:0x0013E5BB:Health:1", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,10.3:aimvats", NVF_PLAY_TEST_KEYS = "10:v,10.32:mouse-left,10.36:e", NVF_PLAY_TEST_PAUSE = "6:7.5", NVF_PLAY_TEST_SETTINGS = "6.5:kill-camera=Off", NVF_PLAY_TEST_VATS_STYLE = "dead-eye" }
 args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
 run_seconds = 20
 order = [[
@@ -11388,7 +11801,7 @@ source = "perk audit 2026-10-23 §3.1, owner 2026-10-24: Mysterious Stranger app
 note = "vats-mode-hit-chance's setup (the Goodsprings dogs set on the player, god mode, a .357) with the perk MysteriousStranger given at 3 s; the helper forced to the Stranger for every mark his odds allow (NVF_PLAY_TEST_VATS_HELPER=stranger: a dog has at most iVATSStrangerMaxHP 150 health) and the player's own roll forced to miss, so the kill is his: his .44 (MysteriousStranger44Magnum) does 9,000. Both dogs' health is set to 100 at 3.2 s, under iVATSStrangerMaxHP (150): the first run marked Violetta, whose health is above it, and the Stranger rightly did not come. One mark, E"
 areas = ["combat", "vats", "perks"]
 paths = ["engine/nvf-play/src/vats_mode.rs", "crates/fnv-game/src/vats.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_VATS_HELPER = "stranger", NVF_PLAY_TEST_VATS_ROLL = "miss", NVF_PLAY_TEST_SCRIPT = "3:combat:0x000F573F:player,3:combat:0x0013E5BB:player,3:perk:MysteriousStranger,3.2:set_av:0x000F573F:Health:100,3.2:set_av:0x0013E5BB:Health:100", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,10.3:aimvats", NVF_PLAY_TEST_KEYS = "10:v,10.32:mouse-left,10.36:e" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_VATS_HELPER = "stranger", NVF_PLAY_TEST_VATS_ROLL = "miss", NVF_PLAY_TEST_SCRIPT = "3:combat:0x000F573F:player,3:combat:0x0013E5BB:player,3:perk:MysteriousStranger,3.2:set_av:0x000F573F:Health:100,3.2:set_av:0x0013E5BB:Health:100", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,10.3:aimvats", NVF_PLAY_TEST_KEYS = "10:v,10.32:mouse-left,10.36:e", NVF_PLAY_TEST_VATS_STYLE = "dead-eye" }
 args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
 run_seconds = 18
 order = [[
@@ -11409,7 +11822,7 @@ source = "perk audit 2026-10-23 §3.1, owner 2026-10-24: Miss Fortune appears in
 note = "as vats-mysterious-stranger with the perk MissFortunePerk and the helper forced to her: her gun (WeapNVMissFortuneGun) carries VMissFortuneGunObjectEffect, whose spell's script knocks the target down, paralyses or cripples it, or blows up what it carries"
 areas = ["combat", "vats", "perks"]
 paths = ["engine/nvf-play/src/vats_mode.rs", "crates/fnv-game/src/vats.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_VATS_HELPER = "fortune", NVF_PLAY_TEST_VATS_ROLL = "miss", NVF_PLAY_TEST_SCRIPT = "3:combat:0x000F573F:player,3:combat:0x0013E5BB:player,3:perk:MissFortunePerk", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,10.3:aimvats", NVF_PLAY_TEST_KEYS = "10:v,10.32:mouse-left,10.36:e" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_VATS_HELPER = "fortune", NVF_PLAY_TEST_VATS_ROLL = "miss", NVF_PLAY_TEST_SCRIPT = "3:combat:0x000F573F:player,3:combat:0x0013E5BB:player,3:perk:MissFortunePerk", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,10.3:aimvats", NVF_PLAY_TEST_KEYS = "10:v,10.32:mouse-left,10.36:e", NVF_PLAY_TEST_VATS_STYLE = "dead-eye" }
 args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
 run_seconds = 18
 order = [[
@@ -11423,14 +11836,14 @@ forbid = [{ re = 'vats mode: the Mysterious Stranger comes', label = "the Strang
 [[scenario]]
 name = "vats-grim-reaper-nerves"
 source = "perk audit 2026-10-23 §3.1, owner 2026-10-24: Grim Reaper's Sprint gives 20 AP back after a VATS kill, Nerves of Steel speeds AP regeneration (docs/design/vats-mode.md §18.3, §18.4)"
-note = "the Goodsprings dogs set on the player (god mode); the player holds the Mysterious Stranger's .44 (MysteriousStranger44Magnum 00050F92, 9,000 damage, with .44 rounds) and has GrimReaperSprint and DLC03NervesOfSteel from 3 s; the roll is forced to hit, so both marks die (40 AP spent): 20 AP come back; then the other 20 regenerate at 1.2 x (with one mark, the first run, the 20 back left nothing to regenerate)"
+note = "the Goodsprings dogs set on the player (god mode); the player holds the Mysterious Stranger's .44 (MysteriousStranger44Magnum 00050F92, 9,000 damage, with .44 rounds) and has GrimReaperSprint and DLC03NervesOfSteel from 3 s; the roll is forced to hit, so both marks die (40 AP spent): 20 AP come back; then the other 20 regenerate at 1.2 x (with one mark, the first run, the 20 back left nothing to regenerate). Since 2026-11-11 a mark on a dead actor is dropped unspent (vats-classic.md 8.1): when both marks landed on the same dog the second was dropped and the .44's 20 AP came back whole, so the regeneration line came only in the runs that marked both dogs. The weapon is now the .357 (26 AP a shot) and the dogs have 1 health: either way more AP is spent than comes back, and the rest regenerates"
 areas = ["combat", "vats", "perks"]
 paths = ["engine/nvf-play/src/vats_mode.rs", "crates/fnv-game/src/vats.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_VATS_ROLL = "hit", NVF_PLAY_TEST_SCRIPT = "3:combat:0x000F573F:player,3:combat:0x0013E5BB:player,3:perk:GrimReaperSprint,3:perk:DLC03NervesOfSteel", NVF_PLAY_TEST_EQUIP = "00050F92", NVF_PLAY_TEST_GIVE = "0002937E:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,10.3:aimvats,10.36:aimvats", NVF_PLAY_TEST_KEYS = "10:v,10.32:mouse-left,10.38:mouse-left,10.42:e" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_VATS_ROLL = "hit", NVF_PLAY_TEST_SCRIPT = "3:set_av:0x000F573F:Health:1,3:set_av:0x0013E5BB:Health:1,3:combat:0x000F573F:player,3:combat:0x0013E5BB:player,3:perk:GrimReaperSprint,3:perk:DLC03NervesOfSteel", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,10.3:aimvats,10.36:aimvats", NVF_PLAY_TEST_KEYS = "10:v,10.32:mouse-left,10.38:mouse-left,10.42:e", NVF_PLAY_TEST_VATS_STYLE = "dead-eye" }
 args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
 run_seconds = 18
 order = [[
-  { re = 'vats mode: on \(MysteriousStranger44Magnum', label = "VATS mode with the Stranger's .44" },
+  { re = 'vats mode: on \(WeapNV357Revolver, 26 AP a shot', label = "VATS mode with the .357, 26 AP a shot" },
   { re = 'vats mode: shot 1 of 2 at .*: hit', label = "the first mark is hit (forced)" },
   { re = 'vats mode: [12] killed: the Player Kill AP Reward perks give 20 AP back \(20 restored\)', label = "Grim Reaper's Sprint gives 20 AP back" },
   { re = 'vats mode: AP regenerates at 1\.20 x', label = "Nerves of Steel: the AP comes back 1.2 x as fast" },
@@ -11442,7 +11855,7 @@ source = "owner's todo 6: right click removes the last mark; right click with no
 note = "a .357 in hand among the Goodsprings dogs (left to their packages, god mode). V at 10 s (after the start-up boxes); one mark, a right click takes it back, a second right click ends the mode: nothing fired, nothing spent. Aid times 10.3+ are game time at the 0.05 clock"
 areas = ["combat", "vats"]
 paths = ["engine/nvf-play/src/vats_mode.rs", "crates/fnv-combat/src/vats.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,10.3:aimvats", NVF_PLAY_TEST_KEYS = "10:v,10.32:mouse-left,10.36:mouse-right,10.4:mouse-right" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,10.3:aimvats", NVF_PLAY_TEST_KEYS = "10:v,10.32:mouse-left,10.36:mouse-right,10.4:mouse-right", NVF_PLAY_TEST_VATS_STYLE = "dead-eye" }
 args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
 run_seconds = 16
 order = [[
@@ -11462,7 +11875,7 @@ source = "owner 2026-10-23: VATS mode works while aiming down the sights (scopes
 note = "vats-mode-unmark's setup in first person: V at 10 s, one mark at 10.32; the right button goes down at 10.34 and is held 0.3 s of game time (6 s real at the 0.05 clock, past the 0.25 s tap) so the view zooms to the .357's sight FOV while marking; E at 10.42 with the button still down fires the mark, and the aim stays up through the shot: the zoom goes back only after it. Before 2026-10-23 the mode cleared aiming and no zoom came"
 areas = ["combat", "vats"]
 paths = ["engine/nvf-play/src/vats_mode.rs", "engine/nvf-play/src/aim_zoom.rs", "engine/nvf-play/src/control.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,10.3:aimvats", NVF_PLAY_TEST_KEYS = "10:v,10.32:mouse-left,10.34:mouse-right:0.3,10.42:e" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,10.3:aimvats", NVF_PLAY_TEST_KEYS = "10:v,10.32:mouse-left,10.34:mouse-right:0.3,10.42:e", NVF_PLAY_TEST_VATS_STYLE = "dead-eye" }
 args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
 run_seconds = 18
 order = [[
@@ -11484,7 +11897,7 @@ source = "owner 2026-10-23: in third person the VATS shots play the aiming clips
 note = "vats-mode-two-marks' setup (the Goodsprings dogs set on the player, god mode, a .357) in third person (view at 3 s): the dogs come at the player, so both marks are well within 20 m (1,400 units) and the shots leave from the hip"
 areas = ["combat", "vats"]
 paths = ["engine/nvf-play/src/vats_mode.rs", "engine/nvf-play/src/combat.rs", "engine/nvforever/src/npc_combat.rs", "engine/nvforever/src/player_body.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:combat:0x000F573F:player,3:combat:0x0013E5BB:player", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,3.2:view,4.5:reload,10.3:aimvats,10.36:aimvats", NVF_PLAY_TEST_KEYS = "10:v,10.32:mouse-left,10.38:mouse-left,10.42:e" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:combat:0x000F573F:player,3:combat:0x0013E5BB:player", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,3.2:view,4.5:reload,10.3:aimvats,10.36:aimvats", NVF_PLAY_TEST_KEYS = "10:v,10.32:mouse-left,10.38:mouse-left,10.42:e", NVF_PLAY_TEST_VATS_STYLE = "dead-eye" }
 args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
 run_seconds = 18
 order = [[
@@ -11501,7 +11914,7 @@ source = "owner 2026-10-23: in third person the VATS shots play the aiming clips
 note = "vats-mode-unmark's setup (the Goodsprings dogs on their packages, god mode, a .357) in third person (view at 3.2 s): V at 10 s, a dog marked at 10.32 (game time at the 0.05 clock), then at 10.38 the player is put about 2,000 units straight above the spot (GOTO z 6,500; the ground is about 4,290), so at E (10.42) the mark is beyond 20 m (1,400 units) and the shot is fired down the sights (the iron-sights clips). Earlier tries with a far target on the ground failed on the setup: aimvats after a GOTO found a Fiend guard dog 78 units off (hip fire, rightly), aimref finds no collision body for an actor, and Violet was out of sight from combat-sights' start"
 areas = ["combat", "vats"]
 paths = ["engine/nvf-play/src/vats_mode.rs", "engine/nvf-play/src/combat.rs", "engine/nvforever/src/player_body.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_GOTO = "10.38:-45600:65000:6500", NVF_PLAY_TEST_CONTROL = "3:weapon,3.2:view,4.5:reload,10.3:aimvats", NVF_PLAY_TEST_KEYS = "10:v,10.32:mouse-left,10.42:e" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_GOTO = "10.38:-45600:65000:6500", NVF_PLAY_TEST_CONTROL = "3:weapon,3.2:view,4.5:reload,10.3:aimvats", NVF_PLAY_TEST_KEYS = "10:v,10.32:mouse-left,10.42:e", NVF_PLAY_TEST_VATS_STYLE = "dead-eye" }
 args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
 run_seconds = 18
 order = [[
@@ -11518,7 +11931,7 @@ source = "queue item 14 (docs/spec-notes/image-modifiers.md §8.4): in VATS mode
 note = "vats-mode-unmark's setup: a .357 among the Goodsprings dogs (god mode); V at 10 s, a mark at 10.32 (game time at the 0.05 clock), right clicks at 10.5 and 10.55 take it back (the depth of field goes with the mark) and end the mode. Frames: vats_dof_before.png at 9.5 s, vats_dof_marked.png at 10.45"
 areas = ["imagespace", "vats"]
 paths = ["engine/nvforever/src/imagespace*", "engine/nvf-play/src/vats_mode.rs", "engine/nvf-play/src/test_aid.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,10.3:aimvats", NVF_PLAY_TEST_KEYS = "10:v,10.32:mouse-left,10.5:mouse-right,10.55:mouse-right", NVF_PLAY_TEST_SHOTS = "9.5:vats_dof_before.png,10.45:vats_dof_marked.png" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,10.3:aimvats", NVF_PLAY_TEST_KEYS = "10:v,10.32:mouse-left,10.5:mouse-right,10.55:mouse-right", NVF_PLAY_TEST_SHOTS = "9.5:vats_dof_before.png,10.45:vats_dof_marked.png", NVF_PLAY_TEST_VATS_STYLE = "dead-eye" }
 args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
 run_seconds = 18
 order = [[
@@ -11537,7 +11950,7 @@ source = "owner's todo 6: marks are limited by the rounds loaded as well as the 
 note = "a .357 with one round (no god mode, so the magazine holds what is carried) among the Goodsprings dogs, left to their packages; the console gives the player 5000 health at 6 s, as the flamer scenarios do (without it the dogs killed the player before V, coordinator run 2026-10-18, and a dead player cannot enter). The player's AP covers three 26 AP shots, so the second mark is refused for the rounds; E fires the one mark. V at 10 s, after the start-up boxes"
 areas = ["combat", "vats"]
 paths = ["engine/nvf-play/src/vats_mode.rs", "crates/fnv-combat/src/vats.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_CONSOLE = "6:player.setav health 5000;6.5:close", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:1", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,10.3:aimvats,10.36:aimvats", NVF_PLAY_TEST_KEYS = "10:v,10.32:mouse-left,10.38:mouse-left,10.42:e" }
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_CONSOLE = "6:player.setav health 5000;6.5:close", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:1", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,10.3:aimvats,10.36:aimvats", NVF_PLAY_TEST_KEYS = "10:v,10.32:mouse-left,10.38:mouse-left,10.42:e", NVF_PLAY_TEST_VATS_STYLE = "dead-eye" }
 args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
 run_seconds = 16
 order = [[
@@ -11553,7 +11966,7 @@ source = "GECK wiki SetVatsTarget: \"turns VATS targeting on or off for a destru
 note = "north of the bike (from the west the wreck pile 00157C92 is in front of it); the 10mm pistol (0000434F), every roll a hit"
 areas = ["combat", "vats", "destruction"]
 paths = ["engine/nvf-play/src/vats_mode.rs", "crates/fnv-game/src/vats.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_VATS_ROLL = "hit", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_EQUIP = "0000434F", NVF_PLAY_TEST_GIVE = "00004241:30", NVF_PLAY_TEST_CONSOLE = "6:prid 00157C97;6.2:setvatstarget 0;6.4:close;13:prid 00157C97;13.2:setvatstarget 1;13.4:close", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,10.3:aimref=00157C97,16.3:aimref=00157C97", NVF_PLAY_TEST_KEYS = "10:v,10.32:mouse-left,10.6:v,16:v,16.32:mouse-left,16.42:e" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_VATS_ROLL = "hit", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_EQUIP = "0000434F", NVF_PLAY_TEST_GIVE = "00004241:30", NVF_PLAY_TEST_CONSOLE = "6:prid 00157C97;6.2:setvatstarget 0;6.4:close;13:prid 00157C97;13.2:setvatstarget 1;13.4:close", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,10.3:aimref=00157C97,16.3:aimref=00157C97", NVF_PLAY_TEST_KEYS = "10:v,10.32:mouse-left,10.6:v,16:v,16.32:mouse-left,16.42:e", NVF_PLAY_TEST_VATS_STYLE = "dead-eye" }
 args = ["--cell", "Goodsprings", "--pos=32990,17100,4700", "--heading", "180", "--pitch", "-10", "--play", "--hour", "12", "--no-voice", "--no-messages"]
 run_seconds = 22
 order = [[
@@ -11567,10 +11980,10 @@ order = [[
 [[scenario]]
 name = "vats-mode-burst"
 source = "owner's todo 6 follow-up: an automatic weapon fires a burst a mark (docs/design/vats-mode.md §16.1)"
-note = "as vats-mode-two-marks, with the 10mm SMG (Weap10mmSubmachineGun 00004321: 22 AP a mark from its DNAM override, fire rate 9, so bursts of round(9 x 0.4) = 4; god mode keeps its 30 rounds). Two marks, E: two bursts of 4 rounds, 44 AP. Written 2026-10-20 by a worker session that does not run the game: not yet run"
+note = "as vats-mode-two-marks, with the 10mm SMG (Weap10mmSubmachineGun 00004321: 22 AP a mark from its DNAM override, fire rate 9, so bursts of round(9 x 0.4) = 4; god mode keeps its 30 rounds). Two marks, E: two bursts of 4 rounds, 44 AP. Both dogs' health is set to 2000 at 3.2 s: the marks may both be on one dog, and since a queue stops at a dead target (vats-classic.md §8.1) a dog that died in the first rounds cut the second burst short (7 rounds, or one burst). Written 2026-10-20 by a worker session that does not run the game: not yet run"
 areas = ["combat", "vats"]
 paths = ["engine/nvf-play/src/vats_mode.rs", "crates/fnv-combat/src/vats.rs", "engine/nvf-play/src/combat.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:combat:0x000F573F:player,3:combat:0x0013E5BB:player", NVF_PLAY_TEST_EQUIP = "00004321", NVF_PLAY_TEST_GIVE = "00004241:90", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,10.3:aimvats,10.36:aimvats", NVF_PLAY_TEST_KEYS = "10:v,10.32:mouse-left,10.38:mouse-left,10.42:e" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:combat:0x000F573F:player,3:combat:0x0013E5BB:player,3.2:set_av:0x000F573F:Health:2000,3.2:set_av:0x0013E5BB:Health:2000", NVF_PLAY_TEST_EQUIP = "00004321", NVF_PLAY_TEST_GIVE = "00004241:90", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,10.3:aimvats,10.36:aimvats", NVF_PLAY_TEST_KEYS = "10:v,10.32:mouse-left,10.38:mouse-left,10.42:e", NVF_PLAY_TEST_VATS_STYLE = "dead-eye" }
 args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
 run_seconds = 18
 order = [[
@@ -11591,7 +12004,7 @@ source = "owner's todo 6 follow-up and owner 2026-10-20: melee marks within 5 m,
 note = "a machete (WeapNVMachete 000CE569: 20 AP a swing) among the Goodsprings dogs, which attack the player (god mode), so by 10 s they are within 5 m. One mark, E: a teleport beside the dog and one swing that lands on it. Written 2026-10-20 by a worker session that does not run the game. 2026-10-23 (list 7 W9): VATS at 16 s, not 10: the add-ons' start-up message boxes opened at 10.4 s and ended the mode before it could end itself ('a menu opened'). 2026-10-23: VATS mode rolls each swing on the mark's hit chance (vats-mode.md §17); this check is about the teleport and the blow landing, so its roll is forced to hit (NVF_PLAY_TEST_VATS_ROLL=hit); vats-mode-hit-chance and vats-mode-miss check the rolls"
 areas = ["combat", "vats"]
 paths = ["engine/nvf-play/src/vats_mode.rs", "crates/fnv-combat/src/vats.rs", "engine/nvf-play/src/combat.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:combat:0x000F573F:player,3:combat:0x0013E5BB:player", NVF_PLAY_TEST_EQUIP = "000CE569", NVF_PLAY_TEST_VATS_ROLL = "hit", NVF_PLAY_TEST_CONTROL = "3:weapon,16.3:aimvats", NVF_PLAY_TEST_KEYS = "16:v,16.32:mouse-left,16.36:e" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:combat:0x000F573F:player,3:combat:0x0013E5BB:player", NVF_PLAY_TEST_EQUIP = "000CE569", NVF_PLAY_TEST_VATS_ROLL = "hit", NVF_PLAY_TEST_CONTROL = "3:weapon,16.3:aimvats", NVF_PLAY_TEST_KEYS = "16:v,16.32:mouse-left,16.36:e", NVF_PLAY_TEST_VATS_STYLE = "dead-eye" }
 args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
 run_seconds = 24
 order = [[
@@ -11610,7 +12023,7 @@ source = "ESM gap audit medium group 3 (docs/spec-notes/actor-flags.md §1): no 
 note = "a ceiling turret (CrTurretCeiling01) placed at the player (GOD) at 3 s (PlaceAtMe puts it at the player); with a machete drawn, V and a click on it: the mark is refused"
 areas = ["vats", "combat"]
 paths = ["engine/nvf-play/src/vats_mode.rs", "crates/fnv-game/src/actor_values.rs", "crates/fnv-game/src/data.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:call:player:PlaceAtMe:CrTurretCeiling01:1:200:0", NVF_PLAY_TEST_EQUIP = "000CE569", NVF_PLAY_TEST_CONTROL = "4:weapon,10.3:aimvats", NVF_PLAY_TEST_KEYS = "10:v,10.32:mouse-left,11:v" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:call:player:PlaceAtMe:CrTurretCeiling01:1:200:0", NVF_PLAY_TEST_EQUIP = "000CE569", NVF_PLAY_TEST_CONTROL = "4:weapon,10.3:aimvats", NVF_PLAY_TEST_KEYS = "10:v,10.32:mouse-left,11:v", NVF_PLAY_TEST_VATS_STYLE = "dead-eye" }
 args = ["--cell", "Goodsprings", "--pos=-61000,4500,8500", "--play", "--hour", "12", "--no-voice", "--no-messages"]
 run_seconds = 16
 expect = [
@@ -11677,7 +12090,7 @@ source = "owner's todo 6 follow-up: grenades and thrown weapons are thrown at ea
 note = "three frag grenades (WeapGrenadeFrag 00004330: 24 AP a throw) among the Goodsprings dogs (god mode). One mark, E: one throw on the low arc onto the dog. Written 2026-10-20 by a worker session that does not run the game: not yet run"
 areas = ["combat", "vats"]
 paths = ["engine/nvf-play/src/vats_mode.rs", "crates/fnv-combat/src/vats.rs", "engine/nvf-play/src/combat.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:combat:0x000F573F:player,3:combat:0x0013E5BB:player", NVF_PLAY_TEST_GIVE = "00004330:3", NVF_PLAY_TEST_EQUIP = "00004330", NVF_PLAY_TEST_CONTROL = "3:weapon,10.3:aimvats", NVF_PLAY_TEST_KEYS = "10:v,10.32:mouse-left,10.36:e" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:combat:0x000F573F:player,3:combat:0x0013E5BB:player", NVF_PLAY_TEST_GIVE = "00004330:3", NVF_PLAY_TEST_EQUIP = "00004330", NVF_PLAY_TEST_CONTROL = "3:weapon,10.3:aimvats", NVF_PLAY_TEST_KEYS = "10:v,10.32:mouse-left,10.36:e", NVF_PLAY_TEST_VATS_STYLE = "dead-eye" }
 args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
 run_seconds = 18
 order = [[
@@ -12641,6 +13054,8 @@ order = [[
 ]]
 expect = [
   { re = 'caravan: open against Ringo .* bid (?P<n>\d+) of', range = [0, 100000], label = "Ringo bids a quarter of his caps" },
+  { re = 'caravan: help box on the bet screen \(\d+ wide\): (-?\d+) above the bet box', range = [20, 1000], label = "the help box ends above the bet box with a gap (#1663)" },
+  { re = 'caravan: help box on the bet screen .*, (-?\d+) left of the buttons', range = [20, 1000], label = "and left of the buttons with a gap (#1663)" },
   { re = 'caravan: opponent plays .* on its caravan', label = "the opponent lays numbered cards" },
   { re = 'caravan summary: 2 asked, 1 opened \(1 refused\); 1 games: [01] won, [01] lost', label = "the summary" },
 ]
@@ -12751,6 +13166,20 @@ order = [[
 ]]
 
 [[scenario]]
+name = "gecko-template-walks"
+source = "#1917: the Young Gecko Hunter VERT1GSGeckoRoachHunterREF (0x00168D1C, base VSpawnSpecialTier1GeckoSmallRoachHunter 0x00168D0B) has only the placeholder marker_creature.nif of its own; its model and animations come from its template, so it walks and runs and goes for the Radroach it hunts"
+note = "Wasteland south-southwest of Goodsprings, beside the gecko vs. roach fight, noon"
+areas = ["ai", "creatures"]
+paths = ["engine/nvforever/src/residents.rs"]
+args = ["--world", "WastelandNV", "--pos=-60100,-38300,6000", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 25
+expect = [
+  { re = 'ai \[[0-9:]+\] VERT1GSGeckoRoachHunterREF: runs at VERT1GSRoachHuntedREF', label = "the gecko runs at the roach" },
+  { re = 'npc combat: VERT1GSGeckoRoachHunterREF 0x00168D1C swings at VERT1GSRoachHuntedREF', label = "it crosses the ground and swings at the roach" },
+]
+forbid = [{ re = 'ai: VERT1GSGeckoRoachHunterREF cannot move', label = "it is rooted by its own placeholder model" }]
+
+[[scenario]]
 name = "mines-placed"
 source = "owner 2026-10-19: the Primm bridge's mines were invisible and not armed; a mine starts beeping at about 2 m, the Explosives skill sets the fuse, one activation disarms it (even beeping) into a loose item, a shot blows it up (docs/spec-notes/combat-rules.md §11a)"
 note = "God mode, at the three frag mines on the bridge north of Primm (0x00172DB5, DDA, DDC). Explosives 100 (3 s fuse): put 60 units from DDC along the bridge (within reach), it starts its fuse; aimed at and activated at once, it is disarmed, and the Frag Mine left lying is taken. Then 450 units from DDA along the bridge, the 10mm pistol shoots it: its destruction stage sets off MediumExplosion. Then at Explosives 20, put on DB5: it goes off after 1.44 s (0.6 s before #1659's longer fuse)"
@@ -12794,6 +13223,29 @@ expect = [
   { re = 'mines: [1-9]\d* live mine\(s\) in the loaded cells', label = "it counts as a live mine" },
 ]
 forbid = [{ re = 'mines: 0x00000014 sets off mine 0xFF', label = "the player sets off its own mine" }]
+
+[[scenario]]
+name = "c4-save-write"
+source = "#1986: a thrown C-4 charge that comes to rest is a reference of its cell (as a thrown mine), so a save keeps it; c4-save-load sets it off after the load, so run them together"
+note = "God mode, in Goodsprings, the player is given two C-4 Plastic Explosive (WeapNVC4PlasticExplosive 0x001221C1, projectile C4Projectile 0x00130043), throws one and saves"
+areas = ["combat", "save"]
+paths = ["engine/nvf-play/src/mines.rs", "crates/fnv-combat/src/projectile.rs", "engine/nvf-play/src/combat.rs", "engine/nvf-play/src/save.rs"]
+env = { NVFOREVER_HOME = "c4-save-home", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_GIVE = "001221C1:2", NVF_PLAY_TEST_EQUIP = "001221C1", NVF_PLAY_TEST_CONTROL = "14:weapon,17:fire", NVF_PLAY_TEST_CONSOLE = "24:save smoke-c4;25:close" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--no-messages"]
+run_seconds = 28
+order = [[{ re = 'explosives: 0x00000014 put down charge 0xFF[0-9A-F]{6} \(0x00130043\) at .*waiting for its detonator', label = "the thrown charge comes to rest as a reference" }, { re = 'save: wrote .*smoke-c4\.nvfsave', label = "the save is written" }]]
+forbid = [{ re = 'combat: explosion C4Explosion', label = "the charge goes off by itself" }]
+
+[[scenario]]
+name = "c4-save-load"
+source = "#1986: the C-4 charge saved at rest by c4-save-write is there after the load and goes off when its owner detonates placed explosives"
+note = "DetonatePlacedExplosives through the console (the detonator's OnFire script calls the same function)"
+areas = ["combat", "save"]
+paths = ["engine/nvf-play/src/mines.rs", "crates/fnv-combat/src/projectile.rs", "engine/nvf-play/src/combat.rs", "engine/nvf-play/src/save.rs"]
+env = { NVFOREVER_HOME = "c4-save-home", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "12:player.detonateplacedexplosives;13:close" }
+args = ["--play", "--load", "smoke-c4", "--no-voice", "--no-messages"]
+run_seconds = 18
+order = [[{ re = 'load: restored .*smoke-c4\.nvfsave', label = "the save is restored" }, { re = 'combat: 0x00000014 detonates placed explosives: 1', label = "the saved charge is set off" }, { re = 'combat: explosion C4Explosion at', label = "it explodes" }]]
 
 [[scenario]]
 name = "mines-held"
@@ -13004,7 +13456,7 @@ name = "ash-pile-chet"
 source = "ash piles (docs/spec-notes/ash-piles.md): a laser's critical kill applies its On Death critical effect Disintegration [documented: GECK wiki Weapons, Crit Effect / On Death; observed: WeapLaserRifle CRDT 000BDA30], whose script (LaserDisintegrationEffectScript) calls AttachAshPile and SetCriticalStage DisintegrateEnd [observed: FalloutNV.esm SCPT 000BDA2E]: an ash pile (DefaultAshPile1, AshPile01.NIF) replaces Chet's body"
 note = "the hit aid kills Chet with a critical laser rifle hit (500 damage, :crit) at 8 s; the script places the pile 1.3 s later and culls the body 0.5 s after that; frames before and after for a look"
 areas = ["combat", "effects"]
-paths = ["crates/fnv-game/src/ash_piles.rs", "crates/fnv-game/src/functions/objects.rs", "engine/nvf-play/src/knockouts.rs"]
+paths = ["crates/fnv-game/src/ash_piles.rs", "crates/fnv-game/src/functions/objects.rs", "engine/nvf-play/src/knockouts.rs", "crates/fnv-phys/src/ragdoll.rs", "engine/nvf-play/src/phys.rs"]
 env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_HIT = "8:GSChetRef:500:WeapLaserRifle:crit", NVF_PLAY_TEST_GOTO = "5:-583:440:700", NVF_PLAY_TEST_LOOK = "5.5:0:-10,9:0:-35", NVF_PLAY_TEST_SHOTS = "7:ash_pile_before.png,8.8:ash_pile_burning.png,12:ash_pile_after.png" }
 args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice"]
 run_seconds = 16
@@ -13013,8 +13465,27 @@ expect = [
   { re = 'ash pile: \S+ \(DefaultAshPile1\) replaces the body of 0x00104C79', count = 1, label = "one ash pile replaces Chet's body" },
   { re = '(?i)dropped reference 0x[0-9A-F]{8} drawn: .*ashpile01\.nif', label = "the pile is drawn" },
   { re = 'script: GSChetRef culled by its critical stage', label = "the body is culled (DisintegrateEnd)" },
+  { re = 'ash pile 0x[0-9A-F]{8} passes through the body of 0x00104C79', label = "the pile passes through Chet's ragdoll (#2030)" },
+  { re = 'dropped 0x[0-9A-F]{8} 3\.\d s after its collision was added: .*, (-?[0-9.]+) below the start, speed 0 units/s, at rest', range = [-5, 20], label = "3 s later the pile is still in the world, at rest on the floor (#2030)" },
 ]
+forbid = [{ re = 'dropped 0x[0-9A-F]{8} fell through the world', label = "the pile does not fall through the floor" }]
 manual = "ash_pile_burning.png: Chet glowing (the disintegration shaders); ash_pile_after.png: an ash pile where he fell, no body"
+
+[[scenario]]
+name = "goo-pile-roach"
+source = "#2030 (ash-piles.md §3): a plasma rifle's critical kill outdoors applies PlasmaEffect (00092C48), whose PlasmaGooificationEffectScript calls AttachAshPile 2: a goo pile (DefaultAshPile2, GooPile01.NIF) replaces the Radroach's body on open ground. The pile passes through the ragdoll it came from, so it drops to the ground where the body lay and stays there"
+note = "the Wasteland south-southwest of Goodsprings, beside the gecko vs. roach fight at noon; the hit aid kills the Radroach VERT1GSRoachHuntedREF with a critical plasma rifle hit at 8 s; the pile's pose is logged 1, 3 and 10 s after its collision is added"
+areas = ["combat", "effects", "physics"]
+paths = ["crates/fnv-game/src/ash_piles.rs", "crates/fnv-phys/src/ragdoll.rs", "engine/nvf-play/src/phys.rs", "engine/nvf-play/src/dropped.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_HIT = "8:VERT1GSRoachHuntedREF:500:WeapPlasmaRifle:crit" }
+args = ["--world", "WastelandNV", "--pos=-60100,-38300,6000", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 26
+expect = [
+  { re = 'ash pile: \S+ \(DefaultAshPile2\) replaces the body of 0x00168D1A', count = 1, label = "one goo pile replaces the Radroach's body" },
+  { re = 'ash pile 0x[0-9A-F]{8} passes through the body of 0x00168D1A', label = "the pile passes through the ragdoll it came from" },
+  { re = 'dropped 0x[0-9A-F]{8} 10\.\d s after its collision was added: .*, (-?[0-9.]+) below the start, speed 0 units/s, at rest', range = [-5, 60], label = "10 s later the pile is still in the world, at rest on the ground under where it was made" },
+]
+forbid = [{ re = 'dropped 0x[0-9A-F]{8} fell through the world', label = "the pile does not fall through the ground" }]
 
 [[scenario]]
 name = "bike-smoke-intact"
@@ -21894,10 +22365,10 @@ expect = [
 [[scenario]]
 name = "script-runner-tool"
 kind = "tool"
-source = "issue #1460, docs/spec-notes/ext-script-runner.md: JIP's Script Runner files of the fixture home's mods layer compiled and run headless (game restart, new game)"
+source = "issue #1460, docs/spec-notes/ext-script-runner.md: JIP's Script Runner files of the fixture home's mods layer compiled and run headless (game restart, new game); --no-data-files keeps the Script Runner files the player installed in Data out (#2080)"
 areas = ["scripts", "extender"]
 paths = ["crates/fnv-game/src/script_runner.rs", "crates/fnv-game/src/mod_files.rs", "crates/fnvtool/src/ext_cmd.rs", "crates/fnv-script/src/compile/", "tools/smoke/fixtures/script-runner-home/"]
-commands = [["ext", "script-runner", "{data}", "{masters}", "--schema", "schemas/fnv", "--root", "{repo}/tools/smoke/fixtures/script-runner-home/mods", "--run"]]
+commands = [["ext", "script-runner", "{data}", "{masters}", "--schema", "schemas/fnv", "--root", "{repo}/tools/smoke/fixtures/script-runner-home/mods", "--no-data-files", "--run"]]
 expect = [
   { json = "files", schema = "fnv.ext.script_runner/1", equals = 3, label = "the folder's three files (the registered one is in a subfolder)" },
   { json = "compiled", schema = "fnv.ext.script_runner/1", equals = 2 },
@@ -22927,11 +23398,11 @@ forbid = [{ text = "Validation Error", label = "a Vulkan validation error" }, { 
 
 [[scenario]]
 name = "frame-generation"
-source = "#1778, docs/design/frame-generation.md: --frame-generation with FSR Quality while walking outdoors: generated frames presented between the real ones, the HUD kept, latency reduction turned on with it, no validation errors"
+source = "#1778, docs/design/frame-generation.md: --frame-generation with FSR Quality while walking outdoors: generated frames presented between the real ones, the HUD kept, latency reduction turned on with it, no validation errors; the performance overlay (--fps, its readings logged by NVF_FPS_LOG) reads the frames shown and the rendered ones apart"
 areas = ["graphics"]
-paths = ["engine/nvforever/src/frame_gen.rs", "engine/nvforever/src/fg_presenter.rs", "engine/nvforever/src/fsr.rs", "engine/nvforever/src/frame_pace.rs", "engine/nvforever/src/anti_lag.rs", "engine/vendor/wgpu-ffx/**", "engine/vendor/bevy_render/src/view/window/**"]
-env = { WGPU_BACKEND = "vulkan", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_MOVE = "4:0:1,9:0.5:-1" }
-args = ["--cell", "Goodsprings", "--play", "--size", "1280x720", "--fsr", "quality", "--frame-generation", "--graphics", "enhanced", "--no-voice", "--no-lodgen"]
+paths = ["engine/nvforever/src/frame_gen.rs", "engine/nvforever/src/fg_presenter.rs", "engine/nvforever/src/fsr.rs", "engine/nvforever/src/frame_pace.rs", "engine/nvforever/src/anti_lag.rs", "engine/nvforever/src/perf_overlay/*", "engine/vendor/wgpu-ffx/**", "engine/vendor/bevy_render/src/view/window/**"]
+env = { WGPU_BACKEND = "vulkan", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_MOVE = "4:0:1,9:0.5:-1", NVF_FPS_LOG = "2" }
+args = ["--cell", "Goodsprings", "--play", "--size", "1280x720", "--fsr", "quality", "--frame-generation", "--graphics", "enhanced", "--no-voice", "--no-lodgen", "--fps"]
 run_seconds = 26
 expect = [
   "FSR 3.1.4: Quality, 853x480 -> 1280x720, frame generation on",
@@ -22941,6 +23412,7 @@ expect = [
   { re = 'frame generation: \d+ real frames and (\d+) generated in ', range = [200, 1000000], label = "generated frames presented over ten seconds" },
   { text = "frame generation: … presents took … on the presenter thread", label = "presented from the presenter thread, not the render thread" },
   { re = 'latency reduction: on \((AMD Anti-Lag|not available on this GPU), with frame generation\)', label = "frame generation turns latency reduction on" },
+  { re = 'fps counter: FPS \d+ +\(\d+ rendered\) +[\d.]+ ms ', label = "the overlay's FPS row reads the frames shown and the rendered ones apart while generated frames are shown" },
 ]
 forbid = [
   { text = "Validation Error", label = "a Vulkan validation error" },
@@ -23847,6 +24319,98 @@ order = [["nvf type middle", "nvf type active", "nvf type suppressed", "nvf type
 manual = "ui_typewriter_middle.png: a partially faded letter A in the blue box above the amber bar; ui_typewriter_final.png: the same letter fully visible with the replacement callback's pink colour. Verify the text and alpha links affect the rendered result."
 
 [[scenario]]
+name = "ui-attach-component-node"
+source = "issue #1835 ([documented: AttachUIComponent] the component goes into one rect under HUDMainMenu and follows a named node of a loaded model; [design: ui_more.rs place_attachments, engine/nvforever/src/ui_attach.rs] the rect's top left on the node's point through the player's camera, in interface units; hidden behind the camera or off screen)"
+note = "Easy Pete held (SetRestrained) and put 350 units north of the player, then an authored component (a rect holding a text, written for this test) attached to his Bip01 Head at 4 s; aimnpc turns the view onto him; at 10 s the view turns south, away from him"
+areas = ["ui", "hud", "scripts"]
+paths = ["engine/nvforever/src/ui_attach.rs", "crates/fnv-game/src/ui_more.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = '2.5:call:EasyPeteRef:SetRestrained:1,3:moveto:EasyPeteRef:player:0:350:0,4:call:EasyPeteRef:AttachUIComponent:"Bip01 Head":"<rect name="NVFAttachTest"><text name="Label"><x>-80</x><y>-40</y><font>1</font><string>NVF ATTACH TEST</string></text></rect>"', NVF_PLAY_TEST_CONTROL = "6:aimnpc,8:aimnpc", NVF_PLAY_TEST_LOOK = "10:180:0", NVF_PLAY_TEST_SHOTS = "9:ui_attach_on_head.png,11.5:ui_attach_turned_away.png" }
+args = ["--cell", "Goodsprings", "--pos=-68375,4800,8700", "--heading", "0", "--play", "--hour", "12", "--no-voice", "--no-messages", "--size", "1280x720"]
+run_seconds = 13
+expect = [
+  { re = 'script: test aid calls AttachUIComponent on EasyPeteRef', label = "the component attached to Easy Pete's head" },
+  { re = 'ui: attached NVFAttachTest on [0-9A-F]{8} node "Bip01 Head" shown at \(\d+, \d+\)', label = "placed on screen at the head bone" },
+  { re = 'tiles: HUDMainMenu: 1 mod tiles drawn \([1-9]\d* items\)', label = "the attached rect's text enters rendering" },
+  { re = 'ui: attached NVFAttachTest on [0-9A-F]{8} node "Bip01 Head" hidden \((behind the camera|off the screen)\)', label = "hidden once the view turns away" },
+]
+order = [[
+  { re = 'test aid calls AttachUIComponent' },
+  { re = 'ui: attached NVFAttachTest .* shown at' },
+  { re = 'ui: attached NVFAttachTest .* hidden \((behind the camera|off the screen)\)' },
+]]
+forbid = [
+  { re = 'ui: attached NVFAttachTest .* hidden \((no such node|not drawn|no camera)\)', label = "the head bone is found on the drawn actor, by its exact name" },
+]
+manual = "ui_attach_on_head.png: the words NVF ATTACH TEST in white just above and left of Easy Pete's head, the view on him; ui_attach_turned_away.png: the view south, no words on screen"
+
+[[scenario]]
+name = "ui-texoffset-alphamap"
+source = "#1833 [documented: SetUITexOffset, SetUIAlphaMap] an offset shifts a tile's texture coordinates, wrapping; an alpha map's alpha masks the tile; [design: tiles/texmod.rs, nvse_itr1.rs] both kept per tile id, baked into the picture's place, dropped with the tile"
+note = "Authored for the test (the fixture home's mods layer): five 256 x 64 pictures of the HUD's 64 x 16 compass alpha map texture (white for its first 20 texels, then black, hud.md §3) in one injected rect at x 80, y 280. A as it is; B offset 1.5 (wraps to 0.5); C offset -0.5 (0.5) and masked by the HUD's hit gradient, whose alpha falls from 255 to about 26 left to right; D masked by a texture that is not there (SetUIAlphaMap returns 0 and keeps nothing [documented: SetUIAlphaMap, 0 on a texture load failure]); E masked by an authored text file in the mods layer, no image (accepted, 1; the renderer cannot decode it). At 8 s the controller unloads B and injects a new B at its path."
+areas = ["ui", "scripts", "hud"]
+paths = ["crates/fnv-game/src/nvse_itr1.rs", "crates/fnv-game/tests/nvse_itr1.rs", "engine/nvf-play/src/tiles/texmod.rs", "engine/nvf-play/src/tiles/draw.rs", "engine/nvf-play/src/repeat.rs", "tools/smoke/fixtures/ui-texoffset-home/"]
+env = { NVFOREVER_HOME = "{repo}/tools/smoke/fixtures/ui-texoffset-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SHOTS = "6:ui_texoffset_set.png,12:ui_texoffset_replaced.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--size", "1280x720"]
+run_seconds = 14
+expect = [
+  { text = 'script: print "nvf texoffset injected 1"', count = 1 },
+  { text = 'script: print "nvf texoffset set 1 1 1 0 1"', count = 1, label = "both offsets and C's and E's masks accepted, D's missing mask refused" },
+  { re = 'tiles: HUDMainMenu/NVFTex/B: texture offset 0\.500, 0\.000 drawn \(\d+ x \d+ texels\)', count = 1, label = "B drawn at its wrapped offset" },
+  { re = 'tiles: HUDMainMenu/NVFTex/C: texture offset 0\.500, 0\.000, alpha map textures.interface.hud.hitgradientleft\.dds drawn', count = 1, label = "C drawn shifted and masked" },
+  { re = 'tiles: HUDMainMenu/NVFTex/D:', count = 0, label = "a refused mask is not kept: the renderer has nothing for D" },
+  { re = 'tiles: HUDMainMenu/NVFTex/E: the alpha map textures.interface.hud.mask_not_an_image_nvf\.txt could not be read; the tile is drawn without it \(SetUITexOffset / SetUIAlphaMap: not a DDS file', count = 1, label = "a mask in the mods layer that is no image: read from that layer, refused by the decoder, said once; E draws as it was" },
+  { re = 'tiles: HUDMainMenu/NVFTex/A: texture offset', count = 0, label = "A has neither" },
+  { text = 'script: print "nvf texoffset unloaded 1"', count = 1 },
+  { text = 'script: print "nvf texoffset replaced 1"', count = 1, label = "a new B at the old B's path" },
+  { re = 'tiles: HUDMainMenu: 1 mod tiles drawn \(\d+ items\)', label = "the authored rect enters rendering" },
+]
+order = [["nvf texoffset set", "tiles: HUDMainMenu/NVFTex/B: texture offset", "nvf texoffset replaced"]]
+manual = "ui_texoffset_set.png: five amber-and-black strips on the left; A's light band at its left end, B's and C's moved to the middle (about 128-208 of 256 units), C fading from left to right (its left end solid, its right end faint), D and E as A. ui_texoffset_replaced.png: B's band back at its left end, as A's (the replaced tile has no offset); C, D and E unchanged."
+
+[[scenario]]
+name = "ui-texoffset-compass"
+source = "#1833 review [documented: SetUITexOffset, SetUIAlphaMap; design: tiles/texmod.rs strip, compass_strip.rs StripWindow::masked] with the HUD drawn from tiles, the compass strip takes the offset on top of the heading's scroll and the mask over its window"
+note = "The fixture home's script sets offset 0.25 (a quarter turn of the 1024-unit strip) and the hit gradient mask on HUDMainMenu/HitPoints/compass_window at game start. Same place and heading as tiles-hud-compass-north, whose N stands just right of the bracket's downward triangle: here the letters stand a quarter turn (256 units) on from there and fade from left to right."
+areas = ["ui", "scripts", "hud"]
+paths = ["engine/nvf-play/src/tiles/texmod.rs", "engine/nvf-play/src/compass_strip.rs", "engine/nvf-play/src/tiles/draw.rs", "crates/fnv-game/src/nvse_itr1.rs", "tools/smoke/fixtures/ui-texoffset-compass-home/"]
+env = { NVFOREVER_HOME = "{repo}/tools/smoke/fixtures/ui-texoffset-compass-home", NVF_PLAY_TEST_TILE_MENUS = "HUDMainMenu", NVF_PLAY_TEST_SCRIPT_MENUS = "0.2", NVF_PLAY_TEST_SHOTS = "10:ui_texoffset_compass.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--pos=-69850,5700,8650", "--heading", "0", "--hour", "12", "--size", "1280x720"]
+run_seconds = 12
+expect = [
+  { text = 'script: print "nvf compass texoffset set 1 1"', count = 1, label = "the strip tile takes both" },
+  { re = 'tiles: HUDMainMenu/HitPoints/compass_window: texture offset 0\.250, 0\.000, alpha map textures.interface.hud.hitgradientleft\.dds drawn on the compass strip', count = 1, label = "the strip moved on and masked, told once" },
+  { re = 'tiles: the compass strip baked into one window image of \d+ x \d+ texels', label = "the strip is still one baked window" },
+  { re = 'could not be read; the tile is drawn without it', count = 0, label = "both textures read" },
+]
+manual = "ui_texoffset_compass.png against tiles_hud_compass_north.png: the strip's letters a quarter turn (256 units) on from where they stand at heading 0, and the strip fading from solid at the window's left to faint at its right, the marks over it unchanged."
+
+[[scenario]]
+name = "ui-hudbar-bound-conditions"
+source = "[documented: HudBarSetValueUDF, HudBarSetBarTrait, HudBarGetVisible, HudBarShowBar] a bar bound to a UDF follows it each fUpdateTimer; trait 23 at 2 shows the bar only in combat, HudBarGetVisible answers -1 while a condition hides it, 0 when HudBarShowBar hides it; traits 41/44 make it vanish gradually; [design: ui_hudbar.rs tick, docs/spec-notes/hud-bars.md]"
+note = "Issue #1834. The authored probe's frame callback makes the bar at 2 s (session time), bound to a UDF giving GetSessionTime / 100 as the raw share of a 300-wide meter, samples its width at 3 s and 4 s, hides it by trait 23 at 4 s (the player is not in combat at the Goodsprings start), shows it again at 4.5 s, starts a 2 s gradual vanishing at 5 s, samples the Meter's alpha at 6 s and the bar's visibility after 8 s. No console opens. The bar's tile is HUDMainMenu/NVFHudBar1 (the first bar of the session)."
+areas = ["ui", "scripts", "hud"]
+paths = ["crates/fnv-game/src/ui_hudbar.rs", "crates/fnv-game/src/nvse_sup7.rs", "crates/fnv-game/tests/ui_more.rs", "crates/fnv-game/tests/sup7.rs", "tools/smoke/fixtures/ui-hudbar-home/"]
+env = { NVFOREVER_HOME = "{repo}/tools/smoke/fixtures/ui-hudbar-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--size", "1280x720"]
+run_seconds = 16
+expect = [
+  { text = 'script: print "nvf hudbar probe 1"', count = 1 },
+  { text = 'script: print "nvf hudbar made 1"', count = 1 },
+  { text = 'script: print "nvf hudbar udf 1"', count = 1 },
+  { text = 'script: print "nvf hudbar bound 1"', count = 1, label = "the UDF's value reached the meter" },
+  { text = 'script: print "nvf hudbar follows 1"', count = 1, label = "the meter grew with the UDF on the timer" },
+  { text = 'script: print "nvf hudbar hidden -1"', count = 1, label = "a condition hides the bar: -1" },
+  { text = 'script: print "nvf hudbar drawn hidden 0"', count = 1, label = "the hidden bar's tile is not drawn" },
+  { text = 'script: print "nvf hudbar shown 1"', count = 1 },
+  { text = 'script: print "nvf hudbar drawn shown 1"', count = 1 },
+  { re = 'script: print "nvf hudbar fading (\d+(?:\.\d+)?)"', range = [1, 254], label = "half way through the gradual vanishing: an alpha between" },
+  { text = 'script: print "nvf hudbar fading ', count = 1, label = "one sample of the fade" },
+  { text = 'script: print "nvf hudbar faded 0"', count = 1, label = "vanished all the way" },
+  { text = 'script: print "nvf hudbar manual 0"', count = 1, label = "HudBarShowBar's hiding answers 0" },
+]
+order = [["nvf hudbar made", "nvf hudbar bound", "nvf hudbar follows", "nvf hudbar hidden", "nvf hudbar drawn hidden", "nvf hudbar shown", "nvf hudbar drawn shown", "nvf hudbar fading", "nvf hudbar faded", "nvf hudbar manual"]]
+
+[[scenario]]
 name = "pipboy-items-hints"
 source = "#1896 (docs/spec-notes/pipboy.md §4): with the keyboard and mouse the ITEMS page shows only the repair hint (Repair/Maintain R)) on every tab and Mod X) under it on Weapons, as the original's InventoryMenu button tiles read with keyboard and mouse on 2026-11-09 (equip, drop and hotkey buttons hidden); the repair hint dim where it does nothing (Aid, Misc, Ammo); the weapon mod menu shows Mod Enter) over Exit E), Mod dim on the weapon's own row; an equipped 10mm Pistol (Weap10mmPistol, mod slots) with its Extended Mags, Stimpaks and 10mm rounds carried; frames pipboy_items_hints_weapons.png, pipboy_items_hints_aid.png, pipboy_items_hints_mod.png in the working folder. The controller's whole column: pipboy-items-hints-pad"
 areas = ["pipboy"]
@@ -23891,6 +24455,272 @@ expect = [
 order = [["controls: input device Controller", "pipboy hints: items Weapons", "pipboy hints: items Aid", "pipboy hints: items Ammo", "pipboy hints: mod menu: Mod A) (dim), Exit B)"]]
 
 [[scenario]]
+name = "pipboy-data-hints"
+source = "#1897 (docs/spec-notes/pipboy.md §5.3): with the keyboard and mouse each DATA tab shows the original's PC hints, a column whose words end at the heading's right end with the key after them: Local Map and World Map Place Marker alone with no key (bright since #1954: it asks about the custom marker), Radio none (its A hint is the controller's), Quests Show Location X), Misc Active Notes X) and Challenges R); a quest (VCG02's objective) and a note (Beagle's journal) are given first; frames pipboy_data_hints_world.png, pipboy_data_hints_misc.png in the working folder (the Misc hints inside the screen at 1280 x 720)"
+note = "the console's addnote is the one pipboy-holotape uses; the objective aid the one of the script-look scenario (VCG02 3)"
+areas = ["pipboy"]
+paths = ["engine/nvf-play/src/pipboy/data.rs", "engine/nvf-play/src/pipboy/frame.rs", "engine/nvf-play/src/pipboy/labels.rs", "engine/nvf-play/src/pad.rs"]
+env = { NVFOREVER_HOME = "pipboy-data-hints-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "8:addnote VMQ01BeagleJournalNote;8.3:close", NVF_PLAY_TEST_SCRIPT = "9:objective:VCG02:3", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=data,13.5:tab=0,15:tab=1,17:tab=2,18.5:tab=3,20:tab=4,21.5:close", NVF_PLAY_TEST_SHOTS = "16.5:pipboy_data_hints_world.png,19.5:pipboy_data_hints_misc.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--size", "1280x720"]
+run_seconds = 24
+expect = [
+  { re = 'pipboy hints: data local map: Place Marker$', label = "Local Map: Place Marker alone with the keyboard, no key, bright (#1954)" },
+  { re = 'pipboy hints: data world map: Place Marker$', label = "World Map: Place Marker alone with the keyboard (Travel is the controller's)" },
+  { re = 'pipboy hints: data quests: Show Location X\)$', label = "Quests: Show Location alone, with its key (the make-active hint is the controller's)" },
+  { re = 'pipboy hints: data misc: Active Notes X\), Challenges R\)$', label = "Misc: the notes' filter and Challenges with their keys" },
+  { re = 'pipboy hints: data radio: none$', label = "Radio: no hint with the keyboard (Tune is the controller's)" },
+]
+order = [["pipboy hints: data local map", "pipboy hints: data world map", "pipboy hints: data quests", "pipboy hints: data misc", "pipboy hints: data radio"]]
+
+[[scenario]]
+name = "pipboy-data-hints-pad"
+source = "#1897 (docs/spec-notes/pipboy.md §5.3): with Controller as the Input Device (Xbox names) each DATA tab shows the original's column, as on the issue's screenshots taken with a controller: Local Map Place Marker X) (bright since #1954), World Map Travel A) (dim without a marker under the highlight box) and Place Marker X), Quests Set Active A) and Show Location X), Misc Play A) on the audio note (Stop A) once it plays), Active Notes X) and Challenges Y), Radio Tune In A); the same quest and note as pipboy-data-hints; frames pipboy_data_hints_pad_world.png, pipboy_data_hints_pad_misc.png in the working folder"
+note = "a home of its own keeps the Controller choice away from the other scenarios (as pipboy-items-hints-pad); the pause menu's settings aid picks the device before the Pip-Boy steps; no --no-voice, so the picked holotape plays and its hint turns to Stop"
+areas = ["pipboy"]
+paths = ["engine/nvf-play/src/pipboy/data.rs", "engine/nvf-play/src/pipboy/frame.rs", "engine/nvf-play/src/pipboy/labels.rs", "engine/nvf-play/src/pad.rs"]
+env = { NVFOREVER_HOME = "pipboy-data-hints-pad-home", NVF_PLAY_TEST_PAUSE = "1:4", NVF_PLAY_TEST_SETTINGS = "2:device:Controller", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "8:addnote VMQ01BeagleJournalNote;8.3:close", NVF_PLAY_TEST_SCRIPT = "9:objective:VCG02:3", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=data,13.5:tab=0,15:tab=1,17:tab=2,18.5:tab=3,19.5:note=001618BF,21:tab=4,22.5:close", NVF_PLAY_TEST_SHOTS = "16.5:pipboy_data_hints_pad_world.png,19:pipboy_data_hints_pad_misc.png" }
+args = ["--cell", "Goodsprings", "--play", "--size", "1280x720"]
+run_seconds = 25
+expect = [
+  { text = "controls: input device Controller", label = "the pause menu's settings aid sets the Input Device to Controller before the DATA steps" },
+  { text = "hints: Xbox labels", label = "the DATA hints take the Xbox names before the Pip-Boy opens" },
+  { re = 'pipboy hints: data local map: Place Marker X\)$', label = "Local Map: Place Marker with its button, bright (#1954)" },
+  { re = 'pipboy hints: data world map: Travel A\)( \(dim\))?, Place Marker X\)$', label = "World Map: Travel (dim unless a marker is under the highlight box) and Place Marker" },
+  { re = 'pipboy hints: data quests: Set Active A\), Show Location X\)$', label = "Quests: the make-active hint and Show Location with their buttons" },
+  { re = 'pipboy hints: data misc: Play A\), Active Notes X\), Challenges Y\)$', label = "Misc: Play on the audio note, the notes' filter and Challenges" },
+  { re = 'pipboy hints: data misc: Stop A\), Active Notes X\), Challenges Y\)$', label = "Misc: Stop while the picked audio note plays" },
+  { re = 'pipboy hints: data radio: Tune In A\)$', label = "Radio: the tune hint with its button" },
+]
+order = [["controls: input device Controller", "pipboy hints: data local map", "pipboy hints: data world map", "pipboy hints: data quests", "pipboy hints: data misc: Play", "pipboy hints: data misc: Stop", "pipboy hints: data radio"]]
+
+[[scenario]]
+name = "tiles-data-quests"
+source = "[design] pipboy.md section 5.3.1, issue 1513: with [UI] TileMenus=MapMenu the DATA page's Quests tab is drawn from map_menu.xml into the Pip-Boy's image on the device, its quests, objectives, tabs and hints through its tiles; the maps and Radio keep the whole hand-built page (Misc: tiles-data-misc); a click on a quest makes it active, a click on the Show Location hint shows the World Map (hand-built), and the page comes back from its tiles on Quests and after a reopening"
+note = "the points are canvas units on the page as run [hypothesis until the first run: the first quest's words about 200, 150 (the list at 35, 125, the rows' words 72 in and 20 down), the X hint (the first shown with the keyboard) right-justified at 905 from y 125]; VCG02's objective given at 9 s is the one quest. Shots: compare tiles_data_quests with pipboy-data-hints' and tiles-data-off's at the same time."
+areas = ["ui", "menus", "pipboy"]
+paths = ["engine/nvf-play/src/tiles/map_menu.rs", "engine/nvf-play/src/pipboy/data.rs", "engine/nvf-play/src/pipboy/frame.rs", "engine/nvf-play/src/pipboy.rs", "engine/nvf-play/src/tiles/draw.rs", "engine/nvf-play/src/tiles/input.rs", "engine/nvf-play/src/tiles/list.rs", "engine/nvf-play/src/tiles/menus.rs", "engine/nvf-play/src/tiles/mod.rs", "engine/nvf-play/src/tiles/vanilla.rs", "crates/fnv-ui/src/tree.rs", "crates/fnv-ui/src/input.rs"]
+env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:objective:VCG02:3", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=data,14:tab=2,16:point=200:150,17:click=200:150,18:point=off,19:click=860:145,21:tab=2,23:close,25:open,27:close", NVF_PLAY_TEST_TILE_MENUS = "MapMenu", NVF_PLAY_TEST_SHOTS = "15.5:tiles_data_quests.png,20:tiles_data_quests_world.png,26:tiles_data_quests_reopened.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
+run_seconds = 30
+expect = [
+  { re = 'tiles: \[UI\] TileMenus=MapMenu \(from test aid NVF_PLAY_TEST_TILE_MENUS\): MapMenu drawn from tiles', label = "the switch is read from the test aid" },
+  { text = "tiles: MapMenu draws quests from tiles", min = 2, label = "Quests is drawn from its file, and again back from the World Map" },
+  { re = 'tiles: MapMenu page from tiles: tab quests, [1-9]\d* rows, "[^"]+" selected, [1-9]\d* objectives, hints: X Show Location X\), device$', min = 1, label = "the quest, its objectives and the keyboard's one hint written, on the device" },
+  { re = 'tiles: MapMenu drawn from tiles \(\d+ file tiles, [1-9]\d* code tiles\)', count = 1, label = "structure only, no pixels: the menu goes to the painter once for the run: its rows outlast the tab changes and the reopening" },
+  { re = '''tiles: MapMenu set out for the Pip-Boy's image: [1-9]\d* pieces, [1-9]\d* row names''', min = 1, label = "structure only, logs cannot prove pixels (the shots do): pieces of the file go to the painter, the quests' and objectives' names among them" },
+  { text = "MapMenu drawn by hand", count = 0, label = "the file has every name the page needs" },
+  { re = 'pipboy hints: data quests: Show Location X\)$', min = 1, label = "the hints' rules stay the hand-built page's (#1952)" },
+  { text = "tiles: MapMenu Row(0) on its tiles", count = 1, label = "the click on the quest acted once, through its tile" },
+  { re = 'pipboy data: active quest ', min = 1, label = "the click made the quest active, the hand-built page's rule" },
+  { text = "tiles: MapMenu Button(X) on its tiles", count = 1, label = "the click on the Show Location hint, through its tile" },
+  { text = "pipboy: DATA World Map", min = 1, label = "Show Location shows the World Map" },
+  { text = "tiles: MapMenu leaves world map hand-built: not drawn from the file yet", min = 1, label = "the World Map keeps the whole hand-built page" },
+]
+order = [["tiles: MapMenu draws quests from tiles", "tiles: MapMenu Row(0) on its tiles", "tiles: MapMenu Button(X) on its tiles", "pipboy: DATA World Map", "tiles: MapMenu leaves world map hand-built", "pipboy: DATA Quests", "tiles: MapMenu draws quests from tiles", "pipboy: down", "pipboy: up, page DATA tab Quests"]]
+
+[[scenario]]
+name = "tiles-data-quests-screen"
+source = "[design] pipboy.md section 5.3.1, issue 1513, the owner 2026-10-31: the same Quests tab in the screen menu: no title, the heading's line run on, the page names' header still the shell's; Misc drawn from the file there too"
+note = "the same steps as tiles-data-quests without the clicks; shots to compare with tiles-data-off-screen."
+areas = ["ui", "menus", "pipboy"]
+paths = ["engine/nvf-play/src/tiles/map_menu.rs", "engine/nvf-play/src/pipboy/data.rs", "engine/nvf-play/src/pipboy/frame.rs", "engine/nvf-play/src/tiles/draw.rs"]
+env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:objective:VCG02:3", NVF_PLAY_TEST_PIPBOY = "10:frame=screen,12:open,13:page=data,14:tab=2,17:tab=3,19:tab=2,21:close", NVF_PLAY_TEST_TILE_MENUS = "MapMenu", NVF_PLAY_TEST_SHOTS = "16:tiles_data_quests_screen.png,18:tiles_data_misc_screen.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
+run_seconds = 24
+expect = [
+  { text = "pipboy: frame Screen", min = 1, label = "the screen menu" },
+  { re = 'tiles: MapMenu page from tiles: tab quests, .*, screen menu$', min = 1, label = "the screen menu's layout" },
+  { re = 'tiles: MapMenu page from tiles: tab misc notes, \d+ rows, .*, screen menu$', min = 1, label = "Misc in the screen menu's layout" },
+  { text = "MapMenu drawn by hand", count = 0, label = "the file has every name the page needs" },
+]
+order = [["tiles: MapMenu draws quests from tiles", "tiles: MapMenu draws misc from tiles", "tiles: MapMenu draws quests from tiles"]]
+
+[[scenario]]
+name = "tiles-data-off"
+source = "[design] pipboy.md section 5.3.1: without the switch the DATA page is the hand-built one: nothing of the tile page runs, and its quests, hints, clicks and log lines work as before"
+note = "the same steps and times as tiles-data-quests, at the hand-built places (the X hint about 860, 145 and the quest about 200, 150 there too). Shots to compare with it."
+areas = ["ui", "menus", "pipboy"]
+paths = ["engine/nvf-play/src/tiles/map_menu.rs", "engine/nvf-play/src/pipboy/data.rs", "engine/nvf-play/src/pipboy/frame.rs", "engine/nvf-play/src/pipboy.rs", "engine/nvf-play/src/tiles/draw.rs", "engine/nvf-play/src/tiles/input.rs", "engine/nvf-play/src/tiles/mod.rs", "engine/nvf-play/src/tiles/vanilla.rs"]
+env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:objective:VCG02:3", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=data,14:tab=2,16:point=200:150,17:click=200:150,18:point=off,19:click=860:145,21:tab=2,23:close,25:open,27:close", NVF_PLAY_TEST_SHOTS = "15.5:tiles_data_off.png,20:tiles_data_off_world.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
+run_seconds = 30
+expect = [
+  { re = 'tiles: MapMenu|MapMenu drawn by hand', count = 0, label = "switch off: nothing of the tile page runs without its switch" },
+  { re = 'pipboy hints: data quests: Show Location X\)$', min = 1, label = "switch off: the Quests hint as before" },
+  { re = 'pipboy data: active quest ', min = 1, label = "switch off: the click on the quest makes it active, as before" },
+  { text = "pipboy: DATA World Map", min = 1, label = "switch off: the Show Location hint's click shows the World Map, as before" },
+]
+order = [["pipboy: DATA Quests", "pipboy: DATA World Map", "pipboy: DATA Quests", "pipboy: down", "pipboy: up, page DATA tab Quests"]]
+
+[[scenario]]
+name = "tiles-data-objectives-scroll"
+source = "[design] pipboy.md section 5.3.1, #1667: with the switch on, a quest's objectives longer than their window scroll by Page Up/Page Down as on the hand-built page: the tile page publishes how far they can scroll, the one presentation that does"
+note = "pipboy-data-objectives-scroll's quest and keys with [UI] TileMenus=MapMenu: VMQ02 with 32 objectives made the active quest at 8 s; Page Down at 15 s must scroll from 0 to a positive offset of a positive range, Page Up at 16 s back to 0."
+areas = ["pipboy", "ui"]
+paths = ["engine/nvf-play/src/tiles/map_menu.rs", "engine/nvf-play/src/pipboy/data.rs"]
+env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "8:StartQuest VMQ02;SetObjectiveDisplayed VMQ02 1 1;SetObjectiveDisplayed VMQ02 2 1;SetObjectiveDisplayed VMQ02 3 1;SetObjectiveDisplayed VMQ02 5 1;SetObjectiveDisplayed VMQ02 6 1;SetObjectiveDisplayed VMQ02 7 1;SetObjectiveDisplayed VMQ02 8 1;SetObjectiveDisplayed VMQ02 9 1;SetObjectiveDisplayed VMQ02 10 1;SetObjectiveDisplayed VMQ02 12 1;SetObjectiveDisplayed VMQ02 15 1;SetObjectiveDisplayed VMQ02 20 1;SetObjectiveDisplayed VMQ02 22 1;SetObjectiveDisplayed VMQ02 25 1;SetObjectiveDisplayed VMQ02 30 1;SetObjectiveDisplayed VMQ02 40 1;SetObjectiveDisplayed VMQ02 41 1;SetObjectiveDisplayed VMQ02 50 1;SetObjectiveDisplayed VMQ02 53 1;SetObjectiveDisplayed VMQ02 55 1;SetObjectiveDisplayed VMQ02 60 1;SetObjectiveDisplayed VMQ02 70 1;SetObjectiveDisplayed VMQ02 75 1;SetObjectiveDisplayed VMQ02 80 1;SetObjectiveDisplayed VMQ02 85 1;SetObjectiveDisplayed VMQ02 90 1;SetObjectiveDisplayed VMQ02 100 1;SetObjectiveDisplayed VMQ02 101 1;SetObjectiveDisplayed VMQ02 110 1;SetObjectiveDisplayed VMQ02 111 1;SetObjectiveDisplayed VMQ02 112 1;SetObjectiveDisplayed VMQ02 113 1;ForceActiveQuest VMQ02;8.3:close", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=data,14:tab=2,18:close", NVF_PLAY_TEST_KEYS = "15:pagedown,16:pageup", NVF_PLAY_TEST_TILE_MENUS = "MapMenu", NVF_PLAY_TEST_SHOTS = "15.5:tiles_data_objectives_scrolled.png" }
+args = ["--cell", "Goodsprings", "--play", "--hour", "12", "--size", "1280x720", "--no-voice", "--no-messages"]
+run_seconds = 24
+expect = [
+  { text = "tiles: MapMenu draws quests from tiles", min = 1, label = "Quests drawn from its file" },
+  { text = "MapMenu drawn by hand", count = 0, label = "no fallback" },
+]
+order = [[
+  { text = "tiles: MapMenu draws quests from tiles" },
+  { re = 'pipboy data: objectives scrolled from 0 to [1-9]\d* of [1-9]\d*', label = "Page Down scrolls the overflowing objectives, by the tile page's measure" },
+  { re = 'pipboy data: objectives scrolled from [1-9]\d* to 0 of [1-9]\d*', label = "Page Up scrolls them back to their top" },
+]]
+
+[[scenario]]
+name = "tiles-data-misc"
+source = "[design] pipboy.md section 5.3.1, issue 1513: with [UI] TileMenus=MapMenu the DATA page's Misc tab is drawn from map_menu.xml: the notes in MM_NotesList, the picked note's text in MM_DataTextRect or an audio note's time and meter in MM_DataAudioInfo, the hints on MM_ButtonX and MM_ButtonY; the Challenges hint's click shows the challenges in MM_ChallengeList (the notes' list hidden), again the notes, and the notes' filter's click acts once; Radio keeps the whole hand-built page"
+note = "the points are canvas units on the page as run [hypothesis until the first run: the first note's words about 200, 150 as the first quest's in tiles-data-quests; with the keyboard X (the notes' filter) is the first hint, right-justified at 905 from y 125, and Y (Challenges) the row under it, about 46 lower]. Two notes from the console: VMQ01CourierNote (a text note, read.rs) and VMQ01BeagleJournalNote (a voice note, 001618BF, pipboy-holotape's), picked by the aid first, so the pane shows the audio note; Down at 16 s selects the second row, the delivery order (the notes sort the journal first [observed: the first run]), so the pane shows its text; then the click on the first row picks the journal again. The points of the hints were right in the first run (the X hint takes 860, 145, Y 880, 191). Shots: tiles_data_misc.png (the audio or text pane), tiles_data_misc_challenges.png."
+areas = ["ui", "menus", "pipboy"]
+paths = ["engine/nvf-play/src/tiles/map_menu.rs", "engine/nvf-play/src/pipboy/data.rs", "engine/nvf-play/src/pipboy/frame.rs", "engine/nvf-play/src/tiles/list.rs", "engine/nvf-play/src/tiles/draw.rs"]
+env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "8:addnote VMQ01CourierNote;addnote VMQ01BeagleJournalNote;8.3:close", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=data,14:tab=3,15:note=001618BF,17:point=200:150,18:click=200:150,19:point=off,20:click=880:191,22:click=880:191,23.5:click=860:145,25:tab=4,26:close", NVF_PLAY_TEST_KEYS = "16:down", NVF_PLAY_TEST_TILE_MENUS = "MapMenu", NVF_PLAY_TEST_SHOTS = "16.5:tiles_data_misc.png,21:tiles_data_misc_challenges.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
+run_seconds = 29
+expect = [
+  { text = "tiles: MapMenu draws misc from tiles", min = 1, label = "Misc is drawn from its file" },
+  { re = 'tiles: MapMenu page from tiles: tab misc notes, 2 rows, "[^"]+" selected, audio, hints: X [^,]+ X\), Y [^,]+ R\), device$', min = 1, label = "the two notes, the audio note's pane, the filter and Challenges hints, written" },
+  { re = 'pipboy data: note .+ \(0x001618BF\) picked', min = 1, label = "the aid picks the voice note" },
+  { re = 'tiles: MapMenu page from tiles: tab misc notes, 2 rows, "[^"]+" selected, text, ', min = 1, label = "Down selects the text note: its text from the file" },
+  { text = "tiles: MapMenu Row(0) on its tiles", count = 1, label = "the click on the first note acted once, through its tile" },
+  { re = 'pipboy data: note .+ picked', min = 2, label = "the click picked a note, the hand-built page's rule" },
+  { re = 'tiles: MapMenu page from tiles: tab misc notes, 2 rows, "[^"]+" selected, (text|audio), ', min = 1, label = "the note clicked shows its pane from the file" },
+  { text = "tiles: MapMenu Button(Y) on its tiles", count = 2, label = "the Challenges hint's two clicks, through its tile" },
+  { text = "pipboy data: challenges shown", count = 1, label = "the challenges shown, the hand-built page's rule" },
+  { re = 'tiles: MapMenu page from tiles: tab misc challenges, \d+ rows, ', min = 1, label = "the challenges written in their list" },
+  { text = "pipboy data: notes shown", count = 1, label = "and the notes again" },
+  { text = "tiles: MapMenu Button(X) on its tiles", count = 1, label = "the notes' filter's click, through its tile" },
+  { re = 'pipboy hints: data misc: All Notes X\)', min = 1, label = "the filter acted once: its hint now offers all the notes" },
+  { text = "tiles: MapMenu leaves radio hand-built: not drawn from the file yet", min = 1, label = "Radio keeps the whole hand-built page (its waveform)" },
+  { text = "MapMenu drawn by hand", count = 0, label = "the file has every name Misc needs, and its panes show (a challenge's short text without a scroll bar)" },
+  { re = 'MapMenu: Button\(.\) does not take the pointer', count = 0, label = "the hints take the pointer at their words, not their keys beside the box" },
+]
+order = [["tiles: MapMenu draws misc from tiles", { re = 'pipboy data: note .+ \(0x001618BF\) picked' }, { re = 'tiles: MapMenu page from tiles: tab misc notes, 2 rows, "[^"]+" selected, text, ' }, "tiles: MapMenu Row(0) on its tiles", "tiles: MapMenu Button(Y) on its tiles", "pipboy data: challenges shown", "pipboy data: notes shown", "tiles: MapMenu Button(X) on its tiles", "tiles: MapMenu leaves radio hand-built"]]
+
+[[scenario]]
+name = "tiles-data-misc-off"
+source = "[design] pipboy.md section 5.3.1: without the switch Misc is the hand-built page: nothing of the tile page runs, and its notes, panes, clicks and log lines work as before"
+note = "the same steps and times as tiles-data-misc, at the hand-built places. Shots to compare with it."
+areas = ["ui", "menus", "pipboy"]
+paths = ["engine/nvf-play/src/tiles/map_menu.rs", "engine/nvf-play/src/pipboy/data.rs", "engine/nvf-play/src/pipboy/frame.rs"]
+env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "8:addnote VMQ01CourierNote;addnote VMQ01BeagleJournalNote;8.3:close", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=data,14:tab=3,15:note=001618BF,17:point=200:150,18:click=200:150,19:point=off,20:click=880:191,22:click=880:191,23.5:click=860:145,25:tab=4,26:close", NVF_PLAY_TEST_KEYS = "16:down", NVF_PLAY_TEST_SHOTS = "16.5:tiles_data_misc_off.png,21:tiles_data_misc_challenges_off.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
+run_seconds = 29
+expect = [
+  { re = 'tiles: MapMenu|MapMenu drawn by hand', count = 0, label = "switch off: nothing of the tile page runs without its switch" },
+  { re = 'pipboy hints: data misc: Active Notes X\), Challenges R\)$', min = 1, label = "switch off: Misc's hints as before" },
+  { re = 'pipboy data: note .+ \(0x001618BF\) picked', min = 1, label = "switch off: the aid picks the voice note, as before" },
+  { text = "pipboy data: challenges shown", count = 1, label = "switch off: the Challenges hint's click, as before" },
+  { text = "pipboy data: notes shown", count = 1, label = "switch off: and the notes again" },
+]
+order = [[{ re = 'pipboy data: note .+ \(0x001618BF\) picked' }, "pipboy data: challenges shown", "pipboy data: notes shown"]]
+
+[[scenario]]
+name = "tiles-data-custom-marker"
+source = "#1954 with #1513 (docs/spec-notes/pipboy.md §5.3.1): with [UI] TileMenus=MapMenu the maps keep the whole hand-built page, prepared before the frame (data::prepare), and Place Marker's question box works there as with the switch off: placed on the World Map, moved from the Local Map, removed; the page goes back to its tiles on Quests"
+note = "pipboy-custom-marker's steps with the switch on, then Quests; the question box's answers are the hand-built page's, its hover reset when they are spawned again (data::draw)."
+areas = ["pipboy", "ui"]
+paths = ["engine/nvf-play/src/pipboy/data.rs", "engine/nvf-play/src/pipboy/data/marker.rs", "engine/nvf-play/src/tiles/map_menu.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:objective:VCG02:3", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=data,13.5:tab=1,14:point=527:350,15:placemarker,16:key=use,17:tab=0,18.5:placemarker,19.5:key=use,20.5:placemarker,21:key=down,22:key=use,23:tab=2,25:close", NVF_PLAY_TEST_TILE_MENUS = "MapMenu" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--size", "1280x720"]
+run_seconds = 27
+expect = [
+  { text = "tiles: MapMenu leaves world map hand-built: not drawn from the file yet", min = 1, label = "the World Map keeps the hand-built page" },
+  { re = 'pipboy map: Place Marker asks ".+" \(2 answers\)', count = 1, label = "with no marker the question has two answers" },
+  { re = 'pipboy map: custom marker placed at \(-?\d+, -?\d+\) in 0x[0-9A-F]{8}', count = 1, label = "Yes places the marker" },
+  { re = 'pipboy map: dotted line to custom marker \(\d+ segments\)', min = 1, label = "the World Map's dotted line to it" },
+  { re = 'pipboy map: Place Marker asks ".+" \(3 answers\)', count = 2, label = "with a marker the question has three answers" },
+  { re = 'pipboy map: custom marker moved to \(-?\d+, -?\d+\)', count = 1, label = "the first answer moves it" },
+  { text = "pipboy map: custom marker removed", count = 1, label = "Down and Enter take the second answer, once" },
+  { text = "tiles: MapMenu draws quests from tiles", min = 1, label = "Quests drawn from its file after the maps" },
+]
+order = [["pipboy map: custom marker placed at", "pipboy map: custom marker moved to", "pipboy map: custom marker removed", "tiles: MapMenu draws quests from tiles"]]
+
+[[scenario]]
+name = "tiles-data-missing-template"
+source = "[design] pipboy.md section 5.3.1: a file short of what the page needs keeps the whole hand-built page, says why once, and draws no tile of it; when the name is there again the page comes from its tiles"
+note = "NVF_PLAY_TEST_MAP_TILE_CUT takes the row template as missing until 20 s, so no changed game file is needed. At its end the aid builds the menu again from its file and does not reset the page's failures: the page recovers only because it tries again when the tree changes."
+areas = ["ui", "menus", "pipboy"]
+paths = ["engine/nvf-play/src/tiles/map_menu.rs", "engine/nvf-play/src/pipboy/data.rs", "engine/nvf-play/src/pipboy/frame.rs"]
+env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:objective:VCG02:3", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=data,14:tab=2,24:close", NVF_PLAY_TEST_TILE_MENUS = "MapMenu", NVF_PLAY_TEST_MAP_TILE_CUT = "MM_ListMarkerTemplate@20", NVF_PLAY_TEST_SHOTS = "17:tiles_data_cut.png,22:tiles_data_recovered.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
+run_seconds = 27
+expect = [
+  { text = "MapMenu drawn by hand: MM_ListMarkerTemplate missing", count = 1, label = "the template cut, by hand: the reason, once" },
+  { text = "tiles: MapMenu leaves quests hand-built: MM_ListMarkerTemplate missing", min = 1, label = "the draw state's line" },
+  { re = 'pipboy hints: data quests: Show Location X\)$', min = 1, label = "the hand-built page draws meanwhile, its hints as before" },
+  { text = "test aid: NVF_PLAY_TEST_MAP_TILE_CUT over", count = 1, label = "the aid stops" },
+  { re = 'test aid: MapMenu built again from \S', count = 1, label = "the tree changes: the menu built again from its file" },
+  { re = 'tiles: MapMenu page from tiles: tab quests', min = 1, label = "and the page comes from its tiles" },
+]
+order = [["MapMenu drawn by hand: MM_ListMarkerTemplate missing", "test aid: NVF_PLAY_TEST_MAP_TILE_CUT over", { re = 'test aid: MapMenu built again from \S' }, "tiles: MapMenu draws quests from tiles", { re = "tiles: MapMenu set out for the Pip-Boy's image: [1-9]\\d* pieces" }]]
+
+[[scenario]]
+name = "pipboy-custom-marker"
+source = "#1954 (docs/spec-notes/pipboy.md §5.3, Place Marker): with the keyboard, Place Marker on the World Map asks whether to set the custom marker (two answers) and Yes places it at the highlight box; the World Map draws a dotted line from the arrow to it; the Local Map shows the same marker; Place Marker there asks with three answers (move, remove, keep): move moves it, keep leaves it, remove takes it off both maps [observed: a capture of the original's MapMenu, 2026-11-10]"
+note = "the pointer aid holds the highlight box 50 right of the map window's middle (canvas 527, 350) on both maps; placemarker is the maps' X button; key=use takes the chosen answer, key=down moves down the answers; the objective aid gives the World Map a quest marker too (its line is not required)"
+areas = ["pipboy"]
+paths = ["engine/nvf-play/src/pipboy/data.rs", "engine/nvf-play/src/pipboy/data/marker.rs", "engine/nvf-play/src/pipboy/data/travel.rs", "engine/nvf-play/src/pipboy/data/model.rs", "engine/nvf-play/src/pipboy/test_aid.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:objective:VCG02:3", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=data,13.5:tab=1,14:point=527:350,15:placemarker,16:key=use,17:tab=0,18.5:placemarker,19.5:key=use,20.5:placemarker,21:key=down,21.5:key=down,22:key=use,23:placemarker,23.5:key=down,24:key=use,25:tab=1,26.5:close", NVF_PLAY_TEST_SHOTS = "16.8:pipboy_custom_marker_world.png,18:pipboy_custom_marker_local.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--size", "1280x720"]
+run_seconds = 28
+expect = [
+  { re = 'pipboy hints: data world map: Place Marker$', label = "World Map: Place Marker bright with the keyboard" },
+  { re = 'pipboy map: Place Marker asks ".+" \(2 answers\) for \(-?\d+, -?\d+\) in 0x[0-9A-F]{8}', label = "with no marker the question has two answers" },
+  { re = 'pipboy map: custom marker placed at \(-?\d+, -?\d+\) in 0x[0-9A-F]{8}', label = "Yes places the marker at the highlight box" },
+  { re = 'pipboy map: world map shows the custom marker at', label = "the World Map shows it" },
+  { re = 'pipboy map: dotted line to custom marker \(\d+ segments\)', label = "a dotted line runs from the arrow to the marker" },
+  { re = 'pipboy map: local map shows the custom marker at', label = "the Local Map shows the marker placed on the World Map" },
+  { re = 'pipboy map: Place Marker asks ".+" \(3 answers\)', count = 3, label = "with a marker the question has three answers" },
+  { re = 'pipboy map: custom marker moved to \(-?\d+, -?\d+\)', label = "the first answer moves it to the Local Map's highlight box" },
+  { text = "pipboy map: custom marker left where it was", label = "the third answer keeps it" },
+  { text = "pipboy map: custom marker removed", label = "the second answer removes it" },
+  { text = "pipboy map: world map shows no custom marker", label = "removed, the World Map shows none" },
+]
+order = [[
+  "pipboy map: custom marker placed at",
+  "pipboy map: dotted line to custom marker",
+  "pipboy map: local map shows the custom marker at",
+  "pipboy map: custom marker moved to",
+  "pipboy map: custom marker left where it was",
+  "pipboy map: custom marker removed",
+  "pipboy map: world map shows no custom marker",
+]]
+
+[[scenario]]
+name = "pipboy-custom-marker-save"
+source = "#1954 (docs/spec-notes/pipboy.md §5.3, Place Marker): the first half of the marker's round trip: a marker placed on the World Map goes into a save; pipboy-custom-marker-load reads it, so run them together"
+note = "the home is shared with pipboy-custom-marker-load, which runs after this one (smoke runs launches of one NVFOREVER_HOME in order); the console saves once the Pip-Boy is down"
+areas = ["pipboy", "save"]
+paths = ["engine/nvf-play/src/pipboy/data.rs", "engine/nvf-play/src/pipboy/data/marker.rs", "engine/nvf-play/src/save.rs"]
+env = { NVFOREVER_HOME = "pipboy-marker-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=data,13.5:tab=1,14:point=527:350,15:placemarker,16:key=use,17:close", NVF_PLAY_TEST_CONSOLE = "20:save smoke-marker;21:close" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice"]
+run_seconds = 23
+expect = [
+  { re = 'pipboy map: custom marker placed at \(-?\d+, -?\d+\)', label = "the marker is placed" },
+  { re = 'save: wrote .*smoke-marker\.nvfsave \(manual, ', label = "the save is written" },
+]
+order = [["pipboy map: custom marker placed at", { re = 'save: wrote .*smoke-marker\.nvfsave' }]]
+
+[[scenario]]
+name = "pipboy-custom-marker-load"
+source = "#1954 (docs/spec-notes/pipboy.md §5.3, Place Marker): the second half of the round trip: --load the save pipboy-custom-marker-save made; the custom marker comes back and the World Map shows it with its dotted line [design: kept in NVForever's saves; the original's is not captured]"
+areas = ["pipboy", "save"]
+paths = ["engine/nvf-play/src/pipboy/data.rs", "engine/nvf-play/src/pipboy/data/marker.rs", "engine/nvf-play/src/save.rs"]
+env = { NVFOREVER_HOME = "pipboy-marker-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=data,13.5:tab=1,15:close" }
+args = ["--play", "--load", "smoke-marker", "--no-voice"]
+run_seconds = 17
+expect = [
+  { re = 'load: engine state of .*smoke-marker\.nvfsave put back', label = "the engine state is put back" },
+  { re = 'pipboy map: custom marker back from the save at \(-?\d+, -?\d+\) in 0x[0-9A-F]{8}', label = "the marker comes back from the save" },
+  { re = 'pipboy map: world map shows the custom marker at', label = "the World Map shows it" },
+  { re = 'pipboy map: dotted line to custom marker \(\d+ segments\)', label = "with its dotted line" },
+]
+
+[[scenario]]
 name = "pipboy-stats-rad-radaway"
 source = "[design] #1899: hand-built Status RAD owns keyboard/controller A while its RadAway hint is shown; use the carried aid item and keep the tab (engine/nvf-play/src/pipboy.rs, pipboy/stats/mod.rs; docs/spec-notes/pipboy.md 5.1)"
 areas = ["pipboy", "aid"]
@@ -23922,3 +24752,218 @@ expect = [
 ]
 forbid = ["pipboy stats: used", "pipboy stats: Status RAD", "pipboy stats: General"]
 order = [["test aid: real input Pad(West) pressed", "pipboy stats: Status CND (head chosen)", "pipboy stats: Status CND (torso chosen)"]]
+
+[[scenario]]
+name = "helios-stasis-no-alarm"
+source = "#1977 (owner 2026-11-09): HELIOS One's stasis protectrons stay on their pods until the player trips the laser. In the original (#1977 probe 3, player at (-2987,-648)) only p4 fights and the other four stay idle on ProtectronNotActive, a package that skips Fallout behaviour with Observe Combat Behavior clear; such an actor now takes no alarm (crates/fnv-game/src/combat_group.rs raise_alarms). Before, p4's alarm sent all five searching and one walked through the beam"
+note = "HELIOSOneTower, the player 295 units south of p4 (VHeliosStasisProtectron4REF 0x0009A260) behind the pods' wall; the tripwire VHeliosTrapLaserTripwire 0x0009A1E8 north-east of the pods"
+areas = ["ai", "combat"]
+paths = ["crates/fnv-game/src/combat_group.rs", "crates/fnv-game/src/awareness.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05" }
+args = ["--cell", "HELIOSOneTower", "--play", "--no-voice", "--no-messages", "--pos=-2995,-650,6600", "--heading", "0"]
+run_seconds = 25
+expect = [
+  { re = 'alert: LvlStasisRobot 0009A260 Normal → Alert', label = "p4 notices the player (in the original it fights, unseen)" },
+  { re = 'combat group: VHeliosStasisProtectron4REF 0x0009A260 alarms ', min = 1, label = "it still alarms the tower's other robots" },
+  { re = 'alarms VHeliosStasisProtectron\dREF', max = 0, label = "but none of the stasis protectrons on ProtectronNotActive" },
+  { re = 'entered trigger 0x0009A1E8', max = 0, label = "and nobody walks through the tripwire's beam (p2 did, 19 s in, before)" },
+]
+
+[[scenario]]
+name = "helios-python-switched-off"
+source = "#1977 (owner 2026-11-09): PYTHON, the Mister Gutsy on HELIOS One's deck fixed with a Science check, stands switched off until fixed. Its OnLoad runs SetUnconscious 1; an unconscious standing actor now plays its idle tree's GetUnconscious idle (MrGutsyUnconscious 0x00060C89), held between its loop keys (crates/fnv-game/src/idles.rs unconscious_idle)"
+note = "HELIOSOneDeck: VMS03PythonREF (0x000E3621) beside the player; nothing else in the cell plays an idle"
+areas = ["idles", "creatures"]
+paths = ["crates/fnv-game/src/idles.rs", "crates/fnv-game/src/unconscious.rs", "engine/nvforever/src/idles.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05" }
+args = ["--cell", "HELIOSOneDeck", "--play", "--no-voice", "--no-messages", "--pos=600,3337,8190"]
+run_seconds = 25
+expect = [
+  { re = 'idle: VMS03PythonREF plays MrGutsyUnconscious .*looping until replaced.*\(Standing\)', label = "PYTHON holds its switched-off pose (it stood in the normal idle before)" },
+  { re = 'npc combat: VMS03PythonREF', max = 0, label = "and does not fight" },
+]
+
+[[scenario]]
+name = "helios-stasis-held-at-field"
+source = "#1977 (owner 2026-11-09): HELIOS One's stasis protectrons stay in their pods until the tripwire. In the original (#1977 probe 3) p4 fights from inside its pod, moving 12 units in 30 s against the pod's stasis field (VHELIOSStasisField4REF, keyframed collision). Ours got stuck there too, then the nav unstick's skip moved it on through the field; now a skip whose way crosses keyframed collision holds the actor where it is (engine/nvforever/src/residents.rs, PhysState::keyframed_between)"
+note = "HELIOSOneTower, the player 295 units south of p4 (0x0009A260) behind the pods' wall: p4 and p3 (0x0009A261) notice it and try to search; their fields are 0x00099D27 and 0x00099D28; the tripwire VHeliosTrapLaserTripwire 0x0009A1E8 north-east of the pods"
+areas = ["ai", "nav"]
+paths = ["engine/nvforever/src/residents.rs", "engine/nvf-play/src/phys.rs", "crates/fnv-phys/src/world.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05" }
+args = ["--cell", "HELIOSOneTower", "--play", "--no-voice", "--no-messages", "--pos=-2995,-650,6600", "--heading", "0"]
+run_seconds = 25
+expect = [
+  { re = 'actor 0009A260 stuck at .*: held at 00099D27.s moving collision', label = "p4 is held at its pod's stasis field" },
+  { re = 'actor 0009A261 stuck at .*: held at 00099D28.s moving collision', label = "p3 is held at its pod's stasis field" },
+  { re = 'actor 0009A26[01] stuck at .*moved on along its path', max = 0, label = "and neither is moved on through its field (both were before; p2 and p1, alarmed or noticing, leave through their pods' fixed walls: the alarm is #2009's, the notice the detection edge on #1977)" },
+]
+
+[[scenario]]
+name = "reports-off-in-smoke-runs"
+source = "#2055, docs/design/player-reports.md section 2.1: never asked and nothing sent in a scripted run (engine/nvforever/src/reports/)"
+areas = ["reports"]
+paths = ["engine/nvforever/src/reports/mod.rs", "crates/fnv-install/src/reports.rs"]
+env = { NVFOREVER_HOME = "reports-off-home" }
+args = ["--cell", "Goodsprings"]
+run_seconds = 12
+expect = ["reports: off (a developer or smoke run (--data))", "run log: the game exited normally"]
+forbid = [{ text = "reports: on", label = "reports turned on in a smoke run" }, { text = "reports: session summary written", label = "a summary written while off" }]
+
+[[scenario]]
+name = "reports-env-off"
+source = "#2055, docs/design/player-reports.md section 2.2: NVF_REPORTS=0 forces reports off for any run"
+areas = ["reports"]
+paths = ["engine/nvforever/src/reports/mod.rs"]
+env = { NVFOREVER_HOME = "reports-env-off-home", NVF_REPORTS = "0" }
+args = ["--cell", "Goodsprings"]
+run_seconds = 12
+expect = ["reports: off (NVF_REPORTS=0)"]
+forbid = [{ text = "reports: on", label = "reports on despite NVF_REPORTS=0" }]
+
+[[scenario]]
+name = "reports-session-summary"
+source = "#2055, docs/design/player-reports.md section 3.1 and 8: a session file is written; a test run without NVF_REPORTS_ENDPOINT never sends to the project's server"
+areas = ["reports"]
+paths = ["engine/nvforever/src/reports/mod.rs", "engine/nvforever/src/reports/summary.rs", "engine/nvforever/src/reports/upload.rs", "engine/nvforever/src/reports/warnings.rs", "crates/fnv-install/src/reports.rs"]
+env = { NVFOREVER_HOME = "reports-on-home", NVF_REPORTS = "1" }
+args = ["--cell", "Goodsprings"]
+run_seconds = 15
+expect = [
+  "reports: on, sending to https://reports-api.nv-forever.com (not in this test run: no NVF_REPORTS_ENDPOINT)",
+  "reports: sending skipped in this test run (no NVF_REPORTS_ENDPOINT)",
+  { re = 'reports: session summary written to .*session-\d{8}-\d{6}-\d+\.json$', label = "the summary written at exit to <home>/reports/pending" },
+  "run log: the game exited normally",
+]
+forbid = [{ text = "reports: sent", label = "a test run sent a report" }]
+
+[[scenario]]
+name = "calm-creature-idles"
+source = "#2051: a calm creature standing still plays its idle tree's ordinary idles, the tree's conditions deciding (FidgetKind::Calm). Observed in the original (#1977 probe 2): HELIOS One's stasis protectrons, calm on ProtectronNotActive, play IdleSearch, IdleLookLeft and IdleLookRight"
+note = "HELIOSOneTower, the player 295 units south of p4 behind the pods' wall: p5 (VHeliosStasisProtectron5REF 0x0009A256) and p2 (0x0009A262) do not notice it and stand calm in their pods; the tower's other robots (0x0009A271, 0x0009A1FF) stand calm too"
+areas = ["idles", "creatures"]
+paths = ["engine/nvforever/src/idles.rs", "crates/fnv-game/src/idles.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05" }
+args = ["--cell", "HELIOSOneTower", "--play", "--no-voice", "--no-messages", "--pos=-2995,-650,6600", "--heading", "0"]
+run_seconds = 25
+expect = [
+  { re = 'idle: VHeliosStasisProtectron[25]REF plays (IdleSearch|IdleLookLeft|IdleLookRight) .*\(CalmIdle\)', label = "a calm stasis protectron looks about in its pod (the original's IdleSearch / IdleLook*)" },
+  { re = 'idle: VHeliosStasisProtectron[25]REF plays ProtectronTurnedOff', max = 0, label = "not the switched-off pose: they are awake (GetUnconscious 0 in the original)" },
+  { re = 'creature calm idle summary: (\d+) idles', range = [2, 1000], label = "calm idles start on the tower's robots (none before)" },
+]
+
+[[scenario]]
+name = "terrain-edge-stitch"
+source = "issue #2089 (owner 2026-11-10, save 36): a texture seam on the ground along the edge between cells (-14,-17) and (-14,-16); the south cell paints LTEX 000357BA up to its north edge and the north cell has no layer of it [observed: fnvtool world land --full]. Texture layers are stitched along quadrant and cell edges (engine/nvforever/src/terrain.rs stitch_layers)"
+areas = ["rendering", "terrain"]
+paths = ["engine/nvforever/src/terrain.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SHOTS = "10:terrain_edge_save36.png" }
+args = ["--play", "--world", "WastelandNV", "--pos=-55420,-65575,5678", "--heading", "279", "--pitch", "-30.8", "--hour", "12.5", "--no-voice", "--no-messages"]
+run_seconds = 13
+manual = "terrain_edge_save36.png: the ground in front of the player has no straight line where one texture stops (the cell edge runs east-west 38 units north of the feet); before the fix a lighter texture ended along it"
+expect = [
+  { re = 'test aid: screenshot .*terrain_edge_save36\.png', label = "the ground frame is saved" },
+]
+
+[[scenario]]
+name = "reports-anomaly-fell-through"
+source = "#2055, docs/design/player-reports.md section 4.4: the engine's rescue after falling through the land becomes a fell_out_of_world anomaly in the session summary (engine/nvforever/src/reports/anomaly.rs)"
+areas = ["reports"]
+paths = ["engine/nvforever/src/reports/anomaly.rs", "engine/nvforever/src/reports/warnings.rs"]
+# Dropped 20000 units below the ground in Goodsprings; nvf-play puts the player back on the land.
+env = { NVFOREVER_HOME = "reports-anomaly-home", NVF_REPORTS = "1", NVF_PLAY_TEST_CONSOLE = "8:player.setpos z -20000;8.5:close" }
+args = ["--play", "--cell", "Goodsprings"]
+run_seconds = 20
+expect = [
+  { re = 'player fell through at', label = "the engine's rescue" },
+  { re = 'reports: anomaly fell_out_of_world at WastelandNV', label = "the anomaly with where it happened" },
+  "run log: the game exited normally",
+]
+
+[[scenario]]
+name = "native-crash-dump"
+source = "#2055, docs/design/player-reports.md section 3.2 (#1425, #1825): a native crash leaves a minidump beside the run log (engine/nvforever/src/native_crash.rs)"
+areas = ["crash"]
+paths = ["engine/nvforever/src/native_crash.rs", "engine/nvforever/src/crash.rs"]
+# A thread of its own writes to an unmapped address 5 s after the first frame: the process ends with 0xC0000005.
+env = { NVFOREVER_HOME = "native-crash-home", NVF_PLAY_TEST_NATIVE_CRASH = "5" }
+args = ["--cell", "Goodsprings"]
+run_seconds = 30
+exit = 3221225477
+# The run ends at the crash: its last line is the crash's, not "run finished".
+ends = "test aid NVF_PLAY_TEST_NATIVE_CRASH: an access violation now"
+expect = [
+  { re = 'native crash, exception 0xC0000005; dump written to .*crash-\d{8}-\d{6}-\d+\.dmp', label = "the dump beside the run log" },
+]
+
+[[scenario]]
+name = "reports-delete-unreachable"
+source = "#2055, docs/design/player-reports.md section 6: Settings > Gameplay > Reports > Reports already sent > Delete them now; with no server answering, it says so and keeps the IDs to try again (engine/nvforever/src/reports/delete.rs)"
+areas = ["reports"]
+paths = ["engine/nvforever/src/reports/delete.rs", "crates/fnv-install/src/reports.rs"]
+# Port 9 on this machine refuses connections: never the project's server.
+env = { NVFOREVER_HOME = "reports-delete-home", NVF_REPORTS = "1", NVF_REPORTS_ENDPOINT = "http://127.0.0.1:9", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "6:14", NVF_PLAY_TEST_SETTINGS = "7:reports-delete=Delete them now" }
+args = ["--play", "--cell", "Goodsprings"]
+run_seconds = 20
+expect = [
+  "settings: reports-delete Deleting…",
+  "reports: deleting the reports sent from this PC failed",
+  "run log: the game exited normally",
+]
+forbid = [{ text = "the server was asked to delete", label = "a deletion reported done with no server" }]
+
+[[scenario]]
+name = "reports-snapshot-on-panic"
+source = "#2055, docs/design/player-reports.md sections 4.2 and 4.3: with reports on, a panic writes the flight recorder and the world snapshot beside its crash report (engine/nvforever/src/reports/snapshot.rs, crash.rs)"
+areas = ["reports", "crash"]
+paths = ["engine/nvforever/src/reports/snapshot.rs", "engine/nvforever/src/reports/anomaly.rs"]
+# The snapshot is rebuilt every 5 s; the panic comes 12 s after the first frame.
+env = { NVFOREVER_HOME = "reports-snapshot-home", NVF_REPORTS = "1", NVF_PLAY_TEST_PANIC = "12" }
+args = ["--play", "--cell", "Goodsprings"]
+run_seconds = 25
+expect = [
+  { re = 'crash report written to .*crash-\d{8}-\d{6}-\d+\.txt', label = "the crash report" },
+  "reports: the flight recorder and world snapshot written beside the crash report",
+  "run log: the game exited normally",
+]
+
+[[scenario]]
+name = "events-log"
+source = "#2055, docs/design/player-reports.md section 4.1: every log event at info and up as a JSON line with where and when it happened, in events-<time>-<pid>.jsonl beside the run log (engine/nvforever/src/events_log.rs)"
+areas = ["crash", "reports"]
+paths = ["engine/nvforever/src/events_log.rs"]
+args = ["--play", "--cell", "Goodsprings"]
+run_seconds = 15
+expect = [
+  { re = 'events log: .*events-\d{8}-\d{6}-\d+\.jsonl$', label = "the events file beside the run log" },
+  { re = 'events log: (\d+) events written', range = [20, 1000000], label = "the run's events were written to it" },
+  "run log: the game exited normally",
+]
+
+[[scenario]]
+name = "script-sandbox-stays"
+source = "issue #2012: a Sandbox package has no done state, so a script-added one is not done on arrival and stays until it is removed or replaced (PackageType::has_done_state, Game::package_goal_met)"
+note = "the original's side, captured 2026-11-10 (issue #2012): GSChetRef given DefaultSandboxEditorLocation256 by AddScriptPackage in his store at 10:00 kept it for 1.5 game hours with no OnPackageDone. Here he is given it at 4 s and asked at 30 s and 125 s whether it is still his current package; before the fix it was dropped at the first periodic choice after he arrived"
+areas = ["ai", "packages"]
+paths = ["crates/fnv-game/src/ai.rs", "crates/fnv-game/src/package.rs", "crates/fnv-ai/src/carry.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "4:call:GSChetRef:AddScriptPackage:DefaultSandboxEditorLocation256,30:call:GSChetRef:GetIsCurrentPackage:DefaultSandboxEditorLocation256,125:call:GSChetRef:GetIsCurrentPackage:DefaultSandboxEditorLocation256" }
+args = ["--cell", "GSGeneralStore", "--play", "--hour", "10", "--no-voice", "--no-messages", "--npc-packages", "GSChetRef"]
+run_seconds = 130
+order = [[
+  { text = "GSChetRef: package DefaultSandboxEditorLocation256", label = "the script package is taken up" },
+  { text = "script: test aid calls GetIsCurrentPackage on GSChetRef = 1", label = "still his package at 30 s" },
+  { text = "script: test aid calls GetIsCurrentPackage on GSChetRef = 1", label = "and at 125 s, two minutes on" },
+]]
+
+[[scenario]]
+name = "script-follow-stays"
+source = "issue #2012: a Follow package has no done state, so a script-added one is not done when it begins and stays (PackageType::has_done_state, Game::package_goal_met)"
+note = "GoodspringsSettler03Ref is put 300 units from the player and given DefaultFollowPlayerFar at 4 s; at 40 s it is asked whether that is still its package. Before the fix Follow met its goal when it began and the script package was dropped at the next periodic choice"
+areas = ["ai", "packages"]
+paths = ["crates/fnv-game/src/ai.rs", "crates/fnv-game/src/package.rs", "crates/fnv-ai/src/carry.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:moveto:GoodspringsSettler03Ref:player:300:0:0,4:call:GoodspringsSettler03Ref:AddScriptPackage:DefaultFollowPlayerFar,40:call:GoodspringsSettler03Ref:GetIsCurrentPackage:DefaultFollowPlayerFar" }
+args = ["--cell", "Goodsprings", "--pos=-71400,3600,8352", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "GoodspringsSettler03Ref"]
+run_seconds = 45
+order = [[
+  { text = "GoodspringsSettler03Ref: package DefaultFollowPlayerFar", label = "the script package is taken up" },
+  { text = "script: test aid calls GetIsCurrentPackage on GoodspringsSettler03Ref = 1", label = "still its package at 40 s" },
+]]

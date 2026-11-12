@@ -364,6 +364,8 @@ pub fn show_plastic_surgeon_menu(g: &mut Game, _ctx: &Ctx, _a: &Args) -> Result<
 /// ShowBarberMenu: the race menu as the barber's, the hair and beard only (menu 1036,
 /// `crate::game::RaceMenu::Barber`).
 pub fn show_barber_menu(g: &mut Game, _ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    // Unfiltered, whatever ShowBarberMenuEx set before (#2018).
+    g.other.jg10.barber_filter = None;
     g.race_menu = crate::game::RaceMenu::Barber;
     g.race_menu_studio = false;
     open(g, menus::RACE)
@@ -770,7 +772,8 @@ pub struct ScriptLooks {
     /// Counts the changes of `shaders` and `alpha`.
     pub generation: u64,
     /// References a `Disable 1` is fading out, still enabled until this [`Game::time`]
-    /// (`refs::disable`).
+    /// (`refs::disable`); saved (`GameSnapshot::fading_out`), so a save during the hold
+    /// still disables.
     pub fading_out: std::collections::BTreeMap<fnv_sim::FormId, f64>,
     /// References whose fade-out hold ended and that are now disabled, for the engine to
     /// take (their collision and enable children follow).

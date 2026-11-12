@@ -334,6 +334,9 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
                 .filter(|((b, k), _)| !(*b == t && *k == i))
                 .map(|((b, k), e)| ((b, if b == t && k > i { k - 1 } else { k }), e))
                 .collect();
+            // An open menu lists positions, which have just moved: it is read again at
+            // once, so picking what it shows runs that item, not the next one (#2018).
+            g.other.jg9.refresh_terminal = true;
             yes(true)
         }
         // ref.AudioMarkerGetController (AMKGetCtrl): the marker's media location

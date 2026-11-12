@@ -366,7 +366,7 @@ fn draw(
     mut texts: Query<(&mut TextColor, &Part)>,
     mut fills: Query<(&mut BackgroundColor, &Fill)>,
     mut kit: Local<Option<Kit>>,
-    (state, script, driven, kill_cam): (Option<Res<State<crate::PlayState>>>, Option<Res<crate::script::ScriptState>>, Option<Res<crate::player::ViewDriven>>, Option<Res<crate::kill_cam::KillCam>>),
+    (state, script, driven, kill_cam, vats): (Option<Res<State<crate::PlayState>>>, Option<Res<crate::script::ScriptState>>, Option<Res<crate::player::ViewDriven>>, Option<Res<crate::kill_cam::KillCam>>, Option<Res<crate::vats_mode::VatsMode>>),
     mut sound_forms: Local<HashMap<&'static str, Option<FormId>>>,
 ) {
     // The HUD's lengths at the UI scale (`crate::interface::hud_units`, #1631).
@@ -384,7 +384,7 @@ fn draw(
         info!("quest messages: {n} waiting line(s) dropped (KillQuestUpdates)");
     }
     // Hidden with the clock stopped as the corner messages are (`crate::corner_messages::held`).
-    let held = crate::corner_messages::held(panel.view.is_some(), state.map(|s| *s.get()), driven.is_some_and(|d| d.0), kill_cam.is_some_and(|k| k.active()));
+    let held = crate::corner_messages::held(panel.view.is_some(), state.map(|s| *s.get()), driven.is_some_and(|d| d.0), kill_cam.is_some_and(|k| k.active()) || vats.is_some_and(|v| v.playing_back()));
     for (_, mut v) in &mut roots {
         v.set_if_neq(if held { Visibility::Hidden } else { Visibility::Inherited });
     }

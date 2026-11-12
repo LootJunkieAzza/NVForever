@@ -339,7 +339,7 @@ impl<'a> Game<'a> {
     /// Whether `speaker`'s voice type (from the definition supplying its traits) leaves
     /// "Allow Default Dialog" off (docs/spec-notes/actor-flags.md §9).
     fn voice_without_default(&self, speaker: FormId) -> bool {
-        self.traits_def(speaker).and_then(|d| d.voice).is_some_and(|v| self.data.voices_without_default.contains(&v))
+        self.voice_type_of(speaker).is_some_and(|v| self.data.voices_without_default.contains(&v))
     }
 
     /// The line of `topic` that `speaker` says to `listener` now, for greetings, chosen

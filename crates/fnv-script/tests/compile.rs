@@ -661,6 +661,25 @@ fn temporary_arrays_are_freed() {
     assert!(h.1.arrays.is_empty(), "nothing holds any array at the end: {:?}", h.1.arrays.keys().collect::<Vec<_>>());
 }
 
+/// A foreach whose body stops on an error lets its source go, and an element set on an
+/// empty array variable does not hold the value: each held an array for ever, never swept
+/// and saved [#1990]. The list's only holder after the error is the variable `a`.
+#[test]
+fn an_error_inside_foreach_or_an_element_set_holds_no_array() {
+    let t = table();
+    let list_refs = |h: &Locals| h.1.arrays.values().filter(|a| a.kind == fnv_script::vm::ArrayKind::List).map(|a| a.refs).collect::<Vec<_>>();
+    for src in [
+        "array_var a\narray_var e\nfloat n\nbegin GameMode\nlet a := Ar_List 1, 2\nforeach e <- a\n  let n := e[\"nvf no key\"]\nloop\nend",
+        "array_var a\narray_var b\nbegin GameMode\nlet a := Ar_List 1, 2\nlet b[0] := a\nend",
+    ] {
+        let (c, p) = build(src);
+        let mut h = host_for(&c);
+        let r = Vm::new(&t, &mut h, RunOpts { strict: true, ..RunOpts::default() }).run(&p.blocks[0].body);
+        assert!(r.is_err(), "{src}");
+        assert_eq!(list_refs(&h), [1], "{src}");
+    }
+}
+
 // ---- string functions, formats, output, version reports (D1, C4, D4, C5) ------------------
 
 #[test]
@@ -715,6 +734,23 @@ fn sv_functions() {
     assert_eq!(h.text(1), "1 two 1 three");
     assert_eq!(h.0[&6], Value::Num(-125.0 + 65.0));
     assert_eq!(h.text(7), "0x00FF");
+}
+
+/// Without regard to case, positions are characters of the text as it is: `İ` grows and
+/// the Kelvin sign shrinks when lowered, which put a search's position in the wrong
+/// place or out of the string [#1989]. Synthetic text (charter).
+#[test]
+fn sv_searches_without_case_keep_positions_in_non_ascii_text() {
+    let h = run(
+        "string_var s\nstring_var t\nfloat f\nfloat g\nfloat n\nfloat r\nfloat q\nbegin GameMode\nlet s := \"a\u{130}b\u{212A}c\u{130}d\"\nlet t := s\nlet f := Sv_Find \"k\", s\nlet g := Sv_Find \"\u{130}d\", s\nlet n := Sv_Count \"\u{130}\", s\nlet r := Sv_Replace \"k|-\", s\nlet q := Sv_Replace \"\u{130}|I\", t\nend",
+    );
+    assert_eq!(h.0[&3], Value::Num(3.0), "the Kelvin sign is k without regard to case");
+    assert_eq!(h.0[&4], Value::Num(5.0));
+    assert_eq!(h.0[&5], Value::Num(2.0));
+    assert_eq!(h.0[&6], Value::Num(1.0));
+    assert_eq!(h.text(1), "a\u{130}b-c\u{130}d");
+    assert_eq!(h.0[&7], Value::Num(2.0));
+    assert_eq!(h.text(2), "aIb\u{212A}cId");
 }
 
 #[test]
@@ -841,6 +877,55 @@ end");
     assert_eq!((h.0[&4], h.0[&5], h.0[&6]), (Value::Num(1.0), Value::Num(8.0), Value::Num(5.0)));
     assert_eq!(h.text(7), "0b00000101");
     assert_eq!(h.text(8), "B");
+}
+
+/// A host whose user-defined functions all answer 0 at once, to count the calls.
+struct Answers(Locals, u32);
+
+impl Host for Answers {
+    fn var_kind(&mut self, var: &fnv_script::VarRef) -> fnv_script::vm::VarKind {
+        self.0.var_kind(var)
+    }
+    fn ext(&mut self) -> Option<&mut fnv_script::vm::ExtStore> {
+        self.0.ext()
+    }
+    fn get_var(&mut self, var: &fnv_script::VarRef) -> Result<Value, String> {
+        self.0.get_var(var)
+    }
+    fn set_var(&mut self, var: &fnv_script::VarRef, value: Value) -> Result<(), String> {
+        self.0.set_var(var, value)
+    }
+    fn ref_value(&mut self, r: fnv_script::RefIndex) -> Result<Value, String> {
+        self.0.ref_value(r)
+    }
+    fn call(&mut self, opcode: u16, on: Option<Value>, args: &[ArgValue]) -> Result<Value, String> {
+        self.0.call(opcode, on, args)
+    }
+    fn call_function(&mut self, _f: &fnv_script::vm::XVal, _on: Option<Value>, _args: Vec<fnv_script::vm::XVal>) -> Result<fnv_script::vm::XVal, String> {
+        self.1 += 1;
+        Ok(fnv_script::vm::XVal::Num(0.0))
+    }
+}
+
+/// The array functions that call a function per element count a step per call, so the
+/// budget stops a long array as it stops a loop; Ar_Resize and IntToBin's width are
+/// capped as Ar_Init and the format fields are [#1991].
+#[test]
+fn array_calls_count_steps_and_sizes_are_capped() {
+    let t = table();
+    let src = "array_var a\nfloat n\nbegin GameMode\nlet a := Ar_Range 1, 1000\nlet n := Ar_Any a, 1\nend";
+    let (c, p) = build(src);
+    let mut h = Answers(host_for(&c), 0);
+    let r = Vm::new(&t, &mut h, RunOpts { strict: true, max_steps: 100 }).run(&p.blocks[0].body);
+    assert!(r.is_err(), "the budget stops the calls");
+    assert!(h.1 < 100, "{} calls on a budget of 100 steps", h.1);
+    let mut h = Answers(host_for(&c), 0);
+    Vm::new(&t, &mut h, RunOpts { strict: true, ..RunOpts::default() }).run(&p.blocks[0].body).expect("runs within the default budget");
+    assert_eq!(h.1, 1000);
+
+    let h = run("array_var a\nfloat n\nstring_var s\nbegin GameMode\nlet a := Ar_List 1\nAr_Resize a, 1000000000000\nlet n := Ar_Size a\nlet s := IntToBin 5, 1000000000\nend");
+    assert_eq!(h.0[&2], Value::Num(1_000_000.0));
+    assert_eq!(h.text(3).len(), 512);
 }
 
 #[test]
@@ -1168,4 +1253,133 @@ fn a_block_lambda_may_open_with_a_space() {
     // `CallWhen ( begin function {}` (Bullet Belt Framework's ln_ file, #1470).
     let (c, _) = build("begin GameMode\nCallWhen ( begin function {}\nPrintC \"x\"\nend) ({}=> (GetSecondsPassed) != 0) (0b10100)\nend");
     assert!(c.errors().next().is_none(), "{:?}", c.diags);
+}
+
+/// The projectile-impact handlers of the probe set (`tools/capture/jip_probes.py`, rows
+/// proj.reg and proj.reg2): both compile in the original [observed: golden projectile,
+/// #2036].
+const PROJ_REG: &str = r#"ref rP
+ref rGun
+ref rProj
+float fRes
+Begin Function { }
+let rP := GetFormFromMod "FalloutNV.esm" "14"
+let rGun := GetFormFromMod "FalloutNV.esm" "434F"
+let rProj := GetWeaponProjectile rGun
+SetOnProjectileImpactEventHandler (Begin Function { }
+  rP.AuxVarSetFlt "*nvfPJ.count" (1) -1
+  rP.AuxVarSetFlt "*nvfPJ.impact.isref" (IsReference (GetSelf.GetProjectileRefImpactRef)) -1
+  rP.AuxVarSetFlt "*nvfPJ.source.player" ((GetSelf.GetProjectileRefSource) == rP) -1
+  rP.AuxVarSetFlt "*nvfPJ.self.type" (GetType (GetSelf.GetBaseObject)) -1
+End) 1 rProj
+SetFunctionValue 1"#;
+
+const PROJ_REG2: &str = r#"ref rP
+ref rGun
+ref rProj
+float fRes
+Begin Function { }
+let rP := GetFormFromMod "FalloutNV.esm" "14"
+let rGun := GetFormFromMod "FalloutNV.esm" "434F"
+let rProj := GetWeaponProjectile rGun
+SetOnProjectileImpactEventHandler (Begin Function { }
+  rP.AuxVarSetFlt "*nvfPJ.impact.type" (GetType ((GetSelf.GetProjectileRefImpactRef).GetBaseObject)) -1
+  rP.AuxVarSetFlt "*nvfPJ.weapon.ispistol" ((GetSelf.GetProjectileRefWeapon) == rGun) -1
+  rP.AuxVarSetFlt "*nvfPJ.damage" (GetSelf.GetProjectileRefDamage) -1
+End) 1 rProj
+SetFunctionValue 1"#;
+
+#[test]
+fn projectile_impact_lambdas_compile() {
+    // `GetSelf.Function` inside an extender expression: the call on the function's
+    // result [documented: Chained dot syntax]. build() also decodes the bytes; the probe
+    // runner adds the outer block's End.
+    for src in [PROJ_REG, PROJ_REG2] {
+        build(&format!("{src}\nEnd\n"));
+    }
+}
+
+#[test]
+fn a_dotted_head_naming_nothing_is_still_refused() {
+    let t = table();
+    let c = compile("Begin Function { }
+SetFunctionValue (NoSuchThing.GetBaseObject)
+End
+", &t, &World, None);
+    let bad: Vec<&str> = c.errors().map(|d| d.detail.as_str()).collect();
+    assert_eq!(bad, ["NoSuchThing"]);
+}
+
+/// A probe step's body as a function script, with the locals the probes declare.
+fn probe(body: &str) -> String {
+    format!("ref rObj\nref rBase\nref rG\nref rP\nfloat fSave\nBegin Function {{ }}\n{body}\nEnd\n")
+}
+
+fn runtime_errors(body: &str) -> Vec<&'static str> {
+    let c = fnv_script::compile::compile_runtime(&probe(body), &table(), &World);
+    c.errors().map(|d| d.kind).collect()
+}
+
+fn editor_errors(body: &str) -> Vec<&'static str> {
+    let c = compile(&probe(body), &table(), &World, None);
+    c.errors().map(|d| d.kind).collect()
+}
+
+#[test]
+fn runtime_refuses_a_fraction_for_an_int_parameter() {
+    // [observed: L5.ext rerun 2026-11-10, #2037] each of these did not compile in the
+    // original's runtime compiler (no row in the golden).
+    for body in [
+        "SetBaseKarma 37.5 rBase",                                  // jip.n7 karma.set
+        "SetNthDestructionStageTrait rObj 1 1 3.5",                 // jip6 dest.settrait.1.1.3.5
+        "SetFunctionValue (sv_Construct \"%g\" (ApplyEasingAlt 0.5 1.5 0))", // showoff3 so3.ease.badcode
+        "SetFunctionValue (RandSeeded 1.7 3.2)",                    // showoff3 so3.seed.range.fraction
+        "SetCasinoWinnings rObj 2.7",                               // jg3 casino.setwin.tops.frac
+        "SetRegionWeatherPriority rObj 20.6",                       // jg4 regn.setpriority.gs.frac
+        "SetFunctionValue (RoundAlt 37.66 2.7 1)",                  // sup1 roundalt.flag2
+        "SetFunctionValue (NumberToWords 7.9)",                     // sup1 words.7p9
+        "SetFunctionValue (NumberToWords -7.9)",
+    ] {
+        let mut kinds = runtime_errors(body);
+        kinds.dedup();
+        assert_eq!(kinds, ["fraction_for_int_parameter"], "{body}");
+        // The editor's compile (the plugins' source) keeps taking it.
+        assert_eq!(editor_errors(body), Vec::<&str>::new(), "{body}");
+    }
+}
+
+#[test]
+fn runtime_keeps_whole_numbers_floats_and_variables() {
+    // [observed: L5.ext rerun 2026-11-10] these compiled in the original: the rows beside
+    // the refused ones, and fractions for float parameters.
+    for body in [
+        "SetBaseKarma 37 rBase",                                    // jip.n7 karma.set.int
+        "rBase.SetBaseKarma -12",                                   // jip.n7 karma.set.ref
+        "SetNthDestructionStageTrait rObj 1 0 -5",                  // jip6 dest.settrait.1.0.-5
+        "SetNthDestructionStageTrait rObj 1 1 fSave",               // jip6's put-back step
+        "SetFunctionValue (sv_Construct \"%g\" (ApplyEasingAlt 1.5 1 0))", // showoff3 so3.ease.outside
+        "SetFunctionValue (RandSeeded 0 1000000000)",               // showoff3 so3.seed.range.wide
+        "SetFunctionValue (RoundAlt 37.66 1 1)",                    // sup1 roundalt.*
+        "SetFunctionValue (NumberToWords -15)",                     // sup1 words.m15
+    ] {
+        assert_eq!(runtime_errors(body), Vec::<&str>::new(), "{body}");
+    }
+}
+
+#[test]
+fn runtime_refuses_an_untyped_result_for_a_form_parameter() {
+    // [observed: nvse.misc pkg.nth0.location, nvse-seventh pkg.removeat0, ext-jg6.md's
+    // GetCurrentFurnitureRef] refused under GetFormIDString in the original.
+    for body in [
+        "SetFunctionValue (GetFormIDString (GetPackageLocation rG))",
+        "SetFunctionValue (GetFormIDString (rObj.RemovePackageAt 0))",
+        "SetFunctionValue (GetFormIDString (rP.GetCurrentFurnitureRef))",
+    ] {
+        assert_eq!(runtime_errors(body), ["untyped_result_for_form"], "{body}");
+        assert_eq!(editor_errors(body), Vec::<&str>::new(), "{body}");
+    }
+    // Through a variable it compiles there [observed: jg6 furniture.player].
+    assert_eq!(runtime_errors("set rObj to rP.GetCurrentFurnitureRef\nSetFunctionValue (GetFormIDString rObj)"), Vec::<&str>::new());
+    // A typed form getter under GetFormIDString compiles [observed: nvse.misc pkg.nth0].
+    assert_eq!(runtime_errors("SetFunctionValue (GetFormIDString (rObj.GetNthPackage 0))"), Vec::<&str>::new());
 }

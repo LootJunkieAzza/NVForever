@@ -1603,7 +1603,7 @@ fn time_multiplier(
     sound: Option<ResMut<crate::audio_out::SoundSpeed>>,
     mut clock: ResMut<Time<Virtual>>,
     mut player_scale: ResMut<PlayerTimeScale>,
-    mut told: Local<Option<f32>>,
+    (mut told, mut told_turbo): (Local<Option<f32>>, Local<Option<f32>>),
 ) {
     let Some(rt) = script.rt.as_mut() else { return };
     let asked = rt.game.ui.time_multiplier.unwrap_or(1.0) as f32;
@@ -1613,13 +1613,17 @@ fn time_multiplier(
     }
     // Turbo slows the world but for the player (docs/spec-notes/magic-archetypes.md §2).
     let turbo = rt.game.turbo_time_scale() as f32;
-    let exempt = 1.0 / turbo.max(0.01);
-    if (player_scale.0 - exempt).abs() > 1e-6 {
+    if (told_turbo.replace(turbo).unwrap_or(1.0) - turbo).abs() > 1e-6 {
         if turbo < 1.0 {
             info!("magic: Turbo on: the world runs at {turbo:.2}, the player at full speed");
         } else {
             info!("magic: Turbo off");
         }
+    }
+    // A VATS camera shot's Player time multiplier: the player against the world it slows
+    // (`kill_cam::KillCam::player_scale`).
+    let exempt = 1.0 / turbo.max(0.01) * kill_cam.as_deref().and_then(|k| k.player_scale()).unwrap_or(1.0);
+    if (player_scale.0 - exempt).abs() > 1e-6 {
         player_scale.0 = exempt;
     }
     // A kill camera's shot sets the world's speed in place of VATS mode's (vats-mode.md §19).
@@ -1637,7 +1641,9 @@ fn time_multiplier(
 
 /// How much faster than the game's clock the player moves and animates (1 for the same):
 /// Turbo slows the world's clock and the player keeps its own speed by this factor, the
-/// clock's inverse (`fnv_game::magic_archetypes`, docs/spec-notes/magic-archetypes.md §2).
+/// clock's inverse (`fnv_game::magic_archetypes`, docs/spec-notes/magic-archetypes.md §2);
+/// a VATS camera shot's Player time multiplier multiplies in while the shot plays
+/// (`crate::kill_cam`).
 #[derive(Resource, Clone, Copy, Debug, PartialEq)]
 pub struct PlayerTimeScale(pub f32);
 
@@ -1727,6 +1733,10 @@ pub(crate) fn start_world_aids(
     }
 }
 
+/// The run's furniture, terminal and door messages, a refused load and the save's engine part
+/// still to put back (`crate::save::PendingEngine`).
+type UsesAndLoads<'w> = (MessageWriter<'w, crate::furniture::UseFurniture>, MessageWriter<'w, crate::terminal::OpenTerminal>, Option<ResMut<'w, crate::doors::Doors>>, MessageWriter<'w, crate::save::LoadRefused>, Option<Res<'w, crate::save::PendingEngine>>);
+
 /// [`run_scripts`]'s loading screen, keys, menu files, the pause menu's page and the
 /// count of MenuMode frames under its Mods page (`crate::tiles::mods`), and the main menu
 /// still to open (`--menu`).
@@ -1764,7 +1774,7 @@ pub(crate) fn run_scripts(
     mut travel: MessageWriter<TravelRequest>,
     mut open: MessageWriter<OpenContainer>,
     mut used: MessageReader<ItemUsed>,
-    (mut sit, mut terminals, mut doors, mut refused): (MessageWriter<crate::furniture::UseFurniture>, MessageWriter<crate::terminal::OpenTerminal>, Option<ResMut<crate::doors::Doors>>, MessageWriter<crate::save::LoadRefused>),
+    (mut sit, mut terminals, mut doors, mut refused, pending_engine): UsesAndLoads,
     paused: Res<crate::pause::Paused>,
     (mut screen, bindings, tiles, page, mut mods_ticks, menu_to_open): ScreenAndMenus,
 ) {
@@ -1808,6 +1818,10 @@ pub(crate) fn run_scripts(
                                 doors.rest_as_restored(&sim);
                             }
                             tiles.load(&mut rt.game, &sim.world);
+                            // The game's state the engine's part of the save holds goes
+                            // back before the load's handlers run, so theirs wins: the
+                            // custom map marker (`pipboy::data`, #1954).
+                            crate::pipboy::data::restore_custom_marker(&mut rt.game, pending_engine.as_deref());
                             // The Script Runner's files after the save is in place (the
                             // restore takes the game's state, lambdas included, from the
                             // save): the game restart's, then the load's after LoadGame.

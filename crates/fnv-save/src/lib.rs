@@ -13,7 +13,8 @@
 //!
 //! Writes are atomic: the file is written beside its place as `.tmp`, flushed, and
 //! renamed over the old one; a rolling slot (quick, auto) first keeps the previous file
-//! as `.bak`. Every path goes through `fnv_install::guard_write`, so a save never lands in
+//! as `.bak` (a second name for it, so the save itself never leaves its name). One save
+//! is written at a time. Every path goes through `fnv_install::guard_write`, so a save never lands in
 //! the game install or the original's `My Games` folder.
 //!
 //! The body is JSON for now (inspectable, what the snapshots' tests already use); the
@@ -51,8 +52,10 @@ pub enum SaveError {
     Truncated(PathBuf),
     #[error(transparent)]
     Denied(#[from] fnv_install::InstallError),
-    #[error("bad save name {0:?}: letters, digits, spaces, '-' and '_' only")]
+    #[error("bad save name {0:?}: letters, digits, spaces, '-' and '_' only, and not a device name (con, nul, com1 ...)")]
     BadName(String),
+    #[error("bad save name {0:?}: that is a rolling slot's name")]
+    SlotName(String),
 }
 
 /// How a save was made.
@@ -165,15 +168,35 @@ pub struct SaveFile {
     pub body: Vec<u8>,
 }
 
-/// A save name as the player types it: kept to characters every file system takes.
+/// Names Windows keeps for devices, whatever extension follows: a file `nul.nvfsave` is
+/// the NUL device, so a save "written" there is lost [documented: Microsoft, "Naming
+/// Files, Paths, and Namespaces"].
+const DEVICE_NAMES: [&str; 22] = [
+    "con", "prn", "aux", "nul", "com1", "com2", "com3", "com4", "com5", "com6", "com7", "com8", "com9", "lpt1", "lpt2", "lpt3", "lpt4", "lpt5", "lpt6",
+    "lpt7", "lpt8", "lpt9",
+];
+
+/// A save name as the player types it: kept to characters every file system takes, and
+/// not a Windows device name (refused on every system, so a save folder moves between
+/// them).
 pub fn check_name(name: &str) -> Result<&str, SaveError> {
     let n = name;
     let ok = !n.is_empty() && n.len() <= 64 && n.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, ' ' | '-' | '_')) && n.trim() == n;
-    if ok {
+    if ok && !DEVICE_NAMES.contains(&n.to_ascii_lowercase().as_str()) {
         Ok(n)
     } else {
         Err(SaveError::BadName(name.to_string()))
     }
+}
+
+/// [`check_name`] for a save the player names: the rolling slots' names are not theirs
+/// to take (a manual save would land on the slot's file and be rolled over).
+pub fn check_manual_name(name: &str) -> Result<&str, SaveError> {
+    let n = check_name(name)?;
+    if [QUICK_NAME, AUTO_NAME, SYSTEM_NAME].iter().any(|slot| slot.eq_ignore_ascii_case(n)) {
+        return Err(SaveError::SlotName(name.to_string()));
+    }
+    Ok(n)
 }
 
 /// The file of save `name` in `dir`.
@@ -198,10 +221,18 @@ pub fn encode(header: &SaveHeader, shot: &[u8], body: &[u8]) -> Vec<u8> {
     out
 }
 
-/// Write a save atomically; `keep_backup` keeps the file it replaces as `.bak`.
+/// One save is written at a time in this process: two writers on one slot would share
+/// its `.tmp` and rename each other's half-written file into place (#1982).
+static WRITING: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// Write a save atomically; `keep_backup` keeps the file it replaces as `.bak`. The save
+/// never leaves its name: the backup is a second name for the old file (a hard link, or
+/// a copy where the file system has none), and the new file is renamed over the old, so
+/// a crash at any step leaves a whole save under the save's name.
 pub fn write(path: &Path, header: &SaveHeader, shot: &[u8], body: &[u8], keep_backup: bool) -> Result<(), SaveError> {
     fnv_install::guard_write(path, None)?;
     let io = |e| SaveError::Io(path.to_path_buf(), e);
+    let _one = WRITING.lock().unwrap_or_else(|e| e.into_inner());
     if let Some(dir) = path.parent() {
         fs::create_dir_all(dir).map_err(io)?;
     }
@@ -214,7 +245,9 @@ pub fn write(path: &Path, header: &SaveHeader, shot: &[u8], body: &[u8], keep_ba
     if keep_backup && path.exists() {
         let bak = path.with_extension(format!("{EXTENSION}.bak"));
         let _ = fs::remove_file(&bak);
-        fs::rename(path, &bak).map_err(io)?;
+        if fs::hard_link(path, &bak).is_err() {
+            fs::copy(path, &bak).map_err(io)?;
+        }
     }
     fs::rename(&tmp, path).map_err(io)
 }
@@ -482,17 +515,38 @@ fn tuple_with_gone(v: &serde_json::Value, r: &PluginRemap) -> Option<u32> {
     v.as_array()?.iter().find_map(|e| gone_text(e, r).or_else(|| tuple_with_gone(e, r)))
 }
 
+/// An array that is a tuple held by a field or a map value (`Option<(FormId, f64)>`,
+/// `Option<(FormId, FormId)>`), not a list: it must keep its length, or the type it is
+/// read back into refuses the whole save (#1981). JSON does not say which an array is.
+/// Form IDs beside something that is not one (a number, a null, a flag) are a tuple by
+/// their shape; a tuple of form IDs alone looks like a list, so its field has to be
+/// named by the caller (`named`: the array is the value of one of the `pair_fields`).
+fn is_tuple(items: &[serde_json::Value], named: bool) -> bool {
+    let forms = items.iter().filter(|e| e.as_str().and_then(form_text).is_some()).count();
+    forms > 0 && (forms < items.len() || named)
+}
+
 /// Rewrite every form ID of a save body (its JSON) from the save's load order to the
 /// current one (docs/design/save-load.md §4.1). Form IDs are recognised by how the
 /// snapshots write them: strings `0x%08X` (values and map keys) and script variables'
 /// `{"ref": n}`. Where a gone plugin's form is a map key, a list entry, or in a pair or
-/// tuple that is a list entry, that entry is removed; anywhere else (a field) the ID is
-/// moved to the [`GONE_INDEX`] slot, where nothing loads. Raw numbers elsewhere are not
-/// form IDs to this walk: their owners remap them ([`PluginRemap::map`]).
-pub fn remap_json(v: &mut serde_json::Value, r: &PluginRemap) -> RemapReport {
+/// tuple that is a list entry, that entry is removed; anywhere else (a field, or a
+/// tuple that is a field's or a map entry's value, [`is_tuple`]) the ID is moved to the
+/// [`GONE_INDEX`] slot, where nothing loads. Raw numbers elsewhere are not form IDs to
+/// this walk: their owners remap them ([`PluginRemap::map`]).
+///
+/// `pair_fields` names the fields whose value is a tuple of form IDs alone, which the
+/// walk cannot tell from a list (`fnv_game::game::SAVE_PAIR_FIELDS` for the game's
+/// snapshot).
+pub fn remap_json_with(v: &mut serde_json::Value, r: &PluginRemap, pair_fields: &[&str]) -> RemapReport {
     let mut report = RemapReport::default();
-    walk(v, r, &mut report);
+    walk(v, r, &mut report, pair_fields, false);
     report
+}
+
+/// [`remap_json_with`] for a body with no field that is a tuple of form IDs alone.
+pub fn remap_json(v: &mut serde_json::Value, r: &PluginRemap) -> RemapReport {
+    remap_json_with(v, r, &[])
 }
 
 fn count(map: &mut BTreeMap<String, usize>, r: &PluginRemap, id: u32) {
@@ -515,7 +569,8 @@ fn remap_one(id: u32, r: &PluginRemap, report: &mut RemapReport) -> u32 {
     }
 }
 
-fn walk(v: &mut serde_json::Value, r: &PluginRemap, report: &mut RemapReport) {
+/// `named`: `v` is the value of one of `pairs`' fields.
+fn walk(v: &mut serde_json::Value, r: &PluginRemap, report: &mut RemapReport, pairs: &[&str], named: bool) {
     use serde_json::Value;
     match v {
         Value::String(s) => {
@@ -524,6 +579,11 @@ fn walk(v: &mut serde_json::Value, r: &PluginRemap, report: &mut RemapReport) {
                 if new != id {
                     *s = format!("0x{new:08X}");
                 }
+            }
+        }
+        Value::Array(items) if is_tuple(items, named) => {
+            for e in items {
+                walk(e, r, report, pairs, false);
             }
         }
         Value::Array(items) => {
@@ -535,7 +595,7 @@ fn walk(v: &mut serde_json::Value, r: &PluginRemap, report: &mut RemapReport) {
                 None => true,
             });
             for e in items {
-                walk(e, r, report);
+                walk(e, r, report, pairs, false);
             }
         }
         Value::Object(o) => {
@@ -562,7 +622,7 @@ fn walk(v: &mut serde_json::Value, r: &PluginRemap, report: &mut RemapReport) {
                     },
                     None => k,
                 };
-                walk(&mut e, r, report);
+                walk(&mut e, r, report, pairs, pairs.contains(&key.as_str()));
                 o.insert(key, e);
             }
         }
@@ -693,6 +753,87 @@ mod tests {
         for bad in ["", "../x", "a/b", "c:", " lead", "x".repeat(65).as_str()] {
             assert!(check_name(bad).is_err(), "{bad:?}");
         }
+    }
+
+    /// A save is stamped with this crate's version, which is the root workspace's: it
+    /// must be the release's, which the engine workspace carries (#1984: every save of
+    /// 0.2.0 to 0.6.0 said 0.1.0).
+    #[test]
+    fn the_stamp_is_the_engine_workspace_version() {
+        let engine = include_str!("../../../engine/Cargo.toml");
+        let version = engine.lines().skip_while(|l| l.trim() != "[workspace.package]").find_map(|l| l.trim().strip_prefix("version = ")).map(|v| v.trim_matches('"'));
+        assert_eq!(version, Some(env!("CARGO_PKG_VERSION")), "bump the root Cargo.toml's [workspace.package] version with engine/Cargo.toml's");
+        assert_eq!(SaveHeader::new(SaveKind::Manual).nvforever_version, env!("CARGO_PKG_VERSION"));
+    }
+
+    #[test]
+    fn device_names_and_slot_names_are_refused() {
+        for bad in ["con", "NUL", "Aux", "prn", "com1", "COM9", "lpt1", "LPT9"] {
+            assert!(matches!(check_name(bad), Err(SaveError::BadName(_))), "{bad:?}");
+            assert!(check_manual_name(bad).is_err(), "{bad:?}");
+        }
+        // Only the whole name is a device: these are ordinary files.
+        for fine in ["con 2", "nullify", "com10", "com0", "lpt"] {
+            assert!(check_manual_name(fine).is_ok(), "{fine:?}");
+        }
+        // The slots keep their names for themselves, but their own paths still resolve.
+        for slot in [QUICK_NAME, AUTO_NAME, SYSTEM_NAME, "QuickSave"] {
+            assert!(matches!(check_manual_name(slot), Err(SaveError::SlotName(_))), "{slot:?}");
+            assert!(check_name(slot).is_ok(), "{slot:?}");
+        }
+    }
+
+    #[test]
+    fn writers_on_one_slot_leave_a_whole_save_and_a_whole_backup() {
+        let d = dir("race");
+        let p = path_of(&d, QUICK_NAME).unwrap();
+        write(&p, &header(), b"", b"0", true).unwrap();
+        // Bodies big enough that unserialised writers would overlap in the shared .tmp.
+        let bodies: Vec<Vec<u8>> = (1..=8u8).map(|i| vec![b'0' + i; 1 << 20]).collect();
+        std::thread::scope(|s| {
+            for b in &bodies {
+                let p = &p;
+                s.spawn(move || write(p, &header(), b"", b, true).unwrap());
+            }
+        });
+        let whole = |b: &[u8]| b == b"0" || bodies.iter().any(|x| x == b);
+        assert!(whole(&read(&p).unwrap().body), "the save is one writer's whole body");
+        assert!(whole(&read(&p.with_extension("nvfsave.bak")).unwrap().body), "so is the backup");
+        assert!(!p.with_extension("nvfsave.tmp").exists());
+        let _ = fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn a_tuple_field_keeps_its_length_when_its_plugin_is_gone() {
+        let saved = plugins(&["FalloutNV.esm", "A.esm", "B.esp"]);
+        let r = PluginRemap::new(&saved, &plugins(&["FalloutNV.esm", "B.esp"]));
+        // Fields as `Option<(FormId, f64)>`, `Option<(FormId, FormId)>`,
+        // `Option<(FormId, Option<FormId>)>` and `Option<(FormId, bool)>` are written, a
+        // and beside them lists, which still lose their entries: a pair of form IDs is
+        // told from a list of two by its field's name.
+        let mut body = serde_json::json!({
+            "extra": {"0x00001234": {"package_ends": ["0x01000ABC", 12.5]}, "0x00001235": {"package_ends": ["0x02000ABC", 3.0]}},
+            "trespassing": ["0x01000001", "0x00000002"],
+            "then": ["0x01000003", null],
+            "barter_filter": ["0x01000004", true],
+            "said": {"farewell_said": ["0x00000011", "0x01000005"]},
+            "list": ["0x01000006", "0x00000007", "0x02000008"],
+            "form_lists": {"0x00000100": ["0x01000009", "0x00000300"]}
+        });
+        let report = remap_json_with(&mut body, &r, &["trespassing", "farewell_said"]);
+        assert_eq!(body["extra"]["0x00001234"]["package_ends"], serde_json::json!(["0xFE000ABC", 12.5]));
+        assert_eq!(body["extra"]["0x00001235"]["package_ends"], serde_json::json!(["0x01000ABC", 3.0]));
+        assert_eq!(body["trespassing"], serde_json::json!(["0xFE000001", "0x00000002"]));
+        assert_eq!(body["then"], serde_json::json!(["0xFE000003", null]));
+        assert_eq!(body["barter_filter"], serde_json::json!(["0xFE000004", true]));
+        assert_eq!(body["said"]["farewell_said"], serde_json::json!(["0x00000011", "0xFE000005"]));
+        assert_eq!(body["list"], serde_json::json!(["0x00000007", "0x01000008"]));
+        assert_eq!(body["form_lists"]["0x00000100"], serde_json::json!(["0x00000300"]), "a list of two is still a list");
+        assert_eq!(report.gone, [("A.esm".to_string(), 5)].into());
+        assert_eq!(report.dropped, [("A.esm".to_string(), 2)].into());
+        // What the game reads them back into takes them.
+        let ends: Option<(String, f64)> = serde_json::from_value(body["extra"]["0x00001234"]["package_ends"].clone()).unwrap();
+        assert_eq!(ends, Some(("0xFE000ABC".to_string(), 12.5)));
     }
 
     #[test]

@@ -69,9 +69,10 @@ const fn section(tab: &'static str, heading: Option<&'static str>, keys: &'stati
 /// Every named row's tab and heading, in the order the page shows them [design: #1953's
 /// table; the colours' red, green and blue each after their colour].
 pub const SECTIONS: &[Section] = &[
-    section("Gameplay", Some("Game"), &["difficulty", "hardcore", "kill-camera", "reload-slows", "UsePipBoy"]),
+    section("Gameplay", Some("Game"), &["difficulty", "hardcore", "kill-camera", "vats-style", "vats-slowdown", "reload-slows", "UsePipBoy"]),
     section("Gameplay", Some("Saving"), &["autosave-travel", "autosave-fast-travel", "autosave-wait", "autosave-sleep", "autosave-scripts"]),
     section("Gameplay", Some("Dialogue"), &["menu-pause", "dialogue-goodbye-hint", "dialogue-look", "dialogue-recentre", "dialogue-zoom", "lip-sync"]),
+    section("Gameplay", Some("Reports"), &["send-reports", "reports-delete"]),
     section("Gameplay", Some("Camera"), &["detached-camera", "true-iron-sights", "first-person-body", "weapon-sway", "head-bob", "weapon-lower", "field-of-view"]),
     section("Display", Some("Screen"), &["resolution", "borderless", "monitor", "display-sync", "frame-cap", "ui-scale"]),
     section(
@@ -79,13 +80,21 @@ pub const SECTIONS: &[Section] = &[
         Some("Interface"),
         &["hud-colour", "hud-red", "hud-green", "hud-blue", "pipboy-colour", "pipboy-red", "pipboy-green", "pipboy-blue", "language", "dynamic-crosshair", "crosshair-style", "sneak-gauges"],
     ),
-    section("Display", Some("Performance"), &["fps-counter"]),
+    section(
+        "Display",
+        Some("Performance"),
+        &["fps-counter", "fps-counter-fps", "fps-counter-low", "fps-counter-graph", "fps-counter-split", "fps-counter-cpu", "fps-counter-gpu", "fps-counter-vram", "fps-counter-ram", "fps-counter-loaded"],
+    ),
     section("Audio", None, &["volume-master", "volume-music", "volume-footstep", "volume-voice", "volume-effects", "volume-radio", "music", "voice", "reverb", "voice-reverb"]),
     section("Controls", None, &CONTROLLER_KEYS),
+    // The quality presets over the rows they set, under a heading of their own; the
+    // enhanced look as a whole first under Picture [design: #1966].
+    section("Graphics", Some("Quality"), &["quality"]),
     section(
         "Graphics",
         Some("Picture"),
         &[
+            "enhanced",
             "grade",
             "sun-shadows",
             "fsr-upscaling",
@@ -291,9 +300,10 @@ mod tests {
             .collect()
     }
 
-    /// Every row the registry can hold today (upstream main 9af0a4552), by the group it
+    /// Every row the registry can hold today (upstream main 9af0a4552 and f4015fae8, with #1966's
+    /// quality and enhanced rows, #2014's counter rows and the two VATS rows), by the group it
     /// registers with.
-    const KNOWN: [(&str, &str); 89] = [
+    const KNOWN: [(&str, &str); 104] = [
         ("detached-camera", "Gameplay"),
         ("menu-pause", "Gameplay"),
         ("dialogue-goodbye-hint", "Gameplay"),
@@ -308,6 +318,8 @@ mod tests {
         ("sneak-gauges", "Gameplay"),
         ("UsePipBoy", "Gameplay"),
         ("kill-camera", "Gameplay"),
+        ("vats-style", "Gameplay"),
+        ("vats-slowdown", "Gameplay"),
         ("difficulty", "Gameplay"),
         ("hardcore", "Gameplay"),
         ("lip-sync", "Gameplay"),
@@ -348,6 +360,15 @@ mod tests {
         ("field-of-view", "Display"),
         ("ui-scale", "Display"),
         ("fps-counter", "Display"),
+        ("fps-counter-fps", "Display"),
+        ("fps-counter-low", "Display"),
+        ("fps-counter-graph", "Display"),
+        ("fps-counter-split", "Display"),
+        ("fps-counter-cpu", "Display"),
+        ("fps-counter-gpu", "Display"),
+        ("fps-counter-vram", "Display"),
+        ("fps-counter-ram", "Display"),
+        ("fps-counter-loaded", "Display"),
         ("display-sync", "Display"),
         ("frame-cap", "Display"),
         ("object-distance", "Display"),
@@ -371,6 +392,8 @@ mod tests {
         ("light-shafts", "Graphics"),
         ("water-reflections", "Graphics"),
         ("water-mirror", "Graphics"),
+        ("enhanced", "Graphics"),
+        ("quality", "Graphics"),
         ("volume-master", "Sound"),
         ("volume-music", "Sound"),
         ("volume-footstep", "Sound"),
@@ -383,6 +406,8 @@ mod tests {
         ("hit-markers", "Debug"),
         ("god-mode", "Debug"),
         ("navmesh", "Debug"),
+        ("send-reports", "Reports"),
+        ("reports-delete", "Reports"),
     ];
 
     #[test]
@@ -410,7 +435,7 @@ mod tests {
         assert_eq!(all.len(), list.len());
         all.sort_unstable();
         assert_eq!(all, (0..list.len()).collect::<Vec<_>>(), "each registered row once");
-        assert_eq!(keys(&list, &l, "Gameplay")[..7], ["[Game]", "difficulty", "hardcore", "kill-camera", "reload-slows", "UsePipBoy", "[Saving]"]);
+        assert_eq!(keys(&list, &l, "Gameplay")[..9], ["[Game]", "difficulty", "hardcore", "kill-camera", "vats-style", "vats-slowdown", "reload-slows", "UsePipBoy", "[Saving]"]);
         assert_eq!(keys(&list, &l, "Audio"), ["volume-master", "volume-music", "volume-footstep", "volume-voice", "volume-effects", "volume-radio", "music", "voice", "reverb", "voice-reverb"]);
         assert_eq!(keys(&list, &l, "Controls"), CONTROLLER_KEYS);
         assert_eq!(keys(&list, &l, "Debug"), ["overlay", "hit-markers", "god-mode", "navmesh", "scope-3d"]);
@@ -420,6 +445,9 @@ mod tests {
         assert_eq!(at("head-bob"), "Gameplay > Camera");
         assert_eq!(at("hud-red"), "Display > Interface");
         assert_eq!(at("sky-clock"), "Graphics > World");
+        assert_eq!(at("quality"), "Graphics > Quality");
+        assert_eq!(at("enhanced"), "Graphics > Picture");
+        assert_eq!(keys(&list, &l, "Graphics")[..4], ["[Quality]", "quality", "[Picture]", "enhanced"], "the presets first, under their own heading (#1966)");
         assert_eq!(at("button-style"), "Controls");
         // The registry itself is left as it was: its order and each row's group.
         let again = registry(&KNOWN);

@@ -48,6 +48,11 @@
 // FIRST_PERSON_DEPTH (the arms and weapon in view, main pass of a perspective view;
 // nif_material.rs "First-person depth"): the fragment's depth is written squeezed into the
 // nearest share of the depth range (first_person_depth.wesl), so the world never hides it.
+//
+// PIPBOY_SCREEN (the Pip-Boy's screen with the menus on it, main pass; NifSurface::
+// pipboy_screen): the texel is the menus' picture as `pipboy_picture` makes it (rolled,
+// softened, washed, with noise; NifSurface::pipboy_a, pipboy_b), red stops at a ceiling and
+// the pixels are marked for the image-space grade.
 
 import bevy_pbr::{
     render::pbr_fragment::pbr_input_from_standard_material,
@@ -78,7 +83,7 @@ import bevy_pbr::{
     render::shadow_sampling::sample_shadow_map,
 };
 
-import nvf_assets::nif_surface_bindings::{NifSurface, nif_surface, standard_material, holes_alpha, facegen_size, facegen_texel, base_color_texel, normal_map_texel};
+import nvf_assets::nif_surface_bindings::{NifSurface, nif_surface, standard_material, holes_alpha, facegen_size, facegen_texel, base_color_texel, base_color_texel_level, base_color_size, normal_map_texel};
 
 // Main-pass geometry uses the render viewport, which can be smaller than the
 // display attachment when FSR is enabled. Transmission remains a full-size texture.
@@ -119,6 +124,70 @@ import nvf_assets::nif_surface_bindings::{NifSurface, nif_surface, standard_mate
 
 @if(FACEGEN_TINT) fn srgb_to_linear(c: vec3<f32>) -> vec3<f32> {
     return select(pow((c + 0.055) / 1.055, vec3(2.4)), c / 12.92, c <= vec3(0.04045));
+}
+
+// PIPBOY_SCREEN: the sRGB transfer functions again, for the Pip-Boy's screen
+// (`pipboy_picture`), held at 0 below.
+@if(PIPBOY_SCREEN) fn screen_display(c: vec3<f32>) -> vec3<f32> {
+    let x = max(c, vec3(0.0));
+    return select(1.055 * pow(x, vec3(1.0 / 2.4)) - 0.055, x * 12.92, x <= vec3(0.0031308));
+}
+
+@if(PIPBOY_SCREEN) fn screen_light(c: vec3<f32>) -> vec3<f32> {
+    let x = max(c, vec3(0.0));
+    return select(pow((x + 0.055) / 1.055, vec3(2.4)), x / 12.92, x <= vec3(0.04045));
+}
+
+// PIPBOY_SCREEN: a whole-number hash (PCG), for the screen's noise.
+@if(PIPBOY_SCREEN) fn screen_hash(v: u32) -> u32 {
+    let state = v * 747796405u + 2891336453u;
+    let word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
+    return (word >> 22u) ^ word;
+}
+
+// PIPBOY_SCREEN: a value in 0..1 for the view pixel `cell` on frame `frame`, the `k`th of
+// two.
+@if(PIPBOY_SCREEN) fn screen_noise(cell: vec2<u32>, frame: u32, k: u32) -> f32 {
+    let h = screen_hash(cell.x ^ screen_hash(cell.y ^ screen_hash(frame * 2u + k)));
+    return f32(h >> 8u) / 16777216.0;
+}
+
+// PIPBOY_SCREEN (NifSurface::pipboy_a, pipboy_b; nvf-play pipboy/transition.rs and
+// pipboy/device_screen.rs): the menus' picture at `uv` (texture coordinates; `dx`, `dy` their
+// change across one view pixel), in linear light. Rolled up by a.x of the canvas, wrapping
+// inside it (a.w and b.z its share of the texture's height and width; a shudder is the same
+// roll, so the rows it uncovers come in from the canvas's other edge [hypothesis: what the
+// original shows there is not known, docs/spec-notes/pipboy.md §3]); softened by a 3 x 3
+// tent of taps b.x view pixels apart; its display values scaled by 1 - a.y with a.z added; and
+// triangular noise of reach b.y added to them, new on every frame, at the view pixel `pixel`.
+// Every tap is read inside the canvas: wrapped up and down while it rolls, then held half a
+// texel inside its edges, so the filter never reads the image beyond it (the undercoat, or the
+// far side of the texture, which the sampler repeats).
+@if(PIPBOY_SCREEN) fn pipboy_picture(instance_index: u32, uv: vec2<f32>, dx: vec2<f32>, dy: vec2<f32>, a: vec4<f32>, b: vec4<f32>, pixel: vec2<f32>) -> vec3<f32> {
+    let canvas = vec2(select(1.0, b.z, b.z > 0.0), select(1.0, a.w, a.w > 0.0));
+    let half = 0.5 / vec2<f32>(max(base_color_size(instance_index), vec2(1u)));
+    let rolling = a.x != 0.0;
+    var at = uv;
+    if rolling {
+        at.y = fract(uv.y / canvas.y + a.x) * canvas.y;
+    }
+    var sum = vec3(0.0);
+    for (var j = -1; j <= 1; j += 1) {
+        for (var i = -1; i <= 1; i += 1) {
+            let w = f32((2 - abs(i)) * (2 - abs(j)));
+            var p = at + (f32(i) * dx + f32(j) * dy) * b.x;
+            if rolling {
+                p.y = fract(p.y / canvas.y) * canvas.y;
+            }
+            p = clamp(p, half, max(canvas - half, half));
+            sum += w * base_color_texel_level(instance_index, p, 0.0).rgb;
+        }
+    }
+    var d = screen_display(sum / 16.0) * (1.0 - a.y) + vec3(a.z);
+    let cell = vec2<u32>(max(pixel, vec2(0.0)));
+    let n = screen_noise(cell, globals.frame_count, 0u) + screen_noise(cell, globals.frame_count, 1u) - 1.0;
+    d += vec3(n * b.y);
+    return screen_light(clamp(d, vec3(0.0), vec3(1.0)));
 }
 
 // A texel `texel` (linear, as sampled) with the offset `offset` (colour units) added to
@@ -377,6 +446,11 @@ fn nif_fragment(
 ) -> FragmentOutput {
     @if(VISIBILITY_RANGE_DITHER) visibility_range_dither(in.position, in.visibility_range_dither);
     let surface = nif_surface(in.instance_index);
+    // NifSurface::pipboy_screen: the picture's texture coordinates and their change across a
+    // view pixel, taken here, before anything can discard (pipboy_picture).
+    @if(PIPBOY_SCREEN && VERTEX_UVS_A) let screen_uv = (standard_material(in.instance_index).uv_transform * vec3(in.uv, 1.0)).xy;
+    @if(PIPBOY_SCREEN && VERTEX_UVS_A) let screen_dx = dpdx(screen_uv);
+    @if(PIPBOY_SCREEN && VERTEX_UVS_A) let screen_dy = dpdy(screen_uv);
     // Holes (nif_material.rs "Holes"): 1 in the edge band, 0 elsewhere.
     var holes_band = 0.0;
     @if(VERTEX_UVS_A) if surface.holes.x >= 0.0 && surface.holes.x < 255.0 {
@@ -399,6 +473,16 @@ fn nif_fragment(
         @if(FACEGEN_TINT && VERTEX_UVS_A && VERTEX_COLORS) factor *= in.color.rgb;
         let tinted = facegen_tint(texel, facegen_offset_at(in.instance_index, uv));
         pbr_input.material.base_color = vec4(pbr_input.material.base_color.rgb + factor * (tinted - texel), pbr_input.material.base_color.a);
+    }
+    @if(PIPBOY_SCREEN && VERTEX_UVS_A) if (pbr_input.material.flags & STANDARD_MATERIAL_FLAGS_BASE_COLOR_TEXTURE_BIT) != 0u {
+        // NifSurface::pipboy_screen: base_color is material colour x vertex colour x texel;
+        // the texel's place in that product is taken by the screen's picture as it is now
+        // (pipboy_picture), as FACEGEN_TINT's above.
+        let standard = standard_material(in.instance_index);
+        var factor = standard.base_color.rgb;
+        @if(PIPBOY_SCREEN && VERTEX_UVS_A && VERTEX_COLORS) factor *= in.color.rgb;
+        let picture = pipboy_picture(in.instance_index, screen_uv, screen_dx, screen_dy, surface.pipboy_a, surface.pipboy_b, in.position.xy);
+        pbr_input.material.base_color = vec4(factor * picture, pbr_input.material.base_color.a);
     }
     @if(REFRACT) var tilt = (view.view_from_world * vec4(pbr_input.N, 0.0)).xy;
     @if(REFRACT && STANDARD_MATERIAL_NORMAL_MAP && VERTEX_UVS_A) if surface.fire_period != 0.0 {

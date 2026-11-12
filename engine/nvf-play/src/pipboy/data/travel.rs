@@ -183,9 +183,12 @@ pub enum Ask {
     Travel(u32),
     /// A refusal: OK only.
     Refused,
+    /// Place Marker's question (`super::marker`, #1954).
+    Marker(super::marker::MarkerAsk),
 }
 
-/// The question box over the World Map.
+/// The question box over the map: fast travel's on the World Map, Place Marker's on
+/// either map.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Popup {
     pub ask: Ask,
@@ -201,6 +204,11 @@ impl Popup {
 
     pub fn refused(text: String) -> Popup {
         Popup { ask: Ask::Refused, text, buttons: vec!["OK".into()], selected: 0 }
+    }
+
+    /// Place Marker's question (`super::marker::Words`), the first answer chosen.
+    pub fn marker(ask: super::marker::MarkerAsk, text: String, buttons: Vec<String>) -> Popup {
+        Popup { ask: Ask::Marker(ask), text, buttons, selected: 0 }
     }
 
     /// Move the choice, stopping at the ends.

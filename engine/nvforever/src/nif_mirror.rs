@@ -234,7 +234,7 @@ fn mirror(
     let edits = rt.game.scene.take_edits();
     for edit in edits {
         let r = match &edit {
-            SceneEdit::Translation { r, .. } | SceneEdit::Rotation { r, .. } | SceneEdit::Scale { r, .. } | SceneEdit::Flags { r, .. } | SceneEdit::Rename { r, .. } | SceneEdit::Remove { r, .. } | SceneEdit::Insert { r, .. } | SceneEdit::Attach { r, .. } | SceneEdit::Material { r, .. } | SceneEdit::Particle { r, .. } => *r,
+            SceneEdit::Translation { r, .. } | SceneEdit::Rotation { r, .. } | SceneEdit::Scale { r, .. } | SceneEdit::Flags { r, .. } | SceneEdit::ChildFlags { r, .. } | SceneEdit::Rename { r, .. } | SceneEdit::Remove { r, .. } | SceneEdit::Insert { r, .. } | SceneEdit::Attach { r, .. } | SceneEdit::Material { r, .. } | SceneEdit::Particle { r, .. } => *r,
         };
         let Some(root) = root_of(r.0, &actors, &visuals) else { continue };
         let rig = rig_names(r.0, &actors);
@@ -249,6 +249,18 @@ fn mirror(
             SceneEdit::Scale { node, v, .. } => held.entry((r.0, node)).or_default().scale = Some(v),
             SceneEdit::Flags { node, flags, .. } => {
                 if let Some(e) = find(root, &node, &nodes, &rig) {
+                    if flags & 1 != 0 {
+                        commands.entity(e).insert((NifHidden, Visibility::Hidden));
+                    } else {
+                        commands.entity(e).remove::<NifHidden>().insert(Visibility::Inherited);
+                    }
+                }
+            }
+            // A child by its place under the node, in the order `walk` told the mirror
+            // (a switch's children, #2017).
+            SceneEdit::ChildFlags { node, child, flags, .. } => {
+                let kid = find(root, &node, &nodes, &rig).and_then(|p| nodes.get(p).ok().and_then(|(_, _, ch, _)| ch.and_then(|c| c.iter().nth(child))));
+                if let Some(e) = kid {
                     if flags & 1 != 0 {
                         commands.entity(e).insert((NifHidden, Visibility::Hidden));
                     } else {

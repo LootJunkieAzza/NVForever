@@ -205,20 +205,115 @@ it), `engine/nvf-assets/src/texture.rs` (`pc_texture`).
     because the model is missing keeps the layers and has no glare.
 - **Scanlines** [observed]: `pipboyscanlines.dds` is 64 × 64 DXT1, one soft dark band
   (white at the top to about 0.8 at the bottom). On the screenshot the solid bar's rows
-  are bright and dim by about 15% every 6 pixels, which is 9.5 of the canvas. Flicker,
-  vertical hold and shudder (the INI's transitions) are not built.
+  are bright and dim by about 15% every 6 pixels, which is 9.5 of the canvas. Flicker is not
+  built; the page change's transitions are below.
 - **The beam**: a wave of light travels down the screen, its leading edge hard at the foot and
   a long fade behind it [observed: private job pipboy_special_device_motion, the same empty
-  stretch of the screen frame by frame; playtest 2026-11-05]. Edges at the same place come 5 s
-  apart. On those frames the light rises about straight over 95 rows of the 720 to about +14
-  in display red, then drops within about 12 rows, the measure's smoothing included; it adds
-  about (1, 0.58, 0.17) in linear light. The playtest shots of the original show the same step
-  of 13 to 14. Frames go by at about 7 rows a frame, and at least 190 rows went by within one
-  clock second, so the time is [hypothesis] within about 1 to 2 s. NVForever draws one column
-  (`device_screen.rs`): 224 canvas units high with an edge of 24, the Pip-Boy's colour lightened
-  0.2 towards white at a fitted alpha of 0.016 at the peak, over the pages and under the
-  scanlines, 1.3 s from above the top edge to off the foot on the real clock, hidden between
-  sweeps and held with the pause menu. Not in the screen menu.
+  stretch of the screen frame by frame; playtest 2026-11-05]. The private job pipboy_fx_still
+  (2026-11-10, 1280 x 720, 300 frames on consecutive game loops of an empty stretch of the
+  Perks page, then 60 eight loops apart) measured it again [observed]:
+  - Its leading edge passed the same row 5.12 s apart by the wall clock (the earlier 5 s was a
+    whole-second clock's), going 231 and 239 rows a second down the shot in two jobs (156 on one
+    sweep). The screen there is about 416 rows for about 731 canvas units, about 1.8 a row
+    [hypothesis], so about 415 canvas units a second.
+  - On the mean of the frames holding the whole wave, aligned at the edge, the light rises about
+    straight over 72 rows (55 from 10 to 90 %) to +13.6 in display red on a base of 22, then
+    falls to nothing over 24 rows (14 from 90 to 10 %). What it adds is about (1, 0.63, 0.12) in
+    linear light on one job and (1, 0.50, 0.11) on the other (the earlier reading (1, 0.58,
+    0.17)).
+  - It is not banded: with about 14 display levels over some 70 rows a quantised ramp would step
+    every five rows, but frame by frame a pixel's level along the rise changes every row at the
+    median (runs of 1.6 rows on average), and a quarter of its steps go down while the wave
+    rises. An empty stretch varies by 0.61 levels from frame to frame (standard deviation) without
+    the beam. Noise or a dither breaks the steps up [hypothesis: which, and where, is not known].
+  NVForever (`device_screen.rs`): a rise of 130 canvas units and a leading edge of 43, 173 in
+  all (`BEAM_RISE`, `BEAM_EDGE`, `BEAM_HEIGHT`: the measured 72 and 24 rows at the 1.8 a row
+  above, 129.6 and 43.2, rounded), the Pip-Boy's colour
+  lightened 0.2 towards white at a fitted alpha of 0.016 at the peak, over the pages and under
+  the scanlines, 2.3 s from above the top edge to off the foot every 5.12 s on the real clock,
+  hidden between sweeps and held with the pause menu; not in the screen menu. The earlier 224
+  and 24 units and 1.3 s every 5 s were fitted to single frames and a whole-second clock and are
+  replaced. Its picture is 2048 x 173 with a triangular dither of up to a display level on the
+  alpha (less near either end, so it never clips), read texel for texel from a new column every
+  frame, so the 8-bit image holds the rise as a mix of neighbouring levels, not as bands
+  [design]. The screen's noise (below) adds the frame-to-frame variation.
+- **Page changes** [observed: private jobs pipboy_fx_switch_a and _b, 2026-11-10, 1280 x 720:
+  30 switches in each of the six directions between STATS, ITEMS and DATA, 20 STATS and 10
+  ITEMS tab steps, 10 bursts with no change; one shot of the old page, then 13 on consecutive
+  game loops from a delay that differs from switch to switch, so the switches together cover
+  the first 0.3 s densely; measured against the settled new page]:
+  - Every page change is a transition of about a quarter of a second. At once the picture keeps
+    only about an eighth of its detail on a lift of about 16 display levels (a gain of 0.12 to
+    0.15 on the display values, fitted per band of eight rows on ink and background); from 70 to
+    130 ms about a fifth on +10; it comes back from there (0.34 at 150 ms, 0.58 at 190, 0.74 at
+    210) and is whole again at about 225 ms (the median settling; 196 to 294 over all of them).
+    The new page shows through from 30 to 200 ms (about 100 at the median). The bursts with no
+    change show none of this.
+  - About a third also move the whole picture: 13 of 180 switches roll it (7 %), 35 jump it up and
+    down by about 15 rows (19 %). With `fVertHoldChance` set to 1 and `fShudderChance` to 0 by
+    SetNumericINISetting every one of 12 switches rolled; with them the other way round every one
+    of 12 shuddered; with both at 0 none moved [observed: private job pipboy_fx_forced]. So the
+    roll is the vertical hold and the jump the shudder, each rolled once a change at the INI's
+    0.08 and 0.20 [hypothesis: once a change; the shares fit].
+  - The vertical hold: the picture rolls up about 43 rows a game loop, wraps at its foot, and
+    comes to rest from below at 250 to 290 ms: once through its whole height.
+  - The shudder: the same steps every time within a row or two: 14 rows up at about 50 ms, 15
+    down at 95, 10 down at 120, then 7 and 9 up, 5 up, 3 down twice, still by about 250 ms; never
+    sideways. What fills the rows the jump uncovers at the top or the foot (the canvas's far
+    edge wrapping in, the undercoat, or black) was not looked at.
+  - A tab change is a small brighten and nothing more: a gain of about 1.05 and +3.5 levels at
+    once, +2 at 100 ms, gone by about 200 ms, the new tab there from the first shot.
+  NVForever (`pipboy/transition.rs`, all its numbers there): when the page on the arm changes, a
+  transition of that kind runs on the real clock, held under the pause menu (its time stops
+  and the picture stays): the wash by the table above, 225 ms; the shudder's steps, 245 ms; the
+  vertical hold's roll from 40 to 255 ms, 270 ms (its wash stretched to the length); a tab's
+  brighten, 200 ms. The hold is rolled first at 0.08, then the shudder at 0.20 [documented:
+  `Fallout_default.ini` `[InterfaceFX]`]. The page itself is drawn at once as before, under the
+  wash [design]. It is the screen material's (`ScreenLook` put on the menus' copy by
+  `pipboy_arm.rs` `upload_look`, in the same frame as the change, after it is decided;
+  `nif_material.wesl` `pipboy_picture`, which reads every tap inside the canvas, wrapped while
+  it rolls and half a texel in from its edges), so it covers whichever painter drew the
+  page. The shudder moves the picture through the same wrap as the hold, so the rows it
+  uncovers at one edge come in from the canvas's other edge [hypothesis: not compared with
+  the original]. The flat image where the model is missing and the screen menu have none [design].
+  Logged `pipboy: page change transition <plain|shudder|vertical hold> (<ms> ms)` and `pipboy:
+  tab change transition brighten (200 ms)`; the test aid's `glitch=` forces the kind as the
+  forced job did.
+- **Text edges** [observed: private jobs pipboy_fx_still at 1280 x 720 and pipboy_fx_text at
+  1920 x 1080 scaled to 1280 x 720, twelve stills each of S.P.E.C.I.A.L., Status, Skills, ITEMS
+  and DATA, the per-pixel median of the frames that did not sway]: the text's edges rise from
+  10 to 90 % over about 1.6 pixels on most of it (a straight two-pixel ramp), 1.8 to 2.1 on the
+  titles, the same along rows and columns, where the pointer's own hard edge measures 0.8. With
+  `fBlurRadiusPipboy` and `fBlurIntensityPipboy` at 0 they measure the same, so that blur is not
+  what softens them; what does is not known (`fBlurRadiusMenus=0.30` is a [hypothesis]).
+  NVForever: the screen's material reads the menus' picture through a 3 x 3 tent of taps 0.4 of
+  a view pixel apart (`device_screen.rs` `TEXT_SOFTEN`) [observed: the same measure on this
+  engine's 1280 x 720 shots (scenario `pipboy-screen-text`): none 1.48 to 1.60 px, 0.75 1.69 to
+  1.96, 0.4 S.P.E.C.I.A.L. 1.59, Skills 1.59, ITEMS 1.58, DATA 1.66, Status 1.62 (the
+  original's Status, 2.06, is softer than this tent makes it)], and adds a triangular
+  noise of 1.35 display levels' reach, new every frame (`SCREEN_NOISE`; about 0.6 levels once
+  rounded) [design], on the model only.
+- **Brightness of the drawn picture** [observed: S.P.E.C.I.A.L. and Status at 1280 x 720, the
+  original's private job pipboy_fx_still against NVForever's scenario pipboy-screen-text]: the
+  original's text peaks at 1.31 times its lines' brightness (heading line 128 red, names 168);
+  drawn at the menu files' 255, NVForever's peaked at 1.57 (129 and 202). The same holds for
+  the pictures the text's brightness tints: the S.P.E.C.I.A.L. Vault Boy reads 191 red at its
+  99th percentile and 80.7 on average in the original, 212 and 96.2 at 255; the Status page's
+  bright parts 114 at the 95th percentile, 169 at 255; the bars sit at the screen's red ceiling
+  (about 205 to 212) either way. On the device NVForever draws the hand-built pages' text (and
+  so their pictures) at 213 (`frame.rs` `DEVICE_TEXT`, chosen by `Kit::text`): names 167, Vault
+  Boy 190 and 85.5, Status 144, lines unchanged [observed: the same scenario]. Why the
+  original's drawn picture comes out dimmer is [hypothesis]; the dimmed text (128) is not
+  measured. Only the device was measured, so the screen menu (Use Pip-Boy off) keeps the menu
+  files' 255 (`frame.rs` `TEXT`). The flat image shown when the Pip-Boy model has no screen
+  is the device's drawing and keeps its 213 [design].
+  The pages drawn from their menu files (`[UI] TileMenus=StatsMenu`, `InventoryMenu`,
+  `RepairMenu`, `MapMenu`; all off by default) take their file's brightness, 255, on
+  the device too. By default every page on the device is hand-built, so all of them are at
+  213. With a tile-drawn page switched on, its text and pictures stand about a fifth brighter
+  than the hand-built pages next to it (255 against 213, so a text-to-line ratio near the
+  earlier 1.57 rather than the original's 1.31) [design: the arithmetic; not measured on the
+  tile pages]. Putting the same factor on the tile-drawn text on the device is open.
 - **Background**: `Interface\Shared\Background\pipboy.dds` over the whole canvas at
   brightness 90 [documented: inventory_menu.xml]; `ScreenGlare.dds` and this picture are
   512 × 512 DXT1, alpha 1 throughout [observed].
@@ -261,14 +356,18 @@ it), `engine/nvf-assets/src/texture.rs` (`pc_texture`).
   masters define none of them [observed: FalloutNV.esm and the add-ons], so an English
   install shows NVForever's own words; a plugin that defines one is drawn with its
   text (`pipboy::labels`) [design].
-- **The hints' words** (#1896). The ITEMS hints and the mod menu's read their settings
-  the same way: `sInventoryRepair`, `sMaintainItem`, `sInventoryMod`, `sExit` with the
-  pages' own words beside them ("Repair", "Maintain", "Mod", "Exit"); `sInventoryEquip`,
-  `sInventoryDrop`, `sInventoryHotKey` with NVForever's labels in the game strings table
-  (`fnv_ui::strings`: "Equip", "Drop", "Hotkey"; `labels::built_in_label`) [documented:
-  the setting names and the menus that use them, as that table cites them; design: the
-  words]. "Use" (aid, books) and "Unequip" (what is worn) have no setting named and stay
-  NVForever's own words [design].
+- **The hints' words** (#1896, #1897). The ITEMS and DATA hints and the mod menu's read
+  their settings the same way: `sInventoryRepair`, `sMaintainItem`, `sInventoryMod`,
+  `sExit`, `sChallengeToggle` with the pages' own words beside them ("Repair",
+  "Maintain", "Mod", "Exit", "Challenges"); `sPlaceMarker`, `sShowLocation`,
+  `sShowActiveNotes`, `sShowAllNotes`, `sNextChallenge`, `sInventoryEquip`,
+  `sInventoryDrop`, `sInventoryHotKey`, `sTravel`, `sMakeActiveQuest`, `sPlayAudio`,
+  `sStopAudio`, `sTune` with NVForever's labels in the game strings table
+  (`fnv_ui::strings`: "Place Marker", "Show Location", "Active Notes", "All Notes", "Next
+  Challenge", "Equip", "Drop", "Hotkey", "Travel", "Set Active", "Play", "Stop", "Tune
+  In"; `labels::built_in_label`) [documented: the setting names and the menus that use
+  them, as that table cites them; design: the words]. "Use" (aid, books) and "Unequip"
+  (what is worn) have no setting named and stay NVForever's own words [design].
 
 ## 5. The pages
 
@@ -1044,7 +1143,8 @@ fonts) and the owner's five DATA screenshots (§1), compared at 1280 × 720 with
     the worldspace's name [hypothesis: the screenshots show "Goodsprings", the map name
     of `VMapGoodspringsRegion` (observed)].
   - Right-aligned texts of the original end about 5 px further right than ours (the time,
-    "Show Location", "Place Marker") [observed]; not corrected.
+    "Show Location", "Place Marker") [observed]; not corrected (for the hints: before
+    they became a column ending at 855 on 2026-11-09).
 - **Lists** (Quests, Misc, Radio) [documented: map_menu.xml, list_box.xml]: 15 left of the
   menus, 75 down, 400 × 468, the scroll bar of 32 on the left; a row's square of 25 at 15,
   20 and its text 40 in and 20 down in font 2, broken at 310. A row is 54 high and a text's
@@ -1056,12 +1156,110 @@ fonts) and the owner's five DATA screenshots (§1), compared at 1280 × 720 with
   show it only under the pointer]. Hover selects, a click or Enter acts. The wheel scrolls
   the list. The scroll bar: the file's arrows (32 × 16) at the ends and a line for the part
   shown [hypothesis: the marker's look].
-- **Buttons at the right** [documented: map_menu.xml, text_box.xml]: right-aligned at
-  855, from 75 down, each its font-2 text with 20 across and 15 up and down, the text 10
-  under the middle of the spare height, a PC key's label 5 after the box. Their words are
-  game settings the masters do not hold (§1): "Place Marker", "Show Location", "Show
-  Active Quest Notes", "Challenges" with "R)" [observed]; "Show All Notes" [hypothesis:
-  the setting `sShowAllNotes`]. The hover box is not drawn.
+- **Hints at the right** (`MM_ButtonRect`, 2026-11-09, #1897; `data.rs::tab_buttons`,
+  `button_boxes`). The file has three hint tiles, A (`MM_ButtonA`), X (`MM_ButtonX`) and Y
+  (`MM_ButtonY`), right-justified, the first at the lists' top (75), each under the one
+  above only where that one shows [documented: map_menu.xml `MM_ButtonA`/`MM_ButtonX`/
+  `MM_ButtonY`]. When each shows, by the file:
+  - **A**, with a controller only, never with the keyboard and mouse: the World Map
+    always; Quests when the player has a quest; Misc when the selected note is an audio
+    note; Radio when at least one station is known. Its title by tab: `sTravel`,
+    `sMakeActiveQuest`, `sPlayAudio` (`sStopAudio` while the selected audio note plays),
+    `sTune` [documented].
+  - **X**: on both maps (`sPlaceMarker`): the file's title for it names a controller
+    [documented], but with the keyboard and mouse the original shows it too, the word
+    alone at the top right with no key, a button that takes a click [observed: the
+    original with no controller, 2026-11-10: `MM_ButtonX` visible 1 and a target on the
+    Local Map and the World Map; a 2026-11-07 shot of the World Map shows "Place Marker"
+    there]; Quests with either
+    device when the player has a quest (`sShowLocation`); Misc with either device when the
+    player has a note: `sShowActiveNotes` while all notes show, `sShowAllNotes` while the
+    filter is on, `sNextChallenge` while the challenges list is up [documented].
+  - **Y**: Misc with either device, its word `sChallengeToggle` in both views, the PC key
+    R (the file's PC hint for R names this tile) [documented]. The file also turns it on
+    for the maps with a controller, but the original's controller screenshots show no Y
+    hint on either map [observed: issue #1897, Local Map "Place Marker X)" alone, World
+    Map "Travel A)" and "Place Marker X)"]: NVForever follows the screenshots there; the
+    file's rule for the maps is not seen.
+
+  So with the **keyboard and mouse** [documented, the rules above, and observed for the
+  maps]: Local Map and World Map "Place Marker" alone (bright: it asks about the custom
+  marker, #1954, below); Radio no hint; Quests "Show Location X)" (with a quest); Misc the notes' filter
+  ("Active Notes X)", "All Notes X)", with a note; "Next Challenge X)" while the
+  challenges show) and "Challenges R)". With a **controller**: Local Map "Place Marker
+  X)"; World Map "Travel A)", "Place Marker X)"; Quests "Set Active A)", "Show Location
+  X)" (none without a quest); Misc "Play A)" / "Stop A)" on an audio note, the notes'
+  filter, "Challenges Y)"; Radio "Tune In A)" (none without a station) [observed: the
+  original's controller screenshots on issue #1897 show these sets: Local Map Place
+  Marker; World Map Travel, dim with no marker chosen, and Place Marker; Quests Make
+  Active Quest and Show Location; Misc the notes' filter and Challenges; Radio Tune].
+  The set follows the device as it changes (`crate::pad::labels`, the Controls page's
+  Input Device; the page draws again). The keys still do what they did with either
+  device (Enter on a row, X on the maps, R on Misc, clicks); only their hints follow the
+  original. Until 2026-11-09 every tab showed its A and X hints with the keyboard too
+  ("Travel Enter)", "Set Active Enter)", "Tune In Enter)", "Place Marker X)"), Misc "Notes
+  R)" while the challenges showed, and the hints were whole boxes right-aligned 10 short
+  of 855.
+  - **Dim** [design]: what does nothing now: Travel with no Travel target (below), Next
+    Challenge (not built; X logs `pipboy data: NextChallenge is not built`), the
+    make-active hint on a quest done or with none selected. Place Marker was dim until
+    it was built (#1954, 2026-11-10).
+  - **Our counts** [design]: "has a quest" is a quest listed; "has a note" counts every
+    note the player has, whatever the filter keeps (the file counts the notes list's
+    entries; counting the filtered list would hide the filter's hint while it hides every
+    note, so it could not be turned off); "known stations" are those the Pip-Boy receives
+    here (`crate::radio`); an audio note is a Sound or Voice note, "playing" the one
+    playing and not paused (`crate::holotape`) [hypothesis: the file's flag for a playing
+    audio note]. Stop shows only on a Voice note: a Sound note's sound is played once and
+    not followed (`crate::holotape`; no master's Sound note names a sound, holotapes.md
+    §2), so its hint stays Play, which is what a second press does (it plays the sound
+    again) [design; `data.rs::audio_hint`].
+  - **Words**: the settings' texts, which the masters do not hold (§1), else NVForever's
+    labels for them in the game strings table (`fnv_ui::strings`,
+    `labels::built_in_label`): `sTravel` "Travel", `sMakeActiveQuest` "Set Active",
+    `sPlayAudio` "Play", `sStopAudio` "Stop", `sTune` "Tune In", `sPlaceMarker` "Place
+    Marker", `sShowLocation` "Show Location", `sShowActiveNotes` "Active Notes",
+    `sShowAllNotes` "All Notes", `sNextChallenge` "Next Challenge". `sChallengeToggle` has
+    no label in that table and keeps NVForever's own "Challenges"
+    (`labels::label`) [design]. The words on the original's screenshots that no data file
+    holds are not copied (LEGAL.md).
+  - **Their places** (`frame::Ctx::hint_column`, as the ITEMS page's, §5): the first row
+    at the file's 75, its text `BUTTON_TEXT_Y` lower as every button's; the rows 46 apart;
+    each word right-aligned at 855, the heading's right end, its key just after it
+    [observed: the issue's five 1920 × 1080 screenshots: the words end within 3 px of the
+    heading's right end (at 1440 to 1448 px against the heading's 1442 to 1451); the rows'
+    letters 43 px apart on Quests and Misc (tops 231 and 274 px), as the ITEMS column's
+    42 to 43 px; the first row's letters 77 px under the heading's line, 0.155 of the way
+    from the heading's line to the tab line, against 0.150 on NVForever's frame before
+    this change, whose first row stood at the same 75]. A click box per row: its word and
+    key widened by the file's box, 20 across and 15 up and down, so the boxes of rows 46
+    apart meet [documented: `_horbuf`, `_verbuf`]. The hints are spawned after the page's
+    body (the maps' window and its markers) and before the question box, so a click on
+    a hint over the map's window is the hint's (before this, the map's window took the
+    clicks on the World Map's Travel word) [design]. The hover box is not drawn.
+  - **The data at the right** (Quests' objectives, a note's text or meter) starts under
+    the hints' rect (75 + 120) when any hint shows, a button's height higher on the tabs
+    up to Misc while the A hint does not show [documented: `MM_DataRect` y]: with a
+    controller Quests' objectives stand one row lower than with the keyboard [observed:
+    the issue's Quests screenshot, the objective under both hints].
+  - **Keys** [design, #1897]: X is each page's X button (Place Marker, below; while the
+    challenges show Next Challenge, which logs that it is not built; Show Location;
+    the notes' filter), on the controller X (`crate::pad::menu_buttons`' map entry); R
+    (the controller's Y) the challenges toggle. Enter on the World Map and the controller's
+    A ask to travel to the Travel target; A presses Enter too, and the two ask once. A
+    click on a hint does what its key does. Log: one `pipboy hints: data <tab>: <hint>, …`
+    line, "(dim)" after a dim hint, "none" for a tab with no hint, whenever the set
+    changes (with the device too).
+  - **Travel target** [design, #1897; `data.rs::travel_target`, `travel_ask`]: the marker
+    under the highlight box; while the mouse pointer is in use, the last marker the box
+    was on, kept while the pointer goes on to the Travel hint, until a click on the map
+    away from any marker (or another tab, or the page closing); only a marker still
+    shown. Over the buttons at the right the pointer is off the map: the highlight box
+    stays where it was, and a press there is the button's, never a click or drag of the
+    map, so one click asks to travel once. A click on the map on a marker asks to
+    travel there and makes it the Travel target. Since 2026-11-09 the Travel hint shows
+    with a controller only, while the page ignores the mouse pointer, so of this only the
+    map's own clicks and Enter remain in play with the mouse.
 - **Quests**: the quests with a name and an objective shown or done (quest-messages.md §5);
   running quests before those done (completed or failed), each part newest first, quests
   first seen together by FormID from the highest [hypothesis: fits the screenshot's
@@ -1107,7 +1305,7 @@ fonts) and the owner's five DATA screenshots (§1), compared at 1280 × 720 with
   right [documented]; sound and voice notes (holotapes) play when used (a click or
   Enter; again to pause, again to go on) and show the audio meter (time remaining and a
   marker moving along the tick meter)
-  ([holotapes](holotapes.md) §3). "Show Active Quest Notes" keeps the notes whose quest (`ONAM`) is the active one.
+  ([holotapes](holotapes.md) §3). The notes' filter (X, `sShowActiveNotes`) keeps the notes whose quest (`ONAM`) is the active one.
 - **Radio**: the stations the Pip-Boy receives where the player is, by name (`crate::radio`,
   radio.md); the one playing has its square filled; a click or Enter tunes to a station,
   or turns the radio off on the one playing [hypothesis: "Tune"]. The waveform panel
@@ -1215,7 +1413,87 @@ fonts) and the owner's five DATA screenshots (§1), compared at 1280 × 720 with
     `docs/owner-review.md`].
   - A click on a marker (the button pressed and let go without the pointer moving
     more than 6 units [design]) asks whether to travel there: fast travel,
-    `fast-travel.md`.
+    `fast-travel.md`. Enter, Space or the Travel hint (with a controller, its A) ask for
+    the marker under the highlight box too (#1897) [design].
+- **Place Marker and the custom marker** (#1954; `data/marker.rs`, `data.rs`
+  `place_marker`, `answer_marker`, `waypoints`). From a capture of the original's
+  MapMenu with the keyboard and mouse at 1280 × 720 (tile readings and screenshots,
+  2026-11-10) [observed unless marked]:
+  - Place Marker is the maps' `MM_ButtonX` (the word alone with the keyboard, the X
+    button with a controller). Pressed (X, the controller's X, a click on the hint) it
+    opens a question box. With no custom marker it asks whether to set it, two
+    answers, yes first: yes places the marker at the highlight box's middle (the
+    marker's texture coordinates equal the box's middle within 0.001), no does
+    nothing. With a marker placed it asks with three answers, in this order: move (to
+    the highlight box's spot), remove, leave (it stays).
+  - The words are game settings by name: `sSetMarkerQuestion` (no marker yet),
+    `sMoveMarkerQuestion` (one placed), `sYes`, `sNo`, `sMoveMarker`, `sRemoveMarker`,
+    `sLeaveMarker` [documented: the GECK wiki's Complete List of GameSettings names
+    them; which setting holds which answer is matched to the box's texts]. FalloutNV.esm
+    and the add-ons define none of them [observed: fnvtool's GMST inventory of every
+    master, 2026-11-10], so an English install shows NVForever's own words, written for
+    this box (`marker::Words`; LEGAL.md) [design]; a plugin that defines a setting wins.
+    NVForever's box is the fast-travel question box (`travel::Popup`, its keys and
+    clicks: Up/Down, Enter, Y the first answer, N the last). An answer the pointer is on
+    takes the choice only once the pointer moves more than 2 units after a key moved it:
+    the box is drawn anew as its choice moves and the answer under a resting pointer was
+    entered again, which undid every Up/Down at once. The answer under the pointer is
+    followed from its pointer-over and pointer-out events, so a pointer moving on within
+    an answer takes it once the hold lets go. Enter (or Space, E, the confirm button)
+    takes the choice as it stands after the same frame's Up and Down (both boxes;
+    `data.rs::box_frame`, `choose`) [design].
+  - There is **one** custom marker, shared by both maps: placed or moved on the Local
+    Map, the World Map shows it at the matching world position, and the other way
+    round. It is the scripts' marker too: JohnnyGuitar's SetCustomMapMarker "functions
+    the same as setting the marker within the map menu in the Pip-Boy" [documented: GECK
+    wiki SetCustomMapMarker], so NVForever keeps it in the game
+    (`fnv_game::Game::custom_map_marker`, the worldspace outdoors or the interior cell,
+    and the point; docs/spec-notes/ext-jg8.md) and the Pip-Boy reads and writes that one
+    [design]. On the World Map the spot is the position under the box's middle in the
+    worldspace shown (the picture's projection undone, `model::WorldMap::position`); on
+    the Local Map the point under it in the interior or worldspace the player is in
+    (`marker::local_point`), so an interior's marker shows on that interior's Local Map
+    only [design].
+  - Drawn: a tile `glow_hud_compass_pc_marker.dds` at depth 5, over the quest markers
+    (4), as wide as the quest markers on both maps (50.59 on the World Map, 75 on the
+    Local Map in the capture). NVForever draws it as a quest marker is drawn (size, the
+    1.25 height, the 15, 5 nudge, the Local Map's clamp to the window) one step above
+    them [hypothesis: the quest markers' templates, `WorldMapQuestMarkerTemplate`,
+    `LocalMapQuestMarkerTemplate`, whose width the capture's matches].
+  - **The dotted lines** (World Map only: the capture's Local Map has no waypoint
+    nodes): each a chain of `WaypointTemplate` nodes (`waypoint_node.dds`, 0.8 of the
+    map markers' width, depth 3; 17.41 against the markers' 21.76) with a `PathLine`
+    child (`waypoint_path.dds`, tiled, depth −1, a third of the node's height, from the
+    node's middle, `(user0 − 4) × _Magnification` wide, turned about its left end by
+    `rotateangle`) [documented: map_menu.xml]. `user0` is the path's length at a
+    magnification of 1 (the capture: 27.87 for a target 0.0136 of the 2048 picture
+    away) and `rotateangle` its direction (0.377 for a target up and to the right). With
+    the active quest's target on the map one chain runs from the arrow to it; with a
+    custom marker placed too, a second chain runs from the arrow to the marker (two
+    nodes at the arrow, one at each target) [observed]. NVForever draws one line from the
+    arrow to the custom marker and one to each quest target the World Map shows, a node
+    at each end, the file repeated along the line at its 64 × 16 shape at the line's
+    height [hypothesis: the tiling; one line per target where there are several]; a
+    target nearer than 4 has none (the capture's −2.1 wide line).
+  - Not captured: whether the original keeps the marker in its saves (the capture's save
+    was made before any marker existed) [hypothesis: it does]. NVForever saves it
+    (`custom_map_marker` in the engine's part of a save, the worldspace or cell moved to
+    the current load order, dropped with a plugin no longer loaded) and puts it back into
+    the restored game before the LoadGame and PostLoadGame handlers and the Script
+    Runner's load files run, so a handler's SetCustomMapMarker or ClearCustomMapMarker
+    wins (`data.rs::restore_custom_marker`, from `crate::script`) [design]; a new game
+    starts without one (the game is made anew).
+  - The HUD compass: the original has a compass tile with the pc-marker picture, but it
+    stayed hidden at four headings with the marker about 300 units away (why is not
+    known; perhaps it hides near the player) [observed]. Not built.
+  - Log: `pipboy map: Place Marker asks "<text>" (<n> answers) for (x, y) in <space>`,
+    `pipboy map: answered "<answer>"`, `pipboy map: custom marker placed at (x, y) in
+    <space>`, `… moved to (x, y) in <space>`, `… removed`, `… left where it was`,
+    `pipboy map: no custom marker placed`; `pipboy map: <world|local> map shows the custom
+    marker at (x, y)` / `shows no custom marker` when that changes; `pipboy map: dotted
+    line to <custom marker|quest target> (n segments)` when the lines' targets or the
+    marker change; `pipboy map: custom marker back from the save at (x, y) in <space>`.
+    Test aid: `placemarker` (§7).
 - **Local Map**: the same window, markers, arrow, quest markers (kept inside the window
   [documented]) and highlight box, on an empty map at 28 game units to a unit [observed:
   fitted, the gas station's door and the saloon's door 168 px apart on the screenshot; the
@@ -1243,7 +1521,7 @@ fonts) and the owner's five DATA screenshots (§1), compared at 1280 × 720 with
   quarter of it, made again for another floor (128 up or down) or place. Indoors the
   map is 8 units to a canvas unit (outdoors 28) [design]. What the physics world has not
   loaded stays empty. Not built: which doors and markers the original shows (its
-  screenshot shows only the gas station's door), Place Marker, fog of the unexplored.
+  screenshot shows only the gas station's door), fog of the unexplored.
 - **Dragging** (both maps): the left button held down on the map and the pointer moved
   pans it [design]; the pointer's own moves are followed, not Bevy's drag events, which
   ended at once because the map's nodes are drawn again as the highlight box follows the
@@ -1261,7 +1539,203 @@ fonts) and the owner's five DATA screenshots (§1), compared at 1280 × 720 with
   how done ones look; the hollow square's size (ours draws smaller than the original's,
   about 9 px against 14); which doors and markers the local map shows and its zoom;
   where the World Map opens; how the original turns the arrow; the radio's waveform model;
-  Place Marker, Challenges, the audio notes' panel, the buttons' hover boxes.
+  Challenges, the audio notes' panel, the buttons' hover boxes; the custom marker's
+  compass mark and whether the original saves it (Place Marker above).
+
+### 5.3.1 DATA from its file: what the code writes
+
+The DATA page drawn from `menus\main\map_menu.xml`, in the Pip-Boy's image, behind
+`[UI] TileMenus=MapMenu`, off by default (`tiles/map_menu.rs`; issue #1513). Off, nothing of it
+runs and the hand-built page (`pipboy/data.rs`) draws as before. The rules stay `pipboy::data`'s:
+the module writes values and says what a tile stands for; commands go where the hand-built page's
+go [design]. Tile names, places and expressions are [documented: `menus\main\map_menu.xml` and the
+prefabs it includes, `list_box.xml`, `list_box_template.xml`, `text_box.xml`, `tabline.xml`]. No
+capture of the original's MapMenu traits was read for this slice but run08's map markers (§5.3);
+what the original writes into the traits below is not known unless tagged.
+
+**This slice draws Quests and Misc** [design, #1513]. The Local Map, the World Map and Radio keep
+the whole hand-built page while they show: the maps' drawing and picking need a shared viewport the
+file's map windows do not give yet, and Radio's waveform is `MM_Waveform`, an image the code gives
+a NIF animation ("set in code", which file not known), where the hand-built page draws its own trace
+of the radio's loudness (§5.3); the station list without its waveform is not drawn alone. The page
+goes over to its tiles and back as the tab changes, as STATS' tabs do; with the switch on the maps'
+hand-built page is prepared early as every tab is (below), so Place Marker's question box (#1954)
+and its hover reset work there unchanged.
+
+**The one decision**: `MapTiles::ready`, as `InventoryTiles::ready` (§5.2.1): the switch on, DATA
+showing on a tab drawn from the file, no fast-travel question up, the file's tiles there, the tabs
+made, the model prepared for this tab, and a usable measured layout. A failure leaves the whole
+hand-built page, says why once (on the third final pass in a row that fails), and is tried again
+when what it would show or the tree changes. While the Pip-Boy goes down the page stays as last
+written [design].
+
+**Preparing and painting** [design]: with the switch on the DATA page's preparation (its lists, the
+player's keys, the pointer's acts, notes marked read, the Local Map's outline, the quest order and
+the hints) runs in `pipboy::data::prepare`, before the tile decision and the frame, for the DATA page
+as the Pip-Boy shows it, whatever draws it; the hand-built `draw` then only paints, and only while its
+body is there. Off, `draw` prepares and paints as before. Exactly one presentation publishes what the
+page's rules read of the drawing: how many rows fit, how far the right pane can scroll and its window
+(the wheel's), each from the drawing that showed this frame.
+
+**The file's structure this relies on** [documented: map_menu.xml]:
+
+- The root `MapMenu` binds the controller's X to `MM_ButtonX`'s `clicked` and Y to `MM_ButtonY`'s,
+  and names `MM_ButtonY` for the PC's R (`_PCButton_R`).
+- `MM_Tabline` (`tabline.xml`) under `GLOW_BRANCH`, beside `MM_MainRect`: `_CurrentTab` is the tab,
+  0 Local Map, 1 World Map, 2 Quests, 3 Misc, 4 Radio. The parts' `visible` read it: the local map's
+  window on 0, the world map's on 1, the highlight box's window on 0 and 1, `MM_QuestsList` on 2,
+  `MM_NotesList` and `MM_ChallengeList` on 3, `MM_RadioStationList` and `MM_WaveformRect` on 4. The
+  tabs are made from `TabButtonTemplate`, as ITEMS' (§5.2.1).
+- `MM_HeadlineRect`: `MM_Headline_Title` (`&-sData;`), the line `MM_Headline_h2` (x 180, 470 long),
+  `MM_Headline_LocationInfo` and `MM_Headline_TimeDateInfo`, both `string` "Set in code".
+- The lists (`list_box.xml`): `MM_QuestsList`, `MM_NotesList`, `MM_RadioStationList`,
+  `MM_ChallengeList`, each at x -15, y 75, 400 × 468; `_enabled` is empty, "set in code", on the
+  first three (the radio's follows its own `visible`). A row's `target` is its list's `_enabled` and
+  its own; the highlight box shows only while `_enabled`.
+- The rows' templates: `MM_ListMarkerTemplate` (`MM_ListItem`, 400 wide; `ListItemText` font 2 at 40,
+  20, wrapped at 310, its `string` the row's and its `alpha` the row's `_TextAlpha` (255);
+  `MM_Template_ItemMarker`, 25 square at 15, 20, shown when the row's `_ShowEmptyMarker` (false) or
+  its `_selected` is, `square.dds` or `square_filled.dds` by `_selected`, at `_TextAlpha` too) and
+  `MM_ListTemplate` (its text at 15, no marker).
+- `MM_ButtonRect` at the main rect's right edge, at the Quests list's `y`, 120 high, holding
+  `MM_ButtonA`, `MM_ButtonX` and `MM_ButtonY` (`text_box.xml`): right-justified, `_horbuf` 20,
+  `_verbuf` 15, X under A and Y under X only where the one above shows (`_y`), the line's alpha
+  255 while `target`, 127 otherwise (dim). Their `visible` and `_Title` are expressions of the tab,
+  the lists' child counts, `_ItemType` and `&xbox;` (§5.3's hint rules); Y's `_PCButtonText` is
+  `&-sPCMenuHintR;`.
+- `MM_DataRect`, 400 × 400 at the main rect's right, under the buttons when one shows: `visible`
+  false, set in code; its user traits `_ItemType` (the selected row's kind: its children show on 1
+  the text, 2 the picture, 3 the audio meter, 4 the objectives), `_ItemStringInfo` (the audio's time
+  left), `_AudioFileCompletion` (the share played) and `user0` (a playing audio note highlighted).
+- `MM_QuestObjectivesList` under `MM_DataRect` (`list_box.xml`): 400 wide, 400 high on a PC, at the
+  rect's right, `_enabled` false (no highlight box, no row a target), `target` true, its scroll bar on
+  the right, shown on `_ItemType` 4.
+- Misc's parts under `MM_DataRect`: `MM_DataTextRect` (a clip window 385 high on a PC, at -17, 20,
+  shown on `_ItemType` 1) holding `MM_TextScrollbar` (`scrollbar_vert.xml`, its `_ScrollDelta` 20,
+  one visible item) and `MM_DataText` (font 1, wrapped at the rect's width, its `y` the bar's
+  `_current_value` times `_ScrollDelta`, negated; its `string` set in code); `MM_DataImage` (360
+  square at the rect's right, its `filename` set in code, shown on `_ItemType` 2); `MM_DataAudioInfo`
+  (shown on 3) with `MM_AudioTimeRemaining` reading the rect's `_ItemStringInfo` and the meter's
+  marker placed by its `_AudioFileCompletion`. The rect's `user0` (a playing audio note) turns A's
+  title to `sStopAudio` [documented: `MM_ButtonA`'s `_Title`].
+- `MM_NotesList` and `MM_ChallengeList` both show on tab 3 (their `visible`), each with a
+  `square_filled.dds` highlight (`MM_Notes_SelectedNoteHighlight`, `MM_Challenge_SelectedHighlight`)
+  hidden until set in code; the challenges' `_enabled` is set in code too.
+- Not read in this slice: the maps' windows and templates, the highlight box, `MM_WaveformRect`,
+  `MM_Headline_ChallengeType`, the two square highlights above.
+
+**What the code writes on Quests** [design]:
+
+| Model (`pipboy::data`) | Tile, trait | Notes |
+|---|---|---|
+| The tab | `MM_Tabline`: `_ButtonCount` 5, `_CurrentTab`, `_LeftLineLength`; five tiles from `TabButtonTemplate`, each `listindex`, `string`, `_x` | As ITEMS' tabs (§5.2.1), the same rule for their places. The words are the hand-built page's (`Page::tabs`: `sLocalMapTabText` … `sCommsTabText` where the load order defines them, else "Local Map", "World Map", "Quests", "Misc", "Radio"). |
+| The place, the date and time | `MM_Headline_LocationInfo/string`, `MM_Headline_TimeDateInfo/string` | `read::place_name`, `model::date_time`, as the hand-built heading. |
+| Title, heading line | `MM_Headline_Title` hidden in the screen menu, `MM_Headline_h2` run on; both as the file on the device | As §5.1.1 [design: the owner, 2026-10-31]. |
+| The quests (`model::sort_quests`'s order) | `MM_ListMarkerTemplate` rows under `MM_QuestsList`, kept by the quest's FormID; each row's `string`, `_selected` (the active quest: filled square), `_ShowEmptyMarker` 0, `_TextAlpha` 128 for a quest done, else 255; the list's `_enabled` 1 | A done quest at half strength and the active quest's square as the hand-built page's (§5.3) [hypothesis there]. Rows from `list::reconcile`, placed by `list::measure_rows`: a wrapped name makes a taller row. |
+| The selection, boxed | the list's `_highlight_y`, `_selected_height` while boxed; -1 and 0 otherwise | As the hand-built box: under the pointer or after Up/Down, none when a tab comes up. |
+| The list's scroll | `lb_scrollbar` counts by `list::counts`, `_current_value`, `_SetInCode` | The tile page's own scroll, as ITEMS' (§5.2.1): the keys bring the selected row into view, the pointer's pick does not; the wheel over the page (not over the objectives) moves it a notch a value; the bar's arrows, page areas and marker move it. |
+| The selected quest's objectives (`objectives`) | `MM_DataRect`: `visible` 1 while a quest is selected, `_ItemType` 4; `MM_ListMarkerTemplate` rows under `MM_QuestObjectivesList`, by place: `string`, `_ShowEmptyMarker` 1, `_selected` (done), `_TextAlpha` 128 when done | The hand-built pane's squares and dimming. |
+| The right pane's scroll (`text_first`, one scroll for both panes, §5.3) | `MM_QuestObjectivesList`: `_scroll_delta` 1; its `lb_scrollbar`'s `_number_of_items` (how far it can scroll, plus 1), `_number_of_visible_items` 1, `_current_value` the pane's scroll, `_SetInCode` | So the rows move by exactly the units the hand-built pane does: Page Up/Down a window, the wheel over it 20 a notch, the right stick, the bar's clicks (an arrow a notch, a page area a page of the window as measured, the marker held dragging by the file's own bar: its marker's place over its `_step_height` is the pane's scroll) [design]. |
+| The hints (`tab_buttons`, #1897 / #1952) | `MM_ButtonA` (Set Active), `MM_ButtonX` (Show Location), `MM_ButtonY` (none on Quests): `visible`, `string` (the hint's word), `_PCButtonText` (its key, "X)", with a controller its button), `target` (lit: 1, dim: 0) | The hand-built page's rules, not the file's expressions: A with a controller only, X with either device when a quest is listed, no Y on Quests. Bound by what each hint does (`ButtonKind`), never by its place in the list. Put right on every pass: the file works `visible` and `string` out by expressions, again whenever what they read changes (the tab, a list's rows). |
+| `MM_Background` | hidden in both frames | The shell's background, as §5.1.1. |
+| `MM_Headline_ChallengeType` | hidden | Misc's, not on this tab. |
+
+**What the code writes on Misc** [design]: the hand-built page's lists and panes (§5.3), as on
+Quests where nothing is said:
+
+| Model (`pipboy::data`) | Tile, trait | Notes |
+|---|---|---|
+| The notes (the notes' filter applied), or the challenges while Misc shows them | `MM_ListMarkerTemplate` rows under `MM_NotesList` or `MM_ChallengeList`, kept by the note's or the challenge's FormID: `string`, `_selected` 0, `_ShowEmptyMarker` 0, `_TextAlpha` 128 for a challenge completed, else 255; that list's `_enabled` 1 | The hand-built rows' words, place and dimming (no square). The list not shown has no rows, `_enabled` 0 and `visible` 0, put right on every pass (the file shows both on Misc). The quests list likewise on Misc, the notes' and challenges' on Quests. |
+| The list's scroll | each list's own (`list::ListView`), as Quests' | The notes' filter is the list's filter: another one starts the list at its top. So does the toggle between the notes and the challenges, as the model starts the list it shows at its first row; back from another tab a list keeps its scroll. |
+| The selected note's text, a challenge's description and state | `MM_DataRect` `_ItemType` 1; `MM_DataText/string` the text (`\r\n` as `\n`) | One scroll for the text and the objectives, as the hand-built pane's: `MM_TextScrollbar`'s `_ScrollDelta` 1, `_number_of_items` how far the text can scroll (its measured height past the window it is seen through: what clips it, the rect or a smaller clip above it) plus 1, `_number_of_visible_items` 1, `_current_value` the pane's scroll, `_SetInCode`. |
+| An image note's picture | `_ItemType` 2; `MM_DataImage/filename` the note's `XNAM` | |
+| A Sound or Voice note | `_ItemType` 3; the rect's `_ItemStringInfo` the time left as the hand-built page writes it ("00:30:9 remaining"), `_AudioFileCompletion` the share played (0 to 1) | `user0` is not written: the A hint's words are the model's. |
+| No note or challenge | `MM_DataRect` `visible` 0, `_ItemType` 0 | The text and picture emptied while they do not show. |
+| The hints | X the notes' filter (Active Notes / All Notes) or Next Challenge (dim), Y Challenges, A Play or Stop with a controller | By what each does (`Slot::of`); Y's key is the hand-built page's (R, with a controller Y). |
+
+**Every string written, and where it comes from** [design: LEGAL.md]: the tabs as above; the place,
+the quests', notes' and challenges' names and the challenges' descriptions (record data); a note's text (record data, `TNAM`) and picture's file (`XNAM`); the date and time and a
+challenge's progress (figures); "Completed" and the audio's "remaining" (NVForever's own words, the
+hand-built page's); the objectives' texts (record data, SetObjectiveText's); the hints' words (the
+settings' texts, else NVForever's labels in the strings table, §5.3); their keys (`crate::pad::hint`).
+
+**Input** (`map_menu::feed`): the pointer is `PipBoyScreen::pointer`, read and never written; with
+Controller chosen as the Input Device it is ignored, as on the hand-built page. It takes nothing with
+a menu over the page or another tile menu taking the frame. What a tile stands for goes where the
+hand-built page's node sends it, through `DataState`'s acts. A row's act names its record (the
+quest's, note's or challenge's FormID), and the page finds that record in its list as it is when it
+takes the act, a frame of scripts later: a record gone meanwhile (a note filtered out, the list
+toggled to the challenges) takes nothing, one moved is still the one clicked [design]:
+
+| What | Sends |
+|---|---|
+| The pointer moves onto a quest's row | `HoverRecord(tab, form)`, taken as `Hover`: selected and boxed |
+| The pointer leaves the selected row | `LeaveRecord(tab, form)`, taken as `Leave`: no longer boxed |
+| A click on a row | `UseRecord(tab, form)`, taken as `Use`: selected and used (`use_row`: made the active quest) |
+| A click on a hint | `Button(kind)`: the A hints do Enter's work; Show Location shows the World Map |
+| A tab | `PipBoyInput::Tab(i)`; the pointer onto it, `TabHovered(i)` |
+| The objectives' or the text's bar: arrow, page area | `Bar(Up/Down/PageUp/PageDown)`: the right pane's, a page the window as measured |
+| That bar's marker held | `PaneTo(v)`: the pane's scroll where the file's bar puts it (`list::value_under`) |
+| The tab's list's bar | the tile list's own scroll, no command of the model's |
+
+The keys, the wheel and the sticks stay `pipboy::data`'s and `pipboy::keys`' (`HAND_BUILT_KEYS`): a
+file's binding acts for a script's tap, not for a physical press, and never for a controller's
+button (the file's X and Y would act twice with the page's own X and R).
+
+**A menu over the page** (a message box, the tutorial menu; `MapTiles::over_data`, set before the
+scripts, so it holds through the frame that menu closes in) holds the DATA page's own input on every
+tab while the switch is on: its keys, the wheel, the test aid's steps and the pointer's acts that
+frame are the menu's, so Enter answering a message box does not also make the selected quest active.
+The page is still prepared [design]. Off, the hand-built page is as it was (it does not hold them; a
+separate issue).
+
+**Usable**: as §5.2.1: every tab's words shown whole, the tabs but the one showing taking the pointer
+(one that does not is warned of and the page stays); the tab's list's rows whose words lie whole
+inside the list's window, at least one when it has rows, taking the pointer at their middles; a list
+that scrolls has a window; with a quest selected, the objectives' window (what their list clips to,
+read off its scroll bar) has a size and lies wholly on the canvas, and a quest with objectives shows
+at least one of them whole inside it among what is painted (a list or text hidden, by its own
+`visible` or one above it, or placed outside the window, shows none); a text shown has its window
+likewise (what clips `MM_DataText` itself: its rect and its bar are hotrects, which lay out no box,
+and the bar shows only while the text scrolls [documented: scrollbar_vert.xml's `visible`]) and
+some of its words painted inside it, and a text that scrolls shows its bar's marker; a picture is
+painted whole on the canvas and inside what clips it; an audio note's time is painted whole; or the page falls back. The right
+pane's window is published while it scrolls (the objectives, a text). A hint that shows lit and does
+not take the pointer at its word is warned of and the page stays (its key still works); its key's
+text (`PCShortcutLabel`) stands beside the hint's box [documented: text_box.xml] and is not asked.
+
+**Falls back, whole page, with the reason** [design]: the maps and Radio; the question box up;
+`MapMenu` not in the tree; a tile or template above missing (a mod's restructured file), each tab
+asking for its own (a file short of Misc's text still draws Quests from the file, and the other way
+round); the tabs or a row not made; nothing prepared yet for this tab (no failure); the layout not
+usable. The test aid
+`NVF_PLAY_TEST_MAP_TILE_CUT=<name>[@<seconds>]` takes a tile or template as missing, and at its end
+builds the menu again from its file, for the recovery (with the switch on only). After three failing
+passes a missing name waits for the tree to change; a layout that is not usable is tried again
+about every half second besides, as a place, `visible` or `target` can be put right without the
+tree's shape changing.
+
+**Log**: `tiles: MapMenu draws <tab> from tiles` and `tiles: MapMenu leaves <tab> hand-built: <reason>`
+when that changes; `tiles: MapMenu page from tiles: tab quests, <n> rows, "<name>" selected, <m>
+objectives, hints: <…>` or `… tab misc notes|challenges, <n> rows, "<name>" selected, text|picture|audio|no
+pane, hints: <…>` when that line changes (an audio note playing changes the time left every frame,
+not the line); `MapMenu drawn by hand: <reason>` (a warning)
+for a failure; the painter's `tiles: MapMenu drawn from tiles (…)` and `set out for the Pip-Boy's
+image: …` lines.
+
+**Unit coverage given up** (#1512): the tests' fixture is written for them. It cannot prove how the
+file's expressions read what is written: `_CurrentTab` and the lists' `visible`, the tabs' insides,
+`_selected` and `_TextAlpha` in the row template, `_ItemType` and `MM_DataRect`'s `y`, the buttons'
+`_y` and their dim look, the text's `y` by its bar, the audio's time and meter, or the file's own
+places. The smoke scenarios `tiles-data*` check structure
+and hits on the real file; their logs cannot prove pixels, only their shots can.
+
+**Known differences behind the switch** [design]: the hints' hover box is the file's (`_box_visible`
+on mouseover), which the hand-built page does not draw; the file's own hint rules are not used.
+**Not known**: what the original writes into `_TextAlpha`, `_ShowEmptyMarker` and the objectives'
+scroll; whether the original's objectives scroll by rows, as a `list_box.xml` list's rows move by
+`_current_value` × `_scroll_delta` [hypothesis: the file's expressions alone do not say what the
+original's code writes there]; ours move by DATA's continuous pane.
 
 ## 6. Keys and pointer [hypothesis unless marked]
 
@@ -1304,7 +1778,8 @@ logged "pipboy sound: <EditorID>" (the focus sound at debug level).
 `page=stats|items|data`, `tab=<0-4>`, `key=down|up|use|drop`, and for the pointer
 `point=<x>:<y>` (the pointer on that canvas point, through the model's screen),
 `point=off`, `click=<x>:<y>` and `click=stats|items|data` (a click on the device's
-button; logged "pipboy: the STATS button pressed"), `point=stats|items|data` (the pointer
+button; logged "pipboy: the STATS button pressed"), `placemarker` (the DATA maps' Place
+Marker, as X; answer with `key=down` and `key=use`), `point=stats|items|data` (the pointer
 on that button, no click; logged "test aid: the pointer on the STATS button"); screenshots with
 `NVF_PLAY_TEST_SHOTS`. A new game's add-on message boxes come first: answer them with
 `NVF_PLAY_TEST_SCRIPT_MENUS=0.05` and open after about 12 s:

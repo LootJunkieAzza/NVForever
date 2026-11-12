@@ -522,6 +522,10 @@ ambush location, then will drop out of combat and perform the normal package beh
   reference, always; a base form or faction: its members) or, with no target, an actor it
   would attack (`Game::would_attack`) [hypothesis]. Without a location 2, within 1,024 of
   where it waits [our choice; every master Ambush has one].
+- In the original an ambusher on QJDeathclawAmbushPackage did not spring on the player
+  hidden inside its ambush location, nor on the player detected outside it; it sprang
+  when the player was both detected and inside [observed: npc-behaviour-compare.md
+  §16.2]. The rule above has no detection test.
 - **Hide While Ambushing** does not make it sneak [observed: §4, IsSneaking 0 in every
   sample of GoodspringsSettler04Ref waiting under GSSettlerAmbushPackage, which sets
   it]; what it does is not known, and here it is only reported.
@@ -677,7 +681,9 @@ different thing: `fnv_ai::alert`); ForceFlee]:
     (§1: Find's code, not known before), procedure 7 WANDER, package target none. She
     wandered about the saloon (1,400 units in 0.3 game hours) and did not go to the
     meat. Here the actor goes straight to the nearest object it looks for (§3.1): the
-    original's searching by wandering, and when it then finds, are open (§6).
+    original's searching by wandering, and when it then finds, are open (§6). In the open,
+    a settler and a copy of Cheyenne went straight to the meat (5 to 9 s) [observed
+    2026-11-10: npc-behaviour-compare.md §15.3].
   - **Use Item At** (DefaultUseNearbyFurniturePackage on GoodspringsSettler04Ref, at his
     editor location, a stool 46 units off): type 16 USEITEMAT, procedure 17 DONE at once,
     standing, not sitting, for 0.12 game hours; then the script package was gone and his
@@ -734,6 +740,22 @@ different thing: `fnv_ai::alert`); ForceFlee]:
   (walking to a spot of the sandbox 7, to an object 0; the getting-up 21 held until the
   next thing begins) [hypothesis for the split between 7 and 0 while walking, which the
   samples do not tell apart by destination].
+
+  Types with no done state. Sandbox, Sleep, Eat, Guard, Wander, Follow and Accompany
+  never read 17 above; Travel, Patrol, Dialogue, Use Item At, Flee Not Combat (and Find,
+  Escort, Ambush and Use Weapon, which finish at their goal) do. A script-added Sandbox
+  package is not done on arrival [observed: issue #2012, the original's GSChetRef given
+  DefaultSandboxEditorLocation256 by AddScriptPackage kept it for 1.5 game hours, 1,290
+  samples, with no OnPackageStart, OnPackageChange or OnPackageDone], and "On End idle
+  only works for packages which have a 'done' state" [documented: GECK wiki,
+  Category:Packages]. In NVForever (`PackageType::has_done_state`,
+  `Game::package_goal_met`) a package of those types never meets its goal:
+  - no end script or OnPackageDone on arrival;
+  - a script package of that type stays until it is removed or replaced;
+  - Must Complete keeps holding it.
+
+  A schedule duration still ends one of them on time, with its change script and no end
+  script [design: the original's end of a timed Sandbox is not captured].
 
 ## 5. The reader and the CLI contract
 

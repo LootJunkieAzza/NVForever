@@ -77,7 +77,9 @@
 //! - **Action sound**: an actor's (or the player's) loudest shot since the last
 //!   measurement, at the
 //!   weapon's sound level (WEAP VNAM: iSoundLevelLoud, Normal, Silent) [documented:
-//!   GECK wiki Category:Detection].
+//!   GECK wiki Category:Detection], of the weapon as it was fired: the mod flags on the
+//!   shot's message, a Silence mod's Silent level ("Sets the weapon's Sound Detection
+//!   Level to Silent" [documented: GECK wiki Weapons, mod effects]; `hear_shot`).
 //! - **Detector state**: asleep when lying on a bed; alert in a combat state, busy when
 //!   in Combat with someone other than the target (`fnv_game::awareness`).
 //!
@@ -104,6 +106,7 @@ use crate::sky::SkyState;
 use crate::world::{bevy_to_game, WorldData};
 use bevy::prelude::*;
 use bevy::tasks::{ComputeTaskPool, ParallelSlice};
+use fnv_combat::data::WeaponStats;
 use fnv_game::awareness::{Change, DetectionEvent, EventType, State};
 use fnv_game::detection::{Band, Settings, Situation};
 use fnv_game::sight::in_view;
@@ -695,6 +698,20 @@ type Inputs<'w> = (
     Option<Res<'w, Flashlight>>,
 );
 
+/// A shot, heard at the next measurement: its loudness is the sound level of the weapon
+/// as it was fired, the mods on the message on (`WeaponStats::modded`: a Silence mod
+/// makes it Silent), not of whatever is equipped when the shot is measured; no weapon
+/// data, or no level, is silent. The shooter's loudest shot since the last measurement
+/// is its action sound (`shots`); its last shot's level is what its impacts sound like
+/// (`shot_levels`).
+fn hear_shot(state: &mut DetectionState, weapon: Option<&WeaponStats>, s: &ShotFired) {
+    let fired = weapon.map(|w| if s.mods == 0 { w.sound_level.clone() } else { w.modded(s.mods).sound_level });
+    let loud = fired.flatten().map_or(0.0, |l| state.settings.unwrap_or_default().firing_sound(&l));
+    let heard = state.shots.entry(s.shooter.0).or_default();
+    *heard = heard.max(loud);
+    state.shot_levels.insert(s.shooter.0, loud);
+}
+
 /// Measure every pair (the module notes).
 #[allow(clippy::too_many_arguments)]
 fn measure(
@@ -714,11 +731,7 @@ fn measure(
     let state = &mut *state;
     // Shots, heard at the next measurement.
     for s in shots.read() {
-        let level = combat.as_deref().and_then(|c| c.forms.weapons.get(&s.weapon)).and_then(|w| w.sound_level.as_deref());
-        let loud = level.map_or(0.0, |l| state.settings.unwrap_or_default().firing_sound(l));
-        let heard = state.shots.entry(s.shooter.0).or_default();
-        *heard = heard.max(loud);
-        state.shot_levels.insert(s.shooter.0, loud);
+        hear_shot(state, combat.as_deref().and_then(|c| c.forms.weapons.get(&s.weapon)), s);
     }
     let settings_now = state.settings.unwrap_or_default();
     let level = |l: Option<&str>| l.map(|l| settings_now.firing_sound(l));
@@ -1439,5 +1452,42 @@ mod tests {
         // The ceiling turret: body 47-93 over its origin [observed, #1537], eyes halfway up.
         phys.world.set_actor_volume(6, fnv_phys::HitVolume { feet: [0.0, 0.0, 7807.0], radius: 20.0, height: 46.0, dead: false });
         assert_eq!(eyes_of(Some(&phys), 6, [0.0, 0.0, 7760.0], EYE_HEIGHT), [0.0, 0.0, 7830.0]);
+    }
+
+    /// #2117: a shot is heard at the loudness of the weapon as fired, its mod flags on
+    /// the message: a Normal weapon with a Silence mod in slot 3 is Normal without the
+    /// mod and Silent with it, in the action sound and in the level its impacts get; a
+    /// mod that is not a silencer changes nothing, a naturally silent weapon stays
+    /// silent, and the loudest shot since the last measurement is kept.
+    #[test]
+    fn a_shot_is_heard_at_the_modded_weapons_level() {
+        use fnv_combat::data::WeaponMod;
+        let slot = |slot: u8, effect: &str| WeaponMod { slot, item: Some(FormId(0x100 + slot as u32)), effect: Some(effect.into()), value_a: 4.0, value_b: 0.0 };
+        let pistol = WeaponStats { sound_level: Some("Normal".into()), mods: vec![slot(1, "Increase Clip Capacity"), slot(3, "Silence")], ..Default::default() };
+        let quiet = WeaponStats { sound_level: Some("Silent".into()), mods: vec![slot(1, "Increase Clip Capacity")], ..Default::default() };
+        let d = Settings::default();
+        let (normal, silent) = (d.firing_sound("Normal"), d.firing_sound("Silent"));
+        assert!(silent < normal);
+        let shot = |shooter: u32, mods: u8| ShotFired { projectile: FormId(1), weapon: FormId(2), mods, shooter: FormId(shooter), at: None, dir: None };
+        let heard = |w: &WeaponStats, mods: u8| {
+            let mut state = DetectionState::default();
+            hear_shot(&mut state, Some(w), &shot(7, mods));
+            (state.shots[&7], state.shot_levels[&7])
+        };
+        assert_eq!(heard(&pistol, 0), (normal, normal), "no mods: the base level");
+        assert_eq!(heard(&pistol, 4), (silent, silent), "the Silence slot's flag");
+        assert_eq!(heard(&pistol, 5), (silent, silent), "the Silence slot among others");
+        assert_eq!(heard(&pistol, 1), (normal, normal), "an unrelated mod");
+        assert_eq!(heard(&quiet, 0), (silent, silent), "a naturally silent weapon");
+        assert_eq!(heard(&quiet, 1), (silent, silent), "a naturally silent weapon, modded");
+        // A weapon without data is not heard.
+        let mut state = DetectionState::default();
+        hear_shot(&mut state, None, &shot(8, 4));
+        assert_eq!((state.shots[&8], state.shot_levels[&8]), (0.0, 0.0));
+        // Loud then silenced: the action sound keeps the loudest, the impacts the last.
+        let mut state = DetectionState::default();
+        hear_shot(&mut state, Some(&pistol), &shot(9, 0));
+        hear_shot(&mut state, Some(&pistol), &shot(9, 4));
+        assert_eq!((state.shots[&9], state.shot_levels[&9]), (normal, silent));
     }
 }

@@ -52,6 +52,10 @@ const LIST_NESTED: u32 = 0x853;
 const PACK_WOLF: u32 = 0x860;
 const PACK_RAT: u32 = 0x861;
 const PACK_OWN: u32 = 0x862;
+/// A Travel package that skips Fallout behaviour with every behaviour bit clear (as
+/// HELIOS One's ProtectronNotActive).
+const PACK_STILL: u32 = 0x863;
+const ADD_SCRIPT_PACKAGE: u16 = 0x1097;
 /// A rat that Helps Allies but is Cowardly (playtest list 4, item 14).
 const COWARD: u32 = 0x870;
 /// An unaggressive rat with an aggro radius of 650 (item 18).
@@ -237,6 +241,20 @@ fn plugin_bytes() -> Vec<u8> {
         top(b"FACT", &factions),
         top(b"MISC", &record(b"MISC", 0, PELT, &[sub(b"EDID", z("Pelt")), sub(b"DATA", [1i32.to_le_bytes(), 1f32.to_le_bytes()].concat())])),
         top(b"NPC_", &npcs),
+        top(
+            b"PACK",
+            &record(
+                b"PACK",
+                0,
+                PACK_STILL,
+                &[
+                    sub(b"EDID", z("Still")),
+                    sub(b"PKDT", [&0x1000u32.to_le_bytes()[..], &[6, 0], &[0; 6]].concat()),
+                    sub(b"PLDT", [0i32.to_le_bytes(), 0u32.to_le_bytes(), 0i32.to_le_bytes()].concat()),
+                    sub(b"PSDT", [&[0xFF, 0xFF, 0, 0xFF][..], &0u32.to_le_bytes()].concat()),
+                ],
+            ),
+        ),
         top(b"CREA", &creatures),
         top(b"LVLC", &lists),
         top(b"CELL", &group(0i32.to_le_bytes(), 2, &group(0i32.to_le_bytes(), 3, &[cell, children].concat()))),
@@ -594,6 +612,27 @@ fn an_actor_that_starts_fighting_alarms_its_allies_near_it() {
     g.settle_awareness();
     assert_eq!(g.awareness.state(helper), State::Alert);
     assert_eq!(g.raise_alarms(&near), 0);
+}
+
+#[test]
+fn an_ally_on_a_package_without_observe_combat_takes_no_alarm() {
+    // HELIOS One's stasis protectrons (#1977, observed 2026-11-10): on ProtectronNotActive,
+    // which skips Fallout behaviour with Observe Combat Behavior clear, four stayed on
+    // their pods while the fifth fought. The helper, on such a package, is not alarmed.
+    use fnv_game::awareness::Change;
+    let f = fixture();
+    let mut g = game(&f);
+    let (own, helper, player) = (FormId(OWN_REF), FormId(HELPER_REF), FormId::PLAYER_REF);
+    only_near(&mut g, &[OWN_REF, HELPER_REF]);
+    call(&mut g, ADD_SCRIPT_PACKAGE, HELPER_REF, &[form(PACK_STILL)]);
+    assert!(!g.package_allows(helper, fnv_game::package::fallout::OBSERVE_COMBAT));
+    assert!(g.attacked_by(own, player));
+    fighting(&mut g, OWN_REF, PLAYER);
+    let now = g.time;
+    g.awareness.changes.push(Change { actor: own, from: State::Normal, to: State::Combat, time: now, about: Some(player), cause: None, at: Some([500.0, 0.0, 0.0]), value: Some(5.0) });
+    let near: std::collections::BTreeMap<FormId, [f32; 3]> = [(own, [0.0, 0.0, 0.0]), (helper, [1000.0, 0.0, 0.0]), (player, [500.0, 0.0, 0.0])].into_iter().collect();
+    assert_eq!(g.raise_alarms(&near), 0);
+    assert!(g.awareness.get(helper).is_none_or(|a| a.alarms.is_empty()));
 }
 
 #[test]

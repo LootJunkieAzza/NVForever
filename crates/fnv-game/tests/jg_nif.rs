@@ -132,11 +132,11 @@ fn particles_properties_and_switches() {
     assert_eq!(n(&mut g, "PlayerREF.GetAlphaPropertyValue \"Glass\" 1") * 10.0 + n(&mut g, "PlayerREF.GetStencilPropertyValue \"Glass\" 1"), 643.0);
     // The switch shows its second child alone.
     q(&mut g, "PlayerREF.SetSwitchNodeIndex \"Switch\" 1");
-    let flags: Vec<(String, u32)> = g.scene.take_edits().into_iter().filter_map(|e| match e {
-        SceneEdit::Flags { node, flags, .. } => Some((node, flags & 1)),
+    let flags: Vec<(String, usize, u32)> = g.scene.take_edits().into_iter().filter_map(|e| match e {
+        SceneEdit::ChildFlags { node, child, flags, .. } => Some((node, child, flags & 1)),
         _ => None,
     }).collect();
-    assert_eq!(flags, vec![("A".into(), 1), ("B".into(), 0), ("C".into(), 1)]);
+    assert_eq!(flags, vec![("Switch".into(), 0, 1), ("Switch".into(), 1, 0), ("Switch".into(), 2, 1)]);
     // The 3D drawn again for the model flags, not for lights alone.
     g.take_appearance_changes();
     q(&mut g, "PlayerREF.Update3DAlt 32");
@@ -148,6 +148,33 @@ fn particles_properties_and_switches() {
     // Standing (nothing told): Idle (0) in slot 0, nothing in slot 4.
     assert_eq!(n(&mut g, "PlayerREF.GetSequenceAnimGroup 0"), 0.0);
     assert_eq!(n(&mut g, "PlayerREF.GetSequenceAnimGroup 4"), -1.0);
+}
+
+#[test]
+fn a_switch_addresses_its_children_by_place() {
+    // Children unnamed, or named like a node elsewhere in the model (#2017): each is
+    // hidden or shown by its place under the switch, and no other node changes.
+    let f = fixture();
+    let mut g = game(&f);
+    let none = NodeInfo::default;
+    g.scene.set_tree(P, vec![
+        node("Scene Root", None, [0.0; 3], none()),
+        node("Lamp", Some(0), [0.0; 3], none()),
+        node("Switch", Some(0), [0.0; 3], none()),
+        node("", Some(2), [0.0; 3], none()),
+        node("Lamp", Some(2), [0.0; 3], none()),
+        node("", Some(2), [0.0; 3], none()),
+    ]);
+    for (k, want) in [(0, [0, 1, 1]), (1, [1, 0, 1]), (2, [1, 1, 0]), (3, [1, 1, 1])] {
+        q(&mut g, &format!("PlayerREF.SetSwitchNodeIndex \"Switch\" {k}"));
+        let edits: Vec<(usize, u32)> = g.scene.take_edits().into_iter().map(|e| match e {
+            SceneEdit::ChildFlags { node, child, flags, .. } if node == "Switch" => (child, flags & 1),
+            other => panic!("index {k}: {other:?}"),
+        }).collect();
+        assert_eq!(edits, (0..3).map(|c| (c, want[c])).collect::<Vec<_>>(), "index {k}");
+        // The Lamp beside the switch (found first by name) is left alone.
+        assert_eq!(g.scene.node_now(P, "Lamp").map(|n| n.flags & 1), Some(0), "index {k}");
+    }
 }
 
 #[test]

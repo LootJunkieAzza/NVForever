@@ -51,13 +51,21 @@ Per real frame, in the camera's render schedule (`Core3d`):
 2. After the post passes, before the UI: a copy of the frame without the HUD.
 3. After the UI, before Bevy's upscaling blit: optical flow on the HUD-less frame, then
    interpolation between the previous HUD-less frame and this one, into a display-sized
-   texture. The real frame (with its HUD) is copied aside and the generated one replaces it
-   in the main texture, so Bevy's blit puts the generated frame in the window's stand-in
-   (below).
+   texture (one of three used in turn). The main texture keeps the real frame, and Bevy's
+   blit puts it in the window's stand-in (below).
 4. After Bevy's `render_system` has submitted the frame (and a screenshot's copy into the
-   stand-in, which it records after the render graph): the stand-in (the generated frame) and
-   the real frame are handed to the window's presenter thread (`fg_presenter.rs`), which takes
-   the window's images, copies them in and presents them, paced ("Presentation and pacing").
+   stand-in, which it records after the render graph): the generated frame and the stand-in
+   (the real frame) are handed to the window's presenter thread (`fg_presenter.rs`), which
+   takes the window's images, copies them in and presents them, paced ("Presentation and
+   pacing").
+
+One display-sized copy a real frame is left, the frame without the HUD (two textures used in
+turn, so the interpolation reads last frame's where it is). Until 2026-11-10 there were four:
+the real frame was copied aside, the generated one into the main texture, and AMD's host code
+copies the interpolation source for the next frame (`FrameInterpolationDispatchInfo::
+previous_source` now takes the caller's). The window presented from the render thread
+(`NVF_FG_PRESENTER=0`) still copies the real frame aside and the generated one into the main
+texture, as Bevy takes its image from there.
 
 Colours are the tonemapped frame, linear in [0, 1] (the window's sRGB view encodes them).
 AMD's passes are told it is scRGB with 0 and 80 nits as black and white, which they read as
@@ -148,11 +156,10 @@ Limits and notes:
   into the window's image (the stand-in, with the presenter) [documented: bevy_render 0.20.1,
   `prepare_screenshots` in `view/window/screenshot.rs`, `render_system` in `renderer/mod.rs`].
   On such a frame no generated frame is presented (`frame_gen::generate`, the camera's output
-  against the window's image): the passes still run, so the next frame interpolates from this
-  one, and the real frame is presented once, so the screenshot and the screen both show it.
-  The presenter is handed the frame after `render_system`, once that copy is in the stand-in;
-  `frame_gen::take_for_presenters` draws the real frame into the screenshot texture should a
-  generated one have been queued.
+  against the window's stand-in): the passes still run, so the next frame interpolates from
+  this one, and the real frame is presented once, so the screenshot and the screen both show
+  it. The presenter is handed the frame after `render_system`, once that copy is in the
+  stand-in.
 - **An outdated or lost window surface** (a resize, alt-tab, a display mode or HDR change): the
   presenter skips its images and marks the surface; Bevy's `create_surfaces` reconfigures it on
   the render thread before the next frame, size changed or not. The presenter never configures
@@ -177,11 +184,19 @@ Limits and notes:
   takes the window's images again; switching it on starts a new one.
 - **`NVF_FG_PRESENTER=0`** presents from the render thread as before, for comparisons.
   `NVF_TEST_RENDER_STALL_MS=<ms>` holds the render thread that long each frame (a heavy frame
-  on a fast PC) and `NVF_SWAPCHAIN_LATENCY=<n>` sets the frames the swapchain may queue:
-  measuring aids.
+  on a fast PC), `NVF_SWAPCHAIN_LATENCY=<n>` sets the frames the swapchain may queue, and
+  `NVF_FPS_LOG=<s>` logs the performance overlay's readings as shown (with the overlay on,
+  `--fps`: the first reading of each showing, then at most every `<s>` seconds): measuring
+  aids.
 - **The cap on slower screens**: half the refresh rate is 30 real frames a second on a 60 Hz
   screen, which is little to interpolate from and to aim with; frame generation suits screens
   of 120 Hz and more.
+- **The performance overlay's FPS row** (`--fps`, the settings page's Frame rate counter)
+  shows the frames shown and the game's own apart while frame generation shows generated
+  frames (`156  (78 rendered)  12.8 ms  1% low …` at 160 Hz; the frame times beside them are
+  the rendered frames'); the counter showed only the game's own, which read as frame
+  generation halving the frame rate [observed 2026-11-08, 1280x720 at 160 Hz, FSR Quality,
+  Goodsprings].
 - **Swapchain depth**: Bevy's default (two frames queued). With the presenter, three gave the
   same as two (2026-11-08, 4K: 77.7 real fps, the first present 7.2-8.0 ms after handing over
   against 7.4-7.9); before it, three lowered the real rate (56 fps, 2026-11-07) and four gave the
@@ -221,8 +236,8 @@ Limits and notes:
 ## Measurements
 
 RTX 5090 (NVIDIA 621.14), Ryzen 9 9950X3D, Vulkan, 1920x1080 window on a 160 Hz monitor (vsync
-presents as FIFO relaxed), FSR Quality, `--graphics enhanced`, a 30 s walk in Goodsprings
-(`dev\tools\fg-measure.ps1`), 2026-11-07:
+presents as FIFO relaxed), FSR Quality, `--graphics enhanced`, a 30 s walk in Goodsprings,
+2026-11-07:
 
 | | Real fps | Presented fps | GPU time (mean per real frame) |
 |---|---|---|---|
@@ -239,8 +254,8 @@ needs PresentMon or present timing from the driver).
 
 **The presenter** (2026-11-08, h9x000/NVForever#1): the same PC at the owner's settings (a copy
 of their `NVForever.ini`: 3840x2160 borderless, variable refresh, FSR Quality, every slider and
-effect at the top), playing at the Goodsprings skyline at noon, 45 s runs, the last 30 s
-(`dev\tools\fg-pacing.ps1`). The heavy case adds 4 ms of render-thread work a frame
+effect at the top), playing at the Goodsprings skyline at noon, 45 s runs, the last 30 s.
+The heavy case adds 4 ms of render-thread work a frame
 (`NVF_TEST_RENDER_STALL_MS=4`), standing in for the owner's heavier view:
 
 | | Real fps | Shown fps | Between presents, 95th percentile | Presents' time on the render thread |
@@ -262,6 +277,56 @@ With frame generation off the presenter path is not used: 7.47-7.49 ms a frame a
 7.59-7.83 (`--log-frame-times`, GPU time 2.74 ms in both). The first version spaced the
 presents from when each returned and fell short of the cap (74-77 real fps): each present's
 0.26-0.47 ms in the driver was added to every spacing.
+
+**The limiter, the copies and the bind groups** (2026-11-10). Three things changed:
+
+- **The frame limiter waits before the next frame's input**, not after the frame is simulated
+  (`frame_pace.rs`): right after the frame is handed to the render thread, where `anti_lag.rs`
+  already announces the next frame's input. In `Last`, where it waited before, the wait lay
+  between the player's input and the picture. A late frame is made up for a hundredth of a
+  frame's time at a time, so the mean rate is the cap's.
+- **The presenter reports how long frames wait in it** and the limiter holds the next frame
+  back by half of what is over a millisecond, at most 1.5 ms (`frame_pace::catch_up`;
+  `NVF_FG_LAG_FEEDBACK=0` turns it off). Two paced presents take nearly a whole real frame, so
+  a presenter that falls behind stays behind until it leaves a generated frame out; held
+  back, the wait is before the input instead, and few generated frames are left out. It
+  costs real frames while it catches up (below): a choice between the two columns.
+- **Less work a frame**: three of four display-sized copies gone ("How it works"), FSR's and
+  frame generation's bind groups kept from frame to frame instead of made again for every
+  pass (wgpu-ffx `pass.rs`, `fg_pass.rs`: about 40 bind groups and 170 texture views a
+  frame), FSR's alpha pass only while the Pip-Boy's screen is on its model
+  ([fsr-upscaling](fsr-upscaling.md)), and the presenter polls every 50 us once the GPU is
+  nearly done instead of every 0.5 ms.
+
+[observed 2026-11-10, RTX 5090 (NVIDIA), Ryzen 9 9950X3D, the owner's settings: 3840x2160
+borderless, variable refresh (cap 152), FSR Native AA, every slider and effect at the top;
+Goodsprings at noon, walking on and turning every two seconds, one game at a time, 100 s
+runs, the 10 s periods after the first 20 s (`NVF_PACE_LOG=1`);
+the view is held by the main thread, about 76 real fps before]
+
+| Frame generation on | Before | After, catch-up off | After |
+|---|---|---|---|
+| Real fps | 71.4-77.4 | 77.4-78.1 | 71.7-76.3 |
+| Shown fps | 140-154 | 153-155 | 142-153 |
+| From a frame's start to its hand-off to the render thread | 12.8-13.2 ms | 7.7-8.8 ms | 6.7-8.1 ms |
+| The limiter's wait in that | 2.2-3.3 ms | none (4.3-5.0 ms after it) | none (5.3-6.3 ms after it) |
+| First present after the hand-over (the GPU's work in it) | 9.0-12.1 ms | 10.9-12.7 ms | 6.3-9.4 ms |
+| Generated frames left out to catch up, in 10 s | 4-24 | 9-25 | 0-3 (11 in the first period) |
+| Between presents, 95th percentile | 7.3-11.7 ms | not read | 7.9-9.8 ms |
+| Render thread, recording FSR's passes | 282-303 us | | 78-94 us |
+| Render thread, recording frame generation's passes | 508-542 us | | 62-87 us |
+| GPU time, frame generation | 1.61 ms | | 1.47 ms |
+
+With frame generation off and standing still (vsync off, `--log-frame-times`): FSR's GPU time
+1.08 → 1.03 ms of 3.69 → 3.62 ms in all passes (the alpha pass); recording FSR 271-277 → 92-98
+us; the frame rate is the main thread's there (88-103 fps in both, the same within the runs'
+spread). From a frame's start to its first present, the two rows added: about 24 ms before,
+20 with the catch-up off, 16 with it. The picture: a capture of generated and real frames
+(1280x720, FSR Quality, strafing; `NVF_FRAME_GEN_CAPTURE_DIR`, compared as under "Checks") gives the generated frame 0.75-0.84 of
+the real frames' difference from each neighbour and 0.20-0.33 of 255 on the HUD's pixels, as
+before the change ("Checks"); a screenshot with frame generation on is of the real frame. Not measured: what reaches the screen and when
+(PresentMon), and views the GPU or the cap holds, where the limiter's wait, and so what moving
+it saves, is longer.
 
 Not tested: AMD and Intel GPUs, Linux (the code is the same Vulkan path), exclusive full screen,
 multiple windows, and how it looks to players over long sessions.

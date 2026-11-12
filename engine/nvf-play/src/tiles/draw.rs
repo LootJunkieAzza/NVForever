@@ -485,6 +485,9 @@ pub struct Piece {
     /// sRGB and alpha, 0 to 1.
     pub colour: [f32; 4],
     pub depth: f64,
+    /// A picture's SetUITexOffset offset and SetUIAlphaMap mask, put on by
+    /// [`super::texmod::mark`] as the pieces are painted (#1833); none from [`pieces`].
+    pub tex: Option<super::texmod::TexMod>,
 }
 
 /// Which tiles of the menu draw.
@@ -652,7 +655,7 @@ pub fn pieces(ui: &Ui, menu: TileId, measure: &layout::Measure<'_>, select: Sele
         if matches!(item.kind, Kind::Hotrect) {
             alpha = alpha.powf(2.2);
         }
-        out.push(Piece { tile: item.tile, look, rect: item.rect, clip: item.clip, colour: [r, g, bl, alpha], depth: item.depth });
+        out.push(Piece { tile: item.tile, look, rect: item.rect, clip: item.clip, colour: [r, g, bl, alpha], depth: item.depth, tex: None });
         if let Some(r) = root {
             drawn_roots.insert(r);
         }
@@ -791,6 +794,9 @@ pub(crate) struct Drawn {
     /// loose replacement's own tiles are told from (`fnv_ui::Ui::archived_name_paths`,
     /// #975).
     vanilla: Option<(String, Option<HashSet<String>>)>,
+    /// The texture offsets' and alpha maps' textures, baked images, budget and told lines
+    /// (`super::texmod`).
+    tex: super::texmod::State,
 }
 
 /// A `tile` picture baked into one image ([`crate::repeat`]): the image and its node's
@@ -816,7 +822,7 @@ pub fn change(old: &Piece, new: &Piece) -> Change {
     let size = |r: &TileRect| (r.width, r.height);
     if old == new {
         Change::Same
-    } else if old.look == new.look && size(&old.rect) == size(&new.rect) && old.clip.map(|c| size(&c)) == new.clip.map(|c| size(&c)) {
+    } else if old.look == new.look && old.tex == new.tex && size(&old.rect) == size(&new.rect) && old.clip.map(|c| size(&c)) == new.clip.map(|c| size(&c)) {
         // A model's parts take no Ink: spawned again in its new colour.
         if old.colour != new.colour && matches!(new.look, Look::Model { .. }) {
             Change::Spawn
@@ -995,6 +1001,8 @@ pub(crate) struct View<'w, 's> {
     inventory: Option<ResMut<'w, super::inventory_menu::InventoryTiles>>,
     /// The Pip-Boy's repair page's one decision (`super::repair_menu`).
     repair_page: Option<ResMut<'w, super::repair_menu::RepairTiles>>,
+    /// The DATA page's one decision (`super::map_menu`).
+    map: Option<ResMut<'w, super::map_menu::MapTiles>>,
     /// T15c: the container menu, when this frame's writer has it drawn from its tiles.
     container: Option<Res<'w, super::container_menu::ContainerTiles>>,
     barter: Option<Res<'w, super::barter_menu::BarterTiles>>,
@@ -1004,6 +1012,8 @@ pub(crate) struct View<'w, 's> {
     /// The trait menu, when this frame's writer has it drawn from its tiles.
     traits: Option<Res<'w, super::trait_menu::TraitTiles>>,
     tags: Option<Res<'w, super::tag_menu::TagTiles>>,
+    /// The classic VATS screen, when this frame's writer has it drawn from its file.
+    vats: Option<Res<'w, super::vats_menu::VatsTiles>>,
     /// The open character menu, for the same decision as the hand-built trait menu's.
     chargen: Option<Res<'w, crate::chargen::ChargenMenus>>,
 }
@@ -1017,6 +1027,10 @@ pub(crate) struct Nodes<'w, 's> {
     place: Query<'w, 's, &'static mut Node>,
     children: Query<'w, 's, &'static Children>,
     ink: Query<'w, 's, (&'static Ink, InkNodes)>,
+    /// The game, for the pictures' texture offsets and alpha maps (`super::texmod`, #1833).
+    script: Res<'w, ScriptState>,
+    /// The compass strips' windows, moved on in place by a new offset (#1833).
+    strips: Query<'w, 's, &'static mut TileStrip>,
 }
 
 /// The menus drawn from tiles besides the HUD (T15a, `super::menus`), each in its own
@@ -1035,6 +1049,8 @@ pub(crate) struct MenusDrawn {
     inventory: Drawn,
     /// The Pip-Boy's repair page, in the Pip-Boy's image.
     repair_page: Drawn,
+    /// The Pip-Boy's DATA page, in the Pip-Boy's image.
+    map: Drawn,
     container: Drawn,
     barter: Drawn,
     recipe: Drawn,
@@ -1042,6 +1058,8 @@ pub(crate) struct MenusDrawn {
     traits: Drawn,
     tags: Drawn,
     dialog: Drawn,
+    /// The classic VATS target screen (`super::vats_menu`).
+    vats: Drawn,
 }
 
 /// The stacking levels of the menus drawn from tiles besides the HUD: their hand-built
@@ -1106,6 +1124,7 @@ pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, mut view: V
         (super::trait_menu::TRAIT_MENU, view.traits.as_ref().is_some_and(|t| super::trait_menu::drawn(t, view.chargen.as_ref().and_then(|c| c.traits_open()), game).is_some()), TRAIT_Z, &mut others.traits),
         (super::tag_menu::TAG_MENU, view.tags.as_ref().is_some_and(|t| super::tag_menu::drawn(t, view.chargen.as_ref().and_then(|c| c.tags_open()), game).is_some()), TRAIT_Z, &mut others.tags),
         (super::dialog_menu::DIALOG_MENU, view.dialog.as_ref().is_some_and(|d| d.drawn()), DIALOG_Z, &mut others.dialog),
+        (super::vats_menu::VATS_MENU, view.vats.as_ref().is_some_and(|v| v.drawn), super::vats_menu::VATS_Z, &mut others.vats),
     ] {
         let ui = game.map(|g| &g.ui_tree);
         let menu = ui.filter(|_| on).and_then(|ui| ui.menu(name).map(|m| (ui, m)));
@@ -1124,7 +1143,11 @@ pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, mut view: V
                     info!("tiles: {name} drawn from tiles ({file} file tiles, {code} code tiles)");
                     drawn.told_menu = Some(menu);
                 }
-                let pieces = whole_pieces(ui, menu, &mut kit, super::interface_screen(switch));
+                // The VATS screen writes `screen()` in interface units itself while it is up.
+                let mut pieces = whole_pieces(ui, menu, &mut kit, super::interface_screen(switch) || name == super::vats_menu::VATS_MENU);
+                // Marked as `paint` marks them, so a modified picture is not told as a change
+                // every frame (#1833).
+                super::texmod::mark(&mut pieces, game.map(|g| &g.other.itr));
                 if name == super::dialog_menu::DIALOG_MENU && pieces != drawn.pieces {
                     info!("{}", super::dialog_menu::painted(ui, &pieces));
                 }
@@ -1135,10 +1158,22 @@ pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, mut view: V
         // At the menus' scale (#1631, the UI scale at most 100%): the units `scale × it` logical pixels, in a frame
         // kept at the menu's anchor.
         let anchor = menu_anchor(name == super::dialog_menu::DIALOG_MENU);
+        if name == super::vats_menu::VATS_MENU {
+            // The VATS target screen is a piece of the HUD: its arrows, buttons and queue
+            // keep to the view's edges and its boxes stand on the target, so it takes the
+            // UI scale in the view's own frame, as the HUD does, with `screen()` written
+            // for the scaled view (`super::write_screen_scaled`). Above 100 % it stays at
+            // the original's size, as the menus do: the file sets its buttons and its
+            // queue out for a view 960 units high, and in a lower one they run into each
+            // other (seen at 150 %).
+            let _units = interface::units_at(interface::menu_scale());
+            paint(&mut commands, drawn, pieces, Target::window(scale * interface::menu_scale(), z), heading, ui, &mut kit, &mut nodes, &glyphs);
+            continue;
+        }
         paint(&mut commands, drawn, pieces, Target::window(scale * interface::menu_scale(), z).in_frame(anchor), heading, ui, &mut kit, &mut nodes, &glyphs);
     }
     *blur = blur_now;
-    pipboy_pages(&mut commands, game, &mut view, &mut kit, (&mut others.stats, &mut others.inventory), &mut nodes, heading, &glyphs);
+    pipboy_pages(&mut commands, game, &mut view, &mut kit, (&mut others.stats, &mut others.inventory, &mut others.map), &mut nodes, heading, &glyphs);
     repair_page(&mut commands, game, &mut view, &mut kit, &mut others.repair_page, &mut nodes, heading, &glyphs);
     // T11: the Mods page, the start menu's mod tiles over the pause menu.
     let mods_on = switch.start && view.paused.as_ref().zip(view.page.as_ref()).is_some_and(|(p, page)| crate::pause::mods_open(p, page));
@@ -1154,7 +1189,7 @@ pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, mut view: V
 /// decided before this drawing). What was painted is published for the next frame's tile input,
 /// which acts on what the player saw.
 #[allow(clippy::too_many_arguments)]
-fn pipboy_pages(commands: &mut Commands, game: Option<&fnv_game::Game<'_>>, view: &mut View, kit: &mut FontKit, (stats_drawn, inventory_drawn): (&mut Drawn, &mut Drawn), nodes: &mut Nodes, heading: f32, glyphs: &crate::pad::PadGlyphs) {
+fn pipboy_pages(commands: &mut Commands, game: Option<&fnv_game::Game<'_>>, view: &mut View, kit: &mut FontKit, (stats_drawn, inventory_drawn, map_drawn): (&mut Drawn, &mut Drawn, &mut Drawn), nodes: &mut Nodes, heading: f32, glyphs: &crate::pad::PadGlyphs) {
     let Some(target) = view.screen.as_ref().map(|s| Target::image(s.camera, crate::pipboy::CANVAS, s.scale, PIPBOY_TILES_Z)) else { return };
     let ui = game.map(|g| &g.ui_tree);
     let live = |ready: Option<TileId>| ready.filter(|&m| ui.is_some_and(|ui| ui.is_live(m)));
@@ -1170,6 +1205,12 @@ fn pipboy_pages(commands: &mut Commands, game: Option<&fnv_game::Game<'_>>, view
     pipboy_page(commands, ui, super::inventory_menu::INVENTORY_MENU, menu, pieces, target, kit, inventory_drawn, nodes, heading, glyphs);
     if let Some(inventory) = view.inventory.as_mut().filter(|s| s.shown != menu) {
         inventory.shown = menu;
+    }
+    let menu = live(view.map.as_ref().and_then(|s| s.ready));
+    let pieces = menu.and(view.map.as_mut()).map_or_else(Vec::new, |s| std::mem::take(&mut s.pieces));
+    pipboy_page(commands, ui, super::map_menu::MAP_MENU, menu, pieces, target, kit, map_drawn, nodes, heading, glyphs);
+    if let Some(map) = view.map.as_mut().filter(|s| s.shown != menu) {
+        map.shown = menu;
     }
 }
 
@@ -1396,8 +1437,12 @@ fn hud(commands: &mut Commands, script: &ScriptState, view: &View, kit: &mut Fon
 /// the target are as last drawn; otherwise each piece's slot kept, moved and recoloured in
 /// place, spawned again or removed ([`change`]).
 #[allow(clippy::too_many_arguments)]
-fn paint(commands: &mut Commands, drawn: &mut Drawn, pieces: Vec<Piece>, target: Target, heading: f32, ui: Option<&Ui>, kit: &mut FontKit, nodes: &mut Nodes, glyphs: &crate::pad::PadGlyphs) {
+fn paint(commands: &mut Commands, drawn: &mut Drawn, mut pieces: Vec<Piece>, target: Target, heading: f32, ui: Option<&Ui>, kit: &mut FontKit, nodes: &mut Nodes, glyphs: &crate::pad::PadGlyphs) {
     let scale = target.scale;
+    // ITR's texture offsets and alpha maps on the pictures, before they are compared (#1833).
+    super::texmod::mark(&mut pieces, nodes.script.rt.as_ref().map(|rt| &rt.game.other.itr));
+    drawn.tex.frame();
+    drawn.tex.prune(&pieces, ui);
     // A camera's image is laid out at its own size whatever the UI scale (#1631).
     let _canvas = target.camera.map(|_| interface::original_units());
     if pieces == drawn.pieces && drawn.target == Some(target) {
@@ -1434,6 +1479,9 @@ fn paint(commands: &mut Commands, drawn: &mut Drawn, pieces: Vec<Piece>, target:
         keep
     });
     let mut spawn = Vec::new();
+    // Pieces whose new offset waits for the bake budget: kept as last shown, so the next
+    // frame tries again (`super::texmod::State::shift_in_place`).
+    let mut waiting = Vec::new();
     for (i, (key, piece)) in keys.iter().zip(&pieces).enumerate() {
         let (Some(slot), Some(was)) = (drawn.slots.get_mut(key), old.get(key)) else {
             spawn.push(i);
@@ -1443,7 +1491,25 @@ fn paint(commands: &mut Commands, drawn: &mut Drawn, pieces: Vec<Piece>, target:
             commands.entity(slot.node).insert(ZIndex(i as i32));
             slot.order = i;
         }
-        match change(was, piece) {
+        let mut how = change(was, piece);
+        // Only the offset changed: its image baked again in place, its nodes kept (#1833).
+        if how == Change::Spawn && super::texmod::only_offset_differs(was, piece) {
+            let strip = nodes.children.iter_descendants(slot.node).find(|e| nodes.strips.contains(*e));
+            let mut strip = strip.and_then(|e| nodes.strips.get_mut(e).ok());
+            let window = strip.as_mut().and_then(|s| match &mut s.0 {
+                StripNode::Baked(w) => Some(w),
+                StripNode::Moving => None,
+            });
+            let data = kit.data.as_deref();
+            let read = |p: &str| data.and_then(|d| d.read(p));
+            if let Some(shown) = drawn.tex.shift_in_place(piece, &mut kit.images, Some(&read), window) {
+                if !shown {
+                    waiting.push((i, was.tex.clone()));
+                }
+                how = change(&Piece { tex: piece.tex.clone(), ..(*was).clone() }, piece);
+            }
+        }
+        match how {
             Change::Same => {}
             Change::Spawn => spawn.push(i),
             Change::InPlace => {
@@ -1507,6 +1573,26 @@ fn paint(commands: &mut Commands, drawn: &mut Drawn, pieces: Vec<Piece>, target:
                 }
                 _ => None,
             };
+            // SetUITexOffset's offset and SetUIAlphaMap's mask, baked into the picture's
+            // place; the compass strip's below (`super::texmod`, #1833).
+            let (picture, baked) = match (&piece.tex, &piece.look, &picture, data) {
+                (Some(tex), Look::Picture { name, source, fit }, Some((_, rect, size)), Some(data)) if *fit != Fit::Strip => {
+                    let atlas = match source {
+                        Source::Index(a) => Some(a.as_str()),
+                        _ => None,
+                    };
+                    let path = pictures.texture_path(name, atlas, rect.is_some(), data);
+                    let texels = (f64::from(size.x), f64::from(size.y));
+                    let repeat = match placed(*fit, rect.is_some(), texels) {
+                        Placed::Repeat { width, height } => repeat::texels_for((piece.rect.width, piece.rect.height), (width, height), texels),
+                        _ => None,
+                    };
+                    let bake = super::texmod::Bake { state: &mut drawn.tex, data, images: &mut kit.images, ui };
+                    let drawing = super::texmod::Drawing { path: &path, placed: placed(*fit, rect.is_some(), texels), repeat };
+                    super::texmod::apply(tex, piece, drawing, picture.clone(), baked, bake)
+                }
+                _ => (picture, baked),
+            };
             // The compass strip's window, baked into one image (`crate::compass_strip`).
             let strip = match (&piece.look, &picture, data) {
                 (Look::Picture { name, source, fit: Fit::Strip }, Some((_, rect, _)), Some(data)) => {
@@ -1514,7 +1600,15 @@ fn paint(commands: &mut Commands, drawn: &mut Drawn, pieces: Vec<Piece>, target:
                         Source::Index(a) => Some(a.as_str()),
                         _ => None,
                     };
-                    let window = StripTexels::read(pictures, name, atlas, *rect, &mut drawn.repeats, data).and_then(|t| StripWindow::new(t, f(piece.rect.width), heading, &mut kit.images));
+                    // With an offset or a mask: the strip moved on and its window masked
+                    // (`super::texmod::strip`, #1833); as it was when their texels are not read.
+                    let modded = piece.tex.as_ref().and_then(|tex| {
+                        let path = pictures.texture_path(name, atlas, rect.is_some(), data);
+                        let bake = super::texmod::Bake { state: &mut drawn.tex, data, images: &mut kit.images, ui };
+                        let (texels, mask) = super::texmod::strip(tex, piece, &path, *rect, bake)?;
+                        StripWindow::new(texels, f(piece.rect.width), heading, &mut kit.images).map(|w| w.masked(mask, &mut kit.images))
+                    });
+                    let window = modded.or_else(|| StripTexels::read(pictures, name, atlas, *rect, &mut drawn.repeats, data).and_then(|t| StripWindow::new(t, f(piece.rect.width), heading, &mut kit.images)));
                     if !drawn.strip_told {
                         match &window {
                             Some(w) => info!("tiles: the compass strip baked into one window image of {} x {} texels", w.texels().0, w.texels().1),
@@ -1558,6 +1652,9 @@ fn paint(commands: &mut Commands, drawn: &mut Drawn, pieces: Vec<Piece>, target:
                 }
             }
         }
+    }
+    for (i, shown) in waiting {
+        pieces[i].tex = shown;
     }
     drawn.pieces = pieces;
 }
@@ -2292,6 +2389,7 @@ mod tests {
             clip: None,
             colour: [1.0, 0.7, 0.3, 1.0],
             depth: 0.0,
+            tex: None,
         };
         let mut dimmer = model.clone();
         dimmer.colour[3] = 0.5;

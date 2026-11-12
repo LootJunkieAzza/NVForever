@@ -1760,6 +1760,9 @@ fn to_color(c: [f32; 3]) -> Color {
     Color::LinearRgba(LinearRgba::rgb(c[0], c[1], c[2]))
 }
 
+/// The explorer's `[` and `]`: the hour back or on (a quarter with left Shift). Not run
+/// with `--play`: there they are the radio's stations, and the hour moved here became the
+/// game's hour, schedules and timers shifted with it [#1988].
 pub fn sky_keys(input: Res<ButtonInput<KeyCode>>, mut sky: ResMut<SkyState>) {
     let step = if input.pressed(KeyCode::ShiftLeft) { 0.25 } else { 1.0 };
     if input.just_pressed(KeyCode::BracketRight) {

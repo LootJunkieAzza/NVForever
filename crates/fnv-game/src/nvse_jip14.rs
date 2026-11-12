@@ -102,15 +102,30 @@ fn list(g: &mut Game, items: Vec<XVal>) -> XVal {
 
 const MAGIC_ITEMS: [&[u8; 4]; 4] = [b"ALCH", b"ENCH", b"SPEL", b"INGR"];
 
+/// An entry of the scripts' list of a magic item's effects ([`Game::effect_slot`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EffectSlot {
+    /// The record's entry at this record index.
+    Own(usize),
+    /// AddNewEffect's entry: appended (`back`) or at the top, `at` in the order added.
+    Added { back: bool, at: usize },
+}
+
 impl<'a> Game<'a> {
     /// A magic item's effects as scripts list them: AddNewEffect's at the top, newest
-    /// first, the record's, AddNewEffect's appended.
+    /// first, the record's RemoveNthEffect left, AddNewEffect's appended. Every
+    /// Nth-effect function indexes this list (`EffectSlot`, #2016).
     pub fn effect_list(&self, item: FormId) -> std::borrow::Cow<'a, [EffectItem]> {
         let data: &'a crate::data::GameData = self.data;
         let own = data.effect_items.get(&item).map(Vec::as_slice).unwrap_or(&[]);
-        match self.other.jip14.added_effects.get(&item) {
-            None => std::borrow::Cow::Borrowed(own),
-            Some((front, back)) => std::borrow::Cow::Owned(front.iter().rev().chain(own).chain(back).cloned().collect()),
+        let added = self.other.jip14.added_effects.get(&item);
+        if added.is_none() && !self.other.jip11.removed_effects.contains_key(&item) {
+            return std::borrow::Cow::Borrowed(own);
+        }
+        let kept = self.effect_indices(item).into_iter().map(|i| own[i].clone());
+        match added {
+            None => std::borrow::Cow::Owned(kept.collect()),
+            Some((front, back)) => std::borrow::Cow::Owned(front.iter().rev().cloned().chain(kept).chain(back.iter().cloned()).collect()),
         }
     }
 
@@ -126,25 +141,48 @@ impl<'a> Game<'a> {
         }
     }
 
-    /// AddNewEffect's entries of an item: at the top, appended.
-    pub fn added_effect_counts(&self, item: FormId) -> (usize, usize) {
-        self.other.jip14.added_effects.get(&item).map_or((0, 0), |(f, b)| (f.len(), b.len()))
+    /// The number of entries in the scripts' list of a magic item's effects
+    /// ([`Game::effect_list`]): GetNumEffects, and AddNewEffect's and RemoveNthEffect's
+    /// returned counts.
+    pub fn effect_count(&self, item: FormId) -> usize {
+        let (front, back) = self.other.jip14.added_effects.get(&item).map_or((0, 0), |(f, b)| (f.len(), b.len()));
+        front + self.effect_indices(item).len() + back
     }
 
-    /// The base effect of a list entry in the scripts' order (AddNewEffect's top entries
-    /// first); `None` for an entry of the record's (the caller reads it) or none.
-    pub fn added_effect_at(&self, item: FormId, i: usize) -> Option<Result<FormId, usize>> {
-        let own = self.data.effect_items.get(&item).map_or(0, Vec::len);
-        let (front, back) = match self.other.jip14.added_effects.get(&item) {
-            Some((f, b)) => (f.as_slice(), b.as_slice()),
-            None => (&[][..], &[][..]),
-        };
-        if i < front.len() {
-            Some(Ok(front[front.len() - 1 - i].effect))
-        } else if i < front.len() + own {
-            Some(Err(i - front.len()))
+    /// Where the scripts' entry `i` of a magic item's list ([`Game::effect_list`]) lives;
+    /// `None` past the end. One index space for GetNumEffects, Get/SetNthEffectBase,
+    /// Get/SetNthEffectTraitNumeric, RemoveNthEffect and AddNewEffect's count
+    /// [decision: #2016].
+    pub fn effect_slot(&self, item: FormId, i: usize) -> Option<EffectSlot> {
+        let own = self.effect_indices(item);
+        let (front, back) = self.other.jip14.added_effects.get(&item).map_or((0, 0), |(f, b)| (f.len(), b.len()));
+        if i < front {
+            // Kept oldest first: the newest is at the top.
+            Some(EffectSlot::Added { back: false, at: front - 1 - i })
+        } else if i < front + own.len() {
+            Some(EffectSlot::Own(own[i - front]))
         } else {
-            back.get(i - front.len() - own).map(|e| Ok(e.effect))
+            (i - front - own.len() < back).then(|| EffectSlot::Added { back: true, at: i - front - own.len() })
+        }
+    }
+
+    /// AddNewEffect's entry at a slot, to read or change.
+    pub fn added_effect_mut(&mut self, item: FormId, back: bool, at: usize) -> Option<&mut EffectItem> {
+        self.other.jip14.added_effects.get_mut(&item).and_then(|(f, b)| if back { b.get_mut(at) } else { f.get_mut(at) })
+    }
+
+    /// AddNewEffect's entry at a slot.
+    pub fn added_effect(&self, item: FormId, back: bool, at: usize) -> Option<&EffectItem> {
+        self.other.jip14.added_effects.get(&item).and_then(|(f, b)| if back { b.get(at) } else { f.get(at) })
+    }
+
+    /// RemoveNthEffect on one of AddNewEffect's entries: it leaves the list.
+    pub fn remove_added_effect(&mut self, item: FormId, back: bool, at: usize) {
+        if let Some((f, b)) = self.other.jip14.added_effects.get_mut(&item) {
+            let v = if back { b } else { f };
+            if at < v.len() {
+                v.remove(at);
+            }
         }
     }
 
@@ -233,7 +271,7 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             } else {
                 entry.0.push(e);
             }
-            XVal::Num(g.effect_list(item).len() as f64)
+            XVal::Num(g.effect_count(item) as f64)
         }
         // Any effect of the list's items on the actor [documented], as IsSpellTarget.
         "isspelltargetlist" => {

@@ -43,7 +43,7 @@ pub mod read;
 #[cfg(test)]
 mod input_tests;
 
-use super::frame::{self, Align, Card, Ctx, Kit, DIMMED, FADE, FILL, LINE, TEXT, THICK};
+use super::frame::{self, Align, Card, Ctx, Kit, DIMMED, FADE, FILL, LINE, THICK};
 use super::labels::label;
 use super::{Page, PageBody, PipBoy, PipBoyScreen};
 use crate::interface::{pipboy_amber as amber, at};
@@ -790,10 +790,6 @@ fn spot(p: &mut ChildSpawnerCommands, r: Rect, s: Spot) {
 
 // ---- drawing --------------------------------------------------------------------------
 
-fn bright() -> Color {
-    amber(TEXT)
-}
-
 /// A text box (`text_box.xml`): the text's width and `horbuf`, its height and `verbuf`.
 fn text_box(c: &Ctx, s: &str, horbuf: f32, verbuf: f32) -> Vec2 {
     Vec2::new(c.width(2, s) + horbuf, c.line_height(2) + verbuf)
@@ -825,7 +821,7 @@ fn status(p: &mut ChildSpawnerCommands, c: &mut Ctx, v: &mut StatsView, s: &Snap
             let fill = selected.then(|| amber(FILL.0).with_alpha(FILL.1 / 255.0));
             c.boxed(p, r, amber(LINE), fill);
         }
-        c.text(p, 2, name, r.min.x + SUB_HORBUF / 2.0, box_text_top(c, r.min.y, h), Align::Left, bright());
+        c.text(p, 2, name, r.min.x + SUB_HORBUF / 2.0, box_text_top(c, r.min.y, h), Align::Left, c.bright());
         spots.push((r, Spot::Sub(i)));
     }
     // Keep the existing slots: Stimpak, limb switch, Doctor's Bag; or RadAway, Rad-X.
@@ -840,7 +836,7 @@ fn status(p: &mut ChildSpawnerCommands, c: &mut Ctx, v: &mut StatsView, s: &Snap
         // hypothesis: bright with its box when pointed at; design: owner 2026-10-27, a
         // Stimpak or Doctor's Bag that would heal is lit (`Hints::lit`)].
         let lit = i == SWITCH_LIMBS || s.hints.lit[i];
-        let colour = if hovered || lit { bright() } else { amber(DIMMED) };
+        let colour = if hovered || lit { c.bright() } else { amber(DIMMED) };
         if hovered {
             c.boxed(p, r, amber(LINE), None);
         }
@@ -868,16 +864,16 @@ fn condition(p: &mut ChildSpawnerCommands, c: &mut Ctx, v: &StatsView, s: &Snaps
     let crippled = |i: usize| s.limbs[i] <= 0.0;
     // A crippled piece by its "_broken" picture [hypothesis: the files' names].
     let piece = boy_picture;
-    c.image_cut(p, &piece("head", crippled(0)), head.x, head.y, head_size.x, head_size.y, z, bright());
+    c.image_cut(p, &piece("head", crippled(0)), head.x, head.y, head_size.x, head_size.y, z, c.bright());
     // The face [hypothesis: face_00, the smile on the owner's screenshot; when the
     // others (01–04, 10) show is not known], centred in the head's height and 16 lower.
     let face_size = FACE.1 * z;
-    c.image_cut(p, BOY_FACE, head.x + FACE.0.x, head.y + (head_size.y - face_size.y) / 2.0 + FACE.0.y * z, face_size.x, face_size.y, z, bright());
+    c.image_cut(p, BOY_FACE, head.x + FACE.0.x, head.y + (head_size.y - face_size.y) / 2.0 + FACE.0.y * z, face_size.x, face_size.y, z, c.bright());
     let torso = head + TORSO.0 * z;
-    c.image_cut(p, &piece("torso", crippled(1)), torso.x, torso.y, TORSO.1.x * z, TORSO.1.y * z, z, bright());
+    c.image_cut(p, &piece("torso", crippled(1)), torso.x, torso.y, TORSO.1.x * z, TORSO.1.y * z, z, c.bright());
     for (i, (place, size, name)) in LIMB_PIECES.iter().enumerate() {
         let y = if i == 0 { place.y } else { place.y * z };
-        c.image_cut(p, &piece(name, crippled(i + 2)), torso.x + place.x * z, torso.y + y, size.x * z, size.y * z, z, bright());
+        c.image_cut(p, &piece(name, crippled(i + 2)), torso.x + place.x * z, torso.y + y, size.x * z, size.y * z, z, c.bright());
     }
     // The bars, from the head: its bracket's file, place, the bar's x in it, and where
     // "Crippled" goes (right of the bracket's x, and down by the bar's y or not).
@@ -903,11 +899,11 @@ fn condition(p: &mut ChildSpawnerCommands, c: &mut Ctx, v: &StatsView, s: &Snaps
         if crippled(i) {
             // The bracket gives way to the word [documented: the text shows when the bar
             // does not; hypothesis: the word, `sStatsCrippled` is not in the masters].
-            c.text(p, 2, "Crippled", b.x + text_x, b.y + if text_down { BAR_Y } else { 0.0 }, Align::Left, bright());
+            c.text(p, 2, "Crippled", b.x + text_x, b.y + if text_down { BAR_Y } else { 0.0 }, Align::Left, c.bright());
             continue;
         }
-        c.image_cut(p, &path, b.x, b.y, w, METER_HEIGHT, 1.0, bright());
-        c.line(p, b.x + bar_x, b.y + BAR_Y, BAR_LENGTH * s.limbs[i] as f32, METER_HEIGHT - BAR_Y, bright());
+        c.image_cut(p, &path, b.x, b.y, w, METER_HEIGHT, 1.0, c.bright());
+        c.line(p, b.x + bar_x, b.y + BAR_Y, BAR_LENGTH * s.limbs[i] as f32, METER_HEIGHT - BAR_Y, c.bright());
     }
     // The name and level under him [observed: "Loot - Level 1"], centred, its middle on
     // the area's foot.
@@ -916,7 +912,7 @@ fn condition(p: &mut ChildSpawnerCommands, c: &mut Ctx, v: &StatsView, s: &Snaps
         None => s.name.clone(),
     };
     let th = c.line_height(2);
-    c.text(p, 2, &name, STATUS.min.x + STATUS.width() / 2.0, STATUS.max.y - th / 2.0, Align::Centre, bright());
+    c.text(p, 2, &name, STATUS.min.x + STATUS.width() / 2.0, STATUS.max.y - th / 2.0, Align::Centre, c.bright());
 }
 
 /// RAD: the resistance and the meter.
@@ -931,26 +927,26 @@ fn radiation(p: &mut ChildSpawnerCommands, c: &mut Ctx, s: &Snapshot) {
     let width = bracket_x + left_edge - 10.0;
     let top = o.y + RAD_Y;
     p.spawn((Node { overflow: Overflow::clip(), ..at(o.x, top, width, bracket.y) }, Pickable::IGNORE)).with_children(|q| {
-        c.image_cut(q, RAD_BRACKET, width - bracket.x, 0.0, bracket.x, bracket.y, z, bright());
-        c.text(q, 2, "RAD RESIST", 0.0, NAME_Y, Align::Left, bright());
+        c.image_cut(q, RAD_BRACKET, width - bracket.x, 0.0, bracket.x, bracket.y, z, c.bright());
+        c.text(q, 2, "RAD RESIST", 0.0, NAME_Y, Align::Left, c.bright());
         let level = s.rad_resist.map_or("--".to_string(), |r| format!("{}%", model::whole(r)));
-        c.text(q, 2, &level, width - 20.0, NAME_Y, Align::Right, bright());
+        c.text(q, 2, &level, width - 20.0, NAME_Y, Align::Right, c.bright());
     });
     // The meter.
     let meter = c.picture_size(RAD_METER).unwrap_or(Vec2::new(512.0, 128.0)) * z;
     let mx = o.x + bracket_x;
-    c.image_cut(p, RAD_METER, mx, top, meter.x, meter.y, z, bright());
-    c.text(p, 2, "RADS", mx + left_edge, top + NAME_Y, Align::Left, bright());
+    c.image_cut(p, RAD_METER, mx, top, meter.x, meter.y, z, c.bright());
+    c.text(p, 2, "RADS", mx + left_edge, top + NAME_Y, Align::Left, c.bright());
     let (zero, full) = (RAD_ZERO * z, RAD_FULL * z);
     // [observed: no "0" at the zero mark on the owner's screenshot, nor a number at the
     // arrow at 0 rads; hypothesis: a 0 is not written.]
-    c.text(p, 2, &model::whole(RAD_MAX / 2.0), mx + zero + (full - zero) / 2.0, top - 28.0, Align::Centre, bright());
-    c.text(p, 2, &model::whole(RAD_MAX), mx + meter.x, top - 28.0, Align::Right, bright());
+    c.text(p, 2, &model::whole(RAD_MAX / 2.0), mx + zero + (full - zero) / 2.0, top - 28.0, Align::Centre, c.bright());
+    c.text(p, 2, &model::whole(RAD_MAX), mx + meter.x, top - 28.0, Align::Right, c.bright());
     let arrow = Vec2::new(RAD_ARROW.0, RAD_ARROW.1) * z;
     let ax = mx + zero - arrow.x / 2.0 + (full - zero) * (s.rads.min(RAD_MAX) / RAD_MAX) as f32;
-    c.image_cut(p, "Interface\\Shared\\Arrow\\pointer_tail.dds", ax, top + RAD_ARROW.2, arrow.x, arrow.y, z, bright());
+    c.image_cut(p, "Interface\\Shared\\Arrow\\pointer_tail.dds", ax, top + RAD_ARROW.2, arrow.x, arrow.y, z, c.bright());
     if s.rads >= 0.5 {
-        c.text(p, 2, &model::whole(s.rads), ax, top + RAD_ARROW.2 + arrow.y - 24.0, Align::Right, bright());
+        c.text(p, 2, &model::whole(s.rads), ax, top + RAD_ARROW.2 + arrow.y - 24.0, Align::Right, c.bright());
     }
 }
 
@@ -959,7 +955,7 @@ fn effects(p: &mut ChildSpawnerCommands, c: &mut Ctx, s: &Snapshot) {
     let th = c.line_height(2);
     if s.effects.is_empty() {
         // [hypothesis: the words; `sStatsNoEffects` is not in the masters.]
-        c.text(p, 2, "No Effects", STATUS.min.x + STATUS.width() / 2.0, STATUS.min.y + (STATUS.height() - th) / 2.0, Align::Centre, bright());
+        c.text(p, 2, "No Effects", STATUS.min.x + STATUS.width() / 2.0, STATUS.min.y + (STATUS.height() - th) / 2.0, Align::Centre, c.bright());
         return;
     }
     // The list is as high as its lines [hypothesis: fitted to the owner's screenshot,
@@ -972,8 +968,8 @@ fn effects(p: &mut ChildSpawnerCommands, c: &mut Ctx, s: &Snapshot) {
         if y + EFF_ROW > STATUS.max.y {
             break;
         }
-        c.text(p, 2, &e.name, x, y + EFF_TEXT_Y, Align::Left, bright());
-        c.text(p, 2, &e.text, x + EFF_CHANGES_X, y + EFF_TEXT_Y, Align::Left, bright());
+        c.text(p, 2, &e.name, x, y + EFF_TEXT_Y, Align::Left, c.bright());
+        c.text(p, 2, &e.text, x + EFF_CHANGES_X, y + EFF_TEXT_Y, Align::Left, c.bright());
         // A line under each but the last [hypothesis: none under the one line on the
         // screenshot].
         if i + 1 < s.effects.len() {
@@ -1017,13 +1013,13 @@ fn list(p: &mut ChildSpawnerCommands, c: &mut Ctx, v: &StatsView, tab: usize, ro
             let fill = amber(FILL.0).with_alpha(HIGHLIGHT_FILL_ALPHA / 255.0);
             c.boxed(p, Rect::new(item_x, y, item_x + item_w, y + row_h - 1.0), amber(LINE), Some(fill));
         }
-        c.text(p, 2, &row.name, item_x + NAME_X, y + NAME_Y, Align::Left, bright());
+        c.text(p, 2, &row.name, item_x + NAME_X, y + NAME_Y, Align::Left, c.bright());
         let num_x = item_x + item_w - right_buffer - 10.0;
         if let Some(n) = &row.value {
-            c.text(p, 2, n, num_x, y + NAME_Y, Align::Right, bright());
+            c.text(p, 2, n, num_x, y + NAME_Y, Align::Right, c.bright());
         }
         if let Some(m) = &row.mark {
-            c.text(p, 2, m, num_x + 10.0, y + NAME_Y, Align::Left, bright());
+            c.text(p, 2, m, num_x + 10.0, y + NAME_Y, Align::Left, c.bright());
         }
         spots.push((Rect::new(item_x, y, item_x + item_w, y + row_h), Spot::Row(i)));
     }
@@ -1039,8 +1035,8 @@ fn list(p: &mut ChildSpawnerCommands, c: &mut Ctx, v: &StatsView, tab: usize, ro
         let hidden = rows.len() - shown;
         let mh = (len / (hidden + 2) as f32).max(32.0);
         let my = up.max.y + (len - mh) * top as f32 / hidden as f32;
-        if c.image(p, "vert_marker.dds", at(r.min.x + MARKER.0, my, MARKER.1, mh), bright()).is_none() {
-            c.line(p, r.min.x + MARKER.0, my, MARKER.1, mh, bright());
+        if c.image(p, "vert_marker.dds", at(r.min.x + MARKER.0, my, MARKER.1, mh), c.bright()).is_none() {
+            c.line(p, r.min.x + MARKER.0, my, MARKER.1, mh, c.bright());
         }
         spots.push((up, Spot::ListUp));
         spots.push((down, Spot::ListDown));
@@ -1049,8 +1045,8 @@ fn list(p: &mut ChildSpawnerCommands, c: &mut Ctx, v: &StatsView, tab: usize, ro
 
 fn arrow(p: &mut ChildSpawnerCommands, c: &mut Ctx, r: Rect, name: &str) {
     let path = format!("Interface\\Shared\\scrollbar\\{name}");
-    if c.image(p, &path, at(r.min.x, r.min.y, r.width(), r.height()), bright()).is_none() {
-        c.line(p, r.min.x, r.min.y + r.height() / 2.0, r.width(), THICK, bright());
+    if c.image(p, &path, at(r.min.x, r.min.y, r.width(), r.height()), c.bright()).is_none() {
+        c.line(p, r.min.x, r.min.y + r.height() / 2.0, r.width(), THICK, c.bright());
     }
 }
 
@@ -1066,7 +1062,7 @@ fn listed(p: &mut ChildSpawnerCommands, c: &mut Ctx, v: &mut StatsView, s: &Snap
     v.desc_max = 0;
     if let Some(row) = rows.get(v.selected[tab]) {
         if let Some(icon) = &row.icon {
-            c.image_cut(p, icon, d.min.x + (d.width() - ICON.x) / 2.0, d.min.y + ICON_Y, ICON.x, ICON.y, ICON_ZOOM, bright());
+            c.image_cut(p, icon, d.min.x + (d.width() - ICON.x) / 2.0, d.min.y + ICON_Y, ICON.x, ICON.y, ICON_ZOOM, c.bright());
         }
         let sep = Vec2::new(d.min.x + SEPARATOR.0, d.min.y + SEPARATOR.1);
         c.line(p, sep.x, sep.y, d.max.x - sep.x, THICK, amber(LINE));
@@ -1079,7 +1075,7 @@ fn listed(p: &mut ChildSpawnerCommands, c: &mut Ctx, v: &mut StatsView, s: &Snap
         v.set_desc_bound(((text_h - DESC_HEIGHT) / DESC_STEP).ceil().max(0.0) as usize);
         let scrolled = v.desc as f32 * DESC_STEP;
         p.spawn((Node { overflow: Overflow::clip(), ..at(dr.min.x, dr.min.y, dr.width(), dr.height()) }, Pickable::IGNORE)).with_children(|q| {
-            c.paragraph(q, 2, &row.description, 0.0, DESC_TOP - scrolled, dr.width(), PITCH, bright());
+            c.paragraph(q, 2, &row.description, 0.0, DESC_TOP - scrolled, dr.width(), PITCH, c.bright());
         });
         if v.desc_max > 0 {
             let x = dr.max.x;
@@ -1122,7 +1118,7 @@ fn general(p: &mut ChildSpawnerCommands, c: &mut Ctx, v: &mut StatsView, s: &Sna
             let h = 290.0 + th;
             let top = r.min.y + (GENERAL_HEIGHT - h) / 2.0;
             if let Some(icon) = &st.icon {
-                c.image_cut(p, icon, bx - 32.0, top - 80.0, 256.0 * ICON_ZOOM, 350.0, ICON_ZOOM, bright());
+                c.image_cut(p, icon, bx - 32.0, top - 80.0, 256.0 * ICON_ZOOM, 350.0, ICON_ZOOM, c.bright());
             }
             centred(p, c, st.title, mid, top + 290.0, bw);
             centred(p, c, &st.name, mid, top + 340.0, bw);
@@ -1135,7 +1131,7 @@ fn general(p: &mut ChildSpawnerCommands, c: &mut Ctx, v: &mut StatsView, s: &Sna
         let top = r.min.y + (GENERAL_HEIGHT - h) / 2.0;
         centred(p, c, &format!("Karma: {word}"), mid, top, bw);
         let path = karma_picture(picture);
-        c.image_cut(p, &path, bx - 32.0, top - 60.0, 256.0 * ICON_ZOOM, 310.0, ICON_ZOOM, bright());
+        c.image_cut(p, &path, bx - 32.0, top - 60.0, 256.0 * ICON_ZOOM, 310.0, ICON_ZOOM, c.bright());
         let mut y = top + 270.0;
         if let Some(title) = &s.karma_title {
             centred(p, c, title, mid, y, bw);
@@ -1154,10 +1150,10 @@ fn general(p: &mut ChildSpawnerCommands, c: &mut Ctx, v: &mut StatsView, s: &Sna
             c.boxed(p, sr, amber(LINE), None);
         }
         let ty = box_text_top(c, top, size.y);
-        c.text(p, 2, name, right - HINT_HORBUF / 2.0, ty, Align::Right, bright());
+        c.text(p, 2, name, right - HINT_HORBUF / 2.0, ty, Align::Right, c.bright());
         // R, with a controller X (`stats_menu.xml`'s, `crate::pad::menu_buttons`).
         let key = crate::pad::hint(&[KeyCode::KeyR], crate::pad::MenuAt { code: Some(fnv_game::game::menus::STATS), tab: 4 });
-        c.text(p, 2, &key, right + HINT_KEY_GAP, ty, Align::Left, bright());
+        c.text(p, 2, &key, right + HINT_KEY_GAP, ty, Align::Left, c.bright());
         spots.push((sr, Spot::Switch));
     }
     if rows.is_empty() && v.reputation {
@@ -1186,7 +1182,7 @@ pub fn karma_picture(picture: &str) -> String {
 /// `s` broken at `wrap`, each line centred on `mid`.
 fn centred(p: &mut ChildSpawnerCommands, c: &mut Ctx, s: &str, mid: f32, top: f32, wrap: f32) {
     for (i, l) in c.lines(2, s, Some(wrap)).iter().enumerate() {
-        c.set(p, 2, l, mid, top + PITCH * i as f32, Align::Centre, bright());
+        c.set(p, 2, l, mid, top + PITCH * i as f32, Align::Centre, c.bright());
     }
 }
 

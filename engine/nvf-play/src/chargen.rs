@@ -265,6 +265,14 @@ fn sync(mut st: ResMut<ChargenMenus>, script: Option<ResMut<ScriptState>>, sim: 
             }
             st.dirty = true;
         }
+        // SetTextInputExtendedProps on a later frame reaches the open box (#2018).
+        if let Some(OpenMenu::Name(m)) = st.open.as_mut() {
+            let changed = with_game(&mut script, &mut sim, |g| g.text_input().is_some_and(|t| m.update_rules(t))).unwrap_or(false);
+            if changed {
+                info!("script: text input menu rules changed");
+                st.dirty = true;
+            }
+        }
     }
     let code = open_code(&script).filter(|&c| has_own_menu(c) && c != menus::LOVE_TESTER);
     if st.open.as_ref().map(OpenMenu::code) == code {

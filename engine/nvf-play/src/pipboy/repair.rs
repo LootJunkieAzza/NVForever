@@ -37,7 +37,7 @@
 //!   (`crate::tiles::repair_menu`, repair.md §5.1): the rules, sounds and log lines here stay, and
 //!   what the tiles are asked comes in as [`RepairInput`].
 
-use super::frame::{self, Align, Card, Ctx, LINE, MAIN, TEXT};
+use super::frame::{self, Align, Card, Ctx, LINE, MAIN};
 use super::{Page, PipBoy};
 use crate::interface::{pipboy_amber as amber, at};
 use crate::menu::model::{Mode, Side};
@@ -444,7 +444,7 @@ fn bar(p: &mut ChildSpawnerCommands, r: Rect, fill: f32, color: Color) {
 
 /// The repair list in place of the ITEMS page's body.
 pub fn draw_list(p: &mut ChildSpawnerCommands, c: &mut Ctx, s: &Session, combat: Option<&crate::combat::Combat>) {
-    let bright = amber(TEXT);
+    let bright = c.bright();
     let line = amber(LINE);
     let o = &s.offer;
     frame::heading(p, c, Page::Items.title(), &[Card::new(MAIN.width() - SKILL_W, SKILL_W, "Repair Skill", format!("{:.0}", s.skill.max(0.0).floor()))]);

@@ -32,7 +32,7 @@
 //!   `UIRepairWeapon` [hypothesis].
 //! - Test aid: the Pip-Boy aid's `mod=open|down|up|use|cancel` (`test_aid.rs`).
 
-use super::frame::{self, Align, Ctx, Hint, LINE, MAIN, TEXT};
+use super::frame::{self, Align, Ctx, Hint, LINE, MAIN};
 use super::{Page, PipBoy};
 use crate::interface::{pipboy_amber as amber, at};
 use crate::menu::model::{Mode, Side};
@@ -460,7 +460,7 @@ fn bar(p: &mut ChildSpawnerCommands, r: Rect, fill: f32, color: Color) {
 /// The mod menu in place of the ITEMS page's body. `desc` is the chosen mod's
 /// description (IMOD DESC).
 pub fn draw_list(p: &mut ChildSpawnerCommands, c: &mut Ctx, s: &Session, combat: Option<&crate::combat::Combat>, desc: Option<&str>) {
-    let bright = amber(TEXT);
+    let bright = c.bright();
     let line = amber(LINE);
     let o = &s.offer;
     frame::heading_named(p, c, Page::Items.title(), &o.name, NAME_RIGHT_IN);

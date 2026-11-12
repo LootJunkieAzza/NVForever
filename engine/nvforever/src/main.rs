@@ -24,6 +24,8 @@ macro_rules! eprintln {
 }
 
 mod activators;
+mod reports;
+mod native_crash;
 mod nif_mirror;
 mod anim_paths;
 mod actor_feet;
@@ -44,6 +46,7 @@ mod alert;
 mod anim_sounds;
 mod cpu_placement;
 mod crash;
+mod events_log;
 mod creature_pace;
 mod creature_stance;
 mod creator_view;
@@ -102,6 +105,7 @@ mod destroyed;
 mod npc_grenades;
 mod npc_stimpaks;
 mod use_weapon;
+mod ui_attach;
 mod provoked;
 mod weapons;
 mod lodgen;
@@ -116,6 +120,7 @@ mod player_body;
 mod stealth_field;
 mod stray_commands;
 mod post;
+mod quality;
 mod particles;
 mod shot_fx;
 mod ragdoll;
@@ -162,6 +167,7 @@ mod terrain;
 mod texture_swap;
 mod effect_particles;
 mod effect_shaders;
+mod vats_highlight;
 mod tree;
 mod treelod;
 mod underwater;
@@ -954,6 +960,8 @@ fn main() -> AppExit {
     }
     // The run log and crash reports in NVForever's home (crash.rs).
     crash::install(args.data(), args.handoff.is_some());
+    // Player reports: the player's choice, asked once on a player's start (reports/).
+    reports::decide(developer_data, args.handoff.is_some());
     let fail = |e: String| {
         eprintln!("error: {e}");
         crash::early_exit(&e);
@@ -1349,7 +1357,7 @@ fn main() -> AppExit {
             .disable::<bevy::ui_widgets::TabPlugin>()
             .disable::<bevy::input_focus::pointer_focus::PointerFocusPlugin>()
             // The console's lines go to the run log too (crash.rs).
-            .set(bevy::log::LogPlugin { custom_layer: crash::file_layer, fmt_layer: crash::console_layer, ..default() })
+            .set(bevy::log::LogPlugin { custom_layer: crash::file_layer, fmt_layer: crash::console_layer, filter: reports::log_filter(), ..default() })
             .set(WindowPlugin {
                 // Scale factor 1 so screenshots are exactly --size pixels on any display.
                 primary_window: Some(Window {
@@ -1458,7 +1466,8 @@ fn main() -> AppExit {
     .insert_resource(args.clone())
     .add_systems(Startup, (world::setup_root, setup, sky::setup_sky))
     .add_systems(Update, sky::tell_sky_colors.after(sky::update_sky))
-    .add_systems(Update, (fly::fly.run_if(move || play.is_none()), sky::sky_keys, sky::weather_region, sky::update_sky, sky::interior_clip, sky::update_clouds, sky::update_night_sky, world::stream.run_if(world::world_not_held), imposters::update, fade::fade_cells, world::face_billboards, lod::update_lod, treelod::update_distant_trees, overlay, keys).chain())
+    .add_systems(Update, (fly::fly.run_if(move || play.is_none()), sky::sky_keys.run_if(move || play.is_none()), sky::weather_region, sky::update_sky, sky::interior_clip, sky::update_clouds, sky::update_night_sky, world::stream.run_if(world::world_not_held), imposters::update, fade::fade_cells, world::face_billboards, lod::update_lod, treelod::update_distant_trees, overlay, keys).chain())
+    .add_systems(Update, world::note_other_cameras.after(world::stream))
     .add_systems(Update, (cell_buffer::remember, cell_buffer::tell_game).chain().after(world::stream))
     .add_systems(Update, world::script_markers.before(world::stream))
     .add_systems(Update, world::draw_waiting_actors.after(world::stream))
@@ -1500,7 +1509,8 @@ fn main() -> AppExit {
     .add_systems(Startup, (crash::report_start, report_archives))
     .add_systems(Startup, move || cpu_placed.report())
     .add_plugins(start_times::StartTimesPlugin)
-    .add_systems(Last, (crash::note_place, crash::report_exit, stray_commands::report));
+    .add_plugins(reports::ReportsPlugin { plugins: args.plugins.clone(), data: args.data().to_path_buf(), mo2: fnv_install::mo2::usvfs_loaded(), handoff: args.handoff.is_some(), start_kind: if args.load.is_some() { "save_load" } else { "new_game" } })
+    .add_systems(Last, (crash::note_place, events_log::note_context, crash::report_exit, stray_commands::report));
     if let Some(probe) = actor_feet::from_env() {
         app.insert_resource(probe).add_systems(Last, actor_feet::probe);
     }
@@ -1554,6 +1564,7 @@ fn main() -> AppExit {
         app.add_plugins(texture_swap::TextureSwapPlugin);
         // Effect shaders and actor alpha scripts and magic effects ask for (effect_shaders.rs).
         app.add_plugins(effect_shaders::EffectShadersPlugin);
+        app.add_plugins(vats_highlight::VatsHighlightPlugin);
         // How many refracting meshes are in view, for the log (refraction.rs).
         app.add_plugins(refraction::RefractionPlugin);
         // The lock and the bobby pin of the lockpicking menu (lockpick_view.rs).
@@ -1616,6 +1627,8 @@ fn main() -> AppExit {
             app.add_plugins(own_sounds::OwnSoundsPlugin);
             // The conversation's actor turns to the player (dialogue_look.rs).
             app.add_plugins(dialogue_look::DialogueLookPlugin);
+            // AttachUIComponent's rects over their model nodes (ui_attach.rs, #1835).
+            app.add_plugins(ui_attach::UiAttachPlugin);
             // Who says a line to someone turns to them (speech_look.rs).
             app.add_plugins(speech_look::SpeechLookPlugin);
             // Who perceives whom (detection.rs): the drawn actors and the player.
@@ -1746,7 +1759,10 @@ fn main() -> AppExit {
             // The start's loading screen does not count: the run's seconds are counted
             // from when it comes down (nvf_play::loading::StartCover).
             if !clocks.3.as_deref().is_some_and(|l| l.starting()) {
-                t.0 += if clocks.0.is_paused() { clocks.1.delta_secs().min(0.25) } else { time.delta_secs() };
+                // (A clock running at no speed, the classic VATS style's full stop, counts
+                // real time as well.)
+                let still = clocks.0.is_paused() || nvf_play::pause::stands_still(false, clocks.0.relative_speed());
+                t.0 += if still { clocks.1.delta_secs().min(0.25) } else { time.delta_secs() };
             }
             t.1 += 1;
             // The seconds a late start held the world test aids back (`--play` with
@@ -2027,10 +2043,9 @@ fn keys(
     input: Res<ButtonInput<KeyCode>>,
     play_state: Option<Res<State<nvf_play::PlayState>>>,
     mut commands: Commands,
-    mut n: Local<u32>,
     tweaks: Option<Res<nvf_play::tweaks::TweakSettings>>,
     mut hidden: Option<ResMut<nvf_play::free_cam::MenusHidden>>,
-    mut held: Local<Option<(u8, bool, String)>>,
+    mut held: Local<Option<(u8, bool, std::path::PathBuf)>>,
 ) {
     // A screenshot under the Shift Hides Menus tweak: the HUD goes for a few frames, the
     // picture is taken in the third, and the HUD comes back as it was (docs/design/tweaks.md).
@@ -2052,19 +2067,31 @@ fn keys(
     if input.just_pressed(KeyCode::Escape) && play_state.is_none() {
         commands.write_message(AppExit::Success);
     }
-    // The player's Screenshot Key tweak picks the key (docs/design/tweaks.md).
+    // The screenshot key (F12, or the player's Screenshot Key tweak, docs/design/tweaks.md):
+    // a shot in the home's screenshots folder at the first free number, through the write
+    // guard. It went to the working folder unguarded, and the count restarted at 1 each
+    // run, over the last run's shots [#1987].
     if input.just_pressed(nvf_play::tweaks::screenshot_key(tweaks.as_deref())) {
-        *n += 1;
-        let path = format!("nvforever-{:03}.png", *n);
+        let dir = fnv_install::EngineHome::user().map_or_else(|| std::path::PathBuf::from("."), |h| h.screenshots());
+        let path = fnv_install::first_unused(&dir, "nvforever-", "png");
+        let ready = fnv_install::guard_write(&path, None)
+            .map_err(|e| e.to_string())
+            .and_then(|()| std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display())));
         let shift = input.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]);
-        match hidden.as_mut().filter(|_| shift && tweaks.as_ref().is_some_and(|t| t.shift_screenshot_hides)) {
-            Some(h) => {
-                *held = Some((0, h.0, path));
-                h.0 = true;
+        match ready {
+            Ok(()) => {
+                info!("screenshot: {}", path.display());
+                match hidden.as_mut().filter(|_| shift && tweaks.as_ref().is_some_and(|t| t.shift_screenshot_hides)) {
+                    Some(h) => {
+                        *held = Some((0, h.0, path));
+                        h.0 = true;
+                    }
+                    None => {
+                        commands.spawn(Screenshot::primary_window()).observe(save_to_disk(path));
+                    }
+                }
             }
-            None => {
-                commands.spawn(Screenshot::primary_window()).observe(save_to_disk(path));
-            }
+            Err(e) => warn!("screenshot not taken: {e}"),
         }
     }
 }

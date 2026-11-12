@@ -296,6 +296,8 @@ pub fn register(app: &mut App) {
     register_display(app);
     register_distances(app);
     register_graphics(app);
+    // The Quality and Enhanced effects rows over the rows above (#1966).
+    crate::quality::register(app, GROUP_GRAPHICS);
     // Renderer edits are latched by the shared settings setters, including Defaults.
     // Draw-distance streaming has no resume readiness contract yet (#1820) [design].
     register_pipeline_waits(app);
@@ -453,7 +455,7 @@ fn register_counter_rows(app: &mut App) {
         row(
             "fps-counter-fps",
             "Counter: frame rate",
-            "The frames a second and the mean frame time of the last half second, and the 1% low (the mean of the slowest hundredth of the frames of the last 10 seconds) or the slowest frame of the last 10 seconds, as the row below chooses. Measured from the time between frames.",
+            "The frames a second and the mean frame time of the last half second, and the 1% low (the mean of the slowest hundredth of the frames of the last 10 seconds) or the slowest frame of the last 10 seconds, as the row below chooses. Measured from the time between frames. While frame generation shows generated frames, the frames shown a second come first and the rendered ones in brackets; the frame times are the rendered frames'.",
             |w| w.resource::<FpsCounter>().rows.fps,
             |w, on| w.resource_mut::<FpsCounter>().rows.fps = on,
         ),

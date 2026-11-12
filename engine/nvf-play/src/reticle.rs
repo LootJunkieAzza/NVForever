@@ -532,7 +532,7 @@ fn draw(
     (combat, hostile, bar, camera, time, dynamic, control): (Option<Res<crate::combat::Combat>>, Option<Res<crate::hud_target::AimHostile>>, Option<Res<crate::hud_target::HudTarget>>, Query<&Projection, With<crate::PlayerCamera>>, Res<Time>, Option<Res<DynamicCrosshair>>, Option<Res<crate::control::PlayerControl>>),
     mut spread: Local<f32>,
     mut logged: Local<(bool, i32, bool, Option<String>, Option<bool>, Option<bool>, Option<CrosshairStyle>)>,
-    (locks, bindings, creator, sights, scope, driven, kill_cam, tweaks, anim): (
+    (locks, bindings, creator, sights, scope, driven, kill_cam, tweaks, anim, vats): (
         Option<Res<ControlLocks>>,
         Option<Res<crate::bindings::Bindings>>,
         Option<Res<crate::creator::CreatorMenu>>,
@@ -542,6 +542,7 @@ fn draw(
         Option<Res<crate::kill_cam::KillCam>>,
         Option<Res<crate::tweaks::TweakSettings>>,
         Option<Res<crate::combat::WeaponAnim>>,
+        Option<Res<crate::vats_mode::VatsMode>>,
     ),
     data: Option<Res<GameData>>,
     mut images: ResMut<Assets<Image>>,
@@ -565,7 +566,12 @@ fn draw(
     // Nor while a kill camera plays (`crate::kill_cam`) [owner's playtest request #1034],
     // nor under the weapon wheel (docs/design/weapon-wheel.md §7).
     let killcam = kill_cam.is_some_and(|k| k.active());
-    let playing = *state.get() == PlayState::Playing && !creator.is_some_and(|c| c.is_open()) && !held && !killcam && !wheel.is_some_and(|w| w.is_open());
+    // Nor while the classic VATS style chooses targets: the pointer and the target screen
+    // have the view [observed: the owner's screenshots of the original's VATS, 2026-11-10,
+    // no crosshair and no prompt].
+    // Nor while it plays its queued attacks (`VatsMode::playing_back`).
+    let targeting = vats.is_some_and(|v| v.selected().is_some() || v.playing_back());
+    let playing = *state.get() == PlayState::Playing && !creator.is_some_and(|c| c.is_open()) && !held && !killcam && !targeting && !wheel.is_some_and(|w| w.is_open());
     // What the idle keeps off the screen, once per target.
     let kept = held.then(|| target.0.as_ref().map(|t| t.name.clone())).flatten();
     if kept != logged.3 {
