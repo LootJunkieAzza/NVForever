@@ -1170,8 +1170,18 @@ fn keep_world(tables: Res<Tables>, open: Res<OpenTable>, mut keep: ResMut<KeepWo
     keep.set_if_neq(KeepWorld(on));
 }
 
-/// The watchers' panel: the near players' tables.
-fn watch_panel(mut commands: Commands, time: Res<Time<Real>>, mut tables: ResMut<Tables>, open: Res<OpenTable>, mut panel: Query<(&mut Text, &mut Visibility), With<WatchPanel>>) {
+/// The watchers' panel: the near players' tables. Not over a match's end view, which
+/// hides the whole HUD (`crate::hud::HudView::end_view`) [design: ship 14's laptop
+/// slots-coop exit, 2026-11-12: "Guest at the slots: bet 10, spinning" stayed over the
+/// host's seated end view].
+fn watch_panel(
+    mut commands: Commands,
+    time: Res<Time<Real>>,
+    mut tables: ResMut<Tables>,
+    open: Res<OpenTable>,
+    hud: Option<Res<crate::hud::HudView>>,
+    mut panel: Query<(&mut Text, &mut Visibility), With<WatchPanel>>,
+) {
     let now = time.elapsed_secs();
     tables.seen.retain(|_, v| now - v.3 < VIEW_STALE);
     let mut lines = Vec::new();
@@ -1189,7 +1199,8 @@ fn watch_panel(mut commands: Commands, time: Res<Time<Real>>, mut tables: ResMut
             if t.0 != text {
                 t.0 = text.clone();
             }
-            vis.set_if_neq(if text.is_empty() { Visibility::Hidden } else { Visibility::Inherited });
+            let cut = hud.as_deref().is_some_and(|h| h.end_view);
+            vis.set_if_neq(if text.is_empty() || cut { Visibility::Hidden } else { Visibility::Inherited });
         }
         Err(_) if !text.is_empty() => {
             commands.spawn((
