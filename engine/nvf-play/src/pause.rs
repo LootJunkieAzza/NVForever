@@ -816,7 +816,7 @@ const WAITING_PAD: &str = "Press a button...";
 const DEVICE_ROW: &str = "Input Device";
 // [design, #2200] NVForever's own label and help, translated by `tr`.
 const AUTOMATIC_INPUT_ROW: &str = "Automatic Input Switching";
-const AUTOMATIC_INPUT_NOTE: &str = "On: a controller button or a stick or trigger past its dead zone selects Controller; a key or mouse click selects Keyboard and Mouse. The switching input is consumed until release. Mouse motion does not switch. Off: choose Input Device manually. Saved in [Controls] of NVForever.ini.";
+const AUTOMATIC_INPUT_NOTE: &str = "On: a controller button or a stick or trigger past its dead zone selects Controller; a key or mouse click selects Keyboard and Mouse. First release the current device's buttons and centre its sticks/triggers, then press again to switch on a later frame. Only the switching press is ignored; later holds/repeats and all releases work. Mouse motion does not switch. Off: choose Input Device manually. Saved in [Controls] of NVForever.ini.";
 /// The Controls tab's last row with a controller chosen (`crate::rumble`).
 const RUMBLE_ROW: &str = "Rumble";
 /// The Controls tab's row after the controls (`bInvertYValues`).

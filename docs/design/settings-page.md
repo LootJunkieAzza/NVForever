@@ -131,9 +131,11 @@ same `row_line`.
 [design, #2200; `settings_view.rs::ControlRow::rows`] The Controls tab lists Input Device,
 Automatic Input Switching (default ON), the 29 controls, Invert Y, the device's sensitivity
 and Vertical Sensitivity, and with a controller Rumble, then the four controller rows.
-Automatic Input Switching selects and saves Input Device on use; its input is consumed
-until release/neutral (controller.md section 1). Turning it off keeps device selection
-manual. Its Defaults puts back the controls of the device in use (`bindings::reset`, as before) and the tab's
+Automatic Input Switching selects and saves Input Device on fresh use only when the old
+device was idle at frame start and has no release in that frame. Release its buttons and
+return sticks/triggers to neutral, then press again on a later frame. Only the switching
+press edge is ignored; later holds/repeats and all releases work (controller.md section 1).
+Turning it off keeps device selection manual. Its Defaults puts back the controls of the device in use (`bindings::reset`, as before) and the tab's
 registered rows; Defaults on every other tab puts back every registered row, as before
 (`pause menu: settings back to their defaults`). A control waiting for its new key is
 `pause::Listening` (the pad presses no menu keys meanwhile).

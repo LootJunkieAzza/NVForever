@@ -1249,10 +1249,14 @@ fn switching_cancels_quantity_meter_drag_and_preserves_the_mouse_release() {
     let pad = app.world_mut().spawn(Gamepad::default()).id();
     app.world_mut().write_message(RawGamepadEvent::Button(RawGamepadButtonChangedEvent::new(pad, GamepadButton::South, 1.0)));
     app.update();
+    assert_eq!(app.world().resource::<Bindings>().device, InputDevice::KeyboardMouse);
+    crate::bindings::set_device(app.world_mut(), InputDevice::Controller);
     assert_eq!(app.world().resource::<Bindings>().device, InputDevice::Controller);
     assert_ne!(app.world().get::<PointerState>(meter), Some(&PointerState::Pressed));
     app.world_mut().write_message(KeyboardInput { key_code: KeyCode::KeyX, logical_key: Key::Character("x".into()), state: ButtonState::Pressed, text: None, repeat: false, window: Entity::PLACEHOLDER });
     app.update();
+    assert_eq!(app.world().resource::<Bindings>().device, InputDevice::Controller);
+    crate::bindings::set_device(app.world_mut(), InputDevice::KeyboardMouse);
     assert_eq!(app.world().resource::<Bindings>().device, InputDevice::KeyboardMouse);
     app.world_mut().write_message(MouseButtonInput { button: MouseButton::Left, state: ButtonState::Released, window: Entity::PLACEHOLDER });
     app.update();

@@ -1143,10 +1143,8 @@ pub(crate) fn menu_keys(
         }
     }
     for k in mk.held.clone() {
-        if !want.contains(&k) {
-            if !switching.as_ref().is_some_and(|s| s.physical_key_pressed(k)) {
-                keys.release(k);
-            }
+        if !want.contains(&k) && !switching.as_ref().is_some_and(|s| s.physical_key_pressed(k)) {
+            keys.release(k);
         }
     }
     for k in &want {

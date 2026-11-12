@@ -613,6 +613,8 @@ mod tests {
             }
             app.world_mut().write_message(RawGamepadEvent::Button(RawGamepadButtonChangedEvent::new(pad, GamepadButton::North, 1.0)));
             app.update();
+            assert_eq!(app.world().resource::<crate::bindings::Bindings>().device, InputDevice::KeyboardMouse);
+            crate::bindings::set_device(app.world_mut(), InputDevice::Controller);
             assert_eq!(app.world().resource::<crate::bindings::Bindings>().device, InputDevice::Controller);
             app.world_mut().write_message(KeyboardInput { state: ButtonState::Released, ..key });
             app.update();

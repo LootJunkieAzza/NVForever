@@ -28,6 +28,17 @@ INIs keep reading both existing Input Device names and gain the missing switch l
 press or mouse button click selects Keyboard and Mouse. Connection, mouse motion, wheel
 and an already-held input do not select a device. When both devices become active in
 the same frame, the current choice wins; while rebinding, the selected device stays put.
+An automatic switch also requires the old device **idle at frame start, with no release
+in that frame**: no physical keyboard key or mouse button held for Keyboard and Mouse;
+no pad button held or stick/trigger past its dead zone for Controller. Returning an old
+stick/trigger to neutral still waits out that frame. New-device activity while the old
+device is busy is discarded, never queued: release/neutralize the old device, then make
+a fresh press or dead-zone crossing on a later frame. Physical keyboard state excludes
+controller-generated menu keys. `digital_busy` checks held buttons excluding fresh
+presses and includes every release (even a press/release pair); analog history supplies
+frame-start dead-zone occupancy across all connected pads.
+Previous pad button/analog occupancy also waits out a pad's disconnect frame, so
+removing its component cannot bypass the old device's readers.
 `pad/device.rs::switch_on_use` defines this rule; selection calls `bindings::set_device`,
 so the existing INI writer saves it, prompts follow, and the Controls tab shows the
 chosen device's rows, including Stick Sensitivity (`settings_view::ControlRow::rows`).
@@ -59,12 +70,20 @@ Controls rows follow the same setter as manual changes. Synthetic smoke coverage
 `NVF_PLAY_TEST_KEYS=13:pad-A:1,16:enter:1` (`test_aid.rs::real_presses`), not the pause
 menu's `pad:` shortcut, which already translates directly into a menu key.
 
-[design, #2200; `bindings::set_device`] An actual device change, automatic or manual,
-cancels pending release-triggered actions **without committing them**, before readers
-run. Assigning the same device preserves holds. Audit:
+[design, #2200; `pad/device.rs::automatic`, `bindings::set_device`] The **idle gate**
+covers release-triggered actions as a class: an automatic switch cannot split an old
+device's press/hold from its release, or commit/latch its tap, click or timer. Refused
+switch attempts leave that device selected; its real release can finish its own action
+normally, before a later fresh incoming press switches. The setter's existing
+cancellations below remain backstops (including manual selection); they are not a
+complete list of every pending release action. Assigning the same device preserves
+holds. Audit:
 
 | State (file references) | Across a device change |
 |---|---|
+| Pending melee Use hold (`combat::Combat::swings`, `combat::melee`) | Idle gate refuses while held and on release; the switch cannot manufacture the falling trigger that starts a tap swing. Attacks already underway continue. |
+| World Map marker press (`pipboy/data.rs::DataState::press`, `take_input`, `travel_ask`) | Idle gate keeps the original device through the click release, so it cannot ask to travel across an automatic switch. |
+| Dead Eye Block timer (`vats_mode::VatsMode::block_at`, `read_keys`) | Idle gate refuses even when the Block release and incoming pad press arrive together; unmark stays on the original device. |
 | Activate hold on a holdable item (`grab::GrabState::tap`, `released_tap`; `activate::activate`) | Clear the pending tap; no take, steal or other activation. |
 | Weapon-wheel hotkey hold, pending or open (`weapon_wheel::WeaponWheel`) | Clear the pending press and close without selecting/using its picked item. |
 | Toggle POV / orbit held/moved (`control::PlayerControl`) | Cancel without a POV tap; preserve angles, detached state and chosen POV. |
@@ -79,12 +98,14 @@ run. Assigning the same device preserves holds. Audit:
 | Pointer/slider holds (`pause`, `tiles/input`, `ui_pointer`) | Filter switching clicks and clear UI press state; physical mouse-up ends the hold. |
 | Fullscreen Alt bookkeeping (`full_screen_key`) | Every Alt release clears bookkeeping; switching presses use the central filter. |
 
-[design / file refs] Scheduled regressions exercise the real Activate, wheel, pointer,
-report-form, menu-key and PlayerControl readers, including both earlier Enter overlap
-regressions, Alt release and orbit cancellation. Engine tests require execution by the
-main session; a writer's cargo check establishes compilation only.
+[design / file refs] Scheduled regressions exercise the real melee, map input, VATS
+Block, Activate, wheel, pointer, report-form, menu-key and PlayerControl readers,
+including both earlier Enter overlap regressions, Alt release and manual orbit/Ready
+Item cancellation backstops. Busy/refused switching is tested in both directions with
+digital and analog input, release frames, continued incoming holds and later fresh
+presses. Engine tests require execution by the main session; a writer's cargo check establishes compilation only.
 
-[design / file refs] **Input-reader sweep (#2200, round 3).** Each declaration below
+[design / file refs] **Input-reader sweep (#2200, rounds 3-4).** Each declaration below
 uses the central action filter; shared `ControlInput` covers its gameplay consumers
 (including Activate, grab, wheel, control, movement and VATS). Line numbers refer to
 this branch. Test fixtures use synthetic inputs, not game data.
@@ -110,7 +131,7 @@ this branch. Test fixtures use synthetic inputs, not game data.
 | `engine/nvf-play/src/lockpick.rs:526` | `ActionButtons` / `ActionPads` (filtered). |
 | `engine/nvf-play/src/main_menu.rs:412` | `ActionButtons` / `ActionPads` (filtered). |
 | `engine/nvf-play/src/menu.rs:237, 472, 565, 627` | `ActionButtons` / `ActionPads` (filtered). |
-| `engine/nvf-play/src/pad.rs:919, 1122, 1348` | `ActionButtons` / `ActionPads` (filtered). |
+| `engine/nvf-play/src/pad.rs:919, 1122, 1346` | `ActionButtons` / `ActionPads` (filtered). |
 | `engine/nvf-play/src/pause.rs:1983, 2450, 2629, 2647, 2654` | `ActionButtons` / `ActionPads` (filtered). |
 | `engine/nvf-play/src/pipboy/data.rs:725, 730, 734` | `ActionButtons` / `ActionPads` (filtered). |
 | `engine/nvf-play/src/pipboy/hotkey_panel.rs:121` | `ActionButtons` / `ActionPads` (filtered). |
@@ -125,7 +146,7 @@ this branch. Test fixtures use synthetic inputs, not game data.
 | `engine/nvf-play/src/repair.rs:359` | `ActionButtons` / `ActionPads` (filtered). |
 | `engine/nvf-play/src/roulette.rs:420` | `ActionButtons` / `ActionPads` (filtered). |
 | `engine/nvf-play/src/script_hud.rs:391` | `ActionButtons` / `ActionPads` (filtered). |
-| `engine/nvf-play/src/script_input.rs:254` | `ActionButtons` / `ActionPads` (filtered). |
+| `engine/nvf-play/src/script_input.rs:255` | `ActionButtons` / `ActionPads` (filtered). |
 | `engine/nvf-play/src/script_quantity.rs:48` | `ActionButtons` / `ActionPads` (filtered). |
 | `engine/nvf-play/src/slots.rs:401` | `ActionButtons` / `ActionPads` (filtered). |
 | `engine/nvf-play/src/terminal.rs:746, 783` | `ActionButtons` / `ActionPads` (filtered). |
@@ -141,7 +162,7 @@ this branch. Test fixtures use synthetic inputs, not game data.
 | `engine/nvforever/src/terminal_view.rs:244` | `ActionButtons` / `ActionPads` (filtered). |
 
 [design / file refs] Raw-message readers in `chargen.rs::input`, `levelup.rs::input`
-and `console.rs::input` also use `SwitchingInput::allows` (beside the button declarations
+and `console.rs::typing` also use `SwitchingInput::allows` (beside the button declarations
 above); `pad::sideways`, `intro::Film::skipped_by`, `pause::Pressed`,
 `pipboy/hotkey_panel::held_slot` and `pipboy/stats::keys` receive already-filtered views.
 `vats_mode.rs` uses filtered `ControlInput::stick_buttons`; the tutorial uses
@@ -150,14 +171,14 @@ and the setter's press cancellation rather than reading hardware independently.
 
 | Raw/special reader or producer, file:line | Filter or reason it needs no action filter |
 |---|---|
-| `engine/nvf-play/src/pad/device.rs:176` | Hardware capture; produces the central physical keyboard tracker, not actions. |
-| `engine/nvf-play/src/pad/device.rs:188` | Hardware activity detection; owns/clears the frame-local filter, not actions. |
+| `engine/nvf-play/src/pad/device.rs:190` | Hardware capture; produces the central physical keyboard tracker, not actions. |
+| `engine/nvf-play/src/pad/device.rs:202` | Hardware activity detection; owns/clears the frame-local filter, not actions. |
 | `engine/nvf-play/src/full_screen_key.rs:83` | Mutable keyboard shortcut reader: uses `SwitchingInput::filter` and `allows`; releases pass the shared filter. |
-| `engine/nvf-play/src/script_input.rs:70` | Mutable script-input bridge: filters held keyboard/mouse reads with `SwitchingInput::filter`; writes synthetic presses/releases. |
+| `engine/nvf-play/src/script_input.rs:71` | Mutable script-input bridge: filters held keyboard/mouse reads with `SwitchingInput::filter`; writes synthetic presses/releases. |
 | `engine/nvf-play/src/pad.rs:244` | Raw pad identity tracking for labels; does not activate controls. |
 | `engine/nvf-play/src/pad.rs:930` | Raw derived stick history; actions use `filter_sticks` / `ControlInput::pad_is`, avoiding delayed fresh edges. |
 | `engine/nvf-play/src/pad.rs:1121` | Filtered pad reads; mutable keyboard parameter only produces translated presses/releases, preserving physical overlap. |
-| `engine/nvf-play/src/pad.rs:1353` | Connection/removal logging only; no button actions. |
+| `engine/nvf-play/src/pad.rs:1351` | Connection/removal logging only; no button actions. |
 | `engine/nvf-play/src/loading.rs:252` | Existing independent loading gate writes keyboard/mouse state; does not act on input or implement switching consumption. |
 | `engine/nvf-play/src/test_aid.rs:345` | Hardware test-aid producer; mirrors keyboard into detection and precedes automatic selection. |
 | `engine/nvf-play/src/pause.rs:2494` | Keyboard event producer for tests; precedes physical capture. |
@@ -168,7 +189,7 @@ and the setter's press cancellation rather than reading hardware independently.
 | `engine/nvforever/src/reports/form.rs:481` | Raw keyboard messages use public `SwitchingInput::allows`; held modifiers use `ActionButtons`. |
 | `engine/nvf-play/src/rumble.rs:120` | Connected-entity query only sends rumble output; no input action. |
 | `engine/nvf-play/src/pause.rs:2628` | Raw stick history is used only while rebinding (`Listening`), when automatic switching is disabled; other buttons/pads use filtered parameters. |
-| `engine/nvf-play/src/pad.rs:1167` | Pure helper receives a filtered keyboard view and filtered raw messages from its action callers. |
+| `engine/nvf-play/src/pad.rs:1165` | Pure helper receives a filtered keyboard view and filtered raw messages from its action callers. |
 | `engine/nvf-play/src/intro.rs:135` | Pure helper receives filtered button snapshots. |
 | `engine/nvf-play/src/pipboy/hotkey_panel.rs:112` | Pure helper receives a filtered keyboard snapshot. |
 | `engine/nvf-play/src/pipboy/stats/mod.rs:663` | Pure helper receives a filtered keyboard snapshot. |

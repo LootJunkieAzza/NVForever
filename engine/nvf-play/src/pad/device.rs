@@ -8,7 +8,8 @@ use bevy::input::gamepad::GamepadInput;
 use std::{borrow::Cow, hash::Hash};
 use std::collections::HashMap;
 
-/// Fresh hardware activity; analog flags mean a crossing from neutral [design, #2200].
+/// Hardware activity and old-device busy flags; analog activity means a crossing
+/// from neutral [design, #2200].
 #[derive(Default, Clone, Copy)]
 struct Activity {
     key: bool,
@@ -16,12 +17,18 @@ struct Activity {
     button: bool,
     stick: bool,
     trigger: bool,
+    keyboard_busy: bool,
+    controller_busy: bool,
 }
 
-/// Simultaneous activity keeps the selected device; connection/motion is absent from
-/// this rule. Causes have a stable priority for logging [design, #2200].
+/// The old device must be idle; simultaneous activity keeps the selected device.
+/// Connection/motion is absent. Causes have a stable priority [design, #2200].
 fn switch_on_use(current: InputDevice, enabled: bool, a: Activity) -> Option<(InputDevice, &'static str)> {
-    if !enabled {
+    let old_busy = match current {
+        InputDevice::KeyboardMouse => a.keyboard_busy,
+        InputDevice::Controller => a.controller_busy,
+    };
+    if !enabled || old_busy {
         return None;
     }
     let keyboard = a.key || a.mouse;
@@ -31,6 +38,12 @@ fn switch_on_use(current: InputDevice, enabled: bool, a: Activity) -> Option<(In
         (InputDevice::Controller, true, false) => Some((InputDevice::KeyboardMouse, if a.key { "key" } else { "mouse button" })),
         _ => None,
     }
+}
+
+/// Held at frame start or released in this frame: either keeps the old device busy.
+/// Fresh presses are handled by the simultaneous-activity rule [design, #2200].
+fn digital_busy<T: Copy + Eq + Hash + Send + Sync + 'static>(input: &ButtonInput<T>) -> bool {
+    input.get_pressed().any(|b| !input.just_pressed(*b)) || input.get_just_released().next().is_some()
 }
 
 fn analog_active(g: &Gamepad) -> [bool; 4] {
@@ -49,6 +62,7 @@ pub struct SwitchingInput {
     buttons: HashMap<Entity, Vec<GamepadButton>>,
     analog: HashMap<Entity, [bool; 4]>,
     previous: HashMap<Entity, [bool; 4]>,
+    previous_buttons: bool,
 }
 
 impl SwitchingInput {
@@ -194,13 +208,20 @@ pub(crate) fn automatic(world: &mut World) {
     let mut activity = Activity {
         key: held.physical_keys.get_just_pressed().next().is_some(),
         mouse: world.resource::<ButtonInput<MouseButton>>().get_just_pressed().next().is_some(),
+        keyboard_busy: digital_busy(&held.physical_keys) || digital_busy(world.resource::<ButtonInput<MouseButton>>()),
+        // Include pads removed this frame: disconnect must not split a pending hold
+        // from the old device's readers [design, #2200].
+        controller_busy: held.previous_buttons || held.previous.values().flatten().any(|active| *active),
         ..default()
     };
     let mut pads = world.query::<(Entity, &Gamepad)>();
     let mut previous = HashMap::new();
+    let mut buttons_down = false;
     for (e, g) in pads.iter(world) {
         let now = analog_active(g);
         let before = held.previous.get(&e).copied().unwrap_or_default();
+        activity.controller_busy |= digital_busy(g.digital());
+        buttons_down |= g.get_pressed().next().is_some();
         activity.button |= g.get_just_pressed().next().is_some();
         activity.stick |= (0..2).any(|i| now[i] && !before[i]);
         activity.trigger |= (2..4).any(|i| now[i] && !before[i]);
@@ -223,6 +244,7 @@ pub(crate) fn automatic(world: &mut World) {
         }
     }
     held.previous = previous;
+    held.previous_buttons = buttons_down;
     world.insert_resource(held);
 }
 
@@ -240,7 +262,7 @@ impl Plugin for InputSwitchPlugin {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     fn app() -> (App, Entity) {
@@ -253,7 +275,7 @@ mod tests {
         (app, pad)
     }
 
-    fn button(app: &mut App, pad: Entity, down: bool) {
+    pub(crate) fn button(app: &mut App, pad: Entity, down: bool) {
         use bevy::input::gamepad::{RawGamepadButtonChangedEvent, RawGamepadEvent};
         app.world_mut().write_message(RawGamepadEvent::Button(RawGamepadButtonChangedEvent::new(pad, GamepadButton::South, if down { 1.0 } else { 0.0 })));
     }
@@ -276,7 +298,7 @@ mod tests {
         });
     }
 
-    fn playing_app(device: InputDevice) -> (App, Entity) {
+    pub(crate) fn playing_app(device: InputDevice) -> (App, Entity) {
         let (mut app, pad) = app();
         app.add_plugins(bevy::state::app::StatesPlugin)
             .insert_state(crate::PlayState::Playing)
@@ -288,7 +310,7 @@ mod tests {
         (app, pad)
     }
 
-    fn control_button(app: &mut App, pad: Entity, device: InputDevice, control: crate::bindings::Control, down: bool) {
+    pub(crate) fn control_button(app: &mut App, pad: Entity, device: InputDevice, control: crate::bindings::Control, down: bool) {
         use bevy::input::{gamepad::{RawGamepadButtonChangedEvent, RawGamepadEvent}, mouse::MouseButtonInput, ButtonState};
         let bindings = app.world().resource::<Bindings>();
         if device == InputDevice::Controller {
@@ -315,8 +337,16 @@ mod tests {
         }
     }
 
+    fn manual_switch_from(app: &mut App, pad: Entity, device: InputDevice) {
+        switch_from(app, pad, device, true);
+        app.update();
+        assert_eq!(app.world().resource::<Bindings>().device, device, "a held old device refuses automatic switching");
+        let target = if device == InputDevice::KeyboardMouse { InputDevice::Controller } else { InputDevice::KeyboardMouse };
+        crate::bindings::set_device(app.world_mut(), target);
+    }
+
     #[test]
-    fn switching_cancels_held_orbit_without_a_pov_tap_and_fresh_taps_still_work() {
+    fn manual_switching_cancels_held_orbit_without_a_pov_tap_and_fresh_taps_still_work() {
         use crate::{bindings::Control, control::{PlayerControl, Pov}};
         for origin in [InputDevice::KeyboardMouse, InputDevice::Controller] {
             for moved in [false, true] {
@@ -329,8 +359,7 @@ mod tests {
                     c.orbit.moved = moved;
                     c.orbit.yaw = if moved { 0.7 } else { 0.0 };
                 }
-                switch_from(&mut app, pad, origin, true);
-                app.update();
+                manual_switch_from(&mut app, pad, origin);
                 let target = app.world().resource::<Bindings>().device;
                 assert_ne!(target, origin);
                 let c = app.world().resource::<PlayerControl>();
@@ -358,7 +387,7 @@ mod tests {
     }
 
     #[test]
-    fn switching_cancels_ready_item_without_reloading_or_holstering() {
+    fn manual_switching_cancels_ready_item_without_reloading_or_holstering() {
         use crate::{bindings::Control, control::PlayerControl};
         for origin in [InputDevice::KeyboardMouse, InputDevice::Controller] {
             let (mut app, pad) = playing_app(origin);
@@ -366,8 +395,7 @@ mod tests {
             control_button(&mut app, pad, origin, Control::ReadyItem, true);
             app.update();
             assert!(app.world().resource::<PlayerControl>().ready_held.is_some());
-            switch_from(&mut app, pad, origin, true);
-            app.update();
+            manual_switch_from(&mut app, pad, origin);
             control_button(&mut app, pad, origin, Control::ReadyItem, false);
             switch_from(&mut app, pad, origin, false);
             for _ in 0..15 {
@@ -395,8 +423,7 @@ mod tests {
                 app.update();
                 let c = app.world().resource::<PlayerControl>();
                 assert!(if action == Control::Block { c.aiming } else { c.trigger });
-                switch_from(&mut app, pad, origin, true);
-                app.update();
+                manual_switch_from(&mut app, pad, origin);
                 control_button(&mut app, pad, origin, action, false);
                 switch_from(&mut app, pad, origin, false);
                 app.update();
@@ -428,6 +455,9 @@ mod tests {
             control_button(&mut app, pad, InputDevice::KeyboardMouse, action, false);
         }
         button(&mut app, pad, false);
+        app.update();
+        assert_eq!(app.world().resource::<Bindings>().device, InputDevice::KeyboardMouse);
+        button(&mut app, pad, true);
         app.update();
         assert_eq!(app.world().resource::<Bindings>().device, InputDevice::Controller);
         assert!(app.world().resource::<SwitchingInput>().physical_keys.get_pressed().next().is_none());
@@ -499,9 +529,14 @@ mod tests {
         button(&mut app, pad, false);
         key(&mut app, true, false);
         app.update();
+        assert_eq!(app.world().resource::<Bindings>().device, InputDevice::Controller);
+        assert_eq!(app.world().resource::<Seen>().pad, [false, false, true]);
+        key(&mut app, false, false);
+        app.update();
+        key(&mut app, true, false);
+        app.update();
         assert_eq!(app.world().resource::<Bindings>().device, InputDevice::KeyboardMouse);
         let seen = app.world().resource::<Seen>();
-        assert_eq!(seen.pad, [false, false, true]);
         assert!(!seen.keys.just_pressed(KeyCode::Enter));
         key(&mut app, true, true);
         app.update();
@@ -536,6 +571,9 @@ mod tests {
         assert!(app.world().resource::<Seen>().keys.pressed(KeyCode::Enter));
         keyboard(&mut app, KeyCode::KeyX, true, false);
         app.update();
+        assert_eq!(app.world().resource::<Bindings>().device, InputDevice::Controller);
+        crate::bindings::set_device(app.world_mut(), InputDevice::KeyboardMouse);
+        app.update();
         assert_eq!(app.world().resource::<Bindings>().device, InputDevice::KeyboardMouse);
         assert!(app.world().resource::<super::super::MenuKeys>().held.is_empty());
         assert!(!app.world().resource::<Seen>().keys.pressed(KeyCode::Enter));
@@ -555,8 +593,11 @@ mod tests {
         app.update();
         key(&mut app, true, false);
         app.update();
+        assert_eq!(app.world().resource::<Bindings>().device, InputDevice::Controller);
+        crate::bindings::set_device(app.world_mut(), InputDevice::KeyboardMouse);
+        app.update();
         assert_eq!(app.world().resource::<Bindings>().device, InputDevice::KeyboardMouse);
-        assert!(!app.world().resource::<Seen>().keys.pressed(KeyCode::Enter));
+        assert!(app.world().resource::<Seen>().keys.pressed(KeyCode::Enter));
         button(&mut app, pad, false);
         app.update();
         assert!(app.world().resource::<Seen>().keys.pressed(KeyCode::Enter));
@@ -578,10 +619,13 @@ mod tests {
             app.update();
             button(&mut app, pad, true);
             app.update();
+            assert_eq!(app.world().resource::<Bindings>().device, InputDevice::KeyboardMouse);
+            crate::bindings::set_device(app.world_mut(), InputDevice::Controller);
             button(&mut app, pad, false);
             app.update();
             keyboard(&mut app, KeyCode::KeyX, true, false);
             app.update();
+            assert_eq!(app.world().resource::<Bindings>().device, InputDevice::KeyboardMouse);
             keyboard(&mut app, alt, false, false);
             keyboard(&mut app, KeyCode::KeyX, false, false);
             app.update();
@@ -649,6 +693,14 @@ mod tests {
             assert!(app.world().resource::<SwitchingInput>().analog[&pad].into_iter().any(|b| b));
             key(&mut app, true, false);
             app.update();
+            app.update();
+            assert_eq!(app.world().resource::<Bindings>().device, InputDevice::Controller);
+            app.world_mut().get_mut::<Gamepad>(pad).unwrap().analog_mut().set(input, 0.0);
+            app.update();
+            assert_eq!(app.world().resource::<Bindings>().device, InputDevice::Controller);
+            key(&mut app, false, false);
+            app.update();
+            key(&mut app, true, false);
             app.update();
             assert_eq!(app.world().resource::<Bindings>().device, InputDevice::KeyboardMouse);
             assert!(app.world().resource::<SwitchingInput>().analog.is_empty());
@@ -730,5 +782,115 @@ mod tests {
         }
         assert_eq!(switch_on_use(Keys, true, Activity::default()), None);
         assert_eq!(switch_on_use(Pad, true, Activity::default()), None);
+    }
+
+    #[test]
+    fn old_device_busy_refuses_every_incoming_cause() {
+        for a in [Activity { button: true, ..default() }, Activity { stick: true, ..default() }, Activity { trigger: true, ..default() }] {
+            assert_eq!(switch_on_use(InputDevice::KeyboardMouse, true, Activity { keyboard_busy: true, ..a }), None);
+        }
+        for a in [Activity { key: true, ..default() }, Activity { mouse: true, ..default() }] {
+            assert_eq!(switch_on_use(InputDevice::Controller, true, Activity { controller_busy: true, ..a }), None);
+        }
+        let mut keys = ButtonInput::default();
+        assert!(!digital_busy(&keys));
+        keys.press(KeyCode::KeyF);
+        assert!(!digital_busy(&keys));
+        keys.clear();
+        assert!(digital_busy(&keys));
+        keys.release(KeyCode::KeyF);
+        assert!(digital_busy(&keys));
+        keys.press(KeyCode::KeyF);
+        assert!(digital_busy(&keys), "release/repress cannot hide the start-of-frame hold");
+        keys.release(KeyCode::KeyF);
+        keys.clear();
+        keys.press(KeyCode::KeyF);
+        keys.release(KeyCode::KeyF);
+        assert!(digital_busy(&keys), "a same-frame tap is also busy");
+        keys.clear();
+        assert!(!digital_busy(&keys));
+    }
+
+    #[test]
+    fn held_old_device_and_release_frame_refuse_switch_until_a_fresh_press() {
+        use crate::bindings::Control;
+        for origin in [InputDevice::KeyboardMouse, InputDevice::Controller] {
+            for action in [Control::Forward, Control::Block, Control::TogglePov] {
+                let (mut app, pad) = observed_app(origin);
+                // Forward is a stick on Controller; the other cases use digital buttons
+                // [design, #2200; Bindings::pad].
+                if origin == InputDevice::Controller && action == Control::Forward {
+                    app.world_mut().get_mut::<Gamepad>(pad).unwrap().analog_mut().set(GamepadAxis::LeftStickY, 0.8);
+                } else {
+                    control_button(&mut app, pad, origin, action, true);
+                }
+                app.update();
+                switch_from(&mut app, pad, origin, true);
+                app.update();
+                assert_eq!(app.world().resource::<Bindings>().device, origin);
+                switch_from(&mut app, pad, origin, false);
+                if origin == InputDevice::Controller && action == Control::Forward {
+                    app.world_mut().get_mut::<Gamepad>(pad).unwrap().analog_mut().set(GamepadAxis::LeftStickY, 0.0);
+                } else {
+                    control_button(&mut app, pad, origin, action, false);
+                }
+                switch_from(&mut app, pad, origin, true);
+                app.update();
+                assert_eq!(app.world().resource::<Bindings>().device, origin, "old release/neutral frame");
+                app.update();
+                assert_eq!(app.world().resource::<Bindings>().device, origin, "no queued switch on continued hold");
+                switch_from(&mut app, pad, origin, false);
+                app.update();
+                switch_from(&mut app, pad, origin, true);
+                app.update();
+                assert_ne!(app.world().resource::<Bindings>().device, origin);
+            }
+        }
+    }
+
+    #[test]
+    fn disconnect_of_a_busy_pad_waits_out_the_old_device_frame() {
+        for analog in [false, true] {
+            let (mut app, pad) = observed_app(InputDevice::Controller);
+            if analog {
+                app.world_mut().get_mut::<Gamepad>(pad).unwrap().analog_mut().set(GamepadAxis::LeftStickX, 0.8);
+            } else {
+                button(&mut app, pad, true);
+            }
+            app.update();
+            app.world_mut().despawn(pad);
+            key(&mut app, true, false);
+            app.update();
+            assert_eq!(app.world().resource::<Bindings>().device, InputDevice::Controller);
+            app.update();
+            assert_eq!(app.world().resource::<Bindings>().device, InputDevice::Controller);
+            key(&mut app, false, false);
+            app.update();
+            key(&mut app, true, false);
+            app.update();
+            assert_eq!(app.world().resource::<Bindings>().device, InputDevice::KeyboardMouse);
+        }
+    }
+
+    #[test]
+    fn refused_analog_crossings_need_neutral_and_a_fresh_crossing_after_old_keys_release() {
+        for input in [GamepadInput::Axis(GamepadAxis::LeftStickX), GamepadAxis::RightStickY.into(),
+            GamepadButton::LeftTrigger2.into(), GamepadButton::RightTrigger2.into()] {
+            let (mut app, pad) = observed_app(InputDevice::KeyboardMouse);
+            keyboard(&mut app, KeyCode::KeyW, true, false);
+            app.update();
+            app.world_mut().get_mut::<Gamepad>(pad).unwrap().analog_mut().set(input, STICK_DEAD + 0.01);
+            app.update();
+            assert_eq!(app.world().resource::<Bindings>().device, InputDevice::KeyboardMouse);
+            keyboard(&mut app, KeyCode::KeyW, false, false);
+            app.update();
+            app.update();
+            assert_eq!(app.world().resource::<Bindings>().device, InputDevice::KeyboardMouse);
+            app.world_mut().get_mut::<Gamepad>(pad).unwrap().analog_mut().set(input, 0.0);
+            app.update();
+            app.world_mut().get_mut::<Gamepad>(pad).unwrap().analog_mut().set(input, STICK_DEAD + 0.01);
+            app.update();
+            assert_eq!(app.world().resource::<Bindings>().device, InputDevice::Controller);
+        }
     }
 }

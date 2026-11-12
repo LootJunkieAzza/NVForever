@@ -3157,6 +3157,38 @@ mod tests {
     use super::*;
 
     #[test]
+    fn block_release_and_pad_press_in_one_frame_cannot_unmark_across_a_switch() {
+        use crate::{bindings::{Bindings, InputDevice}, pad::device::tests::{button, control_button, playing_app}};
+        let (mut app, pad) = playing_app(InputDevice::KeyboardMouse);
+        app.insert_resource(VatsMode { phase: Phase::Marking, style: VatsStyle::DeadEye, ..default() })
+            .init_resource::<ControlLocks>().init_resource::<MoveIntent>()
+            .insert_resource(Player { heading: 0.0, pitch: 0.0, eye_height: 0.0, feet: [0.0; 3], body_eye: None, body_view: None, placed: None })
+            .add_message::<PlaySound>().add_message::<LoopSound>().add_message::<ActorFire>()
+            .add_systems(Update, read_keys.after(crate::control::read_controls));
+        control_button(&mut app, pad, InputDevice::KeyboardMouse, Control::Block, true);
+        app.update();
+        assert!(app.world().resource::<VatsMode>().block_at.is_some());
+        button(&mut app, pad, true);
+        app.update();
+        assert_eq!(app.world().resource::<Bindings>().device, InputDevice::KeyboardMouse);
+        assert!(!app.world().resource::<VatsMode>().keys.unmark);
+        button(&mut app, pad, false);
+        app.update();
+        control_button(&mut app, pad, InputDevice::KeyboardMouse, Control::Block, false);
+        button(&mut app, pad, true);
+        app.update();
+        assert_eq!(app.world().resource::<Bindings>().device, InputDevice::KeyboardMouse);
+        assert!(app.world().resource::<VatsMode>().keys.unmark, "the original device's release remains available");
+        assert!(app.world().resource::<VatsMode>().block_at.is_none());
+        button(&mut app, pad, false);
+        app.update();
+        button(&mut app, pad, true);
+        app.update();
+        assert_eq!(app.world().resource::<Bindings>().device, InputDevice::Controller);
+        assert!(!app.world().resource::<VatsMode>().keys.unmark);
+    }
+
+    #[test]
     fn the_view_is_not_turned_back_after_a_load_or_a_door() {
         let at = [100.0, 200.0, 30.0];
         assert!(restore_stands(false, at, at));

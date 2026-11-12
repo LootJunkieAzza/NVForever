@@ -67,6 +67,7 @@ fn release(c: u16, keys: &mut ButtonInput<KeyCode>, mouse: &mut ButtonInput<Mous
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn script_input(
     mut script: Option<ResMut<crate::script::ScriptState>>,
     mut bindings: Option<ResMut<Bindings>>,

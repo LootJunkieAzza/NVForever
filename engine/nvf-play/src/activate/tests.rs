@@ -475,6 +475,8 @@ fn switching_cancels_a_holdable_activate_tap_before_it_can_take_the_item() {
     assert!(app.world().resource::<GrabState>().tap.is_some());
     app.world_mut().write_message(RawGamepadEvent::Button(RawGamepadButtonChangedEvent::new(pad, GamepadButton::North, 1.0)));
     app.update();
+    assert_eq!(app.world().resource::<Bindings>().device, InputDevice::KeyboardMouse);
+    crate::bindings::set_device(app.world_mut(), InputDevice::Controller);
     assert_eq!(app.world().resource::<Bindings>().device, InputDevice::Controller);
     assert!(app.world().resource::<GrabState>().tap.is_none());
     assert!(drain::<RefChanged>(&mut app).is_empty());
