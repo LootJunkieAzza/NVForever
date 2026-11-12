@@ -441,6 +441,11 @@ impl Ai {
             return true;
         }
         let Some(alarm) = aw.search_alarm().copied() else { return true };
+        // [design, #2010] A finished member waits for its Lost party's other shares.
+        if aw.state == State::Lost && game.searches_done(actor, alarm.owner) >= game.group_settings().remove_search_count {
+            game.searched_once(actor, alarm.owner);
+            return true;
+        }
         // A hostile only noticed is searched for midway between the actor and it
         // [documented: Combat Search]; anything else where it happened.
         let centre_for = |feet: [f32; 3]| if alarm.cause == Cause::Noticed { midway(feet, alarm.at) } else { alarm.at };
@@ -467,7 +472,10 @@ impl Ai {
                         let mut points = points + 1;
                         if points >= SEARCH_POINTS {
                             points = 0;
-                            game.searched_once(actor, alarm.owner);
+                            if game.searched_once(actor, alarm.owner)
+                                || (game.awareness.state(actor) == State::Lost && game.searches_done(actor, alarm.owner) >= game.group_settings().remove_search_count) {
+                                return true;
+                            }
                         }
                         let (index, party) = game.search_party(actor, alarm.owner);
                         let indoors = matches!(space, Space::Interior(_));

@@ -25949,3 +25949,25 @@ expect = [
   { json = "roundtrip_identical", schema = "fnv.bsa.verify/1", equals = true, label = "it rewrites as 103, byte for byte" },
   { json = "decode_errors.#", schema = "fnv.bsa.verify/1", equals = 0, label = "no decode errors" },
 ]
+
+[[scenario]]
+name = "lost-fighter-two-searches"
+source = "[design, #2010; documented: GECK wiki Combat Search] Lost ends after the configured complete searches, not ordinary alarm or forget expiry (docs/design/alert.md section 2)"
+note = "[design: synthetic setup using existing script/control aids] A lone created gecko in Doc Mitchell's navigable interior; disable Doc so there is no second combatant. StartCombat at 6 s, then set the gecko Perception to zero, sneak with high Sneak and Invisibility and move the player 600 units from the gecko at 15 s. Zero Perception keeps an unseen, silent player below the noticed band even when Sneak does not enter that measurement. The player remains measured rather than using ToggleDetection, which skips measurements. Two searches may take six walks of up to 30 s plus looks; leave time for both. The ordered expectations require the same hostile's completion before Lost -> Normal. This setup needs a main-session smoke run."
+areas = ["alert", "combat-groups", "detection"]
+paths = ["crates/fnv-game/src/awareness.rs", "crates/fnv-game/src/combat_group.rs", "crates/fnv-ai/src/alert.rs", "engine/nvforever/src/detection.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_CONTROL = "14:sneak", NVF_PLAY_TEST_SCRIPT = "2:call:DocMitchellREF:Disable,3:call:player:PlaceAtMe:NVCrGecko:1,4:moveto:0xFF000000:player:0:300:0,6:combat:0xFF000000:player,14:call:0xFF000000:SetAV:Perception:0,14:call:player:SetAV:Sneak:1000,14:call:player:SetAV:Invisibility:100,15:moveto:player:0xFF000000:0:-600:0" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 280
+expect = [
+  { re = 'ai \[.*\] 0xFF000000: searches for the player', label = "the lone hostile walks its search" },
+]
+order = [[
+  { re = 'alert: .*FF000000 Combat . Lost', label = "the hostile loses the hidden player" },
+  { re = 'combat group: .*FF000000 has searched its share for the player \(1 of 2 complete searches\)', label = "one search is insufficient" },
+  { re = 'combat group: .*FF000000 has searched its share for the player \(2 of 2 complete searches\)', label = "both searches complete before giving up" },
+  { re = 'alert: .*FF000000 Lost . Normal', label = "only then does the hostile leave Lost" },
+]]
+forbid = [
+  { re = 'alert: .*FF000000 Lost . Combat', label = "the hidden player is not re-detected during the fixture" },
+]

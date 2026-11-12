@@ -2127,6 +2127,40 @@ fn an_alerted_actor_searches_where_the_alarm_is_and_goes_back_after() {
     assert!(s.ai.agents[&FormId(R_RADIUS)].search.is_none());
 }
 
+#[test]
+fn a_lost_search_walks_two_complete_shares_before_returning_to_normal() {
+    // [design, #2010] Synthetic navmesh and alarms exercise the walk/look completion
+    // path through Game::searched_once, rather than expiring an ordinary alarm.
+    use fnv_game::awareness::Target;
+    use fnv_game::combat_group::{GroupNote, GroupSettings};
+    let f = fixture();
+    let mut s = sim(&f, &[R_RADIUS]);
+    s.run(30.0);
+    let (actor, player, now) = (FormId(R_RADIUS), FormId::PLAYER_REF, s.game.time);
+    s.game.awareness.tactics.settings = Some(GroupSettings { remove_search_count: 2, search_interior: [80.0; 3], ..Default::default() });
+    let a = s.game.awareness.actors.entry(actor).or_default();
+    a.state = State::Lost;
+    a.since = now;
+    a.targets.insert(player, Target { band: Band::Hidden, value: -50.0, at: [150.0, 100.0, 0.0], detected: Some(now - 15.0), hidden_since: Some(now) });
+    a.alarm(player, [150.0, 100.0, 0.0], -50.0, Cause::LostTarget, now, &Timers::default());
+    for _ in 0..240 {
+        s.run(0.5);
+        s.game.settle_awareness();
+        if s.game.awareness.state(actor) == State::Normal {
+            break;
+        }
+    }
+    assert_eq!(s.game.awareness.state(actor), State::Normal);
+    let counts: Vec<_> = s.game.awareness.tactics.notes.iter().filter_map(|n| match n {
+        GroupNote::Searched { actor: who, count, needed, .. } if *who == actor => Some((*count, *needed)),
+        _ => None,
+    }).collect();
+    assert_eq!(counts, vec![(1, 2), (2, 2)]);
+    assert!(s.events(R_RADIUS).iter().filter(|e| matches!(e, AiEvent::SearchLook { .. })).count() >= 6);
+    s.run(0.5);
+    assert!(s.ai.agents[&actor].search.is_none());
+}
+
 /// An alert takes an actor off its bed or chair; when the search ends inside its
 /// package's place it settles again (issue #2013) [observed: Easy Pete, fought off his
 /// chair, sat again about 5 real seconds after the fight, AI observer 2026-11-10].
