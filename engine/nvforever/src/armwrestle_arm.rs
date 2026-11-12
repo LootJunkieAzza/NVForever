@@ -286,6 +286,9 @@ pub struct Shown {
     won: Option<(u8, f32, f32)>,
     clock: f32,
     noted: bool,
+    /// The arms have let go after this win: they stay so until the next bout (a wrestler
+    /// who got up then sees the match as a watcher, whose hold is longer).
+    released: bool,
 }
 
 /// The match this game shows: this player's own bout (after the card), else the one it
@@ -337,7 +340,8 @@ pub fn arms(
     let own = screen.0.as_ref().filter(|a| a.page != Page::Offer && a.left_at.is_none()).map(|a| a.side & 1);
     let held = |w: u8| own.map_or(HOLD, |s| (board_after(w == s) + RESULT_HOLD - LET_GO).max(0.0));
     // Getting up, or a while after the win: the arms let go.
-    if screen.0.as_ref().is_some_and(|a| a.leaving) || (now_live.is_some_and(|l| l.winner.is_some()) && shown.won.is_some_and(|(w, at, _)| shown.clock - at > held(w))) {
+    let after_win = now_live.is_some_and(|l| l.winner.is_some()) && (shown.released || shown.won.is_some_and(|(w, at, _)| shown.clock - at > held(w)));
+    if screen.0.as_ref().is_some_and(|a| a.leaving) || after_win {
         now_live = None;
     }
     match now_live {
@@ -354,7 +358,10 @@ pub fn arms(
                     shown.won = Some((w, shown.clock, from));
                     info!("arm wrestle arm: side {w} wins; side {}'s hand goes down", 1 - w);
                 }
-                (None, Some(_)) => shown.won = None,
+                (None, Some(_)) => {
+                    shown.won = None;
+                    shown.released = false;
+                }
                 _ => {}
             }
         }
@@ -364,6 +371,7 @@ pub fn arms(
             }
             shown.weight = (shown.weight - dt / LET_GO).max(0.0);
             if shown.weight <= 0.0 {
+                shown.released = shown.won.is_some();
                 info!("arm wrestle arm: the arms let go");
             }
         }
