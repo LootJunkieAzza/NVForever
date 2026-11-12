@@ -4587,3 +4587,25 @@ fn an_activator_plays_open_and_close_with_its_open_state() {
     assert!(!g.world.get(r).unwrap().open);
     assert_eq!(g.anims.asked(r).map(|(_, n)| n), Some("Close"));
 }
+
+/// The plugins whose functions the engine builds answer as installed, the others do not
+/// (docs/spec-notes/ext-version.md §5): a mod's start-up check passes for what is here.
+#[test]
+fn built_in_plugins_report_installed() {
+    use fnv_script::vm::XVal;
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let q = |g: &mut fnv_game::Game, body: &str| g.run_query(&format!("Begin Function {{ }}\nSetFunctionValue ({body})\nEnd\n"), Default::default());
+    for name in ["JIP NVSE Plugin", "JohnnyGuitarNVSE", "ShowOffNVSE Plugin", "SUP NVSE Plugin", "JIP PP LN", "CUI", "AnhNVSE", "Extensions for NVSE", "UI Organizer Plugin", "hNVSE", "sup nvse plugin"] {
+        assert_eq!(q(&mut g, &format!("IsPluginInstalled \"{name}\"")), Ok(XVal::Num(1.0)), "{name}");
+        let Ok(XVal::Num(v)) = q(&mut g, &format!("GetPluginVersion \"{name}\"")) else { panic!("{name}") };
+        assert!(v > 0.0, "{name}: {v}");
+    }
+    // A version a mod asks for "at least" is met where none was read in the original.
+    assert_eq!(q(&mut g, "GetPluginVersion \"SUP NVSE Plugin\" >= 250"), Ok(XVal::Num(1.0)));
+    assert_eq!(q(&mut g, "GetPluginVersion \"CUI\""), Ok(XVal::Num(120.0)));
+    for name in ["yUI", "NVTF", "No Such Plugin"] {
+        assert_eq!(q(&mut g, &format!("IsPluginInstalled \"{name}\"")), Ok(XVal::Num(0.0)), "{name}");
+        assert_eq!(q(&mut g, &format!("GetPluginVersion \"{name}\"")), Ok(XVal::Num(-1.0)), "{name}");
+    }
+}
