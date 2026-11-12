@@ -26,13 +26,20 @@
 //!   is over. The others see the puppet fall by co-op's own rule for a player lying in
 //!   its own game.
 //! - **The winner dances** ([`WIN_DANCE`], the tap dance) from its `Winner` until the
-//!   contest's end, in place by the table, then stands as before. A drink still playing
-//!   ends first ([`ContestDrinkStop`]), so the dance is not under its last seconds. The
-//!   winner turns its back to the table ([`win_heading`]) and the third-person camera
-//!   swings round to its front (the orbit, half a turn), so the whole dance is seen with
-//!   the table behind, as a match's end view shows its winner
-//!   [drink-b's co-op burst, 2026-11-12: from behind, over the table, the dance read as a
-//!   lean on it].
+//!   contest's end, then stands as before. A drink still playing ends first
+//!   ([`ContestDrinkStop`]), so the dance is not under its last seconds. A player who wins
+//!   steps off its mark onto the bar's stage (`fnv_game::drink_table::stage`: open floor
+//!   by the table, facing the window side) and dances there; its puppet goes there on the
+//!   others' screens as it goes anywhere.
+//! - **The win shot**: when a player wins, every drinker at the table (standing, or lying
+//!   passed out) sees the dance through the stage's one camera, between the winner and
+//!   the windows, above the head and looking down at it, with a soft fill light by the
+//!   camera faded up on the winner's front ([`DrinkWorld::stage`], drawn by nvforever
+//!   `drink_stage`), until the contest's end [design: drink-b's co-op frames, 2026-11-12:
+//!   from behind, the dance read as a lean on the table; from the front against the bright
+//!   windows the winner was a silhouette, and on the loser's screen its puppet was a dark
+//!   shape behind the bottle. One fixed shot shows the same lit frame on every screen].
+//!   The camera is pulled in to the first thing between it and the winner (a ray).
 //! - **Waking up**: when the contest ends (`DrinkEnded`, or its screen gone), the hold
 //!   is let go: the body gets up by the game's get-up clip (`GetUpFaceUp` /
 //!   `GetUpFaceDown`), the view and the controls come back with it, and the view the
@@ -110,14 +117,27 @@ pub struct AtTable {
     pub over: bool,
     /// Won: dancing until the contest's end.
     pub dancing: bool,
-    /// The camera is turned to the winner's front: given back at the contest's end.
-    pub win_cam: bool,
+    /// The contest's slots that are players (bit `i` for slot `i`): a player's win is
+    /// danced on the stage.
+    pub players: u8,
+}
+
+/// The win shot while a player's win is danced: the camera every drinker at the table
+/// sees through, the point it looks at and the fill light's place (nvforever
+/// `drink_stage`).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct StageView {
+    pub camera: [f32; 3],
+    pub look_at: [f32; 3],
+    pub light: [f32; 3],
 }
 
 /// The contest this player drinks in, if any.
 #[derive(Resource, Default, Debug)]
 pub struct DrinkWorld {
     pub at: Option<AtTable>,
+    /// The win shot, from a player's `Winner` to the contest's end.
+    pub stage: Option<StageView>,
     /// Counts for the exit line: contests joined, drinks, pass-outs, wake-ups.
     pub joined: u32,
     pub drinks: u32,
@@ -150,36 +170,21 @@ pub fn tip(feet: [f32; 3], centre: [f32; 3]) -> [f32; 3] {
     [dx / len * TIP_SPEED, dy / len * TIP_SPEED, TIP_RISE]
 }
 
-/// The heading the winner turns to: its back to the table, else a quarter turn either
-/// way, whichever leaves the camera in front of it the longest clear line (at most the
-/// tables' end camera distance, `crate::table_spots::CAM_DISTANCE`).
-pub fn win_heading(phys: &mut PhysState, feet: [f32; 3], table: [f32; 3]) -> f32 {
-    use crate::table_spots as ts;
-    let away = (feet[0] - table[0]).atan2(feet[1] - table[1]);
-    let eye = [feet[0], feet[1], feet[2] + ts::EYE];
-    let mut reach = |heading: f32| {
-        let (cam, chest) = ts::camera_for(eye, heading, ts::Pick::BASE);
-        let d = [cam[0] - chest[0], cam[1] - chest[1], cam[2] - chest[2]];
-        let len = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt().max(1e-3);
-        let dir = [d[0] / len, d[1] / len, d[2] / len];
-        phys.ray(chest, dir, len, ts::filter()).map_or(len, |h| h.distance)
-    };
-    let q = std::f32::consts::FRAC_PI_2;
-    let mut best = (away, reach(away));
-    for h in [away + q, away - q] {
-        let r = reach(h);
-        if r > best.1 + 10.0 {
-            best = (h, r);
-        }
-    }
-    best.0.rem_euclid(std::f32::consts::TAU)
-}
+/// How far short of what it hits the win camera is pulled in, and how far above it the
+/// fill light hangs (game units) [design].
+pub const STAGE_CLEAR: f32 = 8.0;
+pub const STAGE_LIGHT_UP: f32 = 30.0;
 
-/// The camera turned to look at the winner's front (half a turn of the third-person
-/// orbit, held as Toggle POV held holds it), kept while it dances.
-fn face_camera(control: &mut PlayerControl) {
-    let o = &mut control.orbit;
-    (o.yaw, o.pitch, o.held, o.moved, o.free) = (std::f32::consts::PI, 0.0, true, true, false);
+/// The win shot of `bar`: its stage camera, pulled in to the first thing between it and
+/// the point it looks at (`phys`, when there is one), never nearer than 40% of the way.
+pub fn stage_view(bar: &Bar, phys: Option<&mut PhysState>) -> StageView {
+    let st = dt::stage(bar);
+    let d = [st.camera[0] - st.look_at[0], st.camera[1] - st.look_at[1], st.camera[2] - st.look_at[2]];
+    let len = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt().max(1e-3);
+    let dir = [d[0] / len, d[1] / len, d[2] / len];
+    let reach = phys.and_then(|p| p.ray(st.look_at, dir, len, crate::table_spots::filter())).map_or(len, |h| (h.distance - STAGE_CLEAR).max(len * 0.4));
+    let camera = [st.look_at[0] + dir[0] * reach, st.look_at[1] + dir[1] * reach, st.look_at[2] + dir[2] * reach];
+    StageView { camera, look_at: st.look_at, light: [camera[0], camera[1], camera[2] + STAGE_LIGHT_UP] }
 }
 
 /// E on a bottle: drink-b's stake page.
@@ -220,7 +225,8 @@ fn started(
         let pov = control.pov;
         control.weapon_out = false;
         control.pov = Pov::Third;
-        world.at = Some(AtTable { bottle: s.bottle, bar, slot, pov, held: false, over: false, dancing: false, win_cam: false });
+        let players = s.drinkers.iter().enumerate().filter(|(_, d)| matches!(d.who, Who::Player(_))).fold(0u8, |m, (i, _)| m | 1 << i);
+        world.at = Some(AtTable { bottle: s.bottle, bar, slot, pov, held: false, over: false, dancing: false, players });
         world.joined += 1;
         info!(
             "drink world: {}: this player drinks in slot {slot} of {}, at mark ({:.0}, {:.0}, {:.0}) facing {:.0} deg; weapon away, view outside",
@@ -275,25 +281,32 @@ fn events(
                     shove[2]
                 );
             }
-            Event::Winner { slot: Some(slot), .. } if slot == at.slot && !at.held => match crate::emotes::by_key(WIN_DANCE) {
-                Some(emote) => {
-                    stop.write(ContestDrinkStop);
-                    // Its back to the table, the camera in front: the dance seen whole.
-                    if let Some(p) = phys.as_deref_mut() {
-                        let heading = win_heading(p, player.feet, at.bar.top);
-                        let feet = player.feet;
-                        crate::table_spots::stand_player(p, &mut player, [feet[0], feet[1]], at.bar.floor, heading);
-                        info!("drink world: {}: the winner turns to {:.0} deg, the camera to its front", at.bar.key, heading.to_degrees());
-                    }
-                    face_camera(&mut control);
-                    at.win_cam = true;
-                    emotes.write(crate::emotes::EmoteAsk::Play { emote, cancel_after: None, variant: None });
-                    at.dancing = true;
-                    w.dances += 1;
-                    info!("drink world: {}: this player wins: the drink ends, the {WIN_DANCE} until the contest's end", at.bar.key);
+            Event::Winner { slot: Some(winner), .. } if winner < 8 && at.players & (1 << winner) != 0 => {
+                // Every drinker at the table sees a player's win through the stage camera.
+                let view = stage_view(at.bar, phys.as_deref_mut());
+                w.stage = Some(view);
+                let ([cx, cy, cz], [lx, ly, lz]) = (view.camera, view.look_at);
+                info!("drink world: {}: player slot {winner} wins: the win camera at ({cx:.0}, {cy:.0}, {cz:.0}) looks at the stage ({lx:.0}, {ly:.0}, {lz:.0}), the fill light over it", at.bar.key);
+                if winner != at.slot || at.held {
+                    continue;
                 }
-                None => warn!("drink world: no emote {WIN_DANCE}: the winner does not dance"),
-            },
+                let Some(emote) = crate::emotes::by_key(WIN_DANCE) else {
+                    warn!("drink world: no emote {WIN_DANCE}: the winner does not dance");
+                    continue;
+                };
+                stop.write(ContestDrinkStop);
+                // Off the mark onto the stage, facing the camera.
+                let st = dt::stage(at.bar);
+                if let Some(p) = phys.as_deref_mut() {
+                    crate::table_spots::stand_player(p, &mut player, [st.feet[0], st.feet[1]], st.feet[2], st.heading);
+                    info!("drink world: {}: the winner steps onto the stage ({:.0}, {:.0}) facing {:.0} deg, the camera", at.bar.key, st.feet[0], st.feet[1], st.heading.to_degrees());
+                }
+                control.weapon_out = false;
+                emotes.write(crate::emotes::EmoteAsk::Play { emote, cancel_after: None, variant: None });
+                at.dancing = true;
+                w.dances += 1;
+                info!("drink world: {}: this player wins: the drink ends, the {WIN_DANCE} until the contest's end", at.bar.key);
+            }
             _ => {}
         }
     }
@@ -327,8 +340,8 @@ fn ended(
     let game = script.as_deref_mut().and_then(|s| s.rt.as_mut()).map(|rt| &mut rt.game);
     if over && !at.over {
         at.over = true;
-        if std::mem::take(&mut at.win_cam) {
-            control.orbit = crate::control::Orbit::default();
+        if w.stage.take().is_some() {
+            info!("drink world: {}: the contest is over: the win camera lets go", at.bar.key);
         }
         if std::mem::take(&mut at.dancing) {
             emotes.write(crate::emotes::EmoteAsk::Cancel);
@@ -346,9 +359,6 @@ fn ended(
         return;
     }
     if !at.over {
-        if at.win_cam {
-            face_camera(&mut control);
-        }
         return;
     }
     // Up again (the knockdown over, its get-up clip played): the view comes back.

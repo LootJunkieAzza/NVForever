@@ -75,6 +75,11 @@ pub struct Bar {
     pub mark_bearings: [f32; MARKS],
     /// The numbers the table, the bill and the bottle are made under.
     pub refs: [FormId; 3],
+    /// Where a player who wins dances ([`stage`]): the feet's x and y, on `floor`.
+    pub stage: [f32; 2],
+    /// The bearing from the stage to the win camera (radians, the game's); the winner
+    /// faces it.
+    pub stage_bearing: f32,
 }
 
 /// Which piece of a bar's prop a reference is.
@@ -111,7 +116,54 @@ pub const BARS: &[Bar] = &[Bar {
     // North, east, south and west of the table: the first two drinkers face each other.
     mark_bearings: [0.0, std::f32::consts::PI, std::f32::consts::FRAC_PI_2, 3.0 * std::f32::consts::FRAC_PI_2],
     refs: [FormId(0xFF7F_A100), FormId(0xFF7F_A101), FormId(0xFF7F_A102)],
+    // North-east of the table, on open floor under the saloon's lamp 0x0016CD72 at (281,
+    // -603), out of the way of the bodies passed out at marks 0 (falling north) and 2
+    // (falling east); the camera south-east of it, between the winner and the windows,
+    // looks north-west into the room, an inner wall behind the dancer [observed:
+    // FalloutNV.esm, the saloon's windows NVGSRmWindowSeparate stand in the south wall at
+    // y -872 and the east wall at x 488, its tables Table01 0x00127633 at (396, -629) and
+    // Table02 0x00107D18 at (368, -770); `fnvtool phys cell`: the floor at (300, -620) is
+    // 3456 with nothing within 60 at the waist, the line to the camera is clear, and the
+    // line on north-west past the dancer meets the wall NVGSWallONLY 0x00107D8A at 398;
+    // design: a dancer seen against the windows was a silhouette in drink-b's co-op
+    // frames, 2026-11-12].
+    stage: [300.0, -620.0],
+    stage_bearing: 3.0 * std::f32::consts::FRAC_PI_4,
 }];
+
+/// The win camera's distance from the winner's feet, flat (game units) [design: the whole
+/// body in the frame at the play camera's field of view].
+pub const STAGE_CAMERA_DISTANCE: f32 = 120.0;
+/// ... its height over the floor [design: above the head, looking down, so the room's
+/// floor and not its windows is behind the dancer].
+pub const STAGE_CAMERA_UP: f32 = 140.0;
+/// The point it looks at, over the winner's feet [design: about the waist].
+pub const STAGE_LOOK_UP: f32 = 70.0;
+
+/// Where a player who wins stands and dances, and the one camera every drinker at the
+/// table sees the dance through [design: one fixed shot, so that every screen shows the
+/// same frame at the same moment, the light falling on the winner's front].
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Stage {
+    /// The winner's feet, on the floor, and the heading that faces the camera.
+    pub feet: [f32; 3],
+    pub heading: f32,
+    /// The camera and the point it looks at.
+    pub camera: [f32; 3],
+    pub look_at: [f32; 3],
+}
+
+/// The win stage of `bar`.
+pub fn stage(bar: &Bar) -> Stage {
+    let (s, c) = bar.stage_bearing.sin_cos();
+    let [x, y] = bar.stage;
+    Stage {
+        feet: [x, y, bar.floor],
+        heading: wrap(bar.stage_bearing),
+        camera: [x + STAGE_CAMERA_DISTANCE * s, y + STAGE_CAMERA_DISTANCE * c, bar.floor + STAGE_CAMERA_UP],
+        look_at: [x, y, bar.floor + STAGE_LOOK_UP],
+    }
+}
 
 /// How near its spot a created reference must be to be a piece of the prop [design].
 const SAME_SPOT: f32 = 6.0;
@@ -247,6 +299,27 @@ mod tests {
         // Slots 0 and 1 face each other across the table.
         let ((a, _), (b, _)) = (mark(bar, 0), mark(bar, 1));
         assert!(((a[0] - b[0]).hypot(a[1] - b[1]) - 2.0 * bar.mark_radius).abs() < 1e-3);
+    }
+
+    #[test]
+    fn the_winner_faces_the_win_camera_away_from_the_table_and_the_marks() {
+        let bar = &BARS[0];
+        let st = stage(bar);
+        // Facing the camera: heading h faces (sin h, cos h).
+        let (dx, dy) = (st.camera[0] - st.feet[0], st.camera[1] - st.feet[1]);
+        let flat = dx.hypot(dy);
+        assert!((flat - STAGE_CAMERA_DISTANCE).abs() < 1e-3);
+        assert!((dx * st.heading.sin() + dy * st.heading.cos()) / flat > 0.999);
+        // Off the table (Table01 at 1.2 reaches 37 from its centre) and a body's length
+        // from every mark.
+        assert!((st.feet[0] - bar.top[0]).hypot(st.feet[1] - bar.top[1]) > 100.0);
+        for slot in 0..MARKS {
+            let (m, _) = mark(bar, slot);
+            assert!((st.feet[0] - m[0]).hypot(st.feet[1] - m[1]) > 60.0, "the stage is on mark {slot}");
+        }
+        // The camera inside the saloon's window walls (x 488, y -872), above the head.
+        assert!(st.camera[0] < 470.0 && st.camera[1] > -860.0);
+        assert!(st.camera[2] > st.look_at[2] && st.look_at[2] > st.feet[2]);
     }
 
     #[test]
