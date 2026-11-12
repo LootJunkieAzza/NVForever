@@ -851,14 +851,17 @@ fn keys(keys: Res<ButtonInput<KeyCode>>, wheel: Res<AccumulatedMouseScroll>, scr
     if s.leaving.is_some() {
         return;
     }
-    if s.help.is_some() {
-        if keys.any_just_pressed([KeyCode::KeyE, KeyCode::Escape, KeyCode::Tab, KeyCode::Enter]) {
-            out.write(CaravanInput::CloseHelp);
-        }
+    // A help message closes on its own keys; the stage's other keys still act (parity
+    // 2026-11-12: a forfeit pressed under the opening's help was lost), and `apply` closes
+    // the message before acting.
+    let help = s.help.is_some();
+    const CLOSE: [KeyCode; 4] = [KeyCode::KeyE, KeyCode::Escape, KeyCode::Tab, KeyCode::Enter];
+    if help && keys.any_just_pressed(CLOSE) {
+        out.write(CaravanInput::CloseHelp);
         return;
     }
     let mut send = |k: KeyCode, i: CaravanInput| {
-        if keys.just_pressed(k) {
+        if keys.just_pressed(k) && !(help && CLOSE.contains(&k)) {
             out.write(i);
         }
     };
@@ -897,7 +900,7 @@ fn keys(keys: Res<ButtonInput<KeyCode>>, wheel: Res<AccumulatedMouseScroll>, scr
             }
         }
         Stage::Results => {
-            if keys.get_just_pressed().next().is_some() {
+            if !help && keys.get_just_pressed().next().is_some() {
                 out.write(CaravanInput::Continue);
             }
         }
@@ -953,8 +956,18 @@ fn apply(
             }
             continue;
         }
-        if s.leaving.is_some() || s.help.is_some() {
+        if s.leaving.is_some() {
             continue;
+        }
+        if s.help.is_some() {
+            // An action under a help message closes it and still acts; a message queued
+            // after it comes up in its place.
+            s.help = None;
+            info!("caravan: help message closed by {cmd:?}");
+            if !s.queued_help.is_empty() {
+                let next = s.queued_help.remove(0);
+                s.show_help(rt, next, &bindings);
+            }
         }
         match (s.stage, cmd) {
             (Stage::Bet, CaravanInput::AutoMatch | CaravanInput::Raise | CaravanInput::Accept) if s.pvp.is_some() => {

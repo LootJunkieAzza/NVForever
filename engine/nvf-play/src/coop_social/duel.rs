@@ -7,8 +7,16 @@
 //! The challenger is the referee: it picks the countdown when both are ready and says who
 //! won (the first hit it hears of, its own included). Everything here is plain state,
 //! stepped by `super` with what the game sees and what the wire brings.
+//!
+//! First comes the stake (parity night pass 2026-11-11: betting in every player game), as
+//! the player Caravan game's (`crate::stake`): the challenger proposes, the other matches,
+//! raises or declines; it starts at 0 and a duel at 0 is for nothing. Each game moves only
+//! its own player's caps ([`Out::Hold`], [`Out::Pay`]): the stake is held once agreed, the
+//! winner's game pays it back with the other's, a draw or a duel called off before the draw
+//! gives it back, and a player who leaves during the draw loses it to the one who stays.
 
-use super::wire::Msg;
+use super::wire::{Msg, NO_OFFER};
+use crate::stake::Stake;
 
 /// The countdown's length, milliseconds, from and to (the owner: "2–7 s") [design].
 pub const DELAY_MS: (u16, u16) = (2_000, 7_000);
@@ -122,6 +130,8 @@ pub fn throw(loser: [f32; 3], winner: [f32; 3]) -> [f32; 3] {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Phase {
+    /// Agreeing the stake; both players held where they stand.
+    Staking,
     /// Getting into position.
     Positioning,
     /// Both still: the draw at `draw_at` (real seconds), never shown.
@@ -146,6 +156,19 @@ pub enum Out {
     Thrown,
     /// The other lost: its puppet falls.
     TheyFall,
+    /// Take this many caps from this player: its stake, held.
+    Hold(u32),
+    /// Give this player this many caps: the pot, or its stake back.
+    Pay(u32),
+}
+
+/// The stake's keys.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BetKey {
+    AutoMatch,
+    Raise,
+    Accept,
+    Decline,
 }
 
 #[derive(Debug, Clone)]
@@ -163,11 +186,115 @@ pub struct Duel {
     both_since: Option<f32>,
     hit_sent: bool,
     told: Option<Stance>,
+    pub stake: Stake,
+    /// This player's caps held for the stake.
+    pub held: u32,
+    funds_sent: bool,
 }
 
 impl Duel {
+    /// A duel with no stake, straight to the positions.
     pub fn new(me: u8, with: u8, nonce: u16, referee: bool, now: f32) -> Duel {
-        Duel { with, me, nonce, referee, phase: Phase::Positioning, since: now, mine: Stance::NoPistol, theirs_ready: false, sent_ready: None, both_since: None, hit_sent: false, told: None }
+        Duel { with, me, nonce, referee, phase: Phase::Positioning, since: now, mine: Stance::NoPistol, theirs_ready: false, sent_ready: None, both_since: None, hit_sent: false, told: None, stake: Stake::default(), held: 0, funds_sent: true }
+    }
+
+    /// A duel that first agrees a stake; this player has `funds` caps.
+    pub fn staked(me: u8, with: u8, nonce: u16, referee: bool, now: f32, funds: u32) -> Duel {
+        Duel { phase: Phase::Staking, stake: Stake::new(referee, funds, [with]), funds_sent: false, ..Duel::new(me, with, nonce, referee, now) }
+    }
+
+    /// The stake is being agreed: the player stands still and the stake's keys are its.
+    pub fn staking(&self) -> bool {
+        self.phase == Phase::Staking
+    }
+
+    /// This player's caps, until they are sent (the first frame's).
+    pub fn fund(&mut self, caps: u32) {
+        if !self.funds_sent {
+            self.stake.funds = caps;
+        }
+    }
+
+    fn bet_msg(&self, offer: Option<u32>) -> Msg {
+        Msg::DuelBet { nonce: self.nonce, funds: self.stake.funds, ante: offer.unwrap_or(NO_OFFER), agreed: self.stake.agreed.is_some() }
+    }
+
+    /// A stake key pressed.
+    pub fn bet(&mut self, key: BetKey, now: f32) -> Vec<Out> {
+        if !self.staking() {
+            return Vec::new();
+        }
+        match key {
+            BetKey::AutoMatch => {
+                self.stake.auto_match();
+                Vec::new()
+            }
+            BetKey::Raise => {
+                self.stake.raise();
+                Vec::new()
+            }
+            BetKey::Accept => match self.stake.accept() {
+                Some(o) => {
+                    let mut out = vec![Out::Send(self.bet_msg(Some(o)))];
+                    out.extend(self.agreed_now(now));
+                    out
+                }
+                None => Vec::new(),
+            },
+            BetKey::Decline => {
+                self.phase = Phase::Done;
+                vec![Out::Send(Msg::Quit { nonce: self.nonce }), Out::Say("You decline the stake: no duel".into())]
+            }
+        }
+    }
+
+    /// The stake is agreed: held, and on to the positions.
+    fn agreed_now(&mut self, now: f32) -> Vec<Out> {
+        let Some(v) = self.stake.agreed else { return Vec::new() };
+        self.phase = Phase::Positioning;
+        self.since = now;
+        self.held = v;
+        if v > 0 {
+            vec![Out::Hold(v), Out::Say(format!("Stake agreed: {v} caps each"))]
+        } else {
+            vec![Out::Say("No stake: the duel is for nothing".into())]
+        }
+    }
+
+    /// The banner while the stake is agreed: its title, and what is awaited with the keys
+    /// that work now.
+    pub fn stake_lines(&self, name: &str) -> (String, String) {
+        let st = &self.stake;
+        // The stake on the table: this player's own once it set one, else the offer heard.
+        let title = match if st.mine > 0 { st.mine } else { st.highest().unwrap_or(0) } {
+            0 => format!("DUEL WITH {}: NO STAKE", name.to_uppercase()),
+            v => format!("DUEL WITH {} FOR {v} CAPS", name.to_uppercase()),
+        };
+        let mut lower = match (st.highest(), st.sent) {
+            (Some(o), Some(s)) if o == s => format!("Waiting for {name}. "),
+            (Some(o), _) if o != st.mine => format!("{name} offers {o}, you {}. ", st.mine),
+            (Some(o), _) => format!("{name} offers {o}. "),
+            (None, Some(_)) => format!("Waiting for {name}. "),
+            (None, None) if !st.leads => format!("Waiting for {name}'s offer. "),
+            (None, None) => String::new(),
+        };
+        let keys = [(st.can_match(), "W) Auto Match"), (st.can_raise(), "A) Raise"), (st.can_accept(), "F) Accept"), (true, "R) Decline")];
+        lower.push_str(&keys.iter().filter(|(on, _)| *on).map(|(_, k)| *k).collect::<Vec<_>>().join("  "));
+        (title, lower)
+    }
+
+    /// The other player went away (left the session): a player who leaves loses, so a
+    /// stake held is this player's with theirs.
+    pub fn other_gone(&mut self) -> Vec<Out> {
+        if matches!(self.phase, Phase::Over { .. } | Phase::Done) {
+            self.phase = Phase::Done;
+            return Vec::new();
+        }
+        self.phase = Phase::Done;
+        match std::mem::take(&mut self.held) {
+            0 => vec![Out::Say("The duel is called off".into())],
+            v => vec![Out::Pay(2 * v), Out::Say(format!("The duel is called off: they left. You win {v} caps"))],
+        }
     }
 
     /// Movement and the camera are held (the countdown).
@@ -193,6 +320,17 @@ impl Duel {
     pub fn step(&mut self, now: f32, stance: Stance, name: &str, random: u32) -> Vec<Out> {
         let mut out = Vec::new();
         match self.phase {
+            Phase::Staking => {
+                if !self.funds_sent {
+                    self.funds_sent = true;
+                    out.push(Out::Send(self.bet_msg(None)));
+                }
+                if now - self.since >= POSITION_SECONDS {
+                    out.push(Out::Say("The duel is called off: no stake was agreed".into()));
+                    out.push(Out::Send(Msg::Quit { nonce: self.nonce }));
+                    self.phase = Phase::Done;
+                }
+            }
             Phase::Positioning => {
                 self.mine = stance;
                 if self.told != Some(stance) {
@@ -217,6 +355,7 @@ impl Duel {
                 if now - self.since >= POSITION_SECONDS {
                     out.push(Out::Say("The duel is called off: nobody took position".into()));
                     out.push(Out::Send(Msg::Quit { nonce: self.nonce }));
+                    out.extend(self.give_back());
                     self.phase = Phase::Done;
                 }
             }
@@ -241,12 +380,34 @@ impl Duel {
         self.phase = Phase::Countdown { draw_at: now + ms as f32 / 1000.0 };
     }
 
+    /// A stake held, back to this player (a draw, a duel called off).
+    fn give_back(&mut self) -> Vec<Out> {
+        match std::mem::take(&mut self.held) {
+            0 => Vec::new(),
+            v => vec![Out::Pay(v)],
+        }
+    }
+
     fn over(&mut self, winner: Option<u8>, now: f32) -> Vec<Out> {
         self.phase = Phase::Over { winner, since: now };
+        let v = self.held;
+        let caps = |line: &str| if v > 0 { format!("{line} and {v} caps") } else { line.to_string() };
         match winner {
-            Some(w) if w == self.me => vec![Out::Say("You win the duel".into()), Out::TheyFall],
-            Some(_) => vec![Out::Say("You lose the duel".into()), Out::Thrown],
-            None => vec![Out::Say("Nobody landed a shot: the duel is a draw".into())],
+            Some(w) if w == self.me => {
+                self.held = 0;
+                let mut out = if v > 0 { vec![Out::Pay(2 * v)] } else { Vec::new() };
+                out.extend([Out::Say(caps("You win the duel")), Out::TheyFall]);
+                out
+            }
+            Some(_) => {
+                self.held = 0;
+                vec![Out::Say(caps("You lose the duel")), Out::Thrown]
+            }
+            None => {
+                let mut out = self.give_back();
+                out.push(Out::Say(if v > 0 { "Nobody landed a shot: the duel is a draw and the stakes go back".into() } else { "Nobody landed a shot: the duel is a draw".into() }));
+                out
+            }
         }
     }
 
@@ -289,9 +450,30 @@ impl Duel {
                 out
             }
             Msg::DuelOver { winner, .. } if !self.referee && !matches!(self.phase, Phase::Over { .. } | Phase::Done) => self.over((winner != 255).then_some(winner), now),
+            Msg::DuelBet { funds, ante, agreed, .. } if self.staking() => {
+                let was = self.stake.agreed;
+                self.stake.heard(self.with, funds, (ante != NO_OFFER).then_some(ante), agreed);
+                let mut out = Vec::new();
+                if was.is_none() && self.stake.agreed.is_some() {
+                    // The challenger decides and says so; the other takes its word.
+                    if self.referee {
+                        out.push(Out::Send(self.bet_msg(self.stake.agreed)));
+                    }
+                    out.extend(self.agreed_now(now));
+                }
+                out
+            }
+            Msg::Quit { .. } if self.staking() => {
+                self.phase = Phase::Done;
+                vec![Out::Say("The stake is declined: no duel".into())]
+            }
+            // Called off before it was decided (nobody took position): the stakes go back.
+            // A player who leaves the session loses instead ([`Duel::other_gone`]).
             Msg::Quit { .. } if !matches!(self.phase, Phase::Over { .. } | Phase::Done) => {
                 self.phase = Phase::Done;
-                vec![Out::Say("The duel is called off".into())]
+                let mut out = self.give_back();
+                out.push(Out::Say("The duel is called off".into()));
+                out
             }
             _ => Vec::new(),
         }
@@ -468,5 +650,71 @@ mod tests {
         let mut c = Duel::new(0, 1, 3, true, 0.0);
         let o = c.step(POSITION_SECONDS, Stance::Facing, "B", 0);
         assert!(c.done() && o.contains(&Out::Send(Msg::Quit { nonce: 3 })));
+    }
+
+    /// Two staked duels, their caps sent both ways.
+    fn staked(a_caps: u32, b_caps: u32) -> (Duel, Duel) {
+        let mut a = Duel::staked(0, 1, 5, true, 0.0, a_caps);
+        let mut b = Duel::staked(1, 0, 5, false, 0.0, b_caps);
+        let oa = a.step(0.0, Stance::NoPistol, "B", 0);
+        let ob = b.step(0.0, Stance::NoPistol, "A", 0);
+        pass(&oa, &mut b, 0.0);
+        pass(&ob, &mut a, 0.0);
+        (a, b)
+    }
+
+    #[test]
+    fn a_stake_is_agreed_held_and_paid_to_the_winner() {
+        let (mut a, mut b) = staked(500, 300);
+        assert!(a.staking() && b.staking());
+        assert_eq!(a.stake_lines("B").0, "DUEL WITH B: NO STAKE", "every stake starts at 0");
+        a.bet(BetKey::Raise, 1.0);
+        let oa = a.bet(BetKey::Accept, 1.0);
+        assert_eq!(oa, vec![Out::Send(Msg::DuelBet { nonce: 5, funds: 500, ante: 30, agreed: false })], "a tenth of the poorer 300");
+        pass(&oa, &mut b, 1.0);
+        assert_eq!(b.stake_lines("A").0, "DUEL WITH A FOR 30 CAPS", "the offer on the table");
+        assert!(b.stake_lines("A").1.starts_with("A offers 30, you 0. W) Auto Match"), "{:?}", b.stake_lines("A"));
+        b.bet(BetKey::AutoMatch, 2.0);
+        assert!(b.stake_lines("A").1.starts_with("A offers 30. A) Raise  F) Accept"), "{:?}", b.stake_lines("A"));
+        let ob = b.bet(BetKey::Accept, 2.0);
+        let back = pass(&ob, &mut a, 2.0);
+        assert!(back.contains(&Out::Hold(30)) && a.phase == Phase::Positioning, "{back:?}");
+        let seen = pass(&back, &mut b, 2.0);
+        assert!(seen.contains(&Out::Hold(30)) && b.phase == Phase::Positioning, "{seen:?}");
+        assert_eq!((a.held, b.held), (30, 30));
+        // B wins: its game pays it both stakes; A's pays nothing.
+        a.phase = Phase::Draw { since: 3.0 };
+        b.phase = Phase::Draw { since: 3.0 };
+        let ob = b.hit(3.5);
+        let verdict = pass(&ob, &mut a, 3.5);
+        assert!(says(&verdict, "You lose the duel and 30 caps") && !verdict.iter().any(|o| matches!(o, Out::Pay(_))));
+        let seen = pass(&verdict, &mut b, 3.5);
+        assert!(seen.contains(&Out::Pay(60)) && says(&seen, "You win the duel and 30 caps"), "{seen:?}");
+    }
+
+    #[test]
+    fn no_stake_a_decline_and_a_player_gone() {
+        let (mut a, mut b) = staked(100, 100);
+        let oa = a.bet(BetKey::Accept, 1.0);
+        pass(&oa, &mut b, 1.0);
+        let ob = b.bet(BetKey::Accept, 1.0);
+        let back = pass(&ob, &mut a, 1.0);
+        assert!(says(&back, "No stake") && !back.iter().any(|o| matches!(o, Out::Hold(_))));
+        // Declined: nothing moves, both are done.
+        let (mut a, mut b) = staked(100, 100);
+        let ob = b.bet(BetKey::Decline, 1.0);
+        let seen = pass(&ob, &mut a, 1.0);
+        assert!(a.done() && b.done() && says(&seen, "declined"));
+        // Called off in position: the stake comes back; the other gone: this player wins it.
+        let (mut a, mut b) = staked(100, 100);
+        a.bet(BetKey::Raise, 1.0);
+        let oa = a.bet(BetKey::Accept, 1.0);
+        pass(&oa, &mut b, 1.0);
+        b.bet(BetKey::AutoMatch, 1.0);
+        let ob = b.bet(BetKey::Accept, 1.0);
+        pass(&ob, &mut a, 1.0);
+        assert!(a.step(1.0 + POSITION_SECONDS, Stance::Facing, "B", 0).contains(&Out::Pay(10)));
+        let mut c = Duel { held: 10, ..Duel::new(0, 1, 6, true, 0.0) };
+        assert!(c.other_gone().contains(&Out::Pay(20)));
     }
 }

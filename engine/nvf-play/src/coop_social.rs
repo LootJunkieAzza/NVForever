@@ -11,7 +11,9 @@
 //!   to draw. The first shot to land wins (each game judges its own shot by its aim against
 //!   the other's body; the challenger's game says who was first). No damage is done: the
 //!   host's hits on the other's stand-in are dropped while it lasts (nvforever `coop.rs`,
-//!   [`Social::spares`]); the loser is knocked down and thrown a few feet back.
+//!   [`Social::spares`]); the loser is knocked down and thrown a few feet back. First
+//!   the two agree a stake in caps, from 0, on the line under the crosshair (W Auto
+//!   Match, A Raise, F Accept, R Decline; [`duel`]'s module docs).
 //! - **Trade** ([`trade`]): Fallout 76's player vending: browse the other's inventory and
 //!   ask for items; the owner prices each item asked for (a price for one); the asker buys
 //!   for caps. On the barter menu's own screen, keys and mouse ([`barter`]); the world
@@ -51,7 +53,7 @@ use crate::{PlaySet, PlayState};
 use bevy::input::mouse::AccumulatedMouseMotion;
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
-use duel::{Duel, Out};
+use duel::{BetKey, Duel, Out};
 use fnv_sim::FormId;
 use invite::{Invites, Settled};
 use rand_core::{RngCore, SeedableRng};
@@ -176,6 +178,8 @@ pub struct Social {
     /// (item, count, price for one).
     refund: u32,
     sales: Vec<(u32, u16, u32)>,
+    /// Caps the duel's stake moves for this player: taken (held) below 0, given above.
+    duel_caps: i64,
     rng: Option<rand_chacha::ChaCha8Rng>,
     /// The wheel was open this frame: its Activate press is not also the prompt's
     /// ([`target`]).
@@ -355,6 +359,18 @@ fn input(
             }
         }
     }
+    // The duel's stake (W Auto Match, A Raise, F Accept, R Decline), as the Caravan bet
+    // screen's keys; the player is held meanwhile ([`hold`]).
+    let staking = s.duel.as_ref().is_some_and(Duel::staking);
+    if playing && staking && s.wheel.is_none() && s.invites.shown().is_none() {
+        let pressed = [(KeyCode::KeyW, BetKey::AutoMatch), (KeyCode::KeyA, BetKey::Raise), (KeyCode::KeyF, BetKey::Accept), (KeyCode::KeyR, BetKey::Decline)].into_iter().find(|(k, _)| keys.just_pressed(*k));
+        if let Some((_, key)) = pressed {
+            let d = s.duel.as_mut().unwrap();
+            let outs = d.bet(key, now);
+            info!("co-op social: duel stake: {key:?}: this player's stake {}, sent {:?}, agreed {:?}", d.stake.mine, d.stake.sent, d.stake.agreed);
+            duel_outs(s, outs, &mates, now, &mut out);
+        }
+    }
     // The wheel.
     let k = windows.single().map_or(1.0, |w| 960.0 / w.height().max(1.0));
     s.wheel_had_input = s.wheel.is_some();
@@ -391,7 +407,7 @@ fn input(
     if s.wheel_release && !input.pressed(Control::Use) && !input.pressed(Control::Block) && !input.mouse.pressed(MouseButton::Left) && !input.mouse.pressed(MouseButton::Right) {
         s.wheel_release = false;
     }
-    if s.holds_input() || s.frozen() || s.wheel_release {
+    if s.holds_input() || s.frozen() || s.wheel_release || staking {
         control.wheel = true;
         (control.trigger, control.aiming) = (false, false);
     }
@@ -589,7 +605,8 @@ fn start(s: &mut Social, with: u8, kind: Kind, nonce: u16, inviter: bool, mates:
     match kind {
         Kind::Duel => {
             s.stats.duels += 1;
-            s.duel = Some(Duel::new(me, with, nonce, inviter, now));
+            // The stake first; this player's caps are filled in by `duel_step`.
+            s.duel = Some(Duel::staked(me, with, nonce, inviter, now, 0));
             s.attacks = None;
         }
         Kind::Trade => {
@@ -748,7 +765,7 @@ fn pistol_in_hand(combat: Option<&crate::combat::Combat>) -> bool {
 /// The duel's countdown holds the player still; the trade panel too (its keys are the
 /// panel's).
 fn hold(social: Res<Social>, mut intent: ResMut<MoveIntent>, mut control: ResMut<crate::control::PlayerControl>) {
-    if !social.frozen() && !social.trade.as_ref().is_some_and(|t| t.closing.is_none()) {
+    if !social.frozen() && !social.duel.as_ref().is_some_and(Duel::staking) && !social.trade.as_ref().is_some_and(|t| t.closing.is_none()) {
         return;
     }
     let (mut i, mut c) = (*intent, *control);
@@ -813,7 +830,7 @@ fn talk(real: Res<Time<Real>>, mut tables: ResMut<Tables>, mut social: ResMut<So
                 info!("co-op social: player {} was thrown at ({:.0}, {:.0}, {:.0}) units/s in its own game", from + 1, velocity[0], velocity[1], velocity[2]);
                 s.throws.push((from, velocity));
             }
-            m @ (Msg::Quit { .. } | Msg::DuelReady { .. } | Msg::DuelFreeze { .. } | Msg::DuelHit { .. } | Msg::DuelOver { .. }) if s.duel.as_ref().is_some_and(|d| d.nonce == nonce && d.with == from) => {
+            m @ (Msg::Quit { .. } | Msg::DuelBet { .. } | Msg::DuelReady { .. } | Msg::DuelFreeze { .. } | Msg::DuelHit { .. } | Msg::DuelOver { .. }) if s.duel.as_ref().is_some_and(|d| d.nonce == nonce && d.with == from) => {
                 let d = s.duel.as_mut().unwrap();
                 let outs = d.heard(&m, now);
                 duel_outs(s, outs, &mates, now, &mut out);
@@ -849,10 +866,11 @@ fn talk(real: Res<Time<Real>>, mut tables: ResMut<Tables>, mut social: ResMut<So
     for i in s.invites.asked.iter().map(|i| i.with).chain(s.invites.out.map(|o| o.with)).filter(|&i| gone(i)).collect::<Vec<_>>() {
         s.invites.gone(i);
     }
-    if let Some(d) = s.duel.as_ref().filter(|d| gone(d.with) && !d.done()) {
-        info!("co-op social: duel with player {}: they went away", d.with + 1);
+    if let Some(d) = s.duel.as_mut().filter(|d| gone(d.with) && !d.done()) {
+        info!("co-op social: duel with player {}: they went away (stake held {})", d.with + 1, d.held);
+        let outs = d.other_gone();
+        duel_outs(s, outs, &mates, now, &mut out);
         s.duel = None;
-        s.say("The duel is called off", now);
     }
     if s.trade.as_ref().is_some_and(|t| gone(t.book.with) && t.closing.is_none()) {
         close_trade(s, now);
@@ -896,6 +914,8 @@ fn duel_outs(s: &mut Social, outs: Vec<Out>, mates: &SocialMates, now: f32, out:
                 info!("co-op social: duel: {} falls", name_of(mates, with));
                 s.falls.push(with);
             }
+            Out::Hold(v) => s.duel_caps -= v as i64,
+            Out::Pay(v) => s.duel_caps += v as i64,
         }
     }
 }
@@ -918,7 +938,16 @@ fn duel_step(
     let now = real.elapsed_secs();
     let s = &mut *social;
     let mut out: Vec<(u8, Msg)> = Vec::new();
+    // The stake's caps, this player's only (each game moves its own player's).
+    if s.duel_caps != 0 {
+        let v = std::mem::take(&mut s.duel_caps);
+        let done = if v < 0 { sim.world.remove_item(FormId::PLAYER_REF, fnv_game::caravan::CAPS, (-v) as i32).is_ok() } else { sim.world.add_item(FormId::PLAYER_REF, fnv_game::caravan::CAPS, v as i32).is_ok() };
+        info!("co-op social: duel stake: {} {} caps{}; the player has {} caps", if v < 0 { "held" } else { "paid" }, v.abs(), if done { "" } else { " (failed)" }, caps_of(&sim));
+    }
     let Some(player) = player else { return };
+    if let Some(d) = s.duel.as_mut().filter(|d| d.staking()) {
+        d.fund(caps_of(&sim));
+    }
     if let Some(d) = s.duel.as_ref() {
         let with = d.with;
         let them = mates.get(with).cloned();

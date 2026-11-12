@@ -121,6 +121,8 @@ pub enum Msg {
     /// Caravan: the sender's caps, and its offered stake ([`NO_OFFER`]: none yet);
     /// `agreed`: the leader (the inviter) announces the stake (`crate::stake`).
     CaravanBet { nonce: u16, funds: u32, ante: u32, agreed: bool },
+    /// A duel's stake, as [`Msg::CaravanBet`] (`crate::stake`).
+    DuelBet { nonce: u16, funds: u32, ante: u32, agreed: bool },
 }
 
 /// [`Msg::CaravanBet`]'s `ante` when the sender only says its caps.
@@ -147,7 +149,8 @@ impl Msg {
             | Msg::TradeRefused { nonce, .. }
             | Msg::CaravanDeck { nonce, .. }
             | Msg::CaravanMove { nonce, .. }
-            | Msg::CaravanBet { nonce, .. } => *nonce,
+            | Msg::CaravanBet { nonce, .. }
+            | Msg::DuelBet { nonce, .. } => *nonce,
         }
     }
 
@@ -185,6 +188,7 @@ impl Msg {
             }
             Msg::CaravanMove { nonce, mv } => w.u8(31).u16(*nonce).u8(mv.kind).u8(mv.card).u8(mv.side).u8(mv.track).u8(mv.on),
             Msg::CaravanBet { nonce, funds, ante, agreed } => w.u8(32).u16(*nonce).u32(*funds).u32(*ante).u8(*agreed as u8),
+            Msg::DuelBet { nonce, funds, ante, agreed } => w.u8(33).u16(*nonce).u32(*funds).u32(*ante).u8(*agreed as u8),
         };
         w.0
     }
@@ -227,6 +231,7 @@ impl Msg {
             }
             31 => Msg::CaravanMove { nonce, mv: CaravanMove { kind: r.u8()?, card: r.u8()?, side: r.u8()?, track: r.u8()?, on: r.u8()? } },
             32 => Msg::CaravanBet { nonce, funds: r.u32()?, ante: r.u32()?, agreed: r.u8()? != 0 },
+            33 => Msg::DuelBet { nonce, funds: r.u32()?, ante: r.u32()?, agreed: r.u8()? != 0 },
             _ => return None,
         };
         r.done().then_some(m)
@@ -261,6 +266,7 @@ mod tests {
             Msg::CaravanMove { nonce: 3, mv: CaravanMove { kind: 0, card: 4, side: 1, track: 2, on: 255 } },
             Msg::CaravanBet { nonce: 3, funds: 1_250, ante: 60, agreed: true },
             Msg::CaravanBet { nonce: 3, funds: 0, ante: NO_OFFER, agreed: false },
+            Msg::DuelBet { nonce: 4, funds: 300, ante: 30, agreed: false },
         ];
         for m in all {
             let b = m.encode();
