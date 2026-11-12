@@ -868,6 +868,10 @@ fn write_world(ui: &mut Ui, s: &WorldShown, rows: &mut WorldRows) -> Result<(), 
             ui.write_changed(row.tile, "_x", num_of(uv[0]));
             ui.write_changed(row.tile, "_y", num_of(uv[1]));
         }
+        // The node's picture as the hand-built page draws it: stretched over its box, at full
+        // brightness (the template copies the arrow's, which the file does not give).
+        ui.write_changed(row.tile, "zoom", Value::Num(-1.0));
+        ui.write_changed(row.tile, "brightness", Value::Num(255.0));
     }
     match (start, rows.nodes.iter().find(|r| r.key == NodeRow::Start)) {
         (Some(from), Some(node)) => {
@@ -878,6 +882,10 @@ fn write_world(ui: &mut Ui, s: &WorldShown, rows: &mut WorldRows) -> Result<(), 
                 let (len, angle) = path_line(from, to, s.usable);
                 ui.write_changed(row.tile, "user0", num_of(len));
                 ui.write_changed(row.tile, "rotateangle", num_of(angle));
+                // The dotted picture repeated as the hand-built line repeats it: kept in shape at
+                // the line's height (`data::PATH_TILE` a repeat), at full brightness.
+                ui.write_changed(row.tile, "zoom", Value::Num(f64::from(data::PATH_TILE) / PATH_TEXELS_W * 100.0));
+                ui.write_changed(row.tile, "brightness", Value::Num(255.0));
             }
         }
         _ => {
@@ -899,6 +907,10 @@ fn write_world(ui: &mut Ui, s: &WorldShown, rows: &mut WorldRows) -> Result<(), 
     rows.written = Some(s.clone());
     Ok(())
 }
+
+/// The dotted line's picture's width in texels [documented: `waypoint_path.dds`'s header in
+/// `Fallout - Textures2.bsa`, 64 × 16].
+const PATH_TEXELS_W: f64 = 64.0;
 
 /// A dotted line from texture coordinates `from` to `to` on a picture `usable` across at a
 /// magnification of 1: its length there (the file takes 4 off and multiplies by the
@@ -937,6 +949,13 @@ fn keep_world(ui: &mut Ui, s: &WorldShown) {
     }
     if let Some(c) = ui.find_tile(paths.cursor) {
         keep(ui, c, "visible", if s.arrow.is_some() { 1.0 } else { 0.0 });
+        // The arrow's picture as the hand-built page draws it: the whole of `glow_cursor.dds`
+        // stretched over the arrow's 40 × 51.2, at full brightness (the nodes and lines copy it).
+        // The file's `zoom` (its width × 3.5) would draw the picture at 1.4 times its texels cut
+        // to the box, a corner of it at the hand-built page's width [design: which width the
+        // original's code gives it is not known].
+        keep(ui, c, "zoom", -1.0);
+        keep(ui, c, "brightness", 255.0);
     }
     // The box's middle on the model's highlight, in its own window's units.
     let (Some(b), Some(clip), Some(map)) = (ui.find_tile(HIGHLIGHT_BOX), ui.find_tile(HIGHLIGHT_CLIP), ui.find_tile(paths.clip)) else { return };
@@ -3147,8 +3166,12 @@ mod tests {
         assert!((trait_of(&ui, lines[0].tile, "user0") - 100.0).abs() < 1e-3);
         assert!((trait_of(&ui, lines[0].tile, "rotateangle") - std::f64::consts::PI).abs() < 1e-6);
         assert!(trait_of(&ui, lines[1].tile, "rotateangle").abs() < 1e-6);
-        // The arrow: the player's place and heading, shown.
+        // The arrow: the player's place and heading, shown; its picture, the nodes' and the lines'
+        // as the hand-built page draws them (stretched, full brightness, the dots kept in shape).
         assert_eq!((at(&ui, WORLD_CURSOR, "_x"), at(&ui, WORLD_CURSOR, "_y"), at(&ui, WORLD_CURSOR, "rotateangle"), at(&ui, WORLD_CURSOR, "visible")), (0.5, 0.5, 0.25, 1.0));
+        assert_eq!((at(&ui, WORLD_CURSOR, "zoom"), at(&ui, WORLD_CURSOR, "brightness")), (-1.0, 255.0));
+        assert!(nodes.iter().all(|n| trait_of(&ui, n.tile, "zoom") == -1.0 && trait_of(&ui, n.tile, "brightness") == 255.0));
+        assert!(lines.iter().all(|l| (trait_of(&ui, l.tile, "zoom") - f64::from(data::PATH_TILE) / 64.0 * 100.0).abs() < 1e-9));
         // The highlight box on the model's highlight (the window's middle, on marker 20), shown,
         // its title the name and the reputation's line.
         assert_eq!((at(&ui, HIGHLIGHT_BOX, "x"), at(&ui, HIGHLIGHT_BOX, "y"), at(&ui, HIGHLIGHT_BOX, "visible")), (427.5 - 80.0, 250.0 - 80.0, 1.0));

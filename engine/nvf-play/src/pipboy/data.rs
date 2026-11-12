@@ -281,7 +281,7 @@ const NODE: f32 = MARKER * 0.8;
 const PATH_H: f32 = NODE / 3.0;
 /// One repeat of the line's picture along it: the file's 64 × 16 kept in shape at the
 /// line's height [hypothesis: the template tiles the file (`tile`) at the menu's scale].
-const PATH_TILE: f32 = PATH_H * 4.0;
+pub(crate) const PATH_TILE: f32 = PATH_H * 4.0;
 const DOOR_ICON: &str = "interface\\icons\\local map\\icon_local_door.dds";
 
 // ---- state --------------------------------------------------------------------------------
