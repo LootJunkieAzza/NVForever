@@ -239,8 +239,12 @@ Vulkan library for the instance (2026-11-12, DLSS spike, #2198), in
   `VulkanLibraryInstance` is set in `AdditionalVulkanFeatures`; on any failure the caller's
   report hears why and upstream's path runs.
 
-Without `set_vulkan_library` (every run that does not start with DLSS chosen or `NVF_DLSS_PRELOAD=1`), upstream's path runs
-unchanged. Drop it if wgpu-hal gains a way to pass the entry in.
+Without `set_vulkan_library`, upstream's path runs unchanged. NVForever calls it only once
+its DLSS loader has passed every check (on Windows, with Vulkan among the renderer's
+backends). The loader runs when DLSS is chosen, when the four DLSS files are in the DLSS
+folder, or with `NVF_DLSS_PRELOAD=1`; `NVF_DLSS_PRELOAD=0` leaves out the files case
+(`engine/nvforever/src/upscaler.rs` `UpscalerStartup`, docs/design/dlss-upscaling.md, "Loaded
+whenever the files are there"). Every other run takes upstream's path. Drop it if wgpu-hal gains a way to pass the entry in.
 
 ## wgpu-ffx 0.1.0 (MIT, the wgpu-ffx developers and Advanced Micro Devices)
 
