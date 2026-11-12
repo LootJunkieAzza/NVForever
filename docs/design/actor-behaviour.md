@@ -615,8 +615,10 @@ moves (the centre is where it was when the package began). Checks:
 `crates/fnv-ai/tests/guard_wander.rs` (13 tests) and the smoke scenario
 `guard-radius-wander`; the original's cadence is observer check 115.
 
-**Not done**: conversations; food; the idle manager's idles (package and marker idles
-are played, docs/spec-notes/idles.md); sandboxing "at each
+**Not done**: conversations; food; the rest of the idle manager's idles (package and
+marker idles are played, and the tree's fidgets with the weapon out, the weapon away,
+on furniture, talking and for calm creatures, docs/spec-notes/idles.md §11–§14; how
+often the original asks its tree is open, observer check 116); sandboxing "at each
 point of a linked patrol route" [documented]; energy changing over the day; the game's
 real scores and durations (to be captured: an observer run in a loaded sandbox area
 recording GetSitting, GetCurrentAIProcedure and positions).
