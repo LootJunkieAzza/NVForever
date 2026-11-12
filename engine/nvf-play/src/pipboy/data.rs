@@ -3687,7 +3687,8 @@ mod tests {
         st.publish_map(WORLD, measured, Vec::new());
         let mut world = World::new();
         world.insert_resource(Location { world: 1, interior: None });
-        world.insert_resource(Player { heading: 0.0, pitch: 0.0, eye_height: 0.0, feet: [0.0; 3], body_eye: None, body_view: None, placed: None });
+        // The player at the picture's middle ([0.5, 0.5]): 3 cells north on this root.
+        world.insert_resource(Player { heading: 0.0, pitch: 0.0, eye_height: 0.0, feet: [0.0, 3.0 * model::CELL, 0.0], body_eye: None, body_view: None, placed: None });
         let mut state = SystemState::<Game>::new(&mut world);
         let game = state.get_mut(&mut world).unwrap();
         let lists = Lists::default();

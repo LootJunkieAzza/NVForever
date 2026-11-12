@@ -928,10 +928,16 @@ fn path_line(from: [f32; 2], to: [f32; 2], usable: Vec2) -> (f32, f32) {
 /// there, [`map_picture_piece`]); the highlight box on the model's highlight (its window may stand apart from the map's).
 fn keep_world(ui: &mut Ui, s: &WorldShown) {
     let paths = s.paths();
-    // The map's window, its picture's hotrect (the Local Map's is hidden in the file, shown in
-    // code) and the highlight box shown; the other map's window hidden.
-    for path in [paths.clip, paths.picture, HIGHLIGHT_CLIP, HIGHLIGHT_BOX] {
+    // The map's window and the highlight box shown; the other map's window hidden. The Local
+    // Map's picture's hotrect is hidden in the file and shown in code [documented: its `visible`,
+    // "set in code"]; the World Map's is the file's (and a script's) to show or hide.
+    for path in [paths.clip, HIGHLIGHT_CLIP, HIGHLIGHT_BOX] {
         if let Some(t) = ui.find_tile(path) {
+            keep(ui, t, "visible", 1.0);
+        }
+    }
+    if s.local {
+        if let Some(t) = ui.find_tile(paths.picture) {
             keep(ui, t, "visible", 1.0);
         }
     }
