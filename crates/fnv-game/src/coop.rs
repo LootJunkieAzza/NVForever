@@ -300,6 +300,7 @@ impl crate::game::GameSnapshot {
         }
         self.next_effect = next;
         self.time = self.time.max(now.time);
+        self.menu_time = self.menu_time.max(now.menu_time);
         self.sim.next_dynamic = self.sim.next_dynamic.max(now.sim.next_dynamic);
         self
     }

@@ -220,10 +220,11 @@ pub struct Instance {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub run_prev: Option<f64>,
     /// The same two times for the instance's MenuMode runs, on [`Game::menu_time`]'s
-    /// clock: GetSecondsPassed inside a MenuMode block reads them. Not saved.
-    #[serde(skip)]
+    /// clock: GetSecondsPassed inside a MenuMode block reads them. Saved as the run
+    /// times are, so a game saved or snapshotted in a menu keeps them [design].
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub menu_last: Option<f64>,
-    #[serde(skip)]
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub menu_prev: Option<f64>,
 }
 
@@ -2043,6 +2044,10 @@ pub struct GameSnapshot {
     pub dialogue: Option<crate::dialogue::Conversation>,
     pub frame: u64,
     pub time: f64,
+    /// [`Game::menu_time`], the clock the instances' saved MenuMode run times are on
+    /// (`ScriptInstance::menu_last`); 0 in older saves.
+    #[serde(default)]
+    pub menu_time: f64,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub pending_onload: Vec<FormId>,
     pub rng_word_pos: String,
@@ -6256,6 +6261,7 @@ impl<'a> Game<'a> {
             dialogue: self.dialogue.clone(),
             frame: self.frame,
             time: self.time,
+            menu_time: self.menu_time,
             pending_onload: self.pending_onload.clone(),
             rng_word_pos: self.rng.get_word_pos().to_string(),
             forms,
@@ -6348,6 +6354,7 @@ impl<'a> Game<'a> {
         g.dialogue = s.dialogue.clone();
         g.frame = s.frame;
         g.time = s.time;
+        g.menu_time = s.menu_time;
         g.pending_onload = s.pending_onload.clone();
         g.forms = s.forms.clone();
         g.effects = s.effects.clone();
