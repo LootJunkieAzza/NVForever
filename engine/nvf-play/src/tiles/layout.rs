@@ -164,7 +164,7 @@ impl Turn {
     }
 }
 
-/// A tile's [`Turn`]: none at angle 0 (so an unturned tile lays out exactly as before),
+/// A tile's [`Turn`]: none at angle 0 (an unturned tile behaves as before: no turn, no transform),
 /// for an angle that is not a number, or for a tile with live children ([`Turn`]).
 fn turn(ui: &Ui, tile: &Tile) -> Option<Turn> {
     let angle = number(tile, "rotateangle", 0.0);
@@ -670,7 +670,7 @@ mod tests {
     }
 
     #[test]
-    fn an_unturned_tile_lays_out_exactly_as_one_without_the_traits() {
+    fn an_unturned_tile_lays_out_as_one_without_the_traits() {
         // [design] Angle 0 with the axis traits, and no traits at all: the same items.
         let plain = r#"<menu name="M"><rect name="W"><x>5</x><y>7</y><width>60</width><height>40</height><clips>&true;</clips>
             <image name="A"><filename>a.dds</filename><x>3</x><y>4</y><width>20</width><height>10</height></image></rect></menu>"#;
@@ -679,7 +679,13 @@ mod tests {
               <rotateangle>0</rotateangle><rotateaxisx>10</rotateaxisx><rotateaxisy>5</rotateaxisy></image></rect></menu>"#;
         let (a, ra) = tree(plain);
         let (b, rb) = tree(zero);
-        let (items_a, items_b) = (layout(&a, ra, &unmeasured, true), layout(&b, rb, &unmeasured, true));
+        let (items_a, mut items_b) = (layout(&a, ra, &unmeasured, true), layout(&b, rb, &unmeasured, true));
+        // Two trees: their tile ids differ, everything else is compared.
+        assert_eq!(items_a.len(), items_b.len());
+        for (x, y) in items_a.iter().zip(items_b.iter_mut()) {
+            assert_eq!(a.tile(x.tile).name, b.tile(y.tile).name);
+            y.tile = x.tile;
+        }
         assert_eq!(items_a, items_b);
         assert!(items_b.iter().all(|i| i.turn.is_none()));
     }

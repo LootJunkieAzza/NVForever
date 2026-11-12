@@ -887,6 +887,13 @@ fn f(v: f64) -> f32 {
 /// The transform that turns a piece's outer node (its box's size) by its turn about its
 /// pivot: Bevy turns a node about its middle, so it is moved by [`layout::Turn::shift`]
 /// too; the identity for an unturned piece [design: menu-xml.md §3.1.4].
+///
+/// The shift is worked out from the box's unrounded size, so a turned node is laid out
+/// unrounded ([`UNROUNDED`]): Bevy turns about the middle of the size it lays out, and a
+/// rounded size (a 20 x 10 box is 15 x 8 pixels at 0.75 a unit, not 15 x 7.5) would put
+/// the pivot up to half a pixel off, changing as the box moves across pixel edges. The
+/// shift is known in the frame it is written, where the rounded size is known only after
+/// Bevy's layout, a frame late; and a turned quad stands on no pixel grid anyway [design].
 pub fn turned(piece: &Piece) -> UiTransform {
     match piece.turn {
         Some(turn) => {
@@ -907,12 +914,27 @@ struct Ctx<'a> {
     heading: f32,
 }
 
+/// How a turned piece's outer node (and what it holds) is laid out: unrounded ([`turned`]).
+/// Unturned nodes carry no `LayoutConfig` and are rounded as before.
+pub const UNROUNDED: LayoutConfig = LayoutConfig { use_rounding: false };
+
+/// Turn (or turn back) a piece's spawned outer node `outer` as its piece says: the transform
+/// and unrounded layout while turned; the identity and the inherited rounding when not.
+fn set_turn(commands: &mut Commands, outer: Entity, piece: &Piece) {
+    let mut node = commands.entity(outer);
+    if piece.turn.is_some() {
+        node.insert((turned(piece), UNROUNDED));
+    } else {
+        node.insert(UiTransform::IDENTITY).remove::<LayoutConfig>();
+    }
+}
+
 /// A piece's outer node, turned when its tile is ([`turned`]; inside its clip wrapper, so
-/// the unturned clip cuts the turned quad).
+/// the unturned clip cuts the turned quad). An unturned piece's nodes are spawned as before.
 fn spawn_piece(p: &mut ChildSpawnerCommands, piece: &Piece, ctx: &Ctx<'_>, picture: Option<SizedPicture>, baked: Option<Baked>, strip: Option<StripWindow>, model: Option<model::Prepared>) -> Option<Entity> {
     let outer = spawn_unturned(p, piece, ctx, picture, baked, strip, model)?;
     if piece.turn.is_some() {
-        p.commands().entity(outer).insert(turned(piece));
+        set_turn(&mut p.commands(), outer, piece);
     }
     Some(outer)
 }
@@ -1190,6 +1212,7 @@ pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, mut view: V
                 // Marked as `paint` marks them, so a modified picture is not told as a change
                 // every frame (#1833).
                 super::texmod::mark(&mut pieces, game.map(|g| &g.other.itr));
+                super::runtime_images::mark(&mut pieces, kit.runtime.as_deref(), &mut drawn.runtime_told);
                 if name == super::dialog_menu::DIALOG_MENU && pieces != drawn.pieces {
                     info!("{}", super::dialog_menu::painted(ui, &pieces));
                 }
@@ -1575,7 +1598,7 @@ fn paint(commands: &mut Commands, drawn: &mut Drawn, mut pieces: Vec<Piece>, tar
                 // Turned further (the map's arrow as the player turns): turned in place.
                 if was.turn != piece.turn {
                     if let Some(e) = slot.outer {
-                        commands.entity(e).insert(turned(piece));
+                        set_turn(commands, e, piece);
                     }
                 }
                 if was.colour != piece.colour {
@@ -1740,6 +1763,10 @@ pub(crate) fn scroll(hud: Option<Res<HudView>>, mut images: ResMut<Assets<Image>
         strip.0.follow(hud.heading, node, &mut images);
     }
 }
+
+#[cfg(test)]
+#[path = "draw_layout_tests.rs"]
+mod layout_tests;
 
 #[cfg(test)]
 mod tests {
@@ -2494,7 +2521,8 @@ mod tests {
         // About its middle: Bevy's own pivot, the node only turned.
         let t = turned(arrow);
         assert_eq!(t.translation, Val2::new(u(0.0), u(0.0)));
-        assert!((t.rotation.as_radians() - std::f32::consts::PI).abs() < 1e-6);
+        // A half turn: by its sine and cosine (Rot2 may hold it as -pi).
+        assert!((t.rotation.cos + 1.0).abs() < 1e-6 && t.rotation.sin.abs() < 1e-6, "{:?}", t.rotation);
         assert_eq!(of("Bar").turn.map(|t| t.pivot), Some((0.0, 0.0)));
         assert_eq!(of("Word").turn, None, "texts are not turned");
         assert_eq!(of("Still").turn, None);
@@ -2555,13 +2583,13 @@ mod tests {
         set(&mut app, &a, Vec2::new(64.0, 32.0));
         app.update();
         let first = drawn_images(&mut app);
-        assert_eq!(first.iter().map(|(_, h)| h.clone()).collect::<Vec<_>>(), [a.clone()], "set late: drawn");
+        assert_eq!(first.iter().map(|(_, h)| h.clone()).collect::<Vec<_>>(), std::slice::from_ref(&a), "set late: drawn");
         app.update();
         assert_eq!(drawn_images(&mut app), first, "nothing changed: the same node");
         set(&mut app, &b, Vec2::new(64.0, 32.0));
         app.update();
         let second = drawn_images(&mut app);
-        assert_eq!(second.iter().map(|(_, h)| h.clone()).collect::<Vec<_>>(), [b.clone()], "a new handle, the same name: repainted");
+        assert_eq!(second.iter().map(|(_, h)| h.clone()).collect::<Vec<_>>(), std::slice::from_ref(&b), "a new handle, the same name: repainted");
         set(&mut app, &b, Vec2::new(64.0, 32.0));
         app.update();
         let third = drawn_images(&mut app);

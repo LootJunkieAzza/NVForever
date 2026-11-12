@@ -80,8 +80,9 @@ impl RuntimeImages {
         self.revision
     }
 
-    /// Give `name` (with or without [`PREFIX`]) the texture `image` of `size` texels, and
-    /// return the `filename` to write into the tile. Each call is a new revision: the piece
+    /// Give `name` (with or without [`PREFIX`]) the texture `image` of `size` texels (the
+    /// image's own size: a `tile` picture's repeats are as large as Bevy finds the texture),
+    /// and return the `filename` to write into the tile. Each call is a new revision: the piece
     /// repaints even when the handle is the same one.
     pub fn set(&mut self, name: &str, image: Handle<Image>, size: Vec2) -> String {
         let revision = self.next();

@@ -530,12 +530,14 @@ What the code does (`nvf-play/src/tiles/layout.rs` `Turn`, `tiles/draw.rs` `turn
 
 - [design] Layout keeps the tile's unturned box and adds its turn (angle, and the point
   from the box's top left in interface units) to its item; none at angle 0 or an angle that
-  is not a number, so an unturned tile lays out exactly as before; none for a tile with
+  is not a number, so an unturned tile behaves as before (no transform, rounded as before); none for a tile with
   live children (the wiki's rule), and a turn never passes to children.
 - [design] A box's or a picture's piece is drawn turned (its outer node takes a Bevy
   `UiTransform`: the rotation, and the move that puts the turn about the point instead of
   the node's middle, `Turn::shift`); a piece only turned further is turned in place, its
-  nodes kept. The clips above it (`clips`, a turned-on `clipwindow`) stay unturned boxes
+  nodes kept. A turned node is laid out unrounded (Bevy's `LayoutConfig`), as the shift is
+  worked out from the box's unrounded size and Bevy turns about the middle of the size it
+  lays out; unturned nodes are rounded as before. The clips above it (`clips`, a turned-on `clipwindow`) stay unturned boxes
   and cut the turned quad on the screen (Bevy clips a transformed node by its clip
   rectangles). A `tile` picture is turned whole, its repeats with it.
 - [design] Texts, models and the compass strip are not turned (no file turns one).
