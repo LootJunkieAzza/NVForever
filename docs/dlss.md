@@ -45,20 +45,27 @@ it.
 
 - **NVForever** checks `sl.interposer.dll` before it loads it: it must carry NVIDIA's
   signature, and it must be exactly the file of Streamline 2.14.16 (its SHA-256 is compared).
-  The file is kept open while it is checked and loaded, so it cannot be swapped in between.
   Anything it imports is looked up only in the `dlss` folder and in Windows' System32 folder.
 - **NVForever** also checks every other DLL in the `dlss` folder before Streamline starts,
   because Streamline loads every `sl.*.dll` it finds there: each `sl.*.dll` (and
   `NvLowLatencyVk.dll`) must be exactly the file of Streamline 2.14.16's `bin\x64`, compared by
-  SHA-256, and the only other DLLs allowed are NVIDIA's `nvngx_*.dll`. So copying the whole
-  `bin\x64` folder works too, while any other DLL in the folder keeps DLSS off. The checked
-  files are kept open until Streamline has loaded them.
+  SHA-256, and the only other DLLs allowed are NVIDIA's `nvngx_*.dll`, each of which must be
+  signed by NVIDIA Corporation (Windows checks the signature), so a newer DLSS from NVIDIA works.
+  So copying the whole `bin\x64` folder works too, while any other DLL in the folder keeps DLSS
+  off.
+- **Kept as checked.** From its check until the game quits, NVForever keeps every checked file
+  in the `dlss` folder open so that no other program can change, rename or delete it: the files'
+  contents cannot be swapped while the game runs. The `dlss` folder must be a real folder and
+  each DLL in it a real file, not a link (a symbolic link or junction), or DLSS stays off. The
+  folder is your own, beside `nvforever.exe` and outside the game folder; the folders above it
+  are not checked.
 - **NVIDIA's Streamline** then checks the plugins it loads (`sl.common.dll`, `sl.dlss.dll`) for
   NVIDIA's signature and refuses unsigned ones. The game's log shows it, in lines such as
   "File 'sl.common.dll' is signed by NVIDIA and the signature was verified".
 - **NVIDIA's NGX**, part of the driver, loads `nvngx_dlss.dll`. NVForever does not compare its
-  hash, so a newer DLSS can be used. Whether NGX checks that file is not shown in the log, so
-  this page makes no claim about it.
+  hash, so a newer DLSS can be used, but checks that it is signed by NVIDIA Corporation (above).
+  Whether NGX checks that file itself is not shown in the log, so this page makes no claim about
+  it.
 
 ### Other tools that change the upscaler
 
@@ -141,8 +148,8 @@ game again. The log
 | DLSS needs the Vulkan renderer | The game was started with another renderer (the `WGPU_BACKEND` variable, for example `dx12`). Start it with Vulkan, the default. |
 | DLSS files missing: put them in the dlss folder beside nvforever.exe, then restart | The `dlss` folder is not next to `nvforever.exe`, or one of the four files is not in it. The log names the missing files. Once all four are there, DLSS reads DLSS (restart). |
 | The dlss folder holds NVIDIA's updater (nvngx_update.exe): remove it, then restart | Delete `nvngx_update.exe` from the `dlss` folder. This is also shown when the folder could not be read. |
-| A file in the dlss folder is not from the tested NVIDIA release (Streamline 2.14.16) | A DLL in the `dlss` folder did not pass NVForever's checks. Every `sl.*.dll` (and `NvLowLatencyVk.dll`) must be exactly the file of Streamline 2.14.16's `bin\x64`, and `sl.interposer.dll` must also carry NVIDIA's signature; besides those, only NVIDIA's `nvngx_*.dll` files may be there. Another version, a changed file or any other DLL is refused. The log names the file and its SHA-256. Download release 2.14.16 again from NVIDIA's page, copy its files unchanged, and remove any other DLL from the folder. |
-| DLSS did not start (the log says why) | NVIDIA's Streamline would not load or start. The log's `DLSS:` lines say where it stopped. |
+| A file in the dlss folder is not from the tested NVIDIA release (Streamline 2.14.16) | A DLL in the `dlss` folder did not pass NVForever's checks. Every `sl.*.dll` (and `NvLowLatencyVk.dll`) must be exactly the file of Streamline 2.14.16's `bin\x64`, and `sl.interposer.dll` must also carry NVIDIA's signature; besides those, only NVIDIA's `nvngx_*.dll` files may be there, signed by NVIDIA Corporation. Another version, a changed file, an `nvngx_*.dll` without NVIDIA's signature, a DLL that is a link, or any other DLL is refused. The log names the file, and its SHA-256 or signer. Download release 2.14.16 again from NVIDIA's page, copy its files unchanged, and remove any other DLL from the folder. |
+| DLSS did not start (the log says why) | NVIDIA's Streamline would not load or start. The log's `DLSS:` lines say where it stopped. This is also shown when the `dlss` folder itself is a link (a symbolic link or junction) rather than a real folder, or a DLL in it could not be read. |
 | A graphics card the game may use cannot run DLSS | A graphics card Vulkan can see lacks what DLSS needs. This is typical on laptops whose built-in graphics also show up in Vulkan beside the NVIDIA card: the game checks every card Vulkan shows, since it could end up starting on any of them. DLSS stays off rather than risk a crash at start. The log names the card. |
 | Not on this GPU or driver (DLSS needs an NVIDIA RTX card) | DLSS does not run on this graphics card or driver. It needs an NVIDIA RTX card; updating the driver may help. |
 | DLSS stopped working this session; it is tried again at the next start | DLSS gave no picture for a while in this session. For the rest of the session a DLSS choice draws without upscaling; FSR 3.1 and Off can still be chosen and take effect at once. DLSS is tried again at the next start. |

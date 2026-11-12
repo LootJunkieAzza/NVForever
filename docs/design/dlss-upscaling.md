@@ -54,10 +54,24 @@ detail in the module notes of the file named.
   search (below). Each `.dll` (any case) must be a file of Streamline 2.14.16's `bin\x64` with
   that file's SHA-256 (twelve, `NvLowLatencyVk.dll` among them [observed: the official release
   zip, 2026-11-12]), so a player who copied the whole folder still gets DLSS, or an
-  `nvngx_*.dll`: NGX's runtimes, loaded by NGX, not pinned so that a newer DLSS can be used.
-  Anything else, or a listed name with another hash, is `SignatureRejected`, the log naming the
-  file and its hash; a DLL that cannot be opened and read is `StreamlineRefused`. The listed
-  DLLs are hashed through handles sharing read access only, held until `slInit` has returned.
+  `nvngx_*.dll`: NGX's runtimes, loaded by NGX, not pinned by hash so that a newer DLSS can be
+  used, but each must pass Windows' Authenticode check (through the held handle) with a signer
+  certificate whose subject common name is "NVIDIA Corporation" (`security::check_ngx`; the
+  follow-up review of #2206). Anything else, a listed name with another hash, or an
+  `nvngx_*.dll` that fails its check is `SignatureRejected`, the log naming the file and its
+  hash or signer; a DLL that cannot be opened and read is `StreamlineRefused`. The DLLs are read
+  through handles sharing read access only, held with the folder's own handle until Streamline
+  is shut down (`dlss/win.rs` `Pins`), since Streamline and NGX load some of them after
+  `slInit`: `sl.common` delay-loads `NvLowLatencyVk.dll` during device creation (Streamline's
+  `premake.lua:485`; `src/wrapper.cpp:1004` -> `src/vulkan.cpp:1183`) [documented]. (The
+  follow-up review of #2206; before it, the handles were dropped when `slInit` returned.)
+- **No links** (`dlss/preflight.rs` `check_folder`). The folder and every DLL in it are opened
+  as themselves (`FILE_FLAG_OPEN_REPARSE_POINT`) and refused when they are reparse points
+  (symbolic links, junctions, mount points): a DLL as `SignatureRejected`, the folder as
+  `StreamlineRefused`. The folder is held open without `FILE_SHARE_DELETE`, so it cannot be
+  renamed while held. Together with the held files, this is what lets the player page promise
+  that the files' contents cannot be swapped while the game runs; the folders above the DLSS
+  folder are trusted (the player's own, beside the program). (The follow-up review of #2206.)
   A file added after the second pass is not seen; with the default folder beside the program,
   whose own folder is searched first anyway, that adds no place an attacker could not already
   write to. (The second review of #2206.)
@@ -74,7 +88,7 @@ detail in the module notes of the file named.
 - **One file, checked and loaded** (`dlss/security.rs` `check_interposer`, `dlss/win.rs`). The
   interposer is opened once, sharing read access only, so no one can write, rename or delete it
   while the handle is open; its hash is read and `WinVerifyTrust` runs through that handle
-  (`WINTRUST_FILE_INFO.hFile`), and the handle is held until `LoadLibraryExW` has returned.
+  (`WINTRUST_FILE_INFO.hFile`), and the handle is held until Streamline is shut down.
   `LoadLibraryExW` and `CryptQueryObject` still open the file by path (neither takes a handle
   for this), while the handle is held; the module comment says what that rests on. (The review
   of #2206.)
@@ -97,15 +111,16 @@ detail in the module notes of the file named.
   is added (`AddDllDirectory`) and the process's default search set to the program's folder,
   the added folder and System32 (`SetDefaultDllDirectories(LOAD_LIBRARY_SEARCH_DEFAULT_DIRS)`).
   Either call failing keeps the stock path (`StreamlineRefused`, one log line); the folder is
-  added first, so a failure there changes nothing. The stock path never makes these calls.
-  The change lasts for the rest of the process and cannot be undone [documented: Microsoft
-  Learn, "SetDefaultDllDirectories function"]. It is safe for the rest of the game because it
-  only drops the working directory, `PATH` and the Windows folder from searches by name; what
-  the game loads after it comes by full path or from System32 [hypothesis, from how they are
-  loaded: the Vulkan loader from System32 (`vulkan-1.dll`), the GPU drivers and Vulkan layers by
-  the full paths their registrations give, the audio and system libraries from System32]; a
-  Vulkan layer registered with a bare file name that lies only on `PATH` would no longer load
-  in a session that took the Streamline path. (The second review of #2206.)
+  added first, so a failure there changes nothing, and when the second call fails the folder's
+  registration is removed again (`RemoveDllDirectory`; the follow-up review of #2206). The stock
+  path never makes these calls. The change lasts for the rest of the process and cannot be
+  undone [documented: Microsoft Learn, "SetDefaultDllDirectories function"]. What is known
+  about its effect: from then on, DLLs loaded by name come from the program's folder, the DLSS
+  folder and System32 only [documented: same page]; wgpu, the Vulkan loader, audio (COM) and
+  gamepads (Windows Gaming Input) were seen working in runs that took this path [observed:
+  TODO, the main session adds the run]; a component that is found only through `PATH` (a
+  Vulkan layer registered with a bare file name, for example) would no longer load in a session
+  that took the Streamline path. (The second review of #2206; its follow-up review.)
 - **Loaded whenever the files are there** (`main.rs`, `upscaler.rs` `UpscalerStartup`,
   `dlss::bundle_present`) [design: the user's decision after the play-test of #2206,
   2026-11-12]. `main` works out the requested choice before the renderer exists, from the
