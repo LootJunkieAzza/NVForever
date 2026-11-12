@@ -238,7 +238,7 @@ impl Evaluator {
         }
 
         // The raw handles before anything is recorded, so a failure leaves the encoder as it was.
-        let depth_view = frame.depth.create_view(&wgpu::TextureViewDescriptor { label: Some("dlss_spike_depth"), aspect: wgpu::TextureAspect::DepthOnly, ..default() });
+        let depth_view = frame.depth.create_view(&wgpu::TextureViewDescriptor { label: Some("dlss_depth"), aspect: wgpu::TextureAspect::DepthOnly, ..default() });
         let color_in: &wgpu::Texture = frame.target.main_texture().deref();
         let color_in_view: &wgpu::TextureView = frame.target.main_texture_view().deref();
         let output: &wgpu::Texture = frame.target.main_texture_other().deref();
@@ -293,7 +293,7 @@ impl Evaluator {
         {
             let encoder = ctx.command_encoder();
             encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("dlss_spike_output_clear"),
+                label: Some("dlss_output_clear"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: output_view,
                     depth_slice: None,
@@ -344,7 +344,7 @@ impl Evaluator {
         ];
 
         // 5. The evaluate on its own encoder, raw recording only.
-        let mut dlss_encoder = ctx.render_device().wgpu_device().create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("dlss_spike_evaluate") });
+        let mut dlss_encoder = ctx.render_device().wgpu_device().create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("dlss_evaluate") });
         // SAFETY: the closure records only through the raw command buffer, which wgpu opened
         // for recording and ends at `finish` (wgpu 30 `CommandEncoder::as_hal_mut`); the
         // encoder is not touched otherwise meanwhile. Every structure `inputs` points at lives
@@ -401,7 +401,7 @@ impl Evaluator {
         }
         if let Some((_, pipeline)) = &self.alpha {
             let mut pass = ctx.command_encoder().begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("dlss_spike_alpha_one"),
+                label: Some("dlss_alpha_one"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: output_view,
                     depth_slice: None,
@@ -581,10 +581,10 @@ fn constants(frame: &Frame, previous: &PreviousViewData, reset: bool) -> Constan
 }
 
 fn alpha_one_pipeline(device: &wgpu::Device, format: wgpu::TextureFormat) -> wgpu::RenderPipeline {
-    let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor { label: Some("dlss_spike_alpha_one"), source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(ALPHA_ONE_WGSL)) });
-    let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: Some("dlss_spike_alpha_one"), bind_group_layouts: &[], immediate_size: 0 });
+    let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor { label: Some("dlss_alpha_one"), source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(ALPHA_ONE_WGSL)) });
+    let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: Some("dlss_alpha_one"), bind_group_layouts: &[], immediate_size: 0 });
     device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-        label: Some("dlss_spike_alpha_one"),
+        label: Some("dlss_alpha_one"),
         layout: Some(&layout),
         vertex: wgpu::VertexState { module: &shader, entry_point: Some("vertex"), compilation_options: default(), buffers: &[] },
         fragment: Some(wgpu::FragmentState {

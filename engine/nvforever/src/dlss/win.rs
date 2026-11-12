@@ -342,7 +342,7 @@ pub(super) fn after_device(app: &mut App) {
     note(
         Level::INFO,
         format!(
-            "device: made through Streamline's proxies: instance marker {}, DLSS plugin loaded={} ({}); Streamline's own lines (\"DLSS spike: sl:\") show its proxies at work",
+            "device: made through Streamline's proxies: instance marker {}, DLSS plugin loaded={} ({}); Streamline's own lines (\"DLSS: sl:\") show its proxies at work",
             if marker { "set" } else { "missing" },
             loaded != 0,
             loaded_result.name()
@@ -495,7 +495,7 @@ pub(super) fn shutdown() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::dlss_spike::ffi::PREFERENCE_DISABLE_CL_STATE_TRACKING;
+    use crate::dlss::ffi::PREFERENCE_DISABLE_CL_STATE_TRACKING;
 
     #[test]
     fn preferences_for_the_spike() {
@@ -525,6 +525,6 @@ mod tests {
         // SAFETY: a null message is ignored.
         unsafe { sl_log(LOG_TYPE_ERROR, std::ptr::null()) };
         let pending = super::super::PENDING.lock().unwrap();
-        assert!(pending.iter().any(|(l, t)| *l == Level::WARN && t == "DLSS spike: sl: [sl] test line"));
+        assert!(pending.iter().any(|(l, t)| *l == Level::WARN && t == "DLSS: sl: [sl] test line"));
     }
 }

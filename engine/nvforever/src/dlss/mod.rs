@@ -42,7 +42,7 @@
 //!   handles, so the device and instance are destroyed after it. Streamline's cleanup uses the
 //!   device it stored [documented: `src/vulkan.cpp:1349-1407`]. The interposer stays loaded.
 //!
-//! Log lines start `DLSS spike:`; lines before the log is up wait in a buffer, written each frame
+//! Log lines start `DLSS:`; lines before the log is up wait in a buffer, written each frame
 //! (`First`) and at shutdown.
 
 #[cfg(any(windows, test))]
@@ -94,13 +94,13 @@ fn push(level: Level, text: String) {
 
 /// A line of the spike's for the log.
 fn note(level: Level, text: impl AsRef<str>) {
-    push(level, format!("DLSS spike: {}", text.as_ref()));
+    push(level, format!("DLSS: {}", text.as_ref()));
 }
 
 /// A line of Streamline's own log (its callback) for the log.
 #[cfg(windows)]
 fn note_sl(level: Level, text: &str) {
-    push(level, format!("DLSS spike: sl: {text}"));
+    push(level, format!("DLSS: sl: {text}"));
 }
 
 /// Writes the waiting lines to the log.
@@ -117,7 +117,7 @@ fn drain_log() {
     }
     let dropped = std::mem::take(&mut *DROPPED.lock().unwrap_or_else(PoisonError::into_inner));
     if dropped > 0 {
-        warn!("DLSS spike: {dropped} log lines dropped (more than {PENDING_MAX} between two frames)");
+        warn!("DLSS: {dropped} log lines dropped (more than {PENDING_MAX} between two frames)");
     }
 }
 
@@ -125,9 +125,9 @@ fn drain_log() {
 /// `slInit` must come before any Vulkan call through the interposer [documented:
 /// `ProgrammingGuide.md:115-119`], and Bevy reads `RawVulkanInitSettings` when it creates the
 /// renderer (vendor/bevy_render/src/lib.rs `insert_future_resources`).
-pub struct DlssSpikeInitPlugin;
+pub struct DlssInitPlugin;
 
-impl Plugin for DlssSpikeInitPlugin {
+impl Plugin for DlssInitPlugin {
     fn build(&self, app: &mut App) {
         let Some(value) = std::env::var_os(ENV_SWITCH) else { return };
         app.add_systems(First, drain_log);

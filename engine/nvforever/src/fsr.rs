@@ -32,16 +32,9 @@ use bevy::render::{
 use wgpu::util::DeviceExt;
 use wgpu_ffx::{FsrContext, FsrContextFlags, FsrContextInfo, FsrDispatchFlags, FsrDispatchInfo, FsrView};
 
-/// AMD's standard fixed-resolution modes. Native AA reconstructs at 1:1.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, clap::ValueEnum)]
-pub enum FsrQuality {
-    NativeAa,
-    #[default]
-    Quality,
-    Balanced,
-    Performance,
-    UltraPerformance,
-}
+/// AMD's standard fixed-resolution modes. Native AA reconstructs at 1:1. The quality list is
+/// shared with DLSS (`upscaler.rs`); the ratios below are FSR's alone.
+pub type FsrQuality = crate::upscaler::UpscaleQuality;
 
 impl FsrQuality {
     pub fn ratio(self) -> f32 {
@@ -374,7 +367,7 @@ pub(crate) fn prepare(
             info!("FSR 3.1 shaders: {shaders}");
             (context, AuxiliaryPipelines::new(device.wgpu_device()))
         });
-        usages.0 |= wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::COPY_SRC | crate::dlss_spike::main_texture_usages();
+        usages.0 |= wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::COPY_SRC | crate::dlss::main_texture_usages();
         let phases = wgpu_ffx::get_jitter_phase_count(render_size.x as i32, output_size.x as i32);
         let offset = Vec2::from_array(wgpu_ffx::get_jitter_offset((camera.frame % i32::MAX as u32) as i32, phases));
         // Bevy applies its projection jitter with the opposite displacement sign.
@@ -617,17 +610,17 @@ pub(crate) fn fsr_pass(
         flags: if *DEBUG_VIEW { FsrDispatchFlags::DRAW_DEBUG_VIEW } else { FsrDispatchFlags::empty() },
     };
     let upscale_span = diagnostics.time_span(encoder, "upscale");
-    // The DLSS spike (dlss_spike/, #2198, `NVF_DLSS_SPIKE=1`): while it is active, one DLSS
+    // The DLSS spike (dlss/, #2198, `NVF_DLSS_SPIKE=1`): while it is active, one DLSS
     // evaluate in place of FSR's dispatch; inactive, it returns at once without touching `ctx`.
-    let spike = crate::dlss_spike::evaluate(&mut ctx, &crate::dlss_spike::Frame {
+    let spike = crate::dlss::evaluate(&mut ctx, &crate::dlss::Frame {
         target, depth: &prepared.fsr_depth, motion: &motion.texture.texture, motion_view: &motion.texture.default_view,
         render_size: prepared.render_size, output_size: prepared.output_size, view: extracted, previous, jitter: jitter.offset,
         near: prepared.camera.near, fov: prepared.camera.fov, reset, frame_generation: frame_generation.as_ref().is_some_and(|f| f.on()),
     });
     let encoder = ctx.command_encoder();
     let dispatched = match spike {
-        crate::dlss_spike::Outcome::Evaluated => Ok(()),
-        crate::dlss_spike::Outcome::Fsr { reset } => {
+        crate::dlss::Outcome::Evaluated => Ok(()),
+        crate::dlss::Outcome::Fsr { reset } => {
             info.reset_history |= reset;
             context.dispatch(&mut prepared.view.lock().unwrap(), encoder, &info)
         }
@@ -654,7 +647,7 @@ pub(crate) fn fsr_pass(
             prepared.history_valid.store(true, Ordering::Relaxed);
             // While the DLSS spike draws the frame, FSR's dispatch did not run: its line waits
             // for a frame FSR draws.
-            if matches!(spike, crate::dlss_spike::Outcome::Fsr { .. }) && !prepared.dispatch_logged.swap(true, Ordering::Relaxed) {
+            if matches!(spike, crate::dlss::Outcome::Fsr { .. }) && !prepared.dispatch_logged.swap(true, Ordering::Relaxed) {
                 info!("FSR dispatch active: 3.1.4, {}x{} -> {}x{}, Vulkan source shaders, frame generation {}", prepared.render_size.x, prepared.render_size.y, prepared.output_size.x, prepared.output_size.y, on_off(frame_generation.as_ref().is_some_and(|f| f.on())));
             }
         }

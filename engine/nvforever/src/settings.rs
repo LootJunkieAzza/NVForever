@@ -834,13 +834,13 @@ fn register_pipeline_waits(app: &mut App) {
 }
 
 fn fsr_chosen(world: &World) -> String {
-    let quality = world.resource::<Graphics>().fsr;
+    let quality = world.resource::<Graphics>().fsr();
     graphics::FSR_CHOICES.iter().find(|(_, mode)| mode.quality() == quality).map_or("Off", |(name, _)| *name).to_string()
 }
 
 fn pick_fsr(world: &mut World, name: &str) -> bool {
     let Some((_, mode)) = graphics::FSR_CHOICES.iter().find(|(label, _)| label.eq_ignore_ascii_case(name.trim())) else { return false };
-    world.resource_mut::<Graphics>().fsr = mode.quality();
+    world.resource_mut::<Graphics>().set_fsr(mode.quality());
     true
 }
 
@@ -851,7 +851,7 @@ fn load_fsr(world: &mut World, value: &str) -> bool {
     // Preserve settings written by the early local slider build; new files store
     // the actual choice name, independent of the number/order of future options.
     let Some(part) = value.trim().parse::<f32>().ok().filter(|v| v.is_finite() && (0.0..=1.0).contains(v)) else { return false };
-    world.resource_mut::<Graphics>().fsr = graphics::FSR_CHOICES[choice_index(part, graphics::FSR_CHOICES.len())].1.quality();
+    world.resource_mut::<Graphics>().set_fsr(graphics::FSR_CHOICES[choice_index(part, graphics::FSR_CHOICES.len())].1.quality());
     true
 }
 
@@ -921,7 +921,7 @@ mod fsr_settings_tests {
         register_graphics(&mut app);
         let row = app.world().resource::<nvf_play::settings::Settings>().index("anti-aliasing").unwrap();
         for (_, mode) in graphics::FSR_CHOICES.into_iter().filter(|(_, m)| m.quality().is_some()) {
-            app.world_mut().resource_mut::<Graphics>().fsr = mode.quality();
+            app.world_mut().resource_mut::<Graphics>().set_fsr(mode.quality());
             let settings = app.world().resource::<nvf_play::settings::Settings>();
             assert_eq!(settings.disabled_status(app.world(), row), Some("Off (FSR active)"));
             let saved = settings.list()[row].value(app.world());
@@ -929,13 +929,13 @@ mod fsr_settings_tests {
             assert!(nvf_play::settings::set_slider(app.world_mut(), row, 0.0).is_none());
             assert!(nvf_play::settings::step_slider(app.world_mut(), row, 1).is_none());
             assert_eq!(graphics::aa_choice(app.world()), 3, "disabled UI must preserve saved 8x");
-            app.world_mut().resource_mut::<Graphics>().fsr = None;
+            app.world_mut().resource_mut::<Graphics>().set_fsr(None);
             let settings = app.world().resource::<nvf_play::settings::Settings>();
             assert_eq!(settings.disabled_status(app.world(), row), None);
             assert_eq!(settings.list()[row].slider.unwrap().text(saved), "8x");
         }
         app.world_mut().resource_mut::<crate::fsr::FsrSupport>().0 = false;
-        app.world_mut().resource_mut::<Graphics>().fsr = Some(crate::fsr::FsrQuality::NativeAa);
+        app.world_mut().resource_mut::<Graphics>().set_fsr(Some(crate::fsr::FsrQuality::NativeAa));
         assert_eq!(app.world().resource::<nvf_play::settings::Settings>().disabled_status(app.world(), row), None, "unsupported FSR leaves native AA editable");
         assert!(nvf_play::settings::set_slider(app.world_mut(), row, 0.0).is_some());
         assert_eq!(graphics::aa_choice(app.world()), 0);
@@ -953,9 +953,9 @@ mod fsr_settings_tests {
         assert_eq!((dropdown.names)(app.world()).len(), 6);
         for (name, mode) in graphics::FSR_CHOICES {
             assert!((dropdown.pick)(app.world_mut(), name));
-            assert_eq!(app.world().resource::<Graphics>().fsr, mode.quality());
+            assert_eq!(app.world().resource::<Graphics>().fsr(), mode.quality());
             let saved = (dropdown.save)(app.world());
-            app.world_mut().resource_mut::<Graphics>().fsr = None;
+            app.world_mut().resource_mut::<Graphics>().set_fsr(None);
             assert!((dropdown.load)(app.world_mut(), &saved));
             assert_eq!((dropdown.chosen)(app.world()), name);
         }

@@ -45,6 +45,7 @@ use bevy::anti_alias::fxaa::Fxaa;
 use bevy::anti_alias::smaa::Smaa;
 use bevy::render::camera::{MipBias, TemporalJitter};
 use crate::fsr::{FsrQuality, FsrUpscaling};
+use crate::upscaler::UpscalerChoice;
 
 /// The command line and saved settings expose the same upscaling modes.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, clap::ValueEnum)]
@@ -125,8 +126,10 @@ pub struct Graphics {
     pub sharpen: bool,
     pub anisotropic: bool,
     pub screen_aa: ScreenAa,
-    /// FSR replaces the selected AA while active; UI is drawn at output resolution.
-    pub fsr: Option<FsrQuality>,
+    /// The requested temporal upscaler (`upscaler.rs`), the one setting for FSR and DLSS. FSR
+    /// replaces the selected AA while active; UI is drawn at output resolution. FSR's code reads
+    /// and writes it through [`Graphics::fsr`] and [`Graphics::set_fsr`].
+    pub upscaler: UpscalerChoice,
     pub light_shafts: bool,
     pub water_reflections: bool,
     /// Water mirrors the world through the reflection camera (`reflection.rs`; on in
@@ -155,6 +158,17 @@ pub const KEYS: [&str; 12] = [
 ];
 
 impl Graphics {
+    /// FSR's quality when FSR is the requested upscaler; `None` for off and for DLSS (FSR's
+    /// code treats a DLSS request as no FSR).
+    pub fn fsr(&self) -> Option<FsrQuality> {
+        self.upscaler.fsr()
+    }
+
+    /// FSR at `quality`, or off: the requested upscaler as the FSR row and `--fsr` set it.
+    pub fn set_fsr(&mut self, quality: Option<FsrQuality>) {
+        self.upscaler = UpscalerChoice::from_fsr(quality);
+    }
+
     pub fn preset(p: Preset) -> Self {
         let on = p == Preset::Enhanced;
         Graphics {
@@ -171,7 +185,7 @@ impl Graphics {
             // and the owner plays with 8x multisampling (docs/design/graphics-enhanced.md
             // §3.6). The shadow filter stays Bevy's default too (§3.9).
             screen_aa: ScreenAa::Off,
-            fsr: None,
+            upscaler: UpscalerChoice::Off,
             light_shafts: on,
             water_reflections: on,
             water_mirror: true,
@@ -242,7 +256,7 @@ impl Graphics {
             (self.shadow_filter == ShadowFilteringMethod::Temporal, "temporal shadow filtering"),
         ];
         let mut on: Vec<&str> = names.iter().filter(|(on, _)| *on).map(|(_, n)| *n).collect();
-        if self.fsr.is_some() {
+        if self.fsr().is_some() {
             on.retain(|n| !matches!(*n, "FXAA" | "SMAA" | "temporal anti-aliasing"));
             on.push("FSR 3.1 upscaling");
         }
@@ -281,7 +295,7 @@ pub const AA_CHOICES: [(&str, ScreenAa, Msaa); 7] = [
 
 /// Whether FSR replaces native AA on this device.
 pub fn fsr_active(world: &World) -> bool {
-    world.resource::<Graphics>().fsr.is_some() && world.get_resource::<crate::fsr::FsrSupport>().is_some_and(|s| s.0)
+    world.resource::<Graphics>().fsr().is_some() && world.get_resource::<crate::fsr::FsrSupport>().is_some_and(|s| s.0)
 }
 
 /// The saved native anti-aliasing choice, an index of [`AA_CHOICES`]. It is kept
@@ -658,7 +672,7 @@ fn apply(
     if cam_count == 0 {
         return;
     }
-    let fsr = g.fsr.filter(|_| fsr_support.0);
+    let fsr = g.fsr().filter(|_| fsr_support.0);
     // Blended shapes that draw the same as cut-outs (the corn rows) are cut-outs for FSR,
     // which needs their depth and motion (nif_material::BlendedCutouts).
     if let Some(mut cutouts) = cutouts {
@@ -678,10 +692,10 @@ fn apply(
     }
     let first = done.is_none();
     let msaa_changed = done.as_ref().is_some_and(|(previous, saved, supported, _)| {
-        let previous_effective = if previous.screen_aa == ScreenAa::Off && previous.fsr.filter(|_| *supported).is_none() { *saved } else { Msaa::Off };
+        let previous_effective = if previous.screen_aa == ScreenAa::Off && previous.fsr().filter(|_| *supported).is_none() { *saved } else { Msaa::Off };
         previous_effective != want_msaa || *saved != msaa.0
     });
-    let fsr_changed = done.as_ref().is_none_or(|(previous, _, supported, _)| previous.fsr.filter(|_| *supported) != fsr);
+    let fsr_changed = done.as_ref().is_none_or(|(previous, _, supported, _)| previous.fsr().filter(|_| *supported) != fsr);
     *done = Some((*g, msaa.0, fsr_support.0, entities));
     for (cam, cam_msaa, ..) in &cams {
         let mut e = commands.entity(cam);
@@ -825,7 +839,7 @@ mod tests {
                 app.update();
                 assert_native_aa(&app, camera, selected);
 
-                app.world_mut().resource_mut::<Graphics>().fsr = Some(quality);
+                app.world_mut().resource_mut::<Graphics>().set_fsr(Some(quality));
                 app.update();
                 let entity = app.world().entity(camera);
                 assert_eq!(entity.get::<FsrUpscaling>().unwrap().quality, quality);
@@ -838,7 +852,7 @@ mod tests {
                 assert!(entity.contains::<bevy::core_pipeline::prepass::DepthPrepass>());
                 assert_eq!(app.world().resource::<Graphics>().screen_aa, selected, "FSR preserves the saved native AA choice");
 
-                app.world_mut().resource_mut::<Graphics>().fsr = None;
+                app.world_mut().resource_mut::<Graphics>().set_fsr(None);
                 app.update();
                 assert_native_aa(&app, camera, selected);
             }
@@ -850,7 +864,7 @@ mod tests {
         let (mut app, old) = aa_app(ScreenAa::Off, true);
         let suns: Vec<Entity> = app.world_mut().query_filtered::<Entity, With<Sun>>().iter(app.world()).collect();
         for sun in suns { app.world_mut().despawn(sun); }
-        app.world_mut().resource_mut::<Graphics>().fsr = Some(FsrQuality::NativeAa);
+        app.world_mut().resource_mut::<Graphics>().set_fsr(Some(FsrQuality::NativeAa));
         app.update();
         assert_eq!(*app.world().get::<Msaa>(old).unwrap(), Msaa::Off);
         assert!(app.world().get::<FsrUpscaling>(old).is_some());
@@ -882,7 +896,7 @@ mod tests {
     fn unsupported_fsr_keeps_native_aa_active() {
         for selected in [ScreenAa::Off, ScreenAa::Taa, ScreenAa::Fxaa, ScreenAa::Smaa] {
             let (mut app, camera) = aa_app(selected, false);
-            app.world_mut().resource_mut::<Graphics>().fsr = Some(FsrQuality::Quality);
+            app.world_mut().resource_mut::<Graphics>().set_fsr(Some(FsrQuality::Quality));
             app.update();
             assert_native_aa(&app, camera, selected);
         }

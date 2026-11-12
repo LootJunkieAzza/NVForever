@@ -71,7 +71,7 @@ mod fog;
 mod fly;
 mod foot_ik;
 mod anti_lag;
-mod dlss_spike;
+mod dlss;
 mod frame_pace;
 mod frame_telemetry;
 mod blit_warm;
@@ -158,6 +158,7 @@ mod taa;
 mod fg_presenter;
 mod frame_gen;
 mod fsr;
+mod upscaler;
 mod speech_look;
 mod stress_sample;
 mod profile;
@@ -1292,7 +1293,7 @@ fn main() -> AppExit {
         },
         None => graphics::Graphics::preset(graphics_preset(&args)),
     };
-    graphics.fsr = args.fsr.quality();
+    graphics.set_fsr(args.fsr.quality());
     let frame_times = match (args.log_frame_times, args.graphics_cycle.as_deref()) {
         (None, _) => None,
         (Some(every), cycle) => {
@@ -1321,8 +1322,8 @@ fn main() -> AppExit {
     // Asks for VK_AMD_anti_lag when Bevy creates the device: before DefaultPlugins (anti_lag.rs).
     app.add_plugins(anti_lag::AntiLagInitPlugin);
     // NVF_DLSS_SPIKE=1 only: Streamline loaded and initialised before the renderer starts
-    // (dlss_spike/, #2198); unset, nothing runs.
-    app.add_plugins(dlss_spike::DlssSpikeInitPlugin);
+    // (dlss/, #2198); unset, nothing runs.
+    app.add_plugins(dlss::DlssInitPlugin);
     app.add_plugins(
         DefaultPlugins
             .set(task_pools(cpu_placed.pool_threads))
@@ -1886,8 +1887,8 @@ fn main() -> AppExit {
     }
     let exit = app.run();
     // The app and its renderer are gone; Streamline shut down before the device and instance it
-    // used (dlss_spike/, "Shutdown"). Nothing when the spike is off.
-    dlss_spike::shutdown();
+    // used (dlss/, "Shutdown"). Nothing when the spike is off.
+    dlss::shutdown();
     exit
 }
 
