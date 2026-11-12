@@ -561,7 +561,7 @@ impl Shown {
         let row = |key: u32, r: &data::Row| RowShown { key, text: r.text.clone(), filled: r.mark == Mark::Filled, done: r.done };
         let (pane, pane_first) = match right {
             Right::Objectives { rows, first } if list == ListKind::Quests => (Pane::Objectives(rows.iter().enumerate().map(|(i, r)| row(i as u32, r)).collect()), *first),
-            Right::Text { text, first } if list != ListKind::Quests => (Pane::Text(text.replace("\r\n", "\n")), *first),
+            Right::Text { text, first } if list.misc() => (Pane::Text(text.replace("\r\n", "\n")), *first),
             Right::Image(file) if list == ListKind::Notes => (Pane::Image(file.clone()), 0.0),
             &Right::Audio { left, played } if list == ListKind::Notes => (Pane::Audio { left, played }, 0.0),
             &Right::Wave { on } if list == ListKind::Stations => (Pane::Wave { on }, 0.0),
@@ -3110,7 +3110,7 @@ mod tests {
         let mark = |form, uv: Option<[f32; 2]>| data::MapMark { icon: Some((1, true)), highlighted: form == 2, at: Vec2::ZERO, form, name: format!("P{form}"), uv };
         let parts = data::WorldParts { view, texture: "w.dds".into(), mag: 1.0, quests: vec![(9, [0.1, 0.2])], custom: None, arrow: Some(([0.5, 0.5], 1.0)), ends: Vec::new() };
         let map = data::MapShown::for_test(vec![mark(1, Some([0.1, 0.1])), mark(2, Some([0.2, 0.2])), mark(3, None)], Some(parts), Vec2::new(5.0, 6.0), Some("P2"), None);
-        let view_of = |tab, map: data::MapShown| data::View { tab, place: "Here".into(), when: "now".into(), buttons: Vec::new(), body: Body::Map(map), popup: None };
+        let view_of = |tab, map: data::MapShown| data::View { tab, place: "Here".into(), when: "now".into(), buttons: Vec::new(), body: Body::Map(Box::new(map)), popup: None };
         let p = |tab, map| Prepared { view: view_of(tab, map), keys: Vec::new(), sel: 0, pointer_pick: false, navigated: 0, challenges: false, filtered: false };
         let s = Shown::of(&p(data::WORLD, map.clone()), true).unwrap();
         let w = s.world.expect("the World Map's parts");
@@ -3253,10 +3253,8 @@ mod tests {
         assert!(eligible(on, &pip), "and Radio");
         pip.tabs[Page::Data.index()] = data::WORLD;
         assert!(eligible(on, &pip), "and the World Map");
-        for tab in [data::LOCAL] {
-            pip.tabs[Page::Data.index()] = tab;
-            assert!(!eligible(on, &pip), "tab {tab} keeps the hand-built page");
-        }
+        pip.tabs[Page::Data.index()] = data::LOCAL;
+        assert!(!eligible(on, &pip), "the Local Map keeps the hand-built page");
         pip.tabs[Page::Data.index()] = data::QUESTS;
         pip.page = Page::Items;
         assert!(!eligible(on, &pip));

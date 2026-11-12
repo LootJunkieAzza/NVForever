@@ -636,7 +636,8 @@ impl MapShown {
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum Body {
-    Map(MapShown),
+    /// A map: boxed, as it is far larger than a list (its markers' and lines' places).
+    Map(Box<MapShown>),
     List { rows: Vec<Row>, first: usize, boxed: Option<usize>, right: Right },
 }
 
@@ -1883,7 +1884,7 @@ fn build(st: &mut DataState, tab: usize, l: &Lists, game: &Game, pointer: Option
     let place = place(st, game);
     let when = game.sim.as_ref().and_then(|s| s.world.calendar().ok()).map(|c| model::date_time(&c)).unwrap_or_default();
     let body = match tab {
-        LOCAL | WORLD => Body::Map(if tab == WORLD { world_map(st, game, pointer, aiming) } else { local_map(st, game, pointer) }),
+        LOCAL | WORLD => Body::Map(Box::new(if tab == WORLD { world_map(st, game, pointer, aiming) } else { local_map(st, game, pointer) })),
         QUESTS => {
             let rows = l
                 .quests
@@ -3867,7 +3868,7 @@ mod tests {
         let buttons = tab_buttons(WORLD, &facts(true));
         crate::pad::set_labels(crate::pad::Labels::Keys);
         let map = empty_map();
-        let view = View { tab: WORLD, place: String::new(), when: String::new(), buttons, body: Body::Map(map), popup: Some(Popup::travel(7, "Travel?".into())) };
+        let view = View { tab: WORLD, place: String::new(), when: String::new(), buttons, body: Body::Map(Box::new(map)), popup: Some(Popup::travel(7, "Travel?".into())) };
         let mut st = DataState::default();
         let mut world = World::new();
         let mut queue = CommandQueue::default();
