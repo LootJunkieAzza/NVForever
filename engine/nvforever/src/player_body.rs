@@ -2636,8 +2636,13 @@ fn drive_body(
         wind_now,
     };
     // The body stands on the drawn ground under the feet (`nvf_play::phys::drawn_sink`);
-    // its eye counts from the feet as before.
+    // its eye counts from the feet as before: without the sink, and without the share of
+    // the lift that easing the body onto changes of the drawn ground put there (else a
+    // crack in a broken road's drawn floor moved the view at once and eased it back,
+    // feedback 2026-11-12; `step_lift::StepLift::ground_at`).
     let sink = Vec3::Z * phys.drawn_sink_of(FormId::PLAYER_REF.0);
+    let ground_lift = phys.drawn_ground_lift_of(FormId::PLAYER_REF.0);
+    let eye_sink = sink - Vec3::Z * ground_lift;
     // A script's SetScale on the player sizes both rigs, so the view (the first-person
     // camera node) comes down with the body: Fallout 3's baby stage, CG01 stage 0,
     // `player.SetScale 0.4`, stage 100 `1` [observed: TTW's Fallout3.esm, fnvtool script
@@ -2651,7 +2656,7 @@ fn drive_body(
     }
     let root = Transform { translation: Vec3::from_array(feet) - sink, rotation: Quat::from_rotation_z(-player.heading), scale: Vec3::splat(body.scale * script_scale) };
     let third = Posed { root, look_pitch: player.pitch, special: &idles.third, pipboy: None, sway: SwayPose::NONE, sights: None };
-    let third_eye = pose_rig(&mut body.third, &frame, &events, third, &mut ctx, &mut transforms).map(|(e, _)| e + sink);
+    let third_eye = pose_rig(&mut body.third, &frame, &events, third, &mut ctx, &mut transforms).map(|(e, _)| e + eye_sink);
     // The third-person body's melee attack clip carries the player by its root's travel
     // (actors.md §8.13), turned by the heading and scaled with the body.
     if let Some(d) = body.third.carry.filter(|_| dt > 0.0) {
@@ -2664,7 +2669,7 @@ fn drive_body(
         }
         lunge.carrying = true;
     }
-    let (held, pitch, mut at) = idles.held.map_or((player.heading, player.pitch, feet), |h| (h.heading, player.pitch - h.pitch, h.feet));
+    let (held, pitch, mut at) = idles.held.map_or((player.heading, player.pitch, [feet[0], feet[1], feet[2] - ground_lift]), |h| (h.heading, player.pitch - h.pitch, h.feet));
     if let Some(h) = idles.held {
         // The character stays where the scene plays (and collides with nothing there).
         seat.hold = Some(h.feet);
@@ -2802,7 +2807,7 @@ fn drive_body(
         if let (false, Some(h)) = (m.hands.in_hand, body.third.head) {
             let head = Affine3A::from_scale_rotation_translation(root.scale, root.rotation, root.translation) * body.third.animator.model_space(h);
             let right = Vec3::new(player.heading.cos(), -player.heading.sin(), 0.0);
-            let neck = Vec3::from(head.translation) + sink;
+            let neck = Vec3::from(head.translation) + eye_sink;
             e = neck + Quat::from_axis_angle(right, NECK_PITCH * player.pitch) * (e - neck);
         }
         Some(e)
@@ -2812,9 +2817,11 @@ fn drive_body(
     // The third-person pivot: the head's height above the feet without the stride's
     // rise and fall (`head_bob.rs`).
     view.pivot = third_eye.or(eye).map(|e| {
-        let up = e.z - feet[2];
+        // From the feet without the drawn ground's share of the lift, as the eye.
+        let base = feet[2] - ground_lift;
+        let up = e.z - base;
         let up = if third_view { m.head.pivot_height(up, dt) } else { up };
-        [feet[0], feet[1], feet[2] + up + 5.0]
+        [feet[0], feet[1], base + up + 5.0]
     });
     if !third_view {
         m.head.pivot_reset();
