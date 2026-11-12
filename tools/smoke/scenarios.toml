@@ -24926,6 +24926,50 @@ expect = [
 forbid = [{ text = "the server was asked to delete", label = "a deletion reported done with no server" }]
 
 [[scenario]]
+name = "report-form-unreachable"
+source = "#2151, docs/design/player-reports.md section 3.3: Report a bug at the pause menu's bottom left opens the form for a player who has not opted in; it takes the screenshot, writes a save for the report and, with no server answering, says so and keeps the form (engine/nvforever/src/reports/form.rs)"
+areas = ["reports", "pause"]
+paths = ["engine/nvforever/src/reports/form.rs", "engine/nvforever/src/reports/upload.rs", "engine/nvf-play/src/pause.rs"]
+# Port 9 on this machine refuses connections: never the project's server. No NVF_REPORTS:
+# the form needs no opt-in. The pause comes after the start's DLC message boxes, which
+# hold saves.
+env = { NVFOREVER_HOME = "report-form-home", NVF_REPORTS_ENDPOINT = "http://127.0.0.1:9", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "14:26", NVF_PLAY_TEST_PAUSE_MENU = "15:point:report,15.3:press,15.5:release", NVF_PLAY_TEST_REPORT_FORM = "The door in Goodsprings does not open|save|contact=tester|category=differs" }
+args = ["--play", "--cell", "Goodsprings"]
+run_seconds = 32
+order = [[
+  { text = "pause menu: report a bug", label = "Report a bug clicked" },
+  { text = "report form: open (", label = "the form opens" },
+  { text = "test aid NVF_PLAY_TEST_REPORT_FORM: the form filled and sent", label = "the aid sends it" },
+  { text = "report form: save written for the report", label = "a save written for it" },
+  { text = "report form: sending to http://127.0.0.1:9 (differs, description 37 characters, contact,", label = "its fields" },
+  { text = "report form: could not send: No answer from the server", label = "no server: said so" },
+]]
+expect = [
+  { text = ", Screenshot ", label = "the form opens with the screenshot" },
+  { text = "sends to http://127.0.0.1:9)", label = "to the test server" },
+  "run log: the game exited normally",
+]
+forbid = [
+  { text = "report form: sent, reference", label = "a report sent with no server" },
+  { text = "reports: on, sending to", label = "the form turned reports on" },
+]
+
+[[scenario]]
+name = "report-form-not-from-test-runs"
+source = "#2151, docs/design/player-reports.md section 8: a test run without NVF_REPORTS_ENDPOINT never sends a hand report; the form opens and says why (engine/nvforever/src/reports/form.rs)"
+areas = ["reports", "pause"]
+paths = ["engine/nvforever/src/reports/form.rs"]
+env = { NVFOREVER_HOME = "report-form-off-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "6:14", NVF_PLAY_TEST_PAUSE_MENU = "7:point:report,7.3:press,7.5:release", NVF_PLAY_TEST_REPORT_FORM = "a test" }
+args = ["--play", "--cell", "Goodsprings"]
+run_seconds = 20
+expect = [
+  "report form: open (",
+  "cannot send: This run does not send reports (a test aid drives this run",
+  "run log: the game exited normally",
+]
+forbid = [{ text = "report form: sending to", label = "a hand report sent from a test run" }]
+
+[[scenario]]
 name = "reports-snapshot-on-panic"
 source = "#2055, docs/design/player-reports.md sections 4.2 and 4.3: with reports on, a panic writes the flight recorder and the world snapshot beside its crash report (engine/nvforever/src/reports/snapshot.rs, crash.rs)"
 areas = ["reports", "crash"]
