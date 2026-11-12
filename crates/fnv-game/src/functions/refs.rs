@@ -597,10 +597,11 @@ pub fn add_form_to_form_list(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value
     none()
 }
 
-/// Opens (1) or closes (0) a door [documented: GECK wiki SetOpenState].
+/// Opens (1) or closes (0) a door [documented: GECK wiki SetOpenState], or an activator
+/// with Open and Close sequences, which plays them (`Game::set_ref_open`).
 pub fn set_open_state(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
-    g.world.get(r).map_err(|e| e.to_string())?.open = a.num(0)? != 0.0;
+    g.set_ref_open(r, a.num(0)? != 0.0)?;
     none()
 }
 

@@ -4917,6 +4917,13 @@ impl<'a> Game<'a> {
         if matches!(act.outcome, Outcome::Activated) {
             self.radio_activated(target);
             self.drink_from(actor, target);
+            // An activator that is not a radio opens or closes like a door, playing its
+            // Open or Close sequence when its model has one (`Game::set_ref_open`;
+            // the vault door its control pod activates, issue #2232).
+            if base.is_some_and(|b| self.data.sig(b).as_ref() == Some(b"ACTI") && !self.data.radio_receivers.contains(&b)) {
+                let open = self.world.peek(target).is_some_and(|p| p.open);
+                self.set_ref_open(target, !open)?;
+            }
         }
         // Its activate children go off (`crate::traps`).
         self.set_off_children(target);
