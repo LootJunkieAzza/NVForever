@@ -13,7 +13,8 @@ use bevy::render::renderer::raw_vulkan_init::{AdditionalVulkanFeatures, RawVulka
 use bevy::render::renderer::{RenderAdapter, RenderAdapterInfo, RenderContext, RenderDevice, RenderInstance, RenderQueue};
 use bevy::render::RenderApp;
 use windows_sys::Win32::System::LibraryLoader::{
-    AddDllDirectory, LoadLibraryExW, SetDefaultDllDirectories, LOAD_LIBRARY_SEARCH_DEFAULT_DIRS, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR, LOAD_LIBRARY_SEARCH_SYSTEM32,
+    AddDllDirectory, LoadLibraryExW, RemoveDllDirectory, SetDefaultDllDirectories, LOAD_LIBRARY_SEARCH_DEFAULT_DIRS, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR,
+    LOAD_LIBRARY_SEARCH_SYSTEM32,
 };
 
 use super::evaluate::{Evaluator, OptionsKey, VIEWPORT};
@@ -74,6 +75,23 @@ struct Spike {
     phase: Phase,
     /// The evaluate's state while the spike is active (DLSS supported, its functions fetched).
     eval: Option<Evaluator>,
+    /// The checked files, held open until Streamline is shut down; `None` once it is.
+    pins: Option<Pins>,
+}
+
+/// The files checked before Streamline was loaded, held open (sharing read access only, the
+/// folder without delete sharing) so that none can be changed, renamed or deleted while
+/// Streamline or NGX may still load it: not only during `slInit`, but later too, as `sl.common`
+/// delay-loads `NvLowLatencyVk.dll` during device creation [documented: Streamline's
+/// `premake.lua:485`; `src/wrapper.cpp:1004` -> `src/vulkan.cpp:1183`] and NGX loads its
+/// `nvngx_*.dll` [hypothesis: after `slInit`, when DLSS is first asked for]. Dropped after
+/// `slShutdown` (`shutdown`, and the rollbacks that call it); on every path that does not take
+/// the interposer route they go as before, when `start` returns.
+struct Pins {
+    /// The interposer's handle from its checks (`security.rs`, "One file, checked and loaded").
+    _interposer: super::security::Accepted,
+    /// The folder pass just before `slInit` (`preflight.rs`): the folder and every DLL in it.
+    _folder: preflight::Pinned,
 }
 
 static STATE: Mutex<Option<Spike>> = Mutex::new(None);
@@ -179,8 +197,9 @@ pub(super) fn start(app: &mut App) {
         set_loader_state(DlssState::Unavailable(Unavailable::FilesMissing));
         return;
     }
-    // No updater beside the interposer and every DLL a pinned release file or NGX's, before
-    // anything is loaded (preflight.rs). The checked files stay open until slInit has returned.
+    // No updater beside the interposer, no link, and every DLL a pinned release file or NGX's
+    // signed by NVIDIA, before anything is loaded (preflight.rs). The checked files stay open
+    // until the second pass holds them.
     let Some(first_pass) = folder_allows_streamline(&folder) else { return };
     let interposer = folder.join(FILES[0]);
     let accepted = match super::security::check_interposer(&interposer) {
@@ -217,14 +236,14 @@ pub(super) fn start(app: &mut App) {
         return;
     }
     note(Level::INFO, format!("dll search: from now on, DLLs loaded by name are looked up in the program's folder, {} and System32 only", folder.display()));
-    // The checked file stays open, kept from writes, renames and deletes, until it is loaded
-    // (security.rs, "One file, checked and loaded").
-    let loaded = load(&interposer);
-    drop(accepted);
-    let Some(api) = loaded else { return };
+    // The checked file stays open, kept from writes, renames and deletes, until Streamline is
+    // shut down (security.rs, "One file, checked and loaded"; `Pins`).
+    let Some(api) = load(&interposer) else { return };
     // Again just before slInit, where Streamline starts the updater and loads every sl.*.dll
-    // (preflight.rs). The interposer is loaded but holds nothing yet.
+    // (preflight.rs). The interposer is loaded but holds nothing yet. From here the second pass
+    // holds every file the first one did (none could be removed while held), so the first goes.
     let Some(second_pass) = folder_allows_streamline(&folder) else { return };
+    drop(first_pass);
 
     let folder_w = wide(folder.as_os_str());
     let paths = [folder_w.as_ptr()];
@@ -234,8 +253,8 @@ pub(super) fn start(app: &mut App) {
     // SAFETY: preferences built from the constructor's defaults with every pointer alive for the
     // call; the callback is a static function. Before any Vulkan call through the interposer.
     let result = unsafe { (api.init)(&prefs, SDK_VERSION) };
-    // Streamline has loaded its plugins; the folder's files may be opened by others again.
-    drop((first_pass, second_pass));
+    // The checked files stay held past slInit: Streamline and NGX load some of them later
+    // (`Pins`). On the two failures below they go when this returns, after slShutdown.
     if !result.is_ok() {
         note(Level::WARN, format!("slInit: {}; inactive, the stock Vulkan path", result.name()));
         // Whatever slInit loaded before it failed goes again (eErrorNotInitialized when nothing
@@ -256,7 +275,7 @@ pub(super) fn start(app: &mut App) {
         set_loader_state(DlssState::Unavailable(reason));
         return;
     }
-    *state() = Some(Spike { api, phase: Phase::Initialised, eval: None });
+    *state() = Some(Spike { api, phase: Phase::Initialised, eval: None, pins: Some(Pins { _interposer: accepted, _folder: second_pass }) });
     let mut settings = app.world_mut().get_resource_or_init::<RawVulkanInitSettings>();
     // SAFETY: the interposer exports `vkGetInstanceProcAddr` and forwards what it does not
     // intercept to the system's loader [documented: `src/wrapper.cpp:2365-2403`]; `load` keeps it
@@ -305,7 +324,7 @@ fn private_data_supported(adapter: &wgpu::hal::vulkan::Adapter) -> bool {
 /// The folder listed for NVIDIA's updater and its DLLs checked (preflight.rs); `None`, with the
 /// line and the reason, when Streamline must stay out.
 fn folder_allows_streamline(folder: &Path) -> Option<preflight::Pinned> {
-    match preflight::check_folder(folder) {
+    match preflight::check_folder(folder, super::security::check_ngx) {
         Ok(pinned) => {
             note(Level::INFO, format!("folder: no updater; DLLs: {pinned}"));
             Some(pinned)
@@ -446,7 +465,15 @@ fn load(interposer: &Path) -> Option<Api> {
 /// first, so that a failure there changes nothing [documented: Microsoft Learn,
 /// "SetDefaultDllDirectories function (libloaderapi.h)" and "AddDllDirectory function
 /// (libloaderapi.h)", read 2026-11-12]. The change "persists for the life of the process" and
-/// cannot be reverted (same page); docs/design/dlss-upscaling.md says why that is safe.
+/// cannot be reverted (same page); docs/design/dlss-upscaling.md says what it changes.
+///
+/// If the second call fails, the folder's registration is removed again (`RemoveDllDirectory`
+/// with the cookie [documented: Microsoft Learn, "RemoveDllDirectory function
+/// (libloaderapi.h)"]), so the stock path that follows searches as it would have: a registered
+/// folder already counts for any load that asks for `LOAD_LIBRARY_SEARCH_USER_DIRS` ("AddDllDirectory
+/// function", same reading). On success the registration is kept (the cookie is never removed):
+/// the folder stays registered for the rest of the process, like the default search it is part
+/// of.
 fn limit_dll_search(folder: &Path) -> Result<(), String> {
     let folder_w = backslashed(wide(folder.as_os_str()));
     // SAFETY: a NUL-terminated absolute path (`resolve_folder` takes only absolute ones).
@@ -456,7 +483,15 @@ fn limit_dll_search(folder: &Path) -> Result<(), String> {
     }
     // SAFETY: a documented flag value; no pointers.
     if unsafe { SetDefaultDllDirectories(LOAD_LIBRARY_SEARCH_DEFAULT_DIRS) } == 0 {
-        return Err(format!("SetDefaultDllDirectories(LOAD_LIBRARY_SEARCH_DEFAULT_DIRS) failed: {}", std::io::Error::last_os_error()));
+        // Its error read before the next call can change it.
+        let error = std::io::Error::last_os_error();
+        // SAFETY: the cookie AddDllDirectory just returned, used once and never again.
+        let undone = if unsafe { RemoveDllDirectory(cookie) } != 0 {
+            "the folder's registration was removed again".to_string()
+        } else {
+            format!("removing the folder's registration failed too: {}", std::io::Error::last_os_error())
+        };
+        return Err(format!("SetDefaultDllDirectories(LOAD_LIBRARY_SEARCH_DEFAULT_DIRS) failed: {error}; {undone}"));
     }
     Ok(())
 }
@@ -508,6 +543,8 @@ fn instance_report(outcome: Result<(), &str>) {
             // SAFETY: after slInit, before any device.
             let down = unsafe { (spike.api.shutdown)() };
             note(Level::INFO, format!("slShutdown before the stock path: {}; DLSS is off this session", down.name()));
+            // Streamline is down: the checked files are released (`Pins`).
+            spike.pins = None;
             spike.phase = Phase::Down;
             set_loader_state(DlssState::Unavailable(Unavailable::StreamlineRefused));
         }
@@ -526,6 +563,7 @@ pub(super) fn after_device(app: &mut App) {
             // SAFETY: no Vulkan object was made through Streamline.
             let down = unsafe { (spike.api.shutdown)() };
             note(Level::INFO, format!("slShutdown: {}; DLSS is off this session", down.name()));
+            spike.pins = None;
             spike.phase = Phase::Down;
             set_loader_state(DlssState::Unavailable(Unavailable::StreamlineRefused));
             return;
@@ -647,7 +685,7 @@ fn dlss_functions(api: &Api) -> Option<(SlDlssGetOptimalSettings, SlDlssSetOptio
 /// One frame's evaluate (`evaluate.rs`), with the spike's state locked for it.
 pub(super) fn evaluate(ctx: &mut RenderContext, frame: &Frame) -> Outcome {
     let mut guard = state();
-    let Some(Spike { api, phase: Phase::Holding(held), eval: Some(eval) }) = guard.as_mut() else { return Outcome::Fallback };
+    let Some(Spike { api, phase: Phase::Holding(held), eval: Some(eval), .. }) = guard.as_mut() else { return Outcome::Fallback };
     eval.frame(api, held, ctx, frame)
 }
 
@@ -662,7 +700,7 @@ pub(super) fn optimal_settings(key: Key) -> Result<Optimal, String> {
 /// frame").
 pub(super) fn configure(key: Key, model: DlssModel, range: Optimal) {
     let mut guard = state();
-    let Some(Spike { api, phase: Phase::Holding(held), eval: Some(eval) }) = guard.as_mut() else { return };
+    let Some(Spike { api, phase: Phase::Holding(held), eval: Some(eval), .. }) = guard.as_mut() else { return };
     eval.configure(api, held, OptionsKey { key, model }, range);
 }
 
@@ -670,7 +708,7 @@ pub(super) fn configure(key: Key, model: DlssModel, range: Optimal) {
 /// options are set (`evaluate.rs` `Evaluator::release`); nothing otherwise.
 pub(super) fn release() {
     let mut guard = state();
-    let Some(Spike { api, phase: Phase::Holding(held), eval: Some(eval) }) = guard.as_mut() else { return };
+    let Some(Spike { api, phase: Phase::Holding(held), eval: Some(eval), .. }) = guard.as_mut() else { return };
     eval.release(api, held);
 }
 
@@ -743,6 +781,8 @@ pub(super) fn shutdown() {
             drop(device);
             drop(adapter);
             drop(instance);
+            // 4. The checked files, held since the folder pass (`Pins`), released after slShutdown.
+            drop(spike.pins);
             if down.is_ok() && poll_ok && idle_ok {
                 note(Level::INFO, "shutdown done: Streamline down before the Vulkan device and instance were released; the interposer stays loaded");
             } else {
@@ -756,6 +796,7 @@ pub(super) fn shutdown() {
                 );
             }
         }
+        // The checked files go with the spike, at the end of this function (the process is ending).
         Phase::InstanceUp => note(
             Level::WARN,
             "shutdown: slShutdown skipped: the loader never held the render device, which may already be destroyed (slShutdown after it would use destroyed handles)",
@@ -763,6 +804,7 @@ pub(super) fn shutdown() {
         Phase::Initialised => {
             // SAFETY: no Vulkan object was made through Streamline.
             let down = unsafe { (spike.api.shutdown)() };
+            drop(spike.pins);
             if down.is_ok() {
                 note(Level::INFO, format!("shutdown done: slShutdown {} (no Vulkan object was made through Streamline)", down.name()));
             } else {

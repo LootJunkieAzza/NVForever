@@ -18,12 +18,29 @@
 //!   for one loaded by name. So in the same pass every entry whose name ends in `.dll` (any case)
 //!   must be either a file of Streamline 2.14.16's release `bin\x64` with that file's SHA-256
 //!   ([`RELEASE_DLLS`], so a player who copied the whole folder still gets DLSS), or an
-//!   `nvngx_*.dll`, NVIDIA's NGX runtimes, which NGX loads itself and which are not pinned so
-//!   that a newer DLSS can be used. Anything else, or a listed name with another hash, is
-//!   refused. Each listed DLL is hashed through a handle that shares read access only, and the
-//!   handles are kept ([`Pinned`]) until `slInit` has returned, so a checked plugin cannot be
-//!   changed before Streamline loads it; a file added to the folder after the second pass is
-//!   not seen [design: the window is the few calls between that pass and `slInit`].
+//!   `nvngx_*.dll`, NVIDIA's NGX runtimes, which NGX loads itself and which are not pinned by
+//!   hash so that a newer DLSS can be used, but must pass Windows' Authenticode check with a
+//!   signer whose certificate names NVIDIA Corporation (`security::check_ngx`, given by `win.rs`;
+//!   [design: from the follow-up review of #2206]). Anything else, or a listed name with another
+//!   hash, is refused. Each DLL the pass accepts is read through a handle that shares read
+//!   access only, and the handles are kept ([`Pinned`]) until Streamline is shut down (`win.rs`),
+//!   so a checked file cannot be changed, renamed or deleted before Streamline or NGX loads it,
+//!   even when that happens later than `slInit` (`sl.common` delay-loads `NvLowLatencyVk.dll`
+//!   during device creation [documented: Streamline's `premake.lua:485`, `src/wrapper.cpp:1004`
+//!   -> `src/vulkan.cpp:1183`]); a file added to the folder after the second pass is not seen
+//!   [design: the window is the few calls between that pass and `slInit`].
+//! - **No links** [design: from the follow-up review of #2206]: the folder itself, and every
+//!   entry the pass opens (each DLL; the updater's name is refused before it is opened), must
+//!   not be a reparse point (`FILE_ATTRIBUTE_REPARSE_POINT`: symbolic links, junctions, mount
+//!   points). Each is opened with `FILE_FLAG_OPEN_REPARSE_POINT`, so the handle is the entry
+//!   itself rather than what a link points at, and the attribute is read through that handle
+//!   [documented: Microsoft Learn, "CreateFileW function (fileapi.h)", dwFlagsAndAttributes, and
+//!   "Symbolic Link Effects on File Systems Functions"]. The folder is held open too, without
+//!   `FILE_SHARE_DELETE`, so it cannot be renamed or deleted while held (same page, dwShareMode).
+//!   A link among the DLLs is `SignatureRejected`; the folder being one is `StreamlineRefused`
+//!   (the reason "a file in the dlss folder is not from the tested release" would not fit). The
+//!   folders above the DLSS folder are not checked: it is the player's own folder, beside the
+//!   program they unpacked and outside the game folder.
 //! - **The device** [design]: once the interposer makes the instance there is no way back when
 //!   the device is made: Streamline's `vkCreateDevice` refuses a device that lacks an extension
 //!   it adds [documented: `src/wrapper.cpp:816-829`], and wgpu-hal panics on that [documented:
@@ -58,12 +75,13 @@
 //! "What the runs showed"], which `win.rs`
 //! enables when the device offers it.
 
+use std::cell::RefCell;
 use std::collections::BTreeSet;
 use std::ffi::{OsStr, OsString};
 use std::fmt;
 use std::fs::{File, OpenOptions};
 use std::io::Read;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use ash::vk;
 
@@ -115,6 +133,14 @@ pub(super) enum FolderRefusal {
     WrongHash(String, String),
     /// A DLL that could not be opened (sharing read access only) or read to be hashed.
     DllUnreadable(String, String),
+    /// A DLL that is a reparse point (a symbolic link, junction or mount point), as the folder
+    /// spells it.
+    Link(String),
+    /// An `nvngx_*.dll` that did not pass the NVIDIA signature check (the name as the folder
+    /// spells it, the check's words).
+    NotNvidia(String, String),
+    /// The folder itself is a reparse point (its path).
+    FolderLink(String),
 }
 
 impl FolderRefusal {
@@ -122,8 +148,36 @@ impl FolderRefusal {
     pub(super) fn reason(&self) -> Unavailable {
         match self {
             Self::Updater(_) | Self::Unreadable(_) => Unavailable::UpdaterInFolder,
-            Self::UnknownDll(_) | Self::WrongHash(..) => Unavailable::SignatureRejected,
-            Self::DllUnreadable(..) => Unavailable::StreamlineRefused,
+            Self::UnknownDll(_) | Self::WrongHash(..) | Self::Link(_) | Self::NotNvidia(..) => Unavailable::SignatureRejected,
+            Self::DllUnreadable(..) | Self::FolderLink(_) => Unavailable::StreamlineRefused,
+        }
+    }
+}
+
+/// Why one entry the pass opened did not pass, before its name is attached ([`check_entries`]).
+#[derive(Debug)]
+pub(super) enum Fault {
+    /// It could not be opened (sharing read access only) or read.
+    Unreadable(std::io::Error),
+    /// It is a reparse point.
+    Link,
+    /// An `nvngx_*.dll` the NVIDIA signature check refused (its words).
+    NotNvidia(String),
+}
+
+impl From<std::io::Error> for Fault {
+    fn from(error: std::io::Error) -> Self {
+        Self::Unreadable(error)
+    }
+}
+
+impl Fault {
+    /// The refusal for the entry `name` (as the folder spells it).
+    fn refusal(self, name: String) -> FolderRefusal {
+        match self {
+            Self::Unreadable(error) => FolderRefusal::DllUnreadable(name, error.to_string()),
+            Self::Link => FolderRefusal::Link(name),
+            Self::NotNvidia(why) => FolderRefusal::NotNvidia(name, why),
         }
     }
 }
@@ -135,27 +189,32 @@ impl fmt::Display for FolderRefusal {
             Self::Unreadable(why) => write!(f, "the folder could not be listed to check its files ({why})"),
             Self::UnknownDll(name) => write!(f, "the folder holds {name}, which is not a DLL of {RELEASE}'s release nor an nvngx_*.dll"),
             Self::WrongHash(name, sha256) => write!(f, "the folder's {name} has SHA-256 {sha256}, not that of {RELEASE}'s release"),
-            Self::DllUnreadable(name, why) => write!(f, "the folder's {name} could not be opened and read for its hash with writing kept out ({why})"),
+            Self::DllUnreadable(name, why) => write!(f, "the folder's {name} could not be opened and read for its check with writing kept out ({why})"),
+            Self::Link(name) => write!(f, "the folder's {name} is a link (a reparse point: symbolic link, junction or mount point), not a file"),
+            Self::NotNvidia(name, why) => write!(f, "the folder's {name} is not signed by NVIDIA Corporation ({why})"),
+            Self::FolderLink(path) => write!(f, "the DLSS folder {path} is a link (a reparse point: symbolic link, junction or mount point), not a folder"),
         }
     }
 }
 
-/// What the folder pass accepted. It holds each hashed DLL open, shared for reading only, until
-/// it is dropped: `win.rs` keeps it until `slInit` has returned.
+/// What the folder pass accepted. It holds the folder and each DLL it accepted open, the DLLs
+/// shared for reading only, until it is dropped: `win.rs` keeps it until Streamline is shut down.
 #[derive(Debug, Default)]
 pub(super) struct Pinned {
     /// The release DLLs whose hash matched, as the folder spells them.
     pub(super) pinned: Vec<String>,
-    /// The `nvngx_*.dll` left to NGX, as the folder spells them.
+    /// The `nvngx_*.dll` left to NGX, signed by NVIDIA, as the folder spells them.
     pub(super) ngx: Vec<String>,
-    /// The handles the hashes were read through.
+    /// The handles the DLLs were checked through.
     _held: Vec<File>,
+    /// The folder's own handle (no `FILE_SHARE_DELETE`: it cannot be renamed or deleted).
+    _folder: Option<File>,
 }
 
 impl fmt::Display for Pinned {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let list = |names: &[String]| if names.is_empty() { "none".to_string() } else { names.join(", ") };
-        write!(f, "{RELEASE}'s release files with their SHA-256: {}; NGX's own, not pinned: {}", list(&self.pinned), list(&self.ngx))
+        write!(f, "{RELEASE}'s release files with their SHA-256: {}; NGX's own, signed by NVIDIA, not pinned by hash: {}", list(&self.pinned), list(&self.ngx))
     }
 }
 
@@ -197,16 +256,17 @@ fn kind(name: &OsStr) -> Kind {
     }
 }
 
-/// The folder's entries judged by name, and each release DLL by its SHA-256, which `hash` reads
-/// (and may keep a handle for). Refused at the first entry that is the updater, an unknown DLL, a
-/// release DLL with another hash, or that cannot be read. Names compare in full Unicode upper
-/// case (`ſ` and `ı` upper-case to ASCII letters; a name that only looks close to the updater's
-/// is refused too, and one that looks close to a release file's must have its hash, which fails
-/// closed).
-pub(super) fn check_entries<I, H>(entries: I, mut hash: H) -> Result<Pinned, FolderRefusal>
+/// The folder's entries judged by name, each release DLL by its SHA-256, which `hash` reads, and
+/// each `nvngx_*.dll` by `ngx` (both may keep a handle, and refuse a link). Refused at the first
+/// entry that is the updater, an unknown DLL, a release DLL with another hash, an `nvngx_*.dll`
+/// `ngx` refuses, a link, or that cannot be read. Names compare in full Unicode upper case (`ſ`
+/// and `ı` upper-case to ASCII letters; a name that only looks close to the updater's is refused
+/// too, and one that looks close to a release file's must have its hash, which fails closed).
+pub(super) fn check_entries<I, H, N>(entries: I, mut hash: H, mut ngx: N) -> Result<Pinned, FolderRefusal>
 where
     I: IntoIterator<Item = std::io::Result<OsString>>,
-    H: FnMut(&OsStr) -> std::io::Result<[u8; 32]>,
+    H: FnMut(&OsStr) -> Result<[u8; 32], Fault>,
+    N: FnMut(&OsStr) -> Result<(), Fault>,
 {
     let mut pinned = Pinned::default();
     for entry in entries {
@@ -215,10 +275,13 @@ where
         match kind(&name) {
             Kind::Updater => return Err(FolderRefusal::Updater(shown())),
             Kind::UnknownDll => return Err(FolderRefusal::UnknownDll(shown())),
-            Kind::Ngx => pinned.ngx.push(shown()),
+            Kind::Ngx => {
+                ngx(&name).map_err(|fault| fault.refusal(shown()))?;
+                pinned.ngx.push(shown());
+            }
             Kind::Other => {}
             Kind::Release(expected) => {
-                let digest = hash(&name).map_err(|e| FolderRefusal::DllUnreadable(shown(), e.to_string()))?;
+                let digest = hash(&name).map_err(|fault| fault.refusal(shown()))?;
                 let sha256 = fnv_util::sha256::to_hex(&digest);
                 if sha256 != expected {
                     return Err(FolderRefusal::WrongHash(shown(), sha256));
@@ -232,32 +295,99 @@ where
     Ok(pinned)
 }
 
-/// The DLSS folder listed: no `nvngx_update.exe` in any case, as a file, folder or link, and
-/// every DLL a release file with its hash or an `nvngx_*.dll` (the module comment). The release
-/// files stay open in the [`Pinned`] returned.
-pub(super) fn check_folder(folder: &Path) -> Result<Pinned, FolderRefusal> {
+/// The DLSS folder checked: not a link itself, no `nvngx_update.exe` in any case, as a file,
+/// folder or link, and every DLL a release file with its hash or an `nvngx_*.dll` that
+/// `verify_ngx` accepts (given its full path and the held handle; `security::check_ngx` on
+/// Windows), none of them a link (the module comment). The folder and the DLLs stay open in the
+/// [`Pinned`] returned.
+pub(super) fn check_folder<V>(folder: &Path, mut verify_ngx: V) -> Result<Pinned, FolderRefusal>
+where
+    V: FnMut(&Path, &File) -> Result<(), String>,
+{
+    let dir = open_folder(folder).map_err(|e| FolderRefusal::Unreadable(e.to_string()))?;
+    if is_link(folder, &dir).map_err(|e| FolderRefusal::Unreadable(e.to_string()))? {
+        return Err(FolderRefusal::FolderLink(folder.display().to_string()));
+    }
     let entries = std::fs::read_dir(folder).map_err(|e| FolderRefusal::Unreadable(e.to_string()))?;
-    let mut held = Vec::new();
-    let mut pinned = check_entries(entries.map(|entry| entry.map(|e| e.file_name())), |name| {
-        let mut file = open_shared_read(&folder.join(name))?;
+    let held = RefCell::new(Vec::new());
+    // The entry itself opened, not what a link points at, and refused when it is a link.
+    let open = |name: &OsStr| -> Result<(PathBuf, File), Fault> {
+        let path = folder.join(name);
+        let file = open_shared_read(&path)?;
+        if is_link(&path, &file)? {
+            return Err(Fault::Link);
+        }
+        Ok((path, file))
+    };
+    let hash = |name: &OsStr| -> Result<[u8; 32], Fault> {
+        let (_, mut file) = open(name)?;
         let mut bytes = Vec::new();
         file.read_to_end(&mut bytes)?;
-        held.push(file);
+        held.borrow_mut().push(file);
         Ok(fnv_util::sha256::digest(&bytes))
-    })?;
-    pinned._held = held;
+    };
+    let ngx = |name: &OsStr| -> Result<(), Fault> {
+        let (path, file) = open(name)?;
+        verify_ngx(&path, &file).map_err(Fault::NotNvidia)?;
+        held.borrow_mut().push(file);
+        Ok(())
+    };
+    let mut pinned = check_entries(entries.map(|entry| entry.map(|e| e.file_name())), hash, ngx)?;
+    pinned._held = held.into_inner();
+    pinned._folder = Some(dir);
     Ok(pinned)
 }
 
 /// `path` opened for reading, sharing read access only on Windows: no one can write, delete or
 /// rename the file while the handle is open (std's default shares all three; `share_mode`
 /// replaces it) [documented: Microsoft Learn, "CreateFileW function (fileapi.h)", dwShareMode].
+/// With `FILE_FLAG_OPEN_REPARSE_POINT`, a link is opened as itself, not followed ("normal reparse
+/// point processing will not occur"; same page, dwFlagsAndAttributes), so [`is_link`] on the
+/// handle sees it; a link then holds no file's bytes to hash or verify.
 pub(super) fn open_shared_read(path: &Path) -> std::io::Result<File> {
     let mut options = OpenOptions::new();
     options.read(true);
     #[cfg(windows)]
-    std::os::windows::fs::OpenOptionsExt::share_mode(&mut options, windows_sys::Win32::Storage::FileSystem::FILE_SHARE_READ);
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        use windows_sys::Win32::Storage::FileSystem::{FILE_FLAG_OPEN_REPARSE_POINT, FILE_SHARE_READ};
+        options.share_mode(FILE_SHARE_READ);
+        options.custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
+    }
     options.open(path)
+}
+
+/// The DLSS folder itself opened, as itself if it is a link (`FILE_FLAG_OPEN_REPARSE_POINT`;
+/// `FILE_FLAG_BACKUP_SEMANTICS`, which a directory handle needs), sharing read and write but not
+/// delete, so that while it is held the folder cannot be renamed or deleted, and files in it can
+/// still be read [documented: Microsoft Learn, "CreateFileW function (fileapi.h)", dwShareMode
+/// and dwFlagsAndAttributes].
+fn open_folder(folder: &Path) -> std::io::Result<File> {
+    let mut options = OpenOptions::new();
+    options.read(true);
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        use windows_sys::Win32::Storage::FileSystem::{FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT, FILE_SHARE_READ, FILE_SHARE_WRITE};
+        options.share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE);
+        options.custom_flags(FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT);
+    }
+    options.open(folder)
+}
+
+/// Whether the opened entry is a reparse point (symbolic link, junction, mount point): its
+/// attributes read through the handle, which [`open_shared_read`] and [`open_folder`] opened as
+/// the entry itself (`MetadataExt::file_attributes`, the `dwFileAttributes` of the handle's
+/// file). Off Windows (the tests only), whether `path` is a symbolic link.
+#[cfg(windows)]
+fn is_link(_path: &Path, file: &File) -> std::io::Result<bool> {
+    use std::os::windows::fs::MetadataExt;
+    Ok(file.metadata()?.file_attributes() & windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT != 0)
+}
+
+#[cfg(not(windows))]
+fn is_link(path: &Path, _file: &File) -> std::io::Result<bool> {
+    Ok(std::fs::symlink_metadata(path)?.file_type().is_symlink())
 }
 
 /// `VkPhysicalDeviceVulkan12Features`' members by the names Streamline reads them by
@@ -1200,7 +1330,7 @@ mod tests {
     }
 
     /// The release's hash for a name (any case), as the test's stand-in for reading the file.
-    fn release_hash(name: &OsStr) -> std::io::Result<[u8; 32]> {
+    fn release_hash(name: &OsStr) -> Result<[u8; 32], Fault> {
         let upper = upper(name);
         let (_, hex) = RELEASE_DLLS.iter().find(|(file, _)| file.to_ascii_uppercase() == upper).expect("asked only for release files");
         let mut out = [0u8; 32];
@@ -1210,9 +1340,15 @@ mod tests {
         Ok(out)
     }
 
-    /// `names` judged, every release file holding the release's bytes.
+    /// The NVIDIA signature check's stand-in: every `nvngx_*.dll` signed by NVIDIA.
+    fn signed(_: &OsStr) -> Result<(), Fault> {
+        Ok(())
+    }
+
+    /// `names` judged, every release file holding the release's bytes, every `nvngx_*.dll`
+    /// signed by NVIDIA.
     fn judged(names: &[&str]) -> Result<Pinned, FolderRefusal> {
-        check_entries(names.iter().map(|n| Ok(OsString::from(n))), release_hash)
+        check_entries(names.iter().map(|n| Ok(OsString::from(n))), release_hash, signed)
     }
 
     #[test]
@@ -1228,7 +1364,7 @@ mod tests {
         let four = judged(&["sl.interposer.dll", "sl.common.dll", "sl.dlss.dll", "nvngx_dlss.dll"]).unwrap();
         assert_eq!(four.pinned, ["sl.common.dll", "sl.dlss.dll", "sl.interposer.dll"]);
         assert_eq!(four.ngx, ["nvngx_dlss.dll"]);
-        assert!(four.to_string().contains("not pinned: nvngx_dlss.dll"));
+        assert!(four.to_string().contains("signed by NVIDIA, not pinned by hash: nvngx_dlss.dll"));
         // The archive's whole bin\x64 copied, with its other files (not DLLs) beside them.
         let mut all: Vec<&str> = RELEASE_DLLS.iter().map(|(file, _)| *file).collect();
         all.extend(["nvngx_dlss.dll", "sl.interposer.pdb", "readme.txt"]);
@@ -1249,15 +1385,15 @@ mod tests {
     #[test]
     fn a_release_name_with_another_hash_is_refused() {
         let zero = |_: &OsStr| Ok([0u8; 32]);
-        let refused = check_entries([Ok(OsString::from("sl.dlss.dll"))], zero).unwrap_err();
+        let refused = check_entries([Ok(OsString::from("sl.dlss.dll"))], zero, signed).unwrap_err();
         assert_eq!(refused, FolderRefusal::WrongHash("sl.dlss.dll".into(), "0".repeat(64)));
         assert_eq!(refused.reason(), Unavailable::SignatureRejected);
         assert!(refused.to_string().contains(&"0".repeat(64)), "the log names the hash");
         // Each file has its own hash: sl.common.dll's bytes under sl.dlss.dll's name are refused.
         let swapped = |_: &OsStr| release_hash(OsStr::new("sl.common.dll"));
-        assert!(matches!(check_entries([Ok(OsString::from("sl.dlss.dll"))], swapped), Err(FolderRefusal::WrongHash(..))));
-        let unreadable = |_: &OsStr| Err(std::io::Error::new(std::io::ErrorKind::PermissionDenied, "in use"));
-        let refused = check_entries([Ok(OsString::from("sl.common.dll"))], unreadable).unwrap_err();
+        assert!(matches!(check_entries([Ok(OsString::from("sl.dlss.dll"))], swapped, signed), Err(FolderRefusal::WrongHash(..))));
+        let unreadable = |_: &OsStr| Err(Fault::from(std::io::Error::new(std::io::ErrorKind::PermissionDenied, "in use")));
+        let refused = check_entries([Ok(OsString::from("sl.common.dll"))], unreadable, signed).unwrap_err();
         assert!(matches!(&refused, FolderRefusal::DllUnreadable(name, why) if name == "sl.common.dll" && why.contains("in use")));
         assert_eq!(refused.reason(), Unavailable::StreamlineRefused);
     }
@@ -1275,9 +1411,9 @@ mod tests {
     #[test]
     fn an_unreadable_folder_is_refused() {
         let entries = vec![Ok(OsString::from("sl.interposer.dll")), Err(std::io::Error::new(std::io::ErrorKind::PermissionDenied, "denied"))];
-        assert!(matches!(check_entries(entries, release_hash), Err(FolderRefusal::Unreadable(why)) if why.contains("denied")));
+        assert!(matches!(check_entries(entries, release_hash, signed), Err(FolderRefusal::Unreadable(why)) if why.contains("denied")));
         let gone = std::env::temp_dir().join(format!("nvf-dlss-preflight-gone-{}", std::process::id()));
-        assert!(matches!(check_folder(&gone), Err(FolderRefusal::Unreadable(_))));
+        assert!(matches!(check_folder(&gone, |_, _| Ok(())), Err(FolderRefusal::Unreadable(_))));
         assert!(FolderRefusal::Unreadable("x".into()).to_string().contains("could not be listed"));
         assert_eq!(FolderRefusal::Unreadable("x".into()).reason(), Unavailable::UpdaterInFolder);
     }
@@ -1288,15 +1424,105 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("nvngx_dlss.dll"), b"").unwrap();
         std::fs::write(dir.join("notes.txt"), b"").unwrap();
-        assert_eq!(check_folder(&dir).unwrap().ngx, ["nvngx_dlss.dll"]);
+        // The NGX file is given to the signature check with its full path and its open handle.
+        let mut asked = Vec::new();
+        let pinned = check_folder(&dir, |path, file| {
+            asked.push((path.to_path_buf(), file.metadata().map(|m| m.len()).ok()));
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(pinned.ngx, ["nvngx_dlss.dll"]);
+        assert_eq!(asked, [(dir.join("nvngx_dlss.dll"), Some(0))]);
+        drop(pinned);
+        // One the signature check refuses keeps Streamline out, the check's words kept.
+        let refused = check_folder(&dir, |_, _| Err("signer \"Someone Else\"".to_string())).unwrap_err();
+        assert_eq!(refused, FolderRefusal::NotNvidia("nvngx_dlss.dll".into(), "signer \"Someone Else\"".into()));
         // A release file with other bytes is refused, its hash named.
         std::fs::write(dir.join("sl.common.dll"), b"").unwrap();
         let empty = fnv_util::sha256::hex(b"");
-        assert_eq!(check_folder(&dir).unwrap_err(), FolderRefusal::WrongHash("sl.common.dll".into(), empty));
+        assert_eq!(check_folder(&dir, |_, _| Ok(())).unwrap_err(), FolderRefusal::WrongHash("sl.common.dll".into(), empty));
         std::fs::remove_file(dir.join("sl.common.dll")).unwrap();
-        // A folder with the name counts too.
+        // A folder with an NGX name is not a file: it cannot be opened as one, and is refused.
+        std::fs::create_dir_all(dir.join("nvngx_other.dll")).unwrap();
+        assert!(matches!(check_folder(&dir, |_, _| Ok(())), Err(FolderRefusal::DllUnreadable(name, _)) if name == "nvngx_other.dll"));
+        std::fs::remove_dir(dir.join("nvngx_other.dll")).unwrap();
+        // A folder with the updater's name counts too.
         std::fs::create_dir_all(dir.join("Nvngx_Update.exe")).unwrap();
-        assert_eq!(check_folder(&dir).unwrap_err(), FolderRefusal::Updater("Nvngx_Update.exe".into()));
+        assert_eq!(check_folder(&dir, |_, _| Ok(())).unwrap_err(), FolderRefusal::Updater("Nvngx_Update.exe".into()));
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn an_ngx_file_not_signed_by_nvidia_or_a_link_is_refused() {
+        let unsigned = |_: &OsStr| Err(Fault::NotNvidia("Windows did not verify its signature".into()));
+        let refused = check_entries([Ok(OsString::from("NVNGX_DLSS.DLL"))], release_hash, unsigned).unwrap_err();
+        assert_eq!(refused, FolderRefusal::NotNvidia("NVNGX_DLSS.DLL".into(), "Windows did not verify its signature".into()));
+        assert_eq!(refused.reason(), Unavailable::SignatureRejected);
+        assert!(refused.to_string().contains("NVNGX_DLSS.DLL is not signed by NVIDIA Corporation"), "the log names the file");
+        // Files that are not DLLs are not given to the check.
+        assert!(check_entries([Ok(OsString::from("nvngx_dlss.txt"))], release_hash, unsigned).is_ok());
+        let link = |_: &OsStr| Err(Fault::Link);
+        let refused = check_entries([Ok(OsString::from("sl.dlss.dll"))], |_: &OsStr| Err(Fault::Link), signed).unwrap_err();
+        assert_eq!(refused, FolderRefusal::Link("sl.dlss.dll".into()));
+        assert_eq!(refused.reason(), Unavailable::SignatureRejected);
+        assert!(refused.to_string().contains("sl.dlss.dll is a link"));
+        assert_eq!(check_entries([Ok(OsString::from("nvngx_dlss.dll"))], release_hash, link).unwrap_err(), FolderRefusal::Link("nvngx_dlss.dll".into()));
+        let folder = FolderRefusal::FolderLink("C:\\nvf\\dlss".into());
+        assert_eq!(folder.reason(), Unavailable::StreamlineRefused);
+        assert!(folder.to_string().contains("C:\\nvf\\dlss is a link"));
+    }
+
+    /// A symbolic link made for a test; `None` where this account may not make one (Windows
+    /// without the privilege or developer mode), when the test has nothing to check.
+    fn symlink(target: &Path, link: &Path, dir: bool) -> Option<()> {
+        #[cfg(windows)]
+        let made = if dir { std::os::windows::fs::symlink_dir(target, link) } else { std::os::windows::fs::symlink_file(target, link) };
+        #[cfg(not(windows))]
+        let made = {
+            let _ = dir;
+            std::os::unix::fs::symlink(target, link)
+        };
+        match made {
+            Ok(()) => Some(()),
+            Err(e) => {
+                eprintln!("symbolic links cannot be made here ({e}); the link checks are left to the run");
+                None
+            }
+        }
+    }
+
+    #[test]
+    fn links_in_or_as_the_folder_are_refused() {
+        let base = std::env::temp_dir().join(format!("nvf-dlss-links-{}-{}", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos())));
+        let dir = base.join("dlss");
+        std::fs::create_dir_all(&dir).unwrap();
+        let elsewhere = base.join("elsewhere.dll");
+        std::fs::write(&elsewhere, b"").unwrap();
+        let checks = || -> Option<()> {
+            // A DLL in the folder that is a link to a file elsewhere.
+            symlink(&elsewhere, &dir.join("nvngx_dlss.dll"), false)?;
+            let mut asked = 0;
+            let refused = check_folder(&dir, |_, _| {
+                asked += 1;
+                Ok(())
+            })
+            .unwrap_err();
+            assert_eq!(refused, FolderRefusal::Link("nvngx_dlss.dll".into()));
+            assert_eq!(asked, 0, "a link never reaches the signature check");
+            std::fs::remove_file(dir.join("nvngx_dlss.dll")).unwrap();
+            assert!(check_folder(&dir, |_, _| Ok(())).is_ok(), "the folder alone passes");
+            // The folder itself a link to the real one.
+            let linked = base.join("linked");
+            symlink(&dir, &linked, true)?;
+            assert_eq!(check_folder(&linked, |_, _| Ok(())).unwrap_err(), FolderRefusal::FolderLink(linked.display().to_string()));
+            // Removing a directory link removes the link, not the folder it points at.
+            #[cfg(windows)]
+            std::fs::remove_dir(&linked).unwrap();
+            #[cfg(not(windows))]
+            std::fs::remove_file(&linked).unwrap();
+            Some(())
+        };
+        let _ = checks();
+        std::fs::remove_dir_all(&base).unwrap();
     }
 }

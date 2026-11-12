@@ -21,7 +21,9 @@
 //!   `RawVulkanInitSettings::set_vulkan_library`). Any failure: today's path.
 //! - **Preflight** (`preflight.rs`): the folder is listed before the interposer is loaded and
 //!   again just before `slInit`; an `nvngx_update.exe` in it, in any case, or a folder that
-//!   cannot be listed keeps Streamline out (Streamline would start that file unchecked). Every
+//!   cannot be listed keeps Streamline out (Streamline would start that file unchecked), and so
+//!   do a folder or DLL that is a link, a release DLL with another hash, an `nvngx_*.dll` not
+//!   signed by NVIDIA, or any other DLL. The checked files stay open until the shutdown. Every
 //!   GPU Vulkan exposes, of any kind, is read through the system's Vulkan loader before the
 //!   interposer is loaded, and after `slInit` checked against `slGetFeatureRequirements(DLSS)`
 //!   plus what Streamline's `vkCreateDevice` always adds: Bevy can fall back from any adapter
@@ -95,7 +97,9 @@
 //!   `vkDeviceWaitIdle`), DLSS's resources for the viewport are freed (`slFreeResources`, which
 //!   needs pending evaluates flushed [documented: `sl_core_api.h:233-237`]), `slShutdown` runs, and only then are the clones dropped, the last
 //!   handles, so the device and instance are destroyed after it. Streamline's cleanup uses the
-//!   device it stored [documented: `src/vulkan.cpp:1349-1407`]. The interposer stays loaded.
+//!   device it stored [documented: `src/vulkan.cpp:1349-1407`]. Then the DLSS folder's checked
+//!   files, held open since the folder pass (`win.rs` `Pins`), are released. The interposer stays
+//!   loaded.
 //!
 //! Log lines start `DLSS:`; lines before the log is up wait in a buffer, written each frame
 //! (`First`) and at shutdown.

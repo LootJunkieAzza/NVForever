@@ -29,14 +29,15 @@
 //! function (fileapi.h)", dwShareMode, read 2026-11-12]. The hash is read through that handle,
 //! `WinVerifyTrust` is given it (`WINTRUST_FILE_INFO.hFile`, the "file handle to the open file to
 //! be verified" [documented: Microsoft Learn, "WINTRUST_FILE_INFO structure (wintrust.h)"]), and
-//! [`Accepted`] keeps it open until `win.rs` has loaded the file, so the file checked is the file
-//! loaded. What remains: `LoadLibraryExW` takes a path only (its `hFile` parameter "is reserved
+//! [`Accepted`] keeps it open until Streamline is shut down (`win.rs`), so the file checked is the
+//! file loaded. What remains: `LoadLibraryExW` takes a path only (its `hFile` parameter "is reserved
 //! for future use. It must be NULL" [documented: Microsoft Learn, "LoadLibraryExW function
 //! (libloaderapi.h)"]), and so does `CryptQueryObject`'s file form in [`is_signed_by_nvidia`]:
 //! both open the file again by its path while the handle is held. That they reach the same file
-//! rests on nothing along the path being renamed or re-pointed in between [hypothesis: Windows
-//! refuses to rename a folder holding an open file; not shown for junctions or links above the
-//! DLSS folder, which only someone who can already write there could change]. That the loader's
+//! rests on nothing along the path being renamed or re-pointed in between: the folder pass
+//! (`preflight.rs`, "No links") refuses the DLSS folder or a DLL in it being a link, and holds the
+//! folder open without `FILE_SHARE_DELETE`, so it cannot be renamed; the folders above it are not
+//! checked [design: the player's own folder, beside the program]. That the loader's
 //! own open is compatible with a handle sharing read only is [hypothesis] too, checked by every
 //! DLSS run (a refusal would log "did not load" with a sharing violation). A file someone else
 //! holds open for writing at the moment of the check makes the open fail, which refuses the
@@ -71,6 +72,27 @@
 //! signed message-digest attribute against the content, nor the decode type for
 //! `SpcIndirectDataContent`, and the code could not be run against the genuine file in this step.
 //!
+//! # NGX's runtimes: signed by NVIDIA
+//!
+//! The `nvngx_*.dll` in the DLSS folder are not pinned by hash, so that a newer DLSS can be used
+//! (`preflight.rs`), but each must pass [`check_ngx`] [design: from the follow-up review of
+//! #2206]: Windows' Authenticode check of its primary signature, through the handle the folder
+//! pass holds (as for the interposer, [`verify_primary`]), and that signature's signer
+//! certificate must have the subject common name [`NGX_SIGNER`], "NVIDIA Corporation". The
+//! certificate is found as the header finds the nested signer's: the signer information's issuer
+//! and serial number looked up in the signature's own store (`CERT_FIND_SUBJECT_CERT`,
+//! `sl_security.h:244-255`); its common name is read with `CertGetNameStringW`
+//! (`CERT_NAME_ATTR_TYPE`, `szOID_COMMON_NAME`; "if the specified name type is not found, returns
+//! a null-terminated empty string with a returned character count of 1" [documented: Microsoft
+//! Learn, "CertGetNameStringW function (wincrypt.h)"]). Since `WinVerifyTrust` checked the chain
+//! up to a root Windows trusts, the name is one a trusted certificate authority issued.
+//! [hypothesis, each checked by a DLSS run: NVIDIA's `nvngx_dlss.dll` is signed with a
+//! certificate whose common name is exactly "NVIDIA Corporation" (the log line names the signer
+//! read when it is refused); its primary signature passes the current OS strong-signature policy
+//! `verify_primary` asks for; the signer `CryptQueryObject` returns first is the one
+//! `WinVerifyTrust` verified as index 0.] `CryptQueryObject` opens the file by path, as in
+//! "One file, checked and loaded".
+//!
 //! Translated from NVIDIA Streamline (https://github.com/NVIDIA-RTX/Streamline), whose header
 //! `sl_security.h` carries this notice (licence file `license.txt` in the Streamline repository):
 //!
@@ -102,12 +124,13 @@ use std::io::{Read, Seek, SeekFrom};
 use std::os::windows::io::AsRawHandle;
 use std::path::Path;
 
-use windows_sys::core::{BOOL, GUID, PCSTR};
+use windows_sys::core::{BOOL, GUID, PCSTR, PWSTR};
 use windows_sys::Win32::Foundation::{LocalFree, HMODULE, HWND};
 use windows_sys::Win32::Security::Cryptography::{
     CERT_CONTEXT, CERT_INFO, CERT_STRONG_SIGN_PARA, CERT_STRONG_SIGN_PARA_0, CMSG_SIGNER_INFO, CRYPT_INTEGER_BLOB, HCERTSTORE, CERT_CLOSE_STORE_FORCE_FLAG,
     CERT_FIND_SUBJECT_CERT, CERT_QUERY_CONTENT_FLAG_PKCS7_SIGNED_EMBED, CERT_QUERY_FORMAT_FLAG_BINARY, CERT_QUERY_OBJECT_FILE, CERT_STORE_PROV_PKCS7,
     CERT_STRONG_SIGN_OID_INFO_CHOICE, CMSG_SIGNER_INFO_PARAM, CNG_RSA_PUBLIC_KEY_BLOB, CRYPT_DECODE_ALLOC_FLAG, PKCS_7_ASN_ENCODING, X509_ASN_ENCODING,
+    CERT_NAME_ATTR_TYPE, szOID_COMMON_NAME,
 };
 use windows_sys::Win32::Security::WinTrust::{
     WINTRUST_ACTION_GENERIC_VERIFY_V2, WINTRUST_DATA, WINTRUST_DATA_0, WINTRUST_FILE_INFO, WINTRUST_SIGNATURE_SETTINGS, WSS_GET_SECONDARY_SIG_COUNT,
@@ -183,8 +206,8 @@ fn tested_list() -> String {
 }
 
 /// The interposer, accepted by [`check_interposer`].
-/// It holds the file open, shared for reading only, until it is dropped: `win.rs` drops it once
-/// `LoadLibraryExW` has returned.
+/// It holds the file open, shared for reading only, until it is dropped: `win.rs` keeps it until
+/// Streamline is shut down.
 pub(super) struct Accepted {
     /// The file's SHA-256 in hex.
     pub(super) sha256: String,
@@ -226,6 +249,36 @@ pub(super) fn check_interposer(path: &Path) -> Result<Accepted, Refused> {
     Ok(Accepted { sha256, build, _file: file })
 }
 
+/// The subject common name an `nvngx_*.dll`'s signer certificate must have (the module's "NGX's
+/// runtimes: signed by NVIDIA").
+pub(super) const NGX_SIGNER: &str = "NVIDIA Corporation";
+
+/// Whether a signer certificate's subject common name is [`NGX_SIGNER`]: exactly, as Windows
+/// returns it (no case folding, no trimming, no prefix or suffix).
+fn is_nvidia_signer(common_name: &str) -> bool {
+    common_name == NGX_SIGNER
+}
+
+/// An `nvngx_*.dll` checked (the module's "NGX's runtimes: signed by NVIDIA"): Windows' check of
+/// its primary signature through `file`, the handle the folder pass holds on it, and that
+/// signature's signer named [`NGX_SIGNER`]. `path` is the same file's full path. The refusal's
+/// words name what failed, with the signer read when it is someone else.
+pub(super) fn check_ngx(path: &Path, file: &File) -> Result<(), String> {
+    let path_w = wide(path.as_os_str());
+    let wintrust = system_library("wintrust.dll").ok_or("wintrust.dll did not load")?;
+    // SAFETY: windows-sys's signature of `WinVerifyTrust`.
+    let verify: WinVerifyTrust = unsafe { get_proc(wintrust, c"WinVerifyTrust") }.ok_or("wintrust.dll has no WinVerifyTrust")?;
+    let primary = verify_primary(verify, &path_w, file);
+    if primary.status != 0 {
+        return Err(format!("Windows did not verify its signature, index 0 (WinVerifyTrust 0x{:08x})", primary.status as u32));
+    }
+    let signer = signer_common_name(&path_w).ok_or("its signer's certificate or its common name could not be read")?;
+    if !is_nvidia_signer(&signer) {
+        return Err(format!("its signature is valid, but its signer is \"{signer}\", not \"{NGX_SIGNER}\""));
+    }
+    Ok(())
+}
+
 /// `path` opened for reading, sharing read access only (`preflight::open_shared_read`).
 fn open_for_checks(path: &Path) -> std::io::Result<File> {
     super::preflight::open_shared_read(path)
@@ -257,6 +310,7 @@ type CertCloseStore = unsafe extern "system" fn(HCERTSTORE, u32) -> BOOL;
 type CertFindCertificateInStore = unsafe extern "system" fn(HCERTSTORE, u32, u32, u32, *const c_void, *const CERT_CONTEXT) -> *mut CERT_CONTEXT;
 type CertFreeCertificateContext = unsafe extern "system" fn(*const CERT_CONTEXT) -> BOOL;
 type CryptDecodeObjectEx = unsafe extern "system" fn(u32, PCSTR, *const u8, u32, u32, *const c_void, *mut c_void, *mut u32) -> BOOL;
+type CertGetNameStringW = unsafe extern "system" fn(*const CERT_CONTEXT, u32, u32, *const c_void, PWSTR, u32) -> u32;
 
 /// A System32 library, loaded by name from System32 only (`sl_security.h:150, 349`).
 fn system_library(name: &str) -> Option<HMODULE> {
@@ -373,7 +427,8 @@ fn verify_primary(verify: WinVerifyTrust, path_w: &[u16], open: &File) -> Primar
     PrimaryCheck { status, secondary_sigs }
 }
 
-/// crypt32's functions used by [`is_signed_by_nvidia`] (`sl_security.h:150-162`).
+/// crypt32's functions used by [`is_signed_by_nvidia`] (`sl_security.h:150-162`) and, for the
+/// signer's name, by [`signer_common_name`].
 struct Crypt32 {
     query_object: CryptQueryObject,
     msg_get_param: CryptMsgGetParam,
@@ -385,6 +440,7 @@ struct Crypt32 {
     find_certificate: CertFindCertificateInStore,
     free_certificate: CertFreeCertificateContext,
     decode_object: CryptDecodeObjectEx,
+    get_name_string: CertGetNameStringW,
 }
 
 impl Crypt32 {
@@ -403,6 +459,7 @@ impl Crypt32 {
                 find_certificate: get_proc(m, c"CertFindCertificateInStore")?,
                 free_certificate: get_proc(m, c"CertFreeCertificateContext")?,
                 decode_object: get_proc(m, c"CryptDecodeObjectEx")?,
+                get_name_string: get_proc(m, c"CertGetNameStringW")?,
             })
         }
     }
@@ -449,12 +506,12 @@ impl Drop for Cert<'_> {
     }
 }
 
-/// `isSignedByNVIDIA` (`sl_security.h:134-326`): the file's signer information, its nested
-/// (secondary) signature, that signature's signer certificate, and whether the certificate's
-/// public key is Streamline's.
-fn is_signed_by_nvidia(path_w: &[u16]) -> bool {
-    let Some(crypt) = Crypt32::load() else { return false };
-    let encoding = X509_ASN_ENCODING | PKCS_7_ASN_ENCODING;
+/// The file's embedded signature as `CryptQueryObject` finds it by path (`sl_security.h:167-177`),
+/// with its certificate store (null when Windows gave none) and its signer information
+/// (`sl_security.h:183-211`), handed to `inspect`; every handle closed after it. `None` when any
+/// of them cannot be read.
+fn with_embedded_signer<R>(path_w: &[u16], inspect: impl FnOnce(&Crypt32, HCERTSTORE, &CMSG_SIGNER_INFO) -> Option<R>) -> Option<R> {
+    let crypt = Crypt32::load()?;
     let (mut enc, mut content, mut format) = (0u32, 0u32, 0u32);
     let mut store: HCERTSTORE = std::ptr::null_mut();
     let mut msg: *mut c_void = std::ptr::null_mut();
@@ -475,32 +532,90 @@ fn is_signed_by_nvidia(path_w: &[u16]) -> bool {
         )
     };
     if found == 0 {
-        return false;
+        return None;
     }
     let _store = (!store.is_null()).then(|| Store(&crypt, store));
     let _msg = (!msg.is_null()).then(|| Msg(&crypt, msg));
     if msg.is_null() {
-        return false;
+        return None;
     }
-    let Some(signer) = crypt.signer_info(msg) else { return false };
+    let buffer = crypt.signer_info(msg)?;
     // SAFETY: `signer_info` checked the buffer holds at least a `CMSG_SIGNER_INFO`, 8-aligned.
-    let signer = unsafe { &*signer.as_ptr().cast::<CMSG_SIGNER_INFO>() };
-    let attrs = signer.UnauthAttrs;
-    for i in 0..attrs.cAttr as usize {
-        // SAFETY: `cAttr` attributes at `rgAttr`, inside the signer buffer.
-        let attr = unsafe { &*attrs.rgAttr.add(i) };
-        // SAFETY: an attribute's OID is a NUL-terminated string.
-        if attr.pszObjId.is_null() || unsafe { CStr::from_ptr(attr.pszObjId.cast()) } != NESTED_SIGNATURE {
-            continue;
+    let signer = unsafe { &*buffer.as_ptr().cast::<CMSG_SIGNER_INFO>() };
+    inspect(&crypt, store, signer)
+}
+
+/// `isSignedByNVIDIA` (`sl_security.h:134-326`): the file's signer information, its nested
+/// (secondary) signature, that signature's signer certificate, and whether the certificate's
+/// public key is Streamline's.
+fn is_signed_by_nvidia(path_w: &[u16]) -> bool {
+    let encoding = X509_ASN_ENCODING | PKCS_7_ASN_ENCODING;
+    with_embedded_signer(path_w, |crypt, _store, signer| {
+        let attrs = signer.UnauthAttrs;
+        for i in 0..attrs.cAttr as usize {
+            // SAFETY: `cAttr` attributes at `rgAttr`, inside the signer buffer.
+            let attr = unsafe { &*attrs.rgAttr.add(i) };
+            // SAFETY: an attribute's OID is a NUL-terminated string.
+            if attr.pszObjId.is_null() || unsafe { CStr::from_ptr(attr.pszObjId.cast()) } != NESTED_SIGNATURE {
+                continue;
+            }
+            if attr.cValue == 0 || attr.rgValue.is_null() {
+                return Some(false);
+            }
+            // SAFETY: at least one value.
+            let blob: &CRYPT_INTEGER_BLOB = unsafe { &*attr.rgValue };
+            return Some(nested_signer_is_streamline(crypt, encoding, blob));
         }
-        if attr.cValue == 0 || attr.rgValue.is_null() {
-            return false;
+        Some(false)
+    })
+    .unwrap_or(false)
+}
+
+/// The subject common name of the file's (primary) signer certificate: the signer information's
+/// issuer and serial number found in the signature's own store, as the header finds the nested
+/// signer's (`CERT_FIND_SUBJECT_CERT`, `sl_security.h:244-255`), and its common name read with
+/// `CertGetNameStringW` (the module's "NGX's runtimes: signed by NVIDIA"). `None` when the
+/// certificate is not found or has no common name.
+fn signer_common_name(path_w: &[u16]) -> Option<String> {
+    let encoding = X509_ASN_ENCODING | PKCS_7_ASN_ENCODING;
+    with_embedded_signer(path_w, |crypt, store, signer| {
+        if store.is_null() {
+            return None;
         }
-        // SAFETY: at least one value.
-        let blob: &CRYPT_INTEGER_BLOB = unsafe { &*attr.rgValue };
-        return nested_signer_is_streamline(&crypt, encoding, blob);
+        // SAFETY: an all-zero CERT_INFO is valid (the header value-initialises it, `:244`).
+        let mut info: CERT_INFO = unsafe { std::mem::zeroed() };
+        info.Issuer = signer.Issuer;
+        info.SerialNumber = signer.SerialNumber;
+        // SAFETY: the subject found by issuer and serial number, as in `nested_signer_is_streamline`.
+        let cert = unsafe { (crypt.find_certificate)(store, encoding, 0, CERT_FIND_SUBJECT_CERT, std::ptr::from_ref(&info).cast(), std::ptr::null()) };
+        if cert.is_null() {
+            return None;
+        }
+        let _cert = Cert(crypt, cert);
+        common_name(crypt, cert)
+    })
+}
+
+/// The certificate subject's common name (`CertGetNameStringW`, `CERT_NAME_ATTR_TYPE` with
+/// `szOID_COMMON_NAME`, flags 0 for the subject rather than the issuer [documented: Microsoft
+/// Learn, "CertGetNameStringW function (wincrypt.h)"]): the size asked first, then the name.
+/// `None` for no common name (a count of 1, the empty string).
+fn common_name(crypt: &Crypt32, cert: *const CERT_CONTEXT) -> Option<String> {
+    // SAFETY: a size query ("If pszNameString is NULL or cchNameString is zero, returns the
+    // required size ... including the terminating NULL character") on a live context; the OID is
+    // a NUL-terminated ANSI string.
+    let size = unsafe { (crypt.get_name_string)(cert, CERT_NAME_ATTR_TYPE, 0, szOID_COMMON_NAME.cast(), std::ptr::null_mut(), 0) };
+    if size <= 1 {
+        return None;
     }
-    false
+    let mut name = vec![0u16; size as usize];
+    // SAFETY: a buffer of `size` characters, the size Windows asked for.
+    let written = unsafe { (crypt.get_name_string)(cert, CERT_NAME_ATTR_TYPE, 0, szOID_COMMON_NAME.cast(), name.as_mut_ptr(), size) };
+    if written <= 1 || written > size {
+        return None;
+    }
+    // The count includes the terminating zero.
+    Some(String::from_utf16_lossy(&name[..written as usize - 1]))
 }
 
 /// The nested signature in `blob` (`sl_security.h:219-308`): decoded as a PKCS#7 message, its
@@ -605,6 +720,15 @@ mod tests {
         assert!(OpenOptions::new().write(true).open(&path).is_ok(), "released with the handle");
         drop(scratch);
         assert!(!path.exists());
+    }
+
+    #[test]
+    fn only_nvidia_corporation_signs_ngx_files() {
+        assert!(is_nvidia_signer("NVIDIA Corporation"));
+        for other in ["nvidia corporation", "NVIDIA CORPORATION", "NVIDIA Corporation ", " NVIDIA Corporation", "NVIDIA Corporation Ltd", "Not NVIDIA Corporation", "NVIDIA", "NVIDIA\u{a0}Corporation", ""] {
+            assert!(!is_nvidia_signer(other), "{other:?} is not NVIDIA's signer");
+        }
+        assert_eq!(NGX_SIGNER, "NVIDIA Corporation");
     }
 
     #[test]
