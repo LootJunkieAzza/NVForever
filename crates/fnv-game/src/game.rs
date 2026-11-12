@@ -3827,8 +3827,9 @@ impl<'a> Game<'a> {
         // JIP's SetGameMainLoopCallback functions due this frame (task J6), then xNVSE's
         // delayed calls.
         self.run_main_loop();
-        // JIP's key-down and key-up events of the keys the engine says are held.
-        self.jip_keys();
+        // (JIP's key-down and key-up events are sent once, by `jam_key_events` above or
+        // `nvf_play::script_input` before it: a second sender here gave each press two
+        // key-downs, so a toggle key, JAM's bullet time on V, went on and off at once.)
         self.run_delayed();
         // CacheUI's loops, tile scripts and typewriters; vheyes-nvse's moon fade, deferred
         // 3D refreshes and queued console command; kNVSE's SetAnimCurrentTime calls.
