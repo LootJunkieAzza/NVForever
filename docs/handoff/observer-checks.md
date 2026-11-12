@@ -1807,3 +1807,18 @@ Fallout Behavior, Weapon Drawn, Continue During Combat).
     with the furniture it sits on: EAT on the chair says seated meals happen; SITTING only
     says the original's sandbox does not run meals as a procedure at all, and step 2 should
     go.
+
+## Added 2026-11-11 (a sandbox's only object, issue #1505)
+
+114. **Does a sandboxer with one seat and nothing else to use sit on it again, and when?**
+    (P3; actor-behaviour.md §5.5, "The only object, used again"; packages.md §3.) NVForever
+    lets the object just used come back once it is the only one open and the actor has
+    stood or wandered for 60 s [design, #1505]. The GECK wiki documents
+    `iSandBoxPreventRepeatedActionTime`, default 30: no repeated action on the same object
+    until that many seconds have passed [documented: GECK wiki], without saying when the
+    seconds start. In the original: an NPC whose sandbox area holds a single free chair
+    (idle markers and wandering off or absent, outside meal and sleep windows), watched for
+    about 10 minutes with GetSitting (or the furniture it uses) sampled each second: does it
+    sit again, and how long after getting up (or after sitting down)? Never, a fixed wait
+    near 30 s from either end, or random gaps each settle the number; record the package's
+    flags and the cell's other objects.

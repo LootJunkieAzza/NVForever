@@ -536,6 +536,35 @@ retry tests' timing, about 0.5, 65.5, 190.5 and 435.5 seconds after it; other be
 move those); a shorter wait left may mean fewer. No test loads a game here; this is from the
 delays.
 
+**The only object, used again** [design, #1505: the maintainer's handed-off choice, under
+review in owner-review.md; no vanilla-parity claim, the original is unmeasured: observer
+check 114]: the object just used stays out of the choices, and with several objects open
+the actor goes from one to another as above. When the object used last is the only one
+open (no other seat or idle marker the package allows that is present, not given to
+another actor and not waiting out a failed way), it comes back once the actor has done
+something else for 60 seconds of `Game::time` (`SOLE_OBJECT_AGAIN_AFTER` in
+`crates/fnv-ai/src/sandbox.rs`), counted from when the first behaviour without an object
+(standing, wandering, a meal with no seat) began after it. So at least one other choice comes between, and
+the look on getting up never takes it again. The time runs on through an interruption
+(combat taking the sandbox for a while does not restart it, nor let the object through
+early). 60 seconds is about a short sit (45) or a default idle marker's stint (30), so a
+lone chair is sat on about as long as it is left; with nothing else on, the actor stands,
+looks every 10 seconds, and the first look past the minute takes the chair. Using any
+object starts the minute over; the time is not saved, like the object just used (a load
+forgets both). Before this, a sandbox with one object used it once and then stood (or
+wandered) until the package changed [observed: issue #1505's synthetic run, 50 standing
+choices in 600 s].
+
+The GECK wiki documents a setting for this area, `iSandBoxPreventRepeatedActionTime`,
+default 30: a sandboxing NPC does not repeat an action on the same object until that many
+seconds have passed [documented: GECK wiki, iSandBoxPreventRepeatedActionTime;
+docs/spec-notes/packages.md §3]. NVForever does not read it. The two differ: the setting
+reads as a wait on every object (several objects could each come back after 30 s), with
+nothing said about when the seconds start; ours keeps the object just used out for as
+long as any other object is open, and lets it back only when it is the only one, 60 s
+after the first other behaviour began. Whether to follow the setting instead is the
+maintainer's question in owner-review.md.
+
 **Also in this step**: a patrol waits out a point's idle time (REFR `XPRD`) before going
 on [documented: Idle Markers, Patrol Data]; the furniture a package gives its actor
 (§5.4) is decided headless now (`goal::package_furniture`, `Agent::using`), so
@@ -545,7 +574,12 @@ on [documented: Idle Markers, Patrol Data]; the furniture a package gives its ac
 radius and uses nothing; no-wander alternates chair and idle marker; all off stands; the
 night's bed and the meal's chair at the rolled hours; an idle marker's heading (turned to
 on the spot at 120°/s since 2026-10-11, `Agent::face_to`, actors.md §8.9); two
-sandboxers never on one chair; the same run twice; the patrol wait). `fnvtool ai run
+sandboxers never on one chair; the same run twice; the patrol wait). The only object
+(#1505), in the same file: a lone chair, and a lone idle marker, used again a minute after
+each stand and never at the look after it, nor early after an interruption; a disabled
+second chair and one with no way to it (its #1504 backoff going on) leave the first as the
+only one; two chairs, and a chair with a marker, still take turns without standing between.
+`fnvtool ai run
 --actor GSChetRef --start-hour 9`: a meal on a chair, an idle marker, a wander, a seat,
 in his store. In `nvforever`: Chet walks about his store and sits down (screenshots);
 flying over the map with `all`, 161 wanders, 37 meals, 6 idle markers at 26 frames a
