@@ -19,10 +19,12 @@
 //! - **Preflight** (`preflight.rs`): the folder is listed before the interposer is loaded and
 //!   again just before `slInit`; an `nvngx_update.exe` in it, in any case, or a folder that
 //!   cannot be listed keeps Streamline out (Streamline would start that file unchecked). Every
-//!   GPU the renderer could pick is read through the system's Vulkan loader before the interposer
-//!   is loaded, and after `slInit` checked against `slGetFeatureRequirements(DLSS)` plus what
-//!   Streamline's `vkCreateDevice` always adds; any GPU short of it, or a pick that cannot be
-//!   told, and `slShutdown` runs and the stock path follows, before `set_vulkan_library`.
+//!   GPU Vulkan exposes, of any kind, is read through the system's Vulkan loader before the
+//!   interposer is loaded, and after `slInit` checked against `slGetFeatureRequirements(DLSS)`
+//!   plus what Streamline's `vkCreateDevice` always adds: Bevy can fall back from any adapter
+//!   it is asked for to wgpu's own pick [documented: vendor/bevy_render/src/renderer/mod.rs:
+//!   166-194, 304], so no GPU is left out. Any GPU short of it, or none at all, and `slShutdown`
+//!   runs and the stock path follows, before `set_vulkan_library`.
 //!   [`loader_state`] says what the loader ended in.
 //!   Clearing the two update flags does not stop Streamline starting NVIDIA's updater, and a
 //!   driver override can still pick downloaded plugins [documented: `src/pluginManager.cpp:
@@ -34,9 +36,11 @@
 //!   `vulkan/adapter.rs:3044-3050`].
 //! - **Adapter pin** (after the device check, `preflight::pin`): when `WGPU_ADAPTER_NAME` is
 //!   unset and exactly one checked GPU is NVIDIA's and its name picks it alone, the renderer is
-//!   asked for it by name ([`render_plugin`], Bevy's `WgpuSettings::adapter_name`), so Bevy's
-//!   own pick cannot land on a GPU the check did not see. Once the device exists the GPU Bevy
-//!   chose is compared with the checked one (name and LUID); a mismatch keeps DLSS off.
+//!   asked for it by name ([`render_plugin`], Bevy's `WgpuSettings::adapter_name`). That only
+//!   prefers the NVIDIA GPU among the checked ones (Bevy takes its own pick when no adapter of
+//!   that name supports the window's surface); what keeps the renderer off an unchecked GPU is that the device
+//!   check covers every GPU Vulkan exposes. Once the device exists the GPU Bevy chose is
+//!   compared with the checked one (name and LUID); a mismatch keeps DLSS off.
 //! - **Support** (once the device exists, `Plugin::cleanup`): `slIsFeatureSupported` with the
 //!   physical device and its LUID (Streamline skips the adapter check without a LUID
 //!   [documented: `src/sl.cpp:855-860`]), the versions Streamline reports, and the evidence that

@@ -12,12 +12,12 @@
 //! - **The device** [design]: once the interposer makes the instance there is no way back when
 //!   the device is made: Streamline's `vkCreateDevice` refuses a device that lacks an extension
 //!   it adds [documented: `src/wrapper.cpp:816-829`], and wgpu-hal panics on that [documented:
-//!   wgpu-hal 30.0.1 `vulkan/adapter.rs:3044-3050`]. So every GPU the renderer could pick is
-//!   checked first, from a [`Snapshot`] taken through the system's Vulkan loader (`probe`, a
-//!   temporary instance destroyed after), against what DLSS asks for ([`Requirements`], from
-//!   `slGetFeatureRequirements`) plus what Streamline's own `vkCreateDevice` adds whatever the
-//!   plugins say ([`judge`]). The check and the pick are pure functions over the snapshot, so
-//!   the tests need no GPU.
+//!   wgpu-hal 30.0.1 `vulkan/adapter.rs:3044-3050`]. So every GPU Vulkan exposes is checked
+//!   first (Bevy can still fall back to any of them, [`candidates`]), from a [`Snapshot`] taken
+//!   through the system's Vulkan loader (`probe`, a temporary instance destroyed after), against
+//!   what DLSS asks for ([`Requirements`], from `slGetFeatureRequirements`) plus what
+//!   Streamline's own `vkCreateDevice` adds whatever the plugins say ([`judge`]). The check is a
+//!   pure function over the snapshot, so the tests need no GPU.
 //!
 //! What Streamline's `vkCreateDevice` does to the device the renderer asks for [documented:
 //! `src/wrapper.cpp`]:
@@ -306,20 +306,6 @@ impl DeviceKind {
             Self::Other => "other",
         }
     }
-
-    /// wgpu's order under a power preference, lowest first [documented: wgpu-core 30.0.1
-    /// `instance.rs:586-602`].
-    fn order(self, prefer_integrated: bool) -> u8 {
-        match self {
-            Self::Discrete if prefer_integrated => 2,
-            Self::Integrated if prefer_integrated => 1,
-            Self::Discrete => 1,
-            Self::Integrated => 2,
-            Self::Other => 3,
-            Self::Virtual => 4,
-            Self::Cpu => 5,
-        }
-    }
 }
 
 /// One queue family of a GPU.
@@ -350,14 +336,6 @@ pub(super) struct DeviceCaps {
     pub luid_valid: bool,
     /// The LUID itself when valid, to tell afterwards whether Bevy made its device on this GPU.
     pub luid: Option<[u8; 8]>,
-    /// Whether the driver reports a conformance version (`major != 0`); `None` when it reports
-    /// no driver properties, as wgpu-hal reads them [documented: wgpu-hal 30.0.1
-    /// `vulkan/adapter.rs:1875-1877, 2310-2328`].
-    pub conformant: Option<bool>,
-    /// `vkGetPhysicalDeviceWin32PresentationSupportKHR` on queue family 0, the family wgpu-hal
-    /// presents from [documented: wgpu-hal 30.0.1 `vulkan/swapchain/native.rs:64-82`]; `None` when
-    /// it could not be asked.
-    pub presents: Option<bool>,
 }
 
 impl DeviceCaps {
@@ -408,123 +386,16 @@ impl fmt::Display for Requirements {
     }
 }
 
-/// wgpu's power preference as Bevy hands it over.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum Power {
-    High,
-    Low,
-    None,
-}
-
-/// How Bevy picks the adapter (vendor/bevy_render/src/renderer/mod.rs:166-195, 268-315).
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) struct Selection {
-    /// `WGPU_ADAPTER_NAME`, lower case: the first adapter whose lower-case name contains it.
-    pub adapter_name: Option<String>,
-    pub power: Power,
-    /// `WGPU_FORCE_FALLBACK_ADAPTER`: only CPU adapters.
-    pub force_fallback: bool,
-}
-
-impl Default for Selection {
-    /// What Bevy uses with no variables set: high performance [documented:
-    /// vendor/bevy_render/src/settings.rs:86-87].
-    fn default() -> Self {
-        Self { adapter_name: None, power: Power::High, force_fallback: false }
-    }
-}
-
-#[cfg(windows)]
-impl Selection {
-    /// Read as Bevy reads it, NVForever setting no `WgpuSettings` of its own
-    /// (vendor/bevy_render/src/renderer/mod.rs:268-275; settings.rs:86-87).
-    pub(super) fn from_env() -> Self {
-        let adapter_name = std::env::var("WGPU_ADAPTER_NAME").ok().map(|n| n.to_lowercase());
-        let force_fallback = std::env::var("WGPU_FORCE_FALLBACK_ADAPTER").is_ok_and(|v| !(v.is_empty() || v == "0" || v == "false"));
-        let power = match wgpu::PowerPreference::from_env().unwrap_or(wgpu::PowerPreference::HighPerformance) {
-            wgpu::PowerPreference::HighPerformance => Power::High,
-            wgpu::PowerPreference::LowPower => Power::Low,
-            wgpu::PowerPreference::None => Power::None,
-        };
-        Self { adapter_name, power, force_fallback }
-    }
-}
-
-/// How sure it is that wgpu offers a GPU with a surface for the window.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Offer {
-    /// wgpu hides it: its first queue family cannot draw [documented: wgpu-hal 30.0.1
-    /// `vulkan/adapter.rs:2348-2358`].
-    Hidden,
-    /// wgpu may offer it, or may pass it over (non-conformant, a version wgpu-hal hides, or a
-    /// surface it may not support).
-    Maybe,
-    /// wgpu offers it and it presents from family 0: conformant or not reporting conformance,
-    /// Vulkan 1.1 or later, `VK_KHR_swapchain`, and the system says family 0 presents to
-    /// windows. That the last stands for wgpu's own surface check
-    /// (`vkGetPhysicalDeviceSurfaceSupportKHR` on the window) is [hypothesis].
-    Certain,
-}
-
-fn offer(device: &DeviceCaps) -> Offer {
-    if !device.queue_families.first().is_some_and(|family| family.graphics) {
-        return Offer::Hidden;
-    }
-    let sure = device.conformant != Some(false)
-        && device.api_version >= vk::API_VERSION_1_1
-        && device.has("VK_KHR_swapchain")
-        && device.presents == Some(true);
-    if sure {
-        Offer::Certain
-    } else {
-        Offer::Maybe
-    }
-}
-
-/// The GPUs (indices into `devices`) the renderer could make its device on [design]: every one
-/// it may pick, never fewer.
-///
-/// - `WGPU_ADAPTER_NAME`: every offered GPU whose name contains it (Bevy takes the first that
-///   supports the window's surface); when none of them is certain, wgpu's own pick may follow,
-///   so those join.
-/// - wgpu's pick sorts by kind under the power preference and takes the first [documented:
-///   wgpu-core 30.0.1 `instance.rs:571-620`]: all GPUs of the best kind, and when none of them
-///   is certain, the next kind's too, and so on. No preference: wgpu keeps the loader's order,
-///   so every GPU.
-pub(super) fn candidates(devices: &[DeviceCaps], selection: &Selection) -> Vec<usize> {
-    let offered: Vec<(usize, Offer)> = devices.iter().enumerate().map(|(i, d)| (i, offer(d))).filter(|(_, o)| *o != Offer::Hidden).collect();
-    let mut picked = Vec::new();
-    if let Some(name) = &selection.adapter_name {
-        let named: Vec<(usize, Offer)> = offered.iter().copied().filter(|(i, _)| devices[*i].name.to_lowercase().contains(name.as_str())).collect();
-        picked.extend(named.iter().map(|(i, _)| *i));
-        if named.iter().any(|(_, o)| *o == Offer::Certain) {
-            return picked;
-        }
-    }
-    let pool: Vec<(usize, Offer)> = offered.into_iter().filter(|(i, _)| !selection.force_fallback || devices[*i].kind == DeviceKind::Cpu).collect();
-    let prefer_integrated = match selection.power {
-        Power::None => {
-            picked.extend(pool.iter().map(|(i, _)| *i));
-            picked.sort_unstable();
-            picked.dedup();
-            return picked;
-        }
-        Power::Low => true,
-        Power::High => false,
-    };
-    let mut orders: Vec<u8> = pool.iter().map(|(i, _)| devices[*i].kind.order(prefer_integrated)).collect();
-    orders.sort_unstable();
-    orders.dedup();
-    for order in orders {
-        let tier: Vec<(usize, Offer)> = pool.iter().copied().filter(|(i, _)| devices[*i].kind.order(prefer_integrated) == order).collect();
-        picked.extend(tier.iter().map(|(i, _)| *i));
-        if tier.iter().any(|(_, o)| *o == Offer::Certain) {
-            break;
-        }
-    }
-    picked.sort_unstable();
-    picked.dedup();
-    picked
+/// The GPUs (indices into `devices`) the device check covers [design: the final review's P1]:
+/// every one the system's loader enumerated, of any kind, CPU devices included. Bevy asks for a
+/// GPU by name only as a preference: it passes over the named adapter when it does not support
+/// the window's surface or no adapter's name matches, and then takes wgpu's own pick
+/// [documented: vendor/bevy_render/src/renderer/mod.rs:166-194, 304], whose filtering
+/// (conformance, version, surface support) this check cannot reproduce for certain. So neither
+/// the power preference, `WGPU_ADAPTER_NAME` nor `WGPU_FORCE_FALLBACK_ADAPTER` narrows the list,
+/// and a GPU wgpu would never offer is checked too (failing closed).
+pub(super) fn candidates(devices: &[DeviceCaps]) -> Vec<usize> {
+    (0..devices.len()).collect()
 }
 
 /// What a GPU lacks for Streamline's device.
@@ -650,9 +521,9 @@ pub(super) struct Decline {
 
 /// The decision [design]: Streamline may make the device only when DLSS lists Vulkan, the loader
 /// has every instance extension it asks for, every requirement is one this check knows, and
-/// every GPU the renderer could pick ([`candidates`]) has everything ([`shortfalls`]). Returns
-/// the GPUs checked, for the log.
-pub(super) fn judge(snapshot: &Snapshot, req: &Requirements, selection: &Selection) -> Result<Vec<String>, Decline> {
+/// every GPU Vulkan exposes ([`candidates`]) has everything ([`shortfalls`]). Returns the GPUs
+/// checked, for the log.
+pub(super) fn judge(snapshot: &Snapshot, req: &Requirements) -> Result<Vec<String>, Decline> {
     let unsuitable = |why: String| Decline { reason: Unavailable::DeviceUnsuitable, why };
     if req.flags & FEATURE_REQUIREMENT_VULKAN_SUPPORTED == 0 {
         return Err(Decline { reason: Unavailable::NotVulkan, why: format!("DLSS's requirements do not list Vulkan (flags {:#x})", req.flags) });
@@ -669,13 +540,9 @@ pub(super) fn judge(snapshot: &Snapshot, req: &Requirements, selection: &Selecti
     if !unknown.is_empty() {
         return Err(unsuitable(format!("DLSS asks for what this check does not know: {}", unknown.join(", "))));
     }
-    let picks = candidates(&snapshot.devices, selection);
+    let picks = candidates(&snapshot.devices);
     if picks.is_empty() {
-        let seen: Vec<String> = snapshot.devices.iter().map(DeviceCaps::label).collect();
-        return Err(unsuitable(format!(
-            "which GPU the renderer would pick cannot be told (no Vulkan GPU it could pick among {})",
-            if seen.is_empty() { "none found".to_string() } else { seen.join(", ") }
-        )));
+        return Err(unsuitable("the system's Vulkan loader shows no GPU, so the one the renderer will use cannot be checked".to_string()));
     }
     let mut failures = Vec::new();
     for &i in &picks {
@@ -689,7 +556,7 @@ pub(super) fn judge(snapshot: &Snapshot, req: &Requirements, selection: &Selecti
     if failures.is_empty() {
         Ok(picks.iter().map(|&i| snapshot.devices[i].label()).collect())
     } else {
-        Err(unsuitable(format!("a GPU the renderer could pick is unsuitable: {}", failures.join("; "))))
+        Err(unsuitable(format!("a GPU Vulkan exposes is unsuitable (the renderer could still fall back to it): {}", failures.join("; "))))
     }
 }
 
@@ -717,21 +584,23 @@ impl Checked {
 pub(super) enum Pin {
     /// The renderer is asked for this GPU by name (Bevy's `WgpuSettings::adapter_name`).
     Set(Checked),
-    /// `WGPU_ADAPTER_NAME` is set: the player's choice stands (the check followed it).
+    /// `WGPU_ADAPTER_NAME` is set: the player's choice stands (the check covered every GPU
+    /// anyway).
     UserChose,
-    /// No pin, and why; the check covered every GPU the renderer could pick, as before.
+    /// No pin, and why; the check covered every GPU Vulkan exposes all the same.
     Declined(String),
 }
 
-/// The adapter pin [design: the midpoint review's P1]: the device check's idea of which GPUs
-/// wgpu offers is narrower than wgpu's own filtering, so Bevy's pick could still land on a GPU
-/// the check did not judge. Asking for the checked NVIDIA GPU by name keeps Bevy on it. Bevy
-/// takes the first adapter whose lower-case name contains the asked name (and that supports the
-/// window's surface), else its own pick [documented: vendor/bevy_render/src/renderer/mod.rs:
-/// 166-195, 280-315]; so the pin is set only when exactly one of the checked GPUs (`checked`,
-/// indices into `devices`) is NVIDIA's, its name is contained in no other GPU's name and it has a
-/// LUID to check the pick against afterwards. With `WGPU_ADAPTER_NAME` set (`user_name`) Bevy
-/// reads the variable over any setting, so nothing is pinned.
+/// The adapter pin [design: the midpoint review's P1]: a preference for the NVIDIA GPU among the
+/// checked ones, so that on a machine where several pass the renderer still starts on the one
+/// DLSS runs on. It does not keep Bevy off an unchecked GPU: Bevy takes the first adapter whose
+/// lower-case name contains the asked name and that supports the window's surface, else its own
+/// pick [documented: vendor/bevy_render/src/renderer/mod.rs:166-194, 280-315]; what keeps an
+/// unchecked GPU out is that every GPU Vulkan exposes is checked ([`candidates`]). The pin is set
+/// only when exactly one of the checked GPUs (`checked`, indices into `devices`) is NVIDIA's, its
+/// name is contained in no other GPU's name and it has a LUID to check the pick against
+/// afterwards. With `WGPU_ADAPTER_NAME` set (`user_name`) Bevy reads the variable over any
+/// setting, so nothing is pinned.
 pub(super) fn pin(devices: &[DeviceCaps], checked: &[usize], user_name: Option<&str>) -> Pin {
     if user_name.is_some() {
         return Pin::UserChose;
@@ -776,9 +645,8 @@ pub(super) fn verify_choice(chosen_name: &str, chosen_luid: Option<[u8; 8]>, pin
 
 /// The snapshot through the system's Vulkan loader: `vulkan-1.dll` from System32 (not the
 /// interposer, which is not loaded yet), a temporary Vulkan 1.3 instance (the version
-/// Streamline asks for [documented: `src/wrapper.cpp:130-133`]) with the surface extensions when
-/// the loader has them, every GPU's properties, extensions, features and queue families, and the
-/// instance destroyed. The loader stays loaded (the renderer loads it again anyway).
+/// Streamline asks for [documented: `src/wrapper.cpp:130-133`]), every GPU's properties,
+/// extensions, features and queue families, and the instance destroyed. The loader stays loaded (the renderer loads it again anyway).
 #[cfg(windows)]
 pub(super) fn probe() -> Result<Snapshot, String> {
     use windows_sys::Win32::System::LibraryLoader::{LoadLibraryExW, LOAD_LIBRARY_SEARCH_SYSTEM32};
@@ -799,22 +667,18 @@ pub(super) fn probe() -> Result<Snapshot, String> {
     // SAFETY: a global query.
     let available = unsafe { entry.enumerate_instance_extension_properties(None) }.map_err(|e| format!("vkEnumerateInstanceExtensionProperties: {e}"))?;
     let instance_extensions: BTreeSet<String> = available.iter().filter_map(|p| p.extension_name_as_c_str().ok()).map(|n| n.to_string_lossy().into_owned()).collect();
-    let surface = [ash::khr::surface::NAME, ash::khr::win32_surface::NAME];
-    let presents_known = surface.iter().all(|n| instance_extensions.contains(n.to_string_lossy().as_ref()));
-    let enabled: Vec<*const std::ffi::c_char> = if presents_known { surface.iter().map(|n| n.as_ptr()).collect() } else { Vec::new() };
     let app = vk::ApplicationInfo::default().api_version(vk::API_VERSION_1_3);
-    let create = vk::InstanceCreateInfo::default().application_info(&app).enabled_extension_names(&enabled);
-    // SAFETY: a plain instance; the names are static.
+    let create = vk::InstanceCreateInfo::default().application_info(&app);
+    // SAFETY: a plain instance, no extensions or layers.
     let instance = unsafe { entry.create_instance(&create, None) }.map_err(|e| format!("vkCreateInstance (Vulkan 1.3): {e}"))?;
-    let devices = probe_devices(&entry, &instance, presents_known);
+    let devices = probe_devices(&instance);
     // SAFETY: nothing made from the instance outlives it.
     unsafe { instance.destroy_instance(None) };
     Ok(Snapshot { instance_extensions, devices: devices? })
 }
 
 #[cfg(windows)]
-fn probe_devices(entry: &ash::Entry, instance: &ash::Instance, presents_known: bool) -> Result<Vec<DeviceCaps>, String> {
-    let win32 = presents_known.then(|| ash::khr::win32_surface::Instance::new(entry, instance));
+fn probe_devices(instance: &ash::Instance) -> Result<Vec<DeviceCaps>, String> {
     // SAFETY: queries on the instance's own physical devices, each structure chained only where
     // the device's version has it.
     unsafe {
@@ -832,15 +696,9 @@ fn probe_devices(entry: &ash::Entry, instance: &ash::Instance, presents_known: b
                 .collect();
             let name = properties.device_name_as_c_str().map_or_else(|_| "unnamed GPU".to_string(), |n| n.to_string_lossy().into_owned());
             let mut id = vk::PhysicalDeviceIDProperties::default();
-            let mut driver = vk::PhysicalDeviceDriverProperties::default();
-            let driver_known = api_version >= vk::API_VERSION_1_2 || extensions.contains("VK_KHR_driver_properties");
             let mut properties2 = vk::PhysicalDeviceProperties2::default().push_next(&mut id);
-            if driver_known {
-                properties2 = properties2.push_next(&mut driver);
-            }
             instance.get_physical_device_properties2(physical, &mut properties2);
             let luid_valid = id.device_luid_valid == vk::TRUE;
-            let conformant = driver_known.then_some(driver.conformance_version.major != 0);
             let mut v12 = vk::PhysicalDeviceVulkan12Features::default();
             let mut v13 = vk::PhysicalDeviceVulkan13Features::default();
             let (features12, features13) = if api_version >= vk::API_VERSION_1_2 {
@@ -858,10 +716,6 @@ fn probe_devices(entry: &ash::Entry, instance: &ash::Instance, presents_known: b
                 .iter()
                 .map(|f| QueueFamily { graphics: f.queue_flags.contains(vk::QueueFlags::GRAPHICS), compute: f.queue_flags.contains(vk::QueueFlags::COMPUTE), count: f.queue_count })
                 .collect();
-            let presents = match &win32 {
-                Some(win32) if !queue_families.is_empty() => Some(win32.get_physical_device_win32_presentation_support(physical, 0)),
-                _ => None,
-            };
             devices.push(DeviceCaps {
                 name,
                 kind: DeviceKind::from_vk(properties.device_type),
@@ -873,8 +727,6 @@ fn probe_devices(entry: &ash::Entry, instance: &ash::Instance, presents_known: b
                 queue_families,
                 luid_valid,
                 luid: luid_valid.then_some(id.device_luid),
-                conformant,
-                presents,
             });
         }
         Ok(devices)
@@ -924,8 +776,6 @@ mod tests {
             queue_families: vec![QueueFamily { graphics: true, compute: true, count: 16 }, QueueFamily { graphics: false, compute: true, count: 8 }],
             luid_valid: true,
             luid: Some([0x11, 0x22, 0, 0, 0, 0, 0, 0]),
-            conformant: Some(true),
-            presents: Some(true),
         }
     }
 
@@ -949,7 +799,7 @@ mod tests {
     #[test]
     fn a_suitable_gpu_passes() {
         assert_eq!(shortfalls(&rtx(), &dlss_requirements()), vec![]);
-        assert_eq!(judge(&snapshot(vec![rtx()]), &dlss_requirements(), &Selection::default()), Ok(vec!["NVIDIA GeForce RTX 5070 Ti (discrete)".to_string()]));
+        assert_eq!(judge(&snapshot(vec![rtx()]), &dlss_requirements()), Ok(vec!["NVIDIA GeForce RTX 5070 Ti (discrete)".to_string()]));
         // With no NVIDIA GPU, DLSS lists no extensions or features of its own
         // (`src/dlssEntry.cpp:214-249`): Streamline's own baseline still applies.
         let bare = Requirements { flags: 0b111, ..Requirements::default() };
@@ -969,7 +819,7 @@ mod tests {
         let mut d = rtx();
         d.extensions.remove("VK_EXT_descriptor_indexing");
         assert_eq!(shortfalls(&d, &dlss_requirements()), vec![Shortfall::Extension("VK_EXT_descriptor_indexing".into())]);
-        let err = judge(&snapshot(vec![d]), &dlss_requirements(), &Selection::default()).unwrap_err();
+        let err = judge(&snapshot(vec![d]), &dlss_requirements()).unwrap_err();
         assert_eq!(err.reason, Unavailable::DeviceUnsuitable);
         assert!(err.why.contains("NVIDIA GeForce RTX 5070 Ti (discrete) lacks VK_EXT_descriptor_indexing"), "{}", err.why);
     }
@@ -1008,75 +858,96 @@ mod tests {
             Requirements { features13: vec!["robustBufferAccess2".into()], ..dlss_requirements() },
             Requirements { optical_flow_queues: 1, ..dlss_requirements() },
         ] {
-            let err = judge(&snapshot(vec![rtx()]), &req, &Selection::default()).unwrap_err();
+            let err = judge(&snapshot(vec![rtx()]), &req).unwrap_err();
             assert_eq!(err.reason, Unavailable::DeviceUnsuitable);
             assert!(err.why.contains("does not know"), "{}", err.why);
         }
         let no_vulkan = Requirements { flags: 0b011, ..dlss_requirements() };
-        assert_eq!(judge(&snapshot(vec![rtx()]), &no_vulkan, &Selection::default()).unwrap_err().reason, Unavailable::NotVulkan);
+        assert_eq!(judge(&snapshot(vec![rtx()]), &no_vulkan).unwrap_err().reason, Unavailable::NotVulkan);
         let mut loader = snapshot(vec![rtx()]);
         loader.instance_extensions.remove("VK_KHR_external_memory_capabilities");
-        let err = judge(&loader, &dlss_requirements(), &Selection::default()).unwrap_err();
+        let err = judge(&loader, &dlss_requirements()).unwrap_err();
         assert!(err.why.contains("lacks the instance extension(s) VK_KHR_external_memory_capabilities"), "{}", err.why);
     }
 
-    #[test]
-    fn two_adapters_one_unsuitable() {
-        let both = snapshot(vec![igpu(), rtx()]);
-        // High performance (Bevy's default): the discrete GPU only; the laptop's integrated one
-        // is not a candidate while the discrete one certainly presents.
-        assert_eq!(candidates(&both.devices, &Selection::default()), vec![1]);
-        assert!(judge(&both, &dlss_requirements(), &Selection::default()).is_ok());
-        // Low power: the integrated one would be picked, and it lacks NVIDIA's extensions.
-        let low = Selection { power: Power::Low, ..Selection::default() };
-        let err = judge(&both, &dlss_requirements(), &low).unwrap_err();
-        assert!(err.why.contains("AMD Radeon(TM) 610M (integrated) lacks VK_NVX_binary_import, VK_NVX_image_view_handle"), "{}", err.why);
-        // No preference: the loader's order, so either.
-        assert_eq!(candidates(&both.devices, &Selection { power: Power::None, ..Selection::default() }), vec![0, 1]);
-        // The discrete one may not present to the window: wgpu could fall back to the integrated one.
-        let mut unsure = both.clone();
-        unsure.devices[1].presents = None;
-        assert_eq!(candidates(&unsure.devices, &Selection::default()), vec![0, 1]);
-        assert!(judge(&unsure, &dlss_requirements(), &Selection::default()).is_err());
-        // Two discrete GPUs: either may come first.
-        let mut other = igpu();
-        other.kind = DeviceKind::Discrete;
-        assert_eq!(candidates(&[rtx(), other], &Selection::default()), vec![0, 1]);
+    /// A CPU device (a software renderer) with Vulkan 1.3 but none of NVIDIA's extensions.
+    fn cpu() -> DeviceCaps {
+        let mut d = igpu();
+        d.name = "llvmpipe (LLVM 19.1.0, 256 bits)".into();
+        d.kind = DeviceKind::Cpu;
+        // Any vendor but NVIDIA's (a test value).
+        d.vendor_id = 0x10005;
+        d.luid = Some([0x55, 0x66, 0, 0, 0, 0, 0, 0]);
+        d
     }
 
     #[test]
-    fn the_adapter_name_variable_narrows_or_widens_the_pick() {
-        let both = snapshot(vec![igpu(), rtx()]);
-        let named = |n: &str| Selection { adapter_name: Some(n.to_lowercase()), ..Selection::default() };
-        assert_eq!(candidates(&both.devices, &named("RTX")), vec![1]);
-        assert_eq!(candidates(&both.devices, &named("radeon")), vec![0]);
-        assert!(judge(&both, &dlss_requirements(), &named("radeon")).is_err());
-        // No match: wgpu's own pick.
-        assert_eq!(candidates(&both.devices, &named("arc")), vec![1]);
-        // Bevy treats an empty name as set: it matches every GPU.
-        assert_eq!(candidates(&both.devices, &named("")), vec![0, 1]);
-        // Forced fallback: CPU adapters only.
-        let mut cpu = igpu();
-        cpu.name = "llvmpipe".into();
-        cpu.kind = DeviceKind::Cpu;
-        let fallback = Selection { force_fallback: true, ..Selection::default() };
-        assert_eq!(candidates(&[rtx(), cpu.clone()], &fallback), vec![1]);
-    }
-
-    #[test]
-    fn the_pick_that_cannot_be_told_declines() {
-        let err = judge(&snapshot(vec![]), &dlss_requirements(), &Selection::default()).unwrap_err();
-        assert_eq!(err.reason, Unavailable::DeviceUnsuitable);
-        assert!(err.why.contains("cannot be told"), "{}", err.why);
-        // A GPU whose first family cannot draw is hidden by wgpu.
+    fn every_enumerated_gpu_is_a_candidate() {
+        // Of any kind, in the loader's order, and one whose first family cannot draw (which wgpu
+        // hides) too: Bevy's fallback is wgpu's own pick, which this check does not predict.
         let mut compute_only = rtx();
         compute_only.queue_families[0].graphics = false;
-        assert_eq!(candidates(&[compute_only.clone()], &Selection::default()), Vec::<usize>::new());
-        assert!(judge(&snapshot(vec![compute_only]), &dlss_requirements(), &Selection::default()).unwrap_err().why.contains("cannot be told"));
-        // Non-conformant drivers may or may not be offered: never certain.
-        let mut odd = rtx();
-        odd.conformant = Some(false);
-        assert_eq!(candidates(&[odd, igpu()], &Selection::default()), vec![0, 1]);
+        let mut other = igpu();
+        other.kind = DeviceKind::Other;
+        assert_eq!(candidates(&[igpu(), rtx(), cpu(), compute_only, other]), vec![0, 1, 2, 3, 4]);
+        assert_eq!(candidates(&[]), Vec::<usize>::new());
+    }
+
+    #[test]
+    fn one_unsuitable_gpu_of_two_declines() {
+        // `judge` takes no power preference, adapter name or forced fallback: whatever Bevy is
+        // asked, it may fall back to wgpu's own pick (renderer/mod.rs:166-194, 304), so a laptop's
+        // integrated GPU without NVIDIA's extensions declines in either order.
+        for devices in [vec![igpu(), rtx()], vec![rtx(), igpu()]] {
+            let err = judge(&snapshot(devices), &dlss_requirements()).unwrap_err();
+            assert_eq!(err.reason, Unavailable::DeviceUnsuitable);
+            assert!(err.why.contains("AMD Radeon(TM) 610M (integrated) lacks VK_NVX_binary_import, VK_NVX_image_view_handle"), "{}", err.why);
+            assert!(!err.why.contains("RTX"), "only the failing GPU is named: {}", err.why);
+        }
+        // A CPU device counts as well.
+        let err = judge(&snapshot(vec![rtx(), cpu()]), &dlss_requirements()).unwrap_err();
+        assert!(err.why.contains("llvmpipe (LLVM 19.1.0, 256 bits) (CPU) lacks VK_NVX_binary_import"), "{}", err.why);
+        // Each failing GPU is named, in one line.
+        let mut old = rtx();
+        old.name = "NVIDIA GeForce GTX 750".into();
+        old.extensions.remove("VK_NVX_binary_import");
+        let err = judge(&snapshot(vec![old, igpu()]), &dlss_requirements()).unwrap_err();
+        assert!(err.why.contains("NVIDIA GeForce GTX 750 (discrete) lacks VK_NVX_binary_import; AMD Radeon(TM) 610M (integrated) lacks"), "{}", err.why);
+        assert!(!err.why.contains('\n'));
+    }
+
+    #[test]
+    fn a_single_suitable_gpu_passes() {
+        assert_eq!(judge(&snapshot(vec![rtx()]), &dlss_requirements()), Ok(vec!["NVIDIA GeForce RTX 5070 Ti (discrete)".to_string()]));
+        // Two suitable GPUs: both checked, both listed.
+        let mut second = rtx();
+        second.name = "NVIDIA GeForce RTX 4060".into();
+        second.luid = Some([9; 8]);
+        assert_eq!(judge(&snapshot(vec![rtx(), second]), &dlss_requirements()).map(|l| l.len()), Ok(2));
+    }
+
+    #[test]
+    fn a_named_rtx_does_not_spare_an_unsuitable_igpu() {
+        // `WGPU_ADAPTER_NAME=nvidia` (or the adapter pin) asks Bevy for the RTX, but Bevy passes
+        // over a named adapter that does not support the window's surface and takes wgpu's own
+        // pick: the RTX can drop out of wgpu's eligible adapters and the integrated GPU be used.
+        // So the integrated GPU is checked and the route declined.
+        let both = snapshot(vec![igpu(), rtx()]);
+        let all = candidates(&both.devices);
+        assert_eq!(all, vec![0, 1]);
+        assert_eq!(pin(&both.devices, &all, Some("nvidia")), Pin::UserChose);
+        assert!(matches!(pin(&both.devices, &all, None), Pin::Set(c) if c.name.contains("RTX")), "the pin alone would name the RTX");
+        let err = judge(&both, &dlss_requirements()).unwrap_err();
+        assert_eq!(err.reason, Unavailable::DeviceUnsuitable);
+        assert!(err.why.contains("could still fall back to it"), "{}", err.why);
+        assert!(err.why.contains("AMD Radeon(TM) 610M (integrated) lacks"), "{}", err.why);
+    }
+
+    #[test]
+    fn no_gpu_declines() {
+        let err = judge(&snapshot(vec![]), &dlss_requirements()).unwrap_err();
+        assert_eq!(err.reason, Unavailable::DeviceUnsuitable);
+        assert!(err.why.contains("shows no GPU"), "{}", err.why);
     }
 
     #[test]
@@ -1084,7 +955,7 @@ mod tests {
         let mut d = rtx();
         d.luid_valid = false;
         assert_eq!(shortfalls(&d, &dlss_requirements()), vec![Shortfall::NoLuid]);
-        assert!(judge(&snapshot(vec![d]), &dlss_requirements(), &Selection::default()).unwrap_err().why.contains("valid LUID"));
+        assert!(judge(&snapshot(vec![d]), &dlss_requirements()).unwrap_err().why.contains("valid LUID"));
     }
 
     #[test]
@@ -1127,11 +998,10 @@ mod tests {
     #[test]
     fn the_pin_names_the_one_checked_nvidia_gpu() {
         let both = snapshot(vec![igpu(), rtx()]);
-        let checked = candidates(&both.devices, &Selection::default());
-        assert_eq!(checked, vec![1]);
+        // Every GPU is checked; the pin prefers the NVIDIA one among them.
+        let checked = candidates(&both.devices);
+        assert_eq!(checked, vec![0, 1]);
         assert_eq!(pin(&both.devices, &checked, None), Pin::Set(Checked { name: "NVIDIA GeForce RTX 5070 Ti".into(), luid: Some([0x11, 0x22, 0, 0, 0, 0, 0, 0]) }));
-        // Both checked (no power preference): still the NVIDIA one.
-        assert!(matches!(pin(&both.devices, &[0, 1], None), Pin::Set(c) if c.name.contains("RTX")));
         // One GPU only (a machine whose Vulkan shows only the RTX).
         assert!(matches!(pin(&[rtx()], &[0], None), Pin::Set(_)));
         // The player's WGPU_ADAPTER_NAME stands.

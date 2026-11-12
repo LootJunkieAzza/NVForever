@@ -63,17 +63,23 @@ detail in the module notes of the file named.
   creation; features it asks for are masked to what the device supports rather than refused
   (spec notes, "Loading and initialisation"). Before taking the interposer route, NVForever
   reads every GPU through the system's Vulkan loader on a probe instance (before any Streamline
-  code is loaded), then, after `slInit`, checks every GPU Bevy might pick against
-  `slGetFeatureRequirements(DLSS)` plus what Streamline's own device creation always adds. The
-  features are required here on purpose, although the proxy would only mask them: DLSS needs
-  them, and `privateData` too. If any candidate falls short or the pick cannot be told,
-  `slShutdown` runs and the stock path follows, before `set_vulkan_library`. (Step 3.)
-- **The adapter pin** (`preflight::pin`, `dlss::render_plugin`). The device check's idea of
-  which GPUs wgpu offers is narrower than wgpu's own filtering. So when `WGPU_ADAPTER_NAME` is
+  code is loaded), then, after `slInit`, checks every GPU Vulkan exposes, of any kind, against
+  `slGetFeatureRequirements(DLSS)` plus what Streamline's own device creation always adds. No
+  GPU is left out for the power preference, `WGPU_ADAPTER_NAME` or the adapter pin, because
+  Bevy can still fall back to any of them (the next item). The features are required here on
+  purpose, although the proxy would only mask them: DLSS needs them, and `privateData` too. If
+  any GPU falls short, or Vulkan shows none, `slShutdown` runs and the stock path follows,
+  before `set_vulkan_library`. (Step 3; every GPU since the final review.)
+- **The adapter pin** (`preflight::pin`, `dlss::render_plugin`). When `WGPU_ADAPTER_NAME` is
   unset and exactly one checked GPU is NVIDIA's, its name picks it alone and it has a LUID,
-  Bevy is asked for it by name (`WgpuSettings::adapter_name`). Once the device exists, the GPU
-  Bevy chose is compared with the checked one by name and LUID; a mismatch keeps DLSS off for
-  the session. Its limit: the second open point. (Step 5, from the midpoint review.)
+  Bevy is asked for it by name (`WgpuSettings::adapter_name`). This is a preference only: Bevy
+  passes over a named adapter that does not support the window's surface, or finds none of that
+  name, and then takes wgpu's own pick [documented: vendor/bevy_render/src/renderer/mod.rs:
+  166-194, 304]. So the pin cannot keep the renderer off a GPU the check did not judge; the
+  check of every GPU Vulkan exposes does that, and the pin only prefers the NVIDIA GPU among
+  checked ones. Once the device exists, the GPU Bevy chose is compared with the checked one by
+  name and LUID and logged; a mismatch keeps DLSS off for the session. (Step 5, from the
+  midpoint review; its limit, the second open point.)
 - **Support** (`dlss/win.rs`). Once the device exists, `slIsFeatureSupported` with the
   physical device's LUID, the versions Streamline reports, and DLSS's two functions fetched.
   (Spike.)
@@ -267,12 +273,17 @@ only where `NVF_DLSS_DIR` names a bundle.
   genuine file, its root being untrusted (`0x800b0109`) [observed]. Before a release: either
   verify the nested signature's digest against the file, or also allow-list the hashes of the
   official interposer. A separately reviewed change.
-- **Hybrid GPUs.** The device check refuses the interposer when any GPU Bevy might pick falls
-  short or the pick cannot be established, so some laptops with two GPUs do not get DLSS; that
-  is the price of never panicking at device creation, and the reason is shown. The adapter pin
-  narrows the gap but does not close it: if wgpu's own filtering drops the pinned GPU, Bevy's
-  name search falls back to its own pick [design: `preflight::pin`'s note], which the check may
-  not have judged. The pin stays set when Streamline later falls back to the stock path.
+- **Hybrid GPUs.** The device check refuses the interposer when any GPU Vulkan exposes falls
+  short, so laptops whose built-in graphics also show up in Vulkan beside the NVIDIA card
+  usually get no DLSS [design]. That is the price of never panicking at device creation, and
+  the reason is shown. A narrower check cannot be trusted: Bevy's adapter name (the pin, or
+  `WGPU_ADAPTER_NAME`) is only a preference, skipped when the named adapter does not support
+  the window's surface, after which Bevy takes wgpu's own pick
+  (`vendor/bevy_render/src/renderer/mod.rs:166-194`, `:304`), and an unchecked GPU without
+  Streamline's device extensions would then make wgpu-hal panic at device creation, before the
+  identity check after it could act. Letting such laptops use DLSS needs the checked identity
+  enforced before the device is made, with a way back to the stock loader. The pin stays set
+  when Streamline later falls back to the stock path.
 - **Context release on resize.** Streamline itself releases a replaced DLSS context three
   frames after a resize or mode change, not when the GPU has finished with it
   ([spec notes](../spec-notes/streamline.md), "Viewports and resize"). Step 5 drains the GPU
