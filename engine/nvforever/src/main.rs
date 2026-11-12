@@ -71,6 +71,7 @@ mod fog;
 mod fly;
 mod foot_ik;
 mod anti_lag;
+mod nv_low_latency;
 mod frame_pace;
 mod frame_telemetry;
 mod blit_warm;
@@ -443,8 +444,9 @@ struct Args {
     /// switch wins over this flag, as for every switch.
     #[arg(long)]
     fps: bool,
-    /// Latency reduction: AMD Anti-Lag through Vulkan (AMD GPUs only), the driver keeping the
-    /// CPU from preparing frames ahead of the GPU (anti_lag.rs). Once any setting is saved,
+    /// Latency reduction: AMD Anti-Lag or NVIDIA low latency through Vulkan, whichever the
+    /// GPU's driver has, the driver keeping the CPU from preparing frames ahead of the GPU
+    /// (anti_lag.rs, nv_low_latency.rs). Once any setting is saved,
     /// NVForever.ini's Latency reduction switch wins over this flag, as for every switch.
     #[arg(long)]
     latency_reduction: bool,
@@ -1318,7 +1320,8 @@ fn main() -> AppExit {
         app.insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(std::time::Duration::from_secs_f64(ms / 1000.0)));
         app.add_systems(Startup, move || info!("fixed frame time: every frame {ms} ms (NVF_FIXED_FRAME_TIME_MS)"));
     }
-    // Asks for VK_AMD_anti_lag when Bevy creates the device: before DefaultPlugins (anti_lag.rs).
+    // Asks for VK_AMD_anti_lag or VK_NV_low_latency2 when Bevy creates the device: before
+    // DefaultPlugins (anti_lag.rs, nv_low_latency.rs).
     app.add_plugins(anti_lag::AntiLagInitPlugin);
     app.add_plugins(
         DefaultPlugins

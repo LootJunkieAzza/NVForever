@@ -221,6 +221,33 @@ Review fixes (2026-11-09, h9x000/NVForever#6), marked `NVForever (2026-11-09)`:
 
 Upstream Bevy has no way for a thread other than the render thread to present a window.
 
+## wgpu-hal 30.0.1 (MIT OR Apache-2.0, the gfx-rs developers)
+
+wgpu's Vulkan backend, for NVIDIA low latency (`VK_NV_low_latency2`,
+docs/design/latency-reduction.md, `nvforever/src/nv_low_latency.rs`). One change, in
+`src/vulkan/swapchain/native.rs` and `src/vulkan/mod.rs`, each part marked by a comment
+starting `NVForever (2026-11-12)`:
+
+- `NativeSurface::create_swapchain`: on a device whose enabled extensions include
+  `VK_NV_low_latency2`, the swapchain is created with `VkSwapchainLatencyCreateInfoNV`,
+  `latencyModeEnable` true. Low latency mode may be used only on a swapchain created so
+  [documented: Vulkan spec, "Latency Reduction", `VkSwapchainLatencyCreateInfoNV`], wgpu
+  creates the swapchain, and it has no hook there. wgpu-hal itself never enables the
+  extension; only a device-creation callback does (`nv_low_latency.rs`), so without one the
+  crate does what upstream does.
+- `vulkan::with_latency_swapchain` (new, public): calls a closure with the newest such
+  swapchain, under a lock that `create_swapchain` takes to clear the handle before the old
+  swapchain is handed over as `oldSwapchain`, and `NativeSwapchain`'s `Drop` before
+  `vkDestroySwapchainKHR`. The extension's calls (`vkSetLatencySleepModeNV`,
+  `vkLatencySleepNV`, `vkSetLatencyMarkerNV`) take the swapchain and come from threads that
+  do not present; upstream's `Surface::raw_native_swapchain` gives the handle but nothing
+  keeps it alive afterwards, and reading it waits behind a blocked acquire or present. One
+  handle for the process: with two windows the newer swapchain takes the calls.
+
+Not run on a GPU yet (2026-11-12): built, and the engine's tests and clippy pass. The copy
+is the crates.io package as published (its `examples` are kept: the manifest names them).
+Drop it when wgpu lets a caller extend swapchain creation, or creates the swapchain with
+the structure itself.
 ## wgpu-ffx 0.1.0 (MIT, the wgpu-ffx developers and Advanced Micro Devices)
 
 The FSR 3.1.4 upscaler (docs/design/fsr-upscaling.md) and, added here, FSR 3.1 frame
