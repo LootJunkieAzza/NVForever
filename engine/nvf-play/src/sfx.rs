@@ -102,6 +102,16 @@ pub struct PlaySound {
     pub at: Option<[f32; 3]>,
 }
 
+/// Play a SOUN once as [`PlaySound`] does, its loudness times `gain` (1 = as the record
+/// has it): the shot sounds under the player's Weapon Volume Scaling tweak
+/// [design: docs/design/tweaks.md].
+#[derive(Message, Clone, Copy, Debug)]
+pub struct ScaledSound {
+    pub sound: FormId,
+    pub at: Option<[f32; 3]>,
+    pub gain: f32,
+}
+
 /// Start (`on`) or stop a SOUN that goes round until it is stopped, at the listener.
 #[derive(Message, Clone, Copy, Debug)]
 pub struct LoopSound {
@@ -751,6 +761,8 @@ enum Wanted {
     Loop,
     /// [`PlaySound`]: once, at a place or at the listener.
     Once(Option<[f32; 3]>),
+    /// [`ScaledSound`]: once, its loudness times the gain.
+    Scaled(Option<[f32; 3]>, f32),
     /// A sound a script played: its id (for [`ScriptSounds::heard`]), its place, and
     /// whether it goes round until StopSound (the Loop flag).
     Script { id: u32, at: Option<[f32; 3]>, looping: bool },
@@ -779,7 +791,7 @@ pub const MAX_ONE_SHOT_WAIT: Duration = Duration::from_millis(150);
 
 /// Whether a request is a one-shot that [`MAX_ONE_SHOT_WAIT`] holds to.
 fn wait_limited(wanted: Wanted) -> bool {
-    matches!(wanted, Wanted::Once(_))
+    matches!(wanted, Wanted::Once(_) | Wanted::Scaled(..))
 }
 
 /// Drop the waiting requests `drop` picks; how many were dropped.
@@ -1214,14 +1226,15 @@ fn begin(out: &mut Out, sfx: &mut Sfx, heard: &mut Vec<(u32, Option<f32>)>, r: &
             start_looping(out, sfx, r, handle, sound, true)
         }
         Wanted::Script { id, at, looping: false } => {
-            let (seconds, e) = one_shot_ready(out, sfx, r, handle, sound, at);
+            let (seconds, e) = one_shot_ready(out, sfx, r, handle, sound, at, 1.0);
             heard.push((id, Some(seconds)));
             if let Some(e) = e {
                 out.commands.entity(e).insert(ScriptPlayed(sound));
             }
             e
         }
-        Wanted::Once(at) => one_shot_ready(out, sfx, r, handle, sound, at).1,
+        Wanted::Once(at) => one_shot_ready(out, sfx, r, handle, sound, at, 1.0).1,
+        Wanted::Scaled(at, gain) => one_shot_ready(out, sfx, r, handle, sound, at, gain).1,
     };
     if let (Wanted::Script { id, .. }, Some(e)) = (wanted, e) {
         if let Some(seconds) = sfx.fades_in.remove(&id) {
@@ -1272,7 +1285,7 @@ fn prepare(playing: Query<(Entity, &OneShot)>, sfx: Option<ResMut<Sfx>>, mut ass
 #[allow(clippy::too_many_arguments)]
 fn play(
     mut commands: Commands,
-    mut requests: MessageReader<PlaySound>,
+    (mut requests, mut scaled): (MessageReader<PlaySound>, MessageReader<ScaledSound>),
     mut loops: MessageReader<LoopSound>,
     looping: Query<(Entity, &Looping)>,
     scripted: Query<(Entity, &ScriptPlayed)>,
@@ -1285,6 +1298,7 @@ fn play(
 ) {
     let (Some(mut sfx), Some(data)) = (sfx, data) else {
         requests.clear();
+        scaled.clear();
         loops.clear();
         return;
     };
@@ -1346,6 +1360,9 @@ fn play(
     start_decided(&mut out, sfx, vfs, &mut ss.heard, false);
     for r in requests.read() {
         request(&mut out, sfx, vfs, &mut ss.heard, r.sound, Wanted::Once(r.at));
+    }
+    for r in scaled.read() {
+        request(&mut out, sfx, vfs, &mut ss.heard, r.sound, Wanted::Scaled(r.at, r.gain.max(0.0)));
     }
     for (id, sound, at) in std::mem::take(&mut ss.plays) {
         if stopped_before(&stops, sound, id) {
@@ -1533,7 +1550,7 @@ pub(crate) fn one_shot_heard(out: &mut Out, sfx: &mut Sfx, vfs: &Arc<fnv_vfs::Vf
             OneShotNow::NoFile
         }
         FileNow::Ready(h) => {
-            let (seconds, e) = one_shot_ready(out, sfx, &r, h, sound, at);
+            let (seconds, e) = one_shot_ready(out, sfx, &r, h, sound, at, 1.0);
             sfx.waits.decided(0, e.is_some());
             OneShotNow::Played(seconds)
         }
@@ -1544,12 +1561,13 @@ pub(crate) fn one_shot_heard(out: &mut Out, sfx: &mut Sfx, vfs: &Arc<fnv_vfs::Vf
 /// panned for them) or at the listener: the seconds it lasts as played, also when it is
 /// too quiet to be heard or sounds are switched off, and the entity playing it (`None`
 /// when nothing is heard).
-fn one_shot_ready(out: &mut Out, sfx: &mut Sfx, r: &Resolved, handle: Handle<PcmSound>, sound: FormId, at: Option<[f32; 3]>) -> (f32, Option<Entity>) {
+#[allow(clippy::too_many_arguments)]
+fn one_shot_ready(out: &mut Out, sfx: &mut Sfx, r: &Resolved, handle: Handle<PcmSound>, sound: FormId, at: Option<[f32; 3]>, scale: f32) -> (f32, Option<Entity>) {
     let (s, name, path) = (&r.s, &r.name, &r.path);
     let (settings, eye) = (out.settings, out.player.map(Player::eye));
     let placed = at.zip(out.player).map(|(at, p)| SoundAt::new(at, Some(p)));
     let distance = at.zip(eye).map(|(at, e)| ((at[0] - e[0]).powi(2) + (at[1] - e[1]).powi(2) + (at[2] - e[2]).powi(2)).sqrt());
-    let gain = static_gain(s) * distance.map_or(1.0, |d| distance_gain(s, d)) * settings.volume.max(0.0);
+    let gain = static_gain(s) * distance.map_or(1.0, |d| distance_gain(s, d)) * settings.volume.max(0.0) * scale;
     let mut speed = 1.0 + s.frequency_adjust_percent / 100.0;
     if s.has("Random Frequency Shift") {
         speed *= 0.95 + 0.1 * sfx.rng.next_f32();
@@ -1687,6 +1705,7 @@ impl Plugin for SfxPlugin {
         app.init_resource::<SfxSettings>()
             .add_audio_source::<PcmSound>()
             .add_message::<PlaySound>()
+            .add_message::<ScaledSound>()
             .add_message::<LoopSound>()
             .init_resource::<ScriptSounds>()
             .add_message::<SoundSource>()
@@ -2029,6 +2048,7 @@ mod tests {
             .init_resource::<ScriptSounds>()
             .init_resource::<Assets<PcmSound>>()
             .add_message::<PlaySound>()
+            .add_message::<ScaledSound>()
             .add_message::<LoopSound>()
             .add_systems(Update, (prepare, play).chain());
         (app, dir)

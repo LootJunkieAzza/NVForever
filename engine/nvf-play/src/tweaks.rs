@@ -458,6 +458,15 @@ pub struct TweakSettings {
     pub place_marker_here_says: bool,
     /// `bKeepFallHeightOnLoad`: a save made in the air keeps the fall's top.
     pub keep_fall_height_on_load: bool,
+    /// `bRememberPipboyScrollPositions`: the Pip-Boy's item lists open where they were
+    /// left, kept with the save ([`ItemPlaces`]).
+    pub remember_item_places: bool,
+    /// `bTerminalGreyReadNotes`: terminal entries whose note was read are drawn dimmer.
+    pub grey_read_notes: bool,
+    /// `bScaleWeaponVolume`: the loudness of the player's shot sounds, a percentage.
+    pub player_weapon_volume: f32,
+    /// `bScaleWeaponVolume`: the loudness of other actors' shot sounds, a percentage.
+    pub npc_weapon_volume: f32,
     /// `bCompassQuestHeightIndicator`: a quest mark well above or below the player has a
     /// bar over or under it on the compass.
     pub compass_quest_height: bool,
@@ -716,6 +725,10 @@ impl Default for TweakSettings {
             clear_marker_within: 0.0,
             place_marker_here_says: true,
             keep_fall_height_on_load: false,
+            remember_item_places: false,
+            grey_read_notes: false,
+            player_weapon_volume: 100.0,
+            npc_weapon_volume: 100.0,
             compass_quest_height: false,
             compass_marker_height: false,
         }
@@ -852,7 +865,10 @@ pub struct TweaksPlugin;
 
 impl Plugin for TweaksPlugin {
     fn build(&self, app: &mut App) {
+        crate::save::add_save_hook(app, ITEM_PLACES_SAVE_HOOK);
         app.init_resource::<TweakSettings>()
+            .init_resource::<ItemPlaces>()
+            .add_systems(Update, remember_item_places.after(crate::menu::MenuSystems))
             .add_systems(Update, sync.in_set(crate::PlaySet::Input))
             .add_systems(Update, (keys, drop_weapon, radio_volume_keys, last_weapon, hold_breath, repeat_activate, toggle_sight, place_marker_here, clear_near_marker).in_set(crate::PlaySet::Input))
             .add_systems(Update, objectives_on_arrival.in_set(crate::PlaySet::Ui))
@@ -1725,6 +1741,10 @@ impl Plugin for TweaksPlugin {
         switch!(app, "recent-markers-red", "New Places Red on the Map", "Places you found since starting NVForever are drawn red on the world map. (Stewie's Tweaks bColorRecentlyAddedMapMarkers)", game.recent_markers_red);
         switch!(app, "compass-quest-height", "Quest Marker Height", "A quest marker on the compass more than a storey above or below you has a short bar over or under it. (Stewie's Tweaks bCompassQuestHeightIndicator)", compass_quest_height);
         switch!(app, "compass-marker-height", "Your Marker's Height", "Your own map marker on the compass, more than a storey above or below you, has a short bar over or under it. (Stewie's Tweaks bPlacedMarkerHeightIndicator)", compass_marker_height);
+        switch!(app, "grey-read-notes", "Dim Read Terminal Entries", "A terminal entry whose note the player has read is drawn dimmer from then on (entries read before it was switched on are not). (Stewie's Tweaks bTerminalGreyReadNotes)", grey_read_notes);
+        switch!(app, "remember-item-places", "Remember Item List Places", "The Pip-Boy's item lists open on the row they were left on, each tab its own, and a save keeps them. (Stewie's Tweaks bRememberPipboyScrollPositions)", remember_item_places);
+        amount!(app, "player-weapon-volume", "Your Weapon Volume", "How loud the player's shots are, in percent of the recorded sound; 100 changes nothing. (Stewie's Tweaks bScaleWeaponVolume)", 200.0, f32, player_weapon_volume);
+        amount!(app, "npc-weapon-volume", "Others' Weapon Volume", "How loud other people's and creatures' shots are, in percent of the recorded sound; 100 changes nothing. (Stewie's Tweaks bScaleWeaponVolume)", 200.0, f32, npc_weapon_volume);
         switch!(app, "keep-fall-height-on-load", "Keep Fall Height on Load", "A save made while falling keeps how high the fall began, so landing after loading it hurts as much as it would have. (Stewie's Tweaks bKeepFallHeightOnLoad)", keep_fall_height_on_load);
         switch!(app, "no-marker-popup", "No Place Marker Question", "Place Marker on the Pip-Boy's maps asks nothing: it puts your marker there, or takes it away while one is placed. (Stewie's Tweaks bNoPlaceMarkerPopup)", game.no_marker_popup);
         switch!(app, "marker-shift-removes", "No Question: Shift Removes", "With No Place Marker Question, Place Marker always puts the marker there; with Shift held it takes it away. (Stewie's Tweaks bPlaceMarkerShiftToReset)", game.marker_shift_removes);
@@ -1964,6 +1984,70 @@ fn place_marker_here(
 }
 
 /// The Clear Marker When Near tweak: the custom map marker goes when the player comes
+/// Where the player left each of the inventory's lists, by category: the selected row
+/// and the first row shown. Kept with the save; used under the Remember Item List Places
+/// tweak [design: docs/design/tweaks.md].
+#[derive(Resource, Default, Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ItemPlaces(pub [(usize, usize); 6]);
+
+impl ItemPlaces {
+    fn slot(c: crate::menu::model::Category) -> usize {
+        crate::menu::model::Category::ORDER.iter().position(|&o| o == c).unwrap_or(0)
+    }
+
+    /// The row and first row kept for `c`, brought within a list of `rows` rows.
+    pub fn place(&self, c: crate::menu::model::Category, rows: usize) -> (usize, usize) {
+        let (selected, first) = self.0[Self::slot(c)];
+        let selected = selected.min(rows.saturating_sub(1));
+        (selected, first.min(selected))
+    }
+
+    pub fn keep(&mut self, c: crate::menu::model::Category, selected: usize, first: usize) {
+        self.0[Self::slot(c)] = (selected, first);
+    }
+}
+
+/// [`ItemPlaces`] in the save, always (a save made with the tweak off keeps what was
+/// last seen); a save without it leaves the places as they are.
+pub const ITEM_PLACES_SAVE_HOOK: crate::save::SaveHook = crate::save::SaveHook {
+    key: "item_places",
+    save: |w| w.get_resource::<ItemPlaces>().and_then(|p| serde_json::to_value(p).ok()),
+    load: |w, v| {
+        if let (Ok(p), Some(mut places)) = (serde_json::from_value::<ItemPlaces>(v.clone()), w.get_resource_mut::<ItemPlaces>()) {
+            *places = p;
+        }
+    },
+    remap: None,
+};
+
+/// The Remember Item List Places tweak: while the inventory is open its list's place is
+/// kept by category; when it opens, or its category changes (the model starts a new
+/// category at the top), the kept place is put back.
+fn remember_item_places(tweaks: Res<TweakSettings>, mut active: ResMut<crate::menu::ActiveMenu>, mut places: ResMut<ItemPlaces>, mut seen: Local<Option<crate::menu::model::Category>>) {
+    use crate::menu::model::{Mode, Side};
+    let Some(m) = active.0.as_mut().filter(|m| m.mode == Mode::Inventory) else {
+        *seen = None;
+        return;
+    };
+    if !tweaks.remember_item_places {
+        *seen = None;
+        return;
+    }
+    let i = Side::Player as usize;
+    let category = m.category[i];
+    if *seen != Some(category) {
+        *seen = Some(category);
+        let (selected, first) = places.place(category, m.lists[i].rows.len());
+        if (selected, first) != (m.selected[i], m.scroll[i]) {
+            m.selected[i] = selected;
+            m.scroll[i] = first;
+            m.navigated = m.navigated.wrapping_add(1);
+        }
+        return;
+    }
+    places.keep(category, m.selected[i], m.scroll[i]);
+}
+
 /// within [`TweakSettings::clear_marker_within`] of it, once they have been farther:
 /// a marker placed where the player stands stays until they leave and come back
 /// [design: docs/design/tweaks.md].
@@ -2207,6 +2291,8 @@ fn sync(
     (combat, sim): (Option<Res<crate::combat::Combat>>, Option<Res<crate::sim::SimState>>),
 ) {
     crate::combat::set_unequip_broken_armor(tweaks.unequip_broken_armor);
+    crate::terminal::set_grey_read(tweaks.grey_read_notes);
+    crate::combat::set_weapon_volume(tweaks.player_weapon_volume / 100.0, tweaks.npc_weapon_volume / 100.0);
     crate::kill_cam::set_move_during(tweaks.move_during_kill_cam);
     crate::console::set_model_details(tweaks.console_model_details);
     crate::reticle::set_stack_figures(tweaks.stack_figures);
@@ -2317,6 +2403,19 @@ fn sync(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn item_places_are_kept_by_category_and_fit_the_list() {
+        use crate::menu::model::Category;
+        let mut p = super::ItemPlaces::default();
+        p.keep(Category::Aid, 12, 7);
+        assert_eq!(p.place(Category::Aid, 20), (12, 7));
+        assert_eq!(p.place(Category::Aid, 5), (4, 4));
+        assert_eq!(p.place(Category::Aid, 0), (0, 0));
+        assert_eq!(p.place(Category::Weapons, 20), (0, 0));
+        let v = serde_json::to_value(&p).expect("saved");
+        assert_eq!(serde_json::from_value::<super::ItemPlaces>(v).expect("loaded"), p);
+    }
+
     use super::*;
 
     #[test]

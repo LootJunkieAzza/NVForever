@@ -48,6 +48,12 @@ pub fn bright() -> Color {
     compose_screen(Color::srgb_u8(54, 252, 150), None)
 }
 
+/// An entry already read, under the Grey Read Notes tweak: the text's green at about half
+/// its strength [design: docs/design/tweaks.md].
+pub fn read_green() -> Color {
+    compose_screen(Color::srgb_u8(27, 126, 75), None)
+}
+
 /// [design] The solid fills (blocks, lit cells, the cursor, the separator, the chosen
 /// row's box) lie above the scanlines, and the text on them above the fills: on the
 /// original the fills keep their green through the scanlines' troughs (253 to 255 while
@@ -593,7 +599,8 @@ fn centred(p: &mut ChildSpawnerCommands, face: &Face, s: &str, width: f32, top: 
 
 /// Draw the screen into the picture `camera` renders; returns the menu's rows on the
 /// canvas, for the pointer.
-pub fn spawn(commands: &mut Commands, camera: Entity, faces: &Faces, session: &Session, game: &fnv_game::Game, cursor_on: bool) -> Vec<(usize, Rect)> {
+/// `read`: the entries drawn dimmer (the Grey Read Notes tweak on).
+pub fn spawn(commands: &mut Commands, camera: Entity, faces: &Faces, session: &Session, game: &fnv_game::Game, cursor_on: bool, read: Option<&super::ReadEntries>) -> Vec<(usize, Rect)> {
     let mut rows = Vec::new();
     let root = Node { overflow: Overflow::clip(), ..at(0.0, 0.0, CANVAS.x, CANVAS.y) };
     commands.spawn((ScreenRoot, root, UiTargetCamera(camera), Name::new("Terminal screen"))).with_children(|c| {
@@ -608,7 +615,7 @@ pub fn spawn(commands: &mut Commands, camera: Entity, faces: &Faces, session: &S
         match &session.page {
             Page::Hacking(h) => hacking_page(c, &faces.text, &faces.lit, h, cursor_on),
             Page::LockedOut(lines) => lockout_page(c, &faces.text, lines),
-            Page::Menu(m) => menu_page(c, &faces.text, &faces.lit, m, game, cursor_on, &mut rows),
+            Page::Menu(m) => menu_page(c, &faces.text, &faces.lit, m, game, cursor_on, &mut rows, read),
         }
         // [design] Over everything on the canvas, under the monitor's glare (§2, §7).
         if let Some(lines) = &faces.scanlines {
@@ -696,7 +703,8 @@ pub fn note_text(n: Option<&NoteDef>) -> String {
     }
 }
 
-fn menu_page(c: &mut ChildSpawnerCommands, face: &Face, lit_face: &Face, m: &MenuView, game: &fnv_game::Game, cursor_on: bool, rows: &mut Vec<(usize, Rect)>) {
+#[allow(clippy::too_many_arguments)]
+fn menu_page(c: &mut ChildSpawnerCommands, face: &Face, lit_face: &Face, m: &MenuView, game: &fnv_game::Game, cursor_on: bool, rows: &mut Vec<(usize, Rect)>, read: Option<&super::ReadEntries>) {
     let bright = bright();
     let data = game.data;
     let Some(t) = data.terminals.get(&m.terminal) else { return };
@@ -762,7 +770,8 @@ fn menu_page(c: &mut ChildSpawnerCommands, face: &Face, lit_face: &Face, m: &Men
                             set_marked(b, lit_face, &line, 0.0, (LIST_ROW - LINE) / 2.0 + BASE, lit_text(), ON_FILLS);
                         }
                     } else {
-                        text(b, face, &s, 0.0, (LIST_ROW - LINE) / 2.0, bright);
+                        let was_read = read.zip(m.items.get(row)).is_some_and(|(r, &item)| r.has(m.terminal, item));
+                        text(b, face, &s, 0.0, (LIST_ROW - LINE) / 2.0, if was_read { read_green() } else { bright });
                     }
                 });
             }

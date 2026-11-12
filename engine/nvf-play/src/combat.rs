@@ -127,7 +127,7 @@ use fnv_sim::FormId;
 use std::collections::{HashMap, HashSet};
 
 use crate::activate::HudMessage;
-use crate::sfx::{LoopSound, PlaySound, Sfx};
+use crate::sfx::{LoopSound, PlaySound, ScaledSound, Sfx};
 use crate::hitvol::{ActorParts, WEAPON_PART};
 use fnv_combat::data::{BodyPart, WeaponStats};
 use fnv_game::combat::LimbHit;
@@ -1666,6 +1666,37 @@ pub fn reload_slows() -> bool {
 /// The player's Unequip Broken Armor tweak, set by `crate::tweaks` each frame [design: docs/design/tweaks.md].
 static UNEQUIP_BROKEN_ARMOR: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
+/// The player's Weapon Volume Scaling tweak, set by `crate::tweaks` each frame: the
+/// loudness of the player's shot sounds and of others' (as f32 bits; 1 = as recorded)
+/// [design: docs/design/tweaks.md].
+static WEAPON_VOLUME: [std::sync::atomic::AtomicU32; 2] = [std::sync::atomic::AtomicU32::new(0x3f80_0000), std::sync::atomic::AtomicU32::new(0x3f80_0000)];
+
+/// Set the Weapon Volume Scaling tweak's loudness of the player's shots and of others'.
+pub fn set_weapon_volume(player: f32, others: f32) {
+    WEAPON_VOLUME[0].store(player.to_bits(), std::sync::atomic::Ordering::Relaxed);
+    WEAPON_VOLUME[1].store(others.to_bits(), std::sync::atomic::Ordering::Relaxed);
+}
+
+/// A shot's sound, the player's (`player`) or another's: as recorded, or under the
+/// Weapon Volume Scaling tweak scaled.
+fn shot_sound(sounds: &mut MessageWriter<PlaySound>, scaled: &mut MessageWriter<ScaledSound>, sound: FormId, at: Option<[f32; 3]>, player: bool) {
+    match shot_gain(player) {
+        None => {
+            sounds.write(PlaySound { sound, at });
+        }
+        Some(gain) => {
+            scaled.write(ScaledSound { sound, at, gain });
+        }
+    }
+}
+
+/// The Weapon Volume Scaling tweak's gain on a shot's sound, the player's or another's;
+/// `None` at 1 (played as recorded).
+fn shot_gain(player: bool) -> Option<f32> {
+    let gain = f32::from_bits(WEAPON_VOLUME[usize::from(!player)].load(std::sync::atomic::Ordering::Relaxed));
+    ((gain - 1.0).abs() >= 1e-4).then_some(gain)
+}
+
 /// Switch the Unequip Broken Armor tweak on or off.
 pub fn set_unequip_broken_armor(on: bool) {
     UNEQUIP_BROKEN_ARMOR.store(on, std::sync::atomic::Ordering::Relaxed);
@@ -2866,7 +2897,7 @@ pub(crate) fn fire(
     mut sounds: MessageWriter<PlaySound>,
     mut casings: MessageWriter<CasingFx>,
     mut loops: MessageWriter<LoopSound>,
-    (mut hud, mut vats, lens_sway): (Option<ResMut<HudMessage>>, Option<ResMut<crate::vats_mode::VatsMode>>, Option<Res<crate::aim_zoom::LensSway>>),
+    (mut hud, mut vats, lens_sway, mut scaled): (Option<ResMut<HudMessage>>, Option<ResMut<crate::vats_mode::VatsMode>>, Option<Res<crate::aim_zoom::LensSway>>, MessageWriter<ScaledSound>),
 ) {
     let dt = time.delta_secs();
     let c = &mut *c;
@@ -3167,7 +3198,7 @@ pub(crate) fn fire(
                         info!("combat: {} shoots its silenced sound {}", w.edid.as_deref().unwrap_or("?"), sound_edid(sfx.as_deref(), sound));
                     }
                     c.silenced_logged = shoot.silenced.then_some((id, sound));
-                    sounds.write(PlaySound { sound, at: None });
+                    shot_sound(&mut sounds, &mut scaled, sound, None, true);
                 }
                 let effects: Vec<&AmmoEffect> = chain.ammo_effects.iter().filter_map(|e| c.forms.ammo_effects.get(e)).collect();
                 let shooter = attacker(script.as_deref_mut(), &mut sim, &c.rules, FormId::PLAYER_REF, &w, false);
@@ -4329,6 +4360,8 @@ fn destructibles_near(phys: &mut PhysState, sim: &SimState, script: Option<&Scri
 
 /// What a shot sends out: sounds, impact effects, explosions, broken weapons, and what
 /// each impact picked (for `crate::world_sounds`).
+/// What [`actor_attacks`] sends: shots, their sounds (scaled ones apart), hits and pushes.
+type ActorAttackOut<'w> = (MessageWriter<'w, ShotFired>, MessageWriter<'w, PlaySound>, MessageWriter<'w, ActorHit>, MessageWriter<'w, ActorPush>, MessageWriter<'w, ScaledSound>);
 type ShotEffects<'w> = (MessageWriter<'w, PlaySound>, MessageWriter<'w, ImpactFx>, MessageWriter<'w, ExplosionFx>, MessageWriter<'w, WeaponBroken>, MessageWriter<'w, crate::world_sounds::ImpactPicked>, MessageWriter<'w, crate::RefChanged>);
 
 /// Fly the projectiles, deliver hits when due, set off explosions (and what they set
@@ -4348,7 +4381,7 @@ fn actor_attacks(
     mut feedback: ResMut<HitFeedback>,
     mut hud: Option<ResMut<HudMessage>>,
     (mut shots, mut blows): (MessageReader<ActorFire>, MessageReader<ActorStrike>),
-    (mut fired, mut sounds, mut messages, mut pushes): (MessageWriter<ShotFired>, MessageWriter<PlaySound>, MessageWriter<ActorHit>, MessageWriter<ActorPush>),
+    (mut fired, mut sounds, mut messages, mut pushes, mut scaled): ActorAttackOut,
     sfx: Option<Res<Sfx>>,
     (mut impacts, mut broken, mut knocks): (MessageWriter<ImpactFx>, MessageWriter<WeaponBroken>, MessageWriter<Knockback>),
     (control, anim, player): Guard,
@@ -4403,7 +4436,7 @@ fn actor_attacks(
             let (sound, far) = shoot.heard_at(distance, near_max);
             if let Some(sound) = sound {
                 debug!("combat: npc {} shot sound {} ({}, {})", s.shooter, sound_edid(sfx.as_deref(), sound), if shoot.silenced { "silenced" } else { "plain" }, if far { "distant" } else { "3D" });
-                sounds.write(PlaySound { sound, at: Some(seen_from) });
+                shot_sound(&mut sounds, &mut scaled, sound, Some(seen_from), false);
             }
         }
         let (tracer_chance, force) = c.forms.projectiles.get(&proj).map_or((0.0, 0.0), |p| (p.tracer_chance, p.impact_force));
@@ -5564,6 +5597,14 @@ fn sound_edid(sfx: Option<&Sfx>, sound: FormId) -> String {
 mod tests {
     use super::*;
     use crate::phys::NpcBody;
+
+    #[test]
+    fn shot_sounds_are_scaled_only_off_one() {
+        set_weapon_volume(1.0, 0.5);
+        assert_eq!((shot_gain(true), shot_gain(false)), (None, Some(0.5)));
+        set_weapon_volume(1.0, 1.0);
+        assert_eq!(shot_gain(false), None);
+    }
 
     #[test]
     fn player_capsule_hit_bands_and_clamps() {

@@ -218,6 +218,54 @@ pub struct MenuView {
     pub welcome: String,
 }
 
+/// The terminal entries whose note the player has read, by terminal (FormID) and item
+/// index, under the Grey Read Notes tweak (an entry read with it off is not counted);
+/// the menu draws them dimmer while the tweak is on. Kept with the save
+/// ([`READ_ENTRIES_SAVE_HOOK`]) [design: docs/design/tweaks.md].
+#[derive(Resource, Default, Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ReadEntries(pub std::collections::BTreeSet<(u32, u32)>);
+
+impl ReadEntries {
+    pub fn has(&self, terminal: FormId, item: usize) -> bool {
+        self.0.contains(&(terminal.0, item as u32))
+    }
+}
+
+/// The player's Grey Read Notes tweak, set by `crate::tweaks` each frame.
+static GREY_READ: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Switch the Grey Read Notes tweak on or off.
+pub fn set_grey_read(on: bool) {
+    GREY_READ.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+fn grey_read() -> bool {
+    GREY_READ.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// [`ReadEntries`] in the save; the terminals moved to the current load order, those of
+/// a plugin no longer loaded dropped.
+pub const READ_ENTRIES_SAVE_HOOK: crate::save::SaveHook = crate::save::SaveHook {
+    key: "terminal_read_entries",
+    save: |w| w.get_resource::<ReadEntries>().filter(|r| !r.0.is_empty()).and_then(|r| serde_json::to_value(r).ok()),
+    load: |w, v| {
+        if let (Ok(r), Some(mut read)) = (serde_json::from_value::<ReadEntries>(v.clone()), w.get_resource_mut::<ReadEntries>()) {
+            *read = r;
+        }
+    },
+    remap: Some(|v, r| {
+        if let Some(list) = v.as_array_mut() {
+            list.retain_mut(|e| match e.get(0).and_then(serde_json::Value::as_u64).and_then(|n| r.map(n as u32)) {
+                Some(n) => {
+                    e[0] = serde_json::Value::from(n);
+                    true
+                }
+                None => false,
+            });
+        }
+    }),
+};
+
 /// A command for the open terminal.
 #[derive(Message, Clone, Copy, Debug, PartialEq)]
 pub enum TerminalInput {
@@ -312,6 +360,7 @@ impl Plugin for TerminalPlugin {
             }
             Err(_) => Vec::new(),
         };
+        crate::save::add_save_hook(app, READ_ENTRIES_SAVE_HOOK);
         app.init_resource::<TerminalScreen>()
             .init_resource::<TerminalStats>()
             .init_resource::<Words>()
@@ -319,6 +368,7 @@ impl Plugin for TerminalPlugin {
             .init_resource::<PowerAid>()
             .init_resource::<MenuRows>()
             .init_resource::<TerminalOpening>()
+            .init_resource::<ReadEntries>()
             .insert_resource(TerminalAid { steps, science: None })
             .add_message::<OpenTerminal>()
             .add_message::<TerminalInput>()
@@ -748,7 +798,7 @@ fn apply(
     time: AidTime,
     mut stats: ResMut<TerminalStats>,
     mut rng: Local<Option<ChaCha8Rng>>,
-    (mut sounds, mut opened): (MessageWriter<UiSound>, MessageWriter<crate::lockpick::LockOpened>),
+    (mut sounds, mut opened, mut read): (MessageWriter<UiSound>, MessageWriter<crate::lockpick::LockOpened>, ResMut<ReadEntries>),
 ) {
     let now = time.elapsed_secs();
     // The hacking menu's sounds (list 5 item 47; `crate::ui_sounds`).
@@ -934,6 +984,9 @@ fn apply(
                 let from = rt.game.events.len();
                 let chosen = with_world(rt, &mut sim, |rt| rules::choose(&mut rt.game, reference, terminal, item));
                 let Some(c) = chosen else { continue };
+                if c.note.is_some() && grey_read() && read.0.insert((terminal.0, item as u32)) {
+                    debug!("terminal: item {item} of {} read (Grey Read Notes)", rt.game.data.name(terminal));
+                }
                 let ran: Vec<String> = rt.game.events[from..].iter().take(8).map(|e| format!("{:?}", e.kind)).collect();
                 if !ran.is_empty() {
                     info!("terminal: its result script: {}", ran.join("; "));
@@ -1055,14 +1108,15 @@ fn draw(
     mut blinks: Query<&mut Visibility, With<screen::Blink>>,
     time: Res<Time<Real>>,
     image: Option<Res<TerminalImage>>,
-    mut rows: ResMut<MenuRows>,
+    (mut rows, read): (ResMut<MenuRows>, Res<ReadEntries>),
     mut faces: Local<Option<screen::Faces>>,
     mut shown: Local<Option<String>>,
 ) {
     // The screen is laid out in its own texture, at its size whatever the UI scale; the
     // picture of it on the window scales (`screen::spawn_backdrop`, #1631).
     let _canvas = crate::interface::original_units();
-    let key = screen.0.as_ref().map(view_key);
+    let grey = grey_read();
+    let key = screen.0.as_ref().map(|s| format!("{}:{grey}", view_key(s)));
     let on = ((time.elapsed_secs() / screen::BLINK_SECONDS) as u32).is_multiple_of(2);
     if key == *shown {
         for mut v in &mut blinks {
@@ -1077,7 +1131,7 @@ fn draw(
     rows.0.clear();
     let (Some(s), Some(rt), Some(image)) = (screen.0.as_ref(), script.as_ref().and_then(|s| s.rt.as_ref()), image) else { return };
     let faces = faces.get_or_insert_with(|| screen::load_faces(data.as_deref(), &mut images, bc_supported(formats.as_deref())));
-    rows.0 = screen::spawn(&mut commands, image.camera, faces, s, &rt.game, on);
+    rows.0 = screen::spawn(&mut commands, image.camera, faces, s, &rt.game, on, grey.then_some(&*read));
 }
 
 fn close(
@@ -1165,6 +1219,18 @@ fn report(mut exit: MessageReader<AppExit>, stats: Res<TerminalStats>) {
 mod tests {
     use super::*;
     use fnv_game::hacking::{Word, ATTEMPTS, DUMP_CHARS};
+
+    #[test]
+    fn read_entries_are_kept_by_terminal_and_item() {
+        let mut r = ReadEntries::default();
+        r.0.insert((0x1234, 2));
+        assert!(r.has(FormId(0x1234), 2));
+        assert!(!r.has(FormId(0x1234), 1) && !r.has(FormId(0x1235), 2));
+        // Saved as pairs, the terminal first (the save hook's remap moves it).
+        let v = serde_json::to_value(&r).expect("saved");
+        assert_eq!(v, serde_json::json!([[0x1234, 2]]));
+        assert_eq!(serde_json::from_value::<ReadEntries>(v).expect("loaded"), r);
+    }
 
     fn puzzle() -> Puzzle {
         let mut chars = vec!['.'; DUMP_CHARS];

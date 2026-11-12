@@ -579,6 +579,9 @@ unless the player binds them, so nothing changes until then.
 | Place Marker Here | `iPlaceMapMarkerAtPlayerPosKey` | a new unbound control, `Control::PlaceMarkerHere`; `tweaks::place_marker_here` sets the game's marker to the player's space and feet, with a corner line in our words unless switched off |
 | Keep Fall Height on Load | `bKeepFallHeightOnLoad` | `falls::FALL_SAVE_HOOK` keeps `Falls::player_top` with a save made in the air; loaded under the switch, `Falls::loaded_top` is the floor of the player's next fall step (after the load's placement reset) |
 | Quest Marker Height, Your Marker's Height | `bCompassQuestHeightIndicator`, `bPlacedMarkerHeightIndicator` | `compass::gather` sets `Near::rise` (`rise_of`: more than `HEIGHT_STEP`, 256 units, above or below the feet) for quest marks and the new player's-marker mark (`Mark::Player`, the custom map marker in the player's place); `compass::draw` puts a 12 x 3 bar over or under the picture (ours); the tile-drawn HUD shows none |
+| Your Weapon Volume / Others' Weapon Volume | `bScaleWeaponVolume` | `combat::shot_sound` sends the shot's sound as a `sfx::ScaledSound` off 100%: the player's own 2D shot sound and others' heard where they fire; the gain multiplies the one-shot's loudness (`sfx::one_shot_ready`) |
+| Remember Item List Places | `bRememberPipboyScrollPositions` | `tweaks::ItemPlaces` keeps the inventory's selected and first row by category while it is open and puts them back when it opens or its category changes; `ITEM_PLACES_SAVE_HOOK` keeps them with the save |
+| Dim Read Terminal Entries | `bTerminalGreyReadNotes` | `terminal::ReadEntries` takes a terminal and item when its choice shows a note with the switch on; `terminal::screen::menu_page` draws those rows in `read_green`; `READ_ENTRIES_SAVE_HOOK` keeps them, the terminals remapped |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -600,8 +603,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 509 |
-| to do | 94 |
+| done | 512 |
+| to do | 91 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -711,6 +714,7 @@ game's Data folder, read-only).
 | `bRunningCostsAP` | done |  | 8 | Action Points per Second Running (slider 0-20, a flat rate; the Endurance formula not built) |
 | `bRunSlowerInWater` | done |  | 1 | Wading Pace (slider; deeper water slows more) |
 | `bScalePlayerMeleeReach` | done |  | 3 | Melee Reach (multiplier slider; the min and max options not built) |
+| `bScaleWeaponVolume` | done |  | 2 | Your Weapon Volume and Others' Weapon Volume (shot sounds scaled, in percent) |
 | `bScopeHoldBreath` | done |  | 7 | Hold Breath Through a Scope (Shift; the weapon requirement and key options not built) |
 | `bSellStolenItems` | done |  |  | already so: barter never checks stolen items |
 | `bSemiAutoQueue` | done |  | 2 | Semi-Auto Shot Queue (slider, up to 0.5 s before the weapon is ready) |
@@ -750,7 +754,6 @@ game's Data folder, read-only).
 | `bQuickUse` | to do |  | 9 | two input paths that do not exist yet |
 | `bReviveUnconsciousCompanions` | to do |  | 3 | not built: no revive action |
 | `bRunAndGunAPInCombatOnly` | to do |  |  | not built: no run-and-gun AP rule |
-| `bScaleWeaponVolume` | to do |  | 2 | PlaySound has no volume |
 | `bSneakingDoesntForcePowerAttacks` | unsure, skipped |  |  | depends on separate animations |
 | `bStrengthAffectsAllThrowables` | to do |  |  | not built: fThrowingStrengthPenalty is not read |
 | `bTargetProjectilesInVATS` | to do |  | 1 | not built: projectiles in flight are not targetable |
@@ -1072,6 +1075,7 @@ game's Data folder, read-only).
 | `bPlaceMarkersAtLocations` | done | yes | 1 | already so: the highlight box takes to a place or door near the pointer, and Place Marker puts the marker on it (both maps) |
 | `bPreventNoFastTravelMessage` | done |  | 1 | Quiet Undiscovered Markers (the sound option not built) |
 | `bPreviewPerksOnLevelUp` | done |  |  | Preview Perks on Level Up (the page with none to take) |
+| `bRememberPipboyScrollPositions` | done | yes |  | Remember Item List Places (the Items lists' rows, each tab its own, kept with the save) |
 | `bReputationShowsFameInfamy` | done |  | 3 | Show Fame and Infamy (numbers; the percentage option not built) |
 | `bRightClickChangesToPreviousContainerCategory` | done |  |  | Right Click for the Previous Category (container and barter; not the recipe menu) |
 | `bSavingDoesntClosePauseMenu` | done |  |  | already so: saving leaves the pause menu open |
@@ -1096,11 +1100,11 @@ game's Data folder, read-only).
 | `bTabBackInStartMenu` | done |  |  | Tab Goes Back in the Pause Menu (where Tab steps no tabs) |
 | `bTabClosesPipboyFromKeyAndLimbMenus` | done |  |  | already so: Tab closes the Pip-Boy from every page |
 | `bTabClosesTerminals` | done |  |  | Tab Closes Terminals (Backspace still goes back) |
+| `bTerminalGreyReadNotes` | done |  |  | Dim Read Terminal Entries (entries whose note was read, from the switch on, kept with the save) |
 | `bTerminalInstantDisplayHotkey` | done |  |  | already so: terminal text is shown whole |
 | `bTimescaleAffectsMinigames` | done |  |  | Lockpicking Follows the Time Speed (the lock only; the card and slot games keep their pace) |
 | `bChallengeMenuIcons` | unsure, skipped | yes |  | needs another mod (challenge icons) |
 | `bMainMenuContinueIcon` | to do | yes |  | thumbnails are on the load page only |
-| `bRememberPipboyScrollPositions` | to do | yes |  | the inventory is a new MenuModel on each opening |
 | `bRemoveDownloadsButton` | n/a | yes |  | NVForever has no Downloads button |
 | `bSaveCharacterSelector` | unsure, skipped | yes | 1 | needs the plugin's own menu XML |
 | `bShowWeaponPoisonEffects` | to do | yes |  | NVForever has no weapon poison yet |
@@ -1124,7 +1128,6 @@ game's Data folder, read-only).
 | `bRepairItemsPreview` | to do |  | 1 | a preview session in the repair list |
 | `bShowInventorySortButton` | unsure, skipped |  | 11 | needs the plugin's own menu XML |
 | `bTakeAllConfirmation` | to do |  | 2 | a confirmation prompt in the menu model |
-| `bTerminalGreyReadNotes` | to do |  |  | no record of entries read |
 | `bVATSAPDisplayIncludesReloadCost` | to do |  |  | not built: V.A.T.S. queues never reload |
 
 ### Hotkeys
