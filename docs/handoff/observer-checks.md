@@ -370,7 +370,9 @@ engine if needed, and delete the item here.
       setting gives 77.5), a knife or fists (`1hm`/`h2h` 77.5), and a pistol in medium
       armour (the setting gives 71.7), each next to a holstered walker. Walking drawn in
       combat (about 100) is not built. Whether a follower walking after its leader takes
-      the drawn walk is not known either (ours: it does, actors §8.10): a person with a
+      the drawn walk is not known either (ours: a follower in step keeps its leader's pace, the
+      drawn walk showing only where that pace is not known or as the slowest it eases to,
+      actors §8.10): a person with a
       pistol drawn given a Follow package after a holstered walker (85): does it keep
       step, or drop back at 77.5?
     - Follow distances: stand within distance + 64, run beyond 512. Where a follower

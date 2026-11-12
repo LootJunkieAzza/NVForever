@@ -267,9 +267,9 @@ plays the run clip faster to match (up to its 2.5 rate limit), so the feet do no
   random conversation or a search has taken over: it keeps its speed. New speeds on the
   way (a Speed Mult or armour change, `Ai::set_speeds`, #2118) keep the share and the
   walk's own: it goes on at the new walk / 1.1, also after a stop at Speed Mult 0. A
-  follower's walk is planned through `Ai::pace` too, so it takes the share when planned
-  (in step, its target's pace wins) but is not changed under way [design: not measured,
-  actors.md §8.10]. The weapon is the one
+  follower's speed comes through `Ai::pace` too and is worked out again under way as the
+  gap changes, so it takes the share at once (in step, its target's pace wins, the share
+  only lowering the slowest it eases to) [design: not measured, actors.md §8.10]. The weapon is the one
   the actor's equipment holds (none: its fists); the animating side's last drawn weapon
   counts only for an actor the simulation has no equipment for. Other stances and armour
   classes keep the holstered walk.

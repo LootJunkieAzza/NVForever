@@ -1690,8 +1690,10 @@ stopped and started, as Victor's walk had before #258). Code:
     unless otherwise noted", documented: GECK wiki Movement Settings]: in step with its
     target it goes at the target's pace (`keep_step_speed`; the share only lowers its
     slowest walk), and at the drawn walk where the target's pace is not known (its first
-    plan, a way through another space); its walk is not changed under way when the
-    weapon is drawn or put away, its next plan takes the new share. Every other stance, medium and
+    plan, a way through another space). Its speed is worked out again under way as the
+    gap changes (`follow_step`, `follow_speed`), so a weapon drawn or put away on the way
+    shows at once: as its walk where the target's pace is not known, as the slowest it
+    eases to otherwise. Every other stance, medium and
     heavy armour keep the holstered walk until they are measured drawn (the stances'
     walk clips differ, above; observer check 13).
   - **Not built**: in combat, walking with a weapon drawn was faster (a fiend 105,
