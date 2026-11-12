@@ -1,5 +1,10 @@
 # CI template: copy to .github/workflows/parity.yml
 #
+# WARNING: not for this public repository as written. Its parity job needs a self-hosted
+# runner, and a self-hosted runner on a public repository runs the code of any pull
+# request, forks' included. Copy it only into a private fork, or keep the parity job to
+# `workflow_dispatch` on a runner nobody else can reach (#2005).
+#
 # Two jobs:
 #  1. lab-selftest  — always runs on every platform; synthetic data only.
 #  2. parity        — runs the real scenarios on a SELF-HOSTED runner that has a

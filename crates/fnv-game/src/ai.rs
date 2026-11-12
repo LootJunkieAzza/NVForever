@@ -187,7 +187,12 @@ impl<'a> Game<'a> {
     ///   GoodspringsSettler01Ref kept GSSettlerAAMSandbox6x16 through the night, 1,466
     ///   samples outside its window, when no other package of its list applied;
     ///   hypothesis: that this is "keep the current one" rather than "the last of the
-    ///   list", which are the same package there].
+    ///   list", which are the same package there]; not when the current one's own
+    ///   conditions fail: then the actor has no package and stands where it is, off any
+    ///   furniture [hypothesis, from the data: Fallout 3's Mister Burke sits on his bar
+    ///   chair under MS11BurkeBattle (MS11 battle 1); when the arrest talk sets battle 2
+    ///   no package of his list applies, and Lucas Simms' script (Fallout 3's and TTW's
+    ///   alike) has Burke shoot him only once Burke's GetSitting reads 0; issue #2235].
     pub fn select_package(&mut self, actor: FormId) -> Option<FormId> {
         let now = self.world.calendar().map(|c| c.days_passed as f64).unwrap_or(0.0);
         if let Some(e) = self.extra.get_mut(&actor) {
@@ -215,8 +220,12 @@ impl<'a> Game<'a> {
         // `current_package` answers with the one it had rather than choosing again.
         self.choosing_package.push(actor);
         let valid = list.iter().copied().find(|&p| self.check_package(actor, p) == PackageCheck::Valid);
+        let kept = match valid {
+            Some(_) => None,
+            None => self.extra.get(&actor).and_then(|e| e.current_package).filter(|c| list.contains(c)).filter(|&c| self.check_package(actor, c) != PackageCheck::ConditionsFail),
+        };
         self.choosing_package.pop();
-        valid.or_else(|| self.extra.get(&actor).and_then(|e| e.current_package).filter(|c| list.contains(c)))
+        valid.or(kept)
     }
 
     /// Whether the AI runs packages itself (their begin, end and change scripts and the

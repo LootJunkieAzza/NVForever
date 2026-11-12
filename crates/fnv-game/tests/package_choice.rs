@@ -337,6 +337,23 @@ fn once_per_day_is_not_chosen_again_within_a_day() {
     assert_eq!(g.evaluate_package(d), Some(id(P_ONCE)));
 }
 
+/// With no valid package an actor keeps the one it runs while only the schedule rules
+/// that one out, not once its own conditions fail: then it has none (Mister Burke after
+/// MS11's arrest talk gets out of his chair, issue #2235).
+#[test]
+fn a_package_whose_conditions_fail_is_not_kept() {
+    let f = fixture();
+    let mut g = game(&f, None);
+    let c = id(REF_C);
+    set(&mut g, G_HOUR, 23.0);
+    set(&mut g, G_SWITCH, 1.0);
+    assert_eq!(g.evaluate_package(c), Some(id(P_NIGHT_COND)));
+    set(&mut g, G_SWITCH, 0.0);
+    assert_eq!(g.check_package(c, id(P_NIGHT_COND)), PackageCheck::ConditionsFail);
+    assert_eq!(g.evaluate_package(c), None);
+    assert_eq!(g.extra[&c].current_package, None);
+}
+
 /// A Once Per Day package that reached its goal is done for the day: though still
 /// current and its conditions still passing, it is not chosen again and the next valid
 /// package takes over (TTW's CG02AndyCutCake, whose change script sets the cake stage

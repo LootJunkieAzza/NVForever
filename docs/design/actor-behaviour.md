@@ -60,8 +60,14 @@ Goodsprings (packages.md §4).
      target [documented]. Conditions are not evaluated outside the schedule
      [documented], which also keeps random conditions from being rolled needlessly.
 3. **No valid package: keep the current one** if it is a package of the list
-   [observed; hypothesis that it is the current rather than the last of the list].
-   An actor that has none stays without a package.
+   [observed; hypothesis that it is the current rather than the last of the list],
+   unless its own conditions fail (only its schedule or Once Per Day may rule it out):
+   then the actor has no package, stands where it is and leaves its furniture
+   [hypothesis, from the data, issue #2235: Mister Burke sits on his bar chair under
+   MS11BurkeBattle; the arrest talk ends its condition (MS11 battle 2) and nothing else
+   of his list applies, yet Lucas Simms' script, Fallout 3's and TTW's alike, has Burke
+   shoot him only once Burke's GetSitting reads 0]. An actor that has none stays
+   without a package.
 
 Two ways of choosing:
 - **`evaluate_package`** (the `EvaluatePackage` function, and the first choice): always

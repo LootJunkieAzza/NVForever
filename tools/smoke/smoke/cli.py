@@ -9,7 +9,8 @@
                                 scenario equals the side that changed it (smoke/integrity.py)
 
 Selection (default --changed origin/main): --changed [BASE] | --all | --only NAME… |
---area AREA…. Logs go to <repo>/target/smoke/ (or --out / NVF_SMOKE_OUT); only a
+--area AREA… | --failed (the scenarios the last run or check failed, from its
+summary.json: fix, rebuild, rerun only those). Logs go to <repo>/target/smoke/ (or --out / NVF_SMOKE_OUT); only a
 compact summary is printed. Exit code 1 when a scenario or check fails. A game that
 runs past its time leaves every thread's stack in <launch>.stacks.txt before it is
 killed (Windows; `python -m smoke.stacks PID` takes them from a game that hangs now).
@@ -18,7 +19,9 @@ for the scripts' first frame, so a late start on a busy machine cannot run them 
 (scenarios.toml's header; engine/nvf-play/src/pause.rs WorldAidClock).
 Up to NVF_SMOKE_SLOTS (default 3) games run on the machine at once, across every
 runner (smoke/slots.py), dealt first come, first served; --slots N / --jobs N let this
-run use at most N of them. Launches sharing an NVFOREVER_HOME run in order.
+run use at most N of them. Launches sharing an NVFOREVER_HOME run in order; the
+longest start first, so a long launch does not start last and hold up the end of the
+run (the report stays in plan order). --fail-fast starts no launch after the first FAIL.
 --exclusive takes both game locks per launch, one game on the machine at a time.
 """
 from __future__ import annotations
@@ -66,6 +69,8 @@ def parser() -> argparse.ArgumentParser:
         g.add_argument("--all", action="store_true")
         g.add_argument("--only", nargs="+", metavar="NAME")
         g.add_argument("--area", nargs="+", metavar="AREA")
+        g.add_argument("--failed", action="store_true",
+                       help="the scenarios that failed in the last run or check (its summary.json)")
         q.add_argument("--no-merge", action="store_true", help="one launch per scenario")
         q.add_argument("--games-only", action="store_true", help="leave out fnvtool scenarios")
         q.add_argument("--tools-only", action="store_true", help="only fnvtool scenarios")
@@ -87,6 +92,8 @@ def parser() -> argparse.ArgumentParser:
                            help="the old way: both game locks per launch, one game on the machine at a time "
                                 "(for a check that needs the screen to itself)")
             q.add_argument("--context", type=int, default=3, help="log lines shown per failed expectation")
+            q.add_argument("--fail-fast", action="store_true",
+                           help="start no launch after the first FAIL (the rest are reported as SKIP)")
     return p
 
 
@@ -113,6 +120,8 @@ def selection(a, suite: Suite, say) -> tuple[list, list[str] | None]:
         return [names[n] for n in a.only], None
     if a.area:
         return choose.by_area(scen, a.area), None
+    if getattr(a, "failed", False):
+        return last_failed(scen, out_dir(a) / "summary.json", say), None
     base = a.changed or "origin/main"
     files = choose.changed_files(a.repo, base)
     hits = choose.by_changes(scen, files)
@@ -121,6 +130,21 @@ def selection(a, suite: Suite, say) -> tuple[list, list[str] | None]:
         more = f" (+{len(why) - 1})" if len(why) > 1 else ""
         say(f"  {s.name}: {why[0]}{more}")
     return [s for s, _ in hits], files
+
+
+def last_failed(scen: list, summary: Path, say) -> list:
+    """The scenarios the last run or check reported as FAIL (its summary.json)."""
+    try:
+        rows = json.loads(summary.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        raise SystemExit(f"--failed: no summary of a last run at {summary}")
+    failed = {r.get("scenario") for r in rows if r.get("status") == "FAIL"}
+    gone = sorted(failed - {s.name for s in scen})
+    if gone:
+        say(f"--failed: no longer in the scenario file: {', '.join(gone)}")
+    chosen = [s for s in scen if s.name in failed]
+    say(f"--failed: {len(chosen)} scenarios failed in the last run ({summary})")
+    return chosen
 
 
 def print_checks(suite: Suite, files: list[str] | None, say) -> list:
@@ -292,25 +316,41 @@ def chains(launches: list[Launch]) -> list[list[int]]:
     return out
 
 
+def longest_first(launches: list[Launch], groups: list[list[int]]) -> list[list[int]]:
+    """The groups by their game time, longest first (ties in plan order): with a few
+    workers, the run ends sooner when a long launch is not the last to start."""
+    return sorted(groups, key=lambda g: -sum(launches[i].run_seconds for i in g))
+
+
 def run_launches(launches: list[Launch], env: Env, locks, jobs: int, a, say) -> list[Verdict]:
     """Run every launch, up to `jobs` at once; the verdicts in plan order (each launch's
     lines are printed as it ends)."""
     results: list[list[Verdict]] = [[] for _ in launches]
     out = threading.Lock()
+    failed = threading.Event()
+    fail_fast = getattr(a, "fail_fast", False)
+
+    def skip(i: int, reason: str) -> None:
+        with out:
+            for s in launches[i].scenarios:
+                v = Verdict(s.name, "SKIP", reason=reason)
+                results[i].append(v)
+                report(v, launches[i], None, env.out, say)
 
     def one(i: int) -> None:
         x = launches[i]
+        if fail_fast and failed.is_set():
+            skip(i, "not started: --fail-fast after a FAIL")
+            return
         missing = sorted({r for s in x.scenarios for r in missing_requirements(s)})
         if missing:
-            with out:
-                for s in x.scenarios:
-                    v = Verdict(s.name, "SKIP", reason=f"set {', '.join(missing)}")
-                    results[i].append(v)
-                    report(v, x, None, env.out, say)
+            skip(i, f"set {', '.join(missing)}")
             return
         code, err, secs = run_launch(x, env, locks)
         with out:
             judge_launch(x, env, code, err, secs, a, say, results[i])
+            if any(v.status == "FAIL" for v in results[i]):
+                failed.set()
 
     def chain(ix: list[int]) -> None:
         for i in ix:
@@ -322,7 +362,7 @@ def run_launches(launches: list[Launch], env: Env, locks, jobs: int, a, say) -> 
             chain(g)
     else:
         with ThreadPoolExecutor(max_workers=jobs) as pool:
-            futures = [pool.submit(chain, g) for g in groups]
+            futures = [pool.submit(chain, g) for g in longest_first(launches, groups)]
             try:
                 for f in futures:
                     f.result()
