@@ -145,6 +145,11 @@ name = "profile campaign tests"
 paths = ["tools/profile/", "tools/stress/"]
 cmd = ["python", "-m", "unittest", "discover", "-s", "tools/profile/tests"]
 
+[[check]]
+name = "workflow permissions and pins"
+paths = [".github/workflows/", "tools/release/"]
+cmd = ["python", "-m", "unittest", "discover", "-s", "tools/release/tests"]
+
 # ------------------------------------------------------------------ renderer, sky, image space
 
 [[scenario]]
