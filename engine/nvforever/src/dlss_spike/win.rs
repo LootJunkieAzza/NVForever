@@ -10,15 +10,17 @@ use ash::vk::{self, Handle};
 use bevy::log::Level;
 use bevy::prelude::*;
 use bevy::render::renderer::raw_vulkan_init::{AdditionalVulkanFeatures, RawVulkanInitSettings, VulkanLibraryInstance};
-use bevy::render::renderer::{RenderAdapter, RenderAdapterInfo, RenderDevice, RenderInstance, RenderQueue};
+use bevy::render::renderer::{RenderAdapter, RenderAdapterInfo, RenderContext, RenderDevice, RenderInstance, RenderQueue};
 use bevy::render::RenderApp;
 use windows_sys::Win32::System::LibraryLoader::{LoadLibraryExW, LOAD_WITH_ALTERED_SEARCH_PATH};
 
+use super::evaluate::{Evaluator, VIEWPORT};
 use super::ffi::{
-    get_proc, wide, AdapterInfo, FeatureVersion, Preferences, SlGetFeatureVersion, SlInit, SlIsFeatureLoaded, SlIsFeatureSupported, SlShutdown,
-    FEATURE_DLSS, LOG_TYPE_ERROR, LOG_TYPE_WARN, PREFERENCE_ALLOW_OTA, PREFERENCE_LOAD_DOWNLOADED_PLUGINS, RENDER_API_VULKAN, SDK_VERSION,
+    get_proc, wide, AdapterInfo, FeatureVersion, Preferences, SlDlssGetOptimalSettings, SlDlssSetOptions, SlEvaluateFeature, SlFreeResources, SlGetFeatureFunction,
+    SlGetFeatureVersion, SlGetNewFrameToken, SlInit, SlIsFeatureLoaded, SlIsFeatureSupported, SlResult, SlSetConstants, SlShutdown, ViewportHandle, FEATURE_DLSS,
+    LOG_TYPE_ERROR, LOG_TYPE_WARN, PREFERENCE_ALLOW_OTA, PREFERENCE_LOAD_DOWNLOADED_PLUGINS, RENDER_API_VULKAN, SDK_VERSION,
 };
-use super::{missing_files, note, note_sl, resolve_folder, FolderSource, ENV_DIR, FILES};
+use super::{missing_files, note, note_sl, resolve_folder, FolderSource, Frame, Outcome, ACTIVE, ENV_DIR, FILES};
 
 /// `Preferences::projectId`: a fixed GUID written for NVForever (not one NVIDIA issued).
 /// Streamline passes it with the engine version to NGX when no application id is given
@@ -28,20 +30,25 @@ const PROJECT_ID: &CStr = c"a79b5fa6-346f-4e94-9ca6-289584f9556c";
 
 /// The interposer's functions the spike calls.
 #[derive(Clone, Copy)]
-struct Api {
+pub(super) struct Api {
     init: SlInit,
     shutdown: SlShutdown,
     is_feature_supported: SlIsFeatureSupported,
     is_feature_loaded: SlIsFeatureLoaded,
     get_feature_version: SlGetFeatureVersion,
+    get_feature_function: SlGetFeatureFunction,
+    free_resources: SlFreeResources,
+    pub(super) get_new_frame_token: SlGetNewFrameToken,
+    pub(super) set_constants: SlSetConstants,
+    pub(super) evaluate_feature: SlEvaluateFeature,
 }
 
 /// The spike's own handles on the renderer, so the device and instance outlive the app until
 /// `slShutdown` has run. Dropped in field order after it.
-struct Held {
+pub(super) struct Held {
     queue: wgpu::Queue,
     device: wgpu::Device,
-    adapter: wgpu::Adapter,
+    pub(super) adapter: wgpu::Adapter,
     instance: wgpu::Instance,
 }
 
@@ -59,6 +66,8 @@ enum Phase {
 struct Spike {
     api: Api,
     phase: Phase,
+    /// The evaluate's state while the spike is active (DLSS supported, its functions fetched).
+    eval: Option<Evaluator>,
 }
 
 static STATE: Mutex<Option<Spike>> = Mutex::new(None);
@@ -168,7 +177,7 @@ pub(super) fn start(app: &mut App) {
         return;
     }
     note(Level::INFO, format!("slInit: {} (SDK 2.14.16, Vulkan, DLSS, plugins from the folder, over-the-air flags off, engine {} with a project id)", result.name(), env!("CARGO_PKG_VERSION")));
-    *state() = Some(Spike { api, phase: Phase::Initialised });
+    *state() = Some(Spike { api, phase: Phase::Initialised, eval: None });
     let mut settings = app.world_mut().get_resource_or_init::<RawVulkanInitSettings>();
     // SAFETY: the interposer exports `vkGetInstanceProcAddr` and forwards what it does not
     // intercept to the system's loader [documented: `src/wrapper.cpp:2365-2403`]; `load` keeps it
@@ -188,7 +197,10 @@ fn load(interposer: &Path) -> Option<Api> {
     }
     let api = exports(module);
     if api.is_none() {
-        note(Level::WARN, "inactive: the interposer lacks Streamline's slInit/slShutdown/slIsFeatureSupported/slIsFeatureLoaded/slGetFeatureVersion; the stock Vulkan path");
+        note(
+            Level::WARN,
+            "inactive: the interposer lacks one of Streamline's slInit, slShutdown, slIsFeatureSupported, slIsFeatureLoaded, slGetFeatureVersion, slGetFeatureFunction, slFreeResources, slGetNewFrameToken, slSetConstants, slEvaluateFeature; the stock Vulkan path",
+        );
     }
     api
 }
@@ -203,6 +215,11 @@ fn exports(module: windows_sys::Win32::Foundation::HMODULE) -> Option<Api> {
             is_feature_supported: get_proc(module, c"slIsFeatureSupported")?,
             is_feature_loaded: get_proc(module, c"slIsFeatureLoaded")?,
             get_feature_version: get_proc(module, c"slGetFeatureVersion")?,
+            get_feature_function: get_proc(module, c"slGetFeatureFunction")?,
+            free_resources: get_proc(module, c"slFreeResources")?,
+            get_new_frame_token: get_proc(module, c"slGetNewFrameToken")?,
+            set_constants: get_proc(module, c"slSetConstants")?,
+            evaluate_feature: get_proc(module, c"slEvaluateFeature")?,
         })
     }
 }
@@ -294,6 +311,48 @@ pub(super) fn after_device(app: &mut App) {
         ),
     );
     spike.phase = Phase::Holding(held);
+    if supported {
+        spike.eval = dlss_functions(&spike.api).map(|(get_optimal_settings, set_options)| Evaluator::new(get_optimal_settings, set_options));
+        if spike.eval.is_some() {
+            ACTIVE.store(true, std::sync::atomic::Ordering::Relaxed);
+            note(Level::INFO, "active: slDLSSGetOptimalSettings and slDLSSSetOptions fetched; DLSS evaluates in place of FSR's dispatch while frame generation is off");
+        }
+    } else {
+        note(Level::INFO, "evaluate off: DLSS is not supported here; FSR draws as before");
+    }
+}
+
+/// DLSS's two functions, by name through `slGetFeatureFunction`, after the device exists
+/// (before, it answers `eErrorNotInitialized` [documented: `src/sl.cpp:1099-1118`]).
+fn dlss_functions(api: &Api) -> Option<(SlDlssGetOptimalSettings, SlDlssSetOptions)> {
+    let fetch = |name: &CStr| -> Option<*mut std::ffi::c_void> {
+        let mut function = std::ptr::null_mut();
+        // SAFETY: a NUL-terminated name and an out pointer.
+        let r: SlResult = unsafe { (api.get_feature_function)(FEATURE_DLSS, name.as_ptr(), &mut function) };
+        if r.is_ok() && !function.is_null() {
+            Some(function)
+        } else {
+            note(Level::WARN, format!("evaluate off: slGetFeatureFunction({}) {}; FSR draws as before", name.to_string_lossy(), r.name()));
+            None
+        }
+    };
+    let get_optimal_settings = fetch(c"slDLSSGetOptimalSettings")?;
+    let set_options = fetch(c"slDLSSSetOptions")?;
+    // SAFETY: Streamline's DLSS plugin hands these out under these names with the signatures
+    // `sl_dlss.h:151, 173` declares (ffi.rs); both are plain function pointers.
+    unsafe {
+        Some((
+            std::mem::transmute::<*mut std::ffi::c_void, SlDlssGetOptimalSettings>(get_optimal_settings),
+            std::mem::transmute::<*mut std::ffi::c_void, SlDlssSetOptions>(set_options),
+        ))
+    }
+}
+
+/// One frame's evaluate (`evaluate.rs`), with the spike's state locked for it.
+pub(super) fn evaluate(ctx: &mut RenderContext, frame: &Frame) -> Outcome {
+    let mut guard = state();
+    let Some(Spike { api, phase: Phase::Holding(held), eval: Some(eval) }) = guard.as_mut() else { return Outcome::Fsr { reset: false } };
+    eval.frame(api, held, ctx, frame)
 }
 
 /// The adapter's `VkPhysicalDevice` and its LUID when the driver says the LUID is valid
@@ -321,7 +380,19 @@ pub(super) fn shutdown() {
             let polled = held.device.poll(wgpu::PollType::wait_indefinitely());
             // SAFETY: only the device's handle is read; no other thread uses the device now.
             let idle = unsafe { held.device.as_hal::<wgpu::hal::api::Vulkan>() }.map(|d| unsafe { d.raw_device().device_wait_idle() });
-            // 2. slShutdown while the Vulkan device and instance are alive (held here).
+            // 2. DLSS's resources for the viewport freed now that no evaluate is pending
+            // (`sl_core_api.h:233-237`), the counts said, then slShutdown while the Vulkan device
+            // and instance are alive (held here).
+            if let Some(eval) = &spike.eval {
+                if eval.options_set {
+                    let viewport = ViewportHandle::new(VIEWPORT);
+                    // SAFETY: after the GPU drain; a viewport handle from its constructor.
+                    let freed = unsafe { (spike.api.free_resources)(FEATURE_DLSS, &viewport) };
+                    let level = if freed.is_ok() { Level::INFO } else { Level::WARN };
+                    note(level, format!("shutdown: slFreeResources(DLSS, viewport {VIEWPORT}) {}", freed.name()));
+                }
+                eval.report();
+            }
             // SAFETY: after slInit; the device Streamline stored is still alive.
             let down = unsafe { (spike.api.shutdown)() };
             // Each headline only when its calls succeeded; a failure is named with its value.
@@ -344,7 +415,9 @@ pub(super) fn shutdown() {
             } else {
                 note(Level::WARN, format!("shutdown: slShutdown failed: {} ({})", down.name(), down.0));
             }
-            // 3. Then the Vulkan objects: the spike's handles were the last ones.
+            // 3. Then the evaluate's kept textures and views, and the Vulkan objects: the
+            // spike's handles were the last ones.
+            drop(spike.eval);
             let Held { queue, device, adapter, instance } = held;
             drop(queue);
             drop(device);

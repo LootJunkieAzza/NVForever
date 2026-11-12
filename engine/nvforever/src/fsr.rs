@@ -15,7 +15,7 @@ use std::{borrow::Cow, ops::{Deref, Range}, sync::{atomic::{AtomicBool, AtomicUs
 use bevy::camera::{CameraMainTextureUsages, Hdr, MainPassResolutionOverride, Viewport};
 use bevy::core_pipeline::{
     core_3d::{main_opaque_pass_3d, main_transparent_pass_3d, Transparent3d},
-    prepass::{DepthPrepass, MotionVectorPrepass, ViewPrepassTextures},
+    prepass::{DepthPrepass, MotionVectorPrepass, PreviousViewData, ViewPrepassTextures},
     Core3d, Core3dSystems,
 };
 use bevy::diagnostic::FrameCount;
@@ -571,10 +571,10 @@ static DEBUG_VIEW: std::sync::LazyLock<bool> = std::sync::LazyLock::new(|| std::
 /// Reconstruction is before every effect expecting the full display-sized image.
 #[allow(clippy::type_complexity)]
 pub(crate) fn fsr_pass(
-    view: ViewQuery<(&ViewTarget, &PreparedFsr, Option<&ViewPrepassTextures>, &TemporalJitter)>,
+    view: ViewQuery<(&ViewTarget, &PreparedFsr, Option<&ViewPrepassTextures>, &TemporalJitter, &ExtractedView, Option<&PreviousViewData>)>,
     renderer: Res<FsrRenderer>, device: Res<RenderDevice>, frame_generation: Option<Res<crate::frame_gen::FrameGenRequest>>, mut ctx: RenderContext,
 ) {
-    let (target, prepared, prepass, jitter) = view.into_inner();
+    let (target, prepared, prepass, jitter, extracted, previous) = view.into_inner();
     let Some((context, auxiliary)) = &renderer.0 else { return };
     let recording = crate::frame_pace::recording();
     let inputs = prepass.and_then(|prepass| prepass.depth.as_ref().zip(prepass.motion_vectors.as_ref()));
@@ -599,7 +599,7 @@ pub(crate) fn fsr_pass(
     inputs_span.end(encoder);
     let source = target.main_texture().deref().clone();
     let destination = target.main_texture_other().deref().clone();
-    let info = FsrDispatchInfo {
+    let mut info = FsrDispatchInfo {
         color: source, depth: prepared.fsr_depth.clone(), motion_vectors: motion.texture.texture.deref().clone(),
         exposure: None, reactive_mask: Some(prepared.reactive.clone()), transparency_and_composition: Some(prepared.composition.clone()),
         dilated_depth: prepared.dilated_depth.clone(), dilated_motion_vectors: prepared.dilated_motion.clone(),
@@ -617,7 +617,21 @@ pub(crate) fn fsr_pass(
         flags: if *DEBUG_VIEW { FsrDispatchFlags::DRAW_DEBUG_VIEW } else { FsrDispatchFlags::empty() },
     };
     let upscale_span = diagnostics.time_span(encoder, "upscale");
-    let dispatched = context.dispatch(&mut prepared.view.lock().unwrap(), encoder, &info);
+    // The DLSS spike (dlss_spike/, #2198, `NVF_DLSS_SPIKE=1`): while it is active, one DLSS
+    // evaluate in place of FSR's dispatch; inactive, it returns at once without touching `ctx`.
+    let spike = crate::dlss_spike::evaluate(&mut ctx, &crate::dlss_spike::Frame {
+        target, depth: &prepared.fsr_depth, motion: &motion.texture.texture, motion_view: &motion.texture.default_view,
+        render_size: prepared.render_size, output_size: prepared.output_size, view: extracted, previous, jitter: jitter.offset,
+        near: prepared.camera.near, fov: prepared.camera.fov, reset, frame_generation: frame_generation.as_ref().is_some_and(|f| f.on()),
+    });
+    let encoder = ctx.command_encoder();
+    let dispatched = match spike {
+        crate::dlss_spike::Outcome::Evaluated => Ok(()),
+        crate::dlss_spike::Outcome::Fsr { reset } => {
+            info.reset_history |= reset;
+            context.dispatch(&mut prepared.view.lock().unwrap(), encoder, &info)
+        }
+    };
     upscale_span.end(encoder);
     match dispatched {
         Ok(()) => {

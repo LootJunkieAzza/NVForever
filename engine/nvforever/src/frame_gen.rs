@@ -91,9 +91,11 @@ pub struct FrameGeneration {
 #[derive(Resource, Clone, Copy, Default)]
 pub struct FrameGenSupport(pub bool);
 
-/// Whether frame generation can run: on, supported, FSR active and vsync on.
+/// Whether frame generation can run: on, supported, FSR active and vsync on, and the DLSS
+/// spike not active (`NVF_DLSS_SPIKE=1` test aid, dlss_spike/: forced off while it evaluates).
 pub fn usable(world: &World) -> bool {
     world.resource::<FrameGeneration>().on
+        && !crate::dlss_spike::frame_generation_forced_off()
         && world.get_resource::<FrameGenSupport>().is_some_and(|s| s.0)
         && crate::graphics::fsr_active(world)
         && world.resource::<crate::frame_pace::FramePace>().sync.vsync()
