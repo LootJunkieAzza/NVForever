@@ -1980,7 +1980,7 @@ struct DetailLine;
 
 #[allow(clippy::too_many_arguments)]
 fn open(
-    keys: Res<ButtonInput<KeyCode>>,
+    keys: crate::pad::ActionButtons<KeyCode>,
     time: AidTime,
     mut aid: ResMut<PauseAid>,
     mut paused: ResMut<Paused>,
@@ -1991,6 +1991,7 @@ fn open(
     wheel: Option<Res<crate::weapon_wheel::WeaponWheel>>,
     (script, mut seen, mut request): (Option<Res<crate::script::ScriptState>>, Local<u64>, ResMut<PageRequest>),
 ) {
+    let keys = keys.snapshot();
     let by_aid = fire(&mut aid.open, time.elapsed_secs());
     // ShowOff's ShowPauseMenu: each new ask opens the menu, on the page its mode names
     // (1 load, 3 settings; the others the main page) (`fnv_game::nvse_showoff5`).
@@ -2446,7 +2447,7 @@ fn search_keys(events: &[KeyboardInput], modifiers: bool) -> Vec<SearchKey> {
 #[allow(clippy::too_many_arguments)]
 fn collect_search_keys(
     (mut typed, switching): (MessageReader<KeyboardInput>, Option<Res<crate::pad::SwitchingInput>>),
-    keys: Res<ButtonInput<KeyCode>>,
+    keys: crate::pad::ActionButtons<KeyCode>,
     paused: Option<Res<Paused>>,
     page: Option<Res<Page>>,
     view: Option<Res<PauseView>>,
@@ -2454,6 +2455,7 @@ fn collect_search_keys(
     mut out: ResMut<SearchKeys>,
     mut capture: ResMut<crate::bindings::KeyboardCapture>,
 ) {
+    let keys = keys.snapshot();
     let events: Vec<KeyboardInput> = typed.read().filter(|e| switching.as_ref().is_none_or(|s| s.allows(e))).cloned().collect();
     let open = paused.is_some_and(|p| p.0) && page.is_some_and(|p| matches!(*p, Page::Settings { .. })) && view.is_some_and(|v| v.scope == SettingsScope::Search);
     let modifiers = keys.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight, KeyCode::AltLeft, KeyCode::AltRight, KeyCode::SuperLeft, KeyCode::SuperRight]);
@@ -2624,7 +2626,7 @@ fn log_inspect(list: &[Setting], view: &PauseView, selected: Option<RowId>, entr
 
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn choose(
-    keys: Res<ButtonInput<KeyCode>>,
+    keys: crate::pad::ActionButtons<KeyCode>,
     time: AidTime,
     mut aid: ResMut<PauseAid>,
     paused: Res<Paused>,
@@ -2642,14 +2644,14 @@ fn choose(
         Option<Res<crate::main_menu::MainMenu>>,
         Option<Res<crate::intro::Intro>>,
         MessageWriter<MainMenuRequest>,
-        Res<ButtonInput<MouseButton>>,
+        crate::pad::ActionButtons<MouseButton>,
         Option<Res<SearchKeys>>,
         Option<ResMut<PauseInputAid>>,
         Option<ResMut<crate::tiles::mods::ModsPage>>,
     ),
     (bindings, pads, sticks, pending, mods, mut listening, mut layout, colours): (
         Option<Res<crate::bindings::Bindings>>,
-        Query<&Gamepad>,
+        crate::pad::ActionPads,
         Option<Res<crate::pad::StickButtons>>,
         Option<Res<crate::settings::PendingKeep>>,
         Option<Res<ModsEntry>>,
@@ -2659,6 +2661,7 @@ fn choose(
     ),
     (meters, pointed, mut tab_store, mut report): (Query<(&PauseButton, &RelativeCursorPosition)>, Query<(&PointerState, &PauseButton)>, Option<ResMut<SettingsTabStore>>, Option<ResMut<ReportEntry>>),
 ) {
+    let keys = keys.snapshot();
     use crate::bindings::{Bindings, Input, InputDevice};
     use crate::pad::PadInput;
     use crate::settings_view as sv;

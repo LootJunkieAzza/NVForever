@@ -31,7 +31,7 @@
 use bevy::prelude::*;
 
 pub(crate) mod device;
-pub(crate) use device::SwitchingInput;
+pub use device::{ActionButtons, ActionPads, InputSwitchPlugin, SwitchingInput};
 
 /// A controller input a control can be bound to: a button, or the left stick pushed one
 /// way (the movement controls).
@@ -916,7 +916,7 @@ impl StickButtons {
 
 /// The furthest-pushed stick of the connected controllers (`left` or right), dead zone
 /// taken off.
-pub fn stick(pads: &Query<&Gamepad>, left: bool) -> Vec2 {
+pub fn stick(pads: &crate::pad::ActionPads, left: bool) -> Vec2 {
     let v = pads.iter().map(|g| if left { g.left_stick() } else { g.right_stick() }).max_by(|a, b| a.length_squared().total_cmp(&b.length_squared())).unwrap_or(Vec2::ZERO);
     if v.length() < STICK_DEAD {
         Vec2::ZERO
@@ -925,8 +925,10 @@ pub fn stick(pads: &Query<&Gamepad>, left: bool) -> Vec2 {
     }
 }
 
+// Derived physical edges must not turn a continued stick hold into a fresh press
+// on the frame after switching [design, #2200].
 pub(crate) fn update_stick_buttons(pads: Query<&Gamepad>, mut s: ResMut<StickButtons>) {
-    let v = stick(&pads, true);
+    let v = pads.iter().map(|g| g.left_stick()).max_by(|a, b| a.length_squared().total_cmp(&b.length_squared())).unwrap_or(Vec2::ZERO);
     s.before = s.now;
     for d in StickDir::ALL {
         s.now[d.index()] = d.amount(v) >= STICK_PRESS;
@@ -1117,11 +1119,12 @@ pub fn menu_buttons(at: MenuAt) -> &'static [(GamepadButton, KeyCode)] {
 /// button, which takes the buttons themselves.
 #[allow(clippy::type_complexity)]
 pub(crate) fn menu_keys(
-    pads: Query<&Gamepad>,
+    pads: crate::pad::ActionPads,
     bindings: Option<Res<crate::bindings::Bindings>>,
     (state, paused, listening): (Option<Res<State<crate::PlayState>>>, Option<Res<crate::pause::Paused>>, Option<Res<crate::pause::Listening>>),
     mut keys: ResMut<ButtonInput<KeyCode>>,
     mut mk: ResMut<MenuKeys>,
+    switching: Option<Res<SwitchingInput>>,
     (script, pages): (Option<Res<crate::script::ScriptState>>, MenuPages),
 ) {
     let waiting = listening.is_some_and(|l| l.0.is_some());
@@ -1141,7 +1144,9 @@ pub(crate) fn menu_keys(
     }
     for k in mk.held.clone() {
         if !want.contains(&k) {
-            keys.release(k);
+            if !switching.as_ref().is_some_and(|s| s.physical_key_pressed(k)) {
+                keys.release(k);
+            }
         }
     }
     for k in &want {
@@ -1340,7 +1345,7 @@ pub fn at_menu(code: u16) -> MenuAt {
 /// Whether `button` went down this frame on a controller that works the controls: for a
 /// menu's own controller buttons beyond the keys [`menu_keys`] stands in for (the ITEMS
 /// page's X drop, `crate::pipboy::items`).
-pub(crate) fn menu_button(pads: &Query<&Gamepad>, bindings: Option<&crate::bindings::Bindings>, button: GamepadButton) -> bool {
+pub(crate) fn menu_button(pads: &crate::pad::ActionPads, bindings: Option<&crate::bindings::Bindings>, button: GamepadButton) -> bool {
     bindings.is_some_and(|b| b.device == crate::bindings::InputDevice::Controller) && pads.iter().any(|g| g.just_pressed(button))
 }
 
@@ -1359,14 +1364,12 @@ pub struct PadPlugin;
 impl Plugin for PadPlugin {
     fn build(&self, app: &mut App) {
         use bevy::input::InputSystems;
-        app.init_resource::<StickButtons>()
-            .init_resource::<SwitchingInput>()
+        app.add_plugins(InputSwitchPlugin).init_resource::<StickButtons>()
             .init_resource::<MenuKeys>()
             .init_resource::<ButtonStyle>()
             .init_resource::<PadInUse>()
             .init_resource::<PadGlyphs>()
-            .add_systems(PreUpdate, device::restore.before(InputSystems))
-            .add_systems(PreUpdate, (track_pad, device::read_keyboard.before(crate::test_aid::real_presses), device::automatic.before(crate::full_screen_key::read).before(bevy::ui::UiSystems::Focus), update_stick_buttons, menu_keys, sync_labels).chain().after(InputSystems))
+            .add_systems(PreUpdate, (track_pad, update_stick_buttons, menu_keys, sync_labels).chain().after(InputSystems).after(device::automatic))
             .add_systems(Update, (log_pads, load_pad_glyphs.before(crate::PlaySet::Ui)));
         crate::settings::add_choice_list(
             app,

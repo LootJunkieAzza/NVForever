@@ -919,6 +919,11 @@ mod tests {
 
     #[test]
     fn scripted_keyboard_switching_press_is_consumed_and_works_after_release() {
+        #[derive(Resource, Default)]
+        struct Seen([bool; 3]);
+        fn read(keys: crate::pad::ActionButtons<KeyCode>, mut seen: ResMut<Seen>) {
+            seen.0 = [keys.pressed(KeyCode::Enter), keys.just_pressed(KeyCode::Enter), keys.just_released(KeyCode::Enter)];
+        }
         let mut app = App::new();
         app.add_plugins((MinimalPlugins, bevy::input::InputPlugin));
         app.insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(std::time::Duration::from_millis(250)));
@@ -930,14 +935,15 @@ mod tests {
             due: vec![(0.0, (RealInput::Key(KeyCode::Enter), 0.5)), (1.0, (RealInput::Key(KeyCode::Enter), 0.5))],
             down: Vec::new(), pad: None,
         });
+        app.init_resource::<Seen>().add_systems(Update, read);
         app.add_systems(PreUpdate, (crate::pad::device::read_keyboard, real_presses, crate::pad::device::automatic).chain().after(bevy::input::InputSystems));
         app.update();
         assert_eq!(app.world().resource::<crate::bindings::Bindings>().device, crate::bindings::InputDevice::KeyboardMouse);
-        assert!(!app.world().resource::<ButtonInput<KeyCode>>().pressed(KeyCode::Enter));
+        assert_eq!(app.world().resource::<Seen>().0, [false; 3]);
         app.update();
-        assert!(!app.world().resource::<ButtonInput<KeyCode>>().pressed(KeyCode::Enter));
+        assert_eq!(app.world().resource::<Seen>().0, [true, false, false]);
         app.update();
-        assert!(!app.world().resource::<ButtonInput<KeyCode>>().just_released(KeyCode::Enter));
+        assert_eq!(app.world().resource::<Seen>().0, [false, false, true]);
         app.update();
         app.update();
         assert!(app.world().resource::<ButtonInput<KeyCode>>().just_pressed(KeyCode::Enter));

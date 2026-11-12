@@ -24,8 +24,9 @@ the spec it links to.
 ## Tier 1: felt in every fight or every session
 
 - **Automatic device switching (#2200).** [design, #2200] Switch the saved two-device
-  choice on fresh use, default ON with a Controls/INI opt-out; consume switching input
-  until release/neutral and keep the current device on simultaneous activity. Alternatives
+  choice on fresh use, default ON with a Controls/INI opt-out; ignore only the switching
+  press edge, preserve all releases, cancel pending release actions, and keep the current
+  device on simultaneous activity. Alternatives
   from the issue: an Auto choice, ask once, or discoverability only. Ruling otherwise
   changes this selection policy ([controller section 1](design/controller.md)).
 

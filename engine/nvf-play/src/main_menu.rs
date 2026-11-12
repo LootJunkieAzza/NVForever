@@ -409,7 +409,7 @@ fn relabel(menu: Res<MainMenu>, mut seen: Local<Option<u32>>, entries: Query<(En
 
 #[allow(clippy::too_many_arguments)]
 fn choose(
-    keys: Res<ButtonInput<KeyCode>>,
+    keys: crate::pad::ActionButtons<KeyCode>,
     time: AidTime,
     mut aid: ResMut<MenuAid>,
     mut menu: ResMut<MainMenu>,
@@ -424,6 +424,7 @@ fn choose(
     mut last_page: Local<Option<Page>>,
     mut sounds: MessageWriter<crate::ui_sounds::UiSound>,
 ) {
+    let keys = keys.snapshot();
     use crate::ui_sounds::{UiEvent, UiMenu, UiSound};
     if !menu.open {
         return;

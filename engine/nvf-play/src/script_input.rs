@@ -73,6 +73,7 @@ fn script_input(
     mut keys: ResMut<ButtonInput<KeyCode>>,
     mut mouse: ResMut<ButtonInput<MouseButton>>,
     mut blocked: ResMut<ScriptBlocked>,
+    switching: Option<Res<crate::pad::SwitchingInput>>,
     mut tapped: Local<Vec<u16>>,
     mut script_held: Local<Vec<u16>>,
 ) {
@@ -99,7 +100,10 @@ fn script_input(
             b.set(control, new);
         }
     }
-    input.held = keys.get_pressed().filter_map(|&k| key_code(k)).chain(mouse.get_pressed().filter_map(|&b| mouse_code(b))).collect();
+    let action_keys = switching.as_ref().map_or_else(|| std::borrow::Cow::Borrowed(&*keys), |s| s.filter(&keys));
+    let action_mouse = switching.as_ref().map_or_else(|| std::borrow::Cow::Borrowed(&*mouse), |s| s.filter(&mouse));
+    input.held = action_keys.get_pressed().filter_map(|&k| key_code(k)).chain(action_mouse.get_pressed().filter_map(|&b| mouse_code(b))).collect();
+    drop((action_keys, action_mouse));
     if let Some(b) = bindings.as_deref() {
         // The engine's controls are the extender's 0–27, in the same order.
         input.bindings = GAME_CONTROLS[..GAME_INI_CONTROLS].iter().map(|(c, _, _)| {
@@ -247,7 +251,7 @@ fn tell_player_state(
     control: Option<Res<crate::control::PlayerControl>>,
     combat: Option<Res<crate::combat::Combat>>,
     anim: Option<Res<crate::combat::WeaponAnim>>,
-    pads: Query<&Gamepad>,
+    pads: crate::pad::ActionPads,
     mut script: Option<ResMut<crate::script::ScriptState>>,
 ) {
     let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else { return };

@@ -225,7 +225,7 @@ fn input(
     mut st: ResMut<LevelUpMenu>,
     mut aid: ResMut<LevelUpAid>,
     time: AidTime,
-    keys: Res<ButtonInput<KeyCode>>,
+    keys: crate::pad::ActionButtons<KeyCode>,
     (mut typed, switching): (MessageReader<KeyboardInput>, Option<Res<crate::pad::SwitchingInput>>),
     mut wheel: MessageReader<MouseWheel>,
     rows: Query<(&PointerState, &Row), Changed<PointerState>>,
@@ -235,6 +235,7 @@ fn input(
     sim: Option<ResMut<SimState>>,
     mut sounds: MessageWriter<UiSound>,
 ) {
+    let keys = keys.snapshot();
     use KeyCode::*;
     let typed: Vec<KeyboardInput> = typed.read().filter(|e| switching.as_ref().is_none_or(|s| s.allows(e))).cloned().collect();
     let wheel: f32 = wheel.read().map(|w| if w.unit == MouseScrollUnit::Line { w.y } else { w.y / 40.0 }).sum();

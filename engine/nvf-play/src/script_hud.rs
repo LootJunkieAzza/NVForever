@@ -388,7 +388,7 @@ fn draw(
 /// `ScriptState::answer`.
 #[allow(clippy::too_many_arguments)]
 pub fn menu_keys(
-    keys: Res<ButtonInput<KeyCode>>,
+    keys: crate::pad::ActionButtons<KeyCode>,
     clicks: Query<(&PointerState, &BoxButton), Changed<PointerState>>,
     hud: Res<ScriptHud>,
     mut panel: ResMut<MessagePanel>,
@@ -396,6 +396,7 @@ pub fn menu_keys(
     creator: Option<Res<crate::creator::CreatorData>>,
     (tile_click, tiles): (Option<ResMut<crate::tiles::input::MessageClick>>, Option<Res<crate::tiles::vanilla::TileMenus>>),
 ) {
+    let keys = keys.snapshot();
     use KeyCode::*;
     // A click on the box drawn from its tiles (T15a, `crate::tiles::input`), taken.
     let tile_click = tile_click.and_then(|mut c| c.0.take());

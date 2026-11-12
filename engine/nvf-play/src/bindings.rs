@@ -852,11 +852,23 @@ pub fn set_device(world: &mut World, d: InputDevice) {
     let Some(mut b) = world.get_resource_mut::<Bindings>() else { return };
     let changed = b.device != d;
     b.device = d;
-    // The old device's release will no longer reach `read_controls`; cancel its
-    // holds without a POV tap, reload or holster [design, #2200].
+    // Cancel pending release actions before readers can interpret the device change
+    // as a completed tap/selection. Hardware releases remain visible [design, #2200].
     if changed {
         if let Some(mut control) = world.get_resource_mut::<crate::control::PlayerControl>() {
             control.cancel_input_holds();
+        }
+        if let Some(mut grab) = world.get_resource_mut::<crate::grab::GrabState>() {
+            grab.tap = None;
+        }
+        if let Some(mut wheel) = world.get_resource_mut::<crate::weapon_wheel::WeaponWheel>() {
+            wheel.cancel_input_hold();
+        }
+        let mut pointers = world.query::<&mut crate::ui_pointer::PointerState>();
+        for mut pointer in pointers.iter_mut(world) {
+            if *pointer == crate::ui_pointer::PointerState::Pressed {
+                *pointer = crate::ui_pointer::PointerState::None;
+            }
         }
     }
     info!("controls: input device {}", d.name());
@@ -1090,17 +1102,17 @@ fn write(path: &Path, b: &Bindings) -> Result<(), String> {
 #[derive(Resource, Default, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct KeyboardCapture(pub bool);
 
-/// The controls' state this frame, from the keyboard and mouse or the controller as
-/// [`InputDevice`] says. While the console's free camera flies (`crate::free_cam`) its
+/// Presses follow [`InputDevice`]; releases query both devices [design, #2200].
+/// While the console's free camera flies (`crate::free_cam`) its
 /// keys are the camera's: no control reads as pressed; while a text field has the keys
 /// ([`KeyboardCapture`]) none reads as pressed or released.
 #[derive(SystemParam)]
 pub struct ControlInput<'w, 's> {
-    pub keys: Res<'w, ButtonInput<KeyCode>>,
-    pub mouse: Res<'w, ButtonInput<MouseButton>>,
+    pub keys: crate::pad::ActionButtons<'w, KeyCode>,
+    pub mouse: crate::pad::ActionButtons<'w, MouseButton>,
     pub bindings: Res<'w, Bindings>,
     pub free_cam: Option<Res<'w, crate::free_cam::FreeCam>>,
-    pub pads: Query<'w, 's, &'static Gamepad>,
+    pub pads: crate::pad::ActionPads<'w, 's>,
     pub sticks: Option<Res<'w, crate::pad::StickButtons>>,
     /// Keys and buttons scripts disabled (DisableKey, DisableControl; task D6).
     pub blocked: Option<Res<'w, crate::script_input::ScriptBlocked>>,
@@ -1140,6 +1152,11 @@ impl ControlInput<'_, '_> {
         self.bindings.device == InputDevice::Controller
     }
 
+    /// Derived physical stick edges with the switching crossing filtered [design, #2200].
+    pub fn stick_buttons(&self) -> Option<crate::pad::StickButtons> {
+        self.sticks.as_ref().map(|s| self.pads.filter_sticks(s))
+    }
+
     fn pad_is(&self, c: Control, ask: Ask) -> bool {
         match self.bindings.pad(c) {
             Some(PadInput::Button(b)) => self.pads.iter().any(|g| match ask {
@@ -1148,8 +1165,8 @@ impl ControlInput<'_, '_> {
                 Ask::JustReleased => g.just_released(b),
             }),
             Some(PadInput::Stick(d)) => self.sticks.as_ref().is_some_and(|s| match ask {
-                Ask::Pressed => s.pressed(d),
-                Ask::JustPressed => s.just_pressed(d),
+                Ask::Pressed => s.pressed(d) && self.pads.iter().any(|g| d.amount(g.left_stick()) >= crate::pad::STICK_PRESS),
+                Ask::JustPressed => s.just_pressed(d) && self.pads.iter().any(|g| d.amount(g.left_stick()) >= crate::pad::STICK_PRESS),
                 Ask::JustReleased => s.just_released(d),
             }),
             None => false,
@@ -1198,11 +1215,8 @@ impl ControlInput<'_, '_> {
         if self.held(c) || self.captured() {
             return false;
         }
-        if self.controller() {
-            return self.pad_is(c, Ask::JustReleased) && !self.pressed(c);
-        }
         let b = self.bindings.get(c);
-        let released = b.key.is_some_and(|k| self.keys.just_released(k)) || b.mouse.is_some_and(|m| self.mouse.just_released(m));
+        let released = self.pad_is(c, Ask::JustReleased) || b.key.is_some_and(|k| self.keys.just_released(k)) || b.mouse.is_some_and(|m| self.mouse.just_released(m));
         released && !self.pressed(c)
     }
 }

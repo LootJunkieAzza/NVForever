@@ -722,16 +722,16 @@ pub struct Game<'w> {
 /// What the player presses.
 #[derive(SystemParam)]
 pub struct Input<'w, 's> {
-    keys: Res<'w, ButtonInput<KeyCode>>,
+    keys: crate::pad::ActionButtons<'w, KeyCode>,
     wheel: MessageReader<'w, 's, MouseWheel>,
     menu: MessageReader<'w, 's, MenuInput>,
     pip_out: MessageWriter<'w, PipBoyInput>,
     time: Res<'w, Time<Real>>,
-    buttons: Res<'w, ButtonInput<MouseButton>>,
+    buttons: crate::pad::ActionButtons<'w, MouseButton>,
     aid: ResMut<'w, PipBoyAid>,
     ask: MessageWriter<'w, FastTravelAsk>,
     go: MessageWriter<'w, FastTravelGo>,
-    pads: Query<'w, 's, &'static Gamepad>,
+    pads: crate::pad::ActionPads<'w, 's>,
     bindings: Option<Res<'w, Bindings>>,
 }
 

@@ -345,7 +345,7 @@ pub fn no_console(c: Option<Res<Console>>) -> bool {
 
 #[allow(clippy::too_many_arguments)]
 fn toggle(
-    keys: Res<ButtonInput<KeyCode>>,
+    keys: crate::pad::ActionButtons<KeyCode>,
     time: crate::pause::AidTime,
     aid: Res<ConsoleAid>,
     mut c: ResMut<Console>,
@@ -357,6 +357,7 @@ fn toggle(
     roots: Query<Entity, With<ConsoleRoot>>,
     free_cam: Res<crate::free_cam::FreeCam>,
 ) {
+    let keys = keys.snapshot();
     let by_aid = aid.0.first().is_some_and(|(t, _)| time.world_secs().is_some_and(|now| *t <= now));
     if !c.open {
         // The free camera's mode 1 holds the world in `Menu` with no menu open (`crate::free_cam`).
@@ -974,7 +975,7 @@ pub fn parse_form_id(s: &str) -> Option<FormId> {
 /// A click in the world picks what is under the pointer.
 #[allow(clippy::too_many_arguments)]
 fn click(
-    mouse: Res<ButtonInput<MouseButton>>,
+    mouse: crate::pad::ActionButtons<MouseButton>,
     aid: Option<Res<AidClicks>>,
     mut commands: Commands,
     mut c: ResMut<Console>,
@@ -989,6 +990,7 @@ fn click(
     free_cam: Res<crate::free_cam::FreeCam>,
     (mut wheel, mut wheel_px): (MessageReader<MouseWheel>, Local<f32>),
 ) {
+    let mouse = mouse.snapshot();
     // Read every frame so a turn made while the console is shut does not count later.
     let mut steps = 0i32;
     for w in wheel.read() {

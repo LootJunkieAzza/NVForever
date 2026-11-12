@@ -84,8 +84,7 @@ pub(crate) fn read((mut events, switching): (MessageReader<KeyboardInput>, Optio
     let (mut repeated, mut lifted, mut struck) = ([false; 2], [false; 2], [false; 2]);
     for e in events.read() {
         let Some(i) = ALTS.iter().position(|k| *k == e.key_code) else { continue };
-        // A consumed release still clears modifier bookkeeping; only presses and
-        // repeats are suppressed by device switching [design, #2200].
+        // The shared filter always allows releases [design, #2200].
         if e.state.is_pressed() && switching.as_ref().is_some_and(|s| !s.allows(e)) {
             continue;
         }
@@ -95,10 +94,12 @@ pub(crate) fn read((mut events, switching): (MessageReader<KeyboardInput>, Optio
             ButtonState::Pressed => struck[i] = true,
         }
     }
-    let pressed = ALTS.map(|k| keys.pressed(k));
+    let view = switching.as_ref().map_or_else(|| std::borrow::Cow::Borrowed(&*keys), |s| s.filter(&keys));
+    let pressed = ALTS.map(|k| view.pressed(k));
     // A fresh press: the keyboard's own, or the test aid's (it sends no keyboard event).
-    let fresh = [0, 1].map(|i| struck[i] || (keys.just_pressed(ALTS[i]) && !repeated[i]));
-    let enter = keys.any_just_pressed(ENTERS);
+    let fresh = [0, 1].map(|i| struck[i] || (view.just_pressed(ALTS[i]) && !repeated[i]));
+    let enter = view.any_just_pressed(ENTERS);
+    drop(view);
     if step(&mut alts, pressed, (struck, lifted), fresh, enter) {
         for k in ENTERS {
             keys.clear_just_pressed(k);

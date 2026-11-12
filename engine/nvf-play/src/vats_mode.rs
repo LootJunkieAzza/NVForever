@@ -1146,7 +1146,7 @@ fn read_keys(
             // from the selected one [design: the file names the stick, not the rule]; where
             // none does, the part before (up, left) or after (down, right).
             use crate::pad::StickDir;
-            let pushed = input.sticks.as_ref().filter(|_| playing).and_then(|s| StickDir::ALL.into_iter().find(|d| s.just_pressed(*d)));
+            let pushed = input.stick_buttons().as_ref().filter(|_| playing).and_then(|s| StickDir::ALL.into_iter().find(|d| s.just_pressed(*d)));
             if let Some(d) = pushed {
                 let (dir, step) = match d {
                     StickDir::Up => ((0.0, -1.0), -1),

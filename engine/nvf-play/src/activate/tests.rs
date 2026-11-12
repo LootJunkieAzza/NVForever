@@ -455,3 +455,32 @@ fn e_on_a_chest_opens_the_container_menu_and_it_stays_open() {
     app.update();
     assert_eq!(*app.world().resource::<State<PlayState>>().get(), PlayState::Playing);
 }
+
+
+#[test]
+fn switching_cancels_a_holdable_activate_tap_before_it_can_take_the_item() {
+    use crate::{bindings::{Bindings, InputDevice}, grab::{Candidate, GrabState}};
+    use bevy::input::{gamepad::{RawGamepadButtonChangedEvent, RawGamepadEvent}, keyboard::{Key, KeyboardInput}, ButtonState};
+    let mut app = scene(&[]);
+    app.add_plugins((MinimalPlugins, bevy::input::InputPlugin, crate::pad::InputSwitchPlugin));
+    app.init_resource::<GrabState>();
+    visual(&mut app, STIM_REF, [60.0, 0.0, 100.0]);
+    app.world_mut().resource_mut::<GrabState>().candidate = Some(Candidate {
+        on: fnv_phys::GripOn::Ref(STIM_REF), at: [60.0, 0.0, 100.0], distance: 60.0,
+    });
+    let pad = app.world_mut().spawn(Gamepad::default()).id();
+    let e = KeyboardInput { key_code: KeyCode::KeyE, logical_key: Key::Character("e".into()), state: ButtonState::Pressed, text: None, repeat: false, window: Entity::PLACEHOLDER };
+    app.world_mut().write_message(e.clone());
+    app.update();
+    assert!(app.world().resource::<GrabState>().tap.is_some());
+    app.world_mut().write_message(RawGamepadEvent::Button(RawGamepadButtonChangedEvent::new(pad, GamepadButton::North, 1.0)));
+    app.update();
+    assert_eq!(app.world().resource::<Bindings>().device, InputDevice::Controller);
+    assert!(app.world().resource::<GrabState>().tap.is_none());
+    assert!(drain::<RefChanged>(&mut app).is_empty());
+    app.world_mut().write_message(KeyboardInput { state: ButtonState::Released, ..e });
+    app.update();
+    assert!(app.world().resource::<ButtonInput<KeyCode>>().just_released(KeyCode::KeyE));
+    assert!(drain::<RefChanged>(&mut app).is_empty());
+    assert_eq!(app.world().resource::<SimState>().world.peek(FormId::PLAYER_REF).and_then(|r| r.inventory.as_ref()).map_or(0, |i| i.count(FormId(STIMPAK))), 0);
+}
