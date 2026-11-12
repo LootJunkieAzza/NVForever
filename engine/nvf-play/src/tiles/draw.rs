@@ -1605,7 +1605,9 @@ pub(crate) fn device_brightness(pieces: &mut [Piece], ui: Option<&Ui>, brightnes
     let factor = crate::pipboy::frame::DEVICE_TEXT / 255.0;
     let full = bright.map(|c| f32::from(c) / 255.0);
     for p in pieces.iter_mut() {
-        let at_full = p.colour[..3].iter().zip(full).all(|(c, f)| (c - f).abs() <= 0.5 / 255.0);
+        // A float tolerance, not half a level: the pieces' colour is `bright * brightness / 255`
+        // in floats, so a brightness of 254 over a dark colour must not pass for 255.
+        let at_full = p.colour[..3].iter().zip(full).all(|(c, f)| (c - f).abs() <= 1e-4);
         if !at_full || ui.is_some_and(|ui| super::map_menu::keeps_file_brightness(ui, p.tile)) {
             continue;
         }
