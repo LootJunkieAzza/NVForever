@@ -330,6 +330,9 @@ pub enum AiEvent {
     SearchOver { why: &'static str },
     /// After a search it goes back to its package's place, `away` units off.
     SearchBack { package: FormId, away: f32 },
+    /// Back to its package inside the package's place (after a search, a push or a
+    /// chat), it settles there again: its bed or chair, a sandbox ([`Ai::back_to_package`]).
+    Resettles { package: FormId },
     /// An actor without a package, moved away by a search, a fight or a push, walks back
     /// to where it was placed ([`Ai::back_to_package`]).
     BackHome { away: f32, length: f32 },
@@ -983,7 +986,19 @@ impl Ai {
         }
         let (Some(package), Activity::There, None, None, None) = (a.package, a.activity, &a.sandbox, a.wait_until, a.talk) else { return };
         let feet = Place { space: a.walker.space, pos: a.walker.feet };
-        let Some(to) = a.goal.clone().and_then(|g| self.way_to(feet, &g)) else { return };
+        let Some(goal) = a.goal.clone() else { return };
+        let Some(to) = self.way_to(feet, &goal) else {
+            // Already in the package's place: taken off its bed or chair (an alert takes
+            // an actor off its furniture), it settles again as on arrival. In the original
+            // Easy Pete, fought off his chair, had his chair package back at the fight's
+            // end and sat again about 5 real seconds later [observed: AI observer
+            // 2026-11-10, issue #2013].
+            if a.using.is_none() {
+                self.log(game, actor, AiEvent::Resettles { package });
+                self.settle(game, actor);
+            }
+            return;
+        };
         self.log(game, actor, why(package, hdist(feet.pos, to.pos)));
         self.plan(game, nav, actor, package, to, None);
     }
