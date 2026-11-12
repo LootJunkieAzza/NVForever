@@ -1315,7 +1315,12 @@ impl Ui {
             Src::Io => Some(self.root_of(me)),
             Src::Named(n) => {
                 let root = self.root_of(me);
-                self.find_named(root, n).or_else(|| self.root_named(n))
+                // `src="me"`, the brackets left off, is the tile itself when no tile bears
+                // the name [observed: MCM 1.5's Options.xml, `<_x1> <copy src="me"
+                // trait="x"/> <add> 20 </add> </_x1>` on MCM_Options, whose rows stand in
+                // the right pane in the original; read as a name it gave 0 and the rows
+                // stood at the screen's left, the owner's run of 2026-11-12].
+                self.find_named(root, n).or_else(|| self.root_named(n)).or_else(|| n.eq_ignore_ascii_case("me").then_some(me))
             }
         }
     }

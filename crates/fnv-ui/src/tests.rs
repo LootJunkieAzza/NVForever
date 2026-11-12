@@ -245,6 +245,22 @@ fn loops_of_traits_stop() {
     assert!(ui.dirty());
 }
 
+/// `src="me"` with the brackets left off is the tile itself, unless a tile bears the name
+/// [observed: MCM 1.5's Options.xml places its option rows by `<copy src="me" trait="x"/>`].
+#[test]
+fn a_bare_me_is_the_tile_itself() {
+    let src = MemSource::default()
+        .with("menus\\a.xml", r#"<menu name="A"> <rect name="Panel"> <x> 40 </x> <_x1> <copy src="me" trait="x"/> <add> 20 </add> </_x1> <_x2> <copy src="Me" trait="x"/> </_x2> </rect> </menu>"#)
+        .with("menus\\b.xml", r#"<menu name="B"> <rect name="me"> <x> 7 </x> </rect> <rect name="Panel"> <x> 40 </x> <_x1> <copy src="me" trait="x"/> </_x1> </rect> </menu>"#);
+    let mut ui = Ui::new();
+    ui.load_menu(&src, "menus\\a.xml").unwrap();
+    ui.load_menu(&src, "menus\\b.xml").unwrap();
+    ui.update();
+    assert_eq!(ui.get_float("A/Panel/_x1"), Some(60.0));
+    assert_eq!(ui.get_float("A/Panel/_x2"), Some(40.0));
+    // A tile of that name is the one meant.
+    assert_eq!(ui.get_float("B/Panel/_x1"), Some(7.0));
+}
 #[test]
 fn missing_files_are_reported_not_fatal() {
     let src = MemSource::default().with("menus\\m.xml", "<menu name=\"M\"><include src=\"gone.xml\"/><x> 1 </x></menu>");

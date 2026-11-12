@@ -266,8 +266,36 @@ pub fn mcm_list_line(ui: &fnv_ui::Ui) -> Option<String> {
             )
         })
         .collect();
+    // The option panel: where it and its two columns stand, and the rows that are on.
+    const OPTIONS: &str = "StartMenu/MCM/MCM_Options";
+    let option = |p: &str| read(&format!("{OPTIONS}/{p}"));
+    let on: Vec<String> = (1..=50).map(|k| format!("Option{k}")).filter(|n| ui.get_float(&format!("{OPTIONS}/{n}/_enable")).unwrap_or(0.0) != 0.0).collect();
+    let shown: Vec<String> = on
+        .iter()
+        .take(3)
+        .map(|n| {
+            let title = ui.get_string(&format!("{OPTIONS}/{n}/title/string")).unwrap_or_default();
+            format!("{n} {:?} x {} y {} visible {}", title.trim(), option(&format!("{n}/x")), option(&format!("{n}/y")), option(&format!("{n}/visible")))
+        })
+        .collect();
+    let options = format!(
+        "options: panel x {} y {} width {} visible {}, _x1 {}, _x2 {}, _columns {}; MCM x {} y {} width {}; {} rows on{}{}",
+        option("x"),
+        option("y"),
+        option("width"),
+        option("visible"),
+        option("_x1"),
+        option("_x2"),
+        option("_columns"),
+        read("StartMenu/MCM/x"),
+        read("StartMenu/MCM/y"),
+        read("StartMenu/MCM/width"),
+        on.len(),
+        if shown.is_empty() { "" } else { ": " },
+        shown.join("; ")
+    );
     Some(format!(
-        "MCM's list: _selected {}, _subCount {}, clicked row _index {} _modID {}, ArrowUp y {}, ArrowDown y {}, row height {}, _spacing {}, _listY {}; MCM _ActiveMod {}, _ActiveSubMenu {}, _UnClick {}, _AltInput {}; rows on: {}",
+        "MCM's list: _selected {}, _subCount {}, clicked row _index {} _modID {}, ArrowUp y {}, ArrowDown y {}, row height {}, _spacing {}, _listY {}; MCM _ActiveMod {}, _ActiveSubMenu {}, _UnClick {}, _AltInput {}; rows on: {}; {options}",
         list("_selected"),
         list("_subCount"),
         list("_index"),

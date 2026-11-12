@@ -1045,6 +1045,11 @@ pub(crate) fn feed(
             input.resolved = Some(candidates);
         }
     }
+    // The Mods page is drawn by the `locus` rule (`super::layout::layout_by_locus`): the
+    // pointer is matched against the same places.
+    if let (true, [menu]) = (mods_page, taking.as_slice()) {
+        input.resolved = Some(fnv_ui::input::hit_candidates_by_locus(&rt.game.ui_tree, *menu, &no_measure));
+    }
     // A frame's own clicks are for the screen up now; a script's kept theirs when queued.
     rt.game.ui_pointer.stamp = crate::dialogue::stamp_now(&rt.game);
     let report = fnv_game::ui_input::step(&mut rt.game, &taking, &input, &no_measure);

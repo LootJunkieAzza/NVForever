@@ -207,7 +207,8 @@ struct Place {
 /// tiles/layout.rs; menu-xml.md §3.1.1): `x`/`y` added to the parent's top-left,
 /// `width`/`height` its size, a text tile measured when it has none and moved by its
 /// `justify`, `depth` added down the tree, `clips` cropping the children [design: the same
-/// rules, so the pointer finds what is drawn; `locus` is not read, as the layout does not].
+/// rules, so the pointer finds what is drawn; `locus` is read only where the layout reads
+/// it, [`hit_candidates_by_locus`]].
 fn place(ui: &Ui, t: TileId, parent: Place, measure: &Measure<'_>) -> Place {
     let tile = ui.tile(t);
     let mut area = Area {
@@ -282,6 +283,20 @@ pub fn top_hit(ui: &Ui, candidates: &[HitCandidate], at: (f64, f64)) -> Option<H
 /// Taken as a menu is drawn, and given to [`Pointer::step`] by [`Input::resolved`], a later
 /// frame's click lands on what was on screen, whatever the tree has become meanwhile.
 pub fn hit_candidates(ui: &Ui, menu: TileId, measure: &Measure<'_>) -> Vec<HitCandidate> {
+    hit_candidates_in(ui, menu, measure, false)
+}
+
+/// [`hit_candidates`] by the `locus` rule, for a menu the layout draws by it (nvf-play
+/// `tiles::layout::layout_by_locus`, the start menu's Mods page): a tile's `x` and `y`
+/// count from the nearest tile above it whose `locus` is on. Without it the pointer was
+/// matched against other places than the drawn ones: MCM's `MCM` rect has no `locus` and
+/// an `x` of its own, so every row under it was looked for that much to the right
+/// [observed: the owner's run of 2026-11-12, MCM's rows highlighting beside the pointer].
+pub fn hit_candidates_by_locus(ui: &Ui, menu: TileId, measure: &Measure<'_>) -> Vec<HitCandidate> {
+    hit_candidates_in(ui, menu, measure, true)
+}
+
+fn hit_candidates_in(ui: &Ui, menu: TileId, measure: &Measure<'_>, by_locus: bool) -> Vec<HitCandidate> {
     let mut out = Vec::new();
     if !ui.is_live(menu) || !shown(ui, menu) {
         return out;
@@ -307,7 +322,7 @@ pub fn hit_candidates(ui: &Ui, menu: TileId, measure: &Measure<'_>) -> Vec<HitCa
         if clips_children(tile) {
             below.clip = Some(below.clip.map_or(here.area, |c| c.intersect(here.area)));
         }
-        if flag(ui, id, NO_ORIGIN) {
+        if flag(ui, id, NO_ORIGIN) || (by_locus && !flag(ui, id, "locus")) {
             below.area.left = parent.area.left;
             below.area.top = parent.area.top;
         }
@@ -890,6 +905,32 @@ mod tests {
         assert!(r.clicks.is_empty());
     }
 
+    /// By the `locus` rule a tile without `locus` moves nothing below it: MCM's window
+    /// rect has an `x` and no `locus`, its list has `locus` and the same `x`, and the rows
+    /// stand at the list's place, not at twice the window's.
+    #[test]
+    fn the_locus_rule_places_the_pointers_tiles_as_the_layout_does() {
+        let src = MemSource::default().with(
+            "menus\\l.xml",
+            r#"<menu name="L"> <rect name="Window"> <x> 300 </x> <y> 100 </y>
+                 <rect name="List"> <locus> &true; </locus> <x> <copy src="parent()" trait="x"/> </x> <y> <copy src="parent()" trait="y"/> </y>
+                   <hotrect name="Row"> <target> &true; </target> <x> 10 </x> <y> 20 </y> <width> 100 </width> <height> 30 </height> </hotrect>
+                 </rect> </rect> </menu>"#,
+        );
+        let mut ui = Ui::new();
+        let menu = ui.load_menu(&src, "menus\\l.xml").unwrap();
+        ui.update();
+        let row = id(&ui, "L/Window/List/Row");
+        let by_locus = hit_candidates_by_locus(&ui, menu, &no_measure);
+        assert_eq!(by_locus.iter().find(|c| c.under == row).map(|c| (c.area.left, c.area.top)), Some((310.0, 120.0)));
+        // Every parent's place added up, the rule elsewhere: twice the window's.
+        let summed = hit_candidates(&ui, menu, &no_measure);
+        assert_eq!(summed.iter().find(|c| c.under == row).map(|c| (c.area.left, c.area.top)), Some((610.0, 220.0)));
+        // The pointer follows the candidates it is given.
+        let mut p = Pointer::default();
+        let r = p.step(&mut ui, &[menu], &Input { at: Some((320.0, 130.0)), resolved: Some(by_locus), ..Input::default() }, &no_measure);
+        assert_eq!(r.over, Some((None, Some(row))));
+    }
     /// Under MCM's page the engine asks for two steps (`Pointer::click_steps`): the click
     /// is reported once, `clicked` reads 1 in the step of the press and the next, and 0
     /// after; a script's click stays one step.
