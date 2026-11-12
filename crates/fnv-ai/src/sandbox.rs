@@ -20,10 +20,13 @@
 //! What is ours, because the documentation gives no numbers ("various gamesettings and
 //! formulas"): how an object is scored (nearer is better), how fast weights grow back,
 //! how long each behaviour lasts, how long an object with no way to it stays out of the
-//! choices (`RETRY_DELAYS`), that an actor without a bed in its area does not
-//! sleep, and that an actor does not choose an idle marker whose idles are all another
-//! skeleton's clips (`clip_fits`: a person at a robot's marker, #1660). Not done: conversations between actors, picking up and eating food (an eating
-//! actor sits down if a seat is free, as an Eat package's does), and the idles an idle
+//! choices (`RETRY_DELAYS`), when the object just used comes back as the only one open
+//! (`SOLE_OBJECT_AGAIN_AFTER`, #1505), that an actor without a bed in its area does not
+//! sleep, that an actor does not choose an idle marker whose idles are all another
+//! skeleton's clips (`clip_fits`: a person at a robot's marker, #1660), and that a meal is
+//! taken only on a free seat: with none, the actor goes on with its other choices through
+//! the meal window (#2011). Not done: conversations between actors, picking up and eating
+//! food (an eating actor sits down, as an Eat package's does), and the idles an idle
 //! marker lists (the actor goes there and faces its way).
 
 use crate::furniture::Eligibility;
@@ -111,7 +114,8 @@ pub enum Doing {
     Sitting(FormId),
     AtIdleMarker(FormId),
     Sleeping(FormId),
-    /// A meal, on a seat when one is free.
+    /// A meal, on a seat. The sandbox chooses a meal only when a seat is free (#2011);
+    /// `None` is not chosen any more.
     Eating(Option<FormId>),
 }
 
@@ -186,6 +190,17 @@ const RETRY_DELAYS: [f64; 5] = [60.0, 120.0, 240.0, 480.0, 600.0];
 /// ([`Sandbox::guard`]) [design, #2027].
 const POINT_TRIES: usize = 8;
 
+/// How long an actor does something else (stands or wanders) before the object it used
+/// last may be chosen again when it is the only object open, seconds of `Game::time` from
+/// the first other behaviour begun [design, #1505: the maintainer's handed-off choice, about
+/// a short seat's or a default idle marker's stint (45 s, 30 s); under review in
+/// owner-review.md]. The GECK wiki documents a related setting,
+/// `iSandBoxPreventRepeatedActionTime`, default 30: a sandboxer does not repeat an action on
+/// the same object until that many seconds have passed [documented: GECK wiki,
+/// iSandBoxPreventRepeatedActionTime]. This rule is not that setting and claims no parity
+/// with it: it applies only to the sole object, and counts from the other behaviour.
+pub const SOLE_OBJECT_AGAIN_AFTER: f64 = 60.0;
+
 /// An object there was no way to, the last time the actor tried.
 #[derive(Debug, Clone, Copy)]
 struct FailedObject {
@@ -204,6 +219,9 @@ pub struct Sandbox {
     rng: Rng,
     weights: [f32; 3],
     last_object: Option<FormId>,
+    /// `Game::time` when the first behaviour without an object began since the last object's
+    /// ([`SOLE_OBJECT_AGAIN_AFTER`]); none until one has. Not saved, like `last_object`.
+    other_since: Option<f64>,
     /// Objects there was no way to. An entry stays after its wait is over, to keep its
     /// stage, until the object's behaviour begins [design]. Not saved: a load starts it
     /// empty.
@@ -229,6 +247,9 @@ pub struct Sandbox {
     /// Wander spots are random points of the navmesh within the radius, not triangle
     /// centres ([`Sandbox::guard`]).
     points: bool,
+    /// Choices made in a meal window with no free seat, so no meal (#2011): for reports
+    /// and smoke tests. Not saved.
+    seatless_meals: u32,
 }
 
 /// A sandbox's day as a save keeps it ([`crate::progress`]): where its random numbers
@@ -266,6 +287,7 @@ impl Sandbox {
             rng: Rng((actor.0 as u64) << 32 | package.0 as u64),
             weights: [1.0; 3],
             last_object: None,
+            other_since: None,
             failed_objects: BTreeMap::new(),
             day: i32::MIN,
             sleep: (0.0, 0.0),
@@ -278,6 +300,7 @@ impl Sandbox {
             interrupted: false,
             chosen_at: 0.0,
             points: false,
+            seatless_meals: 0,
         };
         s.roll(game);
         s
@@ -323,6 +346,12 @@ impl Sandbox {
     /// The day's sleep window (start hour, hours) and meals, for reports and tests.
     pub fn times(&self) -> ((f32, f32), [(f32, f32); 3]) {
         (self.sleep, self.meals)
+    }
+
+    /// How many choices this sandbox made inside a meal window with no free seat, so
+    /// without a meal (#2011; reports and smoke tests).
+    pub fn seatless_meal_choices(&self) -> u32 {
+        self.seatless_meals
     }
 
     /// Whether the behaviour in hand is over.
@@ -441,23 +470,35 @@ impl Sandbox {
                 return Choice { doing: Doing::Sleeping(bed.0), target: place(bed.1), heading: None, until: Until::Day(days + left / 24.0) };
             }
         }
-        // Mealtimes: on a seat when one is free.
+        // Mealtimes: on a seat, and only when one is free. With none (no seat in the area,
+        // each one kept for another actor, waiting out a failed way, or furniture off) the
+        // meal is not chosen and the day's other choices go on [design, #2011: the original
+        // reported no EAT procedure under Sandbox packages that allow eating, ~240
+        // actor-hours, observed: docs/spec-notes/npc-behaviour-compare.md §6a; until
+        // 2026-11-11 a seatless meal held the actor standing to the window's end].
         if self.allowed.eating {
             if let Some(left) = self.meals.iter().find_map(|m| Self::left(m.0, m.1, hour)) {
-                let seat = nearest(furniture::SIT).filter(|_| self.allowed.furniture);
-                return Choice { doing: Doing::Eating(seat.map(|s| s.0)), target: seat.and_then(|s| place(s.1)), heading: None, until: Until::Day(days + left / 24.0) };
+                if let Some(seat) = nearest(furniture::SIT).filter(|_| self.allowed.furniture) {
+                    return Choice { doing: Doing::Eating(Some(seat.0)), target: place(seat.1), heading: None, until: Until::Day(days + left / 24.0) };
+                }
+                self.seatless_meals += 1;
             }
         }
         // Otherwise one of the behaviours that take turns. Candidates per kind, without
-        // the object just used.
+        // the object just used, unless it is the only one open and the actor has done
+        // something else for a while since (#1505).
         let fresh = |o: &&(FormId, [f32; 3], f32)| Some(o.0) != self.last_object;
-        let seats: Vec<&(FormId, [f32; 3], f32)> = objects.iter().filter(|o| flags(o.0).is_some_and(|f| f & furniture::SIT != 0)).filter(fresh).collect();
+        let seats: Vec<&(FormId, [f32; 3], f32)> = objects.iter().filter(|o| flags(o.0).is_some_and(|f| f & furniture::SIT != 0)).collect();
         // Not a marker whose idles are all another skeleton's (`marker_fits`): a person
         // left at a robot's marker played the protectron's clips (#1660).
         let skeleton = std::cell::OnceCell::new();
         let fits = |base: FormId| marker_fits(game, skeleton.get_or_init(|| fnv_game::nvse_nx::skeleton_model(game, actor)), base);
         let markers: Vec<&(FormId, [f32; 3], f32)> =
-            objects.iter().filter(|o| refs.get(o.0).is_some_and(|p| data.idle_markers.contains_key(&p.base) && fits(p.base))).filter(fresh).collect();
+            objects.iter().filter(|o| refs.get(o.0).is_some_and(|p| data.idle_markers.contains_key(&p.base) && fits(p.base))).collect();
+        let another = (self.allowed.furniture && seats.iter().any(fresh)) || (self.allowed.idle_markers && markers.iter().any(fresh));
+        let again = !another && self.other_since.is_some_and(|t| game.time - t >= SOLE_OBJECT_AGAIN_AFTER);
+        let seats: Vec<_> = seats.into_iter().filter(|o| again || fresh(o)).collect();
+        let markers: Vec<_> = markers.into_iter().filter(|o| again || fresh(o)).collect();
         let spot = if self.allowed.wandering { self.wander_spot(nav, at) } else { None };
         // Energy: the less of it, the more sitting; the more, the more walking about.
         let e = self.energy;
@@ -551,6 +592,11 @@ impl Sandbox {
         self.got_up = false;
         self.doing = choice.doing;
         self.last_object = choice.doing.object().or(self.last_object);
+        // The time away from the last object counts from the first other behaviour begun.
+        self.other_since = match choice.doing.object() {
+            Some(_) => None,
+            None => self.other_since.or(Some(game.time)),
+        };
         if let Some(object) = choice.doing.object() {
             self.failed_objects.remove(&object);
         }
@@ -581,7 +627,7 @@ impl Sandbox {
     /// record's type-specific bits (they are not Sandbox switches on a Guard,
     /// `PackageDef::sandbox_flag`). Its spots are random points of the navmesh within the
     /// radius; its pauses (4 to 12 seconds at a spot) and walk are a sandbox's wander
-    /// [design, #2027: the original's cadence is not measured, observer check 106].
+    /// [design, #2027: the original's cadence is not measured, observer check 115].
     pub fn guard(game: &Game, actor: FormId, package: FormId, def: &PackageDef, centre: Place, radius: f32) -> Sandbox {
         let mut s = Sandbox::start(game, actor, package, def, &Goal::Near { place: centre, radius }, centre);
         s.allowed = Allowed { eating: false, sleeping: false, conversation: false, idle_markers: false, furniture: false, wandering: true };
