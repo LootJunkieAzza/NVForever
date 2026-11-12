@@ -36,8 +36,8 @@ pub fn run(cmd: ActorCmd) -> anyhow::Result<Value> {
         ActorCmd::Karma { w, functions, actor, cell, survey } => {
             crate::ai_cmd::with_data(&w, functions, |lo, schema, data, refs, _| crate::actor_karma::run(lo, schema, data, refs, &actor, &cell, survey))
         }
-        ActorCmd::Fidgets { w, functions, actor, weapon, checks, furniture, first_person } => crate::ai_cmd::with_data(&w, functions, |lo, schema, data, refs, _| {
-            let how = crate::actor_fidgets::How { weapon: weapon.as_deref(), furniture: furniture.as_deref(), first_person, checks };
+        ActorCmd::Fidgets { w, functions, actor, weapon, checks, furniture, first_person, weapon_away } => crate::ai_cmd::with_data(&w, functions, |lo, schema, data, refs, _| {
+            let how = crate::actor_fidgets::How { weapon: weapon.as_deref(), furniture: furniture.as_deref(), first_person, weapon_away, checks };
             crate::actor_fidgets::run(lo, schema, data, refs, &actor, &how)
         }),
         ActorCmd::Gestures { w, functions, actor, line, checks } => {

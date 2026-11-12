@@ -16,6 +16,7 @@ pub enum DdsError {
     Truncated(usize),
     #[error("unsupported pixel format {0}")]
     Unsupported(String),
+    /// Less pixel data than the layout needs (more is taken, [`Dds::parse`]).
     #[error("pixel data is {actual} bytes, the layout needs {expected}")]
     SizeMismatch { expected: usize, actual: usize },
     #[error("size {width}x{height} out of range (1 to {MAX_SIDE})")]
@@ -311,6 +312,8 @@ impl<'a> Dds<'a> {
         // the Mojave's slot_machine01_d.dds and _g.dds carry 45 bytes more than their
         // levels, and the original draws them; refusing them left the Strip's slot
         // machines white].
+        // More data than the layout needs is taken: the levels the header counts are
+        // read and the rest is left alone (dds.md §3, #2164). Less is a cut-off file.
         if payload.len() < expected || header.levels() > 32 {
             return Err(DdsError::SizeMismatch { expected, actual: payload.len() });
         }
@@ -583,6 +586,17 @@ mod tests {
         assert_eq!(t.levels[0].iter().map(|l| l.len()).collect::<Vec<_>>(), [16, 8, 8, 8]);
         let short = build(8, 4, 4, PF_FOURCC, b"DXT1", 0, [0; 4], 0, 39);
         assert_eq!(Dds::parse(&short).unwrap_err(), DdsError::SizeMismatch { expected: 40, actual: 39 });
+    }
+
+    /// Bytes after the last level the header counts are left alone: a mod's DXT1 with
+    /// one block more in the file than its counted levels need loads those levels [#2164].
+    #[test]
+    fn data_after_the_last_level_is_ignored() {
+        let d = build(8, 4, 3, PF_FOURCC, b"DXT1", 0, [0; 4], 0, 40);
+        let t = Dds::parse(&d).unwrap();
+        assert_eq!(t.levels[0].iter().map(|l| l.len()).collect::<Vec<_>>(), [16, 8, 8]);
+        let argb = build(2, 1, 1, PF_RGB | PF_ALPHA_PIXELS, &[0; 4], 32, [0xFF0000, 0xFF00, 0xFF, 0xFF000000], 0, 11);
+        assert_eq!(Dds::parse(&argb).unwrap().levels[0][0].len(), 8);
     }
 
     #[test]

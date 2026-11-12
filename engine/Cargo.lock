@@ -4802,6 +4802,7 @@ dependencies = [
  "nvf-assets",
  "nvf-coop",
  "nvf-play",
+ "png",
  "rfd",
  "serde_json",
  "sysinfo",

@@ -138,6 +138,8 @@ pub struct Summary {
     pub quest_catalog: Vec<(String, String, Option<String>, Option<String>)>,
     /// Quests of the catalogue completed (not failed) in the player's game: (form ID, plugin).
     pub quests_completed: Vec<(String, String)>,
+    /// Anomaly events (anomaly.rs), at most 500.
+    pub events: Vec<Value>,
 }
 
 /// A log line's group: its text with numbers and form IDs stripped (§3.1 `warnings`).
@@ -254,6 +256,7 @@ impl Summary {
         warnings.truncate(MAX_WARNING_GROUPS);
         o.insert("warnings".into(), Value::Array(warnings.iter().map(|(g, n, e)| json!({ "group": g, "count": n, "example": e })).collect()));
         o.insert("script_stubs".into(), Value::Array(self.script_stubs.iter().map(|(n, c)| json!({ "name": n, "count": c })).collect()));
+        o.insert("events".into(), Value::Array(self.events.iter().take(500).cloned().collect()));
         if !self.quest_catalog.is_empty() || !self.quests_completed.is_empty() {
             let catalog: Vec<Value> = self
                 .quest_catalog

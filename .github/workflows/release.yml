@@ -55,6 +55,10 @@ jobs:
       - name: Build nvforever and nvf-viewer
         run: cargo build --release --locked -p nvforever -p nvf-viewer
         working-directory: engine
+        # Only builds made here may send player reports to the project's server
+        # (engine/nvforever/src/reports/mod.rs); local builds never do.
+        env:
+          NVF_OFFICIAL_BUILD: "1"
 
       - name: Package
         shell: bash

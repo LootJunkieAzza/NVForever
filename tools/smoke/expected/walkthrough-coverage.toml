@@ -33,9 +33,15 @@ total = 3488
 # SSHQJacklyn, the Hoover Dam battle's reserves...); 18 of those scripts ran nothing else.
 # lines.said rose 2467 -> 2474 on the same base (1940e8d8b) by other commits, not traced
 # line by line; Jacklyn's OnLoad line (INFO 0x106502) is among the ones no longer said.
-# release 0.7.0 merge (co-op 1110 + main a57ae8160): measured on the merge (2f5502817), as this file's
-# merge rule says; the sum of both sides' deltas had read run 1629 / said 2497, one more each.
-touched = 1181
+# 1199 -> 1194 (blocks.run 1652 -> 1647, lines.said 2490 -> 2477, actors.touched 268 -> 267):
+# issue 2157 takes back what issue 1606 added (b1a391568: +5, +5, +13, +1). A chosen Goodbye
+# line holds the player again, so game time stands still while it is said and the five quest
+# scripts (VMS04, VMS50, NVDLC01MQ02a, NVDLC04 Ulysses' barks and the Temple's marked men)
+# no longer run a block in that time, nor do Mobius, Ulysses, Colonel Moore, the Scribe
+# teacher and Dog say the extra lines. Every chain's own mq-* scenario passes.
+# ship16 merge (ship15 f8a0752e7 + upstream 258c5d4df): NOT measured, the game data drive was
+# offline; the sum of both sides' deltas from the merge base. Measure on the merge and replace.
+touched = 1176
 
 [summary.blocks]
 total = 5690
@@ -46,21 +52,24 @@ total = 5690
 # script's Say/SayTo say a fixed speaker's line when no line passes the speaker check, so
 # the Dead Money narrator and the Old World Blues intercoms say Elijah's (+2), Borous's
 # (+4) and Mobius's (+3) lines, and NVDLC03MobiusIntercomSCRIPT runs one more block.
-# release 0.7.0 merge (co-op 1110 + main a57ae8160): measured on the merge (2f5502817), as this file's
-# merge rule says; the sum of both sides' deltas had read run 1629 / said 2497, one more each.
-run = 1628
+# ship16 merge (ship15 f8a0752e7 + upstream 258c5d4df): NOT measured, the game data drive was
+# offline; the sum of both sides' deltas from the merge base. Measure on the merge and replace.
+run = 1623
 
 [summary.lines]
 total = 28896
-# release 0.7.0 merge (co-op 1110 + main a57ae8160): measured on the merge (2f5502817), as this file's
-# merge rule says; the sum of both sides' deltas had read run 1629 / said 2497, one more each.
-said = 2496
+# 2477 -> 2476 (2490 -> 2489 before #2158 merged): #2156 says DeathResponse at most once per 20 s. tops-ambush kills the four
+# goons back to back; Lucky38Marilyn answered more than one of them and now answers the
+# first only (0x001751AF, a Random DeathResponse line of GenericAdultCombat, is no longer said).
+# ship16 merge (ship15 f8a0752e7 + upstream 258c5d4df): NOT measured, the game data drive was
+# offline; the sum of both sides' deltas from the merge base. Measure on the merge and replace.
+said = 2482
 
 [summary.actors]
 with_lines = 704
-# release 0.7.0 merge (co-op 1110 + main a57ae8160): measured on the merge (2f5502817), as this file's
-# merge rule says; the sum of both sides' deltas had read run 1629 / said 2497, one more each.
-touched = 267
+# ship16 merge (ship15 f8a0752e7 + upstream 258c5d4df): NOT measured, the game data drive was
+# offline; the sum of both sides' deltas from the merge base. Measure on the merge and replace.
+touched = 266
 
 [summary.results.info]
 total = 8639

@@ -55,6 +55,16 @@ pub enum MarkerAsk {
     Change(CustomMarker),
 }
 
+impl MarkerAsk {
+    /// The same question about the place `at` (the highlight box's place worked out again).
+    pub fn at(self, at: CustomMarker) -> MarkerAsk {
+        match self {
+            MarkerAsk::Set(_) => MarkerAsk::Set(at),
+            MarkerAsk::Change(_) => MarkerAsk::Change(at),
+        }
+    }
+}
+
 /// What an answer does.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum MarkerAnswer {

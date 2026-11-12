@@ -476,7 +476,7 @@ fn throw_gore(
                 wanted.push((m.clone(), if scale > 0.0 { scale } else { 1.0 }));
             }
         }
-        let loaded: Vec<Option<Arc<PreparedModel>>> = wanted.iter().map(|(m, _)| models.model(&fnv_actor::resolve::mesh_path(m))).collect();
+        let loaded: Vec<Option<Arc<PreparedModel>>> = wanted.iter().map(|(m, _)| models.model_with_cpu(&fnv_actor::resolve::mesh_path(m))).collect();
         if loaded.iter().any(Option::is_none) && tries < 3 {
             gore.waiting.push((e, tries + 1));
             continue;
@@ -632,7 +632,7 @@ fn throw_object_debris(
                 wanted.push((m.clone(), 1.0));
             }
         }
-        let loaded: Vec<Option<Arc<PreparedModel>>> = wanted.iter().map(|(m, _)| models.model(&fnv_actor::resolve::mesh_path(m))).collect();
+        let loaded: Vec<Option<Arc<PreparedModel>>> = wanted.iter().map(|(m, _)| models.model_with_cpu(&fnv_actor::resolve::mesh_path(m))).collect();
         if loaded.iter().any(Option::is_none) && tries < 3 {
             waiting.push((d, tries + 1));
             continue;
@@ -689,12 +689,16 @@ fn pieces(pm: &PreparedModel) -> Vec<Piece> {
 
 /// A piece's box: the bounds of its shapes' vertices in the piece's frame (half extents
 /// and centre), at least half a unit; 2 units when no vertex is at hand.
+/// The vertices come from the shape's CPU copy (gore models are loaded with one): a drawn
+/// mesh is render-world only once uploaded, and reading it then panics (#2202). Without a
+/// CPU copy the drawn mesh is read only while its data is still in the main world.
 fn piece_box(meshes: &Assets<Mesh>, pm: &PreparedModel, shapes: &[(Affine3A, usize)]) -> PieceBox {
     let mut lo = Vec3::splat(f32::MAX);
     let mut hi = Vec3::splat(f32::MIN);
     for (rel, si) in shapes {
-        let Some(m) = meshes.get(&pm.shapes[*si].mesh) else { continue };
-        let Some(bevy::mesh::VertexAttributeValues::Float32x3(ps)) = m.attribute(Mesh::ATTRIBUTE_POSITION) else { continue };
+        let shape = &pm.shapes[*si];
+        let Some(m) = shape.cpu.as_deref().or_else(|| meshes.get(&shape.mesh)) else { continue };
+        let Ok(Some(bevy::mesh::VertexAttributeValues::Float32x3(ps))) = m.try_attribute_option(Mesh::ATTRIBUTE_POSITION) else { continue };
         for p in ps {
             let v = rel.transform_point3(Vec3::from(*p));
             lo = lo.min(v);

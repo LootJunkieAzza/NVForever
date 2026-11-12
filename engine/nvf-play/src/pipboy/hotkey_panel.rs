@@ -24,7 +24,7 @@
 //! Log lines: `pipboy hotkeys: key <n> held`, `pipboy hotkeys: let go`,
 //! `hotkeys: slot <n> holds <name> (<form>)`.
 
-use super::frame::{Align, Ctx, Kit, LINE, MAIN, TEXT, THICK};
+use super::frame::{Align, Ctx, Kit, LINE, MAIN, THICK};
 use crate::bindings::Bindings;
 use crate::hotkeys::{Hotkeys, Refused, Slot, AMMO_SWAP, SLOTS};
 use crate::interface::{amber, at};
@@ -159,7 +159,7 @@ pub fn assign_row(hotkeys: &mut Hotkeys, slot: usize, r: &Row) -> String {
 /// The panel, at the menus' rectangle's `IM_HotKeyWheel`.
 pub fn draw(p: &mut ChildSpawnerCommands, c: &mut Ctx, hotkeys: &Hotkeys, hold: &HotkeyHold, pointed: Option<&Row>, sim: &SimState, combat: Option<&crate::combat::Combat>) {
     let o = MAIN.min + PANEL.min;
-    let (line, bright) = (amber(LINE), amber(TEXT));
+    let (line, bright) = (amber(LINE), c.bright());
     let rose = Rect::from_corners(o + ROSE_AT.min, o + ROSE_AT.max);
     c.image(p, ROSE, at(rose.min.x, rose.min.y, rose.width(), rose.height()), bright);
     if let Some(icon) = pointed.and_then(|r| icon_of(r.item, sim, combat)) {

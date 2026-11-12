@@ -64,7 +64,7 @@
 //! - While a hotkey's key is held, the hotkey panel stands in the picture's place and a
 //!   left click (or Enter) puts the row's item in that slot (`super::hotkey_panel`).
 
-use super::frame::{self, Align, Card, Ctx, Hint, Kit, LINE, MAIN, TEXT, THICK};
+use super::frame::{self, Align, Card, Ctx, Hint, Kit, LINE, MAIN, THICK};
 use super::hotkey_panel::HotkeyHold;
 use crate::hotkeys::Hotkeys;
 use super::labels::label;
@@ -659,7 +659,7 @@ fn drop_key() -> String {
 
 /// The selected item's picture and figures.
 fn item_info(p: &mut ChildSpawnerCommands, c: &mut Ctx, icon: Option<&str>, i: &Info) {
-    let bright = amber(TEXT);
+    let bright = c.bright();
     if let Some(icon) = icon {
         let r = Rect::from_corners(MAIN.min + ICON.min, MAIN.min + ICON.max);
         c.image(p, icon, at(r.min.x, r.min.y, r.width(), r.height()), bright);
@@ -720,7 +720,7 @@ pub fn first_shown(heights: &[f32], first: usize, selected: usize, room: f32) ->
 }
 
 fn list(p: &mut ChildSpawnerCommands, c: &mut Ctx, m: &MenuModel, first: usize, heights: &[f32]) {
-    let bright = amber(TEXT);
+    let bright = c.bright();
     let line = amber(LINE);
     let x0 = MAIN.min.x + LIST.min.x + ROW_X;
     let mut y = MAIN.min.y + LIST.min.y;
@@ -794,6 +794,7 @@ mod tests {
             mods_value: 0,
             folder: None,
             reference: None,
+            live: false,
         };
         assert_eq!(row_text(&r), "Stimpak (9)");
         r.count = 1;
@@ -801,7 +802,7 @@ mod tests {
     }
 
     fn row(kind: Option<fnv_sim::forms::ItemKind>) -> Row {
-        Row { item: FormId(1), at: None, name: "Thing".into(), count: 1, weight: None, value: None, kind, equipped: false, quest: false, condition: None, icon: None, price: None, bartered: false, mods: 0, mods_value: 0, folder: None, reference: None }
+        Row { item: FormId(1), at: None, name: "Thing".into(), count: 1, weight: None, value: None, kind, equipped: false, quest: false, condition: None, icon: None, price: None, bartered: false, mods: 0, mods_value: 0, folder: None, reference: None, live: false }
     }
 
     fn shown(h: &[Hint]) -> Vec<(String, bool)> {

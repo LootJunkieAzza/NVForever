@@ -125,7 +125,9 @@ Code: `crates/fnv-game/src/crime.rs` (the rules, the script functions), the reco
   crime [hypothesis: any rank]): that witness turns on the player and says **Steal**
   [documented: Combat Tab]. Others who see it do nothing (a minor crime). The game's
   owner first "tries to take it back"; NVForever goes straight to the fight [design: the
-  take-back is not built].
+  take-back is not built]. In one captured theft the owner ran procedure 47
+  (TAKE_BACK_ITEM) for 20 s before starting combat [observed:
+  npc-behaviour-compare.md §15.5].
 
 ### 3.2 Opening an owned lock ("trespass" in the game's help)
 
