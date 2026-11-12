@@ -292,6 +292,78 @@ impl Default for FeatureVersion {
     }
 }
 
+/// `sl::FeatureRequirementFlags::eVulkanSupported`, a `uint32_t` bit [documented:
+/// `sl_core_types.h:625-630`].
+pub const FEATURE_REQUIREMENT_VULKAN_SUPPORTED: u32 = 1 << 2;
+
+/// `sl::FeatureRequirements`, version 2, GUID {66714097-AC6D-4BC6-8915-1E0F55A6B61F}
+/// [documented: `sl_core_types.h:642-692`]. Every pointer points into Streamline's memory
+/// (`src/sl.cpp:916-1096`): copy what is needed before anything else is called. `BufferType`
+/// is a `uint32_t` (`sl_core_types.h:57`).
+#[repr(C)]
+#[derive(Debug)]
+pub struct FeatureRequirements {
+    pub base: BaseStructure,
+    pub flags: u32,
+    pub max_num_cpu_threads: u32,
+    pub max_num_viewports: u32,
+    pub num_required_tags: u32,
+    pub required_tags: *const u32,
+    pub os_version_detected: Version,
+    pub os_version_required: Version,
+    pub driver_version_detected: Version,
+    pub driver_version_required: Version,
+    pub vk_num_compute_queues_required: u32,
+    pub vk_num_graphics_queues_required: u32,
+    pub vk_num_device_extensions: u32,
+    pub vk_device_extensions: *const *const c_char,
+    pub vk_num_instance_extensions: u32,
+    pub vk_instance_extensions: *const *const c_char,
+    pub vk_num_features12: u32,
+    pub vk_features12: *const *const c_char,
+    pub vk_num_features13: u32,
+    pub vk_features13: *const *const c_char,
+    pub vk_num_optical_flow_queues_required: u32,
+}
+
+impl FeatureRequirements {
+    const GUID: StructType = StructType { data1: 0x6671_4097, data2: 0xac6d, data3: 0x4bc6, data4: [0x89, 0x15, 0x1e, 0x0f, 0x55, 0xa6, 0xb6, 0x1f] };
+
+    /// The C++ default constructor: version 2, every member `{}`, so zero or null
+    /// (`sl_core_types.h:647-689`).
+    pub fn new() -> Self {
+        Self {
+            base: BaseStructure::new(Self::GUID, 2),
+            flags: 0,
+            max_num_cpu_threads: 0,
+            max_num_viewports: 0,
+            num_required_tags: 0,
+            required_tags: std::ptr::null(),
+            os_version_detected: Version::default(),
+            os_version_required: Version::default(),
+            driver_version_detected: Version::default(),
+            driver_version_required: Version::default(),
+            vk_num_compute_queues_required: 0,
+            vk_num_graphics_queues_required: 0,
+            vk_num_device_extensions: 0,
+            vk_device_extensions: std::ptr::null(),
+            vk_num_instance_extensions: 0,
+            vk_instance_extensions: std::ptr::null(),
+            vk_num_features12: 0,
+            vk_features12: std::ptr::null(),
+            vk_num_features13: 0,
+            vk_features13: std::ptr::null(),
+            vk_num_optical_flow_queues_required: 0,
+        }
+    }
+}
+
+impl Default for FeatureRequirements {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// `sl::INVALID_FLOAT`, written in the header as the decimal of the largest finite `float`
 /// [documented: `sl_consts.h:90`]; `f32::MAX` is that value.
 pub const INVALID_FLOAT: f32 = f32::MAX;
@@ -683,6 +755,9 @@ pub type SlEvaluateFeature = unsafe extern "C" fn(u32, *const FrameToken, *const
 pub type SlFreeResources = unsafe extern "C" fn(u32, *const ViewportHandle) -> SlResult;
 /// `slGetFeatureFunction(Feature, const char*, void*& function)` (`:69, 303`).
 pub type SlGetFeatureFunction = unsafe extern "C" fn(u32, *const c_char, *mut *mut c_void) -> SlResult;
+/// `slGetFeatureRequirements(Feature, FeatureRequirements&)` (`:64, 197`): after `slInit`,
+/// before any device (`:187-196`; `src/sl.cpp:916-1096` reads only the plugin's configuration).
+pub type SlGetFeatureRequirements = unsafe extern "C" fn(u32, *mut FeatureRequirements) -> SlResult;
 
 // DLSS's own functions, fetched by name with `slGetFeatureFunction` [documented:
 // `sl_dlss.h:151, 173`; the helpers `:177-192` fetch them the same way]. Plain C++ functions
@@ -953,6 +1028,60 @@ mod tests {
         assert_eq!((p.application_id, p.num_features_to_load, p.num_paths_to_plugins), (0, 0, 0));
         assert!(p.paths_to_plugins.is_null() && p.features_to_load.is_null() && p.engine_version.is_null() && p.project_id.is_null());
         assert!(p.log_message_callback.is_none());
+    }
+
+    /// Not from the probe table (it predates this structure): the Windows x64 layout worked out
+    /// by hand from `sl_core_types.h:645-689`. `BaseStructure` is 32 bytes (above); `flags`
+    /// (an `enum class : uint32_t`, `:625`) and the three `uint32_t`s at 32-44; `requiredTags`
+    /// (`:657`) is a pointer, already 8-aligned at 48; the four `Version`s (12 bytes, 4-aligned)
+    /// at 56, 68, 80, 92, ending at 104; the two queue counts at 104 and 108; each count before a
+    /// `const char**` (`:672-686`) is followed by 4 bytes of padding so the pointer is 8-aligned
+    /// (112/120, 128/136, 144/152, 160/168); the optical-flow count at 176, which Streamline's own
+    /// `static_assert` pins (`src/sl.cpp:924`); 180 bytes rounded up to the 8-byte alignment.
+    #[test]
+    fn feature_requirements_layout_from_the_header() {
+        assert_eq!((size_of::<FeatureRequirements>(), align_of::<FeatureRequirements>()), (184, 8));
+        check(
+            "FeatureRequirements",
+            &[
+                (offset_of!(FeatureRequirements, flags), 32),
+                (offset_of!(FeatureRequirements, max_num_cpu_threads), 36),
+                (offset_of!(FeatureRequirements, max_num_viewports), 40),
+                (offset_of!(FeatureRequirements, num_required_tags), 44),
+                (offset_of!(FeatureRequirements, required_tags), 48),
+                (offset_of!(FeatureRequirements, os_version_detected), 56),
+                (offset_of!(FeatureRequirements, os_version_required), 68),
+                (offset_of!(FeatureRequirements, driver_version_detected), 80),
+                (offset_of!(FeatureRequirements, driver_version_required), 92),
+                (offset_of!(FeatureRequirements, vk_num_compute_queues_required), 104),
+                (offset_of!(FeatureRequirements, vk_num_graphics_queues_required), 108),
+                (offset_of!(FeatureRequirements, vk_num_device_extensions), 112),
+                (offset_of!(FeatureRequirements, vk_device_extensions), 120),
+                (offset_of!(FeatureRequirements, vk_num_instance_extensions), 128),
+                (offset_of!(FeatureRequirements, vk_instance_extensions), 136),
+                (offset_of!(FeatureRequirements, vk_num_features12), 144),
+                (offset_of!(FeatureRequirements, vk_features12), 152),
+                (offset_of!(FeatureRequirements, vk_num_features13), 160),
+                (offset_of!(FeatureRequirements, vk_features13), 168),
+                // src/sl.cpp:924.
+                (offset_of!(FeatureRequirements, vk_num_optical_flow_queues_required), 176),
+            ],
+        );
+    }
+
+    #[test]
+    fn feature_requirements_start_as_the_constructor_does() {
+        let r = FeatureRequirements::new();
+        // GUID and version [documented: sl_core_types.h:645].
+        assert_eq!(r.base.struct_type, StructType { data1: 0x66714097, data2: 0xac6d, data3: 0x4bc6, data4: [0x89, 0x15, 0x1e, 0x0f, 0x55, 0xa6, 0xb6, 0x1f] });
+        assert_eq!(r.base.struct_version, 2);
+        assert!(r.base.next.is_null());
+        assert_eq!((r.flags, r.max_num_cpu_threads, r.max_num_viewports, r.num_required_tags), (0, 0, 0, 0));
+        assert_eq!((r.os_version_detected, r.os_version_required, r.driver_version_detected, r.driver_version_required), (Version::default(), Version::default(), Version::default(), Version::default()));
+        assert_eq!((r.vk_num_compute_queues_required, r.vk_num_graphics_queues_required, r.vk_num_optical_flow_queues_required), (0, 0, 0));
+        assert_eq!((r.vk_num_device_extensions, r.vk_num_instance_extensions, r.vk_num_features12, r.vk_num_features13), (0, 0, 0, 0));
+        assert!(r.required_tags.is_null() && r.vk_device_extensions.is_null() && r.vk_instance_extensions.is_null() && r.vk_features12.is_null() && r.vk_features13.is_null());
+        assert_eq!(FEATURE_REQUIREMENT_VULKAN_SUPPORTED, 4, "eVulkanSupported = 1 << 2 (sl_core_types.h:630)");
     }
 
     #[test]

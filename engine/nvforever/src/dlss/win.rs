@@ -16,11 +16,13 @@ use windows_sys::Win32::System::LibraryLoader::{LoadLibraryExW, LOAD_WITH_ALTERE
 
 use super::evaluate::{Evaluator, VIEWPORT};
 use super::ffi::{
-    get_proc, wide, AdapterInfo, FeatureVersion, Preferences, SlDlssGetOptimalSettings, SlDlssSetOptions, SlEvaluateFeature, SlFreeResources, SlGetFeatureFunction,
-    SlGetFeatureVersion, SlGetNewFrameToken, SlInit, SlIsFeatureLoaded, SlIsFeatureSupported, SlResult, SlSetConstants, SlShutdown, ViewportHandle, FEATURE_DLSS,
-    LOG_TYPE_ERROR, LOG_TYPE_WARN, PREFERENCE_ALLOW_OTA, PREFERENCE_LOAD_DOWNLOADED_PLUGINS, RENDER_API_VULKAN, SDK_VERSION,
+    get_proc, wide, AdapterInfo, FeatureRequirements, FeatureVersion, Preferences, SlDlssGetOptimalSettings, SlDlssSetOptions, SlEvaluateFeature, SlFreeResources,
+    SlGetFeatureFunction, SlGetFeatureRequirements, SlGetFeatureVersion, SlGetNewFrameToken, SlInit, SlIsFeatureLoaded, SlIsFeatureSupported, SlResult, SlSetConstants,
+    SlShutdown, ViewportHandle, FEATURE_DLSS, LOG_TYPE_ERROR, LOG_TYPE_WARN, PREFERENCE_ALLOW_OTA, PREFERENCE_LOAD_DOWNLOADED_PLUGINS, RENDER_API_VULKAN, SDK_VERSION,
 };
-use super::{missing_files, note, note_sl, resolve_folder, FolderSource, Frame, Outcome, ACTIVE, ENV_DIR, FILES};
+use super::preflight::{self, Requirements, Selection, Snapshot};
+use super::{missing_files, note, note_sl, resolve_folder, set_loader_state, FolderSource, Frame, Outcome, ACTIVE, ENV_DIR, FILES};
+use crate::upscaler::{DlssState, Unavailable};
 
 /// `Preferences::projectId`: a fixed GUID written for NVForever (not one NVIDIA issued).
 /// Streamline passes it with the engine version to NGX when no application id is given
@@ -37,6 +39,7 @@ pub(super) struct Api {
     is_feature_loaded: SlIsFeatureLoaded,
     get_feature_version: SlGetFeatureVersion,
     get_feature_function: SlGetFeatureFunction,
+    get_feature_requirements: SlGetFeatureRequirements,
     free_resources: SlFreeResources,
     pub(super) get_new_frame_token: SlGetNewFrameToken,
     pub(super) set_constants: SlSetConstants,
@@ -124,6 +127,7 @@ pub(super) fn start(app: &mut App) {
     let backends = wgpu::Backends::from_env().unwrap_or(wgpu::Backends::all());
     if !backends.contains(wgpu::Backends::VULKAN) {
         note(Level::INFO, format!("inactive: the renderer's backends ({backends:?}, from WGPU_BACKEND) leave Vulkan out; Streamline not loaded"));
+        set_loader_state(DlssState::Unavailable(Unavailable::NotVulkan));
         return;
     }
     let exe_dir = std::env::current_exe().ok().and_then(|e| e.parent().map(Path::to_path_buf));
@@ -131,6 +135,7 @@ pub(super) fn start(app: &mut App) {
         Ok(found) => found,
         Err(why) => {
             note(Level::INFO, format!("inactive: {why}; the stock Vulkan path"));
+            set_loader_state(DlssState::Unavailable(Unavailable::FilesMissing));
             return;
         }
     };
@@ -142,12 +147,18 @@ pub(super) fn start(app: &mut App) {
     let missing = missing_files(&folder);
     if !missing.is_empty() {
         note(Level::INFO, format!("inactive: the folder lacks {}; the stock Vulkan path", missing.join(", ")));
+        set_loader_state(DlssState::Unavailable(Unavailable::FilesMissing));
+        return;
+    }
+    // No updater beside the interposer, before it is loaded (preflight.rs).
+    if !folder_allows_streamline(&folder) {
         return;
     }
     let interposer = folder.join(FILES[0]);
     if let Err(why) = super::security::verify_embedded_signature(&interposer) {
         note(Level::WARN, format!("signature: {} not accepted: {why}", FILES[0]));
         note(Level::INFO, "inactive: the interposer's signature did not verify; the stock Vulkan path");
+        set_loader_state(DlssState::Unavailable(Unavailable::SignatureRejected));
         return;
     }
     note(
@@ -157,7 +168,22 @@ pub(super) fn start(app: &mut App) {
             FILES[0]
         ),
     );
+    // Every GPU read through the system's loader while no Streamline code is loaded; the check
+    // against DLSS's requirements follows slInit (preflight.rs).
+    let snapshot = match preflight::probe() {
+        Ok(snapshot) => snapshot,
+        Err(why) => {
+            note(Level::WARN, format!("inactive: the GPUs could not be read through the system's Vulkan loader ({why}); the stock Vulkan path"));
+            set_loader_state(DlssState::Unavailable(Unavailable::DeviceUnsuitable));
+            return;
+        }
+    };
     let Some(api) = load(&interposer) else { return };
+    // Again just before slInit, where Streamline starts the updater (preflight.rs). The
+    // interposer is loaded but holds nothing yet.
+    if !folder_allows_streamline(&folder) {
+        return;
+    }
 
     let folder_w = wide(folder.as_os_str());
     let paths = [folder_w.as_ptr()];
@@ -174,9 +200,19 @@ pub(super) fn start(app: &mut App) {
         // SAFETY: the interposer's export, after its slInit.
         let down = unsafe { (api.shutdown)() };
         note(Level::INFO, format!("slShutdown after the failed slInit: {}", down.name()));
+        set_loader_state(DlssState::Unavailable(Unavailable::StreamlineRefused));
         return;
     }
     note(Level::INFO, format!("slInit: {} (SDK 2.14.16, Vulkan, DLSS, plugins from the folder, over-the-air flags off, engine {} with a project id)", result.name(), env!("CARGO_PKG_VERSION")));
+    // The device check, before the renderer is told about the interposer (preflight.rs).
+    if let Err((reason, why)) = device_check(&api, &snapshot) {
+        note(Level::WARN, format!("inactive: {why}; the stock Vulkan path"));
+        // SAFETY: after slInit; no Vulkan object was made through the interposer.
+        let down = unsafe { (api.shutdown)() };
+        note(Level::INFO, format!("slShutdown after the device check: {}", down.name()));
+        set_loader_state(DlssState::Unavailable(reason));
+        return;
+    }
     *state() = Some(Spike { api, phase: Phase::Initialised, eval: None });
     let mut settings = app.world_mut().get_resource_or_init::<RawVulkanInitSettings>();
     // SAFETY: the interposer exports `vkGetInstanceProcAddr` and forwards what it does not
@@ -223,6 +259,79 @@ fn private_data_supported(adapter: &wgpu::hal::vulkan::Adapter) -> bool {
     private_data.private_data == vk::TRUE
 }
 
+/// The folder listed for NVIDIA's updater (preflight.rs); `false`, with the line and the reason,
+/// when Streamline must stay out.
+fn folder_allows_streamline(folder: &Path) -> bool {
+    match preflight::check_folder(folder) {
+        Ok(()) => true,
+        Err(refusal) => {
+            note(Level::WARN, format!("inactive: {refusal}; the stock Vulkan path"));
+            set_loader_state(DlssState::Unavailable(Unavailable::UpdaterInFolder));
+            false
+        }
+    }
+}
+
+/// DLSS's requirements fetched and copied, and every GPU the renderer could pick checked
+/// against them (preflight.rs). After `slInit`, before `set_vulkan_library`.
+fn device_check(api: &Api, snapshot: &Snapshot) -> Result<(), (Unavailable, String)> {
+    let requirements = requirements(api).map_err(|why| (Unavailable::StreamlineRefused, why))?;
+    note(Level::INFO, format!("requirements: DLSS asks for {requirements}"));
+    let checked = preflight::judge(snapshot, &requirements, &Selection::from_env()).map_err(|d| (d.reason, d.why))?;
+    note(Level::INFO, format!("device check: passed for {} (every GPU the renderer could pick)", checked.join(", ")));
+    Ok(())
+}
+
+/// `slGetFeatureRequirements(DLSS)`, its lists copied out of Streamline's memory at once.
+fn requirements(api: &Api) -> Result<Requirements, String> {
+    let mut raw = FeatureRequirements::new();
+    // SAFETY: a FeatureRequirements from its constructor; after slInit.
+    let result = unsafe { (api.get_feature_requirements)(FEATURE_DLSS, &mut raw) };
+    if !result.is_ok() {
+        return Err(format!("slGetFeatureRequirements(DLSS) {}", result.name()));
+    }
+    // SAFETY: Streamline's lists, each `count` NUL-terminated strings it keeps in its own context
+    // [documented: src/sl.cpp:994-1074], read before any other Streamline call.
+    unsafe {
+        Ok(Requirements {
+            flags: raw.flags,
+            instance_extensions: copy_strings(raw.vk_instance_extensions, raw.vk_num_instance_extensions, "instance extensions")?,
+            device_extensions: copy_strings(raw.vk_device_extensions, raw.vk_num_device_extensions, "device extensions")?,
+            features12: copy_strings(raw.vk_features12, raw.vk_num_features12, "1.2 features")?,
+            features13: copy_strings(raw.vk_features13, raw.vk_num_features13, "1.3 features")?,
+            graphics_queues: raw.vk_num_graphics_queues_required,
+            compute_queues: raw.vk_num_compute_queues_required,
+            optical_flow_queues: raw.vk_num_optical_flow_queues_required,
+        })
+    }
+}
+
+/// `count` C strings from `list`, copied; a null list or entry where `count` promises one is an
+/// error (the check cannot read what DLSS asks for).
+///
+/// # Safety
+/// `list` is null or points at `count` pointers, each null or a NUL-terminated string.
+unsafe fn copy_strings(list: *const *const c_char, count: u32, what: &str) -> Result<Vec<String>, String> {
+    if count == 0 {
+        return Ok(Vec::new());
+    }
+    if list.is_null() {
+        return Err(format!("slGetFeatureRequirements(DLSS) names {count} {what} but gives no list"));
+    }
+    (0..count as usize)
+        .map(|i| {
+            // SAFETY: within the `count` pointers the caller vouches for.
+            let entry = unsafe { *list.add(i) };
+            if entry.is_null() {
+                Err(format!("slGetFeatureRequirements(DLSS) gives a null entry among its {what}"))
+            } else {
+                // SAFETY: a NUL-terminated string, per the caller.
+                Ok(unsafe { CStr::from_ptr(entry) }.to_string_lossy().into_owned())
+            }
+        })
+        .collect()
+}
+
 /// The interposer loaded by full path (its own folder searched first for what it imports) and
 /// never unloaded, and its functions looked up.
 fn load(interposer: &Path) -> Option<Api> {
@@ -231,14 +340,16 @@ fn load(interposer: &Path) -> Option<Api> {
     let module = unsafe { LoadLibraryExW(path_w.as_ptr(), std::ptr::null_mut(), LOAD_WITH_ALTERED_SEARCH_PATH) };
     if module.is_null() {
         note(Level::WARN, format!("inactive: {} did not load: {}; the stock Vulkan path", interposer.display(), std::io::Error::last_os_error()));
+        set_loader_state(DlssState::Unavailable(Unavailable::StreamlineRefused));
         return None;
     }
     let api = exports(module);
     if api.is_none() {
         note(
             Level::WARN,
-            "inactive: the interposer lacks one of Streamline's slInit, slShutdown, slIsFeatureSupported, slIsFeatureLoaded, slGetFeatureVersion, slGetFeatureFunction, slFreeResources, slGetNewFrameToken, slSetConstants, slEvaluateFeature; the stock Vulkan path",
+            "inactive: the interposer lacks one of Streamline's slInit, slShutdown, slIsFeatureSupported, slIsFeatureLoaded, slGetFeatureVersion, slGetFeatureFunction, slGetFeatureRequirements, slFreeResources, slGetNewFrameToken, slSetConstants, slEvaluateFeature; the stock Vulkan path",
         );
+        set_loader_state(DlssState::Unavailable(Unavailable::StreamlineRefused));
     }
     api
 }
@@ -254,6 +365,7 @@ fn exports(module: windows_sys::Win32::Foundation::HMODULE) -> Option<Api> {
             is_feature_loaded: get_proc(module, c"slIsFeatureLoaded")?,
             get_feature_version: get_proc(module, c"slGetFeatureVersion")?,
             get_feature_function: get_proc(module, c"slGetFeatureFunction")?,
+            get_feature_requirements: get_proc(module, c"slGetFeatureRequirements")?,
             free_resources: get_proc(module, c"slFreeResources")?,
             get_new_frame_token: get_proc(module, c"slGetNewFrameToken")?,
             set_constants: get_proc(module, c"slSetConstants")?,
@@ -280,6 +392,7 @@ fn instance_report(outcome: Result<(), &str>) {
             let down = unsafe { (spike.api.shutdown)() };
             note(Level::INFO, format!("slShutdown before the stock path: {}; the spike is off", down.name()));
             spike.phase = Phase::Down;
+            set_loader_state(DlssState::Unavailable(Unavailable::StreamlineRefused));
         }
     }
 }
@@ -297,12 +410,14 @@ pub(super) fn after_device(app: &mut App) {
             let down = unsafe { (spike.api.shutdown)() };
             note(Level::INFO, format!("slShutdown: {}; the spike is off", down.name()));
             spike.phase = Phase::Down;
+            set_loader_state(DlssState::Unavailable(Unavailable::StreamlineRefused));
             return;
         }
         Phase::Holding(_) | Phase::Down => return,
     }
     let Some(render) = app.get_sub_app(RenderApp) else {
         note(Level::WARN, "no render world; slShutdown will be skipped at exit (the device's lifetime is not the spike's to know)");
+        set_loader_state(DlssState::Unavailable(Unavailable::StreamlineRefused));
         return;
     };
     let world = render.world();
@@ -311,6 +426,7 @@ pub(super) fn after_device(app: &mut App) {
         (world.get_resource::<RenderDevice>(), world.get_resource::<RenderQueue>(), world.get_resource::<RenderAdapter>(), world.get_resource::<RenderInstance>())
     else {
         note(Level::WARN, "the renderer's device is not in the render world; slShutdown will be skipped at exit");
+        set_loader_state(DlssState::Unavailable(Unavailable::StreamlineRefused));
         return;
     };
     let held = Held { queue: (**queue).clone(), device: device.wgpu_device().clone(), adapter: (**adapter).clone(), instance: (**instance).clone() };
@@ -318,7 +434,7 @@ pub(super) fn after_device(app: &mut App) {
 
     // Change E: the physical device and a valid 8-byte LUID; without the LUID Streamline does
     // not check the adapter at all [documented: src/sl.cpp:855-860].
-    let (supported, asked) = match adapter_identity(&held.adapter) {
+    let (supported, asked, refusal) = match adapter_identity(&held.adapter) {
         Some((physical, Some(mut luid))) => {
             let mut info = AdapterInfo::new();
             info.device_luid = luid.as_mut_ptr();
@@ -326,10 +442,10 @@ pub(super) fn after_device(app: &mut App) {
             info.vk_physical_device = std::ptr::with_exposed_provenance_mut(physical.as_raw() as usize);
             // SAFETY: an AdapterInfo from its constructor; `luid` lives through the call.
             let r = unsafe { (spike.api.is_feature_supported)(FEATURE_DLSS, &info) };
-            (r.is_ok(), format!("slIsFeatureSupported {}", r.name()))
+            (r.is_ok(), format!("slIsFeatureSupported {}", r.name()), Unavailable::GpuNotSupported)
         }
-        Some((_, None)) => (false, "not asked: the adapter reports no valid LUID".to_string()),
-        None => (false, "not asked: the adapter is not a Vulkan one".to_string()),
+        Some((_, None)) => (false, "not asked: the adapter reports no valid LUID".to_string(), Unavailable::GpuNotSupported),
+        None => (false, "not asked: the adapter is not a Vulkan one".to_string(), Unavailable::NotVulkan),
     };
     let mut version = FeatureVersion::new();
     // SAFETY: a FeatureVersion from its constructor.
@@ -354,9 +470,13 @@ pub(super) fn after_device(app: &mut App) {
         if spike.eval.is_some() {
             ACTIVE.store(true, std::sync::atomic::Ordering::Relaxed);
             note(Level::INFO, "active: slDLSSGetOptimalSettings and slDLSSSetOptions fetched; DLSS evaluates in place of FSR's dispatch while frame generation is off");
+            set_loader_state(DlssState::Ready);
+        } else {
+            set_loader_state(DlssState::Unavailable(Unavailable::StreamlineRefused));
         }
     } else {
         note(Level::INFO, "evaluate off: DLSS is not supported here; FSR draws as before");
+        set_loader_state(DlssState::Unavailable(refusal));
     }
 }
 
@@ -516,6 +636,21 @@ mod tests {
         }
         assert!(p.log_message_callback.is_some());
         assert!(p.path_to_logs_and_data.is_null(), "no log file");
+    }
+
+    #[test]
+    fn requirement_lists_are_copied_or_refused() {
+        let names = [c"VK_NVX_binary_import".as_ptr(), c"VK_KHR_push_descriptor".as_ptr()];
+        // SAFETY: two NUL-terminated strings behind the list.
+        let copied = unsafe { copy_strings(names.as_ptr(), 2, "device extensions") };
+        assert_eq!(copied, Ok(vec!["VK_NVX_binary_import".to_string(), "VK_KHR_push_descriptor".to_string()]));
+        // SAFETY: a count of zero reads nothing.
+        assert_eq!(unsafe { copy_strings(std::ptr::null(), 0, "1.3 features") }, Ok(vec![]));
+        // SAFETY: a null list is refused before it is read.
+        assert!(unsafe { copy_strings(std::ptr::null(), 3, "1.2 features") }.unwrap_err().contains("names 3 1.2 features but gives no list"));
+        let holes = [c"timelineSemaphore".as_ptr(), std::ptr::null()];
+        // SAFETY: two pointers, one null.
+        assert!(unsafe { copy_strings(holes.as_ptr(), 2, "1.2 features") }.unwrap_err().contains("null entry"));
     }
 
     #[test]
