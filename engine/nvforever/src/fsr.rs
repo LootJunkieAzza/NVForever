@@ -643,7 +643,6 @@ pub(crate) fn fsr_pass(
 ) {
     let (target, prepared, prepass, jitter) = view.into_inner();
     let Some(auxiliary) = &renderer.auxiliary else { return };
-    crate::ffx_api_trace::poll_probe(prepared.camera.frame);
     let recording = crate::frame_pace::recording();
     let inputs = prepass.and_then(|prepass| prepass.depth.as_ref().zip(prepass.motion_vectors.as_ref()));
     let Some((depth, motion)) = inputs else {
@@ -703,7 +702,6 @@ pub(crate) fn fsr_pass(
             if Upscaler::first_output(outputs, &destination) {
                 encoder.clear_texture(&destination, &wgpu::ImageSubresourceRange::default());
             }
-            crate::ffx_api_trace::mark_output(encoder, target.main_texture_other_view());
             let frame = crate::ffx_api::Frame {
                 color: &source, depth: api_depth, motion_vectors: &motion.texture.texture,
                 reactive: &prepared.reactive, transparency_and_composition: &prepared.composition, output: &destination,
@@ -721,10 +719,7 @@ pub(crate) fn fsr_pass(
             let dispatched = context.lock().unwrap().dispatch(&frame).map(|commands| ctx.add_command_buffer(commands));
             upscale_span.end(ctx.command_encoder());
             match &dispatched {
-                Ok(()) => {
-                    failures.store(0, Ordering::Relaxed);
-                    crate::ffx_api_trace::probe_output(device, ctx.command_encoder(), &destination, prepared.camera.frame);
-                }
+                Ok(()) => failures.store(0, Ordering::Relaxed),
                 Err(why) if failures.fetch_add(1, Ordering::Relaxed) + 1 >= API_FAILURES => crate::ffx_api::give_up(why),
                 Err(_) => {}
             }

@@ -156,7 +156,6 @@ mod ssao;
 mod taa;
 mod fg_presenter;
 mod ffx_api;
-mod ffx_api_trace;
 mod frame_gen;
 mod fsr;
 mod speech_look;

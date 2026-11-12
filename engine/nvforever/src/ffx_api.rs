@@ -255,11 +255,9 @@ pub(crate) struct DispatchUpscale {
 
 pub(crate) type CreateContextFn = unsafe extern "C" fn(context: *mut *mut c_void, desc: *mut Header, allocator: *const c_void) -> ReturnCode;
 pub(crate) type DestroyContextFn = unsafe extern "C" fn(context: *mut *mut c_void, allocator: *const c_void) -> ReturnCode;
-pub(crate) type ConfigureFn = unsafe extern "C" fn(context: *mut *mut c_void, desc: *const Header) -> ReturnCode;
-pub(crate) type QueryFn = unsafe extern "C" fn(context: *mut *mut c_void, desc: *mut Header) -> ReturnCode;
 pub(crate) type DispatchFn = unsafe extern "C" fn(context: *mut *mut c_void, desc: *const Header) -> ReturnCode;
 
-/// The loaded library and its five entry points. It stays loaded for the life of the process.
+/// The loaded library and the three entry points called. It stays loaded for the life of the process.
 pub(crate) struct Library {
     /// The name it was asked for by ([`Candidate::name`]).
     pub(crate) name: &'static str,
@@ -268,11 +266,8 @@ pub(crate) struct Library {
     /// The file the module came from, as Windows names it: not always the one asked for, when
     /// a tool answers the load with its own.
     pub(crate) path: String,
-    pub(crate) module: usize,
     pub(crate) create_context: CreateContextFn,
     pub(crate) destroy_context: DestroyContextFn,
-    pub(crate) configure: ConfigureFn,
-    pub(crate) query: QueryFn,
     pub(crate) dispatch: DispatchFn,
 }
 
@@ -281,19 +276,14 @@ static LIBRARY: std::sync::LazyLock<Option<Library>> = std::sync::LazyLock::new(
         info!("FSR: the FidelityFX API path is off (NVF_FFX_API=0); the built-in FSR 3.1 runs");
         return None;
     }
-    crate::ffx_api_trace::environment("before the load");
     for candidate in &CANDIDATES {
         match sys::load(candidate) {
             Ok(library) => {
                 info!("FSR: {} loaded from {}; the upscale goes through the FidelityFX API", library.name, library.path);
-                crate::ffx_api_trace::loaded(&library);
                 return Some(library);
             }
-            Err(LoadError::NotThere) => crate::ffx_api_trace::not_loaded(candidate.name, "no such library in the game's folder"),
-            Err(LoadError::Failed(why)) => {
-                warn!("FSR: {} did not load ({why})", candidate.name);
-                crate::ffx_api_trace::not_loaded(candidate.name, &why);
-            }
+            Err(LoadError::NotThere) => {}
+            Err(LoadError::Failed(why)) => warn!("FSR: {} did not load ({why})", candidate.name),
         }
     }
     None
@@ -316,7 +306,7 @@ pub(crate) fn give_up(why: &str) {
 }
 
 enum LoadError {
-    /// No such file: the usual case.
+    /// No such file in the executable's folder: the usual case.
     NotThere,
     #[cfg_attr(not(windows), allow(dead_code))] // only the Windows loader can fail
     Failed(String),
@@ -326,47 +316,62 @@ enum LoadError {
 pub(crate) mod sys {
     use std::ffi::CStr;
 
-    use windows_sys::Win32::Foundation::{GetLastError, ERROR_MOD_NOT_FOUND, HMODULE};
+    use windows_sys::Win32::Foundation::{FreeLibrary, GetLastError, HMODULE};
     use windows_sys::Win32::System::LibraryLoader::{GetModuleFileNameW, GetProcAddress, LoadLibraryExW, LOAD_LIBRARY_SEARCH_APPLICATION_DIR, LOAD_LIBRARY_SEARCH_SYSTEM32};
 
     use super::{Candidate, Library, LoadError};
 
     /// The file a loaded module came from.
-    pub(crate) fn module_path(module: usize) -> String {
+    fn module_path(module: usize) -> String {
         let mut name = [0u16; 1024];
         // SAFETY: the buffer and its length in characters.
         let length = unsafe { GetModuleFileNameW(module as HMODULE, name.as_mut_ptr(), name.len() as u32) } as usize;
         String::from_utf16_lossy(&name[..length.min(name.len())])
     }
 
-    /// Loads a library from the executable's folder only (its own imports may come from
-    /// System32: the Vulkan loader, the C runtime), never from the working directory or `PATH`.
+    /// Loads a library that is in the executable's folder, and only then: a file of that name
+    /// elsewhere (System32 included) is never asked for. The load searches the executable's
+    /// folder and System32, never the working directory or `PATH`; the library's own imports
+    /// (the Vulkan loader, the C runtime) are found with the same flags, so System32 stays in.
     pub(super) fn load(candidate: &Candidate) -> Result<Library, LoadError> {
+        let in_folder = std::env::current_exe().ok().and_then(|exe| exe.parent().map(|folder| folder.join(candidate.name).is_file()));
+        if in_folder != Some(true) {
+            return Err(LoadError::NotThere);
+        }
         let wide: Vec<u16> = candidate.name.encode_utf16().chain([0]).collect();
         // SAFETY: a null-terminated name; the flags limit the search.
         let module = unsafe { LoadLibraryExW(wide.as_ptr(), std::ptr::null_mut(), LOAD_LIBRARY_SEARCH_APPLICATION_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32) };
         if module.is_null() {
             // SAFETY: reads the calling thread's last error.
             let code = unsafe { GetLastError() };
-            return Err(if code == ERROR_MOD_NOT_FOUND { LoadError::NotThere } else { LoadError::Failed(format!("Windows error {code}")) });
+            // 126 with the file present: one of the library's own imports is missing (FSR SDK
+            // 2.x's loader without `amd_fidelityfx_upscaler_vk.dll`, say).
+            return Err(LoadError::Failed(if code == 126 { "Windows error 126: a library it needs is missing".into() } else { format!("Windows error {code}") }));
         }
         let symbol = |symbol: &CStr| {
             // SAFETY: a loaded module and a null-terminated name.
-            unsafe { GetProcAddress(module, symbol.as_ptr().cast()) }.ok_or_else(|| LoadError::Failed(format!("it has no {}", symbol.to_string_lossy())))
+            unsafe { GetProcAddress(module, symbol.as_ptr().cast()) }.ok_or_else(|| format!("it has no {}", symbol.to_string_lossy()))
         };
-        // SAFETY: the signatures of the five entry points [documented: SDK 1.1.4 ffx_api.h].
+        let entry_points = (|| Ok::<_, String>([symbol(c"ffxCreateContext")?, symbol(c"ffxDestroyContext")?, symbol(c"ffxConfigure")?, symbol(c"ffxQuery")?, symbol(c"ffxDispatch")?]))();
+        // All five are asked for, as a library of the API has them; three are called.
+        let [create_context, destroy_context, _configure, _query, dispatch] = match entry_points {
+            Ok(entry_points) => entry_points,
+            Err(why) => {
+                // SAFETY: the module loaded above, unused: nothing of it was called.
+                unsafe { FreeLibrary(module) };
+                return Err(LoadError::Failed(why));
+            }
+        };
+        // SAFETY: the signatures of these entry points [documented: SDK 1.1.4 ffx_api.h].
         unsafe {
             Ok(Library {
                 name: candidate.name,
                 backend_type: candidate.backend_type,
                 upscaler_version: candidate.upscaler_version,
                 path: module_path(module as usize),
-                module: module as usize,
-                create_context: std::mem::transmute::<unsafe extern "system" fn() -> isize, super::CreateContextFn>(symbol(c"ffxCreateContext")?),
-                destroy_context: std::mem::transmute::<unsafe extern "system" fn() -> isize, super::DestroyContextFn>(symbol(c"ffxDestroyContext")?),
-                configure: std::mem::transmute::<unsafe extern "system" fn() -> isize, super::ConfigureFn>(symbol(c"ffxConfigure")?),
-                query: std::mem::transmute::<unsafe extern "system" fn() -> isize, super::QueryFn>(symbol(c"ffxQuery")?),
-                dispatch: std::mem::transmute::<unsafe extern "system" fn() -> isize, super::DispatchFn>(symbol(c"ffxDispatch")?),
+                create_context: std::mem::transmute::<unsafe extern "system" fn() -> isize, super::CreateContextFn>(create_context),
+                destroy_context: std::mem::transmute::<unsafe extern "system" fn() -> isize, super::DestroyContextFn>(destroy_context),
+                dispatch: std::mem::transmute::<unsafe extern "system" fn() -> isize, super::DispatchFn>(dispatch),
             })
         }
     }
@@ -490,7 +495,6 @@ pub(crate) struct Upscaler {
     context: *mut c_void,
     _descs: Box<CreateDescs>,
     device: wgpu::Device,
-    dispatches: u64,
 }
 
 // SAFETY: the context is only used through `&mut self`, by one thread at a time.
@@ -527,13 +531,10 @@ impl Upscaler {
         // SAFETY: the descriptors are laid out as the headers declare them and stay alive in
         // `descs`; a null allocator means the library's own.
         let code = unsafe { (library.create_context)(&mut context, &mut descs.upscale.header, std::ptr::null()) };
-        // The device's three handles, as SDK 2.x's `VkDeviceContext` lays them out.
-        let device_context = (&raw mut descs.backend.device).cast::<c_void>();
-        crate::ffx_api_trace::created(library, context, &descs.upscale, device_context, code);
         if code != RETURN_OK || context.is_null() {
             return Err(format!("ffxCreateContext returned {code} ({})", return_code_name(code)));
         }
-        Ok(Self { library, context, _descs: descs, device: device.clone(), dispatches: 0 })
+        Ok(Self { library, context, _descs: descs, device: device.clone() })
     }
 
     /// Has the library record the upscale into commands of their own. The caller has moved
@@ -566,7 +567,6 @@ impl Upscaler {
             flags: if frame.debug_view { UPSCALE_FLAG_DRAW_DEBUG_VIEW } else { 0 },
         };
         let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("fsr_fidelityfx_api") });
-        let started = std::time::Instant::now();
         let (library, context) = (self.library, &mut self.context);
         // SAFETY: the encoder holds no wgpu commands and gets none; the library records into
         // its Vulkan command buffer and neither ends nor frees it.
@@ -577,8 +577,6 @@ impl Upscaler {
                 Some((library.dispatch)(context, &desc.header))
             })
         };
-        self.dispatches += 1;
-        crate::ffx_api_trace::dispatched(self.library, self.context, self.dispatches, &desc, code, started.elapsed());
         match code {
             // The encoder is dropped with whatever was recorded: nothing of it runs.
             None => Err("wgpu gave no Vulkan command buffer".into()),
@@ -593,12 +591,14 @@ impl Drop for Upscaler {
         // The library frees its Vulkan objects at once, and wgpu knows nothing of the
         // commands that use them: wait for what was submitted [documented: AMD's FSR 3.1
         // guide has the application wait for the GPU before it destroys a context].
+        // If the GPU does not get there, the context is left as it is: freeing what the GPU
+        // may still be using is worse than the memory it keeps.
         if let Err(error) = self.device.poll(wgpu::PollType::Wait { submission_index: None, timeout: Some(std::time::Duration::from_secs(2)) }) {
-            warn!("FidelityFX API: the GPU was not idle before the context went: {error}");
+            warn!("FidelityFX API: the GPU was not idle before the context went ({error}); the context is left undestroyed");
+            return;
         }
         // SAFETY: the context this library created, destroyed once.
         let code = unsafe { (self.library.destroy_context)(&mut self.context, std::ptr::null()) };
-        crate::ffx_api_trace::destroyed(self.dispatches, code);
         if code != RETURN_OK {
             warn!("FidelityFX API: ffxDestroyContext returned {code} ({})", return_code_name(code));
         }

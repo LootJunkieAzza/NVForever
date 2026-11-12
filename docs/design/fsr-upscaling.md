@@ -461,9 +461,17 @@ libraries' sources and headers.
 - **What is loaded.** The first of these that loads, by its bare name, the first time a view
   uses FSR: `amd_fidelityfx_loader_vk.dll` (FSR SDK 2.x's loader, which finds its upscaler
   library `amd_fidelityfx_upscaler_vk.dll` itself: FSR 4 where the GPU runs it), then
-  `amd_fidelityfx_vk.dll` (SDK 1.x: FSR 3.1). From the executable's folder only, never the
-  working directory or `PATH` (the library's own imports may come from System32). The bare
-  name is what a tool that hooks the load compares [observed 2026-11-12: OptiScaler's source,
+  `amd_fidelityfx_vk.dll` (SDK 1.x: FSR 3.1). Only a file that is in the executable's
+  folder is asked for, so a file of that name in System32 or on `PATH` is never loaded. The
+  load itself searches the executable's folder and System32, never the working directory or
+  `PATH`; System32 stays in because the library's own imports (the Vulkan loader, the C
+  runtime) are found with the same flags [documented: `LoadLibraryExW`,
+  `LOAD_LIBRARY_SEARCH_*`]. With the file present, a failed load is reported as one (Windows
+  error 126 then means one of the library's own imports is missing, as with SDK 2.x's loader
+  but no `amd_fidelityfx_upscaler_vk.dll`), and a library without all five entry points is
+  unloaded again. No signature, hash or version is checked: OptiScaler's files are unsigned,
+  and the trust is that of any DLL beside an executable. The bare name is what a tool that
+  hooks the load compares [observed 2026-11-12: OptiScaler's source,
   `LibraryLoad_Hooks.cpp`, `DllNames.h`], and such a tool may answer the load with a library
   of its own. NVForever ships no such file; without one the port runs as before.
 - **The setting.** Settings > Graphics > Picture > FSR library (`fsr-library`): Built-in, or
@@ -513,7 +521,9 @@ libraries' sources and headers.
   in a row, ends the library's use for the session: the log says why, and the port takes the
   view over. A frame whose dispatch failed shows the spatial fallback.
 - **Destroying a context** waits for the GPU first (at most two seconds): the library frees
-  its Vulkan objects at once, and wgpu cannot hold them for commands it does not know.
+  its Vulkan objects at once, and wgpu cannot hold them for commands it does not know. If the
+  wait runs out the context is left undestroyed (its memory stays used), rather than freed
+  under commands the GPU may still run.
 - **Frame generation** is unchanged: it works from the engine's depth and motion vectors and
   the upscaled frame, not from the upscaler's own textures
   ([frame-generation](frame-generation.md)).
@@ -523,12 +533,11 @@ libraries' sources and headers.
   settings row; a smoke scenario (it needs a library to load). AMD's backend
   picks its shader variants from what the GPU supports, not from what the device enabled
   [documented: SDK 1.1.4 `ffx_vk.cpp` `GetDeviceCapabilitiesVK`]: untested on an AMD GPU.
-- **The development trace** (`ffx_api_trace.rs`, temporary, to be removed before a release):
-  lines starting `ffx-trace:` in the run log say what was loaded and from where, which
-  module each entry point's first instruction leads to (a hook's detour), the versions the
-  library offers, every call's arguments and result, and whether the output was written (it
-  is cleared to magenta before each dispatch and a few texels are read back).
-  `NVF_FFX_API_TRACE=0` turns it off.
+- **What the log says.** Which library loaded and the file it came from (a tool that
+  answers the load shows there), a library that failed to load and why, a context that could
+  not be made, and a dispatch failure. The observations above came from a development trace
+  (entry-point owners, every call, a read-back of the output) used while the path was built
+  and removed before review; it is in this branch's history (`ffx_api_trace.rs`).
 
 ## Limits
 
