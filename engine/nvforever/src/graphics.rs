@@ -45,7 +45,7 @@ use bevy::anti_alias::fxaa::Fxaa;
 use bevy::anti_alias::smaa::Smaa;
 use bevy::render::camera::{MipBias, TemporalJitter};
 use crate::fsr::{FsrQuality, FsrUpscaling};
-use crate::upscaler::{DlssUpscaling, UpscalerChoice, UpscalerStatus};
+use crate::upscaler::{DlssUpscaling, UpscaleQuality, UpscalerChoice, UpscalerStatus};
 
 /// The command line and saved settings expose the same upscaling modes.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, clap::ValueEnum)]
@@ -79,6 +79,23 @@ pub const FSR_CHOICES: [(&str, FsrMode); 6] = [
     ("Balanced", FsrMode::Balanced),
     ("Performance", FsrMode::Performance),
     ("Ultra Performance", FsrMode::UltraPerformance),
+];
+
+/// The `fsr-upscaling` row's choices by the names the INI, the log and the test aids use:
+/// [`FSR_CHOICES`]' six as they always were (off and FSR 3.1 at each quality), then DLSS at
+/// each quality (#2198). The page shows them by other words (`settings.rs`).
+pub const UPSCALER_CHOICES: [(&str, UpscalerChoice); 11] = [
+    ("Off", UpscalerChoice::Off),
+    ("Native AA", UpscalerChoice::Fsr(UpscaleQuality::NativeAa)),
+    ("Quality", UpscalerChoice::Fsr(UpscaleQuality::Quality)),
+    ("Balanced", UpscalerChoice::Fsr(UpscaleQuality::Balanced)),
+    ("Performance", UpscalerChoice::Fsr(UpscaleQuality::Performance)),
+    ("Ultra Performance", UpscalerChoice::Fsr(UpscaleQuality::UltraPerformance)),
+    ("DLSS Native AA", UpscalerChoice::Dlss(UpscaleQuality::NativeAa)),
+    ("DLSS Quality", UpscalerChoice::Dlss(UpscaleQuality::Quality)),
+    ("DLSS Balanced", UpscalerChoice::Dlss(UpscaleQuality::Balanced)),
+    ("DLSS Performance", UpscalerChoice::Dlss(UpscaleQuality::Performance)),
+    ("DLSS Ultra Performance", UpscalerChoice::Dlss(UpscaleQuality::UltraPerformance)),
 ];
 
 /// The look as a whole (`--graphics`).
@@ -126,9 +143,10 @@ pub struct Graphics {
     pub sharpen: bool,
     pub anisotropic: bool,
     pub screen_aa: ScreenAa,
-    /// The requested temporal upscaler (`upscaler.rs`), the one setting for FSR and DLSS. FSR
-    /// replaces the selected AA while active; UI is drawn at output resolution. FSR's code reads
-    /// and writes it through [`Graphics::fsr`] and [`Graphics::set_fsr`].
+    /// The requested temporal upscaler (`upscaler.rs`), the one setting for FSR and DLSS. What
+    /// draws is the status's effective choice (`upscaler::UpscalerStatus`); it replaces the
+    /// selected AA while active; UI is drawn at output resolution. FSR's code reads and writes
+    /// it through [`Graphics::fsr`] and [`Graphics::set_fsr`].
     pub upscaler: UpscalerChoice,
     pub light_shafts: bool,
     pub water_reflections: bool,
@@ -164,7 +182,9 @@ impl Graphics {
         self.upscaler.fsr()
     }
 
-    /// FSR at `quality`, or off: the requested upscaler as the FSR row and `--fsr` set it.
+    /// FSR at `quality`, or off: the requested upscaler as the FSR row and `--fsr` set it
+    /// before DLSS joined them (both set `upscaler` now; the tests still use it).
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn set_fsr(&mut self, quality: Option<FsrQuality>) {
         self.upscaler = UpscalerChoice::from_fsr(quality);
     }
@@ -259,6 +279,9 @@ impl Graphics {
         if self.fsr().is_some() {
             on.retain(|n| !matches!(*n, "FXAA" | "SMAA" | "temporal anti-aliasing"));
             on.push("FSR 3.1 upscaling");
+        } else if self.upscaler.is_dlss() {
+            on.retain(|n| !matches!(*n, "FXAA" | "SMAA" | "temporal anti-aliasing"));
+            on.push("DLSS upscaling");
         }
         if on.is_empty() {
             "vanilla (no engine-level improvements)".to_string()
@@ -293,11 +316,12 @@ pub const AA_CHOICES: [(&str, ScreenAa, Msaa); 7] = [
     ("TAA", ScreenAa::Taa, Msaa::Off),
 ];
 
-/// Whether FSR replaces native AA on this device: FSR's own question (its sharpening, frame
-/// generation, the settings' wording). What every temporal upscaler shares asks
-/// `upscaler::temporal_active`.
+/// Whether FSR draws now (the effective upscaler, `upscaler::effective`, is FSR): FSR's own
+/// question (frame generation). What every temporal upscaler shares asks
+/// `upscaler::temporal_active`. With DLSS asked for while FSR keeps drawing until a restart,
+/// this stays true.
 pub fn fsr_active(world: &World) -> bool {
-    world.resource::<Graphics>().fsr().is_some() && world.get_resource::<crate::fsr::FsrSupport>().is_some_and(|s| s.0)
+    crate::upscaler::effective(world).fsr().is_some()
 }
 
 /// The saved native anti-aliasing choice, an index of [`AA_CHOICES`]. It is kept
@@ -423,7 +447,7 @@ impl Plugin for GraphicsPlugin {
             .insert_resource(DirectionalLightShadowMap { size: SHADOW_MAP })
             .add_plugins((crate::ssao::SsaoPlugin, crate::post::PostPlugin, crate::taa::TaaPlugin, crate::shafts::ShaftsPlugin, crate::upscaler::prep::PrepPlugin, crate::fsr::FsrPlugin))
             .add_systems(Startup, |g: Res<Graphics>| info!("graphics: {}", g.describe()))
-            .add_systems(Update, (apply, sun_shadow_key.pipe(sun_shadow_quality).after(crate::sky::update_sky)).chain());
+            .add_systems(Update, (crate::upscaler::follow_request, apply, sun_shadow_key.pipe(sun_shadow_quality).after(crate::sky::update_sky)).chain());
         if let Some(ft) = self.2.clone().filter(|f| f.every > 0.0) {
             // GPU time per render pass (timestamp queries), logged with the frame time.
             ensure_render_diagnostics(app);
@@ -929,6 +953,31 @@ mod tests {
             assert_native_aa(&app, camera, selected);
             assert!(!app.world().entity(camera).contains::<DlssUpscaling>());
         }
+    }
+
+    /// Review P2 (2026-11-12): DLSS asked for while FSR draws in a session without Streamline:
+    /// FSR keeps drawing (and frame generation's question stays yes) until the restart.
+    #[test]
+    fn fsr_keeps_drawing_while_dlss_waits_for_a_restart() {
+        use crate::upscaler::{DlssState, Session, UpscaleQuality};
+        let (mut app, camera) = aa_app(ScreenAa::Smaa, true);
+        let stock = Session { streamline_loaded: false, dlss: DlssState::NotLoaded, fsr: None };
+        let mut status = UpscalerStatus::new(stock);
+        status.update(UpscalerChoice::Fsr(UpscaleQuality::Balanced));
+        app.insert_resource(status);
+        app.world_mut().resource_mut::<Graphics>().set_fsr(Some(UpscaleQuality::Balanced));
+        app.update();
+        assert_eq!(app.world().entity(camera).get::<FsrUpscaling>().unwrap().quality, UpscaleQuality::Balanced);
+
+        app.world_mut().resource_mut::<Graphics>().upscaler = UpscalerChoice::Dlss(UpscaleQuality::Quality);
+        app.world_mut().resource_mut::<UpscalerStatus>().update(UpscalerChoice::Dlss(UpscaleQuality::Quality));
+        assert!(app.world().resource::<UpscalerStatus>().restart_pending());
+        app.update();
+        let entity = app.world().entity(camera);
+        assert_eq!(entity.get::<FsrUpscaling>().unwrap().quality, UpscaleQuality::Balanced, "FSR keeps drawing until the restart");
+        assert!(!entity.contains::<DlssUpscaling>() && !entity.contains::<Smaa>());
+        assert!(fsr_active(app.world()) && crate::upscaler::temporal_active(app.world()));
+        assert_eq!(app.world().resource::<Graphics>().fsr(), None, "the request is DLSS");
     }
 
     #[test]

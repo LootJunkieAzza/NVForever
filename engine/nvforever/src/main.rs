@@ -469,9 +469,21 @@ struct Args {
     #[arg(long, value_enum)]
     graphics: Option<graphics::Preset>,
     /// FSR 3.1 upscaling (frame generation: --frame-generation). Replaces other anti-aliasing while on.
-    /// Saved Graphics settings take precedence in normal play, as for other switches.
-    #[arg(long, value_enum, default_value = "off")]
-    fsr: graphics::FsrMode,
+    /// Saved Graphics settings take precedence in normal play, as for other switches. The older
+    /// form of `--upscaler fsr --upscaler-quality <mode>` (`off`: no upscaler); given with
+    /// --upscaler, both must say the same. Off when neither is given.
+    #[arg(long, value_enum)]
+    fsr: Option<graphics::FsrMode>,
+    /// The temporal upscaler: off, fsr (FSR 3.1) or dlss (NVIDIA DLSS through Streamline, with
+    /// NVIDIA's files in the dlss folder beside the program; upscaler.rs, dlss/), at
+    /// --upscaler-quality. Saved Graphics settings take precedence in normal play, as for other
+    /// switches. Streamline is only loaded when the start chooses DLSS.
+    #[arg(long, value_enum)]
+    upscaler: Option<upscaler::Upscaler>,
+    /// The quality of --upscaler fsr or dlss (default: quality). Native AA reconstructs at
+    /// full resolution (DLSS: DLAA).
+    #[arg(long, value_enum)]
+    upscaler_quality: Option<upscaler::UpscaleQuality>,
     /// Instead of --graphics: exactly these improvements on, by the settings page's keys
     /// (ambient-occlusion, fine-shadows, bloom, sharpen, anisotropic, light-shafts,
     /// water-reflections) and choices (fxaa, smaa or taa instead of --msaa;
@@ -1293,7 +1305,12 @@ fn main() -> AppExit {
         },
         None => graphics::Graphics::preset(graphics_preset(&args)),
     };
-    graphics.set_fsr(args.fsr.quality());
+    // The requested upscaler: the command line's (upscaler.rs `command_line_choice`).
+    let requested_upscaler = match upscaler::command_line_choice(args.fsr, args.upscaler, args.upscaler_quality) {
+        Ok(choice) => choice,
+        Err(e) => return fail(e),
+    };
+    graphics.upscaler = requested_upscaler;
     let frame_times = match (args.log_frame_times, args.graphics_cycle.as_deref()) {
         (None, _) => None,
         (Some(every), cycle) => {
@@ -1321,9 +1338,22 @@ fn main() -> AppExit {
     }
     // Asks for VK_AMD_anti_lag when Bevy creates the device: before DefaultPlugins (anti_lag.rs).
     app.add_plugins(anti_lag::AntiLagInitPlugin);
-    // NVF_DLSS_SPIKE=1 only: Streamline loaded and initialised before the renderer starts
-    // (dlss/, #2198); unset, nothing runs.
-    app.add_plugins(dlss::DlssInitPlugin);
+    // The upscaler this run starts with, before the renderer exists: Streamline must be loaded
+    // and initialised before the Vulkan instance is made (dlss/, #2198), so the settings' INI is
+    // read here by the row's own rule and precedence, as `apply_stored` applies it at
+    // PostStartup (settings.rs `upscaler_after_ini`). Only a DLSS choice loads Streamline, or the
+    // test aid NVF_DLSS_PRELOAD=1 (upscaler.rs, "Start").
+    let start_upscaler = {
+        let given = play.is_some().then(|| settings::given_switches(&args, &command_line()));
+        let stored = given.as_ref().and_then(|_| settings::stored_at_start(settings::UPSCALING_KEY));
+        settings::upscaler_after_ini(graphics.upscaler, stored.as_deref(), given.as_ref())
+    };
+    let startup = upscaler::UpscalerStartup::new(start_upscaler, std::env::var_os(upscaler::PRELOAD_ENV).as_deref());
+    app.insert_resource(startup);
+    app.add_systems(Startup, move || info!("upscaler: {}", startup.describe()));
+    if startup.loads_streamline() {
+        app.add_plugins(dlss::DlssInitPlugin);
+    }
     app.add_plugins(
         DefaultPlugins
             .set(task_pools(cpu_placed.pool_threads))
@@ -1887,7 +1917,7 @@ fn main() -> AppExit {
     }
     let exit = app.run();
     // The app and its renderer are gone; Streamline shut down before the device and instance it
-    // used (dlss/, "Shutdown"). Nothing when the spike is off.
+    // used (dlss/, "Shutdown"). Nothing when Streamline was not loaded.
     dlss::shutdown();
     exit
 }

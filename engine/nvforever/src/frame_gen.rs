@@ -1,8 +1,9 @@
 //! FSR 3.1 frame generation (#1778): a frame made between each two real frames, from
 //! FidelityFX SDK 1.1.4's optical flow and frame interpolation (MIT, ported to wgpu in the
 //! vendored wgpu-ffx; docs/design/frame-generation.md). Off by default: Settings > Graphics >
-//! Frame generation, or `--frame-generation`. It needs FSR 3.1 upscaling on (any mode, Native
-//! AA too) and vsync (Vertical sync or Variable refresh).
+//! Frame generation, or `--frame-generation`. It needs FSR 3.1 upscaling drawing (any mode, Native
+//! AA too; not DLSS, whose output its passes do not take) and vsync (Vertical sync or Variable
+//! refresh).
 //!
 //! Per real frame, in the camera's render schedule:
 //! - after FSR ([`crate::fsr::fsr_pass`]): frame interpolation's prepare pass dilates the
@@ -92,8 +93,11 @@ pub struct FrameGeneration {
 #[derive(Resource, Clone, Copy, Default)]
 pub struct FrameGenSupport(pub bool);
 
-/// Whether frame generation can run: on, supported, FSR active and vsync on, and the DLSS
-/// spike not active (`NVF_DLSS_SPIKE=1` test aid, dlss/: forced off while it evaluates).
+/// Whether frame generation can run: on, supported, FSR the effective upscaler
+/// (`graphics::fsr_active`: never with DLSS drawing, #2198) and vsync on. Until DLSS's own pass
+/// leaves `fsr::fsr_pass` (the design note's step 5), also not while the loader's DLSS is
+/// ready (`dlss::frame_generation_forced_off`), where that pass may draw DLSS in FSR's place
+/// (the preload aid); the merge with that step takes this guard out.
 pub fn usable(world: &World) -> bool {
     world.resource::<FrameGeneration>().on
         && !crate::dlss::frame_generation_forced_off()
@@ -106,6 +110,8 @@ pub fn usable(world: &World) -> bool {
 pub fn unavailable_reason(world: &World) -> Option<&'static str> {
     if !world.get_resource::<FrameGenSupport>().is_some_and(|s| s.0) {
         Some("Not on this GPU")
+    } else if crate::upscaler::effective(world).is_dlss() {
+        Some("Not with DLSS")
     } else if !crate::graphics::fsr_active(world) {
         Some("Needs FSR 3.1")
     } else if !world.resource::<crate::frame_pace::FramePace>().sync.vsync() {
@@ -1127,6 +1133,39 @@ mod tests {
         assert_eq!(srgb8(1.0), 255);
         assert_eq!(srgb8(0.2159), 128, "sRGB 128 is linear 0.2158");
         assert_eq!(srgb8(2.0), 255, "clamped");
+    }
+
+    /// Frame generation follows the effective upscaler: held off with the DLSS reason while
+    /// DLSS draws, running on FSR while DLSS only waits for a restart.
+    #[test]
+    fn frame_generation_needs_fsr_drawing_and_says_so_with_dlss() {
+        use crate::upscaler::{DlssState, Session, UpscaleQuality, UpscalerChoice, UpscalerStatus};
+        let mut app = App::new();
+        app.insert_resource(crate::graphics::Graphics::preset(crate::graphics::Preset::Vanilla))
+            .insert_resource(crate::fsr::FsrSupport(true))
+            .insert_resource(FrameGenSupport(true))
+            .insert_resource(FrameGeneration { on: true })
+            .insert_resource(crate::frame_pace::FramePace { sync: crate::frame_pace::DisplaySync::Vsync, cap: 0 });
+        assert_eq!(unavailable_reason(app.world()), Some("Needs FSR 3.1"));
+        let ready = Session { streamline_loaded: true, dlss: DlssState::Ready, fsr: None };
+        let mut status = UpscalerStatus::new(ready);
+        status.update(UpscalerChoice::Dlss(UpscaleQuality::Quality));
+        app.insert_resource(status);
+        app.world_mut().resource_mut::<crate::graphics::Graphics>().upscaler = UpscalerChoice::Dlss(UpscaleQuality::Quality);
+        assert_eq!(unavailable_reason(app.world()), Some("Not with DLSS"));
+        // FSR asked for in the DLSS session: DLSS draws until the restart, so still not.
+        app.world_mut().resource_mut::<crate::graphics::Graphics>().set_fsr(Some(UpscaleQuality::Quality));
+        app.world_mut().resource_mut::<UpscalerStatus>().update(UpscalerChoice::Fsr(UpscaleQuality::Quality));
+        assert_eq!(unavailable_reason(app.world()), Some("Not with DLSS"));
+        // A session without Streamline, FSR drawing and DLSS asked for: FSR runs until the restart.
+        let stock = Session { streamline_loaded: false, dlss: DlssState::NotLoaded, fsr: None };
+        let mut status = UpscalerStatus::new(stock);
+        status.update(UpscalerChoice::Fsr(UpscaleQuality::Balanced));
+        status.update(UpscalerChoice::Dlss(UpscaleQuality::Quality));
+        app.insert_resource(status);
+        app.world_mut().resource_mut::<crate::graphics::Graphics>().upscaler = UpscalerChoice::Dlss(UpscaleQuality::Quality);
+        assert_eq!(unavailable_reason(app.world()), None);
+        assert!(crate::graphics::fsr_active(app.world()));
     }
 
     #[test]
