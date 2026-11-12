@@ -1184,6 +1184,8 @@ pub(crate) fn specialize_material_meshes(
         .retain(|view, _| all_views.contains(view));
 }
 
+// NVForever material queue probe (#1803, engine/vendor/README.md): this resource and its
+// two uses in `queue_material_meshes` are NVForever's patch.
 /// Optional observation of selected main-pass entries, retained just like the phases.
 /// [design: nvforever/pipboy_ready.rs, #1803] No resource is installed by Bevy itself.
 #[derive(Resource, Default)]
@@ -1216,6 +1218,7 @@ pub fn queue_material_meshes(
     )>,
     specialized_material_pipeline_cache: ResMut<SpecializedMaterialPipelineCache>,
     dirty_specializations: Res<DirtySpecializations>,
+    // NVForever material queue probe: the scratch space shares its parameter with the probe.
     (mut mesh_instances_queued_this_iteration_scratch_space, mut probe): (
         Local<MainEntityHashSet>, Option<ResMut<MaterialQueueProbe>>,
     ),
@@ -1250,6 +1253,7 @@ pub fn queue_material_meshes(
         for &main_entity in dirty_specializations
             .iter_to_dequeue(view.retained_view_entity, render_visible_mesh_entities)
         {
+            // NVForever material queue probe: a dequeued entry is no longer queued.
             if let Some(probe) = probe.as_mut() {
                 if let Some(queued) = probe.queued.get_mut(&view.retained_view_entity) {
                     queued.remove(&main_entity);
@@ -1470,6 +1474,7 @@ pub fn queue_material_meshes(
                     });
                 }
             }
+            // NVForever material queue probe: a watched entry is recorded as queued.
             if let Some(probe) = probe.as_mut() {
                 if probe.watched.contains(visible_entity) {
                     probe.queued.entry(view.retained_view_entity).or_default().insert(
