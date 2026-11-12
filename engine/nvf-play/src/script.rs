@@ -2021,6 +2021,18 @@ pub(crate) fn run_scripts(
         // straight into the game, so a second of them runs first (fnv_game, module notes).
         if !rt.came_through {
             rt.came_through = true;
+            // With the start menu's tiles in the tree, as under the original's main menu:
+            // MCM's install check reads its own `_MCM` there and shows "cannot access its
+            // menu files" without it. A run that begins in a save has no main menu, and a
+            // new game's was dropped already [observed: the owner's run of 2026-11-12, the
+            // box after a settings change restarted the game into its save]. The frame's
+            // own sync drops the menu again.
+            if rt.game.ui_files.is_some() {
+                for line in fnv_game::ui_loading::sync(&mut rt.game, false, true).changes {
+                    info!("ui: {line} (for the start menu's frames before the game)");
+                }
+                rt.game.ui_tree.update();
+            }
             rt.game.came_through_start_menu(START_MENU_FRAMES, 1.0 / 60.0);
             info!("scripts: the start menu's MenuMode 1013 blocks ran {START_MENU_FRAMES} frames before the game, as under the original's main menu");
         }

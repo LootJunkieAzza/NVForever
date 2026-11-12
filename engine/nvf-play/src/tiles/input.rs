@@ -899,9 +899,12 @@ pub(crate) fn feed(
     taking.extend(inputs.taking(*menus, &rt.game, inventory.as_ref().is_some_and(|i| i.ready.is_some())));
     // T11: the pause menu's Mods page takes the pointer and keys for the start menu's
     // tiles (`super::mods`).
-    if menus.start && paused.as_ref().zip(page.as_ref()).is_some_and(|(p, pg)| crate::pause::mods_open(p, pg)) {
+    let mods_page = menus.start && paused.as_ref().zip(page.as_ref()).is_some_and(|(p, pg)| crate::pause::mods_open(p, pg));
+    if mods_page {
         taking.extend(rt.game.ui_tree.menu(super::mods::START_MENU));
     }
+    // MCM reads a click in two frames running (`fnv_ui::input::Pointer::click_steps`).
+    rt.game.ui_pointer.click_steps = if mods_page { 2 } else { 1 };
     // T15b: a drag on the tutorial menu's marker ends with its press or that menu, whether or
     // not any menu takes input this frame.
     let tutorial = super::tutorial_menu::tiled_menu(menus.tutorial, &rt.game);

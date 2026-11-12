@@ -267,9 +267,11 @@ pub fn mcm_list_line(ui: &fnv_ui::Ui) -> Option<String> {
         })
         .collect();
     Some(format!(
-        "MCM's list: _selected {}, _subCount {}, ArrowUp y {}, ArrowDown y {}, row height {}, _spacing {}, _listY {}; MCM _ActiveMod {}, _ActiveSubMenu {}; rows on: {}",
+        "MCM's list: _selected {}, _subCount {}, clicked row _index {} _modID {}, ArrowUp y {}, ArrowDown y {}, row height {}, _spacing {}, _listY {}; MCM _ActiveMod {}, _ActiveSubMenu {}, _UnClick {}, _AltInput {}; rows on: {}",
         list("_selected"),
         list("_subCount"),
+        list("_index"),
+        list("_modID"),
         list("ArrowUp/y"),
         list("ArrowDown/y"),
         list("MCM_ModList_Size/height"),
@@ -277,6 +279,8 @@ pub fn mcm_list_line(ui: &fnv_ui::Ui) -> Option<String> {
         list("_listY"),
         read("StartMenu/MCM/_ActiveMod"),
         read("StartMenu/MCM/_ActiveSubMenu"),
+        read("StartMenu/MCM/_UnClick"),
+        read("StartMenu/MCM/_AltInput"),
         if rows.is_empty() { "none".to_string() } else { rows.join("; ") }
     ))
 }

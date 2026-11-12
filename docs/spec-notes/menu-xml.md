@@ -1221,3 +1221,35 @@ plugin's source text), their effects measured in the original with job `mcm976e`
 - Built in `fnv_game::ui_functions` (names in `schemas/script/functions.json` from
   `tools/capture/script_functions.py`'s `PAGELESS`); the setting of every MCM shorthand
   may be a path below the tile (`"ArrowUp/y"`, `"/visible"`, as MCM's scripts pass).
+
+### 10.3 What MCM needs of a click and of the frames before the game (2026-11-12)
+
+Found in the owner's runs with MCM 1.5, CASM with MCM, B42 Quickthrow and Project Nevada
+(the mod log, `nvf_play::mod_log`):
+
+- **A click on a list row is read in two frames running.** MCM's main script sees the
+  list's `_index` (a row's `_modIndex` while its `_clicked` is 1; `_clicked` is the row's
+  `clicked` less MCM's `_UnClick`), leaves the frame ("Skip frame to let UI set
+  variables"), and its list script reads the clicked row's `_modID` in the next frame,
+  then sets `_UnClick` for one frame [observed: MCM's script source and menu files]. With
+  `clicked` at 1 for one frame (§3.2) the second read found nothing: the pointer's clicks
+  landed on the rows and nothing was selected [observed: the run's log, `clicked 1` on
+  Mod1 and Mod2, `_selected` left at -1]. So under the pause menu's Mods page a
+  pointer's click holds `clicked` for two steps (`fnv_ui::input::Pointer::click_steps`)
+  [hypothesis: the original's `clicked` reads 1 in exactly two MenuMode frames; one frame
+  more would pass MCM's one-frame `_UnClick` mask and click twice]. Elsewhere, and for a
+  script's click, it stays one step. Observer check §8 item 8 settles it.
+- **The start menu's frames before the game run with the start menu's tiles.** MCM's
+  install check (`iInstallCheck`, set by its GameMode block, so 1 in any save) reads
+  `StartMenu/MCM/_MCM` on its first MenuMode 1013 frame and shows "cannot access its menu
+  files" without it. A run that begins in a save (a settings change restarts the game
+  into it) has no main menu, and a new game's start menu is dropped before those frames,
+  so the tree had no StartMenu and the box came up [observed: the owner's run]. The
+  frames now build it first (`nvf_play::script`, `ui_loading::sync` as under the main
+  menu); the frame's own sync drops it again.
+- **A mod that fills MCM's list without being selected** shows its sub menus over the
+  mod names. JIP Companions Command & Control's MCM script compares `_ActiveMod` with a
+  global, `iJIPCCCModIndex`, that no script sets; JIP LN sets it (and `iJIPCCCStartup`)
+  from inside [hypothesis: nothing in the plugin writes either]. Left at 0 it equals "no
+  mod selected". Not built: it needs those values and the mod's `CCC…` functions read in
+  the original.
