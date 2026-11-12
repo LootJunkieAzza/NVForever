@@ -940,23 +940,31 @@ mod tests {
             dlss_drawn(&app);
             assert_eq!(app.world().resource::<Graphics>().screen_aa, selected, "DLSS preserves the saved native AA choice");
 
-            // FSR asked for while DLSS draws: DLSS keeps drawing until a restart, never both.
+            // FSR asked for while DLSS draws (Streamline loaded): FSR at once, never both.
             app.world_mut().resource_mut::<Graphics>().set_fsr(Some(FsrQuality::Quality));
             app.world_mut().resource_mut::<UpscalerStatus>().update(UpscalerChoice::Fsr(FsrQuality::Quality));
             app.update();
-            dlss_drawn(&app);
+            let entity = app.world().entity(camera);
+            assert_eq!(entity.get::<FsrUpscaling>().unwrap().quality, FsrQuality::Quality);
+            assert!(!entity.contains::<DlssUpscaling>(), "no DLSS component while FSR draws");
+            assert_eq!(*entity.get::<Msaa>().unwrap(), Msaa::Off);
 
-            // The next start without DLSS, off asked for: the saved native choice is back.
-            app.world_mut().remove_resource::<UpscalerStatus>();
+            // Back to DLSS, then off: the saved native choice is back at once.
+            app.world_mut().resource_mut::<Graphics>().upscaler = UpscalerChoice::Dlss(UpscaleQuality::Balanced);
+            app.world_mut().resource_mut::<UpscalerStatus>().update(UpscalerChoice::Dlss(UpscaleQuality::Balanced));
+            app.update();
+            dlss_drawn(&app);
             app.world_mut().resource_mut::<Graphics>().set_fsr(None);
+            app.world_mut().resource_mut::<UpscalerStatus>().update(UpscalerChoice::Off);
             app.update();
             assert_native_aa(&app, camera, selected);
-            assert!(!app.world().entity(camera).contains::<DlssUpscaling>());
+            assert!(!app.world().entity(camera).contains::<DlssUpscaling>() && !app.world().entity(camera).contains::<FsrUpscaling>());
         }
     }
 
-    /// Review P2 (2026-11-12): DLSS asked for while FSR draws in a session without Streamline:
-    /// FSR keeps drawing (and frame generation's question stays yes) until the restart.
+    /// Review P2 (2026-11-12): DLSS asked for while FSR draws in a session that started without
+    /// Streamline (the files added since, or `NVF_DLSS_PRELOAD=0`): FSR keeps drawing (and
+    /// frame generation's question stays yes) until the restart.
     #[test]
     fn fsr_keeps_drawing_while_dlss_waits_for_a_restart() {
         use crate::upscaler::{DlssState, Session, UpscaleQuality};
@@ -996,7 +1004,7 @@ mod tests {
             g.upscaler = requested;
         }
         let ready = Session { streamline_loaded: true, dlss: DlssState::Ready, fsr: None };
-        let mut status = UpscalerStatus::with_start(ready, requested);
+        let mut status = UpscalerStatus::new(ready);
         status.update(requested);
         app.insert_resource(status);
         app.update();

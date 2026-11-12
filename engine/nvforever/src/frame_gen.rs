@@ -1162,18 +1162,17 @@ mod tests {
         app.world_mut().resource_mut::<crate::graphics::Graphics>().upscaler = UpscalerChoice::Dlss(UpscaleQuality::Quality);
         assert_eq!(unavailable_reason(app.world()), Some("Not with DLSS"));
         assert!(!usable(app.world()), "DLSS effective: frame generation does not run");
-        // FSR asked for in the DLSS session: DLSS draws until the restart, so still not.
+        // FSR asked for in the same session (Streamline loaded): FSR draws at once in its own
+        // pass, through the interposer, so frame generation runs.
         app.world_mut().resource_mut::<crate::graphics::Graphics>().set_fsr(Some(UpscaleQuality::Quality));
         app.world_mut().resource_mut::<UpscalerStatus>().update(UpscalerChoice::Fsr(UpscaleQuality::Quality));
+        assert_eq!(unavailable_reason(app.world()), None);
+        assert!(usable(app.world()), "FSR effective with Streamline loaded");
+        // And back to DLSS: held off again.
+        app.world_mut().resource_mut::<crate::graphics::Graphics>().upscaler = UpscalerChoice::Dlss(UpscaleQuality::Quality);
+        app.world_mut().resource_mut::<UpscalerStatus>().update(UpscalerChoice::Dlss(UpscaleQuality::Quality));
         assert_eq!(unavailable_reason(app.world()), Some("Not with DLSS"));
         assert!(!usable(app.world()));
-        // A session that loaded Streamline without DLSS drawing (the preload aid), FSR
-        // effective: FSR draws in its own pass, so frame generation runs.
-        let mut preload = UpscalerStatus::with_start(ready, UpscalerChoice::Fsr(UpscaleQuality::Quality));
-        preload.update(UpscalerChoice::Fsr(UpscaleQuality::Quality));
-        app.insert_resource(preload);
-        assert_eq!(unavailable_reason(app.world()), None);
-        assert!(usable(app.world()), "FSR effective in a preload session");
         // A session without Streamline, FSR drawing and DLSS asked for: FSR runs until the restart.
         let stock = Session { streamline_loaded: false, dlss: DlssState::NotLoaded, fsr: None };
         let mut status = UpscalerStatus::new(stock);

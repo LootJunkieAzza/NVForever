@@ -8,11 +8,11 @@
 //!   FSR's ratios stay in `fsr.rs`, DLSS's sizes come from DLSS).
 //! - [`UpscalerStatus`] is what this session can do and what it draws: the **effective** choice,
 //!   whether a **restart is pending**, and why a request cannot run ([`Unavailable`]).
-//!   [`resolve`] is its rule [design]: Streamline is only loaded when DLSS is asked for at start,
-//!   so entering or leaving DLSS takes a restart, and until then the effective choice stays.
-//!   What the start-up loaded Streamline for is the session's [`Boundary`], kept apart from the
-//!   latest effective choice, so a DLSS session that stops drawing DLSS still needs a restart
-//!   to leave it.
+//!   [`resolve`] is its rule [design]: Streamline is loaded at start whenever NVIDIA's files are
+//!   in the DLSS folder (or DLSS is chosen), so with it loaded off, FSR and DLSS all switch at
+//!   once (FSR then draws through the interposer). A restart is pending only for DLSS asked for
+//!   in a session that started without Streamline while the files are there now (they were
+//!   added since, or the test aid `NVF_DLSS_PRELOAD=0` kept it out); until then what drew stays.
 //!
 //! - [`prep`] is the view preparation every temporal upscaler shares (step 4): camera history
 //!   and cuts, the render-size override, jitter and mip bias, the corrected and expanded depth,
@@ -27,10 +27,12 @@
 //! ([`command_line_choice`]: `--upscaler`, `--upscaler-quality`, the older `--fsr`), then the
 //! settings' INI by the settings' own precedence (`settings::upscaler_after_ini`), read in
 //! `main` before the renderer exists, because Streamline must be loaded before the Vulkan
-//! instance is made. Only a DLSS choice loads it ([`UpscalerStartup`]), and the test aid
-//! `NVF_DLSS_PRELOAD=1` loads it with FSR or off chosen too (FSR then draws through the
-//! interposer). The same INI line is applied again with the other rows at `PostStartup`; both
-//! read it by the row's own rule, so they agree. [`follow_request`] then keeps the status.
+//! instance is made. [`UpscalerStartup`] decides whether the DLSS loader runs: a DLSS choice,
+//! or the four files in the DLSS folder (a cheap existence check, `dlss::bundle_present`; the
+//! loader's own checks still decide), on Windows with Vulkan among the renderer's backends.
+//! The test aid `NVF_DLSS_PRELOAD=1` always loads it, `=0` only for a DLSS choice. The same INI
+//! lines are applied again with the other rows at `PostStartup`; both read them by the rows'
+//! own rules, so they agree. [`follow_request`] then keeps the status.
 
 pub(crate) mod prep;
 
@@ -229,7 +231,8 @@ impl Unavailable {
 /// Whether DLSS can run in this session.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum DlssState {
-    /// Streamline was not loaded at start (DLSS was not asked for): a restart may bring it.
+    /// Streamline was not loaded at start, and the files are in the DLSS folder now: a restart
+    /// brings it ([`dlss_state_now`]).
     #[default]
     NotLoaded,
     /// Streamline is loaded, DLSS is supported and its functions were fetched.
@@ -248,34 +251,6 @@ pub struct Session {
     pub fsr: Option<Unavailable>,
 }
 
-/// What the start-up loaded Streamline for: the line a restart crosses [design:
-/// docs/design/dlss-upscaling.md, "Restart to enter or leave DLSS"]. Fixed for the session,
-/// kept apart from the latest effective choice ([`UpscalerStatus`]).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Boundary {
-    /// Streamline was loaded for DLSS and DLSS drew at start, at this quality. Leaving DLSS
-    /// takes a restart, also once DLSS has stopped working (then native draws until it).
-    Dlss(UpscaleQuality),
-    /// Streamline was loaded without DLSS drawing at start (`NVF_DLSS_PRELOAD=1`, or DLSS asked
-    /// for but refused once the device was made through the interposer): FSR and off follow at
-    /// once (FSR through the interposer); DLSS waits for a restart.
-    Preload,
-    /// Streamline was not loaded: FSR and off follow at once; DLSS waits for a restart, unless
-    /// DLSS was asked for at this start already (`dlss_tried`), when a restart would do the same.
-    Stock { dlss_tried: bool },
-}
-
-impl Boundary {
-    /// The session's boundary from what was asked for at start and what the start-up did.
-    pub fn at_start(start: UpscalerChoice, session: Session) -> Self {
-        match start {
-            UpscalerChoice::Dlss(q) if session.streamline_loaded && session.dlss == DlssState::Ready => Boundary::Dlss(q),
-            _ if session.streamline_loaded => Boundary::Preload,
-            _ => Boundary::Stock { dlss_tried: start.is_dlss() },
-        }
-    }
-}
-
 /// What a requested choice comes to in a session.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Resolution {
@@ -289,57 +264,31 @@ pub struct Resolution {
 }
 
 /// The rule from the requested choice to what draws [design: docs/design/dlss-upscaling.md,
-/// "Restart to enter or leave DLSS"]. `previous` is the last effective choice (`None` at
-/// start), `boundary` what the start-up loaded Streamline for ([`Boundary`]).
+/// "Switching"]. `previous` is the last effective choice (`None` at start).
 ///
-/// - A DLSS session (`Boundary::Dlss`), DLSS working: DLSS asked for, its quality follows at
-///   once; FSR or off asked for, DLSS keeps drawing until a restart.
-/// - A DLSS session, DLSS no longer working: native (`Off`) with the reason; FSR or off asked
-///   for still wait for a restart (the restart pending and the reason stay however often it is
-///   asked again).
-/// - Any other session: DLSS asked for, what draws stays; a restart is pending unless DLSS is
-///   known to be unavailable (then the reason: a restart would not help). FSR or off asked
-///   for: follows at once (FSR only where it can run).
-pub fn resolve(requested: UpscalerChoice, previous: Option<UpscalerChoice>, boundary: Boundary, session: Session) -> Resolution {
-    let dlss_reason = dlss_reason(boundary, session);
-    let fsr_or_off = |requested: UpscalerChoice| match requested {
-        UpscalerChoice::Fsr(_) => match session.fsr {
-            None => Resolution { effective: requested, restart_pending: false, reason: None },
-            Some(why) => Resolution { effective: UpscalerChoice::Off, restart_pending: false, reason: Some(why) },
-        },
-        _ => Resolution { effective: UpscalerChoice::Off, restart_pending: false, reason: None },
-    };
-    match boundary {
-        Boundary::Dlss(start_quality) => match (dlss_reason, requested) {
-            (None, UpscalerChoice::Dlss(_)) => Resolution { effective: requested, restart_pending: false, reason: None },
-            (None, _) => {
-                let drawing = previous.filter(|p| p.is_dlss()).unwrap_or(UpscalerChoice::Dlss(start_quality));
+/// - DLSS asked for: DLSS draws when it is ready; where it cannot run (also once it stopped
+///   working this session, `EvaluateFailed`), native (`Off`) draws with the reason; where
+///   Streamline was not loaded at start but the files are there now, what drew stays and a
+///   restart is pending.
+/// - FSR asked for: FSR draws at once where it can run (with Streamline loaded or not), else
+///   native with the reason.
+/// - Off: native at once.
+pub fn resolve(requested: UpscalerChoice, previous: Option<UpscalerChoice>, session: Session) -> Resolution {
+    let now = |effective: UpscalerChoice, reason: Option<Unavailable>| Resolution { effective, restart_pending: false, reason };
+    match requested {
+        UpscalerChoice::Dlss(_) => match session.dlss {
+            DlssState::Ready => now(requested, None),
+            DlssState::Unavailable(why) => now(UpscalerChoice::Off, Some(why)),
+            DlssState::NotLoaded => {
+                let drawing = previous.filter(|p| !p.is_dlss()).unwrap_or(UpscalerChoice::Off);
                 Resolution { effective: drawing, restart_pending: true, reason: None }
             }
-            (Some(why), UpscalerChoice::Dlss(_)) => Resolution { effective: UpscalerChoice::Off, restart_pending: false, reason: Some(why) },
-            (Some(why), _) => Resolution { effective: UpscalerChoice::Off, restart_pending: true, reason: Some(why) },
         },
-        Boundary::Preload | Boundary::Stock { .. } => match requested {
-            UpscalerChoice::Dlss(_) => {
-                let drawing = previous.filter(|p| !p.is_dlss()).unwrap_or(UpscalerChoice::Off);
-                Resolution { effective: drawing, restart_pending: dlss_reason.is_none(), reason: dlss_reason }
-            }
-            _ => fsr_or_off(requested),
+        UpscalerChoice::Fsr(_) => match session.fsr {
+            None => now(requested, None),
+            Some(why) => now(UpscalerChoice::Off, Some(why)),
         },
-    }
-}
-
-/// Why DLSS cannot run in this session, or `None` when it can or a restart may bring it.
-fn dlss_reason(boundary: Boundary, session: Session) -> Option<Unavailable> {
-    match session.dlss {
-        DlssState::Ready => None,
-        DlssState::Unavailable(why) => Some(why),
-        // DLSS asked for at this start without Streamline loaded: something refused it before
-        // the loader said why (another restart would do the same). Otherwise a restart may load it.
-        DlssState::NotLoaded => match boundary {
-            Boundary::Stock { dlss_tried: true } => Some(Unavailable::StreamlineRefused),
-            _ => None,
-        },
+        UpscalerChoice::Off => now(UpscalerChoice::Off, None),
     }
 }
 
@@ -349,30 +298,19 @@ fn dlss_reason(boundary: Boundary, session: Session) -> Option<Unavailable> {
 #[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct UpscalerStatus {
     pub session: Session,
-    /// What the start-up loaded Streamline for; `None` until the first [`Self::update`] when
-    /// the status was made without it ([`Self::new`]), then from that first request.
-    boundary: Option<Boundary>,
     /// The last [`resolve`], `None` before the first.
     resolved: Option<Resolution>,
 }
 
 impl UpscalerStatus {
-    /// A status whose boundary comes from the first request ([`Self::update`]).
     pub fn new(session: Session) -> Self {
-        Self { session, boundary: None, resolved: None }
+        Self { session, resolved: None }
     }
 
-    /// A status for a session that started with `start` asked for ([`UpscalerStartup`]).
-    pub fn with_start(session: Session, start: UpscalerChoice) -> Self {
-        Self { session, boundary: Some(Boundary::at_start(start, session)), resolved: None }
-    }
-
-    /// Applies [`resolve`] to `requested`, the previous effective choice carried over and the
-    /// session's boundary kept. Returns whether anything changed.
+    /// Applies [`resolve`] to `requested`, the previous effective choice carried over. Returns
+    /// whether anything changed.
     pub fn update(&mut self, requested: UpscalerChoice) -> bool {
-        let session = self.session;
-        let boundary = *self.boundary.get_or_insert_with(|| Boundary::at_start(requested, session));
-        let next = resolve(requested, self.resolved.map(|r| r.effective), boundary, session);
+        let next = resolve(requested, self.resolved.map(|r| r.effective), self.session);
         let changed = self.resolved != Some(next);
         self.resolved = Some(next);
         changed
@@ -391,16 +329,13 @@ impl UpscalerStatus {
         self.resolved.and_then(|r| r.reason)
     }
 
-    #[cfg_attr(not(test), allow(dead_code))]
-    pub fn boundary(&self) -> Option<Boundary> {
-        self.boundary
-    }
-
-    /// Why DLSS cannot be asked for in this session (the settings hold its choices out of
-    /// reach), by the rule [`resolve`] uses; `None` when it can, or when a restart may bring
-    /// it.
+    /// Why DLSS cannot be asked for in this session (the settings hold it out of reach), by the
+    /// rule [`resolve`] uses; `None` when it can, or when a restart brings it.
     pub fn dlss_unavailable(&self) -> Option<Unavailable> {
-        dlss_reason(self.boundary.unwrap_or(Boundary::Stock { dlss_tried: false }), self.session)
+        match self.session.dlss {
+            DlssState::Unavailable(why) => Some(why),
+            DlssState::Ready | DlssState::NotLoaded => None,
+        }
     }
 
     /// For the log: what is asked for, what draws, a restart pending and the reason.
@@ -416,38 +351,81 @@ impl UpscalerStatus {
     }
 }
 
+/// Why the DLSS loader runs at start or not ([`UpscalerStartup`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StartLoad {
+    /// DLSS is the start's choice: the loader runs whatever the folder holds (and says why DLSS
+    /// cannot run, when it cannot).
+    DlssChosen,
+    /// The four files are in the DLSS folder: the loader runs, so every switch is live.
+    FilesPresent,
+    /// `NVF_DLSS_PRELOAD=1`: the loader runs whatever the folder holds.
+    PreloadOn,
+    /// `NVF_DLSS_PRELOAD=0`: not loaded without a DLSS choice (DLSS then takes a restart).
+    PreloadOff,
+    /// The DLSS folder lacks one of the four files (or there is none): not loaded.
+    NoFiles,
+    /// Not Windows, or Vulkan is not among the renderer's backends: not loaded.
+    Unsupported,
+}
+
 /// What the start-up chose, before the renderer was made (`main`; module notes): the
-/// requested choice the start resolved and whether `NVF_DLSS_PRELOAD=1` loads Streamline
-/// without DLSS. The status's [`Boundary`] comes from it.
+/// requested choice the start resolved and whether, and why, the DLSS loader runs.
 #[derive(Resource, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct UpscalerStartup {
     pub requested: UpscalerChoice,
-    pub preload: bool,
+    pub load: StartLoad,
 }
 
-/// The test aid that loads Streamline at start without DLSS chosen (FSR then draws through
-/// the interposer). Only `1` turns it on.
+/// The test aid for the start's decision: `1` always runs the DLSS loader (FSR then draws
+/// through the interposer), `0` runs it only for a DLSS choice; unset (or anything else), the
+/// files decide.
 pub const PRELOAD_ENV: &str = "NVF_DLSS_PRELOAD";
 
 impl UpscalerStartup {
-    /// `preload_var`: `NVF_DLSS_PRELOAD`'s value.
-    pub fn new(requested: UpscalerChoice, preload_var: Option<&std::ffi::OsStr>) -> Self {
-        Self { requested, preload: preload_var.is_some_and(|v| v == "1") }
+    /// `preload_var`: `NVF_DLSS_PRELOAD`'s value; `supported`: Windows with Vulkan among the
+    /// renderer's backends ([`platform_supports_dlss`]); `files_present`: the cheap check of
+    /// the DLSS folder (`dlss::bundle_present`), asked only when it decides.
+    pub fn new(requested: UpscalerChoice, preload_var: Option<&std::ffi::OsStr>, supported: bool, files_present: impl FnOnce() -> bool) -> Self {
+        let load = if requested.is_dlss() {
+            StartLoad::DlssChosen
+        } else if preload_var.is_some_and(|v| v == "1") {
+            StartLoad::PreloadOn
+        } else if preload_var.is_some_and(|v| v == "0") {
+            StartLoad::PreloadOff
+        } else if !supported {
+            StartLoad::Unsupported
+        } else if files_present() {
+            StartLoad::FilesPresent
+        } else {
+            StartLoad::NoFiles
+        };
+        Self { requested, load }
     }
 
-    /// Streamline is loaded before the renderer: DLSS chosen, or the preload aid.
+    /// The DLSS loader runs before the renderer (`main` adds `dlss::DlssInitPlugin`).
     pub fn loads_streamline(&self) -> bool {
-        self.requested.is_dlss() || self.preload
+        matches!(self.load, StartLoad::DlssChosen | StartLoad::FilesPresent | StartLoad::PreloadOn)
     }
 
     /// For the start's log line.
     pub fn describe(&self) -> String {
-        match (self.requested.is_dlss(), self.preload) {
-            (true, _) => format!("{} chosen at start: Streamline loaded before the renderer", self.requested.describe()),
-            (false, true) => format!("{} chosen at start; {PRELOAD_ENV}=1: Streamline loaded before the renderer all the same", self.requested.describe()),
-            (false, false) => format!("{} chosen at start: Streamline not loaded (DLSS takes a restart)", self.requested.describe()),
+        let chosen = self.requested.describe();
+        match self.load {
+            StartLoad::DlssChosen => format!("{chosen} chosen at start: Streamline loaded before the renderer"),
+            StartLoad::FilesPresent => format!("{chosen} chosen at start; the DLSS files are in the dlss folder: Streamline loaded before the renderer, so DLSS switches without a restart"),
+            StartLoad::PreloadOn => format!("{chosen} chosen at start; {PRELOAD_ENV}=1: Streamline loaded before the renderer all the same"),
+            StartLoad::PreloadOff => format!("{chosen} chosen at start; {PRELOAD_ENV}=0: Streamline not loaded (DLSS takes a restart)"),
+            StartLoad::NoFiles => format!("{chosen} chosen at start; no DLSS files in the dlss folder: Streamline not loaded"),
+            StartLoad::Unsupported => format!("{chosen} chosen at start: Streamline not loaded (DLSS needs Windows and the Vulkan renderer)"),
         }
     }
+}
+
+/// Whether DLSS could be loaded on this platform at all: Windows, with Vulkan among the
+/// renderer's backends.
+pub fn platform_supports_dlss() -> bool {
+    cfg!(windows) && vulkan_in_backends()
 }
 
 /// The requested choice from the command line: `--upscaler off|fsr|dlss` with
@@ -478,16 +456,42 @@ pub fn command_line_choice(fsr: Option<crate::graphics::FsrMode>, upscaler: Opti
 
 /// What DLSS can do now: the session's state once the loader ran (`dlss::session_state`: the
 /// loader's, or `EvaluateFailed` once DLSS's own pass gave up on it), else what is known
-/// without loading anything (not Windows, Vulkan left out of the renderer's backends).
+/// without loading anything (not Windows, Vulkan left out of the renderer's backends, the
+/// files not in the DLSS folder now).
 pub fn dlss_state_now() -> DlssState {
-    state_now(crate::dlss::session_state(), cfg!(windows), vulkan_in_backends())
+    state_now(crate::dlss::session_state(), cfg!(windows), vulkan_in_backends(), crate::dlss::loader_ran(), files_now)
 }
 
-/// [`dlss_state_now`]'s rule over its inputs.
-fn state_now(session: DlssState, windows: bool, vulkan: bool) -> DlssState {
+/// [`dlss_state_now`]'s rule over its inputs. `loader_ran`: the DLSS loader ran at start;
+/// `files`: the four files are in the DLSS folder now (asked only when it decides).
+fn state_now(session: DlssState, windows: bool, vulkan: bool, loader_ran: bool, files: impl FnOnce() -> bool) -> DlssState {
     match session {
-        DlssState::NotLoaded => before_loading(windows, vulkan),
+        DlssState::NotLoaded => match before_loading(windows, vulkan) {
+            // The loader ran and left nothing else: something refused it before it said why (a
+            // restart would do the same).
+            DlssState::NotLoaded if loader_ran => DlssState::Unavailable(Unavailable::StreamlineRefused),
+            // Not loaded at start: a restart brings DLSS once the files are there, not before.
+            DlssState::NotLoaded if !files() => DlssState::Unavailable(Unavailable::FilesMissing),
+            state => state,
+        },
         state => state,
+    }
+}
+
+/// Whether the four files are in the DLSS folder, looked at most once a second (the status asks
+/// every frame while Streamline is not loaded; `dlss::bundle_present`).
+fn files_now() -> bool {
+    use std::sync::{Mutex, PoisonError};
+    use std::time::{Duration, Instant};
+    static SEEN: Mutex<Option<(Instant, bool)>> = Mutex::new(None);
+    let mut seen = SEEN.lock().unwrap_or_else(PoisonError::into_inner);
+    match *seen {
+        Some((at, present)) if at.elapsed() < Duration::from_secs(1) => present,
+        _ => {
+            let present = crate::dlss::bundle_present();
+            *seen = Some((Instant::now(), present));
+            present
+        }
     }
 }
 
@@ -498,8 +502,8 @@ fn vulkan_in_backends() -> bool {
     *VULKAN
 }
 
-/// DLSS's state in a session that did not load Streamline: unavailable where no restart could
-/// bring it, else not loaded.
+/// DLSS's state in a session that did not load Streamline, by the platform alone: unavailable
+/// where no restart could bring it, else not loaded.
 fn before_loading(windows: bool, vulkan: bool) -> DlssState {
     if !windows {
         DlssState::Unavailable(Unavailable::NotWindows)
@@ -519,22 +523,13 @@ pub fn session_now(fsr_supported: bool) -> Session {
 
 /// Keeps [`UpscalerStatus`] with the request (`Graphics::upscaler`) and the session's facts,
 /// before `graphics::apply` puts the effective choice on the camera. Made on the first frame
-/// (after the INI is applied at `PostStartup`), its boundary from [`UpscalerStartup`].
-pub fn follow_request(
-    mut commands: Commands,
-    graphics: Res<crate::graphics::Graphics>,
-    fsr: Option<Res<crate::fsr::FsrSupport>>,
-    start: Option<Res<UpscalerStartup>>,
-    status: Option<ResMut<UpscalerStatus>>,
-) {
+/// (after the INI is applied at `PostStartup`).
+pub fn follow_request(mut commands: Commands, graphics: Res<crate::graphics::Graphics>, fsr: Option<Res<crate::fsr::FsrSupport>>, status: Option<ResMut<UpscalerStatus>>) {
     let session = session_now(fsr.is_some_and(|s| s.0));
     let requested = graphics.upscaler;
     match status {
         None => {
-            let mut made = match start {
-                Some(start) => UpscalerStatus::with_start(session, start.requested),
-                None => UpscalerStatus::new(session),
-            };
+            let mut made = UpscalerStatus::new(session);
             made.update(requested);
             info!("upscaler: {}", made.describe(requested));
             commands.insert_resource(made);
@@ -672,28 +667,30 @@ mod tests {
         assert_eq!(keys.len(), all.len());
     }
 
-    /// A session that loaded Streamline for DLSS at this quality.
-    fn dlss_session(q: UpscaleQuality) -> Boundary {
-        Boundary::at_start(UpscalerChoice::Dlss(q), READY)
-    }
-
-    const STOCK_BOUNDARY: Boundary = Boundary::Stock { dlss_tried: false };
-
+    /// Streamline loaded at start whatever was chosen (the DLSS files in the folder, #2198's
+    /// play-test): off, FSR and DLSS all follow at once.
     #[test]
-    fn the_boundary_is_what_streamline_was_loaded_for() {
-        assert_eq!(Boundary::at_start(UpscalerChoice::Dlss(Balanced), READY), Boundary::Dlss(Balanced));
-        assert_eq!(Boundary::at_start(UpscalerChoice::Fsr(Quality), READY), Boundary::Preload, "the preload aid");
-        assert_eq!(Boundary::at_start(UpscalerChoice::Off, READY), Boundary::Preload);
-        let refused_after_device = Session { streamline_loaded: true, dlss: DlssState::Unavailable(Unavailable::GpuNotSupported), fsr: None };
-        assert_eq!(Boundary::at_start(UpscalerChoice::Dlss(Quality), refused_after_device), Boundary::Preload, "the interposer made the device, DLSS never drew");
-        assert_eq!(Boundary::at_start(UpscalerChoice::Fsr(Quality), STOCK), STOCK_BOUNDARY);
-        let missing = Session { dlss: DlssState::Unavailable(Unavailable::FilesMissing), ..STOCK };
-        assert_eq!(Boundary::at_start(UpscalerChoice::Dlss(Quality), missing), Boundary::Stock { dlss_tried: true });
+    fn with_streamline_loaded_every_switch_is_live() {
+        let mut status = UpscalerStatus::new(READY);
+        for requested in [
+            UpscalerChoice::Fsr(Quality),
+            UpscalerChoice::Dlss(Quality),
+            UpscalerChoice::Dlss(Performance),
+            UpscalerChoice::Off,
+            UpscalerChoice::Dlss(NativeAa),
+            UpscalerChoice::Fsr(Balanced),
+            UpscalerChoice::Off,
+            UpscalerChoice::Fsr(UltraPerformance),
+        ] {
+            status.update(requested);
+            assert_eq!((status.effective(), status.restart_pending(), status.reason()), (requested, false, None), "{requested:?} draws at once");
+        }
+        assert_eq!(status.dlss_unavailable(), None);
     }
 
     #[test]
     fn at_start_the_request_runs_when_its_backend_can() {
-        let at_start = |requested: UpscalerChoice, session: Session| resolve(requested, None, Boundary::at_start(requested, session), session);
+        let at_start = |requested: UpscalerChoice, session: Session| resolve(requested, None, session);
         assert_eq!(at_start(UpscalerChoice::Off, STOCK), ok(UpscalerChoice::Off));
         assert_eq!(at_start(UpscalerChoice::Fsr(Quality), STOCK), ok(UpscalerChoice::Fsr(Quality)));
         assert_eq!(at_start(UpscalerChoice::Dlss(Balanced), READY), ok(UpscalerChoice::Dlss(Balanced)));
@@ -701,56 +698,50 @@ mod tests {
         assert_eq!(at_start(UpscalerChoice::Fsr(Quality), no_fsr), Resolution { effective: UpscalerChoice::Off, restart_pending: false, reason: Some(Unavailable::FsrUnsupported) });
         let missing = Session { dlss: DlssState::Unavailable(Unavailable::FilesMissing), ..STOCK };
         assert_eq!(at_start(UpscalerChoice::Dlss(Quality), missing), Resolution { effective: UpscalerChoice::Off, restart_pending: false, reason: Some(Unavailable::FilesMissing) }, "native, not FSR");
-        assert_eq!(at_start(UpscalerChoice::Dlss(Quality), STOCK), Resolution { effective: UpscalerChoice::Off, restart_pending: false, reason: Some(Unavailable::StreamlineRefused) });
-        // FSR with Streamline loaded at start (the preload test aid).
+        // FSR with Streamline loaded at start (the files in the folder, or the preload aid).
         assert_eq!(at_start(UpscalerChoice::Fsr(Performance), READY), ok(UpscalerChoice::Fsr(Performance)));
+        // Streamline loaded but DLSS refused once the device existed: FSR and off still run.
+        let refused = Session { dlss: DlssState::Unavailable(Unavailable::GpuNotSupported), ..READY };
+        assert_eq!(at_start(UpscalerChoice::Fsr(Quality), refused), ok(UpscalerChoice::Fsr(Quality)));
+        assert_eq!(at_start(UpscalerChoice::Dlss(Quality), refused).reason, Some(Unavailable::GpuNotSupported));
     }
 
+    /// The restart that remains: DLSS asked for in a session that started without Streamline
+    /// while the files are in the folder now (added since, or `NVF_DLSS_PRELOAD=0`).
     #[test]
-    fn leaving_dlss_waits_for_a_restart_and_its_quality_follows_at_once() {
-        let running = Some(UpscalerChoice::Dlss(Quality));
-        let session = dlss_session(Quality);
-        assert_eq!(resolve(UpscalerChoice::Dlss(Performance), running, session, READY), ok(UpscalerChoice::Dlss(Performance)));
-        for requested in [UpscalerChoice::Off, UpscalerChoice::Fsr(Quality)] {
-            assert_eq!(resolve(requested, running, session, READY), Resolution { effective: UpscalerChoice::Dlss(Quality), restart_pending: true, reason: None });
-        }
-        // The first request already another (a test run's command line kept over the INI): the
-        // start's DLSS quality draws until the restart.
-        assert_eq!(resolve(UpscalerChoice::Fsr(Quality), None, dlss_session(Balanced), READY), Resolution { effective: UpscalerChoice::Dlss(Balanced), restart_pending: true, reason: None });
-    }
-
-    #[test]
-    fn entering_dlss_keeps_what_draws_until_a_restart() {
+    fn dlss_without_streamline_loaded_keeps_what_draws_until_a_restart() {
         for previous in [UpscalerChoice::Off, UpscalerChoice::Fsr(Balanced)] {
-            assert_eq!(resolve(UpscalerChoice::Dlss(Quality), Some(previous), STOCK_BOUNDARY, STOCK), Resolution { effective: previous, restart_pending: true, reason: None });
-            assert_eq!(resolve(UpscalerChoice::Dlss(Quality), Some(previous), Boundary::Preload, READY), Resolution { effective: previous, restart_pending: true, reason: None }, "preload: DLSS still takes a restart");
+            assert_eq!(resolve(UpscalerChoice::Dlss(Quality), Some(previous), STOCK), Resolution { effective: previous, restart_pending: true, reason: None });
             let refused = Session { dlss: DlssState::Unavailable(Unavailable::NotVulkan), ..STOCK };
-            assert_eq!(resolve(UpscalerChoice::Dlss(Quality), Some(previous), STOCK_BOUNDARY, refused), Resolution { effective: previous, restart_pending: false, reason: Some(Unavailable::NotVulkan) }, "a restart would not help");
+            assert_eq!(resolve(UpscalerChoice::Dlss(Quality), Some(previous), refused), Resolution { effective: UpscalerChoice::Off, restart_pending: false, reason: Some(Unavailable::NotVulkan) }, "a restart would not help: native with the reason");
         }
+        // Off and FSR in the same session: at once, nothing pending.
+        assert_eq!(resolve(UpscalerChoice::Off, Some(UpscalerChoice::Fsr(Quality)), STOCK), ok(UpscalerChoice::Off));
+        assert_eq!(resolve(UpscalerChoice::Fsr(UltraPerformance), Some(UpscalerChoice::Off), STOCK), ok(UpscalerChoice::Fsr(UltraPerformance)));
+        let mut status = UpscalerStatus::new(STOCK);
+        status.update(UpscalerChoice::Fsr(Quality));
+        status.update(UpscalerChoice::Dlss(Balanced));
+        assert!(status.restart_pending());
+        assert!(status.describe(UpscalerChoice::Dlss(Balanced)).ends_with("DLSS Balanced asked for, FSR 3.1 Quality draws until the next start"));
+        status.update(UpscalerChoice::Fsr(Quality));
+        assert!(!status.restart_pending(), "back to FSR: nothing pending");
     }
 
     #[test]
-    fn fsr_and_off_stay_live_without_a_dlss_session() {
-        for (boundary, session) in [(STOCK_BOUNDARY, STOCK), (Boundary::Preload, READY), (Boundary::Stock { dlss_tried: true }, STOCK)] {
-            assert_eq!(resolve(UpscalerChoice::Off, Some(UpscalerChoice::Fsr(Quality)), boundary, session), ok(UpscalerChoice::Off));
-            assert_eq!(resolve(UpscalerChoice::Fsr(UltraPerformance), Some(UpscalerChoice::Off), boundary, session), ok(UpscalerChoice::Fsr(UltraPerformance)));
-        }
-    }
-
-    #[test]
-    fn dlss_that_stops_working_falls_back_to_native() {
+    fn dlss_that_stops_working_falls_back_to_native_and_fsr_still_follows() {
         let failed = Session { dlss: DlssState::Unavailable(Unavailable::EvaluateFailed), ..READY };
         let running = Some(UpscalerChoice::Dlss(Quality));
-        let session = dlss_session(Quality);
-        assert_eq!(resolve(UpscalerChoice::Dlss(Quality), running, session, failed), Resolution { effective: UpscalerChoice::Off, restart_pending: false, reason: Some(Unavailable::EvaluateFailed) });
-        assert_eq!(resolve(UpscalerChoice::Fsr(Quality), running, session, failed), Resolution { effective: UpscalerChoice::Off, restart_pending: true, reason: Some(Unavailable::EvaluateFailed) });
+        assert_eq!(resolve(UpscalerChoice::Dlss(Quality), running, failed), Resolution { effective: UpscalerChoice::Off, restart_pending: false, reason: Some(Unavailable::EvaluateFailed) });
+        assert_eq!(resolve(UpscalerChoice::Fsr(Quality), running, failed), ok(UpscalerChoice::Fsr(Quality)), "FSR runs through the interposer");
+        assert_eq!(resolve(UpscalerChoice::Off, running, failed), ok(UpscalerChoice::Off));
     }
 
-    /// Review P2 (2026-11-12): after DLSS fails, every later update keeps the restart pending
-    /// and the reason; FSR never starts in a DLSS session.
+    /// Review P2 (2026-11-12), with live switches: after DLSS fails, DLSS stays out for the rest
+    /// of the session with its reason, however often it is asked for again and whatever runs in
+    /// between; nothing waits for a restart.
     #[test]
-    fn repeated_updates_after_a_dlss_failure_keep_the_restart_and_the_reason() {
-        let mut status = UpscalerStatus::with_start(READY, UpscalerChoice::Dlss(Quality));
+    fn repeated_updates_after_a_dlss_failure_keep_the_reason() {
+        let mut status = UpscalerStatus::new(READY);
         assert!(status.update(UpscalerChoice::Dlss(Quality)));
         assert_eq!(status.effective(), UpscalerChoice::Dlss(Quality));
         status.session.dlss = DlssState::Unavailable(Unavailable::EvaluateFailed);
@@ -759,42 +750,39 @@ mod tests {
         for _ in 0..3 {
             for requested in [UpscalerChoice::Off, UpscalerChoice::Fsr(Quality), UpscalerChoice::Fsr(Balanced)] {
                 status.update(requested);
-                assert_eq!(status.effective(), UpscalerChoice::Off, "{requested:?}: native, not FSR, in a DLSS session");
-                assert!(status.restart_pending(), "{requested:?}: leaving DLSS still waits for the restart");
-                assert_eq!(status.reason(), Some(Unavailable::EvaluateFailed));
+                assert_eq!((status.effective(), status.restart_pending(), status.reason()), (requested, false, None), "{requested:?}");
+                assert_eq!(status.dlss_unavailable(), Some(Unavailable::EvaluateFailed), "{requested:?}: DLSS still held out with its reason");
             }
             status.update(UpscalerChoice::Dlss(Performance));
-            assert_eq!((status.effective(), status.restart_pending(), status.reason()), (UpscalerChoice::Off, false, Some(Unavailable::EvaluateFailed)), "back to DLSS: nothing pending, the reason stays");
+            assert_eq!((status.effective(), status.restart_pending(), status.reason()), (UpscalerChoice::Off, false, Some(Unavailable::EvaluateFailed)), "back to DLSS: native, the reason again");
         }
-        assert_eq!(status.boundary(), Some(Boundary::Dlss(Quality)));
-        assert_eq!(status.dlss_unavailable(), Some(Unavailable::EvaluateFailed));
     }
 
     #[test]
     fn dlss_is_unavailable_to_the_settings_by_the_same_rule() {
-        assert_eq!(UpscalerStatus::new(STOCK).dlss_unavailable(), None, "a restart may load it");
+        assert_eq!(UpscalerStatus::new(STOCK).dlss_unavailable(), None, "a restart brings it");
         assert_eq!(UpscalerStatus::new(READY).dlss_unavailable(), None);
-        assert_eq!(UpscalerStatus::with_start(STOCK, UpscalerChoice::Dlss(Quality)).dlss_unavailable(), Some(Unavailable::StreamlineRefused), "tried at this start");
         let missing = Session { dlss: DlssState::Unavailable(Unavailable::FilesMissing), ..STOCK };
         assert_eq!(UpscalerStatus::new(missing).dlss_unavailable(), Some(Unavailable::FilesMissing));
+        let refused = Session { dlss: DlssState::Unavailable(Unavailable::StreamlineRefused), ..STOCK };
+        assert_eq!(UpscalerStatus::new(refused).dlss_unavailable(), Some(Unavailable::StreamlineRefused));
     }
 
-    /// Review P2 (2026-11-12): with a status, FSR keeps drawing while DLSS waits for a restart.
+    /// Review P2 (2026-11-12): the status's effective choice, not the request, draws the camera.
     #[test]
     fn the_camera_draws_the_status_effective_choice_for_every_backend() {
         // No status (before follow_request makes it, and tests without one): FSR's rule.
         assert_eq!(effective_temporal(Some(Quality), true, None), UpscalerChoice::Fsr(Quality));
         assert_eq!(effective_temporal(Some(Quality), false, None), UpscalerChoice::Off, "unsupported FSR draws natively");
         assert_eq!(effective_temporal(None, true, None), UpscalerChoice::Off);
-        // DLSS drawing: DLSS, whatever FSR request waits for the restart.
+        // DLSS drawing, then FSR asked for: FSR at once, never both.
         let mut status = UpscalerStatus::new(READY);
         status.update(UpscalerChoice::Dlss(Balanced));
         assert_eq!(effective_temporal(None, true, Some(&status)), UpscalerChoice::Dlss(Balanced));
         status.update(UpscalerChoice::Fsr(Quality));
-        assert!(status.restart_pending());
-        assert_eq!(effective_temporal(Some(Quality), true, Some(&status)), UpscalerChoice::Dlss(Balanced), "never FSR and DLSS at once");
-        // FSR drawing, DLSS asked for: the request's FSR quality is gone (Graphics::fsr is
-        // None) but FSR keeps drawing until the restart, as the status says.
+        assert_eq!(effective_temporal(Some(Quality), true, Some(&status)), UpscalerChoice::Fsr(Quality));
+        // FSR drawing, DLSS asked for without Streamline loaded: the request's FSR quality is gone
+        // (Graphics::fsr is None) but FSR keeps drawing until the restart, as the status says.
         let mut stock = UpscalerStatus::new(STOCK);
         stock.update(UpscalerChoice::Fsr(Balanced));
         assert_eq!(effective_temporal(Some(Balanced), true, Some(&stock)), UpscalerChoice::Fsr(Balanced));
@@ -811,24 +799,12 @@ mod tests {
         assert!(status.update(UpscalerChoice::Dlss(Quality)));
         assert!(!status.update(UpscalerChoice::Dlss(Quality)), "nothing changed");
         assert!(status.update(UpscalerChoice::Off));
-        assert_eq!(status.effective(), UpscalerChoice::Dlss(Quality));
-        assert!(status.restart_pending());
+        assert_eq!(status.effective(), UpscalerChoice::Off);
+        assert!(!status.restart_pending());
         assert!(status.update(UpscalerChoice::Dlss(Balanced)));
         assert_eq!(status.effective(), UpscalerChoice::Dlss(Balanced));
-        assert!(!status.restart_pending());
         assert_eq!(status.reason(), None);
         assert!(status.describe(UpscalerChoice::Dlss(Balanced)).contains("DLSS Balanced draws"));
-    }
-
-    #[test]
-    fn a_status_made_with_the_start_keeps_its_boundary_whatever_comes_first() {
-        // The start chose FSR with the preload aid; the first request seen is DLSS: still a
-        // preload session, so DLSS waits for a restart.
-        let mut status = UpscalerStatus::with_start(READY, UpscalerChoice::Fsr(Quality));
-        status.update(UpscalerChoice::Dlss(Quality));
-        assert_eq!(status.boundary(), Some(Boundary::Preload));
-        assert!(status.restart_pending());
-        assert_eq!(status.effective(), UpscalerChoice::Off);
     }
 
     #[test]
@@ -837,32 +813,44 @@ mod tests {
         assert_eq!(before_loading(true, false), DlssState::Unavailable(Unavailable::NotVulkan));
         assert_eq!(before_loading(true, true), DlssState::NotLoaded);
         let session = Session { streamline_loaded: false, dlss: before_loading(true, false), fsr: None };
-        assert_eq!(resolve(UpscalerChoice::Dlss(Quality), Some(UpscalerChoice::Off), STOCK_BOUNDARY, session).reason, Some(Unavailable::NotVulkan));
+        assert_eq!(resolve(UpscalerChoice::Dlss(Quality), Some(UpscalerChoice::Off), session).reason, Some(Unavailable::NotVulkan));
         assert_eq!(session_now(false).fsr, Some(Unavailable::FsrUnsupported));
         assert_eq!(session_now(true).fsr, None);
         assert!(!session_now(true).streamline_loaded, "no loader ran in the tests");
     }
 
+    /// Without Streamline loaded at start, the files decide: there now, a restart brings DLSS
+    /// (`NotLoaded`); missing, DLSS is held out with that reason (a restart alone would not
+    /// help). A loader that ran and left nothing else says Streamline refused.
+    #[test]
+    fn without_streamline_the_files_now_decide_between_a_restart_and_files_missing() {
+        let never = || -> bool { panic!("the files are not asked about here") };
+        assert_eq!(state_now(DlssState::NotLoaded, true, true, false, || true), DlssState::NotLoaded);
+        assert_eq!(state_now(DlssState::NotLoaded, true, true, false, || false), DlssState::Unavailable(Unavailable::FilesMissing));
+        assert_eq!(state_now(DlssState::NotLoaded, true, true, true, never), DlssState::Unavailable(Unavailable::StreamlineRefused));
+        assert_eq!(state_now(DlssState::NotLoaded, false, true, false, never), DlssState::Unavailable(Unavailable::NotWindows));
+        assert_eq!(state_now(DlssState::NotLoaded, true, false, false, never), DlssState::Unavailable(Unavailable::NotVulkan));
+        assert_eq!(state_now(DlssState::Ready, true, true, true, never), DlssState::Ready);
+    }
+
     /// DLSS's own pass giving up (`dlss::session_state` says `EvaluateFailed`) reaches the
-    /// status whatever the platform checks say: the camera draws natively, not with FSR, the
-    /// reason is kept, and the session stays one Streamline made the device for.
+    /// status whatever the platform checks say: the camera draws natively, not with FSR, and the
+    /// reason is kept.
     #[test]
     fn evaluate_failed_reaches_the_status_and_the_camera_draws_natively() {
         let failed = DlssState::Unavailable(Unavailable::EvaluateFailed);
         for (windows, vulkan) in [(true, true), (true, false), (false, true)] {
-            assert_eq!(state_now(failed, windows, vulkan), failed);
-            assert_eq!(state_now(DlssState::Ready, windows, vulkan), DlssState::Ready);
+            assert_eq!(state_now(failed, windows, vulkan, true, || true), failed);
+            assert_eq!(state_now(DlssState::Ready, windows, vulkan, true, || true), DlssState::Ready);
         }
-        assert_eq!(state_now(DlssState::NotLoaded, true, true), DlssState::NotLoaded);
-        // What follow_request does: the session refreshed every frame, the boundary kept.
-        let mut status = UpscalerStatus::with_start(READY, UpscalerChoice::Dlss(Balanced));
+        // What follow_request does: the session refreshed every frame.
+        let mut status = UpscalerStatus::new(READY);
         status.update(UpscalerChoice::Dlss(Balanced));
         assert_eq!(effective_temporal(None, true, Some(&status)), UpscalerChoice::Dlss(Balanced));
-        status.session = Session { streamline_loaded: true, dlss: state_now(failed, true, true), fsr: None };
+        status.session = Session { streamline_loaded: true, dlss: state_now(failed, true, true, true, || true), fsr: None };
         assert!(status.update(UpscalerChoice::Dlss(Balanced)));
         assert_eq!(effective_temporal(None, true, Some(&status)), UpscalerChoice::Off, "native, not FSR");
         assert_eq!((status.restart_pending(), status.reason()), (false, Some(Unavailable::EvaluateFailed)));
-        assert_eq!(status.boundary(), Some(Boundary::Dlss(Balanced)));
         assert!(status.describe(UpscalerChoice::Dlss(Balanced)).ends_with("Off draws (evaluate-failed)"));
     }
 
@@ -896,16 +884,42 @@ mod tests {
         assert!(cli(None, Some(Upscaler::Off), Some(Quality)).is_err());
     }
 
+    /// The start's decision (#2198's play-test): DLSS chosen, or the files in the folder, runs
+    /// the loader; `NVF_DLSS_PRELOAD=1` always, `=0` only for DLSS; without Windows and Vulkan
+    /// the files are not looked at.
     #[test]
-    fn streamline_is_loaded_at_start_for_dlss_or_the_preload_aid_only() {
+    fn streamline_is_loaded_at_start_for_dlss_or_the_files() {
         use std::ffi::OsStr;
-        assert!(UpscalerStartup::new(UpscalerChoice::Dlss(Quality), None).loads_streamline());
-        assert!(!UpscalerStartup::new(UpscalerChoice::Fsr(Quality), None).loads_streamline());
-        assert!(!UpscalerStartup::new(UpscalerChoice::Off, None).loads_streamline());
-        assert!(UpscalerStartup::new(UpscalerChoice::Fsr(Quality), Some(OsStr::new("1"))).loads_streamline());
-        assert!(UpscalerStartup::new(UpscalerChoice::Off, Some(OsStr::new("1"))).preload);
-        assert!(!UpscalerStartup::new(UpscalerChoice::Off, Some(OsStr::new("yes"))).preload, "only 1 turns it on");
-        assert!(UpscalerStartup::new(UpscalerChoice::Dlss(Quality), None).describe().contains("Streamline loaded"));
+        let never = || -> bool { panic!("the files are not asked about here") };
+        let (on, off) = (Some(OsStr::new("1")), Some(OsStr::new("0")));
+        let fsr = UpscalerChoice::Fsr(Quality);
+        let start = |requested, preload, supported, files: bool| UpscalerStartup::new(requested, preload, supported, || files);
+        // DLSS chosen: the loader runs whatever else is so (it says why DLSS cannot run).
+        for (preload, supported) in [(None, true), (on, true), (off, true), (None, false), (off, false)] {
+            let s = UpscalerStartup::new(UpscalerChoice::Dlss(Quality), preload, supported, never);
+            assert_eq!(s.load, StartLoad::DlssChosen, "{preload:?} {supported}");
+            assert!(s.loads_streamline());
+        }
+        // The files decide when nothing else does.
+        for requested in [fsr, UpscalerChoice::Off] {
+            assert_eq!(start(requested, None, true, true).load, StartLoad::FilesPresent);
+            assert!(start(requested, None, true, true).loads_streamline());
+            assert_eq!(start(requested, None, true, false).load, StartLoad::NoFiles);
+            assert!(!start(requested, None, true, false).loads_streamline());
+            assert_eq!(UpscalerStartup::new(requested, None, false, never).load, StartLoad::Unsupported, "not Windows, or no Vulkan: unchanged");
+            assert!(!UpscalerStartup::new(requested, None, false, never).loads_streamline());
+            // The test aid: 1 always, 0 never without DLSS, files or not.
+            assert_eq!(UpscalerStartup::new(requested, on, true, never).load, StartLoad::PreloadOn);
+            assert!(UpscalerStartup::new(requested, on, true, never).loads_streamline());
+            assert_eq!(UpscalerStartup::new(requested, off, true, never).load, StartLoad::PreloadOff);
+            assert!(!UpscalerStartup::new(requested, off, true, never).loads_streamline());
+            // Another value is no aid: the files decide.
+            assert_eq!(start(requested, Some(OsStr::new("yes")), true, true).load, StartLoad::FilesPresent);
+        }
+        assert_eq!(UpscalerStartup::new(UpscalerChoice::Dlss(Quality), None, true, never).describe(), "DLSS Quality chosen at start: Streamline loaded before the renderer");
+        assert_eq!(start(fsr, None, true, true).describe(), "FSR 3.1 Quality chosen at start; the DLSS files are in the dlss folder: Streamline loaded before the renderer, so DLSS switches without a restart");
+        assert_eq!(UpscalerStartup::new(fsr, on, true, never).describe(), "FSR 3.1 Quality chosen at start; NVF_DLSS_PRELOAD=1: Streamline loaded before the renderer all the same");
+        assert_eq!(UpscalerStartup::new(fsr, off, true, never).describe(), "FSR 3.1 Quality chosen at start; NVF_DLSS_PRELOAD=0: Streamline not loaded (DLSS takes a restart)");
     }
 
     #[test]

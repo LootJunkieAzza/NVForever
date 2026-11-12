@@ -1034,17 +1034,21 @@ mod fsr_settings_tests {
         let locked = |app: &App| app.world().resource::<nvf_play::settings::Settings>().disabled_status(app.world(), row);
         assert_eq!(locked(&app), Some("Off (upscaling active)"), "DLSS draws");
         assert!(nvf_play::settings::set_slider(app.world_mut(), row, 0.0).is_none());
-        // Off asked for: DLSS keeps drawing until the restart, so the row stays locked.
+        // Off asked for: native at once (Streamline loaded), the row editable again.
         app.world_mut().resource_mut::<Graphics>().upscaler = UpscalerChoice::Off;
         app.world_mut().resource_mut::<UpscalerStatus>().update(UpscalerChoice::Off);
-        assert_eq!(locked(&app), Some("Off (upscaling active)"));
-        // A session that never loaded Streamline: off asked for is off at once.
+        assert_eq!(locked(&app), None);
+        assert_eq!(graphics::aa_choice(app.world()), 2, "the saved 4x is back");
+        // DLSS asked for in a session that started without Streamline (the files there now):
+        // what drew, native, stays until the restart, so the row stays editable.
         let stock = Session { streamline_loaded: false, dlss: DlssState::NotLoaded, fsr: None };
         let mut status = UpscalerStatus::new(stock);
         status.update(UpscalerChoice::Off);
+        status.update(UpscalerChoice::Dlss(UpscaleQuality::Quality));
+        assert!(status.restart_pending());
         app.insert_resource(status);
+        app.world_mut().resource_mut::<Graphics>().upscaler = UpscalerChoice::Dlss(UpscaleQuality::Quality);
         assert_eq!(locked(&app), None);
-        assert_eq!(graphics::aa_choice(app.world()), 2, "the saved 4x is back");
     }
 
     #[test]
@@ -1152,7 +1156,7 @@ mod fsr_settings_tests {
         let requested = UpscalerChoice::Dlss(UpscaleQuality::Quality);
         app.world_mut().resource_mut::<Graphics>().upscaler = requested;
         let ready = Session { streamline_loaded: true, dlss: DlssState::Ready, fsr: None };
-        let mut status = UpscalerStatus::with_start(ready, requested);
+        let mut status = UpscalerStatus::new(ready);
         status.update(requested);
         status.session.dlss = DlssState::Unavailable(Unavailable::EvaluateFailed);
         status.update(requested);
@@ -1164,21 +1168,21 @@ mod fsr_settings_tests {
             assert_eq!(settings.choice_unavailable(app.world(), row, &name).as_deref(), Some(Unavailable::EvaluateFailed.words()), "{name}");
         }
         for (name, _) in graphics::FSR_CHOICES {
-            assert_eq!(settings.choice_unavailable(app.world(), row, name), None, "Off and FSR stay in reach (from the next start)");
+            assert_eq!(settings.choice_unavailable(app.world(), row, name), None, "Off and FSR stay in reach");
         }
-        assert_eq!(upscaler_chosen(app.world()), "DLSS Quality", "the request is kept for the next start");
+        assert_eq!(upscaler_chosen(app.world()), "DLSS Quality", "the request is kept");
         assert_eq!(app.world().resource::<UpscalerStatus>().effective(), UpscalerChoice::Off, "native, not FSR");
     }
 
     #[test]
-    fn entering_or_leaving_dlss_shows_the_next_start_and_fsr_off_stay_live() {
+    fn dlss_without_streamline_shows_the_restart_and_with_it_every_switch_is_live() {
         use crate::upscaler::{DlssState, Session, UpscaleQuality, UpscalerStatus};
         let mut app = App::new();
         app.insert_resource(Graphics::preset(graphics::Preset::Vanilla));
         register_graphics(&mut app);
         let row = app.world().resource::<nvf_play::settings::Settings>().index("fsr-upscaling").unwrap();
         let stock = Session { streamline_loaded: false, dlss: DlssState::NotLoaded, fsr: None };
-        app.insert_resource(UpscalerStatus::with_start(stock, UpscalerChoice::Off));
+        app.insert_resource(UpscalerStatus::new(stock));
         // What follow_request does each frame, without the process-wide loader state.
         let pick = |app: &mut App, name: &str| {
             assert!(nvf_play::settings::pick(app.world_mut(), row, name), "{name}");
@@ -1203,20 +1207,15 @@ mod fsr_settings_tests {
         assert_eq!(pick(&mut app, "Off"), (UpscalerChoice::Off, false, "Off".to_string()), "off at once");
         assert_eq!(pick(&mut app, "Performance"), (UpscalerChoice::Fsr(UpscaleQuality::Performance), false, "FSR 3.1: Performance".to_string()));
 
-        // A DLSS session: DLSS qualities at once, leaving it at the next start.
+        // Streamline loaded at start: entering and leaving DLSS at once, nothing pending.
         let ready = Session { streamline_loaded: true, dlss: DlssState::Ready, fsr: None };
-        app.world_mut().resource_mut::<Graphics>().upscaler = UpscalerChoice::Dlss(UpscaleQuality::Quality);
-        let mut status = UpscalerStatus::with_start(ready, UpscalerChoice::Dlss(UpscaleQuality::Quality));
-        status.update(UpscalerChoice::Dlss(UpscaleQuality::Quality));
+        let mut status = UpscalerStatus::new(ready);
+        status.update(app.world().resource::<Graphics>().upscaler);
         app.insert_resource(status);
         assert_eq!(pick(&mut app, "DLSS Ultra Performance"), (UpscalerChoice::Dlss(UpscaleQuality::UltraPerformance), false, "DLSS: Ultra Performance".to_string()));
-        assert_eq!(
-            pick(&mut app, "Balanced"),
-            (UpscalerChoice::Dlss(UpscaleQuality::UltraPerformance), true, "FSR 3.1: Balanced (from the next start)".to_string()),
-            "leaving DLSS: saved, DLSS keeps drawing"
-        );
-        assert_eq!(pick(&mut app, "Off"), (UpscalerChoice::Dlss(UpscaleQuality::UltraPerformance), true, "Off (from the next start)".to_string()));
-        assert_eq!(pick(&mut app, "DLSS Quality"), (UpscalerChoice::Dlss(UpscaleQuality::Quality), false, "DLSS: Quality".to_string()), "back to DLSS: nothing pending");
+        assert_eq!(pick(&mut app, "Balanced"), (UpscalerChoice::Fsr(UpscaleQuality::Balanced), false, "FSR 3.1: Balanced".to_string()), "leaving DLSS at once");
+        assert_eq!(pick(&mut app, "Off"), (UpscalerChoice::Off, false, "Off".to_string()));
+        assert_eq!(pick(&mut app, "DLSS Quality"), (UpscalerChoice::Dlss(UpscaleQuality::Quality), false, "DLSS: Quality".to_string()), "entering DLSS at once");
     }
 
     /// The start's choice (before the renderer, `main`) and `apply_stored`'s at `PostStartup`

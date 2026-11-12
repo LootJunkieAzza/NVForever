@@ -1,9 +1,12 @@
 //! DLSS through NVIDIA Streamline (#2198): Streamline's interposer loaded and initialised, the
 //! Vulkan instance made through it, DLSS's support checked, DLSS Super Resolution in every mode
 //! drawing a camera in its own pass (`evaluate.rs`), and Streamline shut down in order at exit.
-//! Nothing here runs unless the start-up choice is DLSS (the `fsr-upscaling` row or the command
-//! line, `upscaler::UpscalerStartup`) or the test aid `NVF_DLSS_PRELOAD=1`: `main` adds
-//! [`DlssInitPlugin`] only then (otherwise nothing is looked for, loaded or logged here).
+//! The loader runs when the start-up choice is DLSS (the settings' Upscaler row or the command
+//! line) or the four files are in the folder ([`bundle_present`], a cheap existence check), on
+//! Windows with Vulkan among the renderer's backends, so with the files there every switch of
+//! the upscaler is live (`upscaler::UpscalerStartup`); the test aid `NVF_DLSS_PRELOAD=1` runs
+//! it always, `=0` only for a DLSS choice. `main` adds [`DlssInitPlugin`] only then (otherwise
+//! nothing is loaded or logged here).
 //!
 //! - **Files** [design]: `<program folder>\dlss\` (or `NVF_DLSS_DIR=<absolute path>`) holding
 //!   `sl.interposer.dll`, `sl.common.dll`, `sl.dlss.dll` and `nvngx_dlss.dll`; with any missing,
@@ -264,9 +267,11 @@ fn drain_log() {
 pub struct DlssInitPlugin;
 
 impl Plugin for DlssInitPlugin {
-    /// `main` adds the plugin only when the start-up choice is DLSS or `NVF_DLSS_PRELOAD=1`
-    /// (`upscaler::UpscalerStartup::loads_streamline`).
+    /// `main` adds the plugin when the start-up choice is DLSS, when the four files are in the
+    /// DLSS folder ([`bundle_present`]) or with `NVF_DLSS_PRELOAD=1`, not with
+    /// `NVF_DLSS_PRELOAD=0` unless DLSS is chosen (`upscaler::UpscalerStartup::loads_streamline`).
     fn build(&self, app: &mut App) {
+        LOADER_RAN.store(true, Ordering::Relaxed);
         app.add_systems(First, drain_log);
         start(app);
     }
@@ -337,10 +342,35 @@ static STREAMLINE_DEVICE: AtomicBool = AtomicBool::new(false);
 /// proxies, whether or not DLSS then turned out supported or kept working
 /// (`upscaler::Session::streamline_loaded`). Not `loader_state() == Ready` [design]: a GPU
 /// without DLSS, an adapter that did not match the check, or DLSS given up on later all leave
-/// Streamline under the device (`upscaler::Boundary::Preload`, or a DLSS session that stopped
-/// drawing DLSS).
+/// Streamline under the device (FSR then draws through the interposer).
 pub fn streamline_loaded() -> bool {
     STREAMLINE_DEVICE.load(Ordering::Relaxed)
+}
+
+/// The loader ran at start ([`DlssInitPlugin`] was added), whatever it ended in.
+static LOADER_RAN: AtomicBool = AtomicBool::new(false);
+
+/// Whether the loader ran at start (`upscaler::dlss_state_now`: a loader that ran and left
+/// [`loader_state`] `NotLoaded` was refused before it said why).
+pub fn loader_ran() -> bool {
+    LOADER_RAN.load(Ordering::Relaxed)
+}
+
+/// Whether the four files are in the DLSS folder (`NVF_DLSS_DIR`, else `dlss` beside the
+/// program): the start's cheap check whether to run the loader at all
+/// (`upscaler::UpscalerStartup`), and the status's whether a restart would bring DLSS. Only
+/// that they exist as files; the loader's own checks (the updater, the signature, the device
+/// check) still decide. Always false off Windows.
+pub fn bundle_present() -> bool {
+    #[cfg(windows)]
+    {
+        let exe_dir = std::env::current_exe().ok().and_then(|e| e.parent().map(Path::to_path_buf));
+        resolve_folder(std::env::var_os(ENV_DIR).as_deref(), exe_dir.as_deref()).is_ok_and(|(folder, _)| missing_files(&folder).is_empty())
+    }
+    #[cfg(not(windows))]
+    {
+        false
+    }
 }
 
 /// DLSS may draw a camera now: active, and not given up on ([`session_state`]).

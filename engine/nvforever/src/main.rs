@@ -477,7 +477,8 @@ struct Args {
     /// The temporal upscaler: off, fsr (FSR 3.1) or dlss (NVIDIA DLSS through Streamline, with
     /// NVIDIA's files in the dlss folder beside the program; upscaler.rs, dlss/), at
     /// --upscaler-quality. Saved Graphics settings take precedence in normal play, as for other
-    /// switches. Streamline is only loaded when the start chooses DLSS.
+    /// switches. Streamline is loaded when the start chooses DLSS or the files are in the dlss
+    /// folder; then every switch takes effect at once.
     #[arg(long, value_enum)]
     upscaler: Option<upscaler::Upscaler>,
     /// The quality of --upscaler fsr or dlss (default: quality). Native AA reconstructs at
@@ -1341,14 +1342,15 @@ fn main() -> AppExit {
     // The upscaler this run starts with, before the renderer exists: Streamline must be loaded
     // and initialised before the Vulkan instance is made (dlss/, #2198), so the settings' INI is
     // read here by the row's own rule and precedence, as `apply_stored` applies it at
-    // PostStartup (settings.rs `upscaler_after_ini`). Only a DLSS choice loads Streamline, or the
-    // test aid NVF_DLSS_PRELOAD=1 (upscaler.rs, "Start").
+    // PostStartup (settings.rs `upscaler_after_ini`). The DLSS loader runs for a DLSS choice or
+    // when NVIDIA's four files are in the DLSS folder, so every later switch is live; the test
+    // aid NVF_DLSS_PRELOAD=1 runs it always, =0 only for DLSS (upscaler.rs, "Start").
     let start_upscaler = {
         let given = play.is_some().then(|| settings::given_switches(&args, &command_line()));
         let stored = given.as_ref().and_then(|_| settings::stored_at_start(settings::UPSCALING_KEY));
         settings::upscaler_after_ini(graphics.upscaler, stored.as_deref(), given.as_ref())
     };
-    let startup = upscaler::UpscalerStartup::new(start_upscaler, std::env::var_os(upscaler::PRELOAD_ENV).as_deref());
+    let startup = upscaler::UpscalerStartup::new(start_upscaler, std::env::var_os(upscaler::PRELOAD_ENV).as_deref(), upscaler::platform_supports_dlss(), dlss::bundle_present);
     app.insert_resource(startup);
     app.add_systems(Startup, move || info!("upscaler: {}", startup.describe()));
     if startup.loads_streamline() {
