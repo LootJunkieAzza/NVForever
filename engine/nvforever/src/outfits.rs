@@ -293,7 +293,7 @@ fn follow_inventory(
             }
         };
         let mut ctx = ActorCtx { cache: &mut parts, models: &mut models };
-        let mut spawned = SpawnedActor { root: rig.nodes[0], nodes: rig.nodes.clone(), drawn: Vec::new(), part_of: Vec::new(), shape_of: Vec::new(), unbound: 0 };
+        let mut spawned = SpawnedActor { root: rig.nodes[0], nodes: rig.nodes.clone(), drawn: Vec::new(), part_of: Vec::new(), shape_of: Vec::new(), unbound: 0, part_nodes: Vec::new() };
         if !same_weapon {
             // The old hold goes, the weapon's or the fists' (`actors::arm`).
             for (e, _) in held.iter().filter(|(_, h)| h.reference == rig.reference) {
@@ -435,7 +435,7 @@ fn arm_creatures(
         let Some(w) = weapon else { continue };
         let mods = sim.world.peek(FormId(rig.reference)).and_then(|s| s.inventory.as_ref()).map_or(0, |inv| inv.mods_in_use(w));
         let mut ctx = ActorCtx { cache: &mut parts, models: &mut models };
-        let spawned = SpawnedActor { root: rig.nodes[0], nodes: rig.nodes.clone(), drawn: Vec::new(), part_of: Vec::new(), shape_of: Vec::new(), unbound: 0 };
+        let spawned = SpawnedActor { root: rig.nodes[0], nodes: rig.nodes.clone(), drawn: Vec::new(), part_of: Vec::new(), shape_of: Vec::new(), unbound: 0, part_nodes: Vec::new() };
         let mut st = ActorStats::default();
         let name = world.actors.weapons.get(&w).and_then(|x| x.edid.clone()).unwrap_or_default();
         let kind = world.actors.weapons.get(&w).and_then(|x| x.anim_type.clone()).unwrap_or_default();

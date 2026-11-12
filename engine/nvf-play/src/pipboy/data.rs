@@ -25,6 +25,11 @@
 //!   on a marker — or the controller's A on one — asks whether to fast travel there, in
 //!   a box over the map ([`travel`],
 //!   docs/spec-notes/fast-travel.md).
+//!   The picture's place, the pointer's window and the controller's cursor come from one
+//!   viewport ([`view::MapView`]) that the page drawn from `map_menu.xml` paints from too
+//!   (`crate::tiles::map_menu`, which publishes its window as laid out, [`DataState::publish_map`]);
+//!   over that page the question boxes are painted by [`popup_over_tiles`]. The Local Map
+//!   reads the same viewport, with its own projection ([`view::LocalProjection`]).
 //! - **Local Map**: the doors leading elsewhere, the known map markers and the quest
 //!   markers around the player, with the player's arrow, over an outline of the place
 //!   made from the physics world's collision ([`outline`]; the original's picture of the
@@ -59,6 +64,7 @@ mod model;
 mod outline;
 pub(crate) mod read;
 pub mod travel;
+pub mod view;
 
 use super::frame::{Align, Ctx, Hint, Kit, FADE, FILL, LINE, MAIN, THICK};
 use super::{Page, PageBody, PipBoy, PipBoyAid, PipBoyInput, PipBoyScreen};
@@ -80,6 +86,7 @@ use marker::{CustomMarker, LineTo, Piece};
 use model::{ObjectiveLine, QuestKey, WorldMap};
 use outline::Outline;
 use travel::{Ask, FastTravelAsk, FastTravelGo, Popup};
+pub(crate) use view::MapView;
 use nvf_assets::GameData;
 use std::collections::hash_map::Entry;
 use std::collections::{BTreeSet, HashMap, VecDeque};
@@ -120,7 +127,7 @@ const DOT: f32 = 8.0;
 const MARKER_GROW: f32 = 1.75;
 const MARKER_BRIGHTNESS: (f32, f32) = (220.0, 255.0);
 /// The map picture: alpha 128 at brightness 255.
-const MAP_ALPHA: f32 = 128.0;
+pub(crate) const MAP_ALPHA: f32 = 128.0;
 /// The player's arrow: `glow_cursor.dds`, 1.28 times as high as wide.
 const CURSOR_FILE: &str = "Interface\\Icons\\Misc\\glow_cursor.dds";
 const CURSOR_ASPECT: f32 = 1.28;
@@ -184,13 +191,13 @@ const DONE_ALPHA: f32 = 0.5;
 /// [observed: fitted to the owner's World Map screenshot, the marker about 13 px, the
 /// arrow's triangle 25 px and the quest marker's 12 × 23 px, at 0.62 px a unit; the
 /// pictures fill part of their squares].
-const MARKER: f32 = 24.0;
-const CURSOR: f32 = 40.0;
-const QUEST_MARKER: f32 = 56.0;
+pub(crate) const MARKER: f32 = 24.0;
+pub(crate) const CURSOR: f32 = 40.0;
+pub(crate) const QUEST_MARKER: f32 = 56.0;
 /// The quest marker: the HUD compass's objective marker [hypothesis: the shape on the
 /// owner's screenshots]; 1.25 times as high as wide, set 15 right and 5 down "to match
 /// the marker textures" [documented: map_menu.xml quest marker templates].
-const QUEST_FILE: &str = "glow_hud_compass_objective_marker.dds";
+pub(crate) const QUEST_FILE: &str = "glow_hud_compass_objective_marker.dds";
 const QUEST_ASPECT: f32 = 1.25;
 const QUEST_NUDGE: Vec2 = Vec2::new(15.0, 5.0);
 /// The pointer takes the highlight box to a marker this near [hypothesis].
@@ -262,7 +269,7 @@ const POLL: f32 = 0.25;
 /// tile `glow_hud_compass_pc_marker.dds` at depth 5, as wide as the quest markers on both
 /// maps (50.59 on the World Map, 75 on the Local Map); hypothesis: the quest markers'
 /// template].
-const PC_MARKER_FILE: &str = "glow_hud_compass_pc_marker.dds";
+pub(crate) const PC_MARKER_FILE: &str = "glow_hud_compass_pc_marker.dds";
 /// The World Map's waypoint nodes and the dotted line's picture [documented: map_menu.xml
 /// `WaypointTemplate`, `PathLineTemplate`].
 const NODE_FILE: &str = "Interface\\Worldmap\\waypoint_node.dds";
@@ -484,6 +491,27 @@ pub struct DataState {
     /// The World Map's waypoints as last worked out, by what they depend on
     /// ([`cached_waypoints`]).
     waypoints_cache: Option<(WaypointKey, Waypoints)>,
+    /// The pointer is in use this frame (the mouse's, not with Controller chosen): the Travel
+    /// target is kept on the way to the hint only then ([`travel_target`]); a refit reads it as
+    /// the preparation did ([`DataState::refit_map`]).
+    aiming: bool,
+    /// A fast-travel question asked this frame (a click on a marker, Enter, A): the marker it was
+    /// asked of, kept as asked until it is sent once the map is drawn ([`flush_travel`]).
+    travel_pending: Option<u32>,
+    /// The map was drawn again after the question was asked (a refit, a fallback,
+    /// [`DataState::follow_the_box`]): the question then asks of the Travel target as drawn last,
+    /// or is not asked with none; only the last drawing decides, so a refit onto empty space
+    /// followed by a fallback onto a marker still asks [design].
+    travel_redrawn: bool,
+    /// The preparation is the early one (`MapMenu` on, [`prepare`]): only then are the Local Map's
+    /// rows, the marks' names and reputation lines for the page drawn from the file gathered
+    /// ([`WorldParts::rows`]). With the switch off the hand-built page gathers none of them; it
+    /// still works out each mark's texture coordinates, a little work it did not do before.
+    tile_rows: bool,
+    /// The map window as the page drawn from the file laid it out, and the tab it drew (canvas
+    /// units, [`DataState::publish_map`]); none from the hand-built drawing, whose window is the
+    /// file's numbers ([`map_window`]).
+    map_window: Option<(usize, Rect)>,
     /// The player's custom map marker as the game holds it (`Game::custom_map_marker`),
     /// taken each frame; the page's own while no game runs (tests).
     custom: Option<CustomMarker>,
@@ -532,16 +560,26 @@ pub(crate) struct Button {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-struct MapMark {
+pub(crate) struct MapMark {
     /// A map marker's type and whether the player has been there; `None` for a door.
-    icon: Option<(u8, bool)>,
-    highlighted: bool,
+    pub(crate) icon: Option<(u8, bool)>,
+    pub(crate) highlighted: bool,
     /// The marker's middle in the map's window.
-    at: Vec2,
+    pub(crate) at: Vec2,
+    /// The marker's or the door's reference (the World Map's rows are kept by it,
+    /// `crate::tiles::map_menu`), and its texture coordinates.
+    pub(crate) form: u32,
+    pub(crate) uv: Option<[f32; 2]>,
+    /// For the page drawn from the file only (`MapMenu` on, [`DataState::tile_rows`]; else
+    /// empty, the hand-built page keeps its names apart): the name, and a World Map marker's
+    /// reputation line ([`model::reputation_line`]), which the highlight box shows when a refit
+    /// puts it on this marker.
+    pub(crate) name: String,
+    pub(crate) detail: Option<String>,
 }
 
 impl MapMark {
-    fn picture(&self) -> String {
+    pub(crate) fn picture(&self) -> String {
         match self.icon {
             Some((kind, found)) => model::marker_icon(kind, found),
             None => DOOR_ICON.into(),
@@ -572,11 +610,68 @@ pub(crate) struct MapShown {
     /// The line under the name: a World Map marker's reputation and the player's
     /// standing with it ([`model::reputation_line`]).
     detail: Option<String>,
+    /// The World Map's view and its parts in texture coordinates, for the page drawn from the
+    /// file (`crate::tiles::map_menu`); none on the Local Map.
+    pub(crate) world: Option<WorldParts>,
+}
+
+/// What the World Map shows, by what each part stands for and in the picture's texture
+/// coordinates (0..1), so the page drawn from the file writes them as the file's `_x`/`_y`
+/// [documented: map_menu.xml, the templates' `_x`/`_y` "in map texture coords"] and a pan or a
+/// zoom moves only the picture [design].
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct WorldParts {
+    /// The viewport the hand-built drawing paints from too.
+    pub(crate) view: MapView,
+    /// The picture's file and the magnification.
+    pub(crate) texture: String,
+    pub(crate) mag: f32,
+    /// The active quest's markers: each target's reference and where it is.
+    pub(crate) quests: Vec<(u32, [f32; 2])>,
+    /// The custom marker.
+    pub(crate) custom: Option<[f32; 2]>,
+    /// The player's arrow and heading (radians, clockwise from north).
+    pub(crate) arrow: Option<([f32; 2], f32)>,
+    /// The dotted lines' far ends, from the arrow ([`waypoints`]): what each leads to, its
+    /// target's reference (0 for the custom marker) and where. None on the Local Map.
+    pub(crate) ends: Vec<(LineTo, u32, [f32; 2])>,
+    /// The Local Map's outline picture, once made, and its size in texels: the picture its
+    /// frame shows ([`outline`]); none on the World Map.
+    pub(crate) outline: Option<(Handle<Image>, Vec2)>,
+    /// Where the highlight box was put before it took a marker's place (the window's units: the
+    /// pointer's place, or the controller's cursor), for the page drawn from the file to pick again
+    /// in another window ([`nearest`]).
+    pub(crate) want: Vec2,
+    /// The Local Map's rows for the page drawn from the file: every door and marker here, those
+    /// outside the window too (the hand-built page leaves them out, [`MapShown::marks`]), so a pan
+    /// keeps their rows; none on the World Map, whose rows are its marks.
+    pub(crate) rows: Option<Vec<MapMark>>,
+}
+
+impl MapShown {
+    /// The highlight box's middle (the window's units), its name and the line under it.
+    pub(crate) fn highlight(&self) -> (Vec2, Option<&str>, Option<&str>) {
+        (self.cursor, self.label.as_deref(), self.detail.as_deref())
+    }
+
+    /// The markers, in the order the model found them.
+    pub(crate) fn marks(&self) -> &[MapMark] {
+        &self.marks
+    }
+}
+
+#[cfg(test)]
+impl MapShown {
+    /// A World Map gathered for a test of the page drawn from the file.
+    pub(crate) fn for_test(marks: Vec<MapMark>, world: Option<WorldParts>, cursor: Vec2, label: Option<&str>, detail: Option<&str>) -> MapShown {
+        MapShown { marks, world, cursor, label: label.map(Into::into), detail: detail.map(Into::into), ..empty_map() }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum Body {
-    Map(MapShown),
+    /// A map: boxed, as it is far larger than a list (its markers' and lines' places).
+    Map(Box<MapShown>),
     List { rows: Vec<Row>, first: usize, boxed: Option<usize>, right: Right },
 }
 
@@ -729,17 +824,42 @@ pub fn draw(
     let body = bodies.iter().find(|(_, b)| b.page == Page::Data && pip.open());
     let view = if prepares_early(switch.as_deref()) {
         // Prepared before the frame, for the tab the body was made for.
-        match (body, st.prepared.as_ref()) {
-            (Some((_, b)), Some(p)) if p.view.tab == b.tab => p.view.clone(),
-            _ => return,
-        }
+        let tab = match (body, st.prepared.as_ref()) {
+            (Some((_, b)), Some(p)) if p.view.tab == b.tab => b.tab,
+            _ => {
+                // Drawn from its tiles (or not shown): its refit, if any, is done.
+                flush_travel(st, &mut input);
+                return;
+            }
+        };
+        // A map prepared in the window the page drawn from the file published, now drawn by hand
+        // (the tile page fell back this frame): gathered again in the hand-built window, so what
+        // is drawn and where the pointer is read agree. No input is taken again.
+        let pointer = screen.as_deref().and_then(|s| s.pointer).filter(|_| !input.bindings.as_ref().is_some_and(|b| b.device == InputDevice::Controller));
+        let view = match refit_hand_built(st, tab, &game, pointer) {
+            Some(v) => {
+                if let Some(p) = st.prepared.as_mut() {
+                    p.view = v.clone();
+                }
+                v
+            }
+            None => st.prepared.as_ref().map(|p| p.view.clone()).unwrap_or_else(|| unreachable!()),
+        };
+        flush_travel(st, &mut input);
+        view
     } else {
-        match step(st, body.map(|(_, b)| b.tab), screen.as_deref(), &mut game, &mut input, &mut tools.images, None) {
+        // `MapMenu` off: prepared and drawn here, the question sent by this system in the frame it
+        // was asked in, after the page's own preparation (before 2026-11-12 it was sent during it).
+        let view = step(st, body.map(|(_, b)| b.tab), screen.as_deref(), &mut game, &mut input, &mut tools.images, None);
+        flush_travel(st, &mut input);
+        match view {
             Some(v) => v,
             None => return,
         }
     };
     let Some((body, _)) = body else { return };
+    // The hand-built body is drawn: its map window is the file's numbers again.
+    st.map_window = None;
     if added.get(body).is_err() && st.shown.as_ref() == Some(&view) {
         return;
     }
@@ -762,6 +882,7 @@ pub fn draw(
 /// `None` for the hand-built drawing's, which keeps nothing more than it always did.
 #[allow(clippy::too_many_arguments)]
 fn step(st: &mut DataState, open: Option<usize>, screen: Option<&PipBoyScreen>, game: &mut Game, input: &mut Input, images: &mut Assets<Image>, early: Option<Early>) -> Option<View> {
+    st.tile_rows = early.is_some();
     st.poll += input.time.delta_secs();
     if st.poll >= POLL {
         st.poll = 0.0;
@@ -797,6 +918,7 @@ fn step(st: &mut DataState, open: Option<usize>, screen: Option<&PipBoyScreen>, 
     // pointer is ignored so it cannot take the highlight box back from the stick.
     let pointer = screen.and_then(|s| s.pointer).filter(|_| !input.bindings.as_ref().is_some_and(|b| b.device == InputDevice::Controller));
     st.pointer_now = screen.and_then(|s| s.pointer);
+    st.aiming = pointer.is_some();
     let e = early.unwrap_or_default();
     if e.hold {
         hold_input(st, tab, &lists, input);
@@ -836,6 +958,51 @@ fn step(st: &mut DataState, open: Option<usize>, screen: Option<&PipBoyScreen>, 
         });
     }
     Some(view)
+}
+
+/// The map on tab `tab` gathered again in the hand-built window, when it was gathered in the
+/// window the page drawn from the file published (`map_window` for that tab) and is to be drawn by
+/// hand: that window is let go and the map's view, pointer and highlight box worked out again from
+/// the state as it is (no input taken). `None` when the view already is the hand-built window's.
+/// `pointer`: the pointer on the page, as the preparation reads it.
+fn refit_hand_built(st: &mut DataState, tab: usize, game: &Game, pointer: Option<Vec2>) -> Option<View> {
+    if !(tab == LOCAL || tab == WORLD) || !st.map_window.is_some_and(|w| w.0 == tab) {
+        return None;
+    }
+    let from = map_window(st, tab);
+    st.map_window = None;
+    // The highlight box keeps its place on the canvas, in the hand-built window.
+    let to = hand_built_window();
+    if let Some(c) = st.cursor[tab].as_mut() {
+        *c = (from.min + *c - to.min).clamp(Vec2::ZERO, to.size());
+    }
+    let lists = lists(st, game);
+    let on_map = pointer.filter(|_| !on_button(st, tab, pointer));
+    let view = build(st, tab, &lists, game, on_map, pointer.is_some());
+    st.follow_the_box(tab);
+    info!("pipboy data: {} drawn by hand in its own window", TAB_NAMES[tab]);
+    Some(view)
+}
+
+/// Send the fast-travel question asked this frame ([`DataState::travel_pending`]) once the map is
+/// drawn, so it asks about the marker the highlight box is on as drawn [design: one question, the
+/// frame it was asked in].
+fn flush_travel(st: &mut DataState, input: &mut Input) {
+    if let Some(m) = take_travel(st) {
+        input.ask.write(FastTravelAsk(m));
+    }
+}
+
+/// The marker the question asked this frame is about, taken: the one it was asked of, or after
+/// the map was drawn again the Travel target as drawn last (none: not asked, said once).
+fn take_travel(st: &mut DataState) -> Option<u32> {
+    let asked = st.travel_pending.take()?;
+    let redrawn = std::mem::take(&mut st.travel_redrawn);
+    let m = if redrawn { st.travel_marker } else { Some(asked) };
+    if m.is_none() {
+        info!("pipboy data: fast travel to {} not asked: no marker under the highlight box as drawn", FormId(asked));
+    }
+    m
 }
 
 /// What each row of tab `tab`'s list stands for: a quest's, note's or challenge's FormID, a
@@ -906,6 +1073,65 @@ impl DataState {
     /// The wheel's notches over the list since the tile page last took them.
     pub(crate) fn take_list_notches(&mut self) -> f32 {
         std::mem::take(&mut self.list_notches)
+    }
+
+    /// The World Map drawn from the file: its clip window as laid out and the hints' boxes (canvas
+    /// units), which the model's pointer reads as the hand-built page's ([`map_window`],
+    /// [`on_button`]): the pointer over a hint is the hint's, never the map's, and the map's window
+    /// is where the picture is drawn. One presentation publishes these a frame.
+    pub(crate) fn publish_map(&mut self, tab: usize, window: Rect, hints: Vec<Rect>) {
+        self.map_window = Some((tab, window));
+        self.button_rects = (tab, hints);
+    }
+
+    /// The map on tab `tab` drawn from the file in another window than the one it was gathered in
+    /// (`crate::tiles::map_menu`'s refit, `view` the drawing's and `cursor` its highlight box, the
+    /// window's units): the model's window, highlight box and Place Marker's place follow the
+    /// drawing, so the next frame's pointer and a Place Marker now read what is drawn. No input is
+    /// taken again; the marker the box is on stays the one it was on.
+    ///
+    /// `want` is where the box was put in the new window (before it takes a marker), `cursor` where
+    /// it stands (on the marker `picked`, picked again there by [`nearest`]), `forms` the markers
+    /// shown. The World Map's marker under the box and its Travel target follow the pick
+    /// ([`travel_target`]); a Place Marker question already up asks about the new place. Returns
+    /// the Travel target, for the hints.
+    pub(crate) fn refit_map(&mut self, tab: usize, view: MapView, want: Vec2, cursor: Vec2, picked: Option<u32>, forms: &[u32]) -> Option<u32> {
+        if !(tab == LOCAL || tab == WORLD) {
+            return self.travel_marker;
+        }
+        self.map_window = Some((tab, view.window));
+        self.cursor[tab] = Some(want);
+        let point = match view.local {
+            Some(_) => view.local_point(cursor),
+            None => self.spot[tab].and_then(|s| self.maps.get(&s.space).cloned().flatten()).map(|m| m.position(view.to_uv(cursor))),
+        };
+        if let (Some(p), Some(s)) = (point.filter(|p| p.iter().all(|v| v.is_finite())), self.spot[tab].as_mut()) {
+            (s.pos[0], s.pos[1]) = (p[0], p[1]);
+        }
+        if tab == WORLD {
+            self.cursor_marker = picked;
+            self.travel_marker = travel_target(self.travel_marker, picked, self.aiming, forms);
+        }
+        self.follow_the_box(tab);
+        self.travel_marker
+    }
+
+    /// What was asked this frame of the place or marker under the highlight box follows the box
+    /// as it is now drawn (a refit, a fallback): a Place Marker question asks of the place under
+    /// it, a fast-travel question not sent yet of the Travel target picked again (none: not asked).
+    /// No input is taken again.
+    fn follow_the_box(&mut self, tab: usize) {
+        if let (Some(Popup { ask: Ask::Marker(ask), .. }), Some(at)) = (self.popup.as_mut(), self.spot[tab]) {
+            *ask = ask.at(at);
+        }
+        if tab == WORLD && self.travel_pending.is_some() {
+            self.travel_redrawn = true;
+        }
+    }
+
+    /// The question box over the map (fast travel's or Place Marker's), while it is up.
+    pub(crate) fn popup(&self) -> Option<&Popup> {
+        self.popup.as_ref()
     }
 
     /// What the page drawn from the file measured, as the hand-built drawing publishes it
@@ -1295,7 +1521,8 @@ fn take_input(st: &mut DataState, tab: usize, l: &Lists, game: &mut Game, input:
         let left = crate::pad::stick(&input.pads, true);
         let dt = input.time.delta_secs();
         if right != Vec2::ZERO {
-            let (cursor, overflow) = stick_cursor(st.cursor[tab].unwrap_or(MAP_MID), right, dt);
+            let win = MapView::bare(map_window(st, tab));
+            let (cursor, overflow) = win.stick(st.cursor[tab].unwrap_or(win.mid()), right, dt, CURSOR_SPEED);
             st.cursor[tab] = Some(cursor);
             scroll_map(st, tab, game, overflow);
         }
@@ -1354,7 +1581,7 @@ fn take_input(st: &mut DataState, tab: usize, l: &Lists, game: &mut Game, input:
     // highlighted marker [observed: the original; docs/design/controller.md §3].
     let mouse = (input.buttons.just_pressed(MouseButton::Left), input.buttons.just_released(MouseButton::Left));
     if let Some(m) = travel_ask(st, tab, pointer, mouse, travel) {
-        input.ask.write(FastTravelAsk(m));
+        st.travel_pending = Some(m);
     }
     // Dragging a map moves the point at its middle: the left button held down on it (not
     // on a button at the right), the pointer moving (or the test aid's drag).
@@ -1363,7 +1590,7 @@ fn take_input(st: &mut DataState, tab: usize, l: &Lists, game: &mut Game, input:
         st.drag_from = None;
     } else if input.buttons.just_pressed(MouseButton::Left) {
         let on_map = pointer.filter(|_| !on_button(st, tab, pointer));
-        st.drag_from = in_map(on_map).and(on_map);
+        st.drag_from = in_window(map_window(st, tab), on_map).and(on_map);
     } else if let (Some(from), Some(p)) = (st.drag_from, pointer) {
         st.drag += p - from;
         st.drag_from = Some(p);
@@ -1770,7 +1997,7 @@ fn build(st: &mut DataState, tab: usize, l: &Lists, game: &Game, pointer: Option
     let place = place(st, game);
     let when = game.sim.as_ref().and_then(|s| s.world.calendar().ok()).map(|c| model::date_time(&c)).unwrap_or_default();
     let body = match tab {
-        LOCAL | WORLD => Body::Map(if tab == WORLD { world_map(st, game, pointer, aiming) } else { local_map(st, game, pointer) }),
+        LOCAL | WORLD => Body::Map(Box::new(if tab == WORLD { world_map(st, game, pointer, aiming) } else { local_map(st, game, pointer) })),
         QUESTS => {
             let rows = l
                 .quests
@@ -1973,19 +2200,36 @@ fn player_at(st: &DataState, game: &Game, world: u32) -> Option<([f32; 3], f32)>
     st.outdoors.filter(|o| o.0 == world).map(|o| (o.1, o.2))
 }
 
-/// The pointer in a map's window, when it is over it.
+/// The pointer in the hand-built map's window, when it is over it.
+#[cfg(test)]
 fn in_map(pointer: Option<Vec2>) -> Option<Vec2> {
-    let p = pointer? - MAIN.min - MAP.min;
-    (p.x >= 0.0 && p.y >= 0.0 && p.x < MAP.width() && p.y < MAP.height()).then_some(p)
+    in_window(hand_built_window(), pointer)
+}
+
+/// The pointer in the map window `window` (canvas units), when it is over it.
+fn in_window(window: Rect, pointer: Option<Vec2>) -> Option<Vec2> {
+    MapView::bare(window).pointer(pointer)
+}
+
+/// The hand-built maps' window on the canvas: 50 down in the menus' rectangle, 855 × 500
+/// [documented: map_menu.xml].
+fn hand_built_window() -> Rect {
+    Rect::from_corners(MAIN.min + MAP.min, MAIN.min + MAP.max)
+}
+
+/// The map window the model reads on tab `tab`: the page drawn from the file's, laid out, while
+/// it published one for this tab ([`DataState::publish_map`]); else the hand-built page's. With
+/// the file's numbers the two are the same.
+fn map_window(st: &DataState, tab: usize) -> Rect {
+    st.map_window.filter(|w| w.0 == tab).map_or_else(hand_built_window, |w| w.1)
 }
 
 /// Move the map cursor `at` by the right stick `v` for `dt` seconds, kept in the window;
 /// the stick's up is the screen's up, but the window's y runs down. Returns the cursor
 /// and how far it was pushed past an edge (that much pans the map, [`scroll_map`]).
+#[cfg(test)]
 fn stick_cursor(at: Vec2, v: Vec2, dt: f32) -> (Vec2, Vec2) {
-    let raw = at + Vec2::new(v.x, -v.y) * (CURSOR_SPEED * dt);
-    let cursor = Vec2::new(raw.x.clamp(0.0, MAP.width()), raw.y.clamp(0.0, MAP.height()));
-    (cursor, raw - cursor)
+    MapView::bare(hand_built_window()).stick(at, v, dt, CURSOR_SPEED)
 }
 
 /// Zoom `mag` by the left stick's up and down `y` (up positive, in; down out) for `dt`
@@ -2049,7 +2293,7 @@ fn travel_ask(st: &mut DataState, tab: usize, pointer: Option<Vec2>, (pressed, r
     }
     let over_button = on_button(st, tab, pointer);
     if pressed {
-        st.press = in_map(pointer).filter(|_| !over_button).and(pointer).map(|p| (p, 0.0));
+        st.press = in_window(map_window(st, tab), pointer).filter(|_| !over_button).and(pointer).map(|p| (p, 0.0));
     } else if let (Some((from, moved)), Some(p)) = (st.press.as_mut(), pointer) {
         *moved = moved.max(p.distance(*from));
     }
@@ -2070,16 +2314,22 @@ fn travel_ask(st: &mut DataState, tab: usize, pointer: Option<Vec2>, (pressed, r
 /// and name [hypothesis: the owner's screenshots show it away from the middle, once round
 /// a door with the door's place name].
 fn place_cursor(st: &mut DataState, tab: usize, pointer: Option<Vec2>, marks: &mut [MapMark], names: &[String]) -> (Vec2, Option<String>, Option<usize>) {
-    let want = in_map(pointer).or(st.cursor[tab]).unwrap_or(MAP_MID);
+    let win = MapView::bare(map_window(st, tab));
+    let want = win.pointer(pointer).or(st.cursor[tab]).unwrap_or(win.mid());
     st.cursor[tab] = Some(want);
-    let near = marks.iter().enumerate().map(|(i, m)| (i, m.at.distance(want))).filter(|(_, d)| *d <= SNAP).min_by(|a, b| a.1.total_cmp(&b.1));
-    match near {
-        Some((i, _)) => {
+    match nearest(marks.iter().map(|m| m.at), want) {
+        Some(i) => {
             marks[i].highlighted = true;
             (marks[i].at, names.get(i).cloned(), Some(i))
         }
         None => (want, None, None),
     }
+}
+
+/// The marker the highlight box at `want` takes ([`place_cursor`]): the nearest of those at
+/// `places` (the window's units) within [`SNAP`], the first of equals.
+pub(crate) fn nearest(places: impl Iterator<Item = Vec2>, want: Vec2) -> Option<usize> {
+    places.enumerate().map(|(i, at)| (i, at.distance(want))).filter(|(_, d)| *d <= SNAP).min_by(|a, b| a.1.total_cmp(&b.1)).map(|(i, _)| i)
 }
 
 /// Whether the player knows a marker (`Some`), and whether it is drawn as discovered
@@ -2107,13 +2357,12 @@ fn world_map(st: &mut DataState, game: &Game, pointer: Option<Vec2>, aiming: boo
     let Some(world) = game.location.as_ref().map(|l| l.world) else { return empty_map() };
     let Some(m) = map_of(st, game) else { return empty_map() };
     let mag = st.magnify[WORLD].max(ZOOM.0);
-    let size = Vec2::from(m.usable) * mag;
     let player = player_at(st, game, world);
     let centre = *st.centre[WORLD].get_or_insert_with(|| player.map_or([0.5, 0.5], |(p, _)| m.uv(p[0], p[1])));
-    let left = Vec2::new(model::pan(centre[0], size.x, MAP_MID.x), model::pan(centre[1], size.y, MAP_MID.y));
-    let on_map = |uv: [f32; 2]| {
-        left + Vec2::new(uv[0] * size.x, uv[1] * size.y)
-    };
+    // The one viewport both drawings paint from and the pointer is read in.
+    let view = MapView::world(map_window(st, WORLD), centre, Vec2::from(m.usable), mag);
+    let (left, size) = (view.left, view.size);
+    let on_map = |uv: [f32; 2]| view.to_window(uv);
     let mut marks = Vec::new();
     let mut names = Vec::new();
     let mut forms = Vec::new();
@@ -2126,24 +2375,31 @@ fn world_map(st: &mut DataState, game: &Game, pointer: Option<Vec2>, aiming: boo
         total += 1;
         let Some(found) = known(st, game, mk) else { continue };
         drawn_other += usize::from(mk.world != world);
-        marks.push(MapMark { icon: Some((mk.kind, found)), highlighted: false, at: on_map(projection.uv(mk.pos[0], mk.pos[1])) });
+        let uv = projection.uv(mk.pos[0], mk.pos[1]);
+        let detail = mk.reputation.as_ref().map(|(rep, name)| model::reputation_line(name, standing(game, *rep)));
+        let (name, tile_detail) = if st.tile_rows { (mk.name.clone(), detail.clone()) } else { (String::new(), None) };
+        marks.push(MapMark { icon: Some((mk.kind, found)), highlighted: false, at: on_map(uv), form: mk.form, uv: Some(uv), name, detail: tile_detail });
         names.push(mk.name.clone());
         forms.push(mk.form);
-        details.push(mk.reputation.as_ref().map(|(rep, name)| model::reputation_line(name, standing(game, *rep))));
+        details.push(detail);
     }
     let mut quests = Vec::new();
     let mut targets = Vec::new();
+    let mut target_uvs = Vec::new();
     for t in quest_targets(st, game).into_iter().filter(|t| t.interior.is_none()) {
         let Some(projection) = map_for(st, game, t.world).filter(|p| p.root == m.root) else { continue };
-        let at = on_map(projection.uv(t.pos[0], t.pos[1]));
+        let uv = projection.uv(t.pos[0], t.pos[1]);
+        let at = on_map(uv);
         targets.push(at);
+        target_uvs.push((t.form, uv));
         quests.push(quest_corner(at));
     }
     // The custom marker, placed in any worldspace of this map's family.
-    let custom = st.custom.and_then(|c| {
+    let custom_uv = st.custom.and_then(|c| {
         let projection = map_for(st, game, c.space).filter(|p| p.root == m.root)?;
-        Some((c, on_map(projection.uv(c.pos[0], c.pos[1]))))
+        Some(projection.uv(c.pos[0], c.pos[1]))
     });
+    let custom = st.custom.zip(custom_uv).map(|(c, uv)| (c, on_map(uv)));
     log_custom(st, WORLD, custom.map(|c| c.0));
     let drawn_found = marks.iter().filter(|mk| matches!(mk.icon, Some((_, true)))).count();
     let logged = (world, total, marks.len(), drawn_found, drawn_other);
@@ -2163,8 +2419,12 @@ fn world_map(st: &mut DataState, game: &Game, pointer: Option<Vec2>, aiming: boo
     let uv = [(cursor.x - left.x) / size.x, (cursor.y - left.y) / size.y];
     let spot = m.position(uv);
     st.spot[WORLD] = spot.iter().all(|v| v.is_finite()).then(|| CustomMarker { space: world, pos: [spot[0], spot[1], player.map_or(0.0, |(p, _)| p[2])] });
-    let arrow = player.map(|(p, _)| on_map(m.uv(p[0], p[1])));
+    let arrow_uv = player.map(|(p, h)| (m.uv(p[0], p[1]), h));
+    let arrow = arrow_uv.map(|(uv, _)| on_map(uv));
     let (nodes, lines) = cached_waypoints(&mut st.waypoints_cache, arrow, custom.map(|c| c.1), &targets, mag);
+    // The lines' far ends as [`waypoints`] makes them: with the arrow shown, the custom marker's
+    // then each quest target's.
+    let ends = if arrow.is_some() { custom_uv.map(|uv| (LineTo::Marker, 0, uv)).into_iter().chain(target_uvs.iter().map(|&(f, uv)| (LineTo::Quest, f, uv))).collect() } else { Vec::new() };
     let kinds: Vec<LineTo> = lines.iter().map(|l| l.0).collect();
     if st.lines_logged.as_ref() != Some(&(kinds.clone(), st.custom)) {
         for (to, pieces) in lines.iter() {
@@ -2187,7 +2447,35 @@ fn world_map(st: &mut DataState, game: &Game, pointer: Option<Vec2>, aiming: boo
         cursor,
         label,
         detail,
+        world: Some(WorldParts { view, texture: m.texture.clone(), mag, quests: target_uvs, custom: custom_uv, arrow: arrow_uv, ends, outline: None, rows: None, want: st.cursor[WORLD].unwrap_or(view.mid()) }),
     }
+}
+
+/// The arrow in `glow_cursor.dds` (32 × 64 texels): a pointer in its upper half, its tip at
+/// (9, 9) and its base from (24, 23) to (9, 29), an isosceles triangle whose axis, base middle
+/// to tip, runs `ARROW_AXIS` texels (left and up) [documented: the texels in the load order's
+/// archive, the opaque core read at alpha 200].
+const ARROW_AXIS: Vec2 = Vec2::new(-7.5, -17.0);
+
+/// The part of `glow_cursor.dds` an arrow `w` × `h` shows: the file draws it at its texels' size
+/// times its zoom, `w` × 3.5 (1.4 times at the 40 wide arrow), from its top left, cut to the
+/// box [documented: `MM_WorldMapCursor`'s `zoom`]; so the hand-built page shows the same part at
+/// the same scale, the arrow's shape undistorted (until 2026-11-12 it stretched the whole
+/// picture over the box) [design].
+fn arrow_texels(w: f32, h: f32) -> Vec2 {
+    Vec2::new(w, h) / (w * 3.5 / 100.0)
+}
+
+/// The turn of the player's arrow for heading `heading` (radians, clockwise from north): the
+/// heading and the turn that brings the picture's arrow, its tip to the left of up unturned
+/// ([`ARROW_AXIS`], about 0.416), to point up; so it points the way the player faces, up at
+/// heading 0 as the original's [observed: a capture of the original's World Map at 1280x720,
+/// 2026-11, heading 0: a sharp symmetric triangle pointing up]. Both drawings turn it so, the
+/// hand-built page and the file's `MM_WorldMapCursor`/`MM_LocalMapCursor`, about the box's
+/// middle (the file's axis traits). Until 2026-11-12 the hand-built arrow was turned by the
+/// heading itself, its tip some 24 degrees left of the way the player faced, and stretched.
+pub(crate) fn arrow_turn(heading: f32) -> f32 {
+    heading + (-ARROW_AXIS.x).atan2(-ARROW_AXIS.y)
 }
 
 /// The player's standing with reputation `rep` (its title), when the scripts' game runs.
@@ -2199,7 +2487,7 @@ fn standing(game: &Game, rep: u32) -> Option<&'static str> {
 }
 
 fn empty_map() -> MapShown {
-    MapShown { picture: None, outline: None, marks: Vec::new(), player: None, quests: Vec::new(), custom: None, nodes: Arc::default(), lines: Arc::default(), cursor: MAP_MID, label: None, detail: None }
+    MapShown { picture: None, outline: None, marks: Vec::new(), player: None, quests: Vec::new(), custom: None, nodes: Arc::default(), lines: Arc::default(), cursor: MAP_MID, label: None, detail: None, world: None }
 }
 
 /// The local map's scale, game units to a canvas unit at a magnification of 1: outdoors
@@ -2275,14 +2563,24 @@ fn local_map(st: &mut DataState, game: &Game, pointer: Option<Vec2>) -> MapShown
     let mag = st.magnify[LOCAL].max(ZOOM.0);
     let centre = *st.centre[LOCAL].get_or_insert([feet[0], feet[1]]);
     let scale = local_scale(loc.interior.is_some());
-    let on_map = |x: f32, y: f32| MAP_MID + Vec2::new(x - centre[0], centre[1] - y) * mag / scale;
+    // The frame the picture covers: the outline's grid (made before this, `advance_outline`), or
+    // the one it would make.
+    let frame = match st.outline.as_ref() {
+        Some(o) => (o.origin, Vec2::new(o.size[0] as f32, o.size[1] as f32) * o.step),
+        None => Outline::frame_for(loc.interior, loc.world, centre, feet[2], MAP.size(), scale),
+    };
+    // The one viewport both drawings paint from and the pointer is read in.
+    let view = MapView::local(map_window(st, LOCAL), view::LocalProjection { centre, mag, scale, origin: frame.0, extent: frame.1 });
+    let on_map = |x: f32, y: f32| view.place(x, y);
     let outline = st.outline.as_ref().and_then(|o| {
         let image = o.image.clone()?;
         let top_left = on_map(o.origin[0], o.origin[1]);
         let size = Vec2::new(o.size[0] as f32, o.size[1] as f32) * o.step * mag / scale;
         Some((image, Rect::from_corners(top_left, top_left + size)))
     });
-    let inside = |p: Vec2| p.x >= -MARKER && p.y >= -MARKER && p.x <= MAP.width() + MARKER && p.y <= MAP.height() + MARKER;
+    let outline_texels = st.outline.as_ref().and_then(|o| Some((o.image.clone()?, Vec2::new(o.size[0] as f32, o.size[1] as f32))));
+    let extent = view.extent();
+    let inside = |p: Vec2| p.x >= -MARKER && p.y >= -MARKER && p.x <= extent.x + MARKER && p.y <= extent.y + MARKER;
     let grid = ((centre[0] / model::CELL).floor() as i32, (centre[1] / model::CELL).floor() as i32);
     let key = (loc.interior, if loc.interior.is_some() { (0, 0) } else { grid });
     if let Entry::Vacant(e) = st.doors.entry(key) {
@@ -2302,6 +2600,7 @@ fn local_map(st: &mut DataState, game: &Game, pointer: Option<Vec2>) -> MapShown
         info!("pipboy data: local map: {} doors leading elsewhere", doors.len());
         e.insert(doors);
     }
+    let mut rows = Vec::new();
     let mut marks = Vec::new();
     let mut names = Vec::new();
     // A door disabled now (a script's Disable, an enable parent off) is not drawn
@@ -2309,9 +2608,13 @@ fn local_map(st: &mut DataState, game: &Game, pointer: Option<Vec2>) -> MapShown
     let enabled = |form: u32| game.sim.as_ref().is_none_or(|s| s.present(form));
     for d in st.doors.get(&key).into_iter().flatten().filter(|d| enabled(d.form)) {
         let at = on_map(d.pos[0], d.pos[1]);
+        let uv = Some(view.local_uv(d.pos[0], d.pos[1]));
         if inside(at) {
-            marks.push(MapMark { icon: None, highlighted: false, at });
+            marks.push(MapMark { icon: None, highlighted: false, at, form: d.form, uv, name: String::new(), detail: None });
             names.push(d.name.clone());
+        }
+        if st.tile_rows {
+            rows.push(MapMark { icon: None, highlighted: false, at, form: d.form, uv, name: d.name.clone(), detail: None });
         }
     }
     if loc.interior.is_none() {
@@ -2319,31 +2622,41 @@ fn local_map(st: &mut DataState, game: &Game, pointer: Option<Vec2>) -> MapShown
         for mk in all.iter().filter(|mk| mk.world == loc.world) {
             let Some(found) = known(st, game, mk) else { continue };
             let at = on_map(mk.pos[0], mk.pos[1]);
+            let uv = Some(view.local_uv(mk.pos[0], mk.pos[1]));
             if inside(at) {
-                marks.push(MapMark { icon: Some((mk.kind, found)), highlighted: false, at });
+                marks.push(MapMark { icon: Some((mk.kind, found)), highlighted: false, at, form: mk.form, uv, name: String::new(), detail: None });
                 names.push(mk.name.clone());
+            }
+            if st.tile_rows {
+                rows.push(MapMark { icon: Some((mk.kind, found)), highlighted: false, at, form: mk.form, uv, name: mk.name.clone(), detail: None });
             }
         }
     }
     // Quest markers stay inside the window [documented: map_menu.xml
     // LocalMapQuestMarkerTemplate, clamped to the view rectangle].
-    let quests = quest_targets(st, game)
-        .into_iter()
-        .filter(|t| t.interior == loc.interior && (t.interior.is_some() || t.world == loc.world))
-        .map(|t| local_quest_corner(on_map(t.pos[0], t.pos[1])))
-        .collect();
-    let (cursor, label, _) = place_cursor(st, LOCAL, pointer, &mut marks, &names);
+    let targets: Vec<Target> = quest_targets(st, game).into_iter().filter(|t| t.interior == loc.interior && (t.interior.is_some() || t.world == loc.world)).collect();
+    let quests = targets.iter().map(|t| local_quest_corner(on_map(t.pos[0], t.pos[1]))).collect();
+    let target_uvs = targets.iter().map(|t| (t.form, view.local_uv(t.pos[0], t.pos[1]))).collect();
+    let (cursor, label, under) = place_cursor(st, LOCAL, pointer, &mut marks, &names);
+    // The page drawn from the file keeps every door and marker here as its rows, those panned out
+    // of the window too (its window cuts them), the one under the highlight box marked.
+    let picked = under.map(|i| marks[i].form);
+    for r in &mut rows {
+        r.highlighted = Some(r.form) == picked;
+    }
     // Place Marker's place: the point under the highlight box's middle, in this interior
     // or worldspace; the custom marker shows when it is in the space shown, clamped
     // inside the window as the quest markers are [hypothesis: their template]. No dotted
     // line here [observed: the original's Local Map has no waypoint nodes].
     let space = loc.interior.unwrap_or(loc.world);
-    let spot = marker::local_point(centre, MAP_MID, mag, scale, cursor);
+    let spot = view.local_point(cursor).unwrap_or([centre[0], centre[1]]);
     st.spot[LOCAL] = Some(CustomMarker { space, pos: [spot[0], spot[1], feet[2]] });
     let custom = st.custom.filter(|c| c.space == space);
     log_custom(st, LOCAL, custom);
+    let custom_uv = custom.map(|c| view.local_uv(c.pos[0], c.pos[1]));
     let custom = custom.map(|c| local_quest_corner(on_map(c.pos[0], c.pos[1])));
-    MapShown { picture: None, outline, marks, player: Some((on_map(feet[0], feet[1]), heading)), quests, custom, nodes: Arc::default(), lines: Arc::default(), cursor, label, detail: None }
+    let world = WorldParts { view, texture: String::new(), mag, quests: target_uvs, custom: custom_uv, arrow: Some((view.local_uv(feet[0], feet[1]), heading)), ends: Vec::new(), outline: outline_texels, rows: st.tile_rows.then_some(rows), want: st.cursor[LOCAL].unwrap_or(view.mid()) };
+    MapShown { picture: None, outline, marks, player: Some((on_map(feet[0], feet[1]), heading)), quests, custom, nodes: Arc::default(), lines: Arc::default(), cursor, label, detail: None, world: Some(world) }
 }
 
 /// A quest marker's top left for a target at `at` in the window.
@@ -2411,11 +2724,13 @@ fn log_custom(st: &mut DataState, tab: usize, shown: Option<CustomMarker>) {
     }
 }
 
-/// Where a quest target is: in an interior (`interior`), or outdoors in `world`.
+/// Where a quest target is: in an interior (`interior`), or outdoors in `world`; and what
+/// stands there (the target's reference, or the door's into its interior).
 struct Target {
     interior: Option<u32>,
     world: u32,
     pos: [f32; 3],
+    form: u32,
 }
 
 /// How often the active quest's target conditions are evaluated, in seconds [hypothesis:
@@ -2474,14 +2789,14 @@ fn quest_targets(st: &mut DataState, game: &Game) -> Vec<Target> {
         };
         let Some(cell) = cell else { continue };
         if let Some(w) = refs.cell_world.get(&cell) {
-            out.push(Target { interior: None, world: w.0, pos });
+            out.push(Target { interior: None, world: w.0, pos, form: r.0 });
             continue;
         }
-        out.push(Target { interior: Some(cell.0), world: 0, pos });
+        out.push(Target { interior: Some(cell.0), world: 0, pos, form: r.0 });
         let doors = st.doors_into.entry(cell.0).or_insert_with(|| rt.game.doors_into(cell));
-        let door = fnv_game::quest_targets::marker_door(&sim.world, doors, c.ignores_locks).and_then(|d| refs.get(d)).and_then(|d| Some((refs.cell_world.get(&d.cell?)?.0, d.pos)));
-        if let Some((w, p)) = door {
-            out.push(Target { interior: None, world: w, pos: p });
+        let door = fnv_game::quest_targets::marker_door(&sim.world, doors, c.ignores_locks).and_then(|d| Some((d, refs.get(d)?))).and_then(|(id, d)| Some((refs.cell_world.get(&d.cell?)?.0, d.pos, id)));
+        if let Some((w, p, id)) = door {
+            out.push(Target { interior: None, world: w, pos: p, form: id.0 });
         }
     }
     out
@@ -2604,21 +2919,72 @@ fn show(p: &mut ChildSpawnerCommands, c: &mut Ctx, st: &mut DataState, v: &View)
     // question box comes last, over everything.
     buttons(p, c, &v.buttons);
     if let Some(q) = &v.popup {
-        popup(p, c, q);
+        popup(p, c, q, MAIN.min + MAP.min + MAP_MID);
     }
 }
 
-/// The question box in the middle of the map's window (fast-travel.md §3): black with a
-/// line all round, the text centred at the top, the answers centred one under the other,
-/// the chosen one framed. It takes the pointer over the whole page, so nothing under it
+/// Marks the question box drawn over the page drawn from its file.
+#[derive(Component)]
+pub struct PopupOverTiles;
+
+/// The question box (fast travel's, Place Marker's) over the DATA page drawn from `map_menu.xml`,
+/// which has no hand-built body to hold it (`crate::tiles::map_menu::MapTiles::ready`): the same
+/// box ([`popup`]) in the middle of the map window as laid out, in the Pip-Boy's image above the
+/// page's tiles, its answers taking the pointer as the hand-built box's do; the page stays drawn
+/// from its tiles under it [design]. Its input is the model's (`popup_input`); the page's tile
+/// input waits while it is up (`crate::tiles::map_menu::MapTiles::popup_owns`). Spawned again when
+/// the box changes (its choice moves), which forgets the answer under the pointer as the hand-built
+/// drawing does ([`BoxHold::rebuilt`]).
+#[allow(clippy::too_many_arguments)]
+pub fn popup_over_tiles(
+    mut commands: Commands,
+    screen: Option<Res<PipBoyScreen>>,
+    tiles: Option<Res<crate::tiles::map_menu::MapTiles>>,
+    pip: Res<PipBoy>,
+    state: Option<ResMut<DataState>>,
+    roots: Query<Entity, With<PopupOverTiles>>,
+    mut tools: Tools,
+    mut drawn: Local<Option<(Popup, Rect)>>,
+) {
+    // Laid out in the Pip-Boy's screen texture, at its size whatever the UI scale (#1631).
+    let _canvas = crate::interface::original_units();
+    let ready = tiles.as_ref().is_some_and(|t| t.ready.is_some()) && pip.open() && pip.page == Page::Data;
+    let (Some(mut st), Some(screen)) = (state, screen) else {
+        for e in &roots {
+            commands.entity(e).despawn();
+        }
+        *drawn = None;
+        return;
+    };
+    let want = st.popup.clone().filter(|_| ready).map(|q| (q, map_window(&st, pip.tab())));
+    if want == *drawn && (want.is_none() || !roots.is_empty()) {
+        return;
+    }
+    for e in &roots {
+        commands.entity(e).despawn();
+    }
+    *drawn = want.clone();
+    let Some((q, window)) = want else { return };
+    st.popup_hold.rebuilt();
+    let mut c = Ctx::new(&mut tools.kit, tools.data.as_deref(), &mut tools.images, tools.formats.as_deref(), &tools.glyphs);
+    c.kit.screen = pip.frame != super::Frame::Device;
+    info!("pipboy data: question box over the tiles ({} answers)", q.buttons.len());
+    let root = Node { overflow: Overflow::clip(), ..at(0.0, 0.0, super::CANVAS.x, super::CANVAS.y) };
+    commands
+        .spawn((PopupOverTiles, root, UiTargetCamera(screen.camera), GlobalZIndex(crate::tiles::draw::PIPBOY_TILES_Z + 1), Pickable::IGNORE, Name::new("Question box over the page")))
+        .with_children(|p| popup(p, &mut c, &q, window.center()));
+}
+
+/// The question box in the middle of the map's window, `mid` on the canvas (fast-travel.md §3):
+/// black with a line all round, the text centred at the top, the answers centred one under the
+/// other, the chosen one framed. It takes the pointer over the whole page, so nothing under it
 /// is clicked.
-fn popup(p: &mut ChildSpawnerCommands, c: &mut Ctx, q: &Popup) {
+fn popup(p: &mut ChildSpawnerCommands, c: &mut Ctx, q: &Popup, mid: Vec2) {
     let lines = c.lines(2, &q.text, Some(POPUP_W - 2.0 * POPUP_PAD));
     let pitch = c.line_height(2) + 4.0;
     let row = c.line_height(2) + POPUP_ROW_PAD;
     let text_h = c.line_height(2) + pitch * lines.len().saturating_sub(1) as f32;
     let h = POPUP_PAD + text_h + POPUP_PAD + row * q.buttons.len() as f32 + POPUP_PAD;
-    let mid = MAIN.min + MAP.min + MAP_MID;
     let r = Rect::new(mid.x - POPUP_W / 2.0, mid.y - h / 2.0, mid.x + POPUP_W / 2.0, mid.y + h / 2.0);
     p.spawn((at(0.0, 0.0, super::CANVAS.x, super::CANVAS.y), Pickable::default()));
     c.boxed(p, r, amber(LINE), Some(Color::BLACK));
@@ -2912,26 +3278,91 @@ fn wave(p: &mut ChildSpawnerCommands, c: &mut Ctx, on: bool) {
     let (w, h) = (WAVE.width(), WAVE.height());
     c.image(p, "Interface\\Shared\\Meter\\tickmark_horiz.dds", at(o.x, o.y + h - TICKS + 2.0, w, TICKS), line);
     c.image(p, "Interface\\Shared\\Meter\\tickmark_vert.dds", at(o.x + w - TICKS + 2.0, o.y, TICKS, h), line);
-    let (left, mid, len) = wave_line();
+    let g = WaveGeom::hand_built();
     if !on {
-        c.line(p, left, mid, len, THICK, line);
+        c.line(p, g.left, g.mid, g.len, THICK, line);
         return;
     }
-    let piece = len / WAVE_SEGMENTS as f32;
-    for i in 0..WAVE_SEGMENTS {
-        p.spawn((at(left + i as f32 * piece, mid, piece, THICK), BackgroundColor(line), UiTransform::default(), WaveSegment(i), Pickable::IGNORE));
+    trace(p, g, line);
+}
+
+/// Where the trace lies in the node its pieces stand in: the flat line's left end, its top and
+/// its length, and the trace's greatest height either side of it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct WaveGeom {
+    pub(crate) left: f32,
+    pub(crate) mid: f32,
+    pub(crate) len: f32,
+    pub(crate) amplitude: f32,
+}
+
+impl WaveGeom {
+    /// The trace in a panel `size` with its top left at `origin` (the node's units): the
+    /// hand-built panel's proportions [documented: the flat line 2 high, 5 short of the width, 8
+    /// over the middle; observed: the trace's height, [`WAVE_AMPLITUDE`]] scaled from its 350
+    /// square [design]: at that size exactly the hand-built panel's numbers.
+    pub(crate) fn of(origin: Vec2, size: Vec2) -> WaveGeom {
+        let (sx, sy) = (size.x / WAVE.width(), size.y / WAVE.height());
+        WaveGeom { left: origin.x, mid: origin.y + (size.y - THICK) / 2.0 - 8.0 * sy, len: size.x - 5.0 * sx, amplitude: WAVE_AMPLITUDE * sy }
+    }
+
+    /// The hand-built panel's trace, in the page body's canvas units.
+    fn hand_built() -> WaveGeom {
+        WaveGeom::of(MAIN.min + WAVE.min, WAVE.size())
     }
 }
 
-/// Where the flat line lies: its left end, its top and its length.
-fn wave_line() -> (f32, f32, f32) {
-    let o = MAIN.min + WAVE.min;
-    (o.x, o.y + (WAVE.height() - THICK) / 2.0 - 8.0, WAVE.width() - 5.0)
+/// The trace's pieces in their parent node, along `g`, in `colour`; [`wave_moves`] moves them.
+/// The flat line under it is the caller's (the hand-built panel draws none while it plays; the
+/// file's panel has its own centre line, `crate::tiles::map_menu`).
+pub(crate) fn trace(p: &mut ChildSpawnerCommands, g: WaveGeom, colour: Color) {
+    let piece = g.len / WAVE_SEGMENTS as f32;
+    for i in 0..WAVE_SEGMENTS {
+        p.spawn((at(g.left + i as f32 * piece, g.mid, piece, THICK), BackgroundColor(colour), UiTransform::default(), WaveSegment { i, g }, Pickable::IGNORE));
+    }
 }
 
-/// One straight piece of the waveform panel's trace.
+/// One straight piece of the waveform panel's trace, and the trace it is a piece of.
 #[derive(Component)]
-pub struct WaveSegment(usize);
+pub struct WaveSegment {
+    i: usize,
+    g: WaveGeom,
+}
+
+/// Marks the trace painted over the Radio tab drawn from its file.
+#[derive(Component)]
+pub struct TraceOverTiles;
+
+/// The trace over the Radio tab drawn from `map_menu.xml` (`crate::tiles::map_menu::MapTiles::wave`,
+/// published by the one decision): the hand-built trace inside `MM_WaveformRect`'s measured box,
+/// cut to it, over the file's frame (its tick meters and centre line), the way the hotkey panel is
+/// painted over ITEMS (`super::hotkey_panel::draw_over_tiles`) [design: the original's
+/// `MM_Waveform` is an image its code animates, which animation is not known, so it stays hidden].
+/// Nothing while the radio is off: the file's centre line is the flat line then. Spawned again only
+/// when the box or the radio's state changes; [`wave_moves`] moves its pieces.
+pub fn trace_over_tiles(mut commands: Commands, screen: Option<Res<PipBoyScreen>>, tiles: Option<Res<crate::tiles::map_menu::MapTiles>>, roots: Query<Entity, With<TraceOverTiles>>, mut drawn: Local<Option<crate::tiles::map_menu::WaveShown>>) {
+    // Laid out in the Pip-Boy's screen texture, at its size whatever the UI scale (#1631).
+    let _canvas = crate::interface::original_units();
+    let want = tiles.as_ref().and_then(|t| t.wave).filter(|w| w.on);
+    let screen = screen.filter(|_| want.is_some());
+    if want == *drawn && (want.is_none() || !roots.is_empty()) {
+        return;
+    }
+    for e in &roots {
+        commands.entity(e).despawn();
+    }
+    *drawn = None;
+    let (Some(w), Some(screen)) = (want, screen) else { return };
+    *drawn = Some(w);
+    info!("pipboy data: waveform trace over the tiles at ({:.0}, {:.0}) {:.0} x {:.0}", w.rect.min.x, w.rect.min.y, w.rect.width(), w.rect.height());
+    let root = Node { overflow: Overflow::clip(), ..at(0.0, 0.0, super::CANVAS.x, super::CANVAS.y) };
+    let window = Node { overflow: Overflow::clip(), ..at(w.rect.min.x, w.rect.min.y, w.rect.width(), w.rect.height()) };
+    commands
+        .spawn((TraceOverTiles, root, UiTargetCamera(screen.camera), GlobalZIndex(crate::tiles::draw::PIPBOY_TILES_Z + 1), Pickable::IGNORE, Name::new("Waveform trace over the page")))
+        .with_children(|p| {
+            p.spawn((window, Pickable::IGNORE)).with_children(|p| trace(p, WaveGeom::of(Vec2::ZERO, w.rect.size()), amber(LINE)));
+        });
+}
 
 /// The waveform panel's trace [observed: a capture of the original's Radio tab]: waves
 /// standing nearly still across the panel under an envelope that runs to the left, its
@@ -3001,14 +3432,14 @@ pub fn wave_moves(time: Res<Time<Real>>, radio: Option<Res<Radio>>, mut scope: R
         return;
     }
     scope.step(time.delta_secs(), radio.map_or(0.0, |r| r.pipboy_loudness()));
-    let (left, mid, len) = wave_line();
-    let point = |i: usize| Vec2::new(i as f32 / WAVE_SEGMENTS as f32 * len, mid - WAVE_AMPLITUDE * scope.height(i));
     for (s, mut node, mut turn) in &mut pieces {
-        let (a, b) = (point(s.0), point(s.0 + 1));
+        let g = s.g;
+        let point = |i: usize| Vec2::new(i as f32 / WAVE_SEGMENTS as f32 * g.len, g.mid - g.amplitude * scope.height(i));
+        let (a, b) = (point(s.i), point(s.i + 1));
         let d = b - a;
         let middle = (a + b) / 2.0;
         let length = d.length() + THICK / 2.0;
-        node.left = u(left + middle.x - length / 2.0);
+        node.left = u(g.left + middle.x - length / 2.0);
         node.top = u(middle.y - THICK / 2.0);
         node.width = u(length);
         *turn = UiTransform::from_rotation(Rot2::radians(d.y.atan2(d.x)));
@@ -3052,10 +3483,13 @@ fn map(p: &mut ChildSpawnerCommands, c: &mut Ctx, m: &MapShown) {
         if let Some((spot, heading)) = m.player {
             if let Some((image, rect)) = c.picture(CURSOR_FILE) {
                 let (w, h) = (CURSOR, CURSOR * CURSOR_ASPECT);
+                // The picture's top left part at the file's scale ([`arrow_texels`]).
+                let from = rect.map_or(Vec2::ZERO, |r| r.min);
+                let rect = Some(Rect::from_corners(from, from + arrow_texels(w, h)));
                 p.spawn((
                     at(spot.x - w / 2.0, spot.y - h / 2.0, w, h),
                     ImageNode { rect, color: c.bright(), image_mode: NodeImageMode::Stretch, ..ImageNode::new(image) },
-                    UiTransform::from_rotation(Rot2::radians(heading)),
+                    UiTransform::from_rotation(Rot2::radians(arrow_turn(heading))),
                 ));
             }
         }
@@ -3333,6 +3767,293 @@ mod tests {
         assert_eq!(st.world_logged, Some((1, 2, 2, 1, 1)));
     }
 
+    /// [design] The World Map's parts as the page drawn from the file writes them: each marker by
+    /// its reference with its texture coordinates, the arrow's, from one viewport; in a child
+    /// worldspace each marker projects by its own worldspace's numbers onto the root's picture,
+    /// and the inverse gives the place back. A window the tile page published is the one the
+    /// model reads (the highlight box starts at its middle), for its tab alone; the hand-built
+    /// drawing's body puts the file's numbers back.
+    #[test]
+    fn the_world_maps_parts_come_from_one_viewport_in_the_window_published() {
+        use bevy::ecs::system::SystemState;
+        use model::MapTransform;
+
+        let root = WorldMap { root: 1, transform: MapTransform::default(), texture: "root.dds".into(), usable: [2048.0; 2], nw: [-2, 3], se: [1, 2] };
+        let child = WorldMap { transform: MapTransform { offset: [0.0, 3.0 * model::CELL], ..MapTransform::default() }, ..root.clone() };
+        let marker = |form, world, x: f32| read::Marker { form, world, pos: [x, 0.0, 0.0], name: format!("Place {form}"), kind: 1, flags: 1, radius: 10.0, reputation: None };
+        let mut st = DataState {
+            maps: [(1, Some(root.clone())), (2, Some(child.clone()))].into_iter().collect(),
+            markers: Some(vec![marker(10, 1, 0.0), marker(20, 2, 0.0), marker(30, 2, 4096.0)]),
+            ..DataState::default()
+        };
+        // The tile page's window, 100 right and 20 down of the hand-built one, 600 × 400.
+        let measured = Rect::new(150.0, 120.0, 750.0, 520.0);
+        st.publish_map(WORLD, measured, vec![Rect::new(800.0, 100.0, 900.0, 140.0)]);
+        assert_eq!(map_window(&st, WORLD), measured);
+        assert_eq!(map_window(&st, LOCAL), hand_built_window(), "the Local Map keeps the file's numbers");
+        let mut world = World::new();
+        world.insert_resource(Location { world: 2, interior: None });
+        world.insert_resource(Player { heading: 0.7, pitch: 0.0, eye_height: 0.0, feet: [0.0; 3], body_eye: None, body_view: None, placed: None });
+        let mut state = SystemState::<Game>::new(&mut world);
+        let game = state.get_mut(&mut world).unwrap();
+        let shown = world_map(&mut st, &game, None, false);
+        let parts = shown.world.clone().expect("the World Map's parts");
+        assert_eq!(parts.view.window, measured);
+        assert_eq!((parts.texture.as_str(), parts.mag), ("root.dds", 1.0));
+        // The player at the window's middle (the map centred on them), heading kept.
+        assert_eq!(shown.player.map(|p| p.0), Some(Vec2::new(300.0, 200.0)));
+        let (arrow, heading) = parts.arrow.unwrap();
+        assert_eq!((child.uv(0.0, 0.0), heading), (arrow, 0.7));
+        // Each marker by its reference, at its own worldspace's projection, drawn where the view puts it.
+        assert_eq!(shown.marks.iter().map(|m| m.form).collect::<Vec<_>>(), vec![10, 20, 30]);
+        for m in &shown.marks {
+            let uv = m.uv.unwrap();
+            assert_eq!(m.at, parts.view.to_window(uv));
+            let back = parts.view.to_uv(m.at);
+            assert!((back[0] - uv[0]).abs() < 1e-5 && (back[1] - uv[1]).abs() < 1e-5);
+        }
+        assert_eq!(shown.marks[0].uv, Some(root.uv(0.0, 0.0)));
+        assert_eq!(shown.marks[2].uv, Some(child.uv(4096.0, 0.0)));
+        let pos = child.position(shown.marks[2].uv.unwrap());
+        assert!((pos[0] - 4096.0).abs() < 0.05 && pos[1].abs() < 0.05, "the inverse in the child: {pos:?}");
+        // The highlight box started at the measured window's middle, on the marker there.
+        assert_eq!(st.cursor[WORLD], Some(Vec2::new(300.0, 200.0)));
+        assert_eq!(shown.highlight().1, Some("Place 20"));
+        assert!(shown.marks[1].highlighted);
+        // The pointer is read in the measured window, the hints' boxes are the hints'.
+        assert_eq!(in_window(map_window(&st, WORLD), Some(Vec2::new(160.0, 130.0))), Some(Vec2::new(10.0, 10.0)));
+        assert!(on_button(&st, WORLD, Some(Vec2::new(850.0, 120.0))));
+        assert!(!on_button(&st, LOCAL, Some(Vec2::new(850.0, 120.0))), "the hints published were the World Map's");
+        // No dotted line without a marker or a quest target.
+        assert!(parts.ends.is_empty() && parts.quests.is_empty() && parts.custom.is_none());
+        // A custom marker placed: its line's end, from the arrow.
+        st.custom = Some(CustomMarker { space: 1, pos: [2048.0, 0.0, 0.0] });
+        let shown = world_map(&mut st, &game, None, false);
+        let parts = shown.world.unwrap();
+        assert_eq!(parts.custom, Some(root.uv(2048.0, 0.0)));
+        assert_eq!(parts.ends, vec![(LineTo::Marker, 0, root.uv(2048.0, 0.0))]);
+    }
+
+    /// [design] A World Map prepared in a window the tile page published, then drawn by hand (the
+    /// tile page fell back): gathered again in the hand-built window, the window let go, the
+    /// player at that window's middle; nothing to do once it is the hand-built window's.
+    #[test]
+    fn a_map_prepared_in_the_tile_window_is_gathered_again_when_drawn_by_hand() {
+        use bevy::ecs::system::SystemState;
+        use model::MapTransform;
+
+        let root = WorldMap { root: 1, transform: MapTransform::default(), texture: "root.dds".into(), usable: [2048.0; 2], nw: [-2, 3], se: [1, 2] };
+        let mut st = DataState { maps: [(1, Some(root))].into_iter().collect(), markers: Some(Vec::new()), ..DataState::default() };
+        let measured = Rect::new(150.0, 120.0, 750.0, 520.0);
+        st.publish_map(WORLD, measured, Vec::new());
+        let mut world = World::new();
+        world.insert_resource(Location { world: 1, interior: None });
+        // The player at the picture's middle ([0.5, 0.5]): 3 cells north on this root.
+        world.insert_resource(Player { heading: 0.0, pitch: 0.0, eye_height: 0.0, feet: [0.0, 3.0 * model::CELL, 0.0], body_eye: None, body_view: None, placed: None });
+        let mut state = SystemState::<Game>::new(&mut world);
+        let game = state.get_mut(&mut world).unwrap();
+        let lists = Lists::default();
+        let prepared = build(&mut st, WORLD, &lists, &game, None, false);
+        let Body::Map(m) = &prepared.body else { panic!("a map") };
+        assert_eq!(m.player.map(|p| p.0), Some(Vec2::new(300.0, 200.0)), "prepared in the measured window");
+        assert_eq!(refit_hand_built(&mut st, QUESTS, &game, None), None, "not a map");
+        // A Place Marker question asked this frame of the place under the box in the tile window.
+        let asked = st.spot[WORLD].expect("the place in the tile window");
+        st.popup = Some(Popup::marker(marker::MarkerAsk::Set(asked), "Here?".into(), vec!["Yes".into(), "No".into()]));
+        let again = refit_hand_built(&mut st, WORLD, &game, None).expect("gathered again");
+        let now = st.spot[WORLD].expect("the place in the hand-built window");
+        assert!(matches!(st.popup.as_ref().map(|p| &p.ask), Some(Ask::Marker(marker::MarkerAsk::Set(at))) if *at == now), "the question asks of the place under the box as drawn by hand");
+        let Body::Map(m) = &again.body else { panic!("a map") };
+        assert_eq!(m.player.map(|p| p.0), Some(MAP_MID), "at the hand-built window's middle");
+        assert_eq!(m.world.as_ref().map(|w| w.view.window), Some(hand_built_window()));
+        assert_eq!(st.map_window, None, "the measured window let go");
+        // The highlight box kept its place on the canvas: (150, 120) + (300, 200) less (50, 100).
+        assert_eq!(st.cursor[WORLD], Some(Vec2::new(400.0, 220.0)));
+        assert_eq!(refit_hand_built(&mut st, WORLD, &game, None), None, "already the hand-built window's");
+    }
+
+    /// [design] The Local Map's parts as the page drawn from the file writes them, from the one
+    /// viewport the hand-built drawing paints from: indoors at 8 units a unit and outdoors at 28,
+    /// the frame its outline's grid; each door and marker by its reference at its frame's texture
+    /// coordinates, drawn where the projection puts it; the arrow's place and heading; the
+    /// outline's picture and its texels once made; a new outline's frame replacing the old.
+    #[test]
+    fn the_local_maps_parts_come_from_one_viewport_indoors_and_out() {
+        use bevy::ecs::system::SystemState;
+
+        let door = |form, x: f32, y: f32| read::Door { form, pos: [x, y, 0.0], name: format!("Door {form}") };
+        for interior in [Some(0x0001_2345_u32), None] {
+            // The early preparation's (`MapMenu` on): the tile page's rows gathered too.
+            let mut st = DataState { tile_rows: true, ..DataState::default() };
+            // The doors' cells: the interior, or the grid square at the map's middle (10, 20).
+            let key = (interior, (0, 0));
+            st.doors.insert(key, vec![door(7, 100.0, 50.0), door(8, -300.0, -200.0), door(9, 100_000.0, 20.0)]);
+            st.markers = Some(Vec::new());
+            let mut world = World::new();
+            world.insert_resource(Location { world: 1, interior });
+            world.insert_resource(Player { heading: 1.2, pitch: 0.0, eye_height: 0.0, feet: [10.0, 20.0, 0.0], body_eye: None, body_view: None, placed: None });
+            let mut state = SystemState::<Game>::new(&mut world);
+            let game = state.get_mut(&mut world).unwrap();
+            let shown = local_map(&mut st, &game, None);
+            let parts = shown.world.clone().expect("the Local Map's parts");
+            let p = parts.view.local.expect("the Local Map's projection");
+            assert_eq!(p.scale, if interior.is_some() { outline::INTERIOR_SCALE } else { LOCAL_SCALE });
+            assert_eq!(p.centre, [10.0, 20.0]);
+            let (origin, extent) = outline::Outline::frame_for(interior, 1, [10.0, 20.0], 0.0, MAP.size(), p.scale);
+            assert_eq!((p.origin, p.extent), (origin, extent), "the frame the outline's grid would cover");
+            assert_eq!(parts.view.window, hand_built_window());
+            // The player at the window's middle, as the hand-built drawing has it.
+            assert_eq!(shown.player, Some((MAP_MID, 1.2)));
+            let (arrow, heading) = parts.arrow.unwrap();
+            assert_eq!(heading, 1.2);
+            assert!((parts.view.to_window(arrow) - MAP_MID).length() < 1e-2);
+            for m in &shown.marks {
+                let uv = m.uv.expect("the door's place on the frame");
+                assert!((parts.view.to_window(uv) - m.at).length() < 1e-2, "{m:?}");
+            }
+            assert_eq!(shown.marks.iter().map(|m| m.form).collect::<Vec<_>>(), vec![7, 8], "the hand-built page leaves the door far outside the window out");
+            let rows = parts.rows.clone().expect("the tile page's rows");
+            assert_eq!(rows.iter().map(|m| m.form).collect::<Vec<_>>(), vec![7, 8, 9], "the tile page keeps it: its window cuts it, a pan keeps its row");
+            let picked: Vec<u32> = shown.marks.iter().filter(|m| m.highlighted).map(|m| m.form).collect();
+            assert_eq!(rows.iter().filter(|m| m.highlighted).map(|m| m.form).collect::<Vec<_>>(), picked, "the same one under the highlight box");
+            // With `MapMenu` off the hand-built page alone: no rows gathered for a tile page.
+            st.tile_rows = false;
+            let off = local_map(&mut st, &game, None);
+            assert_eq!((off.world.as_ref().and_then(|w| w.rows.clone()), off.marks.iter().map(|m| m.form).collect::<Vec<_>>()), (None, vec![7, 8]));
+            assert_eq!((parts.outline.clone(), parts.texture.as_str(), parts.ends.len()), (None, "", 0), "no outline yet, no line");
+            // The outline made: its picture and texels; a new outline (another place) another frame.
+            let mut o = outline::Outline::new(interior, 1, [10.0, 20.0], 0.0, MAP.size(), p.scale);
+            let handle = Handle::<Image>::default();
+            o.image = Some(handle.clone());
+            let texels = Vec2::new(o.size[0] as f32, o.size[1] as f32);
+            st.outline = Some(o);
+            let parts = local_map(&mut st, &game, None).world.unwrap();
+            assert_eq!(parts.outline, Some((handle, texels)));
+            let moved = outline::Outline::new(interior, 1, [50000.0, -40000.0], 0.0, MAP.size(), p.scale);
+            let new_origin = moved.origin;
+            st.outline = Some(moved);
+            let parts = local_map(&mut st, &game, None).world.unwrap();
+            assert_eq!((parts.outline, parts.view.local.unwrap().origin), (None, new_origin), "the new grid's frame, its picture not made yet");
+        }
+    }
+
+    /// The review's case: the tile page drew the World Map in another window than the model
+    /// gathered it in; the model's window, highlight box and Place Marker's place follow it.
+    #[test]
+    fn a_refitted_map_brings_the_highlight_box_and_place_markers_place_along() {
+        use bevy::ecs::system::SystemState;
+        use model::MapTransform;
+
+        let root = WorldMap { root: 1, transform: MapTransform::default(), texture: "root.dds".into(), usable: [2048.0; 2], nw: [-2, 3], se: [1, 2] };
+        let mut st = DataState { maps: [(1, Some(root.clone()))].into_iter().collect(), markers: Some(Vec::new()), ..DataState::default() };
+        let mut world = World::new();
+        world.insert_resource(Location { world: 1, interior: None });
+        world.insert_resource(Player { heading: 0.0, pitch: 0.0, eye_height: 0.0, feet: [0.0, 3.0 * model::CELL, 0.0], body_eye: None, body_view: None, placed: None });
+        let mut state = SystemState::<Game>::new(&mut world);
+        let game = state.get_mut(&mut world).unwrap();
+        let shown = world_map(&mut st, &game, None, false);
+        let view = shown.world.unwrap().view;
+        // Drawn in a smaller window elsewhere, the box 50 right of its middle.
+        let moved = view.with_window(Rect::new(150.0, 120.0, 750.0, 520.0));
+        let cursor = moved.mid() + Vec2::new(50.0, 0.0);
+        // Place Marker's question asked this frame, of the place before the refit; a marker
+        // picked again under the box.
+        let before = st.spot[WORLD].expect("the place before");
+        st.popup = Some(Popup::marker(marker::MarkerAsk::Set(before), "Here?".into(), vec!["Yes".into(), "No".into()]));
+        // And a fast-travel question asked this frame of marker 41, not sent yet.
+        st.travel_pending = Some(41);
+        let travel = st.refit_map(WORLD, moved, cursor, cursor, Some(42), &[41, 42]);
+        assert_eq!((st.travel_pending, st.travel_redrawn), (Some(41), true), "kept as asked, the map drawn again");
+        assert_eq!(take_travel(&mut st), Some(42), "the question asks of the marker the box is on as drawn");
+        assert_eq!((map_window(&st, WORLD), st.cursor[WORLD]), (moved.window, Some(cursor)));
+        assert_eq!((st.cursor_marker, st.travel_marker, travel), (Some(42), Some(42), Some(42)), "the marker picked again is the Travel target");
+        let spot = st.spot[WORLD].expect("Place Marker's place");
+        let want = root.position(moved.to_uv(cursor));
+        assert!((spot.pos[0] - want[0]).abs() < 0.5 && (spot.pos[1] - want[1]).abs() < 0.5, "{spot:?} {want:?}");
+        assert!(spot.pos[0] > 400.0, "east of the player, under the box (about 500)");
+        assert!(matches!(st.popup.as_ref().map(|p| &p.ask), Some(Ask::Marker(marker::MarkerAsk::Set(at))) if *at == spot), "the question asks of the new place");
+        // No marker there after all: none under the box, no Travel target with no pointer in use
+        // (a mouse pointer there while Controller is chosen is not in use: the preparation's
+        // `aiming`, not the raw pointer).
+        st.pointer_now = Some(Vec2::new(300.0, 300.0));
+        st.aiming = false;
+        st.travel_pending = Some(42);
+        assert_eq!(st.refit_map(WORLD, moved, cursor, cursor, None, &[41, 42]), None);
+        assert_eq!(take_travel(&mut st), None, "no marker under the box: not asked");
+        // Not drawn again: asked of the marker it was asked of.
+        st.travel_pending = Some(41);
+        assert_eq!(take_travel(&mut st), Some(41));
+        assert_eq!(st.cursor_marker, None);
+        // Another tab: nothing.
+        st.refit_map(QUESTS, moved, Vec2::ZERO, Vec2::ZERO, None, &[]);
+        assert_eq!(st.cursor[WORLD], Some(cursor));
+    }
+
+    /// The arrow points the way the player faces: up (north) at heading 0, right (east) at a
+    /// quarter turn, and so on round, the picture pointing right unturned; a turned picture's
+    /// right is where (cos, sin) of its turn points with y down.
+    #[test]
+    fn the_arrow_points_the_way_the_player_faces() {
+        use std::f32::consts::{FRAC_PI_2, PI};
+        // The picture's arrow, its axis turned clockwise (y down) by the turn.
+        let turned = |t: f32| {
+            let (s, c) = t.sin_cos();
+            Vec2::new(ARROW_AXIS.x * c - ARROW_AXIS.y * s, ARROW_AXIS.x * s + ARROW_AXIS.y * c).normalize()
+        };
+        assert!((arrow_turn(0.0) - 0.4157).abs() < 1e-3, "the picture's tip some 24 degrees left of up");
+        for (heading, want) in [(0.0, Vec2::new(0.0, -1.0)), (FRAC_PI_2, Vec2::new(1.0, 0.0)), (PI, Vec2::new(0.0, 1.0)), (-FRAC_PI_2, Vec2::new(-1.0, 0.0))] {
+            let points = turned(arrow_turn(heading));
+            assert!((points - want).length() < 1e-5, "heading {heading}: {points:?}");
+            // The way the player walks at that heading, north up on the map (y down).
+            let forward = Vec2::new(heading.sin(), -heading.cos());
+            assert!((points - forward).length() < 1e-5);
+        }
+    }
+
+    /// The hand-built arrow shows the part of the picture the file's zoom shows: 1.4 times its
+    /// texels at the 40 wide arrow, 28.6 × 36.6 texels of it, the whole of its arrow (its texels
+    /// run to 24 across and 29 down).
+    #[test]
+    fn the_hand_built_arrow_shows_the_files_part_of_the_picture() {
+        let shown = arrow_texels(CURSOR, CURSOR * CURSOR_ASPECT);
+        assert!((shown - Vec2::new(40.0 / 1.4, 51.2 / 1.4)).length() < 1e-4, "{shown:?}");
+        assert!(shown.x > 24.0 && shown.y > 29.0, "the arrow whole");
+    }
+
+    /// The review's two-stage case: a Travel request (the controller's A) whose tile refit puts the
+    /// box on empty space, and a fallback in the same frame that draws it by hand on a marker: the
+    /// last drawing decides, and the question asks of that marker.
+    #[test]
+    fn a_travel_request_is_decided_by_the_last_drawing() {
+        use bevy::ecs::system::SystemState;
+        use model::MapTransform;
+
+        let root = WorldMap { root: 1, transform: MapTransform::default(), texture: "root.dds".into(), usable: [2048.0; 2], nw: [-2, 3], se: [1, 2] };
+        // The player and marker 20 at the picture's middle.
+        let here = [0.0, 3.0 * model::CELL, 0.0];
+        let marker = read::Marker { form: 20, world: 1, pos: here, name: "Place 20".into(), kind: 1, flags: 1, radius: 10.0, reputation: None };
+        let mut st = DataState { maps: [(1, Some(root))].into_iter().collect(), markers: Some(vec![marker]), ..DataState::default() };
+        let mut world = World::new();
+        world.insert_resource(Location { world: 1, interior: None });
+        world.insert_resource(Player { heading: 0.0, pitch: 0.0, eye_height: 0.0, feet: here, body_eye: None, body_view: None, placed: None });
+        let mut state = SystemState::<Game>::new(&mut world);
+        let game = state.get_mut(&mut world).unwrap();
+        world_map(&mut st, &game, None, false);
+        assert_eq!(st.travel_marker, Some(20), "the box on marker 20 at the middle");
+        // A asked of marker 20; the tile page's window, moved, puts the box's canvas place (the
+        // hand-built middle, 477.5, 350) 27.5 right and 30 down of its own middle: out of reach.
+        st.travel_pending = Some(20);
+        let moved = MapView::bare(Rect::new(150.0, 120.0, 750.0, 520.0));
+        let view = world_map(&mut st, &game, None, false).world.unwrap().view.with_window(moved.window);
+        let want = Vec2::new(477.5, 350.0) - moved.window.min;
+        assert_eq!(nearest(std::iter::once(view.to_window(view.to_uv(view.mid()))), want), None, "out of reach in the tile window");
+        assert_eq!(st.refit_map(WORLD, view, want, want, None, &[20]), None, "no Travel target in the tile window");
+        // The tile page falls back: drawn by hand, the box back on marker 20.
+        refit_hand_built(&mut st, WORLD, &game, None).expect("gathered again");
+        assert_eq!(st.travel_marker, Some(20));
+        assert_eq!(take_travel(&mut st), Some(20), "asked of the marker under the box as drawn last");
+    }
+
     fn shown(tab: usize, f: &HintFacts) -> Vec<(String, bool)> {
         tab_buttons(tab, f).iter().map(|b| (b.hint.text(), b.hint.dim)).collect()
     }
@@ -3510,7 +4231,7 @@ mod tests {
         let buttons = tab_buttons(WORLD, &facts(true));
         crate::pad::set_labels(crate::pad::Labels::Keys);
         let map = empty_map();
-        let view = View { tab: WORLD, place: String::new(), when: String::new(), buttons, body: Body::Map(map), popup: Some(Popup::travel(7, "Travel?".into())) };
+        let view = View { tab: WORLD, place: String::new(), when: String::new(), buttons, body: Body::Map(Box::new(map)), popup: Some(Popup::travel(7, "Travel?".into())) };
         let mut st = DataState::default();
         let mut world = World::new();
         let mut queue = CommandQueue::default();
@@ -3585,6 +4306,19 @@ mod tests {
             }
         }
         crate::pad::set_labels(crate::pad::Labels::Keys);
+    }
+
+    /// The trace's place, shared by the hand-built panel and the one drawn from the file: at the
+    /// file's 350 square exactly the hand-built panel's numbers (the flat line 5 short of the
+    /// width, 8 over the middle, the trace 110 high), elsewhere scaled to the box measured.
+    #[test]
+    fn the_trace_lies_as_the_hand_built_panel_at_its_size_and_scales_to_a_measured_box() {
+        let o = MAIN.min + WAVE.min;
+        assert_eq!(WaveGeom::hand_built(), WaveGeom { left: o.x, mid: o.y + (350.0 - THICK) / 2.0 - 8.0, len: 345.0, amplitude: WAVE_AMPLITUDE });
+        assert_eq!(WaveGeom::of(Vec2::ZERO, WAVE.size()), WaveGeom { left: 0.0, mid: (350.0 - THICK) / 2.0 - 8.0, len: 345.0, amplitude: WAVE_AMPLITUDE });
+        let half = WaveGeom::of(Vec2::new(10.0, 20.0), WAVE.size() / 2.0);
+        assert_eq!((half.left, half.len, half.amplitude), (10.0, 172.5, WAVE_AMPLITUDE / 2.0));
+        assert_eq!(half.mid, 20.0 + (175.0 - THICK) / 2.0 - 4.0);
     }
 
     #[test]

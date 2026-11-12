@@ -164,6 +164,8 @@ pub(crate) struct FontKit<'w> {
     data: Option<Res<'w, GameData>>,
     images: ResMut<'w, Assets<Image>>,
     formats: Option<Res<'w, CompressedImageFormatSupport>>,
+    /// The pictures the code made (`super::runtime_images`).
+    runtime: Option<Res<'w, super::runtime_images::RuntimeImages>>,
 }
 
 impl FontKit<'_> {
@@ -340,6 +342,12 @@ pub enum Source {
     /// own file's slanted ends and single line on the original's screenshots, not the
     /// shared atlas piece's square ends and doubled line; menu-xml.md §3.1.3].
     Own,
+    /// A `filename` with the runtime prefix (`super::runtime_images::PREFIX`): a texture
+    /// the code made, looked up before any atlas or file, stamped with its entry's revision
+    /// and size as the pieces are painted (`super::runtime_images::mark`; none from
+    /// [`pieces`], none while no entry is set), so a new picture under the same name
+    /// repaints [design: menu-xml.md §3.1.5].
+    Runtime(Option<super::runtime_images::Stamp>),
 }
 
 /// What one drawn tile looks like.
@@ -488,6 +496,16 @@ pub struct Piece {
     /// A picture's SetUITexOffset offset and SetUIAlphaMap mask, put on by
     /// [`super::texmod::mark`] as the pieces are painted (#1833); none from [`pieces`].
     pub tex: Option<super::texmod::TexMod>,
+    /// Its tile's turn ([`layout::Turn`]): a box's or a picture's (not the compass strip's);
+    /// texts and models are not turned, as no file turns one [design: menu-xml.md §3.1.4].
+    pub turn: Option<layout::Turn>,
+    /// A picture's `cropx` and `cropy`: the point of its picture, after its `zoom`, put at its
+    /// box's top left [documented: GECK wiki "Tutorial: Understanding XML", "`cropx`, `cropy`
+    /// specifies the point of the texture that will be placed at the upper left-hand corner";
+    /// "Cropx", "applied after the zoom trait"], interface units; read for a picture drawn at
+    /// its texels' size times its zoom ([`Placed::At`]), none otherwise or without either trait
+    /// [design: `map_menu.xml`'s map markers crop their icons so, 14 texels times the zoom].
+    pub crop: Option<(f64, f64)>,
 }
 
 /// Which tiles of the menu draw.
@@ -543,7 +561,7 @@ fn system_colour(v: &Value) -> Option<[f32; 3]> {
 /// Color UI directives, "Systemcolor is by default 1 and always assign"; observed: the
 /// ammo type's label, a menu child with no `systemcolor` above it, drew white before
 /// T12c where the hand-built HUD and the original draw the HUD's texts amber].
-fn base_colour(ui: &Ui, id: TileId, own: [f32; 3]) -> [f32; 3] {
+pub(super) fn base_colour(ui: &Ui, id: TileId, own: [f32; 3]) -> [f32; 3] {
     let tile = ui.tile(id);
     if let Some(v) = tile.get("systemcolor") {
         return system_colour(v).unwrap_or(own);
@@ -623,6 +641,7 @@ pub fn pieces(ui: &Ui, menu: TileId, measure: &layout::Measure<'_>, select: Sele
                     _ => Fit::Stretch,
                 };
                 let source = match image.texatlas.as_ref().map(|a| a.text().trim().to_string()).filter(|a| !a.is_empty()) {
+                    _ if super::runtime_images::is_runtime(&image.filename) => Source::Runtime(None),
                     _ if !whole => Source::Shared,
                     Some(atlas) => Source::Index(atlas),
                     None => Source::Own,
@@ -655,7 +674,16 @@ pub fn pieces(ui: &Ui, menu: TileId, measure: &layout::Measure<'_>, select: Sele
         if matches!(item.kind, Kind::Hotrect) {
             alpha = alpha.powf(2.2);
         }
-        out.push(Piece { tile: item.tile, look, rect: item.rect, clip: item.clip, colour: [r, g, bl, alpha], depth: item.depth, tex: None });
+        let turn = match &look {
+            Look::Box => item.turn,
+            Look::Picture { fit, .. } if *fit != Fit::Strip => item.turn,
+            _ => None,
+        };
+        let crop = match &item.kind {
+            Kind::Image(image) if image.cropx.is_some() || image.cropy.is_some() => Some((image.cropx.unwrap_or(0.0), image.cropy.unwrap_or(0.0))),
+            _ => None,
+        };
+        out.push(Piece { tile: item.tile, look, rect: item.rect, clip: item.clip, colour: [r, g, bl, alpha], depth: item.depth, tex: None, turn, crop });
         if let Some(r) = root {
             drawn_roots.insert(r);
         }
@@ -797,6 +825,8 @@ pub(crate) struct Drawn {
     /// The texture offsets' and alpha maps' textures, baked images, budget and told lines
     /// (`super::texmod`).
     tex: super::texmod::State,
+    /// What was said once about the runtime pictures (`super::runtime_images`).
+    runtime_told: super::runtime_images::Told,
 }
 
 /// A `tile` picture baked into one image ([`crate::repeat`]): the image and its node's
@@ -822,7 +852,7 @@ pub fn change(old: &Piece, new: &Piece) -> Change {
     let size = |r: &TileRect| (r.width, r.height);
     if old == new {
         Change::Same
-    } else if old.look == new.look && old.tex == new.tex && size(&old.rect) == size(&new.rect) && old.clip.map(|c| size(&c)) == new.clip.map(|c| size(&c)) {
+    } else if old.look == new.look && old.tex == new.tex && old.crop == new.crop && size(&old.rect) == size(&new.rect) && old.clip.map(|c| size(&c)) == new.clip.map(|c| size(&c)) {
         // A model's parts take no Ink: spawned again in its new colour.
         if old.colour != new.colour && matches!(new.look, Look::Model { .. }) {
             Change::Spawn
@@ -865,6 +895,32 @@ fn f(v: f64) -> f32 {
     v as f32
 }
 
+/// The transform that turns a piece's outer node (its box's size) by its turn about its
+/// pivot: Bevy turns a node about its middle, so it is moved by [`layout::Turn::shift`]
+/// too; the identity for an unturned piece [design: menu-xml.md §3.1.4].
+///
+/// The shift is worked out from the box's unrounded size, so a turned node is laid out
+/// unrounded ([`UNROUNDED`]): Bevy turns about the middle of the size it lays out, and a
+/// rounded size (a 20 x 10 box is 15 x 8 pixels at 0.75 a unit, not 15 x 7.5) would put
+/// the pivot up to half a pixel off, changing as the box moves across pixel edges. The
+/// shift is known in the frame it is written, where the rounded size is known only after
+/// Bevy's layout, a frame late; and a turned quad stands on no pixel grid anyway [design].
+pub fn turned(piece: &Piece) -> UiTransform {
+    match piece.turn {
+        Some(turn) => {
+            let (x, y) = turn.shift(piece.rect.width, piece.rect.height);
+            UiTransform { translation: Val2::new(u(f(x)), u(f(y))), rotation: Rot2::radians(f(turn.angle)), ..default() }
+        }
+        None => UiTransform::IDENTITY,
+    }
+}
+
+/// Where a picture drawn at its texels' size times its zoom stands in its box: moved up and left
+/// by its crop ([`Piece::crop`]), so that point of the picture is at the box's top left.
+pub fn piece_crop(piece: &Piece) -> (f64, f64) {
+    piece.crop.unwrap_or((0.0, 0.0))
+}
+
 /// What setting a piece out reads besides the piece.
 struct Ctx<'a> {
     fonts: &'a TileFonts,
@@ -875,7 +931,44 @@ struct Ctx<'a> {
     heading: f32,
 }
 
+/// How a turned piece's clip wrapper and outer node (and what they hold) are laid out:
+/// unrounded ([`turned`]). The wrapper too: the outer node stands at its place less the
+/// clip's unrounded origin, so a wrapper rounded to the pixel (a clip at x 10.3 units is 8
+/// pixels at 0.75 a unit, not 7.725) would move the pivot by the rounding, changing as the
+/// clip moves. Unturned pieces' nodes carry no `LayoutConfig` and are rounded as before.
+pub const UNROUNDED: LayoutConfig = LayoutConfig { use_rounding: false };
+
+/// Turn (or turn back) a piece's spawned nodes as its piece says: the outer node `outer`
+/// takes the transform, it and the clip `wrapper` the unrounded layout, while turned; the
+/// identity and the inherited rounding when not.
+fn set_turn(commands: &mut Commands, wrapper: Option<Entity>, outer: Entity, piece: &Piece) {
+    let turned_now = piece.turn.is_some();
+    let mut node = commands.entity(outer);
+    if turned_now {
+        node.insert((turned(piece), UNROUNDED));
+    } else {
+        node.insert(UiTransform::IDENTITY).remove::<LayoutConfig>();
+    }
+    if let Some(w) = wrapper {
+        if turned_now {
+            commands.entity(w).insert(UNROUNDED);
+        } else {
+            commands.entity(w).remove::<LayoutConfig>();
+        }
+    }
+}
+
+/// A piece's outer node, turned when its tile is ([`turned`]; inside its clip wrapper, so
+/// the unturned clip cuts the turned quad). An unturned piece's nodes are spawned as before.
 fn spawn_piece(p: &mut ChildSpawnerCommands, piece: &Piece, ctx: &Ctx<'_>, picture: Option<SizedPicture>, baked: Option<Baked>, strip: Option<StripWindow>, model: Option<model::Prepared>) -> Option<Entity> {
+    let outer = spawn_unturned(p, piece, ctx, picture, baked, strip, model)?;
+    if piece.turn.is_some() {
+        set_turn(&mut p.commands(), None, outer, piece);
+    }
+    Some(outer)
+}
+
+fn spawn_unturned(p: &mut ChildSpawnerCommands, piece: &Piece, ctx: &Ctx<'_>, picture: Option<SizedPicture>, baked: Option<Baked>, strip: Option<StripWindow>, model: Option<model::Prepared>) -> Option<Entity> {
     let r = piece.rect;
     let (dx, dy) = piece.clip.map_or((0.0, 0.0), |c| (c.left, c.top));
     let [cr, cg, cb, ca] = piece.colour;
@@ -907,12 +1000,14 @@ fn spawn_piece(p: &mut ChildSpawnerCommands, piece: &Piece, ctx: &Ctx<'_>, pictu
                         p.spawn((node, picture(mode), Ink::Drawn, Pickable::IGNORE)).id()
                     }
                 },
-                Placed::At { width, height } => p
-                    .spawn((cut, Pickable::IGNORE))
-                    .with_children(|c| {
-                        c.spawn((at(0.0, 0.0, f(width), f(height)), picture(NodeImageMode::Stretch), Ink::Drawn, Pickable::IGNORE));
-                    })
-                    .id(),
+                Placed::At { width, height } => {
+                    let (cx, cy) = piece_crop(piece);
+                    p.spawn((cut, Pickable::IGNORE))
+                        .with_children(|c| {
+                            c.spawn((at(f(-cx), f(-cy), f(width), f(height)), picture(NodeImageMode::Stretch), Ink::Drawn, Pickable::IGNORE));
+                        })
+                        .id()
+                }
                 // One image of the window's strip, its right end faded as the original's
                 // (`crate::compass_strip`, T12e); without the strip's texels the doubled
                 // strip moved by the heading, unfaded.
@@ -1148,6 +1243,7 @@ pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, mut view: V
                 // Marked as `paint` marks them, so a modified picture is not told as a change
                 // every frame (#1833).
                 super::texmod::mark(&mut pieces, game.map(|g| &g.other.itr));
+                super::runtime_images::mark(&mut pieces, kit.runtime.as_deref(), &mut drawn.runtime_told);
                 if name == super::dialog_menu::DIALOG_MENU && pieces != drawn.pieces {
                     info!("{}", super::dialog_menu::painted(ui, &pieces));
                 }
@@ -1441,6 +1537,8 @@ fn paint(commands: &mut Commands, drawn: &mut Drawn, mut pieces: Vec<Piece>, tar
     let scale = target.scale;
     // ITR's texture offsets and alpha maps on the pictures, before they are compared (#1833).
     super::texmod::mark(&mut pieces, nodes.script.rt.as_ref().map(|rt| &rt.game.other.itr));
+    // The runtime pictures' revisions and sizes, so a new one under the same name repaints.
+    super::runtime_images::mark(&mut pieces, kit.runtime.as_deref(), &mut drawn.runtime_told);
     drawn.tex.frame();
     drawn.tex.prune(&pieces, ui);
     // A camera's image is laid out at its own size whatever the UI scale (#1631).
@@ -1528,6 +1626,12 @@ fn paint(commands: &mut Commands, drawn: &mut Drawn, mut pieces: Vec<Piece>, tar
                         }
                     }
                 }
+                // Turned further (the map's arrow as the player turns): turned in place.
+                if was.turn != piece.turn {
+                    if let Some(e) = slot.outer {
+                        set_turn(commands, slot.wrapper, e, piece);
+                    }
+                }
                 if was.colour != piece.colour {
                     let [r, g, b, a] = piece.colour;
                     let colour = Color::srgba(r, g, b, a);
@@ -1551,11 +1655,19 @@ fn paint(commands: &mut Commands, drawn: &mut Drawn, mut pieces: Vec<Piece>, tar
                     Source::Shared => pictures.picture_sized(name, None, data, &mut kit.images, bc),
                     Source::Index(atlas) => pictures.picture_sized(name, Some(atlas), data, &mut kit.images, bc),
                     Source::Own => pictures.own_sized(name, data, &mut kit.images, bc),
+                    Source::Runtime(_) => super::runtime_images::picture(kit.runtime.as_deref(), name, &mut drawn.runtime_told),
                 },
                 _ => None,
             };
             // A `tile` picture's repeats, baked into one image.
             let baked = match (&piece.look, &picture, data) {
+                // A runtime picture's texels are not read back: Bevy's tiles repeat it.
+                (Look::Picture { name, source: Source::Runtime(_), fit }, Some((_, rect, size)), _) => {
+                    if matches!(placed(*fit, rect.is_some(), (f64::from(size.x), f64::from(size.y))), Placed::Repeat { .. }) {
+                        super::runtime_images::unbaked(name, &mut drawn.runtime_told);
+                    }
+                    None
+                }
                 (Look::Picture { name, source, fit }, Some((_, rect, size)), Some(data)) => {
                     let texels = (f64::from(size.x), f64::from(size.y));
                     match placed(*fit, rect.is_some(), texels) {
@@ -1595,7 +1707,7 @@ fn paint(commands: &mut Commands, drawn: &mut Drawn, mut pieces: Vec<Piece>, tar
             };
             // The compass strip's window, baked into one image (`crate::compass_strip`).
             let strip = match (&piece.look, &picture, data) {
-                (Look::Picture { name, source, fit: Fit::Strip }, Some((_, rect, _)), Some(data)) => {
+                (Look::Picture { name, source, fit: Fit::Strip }, Some((_, rect, _)), Some(data)) if !matches!(source, Source::Runtime(_)) => {
                     let atlas = match source {
                         Source::Index(a) => Some(a.as_str()),
                         _ => None,
@@ -1668,6 +1780,10 @@ fn fill(s: &mut ChildSpawnerCommands, piece: &Piece, ctx: &Ctx<'_>, picture: Opt
             wrapper.overflow = Overflow::clip();
             let mut outer = None;
             let id = s.spawn((wrapper, Pickable::IGNORE)).with_children(|w| outer = spawn_piece(w, piece, ctx, picture, baked, strip, model)).id();
+            // A turned piece's wrapper unrounded with it ([`UNROUNDED`]); others as before.
+            if piece.turn.is_some() {
+                s.commands().entity(id).insert(UNROUNDED);
+            }
             (Some(id), outer)
         }
         None => (None, spawn_piece(s, piece, ctx, picture, baked, strip, model)),
@@ -1682,6 +1798,10 @@ pub(crate) fn scroll(hud: Option<Res<HudView>>, mut images: ResMut<Assets<Image>
         strip.0.follow(hud.heading, node, &mut images);
     }
 }
+
+#[cfg(test)]
+#[path = "draw_layout_tests.rs"]
+mod layout_tests;
 
 #[cfg(test)]
 mod tests {
@@ -2189,6 +2309,30 @@ mod tests {
         );
     }
 
+    /// A picture's `cropx` and `cropy` go with its piece, the point of the zoomed picture put at
+    /// the box's top left (a map marker's icon, 14 texels in, times its zoom); a crop changed
+    /// spawns the piece again, as the picture inside it moves; none without either trait.
+    #[test]
+    fn a_pictures_crop_puts_that_point_at_its_boxs_top_left() {
+        let src = MemSource::default().with(
+            "c.xml",
+            r#"<menu name="C"><image name="icon"><filename>i.dds</filename><width>40</width><height>40</height><zoom>120</zoom><cropx>16.8</cropx><cropy>16.8</cropy></image>
+              <image name="half"><filename>i.dds</filename><width>40</width><height>40</height><zoom>120</zoom><cropy>5</cropy></image>
+              <image name="plain"><filename>i.dds</filename><width>40</width><height>40</height><zoom>120</zoom></image></menu>"#,
+        );
+        let mut ui = Ui::new();
+        ui.load_menu(&src, "c.xml").unwrap();
+        ui.update();
+        let menu = ui.menu("C").unwrap();
+        let set = pieces(&ui, menu, &|_, _, _| (0.0, 0.0), Select::Whole { kept: &[], strip: None }, true).0;
+        let of = |name: &str| set.iter().find(|p| ui.tile(p.tile).name == name).unwrap().clone();
+        assert_eq!((of("icon").crop, of("half").crop, of("plain").crop), (Some((16.8, 16.8)), Some((0.0, 5.0)), None));
+        assert_eq!((piece_crop(&of("icon")), piece_crop(&of("plain"))), ((16.8, 16.8), (0.0, 0.0)));
+        let mut moved = of("icon");
+        moved.crop = Some((0.0, 0.0));
+        assert_eq!(change(&of("icon"), &moved), Change::Spawn, "the picture moved inside its box");
+    }
+
     /// T12c: no zoom stretches an atlas piece over its box and stands a picture of its own
     /// file at its texels' size; a number scales the picture, tiled or not.
     #[test]
@@ -2390,6 +2534,8 @@ mod tests {
             colour: [1.0, 0.7, 0.3, 1.0],
             depth: 0.0,
             tex: None,
+            turn: None,
+            crop: None,
         };
         let mut dimmer = model.clone();
         dimmer.colour[3] = 0.5;
@@ -2409,6 +2555,138 @@ mod tests {
         assert_eq!(keys[0], (all[0].tile, 0));
         assert_eq!(*keys.last().unwrap(), (all[0].tile, 1));
         assert_eq!(keys.iter().collect::<HashSet<_>>().len(), keys.len());
+    }
+
+    /// [design] Turns reach a picture's and a box's piece, not a text's; a piece only turned
+    /// further changes in place; an unturned piece's node keeps the identity transform.
+    #[test]
+    fn a_turned_picture_carries_its_turn_and_turns_about_its_pivot() {
+        let src = MemSource::default().with(
+            "r.xml",
+            r#"<menu name="R"><rect name="Clip"><width>50</width><height>50</height><clips>&true;</clips>
+              <image name="Arrow"><filename>arrow.dds</filename><x>10</x><y>10</y><width>20</width><height>30</height><zoom>-1</zoom>
+                <rotateangle>3.141592653589793</rotateangle><rotateaxisx>10</rotateaxisx><rotateaxisy>15</rotateaxisy></image>
+              <rect name="Bar"><width>40</width><height>4</height><red>255</red><rotateangle>0.5</rotateangle></rect>
+              <text name="Word"><string>N</string><rotateangle>1</rotateangle></text>
+              <image name="Still"><filename>still.dds</filename><width>8</width><height>8</height></image></rect></menu>"#,
+        );
+        let mut ui = Ui::new();
+        let menu = ui.load_menu(&src, "r.xml").unwrap();
+        ui.update();
+        let (drawn, _) = pieces(&ui, menu, &plain, Select::Whole { kept: &[], strip: None }, true);
+        let of = |name: &str| drawn.iter().find(|p| ui.tile(p.tile).name == name).unwrap();
+        let arrow = of("Arrow");
+        assert_eq!(arrow.turn, Some(layout::Turn { angle: std::f64::consts::PI, pivot: (10.0, 15.0) }));
+        assert_eq!(arrow.clip, Some(TileRect { left: 0.0, top: 0.0, width: 50.0, height: 50.0 }), "the clip stays the unturned window");
+        // About its middle: Bevy's own pivot, the node only turned.
+        let t = turned(arrow);
+        assert_eq!(t.translation, Val2::new(u(0.0), u(0.0)));
+        // A half turn: by its sine and cosine (Rot2 may hold it as -pi).
+        assert!((t.rotation.cos + 1.0).abs() < 1e-6 && t.rotation.sin.abs() < 1e-6, "{:?}", t.rotation);
+        assert_eq!(of("Bar").turn.map(|t| t.pivot), Some((0.0, 0.0)));
+        assert_eq!(of("Word").turn, None, "texts are not turned");
+        assert_eq!(of("Still").turn, None);
+        assert_eq!(turned(of("Still")), UiTransform::IDENTITY);
+        // About its top left a quarter: moved by the shift the layout works out.
+        let mut corner = arrow.clone();
+        corner.turn = Some(layout::Turn { angle: std::f64::consts::FRAC_PI_2, pivot: (0.0, 0.0) });
+        let (x, y) = corner.turn.unwrap().shift(20.0, 30.0);
+        assert!((x - -25.0).abs() < 1e-9 && (y - -5.0).abs() < 1e-9, "({x}, {y})");
+        assert_eq!(turned(&corner).translation, Val2::new(u(f(x)), u(f(y))));
+        // Turned further, same look and size: in place.
+        assert_eq!(change(arrow, &corner), Change::InPlace);
+    }
+
+    /// [design] The tree and menu a test paints through [`paint`] itself.
+    #[derive(Resource)]
+    struct Painted(Ui, TileId);
+
+    fn paint_painted(mut commands: Commands, painted: Res<Painted>, mut kit: FontKit, mut nodes: Nodes, glyphs: Res<crate::pad::PadGlyphs>, mut drawn: Local<Drawn>) {
+        let (set, _) = pieces(&painted.0, painted.1, &plain, Select::Whole { kept: &[], strip: None }, true);
+        paint(&mut commands, &mut drawn, set, Target::window(1.0, 1), 0.0, Some(&painted.0), &mut kit, &mut nodes, &glyphs);
+    }
+
+    /// The pictures drawn: each node's entity and texture.
+    fn drawn_images(app: &mut App) -> Vec<(Entity, Handle<Image>)> {
+        let world = app.world_mut();
+        world.query::<(Entity, &ImageNode)>().iter(world).map(|(e, i)| (e, i.image.clone())).collect()
+    }
+
+    /// [design] A runtime picture through the real painting: nothing while no entry is set,
+    /// its texture once one is, repainted by a new handle, by the same handle set again and
+    /// by a new size under the one name, kept while nothing changes, gone when removed.
+    #[test]
+    fn a_runtime_picture_repaints_when_its_entry_changes_under_the_same_name() {
+        let src = MemSource::default().with(
+            "rt.xml",
+            r#"<menu name="RT"><image name="Map"><filename> nvf:test_map </filename><width>64</width><height>32</height><zoom>-1</zoom></image></menu>"#,
+        );
+        let mut ui = Ui::new();
+        let menu = ui.load_menu(&src, "rt.xml").unwrap();
+        ui.update();
+        let mut app = App::new();
+        app.init_resource::<Assets<Image>>()
+            .init_resource::<TileFonts>()
+            .init_resource::<crate::pad::PadGlyphs>()
+            .init_resource::<super::super::runtime_images::RuntimeImages>()
+            .insert_resource(ScriptState::over_no_plugins())
+            .insert_resource(Painted(ui, menu))
+            .add_systems(Update, paint_painted);
+        let image = |app: &mut App| app.world_mut().resource_mut::<Assets<Image>>().add(Image::default());
+        let set = |app: &mut App, h: &Handle<Image>, size: Vec2| {
+            let name = app.world_mut().resource_mut::<super::super::runtime_images::RuntimeImages>().set("test_map", h.clone(), size);
+            assert_eq!(name, "nvf:test_map");
+        };
+        app.update();
+        assert!(drawn_images(&mut app).is_empty(), "no entry: nothing drawn");
+        let (a, b) = (image(&mut app), image(&mut app));
+        set(&mut app, &a, Vec2::new(64.0, 32.0));
+        app.update();
+        let first = drawn_images(&mut app);
+        assert_eq!(first.iter().map(|(_, h)| h.clone()).collect::<Vec<_>>(), std::slice::from_ref(&a), "set late: drawn");
+        app.update();
+        assert_eq!(drawn_images(&mut app), first, "nothing changed: the same node");
+        set(&mut app, &b, Vec2::new(64.0, 32.0));
+        app.update();
+        let second = drawn_images(&mut app);
+        assert_eq!(second.iter().map(|(_, h)| h.clone()).collect::<Vec<_>>(), std::slice::from_ref(&b), "a new handle, the same name: repainted");
+        set(&mut app, &b, Vec2::new(64.0, 32.0));
+        app.update();
+        let third = drawn_images(&mut app);
+        assert_eq!(third.len(), 1);
+        assert_ne!(third[0].0, second[0].0, "the same handle set again (its texels changed): repainted");
+        set(&mut app, &b, Vec2::new(128.0, 32.0));
+        app.update();
+        assert_ne!(drawn_images(&mut app)[0].0, third[0].0, "a new size: repainted");
+        assert!(app.world_mut().resource_mut::<super::super::runtime_images::RuntimeImages>().remove("nvf:test_map"));
+        app.update();
+        assert!(drawn_images(&mut app).is_empty(), "removed: nothing drawn");
+    }
+
+    /// [design] A runtime name is looked up as a runtime picture whatever the tile's atlas,
+    /// and its piece carries no stamp until painted.
+    #[test]
+    fn a_runtime_name_is_its_own_source() {
+        let src = MemSource::default().with(
+            "rn.xml",
+            r#"<menu name="RN"><image name="A"><filename>NVF:Outline</filename><texatlas>Interface\InterfaceShared.tai</texatlas><width>9</width><height>9</height></image>
+              <image name="B"><filename>Interface\nvf\b.dds</filename><width>9</width><height>9</height></image></menu>"#,
+        );
+        let mut ui = Ui::new();
+        let menu = ui.load_menu(&src, "rn.xml").unwrap();
+        ui.update();
+        let (set, _) = pieces(&ui, menu, &plain, Select::Whole { kept: &[], strip: None }, true);
+        assert!(matches!(&set[0].look, Look::Picture { source: Source::Runtime(None), .. }));
+        assert!(matches!(&set[1].look, Look::Picture { source: Source::Own, .. }));
+        // Stamped by its entry; a texture offset is dropped from it, said once.
+        let mut set = set;
+        set[0].tex = Some(super::super::texmod::TexMod { offset: (0.5, 0.0), mask: None });
+        let mut images = super::super::runtime_images::RuntimeImages::default();
+        images.set("outline", Handle::default(), Vec2::new(9.0, 9.0));
+        let mut told = super::super::runtime_images::Told::default();
+        super::super::runtime_images::mark(&mut set, Some(&images), &mut told);
+        assert!(matches!(&set[0].look, Look::Picture { source: Source::Runtime(Some(s)), .. } if s.size == Vec2::new(9.0, 9.0)));
+        assert!(set[0].tex.is_none() && told.texmod("nvf:outline"));
     }
 
     #[test]
