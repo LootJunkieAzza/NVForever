@@ -680,6 +680,27 @@ fn register_graphics(app: &mut App) {
             ask_keep: false,
         },
     );
+    add_choice_list(
+        app,
+        Setting {
+            key: "fsr-library",
+            group: GROUP_GRAPHICS,
+            label: "FSR library",
+            note: "What FSR upscales with: NVForever's built-in FSR 3.1, or a FidelityFX library in the game's folder (amd_fidelityfx_loader_vk.dll or amd_fidelityfx_vk.dll; not part of NVForever), which tools that replace the upscaler use. The choice names the library found; with none there the built-in FSR runs.",
+            get: |_| false,
+            set: |_, _| {},
+            slider: None,
+        },
+        ChoiceList {
+            names: |_| fsr_library_names().to_vec(),
+            chosen: |_| fsr_library_names()[usize::from(crate::ffx_api::enabled())].clone(),
+            pick: |_, name| pick_fsr_library(name),
+            save: |_| (if crate::ffx_api::enabled() { FSR_LIBRARY_FOLDER } else { FSR_LIBRARY_BUILT_IN }).to_string(),
+            load: |_, value| pick_fsr_library(value),
+            ask_keep: false,
+        },
+    );
+    nvf_play::settings::set_disabled_status(app, "fsr-library", |_| (!crate::ffx_api::allowed()).then_some("Built-in (NVF_FFX_API=0)"));
     let choices = [
         Setting::slider(
             "anti-aliasing",
@@ -844,6 +865,30 @@ fn pick_fsr(world: &mut World, name: &str) -> bool {
     true
 }
 
+/// The FSR library row's two choices; the second is shown with the library found.
+const FSR_LIBRARY_BUILT_IN: &str = "Built-in";
+const FSR_LIBRARY_FOLDER: &str = "Game folder";
+
+/// The choices as shown: the built-in upscaler, and the folder's library by name
+/// (`ffx_api::found`: the one loaded, the one that failed, or none).
+fn fsr_library_names() -> [String; 2] {
+    [FSR_LIBRARY_BUILT_IN.to_string(), format!("{FSR_LIBRARY_FOLDER} ({})", crate::ffx_api::found())]
+}
+
+/// Takes a choice by its name, with or without the library named after it.
+fn pick_fsr_library(name: &str) -> bool {
+    let name = name.trim().to_ascii_lowercase();
+    let folder = if name == FSR_LIBRARY_BUILT_IN.to_ascii_lowercase() {
+        false
+    } else if name.starts_with(&FSR_LIBRARY_FOLDER.to_ascii_lowercase()) {
+        true
+    } else {
+        return false;
+    };
+    crate::ffx_api::set_enabled(folder);
+    true
+}
+
 fn load_fsr(world: &mut World, value: &str) -> bool {
     if pick_fsr(world, value) {
         return true;
@@ -939,6 +984,31 @@ mod fsr_settings_tests {
         assert_eq!(app.world().resource::<nvf_play::settings::Settings>().disabled_status(app.world(), row), None, "unsupported FSR leaves native AA editable");
         assert!(nvf_play::settings::set_slider(app.world_mut(), row, 0.0).is_some());
         assert_eq!(graphics::aa_choice(app.world()), 0);
+    }
+
+    #[test]
+    fn the_fsr_library_row_switches_between_the_built_in_upscaler_and_the_folders() {
+        let mut app = App::new();
+        app.insert_resource(Graphics::preset(graphics::Preset::Vanilla));
+        register_graphics(&mut app);
+        let list = {
+            let settings = app.world().resource::<nvf_play::settings::Settings>();
+            settings.choices(settings.index("fsr-library").unwrap()).expect("a dropdown")
+        };
+        // No library is beside the test's executable, and none was loaded.
+        assert_eq!((list.names)(app.world()), ["Built-in", "Game folder (none found)"]);
+        assert_eq!((list.chosen)(app.world()), "Game folder (none found)", "the folder's library is used by default");
+        assert!((list.pick)(app.world_mut(), "Built-in"));
+        assert!(!crate::ffx_api::enabled());
+        assert_eq!(((list.chosen)(app.world()), (list.save)(app.world())), ("Built-in".to_string(), "Built-in".to_string()));
+        // As the page gives it (with the library named) and as the INI keeps it.
+        assert!((list.pick)(app.world_mut(), "Game folder (amd_fidelityfx_vk.dll)"));
+        assert!(crate::ffx_api::enabled());
+        assert_eq!((list.save)(app.world()), "Game folder");
+        assert!((list.load)(app.world_mut(), "built-in") && !crate::ffx_api::enabled());
+        assert!((list.load)(app.world_mut(), "Game folder") && crate::ffx_api::enabled());
+        assert!(!(list.pick)(app.world_mut(), "Somewhere else"));
+        assert!(crate::ffx_api::enabled(), "an unknown name changes nothing");
     }
 
     #[test]

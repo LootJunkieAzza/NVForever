@@ -2,15 +2,20 @@
 //! See docs/design/fsr-upscaling.md, "The FidelityFX API path".
 //!
 //! [`crate::fsr`] upscales with the vendored wgpu-ffx port, which no tool outside the game can
-//! see. When `amd_fidelityfx_vk.dll` loads from the executable's folder, the upscale goes
-//! through that library's five entry points instead, the way a game built on AMD's SDK calls
-//! it. Tools that replace a game's upscaler (OptiScaler) take those calls over, and a player
-//! can put AMD's own library there. NVForever ships no such library: without one the port
-//! runs as before.
+//! see. When a FidelityFX library ([`CANDIDATES`]) loads from the executable's folder, the
+//! upscale goes through that library's five entry points instead, the way a game built on
+//! AMD's SDK calls it. Tools that replace a game's upscaler (OptiScaler) take those calls
+//! over, and a player can put AMD's own library there: FSR SDK 1.x's (FSR 3.1) or FSR SDK
+//! 2.x's loader with its upscaler library (FSR 4 where the GPU runs it). NVForever ships no
+//! such library: without one the port runs as before.
 //!
 //! The declarations follow the FidelityFX SDK 1.1.4 headers `ffx_api.h`, `ffx_api_types.h`,
 //! `ffx_upscale.h` and `vk/ffx_api_vk.h` (MIT, Copyright (C) 2024 Advanced Micro Devices,
-//! Inc.) [documented: those files at tag v1.1.4]. No AMD code or binary is part of the build.
+//! Inc.) [documented: those files at tag v1.1.4], and for SDK 2.x's library the same four
+//! headers of FSR SDK 2.4.0 (MIT: each carries the notice and is on the list of
+//! `docs/license.md`, whose default for unlisted files is binary-only) [documented: tag
+//! v2.4.0]. The structures used here are the same in both; SDK 2.x has its own Vulkan backend
+//! descriptor type and adds a version descriptor. No AMD code or binary is part of the build.
 //!
 //! How the images are handed over. wgpu allows no raw commands in an encoder that has
 //! commands of its own [documented: wgpu-core 30.0.1 `EncodingApi::set`], so the library
@@ -28,16 +33,69 @@ use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use ash::vk::{self, Handle};
 use bevy::log::{error, info, warn};
 
-/// The library's name. Loaded by this bare name, so a tool that hooks the load sees the name
-/// it looks for [observed 2026-11-12: OptiScaler's `LibraryLoad_Hooks.cpp` compares the file
-/// name].
-pub(crate) const LIBRARY_NAME: &str = "amd_fidelityfx_vk.dll";
+/// A library looked for, and how its upscale context is asked for.
+pub(crate) struct Candidate {
+    /// Loaded by this bare name, so a tool that hooks the load sees the name it looks for
+    /// [observed 2026-11-12: OptiScaler's `LibraryLoad_Hooks.cpp` compares the file name].
+    pub(crate) name: &'static str,
+    /// The type of the Vulkan backend descriptor it takes.
+    pub(crate) backend_type: u64,
+    /// The upscaler API version it is told the game was built against (SDK 2.x), if any.
+    pub(crate) upscaler_version: Option<u32>,
+}
 
-/// `NVF_FFX_API=0` keeps the built-in upscaler whatever is in the folder.
+/// The libraries, in the order they are tried; the first that loads is used. FSR SDK 2.x's
+/// loader first (it finds its upscaler library, `amd_fidelityfx_upscaler_vk.dll`, itself),
+/// then SDK 1.x's single library.
+pub(crate) static CANDIDATES: [Candidate; 2] = [
+    Candidate { name: "amd_fidelityfx_loader_vk.dll", backend_type: CREATE_CONTEXT_DESC_TYPE_BACKEND_VK, upscaler_version: Some(UPSCALER_VERSION) },
+    Candidate { name: "amd_fidelityfx_vk.dll", backend_type: CREATE_CONTEXT_DESC_TYPE_BACKEND_VK_SDK1, upscaler_version: None },
+];
+
+/// `NVF_FFX_API=0` keeps the built-in upscaler whatever is in the folder and whatever the
+/// settings say.
 static ALLOWED: std::sync::LazyLock<bool> = std::sync::LazyLock::new(|| !std::env::var("NVF_FFX_API").is_ok_and(|v| v.trim() == "0"));
 
-/// Set when the library failed in play: the built-in upscaler takes over for the session.
+/// The setting (Settings > Graphics > FSR library): a library in the folder is used.
+static ENABLED: AtomicBool = AtomicBool::new(true);
+
+/// Set when the library failed in play: the built-in upscaler takes over, until the setting
+/// is switched off and on again.
 static GAVE_UP: AtomicBool = AtomicBool::new(false);
+
+/// Whether `NVF_FFX_API=0` rules the library out.
+pub(crate) fn allowed() -> bool {
+    *ALLOWED
+}
+
+/// The setting: whether a library in the folder is used.
+pub(crate) fn enabled() -> bool {
+    ENABLED.load(Ordering::Relaxed)
+}
+
+/// Sets the setting. Switching it on again lets a library that failed be tried once more.
+pub(crate) fn set_enabled(on: bool) {
+    if on && !ENABLED.swap(true, Ordering::Relaxed) {
+        GAVE_UP.store(false, Ordering::Relaxed);
+    } else if !on {
+        ENABLED.store(false, Ordering::Relaxed);
+    }
+}
+
+/// What the settings page names as the folder's library: the one loaded (and whether it
+/// failed), before any load the first one whose file is beside the executable, else none.
+pub(crate) fn found() -> String {
+    match std::sync::LazyLock::get(&LIBRARY) {
+        Some(Some(library)) if GAVE_UP.load(Ordering::Relaxed) => format!("{} failed", library.name),
+        Some(Some(library)) => library.name.to_string(),
+        Some(None) => "none found".into(),
+        None => {
+            let folder = std::env::current_exe().ok().and_then(|exe| Some(exe.parent()?.to_path_buf()));
+            let there = folder.and_then(|folder| CANDIDATES.iter().find(|candidate| folder.join(candidate.name).is_file()));
+            there.map_or("none found".into(), |candidate| candidate.name.to_string())
+        }
+    }
+}
 
 pub(crate) type ReturnCode = u32;
 pub(crate) const RETURN_OK: ReturnCode = 0;
@@ -52,12 +110,22 @@ pub(crate) fn return_code_name(code: ReturnCode) -> &'static str {
         4 => "NO_PROVIDER",
         5 => "ERROR_MEMORY",
         6 => "ERROR_PARAMETER",
+        7 => "PROVIDER_NO_SUPPORT_NEW_DESCTYPE",
         _ => "unknown code",
     }
 }
 
-pub(crate) const CREATE_CONTEXT_DESC_TYPE_BACKEND_VK: u64 = 0x3;
+/// SDK 1.x's Vulkan backend descriptor. SDK 2.x calls this type deprecated and has its own:
+/// the backend's id in the top byte, the same fields [documented: SDK 2.4.0 vk/ffx_api_vk.h
+/// `FFX_API_MAKE_BACKEND_SUB_ID(FFX_API_BACKEND_ID_VK, 0x03)`, `VkDeviceContext`].
+pub(crate) const CREATE_CONTEXT_DESC_TYPE_BACKEND_VK_SDK1: u64 = 0x3;
+pub(crate) const CREATE_CONTEXT_DESC_TYPE_BACKEND_VK: u64 = 0x0100_0003;
 pub(crate) const CREATE_CONTEXT_DESC_TYPE_UPSCALE: u64 = 0x0001_0000;
+/// SDK 2.x: the upscaler API version the application was built against.
+const CREATE_CONTEXT_DESC_TYPE_UPSCALE_VERSION: u64 = 0x0001_000b;
+/// `FFX_UPSCALER_VERSION` of the SDK 2.4.0 header the declarations were checked against:
+/// 4.1.2 as `major << 22 | minor << 12 | patch` [documented: SDK 2.4.0 ffx_upscale.h].
+const UPSCALER_VERSION: u32 = (4 << 22) | (1 << 12) | 2;
 pub(crate) const DISPATCH_DESC_TYPE_UPSCALE: u64 = 0x0001_0001;
 
 /// `FfxApiCreateContextUpscaleFlags`.
@@ -150,6 +218,13 @@ pub(crate) struct CreateUpscale {
     message: Option<MessageCallback>,
 }
 
+/// `ffxCreateContextDescUpscaleVersion` (SDK 2.x).
+#[repr(C)]
+struct CreateUpscaleVersion {
+    header: Header,
+    version: u32,
+}
+
 #[repr(C)]
 pub(crate) struct DispatchUpscale {
     header: Header,
@@ -185,6 +260,10 @@ pub(crate) type DispatchFn = unsafe extern "C" fn(context: *mut *mut c_void, des
 
 /// The loaded library and its five entry points. It stays loaded for the life of the process.
 pub(crate) struct Library {
+    /// The name it was asked for by ([`Candidate::name`]).
+    pub(crate) name: &'static str,
+    pub(crate) backend_type: u64,
+    pub(crate) upscaler_version: Option<u32>,
     /// The file the module came from, as Windows names it: not always the one asked for, when
     /// a tool answers the load with its own.
     pub(crate) path: String,
@@ -202,28 +281,27 @@ static LIBRARY: std::sync::LazyLock<Option<Library>> = std::sync::LazyLock::new(
         return None;
     }
     crate::ffx_api_trace::environment("before the load");
-    match sys::load(LIBRARY_NAME) {
-        Ok(library) => {
-            info!("FSR: {LIBRARY_NAME} loaded from {}; the upscale goes through the FidelityFX API", library.path);
-            crate::ffx_api_trace::loaded(&library);
-            Some(library)
-        }
-        Err(LoadError::NotThere) => {
-            crate::ffx_api_trace::not_loaded("no such library in the game's folder");
-            None
-        }
-        Err(LoadError::Failed(why)) => {
-            warn!("FSR: {LIBRARY_NAME} did not load ({why}); the built-in FSR 3.1 runs");
-            crate::ffx_api_trace::not_loaded(&why);
-            None
+    for candidate in &CANDIDATES {
+        match sys::load(candidate) {
+            Ok(library) => {
+                info!("FSR: {} loaded from {}; the upscale goes through the FidelityFX API", library.name, library.path);
+                crate::ffx_api_trace::loaded(&library);
+                return Some(library);
+            }
+            Err(LoadError::NotThere) => crate::ffx_api_trace::not_loaded(candidate.name, "no such library in the game's folder"),
+            Err(LoadError::Failed(why)) => {
+                warn!("FSR: {} did not load ({why})", candidate.name);
+                crate::ffx_api_trace::not_loaded(candidate.name, &why);
+            }
         }
     }
+    None
 });
 
-/// The library, loaded on the first call; `None` without one, with `NVF_FFX_API=0`, or once it
-/// has failed in play.
+/// The library, loaded on the first call; `None` without one, with the setting off or
+/// `NVF_FFX_API=0`, or once it has failed in play.
 pub(crate) fn library() -> Option<&'static Library> {
-    if GAVE_UP.load(Ordering::Relaxed) {
+    if !enabled() || GAVE_UP.load(Ordering::Relaxed) {
         return None;
     }
     LIBRARY.as_ref()
@@ -249,7 +327,7 @@ pub(crate) mod sys {
     use windows_sys::Win32::Foundation::{GetLastError, ERROR_MOD_NOT_FOUND, HMODULE};
     use windows_sys::Win32::System::LibraryLoader::{GetModuleFileNameW, GetProcAddress, LoadLibraryExW, LOAD_LIBRARY_SEARCH_APPLICATION_DIR, LOAD_LIBRARY_SEARCH_SYSTEM32};
 
-    use super::{Library, LoadError};
+    use super::{Candidate, Library, LoadError};
 
     /// The file a loaded module came from.
     pub(crate) fn module_path(module: usize) -> String {
@@ -259,10 +337,10 @@ pub(crate) mod sys {
         String::from_utf16_lossy(&name[..length.min(name.len())])
     }
 
-    /// Loads `name` from the executable's folder only (its own imports may come from System32:
-    /// the Vulkan loader, the C runtime), never from the working directory or `PATH`.
-    pub(super) fn load(name: &str) -> Result<Library, LoadError> {
-        let wide: Vec<u16> = name.encode_utf16().chain([0]).collect();
+    /// Loads a library from the executable's folder only (its own imports may come from
+    /// System32: the Vulkan loader, the C runtime), never from the working directory or `PATH`.
+    pub(super) fn load(candidate: &Candidate) -> Result<Library, LoadError> {
+        let wide: Vec<u16> = candidate.name.encode_utf16().chain([0]).collect();
         // SAFETY: a null-terminated name; the flags limit the search.
         let module = unsafe { LoadLibraryExW(wide.as_ptr(), std::ptr::null_mut(), LOAD_LIBRARY_SEARCH_APPLICATION_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32) };
         if module.is_null() {
@@ -277,6 +355,9 @@ pub(crate) mod sys {
         // SAFETY: the signatures of the five entry points [documented: SDK 1.1.4 ffx_api.h].
         unsafe {
             Ok(Library {
+                name: candidate.name,
+                backend_type: candidate.backend_type,
+                upscaler_version: candidate.upscaler_version,
                 path: module_path(module as usize),
                 module: module as usize,
                 create_context: std::mem::transmute::<unsafe extern "system" fn() -> isize, super::CreateContextFn>(symbol(c"ffxCreateContext")?),
@@ -291,10 +372,10 @@ pub(crate) mod sys {
 
 #[cfg(not(windows))]
 mod sys {
-    use super::{Library, LoadError};
+    use super::{Candidate, Library, LoadError};
 
     /// AMD's library is a Windows DLL.
-    pub(super) fn load(_name: &str) -> Result<Library, LoadError> {
+    pub(super) fn load(_candidate: &Candidate) -> Result<Library, LoadError> {
         Err(LoadError::NotThere)
     }
 }
@@ -396,6 +477,8 @@ fn resource(texture: &wgpu::Texture, output: bool) -> Result<Resource, String> {
 /// [documented: ffx_api.h `ffxCreateContext`].
 struct CreateDescs {
     upscale: CreateUpscale,
+    /// Linked in for a library that takes it ([`Candidate::upscaler_version`]).
+    version: CreateUpscaleVersion,
     backend: CreateBackendVk,
 }
 
@@ -428,14 +511,23 @@ impl Upscaler {
                 max_upscale_size: Dimensions { width: max_upscale_size[0], height: max_upscale_size[1] },
                 message: Some(message),
             },
-            backend: CreateBackendVk { header: Header { ty: CREATE_CONTEXT_DESC_TYPE_BACKEND_VK, next: std::ptr::null_mut() }, device: vk_device, physical_device, device_proc_addr },
+            version: CreateUpscaleVersion { header: Header { ty: CREATE_CONTEXT_DESC_TYPE_UPSCALE_VERSION, next: std::ptr::null_mut() }, version: library.upscaler_version.unwrap_or(0) },
+            backend: CreateBackendVk { header: Header { ty: library.backend_type, next: std::ptr::null_mut() }, device: vk_device, physical_device, device_proc_addr },
         });
+        // The chain: the upscale descriptor, the version where the library takes one, the
+        // Vulkan backend.
         descs.upscale.header.next = &mut descs.backend.header;
+        if library.upscaler_version.is_some() {
+            descs.version.header.next = &mut descs.backend.header;
+            descs.upscale.header.next = &mut descs.version.header;
+        }
         let mut context = std::ptr::null_mut();
         // SAFETY: the descriptors are laid out as the headers declare them and stay alive in
         // `descs`; a null allocator means the library's own.
         let code = unsafe { (library.create_context)(&mut context, &mut descs.upscale.header, std::ptr::null()) };
-        crate::ffx_api_trace::created(library, context, &descs.upscale, code);
+        // The device's three handles, as SDK 2.x's `VkDeviceContext` lays them out.
+        let device_context = (&raw mut descs.backend.device).cast::<c_void>();
+        crate::ffx_api_trace::created(library, context, &descs.upscale, device_context, code);
         if code != RETURN_OK || context.is_null() {
             return Err(format!("ffxCreateContext returned {code} ({})", return_code_name(code)));
         }
@@ -527,6 +619,7 @@ mod tests {
         assert_eq!(size_of::<ResourceDescription>(), 32);
         assert_eq!((size_of::<Resource>(), offset_of!(Resource, description), offset_of!(Resource, state)), (48, 8, 40));
         assert_eq!((size_of::<CreateBackendVk>(), offset_of!(CreateBackendVk, device), offset_of!(CreateBackendVk, physical_device), offset_of!(CreateBackendVk, device_proc_addr)), (40, 16, 24, 32));
+        assert_eq!((size_of::<CreateUpscaleVersion>(), offset_of!(CreateUpscaleVersion, version)), (24, 16));
         assert_eq!(size_of::<CreateUpscale>(), 48);
         assert_eq!((offset_of!(CreateUpscale, flags), offset_of!(CreateUpscale, max_render_size), offset_of!(CreateUpscale, max_upscale_size), offset_of!(CreateUpscale, message)), (16, 20, 28, 40));
         assert_eq!(size_of::<DispatchUpscale>(), 432);
@@ -548,6 +641,18 @@ mod tests {
         assert_eq!(surface_format(wgpu::TextureFormat::R32Float), Some(28));
         // A depth image has no format of its own there: it goes as a colour copy.
         assert_eq!(surface_format(wgpu::TextureFormat::Depth32Float), None);
+    }
+
+    #[test]
+    fn sdk_2_is_asked_first_with_its_own_backend_type_and_a_version() {
+        // FFX_API_MAKE_BACKEND_SUB_ID(FFX_API_BACKEND_ID_VK = 0x01000000, 0x03), and
+        // FFX_API_MAKE_EFFECT_SUB_ID(FFX_API_EFFECT_ID_UPSCALE = 0x00010000, 0x0b).
+        assert_eq!(CREATE_CONTEXT_DESC_TYPE_BACKEND_VK, (0x0100_0000 & 0xff00_0000) | (0x03 & !0xff00_0000u64));
+        assert_eq!(CREATE_CONTEXT_DESC_TYPE_UPSCALE_VERSION, (0x0001_0000 & 0x00ff_0000) | (0x0b & !0x00ff_0000u64));
+        assert_eq!(UPSCALER_VERSION, 0x0100_1002, "4.1.2");
+        let [sdk2, sdk1] = &CANDIDATES;
+        assert_eq!((sdk2.name, sdk2.backend_type, sdk2.upscaler_version), ("amd_fidelityfx_loader_vk.dll", 0x0100_0003, Some(UPSCALER_VERSION)));
+        assert_eq!((sdk1.name, sdk1.backend_type, sdk1.upscaler_version), ("amd_fidelityfx_vk.dll", 0x3, None));
     }
 
     #[test]

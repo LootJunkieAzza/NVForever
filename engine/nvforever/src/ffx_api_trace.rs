@@ -103,9 +103,9 @@ fn of_interest(path: &str) -> bool {
     NAMED.iter().any(|part| name.contains(part)) || name.ends_with(".asi") || (PROXIES.contains(&name) && !lower.contains("\\windows\\"))
 }
 
-pub(crate) fn not_loaded(why: &str) {
+pub(crate) fn not_loaded(name: &str, why: &str) {
     if *ON {
-        info!("ffx-trace: {} not loaded: {why}; the built-in FSR 3.1 runs", crate::ffx_api::LIBRARY_NAME);
+        info!("ffx-trace: {name} not loaded: {why}");
     }
 }
 
@@ -114,7 +114,7 @@ pub(crate) fn loaded(library: &Library) {
     if !*ON {
         return;
     }
-    let name = crate::ffx_api::LIBRARY_NAME;
+    let name = library.name;
     info!("ffx-trace: asked for {name}; got module {:#x} from {} ({})", library.module, library.path, file_size(&library.path));
     if let Some(beside) = std::env::current_exe().ok().and_then(|exe| Some(exe.parent()?.join(name))) {
         let there = if beside.is_file() { "is" } else { "is NOT" };
@@ -126,7 +126,11 @@ pub(crate) fn loaded(library: &Library) {
         info!("ffx-trace:   {line}");
     }
     TOTALS.lock().unwrap().entries = entries;
-    versions(library);
+    info!("ffx-trace:   backend descriptor type {:#x}, upscaler API version {}", library.backend_type, library.upscaler_version.map_or("not given".into(), |version| format!("{}.{}.{}", version >> 22, (version >> 12) & 0x3ff, version & 0xfff)));
+    // SDK 2.x wants the device for this query: asked once a context exists ([`created`]).
+    if library.upscaler_version.is_none() {
+        versions(library, std::ptr::null_mut());
+    }
     environment("after the load");
 }
 
@@ -202,13 +206,14 @@ fn describe_entry(address: usize) -> String {
     }
 }
 
-/// `ffxQuery` for the upscaler versions the library offers.
-fn versions(library: &Library) {
+/// `ffxQuery` for the upscaler versions the library offers. `device`: null, or for SDK 2.x
+/// its `VkDeviceContext` [documented: SDK 2.4.0 ffx_api.h `ffxQueryDescGetVersions`].
+fn versions(library: &Library, device: *mut c_void) {
     let mut count = 0u64;
     let mut query = QueryGetVersions {
         header: Header { ty: QUERY_DESC_TYPE_GET_VERSIONS, next: std::ptr::null_mut() },
         create_desc_type: CREATE_CONTEXT_DESC_TYPE_UPSCALE,
-        device: std::ptr::null_mut(),
+        device,
         output_count: &mut count,
         version_ids: std::ptr::null_mut(),
         version_names: std::ptr::null_mut(),
@@ -239,14 +244,18 @@ fn c_text(text: *const c_char) -> String {
 }
 
 /// `ffxCreateContext` returned.
-pub(crate) fn created(library: &Library, mut context: *mut c_void, desc: &CreateUpscale, code: ReturnCode) {
+pub(crate) fn created(library: &Library, mut context: *mut c_void, desc: &CreateUpscale, device: *mut c_void, code: ReturnCode) {
     if !*ON {
         return;
     }
     info!(
-        "ffx-trace: ffxCreateContext(UPSCALE flags {:#x}, max render {}x{}, max upscale {}x{}; BACKEND_VK) -> {code} ({}), context {context:p}",
-        desc.flags, desc.max_render_size.width, desc.max_render_size.height, desc.max_upscale_size.width, desc.max_upscale_size.height, return_code_name(code)
+        "ffx-trace: ffxCreateContext(UPSCALE flags {:#x}, max render {}x{}, max upscale {}x{}; version {}; BACKEND_VK type {:#x}) -> {code} ({}), context {context:p}",
+        desc.flags, desc.max_render_size.width, desc.max_render_size.height, desc.max_upscale_size.width, desc.max_upscale_size.height,
+        if library.upscaler_version.is_some() { "given" } else { "not given" }, library.backend_type, return_code_name(code)
     );
+    if library.upscaler_version.is_some() {
+        versions(library, device);
+    }
     if code != RETURN_OK || context.is_null() {
         return;
     }

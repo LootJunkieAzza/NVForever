@@ -431,8 +431,9 @@ pub(crate) fn prepare(
             }
         }
         match old {
-            // A view whose FidelityFX API library was given up on is made again, for the port.
-            Some(mut old) if old.render_size == render_size && old.output_size == output_size && !old.abandoned() => {
+            // A view is made again when what should upscale it changed: its FidelityFX API
+            // library was given up on, or the setting (FSR library) was switched.
+            Some(mut old) if old.render_size == render_size && old.output_size == output_size && old.through_api() == crate::ffx_api::library().is_some() => {
                 old.reset = camera.cut_from(&old.camera);
                 old.camera = *camera;
                 queue.write_buffer(&old.mask_jitter, 0, &mask_jitter_bytes(offset));
@@ -467,10 +468,9 @@ impl PreparedFsr {
         &self.opaque
     }
 
-    /// The view's FidelityFX API library failed in play ([`API_FAILURES`]) or was given up on
-    /// by another view: the port has to take the view over.
-    fn abandoned(&self) -> bool {
-        matches!(self.upscaler, Upscaler::Api { .. }) && crate::ffx_api::library().is_none()
+    /// Whether a FidelityFX API library upscales the view, not the port.
+    fn through_api(&self) -> bool {
+        matches!(self.upscaler, Upscaler::Api { .. })
     }
 
     /// `port` is the port's context, made here when this is the first view to use it.

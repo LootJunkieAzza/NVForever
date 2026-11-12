@@ -445,22 +445,47 @@ Tools that replace a game's upscaler (OptiScaler) take over the calls a game mak
 upscaler's library. The wgpu-ffx port makes no such call, so such a tool finds nothing to
 take over [observed 2026-11-11, a player's report: OptiScaler's overlay read "FSR Hooks: Don't
 Exist"] (#2169). When a FidelityFX API library is in the game's folder, the upscale goes
-through it instead, the way a game built on AMD's SDK calls it (`ffx_api.rs`). **State
-2026-11-12: built and unit-tested; not yet run against OptiScaler or AMD's library**, so
-every claim below about what they do with the calls is from their sources, not from a run.
+through it instead, the way a game built on AMD's SDK calls it (`ffx_api.rs`).
 
-- **What is loaded.** `amd_fidelityfx_vk.dll`, by that bare name, the first time a view uses
-  FSR: from the executable's folder only, never the working directory or `PATH` (the
-  library's own imports may come from System32). The bare name is what a tool that hooks
-  the load compares [observed 2026-11-12: OptiScaler's source, `LibraryLoad_Hooks.cpp`,
-  `DllNames.h`], and such a tool may answer the load with a library of its own. NVForever
-  ships no such file; without one the port runs as before. `NVF_FFX_API=0` keeps the port
-  whatever is in the folder.
+**State 2026-11-12.** One run by the owner with OptiScaler 0.9.4 (as `dxgi.dll`) and its
+`amd_fidelityfx_vk.dll` in the folder [observed: RTX 5090, 4K, Native AA, frame generation
+on]: OptiScaler hooked all five entry points; 17,847 dispatches, none failed; the output was
+written under OptiScaler's FSR 2.2.1 (its default on Vulkan), FSR 3.1 and FSR 3.1 through
+its DX12 bridge; frame generation ran on top (about 75 real, 151 presented frames a second);
+the context was destroyed on exit. While OptiScaler changes its upscaler (about a second) it
+returns OK without writing the output. Not run: AMD's library without OptiScaler, FSR SDK
+2.x's library, a change of size or mode in play, the Vulkan validation layer, DLSS and XeSS
+behind OptiScaler, an AMD or Intel GPU. What is said below about those is from the
+libraries' sources and headers.
+
+- **What is loaded.** The first of these that loads, by its bare name, the first time a view
+  uses FSR: `amd_fidelityfx_loader_vk.dll` (FSR SDK 2.x's loader, which finds its upscaler
+  library `amd_fidelityfx_upscaler_vk.dll` itself: FSR 4 where the GPU runs it), then
+  `amd_fidelityfx_vk.dll` (SDK 1.x: FSR 3.1). From the executable's folder only, never the
+  working directory or `PATH` (the library's own imports may come from System32). The bare
+  name is what a tool that hooks the load compares [observed 2026-11-12: OptiScaler's source,
+  `LibraryLoad_Hooks.cpp`, `DllNames.h`], and such a tool may answer the load with a library
+  of its own. NVForever ships no such file; without one the port runs as before.
+- **The setting.** Settings > Graphics > Picture > FSR library (`fsr-library`): Built-in, or
+  Game folder, shown with the library found (`Game folder (amd_fidelityfx_vk.dll)`, `(none
+  found)`, or the library's name and `failed`). Game folder is the default; with no library
+  there the port runs. Switching makes the view again with the other upscaler, and
+  switching back to Game folder tries a library that failed once more. `NVF_FFX_API=0`
+  keeps the port whatever the folder and the setting say, and the row then reads
+  `Built-in (NVF_FFX_API=0)`.
 - **The calls.** The five entry points of FidelityFX SDK 1.1.4's `ffx_api.h`. One upscale
   context for each view and pair of sizes (`ffxCreateContext`: the upscale descriptor with
   the port's flags, and the Vulkan backend descriptor with the device's handles from wgpu's
   `as_hal`), `ffxDispatch` once a frame, `ffxDestroyContext` when the sizes change or the
   view goes. The declarations follow the SDK's MIT headers; a test holds their layout.
+- **FSR SDK 2.x's library** takes the same upscale and dispatch structures [documented: SDK
+  2.4.0 `ffx_upscale.h`, `ffx_api_types.h` against 1.1.4's: fields and values unchanged, new
+  ones appended]. Two things differ: its Vulkan backend descriptor has a type of its own
+  (`0x01000003`; the same three handles), and it is told the upscaler API version the game
+  was built against (`ffxCreateContextDescUpscaleVersion`, here 4.1.2, the 2.4.0 header's).
+  Those four headers are MIT (each carries the notice and is on the list of the SDK's
+  `docs/license.md`, whose default for everything unlisted is binary-only); nothing else of
+  SDK 2.x was read or used.
 - **The inputs** are the port's: the colour (the display-sized main texture, the render
   rectangle top-left), Bevy's motion vectors, both masks, the jitter, the motion scale, the
   frame time, the reset, reversed infinite depth. The depth goes as an `R32Float` colour
@@ -494,8 +519,8 @@ every claim below about what they do with the calls is from their sources, not f
   ([frame-generation](frame-generation.md)).
 - **Licence.** No AMD file is in the build or the package; what a player puts in the folder
   is theirs. LEGAL.md and [dependencies](dependencies.md) stand as they are.
-- **Not covered.** FSR SDK 2.x's file names (`amd_fidelityfx_loader_vk.dll`) and its backend
-  descriptor; a settings row; the library's GPU memory in the memory budget. AMD's backend
+- **Not covered.** The library's GPU memory in the memory budget; translations of the
+  settings row; a smoke scenario (it needs a library to load). AMD's backend
   picks its shader variants from what the GPU supports, not from what the device enabled
   [documented: SDK 1.1.4 `ffx_vk.cpp` `GetDeviceCapabilitiesVK`]: untested on an AMD GPU.
 - **The development trace** (`ffx_api_trace.rs`, temporary, to be removed before a release):
