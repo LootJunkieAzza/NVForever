@@ -406,10 +406,12 @@ Not played: `UIHackingCharSingle` / `…Multiple` (`…\char\single\`, `…\mult
 fan hum loop `UIHackingFanHumLP`.
 
 The pointer's hover sound is held to a rate [design, #2216]: the cursor follows the
-pointer onto every character at once, but `UIHackingCharScroll` starts at most once every
-70 ms of real time (`nvf_play::terminal::HOVER_SOUND_GAP`, the record's 66.6 ms click
+pointer onto every character at once, but its `UiEvent::Focus` (`UIHackingCharScroll`) is
+asked for at most once every 70 ms of real time (`nvf_play::terminal::HOVER_SOUND_GAP`, the record's 66.6 ms click
 [observed: measured from the file, issue #2216] rounded up); the moves in between make no
-sound, and it is not played late. Leaving the dump does not start the wait again; a new
+sound, and it is not played late. The rule holds the requests, not the device: a request
+whose file is still being read waits for it, so two asked 70 ms apart can start together
+(`nvf_play::sfx`). Leaving the dump does not start the wait again; a new
 hacking game starts without it. Keys (one move a press) and the menu's rows always sound.
 Without it a sweep started a copy every frame the pointer reached another character, a
 run of pops at the frame rate. Check: `NVF_PLAY_TEST_TERMINAL=…,point:<index>,…` and the

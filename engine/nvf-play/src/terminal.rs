@@ -22,9 +22,9 @@
 //! Keys (hacking.md §7): in the hacking game the arrows (or W A S D) move the cursor a
 //! character or a row, over a word at once; Enter or E enters what is under it; the
 //! pointer moves it and a click enters. The cursor follows the pointer at once, but its
-//! hover sound (`UiEvent::Focus`) starts at most once every [`HOVER_SOUND_GAP`] of real
-//! time; the moves in between are silent and their sounds are dropped, not played later
-//! (#2216) [design]. A key's move always sounds. In the menu Up / Down choose, Enter or E
+//! hover sound (`UiEvent::Focus`) is asked for at most once every [`HOVER_SOUND_GAP`] of
+//! real time (a sound whose file is still being read can start later); the moves in
+//! between are silent and their sounds are dropped, not played later (#2216) [design]. A key's move always sounds. In the menu Up / Down choose, Enter or E
 //! (or a click) takes the item. Tab or Backspace go back: from a note to the list, from a
 //! sub menu to its parent, else out of the terminal; Esc leaves at once. [hypothesis: the
 //! original's PC keys beyond Tab are not captured]
@@ -81,7 +81,7 @@ pub const MENU_TERMINAL: u16 = 1057;
 pub const GRANTED_SECONDS: f32 = 2.0;
 pub const LOCKED_SECONDS: f32 = 1.5;
 
-/// The pointer's hover sound in the hacking game starts at most this often (real time):
+/// The pointer's hover sound in the hacking game is asked for at most this often (real time):
 /// the hover record's file is a click 66.6 ms long (issue #2216), so this is that rounded
 /// up, whatever the frame rate [design]. Keys and the menu's rows are not held to it.
 pub const HOVER_SOUND_GAP: Duration = Duration::from_millis(70);
@@ -353,6 +353,22 @@ struct TerminalStats {
     hover_points: u32,
     hover_sounds: u32,
     hover_suppressed: u32,
+}
+
+impl TerminalStats {
+    /// Counts a cursor input's hover sound for the exit line: only the pointer's moves
+    /// onto another character (or showing it) count, each as sounded or held back.
+    fn count_hover(&mut self, cmd: TerminalInput, focus: Focus) {
+        if !matches!(cmd, TerminalInput::Point(_)) || focus == Focus::Silent {
+            return;
+        }
+        self.hover_points += 1;
+        if focus == Focus::Sound {
+            self.hover_sounds += 1;
+        } else {
+            self.hover_suppressed += 1;
+        }
+    }
 }
 
 /// `NVF_PLAY_TEST_TERMINAL`.
@@ -872,14 +888,7 @@ fn apply(
                 let at = match cursor_step(h, cmd, real_now) {
                     CursorStep::Pick(at) => at,
                     CursorStep::Moved(focus) => {
-                        if matches!(cmd, TerminalInput::Point(_)) && focus != Focus::Silent {
-                            stats.hover_points += 1;
-                            if focus == Focus::Sound {
-                                stats.hover_sounds += 1;
-                            } else {
-                                stats.hover_suppressed += 1;
-                            }
-                        }
+                        stats.count_hover(cmd, focus);
                         if focus == Focus::Sound {
                             sound(UiEvent::Focus);
                         }
@@ -1364,5 +1373,25 @@ mod tests {
         // A new game: its first point sounds at once.
         let mut next = game();
         assert_eq!(cursor_step(&mut next, TerminalInput::Point(3), ms(171)), CursorStep::Moved(Focus::Sound));
+    }
+
+    #[test]
+    fn the_hover_line_counts_the_pointers_moves() {
+        // A sweep at 144 Hz, with keys, unchanged points and Unpoint between: only the
+        // pointer's moves count, each as sounded or held back (P = F + S).
+        let mut h = game();
+        let mut stats = TerminalStats::default();
+        let mut sounds = 0;
+        let mut inputs: Vec<TerminalInput> = (0..60).map(TerminalInput::Point).collect();
+        inputs.extend([TerminalInput::Point(59), TerminalInput::Step(1, 0), TerminalInput::Unpoint, TerminalInput::Step(-1, 0)]);
+        for (k, cmd) in inputs.into_iter().enumerate() {
+            let CursorStep::Moved(focus) = cursor_step(&mut h, cmd, Duration::from_nanos(k as u64 * 1_000_000_000 / 144)) else { panic!("nothing is entered") };
+            stats.count_hover(cmd, focus);
+            sounds += u32::from(focus == Focus::Sound && matches!(cmd, TerminalInput::Point(_)));
+        }
+        assert_eq!(stats.hover_points, 60, "the 60 moves; the unchanged point, the keys and Unpoint do not count");
+        assert_eq!(stats.hover_sounds, sounds);
+        assert_eq!(stats.hover_points, stats.hover_sounds + stats.hover_suppressed);
+        assert!(stats.hover_sounds >= 1 && stats.hover_suppressed >= 1);
     }
 }
