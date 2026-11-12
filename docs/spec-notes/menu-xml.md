@@ -633,24 +633,31 @@ Shiftclicked, Ref, Input, Hotrect, Wheelmoved pages and "Tutorial: Understanding
 - MCM's slider buttons (the same owner item). [observed: MCM's Scale.xml and scripts]
   Accept, Cancel, Default and the meter arrows are hotrects with no `target`; each one's
   `_clicked` reads its own `clicked`, and the `MCM_Scale` rect gathers them as `_Accept`,
-  `_Cancel`, `_Default`, `_MeterL`, `_MeterL2`, `_MeterR`, `_MeterR2`. No script reads
-  those traits; MCMMainScript reads `iInputMeterAccept` … `iInputMeterR2` (and
-  `iInputClick`, `iInputB` … for the keyboard and controller) and never sets them, so
-  MCM.dll joins the two. [hypothesis] A press over a hotrect with no `target` sets its
-  `clicked` for the frame (it already has `mouseover`; the list arrows' rule, the raw
-  button over `mouseover`, still works), and each frame of the Mods page the rect's seven
-  traits go to the seven `MCM` quest variables (1 above 0, else 0) before the start
-  menu's MenuMode blocks run. On Accept MCMMainScript sets `MCMScale.iNewValue`, whose
-  finish writes `_NewValue` 1, which the mod's own script reads to take the value.
-  [design] `fnv_ui::input::Pointer::step` (`Report::bare_clicks`),
-  `fnv_game::ui_functions::mcm_meter_inputs` (called by `nvf-play` `tiles::mods::tick`).
-  Of the keyboard's and the controller's inputs only Enter is joined: [hypothesis] keys
-  28 or 156 down set `iInputClick` 1 in their first frame and `iInputHeld` counts the
-  frames they stay down (MCM passes an input only while that count is under 3), both 0
-  once Enter is up; MCM's script treats `iInputClick` as Accept on its slider. §10.2's observations of
-  MCM.dll cover its four list functions only, not these variables, so this stays a
-  hypothesis (an observer probe: read `MCM.iInputMeterAccept` in the frame the Accept
-  button is clicked, and the next).
+  `_Cancel`, `_Default`, `_MeterL`, `_MeterL2`, `_MeterR`, `_MeterR2`. [observed: The Mod
+  Configuration Menu.esp, quest `MCM` stage 2's result script; the quest allows repeated
+  stages and MCMMainScript sets stage 2 every frame] Stage 2 copies them to the `MCM`
+  quest's variables: `iInputMeterAccept` from `GetMCMFloat 2 0 "_Accept"` (MCM's second
+  child, `MCM_Scale`), likewise `_Cancel`, `_Default` and the four arrows (`_MeterL2` and
+  `_MeterR2` plus `MCM_Input`'s `_meterL2`/`_meterR2`), `iInputTrigger` from the trigger's
+  `_clicked` (child 4), `iInputBack` and `iInputDefault` from `MCM_Back` and
+  `MCM_Defaults`; it counts `iInputHeld` up while more than one input is on, else 0; and
+  only with `iAltInput` (MCM.xml's `_AltInput`, the controller) it takes `iInputClick`,
+  `iInputB`, the directions and `iInputY` from `MCM_Input` (child 15), whose `xbuttona`
+  default and `xup`/`xdown`/`xleft`/`xright`/`xbuttonb`/`xbuttony` refs click its
+  children. So no DLL joins these: an earlier NVForever bridge that wrote them from the
+  engine (2026-11-11) is gone. [observed: MCM.xml] Keyboard input would come in through
+  `MCM_Input` too, when `_KeyInput` is on, but the file declares it as `<_KeyInut> 0
+  </_KeyInput>`, so on a mouse and keyboard Enter does not reach the slider through
+  MCM's files; MCMMainScript's own `IsKeyPressed 28 || IsKeyPressed 156` only keeps the
+  pause column disabled while MCM is open. [hypothesis] A press over a hotrect with no
+  `target` sets its `clicked` for the frame (it already has `mouseover`; the list arrows'
+  rule, the raw button over `mouseover`, still works). On Accept MCMMainScript sets
+  `MCMScale.iNewValue`, whose finish writes `_NewValue` 1, which the mod's own script
+  reads to take the value. [design] `fnv_ui::input::Pointer::step` (`Report::bare_clicks`).
+  Opening: the Mods page sets the trigger's `clicked` (made if it has none, as a
+  pointer's first click makes it) until MCM's `_Menu` is 1, at most 60 frames; writing
+  `_clicked` itself does not stick, it is the file's formula over `clicked`
+  (`nvf-play` `tiles::mods::tick`).
 - [design] NVForever: `fnv_ui::input::hit` (the tile under a pointer in interface units,
   960 to the view's height as the tile renderer draws), `Pointer::step` (one frame:
   pulses ended, the pointer followed, the press, the keys), `fnv_game::ui_input::step`

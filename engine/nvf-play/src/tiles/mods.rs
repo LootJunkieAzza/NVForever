@@ -21,8 +21,9 @@
 //!   [`column`] write that, the fade and one code row into the tile tree's column while the
 //!   page is up. Its mod list is filled through MCM.dll's functions
 //!   (`fnv_game::ui_functions`: SetMCMModList, GetMCMListWidth, SetMCMFloatMass,
-//!   SetMCMStringMass, menu-xml.md §10.2), its slider's buttons reach its script through
-//!   `fnv_game::ui_functions::mcm_meter_inputs`. See the tasks doc, T11.
+//!   SetMCMStringMass, menu-xml.md §10.2); its inputs, the slider's buttons among them,
+//!   reach its main script through its own quest stage 2, from its tiles (menu-xml.md §3).
+//!   See the tasks doc, T11.
 //! - **The original's pause column, for MCM** ([`prepare_column`], then [`column`] each frame): MCM shows its trigger
 //!   only while `StartMenu/NOGLOW_BRANCH/main_container` reports `childcount` 8 and places
 //!   it from that column. The original's code fills the column with six rows of the file's
@@ -98,6 +99,8 @@ pub const MCM_TRIGGER: &str = "StartMenu/MCM/MCM_Trigger";
 /// The frame of the page MCM's trigger is clicked on: after MCM's first frames have placed
 /// it (its install checks run on the first) [design].
 const CLICK_AT: u64 = 3;
+/// The most frames the click is held for [design].
+const CLICK_FOR: u64 = 60;
 
 /// The Mods page's state over its frames (`crate::script` keeps it; `crate::pause` reads
 /// [`ModsPage::closed`]).
@@ -109,6 +112,8 @@ pub struct ModsPage {
     pub mcm_open: bool,
     /// MCM's window closed itself after being open: the page goes back to the column.
     pub closed: bool,
+    /// MCM's trigger is held clicked, until its window opens.
+    pub clicking: bool,
 }
 
 /// The original's column as MCM reads it, written into `StartMenu` when it was (re)built:
@@ -143,25 +148,75 @@ pub fn prepare_column(ui: &mut Ui, files: Option<&dyn fnv_ui::Source>) -> bool {
 /// the played world in the game first (`crate::script::with_world`).
 pub fn tick(game: &mut fnv_game::Game<'_>, page: &mut ModsPage) {
     if page.frames == 0 {
-        page.mcm_open = false;
-        page.closed = false;
+        *page = ModsPage::default();
     }
     let files = game.ui_files.as_deref().map(|f| f as &dyn fnv_ui::Source);
     if prepare_column(&mut game.ui_tree, files) {
         info!("tiles: {COLUMN}: the original's column traits written for MCM");
     }
     column(&mut game.ui_tree);
-    // MCM's slider buttons reach its script as MCM.dll's do (`fnv_game::ui_functions`).
-    fnv_game::ui_functions::mcm_meter_inputs(game);
     let ui = &mut game.ui_tree;
     let open = |ui: &Ui| ui.get_float(&format!("{MCM}/_Menu")) == Some(1.0);
+    // The click is held until MCM's window is open, at most [`CLICK_FOR`] frames: MCM skips
+    // a click in the frame after it reset itself (its `_UnClick`) [observed: MCM's script
+    // source; the original opened with `_clicked` left at 1, menu-xml.md §10.1] (from
+    // upstream ff5dbb106).
+    // The trigger's `clicked`, as the pointer's click sets it: its `_clicked` is MCM.xml's
+    // formula over `clicked` (less MCM's `_UnClick`), so a value written to `_clicked`
+    // itself is replaced at the next update [observed: MCM.xml, `MCM_Trigger/_clicked`;
+    // the smoke run of 2026-11-12 with `_clicked` written left the window shut]. The trait
+    // is made if the tile has none yet, as the pointer's first click makes it.
+    let press = |ui: &mut Ui, v: f64| {
+        if let Some(t) = ui.find_tile(MCM_TRIGGER) {
+            ui.set_trait(t, fnv_ui::input::CLICKED, fnv_ui::Value::Num(v));
+        }
+    };
     if page.frames == CLICK_AT && ui.find_tile(MCM_TRIGGER).is_some() && !open(ui) {
-        ui.set_float(&format!("{MCM_TRIGGER}/_clicked"), 1.0);
+        press(ui, 1.0);
+        page.clicking = true;
         info!("tiles: MCM's trigger clicked: its window opens with the Mods page");
-    } else if page.frames == CLICK_AT + 1 {
-        ui.set_float(&format!("{MCM_TRIGGER}/_clicked"), 0.0);
+    } else if page.clicking && (open(ui) || page.frames >= CLICK_AT + CLICK_FOR) {
+        if !open(ui) {
+            let read = |p: &str| ui.get_float(p).map_or("none".to_string(), |v| v.to_string());
+            bevy::prelude::warn!(
+                "tiles: MCM's window did not open: MCM visible {}, its trigger visible {}, {COLUMN} childcount {}",
+                read(&format!("{MCM}/visible")),
+                read(&format!("{MCM_TRIGGER}/visible")),
+                read(&format!("{COLUMN}/childcount"))
+            );
+        }
+        press(ui, 0.0);
+        page.clicking = false;
     }
     game.page_tick(menus::START);
+    // The frames around the click, as MCM's scripts see them: the trigger's traits and the
+    // quest variables its stage 2 and main script read (a window that stays shut says why).
+    if (CLICK_AT..CLICK_AT + 4).contains(&page.frames) {
+        let ui = &game.ui_tree;
+        let read = |p: &str| ui.get_float(p).map_or("none".to_string(), |v| v.to_string());
+        let data = game.data;
+        let vars = data.by_edid("MCM").filter(|&q| data.is_quest(q)).and_then(|q| {
+            let code = data.script(data.quests[&q].script?)?;
+            let inst = fnv_game::InstKey::Quest { quest: q };
+            Some(["iInputTrigger", "iMenu", "iInputHeld", "iInstallCheck"].map(|v| code.var_index(v).map_or("none".to_string(), |i| game.var(inst, i).num().to_string())).join(" "))
+        });
+        info!(
+            "tiles: MCM frame {}: trigger clicked {} _clicked {}, _UnClick {}, _Menu {}; iInputTrigger iMenu iInputHeld iInstallCheck {}",
+            page.frames,
+            read(&format!("{MCM_TRIGGER}/clicked")),
+            read(&format!("{MCM_TRIGGER}/_clicked")),
+            read(&format!("{MCM}/_UnClick")),
+            read(&format!("{MCM}/_Menu")),
+            vars.unwrap_or_default()
+        );
+    }
+    // Let go as soon as the window is open: a click held into the next frame is a second
+    // click on the trigger, which closes MCM again (its script: `iMenu` 1 and the trigger
+    // closes; the close resets its mod list's quest) [observed: MCM's script source].
+    if page.clicking && open(&game.ui_tree) {
+        press(&mut game.ui_tree, 0.0);
+        page.clicking = false;
+    }
     if open(&game.ui_tree) {
         if !page.mcm_open {
             info!("tiles: MCM's window is open on the Mods page");

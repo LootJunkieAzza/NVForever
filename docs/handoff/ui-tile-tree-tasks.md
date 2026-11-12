@@ -420,8 +420,10 @@ owner to add to its pull request or issue (owner, 2026-10-29).
         (`prepare_column` once, `column` each frame), the list functions take the observed
         call shapes, SetMCMModList still writes the page's heading. MCM's slider
         (owner item 2026-11-11, values not saved): the meter drags (`dragx`, menu-xml.md
-        §3) and its Accept, Cancel, Default and arrows reach MCM's script
-        (`fnv_game::ui_functions::mcm_meter_inputs`) [hypothesis, §10.2 does not cover them].
+        §3); its Accept, Cancel, Default and arrows reach MCM's script through MCM's own
+        quest stage 2, which the engine's repeated stages run each frame [observed: the
+        plugin's stage 2 result script, menu-xml.md §3], so the engine-side bridge is gone.
+        The page opens MCM by the trigger's `clicked`, not `_clicked` (a formula in MCM.xml).
 8. **T12. The vanilla HUD on tiles**, behind `[UI] TileMenus=HUDMainMenu`. Compare
     with the hud.md screenshots; keep the old HUD the default until the owner agrees.
     - **T12a done** 2026-10-29 (claude/t12-hud-tiles): the switch and the drawing.

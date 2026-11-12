@@ -196,62 +196,6 @@ fn inherited(ui: &fnv_ui::Ui, path: &str, exclude_root: bool) -> Option<f64> {
     Some(sum)
 }
 
-/// MCM's slider buttons, as MCM's own scripts are told of them: the `MCM_Scale` rect's
-/// traits and the `MCM` quest's variables they go to.
-const MCM_METER_INPUTS: [(&str, &str); 7] = [
-    ("_Accept", "iInputMeterAccept"),
-    ("_Cancel", "iInputMeterCancel"),
-    ("_Default", "iInputMeterDefault"),
-    ("_MeterL", "iInputMeterL"),
-    ("_MeterL2", "iInputMeterL2"),
-    ("_MeterR", "iInputMeterR"),
-    ("_MeterR2", "iInputMeterR2"),
-];
-
-/// What MCM.dll tells MCM's main script of its slider each frame: `MCM.iInputMeterAccept`
-/// … `iInputMeterR2` from `StartMenu/MCM/MCM_Scale`'s `_Accept` … `_MeterR2`, 1 while
-/// the trait is above 0, else 0 [hypothesis, from MCM's files alone (owner item
-/// 2026-11-11, slider settings not saved): Scale.xml gives the rect `_Accept`,
-/// `_Cancel`, `_Default` (its Accept, Cancel and Default buttons' `_clicked`) and
-/// `_MeterL`, `_MeterL2`, `_MeterR`, `_MeterR2` (the arrows' `_clicked`); MCMMainScript
-/// reads `iInputMeterAccept` … `iInputMeterR2`, never sets them, and on Accept sets
-/// `MCMScale.iNewValue`, which is what writes the slider's value to the mod; no script
-/// reads the rect's traits, so the plugin's DLL is what joins them]. Enter goes to
-/// `iInputClick` (below); the other keyboard and controller inputs are not joined. Run before
-/// the start menu's MenuMode blocks; a quest without MCM's variables is left alone.
-pub fn mcm_meter_inputs(g: &mut Game) {
-    let Some(scale) = g.ui_tree.find_tile("StartMenu/MCM/MCM_Scale") else { return };
-    let data = g.data;
-    let Some(q) = data.by_edid("MCM").filter(|&q| data.is_quest(q)) else { return };
-    let Some(script) = data.quests[&q].script else { return };
-    let Some(code) = data.script(script) else { return };
-    for (from, to) in MCM_METER_INPUTS {
-        let Some(i) = code.var_index(to) else { continue };
-        let on = g.ui_tree.tile(scale).get(from).is_some_and(|v| v.num() > 0.0);
-        let now = g.var(crate::game::InstKey::Quest { quest: q }, i).num();
-        if now != f64::from(u8::from(on)) {
-            g.store(crate::game::InstKey::Quest { quest: q }, Some(script), i, fnv_script::vm::Value::Num(f64::from(u8::from(on))), "MCM", false);
-        }
-    }
-    // Enter (keys 28 and 156) as MCM's `iInputClick`, the input that accepts its slider and
-    // list and clicks the option the keys chose: 1 in the first frame Enter is down, while
-    // `iInputHeld` counts the frames it stays down, 0 once it is up [hypothesis, from
-    // MCMMainScript: it reads `iInputClick` beside `iInputMeterAccept` and passes an input
-    // only while `iInputHeld` is under 3; its own `IsKeyPressed 28 || IsKeyPressed 156`
-    // treats both Enter keys alike]. The other keys' and the controller's inputs are not
-    // joined.
-    let (Some(click), Some(held)) = (code.var_index("iInputClick"), code.var_index("iInputHeld")) else { return };
-    let key = |g: &Game| [28u16, 156].iter().any(|k| g.input.held.contains(k) || g.input.script_held.contains(k));
-    let inst = crate::game::InstKey::Quest { quest: q };
-    let frames = g.var(inst, held).num();
-    let (c, h) = if key(g) { (f64::from(u8::from(frames == 0.0)), frames + 1.0) } else { (0.0, 0.0) };
-    for (i, v) in [(click, c), (held, h)] {
-        if g.var(inst, i).num() != v {
-            g.store(inst, Some(script), i, fnv_script::vm::Value::Num(v), "MCM", false);
-        }
-    }
-}
-
 /// The UI function `name` (any case) with its arguments; `None` when it is not one of
 /// these.
 pub fn call(g: &mut Game, name: &str, args: &[XVal]) -> Option<Result<XVal, String>> {
