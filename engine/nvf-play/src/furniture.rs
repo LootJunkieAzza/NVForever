@@ -37,6 +37,11 @@ pub struct PlayerSeat {
     /// now, so the other screens' puppet starts its own getting-off clip with this one
     /// (nvforever `coop.rs`).
     pub getting_off: bool,
+    /// A game played from the seat has the keys (the arm-wrestling stools,
+    /// `crate::armwrestle`): no movement control asks to get up, the game's own key does
+    /// (Space is its tap key and was Jump's, which stood the player up: owner's playtest,
+    /// ship13) [design]. Set by that game each frame.
+    pub game: bool,
 }
 
 /// Tell the script runtime which furniture `actor` uses, so GetSitting and the other

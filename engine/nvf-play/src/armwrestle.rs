@@ -543,6 +543,14 @@ fn leave(
     mut arm: ResMut<ArmSeat>,
 ) {
     let now = time.elapsed_secs();
+    // On one of the table's stools and not getting up: the keys are this game's, Space
+    // its tap and only Tab gets up (`PlayerSeat::game`; the card may not be open yet,
+    // waiting for a message box to close). Play runs under the card every other frame
+    // [observed: desktop run 2026-11-12, script.rs hold_player sets Playing back each
+    // frame, the arm screen not being one of its tables; the world going on is what lets
+    // the Settler walk over], and there Space was Jump and stood the player up.
+    let staying = screen.0.as_ref().is_none_or(|a| !a.leaving && a.left_at.is_none());
+    seat.game = staying && seat.hold.is_some() && seat.on.is_some_and(|s| table.stool_index(s).is_some());
     let Some(a) = screen.0.as_mut() else { return };
     // Up some other way (the stool left by moving once the menu let go): as leaving.
     if (a.leaving || seat.hold.is_none()) && a.left_at.is_none() {
@@ -613,11 +621,16 @@ fn draw(mut commands: Commands, screen: Res<ArmScreen>, time: AidTime, casino: O
                 crate::casino_hud::ScoreRow { name: "You".into(), score: format!("{}", b.taps[me]), note: format!("STR {}", a.player_strength as i32), up: true },
                 crate::casino_hud::ScoreRow { name: a.foe_name.clone(), score: format!("{}", b.taps[1 - me]), note: format!("STR {}", b.strength[1 - me] as i32), up: false },
             ];
-            crate::casino_hud::score_panel(p, f, &rows, Some("Taps"));
+            let won = a.won() == Some(true);
+            let board = a.page == Page::Result && b.ended.is_some_and(|e| now - e >= board_after(won));
+            // The taps until the leaderboard, which takes their place (parity's review of
+            // the night shots, 2026-11-12: both up at once) [design].
+            if !board {
+                crate::casino_hud::score_panel(p, f, &rows, Some("Taps"));
+            }
             if a.page == Page::Result {
-                let won = a.won() == Some(true);
                 // The YOU WIN highlight alone first, then the leaderboard.
-                if !b.ended.is_some_and(|e| now - e >= board_after(won)) {
+                if !board {
                     return;
                 }
                 let winner = if won { "You".to_string() } else { a.foe_name.clone() };

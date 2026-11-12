@@ -510,6 +510,7 @@ fn gather(
     (vats, wheel): (Option<Res<crate::vats_mode::VatsMode>>, Option<Res<crate::weapon_wheel::WeaponWheel>>),
     driven: Option<Res<crate::player::ViewDriven>>,
     kill_cam: Option<Res<crate::kill_cam::KillCam>>,
+    arm: Option<Res<crate::armwrestle_coop::ArmSeat>>,
 ) {
     // [documented: GECK wiki DisablePlayerControls, the movement flag: "HUD is partially
     // disabled: Action Points, Health, Crosshair".]
@@ -525,6 +526,10 @@ fn gather(
     let wheel_open = wheel.is_some_and(|w| w.is_open());
     // Nor while a kill camera plays (`crate::kill_cam`) [owner's playtest request #1034].
     let killcam = kill_cam.is_some_and(|k| k.active());
+    // Nor over an arm-wrestling bout and its result, which the table's own HUD draws
+    // (`ArmSeat::hud`): play runs under the match (script.rs hold_player), and Health, AP
+    // and the compass sat under the meter (armwrestle-a desktop runs 2026-11-12) [design].
+    let wrestling = arm.is_some_and(|a| a.hud);
     if killcam != view.kill_cam {
         info!("hud: {}", if killcam { "hidden: the kill camera has the view" } else { "back after the kill camera" });
     }
@@ -532,7 +537,7 @@ fn gather(
     if end_view != view.end_view {
         info!("hud: {}", if end_view { "hidden: the match's end view has the view" } else { "back after the match's end view" });
     }
-    let mut now = HudView { shown: *state.get() == PlayState::Playing && !held && !creating && !posed && !wheel_open && !killcam && !end_view, kill_cam: killcam, end_view, ..view.clone() };
+    let mut now = HudView { shown: *state.get() == PlayState::Playing && !held && !creating && !posed && !wheel_open && !killcam && !wrestling && !end_view, kill_cam: killcam, end_view, ..view.clone() };
     if let Some(p) = &player {
         // Where the camera looks, not where the character faces (third person).
         now.heading = control.as_deref().map_or(p.heading, |c| c.view_heading(p.heading)).to_degrees();
