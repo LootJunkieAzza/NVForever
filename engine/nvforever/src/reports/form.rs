@@ -245,8 +245,10 @@ fn endpoint() -> Result<String, String> {
 pub fn add(app: &mut App) {
     app.init_resource::<FormRequest>()
         .init_resource::<Form>()
-        .add_systems(PreUpdate, clear_form_over)
-        .add_systems(Update, (open, shoot, keys, clicks, test_aid, progress, draw).chain());
+        // Only where the pause menu and saves are (a played game): a menu-only or viewer
+        // run has neither.
+        .add_systems(PreUpdate, clear_form_over.run_if(in_play))
+        .add_systems(Update, (open, shoot, keys, clicks, test_aid, progress, draw).chain().run_if(in_play));
     nvf_play::settings::add_choice_list(
         app,
         nvf_play::settings::Setting {
@@ -285,6 +287,11 @@ pub fn add(app: &mut App) {
             ask_keep: false,
         },
     );
+}
+
+/// The pause menu and the save messages exist (a played game).
+fn in_play(over: Option<Res<FormOver>>, saves: Option<Res<Messages<nvf_play::save::SaveRequest>>>, done: Option<Res<Messages<nvf_play::save::SaveDone>>>) -> bool {
+    over.is_some() && saves.is_some() && done.is_some()
 }
 
 fn row_status() -> String {
