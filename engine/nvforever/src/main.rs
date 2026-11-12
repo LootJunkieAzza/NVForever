@@ -123,6 +123,7 @@ mod emote_play;
 mod mate_heads;
 mod slots_seat;
 mod armwrestle_arm;
+mod armwrestle_view;
 mod armwrestle_free_arm;
 mod darts_arm;
 mod darts_world;
@@ -1743,6 +1744,8 @@ fn main() -> AppExit {
             app.add_plugins(darts_world::DartsWorldPlugin);
             // Arm wrestling: the wrestlers' right arms posed from the bout (armwrestle_arm.rs).
             app.add_systems(PostUpdate, armwrestle_arm::arms.before(bevy::transform::TransformSystems::Propagate));
+            // The match's camera, close over the shoulder onto the clasp (armwrestle_view.rs).
+            app.add_systems(PostUpdate, armwrestle_view::camera.before(bevy::transform::TransformSystems::Propagate));
             // Pool at the mod's tables: the balls and the cue in the world (pool_world.rs).
             app.add_plugins(pool_world::PoolWorldPlugin);
             // After a darts or pool match: the winner cheers, the loser is beaten, the camera

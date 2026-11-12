@@ -459,7 +459,8 @@ pub fn seated_on(using: Option<fnv_game::game::FurnitureUse>, stool: FormId) -> 
 /// shoulder, where the player's own body wrestles (its arms posed to the clasp, nvforever
 /// `armwrestle_arm`; the first-person arms are not), and turns once to look across the table
 /// down onto the clasped hands, the opponent above them; the mouse looks around after. Up again,
-/// the view it had comes back [owner (via the lead, 2026-11-11): in first person the
+/// the view it had comes back. While the match runs nvforever's `armwrestle_view` holds the
+/// camera close over the shoulder [owner (via the lead, 2026-11-11): in first person the
 /// table filled the screen, the opponent cut off at the chest, the player's own arm not
 /// there; laptop ship5 run].
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
@@ -549,8 +550,11 @@ fn leave(
 /// The meter's track, interface units.
 const METER_W: f32 = 420.0;
 const METER_H: f32 = 14.0;
-/// The tap prompt's place: the view's middle, a little low [design].
-const PROMPT_TOP: f32 = 560.0;
+/// The tap prompt's place: the view's lower third, under the clasped hands the match camera
+/// centres (nvforever `armwrestle_view`), above the HUD's bars (their tops at about 800 of
+/// the 960 units) [design: the lead, 2026-11-11, run15: at 560 the prompt and bar sat on the
+/// clasp].
+const PROMPT_TOP: f32 = 680.0;
 
 fn draw(mut commands: Commands, screen: Res<ArmScreen>, time: AidTime, casino: Option<Res<CasinoFaces>>, old: Query<Entity, With<ArmRoot>>, mut arm: ResMut<ArmSeat>) {
     for e in &old {
