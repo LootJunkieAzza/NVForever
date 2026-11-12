@@ -270,6 +270,9 @@ pub enum RealInput {
     Mouse(MouseButton),
     /// [design] A synthetic controller's button, routed by crate::pad::menu_keys.
     Pad(GamepadButton),
+    /// [design] The synthetic controller's left stick pushed all the way one way
+    /// (`pad-Left Stick Down` …), read as [`crate::pad::StickButtons`].
+    Stick(crate::pad::StickDir),
     /// A notch of the wheel: up is positive.
     Wheel(f32),
 }
@@ -316,7 +319,8 @@ pub fn real_input(rest: &str) -> Result<(RealInput, f32), String> {
         "mouse-middle" => RealInput::Mouse(MouseButton::Middle),
         l if l.starts_with("pad-") => match crate::pad::parse_pad(&l[4..]) {
             Some(crate::pad::PadInput::Button(b)) => RealInput::Pad(b),
-            _ => return Err(format!("{rest:?}: unknown pad button {name:?}")),
+            Some(crate::pad::PadInput::Stick(d)) => RealInput::Stick(d),
+            None => return Err(format!("{rest:?}: unknown pad button {name:?}")),
         },
         l if l.len() == 1 && l.as_bytes()[0].is_ascii_lowercase() => RealInput::Key(letters[(l.as_bytes()[0] - b'a') as usize]),
         l if l.len() == 1 && l.as_bytes()[0].is_ascii_digit() => RealInput::Key(digits[(l.as_bytes()[0] - b'0') as usize]),
@@ -356,6 +360,11 @@ pub(crate) fn real_presses(time: crate::pause::AidTime, mut p: ResMut<RealPresse
                     g.digital_mut().release(b);
                 }
             }
+            RealInput::Stick(d) => {
+                if let Some(g) = pad.as_mut() {
+                    g.analog_mut().set(stick_axis(d).0, 0.0);
+                }
+            }
             RealInput::Wheel(_) => {}
         }
         info!("test aid: real input {input:?} let go");
@@ -370,6 +379,12 @@ pub(crate) fn real_presses(time: crate::pause::AidTime, mut p: ResMut<RealPresse
                     g.digital_mut().press(b);
                 }
             }
+            RealInput::Stick(d) => {
+                if let Some(g) = pad.as_mut() {
+                    let (axis, value) = stick_axis(d);
+                    g.analog_mut().set(axis, value);
+                }
+            }
             RealInput::Wheel(y) => {
                 wheel.write(bevy::input::mouse::MouseWheel { unit: bevy::input::mouse::MouseScrollUnit::Line, x: 0.0, y, window: Entity::PLACEHOLDER, phase: bevy::input::touch::TouchPhase::Moved });
             }
@@ -377,6 +392,17 @@ pub(crate) fn real_presses(time: crate::pause::AidTime, mut p: ResMut<RealPresse
         info!("test aid: real input {input:?} pressed");
         // At least one frame down.
         p.down.push((input, now + hold.max(1e-4)));
+    }
+}
+
+/// The left stick's axis a push one way moves, and its value there.
+fn stick_axis(d: crate::pad::StickDir) -> (GamepadAxis, f32) {
+    use crate::pad::StickDir;
+    match d {
+        StickDir::Up => (GamepadAxis::LeftStickY, 1.0),
+        StickDir::Down => (GamepadAxis::LeftStickY, -1.0),
+        StickDir::Left => (GamepadAxis::LeftStickX, -1.0),
+        StickDir::Right => (GamepadAxis::LeftStickX, 1.0),
     }
 }
 
@@ -509,9 +535,9 @@ pub(crate) fn setup(app: &mut App) {
     if let Some(v) = var("NVF_PLAY_TEST_KEYS") {
         match timed(&v).and_then(|items| items.into_iter().map(|(s, r)| real_input(r).map(|k| (s, k))).collect::<Result<Vec<_>, _>>()) {
             Ok(due) => {
-                let pad = due.iter().any(|(_, (i, _))| matches!(i, RealInput::Pad(_))).then(|| app.world_mut().spawn((Gamepad::default(), Name::new("Scripted controller"))).id());
+                let pad = due.iter().any(|(_, (i, _))| matches!(i, RealInput::Pad(_) | RealInput::Stick(_))).then(|| app.world_mut().spawn((Gamepad::default(), Name::new("Scripted controller"))).id());
                 app.insert_resource(RealPresses { due, down: Vec::new(), pad })
-                    .add_systems(PreUpdate, real_presses.after(bevy::input::InputSystems).before(crate::pad::menu_keys).before(bevy::ui::UiSystems::Focus));
+                    .add_systems(PreUpdate, real_presses.after(bevy::input::InputSystems).before(crate::pad::menu_keys).before(crate::pad::update_stick_buttons).before(bevy::ui::UiSystems::Focus));
             }
             Err(e) => warn!("NVF_PLAY_TEST_KEYS: {e}"),
         }
@@ -858,6 +884,26 @@ mod tests {
         assert_eq!(real_input("pad-X:0.2"), Ok((RealInput::Pad(GamepadButton::West), 0.2)));
         assert_eq!(real_input("pad-A"), Ok((RealInput::Pad(GamepadButton::South), 0.0)));
         assert!(real_input("pad-unknown").is_err());
+    }
+
+    /// The stick aid pushes the synthetic controller's left stick and lets it go.
+    #[test]
+    fn scripted_stick_pushes_and_lets_go() {
+        use bevy::ecs::system::RunSystemOnce;
+        assert_eq!(real_input("pad-Left Stick Down"), Ok((RealInput::Stick(crate::pad::StickDir::Down), 0.0)));
+        let mut world = World::new();
+        world.insert_resource(Time::<()>::default());
+        world.init_resource::<crate::pause::PlayClock>();
+        world.init_resource::<ButtonInput<KeyCode>>();
+        world.init_resource::<ButtonInput<MouseButton>>();
+        world.init_resource::<Messages<bevy::input::mouse::MouseWheel>>();
+        let pad = world.spawn(Gamepad::default()).id();
+        world.insert_resource(RealPresses { due: vec![(0.0, (RealInput::Stick(crate::pad::StickDir::Down), 0.0))], down: Vec::new(), pad: Some(pad) });
+        world.run_system_once(real_presses).unwrap();
+        assert_eq!(world.get::<Gamepad>(pad).unwrap().left_stick(), Vec2::new(0.0, -1.0));
+        world.resource_mut::<Time>().advance_by(std::time::Duration::from_millis(1));
+        world.run_system_once(real_presses).unwrap();
+        assert_eq!(world.get::<Gamepad>(pad).unwrap().left_stick(), Vec2::ZERO);
     }
 
     #[test]
