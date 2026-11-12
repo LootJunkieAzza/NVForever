@@ -20,7 +20,7 @@ use bevy::image::CompressedImageFormatSupport;
 use bevy::prelude::*;
 use crate::ui_pointer::Button;
 use bevy::window::PrimaryWindow;
-use fnv_game::caravan::{Caravan, Game, Move, Phase, OPPONENT, PLAYER, SOLD_MAX, TRACKS};
+use fnv_game::caravan::{Caravan, Game, Move, Phase, OPPONENT, PLAYER, SOLD_MAX, SOLD_MIN, TRACKS};
 use fnv_sim::FormId;
 use nvf_assets::GameData;
 use std::collections::HashMap;
@@ -86,6 +86,20 @@ const MARK: f32 = 3.0;
 const CARVED: Color = Color::srgba(0.86, 0.83, 0.76, 0.55);
 /// A caravan over 26 shows its value in red [observed].
 const OVER: Color = Color::srgb(0.9, 0.15, 0.1);
+/// A caravan in the sold range (21 to 26) shows its value in white [observed: the owner,
+/// playtest 2026-11-11, "when a caravan is above 21 ... the number should turn white like
+/// it does in the original"; the menu file sets no colour for the values,
+/// `menus\prefabs\caravan_game_menu.xml` `CGM_PlayerTrack1Value` …].
+const SOLD: Color = Color::srgb(1.0, 1.0, 1.0);
+
+/// A caravan value's colour: white once in the sold range, red over it, else the menu's.
+pub fn value_colour(v: u32, normal: Color) -> Color {
+    match v {
+        SOLD_MIN..=SOLD_MAX => SOLD,
+        _ if v > SOLD_MAX => OVER,
+        _ => normal,
+    }
+}
 
 #[derive(Component)]
 pub struct CaravanRoot;
@@ -485,7 +499,8 @@ fn play(p: &mut ChildSpawnerCommands, c: &mut Ctx, s: &Session, dim: f32, flat: 
             c.text_in(p, FontKind::Menu, names[t], NAME_X[t], row, false, CARVED);
             let k = &g.sides[side].caravans[t];
             let v = k.value();
-            c.text_in(p, FontKind::Menu, &v.to_string(), VALUE_X[t], row, true, if v > SOLD_MAX { OVER } else { b });
+            // Both sides, against the game's opponent or another player (the same screen).
+            c.text_in(p, FontKind::Menu, &v.to_string(), VALUE_X[t], row, true, value_colour(v, b));
         }
     }
     // The opponent's caravans are drawn first: the player's lie over them.
@@ -638,5 +653,20 @@ pub fn fade(mut commands: Commands, screen: Res<CaravanScreen>, time: AidTime, r
                 t.0.set_alpha(a);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod value_colour_tests {
+    use super::*;
+
+    #[test]
+    fn sold_values_are_white_and_over_26_red() {
+        let b = amber(255.0);
+        assert_eq!(value_colour(20, b), b);
+        assert_eq!(value_colour(21, b), SOLD);
+        assert_eq!(value_colour(26, b), SOLD);
+        assert_eq!(value_colour(27, b), OVER);
+        assert_eq!(value_colour(0, b), b);
     }
 }

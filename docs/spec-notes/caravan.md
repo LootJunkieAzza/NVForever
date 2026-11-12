@@ -150,7 +150,9 @@ rulings:
 - **Value and sale.** A caravan's value is the sum of its numbered cards (aces 1, Kings
   doubling). A caravan is sold at 21 to 26 when it is higher than the opponent's on the
   same track, or the opponent's is not in range; tied values sell neither [documented].
-  A value over 26 is shown in red [observed: "36"].
+  A value over 26 is shown in red [observed: "36"]; a value in the sold range, 21 to 26,
+  in white [observed: the owner, 2026-11-11]. The menu file sets no colour for the values
+  (`caravan_game_menu.xml`, `CGM_*TrackNValue`) [observed]: the game's code does.
 - **The end.** The game ends when all three tracks are sold; the side with two or three
   wins the pot [documented]. A side that runs out of cards (no card in the hand and none
   in the deck) loses [owner ruling 2026-10-19]. Cancel forfeits (a loss).

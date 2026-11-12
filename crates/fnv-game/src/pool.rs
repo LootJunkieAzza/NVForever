@@ -368,6 +368,133 @@ impl Table {
     }
 }
 
+/// The aiming line from the shot itself (owner, 2026-11-11: "pool lines aren't accurate.
+/// their range should be determined by perception, and at every 4 int you can see a bounce
+/// in the line"). [`Table::guide`] draws straight lines from the touch point, but the
+/// physics finds a touch by overlap after a step, so the angle the balls leave at depends
+/// on the shot's speed; the prediction runs [`Table::step`] itself on a copy of the table
+/// at the shot's speed, so it is the path the balls take.
+///
+/// - Each path (the white's, and the first ball it touches) is the points where it turns:
+///   a cushion, a ball, a pocket, or where it stops.
+/// - It shows the first leg and `bounces` more turns ([`guide_bounces`]: one for every 4
+///   Intelligence), each path at most `reach` long ([`guide_reach`]: Perception) [design].
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Prediction {
+    pub white: Vec<[f32; 2]>,
+    /// The first ball the white touches, and its path from where it was touched.
+    pub target: Option<(usize, Vec<[f32; 2]>)>,
+}
+
+/// The aiming line's length for a Perception, sim units (the cloth is 1000 long): 250 at
+/// 1, 650 at 5, 1150 at 10 [design].
+pub fn guide_reach(perception: u32) -> f32 {
+    150.0 + 100.0 * perception.clamp(1, 10) as f32
+}
+
+/// The turns the aiming line shows for an Intelligence: none below 4, then one more for
+/// every 4 (4-7: 1, 8-11: 2, 12+: 3) [design: the owner, 2026-11-11].
+pub fn guide_bounces(intelligence: u32) -> u32 {
+    intelligence / 4
+}
+
+/// A path being followed: its points, its length and the turns left.
+struct Track {
+    points: Vec<[f32; 2]>,
+    len: f32,
+    turns_left: i32,
+    done: bool,
+}
+
+impl Track {
+    fn new(at: [f32; 2], bounces: u32) -> Track {
+        Track { points: vec![at], len: 0.0, turns_left: bounces as i32, done: false }
+    }
+
+    /// The ball moved from `from` to `to` this step, with velocity `v0` before and `v1`
+    /// after; `gone` when it dropped.
+    fn add(&mut self, from: [f32; 2], to: [f32; 2], v0: [f32; 2], v1: [f32; 2], gone: bool, reach: f32) {
+        if self.done {
+            return;
+        }
+        let d = (to[0] - from[0]).hypot(to[1] - from[1]);
+        if self.len + d >= reach {
+            let k = if d > 0.0 { (reach - self.len) / d } else { 0.0 };
+            self.points.push([from[0] + (to[0] - from[0]) * k, from[1] + (to[1] - from[1]) * k]);
+            self.done = true;
+            return;
+        }
+        self.len += d;
+        let s0 = v0[0].hypot(v0[1]);
+        let s1 = v1[0].hypot(v1[1]);
+        if gone || s1 == 0.0 {
+            self.points.push(to);
+            self.done = true;
+            return;
+        }
+        // A turn: the way it goes changed by more than about 2 degrees, or it lost more
+        // speed than the cloth takes (a ball or a cushion hit straight on).
+        let cos = if s0 > 0.0 { (v0[0] * v1[0] + v0[1] * v1[1]) / (s0 * s1) } else { 1.0 };
+        if cos < 0.9994 || s1 < s0 - 2.0 * FRICTION * STEP {
+            self.points.push(to);
+            self.turns_left -= 1;
+            if self.turns_left < 0 {
+                self.done = true;
+            }
+        }
+    }
+}
+
+impl Table {
+    /// Where a shot along `dir` at `speed` sends the white and the first ball it touches
+    /// ([`Prediction`]), each path at most `reach` long and showing `bounces` turns after
+    /// its first leg.
+    pub fn predict(&self, dir: [f32; 2], speed: f32, reach: f32, bounces: u32) -> Prediction {
+        let mut t = self.clone();
+        for b in t.balls.iter_mut() {
+            b.vel = [0.0; 2];
+        }
+        t.balls[0].vel = [dir[0] * speed, dir[1] * speed];
+        let mut log = ShotLog::default();
+        let mut white = Track::new(t.balls[0].pos, bounces);
+        let mut target: Option<(usize, Track)> = None;
+        // The shot's whole run, at most 20 s of steps.
+        for _ in 0..(20.0 / STEP) as u32 {
+            let before = t.balls;
+            let first = log.first_hit;
+            t.step(&mut log);
+            let b0 = &t.balls[0];
+            white.add(before[0].pos, b0.pos, before[0].vel, b0.vel, !b0.on, reach);
+            if first == 0 && log.first_hit != 0 {
+                let i = log.first_hit as usize;
+                let mut k = Track::new(before[i].pos, bounces);
+                let b = &t.balls[i];
+                k.add(before[i].pos, b.pos, b.vel, b.vel, !b.on, reach);
+                target = Some((i, k));
+            } else if let Some((i, k)) = target.as_mut() {
+                let b = &t.balls[*i];
+                k.add(before[*i].pos, b.pos, before[*i].vel, b.vel, !b.on, reach);
+            }
+            if white.done && target.as_ref().is_none_or(|(_, k)| k.done) {
+                break;
+            }
+            if !t.moving() {
+                break;
+            }
+        }
+        // A path still going when the balls stopped ends where its ball lies.
+        if !white.done {
+            white.points.push(t.balls[0].pos);
+        }
+        if let Some((i, k)) = target.as_mut() {
+            if !k.done {
+                k.points.push(t.balls[*i].pos);
+            }
+        }
+        Prediction { white: white.points, target: target.map(|(i, k)| (i, k.points)) }
+    }
+}
+
 /// How far from `p` along `d` the cushion line is (the centre's limit, 12..988 by 12..488).
 fn wall(p: [f32; 2], d: [f32; 2]) -> f32 {
     let mut l = f32::INFINITY;
@@ -833,6 +960,11 @@ mod tests {
     #[test]
     fn the_guide_finds_the_ball_in_the_way() {
         let t = only(&[(0, [200.0, 250.0]), (4, [500.0, 250.0])]);
+        // The shot's own path: straight at the 4, 0 bounces: the white's line ends at the
+        // touch and the 4 goes on its first leg.
+        let p = t.predict([1.0, 0.0], shot_speed(0.5, false), guide_reach(10), guide_bounces(3));
+        assert_eq!(p.target.as_ref().map(|t| t.0), Some(4));
+        assert_eq!(p.white.len(), 2, "{p:?}");
         let g = t.guide([1.0, 0.0]);
         assert!((g.contact[0] - 476.0).abs() < 1e-3);
         let (ball, at, to) = g.target.unwrap();
@@ -841,6 +973,34 @@ mod tests {
         // Nothing in the way: it ends at the cushion.
         let g = t.guide([0.0, -1.0]);
         assert!(g.target.is_none() && (g.contact[1] - R).abs() < 1e-3);
+    }
+
+    #[test]
+    fn the_prediction_shows_bounces_by_intelligence_and_length_by_perception() {
+        assert_eq!((guide_bounces(3), guide_bounces(4), guide_bounces(7), guide_bounces(8), guide_bounces(12)), (0, 1, 1, 2, 3));
+        assert_eq!((guide_reach(1), guide_reach(5), guide_reach(10)), (250.0, 650.0, 1150.0));
+        // The white alone, at an angle to the far cushion: each turn is a corner.
+        let t = only(&[(0, [200.0, 250.0])]);
+        let d = [0.6, -0.8];
+        let speed = shot_speed(1.0, false);
+        let path = |b| t.predict(d, speed, 5000.0, b).white;
+        assert_eq!(path(0).len(), 2, "{:?}", path(0));
+        assert_eq!(path(1).len(), 3, "{:?}", path(1));
+        assert_eq!(path(2).len(), 4, "{:?}", path(2));
+        // The first corner is on the cushion line, where the shot meets it.
+        let c = path(1)[1];
+        assert!((c[1] - R).abs() < 8.0 && (c[0] - (200.0 + 0.75 * (250.0 - R))).abs() < 8.0, "{c:?}");
+        // The length is the reach's.
+        let p = t.predict(d, speed, 250.0, 3).white;
+        let len: f32 = p.windows(2).map(|w| (w[1][0] - w[0][0]).hypot(w[1][1] - w[0][1])).sum();
+        assert!((len - 250.0).abs() < 1.0, "{len} {p:?}");
+        // The prediction is the shot: its last point is where the white stops.
+        let mut real = t.clone();
+        real.balls[0].vel = [d[0] * 300.0, d[1] * 300.0];
+        real.settle(&mut ShotLog::default(), 100_000);
+        let p = t.predict(d, 300.0, 5000.0, 9).white;
+        let end = *p.last().unwrap();
+        assert!((end[0] - real.balls[0].pos[0]).abs() < 1e-3 && (end[1] - real.balls[0].pos[1]).abs() < 1e-3, "{end:?} {:?}", real.balls[0].pos);
     }
 
     #[test]
