@@ -1237,6 +1237,7 @@ impl<'a> Game<'a> {
             force_subtitles: false,
             two_d: false,
             end_ran: def.has(info_flag::RUN_IMMEDIATELY),
+            leads_on: false,
         });
         self.farewell_said = Some((actor, info));
         self.end_dialogue_as(ended::GOODBYE);
