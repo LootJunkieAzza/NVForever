@@ -223,6 +223,78 @@ being modded (Inventory Reference)"]. NVForever counts it among the Pip-Boy's co
   flags m)`, `pipboy mod: <weapon> - <mod> (slot n, flags m)`, `pipboy mod: cancel`, `pipboy mod: clicked row <n>`.
 - Test aid: the Pip-Boy aid's `mod=open|down|up|use|cancel` (`test_aid.rs`).
 
+### 5.1 The menu drawn from its file
+
+Behind `[UI] TileMenus=ItemModMenu`, off by default, the mod menu is drawn from
+`menus\item_mod_menu.xml`, painted into the Pip-Boy's image (issue #1513) [design:
+`engine/nvf-play/src/tiles/item_mod_menu.rs`, in the way of the repair page, repair.md §5.1;
+the card pairs in `tiles/repair_cards.rs`, the list in `tiles/list.rs`, both shared with the
+repair page]. Off, nothing here runs and the hand-built menu above is unchanged; with the switch
+on and the file short of a tile, the whole hand-built menu stands and the log says why once
+(`ItemModMenu drawn by hand: <path> missing`). The rules, keys, figures, sounds and log lines stay
+`engine/nvf-play/src/pipboy/item_mod.rs`'s (the figures: `item_mod::compare`, which the
+hand-built cards now read too); a click reaches them as `ModInput`, as the hand-built rows' do.
+MenuMode is 1061 alone while the menu is open (the ITEMS page's 1002 is not open beside it); the
+menu's tree is always loaded (`fnv_game::ui_loading::ALWAYS_LOADED`), and a tree built again
+(a new menu tile) is written whole, keeping no tile of the one before [design]. While the menu is
+open the ITEMS page drawn from its file (`InventoryMenu`) gives way, as for the repair list
+(pipboy.md §5.2.1), so with this switch off the hand-built menu draws as before.
+
+**From its file: what the code writes** [design; tile names documented: item_mod_menu.xml]:
+
+| Tile | What is written | Source |
+| --- | --- | --- |
+| `IMM_Headline_Title` | not written | the file's (`sInventoryItems`) |
+| `IMM_ItemName` `string` | the weapon's name, "+" when modded | the record's name; "+" is ours (§5) |
+| `WMM_Background` `visible` | 0: the Pip-Boy's own backing | [design, as RM_Background] |
+| a row's `ListItemText` `string` | name, count, and under a mod's name its effect on a second line | the record's name; "(n)" and the effect words are ours (`item_mod::effect_text`) |
+| a row's `ListItemText` `alpha` | 255 | the file leaves it to code [hypothesis: no row dims] |
+| a row's `_IsItemModItem` | 1 on the weapon's row | [design: as `_IsRepairItem`]; `user0`, `user1` not written |
+| `IMM_Template_ItemMarker` `visible` | the weapon worn, or the mod on it | the model |
+| `IMM_LeftBracket` `y`, `height` | on the weapon's row, scrolled with it, one less than the row | as the repair page (repair.md §5.1) |
+| the list's highlight | the model's chosen row | the model |
+| `IMM_ItemIcon` | the chosen mod's picture, the weapon's on its row | the records |
+| `IMM_ModDesc` `string` | the chosen mod's description; empty on the weapon's row | the record (IMOD DESC) |
+| `IMM_ItemHealth`, `IMM_ModItemHealth` | the weapon's condition (`user0`), both sides alike | the model |
+| their `_Title` | the file's; only where the file has none | `sInventoryCondition` |
+| `IMM_ItemStat`, `IM_ModItemStat` | the figure the chosen mod changes (else DAM), as the model words it: whole ("11"), decimal ("0.40") or words ("Silent") | `item_mod::compare` |
+| `IMM_StatImprovementText` | the gain, "+3" or "-0.50"; hidden for words | `item_mod::gain_text` |
+| `IMM_HealthImprovementText` | hidden: a mod does not change the condition | the model |
+| `IMM_ChooseItemText` | hidden, empty | [design: the hand-built menu has none and the original's was not seen] |
+| `IMM_ItemModButton` `target` | 1 on a mod's row; `visible` stays the file's (shown on a controller only) | the model |
+| `IMM_CancelButton` `_PCButtonText` | hint | `sPCMenuHintE` (a controller's button name, `pad::game_hint`) |
+
+The card values are words, not numbers [design: `repair_cards::CardValues`]: the repair pages'
+whole positive gains ("+N%", "+N") and the mod menu's decimal, negative and worded figures go
+through the same card writer; the repair pages' words are unchanged.
+
+**Input** [design]: the pointer is the Pip-Boy's own; a row it comes onto, once it has moved, is
+chosen (`Hover`); leaving the rows keeps the choice, as the hand-built rows do. A click on a row
+sends `Click` (choose it, or on the chosen mod attach or remove it, `item_mod::resolve`), the Mod
+button `Use`, Cancel `Cancel`; the scrollbar's arrows, page areas and marker move the list's own
+view. The keys stay the model's (`item_mod_menu::HAND_BUILT_KEYS`); a script's MenuTapKey of E
+still clicks Cancel by the file's `_PCButton_E`.
+
+**Log lines** (smoke reads them): `tiles: ItemModMenu ready: drawn from tiles` and
+`tiles: ItemModMenu no longer drawn from tiles after <n> passes: <why>` at each change of the
+decision, so a fallback of one frame shows; `tiles: ItemModMenu drawn from tiles: <n> rows (<m>
+with an effect line); weapon "<name>"; highlight "<name>"; figures: <cards>` when what it shows
+changes; `tiles: ItemModMenu <Click(n)|Hover(n)|Use|Cancel> on its tiles`.
+
+**Known differences from the hand-built menu** (the maintainer's design, kept as the default)
+[design]:
+
+- The effect line wraps with the name at the file's 270, not 338: the file's row has one text.
+- The Mod hint stands on a controller only (the file's `&xbox;`); on a PC the hand-built column
+  shows "Mod Enter)" too (#1896). Enter and a click on the chosen mod still attach or remove it.
+- An item with no figure has no stat card; the hand-built menu draws an empty one.
+- The description is the file's text tile, not cut at three lines.
+- The list scrolls as the file's list does (its own view), not by the model's eight rows.
+
+**Open** [hypothesis]: the original's mod menu was not captured: what it writes in `user0`,
+`user1`, `_IsItemModItem` and the choose text, whether its rows show the effect at all, and its
+cards' words for each effect.
+
 ## 6. Not built
 
 - An NPC's modded figures in combat.

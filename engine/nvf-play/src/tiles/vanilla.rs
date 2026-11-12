@@ -9,8 +9,9 @@
 //!   `StatsMenu` (the Pip-Boy's STATS page, `super::stats_menu`), `InventoryMenu` (the
 //!   Pip-Boy's ITEMS page, `super::inventory_menu`), `DialogMenu` (`super::dialog_menu`),
 //!   `RepairServicesMenu` (`super::repair_services_menu`), `RepairMenu` (the Pip-Boy's
-//!   repair page, `super::repair_menu`) and `MapMenu` (the Pip-Boy's DATA page,
-//!   `super::map_menu`) are acted on. It is
+//!   repair page, `super::repair_menu`), `ItemModMenu` (the Pip-Boy's weapon mod menu,
+//!   `super::item_mod_menu`) and `MapMenu` (the Pip-Boy's DATA page, `super::map_menu`) are
+//!   acted on. It is
 //!   read once at start, from the INI the settings page uses
 //!   (`crate::settings::SettingsFile`: an unattended run in the player's own home reads
 //!   none). The test aid `NVF_PLAY_TEST_TILE_MENUS=<list>` sets it instead, so a smoke
@@ -63,8 +64,9 @@ pub struct TileMenus {
     /// `StatsMenu`: the Pip-Boy's STATS page from its file, in the Pip-Boy's image
     /// (`super::stats_menu`).
     pub stats: bool,
-    /// `InventoryMenu`: the Pip-Boy's ITEMS page from its file, in the Pip-Boy's image, the repair
-    /// list and the mod menu hand-built over it (`super::inventory_menu`), and its prompt from
+    /// `InventoryMenu`: the Pip-Boy's ITEMS page from its file, in the Pip-Boy's image, giving way
+    /// to the repair list and the mod menu (hand-built, or from their files with `RepairMenu` and
+    /// `ItemModMenu`) while they are open (`super::inventory_menu`), and its prompt from
     /// `QuantityMenu`'s while it is so drawn (`super::menus::quantity_tiled`).
     pub inventory: bool,
     /// `ContainerMenu` (T15c): the container menu from its file, the hand-built one
@@ -90,6 +92,9 @@ pub struct TileMenus {
     /// `RepairMenu`: the Pip-Boy's repair page from its file, in the Pip-Boy's image, the
     /// hand-built list (`crate::pipboy::repair`) not drawn (`super::repair_menu`).
     pub repair_menu: bool,
+    /// `ItemModMenu`: the Pip-Boy's weapon mod menu from its file, in the Pip-Boy's image, the
+    /// hand-built menu (`crate::pipboy::item_mod`) not drawn (`super::item_mod_menu`).
+    pub item_mod: bool,
     /// `MapMenu`: the Pip-Boy's DATA page from its file, in the Pip-Boy's image, on the tabs it
     /// draws (`super::map_menu`); the page's preparation runs before the frame
     /// (`crate::pipboy::data::prepare`).
@@ -135,6 +140,8 @@ impl TileMenus {
                 menus.repair_services = true;
             } else if name.eq_ignore_ascii_case(super::repair_menu::REPAIR_MENU) {
                 menus.repair_menu = true;
+            } else if name.eq_ignore_ascii_case(super::item_mod_menu::ITEM_MOD_MENU) {
+                menus.item_mod = true;
             } else if name.eq_ignore_ascii_case(super::map_menu::MAP_MENU) {
                 menus.map = true;
             } else {
@@ -173,12 +180,12 @@ pub(crate) fn setup(app: &mut App) {
 
 impl TileMenus {
     /// The menus the switch acts on, in its order.
-    pub const NAMES: [&str; 17] = [super::draw::HUD_MENU, super::menus::MESSAGE_MENU, super::menus::QUANTITY_MENU, super::wait_menu::SLEEP_WAIT_MENU, super::tutorial_menu::TUTORIAL_MENU, super::container_menu::CONTAINER_MENU, super::barter_menu::BARTER_MENU, super::recipe_menu::RECIPE_MENU, super::trait_menu::TRAIT_MENU, super::tag_menu::TAG_MENU, super::mods::START_MENU, super::stats_menu::STATS_MENU, super::dialog_menu::DIALOG_MENU, super::inventory_menu::INVENTORY_MENU, super::repair_services_menu::REPAIR_SERVICES_MENU, super::repair_menu::REPAIR_MENU, super::map_menu::MAP_MENU];
+    pub const NAMES: [&str; 18] = [super::draw::HUD_MENU, super::menus::MESSAGE_MENU, super::menus::QUANTITY_MENU, super::wait_menu::SLEEP_WAIT_MENU, super::tutorial_menu::TUTORIAL_MENU, super::container_menu::CONTAINER_MENU, super::barter_menu::BARTER_MENU, super::recipe_menu::RECIPE_MENU, super::trait_menu::TRAIT_MENU, super::tag_menu::TAG_MENU, super::mods::START_MENU, super::stats_menu::STATS_MENU, super::dialog_menu::DIALOG_MENU, super::inventory_menu::INVENTORY_MENU, super::repair_services_menu::REPAIR_SERVICES_MENU, super::repair_menu::REPAIR_MENU, super::item_mod_menu::ITEM_MOD_MENU, super::map_menu::MAP_MENU];
 
     /// The start-up line's end: the menus drawn from tiles, or none, and that an item menu's
     /// prompt follows it when its own switch is off (`super::menus::quantity_tiled`).
     pub fn line(&self) -> String {
-        let on: Vec<&str> = Self::NAMES.into_iter().zip([self.hud, self.message, self.quantity, self.sleep_wait, self.tutorial, self.container, self.barter, self.recipe, self.traits, self.tags, self.start, self.stats, self.dialog, self.inventory, self.repair_services, self.repair_menu, self.map]).filter(|(_, on)| *on).map(|(n, _)| n).collect();
+        let on: Vec<&str> = Self::NAMES.into_iter().zip([self.hud, self.message, self.quantity, self.sleep_wait, self.tutorial, self.container, self.barter, self.recipe, self.traits, self.tags, self.start, self.stats, self.dialog, self.inventory, self.repair_services, self.repair_menu, self.item_mod, self.map]).filter(|(_, on)| *on).map(|(n, _)| n).collect();
         if on.is_empty() {
             "no menu drawn from tiles".into()
         } else if (self.container || self.barter || self.inventory) && !self.quantity {
@@ -603,6 +610,13 @@ mod tests {
         assert_eq!((data, other.is_empty()), (TileMenus { map: true, ..TileMenus::default() }, true));
         assert_eq!(data.line(), "MapMenu drawn from tiles");
         assert!(!TileMenus::default().repair_menu);
+        // The Pip-Boy's weapon mod menu, on its own and off unless named.
+        let modding = TileMenus { item_mod: true, ..TileMenus::default() };
+        assert_eq!(TileMenus::parse(" itemmodmenu "), (modding, Vec::new()));
+        assert_eq!(modding.line(), "ItemModMenu drawn from tiles");
+        assert!(!TileMenus::default().item_mod);
+        assert!(!TileMenus::parse("InventoryMenu,RepairMenu").0.item_mod);
+        assert_eq!(TileMenus::parse("RepairMenu,ItemModMenu,MapMenu").0.line(), "RepairMenu, ItemModMenu, MapMenu drawn from tiles");
     }
 
     #[test]

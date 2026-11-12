@@ -1001,6 +1001,8 @@ pub(crate) struct View<'w, 's> {
     inventory: Option<ResMut<'w, super::inventory_menu::InventoryTiles>>,
     /// The Pip-Boy's repair page's one decision (`super::repair_menu`).
     repair_page: Option<ResMut<'w, super::repair_menu::RepairTiles>>,
+    /// The Pip-Boy's weapon mod menu's one decision (`super::item_mod_menu`).
+    item_mod: Option<ResMut<'w, super::item_mod_menu::ItemModTiles>>,
     /// The DATA page's one decision (`super::map_menu`).
     map: Option<ResMut<'w, super::map_menu::MapTiles>>,
     /// T15c: the container menu, when this frame's writer has it drawn from its tiles.
@@ -1049,6 +1051,8 @@ pub(crate) struct MenusDrawn {
     inventory: Drawn,
     /// The Pip-Boy's repair page, in the Pip-Boy's image.
     repair_page: Drawn,
+    /// The Pip-Boy's weapon mod menu, in the Pip-Boy's image.
+    item_mod: Drawn,
     /// The Pip-Boy's DATA page, in the Pip-Boy's image.
     map: Drawn,
     container: Drawn,
@@ -1175,6 +1179,7 @@ pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, mut view: V
     *blur = blur_now;
     pipboy_pages(&mut commands, game, &mut view, &mut kit, (&mut others.stats, &mut others.inventory, &mut others.map), &mut nodes, heading, &glyphs);
     repair_page(&mut commands, game, &mut view, &mut kit, &mut others.repair_page, &mut nodes, heading, &glyphs);
+    item_mod_page(&mut commands, game, &mut view, &mut kit, &mut others.item_mod, &mut nodes, heading, &glyphs);
     // T11: the Mods page, the start menu's mod tiles over the pause menu.
     let mods_on = switch.start && view.paused.as_ref().zip(view.page.as_ref()).is_some_and(|(p, page)| crate::pause::mods_open(p, page));
     mods_page(&mut commands, &script, mods_on, &mut kit, &mut others.start, &mut nodes, scale * interface::menu_scale(), heading, &glyphs);
@@ -1276,6 +1281,20 @@ fn repair_page(commands: &mut Commands, game: Option<&fnv_game::Game<'_>>, view:
     let shown = menu.map(|(_, m)| m);
     if let Some(page) = view.repair_page.as_mut().filter(|s| s.shown != shown) {
         page.shown = shown;
+    }
+}
+
+/// The Pip-Boy's weapon mod menu, in the Pip-Boy's image, while it is ready
+/// (`super::item_mod_menu::ItemModTiles::ready`, decided before this drawing), by [`pipboy_page`].
+#[allow(clippy::too_many_arguments)]
+fn item_mod_page(commands: &mut Commands, game: Option<&fnv_game::Game<'_>>, view: &mut View, kit: &mut FontKit, drawn: &mut Drawn, nodes: &mut Nodes, heading: f32, glyphs: &crate::pad::PadGlyphs) {
+    let Some(target) = view.screen.as_ref().map(|s| Target::image(s.camera, crate::pipboy::CANVAS, s.scale, PIPBOY_TILES_Z)) else { return };
+    let ui = game.map(|g| &g.ui_tree);
+    let menu = view.item_mod.as_ref().and_then(|s| s.ready).filter(|&m| ui.is_some_and(|ui| ui.is_live(m)));
+    let pieces = menu.and(view.item_mod.as_mut()).map_or_else(Vec::new, |s| std::mem::take(&mut s.pieces));
+    pipboy_page(commands, ui, super::item_mod_menu::ITEM_MOD_MENU, menu, pieces, target, kit, drawn, nodes, heading, glyphs);
+    if let Some(page) = view.item_mod.as_mut().filter(|s| s.shown != menu) {
+        page.shown = menu;
     }
 }
 

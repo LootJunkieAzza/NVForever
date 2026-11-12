@@ -41,7 +41,7 @@
 //!   `super::stats_menu::feed`, on a frame no other menu takes input; this one then leaves
 //!   the frame's one step to it. The ITEMS page likewise (`super::inventory_menu::feed`).
 //! - **The Pip-Boy's repair page** (`super::repair_menu`): likewise, by its own system,
-//!   `super::repair_menu::feed`.
+//!   `super::repair_menu::feed`; and the weapon mod menu (`super::item_mod_menu::feed`).
 //! - **The container menu** (T15c, `super::container_menu`): a row the pointer comes onto is
 //!   selected, unless the wheel holds the selection; a click on a row, a heading or its arrow,
 //!   Take All and Exit send the hand-built menu's commands (`crate::menu::MenuInput`), to
@@ -837,6 +837,8 @@ pub(crate) struct Others<'w> {
     map: Option<ResMut<'w, super::map_menu::MapTiles>>,
     repair: Option<Res<'w, crate::pipboy::repair::PipRepair>>,
     modding: Option<Res<'w, crate::pipboy::item_mod::PipItemMod>>,
+    /// The weapon mod menu's decision (`super::item_mod_menu`).
+    item_mod: Option<ResMut<'w, super::item_mod_menu::ItemModTiles>>,
     pip: Option<Res<'w, crate::pipboy::PipBoy>>,
 }
 
@@ -849,7 +851,7 @@ pub(crate) fn feed(
     mut inputs: MenuInputs,
     others: Others,
 ) {
-    let Others { paused, page, mut stats, mut inventory, mut map, repair, modding, pip } = others;
+    let Others { paused, page, mut stats, mut inventory, mut map, repair, modding, mut item_mod, pip } = others;
     let Some(rt) = script.rt.as_mut() else { return };
     if rt.game.ui_files.is_none() {
         return;
@@ -958,6 +960,9 @@ pub(crate) fn feed(
     if let Some(m) = map.as_mut().filter(|m| m.others != others) {
         m.others = others;
     }
+    if let Some(m) = item_mod.as_mut().filter(|m| m.others != others) {
+        m.others = others;
+    }
     if taking.is_empty() {
         // The Pip-Boy's page has the frame's step (`super::stats_menu::feed`).
         let is_paused = paused.as_ref().is_some_and(|p| p.0);
@@ -976,6 +981,11 @@ pub(crate) fn feed(
         // Likewise the repair page's (`super::repair_menu::feed`).
         let list_open = inputs.repair_list.as_ref().is_some_and(|r| r.is_open());
         if inputs.repair_page.as_deref().zip(pip.as_deref()).is_some_and(|(r, p)| super::repair_menu::takes(r, *menus, p, list_open, &rt.game, is_paused).is_some()) {
+            return;
+        }
+        // Likewise the weapon mod menu's (`super::item_mod_menu::feed`).
+        let mod_open = modding.as_ref().is_some_and(|m| m.is_open());
+        if item_mod.as_deref().zip(pip.as_deref()).is_some_and(|(m, p)| super::item_mod_menu::takes(m, *menus, p, mod_open, &rt.game, is_paused).is_some()) {
             return;
         }
         // A highlight left from the last menu that took input goes (mouseover back to 0),
