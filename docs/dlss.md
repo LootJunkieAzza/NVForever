@@ -41,6 +41,26 @@ Copy only these four. **Do not copy `nvngx_update.exe`**: NVForever refuses to u
 folder that holds a file of that name, because NVIDIA's code would start it without checking
 it.
 
+### What is checked, and by whom
+
+- **NVForever** checks `sl.interposer.dll` before it loads it: it must carry NVIDIA's
+  signature, and it must be exactly the file of Streamline 2.14.16 (its SHA-256 is compared).
+  The file is kept open while it is checked and loaded, so it cannot be swapped in between.
+  Anything it imports is looked up only in the `dlss` folder and in Windows' System32 folder.
+- **NVIDIA's Streamline** then checks the plugins it loads (`sl.common.dll`, `sl.dlss.dll`) for
+  NVIDIA's signature and refuses unsigned ones. The game's log shows it, in lines such as
+  "File 'sl.common.dll' is signed by NVIDIA and the signature was verified".
+- **NVIDIA's NGX**, part of the driver, loads `nvngx_dlss.dll`. Whether NGX checks that file
+  is not shown in the log, so this page makes no claim about it.
+
+### Other tools that change the upscaler
+
+Tools that replace or hook the game's upscaler themselves (OptiScaler, for example) should not
+be used together with DLSS through Streamline: both reach into the same place, and that is
+untested. Likewise, NVIDIA's low latency mode, when NVForever gains it, will run through
+Streamline's `sl.interposer.dll` whenever the DLSS files are present; that combination has not
+been tested yet.
+
 ## Turning it on
 
 In the pause menu, **Settings > Graphics**, set **Upscaler** to **DLSS**, and

@@ -49,6 +49,25 @@ detail in the module notes of the file named.
 - **The signature** (`dlss/security.rs`). The interposer is checked as Streamline's header
   helper does before it is loaded by its full path; the limit of that check is the first open
   point below. (Spike.)
+- **The tested build** (`dlss/security.rs` `TESTED_INTERPOSERS`). The interposer's SHA-256 must
+  also be a tested build's, today only Streamline 2.14.16's
+  (`b1d7395aebd7b9722841d64dcf7433680020b6a8e421f851c16d5ba0c2182edf` [observed: the release
+  zip's `bin\x64\sl.interposer.dll` and the tested bundle, 2026-11-12]). Both checks must pass;
+  either failing is `SignatureRejected`, with the file's hash in the log. The hash comes from
+  the `sha2` crate through `fnv_util::sha256`, already a dependency. A new Streamline release
+  takes a new entry once it was tested. (The review of #2206; the PR owner's decision.)
+- **One file, checked and loaded** (`dlss/security.rs` `check_interposer`, `dlss/win.rs`). The
+  interposer is opened once, sharing read access only, so no one can write, rename or delete it
+  while the handle is open; its hash is read and `WinVerifyTrust` runs through that handle
+  (`WINTRUST_FILE_INFO.hFile`), and the handle is held until `LoadLibraryExW` has returned.
+  `LoadLibraryExW` and `CryptQueryObject` still open the file by path (neither takes a handle
+  for this), while the handle is held; the module comment says what that rests on. (The review
+  of #2206.)
+- **Who checks the other files.** Streamline checks the plugins it loads with its own signature
+  helper and refuses unsigned ones [observed, the DLSS runs: "File 'sl.common.dll' is signed by
+  NVIDIA and the signature was verified", the same for `sl.dlss.dll`, and "... is NOT
+  correctly signed - Streamline will not load unsecured modules" for a missing optional module].
+  `nvngx_dlss.dll` is loaded by NVIDIA's NGX; whether NGX verifies it is not shown in our logs.
 - **Where its imports come from** (`dlss/win.rs` `load`). The interposer is loaded with
   `LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32`: what it imports is looked
   up in the DLSS folder, then in System32, never in the working directory or `PATH`, so a DLL
@@ -345,10 +364,11 @@ only where `NVF_DLSS_DIR` names a bundle.
   the primary signature against the file and compares the secondary signer's public key with
   Streamline's NVIDIA key, as Streamline's header does; nothing shows that the secondary
   signature signs this file [hypothesis: a file validly signed by someone else carrying a copy
-  of NVIDIA's nested signature could pass]. Windows' own check of that signature rejects the
-  genuine file, its root being untrusted (`0x800b0109`) [observed]. Before a release: either
-  verify the nested signature's digest against the file, or also allow-list the hashes of the
-  official interposer. A separately reviewed change.
+  of NVIDIA's nested signature could pass that check alone]. Windows' own check of that
+  signature rejects the genuine file, its root being untrusted (`0x800b0109`) [observed].
+  Closed for the tested build by the hash (above): such a file is not byte-for-byte Streamline
+  2.14.16's interposer. Still open for any other build: verifying the nested signature's
+  digest against the file would let a build be trusted without a listed hash.
 - **Hybrid GPUs.** The device check refuses the interposer when any GPU Vulkan exposes falls
   short, so laptops whose built-in graphics also show up in Vulkan beside the NVIDIA card
   usually get no DLSS [design]. That is the price of never panicking at device creation, and
