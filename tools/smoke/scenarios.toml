@@ -25965,3 +25965,21 @@ expect = [
   { json = "roundtrip_identical", schema = "fnv.bsa.verify/1", equals = true, label = "it rewrites as 103, byte for byte" },
   { json = "decode_errors.#", schema = "fnv.bsa.verify/1", equals = 0, label = "no decode errors" },
 ]
+
+[[scenario]]
+name = "audio-reads-off-main-thread"
+source = "issue #1993: music and ambient loop files are read on the IO pool, not in the frame that starts them; each read logs its size and time (the stall the main thread used to take), and the track starts once its files are in (engine/nvf-play/src/file_bytes.rs)"
+note = "The music scenario's place: Goodsprings at noon, where musSetLOCDesExplBothABC plays three stems and the placed and background loops start"
+areas = ["audio", "music"]
+paths = ["engine/nvf-play/src/file_bytes.rs", "engine/nvf-play/src/music.rs", "engine/nvf-play/src/ambient.rs", "engine/nvf-play/src/radio.rs"]
+args = ["--cell", "Goodsprings", "--play", "--pos=-69000,3500,8900", "--hour", "12"]
+run_seconds = 40
+expect = [
+  { re = 'music: read music.+ off the main thread: \d+ KB in [0-9.]+ ms', count = 3, label = "the track's three stems are read off the main thread" },
+  { re = 'ambient: read sound.+ off the main thread: \d+ KB in [0-9.]+ ms', label = "the loops' files too" },
+  { text = "music summary: 1 started, 0 changes of layers, 0 files not played", label = "the track still starts, with every file played" },
+]
+order = [[
+  { re = 'music: read music.+ off the main thread', label = "its files are read first" },
+  { text = "music: musSetLOCDesExplBothABC day started, layers outer+middle+inner", label = "then the track starts, with its three layers" },
+]]
