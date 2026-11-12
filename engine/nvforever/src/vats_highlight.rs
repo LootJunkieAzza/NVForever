@@ -15,9 +15,14 @@
 //! - **The mask**: a camera of its own at the player's camera ([`MASK_LAYER`], the same
 //!   place and field of view) draws into a picture the size of the window: every drawn
 //!   shape of the target in black, so the target hides its own parts as it does in the
-//!   world (a hand before a head), and over them the selected part in white. Nothing else
-//!   of the world is in it: the part shows through whatever stands between it and the
-//!   player.
+//!   world (a hand before a head), and over them the selected part in white. Every other
+//!   actor's shapes are in it in black too, so a body standing between the target and the
+//!   player hides the part as it hides the target in the picture (one behind the target
+//!   is behind its black and changes nothing) [design: a co-op run of 2026-11-12, the lit
+//!   head drawn over the other player standing in front; the original lights the part on
+//!   the model in the world, where what stands nearer covers it]. The rest of the world
+//!   is not in it: walls and cover do not hide the part (vats-classic.md §9b, a hidden
+//!   part).
 //! - **How much of a vertex is the part's**: a body part is a chain of the skeleton's
 //!   bones (`crate::limbs::LimbRig::chains`); a bone in no chain goes with the nearest
 //!   chain above it (a hand with its arm, the fingers with the hand). A skinned vertex is
@@ -436,8 +441,36 @@ fn glow(
             st.overlays.push(x);
         }
     }
+    // Every other actor in black (the module's notes): a body nearer the player hides the
+    // part. The player's own body is among them; a shape the picture does not draw now
+    // (the first-person view's body) is not drawn here either, its copy hanging from it.
+    let mut hiding = 0;
+    for (e, r, shape, skin, own_material, drawn) in &shapes {
+        let Some(drawn) = drawn.filter(|_| r.0 != actor && !shape.cap) else { continue };
+        let cover = own_material.and_then(|m| own_materials.get(&m.0)).map_or(Cover::Plain, cover_of);
+        let Some([black, _]) = st.coats_for(&mut materials, cover) else { continue };
+        let mut c = commands.spawn((Mesh3d(drawn.0.clone()), MeshMaterial3d(black), Transform::IDENTITY, PartGlow, layer.clone(), NoFrustumCulling, bevy::light::NotShadowCaster));
+        if let Some(skin) = skin {
+            c.insert(skin.clone());
+        }
+        let x = c.id();
+        commands.entity(e).add_child(x);
+        st.overlays.push(x);
+        hiding += 1;
+    }
+    for (e, h, own_material, drawn, _) in &held {
+        if h.reference == actor {
+            continue;
+        }
+        let cover = own_material.and_then(|m| own_materials.get(&m.0)).map_or(Cover::Plain, cover_of);
+        let Some([black, _]) = st.coats_for(&mut materials, cover) else { continue };
+        let x = commands.spawn((Mesh3d(drawn.0.clone()), MeshMaterial3d(black), Transform::IDENTITY, PartGlow, layer.clone(), NoFrustumCulling, bevy::light::NotShadowCaster)).id();
+        commands.entity(e).add_child(x);
+        st.overlays.push(x);
+        hiding += 1;
+    }
     st.shown += 1;
-    info!("vats highlight: {actor:08X} part {}: {triangles} triangles on {covered} shapes", part.map_or_else(|| "whole".to_string(), |p| p.to_string()));
+    info!("vats highlight: {actor:08X} part {}: {triangles} triangles on {covered} shapes; {hiding} shapes of other actors can hide it", part.map_or_else(|| "whole".to_string(), |p| p.to_string()));
 }
 
 /// Dead Eye's lines are no thinner than this share of the classic style's, nor than these
