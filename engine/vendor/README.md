@@ -75,6 +75,19 @@ not `Send`).
 (Goodsprings 0.88 → 0.58 ms, battle-50 2.3 → 1.8 ms). The blended pass is recorded last
 among the big ones and finishes in 0.8-1.8 ms, so it is what is still waited for.
 
+Second change (#1887, docs/design/frame-rate-audit.md, the indirect-parameter build jobs),
+in `src/batching/gpu_preprocessing.rs`, `coalesce_batch_ranges` (comment starting
+`NVForever coalesced build jobs`): `prepare_indirect_parameters_build_jobs` merges each
+view's batch ranges that follow one another into one build job. Upstream makes one job,
+and so one compute dispatch, per range; wgpu puts a barrier between dispatches that write
+the same storage buffers, and on the GPU each one waits for the last to drain. The shader
+handles each batch index on its own, so the merged dispatch does the same work. Drop it if
+upstream merges the jobs.
+
+[observed 2026-11-08, Nsight Graphics GPU Trace, Goodsprings 12:00, 2560x1440, 4x MSAA,
+no actors] Compute dispatches a frame 2,518 → 904, compute-active time 16 → 9 % of the
+frame; interleaved runs of one build with and without it: 9.0 → 8.5 ms a frame.
+
 Another change (#2064, docs/design/frame-rate-audit.md §10), marked `NVForever unchanged
 uploads`: `RawBufferVec::write_buffer_if_changed` (`src/render_resource/buffer_vec.rs`)
 queues nothing when the same bytes were last written into the same GPU buffer, and
@@ -90,19 +103,6 @@ in `src/diagnostic/internal.rs` (marked `NVForever encoder gaps`), adds
 `zz:wall` (the frame's first encoder to its last), `zz:gaps` (time inside that no encoder
 covers, with the four largest gaps by name) and `zz:between_frames` (the previous frame's
 last encoder to this frame's first) to the `profile gpu:` line.
-
-Second change (#1887, docs/design/frame-rate-audit.md, the indirect-parameter build jobs),
-in `src/batching/gpu_preprocessing.rs`, `coalesce_batch_ranges` (comment starting
-`NVForever coalesced build jobs`): `prepare_indirect_parameters_build_jobs` merges each
-view's batch ranges that follow one another into one build job. Upstream makes one job,
-and so one compute dispatch, per range; wgpu puts a barrier between dispatches that write
-the same storage buffers, and on the GPU each one waits for the last to drain. The shader
-handles each batch index on its own, so the merged dispatch does the same work. Drop it if
-upstream merges the jobs.
-
-[observed 2026-11-08, Nsight Graphics GPU Trace, Goodsprings 12:00, 2560x1440, 4x MSAA,
-no actors] Compute dispatches a frame 2,518 → 904, compute-active time 16 → 9 % of the
-frame; interleaved runs of one build with and without it: 9.0 → 8.5 ms a frame.
 
 Third change (#1868), in `src/diagnostic/mod.rs`, each part marked by a comment starting
 `NVForever recorder gate`: `begin_diagnostics_frame`, `resolve_encoder` and
