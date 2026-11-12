@@ -976,16 +976,18 @@ So the cost is not the filter, the reach or the map size, and no one view or kin
 caster: sampling is about 0.2 ms, each view about 0.13, the trees 0.19, and the rest goes
 only with the last view.
 
-7. **Lighter sun shadows, a settings switch, off by default** (nvforever shadow_rate.rs;
-   key `lighter-shadows`, Graphics tab). With it on: the sun's shadow maps are drawn
-   every other frame and kept in between, with the cascades of the frame that drew them
-   (a patched bevy_pbr, engine/vendor/README.md "held shadow maps"); 2 cascades instead of
-   3; trees cast within 3,000 units of the camera only; no shade light for the arms.
-   Goodsprings with SMAA: held maps alone 6.40 → 6.03 ms (two pairs); the whole switch
+7. **Sun shadows' Performance mode** (nvforever shadow_rate.rs; the Sun shadows row's
+   middle choice of Off / Performance / Quality, `--sun-shadows=performance`; measured
+   while it was a separate switch, "Lighter sun shadows", #2182). In it: the sun's shadow
+   maps are drawn every other frame and kept in between, with the cascades of the frame
+   that drew them (a patched bevy_pbr, engine/vendor/README.md "held shadow maps"); 2
+   cascades instead of 3; trees cast within 3,000 units of the camera only; no shade light
+   for the arms.
+   Goodsprings with SMAA: held maps alone 6.40 → 6.03 ms (two pairs); the whole mode
    6.41 → 5.67 ms (two pairs). What it costs in the picture: shadows a little coarser at
    mid distance, the shadow of a moving thing at half the frame rate, no tree shadows
    beyond about 43 m, and on a fast turn the edge of the view can lie outside a held
-   cascade for a frame. A screenshot with the switch on against off differs in 0.6 % of
+   cascade for a frame. A screenshot on Performance against Quality differs in 0.6 % of
    its pixels by more than 24 of 255 (shadow edges).
 8. **Every layer of a quadrant is folded into its base** where the texture repeat divides
    the cell (change 6 folded four): the texture coordinate is the fragment's place in its
@@ -993,12 +995,12 @@ only with the last view.
    fifth and sixth opacities. The two layers left blended had cost 0.18 ms; a screenshot
    folded against blended differs in 0.25 % of its pixels by more than 24 of 255.
 
-Goodsprings at 12:00 with SMAA, the switch on and changes 1-8 (release): 5.51, 5.55 ms
+Goodsprings at 12:00 with SMAA, Performance and changes 1-8 (release): 5.51, 5.55 ms
 (181.6, 180.2 a second) in two runs, and 5.49-5.56 ms in the undisturbed 5-second windows
 of five more made while the machine was in use (two of those runs had a 0.9 s stall at
-their start and one was held at 60 a second for part of it; they are left out). With the
-switch off: 6.23 ms (160). That is at the 5.56 ms of 180 a second with nothing to spare.
-The smoke scenario `lighter-sun-shadows` turns the switch on and off in play; it passed on
+their start and one was held at 60 a second for part of it; they are left out). On
+Quality: 6.23 ms (160). That is at the 5.56 ms of 180 a second with nothing to spare.
+The smoke scenario `sun-shadows-performance` changes the mode in play; it passed on
 #2182's branch, as did the rest of that branch's smoke run (122 scenarios).
 
 ### What is left, and why Goodsprings is not at 180
@@ -1035,7 +1037,7 @@ missing; the pieces, largest first:
 [observed 2026-11-10 throughout: Ryzen 7 7700X, RTX 3070 (Vulkan, driver 621.01), 2560 ×
 1440 borderless, vsync off, standing still, release builds unless a `profile` build is
 named; runs of 30 s with the first 15 s left out, two runs per variant.] Settings: the
-owner's (SMAA, Lighter sun shadows on) unless said otherwise.
+owner's (SMAA, Sun shadows on Performance) unless said otherwise.
 
 ### Where the GPU time outside the encoders went (#2064)
 
@@ -1104,32 +1106,32 @@ Test aids `NVF_PLAY_TEST_LEAF_CARDS=whole`, `NVF_PLAY_TEST_LEAF_ORDER=authored`.
 
 ### Staggered sun cascades (#2063)
 
-With Lighter sun shadows off, all three cascades were drawn every frame: the shadow pass
+On Quality, all three cascades were drawn every frame: the shadow pass
 0.26 / 0.62 / 0.49 ms at Goodsprings / Novac / Primm, plus about 0.15 ms of culling for
 the three views; the farthest cascade holds 1,148 / 1,571 / 1,485 of the 1,418 / 2,138 /
 1,870 casters. Now (shadow_rate.rs `STAGGERED_SCHEDULE`) the nearest is drawn every frame,
 the middle one every other frame, the farthest every fourth, on different frames; a held
 cascade keeps its map and the matrices of the frame that drew it
-(`HoldDirectionalShadowMaps`, now a bit per cascade). With the switch off: Goodsprings
+(`HoldDirectionalShadowMaps`, now a bit per cascade). On Quality: Goodsprings
 5.78 → 5.42 ms, Novac 7.02 → 6.34, Primm 6.70 → 6.21. Screenshots against every frame:
 0.26 % and 0.61 % of pixels over 24/255 at Goodsprings and Novac (two runs drawing every
-frame: 0.20 % and 0.42 %; NPCs' shadows move). The Lighter switch keeps its schedule, both
+frame: 0.20 % and 0.42 %; NPCs' shadows move). Performance keeps its schedule, both
 cascades every other frame.
 
 A cache of static casters (#2063's proposal) was prototyped and measured, and not adopted
 [observed 2026-11-10, branch `perf/shadow-cache-prototype`, commit 056695cf3]: cascades
 from the second on kept a cache of what stands still, with matrices 15 % wider (texels
 30 % coarser), and drew only what moves on it each frame, putting the cache back by tiles
-where moving things lay. Lighter switch off, ms, every frame / staggered / cached:
+where moving things lay. Quality, ms, every frame / staggered / cached:
 Goodsprings 5.71 / 5.40 / 5.48, Novac 6.96 / 6.34 / 6.12, Primm 6.60 / 6.13 / 6.18,
-Freeside 5.39 / 5.17 / 5.28; switch on, no cache / cached: Goodsprings 5.12 / 5.10, Novac
+Freeside 5.39 / 5.17 / 5.28; Performance, no cache / cached: Goodsprings 5.12 / 5.10, Novac
 5.62 / 5.58, Primm 5.51 / 5.44, Freeside 4.79 / 4.92. No better than the staggered
 schedule overall, with coarser far shadows and far more vendored code (a split shadow
 pass, cache textures, a part-render of a binned phase).
 
 ### Result
 
-The owner's settings (SMAA, Lighter sun shadows on), the branch before these changes
+The owner's settings (SMAA, Sun shadows on Performance), the branch before these changes
 (337d21dd7) against after, two interleaved runs each, mean frame time:
 
 | Scene | Before (ms) | After (ms) | Frames a second |
