@@ -3,7 +3,7 @@
 //! seeded randomizer, easing by code, temporary faction relations, the player's flags and
 //! the aux timers' countdowns.
 
-mod common;
+use crate::common;
 
 use common::*;
 use fnv_esm::{LoadOrder, Plugin, Schema};

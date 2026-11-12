@@ -7,7 +7,7 @@
 //! The menu files and the script are written for the test in MCM's shape (menu-xml.md
 //! §10); no game or mod data is used.
 
-mod common;
+use crate::common;
 
 use common::*;
 use fnv_esm::{LoadOrder, Plugin, Schema};

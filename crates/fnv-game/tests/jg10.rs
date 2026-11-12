@@ -3,7 +3,7 @@
 //! part highlights, the land texture underfoot and landscape remaps, the barber menu's
 //! lists, the screen splatter's textures and the requests kept for the engine.
 
-mod common;
+use crate::common;
 
 use common::*;
 use fnv_esm::{LoadOrder, Plugin, Schema};

@@ -4,9 +4,8 @@
 //! deleted and empty overrides, compressed records, unreadable ones, and the record types
 //! the build skips with and without what it looks for in them.
 
-mod common;
-#[path = "common/digest.rs"]
-mod digest;
+use crate::common;
+use crate::digest;
 
 use common::*;
 use fnv_esm::raw::{write_subrecords, Subrecord};

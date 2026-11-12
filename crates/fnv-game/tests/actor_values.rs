@@ -1,7 +1,7 @@
 //! Actor values from records and formulas, and their pools, on a synthetic plugin (no
 //! game data). docs/spec-notes/actor-values.md.
 
-mod common;
+use crate::common;
 
 use common::*;
 use fnv_esm::{LoadOrder, Plugin, Schema};
