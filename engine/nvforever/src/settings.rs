@@ -1140,6 +1140,36 @@ mod fsr_settings_tests {
         }
     }
 
+    /// DLSS given up on in a DLSS session (`dlss::session_state` `EvaluateFailed`, read by
+    /// `upscaler::session_now`): the DLSS entries are out of reach with the reason, the stored
+    /// DLSS request stays the request, and the camera draws natively.
+    #[test]
+    fn dlss_that_stopped_working_says_why_in_the_dropdown() {
+        use crate::upscaler::{DlssState, Session, Unavailable, UpscaleQuality, UpscalerStatus};
+        let mut app = App::new();
+        app.insert_resource(Graphics::preset(graphics::Preset::Vanilla));
+        register_graphics(&mut app);
+        let requested = UpscalerChoice::Dlss(UpscaleQuality::Quality);
+        app.world_mut().resource_mut::<Graphics>().upscaler = requested;
+        let ready = Session { streamline_loaded: true, dlss: DlssState::Ready, fsr: None };
+        let mut status = UpscalerStatus::with_start(ready, requested);
+        status.update(requested);
+        status.session.dlss = DlssState::Unavailable(Unavailable::EvaluateFailed);
+        status.update(requested);
+        app.insert_resource(status);
+        let row = app.world().resource::<nvf_play::settings::Settings>().index("fsr-upscaling").unwrap();
+        let settings = app.world().resource::<nvf_play::settings::Settings>();
+        for q in UpscaleQuality::ALL {
+            let name = format!("DLSS {}", q.name());
+            assert_eq!(settings.choice_unavailable(app.world(), row, &name).as_deref(), Some(Unavailable::EvaluateFailed.words()), "{name}");
+        }
+        for (name, _) in graphics::FSR_CHOICES {
+            assert_eq!(settings.choice_unavailable(app.world(), row, name), None, "Off and FSR stay in reach (from the next start)");
+        }
+        assert_eq!(upscaler_chosen(app.world()), "DLSS Quality", "the request is kept for the next start");
+        assert_eq!(app.world().resource::<UpscalerStatus>().effective(), UpscalerChoice::Off, "native, not FSR");
+    }
+
     #[test]
     fn entering_or_leaving_dlss_shows_the_next_start_and_fsr_off_stay_live() {
         use crate::upscaler::{DlssState, Session, UpscaleQuality, UpscalerStatus};
@@ -1201,7 +1231,9 @@ mod fsr_settings_tests {
         let path = dir.join("NVForever.ini");
         let fsr_q = UpscalerChoice::Fsr(UpscaleQuality::Quality);
         let dlss_b = UpscalerChoice::Dlss(UpscaleQuality::Balanced);
-        let cases: [(Option<&str>, UpscalerChoice, &[&str], bool, UpscalerChoice); 10] = [
+        // The INI's text, the command line, the switches given, whether they win, the result.
+        type Case<'a> = (Option<&'a str>, UpscalerChoice, &'a [&'a str], bool, UpscalerChoice);
+        let cases: [Case; 10] = [
             (Some("DLSS Balanced"), fsr_q, &["--fsr"], false, dlss_b),
             (Some("DLSS Balanced"), fsr_q, &["--fsr"], true, fsr_q),
             (Some("DLSS Balanced"), fsr_q, &["--upscaler"], true, fsr_q),

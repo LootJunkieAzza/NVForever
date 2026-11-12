@@ -183,9 +183,8 @@ pub enum Unavailable {
     DeviceUnsuitable,
     /// DLSS is not supported on this GPU and driver (`slIsFeatureSupported`, no NVIDIA RTX GPU).
     GpuNotSupported,
-    /// DLSS stopped producing output in this session (persistent evaluate failure).
-    // Set by DLSS's own pass (the design note's step 5); remove this once it does.
-    #[allow(dead_code)]
+    /// DLSS stopped producing output in this session (persistent evaluate failure,
+    /// `dlss::session_state`).
     EvaluateFailed,
     /// FSR 3.1 cannot run here (not Vulkan, or the GPU lacks its formats and limits).
     FsrUnsupported,
@@ -475,11 +474,17 @@ pub fn command_line_choice(fsr: Option<crate::graphics::FsrMode>, upscaler: Opti
     }
 }
 
-/// What DLSS can do now: the loader's state once it ran (`dlss::loader_state`), else what is
-/// known without loading anything (not Windows, Vulkan left out of the renderer's backends).
+/// What DLSS can do now: the session's state once the loader ran (`dlss::session_state`: the
+/// loader's, or `EvaluateFailed` once DLSS's own pass gave up on it), else what is known
+/// without loading anything (not Windows, Vulkan left out of the renderer's backends).
 pub fn dlss_state_now() -> DlssState {
-    match crate::dlss::loader_state() {
-        DlssState::NotLoaded => before_loading(cfg!(windows), vulkan_in_backends()),
+    state_now(crate::dlss::session_state(), cfg!(windows), vulkan_in_backends())
+}
+
+/// [`dlss_state_now`]'s rule over its inputs.
+fn state_now(session: DlssState, windows: bool, vulkan: bool) -> DlssState {
+    match session {
+        DlssState::NotLoaded => before_loading(windows, vulkan),
         state => state,
     }
 }
@@ -503,11 +508,11 @@ fn before_loading(windows: bool, vulkan: bool) -> DlssState {
     }
 }
 
-/// The session's facts now: DLSS as [`dlss_state_now`] says, FSR as `fsr::FsrSupport` says.
-/// Streamline counts as loaded while DLSS is ready.
+/// The session's facts now: DLSS as [`dlss_state_now`] says, FSR as `fsr::FsrSupport` says,
+/// and whether the device came through Streamline (`dlss::streamline_loaded`, which stays true
+/// when DLSS turned out unsupported or stopped working).
 pub fn session_now(fsr_supported: bool) -> Session {
-    let dlss = dlss_state_now();
-    Session { streamline_loaded: dlss == DlssState::Ready, dlss, fsr: (!fsr_supported).then_some(Unavailable::FsrUnsupported) }
+    Session { streamline_loaded: crate::dlss::streamline_loaded(), dlss: dlss_state_now(), fsr: (!fsr_supported).then_some(Unavailable::FsrUnsupported) }
 }
 
 /// Keeps [`UpscalerStatus`] with the request (`Graphics::upscaler`) and the session's facts,
@@ -547,10 +552,11 @@ pub fn follow_request(
 }
 
 /// DLSS on a perspective HDR camera, the counterpart of `fsr::FsrUpscaling`: the common
-/// preparation ([`prep`]) takes the camera, and DLSS draws it from step 5. The graphics
-/// settings put it on the main camera while DLSS is the effective choice
-/// ([`UpscalerStatus::effective`]) and enforce `Msaa::Off` and no other anti-aliasing, as for
-/// FSR. DLSS sharpens nothing itself: the separate sharpening pass stays available.
+/// preparation ([`prep`]) takes the camera, and DLSS draws it in its own pass
+/// (`dlss::dlss_pass`). The graphics settings put it on the main camera while DLSS is the
+/// effective choice ([`UpscalerStatus::effective`]) and enforce `Msaa::Off` and no other
+/// anti-aliasing, as for FSR. DLSS sharpens nothing itself: the separate sharpening pass runs
+/// for it as it does natively (`graphics::apply`).
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
 #[require(Hdr, DepthPrepass, MotionVectorPrepass, TemporalJitter, MipBias)]
 pub struct DlssUpscaling {
@@ -832,6 +838,30 @@ mod tests {
         assert_eq!(resolve(UpscalerChoice::Dlss(Quality), Some(UpscalerChoice::Off), STOCK_BOUNDARY, session).reason, Some(Unavailable::NotVulkan));
         assert_eq!(session_now(false).fsr, Some(Unavailable::FsrUnsupported));
         assert_eq!(session_now(true).fsr, None);
+        assert!(!session_now(true).streamline_loaded, "no loader ran in the tests");
+    }
+
+    /// DLSS's own pass giving up (`dlss::session_state` says `EvaluateFailed`) reaches the
+    /// status whatever the platform checks say: the camera draws natively, not with FSR, the
+    /// reason is kept, and the session stays one Streamline made the device for.
+    #[test]
+    fn evaluate_failed_reaches_the_status_and_the_camera_draws_natively() {
+        let failed = DlssState::Unavailable(Unavailable::EvaluateFailed);
+        for (windows, vulkan) in [(true, true), (true, false), (false, true)] {
+            assert_eq!(state_now(failed, windows, vulkan), failed);
+            assert_eq!(state_now(DlssState::Ready, windows, vulkan), DlssState::Ready);
+        }
+        assert_eq!(state_now(DlssState::NotLoaded, true, true), DlssState::NotLoaded);
+        // What follow_request does: the session refreshed every frame, the boundary kept.
+        let mut status = UpscalerStatus::with_start(READY, UpscalerChoice::Dlss(Balanced));
+        status.update(UpscalerChoice::Dlss(Balanced));
+        assert_eq!(effective_temporal(None, true, Some(&status)), UpscalerChoice::Dlss(Balanced));
+        status.session = Session { streamline_loaded: true, dlss: state_now(failed, true, true), fsr: None };
+        assert!(status.update(UpscalerChoice::Dlss(Balanced)));
+        assert_eq!(effective_temporal(None, true, Some(&status)), UpscalerChoice::Off, "native, not FSR");
+        assert_eq!((status.restart_pending(), status.reason()), (false, Some(Unavailable::EvaluateFailed)));
+        assert_eq!(status.boundary(), Some(Boundary::Dlss(Balanced)));
+        assert!(status.describe(UpscalerChoice::Dlss(Balanced)).ends_with("Off draws (evaluate-failed)"));
     }
 
     #[test]

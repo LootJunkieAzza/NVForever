@@ -1,8 +1,9 @@
 //! DLSS through NVIDIA Streamline (#2198): Streamline's interposer loaded and initialised, the
 //! Vulkan instance made through it, DLSS's support checked, DLSS Super Resolution in every mode
 //! drawing a camera in its own pass (`evaluate.rs`), and Streamline shut down in order at exit.
-//! Still a test aid, not a setting (the plan's step 8 makes it one): nothing here runs unless
-//! `NVF_DLSS_SPIKE=1` (unset, it logs nothing and loads nothing, and FSR draws as before).
+//! Nothing here runs unless the start-up choice is DLSS (the `fsr-upscaling` row or the command
+//! line, `upscaler::UpscalerStartup`) or the test aid `NVF_DLSS_PRELOAD=1`: `main` adds
+//! [`DlssInitPlugin`] only then (otherwise nothing is looked for, loaded or logged here).
 //!
 //! - **Files** [design]: `<program folder>\dlss\` (or `NVF_DLSS_DIR=<absolute path>`) holding
 //!   `sl.interposer.dll`, `sl.common.dll`, `sl.dlss.dll` and `nvngx_dlss.dll`; with any missing,
@@ -27,7 +28,7 @@
 //!   driver override can still pick downloaded plugins [documented: `src/pluginManager.cpp:
 //!   966-968, 994-1005`]; watch for that in runs.
 //! - **Rollback**: if the instance cannot be made from the interposer after `slInit` worked,
-//!   `slShutdown` runs before the renderer falls back to the system's loader, and the spike
+//!   `slShutdown` runs before the renderer falls back to the system's loader, and DLSS
 //!   stays off. There is no fallback once the device is being made: wgpu-hal panics when
 //!   Streamline's device proxy refuses for missing extensions [documented: wgpu-hal 30.0.1
 //!   `vulkan/adapter.rs:3044-3050`].
@@ -40,10 +41,12 @@
 //!   physical device and its LUID (Streamline skips the adapter check without a LUID
 //!   [documented: `src/sl.cpp:855-860`]), the versions Streamline reports, and the evidence that
 //!   the device came through its proxies (the instance marker; Streamline's own log lines).
-//!   With DLSS supported, its two functions fetched and the adapter as checked, the spike is
-//!   **active**.
-//! - **Which camera** ([`spike_choice`], until the setting replaces it in the plan's step 8):
-//!   while active, a camera FSR is asked for at a quality is drawn by DLSS at that quality.
+//!   With DLSS supported, its two functions fetched and the adapter as checked, DLSS is
+//!   **active** ([`loader_state`] `Ready`).
+//! - **Which camera** [design]: the one the graphics settings give `upscaler::DlssUpscaling`,
+//!   which they do while DLSS is the effective choice (`upscaler::resolve`, from the requested
+//!   choice and this session's facts: [`session_state`], [`streamline_loaded`]). Cameras with
+//!   `fsr::FsrUpscaling` are FSR's; nothing here touches them.
 //! - **Sizes** (`sizing.rs`): the view preparation (`upscaler::prep::prepare`) asks
 //!   `slDLSSGetOptimalSettings` for the mode, output size and HDR-ness, once per change, and
 //!   draws at the size DLSS reports, with DLSS's jitter phases and mip bias.
@@ -59,12 +62,12 @@
 //!   restored where a shape marks it, the depth expanded. No FSR state is made for it. Any
 //!   failure: the common spatial fallback draws that frame and the history is invalidated;
 //!   [`FAILED_FRAMES`] frames running without DLSS's output and DLSS is unavailable for the
-//!   session ([`session_state`]). FSR's frame generation is forced off while active
-//!   ([`frame_generation_forced_off`]).
+//!   session ([`session_state`]): the status then draws the camera natively. FSR's frame
+//!   generation never runs on a DLSS camera (`frame_gen::usable` asks for FSR drawing).
 //! - **Shutdown** ([`shutdown`], from `main` after `App::run` returns): by then the app,
 //!   its render world and its render thread are gone (Bevy waits for the render app to come back
 //!   before dropping it [design: vendor/bevy_render/src/pipelined_rendering.rs:67-80]), but the
-//!   spike still holds its own clones of the device, queue, adapter and instance, so the Vulkan
+//!   loader still holds its own clones of the device, queue, adapter and instance, so the Vulkan
 //!   device and instance are alive. The GPU is drained (`Device::poll` wait, then
 //!   `vkDeviceWaitIdle`), DLSS's resources for the viewport are freed (`slFreeResources`, which
 //!   needs pending evaluates flushed [documented: `sl_core_api.h:233-237`]), `slShutdown` runs, and only then are the clones dropped, the last
@@ -89,7 +92,7 @@ use bevy::render::view::{ExtractedView, ViewTarget};
 use bevy::render::{Render, RenderApp, RenderSystems};
 
 use crate::upscaler::prep::{self, PreparedUpscale, UpscaleRenderer, UpscaleSettings};
-use crate::upscaler::{DlssState, UpscaleQuality, Unavailable, Upscaler, UpscalerChoice};
+use crate::upscaler::{DlssState, UpscaleQuality, Unavailable, Upscaler};
 
 #[cfg(windows)]
 mod evaluate;
@@ -105,8 +108,6 @@ mod win;
 
 pub(crate) use sizing::OptimalSizes;
 
-/// The switch: `1` turns the spike on.
-const ENV_SWITCH: &str = "NVF_DLSS_SPIKE";
 /// The folder holding the four files instead of the one beside the program.
 #[cfg(any(windows, test))]
 const ENV_DIR: &str = "NVF_DLSS_DIR";
@@ -132,7 +133,7 @@ fn push(level: Level, text: String) {
     }
 }
 
-/// A line of the spike's for the log.
+/// A line of DLSS's for the log.
 fn note(level: Level, text: impl AsRef<str>) {
     push(level, format!("DLSS: {}", text.as_ref()));
 }
@@ -168,18 +169,15 @@ fn drain_log() {
 pub struct DlssInitPlugin;
 
 impl Plugin for DlssInitPlugin {
+    /// `main` adds the plugin only when the start-up choice is DLSS or `NVF_DLSS_PRELOAD=1`
+    /// (`upscaler::UpscalerStartup::loads_streamline`).
     fn build(&self, app: &mut App) {
-        let Some(value) = std::env::var_os(ENV_SWITCH) else { return };
         app.add_systems(First, drain_log);
-        if value != "1" {
-            note(Level::INFO, format!("inactive: {ENV_SWITCH}={} (only 1 turns it on)", value.to_string_lossy()));
-            return;
-        }
         start(app);
     }
 
     /// After every plugin's `finish`, so after the renderer's resources are in the render world:
-    /// the support check and the spike's own handles on the device.
+    /// the support check and the loader's own handles on the device.
     fn cleanup(&self, app: &mut App) {
         #[cfg(windows)]
         win::after_device(app);
@@ -210,8 +208,6 @@ fn set_loader_state(state: DlssState) {
 /// for), `Ready` once DLSS is supported and its functions fetched, otherwise the first reason it
 /// stopped at (`Unavailable`). Final after `Plugin::cleanup`; for the settings (the plan's
 /// step 8).
-// Read by the settings in a later step; remove this then.
-#[cfg_attr(not(test), allow(dead_code))]
 pub fn loader_state() -> DlssState {
     *LOADER_STATE.lock().unwrap_or_else(PoisonError::into_inner)
 }
@@ -221,10 +217,9 @@ pub fn loader_state() -> DlssState {
 static EVALUATE_FAILED: AtomicBool = AtomicBool::new(false);
 
 /// Whether DLSS can run in this session as far as is known now: [`loader_state`], unless DLSS
-/// has since stopped producing output (`Unavailable::EvaluateFailed`). For the settings (the
-/// plan's step 8).
-// Read by the settings in a later step; remove this then.
-#[cfg_attr(not(test), allow(dead_code))]
+/// has since stopped producing output (`Unavailable::EvaluateFailed`). Read by the upscaler
+/// status (`upscaler::dlss_state_now`), so the camera then draws natively and the settings say
+/// why.
 pub fn session_state() -> DlssState {
     if EVALUATE_FAILED.load(Ordering::Relaxed) {
         DlssState::Unavailable(Unavailable::EvaluateFailed)
@@ -233,35 +228,29 @@ pub fn session_state() -> DlssState {
     }
 }
 
-/// The spike is active: the device came through Streamline on the GPU the check saw, DLSS is
+/// DLSS is active: the device came through Streamline on the GPU the check saw, DLSS is
 /// supported and its functions were fetched (set in `win::after_device`, cleared at shutdown).
 static ACTIVE: AtomicBool = AtomicBool::new(false);
-static FRAME_GENERATION_LOGGED: AtomicBool = AtomicBool::new(false);
+
+/// The renderer's device was made through Streamline's interposer and the loader holds it (set
+/// in `win::after_device` whatever the support check then says, cleared at shutdown). An atomic,
+/// not the loader's lock, because the main world reads it every frame while the render thread
+/// may hold that lock for an evaluate.
+static STREAMLINE_DEVICE: AtomicBool = AtomicBool::new(false);
+
+/// Streamline was loaded and initialised at start and the renderer's device came through its
+/// proxies, whether or not DLSS then turned out supported or kept working
+/// (`upscaler::Session::streamline_loaded`). Not `loader_state() == Ready` [design]: a GPU
+/// without DLSS, an adapter that did not match the check, or DLSS given up on later all leave
+/// Streamline under the device (`upscaler::Boundary::Preload`, or a DLSS session that stopped
+/// drawing DLSS).
+pub fn streamline_loaded() -> bool {
+    STREAMLINE_DEVICE.load(Ordering::Relaxed)
+}
 
 /// DLSS may draw a camera now: active, and not given up on ([`session_state`]).
-pub(crate) fn spike_ready() -> bool {
+fn ready() -> bool {
     ACTIVE.load(Ordering::Relaxed) && !EVALUATE_FAILED.load(Ordering::Relaxed)
-}
-
-/// The spike's rule for a camera [design], until the setting replaces it (the plan's step 8):
-/// with DLSS ready, FSR asked for at a quality is drawn by DLSS at that quality; anything else
-/// is drawn as asked. `upscaler::prep::extract` applies it to each camera.
-pub(crate) fn spike_choice(requested: UpscalerChoice, ready: bool) -> UpscalerChoice {
-    match requested {
-        UpscalerChoice::Fsr(quality) if ready => UpscalerChoice::Dlss(quality),
-        other => other,
-    }
-}
-
-/// Decision 8: while DLSS draws in FSR's place FSR's frame generation does not run (its passes
-/// and presenter assume FSR's dispatch drew the frame). Said once. Read by
-/// `frame_gen::usable` in the main world.
-pub fn frame_generation_forced_off() -> bool {
-    let ready = spike_ready();
-    if ready && !FRAME_GENERATION_LOGGED.swap(true, Ordering::Relaxed) {
-        note(Level::INFO, "frame generation forced off while DLSS draws in FSR's place");
-    }
-    ready
 }
 
 /// The main textures' usages DLSS needs on a camera it draws, its own and not FSR's
@@ -314,7 +303,7 @@ fn record(evaluated: bool) {
         EVALUATE_FAILED.store(true, Ordering::Relaxed);
         note(
             Level::WARN,
-            format!("{FAILED_FRAMES} frames running without DLSS's output: DLSS is unavailable for the rest of the session ({}); the camera is drawn as asked from the next frame", Unavailable::EvaluateFailed.key()),
+            format!("{FAILED_FRAMES} frames running without DLSS's output: DLSS is unavailable for the rest of the session ({}); the camera draws natively from the next frame", Unavailable::EvaluateFailed.key()),
         );
     }
 }
@@ -355,11 +344,11 @@ pub(crate) enum Outcome {
     Fallback,
 }
 
-/// One DLSS evaluate, or [`Outcome::Fallback`] (with the spike inactive at once, touching
-/// nothing).
+/// One DLSS evaluate, or [`Outcome::Fallback`] (at once, touching nothing, when DLSS is not
+/// ready).
 #[cfg(windows)]
 fn evaluate(ctx: &mut RenderContext, frame: &Frame) -> Outcome {
-    if !spike_ready() {
+    if !ready() {
         return Outcome::Fallback;
     }
     win::evaluate(ctx, frame)
@@ -373,7 +362,7 @@ fn evaluate(_ctx: &mut RenderContext, _frame: &Frame) -> Outcome {
 /// `slDLSSGetOptimalSettings` for a key (`sizing::OptimalSizes` asks, once per change).
 #[cfg(windows)]
 fn query_optimal(key: sizing::Key) -> Result<sizing::Optimal, String> {
-    if !spike_ready() {
+    if !ready() {
         return Err("DLSS is not active".to_string());
     }
     win::optimal_settings(key)
@@ -418,7 +407,7 @@ pub(crate) fn configure(views: Query<(&ExtractedView, &PreparedUpscale)>, sizes:
     }) else {
         return;
     };
-    if !spike_ready() {
+    if !ready() {
         return;
     }
     let key = sizing::Key { quality, output: view.viewport.zw(), hdr: sizing::hdr_format(view.target_format) };
@@ -526,9 +515,10 @@ fn adapter_pin() -> Option<String> {
 }
 
 /// Streamline shut down in order, from `main` once `App::run` has returned (the module's
-/// "Shutdown"). Does nothing when the spike never initialised Streamline.
+/// "Shutdown"). Does nothing when Streamline was never initialised.
 pub fn shutdown() {
     ACTIVE.store(false, Ordering::Relaxed);
+    STREAMLINE_DEVICE.store(false, Ordering::Relaxed);
     #[cfg(windows)]
     win::shutdown();
     drain_log();
@@ -584,13 +574,10 @@ mod tests {
     }
 
     #[test]
-    fn the_spike_draws_fsrs_cameras_with_dlss_at_the_same_quality_only_when_ready() {
-        for quality in UpscaleQuality::ALL {
-            assert_eq!(spike_choice(UpscalerChoice::Fsr(quality), true), UpscalerChoice::Dlss(quality));
-            assert_eq!(spike_choice(UpscalerChoice::Fsr(quality), false), UpscalerChoice::Fsr(quality));
-            assert_eq!(spike_choice(UpscalerChoice::Dlss(quality), false), UpscalerChoice::Dlss(quality));
-        }
-        assert_eq!(spike_choice(UpscalerChoice::Off, true), UpscalerChoice::Off, "off stays off");
+    fn without_the_loader_streamline_is_not_under_the_device_and_dlss_never_draws() {
+        // The tests never add DlssInitPlugin: no device came through the interposer.
+        assert!(!streamline_loaded());
+        assert!(!ready());
     }
 
     #[test]
@@ -641,7 +628,7 @@ mod tests {
 
     #[test]
     fn four_files_checked_by_name() {
-        let dir = std::env::temp_dir().join(format!("nvf-dlss-spike-test-{}-{}", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos())));
+        let dir = std::env::temp_dir().join(format!("nvf-dlss-files-test-{}-{}", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos())));
         assert_eq!(missing_files(&dir), FILES.to_vec(), "no folder: all missing");
         std::fs::create_dir_all(&dir).unwrap();
         assert_eq!(missing_files(&dir), FILES.to_vec());

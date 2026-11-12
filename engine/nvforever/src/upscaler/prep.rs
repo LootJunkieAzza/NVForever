@@ -167,16 +167,6 @@ pub(crate) fn policy(
     }
 }
 
-/// The DLSS spike's rule applied to a camera's settings (`dlss::spike_choice`, until the
-/// setting replaces it in the plan's step 8): FSR asked for while DLSS is ready is drawn by DLSS
-/// at the same quality, without FSR's sharpening.
-fn with_spike(settings: UpscaleSettings, dlss_ready: bool) -> UpscaleSettings {
-    match crate::dlss::spike_choice(settings.choice(), dlss_ready) {
-        UpscalerChoice::Dlss(quality) => UpscaleSettings::Dlss(quality),
-        _ => settings,
-    }
-}
-
 /// The jitter for `frame` among `phases` (AMD's Halton sequence from the wgpu-ffx port, in
 /// render pixels and AMD's sign; Bevy's `TemporalJitter` takes the opposite sign).
 pub(crate) fn jitter_offset(frame: u32, phases: i32) -> Vec2 {
@@ -184,7 +174,9 @@ pub(crate) fn jitter_offset(frame: u32, phases: i32) -> Vec2 {
 }
 
 /// The upscaler a camera's components ask for: FSR where the device can run it, else DLSS's
-/// component. The graphics settings never put both on a camera; FSR is taken first.
+/// component. The graphics settings put `DlssUpscaling` on the camera only while DLSS is the
+/// effective choice (`graphics::apply`, `upscaler::UpscalerStatus`), and never both; FSR is
+/// taken first. A DLSS camera does not depend on FSR's support.
 pub(crate) fn camera_settings(fsr: Option<&FsrUpscaling>, dlss: Option<&DlssUpscaling>, fsr_supported: bool) -> Option<UpscaleSettings> {
     match (fsr, dlss) {
         (Some(fsr), _) => fsr_supported.then_some(UpscaleSettings::Fsr(*fsr)),
@@ -206,9 +198,8 @@ pub(crate) fn extract(
     pipboy_screen: Extract<Option<Res<nvf_play::pipboy::PipBoyScreen>>>,
 ) {
     let mut active = Vec::new();
-    let dlss_ready = crate::dlss::spike_ready();
     for (entity, camera, projection, transform, fsr, dlss) in &cameras {
-        let (Some(settings), Projection::Perspective(projection)) = (camera_settings(fsr, dlss, support.0).map(|s| with_spike(s, dlss_ready)), projection) else { continue };
+        let (Some(settings), Projection::Perspective(projection)) = (camera_settings(fsr, dlss, support.0), projection) else { continue };
         if !camera.is_active || camera.physical_viewport_size().is_none_or(|s| s.x < 32 || s.y < 32) {
             continue;
         }
@@ -644,14 +635,20 @@ mod tests {
         assert_eq!(policy(UpscaleSettings::Dlss(Quality), output, &limits, |_| None), None, "no size from DLSS: native");
     }
 
+    /// The camera's components alone choose the backend (the setting puts them there): a DLSS
+    /// camera is DLSS's at its quality whatever FSR's support, gets the common prepared view
+    /// only, and an FSR camera is never turned into a DLSS one.
     #[test]
-    fn the_spike_turns_fsr_cameras_into_dlss_ones_only_when_ready() {
-        let sharp = UpscaleSettings::Fsr(FsrUpscaling { quality: Performance, sharpness: 0.2 });
-        assert!(matches!(with_spike(sharp, true), UpscaleSettings::Dlss(Performance)));
-        assert!(matches!(with_spike(sharp, false), UpscaleSettings::Fsr(f) if f.quality == Performance));
-        assert!(matches!(with_spike(UpscaleSettings::Dlss(NativeAa), false), UpscaleSettings::Dlss(NativeAa)));
-        // The DLSS camera made from it gets the common prepared view only.
-        assert!(!allocates_fsr_state(with_spike(sharp, true).upscaler()));
+    fn the_components_choose_the_backend_and_a_dlss_camera_gets_no_fsr_state() {
+        for quality in UpscaleQuality::ALL {
+            for fsr_supported in [true, false] {
+                let dlss = camera_settings(None, Some(&DlssUpscaling { quality }), fsr_supported).unwrap();
+                assert!(matches!(dlss, UpscaleSettings::Dlss(q) if q == quality), "{quality:?} {fsr_supported}");
+                assert!(!allocates_fsr_state(dlss.upscaler()));
+            }
+            let fsr_camera = camera_settings(Some(&FsrUpscaling { quality, sharpness: 0.2 }), None, true).unwrap();
+            assert!(matches!(fsr_camera, UpscaleSettings::Fsr(f) if f.quality == quality), "FSR stays FSR");
+        }
     }
 
     #[test]

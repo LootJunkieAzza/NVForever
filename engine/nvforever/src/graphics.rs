@@ -980,6 +980,55 @@ mod tests {
         assert_eq!(app.world().resource::<Graphics>().fsr(), None, "the request is DLSS");
     }
 
+    /// The setting's DLSS, effective: the camera gets DLSS's component alone, the common
+    /// preparation reads it as DLSS's (its policy from the size DLSS reports, no FSR state), the
+    /// separate sharpening runs as it does natively (FSR's own is not there), and once DLSS's
+    /// pass gives up (`EvaluateFailed`) the camera draws natively, not with FSR.
+    #[test]
+    fn a_dlss_camera_from_the_setting_gets_dlsss_policy_and_no_fsr_and_draws_natively_once_dlss_fails() {
+        use crate::upscaler::prep::{self, UpscaleSettings};
+        use crate::upscaler::{DlssState, Session, Unavailable};
+        let (mut app, camera) = aa_app(ScreenAa::Fxaa, true);
+        let requested = UpscalerChoice::Dlss(UpscaleQuality::Performance);
+        {
+            let mut g = app.world_mut().resource_mut::<Graphics>();
+            g.sharpen = true;
+            g.upscaler = requested;
+        }
+        let ready = Session { streamline_loaded: true, dlss: DlssState::Ready, fsr: None };
+        let mut status = UpscalerStatus::with_start(ready, requested);
+        status.update(requested);
+        app.insert_resource(status);
+        app.update();
+        let entity = app.world().entity(camera);
+        assert!(!entity.contains::<FsrUpscaling>(), "no FSR component");
+        assert!(!fsr_active(app.world()) && crate::upscaler::temporal_active(app.world()));
+        let settings = prep::camera_settings(entity.get::<FsrUpscaling>(), entity.get::<DlssUpscaling>(), true).expect("a temporal camera");
+        assert!(matches!(settings, UpscaleSettings::Dlss(UpscaleQuality::Performance)));
+        assert!(!prep::allocates_fsr_state(settings.upscaler()), "the common prepared view only");
+        let output = UVec2::new(1280, 720);
+        let optimal = crate::dlss::sizing::Optimal { render: UVec2::new(640, 360), min: UVec2::new(640, 360), max: UVec2::new(640, 360) };
+        let policy = prep::policy(settings, output, &wgpu::Limits::default(), |quality| {
+            assert_eq!(quality, UpscaleQuality::Performance);
+            Some(optimal)
+        })
+        .expect("DLSS reported a size");
+        assert_eq!(policy.render_size, optimal.render, "the size DLSS reports, not FSR's ratio");
+        assert!(entity.get::<PostEffects>().is_some_and(|p| p.params.w > 0.0), "the separate sharpening, as natively");
+
+        // DLSS's pass gives up: what follow_request makes of the session from then on.
+        {
+            let mut status = app.world_mut().resource_mut::<UpscalerStatus>();
+            status.session.dlss = DlssState::Unavailable(Unavailable::EvaluateFailed);
+            status.update(requested);
+        }
+        app.update();
+        assert_native_aa(&app, camera, ScreenAa::Fxaa);
+        assert!(!app.world().entity(camera).contains::<DlssUpscaling>());
+        assert!(!crate::upscaler::temporal_active(app.world()) && !fsr_active(app.world()), "native, not FSR");
+        assert_eq!(app.world().resource::<UpscalerStatus>().reason(), Some(Unavailable::EvaluateFailed));
+    }
+
     #[test]
     fn fsr_aa_is_applied_without_a_sun_to_replacement_cameras_and_repairs_conflicting_components() {
         let (mut app, old) = aa_app(ScreenAa::Off, true);

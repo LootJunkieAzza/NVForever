@@ -22,7 +22,7 @@ use super::ffi::{
 };
 use super::preflight::{self, Checked, Pin, Requirements, Selection, Snapshot};
 use super::sizing::{Key, Optimal};
-use super::{missing_files, note, note_sl, resolve_folder, set_loader_state, FolderSource, Frame, Outcome, ACTIVE, ENV_DIR, FILES};
+use super::{missing_files, note, note_sl, resolve_folder, set_loader_state, FolderSource, Frame, Outcome, ACTIVE, ENV_DIR, FILES, STREAMLINE_DEVICE};
 use crate::upscaler::{DlssState, Unavailable};
 
 /// `Preferences::projectId`: a fixed GUID written for NVForever (not one NVIDIA issued).
@@ -428,7 +428,7 @@ fn instance_report(outcome: Result<(), &str>) {
             note(Level::WARN, format!("route: stock ({why})"));
             // SAFETY: after slInit, before any device.
             let down = unsafe { (spike.api.shutdown)() };
-            note(Level::INFO, format!("slShutdown before the stock path: {}; the spike is off", down.name()));
+            note(Level::INFO, format!("slShutdown before the stock path: {}; DLSS is off this session", down.name()));
             spike.phase = Phase::Down;
             set_loader_state(DlssState::Unavailable(Unavailable::StreamlineRefused));
         }
@@ -446,7 +446,7 @@ pub(super) fn after_device(app: &mut App) {
             note(Level::WARN, "route: stock (the renderer never asked for the Vulkan library)");
             // SAFETY: no Vulkan object was made through Streamline.
             let down = unsafe { (spike.api.shutdown)() };
-            note(Level::INFO, format!("slShutdown: {}; the spike is off", down.name()));
+            note(Level::INFO, format!("slShutdown: {}; DLSS is off this session", down.name()));
             spike.phase = Phase::Down;
             set_loader_state(DlssState::Unavailable(Unavailable::StreamlineRefused));
             return;
@@ -454,7 +454,7 @@ pub(super) fn after_device(app: &mut App) {
         Phase::Holding(_) | Phase::Down => return,
     }
     let Some(render) = app.get_sub_app(RenderApp) else {
-        note(Level::WARN, "no render world; slShutdown will be skipped at exit (the device's lifetime is not the spike's to know)");
+        note(Level::WARN, "no render world; slShutdown will be skipped at exit (the device's lifetime cannot be followed without it)");
         set_loader_state(DlssState::Unavailable(Unavailable::StreamlineRefused));
         return;
     };
@@ -521,19 +521,20 @@ pub(super) fn after_device(app: &mut App) {
         ),
     );
     spike.phase = Phase::Holding(held);
+    STREAMLINE_DEVICE.store(true, std::sync::atomic::Ordering::Relaxed);
     if !adapter_ok {
         set_loader_state(DlssState::Unavailable(Unavailable::DeviceUnsuitable));
     } else if supported {
         spike.eval = dlss_functions(&spike.api).map(|(get_optimal_settings, set_options)| Evaluator::new(get_optimal_settings, set_options));
         if spike.eval.is_some() {
             ACTIVE.store(true, std::sync::atomic::Ordering::Relaxed);
-            note(Level::INFO, "active: slDLSSGetOptimalSettings and slDLSSSetOptions fetched; DLSS draws a camera FSR is asked for, at its quality, in its own pass");
+            note(Level::INFO, "active: slDLSSGetOptimalSettings and slDLSSSetOptions fetched; DLSS draws the camera in its own pass while it is the upscaler chosen");
             set_loader_state(DlssState::Ready);
         } else {
             set_loader_state(DlssState::Unavailable(Unavailable::StreamlineRefused));
         }
     } else {
-        note(Level::INFO, "evaluate off: DLSS is not supported here; FSR draws as before");
+        note(Level::INFO, "evaluate off: DLSS is not supported here; the camera draws without it");
         set_loader_state(DlssState::Unavailable(refusal));
     }
 }
@@ -548,7 +549,7 @@ fn dlss_functions(api: &Api) -> Option<(SlDlssGetOptimalSettings, SlDlssSetOptio
         if r.is_ok() && !function.is_null() {
             Some(function)
         } else {
-            note(Level::WARN, format!("evaluate off: slGetFeatureFunction({}) {}; FSR draws as before", name.to_string_lossy(), r.name()));
+            note(Level::WARN, format!("evaluate off: slGetFeatureFunction({}) {}; the camera draws without DLSS", name.to_string_lossy(), r.name()));
             None
         }
     };
@@ -669,7 +670,7 @@ pub(super) fn shutdown() {
         }
         Phase::InstanceUp => note(
             Level::WARN,
-            "shutdown: slShutdown skipped: the spike never held the render device, which may already be destroyed (slShutdown after it would use destroyed handles)",
+            "shutdown: slShutdown skipped: the loader never held the render device, which may already be destroyed (slShutdown after it would use destroyed handles)",
         ),
         Phase::Initialised => {
             // SAFETY: no Vulkan object was made through Streamline.
