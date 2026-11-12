@@ -60,7 +60,14 @@ pub fn set_lighter(world: &mut World, on: bool) {
         sky.shadow_cascades = if on { LIGHTER_CASCADES } else { crate::sky::DEFAULT_SHADOW_CASCADES };
         (sky.shadows, sky.shadow_distance, sky.shadow_reach, sky.shadow_cascades)
     };
-    info!("sun shadows: {}, {cascades} cascades", if on { "lighter (maps drawn every other frame, trees cast near the camera only, no arms shade light)" } else { "drawn every frame" });
+    let how = if on {
+        "lighter (maps drawn every other frame, trees cast near the camera only, no arms shade light)"
+    } else if staggered() {
+        "cascades on a staggered schedule (the nearest every frame, the farther ones less often)"
+    } else {
+        "drawn every frame"
+    };
+    info!("sun shadows: {how}, {cascades} cascades");
     if shadows {
         let suns: Vec<Entity> = world.query_filtered::<Entity, With<Sun>>().iter(world).collect();
         for sun in suns {
@@ -166,7 +173,7 @@ fn hold_cascades(
     mut lights: Query<(Entity, &mut Cascades), With<DirectionalLight>>,
     mut kept: Local<EntityHashMap<Cascades>>,
     mut frame: Local<u64>,
-    mut said: Local<bool>,
+    mut said: Local<Option<bool>>,
 ) {
     *frame = frame.wrapping_add(1);
     let schedule: &[(u32, u32)] = if on.0 {
@@ -203,11 +210,18 @@ fn hold_cascades(
             }
         }
     }
-    // Once each time the switch goes on: the first frame that kept its maps.
-    if on.0 && mask != 0 && !*said {
-        info!("sun shadows: a frame kept the shadow maps of the frame before ({} light(s))", kept.len());
+    // Once for each schedule that comes into use (the switch on, or the staggered one with
+    // it off): the first frame that kept maps.
+    if schedule.is_empty() {
+        *said = None;
+    } else if mask != 0 && *said != Some(on.0) {
+        if on.0 {
+            info!("sun shadows: a frame kept the shadow maps of the frame before ({} light(s))", kept.len());
+        } else {
+            info!("sun shadows: a frame kept its farther cascades' maps (staggered schedule, held cascades {mask:#05b}, {} light(s))", kept.len());
+        }
+        *said = Some(on.0);
     }
-    *said = on.0 && (*said || mask != 0);
     if hold.0 != mask {
         hold.0 = mask;
     }

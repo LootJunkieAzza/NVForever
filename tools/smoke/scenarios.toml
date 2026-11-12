@@ -927,7 +927,7 @@ forbid = [{ text = "Caught rendering error", label = "a rendering (validation) e
 
 [[scenario]]
 name = "lighter-sun-shadows"
-source = "docs/design/frame-rate-audit.md §9 (nvforever shadow_rate.rs): the settings page's Lighter sun shadows switch goes on and off while the game runs: two cascades, the sun's shadow maps kept on alternate frames, three cascades again, without a rendering error"
+source = "docs/design/frame-rate-audit.md §9 and §10 (nvforever shadow_rate.rs, #2062, #2063): with the switch off the sun's farther cascades keep their maps on a staggered schedule; the settings page's Lighter sun shadows switch goes on and off while the game runs: two cascades, the sun's shadow maps kept on alternate frames, three staggered cascades again, without a rendering error"
 areas = ["renderer", "graphics", "settings"]
 paths = [
   "engine/nvforever/src/shadow_rate.rs", "engine/nvforever/src/sky.rs", "engine/nvforever/src/player_body.rs",
@@ -938,13 +938,33 @@ env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:12,17:19",
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--sun-shadows"]
 run_seconds = 23
 order = [[
+  { text = "sun shadows: a frame kept its farther cascades' maps (staggered schedule", label = "with the switch off from the start, the farther cascades are held" },
+  "sun shadows: lighter (maps drawn every other frame, trees cast near the camera only, no arms shade light), 2 cascades",
+  "sun shadows: a frame kept the shadow maps of the frame before",
+  "sun shadows: cascades on a staggered schedule (the nearest every frame, the farther ones less often), 3 cascades",
+  { text = "sun shadows: a frame kept its farther cascades' maps (staggered schedule", label = "the switch off again: the staggered schedule holds cascades again" },
+]]
+forbid = [
+  { text = "Caught rendering error", label = "a rendering (validation) error while the shadow maps are kept or the cascades change" },
+  { re = 'NVF_PLAY_TEST_(SETTINGS|PAUSE_MENU): ("|no switch|\S+ is a (list|slider):)', label = "every aid step is understood" },
+]
+
+[[scenario]]
+name = "sun-shadow-stagger-off"
+source = "#2063 (nvforever shadow_rate.rs): the test aid NVF_PLAY_TEST_SHADOW_STAGGER=0 draws every cascade every frame with the Lighter sun shadows switch off; the switch still holds its maps when on"
+areas = ["renderer", "graphics", "settings"]
+paths = ["engine/nvforever/src/shadow_rate.rs", "engine/vendor/bevy_pbr/src/render/light.rs", "engine/vendor/bevy_pbr/src/render/gpu_preprocess.rs"]
+env = { NVF_PLAY_TEST_SHADOW_STAGGER = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:12,17:19", NVF_PLAY_TEST_SETTINGS = "11:lighter-shadows,18:lighter-shadows" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--sun-shadows"]
+run_seconds = 23
+order = [[
   "sun shadows: lighter (maps drawn every other frame, trees cast near the camera only, no arms shade light), 2 cascades",
   "sun shadows: a frame kept the shadow maps of the frame before",
   "sun shadows: drawn every frame, 3 cascades",
 ]]
 forbid = [
+  { text = "staggered schedule", label = "with the aid, no cascade is held on the staggered schedule" },
   { text = "Caught rendering error", label = "a rendering (validation) error while the shadow maps are kept or the cascades change" },
-  { re = 'NVF_PLAY_TEST_(SETTINGS|PAUSE_MENU): ("|no switch|\S+ is a (list|slider):)', label = "every aid step is understood" },
 ]
 
 [[scenario]]
