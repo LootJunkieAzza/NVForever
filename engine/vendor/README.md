@@ -68,6 +68,12 @@ Lighter sun shadows switch and staggered cascades, nvforever shadow_rate.rs), ma
 - `src/render/gpu_preprocess.rs`: `gather_shadow_cascades_for_view` leaves out the same
   views, so `early_gpu_preprocess`, `allocate_uniforms` and `unpack_bins` prepare nothing
   for those cascades that frame.
+- `src/render/light.rs` `prepare_lights`: when the directional shadow texture the cache hands
+  out is not the one of the frame before (a shadowed spot light such as the flashlight
+  switched on or off changes its layer count, or the old one was dropped), the render
+  world's hold is cleared for that frame, so every cascade is drawn into the new texture
+  instead of a held one sampling an empty or stale layer (#2182 review). It logs
+  `held shadow maps: a new directional shadow texture`.
 
 Bevy inserts no such resource, and without it (or with no bits set) nothing changes.
 Whoever sets it must hand the lights the held cascades as the frame that drew them had

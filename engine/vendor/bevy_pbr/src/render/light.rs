@@ -1124,6 +1124,12 @@ pub fn prepare_lights(
         ResMut<LightKeyCache>,
         ResMut<SpecializedShadowMaterialPipelineCache>,
     ),
+    // NVForever held shadow maps: the hold, and the directional shadow texture of the last
+    // frame (see where the texture is taken below).
+    (mut hold_directional, mut last_directional_texture): (
+        Option<ResMut<HoldDirectionalShadowMaps>>,
+        Local<Option<TextureId>>,
+    ),
 ) {
     let views_iter = views.iter();
     let views_count = views_iter.len();
@@ -1550,6 +1556,28 @@ pub fn prepare_lights(
             view_formats: &[],
         },
     );
+
+    // NVForever held shadow maps: a held cascade samples what an earlier frame drew into
+    // this texture, so it can only be held when the texture is the one the last frame drew
+    // into. The cache hands out another one whenever the descriptor changes (a shadowed spot
+    // light, such as the player's flashlight, switched on or off changes the layer count) or
+    // the old one was dropped; that frame draws every cascade, with the matrices the main
+    // world gave the held ones, which are then what the following frames hold.
+    let directional_texture_id = directional_light_depth_texture.texture.id();
+    if *last_directional_texture != Some(directional_texture_id) {
+        if let Some(hold) = hold_directional.as_deref_mut() {
+            if last_directional_texture.is_some() {
+                bevy_log::info!(
+                    "held shadow maps: a new directional shadow texture ({} layers): every cascade drawn this frame",
+                    (num_directional_cascades_enabled + spot_light_shadow_maps_count).max(1)
+                );
+            }
+            if hold.0 != 0 {
+                hold.0 = 0;
+            }
+        }
+        *last_directional_texture = Some(directional_texture_id);
+    }
 
     let directional_light_depth_texture_view =
         directional_light_depth_texture

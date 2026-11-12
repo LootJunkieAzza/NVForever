@@ -950,6 +950,23 @@ forbid = [
 ]
 
 [[scenario]]
+name = "sun-shadow-hold-flashlight"
+source = "#2182 review (vendored bevy_pbr light.rs prepare_lights, nvforever shadow_rate.rs): the player's flashlight casts shadows, so switching it on or off gives the sun a new shadow texture; that frame draws every cascade instead of holding one, outdoors at noon with the staggered schedule"
+areas = ["renderer", "flashlight"]
+paths = ["engine/nvforever/src/shadow_rate.rs", "engine/vendor/bevy_pbr/src/render/light.rs", "engine/nvforever/src/flashlight.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONTROL = "8:flashlight,14:flashlight" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--sun-shadows"]
+run_seconds = 20
+order = [[
+  { text = "sun shadows: a frame kept its farther cascades' maps (staggered schedule", label = "the staggered schedule holds cascades" },
+  "flashlight: on",
+  { text = "held shadow maps: a new directional shadow texture", label = "the flashlight on: a new shadow texture, every cascade drawn" },
+  "flashlight: off",
+  { text = "held shadow maps: a new directional shadow texture", label = "the flashlight off: a new shadow texture, every cascade drawn" },
+]]
+forbid = [{ text = "Caught rendering error", label = "a rendering (validation) error while the shadow texture changes under held cascades" }]
+
+[[scenario]]
 name = "sun-shadow-stagger-off"
 source = "#2063 (nvforever shadow_rate.rs): the test aid NVF_PLAY_TEST_SHADOW_STAGGER=0 draws every cascade every frame with the Lighter sun shadows switch off; the switch still holds its maps when on"
 areas = ["renderer", "graphics", "settings"]
