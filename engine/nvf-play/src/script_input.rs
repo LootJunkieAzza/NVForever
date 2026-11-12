@@ -220,12 +220,21 @@ fn set_blocked(blocked: &mut ScriptBlocked, input: &fnv_game::script_input::Scri
 /// DisableControl holds the key's own control from its first frame: JAM's sprint
 /// (Left Shift, also the game's Run key) disables Run in its handler and needs the player
 /// still running on the next frame].
-fn key_events(mut script: Option<ResMut<crate::script::ScriptState>>, sim: Option<ResMut<crate::sim::SimState>>, mut blocked: ResMut<ScriptBlocked>) {
+/// With `NVF_PLAY_TEST_KEYS` set, each key-down and key-up sent is logged (a test's proof
+/// of one of each per press).
+fn key_events(mut script: Option<ResMut<crate::script::ScriptState>>, sim: Option<ResMut<crate::sim::SimState>>, mut blocked: ResMut<ScriptBlocked>, mut logged: Local<Option<bool>>) {
     let (Some(rt), Some(mut sim)) = (script.as_deref_mut().and_then(|s| s.rt.as_mut()), sim) else { return };
     if !rt.game.jam_keys_changed() {
         return;
     }
+    let before = logged.get_or_insert_with(|| std::env::var_os("NVF_PLAY_TEST_KEYS").is_some()).then(|| rt.game.jam.keys_down.clone());
     crate::script::with_world(rt, &mut sim, |rt| rt.game.jam_key_events());
+    if let Some(before) = before {
+        let after = &rt.game.jam.keys_down;
+        let down: Vec<_> = after.difference(&before).collect();
+        let up: Vec<_> = before.difference(after).collect();
+        info!("script key events: down {down:?} up {up:?}");
+    }
     set_blocked(&mut blocked, &rt.game.input);
 }
 

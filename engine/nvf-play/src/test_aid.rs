@@ -80,6 +80,11 @@
 //!   `pad-X` (or another button named by `crate::pad::parse_pad`) presses a synthetic
 //!   controller's button through `pad::menu_keys`; select Controller in the settings.
 //!   Unlike `NVF_PLAY_TEST_CONTROL` it tests the key's path, not just what it does.
+//!   The hold `tap` (`52:v:tap`) sends a key's or mouse button's press and let-go as the
+//!   device's own messages, both read by Bevy in one frame: a tap shorter than a frame,
+//!   as a quick press at a low frame rate comes in.
+//! - `NVF_PLAY_TEST_FRAME_SLEEP_MS=<ms>` sleeps that long at the end of every frame, a low
+//!   frame rate to test against (200: about 5 fps).
 //!
 //! - `NVF_PLAY_TEST_MELEE_KNOCKBACK=<target FormID hex>:<x>:<y>:<z>`: one player power blow
 //!   on one actor put `x`, `y` from the player and `z` over the ground there (it may start
@@ -277,9 +282,13 @@ pub enum RealInput {
     Wheel(f32),
 }
 
-/// `<key>[:<hold seconds>]` of `NVF_PLAY_TEST_KEYS`.
+/// The hold of a `tap` (`NVF_PLAY_TEST_KEYS`): pressed and let go within one frame.
+pub const TAP: f32 = -1.0;
+
+/// `<key>[:<hold seconds>|tap]` of `NVF_PLAY_TEST_KEYS`.
 pub fn real_input(rest: &str) -> Result<(RealInput, f32), String> {
     let (name, hold) = match rest.split_once(':') {
+        Some((n, h)) if h.trim() == "tap" => (n.trim(), TAP),
         Some((n, h)) => (n.trim(), h.trim().parse::<f32>().map_err(|_| format!("{rest:?}: bad hold {h:?}"))?),
         None => (rest.trim(), 0.0),
     };
@@ -339,6 +348,32 @@ pub(crate) struct RealPresses {
     due: Vec<(f32, (RealInput, f32))>,
     down: Vec<(RealInput, f32)>,
     pad: Option<Entity>,
+}
+
+/// `NVF_PLAY_TEST_KEYS`' taps still to send.
+#[derive(Resource, Default)]
+pub(crate) struct RealTaps(Vec<(f32, (RealInput, f32))>);
+
+/// Send each due tap as the device's press and let-go messages, which Bevy's input
+/// systems read together at the next frame's start.
+fn real_taps(time: crate::pause::AidTime, mut taps: ResMut<RealTaps>, mut typed: MessageWriter<bevy::input::keyboard::KeyboardInput>, mut clicked: MessageWriter<bevy::input::mouse::MouseButtonInput>) {
+    use bevy::input::ButtonState;
+    let Some(now) = time.world_secs() else { return };
+    for (input, _) in take_due(&mut taps.0, now) {
+        for state in [ButtonState::Pressed, ButtonState::Released] {
+            match input {
+                RealInput::Key(key_code) => {
+                    let logical_key = bevy::input::keyboard::Key::Unidentified(bevy::input::keyboard::NativeKey::Unidentified);
+                    typed.write(bevy::input::keyboard::KeyboardInput { key_code, logical_key, state, text: None, repeat: false, window: Entity::PLACEHOLDER });
+                }
+                RealInput::Mouse(button) => {
+                    clicked.write(bevy::input::mouse::MouseButtonInput { button, state, window: Entity::PLACEHOLDER });
+                }
+                RealInput::Pad(_) | RealInput::Wheel(_) => {}
+            }
+        }
+        info!("test aid: real input {input:?} tapped (pressed and let go in one frame)");
+    }
 }
 
 /// Press and let go the `NVF_PLAY_TEST_KEYS` inputs, right after Bevy read the real ones.
@@ -515,13 +550,22 @@ pub(crate) fn setup(app: &mut App) {
     let var = |name: &str| std::env::var(name).ok();
     if let Some(v) = var("NVF_PLAY_TEST_KEYS") {
         match timed(&v).and_then(|items| items.into_iter().map(|(s, r)| real_input(r).map(|k| (s, k))).collect::<Result<Vec<_>, _>>()) {
-            Ok(due) => {
+            Ok(mut due) => {
+                let taps: Vec<_> = due.iter().filter(|(_, (_, hold))| *hold == TAP).copied().collect();
+                due.retain(|(_, (_, hold))| *hold != TAP);
+                if !taps.is_empty() {
+                    app.insert_resource(RealTaps(taps)).add_systems(PreUpdate, real_taps.after(bevy::input::InputSystems));
+                }
                 let pad = due.iter().any(|(_, (i, _))| matches!(i, RealInput::Pad(_))).then(|| app.world_mut().spawn((Gamepad::default(), Name::new("Scripted controller"))).id());
                 app.insert_resource(RealPresses { due, down: Vec::new(), pad })
                     .add_systems(PreUpdate, real_presses.after(bevy::input::InputSystems).before(crate::pad::menu_keys).before(bevy::ui::UiSystems::Focus));
             }
             Err(e) => warn!("NVF_PLAY_TEST_KEYS: {e}"),
         }
+    }
+    if let Some(ms) = var("NVF_PLAY_TEST_FRAME_SLEEP_MS").and_then(|v| v.trim().parse::<u64>().ok()) {
+        info!("test aid: every frame sleeps {ms} ms");
+        app.add_systems(Last, move || std::thread::sleep(std::time::Duration::from_millis(ms)));
     }
     let mut aids = Aids::default();
     if let Some(v) = var("NVF_PLAY_TEST_SHOTS") {
@@ -884,6 +928,7 @@ mod tests {
         assert_eq!(real_input("pad-X:0.2"), Ok((RealInput::Pad(GamepadButton::West), 0.2)));
         assert_eq!(real_input("pad-A"), Ok((RealInput::Pad(GamepadButton::South), 0.0)));
         assert!(real_input("pad-unknown").is_err());
+        assert_eq!(real_input("v:tap"), Ok((RealInput::Key(KeyCode::KeyV), TAP)));
     }
 
     #[test]
