@@ -368,8 +368,8 @@ owner to add to its pull request or issue (owner, 2026-10-29).
       tiles copy `parent()`'s x and y) and `_NVFClickTwoFrames` (`clicked` lasts two
       frames, so MCM's list rows open on the first click and a page does not open and
       close again). The pause menu's Mods page is on by default in the co-op build
-      (`tiles::vanilla::TileMenus::by_default`: `StartMenu` drawn from tiles when
-      neither `[UI] TileMenus=` nor the aid names menus). [observed 2026-11-05, headless,
+      (`tiles::vanilla::TileMenus::for_run`: `StartMenu` drawn from tiles unless
+      `[UI] TileMenus=` or the aid names `-StartMenu`). [observed 2026-11-05, headless,
       MCM 1.5 and JAM loaded, 2560 × 1440: one click on "Mod Configuration" opens MCM
       and lists "Just Mods" (JAM adds itself after its MenuMode 1013 block has run
       0.5 s); one click on it shows JAM's page of switches; one click on "Enable Bullet
@@ -407,6 +407,21 @@ owner to add to its pull request or issue (owner, 2026-10-29).
         `SpecialIdleSprint` on each sprint and ended it the frame `IsMoving` read 0.
         Observed headless: 175% run speed while Left Shift is held, AP 80 → 9 in 6 s,
         about 580 units/s against 344 running.
+    - **MCM's own page, built 2026-11-12** (claude/mcm-mods-default, issue #976): the
+      two blockers were observed in the original (menu-xml.md §10.1, §10.2; observer check
+      73): the pause column's code traits (`childcount` 8, `_alpha` 255, `_enabled` 1),
+      which the Mods page now writes with one code `lb_item_hotrect` row, and MCM.dll's
+      list functions (SetMCMFloatMass, SetMCMStringMass, SetMCMModList, GetMCMListWidth),
+      now in the catalogue (`script_functions.py` `PAGELESS`) and `fnv_game::ui_functions`.
+      The page clicks MCM's trigger once so it opens on MCM's window, and closes when MCM's
+      window does. The switch is on by default (`[UI] TileMenus=-StartMenu` turns it off).
+      Left: observer check 114 (one SetMCMFloatMass range), the main menu's column.
+      - Merged on the ship branch 2026-11-12 with Step 5 above: both column writers stay
+        (`prepare_column` once, `column` each frame), the list functions take the observed
+        call shapes, SetMCMModList still writes the page's heading. MCM's slider
+        (owner item 2026-11-11, values not saved): the meter drags (`dragx`, menu-xml.md
+        §3) and its Accept, Cancel, Default and arrows reach MCM's script
+        (`fnv_game::ui_functions::mcm_meter_inputs`) [hypothesis, §10.2 does not cover them].
 8. **T12. The vanilla HUD on tiles**, behind `[UI] TileMenus=HUDMainMenu`. Compare
     with the hud.md screenshots; keep the old HUD the default until the owner agrees.
     - **T12a done** 2026-10-29 (claude/t12-hud-tiles): the switch and the drawing.

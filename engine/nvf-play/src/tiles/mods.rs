@@ -3,9 +3,10 @@
 //! stays; a "Mods" entry joins it only when a mod added one, and opens the mod's page
 //! from tiles; docs/handoff/ui-tile-tree-tasks.md, T11].
 //!
-//! - **The switch**: `[UI] TileMenus=StartMenu` (`super::vanilla::TileMenus::start`), off
-//!   by default. With it on and a mod's tiles in `StartMenu` (MCM's include, menu-xml.md
-//!   §10; `fnv_ui::Ui::has_mod_added_tiles`), the column has a Mods entry
+//! - **The switch**: `[UI] TileMenus=StartMenu` (`super::vanilla::TileMenus::start`), on
+//!   by default (`-StartMenu` in the list turns it off; `super::vanilla`). With it on and a
+//!   mod's tiles in `StartMenu` (MCM's include, menu-xml.md §10;
+//!   `fnv_ui::Ui::has_mod_added_tiles`), the column has a Mods entry
 //!   (`crate::pause::ModsEntry`, [`available`]). `StartMenu` itself is built from the files
 //!   whenever the pause menu is open (T3b, `fnv_game::ui_loading::sync`).
 //! - **The page** (`crate::pause::Page::Mods`): the mod's tiles of `StartMenu` are drawn
@@ -16,12 +17,24 @@
 //!   (`Begin MenuMode 1013`, [`tick`]), as they do under the original's start menu, so a
 //!   mod's script fills in its page. Esc or Back leave it.
 //! - **MCM**: MCM's script shows its trigger only when the original's pause column,
-//!   filled in by the game's code, reports `childcount` 8; [`column`] writes that, and
-//!   the fade, into the tile tree's column while the page is up. Its mod list is filled
-//!   through MCM.dll's functions, reconstructed from MCM's scripts
+//!   filled in by the game's code, reports `childcount` 8; [`prepare_column`] and
+//!   [`column`] write that, the fade and one code row into the tile tree's column while the
+//!   page is up. Its mod list is filled through MCM.dll's functions
 //!   (`fnv_game::ui_functions`: SetMCMModList, GetMCMListWidth, SetMCMFloatMass,
-//!   SetMCMStringMass). See the tasks doc, T11.
-
+//!   SetMCMStringMass, menu-xml.md §10.2), its slider's buttons reach its script through
+//!   `fnv_game::ui_functions::mcm_meter_inputs`. See the tasks doc, T11.
+//! - **The original's pause column, for MCM** ([`prepare_column`], then [`column`] each frame): MCM shows its trigger
+//!   only while `StartMenu/NOGLOW_BRANCH/main_container` reports `childcount` 8 and places
+//!   it from that column. The original's code fills the column with six rows of the file's
+//!   `lb_item_template` and writes `childcount` 8, `_alpha` 255 and `_enabled` 1 [observed:
+//!   menu-xml.md §10.1]; NVForever's column is hand-built, so the page writes those traits
+//!   and makes one code row (the one MCM reads) when it opens. `_enabled` is MCM's after
+//!   that (it turns the column off while its window is open).
+//! - **MCM opens with the page** ([`tick`]): a click on MCM's trigger (its `_clicked`, one
+//!   frame) once the trigger has been placed, as the player's click on the original's
+//!   "Mod Configuration" row; MCM's window closing itself (its Back, its trigger: `_Menu`
+//!   back to 0) closes the page ([`ModsPage::closed`]) [design].
+use bevy::prelude::info;
 use fnv_game::game::menus;
 use fnv_ui::Ui;
 use std::collections::HashSet;
@@ -79,17 +92,86 @@ pub fn own_back(ui: &Ui) -> bool {
     found
 }
 
-/// One frame of the start menu's scripts under the Mods page: only their `MenuMode 1013`
-/// blocks run (`Game::page_tick`; no GameMode block, no game time) and the open menu is
-/// left alone, so a box a block shows stays open [design: the original runs them under
-/// its start menu, as MCM's mods expect, menu-xml.md §10; NVForever's pause menu
-/// otherwise holds every script, `crate::script`]. The caller puts the played world in
-/// the game first (`crate::script::with_world`).
-pub fn tick(game: &mut fnv_game::Game<'_>) {
+/// MCM's own rect and its trigger [observed: MCM's `MCM.xml`, menu-xml.md §10].
+pub const MCM: &str = "StartMenu/MCM";
+pub const MCM_TRIGGER: &str = "StartMenu/MCM/MCM_Trigger";
+/// The frame of the page MCM's trigger is clicked on: after MCM's first frames have placed
+/// it (its install checks run on the first) [design].
+const CLICK_AT: u64 = 3;
+
+/// The Mods page's state over its frames (`crate::script` keeps it; `crate::pause` reads
+/// [`ModsPage::closed`]).
+#[derive(bevy::prelude::Resource, Default, Debug, Clone, PartialEq, Eq)]
+pub struct ModsPage {
+    /// Frames of the page so far (0 before its first).
+    pub frames: u64,
+    /// MCM's window was seen open on this page.
+    pub mcm_open: bool,
+    /// MCM's window closed itself after being open: the page goes back to the column.
+    pub closed: bool,
+}
+
+/// The original's column as MCM reads it, written into `StartMenu` when it was (re)built:
+/// `childcount` 8, `_alpha` 255 and `_enabled` 1 on [`COLUMN`], and one code row of the
+/// file's `lb_item_template` (`lb_item_hotrect`, `target` 1) under it [observed: menu-xml.md
+/// §10.1, the pause menu's column; design: one row stands for the six, MCM reads only the
+/// first's `target`]. Whether it wrote anything (a fresh tree).
+pub fn prepare_column(ui: &mut Ui, files: Option<&dyn fnv_ui::Source>) -> bool {
+    use fnv_ui::value::Value;
+    let Some(column) = ui.find_tile(COLUMN) else { return false };
+    if ui.tile(column).get("childcount").is_some() {
+        return false;
+    }
+    ui.set_trait(column, "childcount", Value::Num(8.0));
+    ui.set_trait(column, "_alpha", Value::Num(255.0));
+    ui.set_trait(column, "_enabled", Value::Num(1.0));
+    if ui.find_tile(&format!("{COLUMN}/lb_item_hotrect")).is_none() {
+        let empty = fnv_ui::MemSource::default();
+        if let Some(row) = ui.add_code_tile_from_template(files.unwrap_or(&empty), COLUMN, "lb_item_template", None) {
+            ui.set_trait(row, "target", Value::Num(1.0));
+        }
+    }
+    true
+}
+
+/// One frame of the start menu's scripts under the Mods page: the column made ready
+/// ([`prepare_column`]), MCM's trigger clicked at [`CLICK_AT`] if its window is not open,
+/// then only the `MenuMode 1013` blocks run (`Game::page_tick`; no GameMode block, no game
+/// time) and the open menu is left alone, so a box a block shows stays open [design: the
+/// original runs them under its start menu, as MCM's mods expect, menu-xml.md §10;
+/// NVForever's pause menu otherwise holds every script, `crate::script`]. The caller puts
+/// the played world in the game first (`crate::script::with_world`).
+pub fn tick(game: &mut fnv_game::Game<'_>, page: &mut ModsPage) {
+    if page.frames == 0 {
+        page.mcm_open = false;
+        page.closed = false;
+    }
+    let files = game.ui_files.as_deref().map(|f| f as &dyn fnv_ui::Source);
+    if prepare_column(&mut game.ui_tree, files) {
+        info!("tiles: {COLUMN}: the original's column traits written for MCM");
+    }
     column(&mut game.ui_tree);
     // MCM's slider buttons reach its script as MCM.dll's do (`fnv_game::ui_functions`).
     fnv_game::ui_functions::mcm_meter_inputs(game);
+    let ui = &mut game.ui_tree;
+    let open = |ui: &Ui| ui.get_float(&format!("{MCM}/_Menu")) == Some(1.0);
+    if page.frames == CLICK_AT && ui.find_tile(MCM_TRIGGER).is_some() && !open(ui) {
+        ui.set_float(&format!("{MCM_TRIGGER}/_clicked"), 1.0);
+        info!("tiles: MCM's trigger clicked: its window opens with the Mods page");
+    } else if page.frames == CLICK_AT + 1 {
+        ui.set_float(&format!("{MCM_TRIGGER}/_clicked"), 0.0);
+    }
     game.page_tick(menus::START);
+    if open(&game.ui_tree) {
+        if !page.mcm_open {
+            info!("tiles: MCM's window is open on the Mods page");
+        }
+        page.mcm_open = true;
+    } else if page.mcm_open && !page.closed {
+        page.closed = true;
+        info!("tiles: MCM's window closed: the Mods page closes");
+    }
+    page.frames += 1;
 }
 
 /// The frames of the main menu before a game is played, as the start menu's MenuMode
@@ -192,7 +274,7 @@ mod tests {
         // A mod's tile injected into it.
         assert!(ui.inject_text(&src, "StartMenu", r#"<rect name="MCM"/>"#));
         assert!(available(on, &ui, Some(&src), &mut kept));
-        assert!(!available(off, &ui, Some(&src), &mut kept), "the switch is off by default");
+        assert!(!available(off, &ui, Some(&src), &mut kept), "the switch off");
     }
 
     #[test]

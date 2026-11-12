@@ -97,11 +97,6 @@ pub struct TileMenus {
 }
 
 impl TileMenus {
-    /// The switches when neither the test aid nor the INI gives a list: only `StartMenu`.
-    pub fn by_default() -> TileMenus {
-        TileMenus { start: true, ..TileMenus::default() }
-    }
-
     /// A comma-separated list of menu names (case does not matter, blanks around a name
     /// neither): the switches, and the names not acted on.
     pub fn parse(list: &str) -> (TileMenus, Vec<String>) {
@@ -149,6 +144,18 @@ impl TileMenus {
         (menus, other)
     }
 
+    /// The switches for a run from its list ([`TileMenus::parse`]) with the defaults: the
+    /// start menu's Mods page on unless the list names `-StartMenu` (its entry shows only
+    /// when a mod added tiles to the start menu, `super::mods`) [design: owner 2026-11-12,
+    /// issue #976]; every other menu off unless named. No list is an empty one.
+    pub fn for_run(list: Option<&str>) -> (TileMenus, Vec<String>) {
+        let (mut menus, mut other) = TileMenus::parse(list.unwrap_or(""));
+        let off = |n: &String| n.eq_ignore_ascii_case(&format!("-{}", super::mods::START_MENU));
+        menus.start |= !other.iter().any(off);
+        other.retain(|n| !off(n));
+        (menus, other)
+    }
+
     /// The list for this run and where it was read: the test aid, else the INI's
     /// `[UI] TileMenus=`; `None` when neither gives one.
     pub fn list_for_run(aid: Option<String>, ini: &SettingsFile) -> Option<(String, String)> {
@@ -165,10 +172,7 @@ impl TileMenus {
 pub(crate) fn setup(app: &mut App) {
     let unattended = crate::test_aid::Unattended::from_env().0;
     let list = TileMenus::list_for_run(std::env::var(AID).ok(), &SettingsFile::for_run(unattended));
-    // Without a list the start menu's Mods page is on (the co-op build: MCM and the mods
-    // it configures work out of the box); its entry shows only when a mod added tiles to
-    // the start menu, so an unmodded game sees no change [design]. A list says it all.
-    let (menus, other) = list.as_ref().map_or_else(|| (TileMenus::by_default(), Vec::new()), |(l, _)| TileMenus::parse(l));
+    let (menus, other) = TileMenus::for_run(list.as_ref().map(|(l, _)| l.as_str()));
     app.insert_resource(menus);
     app.add_systems(Startup, move || {
         let Some((list, from)) = &list else { return };
@@ -551,6 +555,11 @@ mod tests {
         // T11: the start menu's Mods page.
         let start = TileMenus { start: true, ..TileMenus::default() };
         assert_eq!(TileMenus::parse(" startmenu "), (start, Vec::new()));
+        // A run: the Mods page on by default, with or without a list, off by `-StartMenu`.
+        assert_eq!(TileMenus::for_run(None), (start, Vec::new()));
+        assert_eq!(TileMenus::for_run(Some("HUDMainMenu")), (TileMenus { start: true, ..hud }, Vec::new()));
+        assert_eq!(TileMenus::for_run(Some("HUDMainMenu, -startmenu")), (hud, Vec::new()));
+        assert_eq!(TileMenus::for_run(Some("-StartMenu")), (TileMenus::default(), Vec::new()));
         assert_eq!(start.line(), "StartMenu drawn from tiles");
         assert_eq!(hud.line(), "HUDMainMenu drawn from tiles");
         assert_eq!(TileMenus::default().line(), "no menu drawn from tiles");
