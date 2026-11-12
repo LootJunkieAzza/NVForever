@@ -933,7 +933,7 @@ fn run(
             coop.ticket = None;
         }
         coop.dropped_sent.clear();
-        *link = DrinkLink { aid_skill: coop.aid_skill, ..Default::default() };
+        *link = DrinkLink { aid_skill: coop.aid_skill.or(link.aid_skill), ..Default::default() };
     }
 
     // ---- the stake page's asks ---------------------------------------------------------
@@ -1136,7 +1136,7 @@ fn run(
                 coop.started_at = now;
                 if drinking {
                     let bottle = page.0.as_ref().map_or(b.bottle, |p| p.bottle);
-                    *link = DrinkLink { on, authority: true, local: b.entrants.iter().position(|e| e.id == me), aid_skill: coop.aid_skill, ..Default::default() };
+                    *link = DrinkLink { on, authority: true, local: b.entrants.iter().position(|e| e.id == me), aid_skill: coop.aid_skill.or(link.aid_skill), ..Default::default() };
                     start.write(DrinkStart { bottle, drinkers: list, seed, stake: b.stake });
                     coop.headless = None;
                     page.0 = None;
@@ -1148,7 +1148,10 @@ fn run(
     }
 
     // ---- the deciding game runs the contest (co-op): the screen's link ------------------------
-    link.aid_skill = coop.aid_skill;
+    // Only while this aid runs: otherwise drink-c's solo aid (NVF_PLAY_TEST_DRINK_TABLE) owns it.
+    if coop.aid_skill.is_some() {
+        link.aid_skill = coop.aid_skill;
+    }
     if here && on {
         if let (Some(b), Some(tk)) = (coop.book.as_ref(), coop.ticket.as_ref().filter(|k| k.here && !k.settled)) {
             if b.round == tk.round && matches!(b.phase, BookPhase::Running { .. }) {
@@ -1195,7 +1198,7 @@ fn run(
                         let drinkers: Vec<Who> = v.entrants.iter().map(|e| Who::Player(e.id)).collect();
                         let list: Vec<Drinker> = v.entrants.iter().map(|e| Drinker { who: Who::Player(e.id), name: t.name(e.id), endurance: e.endurance }).collect();
                         info!("drink: the contest starts at 0x{key:08X}, round {}, seed {seed:016X}, {} drinkers, {} caps each, pot {} (decided by {})", v.round, list.len(), v.stake, v.pot(), t.name(*owner));
-                        *link = DrinkLink { on: true, authority: false, local: v.slot_of(me), aid_skill: coop.aid_skill, ..Default::default() };
+                        *link = DrinkLink { on: true, authority: false, local: v.slot_of(me), aid_skill: coop.aid_skill.or(link.aid_skill), ..Default::default() };
                         coop.ticket = Some(Ticket { key, round: v.round, owner: *owner, stake: v.stake, drinkers, here: false, drinking: true, heard: rnow, settled: false, winner_given: false, view_tick: u32::MAX });
                         let bottle = page.0.as_ref().map_or(key, |p| p.bottle);
                         start.write(DrinkStart { bottle, drinkers: list, seed, stake: v.stake });
