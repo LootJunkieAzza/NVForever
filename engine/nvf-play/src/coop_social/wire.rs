@@ -118,7 +118,13 @@ pub enum Msg {
     /// Caravan: the sender's deck (card FormIDs).
     CaravanDeck { nonce: u16, cards: Vec<u32> },
     CaravanMove { nonce: u16, mv: CaravanMove },
+    /// Caravan: the sender's caps, and its offered stake ([`NO_OFFER`]: none yet);
+    /// `agreed`: the leader (the inviter) announces the stake (`crate::stake`).
+    CaravanBet { nonce: u16, funds: u32, ante: u32, agreed: bool },
 }
+
+/// [`Msg::CaravanBet`]'s `ante` when the sender only says its caps.
+pub const NO_OFFER: u32 = u32::MAX;
 
 impl Msg {
     pub fn nonce(&self) -> u16 {
@@ -140,7 +146,8 @@ impl Msg {
             | Msg::TradeSold { nonce, .. }
             | Msg::TradeRefused { nonce, .. }
             | Msg::CaravanDeck { nonce, .. }
-            | Msg::CaravanMove { nonce, .. } => *nonce,
+            | Msg::CaravanMove { nonce, .. }
+            | Msg::CaravanBet { nonce, .. } => *nonce,
         }
     }
 
@@ -177,6 +184,7 @@ impl Msg {
                 &mut w
             }
             Msg::CaravanMove { nonce, mv } => w.u8(31).u16(*nonce).u8(mv.kind).u8(mv.card).u8(mv.side).u8(mv.track).u8(mv.on),
+            Msg::CaravanBet { nonce, funds, ante, agreed } => w.u8(32).u16(*nonce).u32(*funds).u32(*ante).u8(*agreed as u8),
         };
         w.0
     }
@@ -218,6 +226,7 @@ impl Msg {
                 Msg::CaravanDeck { nonce, cards }
             }
             31 => Msg::CaravanMove { nonce, mv: CaravanMove { kind: r.u8()?, card: r.u8()?, side: r.u8()?, track: r.u8()?, on: r.u8()? } },
+            32 => Msg::CaravanBet { nonce, funds: r.u32()?, ante: r.u32()?, agreed: r.u8()? != 0 },
             _ => return None,
         };
         r.done().then_some(m)
@@ -250,6 +259,8 @@ mod tests {
             Msg::TradeRefused { nonce: 2, item: 0x0001_5169, count: 2, each: 45 },
             Msg::CaravanDeck { nonce: 3, cards: (0..40).map(|i| 0x0010_0000 + i).collect() },
             Msg::CaravanMove { nonce: 3, mv: CaravanMove { kind: 0, card: 4, side: 1, track: 2, on: 255 } },
+            Msg::CaravanBet { nonce: 3, funds: 1_250, ante: 60, agreed: true },
+            Msg::CaravanBet { nonce: 3, funds: 0, ante: NO_OFFER, agreed: false },
         ];
         for m in all {
             let b = m.encode();

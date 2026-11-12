@@ -825,6 +825,7 @@ fn talk(real: Res<Time<Real>>, mut tables: ResMut<Tables>, mut social: ResMut<So
             }
             Msg::Quit { nonce } if s.caravan.is_some_and(|c| c == (from, nonce)) => wire_cv.inbox.push(crate::caravan::PvpIn::Forfeit),
             Msg::CaravanDeck { cards, .. } if s.caravan.is_some_and(|c| c == (from, nonce)) => wire_cv.inbox.push(crate::caravan::PvpIn::Deck(cards.into_iter().map(FormId).collect())),
+            Msg::CaravanBet { funds, ante, agreed, .. } if s.caravan.is_some_and(|c| c == (from, nonce)) => wire_cv.inbox.push(crate::caravan::PvpIn::Bet { funds, offer: (ante != wire::NO_OFFER).then_some(ante), agreed }),
             Msg::CaravanMove { mv, .. } if s.caravan.is_some_and(|c| c == (from, nonce)) => match mv.flipped() {
                 Some(m) => wire_cv.inbox.push(crate::caravan::PvpIn::Move(m)),
                 None => warn!("co-op social: player {} sent a caravan move this game cannot read", from + 1),
@@ -1220,6 +1221,7 @@ fn caravan_bridge(mut social: ResMut<Social>, mut tables: ResMut<Tables>, mut wi
         let m = match o {
             crate::caravan::PvpOut::Deck(d) => Msg::CaravanDeck { nonce, cards: d.into_iter().map(|f| f.0).collect() },
             crate::caravan::PvpOut::Move(m) => Msg::CaravanMove { nonce, mv: CaravanMove::of(m) },
+            crate::caravan::PvpOut::Bet { funds, offer, agreed } => Msg::CaravanBet { nonce, funds, ante: offer.unwrap_or(wire::NO_OFFER), agreed },
             crate::caravan::PvpOut::Forfeit => Msg::Quit { nonce },
         };
         tables.send(with as u32, game::SOCIAL, m.encode());

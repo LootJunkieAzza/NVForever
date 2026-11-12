@@ -138,6 +138,23 @@ pub fn why_not(g: &Game, c: &Card) -> String {
     }
 }
 
+/// The tracks tied in the sold range, said plainly: a tie sells neither caravan until one
+/// is higher, and the game goes on until all three tracks are sold [documented:
+/// HelpCaravanContractWar]. The owner took a 23 to 23 tie, with the other two tracks won,
+/// for a game that should have ended (PvP playtest 2026-11-11). `None` without a tie.
+pub fn tie_note(g: &Game) -> Option<String> {
+    if g.phase != Phase::War {
+        return None;
+    }
+    let tied: Vec<String> = (0..3)
+        .filter_map(|t| {
+            let (mine, theirs) = (g.sides[PLAYER].caravans[t].value(), g.sides[OPPONENT].caravans[t].value());
+            (mine == theirs && (21..=26).contains(&mine)).then(|| format!("{} and {} are tied at {mine}", track_name(PLAYER, t), track_name(OPPONENT, t)))
+        })
+        .collect();
+    (!tied.is_empty()).then(|| format!("{}: a tie sells neither until one is higher. The game ends when all three are sold.", tied.join("; ")))
+}
+
 /// The guide's text for the table as it stands: the place shown, else the card in focus
 /// (why it can't be played, when it can't), on the player's turn; empty otherwise.
 pub fn text(g: &Game, hand: usize, shown: Option<&Move>, refused: bool) -> String {
@@ -179,5 +196,19 @@ mod tests {
         assert_eq!(refusal(&k, &card(Rank::Num(4), Suit::Clubs)).unwrap(), "its last card is a 4");
         assert_eq!(worth(23), "23, sold");
         assert_eq!(worth(30), "30, over 26");
+    }
+
+    #[test]
+    fn a_tie_in_the_sold_range_is_said() {
+        // The owner's table: 22/23/25 against 20/23/14; the middle tracks tie at 23.
+        let k = |cards: &[(u8, Suit)]| Caravan { cards: cards.iter().map(|&(n, s)| placed(n, s)).collect() };
+        let mut g = Game::new(Vec::new(), Vec::new(), &mut <rand_chacha::ChaCha8Rng as rand_core::SeedableRng>::seed_from_u64(1));
+        g.phase = Phase::War;
+        g.sides[PLAYER].caravans = [k(&[(10, Suit::Hearts), (10, Suit::Hearts), (2, Suit::Hearts)]), k(&[(10, Suit::Clubs), (10, Suit::Clubs), (3, Suit::Clubs)]), k(&[(10, Suit::Spades), (10, Suit::Spades), (5, Suit::Spades)])];
+        g.sides[OPPONENT].caravans = [k(&[(10, Suit::Hearts), (10, Suit::Hearts)]), k(&[(10, Suit::Diamonds), (10, Suit::Diamonds), (3, Suit::Diamonds)]), k(&[(10, Suit::Clubs), (4, Suit::Clubs)])];
+        let note = tie_note(&g).expect("a tie");
+        assert!(note.starts_with("NEW RENO and REDDING are tied at 23"), "{note}");
+        g.sides[OPPONENT].caravans[1].cards.pop();
+        assert_eq!(tie_note(&g), None, "20 against 23 is no tie");
     }
 }
