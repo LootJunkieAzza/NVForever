@@ -1081,10 +1081,39 @@ MCM 1.5 and Just Assorted Mods active, window 1280 x 720), with the pause menu o
   `_clicked` to 1 opened MCM's window (MCM's `_Menu` 1, `_Reset` 1, the mod list's
   `_visible` 1 and `_count` 2, Mod1 "Just Mods" with `_modIndex` 12, Just Assorted Mods'
   load index).
-- **NVForever** (`nvf-play` `tiles::mods`): the Mods page writes the column's code traits
-  (`childcount` 8, `_alpha` 255, `_enabled` 1) and makes one code `lb_item_hotrect` row
-  (MCM reads only its `target`) when it opens, then clicks MCM's trigger once, so the
-  page opens on MCM's window; MCM's window closing (`_Menu` 0) closes the page [design].
+- **MCM's quests in the original** [observed 2026-11-12, jobs mcm976q, mcm976r, mcm976s,
+  save nvftest]: right after the load MCM's quest runs and its mod list (`MCMMods`)
+  already holds Just Assorted Mods' item (count 1), so the mod added it before the save
+  loaded, under the main menu (its `MenuMode 1013` block adds it after half a second).
+  `MCMModList` does not run in play nor under the pause menu; two frames after MCM's
+  trigger was clicked it runs, the list's `_count` is 2 and Mod1 reads "Just Mods"
+  (MCM's stage 0 starts it). ResetQuest from a job script stopped a running `MCMList`
+  and left the stopped `MCMList` and `MCMModList` stopped (as o41, layer5-captures.md
+  §5.7).
+- **NVForever** (`nvf-play` `tiles::mods`, `script`) [design unless marked]:
+  - when the Mods page opens it writes the column's code traits (`childcount` 8,
+    `_alpha` 255, `_enabled` 1), StartMenu's `alpha` 255 (its fade-in done, as the VATS
+    menu's) and one code `lb_item_hotrect` row (MCM reads only its `target`), then holds
+    MCM's trigger clicked until MCM's window opens and lets go in that frame (a click
+    held into the next frame closes MCM again, by MCM's script); MCM's window closing
+    (`_Menu` 0) closes the page;
+  - when a game starts, the start menu's `MenuMode 1013` blocks run for a second
+    (`Game::came_through_start_menu`), standing for the main menu the player came
+    through, where MCM mods add themselves [hypothesis from the observations above]; no
+    shipped script has such a block;
+  - GetSecondsPassed in a block run under the page counts the page's own clock
+    (`Game::page_time`), so a mod's MenuMode timer runs there [hypothesis: Just Assorted
+    Mods' does in the original];
+  - the page lays MCM's tiles out by the `locus` rule (a tile's `x`, `y` count from the
+    nearest tile above with `locus` on) [documented: GetUIFloatInherited], measures the
+    start menu's texts as the code does (`MCM_ModList_Size`, 31 high; "Just Mods" 117
+    wide, both as in the original), and writes `screen()` in interface units while it is
+    up (MCM centres its window by it: `x` 353.33 on a 16:9 view in the original);
+  - MCM's trigger is not drawn (NVForever's column and its Mods entry stand for that
+    row) and the pause menu's own Back is not drawn while MCM's window, which has its
+    own Back and Defaults, is open.
+  - Open: the list's `_count` read 1 here where the original's read 2 with the same
+    mod; the main menu's column.
 
 ### 10.2 MCM.dll's list functions (2026-11-12)
 

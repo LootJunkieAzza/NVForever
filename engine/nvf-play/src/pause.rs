@@ -1092,6 +1092,9 @@ struct Drawn {
     column: Vec<(&'static str, bool)>,
     /// Under the main menu (its entries make the column; no pause screen).
     under_main: bool,
+    /// The Mods page shows a mod's own window with its own Back (MCM's): ours is not
+    /// drawn over it (`crate::tiles::mods::ModsPage::mcm_open`) [design].
+    mod_window: bool,
     /// The load page's thumbnail: the row it is of and whether there is one.
     thumb: Option<(usize, bool)>,
     /// The Controls tab's values, in `GAME_CONTROLS`' order, on the device in use.
@@ -1416,7 +1419,7 @@ fn spawn_page(commands: &mut Commands, d: &Drawn, look: &PauseLook, settings: &[
                 Page::Mods => {}
             }
             // Back (and Defaults) at the bottom right.
-            if d.page != Page::Main {
+            if d.page != Page::Main && !d.mod_window {
                 let on = |item| matches!(d.page, Page::Settings { .. }) && d.focus == SettingsFocus::Rail(item);
                 right_entry(root, &f.entry, tr("Back"), from_right(RIGHT, BACK_TOP, 200.0, ITEM), 200.0, Shade::Bright, on(RailItem::Back), PauseButton::Back, glyphs);
                 if matches!(d.page, Page::Settings { .. }) {
@@ -3915,6 +3918,7 @@ fn drawn_now(world: &mut World) -> Drawn {
         disabled,
         status: world.resource::<PauseStatus>().line.clone(),
         under_main: main.is_some(),
+        mod_window: page == Page::Mods && world.get_resource::<crate::tiles::mods::ModsPage>().is_some_and(|m| m.mcm_open),
         column: main.unwrap_or_else(|| entries(world.get_resource::<ModsEntry>().is_some_and(|m| m.0)).iter().map(|e| (e.label(), true)).collect()),
         thumb,
         controls: world.get_resource::<crate::bindings::Bindings>().map(|b| b.all().map(|(c, _)| b.text_on(c)).collect()).unwrap_or_default(),

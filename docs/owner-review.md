@@ -246,8 +246,11 @@ the spec it links to.
     costs a second world render while aiming. Planned as a Gameplay switch, off = the
     original overlay. Should it be on by default, and should the view around the lens
     zoom a little or not at all? ([scope-3d-lens](design/scope-3d-lens.md))
-34. **MCM and the pause menu (UI tile tree).** MCM lives in the original's StartMenu,
-    which is where our own pause and settings pages are. Chosen (not built yet): our
+34. **MCM and the pause menu (UI tile tree).** Built 2026-11-12 and on by default (#976):
+    with MCM installed and an MCM mod loaded, the pause menu's Mods entry opens MCM's own
+    window, drawn from MCM's files where the original draws it; look at it beside the
+    original (your screenshots of 2026-11-12 are the reference). MCM lives in the original's StartMenu,
+    which is where our own pause and settings pages are. Chosen: our
     column and settings stay as they are. The game's StartMenu is built from its files
     behind them while the pause or main menu is open, so MCM's scripts find their
     tiles. A "Mods" entry joins our column only when a mod added one, and opens MCM's

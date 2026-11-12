@@ -136,11 +136,14 @@ struct Context {
     /// The crop without the parent's own window, for a tile marked outside it.
     clip_above: Option<Rect>,
     t15: bool,
+    /// Children are placed from a tile only when its `locus` is on, else from where the
+    /// tile itself was placed from ([`layout_by_locus`]).
+    by_locus: bool,
 }
 
 impl Default for Context {
     fn default() -> Self {
-        Self { rect: Rect::default(), depth: 0.0, alpha: 255.0, visible: true, clip: None, clip_above: None, t15: false }
+        Self { rect: Rect::default(), depth: 0.0, alpha: 255.0, visible: true, clip: None, clip_above: None, t15: false, by_locus: false }
     }
 }
 
@@ -240,6 +243,7 @@ fn place(tile: &Tile, kind: &Kind, parent: Context, measure: &Measure<'_>) -> Co
         clip: if tile.get(fnv_ui::input::OUTSIDE_CLIP).is_some_and(Value::truthy) { parent.clip_above } else { parent.clip },
         clip_above: parent.clip_above,
         t15: parent.t15,
+        by_locus: parent.by_locus,
     }
 }
 
@@ -251,7 +255,8 @@ fn children_context(tile: &Tile, mut context: Context, above: Context) -> Contex
         context.clip = Some(context.clip.map_or(context.rect, |clip| clip.intersect(context.rect)));
     }
     // A mark only a menu's model writes (`fnv_ui::input::NO_ORIGIN`), the same under the pointer.
-    if tile.get(fnv_ui::input::NO_ORIGIN).is_some_and(Value::truthy) {
+    let no_locus = context.by_locus && !tile.get("locus").is_some_and(Value::truthy);
+    if no_locus || tile.get(fnv_ui::input::NO_ORIGIN).is_some_and(Value::truthy) {
         context.rect.left = above.rect.left;
         context.rect.top = above.rect.top;
     }
@@ -263,13 +268,29 @@ fn children_context(tile: &Tile, mut context: Context, above: Context) -> Contex
 /// Hidden items retain visible=false; menu/hotrect containers emit no item.
 /// `t15` is `tiles::interface_screen`'s switch gate for the hotrect-alpha hypothesis.
 pub fn layout(ui: &Ui, root: TileId, measure: &Measure<'_>, t15: bool) -> Vec<DrawItem> {
+    layout_in(ui, root, measure, Context { t15, ..Default::default() })
+}
+
+/// [`layout`] with the `locus` rule: a tile's `x` and `y` count from the nearest tile
+/// above it whose `locus` is on (the menu's root has it), not from its parent's place
+/// [documented: GetUIFloatInherited, "all parent tiles with an active locus" make up a
+/// tile's place; observed: MCM's window, its `MCM` rect without `locus` and its background
+/// copying that rect's `x` and `y`, stood at the rect's place in the original, the owner's
+/// screenshots 2026-11-12, menu-xml.md §10.1]. Used for the start menu's Mods page only
+/// (`super::mods`); the HUD and the other tile menus keep [`layout`]'s rule until they are
+/// checked against it (a follow-up) [design].
+pub fn layout_by_locus(ui: &Ui, root: TileId, measure: &Measure<'_>, t15: bool) -> Vec<DrawItem> {
+    layout_in(ui, root, measure, Context { t15, by_locus: true, ..Default::default() })
+}
+
+fn layout_in(ui: &Ui, root: TileId, measure: &Measure<'_>, start: Context) -> Vec<DrawItem> {
     let mut ancestors = Vec::new();
     let mut at = ui.tile(root).parent;
     while let Some(id) = at {
         ancestors.push(id);
         at = ui.tile(id).parent;
     }
-    let mut context = Context { t15, ..Default::default() };
+    let mut context = start;
     for id in ancestors.into_iter().rev() {
         let tile = ui.tile(id);
         if !tile.live {

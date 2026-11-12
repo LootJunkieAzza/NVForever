@@ -74,6 +74,8 @@ pub const MCM_TRIGGER: &str = "StartMenu/MCM/MCM_Trigger";
 /// The frame of the page MCM's trigger is clicked on: after MCM's first frames have placed
 /// it (its install checks run on the first) [design].
 const CLICK_AT: u64 = 3;
+/// The most frames the click is held for [design].
+const CLICK_FOR: u64 = 60;
 
 /// The Mods page's state over its frames (`crate::script` keeps it; `crate::pause` reads
 /// [`ModsPage::closed`]).
@@ -85,10 +87,12 @@ pub struct ModsPage {
     pub mcm_open: bool,
     /// MCM's window closed itself after being open: the page goes back to the column.
     pub closed: bool,
+    /// MCM's trigger is held clicked, until its window opens.
+    pub clicking: bool,
 }
 
-/// The original's column as MCM reads it, written into `StartMenu` when it was (re)built:
-/// `childcount` 8, `_alpha` 255 and `_enabled` 1 on [`COLUMN`], and one code row of the
+/// The original's column as MCM reads it, written into `StartMenu` when it was (re)built
+/// (with the menu's `alpha` 255, its fade-in done): `childcount` 8, `_alpha` 255 and `_enabled` 1 on [`COLUMN`], and one code row of the
 /// file's `lb_item_template` (`lb_item_hotrect`, `target` 1) under it [observed: menu-xml.md
 /// §10.1, the pause menu's column; design: one row stands for the six, MCM reads only the
 /// first's `target`]. Whether it wrote anything (a fresh tree).
@@ -97,6 +101,11 @@ pub fn prepare_column(ui: &mut Ui, files: Option<&dyn fnv_ui::Source>) -> bool {
     let Some(column) = ui.find_tile(COLUMN) else { return false };
     if ui.tile(column).get("childcount").is_some() {
         return false;
+    }
+    // The menu faded in, as the code does for a menu it shows (its file starts it at 0;
+    // `super::vats_menu::write` likewise) [design].
+    if let Some(menu) = ui.menu(START_MENU) {
+        ui.set_trait(menu, "alpha", Value::Num(255.0));
     }
     ui.set_trait(column, "childcount", Value::Num(8.0));
     ui.set_trait(column, "_alpha", Value::Num(255.0));
@@ -119,8 +128,7 @@ pub fn prepare_column(ui: &mut Ui, files: Option<&dyn fnv_ui::Source>) -> bool {
 /// the played world in the game first (`crate::script::with_world`).
 pub fn tick(game: &mut fnv_game::Game<'_>, page: &mut ModsPage) {
     if page.frames == 0 {
-        page.mcm_open = false;
-        page.closed = false;
+        *page = ModsPage::default();
     }
     let files = game.ui_files.as_deref().map(|f| f as &dyn fnv_ui::Source);
     if prepare_column(&mut game.ui_tree, files) {
@@ -128,13 +136,35 @@ pub fn tick(game: &mut fnv_game::Game<'_>, page: &mut ModsPage) {
     }
     let ui = &mut game.ui_tree;
     let open = |ui: &Ui| ui.get_float(&format!("{MCM}/_Menu")) == Some(1.0);
+    // The click is held until MCM's window is open, at most [`CLICK_FOR`] frames: MCM skips
+    // a click in the frame after it reset itself (its `_UnClick`) [observed: MCM's script
+    // source; the original opened with `_clicked` left at 1, menu-xml.md §10.1].
+    let clicked = format!("{MCM_TRIGGER}/_clicked");
     if page.frames == CLICK_AT && ui.find_tile(MCM_TRIGGER).is_some() && !open(ui) {
-        ui.set_float(&format!("{MCM_TRIGGER}/_clicked"), 1.0);
+        ui.set_float(&clicked, 1.0);
+        page.clicking = true;
         info!("tiles: MCM's trigger clicked: its window opens with the Mods page");
-    } else if page.frames == CLICK_AT + 1 {
-        ui.set_float(&format!("{MCM_TRIGGER}/_clicked"), 0.0);
+    } else if page.clicking && (open(ui) || page.frames >= CLICK_AT + CLICK_FOR) {
+        if !open(ui) {
+            let read = |p: &str| ui.get_float(p).map_or("none".to_string(), |v| v.to_string());
+            bevy::prelude::warn!(
+                "tiles: MCM's window did not open: MCM visible {}, its trigger visible {}, {COLUMN} childcount {}",
+                read(&format!("{MCM}/visible")),
+                read(&format!("{MCM_TRIGGER}/visible")),
+                read(&format!("{COLUMN}/childcount"))
+            );
+        }
+        ui.set_float(&clicked, 0.0);
+        page.clicking = false;
     }
     game.page_tick(menus::START);
+    // Let go as soon as the window is open: a click held into the next frame is a second
+    // click on the trigger, which closes MCM again (its script: `iMenu` 1 and the trigger
+    // closes; the close resets its mod list's quest) [observed: MCM's script source].
+    if page.clicking && open(&game.ui_tree) {
+        game.ui_tree.set_float(&clicked, 0.0);
+        page.clicking = false;
+    }
     if open(&game.ui_tree) {
         if !page.mcm_open {
             info!("tiles: MCM's window is open on the Mods page");
