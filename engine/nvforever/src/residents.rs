@@ -843,6 +843,9 @@ struct Resident {
     /// It cannot walk and its base has the Flies flag: a perched bird, in nobody's way
     /// ([`flies`]).
     perched: bool,
+    /// Its base is flagged Immobile ([`ACBS_IMMOBILE`]): with a Turning Speed of 0 it
+    /// never turns either ([`never_turns`]).
+    immobile: bool,
     /// The space its walker was in at the last frame (the space of a door it has just
     /// gone through).
     last_space: Option<Space>,
@@ -911,6 +914,18 @@ fn acbs_flag(world: &WorldData, base: u32, bit: u32) -> bool {
     let Some((plugin, r)) = fnv_world::fields::winner(world.lo, base) else { return false };
     let Ok(f) = fnv_world::fields::Fields::new(r, plugin, world.schema) else { return false };
     &f.sig == b"CREA" && f.raw(b"ACBS").and_then(|s| s.data.get(..4)).is_some_and(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]) & bit != 0)
+}
+
+/// An Immobile creature whose Turning Speed (CREA TNAM, `Game::creature_turning_speed`)
+/// is 0 never turns: a screen, not a turret. In FalloutNV.esm the Immobile creatures
+/// with 0 are MrHouse, MrHouseOFFLINE, YesManMainframe (the penthouse screens) and
+/// CRVoid; the 46 others, turrets and spore plants among them, have 30 to 300
+/// [observed: the master's CREA ACBS and TNAM; hypothesis: that the original reads the
+/// two so, it fits the owner's sight of a screen that stays still, issues #1543 and
+/// #2150]. A creature that walks keeps its own rule for a TNAM of 0
+/// (`creature_pace::creature_turn_rate`).
+fn never_turns(immobile: bool, turning_speed: Option<f32>) -> bool {
+    immobile && turning_speed == Some(0.0)
 }
 
 /// Whether the base form's ACBS flags have "Flies".
@@ -1399,19 +1414,21 @@ impl Core {
     /// Look up who of the listed creatures cannot walk ([`cannot_walk`], or flagged
     /// Immobile), before they are handed to the AI.
     fn check_rooted(&mut self, world: &WorldData, data: &nvf_assets::GameData, actors: Option<&ActorWorld>) {
-        let mut by_base: HashMap<u32, (bool, bool)> = HashMap::new();
+        let mut by_base: HashMap<u32, (bool, bool, bool)> = HashMap::new();
         for r in self.list.iter_mut().filter(|r| r.rooted.is_none()) {
             let reference = r.actor.0;
-            let (rooted, perched) = *by_base.entry(r.base).or_insert_with(|| {
+            let (rooted, perched, immobile) = *by_base.entry(r.base).or_insert_with(|| {
                 // An Immobile creature (the turrets, Mr. House's screens) is held too:
                 // the flag "prevents movement" [documented: GECK wiki Animation Tab].
                 // A leveled template's pick is the first resident's of that base
                 // [hypothesis: the picks of one base share a skeleton family].
-                let rooted = cannot_walk(world, data, actors, r.base, reference) || acbs_flag(world, r.base, ACBS_IMMOBILE);
-                (rooted, rooted && flies(world, r.base))
+                let immobile = acbs_flag(world, r.base, ACBS_IMMOBILE);
+                let rooted = cannot_walk(world, data, actors, r.base, reference) || immobile;
+                (rooted, rooted && flies(world, r.base), immobile)
             });
             r.rooted = Some(rooted);
             r.perched = perched;
+            r.immobile = immobile;
         }
     }
 
@@ -1502,6 +1519,7 @@ impl Core {
             // Only creatures: people walk with the race's clips.
             rooted: (!creature).then_some(false),
             perched: false,
+            immobile: false,
             moved: false,
             last_space: None,
             aim_heading: None,
@@ -1733,6 +1751,10 @@ impl Core {
             } else if r.rooted == Some(true) {
                 self.ai.root(game, r.actor);
                 info!("ai: {} cannot move (no movement animations, or flagged Immobile): it stays where it is{}", r.label, if r.perched { "; it flies, so it is in nobody's way" } else { "" });
+                if never_turns(r.immobile, game.creature_turning_speed(FormId(r.base), r.actor)) {
+                    self.ai.fix_heading(r.actor);
+                    info!("ai: {} never turns (flagged Immobile, Turning Speed 0): it keeps its heading", r.label);
+                }
             }
         }
     }
@@ -3147,7 +3169,10 @@ pub fn drive(
         let held = lock_target.is_some() && r.lock_held == lock_target;
         let lock = lock.map(|(_, at)| at);
         r.lock_held = None;
-        let heading = match (lock.or_else(|| core.aims.get(&r.actor).copied()), r.aim_heading) {
+        // One that never turns (`fnv_ai::Ai::fix_heading`: Mr. House's screen) is drawn
+        // at its walker's heading, which nothing changes, with a target or without (#2150).
+        let aim = lock.or_else(|| core.aims.get(&r.actor).copied()).filter(|_| !agent.fixed);
+        let heading = match (aim, r.aim_heading.filter(|_| !agent.fixed)) {
             (Some(t), from) => {
                 let want = heading_of([t[0] - feet[0], t[1] - feet[1]]);
                 let from = from.unwrap_or(w.heading);
@@ -3400,6 +3425,18 @@ mod tests {
     use fnv_ai::ProcessLevel;
     use fnv_sim::FormId;
     use std::collections::HashMap;
+
+    /// Only an Immobile creature with a Turning Speed of 0 never turns: Mr. House's
+    /// screen does not, a turret (Immobile, 30 and more) and a walking creature whose
+    /// record carries 0 do (issue #2150).
+    #[test]
+    fn only_an_immobile_creature_with_no_turning_speed_never_turns() {
+        use super::never_turns;
+        assert!(never_turns(true, Some(0.0)));
+        assert!(!never_turns(true, Some(30.0)));
+        assert!(!never_turns(false, Some(0.0)));
+        assert!(!never_turns(true, None));
+    }
 
     /// ResetAI on a seated actor whose package gives it the same chair again: it gets up
     /// by the exit clip, nothing tells it to sit while that plays, and once off it may sit
