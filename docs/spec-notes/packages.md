@@ -1120,6 +1120,14 @@ PLAYERLAYMINE 56; the other PLAYER… topics have none.
   LilyPsychoticBreakPACKAGE (a reference, 1,500), VHDMPStageGuardPackage (linked
   reference, 512) and VHDOliverNCRHeavyTrooperFireSupportHuntPlayerPackage (object type
   None: no reference, so its location stands) [observed: PKDT/PTDT of FalloutNV.esm].
+- **Guard type-specific flags, the unnamed bits**: of the 175 Guard packages in
+  FalloutNV.esm the raw value is 0 in 110, 2 in 31, 6 in 10, 4 in 9, 1 in 7 and 5, 16,
+  18, 21, 29 (twice) and 59 in the rest [observed: PKDT]. xEdit names bit 3 only. In the
+  original, of five Guard packages with Continue During Combat given to a knife trooper,
+  the two with raw value 2 held it inside the guard radius and the three with bit 2 set
+  (raw 6, 6, 4) did not [observed: AI observer 2026-11-12, observer-checks.md check 106;
+  that bit 2 is the cause is a hypothesis]. A spawned actor's editor location is the
+  spot PlaceAtMe put it at [observed, the same check].
 - **Stay-at locations by Object ID, Object Type, "At package location"**: the Standard
   Location page names only Near Editor Location, Near Current Location, In Cell and Near
   Reference; how the other kinds choose a place is undocumented. Built (#961)

@@ -48,13 +48,6 @@
     "MenuMode"
    ]
   ],
-  "extra": [
-   [
-    "stable_package",
-    "ref",
-    "GetCurrentStablePackage"
-   ]
-  ],
   "close_menus_after": 0
  },
  "sessions": [
@@ -89,9 +82,24 @@
        "player.SetAV Variable06 fV"
       ]
      }
+    },
+    {
+     "after": 15,
+     "repeat": true,
+     "do": [
+      "player.RestoreAV Health 99999"
+     ]
     }
    ],
-   "note": "read only"
+   "note": "read only, but for god mode and the player's Health raised and restored twice a second (in every session of both campaigns): a dead player reloads the save for ever",
+   "do_first": [
+    [
+     "player.ForceAV Health 99999"
+    ]
+   ],
+   "console_first": [
+    "tgm"
+   ]
   }
  ]
 }
