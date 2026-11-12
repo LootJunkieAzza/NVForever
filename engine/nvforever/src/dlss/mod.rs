@@ -1,7 +1,7 @@
-//! DLSS through NVIDIA Streamline, the spike (#2198): Streamline's interposer loaded and
-//! initialised, the Vulkan instance made through it, DLSS's support checked, one DLSS Super
-//! Resolution evaluate per frame in place of FSR's dispatch (stage 2, `evaluate.rs`), and
-//! Streamline shut down in order at exit. A test aid, not a setting: nothing here runs unless
+//! DLSS through NVIDIA Streamline (#2198): Streamline's interposer loaded and initialised, the
+//! Vulkan instance made through it, DLSS's support checked, DLSS Super Resolution in every mode
+//! drawing a camera in its own pass (`evaluate.rs`), and Streamline shut down in order at exit.
+//! Still a test aid, not a setting (the plan's step 8 makes it one): nothing here runs unless
 //! `NVF_DLSS_SPIKE=1` (unset, it logs nothing and loads nothing, and FSR draws as before).
 //!
 //! - **Files** [design]: `<program folder>\dlss\` (or `NVF_DLSS_DIR=<absolute path>`) holding
@@ -31,15 +31,36 @@
 //!   stays off. There is no fallback once the device is being made: wgpu-hal panics when
 //!   Streamline's device proxy refuses for missing extensions [documented: wgpu-hal 30.0.1
 //!   `vulkan/adapter.rs:3044-3050`].
+//! - **Adapter pin** (after the device check, `preflight::pin`): when `WGPU_ADAPTER_NAME` is
+//!   unset and exactly one checked GPU is NVIDIA's and its name picks it alone, the renderer is
+//!   asked for it by name ([`render_plugin`], Bevy's `WgpuSettings::adapter_name`), so Bevy's
+//!   own pick cannot land on a GPU the check did not see. Once the device exists the GPU Bevy
+//!   chose is compared with the checked one (name and LUID); a mismatch keeps DLSS off.
 //! - **Support** (once the device exists, `Plugin::cleanup`): `slIsFeatureSupported` with the
 //!   physical device and its LUID (Streamline skips the adapter check without a LUID
 //!   [documented: `src/sl.cpp:855-860`]), the versions Streamline reports, and the evidence that
 //!   the device came through its proxies (the instance marker; Streamline's own log lines).
-//!   With DLSS supported and its two functions fetched, the spike is **active**.
-//! - **Evaluate** ([`evaluate`], from `fsr::fsr_pass` in place of FSR's dispatch, only while
-//!   active and frame generation is off; FSR's frame generation is forced off while active,
-//!   [`frame_generation_forced_off`]): `evaluate.rs` says the per-frame order. Any failure:
-//!   FSR's dispatch draws that frame.
+//!   With DLSS supported, its two functions fetched and the adapter as checked, the spike is
+//!   **active**.
+//! - **Which camera** ([`spike_choice`], until the setting replaces it in the plan's step 8):
+//!   while active, a camera FSR is asked for at a quality is drawn by DLSS at that quality.
+//! - **Sizes** (`sizing.rs`): the view preparation (`upscaler::prep::prepare`) asks
+//!   `slDLSSGetOptimalSettings` for the mode, output size and HDR-ness, once per change, and
+//!   draws at the size DLSS reports, with DLSS's jitter phases and mip bias.
+//! - **Options** ([`configure`], a render system after the view preparation, before anything of
+//!   the frame is recorded): `slDLSSSetOptions` when the mode, output size or HDR-ness changes;
+//!   when DLSS may already hold resources for the viewport, the GPU is drained (`Device::poll`
+//!   wait) and `slFreeResources` runs first, so no feature is released while the GPU may still
+//!   use it (Streamline itself releases a replaced feature three frames later [documented:
+//!   `src/dlssEntry.cpp:357-369`]).
+//! - **Evaluate** ([`dlss_pass`], DLSS's own pass, where `fsr::fsr_pass` sits for FSR: after the
+//!   ambient occlusion, before bloom, the bright pass and the other full-resolution effects): the
+//!   common corrected depth, one DLSS evaluate (`evaluate.rs` says the order), the scene's alpha
+//!   restored where a shape marks it, the depth expanded. No FSR state is made for it. Any
+//!   failure: the common spatial fallback draws that frame and the history is invalidated;
+//!   [`FAILED_FRAMES`] frames running without DLSS's output and DLSS is unavailable for the
+//!   session ([`session_state`]). FSR's frame generation is forced off while active
+//!   ([`frame_generation_forced_off`]).
 //! - **Shutdown** ([`shutdown`], from `main` after `App::run` returns): by then the app,
 //!   its render world and its render thread are gone (Bevy waits for the render app to come back
 //!   before dropping it [design: vendor/bevy_render/src/pipelined_rendering.rs:67-80]), but the
@@ -58,15 +79,17 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, PoisonError};
 
-use bevy::core_pipeline::prepass::PreviousViewData;
+use bevy::core_pipeline::prepass::{PreviousViewData, ViewPrepassTextures};
 use bevy::log::Level;
 use bevy::prelude::*;
-use bevy::render::renderer::RenderContext;
+use bevy::render::camera::TemporalJitter;
+use bevy::render::diagnostic::RecordDiagnostics;
+use bevy::render::renderer::{RenderContext, RenderDevice, ViewQuery};
 use bevy::render::view::{ExtractedView, ViewTarget};
+use bevy::render::{Render, RenderApp, RenderSystems};
 
-use crate::upscaler::DlssState;
-#[cfg(not(windows))]
-use crate::upscaler::Unavailable;
+use crate::upscaler::prep::{self, PreparedUpscale, UpscaleRenderer, UpscaleSettings};
+use crate::upscaler::{DlssState, UpscaleQuality, Unavailable, Upscaler, UpscalerChoice};
 
 #[cfg(windows)]
 mod evaluate;
@@ -76,8 +99,11 @@ mod ffi;
 mod preflight;
 #[cfg(windows)]
 mod security;
+pub(crate) mod sizing;
 #[cfg(windows)]
 mod win;
+
+pub(crate) use sizing::OptimalSizes;
 
 /// The switch: `1` turns the spike on.
 const ENV_SWITCH: &str = "NVF_DLSS_SPIKE";
@@ -190,44 +216,121 @@ pub fn loader_state() -> DlssState {
     *LOADER_STATE.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
-/// The spike is active: the device came through Streamline, DLSS is supported and its
-/// functions were fetched (set in `win::after_device`, cleared at shutdown).
+/// What DLSS's own failure left of this session: `None`, or `EvaluateFailed` once
+/// [`FAILED_FRAMES`] frames ran without DLSS's output.
+static EVALUATE_FAILED: AtomicBool = AtomicBool::new(false);
+
+/// Whether DLSS can run in this session as far as is known now: [`loader_state`], unless DLSS
+/// has since stopped producing output (`Unavailable::EvaluateFailed`). For the settings (the
+/// plan's step 8).
+// Read by the settings in a later step; remove this then.
+#[cfg_attr(not(test), allow(dead_code))]
+pub fn session_state() -> DlssState {
+    if EVALUATE_FAILED.load(Ordering::Relaxed) {
+        DlssState::Unavailable(Unavailable::EvaluateFailed)
+    } else {
+        loader_state()
+    }
+}
+
+/// The spike is active: the device came through Streamline on the GPU the check saw, DLSS is
+/// supported and its functions were fetched (set in `win::after_device`, cleared at shutdown).
 static ACTIVE: AtomicBool = AtomicBool::new(false);
 static FRAME_GENERATION_LOGGED: AtomicBool = AtomicBool::new(false);
 
-/// Decision 8: while the spike is active FSR's frame generation does not run (its passes and
-/// presenter assume FSR's dispatch drew the frame). Said once. Read by
+/// DLSS may draw a camera now: active, and not given up on ([`session_state`]).
+pub(crate) fn spike_ready() -> bool {
+    ACTIVE.load(Ordering::Relaxed) && !EVALUATE_FAILED.load(Ordering::Relaxed)
+}
+
+/// The spike's rule for a camera [design], until the setting replaces it (the plan's step 8):
+/// with DLSS ready, FSR asked for at a quality is drawn by DLSS at that quality; anything else
+/// is drawn as asked. `upscaler::prep::extract` applies it to each camera.
+pub(crate) fn spike_choice(requested: UpscalerChoice, ready: bool) -> UpscalerChoice {
+    match requested {
+        UpscalerChoice::Fsr(quality) if ready => UpscalerChoice::Dlss(quality),
+        other => other,
+    }
+}
+
+/// Decision 8: while DLSS draws in FSR's place FSR's frame generation does not run (its passes
+/// and presenter assume FSR's dispatch drew the frame). Said once. Read by
 /// `frame_gen::usable` in the main world.
 pub fn frame_generation_forced_off() -> bool {
-    let active = ACTIVE.load(Ordering::Relaxed);
-    if active && !FRAME_GENERATION_LOGGED.swap(true, Ordering::Relaxed) {
-        note(Level::INFO, "frame generation forced off while the spike is active (the DLSS evaluate replaces FSR's dispatch only without it)");
+    let ready = spike_ready();
+    if ready && !FRAME_GENERATION_LOGGED.swap(true, Ordering::Relaxed) {
+        note(Level::INFO, "frame generation forced off while DLSS draws in FSR's place");
     }
-    active
+    ready
 }
 
-/// Usages the main textures need beyond FSR's while the spike is active: NGX clears its
-/// output with `vkCmdClearColorImage`, which needs `TRANSFER_DST` [observed: Khronos validation
-/// layer, `VUID-vkCmdClearColorImage-image-00002` inside `nv.ngx.dlss.Evaluate`, 2026-11-12].
-/// Added in `fsr::prepare` beside FSR's own; nothing while the spike is inactive.
+/// The main textures' usages DLSS needs on a camera it draws, its own and not FSR's
+/// (`upscaler::prep::prepare` adds them for DLSS cameras only): the output is a storage image
+/// (`GENERAL`, `STORAGE_READ_WRITE` in `evaluate.rs`), and NGX clears it with
+/// `vkCmdClearColorImage`, which needs `TRANSFER_DST` [observed: Khronos validation layer,
+/// `VUID-vkCmdClearColorImage-image-00002` inside `nv.ngx.dlss.Evaluate`, 2026-11-12]. The
+/// HDR format (`Rgba16Float`) every prepared view has already (`prep::prepare` renders others
+/// natively); nothing DLSS does copies from the main textures, so FSR's `COPY_SRC` (its opaque
+/// copy) is not needed.
 pub(crate) fn main_texture_usages() -> wgpu::TextureUsages {
-    if ACTIVE.load(Ordering::Relaxed) {
-        wgpu::TextureUsages::COPY_DST
-    } else {
-        wgpu::TextureUsages::empty()
+    wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::COPY_DST
+}
+
+/// Frames running without DLSS's output (fallback frames) after which DLSS is given up on for
+/// the session [design: about a second at 60 frames a second; a first frame without a previous
+/// view or a camera cut is one frame, not sixty].
+pub(crate) const FAILED_FRAMES: u32 = 60;
+
+/// The run of fallback frames on DLSS cameras.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct FailureRun {
+    run: u32,
+    failed: bool,
+}
+
+impl FailureRun {
+    /// One DLSS camera's frame: `evaluated` when DLSS wrote it. Returns `true` the one time the
+    /// run reaches [`FAILED_FRAMES`].
+    pub(crate) fn push(&mut self, evaluated: bool) -> bool {
+        if evaluated {
+            self.run = 0;
+            return false;
+        }
+        self.run = self.run.saturating_add(1);
+        if self.run >= FAILED_FRAMES && !self.failed {
+            self.failed = true;
+            return true;
+        }
+        false
     }
 }
 
-/// What `fsr::fsr_pass` hands the spike for one frame: FSR's prepared inputs, the camera and
-/// FSR's reset.
+static FAILURE_RUN: Mutex<FailureRun> = Mutex::new(FailureRun { run: 0, failed: false });
+
+/// Counts a DLSS camera's frame toward [`FAILED_FRAMES`]; at the limit DLSS is marked
+/// unavailable for the session, said once.
+fn record(evaluated: bool) {
+    if FAILURE_RUN.lock().unwrap_or_else(PoisonError::into_inner).push(evaluated) {
+        EVALUATE_FAILED.store(true, Ordering::Relaxed);
+        note(
+            Level::WARN,
+            format!("{FAILED_FRAMES} frames running without DLSS's output: DLSS is unavailable for the rest of the session ({}); the camera is drawn as asked from the next frame", Unavailable::EvaluateFailed.key()),
+        );
+    }
+}
+
+/// What [`dlss_pass`] hands the evaluate for one frame: the common prepared inputs and the
+/// camera.
 #[cfg_attr(not(windows), allow(dead_code))]
 pub(crate) struct Frame<'a> {
     pub target: &'a ViewTarget,
-    /// FSR's depth: render size, Depth32Float, first-person depth unsqueezed (fsr.rs `fsr_depth`).
+    /// The common corrected depth: render size, Depth32Float, first-person depth unsqueezed
+    /// (`upscaler::prep::Pipelines::corrected_depth`).
     pub depth: &'a wgpu::Texture,
     /// The prepass motion vectors (display size, the render rectangle valid) and their view.
     pub motion: &'a wgpu::Texture,
     pub motion_view: &'a wgpu::TextureView,
+    pub quality: UpscaleQuality,
     pub render_size: UVec2,
     pub output_size: UVec2,
     pub view: &'a ExtractedView,
@@ -237,34 +340,189 @@ pub(crate) struct Frame<'a> {
     pub near: f32,
     /// Vertical field of view, radians.
     pub fov: f32,
-    /// FSR's cut or invalid history this frame.
+    /// A camera cut or an invalid history this frame.
     pub reset: bool,
-    pub frame_generation: bool,
 }
 
-/// What `fsr_pass` does after [`evaluate`].
+/// What [`dlss_pass`] does after [`evaluate`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[cfg_attr(not(windows), allow(dead_code))]
 pub(crate) enum Outcome {
-    /// DLSS wrote the other main texture (alpha 1); FSR's dispatch is skipped.
+    /// DLSS wrote the other main texture (alpha 1).
     Evaluated,
-    /// FSR's dispatch draws this frame; `reset` when DLSS drew the last one, so FSR's own
-    /// history is stale.
-    Fsr { reset: bool },
+    /// DLSS did not draw this frame: the common spatial fallback draws it, and the history is
+    /// invalidated (no FSR state is made).
+    Fallback,
 }
 
-/// One DLSS evaluate in place of FSR's dispatch, or [`Outcome::Fsr`]. With the spike inactive
-/// it returns at once and touches nothing (`ctx` included), so FSR runs exactly as without it.
+/// One DLSS evaluate, or [`Outcome::Fallback`] (with the spike inactive at once, touching
+/// nothing).
 #[cfg(windows)]
-pub(crate) fn evaluate(ctx: &mut RenderContext, frame: &Frame) -> Outcome {
-    if !ACTIVE.load(Ordering::Relaxed) {
-        return Outcome::Fsr { reset: false };
+fn evaluate(ctx: &mut RenderContext, frame: &Frame) -> Outcome {
+    if !spike_ready() {
+        return Outcome::Fallback;
     }
     win::evaluate(ctx, frame)
 }
 
 #[cfg(not(windows))]
-pub(crate) fn evaluate(_ctx: &mut RenderContext, _frame: &Frame) -> Outcome {
-    Outcome::Fsr { reset: false }
+fn evaluate(_ctx: &mut RenderContext, _frame: &Frame) -> Outcome {
+    Outcome::Fallback
+}
+
+/// `slDLSSGetOptimalSettings` for a key (`sizing::OptimalSizes` asks, once per change).
+#[cfg(windows)]
+fn query_optimal(key: sizing::Key) -> Result<sizing::Optimal, String> {
+    if !spike_ready() {
+        return Err("DLSS is not active".to_string());
+    }
+    win::optimal_settings(key)
+}
+
+#[cfg(not(windows))]
+fn query_optimal(_key: sizing::Key) -> Result<sizing::Optimal, String> {
+    Err("DLSS is Windows only".to_string())
+}
+
+/// DLSS's own render systems: the options before the frame is recorded ([`configure`]) and the
+/// pass ([`dlss_pass`]). Added by the graphics plugin beside FSR's (graphics.rs).
+pub struct DlssPassPlugin;
+
+impl Plugin for DlssPassPlugin {
+    fn build(&self, app: &mut App) {
+        let Some(render_app) = app.get_sub_app_mut(RenderApp) else { return };
+        render_app
+            .add_systems(Render, configure.in_set(RenderSystems::PrepareResources).after(prep::prepare))
+            .add_systems(
+                bevy::core_pipeline::Core3d,
+                // Where `fsr_pass` is for FSR: after the occlusion before the upscaler (ssao.rs
+                // orders `ao_before_fsr` before this), before bloom and the bright pass, and
+                // before `fsr_pass`, which every other full-resolution effect (the eye's
+                // metering mask, frame generation's passes) follows.
+                dlss_pass
+                    .in_set(bevy::core_pipeline::Core3dSystems::EarlyPostProcess)
+                    .before(crate::fsr::fsr_pass)
+                    .before(bevy::post_process::bloom::bloom)
+                    .before(crate::post::bright_pass_hdr),
+            );
+    }
+}
+
+/// The options for the DLSS camera's key (mode, output size, HDR-ness), set before anything
+/// of the frame is recorded: on a change the GPU is drained and the viewport's resources freed
+/// first (`win::configure`). One viewport, so the first DLSS camera only.
+pub(crate) fn configure(views: Query<(&ExtractedView, &PreparedUpscale)>, sizes: Res<OptimalSizes>) {
+    let Some((view, quality)) = views.iter().find_map(|(view, prepared)| match prepared.camera.settings {
+        UpscaleSettings::Dlss(quality) => Some((view, quality)),
+        UpscaleSettings::Fsr(_) => None,
+    }) else {
+        return;
+    };
+    if !spike_ready() {
+        return;
+    }
+    let key = sizing::Key { quality, output: view.viewport.zw(), hdr: sizing::hdr_format(view.target_format) };
+    let Some(optimal) = sizes.cached(key) else { return };
+    #[cfg(windows)]
+    win::configure(key, optimal);
+    #[cfg(not(windows))]
+    let _ = optimal;
+}
+
+/// DLSS's own pass for a view DLSS draws: the common corrected depth, the evaluate, the
+/// scene's alpha restored where a shape marks it, the depth expanded for the screen-space
+/// effects; on any failure the common spatial fallback and an invalidated history. Nothing of
+/// FSR's is read or made.
+#[allow(clippy::type_complexity)]
+pub(crate) fn dlss_pass(
+    view: ViewQuery<(&ViewTarget, &PreparedUpscale, Option<&ViewPrepassTextures>, &TemporalJitter, &ExtractedView, Option<&PreviousViewData>)>,
+    upscale: Res<UpscaleRenderer>,
+    device: Res<RenderDevice>,
+    mut ctx: RenderContext,
+) {
+    let (target, prepared, prepass, jitter, extracted, previous) = view.into_inner();
+    let UpscaleSettings::Dlss(quality) = prepared.camera.settings else { return };
+    let Some(common) = &upscale.0 else { return };
+    debug_assert!(!prep::allocates_fsr_state(Upscaler::Dlss));
+    let device = device.wgpu_device();
+    let inputs = prepass.and_then(|prepass| prepass.depth.as_ref().zip(prepass.motion_vectors.as_ref()));
+    let Some((depth, motion)) = inputs else {
+        prepared.history_valid.store(false, Ordering::Relaxed);
+        record(false);
+        common.fallback(device, ctx.command_encoder(), prepared, target);
+        if let Some(depth) = prepass.and_then(|prepass| prepass.depth.as_ref()) {
+            common.expand_depth(device, ctx.command_encoder(), prepared, &depth.texture.texture);
+        }
+        return;
+    };
+    let diagnostics = ctx.diagnostic_recorder();
+    let diagnostics = diagnostics.as_deref();
+    let span = diagnostics.time_span(ctx.command_encoder(), "nvf_dlss");
+    let reset = prepared.reset || !prepared.history_valid.load(Ordering::Relaxed);
+    common.corrected_depth(device, ctx.command_encoder(), prepared, &depth.texture.texture);
+    let outcome = evaluate(
+        &mut ctx,
+        &Frame {
+            target,
+            depth: &prepared.depth,
+            motion: &motion.texture.texture,
+            motion_view: &motion.texture.default_view,
+            quality,
+            render_size: prepared.render_size,
+            output_size: prepared.output_size,
+            view: extracted,
+            previous,
+            jitter: jitter.offset,
+            near: prepared.camera.near,
+            fov: prepared.camera.fov,
+            reset,
+        },
+    );
+    let encoder = ctx.command_encoder();
+    match outcome {
+        Outcome::Evaluated => {
+            // DLSS's output has alpha 1 (`evaluate.rs` step 6); the scene's marks come back
+            // only while a shape marks its pixels (the Pip-Boy's screen on its model), as for FSR.
+            if prepared.camera.screen_mark {
+                common.restore_alpha(device, encoder, prepared, target);
+            }
+            target.post_process_write();
+            prepared.history_valid.store(true, Ordering::Relaxed);
+        }
+        Outcome::Fallback => {
+            prepared.history_valid.store(false, Ordering::Relaxed);
+            common.fallback(device, encoder, prepared, target);
+        }
+    }
+    record(outcome == Outcome::Evaluated);
+    common.expand_depth(device, encoder, prepared, &depth.texture.texture);
+    span.end(ctx.command_encoder());
+}
+
+/// The renderer's plugin with the adapter pin (the module comment's "Adapter pin"): Bevy's
+/// defaults, with `WgpuSettings::adapter_name` set to the checked NVIDIA GPU when the loader
+/// pinned one. Without a pin it is `RenderPlugin::default()`. `main` sets it on
+/// `DefaultPlugins`, after [`DlssInitPlugin`] has run.
+pub fn render_plugin() -> bevy::render::RenderPlugin {
+    let adapter_name = adapter_pin();
+    if adapter_name.is_none() {
+        return bevy::render::RenderPlugin::default();
+    }
+    bevy::render::RenderPlugin {
+        render_creation: bevy::render::settings::WgpuSettings { adapter_name, ..default() }.into(),
+        ..default()
+    }
+}
+
+/// The adapter name the loader pinned, if any.
+#[cfg(windows)]
+fn adapter_pin() -> Option<String> {
+    win::pinned_name()
+}
+
+#[cfg(not(windows))]
+fn adapter_pin() -> Option<String> {
+    None
 }
 
 /// Streamline shut down in order, from `main` once `App::run` has returned (the module's
@@ -320,8 +578,53 @@ mod tests {
         assert_eq!(DlssState::default(), DlssState::NotLoaded);
         set_loader_state(DlssState::Unavailable(crate::upscaler::Unavailable::UpdaterInFolder));
         assert_eq!(loader_state(), DlssState::Unavailable(crate::upscaler::Unavailable::UpdaterInFolder));
+        assert_eq!(session_state(), loader_state(), "the loader's state while DLSS has not been given up on");
         set_loader_state(DlssState::NotLoaded);
         assert_eq!(loader_state(), DlssState::NotLoaded);
+    }
+
+    #[test]
+    fn the_spike_draws_fsrs_cameras_with_dlss_at_the_same_quality_only_when_ready() {
+        for quality in UpscaleQuality::ALL {
+            assert_eq!(spike_choice(UpscalerChoice::Fsr(quality), true), UpscalerChoice::Dlss(quality));
+            assert_eq!(spike_choice(UpscalerChoice::Fsr(quality), false), UpscalerChoice::Fsr(quality));
+            assert_eq!(spike_choice(UpscalerChoice::Dlss(quality), false), UpscalerChoice::Dlss(quality));
+        }
+        assert_eq!(spike_choice(UpscalerChoice::Off, true), UpscalerChoice::Off, "off stays off");
+    }
+
+    #[test]
+    fn sixty_fallback_frames_running_give_dlss_up_once() {
+        let mut run = FailureRun::default();
+        // A first frame without inputs, then DLSS draws: the run starts again.
+        assert!(!run.push(false));
+        assert!(!run.push(true));
+        for _ in 0..FAILED_FRAMES - 1 {
+            assert!(!run.push(false));
+        }
+        assert!(!run.push(true), "59 running and then output: not given up");
+        for frame in 1..=FAILED_FRAMES {
+            assert_eq!(run.push(false), frame == FAILED_FRAMES, "frame {frame}");
+        }
+        assert!(!run.push(false), "said once");
+        assert!(!run.push(true) && !run.push(false));
+    }
+
+    #[test]
+    fn dlss_main_textures_get_storage_and_copy_destination() {
+        let usages = main_texture_usages();
+        assert!(usages.contains(wgpu::TextureUsages::STORAGE_BINDING), "the output is a storage image");
+        assert!(usages.contains(wgpu::TextureUsages::COPY_DST), "NGX clears it");
+        assert!(!usages.contains(wgpu::TextureUsages::COPY_SRC), "FSR's opaque copy is FSR's own");
+    }
+
+    #[test]
+    fn without_a_pin_the_renderer_plugin_is_bevys_default() {
+        // No loader ran in the tests: no pin.
+        assert_eq!(adapter_pin(), None);
+        let plugin = render_plugin();
+        let bevy::render::settings::RenderCreation::Automatic(settings) = plugin.render_creation else { panic!("automatic creation") };
+        assert_eq!(settings.adapter_name, None);
     }
 
     #[test]

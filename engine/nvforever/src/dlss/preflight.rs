@@ -335,6 +335,8 @@ pub(super) struct QueueFamily {
 pub(super) struct DeviceCaps {
     pub name: String,
     pub kind: DeviceKind,
+    /// `VkPhysicalDeviceProperties::vendorID` (NVIDIA's is [`NVIDIA_VENDOR`]).
+    pub vendor_id: u32,
     /// `VkPhysicalDeviceProperties::apiVersion`.
     pub api_version: u32,
     pub extensions: BTreeSet<String>,
@@ -346,6 +348,8 @@ pub(super) struct DeviceCaps {
     /// `VkPhysicalDeviceIDProperties::deviceLUIDValid`: without a LUID Streamline cannot check
     /// DLSS's support on the device [documented: `src/sl.cpp:855-860`].
     pub luid_valid: bool,
+    /// The LUID itself when valid, to tell afterwards whether Bevy made its device on this GPU.
+    pub luid: Option<[u8; 8]>,
     /// Whether the driver reports a conformance version (`major != 0`); `None` when it reports
     /// no driver properties, as wgpu-hal reads them [documented: wgpu-hal 30.0.1
     /// `vulkan/adapter.rs:1875-1877, 2310-2328`].
@@ -689,6 +693,87 @@ pub(super) fn judge(snapshot: &Snapshot, req: &Requirements, selection: &Selecti
     }
 }
 
+/// NVIDIA's Vulkan vendor id (its PCI vendor id) [documented: wgpu-hal 30.0.1
+/// `auxil/mod.rs:45-48`, `nvidia::VENDOR`].
+pub(super) const NVIDIA_VENDOR: u32 = 0x10DE;
+
+/// A GPU the device check passed, as the renderer will report it afterwards: its name (wgpu
+/// names an adapter by `deviceName` [documented: wgpu-hal 30.0.1 `vulkan/adapter.rs:2246-2252`])
+/// and its LUID.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct Checked {
+    pub name: String,
+    pub luid: Option<[u8; 8]>,
+}
+
+impl Checked {
+    pub(super) fn of(device: &DeviceCaps) -> Self {
+        Self { name: device.name.clone(), luid: device.luid }
+    }
+}
+
+/// What the loader asks the renderer for after the device check passed.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) enum Pin {
+    /// The renderer is asked for this GPU by name (Bevy's `WgpuSettings::adapter_name`).
+    Set(Checked),
+    /// `WGPU_ADAPTER_NAME` is set: the player's choice stands (the check followed it).
+    UserChose,
+    /// No pin, and why; the check covered every GPU the renderer could pick, as before.
+    Declined(String),
+}
+
+/// The adapter pin [design: the midpoint review's P1]: the device check's idea of which GPUs
+/// wgpu offers is narrower than wgpu's own filtering, so Bevy's pick could still land on a GPU
+/// the check did not judge. Asking for the checked NVIDIA GPU by name keeps Bevy on it. Bevy
+/// takes the first adapter whose lower-case name contains the asked name (and that supports the
+/// window's surface), else its own pick [documented: vendor/bevy_render/src/renderer/mod.rs:
+/// 166-195, 280-315]; so the pin is set only when exactly one of the checked GPUs (`checked`,
+/// indices into `devices`) is NVIDIA's, its name is contained in no other GPU's name and it has a
+/// LUID to check the pick against afterwards. With `WGPU_ADAPTER_NAME` set (`user_name`) Bevy
+/// reads the variable over any setting, so nothing is pinned.
+pub(super) fn pin(devices: &[DeviceCaps], checked: &[usize], user_name: Option<&str>) -> Pin {
+    if user_name.is_some() {
+        return Pin::UserChose;
+    }
+    let nvidia: Vec<usize> = checked.iter().copied().filter(|&i| devices.get(i).is_some_and(|d| d.vendor_id == NVIDIA_VENDOR)).collect();
+    let [only] = nvidia.as_slice() else {
+        return Pin::Declined(if nvidia.is_empty() { "no checked GPU is NVIDIA's".to_string() } else { format!("{} checked GPUs are NVIDIA's", nvidia.len()) });
+    };
+    let device = &devices[*only];
+    let wanted = device.name.to_lowercase();
+    let also: Vec<String> = devices.iter().enumerate().filter(|(i, d)| i != only && d.name.to_lowercase().contains(&wanted)).map(|(_, d)| d.label()).collect();
+    if !also.is_empty() {
+        return Pin::Declined(format!("the name {} would also pick {}", device.name, also.join(", ")));
+    }
+    if device.luid.is_none() {
+        return Pin::Declined(format!("{} has no valid LUID to check the pick against", device.label()));
+    }
+    Pin::Set(Checked::of(device))
+}
+
+/// A LUID for the log, its eight bytes in hex.
+pub(super) fn luid_text(luid: Option<[u8; 8]>) -> String {
+    luid.map_or_else(|| "none".to_string(), |l| l.iter().map(|b| format!("{b:02x}")).collect())
+}
+
+/// Whether the GPU Bevy made its device on (`chosen_name`, `chosen_luid`) is the one the loader
+/// expected: the pinned GPU when there is a pin, else any checked GPU; name and LUID both. The
+/// text is the one log line's.
+pub(super) fn verify_choice(chosen_name: &str, chosen_luid: Option<[u8; 8]>, pin: Option<&Checked>, checked: &[Checked]) -> Result<String, String> {
+    let chosen = format!("{chosen_name} (LUID {})", luid_text(chosen_luid));
+    let same = |c: &Checked| c.name == chosen_name && c.luid.is_some() && c.luid == chosen_luid;
+    match pin {
+        Some(pin) if same(pin) => Ok(format!("the renderer made its device on {chosen}, the pinned GPU")),
+        Some(pin) => Err(format!("the renderer made its device on {chosen}, not on the pinned {} (LUID {})", pin.name, luid_text(pin.luid))),
+        None if checked.iter().any(same) => Ok(format!("the renderer made its device on {chosen}, a GPU the device check passed")),
+        None => Err(format!(
+            "the renderer made its device on {chosen}, which the device check did not pass (it passed {})",
+            if checked.is_empty() { "none".to_string() } else { checked.iter().map(|c| format!("{} (LUID {})", c.name, luid_text(c.luid))).collect::<Vec<_>>().join(", ") }
+        )),
+    }
+}
+
 /// The snapshot through the system's Vulkan loader: `vulkan-1.dll` from System32 (not the
 /// interposer, which is not loaded yet), a temporary Vulkan 1.3 instance (the version
 /// Streamline asks for [documented: `src/wrapper.cpp:130-133`]) with the surface extensions when
@@ -780,12 +865,14 @@ fn probe_devices(entry: &ash::Entry, instance: &ash::Instance, presents_known: b
             devices.push(DeviceCaps {
                 name,
                 kind: DeviceKind::from_vk(properties.device_type),
+                vendor_id: properties.vendor_id,
                 api_version,
                 extensions,
                 features12,
                 features13,
                 queue_families,
                 luid_valid,
+                luid: luid_valid.then_some(id.device_luid),
                 conformant,
                 presents,
             });
@@ -819,6 +906,7 @@ mod tests {
         DeviceCaps {
             name: "NVIDIA GeForce RTX 5070 Ti".into(),
             kind: DeviceKind::Discrete,
+            vendor_id: NVIDIA_VENDOR,
             api_version: vk::make_api_version(0, 1, 4, 312),
             extensions: names(&[
                 "VK_KHR_swapchain",
@@ -835,6 +923,7 @@ mod tests {
             features13: FEATURES_13.iter().map(|s| (*s).to_string()).collect(),
             queue_families: vec![QueueFamily { graphics: true, compute: true, count: 16 }, QueueFamily { graphics: false, compute: true, count: 8 }],
             luid_valid: true,
+            luid: Some([0x11, 0x22, 0, 0, 0, 0, 0, 0]),
             conformant: Some(true),
             presents: Some(true),
         }
@@ -845,6 +934,9 @@ mod tests {
         let mut d = rtx();
         d.name = "AMD Radeon(TM) 610M".into();
         d.kind = DeviceKind::Integrated;
+        // Any vendor but NVIDIA's (a test value).
+        d.vendor_id = 0x1002;
+        d.luid = Some([0x33, 0x44, 0, 0, 0, 0, 0, 0]);
         d.extensions.remove("VK_NVX_binary_import");
         d.extensions.remove("VK_NVX_image_view_handle");
         d
@@ -1030,6 +1122,60 @@ mod tests {
         assert_eq!(FEATURES_13.iter().collect::<BTreeSet<_>>().len(), 15);
         assert_eq!(DeviceKind::from_vk(vk::PhysicalDeviceType::DISCRETE_GPU), DeviceKind::Discrete);
         assert_eq!(DeviceKind::from_vk(vk::PhysicalDeviceType::from_raw(99)), DeviceKind::Other);
+    }
+
+    #[test]
+    fn the_pin_names_the_one_checked_nvidia_gpu() {
+        let both = snapshot(vec![igpu(), rtx()]);
+        let checked = candidates(&both.devices, &Selection::default());
+        assert_eq!(checked, vec![1]);
+        assert_eq!(pin(&both.devices, &checked, None), Pin::Set(Checked { name: "NVIDIA GeForce RTX 5070 Ti".into(), luid: Some([0x11, 0x22, 0, 0, 0, 0, 0, 0]) }));
+        // Both checked (no power preference): still the NVIDIA one.
+        assert!(matches!(pin(&both.devices, &[0, 1], None), Pin::Set(c) if c.name.contains("RTX")));
+        // One GPU only (a machine whose Vulkan shows only the RTX).
+        assert!(matches!(pin(&[rtx()], &[0], None), Pin::Set(_)));
+        // The player's WGPU_ADAPTER_NAME stands.
+        assert_eq!(pin(&both.devices, &checked, Some("rtx")), Pin::UserChose);
+    }
+
+    #[test]
+    fn the_pin_declines_when_the_name_cannot_pick_one_gpu() {
+        // Two NVIDIA GPUs checked.
+        let mut second = rtx();
+        second.name = "NVIDIA GeForce RTX 4060".into();
+        second.luid = Some([9; 8]);
+        assert!(matches!(pin(&[rtx(), second], &[0, 1], None), Pin::Declined(why) if why.contains("2 checked GPUs")));
+        // No NVIDIA GPU checked.
+        assert!(matches!(pin(&[igpu(), rtx()], &[0], None), Pin::Declined(why) if why.contains("no checked GPU")));
+        // Two GPUs of the same name: the name cannot tell them apart.
+        let mut twin = rtx();
+        twin.luid = Some([7; 8]);
+        twin.vendor_id = 0x1002;
+        assert!(matches!(pin(&[rtx(), twin], &[0], None), Pin::Declined(why) if why.contains("would also pick")));
+        // A name another GPU's name contains (Bevy matches a part of the name).
+        let mut longer = rtx();
+        longer.name = "NVIDIA GeForce RTX 5070 Ti Laptop GPU".into();
+        longer.vendor_id = 0x1002;
+        assert!(matches!(pin(&[longer, rtx()], &[1], None), Pin::Declined(why) if why.contains("would also pick")));
+        // Without a LUID the pick cannot be checked afterwards.
+        let mut no_luid = rtx();
+        no_luid.luid = None;
+        assert!(matches!(pin(&[no_luid], &[0], None), Pin::Declined(why) if why.contains("LUID")));
+    }
+
+    #[test]
+    fn the_chosen_gpu_is_compared_by_name_and_luid() {
+        let rtx = Checked::of(&rtx());
+        let radeon = Checked::of(&igpu());
+        assert!(verify_choice("NVIDIA GeForce RTX 5070 Ti", rtx.luid, Some(&rtx), std::slice::from_ref(&rtx)).unwrap().contains("the pinned GPU"));
+        assert!(verify_choice("AMD Radeon(TM) 610M", radeon.luid, Some(&rtx), std::slice::from_ref(&rtx)).unwrap_err().contains("not on the pinned NVIDIA GeForce RTX 5070 Ti (LUID 1122000000000000)"));
+        // Same name, another LUID (a second card of the same model): not the pinned one.
+        assert!(verify_choice("NVIDIA GeForce RTX 5070 Ti", Some([1; 8]), Some(&rtx), std::slice::from_ref(&rtx)).is_err());
+        assert!(verify_choice("NVIDIA GeForce RTX 5070 Ti", None, Some(&rtx), std::slice::from_ref(&rtx)).is_err(), "no LUID: cannot be told");
+        // No pin: any checked GPU.
+        assert!(verify_choice("AMD Radeon(TM) 610M", radeon.luid, None, &[rtx.clone(), radeon.clone()]).unwrap().contains("a GPU the device check passed"));
+        assert!(verify_choice("AMD Radeon(TM) 610M", radeon.luid, None, std::slice::from_ref(&rtx)).unwrap_err().contains("did not pass"));
+        assert_eq!(luid_text(None), "none");
     }
 
     #[test]

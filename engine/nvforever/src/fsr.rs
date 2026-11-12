@@ -22,7 +22,7 @@ use std::{ops::{Deref, Range}, sync::{atomic::{AtomicBool, AtomicUsize, Ordering
 use bevy::camera::{CameraMainTextureUsages, Hdr, MainPassResolutionOverride, Viewport};
 use bevy::core_pipeline::{
     core_3d::{main_opaque_pass_3d, main_transparent_pass_3d, Transparent3d},
-    prepass::{DepthPrepass, MotionVectorPrepass, PreviousViewData, ViewPrepassTextures},
+    prepass::{DepthPrepass, MotionVectorPrepass, ViewPrepassTextures},
     Core3d, Core3dSystems,
 };
 use bevy::prelude::*;
@@ -459,10 +459,10 @@ static DEBUG_VIEW: std::sync::LazyLock<bool> = std::sync::LazyLock::new(|| std::
 /// `upscaler::prep::Pipelines`', called here in the order FSR always ran them.
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
 pub(crate) fn fsr_pass(
-    view: ViewQuery<(&ViewTarget, &PreparedUpscale, &PreparedFsr, Option<&ViewPrepassTextures>, &TemporalJitter, &ExtractedView, Option<&PreviousViewData>)>,
+    view: ViewQuery<(&ViewTarget, &PreparedUpscale, &PreparedFsr, Option<&ViewPrepassTextures>, &TemporalJitter)>,
     renderer: Res<FsrRenderer>, upscale: Res<UpscaleRenderer>, device: Res<RenderDevice>, frame_generation: Option<Res<crate::frame_gen::FrameGenRequest>>, mut ctx: RenderContext,
 ) {
-    let (target, prepared, fsr, prepass, jitter, extracted, previous) = view.into_inner();
+    let (target, prepared, fsr, prepass, jitter) = view.into_inner();
     let (Some((context, auxiliary)), Some(common)) = (&renderer.0, &upscale.0) else { return };
     let UpscaleSettings::Fsr(settings) = prepared.camera.settings else { return };
     let recording = crate::frame_pace::recording();
@@ -489,7 +489,7 @@ pub(crate) fn fsr_pass(
     inputs_span.end(encoder);
     let source = target.main_texture().deref().clone();
     let destination = target.main_texture_other().deref().clone();
-    let mut info = FsrDispatchInfo {
+    let info = FsrDispatchInfo {
         color: source, depth: prepared.depth.clone(), motion_vectors: motion.texture.texture.deref().clone(),
         exposure: None, reactive_mask: Some(fsr.reactive.clone()), transparency_and_composition: Some(fsr.composition.clone()),
         dilated_depth: fsr.dilated_depth.clone(), dilated_motion_vectors: fsr.dilated_motion.clone(),
@@ -507,21 +507,7 @@ pub(crate) fn fsr_pass(
         flags: if *DEBUG_VIEW { FsrDispatchFlags::DRAW_DEBUG_VIEW } else { FsrDispatchFlags::empty() },
     };
     let upscale_span = diagnostics.time_span(encoder, "upscale");
-    // The DLSS spike (dlss/, #2198, `NVF_DLSS_SPIKE=1`): while it is active, one DLSS
-    // evaluate in place of FSR's dispatch; inactive, it returns at once without touching `ctx`.
-    let spike = crate::dlss::evaluate(&mut ctx, &crate::dlss::Frame {
-        target, depth: &prepared.depth, motion: &motion.texture.texture, motion_view: &motion.texture.default_view,
-        render_size: prepared.render_size, output_size: prepared.output_size, view: extracted, previous, jitter: jitter.offset,
-        near: prepared.camera.near, fov: prepared.camera.fov, reset, frame_generation: frame_generation.as_ref().is_some_and(|f| f.on()),
-    });
-    let encoder = ctx.command_encoder();
-    let dispatched = match spike {
-        crate::dlss::Outcome::Evaluated => Ok(()),
-        crate::dlss::Outcome::Fsr { reset } => {
-            info.reset_history |= reset;
-            context.dispatch(&mut fsr.view.lock().unwrap(), encoder, &info)
-        }
-    };
+    let dispatched = context.dispatch(&mut fsr.view.lock().unwrap(), encoder, &info);
     upscale_span.end(encoder);
     match dispatched {
         Ok(()) => {
@@ -542,9 +528,7 @@ pub(crate) fn fsr_pass(
             }
             after_span.end(encoder);
             prepared.history_valid.store(true, Ordering::Relaxed);
-            // While the DLSS spike draws the frame, FSR's dispatch did not run: its line waits
-            // for a frame FSR draws.
-            if matches!(spike, crate::dlss::Outcome::Fsr { .. }) && !fsr.dispatch_logged.swap(true, Ordering::Relaxed) {
+            if !fsr.dispatch_logged.swap(true, Ordering::Relaxed) {
                 info!("FSR dispatch active: 3.1.4, {}x{} -> {}x{}, Vulkan source shaders, frame generation {}", prepared.render_size.x, prepared.render_size.y, prepared.output_size.x, prepared.output_size.y, on_off(frame_generation.as_ref().is_some_and(|f| f.on())));
             }
         }
