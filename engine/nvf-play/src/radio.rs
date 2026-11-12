@@ -76,7 +76,10 @@
 //! - **Co-op** (`crate::coop_audio`): the host's game says the programmes, a guest's
 //!   stations say the lines the host sends, joined where they have got to, and run no
 //!   line scripts of their own; a guest's script conversations are left to the host's
-//!   game, and its stations play no static loop between lines [design]. The other
+//!   game, and its stations play no static loop between lines [design]. A guest whose
+//!   copy of a line is more than a quarter second off the host's (its own loading screen
+//!   or pause held it, or the host's moved the host's) joins it again at the host's point,
+//!   Pip-Boy and receivers alike (owner 2026-11-11). The other
 //!   players' Pip-Boys are heard from their bodies, unless this Pip-Boy plays the same
 //!   station.
 //! - Test aid: `NVF_PLAY_TEST_RADIO=<seconds>:<next|previous|on|off|tune=<station>>[,...]`
@@ -339,6 +342,9 @@ struct OnAir {
     part: usize,
     /// Radio clock at which the current part started.
     started: f64,
+    /// Times a guest moved `started` to the host's point (co-op): the sound playing
+    /// starts again there.
+    rejoined: u32,
 }
 
 #[derive(Debug, Default)]
@@ -358,7 +364,7 @@ struct Programme {
 /// What something plays.
 #[derive(Debug, Clone, PartialEq)]
 enum Track {
-    Line { info: FormId, part: usize },
+    Line { info: FormId, part: usize, rejoined: u32 },
     Loop(String),
 }
 
@@ -421,6 +427,8 @@ pub struct Radio {
     topics: HashMap<u32, u32>,
     /// The host's line each station last took (co-op guests).
     adopted: HashMap<u32, crate::coop_audio::HostLine>,
+    /// Times a guest's station joined the host's line again (co-op).
+    rejoins: u32,
     playing: HashMap<u32, Playing>,
     pub files: crate::file_bytes::FileBytes,
     lengths: HashMap<String, f64>,
@@ -594,6 +602,15 @@ fn parts(radio: &mut Radio, g: &fnv_game::Game, sfx: &Sfx, bank: &fnv_voice::Voi
     out
 }
 
+/// A guest's copy of the host's line (co-op): where its part should have started on this
+/// game's radio clock (`now`), from where the host's clock (`host_now`) says the host's
+/// started (`host_started`); `None` while the copy (`started`) is within
+/// [`crate::coop_audio::RESYNC`] of it.
+fn rejoin_at(started: f64, now: f64, host_now: f64, host_started: f64) -> Option<f64> {
+    let want = now - (host_now - host_started);
+    ((started - want).abs() > crate::coop_audio::RESYNC).then_some(want)
+}
+
 /// Put `info` on the air on station `st` from radio clock `start`, with its log line.
 #[allow(clippy::too_many_arguments)]
 fn put_on_air(radio: &mut Radio, places: &RadioPlaces, g: &fnv_game::Game, sfx: &Sfx, bank: &fnv_voice::VoiceBank, vfs: &fnv_vfs::Vfs, st: u32, topic: FormId, info: FormId, start: f64) {
@@ -619,7 +636,7 @@ fn put_on_air(radio: &mut Radio, places: &RadioPlaces, g: &fnv_game::Game, sfx: 
     radio.topics.insert(st, topic.0);
     let p = radio.programmes.entry(st).or_default();
     p.last = Some(info);
-    p.on_air = if parts.is_empty() { None } else { Some(OnAir { info, parts, part: 0, started: start }) };
+    p.on_air = if parts.is_empty() { None } else { Some(OnAir { info, parts, part: 0, started: start, rejoined: 0 }) };
     if p.on_air.is_none() {
         p.wait_until = now + GAP;
     }
@@ -979,6 +996,26 @@ fn play(
                 }
                 info!("co-op radio: {} from the host: {} part {} at {into:.1} s", name(&places, st), FormId(line.info), line.part);
             }
+            // The host's line where the host has got to: a guest whose copy fell behind or
+            // ran ahead (its own loading screen or pause held it, or the host's moved the
+            // host's) joins it again there (queue item, owner 2026-11-11: "co-op radio
+            // sync") [design: a station is one broadcast for every player].
+            // Test aid `NVF_COOP_RADIO_NO_REJOIN=1`: no rejoining (the old behaviour, to
+            // measure).
+            let rejoin = std::env::var_os("NVF_COOP_RADIO_NO_REJOIN").is_none_or(|v| v == "0");
+            for &st in stations.iter().filter(|_| rejoin) {
+                let Some(line) = sh.lines.get(&st).copied() else { continue };
+                let Some(on) = radio.programmes.get_mut(&st).and_then(|p| p.on_air.as_mut()) else { continue };
+                if on.info.0 != line.info || on.part != usize::from(line.part) {
+                    continue;
+                }
+                if let Some(start) = rejoin_at(on.started, now, host_now, line.started) {
+                    info!("co-op radio: {} joins the host's {} part {} again: {:+.2} s off", name(&places, st), on.info, on.part, on.started - start);
+                    on.started = start;
+                    on.rejoined += 1;
+                    radio.rejoins += 1;
+                }
+            }
         }
     }
     if !held && follows {
@@ -1109,7 +1146,7 @@ fn play(
                 wants.push(Want {
                     key,
                     station: st,
-                    track: Track::Line { info: on.info, part: on.part },
+                    track: Track::Line { info: on.info, part: on.part, rejoined: on.rejoined },
                     path,
                     level: part.gain * dgain,
                     into: now - on.started,
@@ -1270,6 +1307,7 @@ fn report(mut exit: MessageReader<AppExit>, radio: Res<Radio>, script: Res<Scrip
             radio.silent_lines,
             radio.missing
         );
+        info!("co-op radio summary: stations joined the host's line again {} times", radio.rejoins);
         info!(
             "pipboy radio summary: {pipboy} at exit, {} stations received; tuned {} times by next/previous, {} by tune requests of scripts or the test aid ({} refused), {script_calls} script calls; {} responses played; {} conversations started by scripts ({} not taken); {} actors played as radios ({npc_radios} at exit); {} loops started; {forced} ForceRadioStationUpdate calls",
             radio.pipboy_list.len(),
@@ -1319,6 +1357,19 @@ impl Plugin for RadioPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_guest_rejoins_the_hosts_line_when_its_copy_is_off() {
+        // In step: the host's part began 10 s ago on the host's clock, this copy 10 s ago here.
+        assert_eq!(rejoin_at(90.0, 100.0, 500.0, 490.0), None);
+        // Within the slack.
+        assert_eq!(rejoin_at(90.2, 100.0, 500.0, 490.0), None);
+        // A 5 s loading screen held this game's radio clock: its copy began 5 s later than
+        // the host's on the shared timeline, so it is moved back 5 s.
+        assert_eq!(rejoin_at(95.0, 100.0, 500.0, 490.0), Some(90.0));
+        // The host's own loading screen moved the host's start later: the copy follows.
+        assert_eq!(rejoin_at(90.0, 100.0, 500.0, 494.0), Some(94.0));
+    }
 
     /// A receiver is heard at its template's static attenuation as well as its curve; no
     /// template: AMLRadio's 150 / 1800 units and 13 dB.
