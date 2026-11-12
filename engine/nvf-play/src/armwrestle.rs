@@ -621,11 +621,16 @@ fn draw(mut commands: Commands, screen: Res<ArmScreen>, time: AidTime, casino: O
                 crate::casino_hud::ScoreRow { name: "You".into(), score: format!("{}", b.taps[me]), note: format!("STR {}", a.player_strength as i32), up: true },
                 crate::casino_hud::ScoreRow { name: a.foe_name.clone(), score: format!("{}", b.taps[1 - me]), note: format!("STR {}", b.strength[1 - me] as i32), up: false },
             ];
-            crate::casino_hud::score_panel(p, f, &rows, Some("Taps"));
+            let won = a.won() == Some(true);
+            let board = a.page == Page::Result && b.ended.is_some_and(|e| now - e >= board_after(won));
+            // The taps until the leaderboard, which takes their place (parity's review of
+            // the night shots, 2026-11-12: both up at once) [design].
+            if !board {
+                crate::casino_hud::score_panel(p, f, &rows, Some("Taps"));
+            }
             if a.page == Page::Result {
-                let won = a.won() == Some(true);
                 // The YOU WIN highlight alone first, then the leaderboard.
-                if !b.ended.is_some_and(|e| now - e >= board_after(won)) {
+                if !board {
                     return;
                 }
                 let winner = if won { "You".to_string() } else { a.foe_name.clone() };
