@@ -543,7 +543,19 @@ fn leave(
     mut arm: ResMut<ArmSeat>,
 ) {
     let now = time.elapsed_secs();
+    // On one of the table's stools and not getting up: the keys are this game's, Space
+    // its tap and only Tab gets up (`PlayerSeat::game`; the card may not be open yet,
+    // waiting for a message box to close).
+    let staying = screen.0.as_ref().is_none_or(|a| !a.leaving && a.left_at.is_none());
+    seat.game = staying && seat.hold.is_some() && seat.on.is_some_and(|s| table.stool_index(s).is_some());
     let Some(a) = screen.0.as_mut() else { return };
+    // Another menu closed over the card (a message box, the pause menu) left play
+    // running under it, where Space was Jump and stood the player up (owner's playtest,
+    // ship13): the card is a menu again.
+    if staying && seat.hold.is_some() && *state.get() == PlayState::Playing && !matches!(*next, NextState::Pending(_)) {
+        info!("arm wrestle: play resumed under the card; it is a menu again");
+        next.set(PlayState::Menu);
+    }
     // Up some other way (the stool left by moving once the menu let go): as leaving.
     if (a.leaving || seat.hold.is_none()) && a.left_at.is_none() {
         a.leaving = true;
