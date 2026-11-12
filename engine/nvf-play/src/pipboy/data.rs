@@ -1020,6 +1020,26 @@ impl DataState {
         self.button_rects = (tab, hints);
     }
 
+    /// The map on tab `tab` drawn from the file in another window than the one it was gathered in
+    /// (`crate::tiles::map_menu`'s refit, `view` the drawing's and `cursor` its highlight box, the
+    /// window's units): the model's window, highlight box and Place Marker's place follow the
+    /// drawing, so the next frame's pointer and a Place Marker now read what is drawn. No input is
+    /// taken again; the marker the box is on stays the one it was on.
+    pub(crate) fn refit_map(&mut self, tab: usize, view: MapView, cursor: Vec2) {
+        if !(tab == LOCAL || tab == WORLD) {
+            return;
+        }
+        self.map_window = Some((tab, view.window));
+        self.cursor[tab] = Some(cursor);
+        let point = match view.local {
+            Some(_) => view.local_point(cursor),
+            None => self.spot[tab].and_then(|s| self.maps.get(&s.space).cloned().flatten()).map(|m| m.position(view.to_uv(cursor))),
+        };
+        if let (Some(p), Some(s)) = (point.filter(|p| p.iter().all(|v| v.is_finite())), self.spot[tab].as_mut()) {
+            (s.pos[0], s.pos[1]) = (p[0], p[1]);
+        }
+    }
+
     /// The question box over the map (fast travel's or Place Marker's), while it is up.
     pub(crate) fn popup(&self) -> Option<&Popup> {
         self.popup.as_ref()
@@ -3760,6 +3780,36 @@ mod tests {
             let parts = local_map(&mut st, &game, None).world.unwrap();
             assert_eq!((parts.outline, parts.view.local.unwrap().origin), (None, new_origin), "the new grid's frame, its picture not made yet");
         }
+    }
+
+    /// The review's case: the tile page drew the World Map in another window than the model
+    /// gathered it in; the model's window, highlight box and Place Marker's place follow it.
+    #[test]
+    fn a_refitted_map_brings_the_highlight_box_and_place_markers_place_along() {
+        use bevy::ecs::system::SystemState;
+        use model::MapTransform;
+
+        let root = WorldMap { root: 1, transform: MapTransform::default(), texture: "root.dds".into(), usable: [2048.0; 2], nw: [-2, 3], se: [1, 2] };
+        let mut st = DataState { maps: [(1, Some(root.clone()))].into_iter().collect(), markers: Some(Vec::new()), ..DataState::default() };
+        let mut world = World::new();
+        world.insert_resource(Location { world: 1, interior: None });
+        world.insert_resource(Player { heading: 0.0, pitch: 0.0, eye_height: 0.0, feet: [0.0, 3.0 * model::CELL, 0.0], body_eye: None, body_view: None, placed: None });
+        let mut state = SystemState::<Game>::new(&mut world);
+        let game = state.get_mut(&mut world).unwrap();
+        let shown = world_map(&mut st, &game, None, false);
+        let view = shown.world.unwrap().view;
+        // Drawn in a smaller window elsewhere, the box 50 right of its middle.
+        let moved = view.with_window(Rect::new(150.0, 120.0, 750.0, 520.0));
+        let cursor = moved.mid() + Vec2::new(50.0, 0.0);
+        st.refit_map(WORLD, moved, cursor);
+        assert_eq!((map_window(&st, WORLD), st.cursor[WORLD]), (moved.window, Some(cursor)));
+        let spot = st.spot[WORLD].expect("Place Marker's place");
+        let want = root.position(moved.to_uv(cursor));
+        assert!((spot.pos[0] - want[0]).abs() < 0.5 && (spot.pos[1] - want[1]).abs() < 0.5, "{spot:?} {want:?}");
+        assert!(spot.pos[0] > 400.0, "east of the player, under the box (about 500)");
+        // Another tab: nothing.
+        st.refit_map(QUESTS, moved, Vec2::ZERO);
+        assert_eq!(st.cursor[WORLD], Some(cursor));
     }
 
     fn shown(tab: usize, f: &HintFacts) -> Vec<(String, bool)> {

@@ -1879,7 +1879,13 @@ fn pass(p: &mut MapPage<'_>, late: bool) -> Option<Result<TileId, String>> {
     let tree = TreeMark::of(&script.rt.as_ref()?.game.ui_tree);
     // A map in the window this page lays out, before anything is written of it.
     let tree_ui = &script.rt.as_ref()?.game.ui_tree;
+    let gathered_in = new.as_ref().and_then(|s| s.world.as_ref()).map(|w| w.window);
     let new = new.map(|s| refit_to_tree(tree_ui, s));
+    // Drawn in another window than it was gathered in: the model's highlight box and Place
+    // Marker's place follow the drawing (no input taken again).
+    if let Some(w) = new.as_ref().and_then(|s| s.world.as_ref()).filter(|w| Some(w.window) != gathered_in) {
+        data.refit_map(tab, w.view, w.cursor);
+    }
     // What it would show changed since the last pass, written or not (a failure forgets what was
     // written, not what was asked for).
 
