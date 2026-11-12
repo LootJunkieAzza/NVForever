@@ -975,8 +975,8 @@ mod tests {
         // next shelf must produce exactly the same cell, including its empty border.
         for (i, &(x0, y0)) in origins.iter().enumerate() {
             let mut solo = font.clone();
-            for code in 65..68 {
-                if code != 65 + i { solo.glyphs[code] = Glyph::default(); }
+            for (k, g) in solo.glyphs[65..68].iter_mut().enumerate() {
+                if k != i { *g = Glyph::default(); }
             }
             let single = soften(&solo, &alpha, 750, 4, SOFT_SIGMA, |a| a).unwrap();
             let height = [1, 4, 2][i] + 2 * SOFT_PAD;
