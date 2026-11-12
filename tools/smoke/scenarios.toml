@@ -948,6 +948,67 @@ order = [[
 forbid = [{ text = "Caught rendering error", label = "a rendering (validation) error while anti-aliasing or the filters change" }]
 
 [[scenario]]
+name = "sun-shadows-performance"
+source = "docs/design/frame-rate-audit.md §9 and §10 (nvforever shadow_rate.rs, #2062, #2063): on Quality the sun's farther cascades keep their maps on a staggered schedule; the settings page's Sun shadows row goes to Performance and back to Quality while the game runs: two cascades, the sun's shadow maps kept on alternate frames, three staggered cascades again, without a rendering error"
+areas = ["renderer", "graphics", "settings"]
+paths = [
+  "engine/nvforever/src/shadow_rate.rs", "engine/nvforever/src/sky.rs", "engine/nvforever/src/player_body.rs",
+  "engine/nvforever/src/tree.rs", "engine/vendor/bevy_pbr/src/render/light.rs", "engine/vendor/bevy_pbr/src/render/gpu_preprocess.rs",
+  "engine/nvf-play/src/settings_layout.rs",
+]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:12,17:19", NVF_PLAY_TEST_SETTINGS = "11:sun-shadows=0.5,18:sun-shadows=1" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--sun-shadows"]
+run_seconds = 23
+order = [[
+  { text = "sun shadows: a frame kept its farther cascades' maps (staggered schedule", label = "on Quality from the start, the farther cascades are held" },
+  "sun shadows: performance (maps drawn every other frame, trees cast near the camera only, no arms shade light), 2 cascades",
+  "settings: sun-shadows Performance",
+  "sun shadows: a frame kept the shadow maps of the frame before",
+  "sun shadows: cascades on a staggered schedule (the nearest every frame, the farther ones less often), 3 cascades",
+  { text = "sun shadows: a frame kept its farther cascades' maps (staggered schedule", label = "Quality again: the staggered schedule holds cascades again" },
+]]
+forbid = [
+  { text = "Caught rendering error", label = "a rendering (validation) error while the shadow maps are kept or the cascades change" },
+  { re = 'NVF_PLAY_TEST_(SETTINGS|PAUSE_MENU): ("|no switch|\S+ is a (list|slider):)', label = "every aid step is understood" },
+]
+
+[[scenario]]
+name = "sun-shadow-hold-flashlight"
+source = "#2182 review (vendored bevy_pbr light.rs prepare_lights, nvforever shadow_rate.rs): the player's flashlight casts shadows, so switching it on or off gives the sun a new shadow texture; that frame draws every cascade instead of holding one, outdoors at noon with the staggered schedule"
+areas = ["renderer", "flashlight"]
+paths = ["engine/nvforever/src/shadow_rate.rs", "engine/vendor/bevy_pbr/src/render/light.rs", "engine/nvforever/src/flashlight.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONTROL = "8:flashlight,14:flashlight" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--sun-shadows"]
+run_seconds = 20
+order = [[
+  { text = "sun shadows: a frame kept its farther cascades' maps (staggered schedule", label = "the staggered schedule holds cascades" },
+  "flashlight: on",
+  { text = "held shadow maps: a new directional shadow texture", label = "the flashlight on: a new shadow texture, every cascade drawn" },
+  "flashlight: off",
+  { text = "held shadow maps: a new directional shadow texture", label = "the flashlight off: a new shadow texture, every cascade drawn" },
+]]
+forbid = [{ text = "Caught rendering error", label = "a rendering (validation) error while the shadow texture changes under held cascades" }]
+
+[[scenario]]
+name = "sun-shadow-stagger-off"
+source = "#2063 (nvforever shadow_rate.rs): the test aid NVF_PLAY_TEST_SHADOW_STAGGER=0 draws every cascade every frame on Quality; Performance still holds its maps"
+areas = ["renderer", "graphics", "settings"]
+paths = ["engine/nvforever/src/shadow_rate.rs", "engine/vendor/bevy_pbr/src/render/light.rs", "engine/vendor/bevy_pbr/src/render/gpu_preprocess.rs"]
+env = { NVF_PLAY_TEST_SHADOW_STAGGER = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:12,17:19", NVF_PLAY_TEST_SETTINGS = "11:sun-shadows=0.5,18:sun-shadows=1" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--sun-shadows"]
+run_seconds = 23
+order = [[
+  "sun shadows: performance (maps drawn every other frame, trees cast near the camera only, no arms shade light), 2 cascades",
+  "settings: sun-shadows Performance",
+  "sun shadows: a frame kept the shadow maps of the frame before",
+  "sun shadows: drawn every frame, 3 cascades",
+]]
+forbid = [
+  { text = "staggered schedule", label = "with the aid, no cascade is held on the staggered schedule" },
+  { text = "Caught rendering error", label = "a rendering (validation) error while the shadow maps are kept or the cascades change" },
+]
+
+[[scenario]]
 name = "settings-resume-pipelines"
 source = "[design] #1820 pipeline portion: graphics-enhanced.md section 3; resume 0.5 seconds after AA/AO edits, keeping the pause menu until fresh pipeline samples settle (loading-pipelines-start covers the start's gate)"
 areas = ["renderer", "graphics", "settings"]
@@ -10464,7 +10525,7 @@ expect = [
 ]
 order = [[
   "settings: shadow-distance 25%",
-  "settings: sun-shadows off",
+  { text = "settings: sun-shadows Off", label = "bDrawShadows=0: Sun shadows Off" },
   "settings: shadow-filter Fast",
   "settings: actor-distance 20%",
   "settings: object-distance 40%",
@@ -10476,7 +10537,7 @@ order = [[
   "settings: quality Low",
   "quality presets: the Quality row reads Low",
   "settings: shadow-distance 50%",
-  "settings: sun-shadows on",
+  { text = "settings: sun-shadows Quality", label = "bDrawShadows=1: Sun shadows Quality (the row is a choice now, #2182)" },
   "settings: actor-distance 40%",
   "settings: object-distance 50%",
   "settings: item-distance 60%",

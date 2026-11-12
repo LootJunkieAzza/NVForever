@@ -245,18 +245,22 @@ pub fn register(app: &mut App) {
             },
         );
     }
-    add_setting(
-        app,
-        Setting {
-            key: "sun-shadows",
-            group: GROUP_PICTURE,
-            label: "Sun shadows",
-            note: "On: the sun casts shadows out to --shadow-distance. The original casts none from the world. On by default in the game. (--sun-shadows, --no-sun-shadows)",
-            get: |w| w.resource::<SkyState>().shadows,
-            set: crate::sky::set_shadows,
-            slider: None,
-        },
-    );
+    {
+        use crate::shadow_rate::{set_sun_shadow_choice, sun_shadow_choice, SUN_SHADOW_CHOICES};
+        let n = SUN_SHADOW_CHOICES.len();
+        add_setting(
+            app,
+            Setting::slider(
+                "sun-shadows",
+                GROUP_PICTURE,
+                "Sun shadows",
+                "The sun's shadows, out to --shadow-distance: Off; Performance (the shadow maps drawn every other frame in two cascades, trees casting shadows only near you, the first-person arms taking the world's shadows: saves frame time outdoors, shadows of moving things update at half the frame rate); or Quality (three cascades, the farther ones drawn less often). The original casts none from the world. Quality by default in the game. (--sun-shadows, --sun-shadows=performance, --no-sun-shadows)",
+                Slider::choice(n, |w| choice_part(sun_shadow_choice(w), SUN_SHADOW_CHOICES.len()), |w, v| set_sun_shadow_choice(w, choice_index(v, SUN_SHADOW_CHOICES.len())), |v| {
+                    SUN_SHADOW_CHOICES[choice_index(v, SUN_SHADOW_CHOICES.len())].to_string()
+                }),
+            ),
+        );
+    }
     add_setting(
         app,
         Setting {
