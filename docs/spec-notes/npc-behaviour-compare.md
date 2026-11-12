@@ -290,7 +290,7 @@ spent 0.00 h in EAT, while Easy Pete under his Eat package (EasyPeteEat12x2) spe
 in it [observed, issue #2011]. So the original's sandbox does not hold a meal on the
 spot. NVForever's sandbox therefore takes a meal only on a free seat and otherwise goes
 on with its choices [design, #2011; actor-behaviour.md §5.5]; whether it eats on a seat
-at all is not known (observer check 105).
+at all is not known (observer check 113).
 
 ## 7. After the fixes
 
@@ -674,6 +674,14 @@ one sample in every recording; a capture that should show an Alert has to give a
 sound with no sight line at all (the shots of `alert_noise` came after the Fiends had seen
 the player). No new run is planned for it in this round.
 
+**Built since** (#2121, 2026-11-11; docs/design/alert.md §6): what scripts read of a fight
+follows these samples: GetIsAlerted is SetAlert's alone (0 in a fight); an actor in Combat
+or Lost keeps the target it fought as GetCombatTarget while it is out of sight; Lost reads
+procedure COMBAT 13 and package type COMBAT 5, no longer SEARCH 36 / SEARCH_FOR_ATTACKER 29.
+Alert alone (never fought) still reads SEARCH, uncaptured. How long the target is kept is
+our own rule (until it dies or is forgotten, StopCombat or Normal) [design]; the original's
+is the open question of #2010 and observer check 6.
+
 ## 12. The next round of observer campaigns (2026-10-19; run the same day, §13)
 
 Written on the desktop; run on the other machine (owner's request), one at a time with both
@@ -891,7 +899,8 @@ are GetAnimAction entering 2. Hits are OnHit events on the player.
   - **Once the player stopped.** He came to 177 units behind (15 left) and stood there.
     So he came in well inside his package's 330. Ours stops once within the distance, so
     about 330 off [hypothesis: the original stops at about half the distance; one
-    arrival].
+    arrival]. (Since #2122 ours stops 150 units inside the distance, 180 for Boone:
+    docs/design/actor-behaviour.md, Follow.)
 - **Sneaking.** The player was force-sneaked for 600 samples (about 20 s, most of it
   standing after the walk). Boone's IsSneaking stayed 0 throughout [observed]. A follower
   does not crouch with the player, at least not when standing. (Withdrawn as a general

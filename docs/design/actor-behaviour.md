@@ -190,15 +190,26 @@ when the target has moved 64 units, at most twice a second. On its way after a t
 that moves it keeps step (`carry::follow_speed`): the target's own pace since the last
 plan plus the gap beyond the distance closed in 3 seconds, between half its walk and its
 run, so the walk clip plays faster or slower and the run clip comes only when it is well
-behind; it stops once within the distance when the target has stopped (no new plan for a
-second, or slower than 20 units/s), else only 64 units inside it [our choice; owner's
+behind [our choice; owner's
 playtest 2026-10-24: the Novac pack brahmin, kept about 450 units back by its package, stood,
 set off running past a fixed 512, caught up and stood again all the way after its
 merchant]. In the original game the same brahmin walked at its merchant's pace 440–530
 units behind it, ran only once it was about 800–1,060 behind, and closed to about 300
 when the merchant stopped [observed: AI observer 2026-10-24, docs/spec-notes/actors.md
-§8.10, Brahmin]: the rule above agrees except for that last stop, which is at the
-distance here. A target that is gone or dead
+§8.10, Brahmin]. A follower on its way stops 150 units inside its distance
+(`FOLLOW_STOP_INSET`), but not nearer than 128 (`COLUMN_GAP`) and never beyond the
+distance (`carry::follow_stop_at`); in step with a moving target it stays near the
+distance, so in practice it comes in once the target stops or slows: 180 for Boone's 330,
+300 for the brahmin's 450, 362 for DefaultFollowPlayerFar's 512, 128 for the usual 256
+[design, #2122: Boone came to 177 of his 330 once the player stopped
+(docs/spec-notes/npc-behaviour-compare.md, Boone) and the brahmin to about 300 of 450,
+both about 150 inside [observed]; one share of the distance fits the two less well (0.54
+and 0.67), and the original's rule is not known; in owner-review.md]. Distances of 128
+and less keep the earlier rule: within the distance once the target has stopped (no new
+plan for a second, or slower than 20 units/s), else 64 units inside it; so do the gaps of
+a column (below). Before #2122 every follower used that rule, and a run of main
+(bdd4cb8ba) had GoodspringsSettler01Ref on DefaultFollowPlayerFar stop at 404 of 512
+[observed: issue #2122]. A target that is gone or dead
 is not followed. The goal counts as met at once (`package_goal_met`), so the periodic
 choice may replace the package as it may any other. The target being attacked and the
 Wait/StopWaiting functions (used by no script of the masters) are not built. The
@@ -207,7 +218,8 @@ of cells, fighting the player's foes, waiting by their Guard packages. `fnvtool 
 reach`: 256 of the 265 follow-type actor-package pairs of FalloutNV.esm are now
 "follows: goes after its target from where it is"; 5 name no reference (not carried
 out) and 4 are Escort; every other verdict is unchanged. Log: `ai [h] <actor>: walks
-after <target> (<package>): <n> units away, …` and `: has caught up with <target>`.
+after <target> (<package>): <n> units away, …` and `: has caught up with <target>: <n>
+units away, stops within <n>`.
 
 *Followers in a line* (`Ai::ahead_in_column`; owner playtest 2026-10-24: three
 mercenaries following one leader should walk behind it in single file, not bunch up on
@@ -488,7 +500,7 @@ packages.md §2). Wander packages are treated as sandboxes with their own flags
    choice [design, #2011: the original reported no EAT procedure under Sandbox
    packages that allow eating, observed: npc-behaviour-compare.md §6a; until 2026-11-11
    a seatless meal held the actor standing on the spot to the window's end. Whether the
-   original's sandbox eats on a seat at all is observer check 105].
+   original's sandbox eats on a seat at all is observer check 113].
 3. Otherwise one of: a seat, an idle marker, a wander. Each kind has a weight that drops
    to zero when the kind was just chosen and grows back by half each time another is;
    the object just used is not chosen again at once [documented]. Low energy (AIDT
