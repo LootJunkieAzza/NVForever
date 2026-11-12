@@ -1306,11 +1306,13 @@ fn run(
     if let Some(t) = tables.as_deref().filter(|t| t.on) {
         // Watching: not drinking in it (the deciding game that does not drink watches its own).
         let mine = coop.ticket.as_ref().is_some_and(|k| !k.settled && k.drinking);
-        if !mine && page.0.is_none() {
-            w = t.near.iter().find_map(|p| t.view(*p).filter(|(_, g, _)| *g == game::DRINK).and_then(|(_, _, b)| DrinkView::decode(b)).filter(|v| v.owner == *p && !matches!(v.phase, DrinkPhase::Lobby { .. })));
+        // A drinker in the contest (its result board up too) never gets the watchers' view.
+        if !mine && page.0.is_none() && screen.0.is_none() {
+            let watched = |v: &DrinkView| !matches!(v.phase, DrinkPhase::Lobby { .. }) && v.slot_of(me).is_none();
+            w = t.near.iter().find_map(|p| t.view(*p).filter(|(_, g, _)| *g == game::DRINK).and_then(|(_, _, b)| DrinkView::decode(b)).filter(|v| v.owner == *p && watched(v)));
             if w.is_none() && here {
                 // This game decides a contest it does not drink in: its own view.
-                w = out.0.as_ref().and_then(|(_, b)| DrinkView::decode(b)).filter(|v| !matches!(v.phase, DrinkPhase::Lobby { .. }));
+                w = out.0.as_ref().and_then(|(_, b)| DrinkView::decode(b)).filter(watched);
             }
         }
     }

@@ -1042,7 +1042,9 @@ pub fn summary(tables: &Tables, name: &str, game: u8, blob: &[u8]) -> Vec<String
             }
         }
         game::DRINK => {
-            if let Some(v) = crate::drink_coop::DrinkView::decode(blob) {
+            // Not for a drinker in it: its own screen shows the contest, and nothing is
+            // drawn over a game (owner, 2026-11-12).
+            if let Some(v) = crate::drink_coop::DrinkView::decode(blob).filter(|v| tables.me.is_none_or(|me| v.slot_of(me).is_none())) {
                 out.push(crate::drink_coop::summary(|p| tables.name(p), &v));
             }
         }
