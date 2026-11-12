@@ -2563,6 +2563,32 @@ fn a_rooted_actor_in_combat_turns_to_its_target_in_place() {
     assert_eq!(s.ai.agents[&FormId(R_TRAVEL)].activity, Activity::None);
 }
 
+/// A rooted actor that never turns (an Immobile creature with a Turning Speed of 0, Mr.
+/// House's screen: `Ai::fix_heading`) keeps its heading in combat too, where a turret
+/// turns to its target (#2150). An actor that is not rooted is not fixed.
+#[test]
+fn a_fixed_actor_in_combat_keeps_its_heading() {
+    let f = fixture();
+    let mut s = sim(&f, &[R_TRAVEL, R_TO_CHAIR]);
+    let start = s.feet(R_TRAVEL);
+    s.ai.fix_heading(FormId(R_TRAVEL));
+    assert!(!s.ai.agents[&FormId(R_TRAVEL)].fixed, "only a rooted actor is fixed");
+    s.ai.root(&s.game, FormId(R_TRAVEL));
+    s.ai.fix_heading(FormId(R_TRAVEL));
+    assert!(s.ai.agents[&FormId(R_TRAVEL)].fixed);
+    let target = s.game.world.placed.get(FormId(R_TO_CHAIR)).unwrap().pos;
+    let want = fnv_nav::follow::heading_of([target[0] - start[0], target[1] - start[1]]);
+    let away = want + 2.0;
+    s.ai.agents.get_mut(&FormId(R_TRAVEL)).unwrap().walker.heading = away;
+    let rot = s.game.world.peek(FormId(R_TRAVEL)).map(|r| r.rot);
+    s.game.start_combat(FormId(R_TRAVEL), FormId(R_TO_CHAIR));
+    assert!(s.game.awareness.state(FormId(R_TRAVEL)).in_combat());
+    s.run(5.0);
+    assert_eq!(s.ai.agents[&FormId(R_TRAVEL)].walker.heading, away);
+    assert_eq!(s.game.world.peek(FormId(R_TRAVEL)).map(|r| r.rot), rot);
+    assert_eq!(s.feet(R_TRAVEL), start);
+}
+
 // ---- process levels (fnv_ai::process) -------------------------------------------------
 
 #[test]

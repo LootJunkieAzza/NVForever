@@ -1515,6 +1515,26 @@ to the decoded file by cross-correlation and a per-band transfer estimate.
     (the wheel side on, 30 fps or better, 10 s or more) and step through the frames at
     each 2.67 s mark: a steady turn says it adds up, a jump says it does not.
 
+## Added 2026-11-11 (Mr. House's screen, issue #2150)
+
+105. **Does Mr. House's screen enter combat, and does it ever turn?** (P3; packages.md
+     §7.1b.) NVForever keeps an Immobile creature with a Turning Speed of 0 at its placed
+     heading always [hypothesis for the rule; the owner saw the original's screen stay
+     still]. Not observed: whether the original's `Lucky38MrHouseREF` (0x001264C5) takes
+     a combat target at all when a fight starts in the penthouse or it is shot
+     (`IsInCombat`, `GetCombatTarget`), and its `GetAngle Z` through a conversation, a
+     goodbye line and a fight. Here it can still be in combat, only without turning.
+
+## Added 2026-11-11 (a regenerating weapon's ammo counter)
+
+106. **What do the HUD counter's two figures show with a Recharger Rifle out?** (P3;
+    hud.md §5, #2170.) NVForever shows the weapon's charge as the first figure and the
+    carried count of its ammo type, with nothing taken off, as the second [hypothesis].
+    Equip a Recharger Rifle, screenshot the counter at full charge, after three shots and
+    again once it has recharged; the same with a Recharger Pistol and the MF Hyperbreeder
+    Alpha. Note whether the second figure is 0, the clip size or something else, and
+    whether an ammo label stands left of the counter.
+
 ## Added 2026-11-12 (Continue During Combat in combat, issue #2155)
 
 Asked by #2155: NVForever read the package flag as "the actor stays on its package in
@@ -1540,7 +1560,7 @@ Behavior, Weapon Drawn, Continue During Combat; no conditions), the kind Lanius 
 During Combat only); `FFEU03NPCGuard` (Guard, near current location, radius 0; Skip
 Fallout Behavior, Weapon Drawn, Continue During Combat).
 
-105. **Legate Lanius in the final battle: does he leave his marker?** (P1; alert.md §5,
+107. **Legate Lanius in the final battle: does he leave his marker?** (P1; alert.md §5,
     issue #2155.) **Answered [observed, 2026-11-12, campaign `cdc_lanius` from the
     owner's save `nvfLanius`]: yes. He runs to a player he detects, fights there, and
     goes back to his marker when the fight ends. No leash showed, up to 2,557 units.**
@@ -1599,7 +1619,7 @@ Fallout Behavior, Weapon Drawn, Continue During Combat).
       the NCR ending (his package there has no flag) and the House ending (the same
       package as here).
 
-106. **A melee NPC on a Guard or Travel package with the flag, an enemy at 500, 1,000 and
+108. **A melee NPC on a Guard or Travel package with the flag, an enemy at 500, 1,000 and
     2,000 units.** (P1; alert.md §5.) **Answered [observed, 2026-11-11 and 12, campaign `cdc_leash`, sessions
     `knife_*`]: on Travel it closes in and attacks at every distance, with no leash. On
     Guard it depends on the package: two held the trooper when the enemy was outside
@@ -1611,8 +1631,8 @@ Fallout Behavior, Weapon Drawn, Continue During Combat).
       40 to 220 units from the player to the end (609, 645 and 585 of 1,101 samples in an
       attack phase), up to 863, 1,226 and 2,043 units from its post. It never stopped or
       turned back: no leash, and no different from the trooper with no package (check
-      109). A script package does not come back after the fight, so "does it return" is
-      answered by Lanius (check 105), not here.
+      111). A script package does not come back after the fight, so "does it return" is
+      answered by Lanius (check 107), not here.
     - *Guard on a fixed post* (near editor location: a spawned actor's editor location
       is where PlaceAtMe put it, as `knife_guarded128_1000` showed: sent 1,000 units off,
       it walked back there. In the `knife_ed*_walk*` sessions the trooper is spawned
@@ -1668,11 +1688,11 @@ Fallout Behavior, Weapon Drawn, Continue During Combat).
       line is, and whether the radius-128 Guard is held further out than 621 units,
       are open. Run them again with the game window in front.
     - **Not measured**: an engaged guard whose target then leaves the radius on foot
-      (the teleport sessions end the fight for any trooper, check 109); a Guard near a
+      (the teleport sessions end the fight for any trooper, check 111); a Guard near a
       reference or the linked reference; an NPC hostile by its own faction instead of
       StartCombat.
 
-107. **Control: does a ranged NPC on the same packages hold its place and shoot?** (P2;
+109. **Control: does a ranged NPC on the same packages hold its place and shoot?** (P2;
     alert.md §5.) **Answered [observed, 2026-11-11, sessions `rifle_*`]:** it shoots, and
     it does not hold its place: it moves as a rifleman with no package does.
     - On the Guard package (radius 512), the player 1,000 and 2,000 units from the post:
@@ -1689,7 +1709,7 @@ Fallout Behavior, Weapon Drawn, Continue During Combat).
     range, and one on a Guard package whose target is outside the guard radius of a fixed
     post (the troopers' posts here were "near current location").
 
-108. **A melee creature on a package with the flag.** (P2; alert.md §5.) The data has
+110. **A melee creature on a package with the flag.** (P2; alert.md §5.) The data has
     them: 85 creature bases carry at least one such package [observed: `fnvtool ai show`
     over every CREA of FalloutNV.esm; of the 399 packages 251 are on some actor's list,
     291 NPC bases and 85 creature bases]. Most are Fallout 3's; New Vegas's own melee
@@ -1708,7 +1728,7 @@ Fallout Behavior, Weapon Drawn, Continue During Combat).
     so that is no rule. To settle it: a creature placed in the data with such a package
     (the Vault 22 mantis mothers), the player walking up and backing off on foot.
 
-109. **Baseline: how far does the same melee NPC chase with no such package?** (P2.)
+111. **Baseline: how far does the same melee NPC chase with no such package?** (P2.)
     **Answered [observed, 2026-11-11, `knife_none_2000`]:** the knife trooper with no
     package given (its own list) ran 2,000 units to the player, struck first 8 s after
     combat began and fought 40 to 125 units from it for the rest of the 37 s (590 of

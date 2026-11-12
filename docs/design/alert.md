@@ -234,7 +234,7 @@ Travel package to his marker, never reached the player.
 
 **What the flag does depends on the package type.** [documented: GECK wiki export, page
 "Combat Package Flags" (`Combat.xml`); observed: AI observer 2026-11-11 and 12,
-observer-checks.md checks 105 to 109, campaigns `cdc_leash` and `cdc_lanius`.]
+observer-checks.md checks 107 to 111, campaigns `cdc_leash` and `cdc_lanius`.]
 
 | Package type | The wiki | Measured in the original |
 |---|---|---|
@@ -248,7 +248,7 @@ observer-checks.md checks 105 to 109, campaigns `cdc_leash` and `cdc_lanius`.]
 
 Neither the wiki nor the captures tell melee from ranged: a rifle trooper on the same
 Travel and Guard packages fired from 892 to 2,040 units and moved about as the trooper
-with no package did (check 107). None of the 399 packages pins an actor "because it
+with no package did (check 109). None of the 399 packages pins an actor "because it
 is a sniper post".
 
 **The rule to build** [design, following the original where it was measured; combat is
