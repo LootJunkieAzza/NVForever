@@ -21798,6 +21798,21 @@ expect = [
 ]
 
 [[scenario]]
+name = "pipboy-off-sleeve-first-person"
+source = "#2173 (docs/spec-notes/actors.md §1.2): with Use Pip-Boy off and the body shown in first person the owner saw the outfit's left forearm sleeve floating ahead of the view while aiming: only `PipBoyOn…` was a first-person shape, so the arms rig drew no forearm sleeve and the third-person body kept `PipBoyOff…` where its hidden arm was"
+note = "the player wears the Vault 21 Jumpsuit (VaultSuit21 0x00104184) in Goodsprings with --first-person-body; the Pip-Boy comes off at 3 s (the aid's frame=screen, as the Use Pip-Boy switch), the 10mm pistol (0x0000434F) is drawn at 5 s and aimed 7-9.5 s; frames at 4.5 s (lowered), 6.5 s (drawn) and 8.5 s (aimed): a blue left forearm on the arm, nothing in the air"
+areas = ["actors", "player-body"]
+paths = ["crates/fnv-actor/src/first_person.rs", "crates/fnv-actor/src/mesh.rs"]
+env = { RUST_LOG = "info,nvforever::player_body=debug", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_EQUIP = "00104184,0000434F", NVF_PLAY_TEST_PIPBOY = "3:frame=screen", NVF_PLAY_TEST_CONTROL = "5:weapon,7:aim,9.5:aim", NVF_PLAY_TEST_LOOK = "4:0:-30", NVF_PLAY_TEST_SHOTS = "4.5:pipboy_off_sleeve_lowered.png,6.5:pipboy_off_sleeve_drawn.png,8.5:pipboy_off_sleeve_aimed.png" }
+args = ["--cell", "Goodsprings", "--pos=-61000,4500,8500", "--play", "--hour", "12", "--no-voice", "--no-messages", "--plugins", "FalloutNV.esm", "--first-person-body"]
+run_seconds = 10
+expect = [
+  { re = 'player body: armour drawn \["VaultSuit21"', label = "the Pip-Boy and its glove are off" },
+  { re = 'player First rig part armor \S+ \S*vaultsuit\S*: shapes \[[^\]]*"PipBoyOff[^\]]*\]', label = "without a Pip-Boy the arms rig draws the suit's PipBoyOff sleeve" },
+  { re = 'player First rig part armor \S+ \S*vaultsuit\S*: shapes \[[^\]]*"PipBoyOn[^\]]*\]', label = "with it (the first seconds) the PipBoyOn sleeve" },
+]
+
+[[scenario]]
 name = "pipboy-glove-leather"
 source = "#1067 (docs/spec-notes/actors.md §2.3): an outfit's glove addon (ArmorLeather's ArmorLeatherList: LeatherArmorGloveR, LeatherArmorGloveL) was drawn together with the always-worn Pip-Boy Glove's hand; a worn item whose every slot another item's addons take is now left out"
 note = "the player wears Leather Armor (ArmorLeather 0x00020423) in Goodsprings; third person, the camera turned to the player's front at 6 s, a frame at 7 s (one left hand, the leather glove)"
