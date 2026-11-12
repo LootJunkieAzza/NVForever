@@ -46,6 +46,12 @@ menu's `pad:` shortcut, which already translates directly into a menu key.
 window events in `First`, before device selection. Its incoming controller-to-mouse
 click and matching release are consumed there as well (`device::consume_pointer_switch`).
 
+[design, #2200; `pad/device.rs`, `full_screen_key.rs`] Physical keyboard state is tracked
+from hardware events separately from controller-generated menu keys, with test-aid
+keyboard presses/releases mirrored into that state. Only physical keys enter a device
+switch's consumed-key snapshot. Consumed Alt releases still clear the fullscreen
+shortcut's modifier bookkeeping, so a later plain Enter keeps its menu action.
+
 ## 2. Defaults are the game's
 
 Each control's controller input comes from the game's own `[Controls]` byte `JJ`

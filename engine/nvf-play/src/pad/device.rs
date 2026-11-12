@@ -71,6 +71,7 @@ impl PadState {
 /// before Bevy updates it, so masking cannot hide a later release [design, #2200].
 #[derive(Resource, Default)]
 pub(crate) struct SwitchingInput {
+    physical_keys: ButtonInput<KeyCode>,
     keys: Vec<KeyCode>,
     mouse: Vec<MouseButton>,
     pads: HashMap<Entity, PadState>,
@@ -79,9 +80,37 @@ pub(crate) struct SwitchingInput {
 }
 
 impl SwitchingInput {
+    /// Hardware events and `test_aid::real_presses` feed this state; controller menu
+    /// translation never does, even for a key also held physically [design, #2200].
+    pub(crate) fn keyboard_input(&mut self, key: KeyCode, pressed: bool) {
+        if pressed {
+            self.physical_keys.press(key);
+        } else {
+            self.physical_keys.release(key);
+        }
+    }
+
     /// Raw text/repeat readers also consume the switching key [design, #2200].
     pub(crate) fn allows(&self, event: &bevy::input::keyboard::KeyboardInput) -> bool {
         !self.keys_this_frame.contains(&event.key_code)
+    }
+}
+
+/// Track hardware independently of `pad::menu_keys` and other consumer masks. Mirror
+/// focus loss as Bevy's `keyboard_input_system` does [design, #2200; file ref:
+/// bevy_input/keyboard.rs]. Test aids add their state after this capture.
+pub(crate) fn read_keyboard(
+    mut events: MessageReader<bevy::input::keyboard::KeyboardInput>,
+    mut focus_lost: MessageReader<bevy::input::keyboard::KeyboardFocusLost>,
+    mut held: ResMut<SwitchingInput>,
+) {
+    held.physical_keys.clear();
+    for event in events.read() {
+        held.keyboard_input(event.key_code, event.state.is_pressed());
+    }
+    if !focus_lost.is_empty() {
+        held.physical_keys.release_all();
+        focus_lost.clear();
     }
 }
 
@@ -116,7 +145,7 @@ pub(crate) fn automatic(world: &mut World) {
     let listening = world.get_resource::<crate::pause::Listening>().is_some_and(|l| l.0.is_some());
     let mut held = world.remove_resource::<SwitchingInput>().unwrap_or_default();
     let mut activity = Activity {
-        key: world.resource::<ButtonInput<KeyCode>>().get_just_pressed().any(|k| !held.keys.contains(k)),
+        key: held.physical_keys.get_just_pressed().any(|k| !held.keys.contains(k)),
         mouse: world.resource::<ButtonInput<MouseButton>>().get_just_pressed().any(|m| !held.mouse.contains(m)),
         ..default()
     };
@@ -138,8 +167,7 @@ pub(crate) fn automatic(world: &mut World) {
         crate::bindings::set_device(world, device);
         info!("controller: input device switched to {} ({cause})", device.name());
         if device == InputDevice::KeyboardMouse {
-            let keys = world.resource::<ButtonInput<KeyCode>>();
-            held.keys.extend(keys.get_pressed().chain(keys.get_just_pressed()).copied());
+            held.keys.extend(held.physical_keys.get_pressed().chain(held.physical_keys.get_just_pressed()).copied());
             held.keys.sort_unstable();
             held.keys.dedup();
             let mouse = world.resource::<ButtonInput<MouseButton>>();
@@ -155,7 +183,7 @@ pub(crate) fn automatic(world: &mut World) {
     held.keys_this_frame = held.keys.clone();
     let mut keys = world.resource_mut::<ButtonInput<KeyCode>>();
     held.keys.retain(|k| {
-        let down = keys.pressed(*k);
+        let down = held.physical_keys.pressed(*k);
         keys.reset(*k);
         down
     });
@@ -189,7 +217,7 @@ mod tests {
         app.init_resource::<Bindings>().init_resource::<SwitchingInput>().init_resource::<super::super::MenuKeys>();
         app.insert_resource(crate::pause::Paused(true));
         app.add_systems(PreUpdate, restore.before(bevy::input::InputSystems));
-        app.add_systems(PreUpdate, automatic.after(bevy::input::InputSystems));
+        app.add_systems(PreUpdate, (read_keyboard, automatic).chain().after(bevy::input::InputSystems));
         app.add_systems(PreUpdate, super::super::menu_keys.after(automatic));
         let pad = app.world_mut().spawn(Gamepad::default()).id();
         (app, pad)
@@ -201,12 +229,110 @@ mod tests {
     }
 
     fn key(app: &mut App, down: bool, repeat: bool) {
+        keyboard(app, KeyCode::Enter, down, repeat);
+    }
+
+    fn keyboard(app: &mut App, code: KeyCode, down: bool, repeat: bool) {
         use bevy::input::{keyboard::{Key, KeyboardInput}, ButtonState};
         app.world_mut().write_message(KeyboardInput {
-            key_code: KeyCode::Enter, logical_key: Key::Enter,
+            key_code: code, logical_key: match code {
+                KeyCode::Enter => Key::Enter,
+                KeyCode::AltLeft | KeyCode::AltRight => Key::Alt,
+                _ => Key::Character("x".into()),
+            },
             state: if down { ButtonState::Pressed } else { ButtonState::Released },
             text: None, repeat, window: Entity::PLACEHOLDER,
         });
+    }
+
+    #[test]
+    fn switching_from_a_held_menu_button_does_not_consume_synthetic_enter() {
+        let (mut app, pad) = app();
+        app.world_mut().resource_mut::<Bindings>().device = InputDevice::Controller;
+        button(&mut app, pad, true);
+        app.update();
+        assert!(app.world().resource::<ButtonInput<KeyCode>>().pressed(KeyCode::Enter));
+        keyboard(&mut app, KeyCode::KeyX, true, false);
+        app.update();
+        assert_eq!(app.world().resource::<Bindings>().device, InputDevice::KeyboardMouse);
+        assert!(!app.world().resource::<ButtonInput<KeyCode>>().pressed(KeyCode::KeyX));
+        assert!(!app.world().resource::<SwitchingInput>().keys.contains(&KeyCode::Enter));
+        app.update();
+        button(&mut app, pad, false);
+        keyboard(&mut app, KeyCode::KeyX, false, false);
+        app.update();
+        app.update();
+        key(&mut app, true, false);
+        app.update();
+        assert!(app.world().resource::<ButtonInput<KeyCode>>().just_pressed(KeyCode::Enter));
+    }
+
+    #[test]
+    fn a_physical_enter_sharing_a_controller_menu_key_is_consumed_until_release() {
+        let (mut app, pad) = app();
+        app.world_mut().resource_mut::<Bindings>().device = InputDevice::Controller;
+        button(&mut app, pad, true);
+        app.update();
+        key(&mut app, true, false);
+        app.update();
+        assert_eq!(app.world().resource::<Bindings>().device, InputDevice::KeyboardMouse);
+        assert!(app.world().resource::<SwitchingInput>().keys.contains(&KeyCode::Enter));
+        assert!(!app.world().resource::<ButtonInput<KeyCode>>().pressed(KeyCode::Enter));
+        button(&mut app, pad, false);
+        app.update();
+        key(&mut app, true, true);
+        app.update();
+        assert!(!app.world().resource::<ButtonInput<KeyCode>>().pressed(KeyCode::Enter));
+        key(&mut app, false, false);
+        app.update();
+        assert!(!app.world().resource::<ButtonInput<KeyCode>>().just_released(KeyCode::Enter));
+        key(&mut app, true, false);
+        app.update();
+        assert!(app.world().resource::<ButtonInput<KeyCode>>().just_pressed(KeyCode::Enter));
+    }
+
+    #[test]
+    fn consumed_alt_release_after_switching_devices_leaves_plain_enter_for_the_menu() {
+        let (mut app, pad) = app();
+        app.init_resource::<crate::full_screen_key::Alts>().init_resource::<crate::full_screen_key::Asked>();
+        app.add_systems(PreUpdate, crate::full_screen_key::read.after(automatic).before(super::super::menu_keys));
+        for alt in [KeyCode::AltLeft, KeyCode::AltRight] {
+            keyboard(&mut app, alt, true, false);
+            app.update();
+            button(&mut app, pad, true);
+            app.update();
+            assert_eq!(app.world().resource::<Bindings>().device, InputDevice::Controller);
+            button(&mut app, pad, false);
+            app.update();
+            keyboard(&mut app, KeyCode::KeyX, true, false);
+            app.update();
+            assert_eq!(app.world().resource::<Bindings>().device, InputDevice::KeyboardMouse);
+            assert!(!app.world().resource::<ButtonInput<KeyCode>>().pressed(alt));
+            keyboard(&mut app, alt, false, false);
+            keyboard(&mut app, KeyCode::KeyX, false, false);
+            app.update();
+            assert!(!app.world().resource::<ButtonInput<KeyCode>>().just_released(alt));
+            key(&mut app, true, false);
+            app.update();
+            assert!(app.world().resource::<ButtonInput<KeyCode>>().just_pressed(KeyCode::Enter));
+            key(&mut app, false, false);
+            app.update();
+        }
+    }
+
+    #[test]
+    fn focus_loss_clears_consumed_physical_keys_for_the_next_press() {
+        let (mut app, _) = app();
+        app.world_mut().resource_mut::<Bindings>().device = InputDevice::Controller;
+        key(&mut app, true, false);
+        app.update();
+        assert!(!app.world().resource::<ButtonInput<KeyCode>>().pressed(KeyCode::Enter));
+        app.world_mut().write_message(bevy::input::keyboard::KeyboardFocusLost);
+        app.update();
+        assert!(app.world().resource::<SwitchingInput>().keys.is_empty());
+        key(&mut app, true, false);
+        app.update();
+        assert!(app.world().resource::<ButtonInput<KeyCode>>().just_pressed(KeyCode::Enter));
     }
 
     #[test]

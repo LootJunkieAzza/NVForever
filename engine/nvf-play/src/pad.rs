@@ -1366,7 +1366,7 @@ impl Plugin for PadPlugin {
             .init_resource::<PadInUse>()
             .init_resource::<PadGlyphs>()
             .add_systems(PreUpdate, device::restore.before(InputSystems))
-            .add_systems(PreUpdate, (track_pad, device::automatic.before(crate::full_screen_key::read).before(bevy::ui::UiSystems::Focus), update_stick_buttons, menu_keys, sync_labels).chain().after(InputSystems))
+            .add_systems(PreUpdate, (track_pad, device::read_keyboard.before(crate::test_aid::real_presses), device::automatic.before(crate::full_screen_key::read).before(bevy::ui::UiSystems::Focus), update_stick_buttons, menu_keys, sync_labels).chain().after(InputSystems))
             .add_systems(Update, (log_pads, load_pad_glyphs.before(crate::PlaySet::Ui)));
         crate::settings::add_choice_list(
             app,

@@ -82,8 +82,13 @@ pub(crate) fn step(alts: &mut Alts, pressed: [bool; 2], keyboard: ([bool; 2], [b
 /// controller's: take the combination's keys ([`step`]) and ask for the switch.
 pub(crate) fn read((mut events, switching): (MessageReader<KeyboardInput>, Option<Res<crate::pad::SwitchingInput>>), mut keys: ResMut<ButtonInput<KeyCode>>, mut alts: ResMut<Alts>, mut asked: ResMut<Asked>) {
     let (mut repeated, mut lifted, mut struck) = ([false; 2], [false; 2], [false; 2]);
-    for e in events.read().filter(|e| switching.as_ref().is_none_or(|s| s.allows(e))) {
+    for e in events.read() {
         let Some(i) = ALTS.iter().position(|k| *k == e.key_code) else { continue };
+        // A consumed release still clears modifier bookkeeping; only presses and
+        // repeats are suppressed by device switching [design, #2200].
+        if e.state.is_pressed() && switching.as_ref().is_some_and(|s| !s.allows(e)) {
+            continue;
+        }
         match e.state {
             ButtonState::Released => lifted[i] = true,
             ButtonState::Pressed if e.repeat => repeated[i] = true,
