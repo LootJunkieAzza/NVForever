@@ -585,6 +585,20 @@ pub fn report_exit(mut exit: MessageReader<AppExit>) {
 mod tests {
     use super::*;
 
+    /// #2203: a system reading AppExit in Last after `ExitSystems` sees the exit Bevy writes
+    /// when the last window closes (here: no window at all) in that same, final frame.
+    #[test]
+    fn exit_readers_see_the_window_closed_exit() {
+        #[derive(Resource, Default)]
+        struct Seen(bool);
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, bevy::window::WindowPlugin { primary_window: None, ..default() }))
+            .init_resource::<Seen>()
+            .add_systems(Last, (|mut exit: MessageReader<AppExit>, mut seen: ResMut<Seen>| seen.0 |= exit.read().next().is_some()).after(bevy::window::ExitSystems));
+        app.update();
+        assert!(app.world().resource::<Seen>().0, "the exit written by exit_on_all_closed was missed");
+    }
+
     #[test]
     fn repeated_lines_are_folded() {
         let mut last = (String::new(), 0);

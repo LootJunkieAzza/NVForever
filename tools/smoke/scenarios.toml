@@ -3,7 +3,8 @@
 # Each [[scenario]] is one check that used to be prose in CLAUDE.md. Rules:
 # - Carry every expectation over; never loosen one to make a run pass (the parity-lab
 #   rules apply in spirit). A check that fails on main stays, marked
-#   `known_failing = "why"` on the expectation.
+#   `known_failing = "why"` on the expectation, or `known_failing = { linux = "why" }`
+#   when the check fails on named platforms only.
 # - "about N" in the prose is N ± 25 % (rounded outwards); "a dozen" is 9–15; counts
 #   the prose says vary are not checked beyond "at least one".
 # - `paths` are globs over the files a branch changed (`**` any depth); `areas` are
@@ -155,7 +156,7 @@ env = { NVF_PLAY_TEST_VRAM_MB = "512" }
 args = ["--cell", "Goodsprings", "--auto-fly", "4000"]
 run_seconds = 40
 expect = [
-  { re = 'memory budget: RAM \d+ MB .*GPU budget 512 MB \(test aid; the device.s \d+ MB, VK_EXT_memory_budget, device-local heaps; this process uses \d+ MB', label = "the GPU budget read, then capped by the test aid" },
+  { re = 'memory budget: RAM \d+ MB .*GPU budget 512 MB \(test aid; the device.s \d+ MB, VK_EXT_memory_budget, device-local heaps; this process uses \d+ MB', label = "the GPU budget read, then capped by the test aid", known_failing = { linux = "Linux 2026-11-10: wgpu-hal 30 leaves VK_EXT_memory_budget off on Mesa's RADV, so the line names amdgpu sysfs and this process's use from fdinfo instead of the extension" } },
   "caches keep unused models and textures 30 s, at most 128 per cache",
   { re = 'memory budget: near a budget, caches pressed \(GPU: this process uses \d+ of 512 MB', label = "the flight's use of the device-local heaps near the 512 MB budget presses the caches" },
 ]
@@ -2919,6 +2920,24 @@ order = [[
   'SwapTexture: reference 001084B0 shape pipboycard01:0: textures\clutter\rorchachtest\pipboycard01.dds',
   'SwapTexture: reference 001084B0 shape pipboycard01:0: textures\clutter\rorchachtest\inkblot01.dds',
   'SwapTexture: reference 001084B0 shape pipboycard01:0: textures\clutter\rorchachtest\inkblot02.dds',
+]]
+expect = [{ re = 'SwapTexture: .* not found', count = 0, label = "no swapped texture missing" }]
+
+[[scenario]]
+name = "end-slides"
+source = "issue #2226: the ending's MoveTo puts the player on the slide room's XMarkerHeading (0x001639F6, heading 0), which faces the slide SlideGS01 (0x001680A7); the slides' SwapTexture names the shape \"##gs01:0\", which gs01.nif spells ##GS01:0 (texture_swap.rs same_shape). The player is turned to 90 degrees first, so the travel's heading 0 is the marker's; two end-slide lines' result scripts then swap two slides"
+areas = ["scripts", "rendering", "quests"]
+paths = ["engine/nvforever/src/texture_swap.rs", "crates/fnv-game/src/functions/refs.rs", "engine/nvf-play/src/script.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "2:player.SetAngle Z 90;2.5:close;4:player.MoveTo 001639F6;4.5:close", NVF_PLAY_TEST_SCRIPT = "6:info:0x00161859,8:info:0x0015C1C4", NVF_PLAY_TEST_SHOTS = "5.5:end_slides_start.png,7:end_slides_rm01.png,9.5:end_slides_rg01.png" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--size", "1280x720"]
+run_seconds = 11
+note = "From a new game no ending is set, so most of the narrator's topics have no line: the chain that the slide room's trigger starts runs to its end at once (its last swap, endscrn_pf03, the only one drawn) and the credits timer calls ExitGame about 13 s in; the run ends before that"
+manual = "end_slides_start.png, end_slides_rm01.png and end_slides_rg01.png: the slide straight ahead, filling the view, a different picture in each"
+order = [[
+  { re = 'script: travel to Some\(1449624\) / None at .* heading 0\.0', label = "the player travels to the slide room facing the marker's heading" },
+  'SwapTexture: reference 001680A7 shape gs01:0: textures\interface\endgame\endscrn_pf03.dds',
+  'SwapTexture: reference 001680A7 shape gs01:0: textures\interface\endgame\endscrn_rm01.dds',
+  'SwapTexture: reference 001680A7 shape gs01:0: textures\interface\endgame\endscrn_rg01.dds',
 ]]
 expect = [{ re = 'SwapTexture: .* not found', count = 0, label = "no swapped texture missing" }]
 
@@ -6048,6 +6067,22 @@ expect = [
   { re = 'person pace: 1ECookCook 0x000F5704 walks 80 and runs 322 units/s \(85\.0%', label = "Cook-Cook in metal armour (Speed Mult 110) walks 80 and runs 322" },
 ]
 forbid = [{ re = 'person pace: LvlFiend', label = "a fiend in light raider armour is slowed" }]
+
+[[scenario]]
+name = "onehand-drawn-walk"
+source = "#2124: walking with a 10mm pistol drawn outside combat, in leather or a mercenary outfit, the original's people held 77.5-78.3 against the holstered people's 85 (AI observer, docs/spec-notes/actors.md §8.10, People); ours is the walk / fMoveNoWeaponMult, 85.3 / 1.1 = 77.5 (fnv_ai::carry::drawn_walk_share, docs/owner-review.md)"
+note = "a Goodsprings settler at noon is given a 10mm pistol (holstered) and put 900 units from the player at 3 s, so it walks its package's way; at 35 s SetWeaponOut 1 holds the pistol out and it is put 900 units off again. The walk probe (engine walk_probe.rs) measures its body's horizontal speed over one-second windows of walking, holstered and drawn apart, out of combat; nobody perceives the player (UNSEEN). First run 2026-11-12 (on 459626a15's build): drawn 77.5 over 39 windows, holstered 85.3 over 34, no window left out (0 in combat, 0 running, 0 off a walk) [observed: our run]. Re-read 2026-11-12 after merging #2143 (people's speeds given when first drawn and at Speed Mult or armour changes keep the drawn share, fnv_ai::Ai::set_speeds): expectations unchanged, still not run"
+areas = ["ai"]
+paths = ["crates/fnv-ai/src/carry.rs", "engine/nvforever/src/walk_probe.rs", "engine/nvforever/src/creature_pace.rs"]
+env = { NVF_PLAY_TEST_UNSEEN = "1", NVF_PLAY_TEST_WALK_PROBE = "GoodspringsSettler01Ref", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "2:call:GoodspringsSettler01Ref:AddItem:Weap10mmPistol:1,2.5:call:GoodspringsSettler01Ref:EquipItem:Weap10mmPistol,3:moveto:GoodspringsSettler01Ref:player:900:0:0,35:call:GoodspringsSettler01Ref:SetWeaponOut:1,36:moveto:GoodspringsSettler01Ref:player:900:0:0" }
+args = ["--cell", "Goodsprings", "--pos=-71400,3600,8352", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "GoodspringsSettler01Ref"]
+run_seconds = 75
+expect = [
+  "walk probe: measuring GoodspringsSettler01Ref",
+  { re = 'walk probe: GoodspringsSettler01Ref holstered speed=(?P<n>[\d.]+) \(\d+ windows; Light armour, Speed Mult 100, weapon .* type 3,', range = [84, 87], label = "holstered, in its clothes, it walks the people's 85.3" },
+  { re = 'walk probe: GoodspringsSettler01Ref drawn speed=(?P<n>[\d.]+) \(\d+ windows; Light armour, Speed Mult 100, weapon .* type 3,', range = [77, 78], label = "with the pistol drawn outside combat it walks 77-78 (85.3 / 1.1 = 77.5)" },
+]
+forbid = [{ re = 'walk probe: GoodspringsSettler01Ref windows left out: [1-9]\d* in combat', label = "the settler went into combat: not the measured case" }]
 
 [[scenario]]
 name = "allies-alerted"
@@ -14415,6 +14450,36 @@ order = [[
 ]]
 
 [[scenario]]
+name = "ragdoll-kill-and-corpse-hit"
+source = "#2218 (owner's playtest): actors killed by grenade rifle rounds stood upright, dead, instead of falling; a blast kill sends more than one hit on the actor in a frame (the round's impact and its blast, or several blasts), and engine/nvforever/src/deaths.rs read only the last, which landed on the corpse and did not kill"
+note = "Chet in the general store is killed by a test-aid hit at 6 s and hit again on his corpse in the same frame; the base game alone"
+areas = ["ragdoll", "combat"]
+paths = ["engine/nvforever/src/ragdoll.rs", "engine/nvforever/src/deaths.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_HIT = "6:0x00104C79:1000,6:0x00104C79:5" }
+args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice", "--no-messages", "--plugins", "FalloutNV.esm"]
+run_seconds = 14
+expect = [
+  { re = 'combat: .* 0x00104C79 killed', label = "the first hit kills Chet" },
+  { re = 'ragdoll: actor 00104C79 at rest at .*, trunk (?P<h>-?\d+) units over its lowest bone', range = [-1000, 35], label = "Chet falls and comes to rest lying down, not standing" },
+]
+
+[[scenario]]
+name = "ragdoll-killed-getting-up"
+source = "#2218 (owner's playtest): actors killed by grenade rifle rounds stood upright, dead; a blast knocks the actor down, it gets up, and the next blast kills it while its get-up clip plays: its ragdoll had left the world and the clip held the bones, so the corpse stood (engine/nvforever/src/knockouts.rs)"
+note = "Chet in the general store is pushed down at 6 s (PushActorAway), starts getting up about 2.4 s later (a 2 s clip) and is killed by a test-aid hit at 9.2 s, part way up; the base game alone"
+areas = ["ragdoll", "combat"]
+paths = ["engine/nvforever/src/knockouts.rs", "engine/nvforever/src/ragdoll.rs", "engine/nvforever/src/deaths.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "6:player.pushactoraway 00104C79 20;7:close", NVF_PLAY_TEST_HIT = "9.2:0x00104C79:1000" }
+args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice", "--no-messages", "--plugins", "FalloutNV.esm"]
+run_seconds = 18
+order = [[
+  { re = 'knockout: 00104C79 gets up', label = "Chet starts getting up" },
+  { re = 'combat: Chet 0x00104C79 killed', label = "he is killed before he is up" },
+  { re = 'ragdoll: actor 00104C79 at rest at .*, trunk (?P<h>-?\d+) units over its lowest bone', range = [-1000, 35], label = "he falls again and comes to rest lying down, not standing" },
+]]
+forbid = [{ re = 'knockout: 00104C79 is up', label = "a dead actor never finishes getting up" }]
+
+[[scenario]]
 name = "death-weapon-drop"
 source = "ESM full audit gap 21 (engine/nvf-play/src/combat.rs death_drops): an NPC that dies holding its weapon drops it, with the chance iDeathDropWeaponChance (100 in FalloutNV.esm)"
 note = "Chet is given a .357 and set on the player (GOD) at 3-4 s, then killed by KillActor at 9 s"
@@ -21988,6 +22053,21 @@ expect = [
 ]
 
 [[scenario]]
+name = "handy-cake-saw-jet"
+source = "owner 2026-11-12 (#2228): Andy (CG02Andy, a Mister Handy) cutting the cake (IDLE CutCake, creatures/mistergutsy/idleanims/specialidle_cutcake.kf): the KF spins `Buzzsawblad`, a node of the saw part gutsybuzzsaw.nif that the skeleton lacks, and fxmrhandyjetaddon.nif's flames are controllers of its own (scrolls, refraction clouds, billboards) [observed: fnvtool nif decode]; both were still"
+note = "Andy placed 300 units from the player (GOD, UNSEEN) at 3 s and held (SetRestrained); the view turns to him at 4 s; PlayIdle CutCake at 5 s, the blade spins from 3.3 s into it; frames at 9 and 9.15 s (blade turned between them, jet flames on) for the eye"
+areas = ["actors", "creatures", "idles"]
+paths = ["engine/nvf-assets/src/actor.rs", "engine/nvf-assets/src/anim_play.rs", "engine/nvforever/src/actors.rs", "engine/nvforever/src/shot_fx.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_UNSEEN = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:call:player:PlaceAtMe:CG02Andy:1:300:0,3.2:call:0xFF000000:SetRestrained:1,5:call:0xFF000000:PlayIdle:CutCake", NVF_PLAY_TEST_CONTROL = "4:aimactor", NVF_PLAY_TEST_SHOTS = "9:handy_cake_a.png,9.15:handy_cake_b.png" }
+args = ["--cell", "Goodsprings", "--pos=-61000,4500,8500", "--play", "--hour", "12", "--no-voice", "--no-messages", "--plugins", "FalloutNV.esm"]
+run_seconds = 11
+expect = [
+  { re = 'creature parts: CG02Andy \(00020456\): part node\(s\) .*Buzzsawblad.* for its clips to drive', label = "the saw's blade is a node of its own for the clips" },
+  { re = 'creature parts: CG02Andy \(00020456\): \S*fxmrhandyjetaddon\.nif plays its own controllers on Bip01 Pelvis', label = "the jet plays its own controllers on the pelvis" },
+  { re = 'idle: 0xFF000000 plays CutCake ', label = "Andy cuts the cake" },
+]
+
+[[scenario]]
 name = "radscorpion-intact-caps"
 source = "#1075 (docs/spec-notes/dismemberment.md §2.5): the radscorpion's `meatcapbody` holds its torso caps (part flag bit 0 clear) and one editor-visible BP_TORSO triangle, so the whole-shape cap rule drew every torso cap on an intact radscorpion; cap partitions are now hidden one by one [observed: fnvtool nif decode]"
 note = "a radscorpion (CrRadscorpion1Small) placed 300 units from the player (GOD, UNSEEN) at 3 s and held (SetRestrained); the view turns to it at 5 s, a frame at 6 s (no caps on its leg roots or stinger)"
@@ -25671,3 +25751,59 @@ expect = [
   { re = 'guard wander check: done .* package_type=(\d+)', range = [35, 35], label = "still on the Guard package at the end" },
   { text = "script: test aid calls GetCurrentAIProcedure on GoodspringsSettler03Ref = 44", count = 2, label = "procedure GUARD at 120 s and 240 s" },
 ]
+
+[[scenario]]
+name = "tutorial-stick-scroll-pad"
+source = "issue #1905: with a controller, the left stick Up and Down scroll the tutorial menu's text as the D-pad does, as in the original (owner's play on a PS3 pad); tutorial_menu.rs stick_scroll, the left stick read as crate::pad::StickButtons"
+note = "Controller chosen in the settings at 2 s; the long Movement and Combat tutorial at 6 s, held open; the scripted controller's left stick pushed down at 8 s and 9 s and up at 10 s (the pad- key aid's stick directions). Before the fix the stick did not scroll"
+areas = ["menus", "controller"]
+paths = ["engine/nvf-play/src/tutorial_menu.rs", "engine/nvf-play/src/test_aid.rs"]
+env = { NVFOREVER_HOME = "tutorial-stick-scroll-pad-home", NVF_PLAY_TEST_PAUSE = "1:4", NVF_PLAY_TEST_SETTINGS = "2:device:Controller", NVF_PLAY_TEST_SCRIPT_MENUS = "off", NVF_PLAY_TEST_SCRIPT = "6:call:-:ShowTutorialMenu:0x0006D914", NVF_PLAY_TEST_KEYS = "8:pad-Left Stick Down,9:pad-Left Stick Down,10:pad-Left Stick Up" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 13
+expect = [
+  { text = "test aid: real input Stick(Down) pressed", count = 2, label = "two pushes down" },
+  { text = "test aid: real input Stick(Up) pressed", count = 1, label = "one push up" },
+]
+order = [[
+  { text = "controls: input device Controller", label = "the controller is picked" },
+  { re = 'tutorial menu: page 1/\d+ "', label = "the tutorial opens" },
+  { re = 'tutorial menu: scroll 30 of \d+', label = "the stick down scrolls a step" },
+  { re = 'tutorial menu: scroll 60 of \d+', label = "and another" },
+  { re = 'tutorial menu: scroll 30 of \d+', label = "the stick up scrolls back a step" },
+]]
+
+[[scenario]]
+name = "settings-back-hint"
+source = "issue #1893: the settings page's Back carries its hint as the menu's Delete does, \"Back  Esc)\" with the keyboard and \"Back  B)\" with a controller, as the original's B (owner's play); pause.rs back_label"
+note = "The pause menu at 2 s, the Gameplay tab at 3 s, inspected with the keyboard at 4 s; Controller chosen at 5 s and inspected again at 6 s. Defaults keeps no hint (its Y is the rail key here, #1953). Before the fix Back was drawn bare"
+areas = ["menus", "controller", "settings"]
+paths = ["engine/nvf-play/src/pause.rs"]
+env = { NVFOREVER_HOME = "settings-back-hint-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "2:9", NVF_PLAY_TEST_SETTINGS = "3:tab:Gameplay,5:device:Controller", NVF_PLAY_TEST_PAUSE_MENU = "4:inspect,6:inspect" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 11
+order = [[
+  { re = 'pause menu: inspect: Gameplay,', label = "the Gameplay tab is inspected" },
+  { re = 'pause menu: inspect: back \S+  Esc\)', label = "Back names the keyboard's Esc" },
+  { text = "controls: input device Controller", label = "the controller is picked" },
+  { re = 'pause menu: inspect: back \S+  B\)', label = "Back names the controller's B" },
+]]
+
+[[scenario]]
+name = "container-pad-category"
+source = "issue #1827: in the container menu a controller's LT and RT pick the player's list and the container's, and the D-pad's left and right change the picked list's category, as the original (owner's play; container_menu.xml CM_Items_TitleButton LT, CM_Container_TitleButton RT); pad.rs menu_buttons"
+note = "Controller chosen on the pause menu (open 2 s to 5 s) at 3 s; the Refrigerator opened with A at 16 s (as container-e-key with E). The menu opens with the container's list focused [observed: the first run]: D-pad right at 18 s steps it from All to Weapons, LT at 19 s gives the player's list the focus, D-pad left at 20 s steps it from All round to Ammo, RT at 21 s gives the container's list the focus back, B at 23 s closes. Before the fix the D-pad moved the focus and nothing changed the category"
+areas = ["menus", "controller"]
+paths = ["engine/nvf-play/src/pad.rs", "engine/nvf-play/src/menu.rs", "engine/nvf-play/src/menu/look.rs"]
+env = { NVFOREVER_HOME = "container-pad-category-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "00105658", NVF_PLAY_TEST_PAUSE = "2:5", NVF_PLAY_TEST_SETTINGS = "3:device:Controller", NVF_PLAY_TEST_KEYS = "16:pad-A,18:pad-D-Pad Right,19:pad-LT,20:pad-D-Pad Left,21:pad-RT,23:pad-B" }
+args = ["--cell", "GSHouseInterior03", "--play", "--no-voice"]
+run_seconds = 26
+order = [[
+  { text = "controls: input device Controller", label = "the controller is picked" },
+  { text = 'menu: open Container(0x00105658) "Refrigerator"', label = "A opens the Refrigerator" },
+  { re = 'menu: Category\(Container, 1\): the Container list shows Weapons', label = "the D-pad's right steps the container's list's category" },
+  { re = 'menu: Focus\(Player\): the Player list has the focus', label = "LT picks the player's list" },
+  { re = 'menu: Category\(Player, -1\): the Player list shows Ammo', label = "the D-pad's left steps the player's list's category" },
+  { re = 'menu: Focus\(Container\): the Container list has the focus', label = "RT picks the container's list" },
+  { text = "menu: close", label = "B closes" },
+]]
