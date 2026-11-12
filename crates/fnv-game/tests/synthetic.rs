@@ -209,7 +209,15 @@ fn plugin_bytes() -> Vec<u8> {
         endif(),
     ]
     .concat();
-    let qscript = [vec![sub(b"EDID", z("QScript"))], unit(1, &script(&[(0, None, body)]), &[(1, "fTimer", 0), (2, "bRun", 1)], &[QUEST])].concat();
+    //   begin MenuMode 1013
+    //     set fMenuSum to fMenuSum + GetSecondsPassed
+    //   end
+    let menu_sum = set(var(b'f', 3), ex(&[var(b'f', 3), xcall(GET_SECONDS_PASSED, &[]), a("+")]));
+    let qscript = [
+        vec![sub(b"EDID", z("QScript"))],
+        unit(1, &script(&[(0, None, body), (1, Some([le16(1), n(1013)].concat()), menu_sum)]), &[(1, "fTimer", 0), (2, "bRun", 1), (3, "fMenuSum", 0)], &[QUEST]),
+    ]
+    .concat();
     // Activator script: nUsed (1, short), nHit (2, short).
     //   begin OnActivate player
     //     set nUsed to nUsed + 1
@@ -2789,6 +2797,51 @@ fn a_page_tick_runs_only_the_start_menus_blocks_and_keeps_the_open_menu() {
     g.menu = None;
     g.tick();
     assert_eq!(v(&g, 8), 3.0, "the page's menu ends with its tick");
+}
+
+/// GetSecondsPassed inside a MenuMode block counts the menu's frames since the block
+/// last ran, not the stopped game clock: a quest with a 0.5 s delay that last ran in
+/// the frame before the Mods page opened read 0.5 on every page frame, and Just Assorted
+/// Mods' half-second registration in `MenuMode 1013` then ran once (its MCM page empty).
+#[test]
+fn get_seconds_passed_in_a_menu_mode_block_counts_the_menus_frames() {
+    use fnv_game::game::menus;
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    g.set_stage(q(), 10);
+    let key = InstKey::Quest { quest: q() };
+    // Up to the frame in which the quest's GameMode ran (every 0.5 s).
+    g.frames(40);
+    for _ in 0..60 {
+        if g.instances.get(&key).and_then(|i| i.run_last) == Some(fnv_game::functions::misc::clock_now(g.time)) {
+            break;
+        }
+        g.frames(1);
+    }
+    assert_eq!(g.instances.get(&key).and_then(|i| i.run_last), Some(fnv_game::functions::misc::clock_now(g.time)));
+    let t = g.time;
+    for _ in 0..10 {
+        g.page_tick(menus::START);
+    }
+    let sum = g.var(key, 3).num();
+    let step = g.cfg.frame_seconds;
+    // 0 on the first run, then one frame step each (the clock reads 1/64 s steps).
+    assert!((sum - 9.0 * step).abs() <= 2.0 / 64.0, "fMenuSum {sum}, 9 frames {}", 9.0 * step);
+    assert_eq!(g.time, t, "the game clock stands still on the page");
+    // Above 64 fps two GameMode runs can fall in one 1/64 s clock step: the stopped
+    // clock then read 0 on every page frame, and a MenuMode timer never moved.
+    g.quests.get_mut(&q()).unwrap().delay = Some(0.001);
+    let step = g.cfg.frame_seconds;
+    g.cfg.frame_seconds = 0.004;
+    g.frames(3);
+    g.cfg.frame_seconds = step;
+    g.store(key, Some(FormId(QUEST_SCRIPT)), 3, Value::Num(0.0), "test", true);
+    for _ in 0..30 {
+        g.page_tick(menus::START);
+    }
+    let sum = g.var(key, 3).num();
+    assert!(sum > 0.4, "fMenuSum {sum} after 30 page frames");
 }
 
 fn ui_call(g: &mut Game, op: u16, args: &[ArgValue]) {

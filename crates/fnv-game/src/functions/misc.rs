@@ -147,12 +147,21 @@ pub fn clock_now(t: f64) -> f64 {
 /// [observed: VCG01's countdowns restarted after a pause in its calls ran their full
 /// time, layer5-captures.md §10.7; see [`Game::mark_run`]]. Outside a per-frame run (an
 /// event block of the same instance), the time since the latest run; result scripts (no
-/// instance) get 0.
+/// instance) get 0. Inside a MenuMode block the same rule on the menu clock
+/// ([`Game::menu_time`]): the time since the instance's previous MenuMode run, counted in
+/// frames that ran MenuMode blocks, 0 on its first. Before, it read the stopped game
+/// clock there and gave the gap of the last two GameMode runs on every call, the same
+/// value for the whole menu: 0 when those two runs fell in one 1/64 s clock step (a
+/// frame rate above 64), so a timer counted in MenuMode never moved. Just Assorted
+/// Mods' half-second registration in `MenuMode 1013` then never ended and its MCM page
+/// stayed empty, about one restart in two.
 pub fn get_seconds_passed(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     let Some(key) = ctx.inst else { return none() };
-    let now = clock_now(g.time);
+    let menu = g.in_menu_block;
+    let now = clock_now(if menu { g.menu_time } else { g.time });
     let Some(inst) = g.instances.get(&key) else { return none() };
-    let v = match (inst.run_last, inst.run_prev) {
+    let (last, prev) = if menu { (inst.menu_last, inst.menu_prev) } else { (inst.run_last, inst.run_prev) };
+    let v = match (last, prev) {
         (Some(last), prev) if last == now => prev.map_or(0.0, |p| now - p),
         (Some(last), _) => now - last,
         (None, _) => 0.0,

@@ -185,6 +185,12 @@ pub struct Instance {
     pub run_last: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub run_prev: Option<f64>,
+    /// The same two times for the instance's MenuMode runs, on [`Game::menu_time`]'s
+    /// clock: GetSecondsPassed inside a MenuMode block reads them. Not saved.
+    #[serde(skip)]
+    pub menu_last: Option<f64>,
+    #[serde(skip)]
+    pub menu_prev: Option<f64>,
 }
 
 /// [`RefExtra::script_package`] from a save: one package, none, or the list older saves
@@ -1809,6 +1815,17 @@ pub struct Game<'a> {
     /// Game time in seconds: the frame steps that were not in a menu or a loading
     /// screen. GetSecondsPassed reads it.
     pub time: f64,
+    /// Menu time in seconds: the frame steps in which MenuMode blocks ran (a menu, a
+    /// loading screen, the pause menu's Mods page). GetSecondsPassed inside a MenuMode
+    /// block reads it, so a timer counted there moves frame by frame while
+    /// [`Game::time`] stands still [documented: MCM 1.5's MCMMainScript times its
+    /// messages and MCMDelay, and Just Assorted Mods its half-second registration, with
+    /// GetSecondsPassed in `MenuMode 1013`; hypothesis: the original's value there is the
+    /// time since the block last ran, not captured (scripts.md §10)]. Not saved.
+    pub menu_time: f64,
+    /// A MenuMode block is running ([`Game::run_blocks`]): GetSecondsPassed reads the
+    /// menu clock. Not saved.
+    pub in_menu_block: bool,
     /// References enabled since the last frame whose OnLoad runs at the start of the
     /// next one [observed: OnLoad after Enable had not run on the line after Enable and
     /// had run by the next frame, layer5-captures.md §8.3 d].
@@ -2576,6 +2593,8 @@ impl<'a> Game<'a> {
             voice: None,
             frame: 0,
             time: 0.0,
+            menu_time: 0.0,
+            in_menu_block: false,
             pending_onload: Vec::new(),
             door_gates: Default::default(),
             npc_door_run: None,
@@ -3621,9 +3640,15 @@ impl<'a> Game<'a> {
             }
             self.instance(key, Some(script));
             self.cover_block(|| unit.key(), i);
+            let menu_block = event == event::MENU_MODE;
+            if menu_block && !ran {
+                self.mark_menu_run(key, script);
+            }
             ran = true;
             let outer = self.jip.wait_depth.replace(self.depth + 1);
+            let outer_menu = std::mem::replace(&mut self.in_menu_block, menu_block);
             let (returned, wait) = self.exec_at(unit, &b.body, Locals::Instance(key), ctx, resume.as_deref());
+            self.in_menu_block = outer_menu;
             self.jip.wait_depth = outer;
             // One waiting block per script: a new wait ends the old one [documented].
             if let Some((n, at)) = wait {
@@ -3875,10 +3900,14 @@ impl<'a> Game<'a> {
         // In menu mode too: a note taken in the container menu files at once.
         self.file_carried_notes();
         if self.loading {
+            self.menu_frame();
             self.side_blocks(menus::LOADING);
             return;
         }
         let dt = self.cfg.frame_seconds;
+        if self.in_menu() || self.side_menu().is_some() {
+            self.menu_frame();
+        }
         // A conversation with the player is menu mode too (`Game::in_menu`). Not in a
         // co-op session ([`Game::no_pause`]): the world goes on behind this player's
         // menus and conversations, its GameMode blocks with it; the open menu's own
@@ -4114,6 +4143,23 @@ impl<'a> Game<'a> {
         inst.run_last = Some(now);
     }
 
+    /// An instance's MenuMode blocks are about to run: [`Game::mark_run`] on the menu
+    /// clock ([`Game::menu_time`]). A second MenuMode run in the same frame (the open
+    /// menu's and a side menu's) is the same run.
+    fn mark_menu_run(&mut self, key: InstKey, script: FormId) {
+        let now = functions::clock_now(self.menu_time);
+        let inst = self.instance(key, Some(script));
+        if inst.menu_last != Some(now) {
+            inst.menu_prev = inst.menu_last;
+            inst.menu_last = Some(now);
+        }
+    }
+
+    /// A frame in which MenuMode blocks run: the menu clock moves one frame step.
+    fn menu_frame(&mut self) {
+        self.menu_time += self.cfg.frame_seconds;
+    }
+
     /// A trigger is about to run its OnTrigger block for the actors inside it this frame:
     /// call once per frame, before those runs. OnTrigger runs every frame an actor is
     /// inside, so for a script without a GameMode block it is the per-frame run that
@@ -4223,6 +4269,7 @@ impl<'a> Game<'a> {
     pub fn page_tick(&mut self, code: u16) {
         self.frame += 1;
         self.temp_refs.clear();
+        self.menu_frame();
         let before = self.page_menu.replace(code);
         self.side_blocks(code);
         self.page_menu = before;
