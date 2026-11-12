@@ -176,6 +176,14 @@ original") [design]:
   "Back", "OK") stays what the use calls for even if it is the original's word. A longer
   label (a prompt, a sentence) is written fresh from what the menu needs. The menu files'
   comments are not copied into labels.
+- The two heading labels `sInventoryItems` ("ITEMS") and `sData` ("DATA") are in capitals:
+  every use of them is a heading (the Pip-Boy's ITEMS and DATA pages, the repair page, the
+  weapon mod menu, the container menu, the barter menu's all-items heading), and NVForever's
+  own hand-built Pip-Boy pages already write their headings so ("STATS", "ITEMS", "DATA",
+  `pipboy::Page::title`); a page drawn from its file then reads as the hand-built one beside
+  it. That is consistency with our own words, not a transcription of the original [design:
+  #2212]. The buttons and cards beside them (`sInventoryMod`, `sInventoryRepair`,
+  `sRepairItem`, `sRepairSkill` and the rest) keep their spelling.
 
 How NVForever answers `Source::game_string` (`fnv_ui::strings::GameStrings`, task T10)
 [design]:

@@ -1266,6 +1266,11 @@ pub(crate) trait PageFonts {
     fn picture_texels(&mut self, _name: &str) -> Option<(f64, f64)> {
         None
     }
+    /// A text's size in a font number, wrapped at `wrap`, as [`Self::write_sizes`] measures it;
+    /// `None` when the page cannot tell.
+    fn text_size(&mut self, _font: f64, _text: &str, _wrap: Option<f64>) -> Option<(f64, f64)> {
+        None
+    }
 }
 
 impl PageFonts for FontKit<'_> {
@@ -1278,6 +1283,9 @@ impl PageFonts for FontKit<'_> {
     }
     fn picture_texels(&mut self, name: &str) -> Option<(f64, f64)> {
         self.picture_size(name).map(|s| (f64::from(s.x), f64::from(s.y)))
+    }
+    fn text_size(&mut self, font: f64, text: &str, wrap: Option<f64>) -> Option<(f64, f64)> {
+        Some(self.menu_measure(&[font])(font, text, wrap))
     }
 }
 
