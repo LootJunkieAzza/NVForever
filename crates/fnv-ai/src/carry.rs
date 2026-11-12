@@ -606,8 +606,9 @@ pub struct Ai {
     pub(crate) coming: std::collections::BTreeSet<FormId>,
     /// The loaded area, from the engine ([`Ai::set_loaded`]).
     pub(crate) loaded: Option<crate::process::LoadedArea>,
-    /// Actors with speeds of their own (creatures, from their clips); the others move at
-    /// [`AiConfig::walk_speed`] and [`AiConfig::run_speed`].
+    /// Actors with speeds of their own (creatures, from their clips; people, by their
+    /// current Speed Mult and armour); the others move at [`AiConfig::walk_speed`] and
+    /// [`AiConfig::run_speed`].
     pub speeds: BTreeMap<FormId, ActorSpeeds>,
     /// Actors slowed by crippled legs: the share of their speed they keep
     /// ([`Ai::set_pace`]; `fnv_game::Game::leg_speed_mult`).
@@ -641,6 +642,52 @@ pub struct Ai {
     /// When (`Game::time`) a script last put each actor somewhere ([`Ai::relocate`]):
     /// [`Ai::arrive`] leaves such an actor where it was put for a while.
     pub(crate) script_moved: BTreeMap<FormId, f64>,
+    /// Actors whose walk under way stands because their speeds are 0 (a Speed Mult of 0),
+    /// with the gait it goes on in when they come back ([`Ai::set_speeds`], issue #2118).
+    /// Not saved, as the walks are not (`crate::progress`): after a load the walk is
+    /// planned again at 0, and when the speeds come back a package's goes on in the gait
+    /// `Ai::plan` chose, any other at the calm walk until it is planned again, whatever
+    /// gait it stood in before the save [design].
+    stalled: BTreeMap<FormId, Stall>,
+}
+
+/// A walk standing at speeds of 0 ([`Ai::stalled`]): which of its actor's speeds it goes at
+/// ([`gait_speeds`]: 0 calm walk, 1 calm run, 2 alert walk, 3 alert run), its share of that
+/// speed (a sneak's, a follower's catch-up), and where the walk goes (`Walker::trip`):
+/// another walk does not take it up.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Stall {
+    gait: usize,
+    share: f32,
+    to: Option<Place>,
+}
+
+/// An actor's speeds in the order [`Stall::gait`] counts them.
+fn gait_speeds(s: &ActorSpeeds) -> [f32; 4] {
+    [s.calm.walk, s.calm.run, s.alert.walk, s.alert.run]
+}
+
+/// The gait of a walk going at `speed` with the speeds `old`, and its share of that gait's
+/// speed: the walk or run, calm or alert, nearest to `speed` by ratio (a sneaking run,
+/// × 0.57, or a follower's catch-up stays a run or a walk). `None` when it cannot be told:
+/// `speed` or every speed of `old` is 0 [design, issue #2118].
+fn gait_of(speed: f32, old: &ActorSpeeds) -> Option<(usize, f32)> {
+    if !(speed.is_finite() && speed > 0.0) {
+        return None;
+    }
+    let off = |was: f32| (speed / was).ln().abs();
+    let (gait, was) = gait_speeds(old).into_iter().enumerate().filter(|(_, was)| was.is_finite() && *was > 0.0).min_by(|a, b| off(a.1).total_cmp(&off(b.1)))?;
+    Some((gait, speed / was))
+}
+
+/// The share of its speed a sneaking actor moves at: fMoveSneakMult (0.57 in
+/// FalloutNV.esm [observed]) while it sneaks (`Game::sneaks`), 1 otherwise ([`Ai::pace`]).
+fn sneak_share(game: &Game, actor: FormId) -> f32 {
+    if game.sneaks(actor) {
+        game.world.forms.setting_f32("fMoveSneakMult").unwrap_or(SNEAK_MULT)
+    } else {
+        1.0
+    }
 }
 
 /// A walker turning at its actor's own rate ([`ActorSpeeds::turn_rate`]).
@@ -659,7 +706,7 @@ fn hdist(a: [f32; 3], b: [f32; 3]) -> f32 {
 
 impl Ai {
     pub fn new(cfg: AiConfig) -> Ai {
-        Ai { cfg, agents: BTreeMap::new(), events: Vec::new(), taken: BTreeMap::new(), furniture: Default::default(), social: Default::default(), low: BTreeMap::new(), process_stats: Default::default(), far: Default::default(), coming: Default::default(), loaded: None, speeds: BTreeMap::new(), paces: BTreeMap::new(), applied_switches: None, applied_locks: None, applied_obstacles: None, locked_doors: Vec::new(), unseen_greets: Default::default(), restrained: Default::default(), woken: Default::default(), columns: BTreeMap::new(), script_moved: BTreeMap::new(), restored: BTreeMap::new() }
+        Ai { cfg, agents: BTreeMap::new(), events: Vec::new(), taken: BTreeMap::new(), furniture: Default::default(), social: Default::default(), low: BTreeMap::new(), process_stats: Default::default(), far: Default::default(), coming: Default::default(), loaded: None, speeds: BTreeMap::new(), paces: BTreeMap::new(), applied_switches: None, applied_locks: None, applied_obstacles: None, locked_doors: Vec::new(), unseen_greets: Default::default(), restrained: Default::default(), woken: Default::default(), columns: BTreeMap::new(), script_moved: BTreeMap::new(), restored: BTreeMap::new(), stalled: BTreeMap::new() }
     }
 
     /// Give the AI what the assets say about furniture and skeletons ([`crate::furniture`]),
@@ -816,11 +863,45 @@ impl Ai {
         self.applied_obstacles == Some((game.world.presence_serial(), nav.obstacles_stamp()))
     }
 
-    /// Give `actor` speeds of its own; its walker turns at its own rate from now on.
+    /// Give `actor` speeds of its own; its walker turns at its own rate from now on, and
+    /// a walk under way goes on at once at the new speeds, in its gait (`gait_of`):
+    /// otherwise a package's walk keeps the speed it was planned at until its next plan
+    /// (issue #2118: a SetAV SpeedMult 200 follower ran on at 100). Speeds of 0 stop the
+    /// walk where it is, and it goes on in the same gait when they come back (a package's
+    /// walk planned while they were 0 in the gait `Ai::plan` chose, any other at the
+    /// calm walk). Crippled
+    /// legs' share ([`Ai::set_pace`]) is the walker's own and stays as it is.
     pub fn set_speeds(&mut self, actor: FormId, speeds: ActorSpeeds) {
-        self.speeds.insert(actor, speeds);
-        if let Some(a) = self.agents.get_mut(&actor) {
-            own_turning(&mut a.walker, &speeds);
+        let default = Speeds { walk: self.cfg.walk_speed, run: self.cfg.run_speed };
+        let old = self.speeds.insert(actor, speeds).unwrap_or(ActorSpeeds { calm: default, alert: default, turn_rate: None, spot_turn_start: None });
+        let Some(a) = self.agents.get_mut(&actor) else {
+            self.stalled.remove(&actor);
+            return;
+        };
+        own_turning(&mut a.walker, &speeds);
+        if a.walker.follower.is_none() {
+            // Nothing under way: the next walk is planned at the new speeds.
+            self.stalled.remove(&actor);
+            return;
+        }
+        let to = a.walker.trip.as_ref().map(|t| t.to);
+        // The gait this walk was stopped in, or planned in at 0 (`Ai::plan`); none kept
+        // for another walk.
+        let stall = self.stalled.get(&actor).copied().filter(|s| s.to == to && a.walker.speed <= 0.0);
+        let (gait, share) = match (stall, gait_of(a.walker.speed, &old)) {
+            (Some(s), _) => (s.gait, s.share),
+            (None, Some(g)) => g,
+            // Planned at 0 where the gait was not kept: it walks [design] until its next
+            // plan rather than standing on its way.
+            (None, None) if a.walker.speed <= 0.0 => (0, 1.0),
+            (None, None) => return,
+        };
+        let now = gait_speeds(&speeds)[gait].max(0.0) * share;
+        a.walker.speed = now;
+        if now > 0.0 {
+            self.stalled.remove(&actor);
+        } else {
+            self.stalled.insert(actor, Stall { gait, share, to });
         }
     }
 
@@ -2230,11 +2311,7 @@ impl Ai {
     pub(crate) fn pace(&self, game: &Game, actor: FormId, running: bool) -> f32 {
         let own = self.calm_speeds(actor);
         let speed = if running { own.run } else { own.walk };
-        if game.sneaks(actor) {
-            speed * game.world.forms.setting_f32("fMoveSneakMult").unwrap_or(SNEAK_MULT)
-        } else {
-            speed
-        }
+        speed * sneak_share(game, actor)
     }
 
     /// Plan a walk to `to`; without a way there the package is set aside.
@@ -2251,6 +2328,14 @@ impl Ai {
             Ok(path) => {
                 let doors = path.legs.iter().filter_map(|l| l.door.map(|d| FormId(d.door))).collect();
                 let event = AiEvent::Trip { package, to: to.pos, space: to.space, length: path.length, doors, running, patrol_point };
+                // A walk planned at speeds of 0 keeps its gait for when they come back; an
+                // earlier walk's stop is not this one's (issue #2118).
+                let to = a.walker.trip.as_ref().map(|t| t.to);
+                if speed > 0.0 {
+                    self.stalled.remove(&actor);
+                } else {
+                    self.stalled.insert(actor, Stall { gait: usize::from(running), share: sneak_share(game, actor), to });
+                }
                 a.activity = Activity::Travelling;
                 a.trip_started = game.time;
                 a.trip_from = a.walker.travelled;

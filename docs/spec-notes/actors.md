@@ -1649,7 +1649,7 @@ stopped and started, as Victor's walk had before #258). Code:
     the merchant's 77–78 was with its weapon drawn. The player's 86.8 is 1.7% above the
     people's median and kept for the player. Speed Mult: people move at it ("a
     multiplier times a standard movement speed" [documented: GECK wiki Stats Tab - NPC],
-    `creature_pace::npc_speeds`, from the ESM actor audit); against it [observed, one
+    `creature_pace::paced_speeds`, from the ESM actor audit); against it [observed, one
     actor]: Cook-Cook has Speed Mult 110 and ran 255, the 258 above without it, 284 with
     it (asked in docs/owner-review.md); every other person measured had Speed Mult 100.
     Measured 2026-11-01 (observer check 13, o18_air run_speedmult100/150) [observed]: an
@@ -1657,8 +1657,10 @@ stopped and started, as Victor's walk had before #258). Code:
     at SetAV SpeedMult 100 and 457-468 at 150 (two troopers), 1.5 times: a person's run
     is proportional to its Speed Mult, as ours; Cook-Cook stays the one exception seen.
   - **Built**: `NPC_WALK` 85.3 and `NPC_RUN` 344 are every person's speeds, times its
-    Speed Mult (`npc_speeds`); a drawn person's both are also scaled by its body armour's
-    share (`person_pace`), the armour
+    current Speed Mult (`creature_pace::current_speed_mult`: the record's ACBS field
+    through the Stats template or SetAV's base, ModAV's, ForceAV's and effects'
+    modifiers, less damage, as GetActorValue reads it; `npc pace:` log lines); a drawn
+    person's both are also scaled by its body armour's share (`person_pace`), the armour
     being what it wears by the rules in the simulation's world (`World::equipment`, which
     the engine dresses it by: before its outfitting the pieces that will be put on),
     looked at again every second so that changes of armour count (`person pace:` log
@@ -1694,6 +1696,39 @@ stopped and started, as Victor's walk had before #258). Code:
     an equipment change is not needed. `Game::move_speed_mult`, nvf-play `StatSpeed`
     (asked every frame; smoke `player-speedmult`). (#1756 had copied the lag with a cache
     taken again on an equip; this replaced it.)
+  - **People and creatures** (issue #2118) [design, on the player's rule above and the
+    troopers' SetAV SpeedMult 150 run]: a drawn person's or creature's speeds follow its
+    current Speed Mult too, read every quarter second (`creature_pace::refresh_speeds`,
+    `SPEED_MULT_EVERY`) and worked out afresh from the unscaled speeds and clips each
+    time (the people's speeds × Speed Mult × the armour's share; a creature's clips ×
+    scale × Speed Mult × its skeleton's share, below), so changes never multiply on each
+    other; the armour's share, the skeleton's, the scale, the alert clips, turning and the
+    crippled legs' share stay as they are. Before, the speeds were given once from the
+    record's value and only an armour change gave them again, so SetAV, ModAV and effects
+    did nothing (a follower ran at the same speed at SetAV SpeedMult 100 and 200 in our
+    engine's run of 2026-11-11, not the original's). A walk under way takes the new
+    speeds at its next step, in the gait it was in (walk or run, a sneak's or a
+    follower's catch-up share kept: `fnv_ai::Ai::set_speeds`); a Speed Mult of 0 stops
+    the actor where it is, and it goes on in the same gait when its Speed Mult comes
+    back. Standing at 0 near the player it keeps its walk and its body, does not turn on
+    the spot and is not counted as stuck (`residents::stuck_rule`: the physics mover's
+    stuck rule is not asked at a speed of 0 and keeps in step with the speed the actor
+    moves at, so one slowed under a fifth of its walk's first speed is not moved on along
+    its path either; `fnv_nav::follow::Unstuck::set_speed`) [design]. A record whose own field
+    is 0 counts as 100, as before [design]; a 0 from SetAV, the modifiers or damage
+    stands. GetRunSpeed reads the run given (`npc pace: ... (Speed Mult 200 now, ...)`
+    lines; smoke `npc-speed-mult-changes`). Whether the clips keep up with a changed Speed
+    Mult is the same open question as for the record's value (docs/owner-review.md); they
+    follow it as they do now (`Locomotion::pace`). An actor not drawn keeps the speeds it
+    had when it was last drawn until it is drawn again; then it is given its current
+    speeds, at Speed Mult 100 and armour 1 too (`creature_pace::first_pace`), so one that
+    left at 200 or 0 does not keep them. A walk stopped at 0 keeps its gait only for that
+    walk: a package's walk planned at 0 goes on in the gait the package chose
+    (`Ai::plan`), any other at the calm walk until it is planned again. The gait kept
+    for a stopped walk (`Ai::stalled`) is not saved, nor is the walk (`fnv_ai::progress`):
+    after a load the walk is planned again at 0, and when the Speed Mult comes back a
+    package's goes on in the gait `Ai::plan` chose, any other at the calm walk until it
+    is planned again, whatever gait it stood in before the save [design].
 - **Alert stance** [observed: the owner, 2026-10-16: "the cazadors scurry along the
   ground when not alert and fly when they are alert/in combat"]: the cazador's folder
   has `h2hforward.kf` (298.15 units/s), `h2hfastforward.kf` (545.54) and `h2hidle.kf`
