@@ -65,6 +65,8 @@ python -m unittest discover -s tools/stress/tests
 python -m unittest discover -s tools/release/tests   # .github/workflows/ or tools/release/ changed
 python -m unittest discover -s tools/profile/tests
 (cd engine && cargo clippy --release --all-targets -- -D warnings)   # Bevy workspace (viewer + game)
+cargo deny check licenses advisories bans sources                     # a dependency or deny.toml changed
+cargo deny --manifest-path engine/Cargo.toml check licenses advisories bans sources   # (cargo install cargo-deny)
 ```
 
 With game data available (owner's install, read-only): build `fnvtool`, set
