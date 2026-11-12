@@ -308,7 +308,11 @@ docs/handoff/ui-tile-tree-tasks.md]: `x` `y` `width` `height` `depth` `alpha` `v
   as a raw value for later atlas resolution using interface.rs's existing `.tai` reader.
   [hypothesis] Missing `zoom` means 100 percent. [design] Explicit `zoom`, `tile`,
   `cropx` and `cropy` are passed as numbers without changing the box; absent tile/crop
-  inputs remain absent. Their effects on texture sampling await the renderer.
+  inputs remain absent. The renderer applies `cropx`/`cropy` to a picture drawn at its
+  texels' size times its zoom: the point of the zoomed picture put at the box's top left
+  [documented: GECK wiki "Tutorial: Understanding XML" and "Cropx", "applied after the
+  zoom trait"] (`tiles::draw::Piece::crop`); a stretched or repeated picture takes no crop
+  [design].
 - [design] Text `string` (empty if absent), numeric `font` (zero if absent) and optional
   `wrapwidth` go to a caller's measuring callback. Only absent width/height are replaced
   by the measured dimensions; explicit zero dimensions stay zero.

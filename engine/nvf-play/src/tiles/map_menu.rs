@@ -802,7 +802,7 @@ fn map_picture_piece(ui: &Ui, clip: &str, picture: &str) -> Option<Piece> {
         Some(atlas) => Source::Index(atlas),
         None => Source::Own,
     };
-    Some(Piece { tile: parent, look: Look::Picture { name, source, fit: Fit::Stretch }, rect, clip: Some(cut), colour: [r, g, bl, alpha], depth, tex: None, turn: None })
+    Some(Piece { tile: parent, look: Look::Picture { name, source, fit: Fit::Stretch }, rect, clip: Some(cut), colour: [r, g, bl, alpha], depth, tex: None, turn: None, crop: None })
 }
 
 /// `pieces` (in drawing order, by depth) with the map's picture ([`map_picture_piece`]) among

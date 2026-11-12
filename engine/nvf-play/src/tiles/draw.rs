@@ -499,6 +499,13 @@ pub struct Piece {
     /// Its tile's turn ([`layout::Turn`]): a box's or a picture's (not the compass strip's);
     /// texts and models are not turned, as no file turns one [design: menu-xml.md §3.1.4].
     pub turn: Option<layout::Turn>,
+    /// A picture's `cropx` and `cropy`: the point of its picture, after its `zoom`, put at its
+    /// box's top left [documented: GECK wiki "Tutorial: Understanding XML", "`cropx`, `cropy`
+    /// specifies the point of the texture that will be placed at the upper left-hand corner";
+    /// "Cropx", "applied after the zoom trait"], interface units; read for a picture drawn at
+    /// its texels' size times its zoom ([`Placed::At`]), none otherwise or without either trait
+    /// [design: `map_menu.xml`'s map markers crop their icons so, 14 texels times the zoom].
+    pub crop: Option<(f64, f64)>,
 }
 
 /// Which tiles of the menu draw.
@@ -672,7 +679,11 @@ pub fn pieces(ui: &Ui, menu: TileId, measure: &layout::Measure<'_>, select: Sele
             Look::Picture { fit, .. } if *fit != Fit::Strip => item.turn,
             _ => None,
         };
-        out.push(Piece { tile: item.tile, look, rect: item.rect, clip: item.clip, colour: [r, g, bl, alpha], depth: item.depth, tex: None, turn });
+        let crop = match &item.kind {
+            Kind::Image(image) if image.cropx.is_some() || image.cropy.is_some() => Some((image.cropx.unwrap_or(0.0), image.cropy.unwrap_or(0.0))),
+            _ => None,
+        };
+        out.push(Piece { tile: item.tile, look, rect: item.rect, clip: item.clip, colour: [r, g, bl, alpha], depth: item.depth, tex: None, turn, crop });
         if let Some(r) = root {
             drawn_roots.insert(r);
         }
@@ -841,7 +852,7 @@ pub fn change(old: &Piece, new: &Piece) -> Change {
     let size = |r: &TileRect| (r.width, r.height);
     if old == new {
         Change::Same
-    } else if old.look == new.look && old.tex == new.tex && size(&old.rect) == size(&new.rect) && old.clip.map(|c| size(&c)) == new.clip.map(|c| size(&c)) {
+    } else if old.look == new.look && old.tex == new.tex && old.crop == new.crop && size(&old.rect) == size(&new.rect) && old.clip.map(|c| size(&c)) == new.clip.map(|c| size(&c)) {
         // A model's parts take no Ink: spawned again in its new colour.
         if old.colour != new.colour && matches!(new.look, Look::Model { .. }) {
             Change::Spawn
@@ -902,6 +913,12 @@ pub fn turned(piece: &Piece) -> UiTransform {
         }
         None => UiTransform::IDENTITY,
     }
+}
+
+/// Where a picture drawn at its texels' size times its zoom stands in its box: moved up and left
+/// by its crop ([`Piece::crop`]), so that point of the picture is at the box's top left.
+pub fn piece_crop(piece: &Piece) -> (f64, f64) {
+    piece.crop.unwrap_or((0.0, 0.0))
 }
 
 /// What setting a piece out reads besides the piece.
@@ -983,12 +1000,14 @@ fn spawn_unturned(p: &mut ChildSpawnerCommands, piece: &Piece, ctx: &Ctx<'_>, pi
                         p.spawn((node, picture(mode), Ink::Drawn, Pickable::IGNORE)).id()
                     }
                 },
-                Placed::At { width, height } => p
-                    .spawn((cut, Pickable::IGNORE))
-                    .with_children(|c| {
-                        c.spawn((at(0.0, 0.0, f(width), f(height)), picture(NodeImageMode::Stretch), Ink::Drawn, Pickable::IGNORE));
-                    })
-                    .id(),
+                Placed::At { width, height } => {
+                    let (cx, cy) = piece_crop(piece);
+                    p.spawn((cut, Pickable::IGNORE))
+                        .with_children(|c| {
+                            c.spawn((at(f(-cx), f(-cy), f(width), f(height)), picture(NodeImageMode::Stretch), Ink::Drawn, Pickable::IGNORE));
+                        })
+                        .id()
+                }
                 // One image of the window's strip, its right end faded as the original's
                 // (`crate::compass_strip`, T12e); without the strip's texels the doubled
                 // strip moved by the heading, unfaded.
@@ -2290,6 +2309,30 @@ mod tests {
         );
     }
 
+    /// A picture's `cropx` and `cropy` go with its piece, the point of the zoomed picture put at
+    /// the box's top left (a map marker's icon, 14 texels in, times its zoom); a crop changed
+    /// spawns the piece again, as the picture inside it moves; none without either trait.
+    #[test]
+    fn a_pictures_crop_puts_that_point_at_its_boxs_top_left() {
+        let src = MemSource::default().with(
+            "c.xml",
+            r#"<menu name="C"><image name="icon"><filename>i.dds</filename><width>40</width><height>40</height><zoom>120</zoom><cropx>16.8</cropx><cropy>16.8</cropy></image>
+              <image name="half"><filename>i.dds</filename><width>40</width><height>40</height><zoom>120</zoom><cropy>5</cropy></image>
+              <image name="plain"><filename>i.dds</filename><width>40</width><height>40</height><zoom>120</zoom></image></menu>"#,
+        );
+        let mut ui = Ui::new();
+        ui.load_menu(&src, "c.xml").unwrap();
+        ui.update();
+        let menu = ui.menu("C").unwrap();
+        let set = pieces(&ui, menu, &|_, _, _| (0.0, 0.0), Select::Whole { kept: &[], strip: None }, true).0;
+        let of = |name: &str| set.iter().find(|p| ui.tile(p.tile).name == name).unwrap().clone();
+        assert_eq!((of("icon").crop, of("half").crop, of("plain").crop), (Some((16.8, 16.8)), Some((0.0, 5.0)), None));
+        assert_eq!((piece_crop(&of("icon")), piece_crop(&of("plain"))), ((16.8, 16.8), (0.0, 0.0)));
+        let mut moved = of("icon");
+        moved.crop = Some((0.0, 0.0));
+        assert_eq!(change(&of("icon"), &moved), Change::Spawn, "the picture moved inside its box");
+    }
+
     /// T12c: no zoom stretches an atlas piece over its box and stands a picture of its own
     /// file at its texels' size; a number scales the picture, tiled or not.
     #[test]
@@ -2492,6 +2535,7 @@ mod tests {
             depth: 0.0,
             tex: None,
             turn: None,
+            crop: None,
         };
         let mut dimmer = model.clone();
         dimmer.colour[3] = 0.5;
