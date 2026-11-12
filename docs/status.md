@@ -138,3 +138,8 @@ counts them).
   combat style's attack chance).
 - Not reproduced from the playtest lists: shadow flicker after leaving an interior (debug
   lines kept); the Crimson Caravan crash (the next one leaves a report).
+
+### Script-unit extender variable kinds
+
+Implemented the focused behavior correction and authored synthetic regression coverage;
+contract and limits: [Script-unit extender variable kinds](spec-notes/extender-variable-kinds.md). This entry does not establish full mod compatibility.
