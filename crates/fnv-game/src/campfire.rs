@@ -17,7 +17,9 @@
 //! **NVForever** [design, owner's queue item 54]:
 //! - [`Game::light_campfire`] is the second action: it places the same five fires at the
 //!   campfire (no menu), or, when the campfire burns already, starts the fires' timers
-//!   again instead of placing more.
+//!   again instead of placing more. It lights the list's campfires and every activator
+//!   whose script names the plugin's fire, such as Goodsprings' `VCG03CampfireCrafting03`,
+//!   which the plugin's own activation leaves unlit (off its list).
 //! - [`Game::campfire_fires`] before the plugin's own activation (Craft) and
 //!   [`Game::keep_first_fires`] after it: when the campfire burned before, the fires that
 //!   activation placed are removed with their lights and the burning ones start again.
@@ -66,17 +68,40 @@ impl Game<'_> {
         Some(CampfireForms { list: self.data.by_edid(VALID_LIST)?, fire: self.data.by_edid(FIRE_SOUND)?, quiet: self.data.by_edid(FIRE_QUIET)? })
     }
 
-    /// The campfire bases in the plugin's list; empty without the plugin.
+    /// The campfire bases the second action lights: those in the plugin's list, then the
+    /// activators whose script names the plugin's fire ([`Game::script_places_fire`]); in
+    /// FormID order after the list's. Empty without the plugin.
     pub fn campfire_bases(&self) -> Vec<FormId> {
-        self.campfire_forms().map(|f| crate::functions::refs::list_members(self, f.list)).unwrap_or_default()
+        let Some(f) = self.campfire_forms() else { return Vec::new() };
+        let mut out = crate::functions::refs::list_members(self, f.list);
+        let mut more: Vec<FormId> = self.data.form_script.keys().copied().filter(|&b| !out.contains(&b) && self.script_places_fire(b, f)).collect();
+        more.sort();
+        out.extend(more);
+        out
     }
 
-    /// Whether reference `r` is a campfire the plugin lights: its base is in the list
-    /// (authored or added at run time), as the plugin's `IsInList` asks.
+    /// Whether reference `r` is a campfire the second action lights: its base is in the
+    /// list (authored or added at run time), as the plugin's `IsInList` asks, or its base's
+    /// script names the plugin's fire.
     pub fn is_campfire(&self, r: FormId) -> bool {
         let Some(f) = self.campfire_forms() else { return false };
         let Some(base) = crate::functions::base_of(self, r) else { return false };
-        crate::functions::refs::list_members(self, f.list).contains(&base)
+        crate::functions::refs::list_members(self, f.list).contains(&base) || self.script_places_fire(base, f)
+    }
+
+    /// Whether activator `base` runs a script that names the plugin's fire among its
+    /// references (SCRO): a campfire script the plugin edited to `PlaceAtMe` its fires.
+    /// The plugin edits `VCG03CraftingCampfireRecipesScript` that way but leaves its
+    /// campfire (`VCG03CampfireCrafting03`, Goodsprings) out of its list, so its own
+    /// activation places no fire there [observed: the plugin's records, 2026-11-13]; the
+    /// second action, NVForever's own, lights it all the same [design, owner's report
+    /// "you broke fires", 2026-11-13].
+    fn script_places_fire(&self, base: FormId, f: CampfireForms) -> bool {
+        if base == f.fire || base == f.quiet || self.data.sig(base) != Some(*b"ACTI") {
+            return false;
+        }
+        let Some(unit) = self.data.script_of_base(base).and_then(|s| self.data.script(s)) else { return false };
+        unit.unit.refs.iter().any(|r| matches!(r, fnv_script::unit::RefSlot::Form(x) if FormId(*x) == f.fire))
     }
 
     /// The fires burning at campfire `r`: created references of the two fire bases at its

@@ -889,6 +889,9 @@ fn emit(
         let mut rng = SplitMix(p.rng.0);
         let Some(systems) = systems_of(p, key, sfx.as_deref(), &mut models, &mut commands, root) else { continue };
         let node = places[i];
+        // A fire burning a volumetric flame (fire_volume.rs) leaves its flame squares
+        // unborn; its sparks stay.
+        let flame_drawn = fuller && matches!(key.source, Source::Addon(i) if crate::fire_volume::burns(sfx.as_deref(), i));
         let mut counts = vec![0u64; systems.len()];
         let mut born = 0;
         if let Some((name, ..)) = drive.as_ref().filter(|d| d.began).and_then(|d| d.playing.as_ref()) {
@@ -921,7 +924,7 @@ fn emit(
             // Box emitters also take their object's place from the drawn rig below; the
             // mover adds the mesh emitters and the bombs under the moved node.
             let node = node * d.moved(t);
-            if on <= 0.0 || (d.max_emitters > 0 && live.served >= d.max_emitters) || (!fuller && crate::fuller_fire::is_added(d)) {
+            if on <= 0.0 || (d.max_emitters > 0 && live.served >= d.max_emitters) || (!fuller && crate::fuller_fire::is_added(d)) || (flame_drawn && crate::fuller_fire::is_flame(d)) {
                 continue;
             }
             live.served += 1;
@@ -1400,8 +1403,8 @@ mod tests {
     }
 
     #[test]
-    fn fires_gain_a_denser_body_rising_embers_and_smoke_above() {
-        use crate::fuller_fire::{is_added, is_fire, layers, PREFIX};
+    fn fires_gain_rising_embers_and_smoke_above() {
+        use crate::fuller_fire::{is_added, is_fire, is_flame, layers, PREFIX};
         use nvf_assets::particles::Gravity;
         assert!(is_fire(r"meshes\mps\mpsfiresmall01.nif") && is_fire(r"MPS\MPSFireMed01.NIF"));
         assert!(!is_fire(r"meshes\mps\mpsflamerflame01.nif") && !is_fire(r"meshes\mps\mpssmokesmall01.nif"));
@@ -1421,18 +1424,18 @@ mod tests {
         let smoke = [named("pSmoke02")];
         let added = layers(&fire, &smoke);
         let names: Vec<&str> = added.iter().map(|d| d.name.as_str()).collect();
-        assert_eq!(names, [format!("{PREFIX}pFlames02 body"), format!("{PREFIX}pSparks embers"), format!("{PREFIX}pSmoke02 smoke")]);
+        assert_eq!(names, [format!("{PREFIX}pSparks embers"), format!("{PREFIX}pSmoke02 smoke")]);
         assert!(added.iter().all(is_added) && !fire.iter().any(is_added));
-        let (body, embers, wisp) = (&added[0], &added[1], &added[2]);
-        // Denser and longer-lived, from a tighter core.
-        assert!(body.rate > 15.0 && body.max > 70 && body.emitter.life > 0.4 && body.emitter.size.x < 15.0);
+        // The volumetric flame stands in for the flames, not the sparks or what was added.
+        assert!(is_flame(&fire[0]) && !is_flame(&fire[1]) && !added.iter().any(is_flame));
+        let (embers, wisp) = (&added[0], &added[1]);
         // Small points that live longer and climb slower.
         assert!(embers.emitter.radius < 34.0 * 0.5 && embers.emitter.life > 1.0 && embers.gravity[0].strength < 180.0 && embers.grow_time == 0.0);
         // Above the flames, fainter.
         assert!(wisp.emitter.frame.translation.z > 0.0 && wisp.emitter.color[3] < 1.0);
         // Without sparks the embers come from the flames.
         let only_flames = layers(&fire[..1], &[]);
-        assert_eq!(only_flames.iter().map(|d| d.name.as_str()).collect::<Vec<_>>(), [format!("{PREFIX}pFlames02 body"), format!("{PREFIX}pFlames02 embers")]);
+        assert_eq!(only_flames.iter().map(|d| d.name.as_str()).collect::<Vec<_>>(), [format!("{PREFIX}pFlames02 embers")]);
     }
 
     #[test]
