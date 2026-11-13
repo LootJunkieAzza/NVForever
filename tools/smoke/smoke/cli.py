@@ -40,7 +40,7 @@ from . import choose, front, integrity, slots
 from .expect import ScenarioError
 from .plan import Launch, plan
 from .runner import (Env, Locks, Verdict, default_lock_paths, exe_is_stale, judge, missing_requirements,
-                     read_lines, report, run_launch)
+                     read_lines, report, run_launch, unmet_platforms)
 from .scenarios import GAME, Suite, load
 
 HERE = Path(__file__).resolve().parent.parent  # tools/smoke
@@ -373,6 +373,10 @@ def run_launches(launches: list[Launch], env: Env, locks, jobs: int, a, say) -> 
         missing = sorted({r for s in x.scenarios for r in missing_requirements(s)})
         if missing:
             skip(i, f"set {', '.join(missing)}")
+            return
+        others = sorted({p for s in x.scenarios for p in unmet_platforms(s)})
+        if others:
+            skip(i, f"{', '.join(others)} only")
             return
         code, err, secs = run_launch(x, env, locks)
         with out:

@@ -90,3 +90,7 @@ path = "tests/compile_script_paths.rs"
 [[test]]
 name = "nif_player_models"
 path = "tests/nif_player_models.rs"
+
+[[test]]
+name = "runtime_origin"
+path = "tests/runtime_origin.rs"

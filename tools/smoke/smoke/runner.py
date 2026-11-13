@@ -689,6 +689,21 @@ def missing_requirements(s: Scenario) -> list[str]:
     return [r for r in s.requires if not os.environ.get(r)]
 
 
+def platform_name() -> str:
+    """The system this runner is on, as a scenario's `platforms` names it."""
+    if sys.platform.startswith("win"):
+        return "windows"
+    if sys.platform == "darwin":
+        return "macos"
+    return "linux"
+
+
+def unmet_platforms(s: Scenario, here: str | None = None) -> list[str]:
+    """`platforms` this scenario asks for that this system is not (empty: it runs anywhere)."""
+    here = here or platform_name()
+    return [p for p in s.platforms if p != here]
+
+
 def report(v: Verdict, launch: Launch, secs: float | None, log: Path, say=print, context: int = 3) -> None:
     where = f" [{launch.name}]" if launch.shared else ""
     t = f" {secs:.0f} s" if secs is not None else ""
