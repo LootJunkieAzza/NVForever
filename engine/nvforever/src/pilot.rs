@@ -29,9 +29,17 @@
 //! - Lines are skipped after [`SKIP_AFTER`] s, as a player in a hurry does. A conversation
 //!   still open when the next step is a walk is left first; an actor that came and
 //!   spoke first is the conversation a `talk` step asks for.
-//! - Not yet: fights (`kill` and `hit` are the script calls of the headless run),
-//!   `press_button`, `dismiss_message_boxes` (the test aid `NVF_PLAY_TEST_SCRIPT_MENUS`
-//!   closes boxes) and the samplers; each is a `not_carried_out` finding.
+//! - **`kill` is a fight** [owner decision 2026-11-13]: the player walks to within
+//!   [`FIGHT_RANGE`] of the actor, draws ([`PILOT_WEAPON`], given once with its ammo),
+//!   keeps the view on the actor's trunk and pulls the trigger until it is dead, closer
+//!   after [`FIGHT_CLOSER_SECS`]. The shots are the player's own (`nvf_play::combat`):
+//!   the weapon's cycle, spread, damage and the target's armour decide. An actor still
+//!   alive after [`FIGHT_SECS`] is a `fight_not_won` finding and is killed as the
+//!   headless run kills it, so the chain goes on. Not yet: where to stand and when to
+//!   fire as the NPCs judge it (`npc_combat`: reach, cover, line of fire), melee.
+//! - Not yet: `hit` (the script call of the headless run), `press_button`,
+//!   `dismiss_message_boxes` (the test aid `NVF_PLAY_TEST_SCRIPT_MENUS` closes boxes)
+//!   and the samplers; the last three are `not_carried_out` findings.
 //!
 //! Log: `pilot: step <n> <op> ...`, `pilot: finding <kind>: ...`, `pilot: divergence at
 //! step <n> ...`, and at the end `pilot: done: <n> steps, <d> divergences, <f> findings,
@@ -80,6 +88,14 @@ const AIM_SECS: f64 = 0.25;
 const WAIT_CAP: f64 = 120.0;
 const ADVANCE_CAP: f64 = 20.0;
 const TURN_RATE: f32 = 6.0;
+/// The weapon and ammo the pilot fights with (Editor IDs of FalloutNV.esm's records).
+pub const PILOT_WEAPON: &str = "WeapNV9mmPistol";
+pub const PILOT_AMMO: &str = "Ammo9mm";
+/// How near the player goes to shoot, then nearer when the target still lives.
+pub const FIGHT_RANGE: f32 = 700.0;
+pub const FIGHT_NEAR: f32 = 220.0;
+pub const FIGHT_CLOSER_SECS: f64 = 12.0;
+pub const FIGHT_SECS: f64 = 75.0;
 
 pub struct PilotPlugin {
     pub chain: PathBuf,
@@ -127,9 +143,18 @@ struct Aim {
     had: Option<String>,
 }
 
+/// A fight with an actor.
+struct Fight {
+    target: FormId,
+    /// Since when the player has been shooting from where it stands.
+    shooting: Option<f64>,
+    near: bool,
+}
+
 enum Phase {
     /// The next step has not begun.
     Begin,
+    Fight(Fight, Walk),
     Walk(Walk),
     Aim(Aim),
     /// Until `until` (seconds), or sooner by the step's own test.
@@ -147,6 +172,7 @@ struct Pilot {
     out: Option<PathBuf>,
     applier: Applier,
     given_applied: bool,
+    armed: bool,
     i: usize,
     phase: Phase,
     /// The step's part: 0 getting there, 1 aimed, 2 acted.
@@ -189,6 +215,7 @@ impl Pilot {
             out,
             applier: Applier::default(),
             given_applied: false,
+            armed: false,
             i: 0,
             phase: Phase::Begin,
             part: 0,
@@ -329,7 +356,7 @@ struct Hands<'a, 'w> {
     phys: &'a mut PhysState,
     player: &'a mut Player,
     intent: &'a mut MoveIntent,
-    control: &'a PlayerControl,
+    control: &'a mut PlayerControl,
     locks: &'a ControlLocks,
     location: &'a Location,
     target: &'a Target,
@@ -793,6 +820,10 @@ fn step(p: &mut Pilot, h: &mut Hands) -> Option<Option<String>> {
                 }
             }
         }
+        Action::Kill { target, actor, .. } if target.is_some() || actor.is_some() => {
+            let name = target.clone().or_else(|| actor.clone()).expect("checked");
+            fight(p, h, &name, &a)
+        }
         Action::Package { actor, package, event } => {
             info!("pilot: step {}: left to the AI: {actor}'s package {package} ({event})", p.i);
             Some(None)
@@ -832,6 +863,73 @@ fn step(p: &mut Pilot, h: &mut Hands) -> Option<Option<String>> {
     }
 }
 
+/// One frame of a `kill` step fought out (module notes).
+fn fight(p: &mut Pilot, h: &mut Hands, name: &str, a: &Action) -> Option<Option<String>> {
+    if matches!(p.phase, Phase::Begin) {
+        let (r, place) = match h.place_of(name) {
+            Ok(x) => x,
+            Err(e) => return Some(Some(e)),
+        };
+        if !p.armed {
+            p.armed = true;
+            let ids = h.game(|g| (runner::resolve(g, PILOT_WEAPON), runner::resolve(g, PILOT_AMMO)));
+            match ids {
+                Some((Ok(weapon), Ok(ammo))) => {
+                    let w = &mut h.sim.world;
+                    let r = w.add_item(FormId::PLAYER_REF, ammo, 500).and_then(|_| w.add_item(FormId::PLAYER_REF, weapon, 1)).and_then(|_| w.equip(FormId::PLAYER_REF, weapon));
+                    match r {
+                        Ok(_) => info!("pilot: the player is given {PILOT_WEAPON} and 500 {PILOT_AMMO} to fight with"),
+                        Err(e) => p.finding("fight", format!("could not arm the player with {PILOT_WEAPON}: {e}")),
+                    }
+                }
+                _ => p.finding("fight", format!("this load order has no {PILOT_WEAPON} or {PILOT_AMMO}: the player fights with what it holds")),
+            }
+        }
+        let Phase::Walk(w) = new_walk(place, Some(r), FIGHT_RANGE, p.now, h.feet()) else { unreachable!() };
+        p.phase = Phase::Fight(Fight { target: r, shooting: None, near: false }, w);
+    }
+    let Phase::Fight(mut f, mut w) = std::mem::replace(&mut p.phase, Phase::Begin) else { return Some(None) };
+    let target = f.target;
+    if h.game(|g| g.is_dead(target)) == Some(true) {
+        info!("pilot: step {}: {name} is dead after {:.1} s of the fight", p.i, p.now - p.step_from);
+        h.control.trigger = false;
+        return Some(None);
+    }
+    if p.now - p.step_from > FIGHT_SECS {
+        p.finding("fight_not_won", format!("{name} still lives after {FIGHT_SECS:.0} s of shooting at it with {PILOT_WEAPON}: killed as the headless run kills it"));
+        h.control.trigger = false;
+        let mut applier = std::mem::take(&mut p.applier);
+        let r = h.game(|g| runner::apply_now(g, &mut applier, a));
+        p.applier = applier;
+        return Some(r.and_then(|r| r.err()));
+    }
+    h.control.weapon_out = true;
+    match walk(p, &mut w, h) {
+        Walked::Going => {
+            f.shooting = None;
+            h.control.trigger = false;
+        }
+        Walked::There | Walked::Put => {
+            let since = *f.shooting.get_or_insert(p.now);
+            let at = h.phys.world.actor_aim_point(target.0).or_else(|| h.game(|g| where_is(g, target)).flatten().map(|(_, pos)| [pos[0], pos[1], pos[2] + 80.0]));
+            if let Some(at) = at {
+                let cross: Option<Crosshair> = h.control.crosshair;
+                (h.player.heading, h.player.pitch) = Crosshair::aim_at(cross.as_ref(), h.player.eye(), at);
+            }
+            // The trigger is pulled and let go, as for a weapon that fires once a pull.
+            h.control.trigger = ((p.now - since) * 6.0) as i64 % 2 == 0;
+            if !f.near && p.now - since > FIGHT_CLOSER_SECS {
+                f.near = true;
+                f.shooting = None;
+                w.radius = FIGHT_NEAR;
+                info!("pilot: step {}: {name} still lives after {FIGHT_CLOSER_SECS:.0} s of shooting: the player goes closer", p.i);
+            }
+        }
+    }
+    p.phase = Phase::Fight(f, w);
+    None
+}
+
 fn wait_for(p: &mut Pilot, seconds: f64) -> Option<Option<String>> {
     (p.now - p.step_from >= seconds).then_some(None)
 }
@@ -858,7 +956,7 @@ fn drive(
     loading: Res<Loading>,
     mut pilot: ResMut<Pilot>,
     (mut script, mut sim, mut phys): (ResMut<ScriptState>, ResMut<SimState>, ResMut<PhysState>),
-    (mut player, mut intent, control, locks): (ResMut<Player>, ResMut<MoveIntent>, Res<PlayerControl>, Res<ControlLocks>),
+    (mut player, mut intent, mut control, locks): (ResMut<Player>, ResMut<MoveIntent>, ResMut<PlayerControl>, Res<ControlLocks>),
     (location, target, nav, world, doors): (Res<Location>, Res<Target>, Option<Res<crate::nav::NavState>>, Res<crate::world::WorldData>, Res<nvf_play::doors::Doors>),
     watch: Option<Res<nvf_play::softlock::SoftlockWatch>>,
     mut travel: MessageWriter<TravelRequest>,
@@ -879,7 +977,7 @@ fn drive(
         phys: &mut phys,
         player: &mut player,
         intent: &mut intent,
-        control: &control,
+        control: &mut control,
         locks: &locks,
         location: &location,
         target: &target,
