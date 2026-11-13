@@ -56,6 +56,11 @@ impl Game<'_> {
     pub fn projectile_fired(&mut self, proj: FormId, source: FormId, weapon: FormId, damage: f32, at: [f32; 3]) -> Option<FormId> {
         let cell = self.cell_of(source).or_else(|| self.cell_of(FormId::PLAYER_REF));
         let r = self.world.place(proj, cell, at, [0.0; 3], 1).ok()?;
+        // Not drawn or collided as a dropped item: the shot's flying model is the engine's
+        // (`RefState::shot`, #2186).
+        if let Ok(st) = self.world.get(r) {
+            st.shot = true;
+        }
         let ammo = if crate::functions::items::equipped_weapon(self, source) == Some(weapon) { self.ammo_in_use(source) } else { None };
         self.gaps.projs.shots.insert(r, Shot { source, weapon, damage, speed_mult: 1.0, age: 0.0, travelled: 0.0, left: None, impact: None, ammo });
         Some(r)

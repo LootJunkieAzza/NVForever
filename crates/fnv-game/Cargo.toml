@@ -84,3 +84,8 @@ path = "tests/sup5.rs"
 [[test]]
 name = "synthetic"
 path = "tests/synthetic.rs"
+
+# CompileScript path fixtures replace the process-wide file reader.
+[[test]]
+name = "compile_script_paths"
+path = "tests/compile_script_paths.rs"
