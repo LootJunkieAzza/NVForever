@@ -22387,9 +22387,9 @@ expect = [
 ]
 order = [
   [{ re = 'Option1 "Enable Dynamic Crosshair" x \S+ y \S+ visible 1 title y \S+ _type 5 _value [01] shown "[01]"', label = "the page fills in: the check box" },
-   { re = "MCM _ActiveOption 1, _Value [01], _NewValue 1,", label = "the click: MCM writes the flipped value and _NewValue 1" },
+   { re = "MCM _ActiveOption 1, _Value [01], _NewValue 0,", label = "the click: MCM wrote the option and its flipped value (its _NewValue is set and taken by the mod within one frame, so the line shows it cleared)" },
    { re = 'Option1 "Enable Dynamic Crosshair" x \S+ y \S+ visible 1 title y \S+ _type 5 _value 0 shown "0"', label = "the mod took a value and the page shows the box off" }],
-  [{ re = "MCM _ActiveOption 1, _Value [01], _NewValue 1,", label = "the click" },
+  [{ re = "MCM _ActiveOption 1, _Value [01], _NewValue 0,", label = "the click" },
    { re = 'Option1 "Enable Dynamic Crosshair" x \S+ y \S+ visible 1 title y \S+ _type 5 _value 1 shown "1"', label = "and the box on, one of the two clicks each" }],
 ]
 
