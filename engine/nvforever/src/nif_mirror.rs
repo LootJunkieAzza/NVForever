@@ -15,7 +15,7 @@
 use crate::limbs::ActorRig;
 use bevy::prelude::*;
 use bevy::camera::primitives::Aabb;
-use fnv_game::nif_blocks::{ModelView, NodeInfo, SceneEdit, SceneNode};
+use fnv_game::nif_blocks::{ModelView, NodeInfo, SceneEdit, SceneIdentity, SceneNode, SceneTarget};
 use fnv_sim::FormId;
 use nvf_assets::{GameData, NifHidden, NifMaterial};
 use nvf_play::script::ScriptState;
@@ -36,7 +36,10 @@ impl Plugin for NifMirrorPlugin {
 #[derive(Default)]
 struct Memory {
     logged: std::collections::HashSet<u32>,
+    // File-only models retain the explicitly legacy name-based contract.
     held: HashMap<(u32, ModelView, String), Held>,
+    // Entity-backed edits live only as long as this exact model and node.
+    bound_held: HashMap<(u32, ModelView, SceneIdentity), Held>,
     tables: HashMap<String, HashMap<String, [f32; 9]>>,
     materials: HashMap<(u32, ModelView, String), [f32; 9]>,
     owned: HashMap<Entity, Handle<NifMaterial>>,
@@ -325,6 +328,36 @@ fn remember_transform(view: ModelView, edit: &SceneEdit, held: &mut HeldModels) 
     true
 }
 
+/// Resolve an opaque published identity only inside the actual current model.
+/// Entity bits include the generation; live query membership rejects stale rig
+/// selections, and ancestry rejects a node moved outside this model subtree.
+fn bound_entity(root: Entity, identity: SceneIdentity, nodes: &NodeQuery, rig: &RigNames) -> Option<Entity> {
+    if identity.model != root.to_bits() || nodes.get(root).is_err() { return None; }
+    walk(root, nodes, rig).into_iter().map(|(e, _)| e)
+        .find(|e| e.to_bits() == identity.node && nodes.get(*e).is_ok())
+}
+
+fn hold_value(edit: &SceneEdit, held: &mut Held) -> bool {
+    match edit {
+        SceneEdit::Translation { v, .. } => held.translation = Some(Vec3::from(*v)),
+        SceneEdit::Rotation { v, .. } => {
+            let [x, y, z] = v.map(f32::to_radians);
+            held.rotation = Some(Quat::from_euler(EulerRot::ZYX, z, y, x));
+        }
+        SceneEdit::Scale { v, .. } => held.scale = Some(*v),
+        _ => return false,
+    }
+    true
+}
+
+fn apply_value(entity: Entity, held: Held, nodes: &mut NodeQuery) {
+    if let Ok(mut t) = nodes.get_mut(entity) {
+        if let Some(v) = held.translation { t.1.translation = v; }
+        if let Some(q) = held.rotation { t.1.rotation = q; }
+        if let Some(s) = held.scale { t.1.scale = Vec3::splat(s); }
+    }
+}
+
 fn apply_held(root: Entity, node: &str, held: Held, nodes: &mut NodeQuery, rig: &RigNames) {
     if let Some(mut t) = find(root, node, nodes, rig).and_then(|e| nodes.get_mut(e).ok()) {
         if let Some(v) = held.translation { t.1.translation = v; }
@@ -387,12 +420,12 @@ fn mirror_game(
     (globals, boxes, mut particles): Extra,
     dropped: Dropped,
 ) {
-    let Memory { logged, held, tables, materials, owned, props, files } = mem;
+    let Memory { logged, held, bound_held, tables, materials, owned, props, files } = mem;
     game.scene.use_separate_player_models();
-    let edits = game.scene.take_edits();
+    let edits = game.scene.take_targeted_edits();
     let mut edits_rest = Vec::new();
-    for edit in edits {
-        let (view, edit) = edit.into_model();
+    for queued in edits {
+        let (view, edit) = queued.edit.into_model();
         let r = match &edit {
             SceneEdit::Translation { r, .. } | SceneEdit::Rotation { r, .. } | SceneEdit::Scale { r, .. }
             | SceneEdit::Flags { r, .. } | SceneEdit::ChildFlags { r, .. } | SceneEdit::Rename { r, .. }
@@ -401,58 +434,79 @@ fn mirror_game(
             SceneEdit::ForModel { .. } => continue,
         };
         let view = concrete_view(r.0, view);
-        // A transform a script sets holds over the animation, frame after frame
-        // [observed: set-then-read stays exact on an animated bone]; kept for a model
-        // drawn flat too, whose tree is its file's.
-        if !remember_transform(view, &edit, held) { edits_rest.push((view, edit)); }
+        // File-only publications deliberately keep their original legacy contract:
+        // transforms are remembered even when no RefVisual root can be resolved,
+        // and non-transforms still reach the original name-based handlers below.
+        if queued.target == SceneTarget::Legacy && drawn_flat(r.0, &dropped).is_some() {
+            if !remember_transform(view, &edit, held) { edits_rest.push((view, edit, None)); }
+            continue;
+        }
+        let Some(root) = root_of(r.0, view, &rigs, &visuals) else { continue };
+        let rig = rig_names(r.0, view, &rigs);
+        let entity = match queued.target {
+            SceneTarget::Node(identity) => {
+                let Some(entity) = bound_entity(root, identity, &nodes, &rig) else { continue };
+                if matches!(&edit, SceneEdit::Translation { .. } | SceneEdit::Rotation { .. } | SceneEdit::Scale { .. }) {
+                    hold_value(&edit, bound_held.entry((r.0, view, identity)).or_default());
+                    continue;
+                }
+                entity
+            }
+            // An unseen entity-backed model is never promoted from legacy by name.
+            SceneTarget::Legacy | SceneTarget::Missing => continue,
+        };
+        edits_rest.push((view, edit, Some(entity)));
     }
-    for (view, edit) in edits_rest {
+    for (view, edit, entity) in edits_rest {
         let r = match &edit {
             SceneEdit::Translation { r, .. } | SceneEdit::Rotation { r, .. } | SceneEdit::Scale { r, .. } | SceneEdit::Flags { r, .. } | SceneEdit::ChildFlags { r, .. } | SceneEdit::Rename { r, .. } | SceneEdit::Remove { r, .. } | SceneEdit::Insert { r, .. } | SceneEdit::Attach { r, .. } | SceneEdit::Material { r, .. } | SceneEdit::Particle { r, .. } => *r,
             SceneEdit::ForModel { .. } => continue,
         };
         let Some(root) = root_of(r.0, view, &rigs, &visuals) else { continue };
         let rig = rig_names(r.0, view, &rigs);
+        // Only the deliberately legacy file path resolves by name/index. Keeping
+        // an absent entity is significant: particle/material handlers historically
+        // did work before or without finding a concrete shape.
+        let entity = entity.or_else(|| match &edit {
+            SceneEdit::ChildFlags { node, child, .. } => find(root, node, &nodes, &rig)
+                .and_then(|p| nodes.get(p).ok().and_then(|(_, _, ch, _, _)| ch.and_then(|c| c.iter().nth(*child)))),
+            SceneEdit::Insert { target, .. } | SceneEdit::Attach { target, .. } => find(root, target, &nodes, &rig),
+            SceneEdit::Flags { node, .. } | SceneEdit::Rename { node, .. }
+            | SceneEdit::Remove { node, .. } | SceneEdit::Material { node, .. }
+            | SceneEdit::Particle { node, .. } => find(root, node, &nodes, &rig),
+            _ => None,
+        });
         match edit {
             SceneEdit::ForModel { .. } => {}
             SceneEdit::Translation { .. } | SceneEdit::Rotation { .. } | SceneEdit::Scale { .. } => {}
-            SceneEdit::Flags { node, flags, .. } => {
-                if let Some(e) = find(root, &node, &nodes, &rig) {
+            // ChildFlags already names the indexed child through its captured
+            // identity; neither branch resolves a fresh name or child index.
+            SceneEdit::Flags { flags, .. } | SceneEdit::ChildFlags { flags, .. } => {
+                if let Some(entity) = entity {
                     if flags & 1 != 0 {
-                        commands.entity(e).insert((NifHidden, Visibility::Hidden));
+                        commands.entity(entity).insert((NifHidden, Visibility::Hidden));
                     } else {
-                        commands.entity(e).remove::<NifHidden>().insert(Visibility::Inherited);
-                    }
-                }
-            }
-            // A child by its place under the node, in the order `walk` told the mirror
-            // (a switch's children, #2017).
-            SceneEdit::ChildFlags { node, child, flags, .. } => {
-                let kid = find(root, &node, &nodes, &rig).and_then(|p| nodes.get(p).ok().and_then(|(_, _, ch, _, _)| ch.and_then(|c| c.iter().nth(child))));
-                if let Some(e) = kid {
-                    if flags & 1 != 0 {
-                        commands.entity(e).insert((NifHidden, Visibility::Hidden));
-                    } else {
-                        commands.entity(e).remove::<NifHidden>().insert(Visibility::Inherited);
+                        commands.entity(entity).remove::<NifHidden>().insert(Visibility::Inherited);
                     }
                 }
             }
             SceneEdit::Rename { node, to, .. } => {
-                if let Some(e) = find(root, &node, &nodes, &rig) {
-                    commands.entity(e).insert((Name::new(to.clone()), RenamedNifNode));
-                    if let Some(h) = held.remove(&(r.0, view, node)) {
-                        held.insert((r.0, view, to), h);
+                if let Some(entity) = entity {
+                    commands.entity(entity).insert((Name::new(to.clone()), RenamedNifNode));
+                    if let Some(value) = held.remove(&(r.0, view, node)) {
+                        held.insert((r.0, view, to), value);
                     }
                 }
             }
             SceneEdit::Remove { node, .. } => {
-                if let Some(e) = find(root, &node, &nodes, &rig) {
-                    commands.entity(e).despawn();
+                if let Some(entity) = entity {
+                    commands.entity(entity).despawn();
+                    bound_held.retain(|(reference, model, identity), _| !(*reference == r.0 && *model == view && identity.node == entity.to_bits()));
                 }
                 held.remove(&(r.0, view, node));
             }
-            SceneEdit::Insert { target, name, as_parent, .. } => {
-                let Some(t) = find(root, &target, &nodes, &rig) else { continue };
+            SceneEdit::Insert { name, as_parent, .. } => {
+                let Some(t) = entity else { continue };
                 let new = commands.spawn((Name::new(name), Transform::IDENTITY, Visibility::Inherited)).id();
                 if as_parent {
                     let above = parents.get(t).map(|p| p.parent()).unwrap_or(root);
@@ -491,7 +545,8 @@ fn mirror_game(
                 let vals = materials.entry((r.0, view, node.clone())).or_insert(start);
                 vals[id] = v;
                 let vals = *vals;
-                let (Some(e), Some(assets)) = (find(root, &node, &nodes, &rig), assets.as_deref_mut()) else { continue };
+                let Some(e) = entity else { continue };
+                let Some(assets) = assets.as_deref_mut() else { continue };
                 let Ok(handle) = drawn.get(e) else { continue };
                 match owned.get(&e).filter(|h| *h == &handle.0).cloned() {
                     Some(h) => {
@@ -518,6 +573,15 @@ fn mirror_game(
         let h = held[&(r, view, node.clone())];
         apply_held(root, &node, h, &mut nodes, &rig);
     }
+    // An edit holds over animation only while this exact model/node lives. A
+    // disappearance, immediate root replacement, child ABA or subtree departure expires it.
+    bound_held.retain(|&(r, view, identity), value| {
+        let Some(root) = root_of(r, view, &rigs, &visuals) else { return false };
+        let rig = rig_names(r, view, &rigs);
+        let Some(entity) = bound_entity(root, identity, &nodes, &rig) else { return false };
+        apply_value(entity, *value, &mut nodes);
+        true
+    });
     // The trees of the references scripts asked about.
     // Once scripts use the NIF functions, the player's tree is told too, watched or not:
     // the original has the player's 3D at once, so a script's first read finds it
@@ -612,7 +676,7 @@ fn mirror_game(
                         else { materials.get(&(r.0, view, shown.clone())).or_else(|| table.get(&base)).copied() };
                     let (alpha, stencil) = props.get(&base).copied().unwrap_or_default();
                     let emitter = systems.iter().find(|(n, o, _)| n.eq_ignore_ascii_case(&base) || o.as_deref().is_some_and(|o| o.eq_ignore_ascii_case(&base))).map(|s| s.2);
-                    let info = NodeInfo { bound: node_bound(k, &walked, &globals, &boxes), emitter, alpha, stencil };
+                    let info = NodeInfo { identity: Some(SceneIdentity { model: root.to_bits(), node: e.to_bits() }), bound: node_bound(k, &walked, &globals, &boxes), emitter, alpha, stencil };
                     Some(SceneNode {
                         name: shown,
                         parent,
@@ -628,7 +692,7 @@ fn mirror_game(
             if logged.insert(r.0 | 0x8000_0000) {
                 info!("nif mirror: {:08X} told, {} nodes, first {:?}", r.0, tree.len(), tree.iter().take(4).map(|n| n.name.as_str()).collect::<Vec<_>>());
             }
-            game.scene.set_tree_for(r, view, tree);
+            game.scene.set_identified_tree_for(r, view, tree);
         }
     }
     // The vertices of the shapes scripts asked about (SUP's NifBlockGetVerticles), in the

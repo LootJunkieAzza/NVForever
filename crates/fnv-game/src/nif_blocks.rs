@@ -42,9 +42,35 @@ pub struct SceneNode {
     pub info: Option<Box<NodeInfo>>,
 }
 
+/// Opaque identities supplied by the drawing backend. These are neither native
+/// addresses nor core-owned handles; a backend validates both generations.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct SceneIdentity {
+    pub model: u64,
+    pub node: u64,
+}
+
+/// Whether a queued edit addressed a published concrete node. Legacy hosts retain
+/// their old name-based API; an identity-enforcing renderer refuses Legacy/Missing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SceneTarget {
+    Legacy,
+    Missing,
+    Node(SceneIdentity),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TargetedSceneEdit {
+    pub edit: SceneEdit,
+    pub target: SceneTarget,
+}
+
 /// A node's drawn bound, particle system and render properties, as the engine tells them.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct NodeInfo {
+    /// Actual drawn model/node lifetime, when published by an identity-aware host.
+    /// This does not qualify any material, property or emitter metadata.
+    pub identity: Option<SceneIdentity>,
     /// The bounding sphere of the node and what is under it, in the world: centre X Y Z
     /// and radius (GetNiBound).
     pub bound: Option<[f32; 4]>,
@@ -109,7 +135,8 @@ pub struct SceneMirror {
     trees: HashMap<(FormId, ModelView), Vec<SceneNode>>,
     player_view: ModelView,
     watched: HashSet<FormId>,
-    edits: Vec<SceneEdit>,
+    edits: Vec<TargetedSceneEdit>,
+    identified: HashSet<(FormId, ModelView)>,
     /// The shapes whose vertices a script asked for (SUP's NifBlockGetVerticles), by
     /// reference and lower-case name, and what the engine told of them.
     vert_wanted: HashSet<(FormId, String)>,
@@ -144,6 +171,8 @@ impl SceneMirror {
     /// Publish one model without replacing the other player rig's tree.
     pub fn set_tree_for(&mut self, r: FormId, view: ModelView, mut nodes: Vec<SceneNode>) {
         let view = self.resolve_view(r, view);
+        // An explicit legacy publication deliberately opts this host back out.
+        self.identified.remove(&(r, view));
         for (pr, pv, node, alpha, item, v) in &self.prop_sets {
             if *pr == r && *pv == view {
                 if let Some(i) = find(&nodes, node) {
@@ -152,6 +181,14 @@ impl SceneMirror {
             }
         }
         self.trees.insert((r, view), nodes);
+    }
+
+    /// An entity-backed host opts this model into concrete target capture. Even an
+    /// empty tree is identified; a missing node must not become a future namesake.
+    pub fn set_identified_tree_for(&mut self, r: FormId, view: ModelView, nodes: Vec<SceneNode>) {
+        let view = self.resolve_view(r, view);
+        self.set_tree_for(r, view, nodes);
+        self.identified.insert((r, view));
     }
 
     /// A shape's alpha (`alpha`) or stencil property value for the session's reads,
@@ -182,6 +219,12 @@ impl SceneMirror {
 
     /// The changes made since the last call, for the engine.
     pub fn take_edits(&mut self) -> Vec<SceneEdit> {
+        self.take_targeted_edits().into_iter().map(|queued| queued.edit).collect()
+    }
+
+    /// The real drawing backend keeps the identities captured when scripts queued
+    /// their changes. Legacy `take_edits` deliberately exposes only the old payload.
+    pub fn take_targeted_edits(&mut self) -> Vec<TargetedSceneEdit> {
         std::mem::take(&mut self.edits)
     }
 
@@ -195,10 +238,39 @@ impl SceneMirror {
         self.trees.get_mut(&(r, view))
     }
 
-    fn queue_for(&mut self, view: ModelView, edit: SceneEdit) {
+    fn target_for(&self, view: ModelView, edit: &SceneEdit) -> SceneTarget {
+        let r = edit.reference();
+        let view = self.resolve_view(r, view);
+        if !self.identified.contains(&(r, view)) { return SceneTarget::Legacy; }
+        let Some(tree) = self.trees.get(&(r, view)) else { return SceneTarget::Missing };
+        let name = match edit {
+            SceneEdit::Rename { node, .. } => node,
+            SceneEdit::Insert { target, .. } | SceneEdit::Attach { target, .. } => target,
+            SceneEdit::Translation { node, .. } | SceneEdit::Rotation { node, .. }
+            | SceneEdit::Scale { node, .. } | SceneEdit::Flags { node, .. }
+            | SceneEdit::ChildFlags { node, .. } | SceneEdit::Remove { node, .. }
+            | SceneEdit::Material { node, .. } | SceneEdit::Particle { node, .. } => node,
+            SceneEdit::ForModel { .. } => return SceneTarget::Missing,
+        };
+        let Some(mut index) = find(tree, name) else { return SceneTarget::Missing };
+        if let SceneEdit::ChildFlags { child, .. } = edit {
+            let Some(found) = tree.iter().enumerate().filter(|(_, n)| n.parent == Some(index)).nth(*child).map(|(i, _)| i) else { return SceneTarget::Missing };
+            index = found;
+        }
+        tree[index].info.as_ref().and_then(|info| info.identity)
+            .map_or(SceneTarget::Missing, SceneTarget::Node)
+    }
+
+    fn queue_targeted(&mut self, view: ModelView, edit: SceneEdit, target: SceneTarget) {
         let view = self.resolve_view(edit.reference(), view);
-        self.edits.push(if view == ModelView::Reference { edit }
-            else { SceneEdit::ForModel { view, edit: Box::new(edit) } });
+        let edit = if view == ModelView::Reference { edit }
+            else { SceneEdit::ForModel { view, edit: Box::new(edit) } };
+        self.edits.push(TargetedSceneEdit { edit, target });
+    }
+
+    fn queue_for(&mut self, view: ModelView, edit: SceneEdit) {
+        let target = self.target_for(view, &edit);
+        self.queue_targeted(view, edit, target);
     }
 
     /// A node of a reference's tree as the mirror holds it now (the reference watched
@@ -603,14 +675,16 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
         }
         "renamenifblock" => {
             let (node, to) = (text(args, 0), text(args, 1));
+            let target = g.scene.target_for(view, &SceneEdit::Rename { r, node: node.clone(), to: to.clone() });
             let ok = g.scene.tree_for(r, view).and_then(|t| find(t, &node).map(|i| t[i].name = to.clone())).is_some();
             if ok {
-                g.scene.queue_for(view, SceneEdit::Rename { r, node, to });
+                g.scene.queue_targeted(view, SceneEdit::Rename { r, node, to }, target);
             }
             XVal::Num(f64::from(u8::from(ok)))
         }
         "removenifblock" => {
             let node = text(args, 0);
+            let target = g.scene.target_for(view, &SceneEdit::Remove { r, node: node.clone() });
             let ok = match g.scene.tree_for(r, view) {
                 Some(t) => match find(t, &node) {
                     Some(i) => {
@@ -630,7 +704,7 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
                 None => false,
             };
             if ok {
-                g.scene.queue_for(view, SceneEdit::Remove { r, node });
+                g.scene.queue_targeted(view, SceneEdit::Remove { r, node }, target);
             }
             XVal::Num(f64::from(u8::from(ok)))
         }

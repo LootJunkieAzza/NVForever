@@ -192,3 +192,15 @@ producer comparison adds an exact-JSON query consumer and remains pending; the
 actual query-job smoke, rendered/native acceptance and same-frame structural
 ordering remain unqualified.
 Contract: [Script root renames](spec-notes/nif-script-root-renames.md).
+
+### Concrete lifetime of script-edited NIF nodes
+
+Private candidate: entity-backed publications attach opaque model/node generations
+and the queue retains the published target. The renderer refuses stale, missing or
+unpublished actor targets; held transforms follow the concrete node instead of a
+new same-name node after model or child replacement. Root/node query liveness is
+required; subtree departure expires a hold while within-model reparenting does not.
+Nine added actual-producer controls and two added core controls are authored and
+NOTRUN. File-only models keep their original, explicitly unqualified legacy handlers. Vanilla Update3D, unchanged-look player
+Update3DAlt, material lifetime, native/rendered parity and full armor HUD acceptance
+remain separate. Contract: [NIF edit lifetime](spec-notes/nif-held-node-lifetime.md).

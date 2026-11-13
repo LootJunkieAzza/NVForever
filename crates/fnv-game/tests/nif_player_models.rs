@@ -210,3 +210,59 @@ fn source_vm_rotation_setter_and_alt_output_variables_keep_method_and_selector_s
         }
     }
 }
+
+
+fn identified_tree(root: &str, model: u64, bone: u64) -> Vec<SceneNode> {
+    use fnv_game::nif_blocks::{NodeInfo, SceneIdentity};
+    let mut nodes = tree(root, 10.0);
+    for (i, node) in nodes.iter_mut().enumerate() {
+        node.info = Some(Box::new(NodeInfo { identity: Some(SceneIdentity {
+            model, node: if i == 0 { model } else { bone },
+        }), ..Default::default() }));
+    }
+    nodes
+}
+
+#[test]
+fn identified_queue_captures_published_node_before_replacement_and_preserves_legacy_api() {
+    use fnv_game::nif_blocks::{SceneIdentity, SceneTarget};
+    let f = fixture();
+    let mut g = game(&f);
+    g.scene.set_identified_tree_for(P, ModelView::FirstPerson, identified_tree("FirstRoot", 100, 101));
+    call(&mut g, P, "setnifblockscale", &[text("SharedBone"), num(2.0), num(2.0)]);
+    // Replacing publication cannot retarget an already queued edit.
+    g.scene.set_identified_tree_for(P, ModelView::FirstPerson, identified_tree("FirstRoot", 200, 201));
+    let queued = g.scene.take_targeted_edits();
+    assert_eq!(queued.len(), 1);
+    assert_eq!(queued[0].target, SceneTarget::Node(SceneIdentity { model: 100, node: 101 }));
+    call(&mut g, P, "setnifblockscale", &[text("AbsentBone"), num(9.0), num(2.0)]);
+    assert_eq!(g.scene.take_targeted_edits()[0].target, SceneTarget::Missing);
+    // A legacy, headless model still exposes exactly the old edit payload.
+    call(&mut g, NPC, "setnifblockscale", &[text("SharedBone"), num(7.0)]);
+    let legacy = g.scene.take_targeted_edits();
+    assert_eq!(legacy[0].target, SceneTarget::Legacy);
+    call(&mut g, NPC, "setnifblockscale", &[text("SharedBone"), num(8.0)]);
+    assert_eq!(g.scene.take_edits(), [SceneEdit::Scale { r: NPC, node: "SharedBone".into(), v: 8.0 }]);
+}
+
+#[test]
+fn identified_structural_queue_keeps_renamed_removed_and_indexed_child_identity() {
+    use fnv_game::nif_blocks::{SceneIdentity, SceneTarget};
+    let f = fixture();
+    let mut g = game(&f);
+    g.scene.set_identified_tree_for(P, ModelView::FirstPerson, identified_tree("FirstRoot", 300, 301));
+    call(&mut g, P, "renamenifblock", &[text("SharedBone"), text("FirstRoot"), num(2.0)]);
+    // New name collides with the root; capture must precede the mutation.
+    assert_eq!(g.scene.take_targeted_edits()[0].target,
+        SceneTarget::Node(SceneIdentity { model: 300, node: 301 }));
+    g.scene.set_identified_tree_for(P, ModelView::FirstPerson, identified_tree("FirstRoot", 400, 401));
+    call(&mut g, P, "removenifblock", &[text("SharedBone"), num(2.0)]);
+    assert_eq!(g.scene.take_targeted_edits()[0].target,
+        SceneTarget::Node(SceneIdentity { model: 400, node: 401 }));
+    // Public producer queue captures the indexed child, never just the parent.
+    g.scene.set_identified_tree_for(P, ModelView::FirstPerson, identified_tree("FirstRoot", 500, 501));
+    g.scene.push_edit(SceneEdit::ForModel { view: ModelView::FirstPerson, edit: Box::new(
+        SceneEdit::ChildFlags { r: P, node: "FirstRoot".into(), child: 0, flags: 1 }) });
+    assert_eq!(g.scene.take_targeted_edits()[0].target,
+        SceneTarget::Node(SceneIdentity { model: 500, node: 501 }));
+}

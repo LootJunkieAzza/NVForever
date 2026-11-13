@@ -236,3 +236,285 @@ fn owned_smoke_query_strings_keep_both_roots_through_the_real_cpu_producer() {
     assert!(!app.world().resource::<TestGame>().0.events.iter().any(|event|
         matches!(&event.kind, fnv_game::trace::EventKind::ScriptError { .. })));
 }
+
+
+fn call_ref(app: &mut App, reference: FormId, name: &str, args: &[XVal]) -> XVal {
+    fnv_game::nvse::call(&mut app.world_mut().resource_mut::<TestGame>().0,
+        &RunCtx::default(), name, Some(reference), args).unwrap().unwrap()
+}
+
+fn replace_first(app: &mut App, third: NamedRig, old_first: NamedRig, x: f32) -> NamedRig {
+    app.world_mut().entity_mut(old_first.0).despawn();
+    let first = rig(app.world_mut(), "FirstRoot", x);
+    app.world_mut().entity_mut(first.0).insert(Name::new("Replacement Factory First"));
+    app.insert_resource(crate::player_body::PlayerBody::synthetic_script_models(third, Some(first.clone())));
+    first
+}
+
+#[test]
+fn held_and_queued_transforms_expire_on_direct_player_model_replacement() {
+    let (mut app, _files, third, first) = naming_fixture();
+    call(&mut app, "setnifblocktranslation", &[XVal::Str("SharedBone".into()), XVal::Num(7.0), XVal::Num(8.0), XVal::Num(9.0), XVal::Num(2.0)]);
+    call(&mut app, "setnifblockrotation", &[XVal::Str("SharedBone".into()), XVal::Num(10.0), XVal::Num(20.0), XVal::Num(30.0), XVal::Num(0.0), XVal::Num(2.0)]);
+    call(&mut app, "setnifblockscale", &[XVal::Str("SharedBone".into()), XVal::Num(2.0), XVal::Num(2.0)]);
+    call(&mut app, "setnifblockscale", &[XVal::Str("SharedBone".into()), XVal::Num(3.0), XVal::Num(1.0)]);
+    app.update();
+    assert_eq!(app.world().get::<Transform>(first.1.nodes[1]).unwrap().scale, Vec3::splat(2.0));
+    // Queue against the old published model, then replace it before consumption.
+    call(&mut app, "setnifblockscale", &[XVal::Str("SharedBone".into()), XVal::Num(11.0), XVal::Num(2.0)]);
+    let new_first = replace_first(&mut app, third.clone(), first, 90.0);
+    app.update();
+    let transform = app.world().get::<Transform>(new_first.1.nodes[1]).unwrap();
+    assert_eq!(transform.translation, Vec3::new(90.0, 0.0, 0.0));
+    assert_eq!(transform.rotation, Quat::IDENTITY);
+    assert_eq!(transform.scale, Vec3::ONE);
+    assert_eq!(app.world().get::<Transform>(third.1.nodes[1]).unwrap().scale, Vec3::splat(3.0));
+    assert_eq!(scale(&mut app, Some(2.0)), XVal::Num(1.0));
+    assert!(published(&mut app, FormId::PLAYER_REF, ModelView::FirstPerson, "FirstRoot").is_some());
+    assert!(published(&mut app, FormId::PLAYER_REF, ModelView::FirstPerson, "Replacement Factory First").is_none());
+}
+
+#[test]
+fn disappearance_and_reappearance_never_transfer_first_rig_holds_or_fall_back() {
+    let (mut app, _files, third, first) = naming_fixture();
+    call(&mut app, "setnifblockscale", &[XVal::Str("SharedBone".into()), XVal::Num(2.0), XVal::Num(2.0)]);
+    call(&mut app, "setnifblockscale", &[XVal::Str("SharedBone".into()), XVal::Num(3.0), XVal::Num(1.0)]);
+    app.update();
+    app.world_mut().entity_mut(first.0).despawn();
+    app.insert_resource(crate::player_body::PlayerBody::synthetic_script_models(third.clone(), None));
+    app.update();
+    assert_eq!(scale(&mut app, Some(2.0)), XVal::Num(0.0));
+    // Even a setter while absent cannot bind the next matching first-person name.
+    call(&mut app, "setnifblockscale", &[XVal::Str("SharedBone".into()), XVal::Num(19.0), XVal::Num(2.0)]);
+    let first = rig(app.world_mut(), "FirstRoot", 80.0);
+    app.insert_resource(crate::player_body::PlayerBody::synthetic_script_models(third.clone(), Some(first.clone())));
+    app.update();
+    assert_eq!(app.world().get::<Transform>(first.1.nodes[1]).unwrap().scale, Vec3::ONE);
+    assert_eq!(app.world().get::<Transform>(third.1.nodes[1]).unwrap().scale, Vec3::splat(3.0));
+}
+
+#[test]
+fn child_replacement_rejects_stale_transform_rename_remove_and_child_flag_edits() {
+    for operation in ["scale", "rename", "remove", "childflags"] {
+        let (mut app, _files, third, mut first) = naming_fixture();
+        call(&mut app, "setnifblockscale", &[XVal::Str("SharedBone".into()), XVal::Num(2.0), XVal::Num(2.0)]);
+        app.update();
+        match operation {
+            "scale" => { call(&mut app, "setnifblockscale", &[XVal::Str("SharedBone".into()), XVal::Num(12.0), XVal::Num(2.0)]); }
+            "rename" => { call(&mut app, "renamenifblock", &[XVal::Str("SharedBone".into()), XVal::Str("RenamedOldChild".into()), XVal::Num(2.0)]); }
+            "remove" => { call(&mut app, "removenifblock", &[XVal::Str("SharedBone".into()), XVal::Num(2.0)]); }
+            _ => app.world_mut().resource_mut::<TestGame>().0.scene.push_edit(SceneEdit::ForModel {
+                view: ModelView::FirstPerson, edit: Box::new(SceneEdit::ChildFlags {
+                    r: FormId::PLAYER_REF, node: "FirstRoot".into(), child: 0, flags: 1,
+                }),
+            }),
+        }
+        let old_child = first.1.nodes[1];
+        let child = app.world_mut().despawn_no_free(old_child).unwrap();
+        assert_eq!(old_child.index(), child.index(), "control must reuse the actual entity slot");
+        assert_ne!(old_child.generation(), child.generation(), "control must advance its generation");
+        app.world_mut().spawn_at(child, (Transform::from_xyz(77.0, 0.0, 0.0), ChildOf(first.0))).unwrap();
+        first.1.nodes[1] = child;
+        app.insert_resource(crate::player_body::PlayerBody::synthetic_script_models(third, Some(first)));
+        app.update();
+        assert_eq!(app.world().get::<Transform>(child).unwrap().scale, Vec3::ONE, "{operation}: stale hold/edit reached new child");
+        assert_eq!(app.world().get::<Transform>(child).unwrap().translation.x, 77.0);
+        assert!(app.world().get::<NifHidden>(child).is_none(), "{operation}");
+        assert!(app.world().get::<Name>(child).is_none(), "{operation}: old rename reached namesake");
+        assert!(published(&mut app, FormId::PLAYER_REF, ModelView::FirstPerson, "SharedBone").is_some(), "{operation}");
+    }
+}
+
+#[test]
+fn ordinary_actor_cell_lifetime_and_unpublished_target_do_not_transfer_holds() {
+    let (mut app, _files, _third, _first) = naming_fixture();
+    let reference = FormId(0x911);
+    // There is no published actor tree yet: this queued Legacy target must not
+    // acquire authority merely because a same-name actor appears before the frame.
+    call_ref(&mut app, reference, "setnifblockscale", &[XVal::Str("SharedBone".into()), XVal::Num(25.0)]);
+    let (root, mut actor) = rig(app.world_mut(), "OwnedActorRoot", 50.0);
+    actor.reference = reference.0;
+    app.world_mut().entity_mut(root).insert((actor.clone(), Name::new("Factory Actor Label")));
+    app.update();
+    assert_eq!(app.world().get::<Transform>(actor.nodes[1]).unwrap().scale, Vec3::ONE);
+    call_ref(&mut app, reference, "setnifblockscale", &[XVal::Str("SharedBone".into()), XVal::Num(4.0)]);
+    app.update();
+    assert_eq!(app.world().get::<Transform>(actor.nodes[1]).unwrap().scale, Vec3::splat(4.0));
+    app.world_mut().entity_mut(root).despawn();
+    app.update();
+    assert!(published(&mut app, reference, ModelView::Reference, "SharedBone").is_none());
+    let (root, mut replacement) = rig(app.world_mut(), "OwnedActorRoot", 60.0);
+    replacement.reference = reference.0;
+    app.world_mut().entity_mut(root).insert((replacement.clone(), Name::new("Replacement Actor Label")));
+    app.update();
+    assert_eq!(app.world().get::<Transform>(replacement.nodes[1]).unwrap().scale, Vec3::ONE);
+    assert!(published(&mut app, reference, ModelView::Reference, "OwnedActorRoot").is_some());
+    assert!(published(&mut app, reference, ModelView::Reference, "Replacement Actor Label").is_none());
+}
+
+#[test]
+fn live_node_holds_survive_pose_and_pov_changes_but_not_subtree_departure() {
+    let (mut app, _files, third, mut first) = naming_fixture();
+    app.insert_resource(nvf_play::control::PlayerControl::default());
+    call(&mut app, "setnifblocktranslation", &[XVal::Str("SharedBone".into()), XVal::Num(7.0), XVal::Num(8.0), XVal::Num(9.0), XVal::Num(2.0)]);
+    call(&mut app, "setnifblockscale", &[XVal::Str("SharedBone".into()), XVal::Num(2.0), XVal::Num(2.0)]);
+    app.update();
+    for pov in [nvf_play::control::Pov::Third, nvf_play::control::Pov::First] {
+        app.world_mut().resource_mut::<nvf_play::control::PlayerControl>().pov = pov;
+        *app.world_mut().get_mut::<Transform>(first.1.nodes[1]).unwrap() = Transform::from_xyz(88.0, 0.0, 0.0);
+        app.update();
+        let transform = app.world().get::<Transform>(first.1.nodes[1]).unwrap();
+        assert_eq!(transform.translation, Vec3::new(7.0, 8.0, 9.0));
+        assert_eq!(transform.scale, Vec3::splat(2.0));
+        assert_eq!(app.world().get::<Transform>(third.1.nodes[1]).unwrap().scale, Vec3::ONE);
+    }
+    let old_child = first.1.nodes[1];
+    let outside = app.world_mut().spawn(Transform::IDENTITY).id();
+    app.world_mut().entity_mut(old_child).insert(ChildOf(outside));
+    *app.world_mut().get_mut::<Transform>(old_child).unwrap() = Transform::from_xyz(44.0, 0.0, 0.0);
+    let new_child = app.world_mut().spawn((Transform::from_xyz(66.0, 0.0, 0.0), ChildOf(first.0))).id();
+    first.1.nodes[1] = new_child;
+    app.insert_resource(crate::player_body::PlayerBody::synthetic_script_models(third, Some(first)));
+    app.update();
+    assert_eq!(app.world().get::<Transform>(old_child).unwrap().translation.x, 44.0, "former child is outside current ancestry");
+    assert_eq!(app.world().get::<Transform>(new_child).unwrap().scale, Vec3::ONE);
+    assert_eq!(app.world().get::<Transform>(new_child).unwrap().translation.x, 66.0);
+}
+
+
+fn legacy_flat_fixture(visual: bool, virtual_name: &str) -> (App, crate::outfits::tests::TestFiles, FormId, Entity) {
+    let (mut app, files, _third, _first) = naming_fixture();
+    let reference = FormId(0x922);
+    let root = app.world_mut().spawn((Transform::IDENTITY,
+        nvf_play::dropped::DroppedRoot(reference.0),
+        nvf_play::dropped::DroppedModel("authored-flat.nif".into()))).id();
+    let shape = app.world_mut().spawn((Transform::IDENTITY, Name::new("ConcreteFlatShape"), ChildOf(root))).id();
+    if visual {
+        // Authored handler topology: root_of resolves the parent, and unchanged
+        // non-rig walk visits its child shape. Normal dropped-flat spawning marks
+        // mesh entities instead; this control does not qualify that spawn topology.
+        app.world_mut().entity_mut(root).insert(RefVisual(reference.0));
+        app.world_mut().entity_mut(shape).insert(RefVisual(reference.0));
+    }
+    {
+        // Seed authored file metadata to exercise the real legacy producer branch;
+        // this control does not qualify NIF parsing or asset/GPU material drawing.
+        let mut memory = app.world_mut().resource_mut::<TestMemory>();
+        memory.0.files.insert("authored-flat.nif".into(), vec![FileNode {
+            name: virtual_name.into(), parent: None, translation: Vec3::ZERO,
+            rotation: Quat::IDENTITY, scale: 1.0,
+        }]);
+        memory.0.tables.insert("authored-flat.nif".into(), [(virtual_name.into(), [0.25; 9])].into());
+        // An unrecorded synthetic reference has no MODL; the material handler's
+        // original fallback table is therefore keyed by the empty model path.
+        memory.0.tables.insert(String::new(), [(virtual_name.into(), [0.25; 9])].into());
+    }
+    published(&mut app, reference, ModelView::Reference, virtual_name);
+    app.update();
+    (app, files, reference, shape)
+}
+
+#[test]
+fn legacy_flat_transforms_and_nontransform_handlers_keep_their_original_routes() {
+    let (mut app, _files, reference, _) = legacy_flat_fixture(false, "FileOnlyShape");
+    call_ref(&mut app, reference, "setnifblockscale", &[XVal::Str("FileOnlyShape".into()), XVal::Num(2.0)]);
+    app.update();
+    assert_eq!(published(&mut app, reference, ModelView::Reference, "FileOnlyShape").unwrap().scale, 2.0,
+        "flat transform remembering precedes root_of, even without any RefVisual root");
+
+    for operation in ["flags", "rename", "remove", "insert"] {
+        let (mut app, _files, reference, shape) = legacy_flat_fixture(true, "ConcreteFlatShape");
+        match operation {
+            "flags" => { call_ref(&mut app, reference, "setnifblockflag", &[XVal::Str("ConcreteFlatShape".into()), XVal::Num(0.0), XVal::Num(1.0)]); }
+            "rename" => { call_ref(&mut app, reference, "renamenifblock", &[XVal::Str("ConcreteFlatShape".into()), XVal::Str("LegacyRenamed".into())]); }
+            "remove" => { call_ref(&mut app, reference, "removenifblock", &[XVal::Str("ConcreteFlatShape".into())]); }
+            _ => { call_ref(&mut app, reference, "insertnode", &[XVal::Ref(reference.0), XVal::Num(3.0), XVal::Str("ConcreteFlatShape|LegacyInserted".into())]); }
+        }
+        app.update();
+        match operation {
+            "flags" => assert!(app.world().get::<NifHidden>(shape).is_some()),
+            "rename" => assert_eq!(app.world().get::<Name>(shape).unwrap().as_str(), "LegacyRenamed"),
+            "remove" => assert!(app.world().get_entity(shape).is_err()),
+            _ => assert!(app.world().get::<Children>(shape).unwrap().iter().any(|e|
+                app.world().get::<Name>(e).is_some_and(|name| name.as_str() == "LegacyInserted"))),
+        }
+    }
+
+    let (mut app, _files, reference, _) = legacy_flat_fixture(true, "FileOnlyShape");
+    call_ref(&mut app, reference, "setmaterialpropertyvalue", &[XVal::Str("FileOnlyShape".into()), XVal::Num(6.0), XVal::Num(23.0)]);
+    app.update();
+    assert_eq!(published(&mut app, reference, ModelView::Reference, "FileOnlyShape").unwrap().material.unwrap()[6], 23.0,
+        "legacy material metadata updates precede a failed concrete shape lookup");
+}
+
+#[test]
+fn selected_root_and_nodes_require_live_transform_queries_before_holds_can_survive() {
+    for target_root in [false, true] {
+        let (mut app, _files, _third, first) = naming_fixture();
+        let name = if target_root { "FirstRoot" } else { "SharedBone" };
+        let entity = if target_root { first.0 } else { first.1.nodes[1] };
+        call(&mut app, "setnifblockscale", &[XVal::Str(name.into()), XVal::Num(2.0), XVal::Num(2.0)]);
+        app.update();
+        call(&mut app, "setnifblockscale", &[XVal::Str(name.into()), XVal::Num(9.0), XVal::Num(2.0)]);
+        app.world_mut().entity_mut(entity).remove::<Transform>();
+        app.update();
+        assert!(app.world().resource::<TestMemory>().0.bound_held.keys().all(|(_, view, _)| *view != ModelView::FirstPerson),
+            "a node or selected root outside NodeQuery expires holds immediately");
+        app.world_mut().entity_mut(entity).insert(Transform::IDENTITY);
+        app.update();
+        assert_eq!(app.world().get::<Transform>(entity).unwrap().scale, Vec3::ONE,
+            "an observed missing Transform must not revive an old or queued hold");
+    }
+    let (mut app, _files, _third, first) = naming_fixture();
+    call(&mut app, "setnifblockscale", &[XVal::Str("FirstRoot".into()), XVal::Num(2.0), XVal::Num(2.0)]);
+    app.update();
+    call(&mut app, "setnifblockscale", &[XVal::Str("FirstRoot".into()), XVal::Num(9.0), XVal::Num(2.0)]);
+    app.world_mut().entity_mut(first.0).despawn();
+    // Keep PlayerBody's cached selection deliberately stale for this producer frame.
+    app.update();
+    assert!(app.world().resource::<TestMemory>().0.bound_held.keys().all(|(_, view, _)| *view != ModelView::FirstPerson),
+        "walk's cached root enumeration alone is not proof of a live selected root");
+}
+
+#[test]
+fn indexed_child_queue_survives_sibling_reorder_without_redirecting_to_new_index() {
+    let (mut app, _files, third, mut first) = naming_fixture();
+    let original = first.1.nodes[1];
+    let sibling = app.world_mut().spawn((Transform::from_xyz(55.0, 0.0, 0.0), ChildOf(first.0))).id();
+    let mut skel = (*first.1.skel).clone();
+    skel.names.push(Some("SiblingBone".into()));
+    skel.parents.push(Some(0));
+    skel.locals.push(Transform::from_xyz(55.0, 0.0, 0.0));
+    first.1.skel = Arc::new(skel);
+    first.1.nodes.push(sibling);
+    app.insert_resource(crate::player_body::PlayerBody::synthetic_script_models(third, Some(first.clone())));
+    app.update();
+    app.world_mut().resource_mut::<TestGame>().0.scene.push_edit(SceneEdit::ForModel {
+        view: ModelView::FirstPerson, edit: Box::new(SceneEdit::ChildFlags {
+            r: FormId::PLAYER_REF, node: "FirstRoot".into(), child: 0, flags: 1,
+        }),
+    });
+    app.world_mut().entity_mut(first.0).replace_children(&[sibling, original]);
+    app.update();
+    assert!(app.world().get::<NifHidden>(original).is_some(), "published child zero remains the addressed entity");
+    assert!(app.world().get::<NifHidden>(sibling).is_none(), "new child zero is untouched");
+    assert_eq!(app.world().get::<Transform>(sibling).unwrap().translation.x, 55.0);
+}
+
+#[test]
+fn rename_then_transform_preserves_concrete_target_and_same_model_reparenting() {
+    let (mut app, _files, _third, first) = naming_fixture();
+    let child = first.1.nodes[1];
+    assert_eq!(call(&mut app, "renamenifblock", &[XVal::Str("SharedBone".into()), XVal::Str("OwnedRenamedBone".into()), XVal::Num(2.0)]), XVal::Num(1.0));
+    call(&mut app, "setnifblockscale", &[XVal::Str("OwnedRenamedBone".into()), XVal::Num(4.0), XVal::Num(2.0)]);
+    app.update(); app.update();
+    assert_eq!(app.world().get::<Name>(child).unwrap().as_str(), "OwnedRenamedBone");
+    assert_eq!(app.world().get::<Transform>(child).unwrap().scale, Vec3::splat(4.0));
+    let wrapper = app.world_mut().spawn((Transform::IDENTITY, Name::new("OwnedWrapper"), ChildOf(first.0))).id();
+    app.world_mut().entity_mut(child).insert(ChildOf(wrapper));
+    *app.world_mut().get_mut::<Transform>(child).unwrap() = Transform::IDENTITY;
+    app.update();
+    assert_eq!(app.world().get::<Transform>(child).unwrap().scale, Vec3::splat(4.0),
+        "reparenting within the same live model subtree does not invalidate identity");
+    assert!(published(&mut app, FormId::PLAYER_REF, ModelView::FirstPerson, "OwnedRenamedBone").is_some());
+}
