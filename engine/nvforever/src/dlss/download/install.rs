@@ -28,6 +28,11 @@ fn write_error(what: &Path, e: &io::Error) -> Failure {
     Failure::Write(format!("{}: {e}", what.display()))
 }
 
+/// [design] Uses the game install remembered at startup, as the other engine writers do.
+fn guard_write(path: &Path) -> Result<(), Failure> {
+    fnv_install::guard_write(path, None).map_err(|e| Failure::Write(e.to_string()))
+}
+
 /// The staging folder, removed when dropped unless it became the DLSS folder.
 pub(super) struct Staging {
     dir: PathBuf,
@@ -38,11 +43,15 @@ impl Staging {
     /// A new, empty staging folder for `target`, older ones beside it removed.
     pub(super) fn create(target: &Path) -> Result<Self, Failure> {
         let parent = target.parent().filter(|p| !p.as_os_str().is_empty()).ok_or_else(|| Failure::Write(format!("{} has no parent folder", target.display())))?;
-        fs::create_dir_all(parent).map_err(|e| write_error(parent, &e))?;
         let own = std::process::id();
+        let dir = parent.join(format!("{STAGING_PREFIX}{own}"));
+        // [design] Refuse both destinations before creating or cleaning up anything.
+        guard_write(target)?;
+        guard_write(parent)?;
+        guard_write(&dir)?;
+        fs::create_dir_all(parent).map_err(|e| write_error(parent, &e))?;
         remove_stale(parent, own, &crate::reports::upload::still_running);
         // This process's own leftover (one download runs at a time: `start`) is removed here.
-        let dir = parent.join(format!("{STAGING_PREFIX}{own}"));
         if fs::symlink_metadata(&dir).is_ok() {
             fs::remove_dir_all(&dir).map_err(|e| write_error(&dir, &e))?;
         }
@@ -57,13 +66,14 @@ impl Staging {
     /// A new file of the staging folder, named from the list.
     pub(super) fn create_file(&self, file: &DownloadFile) -> Result<File, Failure> {
         let path = self.dir.join(file.name);
+        guard_write(&path)?;
         File::options().write(true).create_new(true).open(&path).map_err(|e| write_error(&path, &e))
     }
 }
 
 impl Drop for Staging {
     fn drop(&mut self) {
-        if !self.moved {
+        if !self.moved && guard_write(&self.dir).is_ok() {
             let _ = fs::remove_dir_all(&self.dir);
         }
     }
@@ -72,6 +82,10 @@ impl Drop for Staging {
 /// The staging folders other runs left beside `target` removed ([`remove_stale`]), without
 /// making anything: the start's clean-up (`super::clean_up_at_start`).
 pub(super) fn remove_stale_beside(target: &Path) {
+    if let Err(why) = guard_write(target) {
+        bevy::log::warn!("DLSS download: staging clean-up refused: {why}");
+        return;
+    }
     if let Some(parent) = target.parent().filter(|p| !p.as_os_str().is_empty()) {
         remove_stale(parent, std::process::id(), &crate::reports::upload::still_running);
     }
@@ -97,7 +111,7 @@ fn remove_stale(parent: &Path, own: u32, running: &dyn Fn(u32) -> bool) {
     for entry in entries.flatten() {
         let Some(pid) = staging_pid(&entry.file_name().to_string_lossy()) else { continue };
         let real_dir = fs::symlink_metadata(entry.path()).is_ok_and(|m| m.is_dir() && !m.file_type().is_symlink());
-        if real_dir && pid != own && !running(pid) {
+        if real_dir && pid != own && !running(pid) && guard_write(&entry.path()).is_ok() {
             let _ = fs::remove_dir_all(entry.path());
         }
     }
@@ -141,6 +155,11 @@ fn same_name(a: &str, b: &str) -> bool {
 /// The staged files moved into `target` (the module notes), `mv` doing each rename. Nothing
 /// of `target` is changed on an error.
 pub(super) fn place(staging: &mut Staging, files: &[DownloadFile], target: &Path, mv: &mut dyn FnMut(&Path, &Path) -> io::Result<()>) -> Result<(), Failure> {
+    guard_write(&staging.dir)?;
+    guard_write(target)?;
+    for file in files {
+        guard_write(&target.join(file.name))?;
+    }
     let meta = match fs::symlink_metadata(target) {
         Err(e) if e.kind() == io::ErrorKind::NotFound => {
             mv(&staging.dir, target).map_err(|e| {
@@ -181,7 +200,9 @@ pub(super) fn place(staging: &mut Staging, files: &[DownloadFile], target: &Path
     let mut moved: Vec<PathBuf> = Vec::new();
     let rollback = |moved: &[PathBuf]| {
         for path in moved.iter().rev() {
-            let _ = fs::remove_file(path);
+            if guard_write(path).is_ok() {
+                let _ = fs::remove_file(path);
+            }
         }
     };
     for file in missing {
@@ -304,6 +325,38 @@ pub(super) mod tests {
         let mut names: Vec<String> = fs::read_dir(dir).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();
         names.sort();
         names
+    }
+
+    #[test]
+    fn guarded_destinations_are_refused_before_any_write() {
+        let root = scratch("guard");
+        // [design] An artificial remembered install also covers a forbidden staging folder
+        // beside an otherwise allowed target. No real game install or environment changes.
+        let guarded = root.join(format!("{STAGING_PREFIX}{}", std::process::id()));
+        fnv_install::remember_game(&fnv_install::GameInstall { root: guarded.clone(), data: guarded.join("Data") });
+        let target = guarded.join("missing-parent/dlss");
+        assert!(matches!(Staging::create(&target), Err(Failure::Write(_))));
+        assert!(listing(&root).is_empty(), "neither the parent nor staging was created");
+        assert!(matches!(Staging::create(&root.join("dlss")), Err(Failure::Write(_))));
+        assert!(listing(&root).is_empty(), "a forbidden staging folder prevents all writes");
+        assert!(crate::dlss_download::create_dlss_folder(&target).is_err());
+        assert!(listing(&root).is_empty(), "Open dlss folder creates nothing");
+
+        let allowed = scratch("guard-source");
+        let files = listed(&[("a.dll", A)]);
+        let mut staging = staged(&allowed.join("dlss"), &files, &[A]);
+        let mut moves = 0;
+        let result = place(&mut staging, &files, &target, &mut |_, _| {
+            moves += 1;
+            Ok(())
+        });
+        assert!(matches!(result, Err(Failure::Write(_))));
+        assert_eq!(moves, 0, "guard refusal precedes every move");
+        assert_eq!(fs::read(staging.path().join("a.dll")).unwrap(), A);
+        assert!(listing(&root).is_empty());
+        drop(staging);
+        let _ = fs::remove_dir_all(allowed);
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]

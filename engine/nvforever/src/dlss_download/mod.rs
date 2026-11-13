@@ -171,12 +171,18 @@ fn shell_open(_target: &std::ffi::OsStr) -> Result<(), String> {
 /// The DLSS folder, made if it is not there yet, for "Open dlss folder".
 pub(crate) fn open_dlss_folder() {
     match download::target_folder() {
-        Ok(folder) => match std::fs::create_dir_all(&folder) {
+        Ok(folder) => match create_dlss_folder(&folder) {
             Ok(()) => open_in_shell(folder.into_os_string()),
             Err(e) => warn!("DLSS download: could not make {}: {e}", folder.display()),
         },
         Err(why) => warn!("DLSS download: no DLSS folder: {why}"),
     }
+}
+
+/// [design] Folder opening follows the same install guard as the download, including overrides.
+pub(crate) fn create_dlss_folder(folder: &std::path::Path) -> std::io::Result<()> {
+    fnv_install::guard_write(folder, None).map_err(std::io::Error::other)?;
+    std::fs::create_dir_all(folder)
 }
 
 /// The test aid's items (module notes).
@@ -221,6 +227,7 @@ impl AidPlan {
 /// The aid's `clear`: the listed files deleted from `folder` when its name starts with
 /// [`AID_FOLDER_PREFIX`]; how many went, or why nothing did.
 fn clear_folder(folder: &std::path::Path) -> Result<usize, String> {
+    fnv_install::guard_write(folder, None).map_err(|e| e.to_string())?;
     let name = folder.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     if !name.starts_with(AID_FOLDER_PREFIX) {
         return Err(format!("{} is not a {AID_FOLDER_PREFIX}* folder; nothing deleted", folder.display()));
@@ -228,6 +235,7 @@ fn clear_folder(folder: &std::path::Path) -> Result<usize, String> {
     let mut cleared = 0;
     for file in download::DOWNLOAD_FILES {
         let path = folder.join(file.name);
+        fnv_install::guard_write(&path, None).map_err(|e| e.to_string())?;
         if path.is_file() {
             std::fs::remove_file(&path).map_err(|e| format!("{}: {e}", path.display()))?;
             cleared += 1;
