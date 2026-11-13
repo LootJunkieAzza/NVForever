@@ -21,7 +21,19 @@ pub struct NifMirrorPlugin;
 
 impl Plugin for NifMirrorPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(PostUpdate, mirror.before(TransformSystems::Propagate));
+        app.add_systems(PostUpdate, (mirror, tell_first_person).before(TransformSystems::Propagate));
+    }
+}
+
+/// The player's first-person arms rig for JIP's NIF block functions (`pcModel` 2): told
+/// as soon as the rig is built, so a check a frame after the load finds it (B42 Weapon
+/// Inertia's), and every frame once a script asked for it (its pose changes).
+fn tell_first_person(mut script: Option<ResMut<ScriptState>>, body: Option<Res<crate::player_body::PlayerBody>>, mut told: Local<bool>) {
+    let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else { return };
+    let tree = body.and_then(|b| b.first_person_tree());
+    if tree.is_none() || rt.game.scene.first_person_wanted() || !*told {
+        *told = tree.is_some();
+        rt.game.scene.set_first_person_tree(tree);
     }
 }
 

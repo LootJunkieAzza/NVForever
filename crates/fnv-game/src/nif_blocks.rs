@@ -86,6 +86,10 @@ pub struct SceneMirror {
     /// Set…PropertyValue), laid over each tree the engine tells: reference, node, alpha
     /// (else stencil), item, value.
     prop_sets: Vec<(FormId, String, bool, usize, f32)>,
+    /// The player's first-person model (the arms rig, `_1stperson\skeleton.nif`), as the
+    /// engine tells it; asked for by the functions' `pcModel` 2 (`first_wanted` set).
+    first: Option<Vec<SceneNode>>,
+    first_wanted: bool,
 }
 
 impl SceneMirror {
@@ -129,6 +133,22 @@ impl SceneMirror {
     /// The changes made since the last call, for the engine.
     pub fn take_edits(&mut self) -> Vec<SceneEdit> {
         std::mem::take(&mut self.edits)
+    }
+
+    /// Whether a script asked for the player's first-person model since it started.
+    pub fn first_person_wanted(&self) -> bool {
+        self.first_wanted
+    }
+
+    /// The engine tells the player's first-person tree (`None`: no such model drawn).
+    pub fn set_first_person_tree(&mut self, nodes: Option<Vec<SceneNode>>) {
+        self.first = nodes;
+    }
+
+    /// The player's first-person tree (it is told from now on).
+    fn first_tree(&mut self) -> Option<&mut Vec<SceneNode>> {
+        self.first_wanted = true;
+        self.first.as_mut()
     }
 
     fn tree(&mut self, r: FormId) -> Option<&mut Vec<SceneNode>> {
@@ -483,8 +503,13 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
             zero
         }
         // A missing block 0 [observed].
+        // `pcModel` 2 on the player is the first-person model [documented:
+        // GetNifBlockScale, "1/2" pcModel; observed: B42 Weapon Inertia reads
+        // `NeckController`, a node only the first-person skeleton has, with 2].
         "getnifblockscale" => {
-            let Some(t) = g.scene.tree(r) else { return Some(Ok(zero)) };
+            let first = r == FormId::PLAYER_REF && num(args, 1, 0.0) as i32 == 2;
+            let tree = if first { g.scene.first_tree() } else { g.scene.tree(r) };
+            let Some(t) = tree else { return Some(Ok(zero)) };
             XVal::Num(find(t, &text(args, 0)).map_or(0.0, |i| f64::from(t[i].scale)))
         }
         "setnifblockscale" => {

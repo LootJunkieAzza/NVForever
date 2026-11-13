@@ -6823,6 +6823,12 @@ impl Host for Exec<'_, '_> {
         if self.game.temp_item(f).is_some() {
             return Some(*b"REFR");
         }
+        // CompileScript's script is a script form: a mod checks it with IsFormValid before
+        // using it [documented: CompileScript returns the script; observed: Scaled
+        // Recurring Challenges reports a failed compile when IsFormValid is 0].
+        if form.checked_sub(COMPILED_BASE).is_some_and(|i| form < TEMP_REF_BASE && (i as usize) < self.game.compiled_files.len()) {
+            return Some(*b"SCPT");
+        }
         let f = self.game.unclone(f);
         // The player reference is no record of a plugin [documented: PlayerREF, 00000014].
         if let Some(s) = self.game.data.sig(f).or_else(|| (f == FormId::PLAYER_REF).then_some(*b"ACHR")) {
