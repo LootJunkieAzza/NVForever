@@ -21,6 +21,7 @@ mod ash_piles;
 mod build_identity;
 mod camera_paths;
 mod caravan_data;
+mod clone_calling_reference;
 mod combat_blocks;
 mod combat_lines_data;
 mod combat_transitions;
