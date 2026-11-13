@@ -38,6 +38,10 @@ struct Gi {
     // interior fill light (linear, after exposure; 0 outdoors); w: the glow field's
     // strength (gi.rs GLOW).
     debug: vec4<f32>,
+    // World from view (rotation): the probe's light by world normal.
+    world_from_view: mat4x4<f32>,
+    // The light probe: x its strength on surfaces.
+    probe: vec4<f32>,
 }
 
 @if(MULTISAMPLED) @group(0) @binding(0) var depth: texture_depth_multisampled_2d;
@@ -52,6 +56,9 @@ struct Gi {
 // temporal: last frame's distances (history alpha) and this frame's (r).
 @group(0) @binding(5) var input_c: texture_2d<f32>;
 @group(0) @binding(6) var input_d: texture_2d<f32>;
+// The light probe's faces (probe.rs FACES order) and their mean light (6 x 1).
+@group(0) @binding(7) var probe_faces: texture_2d_array<f32>;
+@group(0) @binding(8) var probe_cube: texture_2d<f32>;
 
 const PI: f32 = 3.14159265;
 const HALF_PI: f32 = 1.5707963;
@@ -309,6 +316,12 @@ fn upsample(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
         }
     }
     var v = select(sum / max(wsum, 1e-4), nearest, wsum < 1e-3);
+    // The light probe's light by the surface's world normal, where it is open.
+    if gi.probe.x > 0.0 && z < gi.params.w {
+        let p = view_pos(vec2<f32>(px) + 0.5, d);
+        let n = normalize((gi.world_from_view * vec4(normal_at(px, p), 0.0)).xyz);
+        v = vec4(v.rgb + probe_light(n) * gi.probe.x * (1.0 - max(v.a, 0.0)), v.a);
+    }
     // The glow field (glow_*), faded out with distance: light from signs and lamps on
     // what is within a few dozen metres.
     let glow = textureSampleLevel(input_c, linear_sampler, (vec2<f32>(px) + 0.5) / gi.size.xy, 0.0).rgb;
@@ -317,6 +330,36 @@ fn upsample(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
     // INTERIOR_FILL).
     v = vec4(v.rgb + vec3(gi.debug.z) * (1.0 - v.a), v.a);
     return v;
+}
+
+// The light probe: each face's mean light (texel i of a 6 x 1 target), from 8 x 8 taps.
+@fragment
+fn probe_reduce(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
+    let face = i32(floor(in.position.x));
+    var c = vec3(0.0);
+    for (var y = 0; y < 8; y++) {
+        for (var x = 0; x < 8; x++) {
+            let uv = (vec2(f32(x), f32(y)) + 0.5) / 8.0;
+            c += textureSampleLevel(probe_faces, linear_sampler, uv, face, 0.0).rgb;
+        }
+    }
+    return vec4(min(c / 64.0, vec3(gi.params2.z)), 1.0);
+}
+
+// The probe's light on a surface facing world normal `n`: the faces' mean light weighed
+// by the squared cosine to each face's direction (an "ambient cube"); the face looking up
+// is left out, the game's ambient light already being the sky's.
+fn probe_light(n: vec3<f32>) -> vec3<f32> {
+    let w_pos = max(n, vec3(0.0));
+    let w_neg = max(-n, vec3(0.0));
+    let w = vec3(w_pos.x * w_pos.x, w_neg.x * w_neg.x, 0.0);
+    var c = textureLoad(probe_cube, vec2(0, 0), 0).rgb * (w_pos.x * w_pos.x)
+        + textureLoad(probe_cube, vec2(1, 0), 0).rgb * (w_neg.x * w_neg.x)
+        + textureLoad(probe_cube, vec2(3, 0), 0).rgb * (w_neg.y * w_neg.y)
+        + textureLoad(probe_cube, vec2(4, 0), 0).rgb * (w_pos.z * w_pos.z)
+        + textureLoad(probe_cube, vec2(5, 0), 0).rgb * (w_neg.z * w_neg.z);
+    let _unused = w;
+    return c;
 }
 
 // The emissive glow field (gi.rs, third tier): last frame's light brighter than

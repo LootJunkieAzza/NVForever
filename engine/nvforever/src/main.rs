@@ -157,6 +157,7 @@ mod swimming;
 mod ssao;
 mod gi;
 mod atmos;
+mod probe;
 mod taa;
 mod fg_presenter;
 mod frame_gen;

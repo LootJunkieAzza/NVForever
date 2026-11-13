@@ -77,9 +77,14 @@ use {crate::MESH_PIPELINE_VIEW_LAYOUT_SAFE_MAX_TEXTURES, bevy_utils::once, traci
 #[extract_app(bevy_render::RenderApp)]
 pub struct ScreenIndirectLight;
 
-/// The view's screen indirect light texture (render world), one texel per main-pass pixel.
+/// The view's screen indirect light texture (render world), one texel per main-pass pixel,
+/// and the six faces of its local light probe (a 2D array, faces +X, -X, +Y, -Y, +Z, -Z;
+/// nvforever probe.rs) with their sampler, at bindings 40 and 41.
 #[derive(Component, Clone)]
-pub struct ScreenIndirectTexture(pub TextureView);
+pub struct ScreenIndirectTexture {
+    pub texture: TextureView,
+    pub probe: Option<(TextureView, Sampler)>,
+}
 
 /// NVForever screen indirect light's view binding.
 pub const SCREEN_INDIRECT_BINDING: u32 = 39;
@@ -397,10 +402,20 @@ fn layout_entries(
         ));
     }
     if layout_key.contains(MeshPipelineViewLayoutKey::SCREEN_INDIRECT) {
-        entries = entries.extend_with_indices(((
-            SCREEN_INDIRECT_BINDING,
-            texture_2d(TextureSampleType::Float { filterable: false }),
-        ),));
+        entries = entries.extend_with_indices((
+            (
+                SCREEN_INDIRECT_BINDING,
+                texture_2d(TextureSampleType::Float { filterable: false }),
+            ),
+            (
+                SCREEN_INDIRECT_BINDING + 1,
+                texture_2d_array(TextureSampleType::Float { filterable: true }),
+            ),
+            (
+                SCREEN_INDIRECT_BINDING + 2,
+                sampler(SamplerBindingType::Filtering),
+            ),
+        ));
     }
     if layout_key.contains(MeshPipelineViewLayoutKey::SCREEN_SPACE_AMBIENT_OCCLUSION) {
         entries = entries.extend_with_indices((
@@ -898,9 +913,17 @@ pub fn prepare_mesh_view_bind_groups(
             if has_screen_indirect {
                 layout_key |= MeshPipelineViewLayoutKey::SCREEN_INDIRECT;
                 let view = screen_indirect
-                    .map(|t| &t.0)
+                    .map(|t| &t.texture)
                     .unwrap_or(&fallback_image_zero.texture_view);
-                entries = entries.extend_with_indices(((SCREEN_INDIRECT_BINDING, view),));
+                let (probe, probe_sampler) = screen_indirect
+                    .and_then(|t| t.probe.as_ref())
+                    .map(|(v, s)| (v, s))
+                    .unwrap_or((&fallback_image.d2_array.texture_view, &fallback_image.d2_array.sampler));
+                entries = entries.extend_with_indices((
+                    (SCREEN_INDIRECT_BINDING, view),
+                    (SCREEN_INDIRECT_BINDING + 1, probe),
+                    (SCREEN_INDIRECT_BINDING + 2, probe_sampler),
+                ));
             }
 
             if has_transmission {

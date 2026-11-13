@@ -74,6 +74,19 @@ short near, coarse and long further out):
   rails and fountain take the signs' warm light, which no march of a few hundred units
   reached.
 
+**Light probe** (probe.rs; world space): six 128 x 128 cameras at the main camera's
+position, one per cube face, render the world around it, off the screen too, one face every
+4th frame (the whole probe about 5 times a second at 120 frames a second). gi.wesl copies the
+faces into a 2D array each frame, reduces each face to its mean light (`probe_reduce`) and
+adds them by the surface's world normal (an "ambient cube"; the face looking up is left
+out, the game's ambient being the sky's) at 0.6 × openness in the upsample. The array is
+also the reflection environment of environment-mapped shapes (§4), at view bindings 40 and
+41 of the vendored bevy_pbr. Cost: each probe view is a view's culling, queueing and sun
+cascades on the render thread: rendered every frame it added about 2 ms to the frame at
+Goodsprings; one face every 4th frame adds about 0.7 ms on average, with the slowest frames
+near 14 ms. Limits: one probe at the camera, so no parallax (a window reflects what the
+camera's position sees), and it lights by direction only.
+
 Indoors (the cell has its own lighting) 0.07 of light (linear) is added where the
 surroundings are open: FNV's dimmest rooms (the Prospector Saloon) otherwise crush to black
 under the occlusion and the grade.
@@ -115,11 +128,10 @@ not on FaceGen skin.
 
 **Environment maps** (nif_spawn `Props::env_scale`, `NifSurface::env`/`env_mask`,
 nif_material.wesl `env_reflection`): a shape whose shader maps an environment (BSShaderFlags
-bit 7 or 21 and a texture-set slot 4) reflects the sky above and the ground below along the
-reflected ray, at its `environment_map_scale` (held to 2) × its mask (slot 5, red) × a Fresnel
+bit 7 or 21 and a texture-set slot 4) reflects the light probe's faces (§2) along the reflected ray, at its `environment_map_scale` (held to 2) × its mask (slot 5, red) × a Fresnel
 rise from 0.35 to 1, hidden where the GI closes the view. The game's own cube maps are not
-drawn: they would need cube textures in the bindless material. Goodsprings' window glass at
-noon reflects the sky instead of reading as flat dark panes.
+drawn: they would need cube textures in the bindless material; the light probe's faces
+(§2) stand in for them, so glass and metal reflect what is around the camera.
 
 **Cloud shadows** (lights.rs `nvf_sun_cloud`, atmos.wesl): value noise (3 octaves, cells of
 17,000 units) at a cloud layer 30,000 units up, read where the ray from the surface to the

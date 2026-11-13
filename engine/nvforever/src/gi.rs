@@ -29,7 +29,7 @@ use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
 use bevy::render::diagnostic::RecordDiagnostics;
 use bevy::render::extract_component::{ComponentUniforms, DynamicUniformIndex, ExtractComponent, ExtractComponentPlugin, UniformComponentPlugin};
-use bevy::render::render_resource::binding_types::{sampler, texture_2d, texture_depth_2d, texture_depth_2d_multisampled, uniform_buffer};
+use bevy::render::render_resource::binding_types::{sampler, texture_2d, texture_2d_array, texture_depth_2d, texture_depth_2d_multisampled, uniform_buffer};
 use bevy::render::render_resource::{
     BindGroupEntries, BindGroupLayoutDescriptor, BindGroupLayoutEntries, CachedRenderPipelineId, ColorTargetState, ColorWrites, Extent3d, FilterMode,
     FragmentState, Operations, PipelineCache, RenderPassColorAttachment, RenderPassDescriptor, RenderPipelineDescriptor, Sampler, SamplerBindingType,
@@ -65,6 +65,8 @@ const INTERIOR_FILL: f32 = 0.07;
 /// Strength of the emissive glow field (gi.wesl `glow_*`): the light of bright
 /// emitters (neon, bulbs, fire) spread wide onto what is near them.
 const GLOW: f32 = 7.0;
+/// Strength of the light probe's light (probe.rs) on surfaces, by their normal.
+const PROBE: f32 = 0.6;
 /// A camera that moved further than this in a frame (game units) starts again.
 const JUMP: f64 = 1500.0;
 
@@ -102,6 +104,10 @@ pub struct GiUniform {
     pub params: Vec4,
     pub params2: Vec4,
     pub debug: Vec4,
+    /// This frame's world from view (rotation only): the probe's light by world normal.
+    pub world_from_view: Mat4,
+    /// The light probe (probe.rs): x its strength.
+    pub probe: Vec4,
 }
 
 pub struct GiPlugin;
@@ -150,6 +156,8 @@ fn follow_camera(sky: Option<Res<crate::sky::SkyState>>, mut cams: Query<(&Globa
             params: Vec4::new(t[0], t[1], t[2], FADE_END),
             params2: Vec4::new(t[3], NEW_SHARE, MAX_LIGHT, valid),
             debug: Vec4::new(t[4], t[5], if indoors { INTERIOR_FILL } else { 0.0 }, t[6]),
+            world_from_view: Mat4::from_mat3(Mat3::from(a.matrix3)),
+            probe: Vec4::new(PROBE, 0.0, 0.0, 0.0),
         };
     }
 }
@@ -163,7 +171,7 @@ struct GiPipelines {
     layouts: [BindGroupLayoutDescriptor; 2],
     sampler: Sampler,
     /// trace, temporal, upsample, capture; by multisampling.
-    ids: [[CachedRenderPipelineId; 7]; 2],
+    ids: [[CachedRenderPipelineId; 8]; 2],
 }
 
 fn init_pipelines(mut commands: Commands, device: Res<RenderDevice>, assets: Res<AssetServer>, fullscreen: Res<FullscreenShader>, cache: Res<PipelineCache>) {
@@ -174,14 +182,24 @@ fn init_pipelines(mut commands: Commands, device: Res<RenderDevice>, assets: Res
             "gi_layout",
             &BindGroupLayoutEntries::sequential(
                 ShaderStages::FRAGMENT,
-                (depth, uniform_buffer::<GiUniform>(true), tex(), sampler(SamplerBindingType::Filtering), tex(), tex(), tex()),
+                (
+                    depth,
+                    uniform_buffer::<GiUniform>(true),
+                    tex(),
+                    sampler(SamplerBindingType::Filtering),
+                    tex(),
+                    tex(),
+                    tex(),
+                    texture_2d_array(TextureSampleType::Float { filterable: true }),
+                    tex(),
+                ),
             ),
         )
     };
     let layouts = [layout(false), layout(true)];
     let shader = assets.load("embedded://nvforever/gi.wesl");
     let target = |f: TextureFormat| Some(ColorTargetState { format: f, blend: None, write_mask: ColorWrites::ALL });
-    let entries: [(&str, Vec<Option<ColorTargetState>>); 7] = [
+    let entries: [(&str, Vec<Option<ColorTargetState>>); 8] = [
         ("trace", vec![target(LIGHT_FORMAT), target(DIST_FORMAT)]),
         ("temporal", vec![target(LIGHT_FORMAT)]),
         ("upsample", vec![target(LIGHT_FORMAT)]),
@@ -189,9 +207,10 @@ fn init_pipelines(mut commands: Commands, device: Res<RenderDevice>, assets: Res
         ("glow_down", vec![target(LIGHT_FORMAT)]),
         ("glow_across", vec![target(LIGHT_FORMAT)]),
         ("glow_down_blur", vec![target(LIGHT_FORMAT)]),
+        ("probe_reduce", vec![target(LIGHT_FORMAT)]),
     ];
     let ids = [false, true].map(|multi| {
-        let mut out = [CachedRenderPipelineId::INVALID; 7];
+        let mut out = [CachedRenderPipelineId::INVALID; 8];
         for (i, (entry, targets)) in entries.iter().enumerate() {
             let mut shader_defs = Vec::new();
             if multi {
@@ -212,7 +231,7 @@ fn init_pipelines(mut commands: Commands, device: Res<RenderDevice>, assets: Res
 }
 
 struct Tex {
-    _texture: Texture,
+    texture: Texture,
     view: TextureView,
 }
 
@@ -228,7 +247,27 @@ fn make(device: &RenderDevice, label: &'static str, size: UVec2, format: Texture
         view_formats: &[],
     });
     let view = texture.create_view(&default());
-    Tex { _texture: texture, view }
+    Tex { texture, view }
+}
+
+/// The light probe's faces as one 2D array (probe.rs `FACES` order), copied into.
+fn make_probe_array(device: &RenderDevice) -> Tex {
+    let size = crate::probe::FACE_SIZE;
+    let texture = device.create_texture(&TextureDescriptor {
+        label: Some("gi_probe_faces"),
+        size: Extent3d { width: size, height: size, depth_or_array_layers: 6 },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: TextureDimension::D2,
+        format: LIGHT_FORMAT,
+        usage: TextureUsages::COPY_DST | TextureUsages::TEXTURE_BINDING,
+        view_formats: &[],
+    });
+    let view = texture.create_view(&bevy::render::render_resource::TextureViewDescriptor {
+        dimension: Some(bevy::render::render_resource::TextureViewDimension::D2Array),
+        ..default()
+    });
+    Tex { texture, view }
 }
 
 /// A view's textures, kept from frame to frame (history and accumulation).
@@ -244,6 +283,9 @@ struct ViewTextures {
     /// The emissive glow field (gi.wesl `glow_*`), a sixteenth of the picture's size;
     /// ping-ponged by the blur.
     glow: [Tex; 2],
+    /// The light probe's faces (probe.rs), and their mean light per face (6 x 1).
+    probe: Tex,
+    cube: Tex,
 }
 
 #[derive(Resource, Default)]
@@ -255,6 +297,7 @@ struct GiView(RetainedViewEntity);
 fn prepare(
     mut commands: Commands,
     device: Res<RenderDevice>,
+    pipelines: Option<Res<GiPipelines>>,
     mut textures: ResMut<GiTextures>,
     views: Query<(Entity, &ExtractedView), With<GiUniform>>,
     mut seen: Local<Vec<RetainedViewEntity>>,
@@ -277,11 +320,14 @@ fn prepare(
                     full: make(&device, "gi_full", size, LIGHT_FORMAT),
                     blank: make(&device, "gi_blank", UVec2::ONE, LIGHT_FORMAT),
                     glow: [make(&device, "gi_glow_0", (half + UVec2::splat(7)) / 8, LIGHT_FORMAT), make(&device, "gi_glow_1", (half + UVec2::splat(7)) / 8, LIGHT_FORMAT)],
+                    probe: make_probe_array(&device),
+                    cube: make(&device, "gi_probe_cube", UVec2::new(6, 1), LIGHT_FORMAT),
                 },
             );
         }
         let t = &textures.0[&key];
-        commands.entity(entity).insert((ScreenIndirectTexture(t.full.view.clone()), GiView(key)));
+        let probe = pipelines.as_ref().map(|p| (t.probe.view.clone(), p.sampler.clone()));
+        commands.entity(entity).insert((ScreenIndirectTexture { texture: t.full.view.clone(), probe }, GiView(key)));
     }
     textures.0.retain(|k, _| seen.contains(k));
 }
@@ -305,8 +351,11 @@ fn run(ctx: &mut RenderContext, pipeline: &bevy::render::render_resource::Render
 }
 
 /// Steps 1-3 (module notes): march, accumulate, upsample.
+#[allow(clippy::too_many_arguments)]
 fn gi_pass(
     view: ViewQuery<(&DynamicUniformIndex<GiUniform>, &GiUniform, &GiView, &ViewPrepassTextures)>,
+    probe_images: Option<Res<crate::probe::ProbeImages>>,
+    gpu_images: Res<bevy::render::render_asset::RenderAssets<bevy::render::texture::GpuImage>>,
     pipelines: Res<GiPipelines>,
     textures: Res<GiTextures>,
     cache: Res<PipelineCache>,
@@ -322,7 +371,9 @@ fn gi_pass(
     let (Some(trace), Some(temporal), Some(upsample)) = (cache.get_render_pipeline(ids[0]), cache.get_render_pipeline(ids[1]), cache.get_render_pipeline(ids[2])) else {
         return;
     };
-    let (Some(g0), Some(g1), Some(g2)) = (cache.get_render_pipeline(ids[4]), cache.get_render_pipeline(ids[5]), cache.get_render_pipeline(ids[6])) else {
+    let (Some(g0), Some(g1), Some(g2), Some(reduce)) =
+        (cache.get_render_pipeline(ids[4]), cache.get_render_pipeline(ids[5]), cache.get_render_pipeline(ids[6]), cache.get_render_pipeline(ids[7]))
+    else {
         return;
     };
     let glow = [g0, g1, g2];
@@ -334,17 +385,36 @@ fn gi_pass(
     let diagnostics = diagnostics.as_deref();
     let span = diagnostics.time_span(ctx.command_encoder(), "nvf_global_illumination");
     let s = &pipelines.sampler;
-    let bg = device.create_bind_group("gi_trace", &layout, &BindGroupEntries::sequential((depth, binding.clone(), &t.history.view, s, &t.blank.view, &t.blank.view, &t.blank.view)));
+    let bg = device.create_bind_group("gi_trace", &layout, &BindGroupEntries::sequential((depth, binding.clone(), &t.history.view, s, &t.blank.view, &t.blank.view, &t.blank.view, &t.probe.view, &t.cube.view)));
     run(&mut ctx, trace, &bg, index.index(), "gi_trace", &[&t.trace.view, &t.dist.view]);
-    let bg = device.create_bind_group("gi_temporal", &layout, &BindGroupEntries::sequential((depth, binding.clone(), &t.trace.view, s, accum_then, &t.dist.view, &t.history.view)));
+    let bg = device.create_bind_group("gi_temporal", &layout, &BindGroupEntries::sequential((depth, binding.clone(), &t.trace.view, s, accum_then, &t.dist.view, &t.history.view, &t.probe.view, &t.cube.view)));
     run(&mut ctx, temporal, &bg, index.index(), "gi_temporal", &[accum_now]);
+    // The light probe: its faces into the array, then their mean light per face.
+    if let Some(probe) = probe_images.as_ref() {
+        let size = crate::probe::FACE_SIZE;
+        for (layer, handle) in probe.faces.iter().enumerate() {
+            let Some(face) = gpu_images.get(handle) else { continue };
+            ctx.command_encoder().copy_texture_to_texture(
+                face.texture.as_image_copy(),
+                bevy::render::render_resource::TexelCopyTextureInfo {
+                    texture: &t.probe.texture,
+                    mip_level: 0,
+                    origin: bevy::render::render_resource::Origin3d { x: 0, y: 0, z: layer as u32 },
+                    aspect: bevy::render::render_resource::TextureAspect::All,
+                },
+                Extent3d { width: size, height: size, depth_or_array_layers: 1 },
+            );
+        }
+    }
+    let bg = device.create_bind_group("gi_probe_reduce", &layout, &BindGroupEntries::sequential((depth, binding.clone(), &t.blank.view, s, &t.blank.view, &t.blank.view, &t.blank.view, &t.probe.view, &t.blank.view)));
+    run(&mut ctx, reduce, &bg, index.index(), "gi_probe_reduce", &[&t.cube.view]);
     // The glow field from last frame's picture: bright texels, then blurred both ways.
     let glow_steps = [(&t.history.view, &t.glow[0].view, "gi_glow_down"), (&t.glow[0].view, &t.glow[1].view, "gi_glow_across"), (&t.glow[1].view, &t.glow[0].view, "gi_glow_down_blur")];
     for (pipeline, (from, to, label)) in glow.into_iter().zip(glow_steps) {
-        let bg = device.create_bind_group(label, &layout, &BindGroupEntries::sequential((depth, binding.clone(), from, s, &t.blank.view, &t.blank.view, &t.blank.view)));
+        let bg = device.create_bind_group(label, &layout, &BindGroupEntries::sequential((depth, binding.clone(), from, s, &t.blank.view, &t.blank.view, &t.blank.view, &t.probe.view, &t.cube.view)));
         run(&mut ctx, pipeline, &bg, index.index(), label, &[to]);
     }
-    let bg = device.create_bind_group("gi_upsample", &layout, &BindGroupEntries::sequential((depth, binding, accum_now, s, &t.dist.view, &t.glow[0].view, &t.history.view)));
+    let bg = device.create_bind_group("gi_upsample", &layout, &BindGroupEntries::sequential((depth, binding, accum_now, s, &t.dist.view, &t.glow[0].view, &t.history.view, &t.probe.view, &t.cube.view)));
     run(&mut ctx, upsample, &bg, index.index(), "gi_upsample", &[&t.full.view]);
     span.end(ctx.command_encoder());
 }
@@ -368,6 +438,6 @@ fn capture_pass(
     let layout = cache.get_bind_group_layout(&pipelines.layouts[multi as usize]);
     let picture: &TextureView = target.main_texture_view();
     let s = &pipelines.sampler;
-    let bg = device.create_bind_group("gi_capture", &layout, &BindGroupEntries::sequential((depth, binding, picture, s, &t.blank.view, &t.blank.view, &t.blank.view)));
+    let bg = device.create_bind_group("gi_capture", &layout, &BindGroupEntries::sequential((depth, binding, picture, s, &t.blank.view, &t.blank.view, &t.blank.view, &t.probe.view, &t.cube.view)));
     run(&mut ctx, capture, &bg, index.index(), "gi_capture", &[&t.history.view]);
 }
