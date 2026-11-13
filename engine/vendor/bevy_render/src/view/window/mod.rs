@@ -310,7 +310,9 @@ impl ExtractedWindow {
     }
 }
 
-fn extract_windows(
+/// NVForever (2026-11-13): public, so a system can be ordered before or after it (DLSS Frame
+/// Generation sets its mode off before a closing window's surface is removed here).
+pub fn extract_windows(
     mut commands: Commands,
     mut extracted_windows: Query<&mut ExtractedWindow>,
     mut closing: Extract<MessageReader<WindowClosing>>,

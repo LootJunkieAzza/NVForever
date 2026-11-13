@@ -266,6 +266,9 @@ Window changes held for one frame (2026-11-13, the DLSS Frame Generation spike, 
   surface there.
 - `SurfaceData::reconfigure_pending`: whether `create_surfaces` would reconfigure the surface
   this frame, for the system that decides the hold.
+- `extract_windows` is public, so a system can be ordered around it (DLSS Frame Generation sets
+  its mode off before a closing window's surface is removed there, and switches DLSS-G on or
+  off after it).
 
 NVIDIA's DLSS Frame Generation must be off (its mode set off and presented once) before the
 swapchain changes [documented: Streamline 2.14.16 `ProgrammingGuideDLSS_G.md` §12.0, §17],

@@ -246,6 +246,10 @@ pub(crate) fn frame_generation_on() -> bool {
 /// pacing's own ([`frame_generation_running`]).
 static FG_ENDED: AtomicBool = AtomicBool::new(false);
 
+/// DLSS-G unloaded by the live toggle (`frame_gen.rs` `toggle_switch`): frame generation does
+/// not run meanwhile ([`frame_generation_running`]).
+static FG_UNLOADED: AtomicBool = AtomicBool::new(false);
+
 /// Frames presented per real frame asked for (`NVF_DLSSG_FRAMES` + 1), set when frame
 /// generation starts (`win.rs`); 1 otherwise.
 static FG_MULTIPLIER: AtomicU32 = AtomicU32::new(1);
@@ -261,7 +265,7 @@ static REFLEX_LIMIT_US: AtomicU32 = AtomicU32::new(0);
 /// DLSS-G's mode is off for a while but frame generation is not over [design: fork-notes
 /// `fg-spike-design.md` Stage 3; the review's P3d].
 pub(crate) fn frame_generation_running() -> bool {
-    frame_generation_on() && !FG_ENDED.load(Ordering::Relaxed)
+    frame_generation_on() && !FG_ENDED.load(Ordering::Relaxed) && !FG_UNLOADED.load(Ordering::Relaxed)
 }
 
 /// Frames presented per real frame asked for while frame generation runs (1 otherwise).

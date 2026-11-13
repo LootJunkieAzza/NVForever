@@ -46,15 +46,33 @@
 //!   is released and Bevy reconfigures with the mode still off; frame generation comes back on
 //!   the frame after. At most [`MAX_HOLD`] frames are held (a window that is never presented,
 //!   minimised, would hold it for ever).
+//!   What this meets of "off before any window manipulation" (§17): the OS window has already
+//!   changed when the change reaches the render world (winit resized it, Bevy extracted the new
+//!   size), so DLSS-G is still on while the OS resizes, maximises or changes the display mode;
+//!   what the hold covers is the swapchain's reconfigure, which happens only after a frame was
+//!   presented with the mode off. A hold whose image comes back `Outdated` presents nothing;
+//!   no present since the mode went off counts as off ([`state`]).
 //! - **On and off live** (`NVF_DLSSG_TOGGLE=<s>:off,<s>:on`, a test aid, seconds since the
 //!   start): "the swap chain must be torn down and recreated every time DLSS-G is switched on
-//!   or off" [documented: §18.0]. Off: the mode set off and presented once, then the window's
-//!   image dropped and its surface released (Bevy's `SurfaceData` taken away; wgpu waits for the
-//!   device and destroys the swapchain and the surface when the last reference goes,
-//!   wgpu-hal `Swapchain::release_resources`), `slSetFeatureLoaded(DLSS-G, false)`, and Bevy's
-//!   `create_surfaces` makes the surface and swapchain again the same frame, now native. On: the
-//!   same with `true`, so the new swapchain is Streamline's proxy. A reconfigure alone would not
-//!   do: wgpu makes the new swapchain before it destroys the old one.
+//!   or off" [documented: §18.0]. Off: the mode set off and presented once; then, in the next
+//!   frame's extraction ([`toggle_switch`]: the main thread is extracting and the render thread
+//!   waits, so neither calls Vulkan meanwhile, and the main thread's Reflex calls come after the
+//!   extraction, `anti_lag.rs`), the GPU drained, the window's image dropped and its surface
+//!   released (Bevy's `SurfaceData` taken away; wgpu waits for the device and destroys the
+//!   swapchain and the surface when the last reference goes, wgpu-hal
+//!   `Swapchain::release_resources`), DLSS-G's resources freed (`slFreeResources`, as for a
+//!   long-term off, §6.4), `slSetFeatureLoaded(DLSS-G, false)`, and Bevy's `create_surfaces`
+//!   makes the surface and swapchain again that frame, now native. On: the same with `true` and
+//!   nothing to free, so the new swapchain is Streamline's proxy. A reconfigure alone would not
+//!   do: wgpu makes the new swapchain before it destroys the old one. Not covered: Bevy compiles
+//!   pipelines on task threads, which may create Vulkan pipelines during the switch (no queue or
+//!   swapchain call; `slSetFeatureLoaded` asks for no Vulkan call at all in parallel,
+//!   `sl_core_api.h:130-131`) [hypothesis: harmless, as no swapchain or queue object is touched].
+//!   While DLSS-G is unloaded frame generation does not run (`super::frame_generation_running`):
+//!   vsync and the frame cap are frame pacing's again.
+//! - **Exit** ([`exit_watch`], in the extraction before Bevy's `extract_windows`): on `AppExit`
+//!   the mode is set off for the frame being extracted, which is still presented; on a window
+//!   closing (its surface removed in the same extraction) the mode is set off at once.
 //! - **Errors**: with DLSS-G loaded, `vkQueuePresentKHR` and `vkAcquireNextImageKHR` run
 //!   asynchronously inside Streamline and the host sees only "the last known error"; the
 //!   callback reports each call whose `VkResult` is not `VK_SUCCESS` and must return at once
@@ -82,8 +100,9 @@ use bevy::prelude::*;
 use bevy::render::camera::{ExtractedCamera, TemporalJitter};
 use bevy::render::renderer::{render_system, RenderAdapter, RenderContext, RenderGraph, RenderGraphSystems, ViewQuery};
 use bevy::render::sync_world::MainEntity;
-use bevy::render::view::{create_surfaces, prepare_view_targets, ExtractedView, ExtractedWindow, HoldSurfaceReconfigure, SurfaceData, ViewTarget};
-use bevy::render::{Render, RenderSystems};
+use bevy::render::view::{create_surfaces, extract_windows, prepare_view_targets, ExtractedView, ExtractedWindow, HoldSurfaceReconfigure, SurfaceData, ViewTarget};
+use bevy::render::{Extract, ExtractSchedule, Render, RenderSystems};
+use bevy::window::{PrimaryWindow, WindowClosing};
 use bevy::ui_render::ui_pass;
 
 use super::evaluate::{constants_for, describe, ConstantsInput, VIEWPORT};
@@ -194,6 +213,10 @@ struct FrameGen {
     toggle: Option<bool>,
     /// The last frame number tags were set for (null tags at shutdown).
     last_index: Option<u32>,
+    /// The live toggle's switch, done in the next extraction ([`toggle_switch`]).
+    pending_load: Option<bool>,
+    /// The app is exiting: the mode stays off ([`exit_watch`]).
+    exiting: bool,
 }
 
 impl FrameGen {
@@ -222,6 +245,8 @@ impl FrameGen {
             toggle_next: 0,
             toggle: None,
             last_index: None,
+            pending_load: None,
+            exiting: false,
         }
     }
 }
@@ -337,6 +362,8 @@ pub(super) fn add_systems(render_app: &mut SubApp) {
         .add_systems(Render, main_texture_copies.in_set(RenderSystems::PrepareViews).after(crate::upscaler::prep::prepare).before(prepare_view_targets).run_if(on))
         .add_systems(Render, set_constants.in_set(RenderSystems::PrepareResources).after(crate::upscaler::prep::prepare).run_if(on))
         .add_systems(Render, window_changes.before(create_surfaces).run_if(on))
+        .add_systems(ExtractSchedule, toggle_switch.after(extract_windows).run_if(on))
+        .add_systems(ExtractSchedule, exit_watch.before(extract_windows).run_if(active))
         .add_systems(Core3d, tag.after(Core3dSystems::PostProcess).before(ui_pass).run_if(on))
         .add_systems(RenderGraph, options.after(RenderGraphSystems::Finish).run_if(active))
         .add_systems(Render, state.in_set(RenderSystems::Render).after(render_system).run_if(active));
@@ -610,7 +637,7 @@ fn wanted(fg: &FrameGen, decision: Option<Decision>) -> Applied {
         Mode::On { frames } => {
             let last = fg.applied;
             let (render, output) = decision.map(|d| (d.render, d.output)).or(last.map(|a| (a.render, a.output))).unwrap_or_default();
-            let on = decision.is_some_and(|d| d.generate) && fg.status_failed.is_none() && !fg.window_off && fg.loaded;
+            let on = decision.is_some_and(|d| d.generate) && fg.status_failed.is_none() && !fg.window_off && fg.loaded && !fg.exiting;
             Applied { on, frames: frames.clamp(1, fg.max_frames.max(1)), render, output, back_buffers }
         }
     }
@@ -694,9 +721,12 @@ fn state(world: &mut World) {
     }
     fg.max_frames = state.num_frames_to_generate_max;
     fg.min_size = state.min_width_or_height;
-    // A frame was presented, and with the mode off: a window change may go ahead.
-    if state.num_frames_actually_presented > 0 {
-        fg.presented_off = !fg.applied.is_some_and(|a| a.on);
+    // A frame was presented, and with the mode off: a window change may go ahead. No present
+    // since the mode went off (an image that came back `Outdated`) counts as off too: DLSS-G has
+    // had no present to work on (the review's P3a).
+    let off_now = !fg.applied.is_some_and(|a| a.on);
+    if state.num_frames_actually_presented > 0 || off_now {
+        fg.presented_off = off_now;
     }
     let now = Instant::now();
     // A frame nothing was presented for (the window minimised) is not counted as a real frame.
@@ -787,7 +817,7 @@ fn window_step(pending: bool, toggle: Option<bool>, loaded: bool, presented_off:
 /// Window changes and the live toggle (the module comment), before Bevy's `create_surfaces`.
 fn window_changes(world: &mut World) {
     let found = {
-        let mut windows = world.query::<(Entity, &ExtractedWindow, &SurfaceData)>();
+        let mut windows = world.query_filtered::<(Entity, &ExtractedWindow, &SurfaceData), With<PrimaryWindow>>();
         windows.iter(world).next().map(|(entity, window, data)| {
             let what = if window.size_changed {
                 format!("size {}x{}", window.physical_width, window.physical_height)
@@ -807,6 +837,10 @@ fn window_changes(world: &mut World) {
             fg.toggle_next += 1;
             fg.toggle = Some(on);
             note_fg(Level::INFO, format!("toggle: frame generation {} asked ({TOGGLE_ENV}, {at} s)", if on { "on" } else { "off" }));
+        }
+        // A switch to what DLSS-G is already: nothing to do (the review's P3b).
+        if fg.toggle == Some(fg.loaded) {
+            fg.toggle = None;
         }
         let pending = found.as_ref().is_some_and(|(_, pending, _)| *pending);
         let step = window_step(pending, fg.toggle, fg.loaded, fg.presented_off, fg.hold_frames);
@@ -834,9 +868,10 @@ fn window_changes(world: &mut World) {
                 }
                 fg.window_off = off;
             }
-            WindowStep::Load(_) => {
+            WindowStep::Load(load) => {
                 fg.window_off = true;
                 fg.toggle = None;
+                fg.pending_load = Some(load);
             }
         }
         if let WindowStep::Go { off: true } = step {
@@ -845,39 +880,91 @@ fn window_changes(world: &mut World) {
         step
     };
     world.resource_mut::<HoldSurfaceReconfigure>().0 = step == WindowStep::Hold;
-    let WindowStep::Load(load) = step else { return };
-    let Some((entity, ..)) = found else {
+}
+
+/// The live toggle's switch, in the extraction after the frame that decided it (the module
+/// comment): the swapchain released, DLSS-G's resources freed when it goes off,
+/// `slSetFeatureLoaded`; Bevy's `create_surfaces` makes the swapchain again this frame.
+fn toggle_switch(world: &mut World) {
+    let Some(load) = frame_gen().as_mut().and_then(|fg| fg.pending_load.take()) else { return };
+    let entity = {
+        let mut windows = world.query_filtered::<Entity, (With<ExtractedWindow>, With<SurfaceData>, With<PrimaryWindow>)>();
+        windows.iter(world).next()
+    };
+    let Some(entity) = entity else {
         note_fg(Level::WARN, "toggle: no window surface to make again; nothing switched");
         return;
     };
-    // The swapchain released: the GPU drained, the window's image dropped, the surface taken
-    // away (wgpu waits for the device and destroys the swapchain, then the surface). Bevy's
-    // `create_surfaces` makes both again after this system, this frame.
+    // The main thread's Reflex calls wait out the switch (`frame_token.rs`), whatever runs.
+    frame_token::switching(true);
     let polled = world.resource::<bevy::render::renderer::RenderDevice>().wgpu_device().poll(wgpu::PollType::wait_indefinitely());
     if let Some(mut window) = world.get_mut::<ExtractedWindow>(entity) {
         drop(window.swap_chain_texture.take());
         window.swap_chain_texture_view = None;
     }
+    // wgpu waits for the device and destroys the swapchain, then the surface.
     world.entity_mut(entity).remove::<SurfaceData>();
+    let freed = (!load).then(super::win::free_frame_generation);
     let result = super::win::set_frame_generation_loaded(load);
+    frame_token::switching(false);
     let mut guard = frame_gen();
     let Some(fg) = guard.as_mut() else { return };
     if result.is_ok() {
         fg.loaded = load;
         fg.applied = None;
         fg.presented_off = true;
+        super::FG_UNLOADED.store(!load, Ordering::Relaxed);
     }
     fg.hold_frames = 0;
+    fg.window_off = true;
+    let freed = freed.map_or_else(String::new, |r| format!("slFreeResources(DLSS-G, viewport {VIEWPORT}) {}, ", r.name()));
     note_fg(
         if result.is_ok() { Level::INFO } else { Level::WARN },
         format!(
-            "toggle: frame generation {}: GPU drained ({}), the swapchain released, slSetFeatureLoaded(DLSS-G, {load}) {}, the swapchain made again this frame ({})",
+            "toggle: frame generation {}: GPU drained ({}), the swapchain released, {freed}slSetFeatureLoaded(DLSS-G, {load}) {}, the swapchain made again this frame ({})",
             if load { "on" } else { "off" },
             if matches!(&polled, Ok(s) if s.wait_finished()) { "ok" } else { "incomplete" },
             result.name(),
             if load { "Streamline's proxy" } else { "native" }
         ),
     );
+}
+
+/// The app exiting (the module comment's "Exit"): on `AppExit` the mode goes off for the frame
+/// being extracted (still presented); on a window closing, whose surface `extract_windows`
+/// removes in this extraction, off at once (the render thread waits during the extraction, so
+/// nothing else calls DLSS-G).
+fn exit_watch(mut exits: Extract<MessageReader<AppExit>>, mut closing: Extract<MessageReader<WindowClosing>>) {
+    let exit = exits.read().count() > 0;
+    let closes = closing.read().count() > 0;
+    if !exit && !closes {
+        return;
+    }
+    let mut guard = frame_gen();
+    let Some(fg) = guard.as_mut() else { return };
+    if fg.exiting {
+        return;
+    }
+    fg.exiting = true;
+    if !closes {
+        note_fg(Level::INFO, "exit: DLSS-G's mode off for the last frame (AppExit)");
+        return;
+    }
+    if !fg.loaded {
+        return;
+    }
+    let mut options = off_options();
+    if let Some(a) = fg.applied {
+        fill_sizes(&mut options, a);
+    }
+    let viewport = ViewportHandle::new(VIEWPORT);
+    // SAFETY: DLSS-G's function with its header signature, options and viewport alive for the
+    // call; the render thread waits during the extraction.
+    let result = unsafe { (fg.set_options)(&viewport, &options) };
+    if result.is_ok() {
+        fg.applied = fg.applied.map(|a| Applied { on: false, ..a });
+    }
+    note_fg(if result.is_ok() { Level::INFO } else { Level::WARN }, format!("exit: the window closes: DLSS-G's mode off now: {}", result.name()));
 }
 
 /// The state line, with the present and acquire results since the last one: errors (negative),

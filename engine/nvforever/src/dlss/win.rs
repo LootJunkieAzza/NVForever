@@ -1106,6 +1106,17 @@ pub(super) fn set_frame_generation_loaded(loaded: bool) -> SlResult {
     unsafe { (spike.api.set_feature_loaded)(FEATURE_DLSS_G, loaded) }
 }
 
+/// `slFreeResources(DLSS-G, viewport)` before the live toggle unloads it, after the drain: a
+/// long-term off frees what `eRetainResourcesWhenOff` kept [documented:
+/// `ProgrammingGuideDLSS_G.md` §6.4].
+pub(super) fn free_frame_generation() -> SlResult {
+    let guard = state();
+    let Some(spike) = guard.as_ref() else { return SlResult(21) };
+    let viewport = ViewportHandle::new(VIEWPORT);
+    // SAFETY: after the GPU drain; a viewport handle from its constructor.
+    unsafe { (spike.api.free_resources)(FEATURE_DLSS_G, &viewport) }
+}
+
 /// Whether DLSS's evaluator would reset its next evaluate (`Evaluator::history_stale`); false
 /// while DLSS is not active.
 pub(super) fn dlss_history_stale() -> bool {
