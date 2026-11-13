@@ -6,7 +6,9 @@
 //!   looking at its point, each frame after every other system that places it (the
 //!   third-person camera, a script's camera, and a knockdown's held view: a drinker who
 //!   passed out lies held with the camera on the dancer). When the stage goes, those
-//!   systems place the camera again on the next frame.
+//!   systems place the camera again on the next frame. While this player drinks and
+//!   before a win, the camera is on `DrinkWorld::shot` the same way: the contest camera
+//!   across the counter, the drinkers seen from the front (no fill light).
 //! - **The fill light** [design: drink-b's co-op frames, 2026-11-12, showed the winner as a
 //!   silhouette against the saloon's bright windows; the saloon's own lights over the
 //!   tables are north of the table, behind the dancer. Parity, 2026-11-12: subtle, as the
@@ -53,9 +55,10 @@ impl Plugin for DrinkStagePlugin {
     }
 }
 
-/// The player camera on the stage's camera while a win is danced.
+/// The player camera on the stage's camera while a win is danced, else on the contest's
+/// camera while this player drinks.
 fn camera(world: Option<Res<DrinkWorld>>, mut cams: Query<&mut Transform, With<PlayerCamera>>) {
-    let Some(view) = world.as_deref().and_then(|w| w.stage) else { return };
+    let Some(view) = world.as_deref().and_then(|w| w.stage.or(w.shot)) else { return };
     let Ok(mut t) = cams.single_mut() else { return };
     let want = Transform::from_translation(space::to_bevy(view.camera)).looking_at(space::to_bevy(view.look_at), Vec3::Y);
     if want.translation.is_finite() && want.rotation.is_finite() {

@@ -101,6 +101,8 @@ pub struct SlotSnap {
     pub out: Option<u32>,
     /// Why, when `out` is set (the host's reason, so every screen names the same one).
     pub why: Why,
+    /// Drinks taken: the host's count, which the end's snapshot settles on every screen.
+    pub step: u32,
 }
 
 /// The co-op hook (drink-b fills it; the default, off, is one player alone).
@@ -220,6 +222,69 @@ pub fn board_after(won: bool) -> f32 {
     }
 }
 
+/// What keeps an actor near the table out of a drinking contest. Only people drink
+/// (owner, 2026-11-12: "it lets cheyenne drink wtf"): no creature (its base, through its
+/// template, is a CREA record [documented: the Tes4Mod NPC_/CREA record pages]: dogs,
+/// robots, eyebots), no child (its race's Child flag, RACE DATA [documented: catalogue
+/// summary of IsChild]), and nobody dead, out cold (knocked out or set unconscious) or in
+/// a combat state (Alert, Combat or Lost [documented: GECK wiki Category:Detection]).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Fit {
+    pub creature: bool,
+    pub child: bool,
+    pub dead: bool,
+    pub out_cold: bool,
+    pub fighting: bool,
+}
+
+impl Fit {
+    pub fn may_drink(self) -> bool {
+        !(self.creature || self.child || self.dead || self.out_cold || self.fighting)
+    }
+}
+
+/// `r`'s [`Fit`] from the game: an actor with no actor record counts as no person.
+pub fn fit_of(g: &fnv_game::Game, r: FormId) -> Fit {
+    Fit {
+        creature: fnv_game::nvse_nx::is_creature(g, r) != Some(false),
+        child: g.actor_race(r).is_some_and(|race| g.data.child_races.contains(&race)),
+        dead: g.is_dead(r),
+        out_cold: g.is_out_cold(r),
+        fighting: g.awareness.state(r).in_combat(),
+    }
+}
+
+/// The `n` nearest actors of `near` (each with its place and [`Fit`]) that may drink,
+/// nearest first on the floor (distance across, not up), never the player.
+pub fn nearest_drinkers(near: Vec<(FormId, [f32; 3], Fit)>, me: [f32; 3], n: usize) -> Vec<FormId> {
+    let d2 = |p: &[f32; 3]| (p[0] - me[0]).powi(2) + (p[1] - me[1]).powi(2);
+    let mut ok: Vec<_> = near.into_iter().filter(|(r, _, f)| *r != FormId::PLAYER_REF && f.may_drink()).collect();
+    ok.sort_by(|a, b| d2(&a.1).total_cmp(&d2(&b.1)));
+    ok.into_iter().take(n).map(|(r, _, _)| r).collect()
+}
+
+/// `drinkers` without the NPCs whose [`Fit`] (`fit`, by reference id) keeps them out.
+pub fn keep_people(drinkers: Vec<Drinker>, fit: impl Fn(u32) -> Fit) -> Vec<Drinker> {
+    drinkers
+        .into_iter()
+        .filter(|d| match d.who {
+            Who::Npc(r) => {
+                let f = fit(r);
+                if !f.may_drink() {
+                    info!("drink contest: {} ({r:08X}) may not drink ({f:?}): left out", d.name);
+                }
+                f.may_drink()
+            }
+            _ => true,
+        })
+        .collect()
+}
+
+/// The actors near the player in the loaded cells, each with its [`Fit`].
+pub fn near_with_fit(g: &fnv_game::Game) -> Vec<(FormId, [f32; 3], Fit)> {
+    crate::compass::actors_near(g, &Default::default()).into_iter().map(|(r, p)| (r, p, fit_of(g, r))).collect()
+}
+
 /// An NPC drinker: its name and Endurance from its record.
 pub fn npc_drinker(rt: &mut crate::script::Runtime, sim: &mut SimState, r: FormId) -> Drinker {
     let endurance = with_world(rt, sim, |rt| fnv_game::functions::actor_value(&mut rt.game, r, fnv_game::actor_values::ENDURANCE).unwrap_or(5.0));
@@ -257,6 +322,17 @@ fn open(mut starts: MessageReader<DrinkStart>, mut screen: ResMut<DrinkScreen>, 
             warn!("drink contest: a contest is already on; the start at {:08X} is not taken", s.bottle);
             continue;
         }
+        // The last gate: an NPC drinker who may not drink ([`Fit`]) is left out, whatever
+        // started the contest. Alone only: a co-op contest's list is the deciding game's,
+        // the same slots on every screen, and holds no NPCs.
+        let mut s = s.clone();
+        if !link.on {
+            if let Some(rt) = script.as_mut().and_then(|s| s.rt.as_mut()) {
+                let g = &rt.game;
+                s.drinkers = keep_people(std::mem::take(&mut s.drinkers), |r| fit_of(g, FormId(r)));
+            }
+        }
+        let s = &s;
         let d = Drink::new(s, &link, time.elapsed_secs());
         let who: Vec<String> = d.contest.drinkers.iter().map(|x| format!("{} (Endurance {})", x.name, x.endurance)).collect();
         let role = match (link.on, link.authority) {
@@ -364,6 +440,9 @@ fn step(time: AidTime, mut screen: ResMut<DrinkScreen>, mut link: ResMut<DrinkLi
 
 /// A follower's copy takes the host's places, pass-outs and winner.
 fn follow(d: &mut Drink, link: &mut DrinkLink) {
+    // The end's snapshot comes with the winner: a follower's own clock may have poured a
+    // drink after the host's last tick (the view's lag), so the host's counts stand.
+    let settled = link.winner.is_some();
     if let Some((_, snaps)) = link.snap.take() {
         for (i, (s, n)) in d.contest.slots.iter_mut().zip(&snaps).enumerate() {
             let off = (s.pos[0] - n.pos[0]).hypot(s.pos[1] - n.pos[1]);
@@ -372,6 +451,9 @@ fn follow(d: &mut Drink, link: &mut DrinkLink) {
                 s.drift = n.drift;
             }
             s.radius = n.radius;
+            if settled {
+                s.step = n.step;
+            }
         }
         for (i, n) in snaps.iter().enumerate() {
             if let Some(e) = n.out.and_then(|t| d.contest.mark_out(i, t, n.why)) {
@@ -619,14 +701,9 @@ fn test_aid(time: AidTime, mut done: Local<bool>, mut script: Option<ResMut<Scri
     let Some(rt) = script.as_mut().and_then(|s| s.rt.as_mut()) else { return };
     *done = true;
     let me = sim.world.peek(FormId::PLAYER_REF).map_or([0.0; 3], |s| s.pos);
-    let mut near = with_world(rt, &mut sim, |rt| {
-        let g = &rt.game;
-        crate::compass::actors_near(g, &Default::default()).into_iter().filter(|(r, _)| *r != FormId::PLAYER_REF && !g.is_dead(*r)).collect::<Vec<_>>()
-    });
-    let d2 = |p: &[f32; 3]| (p[0] - me[0]).powi(2) + (p[1] - me[1]).powi(2) + (p[2] - me[2]).powi(2);
-    near.sort_by(|a, b| d2(&a.1).total_cmp(&d2(&b.1)));
+    let near = with_world(rt, &mut sim, |rt| near_with_fit(&rt.game));
     let mut drinkers = vec![player_drinker(rt, &mut sim, 0, "You")];
-    for (r, _) in near.into_iter().take(a.npcs) {
+    for r in nearest_drinkers(near, me, a.npcs) {
         drinkers.push(npc_drinker(rt, &mut sim, r));
     }
     info!("drink contest: test aid starts a contest ({:?}) with {} NPCs", a.mode, drinkers.len() - 1);
@@ -707,8 +784,41 @@ mod tests {
         assert_eq!(board_after(true), crate::flourish::LIFE);
     }
 
-    /// A guest's screen follows the host: its link's slot, a follower's contest, the
-    /// host's places past the hard limit, its pass-outs and winner.
+    /// A dog, a robot and a child stand nearest the table; only the people drink, and
+    /// never the dead, the out cold or the fighting.
+    #[test]
+    fn only_people_are_picked_to_drink() {
+        let at = |x: f32| [x, 0.0, 0.0];
+        let person = Fit::default();
+        let near = vec![
+            (FormId(0x10), at(10.0), Fit { creature: true, ..person }),
+            (FormId(0x11), at(20.0), Fit { child: true, ..person }),
+            (FormId(0x12), at(30.0), Fit { dead: true, ..person }),
+            (FormId(0x13), at(40.0), Fit { out_cold: true, ..person }),
+            (FormId(0x14), at(50.0), Fit { fighting: true, ..person }),
+            (FormId(0x15), at(15.0), Fit { creature: true, fighting: true, ..person }),
+            (FormId(0x20), at(90.0), person),
+            (FormId::PLAYER_REF, at(0.0), person),
+            (FormId(0x21), at(60.0), person),
+            (FormId(0x22), at(200.0), person),
+        ];
+        assert_eq!(nearest_drinkers(near.clone(), at(0.0), 2), [FormId(0x21), FormId(0x20)]);
+        assert_eq!(nearest_drinkers(near, at(0.0), 9), [FormId(0x21), FormId(0x20), FormId(0x22)]);
+        assert!(person.may_drink());
+    }
+
+    /// Whatever starts a contest, a creature or a child among its drinkers is left out.
+    #[test]
+    fn a_start_keeps_only_people() {
+        let mut list = drinkers();
+        list.push(Drinker { who: Who::Npc(0x7), name: "Dog".into(), endurance: 5 });
+        let kept = keep_people(list, |r| Fit { creature: r == 0x7, child: r == 0x104C7E, ..Fit::default() });
+        let names: Vec<&str> = kept.iter().map(|d| d.name.as_str()).collect();
+        assert!(!names.contains(&"Dog") && !names.contains(&"Trudy"), "{names:?}");
+        assert!(names.contains(&"Settler"), "{names:?}");
+        assert_eq!(kept.len(), drinkers().len() - 1);
+    }
+
     /// The drink a drinker passes out on is not counted; one who leaves or slips outside
     /// keeps every drink taken.
     #[test]
@@ -728,6 +838,8 @@ mod tests {
         assert_eq!(finished_drinks(s), 0);
     }
 
+    /// A guest's screen follows the host: its link's slot, a follower's contest, the
+    /// host's places past the hard limit, its pass-outs and winner.
     #[test]
     fn a_guest_follows_the_host() {
         let start = DrinkStart { bottle: 1, drinkers: drinkers(), seed: 5, stake: 10 };
@@ -735,7 +847,7 @@ mod tests {
         let mut d = Drink::new(&start, &link, 0.0);
         assert_eq!(d.me, Some(1));
         assert!(d.contest.follower);
-        let snap = |x: f32, out| SlotSnap { pos: [x, 0.0], drift: [0.0; 2], radius: 0.85, out, why: Why::Outside };
+        let snap = |x: f32, out| SlotSnap { pos: [x, 0.0], drift: [0.0; 2], radius: 0.85, out, why: Why::Outside, step: 3 };
         // Its own slot: near the host's place it keeps its own; slot 0 takes the host's.
         d.contest.slots[1].pos = [0.1, 0.0];
         let mut gone = snap(0.0, Some(79));
@@ -753,5 +865,26 @@ mod tests {
         follow(&mut d, &mut link);
         assert_eq!(d.inbox.last(), Some(&Event::Winner { slot: Some(0), pot: 30 }));
         assert_eq!(d.won(), Some(false));
+    }
+
+    /// A guest's own clock poured a drink after the host's last tick: the end's snapshot,
+    /// which comes with the winner, puts the host's count back on every slot.
+    #[test]
+    fn the_end_takes_the_hosts_drink_counts() {
+        let start = DrinkStart { bottle: 1, drinkers: drinkers(), seed: 5, stake: 10 };
+        let mut link = DrinkLink { on: true, authority: false, local: Some(1), ..default() };
+        let mut d = Drink::new(&start, &link, 0.0);
+        let snap = |step, out| SlotSnap { pos: [0.0; 2], drift: [0.0; 2], radius: 0.4, out, why: Why::Outside, step };
+        d.contest.slots[1].step = 7;
+        // While it runs the guest keeps its own count.
+        link.snap = Some((1100, vec![snap(6, None), snap(6, None), snap(6, None)]));
+        follow(&mut d, &mut link);
+        assert_eq!(d.contest.slots[1].step, 7);
+        // The end: the host's counts.
+        link.snap = Some((1159, vec![snap(6, Some(1159)), snap(6, None), snap(5, Some(900))]));
+        link.winner = Some(Some(1));
+        follow(&mut d, &mut link);
+        assert_eq!(d.contest.slots.iter().map(|s| s.step).collect::<Vec<_>>(), [6, 6, 5]);
+        assert_eq!(finished_drinks(&d.contest.slots[1]), 6);
     }
 }

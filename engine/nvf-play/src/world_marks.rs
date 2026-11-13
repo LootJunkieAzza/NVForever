@@ -434,10 +434,14 @@ fn on_screen(cam: &Camera, t: &GlobalTransform, size: Vec2, p: [f32; 3]) -> Opti
 /// The play state and the Pip-Boy (full and glance), which hide the marks.
 type PlayAndPipBoy<'w> = (Res<'w, State<PlayState>>, Option<Res<'w, crate::pipboy::PipBoy>>, Option<Res<'w, crate::pipboy::glance::Glance>>);
 
+/// The name tags' switches: on, the hidden ones, and the drinking contest's screen and
+/// win shot, which hide them.
+type TagParams<'w> = (Res<'w, NameTags>, Res<'w, HiddenTags>, Option<Res<'w, crate::drink_contest::DrinkScreen>>, Option<Res<'w, crate::drink_world::DrinkWorld>>);
+
 #[allow(clippy::too_many_arguments)]
 fn draw(
     mut commands: Commands,
-    (tags, hidden, drink): (Res<NameTags>, Res<HiddenTags>, Option<Res<crate::drink_contest::DrinkScreen>>),
+    (tags, hidden, drink, stage): TagParams,
     pings: Res<Pings>,
     mates: Res<SocialMates>,
     heads: Res<crate::emotes::MateHeads>,
@@ -472,8 +476,9 @@ fn draw(
             d.length_squared() <= FOCUS_RADIUS * FOCUS_RADIUS
         };
         // Not over the drinking contest's screen (its roster names the drinkers; a tag lay
-        // over its result banner, parity 2026-11-12).
-        let contest = drink.as_deref().is_some_and(|d| d.0.is_some());
+        // over its result banner, parity 2026-11-12), nor under its win shot, which outlasts
+        // the loser's screen by a moment.
+        let contest = drink.as_deref().is_some_and(|d| d.0.is_some()) || stage.as_deref().is_some_and(|w| w.stage.is_some());
         if tags.on && !contest {
             for m in mates.mates.iter().filter(|m| m.here && !m.lost && !hidden.0.contains(&m.reference)) {
                 // Over its drawn head (queue item 137; seated on furniture too); its feet
