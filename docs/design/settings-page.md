@@ -128,9 +128,14 @@ what the keys, the pointer and the aids ask of a row, a registered row or a Cont
 alike, so the search and the Changed list act on their rows the same way, drawn by the
 same `row_line`.
 
-The Controls tab lists, as before, Input Device, the 29 controls, Invert Y, the device's
-sensitivity and with a controller Rumble, then the four controller rows. Its Defaults puts
-back the controls of the device in use (`bindings::reset`, as before) and the tab's
+[design, #2200; `settings_view.rs::ControlRow::rows`] The Controls tab lists Input Device,
+Automatic Input Switching (default ON), the 29 controls, Invert Y, the device's sensitivity
+and Vertical Sensitivity, and with a controller Rumble, then the four controller rows.
+Automatic Input Switching selects and saves Input Device on fresh use only when the old
+device was idle at frame start and has no release in that frame. Release its buttons and
+return sticks/triggers to neutral, then press again on a later frame. Only the switching
+press edge is ignored; later holds/repeats and all releases work (controller.md section 1).
+Turning it off keeps device selection manual. Its Defaults puts back the controls of the device in use (`bindings::reset`, as before) and the tab's
 registered rows; Defaults on every other tab puts back every registered row, as before
 (`pause menu: settings back to their defaults`). A control waiting for its new key is
 `pause::Listening` (the pad presses no menu keys meanwhile).
@@ -249,6 +254,7 @@ every tab, hidden and disabled rows too, in the page's order, under where each l
 | A list | its state as the INI keeps it (`ChoiceList::save`) differs from the start's (`StartChoices`; taken when the page is first shown when there is none) |
 | A control's key and mouse button; its controller button | it is not the game's (`Bindings::game_defaults`), each device's its own row |
 | Invert Y, Rumble, Input Device, each sensitivity | as the game has it by default |
+| Automatic Input Switching | OFF, away from its ON default [design, #2200; `bindings::changed_controls`] |
 
 (`settings::changed_rows`, `bindings::changed_controls`.) A disabled row counts by its
 saved state, not by the words shown in its place. A hidden row is listed as the row that

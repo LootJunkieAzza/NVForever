@@ -417,7 +417,9 @@ fn open(
 }
 
 /// The keys.
-fn keys(keys: Res<ButtonInput<KeyCode>>, mouse: Res<ButtonInput<MouseButton>>, screen: Res<RouletteScreen>, pointer: Res<RoulettePointer>, over_button: Query<&PointerState, With<Button>>, mut out: MessageWriter<RouletteInput>) {
+fn keys(keys: crate::pad::ActionButtons<KeyCode>, mouse: crate::pad::ActionButtons<MouseButton>, screen: Res<RouletteScreen>, pointer: Res<RoulettePointer>, over_button: Query<&PointerState, With<Button>>, mut out: MessageWriter<RouletteInput>) {
+    let keys = keys.snapshot();
+    let mouse = mouse.snapshot();
     let Some(s) = screen.0.as_ref() else { return };
     if s.help.is_some() {
         if keys.any_just_pressed([KeyCode::KeyE, KeyCode::Escape, KeyCode::Tab, KeyCode::Enter]) {

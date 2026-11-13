@@ -583,7 +583,8 @@ fn open(
     next.set(PlayState::Menu);
 }
 
-fn keys(keys: Res<ButtonInput<KeyCode>>, input: ControlInput, menu: Res<WaitMenu>, mut out: MessageWriter<WaitInput>) {
+fn keys(keys: crate::pad::ActionButtons<KeyCode>, input: ControlInput, menu: Res<WaitMenu>, mut out: MessageWriter<WaitInput>) {
+    let keys = keys.snapshot();
     use KeyCode::*;
     if !menu.is_open() {
         return;

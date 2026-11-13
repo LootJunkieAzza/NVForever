@@ -453,7 +453,8 @@ fn open(
     next.set(PlayState::Menu);
 }
 
-fn keys(keys: Res<ButtonInput<KeyCode>>, scroll: Option<Res<AccumulatedMouseScroll>>, screen: Res<PokerScreen>, mut out: MessageWriter<PokerInput>) {
+fn keys(keys: crate::pad::ActionButtons<KeyCode>, scroll: Option<Res<AccumulatedMouseScroll>>, screen: Res<PokerScreen>, mut out: MessageWriter<PokerInput>) {
+    let keys = keys.snapshot();
     let Some(s) = screen.0.as_ref() else { return };
     if s.leaving.is_some() {
         return;

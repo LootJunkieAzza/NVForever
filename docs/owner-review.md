@@ -23,6 +23,13 @@ the spec it links to.
 
 ## Tier 1: felt in every fight or every session
 
+- **Automatic device switching (#2200).** [design, #2200] Switch the saved two-device
+  choice on fresh use, default ON with a Controls/INI opt-out; ignore only the switching
+  press edge, preserve all releases, and require the old device idle at frame start with
+  no release that frame (cancellations remain a backstop). Keep the current device on
+  simultaneous activity. Alternatives
+  from the issue: an Auto choice, ask once, or discoverability only. Ruling otherwise
+  changes this selection policy ([controller section 1](design/controller.md)).
 - **Pip-Boy pages from their menu files by default (#2215).** [design, #2215] An absent
   `[UI] TileMenus` selects StatsMenu, InventoryMenu, RepairMenu, ItemModMenu, MapMenu and
   QuantityMenu, keeping the hand-built fallback for missing or cut-down files. An empty

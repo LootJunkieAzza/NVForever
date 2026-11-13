@@ -2159,10 +2159,11 @@ models {} (failed {})  textures failed {}  terrain layers {}  quadrants without 
 }
 
 fn keys(
-    input: Res<ButtonInput<KeyCode>>,
+    input: nvf_play::pad::ActionButtons<KeyCode>,
     play_state: Option<Res<State<nvf_play::PlayState>>>,
     mut commands: Commands,
 ) {
+    let input = input.snapshot();
     // With --play, Esc is nvf-play's: it opens the pause menu (Continue / Save / Load / Settings / Quit) or closes
     // the open menu, instead of quitting.
     if input.just_pressed(KeyCode::Escape) && play_state.is_none() {

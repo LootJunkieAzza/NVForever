@@ -642,11 +642,12 @@ fn follow_pointer(
     parts: Query<(&PipBoyPart, &PartMesh, &GlobalTransform, Option<&SkinnedMesh>)>,
     globals: Query<&GlobalTransform>,
     binds: Res<Assets<SkinnedMeshInverseBindposes>>,
-    mouse: Res<ButtonInput<MouseButton>>,
+    mouse: nvf_play::pad::ActionButtons<MouseButton>,
     mut aid: ResMut<PipBoyAid>,
     mut aid_over: Local<Option<Page>>,
     mut out: MessageWriter<PipBoyInput>,
 ) {
+    let mouse = mouse.snapshot();
     let Some(mut screen) = screen else { return };
     let was_over = aid_over.take();
     // The flat image has the pointer otherwise: never both (`pipboy::pointer_source`).
