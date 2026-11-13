@@ -590,6 +590,7 @@ pub fn read_controls(
     hud: Option<ResMut<HudMessage>>,
     campfire: Option<Res<crate::campfire::SecondAction>>,
     switches: Option<Res<crate::script_switches::ScriptSwitches>>,
+    rt: Option<Res<crate::rt_vats::RtVats>>,
 ) {
     if *state.get() != PlayState::Playing {
         control.aiming = false;
@@ -651,7 +652,8 @@ pub fn read_controls(
             message = Some(format!("{}: not available yet", Bindings::name(ctl)));
         }
     }
-    c.aiming = input.pressed(Control::Block) && !c.wheel;
+    // (While real-time VATS holds a lock, Aim moves it to the next target, `crate::rt_vats`.)
+    c.aiming = input.pressed(Control::Block) && !c.wheel && !rt.as_deref().is_some_and(|r| r.locked().is_some());
     if c.lowered && (c.aiming || c.trigger || !c.weapon_out) {
         c.lowered = false;
     }

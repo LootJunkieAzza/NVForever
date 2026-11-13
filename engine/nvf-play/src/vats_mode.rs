@@ -1524,6 +1524,9 @@ fn entry_style(shared_clock: bool, style: VatsStyle, slowdown: f32) -> (VatsStyl
     if shared_clock {
         (VatsStyle::Classic, 1.0)
     } else {
+        // (Real time is the lock's, `crate::rt_vats`; with its `bEnabled` off V is the
+        // classic style.)
+        let style = if style == VatsStyle::RealTime { VatsStyle::Classic } else { style };
         (style, classic::clock_scale(slowdown))
     }
 }

@@ -1349,22 +1349,38 @@ struct Doing<'w> {
 /// the others are for the glance's map (`nvf_play::pipboy::glance::CoopMates`), and
 /// whether the full Pip-Boy may leave the world running (`nvf_play::menu::LiveMenu`: in a
 /// session).
-fn pipboy_share(coop: Res<Coop>, mut checks: ResMut<crate::pipboy_check::PuppetChecks>, mut mates: ResMut<nvf_play::pipboy::glance::CoopMates>, mut live: ResMut<nvf_play::menu::LiveMenu>, mut vats: ResMut<nvf_play::vats_mode::VatsMode>) {
+fn pipboy_share(
+    coop: Res<Coop>,
+    mut checks: ResMut<crate::pipboy_check::PuppetChecks>,
+    mut mates: ResMut<nvf_play::pipboy::glance::CoopMates>,
+    mut live: ResMut<nvf_play::menu::LiveMenu>,
+    mut vats: ResMut<nvf_play::vats_mode::VatsMode>,
+    rt: Option<ResMut<nvf_play::rt_vats::RtVats>>,
+) {
     use nvf_play::pipboy::glance::{Check, Mate};
     let in_session = coop.link.is_some();
     if live.allowed != in_session {
         live.allowed = in_session;
     }
-    // In a session V is the classic VATS style with the clock left running, for the host
-    // and every guest: the clock is everyone's (`nvf_play::vats_mode::VatsMode::shared_clock`;
-    // the owner 2026-11-12, in place of the real-time lock of queue item 196, which the
-    // link no longer turns on).
+    // In a session V is the real-time lock (`nvf_play::rt_vats`, queue item 196), for the
+    // host and every guest [design: the owner 2026-11-12, "it should be based on the real
+    // time vats mod but just using the new limb darwing technique instaead of the
+    // diamond"]. VATS mode, should the lock's switch be off, keeps the clock running: the
+    // clock is everyone's (`nvf_play::vats_mode::VatsMode::shared_clock`).
+    let fellows: Vec<u32> = coop.peers.iter().flat_map(|(&id, p)| p.references(id)).collect();
+    if let Some(mut rt) = rt {
+        if rt.fellow_players != fellows {
+            rt.fellow_players = fellows.clone();
+        }
+        if rt.allowed != in_session {
+            rt.allowed = in_session;
+            info!("vats: {}", if in_session { "a co-op session: V is real-time VATS (the lock)" } else { "no session: V is VATS mode as the settings page has it" });
+        }
+    }
     if vats.shared_clock != in_session {
         vats.shared_clock = in_session;
-        info!("vats: {}", if in_session { "a co-op session: V is the classic style, the clock runs on" } else { "no session: V is VATS mode as the settings page has it" });
     }
     // The other players' bodies, which VATS does not offer as targets.
-    let fellows: Vec<u32> = coop.peers.iter().flat_map(|(&id, p)| p.references(id)).collect();
     if vats.fellow_players != fellows {
         vats.fellow_players = fellows;
     }

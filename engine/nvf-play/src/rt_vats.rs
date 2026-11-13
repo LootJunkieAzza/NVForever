@@ -4,9 +4,21 @@
 //! the RealtimeVatsNV mod the owner asked for, queue item 196); this is the game's side.
 //!
 //! - **When** ([`RtVats::active`]): in a co-op session (`allowed`, set by the co-op
-//!   link, for the host and every guest), with the settings page's switch on and
-//!   `bEnabled` true. Solo keeps VATS mode (`crate::vats_mode`), whose V this takes over
-//!   while active.
+//!   link, for the host and every guest), or solo with the V.A.T.S. style Real time
+//!   (`crate::vats_classic::VatsStyle::RealTime`); `bEnabled` true either way. The old
+//!   switch "Real-time VATS in co-op" (`realtime-vats`) is retired: co-op is always real
+//!   time, and an old INI's value is read and ignored ([`load_config`]). Otherwise V is VATS mode (`crate::vats_mode`), whose V this takes over
+//!   while active [design: the fork owner 2026-11-12, "it should be based on the real time
+//!   vats mod but just using the new limb darwing technique instaead of the diamond", and
+//!   "only if solo vats mode is selected as real time vats"].
+//! - **Held** ([`update`]): the view stays on the locked limb while the player moves
+//!   (`crate::vats_classic::turn_onto`), the mouse does not turn it meanwhile
+//!   (`crate::player`), and Aim (as bound: the right mouse button, LT) moves to the next
+//!   target instead of aiming down the sights (`crate::control`) [design: the owner
+//!   2026-11-12, "vats should lock the aim to the currently selected target" and "make
+//!   switch targets the ads button"]. V lets go, and B on a controller.
+//! - **The limb** is lit with VATS's hatched limb highlight (nvforever `vats_highlight`,
+//!   [`RtVats::highlighted`]) in place of the mod's mark [design: the owner, above].
 //! - **Lock** ([`read_keys`], [`update`]): V (the VATS control), or X (`iKeyLock`) when a
 //!   hostile can be locked (otherwise X is still the fork's Weapon Bash), locks on to the
 //!   visible hostile nearest the view within `fMaxRange` and `fMaxAngle` whose hit chance
@@ -31,7 +43,8 @@
 //!   target's name, the limb, the chance, the limb's condition and the critical meter,
 //!   in the HUD's font and colour.
 //! - **Settings**: `[RealtimeVats]` of NVForever.ini under the mod's names (written with
-//!   the defaults when the section is missing), and the page's switch `realtime-vats`.
+//!   the defaults when the section is missing). Solo picks it as the V.A.T.S. style Real
+//!   time; the old switch `realtime-vats` is retired.
 //!
 //! Each player's lock is their own: a guest's shots and hits go to the host as its other
 //! shots do (`crate::combat`'s relayed hits carry the damage dealt), so nothing of the
@@ -68,7 +81,7 @@ use crate::{space, PlaySet, PlayState, PlayerCamera};
 
 /// The INI section the settings are kept in, under the mod's names.
 pub const SECTION: &str = "RealtimeVats";
-/// The settings page's switch.
+/// The retired settings page's switch (an old INI may still have it).
 pub const SETTING_KEY: &str = "realtime-vats";
 
 /// The lock held now.
@@ -90,6 +103,9 @@ struct Lock {
     /// Shots and Action Points since it began (for the log).
     shots: u32,
     spent: f32,
+    /// The view is held on the limb (`crate::vats_classic::turn_onto`); a new lock swings
+    /// onto it first.
+    held: bool,
 }
 
 /// What was pressed this frame.
@@ -122,10 +138,12 @@ pub struct Stats {
 #[derive(Resource)]
 pub struct RtVats {
     pub cfg: Config,
-    /// The settings page's switch (on by default).
-    pub on: bool,
     /// In a co-op session: set by the co-op link.
     pub allowed: bool,
+    /// Solo with the V.A.T.S. style Real time (`crate::vats_classic::VatsStyle::RealTime`).
+    pub solo: bool,
+    /// The other players' bodies (set by the co-op link): never a target.
+    pub fellow_players: Vec<u32>,
     lock: Option<Lock>,
     crit: CritMeter,
     keys: Keys,
@@ -140,14 +158,21 @@ pub struct RtVats {
 
 impl Default for RtVats {
     fn default() -> Self {
-        RtVats { cfg: Config::default(), on: true, allowed: false, lock: None, crit: CritMeter::default(), keys: Keys::default(), seen: Vec::new(), look_in: 0.0, sounds: None, stats: Stats::default() }
+        RtVats { cfg: Config::default(), allowed: false, solo: false, fellow_players: Vec::new(), lock: None, crit: CritMeter::default(), keys: Keys::default(), seen: Vec::new(), look_in: 0.0, sounds: None, stats: Stats::default() }
     }
 }
 
 impl RtVats {
     /// Whether the VATS key is the lock's now.
     pub fn active(&self) -> bool {
-        self.allowed && self.on && self.cfg.enabled
+        self.cfg.enabled && (self.allowed || self.solo)
+    }
+
+    /// The limb VATS's hatched highlight lights (nvforever `vats_highlight`): the locked
+    /// target and its limb's body part (`None`: the whole of a target without parts), with
+    /// `bLimbHighlight` on.
+    pub fn highlighted(&self) -> Option<(u32, Option<u8>)> {
+        self.lock.as_ref().filter(|_| self.cfg.limb_highlight).map(|l| (l.target, l.part))
     }
 
     /// The locked actor.
@@ -206,17 +231,32 @@ fn free_keys(rt: Res<RtVats>, keys: Res<ButtonInput<KeyCode>>, mut freed: ResMut
     }
 }
 
+/// The controls' part of the lock's keys this frame (`pressed`: the control was pressed,
+/// as bound): Aim moves to the next target while a lock is held; V locks or lets go.
+pub fn lock_presses(locked: bool, pressed: impl Fn(Control) -> bool) -> (bool, bool) {
+    (locked && pressed(Control::Block), pressed(Control::Vats))
+}
+
 /// What the player pressed for the lock this frame.
-fn read_keys(input: ControlInput, state: Res<State<PlayState>>, mut rt: ResMut<RtVats>) {
+fn read_keys(input: ControlInput, state: Res<State<PlayState>>, mut rt: ResMut<RtVats>, style: Option<Res<crate::vats_classic::VatsStyle>>) {
+    let solo = style.is_some_and(|s| *s == crate::vats_classic::VatsStyle::RealTime);
+    if rt.solo != solo {
+        rt.solo = solo;
+        info!("realtime vats: {}", if solo { "the V.A.T.S. style is Real time: V is the lock" } else { "the V.A.T.S. style is not Real time" });
+    }
+    let playing = *state.get() == PlayState::Playing;
+    let (aim_next, vats) = lock_presses(rt.lock.is_some(), |c| playing && input.just_pressed(c));
+    // A controller's B lets go of a held lock.
+    let pad_back = playing && rt.lock.is_some() && input.controller() && input.pads.iter().any(|g| g.just_pressed(GamepadButton::East));
     let live = *state.get() == PlayState::Playing && !input.suppressed() && !input.hold.as_ref().is_some_and(|h| h.all) && !input.controller();
     let raw = |code: u8| live && code != 0 && dik_key(code).is_some_and(|k| input.keys.just_pressed(k) && !input.blocked.as_ref().is_some_and(|b| b.keys.contains(&k)));
     let c = &rt.cfg;
     let keys = if rt.active() {
         Keys {
             // (Read past the lock's own hold on the keys: V is never one of them.)
-            vats: *state.get() == PlayState::Playing && input.just_pressed(Control::Vats),
+            vats: vats || pad_back,
             lock: raw(c.key_lock),
-            next: raw(c.key_next),
+            next: raw(c.key_next) || aim_next,
             previous: raw(c.key_previous),
             limb_next: raw(c.key_limb_next),
             limb_previous: raw(c.key_limb_previous),
@@ -284,7 +324,7 @@ struct Look<'w> {
     sim: ResMut<'w, SimState>,
     script: Option<ResMut<'w, ScriptState>>,
     phys: ResMut<'w, PhysState>,
-    player: Res<'w, Player>,
+    player: ResMut<'w, Player>,
 }
 
 /// The living hostiles seen from the eye now, each on `limb` (the torso for those
@@ -294,7 +334,7 @@ struct Look<'w> {
 /// is under the crosshair (within [`CROSSHAIR_DEG`] of the view): V locks on to it, as
 /// VATS may target anyone; X, the target key and a chain never take it. The actor a lock
 /// is held on (`held`) is looked for wherever it stands.
-fn look_round(look: &mut Look, cfg: &Config, limb: Limb, skill: f32, held: Option<u32>) -> Vec<(Seen, Aimed, bool)> {
+fn look_round(look: &mut Look, cfg: &Config, limb: Limb, skill: f32, held: Option<u32>, fellows: &[u32]) -> Vec<(Seen, Aimed, bool)> {
     let Some(combat) = look.combat.as_deref() else { return Vec::new() };
     let eye = look.player.eye();
     let dir = look.player.look_dir();
@@ -306,6 +346,7 @@ fn look_round(look: &mut Look, cfg: &Config, limb: Limb, skill: f32, held: Optio
         .map(|v| v.living.as_slice())
         .unwrap_or_default()
         .iter()
+        .filter(|(id, _)| !fellows.contains(id))
         .filter_map(|&(id, feet)| {
             let aimed = limb_of(combat, &look.parts, &look.phys, id, limb, Some(feet)).or_else(|| limb_of(combat, &look.parts, &look.phys, id, Limb::Torso, Some(feet)))?;
             let (angle, distance) = angle_off(eye, dir, aimed.point);
@@ -383,7 +424,7 @@ fn spend(look: &mut Look, amount: f32) {
 fn lock_on(look: &mut Look, seen: Seen, aimed: Aimed, limb: Limb) -> Lock {
     let name = look.sim.base_of(seen.id).and_then(|b| look.sim.name(b).map(str::to_string)).unwrap_or_else(|| "?".into());
     let limb = if aimed.part.is_none() { Limb::Torso } else { limb };
-    let mut lock = Lock { target: seen.id, name, limb, part: aimed.part, limb_name: limb.name().to_string(), point: aimed.point, chance: seen.chance, condition: None, sight: Sight::default(), shots: 0, spent: 0.0 };
+    let mut lock = Lock { target: seen.id, name, limb, part: aimed.part, limb_name: limb.name().to_string(), point: aimed.point, chance: seen.chance, condition: None, sight: Sight::default(), shots: 0, spent: 0.0, held: false };
     name_limb(look, &mut lock);
     lock
 }
@@ -475,7 +516,7 @@ fn update(
         let since = cfg.los_interval - rt.look_in.min(cfg.los_interval);
         rt.look_in = cfg.los_interval;
         let limb = rt.lock.as_ref().map_or(cfg.limb, |l| l.limb);
-        found = if playing && !dead { look_round(&mut look, &cfg, limb, skill, rt.locked()) } else { Vec::new() };
+        found = if playing && !dead { look_round(&mut look, &cfg, limb, skill, rt.locked(), &rt.fellow_players.clone()) } else { Vec::new() };
         rt.seen = found.iter().filter(|f| f.2).map(|(s, ..)| *s).filter(|s| s.distance <= cfg.max_range && s.angle <= cfg.max_angle && cfg.lockable(s.chance)).collect();
         // The locked target's sight.
         if let Some(l) = rt.lock.as_mut().filter(|_| !target_dead) {
@@ -624,6 +665,16 @@ fn update(
         if let Some(p) = point_of(&look.phys, l.target, l.part) {
             l.point = p;
         }
+        // The view stays on the limb while the player moves (the module notes).
+        if playing {
+            let (heading, pitch) = crate::control::Crosshair::aim_at(control.crosshair.as_ref(), eye, l.point);
+            let was = l.held;
+            let p = &mut *look.player;
+            ((p.heading, p.pitch), l.held) = crate::vats_classic::turn_onto((p.heading, p.pitch), (heading, pitch), dt, was);
+            if l.held && !was {
+                info!("realtime vats: the view is held on {} {:08X} ({})", l.name, l.target, l.limb_name);
+            }
+        }
         if let Some(combat) = look.combat.as_deref() {
             let aimed = limb_of(combat, &look.parts, &look.phys, l.target, l.limb, None);
             let (weapon, target) = (combat.player_weapon(), FormId(l.target));
@@ -679,6 +730,10 @@ fn publish(rt: &RtVats, look: &mut Look) {
 fn load_config(file: Option<Res<crate::settings::SettingsFile>>, mut rt: ResMut<RtVats>) {
     let Some(path) = file.and_then(|f| f.0.clone()) else { return };
     let text = std::fs::read_to_string(&path).unwrap_or_default();
+    // The retired switch "Real-time VATS in co-op": read, told, ignored.
+    if let Some(v) = fnv_install::ini_get(&text, crate::settings::SECTION, SETTING_KEY) {
+        info!("realtime vats: [{}] {SETTING_KEY}={v} is retired and ignored: co-op is always real time", crate::settings::SECTION);
+    }
     let (cfg, bad) = Config::read(|name| fnv_install::ini_get(&text, SECTION, name));
     for name in &bad {
         warn!("realtime vats: [{SECTION}] {name} is not a value of its kind: the default is used");
@@ -721,8 +776,9 @@ const BAR_HEIGHT: f32 = 9.0;
 const LIMB_BAR_TOP: f32 = 74.0;
 const CRIT_BAR_TOP: f32 = 92.0;
 const CRIT_BASE: f32 = 134.0;
+const HINT_BASE: f32 = 168.0;
 /// The panel's height, for centring it on the mark.
-const PANEL_HEIGHT: f32 = 140.0;
+const PANEL_HEIGHT: f32 = 174.0;
 
 fn spawn_hud(mut commands: Commands) {
     commands.spawn((Node { position_type: PositionType::Absolute, ..default() }, Visibility::Hidden, GlobalZIndex(5), LimbMark, UiTransform::from_rotation(Rot2::degrees(45.0)))).with_children(|p| {
@@ -748,10 +804,30 @@ pub struct PanelText {
     /// The critical meter in sixteenths, and its line.
     pub crit: u8,
     pub crit_line: String,
+    /// The keys: "Target [Right Mouse]  Return [V]", as bound.
+    pub hints: String,
+}
+
+/// The panel's line of keys: Aim's for the next target, V's to let go, on the device in
+/// use, as bound.
+pub fn hint_line(b: &crate::bindings::Bindings) -> String {
+    use crate::bindings::{key_name, mouse_name, InputDevice};
+    let pad = b.device == InputDevice::Controller;
+    // A mouse button first (Aim is the right button and Left Alt by default: the button is
+    // what the owner names), else the key; a controller's button.
+    let name = |c: Control| {
+        if pad {
+            return b.pad(c).map_or_else(|| "?".to_string(), |p| crate::pad::pad_shown(p).to_string());
+        }
+        let k = b.get(c);
+        k.mouse.map(mouse_name).or_else(|| k.key.and_then(key_name).map(String::from)).unwrap_or_else(|| "?".to_string())
+    };
+    let back = if pad { crate::pad::pad_shown(crate::pad::PadInput::Button(GamepadButton::East)).to_string() } else { name(Control::Vats) };
+    format!("Target [{}]  Return [{back}]", name(Control::Block))
 }
 
 /// The panel for a lock: `chance` in percent, `condition` and `charge` 0 to 1.
-pub fn panel_text(name: &str, limb: &str, chance: f32, condition: Option<f32>, charge: f32, armed: bool, crit_key: &str) -> PanelText {
+pub fn panel_text(name: &str, limb: &str, chance: f32, condition: Option<f32>, charge: f32, armed: bool, crit_key: &str, hints: &str) -> PanelText {
     let sixteenths = |v: f32| (v.clamp(0.0, 1.0) * 16.0).round() as u8;
     let crit_line = if armed {
         "CRITICAL ARMED".to_string()
@@ -760,7 +836,7 @@ pub fn panel_text(name: &str, limb: &str, chance: f32, condition: Option<f32>, c
     } else {
         String::new()
     };
-    PanelText { name: name.to_string(), limb: format!("{limb} {}", crate::vats_mode::chance_text(chance)), condition: condition.map(sixteenths), crit: sixteenths(charge), crit_line }
+    PanelText { name: name.to_string(), limb: format!("{limb} {}", crate::vats_mode::chance_text(chance)), condition: condition.map(sixteenths), crit: sixteenths(charge), crit_line, hints: hints.to_string() }
 }
 
 /// Put the mark on the aimed limb and the panel beside it.
@@ -777,6 +853,7 @@ fn draw(
     mut marks: Query<(&mut Node, &mut Visibility), (With<LimbMark>, Without<Panel>)>,
     mut bars: Query<&mut BackgroundColor, With<MarkBar>>,
     mut panels: Query<(Entity, &mut Panel, &mut Node, &mut Visibility), Without<LimbMark>>,
+    bindings: Option<Res<crate::bindings::Bindings>>,
 ) {
     let (width, height) = windows.iter().next().map_or((1280.0, 720.0), |w| (w.width(), w.height()));
     let lock = rt.lock.as_ref();
@@ -784,7 +861,8 @@ fn draw(
     let size = (MARK_SIZE * width).max(10.0);
     let colour = amber(255.0);
     for (mut node, mut vis) in &mut marks {
-        let want = if at.is_some() && rt.cfg.limb_highlight { Visibility::Inherited } else { Visibility::Hidden };
+        // The limb is lit with VATS's hatched highlight (`RtVats::highlighted`), not marked.
+        let want = Visibility::Hidden;
         if *vis != want {
             *vis = want;
         }
@@ -807,14 +885,15 @@ fn draw(
         node.left = Val::Px(at.x + size / 2.0 + rt.cfg.panel_gap * unit);
         node.top = Val::Px(at.y - PANEL_HEIGHT / 2.0 * unit);
         let key = dik_key(rt.cfg.key_crit).and_then(crate::bindings::key_name).unwrap_or("?");
-        let text = panel_text(&l.name, &l.limb_name, l.chance, l.condition, rt.crit.charge, rt.crit.armed, key);
+        let hints = bindings.as_deref().map(hint_line).unwrap_or_default();
+        let text = panel_text(&l.name, &l.limb_name, l.chance, l.condition, rt.crit.charge, rt.crit.armed, key, &hints);
         let shown = format!("{text:?}{colour:?}");
         if panel.shown == shown {
             continue;
         }
         let f = face_.get_or_insert_with(|| font_face(FONT, plain_font(36.0, 15.0), data.as_deref(), &mut images, bc_supported(formats.as_deref())));
         commands.entity(e).despawn_related::<Children>().with_children(|p| {
-            for (line, base) in [(&text.name, NAME_BASE), (&text.limb, LIMB_BASE), (&text.crit_line, CRIT_BASE)] {
+            for (line, base) in [(&text.name, NAME_BASE), (&text.limb, LIMB_BASE), (&text.crit_line, CRIT_BASE), (&text.hints, HINT_BASE)] {
                 if let Some(line) = f.font.lines(line, None).into_iter().next().filter(|_| !line.is_empty()) {
                     set_line(p, f, &line, 0.0, base, colour);
                 }
@@ -854,18 +933,6 @@ impl Plugin for RtVatsPlugin {
             .add_systems(Update, update.in_set(PlaySet::Activation).after(crate::vats_mode::VatsUpdate).before(crate::combat::fire))
             .add_systems(Update, draw.after(PlaySet::Activation))
             .add_systems(Last, report);
-        crate::settings::add_setting(
-            app,
-            crate::settings::Setting {
-                key: SETTING_KEY,
-                group: "Co-op",
-                label: "Real-time VATS in co-op",
-                note: "On: in a co-op session V (or X with a hostile in view) locks on to a hostile instead of slowing time. C next target, Z next limb, F critical when the meter is full. Shots at the locked target use the VATS hit chance; the lock and its shots cost Action Points. Off: V is VATS mode, as in single player. The figures are in [RealtimeVats] of NVForever.ini.",
-                get: |w| w.resource::<RtVats>().on,
-                set: |w, on| w.resource_mut::<RtVats>().on = on,
-                slider: None,
-            },
-        );
     }
 }
 
@@ -874,25 +941,71 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_lock_takes_the_vats_key_only_in_a_session_with_the_switch_on() {
+    fn the_lock_takes_the_vats_key_in_co_op_or_with_the_real_time_style() {
         let mut rt = RtVats::default();
         assert!(!rt.active(), "solo keeps VATS mode");
+        // Solo with the V.A.T.S. style Real time: the lock.
+        rt.solo = true;
+        assert!(rt.active(), "solo, the style Real time");
+        rt.cfg.enabled = false;
+        assert!(!rt.active(), "bEnabled off turns it off everywhere");
+        (rt.solo, rt.cfg.enabled) = (false, true);
         rt.allowed = true;
-        assert!(rt.active());
-        rt.on = false;
-        assert!(!rt.active());
-        rt.on = true;
+        assert!(rt.active(), "co-op is always real time");
         rt.cfg.enabled = false;
         assert!(!rt.active());
     }
 
     #[test]
     fn the_panel_names_the_limb_the_chance_and_the_critical_key() {
-        let t = panel_text("Powder Ganger", "Head", 61.6, Some(0.5), 0.4, false, "F");
+        let t = panel_text("Powder Ganger", "Head", 61.6, Some(0.5), 0.4, false, "F", "");
         assert_eq!((t.name.as_str(), t.limb.as_str(), t.condition, t.crit, t.crit_line.as_str()), ("Powder Ganger", "Head 62%", Some(8), 6, ""));
-        let full = panel_text("Gecko", "Torso", 95.0, None, 1.0, false, "F");
+        let full = panel_text("Gecko", "Torso", 95.0, None, 1.0, false, "F", "");
         assert_eq!((full.condition, full.crit, full.crit_line.as_str()), (None, 16, "F) CRITICAL"));
-        assert_eq!(panel_text("Gecko", "Torso", 95.0, None, 1.0, true, "F").crit_line, "CRITICAL ARMED");
+        assert_eq!(panel_text("Gecko", "Torso", 95.0, None, 1.0, true, "F", "").crit_line, "CRITICAL ARMED");
+    }
+
+    /// The owner, 2026-11-12: "make switch targets the ads button". Aim as bound moves to
+    /// the next target while a lock is held; rebound, the switch follows it; with no lock
+    /// Aim is the player's own.
+    #[test]
+    fn aim_switches_targets_as_bound() {
+        use crate::bindings::{Bindings, Control, Input};
+        let press = |b: &Bindings, m: MouseButton| move |c: Control| b.get(c).mouse == Some(m);
+        let b = Bindings::game_defaults();
+        let rmb = b.get(Control::Block).mouse.expect("Aim is on a mouse button by default");
+        assert_eq!(lock_presses(true, press(&b, rmb)), (true, false), "Aim: the next target");
+        assert_eq!(lock_presses(false, press(&b, rmb)), (false, false), "no lock: Aim aims");
+        // Aim moved to the middle button: the switch goes with it, the right button is no longer it.
+        let mut moved = Bindings::game_defaults();
+        moved.rebind(Control::Block, Input::Mouse(MouseButton::Middle));
+        assert_eq!(lock_presses(true, press(&moved, MouseButton::Middle)).0, true);
+        assert_eq!(lock_presses(true, press(&moved, rmb)).0, false, "the right button is another control's now");
+        // V lets go.
+        let v = |c: Control| c == Control::Vats;
+        assert_eq!(lock_presses(true, v), (false, true));
+    }
+
+    #[test]
+    fn the_hints_name_the_keys_as_bound() {
+        use crate::bindings::{Bindings, Control, Input, InputDevice};
+        let mut b = Bindings::game_defaults();
+        let line = hint_line(&b);
+        assert_eq!(line, format!("Target [{}]  Return [V]", crate::bindings::mouse_name(MouseButton::Right)), "the right button by default");
+        b.rebind(Control::Block, Input::Mouse(MouseButton::Middle));
+        assert_eq!(hint_line(&b), format!("Target [{}]  Return [V]", crate::bindings::mouse_name(MouseButton::Middle)));
+        b.device = InputDevice::Controller;
+        assert!(hint_line(&b).ends_with(&format!("Return [{}]", crate::pad::pad_shown(crate::pad::PadInput::Button(GamepadButton::East)))));
+    }
+
+    #[test]
+    fn the_hatched_highlight_follows_the_lock() {
+        let mut rt = RtVats::default();
+        assert_eq!(rt.highlighted(), None);
+        rt.lock = Some(Lock { target: 0x1234, name: "Gecko".into(), limb: Limb::Head, part: Some(1), limb_name: "Head".into(), point: [0.0; 3], chance: 50.0, condition: None, sight: Sight::default(), shots: 0, spent: 0.0, held: false });
+        assert_eq!(rt.highlighted(), Some((0x1234, Some(1))));
+        rt.cfg.limb_highlight = false;
+        assert_eq!(rt.highlighted(), None, "bLimbHighlight off");
     }
 
     #[test]

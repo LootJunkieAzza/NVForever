@@ -750,10 +750,11 @@ fn mouse_look(
     free_cam: Option<Res<crate::free_cam::FreeCam>>,
     kill_cam: Option<Res<crate::kill_cam::KillCam>>,
     assist: Option<Res<crate::aim_assist::AimAssistState>>,
-    (talk, switches, hold, photo): (Option<Res<crate::dialogue_zoom::DialogueZoom>>, Option<Res<crate::script_switches::ScriptSwitches>>, Option<Res<crate::bindings::ControlHold>>, Option<Res<crate::photo_mode::PhotoMode>>),
+    (talk, switches, hold, photo, rt): (Option<Res<crate::dialogue_zoom::DialogueZoom>>, Option<Res<crate::script_switches::ScriptSwitches>>, Option<Res<crate::bindings::ControlHold>>, Option<Res<crate::photo_mode::PhotoMode>>, Option<Res<crate::rt_vats::RtVats>>),
 ) {
-    // The classic VATS style turns the view itself (`crate::vats_mode`, vats-classic.md §5).
-    if vats.is_some_and(|v| v.holds_view()) {
+    // The classic VATS style turns the view itself (`crate::vats_mode`, vats-classic.md §5),
+    // and real-time VATS holds it on the locked target (`crate::rt_vats`).
+    if vats.is_some_and(|v| v.holds_view()) || rt.is_some_and(|r| r.locked().is_some()) {
         return;
     }
     // The console's free camera takes the mouse (`crate::free_cam`), and so do photo mode

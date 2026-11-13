@@ -323,8 +323,11 @@ fn glow(
     mut meshes: ResMut<Assets<Mesh>>,
     own_materials: Res<Assets<NifMaterial>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    place: Query<(&GlobalTransform, &InheritedVisibility, Option<&RenderLayers>)>,
+    rt: Option<Res<nvf_play::rt_vats::RtVats>>,
 ) {
-    let want = vats.as_deref().and_then(|v| v.highlighted());
+    // VATS mode's target, or real-time VATS's locked limb (in place of the mod's mark).
+    let want = vats.as_deref().and_then(|v| v.highlighted()).or_else(|| rt.as_deref().and_then(|r| r.highlighted()));
     // The mask's shapes hang on the target's own: when the target's shapes are built again
     // (its gear changed, a limb went) they go with them, and the part is lit anew.
     let lost = st.on.is_some() && st.overlays.iter().any(|e| !glows.contains(*e));
@@ -445,8 +448,26 @@ fn glow(
     // part. The player's own body is among them; a shape the picture does not draw now
     // (the first-person view's body) is not drawn here either, its copy hanging from it.
     let mut hiding = 0;
+    // Test aid `NVF_PLAY_TEST_VATS_OCCLUDERS`: `off` copies no other actor, `noplayers`
+    // none of the player and the other players' puppets (a diagnosis of the co-op
+    // highlight that drew nothing, ship17).
+    let occluders = std::env::var("NVF_PLAY_TEST_VATS_OCCLUDERS").unwrap_or_default();
+    let skip = |r: u32| match occluders.as_str() {
+        "off" => true,
+        "noplayers" => r == 0x14 || nvf_play::hitvol::is_player_puppet(r),
+        _ => false,
+    };
+    // Per actor: shapes, skinned, not visible, on other render layers, the first one's place.
+    let mut seen: std::collections::BTreeMap<u32, (u32, u32, u32, u32, Vec3)> = Default::default();
     for (e, r, shape, skin, own_material, drawn) in &shapes {
-        let Some(drawn) = drawn.filter(|_| r.0 != actor && !shape.cap) else { continue };
+        let Some(drawn) = drawn.filter(|_| r.0 != actor && !shape.cap && !skip(r.0)) else { continue };
+        if let Ok((at, shown, layers)) = place.get(e) {
+            let s = seen.entry(r.0).or_insert((0, 0, 0, 0, at.translation()));
+            s.0 += 1;
+            s.1 += u32::from(skin.is_some());
+            s.2 += u32::from(!shown.get());
+            s.3 += u32::from(layers.is_some_and(|l| *l != RenderLayers::default()));
+        }
         let cover = own_material.and_then(|m| own_materials.get(&m.0)).map_or(Cover::Plain, cover_of);
         let Some([black, _]) = st.coats_for(&mut materials, cover) else { continue };
         let mut c = commands.spawn((Mesh3d(drawn.0.clone()), MeshMaterial3d(black), Transform::IDENTITY, PartGlow, layer.clone(), NoFrustumCulling, bevy::light::NotShadowCaster));
@@ -459,7 +480,7 @@ fn glow(
         hiding += 1;
     }
     for (e, h, own_material, drawn, _) in &held {
-        if h.reference == actor {
+        if h.reference == actor || skip(h.reference) {
             continue;
         }
         let cover = own_material.and_then(|m| own_materials.get(&m.0)).map_or(Cover::Plain, cover_of);
@@ -470,6 +491,9 @@ fn glow(
         hiding += 1;
     }
     st.shown += 1;
+    for (r, (n, skinned, hidden, layered, at)) in &seen {
+        info!("vats highlight: occluder {r:08X}: {n} shapes, {skinned} skinned, {hidden} not visible, {layered} on other layers, first at ({:.0}, {:.0}, {:.0})", at.x, at.y, at.z);
+    }
     info!("vats highlight: {actor:08X} part {}: {triangles} triangles on {covered} shapes; {hiding} shapes of other actors can hide it", part.map_or_else(|| "whole".to_string(), |p| p.to_string()));
 }
 

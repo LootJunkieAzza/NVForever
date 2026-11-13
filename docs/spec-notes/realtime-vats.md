@@ -1,10 +1,25 @@
-# Real-time VATS (co-op)
+# Real-time VATS (co-op, and solo by choice)
 
-**Superseded in co-op (owner, 2026-11-12):** "keep time freeze for solo only but use the limb
-selection and visual effects it has for both". In a session V is now the classic VATS style
-(docs/design/vats-classic.md) with the clock left at full speed (`VatsMode::shared_clock`), and
-the other players are never its targets (`VatsMode::fellow_players`). The co-op link no longer
-turns the lock below on; its code stays.
+**The owner's direction, 2026-11-12:** "it should be based on the real time vats mod but just
+using the new limb darwing technique instaead of the diamond", and for single player "only if
+solo vats mode is selected as real time vats". Then, on switching targets: "make switch
+targets the ads button or someting". Folded into one choice the same day: solo picks it in
+the V.A.T.S. style list, co-op is always real time. So:
+
+- V is this lock in every co-op session, always, and solo when the V.A.T.S. style is
+  "Real time" (settings page, Menus → V.A.T.S. style: Classic / Mark and Fire / Real time;
+  Classic by default). Solo classic VATS (the world stopped) is unchanged
+  (docs/design/vats-classic.md).
+- The aimed limb is lit with VATS's hatched limb highlight (nvforever `vats_highlight`), in
+  place of the mod's mark (§7).
+- Aim / ADS as bound (the right mouse button; LT) moves to the next target while locked; C
+  stays (§3). V lets go, and B on a controller.
+- The player keeps moving with the movement controls; the view stays on the locked limb
+  (§3a).
+- The other players are never targets.
+
+This replaces the note of earlier that day, which had co-op V be the classic style with the
+clock running.
 
 
 Queue item 196 (owner, 2026-11-10): "replacing how vats works in co-op with this real time
@@ -29,7 +44,8 @@ vats system", with the archive of the mod RealtimeVatsNV 1.0.0.
   of the player's own window only (`script::time_multiplier`), while the other players and
   the host's world went on at full speed.
 - Now, in a session (`RtVats::allowed`, set by the co-op link for the host and every
-  guest), V is the lock's and VATS mode cannot be entered. Solo is unchanged. The two share
+  guest), and solo with the V.A.T.S. style Real time (`RtVats::solo`), V is the lock's and
+  VATS mode cannot be entered. Solo otherwise is unchanged. The two share
   only helpers (the hit chance, the Action Points, the limb's point), so keeping solo as it
   is costs nothing.
 
@@ -52,12 +68,24 @@ vats system", with the archive of the mod RealtimeVatsNV 1.0.0.
     the way does not hide the target [design].
 - C (`iKeyNext`) moves to the next target: the lockable ones ordered by their angle off the
   view, going round [hypothesis: the order]. `iKeyPrevious` (off by default) goes back.
+- Aim (`Control::Block` as bound: the right mouse button, LT on a controller) does what C
+  does while a lock is held, and does not aim down the sights then [design: the owner,
+  above]. With no lock it is the player's own aim.
+- The other players' bodies are never targets [design].
 - Sight: looked for every `fLosInterval` 0.2 s; a locked target out of sight for
   `fLosLostSeconds` 1.5 s is let go [documented: toml].
 - A lock needs a gun in hand and out [hypothesis: the settings speak of shots only]. Melee,
   unarmed and thrown weapons are open (§9).
 - The lock also ends when a menu opens, a conversation begins, the player dies, a script
   disables fighting, or the weapon is put away [design: as VATS mode].
+
+## 3a. The held view
+
+- While locked the view swings onto the aimed limb at VATS's turn rate, then stays on it,
+  following it at 40 of what is left a second (about a degree behind a strafing player),
+  while the player keeps moving [design: the owner, "vats should lock the aim to the
+  currently selected target"]. The mouse and the right stick do not turn it meanwhile.
+- V lets go; so does B on a controller.
 
 ## 4. Limbs and shots
 
@@ -105,11 +133,12 @@ vats system", with the archive of the mod RealtimeVatsNV 1.0.0.
 
 - While locked, the game's own bindings of X, C, Z and F are held back (`bFreeGameKeys`):
   Weapon Bash, Ping, Grab and Toggle POV [documented: toml; the fork's two added].
-- The HUD: a mark on the aimed limb, and beside it (`fPanelGap` 60 units) a panel with the
-  target's name, the limb and the chance, the limb's condition meter and the critical meter
-  ("F) CRITICAL" when full, "CRITICAL ARMED"), in the HUD's font and colour [design: our
-  own panel; the mod highlights the limb with the game's VATS body part effect, which
-  NVForever does not have].
+- The HUD: the aimed limb lit with VATS's hatched limb highlight (`bLimbHighlight`), and
+  beside it (`fPanelGap` 60 units) a panel with the target's name, the limb and the chance,
+  the limb's condition meter, the critical meter ("F) CRITICAL" when full, "CRITICAL
+  ARMED") and the keys ("Target [Right Mouse]  Return [V]", as bound), in the HUD's font and
+  colour [design: our own panel; the owner, above, for the highlight in place of the mod's
+  mark].
 - Sounds: the base game's `UIVATS*` records, as VATS mode [design].
 
 ## 8. Co-op
@@ -124,10 +153,12 @@ vats system", with the archive of the mod RealtimeVatsNV 1.0.0.
 
 - `[RealtimeVats]` of NVForever.ini holds every value under the mod's names; a missing
   section is written with the defaults at start.
-- The settings page: Co-op → "Real-time VATS in co-op" (`realtime-vats`, on).
+- The settings page: Menus → V.A.T.S. style "Real time" for single player; co-op is always
+  real time, with no switch. The old switch "Real-time VATS in co-op" (`realtime-vats` under
+  `[Settings]`) is retired: an old INI's value is read, logged as retired, and ignored.
 
 ## 10. Open
 
-- Controller bindings (the lock's keys are keyboard only).
+- Controller bindings for the mod's own keys (Z, F, X are keyboard only; V, Aim and B work
+  on a controller).
 - Melee, unarmed and thrown weapons under a lock.
-- The mod's limb highlight effect.
