@@ -26369,3 +26369,48 @@ expect = [
   "dialogue: conversation with SunnyRef started (topic GREETING)",
   { re = 'dialogue look: SunnyRef stops facing the player: .*; its chest is (?P<n>[+-]?\d+)° off the player', range = [-20, 20], label = "Sunny's chest on the player after the conversation (holstered 2hh)" },
 ]
+
+[[scenario]]
+name = "fiends-area-alert"
+source = "#1538 (owner decision 2026-11-13, docs/design/combat-ai.md §10.3.1; crates/fnv-game/src/provocation.rs evil_area_alert): the Fiends of Vault 3, allied by the entrance door's SetAlly, all turn on the player when the player attacks one, seen or not; before, an ally's first hits passed and nobody else reacted"
+note = "Vault3a with the talked-in state as the entrance door's script makes it (SetAlly PlayerFaction FiendsFactionNV at 3 s); nobody perceives the player (NVF_PLAY_TEST_UNSEEN), so no Fiend sees the blow. At 8 s the player hits the entrance Fiend 0x000F26F1 for 5 points; LvlFiendGunVault3 0x000F2DFC stands at the far end of the room, about 3,800 units off. Fourteen Fiends are placed enabled in Vault3a (fnvtool world refs)"
+areas = ["combat", "alert"]
+paths = ["crates/fnv-game/src/provocation.rs", "crates/fnv-game/src/crime.rs", "engine/nvforever/src/provoked.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_UNSEEN = "1", NVF_PLAY_TEST_CONSOLE = "3:SetAlly PlayerFaction FiendsFactionNV;3.5:close", NVF_PLAY_TEST_HIT = "8:0x000F26F1:5" }
+args = ["--cell", "Vault3a", "--play", "--no-voice", "--no-messages"]
+run_seconds = 16
+expect = [
+  { re = 'provocation: the player attacked .*0x000F26F1 of FiendsFactionNV \(Evil\): (?P<n>\d+) of its members in the area turn on the player', range = [8, 30], label = "every Fiend in the room turns on the player" },
+  { re = 'provocation: .*0x000F2DFC is alerted: the player attacked .*0x000F26F1 of its faction', label = "a Fiend at the far end, who saw nothing, too" },
+  { re = 'provocation: .*0x000F26F1 \(ally\) is attacked by the player and fights back', label = "the Fiend hit fights back at the first hit" },
+]
+forbid = [{ re = 'provocation: .*0x000F26F1 \(ally, out of combat\) lets a hit by the player pass', label = "the ally's friendly-hit allowance" }]
+
+[[scenario]]
+name = "cdc-lanius-leaves-marker"
+source = "#2155 (docs/design/alert.md §5.2, observer checks 105-109; crates/fnv-ai/src/alert.rs package_holds): Legate Lanius on a Travel package to VLegateWaitPlayerMarker with Continue During Combat leaves the marker to fight a hostile player and goes back to it after the fight, as the original's Lanius did (left within 1.2 s, on the marker again 3 to 5 s after); before, he stayed on the marker"
+note = "Lanius (VLegionLegateLaniusREF 0x00137A9D) is moved to VLegateWaitPlayerMarker and given VLegateRunToRanger01 (Travel to the marker, radius 256, Continue During Combat: the package the owner's save nvfLanius has him on); the player is put at VLegateCampLegateRuleMarker02REF, 760 units off (the observer's at_760); StartCombat at 10 s, StopCombat at 35 s; god mode"
+areas = ["combat", "alert"]
+paths = ["crates/fnv-ai/src/alert.rs", "crates/fnv-game/src/awareness.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "1:moveto:VLegionLegateLaniusREF:VLegateWaitPlayerMarker:0:0:0,1.5:call:VLegionLegateLaniusREF:AddScriptPackage:VLegateRunToRanger01,2:moveto:player:VLegateCampLegateRuleMarker02REF:0:0:0,10:combat:VLegionLegateLaniusREF:player,35:call:VLegionLegateLaniusREF:StopCombat" }
+args = ["--play", "--pos=109397,20263,6200", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "00137A9D"]
+run_seconds = 50
+order = [[
+  { re = 'ai \[[\d:]+\] 00137A9D: (runs|walks) at the player', label = "he leaves his marker for the player" },
+  { re = 'ai \[[\d:]+\] 00137A9D: has searched: back to the place of VLegateRunToRanger01', label = "the fight over, he goes back to his marker" },
+]]
+forbid = [{ re = 'ai \[[\d:]+\] 00137A9D: keeps to its package', label = "his package holding him in the fight" }]
+
+[[scenario]]
+name = "cdc-guard-radius"
+source = "#2155 (docs/design/alert.md §5.2, observer check 106; crates/fnv-ai/src/alert.rs guard_holds): a melee fighter on a Guard package with Continue During Combat does not pursue a target outside the guard radius (radius × 1.5, at least 384, from its post); inside it, it fights. The original's knife trooper on EvergreenMillsSniperStayAtPosition01 stood on its post with the player 654 units off and fought at 167"
+note = "the coyote VERGSCoyote6REF 0x00157B38 (melee) is given EvergreenMillsSniperStayAtPosition01 (Guard, near editor location, radius 0, Continue During Combat, type-specific flags 2) at 2 s and walks to its editor spot; the other Goodsprings coyotes are disabled. The player is put 700 units from it at 14 s, StartCombat at 15 s; at 28 s the player is put 150 units from it"
+areas = ["combat", "alert"]
+paths = ["crates/fnv-ai/src/alert.rs", "crates/fnv-game/src/awareness.rs", "crates/fnv-game/src/package.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "1:call:VERGSCoyote1REF:Disable,1.1:call:VERGSCoyote2REF:Disable,1.2:call:VERGSCoyote3REF:Disable,1.3:call:VERGSCoyote4REF:Disable,1.4:call:VERGSCoyote5REF:Disable,2:call:VERGSCoyote6REF:AddScriptPackage:EvergreenMillsSniperStayAtPosition01,14:moveto:player:VERGSCoyote6REF:700:0:0,15:combat:VERGSCoyote6REF:player,28:moveto:player:VERGSCoyote6REF:150:0:0" }
+args = ["--play", "--pos=-59300,-753,9100", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "00157B38"]
+run_seconds = 40
+order = [[
+  { re = 'ai \[[\d:]+\] 00157B38: keeps to its package EvergreenMillsSniperStayAtPosition01 in the fight', label = "the player 700 units off: its Guard holds it" },
+  { re = 'ai \[[\d:]+\] 00157B38: is let go by its package EvergreenMillsSniperStayAtPosition01 to fight', label = "the player 150 units off: it fights" },
+]]

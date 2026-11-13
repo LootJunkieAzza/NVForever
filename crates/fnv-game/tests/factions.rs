@@ -1612,3 +1612,53 @@ fn an_old_save_has_no_live_plants_and_empty_plants_are_omitted() {
     assert!(!h.is_dead(victim));
     assert_eq!(h.world.item_count(victim, item).unwrap(), 1);
 }
+
+/// #1538 (owner decision 2026-11-13; combat-ai.md §10.3.1): the player's attack on a member
+/// of an Evil faction turns every member in the area (the victim's interior cell) on the
+/// player, seen or not, and a crime-tracking one makes the player its enemy. Others in
+/// the cell are left alone.
+#[test]
+fn attacking_an_evil_factions_member_alerts_its_members_in_the_area() {
+    use fnv_game::crime::faction_flags::{EVIL, TRACK_CRIME};
+    let player = FormId::PLAYER_REF;
+    let (own, helper, coward, loafer) = (FormId(OWN_REF), FormId(HELPER_REF), FormId(COWARD_REF), FormId(LOAFER_REF));
+    let mut f = fixture();
+    f.data.faction_flags.insert(FormId(RATS), EVIL | TRACK_CRIME);
+    // A hit: nobody sees it, yet the victim's faction fellows all turn on the player.
+    {
+        let mut g = game(&f);
+        only_near(&mut g, &[OWN_REF, HELPER_REF, LOAFER_REF]);
+        assert!(!g.would_attack(helper, player));
+        assert!(g.attacked_by(own, player));
+        for m in [own, helper, coward] {
+            assert!(g.would_attack(m, player), "{m}");
+        }
+        assert!(!g.would_attack(loafer, player), "not of the faction");
+        assert!(g.player.enemy_of.contains(&FormId(RATS)));
+        let notes = g.provocations.take_notes();
+        assert!(notes.iter().any(|n| matches!(n, Note::Alerted { actor, victim } if *actor == helper && *victim == own)), "{notes:?}");
+        assert!(notes.iter().any(|n| matches!(n, Note::AreaAlert { victim, faction, alerted } if *victim == own && *faction == FormId(RATS) && *alerted >= 2)), "{notes:?}");
+        // Alarmed at the player: in a combat state.
+        assert!(g.awareness.get(helper).is_some_and(|a| a.alarms.iter().any(|x| x.owner == player)));
+    }
+    // A kill in one blow does the same.
+    {
+        let mut g = game(&f);
+        g.player_kills(own);
+        assert!(g.would_attack(helper, player));
+    }
+    // Not a stray hit on one fighting someone else.
+    {
+        let mut g = game(&f);
+        fighting(&mut g, OWN_REF, LOAFER_REF);
+        g.evil_area_alert(own);
+        assert!(!g.provocations.holds(helper, player));
+    }
+    // Not for a faction that is not Evil.
+    {
+        f.data.faction_flags.insert(FormId(RATS), TRACK_CRIME);
+        let mut g = game(&f);
+        assert!(g.attacked_by(own, player));
+        assert!(!g.would_attack(helper, player));
+    }
+}
