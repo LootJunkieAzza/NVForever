@@ -97,6 +97,8 @@ pub enum Control {
     /// Held, the emote wheel; tapped, end the emote playing (the fork's,
     /// `crate::emotes`).
     Emote,
+    /// Open or close photo mode (NVForever's own; not in the game's INI, `crate::photo_mode`).
+    PhotoMode,
 }
 
 /// `[Controls]` of the owner's `FalloutPrefs.ini`: (control, INI name, value)
@@ -106,8 +108,10 @@ pub enum Control {
 /// Glance on G [design: the real-time Pip-Boy, 2026-11-03], Weapon Bash on X (the fork's;
 /// B42 Melee Bash's default key, DIK 45), Ping on C or the mouse's back button [design:
 /// the fork's world marks, 2026-11-06; middle mouse is Toggle POV's], Emote on B (DIK 48;
-/// the fork's emote wheel, queue item 137).
-pub const GAME_CONTROLS: [(Control, &str, u32); 33] = [
+/// the fork's emote wheel, queue item 137), Photo Mode on P, no controller button (every
+/// one is taken: the pause menu's Photo Mode entry opens it from the controller) [design,
+/// owner request 2026-11-09].
+pub const GAME_CONTROLS: [(Control, &str, u32); 34] = [
     (Control::Forward, "Forward", 0x0011FF13),
     (Control::Back, "Back", 0x001FFF14),
     (Control::SlideLeft, "Slide Left", 0x001EFF17),
@@ -141,6 +145,7 @@ pub const GAME_CONTROLS: [(Control, &str, u32); 33] = [
     (Control::Bash, "Weapon Bash", 0x002DFFFF),
     (Control::Ping, "Ping", 0x002E03FF),
     (Control::Emote, "Emote", 0x0030FFFF),
+    (Control::PhotoMode, "Photo Mode", 0x0019FFFF),
 ];
 
 /// How many of [`GAME_CONTROLS`] are the game's own (the extender's control codes 0–27).
@@ -505,6 +510,7 @@ pub fn label(c: Control) -> &'static str {
         Bash => "Weapon Bash",
         Ping => "Ping",
         Emote => "Emote",
+        PhotoMode => "Photo Mode",
     }
 }
 
@@ -1052,6 +1058,8 @@ pub struct ControlInput<'w, 's> {
     pub freed: Option<Res<'w, FreedKeys>>,
     /// A text field has the keyboard ([`KeyboardCapture`]).
     pub capture: Option<Res<'w, KeyboardCapture>>,
+    /// Photo mode has the keys (`crate::photo_mode`).
+    pub photo: Option<Res<'w, crate::photo_mode::PhotoMode>>,
 }
 
 /// Keys taken from the game's own controls for now: while the real-time VATS lock is
@@ -1090,7 +1098,7 @@ enum Ask {
 impl ControlInput<'_, '_> {
     /// The free camera or a text field has the keys.
     pub fn suppressed(&self) -> bool {
-        self.free_cam.as_ref().is_some_and(|f| f.active) || self.captured()
+        self.free_cam.as_ref().is_some_and(|f| f.active) || self.photo.as_ref().is_some_and(|p| p.on) || self.captured()
     }
 
     /// A text field has the keyboard ([`KeyboardCapture`]).

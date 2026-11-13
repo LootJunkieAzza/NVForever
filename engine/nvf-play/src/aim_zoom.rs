@@ -140,7 +140,7 @@ pub(crate) fn zoom(
     control: Res<PlayerControl>,
     anim: Res<WeaponAnim>,
     combat: Option<Res<Combat>>,
-    free: Option<Res<FreeCam>>,
+    (free, photo): (Option<Res<FreeCam>>, Option<Res<crate::photo_mode::PhotoMode>>),
     mut z: ResMut<AimZoom>,
     mut scope: ResMut<Scope>,
     lens: Res<Scope3d>,
@@ -157,7 +157,7 @@ pub(crate) fn zoom(
         z.base = Some(seen);
         z.applied = None;
     }
-    let playing = *state.get() == PlayState::Playing && !free.is_some_and(|f| f.on);
+    let playing = *state.get() == PlayState::Playing && !free.is_some_and(|f| f.on) && !photo.is_some_and(|p| p.on);
     // A reload or a jam holds the sights down (`combat::sights_held_down`): the zoom and a
     // scope go, and come back after it while Block is still held.
     let sight = combat.as_deref().filter(|c| !c.player_sights_held_down()).and_then(Combat::sight_fov).filter(|_| playing && control.aiming && control.weapon_out && anim.ready);

@@ -7256,6 +7256,53 @@ expect = [
 ]
 
 [[scenario]]
+name = "photo-mode"
+source = "owner request 2026-11-09 (queue item 175): photo mode opens, pauses alone, moves its camera, changes its sliders, saves a PNG and closes (docs/design/photo-mode.md)"
+areas = ["ui"]
+paths = ["engine/nvf-play/src/photo_mode.rs", "engine/nvforever/src/imagespace.rs"]
+env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_PHOTO = "10:open,11:orbit=60,11.5:near=200,12:set=zoom=50,12.5:set=saturation=0.4,13:shot,16:close" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
+run_seconds = 19
+expect = [
+  { re = 'photo mode: open \(solo: the game pauses\), zoom \d+°', label = "photo mode opens and pauses alone" },
+  { re = 'menu pause: the picture stands still \(photo mode\)', label = "the picture stands still" },
+  "test aid NVF_PLAY_TEST_PHOTO: orbit 60°",
+  "test aid NVF_PLAY_TEST_PHOTO: Zoom (FOV) 50",
+  "test aid NVF_PLAY_TEST_PHOTO: Saturation 40%",
+  { re = 'photo mode: captured \d+x\d+, writing .*Photos.NVForever \d{4}-\d\d-\d\d \d\d-\d\d-\d\d .+\.png', label = "the window is captured and named by date, time and place" },
+  { re = 'photo mode: photo saved: .*\.png', label = "the PNG is written" },
+  { re = 'corner message: "Photo saved"', label = "the corner says Photo saved" },
+  "photo mode: closed, the view is back on the player",
+  "menu pause: the picture runs again",
+]
+
+[[scenario]]
+name = "photo-mode-options"
+source = "owner request 2026-11-10: photo mode's camera is free (not locked to the player) and it has the options photo modes commonly have: depth of field, warmth, vignette, grain, letterbox, grid, hide player (docs/design/photo-mode.md)"
+areas = ["ui"]
+paths = ["engine/nvf-play/src/photo_mode.rs", "engine/nvforever/src/imagespace.rs", "engine/nvforever/src/imagespace.wesl", "engine/nvforever/src/player_body.rs"]
+env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_PHOTO = "10:open,11:lift=150,11.2:fly=600,11.5:face,12:set=blur=0.5,12.2:set=focus=30,12.4:set=warmth=0.4,12.6:set=vignette=0.6,12.8:set=grain=0.3,13:set=letterbox=1,13.2:set=grid=1,13.4:set=hide=1,13.6:tab=2,14:shot,17:set=camera=1,17.5:close" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
+run_seconds = 20
+expect = [
+  { re = 'photo mode: open \(solo: the game pauses\), zoom \d+°', label = "photo mode opens" },
+  { re = 'test aid NVF_PLAY_TEST_PHOTO: the free camera flies 600, now [1-9]\d{2,} from the player', label = "the free camera flies away from the player (100 units or more)" },
+  { re = 'test aid NVF_PLAY_TEST_PHOTO: the free camera faces the player from [1-9]\d{2,}', label = "the free camera turns back to the player" },
+  "test aid NVF_PLAY_TEST_PHOTO: Blur 50%",
+  { re = 'test aid NVF_PLAY_TEST_PHOTO: Focus \d+(\.\d)? m', label = "the focus reads in metres" },
+  { re = 'depth of field: strength 0\.5, .*\(photo mode\)', label = "photo mode's depth of field reaches the grade" },
+  "test aid NVF_PLAY_TEST_PHOTO: Warmth +40",
+  "test aid NVF_PLAY_TEST_PHOTO: Vignette 60%",
+  "test aid NVF_PLAY_TEST_PHOTO: Film Grain 30%",
+  "test aid NVF_PLAY_TEST_PHOTO: Letterbox 2.39:1",
+  "test aid NVF_PLAY_TEST_PHOTO: Grid Thirds",
+  "test aid NVF_PLAY_TEST_PHOTO: Hide Player On",
+  { re = 'photo mode: photo saved: .*\.png', label = "the PNG is written" },
+  "test aid NVF_PLAY_TEST_PHOTO: Camera Orbit",
+  "photo mode: closed, the view is back on the player",
+]
+
+[[scenario]]
 name = "console-toggles"
 source = "console world and render toggles (docs/design/console.md): each switches and prints its state, and switches back"
 areas = ["console", "scripts"]

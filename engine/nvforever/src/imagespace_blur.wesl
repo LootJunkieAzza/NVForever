@@ -31,6 +31,8 @@ struct Grade {
     // the last one's (imagespace.rs).
     motion: vec4<f32>,
     reproject: mat4x4<f32>,
+    // Photo mode: warmth, vignette, film grain, letterbox aspect (imagespace.rs).
+    photo: vec4<f32>,
 }
 
 @group(0) @binding(0) var screen: texture_2d<f32>;

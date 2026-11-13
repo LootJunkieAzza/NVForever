@@ -1,0 +1,1710 @@
+//! Photo mode (docs/design/photo-mode.md; owner request 2026-11-09, queue item 175): a
+//! camera that leaves the player to frame a picture, a few sliders, and a key that saves
+//! the view as a PNG. Its feel and layout follow Fallout 76's photo mode [design: the
+//! owner asked for it; nothing of 76's art is used]: the HUD and the crosshair go, and a
+//! small panel sits at the right in the HUD's font and colour over a soft dark backdrop;
+//! it can be hidden for a clean view.
+//!
+//! **The camera** is free by default [owner 2026-11-10: "camera shouldnt be locked to
+//! player"]: it looks with the mouse and flies anywhere within [`MAX_FREE_RANGE`] of the
+//! player, walls stopping it. Its Orbit mode is the first version's camera: it circles the
+//! player and moves a short way off ([`MAX_PAN`]).
+//!
+//! **The options** ([`PhotoSettings`]), on three tabs as photo modes commonly group them
+//! [design; owner 2026-11-10: "add a few more options commonly found in photo modes"]:
+//! Camera (camera mode, zoom, roll, depth of field's focus and blur), Look (brightness,
+//! contrast, saturation, warmth, vignette, film grain) and Frame (letterbox bars, a
+//! rule-of-thirds grid that is never in the photo, hide the player). The look and the
+//! depth of field go through nvforever's image-space grade (`imagespace.rs`,
+//! [`PhotoMode::look`], [`PhotoMode::finish`], [`PhotoMode::depth_of_field`]), so the
+//! photo is graded as the screen is. Every option goes back to its default when photo mode
+//! closes.
+//!
+//! **Opening and closing.** Photo Mode (P, rebindable: `crate::bindings::Control::PhotoMode`)
+//! opens it in the world with no menu, console or loading screen up; the pause menu's
+//! Photo Mode entry does too, which is how a controller opens it (every controller button
+//! is taken). Esc, Photo Mode again, or B on a controller (Start, which is Esc) close it,
+//! and the view goes back to the player as it was (first or third person, the field of
+//! view).
+//!
+//! **Solo and co-op** [owner, 2026-11-09 23:43]. Alone, the game pauses: the world stands
+//! still as under a menu (`PlayState::Menu`) and so does the picture (the virtual clock,
+//! `crate::pause::freeze_picture`). In co-op nothing is paused: the world, its NPCs,
+//! combat, the other players and the clock go on in every game, and enemies can still
+//! attack the photographer; only this player's view holds still to frame the shot
+//! ([`HeldView`]: what is drawn keeps the place and pose it had when photo mode opened,
+//! while the simulation reads the live ones). A hit on the player, or a fight starting,
+//! puts a warning on the panel (a hit for [`WARN_SECONDS`], a fight while it lasts); photo
+//! mode stays open.
+//!
+//! **The picture** ([`take`]): the panel, the corner messages and every other piece of the
+//! interface are hidden for one frame and the window is captured at its full size, then
+//! written as a PNG on its own thread to `<NVForever home>\Photos` ([`photos_dir`]), named by
+//! the local date and time and the place ([`photo_file_name`]): "NVForever 2026-11-10
+//! 01-23-45 Goodsprings.png". "Photo saved" is the corner message then
+//! (`crate::corner_messages`, shown over photo mode).
+//!
+//! **Controls** [design]. Keyboard and mouse: the mouse looks (Orbit: circles), the wheel
+//! zooms, W/S fly forward and back along the view (Orbit: nearer and farther), A/D
+//! sideways, Space or E up, Ctrl or Q down, Shift faster; Tab (Shift+Tab) changes the tab,
+//! Up/Down choose an option, Left/Right change it; Enter or the left button takes the
+//! photo, H hides the panel, R resets the options. A controller: the right stick looks,
+//! the left stick flies, the triggers lower and raise it, LB/RB change the tab; the D-pad
+//! chooses and changes an option; A takes the photo, Y hides the panel, X resets, B
+//! closes.
+//!
+//! Test aid `NVF_PLAY_TEST_PHOTO="<seconds>:<action>,..."` (on the aids' clock): `open`,
+//! `close`, `shot` (take a photo), `hide`, `show` (the panel), `orbit=<degrees>` (turn
+//! the camera; Orbit: circle), `near=<units>` (Orbit: its distance), `lift=<units>` and
+//! `fly=<units>` (the free camera rises, then flies along the view), `face` (the free
+//! camera turns to the player), `set=<option>=<value>` ([`Setting::key`]: degrees
+//! for zoom and roll, the place 0-100 for focus, an index for a choice, a factor for the
+//! rest), `tab=<n>`, `select=<row>`, `screen=<file>` (a screenshot of the window as it is,
+//! with the panel, for the docs).
+
+use crate::bindings::{Bindings, Control, InputDevice};
+use crate::pad::PadInput;
+use crate::control::{BodyView, PlayerControl, Pov};
+use crate::interface::{amber, at, u};
+use crate::lockpick::screen::{Ctx, FontKind, Kit};
+use crate::phys::PhysState;
+use crate::player::Player;
+use crate::{space, PlaySet, PlayState, PlayerCamera};
+use bevy::image::CompressedImageFormatSupport;
+use bevy::input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll};
+use bevy::prelude::*;
+use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured};
+use fnv_phys::Filter;
+use nvf_assets::GameData;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::Mutex;
+
+// ---- the camera [design] ---------------------------------------------------------------
+
+/// How far the point the camera circles may move from the player's pivot (game units,
+/// about 3 m): a short range, so photo mode cannot scout.
+pub const MAX_PAN: f32 = 200.0;
+/// The camera's distance from that point: nearest, farthest, and at the start when the
+/// view was first person.
+pub const MIN_DIST: f32 = 30.0;
+pub const MAX_DIST: f32 = 320.0;
+const START_DIST: f32 = 150.0;
+/// The camera keeps this far from what it hits.
+const WALL_MARGIN: f32 = 10.0;
+/// Radians per pixel of mouse motion, per second at a full stick.
+const LOOK_PER_PIXEL: f32 = 0.003;
+const STICK_TURN: f32 = 2.2;
+/// Units per second the camera moves (Shift: three times).
+const MOVE_SPEED: f32 = 140.0;
+const MAX_PITCH: f32 = 1.45;
+/// The free camera flies anywhere up to this far from the player (game units, about 57 m
+/// by the Focus text's scale): well inside the cells loaded round the player, so the
+/// view never reaches the edge of the loaded world [design, owner 2026-11-10: "camera
+/// shouldnt be locked to player"].
+pub const MAX_FREE_RANGE: f32 = 4000.0;
+/// Units per second the free camera flies (Shift: three times).
+const FLY_SPEED: f32 = 320.0;
+/// Depth of field: the band kept sharp round the focus and the ramp to full blur past
+/// it, as parts of the focus distance plus a floor (game units) [design].
+const DOF_SHARP: (f32, f32) = (0.06, 12.0);
+const DOF_RAMP: (f32, f32) = (0.6, 80.0);
+
+// ---- the panel -------------------------------------------------------------------------
+
+/// The panel: its width, its right edge from the view's, its top (interface units).
+const PANEL_W: f32 = 430.0;
+const PANEL_RIGHT: f32 = 70.0;
+const PANEL_TOP: f32 = 210.0;
+const PAD: f32 = 22.0;
+const ROW_STEP: f32 = 62.0;
+const TRACK_DROP: f32 = 40.0;
+const DIM: f32 = 120.0;
+/// Seconds a warning stays on the panel.
+pub const WARN_SECONDS: f32 = 4.0;
+/// A held Left/Right repeats after this long, this often (seconds).
+const REPEAT_AFTER: f32 = 0.3;
+const REPEAT_EVERY: f32 = 0.045;
+
+/// The panel's tabs, as photo modes commonly group their options [design].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Tab {
+    Camera,
+    Look,
+    Frame,
+}
+
+impl Tab {
+    pub const ALL: [Tab; 3] = [Tab::Camera, Tab::Look, Tab::Frame];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Tab::Camera => "CAMERA",
+            Tab::Look => "LOOK",
+            Tab::Frame => "FRAME",
+        }
+    }
+
+    /// Its options, in the panel's order.
+    pub fn settings(self) -> &'static [Setting] {
+        match self {
+            Tab::Camera => &[Setting::Camera, Setting::Zoom, Setting::Roll, Setting::Focus, Setting::Blur],
+            Tab::Look => &[Setting::Brightness, Setting::Contrast, Setting::Saturation, Setting::Warmth, Setting::Vignette, Setting::Grain],
+            Tab::Frame => &[Setting::Letterbox, Setting::Grid, Setting::HidePlayer],
+        }
+    }
+}
+
+/// The options.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Setting {
+    /// Free (flies anywhere within [`MAX_FREE_RANGE`]) or Orbit (circles the player).
+    Camera,
+    Zoom,
+    Roll,
+    /// Depth of field: the distance kept sharp ("Auto": what is under the screen's centre).
+    Focus,
+    /// Depth of field: how strongly what is off the focus blurs (0: off).
+    Blur,
+    Brightness,
+    Contrast,
+    Saturation,
+    /// -1 cool (blue) to 1 warm (orange).
+    Warmth,
+    Vignette,
+    Grain,
+    /// Black bars to an aspect ([`LETTERBOXES`]); they are in the photo.
+    Letterbox,
+    /// Rule-of-thirds lines over the view; never in the photo.
+    Grid,
+    /// The player's body is not drawn (its shadow stays).
+    HidePlayer,
+}
+
+/// The letterbox choices: name, width over height (0: none).
+pub const LETTERBOXES: [(&str, f32); 6] = [("Off", 0.0), ("2.39:1", 2.39), ("1.85:1", 1.85), ("16:9", 16.0 / 9.0), ("4:3", 4.0 / 3.0), ("1:1", 1.0)];
+const CAMERAS: [&str; 2] = ["Free", "Orbit"];
+const OFF_ON: [&str; 2] = ["Off", "On"];
+const GRIDS: [&str; 2] = ["Off", "Thirds"];
+
+/// The Focus slider's far end in game units, reached on a curve so near distances get
+/// the finer steps [design].
+pub const FOCUS_FAR: f32 = 8000.0;
+/// Centimetres per game unit, for the Focus text [hypothesis: the Creation Kit wiki gives
+/// 1 unit = 1.428 cm for Bethesda's games of this engine family; not checked for New Vegas].
+const CM_PER_UNIT: f32 = 1.428;
+
+impl Setting {
+    pub const ALL: [Setting; 14] = [
+        Setting::Camera,
+        Setting::Zoom,
+        Setting::Roll,
+        Setting::Focus,
+        Setting::Blur,
+        Setting::Brightness,
+        Setting::Contrast,
+        Setting::Saturation,
+        Setting::Warmth,
+        Setting::Vignette,
+        Setting::Grain,
+        Setting::Letterbox,
+        Setting::Grid,
+        Setting::HidePlayer,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Setting::Camera => "Camera",
+            Setting::Zoom => "Zoom (FOV)",
+            Setting::Roll => "Roll",
+            Setting::Focus => "Focus",
+            Setting::Blur => "Blur",
+            Setting::Brightness => "Brightness",
+            Setting::Contrast => "Contrast",
+            Setting::Saturation => "Saturation",
+            Setting::Warmth => "Warmth",
+            Setting::Vignette => "Vignette",
+            Setting::Grain => "Film Grain",
+            Setting::Letterbox => "Letterbox",
+            Setting::Grid => "Grid",
+            Setting::HidePlayer => "Hide Player",
+        }
+    }
+
+    /// The test aid's name for it.
+    pub fn key(self) -> &'static str {
+        match self {
+            Setting::Camera => "camera",
+            Setting::Zoom => "zoom",
+            Setting::Roll => "roll",
+            Setting::Focus => "focus",
+            Setting::Blur => "blur",
+            Setting::Brightness => "brightness",
+            Setting::Contrast => "contrast",
+            Setting::Saturation => "saturation",
+            Setting::Warmth => "warmth",
+            Setting::Vignette => "vignette",
+            Setting::Grain => "grain",
+            Setting::Letterbox => "letterbox",
+            Setting::Grid => "grid",
+            Setting::HidePlayer => "hide",
+        }
+    }
+
+    pub fn by_name(name: &str) -> Option<Setting> {
+        Setting::ALL.into_iter().find(|s| s.key().eq_ignore_ascii_case(name.trim()))
+    }
+
+    /// A choice's names (its value is the index), or `None` for a slider.
+    pub fn choices(self) -> Option<&'static [&'static str]> {
+        static LB: [&str; 6] = [LETTERBOXES[0].0, LETTERBOXES[1].0, LETTERBOXES[2].0, LETTERBOXES[3].0, LETTERBOXES[4].0, LETTERBOXES[5].0];
+        match self {
+            Setting::Camera => Some(&CAMERAS),
+            Setting::Letterbox => Some(&LB),
+            Setting::Grid => Some(&GRIDS),
+            Setting::HidePlayer => Some(&OFF_ON),
+            _ => None,
+        }
+    }
+
+    pub fn tab(self) -> Tab {
+        Tab::ALL.into_iter().find(|t| t.settings().contains(&self)).unwrap_or(Tab::Camera)
+    }
+
+    /// Lowest, highest, one step.
+    pub fn range(self) -> (f32, f32, f32) {
+        if let Some(c) = self.choices() {
+            return (0.0, (c.len() - 1) as f32, 1.0);
+        }
+        match self {
+            // The game's field of view in degrees (across 4:3).
+            Setting::Zoom => (10.0, 120.0, 2.0),
+            Setting::Roll => (-45.0, 45.0, 1.0),
+            // The place along the Focus curve, 0 Auto ([`focus_units`]).
+            Setting::Focus => (0.0, 100.0, 1.0),
+            Setting::Blur | Setting::Vignette | Setting::Grain => (0.0, 1.0, 0.05),
+            Setting::Brightness | Setting::Contrast => (0.5, 1.5, 0.02),
+            Setting::Saturation => (0.0, 2.0, 0.05),
+            Setting::Warmth => (-1.0, 1.0, 0.05),
+            _ => (0.0, 1.0, 1.0),
+        }
+    }
+
+    /// The default value.
+    pub fn default_value(self) -> f32 {
+        match self {
+            Setting::Brightness | Setting::Contrast | Setting::Saturation => 1.0,
+            _ => 0.0,
+        }
+    }
+}
+
+/// The Focus slider's place (1 to 100) as a distance in game units; 0 is Auto.
+pub fn focus_units(place: f32) -> Option<f32> {
+    (place >= 0.5).then(|| (place / 100.0).powi(2) * FOCUS_FAR)
+}
+
+/// The options' values.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PhotoSettings {
+    /// The field of view, the game's degrees; the view's own at the start.
+    pub fov: f32,
+    /// The rest, by [`Setting::ALL`]'s order (the zoom's place unused).
+    values: [f32; 14],
+    /// The field of view photo mode opened with (Reset goes back to it).
+    pub start_fov: f32,
+}
+
+impl PhotoSettings {
+    /// Every option at its default, the zoom at `fov` (the view's).
+    pub fn new(fov: f32) -> PhotoSettings {
+        let (lo, hi, _) = Setting::Zoom.range();
+        let fov = fov.clamp(lo, hi);
+        PhotoSettings { fov, values: Setting::ALL.map(Setting::default_value), start_fov: fov }
+    }
+
+    fn index(s: Setting) -> usize {
+        Setting::ALL.iter().position(|&x| x == s).unwrap_or(0)
+    }
+
+    pub fn get(&self, s: Setting) -> f32 {
+        if s == Setting::Zoom {
+            self.fov
+        } else {
+            self.values[Self::index(s)]
+        }
+    }
+
+    /// Set an option, kept in its range (a choice to a whole index).
+    pub fn set(&mut self, s: Setting, v: f32) {
+        let (lo, hi, _) = s.range();
+        let v = if v.is_finite() { v.clamp(lo, hi) } else { self.get(s) };
+        let v = if s.choices().is_some() { v.round() } else { v };
+        if s == Setting::Zoom {
+            self.fov = v;
+        } else {
+            self.values[Self::index(s)] = v;
+        }
+    }
+
+    /// Move an option `steps` steps (negative: down), rounded to its steps; a choice goes
+    /// round from its last to its first.
+    pub fn step(&mut self, s: Setting, steps: f32) {
+        let (lo, hi, step) = s.range();
+        if s.choices().is_some() {
+            let n = hi - lo + 1.0;
+            self.set(s, (self.get(s) + steps.signum()).rem_euclid(n));
+            return;
+        }
+        let v = ((self.get(s) + step * steps) / step).round() * step;
+        self.set(s, v);
+    }
+
+    /// Back to the defaults (the zoom to where it opened).
+    pub fn reset(&mut self) {
+        *self = PhotoSettings::new(self.start_fov);
+    }
+
+    /// The slider's place along its track, 0 to 1.
+    pub fn share(&self, s: Setting) -> f32 {
+        let (lo, hi, _) = s.range();
+        ((self.get(s) - lo) / (hi - lo)).clamp(0.0, 1.0)
+    }
+
+    /// The value as the panel writes it.
+    pub fn text(&self, s: Setting) -> String {
+        if let Some(c) = s.choices() {
+            return c.get(self.get(s) as usize).copied().unwrap_or("?").to_string();
+        }
+        let signed = |v: i32| match v {
+            0 => "0".to_string(),
+            r => format!("{r:+}"),
+        };
+        match s {
+            // The HUD font has no degree sign [observed: the panel's first screenshots].
+            Setting::Zoom => format!("{:.0}", self.fov),
+            Setting::Roll => signed(self.get(s).round() as i32),
+            Setting::Warmth => signed((self.get(s) * 100.0).round() as i32),
+            Setting::Focus => match focus_units(self.get(s)) {
+                None => "Auto".into(),
+                Some(u) => {
+                    let m = u * CM_PER_UNIT / 100.0;
+                    if m < 10.0 {
+                        format!("{m:.1} m")
+                    } else {
+                        format!("{m:.0} m")
+                    }
+                }
+            },
+            Setting::Blur | Setting::Vignette | Setting::Grain if self.get(s) == 0.0 => "Off".into(),
+            _ => format!("{:.0}%", self.get(s) * 100.0),
+        }
+    }
+
+    pub fn free_camera(&self) -> bool {
+        self.get(Setting::Camera) == 0.0
+    }
+
+    pub fn roll(&self) -> f32 {
+        self.get(Setting::Roll)
+    }
+
+    pub fn grid(&self) -> bool {
+        self.get(Setting::Grid) != 0.0
+    }
+
+    pub fn hide_player(&self) -> bool {
+        self.get(Setting::HidePlayer) != 0.0
+    }
+
+    /// Width over height of the letterbox, 0 for none.
+    pub fn letterbox(&self) -> f32 {
+        LETTERBOXES.get(self.get(Setting::Letterbox) as usize).map_or(0.0, |l| l.1)
+    }
+}
+
+impl Default for PhotoSettings {
+    fn default() -> Self {
+        PhotoSettings::new(75.0)
+    }
+}
+
+/// The game's field of view (degrees across 4:3) a vertical angle in radians stands for:
+/// the inverse of `crate::free_cam::vertical_fov`.
+pub fn game_fov(vertical: f32) -> f32 {
+    (2.0 * ((vertical / 2.0).tan() * 4.0 / 3.0).atan()).to_degrees()
+}
+
+// ---- the file ----------------------------------------------------------------------
+
+/// `<home>\Photos`, beside the saves and the logs.
+pub fn photos_dir(home: &Path) -> PathBuf {
+    home.join("Photos")
+}
+
+/// A place's name as a part of a file name: no characters Windows forbids, spaces kept
+/// single, at most 60 characters; "Unknown" for none.
+pub fn file_safe_place(place: &str) -> String {
+    let cleaned: String = place.chars().map(|c| if c.is_control() || "\\/:*?\"<>|".contains(c) { ' ' } else { c }).collect();
+    let mut out = cleaned.split_whitespace().collect::<Vec<_>>().join(" ");
+    if out.chars().count() > 60 {
+        out = out.chars().take(60).collect::<String>().trim_end().to_string();
+    }
+    // Windows does not end a name with a dot.
+    let out = out.trim_end_matches('.').trim().to_string();
+    if out.is_empty() {
+        "Unknown".into()
+    } else {
+        out
+    }
+}
+
+/// The photo's file name for a local date and time (year, month, day, hour, minute,
+/// second) and a place: "NVForever 2026-11-10 01-23-45 Goodsprings.png".
+pub fn photo_file_name(when: (i32, u32, u32, u32, u32, u32), place: &str) -> String {
+    let (y, mo, d, h, mi, s) = when;
+    format!("NVForever {y:04}-{mo:02}-{d:02} {h:02}-{mi:02}-{s:02} {}.png", file_safe_place(place))
+}
+
+/// `name` in `dir`, or with " (2)", " (3)" … before the extension when `taken` says a file
+/// of that name is there (two photos in one second).
+pub fn unique_path(dir: &Path, name: &str, taken: impl Fn(&Path) -> bool) -> PathBuf {
+    let first = dir.join(name);
+    if !taken(&first) {
+        return first;
+    }
+    let (stem, ext) = name.rsplit_once('.').unwrap_or((name, "png"));
+    (2..10_000).map(|n| dir.join(format!("{stem} ({n}).{ext}"))).find(|p| !taken(p)).unwrap_or(first)
+}
+
+/// The captured window as tight RGB rows (alpha dropped), from its texture format.
+pub fn rgb_rows(data: &[u8], format: bevy::render::render_resource::TextureFormat) -> Result<Vec<u8>, String> {
+    use bevy::render::render_resource::TextureFormat as F;
+    let bgra = match format {
+        F::Rgba8Unorm | F::Rgba8UnormSrgb => false,
+        F::Bgra8Unorm | F::Bgra8UnormSrgb => true,
+        other => return Err(format!("the window's format {other:?} is not one photo mode writes")),
+    };
+    if !data.len().is_multiple_of(4) {
+        return Err("the capture is not whole pixels".into());
+    }
+    Ok(data.as_chunks::<4>().0.iter().flat_map(|&[r, g, b, _]| if bgra { [b, g, r] } else { [r, g, b] }).collect())
+}
+
+fn write_png(path: &Path, width: u32, height: u32, rgb: &[u8]) -> Result<(), String> {
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    }
+    let file = std::fs::File::create(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let mut enc = png::Encoder::new(std::io::BufWriter::new(file), width, height);
+    enc.set_color(png::ColorType::Rgb);
+    enc.set_depth(png::BitDepth::Eight);
+    let mut w = enc.write_header().map_err(|e| e.to_string())?;
+    w.write_image_data(rgb).map_err(|e| e.to_string())?;
+    w.finish().map_err(|e| e.to_string())
+}
+
+// ---- the state -----------------------------------------------------------------------
+
+/// Where a photo is in its making.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+enum Shot {
+    #[default]
+    Idle,
+    /// The interface is hidden this frame; the capture is asked for on the next.
+    Hiding,
+    /// Asked for; waiting for the picture.
+    Capturing,
+}
+
+/// Photo mode.
+#[derive(Resource, Default)]
+pub struct PhotoMode {
+    /// Open.
+    pub on: bool,
+    /// Open and taking the controls this frame (no console over it).
+    pub active: bool,
+    /// Opened in co-op: the world goes on, only the view holds.
+    pub coop: bool,
+    pub settings: PhotoSettings,
+    /// The tab shown ([`Tab::ALL`]) and the option chosen on it.
+    pub tab: usize,
+    pub selected: usize,
+    pub panel_hidden: bool,
+    /// The camera: the compass heading and pitch it looks along (radians), its distance
+    /// from the point it circles, and that point's offset from the player's pivot (game
+    /// space).
+    heading: f32,
+    pitch: f32,
+    dist: f32,
+    pan: [f32; 3],
+    /// The free camera's place (game space); `None` until it starts where the orbit put it.
+    free_at: Option<[f32; 3]>,
+    /// The camera's place this frame, and the distance to what is under the screen's
+    /// centre (game units), for the Focus slider's Auto.
+    cam_at: [f32; 3],
+    auto_focus: f32,
+    /// The view the player had, and the camera's vertical field of view.
+    pov: Pov,
+    vfov: f32,
+    shot: Shot,
+    /// The warning on the panel and the real seconds it has left.
+    pub warning: Option<(String, f32)>,
+    /// The interface roots photo mode hid, and their visibility before.
+    hidden: HashMap<Entity, Visibility>,
+    /// Left/Right held: the direction and for how long.
+    held: Option<(f32, f32)>,
+    repeat_at: f32,
+}
+
+impl PhotoMode {
+    /// Alone, photo mode holds the world as a menu does.
+    pub fn holds_world(&self) -> bool {
+        self.on && !self.coop
+    }
+
+    /// Brightness, saturation and contrast factors for the grade while open.
+    pub fn look(&self) -> Option<(f32, f32, f32)> {
+        let s = &self.settings;
+        self.on.then(|| (s.get(Setting::Brightness), s.get(Setting::Saturation), s.get(Setting::Contrast)))
+    }
+
+    /// The grade's photo look: warmth, vignette, film grain, letterbox aspect (all 0 when
+    /// closed).
+    pub fn finish(&self) -> [f32; 4] {
+        if !self.on {
+            return [0.0; 4];
+        }
+        let s = &self.settings;
+        [s.get(Setting::Warmth), s.get(Setting::Vignette), s.get(Setting::Grain), s.letterbox()]
+    }
+
+    /// The depth of field while open with some blur: strength, the band kept sharp, the
+    /// distance at which the blur is full, and the focus (game units along the view).
+    pub fn depth_of_field(&self) -> Option<PhotoDof> {
+        let s = &self.settings;
+        let strength = s.get(Setting::Blur);
+        if !self.on || strength <= 0.0 {
+            return None;
+        }
+        let focus = focus_units(s.get(Setting::Focus)).unwrap_or(self.auto_focus).max(1.0);
+        let sharp = focus * DOF_SHARP.0 + DOF_SHARP.1;
+        Some(PhotoDof { strength, sharp, full: sharp + focus * DOF_RAMP.0 + DOF_RAMP.1, focus })
+    }
+
+    /// The player's body is hidden for the picture.
+    pub fn hides_player(&self) -> bool {
+        self.on && self.settings.hide_player()
+    }
+
+    fn capturing(&self) -> bool {
+        self.shot != Shot::Idle
+    }
+
+    fn tab(&self) -> Tab {
+        Tab::ALL[self.tab.min(Tab::ALL.len() - 1)]
+    }
+
+    fn setting(&self) -> Setting {
+        let rows = self.tab().settings();
+        rows[self.selected.min(rows.len() - 1)]
+    }
+}
+
+/// Photo mode's depth of field (`PhotoMode::depth_of_field`; imagespace.rs draws it).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PhotoDof {
+    pub strength: f32,
+    /// Within this of the focus nothing blurs; the blur is full this far from it.
+    pub sharp: f32,
+    pub full: f32,
+    pub focus: f32,
+}
+
+/// Asked to open photo mode on the next frame in the world (the pause menu's entry).
+#[derive(Resource, Default)]
+pub struct PhotoRequest(pub bool);
+
+/// The captured picture, from the screenshot's observer, and the writer's answers.
+#[derive(Resource)]
+struct Darkroom {
+    picture: Option<Image>,
+    send: Sender<Result<PathBuf, String>>,
+    done: Mutex<Receiver<Result<PathBuf, String>>>,
+}
+
+impl Default for Darkroom {
+    fn default() -> Self {
+        let (send, done) = channel();
+        Darkroom { picture: None, send, done: Mutex::new(done) }
+    }
+}
+
+/// The panel's root.
+#[derive(Component)]
+struct PhotoRoot;
+
+/// The rule-of-thirds grid's root: shown with the panel hidden too, never in the photo.
+#[derive(Component)]
+struct GridRoot;
+
+/// Co-op: what is drawn holds the pose it had when photo mode opened, while the game reads
+/// the live one. After the transforms are propagated each frame, every entity that moved
+/// is drawn where it was then (its `GlobalTransform` swapped for the one kept at the
+/// start); at the next frame's start the live one goes back, so the simulation, the
+/// network and the physics never see the held one [design]. The cameras, the interface
+/// and what is spawned later are left alone.
+#[derive(Resource, Default)]
+struct HeldView {
+    on: bool,
+    frozen: HashMap<Entity, GlobalTransform>,
+    live: Vec<(Entity, GlobalTransform)>,
+}
+
+/// `NVF_PLAY_TEST_PHOTO`.
+#[derive(Resource, Default, Debug, PartialEq)]
+struct PhotoAid(Vec<(f32, String)>);
+
+fn parse_aid(v: &str) -> Result<Vec<(f32, String)>, String> {
+    v.split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|item| {
+            let (t, a) = item.split_once(':').ok_or_else(|| format!("{item:?}: expected <seconds>:<action>"))?;
+            let t = t.trim().parse::<f32>().map_err(|_| format!("{item:?}: bad seconds"))?;
+            Ok((t, a.trim().to_string()))
+        })
+        .collect()
+}
+
+pub struct PhotoModePlugin;
+
+impl Plugin for PhotoModePlugin {
+    fn build(&self, app: &mut App) {
+        let aid = match std::env::var("NVF_PLAY_TEST_PHOTO") {
+            Ok(v) => match parse_aid(&v) {
+                Ok(a) => {
+                    info!("test aid NVF_PLAY_TEST_PHOTO: {} actions", a.len());
+                    a
+                }
+                Err(e) => {
+                    warn!("test aid NVF_PLAY_TEST_PHOTO: {e}");
+                    Vec::new()
+                }
+            },
+            Err(_) => Vec::new(),
+        };
+        app.init_resource::<PhotoMode>()
+            .init_resource::<PhotoRequest>()
+            .init_resource::<Darkroom>()
+            .init_resource::<HeldView>()
+            .insert_resource(PhotoAid(aid))
+            .add_systems(Update, toggle.after(PlaySet::Scripts).before(PlaySet::Ui))
+            .add_systems(Update, hold_world.in_set(PlaySet::Sync))
+            .add_systems(Update, place.in_set(PlaySet::Physics).after(crate::control::place_camera).after(crate::free_cam::fly))
+            .add_systems(Update, (adjust, warn_on_hits, developed, draw).chain().in_set(PlaySet::Ui))
+            .add_systems(Update, zoom.in_set(PlaySet::Sync).after(crate::aim_zoom::zoom))
+            .add_systems(First, restore_live)
+            .add_systems(
+                PostUpdate,
+                (hide_interface.before(bevy::camera::visibility::VisibilitySystems::VisibilityPropagate), (keep_start, hold_view).chain().after(bevy::transform::TransformSystems::Propagate).before(bevy::camera::visibility::VisibilitySystems::CheckVisibility)),
+            )
+            .add_systems(Startup, make_soft);
+    }
+}
+
+/// Whether the player is in a co-op game (the lobby lists its players).
+fn in_coop(lobby: Option<&crate::lobby::LobbyState>) -> bool {
+    lobby.is_some_and(|l| !l.players.is_empty())
+}
+
+/// Take the aid's actions due by `now`.
+fn due(aid: &mut PhotoAid, now: f32) -> Vec<String> {
+    let (due, rest): (Vec<_>, Vec<_>) = std::mem::take(&mut aid.0).into_iter().partition(|(t, _)| *t <= now);
+    aid.0 = rest;
+    due.into_iter().map(|(_, a)| a).collect()
+}
+
+/// Open and close photo mode.
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
+fn toggle(
+    (keys, mouse, pads, sticks): (Res<ButtonInput<KeyCode>>, Res<ButtonInput<MouseButton>>, Query<&Gamepad>, Option<Res<crate::pad::StickButtons>>),
+    bindings: Res<Bindings>,
+    time: crate::pause::AidTime,
+    mut aid: ResMut<PhotoAid>,
+    mut request: ResMut<PhotoRequest>,
+    mut photo: ResMut<PhotoMode>,
+    mut control: ResMut<PlayerControl>,
+    (state, console, paused, menu, loading, free_cam, kill_cam, lobby): (
+        Res<State<PlayState>>,
+        Res<crate::console::Console>,
+        Res<crate::pause::Paused>,
+        Res<crate::menu::ActiveMenu>,
+        Res<crate::loading::Loading>,
+        Option<Res<crate::free_cam::FreeCam>>,
+        Option<Res<crate::kill_cam::KillCam>>,
+        Option<Res<crate::lobby::LobbyState>>,
+    ),
+    (player, body): (Option<Res<Player>>, Res<BodyView>),
+    mut next: ResMut<NextState<PlayState>>,
+    cams: Query<(&Transform, &Projection), With<PlayerCamera>>,
+    mut aid_actions: Local<Vec<String>>,
+) {
+    // `open` and `close` are this system's; the rest go on to `adjust`.
+    for a in due(&mut aid, time.elapsed_secs()) {
+        if a == "open" || a == "close" {
+            aid_actions.push(a);
+        } else {
+            aid.0.push((f32::NEG_INFINITY, a));
+        }
+    }
+    let by_aid = |acts: &mut Vec<String>, name: &str| {
+        let hit = acts.iter().position(|a| a == name);
+        hit.map(|i| acts.remove(i)).is_some()
+    };
+    // The Photo Mode control, read here: `ControlInput` holds every control while photo
+    // mode is open.
+    let b = bindings.get(Control::PhotoMode);
+    let pressed = b.key.is_some_and(|k| keys.just_pressed(k))
+        || b.mouse.is_some_and(|m| mouse.just_pressed(m))
+        || match bindings.pad(Control::PhotoMode) {
+            Some(PadInput::Button(btn)) => pads.iter().any(|g| g.just_pressed(btn)),
+            Some(PadInput::Stick(d)) => sticks.as_ref().is_some_and(|s| s.just_pressed(d)),
+            None => false,
+        };
+    if photo.on {
+        photo.active = !console.open;
+        if !photo.active || photo.capturing() {
+            return;
+        }
+        let close = keys.just_pressed(KeyCode::Escape) || pressed || pads.iter().any(|g| g.just_pressed(GamepadButton::East)) || by_aid(&mut aid_actions, "close");
+        if close {
+            close_photo(&mut photo, &mut control, &mut next);
+        }
+        return;
+    }
+    // The pause menu's entry asks while the menu is still up: the request waits for play
+    // to resume (`crate::graphics_resume` can hold the resume a few frames).
+    let resuming = request.0 && (paused.0 || *state.get() != PlayState::Playing);
+    if resuming {
+        return;
+    }
+    let asked = std::mem::take(&mut request.0) || by_aid(&mut aid_actions, "open") || pressed;
+    if !asked {
+        return;
+    }
+    let free = *state.get() == PlayState::Playing && !console.open && !paused.0 && menu.0.is_none() && !loading.active() && !free_cam.is_some_and(|f| f.on) && !kill_cam.is_some_and(|k| k.active());
+    let (Some(p), Ok((t, proj))) = (player, cams.single()) else { return };
+    if !free {
+        info!("photo mode: not now (a menu, the console, a loading screen or a camera of its own has the view)");
+        return;
+    }
+    let vfov = match proj {
+        Projection::Perspective(p) => p.fov,
+        _ => crate::free_cam::vertical_fov(75.0),
+    };
+    let coop = in_coop(lobby.as_deref());
+    let pivot = body.pivot.unwrap_or(p.eye());
+    let cam = space::to_game(t.translation);
+    let v = [pivot[0] - cam[0], pivot[1] - cam[1], pivot[2] - cam[2]];
+    let len = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
+    let (heading, pitch, dist) = if len < 20.0 {
+        // From first person: behind the player, looking a little down.
+        (control.view_heading(p.heading), (p.pitch - 0.25).clamp(-MAX_PITCH, MAX_PITCH), START_DIST)
+    } else {
+        (v[0].atan2(v[1]), (v[2] / len).asin().clamp(-MAX_PITCH, MAX_PITCH), len.clamp(MIN_DIST, MAX_DIST))
+    };
+    let f = &mut *photo;
+    (f.on, f.active, f.coop, f.selected, f.panel_hidden, f.shot, f.warning, f.held) = (true, true, coop, 0, false, Shot::Idle, None, None);
+    (f.heading, f.pitch, f.dist, f.pan, f.pov, f.vfov) = (heading, pitch, dist, [0.0; 3], control.pov, vfov);
+    (f.tab, f.free_at, f.auto_focus) = (0, None, dist);
+    f.settings = PhotoSettings::new(game_fov(vfov));
+    control.pov = Pov::Third;
+    if !coop {
+        next.set(PlayState::Menu);
+    }
+    let what = if coop { "co-op: the view holds, the world goes on" } else { "solo: the game pauses" };
+    info!("photo mode: open ({what}), zoom {:.0}°", f.settings.fov);
+}
+
+fn close_photo(photo: &mut PhotoMode, control: &mut PlayerControl, next: &mut NextState<PlayState>) {
+    photo.on = false;
+    photo.active = false;
+    control.pov = photo.pov;
+    if !photo.coop {
+        next.set(PlayState::Playing);
+    }
+    photo.settings.reset();
+    info!("photo mode: closed, the view is back on the player");
+}
+
+/// Alone, the world stays held while photo mode is open (as the free camera's mode 1).
+fn hold_world(photo: Res<PhotoMode>, console: Res<crate::console::Console>, paused: Res<crate::pause::Paused>, menu: Res<crate::menu::ActiveMenu>, mut next: ResMut<NextState<PlayState>>, state: Res<State<PlayState>>) {
+    if photo.holds_world() && !console.open && !paused.0 && menu.0.is_none() && matches!(*state.get(), PlayState::Playing | PlayState::Menu) {
+        NextState::set_if_different(&mut *next, PlayState::Menu);
+    }
+}
+
+/// The left and right triggers' pull, 0 to 1.
+fn trigger(pads: &Query<&Gamepad>, b: GamepadButton) -> f32 {
+    pads.iter().filter_map(|g| g.get(b)).fold(0.0, f32::max)
+}
+
+/// Move the camera and put the view there; after `place_camera`, so it wins.
+#[allow(clippy::too_many_arguments)]
+fn place(
+    real: Res<Time<Real>>,
+    keys: Res<ButtonInput<KeyCode>>,
+    motion: Res<AccumulatedMouseMotion>,
+    pads: Query<&Gamepad>,
+    player: Option<Res<Player>>,
+    body: Res<BodyView>,
+    mut phys: ResMut<PhysState>,
+    mut photo: ResMut<PhotoMode>,
+    mut cams: Query<&mut Transform, With<PlayerCamera>>,
+    time: crate::pause::AidTime,
+    mut aid: Local<Option<Vec<(f32, String)>>>,
+) {
+    // The aid's camera moves (orbit, near), on the aids' clock.
+    let aid = aid.get_or_insert_with(|| {
+        std::env::var("NVF_PLAY_TEST_PHOTO").ok().and_then(|v| parse_aid(&v).ok()).unwrap_or_default().into_iter().filter(|(_, a)| a.starts_with("orbit=") || a.starts_with("near=") || a.starts_with("fly=") || a.starts_with("lift=") || a == "face").collect()
+    });
+    if !photo.on {
+        return;
+    }
+    let (Some(p), Ok(mut t)) = (player, cams.single_mut()) else { return };
+    let dt = real.delta_secs().min(0.1);
+    let f = &mut *photo;
+    let now = time.elapsed_secs();
+    let (mut fly, mut lift, mut face) = (0.0f32, 0.0f32, false);
+    aid.retain(|(at, a)| {
+        if *at > now {
+            return true;
+        }
+        if let Some(d) = a.strip_prefix("orbit=").and_then(|d| d.parse::<f32>().ok()) {
+            f.heading += d.to_radians();
+            info!("test aid NVF_PLAY_TEST_PHOTO: orbit {d}°");
+        } else if let Some(d) = a.strip_prefix("near=").and_then(|d| d.parse::<f32>().ok()) {
+            f.dist = d.clamp(MIN_DIST, MAX_DIST);
+            info!("test aid NVF_PLAY_TEST_PHOTO: distance {:.0}", f.dist);
+        } else if let Some(d) = a.strip_prefix("fly=").and_then(|d| d.parse::<f32>().ok()) {
+            fly += d;
+        } else if let Some(d) = a.strip_prefix("lift=").and_then(|d| d.parse::<f32>().ok()) {
+            lift += d;
+        } else if a == "face" {
+            face = true;
+        }
+        false
+    });
+    let free = f.settings.free_camera();
+    let pivot = body.pivot.unwrap_or(p.eye());
+    // Walls stop the camera; actors and the player's own capsule do not.
+    let filter = Filter { exclude_layers: fnv_phys::layers::character_ignores().union(fnv_phys::layers::actor_volumes()), ..Default::default() };
+    let mut reach = |from: [f32; 3], to: [f32; 3]| -> [f32; 3] {
+        let d = [to[0] - from[0], to[1] - from[1], to[2] - from[2]];
+        let len = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
+        if len <= 1e-3 {
+            return from;
+        }
+        let r = match phys.ray(from, d, len + WALL_MARGIN, filter.clone()) {
+            Some(h) => (h.distance - WALL_MARGIN).max(0.0).min(len),
+            None => len,
+        };
+        [from[0] + d[0] / len * r, from[1] + d[1] / len * r, from[2] + d[2] / len * r]
+    };
+    if f.active && !f.capturing() {
+        let stick_r = crate::pad::stick(&pads, false);
+        let stick_l = crate::pad::stick(&pads, true);
+        f.heading += motion.delta.x * LOOK_PER_PIXEL + stick_r.x * STICK_TURN * dt;
+        f.pitch = (f.pitch - motion.delta.y * LOOK_PER_PIXEL + stick_r.y * STICK_TURN * dt).clamp(-MAX_PITCH, MAX_PITCH);
+        let k = |c: KeyCode| if keys.pressed(c) { 1.0f32 } else { 0.0 };
+        let fast = if keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]) { 3.0 } else { 1.0 };
+        let ahead = k(KeyCode::KeyW) - k(KeyCode::KeyS) + stick_l.y;
+        let side = k(KeyCode::KeyD) - k(KeyCode::KeyA) + stick_l.x;
+        let up = k(KeyCode::Space) + k(KeyCode::KeyE) - k(KeyCode::ControlLeft) - k(KeyCode::KeyQ) + trigger(&pads, GamepadButton::RightTrigger2) - trigger(&pads, GamepadButton::LeftTrigger2);
+        let (sh, ch) = f.heading.sin_cos();
+        let right = [ch, -sh, 0.0];
+        if free {
+            if let Some(at) = f.free_at {
+                // Along the view (its pitch too), sideways, and straight up and down; one
+                // axis at a time, so the camera slides along a wall it meets.
+                let step = FLY_SPEED * fast * dt;
+                let dir = space::look_dir(f.heading, f.pitch);
+                let mv = [0, 1, 2].map(|i| (dir[i] * ahead + right[i] * side) * step + if i == 2 { up * step } else { 0.0 });
+                let mut now = at;
+                for i in 0..3 {
+                    let mut to = now;
+                    to[i] += mv[i];
+                    now = reach(now, to);
+                }
+                // Kept within reach of the player.
+                let off = [now[0] - pivot[0], now[1] - pivot[1], now[2] - pivot[2]];
+                let len = (off[0] * off[0] + off[1] * off[1] + off[2] * off[2]).sqrt();
+                if len > MAX_FREE_RANGE {
+                    now = [0, 1, 2].map(|i| pivot[i] + off[i] * MAX_FREE_RANGE / len);
+                }
+                f.free_at = Some(now);
+            }
+        } else {
+            let step = MOVE_SPEED * fast * dt;
+            // Nearer and farther.
+            f.dist = (f.dist - ahead * step).clamp(MIN_DIST, MAX_DIST);
+            // Sideways, up and down: the point circled moves.
+            for (p, r) in f.pan.iter_mut().zip(right) {
+                *p += r * side * step;
+            }
+            f.pan[2] += up * step;
+            let len = (f.pan[0] * f.pan[0] + f.pan[1] * f.pan[1] + f.pan[2] * f.pan[2]).sqrt();
+            if len > MAX_PAN {
+                f.pan = f.pan.map(|x| x * MAX_PAN / len);
+            }
+        }
+    }
+    // The aid's flight: straight up, then along the view, walls stopping it; `face` turns
+    // the free camera to the player.
+    if let Some(at) = f.free_at.filter(|_| free && (fly != 0.0 || lift != 0.0)) {
+        let dir = space::look_dir(f.heading, f.pitch);
+        let up = reach(at, [at[0], at[1], at[2] + lift]);
+        let to = reach(up, [0, 1, 2].map(|i| up[i] + dir[i] * fly));
+        let gone = [0, 1, 2].map(|i| to[i] - pivot[i]);
+        info!("test aid NVF_PLAY_TEST_PHOTO: the free camera flies {fly:.0}, now {:.0} from the player", (gone[0] * gone[0] + gone[1] * gone[1] + gone[2] * gone[2]).sqrt());
+        f.free_at = Some(to);
+    }
+    if let Some(at) = f.free_at.filter(|_| free && face) {
+        let v = [pivot[0] - at[0], pivot[1] - at[1], pivot[2] - at[2]];
+        let len = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt().max(1e-3);
+        (f.heading, f.pitch) = (v[0].atan2(v[1]), (v[2] / len).asin().clamp(-MAX_PITCH, MAX_PITCH));
+        info!("test aid NVF_PLAY_TEST_PHOTO: the free camera faces the player from {len:.0}");
+    }
+    let out = match f.free_at.filter(|_| free) {
+        Some(at) => at,
+        None => {
+            // The orbit: from the pivot to the point circled, then back along the view.
+            let focus = [pivot[0] + f.pan[0], pivot[1] + f.pan[1], pivot[2] + f.pan[2]];
+            let dir = space::look_dir(f.heading, f.pitch);
+            let want = [focus[0] - dir[0] * f.dist, focus[1] - dir[1] * f.dist, focus[2] - dir[2] * f.dist];
+            let at_focus = reach(pivot, focus);
+            let out = if at_focus == focus { reach(focus, want) } else { at_focus };
+            // The free camera starts where the orbit stands.
+            if free {
+                f.free_at = Some(out);
+            } else {
+                f.free_at = None;
+            }
+            out
+        }
+    };
+    // What is under the screen's centre, for the Focus slider's Auto (anything solid,
+    // actors too).
+    let dir = space::look_dir(f.heading, f.pitch);
+    f.auto_focus = phys.ray(out, dir, FOCUS_FAR, Filter::default()).map_or(FOCUS_FAR, |h| h.distance);
+    f.cam_at = out;
+    t.translation = space::to_bevy(out);
+    t.rotation = space::look_rotation(f.heading, f.pitch) * Quat::from_rotation_z(-f.settings.roll().to_radians());
+}
+
+/// The zoom: the camera's field of view while open, the one it had when it closes.
+fn zoom(photo: Res<PhotoMode>, mut cams: Query<&mut Projection, With<PlayerCamera>>, mut was_on: Local<bool>) {
+    let Ok(mut proj) = cams.single_mut() else { return };
+    let Projection::Perspective(p) = &*proj else { return };
+    let want = if photo.on {
+        crate::free_cam::vertical_fov(photo.settings.fov)
+    } else if *was_on {
+        photo.vfov
+    } else {
+        return;
+    };
+    *was_on = photo.on;
+    if (p.fov - want).abs() > 1e-5 {
+        if let Projection::Perspective(p) = &mut *proj {
+            p.fov = want;
+        }
+    }
+}
+
+/// The panel's keys and buttons, and the shutter.
+#[allow(clippy::too_many_arguments)]
+fn adjust(
+    real: Res<Time<Real>>,
+    keys: Res<ButtonInput<KeyCode>>,
+    mouse: Res<ButtonInput<MouseButton>>,
+    scroll: Res<AccumulatedMouseScroll>,
+    pads: Query<&Gamepad>,
+    time: crate::pause::AidTime,
+    mut aid: ResMut<PhotoAid>,
+    mut photo: ResMut<PhotoMode>,
+    mut commands: Commands,
+) {
+    // `toggle` passed these on (it runs first and keeps `open` and `close`).
+    let acts = due(&mut aid, time.elapsed_secs());
+    for a in acts.iter().filter_map(|a| a.strip_prefix("screen=")) {
+        info!("test aid NVF_PLAY_TEST_PHOTO: screenshot {a}");
+        commands.spawn(Screenshot::primary_window()).observe(bevy::render::view::screenshot::save_to_disk(PathBuf::from(a)));
+    }
+    if !photo.on || !photo.active {
+        return;
+    }
+    if photo.capturing() {
+        if photo.shot == Shot::Hiding {
+            photo.shot = Shot::Capturing;
+            commands.spawn(Screenshot::primary_window()).observe(|ev: On<ScreenshotCaptured>, mut room: ResMut<Darkroom>| room.picture = Some(ev.image.clone()));
+        }
+        return;
+    }
+    let pad = |b: GamepadButton| pads.iter().any(|g| g.just_pressed(b));
+    let pad_held = |b: GamepadButton| pads.iter().any(|g| g.pressed(b));
+    let f = &mut *photo;
+    // Tab (Shift+Tab back) and the shoulders change the tab.
+    let shift = keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]);
+    let tabs = Tab::ALL.len();
+    if (keys.just_pressed(KeyCode::Tab) && !shift) || pad(GamepadButton::RightTrigger) {
+        (f.tab, f.selected) = ((f.tab + 1) % tabs, 0);
+    } else if (keys.just_pressed(KeyCode::Tab) && shift) || pad(GamepadButton::LeftTrigger) {
+        (f.tab, f.selected) = ((f.tab + tabs - 1) % tabs, 0);
+    }
+    let n = f.tab().settings().len();
+    f.selected = f.selected.min(n - 1);
+    if keys.just_pressed(KeyCode::ArrowDown) || pad(GamepadButton::DPadDown) {
+        f.selected = (f.selected + 1) % n;
+    } else if keys.just_pressed(KeyCode::ArrowUp) || pad(GamepadButton::DPadUp) {
+        f.selected = (f.selected + n - 1) % n;
+    }
+    // Left/Right: a step, then repeating while held.
+    let dir = if keys.pressed(KeyCode::ArrowRight) || pad_held(GamepadButton::DPadRight) {
+        1.0
+    } else if keys.pressed(KeyCode::ArrowLeft) || pad_held(GamepadButton::DPadLeft) {
+        -1.0
+    } else {
+        0.0
+    };
+    let dt = real.delta_secs();
+    let setting = f.setting();
+    // A choice changes once a press; a slider repeats while held.
+    let choice = setting.choices().is_some();
+    if dir == 0.0 {
+        f.held = None;
+    } else {
+        match f.held {
+            Some((d, since)) if d == dir => {
+                let since = since + dt;
+                f.held = Some((d, since));
+                if since >= REPEAT_AFTER && !choice {
+                    f.repeat_at += dt;
+                    while f.repeat_at >= REPEAT_EVERY {
+                        f.repeat_at -= REPEAT_EVERY;
+                        f.settings.step(setting, dir);
+                    }
+                }
+            }
+            _ => {
+                f.held = Some((dir, 0.0));
+                f.repeat_at = 0.0;
+                f.settings.step(setting, dir);
+            }
+        }
+    }
+    // The wheel zooms: a notch up narrows the view (zooms in).
+    let zoom_steps = if scroll.delta.y > 0.0 {
+        -1.0
+    } else if scroll.delta.y < 0.0 {
+        1.0
+    } else {
+        0.0
+    };
+    if zoom_steps != 0.0 {
+        f.settings.step(Setting::Zoom, zoom_steps);
+    }
+    for a in &acts {
+        if let Some(rest) = a.strip_prefix("set=") {
+            if let Some((s, v)) = rest.split_once('=').and_then(|(s, v)| Some((Setting::by_name(s)?, v.trim().parse::<f32>().ok()?))) {
+                f.settings.set(s, v);
+                info!("test aid NVF_PLAY_TEST_PHOTO: {} {}", s.label(), f.settings.text(s));
+            }
+        } else if let Some(i) = a.strip_prefix("select=").and_then(|i| i.parse::<usize>().ok()) {
+            f.selected = i.min(f.tab().settings().len() - 1);
+        } else if let Some(i) = a.strip_prefix("tab=").and_then(|i| i.parse::<usize>().ok()) {
+            (f.tab, f.selected) = (i.min(tabs - 1), 0);
+        }
+    }
+    let act = |name: &str| acts.iter().any(|a| a == name);
+    if keys.just_pressed(KeyCode::KeyH) || pad(GamepadButton::North) || act("hide") || (act("show") && f.panel_hidden) {
+        f.panel_hidden = !f.panel_hidden;
+        info!("photo mode: panel {}", if f.panel_hidden { "hidden" } else { "shown" });
+    }
+    if keys.just_pressed(KeyCode::KeyR) || pad(GamepadButton::West) {
+        f.settings.reset();
+        info!("photo mode: sliders reset");
+    }
+    if keys.any_just_pressed([KeyCode::Enter, KeyCode::NumpadEnter]) || mouse.just_pressed(MouseButton::Left) || pad(GamepadButton::South) || act("shot") {
+        f.shot = Shot::Hiding;
+        info!("photo mode: taking a photo");
+    }
+}
+
+const HIT_LINE: &str = "You are being hit!";
+const FIGHT_LINE: &str = "Enemies nearby: combat!";
+
+/// A hit on the player or a fight starting puts a warning on the panel (co-op: the world
+/// goes on).
+fn warn_on_hits(
+    real: Res<Time<Real>>,
+    mut hits: MessageReader<crate::combat::ActorHit>,
+    mut relayed: MessageReader<crate::combat::RemoteHit>,
+    after: Option<Res<crate::after_combat::AfterCombat>>,
+    mut photo: ResMut<PhotoMode>,
+) {
+    // This game's own hits, and on a co-op guest the host's hits on this player (the
+    // host runs the fights there: no fight is seen in the guest's own world).
+    let player = fnv_sim::FormId::PLAYER_REF;
+    let own = hits.read().filter(|h| h.form_id == player.0).count();
+    let hit = own + relayed.read().filter(|r| r.hit.target == player).count() > 0;
+    let fighting = after.is_some_and(|a| a.fighting);
+    let f = &mut *photo;
+    if !f.on {
+        f.warning = None;
+        return;
+    }
+    // A hit shows for [`WARN_SECONDS`]; a fight keeps its line up while it lasts.
+    let hit_showing = f.warning.as_ref().is_some_and(|(w, _)| w == HIT_LINE);
+    let line = if hit {
+        Some((HIT_LINE, WARN_SECONDS))
+    } else if fighting && !hit_showing {
+        Some((FIGHT_LINE, 0.5))
+    } else {
+        None
+    };
+    if let Some((line, secs)) = line {
+        if f.warning.as_ref().is_none_or(|(w, _)| w != line) {
+            info!("photo mode: warning: {line}");
+        }
+        f.warning = Some((line.to_string(), secs));
+    } else if let Some((_, left)) = &mut f.warning {
+        *left -= real.delta_secs();
+        if *left <= 0.0 {
+            f.warning = None;
+        }
+    }
+}
+
+/// The picture taken: name it and write it on its own thread; say when it is saved.
+#[allow(clippy::too_many_arguments)]
+fn developed(
+    mut room: ResMut<Darkroom>,
+    mut photo: ResMut<PhotoMode>,
+    world: Option<Res<crate::PlayWorld>>,
+    loc: Option<Res<crate::Location>>,
+    player: Option<Res<Player>>,
+    mut corner: Option<ResMut<crate::corner_messages::CornerMessages>>,
+) {
+    let answers: Vec<_> = room.done.lock().map(|r| r.try_iter().collect()).unwrap_or_default();
+    for a in answers {
+        match a {
+            Ok(path) => {
+                info!("photo mode: photo saved: {}", path.display());
+                if let Some(c) = corner.as_mut() {
+                    c.push(crate::script_events::Note::from("Photo saved".to_string()));
+                }
+            }
+            Err(e) => {
+                warn!("photo mode: the photo was not saved: {e}");
+                if let Some(c) = corner.as_mut() {
+                    c.push(crate::script_events::Note::from("Photo not saved".to_string()));
+                }
+            }
+        }
+    }
+    let Some(image) = room.picture.take() else { return };
+    photo.shot = Shot::Idle;
+    let place = match (world.as_deref(), loc.as_deref()) {
+        (Some(w), Some(l)) => crate::pipboy::data::read::place_name(w.0.lo, w.0.schema, w.0.index, l.world, l.interior, player.as_deref().map_or([0.0; 3], |p| p.feet)),
+        _ => String::new(),
+    };
+    let send = room.send.clone();
+    let Some(home) = fnv_install::EngineHome::default_root() else {
+        let _ = send.send(Err("no NVForever home folder (set NVFOREVER_HOME)".into()));
+        return;
+    };
+    use chrono::{Datelike, Timelike};
+    let now = chrono::Local::now();
+    let name = photo_file_name((now.year(), now.month(), now.day(), now.hour(), now.minute(), now.second()), &place);
+    let dir = photos_dir(&home);
+    let path = unique_path(&dir, &name, |p| p.exists());
+    let (w, h) = (image.width(), image.height());
+    let format = image.texture_descriptor.format;
+    let data = image.data.unwrap_or_default();
+    info!("photo mode: captured {w}x{h}, writing {}", path.display());
+    std::thread::spawn(move || {
+        let r = rgb_rows(&data, format).and_then(|rgb| write_png(&path, w, h, &rgb)).map(|_| path);
+        let _ = send.send(r);
+    });
+}
+
+/// While open, every piece of the interface but the panel (and the corner messages, while
+/// the panel shows) is hidden; for the picture, all of it. What was hidden comes back
+/// when photo mode closes.
+#[allow(clippy::type_complexity)]
+fn hide_interface(mut photo: ResMut<PhotoMode>, mut roots: Query<(Entity, &mut Visibility, Has<PhotoRoot>, Has<crate::corner_messages::AreaRoot>, Has<GridRoot>), (With<Node>, Without<ChildOf>)>) {
+    let f = &mut *photo;
+    if !f.on {
+        for (e, v) in f.hidden.drain() {
+            if let Ok((_, mut vis, _, _, _)) = roots.get_mut(e) {
+                *vis = v;
+            }
+        }
+        return;
+    }
+    let clean = f.capturing() || f.panel_hidden;
+    for (e, mut vis, panel, corner, grid) in &mut roots {
+        if panel {
+            vis.set_if_neq(if clean { Visibility::Hidden } else { Visibility::Inherited });
+            continue;
+        }
+        // The grid helps frame the shot with the panel hidden too, but is not in it.
+        if grid {
+            vis.set_if_neq(if f.capturing() { Visibility::Hidden } else { Visibility::Inherited });
+            continue;
+        }
+        if corner && !clean {
+            continue;
+        }
+        if *vis != Visibility::Hidden {
+            f.hidden.entry(e).or_insert(*vis);
+            *vis = Visibility::Hidden;
+        }
+    }
+}
+
+/// What the held view holds: drawn things, not the cameras or the interface.
+type Drawn = (Without<Camera>, Without<Node>);
+
+/// Co-op: what is drawn on the frame photo mode opens is kept.
+fn keep_start(photo: Res<PhotoMode>, mut held: ResMut<HeldView>, all: Query<(Entity, &GlobalTransform), Drawn>, cams: Query<Entity, With<PlayerCamera>>, children: Query<&Children>) {
+    let want = photo.on && photo.coop;
+    if want == held.on {
+        return;
+    }
+    held.on = want;
+    if !want {
+        info!("photo mode: the view goes live again");
+        return;
+    }
+    let skip: std::collections::HashSet<Entity> = cams.iter().flat_map(|c| std::iter::once(c).chain(children.iter_descendants(c))).collect();
+    held.frozen = all.iter().filter(|(e, _)| !skip.contains(e)).map(|(e, g)| (e, *g)).collect();
+    info!("photo mode: the view holds ({} things drawn as they are now; the world goes on)", held.frozen.len());
+}
+
+/// Co-op: draw what moved where it was kept; the live place is put back at the next
+/// frame's start ([`restore_live`]).
+fn hold_view(mut held: ResMut<HeldView>, mut moved: Query<(Entity, &mut GlobalTransform), (Changed<GlobalTransform>, Drawn)>) {
+    if !held.on {
+        return;
+    }
+    let h = &mut *held;
+    for (e, mut g) in &mut moved {
+        if let Some(kept) = h.frozen.get(&e) {
+            if *g != *kept {
+                h.live.push((e, *g));
+                *g = *kept;
+            }
+        }
+    }
+}
+
+fn restore_live(mut held: ResMut<HeldView>, mut q: Query<&mut GlobalTransform>) {
+    for (e, g) in std::mem::take(&mut held.live) {
+        if let Ok(mut now) = q.get_mut(e) {
+            *now = g;
+        }
+    }
+    if !held.on && !held.frozen.is_empty() {
+        held.frozen = HashMap::new();
+    }
+}
+
+// ---- drawing ---------------------------------------------------------------------------
+
+/// The soft backdrop's picture: dark, fading out over its edges (made here, no file), as
+/// the casino screens' [design, owner 2026-11-09: "backdrops should have soft edges"].
+const SOFT: Handle<Image> = bevy::asset::uuid_handle!("8a4f1c2e-6b3d-4e7a-9c15-2d7e0b6f4a91");
+const SOFT_SIDE: u32 = 66;
+const SOFT_EDGE: f32 = 32.0;
+const SOFT_ALPHA: f32 = 0.8;
+/// The fade is drawn up to this many times its picture's size, so it stays soft on a
+/// large screen.
+const SOFT_SCALE: f32 = 3.0;
+
+fn soft_image() -> Image {
+    use bevy::asset::RenderAssetUsages;
+    use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
+    let n = SOFT_SIDE;
+    let ramp = |i: u32| {
+        let t = ((i.min(n - 1 - i)) as f32 / SOFT_EDGE).clamp(0.0, 1.0);
+        t * t * (3.0 - 2.0 * t)
+    };
+    let mut px = Vec::with_capacity((n * n * 4) as usize);
+    for y in 0..n {
+        for x in 0..n {
+            px.extend_from_slice(&[0, 0, 0, (ramp(x) * ramp(y) * 255.0) as u8]);
+        }
+    }
+    Image::new(Extent3d { width: n, height: n, depth_or_array_layers: 1 }, TextureDimension::D2, px, TextureFormat::Rgba8UnormSrgb, RenderAssetUsages::default())
+}
+
+fn make_soft(mut images: ResMut<Assets<Image>>) {
+    let _ = images.insert(SOFT.id(), soft_image());
+}
+
+fn glass(p: &mut ChildSpawnerCommands, x: f32, y: f32, w: f32, h: f32) {
+    let slicer = TextureSlicer { border: BorderRect::all(SOFT_EDGE), center_scale_mode: SliceScaleMode::Stretch, sides_scale_mode: SliceScaleMode::Stretch, max_corner_scale: SOFT_SCALE };
+    p.spawn((at(x, y, w, h), ImageNode { color: Color::srgba(1.0, 1.0, 1.0, SOFT_ALPHA), image_mode: NodeImageMode::Sliced(slicer), ..ImageNode::new(SOFT) }));
+}
+
+/// The help lines for the device in use and the camera's mode.
+pub fn help_lines(controller: bool, free: bool) -> [&'static str; 5] {
+    match (controller, free) {
+        (true, true) => ["A) Take Photo   Y) Hide", "X) Reset   B) Exit", "LB/RB) Tabs   D-Pad) Options", "R Stick) Look   L Stick) Fly", "LT/RT) Down/Up"],
+        (true, false) => ["A) Take Photo   Y) Hide", "X) Reset   B) Exit", "LB/RB) Tabs   D-Pad) Options", "R Stick) Circle   L Stick) Move", "LT/RT) Down/Up"],
+        (false, true) => ["Enter) Take Photo   H) Hide", "R) Reset   Esc) Exit", "Tab) Tabs   Arrows) Options", "Mouse) Look   WASD) Fly", "Space/Ctrl) Up/Down"],
+        (false, false) => ["Enter) Take Photo   H) Hide", "R) Reset   Esc) Exit", "Tab) Tabs   Arrows) Options", "Mouse) Circle   WASD) Move", "Space/Ctrl) Up/Down"],
+    }
+}
+
+fn view_key(f: &PhotoMode, controller: bool) -> Option<String> {
+    f.on.then(|| {
+        let s = &f.settings;
+        let values: Vec<String> = Setting::ALL.iter().map(|&x| s.text(x)).collect();
+        format!("{}:{}:{}:{controller}:{:?}", f.tab, f.selected, values.join("|"), f.warning.as_ref().map(|w| &w.0))
+    })
+}
+
+/// Photo mode's own interface roots: the panel and the grid.
+type OwnRoots = Or<(With<PhotoRoot>, With<GridRoot>)>;
+
+#[allow(clippy::too_many_arguments)]
+fn draw(
+    mut commands: Commands,
+    photo: Res<PhotoMode>,
+    bindings: Res<Bindings>,
+    data: Option<Res<GameData>>,
+    mut images: ResMut<Assets<Image>>,
+    formats: Option<Res<CompressedImageFormatSupport>>,
+    roots: Query<Entity, OwnRoots>,
+    (mut kit, mut shown): (Local<Option<Kit>>, Local<Option<String>>),
+) {
+    let controller = bindings.device == InputDevice::Controller;
+    let key = view_key(&photo, controller);
+    if key == *shown {
+        return;
+    }
+    for e in &roots {
+        commands.entity(e).despawn();
+    }
+    *shown = key;
+    if !photo.on {
+        return;
+    }
+    let bc = crate::interface::bc_supported(formats.as_deref());
+    let kit = kit.get_or_insert_with(|| Kit::load(data.as_deref(), &mut images, bc));
+    let mut c = Ctx { kit, data: data.as_deref(), images: &mut images, bc };
+    spawn_panel(&mut commands, &mut c, &photo, controller);
+    if photo.settings.grid() {
+        spawn_grid(&mut commands);
+    }
+}
+
+/// Rule-of-thirds lines across the whole view, faint.
+fn spawn_grid(commands: &mut Commands) {
+    let full = Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() };
+    let line = Color::srgba(1.0, 1.0, 1.0, 0.35);
+    commands.spawn((GridRoot, full, GlobalZIndex(55))).with_children(|g| {
+        for third in [1.0 / 3.0, 2.0 / 3.0] {
+            let pc = third * 100.0;
+            g.spawn((Node { position_type: PositionType::Absolute, left: Val::Percent(pc), top: Val::Px(0.0), width: Val::Px(1.0), height: Val::Percent(100.0), ..default() }, BackgroundColor(line)));
+            g.spawn((Node { position_type: PositionType::Absolute, top: Val::Percent(pc), left: Val::Px(0.0), height: Val::Px(1.0), width: Val::Percent(100.0), ..default() }, BackgroundColor(line)));
+        }
+    });
+}
+
+fn spawn_panel(commands: &mut Commands, c: &mut Ctx, f: &PhotoMode, controller: bool) {
+    let bright = amber(255.0);
+    let dim = amber(DIM);
+    let tab = f.tab();
+    let rows = tab.settings();
+    // The panel keeps the height of its longest tab, so it does not jump between tabs.
+    let most = Tab::ALL.iter().map(|t| t.settings().len()).max().unwrap_or(1) as f32;
+    let help = help_lines(controller, f.settings.free_camera());
+    let help_step = c.font_size(FontKind::Body) + 4.0;
+    let warn_h = if f.warning.is_some() { 48.0 } else { 0.0 };
+    let title_h = 56.0;
+    let tabs_h = 44.0;
+    let height = PAD + warn_h + title_h + tabs_h + 30.0 + most * ROW_STEP + 14.0 + help.len() as f32 * help_step + PAD;
+    let panel = Node { position_type: PositionType::Absolute, right: u(PANEL_RIGHT), top: u(PANEL_TOP), width: u(PANEL_W), height: u(height), ..default() };
+    let full = Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() };
+    commands.spawn((PhotoRoot, full, GlobalZIndex(60))).with_children(|r| {
+        r.spawn(panel).with_children(|p| {
+            glass(p, -70.0, -50.0, PANEL_W + 140.0, height + 100.0);
+            let mut y = PAD;
+            if let Some((line, _)) = &f.warning {
+                c.text_in(p, FontKind::Menu, &format!("! {line}"), PAD, y, false, Color::srgb(1.0, 0.42, 0.25));
+                y += warn_h;
+            }
+            c.text_in(p, FontKind::Title, "PHOTO MODE", PAD, y - 4.0, false, bright);
+            let mode = if f.coop { "Co-op: the world goes on" } else { "Paused" };
+            c.text_in(p, FontKind::Body, mode, PAD, y + title_h - 14.0, false, dim);
+            y += title_h + 30.0;
+            // The tabs: the one shown bright and underlined.
+            let tab_w = (PANEL_W - 2.0 * PAD) / Tab::ALL.len() as f32;
+            for (i, t) in Tab::ALL.into_iter().enumerate() {
+                let x = PAD + i as f32 * tab_w;
+                let on = t == tab;
+                c.text_in(p, FontKind::Menu, t.label(), x, y - 6.0, false, if on { bright } else { dim });
+                if on {
+                    c.image(p, "interface\\shared\\line\\solid.dds", at(x, y + 28.0, tab_w - 18.0, 3.0), bright);
+                }
+            }
+            y += tabs_h;
+            c.image(p, "interface\\shared\\line\\solid.dds", at(PAD, y - 12.0, PANEL_W - 2.0 * PAD, 2.0), dim);
+            let track_w = PANEL_W - 2.0 * PAD - 24.0;
+            for (i, &s) in rows.iter().enumerate() {
+                let on = i == f.selected.min(rows.len() - 1);
+                let col = if on { bright } else { dim };
+                let x = PAD + 24.0;
+                if on {
+                    c.text_in(p, FontKind::Menu, ">", PAD - 2.0, y, false, bright);
+                }
+                c.text_in(p, FontKind::Menu, s.label(), x, y, false, col);
+                if s.choices().is_some() {
+                    // A choice: its value between arrows, no track.
+                    c.text_in(p, FontKind::Menu, &format!("< {} >", f.settings.text(s)), PANEL_W - PAD, y, true, col);
+                } else {
+                    c.text_in(p, FontKind::Menu, &f.settings.text(s), PANEL_W - PAD, y, true, col);
+                    let ty = y + TRACK_DROP;
+                    c.image(p, "interface\\shared\\line\\solid.dds", at(x, ty, track_w, 2.0), dim);
+                    let share = f.settings.share(s);
+                    c.image(p, "interface\\shared\\line\\solid.dds", at(x, ty - 1.0, track_w * share, 4.0), col);
+                    c.image(p, "interface\\shared\\line\\solid.dds", at(x + track_w * share - 3.0, ty - 8.0, 6.0, 18.0), col);
+                }
+                y += ROW_STEP;
+            }
+            y += (most - rows.len() as f32) * ROW_STEP + 14.0;
+            for line in help {
+                c.text_in(p, FontKind::Body, line, PAD, y, false, dim);
+                y += help_step;
+            }
+        });
+    });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_sliders_start_at_their_defaults_and_reset_there() {
+        let mut s = PhotoSettings::new(75.0);
+        let g = |s: &PhotoSettings, x| s.get(x);
+        assert_eq!((s.fov, g(&s, Setting::Roll), g(&s, Setting::Brightness), g(&s, Setting::Saturation), g(&s, Setting::Contrast)), (75.0, 0.0, 1.0, 1.0, 1.0));
+        assert!(s.free_camera(), "the camera starts free");
+        assert_eq!((g(&s, Setting::Blur), g(&s, Setting::Warmth), g(&s, Setting::Vignette), g(&s, Setting::Grain), s.letterbox()), (0.0, 0.0, 0.0, 0.0, 0.0));
+        assert!(!s.grid() && !s.hide_player());
+        s.set(Setting::Zoom, 40.0);
+        s.set(Setting::Roll, -12.0);
+        s.set(Setting::Brightness, 1.3);
+        s.set(Setting::Saturation, 0.0);
+        s.set(Setting::Contrast, 0.7);
+        s.set(Setting::Camera, 1.0);
+        s.set(Setting::Letterbox, 2.0);
+        s.set(Setting::HidePlayer, 1.0);
+        assert_eq!((s.fov, s.roll(), s.get(Setting::Saturation)), (40.0, -12.0, 0.0));
+        assert!(!s.free_camera() && s.hide_player());
+        assert_eq!(s.letterbox(), 1.85);
+        s.reset();
+        assert_eq!(s, PhotoSettings::new(75.0));
+        assert_eq!(s.fov, 75.0, "the zoom goes back to the view's own");
+    }
+
+    #[test]
+    fn the_sliders_stay_in_range_and_round_to_their_steps() {
+        let mut s = PhotoSettings::new(75.0);
+        s.set(Setting::Zoom, 500.0);
+        assert_eq!(s.fov, 120.0);
+        s.set(Setting::Roll, -90.0);
+        assert_eq!(s.roll(), -45.0);
+        s.set(Setting::Saturation, f32::NAN);
+        assert_eq!(s.get(Setting::Saturation), 1.0, "a value that is not a number is not taken");
+        s.set(Setting::Brightness, 1.0);
+        for _ in 0..3 {
+            s.step(Setting::Brightness, 1.0);
+        }
+        assert!((s.get(Setting::Brightness) - 1.06).abs() < 1e-4, "{}", s.get(Setting::Brightness));
+        for _ in 0..200 {
+            s.step(Setting::Brightness, -1.0);
+        }
+        assert_eq!(s.get(Setting::Brightness), 0.5);
+        // A field of view the view opens with outside the range is brought into it.
+        assert_eq!(PhotoSettings::new(150.0).fov, 120.0);
+    }
+
+    #[test]
+    fn the_values_read_as_the_panel_writes_them() {
+        let mut s = PhotoSettings::new(75.0);
+        assert_eq!(s.text(Setting::Zoom), "75");
+        assert_eq!(s.text(Setting::Roll), "0");
+        s.set(Setting::Roll, 10.0);
+        assert_eq!(s.text(Setting::Roll), "+10");
+        s.set(Setting::Roll, -0.2);
+        assert_eq!(s.text(Setting::Roll), "0");
+        s.set(Setting::Roll, -7.0);
+        assert_eq!(s.text(Setting::Roll), "-7");
+        s.set(Setting::Saturation, 1.5);
+        assert_eq!(s.text(Setting::Saturation), "150%");
+        assert_eq!(s.share(Setting::Saturation), 0.75);
+        assert_eq!(Setting::by_name("CONTRAST"), Some(Setting::Contrast));
+        assert_eq!(Setting::by_name("zoom"), Some(Setting::Zoom));
+        assert_eq!(Setting::by_name("frame"), None);
+        assert_eq!(Setting::by_name("hide"), Some(Setting::HidePlayer));
+        assert_eq!(s.text(Setting::Camera), "Free");
+        assert_eq!(s.text(Setting::Blur), "Off");
+        s.set(Setting::Blur, 0.35);
+        assert_eq!(s.text(Setting::Blur), "35%");
+        s.set(Setting::Warmth, -0.2);
+        assert_eq!(s.text(Setting::Warmth), "-20");
+        s.set(Setting::Letterbox, 1.0);
+        assert_eq!(s.text(Setting::Letterbox), "2.39:1");
+        assert_eq!(s.text(Setting::Focus), "Auto");
+        s.set(Setting::Focus, 50.0);
+        // A quarter of the far end, 2000 units, at 1.428 cm a unit.
+        assert_eq!(focus_units(50.0), Some(2000.0));
+        assert_eq!(s.text(Setting::Focus), "29 m");
+        s.set(Setting::Focus, 10.0);
+        assert_eq!(s.text(Setting::Focus), "1.1 m");
+    }
+
+    #[test]
+    fn every_option_is_on_one_tab() {
+        for s in Setting::ALL {
+            let on: Vec<Tab> = Tab::ALL.into_iter().filter(|t| t.settings().contains(&s)).collect();
+            assert_eq!(on, vec![s.tab()], "{s:?}");
+        }
+        assert_eq!(Tab::ALL.iter().map(|t| t.settings().len()).sum::<usize>(), Setting::ALL.len());
+    }
+
+    #[test]
+    fn a_choice_goes_round_and_keeps_whole_values() {
+        let mut s = PhotoSettings::new(75.0);
+        s.step(Setting::Camera, 1.0);
+        assert_eq!(s.text(Setting::Camera), "Orbit");
+        s.step(Setting::Camera, 1.0);
+        assert_eq!(s.text(Setting::Camera), "Free", "past the last choice comes the first");
+        s.step(Setting::Letterbox, -1.0);
+        assert_eq!(s.text(Setting::Letterbox), "1:1", "before the first comes the last");
+        s.set(Setting::Grid, 0.7);
+        assert_eq!(s.text(Setting::Grid), "Thirds");
+        s.set(Setting::Letterbox, 99.0);
+        assert_eq!(s.letterbox(), 1.0);
+    }
+
+    #[test]
+    fn the_look_and_the_depth_of_field_reach_the_grade_only_while_open() {
+        let mut f = PhotoMode { on: true, auto_focus: 500.0, ..Default::default() };
+        f.settings.set(Setting::Warmth, 0.5);
+        f.settings.set(Setting::Vignette, 0.4);
+        f.settings.set(Setting::Letterbox, 3.0);
+        assert_eq!(f.finish(), [0.5, 0.4, 0.0, 16.0 / 9.0]);
+        assert_eq!(f.depth_of_field(), None, "no blur, no depth of field");
+        f.settings.set(Setting::Blur, 0.5);
+        let d = f.depth_of_field().unwrap();
+        assert_eq!((d.strength, d.focus), (0.5, 500.0), "Auto focuses on what is under the centre");
+        assert!(d.sharp < d.full);
+        f.settings.set(Setting::Focus, 50.0);
+        assert_eq!(f.depth_of_field().unwrap().focus, 2000.0);
+        f.settings.set(Setting::HidePlayer, 1.0);
+        assert!(f.hides_player());
+        f.on = false;
+        assert_eq!(f.finish(), [0.0; 4]);
+        assert_eq!(f.depth_of_field(), None);
+        assert!(!f.hides_player());
+    }
+
+    #[test]
+    fn the_field_of_view_converts_both_ways() {
+        for deg in [10.0, 55.0, 75.0, 90.0, 120.0] {
+            assert!((game_fov(crate::free_cam::vertical_fov(deg)) - deg).abs() < 1e-3, "{deg}");
+        }
+    }
+
+    #[test]
+    fn a_photo_is_named_by_date_time_and_place() {
+        assert_eq!(photo_file_name((2026, 11, 10, 1, 2, 3), "Goodsprings"), "NVForever 2026-11-10 01-02-03 Goodsprings.png");
+        assert_eq!(photo_file_name((2026, 1, 9, 23, 59, 0), "The Strip: Lucky 38?"), "NVForever 2026-01-09 23-59-00 The Strip Lucky 38.png");
+        assert_eq!(photo_file_name((2026, 1, 9, 0, 0, 0), ""), "NVForever 2026-01-09 00-00-00 Unknown.png");
+    }
+
+    #[test]
+    fn place_names_are_made_safe_for_files() {
+        assert_eq!(file_safe_place("  Vault 21\\Gift  Shop  "), "Vault 21 Gift Shop");
+        assert_eq!(file_safe_place("a<b>c|d*e\"f/g"), "a b c d e f g");
+        assert_eq!(file_safe_place("Dot."), "Dot");
+        assert_eq!(file_safe_place("\t\n"), "Unknown");
+        let long = "x".repeat(100);
+        assert_eq!(file_safe_place(&long).chars().count(), 60);
+    }
+
+    #[test]
+    fn two_photos_in_one_second_get_their_own_files() {
+        let dir = Path::new("C:/home/Photos");
+        let taken = [dir.join("a.png"), dir.join("a (2).png")];
+        assert_eq!(unique_path(dir, "b.png", |p| taken.contains(&p.to_path_buf())), dir.join("b.png"));
+        assert_eq!(unique_path(dir, "a.png", |p| taken.contains(&p.to_path_buf())), dir.join("a (3).png"));
+        assert_eq!(photos_dir(Path::new("C:/NVForever/home")), Path::new("C:/NVForever/home").join("Photos"));
+    }
+
+    #[test]
+    fn the_capture_turns_into_rgb_whatever_its_order() {
+        use bevy::render::render_resource::TextureFormat as F;
+        let px = [10, 20, 30, 255, 40, 50, 60, 255];
+        assert_eq!(rgb_rows(&px, F::Rgba8UnormSrgb).unwrap(), vec![10, 20, 30, 40, 50, 60]);
+        assert_eq!(rgb_rows(&px, F::Bgra8UnormSrgb).unwrap(), vec![30, 20, 10, 60, 50, 40]);
+        assert!(rgb_rows(&px, F::Rgba16Float).is_err());
+        assert!(rgb_rows(&px[..5], F::Rgba8Unorm).is_err());
+    }
+
+    #[test]
+    fn a_png_written_reads_back() {
+        let dir = std::env::temp_dir().join(format!("nvf-photo-test-{}", std::process::id()));
+        let path = dir.join("Photos").join("t.png");
+        write_png(&path, 2, 1, &[1, 2, 3, 4, 5, 6]).unwrap();
+        let dec = png::Decoder::new(std::io::BufReader::new(std::fs::File::open(&path).unwrap()));
+        let mut r = dec.read_info().unwrap();
+        let mut buf = vec![0; r.output_buffer_size().unwrap()];
+        let info = r.next_frame(&mut buf).unwrap();
+        assert_eq!((info.width, info.height), (2, 1));
+        assert_eq!(&buf[..6], &[1, 2, 3, 4, 5, 6]);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn the_aid_reads_its_actions() {
+        assert_eq!(parse_aid("5:open, 7:set=zoom=40,9:shot").unwrap(), vec![(5.0, "open".into()), (7.0, "set=zoom=40".into()), (9.0, "shot".into())]);
+        assert!(parse_aid("open").is_err());
+        let mut aid = PhotoAid(parse_aid("1:a,2:b,3:c").unwrap());
+        assert_eq!(due(&mut aid, 2.0), vec!["a".to_string(), "b".to_string()]);
+        assert_eq!(aid.0, vec![(3.0, "c".to_string())]);
+    }
+
+    #[test]
+    fn solo_holds_the_world_and_coop_does_not() {
+        let mut f = PhotoMode { on: true, ..Default::default() };
+        assert!(f.holds_world());
+        f.coop = true;
+        assert!(!f.holds_world());
+        assert_eq!(f.look(), Some((1.0, 1.0, 1.0)));
+        f.on = false;
+        assert!(!f.holds_world());
+        assert_eq!(f.look(), None);
+        assert!(in_coop(Some(&crate::lobby::LobbyState { players: vec!["a (host)".into(), "b".into()], ..Default::default() })));
+        assert!(!in_coop(Some(&crate::lobby::LobbyState::default())));
+        assert!(!in_coop(None));
+    }
+}
