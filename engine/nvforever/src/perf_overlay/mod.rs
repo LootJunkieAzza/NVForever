@@ -234,9 +234,12 @@ fn follow_upscale(o: &mut Overlay, on: bool, now: impl FnOnce() -> Option<readin
     if now == o.readings.upscale {
         return;
     }
+    // Logged once per change of the text, leaving out the brief `<choice>  --` of a switch the
+    // render world has not drawn yet (one or two frames), so a switch logs only where it lands.
     let text = now.as_ref().map(readings::upscale_text);
-    if text.is_some() && text != o.readings.upscale.as_ref().map(readings::upscale_text) {
-        info!("fps counter: upscaling {}", text.unwrap_or_default());
+    let changed = text != o.readings.upscale.as_ref().map(readings::upscale_text);
+    if let Some(t) = text.as_deref().filter(|t| changed && !t.ends_with("  --")) {
+        info!("fps counter: upscaling {t}");
     }
     o.readings.upscale = now;
     o.dirty = true;

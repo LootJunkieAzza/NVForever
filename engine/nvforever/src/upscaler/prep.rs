@@ -339,7 +339,7 @@ pub(crate) fn drawn(choice: UpscalerChoice, policy_render: Option<UVec2>, output
 /// The view's common preparation, before any backend's own (`fsr::prepare` runs after it).
 /// Also says what the first view was drawn with ([`UpscaleDrawn`], `None` without an upscaler
 /// camera), for the performance overlay's Upscaling row.
-#[allow(clippy::type_complexity, clippy::too_many_arguments)]
+#[allow(clippy::type_complexity)]
 pub(crate) fn prepare(
     mut commands: Commands,
     device: Res<RenderDevice>,

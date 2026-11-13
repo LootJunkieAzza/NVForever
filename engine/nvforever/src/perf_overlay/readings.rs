@@ -401,8 +401,8 @@ fn choice_text(choice: UpscalerChoice) -> String {
 ///   model asked for: `DLSS Quality  853x480 -> 1280x720  model Default`,
 ///   `FSR 3.1 Balanced  1129x635 -> 1920x1080`;
 /// - the effective upscaler's camera drawn natively (an unusable view, no render size from
-///   the backend): `Off  1280x720`, since native is what draws [design: the main session's
-///   decision];
+///   the backend): `Off  1280x720`, since native is what draws [design:
+///   #2242's "what actually draws"];
 /// - nothing effective: `Off` and the window's size;
 /// - else (a switch the render world has not drawn yet, no camera, a loading screen): the
 ///   effective choice and `--`.

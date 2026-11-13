@@ -103,7 +103,8 @@ To see what draws, turn on the Frame rate counter and its **Counter: upscaling**
 (**Settings > Display > Performance**): it names the upscaler that actually draws, its mode,
 the size the world is drawn at and the screen's size, and the DLSS model chosen, for example
 `DLSS Quality  853x480 -> 1280x720  model Default`; a DLSS choice that cannot run reads `Off`
-and the window's size.
+and the window's size. When DLSS stops working during play, the game draws on without it for
+about 60 frames before giving DLSS up for the session; the row reads `Off` from then on.
 
 ## The DLSS model
 
