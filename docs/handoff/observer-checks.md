@@ -1546,3 +1546,11 @@ to the decoded file by cross-correlation and a per-band transfer estimate.
     Bleak Venom: note the prompt's words and buttons. Then hit a target and count the hits
     until the poison's effect stops coming (watch its Health or the Pip-Boy's weapon
     card). Try it with a pistol in hand too: refused (sPoisonNoWeaponMessage) or not?
+108. **Where does the grenade indicator stand?** (P3; `nvf_play::grenade_indicator`.) The menu
+    files give its picture (`template_explosive_indicator`, an arc with a point) and an
+    empty `Explosive_positioning_rect` the game's code moves [documented]. NVForever puts
+    it on the grenade upright while the grenade is in view, else on the view's edge
+    turned to point at it, for a grenade whose blast radius + 64 reaches the player
+    [hypothesis: all of it]. Throw a frag grenade near your feet, then one behind you, and
+    take a frame of each: where is the mark, is it turned, does it show for one landing
+    far off, and does it show for your own grenade?

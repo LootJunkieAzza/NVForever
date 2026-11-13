@@ -187,6 +187,13 @@ pub struct TweakSettings {
     pub no_xp_meter_in_combat: bool,
     /// `bDisableHUDCrippledLimbIndicator`: no crippled-limb figure on the HUD.
     pub no_limb_indicator: bool,
+    /// `bDisableGrenadeIndicator`: no grenade indicator on the HUD.
+    pub no_grenade_indicator: bool,
+    /// `bHideGrenadeIndicatorForNoDamageExplosions`: grenades whose explosion does no
+    /// damage are not marked.
+    pub grenade_indicator_skip_harmless: bool,
+    /// `bExplodingDestructibleIndicator`: objects burning toward an explosion are marked too.
+    pub grenade_indicator_destructibles: bool,
     /// `bContainerTakeAllDoesntCloseMenu`: Take All leaves the container open.
     pub take_all_stays: bool,
     /// `bTakeAllConfirmation`: Take All of at least `take_all_confirm_min` items asks to be
@@ -692,6 +699,9 @@ impl Default for TweakSettings {
             sneak_label_standing: false,
             no_xp_meter_in_combat: false,
             no_limb_indicator: false,
+            no_grenade_indicator: false,
+            grenade_indicator_skip_harmless: false,
+            grenade_indicator_destructibles: false,
             take_all_stays: false,
             take_all_confirm: false,
             take_all_confirm_min: 2.0,
@@ -1395,6 +1405,9 @@ impl Plugin for TweaksPlugin {
         switch!(app, "sneak-label-standing", "Sneak Label While Standing", "The Hidden / Detected label shows while standing too. (Stewie's Tweaks bShowSneakLabelWhileStanding)", sneak_label_standing);
         switch!(app, "no-xp-meter-combat", "No XP Meter in Combat", "Experience gained in a fight shows once it is over, all together. (Stewie's Tweaks bNoXPBarInCombat)", no_xp_meter_in_combat);
         switch!(app, "no-limb-indicator", "No Crippled Limb Figure", "The crippled-limb figure stays off the HUD. (Stewie's Tweaks bDisableHUDCrippledLimbIndicator)", no_limb_indicator);
+        switch!(app, "no-grenade-indicator", "Hide Grenade Indicator", "No mark on the HUD for a grenade about to go off nearby. (Stewie's Tweaks bDisableGrenadeIndicator)", no_grenade_indicator);
+        switch!(app, "grenade-indicator-harmless", "No Indicator for Harmless Blasts", "Grenades whose explosion does no damage get no mark. (Stewie's Tweaks bHideGrenadeIndicatorForNoDamageExplosions)", grenade_indicator_skip_harmless);
+        switch!(app, "grenade-indicator-destructibles", "Mark Objects About to Explode", "Burning objects that will explode, such as cars on fire, get a grenade mark too. (Stewie's Tweaks bExplodingDestructibleIndicator)", grenade_indicator_destructibles);
         // ---- batch 17: menus ----
         switch!(app, "keep-acting-notes", "Keep Acting Notes", "Spoken lines keep their {acting notes} in the subtitles. (Stewie's Tweaks bDialogueKeepVoiceActingNotes)", game.keep_acting_notes);
         switch!(app, "hide-completed-quests", "Hide Finished Quests", "The Pip-Boy lists only quests under way. (Stewie's Tweaks bHideCompletedQuests)", game.hide_completed_quests);

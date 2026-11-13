@@ -923,7 +923,8 @@ pub struct LiveGrenade {
     /// Its number among the drawn projectiles, the same for its whole flight.
     pub id: u64,
     pub at: V3,
-    /// Its explosion's radius, units.
+    /// Its explosion and that explosion's radius, units.
+    pub explosion: FormId,
     pub radius: f32,
     pub thrower: FormId,
     /// Seconds since it left.
@@ -1241,8 +1242,9 @@ impl Combat {
             .iter()
             .filter(|f| f.p.alive && !f.p.mine && f.p.motion == Motion::Lobber)
             .filter_map(|f| {
-                let radius = self.forms.explosions.get(&f.p.explosion?)?.radius;
-                (radius > 0.0).then_some(LiveGrenade { id: f.id, at: f.p.pos, radius, thrower: f.by.actor, age: f.p.age })
+                let explosion = f.p.explosion?;
+                let radius = self.forms.explosions.get(&explosion)?.radius;
+                (radius > 0.0).then_some(LiveGrenade { id: f.id, at: f.p.pos, explosion, radius, thrower: f.by.actor, age: f.p.age })
             })
             .collect()
     }

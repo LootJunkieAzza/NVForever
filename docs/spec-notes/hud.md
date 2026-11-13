@@ -1513,3 +1513,21 @@ width, height, alpha, visible, depth); hud_jip for the strings, §14.2]
   Smoke `tiles-hud-breath` (new, shot `tiles_hud_breath.png`); the six other `tiles-*`
   scenarios that quote the start line now expect `hand-built HUD hidden` with nothing
   after it.
+
+## 15. The grenade indicator (2026-11-13, #1891)
+
+- **The files** [documented: `menus\main\hud_main_menu.xml`, `menus\prefabs\HUDTemplates.xml`]:
+  `Explosive_positioning_rect` is an empty rect with `locus` true; the template
+  `template_explosive_indicator` holds one image, `Interface\HUD\explosive_indicator.dds`,
+  `&hudalt;`, 151 x 187 at x -75, y -93 from the rect, zoom 120, alpha 0. Nothing in the
+  files places the rect or raises the alpha: the game's code does. A commented-out text
+  under it would have said `sExplosive`.
+- **The picture** [observed: the texture, 128 x 128]: the top half of a ring with a small
+  point at its top, white on clear.
+- **NVForever** (`engine/nvf-play/src/grenade_indicator.rs`): the picture at zoom 120 from
+  the box's top left, cut to the box, as the tile renderer reads `zoom`; one mark per live
+  grenade whose explosion radius + 64 reaches the player's feet (the rule actors use to
+  get away, combat-ai.md §17.7), the nearest 8; on the grenade upright while it is in
+  view, else on the view's edge 90 pixels in, turned so the point faces it
+  [hypothesis: all of the placing; observer check 108]. Not the player's own grenade in
+  its first 0.5 s. The Tweaks tab's three grenade-indicator switches (tweaks.md).

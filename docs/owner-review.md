@@ -183,6 +183,11 @@ the spec it links to.
     rumbles. The Tweaks tab's Key Repeat Acceleration and Scale Explosion Shake (0 turns
     it off) build on them. Our own numbers; if you rule otherwise, either goes back to off
     and its tweak waits. (`engine/nvf-play/src/key_repeat.rs`, `shake.rs`)
+53. **A grenade indicator on the HUD (#1891).** NVForever had none; it now draws the
+    menu files' own explosive indicator for every live grenade whose blast would reach
+    you, on the grenade or on the view's edge pointing at it, for everyone. Where the
+    original puts it is a guess (observer check 108). The Tweaks tab's Hide Grenade
+    Indicator turns it off. (`engine/nvf-play/src/grenade_indicator.rs`)
 
 ## Tier 3: rules where we chose to differ, or that the original has no answer for
 

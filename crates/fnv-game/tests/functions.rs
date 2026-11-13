@@ -909,6 +909,23 @@ fn capped_destruction_fixture() -> Fixture {
     f
 }
 
+/// The Exploding Destructible Indicator tweak's list: an object burning toward a stage
+/// that explodes, until it gets there.
+#[test]
+fn a_burning_object_is_listed_until_it_explodes() {
+    let f = capped_destruction_fixture();
+    let mut g = game(&f);
+    let acti = FormId(ACTI_REF);
+    assert!(g.burning_explosives().is_empty());
+    // 0.5 of 20: stage 0 (98 %), which burns, its later stage 2 explodes.
+    g.damage_object(acti, 0.5).unwrap();
+    assert_eq!(g.burning_explosives(), [(acti, FormId(0x893))]);
+    for _ in 0..8 {
+        g.damage_object(acti, 20.0);
+    }
+    assert!(g.burning_explosives().is_empty());
+}
+
 fn destruction_roundtrip<'a>(f: &'a Fixture, g: &Game<'_>) -> Game<'a> {
     let saved = serde_json::to_string(&g.snapshot()).unwrap();
     let back = serde_json::from_str::<fnv_game::game::GameSnapshot>(&saved).unwrap();

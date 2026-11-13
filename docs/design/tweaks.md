@@ -609,6 +609,7 @@ unless the player binds them, so nothing changes until then.
 | Companions on the World Map | `bNoMinCompanionMapDistance`, `bMapShowUnconsciousCompanions`, `bCompanionsUseLocationFontOnMap` | base: `pipboy::data::map_companions` lists the teammates in exterior cells of the map's family, less those within `COMPANION_MIN_DISTANCE` of the player and the knocked out; `world_map` writes their names in font 2 under the arrow. The switches drop the distance, keep the knocked out (red) and use font 1. Hand-built Pip-Boy only |
 | Summon Companions from the Map | `bMapSelectableCompanions` | `pipboy::data::world_map` keeps the companions within `SUMMON_REACH` of the highlight box (`DataState::companions_under`); a map click on them sends `SummonCompanions` in place of a travel ask, and `summon_companions` calls `Game::summon_teammates`, which places them as `bring_teammates` does (`place_beside_player`) |
 | Weapon poisons, No Poison Confirmation, Show Weapon Poison Effects | `bNoPoisonConfirm`, `bShowWeaponPoisonEffects` | base: `fnv_game::weapon_poison` (`is_poison`, `use_poison`, `take_poison_hit`; `PlayerState::weapon_poisons`, saved); `aid::use_poison` from the script layer's item use gives a refused or asking poison back; `combat::hit_items` adds the poison to a landed player hit's items. The switches: `Tweaks::no_poison_confirm`, `pipboy::items` (the card's line) |
+| Grenade indicator, Hide Grenade Indicator, No Indicator for Harmless Blasts, Mark Objects About to Explode | `bDisableGrenadeIndicator`, `bHideGrenadeIndicatorForNoDamageExplosions`, `bExplodingDestructibleIndicator` | base: `grenade_indicator` draws the menu files' `template_explosive_indicator` for each live grenade (`Combat::live_grenades`) whose blast reaches the player, on the grenade or on the view's edge pointing at it (observer check 108). The switches: `TweakSettings::no_grenade_indicator`, `grenade_indicator_skip_harmless` (explosion damage 0), `grenade_indicator_destructibles` (`Game::burning_explosives`) |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -630,8 +631,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 543 |
-| to do | 58 |
+| done | 545 |
+| to do | 56 |
 | unsure, skipped | 18 |
 | n/a | 16 |
 | skipped: fix | 10 |
@@ -973,14 +974,16 @@ game's Data folder, read-only).
 | `bCustomSubtitleDistance` | done |  | 1 | Subtitle Distance (slider, game units) |
 | `bDetectedByWhom` | done |  | 5 | Detected by Whom with Names Shown (0 to 5; our own words; hand-built HUD) |
 | `bDisableCompassEdgeAlpha` | done |  |  | already so: the marks are not faded at the edge |
-| `bDisableGrenadeIndicator` | done |  |  | already so: NVForever has no grenade indicator |
+| `bDisableGrenadeIndicator` | done |  |  | Hide Grenade Indicator: NVForever now draws the base grenade indicator (`grenade_indicator`); the switch draws none |
 | `bDisableHUDCrippledLimbIndicator` | done |  |  | No Crippled Limb Figure |
 | `bDistanceBasedQuestMarkerVisibilty` | done |  | 2 | Quest Markers Within (slider in game units, one distance indoors and out) |
+| `bExplodingDestructibleIndicator` | done |  |  | Mark Objects About to Explode: objects burning toward a destruction stage with an explosion get a mark, by the same reach |
 | `bHideAmmoLabel` | done |  | 1 | No Ammo Counter (the total-remaining option not built) |
 | `bHideCapsAddedMessages` | done |  |  | No Caps Added Line |
 | `bHideCrosshairInFirstPerson` | done |  |  | No Crosshair in First Person (the prompt stays) |
 | `bHideCrosshairInThirdPerson` | done |  |  | No Crosshair in Third Person (the prompt stays) |
 | `bHideCrosshairWhileReloading` | done |  |  | No Crosshair While Reloading |
+| `bHideGrenadeIndicatorForNoDamageExplosions` | done | yes |  | No Indicator for Harmless Blasts: grenades whose explosion's damage is 0 get no mark |
 | `bHideInvisibleUndiscoveredLocations` | done |  |  | Compass: Only Mapped Places |
 | `bHideUnknownNPCNames` | done |  | 1 | Hide Unknown Names (bodies are named, as bShowNameOnDeadNPCs) |
 | `bHostilesUseNeutralColorOnCompass` | done |  |  | Foes in the Usual Colour |
@@ -1018,9 +1021,7 @@ game's Data folder, read-only).
 | `iDateFormat` | done |  | 1 | Date Format (four styles of ours) |
 | `iHUDMaxCompassNPCTicks` | done |  | 1 | already so: the compass has no cap on actors |
 | `bDescriptiveMarkerAddedMessage` | to do | yes |  | NVForever shows no marker-added popup |
-| `bHideGrenadeIndicatorForNoDamageExplosions` | to do | yes |  | not built: no grenade indicator |
 | `bCriticalHitMessagesIncludeLimbName` | to do |  |  | not built: no critical-hit messages |
-| `bExplodingDestructibleIndicator` | to do |  |  | not built: no grenade indicator |
 | `bHUDShowRegionNames` | to do |  | 1 | not built: the HUD has no region text |
 | `bHUDWeaponNameLabel` | unsure, skipped |  | 5 | needs the plugin's own menu XML |
 | `bWaterSourcesShowH2O` | to do |  | 1 | not built: water prompts carry no line |

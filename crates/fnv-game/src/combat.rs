@@ -1009,6 +1009,23 @@ impl Game<'_> {
         Some(out)
     }
 
+    /// The destructible references burning down toward a stage that explodes (a car on
+    /// fire), each with that stage's explosion: the nearest later stage with one. The
+    /// player's Exploding Destructible Indicator tweak shows them on the grenade
+    /// indicator [design: docs/design/tweaks.md].
+    pub fn burning_explosives(&self) -> Vec<(FormId, FormId)> {
+        let mut out = Vec::new();
+        for (r, _) in self.extra.iter().filter(|(_, e)| e.burning.is_some()) {
+            let Some(def) = base_of(self, *r).and_then(|b| self.destruction(b)) else { continue };
+            let stage = crate::functions::objects_destruction_stage(self, *r);
+            let next = def.stages.iter().filter(|s| i32::from(s.index) > stage).filter_map(|s| s.explosion.map(|x| (s.index, x))).min_by_key(|(i, _)| *i);
+            if let Some((_, x)) = next {
+                out.push((*r, x));
+            }
+        }
+        out
+    }
+
     /// Advance burning objects (a stage's self-damage per second) by `dt` seconds; the
     /// changes that reached new stages, with their references.
     pub fn destruction_tick(&mut self, dt: f64) -> Vec<(FormId, DestructionChange)> {
