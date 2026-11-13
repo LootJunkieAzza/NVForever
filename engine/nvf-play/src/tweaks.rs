@@ -223,6 +223,10 @@ pub struct TweakSettings {
     /// many seconds, whole again at each loss of health.
     pub heartbeat_fade: bool,
     pub heartbeat_fade_seconds: f32,
+    /// `bTerminalFadeTime` (`fFadeLength`): a closing terminal fades out over this many
+    /// seconds instead of the menu file's 0.25.
+    pub terminal_fade: bool,
+    pub terminal_fade_seconds: f32,
     /// `bDisableGrenadeIndicator`: no grenade indicator on the HUD.
     pub no_grenade_indicator: bool,
     /// `bHideGrenadeIndicatorForNoDamageExplosions`: grenades whose explosion does no
@@ -759,6 +763,8 @@ impl Default for TweakSettings {
             help_is_console: false,
             heartbeat_fade: false,
             heartbeat_fade_seconds: 5.0,
+            terminal_fade: false,
+            terminal_fade_seconds: 1.0,
             no_grenade_indicator: false,
             grenade_indicator_skip_harmless: false,
             grenade_indicator_destructibles: false,
@@ -1505,6 +1511,8 @@ impl Plugin for TweaksPlugin {
         switch!(app, "help-is-console", "Console in the Pause Menu", "The pause menu has a Console entry where the original has Help: the game goes on with the console open. (Stewie's Tweaks bReplaceHelpWithConsole)", help_is_console);
         switch!(app, "heartbeat-fade", "Heartbeat Fades", "The low-health heartbeat fades away, and comes back at full strength each time you are hurt. (Stewie's Tweaks bHeatbeatSoundsFade)", heartbeat_fade);
         amount!(app, "heartbeat-fade-seconds", "Heartbeat Fades: Seconds", "How long the heartbeat takes to fade away. (Stewie's Tweaks bHeatbeatSoundsFade, fDuration)", 30.0, f32, heartbeat_fade_seconds);
+        switch!(app, "terminal-fade", "Terminal Fade Time", "A terminal's screen fades out over the time below when it closes, instead of a quarter second. (Stewie's Tweaks bTerminalFadeTime)", terminal_fade);
+        amount!(app, "terminal-fade-seconds", "Terminal Fade Time: Seconds", "How long a closing terminal takes to fade out; 0 closes it at once. (Stewie's Tweaks bTerminalFadeTime, fFadeLength)", 5.0, f32, terminal_fade_seconds);
         switch!(app, "no-grenade-indicator", "Hide Grenade Indicator", "No mark on the HUD for a grenade about to go off nearby. (Stewie's Tweaks bDisableGrenadeIndicator)", no_grenade_indicator);
         switch!(app, "grenade-indicator-harmless", "No Indicator for Harmless Blasts", "Grenades whose explosion does no damage get no mark. (Stewie's Tweaks bHideGrenadeIndicatorForNoDamageExplosions)", grenade_indicator_skip_harmless);
         switch!(app, "grenade-indicator-destructibles", "Mark Objects About to Explode", "Burning objects that will explode, such as cars on fire, get a grenade mark too. (Stewie's Tweaks bExplodingDestructibleIndicator)", grenade_indicator_destructibles);

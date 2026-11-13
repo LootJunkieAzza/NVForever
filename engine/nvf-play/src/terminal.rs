@@ -381,6 +381,7 @@ impl Plugin for TerminalPlugin {
                     .in_set(PlaySet::Ui),
             )
             .add_systems(OnExit(PlayState::Menu), close)
+            .add_systems(Update, fade_out.in_set(PlaySet::Ui))
             .add_systems(Last, report);
     }
 }
@@ -1105,6 +1106,7 @@ fn draw(
     mut images: ResMut<Assets<Image>>,
     formats: Option<Res<CompressedImageFormatSupport>>,
     roots: Query<Entity, With<screen::ScreenRoot>>,
+    fading: Query<Entity, With<FadeOut>>,
     mut blinks: Query<&mut Visibility, With<screen::Blink>>,
     time: Res<Time<Real>>,
     image: Option<Res<TerminalImage>>,
@@ -1117,6 +1119,17 @@ fn draw(
     let _canvas = crate::interface::original_units();
     let grey = grey_read();
     let key = screen.0.as_ref().map(|s| format!("{}:{grey}", view_key(s)));
+    // A closing screen keeps its picture while it fades (`fade_out`); one opened meanwhile
+    // takes its place at once.
+    if !fading.is_empty() {
+        if key.is_none() {
+            return;
+        }
+        for e in &fading {
+            commands.entity(e).try_despawn();
+        }
+        *shown = None;
+    }
     let on = ((time.elapsed_secs() / screen::BLINK_SECONDS) as u32).is_multiple_of(2);
     if key == *shown {
         for mut v in &mut blinks {
@@ -1134,6 +1147,43 @@ fn draw(
     rows.0 = screen::spawn(&mut commands, image.camera, faces, s, &rt.game, on, grey.then_some(&*read));
 }
 
+/// How long the screen fades out as it closes, seconds [documented:
+/// `menus\computers_menu.xml` `menufade` 0.25; hypothesis: that the trait is the close's
+/// fade].
+pub const CLOSE_FADE: f32 = 0.25;
+
+/// A closed terminal's backdrop and screen, fading out: seconds left of how many.
+#[derive(Component)]
+struct FadeOut {
+    left: f32,
+    total: f32,
+}
+
+/// The closing screen fades: its backdrop's shade and pictures lose their strength, and
+/// all of it goes once the fade is over.
+fn fade_out(mut commands: Commands, time: Res<Time<Real>>, mut fading: Query<(Entity, &mut FadeOut, Option<&mut BackgroundColor>, Option<&Children>)>, mut pictures: Query<&mut ImageNode>) {
+    for (e, mut f, bg, children) in &mut fading {
+        let start = f.left / f.total.max(1e-3);
+        f.left -= time.delta_secs();
+        if f.left <= 0.0 {
+            commands.entity(e).try_despawn();
+            continue;
+        }
+        let k = (f.left / f.total.max(1e-3)) / start.max(1e-3);
+        if let Some(mut bg) = bg {
+            let a = bg.0.alpha();
+            bg.0.set_alpha(a * k);
+        }
+        for c in children.into_iter().flatten() {
+            if let Ok(mut img) = pictures.get_mut(*c) {
+                let a = img.color.alpha();
+                img.color.set_alpha(a * k);
+            }
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
 fn close(
     mut commands: Commands,
     mut screen: ResMut<TerminalScreen>,
@@ -1141,7 +1191,11 @@ fn close(
     backdrops: Query<Entity, With<screen::Backdrop>>,
     script: Option<ResMut<ScriptState>>,
     doors: Option<ResMut<crate::doors::Doors>>,
+    tweaks: Option<Res<crate::tweaks::TweakSettings>>,
 ) {
+    // The player's Terminal Fade Time tweak sets the fade's length [design: docs/design/tweaks.md].
+    let fade = tweaks.as_ref().filter(|t| t.terminal_fade).map_or(CLOSE_FADE, |t| t.terminal_fade_seconds);
+    let had = screen.0.is_some();
     if let Some(s) = screen.0.take() {
         close_model(doors.map(|d| d.into_inner()), s.reference.0);
         if let Some(rt) = script.and_then(|s| s.into_inner().rt.as_mut()) {
@@ -1151,7 +1205,11 @@ fn close(
         }
     }
     for e in roots.iter().chain(&backdrops) {
-        commands.entity(e).despawn();
+        if had && fade > 0.0 {
+            commands.entity(e).insert(FadeOut { left: fade, total: fade });
+        } else {
+            commands.entity(e).despawn();
+        }
     }
 }
 

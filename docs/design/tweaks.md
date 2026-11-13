@@ -633,6 +633,7 @@ unless the player binds them, so nothing changes until then.
 | V.A.T.S. Throwables Use Visibility | `bVATSThrowablesUseVisibility` | `vats_mode::throw_sees` (a thrown weapon whose projectile lands as a weapon), `part_seen` (seven lines), `Spot::seen` multiplies `chance_of` in the preview and the mark. The switch: `Tweaks::vats_throw_visibility` |
 | Quiet Companions | `bRemoveFollowerTopics` | `Game::combat_line` refuses `combat_lines::FOLLOWER_COMMENTS` to teammates. The switch: `Tweaks::quiet_followers` |
 | Low-health heartbeat, Heartbeat Fades | `bHeatbeatSoundsFade` | base: `heartbeat` loops `UIHealthHeartbeatALP` under `LOW`; `sfx::LoopScale` sets a loop's share of its volume. The switch: `TweakSettings::heartbeat_fade`, `heartbeat_fade_seconds` (`heartbeat::faded`) |
+| Terminal close fade, Terminal Fade Time | `bTerminalFadeTime` | base: `terminal::close` marks the backdrop and screen `FadeOut`, `fade_out` dims and removes them, `draw` keeps the picture while it fades. The switch: `TweakSettings::terminal_fade`, `terminal_fade_seconds` |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -654,8 +655,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 569 |
-| to do | 26 |
+| done | 570 |
+| to do | 25 |
 | unsure, skipped | 22 |
 | n/a | 18 |
 | skipped: fix | 10 |
@@ -1303,6 +1304,7 @@ game's Data folder, read-only).
 | `bScaleRadioVolume` | done |  | 2 | Radio Songs Volume / Radio Talk Volume (two sliders) |
 | `bSilentSneakPowerAttacks` | done |  |  | already so: the player makes no sound of effort on any attack |
 | `bSplashDamageTorsoGibbing` | done |  |  | Splash Kills Can Gib the Torso (one in four with Bloody Mess, ours) |
+| `bTerminalFadeTime` | done |  | 1 | Terminal Fade Time (fFadeLength as its seconds): a closing terminal now fades out over the menu file's menufade, 0.25 s, for everyone (`terminal::CLOSE_FADE`); the tweak sets its own length, however the terminal was closed |
 | `bTogglePOVWhenHolsteringWeapon` | done |  |  | View Follows the Weapon |
 | `bUseConsoleOutputFile` | done |  | 1 | Console Output File (ConsoleOutput.txt in NVForever's folder; the name is ours, sFilename not offered) |
 | `bVanityCamReturnsToFirstPerson` | done |  |  | Vanity Camera Returns to First Person: after the idle vanity camera (now built, `vanity`) or Toggle POV held, a view that was first person goes back to it |
@@ -1328,7 +1330,6 @@ game's Data folder, read-only).
 | `bPrintNewModsOnLoad` | n/a |  |  | the plugin's own load report |
 | `bReloadSoundsAffectedByTimescale` | to do |  |  | one global sound speed |
 | `bSwapKeyboardYZKeys` | n/a |  |  | the original's keyboard handling; NVForever's keys can be rebound |
-| `bTerminalFadeTime` | to do |  | 1 | not built: terminals do not fade |
 | `bUKKeyboard` | n/a |  |  | the original's keyboard handling |
 | `bNoDespawnVisibleStuckProjectiles` | n/a | yes |  | projectiles do not stick in NVForever: a landed shot ends (thrown weapons lie as items, `crate::thrown`), so nothing stuck despawns |
 | `bUseFallout3AudioDistortion` | unsure, skipped |  |  | needs the original sequel's filter described first |
