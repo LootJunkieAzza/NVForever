@@ -18,7 +18,7 @@ description. This page is the summary.
   the player. That keeps it well inside the cells loaded round the player [design]. Walls
   stop it, and it slides along them. **Orbit** is the first version's camera: it circles
   a point that can move up to 200 units from the player's pivot, 30 to 320 units off.
-- **The panel** (right side, in the HUD font and colour over a soft dark backdrop) has
+- **The panel** (right side, in the HUD font and colour over a soft dark backdrop as dark as the game's menus over the world, 0.93) has
   three tabs (owner, 2026-11-10: "add a few more options commonly found in photo modes"):
   - **Camera**: Camera (Free or Orbit), Zoom (field of view, 10-120 degrees), Roll (-45 to
     45 degrees), and the depth of field: Focus (Auto, which focuses on what is under the
@@ -41,7 +41,9 @@ description. This page is the summary.
   for example `NVForever 2026-11-10 01-23-45 Goodsprings.png`: the local date and time,
   then the place as the Pip-Boy names it (an interior's name, or outdoors the region's
   map name). Two photos in one second get " (2)". The file is written on its own thread.
-  "Photo saved" (or "Photo not saved") is the corner message.
+  "Photo saved" (or "Photo not saved") is photo mode's own notice, low in the middle of
+  the view for 2.5 s. The corner messages (items added, quests) wait, hidden and with
+  their clocks stopped, until photo mode closes, as behind a menu.
 
 ## Solo and co-op
 

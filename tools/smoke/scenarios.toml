@@ -7271,7 +7271,7 @@ expect = [
   "test aid NVF_PLAY_TEST_PHOTO: Saturation 40%",
   { re = 'photo mode: captured \d+x\d+, writing .*Photos.NVForever \d{4}-\d\d-\d\d \d\d-\d\d-\d\d .+\.png', label = "the window is captured and named by date, time and place" },
   { re = 'photo mode: photo saved: .*\.png', label = "the PNG is written" },
-  { re = 'corner message: "Photo saved"', label = "the corner says Photo saved" },
+  { text = "photo mode: notice: Photo saved", label = "photo mode's own notice says Photo saved (the corner messages wait while it is open)" },
   "photo mode: closed, the view is back on the player",
   "menu pause: the picture runs again",
 ]

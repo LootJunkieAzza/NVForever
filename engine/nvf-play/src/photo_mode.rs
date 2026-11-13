@@ -41,8 +41,11 @@
 //! interface are hidden for one frame and the window is captured at its full size, then
 //! written as a PNG on its own thread to `<NVForever home>\Photos` ([`photos_dir`]), named by
 //! the local date and time and the place ([`photo_file_name`]): "NVForever 2026-11-10
-//! 01-23-45 Goodsprings.png". "Photo saved" is the corner message then
-//! (`crate::corner_messages`, shown over photo mode).
+//! 01-23-45 Goodsprings.png". "Photo saved" is photo mode's own notice then, low in the
+//! middle of the view ([`NOTICE_SECONDS`]); the corner messages wait, hidden and with their
+//! clocks stopped, until photo mode closes, as behind a menu (`crate::corner_messages`)
+//! [design: parity's review of the ship frames, 2026-11-13, "corner messages must be hidden
+//! or held while photo mode is open, like the rest of the HUD"].
 //!
 //! **Controls** [design]. Keyboard and mouse: the mouse looks (Orbit: circles), the wheel
 //! zooms, W/S fly forward and back along the view (Orbit: nearer and farther), A/D
@@ -121,6 +124,9 @@ const PAD: f32 = 22.0;
 const ROW_STEP: f32 = 62.0;
 const TRACK_DROP: f32 = 40.0;
 const DIM: f32 = 120.0;
+/// Seconds photo mode's notice ("Photo saved") stays up.
+const NOTICE_SECONDS: f32 = 2.5;
+
 /// Seconds a warning stays on the panel.
 pub const WARN_SECONDS: f32 = 4.0;
 /// A held Left/Right repeats after this long, this often (seconds).
@@ -551,6 +557,10 @@ pub struct PhotoMode {
     shot: Shot,
     /// The warning on the panel and the real seconds it has left.
     pub warning: Option<(String, f32)>,
+    /// Photo mode's own notice ("Photo saved") and the real seconds it has left: drawn
+    /// by photo mode, with the panel shown or hidden, as the corner messages wait while
+    /// it is open.
+    pub notice: Option<(String, f32)>,
     /// The interface roots photo mode hid, and their visibility before.
     hidden: HashMap<Entity, Visibility>,
     /// Left/Right held: the direction and for how long.
@@ -648,6 +658,11 @@ struct PhotoRoot;
 /// The rule-of-thirds grid's root: shown with the panel hidden too, never in the photo.
 #[derive(Component)]
 struct GridRoot;
+
+/// Photo mode's notice's root ("Photo saved"): shown with the panel hidden too, never in
+/// the photo.
+#[derive(Component)]
+struct NoticeRoot;
 
 /// Co-op: what is drawn holds the pose it had when photo mode opened, while the game reads
 /// the live one. After the transforms are propagated each frame, every entity that moved
@@ -816,7 +831,7 @@ fn toggle(
         (v[0].atan2(v[1]), (v[2] / len).asin().clamp(-MAX_PITCH, MAX_PITCH), len.clamp(MIN_DIST, MAX_DIST))
     };
     let f = &mut *photo;
-    (f.on, f.active, f.coop, f.selected, f.panel_hidden, f.shot, f.warning, f.held) = (true, true, coop, 0, false, Shot::Idle, None, None);
+    (f.on, f.active, f.coop, f.selected, f.panel_hidden, f.shot, f.warning, f.held, f.notice) = (true, true, coop, 0, false, Shot::Idle, None, None, None);
     (f.heading, f.pitch, f.dist, f.pan, f.pov, f.vfov) = (heading, pitch, dist, [0.0; 3], control.pov, vfov);
     (f.tab, f.free_at, f.auto_focus) = (0, None, dist);
     f.settings = PhotoSettings::new(game_fov(vfov));
@@ -1165,7 +1180,14 @@ fn warn_on_hits(
     let f = &mut *photo;
     if !f.on {
         f.warning = None;
+        f.notice = None;
         return;
+    }
+    if let Some((_, left)) = &mut f.notice {
+        *left -= real.delta_secs();
+        if *left <= 0.0 {
+            f.notice = None;
+        }
     }
     // A hit shows for [`WARN_SECONDS`]; a fight keeps its line up while it lasts.
     let hit_showing = f.warning.as_ref().is_some_and(|(w, _)| w == HIT_LINE);
@@ -1197,22 +1219,18 @@ fn developed(
     world: Option<Res<crate::PlayWorld>>,
     loc: Option<Res<crate::Location>>,
     player: Option<Res<Player>>,
-    mut corner: Option<ResMut<crate::corner_messages::CornerMessages>>,
 ) {
     let answers: Vec<_> = room.done.lock().map(|r| r.try_iter().collect()).unwrap_or_default();
     for a in answers {
         match a {
             Ok(path) => {
                 info!("photo mode: photo saved: {}", path.display());
-                if let Some(c) = corner.as_mut() {
-                    c.push(crate::script_events::Note::from("Photo saved".to_string()));
-                }
+                info!("photo mode: notice: Photo saved");
+                photo.notice = Some(("Photo saved".to_string(), NOTICE_SECONDS));
             }
             Err(e) => {
                 warn!("photo mode: the photo was not saved: {e}");
-                if let Some(c) = corner.as_mut() {
-                    c.push(crate::script_events::Note::from("Photo not saved".to_string()));
-                }
+                photo.notice = Some(("Photo not saved".to_string(), NOTICE_SECONDS));
             }
         }
     }
@@ -1242,32 +1260,38 @@ fn developed(
     });
 }
 
-/// While open, every piece of the interface but the panel (and the corner messages, while
-/// the panel shows) is hidden; for the picture, all of it. What was hidden comes back
-/// when photo mode closes.
+/// While open, every piece of the interface but the panel, the grid and photo mode's
+/// notice is hidden; for the picture, all of it. What was hidden comes back when photo
+/// mode closes. The corner messages wait, hidden, until it closes (`crate::corner_messages`).
 #[allow(clippy::type_complexity)]
-fn hide_interface(mut photo: ResMut<PhotoMode>, mut roots: Query<(Entity, &mut Visibility, Has<PhotoRoot>, Has<crate::corner_messages::AreaRoot>, Has<GridRoot>), (With<Node>, Without<ChildOf>)>) {
+fn hide_interface(
+    mut photo: ResMut<PhotoMode>,
+    mut roots: Query<(Entity, &mut Visibility, Has<PhotoRoot>, Has<crate::corner_messages::AreaRoot>, Has<GridRoot>, Has<NoticeRoot>), (With<Node>, Without<ChildOf>)>,
+) {
     let f = &mut *photo;
     if !f.on {
         for (e, v) in f.hidden.drain() {
-            if let Ok((_, mut vis, _, _, _)) = roots.get_mut(e) {
+            if let Ok((_, mut vis, _, _, _, _)) = roots.get_mut(e) {
                 *vis = v;
             }
         }
         return;
     }
     let clean = f.capturing() || f.panel_hidden;
-    for (e, mut vis, panel, corner, grid) in &mut roots {
+    for (e, mut vis, panel, corner, grid, notice) in &mut roots {
         if panel {
             vis.set_if_neq(if clean { Visibility::Hidden } else { Visibility::Inherited });
             continue;
         }
-        // The grid helps frame the shot with the panel hidden too, but is not in it.
-        if grid {
+        // The grid helps frame the shot with the panel hidden too, but is not in it; so
+        // does the notice.
+        if grid || notice {
             vis.set_if_neq(if f.capturing() { Visibility::Hidden } else { Visibility::Inherited });
             continue;
         }
-        if corner && !clean {
+        // The corner messages hide and wait themselves while photo mode is open
+        // (`crate::corner_messages`).
+        if corner {
             continue;
         }
         if *vis != Visibility::Hidden {
@@ -1331,7 +1355,11 @@ fn restore_live(mut held: ResMut<HeldView>, mut q: Query<&mut GlobalTransform>) 
 const SOFT: Handle<Image> = bevy::asset::uuid_handle!("8a4f1c2e-6b3d-4e7a-9c15-2d7e0b6f4a91");
 const SOFT_SIDE: u32 = 66;
 const SOFT_EDGE: f32 = 32.0;
-const SOFT_ALPHA: f32 = 0.8;
+/// As dark as the menus drawn over the world (`crate::interface::TOP_MENU_SHADE`), so the
+/// amber reads over a bright sky or ground too [design: parity's review of the ship frames,
+/// 2026-11-13: at 0.8, fading in under the text, the backing was nearly gone over bright
+/// ground].
+const SOFT_ALPHA: f32 = crate::interface::TOP_MENU_SHADE;
 /// The fade is drawn up to this many times its picture's size, so it stays soft on a
 /// large screen.
 const SOFT_SCALE: f32 = 3.0;
@@ -1376,12 +1404,12 @@ fn view_key(f: &PhotoMode, controller: bool) -> Option<String> {
     f.on.then(|| {
         let s = &f.settings;
         let values: Vec<String> = Setting::ALL.iter().map(|&x| s.text(x)).collect();
-        format!("{}:{}:{}:{controller}:{:?}", f.tab, f.selected, values.join("|"), f.warning.as_ref().map(|w| &w.0))
+        format!("{}:{}:{}:{controller}:{:?}:{:?}", f.tab, f.selected, values.join("|"), f.warning.as_ref().map(|w| &w.0), f.notice.as_ref().map(|n| &n.0))
     })
 }
 
 /// Photo mode's own interface roots: the panel and the grid.
-type OwnRoots = Or<(With<PhotoRoot>, With<GridRoot>)>;
+type OwnRoots = Or<(With<PhotoRoot>, With<GridRoot>, With<NoticeRoot>)>;
 
 #[allow(clippy::too_many_arguments)]
 fn draw(
@@ -1413,6 +1441,24 @@ fn draw(
     if photo.settings.grid() {
         spawn_grid(&mut commands);
     }
+    if let Some((line, _)) = &photo.notice {
+        spawn_notice(&mut commands, &mut c, line);
+    }
+}
+
+/// Photo mode's notice: a line low in the middle of the view, on the panel's backing.
+fn spawn_notice(commands: &mut Commands, c: &mut Ctx, line: &str) {
+    const W: f32 = 360.0;
+    const H: f32 = 64.0;
+    let full = Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), justify_content: JustifyContent::Center, ..default() };
+    let bar = Node { position_type: PositionType::Absolute, bottom: u(120.0), width: u(W), height: u(H), ..default() };
+    commands.spawn((NoticeRoot, full, GlobalZIndex(60))).with_children(|r| {
+        r.spawn(bar).with_children(|b| {
+            glass(b, -60.0, -40.0, W + 120.0, H + 80.0);
+            let x = ((W - c.text_width(FontKind::Menu, line)) / 2.0).max(0.0);
+            c.text_in(b, FontKind::Menu, line, x, 14.0, false, amber(255.0));
+        });
+    });
 }
 
 /// Rule-of-thirds lines across the whole view, faint.
@@ -1445,7 +1491,8 @@ fn spawn_panel(commands: &mut Commands, c: &mut Ctx, f: &PhotoMode, controller: 
     let full = Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() };
     commands.spawn((PhotoRoot, full, GlobalZIndex(60))).with_children(|r| {
         r.spawn(panel).with_children(|p| {
-            glass(p, -70.0, -50.0, PANEL_W + 140.0, height + 100.0);
+            // The fade (up to SOFT_EDGE x SOFT_SCALE pixels) lies outside the text.
+            glass(p, -110.0, -80.0, PANEL_W + 220.0, height + 160.0);
             let mut y = PAD;
             if let Some((line, _)) = &f.warning {
                 c.text_in(p, FontKind::Menu, &format!("! {line}"), PAD, y, false, Color::srgb(1.0, 0.42, 0.25));

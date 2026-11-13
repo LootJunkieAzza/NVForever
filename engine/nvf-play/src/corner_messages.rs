@@ -269,11 +269,10 @@ fn draw(
     // do the classic VATS style while it plays its queued attacks and a mini-game in the
     // world (`in_world_game`).
     let cut = kill_cam.is_some_and(|k| k.active()) || hud.is_some_and(|h| h.end_view) || vats.is_some_and(|v| v.playing_back()) || in_world_game(script.as_deref());
-    // Photo mode shows the corner over its view ("Photo saved"), also while it holds the
-    // world; it hides the area itself when its panel is hidden and for the picture
-    // (`crate::photo_mode`).
+    // Photo mode holds them as a menu does, hidden with their clocks stopped, like the
+    // rest of the HUD (`crate::photo_mode`; its "Photo saved" is its own).
     let photo = photo.is_some_and(|p| p.on);
-    let held = !photo && held(panel.view.is_some(), state.map(|s| *s.get()), driven.is_some_and(|d| d.0), cut);
+    let held = held(panel.view.is_some(), state.map(|s| *s.get()), driven.is_some_and(|d| d.0), cut || photo);
     for (_, mut v) in &mut roots {
         v.set_if_neq(if held { Visibility::Hidden } else { Visibility::Inherited });
     }
