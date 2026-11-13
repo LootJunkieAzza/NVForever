@@ -1227,3 +1227,26 @@ fn a_modded_weapon_is_worth_its_mods_on_top() {
     assert_eq!(f.forms.mods_value(FormId(RIFLE), 1), 0);
     assert_eq!(f.forms.mods_value(FormId(RIFLE), 3), 125);
 }
+
+#[test]
+fn barter_lists_every_stack_of_the_stock_and_scrolls_to_the_last() {
+    // Owner's report of 2026-11-12 ("vendors inventories are way too small"): every stack
+    // of the merchant's stock but its caps is a row, and a stock longer than the list
+    // scrolls to its last row.
+    let f = fixture();
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    for (item, n) in [(AID, 3), (BULLETS, 20), (PISTOL, 1), (SCOPE, 1), (SKILL_BOOK, 1), (KEY_A, 1)] {
+        w.add_item(FormId(BOX_REF), FormId(item), n).unwrap();
+    }
+    let mut m = barter(&mut w);
+    assert_eq!(m.stock_rows(&w), Some((9, 9)));
+    const { assert!(9 > LIST_ROWS) };
+    m.apply(&mut w, Command::Focus(Side::Container));
+    for _ in 0..8 {
+        m.apply(&mut w, Command::Down);
+    }
+    assert_eq!(m.selected[Side::Container as usize], 8);
+    assert!(m.visible(Side::Container).contains(&8));
+    // Outside a trade there is no stock.
+    assert_eq!(MenuModel::open_container(&mut w, FormId(BOX_REF)).unwrap().stock_rows(&w), None);
+}

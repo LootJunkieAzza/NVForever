@@ -458,6 +458,9 @@ pub(crate) fn open_menus(
                     let list: Vec<String> = held.iter().map(|(i, c)| format!("{} ({c})", model::display_name(sim.world.forms, *i))).collect();
                     info!("barter: {merchant} holds back {} item(s) outside its services: {}", held.len(), if list.is_empty() { "none".into() } else { list.join(", ") });
                 }
+                if let Some((rows, stacks)) = m.stock_rows(&sim.world) {
+                    info!("barter: {rows} rows from {stacks} stacks in {stock} (caps aside)");
+                }
                 Ok(m)
             })
         }
