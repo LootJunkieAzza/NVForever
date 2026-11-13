@@ -269,7 +269,7 @@ impl Plugin for FrameGenPlugin {
             .init_resource::<PendingGenerated>()
             .init_resource::<Stats>()
             .insert_resource(Capture::from_env())
-            .add_systems(ExtractSchedule, extract)
+            .add_systems(ExtractSchedule, extract.in_set(ReleasePresenter))
             .add_systems(
                 Render,
                 prepare.in_set(RenderSystems::PrepareViews).after(crate::fsr::prepare).before(prepare_view_targets),
@@ -458,6 +458,16 @@ impl FrameGenRequest {
     }
 }
 
+/// DLSS-G's live switch waits for FSR's extraction to join its presenter threads.
+/// [documented: `fg_presenter.rs`, `Presenter::drop`].
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) struct ReleasePresenter;
+
+/// True only once every presenter thread has ended and released its shared surface.
+pub(crate) fn presenters_released(world: &World) -> bool {
+    world.get_resource::<Presenters>().is_none_or(|p| p.running.is_empty())
+}
+
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
 fn extract(
     mut commands: Commands,
@@ -469,7 +479,7 @@ fn extract(
     windows: Query<(Entity, Has<DeferredSwapchain>, Has<SurfaceData>), With<ExtractedWindow>>,
 ) {
     *request = FrameGenRequest {
-        on: usable.0,
+        on: usable.0 && !crate::dlss::frame_generation_loaded(),
         playing: play_state.as_ref().is_none_or(|s| *s.get() == nvf_play::PlayState::Playing),
         refresh_millihertz: refresh.as_ref().and_then(|r| r.millihertz),
     };

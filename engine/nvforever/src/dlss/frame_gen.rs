@@ -183,8 +183,6 @@ struct FrameGen {
     /// Frames to generate per real frame, as the Generated frames row asks (before the state's
     /// limit).
     requested_frames: u32,
-    /// Frames in a row the row has asked for DLSS while DLSS-G is unloaded ([`follow_request`]).
-    want_on_frames: u32,
     /// The options and result of the last failed call, said once.
     failed_said: Option<(Applied, i32)>,
     /// A status other than `eOk` while on: frame generation off for the session.
@@ -262,13 +260,23 @@ fn fragment(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
 ";
 
 impl FrameGen {
+    /// Publish only a completed transition; FSR's next extraction reads the shared flag.
+    fn complete_load(&mut self, load: bool, result: super::ffi::SlResult, shared: &AtomicBool) {
+        if !result.is_ok() {
+            return;
+        }
+        self.loaded = load;
+        shared.store(load, Ordering::Relaxed);
+        self.applied = None;
+        self.presented_off = true;
+    }
+
     fn new(get_state: SlDlssgGetState, set_options: SlDlssgSetOptions, loaded: bool) -> Self {
         Self {
             get_state,
             set_options,
             applied: None,
             requested_frames: 1,
-            want_on_frames: 0,
             failed_said: None,
             status_failed: None,
             max_frames: 0,
@@ -380,7 +388,7 @@ pub(super) fn add_systems(render_app: &mut SubApp) {
         .add_systems(Render, main_texture_copies.in_set(RenderSystems::PrepareViews).after(crate::upscaler::prep::prepare).before(prepare_view_targets).run_if(on))
         .add_systems(Render, set_constants.in_set(RenderSystems::PrepareResources).after(crate::upscaler::prep::prepare).run_if(on))
         .add_systems(Render, window_changes.before(create_surfaces).run_if(on))
-        .add_systems(ExtractSchedule, toggle_switch.after(extract_windows).run_if(on))
+        .add_systems(ExtractSchedule, toggle_switch.after(extract_windows).after(crate::frame_gen::ReleasePresenter).run_if(on))
         .add_systems(ExtractSchedule, follow_request.before(toggle_switch).run_if(on))
         .add_systems(ExtractSchedule, exit_watch.before(extract_windows).run_if(active))
         .add_systems(Core3d, tag.after(Core3dSystems::PostProcess).before(ui_pass).run_if(on))
@@ -949,31 +957,23 @@ fn draw_ui_alpha(
 
 /// The Frame generation row's request, read in the extraction (`crate::frame_gen::DlssgRequest`):
 /// the frames to generate, and the live switch: off at once when DLSS is no longer what the row
-/// asks for (or can be had); on once DLSS has been asked for three frames in a row while
-/// unloaded, so FSR's frame generation, switched off in the same change, has let go of the
-/// window's surface first (its presenter ends with the next extraction, `crate::frame_gen`).
+/// asks for (or can be had). Loading waits for FSR's presenter to release the surface in
+/// [`toggle_switch`], after `crate::frame_gen::ReleasePresenter` joins its threads.
 fn follow_request(request: Extract<Option<Res<crate::frame_gen::DlssgRequest>>>) {
     let Some(request) = request.as_deref().copied() else { return };
     let mut guard = frame_gen();
     let Some(fg) = guard.as_mut() else { return };
     fg.requested_frames = request.frames.clamp(1, 3);
     super::FG_MULTIPLIER.store(fg.requested_frames + 1, Ordering::Relaxed);
-    if fg.toggle.is_some() || fg.pending_load.is_some() || fg.status_failed.is_some() {
+    if request.on == fg.loaded {
+        // A newer choice cancels a switch that has not reached Streamline yet.
+        fg.toggle = None;
+        fg.pending_load = None;
         return;
     }
-    if request.on && !fg.loaded {
-        fg.want_on_frames += 1;
-        if fg.want_on_frames >= 3 {
-            fg.want_on_frames = 0;
-            fg.toggle = Some(true);
-            note_fg(Level::INFO, "switch: frame generation on asked (the Frame generation row)");
-        }
-    } else {
-        fg.want_on_frames = 0;
-        if !request.on && fg.loaded {
-            fg.toggle = Some(false);
-            note_fg(Level::INFO, "switch: frame generation off asked (the Frame generation row)");
-        }
+    if fg.toggle.is_none() && fg.pending_load.is_none() && (!request.on || fg.status_failed.is_none()) {
+        fg.toggle = Some(request.on);
+        note_fg(Level::INFO, format!("switch: frame generation {} asked (the Frame generation row)", if request.on { "on" } else { "off" }));
     }
 }
 
@@ -986,6 +986,11 @@ enum WindowStep {
     Hold,
     /// Release the swapchain and load (`true`) or unload DLSS-G (the live toggle).
     Load(bool),
+}
+
+/// Loading DLSS-G requires the presenter's last surface reference to be gone.
+fn switch_ready(load: bool, presenters_released: bool) -> bool {
+    !load || presenters_released
 }
 
 /// The decision for one frame: `pending` window change, the toggle asked for, whether DLSS-G
@@ -1076,6 +1081,12 @@ fn window_changes(world: &mut World) {
 /// `slSetFeatureLoaded`; Bevy's `create_surfaces` makes the swapchain again this frame.
 fn toggle_switch(world: &mut World) {
     let Some(load) = frame_gen().as_mut().and_then(|fg| fg.pending_load.take()) else { return };
+    if !switch_ready(load, crate::frame_gen::presenters_released(world)) {
+        if let Some(fg) = frame_gen().as_mut() {
+            fg.pending_load = Some(load);
+        }
+        return;
+    }
     let entity = {
         let mut windows = world.query_filtered::<Entity, (With<ExtractedWindow>, With<SurfaceData>, With<PrimaryWindow>)>();
         windows.iter(world).next()
@@ -1101,19 +1112,14 @@ fn toggle_switch(world: &mut World) {
     drop(quiet);
     let mut guard = frame_gen();
     let Some(fg) = guard.as_mut() else { return };
-    if result.is_ok() {
-        fg.loaded = load;
-        fg.applied = None;
-        fg.presented_off = true;
-        super::FG_UNLOADED.store(!load, Ordering::Relaxed);
-        if !load {
-            // Nothing reads them while DLSS-G is unloaded (the GPU was drained above).
-            fg.hudless = None;
-            fg.kept.clear();
-            if let Some(pass) = fg.ui.as_mut() {
-                pass.textures = None;
-                pass.groups.clear();
-            }
+    fg.complete_load(load, result, &super::FG_KEPT_LOADED);
+    if result.is_ok() && !load {
+        // Nothing reads them while DLSS-G is unloaded (the GPU was drained above).
+        fg.hudless = None;
+        fg.kept.clear();
+        if let Some(pass) = fg.ui.as_mut() {
+            pass.textures = None;
+            pass.groups.clear();
         }
     }
     fg.hold_frames = 0;
@@ -1201,6 +1207,36 @@ fn ratio_line(over: Duration, real: u64, presented: u64, failed: Option<&str>) -
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn dlss_to_fsr_stays_blocked_until_unload_succeeds() {
+        use super::super::ffi::SlResult;
+        let shared = AtomicBool::new(true);
+        let mut fg = FrameGen::new(dummy_get_state, dummy_set_options, true);
+        assert_eq!(window_step(false, Some(false), fg.loaded, false, 0), WindowStep::Hold);
+        assert!(shared.load(Ordering::Relaxed), "FSR blocked while the off frame is presented");
+        assert_eq!(window_step(false, Some(false), fg.loaded, true, 1), WindowStep::Load(false));
+        fg.complete_load(false, SlResult(-1), &shared);
+        assert!(fg.loaded && shared.load(Ordering::Relaxed), "a failed unload keeps FSR blocked");
+        fg.complete_load(false, SlResult::OK, &shared);
+        assert!(!fg.loaded && !shared.load(Ordering::Relaxed), "FSR may take the native surface now");
+    }
+
+    #[test]
+    fn fsr_to_dlss_waits_for_presenter_release_and_blocks_fsr_after_loading() {
+        use super::super::ffi::SlResult;
+        let shared = AtomicBool::new(false);
+        let mut fg = FrameGen::new(dummy_get_state, dummy_set_options, false);
+        assert_eq!(window_step(false, Some(true), fg.loaded, true, 0), WindowStep::Load(true));
+        assert!(!switch_ready(true, false), "a presenter still holds the surface, regardless of elapsed frames");
+        assert!(!fg.loaded && !shared.load(Ordering::Relaxed));
+        assert!(switch_ready(true, true), "Presenter::drop joined its thread and released the surface");
+        fg.complete_load(true, SlResult(-1), &shared);
+        assert!(!fg.loaded && !shared.load(Ordering::Relaxed), "a failed load stays native");
+        fg.complete_load(true, SlResult::OK, &shared);
+        assert!(fg.loaded && shared.load(Ordering::Relaxed), "FSR stays blocked until a successful unload");
+        assert!(switch_ready(false, true));
+    }
 
     #[test]
     fn the_off_options_keep_resources_and_set_the_callback() {

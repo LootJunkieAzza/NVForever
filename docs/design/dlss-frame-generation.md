@@ -102,6 +102,10 @@ and calls after: at most three moves can happen meanwhile).
   destroys the swapchain), DLSS-G's resources freed when it goes off, `slSetFeatureLoaded`, and
   Bevy's `create_surfaces` makes the surface and swapchain again that frame. Not covered: Bevy's
   pipeline compiles on task threads.
+  [documented: `dlss/frame_gen.rs::toggle_switch`, `frame_gen.rs::ReleasePresenter`]
+  Loading waits until FSR's extraction has joined every presenter thread and released its
+  shared surface. A single shared loaded flag gates FSR and DLSS-G's pacing; it changes only
+  after `slSetFeatureLoaded` succeeds, so FSR stays blocked throughout an unload or its failure.
 - At exit: the mode off for the last frame (on `AppExit`) or at once (a window closing), then at
   shutdown the mode off, null tags, the drain, `slFreeResources` for DLSS and DLSS-G, and the
   ordered `slShutdown`.

@@ -29,7 +29,7 @@ use super::preflight::{self, Checked, Pin, Requirements, Snapshot};
 use super::sizing::{Key, Optimal};
 use super::{
     missing_fg_files, missing_files, note, note_fg, note_ngx_line, note_sl, resolve_folder, set_fg_availability, set_loader_state, FgAvailability, FolderSource, Frame, Outcome,
-    ACTIVE, ENV_DIR, FG_AT_START, FG_KEPT_LOADED, FG_ON, FG_UNLOADED, FILES, STREAMLINE_DEVICE,
+    ACTIVE, ENV_DIR, FG_AT_START, FG_KEPT_LOADED, FG_ON, FILES, STREAMLINE_DEVICE,
 };
 use crate::upscaler::{DlssModel, DlssState, Unavailable};
 
@@ -901,10 +901,7 @@ fn frame_generation_after_device(api: &Api, held: &Held, identity: Option<(vk::P
     let at_start = FG_AT_START.load(std::sync::atomic::Ordering::Relaxed);
     let unloaded = if at_start { None } else { Some(unload(api, FEATURE_DLSS_G)) };
     let loaded = unloaded.is_none_or(|r| !r.is_ok());
-    if !loaded {
-        FG_KEPT_LOADED.store(false, std::sync::atomic::Ordering::Relaxed);
-        FG_UNLOADED.store(true, std::sync::atomic::Ordering::Relaxed);
-    }
+    FG_KEPT_LOADED.store(loaded, std::sync::atomic::Ordering::Relaxed);
     super::frame_gen::install(get_state, set_options, loaded);
     note_fg(
         if reflex.is_ok() && unloaded.is_none_or(|r| r.is_ok()) { Level::INFO } else { Level::WARN },
