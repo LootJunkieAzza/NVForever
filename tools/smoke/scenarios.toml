@@ -26371,6 +26371,21 @@ expect = [
 ]
 
 [[scenario]]
+name = "main-menu-disabled-glyphs"
+source = "[design, #2247] main_menu::show_entries must reach glyphs under the line anchor (docs/spec-notes/fonts.md section 3.2), using the existing start_menu::color shades"
+areas = ["main-menu", "save"]
+paths = ["engine/nvf-play/src/main_menu.rs", "engine/nvf-play/src/interface.rs", "engine/nvf-play/src/start_menu.rs"]
+env = { NVFOREVER_HOME = "menu-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
+args = ["--play", "--menu"]
+run_seconds = 8
+expect = [
+  { re = 'main menu: open \(\d+ loading screens, 0 saves\)', label = "the isolated empty home has no saves" },
+  { re = 'main menu: Continue glyph colour rgba \[127, 91, 33, 127\] \([1-9]\d* glyphs\)', label = "Continue glyphs carry the existing Dim RGBA" },
+  { re = 'main menu: Load Game glyph colour rgba \[127, 91, 33, 127\] \([1-9]\d* glyphs\)', label = "Load Game glyphs carry the existing Dim RGBA" },
+  { re = 'main menu: New Game glyph colour rgba \[255, 182, 66, 255\] \([1-9]\d* glyphs\)', label = "New Game glyphs stay Bright" },
+]
+
+[[scenario]]
 name = "audio-reads-off-main-thread"
 source = "issue #1993: music and ambient loop files are read on the IO pool, not in the frame that starts them; each read logs its size and time (the stall the main thread used to take), and the track starts once its files are in (engine/nvf-play/src/file_bytes.rs)"
 note = "The music scenario's place: Goodsprings at noon, where musSetLOCDesExplBothABC plays three stems and the placed and background loops start"
