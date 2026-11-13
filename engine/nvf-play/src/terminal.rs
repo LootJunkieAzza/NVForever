@@ -743,7 +743,8 @@ pub fn step_cursor(p: &Puzzle, cursor: usize, dx: i32, dy: i32) -> usize {
     }
 }
 
-fn keys(keys: Res<ButtonInput<KeyCode>>, screen: Res<TerminalScreen>, mut out: MessageWriter<TerminalInput>) {
+fn keys(keys: crate::pad::ActionButtons<KeyCode>, screen: Res<TerminalScreen>, mut out: MessageWriter<TerminalInput>) {
+    let keys = keys.snapshot();
     use KeyCode::*;
     let Some(s) = screen.0.as_ref() else { return };
     let mut send = |i| {
@@ -779,13 +780,14 @@ fn keys(keys: Res<ButtonInput<KeyCode>>, screen: Res<TerminalScreen>, mut out: M
 /// character or the menu row under it, and a click enters that.
 fn mouse(
     screen: Res<TerminalScreen>,
-    buttons: Res<ButtonInput<MouseButton>>,
+    buttons: crate::pad::ActionButtons<MouseButton>,
     pointer: Res<TerminalPointer>,
     rows: Res<MenuRows>,
     mut last: Local<Option<usize>>,
     mut last_row: Local<Option<usize>>,
     mut out: MessageWriter<TerminalInput>,
 ) {
+    let buttons = buttons.snapshot();
     let Some(s) = screen.0.as_ref() else { return };
     match &s.page {
         Page::Hacking(h) => {

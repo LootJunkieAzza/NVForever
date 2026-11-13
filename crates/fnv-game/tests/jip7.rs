@@ -2,7 +2,7 @@
 //! ammunition, ammo effects, projectiles, explosions, impact data, weathers and climates,
 //! armour.
 
-mod common;
+use crate::common;
 
 use common::*;
 use fnv_esm::{LoadOrder, Plugin, Schema};

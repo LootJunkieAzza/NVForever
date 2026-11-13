@@ -3,7 +3,7 @@
 //! pause menu ask, live explosions, the shot switches, fast travel, AP costs and
 //! RemoveAllItemsShowOff's flags.
 
-mod common;
+use crate::common;
 
 use common::*;
 use fnv_esm::{LoadOrder, Plugin, Schema};

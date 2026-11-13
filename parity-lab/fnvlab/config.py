@@ -131,6 +131,11 @@ class Scenario:
             raise ConfigError(f"{source}: scenario {d['id']}: oracle needs 'golden' or 'inline'")
         if "argv" not in d["candidate"]:
             raise ConfigError(f"{source}: scenario {d['id']}: candidate needs 'argv'")
+        ck = d["candidate"].get("kind", "tool")
+        if ck not in ("tool", "game"):
+            raise ConfigError(f"{source}: scenario {d['id']}: unknown candidate kind {ck!r}")
+        if ck == "game" and "output_file" not in d["candidate"]:
+            raise ConfigError(f"{source}: scenario {d['id']}: a game candidate needs 'output_file'")
         return Scenario(
             id=d["id"], layer=d["layer"], description=d.get("description", ""),
             oracle=o, candidate=d["candidate"], comparator=d["comparator"],

@@ -2,7 +2,7 @@
 //! entry, leveled actors read at their reference's level, level modifiers, Never Resets.
 //! docs/spec-notes/encounter-zones.md.
 
-mod common;
+use crate::common;
 
 use common::*;
 use fnv_esm::{LoadOrder, Plugin, Schema};

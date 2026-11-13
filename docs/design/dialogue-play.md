@@ -106,7 +106,8 @@ original unless it carries a tag.
 - Breaking a conversation off (cutting the line, no end script) is not a key of the
   game: it is a debug switch, off by default (§4) [owner decision 2026-10-10].
 - The cursor: free look while the actor speaks, the cursor released while the player
-  chooses (§3) [owner decision 2026-10-10].
+  chooses (§3) [owner decision 2026-10-10]; with the dialogue zoom the view is locked on
+  the speaker and the cursor free throughout (§8.2) [owner decision 2026-11-13, #2254].
 - A message box a result script shows during a conversation takes the keys first: it is
   drawn and answered as any other box (`script_hud.rs`), the conversation's lines wait
   for it (the runtime's rule), and the dialogue menu is hidden meanwhile.
@@ -137,10 +138,12 @@ a third state beside `Playing` and `Menu`.
   docs/design/dialogue.md §8):
   - `living` (default): everything that is only presentation runs on (actors' idle
     animation, wind in the trees, water, the sky's clouds, effects), nothing snaps to a
-    frozen frame, and the player looks around with the mouse while the actor speaks
-    (`dialogue::FreeLook`). When choices are offered the cursor is released for
-    clicking and the view holds still; it is grabbed again when the next line starts
-    [owner decision 2026-10-10, of the two options offered]. [owner preference
+    frozen frame. A zoomed conversation keeps the view on the speaker and the cursor
+    free throughout [owner decision 2026-11-13, #2254, §8.2]. Without the zoom the
+    player looks around with the mouse while the actor speaks (`dialogue::FreeLook`);
+    when choices are offered the cursor is released for clicking and the view holds
+    still; it is grabbed again when the next line starts [owner decision 2026-10-10, of
+    the two options offered]. [owner preference
     2026-10-10 for `living`: a deliberate departure from the original's look that keeps
     what scripts see.]
   - `original`: Bevy's virtual clock is paused while the menu is open
@@ -488,19 +491,30 @@ original's values, unless a line carries another tag. What is known of the origi
   head bone [design; the eyes are about 9 and 7, `player_body.rs`]; for an actor
   without a drawn head, a point at 90 % of its hit volume's height, else 112 units
   above its reference.
-- **Free look stays** [owner decision 2026-10-10, §3]: while the actor speaks the mouse
-  looks around as before. An ease never fights the mouse: if anything else moved the
-  view since the ease last wrote it (the mouse, a test aid), the ease is dropped and
-  the view is left where it was put.
-- **Choices.** The view does not come back by itself. **Owner decision 2026-10-10:**
-  "never come back i just want the initial look at npc to happen then allow the player
-  to free look the rest of the time they are in dialogue". Only the opening turn
-  happens. With `--dialogue-recentre` the view eases back onto the actor's face over
-  0.35 s each time the choices appear, if it is more than 0.5° off (the behaviour first
-  built; kept as an option).
-- **Only the view's heading and pitch change**: no roll, no zoom, no change of the field
-  of view, and the camera stays where the player's eye is. In third person the camera
-  stays behind the shoulder and turns with the view.
+- **The zoom locks the view; free look does not zoom.** **Owner decision 2026-11-13**
+  (issue #2254): "want it split so free look camera does not zoom and when zoom lock
+  the camera". While the conversation is zoomed (§8.8) the view follows the speaker's
+  face for the whole conversation, choices included; the mouse moves only the cursor
+  and neither the mouse nor the right stick turns the view
+  (`dialogue_look::view_locked`, `Ease::follow`);
+  the world keeps animating under `menu-pause living`. There is no zoomed free look and
+  no setting for one. With the zoom off (`dialogue-zoom` off, or a conversation the
+  zoom does not take, §8.8) the 2026-10-10 free look below holds unchanged. The
+  original is reported to keep the view on the speaker [hypothesis: player reports,
+  not captured; observer check 121].
+- **Free look, without the zoom** [owner decision 2026-10-10, §3]: while the actor
+  speaks the mouse looks around as before. An ease never fights the mouse: if anything
+  else moved the view since the ease last wrote it (the mouse, a test aid), the ease is
+  dropped and the view is left where it was put.
+- **Choices, without the zoom.** The view does not come back by itself. **Owner
+  decision 2026-10-10:** "never come back i just want the initial look at npc to happen
+  then allow the player to free look the rest of the time they are in dialogue". Only
+  the opening turn happens. With `--dialogue-recentre` the view eases back onto the
+  actor's face over 0.35 s each time the choices appear, if it is more than 0.5° off
+  (the behaviour first built; kept as an option).
+- **View angles** [design: `dialogue_look.rs`, `dialogue_zoom.rs`]: this turn changes
+  heading and pitch, with no roll. Zoom controls the field of view and the third-person
+  camera's travel separately (§8.8).
 - **The player's body** (third person, the first-person arms) follows the view's
   heading as it always does; the player's own head is not turned separately.
 
@@ -523,6 +537,17 @@ original's values, unless a line carries another tag. What is known of the origi
   choices appear (off by default; `--no-dialogue-recentre` is still accepted and does
   nothing).
 - `nvforever --no-dialogue-zoom`: no close-up and no blur (§8.8).
+- No switch for the zoom's lock: the zoom is the lock (§8.2, owner decision 2026-11-13).
+- Cursor transition guard [design, #2254; `player::DialogueMouseGuard`]: in dialogue,
+  motion on a mouse-look capture transition and the next input frame is ignored;
+  subsequent motion is accepted in free look (without the zoom). Code reading of Bevy
+  0.20.1 `bevy_winit/src/state.rs::device_event`, `system.rs::changed_cursor_options` and
+  winit 0.30.13 `platform_impl/windows/{window,window_state,event_loop}.rs` found raw
+  mouse motion forwarded separately from cursor capture. The backend notes that cursor
+  clipping can generate `WM_MOUSEMOVE` (pointer-position events); no explicit raw
+  `MouseMotion` emission from capture was found. This does not establish platform/driver
+  behavior at runtime. Synthetic
+  transition deltas are covered by `cursor_release_and_regrab_motion_do_not_take_over_the_view`.
 - Test aid `NVF_PLAY_TEST_TALK_HEAD_ONLY=1`: no actor turns its body (as if all were
   `BodyHeld`), to see the head at its limit. Not a game behaviour.
 - Log, each line starting `dialogue look:`:
@@ -536,6 +561,7 @@ dialogue look: <actor> is not drawn as an actor: nobody turns to the player
 dialogue look: <actor> stops facing the player: the head (yaw <y>°, pitch <p>°) eases back over 0.60 s, the body keeps its heading <h>°
 dialogue look: the view turns to <actor> (<what the face point is>): heading <h0>° to <h1>°, pitch <p0>° to <p1>°, over 0.40 s
 dialogue look: choices: the view comes back onto <actor>: heading … over 0.35 s
+dialogue look: the zoom locks the view on <actor>: heading … over 0.35 s
 dialogue look: the view was moved (the mouse, or a test aid): it is left where the player put it
 dialogue look: the conversation with <actor> is over: the view is the player's own again
 ```
@@ -749,15 +775,18 @@ the face is, and the view narrows where it looks).
   up over 0.5 s, not the mouse.
 - **Times.** In 0.8 s, out 0.3 s [observed: fitted, rough]; smoothstep.
 - **Framing.** The opening turn (and `--dialogue-recentre`'s) aims under the face so that
-  the head bone sits 0.38 of the height from the top, which puts the face's centre at about 0.32: `atan(0.24 tan(v/2))` below it. Nothing after
-  that: free look stays and the view is the player's [owner decision 2026-10-10, §8.2].
-  The turn takes its 0.4 s and then stays on the face until 1.6 s from its start
-  (`ZOOM_HOLD_SECONDS`), as the speaker's body may still be coming round: at 8.7° a body
-  turn of 163° had moved Chet's face 2.5° off, far right of the picture's centre [observed:
-  our run, 2026-11-06]. A mouse move at any time in it drops it as before, framing and all.
-- **Looking around** while zoomed is scaled by the zoom (`tan(v/2)` against the unzoomed
-  view's), mouse and stick, so the picture moves as far as it does unzoomed, and is back
-  to the usual rate as the zoom goes [design].
+  the head bone sits 0.38 of the height from the top, which puts the face's centre at
+  about 0.32: `atan(0.24 tan(v/2))` below it [design: `dialogue_zoom::face_drop`]. After
+  the 0.4 s opening ease, follow continues throughout the conversation, including while
+  choices wait. Moving-face follow uses an exponential time constant of 0.08 s
+  (`FACE_FOLLOW_SECONDS`) to soften frame-to-frame movement, taking the short way
+  across heading wrap [design, #2254]. The zoom locks the view: mouse and stick cannot
+  turn it and the cursor stays free; there is no timed hold expiry and no free look
+  while zoomed [owner decision 2026-11-13, #2254, §8.2]. With `dialogue-look` off the
+  zoom still locks: nobody turns and the view stays where it was, narrowed.
+- **Looking around as the zoom eases out** (after the conversation) is scaled by the zoom
+  (`tan(v/2)` against the unzoomed view's), mouse and stick, so the picture moves as far
+  as it does unzoomed, and is back to the usual rate as the zoom goes [design].
 - **Who owns the field of view.** The zoom keeps what is on the camera underneath and
   gives it back. A value it did not write is someone else's (the settings slider, the
   console's SetCameraFOV, the sights' zoom) and the new base. The sights' zoom, the console
@@ -767,7 +796,8 @@ the face is, and the view narrows where it looks).
   eye with the zoom and the body goes at 0.85 of the way (`TALK_CAMERA_CLOSE`, before the
   camera is in the head; [design]); closing, the same back. `PlayerControl::pov` is not
   touched, so a script's IsPC1stPerson and a save see the player's own view. The detached
-  camera (`control.rs`) gives its angle to the heading first, and the mouse turns the view.
+  camera (`control.rs`) gives its angle to the heading first; the zoom's lock then holds
+  the view (§8.2).
 - **No zoom**: through a talking activator (not in this version; logged once), a dead
   speaker, one that is not drawn, the free camera, the character creator, a kill camera.
   The Vigor Tester sets its own field of view: the zoom lets go at once. All else eases out.
@@ -780,7 +810,12 @@ the face is, and the view narrows where it looks).
   `dialogue zoom: out from <d> units: the view is back at vertical <a>°, over 0.30 s` as
   the ease out ends; `dialogue zoom: no zoom in the conversation with <actor>: <why>`;
   `dialogue zoom is off (--no-dialogue-zoom)`.
-- Smoke: `dialogue-zoom`, `dialogue-zoom-off`, `dialogue-zoom-no-look`,
+- Framing diagnostic [design, #2254]: at the end of a conversation lasting at least 6 seconds,
+  `dialogue look: framing after <s> s: <actor> offset <degrees> degrees (locked=<bool>)`
+  reports the last frame's larger heading/pitch error from the framing target after follow.
+- Smoke [design: `tools/smoke/scenarios.toml`]: `dialogue-zoom-lock-hold`,
+  `dialogue-zoom-lock-motion` (the look test aid obeys the same lock as the mouse; not
+  raw mouse injection), `dialogue-zoom`, `dialogue-zoom-off`, `dialogue-zoom-no-look`,
   `dialogue-zoom-third`, `dialogue-zoom-frozen`, `dialogue-zoom-victor`, `dialogue-zoom-marcus`, `dialogue-zoom-house`, and `talking-activator-intercom` for the
   activator's line.
 - **Creatures and robots** (ACRE; `creature_framing`). Every actor's head here is a head
@@ -879,7 +914,7 @@ SayTo from the speaker's script.
 
 ### 9.4 Checks (2026-10-11)
 
-- `cargo test -p fnv-game --test dialogue lines_said_to_someone_turn_the_two_to_each_other`:
+- `cargo test -p fnv-game --test integration dialogue::lines_said_to_someone_turn_the_two_to_each_other`:
   SayTo with and without the flag, Say, a conversation between actors with and without
   `headTrack` 0 (and its reply).
 - Prospector Saloon, `--play`, Sunny Smiles (`SunnyRef`) saying GREETING lines by the test

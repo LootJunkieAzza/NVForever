@@ -218,7 +218,7 @@ pub fn run(cmd: ExtCmd) -> anyhow::Result<Value> {
             let start = match &save {
                 Some(p) => {
                     let fos = fnv_save::fos::Fos::parse(&std::fs::read(p).with_context(|| p.display().to_string())?).with_context(|| p.display().to_string())?;
-                    Some(crate::ext_save::save_given(&fos, &crate::ext_save::Loaded { data: &data, forms: &forms, refs: &refs }, &lo.plugins)?)
+                    Some(fnv_game::ext_save::save_given(&fos, &fnv_game::ext_save::Loaded { data: &data, forms: &forms, refs: &refs }, &lo.plugins).map_err(anyhow::Error::msg)?)
                 }
                 None => None,
             };
@@ -299,7 +299,7 @@ pub fn run(cmd: ExtCmd) -> anyhow::Result<Value> {
             }
             let mut save_notes = None;
             if let Some(fos) = &fos {
-                let (given, notes) = crate::ext_save::save_given(fos, &crate::ext_save::Loaded { data: &data, forms: &forms, refs: &refs }, &lo.plugins)?;
+                let (given, notes) = fnv_game::ext_save::save_given(fos, &fnv_game::ext_save::Loaded { data: &data, forms: &forms, refs: &refs }, &lo.plugins).map_err(anyhow::Error::msg)?;
                 input["given"] = json!(given);
                 input["new_game"] = json!(true);
                 save_notes = Some(notes);
@@ -418,23 +418,18 @@ fn dump_units(units: &[ScriptUnit], table: &FunctionTable, plugin: Option<&str>,
 /// one frame, as nvf_capture runs one step per game loop (xnvse-capture.md §4); first a
 /// move to `start_cell` when given.
 pub(crate) fn query_input(job: &Value, start_cell: Option<&str>) -> anyhow::Result<(String, Value)> {
-    anyhow::ensure!(job["format"] == "fnv.capture.steps/1", "not a fnv.capture.steps/1 job");
-    let set = job["name"].as_str().context("job without a name")?.replace('_', "-");
+    let (set, steps) = fnv_game::ext_probes::query_steps(job).map_err(anyhow::Error::msg)?;
     let mut actions = Vec::new();
     if let Some(cell) = start_cell {
         actions.push(json!({"op": "go_to_cell", "cell": cell}));
     }
-    for s in job["steps"].as_array().context("job without steps")? {
-        let script = s["query"].as_str().context("a step without a query (only query jobs run here)")?;
-        let label = s["label"].as_str().context("a step without a label")?;
-        actions.push(json!({"op": "query", "script": script, "label": label, "text": s["text"].as_bool().unwrap_or(false)}));
+    for s in steps {
+        actions.push(json!({"op": "query", "script": s.script, "label": s.label, "text": s.text}));
         actions.push(json!({"op": "wait_frames", "frames": 1}));
     }
     Ok((set, json!({"format": "fnv.script.actions/1", "new_game": false, "actions": actions})))
 }
 
-/// fnv.ext.probes/1 from a run's query observations, as jip_probes.py's collector writes
-/// it from the game's capture: numbers as `%.6g`, errors listed apart.
 /// `ext script-runner`: the Script Runner files of `roots` and Data, compiled (and run).
 fn script_runner(lo: &LoadOrderArgs, schema: &Path, functions: Option<PathBuf>, mut roots: Vec<PathBuf>, run: bool, no_data_files: bool) -> anyhow::Result<Value> {
     use fnv_game::script_runner::{Moment, SrRun};
@@ -482,63 +477,11 @@ fn script_runner(lo: &LoadOrderArgs, schema: &Path, functions: Option<PathBuf>, 
     Ok(doc)
 }
 
+/// fnv.ext.probes/1 from a run's query observations, as jip_probes.py's collector writes
+/// it from the game's capture: numbers as `%.6g`, errors listed apart
+/// (`fnv_game::ext_probes`, shared with the engine's query job).
 pub(crate) fn queries_doc(set: &str, trace: &Value) -> Value {
-    let mut rows = Vec::new();
-    let mut errors = Vec::new();
-    for o in trace["observations"].as_array().into_iter().flatten() {
-        let Some(id) = o["label"].as_str() else { continue };
-        if let Some(e) = o.get("error").or_else(|| o.pointer("/errors/action")) {
-            errors.push(json!({"id": id, "error": e.as_str().map(str::to_string).unwrap_or_else(|| e.to_string())}));
-            continue;
-        }
-        let value = match &o["value"] {
-            Value::Number(n) => fmt_g6(n.as_f64().unwrap_or(f64::NAN)),
-            Value::String(s) => s.clone(),
-            Value::Null => String::new(),
-            v => v.to_string(),
-        };
-        rows.push(json!({"id": id, "value": value}));
-    }
-    json!({
-        "format": "fnv.ext.probes/1",
-        "set": set,
-        "version": "nvforever",
-        "sources": ["fnvtool ext queries"],
-        "rows": rows,
-        "files": [],
-        "duplicates": [],
-        "errors": errors,
-    })
-}
-
-/// A number as Python's `"%.6g" % x`: six significant digits, trailing zeros dropped,
-/// exponent form below 1e-4 and from 1e6 up.
-pub(crate) fn fmt_g6(x: f64) -> String {
-    if x.is_nan() {
-        return "nan".into();
-    }
-    if x.is_infinite() {
-        return if x > 0.0 { "inf".into() } else { "-inf".into() };
-    }
-    if x == 0.0 {
-        return if x.is_sign_negative() { "-0".into() } else { "0".into() };
-    }
-    let sci = format!("{x:.5e}");
-    let (mant, exp) = sci.split_once('e').unwrap_or((&sci, "0"));
-    let exp: i32 = exp.parse().unwrap_or(0);
-    let trim = |s: &str| -> String {
-        if s.contains('.') {
-            s.trim_end_matches('0').trim_end_matches('.').to_string()
-        } else {
-            s.to_string()
-        }
-    };
-    if !(-4..6).contains(&exp) {
-        let sign = if exp < 0 { '-' } else { '+' };
-        format!("{}e{sign}{:02}", trim(mant), exp.abs())
-    } else {
-        trim(&format!("{x:.*}", (5 - exp).max(0) as usize))
-    }
+    fnv_game::ext_probes::probes_doc(set, trace["observations"].as_array().into_iter().flatten(), "fnvtool ext queries")
 }
 
 /// Extender function names and aliases (lower case) → (catalogue name, origin). A word that
@@ -1008,26 +951,6 @@ End
         assert_eq!(input["actions"][2], json!({"op": "set_quest_var", "quest": "ExtProbeX02Q", "var": "iWhich", "value": 1}));
         let _: fnv_game::runner::Input = serde_json::from_value(input).expect("a valid actions document");
         std::fs::remove_dir_all(&dir).ok();
-    }
-
-    #[test]
-    fn numbers_print_as_python_g6() {
-        for (x, s) in [
-            (1.0, "1"),
-            (0.5, "0.5"),
-            (44.99977, "44.9998"),
-            (-98.1, "-98.1"),
-            (10000.0, "10000"),
-            (0.039_999_999_105_930_33, "0.04"),
-            (6.49, "6.49"),
-            (1e6, "1e+06"),
-            (0.00001234, "1.234e-05"),
-            (0.0001, "0.0001"),
-            (-0.5294, "-0.5294"),
-            (0.0, "0"),
-        ] {
-            assert_eq!(fmt_g6(x), s, "{x}");
-        }
     }
 
     #[test]

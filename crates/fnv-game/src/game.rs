@@ -1233,6 +1233,9 @@ pub struct Game<'a> {
     /// The lambdas scripts made: the unit, the lambda, the instance whose variables it
     /// shares; named by `LAMBDA_BASE + index`.
     lambdas: Vec<LambdaDef<'a>>,
+    /// Extender handlers and queued calls whose function cannot run, by (where, error),
+    /// reported once each ([`Game::handler_failed`], #2280).
+    unusable_reported: std::collections::HashSet<(String, String)>,
     /// CompileScript's scripts, named by `COMPILED_BASE + index`, and their files' paths
     /// (lower case) to them.
     compiled_files: Vec<&'a Compiled>,
@@ -2230,6 +2233,9 @@ struct UdfFrame {
 /// User-defined functions nest at most this deep; a call deeper is refused [documented:
 /// User Defined Function, NVSE aborts after 30 nested calls].
 pub const MAX_UDF_DEPTH: usize = 30;
+/// The ends of [`Game::run_function`]'s errors for a function that cannot run at all.
+const NOT_A_FUNCTION: &str = " is not a function script";
+const NO_FUNCTION_BLOCK: &str = " has no Function block";
 
 /// Lambdas are named by values from here on, in a `ref` variable's slot [decision: a
 /// FormID this high needs a 255th plugin, which NVForever's load order never gives a
@@ -2292,6 +2298,7 @@ impl<'a> Game<'a> {
             ext: Default::default(),
             udf: Vec::new(),
             lambdas: Vec::new(),
+            unusable_reported: Default::default(),
             compiled_files: Vec::new(),
             compiled_paths: std::collections::HashMap::new(),
             sr: Default::default(),
@@ -3144,6 +3151,19 @@ impl<'a> Game<'a> {
         Some(id)
     }
 
+    /// An extender handler or queued call (`unit` says which: "delayed call", "JIP
+    /// main-loop callback", "JohnnyGuitar event handler" ...) failed with `error`. One
+    /// whose function cannot run at all (no function script, no Function block) is
+    /// reported once per handler kind and error, not on every frame it fires (#2280: up
+    /// to 47,000 times a session in the player reports); other errors every time.
+    pub(crate) fn handler_failed(&mut self, unit: String, error: String) {
+        let unusable = error.ends_with(NOT_A_FUNCTION) || error.ends_with(NO_FUNCTION_BLOCK);
+        if unusable && !self.unusable_reported.insert((unit.clone(), error.clone())) {
+            return;
+        }
+        self.emit(EventKind::ScriptError { unit, error });
+    }
+
     /// `Call`: a function script's `Begin Function` block with fresh variables of its own,
     /// its parameters set from the arguments, on the calling reference (`ref.Call`); or a
     /// lambda, over the variables of the script that made it [documented: Call; User
@@ -3179,9 +3199,9 @@ impl<'a> Game<'a> {
             let compiled = id.checked_sub(COMPILED_BASE).filter(|_| id < TEMP_REF_BASE).and_then(|i| self.compiled_files.get(i as usize).copied());
             let unit = match compiled {
                 Some(u) => u,
-                None => data.script(FormId(id)).ok_or_else(|| format!("{} is not a function script", data.name(FormId(id))))?,
+                None => data.script(FormId(id)).ok_or_else(|| format!("{}{NOT_A_FUNCTION}", data.name(FormId(id))))?,
             };
-            let block = unit.program.blocks.iter().find(|b| b.event == fnv_script::ir::FUNCTION_BLOCK).ok_or_else(|| format!("{} has no Function block", data.name(FormId(id))))?;
+            let block = unit.program.blocks.iter().find(|b| b.event == fnv_script::ir::FUNCTION_BLOCK).ok_or_else(|| format!("{}{NO_FUNCTION_BLOCK}", data.name(FormId(id))))?;
             let params = block.params.iter().flatten().filter_map(|a| if let Arg::Var(v) = a { Some(*v) } else { None }).collect();
             (unit, params, block.body.clone(), None, Locals::Temp(BTreeMap::new()))
         };
@@ -3454,7 +3474,7 @@ impl<'a> Game<'a> {
         let door_run = self.npc_door_run.take();
         for h in &hs {
             if let Err(error) = self.run_function(&h.func, on.map(|f| Value::Ref(f.0)), args.clone(), None, ctx) {
-                self.emit(EventKind::ScriptError { unit: format!("event handler for {event}"), error });
+                self.handler_failed(format!("event handler for {event}"), error);
             }
         }
         self.npc_door_run = door_run;
