@@ -35,18 +35,18 @@ The checks, the commands CI runs in its order (`python tools/smoke plan` lists t
 changed files call for; the cargo deny ones need `cargo install cargo-deny`):
 
 ```bash
-cargo deny check licenses advisories bans sources
-cargo deny --manifest-path engine/Cargo.toml check licenses advisories bans sources
 cargo test --workspace --release --locked
 cargo clippy --workspace --all-targets --release --locked -- -D warnings
+(cd engine && cargo test --release --locked)
+(cd engine && cargo clippy --release --locked --all-targets -- -D warnings)
+cargo deny check licenses advisories bans sources
+cargo deny --manifest-path engine/Cargo.toml check licenses advisories bans sources
 python -m unittest discover -s parity-lab/tests
 python -m unittest discover -s tools/capture/tests
 python -m unittest discover -s tools/smoke/tests
 python -m unittest discover -s tools/stress/tests
 python -m unittest discover -s tools/profile/tests
 python -m unittest discover -s tools/release/tests
-(cd engine && cargo test --release --locked)
-(cd engine && cargo clippy --release --locked --all-targets -- -D warnings)
 ```
 
 With the game installed, two more checks run against your own data:
