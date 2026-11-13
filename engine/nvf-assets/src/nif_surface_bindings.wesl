@@ -43,6 +43,8 @@ struct NifSurface {
     // PIPBOY_SCREEN (NifSurface::pipboy_b): x the softening's reach (view pixels), y the
     // noise's reach (display values), z the canvas's share of the texture's width; w unused.
     pipboy_b: vec4<f32>,
+    // The environment map (NifSurface::env): x its scale (0: none), y 1 with a mask.
+    env: vec4<f32>,
 }
 
 // The extension's index table (indices 50-53 of NifSurface's bindless attribute).
@@ -51,6 +53,8 @@ struct NifSurface {
     holes_texture: u32,    // 51
     holes_sampler: u32,    // 52
     facegen_offset: u32,   // 53
+    env_mask: u32,         // 54
+    env_mask_sampler: u32, // 55
 }
 @if(BINDLESS) @group(constants::MATERIAL_BIND_GROUP) @binding(100) var<storage> nif_indices: array<NifSurfaceIndices>;
 @if(BINDLESS) @group(constants::MATERIAL_BIND_GROUP) @binding(101) var<storage> nif_surfaces: array<NifSurface>;
@@ -58,6 +62,8 @@ struct NifSurface {
 @if(!BINDLESS) @group(constants::MATERIAL_BIND_GROUP) @binding(51) var holes_texture: texture_2d<f32>;
 @if(!BINDLESS) @group(constants::MATERIAL_BIND_GROUP) @binding(52) var holes_sampler: sampler;
 @if(!BINDLESS) @group(constants::MATERIAL_BIND_GROUP) @binding(53) var facegen_offset: texture_2d<f32>;
+@if(!BINDLESS) @group(constants::MATERIAL_BIND_GROUP) @binding(54) var env_mask_texture: texture_2d<f32>;
+@if(!BINDLESS) @group(constants::MATERIAL_BIND_GROUP) @binding(55) var env_mask_sampler: sampler;
 
 // The material's slot in the bindless tables (unused without bindless).
 fn material_slot(instance_index: u32) -> u32 {
@@ -80,6 +86,13 @@ fn holes_alpha(instance_index: u32, uv: vec2<f32>) -> f32 {
     @if(BINDLESS) let i = nif_indices[material_slot(instance_index)];
     @if(BINDLESS) return textureSampleLevel(bindless_textures_2d[i.holes_texture], bindless_samplers_filtering[i.holes_sampler], uv, 0.0).a;
     @if(!BINDLESS) return textureSampleLevel(holes_texture, holes_sampler, uv, 0.0).a;
+}
+
+// The environment map's mask at `uv` (its red channel, 0-1).
+fn env_mask_value(instance_index: u32, uv: vec2<f32>) -> f32 {
+    @if(BINDLESS) let i = nif_indices[material_slot(instance_index)];
+    @if(BINDLESS) return textureSample(bindless_textures_2d[i.env_mask], bindless_samplers_filtering[i.env_mask_sampler], uv).r;
+    @if(!BINDLESS) return textureSample(env_mask_texture, env_mask_sampler, uv).r;
 }
 
 // The size of the FaceGen offset image.

@@ -112,6 +112,14 @@ an integer hash, cells of 9 and 3.5 units) tilts the normal (terrain 6, shapes 4
 the colour by up to 18 % (terrain) or 12 % (shapes), faded out between 250 and 1,100 units;
 not on FaceGen skin.
 
+**Environment maps** (nif_spawn `Props::env_scale`, `NifSurface::env`/`env_mask`,
+nif_material.wesl `env_reflection`): a shape whose shader maps an environment (BSShaderFlags
+bit 7 or 21 and a texture-set slot 4) reflects the sky above and the ground below along the
+reflected ray, at its `environment_map_scale` (held to 2) × its mask (slot 5, red) × a Fresnel
+rise from 0.35 to 1, hidden where the GI closes the view. The game's own cube maps are not
+drawn: they would need cube textures in the bindless material. Goodsprings' window glass at
+noon reflects the sky instead of reading as flat dark panes.
+
 **Cloud shadows** (lights.rs `nvf_sun_cloud`, atmos.wesl): value noise (3 octaves, cells of
 17,000 units) at a cloud layer 30,000 units up, read where the ray from the surface to the
 sun crosses it, drifting with time; the sun dims to 0.4 under a cloud. Only on a directional

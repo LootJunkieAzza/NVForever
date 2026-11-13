@@ -161,6 +161,11 @@ pub(crate) struct Props {
     /// BSShaderFlags2 bit 2 "LOD_Building" [documented: nif.xml]: object LOD block
     /// geometry, cut out by its atlas's alpha (`shape_alpha_mode`).
     lod_building: bool,
+    /// The shader property's environment map scale when it maps an environment
+    /// (BSShaderFlags bit 7 Environment_Mapping or 21 Window_Environment_Mapping, and a
+    /// texture-set slot 4) [documented: nif.xml BSShaderProperty, BSShaderFlags]; read
+    /// by the remaster's reflections only (graphics-remaster.md §4).
+    pub(crate) env_scale: Option<f32>,
     /// A sequence of the model drives the shape's emissive colour or multiplier
     /// (`crate::material_anim`): its glow map is loaded even when the stored colour is
     /// black, as the radios' dials store black and light up by their "Open" sequence
@@ -338,6 +343,8 @@ fn apply_property(file: &NifFile, dec: &Decoded, r: i32, p: &mut Props) {
         p.refraction = refracts(flags).then(|| s.float("refraction_strength").unwrap_or(0.0));
         p.fire_period = fire_period(flags, s.int("refraction_fire_period"));
         p.lod_building = s.int("shader_flags_2").unwrap_or(0) & (1 << 2) != 0;
+        p.env_scale = (flags & ((1 << 7) | (1 << 21)) != 0 && p.textures.get(4).is_some_and(|t| !t.is_empty()))
+            .then(|| s.float("environment_map_scale").unwrap_or(1.0).max(0.0));
         p.falloff = None;
     }
     match ty {
@@ -894,6 +901,13 @@ fn shape_material_inner(props: &Props, mesh: &mut Mesh, textures: &mut impl Text
         // The models' refracting shells bend all of their area, as before the cut was
         // read for refraction (docs/spec-notes/refraction.md §4).
         material.extension.alpha_cut = 0.0;
+    }
+    // The environment map's mask (texture-set slot 5) and scale, for the remaster's
+    // reflections (nif_material.wesl `env_reflection`); the cube map itself is not drawn.
+    if let Some(scale) = props.env_scale {
+        let mask = props.textures.get(5).filter(|t| !t.is_empty()).and_then(|t| textures.texture(t, false));
+        material.extension.env = Vec4::new(scale, if mask.is_some() { 1.0 } else { 0.0 }, 0.0, 0.0);
+        material.extension.env_mask = mask;
     }
     // Object LOD atlases hold near-black colour where their alpha is 0 (see
     // `shape_alpha_mode`); a soft edge would draw a little of it around every cut-out.

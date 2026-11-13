@@ -83,7 +83,8 @@ import bevy_pbr::{
     render::shadow_sampling::sample_shadow_map,
 };
 
-import nvf_assets::nif_surface_bindings::{NifSurface, nif_surface, standard_material, holes_alpha, facegen_size, facegen_texel, base_color_texel, base_color_texel_level, base_color_size, normal_map_texel};
+import nvf_assets::nif_surface_bindings::{NifSurface, nif_surface, standard_material, holes_alpha, facegen_size, facegen_texel, base_color_texel, base_color_texel_level, base_color_size, normal_map_texel, env_mask_value};
+@if(SCREEN_INDIRECT) import bevy_pbr::render::mesh_view_bindings::screen_indirect_texture;
 
 // Main-pass geometry uses the render viewport, which can be smaller than the
 // display attachment when FSR is enabled. Transmission remains a full-size texture.
@@ -469,6 +470,31 @@ fn nvf_detail_normal(n: vec3<f32>, p: vec3<f32>, distance: f32, strength: f32) -
     return normalize(n - tangential * (strength * fade));
 }
 
+// NVForever remaster (graphics-remaster.md §4 "Environment maps"): what a shape's
+// environment map stands for, the sky above and the ground below seen along the reflected
+// ray, at the map's scale × its mask × a Fresnel rise towards grazing angles, hidden where
+// the surroundings close the view (gi.rs). Linear light after exposure, added after the
+// lighting [engineering choice: the game's cube maps are not drawn].
+@if(SCREEN_INDIRECT && !PREPASS_PIPELINE)
+fn env_reflection(instance_index: u32, uv: vec2<f32>, n: vec3<f32>, v: vec3<f32>, frag: vec4<f32>) -> vec3<f32> {
+    let surface = nif_surface(instance_index);
+    if surface.env.x <= 0.0 {
+        return vec3(0.0);
+    }
+    var mask = 1.0;
+    if surface.env.y > 0.5 {
+        mask = env_mask_value(instance_index, uv);
+    }
+    let r = reflect(-v, n);
+    let amb = pow(max(lights.ambient_color.rgb * view.exposure, vec3(0.0)), vec3(2.2));
+    let sky = amb * mix(vec3(0.3, 0.27, 0.24), vec3(2.0, 2.15, 2.4), saturate(r.y * 0.6 + 0.5));
+    let n_dot_v = saturate(dot(n, v));
+    let fresnel = 0.35 + 0.65 * pow(1.0 - n_dot_v, 5.0);
+    let si = textureLoad(screen_indirect_texture, vec2<i32>(frag.xy - view.viewport.xy), 0);
+    let open = select(1.0 - max(si.a, 0.0), 1.0, si.a < -0.5);
+    return sky * (min(surface.env.x, 2.0) * mask * fresnel * open);
+}
+
 @if(FIRST_PERSON_DEPTH) @fragment
 fn fragment(
     in: VertexOutput,
@@ -605,6 +631,9 @@ fn nif_fragment(
         @if(!PREPASS_PIPELINE && !TONEMAP_IN_SHADER && !BLEND_MULTIPLY) pbr_input.material.emissive = vec4(vec3(0.0), pbr_input.material.emissive.a);
         out.color = apply_pbr_lighting(pbr_input);
         @if(!PREPASS_PIPELINE && SHADE_LIGHT) out.color = with_shade_light(pbr_input, out.color);
+        @if(SCREEN_INDIRECT && !PREPASS_PIPELINE && VERTEX_UVS_A) {
+            out.color = vec4(out.color.rgb + env_reflection(in.instance_index, in.uv, pbr_input.N, pbr_input.V, in.position), out.color.a);
+        }
         // Bevy's ambient specular, with the same inputs as in apply_pbr_lighting and
         // bevy_pbr::ambient::ambient_light (no lightmaps are used here).
         let m = pbr_input.material;

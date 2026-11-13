@@ -395,7 +395,7 @@ pub fn depth_equal(descriptor: &mut RenderPipelineDescriptor, mesh_key: MeshPipe
 /// the owner's settings (docs/design/streaming-hitches.md §3.1) [observed 2026-10-28].
 #[derive(Asset, AsBindGroup, Reflect, Debug, Clone)]
 #[data(50, NifSurfaceUniform, binding_array(101))]
-#[bindless(limit(512), index_table(range(50..54), binding(100)))]
+#[bindless(limit(512), index_table(range(50..56), binding(100)))]
 #[bind_group_data(NifSurfaceKey)]
 pub struct NifSurface {
     /// Start angle, stop angle (cosines), start opacity, stop opacity; constant opacity 1
@@ -489,6 +489,14 @@ pub struct NifSurface {
     /// arrays hold filterable textures, and the offsets are Rgba16Float, which is.
     #[texture(53)]
     pub facegen_offset: Option<Handle<Image>>,
+    /// The shape's environment map (nif_spawn `Props::env_scale`): x the map's scale (0:
+    /// none), y 1 when [`Self::env_mask`] holds its mask; z, w unused. The remaster
+    /// reflects the sky by it (nif_material.wesl `env_reflection`).
+    pub env: Vec4,
+    /// The environment map's mask (texture-set slot 5); `None` without one.
+    #[texture(54)]
+    #[sampler(55)]
+    pub env_mask: Option<Handle<Image>>,
 }
 
 /// The values of a [`NifSurface`] the shaders read (`nif_surface_bindings.wesl`, shared
@@ -508,6 +516,7 @@ pub struct NifSurfaceUniform {
     /// [`NifSurface::pipboy_a`], [`NifSurface::pipboy_b`].
     pub pipboy_a: Vec4,
     pub pipboy_b: Vec4,
+    pub env: Vec4,
 }
 
 /// Screen UV of shift per unit of refraction strength and of view-space tilt
@@ -519,7 +528,7 @@ pub const REFRACTION_SCREEN: f32 = 0.1;
 
 impl From<&NifSurface> for NifSurfaceUniform {
     fn from(s: &NifSurface) -> Self {
-        NifSurfaceUniform { falloff: s.falloff, alpha_cut: s.alpha_cut, add_whole: s.add_whole, refraction: s.refraction * REFRACTION_SCREEN, fire_period: s.fire_period, emissive_rule: s.emissive_rule, holes: s.holes, holes_edge: s.holes_edge, soft: s.soft, pipboy_a: s.pipboy_a, pipboy_b: s.pipboy_b }
+        NifSurfaceUniform { falloff: s.falloff, alpha_cut: s.alpha_cut, add_whole: s.add_whole, refraction: s.refraction * REFRACTION_SCREEN, fire_period: s.fire_period, emissive_rule: s.emissive_rule, holes: s.holes, holes_edge: s.holes_edge, soft: s.soft, pipboy_a: s.pipboy_a, pipboy_b: s.pipboy_b, env: s.env }
     }
 }
 
@@ -588,6 +597,8 @@ impl Default for NifSurface {
             soft: Vec4::ZERO,
             holes_texture: None,
             facegen_offset: None,
+            env: Vec4::ZERO,
+            env_mask: None,
         }
     }
 }
