@@ -6,7 +6,7 @@
 //! there, it prints why it was skipped and passes.
 //!
 //! ```text
-//! FNVLAB_DATA_DIR=<Data> cargo test -p fnv-game --release --test build_identity -- --nocapture
+//! FNVLAB_DATA_DIR=<Data> cargo test -p fnv-game --release --test integration build_identity:: -- --nocapture
 //! ```
 //!
 //! Only digests are printed, no game text. `NVF_COMPILE_SOURCE=always` also takes the build
@@ -19,8 +19,7 @@ use fnv_sim::RefTable;
 use serde_json::Value as Json;
 use std::path::{Path, PathBuf};
 
-#[path = "common/digest.rs"]
-mod digest;
+use crate::digest;
 
 const MASTERS: [&str; 10] = [
     "FalloutNV.esm",

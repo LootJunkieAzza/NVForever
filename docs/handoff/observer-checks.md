@@ -1898,3 +1898,31 @@ Fallout Behavior, Weapon Drawn, Continue During Combat).
      pause menu and MCM's window open: `SetMCMFloatMass 1 37 38 "depth" 33` and `1 36 37
      "visible" 0`, reading ArrowUp, ArrowDown and Option36 before and after in one script;
      and `5 23 24 "_enable" 1` reading Mod23 and SubMenu1.
+
+## Added 2026-11-12 (created actors' editor location, issue #2278)
+
+120. **Where is a created actor's editor location?** (P2; crates/fnv-ai/src/goal.rs
+     `editor_place_of`.) NVForever takes the cell and position where a PlaceAtMe'd or
+     spawned reference was created as its editor location [hypothesis], so its packages
+     near the editor location (DefaultSandboxEditorLocation256/512, the player reports'
+     spawned coyotes and Legion recruits) have a place. To check: PlaceAtMe a CrCoyote
+     (DefaultSandboxEditorLocation512) beside the player at the Goodsprings coyotes' spot,
+     MoveTo it 2,000 units off, and sample its position for 60 s: does it walk back to the
+     creation spot and wander there, or sandbox where it now stands? And
+     `GetStartingPos X` on it before and after the move.
+
+## Added 2026-11-12 (Lost fighters, issue #2010)
+
+122. **Why do some fighters remain in COMBAT for minutes without searching?** (P2;
+     alert.md section 2.) [observed: issue #2010 capture, 2026-11-10] Three placed Fiends
+     detected the player for 4.5 real seconds; after a 2,500-unit player move two
+     remained IsInCombat 1, procedure COMBAT, for the remaining 235 real seconds,
+     stationary with no reported target; the third ended combat immediately. In
+     contrast, eight actors ended combat 1.1-11.9 real seconds after detection loss
+     [observed: npc-behaviour-compare.md section 11]; later timer experiments are in
+     sections 15.6 and 16.1. Repeat with hostile actors placed by the data, both walking
+     away and teleporting, recording GetDetected, GetCombatTarget, IsInCombat,
+     procedure, positions, combat allies and the timer settings. Do stationary survivors
+     retain a target or an ally's fight, and do any actually complete searches? Our
+     two-sweep design and 300 s stall bound do not assert parity with those durations
+     [design, #2010]; relate any answer to observer check 6's target-retention question.

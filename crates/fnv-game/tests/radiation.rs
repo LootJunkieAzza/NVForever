@@ -2,7 +2,7 @@
 //! falling off within its radius, Rad Resistance, irradiated water by swimming and wading,
 //! GetRadiationLevel, and the rads' stage. docs/spec-notes/radiation.md.
 
-mod common;
+use crate::common;
 
 use common::*;
 use fnv_esm::{LoadOrder, Plugin, Schema};

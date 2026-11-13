@@ -383,7 +383,7 @@ pub struct Sources<'w> {
 
 #[derive(SystemParam)]
 pub struct Input<'w, 's> {
-    keys: Res<'w, ButtonInput<KeyCode>>,
+    keys: crate::pad::ActionButtons<'w, KeyCode>,
     wheel: MessageReader<'w, 's, MouseWheel>,
     time: crate::pause::AidTime<'w>,
     asks: MessageWriter<'w, UseHint>,
@@ -493,7 +493,7 @@ pub fn prepare(
         // keyboard's A stepping from S.P.E.C.I.A.L. to a Status left on RAD uses no
         // RadAway (#1899).
         if !new {
-            change(&mut view, |v| ask = keys(&input.keys, v, tab));
+            change(&mut view, |v| ask = keys(&input.keys.snapshot(), v, tab));
         }
         if let Some(a) = ask {
             input.asks.write(a);

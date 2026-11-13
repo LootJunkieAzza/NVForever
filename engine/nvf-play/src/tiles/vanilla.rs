@@ -2,7 +2,9 @@
 //! §6.2 step 3; hud-xml.md step 5].
 //!
 //! - **The switch**: `[UI] TileMenus=` in the home's `NVForever.ini`, a comma-separated
-//!   list of menu names, empty by default; `HUDMainMenu`, and since T15a `MessageMenu`
+//!   list of menu names, the six Pip-Boy menus by default ([`DEFAULT_PIPBOY_MENUS`]);
+//!   an explicit empty list keeps their hand-built pages [design, #2215]. `HUDMainMenu`,
+//!   and since T15a `MessageMenu`
 //!   and `QuantityMenu` (`super::menus`; the prompt also follows a container menu drawn from
 //!   its tiles, `super::menus::quantity_tiled`), and since T11 `StartMenu` (the pause menu's
 //!   Mods page, `crate::pause::ModsEntry`, `super::mods`), `TraitMenu` (`super::trait_menu`), `CharGenMenu` (tag skills, `super::tag_menu`),
@@ -36,6 +38,9 @@ use fnv_ui::{TileId, Ui, Value};
 /// The INI section and key [design: ui-tile-tree.md §6.2].
 pub const SECTION: &str = "UI";
 pub const KEY: &str = "TileMenus";
+/// [design, #2215] Only a missing list selects these Pip-Boy menus; the maintainer's
+/// decision at review (docs/design/ui-tile-tree.md §6.2). Other defaults stay separate.
+pub const DEFAULT_PIPBOY_MENUS: &str = "StatsMenu,InventoryMenu,RepairMenu,ItemModMenu,MapMenu,QuantityMenu";
 /// The test aid that sets the list instead of the INI.
 pub const AID: &str = "NVF_PLAY_TEST_TILE_MENUS";
 
@@ -154,9 +159,10 @@ impl TileMenus {
     /// The switches for a run from its list ([`TileMenus::parse`]) with the defaults: the
     /// start menu's Mods page on unless the list names `-StartMenu` (its entry shows only
     /// when a mod added tiles to the start menu, `super::mods`) [design: owner 2026-11-12,
-    /// issue #976]; every other menu off unless named. No list is an empty one.
+    /// issue #976]. A missing list selects [`DEFAULT_PIPBOY_MENUS`]; an explicit list,
+    /// including an empty one, replaces those six defaults [design, #2215].
     pub fn for_run(list: Option<&str>) -> (TileMenus, Vec<String>) {
-        let (mut menus, mut other) = TileMenus::parse(list.unwrap_or(""));
+        let (mut menus, mut other) = TileMenus::parse(list.unwrap_or(DEFAULT_PIPBOY_MENUS));
         let off = |n: &String| n.eq_ignore_ascii_case(&format!("-{}", super::mods::START_MENU));
         menus.start |= !other.iter().any(off);
         other.retain(|n| !off(n));
@@ -182,7 +188,8 @@ pub(crate) fn setup(app: &mut App) {
     let (menus, other) = TileMenus::for_run(list.as_ref().map(|(l, _)| l.as_str()));
     app.insert_resource(menus);
     app.add_systems(Startup, move || {
-        let Some((list, from)) = &list else { return };
+        let (list, from) = list.as_ref().map(|(l, f)| (l.as_str(), f.as_str()))
+            .unwrap_or((DEFAULT_PIPBOY_MENUS, "default"));
         info!("tiles: [{SECTION}] {KEY}={list} (from {from}): {}", menus.line());
         if !other.is_empty() {
             warn!("tiles: [{SECTION}] {KEY}: {} not drawn from tiles yet (only {} are)", other.join(", "), TileMenus::NAMES.join(", "));
@@ -569,8 +576,8 @@ mod tests {
         // T11: the start menu's Mods page.
         let start = TileMenus { start: true, ..TileMenus::default() };
         assert_eq!(TileMenus::parse(" startmenu "), (start, Vec::new()));
-        // A run: the Mods page on by default, with or without a list, off by `-StartMenu`.
-        assert_eq!(TileMenus::for_run(None), (start, Vec::new()));
+        // [design: #976, #2215] The Mods page stays on with an explicit empty list.
+        assert_eq!(TileMenus::for_run(Some("")), (start, Vec::new()));
         assert_eq!(TileMenus::for_run(Some("HUDMainMenu")), (TileMenus { start: true, ..hud }, Vec::new()));
         assert_eq!(TileMenus::for_run(Some("HUDMainMenu, -startmenu")), (hud, Vec::new()));
         assert_eq!(TileMenus::for_run(Some("-StartMenu")), (TileMenus::default(), Vec::new()));
@@ -645,6 +652,18 @@ mod tests {
     }
 
     #[test]
+    fn missing_empty_and_explicit_lists_choose_the_pipboy_defaults() {
+        let defaults = TileMenus {
+            stats: true, inventory: true, repair_menu: true, item_mod: true,
+            map: true, quantity: true, start: true, ..Default::default()
+        };
+        assert_eq!(TileMenus::for_run(None), (defaults, vec![]));
+        assert_eq!(TileMenus::for_run(Some("")), (TileMenus { start: true, ..Default::default() }, vec![]));
+        assert_eq!(TileMenus::for_run(Some("MapMenu")), (TileMenus { map: true, start: true, ..Default::default() }, vec![]));
+        assert_eq!(TileMenus::for_run(Some("HUDMainMenu,-StartMenu")), (TileMenus { hud: true, ..Default::default() }, vec![]));
+    }
+
+    #[test]
     fn the_switch_comes_from_the_aid_else_the_ini() {
         let dir = std::env::temp_dir().join(format!("nvf-tile-menus-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
@@ -653,11 +672,26 @@ mod tests {
         let ini = SettingsFile(Some(path.clone()));
         let (list, from) = TileMenus::list_for_run(None, &ini).unwrap();
         assert_eq!((list.as_str(), from), ("HUDMainMenu", path.display().to_string()));
-        // The test aid wins, even when empty; no INI and no aid give none.
+        // [design, #2215] The test aid wins, even when empty; absence of both selects the defaults.
         assert_eq!(TileMenus::list_for_run(Some(String::new()), &ini).unwrap().0, "");
         assert!(TileMenus::list_for_run(None, &SettingsFile(None)).is_none());
-        std::fs::write(&path, "[Settings]\ngrass=1\n").unwrap();
-        assert!(TileMenus::list_for_run(None, &ini).is_none());
+        let run = |aid| {
+            let list = TileMenus::list_for_run(aid, &ini);
+            TileMenus::for_run(list.as_ref().map(|(l, _)| l.as_str()))
+        };
+        for (text, value) in [
+            ("[Settings]\ngrass=1\n", None),
+            ("[UI]\n;TileMenus=MapMenu\n", None),
+            ("[UI]\nTileMenus=\n", Some("")),
+            ("[ui]\ntilemenus =   \n", Some("")),
+            ("[UI]\nTileMenus=MapMenu\n", Some("MapMenu")),
+        ] {
+            std::fs::write(&path, text).unwrap();
+            assert_eq!(TileMenus::list_for_run(None, &ini).as_ref().map(|(l, _)| l.as_str()), value);
+            assert_eq!(run(None), TileMenus::for_run(value));
+            assert_eq!(run(Some(String::new())), TileMenus::for_run(Some("")));
+            assert_eq!(run(Some("InventoryMenu".into())), TileMenus::for_run(Some("InventoryMenu")));
+        }
         std::fs::remove_dir_all(&dir).ok();
     }
 

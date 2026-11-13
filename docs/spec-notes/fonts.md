@@ -273,6 +273,17 @@ texture, texture middles decoded from each font's `.dds`)]
   changing the per-font baseline offsets measured in #979. The terminal's coloured
   characters and the character creator's scaled text use the same rule. Stand-in
   text without a game font texture keeps its existing Bevy text path.
+- [design, #2247: `engine/nvf-play/src/interface.rs::set_marked`,
+  `main_menu.rs::show_entries`] A line's coloured bitmap glyphs are children of its
+  baseline anchor; fallback text also sits inside a positioning node. Post-spawn
+  recolouring must reach those descendants, or query a marker placed on the ink
+  by `set_marked`, rather than recolouring only the label container's direct
+  children. The main menu traverses every entry's descendants: Continue and Load
+  Game use the existing `start_menu::color(Shade::Dim)` with zero saves and
+  `Shade::Bright` with saves; all other entries stay Bright. Its headless tests
+  exercise both bitmap and fallback paths through zero, one and zero saves.
+  Smoke `main-menu-disabled-glyphs` checks nonempty glyph counts and assigned
+  RGBA colours logged by `show_entries`, alongside the zero-save menu-open log.
 
 ## 4. Font numbers
 

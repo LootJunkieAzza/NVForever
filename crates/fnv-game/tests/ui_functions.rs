@@ -2,7 +2,7 @@
 //! plugin and a menu file written for the test (no game data):
 //! docs/design/ui-tile-tree.md §5.
 
-mod common;
+use crate::common;
 
 use common::*;
 use fnv_esm::{LoadOrder, Plugin, Schema};

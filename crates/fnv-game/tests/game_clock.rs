@@ -1,6 +1,6 @@
 //! The game clock as scripts move it (#1377; simulation.md §5).
 
-mod common;
+use crate::common;
 
 use common::*;
 use fnv_esm::{LoadOrder, Plugin, Schema};

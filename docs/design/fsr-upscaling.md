@@ -6,22 +6,31 @@ resolution from this frame and its history. It is the temporal follow-up that #1
 (FSR 1, spatial) leaves out of scope: it brings the per-object motion vectors that issue
 names as missing. The upscaler is the MIT-licensed wgpu-ffx port of the FidelityFX SDK 1.1.4
 shaders, as SPIR-V, vendored with its shader sources and compile tool
-(engine/vendor/README.md). No AMD DLL is used. Frame generation, built on top of it, is
+(engine/vendor/README.md). No AMD DLL is used or shipped; a player's own FidelityFX API library
+is called when one is in the game's folder ("The FidelityFX API path"). Frame generation,
+built on top of it, is
 [frame-generation](frame-generation.md). What FSR
-needs and what the engine gives it: [spec notes](../spec-notes/fsr-upscaling.md).
+needs and what the engine gives it: [spec notes](../spec-notes/fsr-upscaling.md). NVIDIA DLSS
+is the other upscaler of the same settings row, on the same common preparation:
+[dlss-upscaling](dlss-upscaling.md).
 
 ## Using it
 
-**Settings > Graphics > Picture > FSR 3.1 upscaling** offers Off (the default), Native AA, Quality,
-Balanced, Performance and Ultra Performance, saved by name. `--fsr <mode>` (`off`,
-`native-aa`, `quality`, `balanced`, `performance`, `ultra-performance`) sets the starting
-choice; a saved setting wins in play, as for every setting. The render size per axis is 1,
-1/1.5, 1/1.7, 1/2 or 1/3 of the window's [documented: AMD's FSR 3.1 guide, see the spec
-notes].
+**Settings > Graphics > Picture > Upscaler** offers Off (the default), FSR 3.1 and DLSS
+([dlss-upscaling](dlss-upscaling.md)); **Upscaling mode** below it, Native AA, Quality,
+Balanced, Performance and Ultra Performance, for either (dimmed while Upscaler is Off). They
+are saved as `upscaler` and `upscaler-quality`; an older INI's single `fsr-upscaling` line,
+with the names FSR's choices were always saved by (`Off`, `Native AA`, `Quality`, …), still
+loads into both, and the test aids still take `fsr-upscaling=<choice>`. `--fsr <mode>`
+(`off`, `native-aa`, `quality`, `balanced`, `performance`, `ultra-performance`), or
+`--upscaler fsr --upscaler-quality <mode>`, sets the starting choice; a saved setting wins in
+play, as for every setting. Every change is live; only DLSS asked for in a session that
+started without NVIDIA's files takes a restart. The render size per axis is 1, 1/1.5, 1/1.7, 1/2 or 1/3 of the window's
+[documented: AMD's FSR 3.1 guide, see the spec notes].
 
 FSR does its own anti-aliasing, so while it is on, the anti-aliasing row is dimmed, reads
-`Off (FSR active)` and takes no edits. The saved choice (MSAA, FXAA, SMAA or TAA) comes back
-when FSR is off. The Sharpening switch drives FSR's own RCAS sharpening in place of the
+`Off (upscaling active)` (the same for DLSS) and takes no edits. The saved choice (MSAA,
+FXAA, SMAA or TAA) comes back when Upscaler is Off. The Sharpening switch drives FSR's own RCAS sharpening in place of the
 separate pass. The HUD and menus are drawn after FSR, at the window's resolution.
 
 FSR runs on wgpu's Vulkan backend only (SPIR-V passthrough). On another backend, or a GPU
@@ -30,8 +39,15 @@ frame is drawn natively, and the anti-aliasing row stays editable.
 
 ## Render contract
 
-`fsr.rs` (`FsrPlugin`). The FSR context is made the first time a view uses it. Each view
-with `FsrUpscaling` (the player's camera) has its own history and textures.
+`fsr.rs` (`FsrPlugin`), on the view preparation every temporal upscaler shares,
+`upscaler/prep.rs` (`PrepPlugin`, split out of `fsr.rs` unchanged for DLSS, #2198): the
+history cuts, the render-size override, the jitter and mip bias on the camera, the corrected
+and expanded depth, the resolution uniform, the spatial fallback and the alpha copy are
+there, with FSR's own numbers (`fsr::policy`); FSR's context, masks and history textures
+(`PreparedFsr`) stay in `fsr.rs` and are made for FSR's cameras only. The FSR context is made
+the first time a view uses it; while a FidelityFX API library reconstructs the view (below),
+neither it nor the port's dilation buffers are made. Each view with `FsrUpscaling` (the player's camera) has its
+own history and textures.
 
 - **Size.** Bevy's `MainPassResolutionOverride` draws the main passes into the top-left,
   render-size part of the display-size HDR target, and FSR fills the whole target. Native
@@ -49,7 +65,8 @@ with `FsrUpscaling` (the player's camera) has its own history and textures.
     `tree.wesl`);
   - a reactive mask and a transparency/composition mask (below);
   - the frame time.
-- **History resets** (`FsrCamera::cut_from`): a quality or size change, a skipped frame, a
+- **History resets** (`UpscaleCamera::cut_from`, `upscaler/prep.rs`): a change of upscaler,
+  a quality or size change, a skipped frame, a
   frame over 250 ms, a move of 400 units or more or a turn over 45° in one frame, a
   near-plane change, a magnification (tan(fov/2)) that changes by more than twice either
   way (`LENS_CUT_RATIO`), a new loading screen, and going into or out of dialogue or a
@@ -319,7 +336,8 @@ Performance, 1280x720] This laid a grey veil over the scene: a mean AO factor of
 against 0.993 without FSR.
 
 The normals now come from the neighbouring texels as drawn, at their centres (`normal_at`).
-`fsr.rs` sets `AmbientOcclusion::render_scale` while it upscales. At 1:1 the pass is
+The common preparation (`upscaler/prep.rs`) sets `AmbientOcclusion::render_scale` while an
+upscaler draws. At 1:1 the pass is
 unchanged.
 
 ## Performance
@@ -436,6 +454,124 @@ against FSR off at 2560x1440 with 8x MSAA scaled down, `dev\tools\town-capture.p
   turns that into a step: Primm 3 % darker, Goodsprings 1 % brighter than without it (with
   the light glow and eye adaptation off, the occlusion darkens exactly as after FSR). The
   steps come from the curve, not the occlusion ("Limits").
+
+## The FidelityFX API path
+
+Tools that replace a game's upscaler (OptiScaler) take over the calls a game makes into an
+upscaler's library. The wgpu-ffx port makes no such call, so such a tool finds nothing to
+take over [observed 2026-11-11, a player's report: OptiScaler's overlay read "FSR Hooks: Don't
+Exist"] (#2169). When a FidelityFX API library is in the game's folder, the upscale goes
+through it instead, the way a game built on AMD's SDK calls it (`ffx_api.rs`).
+
+**State 2026-11-12.** One run by the owner with OptiScaler 0.9.4 (as `dxgi.dll`) and its
+`amd_fidelityfx_vk.dll` in the folder [observed: RTX 5090, 4K, Native AA, frame generation
+on]: OptiScaler hooked all five entry points; 17,847 dispatches, none failed; the output was
+written under OptiScaler's FSR 2.2.1 (its default on Vulkan), FSR 3.1 and FSR 3.1 through
+its DX12 bridge; frame generation ran on top (about 75 real, 151 presented frames a second);
+the context was destroyed on exit. While OptiScaler changes its upscaler (about a second) it
+returns OK without writing the output. AMD's own `amd_fidelityfx_vk.dll` (SDK 1.x, without
+OptiScaler) [observed 2026-11-13: RTX 5090, 1280x720 and a resize to 4K, Quality]: a context
+at each size, every dispatch ok, alone and with Streamline loaded (DLSS's files in the folder,
+the device made through its interposer); see "Vulkan functions the library asks for" below
+for what it took. Not run: FSR SDK 2.x's library, a change of size or mode in play, the
+Vulkan validation layer, DLSS and XeSS behind OptiScaler, an AMD or Intel GPU. What is said below about those is from the
+libraries' sources and headers.
+
+- **What is loaded.** The first of these that loads, by its bare name, the first time a view
+  uses FSR: `amd_fidelityfx_loader_vk.dll` (FSR SDK 2.x's loader, which finds its upscaler
+  library `amd_fidelityfx_upscaler_vk.dll` itself: FSR 4 where the GPU runs it), then
+  `amd_fidelityfx_vk.dll` (SDK 1.x: FSR 3.1). Only a file that is in the executable's
+  folder is asked for, so a file of that name in System32 or on `PATH` is never loaded. The
+  load itself searches the executable's folder and System32, never the working directory or
+  `PATH`; System32 stays in because the library's own imports (the Vulkan loader, the C
+  runtime) are found with the same flags [documented: `LoadLibraryExW`,
+  `LOAD_LIBRARY_SEARCH_*`]. With the file present, a failed load is reported as one (Windows
+  error 126 then means one of the library's own imports is missing, as with SDK 2.x's loader
+  but no `amd_fidelityfx_upscaler_vk.dll`), and a library without all five entry points is
+  unloaded again. No signature, hash or version is checked: OptiScaler's files are unsigned,
+  and the trust is that of any DLL beside an executable. The bare name is what a tool that
+  hooks the load compares [observed 2026-11-12: OptiScaler's source,
+  `LibraryLoad_Hooks.cpp`, `DllNames.h`], and such a tool may answer the load with a library
+  of its own. NVForever ships no such file; without one the port runs as before.
+- **The setting.** Settings > Graphics > Picture > FSR library (`fsr-library`, under DLSS
+  model; dimmed, reading `FSR only`, while FSR is not the upscaler that draws, as DLSS model is
+  for DLSS): Built-in, or Game folder, shown with the library found (`Game folder (amd_fidelityfx_vk.dll)`, `(none
+  found)`, or the library's name and `failed`). Game folder is the default; with no library
+  there the port runs. Switching makes the view again with the other upscaler, and
+  switching back to Game folder tries a library that failed once more. `NVF_FFX_API=0`
+  keeps the port whatever the folder and the setting say, and the row then reads
+  `Built-in (NVF_FFX_API=0)`.
+- **The calls.** The five entry points of FidelityFX SDK 1.1.4's `ffx_api.h`. One upscale
+  context for each view and pair of sizes (`ffxCreateContext`: the upscale descriptor with
+  the port's flags, and the Vulkan backend descriptor with the device's handles from wgpu's
+  `as_hal`), `ffxDispatch` once a frame, `ffxDestroyContext` when the sizes change or the
+  view goes. The declarations follow the SDK's MIT headers; a test holds their layout.
+- **FSR SDK 2.x's library** takes the same upscale and dispatch structures [documented: SDK
+  2.4.0 `ffx_upscale.h`, `ffx_api_types.h` against 1.1.4's: fields and values unchanged, new
+  ones appended]. Two things differ: its Vulkan backend descriptor has a type of its own
+  (`0x01000003`; the same three handles), and it is told the upscaler API version the game
+  was built against (`ffxCreateContextDescUpscaleVersion`, here 4.1.2, the 2.4.0 header's).
+  Those four headers are MIT (each carries the notice and is on the list of the SDK's
+  `docs/license.md`, whose default for everything unlisted is binary-only); nothing else of
+  SDK 2.x was read or used.
+- **The inputs** are the port's: the colour (the display-sized main texture, the render
+  rectangle top-left), Bevy's motion vectors, both masks, the jitter, the motion scale, the
+  frame time, the reset, reversed infinite depth. The depth goes as an `R32Float` colour
+  copy of the common corrected depth (`upscaler/prep.rs` `depth_as_color`, `fsr_depth.wgsl`): the API has no depth formats, and OptiScaler
+  makes its view under the format the API names, which a depth image does not allow
+  [observed: OptiScaler's source, `FfxApi_Vk.cpp` `CreateIVandNVRes`].
+- **Vulkan functions the library asks for.** It is given `vkGetDeviceProcAddr` and looks
+  up what it calls. AMD's library asked for functions this device was not made with
+  (`vkGetBufferMemoryRequirements2KHR`, `vkSetDebugUtilsObjectNameEXT`,
+  `vkCmdBegin/EndDebugUtilsLabelEXT`, `vkCmdWriteBufferMarkerAMD`,
+  `vkCmdWriteBufferMarker2AMD`), got NULL, called one while it made its context, and the
+  game stopped with an access violation at address 0 [observed 2026-11-13, crash dumps].
+  So the library gets NVForever's own lookup in front of the device's (`ffx_api.rs`
+  `device_proc_addr`): a `KHR`/`EXT` name the device lacks is looked up again under its core
+  name (an extension promoted to core keeps its functions there, identical [documented: the
+  Vulkan specification, "Extension Promotion"]); the debug names and labels, which change
+  nothing the GPU does, are answered by a no-op; anything else by a stub that notes the call.
+  A library that calls such a stub is given up (at its context: not used; in a frame: a
+  failed dispatch), and the log names what it asked for. AMD's library then ran, asking for
+  the two AMD buffer markers without calling them on this NVIDIA GPU.
+- **Three command buffers a frame.** wgpu 30 allows no raw commands in an encoder that has
+  commands of its own [documented: wgpu-core 30.0.1 `EncodingApi::set` panics]. So the
+  library records into an encoder used only through `as_hal_mut`, and Bevy gets ours before,
+  the library's, and ours after, in that order (`RenderContext::add_command_buffer`).
+- **Image states.** wgpu does not track the library's commands. The last thing in ours
+  before them is `transition_resources`: the inputs to `RESOURCE`
+  (`SHADER_READ_ONLY_OPTIMAL`), the output to `STORAGE_READ_WRITE` (`GENERAL`), and the API
+  is told `COMPUTE_READ` and `UNORDERED_ACCESS`. AMD's library returns every image to the
+  state it was given [documented: SDK 1.1.4 `ffx_vk.cpp` `UnregisterResourcesVK`], and
+  OptiScaler assumes exactly these layouts whatever a game names [observed: its source,
+  `IFeature_VkwDx12.cpp`, `FFXFeature_Vk.cpp`], so wgpu's tracking holds afterwards
+  [hypothesis until a run under the validation layer]. wgpu clears a texture it has seen no
+  write to before its first read, and it does not see the library's write: a main texture
+  given to the library for the first time is cleared by us first.
+- **Alpha.** The port's output has alpha 1; what another upscaler behind the API leaves there
+  is not known, so on this path the scene's own alpha always comes back (`restore_alpha`,
+  one display-sized pass the port only needs with the Pip-Boy's screen).
+- **When it fails.** A context that cannot be created, or a dispatch that fails three frames
+  in a row, ends the library's use for the session: the log says why, and the port takes the
+  view over. A frame whose dispatch failed shows the spatial fallback.
+- **Destroying a context** waits for the GPU first (at most two seconds): the library frees
+  its Vulkan objects at once, and wgpu cannot hold them for commands it does not know. If the
+  wait runs out the context is left undestroyed (its memory stays used), rather than freed
+  under commands the GPU may still run.
+- **Frame generation** is unchanged: it works from the engine's depth and motion vectors and
+  the upscaled frame, not from the upscaler's own textures
+  ([frame-generation](frame-generation.md)).
+- **Licence.** No AMD file is in the build or the package; what a player puts in the folder
+  is theirs. LEGAL.md and [dependencies](dependencies.md) stand as they are.
+- **Not covered.** The library's GPU memory in the memory budget; translations of the
+  settings row; a smoke scenario (it needs a library to load). AMD's backend
+  picks its shader variants from what the GPU supports, not from what the device enabled
+  [documented: SDK 1.1.4 `ffx_vk.cpp` `GetDeviceCapabilitiesVK`]: untested on an AMD GPU.
+- **What the log says.** Which library loaded and the file it came from (a tool that
+  answers the load shows there), a library that failed to load and why, a context that could
+  not be made, and a dispatch failure. The observations above came from a development trace
+  (entry-point owners, every call, a read-back of the output) used while the path was built
+  and removed before review; it is in this branch's history (`ffx_api_trace.rs`).
 
 ## Limits
 
