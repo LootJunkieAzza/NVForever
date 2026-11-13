@@ -91,6 +91,13 @@ class WikiParsing(unittest.TestCase):
         rec = sf.parse_page("SetNthPackage", page)
         self.assertEqual([x["kind"] for x in rec["params"]], ["form", "int"])
 
+    def test_parameter_type_stops_at_the_type_word(self):
+        page = PAGE.replace("|Type = ref", "|Type = int == Flags == kOne = 0x1,// BIT - 0 kTwo = 0x2")
+        rec = sf.parse_page("FrobWidget", page)
+        self.assertEqual(rec["params"][0], {"name": "Target", "type": "int", "kind": "int"})
+        self.assertEqual(sf.param_type("int (optional)"), "int (optional)")
+        self.assertIsNone(sf.param_type(None))
+
     def test_page_without_template_is_skipped(self):
         self.assertIsNone(sf.parse_page("Category:Stuff", "[[Category:Functions]]"))
 

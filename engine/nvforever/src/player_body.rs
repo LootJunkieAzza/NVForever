@@ -2230,6 +2230,17 @@ impl Seen {
         }
     }
 
+    /// Seen with the body in first person: the arms rig's arms stand in for the body's
+    /// own while they are up, with the weapon out (in hand, drawing or putting away) or
+    /// the Pip-Boy raised, so the body's arms and hands are hidden then and one pair of
+    /// hands is drawn (#1523) [hypothesis, from reading this file: the Pip-Boy clip plays
+    /// on the arms rig only, and the body's hands were still seen beside it]. The body's
+    /// weapon is hidden while the arms rig holds it.
+    fn upright(in_hand: bool, weapon_moving: bool, pipboy_up: bool) -> Self {
+        let arms_up = in_hand || weapon_moving || pipboy_up;
+        Seen { body: true, head: false, arms: !arms_up, weapon: !in_hand }
+    }
+
     /// The render layer of a drawn entity: the seen body's when the camera sees it, else
     /// the one only the sun's shadows are cast from. Neither is the world's, so the
     /// flashlight casts no shadow from the player (`flashlight.rs`).
@@ -2872,7 +2883,8 @@ fn drive_body(
     }
     // Which rig is seen; without a first-person rig the third-person head is hidden
     // from inside. With the body in first person, the arms rig's arms and weapon stand
-    // in for the body's own while they are up (weapon out, drawing or putting away).
+    // in for the body's own while they are up (weapon out, drawing or putting away, or
+    // the Pip-Boy raised: `Seen::upright`).
     let has_first = body.first.is_some();
     // The muzzle of the weapon in hand, for combat (shots are drawn from it;
     // `WeaponAnim::muzzle`): in the first-person rig while that view is on (its weapon
@@ -2888,9 +2900,8 @@ fn drive_body(
     if seen.ejected && m.hands.in_hand {
         anim.ejects = anim.ejects.wrapping_add(1);
     }
-    let arms_up = m.hands.in_hand || m.hands.phase != WeaponPhase::Holstered;
     let seen = if frame.upright {
-        Seen { body: true, head: false, arms: !arms_up, weapon: !m.hands.in_hand }
+        Seen::upright(m.hands.in_hand, m.hands.phase != WeaponPhase::Holstered, pipboy.is_some())
     } else {
         Seen { body: third_view || !has_first, head: third_view || has_first, arms: true, weapon: true }
     };
@@ -2958,6 +2969,17 @@ mod tests {
         assert!(world.get::<NoFrustumCulling>(existing).is_some());
         assert!(world.resource::<WarmPose>().transforms.is_empty());
         assert!(!world.resource::<nvf_play::pipboy::PipBoy>().pose_hidden);
+    }
+
+    #[test]
+    fn the_raised_pip_boy_hides_the_bodys_arms_in_first_person() {
+        // Weapon away, Pip-Boy down: the body's own arms are seen.
+        assert!(Seen::upright(false, false, false).arms);
+        // Weapon away, Pip-Boy up: the arms rig's raised arm stands in for them (#1523).
+        assert_eq!(Seen::upright(false, false, true), Seen { body: true, head: false, arms: false, weapon: true });
+        // Weapon out or moving, as before.
+        assert_eq!(Seen::upright(true, true, false), Seen { body: true, head: false, arms: false, weapon: false });
+        assert!(!Seen::upright(false, true, false).arms);
     }
 
     #[test]

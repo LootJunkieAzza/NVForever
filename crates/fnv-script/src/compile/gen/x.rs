@@ -205,6 +205,17 @@ impl Gen<'_> {
                     None => return self.xerr("unknown_function", name.to_string()),
                 };
                 p.next();
+                // A quoted hex FormID as the calling reference is that form: AguaFria.esm
+                // ships `"171B39".AddItemAlt …` with bytes that call on 0x00171B39
+                // [observed: SCPT 0x06000DFA, #2275].
+                if let XExpr::Str { s } = &left {
+                    let hex = (1..9).contains(&s.len()) && s.bytes().all(|b| b.is_ascii_hexdigit());
+                    let form = hex.then(|| u32::from_str_radix(s, 16).ok()).flatten().and_then(|l| self.env.local_form(l)).and_then(|g| self.env.info(g));
+                    if let Some(fi) = form {
+                        let r = self.ref_index(crate::unit::RefSlot::Form(fi.form), s);
+                        left = XExpr::Ref { r: RefIndex(r) };
+                    }
+                }
                 let args = self.xargs(p, &f)?;
                 left = XExpr::Call { call: XCall { on: Some(Box::new(left)), func: f.func, args } };
                 continue;
@@ -641,7 +652,8 @@ impl Gen<'_> {
             // ships both with compiled bytes holding the value alone as the one argument,
             // #2275].
             let braced = p.peek().is_some_and(|t| t.kind == XKind::LBrace) && !lambda_at(p);
-            if !starts_operand(p.peek()) && !minus_first && !boxed && !braced {
+            let boxing = f.params != Some(0) && p.peek().is_some_and(|t| t.sign && (t.is(XKind::Op, "*") || t.is(XKind::Op, "&")));
+            if !starts_operand(p.peek()) && !minus_first && !boxed && !boxing && !braced {
                 break;
             }
             if braced {

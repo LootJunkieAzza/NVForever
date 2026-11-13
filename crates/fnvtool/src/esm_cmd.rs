@@ -38,6 +38,8 @@ pub fn run(cmd: EsmCmd) -> anyhow::Result<Value> {
             }
             Ok(v)
         }
+        EsmCmd::EditMove { plugins, schema, refs, dx, out } => edit_move(&plugins, &Schema::load_dir(schema)?, &refs, dx, &out),
+        EsmCmd::EncodeCheck { plugins, schema, max_rows } => encode_check(&plugins, &Schema::load_dir(schema)?, max_rows),
         EsmCmd::Decode { plugin, schema, formid: want_fid, edid } => {
             let schema = Schema::load_dir(schema)?;
             let p = Plugin::open(plugin)?;
@@ -332,4 +334,106 @@ fn survey(args: &LoadOrderArgs, only: Option<&str>) -> anyhow::Result<Value> {
     let mut v = s.to_json();
     v["errors"] = Value::Array(errors);
     Ok(v)
+}
+
+/// Per (record type, subrecord) outcome of decode then encode (`fnv_esm::encode::round_trip`).
+#[derive(Default)]
+struct EncodeTally {
+    same: u64,
+    not_decoded: u64,
+    refused: u64,
+    differs: u64,
+    example: Option<String>,
+}
+
+fn encode_check(plugins: &[std::path::PathBuf], schema: &Schema, max_rows: usize) -> anyhow::Result<Value> {
+    use fnv_esm::encode::{round_trip, RoundTrip};
+    let mut by: BTreeMap<(String, String), EncodeTally> = BTreeMap::new();
+    let mut names = Vec::new();
+    for plugin in plugins {
+        let p = Plugin::open(plugin)?;
+        let mut recs = Vec::new();
+        visit_records(&p.nodes[1..], &mut |r, _| recs.push(r));
+        // The source bytes (first 32) ride along with a failure for the report.
+        let outcomes: Vec<Vec<(String, RoundTrip, String)>> = recs
+            .par_iter()
+            .map(|r| match r.subrecords() {
+                Ok(subs) => subs
+                    .iter()
+                    .map(|s| {
+                        let o = round_trip(&r.header.sig, s, schema);
+                        let hex = if matches!(o, RoundTrip::Refused(_) | RoundTrip::Differs(..)) { fnv_util::sha256::to_hex(&s.data[..s.data.len().min(32)]) } else { String::new() };
+                        (s.sig_str(), o, hex)
+                    })
+                    .collect(),
+                Err(_) => Vec::new(),
+            })
+            .collect();
+        for (r, subs) in recs.iter().zip(outcomes) {
+            for (sig, o, hex) in subs {
+                let t = by.entry((r.sig_str(), sig)).or_default();
+                let note = match o {
+                    RoundTrip::Same => {
+                        t.same += 1;
+                        None
+                    }
+                    RoundTrip::NotDecoded => {
+                        t.not_decoded += 1;
+                        None
+                    }
+                    RoundTrip::Refused(e) => {
+                        t.refused += 1;
+                        Some(format!("refused: {e}"))
+                    }
+                    RoundTrip::Differs(at, len) => {
+                        t.differs += 1;
+                        Some(format!("differs at byte {at}, encoded {len} bytes"))
+                    }
+                };
+                if let (None, Some(n)) = (&t.example, note) {
+                    t.example = Some(format!("{} {}: {n}; source starts {hex}", p.name, formid_str(r.header.form_id)));
+                }
+            }
+        }
+        names.push(p.name.clone());
+    }
+    let sum = |f: fn(&EncodeTally) -> u64| by.values().map(f).sum::<u64>();
+    let mut rows: Vec<_> = by.iter().filter(|(_, t)| t.refused + t.differs > 0).collect();
+    rows.sort_by(|a, b| (b.1.refused + b.1.differs).cmp(&(a.1.refused + a.1.differs)).then(a.0.cmp(b.0)));
+    let failing_pairs = rows.len();
+    let rows: Vec<Value> = rows
+        .into_iter()
+        .take(max_rows)
+        .map(|((rt, st), t)| json!({"record": rt, "sub": st, "same": t.same, "refused": t.refused, "differs": t.differs, "example": t.example}))
+        .collect();
+    Ok(json!({
+        "schema": "fnv.esm.encode_check/1",
+        "plugins": names,
+        "summary": {
+            "same": sum(|t| t.same),
+            "not_decoded": sum(|t| t.not_decoded),
+            "refused": sum(|t| t.refused),
+            "differs": sum(|t| t.differs),
+            "pairs": by.len(),
+            "failing_pairs": failing_pairs,
+        },
+        "failing": rows,
+    }))
+}
+
+fn edit_move(paths: &[std::path::PathBuf], schema: &Schema, refs: &[u32], dx: f32, out: &Path) -> anyhow::Result<Value> {
+    use fnv_esm::edit::{write_placements, NewPlugin, Placement};
+    let plugins: Vec<Plugin> = paths.iter().map(Plugin::open).collect::<Result<_, _>>()?;
+    let lo = LoadOrder::new(&plugins)?;
+    let mut edits = Vec::new();
+    for &id in refs {
+        let (_, r) = lo.winner(id).with_context(|| format!("{id:08X} is not in the load order"))?;
+        let data = r.subrecords()?.into_iter().find(|s| &s.sig == b"DATA").context("no DATA")?.data;
+        let f = |i: usize| f32::from_le_bytes(data[i * 4..i * 4 + 4].try_into().unwrap());
+        edits.push(Placement { form_id: id, pos: [f(0) + dx, f(1), f(2)], rot: [f(3), f(4), f(5)], disabled: false });
+    }
+    let name = out.file_name().context("no file name")?.to_string_lossy().into_owned();
+    let w = write_placements(&lo, schema, &NewPlugin { name, ..Default::default() }, &edits).map_err(anyhow::Error::msg)?;
+    std::fs::write(out, &w.bytes)?;
+    Ok(json!({"out": out.display().to_string(), "bytes": w.bytes.len(), "masters": w.masters, "references": w.references, "warnings": w.warnings}))
 }
