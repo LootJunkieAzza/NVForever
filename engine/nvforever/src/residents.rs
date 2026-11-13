@@ -1532,11 +1532,16 @@ impl Residents {
 
     /// Draw `actor` anew (a resurrected corpse, `resurrect.rs`): its body is taken away and
     /// [`drive`] spawns a fresh one where its walker stands. Whether it is a resident.
-    pub fn redraw(&mut self, commands: &mut Commands, actor: u32) -> bool {
+    ///
+    /// The body drawn stays `root` with `spawned` false: [`nav::show_actor`] lets it go
+    /// once, as it does any body of it left behind, before it draws the fresh one (or
+    /// `nav::bodies_to_let_go` does while it is not shown). Despawned here too, it went
+    /// twice, and `show_actor`'s search for the new root found the old body still in the
+    /// query that frame and kept it (guest log, ship5 corpses-seen-then-back 2026-11-11:
+    /// "Entity despawned: The entity with ID 2905v1 is invalid" after each "dressed as in
+    /// the host's game", and again 20 s on for the stale root).
+    pub fn redraw(&mut self, _commands: &mut Commands, actor: u32) -> bool {
         let Some(r) = self.core.list.iter_mut().find(|r| r.actor.0 == actor) else { return false };
-        if let Some(e) = r.root.take() {
-            commands.entity(e).despawn();
-        }
         r.spawned = false;
         r.last_drawn = None;
         r.seat = Seat::None;
