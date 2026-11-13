@@ -23,6 +23,16 @@ pub const OWN_ALPHA: &str = "_NVFOwnAlpha";
 /// model, so the other T15 menus' hotrects stay as they are.
 pub const HOTRECT_FILL: &str = "_NVFHotrectFill";
 
+/// The private trait of a tile whose drawn depth, and its children's, is raised by this
+/// much over the summed `depth` [design]. MCM's slider and list windows set `depth` 15 to 17
+/// on their pieces and are meant to cover its option rows, whose summed depth reaches 25
+/// (row 13 plus its texts' 12) [observed: MCM's Scale.xml, List.xml, Options.xml and
+/// OptionRect.xml; the parity shots of 2026-11-12 showed the rows over the slider window].
+/// That contradicts the summed-depth reading (menu-xml.md §3.1.1, a hypothesis); until an
+/// observer check settles the rule, the Mods page lifts those two windows
+/// (`super::mods::fill_mcm_boxes`). Drawing only: the pointer still reads summed `depth`.
+pub const DEPTH_LIFT: &str = "_NVFDepthLift";
+
 /// [design] Rectangle in the tree's screen units, without viewport scaling.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Rect {
@@ -311,7 +321,7 @@ fn place(tile: &Tile, kind: &Kind, parent: Context, measure: &Measure<'_>) -> Co
         rect,
         origin,
         locus: parent.locus,
-        depth: parent.depth + number(tile, "depth", 0.0),
+        depth: parent.depth + number(tile, "depth", 0.0) + number(tile, DEPTH_LIFT, 0.0),
         alpha: match kind {
             // A hotrect's own `alpha` is not passed to its children [hypothesis: every
             // vanilla text button is a hotrect of alpha 0 (text_box.xml) whose text sets
@@ -594,6 +604,17 @@ mod tests {
         assert_eq!(alpha(&ui), 0.0, "unmarked, the image's alpha hides it");
         ui.set_trait(marker, OWN_ALPHA, Value::Num(1.0));
         assert_eq!(alpha(&ui), 255.0, "on the 0-255 scale, what `draw::pieces` divides by 255");
+    }
+
+    #[test]
+    fn a_depth_lift_raises_a_tile_and_its_children() {
+        let (mut ui, root) = tree(r#"<menu name="M"><rect name="W"><depth>15</depth><image name="I"><depth>1</depth><filename>a.dds</filename></image></rect></menu>"#);
+        let w = ui.find_tile("M/W").unwrap();
+        let i = ui.find_tile("M/W/I").unwrap();
+        let depth = |ui: &Ui| layout(ui, root, &unmeasured, true).into_iter().find(|x| x.tile == i).unwrap().depth;
+        assert_eq!(depth(&ui), 16.0);
+        ui.set_trait(w, DEPTH_LIFT, Value::Num(20.0));
+        assert_eq!(depth(&ui), 36.0);
     }
 
     #[test]

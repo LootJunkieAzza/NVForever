@@ -96,6 +96,11 @@ pub fn own_back(ui: &Ui) -> bool {
 /// MCM's own rect and its trigger [observed: MCM's `MCM.xml`, menu-xml.md §10].
 pub const MCM: &str = "StartMenu/MCM";
 pub const MCM_TRIGGER: &str = "StartMenu/MCM/MCM_Trigger";
+/// MCM's pop-up windows: the slider's and the list's [observed: MCM's Scale.xml, List.xml].
+const MCM_WINDOWS: [&str; 2] = ["StartMenu/MCM/MCM_Scale", "StartMenu/MCM/MCM_List"];
+/// How far they are drawn over the summed depth: past the option rows' 25 from the
+/// windows' own 15 [design: see `super::layout::DEPTH_LIFT`].
+const MCM_WINDOW_LIFT: f64 = 20.0;
 /// The frame of the page MCM's trigger is clicked on: after MCM's first frames have placed
 /// it (its install checks run on the first) [design].
 const CLICK_AT: u64 = 3;
@@ -114,6 +119,8 @@ pub struct ModsPage {
     pub closed: bool,
     /// MCM's trigger is held clicked, until its window opens.
     pub clicking: bool,
+    /// MCM's slider window and row dimming as last told (`tick`'s log line).
+    pub dim_told: String,
 }
 
 /// The original's column as MCM reads it, written into `StartMenu` when it was (re)built:
@@ -139,6 +146,46 @@ pub fn prepare_column(ui: &mut Ui, files: Option<&dyn fnv_ui::Source>) -> bool {
     true
 }
 
+/// MCM's hotrects that set their own `red`, `green` or `blue` marked to draw their box
+/// filled (`super::layout::HOTRECT_FILL`): the slider window's `Scale_BG` and
+/// `Title_BG`, the list window's `List_BG` (black, alpha 255) and the colour previews
+/// `Scale_RGB` and each option's `RGB` [observed: MCM's Scale.xml, List.xml and
+/// OptionRect.xml, which name the black ones backgrounds; the parity check of 2026-11-12
+/// saw the page show through the slider window without it; hypothesis: the original
+/// fills a hotrect that sets its own colour, as these files expect]. Only under MCM's
+/// window: the vanilla menus' one such hotrect (the race menu's `RSM_Face_Grab`, red at
+/// alpha 128) is a grab area, and hotrects elsewhere stay unfilled [design]. Marks each
+/// tile once; a hotrect made later is marked on the next frame. MCM's two pop-up windows
+/// are lifted over its option rows too (`super::layout::DEPTH_LIFT`, [`MCM_WINDOW_LIFT`]).
+pub fn fill_mcm_boxes(ui: &mut Ui) -> usize {
+    use fnv_ui::value::Value;
+    let Some(root) = ui.find_tile(MCM) else { return 0 };
+    for window in MCM_WINDOWS {
+        if let Some(w) = ui.find_tile(window).filter(|&w| ui.tile(w).get(super::layout::DEPTH_LIFT).is_none()) {
+            ui.set_trait(w, super::layout::DEPTH_LIFT, Value::Num(MCM_WINDOW_LIFT));
+        }
+    }
+    let mut stack = vec![root];
+    let mut marked = Vec::new();
+    while let Some(id) = stack.pop() {
+        let tile = ui.tile(id);
+        if tile.kind == "hotrect"
+            && tile.get(super::layout::HOTRECT_FILL).is_none()
+            && ["red", "green", "blue"].iter().any(|n| tile.get(n).is_some())
+        {
+            marked.push(id);
+        }
+        stack.extend(tile.children.iter().copied());
+    }
+    for &id in &marked {
+        ui.set_trait(id, super::layout::HOTRECT_FILL, Value::Num(1.0));
+    }
+    if !marked.is_empty() {
+        info!("tiles: MCM: {} hotrects with their own colour draw their box filled", marked.len());
+    }
+    marked.len()
+}
+
 /// One frame of the start menu's scripts under the Mods page: the column made ready
 /// ([`prepare_column`]), MCM's trigger clicked at [`CLICK_AT`] if its window is not open,
 /// then only the `MenuMode 1013` blocks run (`Game::page_tick`; no GameMode block, no game
@@ -155,6 +202,7 @@ pub fn tick(game: &mut fnv_game::Game<'_>, page: &mut ModsPage) {
         info!("tiles: {COLUMN}: the original's column traits written for MCM");
     }
     column(&mut game.ui_tree);
+    fill_mcm_boxes(&mut game.ui_tree);
     let ui = &mut game.ui_tree;
     let open = |ui: &Ui| ui.get_float(&format!("{MCM}/_Menu")) == Some(1.0);
     // The click is held until MCM's window is open, at most [`CLICK_FOR`] frames: MCM skips
@@ -189,6 +237,27 @@ pub fn tick(game: &mut fnv_game::Game<'_>, page: &mut ModsPage) {
         page.clicking = false;
     }
     game.page_tick(menus::START);
+    // MCM's slider window and how MCM dims the other rows with it (its OptionRect.xml
+    // `_alpha`, 3 on a row that is not the one selected): told when any of it changes, as the
+    // tree last worked it out (a frame behind a script's write).
+    {
+        let ui = &game.ui_tree;
+        let read = |p: &str| ui.get_float(&format!("StartMenu/MCM/{p}")).map_or("none".to_string(), |v| v.to_string());
+        let told = format!(
+            "slider window visible {}: _selected {}, Option1 _alpha {} title alpha {} brightness {}, _optionID {} _enable {}",
+            read("MCM_Scale/visible"),
+            read("MCM_Options/_selected"),
+            read("MCM_Options/Option1/_alpha"),
+            read("MCM_Options/Option1/title/alpha"),
+            read("MCM_Options/Option1/title/brightness"),
+            read("MCM_Options/Option1/_optionID"),
+            read("MCM_Options/Option1/_enable")
+        );
+        if told != page.dim_told {
+            info!("tiles: MCM's {told}");
+            page.dim_told = told;
+        }
+    }
     // The frames around the click, as MCM's scripts see them: the trigger's traits and the
     // quest variables its stage 2 and main script read (a window that stays shut says why).
     if (CLICK_AT..CLICK_AT + 4).contains(&page.frames) {
@@ -346,6 +415,26 @@ mod tests {
         assert_eq!(ui.get_float(&format!("{COLUMN}/childcount")), Some(8.0));
         assert_eq!(ui.get_float(&format!("{COLUMN}/_alpha")), Some(255.0));
         assert_eq!(ui.get_float(&format!("{COLUMN}/_enabled")), Some(1.0), "MCM's own trait is left alone");
+    }
+
+    #[test]
+    fn mcms_coloured_hotrects_draw_filled_and_no_others() {
+        let src = MemSource::default().with(
+            r"menus\options\start_menu.xml",
+            r#"<menu name="StartMenu"> <hotrect name="Other"> <red> 0 </red> </hotrect>
+              <rect name="MCM"> <rect name="MCM_Scale"> <hotrect name="Scale_BG"> <alpha> 255 </alpha> <red> 0 </red> <green> 0 </green> <blue> 0 </blue> </hotrect>
+                <hotrect name="Scale_Accept"> <target> 1 </target> </hotrect> </rect> </rect> </menu>"#,
+        );
+        let mut ui = Ui::new();
+        assert_eq!(fill_mcm_boxes(&mut ui), 0, "no MCM");
+        ui.load_menu(&src, r"menus\options\start_menu.xml").unwrap();
+        assert_eq!(fill_mcm_boxes(&mut ui), 1);
+        let fill = |p: &str| ui.get_float(&format!("StartMenu/{p}/{}", super::super::layout::HOTRECT_FILL));
+        assert_eq!(fill("MCM/MCM_Scale/Scale_BG"), Some(1.0));
+        assert_eq!(fill("MCM/MCM_Scale/Scale_Accept"), None, "no colour of its own");
+        assert_eq!(fill("Other"), None, "outside MCM's window");
+        assert_eq!(ui.get_float(&format!("StartMenu/MCM/MCM_Scale/{}", super::super::layout::DEPTH_LIFT)), Some(MCM_WINDOW_LIFT), "the slider window lifted");
+        assert_eq!(fill_mcm_boxes(&mut ui), 0, "marked once");
     }
 
     #[test]
