@@ -1911,6 +1911,20 @@ Fallout Behavior, Weapon Drawn, Continue During Combat).
      creation spot and wander there, or sandbox where it now stands? And
      `GetStartingPos X` on it before and after the move.
 
+## Added 2026-11-12 (dialogue zoom lock, issue #2254)
+
+121. **Does the original keep the camera on the speaker throughout dialogue, and can
+     the mouse turn the view?** (P2; dialogue-play.md §8.) Players report a locked camera
+     [hypothesis: player reports, not captured]. NVForever's dialogue zoom locks the view
+     and follows the face; without the zoom the player looks around freely [owner
+     decision 2026-11-13, #2254]; the split stays whatever the answer, which informs the
+     zoom's framing and follow. Record a conversation held beyond five seconds, first with
+     no input as the speaker finishes turning and idles, then moving the mouse during a
+     line and while choices wait.
+     Does the view keep following the face as the actor steps or walks? Does mouse
+     motion move only the cursor, or also the view? Repeat across a choices-to-line
+     transition without touching the mouse; record any camera motion on cursor capture.
+
 ## Added 2026-11-12 (Lost fighters, issue #2010)
 
 122. **Why do some fighters remain in COMBAT for minutes without searching?** (P2;

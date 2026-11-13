@@ -753,8 +753,9 @@ struct Args {
     #[arg(long)]
     no_dialogue_look: bool,
     /// With --play: in a conversation, bring the view back onto the actor each time the
-    /// choices appear. Off by default (owner decision 2026-10-10): only the opening turn
-    /// happens and the view is the player's own for the rest of the conversation.
+    /// choices appear (without the dialogue zoom, which keeps the view on the speaker).
+    /// Off by default (owner decision 2026-10-10): only the opening turn happens and the
+    /// view is the player's own for the rest of the conversation.
     #[arg(long)]
     dialogue_recentre: bool,
     /// Accepted for older command lines; not coming back is the default now.
