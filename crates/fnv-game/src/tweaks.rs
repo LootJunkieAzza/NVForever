@@ -115,6 +115,11 @@ pub struct Tweaks {
     /// beside the player; knocked-out ones too under `summon_unconscious`.
     pub map_summon_companions: bool,
     pub summon_unconscious: bool,
+    /// `bNoPoisonConfirm`: a poison goes on the weapon at the first use, without asking.
+    pub no_poison_confirm: bool,
+    /// `bShowWeaponPoisonEffects`: the Pip-Boy's weapon card names the poison on it, its hits
+    /// left and its effects.
+    pub show_poison_effects: bool,
     // ---- Action Points ----
     /// `bKillsRewardAP`/`iKillRewardAmount`: Action Points a kill by the player gives
     /// back; 0 changes nothing.
@@ -696,6 +701,8 @@ impl Default for Tweaks {
             companions_location_font: false,
             map_summon_companions: false,
             summon_unconscious: false,
+            no_poison_confirm: false,
+            show_poison_effects: false,
             kill_reward_ap: 0.0,
             wait_only_seated: false,
             skill_points: None,

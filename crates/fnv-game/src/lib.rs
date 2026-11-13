@@ -213,6 +213,7 @@ pub mod ui_more;
 pub mod ui_input;
 pub mod unconscious;
 pub mod use_weapon;
+pub mod weapon_poison;
 pub mod vats;
 pub mod voice;
 pub mod weather;

@@ -3743,7 +3743,15 @@ fn strike_weapon(
 fn hit_items(c: &Combat, script: Option<&mut ScriptState>, sim: &mut SimState, stats: &mut CombatStats, attacker: FormId, weapon: Option<FormId>, anim: Option<&str>) -> Vec<FormId> {
     let Some(rt) = script.and_then(|s| s.rt.as_mut()) else { return Vec::new() };
     let unarmed = weapon.is_none() || weapon == c.fists;
-    with_world(rt, sim, |rt| hit_effects::hit_items(&c.forms, &rt.game, Some(attacker), weapon, unarmed, anim, &mut stats.hit_effects))
+    with_world(rt, sim, |rt| {
+        let mut items = hit_effects::hit_items(&c.forms, &rt.game, Some(attacker), weapon, unarmed, anim, &mut stats.hit_effects);
+        // The poison on the player's weapon (`fnv_game::weapon_poison`).
+        if let Some(p) = weapon.filter(|_| attacker == FormId::PLAYER_REF).and_then(|w| rt.game.take_poison_hit(w)) {
+            info!("combat: the player's hit carries {}", rt.game.data.name(p));
+            items.push(p);
+        }
+        items
+    })
 }
 
 /// A weapon's critical effect (WEAP CRDT: the actor effect and its On Death flag), for

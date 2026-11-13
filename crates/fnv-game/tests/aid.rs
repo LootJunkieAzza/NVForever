@@ -48,6 +48,8 @@ const BLOOD: u32 = 0x86A;
 const STIM_GATED: u32 = 0x86B;
 const REDUCE_END: u32 = 0x859;
 const CHEM_HELD: u32 = 0x86C;
+const POISON_FX: u32 = 0x85A;
+const POISON: u32 = 0x86D;
 const WITHDRAWAL_HELD: u32 = 0x873;
 
 const P: FormId = FormId::PLAYER_REF;
@@ -165,6 +167,8 @@ fn plugin_bytes() -> Vec<u8> {
         mgef(PARTS, "RestoreHealthParts", 0, 34, 16),
         mgef(RESTORE_RADS, "RestoreRads", 0, 0, 54),
         mgef(REDUCE_STR, "ReduceStrength", 2 | 4, 0, 5),
+        // Hostile and Detrimental: a poison's effect [documented: GECK wiki Ingestible].
+        mgef(POISON_FX, "PoisonDamage", 1 | 4, 0, 16),
         mgef(CURE, "CureAddiction", 0, 31, -1),
         mgef(CHAMELEON_FX, "StealthField", 2, 12, 49),
         mgef(DAMAGE_RADS, "DamageRads", 4, 0, 54),
@@ -191,6 +195,7 @@ fn plugin_bytes() -> Vec<u8> {
         alch(STIM_GATED, "StimGated", 4, 0, 0.0, vec![effect_if(PARTS, 30, 0, 16, vec![is_hardcore(0.0)]), effect_if(RESTORE_HEALTH, 5, 6, 16, vec![is_hardcore(1.0)])]),
         alch(BLOOD, "Blood", 0, 0, 0.0, vec![effect_if(RESTORE_HEALTH, 4, 5, 16, vec![has_perk(LEAD_BELLY, 1.0)]), effect(RESTORE_HEALTH, 1, 0, 16)]),
         alch(CHEM_HELD, "ChemHeld", 0, WITHDRAWAL_HELD, 0.0, vec![effect(MOD_STR, 2, 4, 5)]),
+        alch(POISON, "TestVenom", 0, 0, 0.0, vec![effect(POISON_FX, 5, 0, 16)]),
     ]
     .concat();
     let spels = [
@@ -889,4 +894,17 @@ fn a_held_hardcore_heal_takes_hold_for_the_time_left() {
         let gain = av(&mut g, HEALTH) - at_use;
         assert!(gain >= low && gain <= high, "Hardcore on after {on_after} frames: gained {gain}");
     }
+}
+
+/// Weapon poisons: an ingestible whose effects are all Hostile and Detrimental is a poison;
+/// with no weapon in hand that takes one it is refused (the caller gives it back).
+#[test]
+fn a_poison_needs_a_weapon_that_takes_it() {
+    use fnv_game::weapon_poison::PoisonUse;
+    let f = fixture();
+    let mut g = game(&f);
+    assert!(g.is_poison(FormId(POISON)));
+    assert!(!g.is_poison(FormId(STIM)) && !g.is_poison(FormId(BUFF)));
+    assert_eq!(g.use_poison(FormId(POISON)), PoisonUse::NoWeapon);
+    assert!(g.player.weapon_poisons.is_empty() && g.player.poison_asked.is_none());
 }

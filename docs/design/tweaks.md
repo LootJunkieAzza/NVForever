@@ -608,6 +608,7 @@ unless the player binds them, so nothing changes until then.
 | Switch Device by Pressing | `bToggleControllerIfAttackPressed` | `tweaks::toggle_device` (PlaySet::Input): with the keyboard working, a pad's South just pressed sets `bindings::Bindings::device` to Controller; with the controller, a left click sets it back; not while the Controls tab listens for a binding |
 | Companions on the World Map | `bNoMinCompanionMapDistance`, `bMapShowUnconsciousCompanions`, `bCompanionsUseLocationFontOnMap` | base: `pipboy::data::map_companions` lists the teammates in exterior cells of the map's family, less those within `COMPANION_MIN_DISTANCE` of the player and the knocked out; `world_map` writes their names in font 2 under the arrow. The switches drop the distance, keep the knocked out (red) and use font 1. Hand-built Pip-Boy only |
 | Summon Companions from the Map | `bMapSelectableCompanions` | `pipboy::data::world_map` keeps the companions within `SUMMON_REACH` of the highlight box (`DataState::companions_under`); a map click on them sends `SummonCompanions` in place of a travel ask, and `summon_companions` calls `Game::summon_teammates`, which places them as `bring_teammates` does (`place_beside_player`) |
+| Weapon poisons, No Poison Confirmation, Show Weapon Poison Effects | `bNoPoisonConfirm`, `bShowWeaponPoisonEffects` | base: `fnv_game::weapon_poison` (`is_poison`, `use_poison`, `take_poison_hit`; `PlayerState::weapon_poisons`, saved); `aid::use_poison` from the script layer's item use gives a refused or asking poison back; `combat::hit_items` adds the poison to a landed player hit's items. The switches: `Tweaks::no_poison_confirm`, `pipboy::items` (the card's line) |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -629,8 +630,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 541 |
-| to do | 60 |
+| done | 543 |
+| to do | 58 |
 | unsure, skipped | 18 |
 | n/a | 16 |
 | skipped: fix | 10 |
@@ -916,6 +917,7 @@ game's Data folder, read-only).
 | `bNoKnockdownInGodmode` | done |  |  | No Knockdowns in God Mode |
 | `bNoMapMarkerAddedPopup` | done |  |  | already so: NVForever shows no marker-added popup |
 | `bNoPipboyIdleAnims` | done |  |  | already so: only the raise clip plays |
+| `bNoPoisonConfirm` | done |  |  | No Poison Confirmation: the base weapon poisons ask by a second use (our own design and words); the switch applies at the first; the warning is already a corner message |
 | `bNoReputationMessages` | done |  | 5 | Quiet Reputation (box and sound together; per-kind options not built) |
 | `bNoScreenshotPopup` | done |  | 3 | already so: NVForever shows no message after a screenshot |
 | `bNPCsDropWeaponHolsteredWeapon` | done |  |  | NPCs Drop Holstered Weapons |
@@ -948,7 +950,6 @@ game's Data folder, read-only).
 | `bAddNightVisionToggle` | to do |  | 4 | a night vision state plus flashlight and scope_view |
 | `bMoveDuringOpenPipboyAnim` | to do |  |  | the Pip-Boy is a menu; the game leaves Playing at once |
 | `bNoLTRTOnPipboy` | n/a |  |  | the original's controller texture swap |
-| `bNoPoisonConfirm` | to do |  |  | not built: no weapon poison |
 | `bRemoveFollowerTopics` | to do |  |  | not built: companions make no such comments |
 | `bRobotCompanionsHealWithScrapMetal` | to do |  | 4 | robot detection, another item and a heal formula |
 | `bWeaponCycleUpDownHotkeys` | to do |  |  | D-pad left and right are bindings (Hotkey 4, Ammo Swap) a player can change; cycling would override a binding |
@@ -1120,6 +1121,7 @@ game's Data folder, read-only).
 | `bShowCurrencyInContainers` | done |  |  | already so: caps and faction currency are listed in Misc |
 | `bShowModNameInPerkDescriptions` | done |  | 3 | Perk Plugins (the level-up menu; the Pip-Boy and hide-list options not built) |
 | `bShowQuestAndNoDRDTItemsInRepairMenu` | done |  |  | Repairers Take Any Armor (quest items were listed already) |
+| `bShowWeaponPoisonEffects` | done | yes |  | Show Weapon Poison Effects: the Pip-Boy weapon card names the poison, its hits left and its effects |
 | `bSkipLoadSaveConfirmationPrompt` | done |  | 1 | already so: a pick on the load page loads at once |
 | `bSleepWaitSliderShowsWakeTime` | done |  |  | already so: the hours line shows the wake time |
 | `bSortMiscStats` | done |  | 1 | Sorted Statistics (by name; other modes not built) |
@@ -1141,7 +1143,6 @@ game's Data folder, read-only).
 | `bChallengeMenuIcons` | unsure, skipped | yes |  | needs another mod (challenge icons) |
 | `bRemoveDownloadsButton` | n/a | yes |  | NVForever has no Downloads button |
 | `bSaveCharacterSelector` | unsure, skipped | yes | 1 | needs the plugin's own menu XML |
-| `bShowWeaponPoisonEffects` | to do | yes |  | NVForever has no weapon poison yet |
 | `bAmmoLabelUseLongName` | unsure, skipped |  | 1 | needs a UI mod |
 | `bClickingActiveTabTogglesSorting` | to do |  |  | not built: one fixed order |
 | `bContainersShowEquippedAmmo` | to do |  |  | not built: ammo is never equipped |

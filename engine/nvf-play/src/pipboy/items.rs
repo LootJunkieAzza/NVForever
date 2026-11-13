@@ -379,6 +379,19 @@ pub fn info_of(r: &Row, combat: Option<&crate::combat::Combat>, sim: &mut SimSta
             let changes: Vec<super::stats::model::Change> = e.changes.iter().map(|&(code, amount, detrimental)| super::stats::model::Change { value: forms.short_name(code), amount, detrimental }).collect();
             i.effects = Some(super::stats::model::changes_text(&changes));
         }
+        // The player's Show Weapon Poison Effects tweak: a poisoned weapon's poison, its hits
+        // left and its effects after the weapon's own (`fnv_game::weapon_poison`) [design:
+        // docs/design/tweaks.md, our own words].
+        let poison = script.as_ref().and_then(|s| s.rt.as_ref()).filter(|rt| rt.game.tweaks.show_poison_effects && r.kind == Some(ItemKind::Weapon)).and_then(|rt| rt.game.poison_on(r.item).map(|(p, hits)| (rt.game.data.name(p), p, hits)));
+        if let Some((name, p, hits)) = poison {
+            let e = forms.ench(p.0);
+            let changes: Vec<super::stats::model::Change> = e.changes.iter().map(|&(code, amount, detrimental)| super::stats::model::Change { value: forms.short_name(code), amount, detrimental }).collect();
+            let line = if changes.is_empty() { format!("{name} ({hits} hits)") } else { format!("{name} ({hits} hits): {}", super::stats::model::changes_text(&changes)) };
+            i.effects = Some(match i.effects.take() {
+                Some(own) => format!("{own}, {line}"),
+                None => line,
+            });
+        }
     }
     i
 }

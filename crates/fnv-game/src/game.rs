@@ -824,6 +824,14 @@ pub struct PlayerState {
     /// Map markers ShowMap made fast-travel targets (its canTravel argument).
     #[serde(skip_serializing_if = "BTreeSet::is_empty", default)]
     pub travel_markers: BTreeSet<FormId>,
+    /// The poisons on the player's weapons (`crate::weapon_poison`): weapon, the poison and
+    /// the hits it has left.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
+    pub weapon_poisons: BTreeMap<FormId, crate::weapon_poison::WeaponPoison>,
+    /// A poison used once, asking to be used again (`crate::weapon_poison`): it and the
+    /// weapon it would go on. Not kept with the save.
+    #[serde(skip)]
+    pub poison_asked: Option<(FormId, FormId)>,
     /// Map markers the player found by coming near them: the engine's discovery
     /// (`nvf-play` compass), told to the rules (`Game::set_found_markers`).
     #[serde(skip_serializing_if = "BTreeSet::is_empty", default)]
@@ -2056,7 +2064,7 @@ pub const SNAPSHOT_FORMAT: &str = "fnv.game.state/1";
 /// `fnv_save::remap_json_with`: in a save's JSON such a tuple looks like a list of form
 /// IDs, and the remap must not shorten it when a plugin is gone (#1981). Every such
 /// field is listed, saved or not (`tests/save_pairs.rs` reads the sources for them).
-pub const SAVE_PAIR_FIELDS: [&str; 9] = ["trespassing", "then", "tape_playing", "talking_through", "farewell_then", "farewell_said", "set_climate", "recipe_menu", "item_running"];
+pub const SAVE_PAIR_FIELDS: [&str; 10] = ["trespassing", "then", "tape_playing", "talking_through", "farewell_then", "farewell_said", "set_climate", "recipe_menu", "item_running", "poison_asked"];
 
 /// What the default action of the player's own activation did
 /// ([`Game::default_activation_by_hand`]).

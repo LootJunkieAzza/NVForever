@@ -1535,3 +1535,14 @@ to the decoded file by cross-correlation and a per-band transfer estimate.
     shown]. Tell a companion to wait, walk away in steps of about 20 m, and open the World
     Map at each: the step where its name first shows gives the distance. Then send it home
     (an interior) and check whether its name shows at all, and where.
+
+## Added 2026-11-13 (weapon poisons)
+
+107. **How do weapon poisons work?** (P3; `fnv_game::weapon_poison`.) NVForever puts a poison
+    (an aid item whose effects are all Hostile and Detrimental [documented: GECK wiki
+    Ingestible]) on a Melee Weapons or Unarmed weapon in hand for 5 landed hits, the same
+    poison used twice to confirm [hypothesis: which weapons, how many hits; the question
+    is ours; the original asks, Stewie's Tweaks' readme says]. With a knife in hand, use
+    Bleak Venom: note the prompt's words and buttons. Then hit a target and count the hits
+    until the poison's effect stops coming (watch its Health or the Pip-Boy's weapon
+    card). Try it with a pistol in hand too: refused (sPoisonNoWeaponMessage) or not?
