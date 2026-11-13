@@ -49,7 +49,7 @@ const THICKNESS: f32 = 40.0;
 const BOUNCE: f32 = 2.0;
 /// The most the ambient light is occluded (0..1): dim rooms lit mostly by their ambient
 /// light keep their detail in the corners.
-const OCCLUSION: f32 = 0.6;
+const OCCLUSION: f32 = 0.45;
 /// The effect fades out by this distance (game units); beyond it a pixel is a few game
 /// units wide and the fog takes over.
 const FADE_END: f32 = 9000.0;
@@ -64,7 +64,7 @@ const MAX_LIGHT: f32 = 8.0;
 const INTERIOR_FILL: f32 = 0.07;
 /// Strength of the emissive glow field (gi.wesl `glow_*`): the light of bright
 /// emitters (neon, bulbs, fire) spread wide onto what is near them.
-const GLOW: f32 = 10.0;
+const GLOW: f32 = 7.0;
 /// A camera that moved further than this in a frame (game units) starts again.
 const JUMP: f64 = 1500.0;
 

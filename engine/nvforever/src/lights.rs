@@ -109,13 +109,20 @@ fn nvf_cloud_shadow(p: vec3<f32>, to_sun: vec3<f32>, time: f32) -> f32 {
 }
 
 // The factor on directional light `i` at `p`: for a light that casts shadows (the sun
-// outdoors), in the remaster (SCREEN_INDIRECT), 1.2 x its cloud shadow; otherwise 2.
+// outdoors), in the remaster (SCREEN_INDIRECT), its cloud shadow; otherwise 2.
+// How far the remaster leans the outdoor light towards the sun (0..1): none at a low sun
+// (dawn and dusk keep their soft shade), all from 35 degrees up [engineering choice].
+@if(!PREPASS_FRAGMENT)
+fn nvf_lean_at(i: u32) -> f32 {
+    return smoothstep(0.2, 0.57, view_bindings::lights.directional_lights[i].direction_to_light.y);
+}
+
 @if(!PREPASS_FRAGMENT)
 fn nvf_sun_cloud(i: u32, p: vec3<f32>) -> f32 {
     @if(SCREEN_INDIRECT) {
         let light = &view_bindings::lights.directional_lights[i];
         if ((*light).flags & mesh_view_types::DIRECTIONAL_LIGHT_FLAGS_SHADOWS_ENABLED_BIT) != 0u {
-            return 1.2 * nvf_cloud_shadow(p, (*light).direction_to_light.xyz, view_bindings::globals.time);
+            return nvf_cloud_shadow(p, (*light).direction_to_light.xyz, view_bindings::globals.time);
         }
     }
     // 2: no cloud and no lean (the caller reads 1.5 or more as not the sun).
@@ -156,7 +163,7 @@ const DISPLAY_EDITS: [(&str, &str); 7] = [
     var nvf_open = vec3(1.0);
     // A sun that casts shadows lights the view (outdoors): the remaster leans the outdoor
     // light from the ambient towards the sun, a harder desert light (nvf_sun_cloud).
-    var nvf_sunlit = false;
+    var nvf_lean = 0.0;
     var nvf_local_open = 1.0;
     var nvf_bounce = vec3(0.0);
     @if(SCREEN_INDIRECT) {
@@ -168,8 +175,9 @@ const DISPLAY_EDITS: [(&str, &str); 7] = [
         // The ambient light from above and below (sky and ground), by the surface's
         // normal-mapped normal, so shapes read in the shade too [engineering choice].
         let nvf_up = saturate(in.N.y * 0.5 + 0.5);
-        nvf_open = (1.0 - nvf_si.a) * mix(vec3(0.62, 0.56, 0.50), vec3(1.12, 1.14, 1.20), nvf_up);
-        nvf_local_open = 1.0 - 0.6 * nvf_si.a;
+        // The openness acts on linear light: the display sum is raised to 2.2 after it.
+        nvf_open = pow(max(1.0 - nvf_si.a, 0.0), 1.0 / 2.2) * mix(vec3(0.80, 0.74, 0.68), vec3(1.10, 1.12, 1.17), nvf_up);
+        nvf_local_open = pow(max(1.0 - 0.6 * nvf_si.a, 0.0), 1.0 / 2.2);
         nvf_bounce = nvf_si.rgb;
     }
     lighting_input.diffuse_color = select(diffuse_color, vec3(0.0), nvf_display);",
@@ -189,8 +197,9 @@ const DISPLAY_EDITS: [(&str, &str); 7] = [
         "        direct_light += light_contrib * shadow;
         if nvf_display {
             let nvf_cloud = nvf_sun_cloud(i, in.world_position.xyz);
-            nvf_sunlit = nvf_sunlit || nvf_cloud < 1.5;
-            nvf_direct += nvf_directional_display(i, in.N) * shadow * select(nvf_cloud, 1.0, nvf_cloud >= 1.5);
+            let nvf_sun_lean = select(nvf_lean_at(i), 0.0, nvf_cloud >= 1.5);
+            nvf_lean = max(nvf_lean, nvf_sun_lean);
+            nvf_direct += nvf_directional_display(i, in.N) * shadow * select(nvf_cloud * (1.0 + 0.15 * nvf_sun_lean), 1.0, nvf_cloud >= 1.5);
         }",
     ),
     (
@@ -223,9 +232,7 @@ const DISPLAY_EDITS: [(&str, &str); 7] = [
     if nvf_display {
         var nvf_ambient = view_bindings::lights.ambient_color.rgb * view_bindings::view.exposure * diffuse_occlusion * nvf_open;
         @if(SCREEN_INDIRECT) {
-            if nvf_sunlit {
-                nvf_ambient *= 0.8;
-            }
+            nvf_ambient *= 1.0 - 0.1 * nvf_lean;
         }
         let nvf_sum = max(nvf_weights.x * nvf_ambient + nvf_weights.y * nvf_direct, vec3(0.0));
         // Held to 1 per channel, as the original's lit colour is (lights.rs GAME_CLIP).
