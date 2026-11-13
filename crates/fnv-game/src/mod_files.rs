@@ -855,11 +855,26 @@ pub(crate) fn call(g: &mut Game, name: &str, args: &[XVal]) -> Option<Result<XVa
             let path = text(args, 0).unwrap_or_default();
             let transpose = num(args, 1, 0.0) != 0.0;
             let Some(t) = g.mod_files.read_root(&path) else { return Some(Ok(zero)) };
-            let parse = |c: &str| match c.trim().parse::<f64>() {
-                Ok(x) => XVal::Num(x),
-                Err(_) => XVal::Str(c.to_string()),
+            // One or more tabs between values; `$text` a string, `@File.esm:XXXXXX` a form
+            // of that file, else a number [documented: ReadArrayFromFile]. Anything else
+            // (a `;` comment) is no value, and a line without values is no row
+            // [hypothesis: Food Scraps' config files comment their columns so].
+            let order: Vec<String> = g.data.load_order.iter().map(|p| p.to_ascii_lowercase()).collect();
+            let parse = |c: &str| -> Option<XVal> {
+                let c = c.trim_matches(|ch: char| ch == '\r' || ch == ' ');
+                if let Some(s) = c.strip_prefix('$') {
+                    return Some(XVal::Str(s.to_string()));
+                }
+                if let Some(f) = c.strip_prefix('@') {
+                    let (file, hex) = f.rsplit_once(':')?;
+                    let i = order.iter().position(|p| *p == file.trim().to_ascii_lowercase())?;
+                    let id = u32::from_str_radix(hex.trim(), 16).ok()?;
+                    return Some(XVal::Ref(((i as u32) << 24) | (id & 0x00FF_FFFF)));
+                }
+                c.parse::<f64>().ok().map(XVal::Num)
             };
-            let rows: Vec<Vec<XVal>> = t.lines().filter(|l| !l.trim().is_empty()).map(|l| l.split('\t').map(parse).collect()).collect();
+            let rows: Vec<Vec<XVal>> =
+                t.lines().map(|l| l.split('\t').filter(|c| !c.trim().is_empty()).filter_map(parse).collect::<Vec<_>>()).filter(|r| !r.is_empty()).collect();
             let list = |g: &mut Game, items: Vec<XVal>| {
                 let entries = items.into_iter().enumerate().map(|(i, v)| (XKey::Num(i as f64), v)).collect();
                 XVal::Array(g.ext.new_array(ArrayKind::List, entries))
