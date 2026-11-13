@@ -17,10 +17,18 @@
 //!   `given` gave false alarms: Doc Mitchell, activated with his opening only marked
 //!   done, started the opening again.
 //! - **A line the headless run says for an actor** (`say_info` with a speaker) is, in a
-//!   campaign, the player keeping that actor company until it says the line: the chains
-//!   use it both for what an actor says of its own accord, often at the end of a walk
-//!   (Sunny goes behind the saloon before her line about the bottles: 2,774 units), and
-//!   for the player's talk (her first tutorial line). The player stays within
+//!   campaign, the player bringing that line about: the chains use it for what an actor
+//!   says of its own accord, often at the end of a walk (Sunny goes behind the saloon
+//!   before her line about the bottles: 2,774 units), and for the answer to the
+//!   player's own pick (all of Boulder City Showdown is written so: Monroe's and
+//!   Jessup's lines are what the player's choices get). In a conversation with the
+//!   speaker the pilot picks the choice that has the actor say the line; when the line
+//!   is further down, the choice from which the fewest picks lead to the line's topic
+//!   (`choice_toward`, over the lines' Choices and Add Topics in the data; the lines
+//!   between are said and their scripts run, as for a player who asks his way there).
+//!   The game's rule for unattended runs, which leaves a conversation nobody scripted by
+//!   its Goodbye after a second, is off while the pilot plays
+//!   (`nvf_play::dialogue::set_piloted`): it left Monroe's before any pick. The player stays within
 //!   [`NEAR_TARGET`] of the actor wherever it goes; once the actor has stood still for
 //!   [`STILL_SECS`] s and said nothing, the player talks to it, once. The game picks
 //!   the line. When the line named has not been begun [`LINE_SECS`] s on, a
@@ -70,6 +78,17 @@
 //!   standing open. Only a walk that stops within [`PUT_WITHIN`] units of its goal, in
 //!   the same space, ends with the player set on the goal (the pilot's own clumsiness
 //!   round furniture, a `stuck` finding).
+//! - **Up to a locked door, and what happens there.** When the only way is through a
+//!   locked door, the player walks as far as it can, to that door, and tries it, as a
+//!   player does: REPCONN's research labs are opened by a second intercom at the door
+//!   itself, whose trigger the player walks into there; no step of the headless chain
+//!   goes near it. A conversation that begins on such a way is heard out and left by its
+//!   Goodbye, and the walk goes on with a new path (the door may be open now). A door
+//!   that stays locked [`LOCKED_SECS`] s after it was tried is left, and the next way
+//!   round is tried (the shortest way to REPCONN's labs is through a door with a lock to
+//!   pick, which the pilot does not; the stairs lead to the intercom's door). With no
+//!   way left the step ends with an `unreachable` finding that names each door tried,
+//!   its lock level and its key.
 //! - A long way out of doors is cut short: when a path is over [`WALK_MAX`] units, the
 //!   player starts [`WALK_TAIL`] units before the end of the path's last stretch out of
 //!   doors (a stand-in for fast travel, logged). What lies indoors after that, and every
@@ -83,10 +102,11 @@
 //!   conversation offering choices, none of them a Goodbye, and not a topic list, has no
 //!   way out for a player: a `no_way_out` finding, and only then is it broken off so
 //!   that the chain goes on. `end_talk` is this too.
-//! - A conversation that begins while the player walks ends the walk there: something
-//!   on the way spoke to the player (REPCONN's intercom, as its trigger is entered),
-//!   and the steps that follow hear it out. Only a conversation already open when a
-//!   walk begins is left for the walk.
+//! - A conversation that begins while the player walks: where the steps that follow
+//!   deal with it (a `trigger_enter`, an actor kept company, a walk followed by
+//!   `wait_talk`, `choose` or `talk`), the walk ends there and they hear it out
+//!   (REPCONN's lobby intercom, as its trigger is entered). Anywhere else nothing in the
+//!   chain answers it: the player hears it out, leaves by its Goodbye and walks on.
 //! - Lines are skipped after [`SKIP_AFTER`] s, as a player in a hurry does. A conversation
 //!   still open when the next step is a walk is left first, unless the walk is to the
 //!   actor talking; an actor that came and spoke first is the conversation a `talk`
@@ -129,8 +149,14 @@
 //! - Not yet: `hit` (the script call of the headless run) and the samplers
 //!   (`not_carried_out` findings).
 //!
-//! No step lasts longer than [`STEP_SECS`]: it is given up with a `step_timed_out`
-//! finding and the chain goes on.
+//! **Limits.** No step lasts longer than [`STEP_SECS`]: it is given up with a
+//! `step_timed_out` finding and the chain goes on. A chain with [`FAILED_IN_A_ROW`]
+//! failed steps one after the other is abandoned (`chain_abandoned`): what is left of it
+//! would only fail the same way; a campaign goes on with the next chain. The pilot's
+//! clock runs only while it can act (in play, in a conversation, in a menu the scripts
+//! opened); when it has not been able to for [`HELD_SECS`] s of real time (a menu of the
+//! engine's own, a loading screen that does not end), the run ends with a `pilot_held`
+//! finding and its report, as it does at `--run-seconds`.
 //!
 //! Log: `pilot: step <n> <op> ...`, `pilot: finding <kind>: ...`, `pilot: divergence at
 //! step <n> ...`, and at the end `pilot: done: <n> steps, <d> divergences, <f> findings,
@@ -160,6 +186,8 @@ pub const WALK_MAX: f32 = 12_000.0;
 pub const WALK_TAIL: f32 = 3_000.0;
 /// Seconds a differing `get_quest` is read again before it is a divergence.
 pub const MILESTONE_SECS: f64 = 45.0;
+/// How many picks down a conversation the pilot looks for a line.
+pub const PICKS_DEEP: usize = 5;
 /// Seconds a conversation with no way out is waited on before the finding.
 pub const NO_WAY_OUT_SECS: f64 = 5.0;
 /// Seconds of a line the pilot hears before it skips it.
@@ -169,6 +197,8 @@ const SETTLE_SECS: f64 = 3.0;
 /// How near the player stands to what it talks to or activates, and to a marker.
 const NEAR_TARGET: f32 = 100.0;
 const NEAR_MARKER: f32 = 48.0;
+/// Seconds a locked door on the way is waited at, after the player tried it.
+pub const LOCKED_SECS: f64 = 8.0;
 /// How near its goal a walk that got stuck may end with the player set on the goal.
 pub const PUT_WITHIN: f32 = 400.0;
 /// Seconds without [`STUCK_UNITS`] of movement on a walk before a new path is planned.
@@ -181,6 +211,10 @@ const AIM_HEIGHTS: [f32; 4] = [80.0, 40.0, 110.0, 8.0];
 const AIM_SECS: f64 = 0.25;
 /// The longest any one step lasts, seconds: then it is given up, whatever it waits for.
 pub const STEP_SECS: f64 = 240.0;
+/// Failed steps one after the other that end a chain.
+pub const FAILED_IN_A_ROW: u32 = 12;
+/// Real seconds without the pilot being able to act that end the run.
+pub const HELD_SECS: f64 = 120.0;
 /// The longest any one wait lasts, seconds.
 const WAIT_CAP: f64 = 120.0;
 const ADVANCE_CAP: f64 = 20.0;
@@ -237,9 +271,10 @@ impl Plugin for PilotPlugin {
                 if self.campaign {
                     info!("pilot: a campaign: the chains go on from the game's own state; their given states are preconditions");
                 }
+                nvf_play::dialogue::set_piloted(true);
                 let mut pilot = Pilot::new(chains, self.out.clone(), self.campaign);
                 pilot.god = self.god;
-                app.insert_resource(pilot).add_systems(Update, drive.in_set(PlaySet::Input).after(nvf_play::control::read_controls).before(nvf_play::control::enforce_locks));
+                app.insert_resource(pilot).add_systems(Update, (drive.in_set(PlaySet::Input).after(nvf_play::control::read_controls).before(nvf_play::control::enforce_locks), held));
             }
             Ok(_) => error!("pilot: no chain"),
             Err(e) => error!("pilot: {e}"),
@@ -295,6 +330,15 @@ struct Walk {
     cut: bool,
     /// Whether a conversation was open when the walk began (`None` until its first frame).
     talking_at_start: Option<bool>,
+    /// A conversation that begins on the way ends the walk: the steps after it deal with
+    /// it. Else it is left by its Goodbye and the walk goes on.
+    keep_talk: bool,
+    /// The path goes through a locked door the player cannot open: walked up to it.
+    locked_way: bool,
+    /// Locked doors tried and left: the next path keeps off them. With what each said.
+    tried: Vec<(u32, String)>,
+    /// Said that the actor walked to is talking (once a conversation).
+    told_talking: bool,
     /// Stepping aside (to this side, until then) round what the player walked into.
     dodge: Option<(f64, f32)>,
     /// The end of the planned path: the goal on the navmesh, where a put goes.
@@ -341,6 +385,9 @@ struct Pilot {
     box_since: Option<f64>,
     /// A button of that box was picked and waits to be read.
     box_picked: bool,
+    /// Failed steps one after the other, and the real time the pilot last could act.
+    failed_in_a_row: u32,
+    acted_at: Option<f64>,
     /// Since when the open conversation has offered no way out.
     stuck_talk: Option<f64>,
     /// God mode is on, and when the weapon is looked at next.
@@ -394,6 +441,8 @@ impl Pilot {
             campaign,
             box_since: None,
             box_picked: false,
+            failed_in_a_row: 0,
+            acted_at: None,
             stuck_talk: None,
             god: false,
             weapon_check: 0.0,
@@ -452,10 +501,17 @@ impl Pilot {
             None => info!("pilot: step {} {op} done in {secs:.1} s", self.i),
         }
         let mut s = json!({"chain": self.chain, "step": self.i, "op": op, "seconds": (secs * 10.0).round() / 10.0});
+        self.failed_in_a_row = if error.is_some() { self.failed_in_a_row + 1 } else { 0 };
         if let Some(e) = error {
             s["error"] = json!(e);
         }
         self.steps.push(s);
+        if self.failed_in_a_row >= FAILED_IN_A_ROW {
+            self.failed_in_a_row = 0;
+            let left = self.actions.len().saturating_sub(self.i + 1);
+            self.finding("chain_abandoned", format!("{FAILED_IN_A_ROW} steps failed one after the other: the {left} steps left of the chain are not played"));
+            self.i = self.actions.len().saturating_sub(1);
+        }
         self.i += 1;
         (self.phase, self.part, self.step_from) = (Phase::Begin, 0, self.now);
     }
@@ -633,14 +689,31 @@ fn walk(p: &mut Pilot, w: &mut Walk, h: &mut Hands) -> Walked {
     // The actor walked to has come and is talking to the player: the player is with it.
     let talker = h.game(|g| g.dialogue.as_ref().map(|c| c.actor)).flatten();
     if talker.is_some() && talker == w.target {
-        info!("pilot: step {}: the actor walked to is talking to the player: the walk is over", p.i);
+        if !w.told_talking {
+            info!("pilot: step {}: the actor walked to is talking to the player: the walk is over", p.i);
+        }
+        w.told_talking = true;
         return Walked::There;
     }
-    // A conversation that begins on the way ends the walk: the steps after it hear it.
+    w.told_talking = false;
+    // A conversation that begins on the way: the steps after the walk hear it, or
+    // nothing in the chain answers it and it is left as a player leaves it.
     let began_talking = *w.talking_at_start.get_or_insert(talker.is_some());
     if talker.is_some() && !began_talking {
-        info!("pilot: step {}: a conversation began on the way: the walk ends here", p.i);
-        return Walked::There;
+        if w.keep_talk {
+            info!("pilot: step {}: a conversation began on the way: the walk ends here", p.i);
+            return Walked::There;
+        }
+        if !w.dodge.is_some_and(|(t, _)| t < 0.0) {
+            info!("pilot: step {}: a conversation began on the way that no step answers: heard out and left by its Goodbye", p.i);
+            // (Said once: the marker is a dodge that is over.)
+            w.dodge = Some((-1.0, 0.0));
+        }
+        w.seen = (p.now, feet);
+        if leave_talk(p, h) {
+            (w.follower, w.door_since, w.dodge) = (None, None, None);
+        }
+        return Walked::Going;
     }
     // One already open when the walk began holds the player: it is left first, as a
     // player leaves one to go on (`leave_talk`).
@@ -681,6 +754,7 @@ fn walk(p: &mut Pilot, w: &mut Walk, h: &mut Hands) -> Walked {
         let mut params = fnv_nav::PathParams { opens_doors: true, ..Default::default() };
         params.keys = keys;
         params.open_doors.extend(open_doors);
+        params.refused_doors.extend(w.tried.iter().map(|(d, _)| *d));
         // The last stretch out of doors of a long way: only that is cut short.
         let outdoors = |path: &fnv_nav::Path| path.legs.iter().rposition(|l| matches!(l.space, Space::World(_)));
         match nav.graph.find_path(here, w.goal, &params) {
@@ -695,14 +769,32 @@ fn walk(p: &mut Pilot, w: &mut Walk, h: &mut Hands) -> Walked {
             }
             Ok(path) => {
                 info!("pilot: step {}: walks {:.0} units over {} leg(s) to ({:.0}, {:.0}, {:.0})", p.i, path.length, path.legs.len(), w.goal.pos[0], w.goal.pos[1], w.goal.pos[2]);
+                w.locked_way = false;
                 w.snapped = path.end();
                 w.follower = Some(Follower::new(path));
                 w.seen = (p.now, feet);
             }
             Err(e) => {
-                let why = format!("no way from ({:.0}, {:.0}, {:.0}) in {:?} to ({:.0}, {:.0}, {:.0}) in {:?} ({e:?}): a player could not get there now; the player stays where it is", feet[0], feet[1], feet[2], here.space, w.goal.pos[0], w.goal.pos[1], w.goal.pos[2], w.goal.space);
-                p.finding("unreachable", why.clone());
-                return Walked::No(why);
+                // Through a locked door, perhaps: then up to that door, as a player goes.
+                let mut forced = params.clone();
+                forced.open_locked = true;
+                match nav.graph.find_path(here, w.goal, &forced) {
+                    Ok(path) => {
+                        if !w.locked_way {
+                            info!("pilot: step {}: the only way to ({:.0}, {:.0}, {:.0}) is through a locked door: the player goes as far as it can", p.i, w.goal.pos[0], w.goal.pos[1], w.goal.pos[2]);
+                        }
+                        w.locked_way = true;
+                        w.snapped = path.end();
+                        w.follower = Some(Follower::new(path));
+                        w.seen = (p.now, feet);
+                    }
+                    Err(_) => {
+                        let tried = if w.tried.is_empty() { "locked doors or not".to_string() } else { format!("the doors tried: {}", w.tried.iter().map(|(d, l)| format!("{d:08X} ({l})")).collect::<Vec<_>>().join(", ")) };
+                        let why = format!("no way from ({:.0}, {:.0}, {:.0}) in {:?} to ({:.0}, {:.0}, {:.0}) in {:?} ({e:?}), {tried}: a player could not get there; the player stays where it is", feet[0], feet[1], feet[2], here.space, w.goal.pos[0], w.goal.pos[1], w.goal.pos[2], w.goal.space);
+                        p.finding("unreachable", why.clone());
+                        return Walked::No(why);
+                    }
+                }
             }
         }
     }
@@ -759,8 +851,13 @@ fn walk(p: &mut Pilot, w: &mut Walk, h: &mut Hands) -> Walked {
                 w.door_since = Some(p.now);
                 let r = h.script.rt.as_mut().map(|rt| with_world(rt, h.sim, |rt| rt.activate_as_player(FormId(door))));
                 info!("pilot: step {}: opens door {door:08X}: {}", p.i, outcome(r.as_ref()));
-            } else if w.door_since.is_some_and(|t| p.now - t > 4.0) {
-                p.finding("door", format!("door {door:08X} on the way did not open in 4 s: walks on as if it had"));
+            } else if let Some(lock) = lock_words(nav, door).filter(|_| w.door_since.is_some_and(|t| p.now - t > LOCKED_SECS)) {
+                info!("pilot: step {}: door {door:08X} on the way is {lock} and nothing opened it in {LOCKED_SECS:.0} s after the player tried it: another way round", p.i);
+                w.tried.push((door, lock));
+                (w.follower, w.door_since) = (None, None);
+                return Walked::Going;
+            } else if w.door_since.is_some_and(|t| p.now - t > LOCKED_SECS) {
+                p.finding("door", format!("door {door:08X} on the way, not locked, did not open in {LOCKED_SECS:.0} s: walks on as if it had"));
                 f.door_opened();
                 w.door_since = None;
             }
@@ -770,10 +867,22 @@ fn walk(p: &mut Pilot, w: &mut Walk, h: &mut Hands) -> Walked {
                 w.door_since = Some(p.now);
                 let r = h.script.rt.as_mut().map(|rt| with_world(rt, h.sim, |rt| rt.activate_as_player(FormId(d.door))));
                 info!("pilot: step {}: goes through door {:08X}: {}", p.i, d.door, outcome(r.as_ref()));
-            } else if w.door_since.is_some_and(|t| p.now - t > 6.0) {
-                let why = format!("door {:08X} did not take the player through in 6 s (locked, or refused): a player could not go on; the player stays in front of it", d.door);
-                p.finding("unreachable", why.clone());
-                return Walked::No(why);
+            } else if w.door_since.is_some_and(|t| p.now - t > LOCKED_SECS) {
+                // Open now (a script unlocked it meanwhile): tried again on a new path.
+                let lock = lock_words(nav, d.door);
+                if w.locked_way && lock.is_none() {
+                    (w.follower, w.door_since) = (None, None);
+                    return Walked::Going;
+                }
+                let Some(lock) = lock else {
+                    let why = format!("door {:08X} is not locked and did not take the player through in {LOCKED_SECS:.0} s after the player tried it (its script refuses the player?): a player could not go on; the player stays in front of it", d.door);
+                    p.finding("unreachable", why.clone());
+                    return Walked::No(why);
+                };
+                info!("pilot: step {}: door {:08X} is {lock} and nothing opened it in {LOCKED_SECS:.0} s after the player tried it: another way round", p.i, d.door);
+                w.tried.push((d.door, lock));
+                (w.follower, w.door_since) = (None, None);
+                return Walked::Going;
             }
         }
     }
@@ -792,7 +901,15 @@ fn walk(p: &mut Pilot, w: &mut Walk, h: &mut Hands) -> Walked {
 }
 
 fn walk_to(goal: Place, target: Option<FormId>, radius: f32, now: f64, feet: [f32; 3]) -> Walk {
-    Walk { goal, target, radius, follower: None, door_since: None, seen: (now, feet), replans: 0, cut: false, talking_at_start: None, dodge: None, snapped: None }
+    Walk { goal, target, radius, follower: None, door_since: None, seen: (now, feet), replans: 0, cut: false, talking_at_start: None, keep_talk: false, locked_way: false, tried: Vec::new(), told_talking: false, dodge: None, snapped: None }
+}
+
+/// A door's lock as the nav graph has it now, in words; `None`: not locked.
+fn lock_words(nav: &crate::nav::NavState, door: u32) -> Option<String> {
+    nav.graph.door_locks.get(&door).map(|l| match l.key {
+        Some(k) => format!("locked, level {}, key {k:08X}", l.level),
+        None => format!("locked, level {}, no key", l.level),
+    })
 }
 
 fn new_walk(goal: Place, target: Option<FormId>, radius: f32, now: f64, feet: [f32; 3]) -> Phase {
@@ -888,13 +1005,18 @@ fn keep_weapon(p: &mut Pilot, h: &mut Hands) {
 }
 
 /// One frame of shooting at an actor: nearer while it is out of range, the view on its
-/// trunk and the trigger pulled when in range.
-fn engage(p: &mut Pilot, h: &mut Hands, name: &str, f: &mut Fight, w: &mut Walk) {
+/// trunk and the trigger pulled when in range. `Some(why)`: the actor cannot be reached.
+fn engage(p: &mut Pilot, h: &mut Hands, name: &str, f: &mut Fight, w: &mut Walk) -> Option<String> {
     keep_weapon(p, h);
     let target = f.target;
     h.control.weapon_out = true;
     match walk(p, w, h) {
-        Walked::Going | Walked::No(_) => {
+        Walked::No(why) => {
+            f.shooting = None;
+            h.control.trigger = false;
+            return Some(why);
+        }
+        Walked::Going => {
             f.shooting = None;
             h.control.trigger = false;
         }
@@ -916,7 +1038,7 @@ fn engage(p: &mut Pilot, h: &mut Hands, name: &str, f: &mut Fight, w: &mut Walk)
                     (f.blocked, f.shooting, w.follower) = (None, None, None);
                     info!("pilot: step {}: no clear shot at {name} for {NO_SHOT_SECS} s: the player goes nearer (within {:.0} units)", p.i, w.radius);
                 }
-                return;
+                return None;
             }
             f.blocked = None;
             // The trigger is pulled and let go, as for a weapon that fires once a pull.
@@ -929,6 +1051,7 @@ fn engage(p: &mut Pilot, h: &mut Hands, name: &str, f: &mut Fight, w: &mut Walk)
             }
         }
     }
+    None
 }
 
 /// One frame of turning the view onto a reference. `Some(true)`: the crosshair has it.
@@ -975,6 +1098,48 @@ fn hear(p: &mut Pilot, h: &mut Hands) -> bool {
         _ => p.line = Some((stamp, p.now)),
     }
     true
+}
+
+/// The offered choice to pick so that the actor comes to say `wanted`, and how many picks
+/// after it the line's topic is: the choice whose own line it is (0), else the one from
+/// whose line the fewest Choices and Add Topics lead to the topic of `wanted`, at most
+/// [`PICKS_DEEP`] picks away. A Goodbye is not a way there.
+fn choice_toward(g: &Game, wanted: FormId) -> Option<(usize, usize)> {
+    use std::collections::{HashMap, HashSet, VecDeque};
+    let offered = g.dialogue_choices();
+    if let Some(i) = offered.iter().position(|c| c.info == wanted) {
+        return Some((i, 0));
+    }
+    let target = g.data.infos.get(&wanted)?.topic?;
+    if let Some(i) = offered.iter().position(|c| c.topic == target && !c.goodbye) {
+        return Some((i, 0));
+    }
+    // Topic to the topics its lines offer or add.
+    let mut next: HashMap<FormId, Vec<FormId>> = HashMap::new();
+    for d in g.data.infos.values() {
+        if let Some(t) = d.topic {
+            next.entry(t).or_default().extend(d.choices.iter().chain(&d.add_topics).copied());
+        }
+    }
+    let mut best: Option<(usize, usize)> = None;
+    for (i, c) in offered.iter().enumerate().filter(|(_, c)| !c.goodbye) {
+        let Some(line) = g.data.infos.get(&c.info) else { continue };
+        let mut seen: HashSet<FormId> = HashSet::new();
+        let mut queue: VecDeque<(FormId, usize)> = line.choices.iter().chain(&line.add_topics).map(|t| (*t, 1)).collect();
+        while let Some((t, d)) = queue.pop_front() {
+            if t == target {
+                if best.is_none_or(|(_, b)| d < b) {
+                    best = Some((i, d));
+                }
+                break;
+            }
+            if d >= PICKS_DEEP || !seen.insert(t) {
+                continue;
+            }
+            queue.extend(next.get(&t).into_iter().flatten().map(|n| (*n, d + 1)));
+        }
+    }
+    best
 }
 
 /// One frame of leaving the open conversation as a player can (module notes). Whether no
@@ -1084,8 +1249,14 @@ fn step(p: &mut Pilot, h: &mut Hands) -> Option<Option<String>> {
                 }
             }
             if matches!(p.phase, Phase::Begin) {
+                // The steps after the walk deal with a conversation begun on it?
+                let answered = p.actions.iter().skip(p.i + 1).find(|a| !matches!(a, Action::Note { .. })).is_some_and(|a| matches!(a, Action::WaitTalk { .. } | Action::Choose { .. } | Action::Talk { .. }));
                 match h.place_of(to) {
-                    Ok((r, place)) => p.phase = new_walk(place, Some(r), NEAR_MARKER, p.now, h.feet()),
+                    Ok((r, place)) => {
+                        let mut w = walk_to(place, Some(r), NEAR_MARKER, p.now, h.feet());
+                        w.keep_talk = answered;
+                        p.phase = Phase::Walk(w);
+                    }
                     Err(e) => return Some(Some(e)),
                 }
             }
@@ -1112,7 +1283,11 @@ fn step(p: &mut Pilot, h: &mut Hands) -> Option<Option<String>> {
         Action::TriggerEnter { trigger, .. } => {
             if matches!(p.phase, Phase::Begin) {
                 match h.place_of(trigger) {
-                    Ok((_, place)) => p.phase = new_walk(place, None, 24.0, p.now, h.feet()),
+                    Ok((_, place)) => {
+                        let mut w = walk_to(place, None, 24.0, p.now, h.feet());
+                        w.keep_talk = true;
+                        p.phase = Phase::Walk(w);
+                    }
                     Err(e) => return Some(Some(e)),
                 }
             }
@@ -1296,7 +1471,9 @@ fn step(p: &mut Pilot, h: &mut Hands) -> Option<Option<String>> {
                 };
                 p.still = (p.now, place.pos);
                 p.part = 0;
-                p.phase = new_walk(place, Some(r), NEAR_TARGET, p.now, h.feet());
+                let mut w = walk_to(place, Some(r), NEAR_TARGET, p.now, h.feet());
+                w.keep_talk = true;
+                p.phase = Phase::Walk(w);
             }
             let mark = p.mark;
             let begun = h.game(|g| runner::resolve(g, info).is_ok_and(|i| g.softlock_seen.lines_since(mark).any(|l| l == i) || g.dialogue.as_ref().and_then(|c| c.line.as_ref()).is_some_and(|l| l.info == i)));
@@ -1313,10 +1490,32 @@ fn step(p: &mut Pilot, h: &mut Hands) -> Option<Option<String>> {
                 return Some(r.and_then(|r| r.err()));
             }
             // Its other lines are heard out (and skipped) on the way.
-            let talking = hear(p, h) || h.game(|g| g.dialogue.is_some()) == Some(true);
+            let saying = hear(p, h);
+            let talking = saying || h.game(|g| g.dialogue.is_some()) == Some(true);
+            // In a conversation with it, choosing: the pick that brings the line.
+            if talking && !saying {
+                let picked = h.game(|g| {
+                    let wanted = runner::resolve(g, info).ok()?;
+                    let with_it = runner::resolve(g, speaker).is_ok_and(|r| g.dialogue.as_ref().is_some_and(|c| c.actor == r));
+                    if !with_it || g.dialogue_choices().is_empty() {
+                        return None;
+                    }
+                    let (i, away) = choice_toward(g, wanted)?;
+                    let text = g.choice_text(&g.dialogue_choices()[i]).to_string();
+                    g.choose(i).ok().map(|_| (text, away))
+                });
+                if let Some(Some((text, away))) = picked {
+                    info!("pilot: step {}: picks {text:?} for the line {info} ({})", p.i, if away == 0 { "its own choice".to_string() } else { format!("{away} pick(s) from its topic") });
+                    return None;
+                }
+            }
             let mut phase = std::mem::replace(&mut p.phase, Phase::Begin);
             if let Phase::Walk(w) = &mut phase {
-                let there = matches!(walk(p, w, h), Walked::There | Walked::Put);
+                let walked = walk(p, w, h);
+                if let Walked::No(why) = walked {
+                    return Some(Some(why));
+                }
+                let there = matches!(walked, Walked::There | Walked::Put);
                 let at = w.goal.pos;
                 if hdist(at, p.still.1) > 16.0 || talking || !there {
                     p.still = (p.now, at);
@@ -1471,7 +1670,9 @@ fn fight(p: &mut Pilot, h: &mut Hands, name: &str, a: &Action) -> Option<Option<
         p.applier = applier;
         return Some(r.and_then(|r| r.err()));
     }
-    engage(p, h, name, &mut f, &mut w);
+    if let Some(why) = engage(p, h, name, &mut f, &mut w) {
+        return Some(Some(why));
+    }
     p.phase = Phase::Fight(f, w);
     None
 }
@@ -1494,6 +1695,26 @@ fn walk_phase(p: &mut Pilot, h: &mut Hands) -> Option<Option<String>> {
     };
     p.phase = phase;
     out
+}
+
+/// The run ends when the pilot has not been able to act for [`HELD_SECS`] of real time.
+fn held(real: Res<Time<Real>>, mut pilot: ResMut<Pilot>, watch: Option<Res<nvf_play::softlock::SoftlockWatch>>, state: Option<Res<State<PlayState>>>, mut exit: MessageWriter<AppExit>) {
+    let p = &mut *pilot;
+    let now = real.elapsed_secs_f64();
+    let since = *p.acted_at.get_or_insert(now);
+    if p.done || now - since < HELD_SECS {
+        return;
+    }
+    p.done = true;
+    p.finding("pilot_held", format!("the pilot could not act for {HELD_SECS:.0} s of real time (the game's state: {:?}): the run ends here", state.map(|s| *s.get())));
+    let softlocks = watch.map_or(0, |w| w.found);
+    if let Some(out) = &p.out {
+        if let Err(e) = serde_json::to_string_pretty(&p.report(softlocks)).map_err(|e| e.to_string()).and_then(|t| std::fs::write(out, t).map_err(|e| e.to_string())) {
+            error!("pilot: report {}: {e}", out.display());
+        }
+    }
+    info!("pilot: done (held): {} chain(s), {} steps, {} divergences, {} findings, {softlocks} soft locks in {:.0} s", p.chains_done, p.steps.len(), p.divergences.len(), p.findings.len(), p.now);
+    exit.write(AppExit::Success);
 }
 
 /// Where things are, for [`drive`].
@@ -1521,6 +1742,7 @@ fn drive(
     }
     let dt = real.delta_secs().min(0.25);
     p.now += dt as f64;
+    p.acted_at = Some(real.elapsed_secs_f64());
     if p.now < SETTLE_SECS {
         return;
     }
@@ -1674,7 +1896,11 @@ fn drive(
                     p.threat_check = p.now + 20.0;
                 }
             } else {
-                engage(p, &mut h, "the attacker", &mut f, &mut w);
+                if engage(p, &mut h, "the attacker", &mut f, &mut w).is_some() {
+                    // Out of reach: left alone for a while.
+                    p.threat_check = p.now + 20.0;
+                    return;
+                }
                 p.defend = Some((f, w));
                 // The step's own time stands still meanwhile.
                 p.step_from += dt as f64;

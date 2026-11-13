@@ -501,6 +501,20 @@ impl TalkAid {
     }
 }
 
+/// Something else chooses for the player in this run (nvforever's quest pilot): an
+/// unattended run then neither leaves a conversation nobody scripted nor breaks a long
+/// one off; whoever chooses does both.
+static PILOTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// See [`PILOTED`].
+pub fn set_piloted(on: bool) {
+    PILOTED.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+fn piloted() -> bool {
+    PILOTED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 /// The dialogue screen: the selection, the test aid and what is drawn.
 #[derive(Resource, Default)]
 pub struct DialogueScreen {
@@ -886,11 +900,11 @@ pub(crate) fn input(
             }
             _ => {}
         }
-    } else if sc.unattended && choosing && chosen_for(sc.choosing_since, UNATTENDED_CHOOSE_SECONDS) {
+    } else if sc.unattended && !piloted() && choosing && chosen_for(sc.choosing_since, UNATTENDED_CHOOSE_SECONDS) {
         info!("dialogue: unattended run and no NVF_PLAY_TEST_TALK script for this conversation: leaving it");
         act = Some((Act::Leave { force: true }, "unattended run"));
     }
-    if sc.unattended && chosen_for(sc.talk_since, UNATTENDED_TALK_LIMIT) {
+    if sc.unattended && !piloted() && chosen_for(sc.talk_since, UNATTENDED_TALK_LIMIT) {
         warn!("dialogue: unattended run: the conversation has run for {UNATTENDED_TALK_LIMIT} s: breaking it off");
         act = Some((Act::BreakOff, "unattended run"));
     }
