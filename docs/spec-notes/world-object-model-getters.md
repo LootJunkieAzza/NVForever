@@ -23,3 +23,17 @@ pending; an assertion failure in a loop does not prove later loop cases executed
 establish original-game clone copy-versus-inheritance behavior. It does not fix or
 qualify cloned-form scene placement, rendering, physics, model reload or snapshot
 lifetime. Adding record handles has an unmeasured memory cost; no speedup is claimed.
+
+## Root-relative marker lookup
+
+[observed: PR #2374 core CI on 1b96da7a] Admitting STAT fields made the existing
+SetInternalMarker fixture consult its authored `markers\testmarker.nif` path. The
+path predicate accepted a nested markers directory but missed the root-relative
+markers directory, so the existing `jip12::cells_light_and_settings` assertion
+changed from 1 to 0. Previously absent model fields had selected an Editor-ID
+fallback. The failed CI log is retained; the three new model getter tests passed.
+
+[observed: candidate correction] Include the root-relative markers directory in the
+existing model predicate. Keep the existing meaningful regression and its expected
+value, alongside the three authored model getter tests. Current follow-up execution
+is pending; this is not original-game or rendered marker parity evidence.
