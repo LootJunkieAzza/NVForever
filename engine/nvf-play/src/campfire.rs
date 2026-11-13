@@ -82,10 +82,14 @@ pub fn prompt_actions(campfires: Option<&Campfires>, sim: &SimState, form_id: u3
 }
 
 /// Whether the campfire under the crosshair burns, kept in [`Campfires::burning`] for the
-/// prompt and the second key.
-fn watch_burning(mut campfires: ResMut<Campfires>, target: Option<Res<Target>>, sim: Res<SimState>, script: Option<Res<ScriptState>>) {
+/// prompt and the second key. The fires are references of the simulation's world, which
+/// the game only holds inside [`with_world`].
+fn watch_burning(mut campfires: ResMut<Campfires>, target: Option<Res<Target>>, mut sim: ResMut<SimState>, script: Option<ResMut<ScriptState>>) {
     let at = target.as_ref().and_then(|t| t.0.as_ref()).map(|t| t.form_id).filter(|&id| campfires.is_campfire(&sim, id));
-    let burning = at.filter(|&id| script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| !rt.game.campfire_fires(FormId(id)).is_empty()));
+    let burning = match (at, script) {
+        (Some(id), Some(mut script)) => script.rt.as_mut().is_some_and(|rt| with_world(rt, &mut sim, |rt| !rt.game.campfire_fires(FormId(id)).is_empty())).then_some(id),
+        _ => None,
+    };
     if campfires.burning != burning {
         campfires.burning = burning;
     }
