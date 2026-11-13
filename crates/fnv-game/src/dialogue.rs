@@ -1042,11 +1042,14 @@ impl<'a> Game<'a> {
             listed.sort_by(|a, b| key(&a.topic).list_cmp(&key(&b.topic)));
         }
         let mut out = self.offer(actor, &listed);
+        // A goodbye line of the actor's own stands in for Goodbye; NVForever's Caravan entry
+        // (itself a goodbye line) does not, so the merchant keeps Goodbye.
+        let own_goodbye = out.iter().any(|c| c.goodbye && dv.info(&c.info).is_some_and(|d| d.end.is_none()));
         // NVForever's own: a traveling merchant plays Caravan (`crate::caravan_traders`).
         if let Some(c) = self.merchant_caravan_choice(actor, &out) {
             out.push(c);
         }
-        if !out.iter().any(|c| c.goodbye && dv.info(&c.info).is_some_and(|d| d.end.is_none())) {
+        if !own_goodbye {
             if let Some(bye) = data.goodbye.filter(|b| !out.iter().any(|c| c.topic == *b)) {
                 out.extend(self.offer(actor, &[Link { topic: bye, from: None }]));
             }

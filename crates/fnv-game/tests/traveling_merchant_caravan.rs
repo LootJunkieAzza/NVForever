@@ -18,6 +18,8 @@ use fnv_sim::{FormId, FormStore, RefTable, SimConfig, World};
 use serde_json::Value as Json;
 
 const QC: u32 = 0x0015_7F76;
+/// A quest of no conditions holding the greeting and Goodbye, said by anyone.
+const QG: u32 = 0x940;
 const CELL: u32 = 0x200;
 const GREETING: u32 = 0x930;
 const GOODBYE: u32 = 0x931;
@@ -57,8 +59,12 @@ fn ctda(value: f32, function: u16, p1: u32) -> Subrecord {
 }
 
 fn info(id: u32, flags: u16, text: &str, conds: Vec<Subrecord>) -> Vec<u8> {
+    info_of(QC, id, flags, text, conds)
+}
+
+fn info_of(quest: u32, id: u32, flags: u16, text: &str, conds: Vec<Subrecord>) -> Vec<u8> {
     let trdt = [u32b(0), u32b(50), vec![0; 4], vec![1, 0, 0, 0], u32b(0), vec![0; 4]].concat();
-    let mut s = vec![sub(b"DATA", vec![0, 0, flags as u8, (flags >> 8) as u8]), sub(b"QSTI", u32b(QC))];
+    let mut s = vec![sub(b"DATA", vec![0, 0, flags as u8, (flags >> 8) as u8]), sub(b"QSTI", u32b(quest))];
     s.extend([sub(b"TRDT", trdt), sub(b"NAM1", z(text)), sub(b"NAM2", z("")), sub(b"NAM3", z(""))]);
     s.extend(conds);
     s.extend(unit(0, &[], &[], &[]));
@@ -90,6 +96,7 @@ fn plugin_bytes() -> Vec<u8> {
         QC,
         &[sub(b"EDID", z("vCaravanQuest")), sub(b"DATA", [vec![1u8, 50, 0, 0], 0f32.to_le_bytes().to_vec()].concat()), ctda(1.0, GET_IN_FACTION, CARAVAN_PLAYERS.0)],
     );
+    let generic = record(b"QUST", 0, QG, &[sub(b"EDID", z("GenericDialogue")), sub(b"DATA", [vec![1u8, 50, 0, 0], 0f32.to_le_bytes().to_vec()].concat())]);
     let fact = |id: FormId, edid: &str| record(b"FACT", 0, id.0, &[sub(b"EDID", z(edid)), sub(b"DATA", vec![0, 0, 0, 0])]);
     let facts = [fact(CARAVAN_PLAYERS, "CaravanPlayerFaction"), fact(TRAVELER_FACTION, "vMojaveMerchantFaction")].concat();
     let class = record(b"CLAS", 0, TRAVELER_CLASS.0, &[sub(b"EDID", z("VendorTraveler"))]);
@@ -103,8 +110,8 @@ fn plugin_bytes() -> Vec<u8> {
     .concat();
     let not_ringo = || vec![ctda(0.0, GET_IS_ID, PLAYER_TRADER)];
     let dial = [
-        topic(GREETING, "GREETING", "GREETING", topic_type::TOPIC, 0, info(I_HELLO, 0, "Evening", vec![])),
-        topic(GOODBYE, "GOODBYE", "Goodbye.", topic_type::CONVERSATION, 0, info(I_BYE, info_flag::GOODBYE, "Safe travels", vec![])),
+        topic(GREETING, "GREETING", "GREETING", topic_type::TOPIC, 0, info_of(QG, I_HELLO, 0, "Evening", vec![])),
+        topic(GOODBYE, "GOODBYE", "Goodbye.", topic_type::CONVERSATION, 0, info_of(QG, I_BYE, info_flag::GOODBYE, "Safe travels", vec![])),
         // The original's: top-level, the quest keeps it to Caravan players; Ringo's own
         // line, and the line for anyone else.
         topic(
@@ -129,7 +136,7 @@ fn plugin_bytes() -> Vec<u8> {
         top(b"CLAS", &class),
         top(b"FACT", &facts),
         top(b"NPC_", &npcs),
-        top(b"QUST", &quest),
+        top(b"QUST", &[quest, generic].concat()),
         top(b"DIAL", &dial),
         top(b"CELL", &group(0i32.to_le_bytes(), 2, &group(0i32.to_le_bytes(), 3, &[cell, children].concat()))),
     ]
@@ -221,14 +228,15 @@ fn a_settler_offers_no_caravan() {
 }
 
 /// A Caravan player of the original's that is also a merchant keeps its own line, once,
-/// and NVForever asks for no game of its own (its line's script does).
+/// and NVForever asks for no game of its own (its line's script does). Its line is a
+/// goodbye line of its own, so it stands in for Goodbye as any such line does.
 #[test]
 fn a_caravan_player_keeps_its_own_line() {
     let f = fixture();
     let mut g = game(&f);
     assert!(!g.merchant_plays_caravan(FormId(PLAYER_TRADER_REF)));
     let got = offered_by(&mut g, PLAYER_TRADER_REF);
-    assert_eq!(got, vec![I_RINGO, I_BYE], "{got:X?}");
+    assert_eq!(got, vec![I_RINGO], "{got:X?}");
     g.choose(0).unwrap();
     assert!(g.caravan_requests.is_empty());
 }
