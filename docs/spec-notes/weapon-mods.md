@@ -225,7 +225,8 @@ being modded (Inventory Reference)"]. NVForever counts it among the Pip-Boy's co
 
 ### 5.1 The menu drawn from its file
 
-Behind `[UI] TileMenus=ItemModMenu`, off by default, the mod menu is drawn from
+Behind `[UI] TileMenus=ItemModMenu`, on by default when the list is absent [design, #2215;
+ui-tile-tree.md section 6.2], the mod menu is drawn from
 `menus\item_mod_menu.xml`, painted into the Pip-Boy's image (issue #1513) [design:
 `engine/nvf-play/src/tiles/item_mod_menu.rs`, in the way of the repair page, repair.md §5.1;
 the card pairs in `tiles/repair_cards.rs`, the list in `tiles/list.rs`, both shared with the

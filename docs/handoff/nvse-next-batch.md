@@ -200,3 +200,42 @@ Still differing in the save-dependent sets, by cause:
   GetHardcoreTracking outside hardcore; always-run and difficulty, which come from
   `FalloutPrefs.ini` (`bAlwaysRunByDefault=1`, `iDifficulty=2`), not the save; gaps7's
   `crit.pistol.*` capture. GetRunSpeed stays open (above).
+
+**The engine sets (2026-11-13, #1024, PR #2126).** The eight sets of the "Engine rows" line
+above also run in the game, as eight scenarios of their own, `L5.ext.engine.*`, beside the
+headless ones (which stay as #1023 left them): the same goldens and comparators. Test aid
+`NVF_PLAY_TEST_QUERIES=<job.steps.json>` (engine/nvf-play/src/query_job.rs) runs the job's
+queries in `nvforever --play`, one a frame where the console's lines run, and writes the
+same fnv.ext.probes/1 as `ext queries` (`fnv_game::ext_probes`). `NVF_PLAY_TEST_START_FOS`
+starts the run where the owner's save stands (the airport runway, 37000, −117160, 6057,
+heading 75), and the query job then gives it the save's state as `ext queries --save` does
+(`fnv_game::ext_save`, moved from fnvtool; 1782 entries from nvfairport, none failing), all
+but the player's place. Every frame moves the clocks on by 16.667 ms
+(`NVF_FIXED_FRAME_TIME_MS`), whatever the frame took. The lab runs them as candidate kind
+`"game"` under a smoke slot (parity-lab/README.md); `engine_candidate` names the build,
+`save_path` the save. Rows equal, main 0fdec1c83 headless with `--save` against the engine,
+two engine runs giving the same counts [observed]:
+
+| Set | Rows | Headless | Engine | Left, issue |
+|---|---|---|---|---|
+| gaps10 | 57 | 55 | 56 | p2p.down (a downward ray: 998 in the original, 100 ours), #2135 |
+| gaps8 | 48 | 47 | 47 | reticlerange.int, #2135 |
+| jip.events2 | 43 | 37 | 37 | cripple, ragdoll, AV order, #2134 |
+| jip.hits | 49 | 49 | 34 | the placed explosion hurts the player, the original's did not, #2131 |
+| jip.nifblocks | 60 | 26 | 39 | the NIF mirror's trees, #2132 |
+| jip.projectile | 33 | 16 | 32 | proj.aim, #2135 |
+| knvse.anim | 32 | 20 | 21 | a placed actor's animation state, clip paths, #2133 |
+| nvse.events | 100 | 81 | 84 | the fight at the airport, #2134 |
+| **all** | **422** | **331** | **350** | |
+
+Rows that pass headless and fail on the engine: jip.hits' 15 (headless nothing goes off,
+which matches the original's capture only because its explosion did no harm either,
+#2131) and nvse.events' evn.onpackagechange.fired/arg1/arg2 (a gecko, 0x74FE6, changes
+package on the engine; in the original no OnPackageChange fired, #2134).
+
+Rows that varied from run to run on the real clock (proj.impact.type.0,
+kn.activate.active, kn.animplaying.idle, evn.onload.arg1/2 went between pass and fail;
+nb.rot.alt, nb.trans.alt and the kn.*bygroup clip paths between wrong values) no longer
+change result with the fixed frame time: two runs, the same 350 rows. Two failing rows
+still read differently between runs: reticlerange.int (470, 471; #2135) and
+kn.bygroup.idle (#2133).

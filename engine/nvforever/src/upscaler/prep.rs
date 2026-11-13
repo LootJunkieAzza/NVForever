@@ -38,7 +38,7 @@ use bevy::render::{
 };
 use wgpu::util::DeviceExt;
 
-use super::{DlssUpscaling, UpscaleQuality, Upscaler, UpscalerChoice};
+use super::{DlssUpscaling, DrawnUpscale, UpscaleDrawn, UpscaleQuality, Upscaler, UpscalerChoice};
 use crate::fsr::FsrUpscaling;
 
 /// The common preparation's systems (graphics.rs adds it beside `fsr::FsrPlugin`, whose
@@ -47,8 +47,13 @@ pub struct PrepPlugin;
 
 impl Plugin for PrepPlugin {
     fn build(&self, app: &mut App) {
+        // What the main camera was drawn with, written by [`prepare`] and read by the
+        // performance overlay (#2242): one `Arc` in each world.
+        let drawn = UpscaleDrawn::default();
+        app.insert_resource(drawn.clone());
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else { return };
         render_app
+            .insert_resource(drawn)
             .init_resource::<UpscaleRenderer>()
             .init_resource::<crate::dlss::OptimalSizes>()
             .add_systems(ExtractSchedule, extract)
@@ -321,11 +326,24 @@ pub(crate) fn transition(old: Option<(&UpscaleCamera, UVec2, UVec2)>, camera: &U
     }
 }
 
+/// What a view with an upscaler camera asking for `choice` was drawn with: upscaled from the
+/// policy's render size when the view is `suitable` and the backend gave one, else natively at
+/// the output size ([`prepare`]'s two native branches).
+pub(crate) fn drawn(choice: UpscalerChoice, policy_render: Option<UVec2>, output: UVec2, suitable: bool) -> DrawnUpscale {
+    match policy_render.filter(|_| suitable) {
+        Some(render) => DrawnUpscale::Upscaled { choice, render, output },
+        None => DrawnUpscale::Native { choice, output },
+    }
+}
+
 /// The view's common preparation, before any backend's own (`fsr::prepare` runs after it).
+/// Also says what the first view was drawn with ([`UpscaleDrawn`], `None` without an upscaler
+/// camera), for the performance overlay's Upscaling row.
 #[allow(clippy::type_complexity)]
 pub(crate) fn prepare(
     mut commands: Commands,
     device: Res<RenderDevice>,
+    shared: Res<UpscaleDrawn>,
     mut renderer: ResMut<UpscaleRenderer>,
     mut dlss_sizes: ResMut<crate::dlss::OptimalSizes>,
     mut views: Query<(
@@ -334,8 +352,11 @@ pub(crate) fn prepare(
         Has<UnsuitableViewWarned>,
     )>,
 ) {
+    let mut first: Option<DrawnUpscale> = None;
     for (entity, view, camera, msaa, mut usages, mut jitter, mut bias, old, ao, warned) in &mut views {
+        let choice = camera.settings.choice();
         if *msaa != Msaa::Off || view.target_format != wgpu::TextureFormat::Rgba16Float || view.viewport.xy() != UVec2::ZERO {
+            first.get_or_insert(drawn(choice, None, view.viewport.zw(), false));
             // Met every frame while it lasts: said once. The view renders natively, without
             // the upscaler's jitter and mip bias, as for an unsupported size below.
             if !warned {
@@ -355,7 +376,9 @@ pub(crate) fn prepare(
         // the render targets and uniforms are prepared (dlss/sizing.rs).
         let hdr = crate::dlss::sizing::hdr_format(view.target_format);
         let dlss_optimal = |quality| dlss_sizes.render_size(crate::dlss::sizing::Key { quality, output: output_size, hdr });
-        let Some(policy) = policy(camera.settings, output_size, &device.limits(), dlss_optimal) else {
+        let policy = policy(camera.settings, output_size, &device.limits(), dlss_optimal);
+        first.get_or_insert(drawn(choice, policy.map(|p| p.render_size), output_size, true));
+        let Some(policy) = policy else {
             jitter.offset = Vec2::ZERO;
             bias.0 = 0.0;
             commands.entity(entity).remove::<(PreparedUpscale, MainPassResolutionOverride)>();
@@ -394,6 +417,7 @@ pub(crate) fn prepare(
         }
         commands.entity(entity).insert(MainPassResolutionOverride(render_size));
     }
+    shared.set(first);
 }
 
 /// A full-screen triangle pipeline (`vertex` entry point) drawing into `colors`, or into a
@@ -666,6 +690,23 @@ mod tests {
             let fsr_camera = camera_settings(Some(&FsrUpscaling { quality, sharpness: 0.2 }), None, true).unwrap();
             assert!(matches!(fsr_camera, UpscaleSettings::Fsr(f) if f.quality == quality), "FSR stays FSR");
         }
+    }
+
+    /// What the overlay's Upscaling row is told: the policy's render size when the view could
+    /// use the upscaler and the backend gave one, else the output size drawn natively.
+    #[test]
+    fn what_a_view_was_drawn_with() {
+        let (render, output) = (UVec2::new(853, 480), UVec2::new(1280, 720));
+        let dlss = UpscalerChoice::Dlss(Quality);
+        assert_eq!(drawn(dlss, Some(render), output, true), DrawnUpscale::Upscaled { choice: dlss, render, output }, "upscaled at the policy's size");
+        let fsr = UpscalerChoice::Fsr(NativeAa);
+        assert_eq!(drawn(fsr, Some(output), output, true), DrawnUpscale::Upscaled { choice: fsr, render: output, output }, "Native AA: upscaled at 1:1");
+        assert_eq!(drawn(dlss, Some(render), output, false), DrawnUpscale::Native { choice: dlss, output }, "an unsuitable view renders natively");
+        assert_eq!(drawn(dlss, None, output, true), DrawnUpscale::Native { choice: dlss, output }, "no size from the backend: native");
+        // The policy's own None for DLSS (no optimal settings) comes to the same.
+        let limits = wgpu::Limits { max_storage_textures_per_shader_stage: 8, ..default() };
+        let none = policy(UpscaleSettings::Dlss(Quality), output, &limits, |_| None).map(|p| p.render_size);
+        assert_eq!(drawn(dlss, none, output, true), DrawnUpscale::Native { choice: dlss, output });
     }
 
     #[test]

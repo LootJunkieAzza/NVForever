@@ -506,6 +506,11 @@ fn ini_section(text: &str, section: &str) -> Vec<(String, String)> {
     out
 }
 
+/// A cached file value loses one surrounding quote pair [observed: cached-ini-quotes.md].
+fn cached_ini_value(value: String) -> String {
+    value.strip_prefix('"').and_then(|s| s.strip_suffix('"')).map(str::to_owned).unwrap_or(value)
+}
+
 fn ini_sections(text: &str) -> Vec<String> {
     text.lines().filter_map(|l| l.trim().strip_prefix('[').map(|s| s.trim_end_matches(']').trim().to_string())).collect()
 }
@@ -632,7 +637,7 @@ fn cache_ini(g: &mut Game, path: &str, reload: bool) -> String {
         for sec in ini_sections(&text) {
             let ls = sec.to_ascii_lowercase();
             for (kk, vv) in ini_section(&text, &ls) {
-                m.insert(format!("{ls}:{}", kk.to_ascii_lowercase()), vv);
+                m.insert(format!("{ls}:{}", kk.to_ascii_lowercase()), cached_ini_value(vv));
             }
         }
         g.mod_files.cache.insert(key.clone(), m);
@@ -1018,7 +1023,7 @@ pub(crate) fn call(g: &mut Game, name: &str, args: &[XVal]) -> Option<Result<XVa
                 for sec in ini_sections(&text) {
                     let ls = sec.to_ascii_lowercase();
                     for (kk, vv) in ini_section(&text, &ls) {
-                        m.insert(format!("{ls}:{}", kk.to_ascii_lowercase()), vv);
+                        m.insert(format!("{ls}:{}", kk.to_ascii_lowercase()), cached_ini_value(vv));
                     }
                 }
                 g.mod_files.cache.insert(key.clone(), m);

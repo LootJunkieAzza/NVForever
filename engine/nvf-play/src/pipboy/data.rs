@@ -722,16 +722,16 @@ pub struct Game<'w> {
 /// What the player presses.
 #[derive(SystemParam)]
 pub struct Input<'w, 's> {
-    keys: Res<'w, ButtonInput<KeyCode>>,
+    keys: crate::pad::ActionButtons<'w, KeyCode>,
     wheel: MessageReader<'w, 's, MouseWheel>,
     menu: MessageReader<'w, 's, MenuInput>,
     pip_out: MessageWriter<'w, PipBoyInput>,
     time: Res<'w, Time<Real>>,
-    buttons: Res<'w, ButtonInput<MouseButton>>,
+    buttons: crate::pad::ActionButtons<'w, MouseButton>,
     aid: ResMut<'w, PipBoyAid>,
     ask: MessageWriter<'w, FastTravelAsk>,
     go: MessageWriter<'w, FastTravelGo>,
-    pads: Query<'w, 's, &'static Gamepad>,
+    pads: crate::pad::ActionPads<'w, 's>,
     bindings: Option<Res<'w, Bindings>>,
 }
 
@@ -4194,6 +4194,41 @@ mod tests {
         travel_ask(&mut st, WORLD, on_map, (true, false), false);
         assert_eq!(travel_ask(&mut st, WORLD, on_map, (false, true), false), None);
         assert_eq!(st.travel_marker, None);
+    }
+
+    #[test]
+    fn held_map_click_refuses_switch_and_releases_on_the_original_device() {
+        use crate::{bindings::InputDevice, pad::device::tests::{button, playing_app}};
+        use bevy::input::{mouse::MouseButtonInput, ButtonState};
+        fn read(mut st: ResMut<DataState>, mut game: Game, mut input: Input) {
+            take_input(&mut st, WORLD, &Lists::default(), &mut game, &mut input,
+                Some(MAIN.min + MAP.min + Vec2::new(100.0, 300.0)), false);
+        }
+        let (mut app, pad) = playing_app(InputDevice::KeyboardMouse);
+        app.insert_resource(DataState { cursor_marker: Some(7), ..default() })
+            .init_resource::<PipBoyAid>().add_message::<MenuInput>().add_message::<PipBoyInput>()
+            .add_message::<FastTravelAsk>().add_message::<FastTravelGo>().add_systems(Update, read);
+        let mouse = MouseButtonInput { button: MouseButton::Left, state: ButtonState::Pressed, window: Entity::PLACEHOLDER };
+        app.world_mut().write_message(mouse);
+        app.update();
+        assert!(app.world().resource::<DataState>().press.is_some());
+        button(&mut app, pad, true);
+        app.update();
+        assert_eq!(app.world().resource::<Bindings>().device, InputDevice::KeyboardMouse);
+        assert!(app.world().resource::<DataState>().press.is_some());
+        assert_eq!(app.world().resource::<DataState>().travel_pending, None);
+        app.world_mut().write_message(MouseButtonInput { state: ButtonState::Released, ..mouse });
+        app.update();
+        assert_eq!(app.world().resource::<Bindings>().device, InputDevice::KeyboardMouse);
+        assert!(app.world().resource::<DataState>().press.is_none());
+        assert_eq!(app.world().resource::<DataState>().travel_pending, Some(7));
+        app.world_mut().resource_mut::<DataState>().travel_pending = None;
+        button(&mut app, pad, false);
+        app.update();
+        button(&mut app, pad, true);
+        app.update();
+        assert_eq!(app.world().resource::<Bindings>().device, InputDevice::Controller);
+        assert_eq!(app.world().resource::<DataState>().travel_pending, None);
     }
 
     /// The Misc tab's A hint (#1897): Play on a Sound or Voice note, Stop only on the Voice

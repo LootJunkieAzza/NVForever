@@ -365,6 +365,9 @@ pub fn register(app: &mut App) {
 /// (`perf_overlay::split::timestamps_wanted`), as `nvf_play::settings::apply_stored` reads it.
 pub(crate) const FPS_COUNTER_NOTE: &str = "On: a small panel of performance readings at the top right of the screen, the Counter rows below choosing what it shows; with only its frame rate row on it is a frame rate counter. Not in the original. (--fps)";
 
+/// The upscaling row's note (#2242), NVForever's own words [design].
+pub(crate) const FPS_UPSCALING_NOTE: &str = "The upscaler that draws now: its name and mode, the size the world is drawn at and the size it is rebuilt to (with FSR 3.1 from its mode, with DLSS the size DLSS chose), and with DLSS the model asked for. Reads Off and the window's size while nothing upscales, also when the upscaler asked for cannot run on this computer. Follows a change within a frame or two, showing the upscaler without sizes until then.";
+
 /// The frame split row's note (no command-line switch: the INI's state always applies).
 pub(crate) const FPS_SPLIT_NOTE: &str = "What a frame took on the main thread (the game's own work), on the render thread (preparing the picture, including the wait for the window's next image, shown in brackets: with vertical sync that wait is the display's time, not work) and on the graphics card (the render passes it times, from GPU timestamps), each the mean over half a second. A frame held up by the processor has a long main time, or a long render time beside a short wait; the GPU time is what tells a frame held up by the graphics card. The GPU part needs this row and the counter on when the game starts (it takes effect at the next start), and a graphics card that offers timestamps; without them it is left out. Unless a measuring aid also uses them, the timestamps are taken only while the row shows.";
 
@@ -500,17 +503,18 @@ fn register_counter_rows(app: &mut App) {
             |w| w.resource::<FpsCounter>().rows.split,
             |w, on| w.resource_mut::<FpsCounter>().rows.split = on,
         ),
+        // [design, #2249] Availability and scope follow perf_overlay/usage.rs.
         row(
             "fps-counter-cpu",
             "Counter: CPU use",
-            "The whole machine's processor use, as Task Manager shows it, and the game's own as cores kept busy: 1.0 is all of one core's time, so a thread held at its limit reads at least 1.0 however many cores the machine has. From Windows' performance counters and the game's processor time, read once a second while the counter shows. Windows only.",
+            "Machine and game CPU use, read once a second while shown. Windows uses performance counters; Linux uses /proc. Missing machine readings say Not available. Game use is cores kept busy: 1.0 is one full core.",
             |w| w.resource::<FpsCounter>().rows.cpu,
             |w, on| w.resource_mut::<FpsCounter>().rows.cpu = on,
         ),
         row(
             "fps-counter-gpu",
             "Counter: GPU use",
-            "The use of the graphics card's busiest engine by every program, as Task Manager shows it. From Windows' performance counters, read once a second while the counter shows. Windows only.",
+            "GPU use, read once a second while shown. Windows: busiest engine across programs. Linux: NVIDIA NVML, then amdgpu, then DRM client time. DRM reads game use and says game; the other Linux sources read whole-device use. Missing readings say Not available.",
             |w| w.resource::<FpsCounter>().rows.gpu,
             |w, on| w.resource_mut::<FpsCounter>().rows.gpu = on,
         ),
@@ -534,6 +538,15 @@ fn register_counter_rows(app: &mut App) {
             "What the game holds now: the cells loaded in the physics world, the placed objects with a model, the actors with a skeleton and every entity of the engine, counted twice a second while the row shows (the stress tests' counts).",
             |w| w.resource::<FpsCounter>().rows.loaded,
             |w, on| w.resource_mut::<FpsCounter>().rows.loaded = on,
+        ),
+        // [design, #2242] What draws is the effective choice (`upscaler::effective_temporal`),
+        // its sizes what the render world drew (`upscaler::UpscaleDrawn`).
+        row(
+            "fps-counter-upscaling",
+            "Counter: upscaling",
+            FPS_UPSCALING_NOTE,
+            |w| w.resource::<FpsCounter>().rows.upscale,
+            |w, on| w.resource_mut::<FpsCounter>().rows.upscale = on,
         ),
     ];
     for r in rows {

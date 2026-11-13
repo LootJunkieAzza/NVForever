@@ -6,15 +6,18 @@
 name = "Italiano"
 
 [words]
+# [design, #2200; engine/nvf-play/src/pause.rs] NVForever's device selection.
+"Automatic Input Switching" = "Cambio automatico del dispositivo"
+"On: a controller button or a stick or trigger past its dead zone selects Controller; a key or mouse click selects Keyboard and Mouse. First release the current device's buttons and centre its sticks/triggers, then press again to switch on a later frame. Only the switching press is ignored; later holds/repeats and all releases work. Mouse motion does not switch. Off: choose Input Device manually. Saved in [Controls] of NVForever.ini." = "Attivo: un pulsante del controller, una levetta o un grilletto oltre la zona morta seleziona Controller; un tasto o un clic seleziona Tastiera e mouse. Prima rilascia i pulsanti del dispositivo attuale e riporta levette/grilletti a riposo, poi premi di nuovo in un fotogramma successivo per cambiare. Viene ignorata solo la pressione del cambio; pressioni prolungate, ripetizioni e rilasci funzionano. Muovere il mouse non cambia dispositivo. Disattivo: scegli il dispositivo manualmente. Salvato in [Controls] di NVForever.ini."
 "Dialogue voice" = "Voci nei dialoghi"
 "On: lines are spoken. Off: they are silent from the next line on, and still last as long as their sound. (--no-voice)" = "Attivo: le battute vengono pronunciate. Disattivo: dalla battuta successiva sono mute, ma durano quanto il loro suono. (--no-voice)"
 "Gameplay" = "Gioco"
 "Turn to each other in dialogue" = "Voltarsi l'uno verso l'altro nel dialogo"
 "On: at the start of a conversation the actor turns to the player and the view turns to the actor. (--no-dialogue-look)" = "Attivo: all'inizio di una conversazione il personaggio si volta verso il giocatore e la visuale verso il personaggio. (--no-dialogue-look)"
 "Bring the view back when choices appear" = "Riportare la visuale quando compaiono le scelte"
-"On: each time the choices come up the view returns to the actor. Off: only the opening turn; the view is yours for the rest of the conversation. Needs the turn above. (--dialogue-recentre)" = "Attivo: ogni volta che compaiono le scelte la visuale torna al personaggio. Disattivo: solo la rotazione iniziale; per il resto della conversazione la visuale è vostra. Richiede la rotazione sopra. (--dialogue-recentre)"
+"On: with \"Close in on the speaker in dialogue\" off, after you look away the view returns to the speaker when choices appear. Needs \"Turn to each other in dialogue\". (--dialogue-recentre)" = "Attivo: con «Avvicinarsi a chi parla nel dialogo» disattivo, dopo aver guardato altrove la visuale torna a chi parla quando compaiono le risposte. Richiede «Voltarsi l'uno verso l'altro nel dialogo». (--dialogue-recentre)"
 "Close in on the speaker in dialogue" = "Avvicinarsi a chi parla nel dialogo"
-"On: in a conversation the view narrows onto the speaker, with what is behind them out of focus; from third person the camera comes to the eyes. Off: the view stays as it is. (--no-dialogue-zoom)" = "Attivo: in conversazione la visuale si stringe su chi parla, con lo sfondo sfocato; in terza persona la telecamera passa all'altezza degli occhi. Disattivo: la visuale resta com'è. (--no-dialogue-zoom)"
+"On: in a conversation the view narrows onto the speaker, with what is behind them out of focus; from third person the camera comes to the eyes. The view stays on the speaker and the mouse moves only the cursor. Off: no close-up; you can look around. (--no-dialogue-zoom)" = "Attivo: in conversazione la visuale si stringe su chi parla, con lo sfondo sfocato; in terza persona la telecamera passa all'altezza degli occhi. La visuale resta su chi parla e il mouse muove solo il cursore. Disattivo: nessun primo piano; puoi guardarti intorno. (--no-dialogue-zoom)"
 "Goodbye hint" = "Suggerimento «Goodbye»"
 "On: while a conversation offers a Goodbye choice, \"[Tab] Goodbye\" stands at the left of the dialogue box. Off: the words are hidden; Tab still says goodbye." = "Attivo: finché una conversazione offre una scelta Goodbye, «[Tab] Goodbye» compare a sinistra della finestra di dialogo. Disattivo: la scritta è nascosta; Tab saluta comunque."
 "Aim assist" = "Assistenza alla mira"
@@ -309,3 +312,13 @@ name = "Italiano"
 "Fast" = "Veloce"
 "Smooth" = "Morbido"
 "Temporal" = "Temporale"
+
+# [design, #2249] Overlay availability and source scope (perf_overlay/readings.rs, settings.rs).
+"Not available" = "Non disponibile"
+"game {percent}%" = "gioco {percent}%"
+"Machine and game CPU use, read once a second while shown. Windows uses performance counters; Linux uses /proc. Missing machine readings say Not available. Game use is cores kept busy: 1.0 is one full core." = "Uso della CPU del computer e del gioco, letto ogni secondo mentre è visibile. Windows usa i contatori delle prestazioni; Linux usa /proc. Le letture mancanti del computer indicano Non disponibile. Il gioco conta i core occupati: 1.0 è un core completo."
+"GPU use, read once a second while shown. Windows: busiest engine across programs. Linux: NVIDIA NVML, then amdgpu, then DRM client time. DRM reads game use and says game; the other Linux sources read whole-device use. Missing readings say Not available." = "Uso della GPU, letto ogni secondo mentre è visibile. Windows: motore più occupato tra tutti i programmi. Linux: NVIDIA NVML, poi amdgpu, poi tempo del client DRM. DRM misura il gioco e indica gioco; le altre fonti Linux misurano tutto il dispositivo. Le letture mancanti indicano Non disponibile."
+
+# [design, #2242] The upscaling row (perf_overlay/readings.rs, settings.rs).
+"model {model}" = "modello {model}"
+"The upscaler that draws now: its name and mode, the size the world is drawn at and the size it is rebuilt to (with FSR 3.1 from its mode, with DLSS the size DLSS chose), and with DLSS the model asked for. Reads Off and the window's size while nothing upscales, also when the upscaler asked for cannot run on this computer. Follows a change within a frame or two, showing the upscaler without sizes until then." = "L'upscaler che disegna ora: nome e modalità, la dimensione a cui è disegnato il mondo e quella a cui viene ricostruito (con FSR 3.1 dalla modalità, con DLSS la dimensione scelta da DLSS) e, con DLSS, il modello richiesto. Mostra Disattivato e la dimensione della finestra quando nulla viene scalato, anche quando l'upscaler richiesto non può funzionare su questo computer. Segue una modifica entro uno o due fotogrammi, mostrando fino ad allora l'upscaler senza dimensioni."

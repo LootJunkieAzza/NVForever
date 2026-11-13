@@ -150,12 +150,13 @@ fn update_pointer_state(
     cameras: Query<(Entity, &Camera, &RenderTarget)>,
     primary_window: Query<Entity, With<PrimaryWindow>>,
     windows: Query<&Window>,
-    mouse: Res<ButtonInput<MouseButton>>,
+    mouse: crate::pad::ActionButtons<MouseButton>,
     touches: Res<Touches>,
     ui_stack: Res<UiStack>,
     nodes: Query<NodeData>,
     mut states: Query<(Entity, &mut PointerState)>,
 ) {
+    let mouse = mouse.snapshot();
     let primary_window = primary_window.iter().next();
     let released = mouse.just_released(MouseButton::Left) || touches.any_just_released();
     let clicked = mouse.just_pressed(MouseButton::Left) || touches.any_just_pressed();

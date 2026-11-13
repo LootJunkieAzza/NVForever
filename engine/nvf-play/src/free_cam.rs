@@ -200,7 +200,7 @@ fn take_requests(
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn fly(
     real: Res<Time<Real>>,
-    keys: Res<ButtonInput<KeyCode>>,
+    keys: crate::pad::ActionButtons<KeyCode>,
     motion: Res<AccumulatedMouseMotion>,
     scroll: Res<AccumulatedMouseScroll>,
     (state, console, paused, menu, loading): (Res<State<PlayState>>, Res<Console>, Res<crate::pause::Paused>, Res<crate::menu::ActiveMenu>, Res<crate::loading::Loading>),
@@ -208,6 +208,7 @@ fn fly(
     mut free: ResMut<FreeCam>,
     mut cams: Query<&mut Transform, With<PlayerCamera>>,
 ) {
+    let keys = keys.snapshot();
     if !free.on {
         return;
     }

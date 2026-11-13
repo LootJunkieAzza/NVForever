@@ -303,7 +303,16 @@ at the same view size). That is the work of each migration task, not guessed up 
 3. **A menu moves to the tile renderer** when it matches the original as well as the
    current code does: compared against the same screenshots as the current spec notes.
    - Each menu has a switch, `NVForever.ini` `[UI] TileMenus=`, a list of menu names.
-     The old drawing stays the default until the owner agrees a menu has moved.
+     [design, #2215] With no key, the default list is
+     `StatsMenu,InventoryMenu,RepairMenu,ItemModMenu,MapMenu,QuantityMenu`: the Pip-Boy's
+     pages and its quantity prompt use their menu files. An explicit list replaces these
+     defaults; an empty `[UI] TileMenus=` restores the hand-built Pip-Boy pages. The
+     existing missing-file and cut-down-file fallbacks remain (pipboy.md sections 5.1.1 to 5.3.1,
+     repair.md section 5.1, weapon-mods.md section 5.1). The maintainer decides at PR review whether to
+     keep this default (owner-review.md). The policy is one constant,
+     `tiles/vanilla.rs::DEFAULT_PIPBOY_MENUS`, to keep reverting it small.
+     Other menus' defaults are unchanged: StartMenu's Mods page stays on unless the
+     list names `-StartMenu` (#976); the other page renderers remain opt-in.
      `HUDMainMenu` (T12), `MessageMenu` and `QuantityMenu` (T15a), `SleepWaitMenu` (T15b) and
      `ContainerMenu` (T15c, a candidate: barter-menu.md §8; its prompt follows from
      `QuantityMenu`'s file with no switch of its own, while the container is so drawn) are
