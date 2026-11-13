@@ -123,7 +123,7 @@ always, as the name says it is broken].
 
 ## 6. SUP's JSON commands (batch 2)
 
-These work on a JSON file under the game folder (`Data…` reaches Data), by top-level key.
+These work on a JSON file under the game folder (a path starting `Data\` reaches Data), by top-level key.
 Probed with a file of our own in the sandbox [observed: sets json1, json2; each command
 that crashed ran alone]. In NVForever, files a mod writes go to NVForever's own layer,
 never the game folder (`crate::mod_files`). Code: `crates/fnv-game/src/nvse_json.rs`.
