@@ -899,8 +899,10 @@ fn place(
     });
     let free = f.settings.free_camera();
     let pivot = body.pivot.unwrap_or(p.eye());
-    // Walls stop the camera; actors and the player's own capsule do not.
-    let filter = Filter { exclude_layers: fnv_phys::layers::character_ignores().union(fnv_phys::layers::actor_volumes()), ..Default::default() };
+    // Walls stop the camera; actors and the player's own capsule do not (`no_actors`: on
+    // the ship line the rays meet the characters' capsules, which pulled the orbit camera
+    // in to the back of the player's head [observed 2026-11-13, ship frame run]).
+    let filter = Filter { exclude_layers: fnv_phys::layers::character_ignores().union(fnv_phys::layers::actor_volumes()), no_actors: true, ..Default::default() };
     let mut reach = |from: [f32; 3], to: [f32; 3]| -> [f32; 3] {
         let d = [to[0] - from[0], to[1] - from[1], to[2] - from[2]];
         let len = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
