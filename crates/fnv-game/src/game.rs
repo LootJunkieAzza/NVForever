@@ -1709,6 +1709,9 @@ pub struct Game<'a> {
     /// On a guest: the host's active quest, which its quest list, objectives and markers
     /// show in place of this game's own (`None`: the host has none).
     pub coop_host_quest: Option<crate::coop::HostQuest>,
+    /// A co-op guest's: the host's story, read by the world's scripts ([`crate::coop::HostStory`]).
+    /// Not saved.
+    pub coop_host_story: crate::coop::HostStory,
     /// On a guest: the host's character name, for "Wait for <host>" (item 130).
     pub coop_host_name: Option<String>,
     /// On a co-op host, while a guest's shot on a placed object runs its hit blocks as
@@ -2627,6 +2630,7 @@ impl<'a> Game<'a> {
             coop_story: Default::default(),
             coop_from_others: Default::default(),
             coop_host_quest: None,
+            coop_host_story: crate::coop::HostStory::default(),
             coop_host_name: None,
             shot_for_player: None,
             coop_rewards: crate::coop_rewards::RewardLedger::default(),
@@ -6626,6 +6630,12 @@ impl Host for Exec<'_, '_> {
                 if self.game.data.script(script).is_some_and(|c| c.var_type(index).is_none()) {
                     let unit = self.unit.key();
                     self.game.emit(EventKind::UndeclaredVariable { owner: key.label(), index, unit });
+                }
+                // A co-op guest's world reads the host's story (`crate::coop::HostStory`).
+                if let (InstKey::Quest { quest }, Locals::Instance(own)) = (key, &self.locals) {
+                    if let Some(v) = self.game.host_story(Some(*own)).and_then(|h| h.vars.get(&(quest, index))) {
+                        return Ok(*v);
+                    }
                 }
                 Ok(self.game.var(key, index))
             }

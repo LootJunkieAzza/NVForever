@@ -176,6 +176,7 @@ use std::sync::Mutex;
 use std::time::Duration;
 
 mod campfires;
+mod story;
 mod replication;
 mod areas;
 mod far_combat;
@@ -353,6 +354,7 @@ impl Plugin for CoopPlugin {
             handed_off: false,
             progress_in: Vec::new(),
             campfires: Default::default(),
+            story: Default::default(),
             repl: Default::default(),
             areas: Default::default(),
             far: Default::default(),
@@ -385,6 +387,7 @@ impl Plugin for CoopPlugin {
             .init_resource::<HoldLeave>()
             .add_systems(Update, (leave::guest_leaves.before(crate::handoff::leave), leave::tell_ended))
             .add_systems(Last, leave::host_ends)
+            .add_systems(Update, story::share_story.after(take_events).after(nvf_play::PlaySet::Physics))
             .add_message::<PuppetShot>()
             .add_systems(Update, (stand_ins, draw, scene::hide_players_in_scene, peer_lights, pipboy_share, swimmers).chain().after(nvf_play::PlaySet::Sync).before(crate::locomotion::walk_test));
     }
@@ -570,6 +573,8 @@ pub(crate) struct Coop {
     progress_in: Vec<(u8, net::Progress)>,
     /// Lit campfires ([`campfires::share_campfires`]).
     campfires: campfires::Shared,
+    /// The host's story for the guests ([`story::share_story`]).
+    story: story::Shared,
     /// Replication (`replication`, docs/design/coop-replication.md), and its newest perf
     /// line for the corner readout.
     repl: replication::Repl,
@@ -1875,6 +1880,7 @@ fn take_events(
             Event::Presence { list: net::LIST_OPEN, serial, page, pages, refs } => coop.doors_heard.hear(serial, page, pages, refs),
             Event::Presence { list: net::LIST_CAMPFIRE, pages, refs, .. } => coop.campfires.hear(pages, refs),
             Event::Presence { .. } => {}
+            Event::Story(entries) => coop.story.heard.extend(entries),
             Event::Wear(npcs) => coop.wear_heard.extend(npcs),
             Event::Campfire { id, reference } => coop.campfires.asked.push((id, reference)),
             Event::Door { id, reference, open } => coop.doors_in.push((id, reference, open)),
@@ -2079,7 +2085,7 @@ fn draw(
         let base = if p.look.is_some() { PLAYER_BASE } else { base };
         let who = Who { reference, base, creature: false, scale: 1.0, strafe: true, air: newest.has(flag::AIR), jumped: false };
         let sim_world = sim.as_deref().map(|s| &s.world);
-        if let Err(e) = show_actor(&mut commands, world_root, visible, actor_world.as_deref(), sim_world, &mut ahead, &mut stats, &mut parts, &mut models, &roots, &mut actors, who, (&mut p.spawned, &mut p.root), (feet, yaw), moving, dt) {
+        if let Err(e) = show_actor(&mut commands, world_root, visible, actor_world.as_deref(), sim_world, &mut ahead, &mut stats, &mut parts, &mut models, &roots, &gone, &mut actors, who, (&mut p.spawned, &mut p.root), (feet, yaw), moving, dt) {
             warn!("co-op: {} cannot be drawn as {base:#010X}: {e}", label(id, &p.name));
             p.failed = true;
         }
@@ -2625,6 +2631,7 @@ fn follow_npcs(
                 g.coop_guest = false;
                 g.world_logic_off = false;
                 g.coop_host_quest = None;
+                g.coop_host_story = Default::default();
                 g.coop_host_name = None;
                 g.set_remote_speech(Vec::new(), |_| false);
             }

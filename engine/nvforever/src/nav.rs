@@ -403,7 +403,7 @@ pub fn drive(
         let moving = ev == WalkEvent::Moved;
         let stage = (&mut tr.spawned, &mut tr.root);
         let air = tr.walker.air.is_some();
-        if let Err(e) = show_actor(&mut commands, root, visible, actor_world.as_deref(), sim.as_deref().map(|s| &s.world), &mut ahead, &mut spawn_stats, &mut parts, &mut models, &roots, &mut actors, Who { reference: tr.reference, base: tr.base, creature: false, scale: tr.scale, strafe: false, air, jumped: false }, stage, (tr.walker.feet, tr.walker.heading), moving, dt) {
+        if let Err(e) = show_actor(&mut commands, root, visible, actor_world.as_deref(), sim.as_deref().map(|s| &s.world), &mut ahead, &mut spawn_stats, &mut parts, &mut models, &roots, &Default::default(), &mut actors, Who { reference: tr.reference, base: tr.base, creature: false, scale: tr.scale, strafe: false, air, jumped: false }, stage, (tr.walker.feet, tr.walker.heading), moving, dt) {
             warn!("nav: {} could not be drawn", tr.label);
             tr.failed = Some(e.into());
         }
@@ -457,6 +457,7 @@ pub(crate) fn show_actor(
     parts: &mut ActorParts,
     models: &mut ModelCtx,
     roots: &Query<(Entity, &RefVisual, &ChildOf)>,
+    taken: &std::collections::HashSet<Entity>,
     actors: &mut Query<(&mut Transform, Option<&mut Locomotion>), Without<crate::furniture::OnFurniture>>,
     who: Who,
     (spawned, root): (&mut bool, &mut Option<Entity>),
@@ -468,7 +469,10 @@ pub(crate) fn show_actor(
     // Its bodies under the world root: the one drawn, and any stray (owner's overnight
     // queue item 105: a body spawned, then let go before it was found here, stayed where
     // it was, and the next spawn drew a second one; detection measured both by turns).
-    let bodies = || roots.iter().filter(move |(_, v, p)| v.0 == reference && p.parent() == world_root).map(|(e, _, _)| e);
+    // Not those the caller took away this frame (`taken`): its commands run after this
+    // system, so they are still in `roots`, and despawning one again was a Bevy error a
+    // frame (co-op puppets redrawn as the host's look changed, guest log 2026-11-13: 646).
+    let bodies = || bodies_of(roots.iter().map(|(e, v, p)| (e, v.0, p.parent())), reference, world_root, taken);
     if !visible {
         for e in bodies_to_let_go(root, spawned, bodies) {
             commands.entity(e).despawn();
@@ -563,6 +567,12 @@ pub(crate) fn show_actor(
 const PLACED_STEP: f32 = 48.0;
 /// ... and faster than this (units/s), so a slow frame's run is still a run.
 const PLACED_SPEED: f32 = 2000.0;
+
+/// The bodies of `reference` directly under `world_root` among `roots` (entity, its
+/// reference, its parent), but those in `taken` (despawned already this frame).
+fn bodies_of<'a>(roots: impl Iterator<Item = (Entity, u32, Entity)> + 'a, reference: u32, world_root: Entity, taken: &'a std::collections::HashSet<Entity>) -> impl Iterator<Item = Entity> + 'a {
+    roots.filter(move |&(e, r, parent)| r == reference && parent == world_root && !taken.contains(&e)).map(|(e, _, _)| e)
+}
 
 /// The bodies to take away when an actor stops being drawn: the one found, or, spawned
 /// but not found yet (spawned a frame or two ago), every body of its reference there is
@@ -736,6 +746,22 @@ pub fn report(mut exit: MessageReader<AppExit>, nav: Res<NavState>) {
 
 #[cfg(test)]
 mod tests {
+    use bevy::prelude::Entity;
+
+    #[test]
+    fn a_body_taken_this_frame_is_not_left_behind_again() {
+        let e = |n| Entity::from_raw_u32(n).unwrap();
+        let (world_root, elsewhere) = (e(1), e(2));
+        let puppet = 0xFE00_C000;
+        // The puppet's old body (taken away by co-op's draw this frame), a stray of it, one
+        // under another root and another actor's.
+        let roots = [(e(10), puppet, world_root), (e(11), puppet, world_root), (e(12), puppet, elsewhere), (e(13), 0x0010_0000, world_root)];
+        let none = std::collections::HashSet::new();
+        assert_eq!(super::bodies_of(roots.into_iter(), puppet, world_root, &none).collect::<Vec<_>>(), [e(10), e(11)]);
+        let taken = std::collections::HashSet::from([e(10)]);
+        assert_eq!(super::bodies_of(roots.into_iter(), puppet, world_root, &taken).collect::<Vec<_>>(), [e(11)]);
+    }
+
     #[test]
     fn a_jump_is_no_step_of_the_gait() {
         let dt = 1.0 / 60.0;
