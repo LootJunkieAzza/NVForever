@@ -307,7 +307,9 @@ fn tell_physics(pace: Res<FramePace>, refresh: Res<Refresh>, fg: Option<Res<crat
     physics.set_if_neq(nvf_play::phys_rate::DisplayPace(hz));
 }
 
-/// The window's present mode as `sync` asks, when that changes.
+/// The window's present mode as `sync` asks, when that changes. (DLSS Frame Generation needs
+/// vsync off on Vulkan: its row's DLSS choice asks for Display sync Off rather than this
+/// overriding it, `frame_gen::dlss_unavailable_reason`.)
 fn apply_vsync(pace: Res<FramePace>, mut windows: Query<&mut Window, With<PrimaryWindow>>) {
     if !pace.is_changed() {
         return;
@@ -391,9 +393,38 @@ fn held_back(earliest: Instant, now: Instant, hold: Duration) -> (Instant, Durat
     (start, start.saturating_duration_since(earliest.max(now)))
 }
 
-/// Hold the frame until its time at the cap ([`next_frame`]).
+/// Reflex's frame limit for a cap of `cap` frames shown a second when each real frame is shown
+/// `multiplier` times: microseconds per real frame, 0 for no cap.
+pub fn reflex_frame_limit_us(cap: u32, multiplier: u32) -> u32 {
+    if cap == 0 {
+        return 0;
+    }
+    (1_000_000.0 * f64::from(multiplier.max(1)) / f64::from(cap)).round() as u32
+}
+
+/// Hold the frame until its time at the cap ([`next_frame`]). While DLSS Frame Generation runs
+/// (the spike's `on`, #2317, Stage 3; `dlss::frame_generation_running`) the cap is Reflex's
+/// instead (`ReflexOptions::frameLimitUs`, the limiter NVIDIA documents for frame generation
+/// [documented: `ProgrammingGuideDLSS_G.md` §6.3, §12.1]): the page's or variable refresh's cap
+/// on frames shown, divided by the frames shown per real frame, handed to Reflex
+/// ([`reflex_frame_limit_us`], `dlss::set_reflex_frame_limit`), and nothing waits here, so the
+/// driver and DLSS-G's pacer see one limiter [design: fork-notes `fg-facts.md` §3 item 5]. In
+/// menus, where DLSS-G's mode is off for a while, the same limit holds, so real frames are
+/// capped as if generated ones were shown [design: a spike's simplification].
 fn wait_for_cap(world: &mut World) {
     let Some(pace) = world.get_resource::<FramePace>() else { return };
+    if crate::dlss::frame_generation_running() {
+        let cap = effective_cap(pace.cap, world.get_resource::<Refresh>().map_or(0, |r| r.vrr_cap));
+        crate::dlss::set_reflex_frame_limit(reflex_frame_limit_us(cap, crate::dlss::frame_generation_multiplier()));
+        if let Some(mut clock) = world.get_resource_mut::<CapClock>() {
+            clock.0 = None;
+        }
+        return;
+    }
+    if crate::dlss::frame_generation_on() {
+        // Frame generation ended for the session: the limit is frame pacing's again.
+        crate::dlss::set_reflex_frame_limit(0);
+    }
     // Frame generation shows each real frame twice: at most half the refresh rate of them.
     let cap = effective_cap(
         effective_cap(pace.cap, world.get_resource::<Refresh>().map_or(0, |r| r.vrr_cap)),
@@ -564,6 +595,14 @@ mod tests {
         assert_eq!(effective_cap(0, 138), 138);
         assert_eq!(effective_cap(60, 138), 60);
         assert_eq!(effective_cap(144, 138), 138);
+    }
+
+    #[test]
+    fn reflex_gets_the_cap_per_real_frame() {
+        assert_eq!(reflex_frame_limit_us(0, 2), 0, "no cap");
+        assert_eq!(reflex_frame_limit_us(120, 2), 16_667, "120 shown at 2x: 60 real frames a second");
+        assert_eq!(reflex_frame_limit_us(144, 4), 27_778);
+        assert_eq!(reflex_frame_limit_us(60, 0), 16_667, "a multiplier of at least one");
     }
 
     #[test]
