@@ -30,6 +30,12 @@ the spec it links to.
   simultaneous activity. Alternatives
   from the issue: an Auto choice, ask once, or discoverability only. Ruling otherwise
   changes this selection policy ([controller section 1](design/controller.md)).
+- **Pip-Boy pages from their menu files by default (#2215).** [design, #2215] An absent
+  `[UI] TileMenus` selects StatsMenu, InventoryMenu, RepairMenu, ItemModMenu, MapMenu and
+  QuantityMenu, keeping the hand-built fallback for missing or cut-down files. An empty
+  `TileMenus=` restores the hand-built pages. Keep this default at PR review? Reverting
+  `DEFAULT_PIPBOY_MENUS` to an empty list restores the old default; other menus and the
+  existing maintainer choices stay as they are. ([ui-tile-tree section 6.2](design/ui-tile-tree.md#62-one-menu-at-a-time-nothing-broken))
 
 1. **Crippled torso staggers on every hit.** An NPC with a crippled torso staggers on
    any hit (3 s cooldown), which goes further than your "crippling hit and later hits
@@ -54,6 +60,10 @@ the spec it links to.
      it. Cover is at most 1,024 units away.
    - Alarm calls allies within 4,096 units. A fled NPC re-checks after 30 s. Group
      searches give up after two sweeps.
+   - [design, #2010] A Lost search with no completed share for 300 s gives up, even
+     with shares still pending; each completed share renews that safety deadline.
+     A different bound changes how long unavailable navigation/AI holds combat.
+     ([alert section 2](design/alert.md))
    - Fire only with the target within 30° ahead, turning at 240°/s.
    - Creatures start blows on the run from up to 200 units beyond reach (minimum
      closing speed 100 units/s).
@@ -207,6 +217,11 @@ the spec it links to.
     ([actor-behaviour §5.1](design/actor-behaviour.md), `FOLLOW_STOP_INSET`)
 
 ## Tier 3: rules where we chose to differ, or that the original has no answer for
+
+- **Linux overlay GPU source priority (#2249).** [design, #2249] `GPU_SOURCE_ORDER`
+  prefers whole-device NVML, then amdgpu, then game-only DRM client time. Choosing
+  DRM first would make supporting Linux drivers show the game's contribution consistently.
+  [Settings usage note](design/settings-page.md#performance-usage-availability-2249).
 
 19. **Walking away from a conversation.** The world freezes while you talk, as in the
     original, and walking off does not end it. Should walking off end it where the line

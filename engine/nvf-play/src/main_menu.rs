@@ -560,15 +560,17 @@ fn slideshow(
 }
 
 /// Every entry that can be taken bright, a greyed one at half, the highlight box round
-/// the chosen one; the column hidden while a page of the pause menu draws it.
-#[allow(clippy::type_complexity)]
+/// the chosen one; the column hidden while a page of the pause menu draws it [design].
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn show_entries(
     menu: Res<MainMenu>,
     page: Res<Page>,
-    mut entries: Query<(&EntryNode, &Children, &mut BorderColor, &mut BackgroundColor, &mut Visibility)>,
+    mut entries: Query<(Entity, &EntryNode, &mut BorderColor, &mut BackgroundColor, &mut Visibility)>,
+    children: Query<&Children>,
     mut glyphs: Query<&mut ImageNode, Without<Slide>>,
     mut texts: Query<&mut TextColor>,
     mut logo: Query<&mut Visibility, (With<Logo>, Without<EntryNode>)>,
+    mut drawn: Local<[Option<(Color, usize)>; Entry::ALL.len()]>,
 ) {
     if !menu.open {
         return;
@@ -577,7 +579,7 @@ fn show_entries(
         v.set_if_neq(if *page == Page::Main { Visibility::Inherited } else { Visibility::Hidden });
     }
     let (line, fill) = highlight_colors();
-    for (e, children, mut border, mut bg, mut vis) in &mut entries {
+    for (id, e, mut border, mut bg, mut vis) in &mut entries {
         let shown = if *page == Page::Main { Visibility::Inherited } else { Visibility::Hidden };
         vis.set_if_neq(shown);
         let entry = Entry::ALL[e.0];
@@ -586,15 +588,31 @@ fn show_entries(
         let want = if chosen { BorderColor::all(line) } else { BorderColor::all(Color::NONE) };
         border.set_if_neq(want);
         bg.set_if_neq(BackgroundColor(if chosen { fill } else { Color::NONE }));
-        for &child in children {
+        let (mut ink, mut count) = (None, 0);
+        // [design, #2247] set_line/set_marked put the coloured nodes below a line
+        // anchor (interface.rs); reach them even when the label has extra containers.
+        for child in children.iter_descendants(id) {
             if let Ok(mut g) = glyphs.get_mut(child) {
                 if g.color != c {
                     g.color = c;
                 }
+                ink = Some(g.color);
+                count += 1;
             }
             if let Ok(mut t) = texts.get_mut(child) {
-                t.0 = c;
+                t.set_if_neq(TextColor(c));
+                ink = Some(t.0);
+                count += 1;
             }
+        }
+        // [design, #2247] Report actual nonempty glyph assignments on first draw or
+        // a colour/count change, so smoke checks cannot pass from enablement alone.
+        let now = ink.map(|colour| (colour, count));
+        if drawn[e.0] != now {
+            if let Some((colour, count)) = now {
+                info!("main menu: {} glyph colour rgba {:?} ({count} glyphs)", entry.label(), colour.to_srgba().to_u8_array());
+            }
+            drawn[e.0] = now;
         }
     }
 }
@@ -619,6 +637,78 @@ fn theme(real: Res<Time<Real>>, mut menu: ResMut<MainMenu>, settings: Option<Res
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// [design, #2247] Synthetic font metrics and a dummy handle exercise the real
+    /// spawn/entry_label/set_line hierarchy without reading any game files.
+    fn colour_app(bitmap: bool) -> (App, Vec<(Entity, Entry, Vec<Entity>)>) {
+        let mut app = App::new();
+        let glyph = fnv_font::Glyph { uv: [0.0, 0.0, 0.5, 0.75], width: 8.0, height: 12.0, ascent: 10.0, after: 1.0, ..default() };
+        let face = Face {
+            font: fnv_font::Font { size: 16.0, texture: String::new(), glyphs: vec![glyph; 256] },
+            image: bitmap.then(|| (Handle::default(), Vec2::splat(16.0))),
+        };
+        let menu = MainMenu { open: true, selected: 1, face: Some(face), ..default() };
+        spawn(&mut app.world_mut().commands(), &menu, None, Handle::default(), Handle::default());
+        app.world_mut().flush();
+        app.insert_resource(menu).init_resource::<Page>().add_systems(Update, show_entries);
+        let world = app.world_mut();
+        let entries: Vec<_> = world.query::<(Entity, &EntryNode)>().iter(world).map(|(id, e)| (id, Entry::ALL[e.0])).collect();
+        assert_eq!(entries.len(), Entry::ALL.len());
+        let entries = entries.into_iter().map(|(id, entry)| {
+            let anchors = world.get::<Children>(id).unwrap();
+            let mut glyphs = Vec::new();
+            for anchor in anchors {
+                assert!(world.get::<ImageNode>(*anchor).is_none() && world.get::<TextColor>(*anchor).is_none());
+                glyphs.extend(world.get::<Children>(*anchor).unwrap().iter());
+            }
+            assert!(!glyphs.is_empty(), "{} has ink below its anchor", entry.label());
+            (id, entry, glyphs)
+        }).collect();
+        (app, entries)
+    }
+
+    fn check_entry_colours(bitmap: bool) {
+        let (mut app, entries) = colour_app(bitmap);
+        for saves in [0, 1, 0] {
+            app.world_mut().resource_mut::<MainMenu>().saves = saves;
+            app.update();
+            for (id, entry, glyphs) in &entries {
+                let expected = color(if entry.enabled(saves) { Shade::Bright } else { Shade::Dim });
+                for glyph in glyphs {
+                    let actual = if bitmap {
+                        app.world().get::<ImageNode>(*glyph).unwrap().color
+                    } else {
+                        app.world().get::<TextColor>(*glyph).unwrap().0
+                    };
+                    assert_eq!(actual, expected, "{} with {saves} saves", entry.label());
+                }
+                let (line, fill) = highlight_colors();
+                let selected = *entry == Entry::New;
+                assert_eq!(*app.world().get::<BorderColor>(*id).unwrap(), BorderColor::all(if selected { line } else { Color::NONE }));
+                assert_eq!(app.world().get::<BackgroundColor>(*id).unwrap().0, if selected { fill } else { Color::NONE });
+            }
+        }
+        *app.world_mut().resource_mut::<Page>() = Page::Settings { selected: None };
+        app.update();
+        for (id, _, _) in &entries {
+            assert_eq!(*app.world().get::<Visibility>(*id).unwrap(), Visibility::Hidden);
+        }
+        *app.world_mut().resource_mut::<Page>() = Page::Main;
+        app.update();
+        for (id, _, _) in &entries {
+            assert_eq!(*app.world().get::<Visibility>(*id).unwrap(), Visibility::Inherited);
+        }
+    }
+
+    #[test]
+    fn bitmap_entry_glyphs_dim_without_saves_and_brighten_when_a_save_appears() {
+        check_entry_colours(true);
+    }
+
+    #[test]
+    fn fallback_entry_text_dims_without_saves_and_brightens_when_a_save_appears() {
+        check_entry_colours(false);
+    }
 
     #[test]
     fn without_saves_continue_and_load_are_skipped() {

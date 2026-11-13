@@ -302,3 +302,9 @@ name = "Русский"
 "Fast" = "Быстрая"
 "Smooth" = "Мягкая"
 "Temporal" = "Временная"
+
+# [design, #2249] Overlay availability and source scope (perf_overlay/readings.rs, settings.rs).
+"Not available" = "Недоступно"
+"game {percent}%" = "игра {percent}%"
+"Machine and game CPU use, read once a second while shown. Windows uses performance counters; Linux uses /proc. Missing machine readings say Not available. Game use is cores kept busy: 1.0 is one full core." = "Загрузка процессора компьютером и игрой, раз в секунду при показе. Windows использует счётчики производительности, Linux использует /proc. Отсутствующие данные компьютера помечены как Недоступно. Загрузка игры считается в занятых ядрах: 1.0 означает одно полностью занятое ядро."
+"GPU use, read once a second while shown. Windows: busiest engine across programs. Linux: NVIDIA NVML, then amdgpu, then DRM client time. DRM reads game use and says game; the other Linux sources read whole-device use. Missing readings say Not available." = "Загрузка видеокарты, раз в секунду при показе. Windows: самый занятый блок среди всех программ. Linux: NVIDIA NVML, затем amdgpu, затем время клиента DRM. DRM измеряет загрузку от игры с пометкой игра; другие источники Linux измеряют всё устройство. Отсутствующие данные помечены как Недоступно."

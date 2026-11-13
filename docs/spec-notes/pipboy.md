@@ -308,7 +308,7 @@ it), `engine/nvf-assets/src/texture.rs` (`pc_texture`).
   files' 255 (`frame.rs` `TEXT`). The flat image shown when the Pip-Boy model has no screen
   is the device's drawing and keeps its 213 [design].
   The pages drawn from their menu files (`[UI] TileMenus=StatsMenu`, `InventoryMenu`,
-  `RepairMenu`, `ItemModMenu`, `MapMenu`; all off by default) take the same device
+  `RepairMenu`, `ItemModMenu`, `MapMenu`; on by default when the list is absent [design, #2215]) take the same device
   brightness, by role as the hand-built pages do, not by a flat factor [design: #2212,
   `tiles::draw::device_brightness`, applied in the tile painter before it compares the
   pieces, for every Pip-Boy page and the DATA page's map picture]: while the Pip-Boy is on
@@ -1033,7 +1033,8 @@ General's mode survives a load; effects overflowing the page; the switch's and h
 ### 5.2.1 ITEMS from its file: what the code writes
 
 The ITEMS page drawn from `menus\main\inventory_menu.xml`, in the Pip-Boy's image, behind
-`[UI] TileMenus=InventoryMenu`, off by default (`tiles/inventory_menu.rs`; issues #1513, #1468).
+`[UI] TileMenus=InventoryMenu`, on by default when the list is absent [design, #2215;
+ui-tile-tree.md section 6.2] (`tiles/inventory_menu.rs`; issues #1513, #1468).
 Off, nothing of it runs. The rules stay `menu::model`'s and `pipboy::items`'; the module writes
 values and says what a tile stands for [design]. Tile names and where they stand are
 [documented: the file, by `fnvtool ui tree`]. "The capture" below is the original at 1280x720 in the
@@ -1572,7 +1573,8 @@ fonts) and the owner's five DATA screenshots (§1), compared at 1280 × 720 with
 ### 5.3.1 DATA from its file: what the code writes
 
 The DATA page drawn from `menus\main\map_menu.xml`, in the Pip-Boy's image, behind
-`[UI] TileMenus=MapMenu`, off by default (`tiles/map_menu.rs`; issue #1513). Off, nothing of it
+`[UI] TileMenus=MapMenu`, on by default when the list is absent [design, #2215;
+ui-tile-tree.md section 6.2] (`tiles/map_menu.rs`; issue #1513). Off, nothing of it
 runs and the hand-built page (`pipboy/data.rs`) draws as before. The rules stay `pipboy::data`'s:
 the module writes values and says what a tile stands for; commands go where the hand-built page's
 go [design]. Tile names, places and expressions are [documented: `menus\main\map_menu.xml` and the
