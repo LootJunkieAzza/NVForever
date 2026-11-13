@@ -1823,6 +1823,10 @@ fn take_events(
                         let far = (0..3).map(|k| (n.feet[k] - was.feet[k]).powi(2)).sum::<f32>().sqrt();
                         if now - last > NPC_GAP && far > NPC_JUMP {
                             info!("co-op: {:08X} heard again after {:.2} s, {far:.0} units from its last state", n.reference, now - last);
+                        } else if far > NPC_JUMP && far > NPC_JUMP_SPEED / 2.0 * (now - last).max(1e-3) {
+                            // On time but far on: what the host drew it doing (item 187 (a):
+                            // the Dead Horses put 153-160 units on a guest, no pause heard).
+                            info!("co-op: {:08X} heard {far:.0} units on from its last state in {:.2} s", n.reference, now - last);
                         }
                     }
                     track.heard(now, n);
@@ -2264,7 +2268,7 @@ fn share_npcs(
     actors: Query<(&RefVisual, &Transform, Option<&Locomotion>, Option<&WeaponHold>, Has<Dying>, &InheritedVisibility, Option<&crate::furniture::OnFurniture>, Option<&crate::outfits::Dressed>), (With<crate::limbs::ActorRig>, Without<Puppet>)>,
     fighters: Res<Fighters>,
     mut attacks: MessageReader<PlayAttack>,
-    mut told: Local<usize>,
+    (mut told, mut sent_at): (Local<usize>, Local<HashMap<u32, [f32; 3]>>),
     (mut sim, actor_world, time): (Option<ResMut<nvf_play::sim::SimState>>, Option<Res<ActorWorld>>, Res<Time>),
     (residents, streamer, world, mut script): (Option<Res<Residents>>, Res<Streamer>, Option<Res<WorldData>>, Option<ResMut<nvf_play::script::ScriptState>>),
 ) {
@@ -2354,6 +2358,14 @@ fn share_npcs(
         // deadhorse-spears b015).
         let on = on.filter(|f| !f.leaving());
         flags |= if on.is_some_and(|f| f.seated()) { npc_flag::SEATED } else { 0 };
+        // Drawn here further on than last frame than any run goes (item 187 (a): a guest
+        // put the Dead Horses 153-160 units on with no pause in these states).
+        if let Some(was) = sent_at.insert(r, t.translation.to_array()) {
+            let far = (t.translation.x - was[0]).hypot(t.translation.y - was[1]);
+            if far > NPC_JUMP {
+                info!("co-op: {r:08X} drawn here {far:.0} units on from last frame (sent so){}", if on.is_some() { ", on furniture" } else { "" });
+            }
+        }
         let level = actor_world.as_deref().map_or(fnv_sim::zones::LevelAt::plain(0), |w| w.level(r));
         npcs.push(NpcState {
             reference: r,

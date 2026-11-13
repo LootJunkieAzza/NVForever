@@ -294,6 +294,19 @@ const CATCH_UP_SPEED: f32 = 500.0;
 /// 516 units/s run is gone in three frames at 60 fps].
 const CATCH_UP_RATE: f32 = 2.0;
 
+/// Up off its furniture: its walk goes on from where the furniture left its body
+/// (`body`), turned as it left it (its back to the furniture), and that is where it was
+/// last drawn. Its last drawn place was its walker's, where it stood when it was told to
+/// use the furniture: measured from there, the host's EVDeadHorse04REF was "drawn 57
+/// units on in one frame" off its rail though its body had not moved (it had walked 57
+/// units to the rail's marker; laptop deadhorse-look 47790fcb).
+fn stand_where_left(body: &Transform, walker: &mut Walker, drawn_feet: &mut [f32; 3]) {
+    walker.feet = body.translation.to_array();
+    walker.heading = nav::tr_heading(body);
+    walker.tri = fnv_nav::graph::NONE;
+    *drawn_feet = walker.feet;
+}
+
 /// Where a guest draws the host's actor this frame: from where it was drawn (`from`)
 /// towards where the host has it (`to`), at most [`CATCH_UP_RATE`] times its run speed
 /// (`run`, units/s) in `dt` seconds; at `to` at once when that is further than
@@ -3416,9 +3429,7 @@ pub fn drive(
                     // as it left it (its back to the furniture): the walker's heading was
                     // the one it sat down with, and the body snapped half about to it.
                     if let (Ok((t, _)), Some(a)) = (actors.get(e), core.ai.agents.get_mut(&r.actor)) {
-                        a.walker.feet = t.translation.to_array();
-                        a.walker.heading = nav::tr_heading(t);
-                        a.walker.tri = fnv_nav::graph::NONE;
+                        stand_where_left(t, &mut a.walker, &mut r.drawn_feet);
                     }
                 }
             }
@@ -3451,11 +3462,21 @@ pub fn drive(
             // where the host had it meanwhile (the Dead Horses off their push-up spots
             // were put 55-61 units on in one frame, laptop ship5 deadhorse-spears).
             let body = entity.filter(|_| !on).and_then(|e| actors.get(e).ok()).map(|(t, _)| t.translation.to_array());
-            if drawn_last {
-                catch_up(body.unwrap_or(r.drawn_feet), w.feet, top, dt)
-            } else {
-                w.feet
+            let feet = if drawn_last { catch_up(body.unwrap_or(r.drawn_feet), w.feet, top, dt) } else { w.feet };
+            // Put further on than a frame's catch-up (item 187 (a): the Dead Horses put
+            // 153-160 units on a guest with no pause in the host's states): which way.
+            let from = body.unwrap_or(r.drawn_feet);
+            let put = (feet[0] - from[0]).hypot(feet[1] - from[1]);
+            if r.spawned && visible && put > PLACED_JUMP.max(CATCH_UP_RATE * top * dt) {
+                info!(
+                    "co-op: {:08X} copy put {put:.0} units on: drawn last frame {drawn_last}, body found {}, same space {}, the host's place moved {:.0} this frame",
+                    r.actor.0,
+                    body.is_some(),
+                    r.last_space == Some(w.space),
+                    (w.feet[0] - r.last_feet[0]).hypot(w.feet[1] - r.last_feet[1])
+                );
             }
+            feet
         } else {
             phys.as_deref_mut().map_or(w.feet, |p| p.npc_drawn_feet(r.actor.0).unwrap_or_else(|| p.standing_drawn_feet(r.actor.0, w.feet)))
         };
@@ -3875,7 +3896,8 @@ fn keeps_lock(lock_target: u32, use_target: Option<FormId>) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{carries_cell, level_for, recently_loaded, RunEnd, StopRun, RECENTLY_LOADED_HOURS};
+    use super::{carries_cell, level_for, recently_loaded, stand_where_left, RunEnd, StopRun, RECENTLY_LOADED_HOURS};
+    use fnv_nav::{Space, Walker};
     use fnv_ai::ProcessLevel;
     use fnv_sim::FormId;
     use std::collections::HashMap;
@@ -4131,6 +4153,22 @@ mod tests {
     fn ends(frames: &[bool]) -> Vec<RunEnd> {
         let mut run = StopRun::default();
         frames.iter().filter_map(|&moving| run.frame(moving)).collect()
+    }
+
+    /// Off its rail, EVDeadHorse04REF's walk and its last drawn place are where its body
+    /// is, not 57 units back where it was told to use the rail (laptop deadhorse-look).
+    #[test]
+    fn standing_up_goes_on_from_where_the_body_was_left() {
+        let told_at = [27960.0, -28560.0, 5023.0];
+        let mut walker = Walker::new(Space::World(0x0100_0001), told_at, 0.0, 107.0);
+        let mut drawn_feet = told_at;
+        let body = bevy::prelude::Transform::from_xyz(28017.0, -28512.0, 5023.0).with_rotation(bevy::math::Quat::from_rotation_z(-1.2));
+        stand_where_left(&body, &mut walker, &mut drawn_feet);
+        assert_eq!(walker.feet, [28017.0, -28512.0, 5023.0]);
+        assert_eq!(drawn_feet, walker.feet);
+        assert!((walker.heading - 1.2).abs() < 1e-4, "heading {}", walker.heading);
+        // The jump the draw measures next frame, standing where it was left: none.
+        assert_eq!((walker.feet[0] - drawn_feet[0]).hypot(walker.feet[1] - drawn_feet[1]), 0.0);
     }
 
     #[test]
