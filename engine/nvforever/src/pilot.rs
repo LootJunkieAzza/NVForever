@@ -42,6 +42,19 @@
 //!   overwrote the player's autosave slot). A later run goes on from one with `--load
 //!   pilot-after-<chain> --pilot <the next chains> --pilot-campaign`, so the chains
 //!   before it need not be played again. The next chain begins [`SAVE_SECS`] s later.
+//! - **A terminal is used as a player uses it** [owner, 2026-11-13: the Stealth Boy
+//!   shipment in REPCONN's basement is read off a terminal]. A `terminal` step was the
+//!   headless call until then: no walk, no screen, no menu. Now the player walks to the
+//!   terminal, activates it (the crosshair is asked), and works its screen through the
+//!   screen's own input (`nvf_play::terminal::TerminalInput`): on the hacking page it
+//!   enters the password (a stand-in for the word game: the game still refuses a
+//!   terminal beyond the player's Science, and a locked-out one stays so); in the menu
+//!   it takes the entry the step names, first going into the sub menu the step names
+//!   (the listed entry that opens it) or back out of another one. An entry not listed,
+//!   a sub menu no listed entry opens, a screen that does not come up in
+//!   [`TERMINAL_SECS`] s: the step fails and says which. The terminal is left (Exit)
+//!   when a step that is no `terminal` step follows. Not yet: a terminal found by the
+//!   pilot itself for a locked door.
 //! - Menus: `wait_menu`, `get_menus`, `close_menus`, `press_button` and
 //!   `dismiss_message_boxes` act on the game's menu as the headless run does. A message
 //!   box no step is waiting for is answered after [`BOX_SECS`] s (headless such a box
@@ -238,6 +251,9 @@ pub const HELD_SECS: f64 = 120.0;
 const WAIT_CAP: f64 = 120.0;
 const ADVANCE_CAP: f64 = 20.0;
 const TURN_RATE: f32 = 6.0;
+/// Seconds a terminal's screen may take to come up, and between two inputs to it.
+pub const TERMINAL_SECS: f64 = 15.0;
+pub const TERMINAL_INPUT_SECS: f64 = 0.6;
 /// Seconds a message box nobody waits for stays up before the pilot closes it.
 pub const BOX_SECS: f64 = 1.5;
 /// Seconds the next chain waits for the save after the one before it.
@@ -412,6 +428,8 @@ struct Pilot {
     box_since: Option<f64>,
     /// A button of that box was picked and waits to be read.
     box_picked: bool,
+    /// When the terminal screen was last given an input.
+    terminal_at: f64,
     /// Failed steps one after the other, and the real time the pilot last could act.
     failed_in_a_row: u32,
     acted_at: Option<f64>,
@@ -468,6 +486,7 @@ impl Pilot {
             campaign,
             box_since: None,
             box_picked: false,
+            terminal_at: 0.0,
             failed_in_a_row: 0,
             acted_at: None,
             stuck_talk: None,
@@ -656,6 +675,9 @@ struct Hands<'a, 'w> {
     doors: &'a nvf_play::doors::Doors,
     /// A menu holds the game this frame: the player cannot move.
     in_menu: bool,
+    /// The terminal screen that is up, and the way to work it.
+    terminal: &'a nvf_play::terminal::TerminalScreen,
+    terminal_input: &'a mut MessageWriter<'w, nvf_play::terminal::TerminalInput>,
     travel: &'a mut MessageWriter<'w, TravelRequest>,
     dt: f32,
 }
@@ -1532,6 +1554,7 @@ fn step(p: &mut Pilot, h: &mut Hands) -> Option<Option<String>> {
                 None => Some(Some("the scripts are not running".into())),
             }
         }
+        Action::Terminal { target, item, menu, label } => terminal_step(p, h, target, *item, menu.as_deref(), label.as_deref()),
         Action::EndTalk { .. } => {
             if leave_talk(p, h) {
                 return Some(None);
@@ -1754,6 +1777,147 @@ fn step(p: &mut Pilot, h: &mut Hands) -> Option<Option<String>> {
     }
 }
 
+/// What the terminal screen shows, as far as the pilot needs it.
+enum Screen {
+    None,
+    Other,
+    Hacking,
+    LockedOut,
+    /// The menu up (its terminal form), the entries listed, whether it has a parent, and
+    /// whether a note is open over it.
+    Menu(FormId, Vec<usize>, bool, bool),
+}
+
+fn screen_of(t: &nvf_play::terminal::TerminalScreen, reference: FormId) -> Screen {
+    use nvf_play::terminal::Page;
+    match &t.0 {
+        None => Screen::None,
+        Some(s) if s.reference != reference => Screen::Other,
+        Some(s) => match &s.page {
+            Page::Hacking(_) => Screen::Hacking,
+            Page::LockedOut(_) => Screen::LockedOut,
+            Page::Menu(v) => Screen::Menu(v.terminal, v.items.clone(), !v.parents.is_empty(), v.note.is_some()),
+        },
+    }
+}
+
+/// One frame of a `terminal` step worked at the terminal's screen (module notes).
+fn terminal_step(p: &mut Pilot, h: &mut Hands, target: &str, item: usize, menu: Option<&str>, label: Option<&str>) -> Option<Option<String>> {
+    use nvf_play::terminal::{AidPick, TerminalInput};
+    let Some(Ok(reference)) = h.game(|g| runner::resolve(g, target)) else { return Some(Some(format!("{target}: no such reference"))) };
+    // Its screen is up already (the step before used it): no walk.
+    if p.part == 0 && !matches!(screen_of(h.terminal, reference), Screen::None | Screen::Other) {
+        (p.part, p.phase) = (1, Phase::Wait { until: p.now + TERMINAL_SECS });
+    }
+    if p.part == 0 {
+        match approach(p, h, target, "use") {
+            Err(e) => return Some(Some(e)),
+            Ok(None) => return None,
+            Ok(Some(r)) => {
+                let done = h.script.rt.as_mut().map(|rt| with_world(rt, h.sim, |rt| rt.activate_as_player(r)));
+                info!("pilot: step {}: activates the terminal {target}: {}", p.i, outcome(done.as_ref()));
+                p.terminal_at = p.now;
+                (p.part, p.phase) = (1, Phase::Wait { until: p.now + TERMINAL_SECS });
+                return None;
+            }
+        }
+    }
+    let timed_out = !matches!(p.phase, Phase::Wait { until } if p.now < until);
+    if p.part == 2 {
+        // The entry was taken: a moment for its script and its page, then on.
+        if timed_out {
+            if let Some(l) = label {
+                p.observe(l, &Map::new(), true);
+            }
+            return Some(None);
+        }
+        return None;
+    }
+    if p.now - p.terminal_at < TERMINAL_INPUT_SECS {
+        return None;
+    }
+    let send = |p: &mut Pilot, h: &mut Hands, input: TerminalInput| {
+        h.terminal_input.write(input);
+        p.terminal_at = p.now;
+    };
+    match screen_of(h.terminal, reference) {
+        Screen::None if timed_out => Some(Some(format!("the screen of {target} did not come up in {TERMINAL_SECS:.0} s (refused: locked beyond the player's Science, or its script took the activation)"))),
+        // Nothing came up and nothing is in the way now: the player presses again (a
+        // message box up at that moment had the game drop the request).
+        Screen::None if p.now - p.terminal_at > 3.0 && h.game(|g| g.menu.is_none() && g.dialogue.is_none()) == Some(true) => {
+            let done = h.script.rt.as_mut().map(|rt| with_world(rt, h.sim, |rt| rt.activate_as_player(reference)));
+            info!("pilot: step {}: no screen yet: activates {target} again: {}", p.i, outcome(done.as_ref()));
+            p.terminal_at = p.now;
+            None
+        }
+        Screen::None => None,
+        Screen::Other => {
+            send(p, h, TerminalInput::Exit);
+            None
+        }
+        Screen::LockedOut => {
+            send(p, h, TerminalInput::Exit);
+            Some(Some(format!("{target} is locked out: a player could not use it")))
+        }
+        Screen::Hacking => {
+            if timed_out {
+                return Some(Some(format!("{target} was still on its hacking page after {TERMINAL_SECS:.0} s")));
+            }
+            info!("pilot: step {}: {target} is locked: the player enters the password (a stand-in for the word game)", p.i);
+            send(p, h, TerminalInput::Aid(AidPick::Right));
+            None
+        }
+        Screen::Menu(_, _, _, true) => {
+            // A note is open over the menu: back to the list.
+            send(p, h, TerminalInput::Back);
+            None
+        }
+        Screen::Menu(shown, listed, has_parent, false) => {
+            let wanted = h.game(|g| match menu {
+                Some(m) => runner::resolve(g, m),
+                None => g.world.placed.get(reference).map(|pl| pl.base).ok_or_else(|| format!("{target} is not a placed reference")),
+            });
+            let wanted = match wanted {
+                Some(Ok(w)) => w,
+                Some(Err(e)) => return Some(Some(e)),
+                None => return Some(Some("the scripts are not running".into())),
+            };
+            if shown == wanted {
+                return match listed.iter().position(|i| *i == item) {
+                    Some(row) => {
+                        let text = h.game(|g| fnv_game::terminal::item(g, shown, item).map(|it| it.text)).flatten().unwrap_or_default();
+                        info!("pilot: step {}: takes entry {item} of {target}: {text:?}", p.i);
+                        send(p, h, TerminalInput::Aid(AidPick::Item(row)));
+                        (p.part, p.phase) = (2, Phase::Wait { until: p.now + TERMINAL_INPUT_SECS });
+                        None
+                    }
+                    None => {
+                        send(p, h, TerminalInput::Exit);
+                        Some(Some(format!("entry {item} of {target} is not listed now (listed: {listed:?}): a player could not take it")))
+                    }
+                };
+            }
+            // Another menu of this terminal is up: into the sub menu wanted, or back out.
+            let opener = h.game(|g| listed.iter().position(|i| fnv_game::terminal::item(g, shown, *i).is_some_and(|it| it.submenu == Some(wanted)))).flatten();
+            match opener {
+                Some(row) => {
+                    info!("pilot: step {}: {target}: into the sub menu the step names (row {row})", p.i);
+                    send(p, h, TerminalInput::Aid(AidPick::Item(row)));
+                    None
+                }
+                None if has_parent => {
+                    send(p, h, TerminalInput::Back);
+                    None
+                }
+                None => {
+                    send(p, h, TerminalInput::Exit);
+                    Some(Some(format!("no entry listed on {target} opens the menu the step names: a player could not get to entry {item}")))
+                }
+            }
+        }
+    }
+}
+
 /// One frame of a `kill` step fought out (module notes).
 fn fight(p: &mut Pilot, h: &mut Hands, name: &str, a: &Action) -> Option<Option<String>> {
     if matches!(p.phase, Phase::Begin) {
@@ -1841,6 +2005,7 @@ fn drive(
     (location, target, nav, world, doors): Places,
     watch: Option<Res<nvf_play::softlock::SoftlockWatch>>,
     (mut travel, mut save): (MessageWriter<TravelRequest>, MessageWriter<nvf_play::save::SaveRequest>),
+    (terminal, mut terminal_input): (Res<nvf_play::terminal::TerminalScreen>, MessageWriter<nvf_play::terminal::TerminalInput>),
     mut exit: MessageWriter<AppExit>,
 ) {
     let p = &mut *pilot;
@@ -1870,6 +2035,8 @@ fn drive(
         world: &world,
         doors: &doors,
         in_menu: scripts_menu,
+        terminal: &terminal,
+        terminal_input: &mut terminal_input,
         travel: &mut travel,
         dt,
     };
@@ -1957,7 +2124,8 @@ fn drive(
         p.actions.iter().skip(p.i).take(24).any(|a| matches!(a, Action::WaitMenu { menu, .. } if *menu == m) || matches!(a, Action::GetMenus { menus, .. } if menus.contains(&m)))
             || p.actions.iter().skip(p.i).take(6).any(|a| matches!(a, Action::CloseMenus { .. }))
     };
-    let menu = h.game(|g| g.menu).flatten().filter(|m| *m != fnv_game::game::menus::MESSAGE && !waited_for && !coming(*m));
+    // (A terminal's pages are the `terminal` steps' and the rule above's.)
+    let menu = h.game(|g| g.menu).flatten().filter(|m| *m != fnv_game::game::menus::MESSAGE && *m != nvf_play::terminal::MENU_HACKING && *m != nvf_play::terminal::MENU_TERMINAL && !waited_for && !coming(*m));
     match (menu, p.menu_since) {
         (Some(m), Some((was, t))) if m == was => {
             let up = p.now - t;
@@ -2018,6 +2186,15 @@ fn drive(
                 return;
             }
         }
+    }
+    // A terminal left open by a `terminal` step is left when another kind of step follows.
+    if terminal.0.is_some() && !matches!(p.actions.get(p.i), Some(Action::Terminal { .. })) {
+        if p.now - p.terminal_at >= TERMINAL_INPUT_SECS {
+            info!("pilot: step {}: leaves the terminal", p.i);
+            h.terminal_input.write(nvf_play::terminal::TerminalInput::Exit);
+            p.terminal_at = p.now;
+        }
+        return;
     }
     // Steps that take no time follow one another within the frame.
     for _ in 0..64 {
