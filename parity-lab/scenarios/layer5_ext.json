@@ -1460,6 +1460,20 @@
    "tags": ["ext", "jip", "probes", "jip14"]
   },
   {
+   "id": "L5.ext.rest1",
+   "layer": 5,
+   "description": "the registered commands with no wiki page, the rest, batch 1 (#2326; docs/spec-notes/ext-unlisted-rest.md): ShowOff's string maps, the _OLD commands against the current ones, StringContainsOnlyASCII, GetFuncCodeByName, GetFuncNameByCode, IsNewGame, NullArgs, SUPWRITETOLOG; set rest1 of tools/capture/jip_probes.py, keyed by probe id, steps in order. Oracle and candidate as L5.ext.jip.getters. Both start from the owner's save the golden was recorded in (nvfairport, `--save {save_path}`), recorded in the Blue Moon sandbox's stock game (xNVSE 6.4.9, JIP LN 57.30).",
+   "oracle": {"golden": "jip/rest1.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm",
+             "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/rest1.steps.json", "--save", "{save_path}", "--start-cell", "0x000DEB16"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "jip", "probes", "rest1"]
+  },
+  {
    "id": "L5.ext.cmd1",
    "layer": 5,
    "description": "unlisted JIP LN commands, round 1 (#2318; docs/spec-notes/ext-unlisted-commands.md): GetCenterPos, CCCGetDistance, CCCInFaction, CCCLocationName, RefToPosStr, MoveToPosStr, container sounds, GetConditionDamagePenalty, teammate ammo, LockEquipment, the switches, CCCSavedForm, CCCGetReputation, GetHitNode, ListToArray, AttachLight/RemoveLight, RefreshAnimData, MoveAwayFromPlayer and KillActorAlt on a placed Doc Mitchell and a footlocker; set cmd1 of tools/capture/jip_probes.py, keyed by probe id, steps in order. Oracle and candidate as L5.ext.jip.getters. Both start from the owner's save the golden was recorded in (nvfairport, `--save {save_path}`), recorded in the Blue Moon sandbox's stock game (xNVSE 6.4.9, JIP LN 57.30).",

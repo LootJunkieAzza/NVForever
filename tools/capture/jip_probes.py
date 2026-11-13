@@ -9211,6 +9211,132 @@ CMD4_PROBES = (
 SETS.update({"cmd4": CMD4_PROBES})  # unlisted commands, fourth round (#2275 follow-up)
 WRITING_SETS |= {"cmd4"}
 
+
+# rest1 (writes: ShowOff string maps named nvfsm*, a form list's added entries; #2326):
+# the registered commands no wiki page lists, batch 1 (docs/spec-notes/ext-unlisted-rest.md).
+# ShowOff's AuxStringMap commands as a store; each `_OLD` command against its current one;
+# StringContainsOnlyASCII, GetFuncCodeByName / GetFuncNameByCode, IsNewGame and the
+# answers of IsJumping_BROKEN, NullArgs and SUPWRITETOLOG.
+_R1H = ("ref rP\nref rA\nref rB\nfloat fA\nfloat fB\nfloat fRes\nstring_var sText\nstring_var sK\narray_var aA\n"
+        "array_var aB\nBegin Function { }\n" + _form("rP", "14"))
+
+
+def _r1(pid, body, text=False):
+    return (f"rest1.{pid}", _R1H + body, text, None, "")
+
+
+def _r1v(pid, expr, text=False, pre=""):
+    return _r1(pid, pre + f"SetFunctionValue ({expr})", text)
+
+
+# A matrix and a vector as ShowOff's Matrix functions take them [documented: Matrix_IsMatrix].
+_M = "let aA := ar_List (ar_List 1 2) (ar_List 3 4)\n"
+_M3 = "let aA := ar_List (ar_List 1 0 0) (ar_List 0 0 -1) (ar_List 0 1 0)\n"
+_Q = "let aA := ar_List 0.7071 0 0 0.7071\n"
+_DUMP = ("let sText := \"\"\nforeach aB <- aA\n  let sText += sv_Construct \"%z;\" (sv_Join (aB[\"value\"]) \",\")\nloop\n"
+         "SetFunctionValue sText")
+_VDUMP = "SetFunctionValue (sv_Join aA \",\")"
+_SM = "*nvfsm"
+REST1_PROBES = (
+    # ---- AuxStringMap: on the player, then with no calling reference ----
+    [_r1v("sm.size.none", f"rP.AuxStringMapArrayGetSize \"{_SM}\""),
+     _r1v("sm.setfloat", f"rP.AuxStringMapArraySetFloat \"{_SM}\" \"k1\" 5"),
+     _r1v("sm.setfloat.again", f"rP.AuxStringMapArraySetFloat \"{_SM}\" \"k1\" 6"),
+     _r1v("sm.setstring", f"rP.AuxStringMapArraySetString \"{_SM}\" \"k2\" \"hello\""),
+     _r1v("sm.setref", f"rP.AuxStringMapArraySetRef \"{_SM}\" \"k3\" rP"),
+     _r1v("sm.size", f"rP.AuxStringMapArrayGetSize \"{_SM}\""),
+     _r1v("sm.getfloat", f"rP.AuxStringMapArrayGetFloat \"{_SM}\" \"k1\""),
+     _r1v("sm.getfloat.case", f"rP.AuxStringMapArrayGetFloat \"{_SM}\" \"K1\""),
+     _r1v("sm.getfloat.string", f"rP.AuxStringMapArrayGetFloat \"{_SM}\" \"k2\""),
+     _r1v("sm.getfloat.missing", f"rP.AuxStringMapArrayGetFloat \"{_SM}\" \"nokey\""),
+     _r1v("sm.getstring", f"rP.AuxStringMapArrayGetString \"{_SM}\" \"k2\"", True),
+     _r1v("sm.getstring.float", f"rP.AuxStringMapArrayGetString \"{_SM}\" \"k1\"", True),
+     _r1v("sm.getref", f"GetFormIDString (rP.AuxStringMapArrayGetRef \"{_SM}\" \"k3\")", True),
+     _r1v("sm.getref.float", f"GetFormIDString (rP.AuxStringMapArrayGetRef \"{_SM}\" \"k1\")", True)]
+    + [_r1v(f"sm.type.{k}", f"rP.AuxStringMapArrayGetValueType \"{_SM}\" \"{k}\"") for k in ("k1", "k2", "k3", "nokey")]
+    + [_r1v("sm.type.nomap", "rP.AuxStringMapArrayGetValueType \"*nvfnone\" \"k1\""),
+       _r1v("sm.first", f"rP.AuxStringMapArrayGetFirst \"{_SM}\"", True),
+       _r1v("sm.next1", f"rP.AuxStringMapArrayGetNext \"{_SM}\"", True),
+       _r1v("sm.next2", f"rP.AuxStringMapArrayGetNext \"{_SM}\"", True),
+       _r1v("sm.next3", f"rP.AuxStringMapArrayGetNext \"{_SM}\"", True),
+       _r1v("sm.first.again", f"rP.AuxStringMapArrayGetFirst \"{_SM}\"", True),
+       _r1("sm.keys", f"let aA := rP.AuxStringMapArrayGetKeys \"{_SM}\"\n" + _VDUMP, True),
+       _r1("sm.keys.size", f"let aA := rP.AuxStringMapArrayGetKeys \"{_SM}\"\nSetFunctionValue (ar_Size aA)"),
+       _r1("sm.asarray", f"let aA := rP.AuxStringMapArrayGetAsArray \"{_SM}\"\n"
+           "SetFunctionValue (sv_Construct \"%g %g %z %z\" (ar_Size aA) (TypeOf aA) (TypeOf aA[\"k1\"]) (TypeOf aA[\"k2\"]))", True),
+       _r1("sm.asarray.values", f"let aA := rP.AuxStringMapArrayGetAsArray \"{_SM}\"\nlet fA := aA[\"k1\"]\nlet sText := aA[\"k2\"]\n"
+           "SetFunctionValue (sv_Construct \"%g %z\" fA sText)", True),
+       _r1("sm.getall.0", "let aA := rP.AuxStringMapArrayGetAll 0\nSetFunctionValue (sv_Construct \"%g %z\" (ar_Size aA) (TypeOf aA))", True),
+       _r1("sm.getall.1", "let aA := rP.AuxStringMapArrayGetAll 1\nSetFunctionValue (sv_Construct \"%g %z\" (ar_Size aA) (TypeOf aA))", True),
+       _r1("sm.getall.keys", "let aA := rP.AuxStringMapArrayGetAll 0\nlet aB := ar_Keys aA\nSetFunctionValue (sv_Join aB \",\")", True),
+       _r1("sm.fromarray", "let aA := ar_Map \"x\"::1 \"y\"::\"two\"\n"
+           "let fA := rP.AuxStringMapArraySetFromArray \"*nvfsm2\" aA\n"
+           "SetFunctionValue (sv_Construct \"%g %g %g\" fA (rP.AuxStringMapArrayGetSize \"*nvfsm2\") (rP.AuxStringMapArrayGetFloat \"*nvfsm2\" \"x\"))", True),
+       _r1("sm.fromarray.keep", "let aA := ar_Map \"z\"::3\nlet fA := rP.AuxStringMapArraySetFromArray \"*nvfsm2\" aA 1\n"
+           "SetFunctionValue (sv_Construct \"%g %g\" fA (rP.AuxStringMapArrayGetSize \"*nvfsm2\"))", True),
+       _r1("sm.fromarray.replace", "let aA := ar_Map \"w\"::4\nlet fA := rP.AuxStringMapArraySetFromArray \"*nvfsm2\" aA 0\n"
+           "SetFunctionValue (sv_Construct \"%g %g\" fA (rP.AuxStringMapArrayGetSize \"*nvfsm2\"))", True),
+       _r1v("sm.validate", f"rP.AuxStringMapArrayValidateValues \"{_SM}\""),
+       _r1v("sm.erase", f"rP.AuxStringMapArrayEraseKey \"{_SM}\" \"k1\""),
+       _r1v("sm.erase.missing", f"rP.AuxStringMapArrayEraseKey \"{_SM}\" \"k1\""),
+       _r1v("sm.size.erased", f"rP.AuxStringMapArrayGetSize \"{_SM}\""),
+       # Whose map: another reference's, and none (the script's own?).
+       _r1v("sm.other.ref", f"rA.AuxStringMapArrayGetSize \"{_SM}\"", pre=_form("rA", "104C0F")),
+       _r1v("sm.noref.size", f"AuxStringMapArrayGetSize \"{_SM}\""),
+       _r1v("sm.noref.set", "AuxStringMapArraySetFloat \"*nvfsm3\" \"a\" 1"),
+       _r1v("sm.noref.get", "AuxStringMapArrayGetFloat \"*nvfsm3\" \"a\""),
+       _r1v("sm.noref.player", "rP.AuxStringMapArrayGetFloat \"*nvfsm3\" \"a\""),
+       _r1v("sm.saved.set", "rP.AuxStringMapArraySetFloat \"nvfsm4\" \"a\" 9"),
+       _r1v("sm.saved.get", "rP.AuxStringMapArrayGetFloat \"nvfsm4\" \"a\""),
+       _r1v("sm.destroy", f"rP.AuxStringMapArrayDestroy \"{_SM}\""),
+       _r1v("sm.destroy.again", f"rP.AuxStringMapArrayDestroy \"{_SM}\""),
+       _r1v("sm.size.destroyed", f"rP.AuxStringMapArrayGetSize \"{_SM}\""),
+       _r1v("sm.destroy.saved", "rP.AuxStringMapArrayDestroy \"nvfsm4\""),
+       _r1v("sm.destroy.2", "rP.AuxStringMapArrayDestroy \"*nvfsm2\""),
+       _r1v("sm.destroy.3", "AuxStringMapArrayDestroy \"*nvfsm3\"")]
+    # ---- the `_OLD` commands against the current ones ----
+    + [_r1v("old.ismatrix", "Matrix_IsMatrix_OLD aA", pre=_M), _r1v("new.ismatrix", "Matrix_IsMatrix aA", pre=_M),
+       _r1v("old.ismatrix.vec", "Matrix_IsMatrix_OLD aA", pre=_Q), _r1v("new.ismatrix.vec", "Matrix_IsMatrix aA", pre=_Q),
+       _r1("old.transpose", _M + "let aA := Matrix_Transpose_OLD aA\n" + _DUMP, True),
+       _r1("new.transpose", _M + "let aA := Matrix_Transpose aA\n" + _DUMP, True),
+       _r1("old.scalar", _M + "let aA := Matrix_ApplyOperationWithScalar_OLD aA \"*\" 2\n" + _DUMP, True),
+       _r1("new.scalar", _M + "let aA := Matrix_ApplyOperationWithScalar aA \"*\" 2\n" + _DUMP, True),
+       _r1("old.matrix", _M + "let aA := Matrix_ApplyOperationWithMatrix_OLD aA \"+\" aA\n" + _DUMP, True),
+       _r1("new.matrix", _M + "let aA := Matrix_ApplyOperationWithMatrix aA \"+\" aA\n" + _DUMP, True),
+       _r1("old.quat", _M3 + "let aA := Matrix3x3_GetQuaternion_OLD aA\n" + _VDUMP, True),
+       _r1("new.quat", _M3 + "let aA := Matrix3x3_GetQuaternion aA\n" + _VDUMP, True),
+       _r1("old.quatmat", _Q + "let aA := Quaternion_GetMatrix_OLD aA\n" + _DUMP, True),
+       _r1("new.quatmat", _Q + "let aA := Quaternion_GetMatrix aA\n" + _DUMP, True),
+       _r1v("old.dump", "Matrix_Dump_OLD aA", pre=_M), _r1v("new.dump", "Matrix_Dump aA", pre=_M),
+       _r1("old.listadd", _form("rA", "17BA3B") + "let fA := ListGetCount rA\nlet aA := ar_List rP\n"
+           "let fB := ListAddArray_OLD rA aA 0\nlet fRes := ListGetCount rA\nListRemoveForm rA rP\n"
+           "SetFunctionValue (sv_Construct \"%g %g %g %g\" fA fB fRes (ListGetCount rA))", True),
+       _r1("new.listadd", _form("rA", "17BA3B") + "let fA := ListGetCount rA\nlet aA := ar_List rP\n"
+           "let fB := ListAddArray rA aA 0\nlet fRes := ListGetCount rA\nListRemoveForm rA rP\n"
+           "SetFunctionValue (sv_Construct \"%g %g %g %g\" fA fB fRes (ListGetCount rA))", True),
+       _r1v("old.isjumping", "rP.IsJumping_BROKEN"), _r1v("new.isjumping", "rP.IsJumping")]
+    # ---- pure getters and answers ----
+    + [_r1v("ascii.plain", "StringContainsOnlyASCII \"Hello 123 !?\""),
+       _r1v("ascii.empty", "StringContainsOnlyASCII \"\""),
+       _r1v("ascii.high", "StringContainsOnlyASCII \"café\""),
+       _r1v("funccode.getav", "GetFuncCodeByName \"GetAV\""),
+       _r1v("funccode.getactorvalue", "GetFuncCodeByName \"GetActorValue\""),
+       _r1v("funccode.case", "GetFuncCodeByName \"getactorvalue\""),
+       _r1v("funccode.jip", "GetFuncCodeByName \"AttachLight\""),
+       _r1v("funccode.none", "GetFuncCodeByName \"NoSuchCommand\""),
+       _r1v("funcname.100e", "GetFuncNameByCode 4110", True),
+       _r1v("funcname.2879", "GetFuncNameByCode 10361", True),
+       _r1v("funcname.none", "GetFuncNameByCode 1", True),
+       _r1v("funcname.big", "GetFuncNameByCode 65000", True),
+       _r1v("isnewgame", "IsNewGame"),
+       _r1v("nullargs", "NullArgs"),
+       _r1v("nullargs.1", "NullArgs 1"),
+       _r1v("writetolog", "SUPWRITETOLOG \"nvf probe line\"")]
+)
+
+SETS.update({"rest1": REST1_PROBES})  # unlisted commands, the rest, batch 1 (#2326)
+WRITING_SETS |= {"rest1"}
+
 def script(body):
     if body.startswith(("ref ", "float ")):
         return body + "\nEnd\n"

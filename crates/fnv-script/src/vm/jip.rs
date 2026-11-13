@@ -23,11 +23,19 @@ pub struct JipStores {
     /// Where RefMapArrayGetNext goes on from, per map.
     #[serde(skip)]
     cursor: BTreeMap<String, usize>,
+    /// ShowOff's string maps (AuxStringMapArray…): name -> lower-case key -> (the key as
+    /// first set, value), one store for every reference [observed: rest1.sm.other.ref,
+    /// sm.noref.*; docs/spec-notes/ext-unlisted-rest.md §3].
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub strmaps: BTreeMap<String, BTreeMap<String, (String, XVal)>>,
+    /// Where AuxStringMapArrayGetNext goes on from, per map.
+    #[serde(skip)]
+    strmap_cursor: BTreeMap<String, usize>,
 }
 
 impl JipStores {
     pub fn is_empty(&self) -> bool {
-        self.aux.is_empty() && self.refmaps.is_empty()
+        self.aux.is_empty() && self.refmaps.is_empty() && self.strmaps.is_empty()
     }
 }
 
@@ -693,6 +701,167 @@ impl Vm<'_, '_> {
     fn jlist(&mut self, items: Vec<XVal>) -> Result<XVal, VmError> {
         let entries = items.into_iter().enumerate().map(|(i, v)| (XKey::Num(i as f64), v)).collect();
         Ok(XVal::Array(self.store()?.new_array(ArrayKind::List, entries)))
+    }
+
+    /// ShowOff's AuxStringMapArray functions (docs/spec-notes/ext-unlisted-rest.md §3;
+    /// observed: set rest1 of tools/capture/jip_probes.py), by their full names.
+    pub(super) fn strmap_function(&mut self, n: &str, c: &XCall) -> Result<Option<XVal>, VmError> {
+        let Some(op) = n.strip_prefix("auxstringmaparray") else { return Ok(None) };
+        // `0|1`: every temporary (1) or saved (0) map, by name, each as a string map;
+        // no array when there is none [observed: sm.getall.0 none with no saved map,
+        // sm.getall.1 one with one temporary map; hypothesis: the flag picks the store].
+        if op == "getall" {
+            let temp = match self.jarg(c, 0)? {
+                Some(v) => v.num()? != 0.0,
+                None => false,
+            };
+            let maps = if temp { self.store()?.jip_temp.strmaps.clone() } else { self.store()?.jip.strmaps.clone() };
+            if maps.is_empty() {
+                return Ok(Some(XVal::Array(0)));
+            }
+            let mut entries = Vec::new();
+            for (name, m) in maps {
+                let inner = m.into_values().map(|(k, v)| (XKey::Str(k), v)).collect();
+                entries.push((XKey::Str(name), XVal::Array(self.store()?.new_array(ArrayKind::StringMap, inner))));
+            }
+            return Ok(Some(XVal::Array(self.store()?.new_array(ArrayKind::StringMap, entries))));
+        }
+        let name = match self.jarg(c, 0)? {
+            Some(XVal::Str(s)) => s.to_lowercase(),
+            _ => return Err(VmError::Type(format!("{n} without a name"))),
+        };
+        let v = match op {
+            // The setters answer 0 [observed: sm.setfloat, setstring, setref].
+            "setfloat" | "setref" | "setstring" => {
+                let k = self.strmap_key(n, c)?;
+                let v = match self.jarg(c, 2)? {
+                    Some(v) => match kind_of(op) {
+                        'f' => XVal::Num(v.num()?),
+                        'r' => XVal::Ref(v.value()?.as_form().unwrap_or(0)),
+                        _ => XVal::Str(match v {
+                            XVal::Str(s) => s,
+                            other => self.text_of(&other)?,
+                        }),
+                    },
+                    None => return Err(VmError::Expression(format!("{n} without a value"))),
+                };
+                let m = stores(self.store()?, &name).strmaps.entry(name.clone()).or_default();
+                m.entry(k.to_lowercase()).and_modify(|e| e.1 = v.clone()).or_insert((k, v));
+                XVal::Num(0.0)
+            }
+            // Keys ignore case; a getter of another type gives 0, "" or no form
+            // [observed: sm.getfloat.case, getfloat.string, getstring.float, getref.float].
+            "getfloat" | "getref" | "getstring" | "getvaluetype" => {
+                let k = self.strmap_key(n, c)?.to_lowercase();
+                let v = stores(self.store()?, &name).strmaps.get(&name).and_then(|m| m.get(&k)).map(|e| e.1.clone());
+                if op == "getvaluetype" { XVal::Num(type_code(v.as_ref())) } else { typed(v.as_ref(), kind_of(op)) }
+            }
+            "getsize" => XVal::Num(stores(self.store()?, &name).strmaps.get(&name).map_or(0, BTreeMap::len) as f64),
+            "getkeys" => {
+                let keys = stores(self.store()?, &name).strmaps.get(&name).map(|m| m.values().map(|e| XVal::Str(e.0.clone())).collect()).unwrap_or_default();
+                self.jlist(keys)?
+            }
+            // A string map of the keys and values [observed: sm.asarray "3 2"].
+            "getasarray" => {
+                let m = stores(self.store()?, &name).strmaps.get(&name).cloned().unwrap_or_default();
+                let entries = m.into_values().map(|(k, v)| (XKey::Str(k), v)).collect();
+                XVal::Array(self.store()?.new_array(ArrayKind::StringMap, entries))
+            }
+            // A [key, value] list; none after the last [observed: sm.first, next1-3,
+            // first.again].
+            "getfirst" | "getnext" => {
+                let s = stores(self.store()?, &name);
+                let at = if op == "getfirst" { 0 } else { s.strmap_cursor.get(&name).copied().unwrap_or(0) };
+                let pair = s.strmaps.get(&name).and_then(|m| m.values().nth(at)).cloned();
+                s.strmap_cursor.insert(name.clone(), at + 1);
+                match pair {
+                    Some((k, v)) => self.jlist(vec![XVal::Str(k), v])?,
+                    None => XVal::Array(0),
+                }
+            }
+            // `name array [keep]`: the map becomes the array's string keys and values, or
+            // (keep non-zero) gains them; answers 0 [observed: sm.fromarray 2 keys,
+            // fromarray.keep 3, fromarray.replace 1].
+            "setfromarray" => {
+                let id = match self.jarg(c, 1)? {
+                    Some(XVal::Array(id)) => id,
+                    _ => return Ok(Some(XVal::Num(0.0))),
+                };
+                let keep = match self.jarg(c, 2)? {
+                    Some(v) => v.num()? != 0.0,
+                    None => false,
+                };
+                let pairs: Vec<(String, XVal)> = match self.store()?.array(id) {
+                    Some(a) => a.entries.iter().filter_map(|(k, v)| if let XKey::Str(s) = k { Some((s.clone(), v.clone())) } else { None }).collect(),
+                    None => Vec::new(),
+                };
+                let s = stores(self.store()?, &name);
+                let m = s.strmaps.entry(name.clone()).or_default();
+                if !keep {
+                    m.clear();
+                }
+                for (k, v) in pairs {
+                    m.insert(k.to_lowercase(), (k, v));
+                }
+                if m.is_empty() {
+                    s.strmaps.remove(&name);
+                }
+                XVal::Num(0.0)
+            }
+            // The pairs left; 0 when the key was not there [observed: sm.erase 2 of 3,
+            // erase.missing 0].
+            "erasekey" => {
+                let k = self.strmap_key(n, c)?.to_lowercase();
+                let s = stores(self.store()?, &name);
+                let mut left = 0;
+                if let Some(m) = s.strmaps.get_mut(&name) {
+                    if m.remove(&k).is_some() {
+                        left = m.len();
+                    }
+                    if m.is_empty() {
+                        s.strmaps.remove(&name);
+                    }
+                }
+                XVal::Num(left as f64)
+            }
+            // Pairs whose form is gone are dropped; the pairs left [observed: sm.validate
+            // 3 with every value alive; hypothesis: dead forms go, as RefMapArrayValidate].
+            "validatevalues" => {
+                let forms: Vec<(String, u32)> = match stores(self.store()?, &name).strmaps.get(&name) {
+                    Some(m) => m.iter().filter_map(|(k, e)| if let XVal::Ref(f) = e.1 { (f != 0).then(|| (k.clone(), f)) } else { None }).collect(),
+                    None => Vec::new(),
+                };
+                let mut dead = Vec::new();
+                for (k, f) in forms {
+                    if self.host.form_sig(f).is_none() {
+                        dead.push(k);
+                    }
+                }
+                let s = stores(self.store()?, &name);
+                if let Some(m) = s.strmaps.get_mut(&name) {
+                    m.retain(|k, _| !dead.contains(k));
+                }
+                XVal::Num(s.strmaps.get(&name).map_or(0, BTreeMap::len) as f64)
+            }
+            // Answers 0 either way [observed: sm.destroy, destroy.again].
+            "destroy" => {
+                let s = stores(self.store()?, &name);
+                s.strmap_cursor.remove(&name);
+                s.strmaps.remove(&name);
+                XVal::Num(0.0)
+            }
+            _ => return Ok(None),
+        };
+        Ok(Some(v))
+    }
+
+    /// A string map's key, argument 1, as text.
+    fn strmap_key(&mut self, n: &str, c: &XCall) -> Result<String, VmError> {
+        match self.jarg(c, 1)? {
+            Some(XVal::Str(s)) => Ok(s),
+            Some(other) => self.text_of(&other),
+            None => Err(VmError::Expression(format!("{n} without a key"))),
+        }
     }
 
     /// The auxiliary-variable and RefMap functions (jip-variable-stores.md), by their

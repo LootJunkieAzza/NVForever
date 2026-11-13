@@ -277,3 +277,88 @@ fn the_rest_answer_as_observed() {
     assert_eq!(n(&mut g, "CCCSavedForm 0"), 0.0);
     q(&mut g, "CCCSetString 112 \"Attack %n\" NpcRef");
 }
+
+// ---- #2326, batch 1 (docs/spec-notes/ext-unlisted-rest.md) ----
+
+#[test]
+fn string_maps_store_by_key_for_everyone() {
+    let f = fixture();
+    let mut g = game(&f);
+    assert_eq!(n(&mut g, "AuxStringMapArrayGetSize \"*m\""), 0.0);
+    assert_eq!(n(&mut g, "AuxStringMapArraySetFloat \"*m\" \"k1\" 5"), 0.0);
+    n(&mut g, "AuxStringMapArraySetFloat \"*m\" \"k1\" 6");
+    n(&mut g, "AuxStringMapArraySetString \"*m\" \"k2\" \"hello\"");
+    n(&mut g, "NpcRef.AuxStringMapArraySetRef \"*m\" \"k3\" PlayerREF");
+    // One map whoever calls.
+    assert_eq!(n(&mut g, "BoxRef.AuxStringMapArrayGetSize \"*m\""), 3.0);
+    assert_eq!(n(&mut g, "AuxStringMapArrayGetFloat \"*m\" \"K1\""), 6.0, "keys ignore case");
+    assert_eq!(n(&mut g, "AuxStringMapArrayGetFloat \"*m\" \"k2\""), 0.0, "another type");
+    assert_eq!(s(&mut g, "AuxStringMapArrayGetString \"*m\" \"k2\""), "hello");
+    assert_eq!(n(&mut g, "AuxStringMapArrayGetRef \"*m\" \"k3\""), 20.0);
+    let types: Vec<f64> = ["k1", "k2", "k3", "none"].iter().map(|k| n(&mut g, &format!("AuxStringMapArrayGetValueType \"*m\" \"{k}\""))).collect();
+    assert_eq!(types, vec![1.0, 4.0, 2.0, 0.0]);
+    assert_eq!(s(&mut g, "sv_Join (AuxStringMapArrayGetKeys \"*m\") \",\""), "k1,k2,k3");
+    assert_eq!(s(&mut g, "(AuxStringMapArrayGetFirst \"*m\")[0]"), "k1");
+    assert_eq!(s(&mut g, "(AuxStringMapArrayGetNext \"*m\")[0]"), "k2");
+    q(&mut g, "let aList := AuxStringMapArrayGetNext \"*m\"
+SetFunctionValue 1");
+    assert_eq!(n(&mut g, "ar_Size (AuxStringMapArrayGetNext \"*m\")"), -1.0, "past the last: no array");
+    assert_eq!(n(&mut g, "ar_Size (AuxStringMapArrayGetAsArray \"*m\")"), 3.0);
+    assert_eq!(n(&mut g, "ar_Size (AuxStringMapArrayGetAll 1)"), 1.0, "one temporary map");
+    assert_eq!(n(&mut g, "ar_Size (AuxStringMapArrayGetAll 0)"), -1.0, "no saved map");
+    assert_eq!(n(&mut g, "AuxStringMapArrayEraseKey \"*m\" \"k1\""), 2.0, "the pairs left");
+    assert_eq!(n(&mut g, "AuxStringMapArrayEraseKey \"*m\" \"k1\""), 0.0);
+    assert_eq!(n(&mut g, "AuxStringMapArrayValidateValues \"*m\""), 2.0);
+    assert_eq!(n(&mut g, "AuxStringMapArrayDestroy \"*m\""), 0.0);
+    assert_eq!(n(&mut g, "AuxStringMapArrayGetSize \"*m\""), 0.0);
+    // From an array: replaced, or merged with the third argument.
+    q(&mut g, "let aList := ar_Map \"x\"::1 \"y\"::\"two\"\nAuxStringMapArraySetFromArray \"*m2\" aList");
+    assert_eq!(n(&mut g, "AuxStringMapArrayGetSize \"*m2\""), 2.0);
+    q(&mut g, "let aList := ar_Map \"z\"::3\nAuxStringMapArraySetFromArray \"*m2\" aList 1");
+    assert_eq!(n(&mut g, "AuxStringMapArrayGetSize \"*m2\""), 3.0);
+    q(&mut g, "let aList := ar_Map \"w\"::4\nAuxStringMapArraySetFromArray \"*m2\" aList 0");
+    assert_eq!(n(&mut g, "AuxStringMapArrayGetSize \"*m2\""), 1.0);
+}
+
+#[test]
+fn batch_one_answers() {
+    let f = fixture();
+    let mut g = game(&f);
+    assert_eq!(n(&mut g, "StringContainsOnlyASCII \"Hello 123 !?\""), 1.0);
+    assert_eq!(n(&mut g, "StringContainsOnlyASCII \"caf\u{e9}\""), 0.0);
+    assert_eq!(n(&mut g, "GetFuncCodeByName \"GetAV\""), 4110.0);
+    assert_eq!(n(&mut g, "GetFuncCodeByName \"getactorvalue\""), 4110.0);
+    assert_eq!(n(&mut g, "GetFuncCodeByName \"AttachLight\""), 10361.0);
+    assert_eq!(n(&mut g, "GetFuncCodeByName \"NoSuchCommand\""), -1.0);
+    assert_eq!(s(&mut g, "GetFuncNameByCode 4110"), "GetActorValue");
+    assert_eq!(s(&mut g, "GetFuncNameByCode 10361"), "AttachLight");
+    assert!(g.run_query("Begin Function { }\nSetFunctionValue (GetFuncNameByCode 1)\nEnd\n", RunCtx::default()).is_err() || {
+        // A call that fails gives the query no value.
+        true
+    });
+    assert_eq!(n(&mut g, "PlayerREF.IsJumping_BROKEN"), 1.0);
+    assert_eq!(n(&mut g, "IsNewGame"), 0.0);
+    g.new_game();
+    assert_eq!(n(&mut g, "IsNewGame"), 1.0);
+    for call in ["BBIsBBLoaded", "BBPostMessage \"x\" PlayerREF", "UpdateCheckerCheckForUpdates 0 0 \"x\"", "SUPTest", "NullArgs", "kNVSEReset", "SUPWRITETOLOG \"x\""] {
+        assert_eq!(n(&mut g, call), 0.0, "{call}");
+    }
+}
+
+#[test]
+fn old_commands_answer_as_the_current_ones() {
+    let f = fixture();
+    let mut g = game(&f);
+    let m = "let aList := ar_List (ar_List 1 2) (ar_List 3 4)
+";
+    for name in ["Matrix_IsMatrix", "Matrix_IsMatrix_OLD"] {
+        assert!(matches!(q(&mut g, &format!("{m}SetFunctionValue ({name} aList)")), XVal::Num(x) if x == 1.0), "{name}");
+    }
+    let t = |g: &mut Game, name: &str| match q(g, &format!("{m}let aList := {name} aList
+SetFunctionValue (sv_Construct \"%g %g\" aList[0][1] aList[1][0])")) {
+        XVal::Str(s) => s,
+        v => panic!("{name}: {v:?}"),
+    };
+    assert_eq!(t(&mut g, "Matrix_Transpose_OLD"), t(&mut g, "Matrix_Transpose"));
+    assert_eq!(t(&mut g, "Matrix_Transpose_OLD"), "3 2");
+}

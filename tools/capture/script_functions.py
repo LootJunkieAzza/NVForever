@@ -387,6 +387,79 @@ PAGELESS += [
 ]
 
 
+
+# The rest of the registered commands no wiki page lists (#2326), batch 1: argument counts
+# and kinds from the compile-shape run in the original (each name compiled with 23 argument
+# patterns inside `if 0`; docs/spec-notes/ext-unlisted-rest.md §1), behaviour from set rest1.
+def _x(name, origin, returns, params=(), ref=None, aliases=None, cat=None):
+    rec = {"name": name, "page": None, "origin": origin, "returns": {"type": returns, "name": None},
+           "params": list(params), "categories": [cat or f"Functions ({origin})"]}
+    if aliases:
+        rec["aliases"] = aliases
+    if ref:
+        rec["calling_reference"] = ref
+    if not rec["params"]:
+        del rec["params"]
+    return rec
+
+
+_S, _I, _F, _R = (lambda n, o=False: _p(n, "string", None, o)), (lambda n, o=False: _p(n, "int", None, o)), \
+    (lambda n, o=False: _p(n, "float", None, o)), (lambda n, o=False: _p(n, "reference", "ref", o))
+_A = lambda n, o=False: _p(n, "array", "array_var", o)  # noqa: E731
+_SO = "ShowOff"
+PAGELESS += [
+    # SUP's network services, tests and log (answer 0, extender-compat.md §5.8).
+    _x("BBAPIKeyExist", "SUP", "int"), _x("BBAreMessagesFetched", "SUP", "int"), _x("BBDeleteUserMessage", "SUP", "int", [_I("id")]),
+    _x("BBGetBBKey", "SUP", "string_var"), _x("BBGetCurrentNotesInCell", "SUP", "array"),
+    _x("BBGetInfoForReference", "SUP", "array", [_R("ref")]), _x("BBGetTextMenuString", "SUP", "string_var"),
+    _x("BBGetUserInfo", "SUP", "array", [_I("id")]), _x("BBGetUserMessages", "SUP", "array"), _x("BBHideMessage", "SUP", "int", [_I("id")]),
+    _x("BBIsBBLoaded", "SUP", "int"), _x("BBIsReferenceNote", "SUP", "int", [_R("ref")]), _x("BBIsTextEditMenuActive", "SUP", "int"),
+    _x("BBLikeMessage", "SUP", "int", [_I("id")]), _x("BBNexusAPIKeyExist", "SUP", "int"), _x("BBOnCellChange", "SUP", "void", [_R("cell")]),
+    _x("BBPostMessage", "SUP", "int", [_S("text"), _R("ref")]), _x("BBReportMessage", "SUP", "int", [_I("id"), _S("reason")]),
+    _x("BBReturnAllMessagesToDefaultCell", "SUP", "void"), _x("BBSetTextMenuTitle", "SUP", "void", [_S("title")]),
+    _x("UpdateCheckerCheckForUpdates", "SUP", "int", [_I("a"), _I("b"), _S("url")]),
+    _x("UpdateCheckerReturnArray", "SUP", "array", [_I("id")]),
+    _x("GetSUPDateCheckerCurrentStage", "SUP", "int"), _x("GetSUPDateCheckerDoneStage", "SUP", "int"),
+    _x("GetPastebinReaderCurrentStage", "SUP", "int"), _x("GetPastebinReaderDoneStage", "SUP", "int"),
+    _x("SUPTest", "SUP", "void"), _x("LunetteCMD", "SUP", "void", [_I("command")]), _x("SUPWRITETOLOG", "SUP", "void", [_S("text")]),
+    _x("DumpTileInfoChilds", "SUP", "void", [_S("tile", True)]),
+    _x("StringContainsOnlyASCII", "SUP", "int", [_S("text")]), _x("IsNewGame", "SUP", "int"),
+    _x("ERDTestFunc", "One111", "void", [_I("value")]),
+    _x("GetFuncCodeByName", "One111", "int", [_S("name")]), _x("GetFuncNameByCode", "One111", "string_var", [_I("code")]),
+    _x("NullArgs", "JohnnyGuitar", "void", [_I("value", True)]), _x("RefAddrxData", "JohnnyGuitar", "int", [_I("type")]),
+    _x("kNVSEReset", "kNVSE", "void"),
+    # ShowOff's `_OLD` commands, answering as the current ones.
+    _x("Matrix_IsMatrix_OLD", _SO, "int", [_A("array")], aliases=["Mat_IsMat_OLD"]),
+    _x("Matrix3x3_GetQuaternion_OLD", _SO, "array", [_A("3x3RotationMatrix")], aliases=["Mat_GetQuat_OLD"]),
+    _x("Quaternion_GetMatrix_OLD", _SO, "array", [_A("quaternion")], aliases=["Quat_GetMat_OLD"]),
+    _x("Matrix_Transpose_OLD", _SO, "array", [_A("matrix")], aliases=["Mat_T_OLD"]),
+    _x("Matrix_Dump_OLD", _SO, "void", [_A("matrix")], aliases=["Mat_Dump_OLD"]),
+    _x("Matrix_ApplyOperationWithScalar_OLD", _SO, "array", [_A("matrix"), _S("operator"), _F("scalar")], aliases=["Mat_ApplyOpWithScal_OLD"]),
+    _x("Matrix_ApplyOperationWithMatrix_OLD", _SO, "array", [_A("matrixA"), _S("operator"), _A("matrixB")], aliases=["Mat_ApplyOpWithMat_OLD"]),
+    _x("ListAddArray_OLD", _SO, "int", [_p("formlist", "form"), _A("array"), _I("index", True)], aliases=["AddArrayToFormList_OLD"]),
+    _x("TopicInfoSetResponseStrings_OLD", _SO, "void", [_p("TopicInfo", "form"), _A("newStrings")]),
+    _x("IsJumping_BROKEN", _SO, "int", ref="reference"),
+    # ShowOff's string maps.
+    _x("AuxStringMapArrayGetSize", _SO, "int", [_S("name")], aliases=["AuxStringMapSize"]),
+    _x("AuxStringMapArrayGetValueType", _SO, "int", [_S("name"), _S("key")], aliases=["AuxStringMapGetValueType"]),
+    _x("AuxStringMapArrayGetFloat", _SO, "float", [_S("name"), _S("key")], aliases=["AuxStringMapGetFlt"]),
+    _x("AuxStringMapArrayGetRef", _SO, "ref", [_S("name"), _S("key")], aliases=["AuxStringMapGetRef"]),
+    _x("AuxStringMapArrayGetString", _SO, "string_var", [_S("name"), _S("key")], aliases=["AuxStringMapGetStr"]),
+    _x("AuxStringMapArrayGetFirst", _SO, "array", [_S("name")], aliases=["AuxStringMapFirst"]),
+    _x("AuxStringMapArrayGetNext", _SO, "array", [_S("name")], aliases=["AuxStringMapNext"]),
+    _x("AuxStringMapArrayGetKeys", _SO, "array", [_S("name")], aliases=["AuxStringMapKeys"]),
+    _x("AuxStringMapArrayGetAll", _SO, "array", [_I("temporary")], aliases=["AuxStringMapGetAll"]),
+    _x("AuxStringMapArrayGetAsArray", _SO, "array", [_S("name")], aliases=["AuxStringMapGetAsArr"]),
+    _x("AuxStringMapArraySetFromArray", _SO, "int", [_S("name"), _A("array"), _I("keep", True)], aliases=["AuxStringMapSetFromArr"]),
+    _x("AuxStringMapArraySetFloat", _SO, "int", [_S("name"), _S("key"), _F("value")], aliases=["AuxStringMapSetFlt"]),
+    _x("AuxStringMapArraySetRef", _SO, "int", [_S("name"), _S("key"), _R("value")], aliases=["AuxStringMapSetRef"]),
+    _x("AuxStringMapArraySetString", _SO, "int", [_S("name"), _S("key"), _S("value")], aliases=["AuxStringMapSetStr"]),
+    _x("AuxStringMapArrayEraseKey", _SO, "int", [_S("name"), _S("key")], aliases=["AuxStringMapEraseKey"]),
+    _x("AuxStringMapArrayValidateValues", _SO, "int", [_S("name")], aliases=["AuxStringMapValidateVals"]),
+    _x("AuxStringMapArrayDestroy", _SO, "int", [_S("name")], aliases=["AuxStringMapDestroy"]),
+]
+
+
 # Pages whose template `name` is another function's (copied from a sibling page): the
 # page title is the function's name [documented: each page's title and its example,
 # e.g. "GetConditionFormOneFloat HitReactionIdles 0 1"; the template says

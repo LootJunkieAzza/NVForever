@@ -2580,6 +2580,8 @@ impl<'a> Game<'a> {
     /// "New Game" menu starts is a separate input, scripts.md §8]; the placed actors that
     /// start as corpses are dead ([`Game::lay_out_corpses`]).
     pub fn new_game(&mut self) {
+        // IsNewGame (`crate::nvse_unlisted2`): until a save is loaded.
+        self.other.unlisted2.new_game = true;
         // Placed corpses (Base Health 0) lie dead from the start.
         self.lay_out_corpses();
         let start: Vec<FormId> = self.data.quests.values().filter(|q| q.start_enabled()).map(|q| q.form).collect();

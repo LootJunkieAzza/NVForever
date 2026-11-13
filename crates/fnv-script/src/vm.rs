@@ -3065,6 +3065,12 @@ impl Vm<'_, '_> {
         if let Some(outs) = out_params(&lname) {
             return self.out_call(&lname, c, outs);
         }
+        // ShowOff's string maps live with JIP's stores (`vm::jip`).
+        if lname.starts_with("auxstringmaparray") {
+            if let Some(v) = self.strmap_function(&lname, c)? {
+                return Ok(v);
+            }
+        }
         if origin == "JIP" || origin == "LU" {
             return match self.jip_function(&lname, c)? {
                 Some(v) => Ok(v),
