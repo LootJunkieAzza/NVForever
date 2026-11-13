@@ -586,6 +586,9 @@ unless the player binds them, so nothing changes until then.
 | V.A.T.S. Starts on the Head | `bVATSAutoTargetHead` | `vats_mode::classic_frame` picks `head_part` (the part whose condition is Perception Condition) instead of the best chance when a target's part is first set |
 | Hide HUD key | `iHideHUDKey` | `bindings::Control::HideHud` toggles `hud::HudHidden`; `hud::hide_parts` (PostUpdate, before the tiles' hiding) hides the `HpPiece`, `ApPiece`, sneak word and needs words its switches choose; `HIDE_HUD_SAVE_HOOK` starts a load hidden under Hidden After Loading. The tile-drawn HUD is not hidden by it |
 | Place Name on the HUD | `bHUDMarkerNameIndicator` | `hud::place_name` writes `hud::place_ahead`: of the worldspace's named markers present and within the compass's place reach (`compass::place_range`), the bearing nearest the view heading within the angle; drawn centred over the compass's heading point above the health piece. The readme's angle offset (its triangle's off-centre) has nothing to correct here |
+| Keep Stations Out of Range | `bSelectUnavailableRadios` | `radio::Radio::received_once` holds every station the Pip-Boy has received (`RECEIVED_SAVE_HOOK`, remapped); under the switch `pipboy_list` adds those still enabled, so one can be tuned to out of range and the Pip-Boy plays it once it is received (the existing "tuned to X, which is not received here: silent" path). Turned on with no station it takes the first received here |
+| Continue Shows Its Save | `bMainMenuContinueIcon` | `main_menu::continue_picture` reads the newest save's thumbnail once (`save::decode_thumbnail`) and shows it under the logo (`ContinuePicture`) while Continue is the chosen entry on the main page |
+| Quest Text Over the Pip-Boy | `bQuestTextVisibleInMenus` | `quest_messages::over_menus`: in the Menu state with the Pip-Boy up or a terminal open the area is not held, is drawn at `OVER_MENUS_Z` above both, and its clock runs on real time; sitting is the Playing state, where the area already shows |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -607,8 +610,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 516 |
-| to do | 87 |
+| done | 519 |
+| to do | 84 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -906,6 +909,7 @@ game's Data folder, read-only).
 | `bRepairRequiresWeaponSkill` | done |  |  | Repair Needs the Weapon's Skill (Pip-Boy repair) |
 | `bRepeatJumping` | done |  |  | Hold to Keep Jumping |
 | `bScopeVisibilityDelay` | done |  | 4 | Scope Delay (ms) (stops aiming while reloading was already so; the other options not built) |
+| `bSelectUnavailableRadios` | done | yes |  | Keep Stations Out of Range (the stations received before, while enabled; kept with the save) |
 | `bSkipVigorTesterSpecialPages` | done |  |  | S.P.E.C.I.A.L. Machine: Straight to the Summary |
 | `bSlotsAutoSpinHotkey` | done |  |  | Slots: Hold to Spin (W held) |
 | `bSwapAmmoWithWeaponHolstered` | done |  |  | Swap Ammo While Holstered (reloads when drawn) |
@@ -916,7 +920,6 @@ game's Data folder, read-only).
 | `bUseFirstPersonEmptyClipSound` | done |  |  | already so: one empty-clip sound, played at the listener |
 | `bDoubleTapReloadToChangeAmmoType` | to do | yes | 2 | the owner moved Lower Weapon off a double tap because it held reloads back; ask first |
 | `bRestore2Hotkey` | unsure, skipped | yes | 2 | needs the plugin's own menu XML |
-| `bSelectUnavailableRadios` | to do | yes |  | the Pip-Boy lists only stations in range |
 | `bSkipDeathcamHotkey` | to do | yes | 2 | the death camera (nvforever death_cam) has no end but a load yet |
 | `bAddItemUsesItemIcon` | unsure, skipped |  |  | needs an icon replacer |
 | `bAddNightVisionToggle` | to do |  | 4 | a night vision state plus flashlight and scope_view |
@@ -1066,6 +1069,7 @@ game's Data folder, read-only).
 | `bKarmaTitleShowsValue` | done |  |  | already so: the karma number is under its title |
 | `bLockpickAllowMouse` | done |  |  | Mouse Turns the Lock |
 | `bLockPickMenuKeyboardMovement` | done |  | 3 | Lockpicking With the Movement Keys (Shift x2, Ctrl x0.5: ours) |
+| `bMainMenuContinueIcon` | done | yes |  | Continue Shows Its Save (the newest save's picture under the logo while Continue is chosen) |
 | `bMapLocationDisplayDistance` | done |  | 3 | Map Marker Distance (metres or kilometres; the travel-time modes not done) |
 | `bMapMarkersShowFactionName` | done |  | 1 | already so: the reputation line names the faction (worded "Goodsprings: Neutral") |
 | `bMapRecenterHotkey` | done |  | 2 | Map Recentre Key (C, at once; no easing) |
@@ -1079,6 +1083,7 @@ game's Data folder, read-only).
 | `bPlaceMarkersAtLocations` | done | yes | 1 | already so: the highlight box takes to a place or door near the pointer, and Place Marker puts the marker on it (both maps) |
 | `bPreventNoFastTravelMessage` | done |  | 1 | Quiet Undiscovered Markers (the sound option not built) |
 | `bPreviewPerksOnLevelUp` | done |  |  | Preview Perks on Level Up (the page with none to take) |
+| `bQuestTextVisibleInMenus` | done |  |  | Quest Text Over the Pip-Boy (and terminals; while sitting it already shows) |
 | `bRememberPipboyScrollPositions` | done | yes |  | Remember Item List Places (the Items lists' rows, each tab its own, kept with the save) |
 | `bReputationShowsFameInfamy` | done |  | 3 | Show Fame and Infamy (numbers; the percentage option not built) |
 | `bRightClickChangesToPreviousContainerCategory` | done |  |  | Right Click for the Previous Category (container and barter; not the recipe menu) |
@@ -1108,7 +1113,6 @@ game's Data folder, read-only).
 | `bTerminalInstantDisplayHotkey` | done |  |  | already so: terminal text is shown whole |
 | `bTimescaleAffectsMinigames` | done |  |  | Lockpicking Follows the Time Speed (the lock only; the card and slot games keep their pace) |
 | `bChallengeMenuIcons` | unsure, skipped | yes |  | needs another mod (challenge icons) |
-| `bMainMenuContinueIcon` | to do | yes |  | thumbnails are on the load page only |
 | `bRemoveDownloadsButton` | n/a | yes |  | NVForever has no Downloads button |
 | `bSaveCharacterSelector` | unsure, skipped | yes | 1 | needs the plugin's own menu XML |
 | `bShowWeaponPoisonEffects` | to do | yes |  | NVForever has no weapon poison yet |
@@ -1127,7 +1131,6 @@ game's Data folder, read-only).
 | `bNoMinCompanionMapDistance` | to do |  |  | companions are not drawn on the world map yet |
 | `bNoteMenuShowSeparateMenu` | unsure, skipped |  | 1 | needs another mod (Book Menu Restored) |
 | `bQuantityMenuRespectsCompanionCarryCap` | to do |  |  | asks_quantity has no world |
-| `bQuestTextVisibleInMenus` | to do |  |  | quest_messages held; check what draws over the Pip-Boy |
 | `bRepairAllConfirmation` | to do |  | 2 | a confirmation box in repair |
 | `bRepairItemsPreview` | to do |  | 1 | a preview session in the repair list |
 | `bShowInventorySortButton` | unsure, skipped |  | 11 | needs the plugin's own menu XML |

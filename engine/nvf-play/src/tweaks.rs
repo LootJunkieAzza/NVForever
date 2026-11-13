@@ -232,6 +232,12 @@ pub struct TweakSettings {
     pub invert_title_wheel: bool,
     /// `bAutoContinueGame`: the main menu continues the newest save at once.
     pub auto_continue: bool,
+    /// `bMainMenuContinueIcon`: the main menu shows the newest save's picture while
+    /// Continue is chosen.
+    pub continue_shows_save: bool,
+    /// `bQuestTextVisibleInMenus`: the quest and location lines stay up over the Pip-Boy
+    /// and a terminal.
+    pub quest_text_in_menus: bool,
     /// `bHideAmmoLabel`: no ammo counter on the HUD.
     pub hide_ammo_label: bool,
     /// `bNoFreeBarterItems`/`fFreeItemCost`: the price of things worth nothing in a
@@ -642,6 +648,8 @@ impl Default for TweakSettings {
             discovered_in_corner: false,
             invert_title_wheel: false,
             auto_continue: false,
+            continue_shows_save: false,
+            quest_text_in_menus: false,
             hide_ammo_label: false,
             free_item_price: 0.0,
             duplicate_binds: false,
@@ -1376,6 +1384,8 @@ impl Plugin for TweaksPlugin {
         );
         // ---- batch 25 ----
         switch!(app, "invert-title-wheel", "Reverse Category Wheel", "The mouse wheel over a container's category title steps the other way. (Stewie's Tweaks bInvertContainerTitleScrollwheelDirection)", invert_title_wheel);
+        switch!(app, "quest-text-in-menus", "Quest Text Over the Pip-Boy", "The quest and location lines stay on screen, and go on, while the Pip-Boy or a terminal is open. (Stewie's Tweaks bQuestTextVisibleInMenus)", quest_text_in_menus);
+        switch!(app, "continue-shows-save", "Continue Shows Its Save", "On the main menu, the picture of the save Continue loads is shown while Continue is chosen. (Stewie's Tweaks bMainMenuContinueIcon)", continue_shows_save);
         switch!(app, "auto-continue", "Continue at Start", "The main menu continues the newest save at once, the first time it opens; hold Shift to stay on the menu. (Stewie's Tweaks bAutoContinueGame)", auto_continue);
         // ---- batch 26 ----
         switch!(app, "hide-ammo-label", "No Ammo Counter", "The HUD shows no ammo counter. (Stewie's Tweaks bHideAmmoLabel)", hide_ammo_label);
@@ -1616,6 +1626,7 @@ impl Plugin for TweaksPlugin {
         switch!(app, "console-output-file", "Console Output File", "Console lines are added to ConsoleOutput.txt in NVForever's folder from the start. (Stewie's Tweaks bUseConsoleOutputFile)", console_output_file);
         switch!(app, "console-text-shadow", "Console Text Shadow", "The console's lines are a darker green over a faint shadow, easier to read on a bright view. (Stewie's Tweaks bConsoleTextShadow)", console_text_shadow);
         switch!(app, "click-to-exit-loading", "Press to Leave Loading Screens", "A loading screen stays up once everything is in until a key or a button is pressed. (Stewie's Tweaks bClickToExitLoadScreens)", click_to_exit_loading);
+        switch!(app, "select-unavailable-radios", "Keep Stations Out of Range", "Stations the Pip-Boy has received stay on its list out of range; tuned to one, it plays once the station is received again. (Stewie's Tweaks bSelectUnavailableRadios)", game.select_unavailable_radios);
         switch!(app, "radiation-radio-static", "Radiation Brings Radio Static", "Taking radiation brings static into the Pip-Boy's radio, more the faster the rads come. (Stewie's Tweaks bRadiationCausesRadioStatic)", game.radiation_radio_static);
         switch!(app, "barter-caps-change", "Barter Shows Caps After", "In a barter, each side's caps after the trade are shown beside its caps now. (Stewie's Tweaks bBarterShowCapsChange)", barter_caps_change);
         switch!(app, "no-self-meltdown", "No Self Meltdown Damage", "Blasts given off by the Meltdown perk hurt neither the player nor the companions. (Stewie's Tweaks bNoSelfMeltdownDamage)", game.no_self_meltdown);

@@ -399,6 +399,9 @@ pub struct Tweaks {
     /// `bRadiationCausesRadioStatic`: radiation taken brings static into the Pip-Boy's
     /// radio.
     pub radiation_radio_static: bool,
+    /// `bSelectUnavailableRadios`: the Pip-Boy keeps the stations it has received on its
+    /// list out of range; tuned to one, it plays when the station is received again.
+    pub select_unavailable_radios: bool,
     /// `bNoSelfMeltdownDamage`: Meltdown's blasts do not hurt the player or companions.
     pub no_self_meltdown: bool,
     /// `iMaxCharacterLevel`: the player's level cap, the add-ons' +5 left out; 0 as the
@@ -768,6 +771,7 @@ impl Default for Tweaks {
             mark_notes_unread: false,
             vats_shift_ignores_friends: false,
             radiation_radio_static: false,
+            select_unavailable_radios: false,
             no_self_meltdown: false,
             max_level: 0,
             standing_sneak_attacks: false,

@@ -422,7 +422,12 @@ pub struct Radio {
     /// The listener's worldspace and position when last outdoors.
     outdoors: Option<(u32, [f32; 3])>,
     /// The Pip-Boy's stations received now (bases, in the list's order), and as logged.
+    /// Under the player's Select Unavailable Radios tweak it also holds the stations it
+    /// has received before ([`Radio::received_once`]) that are out of range now.
     pub pipboy_list: Vec<u32>,
+    /// The Pip-Boy's stations (bases) it has ever received, kept with the save
+    /// ([`RECEIVED_SAVE_HOOK`]) [design: docs/design/tweaks.md].
+    pub received_once: BTreeSet<u32>,
     logged_list: Option<Vec<u32>>,
     /// The Pip-Boy radio as last logged: on, the station, received.
     logged_pipboy: Option<(bool, Option<FormId>, bool)>,
@@ -608,13 +613,14 @@ fn received(sim: &SimState, places: &RadioPlaces, station_ref: u32, l: &Listener
 }
 
 /// The Pip-Boy's list: radio stations without the Non-Pipboy flag received at `l`, by
-/// name.
-fn pipboy_list(sim: &SimState, places: &RadioPlaces, l: &Listener) -> Vec<u32> {
+/// name; with `also` (the Select Unavailable Radios tweak) the stations it holds as well
+/// while they are enabled, received here or not.
+fn pipboy_list(sim: &SimState, places: &RadioPlaces, l: &Listener, also: Option<&BTreeSet<u32>>) -> Vec<u32> {
     let mut list: Vec<(String, u32)> = places
         .station_ref
         .iter()
         .filter(|(b, _)| places.forms.stations.get(b).is_some_and(|s| s.on_pipboy()))
-        .filter(|(_, &r)| received(sim, places, r, l).is_some())
+        .filter(|(b, &r)| received(sim, places, r, l).is_some() || (also.is_some_and(|a| a.contains(b)) && enabled(sim, places, r)))
         .map(|(&b, _)| {
             let s = &places.forms.stations[&b];
             (s.name.clone().or_else(|| s.edid.clone()).unwrap_or_default().to_ascii_lowercase(), b)
@@ -797,7 +803,11 @@ fn play(
     }
 
     // The Pip-Boy: its list, a script's tuning, and its station.
-    radio.pipboy_list = pipboy_list(&sim, &places, &listener);
+    let received_now = pipboy_list(&sim, &places, &listener, None);
+    radio.received_once.extend(received_now.iter().copied());
+    // Turned on without a station: the first received here (not one only kept on the list).
+    let first_received = received_now.first().copied();
+    radio.pipboy_list = if rt.game.tweaks.select_unavailable_radios { pipboy_list(&sim, &places, &listener, Some(&radio.received_once)) } else { received_now };
     if radio.logged_list.as_ref() != Some(&radio.pipboy_list) {
         info!("pipboy radio: stations received: {}", radio.pipboy_list.iter().map(|&b| name(&places, b)).collect::<Vec<_>>().join(", "));
         radio.logged_list = Some(radio.pipboy_list.clone());
@@ -816,7 +826,7 @@ fn play(
         }
     }
     if pip.on && pip.station.is_none() {
-        pip.station = radio.pipboy_list.first().map(|b| FormId(places.station_ref[b]));
+        pip.station = first_received.map(|b| FormId(places.station_ref[&b]));
     }
     let pip_station = pip.station.filter(|_| pip.on).and_then(|s| Some((s, places.base_of(s.0)?)));
     let pip_share = pip_station.and_then(|(s, _)| received(&sim, &places, s.0, &listener)).map(|share| share.max(rad_static));
@@ -1186,12 +1196,46 @@ impl Plugin for RadioPlugin {
             .add_systems(Startup, (init, load_aids))
             .add_systems(Update, (pipboy_controls, play).chain().after(crate::PlaySet::Scripts))
             .add_systems(Last, (release_files, report));
+        crate::save::add_save_hook(app, RECEIVED_SAVE_HOOK);
     }
 }
+
+/// The Pip-Boy's stations received once ([`Radio::received_once`]) in the save, by base
+/// FormID; remapped to the current load order, those of a plugin no longer loaded
+/// dropped. A save without them leaves none.
+pub const RECEIVED_SAVE_HOOK: crate::save::SaveHook = crate::save::SaveHook {
+    key: "radio_received",
+    save: |w| w.get_resource::<Radio>().filter(|r| !r.received_once.is_empty()).map(|r| serde_json::Value::from(r.received_once.iter().copied().collect::<Vec<u32>>())),
+    load: |w, v| {
+        if let Some(mut r) = w.get_resource_mut::<Radio>() {
+            r.received_once = v.as_array().into_iter().flatten().filter_map(|n| n.as_u64().map(|n| n as u32)).collect();
+        }
+    },
+    remap: Some(|v, r| {
+        if let Some(list) = v.as_array_mut() {
+            *list = list.iter().filter_map(|n| n.as_u64().and_then(|n| r.map(n as u32))).map(serde_json::Value::from).collect();
+        }
+    }),
+};
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The stations received once go with the save and come back with it.
+    #[test]
+    fn received_stations_are_kept_with_the_save() {
+        let mut w = World::new();
+        w.init_resource::<Radio>();
+        assert_eq!((RECEIVED_SAVE_HOOK.save)(&w), None, "none received, nothing saved");
+        w.resource_mut::<Radio>().received_once.extend([0x0011_2233, 0x0001_0203]);
+        let v = (RECEIVED_SAVE_HOOK.save)(&w).expect("saved");
+        assert_eq!(v, serde_json::json!([0x0001_0203, 0x0011_2233]));
+        let mut fresh = World::new();
+        fresh.init_resource::<Radio>();
+        (RECEIVED_SAVE_HOOK.load)(&mut fresh, &v);
+        assert_eq!(fresh.resource::<Radio>().received_once, w.resource::<Radio>().received_once);
+    }
 
     /// A radio song plays at full level whatever its record's static attenuation (#1077).
     #[test]
