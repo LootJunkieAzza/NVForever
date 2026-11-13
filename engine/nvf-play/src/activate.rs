@@ -512,6 +512,35 @@ impl AutoActivate {
     }
 }
 
+/// How long E is held to act under the player's Hold to Activate tweak, seconds [design].
+pub const HOLD_ACTIVATE: f32 = 0.5;
+
+/// The kinds of target the player's Hold to Activate tweak asks E to be held on.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct HoldKinds {
+    pub containers: bool,
+    pub furniture: bool,
+    pub water: bool,
+}
+
+impl HoldKinds {
+    pub fn of(t: &fnv_game::tweaks::Tweaks) -> HoldKinds {
+        HoldKinds { containers: t.hold_activate && t.hold_containers, furniture: t.hold_activate && t.hold_furniture, water: t.hold_activate && t.hold_water }
+    }
+
+    /// Whether E must be held on `t`: a container or a body to search, furniture, water.
+    pub fn needs(&self, sim: &SimState, t: &Targeted) -> bool {
+        let base = sim.base_of(t.form_id).and_then(|b| sim.forms.get(b)).map(|b| &b.data);
+        match &t.action {
+            Action::Search => self.containers,
+            Action::Open => self.containers && matches!(base, Some(BaseData::Container(_))),
+            Action::Activate => self.furniture && matches!(base, Some(BaseData::Furniture)),
+            Action::Drink => self.water,
+            _ => false,
+        }
+    }
+}
+
 /// The clocks of the activate aid: time, the stopped-clock time and the world aids' clock
 /// (each absent in tests that build without them).
 pub(crate) type AidClocks<'w> = (Option<Res<'w, Time>>, Option<Res<'w, crate::pause::PlayClock>>, Option<Res<'w, crate::pause::WorldAidClock>>);
@@ -521,7 +550,7 @@ pub(crate) type AidClocks<'w> = (Option<Res<'w, Time>>, Option<Res<'w, crate::pa
 type ActivateFrom<'w> = (Res<'w, Target>, Option<ResMut<'w, ActivateNext>>, (Option<Res<'w, crate::vats_mode::VatsMode>>, Option<Res<'w, crate::weapon_wheel::WeaponWheel>>), Option<ResMut<'w, crate::grab::GrabState>>);
 
 /// Activate (E) activates the target; the outcome's effects go out as messages.
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub(crate) fn activate(
     input: crate::bindings::ControlInput,
     (time, clock, world): AidClocks,
@@ -543,7 +572,7 @@ pub(crate) fn activate(
     script: Option<ResMut<crate::script::ScriptState>>,
     locks: Option<Res<crate::control::ControlLocks>>,
     stats: Option<ResMut<crate::control::LockStats>>,
-    (mut mines, mut disarm_rolls): (Option<ResMut<crate::mines::Mines>>, Local<u64>),
+    (mut mines, mut disarm_rolls, mut hold, mut used): (Option<ResMut<crate::mines::Mines>>, Local<u64>, Local<Option<(u32, f32, bool)>>, Option<ResMut<Messages<crate::ItemUsed>>>),
 ) {
     // A reference queued by a lock just opened, or by the perks' choice list answered
     // with the default action: activated as if E were pressed on it.
@@ -558,6 +587,7 @@ pub(crate) fn activate(
     // that E came up before the hold picked it up.
     let tapped = grab.as_mut().and_then(|g| g.released_tap(input.pressed(crate::bindings::Control::Activate)));
     let queued = queued.or(tapped);
+    let hold_dt = time.as_ref().map_or(0.0, |t| t.delta_secs());
     let fired = match (auto, time) {
         // The aids' clock goes on while a menu holds the picture (`crate::pause`); a world
         // aid, it waits for the scripts with NVF_PLAY_AIDS_FROM_SCRIPTS (`WorldAidClock`).
@@ -567,7 +597,31 @@ pub(crate) fn activate(
         }
         _ => false,
     };
-    if !input.just_pressed(crate::bindings::Control::Activate) && !fired && queued.is_none() {
+    // The player's Hold to Activate tweak: on the kinds it names E must be held
+    // [`HOLD_ACTIVATE`] before it acts [design: docs/design/tweaks.md].
+    let kinds = script.as_ref().and_then(|s| s.rt.as_ref()).map(|rt| HoldKinds::of(&rt.game.tweaks)).unwrap_or_default();
+    let needs_hold = target.0.as_ref().filter(|t| kinds.needs(&sim, t));
+    let mut pressed_now = input.just_pressed(crate::bindings::Control::Activate);
+    if let Some(t) = needs_hold {
+        let dt = hold_dt;
+        let down = input.pressed(crate::bindings::Control::Activate);
+        pressed_now = false;
+        match hold.as_mut() {
+            Some((id, secs, done)) if *id == t.form_id && down => {
+                *secs += dt;
+                if !*done && *secs >= HOLD_ACTIVATE {
+                    *done = true;
+                    pressed_now = true;
+                    info!("activate 0x{:08X} {}: held {:.2} s (tweak)", t.form_id, t.name, *secs);
+                }
+            }
+            _ if input.just_pressed(crate::bindings::Control::Activate) => *hold = Some((t.form_id, 0.0, false)),
+            _ => *hold = None,
+        }
+    } else {
+        *hold = None;
+    }
+    if !pressed_now && !fired && queued.is_none() {
         return;
     }
     // VATS mode has Activate for itself (it fires the marks, docs/design/vats-mode.md §11.5).
@@ -674,6 +728,8 @@ pub(crate) fn activate(
     }
     // The actor's place before, to put back if a teleport cannot be followed.
     let before = sim.world.peek(FormId::PLAYER_REF).map(|p| (p.cell, p.pos, p.rot));
+    // The player's Quick Use tweak: Shift held as an item is taken [design: docs/design/tweaks.md].
+    let quick = script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.quick_use) && input.keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]);
     let a = match crate::script::activate_by_hand(script.map(|s| s.into_inner()), &mut sim, t.form_id) {
         Ok(crate::script::ByHand::Default(a)) => {
             sounds.write(crate::world_sounds::Activated { reference: t.form_id });
@@ -720,6 +776,20 @@ pub(crate) fn activate(
         }
     };
     info!("activate 0x{:08X} {} ({}): {:?}", t.form_id, t.name, t.action.label(), a);
+    // Quick Use: a weapon taken goes in hand, an aid item is used, apparel but armour goes
+    // on, as its hotkey would (`crate::hotkeys::use_slot`) [design: docs/design/tweaks.md].
+    if let (true, Outcome::PickedUp { item, .. }) = (quick, &a.outcome) {
+        let armour = sim.forms.item(*item).is_some_and(|i| i.kind == ItemKind::Armor && i.armor_dt.is_some_and(|dt| dt > 0.0));
+        if !armour {
+            let r = crate::hotkeys::use_slot(&mut sim.world, Some(crate::hotkeys::Slot { item: item.0, mods: 0 }));
+            if let crate::hotkeys::Used::UsedUp(u) = r {
+                if let Some(m) = used.as_mut() {
+                    m.write(crate::ItemUsed { item: u.0, limb: None });
+                }
+            }
+            info!("activate 0x{:08X} {}: quick use: {} (tweak)", t.form_id, t.name, r.describe(&t.name));
+        }
+    }
     // Opened with the player's key: the lock's opening sound, as a picked lock's
     // (`crate::lockpick`) [owner 2026-10-27; hypothesis: the original's sound for a key].
     if a.unlocked_with.is_some() {

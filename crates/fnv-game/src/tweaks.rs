@@ -424,6 +424,17 @@ pub struct Tweaks {
     pub pp_worn: f32,
     pub pp_free_items: bool,
     pub pp_reward_xp: bool,
+    /// `bHoldToActivate` (`bContainers`, `bFurniture`, `bWater`): E is held, not pressed,
+    /// to search containers and bodies, use furniture, drink water.
+    pub hold_activate: bool,
+    pub hold_containers: bool,
+    pub hold_furniture: bool,
+    pub hold_water: bool,
+    /// `bQuickUse` (`bRealtimeQuickUse`): Shift held while taking an item uses or equips it.
+    pub quick_use: bool,
+    /// `bVATSThrowablesUseVisibility`: a thrown weapon's (no grenade's) V.A.T.S. chance is
+    /// times the share of the part in sight.
+    pub vats_throw_visibility: bool,
     /// `bRobotCompanionsHealWithScrapMetal` (`fBase`, `fRepairMult`,
     /// `fRoboticsExpertBonus`): the companion wheel heals a robot with Scrap Metal, this
     /// much health each, plus this much per 10 points of Repair and this with Robotics Expert.
@@ -886,6 +897,12 @@ impl Default for Tweaks {
             pp_worn: 5.0,
             pp_free_items: false,
             pp_reward_xp: false,
+            hold_activate: false,
+            hold_containers: true,
+            hold_furniture: true,
+            hold_water: true,
+            quick_use: false,
+            vats_throw_visibility: false,
             robots_heal_with_scrap: false,
             robot_heal_base: 20.0,
             robot_heal_per_repair: 5.0,

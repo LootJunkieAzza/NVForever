@@ -628,6 +628,9 @@ unless the player binds them, so nothing changes until then.
 | Keyboard and Mouse With a Controller | `bAllowKeyboardAndMouseWithControllerConnected` | `bindings::ControlInput` asks the keys and mouse buttons as well as the pad when `keys_with_pad`; `player::mouse_look` takes a moving mouse. The switch: `TweakSettings::keys_with_pad` |
 | Tag Skills in Bold | `bEmboldenTagSkills` | `pipboy::stats::read` marks `Row::bold` on the player's tag skills; `stats::list` draws a bold row's name again `BOLD_SHIFT` to the right. The switch: `Tweaks::embolden_tags` |
 | Pickpocket Overhaul | `bPickpocketOverhaul` | `fnv_game::pickpocket::Overhaul` (`chance`, `xp`), `Game::pickpocket_overhaul` reads the figures as the menu opens; `menu::model::Steal::chance` uses it; `pickpocket` awards the experience (`experience::Source::Pickpocket`). The switches: `Tweaks::pickpocket_overhaul`, `pp_*` |
+| Hold to Activate | `bHoldToActivate` | `activate::activate` counts E held on a target `HoldKinds::needs` names and acts at `HOLD_ACTIVATE`. The switches: `Tweaks::hold_activate`, `hold_containers`, `hold_furniture`, `hold_water` |
+| Quick Use | `bQuickUse` | `activate::activate` runs `hotkeys::use_slot` on a picked-up item with Shift held (an aid item's `ItemUsed` sent). The switch: `Tweaks::quick_use` |
+| V.A.T.S. Throwables Use Visibility | `bVATSThrowablesUseVisibility` | `vats_mode::throw_sees` (a thrown weapon whose projectile lands as a weapon), `part_seen` (seven lines), `Spot::seen` multiplies `chance_of` in the preview and the mark. The switch: `Tweaks::vats_throw_visibility` |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -649,10 +652,10 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 564 |
-| to do | 35 |
+| done | 567 |
+| to do | 31 |
 | unsure, skipped | 19 |
-| n/a | 17 |
+| n/a | 18 |
 | skipped: fix | 10 |
 
 ### Gameplay
@@ -704,6 +707,7 @@ game's Data folder, read-only).
 | `bGrabbingItemsIsCrime` | done |  | 1 | Grabbing Is Stealing (any value; the minimum-value option not built) |
 | `bHardcoreTweaks` | done |  | 3 | Hardcore Rules One by One: Ammo Has Weight, Companions Cannot Die, Sleep Heals, each whatever the mode |
 | `bHittingWeaponsDoesntDamageThem` | done |  |  | Shots Spare Weapons |
+| `bHoldToActivate` | done |  | 9 | Hold to Activate: E held half a second (ours) on containers and bodies, furniture and water, each a switch (bContainers, bFurniture, bWater). Not built: crafting (nothing marks a workbench), taking items while held, the stealing delay |
 | `bHoldToHolsterMeleeWeapons` | done |  |  | already so: a tap reloads, holstering needs the hold, and melee drops the reload |
 | `bHostilesPrioritizePlayer` | done |  | 3 | Hostiles Prioritize Player with Chance at the Start, Chance Mid-Fight and Detection Needed; one roll for each companion a fighter would pick |
 | `bImprovedHacking` | done |  | 10 | four Hacking switches (symbols do nothing, no repeat guesses, dud when attempts full, duds spare tried words); the print options not built |
@@ -755,6 +759,7 @@ game's Data folder, read-only).
 | `bPreventNPCAddiction` | done |  |  | No NPC Addiction |
 | `bPreventReloadWeaponUnholstering` | done |  |  | Ready Does Not Draw |
 | `bPreventStealingCapsAfterRepair` | done |  | 1 | Repair Caps Go to the Till |
+| `bQuickUse` | done |  | 9 | Quick Use: Shift held while taking an item uses it or puts it on at once as its hotkey would (a weapon in hand, aid taken; armour only taken). Its other options (the container's right click and F key, books, notes, stats while Shift is held, re-read, the controller) are not built |
 | `bReduceXP` | done |  | 2 | Experience Earned (slider, x0 to x2) |
 | `bReloadingPreventsWeaponHotkeys` | done |  |  | No Hotkeys While Reloading (the weapon wheel and its taps) |
 | `bReloadingWithFullClipSwitchesAmmoType` | done |  |  | Full Reload Swaps Ammo |
@@ -790,6 +795,7 @@ game's Data folder, read-only).
 | `bVATSHipFire` | done |  |  | V.A.T.S. Hip Fire (entered not aiming: every gun shot from the hip) |
 | `bVATSIgnoreNonExplosiveProjectiles` | done |  |  | V.A.T.S. Ignores Non-Explosive Projectiles: with projectile targeting on, only those with an explosion are marked |
 | `bVATSTargetPlayerProjectiles` | done |  |  | V.A.T.S. Targets Your Own Projectiles: the player's own can be marked too |
+| `bVATSThrowablesUseVisibility` | done |  |  | V.A.T.S. Throwables Use Visibility: with a thrown weapon that lands as itself (no grenade), a part's chance is times the share of seven points about it a line from the eye reaches (our sampling) |
 | `bWeaponModdingSkillRequirement` | done |  |  | Weapon Mods Need the Skill (the Pip-Boy mod list) |
 | `bWeightlessWornArmor` | done |  | 1 | Worn Armor Weighs Nothing (weightless; the scale option not built) |
 | `bWeightlessWornPowerArmor` | done |  | 3 | Worn Power Armor Weighs Nothing (weightless; the scale and requirement options not built) |
@@ -799,16 +805,13 @@ game's Data folder, read-only).
 | `bMoreFrequentNPCLightUpdates` | unsure, skipped | yes | 1 | NVForever lights actors its own way; unclear what to change |
 | `bCharacterRadiation` | to do |  | 1 | not built: only the player takes environment radiation |
 | `bHipFireAnimsWhileScoped` | unsure, skipped |  |  | depends on alternate animations |
-| `bHoldToActivate` | to do |  | 9 | a hold on E is taken by grab; needs a timer and per-kind choices |
 | `bNoLockEncounterZoneLevels` | unsure, skipped |  |  | encounter-zone level locking not yet checked in NVForever |
 | `bNPCsDropLiveGrenades` | to do |  |  | not built: NPC grenades have no in-hand phase |
 | `bPreventRepairIfNotAtWorkbench` | to do |  |  | workbenches are activators whose own scripts open the recipe menu; nothing marks one for the crosshair |
-| `bQuickUse` | to do |  | 9 | two input paths that do not exist yet |
 | `bRunAndGunAPInCombatOnly` | to do |  |  | not built: no run-and-gun AP rule |
 | `bSneakingDoesntForcePowerAttacks` | unsure, skipped |  |  | depends on separate animations |
 | `bStrengthAffectsAllThrowables` | unsure, skipped |  |  | how fThrowingStrengthPenalty shortens a throw is not documented (the GECK wiki export names the setting but has no page for it), and NVForever applies it to no throw yet |
 | `bUseArmorRepairKitsInRepairMenu` | unsure, skipped |  |  | the masters have no armour repair kit, and nothing in the data marks a mod's item as one or says how much it repairs |
-| `bVATSThrowablesUseVisibility` | to do |  |  | not built: V.A.T.S. chance has no visibility term |
 
 ### Combat
 
@@ -1307,7 +1310,6 @@ game's Data folder, read-only).
 | `bHeatbeatSoundsFade` | to do | yes | 2 | NVForever plays no heartbeat yet |
 | `bImprovedWeather` | to do | yes | 1 | the renderer does not know a fast travel happened |
 | `bMultithreadedHackingMenu` | n/a | yes |  | performance work on the original |
-| `bNoDespawnVisibleStuckProjectiles` | to do | yes |  | projectiles do not stick in NVForever yet |
 | `bPartialReloads` | unsure, skipped | yes |  | depends on animation file naming conventions not yet checked |
 | `bUseAnimVariants` | unsure, skipped | yes | 3 | depends on animation file naming conventions not yet checked |
 | `bVATSStopFollowingDeadTargets` | to do | yes |  | needs the kill camera shot's start frame kept |
@@ -1318,7 +1320,6 @@ game's Data folder, read-only).
 | `bDialogMenuDebugging` | n/a |  |  | a mod-author debug print |
 | `bDisableAchievements` | n/a |  |  | NVForever has no achievements |
 | `bDisableCharacterRespec` | to do |  |  | the respec is plugin script data |
-| `bDisableRegionBordersKeepMessage` | to do |  |  | not built: no world borders |
 | `bInvalidBSFadeNodePrints` | n/a |  |  | the plugin's own warning |
 | `bNoPipboyOnAltTab` | n/a |  |  | the original's alt-tab handling |
 | `bPrintErrorsToConsole` | n/a |  | 5 | the original's error log |
@@ -1327,8 +1328,10 @@ game's Data folder, read-only).
 | `bSwapKeyboardYZKeys` | n/a |  |  | the original's keyboard handling; NVForever's keys can be rebound |
 | `bTerminalFadeTime` | to do |  | 1 | not built: terminals do not fade |
 | `bUKKeyboard` | n/a |  |  | the original's keyboard handling |
+| `bNoDespawnVisibleStuckProjectiles` | n/a | yes |  | projectiles do not stick in NVForever: a landed shot ends (thrown weapons lie as items, `crate::thrown`), so nothing stuck despawns |
 | `bUseFallout3AudioDistortion` | unsure, skipped |  |  | needs the original sequel's filter described first |
 | `bUseHitLocationInCinematicKillcams` | to do |  |  | not built: no cinematic kill camera outside V.A.T.S. |
+| `bDisableRegionBordersKeepMessage` | to do |  |  | NVForever has no world borders yet (nothing stops the player at a border region); when they are built, this keeps the warning without the stop |
 
 ### Fixes
 

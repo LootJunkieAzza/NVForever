@@ -1779,6 +1779,12 @@ impl Plugin for TweaksPlugin {
         amount!(app, "pp-worn", "Pickpocket Overhaul: Worn Items", "A worn item's chance times this many tenths. (fWornItemChanceMult)", 50.0, f32, game.pp_worn);
         switch!(app, "pp-free-items", "Pickpocket Overhaul: Free Items Always", "Items worth nothing, such as keys, are always taken unseen. (bIgnoreFreeItems)", game.pp_free_items);
         switch!(app, "pp-reward-xp", "Pickpocket Overhaul: Experience", "A pocket picked gives experience: the items' weight and value by their figures above, plus the target's Perception. (bRewardXP)", game.pp_reward_xp);
+        switch!(app, "hold-activate", "Hold to Activate", "Some things need the Activate key held half a second instead of pressed (chosen below). (Stewie's Tweaks bHoldToActivate)", game.hold_activate);
+        switch!(app, "hold-containers", "Hold to Activate: Containers and Bodies", "Searching containers and bodies needs the hold. (bContainers)", game.hold_containers);
+        switch!(app, "hold-furniture", "Hold to Activate: Furniture", "Sitting, sleeping and other furniture need the hold. (bFurniture)", game.hold_furniture);
+        switch!(app, "hold-water", "Hold to Activate: Water", "Drinking from a tap or puddle needs the hold. (bWater)", game.hold_water);
+        switch!(app, "quick-use", "Quick Use", "Holding Shift while taking an item uses it or puts it on at once: a weapon goes in hand, aid is taken; armour is only taken. (Stewie's Tweaks bQuickUse, bRealtimeQuickUse)", game.quick_use);
+        switch!(app, "vats-throw-visibility", "V.A.T.S. Throwables Use Visibility", "With a thrown weapon (a knife, a spear; not a grenade) a V.A.T.S. part's chance is times how much of it is in sight. (Stewie's Tweaks bVATSThrowablesUseVisibility)", game.vats_throw_visibility);
         switch!(app, "robots-heal-with-scrap", "Robot Companions Heal With Scrap Metal", "The companion wheel's Use Stimpak gives a robot companion Scrap Metal instead. (Stewie's Tweaks bRobotCompanionsHealWithScrapMetal)", game.robots_heal_with_scrap);
         amount!(app, "robot-heal-base", "Scrap Metal: Health Each", "Health one Scrap Metal gives a robot companion. (Stewie's Tweaks bRobotCompanionsHealWithScrapMetal, fBase)", 200.0, f32, game.robot_heal_base);
         amount!(app, "robot-heal-per-repair", "Scrap Metal: Health per 10 Repair", "Health added for each 10 points of your Repair skill. (Stewie's Tweaks bRobotCompanionsHealWithScrapMetal, fRepairMult)", 50.0, f32, game.robot_heal_per_repair);

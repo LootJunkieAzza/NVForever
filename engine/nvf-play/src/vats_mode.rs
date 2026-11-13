@@ -301,6 +301,9 @@ struct Spot {
     projectile: Option<u64>,
     /// That projectile no longer flies: the mark is dropped as a dead actor's.
     lost: bool,
+    /// How much of the part is in sight (0 to 1), under the player's V.A.T.S. Throwables
+    /// Use Visibility tweak for a thrown weapon that is no grenade: the chance is times it.
+    seen: Option<f32>,
 }
 
 /// The weapon VATS mode was entered with.
@@ -1028,8 +1031,31 @@ fn chance_of(spot: &Spot, w: &InHand, eye: [f32; 3], cone: Option<f32>) -> f32 {
     let distance = crate::combat::distance(eye, spot.point);
     let cone = if w.style == AttackStyle::Melee { None } else { Some(cone.unwrap_or(0.0)) };
     let raw = raw_chance(&HitInputs { base: spot.base, size: spot.size, skill: w.skill, distance, cone_deg: cone }, &w.hit);
-    final_chance(raw, |c| spot.perks.apply(c as f64) as f32, spot.perks.concentrated_fire.then_some(spot.earlier), &w.hit)
+    final_chance(raw, |c| spot.perks.apply(c as f64) as f32, spot.perks.concentrated_fire.then_some(spot.earlier), &w.hit) * spot.seen.unwrap_or(1.0)
 }
+
+/// Whether the player's V.A.T.S. Throwables Use Visibility tweak scales this mode's
+/// chances: on, with a thrown weapon that lands as itself (a knife, a spear: no grenade)
+/// [design: docs/design/tweaks.md].
+fn throw_sees(v: &VatsMode, combat: &Combat, script: Option<&ScriptState>) -> bool {
+    let on = script.and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.vats_throw_visibility);
+    on && v.weapon.as_ref().is_some_and(|w| {
+        w.style == AttackStyle::Thrown && combat.forms.chain(w.id, None).and_then(|c| c.projectile).and_then(|p| combat.forms.projectiles.get(&p)).is_some_and(|p| p.lands_as_weapon())
+    })
+}
+
+/// How much of a part at `point` the eye sees: the share of seven points about it (the
+/// middle and [`SEEN_SPREAD`] units off it each way) a line reaches [design].
+fn part_seen(phys: &mut PhysState, eye: [f32; 3], point: [f32; 3]) -> f32 {
+    let filter = shot_filter(phys);
+    let s = SEEN_SPREAD;
+    let offsets = [[0.0, 0.0, 0.0], [s, 0.0, 0.0], [-s, 0.0, 0.0], [0.0, s, 0.0], [0.0, -s, 0.0], [0.0, 0.0, s], [0.0, 0.0, -s]];
+    let seen = offsets.iter().filter(|o| in_sight(phys, eye, [point[0] + o[0], point[1] + o[1], point[2] + o[2]], &filter)).count();
+    seen as f32 / offsets.len() as f32
+}
+
+/// How far from the middle [`part_seen`] tries [design].
+const SEEN_SPREAD: f32 = 8.0;
 
 /// Every mark's chance again (the marks and the player move).
 fn rechance(v: &mut VatsMode, combat: &Combat, eye: [f32; 3]) {
@@ -1492,7 +1518,7 @@ fn update(
                 // weapon's attack or its special attack (§9).
                 let on = v.classic.selected.zip(v.preview.parts.get(v.classic.part).map(|p| (p.part, p.spot.point)));
                 match on {
-                    Some((actor, (part, point))) => mark_actor(v, &combat, &parts, script.as_deref_mut(), &mut sim, &phys, &player, &mut hud, &mut sounds, actor, part, point, keys.special),
+                    Some((actor, (part, point))) => mark_actor(v, &combat, &parts, script.as_deref_mut(), &mut sim, &mut phys, &player, &mut hud, &mut sounds, actor, part, point, keys.special),
                     None => info!("vats mode: nothing selected to queue an attack on"),
                 }
             } else if keys.mark {
@@ -2181,7 +2207,7 @@ fn spot_on(v: &VatsMode, combat: &Combat, parts: &ActorParts, script: Option<&mu
         }),
         _ => (HitPerks::default(), Vec::new()),
     };
-    let mut spot = Spot { point, name, part: part_name, condition, base, size, perks, earlier, chance: 0.0, landed: None, special: false, damage: 0.0, projectile: None, lost: false };
+    let mut spot = Spot { point, name, part: part_name, condition, base, size, perks, earlier, chance: 0.0, landed: None, special: false, damage: 0.0, projectile: None, lost: false, seen: None };
     if let Some(w) = v.weapon.as_ref() {
         spot.chance = chance_of(&spot, w, player.eye(), combat.vats_cone);
     }
@@ -2337,9 +2363,14 @@ fn preview(v: &mut VatsMode, combat: &Combat, parts: &ActorParts, mut script: Op
         if let Some(actor) = actor.filter(|&a| barred(v, script.as_deref_mut(), sim, a).is_ok()) {
             let mut list = std::mem::take(&mut v.preview_list);
             parts_of(phys, parts, actor, &mut list);
+            let sees = throw_sees(v, combat, script.as_deref());
             for &part in list.iter().take(MAX_PREVIEW) {
                 let Some(point) = point_of(phys, actor, part) else { continue };
-                let (spot, _) = spot_on(v, combat, parts, script.as_deref_mut(), sim, player, actor, part, point, 0);
+                let (mut spot, _) = spot_on(v, combat, parts, script.as_deref_mut(), sim, player, actor, part, point, 0);
+                if let (true, Some(w)) = (sees, v.weapon.as_ref()) {
+                    spot.seen = Some(part_seen(phys, player.eye(), point));
+                    spot.chance = chance_of(&spot, w, player.eye(), combat.vats_cone);
+                }
                 pv.parts.push(PreviewPart { part, spot, shown: false, under: false, queued: 0, condition: None, damage: 0.0 });
             }
             v.preview_list = list;
@@ -2469,7 +2500,7 @@ fn mark_actor(
     parts: &ActorParts,
     mut script: Option<&mut ScriptState>,
     sim: &mut SimState,
-    phys: &PhysState,
+    phys: &mut PhysState,
     player: &Player,
     hud: &mut HudMessage,
     sounds: &mut Sounds,
@@ -2520,7 +2551,14 @@ fn mark_actor(
         Ok(k) => {
             let point = point_of(phys, actor, part).unwrap_or(fallback);
             v.stats.marks += 1;
+            let sees = throw_sees(v, combat, script.as_deref());
             let (mut spot, names) = spot_on(v, combat, parts, script, sim, player, actor, part, point, earlier);
+            // The player's tweak: a thrown weapon's chance by how much of the part shows.
+            if let (true, Some(w)) = (sees, v.weapon.as_ref()) {
+                spot.seen = Some(part_seen(phys, player.eye(), point));
+                spot.chance = chance_of(&spot, w, player.eye(), combat.vats_cone);
+                info!("vats mode: the part is {:.0}% in sight (tweak)", spot.seen.unwrap_or(1.0) * 100.0);
+            }
             spot.special = special.is_some();
             // What it would do: the figure its part shows now, times a special attack's.
             spot.damage = v.preview.parts.iter().find(|p| v.preview.actor == Some(actor) && p.part == part).map_or(0.0, |p| p.damage) * special.map_or(1.0, |(s, _)| s.dam_mult);
@@ -2579,7 +2617,7 @@ fn mark_object(v: &mut VatsMode, object: u32, point: [f32; 3], mut script: Optio
                 (Some(shot), Some(rt)) => with_world(rt, sim, |rt| rt.game.vats_hit_perks(shot)),
                 _ => HitPerks::default(),
             };
-            let mut spot = Spot { point, name, part: "object".into(), condition: None, base: WHOLE_TO_HIT, size: SIZE_TORSO, perks, earlier, chance: 0.0, landed: None, special: false, damage: 0.0, projectile: None, lost: false };
+            let mut spot = Spot { point, name, part: "object".into(), condition: None, base: WHOLE_TO_HIT, size: SIZE_TORSO, perks, earlier, chance: 0.0, landed: None, special: false, damage: 0.0, projectile: None, lost: false, seen: None };
             if let Some(w) = v.weapon.as_ref() {
                 spot.chance = chance_of(&spot, w, player.eye(), None);
             }
