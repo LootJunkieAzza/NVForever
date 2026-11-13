@@ -21,7 +21,9 @@
 //! [design]. On top of that each menu's own buttons press the key NVForever gives the
 //! same button there ([`menu_buttons`]), as the original's menu files assign them
 //! (`_xbox_button` on each button tile, e.g. `IM_DropButton` `&xbuttonx;`) [documented:
-//! the vanilla menu files, read with `fnvtool ui tree`]; a menu's own button wins over
+//! the vanilla menu files, read with `fnvtool ui tree`]. In the Vigor Tester, the SPECIAL
+//! page and the trait list the left stick is the D-pad too ([`menu_stick`], #2313); a
+//! menu's own button wins over
 //! the shared ones (on the ITEMS page LB is Mod, not Page Up). The pause menu's own: X
 //! Delete, LT F1 and RT Tab (the settings page's tab before and after), Y F6 (its rail);
 //! LB and RB stay Page Up and Page Down, its headings (`crate::pause`) [design: #1953].
@@ -1131,7 +1133,7 @@ pub(crate) fn menu_keys(
     mut keys: ResMut<ButtonInput<KeyCode>>,
     mut mk: ResMut<MenuKeys>,
     switching: Option<Res<SwitchingInput>>,
-    (script, pages): (Option<Res<crate::script::ScriptState>>, MenuPages),
+    (script, pages, sticks): (Option<Res<crate::script::ScriptState>>, MenuPages, Option<Res<StickButtons>>),
 ) {
     let waiting = listening.is_some_and(|l| l.0.is_some());
     let on = bindings.is_some_and(|b| b.device == crate::bindings::InputDevice::Controller) && !waiting;
@@ -1147,6 +1149,11 @@ pub(crate) fn menu_keys(
                 want.push(*k);
             }
         }
+        if in_menu {
+            if let Some(s) = sticks.as_ref() {
+                stick_keys(menu_stick(at), &pads.filter_sticks(s), &mk.held, &mut want);
+            }
+        }
     }
     for k in mk.held.clone() {
         if !want.contains(&k) && !switching.as_ref().is_some_and(|s| s.physical_key_pressed(k)) {
@@ -1159,6 +1166,52 @@ pub(crate) fn menu_keys(
         }
     }
     mk.held = want;
+}
+
+/// The left stick's directions as the arrow keys, in the menus that take the stick as the
+/// D-pad ([`menu_stick`]).
+const STICK_ARROWS: [(StickDir, KeyCode); 4] =
+    [(StickDir::Up, KeyCode::ArrowUp), (StickDir::Down, KeyCode::ArrowDown), (StickDir::Left, KeyCode::ArrowLeft), (StickDir::Right, KeyCode::ArrowRight)];
+
+/// The menus where the left stick pushed one way presses that arrow key, as the D-pad does
+/// (issue #2313). The original's SPECIAL menus give their `increase_value` and
+/// `decrease_value` tiles the left stick's picture (`_xbox_button` `&xbuttonls;`), the
+/// menus' `xright` / `xleft` clicking them and `xup` / `xdown` the review rows [documented:
+/// `menus\chargen\love_tester_menu.xml`, `menus\chargen\specialbookmenu.xml`], and the
+/// trait questionnaire's Navigate hint is the left stick [documented:
+/// `menus\trait_select_menu.xml` `TSM_Callout_Scroll`]. That `xright` and the others answer
+/// the stick as well as the D-pad is a [hypothesis] the pictures fit; not captured.
+/// - The Vigor Tester (1074): left / right lower / raise the page's attribute (on the
+///   review page the chosen row's), up / down choose the review row.
+/// - The tag-skill menu (1048), whose attributes page is NVForever's SPECIAL book
+///   (`ShowSPECIALBookMenuParams`, AddSPECIALPoints): left / right lower / raise, up /
+///   down the rows; on the tag-skill list up / down the rows [design: the code is one].
+/// - The trait menu (1084): up / down the rows, left / right the description's scroll,
+///   as the D-pad [design: `trait_menu.xml` names no stick; it stands for the
+///   questionnaire the opening does not open, chargen.md §1].
+///
+/// A push counts past [`STICK_PRESS`] (the dead zone [`STICK_DEAD`] first), one step a
+/// push, no repeat while held, as the D-pad [design: the files' `repeathorizontal` is not
+/// followed for either].
+pub fn menu_stick(at: MenuAt) -> bool {
+    use fnv_game::game::menus;
+    at.tab != HELP_PAGE && matches!(at.code, Some(menus::LOVE_TESTER | menus::TAG_SKILLS | menus::TRAITS))
+}
+
+/// Add to `want` the arrow keys the left stick `s` holds down ([`menu_keys`]): a key goes
+/// down as its direction is pushed past [`STICK_PRESS`] and stays down while it is held
+/// (`held`, the keys down last frame), so a held push is one press. None where the menu
+/// does not take the stick (`on` false).
+fn stick_keys(on: bool, s: &StickButtons, held: &[KeyCode], want: &mut Vec<KeyCode>) {
+    if !on {
+        return;
+    }
+    for (d, k) in STICK_ARROWS {
+        let down = if held.contains(&k) { s.pressed(d) } else { s.just_pressed(d) };
+        if down && !want.contains(&k) {
+            want.push(k);
+        }
+    }
 }
 
 /// Left and Right pressed this frame for a menu row's value, in order (`true` Right):
@@ -1428,6 +1481,43 @@ mod tests {
         assert_eq!(sideways(&[typed(KeyCode::ArrowLeft, Key::ArrowLeft, true)], &keys), vec![false]);
         // A D-pad held from before presses nothing again.
         assert!(sideways(&[], &keys).is_empty());
+    }
+
+    /// Issue #2313: in the Vigor Tester, the SPECIAL page (the tag-skill menu's code) and
+    /// the trait list the left stick is the D-pad's arrows; elsewhere it presses none.
+    #[test]
+    fn the_left_stick_is_the_d_pad_in_the_special_menus() {
+        use fnv_game::game::menus;
+        for code in [menus::LOVE_TESTER, menus::TAG_SKILLS, menus::TRAITS] {
+            assert!(menu_stick(at_menu(code)), "menu {code}");
+        }
+        // Menus that read the stick themselves, or have no file naming it, and a help
+        // box or the pause menu over the SPECIAL menus.
+        for at in [at_menu(menus::TUTORIAL), at_menu(menus::MAP), at_menu(menus::INVENTORY), at_menu(menus::LEVEL_UP), MenuAt::default(), PAUSE_AT, MenuAt { code: Some(menus::LOVE_TESTER), tab: HELP_PAGE }] {
+            assert!(!menu_stick(at), "{at:?}");
+        }
+        let push = |now: [bool; 4], before: [bool; 4], held: &[KeyCode]| {
+            let mut want = Vec::new();
+            stick_keys(true, &StickButtons { now, before }, held, &mut want);
+            want
+        };
+        // [Up, Down, Left, Right]. A push right presses Right once ...
+        assert_eq!(push([false, false, false, true], [false; 4], &[]), vec![KeyCode::ArrowRight]);
+        // ... held, the key stays down (no new press, no repeat) ...
+        assert_eq!(push([false, false, false, true], [false, false, false, true], &[KeyCode::ArrowRight]), vec![KeyCode::ArrowRight]);
+        // ... and let go, it comes up.
+        assert!(push([false; 4], [false, false, false, true], &[KeyCode::ArrowRight]).is_empty());
+        // A push held from before the key was taken (another menu's) presses nothing.
+        assert!(push([false, false, true, false], [false, false, true, false], &[]).is_empty());
+        assert_eq!(push([false, true, true, false], [false; 4], &[]), vec![KeyCode::ArrowDown, KeyCode::ArrowLeft]);
+        // A key the D-pad already holds is not doubled.
+        let mut want = vec![KeyCode::ArrowUp];
+        stick_keys(true, &StickButtons { now: [true, false, false, false], before: [false; 4] }, &[], &mut want);
+        assert_eq!(want, vec![KeyCode::ArrowUp]);
+        // Off in the other menus.
+        let mut want = Vec::new();
+        stick_keys(false, &StickButtons { now: [true; 4], before: [false; 4] }, &[], &mut want);
+        assert!(want.is_empty());
     }
 
     #[test]

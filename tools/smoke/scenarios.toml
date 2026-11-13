@@ -27037,3 +27037,59 @@ order = [[
   { re = 'ai \[[\d:]+\] 00157B38: keeps to its package EvergreenMillsSniperStayAtPosition01 in the fight', label = "the player 700 units off: its Guard holds it" },
   { re = 'ai \[[\d:]+\] 00157B38: is let go by its package EvergreenMillsSniperStayAtPosition01 to fight', label = "the player 150 units off: it fights" },
 ]]
+
+[[scenario]]
+name = "stick-vigor-pad"
+source = "issue #2313: with a controller the left stick raises and lowers the Vigor Tester's attribute and chooses its review row, as the menu file's increase_value/decrease_value tiles (the left stick's picture) say; the D-pad on an attribute page too (pad.rs menu_stick, menu_keys)"
+note = "Controller chosen in the settings at 2 s; the Vigor Tester opened at 7 s. RT turns to Strength (10 s); the left stick right raises it (12.5 s), a push held a second raises it once more and does not repeat (13.5 s), left lowers it (15.5 s), D-pad right raises it again (16.5 s). The vigor aid turns to the review page (12 s after the menu opened); the stick down chooses a row (26 s) and right raises it (27 s). Before the fix no stick push changed a value"
+areas = ["chargen", "vigor", "menus", "controller"]
+paths = ["engine/nvf-play/src/pad.rs", "engine/nvf-play/src/chargen/vigor*"]
+env = { NVFOREVER_HOME = "stick-vigor-pad-home", NVF_PLAY_TEST_PAUSE = "1:4", NVF_PLAY_TEST_SETTINGS = "2:device:Controller", NVF_PLAY_TEST_SCRIPT_MENUS = "off", NVF_PLAY_TEST_SCRIPT = "7:menu:1074", NVF_PLAY_TEST_VIGOR = "12:page:review", NVF_PLAY_TEST_KEYS = "10:pad-RT,12.5:pad-Left Stick Right,13.5:pad-Left Stick Right:1.0,15.5:pad-Left Stick Left,16.5:pad-D-Pad Right,26:pad-Left Stick Down,27:pad-Left Stick Right" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 30
+expect = [
+  { text = "test aid: real input Stick(Right) pressed", count = 3, label = "three left-stick pushes right" },
+  { text = "test aid: real input Pad(DPadRight) pressed", count = 1, label = "one D-pad right press" },
+  { re = 'vigor tester: Strength \d+, \d+ points remaining \(key\)', count = 4, label = "four Strength changes: the held push is one step" },
+]
+order = [[
+  { re = 'vigor tester: page Strength \(sequence \w+, key\)', label = "RT turns to Strength" },
+  { text = "vigor tester: Strength 6, 4 points remaining (key)", label = "the stick right raises Strength" },
+  { text = "vigor tester: Strength 7, 3 points remaining (key)", label = "a held push raises it once" },
+  { text = "vigor tester: Strength 6, 4 points remaining (key)", label = "the stick left lowers it" },
+  { text = "vigor tester: Strength 7, 3 points remaining (key)", label = "the D-pad right raises it on the attribute page" },
+  { re = 'vigor tester: page Review', label = "the review page" },
+  { re = 'vigor tester: row \w+ chosen \(key\)', label = "the stick down chooses a row" },
+  { re = 'vigor tester: \w+ \d+, 2 points remaining \(key\)', label = "the stick right raises the chosen row" },
+]]
+forbid = [
+  { text = "vigor tester: Strength 8", label = "a held push repeating" },
+]
+
+[[scenario]]
+name = "stick-special-pad"
+source = "issue #2313: with a controller the left stick adds and removes points on the SPECIAL page and moves through the trait list, as the D-pad does (the original's specialbookmenu.xml gives increase_value/decrease_value the left stick's picture, trait_select_menu.xml its Navigate hint) (pad.rs menu_stick, menu_keys)"
+note = "Controller chosen in the settings at 2 s. The SPECIAL page (AddSPECIALPoints 2) at 8 s: the stick right spends a point on the selected attribute, left takes it back, a push right held a second spends one point only, down then right spends the last on the next row, X is Done. The trait menu at 18 s: A takes the first row, the stick down, A takes the second (without the step A would give the first back). Before the fix no stick push did anything"
+areas = ["chargen", "menus", "controller"]
+paths = ["engine/nvf-play/src/pad.rs", "engine/nvf-play/src/chargen.rs", "engine/nvf-play/src/chargen/lists.rs"]
+env = { NVFOREVER_HOME = "stick-special-pad-home", NVF_PLAY_TEST_PAUSE = "1:4", NVF_PLAY_TEST_SETTINGS = "2:device:Controller", NVF_PLAY_TEST_SCRIPT_MENUS = "off", NVF_PLAY_TEST_SCRIPT = "8:call:-:AddSPECIALPoints:2,18:menu:1084", NVF_PLAY_TEST_KEYS = "10:pad-Left Stick Right,11:pad-Left Stick Left,12:pad-Left Stick Right:1.0,14:pad-Left Stick Down,15:pad-Left Stick Right,16:pad-X,20:pad-A,21:pad-Left Stick Down,22:pad-A" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 24
+expect = [
+  { text = "test aid: real input Stick(Right) pressed", count = 3, label = "three left-stick pushes right" },
+  { re = 'chargen: \w+ (raised|lowered); \d+ points left', count = 4, label = "four changes: the held push is one step" },
+]
+order = [[
+  { re = 'chargen: attributes menu open', label = "the SPECIAL page opens" },
+  { re = 'chargen: \w+ raised; 1 points left', label = "the stick right adds a point" },
+  { re = 'chargen: \w+ lowered; 2 points left', label = "the stick left takes it back" },
+  { re = 'chargen: \w+ raised; 1 points left', label = "a held push right adds one" },
+  { re = 'chargen: \w+ raised; 0 points left', label = "down then right adds the last on the next row" },
+  { re = 'chargen: done', label = "X is Done" },
+  { re = 'chargen: trait menu open', label = "the trait menu opens" },
+  { re = 'chargen: .+ chosen; chosen: [^,]+$', label = "A takes the first trait" },
+  { re = 'chargen: .+ (chosen|refused); chosen: ', label = "after the stick down A answers another row" },
+]]
+forbid = [
+  { text = "given back", label = "A on the first trait again: the stick did not move the row" },
+]

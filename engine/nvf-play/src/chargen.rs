@@ -417,7 +417,8 @@ fn input(
                 }
             }
             if m.attributes() {
-                // The keyboard's Left and Right and the controller's D-pad (issue #1910).
+                // The keyboard's Left and Right and the controller's D-pad (issue #1910) and
+                // left stick (issue #2313, `pad::menu_stick`).
                 for right in crate::pad::sideways(&typed, &keys) {
                     ops.push((Op::Adjust(None, right), "key"));
                 }
