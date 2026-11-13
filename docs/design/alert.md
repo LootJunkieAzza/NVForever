@@ -100,7 +100,7 @@ with no search procedure. Only increasing fCombatDetectionLostTime made a large 
 in the second round (about its value plus 5-8 s); the other settings stayed within the
 default spread. [observed: issue #2010, 2026-11-10 capture] Two of three fighters instead
 remained in COMBAT for the remaining 235 real seconds without walking a search. These
-unresolved original behaviors remain observer check 119; our completion rule follows
+unresolved original behaviors remain observer check 122; our completion rule follows
 the stated design and the wiki, rather than those durations [design, #2010].
 
 **"No Combat Alert"** (package flag 27): an actor whose current package has it does not

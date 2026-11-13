@@ -3,7 +3,7 @@
 //! says CombatToNormal, never CombatToLost; one whose target got away says CombatToLost,
 //! then LostToNormal (docs/spec-notes/combat-dialogue.md §5, docs/design/alert.md).
 
-mod common;
+use crate::common;
 
 use common::*;
 use fnv_esm::{LoadOrder, Plugin, Schema};

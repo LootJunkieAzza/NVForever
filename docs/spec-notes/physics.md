@@ -172,7 +172,13 @@ census of the winning REFR records]:
 walls; the name suggests it], and leaves portals, rooms, occlusion planes and trigger
 activators out (they are culling volumes and script triggers by their bases [hypothesis];
 triggers will become sensors when scripts need them, Layer 5). A primitive without XTRI
-gets layer 0.
+is an Invisible Wall (#1545, #1665): it stops actors, and shots pass it
+(`layers::shot_ignores`). So is one whose XTRI is **Transparent** (#2223): TTW's load
+order has 277 references with XTRI, Transparent the commonest (96, then Invisible Wall
+60, Actor Zone 57, Static 31) [observed: `fnvtool esm fields`, 2026-11-12], and its
+Vault 101 BB gun range has a Transparent Portal Box marker across the hall between the
+player and the targets the birthday quest needs hit [hypothesis: the original lets
+shots through such a marker]. Other XTRI layers are kept as stored.
 
 **Bounds are read as half extents** (sphere: the first value is the radius). Evidence
 [observed]: for the 3,007 exterior CollisionMarker boxes without x/y rotation, the box
@@ -2452,6 +2458,63 @@ overshoot (4.8 / 2.7) but doubled the drawn height's RMS on the broken road lane
 (426 → 826 units/s², drawn/feet 0.20 → 0.40); smoother damping of the prediction
 (shorter filter while the body is ahead of the feet) cost rough ground as much for less.
 With the bound alone the road run gave 2086 / 426 (0.20), as before.
+
+**Easing onto curbs** (2026-11-12, player feedback that walking onto obstacles of
+varying height "seems a bit jarring") [design; `step_lift.rs`]: the spring started the
+lift back towards 0 at full acceleration in the very step a curb was climbed or dropped
+off, so the view went from still to about 50 units/s within one fixed step. The lift now
+goes back through three first-order stages of rate 22/s one after the other (a triple
+critically damped pole; the change beyond the prediction is taken into all three), so
+after a curb the drawn height starts with no vertical speed and no vertical acceleration
+and is within a tenth of the step after about 0.24 s. The stiffening with the size of the
+lift is gone; the prediction, its bounds, the air, swimming and placements are as
+before. Replayed [observed: synthetic replays in the module's tests, 2026-11-12;
+before / now]: on a 10-unit curb the largest change of the drawn vertical speed from one
+step to the next is 0.66 / 0.34 units a step at a walk and 0.73 / 0.42 at a run, and
+the first step on it moves the drawn height 0.5 / 0.06 units; over the top of a flight
+of stairs the body is drawn 4.2 / 2.6 units over the top step running, 1.2 / 0.5
+walking. The cost: running onto and over a 30° slope the body lags and then overshoots
+by up to 13.3 units (9.9 before), walking 6.6 (6.1). A rate of 18/s was gentler
+still on a curb but made a run up the stairs far rougher (RMS vertical acceleration of
+the drawn height 356 → 1838 units/s² in the replay); 22/s also kept the replayed road
+ripples a little smoother than before (218 → 205). In game on the broken road lane
+[observed: smoke `road-run-smooth`, 2026-11-12] the exit report gave 2083 for the feet and
+365 for the drawn height over 596 steps (427 before, drawn/feet 0.21 → 0.18), largest lift
+14.3 units; `camper-steps`, `repconn-catwalk-stairs`, `pete-porch` and `pete-terrain`
+pass.
+
+**Small drops count as the ground** (2026-11-12, the same feedback, narrowed to walking
+off a road onto the terrain and over small rock clusters) [design; `step_lift::footing`]:
+running over rocks the controller leaves the ground for 2-4 fixed steps each time the feet
+come off one, dropping 16-20 units [observed: `fnvtool phys walk` running south-east over
+the desert south of Goodsprings, from (−70500, −2500) at (250, −150) units/s,
+2026-11-12]; drawn as a fall, the view dropped with the feet and stopped dead on landing.
+The lift now takes in a step in the air too while the character walked off an edge (the
+controller's `walked_off_z`, not set by a jump) and its feet are no more than the step
+height (24) below where it left the ground; a jump, swimming and any drop deeper than that
+are the air as before, so a real fall is not slowed. Replayed on that trace the drawn
+height's RMS vertical acceleration while moving fell from 7409 to 549 units/s² and its
+largest from 66 218 to 2712 (the feet 8153 / 68 609); walks along and across the road
+that never leave the ground are unchanged.
+
+**The view and walking pace** (2026-11-12, the owner's video and save walking west over
+Novac's broken road, cell −13,−13, from (−52595, −52475) facing 269°) [design;
+`step_lift.rs`, `player_body.rs`]: two things still moved the view there. (1) The body is
+drawn on the drawn ground (`drawn_sink`) and the eye counts from the feet, but a change of
+the drawn ground went whole into the lift, which the eye includes: a crack in the road
+model's drawn floor moved the view at once and eased it back. The lift now keeps the
+drawn ground's share apart (`StepLift::ground_at`, eased the same way), and the eye, the
+first-person rig and the third-person pivot leave it out. (2) The feet drop off the
+broken road pieces' edges in quick 8-10 unit drops [observed: `fnvtool phys walk` on
+that line at 75 units/s, 2026-11-12]; eased in 0.24 s at a walk they showed as a dip.
+The stages' rate now follows the horizontal speed: 22/s at 250 units/s and faster, in
+proportion below, at least 10/s, so a step is eased over about the same distance walked.
+In game on that line at a walk [observed: smoke `novac-broken-road-walk`, 2026-11-12]
+the RMS vertical acceleration of the view fell from 203 to 61 units/s² (the body 203 →
+70, the feet 2534); replayed, a walk along the Goodsprings road 102 → 82, the broken lane
+walked 145 → 88. Runs are unchanged (the road run's view 290 for the body's 363). The
+cost: walking, the body is drawn up to 22 units off the feet for a moment after those
+drops, and 9.1 over the top of a 30° slope (6.6).
 
 ### 6.12 Fall damage (playtest list 7 item 21, 2026-10-23; `engine/nvf-play/src/falls.rs`)
 

@@ -3,7 +3,7 @@
 //! typed item removal, actor flags from records, factions, ownership, destruction,
 //! regions, challenges and the calendar. docs/spec-notes/scripts.md §7.6.
 
-mod common;
+use crate::common;
 
 use common::*;
 use fnv_esm::{LoadOrder, Plugin, Schema};
