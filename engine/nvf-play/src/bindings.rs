@@ -1139,6 +1139,19 @@ pub struct ControlInput<'w, 's> {
     pub capture: Option<Res<'w, KeyboardCapture>>,
 }
 
+/// The player's Keyboard and Mouse With a Controller tweak: with the controller as the
+/// input device, the play controls' keys and mouse buttons (and the mouse's look) work
+/// too; menus keep the device's [design: docs/design/tweaks.md]. Set by `crate::tweaks`.
+static KEYS_WITH_PAD: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+pub fn set_keys_with_pad(on: bool) {
+    KEYS_WITH_PAD.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+pub fn keys_with_pad() -> bool {
+    KEYS_WITH_PAD.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 /// How a controller input is asked about.
 #[derive(Clone, Copy)]
 enum Ask {
@@ -1200,8 +1213,12 @@ impl ControlInput<'_, '_> {
             return false;
         }
         if self.controller() {
-            return self.pad_is(c, Ask::Pressed);
+            return self.pad_is(c, Ask::Pressed) || (keys_with_pad() && self.keys_pressed(c));
         }
+        self.keys_pressed(c)
+    }
+
+    fn keys_pressed(&self, c: Control) -> bool {
         let b = self.bindings.get(c);
         b.key.is_some_and(|k| self.keys.pressed(k) && self.open_key(k)) || b.mouse.is_some_and(|m| self.mouse.pressed(m) && self.open_button(m))
     }
@@ -1218,11 +1235,12 @@ impl ControlInput<'_, '_> {
         if self.suppressed() || self.held(c) {
             return false;
         }
-        if self.controller() {
-            return self.pad_is(c, Ask::JustPressed);
-        }
         let b = self.bindings.get(c);
-        b.key.is_some_and(|k| self.keys.just_pressed(k) && self.open_key(k)) || b.mouse.is_some_and(|m| self.mouse.just_pressed(m) && self.open_button(m))
+        let keys = || b.key.is_some_and(|k| self.keys.just_pressed(k) && self.open_key(k)) || b.mouse.is_some_and(|m| self.mouse.just_pressed(m) && self.open_button(m));
+        if self.controller() {
+            return self.pad_is(c, Ask::JustPressed) || (keys_with_pad() && keys());
+        }
+        keys()
     }
 
     /// Released this frame, and neither of its inputs is still down.
@@ -1230,12 +1248,12 @@ impl ControlInput<'_, '_> {
         if self.held(c) || self.captured() {
             return false;
         }
-        if self.controller() {
-            return self.pad_is(c, Ask::JustReleased) && !self.pressed(c);
-        }
         let b = self.bindings.get(c);
-        let released = b.key.is_some_and(|k| self.keys.just_released(k)) || b.mouse.is_some_and(|m| self.mouse.just_released(m));
-        released && !self.pressed(c)
+        let keys = || b.key.is_some_and(|k| self.keys.just_released(k)) || b.mouse.is_some_and(|m| self.mouse.just_released(m));
+        if self.controller() {
+            return (self.pad_is(c, Ask::JustReleased) || (keys_with_pad() && keys())) && !self.pressed(c);
+        }
+        keys() && !self.pressed(c)
     }
 }
 

@@ -625,6 +625,7 @@ unless the player binds them, so nothing changes until then.
 | D-Pad Changes Weapon | `bWeaponCycleUpDownHotkeys` | `weapon_wheel::read` takes the D-pad's left and right from the controls Hotkey 4 and Ammo Swap and steps as the mouse wheel's tweak does. The switch: `TweakSettings::dpad_cycles_hotkeys` |
 | Location Discovered Sound | `bCustomLocationDiscoveredSound` | a `ChoiceList` row (`tweaks::pick_discovered_sound`) keeps `TweakSettings::discovered_sound`; `quest_messages` plays it for `QuestNotice::Discovered` by Editor ID |
 | Alternate Level-Up Sounds | `bAlternateLevelupSounds` | `xp_meter::alternate_level_sound` picks A or B for the coming level; `level_up` plays it by Editor ID. The rows: `amount!` counts and `sound_list!` lists (`TweakSettings::level_sound_*`) |
+| Keyboard and Mouse With a Controller | `bAllowKeyboardAndMouseWithControllerConnected` | `bindings::ControlInput` asks the keys and mouse buttons as well as the pad when `keys_with_pad`; `player::mouse_look` takes a moving mouse. The switch: `TweakSettings::keys_with_pad` |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -646,8 +647,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 561 |
-| to do | 39 |
+| done | 562 |
+| to do | 38 |
 | unsure, skipped | 19 |
 | n/a | 16 |
 | skipped: fix | 10 |
@@ -1247,6 +1248,7 @@ game's Data folder, read-only).
 | `bRadioStaticDecreasesSongVolume` | done | yes |  | already so: the song fades as the static rises |
 | `bRememberConsoleHistory` | done | yes | 1 | Remember Console History (ConsoleHistory.txt in NVForever's folder, last 100 lines) |
 | `bAllowDuplicateControlBinds` | done |  |  | Shared Keys |
+| `bAllowKeyboardAndMouseWithControllerConnected` | done | yes |  | Keyboard and Mouse With a Controller: with the controller as the input device, the play controls' keys and mouse buttons and the mouse's look work too; menus keep the controller's |
 | `bAlternateLevelupSounds` | done |  | 4 | Alternate Level-Up Sounds: every N levels (A, B) the level-up plays the chosen sound (a list of the plugins' UI sounds) instead of its own; where both fall, the larger N wins |
 | `bArmorPreventsBloodDecals` | done | yes |  | Armor Prevents Blood Decals: a shot whose weapon damage per projectile is no more than the actor's DT (worn armour at its condition, as combat counts it) leaves no blood decal; the damage before its other multipliers is the test (ours). Melee blows keep their decals |
 | `bAutoContinueGame` | done |  |  | Continue at Start (once per start of the program; Shift held stays on the menu) |
@@ -1297,7 +1299,6 @@ game's Data folder, read-only).
 | `bUseConsoleOutputFile` | done |  | 1 | Console Output File (ConsoleOutput.txt in NVForever's folder; the name is ours, sFilename not offered) |
 | `bVanityCamReturnsToFirstPerson` | done |  |  | Vanity Camera Returns to First Person: after the idle vanity camera (now built, `vanity`) or Toggle POV held, a view that was first person goes back to it |
 | `bWeaponVisibleDuringDialogue` | done |  |  | already so by the code: nothing hides the player's weapon or hands while talking (not checked in game) |
-| `bAllowKeyboardAndMouseWithControllerConnected` | to do | yes |  | the Input Device setting picks one device; needs both at once |
 | `bConsoleBackground` | unsure, skipped | yes |  | needs the plugin's own menu XML |
 | `bCustomScreenshotFormat` | n/a | yes | 1 | NVForever writes its own screenshots |
 | `bDontAllowConsoleTillLoadingIsDone` | n/a | yes |  | the original's start-up order |

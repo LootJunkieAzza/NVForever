@@ -810,7 +810,10 @@ fn mouse_look(
     // (`crate::bindings::LOOK_SPEED_HORIZONTAL`), pushed a little turning slowly
     // (squared) [design], slower on a nearby hostile (`crate::aim_assist`; never the
     // mouse).
-    let (delta, s) = if bindings.device == crate::bindings::InputDevice::Controller {
+    // With the player's Keyboard and Mouse With a Controller tweak, a mouse that moves
+    // looks as the mouse does [design: docs/design/tweaks.md].
+    let mouse_too = crate::bindings::keys_with_pad() && motion.delta != Vec2::ZERO;
+    let (delta, s) = if bindings.device == crate::bindings::InputDevice::Controller && !mouse_too {
         let v = crate::pad::stick(&pads, false);
         // The player's tweak: the turn grows straight with the push past the dead zone,
         // not with its square, so a small push turns at once [design: docs/design/tweaks.md].

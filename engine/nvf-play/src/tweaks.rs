@@ -538,6 +538,9 @@ pub struct TweakSettings {
     /// `bWeaponCycleUpDownHotkeys`: with a controller, the D-pad's left and right step
     /// through the hotkeyed weapons (instead of Hotkey 4 and Ammo Swap).
     pub dpad_cycles_hotkeys: bool,
+    /// `bAllowKeyboardAndMouseWithControllerConnected`: with the controller as the input
+    /// device, the keyboard and mouse still move, look and act (not in menus).
+    pub keys_with_pad: bool,
     /// `bCustomLocationDiscoveredSound` (`sEditorID`): the sound a discovered place plays,
     /// by Editor ID; empty: the game's own.
     pub discovered_sound: String,
@@ -903,6 +906,7 @@ impl Default for TweakSettings {
             scope_wheel_zoom: false,
             wheel_cycles_hotkeys: false,
             dpad_cycles_hotkeys: false,
+            keys_with_pad: false,
             discovered_sound: String::new(),
             level_sound_every_a: 0.0,
             level_sound_a: String::new(),
@@ -2049,6 +2053,7 @@ impl Plugin for TweaksPlugin {
         switch!(app, "scope-wheel-zoom", "Wheel Zooms Scopes", "Through a scope the mouse wheel zooms in (up) and out, from half to double its usual magnification; it starts as usual each time. (Stewie's Tweaks bAdjustableScopeZoom)", scope_wheel_zoom);
         switch!(app, "wheel-cycles-hotkeys", "Mouse Wheel Changes Weapon", "In first person, rolling the mouse wheel takes out the next (up) or previous weapon on your hotkeys. (Stewie's Tweaks bMousewheelScrollsWeaponHotkeys)", wheel_cycles_hotkeys);
         switch!(app, "dpad-cycles-hotkeys", "D-Pad Changes Weapon", "With a controller, the D-pad's right takes out the next weapon on your hotkeys and its left the one before, instead of Ammo Swap and hotkey 4. (Stewie's Tweaks bWeaponCycleUpDownHotkeys)", dpad_cycles_hotkeys);
+        switch!(app, "keys-with-pad", "Keyboard and Mouse With a Controller", "With the controller as the input device, the keyboard and mouse still move you, look and act; the menus keep the controller's. (Stewie's Tweaks bAllowKeyboardAndMouseWithControllerConnected)", keys_with_pad);
         switch!(app, "compass-pips-fade", "Fade Pips by Distance", "People and creatures on the compass grow fainter the further away they are, over the distance they could notice you sneaking. (Stewie's Tweaks bCompassNPCDistanceBasedAlpha)", compass_pips_fade);
         switch!(app, "compass-places-fade", "Fade Places by Distance", "Places on the compass grow fainter the further away they are, over the distance they show at. (Stewie's Tweaks bCompassLocationDistanceBasedAlpha)", compass_places_fade);
         switch!(app, "buffed-health-bars", "Health Bars Count Buffs", "A target's health bar includes Health raised by chems and effects, so a buffed enemy's bar shows how much it can take. (Stewie's Tweaks bEnemyHealthbarShowBuffedHP)", game.buffed_health_bars);
@@ -2714,6 +2719,7 @@ fn sync(
         }
     }
     crate::combat::set_unequip_broken_armor(tweaks.unequip_broken_armor);
+    crate::bindings::set_keys_with_pad(tweaks.keys_with_pad);
     crate::terminal::set_grey_read(tweaks.grey_read_notes);
     crate::combat::set_broken_kept(tweaks.game.equip_broken_items, tweaks.game.keep_broken_equipped);
     crate::radiation::set_rad_decimals(if tweaks.precise_rad_meter { tweaks.rad_decimals.max(1) } else { 0 });
