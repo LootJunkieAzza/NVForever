@@ -150,6 +150,8 @@ pub(super) struct Gen<'a> {
     /// Compiling a line that is a call on its own (not `let`, `if eval` or any other
     /// expression).
     call_line: bool,
+    /// Compiling a vanilla `set` line read with the extender's grammar.
+    set_line: bool,
     /// The block-form lambdas taken out of the source: parameter names and their lines
     /// (`__lambda<i>` stands in their place).
     lambdas: Vec<(Vec<String>, Vec<lex::Line>)>,
@@ -231,6 +233,7 @@ impl<'a> Gen<'a> {
             in_arg_any: false,
             in_paren: false,
             call_line: false,
+            set_line: false,
             lambdas: Vec::new(),
             lambda_seq: 0,
         }
@@ -1018,7 +1021,10 @@ impl<'a> Gen<'a> {
                 _ => None,
             };
             if let Some(m) = mapped {
-                return self.statement_inner(&m);
+                self.set_line = matches!(kw, Kw::Set { .. });
+                self.statement_inner(&m);
+                self.set_line = false;
+                return;
             }
         }
         self.statement_inner(kw)

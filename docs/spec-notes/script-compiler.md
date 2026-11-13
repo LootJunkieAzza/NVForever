@@ -392,6 +392,23 @@ script decompile`]. "Mod source" below means the engine's compile (`Seed::unknow
 - `SetStringSetting` is LU's two-parameter function; the catalogue's console row of that
   name (from another page) gave way to it.
 
+The owner's 232-plugin High and Dry list (smoke scenario `modlist-high-dry`) added:
+
+- A `&` after a comma boxes the argument: `Call Fn, &rRef, 0` passes the boxed reference
+  [documented: NVSE Expressions, unary `&`; observed: Famine.esp's bytes hold the variable
+  and the box operator].
+- `{expr}` not followed by `=>` is the expression: `call Fn {(BuildRef 0 n)}` and `call Fn
+  {Quest.var}` pass the value as one argument [observed: Animated Ingestibles.esp].
+- Inside parentheses an operand that meets the whole expression without an operator is
+  dropped with the rest before the `)`: `("…" + $sv ".nif")` is `"…" + $sv` [observed:
+  MrShersh Functional Backpack.esp].
+- `GetRefsInCell` takes a sixth argument, which its page does not list [observed: JAM Misc
+  Tweaks.esp, `GetRefsInCell (Player.GPC) 28 2 0 2000 45` compiled with all six; what it
+  does is not known].
+- On a `set` line the editor drops parentheses (§3), so a call the `)` closes before it has
+  all its arguments takes the ones after it: `set t to 1 + (GetVariable (…)) Quest` reads
+  the quest's variable [observed: Animated Ingestibles.esp].
+
 Left with their bytes, as the source cannot be compiled to them: five result scripts whose
 classic `if` has a surplus argument (`GetObjectiveDisplayed Q 30 1 && …`), which stop the
 script in the original as in the VM (observer-checks.md check 32); oHUD.esm's five units
