@@ -66,6 +66,7 @@ mod lutana3;
 mod magic_archetypes;
 mod npc_doors;
 mod nvse_itr2;
+mod nvsescript;
 mod one111;
 mod package_choice;
 mod packages;
