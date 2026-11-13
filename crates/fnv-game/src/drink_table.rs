@@ -2,7 +2,10 @@
 //! original game has no drinking contest]): a bottle of whiskey standing on a $100 NCR
 //! bill on a bar table, and up to four places to stand around it. Activating the bottle
 //! starts the contest (nvf-play `drink_world`); the contest itself is
-//! `crate::drink_contest` (drink-a's).
+//! `crate::drink_contest` (drink-a's). In the Prospector Saloon they stand on the bar
+//! counter's short end by the side wall [design: owner, ship17 play, 2026-11-12: "Put the
+//! dollar/bottle here and get rid of the table it was on"; the spot circled in the
+//! owner's shot `drink-bar-spot.webp`].
 //!
 //! - **The pieces** [observed: FalloutNV.esm]: the bottle is the `Whiskey` ALCH
 //!   (0x00032C75, `Clutter\LiquorBottles\WhiskeyBottle01.NIF`, bounds -4..4 by -1..1 and
@@ -14,15 +17,19 @@
 //!   offered, and their collision is fixed where they stand (nvf-play `phys`), so a body
 //!   falling against the table does not knock them over.
 //! - **One entry per bar** ([`BARS`]): the cell, the table (one the game makes, or none
-//!   when the bar's own table is used), where the bill lies on its top, and the stand
-//!   marks. The first bar is the Prospector Saloon; another bar is one more entry.
+//!   when the bar's own counter or table is used), where the bill lies on its top, the
+//!   stand marks and the win stage. The first bar is the Prospector Saloon; another bar is
+//!   one more entry.
+//! - **Saves from before the move** ([`ensure`]): a piece made under a bar's number at
+//!   another spot is moved to its spot, and a table made under the table number of a bar
+//!   that has none now is taken away (marked deleted), so a game saved with the saloon's
+//!   old round table loads with the props on the counter and no table.
 //! - **Fixed numbers** ([`Bar::refs`]): every piece is made under the same number in
 //!   every game, as arm wrestling's table (`crate::armwrestle_table::REFS`), so that in
 //!   co-op the bottle a player activates is the same reference on every screen. A number
 //!   already taken is not replaced by another: the piece is then not made (logged).
 //! - **The stand marks** ([`mark`]): slot `i` of the contest stands at mark `i`, on the
-//!   floor around the table, facing its centre [design: up to four drinkers; standing,
-//!   as the saloon's bar tables are stood at].
+//!   floor at the counter, facing it [design: up to four drinkers; standing, as at a bar].
 //!
 //! Log lines start `drink table:`.
 
@@ -69,10 +76,9 @@ pub struct Bar {
     pub heading: f32,
     /// The floor the drinkers stand on (z).
     pub floor: f32,
-    /// The marks' distance from the table's centre (`top`'s x and y).
-    pub mark_radius: f32,
-    /// The marks' bearings from the centre (radians, the game's), slot 0 first.
-    pub mark_bearings: [f32; MARKS],
+    /// The stand marks, slot 0 first: the feet's x and y on `floor`, and the heading the
+    /// drinker faces (radians, the game's: 0 faces +y).
+    pub marks: [[f32; 3]; MARKS],
     /// The numbers the table, the bill and the bottle are made under.
     pub refs: [FormId; 3],
     /// Where a player who wins dances ([`stage`]): the feet's x and y, on `floor`.
@@ -93,42 +99,44 @@ pub enum Piece {
 /// The Prospector Saloon's floor [observed: `fnvtool phys cell`, rays down in the main
 /// room hit 3456; the saloon's own tables and stools stand on 3456].
 const SALOON_FLOOR: f32 = 3456.0;
-/// The saloon's table: a `Table01` at scale 1.2, as the saloon's own bar tables
-/// [observed: FalloutNV.esm, Table01 0x0010663B, 0x00107D17 and 0x00127633 in the saloon,
-/// each at scale 1.2 and 30 above the floor; Table01's bounds are 31 from its centre and
-/// 24 above and below its origin].
-const SALOON_TABLE: TableDef = TableDef { edid: "Table01", pos: [215.0, -725.0, SALOON_FLOOR + 30.0], heading: 0.0, scale: 1.2 };
-/// Table01's top above its origin at scale 1 [observed: the top of the collision mesh of
-/// `meshes\furniture\table01.nif`, 30.99 above the origin (`fnvtool collide objects`), its
-/// foot 25.35 below; the record's bounds say 24 and put the bill inside the top, seen in
-/// the first shot].
-pub const TABLE01_TOP: f32 = 31.0;
+/// The saloon's bar counter top, where the bill lies: on the counter's short end by the
+/// side wall, a hand's width in from the wall [observed: FalloutNV.esm, the counter is
+/// `OfficeReceptionDeskMid01` 0x00107D6E with `OfficeReceptionDeskCurveR01` 0x00107D6F at
+/// (-216, -408, 3450), its end against `NVGSWallONLY` 0x00107D89 at (0, -528);
+/// `fnvtool phys cell`, 2026-11-12: rays down on the end hit the curve's collision at
+/// 3528.1 from x -80 to -25 and y -470 to -560, its wall-side edge is the wall's face at x
+/// -19.8, its front (customers') face at y -562.4, the inner (barkeep's) edge near y -465;
+/// design: the owner's circle].
+const SALOON_COUNTER_TOP: [f32; 3] = [-38.0, -515.0, 3528.1];
 
 /// The bars, in the order their fixed numbers are given.
 pub const BARS: &[Bar] = &[Bar {
     key: "goodsprings",
     cell: crate::armwrestle_table::SALOON_EDID,
-    table: Some(SALOON_TABLE),
-    top: [SALOON_TABLE.pos[0], SALOON_TABLE.pos[1], SALOON_TABLE.pos[2] + TABLE01_TOP * SALOON_TABLE.scale],
+    table: None,
+    top: SALOON_COUNTER_TOP,
     heading: 0.6,
     floor: SALOON_FLOOR,
-    mark_radius: 62.0,
-    // North, east, south and west of the table: the first two drinkers face each other.
-    mark_bearings: [0.0, std::f32::consts::PI, std::f32::consts::FRAC_PI_2, 3.0 * std::f32::consts::FRAC_PI_2],
+    // Along the counter's front, facing it: two on its straight run by the bottle, two
+    // round its curve, either side of the saloon's stool 0x00106195 at (-134, -578)
+    // [observed: `fnvtool phys cell`, 2026-11-12: a character dropped on each mark stands
+    // on the floor at 3456.7 touching nothing else, and a ray from each mark along its
+    // heading meets the counter 0x00107D6F 36 to 43 away (a body's radius is 22); the
+    // stool is 38 from mark 1 and 50 from mark 2; design: a drinker who passes out falls
+    // backwards, away from the counter, onto open floor].
+    marks: [[-52.0, -598.0, 0.0], [-98.0, -598.0, 0.0], [-181.0, -560.0, 0.51], [-220.0, -530.0, 0.81]],
+    // The first number was the round table's (`RETIRED_TABLE_EDID`).
     refs: [FormId(0xFF7F_A100), FormId(0xFF7F_A101), FormId(0xFF7F_A102)],
-    // North-east of the table, on open floor under the saloon's lamp 0x0016CD72 at (281,
-    // -603), out of the way of the bodies passed out at marks 0 (falling north) and 2
-    // (falling east); the camera south-east of it, between the winner and the windows,
-    // looks north-west into the room, an inner wall behind the dancer [observed:
-    // FalloutNV.esm, the saloon's windows NVGSRmWindowSeparate stand in the south wall at
-    // y -872 and the east wall at x 488, its tables Table01 0x00127633 at (396, -629) and
-    // Table02 0x00107D18 at (368, -770); `fnvtool phys cell`: the floor at (300, -620) is
-    // 3456 with nothing within 60 at the waist, the line to the camera is clear, and the
-    // line on north-west past the dancer meets the wall NVGSWallONLY 0x00107D8A at 398;
-    // design: a dancer seen against the windows was a silhouette in drink-b's co-op
-    // frames, 2026-11-12].
-    stage: [300.0, -620.0],
-    stage_bearing: 3.0 * std::f32::consts::FRAC_PI_4,
+    // In front of the counter, between where the bodies of marks 1 and 2 fall, the camera
+    // south of it looking north, so the counter and the back bar, not a window, are behind
+    // the dancer [observed: `fnvtool phys cell`, 2026-11-12, rays at the waist from
+    // (-120, -660): the bar room is open floor west to x -496 and south to the wall
+    // NVGSWallDoor 0x00107D81 about 220 away, and opens east onto the main room south of y
+    // -656; its light BasementLightKeyNeutral 0x00106C17 hangs over the counter's end at
+    // (-96, -530, 3614); design: a dancer seen against the windows was a silhouette in
+    // drink-b's co-op frames, 2026-11-12].
+    stage: [-140.0, -680.0],
+    stage_bearing: std::f32::consts::PI,
 }];
 
 /// The win camera's distance from the winner's feet, flat (game units) [design: the whole
@@ -170,6 +178,10 @@ pub fn stage(bar: &Bar) -> Stage {
 
 /// How near its spot a created reference must be to be a piece of the prop [design].
 const SAME_SPOT: f32 = 6.0;
+/// The base of a bar's table of before: the one made under a bar's table number is taken
+/// away when a save with it loads and the bar has no table now [observed: the saloon's
+/// round table, a `Table01` at (215, -725, 3486) and scale 1.2, until 2026-11-12].
+pub const RETIRED_TABLE_EDID: &str = "Table01";
 
 impl Bar {
     /// Where the bill lies and the bottle stands (their origins).
@@ -192,13 +204,10 @@ impl Bar {
 }
 
 /// Where mark `slot` of `bar` is (the feet, on the floor) and the heading that faces the
-/// table's centre.
+/// counter (or table).
 pub fn mark(bar: &Bar, slot: usize) -> ([f32; 3], f32) {
-    let b = bar.mark_bearings[slot % MARKS];
-    // Heading h faces (sin h, cos h).
-    let (s, c) = b.sin_cos();
-    let pos = [bar.top[0] + bar.mark_radius * s, bar.top[1] + bar.mark_radius * c, bar.floor];
-    (pos, wrap(b + std::f32::consts::PI))
+    let [x, y, h] = bar.marks[slot % MARKS];
+    ([x, y, bar.floor], wrap(h))
 }
 
 fn wrap(a: f32) -> f32 {
@@ -255,9 +264,32 @@ pub fn ensure(g: &mut Game) -> Vec<FormId> {
         if !g.loaded_cells.contains(&cell) {
             continue;
         }
+        if bar.table.is_none() {
+            retire_table(g, bar, cell);
+        }
         for (id, base, pos, heading, scale) in wanted(g, bar) {
             if created_at(g, base, cell, pos).is_some() {
                 continue;
+            }
+            if let Ok(s) = g.world.get(id) {
+                if s.base == base && s.cell == Some(cell) && !s.deleted() {
+                    // Made at the spot of before (a save from then): moved to this one.
+                    let was = s.pos;
+                    s.pos = pos;
+                    s.rot = [0.0, 0.0, heading];
+                    tracing::info!(
+                        "drink table: {}: moved {} {id} from ({:.1}, {:.1}, {:.2}) to ({:.1}, {:.1}, {:.2})",
+                        bar.key,
+                        g.data.name(base),
+                        was[0],
+                        was[1],
+                        was[2],
+                        pos[0],
+                        pos[1],
+                        pos[2]
+                    );
+                    continue;
+                }
             }
             match g.world.place_as(id, base, Some(cell), pos, [0.0, 0.0, heading]) {
                 Ok(r) => {
@@ -276,6 +308,19 @@ pub fn ensure(g: &mut Game) -> Vec<FormId> {
     made
 }
 
+/// Take away the table made under `bar`'s table number, in a save from before the bar
+/// lost its table.
+fn retire_table(g: &mut Game, bar: &Bar, cell: FormId) {
+    let id = bar.refs[0];
+    let Some(table) = g.data.by_edid(RETIRED_TABLE_EDID) else { return };
+    if !g.world.get(id).is_ok_and(|s| s.base == table && s.cell == Some(cell) && !s.deleted()) {
+        return;
+    }
+    if g.world.set_deleted(id, true).is_ok() {
+        tracing::info!("drink table: {}: the table {id} of before is taken away", bar.key);
+    }
+}
+
 /// The bottle of `bar`, when it is made and still there.
 pub fn bottle(g: &Game, bar: &Bar) -> Option<FormId> {
     let cell = g.data.by_edid(bar.cell)?;
@@ -288,24 +333,37 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_marks_stand_around_the_table_facing_its_centre() {
+    fn the_marks_stand_apart_at_the_counter_facing_it() {
         let bar = &BARS[0];
+        let near = |slot| {
+            let (p, _) = mark(bar, slot);
+            (bar.top[0] - p[0]).hypot(bar.top[1] - p[1])
+        };
         for slot in 0..MARKS {
             let (p, h) = mark(bar, slot);
-            let (dx, dy) = (bar.top[0] - p[0], bar.top[1] - p[1]);
-            assert!(((dx * dx + dy * dy).sqrt() - bar.mark_radius).abs() < 1e-3);
-            // Heading h faces (sin h, cos h): towards the centre.
-            let towards = (dx * h.sin() + dy * h.cos()) / bar.mark_radius;
-            assert!(towards > 0.999, "slot {slot} faces away ({towards})");
             assert_eq!(p[2], bar.floor);
+            // Heading h faces (sin h, cos h): towards the counter, where the bottle is.
+            let (dx, dy) = (bar.top[0] - p[0], bar.top[1] - p[1]);
+            assert!(dx * h.sin() + dy * h.cos() > 0.0, "slot {slot} faces away from the counter");
+            // Two bodies (radius 22) never overlap.
+            for other in slot + 1..MARKS {
+                let (q, _) = mark(bar, other);
+                assert!((p[0] - q[0]).hypot(p[1] - q[1]) > 44.0, "marks {slot} and {other} overlap");
+            }
+            // The first drinker stands nearest the bottle.
+            assert!(near(0) <= near(slot));
         }
-        // Slots 0 and 1 face each other across the table.
-        let ((a, _), (b, _)) = (mark(bar, 0), mark(bar, 1));
-        assert!(((a[0] - b[0]).hypot(a[1] - b[1]) - 2.0 * bar.mark_radius).abs() < 1e-3);
+        // The saloon's marks are on the customers' side of the counter's front (y -562 on
+        // its straight run) and off the side wall (x -20).
+        for slot in 0..MARKS {
+            let (p, _) = mark(bar, slot);
+            assert!(p[0] < -20.0 - 22.0, "slot {slot} is in the wall");
+        }
+        assert!(mark(bar, 0).0[1] < -562.4 - 22.0 && mark(bar, 1).0[1] < -562.4 - 22.0);
     }
 
     #[test]
-    fn the_winner_faces_the_win_camera_away_from_the_table_and_the_marks() {
+    fn the_winner_faces_the_win_camera_away_from_the_counter_and_the_marks() {
         let bar = &BARS[0];
         let st = stage(bar);
         // Facing the camera: heading h faces (sin h, cos h).
@@ -313,29 +371,31 @@ mod tests {
         let flat = dx.hypot(dy);
         assert!((flat - STAGE_CAMERA_DISTANCE).abs() < 1e-3);
         assert!((dx * st.heading.sin() + dy * st.heading.cos()) / flat > 0.999);
-        // Off the table (Table01 at 1.2 reaches 37 from its centre) and a body's length
-        // from every mark.
+        // Off the counter and a body's length from every mark.
         assert!((st.feet[0] - bar.top[0]).hypot(st.feet[1] - bar.top[1]) > 100.0);
         for slot in 0..MARKS {
             let (m, _) = mark(bar, slot);
             assert!((st.feet[0] - m[0]).hypot(st.feet[1] - m[1]) > 60.0, "the stage is on mark {slot}");
         }
-        // The camera inside the saloon's window walls (x 488, y -872), above the head.
-        assert!(st.camera[0] < 470.0 && st.camera[1] > -860.0);
+        // The camera in the bar room (its side wall at x -20, its far wall about y -880,
+        // open floor west to x -496), on the customers' side, above the head.
+        assert!(st.camera[0] < -40.0 && st.camera[0] > -480.0 && st.camera[1] > -870.0 && st.camera[1] < st.feet[1]);
         assert!(st.camera[2] > st.look_at[2] && st.look_at[2] > st.feet[2]);
     }
 
     #[test]
-    fn the_bottle_stands_on_the_bill_on_the_table_top() {
+    fn the_bottle_stands_on_the_bill_on_the_counter_top() {
         for bar in BARS {
             let (bill, bottle) = (bar.bill_pos(), bar.bottle_pos());
             assert!(bill[2] > bar.top[2] && bill[2] - bar.top[2] < 0.5);
             assert!(bottle[2] > bill[2] && bottle[2] - bill[2] < 0.5);
             assert_eq!((bill[0], bill[1]), (bottle[0], bottle[1]));
-            if let Some(t) = bar.table {
-                assert!((bar.top[2] - (t.pos[2] + TABLE01_TOP * t.scale)).abs() < 1e-3);
-            }
         }
+        // The saloon's: on the counter's collision top, inside its end, off the wall.
+        let bar = &BARS[0];
+        assert!(bar.table.is_none());
+        assert!((bar.top[2] - 3528.1).abs() < 1e-3);
+        assert!(bar.top[0] < -19.8 - 8.0 && bar.top[0] > -80.0 && bar.top[1] < -470.0 && bar.top[1] > -562.4 + 8.0);
     }
 
     #[test]

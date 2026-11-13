@@ -1,5 +1,5 @@
 //! The drinking contest in the world (NVForever's own mini-game [design: owner
-//! 2026-11-11]): the bottle on the bar table, where the drinkers stand, their drinks and
+//! 2026-11-11]): the bottle on the bar counter, where the drinkers stand, their drinks and
 //! their passing out. The prop is `fnv_game::drink_table`; the contest and its screen are
 //! `crate::drink_contest` (drink-a); the stake page and co-op are `crate::drink_coop`
 //! (drink-b).
@@ -9,7 +9,7 @@
 //!   `DrinkActivate`, which opens the stake page and, once everyone has staked, sends
 //!   `DrinkStart` on every machine.
 //! - **The marks**: on `DrinkStart` for one of the bottles, this player (when a drinker)
-//!   steps onto the mark of its slot (`fnv_game::drink_table::mark`), facing the table,
+//!   steps onto the mark of its slot (`fnv_game::drink_table::mark`), facing the counter,
 //!   the weapon away, and the view goes outside (third person), so the body and its
 //!   drinks are seen [design]. Another player's body is put on its mark by its own game
 //!   and comes here as its puppet does.
@@ -21,7 +21,7 @@
 //!   cue) [observed: FalloutNV.esm IDLE 0x00003BEA and ANIO `aoDrinkingStandingA`].
 //! - **Passing out**: this player's `PassedOut` lays the body down where it stands as a
 //!   knockdown does (`fnv_game::Game::knock_down`, nvforever `player_knockdown`: the
-//!   ragdoll, the controls held), tipped away from the table, and holds it down
+//!   ragdoll, the controls held), tipped backwards away from the counter, and holds it down
 //!   (`RefExtra::unconscious`, as SetUnconscious holds a lying actor) until the contest
 //!   is over. The others see the puppet fall by co-op's own rule for a player lying in
 //!   its own game.
@@ -29,11 +29,11 @@
 //!   contest's end, then stands as before. A drink still playing ends first
 //!   ([`ContestDrinkStop`]), so the dance is not under its last seconds. A player who wins
 //!   steps off its mark onto the bar's stage (`fnv_game::drink_table::stage`: open floor
-//!   by the table, facing the window side) and dances there; its puppet goes there on the
+//!   in front of the counter, facing the camera) and dances there; its puppet goes there on the
 //!   others' screens as it goes anywhere.
 //! - **The win shot**: when a player wins, every drinker at the table (standing, or lying
-//!   passed out) sees the dance through the stage's one camera, between the winner and
-//!   the windows, above the head and looking down at it, with a soft fill light by the
+//!   passed out) sees the dance through the stage's one camera, on the room's side of the
+//!   winner with the counter behind it, above the head and looking down at it, with a soft fill light by the
 //!   camera faded up on the winner's front ([`DrinkWorld::stage`], drawn by nvforever
 //!   `drink_stage`), until the contest's end [design: drink-b's co-op frames, 2026-11-12:
 //!   from behind, the dance read as a lean on the table; from the front against the bright
@@ -166,15 +166,12 @@ impl Plugin for DrinkWorldPlugin {
     }
 }
 
-/// Where the tip sends a body standing at `feet` beside the table at `centre`: straight
-/// away from the centre, flat.
-pub fn tip(feet: [f32; 3], centre: [f32; 3]) -> [f32; 3] {
-    let (dx, dy) = (feet[0] - centre[0], feet[1] - centre[1]);
-    let len = (dx * dx + dy * dy).sqrt();
-    if len < 1e-3 {
-        return [0.0, 0.0, TIP_RISE];
-    }
-    [dx / len * TIP_SPEED, dy / len * TIP_SPEED, TIP_RISE]
+/// Where the tip sends a body standing on a mark facing `heading` (the counter): straight
+/// backwards, flat.
+pub fn tip(heading: f32) -> [f32; 3] {
+    // Heading h faces (sin h, cos h).
+    let (s, c) = heading.sin_cos();
+    [-s * TIP_SPEED, -c * TIP_SPEED, TIP_RISE]
 }
 
 /// How far short of what it hits the win camera is pulled in, and where the fill light
@@ -291,7 +288,7 @@ fn events(
                 info!("drink world: {}: drink {step}: this player drinks", at.bar.key);
             }
             Event::PassedOut { slot, why } if slot == at.slot && !at.held => {
-                let shove = tip(player.feet, at.bar.top);
+                let shove = tip(dt::mark(at.bar, at.slot).1);
                 let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else { continue };
                 let down = with_world(rt, &mut sim, |rt| rt.game.knock_down(FormId::PLAYER_REF, None, shove));
                 if down {
@@ -300,7 +297,7 @@ fn events(
                     w.passed_out += 1;
                 }
                 info!(
-                    "drink world: {}: this player passes out ({why:?}): {}, tipped ({:.0}, {:.0}, {:.0}) away from the table",
+                    "drink world: {}: this player passes out ({why:?}): {}, tipped ({:.0}, {:.0}, {:.0}) away from the counter",
                     at.bar.key,
                     if down { "laid down and held until the contest is over" } else { "could not be laid down" },
                     shove[0],
@@ -493,11 +490,18 @@ mod tests {
     }
 
     #[test]
-    fn a_passing_out_body_is_tipped_away_from_the_table() {
-        let centre = [0.0, 0.0, 50.0];
-        let v = tip([0.0, 62.0, 0.0], centre);
-        assert!(v[1] > 0.0 && v[0].abs() < 1e-3);
+    fn a_passing_out_body_is_tipped_backwards_away_from_the_counter() {
+        // Facing north (+y), the counter ahead: tipped south.
+        let v = tip(0.0);
+        assert!(v[1] < 0.0 && v[0].abs() < 1e-3);
         assert!(((v[0] * v[0] + v[1] * v[1]).sqrt() - TIP_SPEED).abs() < 1e-3);
-        assert_eq!(tip(centre, centre), [0.0, 0.0, TIP_RISE]);
+        assert_eq!(v[2], TIP_RISE);
+        // Every saloon mark: away from the bottle on the counter.
+        let bar = &dt::BARS[0];
+        for slot in 0..dt::MARKS {
+            let (p, h) = dt::mark(bar, slot);
+            let v = tip(h);
+            assert!(v[0] * (bar.top[0] - p[0]) + v[1] * (bar.top[1] - p[1]) < 0.0, "slot {slot}");
+        }
     }
 }
