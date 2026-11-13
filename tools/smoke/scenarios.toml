@@ -16565,6 +16565,8 @@ areas = ["quests", "scripts", "dialogue"]
 paths = ["crates/fnv-game/walkthrough/companion-ede.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs", "crates/fnv-game/src/functions/player.rs", "crates/fnv-game/src/perks.rs"]
 commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/companion-ede.actions.json"]]
 expect = [
+  { json = "observations.?label=ed-e greets.info", equals = "0x001579D7", label = "companion-ede, ED-E says its first greeting (voice type without Allow Default Dialog, the quest names the speaker: #2378)" },
+  { json = "observations.?label=milestone: controls back after the greeting.value", equals = 0.0, label = "companion-ede, milestone: controls back after the greeting: GetPlayerControlsDisabled = 0.0 (the repair script turned them off)" },
   { json = "observations.?label=milestone: ED-E hired.var.bEDEHired", equals = 1.0, label = "companion-ede, milestone: ED-E hired: var.bEDEHired = 1.0" },
   { json = "observations.?label=milestone: ED-E hired.var.bCritterInParty", equals = 1.0, label = "companion-ede, milestone: ED-E hired: var.bCritterInParty = 1.0" },
   { json = "observations.?label=milestone: vDialogueEDE 10 (first log due).stage", equals = 10, label = "companion-ede, milestone: vDialogueEDE 10 (first log due): stage = 10" },
