@@ -2877,7 +2877,7 @@ env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TE
 args = ["--play", "--world", "FreesideFortWorld", "--pos=7915,2120,1000", "--heading", "0", "--hour", "12", "--no-voice", "--no-messages"]
 run_seconds = 30
 expect = [
-  { re = "dialogue: test aid .*leaves 0x00115C5F's topic list, which offers no Goodbye", count = 1, label = "the aid's leave at her top level ends the conversation" },
+  { re = "dialogue: test aid .*leaves 0x00115C5F's topic list, which offers no Goodbye", count = 1, label = "the aid's leave at her top level ends the conversation", known_failing = "since #2378 (2026-11-13): a quest's conditions count for a voice type without Allow Default Dialog, and the Generic quest's list names FemaleAdult11, so Julie's top level offers Generic's Goodbye 0x00177392 and the aid picks it instead of leaving a list without one. The scenario needs another actor whose top level has no Goodbye, or observer check 127 says the original gives her none" },
   { re = 'dialogue: Tab refused', count = 0, label = "Tab is not refused at her topic list" },
 ]
 
@@ -16603,6 +16603,8 @@ areas = ["quests", "scripts", "dialogue"]
 paths = ["crates/fnv-game/walkthrough/companion-ede.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs", "crates/fnv-game/src/functions/player.rs", "crates/fnv-game/src/perks.rs"]
 commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/companion-ede.actions.json"]]
 expect = [
+  { json = "observations.?label=ed-e greets.info", equals = "0x001579D7", label = "companion-ede, ED-E says its first greeting (voice type without Allow Default Dialog, the quest names the speaker: #2378)" },
+  { json = "observations.?label=milestone: controls back after the greeting.value", equals = 0.0, label = "companion-ede, milestone: controls back after the greeting: GetPlayerControlsDisabled = 0.0 (the repair script turned them off)" },
   { json = "observations.?label=milestone: ED-E hired.var.bEDEHired", equals = 1.0, label = "companion-ede, milestone: ED-E hired: var.bEDEHired = 1.0" },
   { json = "observations.?label=milestone: ED-E hired.var.bCritterInParty", equals = 1.0, label = "companion-ede, milestone: ED-E hired: var.bCritterInParty = 1.0" },
   { json = "observations.?label=milestone: vDialogueEDE 10 (first log due).stage", equals = 10, label = "companion-ede, milestone: vDialogueEDE 10 (first log due): stage = 10" },
@@ -27075,3 +27077,20 @@ order = [[
   { re = 'ai \[[\d:]+\] 00157B38: keeps to its package EvergreenMillsSniperStayAtPosition01 in the fight', label = "the player 700 units off: its Guard holds it" },
   { re = 'ai \[[\d:]+\] 00157B38: is let go by its package EvergreenMillsSniperStayAtPosition01 to fight', label = "the player 150 units off: it fights" },
 ]]
+
+[[scenario]]
+name = "ede-repair-greeting"
+source = "issue #2378 (a player's soft lock, v0.7.0): repairing ED-E in Johnson Nash's house turned the controls off for good. EDEScriptDisabled calls DisablePlayerControls and leaves it to ED-E's first greeting (INFO 0x001579D7, started by EDEDialoguePackage) to turn them on again; the line has no conditions of its own, and the RobotEDE voice type (no Allow Default Dialog) was refused it although its quest vDialogueEDE names the three ED-Es (Game::line_verdict, docs/spec-notes/actor-flags.md §9)"
+note = "the player stands beside the broken eyebot with Repair 100 (console, 3 s); it is activated at 6 s and its boxes answered with button 1 at 8, 10 and 12 s (the first box comes twice, once from each of the script's two OnActivate blocks: Try To Fix It, the same again, Run the repair). Two seconds later EDE1Ref is enabled, five seconds after that its script lets it move, and its Dialogue package starts the conversation"
+areas = ["dialogue", "scripts", "ai"]
+paths = ["crates/fnv-game/src/dialogue.rs", "crates/fnv-ai/src/carry.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "off", NVF_PLAY_TEST_CONSOLE = "3:player.setav repair 100;3.3:close", NVF_PLAY_TEST_SCRIPT = "6:activate:0x001572E6,8:button:1,10:button:1,12:button:1" }
+args = ["--play", "--cell", "PrimmNashResidence", "--pos=2018,1484,7649", "--no-voice", "--no-messages"]
+run_seconds = 45
+order = [[
+  { text = "player controls: movement, Pip-Boy, fighting, POV disabled by scripts", label = "the repair script turns the controls off" },
+  { text = "script: EDE1Ref enabled", label = "the working ED-E is enabled" },
+  { text = "conversation with EDE1Ref started (topic GREETING)", label = "ED-E's Dialogue package starts the conversation" },
+  { text = "player controls: all enabled", label = "the greeting's result script gives the controls back" },
+]]
+forbid = [{ text = "EDE1Ref: does not talk", label = "ED-E has a greeting to say" }]
