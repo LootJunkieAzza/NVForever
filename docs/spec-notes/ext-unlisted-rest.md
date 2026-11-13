@@ -240,7 +240,53 @@ SetBlockTransform, SetDialogResponseOverrideValues (JG); SetFactionCombatReactio
 (ShowOff); HudBarGetPos, GetCalculatedPosFrame, GetNifBlockTranslationToVars,
 TopicReplaceTopicInfo (SUP).
 
-## 9. Left for the next batch
+## 9. JIP LN (batch 5)
 
-JIP's ~52 (CCCTaskPackageFlags and the container sound setters among them). Their shapes
-are in the compile-shape run.
+Probed on a placed Doc Mitchell, the player and vanilla forms [observed: set rest5; the
+commands that touch the menus, the sky or the minimap ran one per launch].
+
+**Answers with a meaning NVForever follows:**
+- **GetRaceAgeRace** `race which`: 0 the older race (ONAM), 1 the younger (YNAM)
+  (Caucasian: CaucasianOld, CaucasianChild; CaucasianOld 0: none). **GetRaceVoice** `race
+  which`: 0 the male voice, 1 the female (VTCK). **SetRaceAgeRace / SetRaceVoice** answer 0;
+  NVForever's getters read the change back for the session [hypothesis].
+- **GetEquippedArmorRefs**: the actor's equipped armour, 3 for the player and 1 for Doc.
+  NVForever lists the base forms [hypothesis: the original's are inventory references].
+- **GetArrayValue** `array index`: the element (20 for index 1 of [10 20 30]); 0 for a
+  reference given instead of an array.
+- **SetContainerOpenSound / SetContainerCloseSound** `sound [container]`: the container's
+  base takes the sound; 0 (`opensound.set`, `closesound.set`; `cmd2.opensound.set` from a
+  reference). NVForever hands them to SetContainerSound.
+- **RefMapArraySetValue** `name value key` (alias RefMapSetVal) answers 0, and the map then
+  holds one key. **RefMapArrayGetValue** `name key` gave a one-element list. Its element
+  read back as a float with a denormal value (2.1e-310) when 5 was set, so how the value is
+  stored is open. NVForever keeps the value as given and lists it.
+- **HasActionRef**: 1 for Doc [hypothesis: 1 for an actor, 0 otherwise].
+
+**Constant answers** (each [observed] for the inputs probed; what each changes is not seen):
+
+| Answer | Commands |
+|---|---|
+| 1 | GetQuestTargetsChanged, ToggleHitEffects |
+| 0 | GetScriptBlockDisabled, SetScriptBlockDisabled, IsAttackQueued, GetRecipeMenuNumSubcategories, SetWaterTrait, ToggleDepthClear, ToggleNoMovementCombat, ToggleNoZPosReset, ToggleNodeCollision, SuppressQuestMessages, UnlockRecipeMenuQuantity, SetItemFilter, InitItemFilter, SetTextureTransformKey, ClearModelAltTextures, InitRockItLauncher, EnableImprovedRecipeMenu, SetWindSpeedMult, SwapObjectLOD, ScrollMouseWheel, InitMiniMap, UpdateMiniMap, ReloadCharController, ReloadCloudTextures, ResetClouds, ShowLevelUpMenuEx |
+| no array | GetObjectiveTeleportLinks (quest VMS01, objective 10) |
+
+**Answers NVForever does not match**, with what the original gave:
+- **GetCollisionNodes**: an array of 18 for Doc; NVForever gives an empty one.
+- **CalculateShotsPerSec** (a weapon form or the player), **ProjectUITile** and
+  **ExecuteScript** (no arguments) failed the call; NVForever answers 0.
+- **GetBodyPartVATSTarget** did not compile into a number; NVForever gives "".
+
+**No argument pattern compiled**, so the shape is unknown. These get optional arguments
+and answer 0 or "": CCCTaskPackageFlags, GetCameraMovement, GetTranslatedPos,
+GetWorldMapPosMults, TransformWorldToLocal.
+
+## 10. Where this leaves the catalogue
+
+Every name the installed plugins register in nvse.log now has a catalogue row (checked
+2026-11-13 against the Blue Moon stock game's nvse.log, aliases counted). The extender
+census counts every row built; its two unbuilt names (SetStringSetting, EvaluateString)
+are from other work. What stays open, by section: the CCC mod's effects
+(`ext-unlisted-commands.md` §5.5); the answers NVForever does not match (§8, §9); the
+shapes no pattern compiled (§8, §9); and the effects of the many commands whose answers
+are constants.

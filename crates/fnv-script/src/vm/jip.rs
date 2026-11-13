@@ -896,6 +896,33 @@ impl Vm<'_, '_> {
                 }
                 XVal::Num(1.0)
             }
+            // `name value key`: the key's element set to a value of any type; answers 0
+            // [observed: rest5.refmap.set, refmap.getsize 1; docs/spec-notes/
+            // ext-unlisted-rest.md §9].
+            "setvalue" => {
+                let v = self.jarg(c, 1)?.ok_or_else(|| VmError::Expression(format!("{n} without a value")))?;
+                let v = match v {
+                    XVal::Array(_) => return Ok(Some(XVal::Num(0.0))),
+                    other => other,
+                };
+                let key = self.jowner(n, c, 2)?;
+                let m = stores(self.store()?, &name).refmaps.entry(name.clone()).or_default();
+                match m.binary_search_by_key(&key, |(k, _)| *k) {
+                    Ok(i) => m[i].1 = v,
+                    Err(i) => m.insert(i, (key, v)),
+                }
+                XVal::Num(0.0)
+            }
+            // `name key`: a one-element list of the key's value, no array without one
+            // [observed: rest5.refmap.get, a list of one].
+            "getvalue" => {
+                let key = self.jowner(n, c, 1)?;
+                let v = stores(self.store()?, &name).refmaps.get(&name).and_then(|m| m.iter().find(|(k, _)| *k == key)).map(|(_, v)| v.clone());
+                match v {
+                    Some(v) => self.jlist(vec![v])?,
+                    None => XVal::Array(0),
+                }
+            }
             "getfloat" | "getref" | "getstring" | "gettype" => {
                 let key = self.jowner(n, c, 1)?;
                 let m = stores(self.store()?, &name).refmaps.get(&name);

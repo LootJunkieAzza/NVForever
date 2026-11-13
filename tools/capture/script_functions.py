@@ -571,6 +571,47 @@ PAGELESS += [
 ]
 
 
+
+# Batch 5 (#2326): JIP's unlisted commands; shapes from the compile-shape run, behaviour
+# from set rest5 (docs/spec-notes/ext-unlisted-rest.md §9).
+_J = "JIP"
+PAGELESS += [
+    _x("GetRaceAgeRace", _J, "ref", [_p("race", "form"), _I("younger")]), _x("SetRaceAgeRace", _J, "int", [_p("race", "form"), _I("younger"), _p("ageRace", "form")]),
+    _x("GetRaceVoice", _J, "ref", [_p("race", "form"), _I("female")]), _x("SetRaceVoice", _J, "int", [_p("race", "form"), _I("female"), _p("voice", "form")]),
+    _x("GetScriptBlockDisabled", _J, "int", [_p("script", "form"), _I("block")]),
+    _x("SetScriptBlockDisabled", _J, "int", [_p("script", "form"), _I("block"), _I("disable", True)]),
+    _x("GetBodyPartVATSTarget", _J, "string_var", [_p("bodyPartData", "form"), _I("part", True)]),
+    _x("GetObjectiveTeleportLinks", _J, "array", [_p("quest", "form"), _I("objective")]),
+    _x("CalculateShotsPerSec", _J, "float", [_p("weapon", "form")]),
+    _x("GetEquippedArmorRefs", _J, "array", ref="reference"), _x("GetCollisionNodes", _J, "array", ref="reference"),
+    _x("HasActionRef", _J, "int", ref="reference"), _x("IsAttackQueued", _J, "int", ref="reference"),
+    _x("GetQuestTargetsChanged", _J, "int"), _x("GetRecipeMenuNumSubcategories", _J, "int"),
+    _x("RefMapArrayGetValue", _J, "array", [_S("name"), _R("key", True)], aliases=["RefMapGetVal"]),
+    _x("RefMapArraySetValue", _J, "int", [_S("name"), _p("value", "unknown"), _R("key", True)], aliases=["RefMapSetVal"]),
+    _x("GetArrayValue", _J, "unknown", [_A("array"), _I("index")]),
+    _x("SetContainerOpenSound", _J, "int", [_p("sound", "form"), _p("container", "form", None, True)]),
+    _x("SetContainerCloseSound", _J, "int", [_p("sound", "form"), _p("container", "form", None, True)]),
+    _x("SetWaterTrait", _J, "int", [_p("water", "form"), _I("trait"), _F("value")]),
+    _x("SetWindSpeedMult", _J, "int", [_F("mult")]), _x("ToggleDepthClear", _J, "int", [_I("enable")]),
+    _x("ToggleHitEffects", _J, "int", [_I("enable", True)], ref="reference"),
+    _x("ToggleNoMovementCombat", _J, "int", [_I("enable", True)], ref="reference"),
+    _x("ToggleNoZPosReset", _J, "int", [_I("enable")], ref="reference"),
+    _x("ToggleNodeCollision", _J, "int", [_S("node"), _I("enable")], ref="reference"),
+    _x("SuppressQuestMessages", _J, "int"), _x("UnlockRecipeMenuQuantity", _J, "int", [_I("unlock", True)]),
+    _x("SetItemFilter", _J, "int", [_S("filter", True)]), _x("InitItemFilter", _J, "int"),
+    _x("SetTextureTransformKey", _J, "int", [_I("a"), _I("b"), _I("c"), _F("value")], ref="reference", aliases=["SetTexTransKey"]),
+    _x("ClearModelAltTextures", _J, "int", [_p("form", "form")]), _x("InitRockItLauncher", _J, "int", [_p("weapon", "form")]),
+    _x("EnableImprovedRecipeMenu", _J, "int"), _x("SwapObjectLOD", _J, "int", [_p("object", "form"), _I("a"), _I("b")]),
+    _x("ScrollMouseWheel", _J, "int", [_I("delta", True)]), _x("InitMiniMap", _J, "int"),
+    _x("UpdateMiniMap", _J, "int", [_I("a"), _I("b", True)]), _x("ProjectUITile", _J, "int", [_F(f"v{i}") for i in range(1, 7)]),
+    _x("ReloadCharController", _J, "int", ref="reference"), _x("ReloadCloudTextures", _J, "int"), _x("ResetClouds", _J, "int"),
+    _x("ExecuteScript", _J, "int"), _x("ShowLevelUpMenuEx", _J, "int", [_I("mode")]),
+    _x("CCCTaskPackageFlags", _J, "int", list(_ANY)), _x("GetCameraMovement", _J, "string_var", list(_ANY)),
+    _x("GetTranslatedPos", _J, "int", list(_ANY)), _x("GetWorldMapPosMults", _J, "int", list(_ANY)),
+    _x("TransformWorldToLocal", _J, "int", list(_ANY)),
+]
+
+
 # Pages whose template `name` is another function's (copied from a sibling page): the
 # page title is the function's name [documented: each page's title and its example,
 # e.g. "GetConditionFormOneFloat HitReactionIdles 0 1"; the template says

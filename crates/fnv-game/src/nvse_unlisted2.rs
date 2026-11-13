@@ -32,6 +32,8 @@ pub const NEUTRAL: &[&str] = &[
 pub struct Unlisted2State {
     /// The game was started from the New Game menu and no save has been loaded since.
     pub new_game: bool,
+    /// SetRaceVoice / SetRaceAgeRace for the session: (race, voice, second) -> form.
+    pub race_sets: std::collections::BTreeMap<(FormId, bool, bool), FormId>,
 }
 
 /// The current command an `_OLD` one answers as [observed: rest1.old.* and new.* read
@@ -46,6 +48,25 @@ fn name_of_code(g: &Game, code: u32) -> Option<String> {
     let names = crate::nvse_debug::opcode_names(code);
     let canonical = names.iter().find_map(|n| g.data.table.by_name(n).and_then(|op| g.data.table.get(op)).map(|f| f.name.clone()));
     canonical.or_else(|| names.iter().max_by_key(|n| n.len()).cloned())
+}
+
+fn num_arg(args: &[XVal], k: usize) -> Option<f64> {
+    match args.get(k)? {
+        XVal::Num(n) => Some(*n),
+        _ => None,
+    }
+}
+
+/// A race's older or younger race (ONAM / YNAM) or its male or female voice (VTCK).
+fn race_field(g: &Game, race: FormId, voice: bool, second: bool) -> Option<FormId> {
+    let subs = g.data.record_fields.get(&race)?;
+    let hex = |v: &serde_json::Value| v.as_str().and_then(|s| u32::from_str_radix(s.trim_start_matches("0x"), 16).ok()).filter(|&f| f != 0).map(FormId);
+    if voice {
+        let v = subs.iter().find(|(s, _)| s == b"VTCK")?;
+        return hex(&v.1[if second { "female" } else { "male" }]);
+    }
+    let sig: &[u8; 4] = if second { b"YNAM" } else { b"ONAM" };
+    subs.iter().find(|(s, _)| s == sig).and_then(|(_, v)| hex(v))
 }
 
 fn form_arg(args: &[XVal], k: usize) -> Option<FormId> {
@@ -246,6 +267,64 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         | "showingoffdisable" | "showingoffenable" | "messageexaltshowoff" | "setfactioncombatreactiontemp" | "getniftypebyid"
         | "supgetconditionvarfloat" | "hudbargetpos" | "getcalculatedposframe" | "getnifblocktranslationtovars" | "topicreplacetopicinfo"
         | "getpackedplayerfov" | "jglegacyworldtoscreen" | "setblocktransform" | "setdialogresponseoverridevalues" => XVal::Num(0.0),
+        // ---- batch 5: JIP (§9) ----
+        // `race which`: 0 the race's older race (ONAM), 1 its younger (YNAM); a script's
+        // SetRaceAgeRace first [observed: rest5.raceagerace.*, Caucasian 0 CaucasianOld,
+        // 1 CaucasianChild; CaucasianOld 0 none].
+        "getraceagerace" | "getracevoice" => {
+            let (Some(race), Some(which)) = (form_arg(args, 0), num_arg(args, 1)) else { return Some(Ok(XVal::Ref(0))) };
+            let key = (race, name == "getracevoice", which != 0.0);
+            let got = g.other.unlisted2.race_sets.get(&key).copied().or_else(|| race_field(g, race, key.1, key.2));
+            XVal::Ref(got.map_or(0, |f| f.0))
+        }
+        // `race which form`: answers 0 [observed: rest5.racevoice.set, raceagerace.set];
+        // the getters read it back for the session [hypothesis].
+        "setraceagerace" | "setracevoice" => {
+            if let (Some(race), Some(which), Some(f)) = (form_arg(args, 0), num_arg(args, 1), form_arg(args, 2)) {
+                g.other.unlisted2.race_sets.insert((race, name == "setracevoice", which != 0.0), f);
+            }
+            XVal::Num(0.0)
+        }
+        // The actor's equipped armour [observed: rest5.equippedarmor.*, 3 for the player,
+        // 1 for Doc; hypothesis: the original's inventory references are the base forms here].
+        "getequippedarmorrefs" => {
+            let worn = subject.and_then(|a| g.world.inventory_mut(a).ok().map(|inv| inv.equipped())).unwrap_or_default();
+            let armour: Vec<FormId> = worn.into_iter().filter(|&f| g.data.sig(f) == Some(*b"ARMO")).collect();
+            let entries = armour.into_iter().enumerate().map(|(i, f)| (fnv_script::vm::XKey::Num(i as f64), XVal::Ref(f.0))).collect();
+            XVal::Array(g.ext.new_array(fnv_script::vm::ArrayKind::List, entries))
+        }
+        // `array index`: the element; 0 for no array [observed: rest5.arrayvalue 20 of
+        // [10 20 30] at 1, arrayvalue.ref 0].
+        "getarrayvalue" => {
+            let (Some(XVal::Array(id)), Some(i)) = (args.first(), num_arg(args, 1)) else { return Some(Ok(XVal::Num(0.0))) };
+            let v = g.ext.array(*id).and_then(|a| a.entries.iter().find(|(k, _)| matches!(k, fnv_script::vm::XKey::Num(x) if *x == i)).map(|(_, v)| v.clone()));
+            v.unwrap_or(XVal::Num(0.0))
+        }
+        // `sound [container]`: the container's base takes the sound; answers 0 [observed:
+        // rest5.opensound.set "0 00076E94", closesound.set; cmd2.opensound.set from a
+        // reference], through SetContainerSound (`crate::nvse_jg1`).
+        "setcontaineropensound" | "setcontainerclosesound" => {
+            let container = form_arg(args, 1).or(subject).map_or(0, |f| f.0);
+            let which = if name == "setcontaineropensound" { 0.0 } else { 1.0 };
+            let sound = form_arg(args, 0).map_or(0, |f| f.0);
+            let _ = crate::nvse::call(g, ctx, "setcontainersound", None, &[XVal::Ref(container), XVal::Num(which), XVal::Ref(sound)]);
+            XVal::Num(0.0)
+        }
+        // 1 for an actor [observed: rest5.hasactionref.doc; hypothesis: others 0].
+        "hasactionref" => XVal::Num(f64::from(u8::from(subject.is_some_and(|r| crate::ai::is_actor_base(g.world.forms, crate::functions::base_of(g, r).unwrap_or(FormId(0))))))),
+        // [observed: rest5.questtargetschanged 1, toggle.hiteffects 1]
+        "getquesttargetschanged" | "togglehiteffects" => XVal::Num(1.0),
+        "getobjectiveteleportlinks" => XVal::Array(0),
+        "getcollisionnodes" => XVal::Array(g.ext.new_array(fnv_script::vm::ArrayKind::List, Vec::new())),
+        "getbodypartvatstarget" => XVal::Str(String::new()),
+        // The answers the original gave, effects not seen (§9).
+        "getscriptblockdisabled" | "setscriptblockdisabled" | "calculateshotspersec" | "isattackqueued" | "getrecipemenunumsubcategories"
+        | "setwatertrait" | "toggledepthclear" | "togglenomovementcombat" | "togglenozposreset" | "togglenodecollision"
+        | "suppressquestmessages" | "unlockrecipemenuquantity" | "setitemfilter" | "settexturetransformkey" | "clearmodelalttextures"
+        | "initrockitlauncher" | "enableimprovedrecipemenu" | "setwindspeedmult" | "swapobjectlod" | "scrollmousewheel"
+        | "inititemfilter" | "initminimap" | "updateminimap" | "projectuitile" | "reloadcharcontroller" | "reloadcloudtextures"
+        | "resetclouds" | "executescript" | "showlevelupmenuex" | "ccctaskpackageflags" | "gettranslatedpos" | "getworldmapposmults"
+        | "transformworldtolocal" => XVal::Num(0.0),
         // 1 in a game started from the New Game menu until a save is loaded [observed:
         // rest1.isnewgame 0 in a loaded save; hypothesis: the rest] (§5).
         "isnewgame" => XVal::Num(f64::from(u8::from(g.other.unlisted2.new_game))),

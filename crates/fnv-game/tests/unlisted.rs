@@ -452,3 +452,23 @@ fn batch_four_answers() {
     assert_eq!(n(&mut g, "ar_Size (PlayerREF.GetEligiblePerksEx PlayerREF)"), 0.0);
     assert_eq!(n(&mut g, "ar_Size (NpcRef.GetActorCoverInfo)"), 0.0);
 }
+
+// ---- #2326, batch 5: JIP ----
+
+#[test]
+fn batch_five_answers() {
+    let f = fixture();
+    let mut g = game(&f);
+    assert_eq!(n(&mut g, "GetArrayValue (ar_List 10 20 30) 1"), 20.0);
+    assert_eq!(n(&mut g, "RefMapArraySetValue \"*rm\" 5 PlayerREF"), 0.0);
+    assert_eq!(n(&mut g, "RefMapArrayGetSize \"*rm\""), 1.0);
+    assert_eq!(n(&mut g, "(RefMapArrayGetValue \"*rm\" PlayerREF)[0]"), 5.0);
+    assert_eq!(n(&mut g, "ar_Size (RefMapArrayGetValue \"*rm\" NpcRef)"), -1.0, "no value: no array");
+    assert_eq!(n(&mut g, "ar_Size (PlayerREF.GetEquippedArmorRefs)"), 0.0);
+    assert_eq!(n(&mut g, "NpcRef.HasActionRef"), 1.0);
+    assert_eq!(n(&mut g, "BoxRef.HasActionRef"), 0.0);
+    assert_eq!(n(&mut g, "GetRaceVoice TestGun 0"), 0.0, "not a race");
+    for call in ["SetWindSpeedMult 1", "ResetClouds", "NpcRef.ToggleNoZPosReset 0", "SuppressQuestMessages", "EnableImprovedRecipeMenu"] {
+        assert_eq!(n(&mut g, call), 0.0, "{call}");
+    }
+}
