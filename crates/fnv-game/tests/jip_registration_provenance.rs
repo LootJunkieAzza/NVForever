@@ -70,7 +70,7 @@ struct Fixture { data: GameData, forms: FormStore, refs: RefTable }
 fn fixture() -> Fixture {
     files();
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas");
-    let table = FunctionTable::load(root.join("script/functions.json")).unwrap();
+    let table = FunctionTable::load(&root.join("script/functions.json")).unwrap();
     let scripts = [
         function(&table, REGISTRAR, "OwnedRegistrar", "SetOnHitEventHandler OwnedCallback 1 0"),
         function(&table, CALLBACK, "OwnedCallback", &format!("Call {BAD_A}")),
