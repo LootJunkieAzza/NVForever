@@ -100,6 +100,8 @@ pub struct CheckPlay {
     pub weight: f32,
     /// Put away: going down.
     pub closing: bool,
+    /// Seconds since it was put away (for the log).
+    pub out: f32,
 }
 
 impl CheckPlay {
@@ -133,11 +135,11 @@ impl CheckPlay {
         if kind != self.kind {
             // The other check while the arm is up: the new clip from where its arm is up.
             let up_already = self.kind != Check::None && !self.closing && self.weight >= 0.5;
-            *self = CheckPlay { kind, t: if up_already { keys.up } else { 0.0 }, weight: if up_already { self.weight } else { 0.0 }, closing: false };
+            *self = CheckPlay { kind, t: if up_already { keys.up } else { 0.0 }, weight: if up_already { self.weight } else { 0.0 }, closing: false, out: 0.0 };
         }
         if want == kind {
             if self.closing {
-                self.closing = false;
+                (self.closing, self.out) = (false, 0.0);
                 if self.t >= keys.down {
                     self.t = keys.up;
                 }
@@ -155,10 +157,16 @@ impl CheckPlay {
                     self.t = self.t.max(keys.down);
                 }
             }
-            self.t += dt;
+            self.out += dt;
             if self.t < keys.up {
+                // Put away before the arm was up: it fades out where it is. Its time
+                // stays put, so it never runs on into the raised part with the weight
+                // left where it was (closed 1.8 s into the full check, 0.1 s before its
+                // arm is up, the arm stayed raised the clip's next 10.8 s; owner's play
+                // 2026-11-13).
                 self.weight -= dt / BLEND;
             } else {
+                self.t += dt;
                 self.weight = self.weight.min((keys.len - self.t) / BLEND);
             }
             if self.weight <= 0.0 || self.t >= keys.len {
@@ -367,6 +375,39 @@ mod tests {
             p.step(Check::None, 0.05, k);
         }
         assert_eq!(p.kind, Check::None);
+    }
+
+    /// Closed at any moment, the check is gone within its out-blend: the fade where it
+    /// is ([`BLEND`]) before the arm is up, else the clip from "AccessDown" to its end.
+    /// It never plays on into the raised part with the Pip-Boy down (owner's play
+    /// 2026-11-13: the full check closed 1.8 s in, 0.1 s before its arm was up, held the
+    /// arm raised 10.8 s more).
+    #[test]
+    fn closed_at_any_moment_the_check_is_gone_within_its_out_blend() {
+        let manipulate = CheckKeys { len: 12.67, up: 1.9, down: 11.57 };
+        let dt = 1.0 / 60.0;
+        for (want, k) in [(Check::Glance, examine()), (Check::Full, manipulate)] {
+            let out = BLEND.max(k.len - k.down) + 2.0 * dt;
+            let mut open = 0.0;
+            while open < k.len + 3.0 {
+                let mut p = CheckPlay::default();
+                let mut t = 0.0;
+                while t < open {
+                    p.step(want, dt, k);
+                    t += dt;
+                }
+                let (mut gone, mut last_w) = (0.0, f32::MAX);
+                while let Some((at, w)) = p.step(Check::None, dt, k) {
+                    gone += dt;
+                    assert!(gone <= out, "{want:?} closed at {open:.2} s: still shown {gone:.2} s later (clip at {at:.2} s, weight {w:.2})");
+                    assert!(w <= last_w + 1e-5, "{want:?} closed at {open:.2} s: the weight rose to {w:.2}");
+                    assert!(at < k.up || at >= k.down, "{want:?} closed at {open:.2} s: the clip plays its raised part at {at:.2} s");
+                    last_w = w;
+                }
+                assert_eq!(p, CheckPlay::default());
+                open += 0.05;
+            }
+        }
     }
 
     #[test]

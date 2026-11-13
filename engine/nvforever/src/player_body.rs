@@ -1788,7 +1788,19 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &
             return None;
         };
         let keys = crate::pipboy_check::CheckKeys::read(c.clip.length(), &c.clip.text_keys);
-        let (t, w) = play.step(want, f.dt, keys)?;
+        let before = *play;
+        let step = play.step(want, f.dt, keys);
+        if play.closing && !before.closing {
+            info!("player {:?} rig: Pip-Boy check {:?} put away {:.2} s into its clip (arm up at {:.2} s), going on from {:.2} s", rig.view, play.kind, before.t, keys.up, play.t);
+        }
+        if before.kind != play.kind {
+            if play.kind == Check::None && before.closing {
+                info!("player {:?} rig: Pip-Boy check {:?} gone {:.2} s after it was put away", rig.view, before.kind, before.out + f.dt);
+            } else {
+                info!("player {:?} rig: Pip-Boy check {:?} -> {:?}", rig.view, before.kind, play.kind);
+            }
+        }
+        let (t, w) = step?;
         Some((c, t, w))
     });
     let draw = rig.clip(ctx, ClipKey::Equip(f.stance, f.prefix, true));
@@ -2103,8 +2115,10 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &
             (l.weight, l.ease) = (1.0, pipboy_ease(t));
         }
     }
-    if let Some((_, _, w)) = check {
-        for l in a.layers.iter_mut().filter(|l| l.tag == TAG_CHECK) {
+    // Only the clip asked for this frame: a check layer the old body handed on at a
+    // rebuild (`continue_from`; its clip is the old cache's) fades out as any other.
+    if let Some((c, _, w)) = check {
+        for l in a.layers.iter_mut().filter(|l| l.tag == TAG_CHECK && Arc::ptr_eq(&l.clip, &c.clip)) {
             (l.weight, l.ease) = (1.0, w);
         }
     }
