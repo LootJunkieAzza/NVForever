@@ -33,7 +33,11 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
+#[cfg(any(windows, test))]
+mod decode;
 mod files;
+#[cfg(any(windows, test))]
+mod install;
 #[cfg(test)]
 mod test_zip;
 #[cfg(any(windows, test))]
