@@ -1412,41 +1412,6 @@ impl Ui {
     }
 }
 
-#[cfg(test)]
-mod write_serial_tests {
-    use super::*;
-
-    #[test]
-    fn trait_write_serial_exhaustion_keeps_legacy_values_without_reusing_tokens() {
-        let mut ui = Ui::new();
-        let screen = ui.screen();
-        ui.set_trait(screen, "x", Value::Num(12.0));
-        let old = ui.trait_write_serial(screen, "x").unwrap();
-        let clock = ui.last_write_serial;
-        assert!(!ui.set_float("screen()/missing", 1.0));
-        assert!(!ui.set_existing(screen, "missing", Value::Num(1.0)));
-        assert_eq!(ui.last_write_serial, clock);
-        ui.last_write_serial = u64::MAX - 1;
-        ui.set_trait(screen, "x", Value::Num(12.0));
-        let last = ui.trait_write_serial(screen, "x").unwrap();
-        assert_ne!(old, last);
-        assert_eq!(ui.last_write_serial, u64::MAX);
-        ui.set_trait(screen, "x", Value::Num(13.0));
-        assert_eq!(ui.trait_write_serial(screen, "x"), None);
-        assert_eq!(ui.tile(screen).get("x"), Some(&Value::Num(13.0)));
-        ui.set_trait(screen, "x", Value::Num(14.0));
-        assert_eq!(ui.tile(screen).get("x"), Some(&Value::Num(14.0)));
-        assert_eq!(ui.trait_write_serial(screen, "x"), None);
-        let src = MemSource::default();
-        assert!(ui.inject_text(&src, "screen()", "<x>15</x><y>24</y>"));
-        assert_eq!(ui.tile(screen).get("x"), Some(&Value::Num(15.0)));
-        assert_eq!(ui.tile(screen).get("y"), Some(&Value::Num(24.0)));
-        assert_eq!(ui.trait_write_serial(screen, "x"), None);
-        assert_eq!(ui.trait_write_serial(screen, "y"), None);
-        assert_eq!(ui.last_write_serial, u64::MAX);
-    }
-}
-
 fn is_tile(e: &Element) -> bool {
     TILE_KINDS.iter().any(|k| e.is(k))
 }
@@ -1535,5 +1500,40 @@ fn apply(kind: OpKind, acc: Value, a: Value, me: TileId, k: usize) -> Value {
                 acc
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod write_serial_tests {
+    use super::*;
+
+    #[test]
+    fn trait_write_serial_exhaustion_keeps_legacy_values_without_reusing_tokens() {
+        let mut ui = Ui::new();
+        let screen = ui.screen();
+        ui.set_trait(screen, "x", Value::Num(12.0));
+        let old = ui.trait_write_serial(screen, "x").unwrap();
+        let clock = ui.last_write_serial;
+        assert!(!ui.set_float("screen()/missing", 1.0));
+        assert!(!ui.set_existing(screen, "missing", Value::Num(1.0)));
+        assert_eq!(ui.last_write_serial, clock);
+        ui.last_write_serial = u64::MAX - 1;
+        ui.set_trait(screen, "x", Value::Num(12.0));
+        let last = ui.trait_write_serial(screen, "x").unwrap();
+        assert_ne!(old, last);
+        assert_eq!(ui.last_write_serial, u64::MAX);
+        ui.set_trait(screen, "x", Value::Num(13.0));
+        assert_eq!(ui.trait_write_serial(screen, "x"), None);
+        assert_eq!(ui.tile(screen).get("x"), Some(&Value::Num(13.0)));
+        ui.set_trait(screen, "x", Value::Num(14.0));
+        assert_eq!(ui.tile(screen).get("x"), Some(&Value::Num(14.0)));
+        assert_eq!(ui.trait_write_serial(screen, "x"), None);
+        let src = MemSource::default();
+        assert!(ui.inject_text(&src, "screen()", "<x>15</x><y>24</y>"));
+        assert_eq!(ui.tile(screen).get("x"), Some(&Value::Num(15.0)));
+        assert_eq!(ui.tile(screen).get("y"), Some(&Value::Num(24.0)));
+        assert_eq!(ui.trait_write_serial(screen, "x"), None);
+        assert_eq!(ui.trait_write_serial(screen, "y"), None);
+        assert_eq!(ui.last_write_serial, u64::MAX);
     }
 }
