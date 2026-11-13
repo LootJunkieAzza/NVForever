@@ -46,6 +46,10 @@ the spec it links to.
      it. Cover is at most 1,024 units away.
    - Alarm calls allies within 4,096 units. A fled NPC re-checks after 30 s. Group
      searches give up after two sweeps.
+   - [design, #2010] A Lost search with no completed share for 300 s gives up, even
+     with shares still pending; each completed share renews that safety deadline.
+     A different bound changes how long unavailable navigation/AI holds combat.
+     ([alert section 2](design/alert.md))
    - Fire only with the target within 30° ahead, turning at 240°/s.
    - Creatures start blows on the run from up to 200 units beyond reach (minimum
      closing speed 100 units/s).
