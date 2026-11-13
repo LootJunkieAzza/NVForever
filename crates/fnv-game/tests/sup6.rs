@@ -3,7 +3,7 @@
 //! the plugin header texts, the HUD flags, the lockpick menu and the throw held, with the
 //! engine's part played by the test (it fills `Game::sup` as the engine would).
 
-mod common;
+use crate::common;
 
 use common::*;
 use fnv_esm::{LoadOrder, Plugin, Schema};

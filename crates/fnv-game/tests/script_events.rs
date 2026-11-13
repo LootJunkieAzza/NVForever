@@ -2,7 +2,7 @@
 //! plugin (no game data); OnSell is never run, as in the original. docs/spec-notes/
 //! script-functions.md §3.3.
 
-mod common;
+use crate::common;
 
 use common::*;
 use fnv_esm::{LoadOrder, Plugin, Schema};

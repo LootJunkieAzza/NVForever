@@ -2,7 +2,7 @@
 //! oneself reaches the actors within the area in feet, its effects without an area stay
 //! on the caster. docs/spec-notes/area-effects.md.
 
-mod common;
+use crate::common;
 
 use common::*;
 use fnv_esm::{LoadOrder, Plugin, Schema};

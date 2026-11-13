@@ -3,7 +3,7 @@
 //! properties, contacts, the ground, the requests to the engine, script-forced travel,
 //! moves, PlaceAtCell, rotations, turning and the reticle.
 
-mod common;
+use crate::common;
 
 use common::*;
 use fnv_esm::{LoadOrder, Plugin, Schema};

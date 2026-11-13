@@ -3,7 +3,7 @@
 //! enchanted armour while worn, conditions, RemoveSpell / Dispel / DispelAllSpells and
 //! saving. docs/spec-notes/aid-items.md §13.
 
-mod common;
+use crate::common;
 
 use common::*;
 use fnv_esm::{LoadOrder, Plugin, Schema};

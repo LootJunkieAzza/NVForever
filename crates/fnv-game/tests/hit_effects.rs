@@ -3,7 +3,7 @@
 //! second hit starts the time again, the drain kills, and a death ends the effects
 //! without "No Death Dispel". docs/spec-notes/hit-effects.md.
 
-mod common;
+use crate::common;
 
 use common::*;
 use fnv_esm::{LoadOrder, Plugin, Schema};

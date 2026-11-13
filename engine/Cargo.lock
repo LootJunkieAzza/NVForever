@@ -1498,6 +1498,7 @@ dependencies = [
 name = "bevy_render"
 version = "0.20.1"
 dependencies = [
+ "ash",
  "async-channel",
  "bevy_app",
  "bevy_asset",
@@ -2966,6 +2967,7 @@ dependencies = [
  "rayon",
  "serde",
  "serde_json",
+ "smallvec",
  "thiserror 2.0.21",
  "tracing",
 ]

@@ -91,7 +91,7 @@ impl Game<'_> {
             }
             let args = subject.map(|s| vec![XVal::Ref(s.0)]).unwrap_or_default();
             if let Err(error) = self.run_function(&f, None, args, None, RunCtx::default()) {
-                self.emit(crate::trace::EventKind::ScriptError { unit: "JohnnyGuitar event handler".into(), error });
+                self.handler_failed("JohnnyGuitar event handler".into(), error);
             }
         }
     }

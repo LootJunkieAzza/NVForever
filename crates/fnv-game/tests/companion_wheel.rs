@@ -2,7 +2,7 @@
 //! memory: a companion whose command lines set its variables as the shipped
 //! VNPCFollowers lines do. No game data.
 
-mod common;
+use crate::common;
 
 use common::*;
 use fnv_esm::raw::Subrecord;

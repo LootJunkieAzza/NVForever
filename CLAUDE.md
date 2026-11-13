@@ -60,18 +60,18 @@ They are the commands CI runs, in its order (`tools/smoke/tests/test_check_lists
 this list, CONTRIBUTING.md, docs/development.md, the `[[check]]` entries and ci.yml the same).
 
 ```
-cargo deny check licenses advisories bans sources
-cargo deny --manifest-path engine/Cargo.toml check licenses advisories bans sources
 cargo test --workspace --release --locked
 cargo clippy --workspace --all-targets --release --locked -- -D warnings
+(cd engine && cargo test --release --locked)
+(cd engine && cargo clippy --release --locked --all-targets -- -D warnings)
+cargo deny check licenses advisories bans sources
+cargo deny --manifest-path engine/Cargo.toml check licenses advisories bans sources
 python -m unittest discover -s parity-lab/tests
 python -m unittest discover -s tools/capture/tests
 python -m unittest discover -s tools/smoke/tests
 python -m unittest discover -s tools/stress/tests
 python -m unittest discover -s tools/profile/tests
 python -m unittest discover -s tools/release/tests
-(cd engine && cargo test --release --locked)
-(cd engine && cargo clippy --release --locked --all-targets -- -D warnings)
 ```
 
 With game data available (owner's install, read-only): build `fnvtool`, set

@@ -11,9 +11,9 @@
 //! blurred over those 4 x 4 texels at about the same distance and multiplied
 //! into the picture after tonemapping, before the image-space grade and its blur
 //! (imagespace.rs). It darkens all light, not only the ambient light as the lighting
-//! itself could [engineering choice: the strength is kept low for that]. While FSR
-//! upscales it runs at FSR's render size on the HDR picture before FSR instead
-//! ([`ao_before_fsr`]).
+//! itself could [engineering choice: the strength is kept low for that]. While a temporal
+//! upscaler (FSR, DLSS) upscales it runs at the render size on the HDR picture before the
+//! upscaler instead ([`ao_before_fsr`]; the names say FSR, the first to use it).
 //!
 //! On the main camera only, while it carries [`AmbientOcclusion`].
 
@@ -59,13 +59,14 @@ pub struct AmbientOcclusion {
     /// Projection x and y scale, largest screen radius, fade start.
     pub proj: Vec4,
     /// The size the depth prepass was drawn at (x, y) and the picture's size (z, w): all 1
-    /// here; set in the render world while FSR upscales (`fsr.rs` `prepare`), which expands
-    /// that depth to the picture's size, so the normals are taken from the texels as drawn
-    /// (ssao.wesl `normal_at`). The extraction puts 1 back every frame.
+    /// here; set in the render world while a temporal upscaler upscales (`upscaler/prep.rs`
+    /// `prepare`), whose common passes expand that depth to the picture's size, so the normals
+    /// are taken from the texels as drawn (ssao.wesl `normal_at`). The extraction puts 1 back
+    /// every frame.
     pub render_scale: Vec4,
-    /// While the occlusion is applied before FSR ([`ao_before_fsr`]): FSR's render size (x,
-    /// y), the part of the depth prepass drawn, and z 1. Set in the render world by `fsr.rs`
-    /// `prepare`; 0 otherwise (the extraction puts 0 back every frame).
+    /// While the occlusion is applied before the upscaler ([`ao_before_fsr`]): the render
+    /// size (x, y), the part of the depth prepass drawn, and z 1. Set in the render world by
+    /// `upscaler/prep.rs` `prepare`; 0 otherwise (the extraction puts 0 back every frame).
     pub area: Vec4,
 }
 
@@ -112,7 +113,7 @@ impl Plugin for SsaoPlugin {
             .add_systems(RenderStartup, init_pipelines)
             .add_systems(Render, prepare.in_set(RenderSystems::PrepareResources))
             .add_systems(Core3d, ao_pass.in_set(Core3dSystems::PostProcess).after(tonemapping).before(bevy::anti_alias::fxaa::fxaa).before(bevy::anti_alias::smaa::smaa).before(crate::imagespace::blur_pass))
-            .add_systems(Core3d, ao_before_fsr.in_set(Core3dSystems::EarlyPostProcess).before(crate::fsr::fsr_pass));
+            .add_systems(Core3d, ao_before_fsr.in_set(Core3dSystems::EarlyPostProcess).before(crate::fsr::fsr_pass).before(crate::dlss::dlss_pass));
     }
 }
 
@@ -341,22 +342,25 @@ fn occlusion_pass(
     pass.draw(0..3, 0..1);
 }
 
-/// While FSR upscales: the occlusion worked out at its render size from the depth as drawn
-/// (before fsr.rs expands it) and multiplied into the render-size rectangle of the HDR
-/// picture FSR reads, and of FSR's opaque copy, so its masks compare the two as before. FSR
-/// then accumulates it with everything else: the occlusion is jittered with the scene and
-/// smoothed by FSR, at about half the cost of the pass at the display size (Quality: the
-/// render size has 0.44 of the pixels). It darkens the HDR light before tonemapping, so
-/// bright surfaces lose less than when it is multiplied into the tonemapped picture.
+/// While a temporal upscaler upscales: the occlusion worked out at its render size from the
+/// depth as drawn (before the common passes expand it) and multiplied into the render-size
+/// rectangle of the HDR picture the upscaler reads, and, under FSR, of FSR's opaque copy, so
+/// its masks compare the two as before. The upscaler then accumulates it with everything
+/// else: the occlusion is jittered with the scene and smoothed by it, at about half the cost
+/// of the pass at the display size (FSR Quality: the render size has 0.44 of the pixels). It
+/// darkens the HDR light before tonemapping, so bright surfaces lose less than when it is
+/// multiplied into the tonemapped picture. Runs before every upscaler's pass
+/// (`fsr::fsr_pass`, `dlss::dlss_pass`).
+#[allow(clippy::type_complexity)]
 pub(crate) fn ao_before_fsr(
-    view: ViewQuery<(&ViewTarget, &DynamicUniformIndex<AmbientOcclusion>, &AoView, &ViewPrepassTextures, &crate::fsr::PreparedFsr)>,
+    view: ViewQuery<(&ViewTarget, &DynamicUniformIndex<AmbientOcclusion>, &AoView, &ViewPrepassTextures, &crate::upscaler::prep::PreparedUpscale, Option<&crate::fsr::PreparedFsr>)>,
     pipelines: Res<AoPipelines>,
     cache: Res<PipelineCache>,
     uniforms: Res<ComponentUniforms<AmbientOcclusion>>,
     device: Res<RenderDevice>,
     mut ctx: RenderContext,
 ) {
-    let (target, index, ao, prepass, fsr) = view.into_inner();
+    let (target, index, ao, prepass, prepared, fsr) = view.into_inner();
     if !ao.before_fsr || depth_multisampled(prepass) != Some(false) || !format_matches(target, BEFORE_FSR_FORMAT) {
         return;
     }
@@ -371,12 +375,14 @@ pub(crate) fn ao_before_fsr(
     occlusion_pass(&mut ctx, &device, &layout, occlusion, depth, binding.clone(), index.index(), ao);
     let layout = cache.get_bind_group_layout(&pipelines.multiply_layout);
     let bind_group = device.create_bind_group("ssao_multiply_bind_group", &layout, &BindGroupEntries::with_indices(((0, depth), (1, binding), (4, &ao.texture.default_view))));
-    let opaque = fsr.opaque().create_view(&default());
+    // FSR's opaque copy, only where FSR draws: DLSS has none.
+    let opaque = fsr.map(|fsr| fsr.opaque().create_view(&default()));
     let picture: &wgpu::TextureView = target.main_texture_view();
-    let size = fsr.render_size.as_vec2();
+    let size = prepared.render_size.as_vec2();
     // Loaded, not cleared (wgpu's default operations clear): the blend multiplies what is there.
     let ops = Operations { load: LoadOp::Load, store: StoreOp::Store };
-    for (label, view) in [("ssao_multiply_picture", picture), ("ssao_multiply_fsr_opaque", &opaque)] {
+    let targets = std::iter::once(("ssao_multiply_picture", picture)).chain(opaque.as_ref().map(|opaque| ("ssao_multiply_fsr_opaque", opaque)));
+    for (label, view) in targets {
         let mut pass = ctx.command_encoder().begin_render_pass(&RenderPassDescriptor {
             label: Some(label),
             color_attachments: &[Some(RenderPassColorAttachment { view, depth_slice: None, resolve_target: None, ops })],
@@ -396,16 +402,16 @@ pub(crate) fn ao_before_fsr(
 /// The occlusion into the view's texture, then the picture multiplied by it.
 #[allow(clippy::type_complexity)]
 pub(crate) fn ao_pass(
-    view: ViewQuery<(&ViewTarget, &DynamicUniformIndex<AmbientOcclusion>, &AoView, &ViewPrepassTextures, Has<crate::fsr::PreparedFsr>)>,
+    view: ViewQuery<(&ViewTarget, &DynamicUniformIndex<AmbientOcclusion>, &AoView, &ViewPrepassTextures, Has<crate::upscaler::prep::PreparedUpscale>)>,
     pipelines: Res<AoPipelines>,
     cache: Res<PipelineCache>,
     uniforms: Res<ComponentUniforms<AmbientOcclusion>>,
     device: Res<RenderDevice>,
     mut ctx: RenderContext,
 ) {
-    let (target, index, ao, prepass, fsr) = view.into_inner();
-    // Applied before FSR already ([`ao_before_fsr`]).
-    if ao.before_fsr && fsr {
+    let (target, index, ao, prepass, upscaled) = view.into_inner();
+    // Applied before the upscaler already ([`ao_before_fsr`]).
+    if ao.before_fsr && upscaled {
         return;
     }
     if depth_multisampled(prepass) != Some(ao.multi) || !format_matches(target, ao.format) {
