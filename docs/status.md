@@ -153,3 +153,8 @@ contract and limits: [TypeOf missing-key inspection](spec-notes/typeof-missing-k
 
 Implemented the focused behavior correction and authored synthetic regression coverage;
 contract and limits: [Script-unit extender variable kinds](spec-notes/extender-variable-kinds.md). This entry does not establish full mod compatibility.
+
+### Cached INI file quote handling
+
+Implemented the focused behavior correction and authored synthetic regression coverage;
+contract and limits: [Cached INI file quote handling](spec-notes/cached-ini-quotes.md). This entry does not establish full mod compatibility.
