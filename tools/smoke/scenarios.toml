@@ -2467,9 +2467,9 @@ name = "music-battle"
 source = "CLAUDE.md: after changes to battle music, the battle beside Violet (audio.md §13)"
 areas = ["audio", "music"]
 paths = ["engine/nvf-play/src/music.rs", "crates/fnv-game/src/sound.rs"]
-note = "god mode, and the five fighters (Violet, Violetta and three dogs) killed at 15 s, so the battle ends fCombatMusicStopTime after the last threat and plays its outro; without them the player dies in about 4 s and a death ends the battle without one (music.rs, ed782c05)"
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "15:kill:0x000F570B,15:kill:0x0013E5BB,15:kill:0x000F573B,15:kill:0x000F5741,15:kill:0x0013F85F" }
-args = ["--cell", "Goodsprings", "--play", "--pos=-46800,65000,4600", "--hour", "12", "--no-voice"]
+note = "god mode; the player starts about 6,600 units south of Violet (beyond the 5,000 outdoor detection reach, within the loaded cells, as perk-spotter-past-detection) and is put beside her at 5 s, once the whole pack is drawn, so the battle begins with all of them measured, and with no add-on message boxes, which hold the game and would let the battle lapse; Violet, Violetta and her six dogs (the pack her combat group alarms: 0x000F573B, 0x000F573C, 0x000F573D, 0x000F573F, 0x000F5741, 0x0013F85F; #1916) are killed at 15 s, so the battle ends fCombatMusicStopTime after the last threat and plays its outro; without them the player dies in about 4 s and a death ends the battle without one (music.rs, ed782c05)"
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_GOTO = "5:-46800:65000:4600", NVF_PLAY_TEST_SCRIPT = "15:kill:0x000F570B,15:kill:0x0013E5BB,15:kill:0x000F573B,15:kill:0x000F573C,15:kill:0x000F573D,15:kill:0x000F573F,15:kill:0x000F5741,15:kill:0x0013F85F" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-45600,58500,7000", "--hour", "12", "--no-voice", "--no-messages"]
 run_seconds = 40
 expect = [
   "music: battle begins (0x000F570B has the player detected)",
