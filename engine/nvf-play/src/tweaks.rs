@@ -242,6 +242,18 @@ pub struct TweakSettings {
     /// `detected_names` names (0: only how many).
     pub detected_by_whom: bool,
     pub detected_names: f32,
+    /// `bKeyRepeatAcceleration`: a held menu key repeats faster, `key_repeat_mult` times
+    /// after `key_repeat_delay` seconds and `key_repeat_mult_alt` after
+    /// `key_repeat_delay_alt` (`crate::key_repeat`).
+    pub key_repeat_accel: bool,
+    /// `bScaleExplosionShake`: the explosions' camera shake times `explosion_shake`
+    /// (`crate::shake`; 0 for none).
+    pub scale_explosion_shake: bool,
+    pub explosion_shake: f32,
+    pub key_repeat_delay: f32,
+    pub key_repeat_mult: f32,
+    pub key_repeat_delay_alt: f32,
+    pub key_repeat_mult_alt: f32,
     /// `bMorePreciseRadMeter`: the HUD's RAD/SEC number with `rad_decimals` places.
     pub precise_rad_meter: bool,
     pub rad_decimals: u8,
@@ -691,6 +703,13 @@ impl Default for TweakSettings {
             quest_text_in_menus: false,
             detected_by_whom: false,
             detected_names: 2.0,
+            key_repeat_accel: false,
+            scale_explosion_shake: false,
+            explosion_shake: 1.0,
+            key_repeat_delay: 1.0,
+            key_repeat_mult: 2.0,
+            key_repeat_delay_alt: 2.5,
+            key_repeat_mult_alt: 4.0,
             precise_rad_meter: false,
             rad_decimals: 2,
             compass_doors: false,
@@ -1465,6 +1484,13 @@ impl Plugin for TweaksPlugin {
         part!(app, "armor-red-below", "Armor Condition: Red Below", "The armour's bar turns red below this condition; 0% never. (Stewie's Tweaks bArmorConditionLabel)", armor_red_below);
         part!(app, "armor-flash-below", "Armor Condition: Flashing Below", "The armour's bar flashes red below this condition; 0% never. (Stewie's Tweaks bArmorConditionLabel)", armor_flash_below);
         switch!(app, "armor-in-weapon-place", "Armor Condition: In the Weapon's Place", "With no weapon drawn the armour's row takes the weapon's place. (Stewie's Tweaks bArmorConditionLabel)", armor_in_weapon_place);
+        switch!(app, "scale-explosion-shake", "Scale Explosion Shake", "The view shakes more or less when an explosion goes off near the player. (Stewie's Tweaks bScaleExplosionShake)", scale_explosion_shake);
+        amount!(app, "explosion-shake", "Scale Explosion Shake: Camera", "How strongly the view shakes, 1 as it is, 0 not at all. (Stewie's Tweaks bScaleExplosionShake, fCameraMult)", 5.0, f32, explosion_shake);
+        switch!(app, "key-repeat-accel", "Key Repeat Acceleration", "A key held down in a menu repeats faster the longer it is held. (Stewie's Tweaks bKeyRepeatAcceleration)", key_repeat_accel);
+        amount!(app, "key-repeat-delay", "Key Repeat Acceleration: First Delay", "Seconds held before the repeats speed up the first time. (Stewie's Tweaks bKeyRepeatAcceleration, iDelay)", 5.0, f32, key_repeat_delay);
+        amount!(app, "key-repeat-mult", "Key Repeat Acceleration: First Speed", "How many times as fast the repeats come after the first delay. (Stewie's Tweaks bKeyRepeatAcceleration, fRateMult)", 10.0, f32, key_repeat_mult);
+        amount!(app, "key-repeat-delay-alt", "Key Repeat Acceleration: Second Delay", "Seconds held before the repeats speed up again. (Stewie's Tweaks bKeyRepeatAcceleration, iDelayAlt)", 10.0, f32, key_repeat_delay_alt);
+        amount!(app, "key-repeat-mult-alt", "Key Repeat Acceleration: Second Speed", "How many times as fast the repeats come after the second delay. (Stewie's Tweaks bKeyRepeatAcceleration, fRateMultAlt)", 10.0, f32, key_repeat_mult_alt);
         switch!(app, "precise-rad-meter", "More Precise RAD Meter", "The HUD's radiation meter shows its rads a second with decimal places. (Stewie's Tweaks bMorePreciseRadMeter)", precise_rad_meter);
         amount!(app, "rad-decimals", "More Precise RAD Meter: Decimal Places", "How many places after the point the meter shows (1 to 9). (Stewie's Tweaks bMorePreciseRadMeter, sFormat)", 9.0, u8, rad_decimals);
         switch!(app, "compass-doors", "Doors on the Compass", "Doors leading somewhere else show on the compass, as the local map draws them. (Stewie's Tweaks bShowDoorsOnCompass)", compass_doors);
@@ -2503,8 +2529,20 @@ fn sync(
     mut active: Option<ResMut<crate::menu::ActiveMenu>>,
     bindings: Option<ResMut<crate::bindings::Bindings>>,
     hotkeys: Option<Res<crate::hotkeys::Hotkeys>>,
-    (combat, sim): (Option<Res<crate::combat::Combat>>, Option<Res<crate::sim::SimState>>),
+    (combat, sim, repeat, shake): (Option<Res<crate::combat::Combat>>, Option<Res<crate::sim::SimState>>, Option<ResMut<crate::key_repeat::Acceleration>>, Option<ResMut<crate::shake::ShakeScale>>),
 ) {
+    if let Some(mut s) = shake {
+        let want = if tweaks.scale_explosion_shake { tweaks.explosion_shake } else { 1.0 };
+        if s.0 != want {
+            s.0 = want;
+        }
+    }
+    if let Some(mut r) = repeat {
+        let want = crate::key_repeat::Acceleration { on: tweaks.key_repeat_accel, delay: tweaks.key_repeat_delay, mult: tweaks.key_repeat_mult, delay_alt: tweaks.key_repeat_delay_alt, mult_alt: tweaks.key_repeat_mult_alt };
+        if *r != want {
+            *r = want;
+        }
+    }
     crate::combat::set_unequip_broken_armor(tweaks.unequip_broken_armor);
     crate::terminal::set_grey_read(tweaks.grey_read_notes);
     crate::combat::set_broken_kept(tweaks.game.equip_broken_items, tweaks.game.keep_broken_equipped);

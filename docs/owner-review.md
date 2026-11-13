@@ -176,6 +176,13 @@ the spec it links to.
     face buttons; menu hints write the names (the game fonts have no symbols). Select and
     Start rather than Share/Create and Options. Right choices, and do the glyphs look
     right? ([controller §3a](design/controller.md))
+52. **Held menu keys repeat; explosions shake the view (#1891).** Both are on for
+    everyone, with no tweak turned on: an arrow key, W/A/S/D or Page Up/Down held in a
+    menu (or the D-pad) presses again after 0.4 s and then 10 times a second; an
+    explosion near the player turns the view up to about 0.8° for the same time the pad
+    rumbles. The Tweaks tab's Key Repeat Acceleration and Scale Explosion Shake (0 turns
+    it off) build on them. Our own numbers; if you rule otherwise, either goes back to off
+    and its tweak waits. (`engine/nvf-play/src/key_repeat.rs`, `shake.rs`)
 
 ## Tier 3: rules where we chose to differ, or that the original has no answer for
 

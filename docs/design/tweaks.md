@@ -599,6 +599,8 @@ unless the player binds them, so nothing changes until then.
 | Hardcore Rules One by One | `bHardcoreTweaks` | ammo: `fnv_sim::inventory::WeightRules::ammo_weight` (the player's, from `Game::sync_perk_weights`) overrides the Hardcore switch in `totals_with`; companions: `functions::actor::essential`; sleep: `Game::pass_hours_healing` |
 | Equip Broken Items, Keep Broken Items Equipped | `bEquipBrokenItems`, `bKeepBrokenItemsEquipped` | `fnv_sim::World::set_player_equips_broken` (set each frame by the game) lifts `SimError::Broken` for the player; `combat::set_broken_kept`: `equip_sync` leaves a broken weapon in the hand, `wear_weapon` keeps the player's on breaking without the message, and `broken_in_hand` holds the trigger (gun and melee) until it is repaired |
 | Hostiles Prioritize Player | `bHostilesPrioritizePlayer` | `Game::prefer_player` runs after each fighter's targets settle: when `Awareness::own_target` is a teammate and the player is detected at the threshold, one roll (start or mid chance, from the awareness module's own sequence) sets `Awareness::prefer_player`, which `combat_target` honours while the player is detected; cleared out of Combat |
+| Key Repeat Acceleration | `bKeyRepeatAcceleration` | `key_repeat`: in a menu a held arrow, W/A/S/D or Page key (the pad's too, through `pad::menu_keys`) is released and pressed again after `FIRST_DELAY` then every `INTERVAL`; `Acceleration` (set by `tweaks::sync`) divides the interval by its multipliers after its delays |
+| Scale Explosion Shake | `bScaleExplosionShake` | `shake`: each `ExplosionFx` within reach (`rumble::explosion`'s pulse) adds a fading shake that turns the camera after it is placed; `ShakeScale` (set by `tweaks::sync`, 1 with the switch off) multiplies it |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -620,8 +622,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 530 |
-| to do | 72 |
+| done | 532 |
+| to do | 70 |
 | unsure, skipped | 18 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -920,6 +922,7 @@ game's Data folder, read-only).
 | `bRemoveLandingAnim` | done |  |  | No Landing Animation (the player) |
 | `bRepairRequiresWeaponSkill` | done |  |  | Repair Needs the Weapon's Skill (Pip-Boy repair) |
 | `bRepeatJumping` | done |  |  | Hold to Keep Jumping |
+| `bScaleExplosionShake` | done |  | 2 | Scale Explosion Shake, camera multiplier; explosions now shake the view for everyone (`shake`, docs/owner-review.md); the HUD multiplier has no row: NVForever's HUD does not shake |
 | `bScopeVisibilityDelay` | done |  | 4 | Scope Delay (ms) (stops aiming while reloading was already so; the other options not built) |
 | `bSelectUnavailableRadios` | done | yes |  | Keep Stations Out of Range (the stations received before, while enabled; kept with the save) |
 | `bSkipVigorTesterSpecialPages` | done |  |  | S.P.E.C.I.A.L. Machine: Straight to the Summary |
@@ -940,7 +943,6 @@ game's Data folder, read-only).
 | `bNoPoisonConfirm` | to do |  |  | not built: no weapon poison |
 | `bRemoveFollowerTopics` | to do |  |  | not built: companions make no such comments |
 | `bRobotCompanionsHealWithScrapMetal` | to do |  | 4 | robot detection, another item and a heal formula |
-| `bScaleExplosionShake` | to do |  | 2 | not built: explosions do not shake the camera |
 | `bToggleControllerIfAttackPressed` | to do |  | 1 | not built: the device changes only by setting |
 | `bWeaponCycleUpDownHotkeys` | to do |  |  | D-pad left and right are bindings (Hotkey 4, Ammo Swap) a player can change; cycling would override a binding |
 
@@ -1077,6 +1079,7 @@ game's Data folder, read-only).
 | `bInvertContainerTitleScrollwheelDirection` | done |  |  | Reverse Category Wheel |
 | `bInvertPipboyRepairMenuSorting` | done |  |  | Repair List: Low Condition First |
 | `bKarmaTitleShowsValue` | done |  |  | already so: the karma number is under its title |
+| `bKeyRepeatAcceleration` | done |  | 4 | Key Repeat Acceleration with both delays and speeds (in seconds, not milliseconds); held menu keys now repeat for everyone (`key_repeat`, docs/owner-review.md) |
 | `bLockpickAllowMouse` | done |  |  | Mouse Turns the Lock |
 | `bLockPickMenuKeyboardMovement` | done |  | 3 | Lockpicking With the Movement Keys (Shift x2, Ctrl x0.5: ours) |
 | `bMainMenuContinueIcon` | done | yes |  | Continue Shows Its Save (the newest save's picture under the logo while Continue is chosen) |
@@ -1135,7 +1138,6 @@ game's Data folder, read-only).
 | `bCustomPopupIcons` | to do |  | 17 | per-kind icons at each message |
 | `bEmboldenTagSkills` | to do |  |  | no tagged flag on rows and no bold face |
 | `bInteriorExteriorMapDoorIcon` | to do |  |  | doors carry no leads-outside field |
-| `bKeyRepeatAcceleration` | to do |  | 4 | not built: menu keys do not repeat |
 | `bLocalMapRespawnedCellIndicator` | to do |  | 2 | not built: the local map has no cell grid |
 | `bMapShowUnconsciousCompanions` | to do |  |  | companions are not drawn on the world map yet |
 | `bNoMinCompanionMapDistance` | to do |  |  | companions are not drawn on the world map yet |

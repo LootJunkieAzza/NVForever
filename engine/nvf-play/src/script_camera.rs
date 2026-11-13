@@ -28,7 +28,7 @@ fn aim(from: [f32; 3], to: [f32; 3]) -> (f32, f32) {
     (d[0].atan2(d[1]), d[2].atan2(flat.max(1e-6)))
 }
 
-fn script_camera(mut script: Option<ResMut<ScriptState>>, control: Res<PlayerControl>, player: Option<Res<Player>>, mut cams: Query<(&mut Transform, &Projection), With<PlayerCamera>>) {
+pub(crate) fn script_camera(mut script: Option<ResMut<ScriptState>>, control: Res<PlayerControl>, player: Option<Res<Player>>, mut cams: Query<(&mut Transform, &Projection), With<PlayerCamera>>) {
     let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else { return };
     let Ok((mut t, projection)) = cams.single_mut() else { return };
     let third = control.third_person_view();

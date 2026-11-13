@@ -204,7 +204,7 @@ fn take_requests(
 
 /// Fly the free camera and put the view there; after `place_camera`, so it wins.
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
-fn fly(
+pub(crate) fn fly(
     real: Res<Time<Real>>,
     keys: Res<ButtonInput<KeyCode>>,
     motion: Res<AccumulatedMouseMotion>,
