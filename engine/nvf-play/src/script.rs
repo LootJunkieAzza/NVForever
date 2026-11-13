@@ -1950,6 +1950,9 @@ pub(crate) fn run_scripts(
     if mods_ticks.frames > 0 {
         info!("scripts: the Mods page closed after {} MenuMode frames", mods_ticks.frames);
         mods_ticks.frames = 0;
+        if let Some(rt) = st.rt.as_mut() {
+            with_world(rt, &mut sim, |rt| rt.game.page_menu_event(fnv_game::game::menus::START, false));
+        }
     }
     if paused.0 || screen.active() {
         // Under a loading screen the game is held for everyone, not only for the

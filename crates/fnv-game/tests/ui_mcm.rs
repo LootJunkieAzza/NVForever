@@ -213,6 +213,11 @@ fn mcms_list_functions_set_its_rows_as_the_original_did() {
     assert_eq!([get(&g, "MCM_ModList/Mod22/_enable"), get(&g, "MCM_ModList/Mod22/_modIndex"), get(&g, "MCM_ModList/Mod22/_modIndex2"), get(&g, "MCM_ModList/Mod22/_subID")], [Some(1.0), Some(6.0), Some(5.0), Some(0.0)]);
     call(&mut g, "SetMCMModList", &[n(22.0), n(2.0), n(7.0), n(9.0), XVal::Ref(0)]);
     assert_eq!([get(&g, "MCM_ModList/Mod22/_enable"), get(&g, "MCM_ModList/Mod22/_modIndex2")], [Some(2.0), Some(9.0)]);
+    // Past Mod23 nothing changes: SubMenu1, the next child, keeps its own (MCM's loop calls
+    // it for every mod; Begin Again's 27 wrote mod names into SubMenu1-4).
+    let sub = get(&g, "MCM_ModList/SubMenu1/_enable");
+    call(&mut g, "SetMCMModList", &[n(24.0), n(1.0), n(7.0), n(9.0), XVal::Ref(0)]);
+    assert_eq!([get(&g, "MCM_ModList/SubMenu1/_enable"), get(&g, "MCM_ModList/SubMenu1/_modIndex")], [sub, None]);
 
     // GetMCMListWidth: list 1 a mod row's text width, list 2 a sub-menu row's, else 0.
     let width = |g: &mut Game, list: f64, row: f64| match call(g, "GetMCMListWidth", &[n(list), n(row)]) {

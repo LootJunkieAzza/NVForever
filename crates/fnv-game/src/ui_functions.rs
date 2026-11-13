@@ -246,7 +246,11 @@ pub fn call(g: &mut Game, name: &str, args: &[XVal]) -> Option<Result<XVal, Stri
         // `_modIndex2` from the next three [observed: job mcm976e, menu-xml.md §10.2:
         // `22 1 6 5 caps` gave Mod22 "Bottle Cap", 1, 6 and 5; `22 2 7 9` 2, 7 and 9;
         // `21 0 0 0` the name and zeros; MCM's own call passes the mod's load index and
-        // its form's value]. Nothing else of the row changed.
+        // its form's value]. Nothing else of the row changed. A row past 23 changes
+        // nothing: MCM's own loop calls it for every mod in MCMMods, and SubMenu1 follows
+        // Mod23 [hypothesis: the original's list of more than 23 mods leaves its sub-menu
+        // rows alone; observed: Begin Again's 27 mods wrote four mod names into SubMenu1-4,
+        // 2026-11-13].
         "setmcmmodlist" => {
             let form = match args.get(4) {
                 Some(XVal::Ref(f)) => crate::nvse::shown_name(g, fnv_sim::FormId(*f)),
@@ -254,7 +258,7 @@ pub fn call(g: &mut Game, name: &str, args: &[XVal]) -> Option<Result<XVal, Stri
             };
             let ui = &mut g.ui_tree;
             let n = num(args, 0) as i64;
-            if let Some(row) = (n >= 1).then(|| mcm_place(ui, &[5, n])).flatten() {
+            if let Some(row) = (1..=23).contains(&n).then(|| mcm_place(ui, &[5, n])).flatten() {
                 if let Some((t, n)) = mcm_setting(ui, row, "text/string") {
                     ui.set_existing(t, &n, Value::Str(form));
                 }
