@@ -83,7 +83,7 @@ pub const SECTIONS: &[Section] = &[
     section(
         "Display",
         Some("Performance"),
-        &["fps-counter", "fps-counter-fps", "fps-counter-low", "fps-counter-graph", "fps-counter-split", "fps-counter-cpu", "fps-counter-gpu", "fps-counter-vram", "fps-counter-ram", "fps-counter-loaded"],
+        &["fps-counter", "fps-counter-fps", "fps-counter-low", "fps-counter-graph", "fps-counter-split", "fps-counter-cpu", "fps-counter-gpu", "fps-counter-vram", "fps-counter-ram", "fps-counter-loaded", "fps-counter-upscaling"],
     ),
     section("Audio", None, &["volume-master", "volume-music", "volume-footstep", "volume-voice", "volume-effects", "volume-radio", "music", "voice", "reverb", "voice-reverb"]),
     section("Controls", None, &CONTROLLER_KEYS),
@@ -97,7 +97,10 @@ pub const SECTIONS: &[Section] = &[
             "enhanced",
             "grade",
             "sun-shadows",
-            "fsr-upscaling",
+            "upscaler",
+            "upscaler-quality",
+            "dlss-model",
+            "fsr-library",
             "frame-generation",
             "anti-aliasing",
             "latency-reduction",
@@ -301,9 +304,11 @@ mod tests {
     }
 
     /// Every row the registry can hold today (upstream main 9af0a4552 and f4015fae8, with #1966's
-    /// quality and enhanced rows, #2014's counter rows and the two VATS rows), by the group it
+    /// quality and enhanced rows, #2014's counter rows, the two VATS rows and #2198's Upscaler
+    /// and Upscaling mode rows in place of the one upscaling row, its DLSS model row and #2169's
+    /// FSR library row, #2242's upscaling counter row and the Physics rate row), by the group it
     /// registers with.
-    const KNOWN: [(&str, &str); 105] = [
+    const KNOWN: [(&str, &str); 109] = [
         ("detached-camera", "Gameplay"),
         ("menu-pause", "Gameplay"),
         ("dialogue-goodbye-hint", "Gameplay"),
@@ -369,6 +374,7 @@ mod tests {
         ("fps-counter-vram", "Display"),
         ("fps-counter-ram", "Display"),
         ("fps-counter-loaded", "Display"),
+        ("fps-counter-upscaling", "Display"),
         ("display-sync", "Display"),
         ("frame-cap", "Display"),
         ("physics-rate", "Display"),
@@ -377,7 +383,10 @@ mod tests {
         ("item-distance", "Display"),
         ("shadow-distance", "Display"),
         ("grass-distance", "Display"),
-        ("fsr-upscaling", "Graphics"),
+        ("upscaler", "Graphics"),
+        ("upscaler-quality", "Graphics"),
+        ("dlss-model", "Graphics"),
+        ("fsr-library", "Graphics"),
         ("frame-generation", "Graphics"),
         ("anti-aliasing", "Graphics"),
         ("latency-reduction", "Graphics"),

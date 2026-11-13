@@ -2196,6 +2196,18 @@ fn magazine_in_hand(magazine: u32, carried: u32, no_ammo: bool, regenerates: boo
     }
 }
 
+/// The HUD counter's pair: rounds in the weapon, rounds carried besides. The rounds of
+/// a regenerating weapon (the Recharger Rifle) are its own charge and not taken from
+/// the inventory, so the charge shows whole and nothing is taken off what is carried
+/// (#2170) [hypothesis: the original's two figures for such a weapon, observer check 105].
+fn hud_ammo(magazine: u32, carried: u32, regenerates: bool) -> (u32, u32) {
+    if regenerates {
+        (magazine, carried)
+    } else {
+        (magazine.min(carried), carried.saturating_sub(magazine))
+    }
+}
+
 /// Follow the equipped weapon: a new weapon gets a new cycle, loaded from what is carried.
 fn equip_sync(mut c: ResMut<Combat>, mut sim: ResMut<SimState>, mut anim: ResMut<WeaponAnim>) {
     let c = &mut *c;
@@ -5178,8 +5190,7 @@ impl Combat {
         let condition = self.equipped.flatten().map(|id| item_condition(sim, FormId::PLAYER_REF, id));
         let ammo = match (self.equipped.flatten(), self.cycle.as_ref()) {
             (Some(_), Some(cy)) if !cy.no_ammo => {
-                let total = player_count(sim, self.ammo);
-                Some((cy.magazine.min(total), total.saturating_sub(cy.magazine)))
+                Some(hud_ammo(cy.magazine, player_count(sim, self.ammo), cy.regen.is_some()))
             }
             (Some(id), Some(_)) if self.self_ammo => Some((player_count(sim, Some(id)), 0)),
             _ => None,
@@ -5334,6 +5345,57 @@ mod tests {
     use crate::phys::NpcBody;
 
     #[test]
+    fn melee_hold_refuses_switch_without_starting_a_swing() {
+        use crate::{bindings::{Bindings, Control, InputDevice}, pad::device::tests::{button, control_button, playing_app}};
+        let (mut app, pad) = playing_app(InputDevice::KeyboardMouse);
+        let forms = Box::leak(Box::new(fnv_sim::FormStore::default()));
+        let refs = Box::leak(Box::new(fnv_sim::RefTable::default()));
+        app.insert_resource(SimState { forms, refs, world: fnv_sim::World::new(forms, refs, fnv_sim::SimConfig::default()) })
+            .insert_resource(PlayWorld(crate::PlayData {
+                lo: Box::leak(Box::new(fnv_esm::LoadOrder::new(&[]).unwrap())), schema: Box::leak(Box::default()), index: Box::leak(Box::default()),
+                world: 1, interior: None, eye: [0.0; 3], heading_deg: 0.0, pitch_deg: 0.0, auto_walk: 0.0, start_at_cell_spot: false, packages: false,
+            }))
+            .insert_resource(Player { heading: 0.0, pitch: 0.0, eye_height: 0.0, feet: [0.0; 3], body_eye: None, body_view: None, placed: None })
+            .init_resource::<PhysState>().init_resource::<MoveIntent>().init_resource::<WeaponAnim>()
+            .init_resource::<CombatStats>().init_resource::<HitFeedback>().init_resource::<ActorParts>()
+            .init_resource::<PlayerLimbs>().init_resource::<crate::dismember::Dismemberment>()
+            .add_message::<ActorHit>().add_message::<ActorPush>().add_message::<WeaponBroken>().add_message::<ForcedHitReaction>()
+            .add_message::<PlaySound>().add_message::<ImpactFx>().add_message::<Knockback>()
+            .add_systems(Startup, init_combat).add_systems(Update, melee.after(crate::control::read_controls));
+        app.update();
+        let weapon = FormId(1);
+        {
+            let mut c = app.world_mut().resource_mut::<Combat>();
+            c.forms.weapons.insert(weapon, WeaponStats::default());
+            c.weapon = Some(weapon);
+            c.melee = true;
+        }
+        app.world_mut().resource_mut::<WeaponAnim>().ready = true;
+        app.world_mut().resource_mut::<PlayerControl>().weapon_out = true;
+        control_button(&mut app, pad, InputDevice::KeyboardMouse, Control::Use, true);
+        app.update();
+        assert!(app.world().resource::<PlayerControl>().trigger);
+        assert!(app.world().resource::<Combat>().swings.swing.is_none());
+        button(&mut app, pad, true);
+        app.update();
+        assert_eq!(app.world().resource::<Bindings>().device, InputDevice::KeyboardMouse);
+        assert!(app.world().resource::<PlayerControl>().trigger);
+        assert_eq!(app.world().resource::<CombatStats>().swings, 0);
+        // The physical release commits the original tap on its original device;
+        // only a subsequent fresh pad press switches [design, #2200].
+        control_button(&mut app, pad, InputDevice::KeyboardMouse, Control::Use, false);
+        app.update();
+        assert_eq!(app.world().resource::<Bindings>().device, InputDevice::KeyboardMouse);
+        assert_eq!(app.world().resource::<CombatStats>().swings, 1);
+        button(&mut app, pad, false);
+        app.update();
+        button(&mut app, pad, true);
+        app.update();
+        assert_eq!(app.world().resource::<Bindings>().device, InputDevice::Controller);
+        assert_eq!(app.world().resource::<CombatStats>().swings, 1);
+    }
+
+    #[test]
     fn player_capsule_hit_bands_and_clamps() {
         use fnv_game::combat::{HEAD, LEFT_ARM, LEFT_MOBILITY, RIGHT_ARM, RIGHT_MOBILITY, TORSO};
         let part = |x: f32, z: f32| player_hit_condition([10.0 + x, 20.0, 30.0 + z], [10.0, 20.0, 30.0], 100.0, 10.0, 0.0);
@@ -5404,6 +5466,18 @@ mod tests {
         assert_eq!(magazine_in_hand(1, 0, true, false, false), 1);
         assert_eq!(magazine_in_hand(5, 0, false, true, false), 5);
         assert_eq!(magazine_in_hand(30, 0, false, false, true), 30);
+    }
+
+    #[test]
+    fn the_counter_shows_a_regenerating_weapons_charge() {
+        // Rounds from the inventory: those loaded, and the rest of what is carried.
+        assert_eq!(hud_ammo(6, 48, false), (6, 42));
+        assert_eq!(hud_ammo(6, 4, false), (4, 0));
+        assert_eq!(hud_ammo(6, 0, false), (0, 0));
+        // The Recharger Rifle carries no rounds: its charge is the count (#2170).
+        assert_eq!(hud_ammo(7, 0, true), (7, 0));
+        assert_eq!(hud_ammo(0, 0, true), (0, 0));
+        assert_eq!(hud_ammo(7, 20, true), (7, 20));
     }
 
     #[test]

@@ -1,7 +1,7 @@
 //! The factions and AI package lists of templated and leveled actors on a synthetic
 //! plugin (no game data). docs/spec-notes/factions.md §2 and §3.
 
-mod common;
+use crate::common;
 
 use common::*;
 use fnv_esm::{LoadOrder, Plugin, Schema};
@@ -734,7 +734,8 @@ fn a_fighter_keeps_a_target_its_group_still_detects() {
     let hidden = Detection { value: -40.0, band: Band::Hidden, ..Default::default() };
     g.awareness.actors.get_mut(&helper).unwrap().observe(player, &hidden, [0.0; 3], g.time, &t);
     let start = g.time;
-    for k in 1..=40 {
+    let rounds = (t.lost.max(t.forget_target) * 2.0).ceil() as u32 + 2;
+    for k in 1..=rounds {
         g.time = start + k as f64 * 0.5;
         let now = g.time;
         g.awareness.actors.get_mut(&own).unwrap().observe(player, &Detection { value: 5.0, band: Band::Detected, ..Default::default() }, [k as f32, 0.0, 0.0], now, &t);
@@ -744,7 +745,7 @@ fn a_fighter_keeps_a_target_its_group_still_detects() {
     assert!(g.time - start > t.lost.max(t.forget_target));
     let a = g.awareness.get(helper).expect("still fighting");
     assert_eq!(a.state, State::Combat);
-    assert_eq!(a.targets.get(&player).map(|x| x.at), Some([40.0, 0.0, 0.0]), "where Own saw it");
+    assert_eq!(a.targets.get(&player).map(|x| x.at), Some([rounds as f32, 0.0, 0.0]), "where Own saw it");
     assert_eq!(a.shared.get(&player), Some(&g.time));
     // Nobody detects it: Lost together, the lost timer after Own's last sighting.
     let seen = g.time;
@@ -1464,6 +1465,135 @@ fn a_saved_plant_retains_witnesses_who_no_longer_see_the_player() {
     assert!(h.pickpocket.blast_witnesses.is_empty());
 }
 
+/// The victim's units of `item`: (all, live, ordinary).
+fn units(g: &Game, victim: FormId, item: FormId) -> (i32, i32, i32) {
+    g.world.peek(victim).and_then(|s| s.inventory.as_ref()).map_or((0, 0, 0), |inv| (inv.count(item), inv.live_count(item), inv.free_count(item)))
+}
+
+#[test]
+fn each_plant_reserves_one_unit_that_its_blast_takes() {
+    // #1640 item 5: the live explosive is a unit apart from the victim's own of the same
+    // item; the victim cannot equip, use, drop or give it away; the blast takes exactly it.
+    let f = fixture();
+    let mut g = game(&f);
+    let (victim, item) = (FormId(OWN_REF), FormId(PELT));
+    g.world.add_item(victim, item, 3).unwrap();
+    let start = g.time;
+    g.plant_explosive(victim, item, FRAG).unwrap();
+    assert_eq!(units(&g, victim, item), (3, 1, 2));
+    g.time = start + 0.5;
+    g.plant_explosive(victim, item, FRAG).unwrap();
+    assert_eq!(units(&g, victim, item), (3, 2, 1));
+    // The victim's own unit goes; the live ones stay.
+    assert_eq!(g.world.remove_item(victim, item, 3).unwrap(), 1);
+    assert!(g.world.drop_item(victim, item, 1).unwrap().is_empty());
+    assert_eq!(g.world.transfer(victim, FormId::PLAYER_REF, item, 1).unwrap(), 0);
+    assert_eq!(units(&g, victim, item), (2, 2, 0));
+    // The first blast takes one live unit, not more.
+    g.time = start + 2.01;
+    let b = g.tick_planted();
+    assert_eq!(b.len(), 1);
+    assert!(b[0].killed && g.is_dead(victim));
+    assert_eq!(units(&g, victim, item), (1, 1, 0));
+    // The second plant's victim died before it went off: let off, its unit ordinary.
+    g.time = start + 2.51;
+    assert!(g.tick_planted().is_empty());
+    assert_eq!(units(&g, victim, item), (1, 0, 1));
+    assert_eq!(g.misc_stat(fnv_game::misc_stats::PANTS_EXPLODED), 1.0);
+}
+
+#[test]
+fn a_plant_on_an_essential_actor_stays_an_ordinary_item() {
+    use fnv_game::pickpocket::NotLive;
+    let f = fixture();
+    let mut g = game(&f);
+    let (essential, item) = (FormId(WATCHMAN_REF), FormId(PELT));
+    g.extra.entry(essential).or_default().essential = Some(true);
+    g.world.add_item(essential, item, 1).unwrap();
+    assert_eq!(g.plant_explosive(essential, item, FRAG), Err(NotLive::Essential));
+    assert_eq!(units(&g, essential, item), (1, 0, 1));
+}
+
+#[test]
+fn live_units_follow_the_saved_plants() {
+    let f = fixture();
+    let (victim, other, item) = (FormId(OWN_REF), FormId(LOAFER_REF), FormId(PELT));
+    let mut g = game(&f);
+    g.world.add_item(victim, item, 2).unwrap();
+    g.plant_explosive(victim, item, FRAG).unwrap();
+    // Saved and loaded: one live unit, one ordinary.
+    let h = restore_plants(&f, &g);
+    assert_eq!(units(&h, victim, item), (2, 1, 1));
+
+    // A save from before live units: its plant's unit is reserved on load.
+    let mut snap = g.snapshot();
+    let inv = snap.sim.refs.get_mut(&victim).unwrap().inventory.as_mut().unwrap();
+    assert_eq!(inv.set_live_count(item, 0), 0);
+    let world = World::restore(&f.forms, &f.refs, &snap.sim).unwrap();
+    let mut h = Game::restore(&f.data, world, g.cfg, &snap).unwrap();
+    assert_eq!(units(&h, victim, item), (2, 1, 1));
+    h.time += 10.0;
+    assert_eq!(h.tick_planted().len(), 1);
+    assert_eq!(units(&h, victim, item), (1, 0, 1), "exactly the reserved unit");
+
+    // A live unit without its plant (the plant dropped) is ordinary again on load.
+    let mut snap = g.snapshot();
+    snap.planted.clear();
+    let world = World::restore(&f.forms, &f.refs, &snap.sim).unwrap();
+    let h = Game::restore(&f.data, world, g.cfg, &snap).unwrap();
+    assert_eq!(units(&h, victim, item), (2, 0, 2));
+    // A plant whose unit is not carried still loads, reserving nothing.
+    let mut g = game(&f);
+    g.plant_explosive(other, item, FRAG).unwrap();
+    let h = restore_plants(&f, &g);
+    assert_eq!(h.pickpocket.planted.len(), 1);
+    assert_eq!(units(&h, other, item).1, 0);
+}
+
+#[test]
+fn an_old_save_reserves_a_planted_grenade_its_victim_had_put_on() {
+    // Before live units the victim could equip the planted grenade: a save with the plant
+    // and its only unit equipped gets that unit taken off and reserved on load, and the
+    // blast takes it.
+    let f = fixture();
+    let (victim, item) = (FormId(OWN_REF), FormId(PELT));
+    let mut g = game(&f);
+    g.world.add_item(victim, item, 1).unwrap();
+    g.plant_explosive(victim, item, FRAG).unwrap();
+    let mut snap: fnv_game::game::GameSnapshot = serde_json::from_str(&serde_json::to_string(&g.snapshot()).unwrap()).unwrap();
+    let inv = snap.sim.refs.get_mut(&victim).unwrap().inventory.as_mut().unwrap();
+    assert_eq!(inv.set_live_count(item, 0), 0);
+    assert!(inv.set_equipped(item));
+    assert!(!serde_json::to_string(&*inv).unwrap().contains("live"), "the old format");
+    let world = World::restore(&f.forms, &f.refs, &snap.sim).unwrap();
+    let mut h = Game::restore(&f.data, world, g.cfg, &snap).unwrap();
+    assert_eq!(units(&h, victim, item), (1, 1, 0));
+    assert!(!h.world.peek(victim).unwrap().inventory.as_ref().unwrap().is_equipped(item), "taken off");
+    h.time += 10.0;
+    assert!(h.tick_planted()[0].killed);
+    assert_eq!(units(&h, victim, item), (0, 0, 0), "the blast took it");
+}
+
+#[test]
+fn reset_inventory_keeps_a_planted_explosive() {
+    // ResetInventory during the fuse rolls the victim's own items again; the planted unit
+    // stays, and the blast takes it.
+    const RESET_INVENTORY: u16 = 0x11ED;
+    let f = fixture();
+    let (victim, item) = (FormId(OWN_REF), FormId(PELT));
+    let mut g = game(&f);
+    // Its carried items are the Wolf's (one Pelt), so the reset rolls something.
+    g.world.set_inventory_source(victim, Some(FormId(WOLF)));
+    g.world.add_item(victim, item, 3).unwrap();
+    g.plant_explosive(victim, item, FRAG).unwrap();
+    assert_eq!(units(&g, victim, item), (3, 1, 2));
+    call(&mut g, RESET_INVENTORY, OWN_REF, &[]);
+    assert_eq!(units(&g, victim, item), (2, 1, 1), "its own two went for the roll's one; the planted one stayed");
+    g.time += 10.0;
+    assert_eq!(g.tick_planted().len(), 1);
+    assert_eq!(units(&g, victim, item), (1, 0, 1), "the blast took the planted one");
+}
+
 #[test]
 fn an_old_save_has_no_live_plants_and_empty_plants_are_omitted() {
     let f = fixture();
@@ -1482,4 +1612,54 @@ fn an_old_save_has_no_live_plants_and_empty_plants_are_omitted() {
     assert!(h.tick_planted().is_empty());
     assert!(!h.is_dead(victim));
     assert_eq!(h.world.item_count(victim, item).unwrap(), 1);
+}
+
+/// #1538 (owner decision 2026-11-13; combat-ai.md §10.3.1): the player's attack on a member
+/// of an Evil faction turns every member in the area (the victim's interior cell) on the
+/// player, seen or not, and a crime-tracking one makes the player its enemy. Others in
+/// the cell are left alone.
+#[test]
+fn attacking_an_evil_factions_member_alerts_its_members_in_the_area() {
+    use fnv_game::crime::faction_flags::{EVIL, TRACK_CRIME};
+    let player = FormId::PLAYER_REF;
+    let (own, helper, coward, loafer) = (FormId(OWN_REF), FormId(HELPER_REF), FormId(COWARD_REF), FormId(LOAFER_REF));
+    let mut f = fixture();
+    f.data.faction_flags.insert(FormId(RATS), EVIL | TRACK_CRIME);
+    // A hit: nobody sees it, yet the victim's faction fellows all turn on the player.
+    {
+        let mut g = game(&f);
+        only_near(&mut g, &[OWN_REF, HELPER_REF, LOAFER_REF]);
+        assert!(!g.would_attack(helper, player));
+        assert!(g.attacked_by(own, player));
+        for m in [own, helper, coward] {
+            assert!(g.would_attack(m, player), "{m}");
+        }
+        assert!(!g.would_attack(loafer, player), "not of the faction");
+        assert!(g.player.enemy_of.contains(&FormId(RATS)));
+        let notes = g.provocations.take_notes();
+        assert!(notes.iter().any(|n| matches!(n, Note::Alerted { actor, victim } if *actor == helper && *victim == own)), "{notes:?}");
+        assert!(notes.iter().any(|n| matches!(n, Note::AreaAlert { victim, faction, alerted } if *victim == own && *faction == FormId(RATS) && *alerted >= 2)), "{notes:?}");
+        // Alarmed at the player: in a combat state.
+        assert!(g.awareness.get(helper).is_some_and(|a| a.alarms.iter().any(|x| x.owner == player)));
+    }
+    // A kill in one blow does the same.
+    {
+        let mut g = game(&f);
+        g.player_kills(own);
+        assert!(g.would_attack(helper, player));
+    }
+    // Not a stray hit on one fighting someone else.
+    {
+        let mut g = game(&f);
+        fighting(&mut g, OWN_REF, LOAFER_REF);
+        g.evil_area_alert(own);
+        assert!(!g.provocations.holds(helper, player));
+    }
+    // Not for a faction that is not Evil.
+    {
+        f.data.faction_flags.insert(FormId(RATS), TRACK_CRIME);
+        let mut g = game(&f);
+        assert!(g.attacked_by(own, player));
+        assert!(!g.would_attack(helper, player));
+    }
 }

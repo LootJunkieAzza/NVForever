@@ -347,7 +347,7 @@ pub fn no_console(c: Option<Res<Console>>) -> bool {
 
 #[allow(clippy::too_many_arguments)]
 fn toggle(
-    keys: Res<ButtonInput<KeyCode>>,
+    keys: crate::pad::ActionButtons<KeyCode>,
     time: crate::pause::AidTime,
     aid: Res<ConsoleAid>,
     mut c: ResMut<Console>,
@@ -359,6 +359,7 @@ fn toggle(
     roots: Query<Entity, With<ConsoleRoot>>,
     free_cam: Res<crate::free_cam::FreeCam>,
 ) {
+    let keys = keys.snapshot();
     let by_aid = aid.0.first().is_some_and(|(t, _)| time.world_secs().is_some_and(|now| *t <= now));
     if !c.open {
         // The free camera's mode 1 holds the world in `Menu` with no menu open (`crate::free_cam`).
@@ -411,7 +412,7 @@ fn close_on_exit(mut c: ResMut<Console>, mut commands: Commands, roots: Query<En
 
 #[allow(clippy::too_many_arguments)]
 fn typing(
-    mut typed: MessageReader<KeyboardInput>,
+    (mut typed, switching): (MessageReader<KeyboardInput>, Option<Res<crate::pad::SwitchingInput>>),
     time: crate::pause::AidTime,
     mut aid: ResMut<ConsoleAid>,
     mut c: ResMut<Console>,
@@ -426,7 +427,7 @@ fn typing(
     (mut saves, mut loads, save_cfg, mut save_log): (MessageWriter<crate::save::SaveRequest>, MessageWriter<crate::save::LoadRequest>, Res<crate::save::SaveConfig>, ResMut<crate::save::SaveLog>),
     (pipboy, data, mut view): (Option<Res<crate::pipboy::data::DataState>>, Option<Res<nvf_assets::GameData>>, ResMut<crate::collision_view::CollisionView>),
 ) {
-    let typed: Vec<KeyboardInput> = typed.read().cloned().collect();
+    let typed: Vec<KeyboardInput> = typed.read().filter(|e| switching.as_ref().is_none_or(|s| s.allows(e))).cloned().collect();
     if !c.open {
         return;
     }
@@ -990,7 +991,7 @@ pub fn parse_form_id(s: &str) -> Option<FormId> {
 /// A click in the world picks what is under the pointer.
 #[allow(clippy::too_many_arguments)]
 fn click(
-    mouse: Res<ButtonInput<MouseButton>>,
+    mouse: crate::pad::ActionButtons<MouseButton>,
     aid: Option<Res<AidClicks>>,
     mut commands: Commands,
     mut c: ResMut<Console>,
@@ -1005,6 +1006,7 @@ fn click(
     free_cam: Res<crate::free_cam::FreeCam>,
     (mut wheel, mut wheel_px): (MessageReader<MouseWheel>, Local<f32>),
 ) {
+    let mouse = mouse.snapshot();
     // Read every frame so a turn made while the console is shut does not count later.
     let mut steps = 0i32;
     for w in wheel.read() {

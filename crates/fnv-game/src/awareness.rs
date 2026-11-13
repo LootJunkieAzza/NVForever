@@ -22,9 +22,8 @@
 //! Only actors the detector would attack count ([`Game::would_attack`]): what others do
 //! is never a threat.
 //!
-//! The timers' lengths are not documented and no game setting in FalloutNV.esm names
-//! them; [`Timers`] holds NVForever's choices. Combat itself (attacking, cover, fleeing)
-//! is not built: an actor in Combat stands facing its target.
+//! [design, #2010] [`Timers::read`] reads detection timers from the load order;
+//! Lost searches finish through [`Game::searched_once`], with a separate stall bound.
 
 use crate::detection::{Band, Detection};
 use crate::functions::actor::{actor_value, faction_relation, factions_of};
@@ -185,19 +184,21 @@ pub struct Target {
     pub hidden_since: Option<f64>,
 }
 
-/// The timers of the detection states, seconds of `Game::time` [engineering choice: the
-/// documentation names the timers but not their lengths, and FalloutNV.esm has no game
-/// setting for them].
+/// Detection timers, seconds of `Game::time` [design, #2010: setting-to-timer mapping;
+/// observed defaults: issue #2010 capture, docs/spec-notes/npc-behaviour-compare.md §15.6].
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Timers {
-    /// An alarm runs out this long after it was last raised or refreshed.
+    /// An alarm (noticed, hurt, an ally's call, an event heard) runs out this long after
+    /// refresh [design: existing Alert policy]. fDetectionEventExpireTime is not read for
+    /// it: by its name it is how long an event itself can be heard, and ours are heard in
+    /// the round they are raised [hypothesis: the setting's name]; a 10 s alarm sent a
+    /// camp's alarmer back to Normal before the party it called had searched (smoke
+    /// `group-search`, #2010).
     pub alarm: f64,
-    /// A target hidden this long leaves the target list.
+    /// fCombatTargetLostRemoveTime; does not interrupt a Lost search [design, #2010].
     pub forget_target: f64,
-    /// In Combat, no target detected for this long: Lost [design: owner 2026-10-19,
-    /// fighters said CombatToLost almost as soon as they broke line of sight with 3 s;
-    /// shorter than `forget_target`, or a target hidden the whole time is forgotten before
-    /// it is lost and the fighter goes to Normal instead of searching].
+    /// fCombatDetectionLostTime: no target detected for this long enters Lost
+    /// [design, #2010; documented: GECK wiki Combat Search, a GameSetting delay].
     pub lost: f64,
     /// AlertIdle and LostIdle are said every this many seconds, a random time between the
     /// two [documented: Detection Tab, fCombatDetectionDialogueIdleMin/MaxElapsedTime;
@@ -214,19 +215,29 @@ pub struct Timers {
 
 impl Default for Timers {
     fn default() -> Timers {
-        Timers { alarm: 20.0, forget_target: 15.0, lost: 10.0, idle_bark: (5.0, 15.0), bark_cooldown: 15.0 }
+        Timers { alarm: 20.0, forget_target: 30.0, lost: 15.0, idle_bark: (5.0, 15.0), bark_cooldown: 15.0 }
     }
 }
 
 impl Timers {
-    /// The defaults, with the bark timer from the load order's game settings.
+    /// [design, #2010] Defaults overridden by the load order's game settings.
     pub fn read(g: &Game) -> Timers {
         let d = Timers::default();
         let s = |name: &str, v: f64| crate::combat::setting(g, name, v);
         let idle_bark = (s("fCombatDetectionDialogueIdleMinElapsedTime", d.idle_bark.0), s("fCombatDetectionDialogueIdleMaxElapsedTime", d.idle_bark.1));
-        Timers { idle_bark, bark_cooldown: idle_bark.1.max(idle_bark.0), ..d }
+        Timers {
+            lost: s("fCombatDetectionLostTime", d.lost),
+            forget_target: s("fCombatTargetLostRemoveTime", d.forget_target),
+            idle_bark,
+            bark_cooldown: idle_bark.1.max(idle_bark.0),
+            ..d
+        }
     }
 }
+
+/// A Lost search without a completed share for this many seconds may expire
+/// [design, #2010: safety for unavailable navigation/AI; not an original-game timer].
+pub const LOST_SEARCH_STALL_SECONDS: f64 = 300.0;
 
 /// Members of a group within this many game units of a Detection line's speaker do not
 /// say a line of the same kind while its cooldown lasts [design: one exterior cell's
@@ -362,7 +373,10 @@ impl Awareness {
     /// An alert actor that hears an event adds its owner to its target list (not
     /// detected) [documented: Category:Detection].
     pub fn alarm(&mut self, owner: FormId, at: [f32; 3], size: f64, cause: Cause, now: f64, t: &Timers) {
-        let expires = now + t.alarm;
+        let expires = now + match cause {
+            Cause::LostTarget => LOST_SEARCH_STALL_SECONDS,
+            _ => t.alarm,
+        };
         match self.alarms.iter_mut().find(|a| a.owner == owner && a.cause == cause) {
             Some(a) => {
                 a.at = at;
@@ -406,10 +420,17 @@ impl Awareness {
     /// become Alert (its package does not forbid it). Returns the change, if any.
     pub fn settle(&mut self, actor: FormId, now: f64, t: &Timers, may_alert: bool) -> Option<Change> {
         self.alarms.retain(|a| a.expires > now);
-        // A target a member of its group detected within the forget timer stays on the
-        // list (docs/spec-notes/combat-groups.md §3).
+        // [design, #2010] Previously detected targets survive the wait to enter Lost
+        // and their active search. Group sightings also retain targets (§3 of
+        // docs/spec-notes/combat-groups.md), even with inverted timer overrides.
         let shared = &self.shared;
-        self.targets.retain(|id, x| !x.hidden_since.is_some_and(|h| now - h >= t.forget_target) || shared.get(id).is_some_and(|s| now - s < t.forget_target));
+        let pending_lost = self.state == State::Combat && self.combat_target().is_none();
+        self.targets.retain(|id, x| {
+            (pending_lost && x.detected.is_some())
+                || self.alarms.iter().any(|a| a.owner == *id && a.cause == Cause::LostTarget)
+                || !x.hidden_since.is_some_and(|h| now - h >= t.forget_target)
+                || shared.get(id).is_some_and(|s| now - s < t.forget_target)
+        });
         self.shared.retain(|id, _| self.targets.contains_key(id));
         // Called by an ally and not fighting yet: it takes the alarm's owner, the first of
         // the foe's side to start, while it detects it (§2).
@@ -464,6 +485,10 @@ impl Awareness {
         self.state = to;
         self.since = now;
         self.next_idle_bark = None;
+        if to == State::Combat {
+            // [design, #2010] Re-detection ends this search; a later loss starts anew.
+            self.alarms.retain(|a| a.cause != Cause::LostTarget);
+        }
         if to == State::Combat && from != State::Lost {
             self.combat_began = Some(now);
         }
@@ -741,13 +766,14 @@ impl Game<'_> {
         self.current_package(actor).and_then(|p| self.package_def(&p)).is_some_and(|d| d.has(flags::NO_COMBAT_ALERT))
     }
 
-    /// Whether `actor`'s current package goes on while the actor is in a combat state
-    /// (Alert, Combat, Lost): the package flag "Continue During Combat" [hypothesis: what
-    /// the flag's name says, no source describes it; 399 of FalloutNV.esm's 4,163
-    /// packages set it, among them sniper posts, "stand in place" and "flee the scene"
-    /// packages, observed 2026-10-11]. Such an actor keeps carrying its package out
-    /// instead of searching or holding its ground (`fnv_ai`); its state, weapon and barks
-    /// are as for any other actor.
+    /// Whether `actor`'s current package has the flag "Continue During Combat" in a way
+    /// that may keep it on its package while it is in a combat state (Alert, Combat,
+    /// Lost). 399 of FalloutNV.esm's 4,163 packages set it [observed 2026-10-11]. When
+    /// it does hold the actor is the AI's to decide by the package type and where the
+    /// actor and its target are (`fnv_ai` alert, docs/design/alert.md §5.2, #2155): only
+    /// on the way of a Travel-kind package, and on a Guard while the target is outside
+    /// [`Game::guard_combat_radius`]. A held actor keeps carrying its package out instead
+    /// of searching or closing in; its state, weapon and barks are as for any other actor.
     ///
     /// Not for a teammate of the player on a Follow package: it fights as any other
     /// actor does (closes in, its combat style's radius holding it) and follows again
@@ -760,6 +786,19 @@ impl Game<'_> {
         let Some(p) = self.current_package(actor) else { return false };
         let Some((on, follow)) = self.package_def(&p).map(|d| (d.has(flags::CONTINUE_DURING_COMBAT), d.ty == crate::package::PackageType::Follow)) else { return false };
         on && !(follow && self.is_teammate(actor))
+    }
+
+    /// How far from its post a Guard package with Continue During Combat lets its actor
+    /// pursue a target: the package's location radius × fCombatGuardRadiusMult (1.5) or
+    /// fCombatGuardRadiusMin (384), whichever is higher [documented: GECK wiki export,
+    /// "Combat Package Flags"; the defaults are FalloutNV.esm's, read from the load order
+    /// when a plugin sets them; observed: two Guard packages held their trooper so,
+    /// docs/handoff/observer-checks.md check 106].
+    pub fn guard_combat_radius(&self, def: &crate::package::PackageDef) -> f32 {
+        let mult = crate::combat::setting(self, "fCombatGuardRadiusMult", 1.5) as f32;
+        let min = crate::combat::setting(self, "fCombatGuardRadiusMin", 384.0) as f32;
+        let radius = def.location.filter(|l| !matches!(l.kind, crate::package::LocationKind::InCell(_))).map_or(0, |l| l.radius.max(0));
+        (radius as f32 * mult).max(min)
     }
 
     /// The engine measured `target` from `detector` at `at` (game space): when the
@@ -873,6 +912,7 @@ impl Game<'_> {
                 }
                 // When it first fought in this fight, for the alarms' first starter.
                 if c.to == State::Combat {
+                    self.awareness.tactics.searched.retain(|(actor, _), _| *actor != id);
                     self.awareness.tactics.started.entry(id).or_insert(now);
                 }
                 self.awareness.changes.push(c);
@@ -1180,20 +1220,46 @@ pub fn is_in_combat(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String>
     yes(g.awareness.state(r).in_combat())
 }
 
-/// `actor.GetCombatTarget`: the actor it fights, the detected target with the highest
-/// value [engineering choice: no source says how the original picks among several]; 0
-/// outside Combat.
+/// `actor.GetCombatTarget`: the actor it fights ([`Game::combat_target_of`]): the
+/// detected target with the highest value [engineering choice: no source says how the
+/// original picks among several], kept while it is out of sight; 0 outside Combat and
+/// Lost.
 pub fn get_combat_target(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     Ok(g.combat_target_of(r).map(|t| Value::Ref(t.0)).unwrap_or(Value::NONE))
 }
 
 impl Game<'_> {
-    /// The actor `r` fights in Combat ([`get_combat_target`]); also what a condition
-    /// run on "Combat Target" runs on (docs/spec-notes/packages.md §7.5).
+    /// The actor `r` fights, as scripts read it ([`get_combat_target`]); also what a
+    /// condition run on "Combat Target" runs on (docs/spec-notes/packages.md §7.5) and
+    /// what the extender queries that ask for it read.
+    ///
+    /// In Combat or Lost: ITR's ForceCombatTarget first, then the detected target
+    /// [`Awareness::combat_target`] picks, and while it detects none, the one it fought last
+    /// ([`Awareness::fighting`]) as long as that is alive and still on its target list or
+    /// alert list. An actor of the original fighting the player kept the player as its
+    /// combat target, procedure COMBAT, while GetDetected player read 0, for stretches
+    /// of under 10 real s up to 293 s [observed: npc-behaviour-compare.md §11, 73
+    /// stretches]. When it lets go is our own rule [design, #2121]: when the target dies
+    /// or is forgotten (dead, gone, no longer hostile, `Awareness::forget`, or off both
+    /// lists by their timers), when it turns to another, at StopCombat and on going back
+    /// to Normal; no timer of its own (how long the original keeps it: #2010).
     pub fn combat_target_of(&self, r: FormId) -> Option<FormId> {
-        let a = self.awareness.get(r).filter(|a| a.state == State::Combat)?;
+        let a = self.awareness.get(r).filter(|a| matches!(a.state, State::Combat | State::Lost))?;
         // ITR's ForceCombatTarget over the actor's own choice (`crate::nvse_itr2`).
+        if let Some(t) = self.itr_forced_target(r) {
+            return Some(t);
+        }
+        a.combat_target().map(|(t, _)| t).or_else(|| a.fighting.filter(|&f| !self.is_dead(f) && (a.targets.contains_key(&f) || a.alarms.iter().any(|x| x.owner == f))))
+    }
+
+    /// The actor `r` fights now, as its combat AI sees it: in Combat, ITR's
+    /// ForceCombatTarget, else the detected target [`Awareness::combat_target`] picks;
+    /// none once it detects none. What [`Game::combat_target_of`] read before #2121; kept
+    /// for the player reports' snapshot (`nvforever` `reports/snapshot.rs`), whose
+    /// `combat_target` field keeps its meaning.
+    pub fn fighting_target_of(&self, r: FormId) -> Option<FormId> {
+        let a = self.awareness.get(r).filter(|a| a.state == State::Combat)?;
         if let Some(t) = self.itr_forced_target(r) {
             return Some(t);
         }
@@ -1225,30 +1291,43 @@ pub fn set_alert(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     none()
 }
 
-/// `actor.GetIsAlerted`: 1 in the alerted animation state [documented: catalogue notes]:
-/// set with SetAlert, or while the actor is in a combat state [hypothesis: Alert is
-/// "weapon out", Category:Detection, which is the alerted animation state]. Not while it
-/// warns (`Game::warning_to`): a young gecko warning the player read 0 [observed:
-/// capture `warnings`, young_gecko, 2026-10-24]; what it draws then is
-/// [`Game::draws_weapon`].
+/// `actor.GetIsAlerted`: 1 in the alerted animation state [documented: catalogue notes;
+/// GECK wiki SetAlert, "purely an animation state"], set with SetAlert or ITR's
+/// SetAlertNS ([`Game::is_alerted`]); a combat state does not set it. In the original
+/// GetIsAlerted read 0 in every sample of about 480,000 living actors, 14,312 of them
+/// in combat [observed: npc-behaviour-compare.md §11; owner-decision-captures.md §3].
+/// Not while it warns (`Game::warning_to`) either: a young gecko warning the player read
+/// 0 [observed: capture `warnings`, young_gecko, 2026-10-24]. What an actor draws is
+/// [`Game::draws_weapon`], which still counts the combat states.
 pub fn get_is_alerted(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     yes(g.is_alerted(r))
 }
 
 impl Game<'_> {
-    /// Whether `actor` has its weapon out for alertness: SetAlert or a combat state
-    /// ([`get_is_alerted`]).
+    /// Whether `actor` is alerted as scripts read it ([`get_is_alerted`]): SetAlert's
+    /// flag or ITR's SetAlertNS, nothing else [design, #2121].
     pub fn is_alerted(&self, actor: FormId) -> bool {
-        self.extra.get(&actor).is_some_and(|e| e.alerted) || self.awareness.state(actor).in_combat() || self.itr_alert(actor)
+        self.extra.get(&actor).is_some_and(|e| e.alerted) || self.itr_alert(actor)
     }
 
-    /// Whether `actor` draws its weapon (a creature its unarmed stance): alerted, or
-    /// warning the player (`Game::warning_to`) [observed: the young gecko's GetAnimAction
-    /// read 0, "equip weapon", from its first warning until it fought, IsWeaponOut 0 until
-    /// then (capture `warnings`, 2026-10-24); owner 2026-10-24: warning guards draw].
+    /// Whether `actor` stands in its alerted stance: alerted ([`Game::is_alerted`]) or in
+    /// a combat state (Alert, Combat, Lost) [hypothesis: Alert is "weapon out",
+    /// Category:Detection]. What [`Game::is_alerted`] read before #2121: the weapon
+    /// drawing ([`Game::draws_weapon`]) and the creatures' stance (`nvforever`
+    /// `creature_stance.rs`) keep it, so drawn weapons and stances are as before; the
+    /// IDLE tree's conditions read GetIsAlerted as scripts do (docs/design/alert.md §6).
+    pub fn alert_stance(&self, actor: FormId) -> bool {
+        self.is_alerted(actor) || self.awareness.state(actor).in_combat()
+    }
+
+    /// Whether `actor` draws its weapon (a creature its unarmed stance): in its alerted
+    /// stance ([`Game::alert_stance`]), or warning the player (`Game::warning_to`)
+    /// [observed: the young gecko's GetAnimAction read 0, "equip weapon", from its first
+    /// warning until it fought, IsWeaponOut 0 until then (capture `warnings`,
+    /// 2026-10-24); owner 2026-10-24: warning guards draw].
     pub fn draws_weapon(&self, actor: FormId) -> bool {
-        self.is_alerted(actor) || self.warning_to(actor).is_some()
+        self.alert_stance(actor) || self.warning_to(actor).is_some()
     }
 
     fn player_pos(&self) -> Option<[f32; 3]> {
@@ -1409,14 +1488,15 @@ mod tests {
         let s = t.lost + 1.0;
         a.observe(FOE, &det(1.0), [30.0, 0.0, 0.0], s, &t);
         assert_eq!(step(&mut a, s), Some((State::Lost, State::Combat)));
-        // Hidden: Lost after the lost timer (the target still on the list), then the
-        // target is forgotten and the alarms run out: Normal.
+        // [design, #2010] Hidden: Lost after the lost timer, retained through a search;
+        // without AI progress the safety deadline eventually releases it.
         a.observe(FOE, &det(-50.0), [30.0, 0.0, 0.0], s + 1.0, &t);
         assert_eq!(step(&mut a, s + t.lost - 0.5), None);
         assert_eq!(step(&mut a, s + t.lost), Some((State::Combat, State::Lost)));
         assert!(a.targets.contains_key(&FOE), "lost before it is forgotten");
-        assert_eq!(step(&mut a, s + t.lost + t.alarm - 0.5), None, "the alarm still runs");
-        assert_eq!(step(&mut a, s + t.lost + t.alarm), Some((State::Lost, State::Normal)));
+        assert_eq!(step(&mut a, s + t.lost + 30.0), None, "ordinary timers cannot interrupt the search");
+        assert!(a.targets.contains_key(&FOE));
+        assert_eq!(step(&mut a, s + t.lost + LOST_SEARCH_STALL_SECONDS), Some((State::Lost, State::Normal)));
     }
 
     #[test]

@@ -1,0 +1,12 @@
+# `cargo quick`: a build for iterating and smoke runs, in target/release-quick, in either
+# workspace (here: fnvtool and the crates; in engine/: nvforever and the viewer). The
+# `release-quick` profile in engine/Cargo.toml says why and what it saves. On Windows it
+# links with rust-lld, which ships with the toolchain: about 13 s less per rebuild of
+# nvforever than link.exe. The linker is set on the command line, not here for every
+# build, so `--release` builds (profiling, releases) keep the default linker.
+# tools/smoke picks target/release-quick's nvforever and fnvtool when they are newer than
+# target/release's.
+# One alias for both workspaces: cargo joins the lists of an alias defined in two config
+# files, so engine/ must not define its own.
+[alias]
+quick = ["build", "--profile", "release-quick", "--config", "target.x86_64-pc-windows-msvc.linker='rust-lld.exe'"]

@@ -104,7 +104,7 @@ pub struct HelpTrack;
 /// Scrolls the help text: the wheel, Up/Down a line, Page Up/Down a window less a line,
 /// Home/End, or the bar held where the pointer is.
 pub fn scroll(
-    keys: Res<ButtonInput<KeyCode>>,
+    keys: crate::pad::ActionButtons<KeyCode>,
     wheel: Option<Res<AccumulatedMouseScroll>>,
     mut texts: Query<(&mut Node, &mut HelpScroll)>,
     mut lines: Query<(&mut Visibility, &ParagraphLine)>,
@@ -112,6 +112,7 @@ pub fn scroll(
     tracks: Query<(&PointerState, &RelativeCursorPosition), With<HelpTrack>>,
     mut spill: Local<f32>,
 ) {
+    let keys = keys.snapshot();
     let Ok((mut node, mut s)) = texts.single_mut() else {
         *spill = 0.0;
         return;

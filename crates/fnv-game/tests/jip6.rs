@@ -1,7 +1,7 @@
 //! JIP LN NVSE batch 6 (#1006; docs/spec-notes/jip-records-6.md) on a synthetic plugin:
 //! destruction data, creature data and messages.
 
-mod common;
+use crate::common;
 
 use common::*;
 use fnv_esm::{LoadOrder, Plugin, Schema};

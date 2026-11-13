@@ -65,7 +65,8 @@
 //!   `INAM`, else the receiver's) minimum and maximum distance and attenuation curve as
 //!   `crate::sfx::distance_gain` uses them; without either template 150 and 1800 units
 //!   (the AMLRadio template's). Receivers and actors are panned as the sound effects are
-//!   (`crate::sfx::Panned`, `SoundAt`); the Pip-Boy plays flat, at the listener. A
+//!   (`crate::sfx::Panned`, `SoundAt`, its gains eased over `crate::sfx::PAN_EASE`); the
+//!   Pip-Boy plays flat, at the listener. A
 //!   receiver is heard only within that maximum distance.
 //! - **No subtitles**: a station's talk lines are heard, never subtitled (owner, list 5
 //!   item 27).
@@ -76,6 +77,10 @@
 //!   `PipBoyRadio 1 <station>` does (a placed station or its base, by Editor ID or hex
 //!   FormID). Seconds of the radios' clock: from the first frame the scripts run, less
 //!   pauses and loading screens.
+//! - **A radio's sound stopped** (another place, a track replaced, a receiver no longer
+//!   wanted) fades out over `audio_out::DECLICK_FADE` (#2217) [design], not cut
+//!   mid-waveform (`audio_out::stop_sound`, counted as radio stops in `sfx declicks:
+//!   …`), panned or not; the station's clock and what plays next are not changed by it.
 //! - Log: `radio: <who> tuned to <station> playing <file>` when something starts a
 //!   response or a loop, `radio: <station> says <topic> <info>: …`, `pipboy radio: …`,
 //!   and at the end `radio summary: …` and `pipboy radio summary: …`.
@@ -90,7 +95,7 @@ use crate::sim::SimState;
 use crate::voice::VoiceState;
 use crate::{Location, PlayState, PlayWorld};
 use bevy::audio::{AudioSinkPlayback, ChannelCount, Decodable, Sample, SampleRate, Source};
-use crate::audio_out::{AddAudioSource, SoundCategory};
+use crate::audio_out::{stop_sound, AddAudioSource, Retiring, SoundCategory, StopReason};
 use bevy::prelude::*;
 use fnv_combat::fx::Sound;
 use fnv_sim::FormId;
@@ -448,6 +453,14 @@ impl Radio {
         self.playing.get(&PIPBOY).or_else(|| self.playing.get(&PIPBOY_STATIC)).map_or(0.0, |p| f32::from_bits(p.meter.load(Ordering::Relaxed)))
     }
 
+    /// A file to play, read off the main thread (#1993): `Got::Pending` until it is in.
+    fn fetch(&mut self, vfs: &Arc<fnv_vfs::Vfs>, path: &str) -> crate::file_bytes::Got {
+        self.files.fetch(path, vfs, "radio")
+    }
+
+    /// A file read at once, for its length when a station's broadcast is laid out (that
+    /// needs every part's length in the same frame; the song's playback then finds it
+    /// kept).
     fn bytes(&mut self, vfs: &fnv_vfs::Vfs, path: &str) -> Option<Arc<[u8]>> {
         self.files.get_or_read(path, || match vfs.read(path) {
             Some(Ok(b)) => Some(b.into()),
@@ -623,13 +636,14 @@ fn pipboy_list(sim: &SimState, places: &RadioPlaces, l: &Listener) -> Vec<u32> {
 /// off), and the test aid.
 #[allow(clippy::too_many_arguments)]
 fn pipboy_controls(
-    keys: Res<ButtonInput<KeyCode>>,
+    keys: crate::pad::ActionButtons<KeyCode>,
     state: Res<State<PlayState>>,
     locks: Option<Res<ControlLocks>>,
     mut radio: ResMut<Radio>,
     places: Option<Res<RadioPlaces>>,
     mut script: ResMut<ScriptState>,
 ) {
+    let keys = keys.snapshot();
     let (Some(places), Some(rt)) = (places, script.rt.as_mut()) else { return };
     // The placed stations, for scripts' GetAvailableRadios (`fnv_game::nvse_gaps`).
     if rt.game.gaps.radio_sites.is_none() {
@@ -737,7 +751,8 @@ fn play(
     (player, intro): (Option<Res<Player>>, Option<Res<crate::intro::Intro>>),
     data: Option<Res<nvf_assets::GameData>>,
     (mut assets, mut panned): (ResMut<Assets<RadioSound>>, ResMut<Assets<Panned<RadioSound>>>),
-    (sinks, mut placed): (Query<&AudioSink, With<RadioEntity>>, Query<&mut SoundAt, With<RadioEntity>>),
+    // The sinks held with the radios: not those fading out after a stop (audio_out).
+    (sinks, mut placed): (Query<&AudioSink, (With<RadioEntity>, Without<Retiring>)>, Query<&mut SoundAt, With<RadioEntity>>),
 ) {
     let (Some(places), Some(sfx), Some(player), Some(data)) = (places, sfx, player, data) else { return };
     let Some(bank) = voice.bank.clone() else { return };
@@ -754,7 +769,7 @@ fn play(
     let space = Space::of(&loc);
     if radio.space != Some(space) {
         for (_, p) in radio.playing.drain() {
-            commands.entity(p.entity).try_despawn();
+            stop_sound(&mut commands, p.entity, StopReason::Radio);
         }
         radio.space = Some(space);
     }
@@ -1022,14 +1037,15 @@ fn play(
                 }
                 continue;
             }
-            commands.entity(p.entity).try_despawn();
+            stop_sound(&mut commands, p.entity, StopReason::Radio);
             radio.playing.remove(&w.key);
         }
         if held {
             continue;
         }
         let looping = matches!(w.track, Track::Loop(_));
-        let Some(bytes) = radio.bytes(&data.vfs, &w.path) else { continue };
+        // Tried again next frame while the file is being read.
+        let crate::file_bytes::Got::Ready(Some(bytes)) = radio.fetch(&data.vfs, &w.path) else { continue };
         let from = if w.into > JOIN { w.into } else { 0.0 };
         let Some((sound, level)) = RadioSound::new(bytes, from, looping) else {
             if radio.reported.insert(w.path.clone()) {
@@ -1086,7 +1102,7 @@ fn play(
     radio.playing.retain(|r, p| {
         let keep = sounding.contains(r);
         if !keep {
-            commands.entity(p.entity).try_despawn();
+            stop_sound(&mut commands, p.entity, StopReason::Radio);
         }
         keep
     });

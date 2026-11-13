@@ -1385,6 +1385,22 @@ fn a_moved_player_runs_no_on_load_at_a_cell_load() {
     assert_eq!(on_loads(&g, FormId::PLAYER_REF), 0.0);
 }
 
+/// A player moved to a marker turns to the marker's heading and keeps the view's pitch;
+/// moved to itself it keeps its heading (issue #2226: the ending's XMarkerHeading faces
+/// the slide).
+#[test]
+fn a_moved_player_takes_the_markers_heading() {
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    g.world.get(FormId(OTHER_REF)).unwrap().rot = [0.4, 0.0, 1.5];
+    g.world.get(FormId::PLAYER_REF).unwrap().rot = [0.3, 0.0, 2.5];
+    g.run_source("player.MoveTo TestOtherREF", Default::default()).unwrap();
+    assert_eq!(g.world.get(FormId::PLAYER_REF).unwrap().rot, [0.3, 0.0, 1.5]);
+    g.run_source("player.MoveTo player 0 0 10", Default::default()).unwrap();
+    assert_eq!(g.world.get(FormId::PLAYER_REF).unwrap().rot, [0.3, 0.0, 1.5]);
+}
+
 /// An OnLoad event handler that counts in TestGlobal: 1 for the activator, 10 for the
 /// trigger, 100 for the unscripted reference of the other cell.
 const COUNT_ON_LOADS: &str = "SetEventHandler \"OnLoad\" (begin function {ref rOn, ref rSame}\nif rOn == TestActivatorREF\nlet TestGlobal := TestGlobal + 1\nelseif rOn == TestTriggerREF\nlet TestGlobal := TestGlobal + 10\nelseif rOn == TestOtherREF\nlet TestGlobal := TestGlobal + 100\nendif\nend)";
@@ -1438,14 +1454,17 @@ fn an_ai_that_runs_packages_runs_their_begin_end_and_change_scripts() {
     add(&mut g);
     assert_eq!(g.evaluate_package(npc), Some(FormId(PACK_EVENTS)));
     assert_eq!(global(&g), 21.0);
-    // It reaches its goal: the end script; being replaced afterwards is not a change.
+    // It reaches its goal: the end script, once; being replaced afterwards is a change
+    // too (its change script runs as the actor leaves it, issue #2221).
     g.package_goal_met(npc);
     assert_eq!(global(&g), 22.0);
     g.package_goal_met(npc);
+    assert_eq!(global(&g), 22.0);
     remove(&mut g);
     g.world.set_global(FormId(GLOBAL), 0.0).unwrap();
     assert_eq!(g.evaluate_package(npc), Some(FormId(PACK_IDLE)));
-    assert_eq!(global(&g), 0.0);
+    assert_eq!(global(&g), 23.0, "the change script ran as the finished package was left");
+    g.world.set_global(FormId(GLOBAL), 0.0).unwrap();
     // Replaced before its goal: the change script.
     add(&mut g);
     g.evaluate_package(npc);
@@ -1891,6 +1910,73 @@ fn an_actor_whose_traits_come_from_a_leveled_list_speaks_with_the_picked_entrys_
     f.data.actors.get_mut(&FormId(NPC)).unwrap().template = Some(FormId(LIST));
     let g = game(&f);
     assert_eq!(g.voice_base(FormId(NPC), speaker), FormId(NPC));
+}
+
+#[test]
+fn a_templated_actors_combat_style_follows_the_traits_flag() {
+    // Issue #2138: the combat style (ZNAM) is on the Traits tab [documented: GECK wiki
+    // Traits Tab - NPC, Traits Tab - Creatures], so a templated actor takes it from its
+    // template under "Use Traits", as the death item, not under "Use AI Data".
+    const OWN: u32 = 0xA20;
+    const PARENT: u32 = 0xA21;
+    const TOP: u32 = 0xA22;
+    const PACKAGE: u32 = 0xA23;
+    const SCRIPTED: u32 = 0xA24;
+    const MID: u32 = 0xA25;
+    const LIST: u32 = 0xA26;
+    let me = FormId(NPC_REF);
+    // NPC (own style OWN) templated on NPC_AUTO (style PARENT), with the given flags.
+    let with = |traits: bool, ai: bool| {
+        let mut f = fixture();
+        for s in [OWN, PARENT, TOP, PACKAGE, SCRIPTED] {
+            f.data.combat_styles.insert(FormId(s), fnv_game::data::CombatStyleDef::default());
+        }
+        f.data.actors.get_mut(&FormId(NPC_AUTO)).unwrap().combat_style = Some(FormId(PARENT));
+        let npc = f.data.actors.get_mut(&FormId(NPC)).unwrap();
+        npc.combat_style = Some(FormId(OWN));
+        npc.template = Some(FormId(NPC_AUTO));
+        npc.template_traits = traits;
+        npc.template_ai = ai;
+        f
+    };
+    // Traits only: the template's; AI Data only: its own; neither: its own; both: the
+    // template's.
+    for (traits, ai, style) in [(true, false, PARENT), (false, true, OWN), (false, false, OWN), (true, true, PARENT)] {
+        let f = with(traits, ai);
+        let g = game(&f);
+        assert_eq!(g.combat_style_id(me), Some(FormId(style)), "traits {traits}, AI data {ai}");
+    }
+    // A chain: NPC → NPC_AUTO → MID, each with Traits, takes MID's; NPC_AUTO without the
+    // flag stops at its own.
+    for (mid_traits, style) in [(true, TOP), (false, PARENT)] {
+        let mut f = with(true, false);
+        let mut mid = f.data.actors[&FormId(NPC_AUTO)].clone();
+        mid.combat_style = Some(FormId(TOP));
+        f.data.actors.insert(FormId(MID), mid);
+        let parent = f.data.actors.get_mut(&FormId(NPC_AUTO)).unwrap();
+        parent.template = Some(FormId(MID));
+        parent.template_traits = mid_traits;
+        let g = game(&f);
+        assert_eq!(g.combat_style_id(me), Some(FormId(style)), "parent's Traits flag {mid_traits}");
+    }
+    // A leveled list template stands for its picked entry.
+    let mut f = with(true, false);
+    f.data.leveled_actors.insert(FormId(LIST), fnv_game::data::LeveledActorDef { entries: vec![(1, FormId(NPC_AUTO))], counts: vec![1], ..Default::default() });
+    f.data.actors.get_mut(&FormId(NPC)).unwrap().template = Some(FormId(LIST));
+    let g = game(&f);
+    assert_eq!(g.combat_style_id(me), Some(FormId(PARENT)));
+    // The precedence is unchanged: the running package's style, then SetCombatStyle's,
+    // then the record's from its Traits source.
+    let mut f = with(true, false);
+    f.data.package_defs.get_mut(&FormId(PACK_IDLE)).unwrap().combat_style = Some(FormId(PACKAGE));
+    let mut g = game(&f);
+    g.extra.entry(me).or_default().combat_style = Some(FormId(SCRIPTED));
+    assert_eq!(g.combat_style_id(me), Some(FormId(SCRIPTED)));
+    g.extra.entry(me).or_default().current_package = Some(FormId(PACK_IDLE));
+    assert_eq!(g.combat_style_id(me), Some(FormId(PACKAGE)));
+    g.extra.entry(me).or_default().current_package = None;
+    g.extra.entry(me).or_default().combat_style = None;
+    assert_eq!(g.combat_style_id(me), Some(FormId(PARENT)));
 }
 
 #[test]
@@ -3439,6 +3525,28 @@ CallWhen ({} => AuxVarSetFlt \"*o\" 1 -1) ({} => (AuxVarSize \"*w\") >= 2)");
     assert_eq!(q(&mut g, "SetFunctionValue (AuxVarSize \"*o\")"), XVal::Num(1.0), "when, exactly once");
 }
 
+/// A queued call whose function cannot run (a ref variable still 0, as the player
+/// reports' mods queued: "0x00000000 is not a function script") is reported once, not on
+/// every frame it comes due (#2280).
+#[test]
+fn a_call_that_cannot_run_is_reported_once() {
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let ctx = fnv_game::game::RunCtx { self_ref: Some(FormId::PLAYER_REF), ..Default::default() };
+    g.run_query("ref r
+Begin Function { }
+CallWhile r ({} => (AuxVarSize \"*never\") < 1)
+End
+", ctx).unwrap();
+    g.frames(10);
+    let errors: Vec<String> = g.events.iter().filter_map(|e| match &e.kind {
+        EventKind::ScriptError { unit, error } if unit == "delayed call" => Some(error.clone()),
+        _ => None,
+    }).collect();
+    assert_eq!(errors.len(), 1, "{errors:?}");
+    assert!(errors[0].ends_with("is not a function script"), "{errors:?}");
+}
+
 #[test]
 fn message_box_ex_alt_runs_its_callback_with_the_button() {
     // [documented: MessageBoxExAlt] the UDF gets the pressed button's index.
@@ -4477,4 +4585,27 @@ fn planted_forms_remap_and_missing_dependencies_are_dropped() {
     back.planted[0].seen_by.push(extra);
     assert_eq!(back.drop_gone(|id| id == extra), 0);
     assert_eq!(back.planted[0].seen_by, vec![victim]);
+}
+
+/// An activator opens and closes like a door: SetOpenState and its default activation
+/// change its open state (GetOpenState) and ask for its "Open" or "Close" sequence, as
+/// PlayGroup asks one (TTW's Overseer desk and vault door, issues #2231, #2232). Setting
+/// the state it has asks for nothing.
+#[test]
+fn an_activator_plays_open_and_close_with_its_open_state() {
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    let r = FormId(ACT_REF);
+    assert!(!g.world.get(r).unwrap().open);
+    g.run_source("TestActivatorREF.SetOpenState 1", Default::default()).unwrap();
+    assert!(g.world.get(r).unwrap().open);
+    assert_eq!(g.anims.asked(r).map(|(_, n)| n), Some("Open"));
+    let asked = g.anims.requests.len();
+    g.run_source("TestActivatorREF.SetOpenState 1", Default::default()).unwrap();
+    assert_eq!(g.anims.requests.len(), asked, "already open: nothing asked");
+    // Its default activation (a script's Activate, the vault door's pod) closes it again.
+    g.default_activation(FormId::PLAYER_REF, r, false).unwrap();
+    assert!(!g.world.get(r).unwrap().open);
+    assert_eq!(g.anims.asked(r).map(|(_, n)| n), Some("Close"));
 }

@@ -18,7 +18,8 @@
 //! The two PDH counters are separate queries, so a hidden GPU row collects no GPU
 //! counters; the game's processor time and its working set are separate requests too, so
 //! the RAM row alone reads no processor time and the CPU row alone no memory counters.
-//! Off Windows, or where a counter cannot be opened, that part reads none.
+//! [design, #2249] On Linux, `/proc`, NVML, amdgpu sysfs and DRM client stats supply
+//! these parts (`linux`); unavailable readings stay `None` for the UI to explain.
 //!
 //! Each showing has a generation ([`Shared::show`] bumps it). The sampler tags what it
 //! publishes with the generation it collected under, and the game takes only what was
@@ -47,8 +48,10 @@ const WANT_RAM: u8 = 8;
 pub struct Usage {
     /// The machine's CPU use, percent.
     pub cpu: Option<f32>,
-    /// The busiest GPU engine's use, percent.
+    /// [design, #2249] GPU use in percent; `gpu_game` identifies game-only readings.
     pub gpu: Option<f32>,
+    /// [design, #2249] True for DRM client time: the game's use, rather than the machine's.
+    pub gpu_game: bool,
     /// The game's CPU use, cores.
     pub cores: Option<f32>,
     /// The game's working set, MB.
@@ -66,6 +69,7 @@ pub struct Shared {
     want: AtomicU8,
     cpu: AtomicU32,
     gpu: AtomicU32,
+    gpu_game: AtomicBool,
     cores: AtomicU32,
     ram_mb: AtomicU32,
 }
@@ -79,6 +83,7 @@ impl Shared {
             want: AtomicU8::new(0),
             cpu: AtomicU32::new(NONE),
             gpu: AtomicU32::new(NONE),
+            gpu_game: AtomicBool::new(false),
             cores: AtomicU32::new(NONE),
             ram_mb: AtomicU32::new(NONE),
         }
@@ -118,7 +123,7 @@ impl Shared {
         self.want.store(bit(cpu, WANT_CPU) | bit(gpu, WANT_GPU) | bit(process_cpu, WANT_PROCESS_CPU) | bit(ram, WANT_RAM), Ordering::Relaxed);
     }
 
-    #[cfg_attr(not(windows), allow(dead_code))]
+    #[cfg_attr(not(any(windows, target_os = "linux")), allow(dead_code))]
     fn wants(&self, part: u8) -> bool {
         self.want.load(Ordering::Relaxed) & part != 0
     }
@@ -136,33 +141,40 @@ impl Shared {
         Usage {
             cpu: get(&self.cpu).map(|v| v as f32 / 10.0),
             gpu: get(&self.gpu).map(|v| v as f32 / 10.0),
+            gpu_game: self.gpu_game.load(Ordering::Relaxed),
             cores: get(&self.cores).map(|v| v as f32 / 100.0),
             ram_mb: get(&self.ram_mb).map(u64::from),
         }
     }
 
     /// Store a collection made under `generation`, tagged with it (the sampler thread's,
-    /// none off Windows but in the tests).
-    #[cfg_attr(not(windows), allow(dead_code))]
+    /// Windows' or Linux's, and in the tests on any other target).
+    #[cfg_attr(not(any(windows, target_os = "linux")), allow(dead_code))]
     fn publish(&self, generation: u32, u: Usage) {
         let percent = |v: Option<f32>| v.map_or(NONE, |p| (p.clamp(0.0, 100.0) * 10.0).round() as u32);
         self.cpu.store(percent(u.cpu), Ordering::Relaxed);
         self.gpu.store(percent(u.gpu), Ordering::Relaxed);
+        self.gpu_game.store(u.gpu_game, Ordering::Relaxed);
         self.cores.store(u.cores.map_or(NONE, |c| (c.clamp(0.0, 10_000.0) * 100.0).round() as u32), Ordering::Relaxed);
         self.ram_mb.store(u.ram_mb.map_or(NONE, |m| m.min(u64::from(NONE - 1)) as u32), Ordering::Relaxed);
         self.published.store(generation, Ordering::Release);
     }
 }
 
-/// Where the sampler's readings come from: Windows' counters on the sampler thread
-/// (`windows::Counters`), a stand-in in the tests.
-#[cfg_attr(not(windows), allow(dead_code))]
+/// Where the sampler's readings come from: Windows' counters (`windows::Counters`) or
+/// Linux's `/proc` and sysfs readers (`linux::Counters`), both on the sampler thread, and
+/// a stand-in in the tests.
+#[cfg_attr(not(any(windows, target_os = "linux")), allow(dead_code))]
 pub trait Source {
     /// Collect the machine's CPU counter and read it: a rate, so none until the second
     /// collection since it was last forgotten.
     fn machine_cpu(&mut self) -> Option<f32>;
     /// The same for the busiest GPU engine.
     fn gpu(&mut self) -> Option<f32>;
+    /// [design, #2249] The source's GPU scope, published with its reading.
+    fn gpu_game(&self) -> bool {
+        false
+    }
     /// Forget the named counters' last collection: their next collection starts a pair.
     fn forget(&mut self, cpu: bool, gpu: bool);
     /// The game's processor time over every thread, seconds.
@@ -175,7 +187,7 @@ pub trait Source {
 
 /// The sampler's own state between collections: the generation it last collected under
 /// and the game's processor time at its last collection (seconds, and when).
-#[cfg_attr(not(windows), allow(dead_code))]
+#[cfg_attr(not(any(windows, target_os = "linux")), allow(dead_code))]
 #[derive(Default)]
 pub struct Baselines {
     generation: Option<u32>,
@@ -186,7 +198,7 @@ pub struct Baselines {
 /// them under the generation they were collected for; a new generation (a new showing,
 /// even one that began and ended between two turns) starts every rate afresh. False: the
 /// overlay is hidden, nothing was collected.
-#[cfg_attr(not(windows), allow(dead_code))]
+#[cfg_attr(not(any(windows, target_os = "linux")), allow(dead_code))]
 pub fn step(shared: &Shared, b: &mut Baselines, src: &mut impl Source) -> bool {
     if !shared.is_on() {
         src.forget(true, true);
@@ -226,17 +238,25 @@ pub fn step(shared: &Shared, b: &mut Baselines, src: &mut impl Source) -> bool {
     // The working set alone is a reading; the cores need a second collection, so a
     // first collection gives the RAM and waits for the cores.
     let ram_mb = if shared.wants(WANT_RAM) { src.working_set_mb() } else { None };
-    shared.publish(generation, Usage { cpu, gpu, cores, ram_mb });
+    shared.publish(generation, Usage { cpu, gpu, gpu_game: gpu.is_some() && src.gpu_game(), cores, ram_mb });
     true
 }
 
-/// Starts the sampler thread (none off Windows) and returns what it fills in.
+/// Starts the sampler thread (none where the parts are not read) and returns what it fills
+/// in.
 pub fn start() -> Arc<Shared> {
     let shared = Arc::new(Shared::new());
     #[cfg(windows)]
     {
         let s = shared.clone();
         if let Err(e) = std::thread::Builder::new().name("fps-usage".into()).spawn(move || windows::run(&s)) {
+            bevy::log::warn!("fps counter: no CPU/GPU usage thread: {e}");
+        }
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let s = shared.clone();
+        if let Err(e) = std::thread::Builder::new().name("fps-usage".into()).spawn(move || linux::run(&s)) {
             bevy::log::warn!("fps counter: no CPU/GPU usage thread: {e}");
         }
     }
@@ -262,8 +282,8 @@ mod windows {
     use std::time::{Duration, Instant};
 
     use windows_sys::Win32::System::Performance::{
-        PDH_CSTATUS_NEW_DATA, PDH_CSTATUS_VALID_DATA, PDH_FMT_COUNTERVALUE, PDH_FMT_COUNTERVALUE_ITEM_W, PDH_FMT_DOUBLE, PDH_HCOUNTER, PDH_HQUERY, PDH_MORE_DATA, PdhAddEnglishCounterW, PdhCloseQuery,
-        PdhCollectQueryData, PdhGetFormattedCounterArrayW, PdhGetFormattedCounterValue, PdhOpenQueryW,
+        PdhAddEnglishCounterW, PdhCloseQuery, PdhCollectQueryData, PdhGetFormattedCounterArrayW, PdhGetFormattedCounterValue, PdhOpenQueryW, PDH_CSTATUS_NEW_DATA, PDH_CSTATUS_VALID_DATA, PDH_FMT_COUNTERVALUE, PDH_FMT_COUNTERVALUE_ITEM_W,
+        PDH_FMT_DOUBLE, PDH_HCOUNTER, PDH_HQUERY, PDH_MORE_DATA,
     };
 
     use super::{busiest_engine, step, Baselines, Shared, Source};
@@ -271,13 +291,10 @@ mod windows {
     const PERIOD: Duration = Duration::from_secs(1);
 
     pub fn run(shared: &Shared) {
-        let mut src = Counters {
-            cpu: Counter::open(&["\\Processor Information(_Total)\\% Processor Utility", "\\Processor(_Total)\\% Processor Time"]),
-            gpu: Counter::open(&["\\GPU Engine(*)\\Utilization Percentage"]),
-            start: Instant::now(),
-        };
+        let mut src =
+            Counters { cpu: Counter::open(&["\\Processor Information(_Total)\\% Processor Utility", "\\Processor(_Total)\\% Processor Time"]), gpu: Counter::open(&["\\GPU Engine(*)\\Utilization Percentage"]), start: Instant::now() };
         if src.cpu.is_none() && src.gpu.is_none() {
-            bevy::log::warn!("fps counter: no performance counters, CPU/GPU usage not shown");
+            bevy::log::warn!("fps counter: no performance counters, CPU/GPU use Not available");
         } else {
             bevy::log::info!("fps counter: usage counters cpu {} gpu {}", src.cpu.is_some(), src.gpu.is_some());
         }
@@ -443,6 +460,249 @@ mod windows {
     }
 }
 
+/// [design, #2249] Linux's `/proc` CPU/RAM readers and optional GPU sources.
+/// [documented] CPU busy ticks and process utime/stime, resident VmRSS: proc(5).
+/// [design] GPU source semantics and priority: docs/design/settings-page.md.
+#[cfg(target_os = "linux")]
+mod linux {
+    use std::fs;
+    use std::path::PathBuf;
+    use std::time::{Duration, Instant};
+
+    use super::super::{drm_usage::DrmUsage, nvml::Nvml};
+    use super::{step, Baselines, Shared, Source};
+
+    /// As on Windows: a collection a second while the overlay shows.
+    const PERIOD: Duration = Duration::from_secs(1);
+
+    /// `/proc/stat` and `/proc/<pid>/stat` time is in these ticks a second. proc(5) says
+    /// to take the rate from `sysconf(_SC_CLK_TCK)`; it is 100 on x86-64 and ARM Linux
+    /// [documented: proc(5), time(7); observed 100 here], which are the architectures
+    /// this build runs on. No other architecture is claimed to read the right seconds.
+    const USER_HZ: f64 = 100.0;
+
+    pub fn run(shared: &Shared) {
+        let mut src = Counters { cpu: None, gpu: None, start: Instant::now() };
+        if fs::read_to_string("/proc/stat").ok().and_then(|s| cpu_ticks(&s)).is_some() {
+            bevy::log::info!("fps counter: CPU source /proc/stat");
+        } else {
+            bevy::log::warn!("fps counter: CPU source Not available");
+        }
+        let mut baselines = Baselines::default();
+        loop {
+            // Hidden: look again soon, so a showing does not wait a whole period.
+            let collected = step(shared, &mut baselines, &mut src);
+            std::thread::sleep(if collected { PERIOD } else { PERIOD / 4 });
+        }
+    }
+
+    /// `/sys/class/drm/card*/device/gpu_busy_percent` for every card that has one.
+    fn gpu_cards() -> Vec<PathBuf> {
+        let Ok(dir) = fs::read_dir("/sys/class/drm") else {
+            return Vec::new();
+        };
+        let mut cards: Vec<PathBuf> = dir
+            .filter_map(Result::ok)
+            .filter(|e| {
+                let name = e.file_name();
+                let name = name.to_string_lossy();
+                name.starts_with("card") && name[4..].chars().all(|c| c.is_ascii_digit())
+            })
+            .map(|e| e.path().join("device/gpu_busy_percent"))
+            .filter(|p| p.is_file())
+            .collect();
+        cards.sort();
+        cards
+    }
+
+    #[derive(Clone, Copy)]
+    enum GpuKind {
+        Nvml,
+        Amdgpu,
+        Drm,
+    }
+
+    /// [design, #2249] Prefer whole-device use; preserve amdgpu before the game-only fallback.
+    const GPU_SOURCE_ORDER: [GpuKind; 3] = [GpuKind::Nvml, GpuKind::Amdgpu, GpuKind::Drm];
+
+    enum GpuReader {
+        Nvml(Nvml),
+        Amdgpu(Vec<PathBuf>),
+        Drm(DrmUsage),
+    }
+
+    impl GpuReader {
+        fn open() -> Self {
+            // [design] Probe on first GPU demand, after the renderer can have opened its FDs.
+            for kind in GPU_SOURCE_ORDER {
+                match kind {
+                    GpuKind::Nvml => {
+                        if let Some(reader) = Nvml::open() {
+                            bevy::log::info!("fps counter: GPU source NVML (whole device)");
+                            return Self::Nvml(reader);
+                        }
+                    }
+                    GpuKind::Amdgpu => {
+                        let cards = gpu_cards();
+                        if amdgpu_read(&cards).is_some() {
+                            bevy::log::info!("fps counter: GPU source amdgpu gpu_busy_percent (whole device)");
+                            return Self::Amdgpu(cards);
+                        }
+                    }
+                    GpuKind::Drm => break,
+                }
+            }
+            if fdinfo().iter().any(|text| DrmUsage::supports(text)) {
+                bevy::log::info!("fps counter: GPU source DRM fdinfo (game)");
+            } else {
+                bevy::log::warn!("fps counter: GPU source Not available; retrying DRM fdinfo (game)");
+            }
+            Self::Drm(DrmUsage::default())
+        }
+    }
+
+    // [design, #2249] Keep the existing busiest-card sysfs reading as a fallback.
+    fn amdgpu_read(cards: &[PathBuf]) -> Option<f32> {
+        cards.iter().filter_map(|p| fs::read_to_string(p).ok()).filter_map(|s| s.trim().parse::<u32>().ok()).map(|p| p.min(100) as f32).reduce(f32::max)
+    }
+
+    // [documented] DRM client stats are exposed in process fdinfo (kernel DRM usage stats).
+    // [design] Rescan each requested sample: renderer clients may appear or close later.
+    fn fdinfo() -> Vec<String> {
+        let Ok(dir) = fs::read_dir("/proc/self/fdinfo") else {
+            return Vec::new();
+        };
+        dir.filter_map(Result::ok).filter_map(|entry| fs::read_to_string(entry.path()).ok()).collect()
+    }
+
+    /// The parts read on the sampler thread.
+    struct Counters {
+        /// The last `/proc/stat` busy and total ticks; a rate needs a pair.
+        cpu: Option<(u64, u64)>,
+        gpu: Option<GpuReader>,
+        start: Instant,
+    }
+
+    impl Source for Counters {
+        fn machine_cpu(&mut self) -> Option<f32> {
+            let now = cpu_ticks(&fs::read_to_string("/proc/stat").ok()?)?;
+            let last = self.cpu.replace(now);
+            let (busy, total) = now;
+            let (was_busy, was_total) = last?;
+            let (dbusy, dtotal) = (busy.saturating_sub(was_busy), total.saturating_sub(was_total));
+            (dtotal > 0).then(|| (100.0 * dbusy as f32 / dtotal as f32).clamp(0.0, 100.0))
+        }
+
+        fn gpu(&mut self) -> Option<f32> {
+            let reader = self.gpu.get_or_insert_with(GpuReader::open);
+            match reader {
+                GpuReader::Nvml(reader) => reader.read(),
+                GpuReader::Amdgpu(cards) => amdgpu_read(cards),
+                GpuReader::Drm(sampler) => {
+                    let texts = fdinfo();
+                    sampler.sample(texts.iter().map(String::as_str), self.start.elapsed())
+                }
+            }
+        }
+
+        fn gpu_game(&self) -> bool {
+            matches!(self.gpu, Some(GpuReader::Drm(_)))
+        }
+
+        fn forget(&mut self, cpu: bool, gpu: bool) {
+            if cpu {
+                self.cpu = None;
+            }
+            if let (true, Some(GpuReader::Drm(sampler))) = (gpu, self.gpu.as_mut()) {
+                *sampler = DrmUsage::default();
+            }
+        }
+
+        fn process_cpu_secs(&mut self) -> Option<f64> {
+            let stat = fs::read_to_string("/proc/self/stat").ok()?;
+            process_cpu_secs(&stat)
+        }
+
+        fn working_set_mb(&mut self) -> Option<u64> {
+            working_set_mb(&fs::read_to_string("/proc/self/status").ok()?)
+        }
+
+        fn now(&mut self) -> f64 {
+            self.start.elapsed().as_secs_f64()
+        }
+    }
+
+    /// The machine's busy and total ticks from `/proc/stat`'s `cpu` line: idle and iowait
+    /// are not busy, everything else is [documented: proc(5)]. The guest figures are
+    /// already in user and nice, so the first eight numbers are the whole line
+    /// [documented: kernel/sched/cputime.c, `account_guest_time` adds guest time to
+    /// `CPUTIME_USER` or `CPUTIME_NICE` as well as to `CPUTIME_GUEST`].
+    fn cpu_ticks(stat: &str) -> Option<(u64, u64)> {
+        let line = stat.lines().find(|l| l.starts_with("cpu "))?;
+        let mut fields = line.split_whitespace();
+        if fields.next()? != "cpu" {
+            return None;
+        }
+        let v: Vec<u64> = fields.take(8).map(|f| f.parse().ok()).collect::<Option<_>>()?;
+        if v.len() < 8 {
+            return None;
+        }
+        let total: u64 = v.iter().sum();
+        let idle = v[3] + v[4];
+        Some((total.saturating_sub(idle), total))
+    }
+
+    /// The process's processor time in seconds from `/proc/<pid>/stat`: utime and stime
+    /// are fields 14 and 15, after the `(comm)` that may itself hold spaces and brackets
+    /// [documented: proc(5)].
+    fn process_cpu_secs(stat: &str) -> Option<f64> {
+        let rest = &stat[stat.rfind(')')? + 1..];
+        let after_comm: Vec<&str> = rest.split_whitespace().collect();
+        // Field 3 (state) is the first here, so field 14 is index 11.
+        let utime: u64 = after_comm.get(11)?.parse().ok()?;
+        let stime: u64 = after_comm.get(12)?.parse().ok()?;
+        Some((utime + stime) as f64 / USER_HZ)
+    }
+
+    /// The process's resident set, MB, from `/proc/<pid>/status`'s `VmRSS` line (kB)
+    /// [documented: proc(5)].
+    fn working_set_mb(status: &str) -> Option<u64> {
+        let line = status.lines().find(|l| l.starts_with("VmRSS:"))?;
+        let kb: u64 = line.split_whitespace().nth(1)?.parse().ok()?;
+        Some(kb / 1024)
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        const STAT: &str = "cpu  123 45 67 890 12 3 4 5 0 0\ncpu0 1 2 3 4 5 6 7 8 0 0\n";
+
+        #[test]
+        fn the_machines_cpu_line_counts_everything_but_idle_and_iowait() {
+            // 123+45+67+890+12+3+4+5 = 1149 total, 890+12 = 902 idle.
+            assert_eq!(cpu_ticks(STAT), Some((247, 1149)));
+            assert_eq!(cpu_ticks("cpu  1 2 3 4\n"), None, "a short line reads none");
+            assert_eq!(cpu_ticks("intr 1 2 3\n"), None, "no cpu line");
+        }
+
+        #[test]
+        fn the_process_cpu_time_survives_a_bracketed_name_with_spaces() {
+            let stat = "1234 (nvforever (smoke) test) R 1 1234 1234 0 -1 4194560 100 0 0 0 25 15 0 0 20 0 1 0 100 12345 678 18446744073709551615 0 0 0 0 0 0 0 0 0 0 0 0 17 3 0 0 0 0 0";
+            // utime 25 + stime 15 = 40 ticks = 0.40 s.
+            assert_eq!(process_cpu_secs(stat), Some(0.4));
+            assert_eq!(process_cpu_secs("no comm here"), None);
+        }
+
+        #[test]
+        fn the_working_set_is_the_rss_in_megabytes() {
+            let status = "Name:\tnvforever\nVmPeak:\t 9000000 kB\nVmRSS:\t 4928512 kB\nThreads:\t20\n";
+            assert_eq!(working_set_mb(status), Some(4813));
+            assert_eq!(working_set_mb("Name:\tnvforever\n"), None);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -456,6 +716,7 @@ mod tests {
         gpu_primed: bool,
         cpu_calls: u32,
         gpu_calls: u32,
+        gpu_game: bool,
         process_calls: u32,
         ram_calls: u32,
         clock: f64,
@@ -480,6 +741,10 @@ mod tests {
             let read = self.gpu_primed.then_some(60.0);
             self.gpu_primed = true;
             read
+        }
+
+        fn gpu_game(&self) -> bool {
+            self.gpu_game
         }
 
         fn forget(&mut self, cpu: bool, gpu: bool) {
@@ -524,6 +789,28 @@ mod tests {
     }
 
     #[test]
+    fn game_gpu_scope_follows_the_reading_and_resets_with_its_generation() {
+        let s = all_wanted();
+        let mut b = Baselines::default();
+        let mut src = Fake { gpu_game: true, ..Fake::default() };
+        s.show();
+        step(&s, &mut b, &mut src);
+        assert!(!s.read().gpu_game, "no scoped number before the second sample");
+        step(&s, &mut b, &mut src);
+        assert!(s.read().gpu_game);
+        s.hide();
+        s.show();
+        assert_eq!(s.read(), Usage::default());
+        step(&s, &mut b, &mut src);
+        assert!(!s.read().gpu_game);
+        step(&s, &mut b, &mut src);
+        assert!(s.read().gpu_game);
+        s.set_want(true, false, true, true);
+        step(&s, &mut b, &mut src);
+        assert_eq!((s.read().gpu, s.read().gpu_game), (None, false));
+    }
+
+    #[test]
     fn a_showing_reads_its_own_collections_and_a_hidden_overlay_none() {
         let s = all_wanted();
         let (mut b, mut src) = (Baselines::default(), Fake::default());
@@ -533,10 +820,10 @@ mod tests {
         assert_eq!(s.read(), Usage::default(), "nothing collected yet");
         assert!(step(&s, &mut b, &mut src));
         // The first collection: the working set, the rates wait for a pair.
-        assert_eq!(s.read(), Usage { cpu: None, gpu: None, cores: None, ram_mb: Some(4813) });
+        assert_eq!(s.read(), Usage { cpu: None, gpu: None, gpu_game: false, cores: None, ram_mb: Some(4813) });
         step(&s, &mut b, &mut src);
         // 0.5 s of processor time over 1 s.
-        assert_eq!(s.read(), Usage { cpu: Some(30.0), gpu: Some(60.0), cores: Some(0.5), ram_mb: Some(4813) });
+        assert_eq!(s.read(), Usage { cpu: Some(30.0), gpu: Some(60.0), gpu_game: false, cores: Some(0.5), ram_mb: Some(4813) });
         s.hide();
         assert_eq!(s.read(), Usage::default());
     }
@@ -559,7 +846,7 @@ mod tests {
         src.during = None;
         // The next turn sees the new showing and starts its rates afresh.
         step(&s, &mut b, &mut src);
-        assert_eq!(s.read(), Usage { cpu: None, gpu: None, cores: None, ram_mb: Some(4813) });
+        assert_eq!(s.read(), Usage { cpu: None, gpu: None, gpu_game: false, cores: None, ram_mb: Some(4813) });
         step(&s, &mut b, &mut src);
         assert_eq!(s.read().cores, Some(0.5));
     }
@@ -578,9 +865,9 @@ mod tests {
         assert_eq!(s.read(), Usage::default(), "the new showing waits for its own readings");
         step(&s, &mut b, &mut src);
         // A new generation: no rate from a pair that spans the two showings.
-        assert_eq!(s.read(), Usage { cpu: None, gpu: None, cores: None, ram_mb: Some(4813) });
+        assert_eq!(s.read(), Usage { cpu: None, gpu: None, gpu_game: false, cores: None, ram_mb: Some(4813) });
         step(&s, &mut b, &mut src);
-        assert_eq!(s.read(), Usage { cpu: Some(30.0), gpu: Some(60.0), cores: Some(0.5), ram_mb: Some(4813) });
+        assert_eq!(s.read(), Usage { cpu: Some(30.0), gpu: Some(60.0), gpu_game: false, cores: Some(0.5), ram_mb: Some(4813) });
     }
 
     #[test]
@@ -608,7 +895,7 @@ mod tests {
         step(&s, &mut b, &mut src);
         assert_eq!(s.read(), Usage { ram_mb: Some(4813), ..Usage::default() });
         step(&s, &mut b, &mut src);
-        assert_eq!(s.read(), Usage { cpu: Some(30.0), cores: Some(0.5), ram_mb: Some(4813), gpu: None });
+        assert_eq!(s.read(), Usage { cpu: Some(30.0), cores: Some(0.5), ram_mb: Some(4813), gpu: None, gpu_game: false });
         // The GPU row alone.
         s.set_want(false, true, false, false);
         step(&s, &mut b, &mut src);

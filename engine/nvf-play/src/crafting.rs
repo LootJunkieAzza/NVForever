@@ -344,7 +344,7 @@ type EffectForms = crate::pipboy::stats::read::Forms;
 
 #[allow(clippy::too_many_arguments)]
 fn keys(
-    keys: Res<ButtonInput<KeyCode>>,
+    keys: crate::pad::ActionButtons<KeyCode>,
     time: AidTime,
     mut aid: ResMut<RecipeAid>,
     mut menu: ResMut<RecipeMenu>,
@@ -360,6 +360,7 @@ fn keys(
     mut asked: MessageReader<RecipeInput>,
     mut commands: Commands,
 ) {
+    let keys = keys.snapshot();
     let asked: Vec<RecipeInput> = asked.read().copied().collect();
     // Only a pointer that moves takes the selection: the rows drawn when the menu opens
     // (or redrawn) under a resting pointer leave the keys' choice alone (as `crate::menu`).

@@ -1,8 +1,9 @@
 //! FSR 3.1 frame generation (#1778): a frame made between each two real frames, from
 //! FidelityFX SDK 1.1.4's optical flow and frame interpolation (MIT, ported to wgpu in the
 //! vendored wgpu-ffx; docs/design/frame-generation.md). Off by default: Settings > Graphics >
-//! Frame generation, or `--frame-generation`. It needs FSR 3.1 upscaling on (any mode, Native
-//! AA too) and vsync (Vertical sync or Variable refresh).
+//! Frame generation, or `--frame-generation`. It needs FSR 3.1 upscaling drawing (any mode, Native
+//! AA too; not DLSS, whose output its passes do not take) and vsync (Vertical sync or Variable
+//! refresh).
 //!
 //! Per real frame, in the camera's render schedule:
 //! - after FSR ([`crate::fsr::fsr_pass`]): frame interpolation's prepare pass dilates the
@@ -37,7 +38,7 @@
 //! before, for comparisons.
 //!
 //! **No generated frame** in menus, dialogue, loading screens, while paused (all
-//! `PlayState`s but Playing), on a camera cut (`FsrCamera::cut_from`) or the first frame after
+//! `PlayState`s but Playing), on a camera cut (`UpscaleCamera::cut_from`) or the first frame after
 //! any of them: those frames are presented once, as without frame generation. Nor on a frame a
 //! screenshot of the window is taken (F12, `--screenshot`): the passes run, but only the real
 //! frame is presented, and the screenshot gets it too ([`generate`]).
@@ -79,6 +80,7 @@ use wgpu_ffx::frameinterpolation::{
 use wgpu_ffx::opticalflow::{OpticalFlowContext, OpticalFlowDispatchInfo, OpticalFlowView};
 
 use crate::fsr::PreparedFsr;
+use crate::upscaler::prep::PreparedUpscale;
 
 /// The switch (the settings row, `--frame-generation`).
 #[derive(Resource, Clone, Copy, Debug, PartialEq, Eq)]
@@ -91,7 +93,11 @@ pub struct FrameGeneration {
 #[derive(Resource, Clone, Copy, Default)]
 pub struct FrameGenSupport(pub bool);
 
-/// Whether frame generation can run: on, supported, FSR active and vsync on.
+/// Whether frame generation can run: on, supported, FSR the effective upscaler
+/// (`graphics::fsr_active`: never with DLSS drawing, #2198) and vsync on. DLSS draws in its own
+/// pass (`dlss::dlss_pass`) and only on a camera without FSR's component, so with FSR effective
+/// (also in a session that loaded Streamline, `NVF_DLSS_PRELOAD=1`) FSR's pass drew the frame
+/// frame generation follows.
 pub fn usable(world: &World) -> bool {
     world.resource::<FrameGeneration>().on
         && world.get_resource::<FrameGenSupport>().is_some_and(|s| s.0)
@@ -103,6 +109,8 @@ pub fn usable(world: &World) -> bool {
 pub fn unavailable_reason(world: &World) -> Option<&'static str> {
     if !world.get_resource::<FrameGenSupport>().is_some_and(|s| s.0) {
         Some("Not on this GPU")
+    } else if crate::upscaler::effective(world).is_dlss() {
+        Some("Not with DLSS")
     } else if !crate::graphics::fsr_active(world) {
         Some("Needs FSR 3.1")
     } else if !world.resource::<crate::frame_pace::FramePace>().sync.vsync() {
@@ -151,8 +159,8 @@ impl Plugin for FrameGenPlugin {
         app.insert_resource(FrameGeneration { on: self.0 })
             .insert_resource(generated.clone())
             .init_resource::<FrameGenCap>()
-            .init_resource::<FrameGenUsable>()
-            .add_systems(Update, (follow_switch, log_switch).after(crate::frame_pace::ApplyFramePace));
+            .init_resource::<FrameGenUsable>();
+        add_switch_systems(app);
         if std::env::var("NVF_FRAME_GEN_GPU_TIMES").is_ok_and(|v| v.trim() == "1") {
             crate::graphics::ensure_render_diagnostics(app);
             app.add_systems(Update, log_gpu_times);
@@ -190,7 +198,9 @@ impl Plugin for FrameGenPlugin {
             .add_systems(RenderGraph, write_capture.after(RenderGraphSystems::Finish))
             // After `render_system`, whose screenshot copy draws into the stand-in after the
             // render graph.
-            .add_systems(Render, hand_to_presenter.in_set(RenderSystems::Render).after(render_system));
+            // Before NVIDIA low latency's present-end marker: handing the frame over stands for
+            // the render thread's present (nv_low_latency.rs).
+            .add_systems(Render, hand_to_presenter.in_set(RenderSystems::Render).after(render_system).before(crate::nv_low_latency::present_end));
     }
 
     fn finish(&self, app: &mut App) {
@@ -252,6 +262,14 @@ fn storage_without_format(adapter: &wgpu::Adapter) -> bool {
 }
 
 /// Turns latency reduction on with frame generation and sets the real-frame cap.
+/// The main world's switch systems: after the frame pacing, and after
+/// `upscaler::follow_request`, so [`usable`] reads the effective upscaler of this frame, the
+/// one `graphics::apply` puts on the camera in the same frame (FSR's prepare then sees the
+/// request and FSR's component together, as when both read `Graphics::fsr`).
+fn add_switch_systems(app: &mut App) {
+    app.add_systems(Update, (follow_switch, log_switch).after(crate::frame_pace::ApplyFramePace).after(crate::upscaler::follow_request));
+}
+
 fn follow_switch(world: &mut World) {
     let usable = usable(world);
     let playing = world.get_resource::<State<nvf_play::PlayState>>().is_none_or(|s| *s.get() == nvf_play::PlayState::Playing);
@@ -504,10 +522,12 @@ fn prepare(
     queue: Res<RenderQueue>,
     request: Res<FrameGenRequest>,
     mut renderer: ResMut<FrameGenRenderer>,
-    mut views: Query<(Entity, Option<&PreparedFsr>, &mut CameraMainTextureUsages, Option<&mut PreparedFrameGen>)>,
+    mut views: Query<(Entity, Option<&PreparedUpscale>, Has<PreparedFsr>, &mut CameraMainTextureUsages, Option<&mut PreparedFrameGen>)>,
 ) {
-    for (entity, fsr, mut usages, old) in &mut views {
-        let Some(fsr) = fsr.filter(|f| request.on && supports_size(f.output_size)) else {
+    for (entity, prepared, fsr_draws, mut usages, old) in &mut views {
+        // Only a view FSR draws (frame generation is FSR's own); its sizes are the common
+        // prepared view's.
+        let Some(fsr) = prepared.filter(|f| fsr_draws && request.on && supports_size(f.output_size)) else {
             if old.is_some() {
                 commands.entity(entity).remove::<PreparedFrameGen>();
             }
@@ -536,7 +556,7 @@ fn prepare(
 /// FSR's jitter (as FidelityFX SDK 1.1.4's `ffxFsr3ContextDispatchFrameGenerationPrepare`
 /// passes the upscaler's on; AMD's pass reads it only for display-resolution motion vectors).
 fn prepare_pass(
-    view: ViewQuery<(&PreparedFsr, &PreparedFrameGen, Option<&ViewPrepassTextures>, &TemporalJitter)>,
+    view: ViewQuery<(&PreparedUpscale, &PreparedFrameGen, Option<&ViewPrepassTextures>, &TemporalJitter), With<PreparedFsr>>,
     renderer: Res<FrameGenRenderer>,
     mut ctx: RenderContext,
 ) {
@@ -554,7 +574,7 @@ fn prepare_pass(
         &mut fg.interpolation.lock().unwrap(),
         ctx.command_encoder(),
         &FrameInterpolationPrepareInfo {
-            depth: &fsr.fsr_depth,
+            depth: &fsr.depth,
             motion_vectors: &motion.texture.texture,
             render_size: fsr.render_size.to_array(),
             // Bevy's offset is minus FSR's (fsr.rs `prepare`).
@@ -587,7 +607,7 @@ fn capture_hudless(view: ViewQuery<(&ViewTarget, &PreparedFrameGen)>, mut ctx: R
 /// upscaling shows it first) and the real one aside for [`show_real`].
 #[allow(clippy::too_many_arguments)]
 fn generate(
-    view: ViewQuery<(&ViewTarget, &PreparedFsr, &PreparedFrameGen, &ExtractedCamera)>,
+    view: ViewQuery<(&ViewTarget, &PreparedUpscale, &PreparedFrameGen, &ExtractedCamera), With<PreparedFsr>>,
     renderer: Res<FrameGenRenderer>,
     pending: Res<PendingReal>,
     pending_generated: Res<PendingGenerated>,
@@ -710,9 +730,12 @@ fn hand_to_presenter(
     queue: Res<RenderQueue>,
     stats: Res<Stats>,
     generated: Res<GeneratedFrames>,
+    latency: (Option<Res<crate::anti_lag::Presenting>>, Option<Res<crate::nv_low_latency::NvLowLatency>>),
     windows: Query<(Entity, MainEntity, &DeferredSwapchain, &SurfaceData)>,
 ) {
     let refresh = request.refresh_millihertz.filter(|m| *m > 0).map_or(std::time::Duration::ZERO, |m| std::time::Duration::from_secs_f64(1000.0 / f64::from(m)));
+    // NVIDIA low latency: the presenter's presents of this frame name it (nv_low_latency.rs).
+    let out_of_band = latency.0.and_then(|presenting| crate::nv_low_latency::OutOfBandPresents::of(&presenting, latency.1.as_deref()));
     // Those of windows without a stand-in this frame are dropped with it.
     let mut generated_frames = std::mem::take(&mut *pending.0.lock().unwrap());
     for (entity, main, deferred, surface) in &windows {
@@ -740,7 +763,7 @@ fn hand_to_presenter(
         };
         use crate::fg_presenter::Handed;
         let presenter = &mut presenters.running[at].1;
-        match if presenter.running() { presenter.send(frames, refresh) } else { Handed::Ended } {
+        match if presenter.running() { presenter.send(frames, refresh, out_of_band.clone()) } else { Handed::Ended } {
             Handed::Over => {}
             // Not shown: the presenter still has the frames before it to copy.
             Handed::Behind => {
@@ -769,12 +792,21 @@ fn presenter_failed(presenters: &mut Presenters, window: Entity, paired: bool, g
 
 /// `NVF_FG_PRESENTER=0`: present the window's image (the generated frame) from the render
 /// thread; Bevy's `prepare_windows` then takes the next.
-fn present_generated(pending: Res<PendingReal>, queue: Res<RenderQueue>, stats: Res<Stats>, mut windows: Query<(MainEntity, &mut ExtractedWindow)>) {
+fn present_generated(
+    pending: Res<PendingReal>,
+    queue: Res<RenderQueue>,
+    stats: Res<Stats>,
+    latency: (Option<Res<crate::anti_lag::Presenting>>, Option<Res<crate::nv_low_latency::NvLowLatency>>),
+    mut windows: Query<(MainEntity, &mut ExtractedWindow)>,
+) {
     let pending = pending.0.lock().unwrap();
+    // NVIDIA low latency: the generated frame's present belongs to this rendered frame too; the
+    // real frame's, from Bevy's `render_system`, is the frame's own (nv_low_latency.rs).
+    let out_of_band = latency.0.and_then(|presenting| crate::nv_low_latency::OutOfBandPresents::of(&presenting, latency.1.as_deref()));
     for (entity, mut window) in &mut windows {
         if pending.iter().any(|(w, _)| *w == entity) {
             let started = Instant::now();
-            window.present(&queue);
+            crate::nv_low_latency::OutOfBandPresents::around(out_of_band.as_ref(), || window.present(&queue));
             stats.generated_present_nanos.fetch_add(started.elapsed().as_nanos() as u64, Ordering::Relaxed);
             stats.presents.lock().unwrap().push(Instant::now());
         }
@@ -1122,6 +1154,77 @@ mod tests {
         assert_eq!(srgb8(1.0), 255);
         assert_eq!(srgb8(0.2159), 128, "sRGB 128 is linear 0.2158");
         assert_eq!(srgb8(2.0), 255, "clamped");
+    }
+
+    /// Frame generation follows the effective upscaler: held off with the DLSS reason while
+    /// DLSS draws, running on FSR while DLSS only waits for a restart.
+    #[test]
+    fn frame_generation_needs_fsr_drawing_and_says_so_with_dlss() {
+        use crate::upscaler::{DlssState, Session, UpscaleQuality, UpscalerChoice, UpscalerStatus};
+        let mut app = App::new();
+        app.insert_resource(crate::graphics::Graphics::preset(crate::graphics::Preset::Vanilla))
+            .insert_resource(crate::fsr::FsrSupport(true))
+            .insert_resource(FrameGenSupport(true))
+            .insert_resource(FrameGeneration { on: true })
+            .insert_resource(crate::frame_pace::FramePace { sync: crate::frame_pace::DisplaySync::Vsync, cap: 0 });
+        assert_eq!(unavailable_reason(app.world()), Some("Needs FSR 3.1"));
+        assert!(!usable(app.world()));
+        let ready = Session { streamline_loaded: true, dlss: DlssState::Ready, fsr: None };
+        let mut status = UpscalerStatus::new(ready);
+        status.update(UpscalerChoice::Dlss(UpscaleQuality::Quality));
+        app.insert_resource(status);
+        app.world_mut().resource_mut::<crate::graphics::Graphics>().upscaler = UpscalerChoice::Dlss(UpscaleQuality::Quality);
+        assert_eq!(unavailable_reason(app.world()), Some("Not with DLSS"));
+        assert!(!usable(app.world()), "DLSS effective: frame generation does not run");
+        // FSR asked for in the same session (Streamline loaded): FSR draws at once in its own
+        // pass, through the interposer, so frame generation runs.
+        app.world_mut().resource_mut::<crate::graphics::Graphics>().set_fsr(Some(UpscaleQuality::Quality));
+        app.world_mut().resource_mut::<UpscalerStatus>().update(UpscalerChoice::Fsr(UpscaleQuality::Quality));
+        assert_eq!(unavailable_reason(app.world()), None);
+        assert!(usable(app.world()), "FSR effective with Streamline loaded");
+        // And back to DLSS: held off again.
+        app.world_mut().resource_mut::<crate::graphics::Graphics>().upscaler = UpscalerChoice::Dlss(UpscaleQuality::Quality);
+        app.world_mut().resource_mut::<UpscalerStatus>().update(UpscalerChoice::Dlss(UpscaleQuality::Quality));
+        assert_eq!(unavailable_reason(app.world()), Some("Not with DLSS"));
+        assert!(!usable(app.world()));
+        // A session without Streamline, FSR drawing and DLSS asked for: FSR runs until the restart.
+        let stock = Session { streamline_loaded: false, dlss: DlssState::NotLoaded, fsr: None };
+        let mut status = UpscalerStatus::new(stock);
+        status.update(UpscalerChoice::Fsr(UpscaleQuality::Balanced));
+        status.update(UpscalerChoice::Dlss(UpscaleQuality::Quality));
+        app.insert_resource(status);
+        app.world_mut().resource_mut::<crate::graphics::Graphics>().upscaler = UpscalerChoice::Dlss(UpscaleQuality::Quality);
+        assert_eq!(unavailable_reason(app.world()), None);
+        assert!(crate::graphics::fsr_active(app.world()));
+        assert!(usable(app.world()));
+    }
+
+    /// FSR picked while frame generation is on: the switch follows in the same frame as the
+    /// upscaler status (`upscaler::follow_request`), not a frame later (smoke
+    /// `frame-generation-needs-fsr`: FSR's first line says "frame generation on").
+    #[test]
+    fn the_switch_follows_the_upscaler_status_in_the_same_frame() {
+        use crate::upscaler::UpscaleQuality;
+        let mut app = App::new();
+        app.insert_resource(crate::graphics::Graphics::preset(crate::graphics::Preset::Vanilla))
+            .insert_resource(crate::fsr::FsrSupport(true))
+            .insert_resource(FrameGenSupport(true))
+            .insert_resource(FrameGeneration { on: true })
+            .insert_resource(crate::frame_pace::FramePace { sync: crate::frame_pace::DisplaySync::Vsync, cap: 0 })
+            .insert_resource(crate::frame_pace::Refresh::default())
+            .insert_resource(crate::anti_lag::LatencyReduction { on: false, by_frame_generation: false })
+            .init_resource::<FrameGenCap>()
+            .init_resource::<FrameGenUsable>();
+        // Registered before follow_request: only the ordering puts the switch after it.
+        add_switch_systems(&mut app);
+        app.add_systems(Update, crate::upscaler::follow_request);
+        app.update();
+        assert!(!app.world().resource::<FrameGenUsable>().0, "FSR off");
+        app.world_mut().resource_mut::<crate::graphics::Graphics>().set_fsr(Some(UpscaleQuality::Quality));
+        app.update();
+        assert_eq!(app.world().resource::<crate::upscaler::UpscalerStatus>().effective().fsr(), Some(UpscaleQuality::Quality));
+        assert!(app.world().resource::<FrameGenUsable>().0, "usable in the frame FSR became effective");
+        assert!(app.world().resource::<crate::anti_lag::LatencyReduction>().by_frame_generation);
     }
 
     #[test]

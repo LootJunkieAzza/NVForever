@@ -105,7 +105,8 @@ pub fn is_crash(end: &str) -> bool {
     matches!(end, "panic" | "native")
 }
 
-/// A `multipart/form-data` body: `(field name, file name, content type, bytes)` parts.
+/// A `multipart/form-data` body: `(field name, file name, content type, bytes)` parts; a
+/// part with no file name is a text field (the hand report's description, form.rs).
 /// Returns the body and its content type (with the boundary).
 pub fn multipart(parts: &[(&str, &str, &str, &[u8])]) -> (Vec<u8>, String) {
     // A boundary that cannot be in the parts: long, and checked.
@@ -115,7 +116,11 @@ pub fn multipart(parts: &[(&str, &str, &str, &[u8])]) -> (Vec<u8>, String) {
     }
     let mut body = Vec::new();
     for (name, file, ctype, bytes) in parts {
-        body.extend_from_slice(format!("--{boundary}\r\nContent-Disposition: form-data; name=\"{name}\"; filename=\"{file}\"\r\nContent-Type: {ctype}\r\n\r\n").as_bytes());
+        if file.is_empty() {
+            body.extend_from_slice(format!("--{boundary}\r\nContent-Disposition: form-data; name=\"{name}\"\r\n\r\n").as_bytes());
+        } else {
+            body.extend_from_slice(format!("--{boundary}\r\nContent-Disposition: form-data; name=\"{name}\"; filename=\"{file}\"\r\nContent-Type: {ctype}\r\n\r\n").as_bytes());
+        }
         body.extend_from_slice(bytes);
         body.extend_from_slice(b"\r\n");
     }
@@ -173,14 +178,55 @@ pub fn spawn(active: super::Active, pending: PathBuf, sent: PathBuf, pid: u32) {
     });
 }
 
+/// The process id in a summary's name (`session-<time>-<pid>.json`).
+pub fn pid_of(summary: &Path) -> Option<u32> {
+    summary.file_name()?.to_str()?.strip_suffix(".json")?.rsplit('-').next()?.parse().ok()
+}
+
+/// Whether a pending upload is sent at this start (run `own`): not this run's own summary,
+/// and not one of a run still going (`running`). After a load handoff the old run waits for
+/// the new one to be ready, often longer than [`SEND_AFTER`]; its summary still says
+/// `unknown` then, and sending it would report that run as a native crash (#2260). It is
+/// sent at a later start, once it has ended.
+pub fn sendable(p: &Pending, own: u32, running: impl Fn(u32) -> bool) -> bool {
+    pid_of(&p.summary).is_none_or(|pid| pid != own && !running(pid))
+}
+
+/// Whether process `pid` is an NVForever run still going (its image name starts with
+/// `nvforever`, so a dead run's reused id holds nothing back for long).
+#[cfg(windows)]
+pub fn still_running(pid: u32) -> bool {
+    use windows_sys::Win32::Foundation::{CloseHandle, STILL_ACTIVE};
+    use windows_sys::Win32::System::Threading::{GetExitCodeProcess, OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION};
+    // SAFETY: the handle is checked before use and closed once; the buffers outlive the calls.
+    unsafe {
+        let h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+        if h.is_null() {
+            return false;
+        }
+        let mut code = 0u32;
+        let alive = GetExitCodeProcess(h, &mut code) != 0 && code == STILL_ACTIVE as u32;
+        let mut buf = [0u16; 1024];
+        let mut len = buf.len() as u32;
+        let named = QueryFullProcessImageNameW(h, PROCESS_NAME_WIN32, buf.as_mut_ptr(), &mut len) != 0;
+        CloseHandle(h);
+        let name = String::from_utf16_lossy(&buf[..len as usize]);
+        alive && named && Path::new(&name).file_name().and_then(|n| n.to_str()).is_some_and(|n| n.to_ascii_lowercase().starts_with("nvforever"))
+    }
+}
+
+#[cfg(not(windows))]
+pub fn still_running(_pid: u32) -> bool {
+    false
+}
+
 fn names_in(dir: &Path) -> Vec<String> {
     std::fs::read_dir(dir).map(|r| r.flatten().filter_map(|e| e.file_name().into_string().ok()).collect()).unwrap_or_default()
 }
 
 fn send_all(active: &super::Active, pending: &Path, sent: &Path, pid: u32) {
     let logs = fnv_install::EngineHome::user().map(|h| h.logs());
-    let own = format!("-{pid}.json");
-    let mut uploads: Vec<Pending> = pending_in(pending, &names_in(pending)).into_iter().filter(|p| !p.summary.to_string_lossy().ends_with(&own)).collect();
+    let mut uploads: Vec<Pending> = pending_in(pending, &names_in(pending)).into_iter().filter(|p| sendable(p, pid, still_running)).collect();
     // Too old to send: dropped (§8).
     uploads.retain(|p| {
         let old = std::fs::metadata(&p.summary).and_then(|m| m.modified()).ok().and_then(|t| t.elapsed().ok()).is_some_and(|age| age > MAX_AGE);
@@ -295,6 +341,18 @@ pub(crate) mod http {
         agent().delete(url).header("X-NVF-Build", env!("CARGO_PKG_VERSION")).header("X-NVF-Delete-Token", delete_token).call().ok().map(|r| r.status().as_u16())
     }
 
+    /// `POST` returning the answer's body too (a hand report's reference, form.rs); the
+    /// delete token only with an install ID.
+    pub fn post_for(url: &str, body: &[u8], content_type: &str, delete_token: Option<&str>) -> Option<(u16, Vec<u8>)> {
+        let mut req = agent().post(url).header("X-NVF-Build", env!("CARGO_PKG_VERSION"));
+        if let Some(t) = delete_token {
+            req = req.header("X-NVF-Delete-Token", t);
+        }
+        let mut r = req.content_type(content_type).send(body).ok()?;
+        let status = r.status().as_u16();
+        Some((status, r.body_mut().with_config().limit(64 * 1024).read_to_vec().unwrap_or_default()))
+    }
+
     pub fn post(url: &str, body: &[u8], content_type: &str, delete_token: &str) -> Option<u16> {
         agent()
             .post(url)
@@ -316,6 +374,9 @@ pub(crate) mod http {
     pub fn post(_: &str, _: &[u8], _: &str, _: &str) -> Option<u16> {
         None
     }
+    pub fn post_for(_: &str, _: &[u8], _: &str, _: Option<&str>) -> Option<(u16, Vec<u8>)> {
+        None
+    }
     pub fn delete(_: &str, _: &str) -> Option<u16> {
         None
     }
@@ -324,6 +385,26 @@ pub(crate) mod http {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// #2260: the session of a run still going (the old run of a load handoff) waits.
+    #[test]
+    fn sessions_of_runs_still_going_wait() {
+        let p = |name: &str| Pending { summary: PathBuf::from(format!("pending/{name}")), log: None, panic: None, recorder: None, dump: None, snapshot: None };
+        assert_eq!(pid_of(Path::new("pending/session-20261112-172311-600.json")), Some(600));
+        let running = |pid: u32| pid == 600;
+        assert!(!sendable(&p("session-20261112-172311-600.json"), 700, running), "the old run, still waiting");
+        assert!(!sendable(&p("session-20261112-173713-700.json"), 700, running), "this run's own");
+        assert!(sendable(&p("session-20261112-160000-500.json"), 700, running), "an ended run");
+        assert!(sendable(&p("session-odd.json"), 700, running), "no pid in the name");
+    }
+
+    /// The test binary (`nvforever-<hash>.exe`) is an NVForever run still going.
+    #[cfg(windows)]
+    #[test]
+    fn this_process_is_still_running() {
+        assert!(still_running(std::process::id()));
+        assert!(!still_running(u32::MAX - 3));
+    }
 
     #[test]
     fn the_server_config_and_sampling() {
@@ -374,6 +455,14 @@ mod tests {
         assert_eq!(end_of(br#"{"end":"native","x":1}"#).as_deref(), Some("native"));
         assert!(is_crash("panic") && is_crash("native") && !is_crash("clean") && !is_crash("unknown"));
         assert_eq!(end_of(b"not json"), None);
+    }
+
+    #[test]
+    fn a_part_without_a_file_name_is_a_text_field() {
+        let (body, _) = multipart(&[("description", "", "", b"the door")]);
+        let text = String::from_utf8(body).unwrap();
+        assert!(text.contains("name=\"description\"\r\n\r\nthe door\r\n"), "{text}");
+        assert!(!text.contains("filename"));
     }
 
     #[test]

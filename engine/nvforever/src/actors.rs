@@ -713,11 +713,19 @@ pub fn spawn_creature(
     };
     let parts_span = info_span!("creature::parts").entered();
     let mut uses = Vec::with_capacity(c.parts.len());
+    // Parts that move by themselves, drawn as playing models on their bone below.
+    let mut playing: Vec<(String, Arc<nvf_assets::actor::PreparedPart>)> = Vec::new();
+    // The creature's idle, read only when a part would play by itself (#2282).
+    let mut idle: Option<Option<Arc<nvf_assets::anim_play::Clip>>> = None;
     for p in &c.parts {
         let Some(part) = ctx.part(&p.model) else {
             stats.parts_missing += 1;
             continue;
         };
+        if plays_on_bone(&part, &skel) && !idle.get_or_insert_with(|| ctx.clip(&idle_path(&c.skeleton))).as_deref().is_some_and(|clip| drives_part(clip, &part)) {
+            playing.push((p.model.clone(), part));
+            continue;
+        }
         let materials = part.shapes.iter().map(|s| s.material.clone()).collect();
         let meshes = vec![None; part.shapes.len()];
         uses.push(PartUse { meshes, part, materials, layers: Vec::new(), hidden_shapes: Vec::new(), by_ancestor: true });
@@ -734,6 +742,28 @@ pub fn spawn_creature(
         }
     }
     drop(nodes_span);
+    for (path, part) in &playing {
+        let Some(pm) = ctx.models.model(path) else {
+            stats.parts_missing += 1;
+            continue;
+        };
+        let (bone, place) = match part.prn.as_ref().and_then(|n| skel.by_name.get(n)) {
+            Some(&b) => (b, Transform::from_matrix(Mat4::from(part.root))),
+            None => (0, Transform::IDENTITY),
+        };
+        let (_, drawn) = crate::shot_fx::spawn_playing_itself(commands, spawned.nodes[bone], &pm, place, path);
+        for e in drawn {
+            commands.entity(e).insert(RefVisual(reference));
+        }
+        if first_creature_report(base, path) {
+            let on = skel.names.get(bone).cloned().flatten().unwrap_or_default();
+            info!("creature parts: {} ({base:08X}): {path} plays its own controllers on {on}", c.edid.as_deref().unwrap_or(""));
+        }
+    }
+    if !spawned.part_nodes.is_empty() && first_creature_report(base, "") {
+        let names: Vec<&str> = spawned.part_nodes.iter().map(|(n, ..)| n.as_str()).collect();
+        info!("creature parts: {} ({base:08X}): part node(s) {} for its clips to drive", c.edid.as_deref().unwrap_or(""), names.join(", "));
+    }
     commands.entity(spawned.root).insert((
         Name::new(format!("Creature {reference:08X} {}", c.edid.as_deref().unwrap_or(""))),
         RefVisual(reference),
@@ -778,6 +808,56 @@ pub fn spawn_creature(
     stats.unbound_shapes += spawned.unbound;
     stats.creatures += 1;
     true
+}
+
+/// Whether `what` (a part's path, or "" for its part nodes) of creature `base` is
+/// reported for the first time: the line is written once per creature and part, not for
+/// every reference.
+fn first_creature_report(base: u32, what: &str) -> bool {
+    static SEEN: std::sync::OnceLock<Mutex<std::collections::HashSet<(u32, String)>>> = std::sync::OnceLock::new();
+    SEEN.get_or_init(Default::default).lock().is_ok_and(|mut s| s.insert((base, what.to_string())))
+}
+
+/// Whether a creature draws `part` as a model playing its own controllers on its `Prn`
+/// bone (`shot_fx::spawn_playing_itself`) rather than as still shapes: the part moves by
+/// itself ([`nvf_assets::actor::PreparedPart::plays_itself`]) and no shape hangs from a
+/// node of the part named as one of the skeleton's (actors.md §10.2), which a model on
+/// one bone could not follow [design, #2228: Mister Handy's jet].
+fn plays_on_bone(part: &nvf_assets::actor::PreparedPart, skel: &PreparedSkeleton) -> bool {
+    part.plays_itself && part.shapes.iter().all(|s| s.ancestors.iter().all(|(n, _)| n.as_ref().is_none_or(|n| !skel.by_name.contains_key(n))))
+}
+
+/// The creature's idle clip: `mtidle.kf` beside its skeleton (`locomotion::STANCE`).
+fn idle_path(skeleton: &str) -> String {
+    let folder = skeleton.rfind(['\\', '/']).map_or("", |i| &skeleton[..i]);
+    format!("{folder}\\{}idle.kf", crate::locomotion::STANCE)
+}
+
+/// Whether `clip` drives a shape of `part` (a material track naming the shape) or moves
+/// one of the part's named nodes (a transform track naming it). Such a part stays a
+/// part of the actor, posed and lit by the actor's clips, rather than playing its own
+/// controllers on its bone ([`plays_on_bone`]): the street Securitron's screen
+/// (`nvsecuritronpolicescreen01.nif`, `Screen01:0`) has looping controllers of its own,
+/// and its `mtidle.kf` keys `Screen01` and the shape's glow and texture too; drawn as a
+/// playing model it was not reached by the idle any more (#2282, after #2228)
+/// [observed: smoke securitron-screen; hypothesis: the idle's tracks are what the
+/// original shows on the screen, docs/spec-notes/effects-animation-audit.md §2].
+/// Visibility tracks do not count: Mister Handy's `mtidle.kf` shows and hides its jet's
+/// `##JetFlames01`/`02` (NiVisController) [observed: `fnvtool nif decode`], and the jet
+/// is the part #2228 plays by itself.
+fn drives_part(clip: &nvf_assets::anim_play::Clip, part: &nvf_assets::actor::PreparedPart) -> bool {
+    let shapes: Vec<&str> = part.shapes.iter().filter_map(|s| s.name.as_deref()).collect();
+    let nodes: Vec<&str> = part.shapes.iter().flat_map(|s| s.ancestors.iter().filter_map(|(n, _)| n.as_deref())).collect();
+    let material_shapes: Vec<&str> = clip.materials.iter().map(|m| m.shape.as_str()).collect();
+    let keyed_nodes: Vec<&str> = clip.tracks.iter().map(|(t, _)| t.as_str()).collect();
+    names_driven(&shapes, &nodes, &material_shapes, &keyed_nodes)
+}
+
+/// [`drives_part`] by names (case does not matter): a part's shape names and node names
+/// against the shapes a clip's material tracks name and the nodes its transform tracks
+/// name.
+fn names_driven(shapes: &[&str], nodes: &[&str], material_shapes: &[&str], keyed_nodes: &[&str]) -> bool {
+    shapes.iter().any(|s| material_shapes.iter().any(|m| m.eq_ignore_ascii_case(s))) || nodes.iter().any(|n| keyed_nodes.iter().any(|k| k.eq_ignore_ascii_case(n)))
 }
 
 /// Give an actor its weapon (part H, actors.md §9): the model under the skeleton's
@@ -897,6 +977,17 @@ pub(crate) fn arm_weapon(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_part_the_idle_drives_stays_a_part() {
+        assert_eq!(idle_path(r"meshes\creatures\nvsecuritron\skeleton.nif"), r"meshes\creatures\nvsecuritron\mtidle.kf");
+        // The street Securitron's screen: mtidle.kf keys the screen's glow and its node.
+        assert!(names_driven(&["Screen01:0"], &["Screen01"], &["screen01:0", "ScreenStatic:0"], &["Bip01 Wheel"]));
+        assert!(names_driven(&["Screen01:0"], &["Screen01"], &[], &["screen01"]));
+        // Mister Handy's jet: its idle moves none of the jet's nodes and lights none of
+        // its shapes (it only shows and hides `##JetFlames01`, not counted; #2228).
+        assert!(!names_driven(&["JetFlame01"], &["##JetFlames01"], &[], &["Bip01", "Bip01 Spine 01"]));
+    }
 
     #[test]
     fn phases_spread_within_the_clip() {

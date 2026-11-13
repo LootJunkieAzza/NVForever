@@ -75,7 +75,16 @@ page's Controls tab rebinds a control and writes the section again.
 meter with steps about a tenth apart (`bindings::SENSITIVITY_STEPS`) [design: #1451,
 floor lowered from 25% for 1600 dpi mice in #1632]. A hand-edited value under 5% (or a
 `[Controller]` `Stick Sensitivity` under 0.05) is raised to it when read, not refused;
-values above 300% are kept.
+values above 300% are kept. `Mouse Vertical Sensitivity` (`[Controls]`) and `Stick Vertical
+Sensitivity` (`[Controller]`) are each device's vertical look as a multiple of its
+horizontal, two decimals, 1.00 as the game has it, on the same steps and floor [design:
+#2201]; an INI without them reads 1.00 and gets the lines written.
+
+[design, #2200; `nvf_play::bindings`] `[Controls]` also keeps `Input Device` as
+`Keyboard and Mouse` or `Controller` and `Automatic Input Switching` as `1` (default)
+or `0`. The Controls tab puts the switch beside Input Device. With it on, fresh use of
+the other device changes and saves Input Device (controller.md ?1); an existing INI
+without the switch keeps its device value and gains `Automatic Input Switching=1`.
 
 What a new game starts with is kept under `[General]`, by the original's own key names so
 a mod's INI lines can be copied in (`nvf_play::game_start`): `sCharGenQuest` is the quest

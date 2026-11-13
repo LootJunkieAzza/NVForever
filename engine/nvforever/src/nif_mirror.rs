@@ -424,7 +424,8 @@ fn mirror(
             .and_then(|root| find(root, &node, &nodes, &rig_names(r.0, &actors)))
             .and_then(|e| shapes.get(e).ok())
             .and_then(|m| meshes.as_deref()?.get(&m.0))
-            .and_then(|mesh| match mesh.attribute(Mesh::ATTRIBUTE_POSITION)? {
+            // `try_`: a mesh extracted to the render world gives none, where `attribute` panics (#2202).
+            .and_then(|mesh| match mesh.try_attribute_option(Mesh::ATTRIBUTE_POSITION).ok()?? {
                 bevy::mesh::VertexAttributeValues::Float32x3(v) => Some(v.clone()),
                 _ => None,
             });

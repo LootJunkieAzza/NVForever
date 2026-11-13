@@ -161,6 +161,12 @@ pub struct GameConfig {
     /// interval is about 10 seconds [documented: GECK wiki, How Are Packages Evaluated].
     #[serde(default)]
     pub package_interval: Option<f64>,
+    /// A Goodbye line the player chooses closes the conversation at once and the actor
+    /// finishes it in the world (`Game::say_farewell`, issue #1606). Off (the default):
+    /// the line is said in the conversation and holds the player like the lines before
+    /// it [owner statement 2026-11-11, issue #2157].
+    #[serde(default)]
+    pub goodbye_at_once: bool,
 }
 
 fn yes() -> bool {
@@ -169,7 +175,7 @@ fn yes() -> bool {
 
 impl Default for GameConfig {
     fn default() -> Self {
-        GameConfig { frame_seconds: 1.0 / 60.0, strict: false, trace_locals: false, seed: 0, max_steps: 100_000, modal_message_boxes: true, package_interval: None }
+        GameConfig { frame_seconds: 1.0 / 60.0, strict: false, trace_locals: false, seed: 0, max_steps: 100_000, modal_message_boxes: true, package_interval: None, goodbye_at_once: false }
     }
 }
 
@@ -213,6 +219,12 @@ pub struct Instance {
     pub run_last: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub run_prev: Option<f64>,
+    /// The same for the instance's runs under a page the engine shows in place of the
+    /// original's menu ([`Game::page_tick`]), on [`Game::page_time`]; not saved.
+    #[serde(skip)]
+    pub page_last: Option<f64>,
+    #[serde(skip)]
+    pub page_prev: Option<f64>,
 }
 
 /// [`RefExtra::script_package`] from a save: one package, none, or the list older saves
@@ -1099,7 +1111,9 @@ pub struct Speech {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub greeting: bool,
     /// A Goodbye line the player chose, said at the player after its conversation closed
-    /// at once (`Game::choose`, docs/spec-notes/dialogue.md §5) [observed: owner's
+    /// at once: only with `GameConfig::goodbye_at_once`, off by default since #2157 (the
+    /// line holds the player in its conversation instead)
+    /// (`Game::choose`, docs/spec-notes/dialogue.md §5) [observed: owner's
     /// playtest 2026-11-05, against the original: choosing a Goodbye closes the menu at
     /// once and the actor finishes the line as the player walks away]. It ends as a
     /// Goodbye greeting does: its end script and Add Topics, no SayToDone block; it is
@@ -1140,6 +1154,12 @@ pub struct Speech {
     /// `Game::wheel_command`): it does not run again when the line ends.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub end_ran: bool,
+    /// A Say To line an actor's Dialogue package said to another actor
+    /// (`Game::say_package_line`): when it ends, after its SayToDone blocks, the two go on
+    /// as a conversation between actors when the line leads on
+    /// (`Game::next_conversation_line`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub leads_on: bool,
 }
 
 /// Who a line said to someone ([`Speech::target`]) turns to whom ([`Game::facings`]).
@@ -1213,6 +1233,9 @@ pub struct Game<'a> {
     /// The lambdas scripts made: the unit, the lambda, the instance whose variables it
     /// shares; named by `LAMBDA_BASE + index`.
     lambdas: Vec<LambdaDef<'a>>,
+    /// Extender handlers and queued calls whose function cannot run, by (where, error),
+    /// reported once each ([`Game::handler_failed`], #2280).
+    unusable_reported: std::collections::HashSet<(String, String)>,
     /// CompileScript's scripts, named by `COMPILED_BASE + index`, and their files' paths
     /// (lower case) to them.
     compiled_files: Vec<&'a Compiled>,
@@ -1365,6 +1388,12 @@ pub struct Game<'a> {
     pub ui_files: Option<Box<dyn fnv_ui::Source + Send + Sync>>,
     /// The menu an engine page stands for while [`Game::page_tick`] runs its blocks.
     page_menu: Option<u16>,
+    /// The clock of [`Game::page_tick`]'s frames (their `frame_seconds`): GetSecondsPassed
+    /// in a block run there counts it [hypothesis: the original's MenuMode 1013 blocks see
+    /// time pass under its start menu, for Just Assorted Mods' half-second MenuMode timer
+    /// ends there and adds its item to MCM's list (observed: listed in MCM's window, the
+    /// owner's screenshots 2026-11-12, menu-xml.md §10.1)]. Not saved.
+    pub page_time: f64,
     /// This frame's HUD writes, kept back while nothing reads the HUD's traits
     /// (`crate::ui_hud::defer`); the first UI function call makes them
     /// (`crate::ui_hud::flush`).
@@ -1651,6 +1680,10 @@ pub struct Game<'a> {
     /// Actors a script's StartConversation with allowMovement 1 lets go on moving while
     /// they talk to each other ([`Game::conversation_moves`]); not saved.
     pub moving_talkers: BTreeSet<FormId>,
+    /// The hello and idle chatter lines said of late, with when (`Game::time`): no actor
+    /// says one of them again for a while ([`Game::say_hello_fresh`],
+    /// `crate::dialogue::IDLE_LINE_MEMORY`). Not part of the saved state.
+    pub idle_said: BTreeMap<FormId, f64>,
     /// (speaker, line) pairs of the Say Once lines already said, and of every line said
     /// in a conversation with the player (the shading of choices).
     pub said: BTreeSet<(FormId, FormId)>,
@@ -1693,6 +1726,10 @@ pub struct Game<'a> {
     /// Scripted doors' last answers to the NPCs walking through them, by (actor, door)
     /// (`crate::npc_doors`). Not part of the saved state.
     pub door_gates: std::collections::HashMap<(FormId, FormId), crate::npc_doors::Gate>,
+    /// The NPC door crossings the extender heard, by (actor, door), and when one the AI
+    /// never closed (`Game::npc_door_left`) stops counting as the same crossing, game
+    /// seconds (`crate::npc_doors`); expired entries are dropped. Not saved.
+    pub door_heard: std::collections::HashMap<(FormId, FormId), f64>,
     /// The door block being run for an NPC walking through it (`Game::npc_door`).
     pub npc_door_run: Option<crate::npc_doors::DoorRun>,
     /// Reference events the engine reported outside a script run (a container menu
@@ -1728,6 +1765,11 @@ pub struct Game<'a> {
     /// The random numbers of the idle tree's talking gestures (`crate::idles`), kept
     /// apart so that picking them does not move the scripts' `rng`. Not saved.
     pub(crate) idle_rng: ChaCha8Rng,
+    /// Test aid: while set, `GetRandomPercent` reads this (0 to 99) instead of a roll.
+    /// The engine sets it only around the walks for fidgets with the weapon away
+    /// (`NVF_PLAY_TEST_HOLSTERED_ROLL`), so a smoke run can make the idle tree's random
+    /// branches pass and check their clips play (#2026). Not saved.
+    pub fixed_random_percent: Option<u32>,
     /// Run-time changes to base forms and cells.
     pub forms: FormChanges,
     /// Magic effects active on actors, in the order they started.
@@ -2188,6 +2230,9 @@ struct UdfFrame {
 /// User-defined functions nest at most this deep; a call deeper is refused [documented:
 /// User Defined Function, NVSE aborts after 30 nested calls].
 pub const MAX_UDF_DEPTH: usize = 30;
+/// The ends of [`Game::run_function`]'s errors for a function that cannot run at all.
+const NOT_A_FUNCTION: &str = " is not a function script";
+const NO_FUNCTION_BLOCK: &str = " has no Function block";
 
 /// Lambdas are named by values from here on, in a `ref` variable's slot [decision: a
 /// FormID this high needs a 255th plugin, which NVForever's load order never gives a
@@ -2250,6 +2295,7 @@ impl<'a> Game<'a> {
             ext: Default::default(),
             udf: Vec::new(),
             lambdas: Vec::new(),
+            unusable_reported: Default::default(),
             compiled_files: Vec::new(),
             compiled_paths: std::collections::HashMap::new(),
             sr: Default::default(),
@@ -2315,6 +2361,7 @@ impl<'a> Game<'a> {
             ui_dialogue_hook: None,
             ui_files: None,
             page_menu: None,
+            page_time: 0.0,
             ui_hud_pending: None,
             ui_used: false,
             ui_taps: Vec::new(),
@@ -2409,6 +2456,7 @@ impl<'a> Game<'a> {
             speech: Vec::new(),
             say_to_unsaid: Vec::new(),
             moving_talkers: BTreeSet::new(),
+            idle_said: BTreeMap::new(),
             said: BTreeSet::new(),
             said_day: BTreeMap::new(),
             dialogue: None,
@@ -2421,6 +2469,7 @@ impl<'a> Game<'a> {
             time: 0.0,
             pending_onload: Vec::new(),
             door_gates: Default::default(),
+            door_heard: Default::default(),
             npc_door_run: None,
             queued_ref_events: Vec::new(),
             action_refs: Default::default(),
@@ -2436,6 +2485,7 @@ impl<'a> Game<'a> {
             stubs_seen: BTreeSet::new(),
             rng: ChaCha8Rng::seed_from_u64(cfg.seed ^ 0x5C21_7000),
             idle_rng: ChaCha8Rng::seed_from_u64(cfg.seed ^ 0x1D1E_7A1C),
+            fixed_random_percent: None,
             forms: FormChanges::default(),
             effects: Vec::new(),
             next_effect: 1,
@@ -3093,6 +3143,19 @@ impl<'a> Game<'a> {
         Some(id)
     }
 
+    /// An extender handler or queued call (`unit` says which: "delayed call", "JIP
+    /// main-loop callback", "JohnnyGuitar event handler" ...) failed with `error`. One
+    /// whose function cannot run at all (no function script, no Function block) is
+    /// reported once per handler kind and error, not on every frame it fires (#2280: up
+    /// to 47,000 times a session in the player reports); other errors every time.
+    pub(crate) fn handler_failed(&mut self, unit: String, error: String) {
+        let unusable = error.ends_with(NOT_A_FUNCTION) || error.ends_with(NO_FUNCTION_BLOCK);
+        if unusable && !self.unusable_reported.insert((unit.clone(), error.clone())) {
+            return;
+        }
+        self.emit(EventKind::ScriptError { unit, error });
+    }
+
     /// `Call`: a function script's `Begin Function` block with fresh variables of its own,
     /// its parameters set from the arguments, on the calling reference (`ref.Call`); or a
     /// lambda, over the variables of the script that made it [documented: Call; User
@@ -3128,9 +3191,9 @@ impl<'a> Game<'a> {
             let compiled = id.checked_sub(COMPILED_BASE).filter(|_| id < TEMP_REF_BASE).and_then(|i| self.compiled_files.get(i as usize).copied());
             let unit = match compiled {
                 Some(u) => u,
-                None => data.script(FormId(id)).ok_or_else(|| format!("{} is not a function script", data.name(FormId(id))))?,
+                None => data.script(FormId(id)).ok_or_else(|| format!("{}{NOT_A_FUNCTION}", data.name(FormId(id))))?,
             };
-            let block = unit.program.blocks.iter().find(|b| b.event == fnv_script::ir::FUNCTION_BLOCK).ok_or_else(|| format!("{} has no Function block", data.name(FormId(id))))?;
+            let block = unit.program.blocks.iter().find(|b| b.event == fnv_script::ir::FUNCTION_BLOCK).ok_or_else(|| format!("{}{NO_FUNCTION_BLOCK}", data.name(FormId(id))))?;
             let params = block.params.iter().flatten().filter_map(|a| if let Arg::Var(v) = a { Some(*v) } else { None }).collect();
             (unit, params, block.body.clone(), None, Locals::Temp(BTreeMap::new()))
         };
@@ -3386,11 +3449,15 @@ impl<'a> Game<'a> {
         hs.sort_by(|a, b| b.priority.cmp(&a.priority).then(a.seq.cmp(&b.seq)));
         self.event_names.push(event.to_string());
         let ctx = RunCtx { self_ref: on, ..RunCtx::default() };
+        // A handler is no part of a door block being run for an NPC (`crate::npc_doors`):
+        // its own `Activate` of that door is an activation of its own [design, #2123].
+        let door_run = self.npc_door_run.take();
         for h in &hs {
             if let Err(error) = self.run_function(&h.func, on.map(|f| Value::Ref(f.0)), args.clone(), None, ctx) {
-                self.emit(EventKind::ScriptError { unit: format!("event handler for {event}"), error });
+                self.handler_failed(format!("event handler for {event}"), error);
             }
         }
+        self.npc_door_run = door_run;
         self.event_names.pop();
         hs.len()
     }
@@ -3918,11 +3985,18 @@ impl<'a> Game<'a> {
             .filter_map(|(q, _)| Some((*q, data.quests.get(q)?.script?)))
             .filter(|(_, s)| wants(*s))
             .collect();
+        let page = self.page_menu.is_some();
         for (q, script) in quests {
+            if page {
+                self.mark_page_run(InstKey::Quest { quest: q }, Some(script));
+            }
             self.run_blocks(InstKey::Quest { quest: q }, script, event::MENU_MODE, subject, RunCtx { quest: Some(q), ..Default::default() }, true);
         }
         for r in self.active_refs() {
             let Some(script) = self.ref_script(r).filter(|s| wants(*s)) else { continue };
+            if page {
+                self.mark_page_run(InstKey::Ref { reference: r }, Some(script));
+            }
             self.run_blocks(InstKey::Ref { reference: r }, script, event::MENU_MODE, subject, RunCtx { self_ref: Some(r), ..Default::default() }, true);
         }
     }
@@ -3939,6 +4013,38 @@ impl<'a> Game<'a> {
         let inst = self.instance(key, script);
         inst.run_prev = inst.run_last;
         inst.run_last = Some(now);
+    }
+
+    /// As [`Game::mark_run`], for a run under a page ([`Game::page_tick`]), on
+    /// [`Game::page_time`].
+    fn mark_page_run(&mut self, key: InstKey, script: Option<FormId>) {
+        let now = functions::clock_now(self.page_time);
+        let inst = self.instance(key, script);
+        inst.page_prev = inst.page_last;
+        inst.page_last = Some(now);
+    }
+
+    /// Whether a page's blocks are running ([`Game::page_tick`]).
+    pub(crate) fn in_page(&self) -> bool {
+        self.page_menu.is_some()
+    }
+
+    /// The start menu the player came through: the original's main menu is the start
+    /// menu, whose `MenuMode 1013` blocks run before a game is loaded or started, where MCM
+    /// mods add themselves to MCM's list [hypothesis: in the original MCM's install check,
+    /// on its first MenuMode 1013 frame after a load, found Just Assorted Mods' item on the
+    /// first pause after loading (job mcm976e, menu-xml.md §10.1), and the mod adds it only
+    /// from its own MenuMode 1013 block after half a second; the main menu is the only
+    /// start menu before that]. `frames` page frames of `dt` seconds ([`Game::page_tick`]);
+    /// no shipped script has such a block, so the plain game is unchanged [observed:
+    /// fnvtool script decompile of the masters]. NVForever runs it once when a game starts.
+    pub fn came_through_start_menu(&mut self, frames: u32, dt: f64) {
+        let keep = self.cfg.frame_seconds;
+        self.cfg.frame_seconds = dt;
+        for _ in 0..frames {
+            self.page_tick(menus::START);
+        }
+        self.cfg.frame_seconds = keep;
     }
 
     /// A trigger is about to run its OnTrigger block for the actors inside it this frame:
@@ -4050,6 +4156,7 @@ impl<'a> Game<'a> {
     pub fn page_tick(&mut self, code: u16) {
         self.frame += 1;
         self.temp_refs.clear();
+        self.page_time += self.cfg.frame_seconds;
         let before = self.page_menu.replace(code);
         self.side_blocks(code);
         self.page_menu = before;
@@ -4391,7 +4498,7 @@ impl<'a> Game<'a> {
         let (say_to, greeting, hello) = (kind == LineKind::SayTo, kind == LineKind::Greeting, kind == LineKind::Hello);
         // [design] Mark this line before callbacks can finish it or replace it.
         let immediate = def.has(crate::data::info_flag::RUN_IMMEDIATELY);
-        self.speech.push(Speech { speaker, target, topic, info, remaining: seconds, say_to, greeting, farewell: false, conversation, earlier_topics: Vec::new(), hello, look: LineLook::Both, response: 0, force_subtitles: false, two_d: false, end_ran: immediate });
+        self.speech.push(Speech { speaker, target, topic, info, remaining: seconds, say_to, greeting, farewell: false, conversation, earlier_topics: Vec::new(), hello, look: LineLook::Both, response: 0, force_subtitles: false, two_d: false, end_ran: immediate, leads_on: false });
         if let Some(&first) = def.response_order().first() {
             self.ask_response_idles(speaker, target, info, first);
         }
@@ -4583,6 +4690,32 @@ impl<'a> Game<'a> {
         // SayToDone follows a line said by Say as well as by SayTo [documented: GECK
         // tutorials, docs/spec-notes/level-design.md §11.2 D1].
         self.ref_event(speaker, event::SAY_TO_DONE, Some(Value::Ref(s.topic.0)), None);
+        // A Dialogue package's Say To line to another actor goes on as a conversation
+        // between them (`Game::say_package_line`).
+        if s.leads_on {
+            self.next_conversation_line(&s, 1);
+        }
+    }
+
+    /// An actor's Dialogue package with Say To says its topic to `target`
+    /// ([`Game::say`]). When the target is another actor and the line is a Conversation
+    /// line, the two go on as a conversation between actors once it ends: the line's next
+    /// speaker answers with a follow-up or a line of a topic it leads to, until a Goodbye
+    /// line or none ([`Game::next_conversation_line`]) [hypothesis, from the data: TTW's
+    /// CG04MaryHoldenTalkToTom says "We should just go back to our quarters" to Tom
+    /// (atrium stage 1, choice CG04AtriumConv1, next speaker Target), and only Tom's
+    /// answer from that topic ("It's our only chance", Goodbye) sets the stage 3 his
+    /// CG04TomHoldenDeathRun waits for; issue #2229]. Scripted SayTo lines do not go on:
+    /// scripts chain those themselves through SayToDone.
+    pub fn say_package_line(&mut self, speaker: FormId, target: FormId, topic: FormId) -> Option<FormId> {
+        let info = self.say(speaker, Some(target), topic, true)?;
+        let leads = target != FormId::PLAYER_REF && self.dialogue_view().info(&info).is_some_and(crate::dialogue::between_actors);
+        if leads {
+            if let Some(s) = self.speech.iter_mut().find(|s| s.speaker == speaker && s.info == info) {
+                s.leads_on = true;
+            }
+        }
+        Some(info)
     }
 
     /// `r` was enabled: when it is in a loaded cell and its script has an OnLoad block,
@@ -4780,11 +4913,17 @@ impl<'a> Game<'a> {
     /// `actor` activates `target`. A destroyed door or activator
     /// ([`Game::activation_refused`]) does nothing: no default action, no OnActivate.
     pub fn activate(&mut self, actor: FormId, target: FormId, mode: ActMode) -> Result<serde_json::Value, String> {
-        if !self.activation_begins(actor, target) {
+        // A door's block letting the NPC that walks through it go on (`crate::npc_doors`):
+        // the extender heard that attempt before the block ran, so this `Activate` is the
+        // same activation and is not heard twice [design, #2123].
+        let npc_door = mode == ActMode::Default && self.in_npc_door_run(actor, target);
+        if !npc_door {
+            self.activation_heard(actor, target);
+        }
+        if !self.activation_goes_on(actor, target) {
             return Ok(serde_json::json!({"result": "destroyed"}));
         }
-        // A door's block letting the NPC that walks through it go on (`crate::npc_doors`).
-        if mode == ActMode::Default && self.npc_door_activated(actor, target) {
+        if npc_door && self.npc_door_activated(actor, target) {
             return Ok(serde_json::json!({"result": "npc door"}));
         }
         let has_block = self.ref_script(target).and_then(|s| self.data.script(s)).is_some_and(|u| u.has_block(event::ON_ACTIVATE));
@@ -4805,7 +4944,19 @@ impl<'a> Game<'a> {
     /// Handling]. Whether it goes on (not [`Game::activation_refused`]), with `actor` as
     /// the target's action reference.
     fn activation_begins(&mut self, actor: FormId, target: FormId) -> bool {
+        self.activation_heard(actor, target);
+        self.activation_goes_on(actor, target)
+    }
+
+    /// The extender's OnActivate handlers hear `actor` activating `target` (the target
+    /// first, the action reference second) [documented: NVSE Event Handling, OnActivate
+    /// row]. Also the first step of an NPC's walk through a door (`crate::npc_doors`).
+    pub(crate) fn activation_heard(&mut self, actor: FormId, target: FormId) {
         self.dispatch_event("OnActivate", vec![fnv_script::vm::XVal::Ref(target.0), fnv_script::vm::XVal::Ref(actor.0)], Some(target));
+    }
+
+    /// [`Game::activation_begins`] after the handlers: whether the activation goes on.
+    fn activation_goes_on(&mut self, actor: FormId, target: FormId) -> bool {
         if self.activation_refused(target) {
             return false;
         }
@@ -4871,6 +5022,13 @@ impl<'a> Game<'a> {
         if matches!(act.outcome, Outcome::Activated) {
             self.radio_activated(target);
             self.drink_from(actor, target);
+            // An activator that is not a radio opens or closes like a door, playing its
+            // Open or Close sequence when its model has one (`Game::set_ref_open`;
+            // the vault door its control pod activates, issue #2232).
+            if base.is_some_and(|b| self.data.sig(b).as_ref() == Some(b"ACTI") && !self.data.radio_receivers.contains(&b)) {
+                let open = self.world.peek(target).is_some_and(|p| p.open);
+                self.set_ref_open(target, !open)?;
+            }
         }
         // Its activate children go off (`crate::traps`).
         self.set_off_children(target);
@@ -5713,6 +5871,8 @@ impl<'a> Game<'a> {
         g.align_queued();
         g.speech = s.speech.clone();
         g.pickpocket.planted = s.planted.clone();
+        // The live units in the restored inventories agree with the plants (#1640).
+        g.reconcile_live_explosives();
         g.said = s.said.clone();
         if s.said_day_days_clock {
             g.said_day = s.said_day.clone();

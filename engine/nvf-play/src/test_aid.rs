@@ -33,7 +33,8 @@
 //! - `NVF_PLAY_TEST_LOOK=<seconds>:<heading deg>:<pitch deg>[,...]` turns the view (the
 //!   compass heading, 0 north, 90 east; the pitch, negative looks down) at those times,
 //!   as if the mouse had moved there (ignored, as the mouse is, while an animation
-//!   drives the view, `player::ViewDriven`).
+//!   drives the view, `player::ViewDriven`; and while a zoomed conversation locks the view,
+//!   `dialogue_look::view_locked`).
 //! - `NVF_PLAY_TEST_GOTO=<seconds>:<x>:<y>:<z>[,...]` puts the player's feet on whatever
 //!   is under that point (game space, in the current cell or worldspace) at those times.
 //! - `NVF_PLAY_TEST_GIVE=<item FormID hex>[:<count>][,...]` adds items to the player's
@@ -75,7 +76,8 @@
 //!   digit (`e`, `2`), `f1`..`f12`, an arrow (`up`, `down`, `left`, `right`), `mouse-left` /
 //!   `mouse-right` / `mouse-middle`, or a notch of the wheel (`wheel-up`, `wheel-down`).
 //!   `pad-X` (or another button named by `crate::pad::parse_pad`) presses a synthetic
-//!   controller's button through `pad::menu_keys`; select Controller in the settings.
+//!   controller's button through `pad::menu_keys`; automatic switching consumes its
+//!   first press when it changes Input Device [design, #2200; `pad::device`].
 //!   Unlike `NVF_PLAY_TEST_CONTROL` it tests the key's path, not just what it does.
 //!
 //! - `NVF_PLAY_TEST_MELEE_KNOCKBACK=<target FormID hex>:<x>:<y>:<z>`: one player power blow
@@ -270,6 +272,9 @@ pub enum RealInput {
     Mouse(MouseButton),
     /// [design] A synthetic controller's button, routed by crate::pad::menu_keys.
     Pad(GamepadButton),
+    /// [design] The synthetic controller's left stick pushed all the way one way
+    /// (`pad-Left Stick Down` …), read as [`crate::pad::StickButtons`].
+    Stick(crate::pad::StickDir),
     /// A notch of the wheel: up is positive.
     Wheel(f32),
 }
@@ -316,7 +321,8 @@ pub fn real_input(rest: &str) -> Result<(RealInput, f32), String> {
         "mouse-middle" => RealInput::Mouse(MouseButton::Middle),
         l if l.starts_with("pad-") => match crate::pad::parse_pad(&l[4..]) {
             Some(crate::pad::PadInput::Button(b)) => RealInput::Pad(b),
-            _ => return Err(format!("{rest:?}: unknown pad button {name:?}")),
+            Some(crate::pad::PadInput::Stick(d)) => RealInput::Stick(d),
+            None => return Err(format!("{rest:?}: unknown pad button {name:?}")),
         },
         l if l.len() == 1 && l.as_bytes()[0].is_ascii_lowercase() => RealInput::Key(letters[(l.as_bytes()[0] - b'a') as usize]),
         l if l.len() == 1 && l.as_bytes()[0].is_ascii_digit() => RealInput::Key(digits[(l.as_bytes()[0] - b'0') as usize]),
@@ -337,7 +343,7 @@ pub(crate) struct RealPresses {
 }
 
 /// Press and let go the `NVF_PLAY_TEST_KEYS` inputs, right after Bevy read the real ones.
-pub(crate) fn real_presses(time: crate::pause::AidTime, mut p: ResMut<RealPresses>, mut keys: ResMut<ButtonInput<KeyCode>>, mut mouse: ResMut<ButtonInput<MouseButton>>, mut wheel: MessageWriter<bevy::input::mouse::MouseWheel>, mut pads: Query<&mut Gamepad>) {
+pub(crate) fn real_presses(time: crate::pause::AidTime, mut p: ResMut<RealPresses>, mut keys: ResMut<ButtonInput<KeyCode>>, mut mouse: ResMut<ButtonInput<MouseButton>>, mut wheel: MessageWriter<bevy::input::mouse::MouseWheel>, mut pads: Query<&mut Gamepad>, mut switching: Option<ResMut<crate::pad::SwitchingInput>>) {
     let Some(now) = time.world_secs() else { return };
     let p = &mut *p;
     let mut pad = p.pad.and_then(|e| pads.get_mut(e).ok());
@@ -349,11 +355,21 @@ pub(crate) fn real_presses(time: crate::pause::AidTime, mut p: ResMut<RealPresse
             return true;
         }
         match input {
-            RealInput::Key(k) => keys.release(k),
+            RealInput::Key(k) => {
+                keys.release(k);
+                if let Some(s) = switching.as_mut() {
+                    s.keyboard_input(k, false);
+                }
+            }
             RealInput::Mouse(m) => mouse.release(m),
             RealInput::Pad(b) => {
                 if let Some(g) = pad.as_mut() {
                     g.digital_mut().release(b);
+                }
+            }
+            RealInput::Stick(d) => {
+                if let Some(g) = pad.as_mut() {
+                    g.analog_mut().set(stick_axis(d).0, 0.0);
                 }
             }
             RealInput::Wheel(_) => {}
@@ -363,11 +379,22 @@ pub(crate) fn real_presses(time: crate::pause::AidTime, mut p: ResMut<RealPresse
     });
     for (input, hold) in take_due(&mut p.due, now) {
         match input {
-            RealInput::Key(k) => keys.press(k),
+            RealInput::Key(k) => {
+                keys.press(k);
+                if let Some(s) = switching.as_mut() {
+                    s.keyboard_input(k, true);
+                }
+            }
             RealInput::Mouse(m) => mouse.press(m),
             RealInput::Pad(b) => {
                 if let Some(g) = pad.as_mut() {
                     g.digital_mut().press(b);
+                }
+            }
+            RealInput::Stick(d) => {
+                if let Some(g) = pad.as_mut() {
+                    let (axis, value) = stick_axis(d);
+                    g.analog_mut().set(axis, value);
                 }
             }
             RealInput::Wheel(y) => {
@@ -377,6 +404,17 @@ pub(crate) fn real_presses(time: crate::pause::AidTime, mut p: ResMut<RealPresse
         info!("test aid: real input {input:?} pressed");
         // At least one frame down.
         p.down.push((input, now + hold.max(1e-4)));
+    }
+}
+
+/// The left stick's axis a push one way moves, and its value there.
+fn stick_axis(d: crate::pad::StickDir) -> (GamepadAxis, f32) {
+    use crate::pad::StickDir;
+    match d {
+        StickDir::Up => (GamepadAxis::LeftStickY, 1.0),
+        StickDir::Down => (GamepadAxis::LeftStickY, -1.0),
+        StickDir::Left => (GamepadAxis::LeftStickX, -1.0),
+        StickDir::Right => (GamepadAxis::LeftStickX, 1.0),
     }
 }
 
@@ -509,9 +547,9 @@ pub(crate) fn setup(app: &mut App) {
     if let Some(v) = var("NVF_PLAY_TEST_KEYS") {
         match timed(&v).and_then(|items| items.into_iter().map(|(s, r)| real_input(r).map(|k| (s, k))).collect::<Result<Vec<_>, _>>()) {
             Ok(due) => {
-                let pad = due.iter().any(|(_, (i, _))| matches!(i, RealInput::Pad(_))).then(|| app.world_mut().spawn((Gamepad::default(), Name::new("Scripted controller"))).id());
+                let pad = due.iter().any(|(_, (i, _))| matches!(i, RealInput::Pad(_) | RealInput::Stick(_))).then(|| app.world_mut().spawn((Gamepad::default(), Name::new("Scripted controller"))).id());
                 app.insert_resource(RealPresses { due, down: Vec::new(), pad })
-                    .add_systems(PreUpdate, real_presses.after(bevy::input::InputSystems).before(crate::pad::menu_keys).before(bevy::ui::UiSystems::Focus));
+                    .add_systems(PreUpdate, real_presses.after(bevy::input::InputSystems).before(crate::pad::device::automatic).before(crate::pad::menu_keys).before(crate::pad::update_stick_buttons).before(bevy::ui::UiSystems::Focus));
             }
             Err(e) => warn!("NVF_PLAY_TEST_KEYS: {e}"),
         }
@@ -775,6 +813,7 @@ fn face_reference(time: crate::pause::AidTime, mut aids: ResMut<Aids>, sim: Res<
     }
 }
 
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn goto_and_look(
     time: crate::pause::AidTime,
     mut aids: ResMut<Aids>,
@@ -783,6 +822,7 @@ fn goto_and_look(
     locks: Res<crate::control::ControlLocks>,
     mut stats: ResMut<crate::control::LockStats>,
     (driven, kill_cam): (Option<Res<crate::player::ViewDriven>>, Option<Res<crate::kill_cam::KillCam>>),
+    (state, zoom): (Res<State<crate::PlayState>>, Option<Res<crate::dialogue_zoom::DialogueZoom>>),
 ) {
     let now = time.elapsed_secs();
     if phys.player.is_some() {
@@ -807,6 +847,12 @@ fn goto_and_look(
     // aids' clock, as the faces do.
     let Some(now) = time.world_secs() else { return };
     for (h, p) in take_due(&mut aids.looks, now) {
+        // The aid stands in for the mouse, which a zoomed conversation's lock holds
+        // (`player::mouse_look`; owner decision 2026-11-13, #2254).
+        if *state.get() == crate::PlayState::Dialogue && zoom.as_deref().is_some_and(crate::dialogue_look::view_locked) {
+            info!("test aid: look heading {:.1} pitch {:.1} ignored: dialogue view locked", h.to_degrees(), p.to_degrees());
+            continue;
+        }
         // The aid stands in for the mouse, which a script's lock holds (control.rs).
         if locks.looking {
             info!("test aid: look heading {:.1} pitch {:.1} ignored: a script has disabled looking", h.to_degrees(), p.to_degrees());
@@ -858,6 +904,58 @@ mod tests {
         assert_eq!(real_input("pad-X:0.2"), Ok((RealInput::Pad(GamepadButton::West), 0.2)));
         assert_eq!(real_input("pad-A"), Ok((RealInput::Pad(GamepadButton::South), 0.0)));
         assert!(real_input("pad-unknown").is_err());
+    }
+
+    /// The stick aid pushes the synthetic controller's left stick and lets it go.
+    #[test]
+    fn scripted_stick_pushes_and_lets_go() {
+        use bevy::ecs::system::RunSystemOnce;
+        assert_eq!(real_input("pad-Left Stick Down"), Ok((RealInput::Stick(crate::pad::StickDir::Down), 0.0)));
+        let mut world = World::new();
+        world.insert_resource(Time::<()>::default());
+        world.init_resource::<crate::pause::PlayClock>();
+        world.init_resource::<ButtonInput<KeyCode>>();
+        world.init_resource::<ButtonInput<MouseButton>>();
+        world.init_resource::<Messages<bevy::input::mouse::MouseWheel>>();
+        let pad = world.spawn(Gamepad::default()).id();
+        world.insert_resource(RealPresses { due: vec![(0.0, (RealInput::Stick(crate::pad::StickDir::Down), 0.0))], down: Vec::new(), pad: Some(pad) });
+        world.run_system_once(real_presses).unwrap();
+        assert_eq!(world.get::<Gamepad>(pad).unwrap().left_stick(), Vec2::new(0.0, -1.0));
+        world.resource_mut::<Time>().advance_by(std::time::Duration::from_millis(1));
+        world.run_system_once(real_presses).unwrap();
+        assert_eq!(world.get::<Gamepad>(pad).unwrap().left_stick(), Vec2::ZERO);
+    }
+
+    #[test]
+    fn scripted_keyboard_switching_press_is_consumed_and_works_after_release() {
+        #[derive(Resource, Default)]
+        struct Seen([bool; 3]);
+        fn read(keys: crate::pad::ActionButtons<KeyCode>, mut seen: ResMut<Seen>) {
+            seen.0 = [keys.pressed(KeyCode::Enter), keys.just_pressed(KeyCode::Enter), keys.just_released(KeyCode::Enter)];
+        }
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, bevy::input::InputPlugin));
+        app.insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(std::time::Duration::from_millis(250)));
+        app.init_resource::<crate::pause::PlayClock>().init_resource::<crate::pad::SwitchingInput>();
+        let mut bindings = crate::bindings::Bindings::default();
+        bindings.device = crate::bindings::InputDevice::Controller;
+        app.insert_resource(bindings);
+        app.insert_resource(RealPresses {
+            due: vec![(0.0, (RealInput::Key(KeyCode::Enter), 0.5)), (1.0, (RealInput::Key(KeyCode::Enter), 0.5))],
+            down: Vec::new(), pad: None,
+        });
+        app.init_resource::<Seen>().add_systems(Update, read);
+        app.add_systems(PreUpdate, (crate::pad::device::read_keyboard, real_presses, crate::pad::device::automatic).chain().after(bevy::input::InputSystems));
+        app.update();
+        assert_eq!(app.world().resource::<crate::bindings::Bindings>().device, crate::bindings::InputDevice::KeyboardMouse);
+        assert_eq!(app.world().resource::<Seen>().0, [false; 3]);
+        app.update();
+        assert_eq!(app.world().resource::<Seen>().0, [true, false, false]);
+        app.update();
+        assert_eq!(app.world().resource::<Seen>().0, [false, false, true]);
+        app.update();
+        app.update();
+        assert!(app.world().resource::<ButtonInput<KeyCode>>().just_pressed(KeyCode::Enter));
     }
 
     #[test]

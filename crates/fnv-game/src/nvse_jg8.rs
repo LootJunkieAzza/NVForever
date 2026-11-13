@@ -121,7 +121,7 @@ impl Game<'_> {
                 args.clone()
             };
             if let Err(error) = self.run_function(&h.func, None, args, None, RunCtx::default()) {
-                self.emit(crate::trace::EventKind::ScriptError { unit: "JohnnyGuitar event handler".into(), error });
+                self.handler_failed("JohnnyGuitar event handler".into(), error);
             }
         }
     }

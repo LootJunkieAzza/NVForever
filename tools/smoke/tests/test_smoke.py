@@ -222,6 +222,20 @@ class ScenarioFileTests(unittest.TestCase):
         self.assertEqual(dead, [])
 
 
+class ExeTests(unittest.TestCase):
+    def test_the_newer_of_release_and_release_quick(self):
+        with tempfile.TemporaryDirectory() as d:
+            t = Path(d)
+            self.assertEqual(cli.newest_build(t, "x.exe"), t / "release" / "x.exe")
+            for sub, when in (("release", 1000), ("release-quick", 2000)):
+                (t / sub).mkdir()
+                (t / sub / "x.exe").write_text("")
+                os.utime(t / sub / "x.exe", (when, when))
+            self.assertEqual(cli.newest_build(t, "x.exe"), t / "release-quick" / "x.exe")
+            os.utime(t / "release" / "x.exe", (3000, 3000))
+            self.assertEqual(cli.newest_build(t, "x.exe"), t / "release" / "x.exe")
+
+
 class SelectionTests(unittest.TestCase):
     def test_globs(self):
         m = choose.matches
@@ -334,6 +348,40 @@ class JudgeTests(unittest.TestCase):
         s = self.suite('order = [["run finished", "music summary"]]')
         self.assertEqual(judge(s, LOG, 0).status, "FAIL")
 
+    def known(self, reason='known_failing = { linux = "bug 1" }'):
+        return self.suite(f'expect = [{{ text = "music summary: 9 started", {reason} }}]')
+
+    def test_platform_mark_is_known_only_where_named(self):
+        s = self.known()
+        v = judge(s, LOG, 0, platform="linux")
+        self.assertEqual((v.status, [o.known for o in v.failures]), ("KNOWN", ["bug 1"]))
+        v = judge(s, LOG, 0, platform="windows")
+        self.assertEqual((v.status, [o.known for o in v.failures], v.xpass), ("FAIL", [None], []))
+        self.assertEqual(v.failures[0].what, "missing")
+
+    def test_platform_mark_reports_a_pass_only_where_named(self):
+        s = self.suite('expect = [{ text = "music summary: 1 started", known_failing = { linux = "bug 1" } }]')
+        v = judge(s, LOG, 0, platform="linux")
+        self.assertEqual((v.status, v.xpass), ("PASS", ["music summary: 1 started"]))
+        v = judge(s, LOG, 0, platform="windows")
+        self.assertEqual((v.status, v.xpass), ("PASS", []))
+
+    def test_plain_string_is_known_on_every_platform(self):
+        s = self.suite('expect = [{ text = "music summary: 9 started", known_failing = "bug 1" }]')
+        for platform in ("linux", "windows", "macos"):
+            self.assertEqual(judge(s, LOG, 0, platform=platform).status, "KNOWN", platform)
+
+    def test_platform_mark_syntax(self):
+        e = Expect.parse({"text": "x", "known_failing": {"linux": "why"}})
+        self.assertEqual((e.known_reason("linux"), e.known_reason("windows")), ("why", None))
+        self.assertEqual(e.known_reason("macos"), None)
+        with self.assertRaises(ScenarioError):
+            Expect.parse({"text": "x", "known_failing": {"linnux": "why"}})
+        with self.assertRaises(ScenarioError):
+            Expect.parse({"text": "x", "known_failing": {}})
+        with self.assertRaises(ScenarioError):
+            Expect.parse({"text": "x", "known_failing": {"linux": ""}})
+
 
 class GameEnvTests(unittest.TestCase):
     def test_play_runs_count_the_world_aids_from_the_scripts(self):
@@ -352,6 +400,95 @@ class GameEnvTests(unittest.TestCase):
             self.assertNotIn(FROM_SCRIPTS, aid_free_environ({}))
         finally:
             del os.environ[FROM_SCRIPTS]
+
+
+class RequiresTests(unittest.TestCase):
+    """`requires`: a scenario whose environment variable is unset or empty is skipped before
+    anything is started; with it set the scenario runs and is judged as usual (the DLSS
+    scenarios, NVF_DLSS_DIR)."""
+
+    VAR = "NVF_SMOKE_SELFTEST_REQUIRED_DIR"
+
+    def setUp(self):
+        self.saved = os.environ.pop(self.VAR, None)
+
+    def tearDown(self):
+        os.environ.pop(self.VAR, None)
+        if self.saved is not None:
+            os.environ[self.VAR] = self.saved
+
+    def run_suite(self, fake_run):
+        import argparse
+        from unittest import mock
+        from smoke.runner import Env
+        suite = load_text(game("gated", extra=f'requires = ["{self.VAR}"]\nexpect = ["music summary: 1 started"]'))
+        launches = plan(suite, suite.scenarios)
+        said = []
+        with tempfile.TemporaryDirectory() as d:
+            env = Env(repo=Path(d), out=Path(d), exe=Path(d) / "nvforever.exe", data="D", fnvtool=None)
+            with mock.patch.object(cli, "run_launch", side_effect=lambda x, e, locks: fake_run(x, e)) as run, \
+                    mock.patch("subprocess.Popen", side_effect=AssertionError("a process was started")):
+                verdicts = cli.run_launches(launches, env, None, 1, argparse.Namespace(context=3), said.append)
+        return verdicts, run, said
+
+    def never(self, x, e):
+        raise AssertionError("a skipped scenario was launched")
+
+    def test_an_absent_variable_skips_and_starts_nothing(self):
+        verdicts, run, said = self.run_suite(self.never)
+        self.assertEqual([(v.scenario, v.status) for v in verdicts], [("gated", "SKIP")])
+        self.assertEqual(verdicts[0].reason, f"set {self.VAR}")
+        run.assert_not_called()
+        self.assertTrue(said[0].startswith("SKIP  gated"), said)
+
+    def test_an_empty_variable_skips_too(self):
+        os.environ[self.VAR] = ""
+        verdicts, run, _ = self.run_suite(self.never)
+        self.assertEqual([v.status for v in verdicts], ["SKIP"])
+        run.assert_not_called()
+
+    def test_with_the_variable_it_runs_and_a_failure_stays_a_failure(self):
+        os.environ[self.VAR] = "C:/somewhere"
+
+        def passing(x, e):
+            (e.out / f"{x.name}.log").write_text("\n".join(LOG), encoding="utf-8")
+            return 0, "", 1.0
+
+        def failing(x, e):
+            (e.out / f"{x.name}.log").write_text("\n".join(LOG[:-1]), encoding="utf-8")  # no "run finished"
+            return 3, "", 1.0
+
+        verdicts, run, _ = self.run_suite(passing)
+        self.assertEqual([v.status for v in verdicts], ["PASS"])
+        run.assert_called_once()
+        verdicts, run, _ = self.run_suite(failing)
+        self.assertEqual([v.status for v in verdicts], ["FAIL"])
+        run.assert_called_once()
+
+    def test_the_variable_reaches_the_game_unless_the_scenario_sets_its_own(self):
+        os.environ[self.VAR] = "C:/bundle"
+        self.assertEqual(aid_free_environ({})[self.VAR], "C:/bundle")
+        self.assertEqual(aid_free_environ({self.VAR: "elsewhere"})[self.VAR], "elsewhere")
+
+    def test_repo_dlss_scenarios(self):
+        """Every DLSS hardware scenario waits for NVF_DLSS_DIR and inherits it; dlss-no-files
+        runs everywhere on the empty fixture, which holds none of DLSS's four files."""
+        suite = load(HERE / "scenarios.toml")
+        dlss = {s.name: s for s in suite.scenarios if s.name.startswith("dlss-")}
+        self.assertIn("dlss-no-files", dlss)
+        self.assertGreaterEqual(len(dlss), 9)
+        for name, s in dlss.items():
+            if name == "dlss-no-files":
+                self.assertEqual(s.requires, [])
+            else:
+                self.assertEqual(s.requires, ["NVF_DLSS_DIR"], name)
+                self.assertNotIn("NVF_DLSS_DIR", s.env, name)
+        free = dlss["dlss-no-files"]
+        self.assertEqual(free.env["NVF_DLSS_PRELOAD"], "0")
+        folder = Path(free.env["NVF_DLSS_DIR"].replace("{repo}", str(HERE.parent.parent)))
+        self.assertTrue(folder.is_dir(), folder)
+        for f in ("sl.interposer.dll", "sl.common.dll", "sl.dlss.dll", "nvngx_dlss.dll"):
+            self.assertFalse((folder / f).exists(), f)
 
 
 class LockTests(unittest.TestCase):

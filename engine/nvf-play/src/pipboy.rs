@@ -539,7 +539,7 @@ impl Plugin for PipBoyPlugin {
                     frame::draw,
                     (device_screen::draw, device_screen::sweep, transition::run).chain(),
                     (stats::draw, items::draw, data::draw),
-                    (hotkey_panel::draw_over_tiles, data::wave_moves).chain(),
+                    (hotkey_panel::draw_over_tiles, data::trace_over_tiles, data::popup_over_tiles, data::wave_moves).chain(),
                     stats::use_hints,
                     (data::travel::answer, data::travel::go, data::travel::depart),
                     (frame::hover_boxes, sounds::play),
@@ -550,7 +550,7 @@ impl Plugin for PipBoyPlugin {
             .configure_sets(Update, WarmSet.after(follow_frame).before(reset_manager))
             .configure_sets(Update, PointerSet.after(crate::player::BodySet).before(PlaySet::Activation))
             .add_systems(Update, flat_pointer.in_set(PointerSet))
-            .add_systems(First, drive_pointer.in_set(PickingSystems::Input));
+            .add_systems(PreUpdate, drive_pointer.after(crate::pad::device::automatic).before(PickingSystems::ProcessInput));
         test_aid::setup(app);
         crate::save::add_save_hook(app, data::CUSTOM_MARKER_SAVE_HOOK);
         crate::settings::add_setting(
@@ -578,9 +578,12 @@ pub fn pipboy_open(pip: Res<PipBoy>) -> bool {
 /// page drawn from its tiles not in the frame a menu over it closes either: that key was the
 /// menu's (`crate::tiles::stats_menu::StatsTiles::modal`,
 /// `crate::tiles::repair_menu::RepairTiles::modal`, `crate::tiles::inventory_menu::InventoryTiles::modal`,
-/// `crate::tiles::map_menu::MapTiles::modal`).
-fn takes_keys(script: Option<Res<crate::script::ScriptState>>, tiles: Option<Res<crate::tiles::stats_menu::StatsTiles>>, repair_tiles: Option<Res<crate::tiles::repair_menu::RepairTiles>>, inventory: Option<Res<crate::tiles::inventory_menu::InventoryTiles>>, map: Option<Res<crate::tiles::map_menu::MapTiles>>) -> bool {
-    !box_holds_keys(script.as_ref().and_then(|s| s.rt.as_ref()).and_then(|rt| rt.game.menu), tiles.as_deref()) && !repair_tiles.is_some_and(|t| t.modal) && !inventory.is_some_and(|t| t.modal) && !map.is_some_and(|t| t.modal)
+/// `crate::tiles::map_menu::MapTiles::modal`, `crate::tiles::item_mod_menu::ItemModTiles::modal`). A question box over the DATA page (fast travel's,
+/// Place Marker's) holds none of them, whichever drawing shows it: Tab and Esc close the Pip-Boy
+/// and the box with it, as they always did; the box over the page drawn from its tiles holds only
+/// the tile input (`crate::tiles::map_menu::MapTiles::popup_owns`).
+fn takes_keys(script: Option<Res<crate::script::ScriptState>>, tiles: Option<Res<crate::tiles::stats_menu::StatsTiles>>, repair_tiles: Option<Res<crate::tiles::repair_menu::RepairTiles>>, inventory: Option<Res<crate::tiles::inventory_menu::InventoryTiles>>, map: Option<Res<crate::tiles::map_menu::MapTiles>>, item_mod: Option<Res<crate::tiles::item_mod_menu::ItemModTiles>>) -> bool {
+    !box_holds_keys(script.as_ref().and_then(|s| s.rt.as_ref()).and_then(|rt| rt.game.menu), tiles.as_deref()) && !repair_tiles.is_some_and(|t| t.modal) && !inventory.is_some_and(|t| t.modal) && !map.is_some_and(|t| t.modal) && !item_mod.is_some_and(|t| t.modal)
 }
 
 /// The rule of [`takes_keys`], by the scripts' open menu and the tiles' state: a box over the
@@ -832,13 +835,14 @@ fn camera_on(pip: Res<PipBoy>, screen: Option<Res<PipBoyScreen>>, fx: Res<device
 /// the tabs; none while the menus' "How many?" prompt is open. The ITEMS page's own keys
 /// are in [`items`].
 fn close_keys(
-    keys: Res<ButtonInput<KeyCode>>,
+    keys: crate::pad::ActionButtons<KeyCode>,
     prompt: Res<crate::menu::PromptKeys>,
     active: Res<crate::menu::ActiveMenu>,
     repair: Res<repair::PipRepair>,
     modding: Res<item_mod::PipItemMod>,
     mut menu: MessageWriter<crate::menu::MenuInput>,
 ) {
+    let keys = keys.snapshot();
     use KeyCode::*;
     // "How many?" has the keys (`crate::menu`).
     if prompt.held(&active) {
@@ -851,7 +855,8 @@ fn close_keys(
     }
 }
 
-fn keys(keys: Res<ButtonInput<KeyCode>>, prompt: Res<crate::menu::PromptKeys>, active: Res<ActiveMenu>, pip: Res<PipBoy>, stats: Option<Res<stats::StatsView>>, mut out: MessageWriter<PipBoyInput>) {
+fn keys(keys: crate::pad::ActionButtons<KeyCode>, prompt: Res<crate::menu::PromptKeys>, active: Res<ActiveMenu>, pip: Res<PipBoy>, stats: Option<Res<stats::StatsView>>, mut out: MessageWriter<PipBoyInput>) {
+    let keys = keys.snapshot();
     use KeyCode::*;
     if prompt.held(&active) || keys.any_just_pressed([Tab, Escape]) {
         return;
@@ -1007,7 +1012,7 @@ fn drive_pointer(
     screen: Option<Res<PipBoyScreen>>,
     mut last: Local<Option<Vec2>>,
     mut spawned: Local<bool>,
-    mut window_events: MessageReader<WindowEvent>,
+    (mut window_events, switching): (MessageReader<WindowEvent>, Option<Res<crate::pad::SwitchingInput>>),
     mut out: MessageWriter<PointerInput>,
     mut aid: ResMut<PipBoyAid>,
 ) {
@@ -1028,6 +1033,9 @@ fn drive_pointer(
     }
     for e in window_events.read() {
         let WindowEvent::MouseButtonInput(input) = e else { continue };
+        if switching.as_ref().is_some_and(|s| !s.allows_mouse(input)) {
+            continue;
+        }
         if at.is_none() {
             continue;
         }

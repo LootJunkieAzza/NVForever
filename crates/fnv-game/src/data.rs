@@ -480,7 +480,9 @@ pub struct ActorDef {
     pub template_model: bool,
     pub template_inventory: bool,
     pub template_script: bool,
-    /// ZNAM: the combat style (CSTY) [documented: xEdit NPC_ and CREA ZNAM].
+    /// ZNAM: the combat style (CSTY) [documented: xEdit NPC_ and CREA ZNAM], from the
+    /// actor that supplies its traits (template flag "Traits") [documented: GECK wiki
+    /// Traits Tab - NPC and Traits Tab - Creatures list Combat Style; Template Data].
     pub combat_style: Option<FormId>,
     /// INAM "Death item": the leveled item list added to the actor's inventory when it
     /// dies, from the actor that supplies its traits (template flag "Traits")
@@ -1089,6 +1091,9 @@ pub struct GameData {
     /// wiki Activator, "Non scripted activators can serve as drinkable water sources"]
     /// (docs/spec-notes/activators.md §9).
     pub drink_waters: HashMap<FormId, FormId>,
+    /// Activators that name a radio station (ACTI RNAM): radio receivers, whose on and
+    /// off looks follow the radio rules (`crate::radio`), not their open state.
+    pub radio_receivers: HashSet<FormId>,
     /// DOBJ DATA "Default Objects", by their place in the list ([`DefaultObject`])
     /// [documented: xEdit DOBJ] (docs/spec-notes/default-objects.md).
     pub default_objects: Vec<Option<FormId>>,
@@ -1508,6 +1513,8 @@ struct Read {
     water_effect: Option<FormId>,
     /// An ACTI's WNAM: the water drunk from it.
     drink_water: Option<FormId>,
+    /// An ACTI with an RNAM (a radio station): a radio receiver.
+    radio_receiver: bool,
     /// DOBJ DATA: the default objects, by their place in the list (null: `None`).
     default_objects: Option<Vec<Option<FormId>>>,
     /// A WATR's damage a second when it has "Causes Damage", else 0 (`Some` on every WATR).
@@ -1942,6 +1949,7 @@ impl GameData {
             need_stages: HashMap::new(),
             water_effects: HashMap::new(),
             drink_waters: HashMap::new(),
+            radio_receivers: HashSet::new(),
             default_objects: Vec::new(),
             water_damage: HashMap::new(),
             radiation_markers,
@@ -2254,6 +2262,9 @@ impl GameData {
                 }
                 if let Some(water) = r.drink_water {
                     d.drink_waters.insert(id, water);
+                }
+                if r.radio_receiver {
+                    d.radio_receivers.insert(id);
                 }
                 if let Some(list) = r.default_objects {
                     d.default_objects = list;
@@ -2754,6 +2765,9 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
     // WaterHeal5Terrible, the effects of drinking them]. docs/spec-notes/radiation.md §3.
     if &sig == b"ACTI" {
         out.drink_water = subs.iter().find(|s| &s.sig == b"WNAM").and_then(|s| word(&s.data)).filter(|&l| l != 0).and_then(map).map(FormId);
+        // RNAM: the radio station a receiver plays [documented: xEdit ACTI RNAM;
+        // `fnv_world::radio`].
+        out.radio_receiver = subs.iter().find(|s| &s.sig == b"RNAM").and_then(|s| word(&s.data)).is_some_and(|l| l != 0);
     }
     if &sig == b"DOBJ" {
         let data = subs.iter().find(|s| &s.sig == b"DATA").map(|s| s.data.as_slice()).unwrap_or_default();

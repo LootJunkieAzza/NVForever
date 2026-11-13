@@ -223,8 +223,8 @@ fn read_clips(data: &GameData) -> HashMap<String, Clip> {
 
 #[allow(clippy::too_many_arguments)]
 fn input(
-    keys: Res<ButtonInput<KeyCode>>,
-    mouse: Res<ButtonInput<MouseButton>>,
+    keys: crate::pad::ActionButtons<KeyCode>,
+    mouse: crate::pad::ActionButtons<MouseButton>,
     windows: Query<&Window, With<PrimaryWindow>>,
     camera: Query<(&Camera, &GlobalTransform), With<PlayerCamera>>,
     shapes: Query<(&Aabb, &GlobalTransform, &InheritedVisibility)>,
@@ -236,6 +236,8 @@ fn input(
     mut stats: ResMut<VigorStats>,
     mut sounds: MessageWriter<UiSound>,
 ) {
+    let keys = keys.snapshot();
+    let mouse = mouse.snapshot();
     use KeyCode::*;
     let clips = menu.clips.clone().unwrap_or_default();
     let Some(o) = menu.open.as_mut() else { return };

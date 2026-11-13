@@ -669,6 +669,10 @@ impl Game<'_> {
         if victim == FormId::PLAYER_REF || self.is_dead(victim) {
             return;
         }
+        // Its Evil faction's members in the area turn on the player (`crate::provocation`).
+        if !self.provocations.holds(victim, FormId::PLAYER_REF) && !self.would_attack(victim, FormId::PLAYER_REF) {
+            self.evil_area_alert(victim);
+        }
         let s = self.crime_settings();
         let alignment = self.alignment(victim);
         let npc = base_of(self, victim).and_then(|b| self.data.actors.get(&b)).is_some_and(|d| &d.sig == b"NPC_");
@@ -716,13 +720,21 @@ impl Game<'_> {
         if !hostile.is_empty() {
             for f in factions_of(self, victim) {
                 let tracks = self.data.faction_flags.get(&f).is_some_and(|x| x & faction_flags::TRACK_CRIME != 0);
-                if tracks && self.player.enemy_of.insert(f) {
-                    self.crimes.notes.push(Note::FactionEnemy { faction: f });
-                    crate::functions::actor::forget_relations(self);
+                if tracks {
+                    self.make_player_enemy_of(f);
                 }
             }
         }
         self.crimes.notes.push(Note::Crime { kind: Kind::Murder, victim: Some(victim), seen_by, hostile });
+    }
+
+    /// The player is an enemy of `faction` from now on (a crime against it it tracks,
+    /// `crate::provocation`'s Evil faction area); noted the first time.
+    pub(crate) fn make_player_enemy_of(&mut self, faction: FormId) {
+        if self.player.enemy_of.insert(faction) {
+            self.crimes.notes.push(Note::FactionEnemy { faction });
+            crate::functions::actor::forget_relations(self);
+        }
     }
 
     /// The player assaulted `victim` (provocation turned it on the player): a major crime

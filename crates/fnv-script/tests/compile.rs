@@ -1383,3 +1383,21 @@ fn runtime_refuses_an_untyped_result_for_a_form_parameter() {
     // A typed form getter under GetFormIDString compiles [observed: nvse.misc pkg.nth0].
     assert_eq!(runtime_errors("SetFunctionValue (GetFormIDString (rObj.GetNthPackage 0))"), Vec::<&str>::new());
 }
+
+#[test]
+fn typeof_absent_key_is_null_without_creating_it() {
+    let h = run("array_var a\nstring_var missing\nstring_var present\nint count\nbegin GameMode\nlet a := ar_Map \"present\"::7\nlet missing := TypeOf a[\"absent\"]\nlet present := TypeOf a[\"present\"]\nlet count := ar_Size a\nend");
+    assert_eq!(h.text(2), "NULL");
+    assert_eq!(h.text(3), "Number");
+    assert_eq!(h.0[&4], Value::Num(1.0));
+}
+
+#[test]
+fn typeof_does_not_hide_invalid_indexing_or_direct_missing_access() {
+    for expression in ["a[\"absent\"]", "TypeOf a[\"present\"][\"absent\"]", "TypeOf a[a]"] {
+        let (c, p) = build(&format!("array_var a\nstring_var result\nbegin GameMode\nlet a := ar_Map \"present\"::7\nlet result := {expression}\nend"));
+        let mut host = host_for(&c);
+        let error = Vm::new(&table(), &mut host, RunOpts { strict: true, ..Default::default() }).run(&p.blocks[0].body);
+        assert!(error.is_err(), "{expression}: {error:?}");
+    }
+}

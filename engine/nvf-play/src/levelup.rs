@@ -36,7 +36,7 @@ use crate::sim::SimState;
 use crate::ui_sounds::{UiEvent, UiMenu, UiSound};
 use crate::PlaySet;
 use bevy::image::CompressedImageFormatSupport;
-use bevy::input::keyboard::{Key, KeyboardInput};
+use bevy::input::keyboard::KeyboardInput;
 use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
 use bevy::prelude::*;
 use crate::ui_pointer::PointerState;
@@ -225,8 +225,8 @@ fn input(
     mut st: ResMut<LevelUpMenu>,
     mut aid: ResMut<LevelUpAid>,
     time: AidTime,
-    keys: Res<ButtonInput<KeyCode>>,
-    mut typed: MessageReader<KeyboardInput>,
+    keys: crate::pad::ActionButtons<KeyCode>,
+    (mut typed, switching): (MessageReader<KeyboardInput>, Option<Res<crate::pad::SwitchingInput>>),
     mut wheel: MessageReader<MouseWheel>,
     rows: Query<(&PointerState, &Row), Changed<PointerState>>,
     parts: Query<(&PointerState, &Part), Changed<PointerState>>,
@@ -235,8 +235,9 @@ fn input(
     sim: Option<ResMut<SimState>>,
     mut sounds: MessageWriter<UiSound>,
 ) {
+    let keys = keys.snapshot();
     use KeyCode::*;
-    let typed: Vec<KeyboardInput> = typed.read().cloned().collect();
+    let typed: Vec<KeyboardInput> = typed.read().filter(|e| switching.as_ref().is_none_or(|s| s.allows(e))).cloned().collect();
     let wheel: f32 = wheel.read().map(|w| if w.unit == MouseScrollUnit::Line { w.y } else { w.y / 40.0 }).sum();
     let (Some(mut script), Some(mut sim)) = (script, sim) else { return };
     let mut ops: Vec<(Op, &str)> = Vec::new();
@@ -267,13 +268,10 @@ fn input(
                 ops.push((op, "key"));
             }
         }
-        // Left and Right with the keyboard's own repeat while held.
-        for k in typed.iter().filter(|k| k.state.is_pressed()) {
-            match k.logical_key {
-                Key::ArrowRight => ops.push((Op::Raise(None), "key")),
-                Key::ArrowLeft => ops.push((Op::Lower(None), "key")),
-                _ => {}
-            }
+        // Left and Right: the keyboard's, with its own repeat while held, and the
+        // controller's D-pad (issue #1910).
+        for right in crate::pad::sideways(&typed, &keys) {
+            ops.push((if right { Op::Raise(None) } else { Op::Lower(None) }, "key"));
         }
         if wheel.abs() >= 1.0 {
             ops.push((Op::Scroll(-wheel.round() as i32), "wheel"));
