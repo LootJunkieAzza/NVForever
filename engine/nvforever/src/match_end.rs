@@ -13,7 +13,7 @@
 //!   visit, and looks beaten otherwise ([`timed_end`]). At a slot machine with a stool the
 //!   player stays seated for it (`nvf_play::slots::seat::SeatPhase::Ending`): the reaction
 //!   plays on the upper body over the sitting clip, and the getting-off clip follows the
-//!   fade back (`slots_seat.rs`) [owner 2026-11-11: "it should be in the seat"]. Arm wrestling (item 199) once
+//!   end view, with no fade ([`on_close`], `slots_seat.rs`) [owner 2026-11-11: "it should be in the seat"]. Arm wrestling (item 199) once
 //!   both are up from the stools ([`arm_hold`]: the opponent's chair exit clip runs longer
 //!   than the player's, the camera holds the bout's last frame meanwhile): a timed end view
 //!   with the stranger, or the other player's puppet, reacting too ([`arm_end`]); a player
@@ -55,7 +55,8 @@
 //!   black [`HOLD`] s, and
 //!   comes back over [`FADE_IN`] s in the view the player had before the game (the
 //!   minigame's stage gives it back). A new match at the same board (the winner cleared)
-//!   ends the end view without a fade.
+//!   ends the end view without a fade. A slot machine's end view cuts straight back,
+//!   with no black ([`on_close`]).
 //!
 //! Log lines start `match end:`.
 
@@ -342,6 +343,22 @@ pub enum Phase {
     FadeOut { since: f32 },
     /// Black, then coming back (since black was reached).
     FadeIn { since: f32 },
+}
+
+/// What follows the end view of `kind` when it is over (its menu closed, or its time up),
+/// at real time `now`: the fade through black ([`Phase::FadeOut`]), or straight back to
+/// the player's view ([`Phase::Off`]) at a slot machine. The original leaves its slot
+/// machine with no black between the menu and the game [observed: the four FalloutNV.esm
+/// machine scripts (SCPT 0x00144F31, 0x0016318E, 0x00161511, 0x00139FE1) call only
+/// `ShowSlotMachineMenuParams`, no fade or image-space modifier; hypothesis: closing the
+/// menu itself draws no black]; the screen went almost black between the cheer and getting
+/// up [the parity session's ship17 slots-coop-2p-exit, host play-68s] [design].
+pub fn on_close(kind: Kind, now: f32) -> Phase {
+    if kind == Kind::Slots {
+        Phase::Off
+    } else {
+        Phase::FadeOut { since: now }
+    }
 }
 
 /// How black the screen is (0 … 1) in `phase` at real time `now`.
@@ -899,10 +916,18 @@ fn watch(
                 st.watching = None;
                 stop_own(st, pi.as_deref_mut());
             } else {
-                info!("match end: the menu closed; fading to black");
-                // The body stays drawn ([`end_view_flag`]) and the camera held ([`camera`])
-                // while the screen darkens.
-                st.phase = Phase::FadeOut { since: now };
+                st.phase = on_close(kind, now);
+                if st.phase == Phase::Off {
+                    // A slot machine cuts straight back ([`on_close`]).
+                    stop_own(st, pi.as_deref_mut());
+                    st.seated = false;
+                    st.watching = None;
+                    info!("match end: the end view is over; back to the player's view (no fade at a slot machine)");
+                } else {
+                    info!("match end: the menu closed; fading to black");
+                    // The body stays drawn ([`end_view_flag`]) and the camera held
+                    // ([`camera`]) while the screen darkens.
+                }
             }
         }
         Phase::FadeOut { since } if now - since >= FADE_OUT => {
@@ -1732,6 +1757,21 @@ mod tests {
         assert!(black(back, 20.0 + HOLD) > 1.0 - 1e-4);
         assert!((black(back, 20.0 + HOLD + FADE_IN / 2.0) - 0.5).abs() < 1e-4);
         assert!(black(back, 20.0 + HOLD + FADE_IN + 1e-3) == 0.0);
+    }
+
+    #[test]
+    fn a_slot_machine_s_end_view_cuts_back_with_no_black() {
+        // ship17 slots-coop-2p-exit, host play-68s: almost black between the cheer and
+        // getting up. The original leaves its slot machine with no fade.
+        let after = on_close(Kind::Slots, 10.0);
+        assert_eq!(after, Phase::Off);
+        for t in [10.0, 10.0 + FADE_OUT / 2.0, 10.0 + FADE_OUT, 10.0 + FADE_OUT + HOLD] {
+            assert_eq!(black(after, t), 0.0);
+        }
+        // The other tables keep the fade through black (item 127).
+        for kind in [Kind::Darts, Kind::Pool, Kind::Fillet, Kind::Blackjack, Kind::Roulette, Kind::Poker, Kind::Caravan, Kind::ArmWrestle] {
+            assert_eq!(on_close(kind, 10.0), Phase::FadeOut { since: 10.0 }, "{kind:?}");
+        }
     }
 
     #[test]

@@ -169,11 +169,11 @@ fn hold(screen: Res<SlotsScreen>, slots_seat: Res<SlotsSeat>, mut seat: ResMut<n
 /// within a frame or two].
 const END_VIEW_WAIT: f32 = 0.5;
 /// The longest the player stays on the stool for the end view, whatever happens (real
-/// seconds) [design: the timed view 3.5 s, its fade 1.15 s].
+/// seconds) [design: the timed view 3.5 s; it cuts back with no fade, `match_end::on_close`].
 const END_VIEW_MAX: f32 = 8.0;
 
 /// The menu closed on the stool (`SeatPhase::Ending`): the visit's end view plays seated
-/// (`match_end.rs`); once it is over (back from black), or if none begins, the player gets
+/// (`match_end.rs`); once it is over (cut straight back), or if none begins, the player gets
 /// up by the getting-off clip [owner 2026-11-11: the end view "in the seat", the get-off
 /// after it].
 fn get_up(
