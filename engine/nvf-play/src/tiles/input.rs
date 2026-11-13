@@ -192,9 +192,9 @@ pub fn to_menu_units(at: Vec2, window: Vec2, anchor: Vec2) -> (f64, f64) {
 
 #[derive(bevy::ecs::system::SystemParam)]
 pub(crate) struct Devices<'w, 's> {
-    pub(super) keys: Res<'w, ButtonInput<KeyCode>>,
-    pub(super) mouse: Res<'w, ButtonInput<MouseButton>>,
-    pads: Query<'w, 's, &'static Gamepad>,
+    pub(super) keys: crate::pad::ActionButtons<'w, KeyCode>,
+    pub(super) mouse: crate::pad::ActionButtons<'w, MouseButton>,
+    pads: crate::pad::ActionPads<'w, 's>,
     windows: Query<'w, 's, &'static Window, With<PrimaryWindow>>,
 }
 

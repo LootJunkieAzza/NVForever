@@ -30,6 +30,11 @@ pub struct DefRef {
     pub ordinal: u32,
 }
 
+/// Every definition of a FormID, in load order. Nearly every FormID has one (780 of the
+/// masters' 628,464 have more [observed 2026-11-12]), so the first is kept inline: no
+/// allocation per record at each start (#1994).
+pub type Defs = smallvec::SmallVec<[DefRef; 1]>;
+
 pub struct LoadOrder<'a> {
     pub plugins: &'a [Plugin],
     /// For each plugin, maps its master-list index -> load-order index.
@@ -37,7 +42,7 @@ pub struct LoadOrder<'a> {
     /// Records of each plugin in file order.
     pub records: Vec<Vec<&'a Record>>,
     /// Global FormID -> every definition in load order (last one wins).
-    pub index: HashMap<u32, Vec<DefRef>>,
+    pub index: HashMap<u32, Defs>,
     /// Records whose own FormID could not be mapped (none since an out-of-range master
     /// index means the plugin itself; kept for reports).
     pub unmappable: Vec<(u8, u32)>,
@@ -80,7 +85,16 @@ impl<'a> LoadOrder<'a> {
             visit_records(&p.nodes[1..], &mut |r, _| recs.push(r));
             for (ord, r) in recs.iter().enumerate() {
                 match lo.to_global(pi, r.header.form_id) {
-                    Some(g) => lo.index.entry(g).or_default().push(DefRef { plugin: pi as u8, ordinal: ord as u32 }),
+                    Some(g) => {
+                        // A plugin holding two records under one FormID keeps the first:
+                        // oHUD.esm's QUST `aHUD` before its MESG `iHUDMainMenu` at
+                        // 0x000801 is in the game a running quest with its variables, and
+                        // the message's editor ID names nothing [observed: #2276 job B].
+                        let defs = lo.index.entry(g).or_default();
+                        if defs.last().is_none_or(|d| d.plugin as usize != pi) {
+                            defs.push(DefRef { plugin: pi as u8, ordinal: ord as u32 });
+                        }
+                    }
                     None => {
                         tracing::debug!(
                             plugin = %p.name,

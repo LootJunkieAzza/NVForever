@@ -21,8 +21,17 @@
 //!   (`Awarenesses::aiming`, set by the combat AI) it walks instead of running, as the
 //!   player does while aiming [design: the owner's wish, playtest list 2026-10-11, "the
 //!   player and NPCs should not be able to move at full speed whilst aiming"].
-//! - **Continue During Combat**: an actor whose current package has the flag carries
-//!   its package out as if nothing had happened (`Game::continues_during_combat`).
+//! - **Continue During Combat** (docs/design/alert.md §5.2, #2155): an actor whose
+//!   current package has the flag (`Game::continues_during_combat`) carries its package
+//!   out as if nothing had happened only while the flag holds it ([`Ai::package_holds`]):
+//!   on the way of a Travel, Patrol, Find, Ambush or Use Item At package, not yet
+//!   arrived and not yet taken up by the fight; on a Guard while its target is outside
+//!   the guard radius, measured from the post to the target; and on a Use Weapon package
+//!   (#2120, #2145). Anywhere else it fights as any other actor does, and goes back to
+//!   its package's place once the fight is over [observed: Lanius left his marker within
+//!   1.2 s and fought up to 2,557 units from it, then stood on it again 3 to 5 s after
+//!   the fight; a knife trooper on a stand-in-place Travel fought up to 2,043 units from
+//!   its post; checks 105 to 109].
 //! - **Fleeing** (docs/design/combat-ai.md §12.2) [documented: GECK wiki Combat Flee]:
 //!   an actor the combat AI has fleeing (`fnv_game::combat_group::Flight`, any combat
 //!   state) runs, in this order of tries, through a door within fCombatFleeMaxDoorDistance
@@ -57,6 +66,8 @@
 //!   conversation.
 
 use crate::carry::{Activity, AiEvent};
+use crate::goal::Goal;
+use fnv_game::package::PackageType;
 use crate::goal;
 use crate::Ai;
 use fnv_game::awareness::{Cause, State};
@@ -260,11 +271,14 @@ pub fn lead(at: [f32; 3], drift: [f32; 2]) -> [f32; 3] {
 #[serde(tag = "search", rename_all = "snake_case")]
 pub enum Search {
     /// Walking to a point to search, since `since` (`Game::time`): a search centred on
-    /// `centre` for the alarm that was at `alarm` then; `points` searched of this
-    /// complete search.
-    Going { to: [f32; 3], since: f64, centre: [f32; 3], alarm: [f32; 3], points: u32 },
-    /// Looking about at `at` until `until`.
-    Looking { at: [f32; 3], until: f64, centre: [f32; 3], alarm: [f32; 3], points: u32 },
+    /// `centre` for `owner`'s alarm that was at `alarm` then; `points` searched of this
+    /// complete search [design: `Ai::search_at`].
+    Going { owner: FormId, to: [f32; 3], since: f64, centre: [f32; 3], alarm: [f32; 3], points: u32 },
+    /// Looking about at `at` until `until` for `owner`'s alarm [design: `Ai::alert_step`].
+    Looking { owner: FormId, at: [f32; 3], until: f64, centre: [f32; 3], alarm: [f32; 3], points: u32 },
+    /// [design, #2010] Finished its shares: wait for the party, another alarm or
+    /// Normal. Keep the search marker so `Ai::search_over` returns to the package.
+    Waiting,
     /// In Combat: standing, facing its target.
     Holding { target: FormId },
     /// In Normal, giving aggro radius or trespass warnings: standing, facing whom it warns.
@@ -294,11 +308,77 @@ fn flat(a: [f32; 3], b: [f32; 3]) -> f32 {
 }
 
 impl Ai {
+    /// Whether `actor`'s package keeps it on its package in a combat state: Continue
+    /// During Combat as the original was seen to read it (module notes; alert.md §5.2).
+    pub(crate) fn package_holds(&self, game: &mut Game, actor: FormId) -> bool {
+        if !game.continues_during_combat(actor) {
+            return false;
+        }
+        let Some(def) = game.current_package(actor).and_then(|p| game.package_def(&p)) else { return false };
+        let a = &self.agents[&actor];
+        match def.ty {
+            // On the way: still walking its package's walk, the fight not yet having
+            // taken it up (a fighter's own walk sets `search`). Arrived, or once the
+            // fight has it, it fights; the package choice after the fight sends it back.
+            // [documented: GECK wiki "Combat Package Flags": a Travel actor goes on to
+            // its destination; observed: on the way, Lanius kept on to his marker for
+            // 10 s with the player out of his sight (one capture), check 107]
+            PackageType::Travel | PackageType::Patrol | PackageType::Find | PackageType::Ambush | PackageType::UseItemAt => a.search.is_none() && a.activity == Activity::Travelling,
+            // Not in the wiki's chart; its fire goes on in combat (`fnv_game::use_weapon`,
+            // #2120, #2145) [design: left as it was].
+            PackageType::UseWeapon => true,
+            PackageType::Guard => self.guard_holds(game, actor, def),
+            // Follow, Sandbox and the others: the flag does not hold them [documented:
+            // the wiki, "the flags do not work" for Accompany, Dialogue, Eat, Escort,
+            // Sandbox, Sleep, Wander; Follow (a non-teammate): design, §5.2 item 1].
+            _ => false,
+        }
+    }
+
+    /// A Guard with Continue During Combat holds its actor while its target is outside
+    /// the guard radius of its post (`Game::guard_combat_radius`), measured from the post
+    /// to the target, flat [documented: GECK wiki "will not move outside the guard radius
+    /// in order to pursue the target"; observed: check 106, the target's distance from
+    /// the post decided]. Not a Guard with type-specific bit 2 [hypothesis: three
+    /// such packages did not hold their actor; a Guard with no type-specific flags was not
+    /// measured beyond 259 units and is held, as the wiki says], not one near a reference
+    /// (its post moves with the reference, not measured) and not one with no target known.
+    /// The post: the location's place, a "near current location" guard's wander area or
+    /// where it last stood out of combat [observed: "the post is where the trooper got
+    /// the package"].
+    fn guard_holds(&self, game: &Game, actor: FormId, def: &fnv_game::package::PackageDef) -> bool {
+        if def.guard_bit_2() || def.remain_near_reference() {
+            return false;
+        }
+        let a = &self.agents[&actor];
+        let post = match (&a.goal, &a.sandbox) {
+            (_, Some(s)) => Some(s.area().0),
+            (Some(Goal::Near { place, .. }), None) => Some(*place),
+            (Some(Goal::Here), None) => a.calm_at,
+            _ => None,
+        };
+        let Some(post) = post else { return false };
+        let Some(target) = game.combat_target_of(actor).or_else(|| game.awareness.get(actor).and_then(|aw| aw.combat_target().map(|(t, _)| t))) else { return false };
+        let Some(at) = goal::place_of_ref(game, target) else { return false };
+        at.space == post.space && flat(post.pos, at.pos) > game.guard_combat_radius(def)
+    }
+
     /// One update of an actor in a combat state (module notes). Returns whether the state
     /// holds the actor: its package's own doings wait meanwhile.
     pub(crate) fn alert_step(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId, dt: f32) -> bool {
         let state = game.awareness.state(actor);
-        if !state.in_combat() || game.continues_during_combat(actor) {
+        let held = state.in_combat() && self.package_holds(game, actor);
+        let a = self.agents.get_mut(&actor).expect("listed");
+        if !state.in_combat() {
+            a.calm_at = Some(Place { space: a.walker.space, pos: a.walker.feet });
+        }
+        if a.held != held {
+            a.held = held;
+            if let Some(package) = game.current_package(actor).filter(|_| state.in_combat()) {
+                self.log(game, actor, AiEvent::PackageHolds { package, held });
+            }
+        }
+        if !state.in_combat() || held {
             game.rearms.calm(actor);
             // A spectator running from a fight that came too close (`crate::social`).
             if !state.in_combat() && self.spectator_step(game, nav, actor, dt) {
@@ -441,21 +521,32 @@ impl Ai {
             return true;
         }
         let Some(alarm) = aw.search_alarm().copied() else { return true };
+        // [design, #2010] A finished member waits for its Lost party's other shares.
+        if aw.state == State::Lost && game.searches_done(actor, alarm.owner) >= game.group_settings().remove_search_count {
+            game.searched_once(actor, alarm.owner);
+            let a = self.agents.get_mut(&actor).expect("listed");
+            a.search = Some(Search::Waiting);
+            a.walker.follower = None;
+            a.activity = Activity::There;
+            return true;
+        }
         // A hostile only noticed is searched for midway between the actor and it
         // [documented: Combat Search]; anything else where it happened.
         let centre_for = |feet: [f32; 3]| if alarm.cause == Cause::Noticed { midway(feet, alarm.at) } else { alarm.at };
         let feet = a.walker.feet;
         match a.search {
-            Some(Search::Going { to, since, centre, alarm: was, points }) => {
+            // [design, #2010] Point progress belongs to one alarm owner, even when
+            // a replacement alarm is within RECENTRE of the previous one.
+            Some(Search::Going { owner, to, since, centre, alarm: was, points }) if owner == alarm.owner => {
                 if a.activity != Activity::Travelling || now - since > SEARCH_WALK_SECONDS {
                     let a = self.agents.get_mut(&actor).expect("listed");
                     a.walker.follower = None;
                     a.activity = Activity::There;
-                    a.search = Some(Search::Looking { at: to, until: now + LOOK_SECONDS, centre, alarm: was, points });
+                    a.search = Some(Search::Looking { owner, at: to, until: now + LOOK_SECONDS, centre, alarm: was, points });
                     self.log(game, actor, AiEvent::SearchLook { at: to, seconds: LOOK_SECONDS as f32 });
                 }
             }
-            Some(Search::Looking { until, centre, alarm: was, points, .. }) => {
+            Some(Search::Looking { owner, until, centre, alarm: was, points, .. }) if owner == alarm.owner => {
                 self.face(game, actor, Place { space, pos: alarm.at }, dt);
                 if now >= until {
                     if goal::dist(was, alarm.at) > RECENTRE {
@@ -467,7 +558,11 @@ impl Ai {
                         let mut points = points + 1;
                         if points >= SEARCH_POINTS {
                             points = 0;
-                            game.searched_once(actor, alarm.owner);
+                            if game.searched_once(actor, alarm.owner)
+                                || (game.awareness.state(actor) == State::Lost && game.searches_done(actor, alarm.owner) >= game.group_settings().remove_search_count) {
+                                self.agents.get_mut(&actor).expect("listed").search = Some(Search::Waiting);
+                                return true;
+                            }
                         }
                         let (index, party) = game.search_party(actor, alarm.owner);
                         let indoors = matches!(space, Space::Interior(_));
@@ -535,13 +630,13 @@ impl Ai {
                 a.activity = Activity::Travelling;
                 a.trip_started = now;
                 a.trip_from = a.walker.travelled;
-                a.search = Some(Search::Going { to: p, since: now, centre, alarm, points });
+                a.search = Some(Search::Going { owner: about, to: p, since: now, centre, alarm, points });
                 self.log(game, actor, AiEvent::Search { about, to: p, away: goal::dist(from, p), length });
             }
             _ => {
                 a.walker.follower = None;
                 a.activity = Activity::There;
-                a.search = Some(Search::Looking { at: from, until: now + LOOK_SECONDS, centre, alarm, points });
+                a.search = Some(Search::Looking { owner: about, at: from, until: now + LOOK_SECONDS, centre, alarm, points });
                 self.log(game, actor, AiEvent::SearchLook { at: from, seconds: LOOK_SECONDS as f32 });
             }
         }

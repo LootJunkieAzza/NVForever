@@ -162,6 +162,15 @@ pub struct BSplineChannel {
 /// docs/spec-notes/nif.md §6].
 pub const BSPLINE_DEGREE: usize = 3;
 
+/// The span index `s` with `knot(s) <= x < knot(s+1)` of an open uniform knot vector over
+/// `n` points of degree `d` (`d >= 1`), clamped at the end: the interior knots are 1, 2, …
+/// so it is `d + floor(x)`, at most `n - 1`, with no walk over the knots (#1994). A NaN `x`
+/// gives `d`, as the walk did.
+fn span(x: f32, n: usize, d: usize) -> usize {
+    let whole = if x >= 1.0 { x.floor() as usize } else { 0 };
+    (d + whole).min(n - 1)
+}
+
 impl BSplineChannel {
     pub fn count(&self) -> usize {
         self.points.len() / self.dim.max(1)
@@ -200,11 +209,7 @@ impl BSplineChannel {
             }
         };
         let x = u.clamp(0.0, 1.0) * max_knot;
-        // Span index s with knot(s) <= x < knot(s+1), clamped at the end.
-        let mut s = d;
-        while s < n - 1 && knot(s + 1) <= x {
-            s += 1;
-        }
+        let s = span(x, n, d);
         // De Boor's algorithm [documented: de Boor 1972].
         let mut pts = [0.0f32; BSPLINE_DEGREE + 1];
         for (j, p) in pts.iter_mut().enumerate().take(d + 1) {
@@ -1428,4 +1433,48 @@ pub fn geom_morphers(file: &crate::NifFile, dec: &Decoded) -> Vec<GeomMorpher> {
         });
     }
     out
+}
+
+#[cfg(test)]
+mod span_tests {
+    use super::*;
+
+    /// The span as the knot walk found it before #1994.
+    fn walk(x: f32, n: usize, d: usize) -> usize {
+        let max_knot = (n - d) as f32;
+        let knot = |i: usize| -> f32 {
+            if i <= d {
+                0.0
+            } else if i >= n {
+                max_knot
+            } else {
+                (i - d) as f32
+            }
+        };
+        let mut s = d;
+        while s < n - 1 && knot(s + 1) <= x {
+            s += 1;
+        }
+        s
+    }
+
+    #[test]
+    fn the_span_is_the_one_the_knot_walk_found() {
+        for n in 2..40usize {
+            for d in 1..=BSPLINE_DEGREE.min(n - 1) {
+                let max_knot = (n - d) as f32;
+                for k in 0..=400 {
+                    let u = k as f32 / 400.0;
+                    let x = u.clamp(0.0, 1.0) * max_knot;
+                    assert_eq!(span(x, n, d), walk(x, n, d), "n {n} d {d} u {u}");
+                }
+                // The knots themselves, either side of each, and past the ends.
+                for i in 0..=(n - d) {
+                    for x in [i as f32, i as f32 - 1e-4, i as f32 + 1e-4, -1.0, max_knot + 5.0, f32::NAN] {
+                        assert_eq!(span(x, n, d), walk(x, n, d), "n {n} d {d} x {x}");
+                    }
+                }
+            }
+        }
+    }
 }

@@ -243,6 +243,8 @@ pub struct ScriptState {
     pub console: Vec<crate::console::ConsoleCall>,
     /// What the script frame answered to them.
     pub console_out: Vec<crate::console::ConsoleReply>,
+    /// Test aid `NVF_PLAY_TEST_QUERIES`: the extender lab's query job (`crate::query_job`).
+    pub query_job: Option<crate::query_job::QueryJob>,
     /// A save to restore when the runtime is made (`crate::save`, nvforever `--load`).
     pending_game: Option<PendingGame>,
     /// The runtime is not made (nor the save put back) while this is set: a load while
@@ -390,7 +392,7 @@ impl ScriptState {
         let write = (!unattended || own_home).then(|| fnv_install::EngineHome::default_root().map(|r| fnv_install::EngineHome::new(r).mods())).flatten();
         fnv_game::mod_files::update_roots(|r| r.write = write);
         let loader = off.is_none().then(|| Mutex::new(start_loading(d, refs)));
-        ScriptState { loader, rt: None, off, trace, aids, aids_started: false, gates: HashMap::new(), auto_close, no_messages, on_screen: None, walks: Vec::new(), new_game, start: GameStart::default(), used: Vec::new(), console: Vec::new(), console_out: Vec::new(), pending_game: None, held: false, mod_log: None }
+        ScriptState { loader, rt: None, off, trace, aids, aids_started: false, gates: HashMap::new(), auto_close, no_messages, on_screen: None, walks: Vec::new(), new_game, start: GameStart::default(), used: Vec::new(), console: Vec::new(), console_out: Vec::new(), query_job: crate::query_job::QueryJob::from_env(), pending_game: None, held: false, mod_log: None }
     }
 
     /// The player answers the script's open menu: `Some(b)` picks button b (0 = first) of
@@ -1530,8 +1532,8 @@ impl Plugin for ScriptPlugin {
             .init_resource::<ClockScale>()
             .init_resource::<PlayerTimeScale>()
             .add_plugins((crate::script_hud::ScriptHudPlugin, crate::script_draw::ScriptDrawPlugin, crate::dialogue::DialoguePlugin))
-            .add_systems(Update, (take_pending_game, crate::script_hud::menu_keys, crate::tutorial_menu::keys, run_scripts, start_world_aids, sync_locks, walk_player, hold_player, time_multiplier, exit_game, exit_to_main_menu_event).chain().in_set(PlaySet::Scripts))
-            .add_systems(Last, (crate::aid::report, write_final));
+            .add_systems(Update, (take_pending_game, crate::script_hud::menu_keys, crate::tutorial_menu::keys, run_scripts, start_world_aids, sync_locks, walk_player, hold_player, time_multiplier, exit_game, exit_to_main_menu_event, crate::query_job::exit_when_done).chain().in_set(PlaySet::Scripts))
+            .add_systems(Last, (crate::aid::report, crate::query_job::report, write_final));
     }
 }
 
@@ -2010,7 +2012,12 @@ pub(crate) fn run_scripts(
             st.on_screen = None;
         }
     }
-    let Some(rt) = st.rt.as_mut() else { return };
+    let world_secs = time.world_secs();
+    let mut query_job = st.query_job.take();
+    let Some(rt) = st.rt.as_mut() else {
+        st.query_job = query_job;
+        return;
+    };
     // Loading-screen time does not count [observed: layer5-captures.md §8.3 e]: the
     // runtime runs no script under a loading screen (`game.loading`): here, the two
     // frames after the player's place changed (the destination loads on the spot in one
@@ -2103,6 +2110,11 @@ pub(crate) fn run_scripts(
             for c in &console {
                 console_out.push(crate::console::run_call(rt, c));
             }
+            // Test aid NVF_PLAY_TEST_QUERIES: one query step a frame, where the console's
+            // lines run (`crate::query_job`).
+            if let Some(job) = query_job.as_mut() {
+                job.frame(&mut rt.game, world_secs, loading);
+            }
         });
         console_turned.extend(rt.game.turned.iter().copied());
         if let Some(i) = rt.activate_pick.take() {
@@ -2138,6 +2150,7 @@ pub(crate) fn run_scripts(
     });
     st.walks.extend(walks);
     st.console_out.extend(console_out);
+    st.query_job = query_job;
     let ms = t0.elapsed().as_secs_f64() * 1e3;
     rt.stats.frames += 1;
     rt.stats.total_ms += ms;
@@ -2534,7 +2547,7 @@ impl ScriptState {
             choices_passed: None,
             activate_pick: None,
         };
-        ScriptState { loader: None, rt: Some(rt), off: None, trace: None, aids: Vec::new(), aids_started: false, gates: HashMap::new(), auto_close: None, no_messages: false, on_screen: None, walks: Vec::new(), new_game: false, start: GameStart::default(), used: Vec::new(), console: Vec::new(), console_out: Vec::new(), pending_game: None, held: false, mod_log: None }
+        ScriptState { loader: None, rt: Some(rt), off: None, trace: None, aids: Vec::new(), aids_started: false, gates: HashMap::new(), auto_close: None, no_messages: false, on_screen: None, walks: Vec::new(), new_game: false, start: GameStart::default(), used: Vec::new(), console: Vec::new(), console_out: Vec::new(), query_job: None, pending_game: None, held: false, mod_log: None }
     }
 
     /// The player answered the open menu: it closes after this frame's scripts.

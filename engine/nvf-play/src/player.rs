@@ -730,9 +730,9 @@ fn take_knockbacks(knocks: Option<MessageReader<crate::combat::Knockback>>, mut 
 /// (control.rs). Not while a script has locked looking: the view stays where it is
 /// [documented: GECK wiki DisablePlayerControls, LookingFlag].
 #[allow(clippy::too_many_arguments)]
-fn mouse_look(
+pub(crate) fn mouse_look(
     motion: Res<AccumulatedMouseMotion>,
-    (pads, time, vats): (Query<&Gamepad>, Res<Time>, Option<Res<crate::vats_mode::VatsMode>>),
+    (pads, time, vats): (crate::pad::ActionPads, Res<Time>, Option<Res<crate::vats_mode::VatsMode>>),
     state: Res<State<PlayState>>,
     bindings: Res<Bindings>,
     cursor: Query<&CursorOptions, With<PrimaryWindow>>,
@@ -745,8 +745,23 @@ fn mouse_look(
     free_cam: Option<Res<crate::free_cam::FreeCam>>,
     kill_cam: Option<Res<crate::kill_cam::KillCam>>,
     assist: Option<Res<crate::aim_assist::AimAssistState>>,
-    (talk, switches): (Option<Res<crate::dialogue_zoom::DialogueZoom>>, Option<Res<crate::script_switches::ScriptSwitches>>),
+    (talk, switches, mut mouse_guard): (
+        Option<Res<crate::dialogue_zoom::DialogueZoom>>,
+        Option<Res<crate::script_switches::ScriptSwitches>>,
+        Local<DialogueMouseGuard>,
+    ),
 ) {
+    let dialogue = *state.get() == PlayState::Dialogue;
+    let grabbed = cursor.single().is_ok_and(|c| c.grab_mode != CursorGrabMode::None);
+    let playing = *state.get() == PlayState::Playing || look.is_some_and(|l| l.0);
+    let mouse_delta = mouse_guard.filter(motion.delta, grabbed && playing, dialogue);
+    // A zoomed conversation locks the view: the mouse moves only the cursor, even if the
+    // capture has not caught up yet (`dialogue::sync_state` frees the pointer), and the
+    // right stick does not turn it either [owner decision 2026-11-13, #2254;
+    // `crate::dialogue_look::view_locked`].
+    if dialogue && talk.as_deref().is_some_and(crate::dialogue_look::view_locked) {
+        return;
+    }
     // The classic VATS style turns the view itself (`crate::vats_mode`, vats-classic.md §5).
     if vats.is_some_and(|v| v.holds_view()) {
         return;
@@ -758,9 +773,6 @@ fn mouse_look(
     if driven.is_some_and(|d| d.0) || free_cam.is_some_and(|f| f.on) || control.wheel || kill_cam.is_some_and(|k| k.active()) || switches.as_deref().is_some_and(|s| s.hud_cursor) {
         return;
     }
-    let grabbed = cursor.single().is_ok_and(|c| c.grab_mode != CursorGrabMode::None);
-    // The player looks around freely while an actor speaks in a conversation.
-    let playing = *state.get() == PlayState::Playing || look.is_some_and(|l| l.0);
     // The right stick's turn this frame, as mouse counts of a thousandth of a radian
     // (`crate::bindings::LOOK_SPEED_HORIZONTAL`), pushed a little turning slowly
     // (squared) [design], slower on a nearby hostile (`crate::aim_assist`; never the
@@ -773,14 +785,14 @@ fn mouse_look(
         (Vec2::new(curve(v.x) * bindings.look_speed[0] * dt, -curve(v.y) * bindings.look_speed[1] * dt), STICK_LOOK_RADIANS)
     } else {
         // The axes ToggleMouseMovement left on (`crate::script_switches`).
-        (switches.as_deref().map_or(motion.delta, |s| s.look(motion.delta)), bindings.mouse_sensitivity)
+        (switches.as_deref().map_or(mouse_delta, |s| s.look(mouse_delta)), bindings.mouse_sensitivity)
     };
     // The Controls tab's Vertical Sensitivity of the device in use (#2201).
     let delta = vertical_scaled(delta, bindings.vertical_sensitivity());
     if !grabbed || !playing || locks.looking || delta == Vec2::ZERO {
         return;
     }
-    // A conversation's zoom: the picture moves as far as it does unzoomed.
+    // A conversation's zoom as it eases out: the picture moves as far as it does unzoomed.
     let s = s * talk.as_deref().map_or(1.0, crate::dialogue_zoom::DialogueZoom::look_scale);
     let inv = bindings.invert_y;
     if control.orbit.held {
@@ -806,6 +818,30 @@ fn mouse_look(
         let dy = if inv { -delta.y } else { delta.y };
         seat.look[0] += delta.x * s;
         seat.look[1] -= dy * s;
+    }
+}
+
+/// Discard dialogue capture-transition motion in the current and following input frame:
+/// the window backend applies capture asynchronously [design, #2254; grab_cursor and
+/// Bevy bevy_winit::system::changed_cursor_options]. This is a guard, not a measured artifact.
+#[derive(Default)]
+pub(crate) struct DialogueMouseGuard {
+    active: bool,
+    settling: u8,
+}
+
+/// Ignore the transition frame and the next input frame [design, #2254].
+const DIALOGUE_CURSOR_SETTLE_FRAMES: u8 = 2;
+
+impl DialogueMouseGuard {
+    pub(crate) fn filter(&mut self, delta: Vec2, active: bool, dialogue: bool) -> Vec2 {
+        if dialogue && active != self.active {
+            self.settling = DIALOGUE_CURSOR_SETTLE_FRAMES;
+        }
+        self.active = active;
+        let settling = self.settling > 0;
+        self.settling = self.settling.saturating_sub(1);
+        if dialogue && settling { Vec2::ZERO } else { delta }
     }
 }
 
@@ -1291,11 +1327,11 @@ fn step(
         drop(blocks_span);
         let move_span = info_span!("phys::player_move").entered();
         let was_swimming = c.swimming;
-        let was_on_ground = c.grounded && !c.swimming;
+        let was_footing = crate::phys::step_lift::footing(c);
         let s = p.world.move_character(c, CharacterInput { velocity: go, jump: intent.jump && i == 0, vertical: vz, view });
         // The drawn body and view climb steps and bumps smoothly (`phys::step_lift`).
         let moved = (c.feet[0] - p.prev_feet[0]).hypot(c.feet[1] - p.prev_feet[1]);
-        p.player_lift.step(c.feet[2] - p.prev_feet[2], moved, was_on_ground && c.grounded && !c.swimming, dt);
+        p.player_lift.step(c.feet[2] - p.prev_feet[2], moved, was_footing && crate::phys::step_lift::footing(c), dt);
         if s.swimming != was_swimming {
             let depth = p.world.water_surface_at(s.feet[0], s.feet[1]).map_or("no water".to_string(), |w| format!("feet {:.1} below the water", w - s.feet[2]));
             info!("player: {} at ({:.0}, {:.0}, {:.1}), {depth}", if s.swimming { "starts swimming" } else { "stops swimming" }, s.feet[0], s.feet[1], s.feet[2]);
@@ -1361,9 +1397,9 @@ fn move_npcs(
     let mut moving: Vec<(u32, &mut crate::phys::NpcBody, [f32; 2])> = npcs.iter_mut().zip(walking).map(|((&id, b), v)| (id, b, v)).collect();
     let plan = |b: &mut crate::phys::NpcBody, v: [f32; 2]| {
         b.prev_feet = b.ch.feet;
-        let was_on_ground = b.ch.grounded && !b.ch.swimming;
+        let was_footing = crate::phys::step_lift::footing(&b.ch);
         let (s, push) = reader.plan_move(&mut b.ch, CharacterInput { velocity: v, jump: std::mem::take(&mut b.jump), ..Default::default() });
-        (was_on_ground, s, push)
+        (was_footing, s, push)
     };
     let plans: Vec<_> = if moving.len() < PARALLEL_MOVES {
         moving.iter_mut().map(|(_, b, v)| plan(b, *v)).collect()
@@ -1372,10 +1408,10 @@ fn move_npcs(
     };
     drop(plan_span);
     let _apply = info_span!("phys::npc_apply").entered();
-    for ((id, b, _), (was_on_ground, s, push)) in moving.into_iter().zip(plans) {
+    for ((id, b, _), (was_footing, s, push)) in moving.into_iter().zip(plans) {
         world.apply_move(&b.ch, push);
         let (f, from) = (b.ch.feet, b.prev_feet);
-        b.lift.step(f[2] - from[2], (f[0] - from[0]).hypot(f[1] - from[1]), was_on_ground && b.ch.grounded && !b.ch.swimming, dt);
+        b.lift.step(f[2] - from[2], (f[0] - from[0]).hypot(f[1] - from[1]), was_footing && crate::phys::step_lift::footing(&b.ch), dt);
         if let Some(height) = falls.as_deref_mut().and_then(|f| f.step(id, b.prev_feet[2], &s)) {
             fell.write(crate::falls::Fell { actor: FormId(id), height, feet: s.feet });
         }

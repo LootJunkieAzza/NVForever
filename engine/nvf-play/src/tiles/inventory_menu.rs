@@ -1,7 +1,8 @@
 //! The Pip-Boy's ITEMS page drawn from `menus\main\inventory_menu.xml`, behind
 //! `[UI] TileMenus=InventoryMenu` [design: ui-tile-tree.md §6.2 step 3; the contract:
-//! docs/spec-notes/pipboy.md §5.2.1; issues #1513, #1468]. Off (the default), none of this runs
-//! and the hand-built page (`crate::pipboy::items`) draws.
+//! docs/spec-notes/pipboy.md §5.2.1; issues #1513, #1468]. On by default [design, #2215;
+//! super::vanilla::TileMenus::for_run]. Off, none of this runs and the hand-built page
+//! (`crate::pipboy::items`) draws.
 //!
 //! - **The one decision** ([`InventoryTiles::ready`]): the switch on, ITEMS showing with the repair
 //!   list and the mod menu closed, the menu files read, the file's tiles there ([`built`]), the

@@ -515,6 +515,25 @@ impl Gen<'_> {
         first.is_some_and(|p| !p.optional)
     }
 
+    /// The call stands inside an expression: an `if eval`, `let` or `while` line's, an
+    /// argument of another call, or parentheses; not the line's own call.
+    fn in_expression(&self) -> bool {
+        !self.call_line || self.in_args || self.in_paren
+    }
+
+    /// Parameter `k` of `f` is documented as a whole expression (`eval`, `TestExpr`,
+    /// `Print`, `while`, `ToString`), or `f` is `let`, whose assignment is one
+    /// (`eval x && let s += "+"` [observed: JustAssortedMods.esp ships such lines with
+    /// compiled bytes]).
+    fn expression_param(&self, f: &XFn, k: usize) -> bool {
+        let FuncId::Name(name) = &f.func else { return false };
+        if name.eq_ignore_ascii_case("let") {
+            return true;
+        }
+        let p = self.table.unnumbered.get(&name.to_ascii_lowercase()).and_then(|u| u.params.get(k));
+        p.and_then(|p| p.wiki_type.as_deref()).is_some_and(|t| matches!(t.to_ascii_lowercase().as_str(), "expression" | "exp"))
+    }
+
     /// The function is xNVSE's (or FOSE's) and its parameter `k` is a plain string, not a
     /// format string.
     fn plain_string_param(&self, f: &XFn, k: usize) -> bool {
@@ -629,16 +648,38 @@ impl Gen<'_> {
                 None if self.axis_param(f, args.len()) => ParamEnc::Axis,
                 None => ParamEnc::Value,
             };
-            let min = if f.aware {
+            // Inside an expression an NVSE-aware function's argument stops at a comparison
+            // or a logical operator, which then applies to the call's result: shipped
+            // bytes of `if eval IsModLoaded "X.esm" == 0` call it with the string alone and
+            // compare its result with 0, and of `if eval Ar_HasKey aConvo, "Conditions" ==
+            // 1` pass two arguments and compare with 1 [observed: mil_Add-On.esp SCPT
+            // 0x0700254B, Party Banter 2.esm SCPT 0x0701D892, #2275]. Arithmetic stays in
+            // the argument and a range or pair (`1:2`, `"k"::v`) continues it, as in an
+            // override block [hypothesis].
+            let nested_aware = f.aware && self.in_expression() && !self.expression_param(f, args.len());
+            let min = if f.aware && !nested_aware {
                 ARG_OVERRIDE
-            } else if self.co {
+            } else if self.co || nested_aware {
                 ARG_IN_OVERRIDE
             } else {
                 ARG
             };
             let was = std::mem::replace(&mut self.in_args, true);
             let was_any = std::mem::replace(&mut self.in_arg_any, true);
-            let a = self.xarg(p, &enc, min);
+            let mut a = self.xarg(p, &enc, min);
+            while nested_aware && a.is_some() {
+                let op = match p.peek() {
+                    Some(t) if t.is(XKind::Op, ":") => XOp::Slice,
+                    Some(t) if t.is(XKind::Op, "::") => XOp::Pair,
+                    _ => break,
+                };
+                p.next();
+                let r = self.xarg(p, &ParamEnc::Value, min);
+                a = match (a, r) {
+                    (Some(l), Some(r)) => Some(XExpr::Binary { op, l: Box::new(l), r: Box::new(r) }),
+                    _ => None,
+                };
+            }
             self.in_args = was;
             self.in_arg_any = was_any;
             let a = a?;

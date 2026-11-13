@@ -2,7 +2,7 @@
 //! challenges, casinos, recipes, actor AI data, perks, zones, leveled lists, activators,
 //! terminals, load screens, form flags and playability, and the misc getters.
 
-mod common;
+use crate::common;
 
 use common::*;
 use fnv_esm::{LoadOrder, Plugin, Schema};
