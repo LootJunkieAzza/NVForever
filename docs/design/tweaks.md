@@ -605,6 +605,7 @@ unless the player binds them, so nothing changes until then.
 | Repair All Confirmation | `bRepairAllConfirmation` | `repair::Open::confirming`: in `keys` a Repair All at or over the price only asks (the button's text, `View::confirming`, the tiles' `button_text` too); the next Repair All pays, a row's repair or a move takes it back |
 | Exterior and Interior Door Icons | `bInteriorExteriorMapDoorIcon` | `pipboy::data::read::Door::outside` (the destination door stands in a worldspace cell); under the switch a door's `MapMark::outside` picks `iron_exterior_door.dds` / `iron_interior_door.dds`, and when those are not in the load order the plain door, an interior one at `INSIDE_DOOR_DIM` |
 | Fatigue Indicator | `bHUDFatigueIndicator` | `hud_needs::watch` reads the player's Fatigue against its base under the switch; `fatigue_look` gives the word's look, `draw` sets it out as a sixth word at `FATIGUE_X`. The tile HUD's five texts are the file's and stay as they are |
+| Switch Device by Pressing | `bToggleControllerIfAttackPressed` | `tweaks::toggle_device` (PlaySet::Input): with the keyboard working, a pad's South just pressed sets `bindings::Bindings::device` to Controller; with the controller, a left click sets it back; not while the Controls tab listens for a binding |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -626,8 +627,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 536 |
-| to do | 65 |
+| done | 537 |
+| to do | 64 |
 | unsure, skipped | 18 |
 | n/a | 16 |
 | skipped: fix | 10 |
@@ -932,6 +933,7 @@ game's Data folder, read-only).
 | `bSkipVigorTesterSpecialPages` | done |  |  | S.P.E.C.I.A.L. Machine: Straight to the Summary |
 | `bSlotsAutoSpinHotkey` | done |  |  | Slots: Hold to Spin (W held) |
 | `bSwapAmmoWithWeaponHolstered` | done |  |  | Swap Ammo While Holstered (reloads when drawn) |
+| `bToggleControllerIfAttackPressed` | done |  | 1 | Switch Device by Pressing: a controller's A switches to it, a left click back (kept in the INI with the controls' next save); the connected-controller popup option is n/a: NVForever shows no such popup |
 | `bTurnFurtherWhileSeated` | done |  |  | Turn Further While Seated (first person 115 degrees; third person was already free) |
 | `bTurnSlowerWhileAiming` | done |  | 2 | Aiming Turn Speed: Across / Up and Down (two sliders) |
 | `bUnequipBrokenArmor` | done |  | 1 | Unequip Broken Armour (no message, sArmorBreakMessage not done) |
@@ -947,7 +949,6 @@ game's Data folder, read-only).
 | `bNoPoisonConfirm` | to do |  |  | not built: no weapon poison |
 | `bRemoveFollowerTopics` | to do |  |  | not built: companions make no such comments |
 | `bRobotCompanionsHealWithScrapMetal` | to do |  | 4 | robot detection, another item and a heal formula |
-| `bToggleControllerIfAttackPressed` | to do |  | 1 | not built: the device changes only by setting |
 | `bWeaponCycleUpDownHotkeys` | to do |  |  | D-pad left and right are bindings (Hotkey 4, Ammo Swap) a player can change; cycling would override a binding |
 
 ### HUD

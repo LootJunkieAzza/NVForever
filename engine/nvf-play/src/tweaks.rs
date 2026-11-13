@@ -257,6 +257,9 @@ pub struct TweakSettings {
     /// `bHUDFatigueIndicator`: an FTG word after the HUD's need words while the player's
     /// Fatigue is below full (`crate::hud_needs`).
     pub hud_fatigue: bool,
+    /// `bToggleControllerIfAttackPressed`: a controller's A switches the controls to it, a
+    /// left click back to the keyboard and mouse.
+    pub toggle_device: bool,
     /// `bScaleExplosionShake`: the explosions' camera shake times `explosion_shake`
     /// (`crate::shake`; 0 for none).
     pub scale_explosion_shake: bool,
@@ -720,6 +723,7 @@ impl Default for TweakSettings {
             detected_names: 2.0,
             key_repeat_accel: false,
             hud_fatigue: false,
+            toggle_device: false,
             scale_explosion_shake: false,
             explosion_shake: 1.0,
             key_repeat_delay: 1.0,
@@ -1005,7 +1009,7 @@ impl Plugin for TweaksPlugin {
             .init_resource::<ItemPlaces>()
             .add_systems(Update, remember_item_places.after(crate::menu::MenuSystems))
             .add_systems(Update, sync.in_set(crate::PlaySet::Input))
-            .add_systems(Update, (keys, drop_weapon, radio_volume_keys, last_weapon, hold_breath, repeat_activate, toggle_sight, place_marker_here, clear_near_marker, hide_hud_key, skip_radio_song).in_set(crate::PlaySet::Input))
+            .add_systems(Update, (keys, drop_weapon, radio_volume_keys, last_weapon, hold_breath, repeat_activate, toggle_sight, place_marker_here, clear_near_marker, hide_hud_key, skip_radio_song, toggle_device).in_set(crate::PlaySet::Input))
             .add_systems(Update, objectives_on_arrival.in_set(crate::PlaySet::Ui))
             .add_systems(PreUpdate, trigger_dead_zones.before(bevy::input::InputSystems))
             .add_systems(Update, ap_costs.after(crate::PlaySet::Input).after(crate::player::encumbered_walks).before(crate::PlaySet::Physics));
@@ -1507,6 +1511,7 @@ impl Plugin for TweaksPlugin {
         switch!(app, "armor-in-weapon-place", "Armor Condition: In the Weapon's Place", "With no weapon drawn the armour's row takes the weapon's place. (Stewie's Tweaks bArmorConditionLabel)", armor_in_weapon_place);
         switch!(app, "scale-explosion-shake", "Scale Explosion Shake", "The view shakes more or less when an explosion goes off near the player. (Stewie's Tweaks bScaleExplosionShake)", scale_explosion_shake);
         amount!(app, "explosion-shake", "Scale Explosion Shake: Camera", "How strongly the view shakes, 1 as it is, 0 not at all. (Stewie's Tweaks bScaleExplosionShake, fCameraMult)", 5.0, f32, explosion_shake);
+        switch!(app, "toggle-device", "Switch Device by Pressing", "Pressing A on a controller switches the controls to it; a left click switches back to the keyboard and mouse. (Stewie's Tweaks bToggleControllerIfAttackPressed)", toggle_device);
         switch!(app, "hud-fatigue", "Fatigue Indicator", "An FTG word beside the HUD's H20 and FOD shows while Fatigue is below full: red below half, flashing below a quarter. (Stewie's Tweaks bHUDFatigueIndicator)", hud_fatigue);
         switch!(app, "key-repeat-accel", "Key Repeat Acceleration", "A key held down in a menu repeats faster the longer it is held. (Stewie's Tweaks bKeyRepeatAcceleration)", key_repeat_accel);
         amount!(app, "key-repeat-delay", "Key Repeat Acceleration: First Delay", "Seconds held before the repeats speed up the first time. (Stewie's Tweaks bKeyRepeatAcceleration, iDelay)", 5.0, f32, key_repeat_delay);
@@ -2207,6 +2212,26 @@ fn place_marker_here(
 /// The Hide HUD key (`crate::bindings::Control::HideHud`) hides the parts of the HUD its
 /// switches choose, or shows them again (`crate::hud::HudHidden`); at the start, under
 /// Hidden After Loading, they start hidden [design: docs/design/tweaks.md].
+/// The player's Toggle Controller If Attack Pressed tweak: with the keyboard and mouse
+/// working the controls, a controller's A switches them to the controller; with the
+/// controller, a left click switches them back. Written to the INI only with the controls'
+/// next save (`crate::bindings::with_controls`) [design: docs/design/tweaks.md].
+fn toggle_device(tweaks: Res<TweakSettings>, mouse: Res<ButtonInput<MouseButton>>, pads: Query<&Gamepad>, bindings: Option<ResMut<crate::bindings::Bindings>>, listening: Option<Res<crate::pause::Listening>>) {
+    use crate::bindings::InputDevice;
+    let Some(mut b) = bindings else { return };
+    // Not while the Controls tab waits for a new key or button: that is a binding.
+    if !tweaks.toggle_device || listening.is_some_and(|l| l.0.is_some()) {
+        return;
+    }
+    let want = match b.device {
+        InputDevice::KeyboardMouse if pads.iter().any(|g| g.just_pressed(GamepadButton::South)) => InputDevice::Controller,
+        InputDevice::Controller if mouse.just_pressed(MouseButton::Left) => InputDevice::KeyboardMouse,
+        _ => return,
+    };
+    info!("controls: {} now works the controls (Toggle Controller If Attack Pressed)", want.name());
+    b.device = want;
+}
+
 fn hide_hud_key(input: crate::bindings::ControlInput, state: Res<State<crate::PlayState>>, tweaks: Res<TweakSettings>, hidden: Option<ResMut<crate::hud::HudHidden>>, mut started: Local<bool>) {
     let Some(mut hidden) = hidden else { return };
     if !std::mem::replace(&mut *started, true) {
