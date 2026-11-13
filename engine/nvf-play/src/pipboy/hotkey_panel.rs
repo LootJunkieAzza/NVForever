@@ -118,10 +118,11 @@ fn held_slot(bindings: &Bindings, keys: &ButtonInput<KeyCode>) -> Option<usize> 
 pub fn track(
     pip: Res<super::PipBoy>,
     (repair, modding): (Res<super::repair::PipRepair>, Res<super::item_mod::PipItemMod>),
-    keys: Res<ButtonInput<KeyCode>>,
+    keys: crate::pad::ActionButtons<KeyCode>,
     bindings: Option<Res<Bindings>>,
     mut hold: ResMut<HotkeyHold>,
 ) {
+    let keys = keys.snapshot();
     // Laid out in the Pip-Boy's screen texture, at its size whatever the UI scale (#1631).
     let _canvas = crate::interface::original_units();
     let items = pip.open() && pip.page == super::Page::Items && !repair.is_open() && !modding.is_open();

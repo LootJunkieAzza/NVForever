@@ -197,6 +197,13 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             }
             zero
         }
+        // Legacy getters share container sound/session overrides. An explicit null wins
+        // over the receiver [observed: container-sound-getters.md, native_prep_container_46].
+        "getcontaineropensound" | "getcontainerclosesound" => {
+            let container = if args.is_empty() { subject } else { form(args, 0) }.map_or(0, |form| form.0);
+            let which = if name == "getcontaineropensound" { 0.0 } else { 1.0 };
+            return call(g, ctx, "getcontainersound", None, &[XVal::Ref(container), XVal::Num(which)]);
+        }
         // `container which [sound]` [documented: GetContainerSound; SetContainerSound].
         "getcontainersound" | "setcontainersound" => {
             let (Some(c), Some(sub)) = (of_sig(g, form(args, 0).map(|f| base(g, f)), b"CONT"), container_sound_sub(num(args, 1, -1.0))) else { return Some(Ok(XVal::Ref(0))) };

@@ -6,15 +6,18 @@
 name = "Русский"
 
 [words]
+# [design, #2200; engine/nvf-play/src/pause.rs] NVForever's device selection.
+"Automatic Input Switching" = "Автоматическая смена устройства ввода"
+"On: a controller button or a stick or trigger past its dead zone selects Controller; a key or mouse click selects Keyboard and Mouse. First release the current device's buttons and centre its sticks/triggers, then press again to switch on a later frame. Only the switching press is ignored; later holds/repeats and all releases work. Mouse motion does not switch. Off: choose Input Device manually. Saved in [Controls] of NVForever.ini." = "Вкл.: кнопка геймпада, стик или курок за пределами мёртвой зоны выбирает геймпад; клавиша или щелчок мыши выбирает клавиатуру и мышь. Сначала отпустите кнопки текущего устройства и верните стики/курки в исходное положение, затем нажмите снова в следующем кадре для смены. Игнорируется только нажатие, вызвавшее смену; удержание, повторы и все отпускания работают. Движение мыши не меняет устройство. Выкл.: выбирайте устройство вручную. Сохраняется в [Controls] файла NVForever.ini."
 "Dialogue voice" = "Голос в диалогах"
 "On: lines are spoken. Off: they are silent from the next line on, and still last as long as their sound. (--no-voice)" = "Вкл.: реплики звучат. Выкл.: со следующей реплики они беззвучны, но длятся столько же, сколько их звук. (--no-voice)"
 "Gameplay" = "Игра"
 "Turn to each other in dialogue" = "Поворот друг к другу в диалоге"
 "On: at the start of a conversation the actor turns to the player and the view turns to the actor. (--no-dialogue-look)" = "Вкл.: в начале разговора собеседник поворачивается к игроку, а взгляд — к собеседнику. (--no-dialogue-look)"
 "Bring the view back when choices appear" = "Возвращать взгляд при выборе ответа"
-"On: each time the choices come up the view returns to the actor. Off: only the opening turn; the view is yours for the rest of the conversation. Needs the turn above. (--dialogue-recentre)" = "Вкл.: каждый раз, когда появляются ответы, взгляд возвращается к собеседнику. Выкл.: только первый поворот, дальше взгляд в вашей власти. Нужен поворот выше. (--dialogue-recentre)"
+"On: with \"Close in on the speaker in dialogue\" off, after you look away the view returns to the speaker when choices appear. Needs \"Turn to each other in dialogue\". (--dialogue-recentre)" = "Вкл.: если «Приближение к говорящему» выключено и вы отвели взгляд, он возвращается к собеседнику при появлении ответов. Нужен «Поворот друг к другу в диалоге». (--dialogue-recentre)"
 "Close in on the speaker in dialogue" = "Приближение к говорящему"
-"On: in a conversation the view narrows onto the speaker, with what is behind them out of focus; from third person the camera comes to the eyes. Off: the view stays as it is. (--no-dialogue-zoom)" = "Вкл.: в разговоре взгляд сужается на говорящем, а то, что за ним, размыто; от третьего лица камера переходит к глазам. Выкл.: взгляд остаётся как есть. (--no-dialogue-zoom)"
+"On: in a conversation the view narrows onto the speaker, with what is behind them out of focus; from third person the camera comes to the eyes. The view stays on the speaker and the mouse moves only the cursor. Off: no close-up; you can look around. (--no-dialogue-zoom)" = "Вкл.: в разговоре взгляд сужается на говорящем, а то, что за ним, размыто; от третьего лица камера переходит к глазам. Взгляд остаётся на говорящем, мышь двигает только курсор. Выкл.: без приближения; можно осматриваться. (--no-dialogue-zoom)"
 "Goodbye hint" = "Подсказка «Goodbye»"
 "On: while a conversation offers a Goodbye choice, \"[Tab] Goodbye\" stands at the left of the dialogue box. Off: the words are hidden; Tab still says goodbye." = "Вкл.: пока в разговоре можно попрощаться, слева от окна диалога стоит «[Tab] Goodbye». Выкл.: надпись скрыта; Tab всё равно прощается."
 "Aim assist" = "Помощь в прицеливании"
@@ -299,3 +302,9 @@ name = "Русский"
 "Fast" = "Быстрая"
 "Smooth" = "Мягкая"
 "Temporal" = "Временная"
+
+# [design, #2249] Overlay availability and source scope (perf_overlay/readings.rs, settings.rs).
+"Not available" = "Недоступно"
+"game {percent}%" = "игра {percent}%"
+"Machine and game CPU use, read once a second while shown. Windows uses performance counters; Linux uses /proc. Missing machine readings say Not available. Game use is cores kept busy: 1.0 is one full core." = "Загрузка процессора компьютером и игрой, раз в секунду при показе. Windows использует счётчики производительности, Linux использует /proc. Отсутствующие данные компьютера помечены как Недоступно. Загрузка игры считается в занятых ядрах: 1.0 означает одно полностью занятое ядро."
+"GPU use, read once a second while shown. Windows: busiest engine across programs. Linux: NVIDIA NVML, then amdgpu, then DRM client time. DRM reads game use and says game; the other Linux sources read whole-device use. Missing readings say Not available." = "Загрузка видеокарты, раз в секунду при показе. Windows: самый занятый блок среди всех программ. Linux: NVIDIA NVML, затем amdgpu, затем время клиента DRM. DRM измеряет загрузку от игры с пометкой игра; другие источники Linux измеряют всё устройство. Отсутствующие данные помечены как Недоступно."

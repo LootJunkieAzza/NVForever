@@ -6,15 +6,18 @@
 name = "Español"
 
 [words]
+# [design, #2200; engine/nvf-play/src/pause.rs] NVForever's device selection.
+"Automatic Input Switching" = "Cambio automático de dispositivo"
+"On: a controller button or a stick or trigger past its dead zone selects Controller; a key or mouse click selects Keyboard and Mouse. First release the current device's buttons and centre its sticks/triggers, then press again to switch on a later frame. Only the switching press is ignored; later holds/repeats and all releases work. Mouse motion does not switch. Off: choose Input Device manually. Saved in [Controls] of NVForever.ini." = "Activado: un botón del mando, una palanca o un gatillo fuera de su zona muerta selecciona Mando; una tecla o un clic selecciona Teclado y ratón. Primero suelta los botones del dispositivo actual y deja sus palancas/gatillos en reposo; después vuelve a pulsar en un fotograma posterior para cambiar. Solo se ignora la pulsación que cambia el dispositivo; mantener, repetir y soltar sigue funcionando. Mover el ratón no cambia nada. Desactivado: elige el dispositivo manualmente. Se guarda en [Controls] de NVForever.ini."
 "Dialogue voice" = "Voces en los diálogos"
 "On: lines are spoken. Off: they are silent from the next line on, and still last as long as their sound. (--no-voice)" = "Activado: las frases se oyen. Desactivado: desde la siguiente frase se callan, aunque duran lo mismo que su sonido. (--no-voice)"
 "Gameplay" = "Juego"
 "Turn to each other in dialogue" = "Mirarse en el diálogo"
 "On: at the start of a conversation the actor turns to the player and the view turns to the actor. (--no-dialogue-look)" = "Activado: al empezar una conversación el personaje se gira hacia el jugador y la vista hacia el personaje. (--no-dialogue-look)"
 "Bring the view back when choices appear" = "Recentrar la vista al aparecer las respuestas"
-"On: each time the choices come up the view returns to the actor. Off: only the opening turn; the view is yours for the rest of the conversation. Needs the turn above. (--dialogue-recentre)" = "Activado: cada vez que aparecen las respuestas la vista vuelve al personaje. Desactivado: solo el giro inicial; el resto de la conversación la vista es tuya. Necesita el giro de arriba. (--dialogue-recentre)"
+"On: with \"Close in on the speaker in dialogue\" off, after you look away the view returns to the speaker when choices appear. Needs \"Turn to each other in dialogue\". (--dialogue-recentre)" = "Activado: con «Acercarse a quien habla en el diálogo» desactivado, tras mirar hacia otro lado la vista vuelve a quien habla al aparecer las respuestas. Requiere «Mirarse en el diálogo». (--dialogue-recentre)"
 "Close in on the speaker in dialogue" = "Acercarse a quien habla en el diálogo"
-"On: in a conversation the view narrows onto the speaker, with what is behind them out of focus; from third person the camera comes to the eyes. Off: the view stays as it is. (--no-dialogue-zoom)" = "Activado: en una conversación la vista se cierra sobre quien habla, con el fondo desenfocado; en tercera persona la cámara pasa a la altura de los ojos. Desactivado: la vista se queda como está. (--no-dialogue-zoom)"
+"On: in a conversation the view narrows onto the speaker, with what is behind them out of focus; from third person the camera comes to the eyes. The view stays on the speaker and the mouse moves only the cursor. Off: no close-up; you can look around. (--no-dialogue-zoom)" = "Activado: en una conversación la vista se cierra sobre quien habla, con el fondo desenfocado; en tercera persona la cámara pasa a la altura de los ojos. La vista se queda en quien habla y el ratón solo mueve el cursor. Desactivado: sin acercamiento; puedes mirar a tu alrededor. (--no-dialogue-zoom)"
 "Goodbye hint" = "Aviso «Goodbye»"
 "On: while a conversation offers a Goodbye choice, \"[Tab] Goodbye\" stands at the left of the dialogue box. Off: the words are hidden; Tab still says goodbye." = "Activado: mientras una conversación ofrece una respuesta Goodbye, «[Tab] Goodbye» aparece a la izquierda del cuadro de diálogo. Desactivado: el texto se oculta; Tab sigue despidiéndose."
 "Aim assist" = "Ayuda al apuntar"
@@ -299,3 +302,9 @@ name = "Español"
 "Fast" = "Rápido"
 "Smooth" = "Suave"
 "Temporal" = "Temporal"
+
+# [design, #2249] Overlay availability and source scope (perf_overlay/readings.rs, settings.rs).
+"Not available" = "No disponible"
+"game {percent}%" = "juego {percent}%"
+"Machine and game CPU use, read once a second while shown. Windows uses performance counters; Linux uses /proc. Missing machine readings say Not available. Game use is cores kept busy: 1.0 is one full core." = "Uso de CPU del equipo y del juego, leído cada segundo mientras se muestra. Windows usa contadores de rendimiento; Linux usa /proc. Las lecturas del equipo que faltan indican No disponible. El uso del juego cuenta núcleos ocupados: 1.0 es un núcleo completo."
+"GPU use, read once a second while shown. Windows: busiest engine across programs. Linux: NVIDIA NVML, then amdgpu, then DRM client time. DRM reads game use and says game; the other Linux sources read whole-device use. Missing readings say Not available." = "Uso de GPU, leído cada segundo mientras se muestra. Windows: el motor más ocupado entre todos los programas. Linux: NVIDIA NVML, después amdgpu y después tiempo del cliente DRM. DRM mide el uso del juego y lo indica con juego; las otras fuentes de Linux miden todo el dispositivo. Las lecturas que faltan indican No disponible."

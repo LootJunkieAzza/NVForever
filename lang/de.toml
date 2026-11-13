@@ -6,15 +6,18 @@
 name = "Deutsch"
 
 [words]
+# [design, #2200; engine/nvf-play/src/pause.rs] NVForever's device selection.
+"Automatic Input Switching" = "Automatischer Eingabegerätewechsel"
+"On: a controller button or a stick or trigger past its dead zone selects Controller; a key or mouse click selects Keyboard and Mouse. First release the current device's buttons and centre its sticks/triggers, then press again to switch on a later frame. Only the switching press is ignored; later holds/repeats and all releases work. Mouse motion does not switch. Off: choose Input Device manually. Saved in [Controls] of NVForever.ini." = "Ein: Eine Controllertaste oder ein Stick oder Trigger jenseits der Totzone wählt den Controller; eine Taste oder ein Mausklick wählt Tastatur und Maus. Zuerst die Tasten des aktuellen Geräts loslassen und Sticks/Trigger in die Ruheposition bringen, dann in einem späteren Frame erneut drücken. Nur der auslösende Tastendruck wird ignoriert; weiteres Halten, Wiederholen und jedes Loslassen funktionieren. Mausbewegungen wechseln nicht. Aus: Eingabegerät manuell wählen. Gespeichert in [Controls] der NVForever.ini."
 "Dialogue voice" = "Stimmen im Dialog"
 "On: lines are spoken. Off: they are silent from the next line on, and still last as long as their sound. (--no-voice)" = "An: Zeilen werden gesprochen. Aus: ab der nächsten Zeile stumm, sie dauern aber so lange wie ihr Ton. (--no-voice)"
 "Gameplay" = "Spiel"
 "Turn to each other in dialogue" = "Im Dialog einander zuwenden"
 "On: at the start of a conversation the actor turns to the player and the view turns to the actor. (--no-dialogue-look)" = "An: Zu Beginn eines Gesprächs dreht sich die Figur zum Spieler und der Blick zur Figur. (--no-dialogue-look)"
 "Bring the view back when choices appear" = "Blick bei Antworten zurückholen"
-"On: each time the choices come up the view returns to the actor. Off: only the opening turn; the view is yours for the rest of the conversation. Needs the turn above. (--dialogue-recentre)" = "An: Jedes Mal, wenn die Antworten erscheinen, kehrt der Blick zur Figur zurück. Aus: nur die erste Drehung; danach gehört der Blick Ihnen. Braucht die Drehung darüber. (--dialogue-recentre)"
+"On: with \"Close in on the speaker in dialogue\" off, after you look away the view returns to the speaker when choices appear. Needs \"Turn to each other in dialogue\". (--dialogue-recentre)" = "An: Ist „Im Dialog an den Sprecher heran“ aus, kehrt der Blick nach dem Wegschauen zum Sprecher zurück, wenn Antworten erscheinen. Benötigt „Im Dialog einander zuwenden“. (--dialogue-recentre)"
 "Close in on the speaker in dialogue" = "Im Dialog an den Sprecher heran"
-"On: in a conversation the view narrows onto the speaker, with what is behind them out of focus; from third person the camera comes to the eyes. Off: the view stays as it is. (--no-dialogue-zoom)" = "An: Im Gespräch verengt sich der Blick auf den Sprecher, der Hintergrund wird unscharf; aus der dritten Person rückt die Kamera auf Augenhöhe. Aus: der Blick bleibt, wie er ist. (--no-dialogue-zoom)"
+"On: in a conversation the view narrows onto the speaker, with what is behind them out of focus; from third person the camera comes to the eyes. The view stays on the speaker and the mouse moves only the cursor. Off: no close-up; you can look around. (--no-dialogue-zoom)" = "An: Im Gespräch verengt sich der Blick auf den Sprecher, der Hintergrund wird unscharf; aus der dritten Person rückt die Kamera auf Augenhöhe. Der Blick bleibt beim Sprecher, die Maus bewegt nur den Mauszeiger. Aus: keine Nahsicht; Sie können sich umsehen. (--no-dialogue-zoom)"
 "Goodbye hint" = "Hinweis „Goodbye“"
 "On: while a conversation offers a Goodbye choice, \"[Tab] Goodbye\" stands at the left of the dialogue box. Off: the words are hidden; Tab still says goodbye." = "An: Solange ein Gespräch eine Goodbye-Antwort bietet, steht „[Tab] Goodbye“ links neben dem Dialogfenster. Aus: der Hinweis ist ausgeblendet; Tab verabschiedet trotzdem."
 "Aim assist" = "Zielhilfe"
@@ -299,3 +302,9 @@ name = "Deutsch"
 "Fast" = "Schnell"
 "Smooth" = "Weich"
 "Temporal" = "Zeitlich"
+
+# [design, #2249] Overlay availability and source scope (perf_overlay/readings.rs, settings.rs).
+"Not available" = "Nicht verfügbar"
+"game {percent}%" = "Spiel {percent}%"
+"Machine and game CPU use, read once a second while shown. Windows uses performance counters; Linux uses /proc. Missing machine readings say Not available. Game use is cores kept busy: 1.0 is one full core." = "CPU-Auslastung des Rechners und des Spiels, einmal pro Sekunde bei sichtbarer Anzeige. Windows nutzt Leistungsindikatoren, Linux /proc. Fehlende Rechnerwerte erscheinen als Nicht verfügbar. Die Spielauslastung zählt belegte Kerne: 1.0 ist ein vollständig belegter Kern."
+"GPU use, read once a second while shown. Windows: busiest engine across programs. Linux: NVIDIA NVML, then amdgpu, then DRM client time. DRM reads game use and says game; the other Linux sources read whole-device use. Missing readings say Not available." = "GPU-Auslastung, einmal pro Sekunde bei sichtbarer Anzeige. Windows: am stärksten ausgelastete Engine aller Programme. Linux: NVIDIA NVML, dann amdgpu, dann DRM-Clientzeit. DRM zeigt die Spielauslastung mit Spiel an; die anderen Linux-Quellen messen das ganze Gerät. Fehlende Werte erscheinen als Nicht verfügbar."

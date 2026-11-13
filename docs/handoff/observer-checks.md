@@ -1910,3 +1910,33 @@ Fallout Behavior, Weapon Drawn, Continue During Combat).
      MoveTo it 2,000 units off, and sample its position for 60 s: does it walk back to the
      creation spot and wander there, or sandbox where it now stands? And
      `GetStartingPos X` on it before and after the move.
+
+## Added 2026-11-12 (dialogue zoom lock, issue #2254)
+
+121. **Does the original keep the camera on the speaker throughout dialogue, and can
+     the mouse turn the view?** (P2; dialogue-play.md §8.) Players report a locked camera
+     [hypothesis: player reports, not captured]. NVForever's dialogue zoom locks the view
+     and follows the face; without the zoom the player looks around freely [owner
+     decision 2026-11-13, #2254]; the split stays whatever the answer, which informs the
+     zoom's framing and follow. Record a conversation held beyond five seconds, first with
+     no input as the speaker finishes turning and idles, then moving the mouse during a
+     line and while choices wait.
+     Does the view keep following the face as the actor steps or walks? Does mouse
+     motion move only the cursor, or also the view? Repeat across a choices-to-line
+     transition without touching the mouse; record any camera motion on cursor capture.
+
+## Added 2026-11-12 (Lost fighters, issue #2010)
+
+122. **Why do some fighters remain in COMBAT for minutes without searching?** (P2;
+     alert.md section 2.) [observed: issue #2010 capture, 2026-11-10] Three placed Fiends
+     detected the player for 4.5 real seconds; after a 2,500-unit player move two
+     remained IsInCombat 1, procedure COMBAT, for the remaining 235 real seconds,
+     stationary with no reported target; the third ended combat immediately. In
+     contrast, eight actors ended combat 1.1-11.9 real seconds after detection loss
+     [observed: npc-behaviour-compare.md section 11]; later timer experiments are in
+     sections 15.6 and 16.1. Repeat with hostile actors placed by the data, both walking
+     away and teleporting, recording GetDetected, GetCombatTarget, IsInCombat,
+     procedure, positions, combat allies and the timer settings. Do stationary survivors
+     retain a target or an ally's fight, and do any actually complete searches? Our
+     two-sweep design and 300 s stall bound do not assert parity with those durations
+     [design, #2010]; relate any answer to observer check 6's target-retention question.
