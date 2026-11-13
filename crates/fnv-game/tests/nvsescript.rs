@@ -1,7 +1,7 @@
 //! NVSEScript units run (#2275; script-compiler.md §8.2): the extender's second language,
 //! compiled through the first grammar, gives the values its page documents.
 
-mod common;
+use crate::common;
 
 use common::*;
 use fnv_esm::{LoadOrder, Plugin, Schema};
