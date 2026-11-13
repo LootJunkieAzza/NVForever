@@ -1752,3 +1752,20 @@ fn typeof_does_not_hide_invalid_indexing_or_direct_missing_access() {
         assert!(error.is_err(), "{expression}: {error:?}");
     }
 }
+
+/// `*` with a space before and a name right after unboxes the argument
+/// (`Ar_Size *aKeybinds`, keybinder's ConstructModAddedJson.gek); `a * 2` still multiplies.
+#[test]
+fn a_spaced_star_before_a_name_is_the_unbox_prefix() {
+    let h = run("array_var a\narray_var b\nint n\nint m\nbegin GameMode\nlet a := ar_List 1, 2, 3\nlet b := &a\nif eval (1 + (Ar_Size *b) * 2) == 7\nlet n := 5\nendif\nlet m := (Ar_Size a) * 2\nend");
+    assert_eq!(h.0[&3], Value::Num(5.0));
+    assert_eq!(h.0[&4], Value::Num(6.0));
+}
+
+/// A quoted hex FormID as the calling reference is that form [observed: AguaFria.esm
+/// ships `"171B39".AddItemAlt …` with bytes that call on 0x00171B39, #2275].
+#[test]
+fn a_quoted_hex_formid_calls_on_that_form() {
+    let (c, _) = build("begin GameMode\neval \"1003000\".Activate player\nend");
+    assert!(c.refs.contains(&RefSlot::Form(DOOR)), "{:?}", c.refs);
+}
