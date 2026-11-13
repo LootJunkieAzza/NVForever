@@ -1954,3 +1954,45 @@ Fallout Behavior, Weapon Drawn, Continue During Combat).
      retain a target or an ally's fight, and do any actually complete searches? Our
      two-sweep design and 300 s stall bound do not assert parity with those durations
      [design, #2010]; relate any answer to observer check 6's target-retention question.
+
+## Added 2026-11-13 (the extender lab's engine sets, #2131, #2133, #2135)
+
+From the owner's save nvfairport (the airport runway, the player at 37000, −117160, 6057,
+heading 75) with NVFExtProbe.esp loaded, as the jip-probes sets run.
+
+123. **Does an explosion the player places hurt the player, and what decides it?** (P3;
+     jip-hit-info.md §2, #2131.) The jip-hits set registers eleven SetOnHitEventHandler
+     lambdas on the player, then `player.PlaceAtMe MineFragExplosion` (0x7078B). In the
+     2026-11-08 capture (the golden) nothing fired and Health stayed 1200; on 2026-10-26 the
+     same explosion fired twice and took 100 [observed]. NVForever: one hit, about 75 damage.
+     To check: Health and OnHit right after and 60 frames later; then the same explosion
+     placed from a marker beside the player instead of from the player [hypothesis: who
+     places the explosion owns it, or it went off after the job's 35 frames].
+124. **The player's pitch at the save's place** (P3; #2135.) GetReticleRange read 9384 in
+     the original, and after `player.SetAngle X 80` GetAngle X read 22.7151, while the
+     save's place rotation x reads 0 [observed: fnv_save::fos]. To check: player.GetAngle X
+     right after loading, with no input; then after SetAngle X 80 and SetAngle X −80 [hypothesis:
+     the camera's pitch is kept outside the place record, or SetAngle X is clamped].
+125. **What did GetP2PRayCastRange pass through above the runway?** (P3; #2135.) From 100
+     above the player to 1000 below, it read 998 in the original; NVForever hits the runway
+     (100). To check: the same cast 200 units off the runway over plain ground [hypothesis:
+     the cast leaves out the runway's static as it leaves out terrain, engine1].
+126. **The case of GetPlayingAnimSequencePaths' paths** (P3; #2133.) On the player the
+     first slot reads `Characters\_1stPerson\mtidle.kf` [observed]: mixed case, no
+     Locomotion folder. To check: the same on two NPCs (one standing, one walking) and on
+     the player in third person, beside the clips' names as the BSA stores them and as the
+     IDLE records spell them.
+
+## Added 2026-11-13 (voice types without Allow Default Dialog, #2378)
+
+127. **Do a quest's conditions open its lines to a voice type without Allow Default
+     Dialog?** (P1; #2378, actor-flags.md §9.) Ours since #2378: yes [hypothesis from the
+     data: ED-E's greetings, the securitrons' "Engaging target." and the first-generation
+     super mutants' death lines have no conditions of their own, only their quests name
+     the speaker]. One consequence to check: the Generic quest's conditions list
+     FemaleAdult11, so Julie Farkas (Old Mormon Fort) now has Generic's Goodbye
+     0x00177392 ("...") at her top level, where ours offered none before (#1595). Talk to
+     Julie Farkas and record her topic list: is a Goodbye offered at the top level, and
+     what does she say on it? The same for one actor each of MaleAdult10-12 and
+     FemaleAdult12 without a Goodbye line of their own. If she offers none, the gate
+     takes a quest's GetIsID (and what else?) but not its voice-type list.

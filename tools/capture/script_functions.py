@@ -181,6 +181,16 @@ def _truthy(v):
     return v.strip().lower() in ("y", "yes", "true", "1")
 
 
+def param_type(raw):
+    """The argument's type word(s) only. A page may follow the type with its own table
+    (`int == HUD Flags == kActionPoints = 0x1,// BIT - 0 ...`): that is page text, not a
+    type, and the catalogue does not take it over (extender-compat.md §4.1 item 2)."""
+    if raw is None:
+        return None
+    t = re.split(r"==|//|=", raw, maxsplit=1)[0].strip()
+    return t or None
+
+
 def arg_kind(raw):
     """Map the wiki's free-form argument type to a small vocabulary (raw is kept too)."""
     t = (raw or "").lower().replace(" ", "")
@@ -427,7 +437,7 @@ def parse_page(title, text):
     params = []
     for m in re.finditer(r"\{\{\s*FunctionArgument(.*?)\}\}", f.get("arguments", ""), re.S):
         af = template_fields(m.group(1))
-        raw = plain(af.get("Type", "")) or None
+        raw = param_type(plain(af.get("Type", "")) or None)
         # `{{FunctionArgument |Name = |Type = }}`: the page's empty placeholder for a
         # function that takes nothing (GetCallingScript, KillAll2, ...), not an argument.
         if raw is None and not plain(af.get("Name", "")):
