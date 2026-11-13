@@ -1899,9 +1899,21 @@ Fallout Behavior, Weapon Drawn, Continue During Combat).
      "visible" 0`, reading ArrowUp, ArrowDown and Option36 before and after in one script;
      and `5 23 24 "_enable" 1` reading Mod23 and SubMenu1.
 
+## Added 2026-11-12 (created actors' editor location, issue #2278)
+
+120. **Where is a created actor's editor location?** (P2; crates/fnv-ai/src/goal.rs
+     `editor_place_of`.) NVForever takes the cell and position where a PlaceAtMe'd or
+     spawned reference was created as its editor location [hypothesis], so its packages
+     near the editor location (DefaultSandboxEditorLocation256/512, the player reports'
+     spawned coyotes and Legion recruits) have a place. To check: PlaceAtMe a CrCoyote
+     (DefaultSandboxEditorLocation512) beside the player at the Goodsprings coyotes' spot,
+     MoveTo it 2,000 units off, and sample its position for 60 s: does it walk back to the
+     creation spot and wander there, or sandbox where it now stands? And
+     `GetStartingPos X` on it before and after the move.
+
 ## Added 2026-11-12 (dialogue zoom lock, issue #2254)
 
-119. **Does the original keep the camera on the speaker throughout dialogue, and can
+121. **Does the original keep the camera on the speaker throughout dialogue, and can
      the mouse turn the view?** (P2; dialogue-play.md §8.) Players report a locked camera
      [hypothesis: player reports, not captured]. NVForever now follows and locks while
      zoomed by default, with an optional free-look setting [design, #2254]. Record a

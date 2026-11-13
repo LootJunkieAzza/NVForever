@@ -141,6 +141,19 @@ groups FalloutNV.esm's scripts play on which objects.
     and `jukeboxclean01.nif` go by the same rule.
   - Without `--play` (no runtime) nothing is driven: idles play, Open/Close models
     keep their stored look.
+- **Other activators open and close like doors** (issues #2231, #2232): an activator
+  that is not a radio receiver (no ACTI RNAM) changes its open state with SetOpenState
+  and with each default activation (a script's `Activate`, or the player's when no
+  OnActivate block decides), and the change asks for its **Open** or **Close** group
+  as PlayGroup asks one (`fnv_game::Game::set_ref_open`): played once and held at its
+  end, the collision following it, its sound keys heard, shown so when drawn again
+  (§5.3). GetOpenState reads 1 or 3 by the state. A model without the sequence plays
+  nothing [hypothesis: an activator with Open and Close works like a door; observed in
+  the data: Fallout 3's Overseer terminal opens the tunnel with `SetOpenState 1` on the
+  desk `VRmOverseerDesk01` (Open 10 s, sound key OBJOverseerDeskOpen; Close 6.6 s), and
+  the vault door control pod `CG04Vault101ControlPodScript` activates its linked
+  `VaultGearDoor` (Open 25 s), whose script runs the default activation for anyone but
+  the player]. Log: `activator: <ref> opens|closes (its Open|Close sequence)`.
 - Log: `activator: <ref> (<base>) on|off: plays Open (0.67 s) | plays its idle | holds
   its idle, lights dark, unlit shapes black | keeps its stored look`, and at exit `activator summary: N
   receivers drawn with an on/off look; switched on N times, off N times while drawn`.
@@ -153,8 +166,9 @@ groups FalloutNV.esm's scripts play on which objects.
 
 ## 4. Not built, and questions for captures
 
-- Not built: activation of a non-receiver activator playing a group (which group the
-  "simple objects that play animations when activated" play is not documented);
+- Not built: activation of a non-receiver activator playing a group other than Open or
+  Close (which group the "simple objects that play animations when activated" play is
+  not documented; Open/Close: §3);
   `LoopGroup` (§5); the slot machines' "Off"; `NiAlphaController`, `NiVisController`,
   `SPEC` colour, texture scale and rotate, morph and particle controllers in sequences;
   controllers outside sequences; the Open/Close sound keys (none on the receivers).

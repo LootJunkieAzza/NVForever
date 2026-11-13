@@ -496,7 +496,7 @@ original's values, unless a line carries another tag. What is known of the origi
   player moves the view, with no 1.6 s expiry. With zoom off, only the opening ease
   happens; mouse input still drops it immediately (`Ease::step`).
   The original is reported to keep the view on the speaker [hypothesis: player reports,
-  not captured]; observer check 119 asks about both tracking and mouse input.
+  not captured]; observer check 121 asks about both tracking and mouse input.
 - **Choices in free-look modes.** After mouse takeover, the view does not come back
   by itself [design: `dialogue_look::face_speaker`]. **Owner decision 2026-10-10:**
   "never come back i just want the initial look at npc to happen then allow the player
@@ -911,7 +911,7 @@ SayTo from the speaker's script.
 
 ### 9.4 Checks (2026-10-11)
 
-- `cargo test -p fnv-game --test dialogue lines_said_to_someone_turn_the_two_to_each_other`:
+- `cargo test -p fnv-game --test integration dialogue::lines_said_to_someone_turn_the_two_to_each_other`:
   SayTo with and without the flag, Say, a conversation between actors with and without
   `headTrack` 0 (and its reply).
 - Prospector Saloon, `--play`, Sunny Smiles (`SunnyRef`) saying GREETING lines by the test

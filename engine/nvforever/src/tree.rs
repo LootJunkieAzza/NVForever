@@ -555,7 +555,7 @@ fn bounds(points: impl Iterator<Item = [f32; 3]>, pad: f32) -> Aabb {
 pub fn spawn(commands: &mut Commands, parent: Entity, v: &TreeVisual, rt: Mat4, extra: impl Bundle + Clone) -> usize {
     let t = Transform::from_matrix(rt * Mat4::from_scale(Vec3::splat(v.scale)));
     for p in &v.parts {
-        let common = (Mesh3d(p.mesh.clone()), t, p.aabb, NoAutoAabb, extra.clone());
+        let common = (Mesh3d(p.mesh.clone()), t, p.aabb, NoAutoAabb, extra.clone(), crate::shadow_rate::TreePart);
         match &p.material {
             PartMaterial::Bark(m) => {
                 commands.entity(parent).with_child((common, MeshMaterial3d(m.clone())));

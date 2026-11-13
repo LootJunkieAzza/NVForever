@@ -3,7 +3,7 @@
 //! the engine's part played by the test: the scene mirror's tree with what the engine
 //! tells of each node, the camera's place, the hit point.
 
-mod common;
+use crate::common;
 
 use common::*;
 use fnv_esm::{LoadOrder, Plugin, Schema};
