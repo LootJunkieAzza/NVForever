@@ -1449,6 +1449,26 @@ expect = [
 ]
 
 [[scenario]]
+name = "restrained-dialogue-package"
+source = "issue #2309: a restrained actor's Dialogue package still starts its conversation, without moving (fnv_ai begin_in_place, step_actor_inner) [documented: GECK wiki SetRestrained, restrained actors still go into dialogue]"
+note = "Hidden Valley bunker L2: the console runs the end script of Hardin's line INFO 001633C9 (both restrained, controls off, the trigger 000AD6A1's HardinTraining set to 1); its GameMode block moves both to the markers 001633EF/001633EE after 2 s and gives Hardin HVHardinPowerArmorTrainingPackage (Dialogue, PlayerRef within 200) after 4 s. His line 001633C0 gives the controls back (begin script) and releases both (end script)"
+areas = ["ai", "dialogue-packages"]
+paths = ["crates/fnv-ai/src/carry.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_CONSOLE = "6:player.setrestrained 1;000E2F88.setrestrained 1;disableplayercontrols;set 000AD6A1.hardintraining to 1;6.5:close;64:player.getrestrained;000E2F88.getrestrained;player.hasperk 00058FDF;64.5:close" }
+args = ["--cell", "HiddenValley02", "--play", "--pos=3300,-3300,15560", "--npc-packages", "000E2F88", "--no-voice"]
+run_seconds = 72
+order = [[
+  { re = 'player controls: .*disabled by scripts', label = "the training holds the player" },
+  { re = 'dialogue: conversation with .* started \(topic HardinPowerArmorTraining\)', label = "restrained Hardin's Dialogue package opens the conversation" },
+  { re = 'player controls: all enabled', label = "his line gives the controls back" },
+  { re = 'console: GetRestrained on player >> 0\.00', label = "the player is released" },
+]]
+expect = [
+  { re = 'console: GetRestrained on EdgarHardinREF >> 0\.00', label = "Hardin is released" },
+  { re = 'console: HasPerk on player >> 1\.00', label = "the player has Power Armor Training" },
+]
+
+[[scenario]]
 name = "crucified-stay"
 source = "owner's playtest list 7 item 34: the crucified Powder Gangers of Nipton get on their crosses (a Travel package to the linked cross, goal::package_furniture) and stay (their script restrains them on it)"
 areas = ["ai", "furniture"]
