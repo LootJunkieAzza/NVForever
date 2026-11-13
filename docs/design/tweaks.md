@@ -653,8 +653,8 @@ game's Data folder, read-only).
 | Status | Count |
 |---|---|
 | done | 567 |
-| to do | 31 |
-| unsure, skipped | 19 |
+| to do | 28 |
+| unsure, skipped | 22 |
 | n/a | 18 |
 | skipped: fix | 10 |
 
@@ -801,17 +801,17 @@ game's Data folder, read-only).
 | `bWeightlessWornPowerArmor` | done |  | 3 | Worn Power Armor Weighs Nothing (weightless; the scale and requirement options not built) |
 | `iMaxCharacterLevel` | done |  | 1 | Level Cap (0 to 100; no add-on levels) |
 | `iPerksPerLevel` | done |  | 1 | Perks per Level (1 to 5) |
-| `bHiddenFragsFix` | to do | yes |  | NPCs' own unplayable explosives are hidden from the pickpocket list |
 | `bMoreFrequentNPCLightUpdates` | unsure, skipped | yes | 1 | NVForever lights actors its own way; unclear what to change |
 | `bCharacterRadiation` | to do |  | 1 | not built: only the player takes environment radiation |
 | `bHipFireAnimsWhileScoped` | unsure, skipped |  |  | depends on alternate animations |
 | `bNoLockEncounterZoneLevels` | unsure, skipped |  |  | encounter-zone level locking not yet checked in NVForever |
 | `bNPCsDropLiveGrenades` | to do |  |  | not built: NPC grenades have no in-hand phase |
 | `bPreventRepairIfNotAtWorkbench` | to do |  |  | workbenches are activators whose own scripts open the recipe menu; nothing marks one for the crosshair |
-| `bRunAndGunAPInCombatOnly` | to do |  |  | not built: no run-and-gun AP rule |
 | `bSneakingDoesntForcePowerAttacks` | unsure, skipped |  |  | depends on separate animations |
 | `bStrengthAffectsAllThrowables` | unsure, skipped |  |  | how fThrowingStrengthPenalty shortens a throw is not documented (the GECK wiki export names the setting but has no page for it), and NVForever applies it to no throw yet |
 | `bUseArmorRepairKitsInRepairMenu` | unsure, skipped |  |  | the masters have no armour repair kit, and nothing in the data marks a mod's item as one or says how much it repairs |
+| `bRunAndGunAPInCombatOnly` | unsure, skipped |  |  | what fActionPointsRunAndGunMult does (FalloutNV.esm sets it) is documented nowhere we can read, so there is no rule to limit to combat |
+| `bHiddenFragsFix` | unsure, skipped | yes |  | the readme's fragging an NPC's equipped unplayable explosive is not described anywhere we can read (what the player does to it, what follows); NVForever's planting puts the player's own explosive in a pocket (crate::pickpocket) |
 
 ### Combat
 
@@ -1173,11 +1173,11 @@ game's Data folder, read-only).
 | `bAmmoLabelUseLongName` | unsure, skipped |  | 1 | needs a UI mod |
 | `bContainersShowEquippedAmmo` | to do |  |  | not built: ammo is never equipped |
 | `bControllerBackButtonDoesntClosePipBoy` | to do |  |  | unsure which pad button is meant: East (B) works as Esc in every menu, View/Select opens nothing there |
-| `bCustomHackingAnswerLength` | to do |  | 8 | the readme gives no defaults and does not say how the attempts are worked out |
 | `bCustomPopupIcons` | to do |  | 17 | per-kind icons at each message |
 | `bLocalMapRespawnedCellIndicator` | to do |  | 2 | not built: the local map has no cell grid |
 | `bNoteMenuShowSeparateMenu` | unsure, skipped |  | 1 | needs another mod (Book Menu Restored) |
 | `bShowInventorySortButton` | unsure, skipped |  | 11 | needs the plugin's own menu XML |
+| `bCustomHackingAnswerLength` | unsure, skipped |  | 8 | the readme gives no defaults and does not say how its options change the attempts or the words; built from it, every figure would be a guess |
 
 ### Hotkeys
 
