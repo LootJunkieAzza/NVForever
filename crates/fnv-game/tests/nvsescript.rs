@@ -84,6 +84,13 @@ fn lambdas_are_called_through_their_variable() {
     // `rCallback(10);`; the single-line form returns its value.]
     assert_eq!(num("ref f = fn (int x) -> x * 2;
 return f(10) + f(5);"), 30.0);
+    // A lambda writes its maker's variables [documented: Lambda, "They can access and
+    // modify all variables defined in the parent script"].
+    assert_eq!(num("int c = 1;
+ref h = fn (int x) -> c += x;
+h(10);
+h(5);
+return c;"), 16.0);
     assert_eq!(num("ref g = fn (int y) {
   return y * 3;
 };
