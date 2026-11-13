@@ -1968,3 +1968,17 @@ heading 75) with NVFExtProbe.esp loaded, as the jip-probes sets run.
      Locomotion folder. To check: the same on two NPCs (one standing, one walking) and on
      the player in third person, beside the clips' names as the BSA stores them and as the
      IDLE records spell them.
+
+## Added 2026-11-13 (voice types without Allow Default Dialog, #2378)
+
+127. **Do a quest's conditions open its lines to a voice type without Allow Default
+     Dialog?** (P1; #2378, actor-flags.md §9.) Ours since #2378: yes [hypothesis from the
+     data: ED-E's greetings, the securitrons' "Engaging target." and the first-generation
+     super mutants' death lines have no conditions of their own, only their quests name
+     the speaker]. One consequence to check: the Generic quest's conditions list
+     FemaleAdult11, so Julie Farkas (Old Mormon Fort) now has Generic's Goodbye
+     0x00177392 ("...") at her top level, where ours offered none before (#1595). Talk to
+     Julie Farkas and record her topic list: is a Goodbye offered at the top level, and
+     what does she say on it? The same for one actor each of MaleAdult10-12 and
+     FemaleAdult12 without a Goodbye line of their own. If she offers none, the gate
+     takes a quest's GetIsID (and what else?) but not its voice-type list.

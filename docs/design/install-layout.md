@@ -16,6 +16,10 @@ The home is beside the original game's own `My Games\FalloutNV` (owner request
 2026-10-16), never inside it. The cache stays in Local AppData [our choice]: it can grow to
 gigabytes and Documents is often synced (OneDrive).
 
+The program folder is written by NVForever only on the player's Download DLSS... in the
+settings: the DLSS folder `<program>\dlss\` (or `NVF_DLSS_DIR`), through a staging folder
+beside it ([dlss-upscaling.md](dlss-upscaling.md), "Download"), never the game's folder.
+
 Never touched at all: the original game's user folder
 `%USERPROFILE%\Documents\My Games\FalloutNV` (its `Fallout.ini`, `FalloutPrefs.ini`,
 `FalloutCustom.ini` and saves) and its plugin list `%LOCALAPPDATA%\FalloutNV\plugins.txt`
