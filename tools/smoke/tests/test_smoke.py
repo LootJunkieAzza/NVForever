@@ -474,7 +474,8 @@ class RequiresTests(unittest.TestCase):
         """Every DLSS hardware scenario waits for NVF_DLSS_DIR and inherits it; dlss-no-files
         runs everywhere on the empty fixture, which holds none of DLSS's four files."""
         suite = load(HERE / "scenarios.toml")
-        dlss = {s.name: s for s in suite.scenarios if s.name.startswith("dlss-")}
+        # The download's scenarios name folders of their own (test_repo_dlss_download_scenarios).
+        dlss = {s.name: s for s in suite.scenarios if s.name.startswith("dlss-") and not s.name.startswith("dlss-download-")}
         self.assertIn("dlss-no-files", dlss)
         self.assertGreaterEqual(len(dlss), 9)
         for name, s in dlss.items():
@@ -489,6 +490,28 @@ class RequiresTests(unittest.TestCase):
         self.assertTrue(folder.is_dir(), folder)
         for f in ("sl.interposer.dll", "sl.common.dll", "sl.dlss.dll", "nvngx_dlss.dll"):
             self.assertFalse((folder / f).exists(), f)
+
+
+    def test_repo_dlss_download_scenarios(self):
+        """Download DLSS... (#2250): every scenario names its own DLSS folder under target/
+        whose name starts smoke-dlss- (the only folders the aid's clear empties); the ones
+        that need no network download from this machine only, the real ones wait for
+        NVF_DLSS_DOWNLOAD_REAL."""
+        suite = load(HERE / "scenarios.toml")
+        down = {s.name: s for s in suite.scenarios if s.name.startswith("dlss-download-")}
+        self.assertEqual(set(down), {"dlss-download-decline", "dlss-download-offline", "dlss-download-404",
+                                     "dlss-download-real", "dlss-download-real-restart"})
+        for name, s in down.items():
+            folder = s.env["NVF_DLSS_DIR"]
+            self.assertTrue(folder.startswith("{repo}/target/smoke-dlss-"), name)
+            if name.startswith("dlss-download-real"):
+                self.assertEqual(s.requires, ["NVF_DLSS_DOWNLOAD_REAL"], name)
+                self.assertNotIn("NVF_DLSS_DOWNLOAD_URL", s.env, name)
+            else:
+                self.assertEqual(s.requires, [], name)
+                self.assertRegex(s.env["NVF_DLSS_DOWNLOAD_URL"], r"^(http://127\.0\.0\.1:\d+|\{serve\})/", name)
+        self.assertEqual(down["dlss-download-404"].serve, {"status": 404, "body": ""})
+        self.assertEqual(down["dlss-download-real"].env["NVFOREVER_HOME"], down["dlss-download-real-restart"].env["NVFOREVER_HOME"])
 
 
 class LockTests(unittest.TestCase):
