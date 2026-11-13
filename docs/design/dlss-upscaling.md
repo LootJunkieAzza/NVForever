@@ -343,8 +343,10 @@ copying them by hand; the manual way stays ([dlss.md](../dlss.md)).
   answer's body a bound scaled by its size (a minute plus a second per 8 KiB), so a trickling
   server cannot hold the download for ever. Test aid: `NVF_DLSS_DOWNLOAD_URL`, taken only in
   developer runs (`--data` / `NVFOREVER_DATA`) and only for `http` on this machine
-  (`127.0.0.1`, `localhost`, `[::1]`), with every pin still checked. A refused redirect logs
-  only its scheme and host, never its signed path or query.
+  (`127.0.0.1`, `localhost`, `[::1]`), with every pin still checked. NVForever's own message for a refused
+  redirect names only its scheme and host, never its signed path or query; HTTP trace logging
+  of the HTTP library itself (`RUST_LOG=ureq=trace`, off by default) prints whole addresses
+  [documented: ureq 3.5.1 `src/util.rs`, its debug header and URI formatting].
 - **Every file pinned.** Each entry's size and the SHA-256 of its unpacked bytes are pinned
   in the source (`download/files.rs`: the `sl.*` hashes are the loader's `RELEASE_DLLS`;
   `nvngx_dlss.dll` 310.9.16, which the loader leaves unpinned so players may bring another
