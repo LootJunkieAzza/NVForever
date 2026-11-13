@@ -1111,3 +1111,19 @@ loaded but not played: the death camera is the owner's own design (`death_cam.rs
   may not target logs `nothing to mark under the crosshair (<ref> is not a VATS target)`.
 - Not built: thrown grenades and placed mines in flight or on the ground (projectiles,
   not placed objects).
+
+## 21. Projectiles as targets (the Tweaks tab, 2026-11-13, #1891)
+
+[design: Stewie's Tweaks' `bTargetProjectilesInVATS` and its options, our own way] With
+the Tweaks tab's Target Projectiles in V.A.T.S. on, a click marks a missile or lobbed
+projectile in flight (not a hitscan shot, beam or flame) whose path passes within 24
+units of the crosshair's line, or within 0.03 rad of it far off, nearer than what the
+line meets; the one nearest the line by angle. Not the player's own (unless V.A.T.S.
+Targets Your Own Projectiles), not thrown mines (unless Mines Too), only explosive ones
+under V.A.T.S. Ignores Non-Explosive Projectiles. The mark's chance is the usual work
+(§17) on a held weapon's size with no body part: the distance and the player's skill.
+The mark follows the projectile and is dropped when it no longer flies. A landed shot
+ends it where it is, its explosion going off there as the player's (`Combat::shoot_down`).
+With Mines Too, an armed mine lying in the world is marked as a placed object (§20) and
+the shot sets it off as any destructible. The classic style's target list still holds
+actors only.

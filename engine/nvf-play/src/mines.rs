@@ -96,6 +96,11 @@ impl Mines {
     pub fn live(&self) -> usize {
         self.live.len()
     }
+
+    /// Whether `mine` is a live mine of the loaded cells.
+    pub fn is_live(&self, mine: FormId) -> bool {
+        self.live.contains_key(&mine)
+    }
 }
 
 /// A point's distance from an actor's upright body, feet to head.

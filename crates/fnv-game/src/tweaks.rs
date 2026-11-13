@@ -413,6 +413,13 @@ pub struct Tweaks {
     /// `bVATSDequeueWeaponShotsOnDisarm`: V.A.T.S. attacks marked on an actor's weapon
     /// are dropped once it holds none.
     pub vats_drops_disarmed_shots: bool,
+    /// `bTargetProjectilesInVATS` (with its `bMines`), `bVATSTargetPlayerProjectiles`,
+    /// `bVATSIgnoreNonExplosiveProjectiles`: projectiles in flight may be marked in VATS
+    /// mode; mines too; the player's own too; only explosive ones.
+    pub vats_target_projectiles: bool,
+    pub vats_target_mines: bool,
+    pub vats_target_own_projectiles: bool,
+    pub vats_ignore_non_explosive: bool,
     /// `bVATSAutoTargetHead`: the classic V.A.T.S. selects a target's head first.
     pub vats_auto_head: bool,
     /// `bRepairRequiresWeaponSkill`: the player repairs a weapon only with Repair at
@@ -829,6 +836,10 @@ impl Default for Tweaks {
             hide_read_notes: false,
             vats_burst_stops_on_kill: false,
             vats_drops_disarmed_shots: false,
+            vats_target_projectiles: false,
+            vats_target_mines: false,
+            vats_target_own_projectiles: false,
+            vats_ignore_non_explosive: false,
             vats_auto_head: false,
             repair_needs_weapon_skill: false,
             hide_unknown_names: false,

@@ -917,6 +917,20 @@ pub struct CombatStats {
 
 /// A projectile in flight with where it left from, where it is drawn and whether it
 /// draws a tracer.
+/// A projectile in flight VATS mode may mark ([`Combat::vats_projectiles`]).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct VatsProjectile {
+    /// Its number among the drawn projectiles, the same for its whole flight.
+    pub id: u64,
+    pub at: V3,
+    /// The player's own.
+    pub by_player: bool,
+    /// It has an explosion.
+    pub explosive: bool,
+    /// A thrown mine still in the air.
+    pub mine: bool,
+}
+
 /// A grenade live now ([`Combat::live_grenades`]).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct LiveGrenade {
@@ -1247,6 +1261,36 @@ impl Combat {
                 (radius > 0.0).then_some(LiveGrenade { id: f.id, at: f.p.pos, explosion, radius, thrower: f.by.actor, age: f.p.age })
             })
             .collect()
+    }
+
+    /// The projectiles in flight VATS mode may mark under the player's Target Projectiles
+    /// in V.A.T.S. tweak (`crate::vats_mode`): missiles and lobbed ones, not hitscan
+    /// shots, beams or flames [design: docs/design/tweaks.md].
+    pub fn vats_projectiles(&self) -> Vec<VatsProjectile> {
+        self.flying
+            .iter()
+            .filter(|f| f.p.alive && !f.p.hitscan && matches!(f.p.motion, Motion::Missile | Motion::Lobber))
+            .map(|f| VatsProjectile { id: f.id, at: f.p.pos, by_player: f.by.actor == FormId::PLAYER_REF, explosive: f.p.explosion.is_some(), mine: f.p.mine })
+            .collect()
+    }
+
+    /// Where the projectile `id` is now, while it flies.
+    pub fn projectile_at(&self, id: u64) -> Option<V3> {
+        self.flying.iter().find(|f| f.id == id && f.p.alive).map(|f| f.p.pos)
+    }
+
+    /// A marked VATS shot by `by` (actor, weapon) landed on the projectile `id`: it ends
+    /// where it is, its explosion going off there, the blast `by`'s hits [design:
+    /// docs/design/tweaks.md, Target Projectiles in V.A.T.S.]. Whether it had an
+    /// explosion; `None` when it no longer flies.
+    pub fn shoot_down(&mut self, id: u64, by: (FormId, FormId)) -> Option<bool> {
+        let f = self.flying.iter_mut().find(|f| f.id == id && f.p.alive)?;
+        f.p.alive = false;
+        let (explosion, at) = (f.p.explosion, f.p.pos);
+        if let Some(x) = explosion {
+            self.boom.push((x, at, Some(Cause { actor: by.0, weapon: by.1 }), None));
+        }
+        Some(explosion.is_some())
     }
 
     /// The thrown mines that came to rest since the last call (`crate::mines`).
@@ -2941,6 +2985,13 @@ pub(crate) fn fire(
     c.ejects_seen = anim.ejects;
     // VATS mode's marked shot due now: the point it goes straight at (vats-mode.md §9.1).
     let mut vats_shot = vats.as_deref_mut().and_then(|v| v.take_shot());
+    // The projectiles VATS mode's marked shots landed on end now (the player's tweak).
+    for (id, weapon) in vats.as_deref_mut().map(|v| v.take_shot_down()).unwrap_or_default() {
+        match c.shoot_down(id, (FormId::PLAYER_REF, weapon)) {
+            Some(blast) => info!("combat: VATS shot downs projectile {id}{}", if blast { ", its explosion goes off" } else { "" }),
+            None => info!("combat: VATS shot at projectile {id}: it flies no more"),
+        }
+    }
     // A throw still winding up for the mode when the mode has ended (a jump, a menu) is
     // the mode's no longer: it leaves as any throw does, where the player looks, and not
     // at the point kept for it as a VATS shot [the owner's review of #2102].

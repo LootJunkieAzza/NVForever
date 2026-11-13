@@ -296,6 +296,11 @@ struct Spot {
     landed: Option<bool>,
     /// Queued as the weapon's special attack (the classic style, vats-classic.md §9).
     special: bool,
+    /// A projectile in flight (the player's Target Projectiles in V.A.T.S. tweak): its
+    /// number in `crate::combat`; the mark's target is then `FormId(0)`.
+    projectile: Option<u64>,
+    /// That projectile no longer flies: the mark is dropped as a dead actor's.
+    lost: bool,
 }
 
 /// The weapon VATS mode was entered with.
@@ -386,6 +391,9 @@ pub struct VatsMode {
     keys: Keys,
     /// The point the shot `crate::combat` fires this frame aims at.
     shot: Option<[f32; 3]>,
+    /// Projectiles a marked shot this frame landed on, with the weapon
+    /// (`crate::combat::Combat::shoot_down`).
+    downed: Vec<(u64, FormId)>,
     /// A throw handed to `crate::combat` that has not left the hand yet (its clip winds
     /// up to the `Hit` key): since when (`now`). The firing waits for it.
     throw_held: Option<f64>,
@@ -820,6 +828,11 @@ impl VatsMode {
     /// The shot `crate::combat` is to fire now: the point it goes straight at.
     pub fn take_shot(&mut self) -> Option<[f32; 3]> {
         self.shot.take()
+    }
+
+    /// `crate::combat`: the projectiles this frame's marked shots landed on, to end.
+    pub fn take_shot_down(&mut self) -> Vec<(u64, FormId)> {
+        std::mem::take(&mut self.downed)
     }
 
     /// `crate::combat`: the throw it was handed has left the hand, or cannot.
@@ -1321,6 +1334,10 @@ struct ClassicIn<'w> {
     kill_cam: Option<Res<'w, crate::kill_cam::KillCam>>,
 }
 
+/// The combat state `update` reads: the projectiles and shots, the weapon's clip, the
+/// actors' parts and the mines.
+type CombatIn<'w> = (Option<Res<'w, Combat>>, Res<'w, WeaponAnim>, Res<'w, ActorParts>, Option<Res<'w, crate::mines::Mines>>);
+
 /// The mode's work for the frame; before `crate::combat::fire`, which fires the shot asked
 /// for ([`VatsMode::take_shot`]).
 #[allow(clippy::too_many_arguments)]
@@ -1328,7 +1345,7 @@ fn update(
     (real, time): (Res<Time<Real>>, Res<Time>),
     (state, settings): (Res<State<PlayState>>, ClassicIn),
     mut vats: ResMut<VatsMode>,
-    (combat, anim, parts): (Option<Res<Combat>>, Res<WeaponAnim>, Res<ActorParts>),
+    (combat, anim, parts, mines): CombatIn,
     mut sim: ResMut<SimState>,
     mut script: Option<ResMut<ScriptState>>,
     mut phys: ResMut<PhysState>,
@@ -1422,7 +1439,7 @@ fn update(
             }
         }
         (Phase::Marking, None) => {
-            follow(v, &phys);
+            follow(v, &phys, &combat);
             rechance(v, &combat, player.eye());
             let chosen = if v.style == VatsStyle::Classic {
                 classic_frame(v, &keys, &combat, script.as_deref_mut(), &mut sim, &mut phys, &mut player, &control, real.delta_secs(), &mut sounds)
@@ -1479,11 +1496,11 @@ fn update(
                     None => info!("vats mode: nothing selected to queue an attack on"),
                 }
             } else if keys.mark {
-                mark(v, &combat, &parts, script.as_deref_mut(), &mut sim, &mut phys, &player, &control, &mut hud, &mut sounds);
+                mark(v, &combat, &parts, mines.as_deref(), script.as_deref_mut(), &mut sim, &mut phys, &player, &control, &mut hud, &mut sounds);
             }
         }
         (Phase::Firing, None) => {
-            follow(v, &phys);
+            follow(v, &phys, &combat);
             rechance(v, &combat, player.eye());
             let dt = time.delta_secs();
             // An attack whose target has died is not played ([`AFTER_KILL`]).
@@ -1781,7 +1798,8 @@ fn drop_dead_marks(v: &mut VatsMode, script: Option<&ScriptState>, parts: &Actor
     }
     let lost_weapon = script.and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.vats_drops_disarmed_shots);
     let disarmed = |m: &fnv_combat::vats::Mark| lost_weapon && m.part == Some(WEAPON_PART) && parts.by_ref.get(&m.target.0).is_some_and(|p| p.weapon.is_none());
-    let gone: Vec<bool> = v.queue.marks().iter().map(|m| crate::combat::is_dead(script, m.target.0) || disarmed(m)).collect();
+    let lost = |k: usize| v.spots.get(k).is_some_and(|s| s.lost);
+    let gone: Vec<bool> = v.queue.marks().iter().enumerate().map(|(k, m)| lost(k) || (m.target.0 != 0 && crate::combat::is_dead(script, m.target.0)) || disarmed(m)).collect();
     if !gone.contains(&true) {
         return;
     }
@@ -1816,8 +1834,9 @@ fn drop_dead_marks(v: &mut VatsMode, script: Option<&ScriptState>, parts: &Actor
         (v.cam_led, v.cam_wait, v.cam_ask, v.cam_released) = (None, None, None, false);
     }
     let who = dropped.first().and_then(|k| v.spots.get(*k).zip(v.queue.marks().get(*k))).map_or_else(|| "its target".to_string(), |(s, m)| format!("{} {}", s.name, m.target));
-    let why = match dropped.first().and_then(|k| v.queue.marks().get(*k)) {
-        Some(m) if !crate::combat::is_dead(script, m.target.0) => "holds no weapon",
+    let why = match dropped.first().and_then(|k| v.queue.marks().get(*k).zip(v.spots.get(*k))) {
+        Some((_, s)) if s.lost => "flies no more",
+        Some((m, _)) if !crate::combat::is_dead(script, m.target.0) => "holds no weapon",
         _ => "is dead",
     };
     info!(
@@ -2037,10 +2056,17 @@ fn point_of(phys: &PhysState, actor: u32, part: Option<u8>) -> Option<[f32; 3]> 
     }
 }
 
-/// The marks follow their actors.
-fn follow(v: &mut VatsMode, phys: &PhysState) {
+/// The marks follow their actors, and their projectiles while they fly.
+fn follow(v: &mut VatsMode, phys: &PhysState, combat: &Combat) {
     let marks: Vec<_> = v.queue.marks().to_vec();
     for (m, s) in marks.iter().zip(v.spots.iter_mut()) {
+        if let Some(id) = s.projectile {
+            match combat.projectile_at(id) {
+                Some(p) => s.point = p,
+                None => s.lost = true,
+            }
+            continue;
+        }
         if let Some(p) = point_of(phys, m.target.0, m.part) {
             s.point = p;
         }
@@ -2155,7 +2181,7 @@ fn spot_on(v: &VatsMode, combat: &Combat, parts: &ActorParts, script: Option<&mu
         }),
         _ => (HitPerks::default(), Vec::new()),
     };
-    let mut spot = Spot { point, name, part: part_name, condition, base, size, perks, earlier, chance: 0.0, landed: None, special: false, damage: 0.0 };
+    let mut spot = Spot { point, name, part: part_name, condition, base, size, perks, earlier, chance: 0.0, landed: None, special: false, damage: 0.0, projectile: None, lost: false };
     if let Some(w) = v.weapon.as_ref() {
         spot.chance = chance_of(&spot, w, player.eye(), combat.vats_cone);
     }
@@ -2380,6 +2406,7 @@ fn mark(
     v: &mut VatsMode,
     combat: &Combat,
     parts: &ActorParts,
+    mines: Option<&crate::mines::Mines>,
     mut script: Option<&mut ScriptState>,
     sim: &mut SimState,
     phys: &mut PhysState,
@@ -2395,6 +2422,16 @@ fn mark(
     let mut filter = Filter { exclude_layers: layers::shot_ignores(), ..Default::default() };
     filter.exclude.extend(phys.npcs.values().map(|b| b.ch.key()));
     let hit = phys.ray(from, dir, reach, filter);
+    // A projectile in flight, under the player's tweaks, nearer than what the ray met
+    // [design: docs/design/tweaks.md].
+    let rules = script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| ProjectileRules::of(&rt.game.tweaks)).unwrap_or_default();
+    if rules.on {
+        let until = hit.as_ref().map_or(reach, |h| crate::combat::distance(from, h.point) + PROJECTILE_PICK);
+        if let Some(p) = projectile_under(&combat.vats_projectiles(), &rules, from, dir, until) {
+            mark_projectile(v, p, script, sim, player, hud, sounds);
+            return;
+        }
+    }
     // A placed object VATS may target (§20): a destructible flagged VATS Targetable, or
     // one a script's SetVatsTarget turned on.
     if let Some((object, point)) = hit.as_ref().and_then(|h| match h.owner {
@@ -2402,6 +2439,8 @@ fn mark(
         _ => None,
     }) {
         let targetable = script.as_deref_mut().and_then(|s| s.rt.as_mut()).is_some_and(|rt| with_world(rt, sim, |rt| rt.game.vats_targetable(FormId(object))));
+        // The player's tweak: a live mine lying in the world [design: docs/design/tweaks.md].
+        let targetable = targetable || (rules.mines && mines.is_some_and(|m| m.is_live(FormId(object))));
         if targetable {
             mark_object(v, object, point, script, sim, player, hud, sounds);
         } else {
@@ -2540,12 +2579,89 @@ fn mark_object(v: &mut VatsMode, object: u32, point: [f32; 3], mut script: Optio
                 (Some(shot), Some(rt)) => with_world(rt, sim, |rt| rt.game.vats_hit_perks(shot)),
                 _ => HitPerks::default(),
             };
-            let mut spot = Spot { point, name, part: "object".into(), condition: None, base: WHOLE_TO_HIT, size: SIZE_TORSO, perks, earlier, chance: 0.0, landed: None, special: false, damage: 0.0 };
+            let mut spot = Spot { point, name, part: "object".into(), condition: None, base: WHOLE_TO_HIT, size: SIZE_TORSO, perks, earlier, chance: 0.0, landed: None, special: false, damage: 0.0, projectile: None, lost: false };
             if let Some(w) = v.weapon.as_ref() {
                 spot.chance = chance_of(&spot, w, player.eye(), None);
             }
             v.stats.marks += 1;
             info!("vats mode: marked object {} {object:08X}, mark {k}; {:.0} AP reserved; {:.0}% to hit; {:.0} units", spot.name, v.queue.reserved(), spot.chance, crate::combat::distance(player.eye(), point));
+            v.spots.push(spot);
+            sounds.play(v, "UIVATSSelectTarget");
+        }
+        Err(r) => {
+            v.stats.refused += 1;
+            info!("vats mode: mark refused: {} ({} marks, {:.0} AP reserved)", r.message(), v.queue.len(), v.queue.reserved());
+            hud.show(r.message().to_string());
+            sounds.play(v, "UIVATSInsufficientAP");
+        }
+    }
+}
+
+/// How near the crosshair's line a projectile must pass to be marked: this many units,
+/// or [`PROJECTILE_CONE`] radians off it far away [design].
+const PROJECTILE_PICK: f32 = 24.0;
+const PROJECTILE_CONE: f32 = 0.03;
+
+/// Which projectiles may be marked: the player's tweaks [design: docs/design/tweaks.md].
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct ProjectileRules {
+    /// Target Projectiles in V.A.T.S.
+    pub on: bool,
+    /// Its Mines option: thrown mines in the air, and live mines lying in the world.
+    pub mines: bool,
+    /// V.A.T.S. Targets Your Own Projectiles.
+    pub own: bool,
+    /// V.A.T.S. Ignores Non-Explosive Projectiles.
+    pub explosive_only: bool,
+}
+
+impl ProjectileRules {
+    pub fn of(t: &fnv_game::tweaks::Tweaks) -> ProjectileRules {
+        ProjectileRules { on: t.vats_target_projectiles, mines: t.vats_target_projectiles && t.vats_target_mines, own: t.vats_target_own_projectiles, explosive_only: t.vats_ignore_non_explosive }
+    }
+
+    fn allows(&self, p: &crate::combat::VatsProjectile) -> bool {
+        (self.own || !p.by_player) && (self.mines || !p.mine) && (p.explosive || !self.explosive_only)
+    }
+}
+
+/// The projectile the crosshair's line (`from`, `dir`, as far as `until`) passes nearest,
+/// within [`PROJECTILE_PICK`] units or [`PROJECTILE_CONE`] of it, that `rules` allow.
+pub fn projectile_under(all: &[crate::combat::VatsProjectile], rules: &ProjectileRules, from: [f32; 3], dir: [f32; 3], until: f32) -> Option<crate::combat::VatsProjectile> {
+    let mut best: Option<(f32, crate::combat::VatsProjectile)> = None;
+    for p in all.iter().filter(|p| rules.allows(p)) {
+        let d = [p.at[0] - from[0], p.at[1] - from[1], p.at[2] - from[2]];
+        let t = d[0] * dir[0] + d[1] * dir[1] + d[2] * dir[2];
+        if t <= 0.0 || t > until {
+            continue;
+        }
+        let off = ((d[0] * d[0] + d[1] * d[1] + d[2] * d[2]) - t * t).max(0.0).sqrt();
+        if off > PROJECTILE_PICK.max(t * PROJECTILE_CONE) {
+            continue;
+        }
+        let angle = off / t;
+        if best.is_none_or(|(a, _)| angle < a) {
+            best = Some((angle, *p));
+        }
+    }
+    best.map(|(_, p)| p)
+}
+
+/// Mark the projectile `p` in flight (the player's tweak): the whole of it, its chance by
+/// the distance and the player's skill only, as small as a held weapon [design:
+/// docs/design/tweaks.md; the readme's rule, "only the distance + player skill"].
+fn mark_projectile(v: &mut VatsMode, p: crate::combat::VatsProjectile, script: Option<&mut ScriptState>, sim: &mut SimState, player: &Player, hud: &mut HudMessage, sounds: &mut Sounds) {
+    let ap_now = player_ap(script, sim).map_or(f32::INFINITY, |a| a.0);
+    let earlier = v.spots.iter().filter(|s| s.projectile == Some(p.id)).count() as u32;
+    match v.queue.push(FormId(0), None, ap_now) {
+        Ok(k) => {
+            let name = if p.mine { "mine" } else if p.explosive { "explosive" } else { "projectile" }.to_string();
+            let mut spot = Spot { point: p.at, name, part: "projectile".into(), base: WHOLE_TO_HIT, size: SIZE_HELD_WEAPON, earlier, projectile: Some(p.id), ..Default::default() };
+            if let Some(w) = v.weapon.as_ref() {
+                spot.chance = chance_of(&spot, w, player.eye(), None);
+            }
+            v.stats.marks += 1;
+            info!("vats mode: marked projectile {} ({}), mark {k}; {:.0} AP reserved; {:.0}% to hit; {:.0} units", p.id, spot.name, v.queue.reserved(), spot.chance, crate::combat::distance(player.eye(), p.at));
             v.spots.push(spot);
             sounds.play(v, "UIVATSSelectTarget");
         }
@@ -2598,6 +2714,11 @@ fn shoot(v: &mut VatsMode, i: usize, round: u32, mut script: Option<&mut ScriptS
     };
     if let Some(s) = v.spots.get_mut(i) {
         s.landed = Some(hit);
+    }
+    // A projectile marked (the player's tweak) ends where it is when the shot lands
+    // [design: docs/design/tweaks.md].
+    if let (true, Some(id), Some(w)) = (hit, v.spots.get(i).and_then(|s| s.projectile), v.weapon.as_ref().map(|w| w.id)) {
+        v.downed.push((id, w));
     }
     let outcome = format!("{chance:.0}% to hit: {} (rolled {rolled:.0})", if hit { "hit" } else { "missed" });
     v.shot = Some(aim);
@@ -3263,6 +3384,22 @@ impl Plugin for VatsModePlugin {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_projectile_near_the_crosshair_line_is_marked_by_the_tweaks() {
+        use crate::combat::VatsProjectile;
+        let p = |id, at, by_player, explosive, mine| VatsProjectile { id, at, by_player, explosive, mine };
+        let all = [p(1, [500.0, 10.0, 0.0], false, true, false), p(2, [400.0, 60.0, 0.0], false, true, false), p(3, [300.0, 2.0, 0.0], true, true, false), p(4, [200.0, 1.0, 0.0], false, false, false), p(5, [100.0, 0.0, 0.0], false, true, true)];
+        let on = ProjectileRules { on: true, ..Default::default() };
+        let pick = |r: &ProjectileRules, until| projectile_under(&all, r, [0.0; 3], [1.0, 0.0, 0.0], until).map(|p| p.id);
+        // Nearest the line by angle; not the player's own, not a mine.
+        assert_eq!(pick(&on, 1000.0), Some(4));
+        assert_eq!(pick(&ProjectileRules { explosive_only: true, ..on }, 1000.0), Some(1));
+        assert_eq!(pick(&ProjectileRules { own: true, explosive_only: true, ..on }, 1000.0), Some(3));
+        assert_eq!(pick(&ProjectileRules { mines: true, ..on }, 1000.0), Some(5));
+        // Not beyond what the ray met; 60 off at 400 is too far off.
+        assert_eq!(pick(&ProjectileRules { explosive_only: true, ..on }, 450.0), None);
+    }
+
     use super::*;
 
     #[test]

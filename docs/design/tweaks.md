@@ -612,6 +612,7 @@ unless the player binds them, so nothing changes until then.
 | Grenade indicator, Hide Grenade Indicator, No Indicator for Harmless Blasts, Mark Objects About to Explode | `bDisableGrenadeIndicator`, `bHideGrenadeIndicatorForNoDamageExplosions`, `bExplodingDestructibleIndicator` | base: `grenade_indicator` draws the menu files' `template_explosive_indicator` for each live grenade (`Combat::live_grenades`) whose blast reaches the player, on the grenade or on the view's edge pointing at it (observer check 108). The switches: `TweakSettings::no_grenade_indicator`, `grenade_indicator_skip_harmless` (explosion damage 0), `grenade_indicator_destructibles` (`Game::burning_explosives`) |
 | Repair Kits in the Repair List | `bUseWeaponRepairKitsInRepairMenu` | `fnv_game::repair` (`is_weapon_repair_kit`, `kit_condition`, the kit script's rule); `pipboy::repair::with_kits` adds the carried kits to a weapon's offer, `Session::after` gives a kit's result, Use takes one kit. The switch: `Tweaks::repair_kits_in_list` |
 | Idle vanity camera, Vanity Camera Returns to First Person | `bVanityCamReturnsToFirstPerson` | base: `vanity` starts the circling camera (`control::Orbit`) after `fVanityModeAutoDelay` (120) s without input and ends it at any input (observer check 109). The switch: `TweakSettings::vanity_returns_first`, read by `vanity::end_view` from `vanity` and from `control::read_controls`'s Toggle POV release |
+| Target Projectiles in V.A.T.S., Mines Too, Your Own Projectiles, Ignores Non-Explosive | `bTargetProjectilesInVATS`, `bVATSTargetPlayerProjectiles`, `bVATSIgnoreNonExplosiveProjectiles` | `vats_mode::projectile_under` picks from `Combat::vats_projectiles` by `ProjectileRules`; `mark_projectile` marks it (target FormId 0, `Spot::projectile`), `follow` tracks it and drops it when it ends; a landed shot asks `Combat::shoot_down`. Mines lying armed are marked as objects (`Mines::is_live`) and set off by the shot as destructibles. The switches: `Tweaks::vats_target_projectiles`, `vats_target_mines`, `vats_target_own_projectiles`, `vats_ignore_non_explosive` |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -633,8 +634,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 547 |
-| to do | 53 |
+| done | 549 |
+| to do | 51 |
 | unsure, skipped | 19 |
 | n/a | 16 |
 | skipped: fix | 10 |
@@ -760,6 +761,7 @@ game's Data folder, read-only).
 | `bSneakAttackWithoutCrouching` | done |  |  | Sneak Attacks Standing |
 | `bSpeedMultScalesJumpHeight` | done |  |  | Speed Scales the Jump (the player; NPCs do not jump) |
 | `bStealingSendsNoAlarm` | done |  |  | Quiet Theft |
+| `bTargetProjectilesInVATS` | done |  | 1 | Target Projectiles in V.A.T.S. (with Target Projectiles: Mines Too for its bMines): VATS mode marks a missile or lobbed projectile passing near the crosshair's line; a landed shot sets an explosive off where it is and ends any other; the chance is the distance and skill only. The crosshair style only: the classic style still lists actors |
 | `bUnequipWeaponMods` | done |  | 7 | already so: attached mods can be taken off and come back (item_mod detach) |
 | `bUseCustomBarterPriceMultipliers` | done |  | 13 | Barter Prices by Kind: twelve multipliers (selling and buying Armor, Weapon, Aid, Ammo, Misc, Weapon Mod) and Purified Water Unscaled |
 | `bUseCustomSniperZoomRate` | done |  | 2 | Scope Zoom Time (slider; the zoom-out option not built) |
@@ -768,7 +770,8 @@ game's Data folder, read-only).
 | `bUsingNotesRewardsXP` | done |  | 3 | Experience for Passwords (a share of the hacking XP, once; the base and skill options not built) |
 | `bVATSDequeueWeaponShotsOnDisarm` | done |  |  | V.A.T.S. Drops Shots at a Lost Weapon |
 | `bVATSHipFire` | done |  |  | V.A.T.S. Hip Fire (entered not aiming: every gun shot from the hip) |
-| `bVATSIgnoreNonExplosiveProjectiles` | done |  |  | already so: no projectile can be targeted in V.A.T.S. |
+| `bVATSIgnoreNonExplosiveProjectiles` | done |  |  | V.A.T.S. Ignores Non-Explosive Projectiles: with projectile targeting on, only those with an explosion are marked |
+| `bVATSTargetPlayerProjectiles` | done |  |  | V.A.T.S. Targets Your Own Projectiles: the player's own can be marked too |
 | `bWeaponModdingSkillRequirement` | done |  |  | Weapon Mods Need the Skill (the Pip-Boy mod list) |
 | `bWeightlessWornArmor` | done |  | 1 | Worn Armor Weighs Nothing (weightless; the scale option not built) |
 | `bWeightlessWornPowerArmor` | done |  | 3 | Worn Power Armor Weighs Nothing (weightless; the scale and requirement options not built) |
@@ -790,8 +793,6 @@ game's Data folder, read-only).
 | `bSneakingDoesntForcePowerAttacks` | unsure, skipped |  |  | depends on separate animations |
 | `bStrengthAffectsAllThrowables` | unsure, skipped |  |  | how fThrowingStrengthPenalty shortens a throw is not documented (the GECK wiki export names the setting but has no page for it), and NVForever applies it to no throw yet |
 | `bUseArmorRepairKitsInRepairMenu` | unsure, skipped |  |  | the masters have no armour repair kit, and nothing in the data marks a mod's item as one or says how much it repairs |
-| `bTargetProjectilesInVATS` | to do |  | 1 | not built: projectiles in flight are not targetable |
-| `bVATSTargetPlayerProjectiles` | to do |  |  | not built: projectiles in flight are not targetable |
 | `bVATSThrowablesUseVisibility` | to do |  |  | not built: V.A.T.S. chance has no visibility term |
 
 ### Combat
