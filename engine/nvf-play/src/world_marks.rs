@@ -434,10 +434,14 @@ fn on_screen(cam: &Camera, t: &GlobalTransform, size: Vec2, p: [f32; 3]) -> Opti
 /// The play state and the Pip-Boy (full and glance), which hide the marks.
 type PlayAndPipBoy<'w> = (Res<'w, State<PlayState>>, Option<Res<'w, crate::pipboy::PipBoy>>, Option<Res<'w, crate::pipboy::glance::Glance>>);
 
+/// The name tags' switches: on, the hidden ones, and the drinking contest's screen and
+/// win shot, which hide them.
+type TagParams<'w> = (Res<'w, NameTags>, Res<'w, HiddenTags>, Option<Res<'w, crate::drink_contest::DrinkScreen>>, Option<Res<'w, crate::drink_world::DrinkWorld>>);
+
 #[allow(clippy::too_many_arguments)]
 fn draw(
     mut commands: Commands,
-    (tags, hidden, drink, stage): (Res<NameTags>, Res<HiddenTags>, Option<Res<crate::drink_contest::DrinkScreen>>, Option<Res<crate::drink_world::DrinkWorld>>),
+    (tags, hidden, drink, stage): TagParams,
     pings: Res<Pings>,
     mates: Res<SocialMates>,
     heads: Res<crate::emotes::MateHeads>,
