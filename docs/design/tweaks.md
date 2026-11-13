@@ -627,9 +627,9 @@ game's Data folder, read-only).
 | Status | Count |
 |---|---|
 | done | 536 |
-| to do | 66 |
+| to do | 65 |
 | unsure, skipped | 18 |
-| n/a | 15 |
+| n/a | 16 |
 | skipped: fix | 10 |
 
 ### Gameplay
@@ -1016,11 +1016,11 @@ game's Data folder, read-only).
 | `bDescriptiveMarkerAddedMessage` | to do | yes |  | NVForever shows no marker-added popup |
 | `bHideGrenadeIndicatorForNoDamageExplosions` | to do | yes |  | not built: no grenade indicator |
 | `bCriticalHitMessagesIncludeLimbName` | to do |  |  | not built: no critical-hit messages |
-| `bDisableNeedsMessages` | to do |  | 4 | those messages are the game's own scripts; needs a filter by message |
 | `bExplodingDestructibleIndicator` | to do |  |  | not built: no grenade indicator |
 | `bHUDShowRegionNames` | to do |  | 1 | not built: the HUD has no region text |
 | `bHUDWeaponNameLabel` | unsure, skipped |  | 5 | needs the plugin's own menu XML |
 | `bWaterSourcesShowH2O` | to do |  | 1 | not built: water prompts carry no line |
+| `bDisableNeedsMessages` | n/a |  | 4 | NVForever shows no message when a need or radiation stage changes (`aid.rs` only logs it), and the masters hold no such MESG records [observed: FalloutNV.esm editor IDs]: nothing to turn off. Revisit if those messages are added |
 
 ### Menus
 
