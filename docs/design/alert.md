@@ -21,7 +21,7 @@ Tags as in the spec notes: [documented: source], [observed], [hypothesis], and
 | Detection events | `Game::queue_detection_event` | CreateDetectionEvent, the impacts of the player's shots |
 | Barks | `Game::detection_bark` | the Detection topics on each change and now and then while searching (§4) |
 | Script functions | same module | IsInCombat, GetCombatTarget, CreateDetectionEvent, SetAlert, GetIsAlerted (§6) |
-| Searching | `fnv_ai::alert` | actors run on their packages (`--npc-packages`) search in Alert and Lost and stand facing their target in Combat; Continue During Combat packages go on (§5; not what the original does, §5.2) |
+| Searching | `fnv_ai::alert` | actors run on their packages (`--npc-packages`) search in Alert and Lost and stand facing their target in Combat; Continue During Combat holds an actor only on the way of a Travel-kind package and on a Guard whose target is outside its radius (§5.2) |
 | How it looks | engine `alert.rs` | weapon drawn in a combat state; head turned to the alarm or the target |
 | Measuring | engine `detection.rs` | the detector's state enters the formula (alert, busy); events measured; `alert:` log lines and `alert summary` |
 
@@ -274,10 +274,18 @@ These test the engine's state handoff, not original-game timing or sandbox parit
 
 ### 5.2 Continue During Combat: the original, and the rule to build (#2155)
 
-**Built today** is the reading above: any actor on a package with the flag (but a
-teammate on a Follow package) is kept on its package in every combat state. That is
-wrong in every case measured: it is why a melee fighter such as Legate Lanius, on a
-Travel package to his marker, never reached the player.
+**Built** (#2155, `fnv_ai` alert `Ai::package_holds`): the rule below, items 1 to 4
+and 6. Until then any actor on a package with the flag (but a teammate on a Follow
+package) was kept on its package in every combat state, which was wrong in every case
+measured: it was why a melee fighter such as Legate Lanius, on a Travel package to his
+marker, never reached the player. Choices where the rule leaves room [design]: a Use
+Weapon package with the flag still holds its actor (#2120, #2145); a Guard near a
+reference (Remain Near Reference), a Guard whose post is not known and a Follow package
+of a non-teammate do not hold; "on the way" is the actor still walking its package's
+walk with the fight not yet having taken it up, so an actor that has started fighting
+is not sent back by a package choice in the middle of the fight; the post of a "near
+current location" Guard with no wander area is where the actor last stood out of a
+combat state. Item 5 (the lenient Guard) is not built.
 
 **What the flag does depends on the package type.** [documented: GECK wiki export, page
 "Combat Package Flags" (`Combat.xml`); observed: AI observer 2026-11-11 and 12,
@@ -337,10 +345,9 @@ kinder, item 5]:
    actor, follows again after). The wiki's follow radius (× 3, at least 512) is the
    measure to use if a leash is wanted there.
 
-The engine change is a later pull request for #2155; this section and the checks are
-what it builds on. Smoke scenarios it should bring: Lanius leaves `VLegateWaitPlayerMarker`
-for a hostile player and is back on it after StopCombat; a melee actor on a Guard
-package of radius 0 engages at 150 units and stands at 700.
+Smoke scenarios: `cdc-lanius-leaves-marker` (Lanius leaves `VLegateWaitPlayerMarker`
+for a hostile player and is back on it after StopCombat) and `cdc-guard-radius` (a melee
+actor on a Guard package engages a near player and stands for a far one).
 
 ## 6. What scripts see
 

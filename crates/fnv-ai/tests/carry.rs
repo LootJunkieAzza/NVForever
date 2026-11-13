@@ -2340,11 +2340,11 @@ fn continue_during_combat_keeps_the_package_going() {
         alert(&mut s, a, [100.0, 100.0, 0.0]);
     }
     s.run(30.0);
-    // The courier's package continues during combat: it walks on to cell B.
+    // The courier's package continues during combat while it is on its way: it walks on
+    // to cell B without searching; there the flag no longer holds it (alert.md §5.2).
     let steady = s.events(R_STEADY);
-    assert!(!steady.iter().any(|e| matches!(e, AiEvent::Search { .. } | AiEvent::Hold { .. })), "{steady:?}");
-    assert!(matches!(steady.last().unwrap(), AiEvent::Arrived { .. }), "{steady:?}");
-    assert!(dist(s.feet(R_STEADY), [5250.0, 5250.0, 50.0]) < 5.0);
+    let arrived = steady.iter().position(|e| matches!(e, AiEvent::Arrived { .. })).unwrap_or_else(|| panic!("{steady:?}"));
+    assert!(!steady[..arrived].iter().any(|e| matches!(e, AiEvent::Search { .. } | AiEvent::Hold { .. })), "{steady:?}");
     // The traveller's does not: it breaks off to search and never gets there.
     let travel = s.events(R_TRAVEL);
     assert!(travel.iter().any(|e| matches!(e, AiEvent::Search { .. })), "{travel:?}");
@@ -4682,23 +4682,22 @@ fn sandbox_interrupt_warning_cancels_a_walk_but_preserves_an_active_seat() {
     }
 }
 
+/// Continue During Combat does not hold a Sandbox package's actor ("the flags do not
+/// work" for Sandbox, GECK wiki "Combat Package Flags"; alert.md §5.2, #2155): it leaves
+/// its seat and fights as any other actor.
 #[test]
-fn sandbox_interrupt_continue_during_combat_preserves_pending_and_active_actions() {
+fn sandbox_continue_during_combat_does_not_hold() {
     let mut f = fixture();
     f.data.package_defs.get_mut(&FormId(P_SB_OBJECTS)).unwrap().flags |= flags::CONTINUE_DURING_COMBAT;
     for travelling in [true, false] {
         let mut s = sim(&f, &[R_SB_OBJECTS]);
         sandbox_until(&mut s, R_SB_OBJECTS, Doing::Sitting(FormId(CHAIR_C)), travelling);
         let actor = FormId(R_SB_OBJECTS);
-        let saved = s.ai.agents[&actor].sandbox.as_ref().unwrap().schedule();
-        let before = doings(&s, R_SB_OBJECTS).len();
         let at = s.feet(R_SB_OBJECTS);
         fighting(&mut s, R_SB_OBJECTS, [at[0], at[1] + 100.0, at[2]]);
         s.run(10.0);
-        assert_eq!(s.ai.agents[&actor].using, Some(FormId(CHAIR_C)));
-        assert_eq!(doings(&s, R_SB_OBJECTS).len(), before, "finish the original choice without restarting it");
-        assert_eq!(s.ai.agents[&actor].sandbox.as_ref().unwrap().schedule(), saved);
-        assert!(!s.events(R_SB_OBJECTS).iter().any(|e| matches!(e, AiEvent::Hold { .. } | AiEvent::Close { .. })));
+        assert_ne!(s.ai.agents[&actor].using, Some(FormId(CHAIR_C)), "travelling {travelling}");
+        assert!(s.events(R_SB_OBJECTS).iter().any(|e| matches!(e, AiEvent::Hold { .. } | AiEvent::Close { .. })), "travelling {travelling}");
     }
 }
 
@@ -6074,4 +6073,68 @@ fn a_follower_standing_within_the_slack_stays() {
     assert!(!ev.iter().any(|e| matches!(e, AiEvent::Follow { .. })), "{ev:?}");
     assert_eq!(s.ai.agents[&mate].activity, Activity::There);
     assert!((dist(s.feet(R_COMPANION), s.game.world.peek(player).unwrap().pos) - 383.0).abs() < 1.0);
+}
+
+/// Puts the player at `at` in `actor`'s cell, detected by it in Combat, with a distance
+/// to close to of 100 units (alert.md §5.2 tests).
+fn player_fights(s: &mut Sim, actor: u32, at: [f32; 3]) {
+    let cell = s.game.world.peek(FormId(actor)).and_then(|m| m.cell);
+    {
+        let p = s.game.world.get(FormId::PLAYER_REF).unwrap();
+        (p.cell, p.pos) = (cell, at);
+    }
+    fighting(s, actor, at);
+    s.game.awareness.engage.insert(FormId(actor), (100.0, 150.0));
+}
+
+/// Continue During Combat on a Travel package the actor has already arrived at: it fights
+/// as any other actor, and goes back to its place after the fight [observed: Lanius left
+/// his marker and fought, then stood on it again; a knife trooper on a stand-in-place
+/// Travel chased 2,000 units; checks 105 to 108, alert.md §5.2, #2155].
+#[test]
+fn continue_during_combat_frees_an_actor_that_has_arrived() {
+    let mut f = fixture();
+    f.data.package_defs.get_mut(&FormId(P_RADIUS)).unwrap().flags |= flags::CONTINUE_DURING_COMBAT;
+    let mut s = sim(&f, &[R_RADIUS]);
+    s.run(30.0);
+    assert_eq!(s.ai.agents[&FormId(R_RADIUS)].activity, Activity::There);
+    let stood = s.feet(R_RADIUS);
+    let target = [stood[0] + 500.0, stood[1], stood[2]];
+    player_fights(&mut s, R_RADIUS, target);
+    s.run(4.0);
+    let ev = s.events(R_RADIUS);
+    assert!(ev.iter().any(|e| matches!(e, AiEvent::Close { target, .. } if *target == FormId::PLAYER_REF)), "{ev:?}");
+    assert!(dist(s.feet(R_RADIUS), target) < 400.0, "it went for the player: {:?}", s.feet(R_RADIUS));
+    // The fight over, it goes back to its package's place.
+    s.game.awareness.actors.remove(&FormId(R_RADIUS));
+    s.run(30.0);
+    assert!(dist(s.feet(R_RADIUS), [350.0, 350.0, 0.0]) <= 150.0, "{:?}", s.feet(R_RADIUS));
+}
+
+/// Continue During Combat on a Guard: a target inside the guard radius of the post (the
+/// package radius × 1.5, at least 384) is fought; one outside is not pursued, the actor
+/// staying on its package [documented: GECK wiki "Combat Package Flags"; observed: check
+/// 106, alert.md §5.2, #2155].
+#[test]
+fn continue_during_combat_guard_pursues_only_inside_its_radius() {
+    let mut f = fixture();
+    {
+        let d = f.data.package_defs.get_mut(&FormId(P_RADIUS)).unwrap();
+        d.ty = fnv_game::package::PackageType::Guard;
+        d.flags |= flags::CONTINUE_DURING_COMBAT;
+    }
+    for (off, pursues) in [(250.0, true), (700.0, false)] {
+        let mut s = sim(&f, &[R_RADIUS]);
+        s.run(30.0);
+        let post = [350.0, 350.0, 0.0];
+        let target = [post[0] + off, post[1], post[2]];
+        player_fights(&mut s, R_RADIUS, target);
+        s.run(4.0);
+        let ev = s.events(R_RADIUS);
+        let closed = ev.iter().any(|e| matches!(e, AiEvent::Close { target, .. } if *target == FormId::PLAYER_REF));
+        assert_eq!(closed, pursues, "player {off} from the post: {ev:?}");
+        if !pursues {
+            assert!(dist(s.feet(R_RADIUS), post) <= 200.0, "it stayed at its post: {:?}", s.feet(R_RADIUS));
+        }
+    }
 }

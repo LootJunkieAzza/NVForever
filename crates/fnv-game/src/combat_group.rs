@@ -460,7 +460,7 @@ impl Game<'_> {
     /// the other actors of the loaded cells where the world has them (not drawn yet, or
     /// out of the high process) [design: #972, the original's allies reached past the
     /// actors near the player; docs/spec-notes/combat-groups.md §1].
-    fn alarm_hearers(&self, near: &BTreeMap<FormId, [f32; 3]>) -> BTreeMap<FormId, [f32; 3]> {
+    pub(crate) fn alarm_hearers(&self, near: &BTreeMap<FormId, [f32; 3]>) -> BTreeMap<FormId, [f32; 3]> {
         let mut out = near.clone();
         for r in self.package_actors() {
             if out.contains_key(&r) || !self.cell_of(r).is_some_and(|c| self.loaded_cells.contains(&c)) {

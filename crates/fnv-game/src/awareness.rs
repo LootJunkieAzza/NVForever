@@ -766,13 +766,14 @@ impl Game<'_> {
         self.current_package(actor).and_then(|p| self.package_def(&p)).is_some_and(|d| d.has(flags::NO_COMBAT_ALERT))
     }
 
-    /// Whether `actor`'s current package goes on while the actor is in a combat state
-    /// (Alert, Combat, Lost): the package flag "Continue During Combat" [hypothesis: what
-    /// the flag's name says, no source describes it; 399 of FalloutNV.esm's 4,163
-    /// packages set it, among them sniper posts, "stand in place" and "flee the scene"
-    /// packages, observed 2026-10-11]. Such an actor keeps carrying its package out
-    /// instead of searching or holding its ground (`fnv_ai`); its state, weapon and barks
-    /// are as for any other actor.
+    /// Whether `actor`'s current package has the flag "Continue During Combat" in a way
+    /// that may keep it on its package while it is in a combat state (Alert, Combat,
+    /// Lost). 399 of FalloutNV.esm's 4,163 packages set it [observed 2026-10-11]. When
+    /// it does hold the actor is the AI's to decide by the package type and where the
+    /// actor and its target are (`fnv_ai` alert, docs/design/alert.md §5.2, #2155): only
+    /// on the way of a Travel-kind package, and on a Guard while the target is outside
+    /// [`Game::guard_combat_radius`]. A held actor keeps carrying its package out instead
+    /// of searching or closing in; its state, weapon and barks are as for any other actor.
     ///
     /// Not for a teammate of the player on a Follow package: it fights as any other
     /// actor does (closes in, its combat style's radius holding it) and follows again
@@ -785,6 +786,19 @@ impl Game<'_> {
         let Some(p) = self.current_package(actor) else { return false };
         let Some((on, follow)) = self.package_def(&p).map(|d| (d.has(flags::CONTINUE_DURING_COMBAT), d.ty == crate::package::PackageType::Follow)) else { return false };
         on && !(follow && self.is_teammate(actor))
+    }
+
+    /// How far from its post a Guard package with Continue During Combat lets its actor
+    /// pursue a target: the package's location radius × fCombatGuardRadiusMult (1.5) or
+    /// fCombatGuardRadiusMin (384), whichever is higher [documented: GECK wiki export,
+    /// "Combat Package Flags"; the defaults are FalloutNV.esm's, read from the load order
+    /// when a plugin sets them; observed: two Guard packages held their trooper so,
+    /// docs/handoff/observer-checks.md check 106].
+    pub fn guard_combat_radius(&self, def: &crate::package::PackageDef) -> f32 {
+        let mult = crate::combat::setting(self, "fCombatGuardRadiusMult", 1.5) as f32;
+        let min = crate::combat::setting(self, "fCombatGuardRadiusMin", 384.0) as f32;
+        let radius = def.location.filter(|l| !matches!(l.kind, crate::package::LocationKind::InCell(_))).map_or(0, |l| l.radius.max(0));
+        (radius as f32 * mult).max(min)
     }
 
     /// The engine measured `target` from `detector` at `at` (game space): when the
