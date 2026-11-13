@@ -32,6 +32,14 @@
   typed defaults. Session setter values remain f64 for public reads, while typed
   consumers retain the existing f32/u32 representation. This is not new native
   quantization parity.
+- [documented: repository source f30fb730; observed: unchanged-source probe,
+  2026-11-13] RecordFields uses numeric_fields/enums_to_numbers before the public
+  numeric getter. The authored CSSD weapon-restrictions enum 2 therefore reads
+  as 2.0, not zero from the decoder's intermediate label. An independent run of
+  the exact failing authored fixture against the unchanged f30 reader confirmed
+  2.0 before any clone or setter. Correct both authored and copied-value test
+  expectations; preserve the runtime getter and all other fixture expectations.
+  This is repository-source compatibility evidence, not a native-engine probe.
 - [documented: current data model] Trait 40 (acrobatic dodge chance) has a public raw
   getter/setter but no CombatStyleDef consumer field. Preserve its raw behavior and
   clone value; do not claim an acrobatic-dodge AI implementation. Unconsumed flag

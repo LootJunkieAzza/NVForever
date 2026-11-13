@@ -21,12 +21,18 @@ playthrough, is gathered in [outstanding.md](outstanding.md).
   original game can settle in [observer-checks](handoff/observer-checks.md), and every
   guess is still in its spec note.
 
-Source-only candidate, checks not run: [session CSTY edits and clones](spec-notes/combat-style-session.md)
+Candidate validation incomplete: [session CSTY edits and clones](spec-notes/combat-style-session.md)
 connect public style setters and copied temporary styles to typed combat readers.
 It preserves separate raw getter defaults/precision and includes authored session
 controls; its preview refuses whole saves after temporary CSTY clone creation
 ([save policy](spec-notes/combat-style-save-preview.md)). It does not establish save persistence, unused-trait AI, native copy
 timing or complete mod compatibility.
+The initial public controls ran 9 pass/1 assertion failure: the test expected a
+raw enum value of zero, but an independent unchanged-f30 probe confirmed 2.0
+before cloning or setting. Both corresponding expectations are corrected;
+rerunning the public controls and running the internal, headless and engine-save
+controls remain pending. No complete candidate acceptance is claimed.
+
 
 Checks referred to below: the parity lab (`parity-lab/`, scenarios per layer `L1`–`L5`,
 compared with independent readers and in-game captures) and the smoke runner

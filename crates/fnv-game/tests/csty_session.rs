@@ -150,11 +150,13 @@ fn missing_raw_defaults_and_precise_setter_values_are_not_replaced_by_typed_defa
 fn authored_record_float_and_enum_getter_representations_survive_clone_copying() {
     let f = fixture(); let mut g = game(&f);
     assert_eq!(number(&mut g, "GetCombatStyleTraitNumeric OwnedDecodedStyle 0"), 1.3);
-    assert_eq!(number(&mut g, "GetCombatStyleTraitNumeric OwnedDecodedStyle 9"), 0.0, "the existing raw numeric reader does not turn a decoded enum label into a number");
+    // RecordFields::numeric_fields converts enum labels to script getter numbers.
+    // An unchanged-f30 source probe independently returned 2 before cloning/editing.
+    assert_eq!(number(&mut g, "GetCombatStyleTraitNumeric OwnedDecodedStyle 9"), 2.0, "the existing raw getter retains the normalized numeric enum");
     clone_style(&mut g, "decoded", "OwnedDecodedStyle");
     query(&mut g, "OwnedActor.SetCombatStyle (GetModLocalData \"decoded\")\nSetCombatStyleTraitNumeric OwnedDecodedStyle 0 5.7");
     assert_eq!(number(&mut g, "GetCombatStyleTraitNumeric (GetModLocalData \"decoded\") 0"), 1.3);
-    assert_eq!(number(&mut g, "GetCombatStyleTraitNumeric (GetModLocalData \"decoded\") 9"), 0.0);
+    assert_eq!(number(&mut g, "GetCombatStyleTraitNumeric (GetModLocalData \"decoded\") 9"), 2.0);
     assert_eq!(style(&g, ACTOR).cover_search_radius, 1.3_f32);
     assert_eq!(style(&g, ACTOR).weapon_restrictions, 2);
     clean(&g);
