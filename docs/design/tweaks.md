@@ -604,6 +604,7 @@ unless the player binds them, so nothing changes until then.
 | Take All Confirmation | `bTakeAllConfirmation` | `menu::model::MenuModel::take_all_confirm` (set by `tweaks::sync`): `apply` turns the first Take All of enough listed units into a status question (`confirming_take_all`); the next acting command, Take All included, ends it |
 | Repair All Confirmation | `bRepairAllConfirmation` | `repair::Open::confirming`: in `keys` a Repair All at or over the price only asks (the button's text, `View::confirming`, the tiles' `button_text` too); the next Repair All pays, a row's repair or a move takes it back |
 | Exterior and Interior Door Icons | `bInteriorExteriorMapDoorIcon` | `pipboy::data::read::Door::outside` (the destination door stands in a worldspace cell); under the switch a door's `MapMark::outside` picks `iron_exterior_door.dds` / `iron_interior_door.dds`, and when those are not in the load order the plain door, an interior one at `INSIDE_DOOR_DIM` |
+| Fatigue Indicator | `bHUDFatigueIndicator` | `hud_needs::watch` reads the player's Fatigue against its base under the switch; `fatigue_look` gives the word's look, `draw` sets it out as a sixth word at `FATIGUE_X`. The tile HUD's five texts are the file's and stay as they are |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -625,8 +626,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 535 |
-| to do | 67 |
+| done | 536 |
+| to do | 66 |
 | unsure, skipped | 18 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -979,6 +980,7 @@ game's Data folder, read-only).
 | `bHideInvisibleUndiscoveredLocations` | done |  |  | Compass: Only Mapped Places |
 | `bHideUnknownNPCNames` | done |  | 1 | Hide Unknown Names (bodies are named, as bShowNameOnDeadNPCs) |
 | `bHostilesUseNeutralColorOnCompass` | done |  |  | Foes in the Usual Colour |
+| `bHUDFatigueIndicator` | done |  |  | Fatigue Indicator: an FTG word (our own) after LMB on the hand-built HUD, below full Fatigue; red below half, flashing below a quarter |
 | `bHUDMarkerNameIndicator` | done |  | 7 | Place Name on the HUD, with Widest Angle, Only Places Found and Distance (none, metres, feet); hand-built HUD; the angle offset is not needed |
 | `bKeepCrosshairWhenAiming` | done |  |  | Crosshair Down the Sights |
 | `bLocationDiscoveredCornerMessage` | done |  |  | Discoveries in the Corner |
@@ -1016,7 +1018,6 @@ game's Data folder, read-only).
 | `bCriticalHitMessagesIncludeLimbName` | to do |  |  | not built: no critical-hit messages |
 | `bDisableNeedsMessages` | to do |  | 4 | those messages are the game's own scripts; needs a filter by message |
 | `bExplodingDestructibleIndicator` | to do |  |  | not built: no grenade indicator |
-| `bHUDFatigueIndicator` | to do |  |  | the needs words are a fixed five |
 | `bHUDShowRegionNames` | to do |  | 1 | not built: the HUD has no region text |
 | `bHUDWeaponNameLabel` | unsure, skipped |  | 5 | needs the plugin's own menu XML |
 | `bWaterSourcesShowH2O` | to do |  | 1 | not built: water prompts carry no line |

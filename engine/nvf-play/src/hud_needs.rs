@@ -78,6 +78,23 @@ const NEEDS: [u16; 3] = [DEHYDRATION, HUNGER, SLEEP_DEPRIVATION];
 const RAD: usize = 3;
 const LMB: usize = 4;
 const N: usize = WORDS.len();
+/// The player's Fatigue Indicator tweak's word, after the five [design: our own
+/// abbreviation, docs/design/tweaks.md], its place one step past LMB [design: the steps
+/// between the five], and its index among the drawn words.
+const FATIGUE_WORD: &str = "FTG";
+const FATIGUE_X: f32 = 272.0;
+const FTG: usize = N;
+
+/// The Fatigue Indicator's look at `part` of the player's Fatigue left (0 to 1): hidden at
+/// full, the HUD's colour below it, red below a half, flashing below a quarter [design].
+pub fn fatigue_look(part: f64) -> Look {
+    match part {
+        p if p >= 0.999 => Look::Hidden,
+        p if p >= 0.5 => Look::Normal,
+        p if p >= 0.25 => Look::Red,
+        _ => Look::Flashing,
+    }
+}
 
 /// How a word is drawn.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -138,11 +155,24 @@ pub struct NeedWords {
     pub why: [String; N],
     /// Hardcore mode is on (the need words show).
     pub hardcore: bool,
+    /// The player's Fatigue Indicator tweak's word (hidden with the tweak off).
+    pub fatigue: Look,
+}
+
+impl NeedWords {
+    /// The look of drawn word `i`: one of the five, or the Fatigue word.
+    fn look(&self, i: usize) -> Look {
+        if i == FTG {
+            self.fatigue
+        } else {
+            self.looks[i]
+        }
+    }
 }
 
 impl Default for NeedWords {
     fn default() -> Self {
-        NeedWords { looks: [Look::Hidden; N], why: Default::default(), hardcore: false }
+        NeedWords { looks: [Look::Hidden; N], why: Default::default(), hardcore: false, fatigue: Look::Hidden }
     }
 }
 
@@ -156,7 +186,7 @@ impl Plugin for HudNeedsPlugin {
 
 /// Read the needs' and radiation's stages and the crippled limbs; log a word whose look
 /// changes.
-fn watch(mut script: Option<ResMut<ScriptState>>, mut sim: ResMut<SimState>, limbs: Option<Res<PlayerLimbs>>, mut words: ResMut<NeedWords>) {
+fn watch(mut script: Option<ResMut<ScriptState>>, mut sim: ResMut<SimState>, limbs: Option<Res<PlayerLimbs>>, mut words: ResMut<NeedWords>, tweaks: Option<Res<crate::tweaks::TweakSettings>>) {
     let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else { return };
     let hardcore = with_world(rt, &mut sim, |rt| rt.game.hardcore());
     let mut looks = [Look::Hidden; N];
@@ -193,7 +223,20 @@ fn watch(mut script: Option<ResMut<ScriptState>>, mut sim: ResMut<SimState>, lim
             info!("hud needs: {} {} ({})", WORDS[i].1, looks[i].name(), why[i]);
         }
     }
-    let now = NeedWords { looks, why, hardcore };
+    // The player's Fatigue Indicator tweak [design: docs/design/tweaks.md].
+    let fatigue = if tweaks.as_ref().is_some_and(|t| t.hud_fatigue) {
+        let p = fnv_sim::FormId::PLAYER_REF;
+        let (now, base) = with_world(rt, &mut sim, |rt| {
+            (fnv_game::functions::actor_value(&mut rt.game, p, fnv_game::actor_values::FATIGUE).unwrap_or(0.0), rt.game.base_actor_value(p, fnv_game::actor_values::FATIGUE).unwrap_or(0.0))
+        });
+        if base > 0.0 { fatigue_look(now / base) } else { Look::Hidden }
+    } else {
+        Look::Hidden
+    };
+    if fatigue != words.fatigue {
+        info!("hud needs: {FATIGUE_WORD} {} (Fatigue Indicator)", fatigue.name());
+    }
+    let now = NeedWords { looks, why, hardcore, fatigue };
     words.set_if_neq(now);
 }
 
@@ -251,10 +294,11 @@ fn draw(
         let (left, bottom) = piece_place();
         let piece = Node { position_type: PositionType::Absolute, left: u(left), bottom: u(bottom), width: u(PIECE.x), height: u(PIECE.y), ..default() };
         commands.spawn((WordsRoot, piece, Visibility::Hidden, Pickable::IGNORE)).with_children(|p| {
-            for (i, t) in texts.iter().enumerate() {
-                let node = Node { position_type: PositionType::Absolute, left: u(WORD_X[i]), top: u(0.0), width: u(0.0), height: u(0.0), ..default() };
+            let fatigue = [(FATIGUE_X, FATIGUE_WORD.to_string())];
+            for (i, (x, t)) in WORD_X.iter().copied().zip(texts.iter().cloned()).chain(fatigue).enumerate() {
+                let node = Node { position_type: PositionType::Absolute, left: u(x), top: u(0.0), width: u(0.0), height: u(0.0), ..default() };
                 p.spawn((Word(i), node, Visibility::Hidden)).with_children(|w| {
-                    if let Some(set) = word_set(font, t) {
+                    if let Some(set) = word_set(font, &t) {
                         set_text(w, &face_, &set, Vec2::ZERO, amber(255.0), Letter(i));
                     }
                 });
@@ -271,11 +315,11 @@ fn draw(
         return;
     }
     for (w, mut vis) in &mut word_nodes {
-        vis.set_if_neq(show(words.looks[w.0] != Look::Hidden));
+        vis.set_if_neq(show(words.look(w.0) != Look::Hidden));
     }
     let flash = flash(time.elapsed_secs());
     for (l, image, text) in &mut letters {
-        let color = match words.looks[l.0] {
+        let color = match words.look(l.0) {
             Look::Hidden | Look::Normal => amber(255.0),
             Look::Faded => amber(255.0).with_alpha(FADED),
             Look::Red => crime_colour(),
@@ -324,6 +368,15 @@ mod tests {
             assert_eq!((c.red, c.green, c.blue), (red.red, red.green, red.blue));
             assert!((c.alpha - alpha).abs() < 1e-5);
         }
+    }
+
+    #[test]
+    fn the_fatigue_word_shows_below_full_and_reddens_as_it_drops() {
+        assert_eq!(fatigue_look(1.0), Look::Hidden);
+        assert_eq!(fatigue_look(0.8), Look::Normal);
+        assert_eq!(fatigue_look(0.4), Look::Red);
+        assert_eq!(fatigue_look(0.1), Look::Flashing);
+        assert_eq!(fatigue_look(-0.2), Look::Flashing);
     }
 
     #[test]
