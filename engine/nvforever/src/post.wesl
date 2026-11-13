@@ -27,16 +27,20 @@ fn luminance(c: vec3<f32>) -> f32 {
 // S-curve around the middle grey (deeper blacks, the highlights held), the shade a little
 // cooler and the light a little warmer, and more colour where there is little.
 fn grade(c_in: vec3<f32>) -> vec3<f32> {
-    var c = clamp(c_in, vec3(0.0), vec3(1.0));
-    // S-curve: a smoothstep blended in by a fifth.
-    let s = c * c * (3.0 - 2.0 * c);
-    c = mix(c, s, 0.22);
+    // A little brighter first: the remaster's occlusion takes some light from the shade.
+    var c = clamp(c_in * 1.06, vec3(0.0), vec3(1.0));
+    // S-curve on the luminance: a smoothstep blended in a little, with the toe lifted so
+    // the shade keeps its detail (the mean stays about where it was).
+    let l0 = luminance(c);
+    let s = l0 * l0 * (3.0 - 2.0 * l0);
+    let l1 = mix(l0, s, 0.14) + 0.03 * (1.0 - l0) * (1.0 - l0) * l0 * 4.0;
+    c *= l1 / max(l0, 1e-4);
     let l = luminance(c);
-    // Split toning: shade towards blue-cyan, light towards amber.
-    let shade = 1.0 - smoothstep(0.0, 0.45, l);
-    let light = smoothstep(0.45, 1.0, l);
-    c *= mix(vec3(1.0), vec3(0.965, 0.99, 1.04), shade);
-    c *= mix(vec3(1.0), vec3(1.035, 1.0, 0.95), light * 0.8);
+    // Split toning: shade a touch cooler, light a touch warmer.
+    let shade = 1.0 - smoothstep(0.0, 0.4, l);
+    let light = smoothstep(0.5, 1.0, l);
+    c *= mix(vec3(1.0), vec3(0.985, 0.995, 1.015), shade);
+    c *= mix(vec3(1.0), vec3(1.03, 1.0, 0.96), light * 0.8);
     // Vibrance: lift the saturation of greyish colours more than of saturated ones.
     let l2 = luminance(c);
     let sat = max(c.r, max(c.g, c.b)) - min(c.r, min(c.g, c.b));

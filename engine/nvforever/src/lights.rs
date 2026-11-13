@@ -152,7 +152,24 @@ const DISPLAY_EDITS: [(&str, &str); 7] = [
     ),
     (
         "    // Total light\n",
-        "    direct_light += diffuse_color * nvf_bounce / view_bindings::view.exposure;
+        "    @if(SCREEN_INDIRECT) {
+        // The remaster's materials (graphics-remaster.md §4): the lights' highlights a
+        // little softer, and the sky (bright above, the ground's colour below) reflected
+        // by the specular mask's F0 with Schlick's Fresnel and the roughness, hidden where
+        // the surroundings close the view (gi.rs) [engineering choice, by eye].
+        if nvf_display {
+            direct_light *= 0.7;
+            let nvf_amb = pow(max(view_bindings::lights.ambient_color.rgb * view_bindings::view.exposure, vec3(0.0)), vec3(2.2));
+            // Grey (the ambient light's brightness, not its tint) and only on smooth
+            // surfaces: rock, rust and wood are too rough to mirror the sky.
+            let nvf_amb_l = dot(nvf_amb, vec3(0.2126, 0.7152, 0.0722));
+            let nvf_sky = vec3(nvf_amb_l) * mix(0.25, 1.2, saturate(R.y * 0.6 + 0.5));
+            let nvf_smooth = 1.0 - smoothstep(0.3, 0.6, perceptual_roughness);
+            let nvf_env = lighting::EnvBRDFApprox(F0, F_ab) * nvf_sky * dot(nvf_open, vec3(0.3333)) * specular_occlusion * nvf_smooth;
+            direct_light += nvf_env / view_bindings::view.exposure;
+        }
+    }
+    direct_light += diffuse_color * nvf_bounce / view_bindings::view.exposure;
     if !nvf_display {
         indirect_light *= nvf_open;
     }

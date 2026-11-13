@@ -153,8 +153,8 @@ fn march(in: FullscreenVertexOutput) -> MarchOut {
         let t1 = dist * f1 * f1;
         let t = mix(t0, t1, jitter);
         let p = camera + dir * t;
-        // Thin right at the camera, so the near air does not grey what is close.
-        let near = smoothstep(0.0, 1500.0, t);
+        // Thin near the camera (about 15 m to 70 m), so what is close stays crisp.
+        let near = smoothstep(1000.0, 5000.0, t);
         let density = atmos.params.x * near * exp(-max(p.y - atmos.params.z, 0.0) * atmos.params.y);
         let dt = t1 - t0;
         var sun = vec3(0.0);
