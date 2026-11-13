@@ -359,6 +359,45 @@ The If chain keeps its ordinary skip counts, so the decoder's nesting rules (scr
 §2.6) apply unchanged. A JSON body that does not parse is a Raw statement or token, and a
 unit with one runs from source (§7).
 
+### 8.1 What mods' sources write and the GECK with xNVSE took (#2275)
+
+The units of the owner's 211-plugin Blue Moon list that the engine compiles from source
+(`fnvtool ext report … --mo2-profile …`, smoke scenario `modlist-blue-moon`) failed 66
+times; each failing unit ships compiled bytes the editor wrote from that source, so the
+bytes say what the editor made of the line [observed, each rule; decompiled with `fnvtool
+script decompile`]. "Mod source" below means the engine's compile (`Seed::unknown_calls`).
+
+- `x := v` on a line of its own is a `let`, as `x = v` is (thirteen units).
+- `Let r : = …`, the colon and the equals apart, is `:=`.
+- A declaration takes any assignment: `float f += rand a, b` declares `f` alone and adds.
+- `(begin function{} =>` ends its parameters at the brace; the arrow is no parameter.
+- `({params} =>` with nothing after the arrow opens a lambda whose body is the next lines,
+  closed by a line starting with `)`; the rest of that line goes on with the call.
+- An `if`/`elseif` whose parentheses are open at the line's end takes the following lines
+  that start with `||`, `&&` or `)` [hypothesis: only those].
+- In mod source, a vanilla function's argument in parentheses is an inline expression
+  (`RestoreAv Health (player.getav Survival)`), as in a unit of the extender's grammar.
+- Inside parentheses, what is left before the `)` once the expression is whole and ends in
+  a call, or from a comma on, is dropped: `(ar_size (GetActiveObjectives Q))` gives
+  GetActiveObjectives no argument, `((GetFormDescription X), y)` the description alone.
+- A call line followed by an operator (`DebugPrint "t= " + $f`) keeps the call; the rest
+  of the line is dropped.
+- In mod source, a `:` right after a vanilla call's argument ends its arguments
+  (`player.say Hit:Ugh! || …` says `Hit`).
+- In mod source, a vanilla parameter's name nothing has that is a short hex number names
+  that FormID when the load order has it (`AddItem f n`: the caps).
+- `GetIsAlignment` takes Good 0, Neutral 1, Evil 2, VeryGood 3, VeryEvil 4.
+- `SetEventHandlerAlt` takes up to 16 filters and a priority, all pairs (`a::b`).
+- A game setting's name given alone to a plugin function's string parameter is text.
+- `SetStringSetting` is LU's two-parameter function; the catalogue's console row of that
+  name (from another page) gave way to it.
+
+Left with their bytes, as the source cannot be compiled to them: five result scripts whose
+classic `if` has a surplus argument (`GetObjectiveDisplayed Q 30 1 && …`), which stop the
+script in the original as in the VM (observer-checks.md check 32); oHUD.esm's five units
+naming `aHUD`, a quest that shares its FormID with a message in the same plugin; and three
+units whose source names forms renamed or replaced since their bytes were written.
+
 ## 9. Values in the VM (tasks B1, B3, B7, B8)
 
 `fnv_script::vm::XVal` is a value of the extended expressions: a number, a form, a string

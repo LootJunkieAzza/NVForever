@@ -189,6 +189,36 @@ pub fn lines(src: &str, long: &mut Vec<usize>) -> Vec<Line> {
     out
 }
 
+/// An `if`/`elseif` line whose parentheses are still open at its end takes the next lines
+/// that start with `||`, `&&` or `)` until they close [observed: NpcCombatChem.esp ships
+/// `If (( iConf == 4 && … )` with `|| ( iConf == 3 && … )` and more on the lines below, and
+/// compiled bytes testing all of them in one condition, #2275; hypothesis: other lines do
+/// not continue, and a continuation starts so].
+pub fn join_open_conditions(lines: Vec<Line>) -> Vec<Line> {
+    let depth = |t: &str| t.chars().fold(0i32, |d, c| match c {
+        '(' => d + 1,
+        ')' => d - 1,
+        _ => d,
+    });
+    let mut out: Vec<Line> = Vec::new();
+    let mut open = 0i32;
+    for l in lines {
+        let starts = |p: &str| l.text.starts_with(p);
+        if open > 0 && (starts("||") || starts("&&") || starts(")")) {
+            if let Some(prev) = out.last_mut() {
+                prev.text = format!("{} {}", prev.text, l.text);
+                prev.toks = tokens(&prev.text);
+                open += depth(&l.text);
+                continue;
+            }
+        }
+        let head = l.toks.first().map(|t| t.text.to_ascii_lowercase());
+        open = if matches!(head.as_deref(), Some("if" | "elseif")) { depth(&l.text) } else { 0 };
+        out.push(l);
+    }
+    out
+}
+
 /// What a token of the extender's expressions is ([`xtokens`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum XKind {

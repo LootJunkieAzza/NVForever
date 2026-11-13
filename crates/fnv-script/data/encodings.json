@@ -1,6 +1,6 @@
 {
   "format": "fnv.script.encodings/1",
-  "note": "Bytecode parameter encodings that are not the default tagged value, and the spellings of enumerated codes. Observed in the ten shipped masters by lining up compiled calls with their source (docs/spec-notes/scripts.md section 2.4); names are the ones shipped source uses. Functions not listed here: every parameter is a tagged value (observed for every other function shipped scripts call). xedit_types: the rule used for functions shipped scripts never call [hypothesis: same encoding as the observed functions with that xEdit parameter type].",
+  "note": "Bytecode parameter encodings that are not the default tagged value, and the spellings of enumerated codes. Observed in the ten shipped masters by lining up compiled calls with their source (docs/spec-notes/scripts.md section 2.4); names are the ones shipped source uses (alignment: no master calls GetIsAlignment in a script; its codes are the ones mods compiled with the GECK ship, Karmic Balance.esp and Vegas Elysium.esp naming all five, #2275). Functions not listed here: every parameter is a tagged value (observed for every other function shipped scripts call). xedit_types: the rule used for functions shipped scripts never call [hypothesis: same encoding as the observed functions with that xEdit parameter type].",
   "functions": {
     "0x1004": {"name": "Rotate", "params": ["axis", "value"]},
     "0x1006": {"name": "GetPos", "params": ["axis"]},
@@ -53,7 +53,8 @@
     "ptSex": "enum:sex",
     "ptMiscStat": "enum:misc_stat",
     "ptCriticalStage": "enum:critical_stage",
-    "ptFormType": "enum:form_type"
+    "ptFormType": "enum:form_type",
+    "ptAlignment": "enum:alignment"
   },
   "enums": {
     "actor_value": {
@@ -98,6 +99,9 @@
     },
     "critical_stage": {
       "0": "None", "1": "GooStart", "2": "GooEnd", "3": "DisintegrateStart", "4": "DisintegrateEnd"
+    },
+    "alignment": {
+      "0": "Good", "1": "Neutral", "2": "Evil", "3": "VeryGood", "4": "VeryEvil"
     }
   }
 }

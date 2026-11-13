@@ -265,6 +265,33 @@ impl Gen<'_> {
                 self.in_args = was;
                 self.in_paren = was_paren;
                 let e = e?;
+                if p.peek().is_some_and(|c| c.kind == XKind::Comma || c.kind != XKind::Close && ends_in_call(&e)) {
+                    // What is left before the `)` once the expression inside is whole and
+                    // ends in a call, or from a comma on (a function's surplus argument, `,
+                    // x`, `38 || …`), is dropped [observed:
+                    // the owner's Blue Moon list ships `(ar_size (GetActiveObjectives
+                    // QuestREF))`, `((GetFormDescription Plural), iBonus)` and
+                    // `(GetWeaponSkill rWeapon 38 || GetWeaponSkill rWeapon 45)` with
+                    // compiled bytes holding `GetActiveObjectives` with no argument, the
+                    // description alone and `GetWeaponSkill rWeapon` alone, #2275].
+                    let from = p.i;
+                    let mut depth = 0i32;
+                    while let Some(c) = p.peek() {
+                        match c.kind {
+                            XKind::Open | XKind::LBracket | XKind::LBrace => depth += 1,
+                            XKind::Close if depth == 0 => break,
+                            XKind::Close | XKind::RBracket | XKind::RBrace => depth -= 1,
+                            _ => {}
+                        }
+                        p.next();
+                    }
+                    if p.peek().is_none() {
+                        p.i = from;
+                        return self.xerr("syntax", "missing )");
+                    }
+                    let dropped: Vec<&str> = p.t[from..p.i].iter().map(|t| t.text.as_str()).collect();
+                    self.diag("rest_of_parentheses_dropped", false, dropped.join(" "));
+                }
                 if p.next().map(|c| c.kind) != Some(XKind::Close) {
                     return self.xerr("syntax", "missing )");
                 }
@@ -317,7 +344,7 @@ impl Gen<'_> {
     }
 
     fn xfunction(&self, name: &str) -> Option<XFn> {
-        if let Some(op) = self.table.by_name(name) {
+        if let Some(op) = self.numbered(name) {
             let f = self.table.get(op)?;
             let params = match f.param_count {
                 Some(n) => Some(n),
@@ -349,8 +376,12 @@ impl Gen<'_> {
             None
         } else {
             // A parameter typed `arg(up to 15)` (DispatchEventAlt, the Call… family) or
-            // `variable(up to 14)` stands for that many [documented: their pages' types].
-            let repeats: usize = u.params.iter().filter_map(|p| up_to(p.wiki_type.as_deref()?)).map(|n| n.saturating_sub(1)).sum();
+            // `variable(up to 14)` stands for that many [documented: their pages' types],
+            // and so does one named `filters(up-to-16)` (SetEventHandlerAlt) [documented:
+            // its page; observed: FreePostMojave.esm and WeaponRequirementSystem.esp pass
+            // two filters and a `"priority"::n` pair, five arguments, with compiled bytes
+            // holding all five, #2275].
+            let repeats: usize = u.params.iter().filter_map(|p| p.wiki_type.as_deref().and_then(up_to).or_else(|| up_to(&p.name))).map(|n| n.saturating_sub(1)).sum();
             Some(named + repeats)
         };
         Some(XFn { func: FuncId::Name(u.name.clone()), params, opcode: None, aware: u.aware })
@@ -494,6 +525,12 @@ impl Gen<'_> {
         matches!(u.origin.as_str(), "NVSE" | "FOSE1") && !formatted && u.params.get(k).is_some_and(|p| p.kind == "string" && p.wiki_type.as_deref().is_some_and(|t| t.eq_ignore_ascii_case("string")))
     }
 
+    /// The plugin function's parameter `k` is a string (`kind: "string"`).
+    fn string_param(&self, f: &XFn, k: usize) -> bool {
+        let FuncId::Name(n) = &f.func else { return false };
+        self.table.unnumbered.get(&n.to_ascii_lowercase()).and_then(|u| u.params.get(k)).is_some_and(|p| p.kind == "string")
+    }
+
     /// An extender function without an opcode whose parameter `k` the catalogue gives as
     /// an axis (`kind: "axis"`): `X`, `Y` or `Z` there is the axis even when a record of
     /// the load order has that editor ID [observed: sup3, `SetTFCAngle Z 45` read back 45
@@ -550,6 +587,21 @@ impl Gen<'_> {
                     let string_var = self.var(&t.text).is_some_and(|v| matches!(&v.ty, crate::unit::VarType::Other(s) if s == "string_var"));
                     let alone = !p.peek2().is_some_and(|n| matches!(n.kind, XKind::LBracket | XKind::Op));
                     if string_var && alone {
+                        p.next();
+                        args.push(XExpr::Str { s: t.text.clone() });
+                        continue;
+                    }
+                }
+            }
+            // A game setting's name given alone to a plugin function's string parameter
+            // is the name as text, not the setting's record [observed: WaterToTravel.esp
+            // ships `SetStringSetting sNoFastTravelScriptBlock "…"` with compiled bytes
+            // whose reference list does not hold the setting, #2275].
+            if self.string_param(f, args.len()) {
+                if let Some(t) = p.peek().filter(|t| t.kind == XKind::Word && !t.text.contains('.')).cloned() {
+                    let alone = !p.peek2().is_some_and(|n| matches!(n.kind, XKind::LBracket | XKind::Op));
+                    let setting = self.var(&t.text).is_none() && self.form(&t.text).is_some_and(|fi| &fi.sig == b"GMST");
+                    if alone && setting {
                         p.next();
                         args.push(XExpr::Str { s: t.text.clone() });
                         continue;
@@ -699,6 +751,16 @@ fn axis_letters(t: &str) -> bool {
     t.len() >= 3 && t.split('/').all(|c| matches!(c.trim(), "X" | "Y" | "Z" | "x" | "y" | "z"))
 }
 
+/// The expression's last operand is a call (`a && GetWeaponSkill w`).
+fn ends_in_call(e: &XExpr) -> bool {
+    match e {
+        XExpr::Call { .. } => true,
+        XExpr::Binary { r, .. } => ends_in_call(r),
+        XExpr::Unary { e, .. } => ends_in_call(e),
+        _ => false,
+    }
+}
+
 fn val_expr(v: Val) -> XExpr {
     match v {
         Val::Num(text) => XExpr::Num { value: text.parse().unwrap_or(0.0), text },
@@ -725,9 +787,10 @@ const UNTYPED_RESULTS: [&str; 3] = ["GetPackageLocation", "RemovePackageAt", "Ge
 /// `…Ex` setters, vm.rs).
 const FORMAT_EX: [&str; 6] = ["SetNameEx", "SetNthFactionRankNameEx", "SetModelPathEx", "SetIconPathEx", "SetBipedModelPathEx", "SetBipedIconPathEx"];
 
-/// The count of a catalogue type `…(up to N)`: `arg(up to 15)` is 15.
+/// The count of a catalogue type or name `…(up to N)`: `arg(up to 15)` is 15,
+/// `filters(up-to-16)` 16.
 fn up_to(wiki_type: &str) -> Option<usize> {
-    let t = wiki_type.to_ascii_lowercase();
+    let t = wiki_type.to_ascii_lowercase().replace("up-to-", "up to ");
     let n = t.split_once("(up to ")?.1.strip_suffix(')')?;
     n.trim().parse().ok()
 }
@@ -739,5 +802,6 @@ mod up_to_tests {
         assert_eq!(super::up_to("arg(up to 15)"), Some(15));
         assert_eq!(super::up_to("variable(up to 14)"), Some(14));
         assert_eq!(super::up_to("string"), None);
+        assert_eq!(super::up_to("filters(up-to-16)"), Some(16));
     }
 }

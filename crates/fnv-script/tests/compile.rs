@@ -1591,3 +1591,102 @@ fn a_mods_variable_may_bear_an_extender_functions_name() {
     assert_eq!(warnings(&c, "variable_named_like_a_function"), ["break"]);
     assert!(compile(src, &table(), &World, None).errors().any(|d| d.kind == "variable_named_like_a_function"));
 }
+// ---------------------------------------------------------------- mods of the Blue Moon list
+// What units of the owner's 211-plugin list (#2275) failed to compile from their source,
+// though each ships compiled bytes the GECK with xNVSE wrote from it. Each case is the
+// line's shape, not the mod's text.
+
+fn mod_ok(src: &str) -> (Compiled, Program) {
+    let (c, p) = mod_source(src);
+    assert_eq!(c.errors().count(), 0, "{:?}", c.errors().collect::<Vec<_>>());
+    (c, p)
+}
+
+#[test]
+fn a_bare_colon_equals_line_is_a_let() {
+    let (_, p) = mod_ok("short d\nbegin GameMode\nd := 1\nTestQuest.bDone := 1\nend");
+    assert!(body(&p).iter().all(|s| matches!(s, Stmt::Let { .. })), "{:?}", body(&p));
+    assert_eq!(body(&p).len(), 2);
+}
+
+#[test]
+fn a_vanilla_functions_argument_in_parentheses_is_an_inline_expression_in_mod_source() {
+    let src = "begin GameMode\nPlayer.RestoreAv Health (player.getav Health)\nPlayer.RestoreAv Health ((player.getav Health) * 2)\nend";
+    let (_, p) = mod_ok(src);
+    assert!(body(&p).iter().all(|s| matches!(s, Stmt::Eval { .. })), "{:?}", body(&p));
+    assert!(compile(src, &table(), &World, None).errors().count() > 0, "the editor-parity compile reads it as vanilla");
+}
+
+#[test]
+fn set_event_handler_alt_takes_its_filters_and_a_priority() {
+    let (_, p) = mod_ok("begin GameMode\nSetEventHandlerAlt \"ShowOff:OnPreActivate\" TestQuest 0::TestDoorREF 1::PlayerREF \"priority\"::3\nend");
+    assert_eq!(call_args(&p, "SetEventHandlerAlt"), Some(5));
+}
+
+#[test]
+fn spellings_the_original_compiles() {
+    // `begin function{} =>`, `Let r : = …`, `This`, a compound assignment declaring.
+    mod_ok("short b\nbegin GameMode\nCallAfter 2.1 (begin function{} =>\n  set b to 1\nend)\nend");
+    let (_, p) = mod_ok("ref r\nbegin GameMode\nLet r : = (GetSelf)\nlet r := This\nend");
+    assert!(body(&p).iter().all(|s| matches!(s, Stmt::Let { .. })));
+    let (c, _) = mod_ok("float fMin\nfloat fMax\nbegin GameMode\nfloat fChance += rand fMin, fMax\nend");
+    assert_eq!(c.variables.iter().map(|v| v.name.as_str()).collect::<Vec<_>>(), ["fMin", "fMax", "fChance"]);
+}
+
+#[test]
+fn alignment_names_have_their_codes() {
+    // [observed: Karmic Balance.esp and Vegas Elysium.esp, GetIsAlignment (0x11DA).]
+    let t = table();
+    for (name, code) in [("Good", 0u16), ("Neutral", 1), ("Evil", 2), ("VeryGood", 3), ("VeryEvil", 4)] {
+        let c = compile(&format!("begin GameMode\nif player.GetIsAlignment {name}\nendif\nend"), &t, &World, None);
+        assert_eq!(c.errors().count(), 0, "{name}: {:?}", c.diags);
+        assert!(c.bytes.windows(8).any(|w| w[..2] == 0x11DAu16.to_le_bytes() && w[6..8] == code.to_le_bytes()), "{name}: {:02X?}", c.bytes);
+    }
+}
+
+#[test]
+fn what_the_original_drops_from_a_line() {
+    // `say Topic:Ugh! || …` says the topic; `DebugPrint "t= " + $f` prints the string.
+    let (c, _) = mod_ok("begin GameMode\nplayer.say TestQuest:Ugh! || player.say TestQuest:Oof!\nend");
+    assert_eq!(warnings(&c, "rest_of_line_dropped").len(), 1);
+    let (c, p) = mod_ok("float f\nbegin GameMode\nDebugPrint \"t= \" + $f\nend");
+    assert_eq!(warnings(&c, "rest_of_line_dropped").len(), 1);
+    assert_eq!(call_args(&p, "DebugPrint"), Some(1));
+    // In parentheses: after a call with all its arguments, or from a comma on.
+    let (c, p) = mod_ok("ref q\nshort r\nbegin GameMode\nr = (ar_size (GetActiveObjectives q)) < 0\nend");
+    assert_eq!(warnings(&c, "rest_of_parentheses_dropped"), ["q"]);
+    assert_eq!(call_args(&p, "GetActiveObjectives"), Some(0));
+    let (c, _) = mod_ok("short i\nbegin GameMode\nSetFormDescription TestQuest ((GetFormDescription TestQuest), i)\nend");
+    assert_eq!(warnings(&c, "rest_of_parentheses_dropped"), [", i"]);
+}
+
+#[test]
+fn a_short_form_id_names_its_form_in_mod_source() {
+    // [observed: ABM- Patched Perks.esp, `player.AddItem f iAmount` adds the caps.]
+    let src = "short i\nbegin GameMode\nplayer.AddItem f i\nend";
+    let (c, _) = mod_ok(src);
+    assert!(c.refs.contains(&RefSlot::Form(CAPS)), "{:?}", c.refs);
+    assert!(compile(src, &table(), &World, None).errors().count() > 0);
+}
+
+#[test]
+fn set_string_setting_is_lus_function_not_the_console_command() {
+    let (_, p) = mod_ok("begin GameMode\nSetStringSetting \"sTargetTypeOpen\" \"Open\"\nend");
+    assert_eq!(call_args(&p, "SetStringSetting"), Some(2));
+}
+
+#[test]
+fn an_arrow_lambda_may_span_lines() {
+    // [observed: FreePostMojave.esm, `CallWhen ({} =>` … `) ({} => MenuMode == 0)`.]
+    let (_, p) = mod_ok("string_var s\nbegin GameMode\nCallWhen ({} =>\n  MessageBoxExAlt TestQuest (s)\n  player.RewardXP 250\n) ({} => MenuMode == 0)\nprint \"done\"\nend");
+    assert_eq!(body(&p).len(), 2, "{:?}", body(&p));
+    assert_eq!(call_args(&p, "CallWhen"), Some(2));
+}
+
+#[test]
+fn an_if_with_open_parentheses_takes_the_lines_that_continue_it() {
+    // [observed: NpcCombatChem.esp, `If (( … )` and `|| ( … )` lines below it.]
+    let (_, p) = mod_ok("short a\nshort b\nbegin GameMode\nIf (( a == 4 && b < 1 )\n || ( a == 3 && b < 2 ) )\n set a to 1\nendif\nend");
+    let Stmt::If { arms, .. } = &body(&p)[0] else { panic!("{:?}", body(&p)) };
+    assert_eq!(ops(&arms[0].cond), ["var", "4", "==", "var", "1", "<", "&&", "var", "3", "==", "var", "2", "<", "&&", "||"]);
+}

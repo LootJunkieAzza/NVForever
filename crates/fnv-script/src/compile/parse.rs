@@ -75,15 +75,19 @@ pub enum Kw {
 
 /// The assignments the Let macro takes without `let` [documented: Let Macro: `=`, `+=`,
 /// `-=`, `*=`; observed: `/=`, JustAssortedMods.esp 4.6 ships `fAP /= GetNumericGameSetting
-/// …` (JBTOnFireWeaponUDF) with compiled bytes, so the original's compiler takes it].
-const MACRO_OPS: [&str; 5] = ["=", "+=", "-=", "*=", "/="];
+/// …` (JBTOnFireWeaponUDF) with compiled bytes, so the original's compiler takes it; `:=`,
+/// thirteen units of the owner's Blue Moon list (TLD_Travelers.esm `doOnce := 1`,
+/// DryWellsReloaded.esm `Quest.iObjectivePoint := 1`, DefenderRifle.esp `rContainer :=
+/// GetContainer`, …) ship compiled bytes where the line is the same Let as with `let`
+/// (#2275)].
+const MACRO_OPS: [&str; 6] = ["=", ":=", "+=", "-=", "*=", "/="];
 
 /// A line of the extender's grammar, by its first words.
 fn extender(l: &Line) -> Option<Kw> {
     let head = l.toks[0].text.to_ascii_lowercase();
     let second = l.toks.get(1).map(|t| t.text.to_ascii_lowercase());
     match (head.as_str(), second.as_deref()) {
-        ("let", _) => Some(Kw::Let(xtokens(&l.text)[1..].to_vec())),
+        ("let", _) => Some(Kw::Let(spaced_assign(xtokens(&l.text)[1..].to_vec()))),
         ("if", Some("eval")) => Some(Kw::IfEval(xtokens(&l.text)[2..].to_vec())),
         ("elseif", Some("eval")) => Some(Kw::ElseIfEval(xtokens(&l.text)[2..].to_vec())),
         ("eval", Some(_)) => Some(Kw::Eval(xtokens(&l.text)[1..].to_vec())),
@@ -117,6 +121,17 @@ fn extender(l: &Line) -> Option<Kw> {
             assigns.then_some(Kw::Let(x))
         }
     }
+}
+
+/// A `let`'s `:` and `=` written apart (`Let r : = …`) are its `:=` [observed: Hymn of
+/// The New West.esp ships `Let rVaultTerminal : = (GetFormFromMod …)` with compiled bytes
+/// where the line is the same Let as its neighbours' `:=`, #2275].
+fn spaced_assign(mut x: Vec<XTok>) -> Vec<XTok> {
+    if let Some(i) = (0..x.len().saturating_sub(1)).find(|&i| x[i].is(XKind::Op, ":") && x[i + 1].is(XKind::Op, "=")) {
+        x[i].text = ":=".into();
+        x.remove(i + 1);
+    }
+    x
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -194,8 +209,12 @@ pub fn statement(l: &Line) -> Result<Statement, ParseError> {
             w => match DeclType::from_word(w) {
                 Some(ty) => {
                     let x = xtokens(&l.text);
+                    // A compound assignment declares and assigns too (`float fChance +=
+                    // rand fMin, fMax`) [observed: Vegas Elysium.esp ships that line with
+                    // compiled bytes adding Rand's value to the one variable, #2275; read
+                    // as a plain declaration it declared `rand` and the bounds as floats].
                     match x.get(2) {
-                        Some(eq) if eq.is(XKind::Op, "=") || eq.is(XKind::Op, ":=") => {
+                        Some(eq) if eq.kind == XKind::Op && (MACRO_OPS.contains(&eq.text.as_str()) || ["^=", "|=", "&=", "%="].contains(&eq.text.as_str())) => {
                             Kw::Decl { ty, names: vec![x[1].text.clone()], init: Some(x[1..].to_vec()) }
                         }
                         _ => Kw::Decl { ty, names: rest.iter().filter(|t| t.kind == Kind::Word).map(|t| t.text.clone()).collect(), init: None },
