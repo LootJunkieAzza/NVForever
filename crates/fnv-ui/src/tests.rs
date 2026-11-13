@@ -1009,3 +1009,35 @@ fn the_extenders_paths_count_from_the_first_child() {
     assert_eq!(ui.get_float("StartMenu/MCM/MCM_Options/Option2/_value"), Some(0.0));
     assert!(!ui.set_counted("StartMenu/MCM/*:7/_value", FromFirst, Value::Num(0.0)));
 }
+
+/// A trait name with `+` in it is one name [observed: Vanilla UI Plus's `_VUI+Fade`,
+/// `_VUI+OverwriteVerify`; #2298].
+#[test]
+fn a_plus_in_a_trait_name_is_part_of_it() {
+    let src = MemSource::default().with(
+        "menus\\a.xml",
+        r#"<menu name="A"> <_VUI+Fade> 2 </_VUI+Fade> <_VUI> 1 </_VUI> <_VUI+Check> <copy src="me" trait="_VUI+Fade"/> <add src="me" trait="_VUI"/> </_VUI+Check> </menu>"#,
+    );
+    let mut ui = Ui::new();
+    ui.load_menu(&src, "menus\\a.xml").unwrap();
+    ui.update();
+    assert_eq!(ui.get_float("A/_VUI+Fade"), Some(2.0));
+    assert_eq!(ui.get_float("A/_VUI"), Some(1.0));
+    assert_eq!(ui.get_float("A/_VUI+Check"), Some(3.0));
+}
+
+/// `sibling(name)` on a menu's root is the other menu of that name [observed: Vanilla UI
+/// Plus's start menu reads `sibling(HUDMainMenu)`; #2298].
+#[test]
+fn a_menus_sibling_is_another_menu() {
+    let src = MemSource::default()
+        .with("menus/h.xml", r#"<menu name="HUDMainMenu"> <_VUI+> 1 </_VUI+> </menu>"#)
+        .with("menus/s.xml", r#"<menu name="StartMenu"> <_VUI+> <copy src="sibling(HUDMainMenu)" trait="_VUI+"/> </_VUI+> </menu>"#);
+    let mut ui = Ui::new();
+    ui.load_menu(&src, "menus/s.xml").unwrap();
+    ui.update();
+    assert_eq!(ui.get_float("StartMenu/_VUI+"), Some(0.0), "no HUD menu yet");
+    ui.load_menu(&src, "menus/h.xml").unwrap();
+    ui.update();
+    assert_eq!(ui.get_float("StartMenu/_VUI+"), Some(1.0));
+}

@@ -55,7 +55,7 @@ tree and functions), **fixed** (wrong before #2298, right now), **partly**, **op
 | `*:1/*:N/value/*:1/string` is the option's value text (types 1, 2.5, 3, 7, 8) | the `value` rect's first child is `text` [observed: OptionRect.xml], reached since the fix above (before: its last, `toggle_check`) | fixed |
 | Names without case; `_` prefixes kept | `fnv_ui::Ui::find_trait` | ok |
 | SetUIStringEx's format codes (`%g`, `%.1f`, `%.2f`, `%q`) | the VM's formatter | ok |
-| `%k`: a key's display for type 3 options | the VM writes the scan code's number, not the key's name | open (the VM's; reported to the script session) |
+| `%k`: a key's display for type 3 options | the key's name from GetKeyName's observed table (`fnv_script::keys`; code 18 gives "E") [hypothesis: `%k` gives GetKeyName's text] | fixed (c3429025e on #2276) |
 | GetModINISetting / SetModINISetting `ini/section/key` under `Data\Config` (Variable Storage) | `fnv_game::mod_files`: read and written in NVForever's own mod-files store (never the game folder) | ok |
 | The short names GetModINI / SetModINI | aliases in the function table (`schemas/script/functions.json`) | ok |
 | MCM's own log of those calls (`mcm.log`) | not written | open (not needed by any script) |
@@ -86,7 +86,7 @@ tree and functions), **fixed** (wrong before #2298, right now), **partly**, **op
 | `_type` 1 list: value text set by the mod; chosen, MCM shows the list window | MCM's main script starts its list quest | ok |
 | `_type` 2 whole number: MCM writes the value text from `_value` (`%g`) | MCM's main script, SetMCMString | ok |
 | `_type` 2.5 decimal: value text set by the mod with SetUIStringEx | reached by `*:N` since the fix | fixed |
-| `_type` 3 key: chosen, "press the new control"; the key's scan code becomes `_Value` | MCM's script reads `GetKeyPress 0`, `GetMouseButtonPress 0`, `IsKeyPressed 264/265` (`fnv_game::script_input`); the shown name needs `%k` | partly |
+| `_type` 3 key: chosen, "press the new control"; the key's scan code becomes `_Value` | MCM's script reads `GetKeyPress 0`, `GetMouseButtonPress 0`, `IsKeyPressed 264/265` (`fnv_game::script_input`); the name shown by `%k` | ok |
 | `_type` 4 OFF/ON, 5 check box, 6 `_textOff`/`_textOn`: a click flips the value (`_Value` = 1 − `_value`, `_NewValue` 1) | MCM's main script; the click reaches it since §3 | fixed |
 | `_type` 5's box picture | MCM writes `value/toggle_check/filename` `MCM\Check0.dds` / `Check1.dds` | ok |
 | `_type` 7 fixed text | value text by the mod | ok |
@@ -113,6 +113,8 @@ tree and functions), **fixed** (wrong before #2298, right now), **partly**, **op
 | Guide / MCM item | NVForever | Status |
 |---|---|---|
 | The mod list's lines one under another (`y` from ArrowUp, `MCM_ModList_Size` height, `_spacing`), a chosen mod's sub-menus under it | MCM's files and list script; laid out by the `locus` rule | ok (CCC's lines: §4) |
+| Vanilla UI Plus's traits named with `+` (`_VUI+brightness`, `_VUI+OverwriteVerify`, …) | the reader cut names at the `+`, so they all became one `_VUI`: option titles lost their brightness and VUI+'s self-check showed its "installation error" text over the panel; `+` is part of a name now | fixed |
+| A menu's `sibling(name)` (VUI+'s start menu reads `sibling(HUDMainMenu)`) | another menu of that name | fixed |
 | Each option's title on its row | Vanilla UI Plus's OptionRect places the title by `<copy src="parent" trait="_y"/>`, a source without brackets; read as a tile named "parent" it gave 0, and every title of a page stood at the top of the screen, one over the other. A bracket-less `parent`, `grandparent`, `child`, `sibling`, `globals`, `screen`, `io` or `strings` is now that source when no tile bears the name (as `me` already was, #2270) [observed: Vanilla UI Plus writes them so 1,739 times for `parent` alone] | fixed |
 | Texts drawn with the load order's fonts | a font whose picture is not read is drawn with a stand-in that lost the spaces between words ("ExtraHUD", "Selectamodto…"); the spaces are kept now (`fnv_font::Line::text_spaced`) | fixed (the stand-in) |
 | The load order's fonts whose picture is a `.tex` with no `.dds` (Blue Moon's) | drawn with the stand-in (fonts.md §2.2 reads a `.tex` only beside a `.dds`) | open |
@@ -122,7 +124,8 @@ tree and functions), **fixed** (wrong before #2298, right now), **partly**, **op
 MCM's main script reads its rows' and options' clicks only while `iAltInput` (MCM's
 `_AltInput`) is 0; with it on, it waits for the keyboard and controller instead
 [observed: MCMMainScript's source, `iAltInput == 0 && … "_clicked"`]. MCM 1.5's own file
-copies `_AltInput` from `globals()`'s `_Has360Controller`; MCM Extender's patch copies it
+gives `_AltInput` `&xbox;` (0 on the PC); Vanilla UI Plus's edit of that file copies it from
+`globals()`'s `_Has360Controller`, and MCM Extender's patch copies it
 from `io()`'s `_controller`, which its StartMenu patch copies from the same global
 [observed: the files]. Vanilla UI Plus's `globals.xml` gives `_Has360Controller` 1 with
 the note that, unlike `&xbox;`, the game updates it while playing, and its start menu
@@ -153,4 +156,9 @@ at 6 s, the pointer aid (`NVF_PLAY_TEST_POINTER`, interface units) on MCM's line
 - Before (base2): MCM's window opened with 11 mods; the click on "Just Mods" reached the
   row (`clicked 1`) but MCM did nothing (`_AltInput 1`, `_selected` -1, `_ActiveMod` 0);
   the texts ran together.
-- After: see the PR for #2298 (the mod log's MCM lines and the screenshots).
+- After: the click chooses Just Mods (`_ActiveMod 108`, `_AltInput 0`); its 11 options
+  fill in on their rows with their check boxes and its 9 sub-menus stand under it; a click
+  on Enable Dynamic Crosshair gives MCM's `_Value 0`, `_NewValue 1`, the mod takes it and
+  the row reads `_value 0` with its box cleared. The setting is kept in the mod's INI
+  (SetModINI): the next run started from 0 and the click set 1. Smoke scenario
+  `pause-mods-page-set-value` repeats this on the owner's plain MCM install.

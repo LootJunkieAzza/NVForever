@@ -22371,6 +22371,29 @@ expect = [
 order = [["pause menu: mods page", "tiles: MCM's trigger clicked", "tiles: MCM's window is open", "pause menu: mods page closed"]]
 
 [[scenario]]
+name = "pause-mods-page-set-value"
+source = "issue #2298 (docs/spec-notes/mcm.md; crates/fnv-ui/src/tree.rs, xml.rs; crates/fnv-game/src/ui_functions.rs; engine/nvf-play/src/tiles/mod.rs, input.rs): on the pause menu's Mods page the pointer chooses a mod in MCM's list and a click on one of its toggle options sets the value through MCM's own round trip (MCM writes _Value and _NewValue, the mod's MenuMode 1013 block takes it and sets _Reset, the page shows it) [documented: MCM Guide v6, New Values]"
+note = "needs MCM and Just Assorted Mods (JustAssortedMods.esp; masters FalloutNV and DLC) in Data, as pause-mods-page-jam. Just Mods is the list's only line, at (338, 188) in interface units; its first option, Enable Dynamic Crosshair, a check box (type 5), at (600, 190), clicked twice: Just Assorted Mods keeps the setting in its INI (SetModINI), so a run starts from whatever the last left, and both values must follow the first click. The mod log's MCM line says the option's _value after each; pause_mods.png shows the page"
+areas = ["ui", "menus", "scripts"]
+paths = ["engine/nvf-play/src/tiles/mods.rs", "engine/nvf-play/src/tiles/input.rs", "engine/nvf-play/src/tiles/mod.rs", "crates/fnv-ui/src/tree.rs", "crates/fnv-ui/src/xml.rs", "crates/fnv-ui/src/input.rs", "crates/fnv-game/src/ui_functions.rs"]
+env = { NVF_PLAY_TEST_MOD_LOG = "1", NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_PAUSE = "16:30", NVF_PLAY_TEST_PAUSE_MENU = "17:mods,25.5:shot,27:back", NVF_PLAY_TEST_POINTER = "19:338:188,19.5:338:188:click,21:600:190,21.5:600:190:click,23:600:190:click,24.5:900:900" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--no-messages", "--plugins", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm", "GunRunnersArsenal.esm", "ClassicPack.esm", "MercenaryPack.esm", "TribalPack.esm", "CaravanPack.esm", "The Mod Configuration Menu.esp", "JustAssortedMods.esp"]
+run_seconds = 32
+expect = [
+  { text = "tiles: clicked StartMenu/MCM/MCM_ModList/Mod1", label = "the pointer clicks Just Mods' line" },
+  { text = "tiles: clicked StartMenu/MCM/MCM_Options/Option1", label = "and then the first option" },
+  { re = "MCM's list: _selected 1, .*MCM _ActiveMod 11,", label = "MCM chooses Just Mods (load index 11) from the click" },
+  { re = "_AltInput 0;", label = "MCM takes the pointer, not a controller" },
+]
+order = [
+  [{ re = 'Option1 "Enable Dynamic Crosshair" x \S+ y \S+ visible 1 title y \S+ _type 5 _value [01] shown "[01]"', label = "the page fills in: the check box" },
+   { re = "MCM _ActiveOption 1, _Value [01], _NewValue 1,", label = "the click: MCM writes the flipped value and _NewValue 1" },
+   { re = 'Option1 "Enable Dynamic Crosshair" x \S+ y \S+ visible 1 title y \S+ _type 5 _value 0 shown "0"', label = "the mod took a value and the page shows the box off" }],
+  [{ re = "MCM _ActiveOption 1, _Value [01], _NewValue 1,", label = "the click" },
+   { re = 'Option1 "Enable Dynamic Crosshair" x \S+ y \S+ visible 1 title y \S+ _type 5 _value 1 shown "1"', label = "and the box on, one of the two clicks each" }],
+]
+
+[[scenario]]
 name = "travel-skip-sun-shadows"
 source = "#1732: test aid NVF_PLAY_TEST_TRAVEL_SKIP_SUN_SHADOWS has a travel's screen not wait for the sun's shadow pipelines (engine/nvforever/src/pipeline_gate.rs), to compare both ways by measuring; their label alone cannot tell them from a camera's prepass, so this also checks that the test finds some"
 areas = ["renderer"]

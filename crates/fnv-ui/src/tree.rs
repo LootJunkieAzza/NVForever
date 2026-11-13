@@ -1335,6 +1335,10 @@ impl Ui {
             }
             Src::Child(None) => self.tile(me).children.first().copied(),
             Src::Child(Some(n)) => child_named(me, n),
+            // A menu's siblings are the other menus [observed: Vanilla UI Plus's start menu
+            // reads `<copy src="sibling(HUDMainMenu)" trait="_VUI+"/>` on its root, and its
+            // own check shows an "installation error" unless that gives its 1, #2298].
+            Src::Sibling(Some(n)) if parent(me).is_none() => self.root_named(n).filter(|&r| r != me),
             Src::Sibling(n) => {
                 let p = parent(me)?;
                 let kids = &self.tile(p).children;
