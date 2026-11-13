@@ -2065,7 +2065,7 @@ mod tests {
         // `Bip01 NonAccum` 90° about z instead (actors.md §7.2, §8.2). The body's turn is
         // the two together: 90° about z in the bind pose, and so in every frame.
         let z90 = Quat::from_rotation_z(std::f32::consts::FRAC_PI_2);
-        let nodes = (1..=4).map(|i| Entity::from_raw_u32(i).unwrap()).collect();
+        let nodes: Vec<_> = (1..=4).map(|i| Entity::from_raw_u32(i).unwrap()).collect();
         let bind = vec![Transform::IDENTITY, Transform::from_xyz(0.0, 0.657, 67.771).with_rotation(z90), Transform::IDENTITY, Transform::IDENTITY];
         let ix = |n: &str| ["Bip01", "Bip01 NonAccum", "Other"].iter().position(|x| *x == n).map(|i| i + 1);
         let q = |r: Quat| [r.w, r.x, r.y, r.z];
