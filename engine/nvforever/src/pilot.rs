@@ -78,17 +78,28 @@
 //!   standing open. Only a walk that stops within [`PUT_WITHIN`] units of its goal, in
 //!   the same space, ends with the player set on the goal (the pilot's own clumsiness
 //!   round furniture, a `stuck` finding).
-//! - **Up to a locked door, and what happens there.** When the only way is through a
-//!   locked door, the player walks as far as it can, to that door, and tries it, as a
-//!   player does: REPCONN's research labs are opened by a second intercom at the door
-//!   itself, whose trigger the player walks into there; no step of the headless chain
-//!   goes near it. A conversation that begins on such a way is heard out and left by its
-//!   Goodbye, and the walk goes on with a new path (the door may be open now). A door
-//!   that stays locked [`LOCKED_SECS`] s after it was tried is left, and the next way
-//!   round is tried (the shortest way to REPCONN's labs is through a door with a lock to
-//!   pick, which the pilot does not; the stairs lead to the intercom's door). With no
-//!   way left the step ends with an `unreachable` finding that names each door tried,
-//!   its lock level and its key.
+//! - **Up to a locked door, and what a player tries there.** When the only way is
+//!   through a locked door, the player walks as far as it can, to that door, and tries
+//!   it. When it stays locked the player uses what opens it, once each, at most
+//!   [`SWITCHES`] a door [owner, 2026-11-13]:
+//!   1. a reference of the door's cell whose script has an OnActivate block and names
+//!      the door (the switch the data says works it), up to [`SWITCH_RANGE`] units off;
+//!   2. a talking activator within [`BESIDE_DOOR`] units: REPCONN's research labs are
+//!      opened by the intercom beside their door (REPCONMidToTopDoorIntercom), which
+//!      has no trigger and answers only the player's own activation (its OnActivate sets
+//!      the flag Chris's "I'm letting you in" greeting is conditioned on, and that
+//!      line's end script unlocks the door); no step of the headless chain goes near it;
+//!   3. any other reference within [`BESIDE_DOOR`] whose script has an OnActivate block
+//!      and that is no actor: the button a player would press.
+//!   One further off than [`NEAR_TARGET`] is walked to first; a nearer one is used from
+//!   where the player stands (the crosshair is not asked). Not yet: a terminal that
+//!   opens a door (its menu would have to be worked). A conversation that begins on
+//!   such a way is heard out and left by its Goodbye, and the walk goes on with a new
+//!   path (the door may be open now). A door that stays locked [`LOCKED_SECS`] s after
+//!   it was tried is left, and the next way round is tried (the shortest way to
+//!   REPCONN's labs is through a door with a lock to pick, which the pilot does not).
+//!   With no way left the step ends with an `unreachable` finding that names each door
+//!   tried, its lock level and its key.
 //! - A long way out of doors is cut short: when a path is over [`WALK_MAX`] units, the
 //!   player starts [`WALK_TAIL`] units before the end of the path's last stretch out of
 //!   doors (a stand-in for fast travel, logged). What lies indoors after that, and every
@@ -197,6 +208,12 @@ const SETTLE_SECS: f64 = 3.0;
 /// How near the player stands to what it talks to or activates, and to a marker.
 const NEAR_TARGET: f32 = 100.0;
 const NEAR_MARKER: f32 = 48.0;
+/// How far from a locked door a talking activator or a button is tried.
+pub const BESIDE_DOOR: f32 = 400.0;
+/// How far from a locked door a switch whose script names it is looked for, and how many
+/// things are tried for one door.
+pub const SWITCH_RANGE: f32 = 4000.0;
+pub const SWITCHES: usize = 3;
 /// Seconds a locked door on the way is waited at, after the player tried it.
 pub const LOCKED_SECS: f64 = 8.0;
 /// How near its goal a walk that got stuck may end with the player set on the goal.
@@ -205,6 +222,8 @@ pub const PUT_WITHIN: f32 = 400.0;
 const STUCK_SECS: f64 = 4.0;
 const STUCK_UNITS: f32 = 24.0;
 const REPLANS: u8 = 3;
+/// How far on from where it stood stuck the player has got away from it.
+const UNSTUCK_UNITS: f32 = 300.0;
 /// The heights above a reference's origin the view is turned to, one after the other,
 /// to find it under the crosshair.
 const AIM_HEIGHTS: [f32; 4] = [80.0, 40.0, 110.0, 8.0];
@@ -337,6 +356,14 @@ struct Walk {
     locked_way: bool,
     /// Locked doors tried and left: the next path keeps off them. With what each said.
     tried: Vec<(u32, String)>,
+    /// Where the player last stood stuck: [`UNSTUCK_UNITS`] on from there the count of
+    /// new paths starts again (a long walk with fights on it got stuck three times in
+    /// three places and was given up).
+    stuck_at: Option<[f32; 3]>,
+    /// What was used to open a locked door, with the door.
+    poked: Vec<(u32, u32)>,
+    /// A switch being walked to, for the door, before the walk goes on.
+    side: Option<(FormId, u32, Box<Walk>)>,
     /// Said that the actor walked to is talking (once a conversation).
     told_talking: bool,
     /// Stepping aside (to this side, until then) round what the player walked into.
@@ -686,6 +713,24 @@ enum Walked {
 fn walk(p: &mut Pilot, w: &mut Walk, h: &mut Hands) -> Walked {
     let feet = h.feet();
     let here = h.here();
+    // To a switch for a locked door first; then the walk goes on with a new path.
+    if let Some((switch, door, mut side)) = w.side.take() {
+        match walk(p, &mut side, h) {
+            Walked::Going => {
+                w.side = Some((switch, door, side));
+                w.seen = (p.now, feet);
+                return Walked::Going;
+            }
+            Walked::No(why) => info!("pilot: step {}: the switch for door {door:08X} cannot be reached ({why})", p.i),
+            Walked::There | Walked::Put => {
+                let name = h.game(|g| g.data.name(switch)).unwrap_or_default();
+                let done = h.script.rt.as_mut().map(|rt| with_world(rt, h.sim, |rt| rt.activate_as_player(switch)));
+                info!("pilot: step {}: the player uses {name} for door {door:08X}: {}", p.i, outcome(done.as_ref()));
+            }
+        }
+        (w.follower, w.door_since, w.seen) = (None, None, (p.now, feet));
+        return Walked::Going;
+    }
     // The actor walked to has come and is talking to the player: the player is with it.
     let talker = h.game(|g| g.dialogue.as_ref().map(|c| c.actor)).flatten();
     if talker.is_some() && talker == w.target {
@@ -831,12 +876,16 @@ fn walk(p: &mut Pilot, w: &mut Walk, h: &mut Hands) -> Walked {
                 _ => w.dodge = None,
             }
             // Held by a script: a wait, and the watchdog's to judge.
+            if w.stuck_at.is_some_and(|at| hdist(feet, at) > UNSTUCK_UNITS) {
+                (w.stuck_at, w.replans) = (None, 0);
+            }
             if h.locks.movement || h.in_menu || hdist(feet, w.seen.1) > STUCK_UNITS {
                 w.seen = (p.now, feet);
             } else if p.now - w.seen.0 > STUCK_SECS {
                 w.seen = (p.now, feet);
                 w.follower = None;
                 w.replans += 1;
+                w.stuck_at = Some(feet);
                 let side = if w.replans % 2 == 1 { 1.0 } else { -1.0 };
                 w.dodge = Some((p.now + 1.2, side));
                 h.intent.jump = true;
@@ -851,6 +900,9 @@ fn walk(p: &mut Pilot, w: &mut Walk, h: &mut Hands) -> Walked {
                 w.door_since = Some(p.now);
                 let r = h.script.rt.as_mut().map(|rt| with_world(rt, h.sim, |rt| rt.activate_as_player(FormId(door))));
                 info!("pilot: step {}: opens door {door:08X}: {}", p.i, outcome(r.as_ref()));
+            } else if lock_words(nav, door).is_some() && w.door_since.is_some_and(|t| p.now - t > LOCKED_SECS) && try_beside(p, &mut w.poked, &mut w.side, h, door, feet) {
+                w.door_since = Some(p.now);
+                return Walked::Going;
             } else if let Some(lock) = lock_words(nav, door).filter(|_| w.door_since.is_some_and(|t| p.now - t > LOCKED_SECS)) {
                 info!("pilot: step {}: door {door:08X} on the way is {lock} and nothing opened it in {LOCKED_SECS:.0} s after the player tried it: another way round", p.i);
                 w.tried.push((door, lock));
@@ -879,6 +931,10 @@ fn walk(p: &mut Pilot, w: &mut Walk, h: &mut Hands) -> Walked {
                     p.finding("unreachable", why.clone());
                     return Walked::No(why);
                 };
+                if try_beside(p, &mut w.poked, &mut w.side, h, d.door, feet) {
+                    w.door_since = Some(p.now);
+                    return Walked::Going;
+                }
                 info!("pilot: step {}: door {:08X} is {lock} and nothing opened it in {LOCKED_SECS:.0} s after the player tried it: another way round", p.i, d.door);
                 w.tried.push((d.door, lock));
                 (w.follower, w.door_since) = (None, None);
@@ -901,7 +957,61 @@ fn walk(p: &mut Pilot, w: &mut Walk, h: &mut Hands) -> Walked {
 }
 
 fn walk_to(goal: Place, target: Option<FormId>, radius: f32, now: f64, feet: [f32; 3]) -> Walk {
-    Walk { goal, target, radius, follower: None, door_since: None, seen: (now, feet), replans: 0, cut: false, talking_at_start: None, keep_talk: false, locked_way: false, tried: Vec::new(), told_talking: false, dodge: None, snapped: None }
+    Walk { goal, target, radius, follower: None, door_since: None, seen: (now, feet), replans: 0, cut: false, talking_at_start: None, keep_talk: false, locked_way: false, tried: Vec::new(), stuck_at: None, poked: Vec::new(), side: None, told_talking: false, dodge: None, snapped: None }
+}
+
+/// What a player would use to open a door that stays locked (module notes), not used
+/// for it yet on this walk: the reference, where it is, how far from the door, and what
+/// it is in words.
+fn door_switch(g: &Game, door: u32, used: &[(u32, u32)]) -> Option<(FormId, Option<FormId>, [f32; 3], f32, &'static str)> {
+    use fnv_script::unit::RefSlot;
+    if used.iter().filter(|(_, d)| *d == door).count() >= SWITCHES {
+        return None;
+    }
+    let (cell, at) = where_is(g, FormId(door))?;
+    let refs = g.world.placed.by_cell.get(&cell?)?;
+    let scripted = |r: FormId| {
+        let unit = g.data.scripts.get(&g.ref_script(r)?).map(|u| g.data.unit(*u))?;
+        unit.program.blocks.iter().any(|b| b.event == fnv_game::game::event::ON_ACTIVATE).then_some(unit)
+    };
+    let mut found: Vec<(u8, f32, FormId, [f32; 3], &'static str)> = Vec::new();
+    for &r in refs {
+        if r.0 == door || used.iter().any(|(u, d)| *u == r.0 && *d == door) || g.is_dead(r) {
+            continue;
+        }
+        let Some((_, pos)) = where_is(g, r) else { continue };
+        let away = hdist(pos, at).hypot(pos[2] - at[2]);
+        let unit = scripted(r);
+        let names_door = unit.is_some_and(|u| u.unit.refs.iter().any(|s| matches!(s, RefSlot::Form(f) if *f == door)));
+        let actor = g.world.placed.get(r).is_some_and(|p| g.data.actors.contains_key(&p.base));
+        if names_door && away < SWITCH_RANGE {
+            found.push((0, away, r, pos, "its script works the door"));
+        } else if g.is_talking_activator(r) && away < BESIDE_DOOR {
+            found.push((1, away, r, pos, "a talking activator beside the door"));
+        } else if unit.is_some() && !actor && away < BESIDE_DOOR {
+            found.push((2, away, r, pos, "a scripted activator beside the door"));
+        }
+    }
+    found.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.total_cmp(&b.1)));
+    found.first().map(|&(_, away, r, pos, what)| (r, cell, pos, away, what))
+}
+
+/// A door stays locked: what opens it is used, or walked to first (`Walk::side`).
+/// Whether there was something to use.
+fn try_beside(p: &Pilot, poked: &mut Vec<(u32, u32)>, side: &mut Option<(FormId, u32, Box<Walk>)>, h: &mut Hands, door: u32, feet: [f32; 3]) -> bool {
+    let used = poked.clone();
+    let Some((r, cell, pos, away, what)) = h.game(|g| door_switch(g, door, &used)).flatten() else { return false };
+    poked.push((r.0, door));
+    let name = h.game(|g| g.data.name(r)).unwrap_or_default();
+    if hdist(pos, feet) > 2.0 * NEAR_TARGET {
+        let space = cell.and_then(|c| crate::nav::space_of_cell(h.world, c.0)).unwrap_or(space_of(h.location));
+        info!("pilot: step {}: door {door:08X} stays locked: the player goes to {name} ({what}, {away:.0} units from the door)", p.i);
+        *side = Some((r, door, Box::new(walk_to(Place { space, pos }, Some(r), NEAR_TARGET, p.now, feet))));
+        return true;
+    }
+    let done = h.script.rt.as_mut().map(|rt| with_world(rt, h.sim, |rt| rt.activate_as_player(r)));
+    info!("pilot: step {}: door {door:08X} stays locked: the player uses {name} ({what}, {away:.0} units from the door): {}", p.i, outcome(done.as_ref()));
+    true
 }
 
 /// A door's lock as the nav graph has it now, in words; `None`: not locked.
