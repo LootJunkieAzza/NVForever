@@ -22,10 +22,13 @@ Choosing it changes nothing in the row; it opens a dialog:
 
 1. **NVIDIA's licence.** The dialog says what is fetched and shows NVIDIA's licence for
    `nvngx_dlss.dll`, the licence file that comes with the files in NVIDIA's archive. It scrolls
-   with PgUp, PgDn, the arrow keys, Home, End or the mouse wheel; **Open on GitHub** opens the
-   release's page in your browser. **Nothing is downloaded and the game does not go online
-   before you press I accept.** Cancel (or Esc) closes the dialog with nothing done. The three
-   `sl.*` files are under Streamline's MIT licence.
+   with PgUp, PgDn, the arrow keys, Home, End or the mouse wheel (on a controller: LB, RB and
+   the D-pad); **Open on GitHub** opens the release's page in your browser. **Nothing is
+   downloaded and the game does not go online before you press I accept.** I accept takes a
+   mouse click only, so that no key or button pressed by habit accepts a licence: a player
+   using a controller alone needs a mouse for that one click, or gets the files by hand (below).
+   Cancel (or Esc, or B and Start on a controller) closes the dialog with nothing done. The
+   three `sl.*` files are under Streamline's MIT licence.
 2. **The download.** The game fetches only the four files from the official archive of
    NVIDIA's Streamline release 2.14.16 on GitHub
    (`https://github.com/NVIDIA-RTX/Streamline/releases/download/v2.14.16/streamline-sdk-v2.14.16.zip`):
@@ -33,7 +36,9 @@ Choosing it changes nothing in the row; it opens a dialog:
    about 60 MB instead of the whole 276 MB archive. The dialog shows the step, the file and the
    megabytes; **Hide** (Esc) closes it and the download goes on while you play (the Upscaler
    row then reads "Downloading DLSS… n%", and choosing it shows the dialog again);
-   **Cancel download** stops it.
+   **Cancel download** stops it. Loading a save, going to the main menu or quitting the game
+   stops a download that is still running (each of them starts the game anew), with nothing
+   written; choose Download DLSS… again afterwards.
 3. **The checks.** Each file must be exactly the file of that release (its size and SHA-256,
    pinned in NVForever), and `sl.interposer.dll` and `nvngx_dlss.dll` must pass the signature
    checks described below. The files are unpacked into a temporary folder beside the `dlss`

@@ -512,6 +512,9 @@ class RequiresTests(unittest.TestCase):
                 self.assertRegex(s.env["NVF_DLSS_DOWNLOAD_URL"], r"^(http://127\.0\.0\.1:\d+|\{serve\})/", name)
         self.assertEqual(down["dlss-download-404"].serve, {"status": 404, "body": ""})
         self.assertEqual(down["dlss-download-real"].env["NVFOREVER_HOME"], down["dlss-download-real-restart"].env["NVFOREVER_HOME"])
+        # Every one runs in a home of its own, never the player's (the real pair shares one).
+        homes = {s.env["NVFOREVER_HOME"] for s in down.values()}
+        self.assertEqual(len(homes), len(down) - 1)
 
 
 class LockTests(unittest.TestCase):
