@@ -56,6 +56,9 @@ pub mod combat;
 pub mod combat_group;
 pub mod combat_lines;
 pub mod combat_style;
+mod combat_style_session;
+#[cfg(test)]
+mod combat_style_session_tests;
 pub mod companion_wheel;
 pub mod coop;
 pub mod cond;

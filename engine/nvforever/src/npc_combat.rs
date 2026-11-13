@@ -1579,7 +1579,8 @@ pub(crate) fn fight(
                 g.awareness.pace.remove(&me);
             }
             // What it fights with; its combat style may keep it to melee.
-            let style = g.combat_style(me);
+            let style_view = g.combat_style(me);
+            let style = style_view.as_deref();
             // Its Max Targeting FOV (§17.5): a new target outside it is not taken up.
             let new_target = f.fighters.get(&id).is_none_or(|x| x.target != target);
             if new_target && style.is_some_and(|s| fnv_game::combat_style::outside_targeting_fov(s, facing_off(global, feet, tfeet))) {

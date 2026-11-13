@@ -45,25 +45,25 @@ use crate::data::CombatStyleDef;
 use crate::functions::actor::actor_value;
 use crate::game::Game;
 use fnv_sim::FormId;
+use std::borrow::Cow;
 
 impl<'a> Game<'a> {
     /// The combat style `actor` fights with (module notes).
-    pub fn combat_style(&self, actor: FormId) -> Option<&'a CombatStyleDef> {
+    pub fn combat_style(&self, actor: FormId) -> Option<Cow<'a, CombatStyleDef>> {
         let data = self.data;
         let id = self.combat_style_id(actor).or_else(|| data.by_edid("DefaultCombatstyle"))?;
-        data.combat_styles.get(&id)
+        self.combat_style_form(id)
     }
 
     /// The combat style `actor`'s package, SetCombatStyle or record gives it (module
     /// notes), without the DefaultCombatstyle fall back; none that is no combat style.
     pub fn combat_style_id(&self, actor: FormId) -> Option<FormId> {
-        let data = self.data;
         // The current package's, else SetCombatStyle's, else the record's (module notes).
         let extra = self.extra.get(&actor);
-        let package = extra.and_then(|e| e.current_package).and_then(|p| self.package_def(&p)).and_then(|d| d.combat_style).filter(|id| data.combat_styles.contains_key(id));
-        let set = extra.and_then(|e| e.combat_style);
-        let own = package.or(set).or_else(|| self.traits_def(actor).and_then(|d| d.combat_style));
-        own.filter(|id| data.combat_styles.contains_key(id))
+        let valid = |id: &FormId| self.combat_style_origin(*id).is_some();
+        let package = extra.and_then(|e| e.current_package).and_then(|p| self.package_def(&p)).and_then(|d| d.combat_style).filter(valid);
+        let set = extra.and_then(|e| e.combat_style).filter(valid);
+        package.or(set).or_else(|| self.traits_def(actor).and_then(|d| d.combat_style).filter(valid))
     }
 
     /// `actor`'s confidence threshold (module notes), from its Confidence rating and the

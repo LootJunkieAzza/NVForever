@@ -21,6 +21,12 @@ playthrough, is gathered in [outstanding.md](outstanding.md).
   original game can settle in [observer-checks](handoff/observer-checks.md), and every
   guess is still in its spec note.
 
+Source-only candidate, checks not run: [session CSTY edits and clones](spec-notes/combat-style-session.md)
+connect public style setters and copied temporary styles to typed combat readers.
+It preserves separate raw getter defaults/precision and includes authored session
+controls; it does not establish save persistence, unused-trait AI, native copy
+timing or complete mod compatibility.
+
 Checks referred to below: the parity lab (`parity-lab/`, scenarios per layer `L1`–`L5`,
 compared with independent readers and in-game captures) and the smoke runner
 (`tools/smoke`, the scenarios in `tools/smoke/scenarios.toml`; `python tools/smoke verify`
