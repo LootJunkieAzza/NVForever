@@ -2494,7 +2494,8 @@ fn show_impact(s: &Sfx, script: Option<&ScriptState>, sim: &SimState, mut fx: Im
     if let (Some(a), Some(rt)) = (fx.actor, script.and_then(|s| s.rt.as_ref())) {
         if let Some(b) = sim.base_of(a) {
             let (seed, at) = sim.pick(&rt.game, FormId(a));
-            (fx.no_spray, fx.no_decal) = rt.game.data.no_blood(b, seed, at);
+            let (spray, decal) = rt.game.data.no_blood(b, seed, at);
+            (fx.no_spray, fx.no_decal) = (fx.no_spray || spray, fx.no_decal || decal);
         }
     }
     impacts.write(fx);
@@ -2503,6 +2504,13 @@ fn show_impact(s: &Sfx, script: Option<&ScriptState>, sim: &SimState, mut fx: Im
             sounds.write(PlaySound { sound, at: Some(fx.point) });
         }
     }
+}
+
+/// Whether a projectile of `damage` (the weapon's per projectile, before armour) does not
+/// get through a DT of `dt`: the player's Armor Prevents Blood Decals tweak leaves no blood
+/// decal then [design: docs/design/tweaks.md].
+pub fn blood_stopped(damage: f32, dt: f32) -> bool {
+    dt > 0.0 && damage <= dt
 }
 
 /// The jam animation beside a reload animation: `ReloadA` → `JamA`, `ReloadX` → `JamX`
@@ -5355,10 +5363,14 @@ fn fly(
         // The impact the weapon's data set names for what was hit: an actor's is its
         // base's Impact Material Type (NPC_ / CREA `NAM4`), organic without one
         // [design]; anything else's its collision material (docs/spec-notes/audio.md §11).
+        // The player's tweak: a shot whose damage does not get through the actor's DT
+        // leaves no blood on it [design: docs/design/tweaks.md].
+        let wanted = script.as_deref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.armor_blocks_blood);
+        let stopped = wanted && p.actor.is_some_and(|a| blood_stopped(w.base_damage as f32, target_armor(c, script.as_deref_mut(), &mut sim, FormId(a as u32)).0));
         if let Some(s) = sfx.as_deref() {
             let (impact, material) = impact_for(s, script.as_deref(), &sim, id, p.actor, p.material);
             if let Some(impact) = impact {
-                show_impact(s, script.as_deref(), &sim, ImpactFx { impact, shooter, point: p.point, normal: p.normal, dir: p.dir, actor: p.actor.map(|a| a as u32), no_spray: false, no_decal: false }, &mut effects.0, &mut effects.1);
+                show_impact(s, script.as_deref(), &sim, ImpactFx { impact, shooter, point: p.point, normal: p.normal, dir: p.dir, actor: p.actor.map(|a| a as u32), no_spray: false, no_decal: stopped }, &mut effects.0, &mut effects.1);
             }
             let hit = p.actor.map(|a| a as u32).or(p.object.map(|o| o as u32));
             effects.4.write(crate::world_sounds::log_impact(s, hit, p.actor.is_some(), p.material, material, impact));
@@ -5696,6 +5708,14 @@ fn sound_edid(sfx: Option<&Sfx>, sound: FormId) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn armour_that_stops_a_shot_stops_its_blood() {
+        assert!(super::blood_stopped(10.0, 12.0));
+        assert!(super::blood_stopped(12.0, 12.0));
+        assert!(!super::blood_stopped(13.0, 12.0));
+        assert!(!super::blood_stopped(0.0, 0.0));
+    }
+
     use super::*;
     use crate::phys::NpcBody;
 

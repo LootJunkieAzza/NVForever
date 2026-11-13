@@ -402,6 +402,9 @@ pub struct Tweaks {
     /// `bQuantityMenuRespectsCompanionCarryCap`: storing with a companion, the quantity
     /// menu stops at what it can carry.
     pub quantity_companion_cap: bool,
+    /// `bArmorPreventsBloodDecals`: a shot that does not get through the target's DT
+    /// leaves no blood decal.
+    pub armor_blocks_blood: bool,
     /// `bNoSkillBooksAbove100`: a skill book whose skill is already at 100 is not read.
     pub no_skill_books_at_max: bool,
     /// `bLessFrequentPlayerPainSounds` (`iMinPlayerPainSoundIntervalMS`): seconds the
@@ -843,6 +846,7 @@ impl Default for Tweaks {
             repair_preview: false,
             crippled_fall_pain: 0.0,
             quantity_companion_cap: false,
+            armor_blocks_blood: false,
             no_skill_books_at_max: false,
             player_pain_gap: 0.0,
             pause_on_load: false,

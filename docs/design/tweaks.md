@@ -619,6 +619,7 @@ unless the player binds them, so nothing changes until then.
 | Crippled Legs: Pain When Falling | `bCrippledLimbsPlayPainSoundWhenFalling` | `falls::hurt` says the player's `Hit` combat line (`Game::combat_line`) when the fall's height reaches `Tweaks::crippled_fall_pain` and either leg is crippled (`falls::crippled_leg`) |
 | Quantity Menu Respects Companion Carry Cap | `bQuantityMenuRespectsCompanionCarryCap` | `menu::apply_input` sets `MenuModel::companion_carry` (the teammate's CarryWeight) before a store; `asks_quantity` caps the prompt by `menu::model::carry_cap` against the container list's weight. The switch: `Tweaks::quantity_companion_cap` |
 | Skip Death Camera | `bSkipDeathcamHotkey` | nvforever `death_cam::watch` moves the camera's clock to `SKIPPED` (past the fade and the slow motion) on Left Alt or a late left click. The switches: `TweakSettings::skip_death_cam`, `skip_death_cam_attack` |
+| Armor Prevents Blood Decals | `bArmorPreventsBloodDecals` | the projectile hit path in `combat.rs` sets `ImpactFx::no_decal` when `blood_stopped` (the weapon's damage against `target_armor`'s DT); `show_impact` now keeps a decal already refused. The switch: `Tweaks::armor_blocks_blood` |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -640,8 +641,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 555 |
-| to do | 45 |
+| done | 556 |
+| to do | 44 |
 | unsure, skipped | 19 |
 | n/a | 16 |
 | skipped: fix | 10 |
@@ -1241,6 +1242,7 @@ game's Data folder, read-only).
 | `bRadioStaticDecreasesSongVolume` | done | yes |  | already so: the song fades as the static rises |
 | `bRememberConsoleHistory` | done | yes | 1 | Remember Console History (ConsoleHistory.txt in NVForever's folder, last 100 lines) |
 | `bAllowDuplicateControlBinds` | done |  |  | Shared Keys |
+| `bArmorPreventsBloodDecals` | done | yes |  | Armor Prevents Blood Decals: a shot whose weapon damage per projectile is no more than the actor's DT (worn armour at its condition, as combat counts it) leaves no blood decal; the damage before its other multipliers is the test (ours). Melee blows keep their decals |
 | `bAutoContinueGame` | done |  |  | Continue at Start (once per start of the program; Shift held stays on the menu) |
 | `bChanceBasedKillcams` | done |  | 1 | Kill Camera Chance (slider; V.A.T.S. kill cameras, the only kind) |
 | `bClickToExitLoadScreens` | done |  | 2 | Press to Leave Loading Screens (every screen; bHideWheel and bLoadGameOnly not done; our prompt words) |
@@ -1288,7 +1290,6 @@ game's Data folder, read-only).
 | `bVanityCamReturnsToFirstPerson` | done |  |  | Vanity Camera Returns to First Person: after the idle vanity camera (now built, `vanity`) or Toggle POV held, a view that was first person goes back to it |
 | `bWeaponVisibleDuringDialogue` | done |  |  | already so by the code: nothing hides the player's weapon or hands while talking (not checked in game) |
 | `bAllowKeyboardAndMouseWithControllerConnected` | to do | yes |  | the Input Device setting picks one device; needs both at once |
-| `bArmorPreventsBloodDecals` | to do | yes |  | the impact is sent before DT is worked out |
 | `bConsoleBackground` | unsure, skipped | yes |  | needs the plugin's own menu XML |
 | `bCustomScreenshotFormat` | n/a | yes | 1 | NVForever writes its own screenshots |
 | `bDontAllowConsoleTillLoadingIsDone` | n/a | yes |  | the original's start-up order |
