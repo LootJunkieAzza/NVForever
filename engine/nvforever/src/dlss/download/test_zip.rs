@@ -11,15 +11,22 @@ pub(super) struct TestEntry<'a> {
     pub(super) name: &'a str,
     pub(super) data: &'a [u8],
     pub(super) deflate: bool,
+    /// An extra field length the local header claims without the bytes being there (a damaged
+    /// or hostile archive); 0 for none.
+    pub(super) claimed_extra: u16,
 }
 
 impl<'a> TestEntry<'a> {
     pub(super) fn stored(name: &'a str, data: &'a [u8]) -> Self {
-        Self { name, data, deflate: false }
+        Self { name, data, deflate: false, claimed_extra: 0 }
     }
 
     pub(super) fn deflated(name: &'a str, data: &'a [u8]) -> Self {
-        Self { name, data, deflate: true }
+        Self { name, data, deflate: true, claimed_extra: 0 }
+    }
+
+    pub(super) fn claiming_extra(self, claimed_extra: u16) -> Self {
+        Self { claimed_extra, ..self }
     }
 }
 
@@ -80,7 +87,7 @@ pub(super) fn build(entries: &[TestEntry<'_>], options: &Options) -> Vec<u8> {
         u32le(&mut out, local_packed);
         u32le(&mut out, local_size);
         u16le(&mut out, entry.name.len() as u16);
-        u16le(&mut out, 0);
+        u16le(&mut out, entry.claimed_extra);
         out.extend_from_slice(entry.name.as_bytes());
         out.extend_from_slice(&packed);
         if options.descriptor {

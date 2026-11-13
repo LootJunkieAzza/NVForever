@@ -6,9 +6,12 @@
 //! target that exists is refused when it holds `nvngx_update.exe` (in any case: the loader
 //! refuses such a folder, `preflight.rs`) or a listed file with other bytes (the player's own
 //! file, never overwritten); otherwise each listed file it lacks is moved in, and the ones
-//! moved are removed again if a later move fails. The staging folder is removed when its guard
-//! drops: on a failure, on a cancel and after the install. Staging folders an earlier run left
-//! (a crash, a power cut) are removed when a new one is made.
+//! moved are removed again if a later move fails. Every move refuses to replace what is at its
+//! destination ([`move_new`]), so a file that appears there meanwhile is never overwritten,
+//! nor removed by the rollback. The staging folder is removed when its guard drops: on a
+//! failure, on a cancel and after the install. Staging folders an earlier run left (a crash, a
+//! power cut) are removed when a new one is made, unless the run that made them is still going
+//! ([`remove_stale`]).
 
 use std::fs::{self, File};
 use std::io::{self, Read};
@@ -36,9 +39,10 @@ impl Staging {
     pub(super) fn create(target: &Path) -> Result<Self, Failure> {
         let parent = target.parent().filter(|p| !p.as_os_str().is_empty()).ok_or_else(|| Failure::Write(format!("{} has no parent folder", target.display())))?;
         fs::create_dir_all(parent).map_err(|e| write_error(parent, &e))?;
-        let name = format!("{STAGING_PREFIX}{}", std::process::id());
-        remove_stale(parent);
-        let dir = parent.join(name);
+        let own = std::process::id();
+        remove_stale(parent, own, &crate::reports::upload::still_running);
+        // This process's own leftover (one download runs at a time: `start`) is removed here.
+        let dir = parent.join(format!("{STAGING_PREFIX}{own}"));
         if fs::symlink_metadata(&dir).is_ok() {
             fs::remove_dir_all(&dir).map_err(|e| write_error(&dir, &e))?;
         }
@@ -65,15 +69,27 @@ impl Drop for Staging {
     }
 }
 
-/// Every staging folder in `parent` (a real folder named [`STAGING_PREFIX`]...), including one
-/// of this process's from an earlier download, removed; one still in use stays (its files are
-/// open, so the removal fails and is ignored).
-fn remove_stale(parent: &Path) {
+/// The process id in a staging folder's name, `.dlss-download-<digits>`; `None` for any other
+/// name.
+fn staging_pid(name: &str) -> Option<u32> {
+    let digits = name.strip_prefix(STAGING_PREFIX)?;
+    if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    digits.parse().ok()
+}
+
+/// The staging folders in `parent` that other runs left, removed: real folders named
+/// `.dlss-download-<process id>` whose process is not `own` and not `running` (an NVForever
+/// run still going, `reports::upload::still_running`: its download may be under way). Open
+/// files do not protect a folder in use (Rust opens files sharing deletion on Windows), so
+/// the process is asked instead. Anything else in `parent` is left alone.
+fn remove_stale(parent: &Path, own: u32, running: &dyn Fn(u32) -> bool) {
     let Ok(entries) = fs::read_dir(parent) else { return };
     for entry in entries.flatten() {
-        let stale = entry.file_name().to_string_lossy().starts_with(STAGING_PREFIX);
+        let Some(pid) = staging_pid(&entry.file_name().to_string_lossy()) else { continue };
         let real_dir = fs::symlink_metadata(entry.path()).is_ok_and(|m| m.is_dir() && !m.file_type().is_symlink());
-        if stale && real_dir {
+        if real_dir && pid != own && !running(pid) {
             let _ = fs::remove_dir_all(entry.path());
         }
     }
@@ -119,7 +135,13 @@ fn same_name(a: &str, b: &str) -> bool {
 pub(super) fn place(staging: &mut Staging, files: &[DownloadFile], target: &Path, mv: &mut dyn FnMut(&Path, &Path) -> io::Result<()>) -> Result<(), Failure> {
     let meta = match fs::symlink_metadata(target) {
         Err(e) if e.kind() == io::ErrorKind::NotFound => {
-            mv(&staging.dir, target).map_err(|e| write_error(target, &e))?;
+            mv(&staging.dir, target).map_err(|e| {
+                if e.kind() == io::ErrorKind::AlreadyExists {
+                    Failure::Write(format!("{} appeared while the files were checked", target.display()))
+                } else {
+                    write_error(target, &e)
+                }
+            })?;
             staging.moved = true;
             return Ok(());
         }
@@ -162,6 +184,10 @@ pub(super) fn place(staging: &mut Staging, files: &[DownloadFile], target: &Path
         }
         if let Err(e) = mv(&staging.dir.join(file.name), &dest) {
             rollback(&moved);
+            // A file that appeared since the listing is the player's: left as it is.
+            if e.kind() == io::ErrorKind::AlreadyExists {
+                return Err(Failure::FolderHolds(file.name.to_string()));
+            }
             return Err(write_error(&dest, &e));
         }
         moved.push(dest);
@@ -169,18 +195,48 @@ pub(super) fn place(staging: &mut Staging, files: &[DownloadFile], target: &Path
     Ok(())
 }
 
-/// A rename, tried again a few times when the file is held for a moment (a virus scanner
-/// reading a new DLL) [design].
-pub(super) fn rename(from: &Path, to: &Path) -> io::Result<()> {
+/// `from` (a file or a folder) moved to `to` on the same volume, never replacing anything at
+/// `to` (an error of kind `AlreadyExists` then), tried again a few times when the file is held
+/// for a moment (a virus scanner reading a new DLL) [design].
+pub(super) fn move_new(from: &Path, to: &Path) -> io::Result<()> {
     let mut tries = 0;
     loop {
-        match fs::rename(from, to) {
-            Err(e) if e.kind() == io::ErrorKind::PermissionDenied && tries < 5 => {
+        match move_no_replace(from, to) {
+            Err(e) if matches!(e.kind(), io::ErrorKind::PermissionDenied | io::ErrorKind::ResourceBusy) && tries < 5 => {
                 tries += 1;
                 std::thread::sleep(std::time::Duration::from_millis(200));
             }
             other => return other,
         }
+    }
+}
+
+/// `MoveFileExW` without `MOVEFILE_REPLACE_EXISTING` (nor `MOVEFILE_COPY_ALLOWED`): it fails
+/// when `to` exists [documented: Microsoft Learn, "MoveFileExW function (winbase.h)", dwFlags].
+/// `fs::rename` would replace an existing file (it passes the replace flag).
+#[cfg(windows)]
+fn move_no_replace(from: &Path, to: &Path) -> io::Result<()> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Storage::FileSystem::MoveFileExW;
+    let wide = |p: &Path| p.as_os_str().encode_wide().chain(std::iter::once(0)).collect::<Vec<u16>>();
+    let (from_w, to_w) = (wide(from), wide(to));
+    // SAFETY: both strings are zero-terminated and outlive the call.
+    if unsafe { MoveFileExW(from_w.as_ptr(), to_w.as_ptr(), 0) } != 0 { Ok(()) } else { Err(io::Error::last_os_error()) }
+}
+
+/// Off Windows (the tests only: the download never runs there): a file by a hard link, which
+/// fails when `to` exists, and the staged name removed; a folder by a rename after an existence
+/// check (`rename` would replace an empty folder).
+#[cfg(not(windows))]
+fn move_no_replace(from: &Path, to: &Path) -> io::Result<()> {
+    if fs::symlink_metadata(from)?.is_dir() {
+        if fs::symlink_metadata(to).is_ok() {
+            return Err(io::Error::from(io::ErrorKind::AlreadyExists));
+        }
+        fs::rename(from, to)
+    } else {
+        fs::hard_link(from, to)?;
+        fs::remove_file(from)
     }
 }
 
@@ -252,7 +308,7 @@ pub(super) mod tests {
         assert!(staging_path.file_name().unwrap().to_string_lossy().starts_with(STAGING_PREFIX));
         assert_eq!(staging_path.parent(), Some(root.as_path()), "beside the target");
         verify_staged(&staging, &files, &|_| Ok(())).unwrap();
-        place(&mut staging, &files, &target, &mut rename).unwrap();
+        place(&mut staging, &files, &target, &mut move_new).unwrap();
         drop(staging);
         assert_eq!(listing(&target), ["a.dll", "b.dll", "c.dll"]);
         assert_eq!(fs::read(target.join("b.dll")).unwrap(), B);
@@ -272,7 +328,7 @@ pub(super) mod tests {
         let mut moves = Vec::new();
         place(&mut staging, &files, &target, &mut |a, b| {
             moves.push(b.file_name().unwrap().to_string_lossy().into_owned());
-            rename(a, b)
+            move_new(a, b)
         })
         .unwrap();
         drop(staging);
@@ -291,7 +347,7 @@ pub(super) mod tests {
             fs::create_dir(&target).unwrap();
             fs::write(target.join(name), bytes).unwrap();
             let mut staging = staged(&target, &files, &[A, B]);
-            let result = place(&mut staging, &files, &target, &mut rename);
+            let result = place(&mut staging, &files, &target, &mut move_new);
             assert_eq!(result, Err(Failure::FolderHolds(name.to_string())), "{label}");
             drop(staging);
             assert_eq!(listing(&target), [name], "{label}: nothing written");
@@ -312,7 +368,7 @@ pub(super) mod tests {
         let mut n = 0;
         let result = place(&mut staging, &files, &target, &mut |a, b| {
             n += 1;
-            if n == 3 { Err(io::Error::other("disk full")) } else { rename(a, b) }
+            if n == 3 { Err(io::Error::other("disk full")) } else { move_new(a, b) }
         });
         assert!(matches!(result, Err(Failure::Write(why)) if why.contains("disk full")));
         drop(staging);
@@ -342,18 +398,82 @@ pub(super) mod tests {
     }
 
     #[test]
-    fn staging_folders_left_by_earlier_runs_are_removed() {
+    fn staging_folders_of_ended_runs_are_removed_and_nothing_else() {
         let root = scratch("stale");
-        let old = root.join(format!("{STAGING_PREFIX}1"));
-        fs::create_dir(&old).unwrap();
-        fs::write(old.join("sl.common.dll"), b"half").unwrap();
-        fs::write(root.join(format!("{STAGING_PREFIX}file")), b"not a folder: kept").unwrap();
+        let folder = |name: &str| {
+            let dir = root.join(name);
+            fs::create_dir(&dir).unwrap();
+            fs::write(dir.join("sl.common.dll"), b"half").unwrap();
+            dir
+        };
+        let ended = folder(&format!("{STAGING_PREFIX}4294967294"));
+        let running = folder(&format!("{STAGING_PREFIX}77"));
+        let own = folder(&format!("{STAGING_PREFIX}12"));
+        let other_name = folder(&format!("{STAGING_PREFIX}backup"));
+        let plain = folder(".dlss-download");
+        fs::write(root.join(format!("{STAGING_PREFIX}5")), b"not a folder: kept").unwrap();
+        remove_stale(&root, 12, &|pid| pid == 77);
+        assert!(!ended.exists(), "an ended run's folder is removed");
+        assert!(running.exists(), "a running NVForever's folder is kept");
+        assert!(own.exists(), "this process's own is left to Staging::create");
+        assert!(other_name.exists() && plain.exists(), "other names are not staging folders");
+        assert!(root.join(format!("{STAGING_PREFIX}5")).is_file());
+        assert_eq!(staging_pid(".dlss-download-123"), Some(123));
+        assert_eq!(staging_pid(".dlss-download-"), None);
+        assert_eq!(staging_pid(".dlss-download-1a"), None);
+        assert_eq!(staging_pid(".dlss-download-+1"), None);
+        // Staging::create: an ended run's folder and this process's own leftover go.
         let target = root.join("dlss");
+        let leftover = folder(&format!("{STAGING_PREFIX}{}", std::process::id()));
+        let ended = folder(&format!("{STAGING_PREFIX}4294967294"));
         let staging = Staging::create(&target).unwrap();
-        assert!(!old.exists());
-        assert!(root.join(format!("{STAGING_PREFIX}file")).is_file());
-        assert!(staging.path().is_dir());
+        assert!(!ended.exists());
+        assert_eq!(staging.path(), leftover.as_path());
+        assert!(listing(staging.path()).is_empty(), "this process's leftover made new");
         drop(staging);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn a_move_never_replaces_what_is_at_its_destination() {
+        let root = scratch("move");
+        fs::write(root.join("staged.dll"), b"ours").unwrap();
+        fs::write(root.join("there.dll"), b"the player's").unwrap();
+        let refused = move_new(&root.join("staged.dll"), &root.join("there.dll")).unwrap_err();
+        assert_eq!(refused.kind(), io::ErrorKind::AlreadyExists);
+        assert_eq!(fs::read(root.join("there.dll")).unwrap(), b"the player's");
+        assert_eq!(fs::read(root.join("staged.dll")).unwrap(), b"ours");
+        move_new(&root.join("staged.dll"), &root.join("new.dll")).unwrap();
+        assert_eq!(listing(&root), ["new.dll", "there.dll"]);
+        fs::create_dir(root.join("staging")).unwrap();
+        fs::write(root.join("staging").join("a.dll"), b"a").unwrap();
+        fs::create_dir(root.join("dlss")).unwrap();
+        assert_eq!(move_new(&root.join("staging"), &root.join("dlss")).unwrap_err().kind(), io::ErrorKind::AlreadyExists, "an empty folder is not replaced");
+        move_new(&root.join("staging"), &root.join("dlss2")).unwrap();
+        assert_eq!(listing(&root.join("dlss2")), ["a.dll"]);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn a_file_appearing_before_its_move_is_left_and_the_moves_taken_back() {
+        let root = scratch("appears");
+        let target = root.join("dlss");
+        fs::create_dir(&target).unwrap();
+        let files = listed(&[("a.dll", A), ("b.dll", B)]);
+        let mut staging = staged(&target, &files, &[A, B]);
+        let mut first = true;
+        let result = place(&mut staging, &files, &target, &mut |from, to| {
+            if !first {
+                // The player's file lands just before the second move.
+                fs::write(to, b"the player's").unwrap();
+            }
+            first = false;
+            move_new(from, to)
+        });
+        assert_eq!(result, Err(Failure::FolderHolds("b.dll".into())));
+        drop(staging);
+        assert_eq!(listing(&target), ["b.dll"], "a.dll taken back, the player's b.dll kept");
+        assert_eq!(fs::read(target.join("b.dll")).unwrap(), b"the player's");
         let _ = fs::remove_dir_all(root);
     }
 }

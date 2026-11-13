@@ -270,12 +270,14 @@ pub(super) fn select(entries: &[Entry], files: &[DownloadFile]) -> Result<Vec<Se
 }
 
 /// One byte range to fetch: `[start, end)` of the archive, holding the listed entries
-/// `items` (indexes into the selection, in offset order).
+/// `items` in offset order: each one's index into the selection and the end of its own part
+/// of the range (the next local header's offset, or the directory's), which its header, name,
+/// extra field and data must not pass.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct Span {
     pub(super) start: u64,
     pub(super) end: u64,
-    pub(super) items: Vec<usize>,
+    pub(super) items: Vec<(usize, u64)>,
 }
 
 impl Span {
@@ -314,9 +316,9 @@ pub(super) fn plan(selected: &[Selected], entries: &[Entry], dir: &Directory) ->
         match spans.last_mut() {
             Some(last) if last.end == start => {
                 last.end = end;
-                last.items.push(i);
+                last.items.push((i, end));
             }
-            _ => spans.push(Span { start, end, items: vec![i] }),
+            _ => spans.push(Span { start, end, items: vec![(i, end)] }),
         }
     }
     Ok(spans)
@@ -464,10 +466,10 @@ mod tests {
             // a.dll and c.dll are apart (b.dll between): two ranges, each to the next header.
             let selected = select(&entries, &FILES).unwrap();
             let spans = plan(&selected, &entries, &dir).unwrap();
-            assert_eq!(spans, [Span { start: entries[0].local_offset, end: entries[1].local_offset, items: vec![0] }, Span {
+            assert_eq!(spans, [Span { start: entries[0].local_offset, end: entries[1].local_offset, items: vec![(0, entries[1].local_offset)] }, Span {
                 start: entries[2].local_offset,
                 end: entries[3].local_offset,
-                items: vec![1]
+                items: vec![(1, entries[3].local_offset)]
             }]);
             // b.dll and c.dll touch: one range, from b's header to the updater's.
             let touching = [DownloadFile { name: "c.dll", zip_path: "bin/x64/c.dll", size: 5, sha256: "" }, DownloadFile {
@@ -478,7 +480,11 @@ mod tests {
             }];
             let selected = select(&entries, &touching).unwrap();
             let spans = plan(&selected, &entries, &dir).unwrap();
-            assert_eq!(spans, [Span { start: entries[1].local_offset, end: entries[3].local_offset, items: vec![1, 0] }]);
+            assert_eq!(spans, [Span {
+                start: entries[1].local_offset,
+                end: entries[3].local_offset,
+                items: vec![(1, entries[2].local_offset), (0, entries[3].local_offset)]
+            }]);
             // The last entry's range ends at the directory.
             let last = [DownloadFile { name: "u", zip_path: "bin/x64/nvngx_update.exe", size: 5, sha256: "" }];
             let selected = select(&entries, &last).unwrap();

@@ -101,6 +101,8 @@ pub enum Failure {
     // Made only off Windows (`start`).
     #[cfg_attr(windows, allow(dead_code))]
     NotWindows,
+    /// The download's own code stopped on an error of its own (a panic; its message).
+    Internal(String),
 }
 
 impl std::fmt::Display for Failure {
@@ -118,6 +120,7 @@ impl std::fmt::Display for Failure {
             Self::Write(why) => write!(f, "writing the files failed: {why}"),
             Self::Redirect(to) => write!(f, "the archive's address sent to {to}, not an allowed place"),
             Self::NotWindows => write!(f, "DLSS is available on Windows only"),
+            Self::Internal(why) => write!(f, "the download stopped on an internal error ({why})"),
         }
     }
 }
@@ -241,13 +244,16 @@ pub fn start(_accepted: LicenceAccepted) -> Handle {
     {
         let worker = shared.clone();
         let spawned = std::thread::Builder::new().name("nvf-dlss-download".into()).spawn(move || {
-            let phase = match target_folder() {
+            // A panic ends the download as failed (the staging folder's guard still removes it
+            // while unwinding), so the phase never stays unfinished and a new one can start.
+            let phase = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match target_folder() {
                 Err(why) => Phase::Failed(Failure::Write(why)),
                 Ok(target) => {
                     let mut source = fetch::Http::new();
                     run(&mut source, DOWNLOAD_FILES, &target, &worker, &|dir| install::signature_checks(dir, DOWNLOAD_FILES))
                 }
-            };
+            }))
+            .unwrap_or_else(|panic| Phase::Failed(Failure::Internal(panic_text(panic.as_ref()))));
             finish(&worker, phase);
         });
         if let Err(e) = spawned {
@@ -257,6 +263,11 @@ pub fn start(_accepted: LicenceAccepted) -> Handle {
     #[cfg(not(windows))]
     finish(&shared, Phase::Failed(Failure::NotWindows));
     Handle { shared }
+}
+
+/// A panic's message, as far as it is text.
+fn panic_text(panic: &(dyn std::any::Any + Send)) -> String {
+    panic.downcast_ref::<&str>().map(|s| (*s).to_string()).or_else(|| panic.downcast_ref::<String>().cloned()).unwrap_or_else(|| "a panic".to_string())
 }
 
 /// The end of a download: the phase set and its log line.
@@ -329,10 +340,13 @@ impl<'a> Tap<'a> {
         read.map_err(|e| self.stop(e, |e| Failure::NotAZip(e.to_string())))
     }
 
-    /// `n` bytes read and dropped.
+    /// `n` bytes read and dropped; all `n` must be left in the range.
     fn skip(&mut self, n: u64) -> Result<(), Stop> {
-        let copied = io::copy(&mut self.by_ref().take(n), &mut io::sink());
-        copied.map(|_| ()).map_err(|e| self.stop(e, |e| Failure::NotAZip(e.to_string())))
+        match io::copy(&mut self.by_ref().take(n), &mut io::sink()) {
+            Ok(copied) if copied == n => Ok(()),
+            Ok(copied) => Err(Failure::NotAZip(format!("{n} bytes to pass over, {copied} left in the range")).into()),
+            Err(e) => Err(self.stop(e, |e| Failure::NotAZip(e.to_string()))),
+        }
     }
 }
 
@@ -428,24 +442,26 @@ fn fetch_and_install<S: RangeSource>(src: &mut S, files: &[DownloadFile], target
     for span in &spans {
         let mut tap = Tap::new(src.range(span.start, span.len())?, shared, span.len());
         let mut pos = span.start;
-        for &i in &span.items {
+        for &(i, item_end) in &span.items {
             let zip::Selected { file, entry } = &selected[i];
             index += 1;
             shared.set_phase(Phase::File { name: file.name, index, of: selected.len() });
-            tap.skip(entry.local_offset - pos)?;
+            let gap = entry.local_offset.checked_sub(pos).ok_or_else(|| Failure::NotAZip(format!("{}: its local header is inside the entry before it", file.zip_path)))?;
+            tap.skip(gap)?;
             let mut header = [0u8; zip::LOCAL_HEADER_LEN];
             tap.fill(&mut header)?;
             let local = zip::local_header(&header).map_err(|why| Failure::NotAZip(format!("{}: {why}", file.zip_path)))?;
+            // Its header, name, extra field and data must end by the next entry's header.
+            let data_end = entry.local_offset + (zip::LOCAL_HEADER_LEN + local.name_len + local.extra_len) as u64 + entry.compressed;
+            if data_end > item_end {
+                return Err(Failure::NotAZip(format!("{}: its data runs past the next entry", file.zip_path)).into());
+            }
             let mut name = vec![0u8; local.name_len];
             tap.fill(&mut name)?;
             if local.method != entry.method || String::from_utf8_lossy(&name).replace('\\', "/") != entry.name {
                 return Err(Failure::NotAZip(format!("{}: its local header is not its directory entry's", file.zip_path)).into());
             }
             tap.skip(local.extra_len as u64)?;
-            let data_end = entry.local_offset + (zip::LOCAL_HEADER_LEN + local.name_len + local.extra_len) as u64 + entry.compressed;
-            if data_end > span.end {
-                return Err(Failure::NotAZip(format!("{}: its data runs past the next entry", file.zip_path)).into());
-            }
             let path = staging.path().join(file.name);
             let mut out = io::BufWriter::with_capacity(decode::CHUNK, staging.create_file(file)?);
             let unpacked = {
@@ -467,13 +483,17 @@ fn fetch_and_install<S: RangeSource>(src: &mut S, files: &[DownloadFile], target
             bevy::log::info!("DLSS download: {} {} bytes, SHA-256 ok", file.name, decoded.size);
             pos = data_end;
         }
+        // The rest of the range (a data descriptor) is read too: the progress reaches its end,
+        // and the whole range is known to have come.
+        let rest = span.end.checked_sub(pos).ok_or_else(|| Failure::NotAZip("an entry runs past its range".into()))?;
+        tap.skip(rest)?;
     }
     go_on()?;
     shared.set_phase(Phase::Checking);
     install::verify_staged(&staging, files, checks)?;
     go_on()?;
     shared.set_phase(Phase::Installing);
-    install::place(&mut staging, files, target, &mut install::rename)?;
+    install::place(&mut staging, files, target, &mut install::move_new)?;
     Ok(())
 }
 
@@ -676,6 +696,57 @@ mod tests {
         src.cut_to = Some(1000);
         let phase = refused("cut", &mut src, &files(), &Shared::new(), &|_| Ok(()));
         assert!(matches!(&phase, Phase::Failed(Failure::Offline(why)) if why.contains("ended")), "{phase:?}");
+    }
+
+    /// An archive whose two listed entries touch (one merged range); `claim` is an extra field
+    /// length a.dll's local header claims without the bytes being there.
+    fn touching(options: &Options, claim: u16) -> Vec<u8> {
+        let a = a_data();
+        test_zip::build(
+            &[
+                TestEntry::stored("readme.txt", b"not listed"),
+                TestEntry::deflated("bin/x64/a.dll", &a).claiming_extra(claim),
+                TestEntry::stored("bin/x64/b.dll", B_DATA),
+                TestEntry::deflated("bin/x64/nvngx_update.exe", b"never written"),
+            ],
+            options,
+        )
+    }
+
+    #[test]
+    fn touching_entries_come_in_one_range_and_install() {
+        for options in [Options::default(), Options { descriptor: true, ..Options::default() }] {
+            let root = scratch("run-touching");
+            let target = root.join("dlss");
+            let mut src = Memory::new(touching(&options, 0));
+            let shared = Shared::new();
+            assert_eq!(run(&mut src, &files(), &target, &shared, &|_| Ok(())), Phase::Done(target.clone()));
+            assert_eq!(src.ranges.len(), 2, "the tail and one merged range");
+            assert_eq!(listing(&target), ["a.dll", "b.dll"]);
+            assert_eq!(fs::read(target.join("a.dll")).unwrap(), a_data());
+            let progress = shared.progress.lock().unwrap().clone();
+            assert_eq!(progress.fetched, progress.to_fetch, "the whole range read, data descriptors too");
+            let _ = fs::remove_dir_all(root);
+        }
+    }
+
+    #[test]
+    fn a_local_extra_field_reaching_into_the_next_entry_is_refused() {
+        for claim in [20u16, 0xFFFF] {
+            let phase = refused("extra", &mut Memory::new(touching(&Options::default(), claim)), &files(), &Shared::new(), &|_| Ok(()));
+            assert!(matches!(&phase, Phase::Failed(Failure::NotAZip(why)) if why.contains("runs past the next entry")), "claim {claim}: {phase:?}");
+        }
+    }
+
+    #[test]
+    fn a_panic_ends_as_an_internal_failure_with_its_message() {
+        let text = std::panic::catch_unwind(|| panic!("broken {}", 7)).unwrap_err();
+        assert_eq!(panic_text(text.as_ref()), "broken 7");
+        let fixed = std::panic::catch_unwind(|| panic!("fixed words")).unwrap_err();
+        assert_eq!(panic_text(fixed.as_ref()), "fixed words");
+        let other = std::panic::catch_unwind(|| std::panic::panic_any(5u8)).unwrap_err();
+        assert_eq!(panic_text(other.as_ref()), "a panic");
+        assert_eq!(Failure::Internal("broken 7".into()).to_string(), "the download stopped on an internal error (broken 7)");
     }
 
     #[test]

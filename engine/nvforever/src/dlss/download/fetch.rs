@@ -9,8 +9,9 @@
 //! again once when it answers `403` (signed addresses expire). Every answer must be a `206`
 //! whose `Content-Range` is the range asked for out of [`ASSET_SIZE`] bytes; a `200` means
 //! the server ignored the range ([`Failure::NoRanges`]). No content coding is accepted
-//! (`Accept-Encoding: identity`). A connect timeout and a per-read timeout, no overall one: the
-//! largest file takes minutes on a slow line.
+//! (`Accept-Encoding: identity`). A connect timeout, a per-read timeout, and for each answer's
+//! body a time bound scaled by its size ([`body_time`]: a minute plus 8 KiB a second), so a
+//! server trickling bytes cannot hold the download forever while a slow line still finishes.
 //!
 //! Test aid: `NVF_DLSS_DOWNLOAD_URL=<url>` replaces [`ASSET_URL`] only when it is `http` on
 //! this machine (`127.0.0.1`, `localhost`, `[::1]`); anything else is ignored with a warning.
@@ -76,6 +77,13 @@ pub(super) fn check_range(value: Option<&str>, start: u64, len: u64) -> Result<(
     Ok(())
 }
 
+/// The longest an answer's body of `len` bytes may take [design]: a minute, plus a second for
+/// each 8 KiB (a 30 MB range gets about an hour: only a line slower than 64 kbit/s fails).
+#[cfg_attr(not(windows), allow(dead_code))]
+pub(super) fn body_time(len: u64) -> std::time::Duration {
+    std::time::Duration::from_secs(60 + len / (8 * 1024))
+}
+
 #[cfg(windows)]
 pub(super) use http::Http;
 
@@ -92,8 +100,9 @@ mod http {
     /// How long the answer's headers, and each read of its body, may take.
     const READ: Duration = Duration::from_secs(30);
 
-    /// The archive over HTTP.
-    pub(in super::super) struct Http {
+    /// The archive over HTTP. Visible to the download module only: nothing else reaches the
+    /// network through it, and the download starts only with a `LicenceAccepted`.
+    pub(in crate::dlss::download) struct Http {
         agent: ureq::Agent,
         /// [`ASSET_URL`], or the test aid's address.
         start_url: String,
@@ -104,7 +113,7 @@ mod http {
 
     impl Http {
         /// The pinned address, or the test aid's when it is set and allowed.
-        pub(in super::super) fn new() -> Self {
+        pub(in crate::dlss::download) fn new() -> Self {
             match std::env::var(TEST_URL_VAR) {
                 Ok(url) if !url.is_empty() && is_loopback_http(&url) => Self::with_url(url, true),
                 Ok(url) if !url.is_empty() => {
@@ -115,7 +124,7 @@ mod http {
             }
         }
 
-        pub(in super::super) fn with_url(start_url: String, test_aid: bool) -> Self {
+        pub(in crate::dlss::download) fn with_url(start_url: String, test_aid: bool) -> Self {
             let tls = ureq::tls::TlsConfig::builder().provider(ureq::tls::TlsProvider::NativeTls).root_certs(ureq::tls::RootCerts::PlatformVerifier).build();
             let agent = ureq::Agent::config_builder()
                 .tls_config(tls)
@@ -135,7 +144,14 @@ mod http {
         /// A `GET` of `len` bytes from `start`.
         fn get(&self, url: &str, start: u64, len: u64) -> Result<ureq::http::Response<ureq::Body>, Failure> {
             let last = start + len.max(1) - 1;
-            self.agent.get(url).header("Range", format!("bytes={start}-{last}")).call().map_err(|e| Failure::Offline(e.to_string()))
+            self.agent
+                .get(url)
+                .header("Range", format!("bytes={start}-{last}"))
+                .config()
+                .timeout_recv_body(Some(super::body_time(len)))
+                .build()
+                .call()
+                .map_err(|e| Failure::Offline(e.to_string()))
         }
 
         /// The address the ranges are asked of: the start address's redirect, or the start
@@ -255,5 +271,12 @@ mod tests {
         assert_eq!(check_range(Some("bytes 0-199/276016170"), 100, 100), Err(Failure::NoRanges));
         assert_eq!(check_range(Some("bytes */276016170"), 100, 100), Err(Failure::NoRanges));
         assert_eq!(check_range(None, 0, 1), Err(Failure::NoRanges));
+    }
+
+    #[test]
+    fn a_body_may_take_a_minute_plus_a_second_per_8_kib() {
+        assert_eq!(body_time(0).as_secs(), 60);
+        assert_eq!(body_time(65_577).as_secs(), 68);
+        assert_eq!(body_time(64 << 20).as_secs(), 60 + 8192);
     }
 }
