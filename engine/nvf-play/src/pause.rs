@@ -122,6 +122,14 @@
 //! resolution?" with the seconds left and Keep / Revert (Left/Right/Up/Down choose, Enter
 //! or Space take, Esc reverts, a click takes); unanswered it goes back by itself
 //! (`crate::settings::KEEP_SECS`).
+//! A list may show its choices by other words than their names and hold some out of reach
+//! (`crate::settings::set_choice_labels`, `set_choice_unavailable`) [design:
+//! docs/design/dlss-upscaling.md]: the box and the open list show the words; a choice out
+//! of reach is drawn dim, the keys and the pointer still come onto it and the note under
+//! the rows then gives its reason, but Enter, Space, A or a click leave the list open and
+//! take nothing (`settings: <key> <name> not taken: <reason>`), and Left/Right on the row
+//! pass over it. The test aids still name a choice by its name; one out of reach is
+//! refused the same way.
 //!
 //! **The Controls tab** [design; owner 2026-10-16: keys can be mapped from the settings]
 //! lists every control of `crate::bindings` with its key and mouse button. Up/Down (W/S)
@@ -193,7 +201,9 @@
 //! it), `layout` logs the tabs and each row's place (`settings layout: menu-pause ->
 //! Gameplay > Dialogue`), `search:<text>` opens the search on that text with the keys on
 //! its results (`pause menu: search "<text>": <n> result(s); keys …`) and `changed` the
-//! Changed list [design: #1953].
+//! Changed list [design: #1953]. An older list's key (`crate::settings::set_list_alias`:
+//! nvforever's `fsr-upscaling=<choice>`) shows the row that took over and takes the older
+//! row's choice there.
 //! `NVF_PLAY_TEST_PAUSE_MENU=<seconds>:<action>[,…]`: with the pause menu open, `save` (the
 //! Save button), `load` (the load page), `down`, `up`, `pick` (Enter on the load page, the
 //! quit question, a settings row or its open dropdown, where `down` and `up` move too),
@@ -1123,6 +1133,10 @@ struct Drawn {
     scroll: usize,
     /// The list rows: each one's row, choices and chosen one.
     lists: Vec<(usize, Vec<String>, String)>,
+    /// The list rows that show their choices by other words or hold some out of reach
+    /// (`crate::settings::ChoiceLooks`; the others have none here): each one's row and its
+    /// words and reasons.
+    looks: Vec<(usize, ListLooks)>,
     dropdown: Option<Dropdown>,
     /// The keep question: its row's label, the seconds left and the chosen answer.
     keep: Option<(&'static str, u32, usize)>,
@@ -1147,6 +1161,37 @@ impl Drawn {
     fn list(&self, i: usize) -> Option<(&[String], &str)> {
         self.lists.iter().find(|l| l.0 == i).map(|l| (l.1.as_slice(), l.2.as_str()))
     }
+
+    fn looks(&self, i: usize) -> Option<&ListLooks> {
+        self.looks.iter().find(|l| l.0 == i).map(|l| &l.1)
+    }
+
+    /// The words shown for choice `k` (named `name`) of list row `i`.
+    fn choice_words<'a>(&'a self, i: usize, k: usize, name: &'a str) -> &'a str {
+        self.looks(i).and_then(|l| l.labels.get(k)).map_or(name, String::as_str)
+    }
+
+    /// Why choice `k` of list row `i` cannot be taken now; `None`: it can.
+    fn choice_reason(&self, i: usize, k: usize) -> Option<&str> {
+        self.looks(i)?.reasons.get(k)?.as_deref()
+    }
+
+    /// List row `i`'s chosen one as shown: its words (`chosen`, its name, without any) and
+    /// whether it is out of reach now (a stored request it cannot meet).
+    fn chosen_words<'a>(&'a self, i: usize, chosen: &'a str) -> (&'a str, bool) {
+        self.looks(i).map_or((chosen, false), |l| (l.chosen.0.as_str(), l.chosen.1.is_some()))
+    }
+}
+
+/// A list row's choices as the page shows them (`crate::settings::ChoiceLooks`), in the
+/// order of its names.
+#[derive(Clone, PartialEq, Debug, Default)]
+struct ListLooks {
+    labels: Vec<String>,
+    /// Why each cannot be taken now; `None`: it can.
+    reasons: Vec<Option<String>>,
+    /// The chosen one's words and reason (it may be out of reach: loaded from the INI).
+    chosen: (String, Option<String>),
 }
 
 impl Drawn {
@@ -1527,8 +1572,13 @@ fn settings_page(root: &mut ChildSpawnerCommands, d: &Drawn, look: &PauseLook, l
             ViewEntry::Row(id) => row_line(root, d, look, list, id, selected == Some(id), left, y, glyphs),
         }
     }
-    // The chosen row's note under the rows.
-    let note = selected.map_or_else(String::new, |id| note_of(list, id, d));
+    // The chosen row's note under the rows; with its list open on a choice out of reach,
+    // that choice's reason.
+    let reason = d.dropdown.filter(|o| selected == Some(RowId::Setting(o.row))).and_then(|o| d.choice_reason(o.row, o.at));
+    let note = match reason {
+        Some(r) => tr_str(r).to_string(),
+        None => selected.map_or_else(String::new, |id| note_of(list, id, d)),
+    };
     root.spawn((SwitchNote, Text::new(note.clone()), Node { display: Display::None, ..default() }));
     let shown = (entries.len() - first.min(entries.len())).min(OPTION_ROWS) as f32;
     note_lines(root, f, &note, left, top + shown * OPTION_ROW + 20.0);
@@ -1543,10 +1593,11 @@ fn settings_page(root: &mut ChildSpawnerCommands, d: &Drawn, look: &PauseLook, l
     let (line, _) = highlight_colors();
     root.spawn((Node { border: UiRect::all(u(LINE)), ..from_middle(left + LIST_LEFT, y, LIST_WIDTH, h) }, BorderColor::all(line), BackgroundColor(Color::BLACK), GlobalZIndex(111))).with_children(|b| {
         for (k, name) in names.iter().enumerate().skip(o.first).take(shown) {
-            let name = tr_str(name);
+            let name = tr_str(d.choice_words(o.row, k, name));
+            let shade = if d.choice_reason(o.row, k).is_some() { Shade::Dim } else { Shade::Bright };
             let nw = f.entry.font.width(name);
             b.spawn((Button, PauseButton::Choice(o.row, k), boxed(at(0.0, (k - o.first) as f32 * DROP_ITEM, LIST_WIDTH - 2.0 * LINE, DROP_ITEM), k == o.at)))
-            .with_children(|r| sm_text(r, &f.entry, name, (LIST_WIDTH - nw) / 2.0 - LINE, DROP_ITEM * 0.72, color(Shade::Bright)));
+            .with_children(|r| sm_text(r, &f.entry, name, (LIST_WIDTH - nw) / 2.0 - LINE, DROP_ITEM * 0.72, color(shade)));
         }
     });
 }
@@ -1635,7 +1686,7 @@ fn row_line(root: &mut ChildSpawnerCommands, d: &Drawn, look: &PauseLook, list: 
                     return;
                 }
                 if let Some((_, chosen)) = d.list(i) {
-                    list_row(r, look, id, chosen, d.dropdown.is_some_and(|o| o.row == i));
+                    list_row(r, look, id, chosen, d.chosen_words(i, chosen), d.dropdown.is_some_and(|o| o.row == i));
                     return;
                 }
                 let value = tr(if v > 0.5 { "ON" } else { "OFF" });
@@ -1732,17 +1783,19 @@ fn row_note(list: &[Setting], id: RowId, d: &Drawn) -> String {
     }
 }
 
-/// A list's row: its choice in a box with a down arrow (lit while its dropdown is open).
-fn list_row(r: &mut ChildSpawnerCommands, look: &PauseLook, i: RowId, chosen: &str, open: bool) {
+/// A list's row: its choice in a box with a down arrow (lit while its dropdown is open),
+/// shown by its words (`shown`), dim when out of reach now.
+fn list_row(r: &mut ChildSpawnerCommands, look: &PauseLook, i: RowId, chosen: &str, shown: (&str, bool), open: bool) {
     let bright = color(Shade::Bright);
     let (line, fill) = highlight_colors();
     r.spawn((Node { border: UiRect::all(u(LINE)), ..at(LIST_LEFT, 6.0, LIST_WIDTH, OPTION_ROW - 12.0) }, BorderColor::all(line.with_alpha(if open { 1.0 } else { 0.6 })), BackgroundColor(if open { fill } else { Color::NONE })));
     // The state kept as text stays the English name (tests and aids read it); the page
     // shows it in the language chosen.
     r.spawn((SwitchState(i), Text::new(chosen), Node { display: Display::None, ..default() }));
-    let chosen = tr_str(chosen);
-    let vw = look.faces.entry.font.width(chosen);
-    sm_text(r, &look.faces.entry, chosen, LIST_LEFT + (LIST_WIDTH - 30.0 - vw) / 2.0, BASE + 2.0, bright);
+    let (words, out_of_reach) = shown;
+    let words = tr_str(words);
+    let vw = look.faces.entry.font.width(words);
+    sm_text(r, &look.faces.entry, words, LIST_LEFT + (LIST_WIDTH - 30.0 - vw) / 2.0, BASE + 2.0, if out_of_reach { color(Shade::Dim) } else { bright });
     // The right arrow turned to point down.
     let node = at(LIST_LEFT + LIST_WIDTH - 30.0, (OPTION_ROW - METER_ARROW.y) / 2.0, METER_ARROW.x, METER_ARROW.y);
     let turned = UiTransform { rotation: Rot2::degrees(90.0), ..default() };
@@ -2897,6 +2950,22 @@ fn choose(
                 show_row(&mut page, &mut view, layout, RowId::Setting(i));
                 fx.flips.push(i);
             }
+            (None, _) if settings.alias(&key).is_some() => {
+                // An older list's key (settings::set_list_alias): its row shown, its choice taken
+                // by the older row's name.
+                if let Some(i) = settings.alias(&key).and_then(|(_, a)| a.rows.first()).and_then(|row| settings.index(row)) {
+                    show_row(&mut page, &mut view, layout, RowId::Setting(i));
+                }
+                match item.split_once('=') {
+                    Some((_, v)) => {
+                        let (key, name) = (key.clone(), v.trim().to_string());
+                        commands.queue(move |world: &mut World| {
+                            crate::settings::pick_alias(world, &key, &name);
+                        });
+                    }
+                    None => warn!("NVF_PLAY_TEST_SETTINGS: {key} is a list: give it a choice, {key}=<choice>"),
+                }
+            }
             (None, "page") => show_scope(&mut page, &mut view, SettingsScope::default()),
             (None, "controls") => show_row(&mut page, &mut view, layout, RowId::Control(ControlRow::Device)),
             (None, _) => warn!("NVF_PLAY_TEST_SETTINGS: no switch {key:?}; there are {:?}", list.iter().map(|s| s.key).collect::<Vec<_>>()),
@@ -3173,7 +3242,12 @@ fn choose(
             o.first = o.first.max((o.at + 1).saturating_sub(DROP_ROWS)).min(o.at).min(last);
             sounds.write(UiSound { menu: UiMenu::Settings, event: UiEvent::Focus });
         }
-        if let Some(name) = take.and_then(|k| names.get(k)) {
+        let out_of_reach = take.is_some_and(|k| view.drawn.as_ref().is_some_and(|d| d.choice_reason(o.row, k).is_some()));
+        if let Some((k, name)) = take.and_then(|k| Some((k, names.get(k)?))).filter(|_| out_of_reach) {
+            // Out of reach: the list stays open on it, its reason under the rows.
+            refuse_choice(&mut commands, o.row, name.clone());
+            o.at = k;
+        } else if let Some(name) = take.and_then(|k| names.get(k)) {
             pick_choice(&mut commands, &mut sounds, o.row, name.clone());
             shut = true;
         } else if shut {
@@ -3833,8 +3907,26 @@ fn choose(
     }
     for (i, name) in fx.picks {
         if view_disabled(&view, i) { continue; }
+        if view_out_of_reach(&view, i, &name) {
+            refuse_choice(&mut commands, i, name);
+            continue;
+        }
         pick_choice(&mut commands, &mut sounds, i, name);
     }
+}
+
+/// A choice out of reach asked for: nothing taken, `crate::settings::pick` logs why.
+fn refuse_choice(commands: &mut Commands, i: usize, name: String) {
+    commands.queue(move |world: &mut World| {
+        crate::settings::pick(world, i, &name);
+    });
+}
+
+/// Whether choice `name` of list row `i` was out of reach when the page was last drawn.
+fn view_out_of_reach(view: &PauseView, i: usize, name: &str) -> bool {
+    let Some(d) = view.drawn.as_ref() else { return false };
+    let Some((names, _)) = d.list(i) else { return false };
+    names.iter().position(|n| n == name).is_some_and(|k| d.choice_reason(i, k).is_some())
 }
 
 /// Take choice `name` of list row `i` (`crate::settings::pick`).
@@ -3856,12 +3948,21 @@ fn open_dropdown(view: &mut PauseView, i: usize) {
     view.dropdown = Some(Dropdown { row: i, at, first });
 }
 
-/// The choice `step` (-1 or 1) from list row `i`'s chosen one, not past the ends.
+/// The choice `step` (-1 or 1) from list row `i`'s chosen one, not past the ends, passing
+/// over those out of reach.
 fn neighbour(view: &PauseView, i: usize, step: i32) -> Option<String> {
     if view_disabled(view, i) { return None; }
-    let (names, chosen) = view.drawn.as_ref()?.list(i)?;
-    let at = names.iter().position(|n| n == chosen)? as i32 + step;
-    names.get(usize::try_from(at).ok()?).cloned()
+    let d = view.drawn.as_ref()?;
+    let (names, chosen) = d.list(i)?;
+    let mut at = names.iter().position(|n| n == chosen)? as i32;
+    loop {
+        at += step;
+        let k = usize::try_from(at).ok()?;
+        let name = names.get(k)?;
+        if d.choice_reason(i, k).is_none() {
+            return Some(name.clone());
+        }
+    }
 }
 
 /// Whether row `i` was disabled when the page was last drawn.
@@ -3972,6 +4073,22 @@ fn drawn_now(world: &mut World) -> Drawn {
         let settings = world.resource::<Settings>();
         (0..list.len()).filter_map(|i| settings.choices(i).map(|c| (i, (c.names)(world), (c.chosen)(world)))).collect()
     };
+    let looks: Vec<(usize, ListLooks)> = {
+        let settings = world.resource::<Settings>();
+        lists
+            .iter()
+            .filter(|(i, _, _)| settings.choice_looks(*i).is_some())
+            .map(|(i, names, chosen)| {
+                let i = *i;
+                let looks = ListLooks {
+                    labels: names.iter().map(|n| settings.choice_label(world, i, n)).collect(),
+                    reasons: names.iter().map(|n| settings.choice_unavailable(world, i, n)).collect(),
+                    chosen: (settings.choice_label(world, i, chosen), settings.choice_unavailable(world, i, chosen)),
+                };
+                (i, looks)
+            })
+            .collect()
+    };
     let keep = world.get_resource::<crate::settings::PendingKeep>().map(|p| {
         let now = world.get_resource::<Time<Real>>().map_or(0.0, |t| t.elapsed_secs_f64());
         (list.get(p.row).map_or("choice", |s| s.label), p.left(now), world.resource::<PauseView>().keep_selected)
@@ -4018,6 +4135,7 @@ fn drawn_now(world: &mut World) -> Drawn {
         vertical: world.get_resource::<crate::bindings::Bindings>().map_or(1.0, |b| b.vertical_sensitivity()),
         scroll: view.scroll,
         lists,
+        looks,
         dropdown: view.dropdown.filter(|_| matches!(page, Page::Settings { .. })),
         keep,
         delete_ask: view.delete_ask.filter(|_| matches!(page, Page::Load { .. })),
@@ -5308,5 +5426,137 @@ mod tests {
         assert_eq!(value_of(&mut app, is_invert).as_deref(), Some("OFF"));
         crate::bindings::set_invert_y(app.world_mut(), true);
         assert_eq!(value_of(&mut app, is_invert).as_deref(), Some("ON"));
+    }
+
+    #[derive(Resource)]
+    struct ListSize(String);
+
+    /// 1920x1080 out of reach while this is false.
+    #[derive(Resource)]
+    struct ListBig(bool);
+
+    /// A settings page with one list row, its choices shown by words, 1920x1080 out of
+    /// reach; the page's input and its drawing both run.
+    fn reach_app() -> App {
+        const NAMES: [&str; 3] = ["800x600", "1280x800", "1920x1080"];
+        let mut app = App::new();
+        app.insert_resource(ListSize("1280x800".into())).insert_resource(ListBig(false));
+        app.init_resource::<Time>().init_resource::<PlayClock>().init_resource::<PauseAid>();
+        app.init_resource::<ButtonInput<KeyCode>>().init_resource::<ButtonInput<MouseButton>>();
+        app.insert_resource(NextState::<PlayState>::default()).init_resource::<PageRequest>().init_resource::<Listening>().init_resource::<SettingsLayout>().init_resource::<crate::graphics_resume::GraphicsResume>();
+        app.init_resource::<LoadList>().init_resource::<Assets<Image>>().init_resource::<crate::save::SaveConfig>().init_resource::<PauseStatus>();
+        app.init_resource::<crate::pad::PadGlyphs>().insert_resource(PauseLook::plain());
+        app.add_message::<AppExit>().add_message::<crate::ui_sounds::UiSound>().add_message::<crate::save::SaveRequest>().add_message::<crate::save::LoadRequest>().add_message::<MainMenuRequest>();
+        let row = Setting { key: "size", group: "Test", label: "Size", note: "How big.", get: |_| false, set: |_, _| {}, slider: None };
+        let list = crate::settings::ChoiceList {
+            names: |_| NAMES.map(String::from).to_vec(),
+            chosen: |w| w.resource::<ListSize>().0.clone(),
+            pick: |w, n| {
+                let ok = NAMES.contains(&n);
+                if ok {
+                    w.resource_mut::<ListSize>().0 = n.to_string();
+                }
+                ok
+            },
+            save: |w| w.resource::<ListSize>().0.clone(),
+            load: |w, t| {
+                let ok = NAMES.contains(&t);
+                if ok {
+                    w.resource_mut::<ListSize>().0 = t.to_string();
+                }
+                ok
+            },
+            ask_keep: false,
+        };
+        crate::settings::add_choice_list(&mut app, row, list);
+        crate::settings::set_choice_labels(&mut app, "size", |_, n| ["Small", "Medium", "Large"][NAMES.iter().position(|x| *x == n).unwrap_or(0)].to_string());
+        crate::settings::set_choice_unavailable(&mut app, "size", |w, n| (n == "1920x1080" && !w.resource::<ListBig>().0).then(|| "Needs a bigger monitor".to_string()));
+        app.insert_resource(Paused(true)).insert_resource(Page::Settings { selected: Some(RowId::Setting(0)) }).init_resource::<PauseView>();
+        app.add_systems(Update, (choose, draw).chain());
+        app
+    }
+
+    fn texts(app: &mut App) -> Vec<(String, Color)> {
+        let world = app.world_mut();
+        world.query::<(&Text, &TextColor)>().iter(world).map(|(t, c)| (t.0.clone(), c.0)).collect()
+    }
+
+    fn note(app: &mut App) -> String {
+        let world = app.world_mut();
+        world.query_filtered::<&Text, With<SwitchNote>>().single(world).unwrap().0.clone()
+    }
+
+    fn row_state(app: &mut App) -> String {
+        let world = app.world_mut();
+        world.query::<(&SwitchState, &Text)>().single(world).unwrap().1.0.clone()
+    }
+
+    #[test]
+    fn a_choice_out_of_reach_is_drawn_dim_gives_its_reason_and_is_not_taken_by_any_input() {
+        let mut app = reach_app();
+        app.update();
+        // The box shows the chosen one's words; the state kept as text stays its name.
+        assert_eq!(row_state(&mut app), "1280x800");
+        assert!(texts(&mut app).contains(&("Medium".to_string(), color(Shade::Bright))), "{:?}", texts(&mut app));
+        assert_eq!(note(&mut app), "How big.");
+        // Enter opens the list on the chosen one; Down comes onto the one out of reach:
+        // drawn dim, its reason under the rows.
+        press_only(&mut app, KeyCode::Enter);
+        app.update();
+        assert_eq!(app.world().resource::<PauseView>().dropdown.map(|o| o.at), Some(1));
+        press_only(&mut app, KeyCode::ArrowDown);
+        app.update();
+        assert_eq!(app.world().resource::<PauseView>().dropdown.map(|o| o.at), Some(2));
+        let all = texts(&mut app);
+        assert!(all.contains(&("Large".to_string(), color(Shade::Dim))) && all.contains(&("Small".to_string(), color(Shade::Bright))), "{all:?}");
+        assert_eq!(note(&mut app), "Needs a bigger monitor");
+        // Enter on it: nothing taken, the list stays open on it.
+        press_only(&mut app, KeyCode::Enter);
+        app.update();
+        assert_eq!(app.world().resource::<ListSize>().0, "1280x800");
+        assert_eq!(app.world().resource::<PauseView>().dropdown.map(|o| o.at), Some(2), "still open");
+        // A click on it: the same.
+        app.world_mut().resource_mut::<ButtonInput<KeyCode>>().reset_all();
+        app.world_mut().spawn((Button, PauseButton::Choice(0, 2), PointerState::Pressed));
+        app.update();
+        assert_eq!(app.world().resource::<ListSize>().0, "1280x800");
+        assert!(app.world().resource::<PauseView>().dropdown.is_some(), "still open");
+        // Esc closes it; Right on the row passes over the one out of reach (nothing after
+        // it), Left takes the one before.
+        press_only(&mut app, KeyCode::Escape);
+        app.update();
+        assert!(app.world().resource::<PauseView>().dropdown.is_none());
+        press_only(&mut app, KeyCode::ArrowRight);
+        app.update();
+        assert_eq!(app.world().resource::<ListSize>().0, "1280x800");
+        press_only(&mut app, KeyCode::ArrowLeft);
+        app.update();
+        assert_eq!(app.world().resource::<ListSize>().0, "800x600");
+        // Right from there passes over nothing: 1280x800; again: still not 1920x1080.
+        press_only(&mut app, KeyCode::ArrowRight);
+        app.update();
+        assert_eq!(app.world().resource::<ListSize>().0, "1280x800");
+        press_only(&mut app, KeyCode::ArrowRight);
+        app.update();
+        assert_eq!(app.world().resource::<ListSize>().0, "1280x800");
+        // The settings aid asks for it by name: refused the same way.
+        app.world_mut().resource_mut::<ButtonInput<KeyCode>>().reset_all();
+        app.world_mut().resource_mut::<PauseAid>().switches = vec![(0.0, "size=1920x1080".into())];
+        app.update();
+        assert_eq!(app.world().resource::<ListSize>().0, "1280x800");
+        // In reach again: drawn bright and taken as any other.
+        app.world_mut().resource_mut::<ListBig>().0 = true;
+        app.update();
+        app.world_mut().resource_mut::<PauseAid>().switches = vec![(0.0, "size=1920x1080".into())];
+        app.update();
+        assert_eq!(app.world().resource::<ListSize>().0, "1920x1080");
+        app.update();
+        assert_eq!(row_state(&mut app), "1920x1080");
+        assert!(texts(&mut app).contains(&("Large".to_string(), color(Shade::Bright))));
+        // Out of reach once chosen (a stored request): the box shows it dim.
+        app.world_mut().resource_mut::<ListBig>().0 = false;
+        app.update();
+        assert!(texts(&mut app).contains(&("Large".to_string(), color(Shade::Dim))));
+        assert_eq!(row_state(&mut app), "1920x1080");
     }
 }

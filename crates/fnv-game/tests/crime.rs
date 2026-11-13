@@ -1,7 +1,7 @@
 //! Karma, ownership and crime on a synthetic plugin (no game data):
 //! docs/spec-notes/crime-karma.md §2–§5.
 
-mod common;
+use crate::common;
 
 use common::*;
 use fnv_esm::{LoadOrder, Plugin, Schema};

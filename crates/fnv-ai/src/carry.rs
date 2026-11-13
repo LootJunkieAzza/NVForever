@@ -1256,7 +1256,7 @@ impl Ai {
         if a.rooted || a.activity == Activity::Travelling || a.talk.is_some() || a.chat.is_some() {
             return;
         }
-        let Some(home) = goal::editor_place(game.world.placed, actor) else { return };
+        let Some(home) = goal::editor_place_of(game, actor) else { return };
         let feet = Place { space: a.walker.space, pos: a.walker.feet };
         // Not one a script put somewhere else (MoveTo): only back from nearby.
         let away = if feet.space == home.space { hdist(feet.pos, home.pos) } else { f32::INFINITY };
@@ -1990,7 +1990,7 @@ impl Ai {
         a.activity = Activity::There;
         if talk.say_to {
             let Some(topic) = talk.topic else { return };
-            match game.say(actor, Some(talk.target), topic, true) {
+            match game.say_package_line(actor, talk.target, topic) {
                 Some(line) => self.log(game, actor, AiEvent::Talk { package, target: talk.target, line, away, say_to: true, greeting: false }),
                 None => {
                     let why = format!("it has no line of {} to say", game.data.name(topic));

@@ -252,6 +252,11 @@ Hard means the player cannot progress; soft means play degrades.
 
 ## 6. Stale documents
 
+> **As of 2026-10-23.** Most rows below were fixed by the docs sweep of 2026-10-25 and
+> later pull requests; the handovers of 2026-10-21/22, the outstanding audit, the queue of
+> 2026-10-20, the playtest lists 1-5 and the site update have moved to `handoff/archive/`.
+> Kept as a record; check a document itself before acting on a row (#2005).
+
 | Document | What is wrong |
 |---|---|
 | `docs/status.md` | Header 2026-10-17/#417; "205 scenarios" (431); "70 of 107 layouts" (92); "160/160 NIF block types" (229 in the schema, 178 concrete); Releases knows only v0.1.0 (tags go to v0.4.0); "Done" for events (5 blocks never fire) and materials (no environment maps); still lists as unbuilt: console multi-statement lines, AvoidThreat, throw phases (built for the player), particle controllers, leveled locks (none in the masters), compass quest markers; omits hotkeys, pickpocketing, perk entry points beyond combat, melee VATS, menu XML; Crafting, Repair and Followers "Partly" with no gap named |

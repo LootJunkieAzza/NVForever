@@ -125,13 +125,18 @@ the spec it links to.
     picked up, and you can only walk while holding over 25 kg. All guessed.
     ([grab](spec-notes/grab.md))
 14. **Steps and road bumps.** Body and view follow the ground through a 0.2 s speed
-    prediction and a spring (2026-11-07, after "every bump" on roads): road ripples are
-    about 2.5-3x smoother, but running onto a steep hill the body is drawn up to 8 units
-    below the feet for a moment (up to 24 units allowed; over 48 counts as a teleport). A
-    step-up counts from 0.25 units of rise. Where a slope or stairs end the body carries
-    on up: up to 9.9 units over the top of a 30° slope and 4.2 over the top stair at a
-    run (6.1 and 1.2 walking; the old rule never overshot) [observed: replays, physics
-    §6.11]; cutting it halves the slope's overshoot but doubles the road roughness. Smooth enough, or too floaty?
+    prediction and a three-stage ease (2026-11-07, after "every bump" on roads; eased
+    2026-11-12 after feedback that curbs felt jarring): road ripples are about 2.5-3x
+    smoother, a curb starts and ends without a jolt, settling in about 0.24 s, and walking
+    off a rock or a road edge (up to 24 units down) is eased the same way instead of drawn
+    as a fall; walking, steps ease more slowly (over about the same distance walked)
+    and the view no longer twitches with the drawn floor of broken roads, but
+    running onto a steep hill the body is drawn up to 13 units below the feet for a
+    moment (up to 24 units allowed; over 48 counts as a teleport). A step-up counts from
+    0.25 units of rise. Where a slope or stairs end the body carries on up: up to 13.3
+    units over the top of a 30° slope and 2.6 over the top stair at a run (9.1 and 0.5
+    walking) [observed: replays, physics §6.11]; cutting it halves the slope's overshoot
+    but doubles the road roughness. Smooth enough, or too floaty?
     ([physics §6.8.1, §6.9.1](spec-notes/physics.md))
 15. **Third-person aim.** Shots and the activate prompt go to what is under the
     third-person crosshair, but the shot still leaves from the eye, so cover near you

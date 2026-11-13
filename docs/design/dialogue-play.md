@@ -879,7 +879,7 @@ SayTo from the speaker's script.
 
 ### 9.4 Checks (2026-10-11)
 
-- `cargo test -p fnv-game --test dialogue lines_said_to_someone_turn_the_two_to_each_other`:
+- `cargo test -p fnv-game --test integration dialogue::lines_said_to_someone_turn_the_two_to_each_other`:
   SayTo with and without the flag, Say, a conversation between actors with and without
   `headTrack` 0 (and its reply).
 - Prospector Saloon, `--play`, Sunny Smiles (`SunnyRef`) saying GREETING lines by the test

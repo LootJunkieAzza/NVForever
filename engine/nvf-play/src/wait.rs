@@ -36,6 +36,9 @@
 //! player sleep (`SetPCSleepHours`) and stop a sleep (`WakeUpPC`); [`script_requests`]
 //! takes what they asked. A bed's own script is told of the sleep
 //! (`Runtime::bed_activated_for_sleep`): that is what gives Well Rested.
+//! A trip's loading screen that comes up while the menu is open passes the hours left
+//! at once behind it and closes the menu ([`pass_behind_screen`]; the raft to the Fort
+//! asks for its sleep in the frame it moves the player, issue #2281).
 //!
 //! Test aid `NVF_PLAY_TEST_WAIT=<seconds>:<what>[,…]`: at each time `open` presses the
 //! Wait control, `hours=<n>` sets the slider, `accept` and `cancel` press the buttons.
@@ -240,6 +243,7 @@ impl Plugin for WaitPlugin {
             // Before the scripts, as the running clock is (`crate::sim`): a frame's
             // scripts all see the hour that passed in it.
             .add_systems(Update, pass_hours.run_if(in_state(PlayState::Menu)).before(PlaySet::Scripts))
+            .add_systems(Update, pass_behind_screen.run_if(in_state(PlayState::Loading)).run_if(|m: Res<WaitMenu>| m.is_open()))
             .add_systems(
                 Update,
                 (
@@ -702,34 +706,91 @@ fn pass_hours(
         return;
     }
     let p = m.passing.expect("an hour passed");
-    match sim.world.advance_hours(1.0) {
-        Ok(c) => {
-            stats.hours += 1;
-            passed.write(HourPassed { sleep: m.sleep });
-            if let Some(rt) = script.as_mut().and_then(|s| s.rt.as_mut()) {
-                let (sleep, hour) = (m.sleep, p.asked - p.left);
-                crate::script::with_world(rt, &mut sim, |rt| crate::aid::hour_passed(rt, sleep, hour));
-            }
-            info!(
-                "{}: hour {} of {} passed: {} (GameHour {:.3}, GameDaysPassed {:.3})",
-                if m.sleep { "sleep" } else { "wait" },
-                p.asked - p.left,
-                p.asked,
-                words.date_line(&c),
-                c.hour,
-                c.days_passed
-            );
-        }
-        Err(e) => {
-            warn!("wait menu: the game clock cannot advance: {e}");
-            next.set(PlayState::Playing);
-            return;
-        }
+    let mut hours = Hours { sim: &mut sim, words: &words, stats: &mut stats, passed: &mut passed, script: script.as_deref_mut() };
+    if !hours.pass(m.sleep, p.asked - p.left, p.asked) {
+        next.set(PlayState::Playing);
+        return;
     }
     if p.left == 0 {
         info!("wait menu: {} hour(s) passed; closed", p.asked);
         next.set(PlayState::Playing);
     }
+}
+
+/// What one hour of a wait or a sleep moves on: the calendar, the world's people (an
+/// [`HourPassed`]), the player's body and the scripts (`crate::aid::hour_passed`).
+struct Hours<'a, 'w> {
+    sim: &'a mut SimState,
+    words: &'a Words,
+    stats: &'a mut WaitStats,
+    passed: &'a mut MessageWriter<'w, HourPassed>,
+    script: Option<&'a mut ScriptState>,
+}
+
+impl Hours<'_, '_> {
+    /// Hour `hour` of `asked` passes; false when the game clock cannot advance.
+    fn pass(&mut self, sleep: bool, hour: u32, asked: u32) -> bool {
+        match self.sim.world.advance_hours(1.0) {
+            Ok(c) => {
+                self.stats.hours += 1;
+                self.passed.write(HourPassed { sleep });
+                if let Some(rt) = self.script.as_mut().and_then(|s| s.rt.as_mut()) {
+                    crate::script::with_world(rt, self.sim, |rt| crate::aid::hour_passed(rt, sleep, hour));
+                }
+                info!(
+                    "{}: hour {hour} of {asked} passed: {} (GameHour {:.3}, GameDaysPassed {:.3})",
+                    if sleep { "sleep" } else { "wait" },
+                    self.words.date_line(&c),
+                    c.hour,
+                    c.days_passed
+                );
+                true
+            }
+            Err(e) => {
+                warn!("wait menu: the game clock cannot advance: {e}");
+                false
+            }
+        }
+    }
+}
+
+/// A trip's loading screen is up with the menu still open: a script's sleep asked in the
+/// frame the trip began (the raft between Cottonwood Cove and the Fort: `MoveTo`, then
+/// `SetPCSleepHours 3`, issue #2281), or a trip that began while the menu was open. The
+/// hours still to pass go by at once behind the screen, and the menu closes without
+/// being seen, so the world comes back with the time moved on and nothing left to wait
+/// for [design: the screen already hides the world, so the hours take no time of the
+/// player's own]. Without this the loading screen hands the game back to play with the
+/// menu still open, where its hours never pass and its fade keeps the screen black.
+#[allow(clippy::too_many_arguments)]
+fn pass_behind_screen(
+    mut commands: Commands,
+    mut menu: ResMut<WaitMenu>,
+    mut sim: ResMut<SimState>,
+    words: Res<Words>,
+    mut stats: ResMut<WaitStats>,
+    mut passed: MessageWriter<HourPassed>,
+    mut ended: MessageWriter<RestEnded>,
+    mut script: Option<ResMut<ScriptState>>,
+    mut fade: ResMut<SleepFade>,
+    roots: Query<Entity, With<WaitRoot>>,
+) {
+    let Some(m) = menu.0.as_mut() else { return };
+    if let Some(left) = m.take_left() {
+        let (sleep, asked) = (m.sleep, *left.end());
+        info!("wait menu: a trip's loading screen is up: hours {}-{asked} of the {} pass behind it at once", left.start(), if sleep { "sleep" } else { "wait" });
+        let mut hours = Hours { sim: &mut sim, words: &words, stats: &mut stats, passed: &mut passed, script: script.as_deref_mut() };
+        for hour in left {
+            if !hours.pass(sleep, hour, asked) {
+                break;
+            }
+        }
+    } else {
+        info!("wait menu: closed under a trip's loading screen");
+    }
+    // The screen hides the world: no fade to come back from.
+    fade.0 = 0.0;
+    close_menu(&mut commands, &mut menu, &roots, script.as_deref_mut(), &mut ended);
 }
 
 fn fade(time: AidTime, menu: Res<WaitMenu>, mut fade: ResMut<SleepFade>) {
@@ -740,19 +801,36 @@ fn fade(time: AidTime, menu: Res<WaitMenu>, mut fade: ResMut<SleepFade>) {
     }
 }
 
-fn close(mut commands: Commands, mut menu: ResMut<WaitMenu>, roots: Query<Entity, With<WaitRoot>>, script: Option<ResMut<ScriptState>>, mut ended: MessageWriter<RestEnded>) {
+/// The menu state is left. When it is left for a trip's loading screen (the state is
+/// already the new one here) the menu stays for [`pass_behind_screen`], which passes its
+/// hours first.
+fn close(
+    mut commands: Commands,
+    state: Res<State<PlayState>>,
+    mut menu: ResMut<WaitMenu>,
+    roots: Query<Entity, With<WaitRoot>>,
+    mut script: Option<ResMut<ScriptState>>,
+    mut ended: MessageWriter<RestEnded>,
+) {
+    if *state.get() == PlayState::Loading && menu.is_open() {
+        return;
+    }
+    close_menu(&mut commands, &mut menu, &roots, script.as_deref_mut(), &mut ended);
+}
+
+fn close_menu(commands: &mut Commands, menu: &mut WaitMenu, roots: &Query<Entity, With<WaitRoot>>, script: Option<&mut ScriptState>, ended: &mut MessageWriter<RestEnded>) {
     if let Some(m) = menu.0.take() {
         if let Some(p) = m.passing.filter(|p| p.asked > p.left) {
             ended.write(RestEnded { sleep: m.sleep, hours: p.asked - p.left });
         }
-        if let Some(rt) = script.and_then(|s| s.into_inner().rt.as_mut()) {
+        if let Some(rt) = script.and_then(|s| s.rt.as_mut()) {
             if rt.game.menu == Some(crate::script::MENU_SLEEP_WAIT) {
                 rt.game.close_menu();
             }
             rt.game.rest.end();
         }
     }
-    for e in &roots {
+    for e in roots {
         commands.entity(e).despawn();
     }
 }
