@@ -235,6 +235,11 @@ observed: the five casinos]:
   own loop or the standing idle.
 - **A win** plays item 127's cheer on the upper body for 0.8 s (2 x) to 3 s (160 x), on a
   log scale [owner: up to 3 s, small wins short].
+- **Leaving**: the end view after Exit (nvforever `match_end.rs`, item 127) cuts straight back
+  to the player's view, with no fade through black [observed: the four FalloutNV.esm machine
+  scripts call only `ShowSlotMachineMenuParams`, no fade or image-space modifier;
+  hypothesis: closing the original's menu draws no black] [design: ship17 laptop run,
+  2026-11-12, the screen went almost black between the cheer and getting up].
 - **Co-op**: the stool goes out as furniture; the idle in the emote's place (ids 240 to
   242), played on the puppet's upper body.
 - **Co-op, the host decides the reels** (item 170, nvf-play `slots/coop.rs`) [design]: each
