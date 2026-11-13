@@ -26400,3 +26400,19 @@ expect = [
   "dialogue: conversation with SunnyRef started (topic GREETING)",
   { re = 'dialogue look: SunnyRef stops facing the player: .*; its chest is (?P<n>[+-]?\d+)° off the player', range = [-20, 20], label = "Sunny's chest on the player after the conversation (holstered 2hh)" },
 ]
+
+[[scenario]]
+name = "query-job"
+source = "#1024: test aid NVF_PLAY_TEST_QUERIES runs a runtime-query job (fnv.capture.steps/1) inside --play, one query a frame, writes fnv.ext.probes/1 (the extender lab's engine candidate) and quits; a step that does not compile is listed under errors"
+areas = ["scripts", "extender"]
+paths = ["engine/nvf-play/src/query_job.rs", "crates/fnv-game/src/ext_probes.rs", "tools/smoke/fixtures/query-job.steps.json"]
+env = { NVF_PLAY_TEST_QUERIES = "{repo}/tools/smoke/fixtures/query-job.steps.json", NVF_PLAY_TEST_QUERIES_AT = "1" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages"]
+run_seconds = 30
+# The job quits once its document is written, before run_seconds: no "run finished" line.
+ends = "run log: the game exited normally"
+expect = [
+  "query job: smoke-query: 4 steps from",
+  { re = 'query job: smoke-query: 4 steps, 3 rows, 1 errors, written to .*smoke-query\.probes\.json', label = "every step ran, one a frame; the one that does not compile is an error, not a row" },
+  "query job: done, quitting",
+]

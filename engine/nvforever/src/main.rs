@@ -24,6 +24,7 @@ macro_rules! eprintln {
 }
 
 mod activators;
+mod fos_start;
 mod reports;
 mod native_crash;
 mod nif_mirror;
@@ -1056,12 +1057,36 @@ fn main() -> AppExit {
         crash::tell_player_at_start(&text, args.handoff.is_some());
         return fail(why);
     }
+    // Test aid NVF_PLAY_TEST_START_FOS: start where an original game's save stands (only
+    // read; fos_start.rs).
+    let fos_start = match std::env::var_os("NVF_PLAY_TEST_START_FOS").filter(|v| !v.is_empty()) {
+        Some(p) => match fos_start::read(std::path::Path::new(&p), &args.plugins) {
+            Ok(s) => Some(s),
+            Err(e) => return fail(format!("NVF_PLAY_TEST_START_FOS {}: {e}", std::path::Path::new(&p).display())),
+        },
+        None => None,
+    };
     let t0 = std::time::Instant::now();
-    let world = match WorldData::open(&args.esm_schema, opened, &args.world) {
+    let mut world = match WorldData::open(&args.esm_schema, opened, &args.world) {
         Ok(w) => w,
         Err(e) => return fail(e),
     };
     info!("world index built in {:.2}s", t0.elapsed().as_secs_f64());
+    if let Some(s) = fos_start {
+        if world.index.worldspaces.contains_key(&s.at) {
+            world.set_world(s.at);
+            args.world = format!("0x{:08X}", s.at);
+        } else if world.index.cells.get(&s.at).is_some_and(|c| c.world.is_none()) {
+            args.cell = format!("0x{:08X}", s.at);
+        } else {
+            return fail(format!("NVF_PLAY_TEST_START_FOS: {:08X} is neither a worldspace nor an interior cell", s.at));
+        }
+        args.pos = Some(format!("{},{},{}", s.feet[0], s.feet[1], s.feet[2] + nvf_play::player::EYE_HEIGHT));
+        args.eye_height = 0.0;
+        args.heading = s.heading_deg;
+        // The log is not up yet: straight to the output.
+        eprintln!("test aid NVF_PLAY_TEST_START_FOS: start at {:08X}, feet {:?}, heading {:.1}", s.at, s.feet, s.heading_deg);
+    }
 
     // The main menu stands over a new game, held until New Game is chosen.
     if args.menu {
