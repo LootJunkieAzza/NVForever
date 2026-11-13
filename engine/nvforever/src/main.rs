@@ -1941,6 +1941,14 @@ fn main() -> AppExit {
                 _ => info!("handoff: started as the new run (ready file {})", file.display()),
             }
             app.insert_resource(handoff::Hidden::new(file, args.window_maximized));
+            // The save waits from the first frame, not only once `hold_restore` has run:
+            // the first frame's Update takes seconds (7.2 s observed), long enough for the
+            // script data to come in during it, and `run_scripts` took it, putting the
+            // save back before the old run had ended, when it ran before `hold_restore`
+            // (#2210).
+            if let Some(mut s) = app.world_mut().get_resource_mut::<nvf_play::script::ScriptState>() {
+                s.held = true;
+            }
         }
         nvf_play::save::add_save_hook(&mut app, sky::SAVE_HOOK);
     }
