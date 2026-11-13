@@ -762,10 +762,13 @@ impl Evaluator {
                     };
                     full_barrier();
                     let evaluate = |token: *const FrameToken| (api.evaluate_feature)(FEATURE_DLSS, token, inputs.as_ptr(), inputs.len() as u32, handle_ptr(command_buffer.as_raw()));
-                    // Our frame number's token, taken and used under its lock (`frame_token.rs`);
-                    // not installed reads as eErrorNotInitialized.
-                    let r = match ours {
-                        Some(index) => super::frame_token::with_token(index, |_, token| evaluate(token)).unwrap_or_else(|e| e.unwrap_or(SlResult(21))),
+                    // Our frame number's token, taken under its lock and used after it is
+                    // released, so the main thread's sleep and markers do not wait for NGX's
+                    // recording (`frame_token.rs` `token` says why the slot still holds the
+                    // number); not installed reads as eErrorNotInitialized.
+                    let r = match ours.map(super::frame_token::token) {
+                        Some(Ok(ours)) => evaluate(ours),
+                        Some(Err(e)) => e.unwrap_or(SlResult(21)),
                         None => evaluate(token),
                     };
                     full_barrier();
@@ -949,6 +952,13 @@ impl Evaluator {
             self.said.push(key);
             note(level, text);
         }
+    }
+
+    /// Whether the next evaluate resets: the last frame was not DLSS's evaluate (a fallback, new
+    /// options, DLSS stopped drawing). The Frame Generation spike's constants OR it in
+    /// (`frame_gen.rs` `set_constants`), as step 2 does.
+    pub(super) fn history_stale(&self) -> bool {
+        !self.previous_was_dlss
     }
 
     /// The counts, for the shutdown.

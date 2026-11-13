@@ -289,9 +289,12 @@ fn follow_switch(world: &mut World) {
     if world.resource::<FrameGenUsable>().0 != usable {
         world.resource_mut::<FrameGenUsable>().0 = usable;
     }
+    // DLSS-G (the spike's `on`, #2317, Stage 3) turns latency reduction on as FSR's does: it
+    // needs Reflex on [documented: `sl_dlss_g.h:131-132`, eFailReflexNotDetectedAtRuntime].
+    let by_frame_generation = usable || crate::dlss::frame_generation_running();
     let mut latency = world.resource_mut::<crate::anti_lag::LatencyReduction>();
-    if latency.by_frame_generation != usable {
-        latency.by_frame_generation = usable;
+    if latency.by_frame_generation != by_frame_generation {
+        latency.by_frame_generation = by_frame_generation;
     }
 }
 

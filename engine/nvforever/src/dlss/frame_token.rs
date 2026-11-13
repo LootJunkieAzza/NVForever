@@ -25,7 +25,10 @@
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use super::evaluate::VIEWPORT;
-use super::ffi::{Constants, FrameToken, ResourceTag, ReflexOptions, SlGetNewFrameToken, SlPclSetMarker, SlReflexSetOptions, SlReflexSleep, SlResult, SlSetConstants, SlSetTagForFrame, ViewportHandle};
+use super::ffi::{
+    Constants, FrameToken, ReflexOptions, ReflexReport, ReflexState, ResourceTag, SlGetNewFrameToken, SlPclSetMarker, SlReflexGetState, SlReflexSetOptions, SlReflexSleep, SlResult,
+    SlSetConstants, SlSetTagForFrame, ViewportHandle, REFLEX_MODE_LOW_LATENCY,
+};
 
 /// The functions that name a frame.
 #[derive(Clone, Copy)]
@@ -35,6 +38,7 @@ pub(super) struct FrameCalls {
     pub(super) set_tag_for_frame: SlSetTagForFrame,
     pub(super) reflex_sleep: SlReflexSleep,
     pub(super) reflex_set_options: SlReflexSetOptions,
+    pub(super) reflex_get_state: SlReflexGetState,
     pub(super) pcl_set_marker: SlPclSetMarker,
 }
 
@@ -52,6 +56,7 @@ pub(super) fn install(frame_calls: FrameCalls) {
 /// Before `slShutdown`.
 pub(super) fn uninstall() {
     calls().take();
+    *REFLEX_APPLIED.lock().unwrap_or_else(PoisonError::into_inner) = None;
 }
 
 /// Whether the frame calls are installed: the frame numbers are ours (the evaluate takes its
@@ -108,6 +113,18 @@ pub(super) fn pcl_marker(marker: ash::vk::LatencyMarkerNV) -> Option<u32> {
     })
 }
 
+/// The token of frame number `index`, taken under the lock and handed out after it is released,
+/// for a call that should not hold the lock through itself (the SR evaluate: NGX's recording
+/// would make the main thread's sleep and markers wait). The slot stays this frame's until the
+/// ring has moved on six times (`MAX_FRAMES_IN_FLIGHT`, `src/sl.cpp:1120-1146`); between this
+/// and Streamline reading it at the start of its call, only the main thread's calls of the next
+/// frame can move it (each alternation moves it once): its simulation end, sleep and simulation
+/// start, three at most [design: the frame's calls in `nv_low_latency.rs` `input` and
+/// `simulation_end`]. So the slot still holds `index` when read.
+pub(super) fn token(index: u32) -> Result<*const FrameToken, Option<SlResult>> {
+    with_token(index, |_, token| token)
+}
+
 /// The result of a call made with [`with_token`], flattened: not installed reads as
 /// `eErrorNotInitialized` (21, `sl_result.h`), a failed token as its own result.
 fn flat(result: Result<SlResult, Option<SlResult>>) -> SlResult {
@@ -152,15 +169,67 @@ pub(super) fn sleep(index: u32) -> SlResult {
     }
 }
 
-/// `slReflexSetOptions` with `mode` and no frame limit (not thread safe: `win.rs` calls it once,
-/// from `Plugin::cleanup`).
-pub(super) fn set_reflex_mode(mode: i32) -> SlResult {
+/// Reflex's options as last set: mode and frame limit.
+static REFLEX_APPLIED: Mutex<Option<(i32, u32)>> = Mutex::new(None);
+
+/// `slReflexSetOptions` with `mode` and `frame_limit_us` (0: no limit) when either differs from
+/// what was last set; `None` when nothing changed. Not thread safe [documented:
+/// `sl_reflex.h` `PFun_slReflexSetOptions`]: only the main thread calls it (`win.rs` once at
+/// `Plugin::cleanup`, then `nv_low_latency.rs` at each frame's input). A failed call leaves the
+/// last applied options, so it is made again next time.
+pub(super) fn set_reflex_options(mode: i32, frame_limit_us: u32) -> Option<SlResult> {
     let guard = calls();
-    let Some(c) = guard.as_ref() else { return SlResult(21) };
+    let Some(c) = guard.as_ref() else { return Some(SlResult(21)) };
+    let mut applied = REFLEX_APPLIED.lock().unwrap_or_else(PoisonError::into_inner);
+    if *applied == Some((mode, frame_limit_us)) {
+        return None;
+    }
     let mut options = ReflexOptions::new();
     options.mode = mode;
+    options.frame_limit_us = frame_limit_us;
     // SAFETY: options from their constructor, alive for the call.
-    unsafe { (c.reflex_set_options)(&options) }
+    let result = unsafe { (c.reflex_set_options)(&options) };
+    if result.is_ok() {
+        *applied = Some((mode, frame_limit_us));
+    }
+    Some(result)
+}
+
+/// A Reflex mode's header name, for the log.
+pub(super) fn reflex_mode_name(mode: i32) -> &'static str {
+    if mode == REFLEX_MODE_LOW_LATENCY { "eLowLatency" } else { "eOff" }
+}
+
+/// `slReflexGetState` (not thread safe: the main thread, `nv_low_latency.rs`'s pace line) as
+/// the pace line ([`report_line`]); `None` when not installed or refused.
+pub(super) fn reflex_report() -> Option<String> {
+    let guard = calls();
+    let c = guard.as_ref()?;
+    let mut state = ReflexState::boxed();
+    // SAFETY: a state from its constructor, alive for the call.
+    let result = unsafe { (c.reflex_get_state)(&mut *state) };
+    Some(if result.is_ok() { report_line(&state) } else { format!("NVIDIA Reflex (Streamline) report: slReflexGetState {}", result.name()) })
+}
+
+/// The newest frame report (the largest `frameID`; Streamline fills them from the first
+/// [documented: `vknvll2.cpp:266-288`]) as one line, in milliseconds from the driver's
+/// microseconds.
+pub(super) fn report_line(state: &ReflexState) -> String {
+    let yes = |b: bool| if b { "yes" } else { "no" };
+    let head = format!("NVIDIA Reflex (Streamline) report: low latency available {}, report available {}", yes(state.low_latency_available), yes(state.latency_report_available));
+    let newest: Option<&ReflexReport> = state.frame_report.iter().filter(|r| r.frame_id != 0).max_by_key(|r| r.frame_id);
+    let Some(r) = newest.filter(|_| state.latency_report_available) else { return format!("{head}; no frame reported") };
+    let ms = |from: u64, to: u64| to.saturating_sub(from) as f64 / 1000.0;
+    format!(
+        "{head}; frame {}: simulation start to present end {:.2} ms, render submit {:.2} ms, present {:.2} ms, GPU render {:.2} ms (active {:.2} ms), GPU frame time {:.2} ms",
+        r.frame_id,
+        ms(r.sim_start_time, r.present_end_time),
+        ms(r.render_submit_start_time, r.render_submit_end_time),
+        ms(r.present_start_time, r.present_end_time),
+        ms(r.gpu_render_start_time, r.gpu_render_end_time),
+        f64::from(r.gpu_active_render_time_us) / 1000.0,
+        f64::from(r.gpu_frame_time_us) / 1000.0,
+    )
 }
 
 #[cfg(test)]
@@ -174,6 +243,35 @@ mod tests {
         assert_eq!(index_of(u64::from(u32::MAX) - 1), u32::MAX);
         assert_eq!(index_of(u64::from(u32::MAX)), 0, "cut to uint32_t");
         assert_eq!(number(42), 42, "a marker number is the frame number already");
+    }
+
+    #[test]
+    fn the_report_line_takes_the_newest_frame() {
+        let mut state = ReflexState::boxed();
+        assert_eq!(report_line(&state), "NVIDIA Reflex (Streamline) report: low latency available no, report available no; no frame reported");
+        state.low_latency_available = true;
+        state.latency_report_available = true;
+        let report = |id: u64, base: u64| {
+            let mut r = ReflexReport::new();
+            r.frame_id = id;
+            r.sim_start_time = base;
+            r.render_submit_start_time = base + 2_000;
+            r.render_submit_end_time = base + 3_000;
+            r.present_start_time = base + 9_000;
+            r.present_end_time = base + 9_500;
+            r.gpu_render_start_time = base + 3_000;
+            r.gpu_render_end_time = base + 8_000;
+            r.gpu_active_render_time_us = 4_500;
+            r.gpu_frame_time_us = 5_000;
+            r
+        };
+        state.frame_report[0] = report(41, 1_000_000);
+        state.frame_report[1] = report(42, 2_000_000);
+        assert_eq!(
+            report_line(&state),
+            "NVIDIA Reflex (Streamline) report: low latency available yes, report available yes; frame 42: simulation start to present end 9.50 ms, render submit 1.00 ms, present 0.50 ms, GPU render 5.00 ms (active 4.50 ms), GPU frame time 5.00 ms"
+        );
+        assert_eq!((reflex_mode_name(1), reflex_mode_name(0)), ("eLowLatency", "eOff"));
     }
 
     #[test]
@@ -194,7 +292,9 @@ mod tests {
         assert_eq!(set_constants(1, &Constants::new()), SlResult(21));
         assert_eq!(mark(0, 1), SlResult(21));
         assert_eq!(sleep(1), SlResult(21));
-        assert_eq!(set_reflex_mode(1), SlResult(21));
+        assert_eq!(set_reflex_options(1, 0), Some(SlResult(21)));
+        assert!(token(1).is_err());
+        assert!(reflex_report().is_none());
         assert_eq!(SlResult(21).name(), "eErrorNotInitialized");
     }
 }

@@ -994,6 +994,7 @@ pub type SlSetTagForFrame = unsafe extern "C" fn(*const FrameToken, *const Viewp
 
 /// `sl::ReflexMode`, a plain C `enum` (`int`): `eOff`, `eLowLatency` [documented:
 /// `sl_reflex.h` `enum ReflexMode`].
+pub const REFLEX_MODE_OFF: i32 = 0;
 pub const REFLEX_MODE_LOW_LATENCY: i32 = 1;
 
 /// `sl::ReflexOptions`, version 1, GUID {F03AF81A-6D0B-4902-A651-C4965E215434} [documented:
@@ -1038,6 +1039,122 @@ pub const PCL_PRESENT_START: u32 = 4;
 pub const PCL_PRESENT_END: u32 = 5;
 pub const PCL_OUT_OF_BAND_PRESENT_START: u32 = 11;
 pub const PCL_OUT_OF_BAND_PRESENT_END: u32 = 12;
+
+/// `sl::kReflexFrameReportCount` [documented: `sl_reflex.h`].
+pub const REFLEX_FRAME_REPORT_COUNT: usize = 64;
+
+/// `sl::ReflexReport`, version 1, GUID {0D569B37-A1C8-4453-BE4D-40F4DE57952B} [documented:
+/// `sl_reflex.h` `SL_STRUCT_BEGIN(ReflexReport, ...)`]. On Vulkan the times are the driver's
+/// microseconds and `frameID` its present id [documented: `vknvll2.cpp:274-288`].
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct ReflexReport {
+    pub base_next: *mut BaseStructure,
+    pub base_type: StructType,
+    pub base_version: usize,
+    pub frame_id: u64,
+    pub input_sample_time: u64,
+    pub sim_start_time: u64,
+    pub sim_end_time: u64,
+    pub render_submit_start_time: u64,
+    pub render_submit_end_time: u64,
+    pub present_start_time: u64,
+    pub present_end_time: u64,
+    pub driver_start_time: u64,
+    pub driver_end_time: u64,
+    pub os_render_queue_start_time: u64,
+    pub os_render_queue_end_time: u64,
+    pub gpu_render_start_time: u64,
+    pub gpu_render_end_time: u64,
+    pub gpu_active_render_time_us: u32,
+    pub gpu_frame_time_us: u32,
+}
+
+impl ReflexReport {
+    const GUID: StructType = StructType { data1: 0x0d56_9b37, data2: 0xa1c8, data3: 0x4453, data4: [0xbe, 0x4d, 0x40, 0xf4, 0xde, 0x57, 0x95, 0x2b] };
+
+    /// The constructor: every member `{}`. (The header is a `BaseStructure` like the others; its
+    /// fields are spelt out because the type is `Copy` for the array.)
+    pub fn new() -> Self {
+        Self {
+            base_next: std::ptr::null_mut(),
+            base_type: Self::GUID,
+            base_version: 1,
+            frame_id: 0,
+            input_sample_time: 0,
+            sim_start_time: 0,
+            sim_end_time: 0,
+            render_submit_start_time: 0,
+            render_submit_end_time: 0,
+            present_start_time: 0,
+            present_end_time: 0,
+            driver_start_time: 0,
+            driver_end_time: 0,
+            os_render_queue_start_time: 0,
+            os_render_queue_end_time: 0,
+            gpu_render_start_time: 0,
+            gpu_render_end_time: 0,
+            gpu_active_render_time_us: 0,
+            gpu_frame_time_us: 0,
+        }
+    }
+}
+
+/// `sl::ReflexReport2`, version 1, GUID {68BB0632-5E1C-402B-899D-B49F633C56C2} [documented:
+/// `sl_reflex.h` `SL_STRUCT_BEGIN(ReflexReport2, ...)`].
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct ReflexReport2 {
+    pub base_next: *mut BaseStructure,
+    pub base_type: StructType,
+    pub base_version: usize,
+    pub camera_constructed_time: u64,
+    pub cross_adapter_copy_time_us: u32,
+}
+
+impl ReflexReport2 {
+    const GUID: StructType = StructType { data1: 0x68bb_0632, data2: 0x5e1c, data3: 0x402b, data4: [0x89, 0x9d, 0xb4, 0x9f, 0x63, 0x3c, 0x56, 0xc2] };
+
+    pub fn new() -> Self {
+        Self { base_next: std::ptr::null_mut(), base_type: Self::GUID, base_version: 1, camera_constructed_time: 0, cross_adapter_copy_time_us: 0 }
+    }
+}
+
+/// `sl::ReflexState`, version 2, GUID {F0BB5985-DAF9-4728-B2FD-AE80A2BD7989} [documented:
+/// `sl_reflex.h` `SL_STRUCT_BEGIN(ReflexState, ...)`]; 12848 bytes, so built on the heap.
+#[repr(C)]
+#[derive(Debug)]
+pub struct ReflexState {
+    pub base: BaseStructure,
+    pub low_latency_available: bool,
+    pub latency_report_available: bool,
+    /// No initialiser in C++; zero here.
+    pub stats_window_message: u32,
+    pub frame_report: [ReflexReport; REFLEX_FRAME_REPORT_COUNT],
+    pub flash_indicator_driver_controlled: bool,
+    /// Version 2.
+    pub frame_report2: [ReflexReport2; REFLEX_FRAME_REPORT_COUNT],
+}
+
+impl ReflexState {
+    const GUID: StructType = StructType { data1: 0xf0bb_5985, data2: 0xdaf9, data3: 0x4728, data4: [0xb2, 0xfd, 0xae, 0x80, 0xa2, 0xbd, 0x79, 0x89] };
+
+    /// The constructor: both availability flags false, every report constructed.
+    pub fn boxed() -> Box<Self> {
+        Box::new(Self {
+            base: BaseStructure::new(Self::GUID, 2),
+            low_latency_available: false,
+            latency_report_available: false,
+            stats_window_message: 0,
+            frame_report: [ReflexReport::new(); REFLEX_FRAME_REPORT_COUNT],
+            flash_indicator_driver_controlled: false,
+            frame_report2: [ReflexReport2::new(); REFLEX_FRAME_REPORT_COUNT],
+        })
+    }
+}
+
+/// `slReflexGetState(ReflexState&)`: "NOT thread safe" (`sl_reflex.h` `PFun_slReflexGetState`).
+pub type SlReflexGetState = unsafe extern "C" fn(*mut ReflexState) -> SlResult;
 
 /// `slReflexSleep(const FrameToken&)`: "thread safe" (`sl_reflex.h` `PFun_slReflexSleep`).
 pub type SlReflexSleep = unsafe extern "C" fn(*const FrameToken) -> SlResult;
@@ -1464,7 +1581,7 @@ mod tests {
         let r = ReflexOptions::new();
         assert_eq!(r.base.struct_type, StructType { data1: 0xf03af81a, data2: 0x6d0b, data3: 0x4902, data4: [0xa6, 0x51, 0xc4, 0x96, 0x5e, 0x21, 0x54, 0x34] });
         assert_eq!((r.base.struct_version, r.mode, r.frame_limit_us, r.use_markers_to_optimize, r.virtual_key, r.id_thread), (1, 0, 0, false, 0, 0));
-        assert_eq!(REFLEX_MODE_LOW_LATENCY, 1);
+        assert_eq!((REFLEX_MODE_OFF, REFLEX_MODE_LOW_LATENCY), (0, 1));
         // sl_pcl.h's PCLMarker.
         assert_eq!(
             [PCL_SIMULATION_START, PCL_SIMULATION_END, PCL_RENDER_SUBMIT_START, PCL_RENDER_SUBMIT_END, PCL_PRESENT_START, PCL_PRESENT_END, PCL_OUT_OF_BAND_PRESENT_START, PCL_OUT_OF_BAND_PRESENT_END],
@@ -1473,6 +1590,48 @@ mod tests {
         // sl_core_types.h:70, 397-405, 547-549; sl_dlss_g.h:34-41.
         assert_eq!((BUFFER_HUDLESS_COLOR, LIFECYCLE_VALID_UNTIL_PRESENT, PREFERENCE_USE_FRAME_BASED_RESOURCE_TAGGING, DLSSG_MODE_ON), (2, 1, 0x80, 1));
         assert_eq!((size_of::<SlSetTagForFrame>(), size_of::<SlReflexSleep>(), size_of::<SlReflexSetOptions>(), size_of::<SlPclSetMarker>()), (8, 8, 8, 8));
+    }
+
+    /// Not from the probe table: by hand from `sl_reflex.h`. `ReflexReport`: header (32), fourteen
+    /// `uint64_t` at 32-144, two `uint32_t` at 144 and 148: 152 bytes. `ReflexReport2`: header,
+    /// a `uint64_t` at 32, a `uint32_t` at 40, rounded to 48. `ReflexState`: header, two `bool`s at
+    /// 32 and 33, `statsWindowMessage` at 36, 64 reports (8-aligned) at 40 to 9768, the `bool` at
+    /// 9768, 64 `ReflexReport2` at 9776 to 12848.
+    #[test]
+    fn reflex_state_layout_from_the_header() {
+        assert_eq!((size_of::<ReflexReport>(), align_of::<ReflexReport>()), (152, 8));
+        check(
+            "ReflexReport",
+            &[
+                (offset_of!(ReflexReport, base_type), 8),
+                (offset_of!(ReflexReport, base_version), 24),
+                (offset_of!(ReflexReport, frame_id), 32),
+                (offset_of!(ReflexReport, sim_start_time), 48),
+                (offset_of!(ReflexReport, present_end_time), 88),
+                (offset_of!(ReflexReport, gpu_render_start_time), 128),
+                (offset_of!(ReflexReport, gpu_render_end_time), 136),
+                (offset_of!(ReflexReport, gpu_active_render_time_us), 144),
+                (offset_of!(ReflexReport, gpu_frame_time_us), 148),
+            ],
+        );
+        assert_eq!((size_of::<ReflexReport2>(), offset_of!(ReflexReport2, camera_constructed_time), offset_of!(ReflexReport2, cross_adapter_copy_time_us)), (48, 32, 40));
+        assert_eq!((size_of::<ReflexState>(), align_of::<ReflexState>()), (12848, 8));
+        check(
+            "ReflexState",
+            &[
+                (offset_of!(ReflexState, low_latency_available), 32),
+                (offset_of!(ReflexState, latency_report_available), 33),
+                (offset_of!(ReflexState, stats_window_message), 36),
+                (offset_of!(ReflexState, frame_report), 40),
+                (offset_of!(ReflexState, flash_indicator_driver_controlled), 9768),
+                (offset_of!(ReflexState, frame_report2), 9776),
+            ],
+        );
+        let state = ReflexState::boxed();
+        assert_eq!((state.base.struct_type.data1, state.base.struct_version), (0xf0bb5985, 2));
+        assert_eq!((state.frame_report[63].base_type.data1, state.frame_report[63].base_version, state.frame_report2[0].base_type.data1), (0x0d569b37, 1, 0x68bb0632));
+        assert!(!state.low_latency_available && !state.latency_report_available);
+        assert_eq!(size_of::<SlReflexGetState>(), 8);
     }
 
     #[test]

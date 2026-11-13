@@ -27,7 +27,7 @@
 //!     just before Bevy's `render_system` presents): `slDLSSGSetOptions` only when what it
 //!     should be changes: `eOn` from the first tagged play frame, `eOff` (resources kept) on a
 //!     frame that is not, the sizes (depth and motion at the render size, colour at the
-//!     output size), the back buffers (Bevy's frame latency plus one). A call that fails is
+//!     output size), the back buffers left to DLSS-G (0). A call that fails is
 //!     made again next frame. The options take effect at the next present, deterministically
 //!     only when set on the presenting thread [documented: `ProgrammingGuideDLSS_G.md` §6.0].
 //!   - [`state`] (an exclusive system right after `render_system`, the thread that presented):
@@ -50,7 +50,6 @@
 //! `render_system`, itself exclusive, runs the render graph's schedule there).
 
 use std::collections::VecDeque;
-use std::num::NonZero;
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, Ordering};
 use std::sync::{Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
@@ -311,8 +310,6 @@ fn options_for(applied: Applied) -> DlssgOptions {
 struct Facts {
     /// The play state is Playing (not a menu, dialogue, loading or paused).
     playing: bool,
-    /// A camera cut or a new prepared view this frame.
-    reset: bool,
     /// The upscaler reconstructed this frame (not its spatial fallback).
     reconstructed: bool,
     /// This frame's constants were set ([`set_constants`]).
@@ -327,12 +324,12 @@ struct Facts {
     failed: bool,
 }
 
-/// Whether this frame may be generated: in play, no cut, the upscaler's output real, the
-/// constants and inputs there, the window shown (FSR's frame generation's rule,
-/// `crate::frame_gen` "No generated frame", without its first-frame-after rule: the constants'
-/// reset says it), large enough, and no failed status.
+/// Whether this frame may be generated: in play, the upscaler's output real, the constants and
+/// inputs there, the window shown, large enough, and no failed status. A camera cut is not a
+/// reason: the constants' `reset` tells DLSS-G [documented: `ProgrammingGuideDLSS_G.md` §5.2,
+/// mode off and null tags only where the inputs are not valid (menus, loading, pause)].
 fn may_generate(f: Facts) -> bool {
-    f.playing && !f.reset && f.reconstructed && f.constants && f.to_window && f.inputs && f.size_ok && !f.failed
+    f.playing && f.reconstructed && f.constants && f.to_window && f.inputs && f.size_ok && !f.failed
 }
 
 /// The main texture can be copied from on the cameras an upscaler draws, for the frame without
@@ -347,6 +344,10 @@ fn main_texture_copies(mut views: Query<&mut CameraMainTextureUsages, With<Upsca
 /// (stage 2; the module comment). Without a previous view nothing is set and the frame is not
 /// generated.
 fn set_constants(views: Query<(&ExtractedView, &PreparedUpscale, &TemporalJitter, Option<&PreviousViewData>)>, presenting: Option<Res<crate::anti_lag::Presenting>>) {
+    // DLSS's evaluator's own reset (its last frame was not its evaluate: a fallback, a new set of
+    // options), as the SR evaluate ORs it into its constants (`evaluate.rs` step 2); asked before
+    // this module's lock is taken (`win.rs`'s lock is never taken inside it).
+    let dlss_stale = super::win::dlss_history_stale();
     let mut guard = frame_gen();
     let Some(fg) = guard.as_mut() else { return };
     fg.constants = None;
@@ -359,7 +360,7 @@ fn set_constants(views: Query<(&ExtractedView, &PreparedUpscale, &TemporalJitter
         near: prepared.camera.near,
         fov: prepared.camera.fov,
         render_size: prepared.render_size,
-        reset: prepared.reset || !prepared.history_valid.load(Ordering::Relaxed),
+        reset: prepared.reset || !prepared.history_valid.load(Ordering::Relaxed) || (matches!(prepared.camera.settings, crate::upscaler::prep::UpscaleSettings::Dlss(_)) && dlss_stale),
     });
     let result = frame_token::set_constants(index, &constants);
     if result.is_ok() {
@@ -400,7 +401,6 @@ fn tag(
     };
     let facts = Facts {
         playing: prepared.camera.play_state.is_none_or(|s| s == nvf_play::PlayState::Playing),
-        reset: prepared.reset,
         reconstructed: prepared.history_valid.load(Ordering::Relaxed),
         constants: fg.constants == Some(index),
         to_window,
@@ -512,7 +512,11 @@ fn tag_inputs(
 }
 
 /// What the options should be now: stage 1b off once; stage 2 from this frame's decision.
-fn wanted(fg: &FrameGen, decision: Option<Decision>, back_buffers: u32) -> Applied {
+/// `numBackBuffers` is left 0 (optional, `sl_dlss_g.h:85`): wgpu makes `max(latency + 1, the
+/// surface's minimum image count)` images and DLSS-G's proxy may make others, neither known
+/// here [design: the review's P3e].
+fn wanted(fg: &FrameGen, decision: Option<Decision>) -> Applied {
+    let back_buffers = 0;
     match fg.mode {
         Mode::KeptOff => Applied { on: false, frames: 1, render: UVec2::ZERO, output: UVec2::ZERO, back_buffers: 0 },
         Mode::On { frames } => {
@@ -534,15 +538,11 @@ fn must_set(applied: Option<Applied>, want: Applied) -> bool {
 
 /// The options when they must change, on the render thread just before the present (the module
 /// comment); a failed call is made again next frame.
-fn options(world: &mut World) {
-    let latency = {
-        let mut windows = world.query::<&ExtractedWindow>();
-        windows.iter(world).next().and_then(|w| w.desired_maximum_frame_latency).map_or(2, NonZero::get)
-    };
+fn options(_world: &mut World) {
     let mut guard = frame_gen();
     let Some(fg) = guard.as_mut() else { return };
     let decision = fg.decision.take();
-    let want = wanted(fg, decision, latency + 1);
+    let want = wanted(fg, decision);
     if !must_set(fg.applied, want) {
         return;
     }
@@ -557,14 +557,13 @@ fn options(world: &mut World) {
     let text = match fg.mode {
         Mode::KeptOff => format!("options: mode eOff, flags eRetainResourcesWhenOff, the API error callback set, viewport {VIEWPORT}: {}", result.name()),
         Mode::On { .. } if want.on => format!(
-            "options: mode On, {} generated frame(s) per real frame (at most {}), {}x{}, depth and motion {}x{}, {} back buffers: {}",
+            "options: mode On, {} generated frame(s) per real frame (at most {}), {}x{}, depth and motion {}x{}, back buffers left to DLSS-G: {}",
             want.frames,
             fg.max_frames,
             want.output.x,
             want.output.y,
             want.render.x,
             want.render.y,
-            want.back_buffers,
             result.name()
         ),
         Mode::On { .. } => format!("options: mode Off (resources kept), {}x{}: {}", want.output.x, want.output.y, result.name()),
@@ -598,9 +597,12 @@ fn state(world: &mut World) {
     fg.max_frames = state.num_frames_to_generate_max;
     fg.min_size = state.min_width_or_height;
     let now = Instant::now();
-    let period = fg.period.get_or_insert_with(|| Period::new(now));
-    period.real += 1;
-    period.presented += u64::from(state.num_frames_actually_presented);
+    // A frame nothing was presented for (the window minimised) is not counted as a real frame.
+    if state.num_frames_actually_presented > 0 {
+        let period = fg.period.get_or_insert_with(|| Period::new(now));
+        period.real += 1;
+        period.presented += u64::from(state.num_frames_actually_presented);
+    }
     let is_on = fg.applied.is_some_and(|a| a.on);
     if matches!(fg.mode, Mode::On { .. }) {
         if let Some(generated) = &generated {
@@ -610,6 +612,7 @@ fn state(world: &mut World) {
             let names = dlssg_status_name(state.status);
             note_fg(Level::WARN, format!("status {names}: frame generation off for the rest of the session (mode eOff from the next frame)"));
             fg.status_failed = Some(names);
+            super::FG_ENDED.store(true, Ordering::Relaxed);
         }
     }
     if fg.last_state_line.is_none_or(|last| now.duration_since(last) >= STATE_EVERY) {
@@ -678,11 +681,10 @@ mod tests {
 
     #[test]
     fn a_frame_is_generated_only_when_everything_holds() {
-        let all = Facts { playing: true, reset: false, reconstructed: true, constants: true, to_window: true, inputs: true, size_ok: true, failed: false };
+        let all = Facts { playing: true, reconstructed: true, constants: true, to_window: true, inputs: true, size_ok: true, failed: false };
         assert!(may_generate(all));
         for (what, f) in [
             ("a menu", Facts { playing: false, ..all }),
-            ("a cut", Facts { reset: true, ..all }),
             ("the spatial fallback", Facts { reconstructed: false, ..all }),
             ("no constants", Facts { constants: false, ..all }),
             ("a screenshot", Facts { to_window: false, ..all }),
@@ -721,14 +723,14 @@ mod tests {
             said: Vec::new(),
         };
         let decision = Decision { generate: true, render: on.render, output: on.output };
-        assert_eq!(wanted(&fg, Some(decision), 3).frames, 1, "the limit not known yet: one");
+        assert_eq!(wanted(&fg, Some(decision)).frames, 1, "the limit not known yet: one");
         fg.max_frames = 5;
-        assert_eq!(wanted(&fg, Some(decision), 3), Applied { frames: 3, ..on });
+        assert_eq!(wanted(&fg, Some(decision)), Applied { frames: 3, back_buffers: 0, ..on });
         fg.max_frames = 1;
-        assert_eq!(wanted(&fg, Some(decision), 3).frames, 1, "clamped to the state's limit");
-        assert!(!wanted(&fg, None, 3).on, "no camera tagged: off");
+        assert_eq!(wanted(&fg, Some(decision)).frames, 1, "clamped to the state's limit");
+        assert!(!wanted(&fg, None).on, "no camera tagged: off");
         fg.status_failed = Some("eFailReflexNotDetectedAtRuntime".into());
-        assert!(!wanted(&fg, Some(decision), 3).on, "a failed status keeps it off");
+        assert!(!wanted(&fg, Some(decision)).on, "a failed status keeps it off");
     }
 
     unsafe extern "C" fn dummy_get_state(_: *const ViewportHandle, _: *mut DlssgState, _: *const DlssgOptions) -> super::super::ffi::SlResult {

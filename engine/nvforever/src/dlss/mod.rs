@@ -121,6 +121,10 @@
 //!   every present; NVIDIA low latency goes through Streamline's Reflex
 //!   ([`frame_generation_on`], `nv_low_latency.rs`), the window presents without vsync
 //!   (`frame_pace.rs`), and FSR's frame generation stays off (`crate::frame_gen::usable`).
+//!   Stage 3: while Streamline's Reflex runs ([`reflex_running`]) every latency call goes
+//!   through it, every frame, with Reflex's options following the switch and frame pacing's cap
+//!   as its frame limit ([`reflex_options`], [`set_reflex_frame_limit`]); frame generation
+//!   turns latency reduction on ([`frame_generation_running`]).
 //!
 //! Log lines start `DLSS:` (`DLSS-G spike:` for the spike's own); lines before the log is up
 //! wait in a buffer, written each frame (`First`) and at shutdown.
@@ -235,6 +239,104 @@ static FG_ON: AtomicBool = AtomicBool::new(false);
 /// "vsync off required yes"]. Always false off Windows and without the spike.
 pub(crate) fn frame_generation_on() -> bool {
     FG_ON.load(Ordering::Relaxed)
+}
+
+/// DLSS-G ended frame generation for the session (a status other than `eOk` while on,
+/// `frame_gen.rs` `state`). Reflex stays loaded; vsync and the frame cap go back to frame
+/// pacing's own ([`frame_generation_running`]).
+static FG_ENDED: AtomicBool = AtomicBool::new(false);
+
+/// Frames presented per real frame asked for (`NVF_DLSSG_FRAMES` + 1), set when frame
+/// generation starts (`win.rs`); 1 otherwise.
+static FG_MULTIPLIER: AtomicU32 = AtomicU32::new(1);
+
+/// The frame limit Reflex is to keep, in microseconds per real frame (0: none), from frame
+/// pacing's cap while frame generation runs (`frame_pace.rs` `wait_for_cap`).
+static REFLEX_LIMIT_US: AtomicU32 = AtomicU32::new(0);
+
+/// Whether frame generation runs this session: [`frame_generation_on`] and not ended by a
+/// failed status. While it does, latency reduction is on with it
+/// (`crate::frame_gen` `follow_switch`, `LatencyReduction::by_frame_generation`), the window
+/// presents without vsync and the frame cap is Reflex's (`frame_pace.rs`), also in menus, where
+/// DLSS-G's mode is off for a while but frame generation is not over [design: fork-notes
+/// `fg-spike-design.md` Stage 3; the review's P3d].
+pub(crate) fn frame_generation_running() -> bool {
+    frame_generation_on() && !FG_ENDED.load(Ordering::Relaxed)
+}
+
+/// Frames presented per real frame asked for while frame generation runs (1 otherwise).
+pub(crate) fn frame_generation_multiplier() -> u32 {
+    if frame_generation_running() { FG_MULTIPLIER.load(Ordering::Relaxed).max(1) } else { 1 }
+}
+
+/// The frame limit Reflex keeps (microseconds per real frame, 0: none), set by frame pacing
+/// while frame generation runs; applied with Reflex's options at the next frame's input
+/// ([`reflex_options`]).
+pub(crate) fn set_reflex_frame_limit(frame_limit_us: u32) {
+    REFLEX_LIMIT_US.store(frame_limit_us, Ordering::Relaxed);
+}
+
+/// Streamline's Reflex runs this session: kept loaded and its calls installed
+/// (`frame_token.rs`). Every latency call then goes through it (`nv_low_latency.rs`).
+pub(crate) fn reflex_running() -> bool {
+    #[cfg(windows)]
+    {
+        frame_token::active()
+    }
+    #[cfg(not(windows))]
+    {
+        false
+    }
+}
+
+/// Reflex's options for the latency reduction switch (`eLowLatency` on, `eOff` off) and the
+/// frame limit frame pacing set ([`set_reflex_frame_limit`]), set only when either changes
+/// (`slReflexSetOptions` is not thread safe: the main thread, `nv_low_latency.rs` at each
+/// frame's input). Each change is said. `Err`: Streamline refused, or Reflex does not run.
+pub(crate) fn reflex_options(on: bool) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        use ffi::{REFLEX_MODE_LOW_LATENCY, REFLEX_MODE_OFF};
+        let mode = if on { REFLEX_MODE_LOW_LATENCY } else { REFLEX_MODE_OFF };
+        let limit = REFLEX_LIMIT_US.load(Ordering::Relaxed);
+        match frame_token::set_reflex_options(mode, limit) {
+            None => Ok(()),
+            Some(result) => {
+                let line = format!("Reflex options: mode {}, frame limit {}: {}", frame_token::reflex_mode_name(mode), limit_text(limit), result.name());
+                if result.is_ok() {
+                    note_fg(Level::INFO, line);
+                    Ok(())
+                } else {
+                    note_fg(Level::WARN, &line);
+                    Err(format!("slReflexSetOptions {}", result.name()))
+                }
+            }
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = on;
+        Err("Streamline is Windows only".to_string())
+    }
+}
+
+/// A Reflex frame limit for the log.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn limit_text(frame_limit_us: u32) -> String {
+    if frame_limit_us == 0 { "none".to_string() } else { format!("{frame_limit_us} us a real frame") }
+}
+
+/// The `NVF_PACE_LOG` line from `slReflexGetState` while Streamline's Reflex runs (the main
+/// thread; not thread safe); `None` otherwise.
+pub(crate) fn reflex_report_line() -> Option<String> {
+    #[cfg(windows)]
+    {
+        frame_token::reflex_report()
+    }
+    #[cfg(not(windows))]
+    {
+        None
+    }
 }
 
 /// Reflex's sleep through Streamline for the frame whose marker number is `present_id`

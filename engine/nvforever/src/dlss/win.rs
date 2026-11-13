@@ -21,7 +21,7 @@ use super::evaluate::{Evaluator, OptionsKey, VIEWPORT};
 use super::ffi::{
     get_proc, wide, AdapterInfo, FeatureRequirements, FeatureVersion, Preferences, SlDlssGetOptimalSettings, SlDlssSetOptions, SlEvaluateFeature, SlFreeResources,
     SlGetFeatureFunction, SlGetFeatureRequirements, SlGetFeatureVersion, SlGetNewFrameToken, SlInit, SlIsFeatureLoaded, SlIsFeatureSupported, SlResult, SlSetConstants,
-    SlDlssgGetState, SlDlssgSetOptions, SlPclSetMarker, SlReflexSetOptions, SlReflexSleep, SlSetFeatureLoaded, SlSetTagForFrame, SlShutdown, Version, ViewportHandle, FEATURE_DLSS, FEATURE_DLSS_G, FEATURE_PCL, FEATURE_REFLEX,
+    SlDlssgGetState, SlDlssgSetOptions, SlPclSetMarker, SlReflexGetState, SlReflexSetOptions, SlReflexSleep, SlSetFeatureLoaded, SlSetTagForFrame, SlShutdown, Version, ViewportHandle, FEATURE_DLSS, FEATURE_DLSS_G, FEATURE_PCL, FEATURE_REFLEX,
     FEATURE_REQUIREMENT_HARDWARE_SCHEDULING_REQUIRED, FEATURE_REQUIREMENT_VSYNC_OFF_REQUIRED, FEATURE_REQUIREMENT_VULKAN_SUPPORTED, LOG_TYPE_ERROR, LOG_TYPE_WARN,
     PREFERENCE_ALLOW_OTA, PREFERENCE_LOAD_DOWNLOADED_PLUGINS, PREFERENCE_USE_FRAME_BASED_RESOURCE_TAGGING, REFLEX_MODE_LOW_LATENCY, RENDER_API_VULKAN, SDK_VERSION,
 };
@@ -921,8 +921,9 @@ fn frame_generation_after_device(api: &Api, mode: FgSpike, held: &Held, identity
                     // At least once, and with DLSS-G on Reflex must be on (`eFailReflexNotDetectedAtRuntime`,
                     // `sl_dlss_g.h:131-132`; `ProgrammingGuideReflex.md:177`); not thread
                     // safe, so here, before the render thread starts.
-                    let reflex = super::frame_token::set_reflex_mode(REFLEX_MODE_LOW_LATENCY);
+                    let reflex = super::frame_token::set_reflex_options(REFLEX_MODE_LOW_LATENCY, 0).unwrap_or(SlResult::OK);
                     let frames = super::frame_gen::frames_asked();
+                    super::FG_MULTIPLIER.store(frames + 1, std::sync::atomic::Ordering::Relaxed);
                     super::frame_gen::install(get_state, set_options, super::frame_gen::Mode::On { frames });
                     note_fg(
                         if reflex.is_ok() { Level::INFO } else { Level::WARN },
@@ -937,7 +938,7 @@ fn frame_generation_after_device(api: &Api, mode: FgSpike, held: &Held, identity
                 Err(why) => {
                     note_fg(
                         Level::WARN,
-                        format!("frame generation not started: {why}; no latency reduction this session (NVIDIA low latency was set up through Streamline's Reflex at start)"),
+                        format!("frame generation not started: {why}; DLSS-G and Reflex unloaded, so NVIDIA low latency makes its direct calls (where the device has VK_NV_low_latency2)"),
                     );
                     unload_frame_generation(api, &drained);
                 }
@@ -964,6 +965,7 @@ fn feature_function(api: &Api, feature: u32, name: &CStr) -> Result<*mut std::ff
 fn frame_calls(api: &Api) -> Result<super::frame_token::FrameCalls, String> {
     let sleep = feature_function(api, FEATURE_REFLEX, c"slReflexSleep")?;
     let set_options = feature_function(api, FEATURE_REFLEX, c"slReflexSetOptions")?;
+    let get_state = feature_function(api, FEATURE_REFLEX, c"slReflexGetState")?;
     let marker = feature_function(api, FEATURE_PCL, c"slPCLSetMarker")?;
     // SAFETY: the plugins hand these out under these names with the signatures their headers
     // declare (ffi.rs); all plain function pointers.
@@ -974,6 +976,7 @@ fn frame_calls(api: &Api) -> Result<super::frame_token::FrameCalls, String> {
             set_tag_for_frame: api.set_tag_for_frame,
             reflex_sleep: std::mem::transmute::<*mut std::ffi::c_void, SlReflexSleep>(sleep),
             reflex_set_options: std::mem::transmute::<*mut std::ffi::c_void, SlReflexSetOptions>(set_options),
+            reflex_get_state: std::mem::transmute::<*mut std::ffi::c_void, SlReflexGetState>(get_state),
             pcl_set_marker: std::mem::transmute::<*mut std::ffi::c_void, SlPclSetMarker>(marker),
         })
     }
@@ -1090,6 +1093,12 @@ pub(super) fn optimal_settings(key: Key) -> Result<Optimal, String> {
     let guard = state();
     let Some(Spike { phase: Phase::Holding(_), eval: Some(eval), .. }) = guard.as_ref() else { return Err("DLSS is not active".to_string()) };
     eval.optimal_settings(key)
+}
+
+/// Whether DLSS's evaluator would reset its next evaluate (`Evaluator::history_stale`); false
+/// while DLSS is not active.
+pub(super) fn dlss_history_stale() -> bool {
+    state().as_ref().and_then(|spike| spike.eval.as_ref()).is_some_and(Evaluator::history_stale)
 }
 
 /// DLSS's options for a key and a model before the frame is recorded (`evaluate.rs` "Before the
