@@ -1996,3 +1996,17 @@ Fallout Behavior, Weapon Drawn, Continue During Combat).
      pause menu and MCM's window open: `SetMCMFloatMass 1 37 38 "depth" 33` and `1 36 37
      "visible" 0`, reading ArrowUp, ArrowDown and Option36 before and after in one script;
      and `5 23 24 "_enable" 1` reading Mod23 and SubMenu1.
+
+## Added 2026-11-13 (a SoundPath key naming a file that is not shipped)
+
+119. **Does a clip's `SoundPath:` key that names a missing `.mp3` play the `.wav` of the same
+     name?** (P3; audio.md §10.2.) Another Millenia's Mateba Model 6 reload keys
+     `SoundPath:fx\Ani\MatebaMod6\charge_quick_drop.mp3`, and the add-on ships only
+     `charge_quick_drop.wav`; its inspect clip keys `wfoly_pi_cpapa_inspect_02.wav`, which
+     is not shipped at all (the folder has `inspect_02.wav`) [observed: nvforever run
+     anaconda-1112, "not in the archives"]. NVForever plays nothing for either; neither
+     kNVSE's readme nor the GECK wiki says what happens [hypothesis: silent]. To check, in
+     the original with kNVSE and the add-on: equip the Mateba (1C01D6AF) in first person,
+     reload it from empty, and record the sound at the reload's end (the drop); then rename
+     `charge_quick_drop.wav` away and record again. A drop sound heard the first time and
+     not the second means the `.wav` stands in for the `.mp3`.
