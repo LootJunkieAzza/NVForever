@@ -513,10 +513,14 @@ fn env_reflection(instance_index: u32, uv: vec2<f32>, n: vec3<f32>, v: vec3<f32>
         mask = env_mask_value(instance_index, uv);
     }
     let r = reflect(-v, n);
-    // What the local light probe (nvforever probe.rs) saw along the reflected ray.
-    let sky = probe_sample(r);
+    // What the local light probe (nvforever probe.rs) saw along the reflected ray, with a
+    // third of an open sky's light above the horizon: glass and metal keep a sheen even
+    // where the camera's own position sees only ground (no parallax in a single probe).
+    let amb = pow(max(lights.ambient_color.rgb * view.exposure, vec3(0.0)), vec3(2.2));
+    let open_sky = amb * mix(vec3(0.3, 0.27, 0.24), vec3(2.0, 2.15, 2.4), saturate(r.y * 0.6 + 0.5));
+    let sky = mix(probe_sample(r), open_sky, 0.35);
     let n_dot_v = saturate(dot(n, v));
-    let fresnel = 0.35 + 0.65 * pow(1.0 - n_dot_v, 5.0);
+    let fresnel = 0.5 + 0.5 * pow(1.0 - n_dot_v, 5.0);
     let si = textureLoad(screen_indirect_texture, vec2<i32>(frag.xy - view.viewport.xy), 0);
     let open = select(1.0 - max(si.a, 0.0), 1.0, si.a < -0.5);
     return sky * (min(surface.env.x, 2.0) * mask * fresnel * open);

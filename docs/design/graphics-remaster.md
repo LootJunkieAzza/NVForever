@@ -128,8 +128,8 @@ not on FaceGen skin.
 
 **Environment maps** (nif_spawn `Props::env_scale`, `NifSurface::env`/`env_mask`,
 nif_material.wesl `env_reflection`): a shape whose shader maps an environment (BSShaderFlags
-bit 7 or 21 and a texture-set slot 4) reflects the light probe's faces (§2) along the reflected ray, at its `environment_map_scale` (held to 2) × its mask (slot 5, red) × a Fresnel
-rise from 0.35 to 1, hidden where the GI closes the view. The game's own cube maps are not
+bit 7 or 21 and a texture-set slot 4) reflects the light probe's faces (§2) along the reflected ray, mixed with a third of an open sky above the horizon (a single probe has no parallax: without it a window seen from above reflected only ground and read as a dusty panel), at its `environment_map_scale` (held to 2) × its mask (slot 5, red) × a Fresnel
+rise from 0.5 to 1, hidden where the GI closes the view. The game's own cube maps are not
 drawn: they would need cube textures in the bindless material; the light probe's faces
 (§2) stand in for them, so glass and metal reflect what is around the camera.
 
