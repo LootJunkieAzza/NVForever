@@ -593,6 +593,7 @@ unless the player binds them, so nothing changes until then.
 | Skip Radio Song | `iSkipRadioSongKey` | `bindings::Control::SkipRadioSong` sets `radio::Radio::skip`; the radio puts the received Pip-Boy station's line at its end (`skip_to_end`: its last part's time run out), so the line's end script runs and the station's own order picks the next; a script's conversation is not skipped. The station's programme is shared, so receivers playing it move on too |
 | Per-Bullet Looping Reloads | `bPerBulletLoopingReloads` | `fnv_combat::attack::Cycle::reload_presses` (set each tick from the game's tweaks): a round-by-round reload starts wanting one press's rounds, each Reload press while it opens or loads queues more (`queue_press`, up to the most), and it closes once that many are in |
 | Doors on the Compass | `bShowDoorsOnCompass` | `compass::doors_of` lists the place's teleport doors (not Hidden From Local Map), cached per space; `gather` adds those present within the reach as `Mark::Door`, drawn with `icon_local_door.dds`, faded by `DOOR_RANGE` under the switch. The tile HUD leaves them out (no door template) |
+| Armor Condition | `bArmorConditionLabel` | `combat::Combat::hud_armor` takes the lowest condition of the worn pieces a body hit strikes; `hud::armor_row` draws an `ARM` bar under the weapon's `CND` one (or in its place with no weapon), shown, red and flashing by `armor_look`'s thresholds |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -614,8 +615,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 523 |
-| to do | 80 |
+| done | 524 |
+| to do | 79 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -943,6 +944,7 @@ game's Data folder, read-only).
 | INI key | Status | VNV on | Options | Note |
 |---|---|---|---|---|
 | `bAddRGBSliders` | done | yes | 1 | already a row: Interface tab, hud-red / hud-green / hud-blue |
+| `bArmorConditionLabel` | done |  | 9 | Armor Condition row under the weapon's (Shown Below, Red Below, Flashing Below, In the Weapon's Place); hand-built HUD only, the body pieces' lowest condition |
 | `bEnemyHealthbarShowBuffedHP` | done | yes |  | Health Bars Count Buffs |
 | `bHideRedCrosshairOnDistantInvisibleTargets` | done | yes |  | Invisible Foes Stay Hidden (at any distance) |
 | `bColoredHUDBars` | done |  | 2 | Red Health / Action Point Bar Below (two shares) |
@@ -1001,7 +1003,6 @@ game's Data folder, read-only).
 | `bDescriptiveMarkerAddedMessage` | to do | yes |  | NVForever shows no marker-added popup |
 | `bHideGrenadeIndicatorForNoDamageExplosions` | to do | yes |  | not built: no grenade indicator |
 | `bMorePreciseRadMeter` | to do | yes | 1 | unclear whether the HUD gain or the Pip-Boy total is meant |
-| `bArmorConditionLabel` | to do |  | 9 | no armour condition text on the HUD yet |
 | `bCriticalHitMessagesIncludeLimbName` | to do |  |  | not built: no critical-hit messages |
 | `bDisableNeedsMessages` | to do |  | 4 | those messages are the game's own scripts; needs a filter by message |
 | `bExplodingDestructibleIndicator` | to do |  |  | not built: no grenade indicator |

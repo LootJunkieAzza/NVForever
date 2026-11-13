@@ -5439,6 +5439,13 @@ pub struct HudWeapon {
 }
 
 impl Combat {
+    /// The condition of the player's armour on the body, 0 to 1 (the lowest of the pieces a
+    /// body hit wears), for the Armor Condition tweak's row; `None` with none worn there.
+    pub fn hud_armor(&self, sim: &mut SimState) -> Option<f32> {
+        let worn: Vec<FormId> = worn_armor(&self.forms, sim, FormId::PLAYER_REF).into_iter().map(|w| w.0).collect();
+        self.forms.armor_struck(&worn, fnv_combat::condition::Zone::Body).into_iter().map(|id| item_condition(sim, FormId::PLAYER_REF, id)).min_by(f32::total_cmp)
+    }
+
     /// The equipped weapon as the HUD shows it (docs/spec-notes/hud.md §5).
     pub fn hud_weapon(&self, sim: &SimState) -> HudWeapon {
         let condition = self.equipped.flatten().map(|id| item_condition(sim, FormId::PLAYER_REF, id));

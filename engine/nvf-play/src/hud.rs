@@ -262,13 +262,15 @@ pub struct HudView {
     pub sneak: Option<Sneak>,
     /// `[DETECTED]` with who detects the player, under the Detected by Whom tweak.
     pub detected_by: Option<String>,
+    /// The body armour's condition, 0 to 1, under the Armor Condition tweak.
+    pub armor: Option<f32>,
     /// A kill camera has the view, which hides the HUD (`crate::kill_cam`).
     pub kill_cam: bool,
 }
 
 impl Default for HudView {
     fn default() -> Self {
-        HudView { shown: false, health: 1.0, action_points: 1.0, heading: 0.0, weapon: HudWeapon::default(), sneak: None, detected_by: None, kill_cam: false }
+        HudView { shown: false, health: 1.0, action_points: 1.0, heading: 0.0, weapon: HudWeapon::default(), sneak: None, detected_by: None, armor: None, kill_cam: false }
     }
 }
 
@@ -559,6 +561,8 @@ fn gather(
         // Where the camera looks, not where the character faces (third person).
         now.heading = control.as_deref().map_or(p.heading, |c| c.view_heading(p.heading)).to_degrees();
     }
+    // The player's tweak: the body armour's condition [design: docs/design/tweaks.md].
+    now.armor = combat.as_ref().filter(|_| tweaks.as_ref().is_some_and(|t| t.armor_condition)).and_then(|c| c.hud_armor(&mut sim));
     if let Some(c) = &combat {
         now.weapon = c.hud_weapon(&sim);
         // The player's tweak hides the ammo counter [design: docs/design/tweaks.md].
@@ -642,7 +646,7 @@ impl Plugin for HudPlugin {
         app.init_resource::<HudView>()
             .add_plugins((crate::hud_target::HudTargetPlugin, crate::hud_limbs::HudLimbsPlugin, crate::hud_needs::HudNeedsPlugin, crate::hud_breath::HudBreathPlugin))
             .init_resource::<HudHidden>()
-            .add_systems(Update, (gather, draw, pips, texts, enemy_colours, place_name).chain().in_set(HudSet).in_set(PlaySet::Ui))
+            .add_systems(Update, (gather, draw, pips, texts, enemy_colours, place_name, armor_row).chain().in_set(HudSet).in_set(PlaySet::Ui))
             .add_systems(PostUpdate, hide_parts.before(crate::tiles::vanilla::hide_hand_built).before(bevy::camera::visibility::VisibilitySystems::VisibilityPropagate));
     }
 }
@@ -837,6 +841,58 @@ enum Bar {
 #[derive(Component)]
 struct ConditionBar;
 
+/// The Armor Condition tweak's row (label and bar), under the weapon's, and its fill.
+#[derive(Component)]
+struct ArmorRow;
+#[derive(Component)]
+struct ArmorBar;
+
+/// The armour row's label [design: our own word, beside the game's "CND"] and how far
+/// under the weapon's row it stands [design].
+const ARM: &str = "ARM";
+const ARMOR_DROP: f32 = 26.0;
+
+/// What the Armor Condition tweak's row shows at `condition` (0 to 1): shown at all (below
+/// `visible_below` when that is above 0), red (below `red_below`, or flashing below
+/// `flash_below` in the half of each second `flash_on` says) [design: docs/design/tweaks.md].
+pub fn armor_look(condition: f32, visible_below: f32, red_below: f32, flash_below: f32, flash_on: bool) -> (bool, bool) {
+    let shown = visible_below <= 0.0 || condition < visible_below;
+    let flashing = flash_below > 0.0 && condition < flash_below;
+    (shown, (red_below > 0.0 && condition < red_below) || (flashing && flash_on))
+}
+
+/// The Armor Condition tweak's row: the body armour's condition bar under the weapon's,
+/// or in its place with no weapon under In the Weapon's Place.
+#[allow(clippy::type_complexity)]
+fn armor_row(
+    view: Res<HudView>,
+    tweaks: Option<Res<crate::tweaks::TweakSettings>>,
+    time: Res<Time<Real>>,
+    mut row: Query<(&mut Visibility, &mut Node), (With<ArmorRow>, Without<ArmorBar>)>,
+    mut bar: Query<(&mut Node, &mut BackgroundColor), (With<ArmorBar>, Without<ArmorRow>)>,
+) {
+    let Some(t) = tweaks.as_deref() else { return };
+    let look = view.armor.map(|c| (c, armor_look(c, t.armor_visible_below, t.armor_red_below, t.armor_flash_below, time.elapsed_secs().fract() < 0.5)));
+    let drop = if view.weapon.condition.is_none() && t.armor_in_weapon_place { 0.0 } else { ARMOR_DROP };
+    for (mut v, mut node) in &mut row {
+        v.set_if_neq(if look.is_some_and(|(_, (shown, _))| shown) { Visibility::Inherited } else { Visibility::Hidden });
+        if node.top != u(drop) {
+            node.top = u(drop);
+        }
+    }
+    let Some((c, (_, red))) = look else { return };
+    let width = u(condition_width(c));
+    let colour = if red { crime_colour() } else { amber(CONDITION_BRIGHTNESS) };
+    for (mut node, mut background) in &mut bar {
+        if node.width != width {
+            node.width = width;
+        }
+        if background.0 != colour {
+            background.0 = colour;
+        }
+    }
+}
+
 /// A bar's row of ticks: which bar, its colour, and how the ticks stand in it.
 #[derive(Component, Clone, Copy)]
 struct PipRow {
@@ -987,6 +1043,11 @@ fn spawn_hud(commands: &mut Commands, art: &mut Art, images: &mut Assets<Image>,
                         row.spawn((at(x, places.cnd_y + CND_BAR.y - 5.0, 4.0, 5.0), BackgroundColor(Color::BLACK)));
                     }
                 }
+            });
+            p.spawn((ArmorRow, at(0.0, ARMOR_DROP, DIVIDER, AP_PANEL.y), Visibility::Hidden)).with_children(|row| {
+                label(row, ARM, places.cnd_label, LOWER_BASE);
+                row.spawn((at(places.cnd_x, places.cnd_y, CND_BAR.x, CND_BAR.y), BackgroundColor(amber(GROUND_BRIGHTNESS))));
+                row.spawn((ArmorBar, at(places.cnd_x, places.cnd_y, CND_FILL_WIDTH, CND_BAR.y), BackgroundColor(amber(CONDITION_BRIGHTNESS))));
             });
             p.spawn((AmmoText, at(0.0, 0.0, AP_PANEL.x, AP_PANEL.y)));
         });
@@ -1349,6 +1410,18 @@ fn enemy_colours(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_armor_row_shows_reddens_and_flashes_by_its_thresholds() {
+        // Always shown with no visibility threshold; only below it with one.
+        assert_eq!(armor_look(0.9, 0.0, 0.0, 0.0, true), (true, false));
+        assert_eq!(armor_look(0.9, 0.5, 0.0, 0.0, true), (false, false));
+        assert_eq!(armor_look(0.4, 0.5, 0.0, 0.0, true), (true, false));
+        // Red below its threshold; flashing below the other, red in its on half.
+        assert_eq!(armor_look(0.2, 0.0, 0.25, 0.0, false), (true, true));
+        assert_eq!(armor_look(0.05, 0.0, 0.0, 0.1, true), (true, true));
+        assert_eq!(armor_look(0.05, 0.0, 0.0, 0.1, false), (true, false));
+    }
 
     #[test]
     fn detected_names_the_first_detectors_then_counts_the_rest() {

@@ -249,6 +249,15 @@ pub struct TweakSettings {
     pub compass_doors_exterior: f32,
     pub compass_doors_interior: f32,
     pub compass_doors_fade: bool,
+    /// `bArmorConditionLabel`: the body armour's condition under the weapon's on the HUD;
+    /// shown below `armor_visible_below` (0: always), red below `armor_red_below`,
+    /// flashing below `armor_flash_below`, in the weapon's place with none drawn under
+    /// `armor_in_weapon_place`.
+    pub armor_condition: bool,
+    pub armor_visible_below: f32,
+    pub armor_red_below: f32,
+    pub armor_flash_below: f32,
+    pub armor_in_weapon_place: bool,
     /// `bHideAmmoLabel`: no ammo counter on the HUD.
     pub hide_ammo_label: bool,
     /// `bNoFreeBarterItems`/`fFreeItemCost`: the price of things worth nothing in a
@@ -667,6 +676,11 @@ impl Default for TweakSettings {
             compass_doors_exterior: 2000.0,
             compass_doors_interior: 1000.0,
             compass_doors_fade: false,
+            armor_condition: false,
+            armor_visible_below: 0.0,
+            armor_red_below: 0.25,
+            armor_flash_below: 0.1,
+            armor_in_weapon_place: true,
             hide_ammo_label: false,
             free_item_price: 0.0,
             duplicate_binds: false,
@@ -1401,6 +1415,11 @@ impl Plugin for TweaksPlugin {
         );
         // ---- batch 25 ----
         switch!(app, "invert-title-wheel", "Reverse Category Wheel", "The mouse wheel over a container's category title steps the other way. (Stewie's Tweaks bInvertContainerTitleScrollwheelDirection)", invert_title_wheel);
+        switch!(app, "armor-condition", "Armor Condition on the HUD", "The HUD shows the condition of the armour worn on the body, under the weapon's. (Stewie's Tweaks bArmorConditionLabel)", armor_condition);
+        part!(app, "armor-visible-below", "Armor Condition: Shown Below", "The armour's row shows only below this condition; 0% always. (Stewie's Tweaks bArmorConditionLabel)", armor_visible_below);
+        part!(app, "armor-red-below", "Armor Condition: Red Below", "The armour's bar turns red below this condition; 0% never. (Stewie's Tweaks bArmorConditionLabel)", armor_red_below);
+        part!(app, "armor-flash-below", "Armor Condition: Flashing Below", "The armour's bar flashes red below this condition; 0% never. (Stewie's Tweaks bArmorConditionLabel)", armor_flash_below);
+        switch!(app, "armor-in-weapon-place", "Armor Condition: In the Weapon's Place", "With no weapon drawn the armour's row takes the weapon's place. (Stewie's Tweaks bArmorConditionLabel)", armor_in_weapon_place);
         switch!(app, "compass-doors", "Doors on the Compass", "Doors leading somewhere else show on the compass, as the local map draws them. (Stewie's Tweaks bShowDoorsOnCompass)", compass_doors);
         amount!(app, "compass-doors-exterior", "Doors on the Compass: Reach Outside", "How far away a door outside still shows, in game units (70 a metre). (Stewie's Tweaks bShowDoorsOnCompass)", 10000.0, f32, compass_doors_exterior);
         amount!(app, "compass-doors-interior", "Doors on the Compass: Reach Inside", "How far away a door inside still shows, in game units (70 a metre). (Stewie's Tweaks bShowDoorsOnCompass)", 5000.0, f32, compass_doors_interior);
