@@ -139,7 +139,7 @@ fn layer_normal(k: u32, instance_index: u32, uv: vec2<f32>) -> vec3<f32> {
 // NVForever remaster (graphics-remaster.md §4 "Detail"): procedural micro-relief on the
 // normal near the camera, where the 2010 textures run out of resolution: the gradient of
 // two octaves of world-space value noise (cells of 9 and 3.5 game units), tilting the
-// normal by up to about 0.3, faded out between 250 and 1,100 units [engineering choice].
+// normal by up to about 0.3, faded out between 150 and 700 units [engineering choice].
 // The same code is in terrain.wesl and nif_material.wesl. Integer hashing keeps it exact
 // at the Mojave's coordinates (tens of thousands of units).
 fn nvf_hash3(c: vec3<i32>) -> f32 {
@@ -163,14 +163,14 @@ fn nvf_relief(p: vec3<f32>) -> f32 {
 // The same relief as a detail map on the colour: darker in its hollows, lighter on its
 // crests, by up to `amount`, near the camera only.
 fn nvf_detail_colour(c: vec3<f32>, p: vec3<f32>, distance: f32, amount: f32) -> vec3<f32> {
-    let fade = 1.0 - smoothstep(250.0, 1100.0, distance);
+    let fade = 1.0 - smoothstep(150.0, 700.0, distance);
     if fade <= 0.0 {
         return c;
     }
     return c * (1.0 + amount * fade * (nvf_relief(p) - 0.5) * 2.0);
 }
 fn nvf_detail_normal(n: vec3<f32>, p: vec3<f32>, distance: f32, strength: f32) -> vec3<f32> {
-    let fade = 1.0 - smoothstep(250.0, 1100.0, distance);
+    let fade = 1.0 - smoothstep(150.0, 700.0, distance);
     if fade <= 0.0 {
         return n;
     }
@@ -234,7 +234,7 @@ fn fragment(
     @if(SCREEN_INDIRECT) {
         let nvf_d = length(view.world_position - pbr_input.world_position.xyz);
         pbr_input.N = nvf_detail_normal(pbr_input.N, pbr_input.world_position.xyz, nvf_d, 6.0);
-        pbr_input.material.base_color = vec4(nvf_detail_colour(pbr_input.material.base_color.rgb, pbr_input.world_position.xyz, nvf_d, 0.18), 1.0);
+        pbr_input.material.base_color = vec4(nvf_detail_colour(pbr_input.material.base_color.rgb, pbr_input.world_position.xyz, nvf_d, 0.14), 1.0);
     }
 
     var out: FragmentOutput;

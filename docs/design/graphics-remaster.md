@@ -109,7 +109,8 @@ with its 8-tap spiral at 2.5x, turned per pixel and not per frame (vendored
 **Detail** (terrain.wesl, nif_material.wesl `nvf_detail_*`): near the camera, where the 2010
 textures run out of resolution, procedural world-space relief (two octaves of value noise with
 an integer hash, cells of 9 and 3.5 units) tilts the normal (terrain 6, shapes 4) and shades
-the colour by up to 18 % (terrain) or 12 % (shapes), faded out between 250 and 1,100 units;
+the colour by up to 14 % (terrain) or 12 % (shapes), faded out between 150 and 700 units
+(sooner than first built: the reviewer saw busy, likely shimmering gravel further out);
 not on FaceGen skin.
 
 **Environment maps** (nif_spawn `Props::env_scale`, `NifSurface::env`/`env_mask`,
