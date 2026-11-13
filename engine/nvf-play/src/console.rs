@@ -105,6 +105,9 @@ pub struct ConsoleReply {
 #[derive(Resource, Default)]
 pub struct Console {
     pub open: bool,
+    /// The pause menu's Console entry asked for it (the player's Replace Help With Console
+    /// tweak): it opens as soon as the world is played again.
+    pub open_asked: bool,
     input: String,
     history: Vec<String>,
     /// The history line being shown (Up/Down), counted from the newest.
@@ -469,8 +472,9 @@ fn toggle(
         // The free camera's mode 1 holds the world in `Menu` with no menu open (`crate::free_cam`).
         let world = *state.get() == PlayState::Playing || (free_cam.holds_world() && *state.get() == PlayState::Menu);
         let free = world && active.0.is_none() && !loading.active();
-        if free && (keys.just_pressed(key) || by_aid) {
+        if free && (keys.just_pressed(key) || by_aid || c.open_asked) {
             c.open = true;
+            c.open_asked = false;
             // Already `Menu` under the free camera: no change of state, which would close it.
             NextState::set_if_different(&mut *next, PlayState::Menu);
             spawn(&mut commands, tweaks.as_ref().is_some_and(|t| t.console_text_shadow));

@@ -539,6 +539,8 @@ pub fn mods_open(paused: &Paused, page: &Page) -> bool {
 
 /// The Mods entry's label [design: NVForever's word].
 const MODS_LABEL: &str = "Mods";
+/// The Console entry's word [design: our own].
+const CONSOLE_LABEL: &str = "Console";
 
 /// The saves the load page lists, newest first, and the chosen one's thumbnail.
 #[derive(Resource, Default)]
@@ -722,14 +724,21 @@ enum Entry {
     Save,
     Load,
     Settings,
+    /// Where the original has Help, under the player's Replace Help With Console tweak: the
+    /// game goes on and the console opens [design: docs/design/tweaks.md].
+    Console,
     /// Only with [`ModsEntry`], before Quit [design].
     Mods,
     Quit,
 }
 
-/// The column's entries, with the Mods entry when `mods` ([`ModsEntry`]).
-fn entries(mods: bool) -> Vec<Entry> {
+/// The column's entries, with the Console entry when `console` (the tweak) and the Mods
+/// entry when `mods` ([`ModsEntry`]).
+fn entries(mods: bool, console: bool) -> Vec<Entry> {
     let mut v = vec![Entry::Continue, Entry::Save, Entry::Load, Entry::Settings];
+    if console {
+        v.push(Entry::Console);
+    }
     if mods {
         v.push(Entry::Mods);
     }
@@ -744,6 +753,7 @@ impl Entry {
             Entry::Save => "Save",
             Entry::Load => "Load",
             Entry::Settings => "Settings",
+            Entry::Console => CONSOLE_LABEL,
             Entry::Mods => MODS_LABEL,
             Entry::Quit => "Quit",
         }
@@ -2547,6 +2557,7 @@ fn choose(
     (meters, pointed, mut tab_store, tweaks): (Query<(&PauseButton, &RelativeCursorPosition)>, Query<(&PointerState, &PauseButton)>, Option<ResMut<SettingsTabStore>>, Option<Res<crate::tweaks::TweakSettings>>),
 ) {
     use crate::bindings::{Bindings, Input, InputDevice};
+    let console_entry = tweaks.as_ref().is_some_and(|t| t.help_is_console);
     // The player's tweak: Tab goes back where it steps no tabs (the main page's question
     // and the load list) [design: docs/design/tweaks.md].
     let tab_back = tweaks.is_some_and(|t| t.tab_back_in_pause) && keys.just_pressed(KeyCode::Tab);
@@ -2561,7 +2572,7 @@ fn choose(
     // pages come from here, and going back shows it again.
     let under_main = main_menu.as_ref().is_some_and(|m| m.open);
     let mods = mods.is_some_and(|m| m.0);
-    let entries = entries(mods);
+    let entries = entries(mods, console_entry);
     // The Mods page goes when its entry does (the mod's tiles were unloaded).
     if *page == Page::Mods && !mods {
         info!("pause menu: no mod page any more, back to the column");
@@ -3211,6 +3222,17 @@ fn choose(
                     info!("pause menu: mods page");
                     *page = Page::Mods;
                 }
+                Some(Entry::Console) => {
+                    info!("pause menu: console (tweak)");
+                    commands.queue(|w: &mut World| {
+                        if let Some(mut c) = w.get_resource_mut::<crate::console::Console>() {
+                            c.open_asked = true;
+                        }
+                    });
+                    if !resume.pending() {
+                        commands.queue(request_resume);
+                    }
+                }
                 Some(Entry::Continue) if !resume.pending() => {
                     commands.queue(request_resume);
                 }
@@ -3836,7 +3858,7 @@ fn drawn_now(world: &mut World) -> Drawn {
         disabled,
         status: world.resource::<PauseStatus>().line.clone(),
         under_main: main.is_some(),
-        column: main.unwrap_or_else(|| entries(world.get_resource::<ModsEntry>().is_some_and(|m| m.0)).iter().map(|e| (e.label(), true)).collect()),
+        column: main.unwrap_or_else(|| entries(world.get_resource::<ModsEntry>().is_some_and(|m| m.0), world.get_resource::<crate::tweaks::TweakSettings>().is_some_and(|t| t.help_is_console)).iter().map(|e| (e.label(), true)).collect()),
         thumb,
         controls: world.get_resource::<crate::bindings::Bindings>().map(|b| b.all().map(|(c, _)| b.text_on(c)).collect()).unwrap_or_default(),
         device: world.get_resource::<crate::bindings::Bindings>().map_or(("Keyboard and Mouse", false), |b| (b.device.name(), b.device == crate::bindings::InputDevice::Controller)),
@@ -4009,6 +4031,13 @@ fn finish_resume(world: &mut World) {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_console_entry_stands_where_help_was() {
+        let labels: Vec<&str> = super::entries(true, true).iter().map(|e| e.label()).collect();
+        assert_eq!(labels, ["Continue", "Save", "Load", "Settings", CONSOLE_LABEL, MODS_LABEL, "Quit"]);
+        assert!(!super::entries(false, false).contains(&Entry::Console));
+    }
+
     use super::*;
 
     fn resume_app() -> App {
@@ -4660,7 +4689,7 @@ mod tests {
         let mut app = search_app(&SEARCHED, "pa", SettingsFocus::SearchText);
         app.world_mut().resource_mut::<SearchKeys>().0 = vec![SearchKey::Text("n".into())];
         app.world_mut().resource_mut::<ButtonInput<KeyCode>>().press(KeyCode::KeyN);
-        let settings = entries(false).iter().position(|e| *e == Entry::Settings).unwrap();
+        let settings = entries(false, false).iter().position(|e| *e == Entry::Settings).unwrap();
         app.world_mut().spawn((Button, PauseButton::Column(settings), PointerState::Pressed));
         app.update();
         assert_eq!(*app.world().resource::<Page>(), Page::Main);
@@ -4816,7 +4845,7 @@ mod tests {
 
     #[test]
     fn the_mods_entry_stands_before_quit_only_when_a_mod_added_one() {
-        let labels = |mods| entries(mods).iter().map(|e| e.label()).collect::<Vec<_>>();
+        let labels = |mods| entries(mods, false).iter().map(|e| e.label()).collect::<Vec<_>>();
         assert_eq!(labels(false), ["Continue", "Save", "Load", "Settings", "Quit"]);
         assert_eq!(labels(true), ["Continue", "Save", "Load", "Settings", "Mods", "Quit"]);
         assert!(Page::Mods.opened_by("Mods"));
@@ -4920,7 +4949,7 @@ mod tests {
             list.saves.push((PathBuf::from(format!("{name}.nvfsave")), h));
         }
         app.insert_resource(list);
-        let drawn = Drawn { page: Page::Load { selected: 1 }, column: entries(false).iter().map(|e| (e.label(), true)).collect(), device: ("Keyboard and Mouse", false), rumble: true, sensitivity: 1.0, view_w: VIEW_W as u32, ..default() };
+        let drawn = Drawn { page: Page::Load { selected: 1 }, column: entries(false, false).iter().map(|e| (e.label(), true)).collect(), device: ("Keyboard and Mouse", false), rumble: true, sensitivity: 1.0, view_w: VIEW_W as u32, ..default() };
         app.world_mut().run_system_cached_with(|In(d): In<Drawn>, mut commands: Commands, list: Res<LoadList>, glyphs: Res<crate::pad::PadGlyphs>| spawn_page(&mut commands, &d, &PauseLook::plain(), &[], &list, &glyphs), drawn).unwrap();
         let world = app.world_mut();
         let mut rows = world.query::<(&PauseButton, &BorderColor)>();

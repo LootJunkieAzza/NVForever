@@ -620,6 +620,7 @@ unless the player binds them, so nothing changes until then.
 | Quantity Menu Respects Companion Carry Cap | `bQuantityMenuRespectsCompanionCarryCap` | `menu::apply_input` sets `MenuModel::companion_carry` (the teammate's CarryWeight) before a store; `asks_quantity` caps the prompt by `menu::model::carry_cap` against the container list's weight. The switch: `Tweaks::quantity_companion_cap` |
 | Skip Death Camera | `bSkipDeathcamHotkey` | nvforever `death_cam::watch` moves the camera's clock to `SKIPPED` (past the fade and the slow motion) on Left Alt or a late left click. The switches: `TweakSettings::skip_death_cam`, `skip_death_cam_attack` |
 | Armor Prevents Blood Decals | `bArmorPreventsBloodDecals` | the projectile hit path in `combat.rs` sets `ImpactFx::no_decal` when `blood_stopped` (the weapon's damage against `target_armor`'s DT); `show_impact` now keeps a decal already refused. The switch: `Tweaks::armor_blocks_blood` |
+| Console in the Pause Menu | `bReplaceHelpWithConsole` | `pause::entries` adds `Entry::Console` after Settings; choosing it sets `Console::open_asked` and asks to resume; `console::toggle` opens it once the world is free. The switch: `TweakSettings::help_is_console` |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -641,8 +642,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 556 |
-| to do | 44 |
+| done | 557 |
+| to do | 43 |
 | unsure, skipped | 19 |
 | n/a | 16 |
 | skipped: fix | 10 |
@@ -1280,6 +1281,7 @@ game's Data folder, read-only).
 | `bPreventTeammateFootstepSounds` | done |  |  | Quiet Companion Footsteps |
 | `bRadiationCausesRadioStatic` | done |  | 1 | Radiation Brings Radio Static (whole at 10 rads/s, at most 80%: ours) |
 | `bRadioKeepPositionWhenLoading` | done |  |  | already so: the radio's programmes are not part of a save and run on through a load, so a song playing is never rewound |
+| `bReplaceHelpWithConsole` | done |  |  | Console in the Pause Menu: a Console entry where the original has Help (NVForever leaves Help out); it resumes the game and the console opens once the world is played. The label option (sButtonLabel) is not built: the entry says Console |
 | `bRestoreLockedDoorSound` | done |  |  | already so: a refused lock plays DRSLocked |
 | `bScaleAshpileSize` | done |  | 2 | Ash Piles Fit the Body (the actor's scale, half to twice; not its bounds) |
 | `bScaleRadioVolume` | done |  | 2 | Radio Songs Volume / Radio Talk Volume (two sliders) |
@@ -1315,7 +1317,6 @@ game's Data folder, read-only).
 | `bPrintErrorsToConsole` | n/a |  | 5 | the original's error log |
 | `bPrintNewModsOnLoad` | n/a |  |  | the plugin's own load report |
 | `bReloadSoundsAffectedByTimescale` | to do |  |  | one global sound speed |
-| `bReplaceHelpWithConsole` | to do |  |  | no Help entry; the console opens only from play, so a pause-menu entry needs a state change |
 | `bSwapKeyboardYZKeys` | n/a |  |  | the original's keyboard handling; NVForever's keys can be rebound |
 | `bTerminalFadeTime` | to do |  | 1 | not built: terminals do not fade |
 | `bUKKeyboard` | n/a |  |  | the original's keyboard handling |

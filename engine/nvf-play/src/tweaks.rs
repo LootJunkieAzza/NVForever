@@ -194,6 +194,9 @@ pub struct TweakSettings {
     /// once; so does an attack this many seconds after the death (0: not by attacking).
     pub skip_death_cam: bool,
     pub skip_death_cam_attack: f32,
+    /// `bReplaceHelpWithConsole`: the pause menu has a Console entry where the original
+    /// has Help.
+    pub help_is_console: bool,
     /// `bDisableGrenadeIndicator`: no grenade indicator on the HUD.
     pub no_grenade_indicator: bool,
     /// `bHideGrenadeIndicatorForNoDamageExplosions`: grenades whose explosion does no
@@ -712,6 +715,7 @@ impl Default for TweakSettings {
             no_limb_indicator: false,
             skip_death_cam: false,
             skip_death_cam_attack: 0.0,
+            help_is_console: false,
             no_grenade_indicator: false,
             grenade_indicator_skip_harmless: false,
             grenade_indicator_destructibles: false,
@@ -1424,6 +1428,7 @@ impl Plugin for TweaksPlugin {
         switch!(app, "no-limb-indicator", "No Crippled Limb Figure", "The crippled-limb figure stays off the HUD. (Stewie's Tweaks bDisableHUDCrippledLimbIndicator)", no_limb_indicator);
         switch!(app, "skip-death-cam", "Skip Death Camera", "After you die, Left Alt goes straight to the end of the death camera: the screen black, ready to load. (Stewie's Tweaks bSkipDeathcamHotkey)", skip_death_cam);
         amount!(app, "skip-death-cam-attack", "Skip Death Camera: By Attacking After", "With Skip Death Camera, attacking also skips it once this many seconds have passed since the death; 0 leaves attacking out. (Stewie's Tweaks bSkipDeathcamHotkey, fAttackDebounceTime)", 10.0, f32, skip_death_cam_attack);
+        switch!(app, "help-is-console", "Console in the Pause Menu", "The pause menu has a Console entry where the original has Help: the game goes on with the console open. (Stewie's Tweaks bReplaceHelpWithConsole)", help_is_console);
         switch!(app, "no-grenade-indicator", "Hide Grenade Indicator", "No mark on the HUD for a grenade about to go off nearby. (Stewie's Tweaks bDisableGrenadeIndicator)", no_grenade_indicator);
         switch!(app, "grenade-indicator-harmless", "No Indicator for Harmless Blasts", "Grenades whose explosion does no damage get no mark. (Stewie's Tweaks bHideGrenadeIndicatorForNoDamageExplosions)", grenade_indicator_skip_harmless);
         switch!(app, "grenade-indicator-destructibles", "Mark Objects About to Explode", "Burning objects that will explode, such as cars on fire, get a grenade mark too. (Stewie's Tweaks bExplodingDestructibleIndicator)", grenade_indicator_destructibles);
