@@ -13,6 +13,12 @@
 //!   the weapon away, and the view goes outside (third person), so the body and its
 //!   drinks are seen [design]. Another player's body is put on its mark by its own game
 //!   and comes here as its puppet does.
+//! - **The contest camera**: while this player drinks, the view is one fixed camera across
+//!   the counter from the marks, looking at the drinkers' centre, so every drinker is seen
+//!   from the front ([`DrinkWorld::shot`], `fnv_game::drink_table::contest_shot`, pulled in
+//!   by a ray as the win shot is; drawn by nvforever `drink_stage`) until the win shot or
+//!   the contest's end [design: the owner, 2026-11-13, "The game camera shouldn't be on
+//!   their backs it should be facing them so you can see everyone drinking"].
 //! - **A drink at each shrink**: this player's `Shrink` plays the drink the game plays for
 //!   whiskey used from the inventory ([`ContestDrink`], nvforever `consume_anims`: the
 //!   standing drinking idle `DrinkingStandingA.kf`, IDLE `BeerDrinkingStanding`, with
@@ -142,6 +148,9 @@ pub struct DrinkWorld {
     pub at: Option<AtTable>,
     /// The win shot, from a player's `Winner` until [`DrinkWorld::stage_until`].
     pub stage: Option<StageView>,
+    /// The contest shot while this player drinks: across the counter at the drinkers'
+    /// fronts ([`contest_view`]; its `light` is unused). The win shot goes over it.
+    pub shot: Option<StageView>,
     /// When the win shot lets go (the app's elapsed seconds): the winner's own contest
     /// screen's close, the same on every screen ([`stage_seconds`]).
     pub stage_until: f32,
@@ -200,14 +209,31 @@ pub fn stage_seconds() -> f32 {
 /// the point it looks at (`phys`, when there is one), never nearer than 40% of the way.
 pub fn stage_view(bar: &Bar, phys: Option<&mut PhysState>) -> StageView {
     let st = dt::stage(bar);
-    let d = [st.camera[0] - st.look_at[0], st.camera[1] - st.look_at[1], st.camera[2] - st.look_at[2]];
-    let len = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt().max(1e-3);
-    let dir = [d[0] / len, d[1] / len, d[2] / len];
-    let reach = phys.and_then(|p| p.ray(st.look_at, dir, len, crate::table_spots::filter())).map_or(len, |h| (h.distance - STAGE_CLEAR).max(len * 0.4));
+    let (dir, reach) = pulled_in(st.camera, st.look_at, phys);
     let camera = [st.look_at[0] + dir[0] * reach, st.look_at[1] + dir[1] * reach, st.look_at[2] + dir[2] * reach];
     let out = reach.min(STAGE_LIGHT_OUT);
     let light = [st.look_at[0] + dir[0] * out, st.look_at[1] + dir[1] * out, st.look_at[2] + dir[2] * out + STAGE_LIGHT_UP];
     StageView { camera, look_at: st.look_at, light }
+}
+
+/// The contest shot of `bar` with `drinkers` at its marks: its contest camera across the
+/// counter (`fnv_game::drink_table::contest_shot`), pulled in as the win shot is.
+pub fn contest_view(bar: &Bar, drinkers: usize, phys: Option<&mut PhysState>) -> StageView {
+    let (want, look_at) = dt::contest_shot(bar, drinkers);
+    let (dir, reach) = pulled_in(want, look_at, phys);
+    let camera = [look_at[0] + dir[0] * reach, look_at[1] + dir[1] * reach, look_at[2] + dir[2] * reach];
+    StageView { camera, look_at, light: camera }
+}
+
+/// From `look_at` towards `camera`: the direction and how far out the camera may stand,
+/// short of the first thing in between (`phys`, when there is one), never nearer than 40%
+/// of the way.
+fn pulled_in(camera: [f32; 3], look_at: [f32; 3], phys: Option<&mut PhysState>) -> ([f32; 3], f32) {
+    let d = [camera[0] - look_at[0], camera[1] - look_at[1], camera[2] - look_at[2]];
+    let len = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt().max(1e-3);
+    let dir = [d[0] / len, d[1] / len, d[2] / len];
+    let reach = phys.and_then(|p| p.ray(look_at, dir, len, crate::table_spots::filter())).map_or(len, |h| (h.distance - STAGE_CLEAR).max(len * 0.4));
+    (dir, reach)
 }
 
 /// E on a bottle: drink-b's stake page.
@@ -251,6 +277,11 @@ fn started(
         let players = s.drinkers.iter().enumerate().filter(|(_, d)| matches!(d.who, Who::Player(_))).fold(0u8, |m, (i, _)| m | 1 << i);
         world.at = Some(AtTable { bottle: s.bottle, bar, slot, pov, held: false, over: false, dancing: false, players });
         world.joined += 1;
+        // Every drinker sees the contest from across the counter, the drinkers' fronts.
+        let view = contest_view(bar, s.drinkers.len(), phys.as_deref_mut());
+        world.shot = Some(view);
+        let ([cx, cy, cz], [lx, ly, lz]) = (view.camera, view.look_at);
+        info!("drink world: {}: the contest camera at ({cx:.0}, {cy:.0}, {cz:.0}) looks across the counter at the drinkers ({lx:.0}, {ly:.0}, {lz:.0})", bar.key);
         info!(
             "drink world: {}: this player drinks in slot {slot} of {}, at mark ({:.0}, {:.0}, {:.0}) facing {:.0} deg; weapon away, view outside",
             bar.key,
@@ -369,6 +400,9 @@ fn ended(
     }
     if over && !at.over {
         at.over = true;
+        if w.shot.take().is_some() {
+            info!("drink world: {}: the contest is over: the contest camera lets go", at.bar.key);
+        }
         // A contest gone without its end (a load, a disconnect) takes the win shot with it.
         if gone || *state.get() != PlayState::Playing {
             w.stage_until = 0.0;

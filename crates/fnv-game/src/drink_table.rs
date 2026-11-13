@@ -86,6 +86,9 @@ pub struct Bar {
     /// The bearing from the stage to the win camera (radians, the game's); the winner
     /// faces it.
     pub stage_bearing: f32,
+    /// The contest camera ([`contest_shot`]): x and y, and its height over `floor`, on the
+    /// far side of the counter from the marks, so the drinkers are seen from the front.
+    pub contest_camera: [f32; 3],
 }
 
 /// Which piece of a bar's prop a reference is.
@@ -147,6 +150,13 @@ pub const BARS: &[Bar] = &[Bar {
     // frames, 2026-11-12].
     stage: [-60.0, -700.0],
     stage_bearing: std::f32::consts::PI + 0.35,
+    // Behind the counter's curve on the barkeep's side, about 35 in from its inner edge,
+    // above the counter top, looking back across it at the marks' fronts [design: the
+    // owner, 2026-11-13, "The game camera shouldn't be on their backs it should be facing
+    // them so you can see everyone drinking"; from here slots 0 to 2 stand within 30 deg
+    // of the view's centre; the bar room's lamp at (-96, -530, 3614) is 30 off the line to
+    // slot 0]. Pulled in by a ray when something stands between (nvf-play drink_world).
+    contest_camera: [-130.0, -420.0, 150.0],
 }];
 
 /// The win camera's distance from the winner's feet, flat (game units) [design: the whole
@@ -172,6 +182,24 @@ pub struct Stage {
     /// The camera and the point it looks at.
     pub camera: [f32; 3],
     pub look_at: [f32; 3],
+}
+
+/// The point the contest camera looks at, over the drinkers' centre [design: the chest].
+pub const CONTEST_LOOK_UP: f32 = 100.0;
+
+/// The contest camera of `bar` with `drinkers` at its marks: the camera across the counter
+/// and the point it looks at, the drinkers' centre at the chest [design: the owner,
+/// 2026-11-13, every drinker seen from the front].
+pub fn contest_shot(bar: &Bar, drinkers: usize) -> ([f32; 3], [f32; 3]) {
+    let n = drinkers.clamp(1, MARKS);
+    let (mut x, mut y) = (0.0, 0.0);
+    for slot in 0..n {
+        let (p, _) = mark(bar, slot);
+        x += p[0];
+        y += p[1];
+    }
+    let [cx, cy, up] = bar.contest_camera;
+    ([cx, cy, bar.floor + up], [x / n as f32, y / n as f32, bar.floor + CONTEST_LOOK_UP])
 }
 
 /// The win stage of `bar`.
@@ -372,6 +400,38 @@ mod tests {
         // Slot 0 by the straight run; slot 1 by the curve, whose face at x -204 is at y -490
         // [observed: `fnvtool phys cell` rays at the waist, 2026-11-13].
         assert!(mark(bar, 0).0[1] < -562.4 - 22.0 && mark(bar, 1).0[1] < -490.0 - 22.0);
+    }
+
+    /// The contest camera sees the drinkers from the front: it stands ahead of each one
+    /// (within 45 deg of where it faces), across the counter's front from the marks and
+    /// above its top, and with two or three drinkers all of them stand within 32 deg of
+    /// the view's centre (the play camera's field of view is wider).
+    #[test]
+    fn the_contest_camera_faces_the_drinkers() {
+        let bar = &BARS[0];
+        for n in 1..=MARKS {
+            let (cam, look) = contest_shot(bar, n);
+            assert!(cam[2] > bar.top[2] + 40.0, "above the counter top");
+            assert!(look[2] < cam[2]);
+            let centre = (look[0] - cam[0]).atan2(look[1] - cam[1]);
+            for slot in 0..n {
+                let (p, h) = mark(bar, slot);
+                let (dx, dy) = (cam[0] - p[0], cam[1] - p[1]);
+                let off = angle(dx.atan2(dy) - h).abs().to_degrees();
+                assert!(off < 45.0, "{n} drinkers: slot {slot} has the camera {off:.0} deg off its front");
+                if n <= 3 {
+                    let at = angle((p[0] - cam[0]).atan2(p[1] - cam[1]) - centre).abs().to_degrees();
+                    assert!(at < 32.0, "{n} drinkers: slot {slot} is {at:.0} deg off the view's centre");
+                }
+            }
+            // Across the counter's front (y -562.4 on its straight run, -550 by the curve)
+            // from the marks: behind it, on the barkeep's side.
+            assert!(cam[1] > -465.0 && cam[0] < -20.0, "{cam:?} is not behind the counter");
+        }
+    }
+
+    fn angle(a: f32) -> f32 {
+        (a + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI
     }
 
     #[test]
