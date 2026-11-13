@@ -7443,10 +7443,10 @@ forbid = [{ re = 'provocation: .*0xFF0000[0-9A-F]{2} warns the player inside its
 [[scenario]]
 name = "aggro-warning-look"
 source = "owner's playtest 2026-10-24, \"baby geckos were not showing the aggressive stay away from me warnings\" (crates/fnv-game/src/aggro.rs \"The look\", crates/fnv-ai/src/alert.rs Warnings, engine/nvforever/src/idles.rs creatures' combat idles): a young gecko warning the player stops and faces the player and draws its unarmed stance and holds it (owner 2026-10-25; the original drew and put it away every 2 s, capture `warnings`), not alerted, then attacks 15 s after its first warning; standing in the fight it plays its idle tree's combat idles (hiss, side hops)"
-note = "VERGSGecko6REF 0x00157B3C (VSpawnTier1GeckoSmall, a Young Gecko: Unaggressive, aggro radius 500, DefaultSandboxEditorLocation512 all day, which allows it); the player starts about 350 units east of its editor spot. The two GS02 gecko hunters 0x0016518B/0x0016518C (within 600 units) and the geckos 0x00157B3F, 0x00157B40, 0x00157B41 (within 5,000) are disabled so that no other fight is joined. At 3 s the player is moved 300 units from the gecko (#2011): at 12:00 the gecko is in a rolled lunch window, and before #2011 it stood there through a meal with no seat, about 350 units from the player; now it goes on wandering within 512 of its editor spot, as a sandboxer does, and could wander out of its 500-unit aggro radius before warning"
+note = "VERGSGecko6REF 0x00157B3C (VSpawnTier1GeckoSmall, a Young Gecko: Unaggressive, aggro radius 500, DefaultSandboxEditorLocation512 all day, which allows it); the player starts about 350 units east of its editor spot. The two GS02 gecko hunters 0x0016518B/0x0016518C (within 600 units) and the geckos 0x00157B3F, 0x00157B40, 0x00157B41 (within 5,000) are disabled so that no other fight is joined. At 3 s the player is moved 300 units from the gecko (#2011): at 12:00 the gecko is in a rolled lunch window, and before #2011 it stood there through a meal with no seat, about 350 units from the player; now it goes on wandering within 512 of its editor spot, as a sandboxer does, and could wander out of its 500-unit aggro radius before warning. From 4 s to 6 s the player runs a few short steps back and forth there (#2286): until #2286 the player's settling after the move counted as running and the gecko heard that; a player standing still is no footstep, so the steps are the noise it hears"
 areas = ["combat", "alert", "idles"]
 paths = ["crates/fnv-game/src/aggro.rs", "crates/fnv-game/src/awareness.rs", "crates/fnv-game/src/idles.rs", "crates/fnv-ai/src/alert.rs", "engine/nvforever/src/idles.rs", "engine/nvforever/src/creature_stance.rs", "engine/nvforever/src/npc_combat.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "3:moveto:player:VERGSGecko6REF:300:0:0,1:call:0x0016518B:Disable,1:call:0x0016518C:Disable,1:call:0x00157B3F:Disable,1:call:0x00157B40:Disable,1:call:0x00157B41:Disable" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_MOVE = "4:0:1,4.4:0:-1,4.8:0:1,5.2:0:-1,5.6:0:0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "3:moveto:player:VERGSGecko6REF:300:0:0,1:call:0x0016518B:Disable,1:call:0x0016518C:Disable,1:call:0x00157B3F:Disable,1:call:0x00157B40:Disable,1:call:0x00157B41:Disable" }
 args = ["--play", "--pos=-66099,-24341,7400", "--hour", "12", "--no-voice", "--no-messages"]
 run_seconds = 50
 order = [[
@@ -26075,7 +26075,7 @@ expect = [
 [[scenario]]
 name = "helios-stasis-held-at-field"
 source = "#1977 (owner 2026-11-09): HELIOS One's stasis protectrons stay in their pods until the tripwire. In the original (#1977 probe 3) p4 fights from inside its pod, moving 12 units in 30 s against the pod's stasis field (VHELIOSStasisField4REF, keyframed collision). Ours got stuck there too, then the nav unstick's skip moved it on through the field; now a skip whose way crosses keyframed collision holds the actor where it is (engine/nvforever/src/residents.rs, PhysState::keyframed_between)"
-note = "HELIOSOneTower, the player 295 units south of p4 (0x0009A260) behind the pods' wall: p4 and p3 (0x0009A261) notice it and try to search; their fields are 0x00099D27 and 0x00099D28; the tripwire VHeliosTrapLaserTripwire 0x0009A1E8 north-east of the pods"
+note = "HELIOSOneTower, the player 295 units south of p4 (0x0009A260) behind the pods' wall: p4 notices it and tries to search, p3 (0x0009A261) stays idle (#2286); their fields are 0x00099D27 and 0x00099D28; the tripwire VHeliosTrapLaserTripwire 0x0009A1E8 north-east of the pods"
 areas = ["ai", "nav"]
 paths = ["engine/nvforever/src/residents.rs", "engine/nvf-play/src/phys.rs", "crates/fnv-phys/src/world.rs"]
 env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05" }
@@ -26083,8 +26083,24 @@ args = ["--cell", "HELIOSOneTower", "--play", "--no-voice", "--no-messages", "--
 run_seconds = 25
 expect = [
   { re = 'actor 0009A260 stuck at .*: held at 00099D27.s moving collision', label = "p4 is held at its pod's stasis field" },
-  { re = 'actor 0009A261 stuck at .*: held at 00099D28.s moving collision', label = "p3 is held at its pod's stasis field" },
+  { re = 'actor 0009A261 stuck at ', max = 0, label = "p3 never walks into its field (0x00099D28): it stays idle, as in the original (#2286; before, it noticed the player's settling as running and was held at the field)" },
   { re = 'actor 0009A26[01] stuck at .*moved on along its path', max = 0, label = "and neither is moved on through its field (both were before; p2 and p1, alarmed or noticing, leave through their pods' fixed walls: the alarm is #2009's, the notice the detection edge on #1977)" },
+]
+
+[[scenario]]
+name = "helios-stasis-only-p4-notices"
+source = "#2286 (from #1977 probe 3, observed in the original with the player at (-2987,-648)): only p4 goes for the player, from inside its pod; p1, p2, p3 and p5 stay idle and undetected. Ours had p1 and p3 notice at about 500 units by the sound of the player 'running' while its capsule settled after the placement (-19.7 and -19.8, hidden at -21.6 standing); the player now makes footsteps only while its movement controls are held (engine/nvforever/src/detection.rs)"
+note = "HELIOSOneTower, the player 295 units south of p4 (0x0009A260) behind the pods' wall; p3 0x0009A261 and p1 0x0009A263 at about 500 units, p2 0x0009A262 at 800, p5 0x0009A256 at 1,240; p4's field 0x00099D27"
+areas = ["alert", "ai"]
+paths = ["engine/nvforever/src/detection.rs", "crates/fnv-game/src/detection.rs", "crates/fnv-game/src/awareness.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05" }
+args = ["--cell", "HELIOSOneTower", "--play", "--no-voice", "--no-messages", "--pos=-2995,-650,6600", "--heading", "0"]
+run_seconds = 25
+expect = [
+  { re = 'alert: LvlStasisRobot 0009A260 Normal → Alert: noticed the player', label = "p4 notices the player through its pod's wall" },
+  { re = 'alert: LvlStasisRobot (0009A26[123]|0009A256) Normal → ', max = 0, label = "and none of the other four stasis protectrons does (p1 and p3 did, at the -20 edge)" },
+  { re = 'detection: LvlStasisRobot 0009A2\w\w → the player: .*, running\)', max = 0, label = "the player, standing where it was put, is never heard running" },
+  { re = 'actor 0009A260 stuck at .*moved on along its path', max = 0, label = "p4 stays in its pod (held at its field, not moved on through it)" },
 ]
 
 [[scenario]]
