@@ -833,6 +833,7 @@ pub fn hint_line(b: &crate::bindings::Bindings) -> String {
 }
 
 /// The panel for a lock: `chance` in percent, `condition` and `charge` 0 to 1.
+#[allow(clippy::too_many_arguments)]
 pub fn panel_text(name: &str, limb: &str, chance: f32, condition: Option<f32>, charge: f32, armed: bool, crit_key: &str, hints: &str) -> PanelText {
     let sixteenths = |v: f32| (v.clamp(0.0, 1.0) * 16.0).round() as u8;
     let crit_line = if armed {
@@ -987,8 +988,8 @@ mod tests {
         // Aim moved to the middle button: the switch goes with it, the right button is no longer it.
         let mut moved = Bindings::game_defaults();
         moved.rebind(Control::Block, Input::Mouse(MouseButton::Middle));
-        assert_eq!(lock_presses(true, press(&moved, MouseButton::Middle)).0, true);
-        assert_eq!(lock_presses(true, press(&moved, rmb)).0, false, "the right button is another control's now");
+        assert!(lock_presses(true, press(&moved, MouseButton::Middle)).0);
+        assert!(!lock_presses(true, press(&moved, rmb)).0, "the right button is another control's now");
         // V lets go.
         let v = |c: Control| c == Control::Vats;
         assert_eq!(lock_presses(true, v), (false, true));
