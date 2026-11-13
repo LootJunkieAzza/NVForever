@@ -14,6 +14,18 @@
 //! [`crate::script::ScriptState::campfires_lit`] for co-op, which keeps lit campfires the
 //! same in every player's game (`nvforever::coop`, `share_campfires`).
 //!
+//! While the campfire under the crosshair burns (its fires stand at it,
+//! [`fnv_game::game::Game::campfire_fires`]), the prompt drops "Light fire" and keeps
+//! "Craft" alone, and Ready Item does what it does elsewhere [design, 2026-11-13: the lit
+//! fire read "R) Light fire"]. The original has nothing to follow here: the plugin's
+//! activation scripts place five fires (`SAGFireMovableStaticCampfireStage01`, four
+//! `…NoSound`) and open the recipe menu, and change nothing on the campfire, no name, no
+//! variable; the fires' own scripts put them out after 41 to 60 s (the one with the
+//! sound) or 25 to 40 s [observed: the plugin's script sources, `CraftingCampfireRecipesScript`,
+//! `VCG03CraftingCampfireRecipesScript`, `SagittariusCampfireFireEffectScript`,
+//! `SagittariusCampFireNoSoundAtAll`]. So its prompt is the same lit or not, and once the
+//! fires are out "Light fire" is back.
+//!
 //! Log: `campfire 0x… <name>: lit, N fires placed` or `…: burning already, N fires start
 //! again`.
 
@@ -39,6 +51,8 @@ pub const SECOND: Control = Control::ReadyItem;
 pub struct Campfires {
     known: bool,
     pub bases: HashSet<FormId>,
+    /// The campfire under the crosshair, when its fires burn ([`watch_burning`]).
+    pub burning: Option<u32>,
 }
 
 impl Campfires {
@@ -54,10 +68,27 @@ pub struct SecondAction {
     pub took: bool,
 }
 
-/// What the prompt over reference `form_id` adds: the second action's key and word.
-pub fn second_action(campfires: Option<&Campfires>, sim: &SimState, form_id: u32, bindings: Option<&Bindings>) -> Option<(String, String)> {
-    campfires.filter(|c| c.is_campfire(sim, form_id))?;
-    Some((bindings.map(|b| b.prompt(SECOND)).unwrap_or_else(|| "R)".into()), LIGHT.into()))
+/// The prompt's actions over a campfire: Activate's word and the second action's key and
+/// word, which a burning campfire has not. None: not a campfire.
+pub fn actions(campfire: bool, burning: bool, key: impl FnOnce() -> String) -> Option<(&'static str, Option<(String, String)>)> {
+    campfire.then(|| (CRAFT, (!burning).then(|| (key(), LIGHT.to_string()))))
+}
+
+/// What the prompt over reference `form_id` reads, when it is a campfire: Activate's word
+/// and the second action's key and word ([`actions`]).
+pub fn prompt_actions(campfires: Option<&Campfires>, sim: &SimState, form_id: u32, bindings: Option<&Bindings>) -> Option<(&'static str, Option<(String, String)>)> {
+    let c = campfires?;
+    actions(c.is_campfire(sim, form_id), c.burning == Some(form_id), || bindings.map(|b| b.prompt(SECOND)).unwrap_or_else(|| "R)".into()))
+}
+
+/// Whether the campfire under the crosshair burns, kept in [`Campfires::burning`] for the
+/// prompt and the second key.
+fn watch_burning(mut campfires: ResMut<Campfires>, target: Option<Res<Target>>, sim: Res<SimState>, script: Option<Res<ScriptState>>) {
+    let at = target.as_ref().and_then(|t| t.0.as_ref()).map(|t| t.form_id).filter(|&id| campfires.is_campfire(&sim, id));
+    let burning = at.filter(|&id| script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| !rt.game.campfire_fires(FormId(id)).is_empty()));
+    if campfires.burning != burning {
+        campfires.burning = burning;
+    }
 }
 
 fn learn(mut campfires: ResMut<Campfires>, script: Option<Res<ScriptState>>) {
@@ -88,7 +119,8 @@ fn light(
     if *state.get() != PlayState::Playing || campfires.bases.is_empty() || !input.just_pressed(SECOND) {
         return;
     }
-    let Some(t) = target.as_ref().and_then(|t| t.0.as_ref()).filter(|t| campfires.is_campfire(&sim, t.form_id)) else { return };
+    // A burning campfire has no second action: the key does what it does elsewhere.
+    let Some(t) = target.as_ref().and_then(|t| t.0.as_ref()).filter(|t| campfires.is_campfire(&sim, t.form_id) && campfires.burning != Some(t.form_id)) else { return };
     took.took = true;
     // As Activate: nothing while a script has the player's movement off.
     if locks.is_some_and(|l| l.movement) {
@@ -116,6 +148,20 @@ impl Plugin for CampfirePlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Campfires>()
             .init_resource::<SecondAction>()
-            .add_systems(Update, (learn, light).chain().before(crate::control::read_controls));
+            .add_systems(Update, (learn, watch_burning, light).chain().before(crate::control::read_controls));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_burning_campfire_offers_craft_alone() {
+        let key = || "R)".to_string();
+        assert_eq!(actions(true, false, key), Some((CRAFT, Some(("R)".to_string(), LIGHT.to_string())))));
+        assert_eq!(actions(true, true, key), Some((CRAFT, None)), "lit: no Light fire");
+        assert_eq!(actions(false, false, key), None, "not a campfire: its own prompt");
+        assert_eq!(actions(false, true, key), None);
     }
 }

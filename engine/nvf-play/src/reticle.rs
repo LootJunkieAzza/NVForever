@@ -178,9 +178,9 @@ impl Prompt {
 
     /// With the second action of a campfire (`crate::campfire`): Activate is "Craft".
     pub(crate) fn with_second(mut self, t: &Targeted, sim: &SimState, campfires: Option<&crate::campfire::Campfires>, bindings: Option<&crate::bindings::Bindings>) -> Prompt {
-        if let Some(second) = crate::campfire::second_action(campfires, sim, t.form_id, bindings) {
-            self.action = crate::campfire::CRAFT.into();
-            self.second = Some(second);
+        if let Some((action, second)) = crate::campfire::prompt_actions(campfires, sim, t.form_id, bindings) {
+            self.action = action.into();
+            self.second = second;
         }
         self
     }
