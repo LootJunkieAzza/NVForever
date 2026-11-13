@@ -261,6 +261,23 @@ pub fn nearest_drinkers(near: Vec<(FormId, [f32; 3], Fit)>, me: [f32; 3], n: usi
     ok.into_iter().take(n).map(|(r, _, _)| r).collect()
 }
 
+/// `drinkers` without the NPCs whose [`Fit`] (`fit`, by reference id) keeps them out.
+pub fn keep_people(drinkers: Vec<Drinker>, fit: impl Fn(u32) -> Fit) -> Vec<Drinker> {
+    drinkers
+        .into_iter()
+        .filter(|d| match d.who {
+            Who::Npc(r) => {
+                let f = fit(r);
+                if !f.may_drink() {
+                    info!("drink contest: {} ({r:08X}) may not drink ({f:?}): left out", d.name);
+                }
+                f.may_drink()
+            }
+            _ => true,
+        })
+        .collect()
+}
+
 /// The actors near the player in the loaded cells, each with its [`Fit`].
 pub fn near_with_fit(g: &fnv_game::Game) -> Vec<(FormId, [f32; 3], Fit)> {
     crate::compass::actors_near(g, &Default::default()).into_iter().map(|(r, p)| (r, p, fit_of(g, r))).collect()
@@ -303,6 +320,17 @@ fn open(mut starts: MessageReader<DrinkStart>, mut screen: ResMut<DrinkScreen>, 
             warn!("drink contest: a contest is already on; the start at {:08X} is not taken", s.bottle);
             continue;
         }
+        // The last gate: an NPC drinker who may not drink ([`Fit`]) is left out, whatever
+        // started the contest. Alone only: a co-op contest's list is the deciding game's,
+        // the same slots on every screen, and holds no NPCs.
+        let mut s = s.clone();
+        if !link.on {
+            if let Some(rt) = script.as_mut().and_then(|s| s.rt.as_mut()) {
+                let g = &rt.game;
+                s.drinkers = keep_people(std::mem::take(&mut s.drinkers), |r| fit_of(g, FormId(r)));
+            }
+        }
+        let s = &s;
         let d = Drink::new(s, &link, time.elapsed_secs());
         let who: Vec<String> = d.contest.drinkers.iter().map(|x| format!("{} (Endurance {})", x.name, x.endurance)).collect();
         let role = match (link.on, link.authority) {
@@ -769,6 +797,18 @@ mod tests {
         assert_eq!(nearest_drinkers(near.clone(), at(0.0), 2), [FormId(0x21), FormId(0x20)]);
         assert_eq!(nearest_drinkers(near, at(0.0), 9), [FormId(0x21), FormId(0x20), FormId(0x22)]);
         assert!(person.may_drink());
+    }
+
+    /// Whatever starts a contest, a creature or a child among its drinkers is left out.
+    #[test]
+    fn a_start_keeps_only_people() {
+        let mut list = drinkers();
+        list.push(Drinker { who: Who::Npc(0x7), name: "Dog".into(), endurance: 5 });
+        let kept = keep_people(list, |r| Fit { creature: r == 0x7, child: r == 0x104C7E, ..Fit::default() });
+        let names: Vec<&str> = kept.iter().map(|d| d.name.as_str()).collect();
+        assert!(!names.contains(&"Dog") && !names.contains(&"Trudy"), "{names:?}");
+        assert!(names.contains(&"Settler"), "{names:?}");
+        assert_eq!(kept.len(), drinkers().len() - 1);
     }
 
     /// The drink a drinker passes out on is not counted; one who leaves or slips outside
