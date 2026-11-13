@@ -188,10 +188,13 @@ pub struct Target {
 /// observed defaults: issue #2010 capture, docs/spec-notes/npc-behaviour-compare.md §15.6].
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Timers {
-    /// A generic alarm runs out this long after refresh [design: existing Alert policy].
+    /// An alarm (noticed, hurt, an ally's call, an event heard) runs out this long after
+    /// refresh [design: existing Alert policy]. fDetectionEventExpireTime is not read for
+    /// it: by its name it is how long an event itself can be heard, and ours are heard in
+    /// the round they are raised [hypothesis: the setting's name]; a 10 s alarm sent a
+    /// camp's alarmer back to Normal before the party it called had searched (smoke
+    /// `group-search`, #2010).
     pub alarm: f64,
-    /// Detection events expire after fDetectionEventExpireTime [design, #2010].
-    pub event_expire: f64,
     /// fCombatTargetLostRemoveTime; does not interrupt a Lost search [design, #2010].
     pub forget_target: f64,
     /// fCombatDetectionLostTime: no target detected for this long enters Lost
@@ -212,7 +215,7 @@ pub struct Timers {
 
 impl Default for Timers {
     fn default() -> Timers {
-        Timers { alarm: 20.0, event_expire: 10.0, forget_target: 30.0, lost: 15.0, idle_bark: (5.0, 15.0), bark_cooldown: 15.0 }
+        Timers { alarm: 20.0, forget_target: 30.0, lost: 15.0, idle_bark: (5.0, 15.0), bark_cooldown: 15.0 }
     }
 }
 
@@ -225,7 +228,6 @@ impl Timers {
         Timers {
             lost: s("fCombatDetectionLostTime", d.lost),
             forget_target: s("fCombatTargetLostRemoveTime", d.forget_target),
-            event_expire: s("fDetectionEventExpireTime", d.event_expire),
             idle_bark,
             bark_cooldown: idle_bark.1.max(idle_bark.0),
             ..d
@@ -373,7 +375,6 @@ impl Awareness {
     pub fn alarm(&mut self, owner: FormId, at: [f32; 3], size: f64, cause: Cause, now: f64, t: &Timers) {
         let expires = now + match cause {
             Cause::LostTarget => LOST_SEARCH_STALL_SECONDS,
-            Cause::Event(_) => t.event_expire,
             _ => t.alarm,
         };
         match self.alarms.iter_mut().find(|a| a.owner == owner && a.cause == cause) {

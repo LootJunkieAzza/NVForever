@@ -594,7 +594,7 @@ fn detection_timers_and_search_count_read_the_load_orders_gmsts() {
     ]);
     let mut g = game(&f);
     let t = Timers::read(&g);
-    assert_eq!((t.lost, t.forget_target, t.event_expire), (40.0, 3.0, 7.0));
+    assert_eq!((t.lost, t.forget_target), (40.0, 3.0));
     assert_eq!(g.group_settings().remove_search_count, 2);
     let (actor, player) = (FormId(RAIDER_REF), FormId::PLAYER_REF);
     fight(&mut g, actor, player);
@@ -607,7 +607,42 @@ fn detection_timers_and_search_count_read_the_load_orders_gmsts() {
     assert_eq!(g.awareness.state(actor), State::Lost);
     let a = g.awareness.actors.get_mut(&actor).unwrap();
     a.alarm(player, [0.0; 3], 1.0, Cause::Event(EventType::Bullet), g.time, &t);
-    assert_eq!(a.alarms.iter().find(|a| a.cause == Cause::Event(EventType::Bullet)).unwrap().expires, g.time + 7.0);
+    assert_eq!(a.alarms.iter().find(|a| a.cause == Cause::Event(EventType::Bullet)).unwrap().expires, g.time + t.alarm, "fDetectionEventExpireTime is not the alarm's length");
+}
+
+#[test]
+fn an_alarmer_that_heard_an_event_stays_in_its_partys_search_past_the_event_setting() {
+    // Smoke `group-search` (#2010 regression): Cook-Cook heard the player's shot, alarmed
+    // the camp and searched with it; with heard-event alarms cut to the load order's
+    // fDetectionEventExpireTime (10 in the #2010 capture) he went Normal at 12 s, before the
+    // camp's first shares, and the party shrank. A heard event's alarm lasts the alarm
+    // timer like every other non-Lost alarm [design: `Awareness::alarm`].
+    use fnv_game::awareness::{DetectionEvent, EventType, Timers};
+    let f = fixture_with_gmsts(&[("fDetectionEventExpireTime", 10f32.to_le_bytes().to_vec())]);
+    let mut g = game(&f);
+    let (alarmer, mate, player) = (FormId(RAIDER_REF), FormId(WATCHMAN_REF), FormId::PLAYER_REF);
+    // [design: synthetic fixture] Put the second actor in the raiders' faction.
+    let factions = &mut g.extra.entry(mate).or_default().factions;
+    factions.insert(FormId(PLAYER_FACTION), -1);
+    factions.insert(FormId(RAIDERS), 0);
+    let shot = DetectionEvent { owner: player, at: [2000.0, 0.0, 0.0], level: 50.0, kind: EventType::Bullet };
+    let heard = Detection { value: -10.0, band: Band::Noticed, ..Detection::default() };
+    assert!(g.hear_event(alarmer, &shot, &heard));
+    // The mate is called about the player (a noticed alarm of its own).
+    g.observe_threat(mate, player, &heard, [1500.0, 0.0, 0.0]);
+    g.settle_awareness();
+    assert_eq!((g.awareness.state(alarmer), g.awareness.state(mate)), (State::Alert, State::Alert));
+    let t = Timers::read(&g);
+    let start = g.time;
+    // Past the event setting, before the alarm timer: both still search, as one party.
+    g.time = start + 12.0;
+    g.settle_awareness();
+    assert_eq!(g.awareness.state(alarmer), State::Alert, "the alarmer still searches 12 s after the shot");
+    assert_eq!(g.search_party(mate, player).1, 2, "the party still counts the alarmer");
+    // The alarm timer ends it.
+    g.time = start + t.alarm;
+    g.settle_awareness();
+    assert_eq!(g.awareness.state(alarmer), State::Normal);
 }
 
 #[test]

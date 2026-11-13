@@ -42,8 +42,8 @@ Tags as in the spec notes: [documented: source], [observed], [hypothesis], and
   documented re-centring). Normal → **Alert**.
 - A hostile **detected** (above 0) goes on the target list. From any state → **Combat**.
 - **Events** (§4) the actor hears and **hurts** from a hostile are alarms too.
-- [design: `Awareness::alarm`] A generic alarm runs out `alarm` seconds after refresh;
-  a detection event uses `event_expire`. With no alarm left, Alert → Normal.
+- [design: `Awareness::alarm`] An alarm (noticed, hurt, an ally's call, an event
+  heard) runs out `alarm` seconds after refresh. With no alarm left, Alert → Normal.
 - [design, #2010; documented: GECK wiki Combat Search] A previously detected target
   stays on the target list while Combat waits to enter **Lost** and while its Lost
   search remains active. After `lost` seconds without detecting any target, the actor
@@ -70,13 +70,20 @@ settings (seconds of `Game::time`):
 |---|---|---|
 | `lost` | `fCombatDetectionLostTime` | 15 s |
 | `forget_target` (outside an active Lost search) | `fCombatTargetLostRemoveTime` | 30 s |
-| detection-event alarm | `fDetectionEventExpireTime` | 10 s |
+
+`fDetectionEventExpireTime` (10 in the same capture) is not read: by its name it is how
+long an event itself can be heard [hypothesis: the setting's name], and our events are
+heard in the round they are raised. Used as the hearer's alarm length it sent Cook-Cook,
+who heard the player's shot and called the camp, back to Normal at 12 s, before the
+camp's first shares, and the party searched without him [observed: smoke
+`group-search`, NVForever on the #2010 branch, 2026-11-13]; heard-event alarms keep the
+`alarm` length [design, #2010].
 
 [observed: issue #2010 capture; npc-behaviour-compare.md sections 15.6, 16.1] These names
 exist in the running original; the later captures identify the first two as built-in
 values, not FalloutNV.esm overrides. The setting-to-timer mapping above is our design,
-not a claim of matching the original's timing. Generic noticed/hurt/ally alarms retain
-our existing 20 s expiry [design: `Awareness::alarm`]. The never-detected 10-in-20 s
+not a claim of matching the original's timing. Noticed, hurt, ally and heard-event alarms
+retain our existing 20 s expiry [design: `Awareness::alarm`]. The never-detected 10-in-20 s
 exception documented by Combat Search is separate from Lost searches; this change
 adds no new never-detected policy [documented: GECK wiki Combat Search; design, #2010].
 The state is not saved; the engine measures again after loading [design: `Awarenesses`].
