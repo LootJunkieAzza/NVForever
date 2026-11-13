@@ -360,6 +360,18 @@ impl FunctionTable {
         for name in strings(comp.and_then(|c| c.get("not_commands"))) {
             t.unnumbered.remove(&name.to_ascii_lowercase());
         }
+        // Spellings the installed extender registers beside a catalogued name
+        // (encodings.json `compiler.aliases`, [observed]).
+        for (spelling, name) in comp.and_then(|c| c.get("aliases")).and_then(Value::as_object).into_iter().flatten() {
+            let (Some(name), false) = (name.as_str(), spelling.starts_with('_')) else { continue };
+            let (low, target) = (spelling.to_ascii_lowercase(), name.to_ascii_lowercase());
+            if let Some(op) = t.by_name.get(&target).copied() {
+                t.by_name.entry(low.clone()).or_insert(op);
+            }
+            if let Some(u) = t.unnumbered.get(&target).cloned() {
+                t.unnumbered.entry(low).or_insert(u);
+            }
+        }
         // Arguments the catalogue's pages leave out but the original compiles
         // (encodings.json `compiler.extra_params`, each [observed]).
         for (name, extra) in comp.and_then(|c| c.get("extra_params")).and_then(Value::as_object).into_iter().flatten() {

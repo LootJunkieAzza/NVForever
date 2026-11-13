@@ -92,6 +92,10 @@ fn arrow_open(text: &str) -> Option<(usize, &str)> {
     Some((at, &t[brace + 1..]))
 }
 
+/// A lambda [`Gen::take_lambdas`] has open: its first line, the text before its `(`, its
+/// parameters, its lines, and whether it is the arrow form (closed by `)`, not `end)`).
+type OpenLambda = (lex::Line, String, Vec<String>, Vec<lex::Line>, bool);
+
 /// An open `If` chain: where its last marker's skip count goes, and that marker's
 /// statement index.
 struct Chain {
@@ -270,9 +274,7 @@ impl<'a> Gen<'a> {
     /// the expression parser compiles where it stands.
     fn take_lambdas(&mut self, lines: Vec<lex::Line>) -> Vec<lex::Line> {
         let mut out: Vec<lex::Line> = Vec::new();
-        // Each open lambda: its first line, the text before its `(`, its parameters, its
-        // lines, and whether it is the arrow form (closed by `)`, not `end)`).
-        let mut open: Vec<(lex::Line, String, Vec<String>, Vec<lex::Line>, bool)> = Vec::new();
+        let mut open: Vec<OpenLambda> = Vec::new();
         for l in lines {
             let low = l.text.to_ascii_lowercase();
             if let Some((at, inside)) = arrow_open(&l.text) {
