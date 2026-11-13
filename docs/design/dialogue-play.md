@@ -494,8 +494,9 @@ original's values, unless a line carries another tag. What is known of the origi
 - **The zoom locks the view; free look does not zoom.** **Owner decision 2026-11-13**
   (issue #2254): "want it split so free look camera does not zoom and when zoom lock
   the camera". While the conversation is zoomed (§8.8) the view follows the speaker's
-  face for the whole conversation, choices included, and the mouse and the right stick
-  move only the cursor (`dialogue_look::view_locked`, `Ease::follow`);
+  face for the whole conversation, choices included; the mouse moves only the cursor
+  and neither the mouse nor the right stick turns the view
+  (`dialogue_look::view_locked`, `Ease::follow`);
   the world keeps animating under `menu-pause living`. There is no zoomed free look and
   no setting for one. With the zoom off (`dialogue-zoom` off, or a conversation the
   zoom does not take, §8.8) the 2026-10-10 free look below holds unchanged. The

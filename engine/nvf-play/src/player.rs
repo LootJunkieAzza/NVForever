@@ -745,8 +745,11 @@ pub(crate) fn mouse_look(
     free_cam: Option<Res<crate::free_cam::FreeCam>>,
     kill_cam: Option<Res<crate::kill_cam::KillCam>>,
     assist: Option<Res<crate::aim_assist::AimAssistState>>,
-    (talk, switches): (Option<Res<crate::dialogue_zoom::DialogueZoom>>, Option<Res<crate::script_switches::ScriptSwitches>>),
-    mut mouse_guard: Local<DialogueMouseGuard>,
+    (talk, switches, mut mouse_guard): (
+        Option<Res<crate::dialogue_zoom::DialogueZoom>>,
+        Option<Res<crate::script_switches::ScriptSwitches>>,
+        Local<DialogueMouseGuard>,
+    ),
 ) {
     let dialogue = *state.get() == PlayState::Dialogue;
     let grabbed = cursor.single().is_ok_and(|c| c.grab_mode != CursorGrabMode::None);

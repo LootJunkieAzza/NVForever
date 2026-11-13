@@ -26393,7 +26393,7 @@ name = "dialogue-zoom-lock-motion"
 source = "[owner decision 2026-11-13, #2254] docs/design/dialogue-play.md section 8: while zoomed, view input cannot turn the locked view"
 note = "[design, #2254] As dialogue-zoom-lock-hold, with attempted view motion at 14, 16 and 18 s. The existing absolute look aid obeys the same lock as the mouse; this is not raw mouse injection. Raw mouse input (zoomed and not) and capture transitions (without the zoom) have synthetic ECS tests in dialogue_look.rs."
 areas = ["dialogue", "camera"]
-paths = ["engine/nvf-play/src/dialogue_look.rs", "engine/nvf-play/src/dialogue.rs", "engine/nvf-play/src/player.rs", "engine/nvf-play/src/test_aid.rs"]
+paths = ["engine/nvf-play/src/dialogue_look.rs", "engine/nvf-play/src/dialogue.rs", "engine/nvf-play/src/player.rs", "engine/nvf-play/src/test_aid.rs", "engine/nvf-play/src/dialogue_zoom.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_TALK = "11:GSChetRef=", NVF_PLAY_TEST_TALK_DELAY = "12", NVF_PLAY_TEST_LOOK = "14:90:20,16:180:-20,18:270:10" }
 args = ["--cell", "GSGeneralStore", "--play", "--no-voice", "--no-messages", "--size", "1280x720", "--fov", "75"]
 run_seconds = 45

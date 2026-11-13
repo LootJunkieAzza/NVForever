@@ -308,7 +308,7 @@ impl Plugin for DialogueLookPlugin {
                 key: "dialogue-recentre",
                 group: crate::pause::GROUP_MENUS,
                 label: "Bring the view back when choices appear",
-                note: "On: after you look away, return to the speaker when choices appear. Needs dialogue turning. (--dialogue-recentre)",
+                note: "On: with \"Close in on the speaker in dialogue\" off, after you look away the view returns to the speaker when choices appear. Needs \"Turn to each other in dialogue\". (--dialogue-recentre)",
                 get: |w| w.resource::<LookSettings>().recentre_on_choices,
                 set: |w, on| w.resource_mut::<LookSettings>().recentre_on_choices = on,
                 slider: None,
@@ -320,7 +320,7 @@ impl Plugin for DialogueLookPlugin {
                 key: "dialogue-zoom",
                 group: crate::pause::GROUP_MENUS,
                 label: "Close in on the speaker in dialogue",
-                note: "On: in a conversation the view narrows onto the speaker, with what is behind them out of focus; from third person the camera comes to the eyes. Off: the view stays as it is. (--no-dialogue-zoom)",
+                note: "On: in a conversation the view narrows onto the speaker, with what is behind them out of focus; from third person the camera comes to the eyes. The view stays on the speaker and the mouse moves only the cursor. Off: no close-up; you can look around. (--no-dialogue-zoom)",
                 get: |w| w.resource::<ZoomSettings>().enabled,
                 set: |w, on| w.resource_mut::<ZoomSettings>().enabled = on,
                 slider: None,
@@ -648,6 +648,8 @@ mod tests {
             assert!(apart(v, target) < 1e-5, "frame {frame}: {v:?}");
             now = v;
         }
+        // The snap counter saturated rather than wrapping (a wrap passes in release).
+        assert_eq!(e.snaps, u8::MAX);
     }
 
     #[test]
