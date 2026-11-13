@@ -8110,6 +8110,21 @@ expect = [
 ]
 
 [[scenario]]
+name = "marker-no-xrds-walk"
+source = "issue #2338: a map marker without XRDS (Coyote Den 0x00154A69) is found by walking up to it, within iMapMarkerRevealDistance (1000 by default; docs/spec-notes/pipboy.md section 5.3)"
+note = "The start is 1750 units south-west of the marker on flat ground (heights 7944-7984 along the line, fnvtool world land), facing it (heading 45); running at about 344 units/s the player crosses 1000 units from the marker about 2 s after the keys go down, and stops about 370 short of it. Nothing is found before the keys go down (the order)."
+areas = ["map", "hud"]
+paths = ["engine/nvf-play/src/pipboy/data.rs", "engine/nvf-play/src/pipboy/data/read.rs", "engine/nvf-play/src/compass.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_MOVE = "8:1:0,12:0:0" }
+args = ["--play", "--world", "WastelandNV", "--pos=-30141,-78629,8000", "--heading", "45", "--hour", "12", "--no-voice"]
+run_seconds = 18
+expect = [
+  { re = 'test aid: movement keys forward 1 right 0', label = "the player runs towards Coyote Den" },
+  { re = 'compass: discovered Coyote Den \(.*\+10 XP', count = 1, label = "Coyote Den (no XRDS) is found on the way, 10 XP" },
+]
+order = [["test aid: movement keys forward 1 right 0", "compass: discovered Coyote Den"]]
+
+[[scenario]]
 name = "seated-save-write"
 source = "issue #1573: after loading a save made while seated the player stands and GetSitting reads 0; the first half: sit (Goodsprings bench 0010634A), GetSitting reads 3, save (seated-save-load reads this save, so run them together)"
 areas = ["save", "furniture"]

@@ -1396,7 +1396,18 @@ fonts) and the owner's five DATA screenshots (§1), compared at 1280 × 720 with
     McCarran 8, Hoover Dam 7]), flags `FNAM`, radius `XRDS`. Shown when the player has been
     within the radius (`XRDS`) in the marker's own worldspace with its type's icon,
     or when ShowMap or the Visible flag made it known, with the undiscovered icon
-    [hypothesis]. Icons `interface\icons\world map\icon_map_<type>.dds`, the inverted form
+    [hypothesis]. A marker without `XRDS` is found within `iMapMarkerRevealDistance`
+    [documented: GECK wiki "Complete List of GameSettings", the Fallout: New Vegas default
+    1000; no master sets it], that setting being this distance a [hypothesis] (#2338;
+    observer check 128); before #2338 such a marker was never found by walking up to it.
+    Named markers (`XMRK` and `FULL`) in each master's own worldspaces, and how many have no
+    `XRDS` [documented: fnvtool esm decode of each placed MapMarker reference]:
+    FalloutNV.esm 189 / 66 (WastelandNV 186 / 65, Coyote Den 0x00154A69 and the four
+    Powder Ganger Camps among them; FreesideWorld 1 / 1; WastelandNVmini 2 / 0; the
+    others carry XRDS 200-15000, median 2500 in WastelandNV); DeadMoney.esm 11 / 4;
+    HonestHearts.esm 55 / 26; OldWorldBlues.esm 35 / 16; LonesomeRoad.esm 28 / 18. None
+    carries an `XRDS` of 0, so an absent radius and a non-positive one are read alike
+    [design: `discovery_radius` in `engine/nvf-play/src/pipboy/data.rs`]. Icons `interface\icons\world map\icon_map_<type>.dds`, the inverted form
     under the highlight box [hypothesis: by the files' names]; 24 wide, 1.75 times and
     brightness 255 (else 220) under the box [documented: the template's 1.75 and
     brightness; observed: 24 fitted].
