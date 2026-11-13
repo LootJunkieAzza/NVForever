@@ -22047,6 +22047,20 @@ expect = [
 ]
 
 [[scenario]]
+name = "shot-ref-not-drawn"
+source = "#2186: each shot's temporary reference for scripts (fnv_game::nvse_proj) was drawn as a dropped item, a second bullet or mini nuke lying unturned at the shooter beside the flying one shot_fx draws"
+note = "as jip-projectiles (which checks that scripts still find the shot's reference): the player, aimed up, fires a FireWeapon shot, and nvf_play::dropped draws no model for its reference; the shot is fired some seconds after the call on a busy machine, so the run lasts 20 s"
+areas = ["scripts", "combat"]
+paths = ["crates/fnv-game/src/nvse_proj.rs", "engine/nvf-play/src/dropped.rs", "engine/nvf-play/src/phys.rs"]
+env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_CONSOLE = "9:player.SetAngle X -60;9.3:player.FireWeapon 0000434F;9.32:close" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
+run_seconds = 20
+expect = [
+  { re = 'combat: FireWeapon: 0x00000014 fires Weap10mmPistol', label = "the shot is fired" },
+  { re = '(?i)dropped reference 0x[0-9A-F]{8} drawn: meshes.(projectiles|weapons)', count = 0, label = "the shot's reference is not drawn as a dropped item (its flying model is shot_fx's)" },
+]
+
+[[scenario]]
 name = "jip-raycast-points"
 source = "JIP's GetPointRayCastPos through the engine's physics (fnv_game::ray::cast_hit, the terrain included) and GetAnglesBetweenPoints, both writing script variables (the VM's out_call)"
 areas = ["scripts", "physics"]
