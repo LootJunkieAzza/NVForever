@@ -36,7 +36,7 @@
 //!     generation off for the session, said once with the flags' names [documented: §14.3].
 //! - **UI buffer** ([`ui_buffer`], stage 4 item 2; after the UI, before Bevy's upscaling blit,
 //!   where FSR's frame generation's `generate` sits): on a tagged frame a full-screen pass writes
-//!   a display-sized `R8Unorm` UI alpha from the frame (with the UI) and its HUD-less copy: 1
+//!   a display-sized `R16Float` UI alpha from the frame (with the UI) and its HUD-less copy: 1
 //!   where they differ, 0 elsewhere. With alpha 1 the UI's colour is the frame's, so the guide's
 //!   rules hold: 0 where there is no UI, above 0 where there is, and `Final = UI.RGB + (1 -
 //!   UI.A) * Hudless` [documented: `ProgrammingGuideDLSS_G.md` §5.1, "UI Alpha OR UI Color and
@@ -237,8 +237,12 @@ struct UiPass {
     groups: Vec<((wgpu::TextureView, wgpu::TextureView), wgpu::BindGroup)>,
 }
 
-/// The format of the UI alpha (one channel, 0 or 1 is all it holds).
-const UI_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::R8Unorm;
+/// The format of the UI alpha (one channel, 0 or 1 is all it holds). `R16Float`, not `R8Unorm`:
+/// Streamline 2.14.16 reads a tagged Vulkan image's format through its own table, which has
+/// `VK_FORMAT_R16_SFLOAT` but no `VK_FORMAT_R8_UNORM`, and an R8 image logged four "Cannot have
+/// undefined format" errors a frame [documented: `source/platforms/sl.chi/vulkan.cpp` `getFormat`,
+/// `isFormatSupported` 3070-3081; observed in the 2026-11-13 runs].
+const UI_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::R16Float;
 
 /// The UI buffer from the frame and its HUD-less copy (the module comment's "UI buffer").
 const UI_BUFFER_WGSL: &str = "
@@ -847,7 +851,7 @@ fn ui_buffer(view: ViewQuery<(&ViewTarget, &PreparedUpscale)>, adapter: Res<Rend
                 note_fg(
                     Level::INFO,
                     format!(
-                        "UI buffer: {}x{} R8Unorm UI alpha (1 where the frame differs from its HUD-less copy, 0 elsewhere), tagged eValidUntilPresent with the HUD-less copy; user interface recomposition on",
+                        "UI buffer: {}x{} R16Float UI alpha (1 where the frame differs from its HUD-less copy, 0 elsewhere), tagged eValidUntilPresent with the HUD-less copy; user interface recomposition on",
                         prepared.output_size.x, prepared.output_size.y
                     ),
                 );

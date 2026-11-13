@@ -79,7 +79,8 @@ and calls after: at most three moves can happen meanwhile).
    prepass motion (its render rectangle) and that copy are moved to `RESOURCE` and tagged
    `eValidUntilPresent`, each with the layout wgpu-hal gives `RESOURCE`. Other frames tag them
    null. A camera cut is not a reason to stop: the constants' reset says it.
-3. **UI alpha** (after the UI, before Bevy's upscaling blit): `R8Unorm`, 1 where the frame
+3. **UI alpha** (after the UI, before Bevy's upscaling blit): `R16Float` (Streamline's Vulkan format
+   table has no `R8_UNORM` [documented: `sl.chi/vulkan.cpp` `getFormat`]), 1 where the frame
    differs from its HUD-less copy, 0 elsewhere, tagged `kBufferTypeUIAlpha`; user interface
    recomposition is asked for (Hudless + UI alpha). A see-through HUD pixel counts as opaque UI.
 4. **Options** (an exclusive system at the end of the render graph, on the render thread just
