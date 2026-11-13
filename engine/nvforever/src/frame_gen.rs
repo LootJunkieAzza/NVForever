@@ -464,6 +464,7 @@ impl FrameGenRequest {
 pub(crate) struct ReleasePresenter;
 
 /// True only once every presenter thread has ended and released its shared surface.
+#[cfg(windows)]
 pub(crate) fn presenters_released(world: &World) -> bool {
     world.get_resource::<Presenters>().is_none_or(|p| p.running.is_empty())
 }
