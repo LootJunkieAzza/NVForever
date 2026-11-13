@@ -404,7 +404,10 @@ The owner's 232-plugin High and Dry list (smoke scenario `modlist-high-dry`) add
   MrShersh Functional Backpack.esp].
 - `GetRefsInCell` takes a sixth argument, which its page does not list [observed: JAM Misc
   Tweaks.esp, `GetRefsInCell (Player.GPC) 28 2 0 2000 45` compiled with all six; what it
-  does is not known].
+  does is not known, and the VM does not read it]. The VM reads the fifth, `maxDistance`,
+  for GetRefs and GetRefsInCell: references farther than it are left out [documented:
+  their pages], measured from the calling reference, else the player [hypothesis: as
+  CallPerRef's distance, documented, ext-jg6.md]; it was ignored before.
 - On a `set` line the editor drops parentheses (§3), so a call the `)` closes before it has
   all its arguments takes the ones after it: `set t to 1 + (GetVariable (…)) Quest` reads
   the quest's variable [observed: Animated Ingestibles.esp].
