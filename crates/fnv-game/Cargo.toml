@@ -85,3 +85,7 @@ path = "tests/synthetic.rs"
 [[test]]
 name = "compile_script_paths"
 path = "tests/compile_script_paths.rs"
+
+[[test]]
+name = "runtime_origin"
+path = "tests/runtime_origin.rs"
