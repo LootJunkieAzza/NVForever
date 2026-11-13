@@ -38,15 +38,26 @@ pub static SECOND_SIGHT: std::sync::atomic::AtomicBool = std::sync::atomic::Atom
 /// Force Hi-Res Weapon Models, for the actors' weapons (nvforever `actors`) [design: docs/design/tweaks.md].
 pub static HI_RES_NPC_WEAPONS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
-/// The sound list's first choice: the game's own sound.
+/// The sound lists' first choice: the game's own sound.
 const GAME_SOUND: &str = "(the game's own)";
 
-/// Take a sound for the Location Discovered Sound tweak by Editor ID (the game's own for
-/// [`GAME_SOUND`] or nothing).
-fn pick_discovered_sound(w: &mut World, name: &str) -> bool {
-    let Some(mut t) = w.get_resource_mut::<TweakSettings>() else { return false };
-    t.discovered_sound = if name == GAME_SOUND { String::new() } else { name.trim().to_string() };
-    true
+/// The plugins' interface sounds by Editor ID (those starting `UI`), sorted, after
+/// [`GAME_SOUND`]: what a sound list of the Tweaks tab offers.
+fn sound_names(w: &World) -> Vec<String> {
+    let mut v: Vec<String> = w.get_resource::<crate::sfx::Sfx>().map(|s| s.forms.sounds.values().filter_map(|x| x.edid.clone()).filter(|e| e.starts_with("UI")).collect()).unwrap_or_default();
+    v.sort();
+    v.dedup();
+    v.insert(0, GAME_SOUND.to_string());
+    v
+}
+
+/// A chosen name as kept: empty for [`GAME_SOUND`].
+fn sound_kept(name: &str) -> String {
+    if name == GAME_SOUND {
+        String::new()
+    } else {
+        name.trim().to_string()
+    }
 }
 
 /// Every tweak's value. `Default`: the original's behaviour.
@@ -530,6 +541,12 @@ pub struct TweakSettings {
     /// `bCustomLocationDiscoveredSound` (`sEditorID`): the sound a discovered place plays,
     /// by Editor ID; empty: the game's own.
     pub discovered_sound: String,
+    /// `bAlternateLevelupSounds` (`iLevelA`, `sSoundA`, `iLevelB`, `sSoundB`): every so many
+    /// levels the level-up plays this sound instead of its own (0 or empty: never).
+    pub level_sound_every_a: f32,
+    pub level_sound_a: String,
+    pub level_sound_every_b: f32,
+    pub level_sound_b: String,
     /// `bCompassNPCDistanceBasedAlpha`: actors' compass pips fade with distance over the
     /// sneak range.
     pub compass_pips_fade: bool,
@@ -887,6 +904,10 @@ impl Default for TweakSettings {
             wheel_cycles_hotkeys: false,
             dpad_cycles_hotkeys: false,
             discovered_sound: String::new(),
+            level_sound_every_a: 0.0,
+            level_sound_a: String::new(),
+            level_sound_every_b: 0.0,
+            level_sound_b: String::new(),
             compass_pips_fade: false,
             compass_places_fade: false,
             recent_dead_secs: 0.0,
@@ -1019,6 +1040,25 @@ macro_rules! amount {
     };
 }
 
+/// A list row of the Tweaks tab choosing a sound by Editor ID ([`sound_names`]) for the
+/// `String` field `$f` of [`TweakSettings`] (empty: the game's own).
+macro_rules! sound_list {
+    ($app:expr, $key:literal, $label:literal, $note:literal, $f:ident) => {
+        crate::settings::add_choice_list(
+            $app,
+            Setting { key: concat!("tweak-", $key), group: GROUP, label: $label, note: $note, get: |_| false, set: |_, _| {}, slider: None },
+            crate::settings::ChoiceList {
+                names: sound_names,
+                chosen: |w| w.get_resource::<TweakSettings>().map(|t| t.$f.clone()).filter(|s| !s.is_empty()).unwrap_or_else(|| GAME_SOUND.to_string()),
+                pick: |w, name| w.get_resource_mut::<TweakSettings>().map(|mut t| t.$f = sound_kept(name)).is_some(),
+                save: |w| w.get_resource::<TweakSettings>().map(|t| t.$f.clone()).unwrap_or_default(),
+                load: |w, name| w.get_resource_mut::<TweakSettings>().map(|mut t| t.$f = sound_kept(name)).is_some(),
+                ask_keep: false,
+            },
+        )
+    };
+}
+
 /// A slider row of the Tweaks tab for a part (0 to 100% in fives) in the field
 /// `$($f).+` of [`TweakSettings`].
 macro_rules! part {
@@ -1060,33 +1100,11 @@ impl Plugin for TweaksPlugin {
             .add_systems(Update, objectives_on_arrival.in_set(crate::PlaySet::Ui))
             .add_systems(PreUpdate, trigger_dead_zones.before(bevy::input::InputSystems))
             .add_systems(Update, ap_costs.after(crate::PlaySet::Input).after(crate::player::encumbered_walks).before(crate::PlaySet::Physics));
-        // A sound by Editor ID: the plugins' interface sounds (`UI…`) as a list.
-        crate::settings::add_choice_list(
-            app,
-            Setting {
-                key: "tweak-discovered-sound",
-                group: GROUP,
-                label: "Location Discovered Sound",
-                note: "The sound a newly discovered place plays: the game's own, or another of its interface sounds. (Stewie's Tweaks bCustomLocationDiscoveredSound)",
-                get: |_| false,
-                set: |_, _| {},
-                slider: None,
-            },
-            crate::settings::ChoiceList {
-                names: |w| {
-                    let mut v: Vec<String> = w.get_resource::<crate::sfx::Sfx>().map(|s| s.forms.sounds.values().filter_map(|x| x.edid.clone()).filter(|e| e.starts_with("UI")).collect()).unwrap_or_default();
-                    v.sort();
-                    v.dedup();
-                    v.insert(0, GAME_SOUND.to_string());
-                    v
-                },
-                chosen: |w| w.get_resource::<TweakSettings>().map(|t| t.discovered_sound.clone()).filter(|s| !s.is_empty()).unwrap_or_else(|| GAME_SOUND.to_string()),
-                pick: pick_discovered_sound,
-                save: |w| w.get_resource::<TweakSettings>().map(|t| t.discovered_sound.clone()).unwrap_or_default(),
-                load: pick_discovered_sound,
-                ask_keep: false,
-            },
-        );
+        sound_list!(app, "discovered-sound", "Location Discovered Sound", "The sound a newly discovered place plays: the game's own, or another of its interface sounds. (Stewie's Tweaks bCustomLocationDiscoveredSound)", discovered_sound);
+        amount!(app, "level-sound-every-a", "Level-Up Sound A: Every N Levels", "Every this many levels the level-up plays Sound A instead of its own; 0 never. (Stewie's Tweaks bAlternateLevelupSounds, iLevelA)", 50.0, f32, level_sound_every_a);
+        sound_list!(app, "level-sound-a", "Level-Up Sound A", "The sound for those levels. (Stewie's Tweaks bAlternateLevelupSounds, sSoundA)", level_sound_a);
+        amount!(app, "level-sound-every-b", "Level-Up Sound B: Every N Levels", "Every this many levels the level-up plays Sound B; where both fall on one level, the larger number wins. 0 never. (Stewie's Tweaks bAlternateLevelupSounds, iLevelB)", 50.0, f32, level_sound_every_b);
+        sound_list!(app, "level-sound-b", "Level-Up Sound B", "The sound for those levels. (Stewie's Tweaks bAlternateLevelupSounds, sSoundB)", level_sound_b);
         // ---- experience ----
         add_setting(
             app,

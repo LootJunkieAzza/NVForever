@@ -323,6 +323,18 @@ fn watch(
 }
 
 /// Play a SOUN by Editor ID at the listener, its FormID looked up once.
+/// The level-up sound the player's Alternate Level-Up Sounds tweak gives level `level`:
+/// A's every `a.0` levels, B's every `b.0`, the larger interval where both fall; none
+/// when neither does or its sound is the game's own (empty).
+pub fn alternate_level_sound<'a>(level: u32, a: (u32, &'a str), b: (u32, &'a str)) -> Option<&'a str> {
+    let hits = |(every, name): (u32, &'a str)| (every > 0 && !name.is_empty() && level.is_multiple_of(every)).then_some((every, name));
+    match (hits(a), hits(b)) {
+        (Some(x), Some(y)) => Some(if y.0 > x.0 { y.1 } else { x.1 }),
+        (Some(x), None) | (None, Some(x)) => Some(x.1),
+        (None, None) => None,
+    }
+}
+
 fn play_sound(sfx: Option<&Sfx>, cache: &mut HashMap<&'static str, Option<FormId>>, sounds: &mut MessageWriter<PlaySound>, name: &'static str) {
     let Some(sfx) = sfx else { return };
     let found = *cache.entry(name).or_insert_with(|| sfx.forms.sounds.iter().find(|(_, s)| s.edid.as_deref().is_some_and(|e| e.eq_ignore_ascii_case(name))).map(|(f, _)| *f));
@@ -356,6 +368,7 @@ fn level_up(
     after: Option<Res<crate::after_combat::AfterCombat>>,
     mut since_sound: Local<Option<f32>>,
     mut waiting: Local<usize>,
+    tweaks: Option<Res<crate::tweaks::TweakSettings>>,
 ) {
     let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else {
         *since_sound = None;
@@ -370,7 +383,19 @@ fn level_up(
     }
     let Some(since) = since_sound.as_mut() else {
         if meter.level_up_filled() || meter.idle() {
-            play_sound(sfx.as_deref(), &mut sound_forms, &mut sounds, LEVEL_UP_SOUND);
+            // The player's tweak: every so many levels another sound [design: docs/design/tweaks.md].
+            let next = rt.game.player_level() as u32 + 1;
+            let own = tweaks.as_deref().and_then(|t| alternate_level_sound(next, (t.level_sound_every_a as u32, &t.level_sound_a), (t.level_sound_every_b as u32, &t.level_sound_b)));
+            match (own, sfx.as_deref()) {
+                (Some(name), Some(s)) if s.forms.sounds.values().any(|x| x.edid.as_deref().is_some_and(|e| e.eq_ignore_ascii_case(name))) => {
+                    let sound = s.forms.sounds.iter().find(|(_, x)| x.edid.as_deref().is_some_and(|e| e.eq_ignore_ascii_case(name))).map(|(f, _)| *f);
+                    if let Some(sound) = sound {
+                        info!("xp meter: sound {name} for level {next} (tweak)");
+                        sounds.write(PlaySound { sound, at: None });
+                    }
+                }
+                _ => play_sound(sfx.as_deref(), &mut sound_forms, &mut sounds, LEVEL_UP_SOUND),
+            }
             // And the default objects' Level Up Music, when it has a file (#991).
             if let Some(m) = music.as_deref_mut() {
                 m.level_up = true;
@@ -584,6 +609,15 @@ fn spawn(commands: &mut Commands, kit: &Kit) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn alternate_level_sounds_fall_on_their_levels() {
+        let (a, b) = ((5, "UIA"), (10, "UIB"));
+        assert_eq!(alternate_level_sound(5, a, b), Some("UIA"));
+        assert_eq!(alternate_level_sound(10, a, b), Some("UIB"));
+        assert_eq!(alternate_level_sound(7, a, b), None);
+        assert_eq!(alternate_level_sound(10, (5, ""), (0, "UIB")), None);
+    }
 
     /// T12e: "LEVEL UP" stands 16 above the amount's line (the original's 12 pixels higher
     /// at 720 lines), ending at its own x.

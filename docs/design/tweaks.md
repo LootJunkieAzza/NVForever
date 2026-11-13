@@ -624,6 +624,7 @@ unless the player binds them, so nothing changes until then.
 | Robot Companions Heal With Scrap Metal | `bRobotCompanionsHealWithScrapMetal` | `fnv_game::companion_wheel`: `wheel_scrap` (robot, SpareParts carried) turns Use Stimpak's context and use to Scrap Metal; `scrap_heal` restores the health. The switches: `Tweaks::robots_heal_with_scrap`, `robot_heal_base`, `robot_heal_per_repair`, `robot_heal_expert` |
 | D-Pad Changes Weapon | `bWeaponCycleUpDownHotkeys` | `weapon_wheel::read` takes the D-pad's left and right from the controls Hotkey 4 and Ammo Swap and steps as the mouse wheel's tweak does. The switch: `TweakSettings::dpad_cycles_hotkeys` |
 | Location Discovered Sound | `bCustomLocationDiscoveredSound` | a `ChoiceList` row (`tweaks::pick_discovered_sound`) keeps `TweakSettings::discovered_sound`; `quest_messages` plays it for `QuestNotice::Discovered` by Editor ID |
+| Alternate Level-Up Sounds | `bAlternateLevelupSounds` | `xp_meter::alternate_level_sound` picks A or B for the coming level; `level_up` plays it by Editor ID. The rows: `amount!` counts and `sound_list!` lists (`TweakSettings::level_sound_*`) |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -645,8 +646,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 560 |
-| to do | 40 |
+| done | 561 |
+| to do | 39 |
 | unsure, skipped | 19 |
 | n/a | 16 |
 | skipped: fix | 10 |
@@ -1246,6 +1247,7 @@ game's Data folder, read-only).
 | `bRadioStaticDecreasesSongVolume` | done | yes |  | already so: the song fades as the static rises |
 | `bRememberConsoleHistory` | done | yes | 1 | Remember Console History (ConsoleHistory.txt in NVForever's folder, last 100 lines) |
 | `bAllowDuplicateControlBinds` | done |  |  | Shared Keys |
+| `bAlternateLevelupSounds` | done |  | 4 | Alternate Level-Up Sounds: every N levels (A, B) the level-up plays the chosen sound (a list of the plugins' UI sounds) instead of its own; where both fall, the larger N wins |
 | `bArmorPreventsBloodDecals` | done | yes |  | Armor Prevents Blood Decals: a shot whose weapon damage per projectile is no more than the actor's DT (worn armour at its condition, as combat counts it) leaves no blood decal; the damage before its other multipliers is the test (ours). Melee blows keep their decals |
 | `bAutoContinueGame` | done |  |  | Continue at Start (once per start of the program; Shift held stays on the menu) |
 | `bChanceBasedKillcams` | done |  | 1 | Kill Camera Chance (slider; V.A.T.S. kill cameras, the only kind) |
@@ -1307,7 +1309,6 @@ game's Data folder, read-only).
 | `bUseAnimVariants` | unsure, skipped | yes | 3 | depends on animation file naming conventions not yet checked |
 | `bVATSStopFollowingDeadTargets` | to do | yes |  | needs the kill camera shot's start frame kept |
 | `bWeaponImpactEffects` | to do | yes |  | hits on the hand weapon use the flesh impact; holstered weapons have no hit part |
-| `bAlternateLevelupSounds` | to do |  | 4 | xp level_up sound; the sound cache takes static names |
 | `bAnimDebugging` | n/a |  |  | a mod-author debug print |
 | `bAutoReadNotes` | unsure, skipped |  | 3 | needs another mod (Book Menu Restored) |
 | `bContinueGameHotkey` | n/a |  |  | a mod-author debug key |
