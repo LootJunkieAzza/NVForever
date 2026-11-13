@@ -193,6 +193,10 @@ the spec it links to.
     turn in about 42 s, our number); any input ends it and the view stays third person,
     as after Toggle POV held. New for everyone. The Tweaks tab's Vanity Camera Returns to
     First Person puts a first-person view back. (`engine/nvf-play/src/vanity.rs`)
+55. **A heartbeat at low health (#1891).** Under a quarter of your health, the master's
+    `UIHealthHeartbeatALP` loops until you heal, for everyone. The threshold is ours (no
+    setting names one); observer check 110 asks the original's. The Tweaks tab's
+    Heartbeat Fades lets it fade. (`engine/nvf-play/src/heartbeat.rs`)
 
 ## Tier 3: rules where we chose to differ, or that the original has no answer for
 

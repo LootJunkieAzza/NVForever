@@ -1561,3 +1561,9 @@ to the decoded file by cross-correlation and a per-band transfer estimate.
     person for two minutes: does the camera circle, how fast (time a full turn), which way,
     at what distance and height, does mouse motion alone end it, and is the view first or
     third person afterwards?
+110. **When does the low-health heartbeat play?** (P3; `nvf_play::heartbeat`.) The master has
+    two looping heartbeats, `UIHealthHeartbeatALP` and `UIHealthHeartbeatBLP` [observed].
+    NVForever plays A while the player's health is under 25 % [hypothesis: the threshold,
+    and that B is not used]. Take damage down slowly (falls): at what health share does
+    a heartbeat start, does a second, faster one take over lower down, and does it stop
+    the moment health rises past the line?

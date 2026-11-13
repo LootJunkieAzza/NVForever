@@ -632,6 +632,7 @@ unless the player binds them, so nothing changes until then.
 | Quick Use | `bQuickUse` | `activate::activate` runs `hotkeys::use_slot` on a picked-up item with Shift held (an aid item's `ItemUsed` sent). The switch: `Tweaks::quick_use` |
 | V.A.T.S. Throwables Use Visibility | `bVATSThrowablesUseVisibility` | `vats_mode::throw_sees` (a thrown weapon whose projectile lands as a weapon), `part_seen` (seven lines), `Spot::seen` multiplies `chance_of` in the preview and the mark. The switch: `Tweaks::vats_throw_visibility` |
 | Quiet Companions | `bRemoveFollowerTopics` | `Game::combat_line` refuses `combat_lines::FOLLOWER_COMMENTS` to teammates. The switch: `Tweaks::quiet_followers` |
+| Low-health heartbeat, Heartbeat Fades | `bHeatbeatSoundsFade` | base: `heartbeat` loops `UIHealthHeartbeatALP` under `LOW`; `sfx::LoopScale` sets a loop's share of its volume. The switch: `TweakSettings::heartbeat_fade`, `heartbeat_fade_seconds` (`heartbeat::faded`) |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -653,8 +654,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 568 |
-| to do | 27 |
+| done | 569 |
+| to do | 26 |
 | unsure, skipped | 22 |
 | n/a | 18 |
 | skipped: fix | 10 |
@@ -1274,6 +1275,7 @@ game's Data folder, read-only).
 | `bDontShowContainerAfterLockpick` | done |  |  | Picked Containers Stay Shut |
 | `bExtraConsoleDetails (enabled by default)` | done |  | 4 | Console Shows Models (cell name and Editor ID were already shown; full help not built) |
 | `bHapticPipboy` | done |  |  | Pip-Boy Buzz (with rumble on) |
+| `bHeatbeatSoundsFade` | done | yes | 2 | Heartbeat Fades (fDuration as its seconds): NVForever now plays the master's low-health heartbeat (`heartbeat`, under 25 % health, owner-review 55, observer check 110); the tweak fades it over the seconds, whole again at each loss of health; the easing choice (iEasingFunction) is not built: straight |
 | `bInvertCameraX` | done |  |  | Invert Look Left/Right |
 | `bKeepPipboyLightOnCellChange` | done |  | 1 | already so: the light stays on through cell changes |
 | `bKeepSelectedConsoleRef` | done |  |  | already so: closing the console keeps the selection |
@@ -1308,7 +1310,6 @@ game's Data folder, read-only).
 | `bConsoleBackground` | unsure, skipped | yes |  | needs the plugin's own menu XML |
 | `bCustomScreenshotFormat` | n/a | yes | 1 | NVForever writes its own screenshots |
 | `bDontAllowConsoleTillLoadingIsDone` | n/a | yes |  | the original's start-up order |
-| `bHeatbeatSoundsFade` | to do | yes | 2 | NVForever plays no heartbeat yet |
 | `bImprovedWeather` | to do | yes | 1 | the renderer does not know a fast travel happened |
 | `bMultithreadedHackingMenu` | n/a | yes |  | performance work on the original |
 | `bPartialReloads` | unsure, skipped | yes |  | depends on animation file naming conventions not yet checked |

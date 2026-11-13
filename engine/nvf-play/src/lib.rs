@@ -64,6 +64,7 @@ pub mod hotkeys;
 pub mod hud;
 pub mod hud_breath;
 pub mod hud_limbs;
+pub mod heartbeat;
 pub mod vanity;
 pub mod grenade_indicator;
 pub mod hud_needs;

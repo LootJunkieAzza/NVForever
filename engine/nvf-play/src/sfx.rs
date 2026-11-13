@@ -189,6 +189,37 @@ fn script_fades(mut commands: Commands, time: Res<Time>, mut fading: Query<(Enti
     }
 }
 
+/// Shares of their full volume for [`LoopSound`] loops, by SOUN (1 when not named): a
+/// module fading a loop it started sets its share here (`crate::heartbeat`).
+#[derive(Resource, Default, Debug)]
+pub struct LoopScale(pub HashMap<FormId, f32>);
+
+/// A loop's full volume, read from its sink the first time [`loop_scales`] sees it.
+#[derive(Component)]
+struct LoopFull(f32);
+
+/// Each [`LoopSound`] loop at its [`LoopScale`] share of its full volume.
+fn loop_scales(mut commands: Commands, scale: Res<LoopScale>, mut q: Query<(Entity, &Looping, Option<&mut AudioSink>, Option<&LoopFull>)>) {
+    if scale.0.is_empty() && !scale.is_changed() {
+        return;
+    }
+    for (e, l, sink, full) in &mut q {
+        let Some(mut sink) = sink else { continue };
+        let full = match full {
+            Some(f) => f.0,
+            None => {
+                let v = sink.volume().to_linear();
+                commands.entity(e).insert(LoopFull(v));
+                v
+            }
+        };
+        let want = full * scale.0.get(&l.0).copied().unwrap_or(1.0).clamp(0.0, 1.0);
+        if (sink.volume().to_linear() - want).abs() > 1e-4 {
+            sink.set_volume(Volume::Linear(want));
+        }
+    }
+}
+
 /// Something that sounds as long as it is there, at a place (game space): sent every
 /// frame it should sound; [`crate::ambient`] plays its SOUN as it plays a sound marker
 /// (looping, or now and then for Play At Random) while the listener is within reach.
@@ -1713,7 +1744,8 @@ impl Plugin for SfxPlugin {
             .configure_sets(Update, SfxSet.after(crate::PlaySet::Sync))
             .configure_sets(Update, (SfxStep::Prepare, SfxStep::Ambient, SfxStep::Play).chain().in_set(SfxSet))
             .add_systems(Update, (listener_submerged, prepare).chain().in_set(SfxStep::Prepare))
-            .add_systems(Update, (play, pan_sounds, script_fades).chain().in_set(SfxStep::Play))
+            .init_resource::<LoopScale>()
+            .add_systems(Update, (play, pan_sounds, script_fades, loop_scales).chain().in_set(SfxStep::Play))
             .add_systems(Last, (release_files, report));
         add_late_start(app);
         crate::reverb::build(app);
