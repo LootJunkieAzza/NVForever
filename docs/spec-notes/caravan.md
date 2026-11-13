@@ -63,6 +63,11 @@ owner, 2026-10-19), 43 screenshots of a game against Ringo taken by the owner
   (`fnv_game::caravan_traders`) [design; owner request 2026-11-12, "you should be able to
   play caravan with all traveling merchants"]. A merchant of another plugin counts when it
   uses that class or faction.
+- The merchants' greeting, "Hey there. Need anything?" (0x00163CA9), carries its own
+  choice list: "I'd like to see your wares." and "Goodbye." [observed: a run talking to a
+  placed NVMerchantMale, 2026-11-13]. NVForever puts the Caravan entry into that list too,
+  before its closing goodbye choice. Only the greeting's list gets it; later lines' lists
+  stay as written [design].
 
 ## 2. Cards and decks
 

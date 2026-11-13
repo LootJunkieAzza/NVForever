@@ -1020,6 +1020,9 @@ impl<'a> Game<'a> {
         if !def.choices.is_empty() {
             links.sort_by(|a, b| priority(&b.topic).total_cmp(&priority(&a.topic)));
             let mut out = self.offer(actor, &links);
+            // NVForever's own: a traveling merchant's greeting lists Caravan too
+            // (`crate::caravan_traders`).
+            self.merchant_caravan_in_list(actor, topic, &mut out);
             if self.coop_guest {
                 out = self.guest_choices(actor, out);
             }

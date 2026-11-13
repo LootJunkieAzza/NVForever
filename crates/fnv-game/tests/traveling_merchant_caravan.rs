@@ -38,6 +38,15 @@ const PEDDLER_REF: u32 = 0x322;
 /// A Caravan player of the original's who is also a traveling merchant.
 const PLAYER_TRADER: u32 = 0x923;
 const PLAYER_TRADER_REF: u32 = 0x323;
+/// A merchant whose greeting lists its own choices, as the original's merchants' does:
+/// "I'd like to see your wares." and "Goodbye." (topics of their own, not top-level).
+const LISTING_MERCHANT: u32 = 0x924;
+const LISTING_MERCHANT_REF: u32 = 0x324;
+const WARES: u32 = 0x932;
+const SEE_YA: u32 = 0x933;
+const I_LISTING_HELLO: u32 = 0xA04;
+const I_WARES: u32 = 0xA05;
+const I_SEE_YA: u32 = 0xA06;
 
 /// GetInFaction, GetIsID [documented: the function table].
 const GET_IN_FACTION: u16 = 71;
@@ -63,10 +72,16 @@ fn info(id: u32, flags: u16, text: &str, conds: Vec<Subrecord>) -> Vec<u8> {
 }
 
 fn info_of(quest: u32, id: u32, flags: u16, text: &str, conds: Vec<Subrecord>) -> Vec<u8> {
+    info_listing(quest, id, flags, text, conds, &[])
+}
+
+/// A line with a choice list of its own (TCLT).
+fn info_listing(quest: u32, id: u32, flags: u16, text: &str, conds: Vec<Subrecord>, choices: &[u32]) -> Vec<u8> {
     let trdt = [u32b(0), u32b(50), vec![0; 4], vec![1, 0, 0, 0], u32b(0), vec![0; 4]].concat();
     let mut s = vec![sub(b"DATA", vec![0, 0, flags as u8, (flags >> 8) as u8]), sub(b"QSTI", u32b(quest))];
     s.extend([sub(b"TRDT", trdt), sub(b"NAM1", z(text)), sub(b"NAM2", z("")), sub(b"NAM3", z(""))]);
     s.extend(conds);
+    s.extend(choices.iter().map(|t| sub(b"TCLT", u32b(*t))));
     s.extend(unit(0, &[], &[], &[]));
     s.push(sub(b"NEXT", vec![]));
     s.extend(unit(0, &[], &[], &[]));
@@ -106,11 +121,25 @@ fn plugin_bytes() -> Vec<u8> {
         npc(SETTLER, "Settler", None, &[]),
         npc(PEDDLER, "Peddler", None, &[TRAVELER_FACTION.0]),
         npc(PLAYER_TRADER, "GSRingo", Some(TRAVELER_CLASS.0), &[CARAVAN_PLAYERS.0]),
+        npc(LISTING_MERCHANT, "NVMerchantFemale", Some(TRAVELER_CLASS.0), &[]),
     ]
     .concat();
     let not_ringo = || vec![ctda(0.0, GET_IS_ID, PLAYER_TRADER)];
     let dial = [
-        topic(GREETING, "GREETING", "GREETING", topic_type::TOPIC, 0, info_of(QG, I_HELLO, 0, "Evening", vec![])),
+        topic(
+            GREETING,
+            "GREETING",
+            "GREETING",
+            topic_type::TOPIC,
+            0,
+            [
+                info_listing(QG, I_LISTING_HELLO, 0, "Hey there.", vec![ctda(1.0, GET_IS_ID, LISTING_MERCHANT)], &[WARES, SEE_YA]),
+                info_of(QG, I_HELLO, 0, "Evening", vec![]),
+            ]
+            .concat(),
+        ),
+        topic(WARES, "MerchantWares", "I'd like to see your wares.", topic_type::TOPIC, 0, info_of(QG, I_WARES, info_flag::GOODBYE, "Here's what I've got.", vec![])),
+        topic(SEE_YA, "MerchantBye", "Goodbye.", topic_type::TOPIC, 0, info_of(QG, I_SEE_YA, info_flag::GOODBYE, "See you.", vec![])),
         topic(GOODBYE, "GOODBYE", "Goodbye.", topic_type::CONVERSATION, 0, info_of(QG, I_BYE, info_flag::GOODBYE, "Safe travels", vec![])),
         // The original's: top-level, the quest keeps it to Caravan players; Ringo's own
         // line, and the line for anyone else.
@@ -129,7 +158,7 @@ fn plugin_bytes() -> Vec<u8> {
     ]
     .concat();
     let cell = record(b"CELL", 0, CELL, &[sub(b"EDID", z("Road"))]);
-    let refs = [placed(MERCHANT_REF, MERCHANT), placed(SETTLER_REF, SETTLER), placed(PEDDLER_REF, PEDDLER), placed(PLAYER_TRADER_REF, PLAYER_TRADER)].concat();
+    let refs = [placed(MERCHANT_REF, MERCHANT), placed(SETTLER_REF, SETTLER), placed(PEDDLER_REF, PEDDLER), placed(PLAYER_TRADER_REF, PLAYER_TRADER), placed(LISTING_MERCHANT_REF, LISTING_MERCHANT)].concat();
     let children = group(CELL.to_le_bytes(), 6, &group(CELL.to_le_bytes(), 9, &refs));
     [
         tes4(),
@@ -205,6 +234,19 @@ fn a_traveling_merchant_offers_caravan_and_plays() {
     let asked = g.caravan_requests.last().copied().expect("a game asked for");
     assert_eq!((asked.opponent, asked.deck, asked.max_bet_share), (FormId(MERCHANT_REF), TRAVELER_DECK, 0.25));
     listen(&mut g);
+}
+
+/// A merchant whose greeting lists its own choices (as the original's merchants' does)
+/// gets the Caravan entry among them, before the list's Goodbye; choosing it plays.
+#[test]
+fn a_merchants_own_choice_list_gets_caravan() {
+    let f = fixture();
+    let mut g = game(&f);
+    let got = offered_by(&mut g, LISTING_MERCHANT_REF);
+    assert_eq!(got, vec![I_WARES, ANYONE_LINE.0, I_SEE_YA], "{got:X?}");
+    g.choose(1).unwrap();
+    let asked = g.caravan_requests.last().copied().expect("a game asked for");
+    assert_eq!(asked.opponent, FormId(LISTING_MERCHANT_REF));
 }
 
 /// A member of the merchants' faction counts too, whatever its class.

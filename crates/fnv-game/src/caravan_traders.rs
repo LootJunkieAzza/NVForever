@@ -76,6 +76,20 @@ impl Game<'_> {
         })
     }
 
+    /// A greeting with a choice list of its own (the merchants' "Hey there. Need
+    /// anything?" lists "I'd like to see your wares." and "Goodbye." [observed: INFO
+    /// 0x00163CA9 in a run]): the Caravan entry goes before the list's closing goodbye
+    /// choice, else last. Lines after the greeting are left as written.
+    pub(crate) fn merchant_caravan_in_list(&self, actor: FormId, topic: FormId, out: &mut Vec<Choice>) {
+        if self.data.greeting != Some(topic) {
+            return;
+        }
+        if let Some(c) = self.merchant_caravan_choice(actor, out) {
+            let at = if out.last().is_some_and(|l| l.goodbye) { out.len() - 1 } else { out.len() };
+            out.insert(at, c);
+        }
+    }
+
     /// The merchant's entry was chosen: a game against it, opened when the conversation
     /// is over (`caravan_requests`).
     pub(crate) fn merchant_caravan_chosen(&mut self, actor: FormId, choice: &Choice) {
