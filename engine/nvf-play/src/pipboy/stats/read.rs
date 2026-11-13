@@ -303,6 +303,12 @@ pub fn snapshot(forms: &mut Forms, sim: &mut SimState, script: Option<&mut Scrip
                 }
             }
         }
+        // The player's tweak: the tag skills in bold [design: docs/design/tweaks.md].
+        if g.tweaks.embolden_tags {
+            for row in &mut skills {
+                row.bold = matches!(row.key, RowKey::Av(code) if g.player.tag_skills.contains(&code));
+            }
+        }
         // Perks the player has, playable and not hidden [hypothesis: traits are listed
         // with them], by name; the rank when the perk has more than one.
         let mut perks: Vec<Row> = Vec::new();
@@ -312,7 +318,7 @@ pub fn snapshot(forms: &mut Forms, sim: &mut SimState, script: Option<&mut Scrip
                 continue;
             }
             let t = forms.text(perk.0).clone();
-            perks.push(Row { key: RowKey::Perk(perk), name: t.name, value: (d.ranks > 1).then(|| rank.to_string()), mark: None, description: t.description, icon: t.icon, badge: None });
+            perks.push(Row { key: RowKey::Perk(perk), name: t.name, value: (d.ranks > 1).then(|| rank.to_string()), mark: None, description: t.description, icon: t.icon, badge: None, bold: false });
         }
         perks.sort_by(|a, b| a.name.cmp(&b.name));
         s.perks = perks;
@@ -454,7 +460,7 @@ fn short(forms: &mut Forms, code: u16) -> String {
 /// A list row of an actor value, its figure not read yet.
 fn av_row(forms: &mut Forms, code: u16) -> Row {
     let t = forms.value(code);
-    Row { key: RowKey::Av(code), name: t.name, value: Some("--".into()), mark: None, description: t.description, icon: t.icon, badge: None }
+    Row { key: RowKey::Av(code), name: t.name, value: Some("--".into()), mark: None, description: t.description, icon: t.icon, badge: None, bold: false }
 }
 
 impl Forms {

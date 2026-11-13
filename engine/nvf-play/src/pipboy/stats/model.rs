@@ -143,6 +143,8 @@ pub struct Row {
     pub icon: Option<String>,
     /// A weapon skill's mark, beside the picture in a view drawn from the file.
     pub badge: Option<String>,
+    /// Drawn bold (a tag skill under the player's Embolden Tag Skills tweak).
+    pub bold: bool,
 }
 
 /// One line of the EFF list: the source's name and its changes.

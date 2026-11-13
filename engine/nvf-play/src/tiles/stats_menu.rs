@@ -2132,7 +2132,7 @@ mod tests {
     }
 
     fn rows() -> Vec<Row> {
-        (0..7).map(|i| Row { key: RowKey::Av(i), name: format!("Stat {i}"), value: Some((i + 1).to_string()), mark: None, description: "one|two".into(), icon: Some(format!("pics\\{i}.dds")), badge: None }).collect()
+        (0..7).map(|i| Row { key: RowKey::Av(i), name: format!("Stat {i}"), value: Some((i + 1).to_string()), mark: None, description: "one|two".into(), icon: Some(format!("pics\\{i}.dds")), badge: None, bold: false }).collect()
     }
 
     fn skills() -> Vec<Row> {

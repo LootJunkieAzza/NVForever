@@ -626,6 +626,7 @@ unless the player binds them, so nothing changes until then.
 | Location Discovered Sound | `bCustomLocationDiscoveredSound` | a `ChoiceList` row (`tweaks::pick_discovered_sound`) keeps `TweakSettings::discovered_sound`; `quest_messages` plays it for `QuestNotice::Discovered` by Editor ID |
 | Alternate Level-Up Sounds | `bAlternateLevelupSounds` | `xp_meter::alternate_level_sound` picks A or B for the coming level; `level_up` plays it by Editor ID. The rows: `amount!` counts and `sound_list!` lists (`TweakSettings::level_sound_*`) |
 | Keyboard and Mouse With a Controller | `bAllowKeyboardAndMouseWithControllerConnected` | `bindings::ControlInput` asks the keys and mouse buttons as well as the pad when `keys_with_pad`; `player::mouse_look` takes a moving mouse. The switch: `TweakSettings::keys_with_pad` |
+| Tag Skills in Bold | `bEmboldenTagSkills` | `pipboy::stats::read` marks `Row::bold` on the player's tag skills; `stats::list` draws a bold row's name again `BOLD_SHIFT` to the right. The switch: `Tweaks::embolden_tags` |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -647,10 +648,10 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 562 |
-| to do | 38 |
+| done | 563 |
+| to do | 36 |
 | unsure, skipped | 19 |
-| n/a | 16 |
+| n/a | 17 |
 | skipped: fix | 10 |
 
 ### Gameplay
@@ -1089,6 +1090,7 @@ game's Data folder, read-only).
 | `bDisableInventoryRightClickDrop` | done |  |  | No Right-Click Drop |
 | `bDisableLoadingScreenTips` | done |  |  | No Loading Tips |
 | `bDisableShowQuestLocation` | done |  |  | No Show Location |
+| `bEmboldenTagSkills` | done |  |  | Tag Skills in Bold: the hand-built Pip-Boy Skills list draws the tag skills' names twice, a unit apart (the fonts have no bold face); the page drawn from its file is unchanged |
 | `bHideCompletedQuests` | done |  |  | Hide Finished Quests |
 | `bHideCursorInMessageMenu` | done |  |  | No Pointer Over Message Boxes |
 | `bHideEquippedItemsInBarter` | done |  |  | Hide Worn Items in Barter |
@@ -1162,17 +1164,16 @@ game's Data folder, read-only).
 | `bTimescaleAffectsMinigames` | done |  |  | Lockpicking Follows the Time Speed (the lock only; the card and slot games keep their pace) |
 | `bChallengeMenuIcons` | unsure, skipped | yes |  | needs another mod (challenge icons) |
 | `bRemoveDownloadsButton` | n/a | yes |  | NVForever has no Downloads button |
+| `bVATSAPDisplayIncludesReloadCost` | n/a |  |  | NVForever's V.A.T.S. takes no more marks than the rounds loaded allow (`fnv_combat::vats::MarkQueue`), so no queued attack reloads and there is no reload cost to show |
 | `bSaveCharacterSelector` | unsure, skipped | yes | 1 | needs the plugin's own menu XML |
 | `bAmmoLabelUseLongName` | unsure, skipped |  | 1 | needs a UI mod |
 | `bContainersShowEquippedAmmo` | to do |  |  | not built: ammo is never equipped |
 | `bControllerBackButtonDoesntClosePipBoy` | to do |  |  | unsure which pad button is meant: East (B) works as Esc in every menu, View/Select opens nothing there |
 | `bCustomHackingAnswerLength` | to do |  | 8 | the readme gives no defaults and does not say how the attempts are worked out |
 | `bCustomPopupIcons` | to do |  | 17 | per-kind icons at each message |
-| `bEmboldenTagSkills` | to do |  |  | no tagged flag on rows and no bold face |
 | `bLocalMapRespawnedCellIndicator` | to do |  | 2 | not built: the local map has no cell grid |
 | `bNoteMenuShowSeparateMenu` | unsure, skipped |  | 1 | needs another mod (Book Menu Restored) |
 | `bShowInventorySortButton` | unsure, skipped |  | 11 | needs the plugin's own menu XML |
-| `bVATSAPDisplayIncludesReloadCost` | to do |  |  | not built: V.A.T.S. queues never reload |
 
 ### Hotkeys
 

@@ -405,6 +405,8 @@ pub struct Tweaks {
     /// `bArmorPreventsBloodDecals`: a shot that does not get through the target's DT
     /// leaves no blood decal.
     pub armor_blocks_blood: bool,
+    /// `bEmboldenTagSkills`: the Pip-Boy's Skills list shows the tag skills in bold.
+    pub embolden_tags: bool,
     /// `bRobotCompanionsHealWithScrapMetal` (`fBase`, `fRepairMult`,
     /// `fRoboticsExpertBonus`): the companion wheel heals a robot with Scrap Metal, this
     /// much health each, plus this much per 10 points of Repair and this with Robotics Expert.
@@ -854,6 +856,7 @@ impl Default for Tweaks {
             crippled_fall_pain: 0.0,
             quantity_companion_cap: false,
             armor_blocks_blood: false,
+            embolden_tags: false,
             robots_heal_with_scrap: false,
             robot_heal_base: 20.0,
             robot_heal_per_repair: 5.0,

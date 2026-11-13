@@ -997,6 +997,9 @@ fn desc_rect(tab: usize) -> Option<Rect> {
 
 /// A list (`list_box.xml`) of a tab's rows in `r`; the places that take the pointer go to
 /// `spots`.
+/// How far right a bold row's name is drawn again, interface units [design].
+const BOLD_SHIFT: f32 = 1.0;
+
 fn list(p: &mut ChildSpawnerCommands, c: &mut Ctx, v: &StatsView, tab: usize, rows: &[Row], r: Rect, spots: &mut Vec<(Rect, Spot)>) {
     let row_h = c.line_height(2) + ROW_SPACING;
     let marked = rows.iter().any(|r| r.mark.is_some());
@@ -1014,6 +1017,10 @@ fn list(p: &mut ChildSpawnerCommands, c: &mut Ctx, v: &StatsView, tab: usize, ro
             c.boxed(p, Rect::new(item_x, y, item_x + item_w, y + row_h - 1.0), amber(LINE), Some(fill));
         }
         c.text(p, 2, &row.name, item_x + NAME_X, y + NAME_Y, Align::Left, c.bright());
+        // Bold, as the fonts have no bold face: the name again a unit to the right [design].
+        if row.bold {
+            c.text(p, 2, &row.name, item_x + NAME_X + BOLD_SHIFT, y + NAME_Y, Align::Left, c.bright());
+        }
         let num_x = item_x + item_w - right_buffer - 10.0;
         if let Some(n) = &row.value {
             c.text(p, 2, n, num_x, y + NAME_Y, Align::Right, c.bright());
