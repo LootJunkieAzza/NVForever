@@ -222,3 +222,21 @@ fn remote_variables_follow_the_viewer() {
     let text = Decompiler { unit: stage, table: &t, names: &idx }.lines(&d.program);
     assert_eq!(text, ["set 0x00000900.bdone to 1"]);
 }
+
+#[test]
+fn serialized_extender_variable_kinds_survive_the_unit_reader() {
+    let mut fields = vec![sub(b"EDID", z("OwnedKinds"))];
+    fields.extend(unit(0, &[], "scn OwnedKinds", &[(1, "textSlot", 2), (2, "arraySlot", 3), (3, "refSlot", 4), (4, "unknownSlot", 200)], &[]));
+    let bytes = [tes4(&[]), top(b"SCPT", &record(b"SCPT", 0x900, &fields))].concat();
+    let plugins = vec![Plugin::parse(&bytes, "Owned.esm".into()).unwrap()];
+    let lo = LoadOrder::new(&plugins).unwrap();
+    let (units, issues) = read_load_order(&lo, &schema());
+    assert!(issues.is_empty(), "{issues:?}");
+    let variables = &units[0].variables;
+    assert_eq!(variables[0].ty, VarType::Other("string_var".into()));
+    assert_eq!(variables[1].ty, VarType::Other("array_var".into()));
+    assert_eq!(variables[2].ty, VarType::FloatOrRef);
+    assert_eq!(variables[3].ty, VarType::Other("200".into()));
+    assert_eq!(variables.iter().map(|v| v.index).collect::<Vec<_>>(), [1, 2, 3, 4]);
+    assert_eq!(variables.iter().map(|v| v.name.as_str()).collect::<Vec<_>>(), ["textSlot", "arraySlot", "refSlot", "unknownSlot"]);
+}

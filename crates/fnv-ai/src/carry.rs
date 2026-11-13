@@ -374,6 +374,9 @@ pub enum AiEvent {
     Cornered { from: FormId, hides: bool },
     /// It stops searching or holding (`why`).
     SearchOver { why: &'static str },
+    /// In a combat state, its package's Continue During Combat flag now holds it on the
+    /// package (`held`), or no longer does and it fights (`crate::alert`).
+    PackageHolds { package: FormId, held: bool },
     /// After a search it goes back to its package's place, `away` units off.
     SearchBack { package: FormId, away: f32 },
     /// Back to its package inside the package's place (after a search, a push or a
@@ -659,6 +662,12 @@ pub struct Agent {
     /// The door it was last asked at and has not yet left behind, with the package it
     /// was walking for (`fnv_game::Game::npc_door_left`, [`Ai::ask_door`]).
     pub(crate) asked_door: Option<(u32, Option<FormId>)>,
+    /// Where it last stood out of a combat state: the post of a "near current location"
+    /// Guard that has no wander area (`crate::alert`, Continue During Combat).
+    pub(crate) calm_at: Option<Place>,
+    /// Its package's Continue During Combat flag held it at its last update in a combat
+    /// state (`crate::alert`): a change is logged.
+    pub(crate) held: bool,
 }
 
 #[derive(Default)]
@@ -1026,7 +1035,7 @@ impl Ai {
             own_turning(&mut walker, s);
         }
         walker.pace = self.paces.get(&actor).copied().unwrap_or(1.0);
-        self.agents.insert(actor, Agent { walker, activity: Activity::None, package: None, goal: None, route_at: 0, trip_started: 0.0, trip_from: 0.0, waiting_at: None, using: None, held_seat: None, sandbox: None, wait_until: None, talk: None, pushed_at: None, chat: None, search: None, face_to: None, following: None, rooted: false, fixed: false, asked_door: None, weapon_order: None, errand: None, backing: None, walk_up: None, walk_pace: None, restarts: 0 });
+        self.agents.insert(actor, Agent { walker, activity: Activity::None, package: None, goal: None, route_at: 0, trip_started: 0.0, trip_from: 0.0, waiting_at: None, using: None, held_seat: None, sandbox: None, wait_until: None, talk: None, pushed_at: None, chat: None, search: None, face_to: None, following: None, rooted: false, fixed: false, asked_door: None, weapon_order: None, errand: None, backing: None, walk_up: None, walk_pace: None, restarts: 0, calm_at: None, held: false });
         Ok(())
     }
 
@@ -1256,7 +1265,7 @@ impl Ai {
         if a.rooted || a.activity == Activity::Travelling || a.talk.is_some() || a.chat.is_some() {
             return;
         }
-        let Some(home) = goal::editor_place(game.world.placed, actor) else { return };
+        let Some(home) = goal::editor_place_of(game, actor) else { return };
         let feet = Place { space: a.walker.space, pos: a.walker.feet };
         // Not one a script put somewhere else (MoveTo): only back from nearby.
         let away = if feet.space == home.space { hdist(feet.pos, home.pos) } else { f32::INFINITY };

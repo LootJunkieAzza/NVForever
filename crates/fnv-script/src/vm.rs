@@ -144,6 +144,9 @@ pub enum VmError {
     /// errors the extender reports [documented: NVSE Error].
     #[error("{0}")]
     Type(String),
+    /// An absent array element, separately inspectable by TypeOf (typeof-missing-key.md).
+    #[error("no element at key {0}")]
+    MissingElement(String),
     /// An extender function called on no reference: it stops the script, as no other
     /// extender error does [observed: nvse-inv foreach.read.after, "script call failed"].
     #[error("{0} called on no reference")]
@@ -470,7 +473,7 @@ impl<'t, 'h> Vm<'t, 'h> {
                 // stop the original's script]; strict runs stop.
                 Token::X { e } => match self.xeval(e).and_then(|v| v.value()) {
                     Ok(v) => v,
-                    Err(err @ (VmError::Type(_) | VmError::NotBuilt(_) | VmError::Expression(_) | VmError::Host(_))) if !self.opts.strict => {
+                    Err(err @ (VmError::Type(_) | VmError::MissingElement(_) | VmError::NotBuilt(_) | VmError::Expression(_) | VmError::Host(_))) if !self.opts.strict => {
                         self.host.skipped(&err);
                         Value::ZERO
                     }
@@ -604,7 +607,7 @@ impl<'t, 'h> Vm<'t, 'h> {
                 Stmt::Let { expr } | Stmt::Eval { expr } => {
                     match self.xeval(expr) {
                         Ok(_) => {}
-                        Err(e @ (VmError::Type(_) | VmError::NotBuilt(_) | VmError::Expression(_) | VmError::Host(_))) if !self.opts.strict => {
+                        Err(e @ (VmError::Type(_) | VmError::MissingElement(_) | VmError::NotBuilt(_) | VmError::Expression(_) | VmError::Host(_))) if !self.opts.strict => {
                             self.host.skipped(&e)
                         }
                         Err(e) => return Err(e),
@@ -1700,7 +1703,7 @@ impl Vm<'_, '_> {
         let key = self.key_for(*id, k)?;
         let store = self.store()?;
         let a = store.array(*id).ok_or_else(|| VmError::Type("[] of an empty array variable".into()))?;
-        a.get(&key).cloned().ok_or_else(|| VmError::Type(format!("no element at key {}", key_text(&key))))
+        a.get(&key).cloned().ok_or_else(|| VmError::MissingElement(key_text(&key)))
     }
 
     /// `let a[k] := v`: replaces the element, or adds it to a map; a list takes a key up to
@@ -2224,7 +2227,11 @@ impl Vm<'_, '_> {
             }
             // [documented: TypeOf] "Number", "Form", "String", "Array", "Map", "StringMap".
             "typeof" => {
-                let v = val(self, 0)?;
+                let v = match val(self, 0) {
+                    Ok(value) => value,
+                    Err(VmError::MissingElement(_)) => return Ok(XVal::Str("NULL".into())),
+                    Err(error) => return Err(error),
+                };
                 let t = match &v {
                     XVal::Num(_) => "Number",
                     XVal::Ref(_) => "Form",

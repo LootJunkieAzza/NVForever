@@ -365,6 +365,9 @@ pub fn register(app: &mut App) {
 /// (`perf_overlay::split::timestamps_wanted`), as `nvf_play::settings::apply_stored` reads it.
 pub(crate) const FPS_COUNTER_NOTE: &str = "On: a small panel of performance readings at the top right of the screen, the Counter rows below choosing what it shows; with only its frame rate row on it is a frame rate counter. Not in the original. (--fps)";
 
+/// The upscaling row's note (#2242), NVForever's own words [design].
+pub(crate) const FPS_UPSCALING_NOTE: &str = "The upscaler that draws now: its name and mode, the size the world is drawn at and the size it is rebuilt to (with FSR 3.1 from its mode, with DLSS the size DLSS chose), and with DLSS the model asked for. Reads Off and the window's size while nothing upscales, also when the upscaler asked for cannot run on this computer. Follows a change within a frame or two, showing the upscaler without sizes until then.";
+
 /// The frame split row's note (no command-line switch: the INI's state always applies).
 pub(crate) const FPS_SPLIT_NOTE: &str = "What a frame took on the main thread (the game's own work), on the render thread (preparing the picture, including the wait for the window's next image, shown in brackets: with vertical sync that wait is the display's time, not work) and on the graphics card (the render passes it times, from GPU timestamps), each the mean over half a second. A frame held up by the processor has a long main time, or a long render time beside a short wait; the GPU time is what tells a frame held up by the graphics card. The GPU part needs this row and the counter on when the game starts (it takes effect at the next start), and a graphics card that offers timestamps; without them it is left out. Unless a measuring aid also uses them, the timestamps are taken only while the row shows.";
 
@@ -500,17 +503,18 @@ fn register_counter_rows(app: &mut App) {
             |w| w.resource::<FpsCounter>().rows.split,
             |w, on| w.resource_mut::<FpsCounter>().rows.split = on,
         ),
+        // [design, #2249] Availability and scope follow perf_overlay/usage.rs.
         row(
             "fps-counter-cpu",
             "Counter: CPU use",
-            "The whole machine's processor use, as Task Manager shows it, and the game's own as cores kept busy: 1.0 is all of one core's time, so a thread held at its limit reads at least 1.0 however many cores the machine has. From Windows' performance counters and the game's processor time, read once a second while the counter shows. Windows only.",
+            "Machine and game CPU use, read once a second while shown. Windows uses performance counters; Linux uses /proc. Missing machine readings say Not available. Game use is cores kept busy: 1.0 is one full core.",
             |w| w.resource::<FpsCounter>().rows.cpu,
             |w, on| w.resource_mut::<FpsCounter>().rows.cpu = on,
         ),
         row(
             "fps-counter-gpu",
             "Counter: GPU use",
-            "The use of the graphics card's busiest engine by every program, as Task Manager shows it. From Windows' performance counters, read once a second while the counter shows. Windows only.",
+            "GPU use, read once a second while shown. Windows: busiest engine across programs. Linux: NVIDIA NVML, then amdgpu, then DRM client time. DRM reads game use and says game; the other Linux sources read whole-device use. Missing readings say Not available.",
             |w| w.resource::<FpsCounter>().rows.gpu,
             |w, on| w.resource_mut::<FpsCounter>().rows.gpu = on,
         ),
@@ -534,6 +538,15 @@ fn register_counter_rows(app: &mut App) {
             "What the game holds now: the cells loaded in the physics world, the placed objects with a model, the actors with a skeleton and every entity of the engine, counted twice a second while the row shows (the stress tests' counts).",
             |w| w.resource::<FpsCounter>().rows.loaded,
             |w, on| w.resource_mut::<FpsCounter>().rows.loaded = on,
+        ),
+        // [design, #2242] What draws is the effective choice (`upscaler::effective_temporal`),
+        // its sizes what the render world drew (`upscaler::UpscaleDrawn`).
+        row(
+            "fps-counter-upscaling",
+            "Counter: upscaling",
+            FPS_UPSCALING_NOTE,
+            |w| w.resource::<FpsCounter>().rows.upscale,
+            |w, on| w.resource_mut::<FpsCounter>().rows.upscale = on,
         ),
     ];
     for r in rows {
@@ -756,6 +769,28 @@ fn register_graphics(app: &mut App) {
         LEGACY_KEY,
         nvf_play::settings::ListAlias { rows: &[UPSCALER_KEY, QUALITY_KEY], chosen: legacy_chosen, pick: pick_legacy, unavailable: legacy_unavailable },
     );
+    // The FSR library, under the DLSS model: dimmed while FSR is not what draws.
+    add_choice_list(
+        app,
+        Setting {
+            key: "fsr-library",
+            group: GROUP_GRAPHICS,
+            label: "FSR library",
+            note: "What FSR upscales with: NVForever's built-in FSR 3.1, or a FidelityFX library in the game's folder (amd_fidelityfx_loader_vk.dll or amd_fidelityfx_vk.dll; not part of NVForever), which tools that replace the upscaler use. The choice names the library found; with none there the built-in FSR runs.",
+            get: |_| false,
+            set: |_, _| {},
+            slider: None,
+        },
+        ChoiceList {
+            names: |_| fsr_library_names().to_vec(),
+            chosen: |_| fsr_library_names()[usize::from(crate::ffx_api::enabled())].clone(),
+            pick: |_, name| pick_fsr_library(name),
+            save: |_| (if crate::ffx_api::enabled() { FSR_LIBRARY_FOLDER } else { FSR_LIBRARY_BUILT_IN }).to_string(),
+            load: |_, value| pick_fsr_library(value),
+            ask_keep: false,
+        },
+    );
+    nvf_play::settings::set_disabled_status(app, "fsr-library", fsr_library_dimmed);
     let choices = [
         Setting::slider(
             "anti-aliasing",
@@ -919,6 +954,40 @@ fn pick_model(world: &mut World, name: &str) -> bool {
     let Some(model) = DlssModel::named(name) else { return false };
     world.resource_mut::<Graphics>().dlss_model = model;
     true
+}
+
+/// The FSR library row's two choices; the second is shown with the library found.
+const FSR_LIBRARY_BUILT_IN: &str = "Built-in";
+const FSR_LIBRARY_FOLDER: &str = "Game folder";
+
+/// The choices as shown: the built-in upscaler, and the folder's library by name
+/// (`ffx_api::found`: the one loaded, the one that failed, or none).
+fn fsr_library_names() -> [String; 2] {
+    [FSR_LIBRARY_BUILT_IN.to_string(), format!("{FSR_LIBRARY_FOLDER} ({})", crate::ffx_api::found())]
+}
+
+/// Takes a choice by its name, with or without the library named after it.
+fn pick_fsr_library(name: &str) -> bool {
+    let name = name.trim().to_ascii_lowercase();
+    let folder = if name == FSR_LIBRARY_BUILT_IN.to_ascii_lowercase() {
+        false
+    } else if name.starts_with(&FSR_LIBRARY_FOLDER.to_ascii_lowercase()) {
+        true
+    } else {
+        return false;
+    };
+    crate::ffx_api::set_enabled(folder);
+    true
+}
+
+/// The FSR library row stands dimmed while FSR is not the effective upscaler
+/// (`upscaler::effective`), as the DLSS model row does for DLSS, and always with
+/// `NVF_FFX_API=0`. The choice is kept meanwhile.
+fn fsr_library_dimmed(world: &World) -> Option<&'static str> {
+    if !crate::ffx_api::allowed() {
+        return Some("Built-in (NVF_FFX_API=0)");
+    }
+    crate::upscaler::effective(world).fsr().is_none().then_some("FSR only")
 }
 
 /// The INI's text: one of the five names, else Default (said once in the log), so a stored
@@ -1275,6 +1344,31 @@ mod fsr_settings_tests {
         assert_eq!(app.world().resource::<nvf_play::settings::Settings>().disabled_status(app.world(), row), None, "unsupported FSR leaves native AA editable");
         assert!(nvf_play::settings::set_slider(app.world_mut(), row, 0.0).is_some());
         assert_eq!(graphics::aa_choice(app.world()), 0);
+    }
+
+    #[test]
+    fn the_fsr_library_row_switches_between_the_built_in_upscaler_and_the_folders() {
+        let mut app = App::new();
+        app.insert_resource(Graphics::preset(graphics::Preset::Vanilla));
+        register_graphics(&mut app);
+        let list = {
+            let settings = app.world().resource::<nvf_play::settings::Settings>();
+            settings.choices(settings.index("fsr-library").unwrap()).expect("a dropdown")
+        };
+        // No library is beside the test's executable, and none was loaded.
+        assert_eq!((list.names)(app.world()), ["Built-in", "Game folder (none found)"]);
+        assert_eq!((list.chosen)(app.world()), "Game folder (none found)", "the folder's library is used by default");
+        assert!((list.pick)(app.world_mut(), "Built-in"));
+        assert!(!crate::ffx_api::enabled());
+        assert_eq!(((list.chosen)(app.world()), (list.save)(app.world())), ("Built-in".to_string(), "Built-in".to_string()));
+        // As the page gives it (with the library named) and as the INI keeps it.
+        assert!((list.pick)(app.world_mut(), "Game folder (amd_fidelityfx_vk.dll)"));
+        assert!(crate::ffx_api::enabled());
+        assert_eq!((list.save)(app.world()), "Game folder");
+        assert!((list.load)(app.world_mut(), "built-in") && !crate::ffx_api::enabled());
+        assert!((list.load)(app.world_mut(), "Game folder") && crate::ffx_api::enabled());
+        assert!(!(list.pick)(app.world_mut(), "Somewhere else"));
+        assert!(crate::ffx_api::enabled(), "an unknown name changes nothing");
     }
 
     #[test]

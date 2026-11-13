@@ -208,9 +208,12 @@ pub struct ActorParts {
     pub failures: Vec<String>,
 }
 
+/// Why a NIF or KF file was not read when no archive or loose file has it ([`decode`]).
+const ABSENT: &str = "not in any archive";
+
 /// The first controller sequence of the KF file at `path`.
 /// A panic while reading it, or a clip whose keys could not be played, is this clip's
-/// failure (guard.rs).
+/// failure (guard.rs); a file the game does not have is [`ABSENT`].
 fn read_clip(data: &GameData, path: &str) -> Result<Clip, String> {
     let (file, _, dec) = decode(data, path)?;
     crate::guard::guarded(|| {
@@ -393,7 +396,7 @@ pub struct PartUse {
 /// Read and parse a NIF or KF; a panic while parsing is this file's failure (guard.rs).
 fn decode(data: &GameData, path: &str) -> Result<(NifFile, Vec<u8>, Decoded), String> {
     crate::guard::guarded(|| {
-        let bytes = data.read(path).ok_or("not in any archive")?;
+        let bytes = data.read(path).ok_or(ABSENT)?;
         let schema = data.schema.clone();
         let file = NifFile::parse(&bytes, Some(&schema)).map_err(|e| e.to_string())?;
         let dec = Decoded::new(&file, &bytes, &schema);
@@ -726,10 +729,18 @@ impl ActorCtx<'_, '_> {
         false
     }
 
-    /// Keep a clip read (or its failure) under `key`.
+    /// Keep a clip read (or its failure) under `key`. A KF file the game does not have is
+    /// no failure: callers ask for clips an actor may or may not have (a creature folder's
+    /// `talking.kf`, its unarmed stance, a weapon's sneak clips), and the base archives
+    /// lack most of them too, so it is logged at debug only, not reported as a missing
+    /// file (#2277).
     fn take_clip(&mut self, key: String, read: Result<Clip, String>) -> Option<Arc<Clip>> {
         let c = match read {
             Ok(c) => Some(Arc::new(c)),
+            Err(e) if e == ABSENT => {
+                debug!("{key}: no such clip");
+                None
+            }
             Err(e) => {
                 crate::guard::failed(&mut self.cache.failures, "actor file", format!("{key}: {e}"));
                 None

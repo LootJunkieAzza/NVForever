@@ -123,7 +123,16 @@ struct Fixture {
 }
 
 fn fixture() -> Fixture {
-    let plugins = vec![Plugin::parse(&plugin_bytes(), "Fight.esm".into()).unwrap()];
+    fixture_with_gmsts(&[])
+}
+
+fn fixture_with_gmsts(settings: &[(&str, Vec<u8>)]) -> Fixture {
+    let mut bytes = plugin_bytes();
+    let gmsts: Vec<u8> = settings.iter().enumerate().flat_map(|(i, (name, value))| {
+        record(b"GMST", 0, 0xD00 + i as u32, &[sub(b"EDID", z(name)), sub(b"DATA", value.clone())])
+    }).collect();
+    bytes.extend(top(b"GMST", &gmsts));
+    let plugins = vec![Plugin::parse(&bytes, "Fight.esm".into()).unwrap()];
     let lo = LoadOrder::new(&plugins).unwrap();
     let schema = Schema::load_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/../../schemas/fnv")).unwrap();
     let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/script/functions.json");
@@ -228,12 +237,12 @@ fn a_fighter_whose_npc_target_died_says_combat_to_normal() {
 
 #[test]
 fn a_fighter_whose_living_target_got_away_says_combat_to_lost_then_lost_to_normal() {
-    // Combat → Lost: every target undetected and its timer run out, with events in the
-    // alert list; Lost → Normal once the alert list is empty [documented:
-    // Category:Detection].
+    // [design, #2010; documented: GECK wiki Combat Search] Lost ends after completed
+    // searches, and says the transition lines (docs/design/alert.md §2).
     let f = fixture();
     let mut g = game(&f);
     let raider = FormId(RAIDER_REF);
+    two_searches(&mut g);
     fight(&mut g, raider, FormId::PLAYER_REF);
     let mut topics = Vec::new();
     for _ in 0..60 {
@@ -242,6 +251,9 @@ fn a_fighter_whose_living_target_got_away_says_combat_to_lost_then_lost_to_norma
         g.settle_awareness();
         topics.extend(said(&mut g, raider));
         g.speech.clear();
+        if g.awareness.state(raider) == State::Lost && [35.0, 50.0].contains(&g.time) {
+            g.searched_once(raider, FormId::PLAYER_REF);
+        }
     }
     assert_eq!(topics, vec!["CombatToLost", "LostToNormal"]);
     assert_eq!(g.awareness.state(raider), State::Normal);
@@ -253,7 +265,7 @@ fn a_lost_fighter_that_sees_its_target_again_says_lost_to_combat() {
     let mut g = game(&f);
     let raider = FormId(RAIDER_REF);
     fight(&mut g, raider, FormId::PLAYER_REF);
-    for _ in 0..11 {
+    for _ in 0..fnv_game::awareness::Timers::default().lost as usize {
         g.time += 1.0;
         g.observe_threat(raider, FormId::PLAYER_REF, &seen(Band::Hidden), [3000.0, 0.0, 0.0]);
         g.settle_awareness();
@@ -442,6 +454,197 @@ fn until_lost(g: &mut Game, actor: FormId, who: FormId) {
     assert_eq!(g.awareness.state(actor), State::Lost);
 }
 
+// [design, #2010] Synthetic fixture chooses the captured load order's two shares.
+fn two_searches(g: &mut Game) {
+    g.awareness.tactics.settings = Some(fnv_game::combat_group::GroupSettings { remove_search_count: 2, ..Default::default() });
+}
+
+#[test]
+fn lost_search_retains_hidden_target_at_twenty_and_thirty_seconds_until_two_shares_finish() {
+    let f = fixture();
+    let mut g = game(&f);
+    let (actor, player) = (FormId(RAIDER_REF), FormId::PLAYER_REF);
+    two_searches(&mut g);
+    fight(&mut g, actor, player);
+    until_lost(&mut g, actor, player);
+    let lost_at = g.time;
+    for elapsed in 1..=30 {
+        hidden_round(&mut g, actor, player);
+        assert_eq!(g.awareness.state(actor), State::Lost, "{elapsed} s of searching");
+        assert!(g.awareness.get(actor).unwrap().targets.contains_key(&player));
+        assert_eq!(target(&mut g, actor), player.0 as f64);
+    }
+    assert_eq!(g.time, lost_at + 30.0);
+    assert!(!g.searched_once(actor, player));
+    hidden_round(&mut g, actor, player);
+    assert_eq!(g.awareness.state(actor), State::Lost);
+    assert!(g.searched_once(actor, player));
+    g.settle_awareness();
+    assert_eq!(g.awareness.state(actor), State::Normal);
+    assert_eq!(target(&mut g, actor), 0.0);
+}
+
+#[test]
+fn lost_party_waits_for_every_members_two_complete_shares() {
+    let f = fixture();
+    let mut g = game(&f);
+    let (actor, mate, player) = (FormId(RAIDER_REF), FormId(WATCHMAN_REF), FormId::PLAYER_REF);
+    two_searches(&mut g);
+    // [design: synthetic fixture] Put the second actor in the raiders' faction.
+    let factions = &mut g.extra.entry(mate).or_default().factions;
+    factions.insert(FormId(PLAYER_FACTION), -1);
+    factions.insert(FormId(RAIDERS), 0);
+    fight(&mut g, actor, player);
+    fight(&mut g, mate, player);
+    for id in [actor, mate] {
+        let a = g.awareness.actors.get_mut(&id).unwrap();
+        a.targets.get_mut(&player).unwrap().band = Band::Hidden;
+    }
+    g.time += fnv_game::awareness::Timers::default().lost;
+    g.settle_awareness();
+    assert_eq!(g.search_party(actor, player).1, 2);
+    assert!(!g.searched_once(actor, player));
+    assert!(!g.searched_once(actor, player));
+    assert!(!g.searched_once(mate, player));
+    g.settle_awareness();
+    assert_eq!(g.awareness.state(actor), State::Lost);
+    assert_eq!(g.awareness.state(mate), State::Lost);
+    assert!(g.searched_once(mate, player));
+    g.settle_awareness();
+    assert_eq!(g.awareness.state(actor), State::Normal);
+    assert_eq!(g.awareness.state(mate), State::Normal);
+}
+
+#[test]
+fn redetection_cancels_lost_search_and_next_loss_starts_with_zero_shares() {
+    let f = fixture();
+    let mut g = game(&f);
+    let (actor, player) = (FormId(RAIDER_REF), FormId::PLAYER_REF);
+    two_searches(&mut g);
+    fight(&mut g, actor, player);
+    until_lost(&mut g, actor, player);
+    assert!(!g.searched_once(actor, player));
+    g.observe_threat(actor, player, &seen(Band::Detected), [100.0, 0.0, 0.0]);
+    g.settle_awareness();
+    assert_eq!(g.awareness.state(actor), State::Combat);
+    assert_eq!(g.searches_done(actor, player), 0);
+    assert!(!g.awareness.get(actor).unwrap().alarms.iter().any(|a| a.cause == fnv_game::awareness::Cause::LostTarget));
+    until_lost(&mut g, actor, player);
+    assert!(!g.searched_once(actor, player));
+    hidden_round(&mut g, actor, player);
+    assert_eq!(g.awareness.state(actor), State::Lost);
+    assert!(g.searched_once(actor, player));
+}
+
+#[test]
+fn completed_lost_shares_wait_until_the_target_is_hidden_without_counting_more() {
+    let f = fixture();
+    let mut g = game(&f);
+    let (actor, player) = (FormId(RAIDER_REF), FormId::PLAYER_REF);
+    two_searches(&mut g);
+    fight(&mut g, actor, player);
+    until_lost(&mut g, actor, player);
+    g.observe_threat(actor, player, &Detection { value: -10.0, band: Band::Noticed, ..Default::default() }, [100.0, 0.0, 0.0]);
+    assert!(!g.searched_once(actor, player));
+    assert!(!g.searched_once(actor, player));
+    assert!(!g.searched_once(actor, player));
+    assert_eq!(g.searches_done(actor, player), 2);
+    g.settle_awareness();
+    assert_eq!(g.awareness.state(actor), State::Lost);
+    hidden_round(&mut g, actor, player);
+    assert!(g.searched_once(actor, player));
+    g.settle_awareness();
+    assert_eq!(g.awareness.state(actor), State::Normal);
+}
+
+#[test]
+fn a_stalled_lost_search_expires_but_a_completed_share_renews_the_bound() {
+    use fnv_game::awareness::LOST_SEARCH_STALL_SECONDS;
+    let f = fixture();
+    for progress in [false, true] {
+        let mut g = game(&f);
+        let (actor, player) = (FormId(RAIDER_REF), FormId::PLAYER_REF);
+        two_searches(&mut g);
+        fight(&mut g, actor, player);
+        until_lost(&mut g, actor, player);
+        let lost_at = g.time;
+        g.time = lost_at + LOST_SEARCH_STALL_SECONDS - 1.0;
+        if progress {
+            assert!(!g.searched_once(actor, player));
+        }
+        g.time = lost_at + LOST_SEARCH_STALL_SECONDS;
+        g.settle_awareness();
+        assert_eq!(g.awareness.state(actor), if progress { State::Lost } else { State::Normal });
+        if progress {
+            g.time += LOST_SEARCH_STALL_SECONDS - 1.0;
+            g.settle_awareness();
+            assert_eq!(g.awareness.state(actor), State::Normal);
+        }
+    }
+}
+
+#[test]
+fn detection_timers_and_search_count_read_the_load_orders_gmsts() {
+    use fnv_game::awareness::{Cause, EventType, Timers};
+    let f = fixture_with_gmsts(&[
+        ("fCombatDetectionLostTime", 40f32.to_le_bytes().to_vec()),
+        ("fCombatTargetLostRemoveTime", 3f32.to_le_bytes().to_vec()),
+        ("fDetectionEventExpireTime", 7f32.to_le_bytes().to_vec()),
+        ("iCombatTargetLostRemoveSearchCount", 2i32.to_le_bytes().to_vec()),
+    ]);
+    let mut g = game(&f);
+    let t = Timers::read(&g);
+    assert_eq!((t.lost, t.forget_target), (40.0, 3.0));
+    assert_eq!(g.group_settings().remove_search_count, 2);
+    let (actor, player) = (FormId(RAIDER_REF), FormId::PLAYER_REF);
+    fight(&mut g, actor, player);
+    for _ in 0..39 {
+        hidden_round(&mut g, actor, player);
+        assert_eq!(g.awareness.state(actor), State::Combat);
+        assert!(g.awareness.get(actor).unwrap().targets.contains_key(&player), "short forget timer must not preempt Lost");
+    }
+    hidden_round(&mut g, actor, player);
+    assert_eq!(g.awareness.state(actor), State::Lost);
+    let a = g.awareness.actors.get_mut(&actor).unwrap();
+    a.alarm(player, [0.0; 3], 1.0, Cause::Event(EventType::Bullet), g.time, &t);
+    assert_eq!(a.alarms.iter().find(|a| a.cause == Cause::Event(EventType::Bullet)).unwrap().expires, g.time + t.alarm, "fDetectionEventExpireTime is not the alarm's length");
+}
+
+#[test]
+fn an_alarmer_that_heard_an_event_stays_in_its_partys_search_past_the_event_setting() {
+    // Smoke `group-search` (#2010 regression): Cook-Cook heard the player's shot, alarmed
+    // the camp and searched with it; with heard-event alarms cut to the load order's
+    // fDetectionEventExpireTime (10 in the #2010 capture) he went Normal at 12 s, before the
+    // camp's first shares, and the party shrank. A heard event's alarm lasts the alarm
+    // timer like every other non-Lost alarm [design: `Awareness::alarm`].
+    use fnv_game::awareness::{DetectionEvent, EventType, Timers};
+    let f = fixture_with_gmsts(&[("fDetectionEventExpireTime", 10f32.to_le_bytes().to_vec())]);
+    let mut g = game(&f);
+    let (alarmer, mate, player) = (FormId(RAIDER_REF), FormId(WATCHMAN_REF), FormId::PLAYER_REF);
+    // [design: synthetic fixture] Put the second actor in the raiders' faction.
+    let factions = &mut g.extra.entry(mate).or_default().factions;
+    factions.insert(FormId(PLAYER_FACTION), -1);
+    factions.insert(FormId(RAIDERS), 0);
+    let shot = DetectionEvent { owner: player, at: [2000.0, 0.0, 0.0], level: 50.0, kind: EventType::Bullet };
+    let heard = Detection { value: -10.0, band: Band::Noticed, ..Detection::default() };
+    assert!(g.hear_event(alarmer, &shot, &heard));
+    // The mate is called about the player (a noticed alarm of its own).
+    g.observe_threat(mate, player, &heard, [1500.0, 0.0, 0.0]);
+    g.settle_awareness();
+    assert_eq!((g.awareness.state(alarmer), g.awareness.state(mate)), (State::Alert, State::Alert));
+    let t = Timers::read(&g);
+    let start = g.time;
+    // Past the event setting, before the alarm timer: both still search, as one party.
+    g.time = start + 12.0;
+    g.settle_awareness();
+    assert_eq!(g.awareness.state(alarmer), State::Alert, "the alarmer still searches 12 s after the shot");
+    assert_eq!(g.search_party(mate, player).1, 2, "the party still counts the alarmer");
+    // The alarm timer ends it.
+    g.time = start + t.alarm;
+    g.settle_awareness();
+    assert_eq!(g.awareness.state(alarmer), State::Normal);
+}
+
 #[test]
 fn scripts_read_a_plain_fight_through_hidden_and_lost_until_it_ends() {
     // #2121: in the original an actor fighting the player kept IsInCombat 1, the player
@@ -451,6 +654,7 @@ fn scripts_read_a_plain_fight_through_hidden_and_lost_until_it_ends() {
     let mut g = game(&f);
     let raider = FormId(RAIDER_REF);
     let player = FormId::PLAYER_REF.0 as f64;
+    two_searches(&mut g);
     fight(&mut g, raider, FormId::PLAYER_REF);
     let reads = |g: &mut Game| (call(g, IS_IN_COMBAT, raider, &[]), call(g, GET_IS_ALERTED, raider, &[]), target(g, raider), call(g, GET_CURRENT_AI_PROCEDURE, raider, &[]), call(g, GET_CURRENT_AI_PACKAGE, raider, &[]));
     // Detected, in Combat.
@@ -469,9 +673,12 @@ fn scripts_read_a_plain_fight_through_hidden_and_lost_until_it_ends() {
     assert!(target_is_player(&mut g, raider));
     assert_eq!(idle_gates(&mut g, raider), (false, true));
     assert!(g.draws_weapon(raider) && g.alert_stance(raider));
-    // Every second of Lost keeps it, until the fight ends as before (no timer of its own).
+    // [design, #2010] Every second of the two searches keeps the script target.
     let mut ended = false;
-    for _ in 0..60 {
+    for elapsed in 0..60 {
+        if [30, 45].contains(&elapsed) {
+            g.searched_once(raider, FormId::PLAYER_REF);
+        }
         hidden_round(&mut g, raider, FormId::PLAYER_REF);
         if g.awareness.state(raider) == State::Normal {
             ended = true;

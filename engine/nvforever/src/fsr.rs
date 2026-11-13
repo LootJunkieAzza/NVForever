@@ -16,8 +16,12 @@
 //! module adds FSR's own: its [`policy`] (ratios, phase count, mip bias), its context, the
 //! opaque copy and reference, the masks and their history, and the dilation buffers
 //! ([`PreparedFsr`]), made only for a camera FSR draws.
+//!
+//! A FidelityFX API library in the game's folder (ffx_api.rs, the FSR library setting) takes
+//! the port's place for the reconstruction itself ([`Upscaler::Api`]): it is given the same
+//! colour, motion and masks, the common corrected depth as a colour image, and the output.
 
-use std::{ops::{Deref, Range}, sync::{atomic::{AtomicBool, AtomicUsize, Ordering}, Mutex}};
+use std::{ops::{Deref, Range}, sync::{atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering}, Mutex}};
 
 use bevy::camera::{CameraMainTextureUsages, Hdr, MainPassResolutionOverride, Viewport};
 use bevy::core_pipeline::{
@@ -194,13 +198,69 @@ pub(crate) fn policy(quality: FsrQuality, output: UVec2, limits: &wgpu::Limits) 
 }
 
 #[derive(Resource, Default)]
-pub(crate) struct FsrRenderer(Option<(FsrContext, AuxiliaryPipelines)>);
+pub(crate) struct FsrRenderer {
+    auxiliary: Option<AuxiliaryPipelines>,
+    /// The wgpu-ffx port's context, made the first time a view upscales with it: not at all
+    /// while a FidelityFX API library does the upscaling.
+    port: Option<FsrContext>,
+}
+
+/// What reconstructs a view.
+enum Upscaler {
+    /// The vendored wgpu-ffx port, with the three resources FSR writes beside its output.
+    Port { view: Box<Mutex<FsrView>>, dilated_depth: wgpu::Texture, dilated_motion: wgpu::Texture, reconstructed_depth: wgpu::Buffer },
+    /// A FidelityFX API library in the game's folder (ffx_api.rs), with the corrected depth as
+    /// the colour image it is given, the dispatches that failed in a row, and the view's main
+    /// textures the library has been given to write ([`Upscaler::first_output`]).
+    Api { context: Mutex<crate::ffx_api::Upscaler>, depth: wgpu::Texture, failures: AtomicU32, outputs: Mutex<Vec<wgpu::Texture>> },
+}
+
+impl Upscaler {
+    /// Whether a FidelityFX API library is given this output for the first time. wgpu clears
+    /// a texture it has seen no write to before the first read, and it does not see the
+    /// library's: left alone, that clear would wipe the first upscaled frame. The caller
+    /// clears such a texture itself, before the library writes. A view has two main textures;
+    /// the two given last are remembered.
+    fn first_output(outputs: &Mutex<Vec<wgpu::Texture>>, output: &wgpu::Texture) -> bool {
+        let mut outputs = outputs.lock().unwrap();
+        if outputs.contains(output) {
+            return false;
+        }
+        if outputs.len() == 2 {
+            outputs.remove(0);
+        }
+        outputs.push(output.clone());
+        true
+    }
+}
+
+/// A FidelityFX API library whose dispatch fails this many frames in a row is not used any
+/// more: the port takes over [our choice].
+const API_FAILURES: u32 = 3;
+
+/// The port's context, with its pipelines.
+fn port_context(device: &wgpu::Device) -> FsrContext {
+    let mut flags = FsrContextFlags::HIGH_DYNAMIC_RANGE | FsrContextFlags::DEPTH_INVERTED | FsrContextFlags::DEPTH_INFINITE | FsrContextFlags::AUTO_EXPOSURE;
+    if *FP16 {
+        flags |= FsrContextFlags::ALLOW_FP16;
+    }
+    let context = FsrContext::new(FsrContextInfo { device: device.clone(), flags });
+    let shaders = if context.uses_fp16() {
+        "half precision (accumulate pass)"
+    } else if *FP16 {
+        "full precision (the GPU lacks 16-bit shader floats or integers)"
+    } else {
+        "full precision (NVF_FSR_FP16=0)"
+    };
+    info!("FSR 3.1 shaders: {shaders}");
+    context
+}
 
 /// FSR's own state beside the common prepared view ([`PreparedUpscale`]): only a camera FSR
 /// draws has one.
 #[derive(Component)]
 pub(crate) struct PreparedFsr {
-    view: Mutex<FsrView>,
+    upscaler: Upscaler,
     /// The sizes it was made for (the prepared view's when it was made).
     pub(crate) render_size: UVec2,
     pub(crate) output_size: UVec2,
@@ -220,9 +280,6 @@ pub(crate) struct PreparedFsr {
     history_luma: wgpu::Texture,
     /// FSR's jitter this frame, for the masks (render pixels, AMD's sign).
     mask_jitter: wgpu::Buffer,
-    dilated_depth: wgpu::Texture,
-    dilated_motion: wgpu::Texture,
-    reconstructed_depth: wgpu::Buffer,
     dispatch_logged: AtomicBool,
     reference_logged: AtomicBool,
     sky_logged: AtomicBool,
@@ -230,9 +287,10 @@ pub(crate) struct PreparedFsr {
 
 /// FSR's part of the view preparation, after the common one (`upscaler::prep::prepare`, which
 /// checked the view, applied FSR's [`policy`] and made or kept the [`PreparedUpscale`]): the
-/// context, the main textures' usages FSR needs, and [`PreparedFsr`], made again when the
-/// prepared view's sizes change. A view without a prepared view, or drawn by another upscaler,
-/// loses its FSR state.
+/// pipelines, the main textures' usages FSR needs, and [`PreparedFsr`], made again when the
+/// prepared view's sizes change or what should reconstruct it did (its FidelityFX API library
+/// was given up on, or the FSR library setting was switched). A view without a prepared view,
+/// or drawn by another upscaler, loses its FSR state.
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
 pub(crate) fn prepare(
     mut commands: Commands,
@@ -257,34 +315,20 @@ pub(crate) fn prepare(
         debug_assert!(prep::allocates_fsr_state(prepared.camera.settings.upscaler()));
         // Made with the prepared view (`prep::prepare`).
         let Some(common) = &upscale.0 else { continue };
-        let (context, _) = renderer.0.get_or_insert_with(|| {
-            let mut flags = FsrContextFlags::HIGH_DYNAMIC_RANGE | FsrContextFlags::DEPTH_INVERTED
-                | FsrContextFlags::DEPTH_INFINITE | FsrContextFlags::AUTO_EXPOSURE;
-            if *FP16 {
-                flags |= FsrContextFlags::ALLOW_FP16;
-            }
-            let context = FsrContext::new(FsrContextInfo { device: device.wgpu_device().clone(), flags });
-            let shaders = if context.uses_fp16() {
-                "half precision (accumulate pass)"
-            } else if *FP16 {
-                "full precision (the GPU lacks 16-bit shader floats or integers)"
-            } else {
-                "full precision (NVF_FSR_FP16=0)"
-            };
-            info!("FSR 3.1 shaders: {shaders}");
-            (context, AuxiliaryPipelines::new(device.wgpu_device(), common))
-        });
+        renderer.auxiliary.get_or_insert_with(|| AuxiliaryPipelines::new(device.wgpu_device(), common));
         usages.0 |= wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::COPY_SRC;
         // FSR's jitter (AMD's sign): the common preparation gave Bevy its opposite.
         let offset = -jitter.offset;
         let (render_size, output_size) = (prepared.render_size, prepared.output_size);
         match old {
-            Some(old) if old.render_size == render_size && old.output_size == output_size => {
+            Some(old) if old.render_size == render_size && old.output_size == output_size && old.through_api() == crate::ffx_api::library().is_some() => {
                 queue.write_buffer(&old.mask_jitter, 0, &mask_jitter_bytes(offset));
             }
             _ => {
-                info!("FSR 3.1.4: {:?}, {}x{} -> {}x{}, frame generation {}", settings.quality, render_size.x, render_size.y, output_size.x, output_size.y, on_off(frame_generation.as_ref().is_some_and(|f| f.on())));
-                commands.entity(entity).insert(PreparedFsr::new(context, &device, &queue, render_size, output_size, offset));
+                let fsr = PreparedFsr::new(&mut renderer.port, &device, &queue, render_size, output_size, offset);
+                let through = if fsr.through_api() { "FSR through the FidelityFX API" } else { "FSR 3.1.4" };
+                info!("{through}: {:?}, {}x{} -> {}x{}, frame generation {}", settings.quality, render_size.x, render_size.y, output_size.x, output_size.y, on_off(frame_generation.as_ref().is_some_and(|f| f.on())));
+                commands.entity(entity).insert(fsr);
             }
         }
     }
@@ -303,6 +347,8 @@ fn on_off(on: bool) -> &'static str {
 /// depth attachment it is drawn with, [`reference_sky_and_terrain_layers`]; only the render
 /// rectangle is used), the masks, the two presences, the light change, the history luminance
 /// and the dilation targets. Its buffers are the mask jitter and the reconstructed depth.
+/// The dilation targets and the reconstructed depth are the port's alone: through a
+/// FidelityFX API library they are not made, and [`api_depth_texture`] is.
 pub(crate) fn fsr_textures(render_size: UVec2, output_size: UVec2) -> [Allocation; 9] {
     let sampled = wgpu::TextureUsages::TEXTURE_BINDING;
     let storage = sampled | wgpu::TextureUsages::STORAGE_BINDING;
@@ -321,6 +367,13 @@ pub(crate) fn fsr_textures(render_size: UVec2, output_size: UVec2) -> [Allocatio
     ]
 }
 
+/// The colour copy of the corrected depth a FidelityFX API library is given
+/// (`prep::Pipelines::depth_as_color`).
+fn api_depth_texture(render_size: UVec2) -> Allocation {
+    let usage = wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::RENDER_ATTACHMENT;
+    Allocation { label: "fsr_api_depth", size: render_size, format: wgpu::TextureFormat::R32Float, usage }
+}
+
 impl PreparedFsr {
     /// The opaque copy the masks compare the finished frame with (display-sized; the render
     /// rectangle is used): the ambient occlusion before FSR darkens it as it does the frame.
@@ -328,12 +381,42 @@ impl PreparedFsr {
         &self.opaque
     }
 
-    fn new(context: &FsrContext, device: &RenderDevice, queue: &RenderQueue, render_size: UVec2, output_size: UVec2, jitter: Vec2) -> Self {
+    /// Whether a FidelityFX API library upscales the view, not the port.
+    fn through_api(&self) -> bool {
+        matches!(self.upscaler, Upscaler::Api { .. })
+    }
+
+    /// `port` is the port's context, made here when this is the first view to use it.
+    fn new(port: &mut Option<FsrContext>, device: &RenderDevice, queue: &RenderQueue, render_size: UVec2, output_size: UVec2, jitter: Vec2) -> Self {
         let device = device.wgpu_device();
-        let [opaque, reactive, composition, presence_0, presence_1, light_change, history_luma, dilated_depth, dilated_motion] =
-            fsr_textures(render_size, output_size).map(|a| a.create(device));
+        let [opaque, reactive, composition, presence_0, presence_1, light_change, history_luma, dilated_depth, dilated_motion] = fsr_textures(render_size, output_size);
+        let [opaque, reactive, composition, presence_0, presence_1, light_change, history_luma] =
+            [opaque, reactive, composition, presence_0, presence_1, light_change, history_luma].map(|a| a.create(device));
+        // A FidelityFX API library in the game's folder upscales when it gives a context;
+        // otherwise, and with none there, the port.
+        let api = crate::ffx_api::library().and_then(|library| match crate::ffx_api::Upscaler::new(library, device, render_size.to_array(), output_size.to_array()) {
+            Ok(context) => Some(Upscaler::Api {
+                context: Mutex::new(context),
+                depth: api_depth_texture(render_size).create(device),
+                failures: AtomicU32::new(0),
+                outputs: Mutex::new(Vec::new()),
+            }),
+            Err(why) => {
+                crate::ffx_api::give_up(&why);
+                None
+            }
+        });
+        let upscaler = api.unwrap_or_else(|| Upscaler::Port {
+            view: Box::new(Mutex::new(port.get_or_insert_with(|| port_context(device)).create_view(queue, render_size.to_array(), output_size.to_array()))),
+            dilated_depth: dilated_depth.create(device),
+            dilated_motion: dilated_motion.create(device),
+            reconstructed_depth: device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("fsr_reconstructed_depth"), size: render_size.x as u64 * render_size.y as u64 * 4,
+                usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST, mapped_at_creation: false,
+            }),
+        });
         Self {
-            view: Mutex::new(context.create_view(queue, render_size.to_array(), output_size.to_array())),
+            upscaler,
             render_size, output_size,
             dispatch_logged: AtomicBool::new(false),
             reference_logged: AtomicBool::new(false),
@@ -344,11 +427,6 @@ impl PreparedFsr {
             light_change, history_luma,
             mask_jitter: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("fsr_mask_jitter"), contents: &mask_jitter_bytes(jitter), usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            }),
-            dilated_depth, dilated_motion,
-            reconstructed_depth: device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("fsr_reconstructed_depth"), size: render_size.x as u64 * render_size.y as u64 * 4,
-                usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST, mapped_at_creation: false,
             }),
         }
     }
@@ -463,7 +541,7 @@ pub(crate) fn fsr_pass(
     renderer: Res<FsrRenderer>, upscale: Res<UpscaleRenderer>, device: Res<RenderDevice>, frame_generation: Option<Res<crate::frame_gen::FrameGenRequest>>, mut ctx: RenderContext,
 ) {
     let (target, prepared, fsr, prepass, jitter) = view.into_inner();
-    let (Some((context, auxiliary)), Some(common)) = (&renderer.0, &upscale.0) else { return };
+    let (Some(auxiliary), Some(common)) = (&renderer.auxiliary, &upscale.0) else { return };
     let UpscaleSettings::Fsr(settings) = prepared.camera.settings else { return };
     let recording = crate::frame_pace::recording();
     let inputs = prepass.and_then(|prepass| prepass.depth.as_ref().zip(prepass.motion_vectors.as_ref()));
@@ -489,33 +567,76 @@ pub(crate) fn fsr_pass(
     inputs_span.end(encoder);
     let source = target.main_texture().deref().clone();
     let destination = target.main_texture_other().deref().clone();
-    let info = FsrDispatchInfo {
-        color: source, depth: prepared.depth.clone(), motion_vectors: motion.texture.texture.deref().clone(),
-        exposure: None, reactive_mask: Some(fsr.reactive.clone()), transparency_and_composition: Some(fsr.composition.clone()),
-        dilated_depth: fsr.dilated_depth.clone(), dilated_motion_vectors: fsr.dilated_motion.clone(),
-        reconstructed_previous_depth: fsr.reconstructed_depth.clone(), output: destination,
-        jitter_offset: (-jitter.offset).to_array(), motion_vector_scale: (-prepared.render_size.as_vec2()).to_array(),
-        render_size: prepared.render_size.to_array(), upscale_size: prepared.output_size.to_array(),
-        enable_sharpening: settings.sharpness > 0.0, sharpness: settings.sharpness.clamp(0.0, 1.0),
-        frame_time_delta: prepared.camera.delta_ms, pre_exposure: 1.0,
-        reset_history: reset,
-        camera_near: f32::MAX, camera_far: prepared.camera.near, camera_fov_y: prepared.camera.fov,
-        // NVForever's world coordinates are the game's units, about 70 a metre [hypothesis, the
-        // scale fnv-phys uses (`PhysParams::units_per_metre`): the game's gravity of 684-686
-        // units/s² (physics.md §6.3, observed) is 9.81 m/s² at 70 units a metre].
-        view_space_to_meters_factor: 1.0 / 70.0,
-        flags: if *DEBUG_VIEW { FsrDispatchFlags::DRAW_DEBUG_VIEW } else { FsrDispatchFlags::empty() },
+    let jitter_offset = (-jitter.offset).to_array();
+    let motion_vector_scale = (-prepared.render_size.as_vec2()).to_array();
+    let sharpness = settings.sharpness.clamp(0.0, 1.0);
+    // NVForever's world coordinates are the game's units, about 70 a metre [hypothesis, the
+    // scale fnv-phys uses (`PhysParams::units_per_metre`): the game's gravity of 684-686
+    // units/s² (physics.md §6.3, observed) is 9.81 m/s² at 70 units a metre].
+    let view_space_to_meters_factor = 1.0 / 70.0;
+    let dispatched: Result<(), String> = match &fsr.upscaler {
+        Upscaler::Port { view, dilated_depth, dilated_motion, reconstructed_depth } => {
+            let info = FsrDispatchInfo {
+                color: source, depth: prepared.depth.clone(), motion_vectors: motion.texture.texture.deref().clone(),
+                exposure: None, reactive_mask: Some(fsr.reactive.clone()), transparency_and_composition: Some(fsr.composition.clone()),
+                dilated_depth: dilated_depth.clone(), dilated_motion_vectors: dilated_motion.clone(),
+                reconstructed_previous_depth: reconstructed_depth.clone(), output: destination,
+                jitter_offset, motion_vector_scale,
+                render_size: prepared.render_size.to_array(), upscale_size: prepared.output_size.to_array(),
+                enable_sharpening: sharpness > 0.0, sharpness,
+                frame_time_delta: prepared.camera.delta_ms, pre_exposure: 1.0,
+                reset_history: reset,
+                camera_near: f32::MAX, camera_far: prepared.camera.near, camera_fov_y: prepared.camera.fov,
+                view_space_to_meters_factor,
+                flags: if *DEBUG_VIEW { FsrDispatchFlags::DRAW_DEBUG_VIEW } else { FsrDispatchFlags::empty() },
+            };
+            let upscale_span = diagnostics.time_span(encoder, "upscale");
+            let dispatched = match &renderer.port {
+                Some(context) => context.dispatch(&mut view.lock().unwrap(), encoder, &info).map_err(|error| error.to_string()),
+                None => Err("the FSR context is missing".into()),
+            };
+            upscale_span.end(encoder);
+            dispatched
+        }
+        Upscaler::Api { context, depth: api_depth, failures, outputs } => {
+            common.depth_as_color(device, encoder, prepared, api_depth);
+            if Upscaler::first_output(outputs, &destination) {
+                encoder.clear_texture(&destination, &wgpu::ImageSubresourceRange::default());
+            }
+            let frame = crate::ffx_api::Frame {
+                color: &source, depth: api_depth, motion_vectors: &motion.texture.texture,
+                reactive: &fsr.reactive, transparency_and_composition: &fsr.composition, output: &destination,
+                jitter_offset, motion_vector_scale,
+                render_size: prepared.render_size.to_array(), upscale_size: prepared.output_size.to_array(),
+                sharpness, frame_time_delta: prepared.camera.delta_ms, reset,
+                camera_near: f32::MAX, camera_far: prepared.camera.near, camera_fov_y: prepared.camera.fov,
+                view_space_to_meters_factor, debug_view: *DEBUG_VIEW,
+            };
+            // The last thing in these commands: the library's own, which wgpu does not
+            // track, find every image in the state the API is told (ffx_api.rs).
+            encoder.transition_resources(std::iter::empty(), frame.transitions().into_iter());
+            let upscale_span = diagnostics.time_span(encoder, "upscale");
+            // Its commands go between the ones recorded so far and the ones that follow.
+            let dispatched = context.lock().unwrap().dispatch(&frame).map(|commands| ctx.add_command_buffer(commands));
+            upscale_span.end(ctx.command_encoder());
+            match &dispatched {
+                Ok(()) => failures.store(0, Ordering::Relaxed),
+                Err(why) if failures.fetch_add(1, Ordering::Relaxed) + 1 >= API_FAILURES => crate::ffx_api::give_up(why),
+                Err(_) => {}
+            }
+            dispatched
+        }
     };
-    let upscale_span = diagnostics.time_span(encoder, "upscale");
-    let dispatched = context.dispatch(&mut fsr.view.lock().unwrap(), encoder, &info);
-    upscale_span.end(encoder);
+    let api = fsr.through_api();
+    let encoder = ctx.command_encoder();
     match dispatched {
         Ok(()) => {
             let after_span = diagnostics.time_span(encoder, "alpha_and_history");
             // Only while a shape marks its pixels in alpha (the Pip-Boy's screen on its
             // model): otherwise FSR's alpha of 1 is what the post passes expect, and the
-            // display-sized pass is saved.
-            if prepared.camera.screen_mark {
+            // display-sized pass is saved. What another upscaler behind the FidelityFX API
+            // leaves in alpha is not known, so there the scene's own always comes back.
+            if prepared.camera.screen_mark || api {
                 common.restore_alpha(device, encoder, prepared, target);
             }
             target.post_process_write();
@@ -529,7 +650,12 @@ pub(crate) fn fsr_pass(
             after_span.end(encoder);
             prepared.history_valid.store(true, Ordering::Relaxed);
             if !fsr.dispatch_logged.swap(true, Ordering::Relaxed) {
-                info!("FSR dispatch active: 3.1.4, {}x{} -> {}x{}, Vulkan source shaders, frame generation {}", prepared.render_size.x, prepared.render_size.y, prepared.output_size.x, prepared.output_size.y, on_off(frame_generation.as_ref().is_some_and(|f| f.on())));
+                let through = match crate::ffx_api::library().filter(|_| api) {
+                    Some(library) => format!("FidelityFX API ({})", library.path),
+                    None => "3.1.4".into(),
+                };
+                let shaders = if api { "the library's own upscaler" } else { "Vulkan source shaders" };
+                info!("FSR dispatch active: {through}, {}x{} -> {}x{}, {shaders}, frame generation {}", prepared.render_size.x, prepared.render_size.y, prepared.output_size.x, prepared.output_size.y, on_off(frame_generation.as_ref().is_some_and(|f| f.on())));
             }
         }
         Err(error) => {

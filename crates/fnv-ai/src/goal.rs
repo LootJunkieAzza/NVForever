@@ -353,6 +353,18 @@ pub fn editor_place(refs: &RefTable, r: FormId) -> Option<Place> {
     Some(Place { space: space_of_cell(refs, p.cell?), pos: p.pos })
 }
 
+/// A reference's editor location: where the plugins place it, else, for a reference
+/// created at run time (PlaceAtMe, a leveled spawn), where it was created (#2278)
+/// [hypothesis: not measured in the original; without it every package near the editor
+/// location fails for a created actor, which then stands still].
+pub fn editor_place_of(game: &Game, r: FormId) -> Option<Place> {
+    let refs = game.world.placed;
+    editor_place(refs, r).or_else(|| {
+        let (cell, pos) = game.world.peek(r)?.made_at?;
+        Some(Place { space: space_of_cell(refs, cell?), pos })
+    })
+}
+
 /// A point of a cell's navmesh to walk towards: the centre of the triangle nearest the
 /// middle of the cell's largest walkable area [our choice].
 pub fn cell_anchor(nav: &NavGraph, refs: &RefTable, cell: FormId) -> Option<Place> {
@@ -489,7 +501,7 @@ fn stay_at(game: &Game, nav: &NavGraph, actor: FormId, loc: &Location) -> Goal {
         },
         LocationKind::InCell(None) => Goal::Missing("the location's cell is not in the load order"),
         LocationKind::NearCurrent => Goal::Here,
-        LocationKind::NearEditor => near(editor_place(refs, actor), "the actor has no editor location"),
+        LocationKind::NearEditor => near(editor_place_of(game, actor), "the actor has no editor location"),
         LocationKind::NearLinked => near(linked.and_then(|l| place_of_ref(game, l)), "the actor has no linked reference"),
         LocationKind::ObjectId(Some(b)) => near(nearest_object(game, actor, Wanted::Base(b)), "no reference of the location's object is near the actor"),
         LocationKind::ObjectId(None) => Goal::Missing("the location's object is not in the load order"),
@@ -604,7 +616,7 @@ fn trigger_of(game: &Game, actor: FormId, l: &Location) -> Trigger {
     let radius = l.radius.max(0) as f32;
     match l.kind {
         LocationKind::NearReference(Some(reference)) => Trigger::NearReference { reference, radius },
-        LocationKind::NearEditor => editor_place(refs, actor).map_or(Trigger::Never, |place| Trigger::Near { place, radius }),
+        LocationKind::NearEditor => editor_place_of(game, actor).map_or(Trigger::Never, |place| Trigger::Near { place, radius }),
         LocationKind::NearLinked => linked.map_or(Trigger::Never, |reference| Trigger::NearReference { reference, radius }),
         LocationKind::NearCurrent => Trigger::NearActor { radius },
         LocationKind::InCell(Some(c)) => Trigger::InCell(c),

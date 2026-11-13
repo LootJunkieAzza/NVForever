@@ -523,13 +523,14 @@ fn open(
 
 /// The keys and the mouse.
 fn keys(
-    keys: Res<ButtonInput<KeyCode>>,
+    keys: crate::pad::ActionButtons<KeyCode>,
     motion: Option<Res<AccumulatedMouseMotion>>,
     time: AidTime,
     screen: Res<LockpickScreen>,
     over_button: Query<&PointerState, With<screen::LockButton>>,
     mut out: MessageWriter<LockpickInput>,
 ) {
+    let keys = keys.snapshot();
     let Some(s) = screen.0.as_ref() else { return };
     if s.leaving.is_some() {
         return;
