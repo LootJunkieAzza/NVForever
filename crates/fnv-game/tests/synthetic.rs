@@ -3525,6 +3525,28 @@ CallWhen ({} => AuxVarSetFlt \"*o\" 1 -1) ({} => (AuxVarSize \"*w\") >= 2)");
     assert_eq!(q(&mut g, "SetFunctionValue (AuxVarSize \"*o\")"), XVal::Num(1.0), "when, exactly once");
 }
 
+/// A queued call whose function cannot run (a ref variable still 0, as the player
+/// reports' mods queued: "0x00000000 is not a function script") is reported once, not on
+/// every frame it comes due (#2280).
+#[test]
+fn a_call_that_cannot_run_is_reported_once() {
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let ctx = fnv_game::game::RunCtx { self_ref: Some(FormId::PLAYER_REF), ..Default::default() };
+    g.run_query("ref r
+Begin Function { }
+CallWhile r ({} => (AuxVarSize \"*never\") < 1)
+End
+", ctx).unwrap();
+    g.frames(10);
+    let errors: Vec<String> = g.events.iter().filter_map(|e| match &e.kind {
+        EventKind::ScriptError { unit, error } if unit == "delayed call" => Some(error.clone()),
+        _ => None,
+    }).collect();
+    assert_eq!(errors.len(), 1, "{errors:?}");
+    assert!(errors[0].ends_with("is not a function script"), "{errors:?}");
+}
+
 #[test]
 fn message_box_ex_alt_runs_its_callback_with_the_button() {
     // [documented: MessageBoxExAlt] the UDF gets the pressed button's index.

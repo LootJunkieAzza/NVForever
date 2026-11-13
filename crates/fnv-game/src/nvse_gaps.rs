@@ -158,7 +158,7 @@ impl Game<'_> {
         for f in hs {
             let args = if gained { vec![XVal::Ref(perk.0), XVal::Num(f64::from(before)), XVal::Num(f64::from(after))] } else { vec![XVal::Ref(perk.0)] };
             if let Err(error) = self.run_function(&f, None, args, None, RunCtx::default()) {
-                self.emit(crate::trace::EventKind::ScriptError { unit: "JohnnyGuitar perk handler".into(), error });
+                self.handler_failed("JohnnyGuitar perk handler".into(), error);
             }
         }
     }
@@ -170,7 +170,7 @@ impl Game<'_> {
         for f in hs {
             let args = vec![XVal::Num(f64::from(code)), XVal::Num(old), XVal::Num(new)];
             if let Err(error) = self.run_function(&f, None, args, None, RunCtx::default()) {
-                self.emit(crate::trace::EventKind::ScriptError { unit: "JohnnyGuitar actor value handler".into(), error });
+                self.handler_failed("JohnnyGuitar actor value handler".into(), error);
             }
         }
     }
@@ -181,7 +181,7 @@ impl Game<'_> {
         let hs: Vec<XVal> = self.gaps.quest_handlers.iter().filter(|(s, _, q)| *s == started && q.is_none_or(|q| q == quest)).map(|(_, f, _)| f.clone()).collect();
         for f in hs {
             if let Err(error) = self.run_function(&f, None, vec![XVal::Ref(quest.0)], None, RunCtx::default()) {
-                self.emit(crate::trace::EventKind::ScriptError { unit: "JohnnyGuitar quest handler".into(), error });
+                self.handler_failed("JohnnyGuitar quest handler".into(), error);
             }
         }
     }
