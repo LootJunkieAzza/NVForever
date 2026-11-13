@@ -81,6 +81,8 @@ pub struct ActorWorld {
     pub weapon_test: Option<f32>,
     /// Clip sets and weapon stances, loaded once each.
     pub anims: Anims,
+    /// kNVSE override files by the weapon held (`anim_overrides::HeldOverrides`).
+    pub held: crate::anim_overrides::HeldOverrides,
     /// How many times ResurrectActor rolled a reference's random choices again
     /// (`fnv_game::resurrect`, told by `resurrect.rs`): the seed of its leveled picks.
     pub rolls: Mutex<HashMap<u32, u32>>,
@@ -140,6 +142,7 @@ impl ActorWorld {
             weapon_mode: WeaponMode::None,
             weapon_test: None,
             anims: Anims::default(),
+            held: Default::default(),
             rolls: Mutex::new(HashMap::new()),
             changes: Mutex::new(HashMap::new()),
             looks: Mutex::new(HashMap::new()),
@@ -309,6 +312,36 @@ impl Anims {
             }
             Err(e) => {
                 warn!("actor weapons: {prefix}: {e}");
+                None
+            }
+        };
+        self.stances.lock().expect("stances").entry(key).or_insert(s).clone()
+    }
+
+    /// The stance `prefix` for an actor holding `weapon`: its own copy with the clips the
+    /// weapon's kNVSE override files (`by_stem`) stand in for
+    /// ([`Stance::load_with`]), kept per weapon; the shared stance when they replace none
+    /// of its clips.
+    pub fn stance_for(&self, ctx: &mut impl ClipSource, skeleton: &str, skel: &PreparedSkeleton, prefix: &str, weapon: fnv_sim::FormId, by_stem: Option<&crate::anim_overrides::ByStem>) -> Option<Arc<Stance>> {
+        let names: Vec<String> = fnv_actor::weapon::EquipClip::ALL
+            .iter()
+            .flat_map(|c| [Some(format!("{prefix}{}.kf", c.stem())), fnv_actor::weapon::sneak_clip_path("", prefix, *c)])
+            .flatten()
+            .collect();
+        let Some(by_stem) = by_stem.filter(|m| crate::anim_overrides::replaces(m, &names)) else {
+            return self.stance(ctx, skeleton, skel, prefix);
+        };
+        let key = (fnv_vfs::normalize(skeleton), format!("{prefix} {:08X}", weapon.0));
+        if let Some(s) = self.stances.lock().expect("stances").get(&key) {
+            return s.clone();
+        }
+        let s = match Stance::load_with(ctx, skeleton, skel, prefix, Some(by_stem)) {
+            Ok((s, line)) => {
+                info!("actor weapons: {:08X}: {line}", weapon.0);
+                Some(Arc::new(s))
+            }
+            Err(e) => {
+                warn!("actor weapons: {prefix} {:08X}: {e}", weapon.0);
                 None
             }
         };
@@ -842,7 +875,14 @@ pub(crate) fn arm_weapon(
     // A modded weapon's own model (weapon-mods.md §3 "In the world").
     let model = w.model_for(false, weapon_mods)?;
     // A stance without a `Weapon` node is for body weapons only (`Stance::no_weapon_node`).
-    let stance = world.anims.stance(ctx, skeleton, skel, prefix).filter(|s| !s.no_weapon_node);
+    // With the clips its kNVSE override files stand in for (`anim_overrides`): the
+    // second gun of a dual pistol in the left hand.
+    let held_files = world.held.for_weapon(weapon);
+    let stance = match weapon {
+        Some(id) => world.anims.stance_for(ctx, skeleton, skel, prefix, id, held_files.as_deref()),
+        None => world.anims.stance(ctx, skeleton, skel, prefix),
+    }
+    .filter(|s| !s.no_weapon_node);
     // With the weapon's alternate textures (texture-swaps.md §4).
     let swaps = weapon.map_or(&[][..], |id| world.actors.weapon_alt_textures(id, false, weapon_mods));
     let (Some(stance), Some(part)) = (stance, ctx.part_swapped(&fnv_actor::resolve::mesh_path(model), swaps)) else {

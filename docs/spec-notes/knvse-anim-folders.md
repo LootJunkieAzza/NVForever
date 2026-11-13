@@ -142,12 +142,24 @@ A file is a list of entries, or one entry; 59 files are empty. An entry's keys:
   at about 60 frames a second, some shots left in the pull's frame from the last clip's
   fading pose: 9 of 15 left-gun shots left part way to the right gun [observed:
   NVForever run of 2026-11-10].
+- **NPCs and co-op puppets holding a weapon** (`engine/nvforever/src/anim_overrides.rs`)
+  take the third-person (`_male`) files of the entries that name the weapon and have no
+  condition, sorted as the player's are (priority, then load order) [hypothesis: a guest's
+  puppet has no actor on the guest's side, so conditions cannot be tested for it; the
+  conditioned last-shot folders are left out]. These files replace, by stem as above, the
+  stance's aim and equip clips (which place the weapon model's parts once when the weapon
+  is drawn: the `Akimbo` node, the second gun of Another Millenia's dual pistols, goes from
+  its rest place 2.5 units below the right gun into the left hand [observed:
+  `DualGlock19\Glock19.nif` and the mod's `1hpAim.kf`]) and the attack, reload and aim
+  up/down/sights clips; `_order_N` sets go round with that actor's own attacks. The log
+  says `anim overrides: N form(s) with third-person files` once, and `from override
+  files: [...]` for each stance so made.
 - `respectEndKey`, also on those clips (0.25 s and 0.35 s), is not read.
 
 ## 4. Not built (follow-ups)
 
-- NPCs' weapon clips (attacks, reloads) from the folders: only their locomotion is
-  replaced.
+- NPCs' and puppets' weapon parts are posed once from the aim or equip clip's end, not
+  played through an attack or reload, and conditioned entries do not apply to them.
 - `_hurt` files (143 in the Millenia and Hit packs) are left out [hypothesis: played
   while the actor is hurt; kNVSE's page names a `Hurt` folder for crippled legs];
   `_A`/`_B`/`_1`/`_2` variants of an attack are not picked at random, as the page says
