@@ -1524,3 +1524,14 @@ to the decoded file by cross-correlation and a per-band transfer estimate.
     Pip-Boy and screenshot the compass; then walk through a door into an interior and
     screenshot it again. Held at an end or gone behind the player, and shown or not
     (at the door?) from the interior, settle both.
+
+## Added 2026-11-13 (companions on the World Map)
+
+106. **From how far does the World Map name a companion?** (P3; `pipboy::data::map_companions`.)
+    NVForever writes a teammate's name where it stands on the World Map, in font 2, only
+    4096 units (a cell) or more from the player, and not while it is knocked out
+    [documented: Stewie's Tweaks' readme says there is a minimum distance, font 2 and no
+    knocked-out companions; hypothesis: the distance, and that companions indoors are not
+    shown]. Tell a companion to wait, walk away in steps of about 20 m, and open the World
+    Map at each: the step where its name first shows gives the distance. Then send it home
+    (an interior) and check whether its name shows at all, and where.

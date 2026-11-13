@@ -606,6 +606,7 @@ unless the player binds them, so nothing changes until then.
 | Exterior and Interior Door Icons | `bInteriorExteriorMapDoorIcon` | `pipboy::data::read::Door::outside` (the destination door stands in a worldspace cell); under the switch a door's `MapMark::outside` picks `iron_exterior_door.dds` / `iron_interior_door.dds`, and when those are not in the load order the plain door, an interior one at `INSIDE_DOOR_DIM` |
 | Fatigue Indicator | `bHUDFatigueIndicator` | `hud_needs::watch` reads the player's Fatigue against its base under the switch; `fatigue_look` gives the word's look, `draw` sets it out as a sixth word at `FATIGUE_X`. The tile HUD's five texts are the file's and stay as they are |
 | Switch Device by Pressing | `bToggleControllerIfAttackPressed` | `tweaks::toggle_device` (PlaySet::Input): with the keyboard working, a pad's South just pressed sets `bindings::Bindings::device` to Controller; with the controller, a left click sets it back; not while the Controls tab listens for a binding |
+| Companions on the World Map | `bNoMinCompanionMapDistance`, `bMapShowUnconsciousCompanions`, `bCompanionsUseLocationFontOnMap` | base: `pipboy::data::map_companions` lists the teammates in exterior cells of the map's family, less those within `COMPANION_MIN_DISTANCE` of the player and the knocked out; `world_map` writes their names in font 2 under the arrow. The switches drop the distance, keep the knocked out (red) and use font 1. Hand-built Pip-Boy only |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -627,8 +628,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 537 |
-| to do | 64 |
+| done | 540 |
+| to do | 61 |
 | unsure, skipped | 18 |
 | n/a | 16 |
 | skipped: fix | 10 |
@@ -1057,6 +1058,7 @@ game's Data folder, read-only).
 | `bBetterMapZoom` | done |  |  | Map Zooms at the Pointer |
 | `bBlackJackTotalDisplay` | done |  |  | Blackjack Hand Total |
 | `bChangingContainerCategoryScrollsToTop` | done |  |  | already so: a category change goes to the top |
+| `bCompanionsUseLocationFontOnMap` | done |  |  | Companions in the Locations' Font (font 1, the highlight box's, in place of font 2) |
 | `bCompareArmorStats` | done |  |  | Compare Armor (DT; DR is 0 on New Vegas armour) |
 | `bCompareWeaponStats` | done |  |  | Compare Weapons (DAM and DPS, both at full condition) |
 | `bContainerEncumbranceIndicator` | done |  |  | Weight Warning (the selected row, the whole stack) |
@@ -1092,11 +1094,13 @@ game's Data folder, read-only).
 | `bMapLocationDisplayDistance` | done |  | 3 | Map Marker Distance (metres or kilometres; the travel-time modes not done) |
 | `bMapMarkersShowFactionName` | done |  | 1 | already so: the reputation line names the faction (worded "Goodsprings: Neutral") |
 | `bMapRecenterHotkey` | done |  | 2 | Map Recentre Key (C, at once; no easing) |
+| `bMapShowUnconsciousCompanions` | done |  |  | Knocked-Out Companions on the Map, in red |
 | `bMarkNotesUnread` | done |  |  | Mark Notes Unread (right click on the Pip-Boy notes list) |
 | `bMoreDetailedStatsMenu` | done |  | 1 | Detailed Stats |
 | `bNoCapitaliseContainerCategories` | done |  |  | Quiet Category Titles |
 | `bNoExitConfirm` | done |  |  | already so: the main menu's Quit asks nothing |
 | `bNoExitHacking` | done |  | 1 | No Leaving a Hack (the fail-on-exit option not built) |
+| `bNoMinCompanionMapDistance` | done |  |  | Companions Near You on the Map; the base World Map now names companions beyond COMPANION_MIN_DISTANCE (a guess, observer-checks.md) |
 | `bNoPlaceMarkerPopup` | done |  | 2 | No Place Marker Question, with Shift Removes and Remove When On It |
 | `bPauseHolotapes` | done |  | 1 | already so for pausing: picking the playing holotape pauses it (reset and dialogue options not built) |
 | `bPlaceMarkersAtLocations` | done | yes | 1 | already so: the highlight box takes to a place or door near the pointer, and Place Marker puts the marker on it (both maps) |
@@ -1139,15 +1143,12 @@ game's Data folder, read-only).
 | `bShowWeaponPoisonEffects` | to do | yes |  | NVForever has no weapon poison yet |
 | `bAmmoLabelUseLongName` | unsure, skipped |  | 1 | needs a UI mod |
 | `bClickingActiveTabTogglesSorting` | to do |  |  | not built: one fixed order |
-| `bCompanionsUseLocationFontOnMap` | to do |  |  | not built: companions are not on the map |
 | `bContainersShowEquippedAmmo` | to do |  |  | not built: ammo is never equipped |
 | `bControllerBackButtonDoesntClosePipBoy` | to do |  |  | unsure which pad button is meant: East (B) works as Esc in every menu, View/Select opens nothing there |
 | `bCustomHackingAnswerLength` | to do |  | 8 | the readme gives no defaults and does not say how the attempts are worked out |
 | `bCustomPopupIcons` | to do |  | 17 | per-kind icons at each message |
 | `bEmboldenTagSkills` | to do |  |  | no tagged flag on rows and no bold face |
 | `bLocalMapRespawnedCellIndicator` | to do |  | 2 | not built: the local map has no cell grid |
-| `bMapShowUnconsciousCompanions` | to do |  |  | companions are not drawn on the world map yet |
-| `bNoMinCompanionMapDistance` | to do |  |  | companions are not drawn on the world map yet |
 | `bNoteMenuShowSeparateMenu` | unsure, skipped |  | 1 | needs another mod (Book Menu Restored) |
 | `bQuantityMenuRespectsCompanionCarryCap` | to do |  |  | asks_quantity has no world |
 | `bRepairItemsPreview` | to do |  | 1 | a preview session in the repair list |

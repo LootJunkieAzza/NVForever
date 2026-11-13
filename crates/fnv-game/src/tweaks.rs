@@ -103,6 +103,14 @@ pub struct Tweaks {
     /// `bInteriorExteriorMapDoorIcon`: the local map tells doors leading outside from
     /// those leading in (the plugin's two pictures when installed).
     pub map_door_kinds: bool,
+    /// `bNoMinCompanionMapDistance`: companions near the player are written on the World
+    /// Map too.
+    pub no_min_companion_distance: bool,
+    /// `bMapShowUnconsciousCompanions`: knocked-out companions are written on the World
+    /// Map, in red.
+    pub map_unconscious_companions: bool,
+    /// `bCompanionsUseLocationFontOnMap`: companions' names in the locations' font.
+    pub companions_location_font: bool,
     // ---- Action Points ----
     /// `bKillsRewardAP`/`iKillRewardAmount`: Action Points a kill by the player gives
     /// back; 0 changes nothing.
@@ -679,6 +687,9 @@ impl Default for Tweaks {
             prefer_player_mid: 0.25,
             prefer_player_detection: 0.0,
             map_door_kinds: false,
+            no_min_companion_distance: false,
+            map_unconscious_companions: false,
+            companions_location_font: false,
             kill_reward_ap: 0.0,
             wait_only_seated: false,
             skill_points: None,

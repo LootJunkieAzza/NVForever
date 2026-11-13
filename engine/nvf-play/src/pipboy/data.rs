@@ -473,6 +473,8 @@ pub struct DataState {
     outline_land: HashMap<(i32, i32), Option<Vec<f32>>>,
     /// How many markers the world map showed when last logged.
     world_logged: Option<(u32, usize, usize, usize, usize)>,
+    /// The World Map's companion count at the last log.
+    companions_logged: Option<usize>,
     /// The World Map's marker under the highlight box, when last drawn.
     cursor_marker: Option<u32>,
     /// The marker the Travel hint, Enter and the controller's A travel to
@@ -595,6 +597,11 @@ pub(crate) struct MapShown {
     /// The line under the name: a World Map marker's reputation and the player's
     /// standing with it ([`model::reputation_line`]).
     detail: Option<String>,
+    /// The World Map's companions ([`map_companions`]): where each name stands, the name,
+    /// and whether it is knocked out (shown in red, under the player's tweak).
+    companions: Vec<(Vec2, String, bool)>,
+    /// Their names in the locations' font (the player's tweak), else font 2.
+    companion_font: usize,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -2201,6 +2208,53 @@ fn known(st: &DataState, game: &Game, m: &read::Marker) -> Option<bool> {
     (enabled && (found || shown || m.flags & 1 != 0)).then_some(found)
 }
 
+/// The original's companions on the World Map: their names, in font 2 [documented: Stewie's
+/// Tweaks' readme, bCompanionsUseLocationFontOnMap, "Vanilla is hardcoded to use font 2"],
+/// left off within a distance of the player [documented: the same readme,
+/// bNoMinCompanionMapDistance; hypothesis: the distance, [`COMPANION_MIN_DISTANCE`]] and while
+/// knocked out [documented: the same readme, bMapShowUnconsciousCompanions]. The original's
+/// map file has no companion template and the archives no companion icon [observed:
+/// map_menu.xml, the texture archives' list], so they are text only.
+const COMPANION_FONT: usize = 2;
+/// The font the highlight box names locations in.
+const LOCATION_FONT: usize = 1;
+/// Within this distance of the player (game units, same worldspace) a companion is not
+/// written [hypothesis: about a cell, so the companions at the player's side do not cover
+/// the arrow].
+pub const COMPANION_MIN_DISTANCE: f32 = 4096.0;
+/// How far above its place a companion's name stands (canvas units) [design].
+const COMPANION_NAME_RISE: f32 = 14.0;
+
+/// A companion written on the World Map.
+struct MapCompanion {
+    world: u32,
+    pos: [f32; 3],
+    name: String,
+    down: bool,
+}
+
+/// The player's companions (teammates) in an exterior cell, with their worldspace; those
+/// within [`COMPANION_MIN_DISTANCE`] of `player` (worldspace, place) left out when it is
+/// given, and the knocked-out ones unless `show_down`.
+fn map_companions(game: &Game, player: Option<(u32, [f32; 3])>, show_down: bool) -> Vec<MapCompanion> {
+    let (Some(rt), Some(sim)) = (game.script.as_ref().and_then(|s| s.rt.as_ref()), game.sim.as_ref()) else { return Vec::new() };
+    let mut out = Vec::new();
+    for id in rt.game.teammates() {
+        let Some(s) = sim.world.peek(id) else { continue };
+        let Some(world) = s.cell.and_then(|c| sim.refs.cell_world.get(&c)).map(|w| w.0) else { continue };
+        let down = rt.game.knockout(id).is_some();
+        if (down && !show_down) || !sim.present(id.0) {
+            continue;
+        }
+        if player.is_some_and(|(w, p)| w == world && (s.pos[0] - p[0]).hypot(s.pos[1] - p[1]) < COMPANION_MIN_DISTANCE) {
+            continue;
+        }
+        let name = sim.ref_name(Some(&rt.game), id.0).map(str::to_string).unwrap_or_else(|| rt.game.data.name(id));
+        out.push(MapCompanion { world, pos: s.pos, name, down });
+    }
+    out
+}
+
 fn world_map(st: &mut DataState, game: &Game, pointer: Option<Vec2>, aiming: bool) -> MapShown {
     let Some(world) = game.location.as_ref().map(|l| l.world) else { return empty_map() };
     let Some(m) = map_of(st, game) else { return empty_map() };
@@ -2285,7 +2339,21 @@ fn world_map(st: &mut DataState, game: &Game, pointer: Option<Vec2>, aiming: boo
         }
         st.lines_logged = Some((kinds, st.custom));
     }
+    // The player's companions out in this map's worldspaces [see `map_companions`].
+    let tw = game.script.as_ref().and_then(|s| s.rt.as_ref()).map(|rt| (rt.game.tweaks.no_min_companion_distance, rt.game.tweaks.map_unconscious_companions, rt.game.tweaks.companions_location_font));
+    let (no_min, show_down, location_font) = tw.unwrap_or_default();
+    let mut companions = Vec::new();
+    for c in map_companions(game, player.filter(|_| !no_min).map(|(p, _)| (world, p)), show_down) {
+        let Some(projection) = map_for(st, game, c.world).filter(|p| p.root == m.root) else { continue };
+        companions.push((on_map(projection.uv(c.pos[0], c.pos[1])), c.name, c.down));
+    }
+    if st.companions_logged != Some(companions.len()) {
+        st.companions_logged = Some(companions.len());
+        info!("pipboy data: world map shows {} companions", companions.len());
+    }
     MapShown {
+        companions,
+        companion_font: if location_font { LOCATION_FONT } else { COMPANION_FONT },
         picture: Some((m.texture.clone(), Rect::from_corners(left, left + size))),
         outline: None,
         marks,
@@ -2309,7 +2377,7 @@ fn standing(game: &Game, rep: u32) -> Option<&'static str> {
 }
 
 fn empty_map() -> MapShown {
-    MapShown { picture: None, outline: None, marks: Vec::new(), player: None, quests: Vec::new(), custom: None, nodes: Arc::default(), lines: Arc::default(), cursor: MAP_MID, label: None, detail: None }
+    MapShown { picture: None, outline: None, marks: Vec::new(), player: None, quests: Vec::new(), custom: None, nodes: Arc::default(), lines: Arc::default(), cursor: MAP_MID, label: None, detail: None, companions: Vec::new(), companion_font: COMPANION_FONT }
 }
 
 /// The local map's scale, game units to a canvas unit at a magnification of 1: outdoors
@@ -2457,7 +2525,7 @@ fn local_map(st: &mut DataState, game: &Game, pointer: Option<Vec2>) -> MapShown
     log_custom(st, LOCAL, custom);
     st.custom_on_map[LOCAL] = custom.map(|c| on_map(c.pos[0], c.pos[1]));
     let custom = custom.map(|c| local_quest_corner(on_map(c.pos[0], c.pos[1])));
-    MapShown { picture: None, outline, marks, player: Some((on_map(feet[0], feet[1]), heading)), quests, custom, nodes: Arc::default(), lines: Arc::default(), cursor, label, detail: None }
+    MapShown { picture: None, outline, marks, player: Some((on_map(feet[0], feet[1]), heading)), quests, custom, nodes: Arc::default(), lines: Arc::default(), cursor, label, detail: None, companions: Vec::new(), companion_font: COMPANION_FONT }
 }
 
 /// A quest marker's top left for a target at `at` in the window.
@@ -3169,6 +3237,12 @@ fn map(p: &mut ChildSpawnerCommands, c: &mut Ctx, m: &MapShown) {
         }
         if let Some(q) = m.custom {
             c.image(p, PC_MARKER_FILE, at(q.x, q.y, QUEST_MARKER, QUEST_MARKER * QUEST_ASPECT), c.bright());
+        }
+        // The companions' names where they stand, under the player's arrow [design: the
+        // order]; a knocked-out one red (the player's tweak).
+        for (at_, name, down) in &m.companions {
+            let colour = if *down { Color::srgb(1.0, 0.25, 0.2).with_alpha(c.bright().alpha()) } else { c.bright() };
+            c.text(p, m.companion_font, name, at_.x, at_.y - COMPANION_NAME_RISE, Align::Centre, colour);
         }
         if let Some((spot, heading)) = m.player {
             if let Some((image, rect)) = c.picture(CURSOR_FILE) {
