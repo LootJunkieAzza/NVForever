@@ -24247,7 +24247,7 @@ expect = [
   { re = 'DLSS: evaluates: ([1-9]\d*) ok, 0 failed', label = "DLSS's evaluates with the shared frame numbers, none failed" },
   "DLSS-G: shutdown: slFreeResources(DLSS-G, viewport 0) eOk",
 ]
-forbid = [
+forbid = [
   { re = '\]\[streamline\]\[error\]', label = "an error from Streamline in dlssg-on (e.g. a tagged image's format it cannot read)" },
   { text = "Validation Error", label = "a Vulkan validation error" },
   { text = "common constants cannot be found", label = "frame numbers out of step between the markers and the constants" },
@@ -24278,7 +24278,7 @@ expect = [
   { re = 'DLSS-G: state: status eOk, frames to generate at most (1, .*presented for the last frame 2|([3-9]|\d\d+), .*presented for the last frame 4);', min = 10, label = "four frames presented per real frame (two where the GPU offers one)" },
   { re = 'DLSS: evaluates: ([1-9]\d*) ok, 0 failed', label = "evaluates ok" },
 ]
-forbid = [
+forbid = [
   { re = '\]\[streamline\]\[error\]', label = "an error from Streamline in dlssg-4x (e.g. a tagged image's format it cannot read)" },
   { text = "Validation Error", label = "a Vulkan validation error" },
   { text = "common constants cannot be found", label = "frame numbers out of step" },
@@ -24315,7 +24315,7 @@ order = [[
   { re = 'DLSS-G: window change: the surface reconfigured after' },
   { re = 'DLSS-G: options: mode On, .*1600x900' },
 ]]
-forbid = [
+forbid = [
   { re = '\]\[streamline\]\[error\]', label = "an error from Streamline in dlssg-resize (e.g. a tagged image's format it cannot read)" },
   { text = "Validation Error", label = "a Vulkan validation error" },
   { text = "slEvaluateFeature: ", label = "a failed evaluate" },
@@ -24352,7 +24352,7 @@ order = [[
   { re = 'DLSS-G: options: mode On, ', label = "on again after the switch and the pause menu" },
   { re = 'DLSS-G: 1\d\.\d s: \d+ real frames, \d+ presented \((1\.[89]|2\.[0-2])\d* per real frame\), status eOk', label = "about two presented per real frame after" },
 ]]
-forbid = [
+forbid = [
   { re = '\]\[streamline\]\[error\]', label = "an error from Streamline in dlssg-switch (e.g. a tagged image's format it cannot read)" },
   { text = "slEvaluateFeature: ", label = "a failed evaluate" },
   { text = "Validation Error", label = "a Vulkan validation error" },
@@ -24411,7 +24411,7 @@ expect = [
   { re = 'DLSS-G: options: mode On, .*user interface recomposition on: eOk', label = "recomposition asked for" },
   { re = 'DLSS: evaluates: ([1-9]\d*) ok, 0 failed', label = "evaluates ok" },
 ]
-forbid = [
+forbid = [
   { re = '\]\[streamline\]\[error\]', label = "an error from Streamline in dlssg-ui (e.g. a tagged image's format it cannot read)" },
   { text = "Validation Error", label = "a Vulkan validation error" },
   { text = "Shader validation error", label = "a shader validation error" },
