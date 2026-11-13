@@ -57,7 +57,7 @@ the display sum is raised to 2.2 afterwards, and without it 45 % occlusion took 
 ambient light and crushed sunlit scenes' shade.
 
 Outdoors (a shadow-casting sun in the light) the remaster leans the light towards the sun,
-sun x1.15 and ambient x0.9, growing with the sun's height from 12 to 35 degrees (dawn and
+sun up to x1.15 (the ambient stays), growing with the sun's height from 12 to 35 degrees (dawn and
 dusk keep their soft shade): a harder desert light whose shade the bounce fills. The bounce is added as diffuse colour ×
 light. The post-process AO (graphics-enhanced.md §3.1) stays on at 0.35 for contact shadows.
 
@@ -144,7 +144,13 @@ field and the cloud shadows (same place and method, later the same day): GI 1.78
 fog 0.45-0.46 ms, main pass 1.74 ms (enhanced 1.47); frame time 4.86 against 7.17 ms; the
 final build 4.91 against 7.34 ms (GI 1.93, fog 0.47, main pass 1.82).
 
-Final build against `vanilla` (mean / standard deviation / share of pixels under 20):
+Final build (detail relief, environment-map reflections, sun-only lean, bounce 3) against
+`vanilla` (mean / standard deviation / share of pixels under 20): Goodsprings noon
+97.8/58.6/8.1 % → 103.3/60.8/7.3 %, dusk → 94.0/54.9/2.8 %, road → 115.0/80.6/3.7 %, Doc
+Mitchell's house → 42.6/22.0/10.3 %, saloon → 20.4/27.4/71.6 %, Novac → 75.2/44.7/2.5 %, Strip
+→ 61.1/57.0/25.0 %, Primm → 94.2/52.3/3.0 %; frame 4.90 ms (enhanced) against 7.37 ms.
+
+An earlier build against `vanilla`:
 Goodsprings noon 97.8/58.6/8.1 % → 97.1/60.5/12.0 %, dusk 78.8/50.7/3.4 % → 92.7/55.1/2.9 %,
 road 101.1/77.7/11.3 % → 114.8/81.8/4.4 %, Doc Mitchell's house 37.6/20.1/15.2 % →
 42.5/21.8/10.0 %, saloon 17.5/28.7/77.4 % → 19.8/27.2/73.0 %, Novac 71.7/42.6/3.1 % →
