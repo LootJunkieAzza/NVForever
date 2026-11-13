@@ -28,7 +28,12 @@ Expression]. It is used:
   [documented: TestExpr; While];
 - **inside parentheses passed as a function argument** (inline expressions, xNVSE
   6.1.0): `Player.SetActorValue Health (Player.GetActorValue Health + 50)` compiles
-  from then on and did not before [documented: Inline Expression];
+  from then on and did not before [documented: Inline Expression]. A string there, in
+  an actor value's or an axis's place, is the name in any case: `GetAV ("Strength")`,
+  `GetAV (s)` and `GetAV ($s)` read Strength, `SetAV ("Luck") 7` sets Luck, `GetPos
+  ("Z")` is `GetPos Z`; an unknown name (`GetAV ("NoSuchAV")`) raises no error the
+  script stops on, but a `let` assigns nothing; a bare `GetAV s` does not compile
+  [observed: #2276 job A, save nvfairport];
 - **in a whole block whose type has a leading underscore** (the compiler override,
   deprecated): see §8.
 

@@ -6214,6 +6214,12 @@ impl Host for Exec<'_, '_> {
         self.game.emit(EventKind::Skipped { unit, what: what.to_string() });
     }
 
+    fn skipped_in(&mut self, stmt: &fnv_script::ir::Stmt) {
+        let d = fnv_script::decompile::Decompiler { unit: &self.unit.unit, table: &self.game.data.table, names: &fnv_script::decompile::NoNames };
+        let line = d.head(stmt);
+        self.game.emit(EventKind::SkippedAt { unit: self.unit.key(), line });
+    }
+
     fn take_return(&mut self) -> bool {
         std::mem::take(&mut self.game.stop_run)
     }
