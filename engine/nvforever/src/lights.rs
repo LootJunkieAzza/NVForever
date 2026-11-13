@@ -654,7 +654,7 @@ mod tests {
     #[test]
     fn the_fresnel_line_is_in_bevys_shader_once() {
         let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../vendor/bevy_pbr/src/render/pbr_lighting.wesl");
-        let source = unix_lines(std::fs::read_to_string(path).expect("vendored pbr_lighting.wesl"));
+        let source = unix_lines(&std::fs::read_to_string(path).expect("vendored pbr_lighting.wesl"));
         assert_eq!(source.matches(FRESNEL_EDIT.0).count(), 1, "the edit's anchor");
         let mut patched = source.replace(BEVY_ATTENUATION, GAME_ATTENUATION);
         for (from, to) in SPECULAR_EDITS {
