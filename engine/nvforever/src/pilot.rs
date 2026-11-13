@@ -30,8 +30,11 @@
 //!   another actor (`X.MoveTo`).
 //! - Menus: `wait_menu`, `get_menus`, `close_menus`, `press_button` and
 //!   `dismiss_message_boxes` act on the game's menu as the headless run does. A message
-//!   box no step is waiting for is closed after [`BOX_SECS`] s, as a player presses OK
-//!   (headless such a box holds nothing up).
+//!   box no step is waiting for is answered after [`BOX_SECS`] s (headless such a box
+//!   holds nothing up): one with a single button is closed, as a player presses OK; of
+//!   several buttons the last one shown is picked, which is the way on in the boxes
+//!   seen so far (leaving Goodsprings: "Edit Name", "Rebuild Character", "Finished -
+//!   Travel Onward"; the first button there opened the name menu again and again).
 //!
 //! - **The player is driven like an NPC and acts directly.** It walks the navmesh paths
 //!   the NPCs walk (`fnv_nav`, through doors) on its own movement controls, so the
@@ -64,8 +67,12 @@
 //!   after [`FIGHT_CLOSER_SECS`]. The shots are the player's own (`nvf_play::combat`):
 //!   the weapon's cycle, spread, damage and the target's armour decide. An actor still
 //!   alive after [`FIGHT_SECS`] is a `fight_not_won` finding and is killed as the
-//!   headless run kills it, so the chain goes on. Not yet: where to stand and when to
-//!   fire as the NPCs judge it (`npc_combat`: reach, cover, line of fire), melee.
+//!   headless run kills it, so the chain goes on. The line of fire is the NPCs' own
+//!   judgement (`combat_tactics::shot_clear`: the eye to the target's trunk, else its
+//!   head): with none for [`NO_SHOT_SECS`] s the player goes nearer, by a third each
+//!   time, instead of firing into what is in the way. Not yet: the NPCs' reach by
+//!   weapon and their cover (`npc_combat::gun_reach`, `combat_tactics::find_cover`),
+//!   melee.
 //! - **The player defends itself and whoever it is with.** An actor in combat whose
 //!   target is the player, or the actor the step walks to or keeps company, within
 //!   [`THREAT_RANGE`], is fought first, as a `kill` step fights, and the step goes on
@@ -155,6 +162,10 @@ pub const FIGHT_RANGE: f32 = 700.0;
 pub const FIGHT_NEAR: f32 = 220.0;
 pub const FIGHT_CLOSER_SECS: f64 = 12.0;
 pub const FIGHT_SECS: f64 = 75.0;
+/// Seconds without a clear line of fire before the player goes nearer, and how near at
+/// the least.
+pub const NO_SHOT_SECS: f64 = 1.5;
+pub const FIGHT_NEAREST: f32 = 120.0;
 /// How far off an attacker is fought, and for how long at most.
 pub const THREAT_RANGE: f32 = 2500.0;
 pub const DEFEND_SECS: f64 = 60.0;
@@ -257,6 +268,8 @@ struct Fight {
     /// Since when the player has been shooting from where it stands.
     shooting: Option<f64>,
     near: bool,
+    /// Since when there has been no clear line of fire from where the player stands.
+    blocked: Option<f64>,
 }
 
 enum Phase {
@@ -278,6 +291,8 @@ struct Pilot {
     campaign: bool,
     /// Since when a message box nobody waits for has been up.
     box_since: Option<f64>,
+    /// A button of that box was picked and waits to be read.
+    box_picked: bool,
     /// The other menu up, and since when.
     menu_since: Option<(u16, f64)>,
     /// For a `say_info` kept company: how many lines had been begun when the chain (in
@@ -322,6 +337,7 @@ impl Pilot {
             chains_done: 0,
             campaign,
             box_since: None,
+            box_picked: false,
             menu_since: None,
             mark: 0,
             still: (0.0, [0.0; 3]),
@@ -771,10 +787,24 @@ fn engage(p: &mut Pilot, h: &mut Hands, name: &str, f: &mut Fight, w: &mut Walk)
         Walked::There | Walked::Put => {
             let since = *f.shooting.get_or_insert(p.now);
             let at = h.phys.world.actor_aim_point(target.0).or_else(|| h.game(|g| where_is(g, target)).flatten().map(|(_, pos)| [pos[0], pos[1], pos[2] + 80.0]));
-            if let Some(at) = at {
+            // The line of fire, as the NPCs judge it: to the trunk, else the head.
+            let eye = h.player.eye();
+            let clear = at.and_then(|at| crate::combat_tactics::shot_clear(Some(&mut *h.phys), eye, None, at, [at[0], at[1], at[2] + 40.0]));
+            if let Some(at) = clear.or(at) {
                 let cross: Option<Crosshair> = h.control.crosshair;
-                (h.player.heading, h.player.pitch) = Crosshair::aim_at(cross.as_ref(), h.player.eye(), at);
+                (h.player.heading, h.player.pitch) = Crosshair::aim_at(cross.as_ref(), eye, at);
             }
+            if clear.is_none() && at.is_some() {
+                h.control.trigger = false;
+                let since = *f.blocked.get_or_insert(p.now);
+                if p.now - since > NO_SHOT_SECS && w.radius > FIGHT_NEAREST {
+                    w.radius = (w.radius * 0.66).max(FIGHT_NEAREST);
+                    (f.blocked, f.shooting, w.follower) = (None, None, None);
+                    info!("pilot: step {}: no clear shot at {name} for {NO_SHOT_SECS} s: the player goes nearer (within {:.0} units)", p.i, w.radius);
+                }
+                return;
+            }
+            f.blocked = None;
             // The trigger is pulled and let go, as for a weapon that fires once a pull.
             h.control.trigger = ((p.now - since) * 6.0) as i64 % 2 == 0;
             if !f.near && p.now - since > FIGHT_CLOSER_SECS {
@@ -1248,7 +1278,7 @@ fn fight(p: &mut Pilot, h: &mut Hands, name: &str, a: &Action) -> Option<Option<
         };
         arm(p, h);
         let Phase::Walk(w) = new_walk(place, Some(r), FIGHT_RANGE, p.now, h.feet()) else { unreachable!() };
-        p.phase = Phase::Fight(Fight { target: r, shooting: None, near: false }, w);
+        p.phase = Phase::Fight(Fight { target: r, shooting: None, near: false, blocked: None }, w);
     }
     let Phase::Fight(mut f, mut w) = std::mem::replace(&mut p.phase, Phase::Begin) else { return Some(None) };
     let target = f.target;
@@ -1375,12 +1405,37 @@ fn drive(
     let boxed = h.game(|g| g.menu == Some(fnv_game::game::menus::MESSAGE)) == Some(true);
     match (boxed && !waited_for, p.box_since) {
         (true, None) => p.box_since = Some(p.now),
-        (true, Some(t)) if p.now - t > BOX_SECS => {
+        // The button picked a moment ago has been read by the box's script: it closes.
+        (true, Some(t)) if p.box_picked && p.now - t > BOX_SECS + 0.15 => {
             h.game(|g| g.close_menu());
-            info!("pilot: step {}: closes a message box no step waits for", p.i);
-            p.box_since = None;
+            (p.box_since, p.box_picked) = (None, false);
         }
-        (false, _) => p.box_since = None,
+        (true, Some(t)) if !p.box_picked && p.now - t > BOX_SECS => {
+            let picked = h.game(|g| {
+                let last = g.message_box.as_ref().filter(|m| m.buttons > 1 && m.waiting()).and_then(|m| (0..m.buttons).rev().find(|b| !m.hidden.contains(b)));
+                match (last, g.message_box.as_mut()) {
+                    (Some(b), Some(m)) => {
+                        m.pressed = Some(b as i32);
+                        Some(b)
+                    }
+                    _ => {
+                        g.close_menu();
+                        None
+                    }
+                }
+            });
+            match picked.flatten() {
+                Some(b) => {
+                    info!("pilot: step {}: a message box no step waits for has several buttons: picks the last, button {b}", p.i);
+                    p.box_picked = true;
+                }
+                None => {
+                    info!("pilot: step {}: closes a message box no step waits for", p.i);
+                    p.box_since = None;
+                }
+            }
+        }
+        (false, _) => (p.box_since, p.box_picked) = (None, false),
         _ => {}
     }
     // Another menu the scripts opened that no step waits for: the level-up menu is
@@ -1418,7 +1473,7 @@ fn drive(
                 let space = cell.and_then(|c| crate::nav::space_of_cell(world, c.0)).unwrap_or(space_of(h.location));
                 arm(p, &mut h);
                 info!("pilot: step {}: {who} attacks {}: fought before the step goes on", p.i, if friend.is_some() { "the player or the actor it is with" } else { "the player" });
-                p.defend = Some((Fight { target: who, shooting: None, near: false }, walk_to(Place { space, pos }, Some(who), FIGHT_RANGE, p.now, feet)));
+                p.defend = Some((Fight { target: who, shooting: None, near: false, blocked: None }, walk_to(Place { space, pos }, Some(who), FIGHT_RANGE, p.now, feet)));
                 p.defend_from = p.now;
             }
         }
