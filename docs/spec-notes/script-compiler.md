@@ -431,10 +431,9 @@ The owner's 232-plugin High and Dry list (smoke scenario `modlist-high-dry`) add
 
 Left with their bytes, as the source cannot be compiled to them: five result scripts whose
 classic `if` has a surplus argument (`GetObjectiveDisplayed Q 30 1 && …`), which stop the
-script in the original as in the VM (observer-checks.md check 32); oHUD.esm's five units
-naming `aHUD`, a quest that shares its FormID with a message in the same plugin; and three
-units whose source names forms renamed or replaced since their bytes were written. On High
-and Dry the same ten (the result scripts and oHUD, shared with Blue Moon) and four more:
+script in the original as in the VM (observer-checks.md check 32); and three units whose
+source names forms renamed or replaced since their bytes were written. On High
+and Dry the same five result scripts (shared with Blue Moon) and four more:
 three whose source names references renamed since their bytes were written
 (RG_PrimmPlayerHome.esm's `RGGeneratorPower` is `RGGeneratorPowerREF` in its own records,
 ICE.esp's `rActorRef` is declared nowhere), and Leveled DLC Delay.esm, whose
