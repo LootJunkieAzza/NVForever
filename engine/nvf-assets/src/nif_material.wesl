@@ -84,7 +84,7 @@ import bevy_pbr::{
 };
 
 import nvf_assets::nif_surface_bindings::{NifSurface, nif_surface, standard_material, holes_alpha, facegen_size, facegen_texel, base_color_texel, base_color_texel_level, base_color_size, normal_map_texel, env_mask_value};
-@if(SCREEN_INDIRECT) import bevy_pbr::render::mesh_view_bindings::screen_indirect_texture;
+@if(SCREEN_INDIRECT) import bevy_pbr::render::mesh_view_bindings::{screen_indirect_texture, screen_probe_faces, screen_probe_sampler};
 
 // Main-pass geometry uses the render viewport, which can be smaller than the
 // display attachment when FSR is enabled. Transmission remains a full-size texture.
@@ -475,6 +475,33 @@ fn nvf_detail_normal(n: vec3<f32>, p: vec3<f32>, distance: f32, strength: f32) -
 // ray, at the map's scale × its mask × a Fresnel rise towards grazing angles, hidden where
 // the surroundings close the view (gi.rs). Linear light after exposure, added after the
 // lighting [engineering choice: the game's cube maps are not drawn].
+// The local light probe's faces (nvforever probe.rs FACES: +X, -X, +Y up -Z, -Y up +Z, +Z,
+// -Z; up Y otherwise) sampled along world direction `d`: the face of its largest
+// component, then that camera's 90-degree projection.
+@if(SCREEN_INDIRECT && !PREPASS_PIPELINE)
+fn probe_sample(d: vec3<f32>) -> vec3<f32> {
+    let a = abs(d);
+    var face = 0;
+    var fwd = vec3(1.0, 0.0, 0.0);
+    var up = vec3(0.0, 1.0, 0.0);
+    if a.x >= a.y && a.x >= a.z {
+        face = select(1, 0, d.x > 0.0);
+        fwd = vec3(sign(d.x), 0.0, 0.0);
+    } else if a.y >= a.z {
+        face = select(3, 2, d.y > 0.0);
+        fwd = vec3(0.0, sign(d.y), 0.0);
+        up = select(vec3(0.0, 0.0, 1.0), vec3(0.0, 0.0, -1.0), d.y > 0.0);
+    } else {
+        face = select(5, 4, d.z > 0.0);
+        fwd = vec3(0.0, 0.0, sign(d.z));
+    }
+    let right = cross(fwd, up);
+    let z = dot(d, fwd);
+    let ndc = vec2(dot(d, right), dot(d, up)) / max(z, 1e-4);
+    let uv = vec2(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5);
+    return textureSampleLevel(screen_probe_faces, screen_probe_sampler, uv, face, 0.0).rgb;
+}
+
 @if(SCREEN_INDIRECT && !PREPASS_PIPELINE)
 fn env_reflection(instance_index: u32, uv: vec2<f32>, n: vec3<f32>, v: vec3<f32>, frag: vec4<f32>) -> vec3<f32> {
     let surface = nif_surface(instance_index);
@@ -486,8 +513,8 @@ fn env_reflection(instance_index: u32, uv: vec2<f32>, n: vec3<f32>, v: vec3<f32>
         mask = env_mask_value(instance_index, uv);
     }
     let r = reflect(-v, n);
-    let amb = pow(max(lights.ambient_color.rgb * view.exposure, vec3(0.0)), vec3(2.2));
-    let sky = amb * mix(vec3(0.3, 0.27, 0.24), vec3(2.0, 2.15, 2.4), saturate(r.y * 0.6 + 0.5));
+    // What the local light probe (nvforever probe.rs) saw along the reflected ray.
+    let sky = probe_sample(r);
     let n_dot_v = saturate(dot(n, v));
     let fresnel = 0.35 + 0.65 * pow(1.0 - n_dot_v, 5.0);
     let si = textureLoad(screen_indirect_texture, vec2<i32>(frag.xy - view.viewport.xy), 0);
