@@ -88,7 +88,7 @@ with its 8-tap spiral at 2.5x, turned per pixel and not per frame (vendored
 On display values after tonemapping, in the bloom/sharpen composite: × 1.06, a luminance
 S-curve blended in by 0.14 with its toe lifted, shade a touch cooler and light a touch warmer,
 vibrance +25 % on greyish colours. Tuned so the mean luminance of the eight test views stays
-within -4..+5 of `enhanced` while contrast rises (§6).
+within -4..+5 of `enhanced`; contrast (standard deviation) rises in seven of them, Doc Mitchell's house is a little flatter (§6).
 
 ## 6. Measurements
 
