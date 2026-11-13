@@ -988,6 +988,11 @@ impl DataState {
 
     /// The named map markers of worldspace `world` the plugins place (read once the DATA
     /// page first tracked the player): reference, place and whether the player found it.
+    /// The markers of `world` with their names: FormID, place, name, found.
+    pub fn named_markers_of(&self, world: u32) -> Vec<(u32, [f32; 3], &str, bool)> {
+        self.markers.iter().flatten().filter(|m| m.world == world).map(|m| (m.form, m.pos, m.name.as_str(), self.discovered.contains(&m.form))).collect()
+    }
+
     pub fn markers_of(&self, world: u32) -> Vec<(u32, [f32; 3], bool)> {
         self.markers.iter().flatten().filter(|m| m.world == world).map(|m| (m.form, m.pos, self.discovered.contains(&m.form))).collect()
     }

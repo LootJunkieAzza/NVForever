@@ -244,6 +244,11 @@ const FARTHEST_PIP: f32 = 0.25;
 /// for the Fade Places by Distance tweak [design: docs/design/tweaks.md].
 static PLACE_RANGE: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 
+/// The reach places showed on the compass at the last look (game units; 0 before one).
+pub fn place_range() -> f32 {
+    f32::from_bits(PLACE_RANGE.load(std::sync::atomic::Ordering::Relaxed))
+}
+
 pub struct CompassPlugin;
 
 impl Plugin for CompassPlugin {

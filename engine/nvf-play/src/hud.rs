@@ -614,7 +614,7 @@ impl Plugin for HudPlugin {
         app.init_resource::<HudView>()
             .add_plugins((crate::hud_target::HudTargetPlugin, crate::hud_limbs::HudLimbsPlugin, crate::hud_needs::HudNeedsPlugin, crate::hud_breath::HudBreathPlugin))
             .init_resource::<HudHidden>()
-            .add_systems(Update, (gather, draw, pips, texts, enemy_colours).chain().in_set(HudSet).in_set(PlaySet::Ui))
+            .add_systems(Update, (gather, draw, pips, texts, enemy_colours, place_name).chain().in_set(HudSet).in_set(PlaySet::Ui))
             .add_systems(PostUpdate, hide_parts.before(crate::tiles::vanilla::hide_hand_built).before(bevy::camera::visibility::VisibilitySystems::VisibilityPropagate));
     }
 }
@@ -670,6 +670,77 @@ pub(crate) struct HudRoot;
 /// The health and compass piece, bottom left.
 #[derive(Component)]
 struct HpPiece;
+
+/// The name of the place ahead, over the health and compass piece (the HUD Marker Name
+/// tweak).
+#[derive(Component)]
+struct PlaceNameText;
+
+/// Game units in a metre [observed: 70, as the physics takes it (`fnv-phys`)].
+const UNITS_PER_METRE: f32 = 70.0;
+
+/// The words for the place the player faces under the HUD Marker Name tweak: of the map
+/// markers `(place, name, found)` within `range` of `here`, the one whose bearing is
+/// nearest `heading` (degrees, 0 north) and within `max_angle` of it, places not found
+/// left out with `hide_unfound`; its name, with its distance in metres (`units` 1) or feet
+/// (2) [design: docs/design/tweaks.md].
+pub fn place_ahead<'a>(markers: impl IntoIterator<Item = ([f32; 2], &'a str, bool)>, here: [f32; 2], heading: f32, range: f32, max_angle: f32, hide_unfound: bool, units: u8) -> Option<String> {
+    let mut best: Option<(f32, f32, &str)> = None;
+    for (at, name, found) in markers {
+        let away = (at[0] - here[0]).hypot(at[1] - here[1]);
+        if name.trim().is_empty() || (hide_unfound && !found) || away > range {
+            continue;
+        }
+        let off = (crate::compass::offset(heading, here, at) * 360.0 / STRIP.x).abs();
+        if off <= max_angle && best.is_none_or(|b| off < b.0) {
+            best = Some((off, away, name));
+        }
+    }
+    let (_, away, name) = best?;
+    let metres = away / UNITS_PER_METRE;
+    Some(match units {
+        1 => format!("{name}  {metres:.0} m"),
+        2 => format!("{name}  {:.0} ft", metres * 3.2808),
+        _ => name.to_string(),
+    })
+}
+
+/// The HUD Marker Name tweak's line: the place ahead (`place_ahead`, among the markers the
+/// compass would show: in the worldspace outside, within its reach), centred over the
+/// compass's heading point above the piece [design: docs/design/tweaks.md].
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
+fn place_name(
+    mut commands: Commands,
+    view: Res<HudView>,
+    (tweaks, markers, location, player, control): (Option<Res<crate::tweaks::TweakSettings>>, Option<Res<crate::pipboy::data::DataState>>, Option<Res<crate::Location>>, Option<Res<Player>>, Option<Res<crate::control::PlayerControl>>),
+    sim: Res<SimState>,
+    (data, mut images, formats): (Option<Res<GameData>>, ResMut<Assets<Image>>, Option<Res<CompressedImageFormatSupport>>),
+    mut face_: Local<Option<Face>>,
+    mut shown: Local<Option<String>>,
+    text: Query<Entity, With<PlaceNameText>>,
+) {
+    let _hud = crate::interface::hud_units();
+    let Ok(e) = text.single() else { return };
+    let words = (|| {
+        let t = tweaks.as_deref().filter(|t| t.hud_marker_name && view.shown)?;
+        let (st, loc, player) = (markers.as_deref()?, location.as_deref().filter(|l| l.interior.is_none())?, player.as_deref()?);
+        let heading = control.as_deref().map_or(player.heading, |c| c.view_heading(player.heading)).to_degrees();
+        let range = crate::compass::place_range();
+        let list = st.named_markers_of(loc.world);
+        let list = list.iter().filter(|m| sim.present(m.0)).map(|m| ([m.1[0], m.1[1]], m.2, m.3));
+        place_ahead(list, [player.feet[0], player.feet[1]], heading, range, t.marker_name_angle, t.marker_name_hide_unfound, t.marker_name_units)
+    })();
+    if *shown == words {
+        return;
+    }
+    *shown = words.clone();
+    let face_ = face_.get_or_insert_with(|| face(FONT, plain_font(36.0, 15.0), data.as_deref(), &mut images, bc_supported(formats.as_deref())));
+    commands.entity(e).despawn_related::<Children>().with_children(|p| {
+        if let Some(line) = words.as_deref().and_then(|w| face_.font.lines(w, None).into_iter().next()) {
+            set_line(p, face_, &line, COMPASS_AT.x + COMPASS_HEADING - line.width / 2.0, -8.0, amber(255.0));
+        }
+    });
+}
 
 /// The action points, condition and ammo piece, bottom right.
 #[derive(Component)]
@@ -860,6 +931,7 @@ fn spawn_hud(commands: &mut Commands, art: &mut Art, images: &mut Assets<Image>,
             let mut marks = at(COMPASS_AT.x, COMPASS_AT.y, COMPASS.x, COMPASS.y);
             marks.overflow = Overflow::clip_x();
             p.spawn((CompassMarks, marks));
+            p.spawn((PlaceNameText, at(0.0, 0.0, HP_PANEL.x, 0.0)));
         });
         // Action points, condition and ammo, bottom right.
         let piece = Node { position_type: PositionType::Absolute, right: u(MARGIN_X), bottom: u(MARGIN_Y), width: u(AP_PANEL.x), height: u(AP_PANEL.y), ..default() };
@@ -1247,6 +1319,22 @@ fn enemy_colours(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_place_ahead_is_the_nearest_bearing_within_the_angle() {
+        let m = [([0.0, 700.0], "North Camp", true), ([700.0, 700.0], "North East", true), ([-70.0, 7000.0], "Far North", false), ([0.0, -700.0], "", true)];
+        // Facing north: the camp straight ahead, 10 m off; Far North is a hair off the line.
+        assert_eq!(place_ahead(m, [0.0, 0.0], 0.0, 10_000.0, 10.0, false, 1).as_deref(), Some("North Camp  10 m"));
+        assert_eq!(place_ahead(m, [0.0, 0.0], 0.0, 10_000.0, 10.0, false, 2).as_deref(), Some("North Camp  33 ft"));
+        // Facing north east: that one; south: the unnamed marker is no answer.
+        assert_eq!(place_ahead(m, [0.0, 0.0], 45.0, 10_000.0, 10.0, false, 0).as_deref(), Some("North East"));
+        assert_eq!(place_ahead(m, [0.0, 0.0], 180.0, 10_000.0, 10.0, false, 0), None);
+        // Out of range, or not found and hidden.
+        let far = [([-70.0, 7000.0], "Far North", false)];
+        assert_eq!(place_ahead(far, [0.0, 0.0], 0.0, 1000.0, 10.0, false, 0), None);
+        assert_eq!(place_ahead(far, [0.0, 0.0], 0.0, 10_000.0, 10.0, true, 0), None);
+        assert_eq!(place_ahead(far, [0.0, 0.0], 0.0, 10_000.0, 10.0, false, 0).as_deref(), Some("Far North"));
+    }
 
     #[test]
     fn the_hide_hud_key_hides_only_its_chosen_parts() {

@@ -585,6 +585,7 @@ unless the player binds them, so nothing changes until then.
 | V.A.T.S. Drops Shots at a Lost Weapon | `bVATSDequeueWeaponShotsOnDisarm` | `vats_mode::drop_dead_marks` also drops marks on `hitvol::WEAPON_PART` once `ActorParts` shows the target holding no weapon (the renderer's segments, a frame after the drop) |
 | V.A.T.S. Starts on the Head | `bVATSAutoTargetHead` | `vats_mode::classic_frame` picks `head_part` (the part whose condition is Perception Condition) instead of the best chance when a target's part is first set |
 | Hide HUD key | `iHideHUDKey` | `bindings::Control::HideHud` toggles `hud::HudHidden`; `hud::hide_parts` (PostUpdate, before the tiles' hiding) hides the `HpPiece`, `ApPiece`, sneak word and needs words its switches choose; `HIDE_HUD_SAVE_HOOK` starts a load hidden under Hidden After Loading. The tile-drawn HUD is not hidden by it |
+| Place Name on the HUD | `bHUDMarkerNameIndicator` | `hud::place_name` writes `hud::place_ahead`: of the worldspace's named markers present and within the compass's place reach (`compass::place_range`), the bearing nearest the view heading within the angle; drawn centred over the compass's heading point above the health piece. The readme's angle offset (its triangle's off-centre) has nothing to correct here |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -606,8 +607,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 515 |
-| to do | 88 |
+| done | 516 |
+| to do | 87 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -958,6 +959,7 @@ game's Data folder, read-only).
 | `bHideInvisibleUndiscoveredLocations` | done |  |  | Compass: Only Mapped Places |
 | `bHideUnknownNPCNames` | done |  | 1 | Hide Unknown Names (bodies are named, as bShowNameOnDeadNPCs) |
 | `bHostilesUseNeutralColorOnCompass` | done |  |  | Foes in the Usual Colour |
+| `bHUDMarkerNameIndicator` | done |  | 7 | Place Name on the HUD, with Widest Angle, Only Places Found and Distance (none, metres, feet); hand-built HUD; the angle offset is not needed |
 | `bKeepCrosshairWhenAiming` | done |  |  | Crosshair Down the Sights |
 | `bLocationDiscoveredCornerMessage` | done |  |  | Discoveries in the Corner |
 | `bMoveAmmoTypeLabel` | done |  |  | Ammo Label Under the Count |
@@ -996,7 +998,6 @@ game's Data folder, read-only).
 | `bDisableNeedsMessages` | to do |  | 4 | those messages are the game's own scripts; needs a filter by message |
 | `bExplodingDestructibleIndicator` | to do |  |  | not built: no grenade indicator |
 | `bHUDFatigueIndicator` | to do |  |  | the needs words are a fixed five |
-| `bHUDMarkerNameIndicator` | to do |  | 7 | no such HUD text yet |
 | `bHUDShowRegionNames` | to do |  | 1 | not built: the HUD has no region text |
 | `bHUDWeaponNameLabel` | unsure, skipped |  | 5 | needs the plugin's own menu XML |
 | `bShowDoorsOnCompass` | to do |  | 5 | a door mark kind, icons and gathering |

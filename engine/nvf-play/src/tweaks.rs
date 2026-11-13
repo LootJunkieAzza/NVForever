@@ -461,6 +461,14 @@ pub struct TweakSettings {
     /// `bRememberPipboyScrollPositions`: the Pip-Boy's item lists open where they were
     /// left, kept with the save ([`ItemPlaces`]).
     pub remember_item_places: bool,
+    /// `bHUDMarkerNameIndicator`: the name of the map marker the player faces, over the
+    /// compass; within `marker_name_angle` degrees, places not found left out with
+    /// `marker_name_hide_unfound`, its distance in `marker_name_units` (0 none, 1 metres,
+    /// 2 feet).
+    pub hud_marker_name: bool,
+    pub marker_name_angle: f32,
+    pub marker_name_hide_unfound: bool,
+    pub marker_name_units: u8,
     /// `iHideHUDKey`: what the Hide HUD key hides: the health and compass piece, the
     /// action points and ammo piece, the Hardcore needs words and the sneak word.
     pub hide_hud_compass: bool,
@@ -735,6 +743,10 @@ impl Default for TweakSettings {
             keep_fall_height_on_load: false,
             remember_item_places: false,
             grey_read_notes: false,
+            hud_marker_name: false,
+            marker_name_angle: 10.0,
+            marker_name_hide_unfound: true,
+            marker_name_units: 0,
             hide_hud_compass: true,
             hide_hud_ammo: true,
             hide_hud_needs: true,
@@ -1757,6 +1769,28 @@ impl Plugin for TweaksPlugin {
         switch!(app, "recent-markers-red", "New Places Red on the Map", "Places you found since starting NVForever are drawn red on the world map. (Stewie's Tweaks bColorRecentlyAddedMapMarkers)", game.recent_markers_red);
         switch!(app, "compass-quest-height", "Quest Marker Height", "A quest marker on the compass more than a storey above or below you has a short bar over or under it. (Stewie's Tweaks bCompassQuestHeightIndicator)", compass_quest_height);
         switch!(app, "compass-marker-height", "Your Marker's Height", "Your own map marker on the compass, more than a storey above or below you, has a short bar over or under it. (Stewie's Tweaks bPlacedMarkerHeightIndicator)", compass_marker_height);
+        switch!(app, "hud-marker-name", "Place Name on the HUD", "The name of the map marker the player faces is shown over the compass. (Stewie's Tweaks bHUDMarkerNameIndicator)", hud_marker_name);
+        amount!(app, "marker-name-angle", "Place Name: Widest Angle", "How far off straight ahead, in degrees, a place's name is still shown. (Stewie's Tweaks bHUDMarkerNameIndicator)", 45.0, f32, marker_name_angle);
+        switch!(app, "marker-name-hide-unfound", "Place Name: Only Places Found", "Places the player has not found are not named. (Stewie's Tweaks bHUDMarkerNameIndicator)", marker_name_hide_unfound);
+        add_setting(
+            app,
+            Setting::slider(
+                "tweak-marker-name-units",
+                GROUP,
+                "Place Name: Distance",
+                "Whether the place's name comes with how far it is, and in what. (Stewie's Tweaks bHUDMarkerNameIndicator)",
+                Slider::choice(
+                    3,
+                    |w| choice_part(w.get_resource::<TweakSettings>().map_or(0, |t| t.marker_name_units as usize).min(2), 3),
+                    |w, v| {
+                        if let Some(mut t) = w.get_resource_mut::<TweakSettings>() {
+                            t.marker_name_units = choice_index(v, 3) as u8;
+                        }
+                    },
+                    |v| ["None", "Metres", "Feet"][choice_index(v, 3)].to_string(),
+                ),
+            ),
+        );
         switch!(app, "hide-hud-compass", "Hide HUD Key: Health and Compass", "The Hide HUD key (on the Controls page) hides the health bar and compass. (Stewie's Tweaks iHideHUDKey)", hide_hud_compass);
         switch!(app, "hide-hud-ammo", "Hide HUD Key: Action Points and Ammo", "The Hide HUD key hides the action points, condition and ammo. (Stewie's Tweaks iHideHUDKey)", hide_hud_ammo);
         switch!(app, "hide-hud-needs", "Hide HUD Key: Hardcore Needs", "The Hide HUD key hides the Hardcore needs words. (Stewie's Tweaks iHideHUDKey)", hide_hud_needs);
