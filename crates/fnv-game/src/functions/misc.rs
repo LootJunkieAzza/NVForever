@@ -162,12 +162,14 @@ pub fn get_game_setting(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, Str
 /// defaults itself), with the values the original returned [observed: `GetGameSetting`
 /// in the capture `fa_batch1_queries`, 2026-10-16; the 27 trap-plate scripts read the
 /// five `iLockLevelMax…` settings, docs/design/script-function-audit.md].
-pub const EXE_SETTINGS: [(&str, f32); 5] = [
+pub const EXE_SETTINGS: [(&str, f32); 6] = [
     ("iLockLevelMaxVeryEasy", 0.0),
     ("iLockLevelMaxEasy", 25.0),
     ("iLockLevelMaxAverage", 50.0),
     ("iLockLevelMaxHard", 75.0),
     ("iLockLevelMaxVeryHard", 100.0),
+    // [observed: builtin-luck-setting.md, own public script query, 2026-11-12].
+    ("fAVDSkillLuckBonusMult", 0.5),
 ];
 
 pub fn abs(_g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {

@@ -174,8 +174,9 @@ impl AntiLagDriver {
 pub fn technique(world: &World) -> Option<&'static str> {
     if world.contains_resource::<AntiLagDriver>() {
         Some("AMD Anti-Lag")
-    } else if world.contains_resource::<crate::nv_low_latency::NvLowLatency>() {
-        Some("NVIDIA low latency")
+    } else if let Some(driver) = world.get_resource::<crate::nv_low_latency::NvLowLatency>() {
+        // Streamline's Reflex while the DLSS Frame Generation spike keeps it (#2317, Stage 3).
+        Some(if driver.through_streamline() { "NVIDIA Reflex (Streamline)" } else { "NVIDIA low latency" })
     } else {
         None
     }
@@ -238,6 +239,13 @@ impl Plugin for AntiLagPlugin {
             }
             // No Anti-Lag: NVIDIA's low latency mode, where the driver has that.
             None => match crate::nv_low_latency::load(app) {
+                Ok(driver) if crate::dlss::frame_generation_on() => {
+                    // Whether Streamline's Reflex runs is known after the DLSS loader's cleanup;
+                    // the calls follow it (`nv_low_latency.rs` `ViaStreamline`).
+                    info!("latency reduction: NVIDIA Reflex through Streamline available on {adapter} (the direct VK_NV_low_latency2 calls only if Streamline's Reflex is not kept)");
+                    app.insert_resource(driver.clone());
+                    app.sub_app_mut(RenderApp).insert_resource(driver);
+                }
                 Ok(driver) => {
                     info!("latency reduction: NVIDIA low latency (VK_NV_low_latency2) available on {adapter}");
                     app.insert_resource(driver.clone());

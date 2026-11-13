@@ -979,11 +979,15 @@ pub(crate) fn input(
 /// game clock, activation, combat. Runs after `script::hold_player`
 /// (which would put the player in `Menu` for a message box): in a conversation the box
 /// is answered from the `Dialogue` state, and when the conversation ends under an open
-/// box the player goes to `Menu`.
+/// box the player goes to `Menu`. The repair services and the recipe menu a line's result
+/// script opens (#2308) are `Menu` over the conversation, which waits under them: their
+/// own close goes back to `Dialogue` (`crate::repair::after_close`), and a conversation
+/// that ends as one opens (a Goodbye line's end script) leaves the player in `Menu`.
 #[allow(clippy::too_many_arguments)]
 fn sync_state(
     script: Option<Res<ScriptState>>,
     active: Res<ActiveMenu>,
+    services: (Option<Res<crate::repair::RepairServices>>, Option<Res<crate::crafting::RecipeMenu>>),
     paused: Res<Paused>,
     mode: Res<MenuPause>,
     state: Res<State<PlayState>>,
@@ -995,11 +999,12 @@ fn sync_state(
     let game = script.as_ref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game);
     let talking = game.is_some_and(|g| g.dialogue.is_some());
     let boxed = game.and_then(|g| g.menu).is_some_and(is_script_menu);
-    let own_menu = active.0.is_some() || paused.0;
+    let service = services.0.is_some_and(|r| r.is_open()) || services.1.is_some_and(|r| r.is_open());
+    let own_menu = active.0.is_some() || paused.0 || service;
     match (*state.get(), talking) {
         (PlayState::Playing, true) => next.set(PlayState::Dialogue),
         (PlayState::Menu, true) if !own_menu => next.set(PlayState::Dialogue),
-        (PlayState::Dialogue, false) => next.set(if boxed { PlayState::Menu } else { PlayState::Playing }),
+        (PlayState::Dialogue, false) => next.set(if boxed || service { PlayState::Menu } else { PlayState::Playing }),
         _ => {}
     }
     world_held.set_if_neq(WorldHeld(talking));

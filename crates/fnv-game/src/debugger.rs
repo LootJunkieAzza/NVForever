@@ -191,7 +191,7 @@ fn blocked_text(b: &Blocked, named: &dyn Fn(FormId) -> String) -> String {
         Blocked::SaidToday { hours_ago } => format!("Say Once a Day, said {hours_ago:.1} game hours ago"),
         Blocked::Speaker(s) => format!("only {} says it", named(*s)),
         Blocked::QuestNotRunning(q) => format!("its quest {} is not running", named(*q)),
-        Blocked::VoiceType => "the speaker's voice type has no Allow Default Dialog, and the line has no condition on who says it".into(),
+        Blocked::VoiceType => "the speaker's voice type has no Allow Default Dialog, and neither the line nor its quest has a condition on who says it".into(),
         Blocked::QuestConditions(q, _) => format!("the conditions of its quest {} fail", named(*q)),
         Blocked::Conditions(_) => "its conditions fail".into(),
     }

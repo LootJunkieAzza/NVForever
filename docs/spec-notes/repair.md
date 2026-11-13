@@ -41,6 +41,14 @@ Code: `crates/fnv-game/src/repair.rs` (the rules, `ShowRepairMenu`),
   leaves it.
 - Ten quests' scripts or dialogue call it, Raul's (`VDialogueRaul`) among them
   [observed: docs/design/script-function-coverage.md].
+- From a dialogue line's end script (issue #2308): FalloutNV.esm has ten lines whose end
+  script calls it; seven of them have no Goodbye flag (Mick's
+  `VFreeformFreesideVFSMickTopic008`, Old Lady Gibson's, Major Knight's two, Calamity's,
+  Dale Barton's, Samuel's at the 188) [observed: `fnvtool dialogue lines`]. Without the
+  flag the conversation does not end with the line, so the menu opens over the
+  conversation and the topic list comes back when it is closed [hypothesis: as the
+  barter menu does; the original's return is not captured]. With the flag (Raul's, the
+  safehouse paladin's) the conversation ends and the menu opens in play.
 
 ## 3. The vendor's menu
 

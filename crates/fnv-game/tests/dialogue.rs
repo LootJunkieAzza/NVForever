@@ -1426,6 +1426,45 @@ fn added_topics_follow_ups_and_the_topic_list() {
     assert!(g.events.iter().any(|e| matches!(e.kind, EventKind::TopicAdded { topic, by: Some(by) } if topic == FormId(T_ADDED) && by == FormId(B_ASK))));
 }
 
+/// Issue #2308: a line without the Goodbye flag whose end script is `ShowRepairMenu` (Mick's,
+/// Old Lady Gibson's, Major Knight's in FalloutNV.esm) leaves the conversation open under
+/// the repair services menu: the menu is set for the engine to open, the conversation waits
+/// under it, and once the engine closes the menu it goes on to the topic list.
+#[test]
+fn a_repair_line_without_goodbye_holds_the_conversation_until_the_menu_closes() {
+    use fnv_game::repair::{RepairRequest, REPAIR_SERVICES_MENU};
+    // `ShowRepairMenu` (0x117A, no parameters) as B_FOLLOW's end script; its subject is the
+    // speaker.
+    let extra = topic(0x982, "RepairTopic", "Repair", topic_type::TOPIC, 0, 50.0, vec![L {
+        id: 0xF82, quest: QA, end_raw: Some(unit(0, &st(0x117A, &le16(0)), &[], &[])), ..L::default()
+    }]);
+    let mut f = fixture_bytes(&[plugin_bytes(), top(b"DIAL", &extra)].concat());
+    let end = f.data.infos[&FormId(0xF82)].end;
+    let follow = f.data.infos.get_mut(&FormId(B_FOLLOW)).unwrap();
+    assert!(!follow.goodbye);
+    follow.end = end;
+    let mut g = game(&f);
+    g.start_dialogue(actor(), None).unwrap();
+    listen(&mut g);
+    pick(&mut g, T_ASK);
+    for _ in 0..20_000 {
+        if g.menu.is_some() {
+            break;
+        }
+        g.tick();
+    }
+    assert_eq!(g.menu, Some(REPAIR_SERVICES_MENU));
+    assert_eq!(g.repair_requests, vec![RepairRequest { vendor: actor() }]);
+    // Held: the conversation stays open as long as the menu is.
+    g.frames(2000);
+    assert_eq!((g.dialogue_actor(), g.menu), (Some(actor()), Some(REPAIR_SERVICES_MENU)));
+    // The engine closes the menu: the conversation goes on to the topic list.
+    assert_eq!(g.close_menu(), Some(REPAIR_SERVICES_MENU));
+    listen(&mut g);
+    assert_eq!(g.dialogue_actor(), Some(actor()));
+    assert_eq!(offered(&g), vec![T_TOP2, T_TOP, T_ADDED, T_SKILL, GOODBYE]);
+}
+
 #[test]
 fn a_goodbye_line_ends_the_conversation() {
     let f = fixture();

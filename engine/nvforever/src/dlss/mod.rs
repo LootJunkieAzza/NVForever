@@ -101,12 +101,28 @@
 //!   files, held open since the folder pass (`win.rs` `Pins`), are released. The interposer stays
 //!   loaded.
 //!
-//! Log lines start `DLSS:`; lines before the log is up wait in a buffer, written each frame
-//! (`First`) and at shutdown.
+//! - **Frame generation** (#2317; docs/design/dlss-frame-generation.md): with the four files of
+//!   [`FG_FILES`] in the folder beside the four above, `slInit` asks for DLSS, DLSS Frame
+//!   Generation and Reflex with frame-based tagging; DLSS-G's and Reflex's requirements are
+//!   logged and merged into the device check, and when that or `slInit` fails, Streamline is shut
+//!   down and initialised again with DLSS alone. Without the four files DLSS runs as before (one
+//!   line says which are missing). Once the device exists, DLSS-G stays loaded when the start's
+//!   Frame generation choice is DLSS and is unloaded before the window's swapchain otherwise;
+//!   Reflex stays loaded, and NVIDIA low latency goes through it ([`frame_generation_on`],
+//!   `nv_low_latency.rs`). `frame_gen.rs` follows the Frame generation row (on, off, the frames
+//!   to generate), sets the constants once a frame for FSR or DLSS, tags the depth, motion, a
+//!   copy of the frame without the HUD and a UI alpha on frames that may be generated, sets
+//!   DLSS-G's options on changes, reads its state after every present, holds a window change
+//!   until a frame was presented with DLSS-G off, and loads or unloads DLSS-G live with the
+//!   swapchain made again; `frame_token.rs` gives every Streamline call our frame number.
+//!   FSR's frame generation never runs while DLSS-G is loaded (`crate::frame_gen::usable`).
+//!
+//! Log lines start `DLSS:` (`DLSS-G:` for frame generation's own); lines before the log is up
+//! wait in a buffer, written each frame (`First`) and at shutdown.
 
 #[cfg(any(windows, test))]
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicU8, Ordering};
 use std::sync::{Mutex, PoisonError};
 
 use bevy::core_pipeline::prepass::{PreviousViewData, ViewPrepassTextures};
@@ -126,6 +142,10 @@ mod evaluate;
 #[cfg(windows)]
 mod ffi;
 pub(crate) mod download;
+#[cfg(windows)]
+mod frame_gen;
+#[cfg(windows)]
+mod frame_token;
 #[cfg(any(windows, test))]
 mod preflight;
 #[cfg(windows)]
@@ -145,6 +165,286 @@ const FOLDER_NAME: &str = "dlss";
 /// The files the folder must hold, the interposer first.
 #[cfg(any(windows, test))]
 const FILES: [&str; 4] = ["sl.interposer.dll", "sl.common.dll", "sl.dlss.dll", "nvngx_dlss.dll"];
+/// DLSS Frame Generation's files beside [`FILES`] (#2317): the feature, its NGX model,
+/// and Reflex and PCL, which DLSS-G requires through Streamline [documented:
+/// `ProgrammingGuideDLSS_G.md` §8.0, `ProgrammingGuideReflex.md` §6.0;
+/// fork-notes `fg-facts.md` §1]. The preflight already pins the three `sl.*` files and accepts
+/// NVIDIA-signed `nvngx_*.dll` (`preflight.rs` `RELEASE_DLLS`).
+#[cfg(any(windows, test))]
+const FG_FILES: [&str; 4] = ["sl.dlss_g.dll", "nvngx_dlssg.dll", "sl.reflex.dll", "sl.pcl.dll"];
+
+/// Whether DLSS Frame Generation can run this session, as far as the loader knows: the files
+/// (none of the four frame generation files, or not the loader at all), the GPU's support (from
+/// `slIsFeatureSupported(kFeatureDLSS_G)`, `sl_result.h:32-75`), or ready. For the settings
+/// page's reasons ([`frame_generation_unavailable`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u8)]
+#[cfg_attr(not(windows), allow(dead_code))]
+enum FgAvailability {
+    /// The four frame generation files are not all in the folder.
+    FilesMissing = 1,
+    /// `eErrorAdapterNotSupported` or `eErrorNoSupportedAdapterFound`.
+    GpuNotSupported = 2,
+    /// `eErrorOSDisabledHWS`: Windows' hardware-accelerated GPU scheduling is off.
+    SchedulingOff = 3,
+    /// `eErrorDriverOutOfDate`.
+    DriverOld = 4,
+    /// Any other refusal (slInit, the device check, a function not handed out).
+    Failed = 5,
+    Ready = 6,
+}
+
+/// 0 until the loader gets as far as the files (no DLSS files, not Vulkan: as without them).
+static FG_AVAILABILITY: AtomicU8 = AtomicU8::new(0);
+
+#[cfg_attr(not(windows), allow(dead_code))]
+fn set_fg_availability(availability: FgAvailability) {
+    FG_AVAILABILITY.store(availability as u8, Ordering::Relaxed);
+}
+
+/// Why DLSS Frame Generation cannot be chosen this session, in the settings page's words;
+/// `None` when it can (the Frame generation row's DLSS choice, `crate::frame_gen`).
+pub(crate) fn frame_generation_unavailable() -> Option<&'static str> {
+    if cfg!(not(windows)) {
+        return Some("Not on this GPU");
+    }
+    match FG_AVAILABILITY.load(Ordering::Relaxed) {
+        6 => None,
+        2 => Some("Needs an NVIDIA RTX 40 series or newer"),
+        3 => Some("Needs hardware-accelerated GPU scheduling"),
+        4 => Some("Needs a newer NVIDIA driver"),
+        5 => Some("Not on this GPU"),
+        _ => Some("The DLSS Frame Generation files are missing"),
+    }
+}
+
+/// Whether the start's Frame generation choice is DLSS (`main`, from the command line and the
+/// INI as the row's own rule reads them): DLSS-G stays loaded from the start; otherwise it is
+/// unloaded before the window's swapchain is made and loaded when chosen (`frame_gen.rs`).
+static FG_AT_START: AtomicBool = AtomicBool::new(false);
+
+/// `main` tells the loader the start's choice ([`FG_AT_START`]).
+pub(crate) fn set_frame_generation_at_start(dlss: bool) {
+    FG_AT_START.store(dlss, Ordering::Relaxed);
+}
+
+/// The most frames DLSS-G can generate per real frame on this GPU (`DLSSGState::
+/// numFramesToGenerateMax`, read after every present); 0 before it is known.
+static FG_MAX_FRAMES: AtomicU32 = AtomicU32::new(0);
+
+/// [`FG_MAX_FRAMES`], for the Generated frames row.
+pub(crate) fn frame_generation_max() -> u32 {
+    FG_MAX_FRAMES.load(Ordering::Relaxed)
+}
+
+/// DLSS Frame Generation is loaded now (#2317): set at the start once DLSS-G was requested in
+/// `slInit` and the device check passed with it, before any plugin's `finish`; cleared when it is
+/// unloaded (not chosen at the start, refused, switched off live) and set again when it is
+/// loaded (`win.rs`, `frame_gen.rs`), cleared at shutdown.
+static FG_KEPT_LOADED: AtomicBool = AtomicBool::new(false);
+
+/// Whether Streamline's DLSS Frame Generation is loaded now (before `Plugin::cleanup`: was asked
+/// for), so the window's swapchain is Streamline's proxy: FSR's frame generation never runs then
+/// (`crate::frame_gen::usable`). Always false off Windows and without the frame generation files.
+pub(crate) fn frame_generation_loaded() -> bool {
+    FG_KEPT_LOADED.load(Ordering::Relaxed)
+}
+
+/// DLSS Frame Generation and Reflex were set up this session (#2317): DLSS-G and Reflex asked
+/// for in `slInit` with the files there and the device check passed; Reflex stays loaded for
+/// the session. Cleared when frame generation does not start after all.
+static FG_ON: AtomicBool = AtomicBool::new(false);
+
+/// Whether Streamline's DLSS Frame Generation and Reflex were set up this session: NVIDIA low
+/// latency then goes through Streamline's Reflex while it runs (`nv_low_latency::load`). Always
+/// false off Windows and without the frame generation files.
+pub(crate) fn frame_generation_on() -> bool {
+    FG_ON.load(Ordering::Relaxed)
+}
+
+/// DLSS-G ended frame generation for the session (a status other than `eOk` while on,
+/// `frame_gen.rs` `state`). Reflex stays loaded; vsync and the frame cap go back to frame
+/// pacing's own ([`frame_generation_running`]).
+static FG_ENDED: AtomicBool = AtomicBool::new(false);
+
+/// Frames presented per real frame asked for (the Generated frames row + 1, `frame_gen.rs`
+/// `follow_request`); 1 otherwise.
+static FG_MULTIPLIER: AtomicU32 = AtomicU32::new(1);
+
+/// The frame limit Reflex is to keep, in microseconds per real frame (0: none), from frame
+/// pacing's cap while frame generation runs (`frame_pace.rs` `wait_for_cap`).
+static REFLEX_LIMIT_US: AtomicU32 = AtomicU32::new(0);
+
+/// Whether DLSS frame generation runs: [`frame_generation_on`], DLSS-G loaded (chosen) and not
+/// ended by a failed status. While it does, latency reduction is on with it (`crate::frame_gen`
+/// `follow_switch`, `LatencyReduction::by_frame_generation`) and the frame cap is Reflex's
+/// (`frame_pace.rs`), also in menus, where DLSS-G's mode is off for a while but frame generation
+/// is not over.
+pub(crate) fn frame_generation_running() -> bool {
+    frame_generation_on() && !FG_ENDED.load(Ordering::Relaxed) && frame_generation_loaded()
+}
+
+/// Frames presented per real frame asked for while frame generation runs (1 otherwise).
+pub(crate) fn frame_generation_multiplier() -> u32 {
+    if frame_generation_running() { FG_MULTIPLIER.load(Ordering::Relaxed).max(1) } else { 1 }
+}
+
+/// The frame limit Reflex keeps (microseconds per real frame, 0: none), set by frame pacing
+/// while frame generation runs; applied with Reflex's options at the next frame's input
+/// ([`reflex_options`]).
+pub(crate) fn set_reflex_frame_limit(frame_limit_us: u32) {
+    REFLEX_LIMIT_US.store(frame_limit_us, Ordering::Relaxed);
+}
+
+/// Streamline's Reflex runs this session: kept loaded and its calls installed
+/// (`frame_token.rs`). Every latency call then goes through it (`nv_low_latency.rs`).
+pub(crate) fn reflex_running() -> bool {
+    #[cfg(windows)]
+    {
+        frame_token::active()
+    }
+    #[cfg(not(windows))]
+    {
+        false
+    }
+}
+
+/// Reflex's options for the latency reduction switch (`eLowLatency` on, `eOff` off) and the
+/// frame limit frame pacing set ([`set_reflex_frame_limit`]), set only when either changes
+/// (`slReflexSetOptions` is not thread safe: the main thread, `nv_low_latency.rs` at each
+/// frame's input). Each change is said. `Err`: Streamline refused, or Reflex does not run.
+pub(crate) fn reflex_options(on: bool) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        use ffi::{REFLEX_MODE_LOW_LATENCY, REFLEX_MODE_OFF};
+        let mode = if on { REFLEX_MODE_LOW_LATENCY } else { REFLEX_MODE_OFF };
+        let limit = REFLEX_LIMIT_US.load(Ordering::Relaxed);
+        match frame_token::set_reflex_options(mode, limit) {
+            None => Ok(()),
+            Some(result) => {
+                let line = format!("Reflex options: mode {}, frame limit {}: {}", frame_token::reflex_mode_name(mode), limit_text(limit), result.name());
+                if result.is_ok() {
+                    note_fg(Level::INFO, line);
+                    Ok(())
+                } else {
+                    note_fg(Level::WARN, &line);
+                    Err(format!("slReflexSetOptions {}", result.name()))
+                }
+            }
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = on;
+        Err("Streamline is Windows only".to_string())
+    }
+}
+
+/// A Reflex frame limit for the log.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn limit_text(frame_limit_us: u32) -> String {
+    if frame_limit_us == 0 { "none".to_string() } else { format!("{frame_limit_us} us a real frame") }
+}
+
+/// The `NVF_PACE_LOG` line from `slReflexGetState` while Streamline's Reflex runs (the main
+/// thread; not thread safe); `None` otherwise.
+pub(crate) fn reflex_report_line() -> Option<String> {
+    #[cfg(windows)]
+    {
+        frame_token::reflex_report()
+    }
+    #[cfg(not(windows))]
+    {
+        None
+    }
+}
+
+/// Reflex's sleep through Streamline for the frame whose marker number is `present_id`
+/// (`nv_low_latency.rs` `present_id`, the engine frame plus one: the number `frame_token.rs`
+/// `index_of` gives the frame's constants and tags), while [`frame_generation_on`]; `false` when
+/// it was not made (not installed, or refused).
+pub(crate) fn reflex_sleep(present_id: u64) -> bool {
+    #[cfg(windows)]
+    {
+        frame_token::sleep(frame_token::number(present_id)).is_ok()
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = present_id;
+        false
+    }
+}
+
+/// A latency marker through Streamline's PCL for the frame whose marker number is `present_id`
+/// (as [`reflex_sleep`]), while [`frame_generation_on`]: the driver's marker mapped to PCL's
+/// (none for `INPUT_SAMPLE`, which PCL no longer has).
+pub(crate) fn reflex_mark(marker: ash::vk::LatencyMarkerNV, present_id: u64) {
+    #[cfg(windows)]
+    if let Some(pcl) = frame_token::pcl_marker(marker) {
+        frame_token::mark(pcl, frame_token::number(present_id));
+    }
+    #[cfg(not(windows))]
+    let _ = (marker, present_id);
+}
+
+/// When the DLSS passes were added (app construction): the clock of the Frame Generation
+/// test aid `NVF_DLSSG_RESIZE`.
+static TEST_START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+
+/// Seconds since [`TEST_START`].
+fn test_seconds() -> f64 {
+    TEST_START.get_or_init(std::time::Instant::now).elapsed().as_secs_f64()
+}
+
+/// `NVF_DLSSG_RESIZE=<seconds>:<w>x<h>,...`: the window resized during play (a test aid for the
+/// Frame Generation's window changes, `frame_gen.rs` `window_changes`; seconds since
+/// [`TEST_START`]). No other aid resizes outside the pause menu.
+const RESIZE_ENV: &str = "NVF_DLSSG_RESIZE";
+
+/// [`RESIZE_ENV`]'s steps.
+#[derive(Resource, Default)]
+struct ResizePlan {
+    steps: Vec<(f64, UVec2)>,
+    next: usize,
+}
+
+/// `NVF_DLSSG_RESIZE` read: `<seconds>:<w>x<h>` steps, in time order.
+fn resizes_from(value: &str) -> Result<Vec<(f64, UVec2)>, String> {
+    let mut steps = Vec::new();
+    for item in value.split(',').map(str::trim).filter(|i| !i.is_empty()) {
+        let parsed = item.split_once(':').and_then(|(at, size)| {
+            let at = at.trim().parse::<f64>().ok().filter(|t| t.is_finite() && *t >= 0.0)?;
+            let (w, h) = size.trim().split_once('x')?;
+            let size = UVec2::new(w.trim().parse().ok()?, h.trim().parse().ok()?);
+            (size.min_element() >= 64).then_some((at, size))
+        });
+        match parsed {
+            Some(step) => steps.push(step),
+            None => return Err(format!("{RESIZE_ENV}: '{item}' is not <seconds>:<width>x<height> (at least 64x64); no resize")),
+        }
+    }
+    steps.sort_by(|a, b| a.0.total_cmp(&b.0));
+    Ok(steps)
+}
+
+/// The resize test aid: the primary window's physical size set at each step's time.
+fn resize_aid(mut plan: ResMut<ResizePlan>, mut windows: Query<&mut Window, With<bevy::window::PrimaryWindow>>) {
+    let Some(&(at, size)) = plan.steps.get(plan.next) else { return };
+    if test_seconds() < at {
+        return;
+    }
+    plan.next += 1;
+    for mut window in &mut windows {
+        window.resolution.set_physical_resolution(size.x, size.y);
+        info!("test aid: window resized to {}x{} ({RESIZE_ENV}, {at} s)", size.x, size.y);
+    }
+}
+
+/// The files of [`FG_FILES`] that `folder` lacks, in that order.
+#[cfg(any(windows, test))]
+fn missing_fg_files(folder: &Path) -> Vec<&'static str> {
+    FG_FILES.iter().copied().filter(|name| !folder.join(name).is_file()).collect()
+}
 
 /// Lines waiting for the log: written before the log is up, or by Streamline's own log thread.
 static PENDING: Mutex<Vec<(Level, String)>> = Mutex::new(Vec::new());
@@ -164,6 +464,12 @@ fn push(level: Level, text: String) {
 /// A line of DLSS's for the log.
 fn note(level: Level, text: impl AsRef<str>) {
     push(level, format!("DLSS: {}", text.as_ref()));
+}
+
+/// A line of DLSS Frame Generation's (#2317) for the log.
+#[cfg(windows)]
+fn note_fg(level: Level, text: impl AsRef<str>) {
+    push(level, format!("DLSS-G: {}", text.as_ref()));
 }
 
 /// A line of Streamline's own log (its callback) for the log.
@@ -483,6 +789,9 @@ pub(crate) struct Frame<'a> {
     pub fov: f32,
     /// A camera cut or an invalid history this frame.
     pub reset: bool,
+    /// The frame's Streamline number (`Presenting::frame` plus one), for the Frame Generation
+    /// frame tokens of DLSS Frame Generation (`frame_token.rs`); `None` without latency's frame counter.
+    pub frame_index: Option<u32>,
 }
 
 /// What [`dlss_pass`] does after [`evaluate`].
@@ -531,6 +840,15 @@ pub struct DlssPassPlugin;
 
 impl Plugin for DlssPassPlugin {
     fn build(&self, app: &mut App) {
+        TEST_START.get_or_init(std::time::Instant::now);
+        if let Ok(value) = std::env::var(RESIZE_ENV) {
+            match resizes_from(&value) {
+                Ok(steps) => {
+                    app.insert_resource(ResizePlan { steps, next: 0 }).add_systems(Update, resize_aid);
+                }
+                Err(line) => warn!("{line}"),
+            }
+        }
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else { return };
         render_app
             .init_resource::<DlssMainState>()
@@ -548,6 +866,10 @@ impl Plugin for DlssPassPlugin {
                     .before(bevy::post_process::bloom::bloom)
                     .before(crate::post::bright_pass_hdr),
             );
+        // DLSS Frame Generation's render systems (#2317, `frame_gen.rs`); each does nothing
+        // unless DLSS-G was kept loaded.
+        #[cfg(windows)]
+        frame_gen::add_systems(render_app);
     }
 }
 
@@ -599,6 +921,20 @@ pub(crate) fn configure(views: Query<(&ExtractedView, &PreparedUpscale)>, sizes:
     let _ = (optimal, main.model);
 }
 
+/// The Streamline frame number of the frame the render world draws (`frame_token::index_of`);
+/// `None` off Windows or without latency reduction's frame counter.
+fn frame_index(presenting: Option<&crate::anti_lag::Presenting>) -> Option<u32> {
+    #[cfg(windows)]
+    {
+        presenting.map(|p| frame_token::index_of(p.frame))
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = presenting;
+        None
+    }
+}
+
 /// DLSS's resources freed when options are set (`win::release`); off Windows nothing is held.
 #[cfg(windows)]
 fn release() {
@@ -617,6 +953,7 @@ pub(crate) fn dlss_pass(
     view: ViewQuery<(&ViewTarget, &PreparedUpscale, Option<&ViewPrepassTextures>, &TemporalJitter, &ExtractedView, Option<&PreviousViewData>)>,
     upscale: Res<UpscaleRenderer>,
     device: Res<RenderDevice>,
+    presenting: Option<Res<crate::anti_lag::Presenting>>,
     mut ctx: RenderContext,
 ) {
     let (target, prepared, prepass, jitter, extracted, previous) = view.into_inner();
@@ -655,6 +992,7 @@ pub(crate) fn dlss_pass(
             near: prepared.camera.near,
             fov: prepared.camera.fov,
             reset,
+            frame_index: frame_index(presenting.as_deref()),
         },
     );
     let encoder = ctx.command_encoder();
@@ -782,6 +1120,7 @@ mod tests {
         // The tests never add DlssInitPlugin: no device came through the interposer.
         assert!(!streamline_loaded());
         assert!(!ready());
+        assert!(!frame_generation_loaded(), "no DLSS-G kept loaded: NVIDIA low latency may load");
     }
 
     #[test]
@@ -882,6 +1221,40 @@ mod tests {
         assert_eq!(resolve_folder(Some(elsewhere.as_os_str()), None), Ok((elsewhere, FolderSource::EnvDir)));
         assert!(resolve_folder(Some(OsStr::new("relative\\dlss")), Some(&exe)).unwrap_err().contains("not an absolute path"));
         assert!(resolve_folder(None, None).is_err());
+    }
+
+    #[test]
+    fn frame_generation_reasons_follow_the_loader() {
+        // The tests never run the loader: as without the files.
+        assert_eq!(frame_generation_unavailable(), Some(if cfg!(windows) { "The DLSS Frame Generation files are missing" } else { "Not on this GPU" }));
+        assert_eq!(frame_generation_max(), 0);
+    }
+
+    #[test]
+    fn the_resize_aid_reads_seconds_and_sizes() {
+        assert_eq!(resizes_from("24:1280x720, 16:1600x900"), Ok(vec![(16.0, UVec2::new(1600, 900)), (24.0, UVec2::new(1280, 720))]));
+        assert!(resizes_from("16:10x10").unwrap_err().contains("at least 64x64"));
+        assert!(resizes_from("16:1600").is_err());
+        assert_eq!(resizes_from(""), Ok(vec![]));
+    }
+
+    #[test]
+    fn frame_generation_files_checked_by_name() {
+        let dir = std::env::temp_dir().join(format!("nvf-dlssg-files-test-{}-{}", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos())));
+        assert_eq!(missing_fg_files(&dir), FG_FILES.to_vec(), "no folder: all missing");
+        std::fs::create_dir_all(&dir).unwrap();
+        for name in FILES {
+            std::fs::write(dir.join(name), b"").unwrap();
+        }
+        assert_eq!(missing_fg_files(&dir), FG_FILES.to_vec(), "the four SR files are not the frame generation ones");
+        std::fs::write(dir.join("sl.dlss_g.dll"), b"").unwrap();
+        std::fs::write(dir.join("sl.reflex.dll"), b"").unwrap();
+        assert_eq!(missing_fg_files(&dir), vec!["nvngx_dlssg.dll", "sl.pcl.dll"]);
+        std::fs::write(dir.join("nvngx_dlssg.dll"), b"").unwrap();
+        std::fs::write(dir.join("sl.pcl.dll"), b"").unwrap();
+        assert!(missing_fg_files(&dir).is_empty());
+        assert!(missing_files(&dir).is_empty());
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

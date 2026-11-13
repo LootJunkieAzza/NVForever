@@ -252,6 +252,12 @@ pub fn install(data: &Path, previous_running: bool) {
         }
         Err(e) => eprintln!("run log: {}: {e}", redact(&path.display().to_string())),
     }
+    // A native crash on Linux, where no dump can be written (#2167): a line in the same
+    // log. The signal handler is armed from `.init_array` (native_crash_unix.rs, before
+    // Rust's std takes SIGSEGV for its own stack-overflow check); this opens the log and
+    // the buffers it writes into.
+    #[cfg(target_os = "linux")]
+    crate::native_crash_unix::install();
     set_hook();
     test_panic();
     crate::native_crash::install(&dir, &run_stamp);

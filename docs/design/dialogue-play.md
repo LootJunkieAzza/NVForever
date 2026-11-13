@@ -102,7 +102,10 @@ original unless it carries a tag.
   accident. The topic list is never forced: one without a Goodbye is left by Tab, and the
   log names the actor (#1595: Julie Farkas's top level offers none; her Goodbye lines are
   all answers on sub-menus, and the generic GOODBYE lines' conditions leave out her voice
-  type FemaleAdult11) [design]. The "TAB) Goodbye" hint stands there too.
+  type FemaleAdult11) [design]. Since #2378 a quest's conditions count for a voice type
+  without Allow Default Dialog, and the Generic quest's list names FemaleAdult11: Julie's
+  top level now offers Generic's Goodbye 0x00177392, so she is no longer a case of this
+  (observer check 127 asks the original). The "TAB) Goodbye" hint stands there too.
 - Breaking a conversation off (cutting the line, no end script) is not a key of the
   game: it is a debug switch, off by default (§4) [owner decision 2026-10-10].
 - The cursor: free look while the actor speaks, the cursor released while the player

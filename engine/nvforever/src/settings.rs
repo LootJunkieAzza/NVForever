@@ -698,7 +698,7 @@ pub(crate) const LEGACY_KEY: &str = "fsr-upscaling";
 /// any of them keeps both rows at the command line's choice over the INI
 /// (`nvf_play::settings::GivenSwitches`), at the start ([`upscaler_after_ini`]) as at
 /// `PostStartup`.
-pub(crate) const UPSCALER_NOTE: &str = "Reconstruct the world at display resolution with FSR 3.1 or NVIDIA DLSS, at the Upscaling mode below. Disables MSAA, FXAA, SMAA and TAA while active. Menus stay sharp. Requires Vulkan; unsupported devices keep native rendering. DLSS needs an NVIDIA RTX graphics card and NVIDIA's DLSS files in the dlss folder beside nvforever.exe (NVForever ships none). With the files there when the game starts, every choice takes effect at once; files put there later are found at the next start, so DLSS chosen until then reads DLSS (restart) (loading a save starts the game again). Sharpening controls FSR sharpening. Frame generation needs FSR. (--upscaler, --upscaler-quality, --fsr)";
+pub(crate) const UPSCALER_NOTE: &str = "Reconstruct the world at display resolution with FSR 3.1 or NVIDIA DLSS, at the Upscaling mode below. Disables MSAA, FXAA, SMAA and TAA while active. Menus stay sharp. Requires Vulkan; unsupported devices keep native rendering. DLSS needs an NVIDIA RTX graphics card and NVIDIA's DLSS files in the dlss folder beside nvforever.exe (NVForever ships none). With the files there when the game starts, every choice takes effect at once; files put there later are found at the next start, so DLSS chosen until then reads DLSS (restart) (loading a save starts the game again). Sharpening controls FSR sharpening. Frame generation needs an upscaler. (--upscaler, --upscaler-quality, --fsr)";
 pub(crate) const QUALITY_NOTE: &str = "The share of the screen's width and height the world is drawn at; the upscaler rebuilds the rest. Native AA: full resolution, anti-aliasing only (DLSS: DLAA). Quality: the sharpest upscaled look, for 1440p and 4K. Balanced: more speed with little visible loss. Performance: the highest frame rate, for 4K or heavy scenes. Ultra Performance: for very high resolutions only. Takes effect at once. With Upscaler Off there is nothing to set. (--upscaler-quality, --upscaler, --fsr)";
 
 /// The DLSS model row's key, right under Upscaling mode (#2198, the user's request): which
@@ -823,19 +823,29 @@ fn register_graphics(app: &mut App) {
         add_setting(app, s);
     }
     nvf_play::settings::set_disabled_status(app, "anti-aliasing", |w| crate::upscaler::temporal_active(w).then_some("Off (upscaling active)"));
-    add_setting(
+    // Frame generation: Off, FSR 3.1 or DLSS (#2317), each choice dimmed with its reason; the
+    // INI's old on/off still reads. Then DLSS's frames per real frame.
+    add_choice_list(
         app,
-        Setting {
-            key: "frame-generation",
-            group: GROUP_GRAPHICS,
-            label: "Frame generation",
-            note: "FSR 3.1 frame generation: a frame made between each two real frames, so motion looks twice as smooth; what you do reaches the screen a little later. Needs FSR 3.1 upscaling (any mode; not with DLSS) and vertical sync or variable refresh; real frames are held to just under half the refresh rate, and latency reduction turns on with it. The HUD and menus are not generated; menus, loading screens and camera cuts show real frames only. Best from 60 real frames a second. Not in the original. (--frame-generation)",
-            get: |w| w.resource::<crate::frame_gen::FrameGeneration>().on,
-            set: |w, on| w.resource_mut::<crate::frame_gen::FrameGeneration>().on = on,
-            slider: None,
+        Setting { key: FRAME_GENERATION_KEY, group: GROUP_GRAPHICS, label: "Frame generation", note: FRAME_GENERATION_NOTE, get: |_| false, set: |_, _| {}, slider: None },
+        ChoiceList {
+            names: |_| crate::frame_gen::FrameGenKind::ALL.iter().map(|k| k.name().to_string()).collect(),
+            chosen: frame_generation_chosen,
+            pick: pick_frame_generation,
+            save: frame_generation_saved,
+            load: pick_frame_generation,
+            ask_keep: false,
         },
     );
-    nvf_play::settings::set_disabled_status(app, "frame-generation", crate::frame_gen::unavailable_reason);
+    nvf_play::settings::set_choice_labels(app, FRAME_GENERATION_KEY, |_, name| fnv_util::words::tr_str(name).to_string());
+    nvf_play::settings::set_choice_unavailable(app, FRAME_GENERATION_KEY, frame_generation_unavailable);
+    add_choice_list(
+        app,
+        Setting { key: FRAMES_KEY, group: GROUP_GRAPHICS, label: "Generated frames", note: FRAMES_NOTE, get: |_| false, set: |_, _| {}, slider: None },
+        ChoiceList { names: |_| FRAMES_CHOICES.iter().map(|c| (*c).to_string()).collect(), chosen: frames_chosen, pick: pick_frames, save: frames_chosen, load: pick_frames, ask_keep: false },
+    );
+    nvf_play::settings::set_choice_unavailable(app, FRAMES_KEY, frames_unavailable);
+    nvf_play::settings::set_disabled_status(app, FRAMES_KEY, frames_dimmed);
     add_setting(
         app,
         Setting {
@@ -1292,6 +1302,86 @@ pub(crate) fn upscaler_after_ini(command_line: UpscalerChoice, ini: Option<&Upsc
         ini.quality.as_deref().and_then(|t| quality_text(after_upscaler, t.trim())).unwrap_or(after_upscaler).0
     });
     nvf_play::settings::after_ini(command_line, stored, given, UPSCALER_NOTE)
+}
+
+/// The Frame generation row's key and note (#2317). The note names the switch, so a test run
+/// that gives it keeps the row at the command line's choice over the INI.
+pub(crate) const FRAME_GENERATION_KEY: &str = "frame-generation";
+pub(crate) const FRAME_GENERATION_NOTE: &str = "Frames made between the real ones, so motion looks smoother; what you do reaches the screen a little later. FSR 3.1: one frame between each two real frames; needs FSR 3.1 upscaling (any mode; not with DLSS) and vertical sync or variable refresh, and real frames are held to just under half the refresh rate. DLSS: NVIDIA DLSS Frame Generation, one to three frames for each real frame (Generated frames, below); needs an upscaler (FSR 3.1 or DLSS), Display sync Off, an NVIDIA RTX 40 series or newer graphics card, Windows' hardware-accelerated GPU scheduling and NVIDIA's frame generation files in the dlss folder beside nvforever.exe; frames are generated only while the game's window is in front. Latency reduction turns on with either. The HUD and menus are not generated; menus and loading screens show real frames only. Best from 60 real frames a second. Not in the original. (--frame-generation)";
+
+/// The Generated frames row (#2317): DLSS Frame Generation's frames per real frame
+/// (`frame_gen::DlssgFrames`), dimmed unless DLSS is the Frame generation choice; 3x and 4x only
+/// where the GPU offers them (`dlss::frame_generation_max`, `DLSSGState::numFramesToGenerateMax`).
+pub(crate) const FRAMES_KEY: &str = "frame-generation-frames";
+pub(crate) const FRAMES_NOTE: &str = "How many frames DLSS frame generation makes for each real frame: 2x one, 3x two, 4x three. More looks smoother and costs a little more latency and graphics memory; 3x and 4x only where the graphics card offers them (RTX 50 series). Takes effect at once. Only with DLSS frame generation. Not in the original.";
+const FRAMES_CHOICES: [&str; 3] = ["2x", "3x", "4x"];
+
+/// The frames generated per real frame of a Generated frames choice (`2x` is one).
+fn frames_named(name: &str) -> Option<u32> {
+    FRAMES_CHOICES.iter().position(|c| c.eq_ignore_ascii_case(name.trim())).map(|i| i as u32 + 1)
+}
+
+fn frames_chosen(world: &World) -> String {
+    FRAMES_CHOICES[(world.resource::<crate::frame_gen::DlssgFrames>().0.clamp(1, 3) - 1) as usize].to_string()
+}
+
+fn pick_frames(world: &mut World, name: &str) -> bool {
+    let Some(frames) = frames_named(name) else { return false };
+    world.resource_mut::<crate::frame_gen::DlssgFrames>().0 = frames;
+    true
+}
+
+/// A Generated frames choice the GPU does not offer (once its limit is known).
+fn frames_unavailable(_world: &World, name: &str) -> Option<String> {
+    let max = crate::dlss::frame_generation_max();
+    frames_named(name).filter(|&n| max != 0 && n > max).map(|_| "Not on this GPU".to_string())
+}
+
+/// The Generated frames row stands dimmed unless DLSS is the Frame generation choice, or when
+/// the GPU makes one frame at most.
+fn frames_dimmed(world: &World) -> Option<&'static str> {
+    if world.resource::<crate::frame_gen::FrameGeneration>().kind != crate::frame_gen::FrameGenKind::Dlss {
+        Some("Needs DLSS frame generation")
+    } else if crate::dlss::frame_generation_max() == 1 {
+        Some("Not on this GPU")
+    } else {
+        None
+    }
+}
+
+fn frame_generation_chosen(world: &World) -> String {
+    world.resource::<crate::frame_gen::FrameGeneration>().kind.name().to_string()
+}
+
+fn frame_generation_saved(world: &World) -> String {
+    world.resource::<crate::frame_gen::FrameGeneration>().kind.stored().to_string()
+}
+
+/// A Frame generation choice by its name or INI text (also the row's old on/off).
+fn pick_frame_generation(world: &mut World, name: &str) -> bool {
+    let Some(kind) = crate::frame_gen::FrameGenKind::parse(name) else { return false };
+    world.resource_mut::<crate::frame_gen::FrameGeneration>().kind = kind;
+    true
+}
+
+/// Why a Frame generation choice cannot run now: FSR 3.1's reasons (`frame_gen::unavailable_reason`)
+/// or DLSS's (`frame_gen::dlss_unavailable_reason`). Off is always in reach.
+fn frame_generation_unavailable(world: &World, name: &str) -> Option<String> {
+    match crate::frame_gen::FrameGenKind::parse(name)? {
+        crate::frame_gen::FrameGenKind::Off => None,
+        crate::frame_gen::FrameGenKind::Fsr => crate::frame_gen::unavailable_reason(world).map(str::to_string),
+        crate::frame_gen::FrameGenKind::Dlss => crate::frame_gen::dlss_unavailable_reason(world).map(str::to_string),
+    }
+}
+
+/// The Frame generation choice this run starts with, decided before the renderer exists (DLSS
+/// Frame Generation stays loaded from the start only for DLSS; `main`): the command line's,
+/// then the INI's row by `nvf_play::settings::after_ini`'s precedence. `given`: `None` without
+/// a settings page (not `--play`: the command line decides).
+pub(crate) fn frame_generation_after_ini(command_line: crate::frame_gen::FrameGenKind, ini: Option<&str>, given: Option<&nvf_play::settings::GivenSwitches>) -> crate::frame_gen::FrameGenKind {
+    let Some(given) = given else { return command_line };
+    let stored = ini.and_then(|text| fnv_install::ini_get(text, nvf_play::settings::SECTION, FRAME_GENERATION_KEY)).and_then(|v| crate::frame_gen::FrameGenKind::parse(&v));
+    nvf_play::settings::after_ini(command_line, stored, given, FRAME_GENERATION_NOTE)
 }
 
 /// Distant LOD on or off now; indoors there is none either way, and the door out goes
@@ -1922,13 +2012,18 @@ dlss-model=Preset K
 
     /// A settings page with the INI at `path` holding `text`, `apply_stored` run once.
     fn ini_app(path: &std::path::Path, text: &str, command_line: UpscalerChoice, given: GivenSwitches) -> App {
+        ini_app_with_frame_generation(path, text, command_line, given, crate::frame_gen::FrameGenKind::Off)
+    }
+
+    fn ini_app_with_frame_generation(path: &std::path::Path, text: &str, command_line: UpscalerChoice, given: GivenSwitches, frame_generation: crate::frame_gen::FrameGenKind) -> App {
         std::fs::write(path, text).unwrap();
         let mut app = App::new();
         let mut graphics = Graphics::preset(graphics::Preset::Vanilla);
         graphics.upscaler = command_line;
         app.insert_resource(graphics)
             .insert_resource(graphics::MsaaSetting(Msaa::Off))
-            .insert_resource(crate::frame_gen::FrameGeneration { on: false })
+            .insert_resource(crate::frame_gen::FrameGeneration { kind: frame_generation })
+            .init_resource::<crate::frame_gen::DlssgFrames>()
             .insert_resource(crate::anti_lag::LatencyReduction { on: false, by_frame_generation: false })
             .insert_resource(SettingsFile(Some(path.to_path_buf())))
             .insert_resource(given);
@@ -1936,6 +2031,59 @@ dlss-model=Preset K
         app.add_systems(PostStartup, apply_stored);
         app.update();
         app
+    }
+
+    #[test]
+    fn saved_frame_generation_is_changed_and_defaults_restore_the_command_line() {
+        use crate::frame_gen::{FrameGenKind as K, FrameGeneration};
+        use nvf_play::settings::{changed_rows, restore, StartChoices, StartStates};
+        let dir = std::env::temp_dir().join(format!("nvf-frame-generation-defaults-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("NVForever.ini");
+        for (saved, command_line, win, want) in [
+            ("true", K::Off, false, K::Fsr),
+            ("fsr", K::Off, false, K::Fsr),
+            ("dlss", K::Off, false, K::Dlss),
+            ("dlss", K::Fsr, false, K::Dlss),
+            ("dlss", K::Fsr, true, K::Fsr),
+            ("true", K::Off, true, K::Off),
+        ] {
+            let text = format!("[Settings]\nframe-generation={saved}\n");
+            let given = GivenSwitches { given: if command_line != K::Off || win { ["--frame-generation".into()].into() } else { Default::default() }, win };
+            // Only the loader gets the early INI-resolved choice (main.rs).
+            assert_eq!(frame_generation_after_ini(command_line, Some(&text), Some(&given)), want);
+            let mut app = ini_app_with_frame_generation(&path, &text, UpscalerChoice::Off, given, command_line);
+            let world = app.world_mut();
+            let row = world.resource::<Settings>().list().iter().position(|s| s.key == FRAME_GENERATION_KEY).unwrap();
+            let baseline = world.resource::<StartStates>().0.clone();
+            assert_eq!(world.resource::<FrameGeneration>().kind, want, "INI/command-line precedence");
+            assert_eq!(world.resource::<StartChoices>().0.iter().find(|(i, _)| *i == row).unwrap().1, command_line.stored());
+            assert_eq!(changed_rows(world, &baseline).contains(&row), want != command_line, "Changed compares with the pre-INI choice");
+            restore(world, row, baseline[row]);
+            assert_eq!(world.resource::<FrameGeneration>().kind, command_line, "Defaults restores the pre-INI choice");
+            assert!(!changed_rows(world, &baseline).contains(&row));
+        }
+        std::fs::remove_file(&path).unwrap();
+        std::fs::remove_dir(&dir).unwrap();
+    }
+
+    /// The Frame generation row's names, INI texts and the old switch's values; the Generated
+    /// frames row's choices (#2317).
+    #[test]
+    fn frame_generation_choices_read_names_texts_and_the_old_switch() {
+        use crate::frame_gen::FrameGenKind as K;
+        for (text, kind) in [("Off", K::Off), ("FSR 3.1", K::Fsr), ("DLSS", K::Dlss), ("dlss", K::Dlss), ("fsr", K::Fsr), ("true", K::Fsr), ("false", K::Off), ("on", K::Fsr), ("off", K::Off)] {
+            assert_eq!(K::parse(text), Some(kind), "{text}");
+        }
+        assert_eq!(K::parse("maybe"), None);
+        assert_eq!(K::ALL.map(K::stored), ["off", "fsr", "dlss"]);
+        assert_eq!((frames_named("2x"), frames_named("4X"), frames_named("5x")), (Some(1), Some(3), None));
+        // The GPU's limit is not known in the tests: no choice is held back.
+        assert_eq!(frames_unavailable(&World::new(), "4x"), None);
+        let ini = "[Settings]\nframe-generation=dlss\n";
+        let given = nvf_play::settings::GivenSwitches { given: Default::default(), win: false };
+        assert_eq!(frame_generation_after_ini(K::Off, Some(ini), Some(&given)), K::Dlss, "the INI wins without the switch");
+        assert_eq!(frame_generation_after_ini(K::Fsr, Some(ini), None), K::Fsr, "without a settings page the command line decides");
     }
 
     /// The start's choice (before the renderer, `main`) and `apply_stored`'s at `PostStartup`

@@ -3065,13 +3065,13 @@ impl<'a> Game<'a> {
     /// performance", forceRecompile]; `None` when the file is missing or does not compile
     /// [hypothesis: the function then gives no form].
     pub(crate) fn compile_file(&mut self, path: &str, force: bool) -> Option<u32> {
-        let key = path.replace('/', "\\").trim_start_matches('\\').to_ascii_lowercase();
+        let key = crate::mod_files::udf_data_path(path)?;
         if !force {
             if let Some(&id) = self.compiled_paths.get(&key) {
                 return Some(id);
             }
         }
-        let bytes = crate::mod_files::read_data_file(&format!("nvse\\user_defined_functions\\{key}"))?;
+        let bytes = crate::mod_files::read_data_file(&key)?;
         // UTF-8 when it is, else 8-bit text in this run's code page (#1439).
         let src = std::str::from_utf8(&bytes).map_or_else(|_| fnv_util::text::decode(&bytes), str::to_owned);
         let id = self.compile_source(&format!("CompileScript {path}"), src)?;

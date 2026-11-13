@@ -1,14 +1,20 @@
 # FSR 3.1 frame generation
 
-An optional switch: a frame is generated between each two real frames, so motion looks
+NVForever has two kinds of frame generation on one row, **Settings > Graphics > Frame
+generation**: Off, **FSR 3.1** (this page) and **DLSS**, NVIDIA's DLSS Frame Generation through
+Streamline ([dlss-frame-generation](dlss-frame-generation.md)). They never run together: FSR's
+waits while DLSS-G is loaded. `--frame-generation` with no value (or `fsr`) chooses FSR 3.1's,
+`--frame-generation dlss` DLSS's; an INI saved when the row was a switch reads its on as FSR 3.1.
+
+FSR 3.1's: a frame is generated between each two real frames, so motion looks
 smoother. It is the second half of #1778, after [latency reduction](latency-reduction.md),
 and builds on [FSR 3.1 upscaling](fsr-upscaling.md). Code: `engine/nvforever/src/frame_gen.rs`;
 the passes are in the vendored `wgpu-ffx` (`opticalflow.rs`, `frameinterpolation.rs`).
 
 ## Using it
 
-**Settings > Graphics > Frame generation**, or `--frame-generation`. Off by default, saved like
-every switch. It runs when:
+**Settings > Graphics > Frame generation: FSR 3.1**, or `--frame-generation`. Off by default,
+saved like every row. It runs when:
 
 - FSR 3.1 is the upscaler that draws, in any mode (Native AA too): it reads the depth and
   motion FSR gets. Not with DLSS ([dlss-upscaling](dlss-upscaling.md)): frame generation
@@ -25,7 +31,7 @@ every switch. It runs when:
   capabilities [observed: their `OpCapability`s], and wgpu-hal 30 does not enable the Vulkan
   1.0 features that would allow them otherwise.
 
-Otherwise the row is dimmed with the reason ("Not on this GPU", "Not with DLSS", "Needs FSR 3.1",
+Otherwise the FSR 3.1 choice is dimmed with the reason ("Not on this GPU", "Not with DLSS", "Needs FSR 3.1",
 "Needs vsync", checked in that order)
 and the log says `frame generation: on but not running (...)`. While it runs, real frames are
 capped slightly below half the refresh rate (78 at 160 Hz) and latency reduction is on

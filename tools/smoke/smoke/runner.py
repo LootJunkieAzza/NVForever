@@ -16,6 +16,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from .expect import Outcome, check_forbid, check_one, check_order, clean
+from .front import Front
 from .plan import Launch, fmt
 from .scenarios import GAME, Scenario
 from .stacks import dump as dump_stacks
@@ -620,6 +621,7 @@ def run_launch(launch: Launch, env: Env, locks: Locks | None) -> tuple[int | Non
             (env.out / f"{launch.name}.cmd.txt").write_text(
                 "".join(f"{k}={v}\n" for k, v in sorted(aids.items())) + subprocess.list2cmdline(cmd) + "\n")
             (env.out / f"{launch.name}.stacks.txt").unlink(missing_ok=True)
+            (env.out / f"{launch.name}.front.txt").unlink(missing_ok=True)
             held = locks.acquire() if locks else None  # a smoke slot, or None for the old locks
             started = time.monotonic()  # the launch's own time, without waiting for the locks
             try:
@@ -627,6 +629,8 @@ def run_launch(launch: Launch, env: Env, locks: Locks | None) -> tuple[int | Non
                     p = subprocess.Popen(cmd, stdout=f, stderr=subprocess.STDOUT, cwd=env.out,
                                          env=aid_free_environ(aids), **launch_popen_kw())
                     exe = Path(env.exe).name
+                    # `front = true`: the launch's own window held in front until it ends.
+                    front = Front(p.pid, log=env.out / f"{launch.name}.front.txt").start() if launch.front else None
                     try:
                         code = p.wait(timeout=launch_timeout(launch))
                         # A load hands over to a new run that goes on writing to this log.
@@ -644,6 +648,9 @@ def run_launch(launch: Launch, env: Env, locks: Locks | None) -> tuple[int | Non
                         else:
                             wait_for_group(p.pid, time.monotonic())
                         code, err = None, f"timed out after {launch_timeout(launch):.0f} s; thread stacks in {stacks}"
+                    finally:
+                        if front:
+                            front.stop()
             finally:
                 if locks:
                     locks.release(held)
@@ -680,6 +687,21 @@ def run_launch(launch: Launch, env: Env, locks: Locks | None) -> tuple[int | Non
 
 def missing_requirements(s: Scenario) -> list[str]:
     return [r for r in s.requires if not os.environ.get(r)]
+
+
+def platform_name() -> str:
+    """The system this runner is on, as a scenario's `platforms` names it."""
+    if sys.platform.startswith("win"):
+        return "windows"
+    if sys.platform == "darwin":
+        return "macos"
+    return "linux"
+
+
+def unmet_platforms(s: Scenario, here: str | None = None) -> list[str]:
+    """`platforms` this scenario asks for that this system is not (empty: it runs anywhere)."""
+    here = here or platform_name()
+    return [p for p in s.platforms if p != here]
 
 
 def report(v: Verdict, launch: Launch, secs: float | None, log: Path, say=print, context: int = 3) -> None:
