@@ -22201,6 +22201,23 @@ expect = [
 ]
 
 [[scenario]]
+name = "nif-player-model-selection"
+source = "#2387 (docs/spec-notes/nif-player-model-selection.md): both separately built player skeletons remain available through explicit JIP selectors before and after a view switch; read-only scene queries"
+areas = ["scripts", "actors"]
+paths = ["crates/fnv-game/src/nif_blocks.rs", "engine/nvforever/src/nif_mirror.rs", "engine/nvforever/src/player_body.rs"]
+env = { NVF_PLAY_TEST_CONSOLE = "4:ToggleFirstPerson 1;4.5:close;6:PrintC \"nvf models warmup %g\", (Ar_Size (player.GetChildBlocks \"\" 1));9:PrintC \"nvf model3 before %g\", (Ar_Size (player.GetChildBlocks \"\" 1));10:PrintC \"nvf model1 before %g\", (Ar_Size (player.GetChildBlocks \"\" 2));12:PrintC \"nvf model view before %g\", (IsPC1stPerson);13:ToggleFirstPerson 0;13.5:close;15:PrintC \"nvf model3 after %g\", (Ar_Size (player.GetChildBlocks \"\" 1));16:PrintC \"nvf model1 after %g\", (Ar_Size (player.GetChildBlocks \"\" 2));17:PrintC \"nvf model view after %g\", (IsPC1stPerson)" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
+run_seconds = 19
+expect = [
+  { re = 'script: print "nvf model3 before [1-9][0-9]*"', label = "explicit third-person skeleton exists before view switch" },
+  { re = 'script: print "nvf model1 before [1-9][0-9]*"', label = "explicit first-person skeleton exists before view switch" },
+  { re = 'script: print "nvf model3 after [1-9][0-9]*"', label = "explicit third-person skeleton still exists after view switch" },
+  { re = 'script: print "nvf model1 after [1-9][0-9]*"', label = "explicit first-person skeleton still exists after view switch" },
+  { re = 'script: print "nvf model view before 1"', label = "the actual backend camera is first person before the switch" },
+  { re = 'script: print "nvf model view after 0"', label = "the actual backend camera changed to third person" },
+]
+
+[[scenario]]
 name = "knvse-anim-replace"
 source = "N5 slice 2 (docs/design/knvse-anim.md): SetActorAnimationPath with a standing-stance file replaces that move in the actor's own copy of its set; taking it back restores the shared set"
 areas = ["scripts", "actors"]

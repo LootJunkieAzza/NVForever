@@ -85,3 +85,8 @@ path = "tests/synthetic.rs"
 [[test]]
 name = "compile_script_paths"
 path = "tests/compile_script_paths.rs"
+
+# Keep dual-rig iterations separate from the combined integration fixture binary.
+[[test]]
+name = "nif_player_models"
+path = "tests/nif_player_models.rs"

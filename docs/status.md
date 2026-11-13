@@ -170,3 +170,14 @@ contract and limits: [SLSD variable types](spec-notes/ext-bytecode.md#6-variable
 
 Implemented the focused behavior correction and authored synthetic regression coverage;
 contract and limits: [Cached INI file quote handling](spec-notes/cached-ini-quotes.md). This entry does not establish full mod compatibility.
+
+### Player NIF model selection (#2387)
+
+Provisional implementation: separate first/third-person mirror trees, JIP selectors
+and concrete renderer edit identity, preserving the existing third-person default.
+Authored core, helper/ECS and real-producer synthetic PlayerBody controls are present;
+first-rig file metadata remains unavailable. Six focused core controls and focused
+core lint pass. Renderer validation, runtime smoke, native omitted-selector
+behaviour and complete armor HUD acceptance remain incomplete.
+Contract and limits:
+[Player model selection](spec-notes/nif-player-model-selection.md).

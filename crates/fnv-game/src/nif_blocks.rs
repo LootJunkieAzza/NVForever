@@ -12,6 +12,16 @@ use fnv_script::vm::{ArrayKind, XKey, XVal};
 use fnv_sim::FormId;
 use std::collections::{HashMap, HashSet};
 
+/// A concrete player model, or the ordinary reference model. In a script query,
+/// `Reference` keeps the backend's existing third-person default (spec note #2387).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+pub enum ModelView {
+    #[default]
+    Reference,
+    ThirdPerson,
+    FirstPerson,
+}
+
 /// One node as the scripts see it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SceneNode {
@@ -50,6 +60,9 @@ pub struct NodeInfo {
 /// A change a script made, for the engine to apply to the drawn nodes.
 #[derive(Debug, Clone, PartialEq)]
 pub enum SceneEdit {
+    /// The concrete player model selected when the edit was made. Kept with the
+    /// request so a camera switch before consumption cannot redirect it.
+    ForModel { view: ModelView, edit: Box<SceneEdit> },
     Translation { r: FormId, node: String, v: [f32; 3] },
     Rotation { r: FormId, node: String, v: [f32; 3] },
     Scale { r: FormId, node: String, v: f32 },
@@ -70,10 +83,31 @@ pub enum SceneEdit {
     Particle { r: FormId, node: String, id: usize, v: f32 },
 }
 
+impl SceneEdit {
+    /// Remove the queue's model tag; ordinary legacy edits use `Reference`.
+    pub fn into_model(self) -> (ModelView, Self) {
+        match self {
+            Self::ForModel { view, edit } => (view, *edit),
+            edit => (ModelView::Reference, edit),
+        }
+    }
+
+    fn reference(&self) -> FormId {
+        match self {
+            Self::ForModel { edit, .. } => edit.reference(),
+            Self::Translation { r, .. } | Self::Rotation { r, .. } | Self::Scale { r, .. }
+            | Self::Flags { r, .. } | Self::ChildFlags { r, .. } | Self::Rename { r, .. }
+            | Self::Remove { r, .. } | Self::Insert { r, .. } | Self::Attach { r, .. }
+            | Self::Material { r, .. } | Self::Particle { r, .. } => *r,
+        }
+    }
+}
+
 /// The mirror and the queued changes.
 #[derive(Debug, Default)]
 pub struct SceneMirror {
-    trees: HashMap<FormId, Vec<SceneNode>>,
+    trees: HashMap<(FormId, ModelView), Vec<SceneNode>>,
+    player_view: ModelView,
     watched: HashSet<FormId>,
     edits: Vec<SceneEdit>,
     /// The shapes whose vertices a script asked for (SUP's NifBlockGetVerticles), by
@@ -83,45 +117,67 @@ pub struct SceneMirror {
     /// The alpha and stencil property values scripts set (JohnnyGuitar's
     /// Set…PropertyValue), laid over each tree the engine tells: reference, node, alpha
     /// (else stencil), item, value.
-    prop_sets: Vec<(FormId, String, bool, usize, f32)>,
+    prop_sets: Vec<(FormId, ModelView, String, bool, usize, f32)>,
 }
 
 impl SceneMirror {
+    /// Publish separate player models while preserving the previous third-person
+    /// default. Legacy `set_tree` hosts can continue using their one reference tree.
+    pub fn use_separate_player_models(&mut self) { self.player_view = ModelView::ThirdPerson; }
+
+    pub fn resolve_view(&self, r: FormId, view: ModelView) -> ModelView {
+        if r != FormId::PLAYER_REF { ModelView::Reference }
+        else if view == ModelView::Reference { self.player_view }
+        else { view }
+    }
+
     /// The references whose trees the engine should tell.
     pub fn watched(&self) -> impl Iterator<Item = FormId> + '_ {
         self.watched.iter().copied()
     }
 
     /// The engine tells a watched reference's tree (parents before children).
-    pub fn set_tree(&mut self, r: FormId, mut nodes: Vec<SceneNode>) {
-        for (pr, node, alpha, item, v) in &self.prop_sets {
-            if *pr == r {
+    pub fn set_tree(&mut self, r: FormId, nodes: Vec<SceneNode>) {
+        self.set_tree_for(r, ModelView::Reference, nodes);
+    }
+
+    /// Publish one model without replacing the other player rig's tree.
+    pub fn set_tree_for(&mut self, r: FormId, view: ModelView, mut nodes: Vec<SceneNode>) {
+        let view = self.resolve_view(r, view);
+        for (pr, pv, node, alpha, item, v) in &self.prop_sets {
+            if *pr == r && *pv == view {
                 if let Some(i) = find(&nodes, node) {
                     lay_prop(&mut nodes[i], *alpha, *item, *v);
                 }
             }
         }
-        self.trees.insert(r, nodes);
+        self.trees.insert((r, view), nodes);
     }
 
     /// A shape's alpha (`alpha`) or stencil property value for the session's reads,
     /// kept over the trees the engine tells next; false without the node or that
     /// property on it.
     pub fn set_prop(&mut self, r: FormId, node: &str, alpha: bool, item: usize, v: f32) -> bool {
+        let view = self.resolve_view(r, ModelView::Reference);
         let Some(t) = self.tree(r) else { return false };
         let Some(i) = find(t, node) else { return false };
         if !lay_prop(&mut t[i], alpha, item, v) {
             return false;
         }
         let name = t[i].name.clone();
-        self.prop_sets.retain(|(pr, n, a, k, _)| !(*pr == r && n.eq_ignore_ascii_case(&name) && *a == alpha && *k == item));
-        self.prop_sets.push((r, name, alpha, item, v));
+        self.prop_sets.retain(|(pr, pv, n, a, k, _)| !(*pr == r && *pv == view && n.eq_ignore_ascii_case(&name) && *a == alpha && *k == item));
+        self.prop_sets.push((r, view, name, alpha, item, v));
         true
     }
 
     /// The reference's 3D is gone.
     pub fn forget(&mut self, r: FormId) {
-        self.trees.remove(&r);
+        self.trees.retain(|(reference, _), _| *reference != r);
+    }
+
+    pub fn forget_model(&mut self, r: FormId, view: ModelView) {
+        let view = self.resolve_view(r, view);
+        self.trees.remove(&(r, view));
     }
 
     /// The changes made since the last call, for the engine.
@@ -130,14 +186,31 @@ impl SceneMirror {
     }
 
     fn tree(&mut self, r: FormId) -> Option<&mut Vec<SceneNode>> {
+        self.tree_for(r, ModelView::Reference)
+    }
+
+    fn tree_for(&mut self, r: FormId, view: ModelView) -> Option<&mut Vec<SceneNode>> {
         self.watched.insert(r);
-        self.trees.get_mut(&r)
+        let view = self.resolve_view(r, view);
+        self.trees.get_mut(&(r, view))
+    }
+
+    fn queue_for(&mut self, view: ModelView, edit: SceneEdit) {
+        let view = self.resolve_view(edit.reference(), view);
+        self.edits.push(if view == ModelView::Reference { edit }
+            else { SceneEdit::ForModel { view, edit: Box::new(edit) } });
     }
 
     /// A node of a reference's tree as the mirror holds it now (the reference watched
     /// from now on); `None` without the tree or the node.
     pub fn node_now(&mut self, r: FormId, node: &str) -> Option<SceneNode> {
-        let t = self.tree(r)?;
+        self.node_for_model(r, ModelView::Reference, node)
+    }
+
+    /// Inspect one selected mirror without borrowing names or metadata from another
+    /// player model. This is the Rust-side mirror API, not a new script function.
+    pub fn node_for_model(&mut self, r: FormId, view: ModelView, node: &str) -> Option<SceneNode> {
+        let t = self.tree_for(r, view)?;
         find(t, node).map(|i| t[i].clone())
     }
 
@@ -150,21 +223,22 @@ impl SceneMirror {
         let Some(slot) = e.get_mut(id) else { return false };
         *slot = v;
         let node = t[i].name.clone();
-        self.edits.push(SceneEdit::Particle { r, node, id, v });
+        self.queue_for(ModelView::Reference, SceneEdit::Particle { r, node, id, v });
         true
     }
 
     /// A translation, rotation or scale for the engine, shown in the mirror at once as
     /// the NIF block setters' (SUP's interpolations, `crate::nvse_sup7`).
     pub fn push_edit(&mut self, e: SceneEdit) {
+        let (view, e) = e.into_model();
         let (r, node) = match &e {
             SceneEdit::Translation { r, node, .. } | SceneEdit::Rotation { r, node, .. } | SceneEdit::Scale { r, node, .. } => (*r, node.clone()),
             _ => {
-                self.edits.push(e);
+                self.queue_for(view, e);
                 return;
             }
         };
-        if let Some(t) = self.tree(r) {
+        if let Some(t) = self.tree_for(r, view) {
             if let Some(i) = find(t, &node) {
                 match &e {
                     SceneEdit::Translation { v, .. } => t[i].translation = *v,
@@ -174,7 +248,7 @@ impl SceneMirror {
                 }
             }
         }
-        self.edits.push(e);
+        self.queue_for(view, e);
     }
 
     /// A shape's vertices as the engine last told them, in the shape's own space; asked
@@ -212,7 +286,7 @@ impl Game<'_> {
             None => t.iter().find(|n| n.parent.is_none()).map(|n| n.name.clone()),
         };
         let Some(node) = node else { return false };
-        self.scene.edits.push(SceneEdit::Attach { r, target: node, model: model.to_string() });
+        self.scene.queue_for(ModelView::Reference, SceneEdit::Attach { r, target: node, model: model.to_string() });
         true
     }
 
@@ -345,7 +419,11 @@ fn intrinsic_angles(m: &Mat) -> [f32; 3] {
 /// through the nodes above it and the reference's own position and angles. `None`
 /// without the tree or the node.
 pub(crate) fn node_place(g: &mut Game, r: FormId, node: &str, world: bool) -> Option<([f32; 3], Mat)> {
-    let t = g.scene.tree(r)?.clone();
+    node_place_for(g, r, node, world, ModelView::Reference)
+}
+
+fn node_place_for(g: &mut Game, r: FormId, node: &str, world: bool, view: ModelView) -> Option<([f32; 3], Mat)> {
+    let t = g.scene.tree_for(r, view)?.clone();
     let mut i = find(&t, node)?;
     let local = |n: &SceneNode| (n.translation, rotation(n.rotation.map(f32::to_radians)), n.scale);
     let (mut pos, mut rot, _) = local(&t[i]);
@@ -385,7 +463,7 @@ pub(crate) fn show_one_child(g: &mut Game, r: FormId, node: &str, show: Option<u
         t[k].flags = flags;
         edits.push(SceneEdit::ChildFlags { r, node: node.to_string(), child: place, flags });
     }
-    g.scene.edits.extend(edits);
+    for edit in edits { g.scene.queue_for(ModelView::Reference, edit); }
     true
 }
 
@@ -419,11 +497,28 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
         XVal::Array(g.ext.new_array(ArrayKind::List, entries))
     };
     let r = subject.unwrap_or(FormId(0));
+    // The VM removes Alt output variables before dispatch. Axis overloads have
+    // one extra input; this is JIP's 1/2 convention, not JohnnyGuitar's 0/1.
+    let selector = match name {
+        "getchildblocks" | "getnifblockparentnodes" | "getnifblockscale" | "removenifblock" => 1,
+        "getnifblocktranslation" | "getnifblockrotation" => if axis(args.get(1)).is_some() { 3 } else { 2 },
+        "getnifblocktranslationalt" | "getnifblockrotationalt" | "getnifblockflag"
+        | "setnifblockscale" | "renamenifblock" => 2,
+        "setnifblocktranslation" => 4,
+        "setnifblockrotation" => 5,
+        "setnifblockflag" => 3,
+        _ => usize::MAX,
+    };
+    let view = match num(args, selector, 0.0) {
+        1.0 => ModelView::ThirdPerson,
+        2.0 => ModelView::FirstPerson,
+        _ => ModelView::Reference,
+    };
     let v = match name {
         // A missing block, or 3D not there yet, gives ar_Null [observed].
         "getchildblocks" => {
             let parent = text(args, 0);
-            let Some(t) = g.scene.tree(r).cloned() else { return Some(Ok(XVal::Array(0))) };
+            let Some(t) = g.scene.tree_for(r, view).cloned() else { return Some(Ok(XVal::Array(0))) };
             let at = if parent.is_empty() { None } else {
                 match find(&t, &parent) {
                     Some(i) => Some(i),
@@ -435,7 +530,7 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
         }
         // Innermost first [observed: Bip01 Neck1 … Scene Root].
         "getnifblockparentnodes" => {
-            let Some(t) = g.scene.tree(r).cloned() else { return Some(Ok(XVal::Array(0))) };
+            let Some(t) = g.scene.tree_for(r, view).cloned() else { return Some(Ok(XVal::Array(0))) };
             let Some(mut i) = find(&t, &text(args, 0)) else { return Some(Ok(XVal::Array(0))) };
             let mut out = Vec::new();
             while let Some(p) = t[i].parent {
@@ -447,7 +542,7 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
         // `block [axis]`: an axis gives that number; otherwise the three as an array
         // [observed: JIP 57.3 gives [5.59, 0, 0] for Bip01 Head].
         "getnifblocktranslation" | "getnifblockrotation" => {
-            let Some(t) = g.scene.tree(r) else { return Some(Ok(XVal::Array(0))) };
+            let Some(t) = g.scene.tree_for(r, view) else { return Some(Ok(XVal::Array(0))) };
             let Some(i) = find(t, &text(args, 0)) else { return Some(Ok(XVal::Array(0))) };
             let v = if name == "getnifblocktranslation" { t[i].translation } else { t[i].rotation };
             match axis(args.get(1)) {
@@ -461,32 +556,32 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
         "setnifblocktranslation" | "setnifblockrotation" => {
             let node = text(args, 0);
             let v = [num(args, 1, 0.0) as f32, num(args, 2, 0.0) as f32, num(args, 3, 0.0) as f32];
-            if let Some(t) = g.scene.tree(r) {
+            if let Some(t) = g.scene.tree_for(r, view) {
                 if let Some(i) = find(t, &node) {
                     if name == "setnifblocktranslation" { t[i].translation = v } else { t[i].rotation = v }
                 }
             }
-            g.scene.edits.push(if name == "setnifblocktranslation" { SceneEdit::Translation { r, node, v } } else { SceneEdit::Rotation { r, node, v } });
+            g.scene.queue_for(view, if name == "setnifblocktranslation" { SceneEdit::Translation { r, node, v } } else { SceneEdit::Rotation { r, node, v } });
             zero
         }
         // A missing block 0 [observed].
         "getnifblockscale" => {
-            let Some(t) = g.scene.tree(r) else { return Some(Ok(zero)) };
+            let Some(t) = g.scene.tree_for(r, view) else { return Some(Ok(zero)) };
             XVal::Num(find(t, &text(args, 0)).map_or(0.0, |i| f64::from(t[i].scale)))
         }
         "setnifblockscale" => {
             let node = text(args, 0);
             let v = num(args, 1, 1.0) as f32;
-            if let Some(t) = g.scene.tree(r) {
+            if let Some(t) = g.scene.tree_for(r, view) {
                 if let Some(i) = find(t, &node) {
                     t[i].scale = v;
                 }
             }
-            g.scene.edits.push(SceneEdit::Scale { r, node, v });
+            g.scene.queue_for(view, SceneEdit::Scale { r, node, v });
             zero
         }
         "getnifblockflag" => {
-            let Some(t) = g.scene.tree(r) else { return Some(Ok(zero)) };
+            let Some(t) = g.scene.tree_for(r, view) else { return Some(Ok(zero)) };
             let bit = num(args, 1, 0.0) as u32;
             XVal::Num(find(t, &text(args, 0)).map_or(0.0, |i| f64::from((t[i].flags >> bit.min(31)) & 1)))
         }
@@ -495,28 +590,28 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
             let bit = 1u32 << (num(args, 1, 0.0) as u32).min(31);
             let on = num(args, 2, 0.0) != 0.0;
             let mut flags = None;
-            if let Some(t) = g.scene.tree(r) {
+            if let Some(t) = g.scene.tree_for(r, view) {
                 if let Some(i) = find(t, &node) {
                     t[i].flags = if on { t[i].flags | bit } else { t[i].flags & !bit };
                     flags = Some(t[i].flags);
                 }
             }
             if let Some(flags) = flags {
-                g.scene.edits.push(SceneEdit::Flags { r, node, flags });
+                g.scene.queue_for(view, SceneEdit::Flags { r, node, flags });
             }
             zero
         }
         "renamenifblock" => {
             let (node, to) = (text(args, 0), text(args, 1));
-            let ok = g.scene.tree(r).and_then(|t| find(t, &node).map(|i| t[i].name = to.clone())).is_some();
+            let ok = g.scene.tree_for(r, view).and_then(|t| find(t, &node).map(|i| t[i].name = to.clone())).is_some();
             if ok {
-                g.scene.edits.push(SceneEdit::Rename { r, node, to });
+                g.scene.queue_for(view, SceneEdit::Rename { r, node, to });
             }
             XVal::Num(f64::from(u8::from(ok)))
         }
         "removenifblock" => {
             let node = text(args, 0);
-            let ok = match g.scene.tree(r) {
+            let ok = match g.scene.tree_for(r, view) {
                 Some(t) => match find(t, &node) {
                     Some(i) => {
                         let mut gone: HashSet<usize> = descendants(t, Some(i)).into_iter().collect();
@@ -535,7 +630,7 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
                 None => false,
             };
             if ok {
-                g.scene.edits.push(SceneEdit::Remove { r, node });
+                g.scene.queue_for(view, SceneEdit::Remove { r, node });
             }
             XVal::Num(f64::from(u8::from(ok)))
         }
@@ -555,7 +650,7 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
             if !add {
                 return Some(Ok(zero));
             }
-            let Some(t) = g.scene.tree(target_ref) else { return Some(Ok(zero)) };
+            let Some(t) = g.scene.tree_for(target_ref, view) else { return Some(Ok(zero)) };
             let Some(i) = find(t, target) else { return Some(Ok(zero)) };
             if name == "insertnode" {
                 let (as_parent, nm) = match what.strip_prefix('^') {
@@ -568,9 +663,9 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
                     let new = t.len() - 1;
                     t[i].parent = Some(new);
                 }
-                g.scene.edits.push(SceneEdit::Insert { r: target_ref, target: target.to_string(), name: nm, as_parent });
+                g.scene.queue_for(view, SceneEdit::Insert { r: target_ref, target: target.to_string(), name: nm, as_parent });
             } else {
-                g.scene.edits.push(SceneEdit::Attach { r: target_ref, target: target.to_string(), model: what.to_string() });
+                g.scene.queue_for(view, SceneEdit::Attach { r: target_ref, target: target.to_string(), model: what.to_string() });
             }
             XVal::Num(1.0)
         }
@@ -579,7 +674,7 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
         // of that name or 3D [hypothesis: the page names no failure value].
         "getmaterialpropertyvalue" => {
             let id = num(args, 1, -1.0);
-            let Some(t) = g.scene.tree(r) else { return Some(Ok(zero)) };
+            let Some(t) = g.scene.tree_for(r, view) else { return Some(Ok(zero)) };
             let v = find(t, &text(args, 0)).and_then(|i| t[i].material).filter(|_| (0.0..9.0).contains(&id)).map_or(0.0, |m| m[id as usize]);
             XVal::Num(f64::from(v))
         }
@@ -593,25 +688,25 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
             }
             let (id, v) = (id as usize, v as f32);
             let mut found = false;
-            if let Some(t) = g.scene.tree(r) {
+            if let Some(t) = g.scene.tree_for(r, view) {
                 if let Some(m) = find(t, &node).and_then(|i| t[i].material.as_mut()) {
                     m[id] = v;
                     found = true;
                 }
             }
             if found {
-                g.scene.edits.push(SceneEdit::Material { r, node, id, v });
+                g.scene.queue_for(view, SceneEdit::Material { r, node, id, v });
             }
             zero
         }
         // `block [getWorld] [pcModel]` (the three variables taken out by the VM): 1 and
         // the translation, or 0 and the variables unchanged [documented]. The world
         // position adds the nodes above and the reference's own place [hypothesis: the
-        // reference's angles turn its model as a node's do]. pcModel is not read: the
-        // mirror has the drawn model only.
+        // reference's angles turn its model as a node's do]. The selected player
+        // model uses its own mirror.
         "getnifblocktranslationalt" => {
             let world = num(args, 1, 0.0) != 0.0;
-            let Some((pos, _)) = node_place(g, r, &text(args, 0), world) else { return Some(Ok(outputs(g, 0.0, &[]))) };
+            let Some((pos, _)) = node_place_for(g, r, &text(args, 0), world, view) else { return Some(Ok(outputs(g, 0.0, &[]))) };
             outputs(g, 1.0, &pos.map(f64::from))
         }
         // `block [which] [pcModel]`: 0 extrinsic to the parent (as GetNifBlockRotation),
@@ -619,7 +714,7 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
         // [documented: the page's table].
         "getnifblockrotationalt" => {
             let which = num(args, 1, 0.0) as i64;
-            let Some((_, m)) = node_place(g, r, &text(args, 0), which == 1 || which == 3) else { return Some(Ok(outputs(g, 0.0, &[]))) };
+            let Some((_, m)) = node_place_for(g, r, &text(args, 0), which == 1 || which == 3, view) else { return Some(Ok(outputs(g, 0.0, &[]))) };
             let a = if which >= 2 { intrinsic_angles(&m) } else { extrinsic_angles(&m) };
             outputs(g, 1.0, &a.map(f64::from))
         }

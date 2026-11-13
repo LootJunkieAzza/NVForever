@@ -56,5 +56,8 @@ RenameNifBlock, InsertNode and RemoveNifBlock on the head as the set chains them
 Rotations read from drawn nodes go through nif_spawn's transpose; whether they read
 as the original's needs a set that reads a static's node [hypothesis].
 
-AttachModel's model is not drawn (the mirror keeps the request); the first-person model
-(`pcModel`); GetBlockTextureSet; the world-space translation (`getWorld`).
+AttachModel's model is not drawn (the mirror keeps the request); GetBlockTextureSet;
+the world-space translation (`getWorld`). JIP player-model selection has a provisional
+implementation with separate rig identities. Focused core controls pass; renderer,
+asset and native acceptance remain incomplete:
+[contract and limitations](../spec-notes/nif-player-model-selection.md).
