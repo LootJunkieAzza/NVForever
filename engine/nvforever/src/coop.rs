@@ -3383,7 +3383,7 @@ fn peer_lights(mut commands: Commands, time: Res<Time>, coop: Res<Coop>, loc: Op
             }
             None => {
                 debug!("co-op: player {}'s flashlight is on", id + 1);
-                let e = commands.spawn((Name::new(format!("Flashlight of player {}", id + 1)), crate::flashlight::spot(), place)).id();
+                let e = commands.spawn((Name::new(format!("Flashlight of player {}", id + 1)), crate::flashlight::remote_spot(), place)).id();
                 lit.insert(id, e);
             }
         }
