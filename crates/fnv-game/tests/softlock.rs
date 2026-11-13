@@ -20,7 +20,9 @@ struct Fixture {
 
 fn fixture() -> Fixture {
     let quest = record(b"QUST", 0, 0x900, &[sub(b"EDID", z("HoldQuest"))]);
-    let bytes = [tes4(), top(b"QUST", &quest)].concat();
+    let topic = |fid: u32, name: &str, kind: u8| record(b"DIAL", 0, fid, &[sub(b"EDID", z(name)), sub(b"DATA", vec![kind, 0])]);
+    let topics = [topic(0x910, "Attack", 2), topic(0x911, "Alarm", 4), topic(0x912, "HELLO", 1), topic(0x913, "SceneTopic", 0)].concat();
+    let bytes = [tes4(), top(b"QUST", &quest), top(b"DIAL", &topics)].concat();
     let plugins = vec![Plugin::parse(&bytes, "Softlock.esm".into()).unwrap()];
     let lo = LoadOrder::new(&plugins).unwrap();
     let schema = Schema::load_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/../../schemas/fnv")).unwrap();
@@ -92,11 +94,23 @@ fn a_restrained_player_is_held_and_a_dead_one_is_not() {
 }
 
 #[test]
-fn timers_package_choices_and_hellos_are_not_story() {
-    let hello = Some(FormId(0x77));
-    let line = |topic| EventKind::LineStarted { speaker: FormId(1), target: Some(FormId::PLAYER_REF), topic: FormId(topic), info: FormId(2), seconds: 1.0 };
-    assert!(!story(&line(0x77), hello), "a hello");
-    assert!(story(&line(0x78), hello), "a scene's line");
-    assert!(!story(&EventKind::PackageChosen { actor: FormId(1), package: None }, hello));
-    assert!(story(&EventKind::MenuOpened { menu: 1001 }, hello));
+fn timers_package_choices_chatter_and_others_items_are_not_story() {
+    let line = EventKind::LineStarted { speaker: FormId(1), target: Some(FormId::PLAYER_REF), topic: FormId(0x77), info: FormId(2), seconds: 1.0 };
+    assert!(!story(&line, true), "a hello or an attack shout");
+    assert!(story(&line, false), "a scene's line");
+    assert!(!story(&EventKind::PackageChosen { actor: FormId(1), package: None }, false));
+    assert!(story(&EventKind::MenuOpened { menu: 1001 }, false));
+    let spent = |from| EventKind::ItemRemoved { from, item: FormId(3), count: 1, silent: false };
+    assert!(!story(&spent(FormId(1)), false), "a fighter's spent round");
+    assert!(story(&spent(FormId::PLAYER_REF), false), "an item a script takes from the player");
+}
+
+#[test]
+fn combat_and_detection_topics_and_hello_are_chatter() {
+    let f = fixture();
+    let g = game(&f);
+    assert!(g.chatter_topic(FormId(0x910)), "a Combat topic");
+    assert!(g.chatter_topic(FormId(0x911)), "a Detection topic");
+    assert!(g.chatter_topic(FormId(0x912)), "HELLO");
+    assert!(!g.chatter_topic(FormId(0x913)), "a Topic");
 }

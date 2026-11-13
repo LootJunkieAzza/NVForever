@@ -16,8 +16,10 @@
 //! messages, menus, conversations and their lines, image modifiers, knock-outs. Not among
 //! them: variables and globals (a timer that counts forever would hide the hold), package
 //! choices and conversations between actors (the residents of a town make them all day),
-//! and hellos (an actor greeting a held player says nothing about the scene). `Game::emit`
-//! counts them in [`Seen`].
+//! chatter ([`Game::chatter_topic`]: hellos and the lines of Combat and Detection topics,
+//! which say nothing about the scene; a fight beside a held player went on for a minute
+//! with no finding before they were left out), and items changing hands between others
+//! (a fighter's spent rounds). `Game::emit` counts them in [`Seen`].
 //!
 //! The clock is the caller's: seconds in which the game ran (not the pause menu, not a
 //! loading screen). One finding per hold; it is armed again when anything of the hold
@@ -93,11 +95,13 @@ pub struct Seen {
     pub stage: Option<(FormId, i32)>,
 }
 
-/// Whether an event says the scene goes on (module notes). `hello` is the HELLO topic.
-pub fn story(kind: &EventKind, hello: Option<FormId>) -> bool {
+/// Whether an event says the scene goes on (module notes). `chatter`: the event is a
+/// line of a chatter topic ([`Game::chatter_topic`]).
+pub fn story(kind: &EventKind, chatter: bool) -> bool {
     use EventKind::*;
     match kind {
-        LineStarted { topic, .. } => Some(*topic) != hello,
+        LineStarted { .. } => !chatter,
+        ItemAdded { to: who, .. } | ItemRemoved { from: who, .. } => *who == FormId::PLAYER_REF,
         QuestStarted { .. }
         | QuestStopped { .. }
         | QuestCompleted { .. }
@@ -110,8 +114,6 @@ pub fn story(kind: &EventKind, hello: Option<FormId>) -> bool {
         | Moved { .. }
         | Placed { .. }
         | Activated { .. }
-        | ItemAdded { .. }
-        | ItemRemoved { .. }
         | MessageShown { .. }
         | NoteShown { .. }
         | MenuOpened { .. }
@@ -192,6 +194,15 @@ impl Watchdog {
         }
         self.fired = true;
         Some(Finding { kind, seconds: self.held, text: describe(g, kind) })
+    }
+}
+
+impl Game<'_> {
+    /// A topic whose lines say nothing about a scene: HELLO, and the Combat and Detection
+    /// topics (attack shouts, alarms, "who's there").
+    pub fn chatter_topic(&self, topic: FormId) -> bool {
+        use crate::data::topic_type::{COMBAT, DETECTION};
+        self.hello_topic() == Some(topic) || self.data.topic_defs.get(&topic).is_some_and(|t| matches!(t.topic_type, COMBAT | DETECTION))
     }
 }
 
