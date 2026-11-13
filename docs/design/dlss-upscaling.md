@@ -341,8 +341,10 @@ copying them by hand; the manual way stays ([dlss.md](../dlss.md)).
   whose `Content-Range` names the range asked for out of that size; a `200` (no ranges), any
   other status or size, and the download fails. A connect and a per-read timeout, and each
   answer's body a bound scaled by its size (a minute plus a second per 8 KiB), so a trickling
-  server cannot hold the download for ever. Test aid: `NVF_DLSS_DOWNLOAD_URL`, taken only for `http` on this machine
-  (`127.0.0.1`, `localhost`, `[::1]`), with every pin still checked.
+  server cannot hold the download for ever. Test aid: `NVF_DLSS_DOWNLOAD_URL`, taken only in
+  developer runs (`--data` / `NVFOREVER_DATA`) and only for `http` on this machine
+  (`127.0.0.1`, `localhost`, `[::1]`), with every pin still checked. A refused redirect logs
+  only its scheme and host, never its signed path or query.
 - **Every file pinned.** Each entry's size and the SHA-256 of its unpacked bytes are pinned
   in the source (`download/files.rs`: the `sl.*` hashes are the loader's `RELEASE_DLLS`;
   `nvngx_dlss.dll` 310.9.16, which the loader leaves unpinned so players may bring another
@@ -360,6 +362,18 @@ copying them by hand; the manual way stays ([dlss.md](../dlss.md)).
   `nvngx_update.exe` (any case) or a listed file with other bytes is left as it is: no file of
   the player's is overwritten. Only the listed names are ever written; `nvngx_update.exe`
   never is.
+- **The install guard first.** `fnv_install::guard_write(path, None)` checks the target,
+  its parent and the staging folder before anything is created or cleaned up, then checks
+  file destinations before writing or moving them. `None` still checks the game install
+  remembered at startup (`engine/nvforever/src/main.rs:971`), as well as the original game's
+  user folders. This applies to `NVF_DLSS_DIR` too: never the game folder. A refusal ends in
+  `Failure::Write` with nothing created. Open dlss folder checks the same guard before
+  creating its folder, logs a refusal and opens nothing.
+- **Developer test aids only.** `NVF_PLAY_TEST_DLSS_DOWNLOAD` (`accept`, `cancel`,
+  `cancel-at:<seconds>` and `clear`) and `NVF_DLSS_DOWNLOAD_URL` use the same developer-run
+  flag as player reports (`reports::decide`: `--data` / `NVFOREVER_DATA` supplied). In a
+  normal player run the aids are ignored with one warning. The smoke runner always supplies
+  `--data` (`tools/smoke/smoke/runner.py:614`), so its download scenarios keep their aids.
 - **After it.** The settings' DLSS entry reads "DLSS (restart)" (`upscaler::state_now` sees
   the files within a second); Streamline must be loaded before the Vulkan device exists, so
   the restart loads DLSS and later switches are live. No automatic update and no background

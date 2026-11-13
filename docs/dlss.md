@@ -56,6 +56,17 @@ The files go into the `dlss` folder beside `nvforever.exe` (or the folder `NVF_D
 names), never into the game folder. The game downloads only when you choose Download DLSS…
 and accept: there are no automatic updates and no checks in the background.
 
+[design] Before creating anything, the download checks its destination and temporary folder
+with the install guard, including a destination set through `NVF_DLSS_DIR`. The guard refuses
+the game install and the original game's user folders. **Open dlss folder** uses the same
+guard; a refusal creates nothing and the log says why
+([install layout](design/install-layout.md#rules-enforced-in-code-cratesfnv-install)).
+
+[design] The download's test aids, `NVF_PLAY_TEST_DLSS_DOWNLOAD` (including automatic
+acceptance, cancellation and clearing smoke files) and `NVF_DLSS_DOWNLOAD_URL` (a loopback
+server), work only in developer runs with `--data` or `NVFOREVER_DATA`. A normal player run
+ignores them with one warning in the log.
+
 ## Getting the files by hand
 
 1. From NVIDIA's Streamline repository on GitHub
