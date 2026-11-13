@@ -29,6 +29,65 @@ pub struct HostQuest {
     pub failed: bool,
 }
 
+/// Stages done a [`HostQuestState`] carries at most: the highest ones.
+pub const HOST_STAGES_DONE: usize = 32;
+
+/// The host's story as a co-op guest's world reads it ([`Game::coop_host_story`]).
+///
+/// A guest leaves the story to the host: its own game's quests stay where its save had
+/// them (it never talks to the quest NPCs), so a door or activator whose script asks
+/// the story found the guest's own quest instead of the host's. Long 15's gate at the
+/// Mojave Outpost opens only once `ALLong15EntranceQuest.iPapersPlease` is 1, set by
+/// talking to the guard; the host's was, the guest's never is, and the guest's game ran
+/// the script's other branch, the guard's conversation, which no script starts with a
+/// guest: the gate did nothing [observed: owner's ship17 co-op, "guest cant use gate to
+/// walk i15", host log 2026-11-13 03:39:17; the script's text in Long15Reloaded.esm
+/// SCPT 0x1E0025C2].
+///
+/// - **What it holds.** Each quest the host's game has a state for (its stage, the
+///   highest [`HOST_STAGES_DONE`] stages done, running, ended), and every variable of the
+///   quests' scripts, as the host's game has them now ([`Game::story_view`]). nvforever's
+///   `coop` sends them; a guest's game keeps the newest of each here.
+/// - **Who reads it.** A script on a placed reference (a door, an activator, a trigger:
+///   [`InstKey::Ref`]): `Quest.var`, GetStage, GetStageDone, GetQuestRunning and
+///   GetQuestCompleted give the host's when it sent that quest [design]. The world's
+///   references are the host's world's; a quest's own script (a mod's settings, the
+///   guest's own story), a result script and a condition read the guest's own game, so
+///   a guest's mod settings kept in quest variables stay its own [design].
+/// - Nothing is written into the guest's quests: its own game, and its saves, keep them
+///   [design: `save::KeepSolo`]. Not saved.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct HostStory {
+    pub quests: BTreeMap<FormId, HostQuestState>,
+    /// Quest script variables: (quest, variable index) to value.
+    pub vars: BTreeMap<(FormId, u16), fnv_script::vm::Value>,
+}
+
+/// One quest of the [`HostStory`].
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct HostQuestState {
+    /// GetStage.
+    pub stage: i32,
+    pub running: bool,
+    /// Completed or failed (GetQuestCompleted).
+    pub ended: bool,
+    /// The highest stages done, at most [`HOST_STAGES_DONE`], in order.
+    pub done: Vec<i32>,
+}
+
+impl HostQuestState {
+    /// GetStageDone: from the stages carried; a stage below the lowest carried, when some
+    /// were left out, counts as done if it is not above the stage reached [hypothesis:
+    /// close enough for a gate's check; the cap only bites on quests of more than
+    /// [`HOST_STAGES_DONE`] stages].
+    pub fn stage_done(&self, stage: i32) -> bool {
+        if self.done.contains(&stage) {
+            return true;
+        }
+        self.done.len() >= HOST_STAGES_DONE && self.done.first().is_some_and(|&low| stage < low)
+    }
+}
+
 /// ShowBarterMenu and ShowCaravanMenu (`crate::functions`).
 const SHOW_BARTER_MENU: u16 = 0x1173;
 const SHOW_CARAVAN_MENU: u16 = 0x125A;
@@ -347,6 +406,36 @@ pub fn checked(mut players: Vec<CoopPlayer>) -> Result<Vec<CoopPlayer>, CoopErro
 }
 
 impl Game<'_> {
+    /// The host's: its story now, for the guests ([`HostStory`]): each quest with a state
+    /// (running, ended or with a stage done) and every variable of the quests' scripts.
+    pub fn story_view(&self) -> HostStory {
+        let quests = self
+            .quests
+            .iter()
+            .filter(|(_, s)| s.running || s.completed || s.failed || !s.stages_done.is_empty())
+            .map(|(q, s)| {
+                let skip = s.stages_done.len().saturating_sub(HOST_STAGES_DONE);
+                (*q, HostQuestState { stage: s.stage(), running: s.running, ended: s.completed || s.failed, done: s.stages_done.iter().skip(skip).copied().collect() })
+            })
+            .collect();
+        let vars = self
+            .instances
+            .iter()
+            .filter_map(|(k, i)| match k {
+                crate::game::InstKey::Quest { quest } => Some((*quest, i)),
+                _ => None,
+            })
+            .flat_map(|(q, i)| i.vars.iter().map(move |(ix, v)| ((q, *ix), *v)))
+            .collect();
+        HostStory { quests, vars }
+    }
+
+    /// A guest's: the host's story for a script running as `inst`, when it reads the
+    /// host's ([`HostStory`]: a guest's game, a placed reference's script).
+    pub fn host_story(&self, inst: Option<crate::game::InstKey>) -> Option<&HostStory> {
+        (self.coop_guest && matches!(inst, Some(crate::game::InstKey::Ref { .. }))).then_some(&self.coop_host_story)
+    }
+
     /// Player `slot` (2–4), when the game has one.
     pub fn coop_player(&self, slot: u8) -> Option<&CoopPlayer> {
         self.coop.iter().find(|p| p.slot == slot)
@@ -746,5 +835,18 @@ mod tests {
         v.sort_unstable();
         v.dedup();
         assert_eq!(v.len(), super::COOP_ENCOUNTERS.len());
+    }
+
+    #[test]
+    fn the_hosts_stages_done_are_read_from_what_came() {
+        use super::{HostQuestState, HOST_STAGES_DONE};
+        let few = HostQuestState { stage: 20, running: true, ended: false, done: vec![10, 20] };
+        assert!(few.stage_done(10) && few.stage_done(20));
+        assert!(!few.stage_done(5) && !few.stage_done(30));
+        // A quest of more stages than came: the ones below the lowest carried were done.
+        let many = HostQuestState { stage: 400, running: true, ended: false, done: (0..HOST_STAGES_DONE as i32).map(|i| 100 + 10 * i).collect() };
+        assert!(many.stage_done(50));
+        assert!(many.stage_done(110));
+        assert!(!many.stage_done(105));
     }
 }

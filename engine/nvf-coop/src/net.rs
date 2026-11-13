@@ -58,6 +58,7 @@ use std::net::{SocketAddr, UdpSocket};
 use crate::rel::{Frame, Reliable};
 use crate::repl::ActorPose;
 use crate::steam::Steam;
+use crate::story::{self, StoryEntry, StoryPager, StoryValue};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -70,7 +71,7 @@ pub const MAGIC: [u8; 4] = *b"NVCO";
 /// 100 above the normal co-op build's, so the two never join each other. 130 (0.7.1, one bump
 /// for both): `Effect::Sync` (effect code 8, the syncing screen) and the change log's
 /// `repl::Value::Pose` (comp 9, a dead actor's resting ragdoll pose), which 129 cannot read.
-pub const VERSION: u8 = 130;
+pub const VERSION: u8 = 131;
 pub const MAX_GUESTS: usize = 3;
 pub const SEND_HZ: u32 = 20;
 /// A peer that sends nothing for this long is lost (shown frozen, still in its slot).
@@ -198,6 +199,8 @@ pub const LIST_OPEN: u8 = 1;
 pub const LIST_CAMPFIRE: u8 = 2;
 /// How many lists there are.
 pub const LISTS: usize = 3;
+/// How often the host sends a page of its story ([`Msg::Story`], `crate::story`).
+pub const STORY_EVERY: Duration = Duration::from_millis(200);
 /// How often the host sends a page of what its NPCs wear ([`Msg::Wear`]).
 pub const WEAR_EVERY: Duration = Duration::from_millis(250);
 /// NPCs one wear page carries at most.
@@ -455,6 +458,9 @@ enum Msg {
     /// with the flag; [`LIST_OPEN`], the same for the open flag). `serial` changes when
     /// the list does; the pages go round, one at a time.
     Presence { list: u8, serial: u32, page: u16, pages: u16, refs: Vec<(u32, bool)> },
+    /// A page of the host's story: quests' states and quest script variables
+    /// (`crate::story`).
+    Story { entries: Vec<StoryEntry> },
     /// What some of the host's NPCs wear and hold, as its game draws them: each NPC's
     /// reference and its worn armour and weapon (the whole set, so each entry stands
     /// alone). The host sends a page every [`WEAR_EVERY`], round and round.
@@ -654,6 +660,8 @@ pub enum Event {
     /// A page of one of the host's lists, each time it comes (guests only;
     /// [`Msg::Presence`]).
     Presence { list: u8, serial: u32, page: u16, pages: u16, refs: Vec<(u32, bool)> },
+    /// A page of the host's story, each time it comes (guests only; [`Msg::Story`]).
+    Story(Vec<StoryEntry>),
     /// What some of the host's NPCs wear and hold ([`Msg::Wear`]).
     Wear(Vec<(u32, Vec<u32>)>),
     /// Player `id` (0: the host's world) opened (`open`) or closed a door. It may come
@@ -804,6 +812,9 @@ pub struct Session {
     /// The host's lists ([`Msg::Presence`]), and when the last pages went.
     lists: [Paged; LISTS],
     last_presence: Option<Instant>,
+    /// The host's story ([`Msg::Story`]) and when its last page went.
+    story: StoryPager,
+    last_story: Option<Instant>,
     /// What the host's NPCs wear ([`Msg::Wear`]), the next page to send and when the
     /// last went.
     wear: Vec<(u32, Vec<u32>)>,
@@ -864,7 +875,7 @@ impl Session {
 
     fn with(sock: UdpSocket, role: Role) -> std::io::Result<Self> {
         sock.set_nonblocking(true)?;
-        Ok(Self { sock, steam: None, role, peers: Vec::new(), state: None, seq: 0, last_send: None, look: None, last_look: None, lobby: None, npcs: Vec::new(), last_npcs: None, npc_seq: 0, heard_npcs: None, hit_seq: 0, heard_hits: VecDeque::new(), quest: None, last_quest: None, heard_quest: None, clock: None, last_clock: None, scene: SceneView::default(), last_scene: None, own_name: String::new(), last_names: None, lines: Vec::new(), last_lines: None, lines_seq: 0, heard_lines: None, lists: Default::default(), last_presence: None, table: None, last_table: None, table_seq: 0, table_heard: Vec::new(), anims: AnimWire::default(), progress: AnimWire::default(), wear: Vec::new(), last_wear: None, wear_page: 0, events: Vec::new(), rel: Reliable::new(), host_epoch: None, actor_seq: 0, heard_actors: None, sent: RefCell::new(HashMap::new()), heard: HashMap::new(), started: Instant::now() })
+        Ok(Self { sock, steam: None, role, peers: Vec::new(), state: None, seq: 0, last_send: None, look: None, last_look: None, lobby: None, npcs: Vec::new(), last_npcs: None, npc_seq: 0, heard_npcs: None, hit_seq: 0, heard_hits: VecDeque::new(), quest: None, last_quest: None, heard_quest: None, clock: None, last_clock: None, scene: SceneView::default(), last_scene: None, own_name: String::new(), last_names: None, lines: Vec::new(), last_lines: None, lines_seq: 0, heard_lines: None, lists: Default::default(), last_presence: None, story: StoryPager::default(), last_story: None, table: None, last_table: None, table_seq: 0, table_heard: Vec::new(), anims: AnimWire::default(), progress: AnimWire::default(), wear: Vec::new(), last_wear: None, wear_page: 0, events: Vec::new(), rel: Reliable::new(), host_epoch: None, actor_seq: 0, heard_actors: None, sent: RefCell::new(HashMap::new()), heard: HashMap::new(), started: Instant::now() })
     }
 
     /// Also talk over Steam: a host is reached through it by a Steam code, a guest reaches
@@ -938,6 +949,12 @@ impl Session {
             l.serial = l.serial.wrapping_add(1);
             l.page = 0;
         }
+    }
+
+    /// The host's story now ([`Msg::Story`]); [`Session::tick`] sends a page every
+    /// [`STORY_EVERY`] (`crate::story`).
+    pub fn set_story(&mut self, entries: Vec<StoryEntry>) {
+        self.story.set(entries);
     }
 
     /// What the host's NPCs wear and hold now ([`Msg::Wear`]): each one's reference and
@@ -1347,6 +1364,13 @@ impl Session {
             }
             self.last_presence = Some(now);
         }
+        if self.is_host() && !self.peers.is_empty() && !self.story.is_empty() && self.last_story.is_none_or(|t| now - t >= STORY_EVERY) {
+            let msg = Msg::Story { entries: self.story.page() };
+            for addr in self.peers.iter().filter_map(|p| p.addr) {
+                self.sock_send(&msg, addr);
+            }
+            self.last_story = Some(now);
+        }
         if self.is_host() && !self.peers.is_empty() && !self.wear.is_empty() && self.last_wear.is_none_or(|t| now - t >= WEAR_EVERY) {
             let pages = self.wear.len().div_ceil(WEAR_PAGE);
             let page = self.wear_page % pages;
@@ -1639,7 +1663,7 @@ impl Session {
                     self.events.push(Event::Reliable { id, item });
                 }
             }
-            Msg::Welcome { .. } | Msg::Full | Msg::Who | Msg::Npcs { .. } | Msg::Quest(_) | Msg::Clock(_) | Msg::Scene(_) | Msg::Lines { .. } | Msg::Presence { .. } | Msg::Wear { .. } | Msg::Names { .. } | Msg::Actors { .. } => {}
+            Msg::Welcome { .. } | Msg::Full | Msg::Who | Msg::Npcs { .. } | Msg::Quest(_) | Msg::Clock(_) | Msg::Scene(_) | Msg::Lines { .. } | Msg::Presence { .. } | Msg::Story { .. } | Msg::Wear { .. } | Msg::Names { .. } | Msg::Actors { .. } => {}
         }
     }
 
@@ -1788,6 +1812,7 @@ impl Session {
             Msg::Clock(c) => self.events.push(Event::Clock(c)),
             Msg::Scene(v) => self.events.push(Event::Scene(v)),
             Msg::Presence { list, serial, page, pages, refs } => self.events.push(Event::Presence { list, serial, page, pages, refs }),
+            Msg::Story { entries } => self.events.push(Event::Story(entries)),
             Msg::Wear { npcs } => self.events.push(Event::Wear(npcs)),
             Msg::Door { reference, open } => self.events.push(Event::Door { id: 0, reference, open }),
             Msg::Names { names } => {
@@ -1981,6 +2006,11 @@ impl Link {
 
     pub fn set_presence(&self, list: u8, refs: Vec<(u32, bool)>) {
         self.with(|s| s.set_presence(list, refs));
+    }
+
+    /// [`Session::set_story`].
+    pub fn set_story(&self, entries: Vec<StoryEntry>) {
+        self.with(|s| s.set_story(entries));
     }
 
     /// [`Session::set_wear`].
@@ -2268,6 +2298,40 @@ fn encode(msg: &Msg) -> Vec<u8> {
             for (r, on) in refs {
                 b.extend_from_slice(&r.to_le_bytes());
                 b.push(u8::from(*on));
+            }
+        }
+        Msg::Story { entries } => {
+            b.push(25);
+            b.extend_from_slice(&(entries.len() as u16).to_le_bytes());
+            for e in entries {
+                match e {
+                    StoryEntry::Quest { quest, stage, running, ended, done } => {
+                        b.push(0);
+                        b.extend_from_slice(&quest.to_le_bytes());
+                        b.extend_from_slice(&stage.to_le_bytes());
+                        b.push(u8::from(*running) | (u8::from(*ended) << 1));
+                        let done = &done[done.len().saturating_sub(story::STAGES)..];
+                        b.push(done.len() as u8);
+                        for d in done {
+                            b.extend_from_slice(&d.to_le_bytes());
+                        }
+                    }
+                    StoryEntry::Var { quest, index, value } => {
+                        b.push(1);
+                        b.extend_from_slice(&quest.to_le_bytes());
+                        b.extend_from_slice(&index.to_le_bytes());
+                        match value {
+                            StoryValue::Num(v) => {
+                                b.push(0);
+                                b.extend_from_slice(&v.to_bits().to_le_bytes());
+                            }
+                            StoryValue::Ref(r) => {
+                                b.push(1);
+                                b.extend_from_slice(&r.to_le_bytes());
+                            }
+                        }
+                    }
+                }
             }
         }
         Msg::Campfire { reference } => {
@@ -2613,6 +2677,39 @@ fn decode(b: &[u8]) -> Option<Msg> {
             Msg::Presence { list, serial, page, pages, refs }
         }
         20 => Msg::Door { reference: r.u32()?, open: r.u8()? != 0 },
+        25 => {
+            let n = r.u16()? as usize;
+            if n > story::PAGE_BYTES {
+                return None;
+            }
+            let mut entries = Vec::with_capacity(n);
+            for _ in 0..n {
+                entries.push(match r.u8()? {
+                    0 => {
+                        let (quest, stage, flags, k) = (r.u32()?, r.u16()? as i16, r.u8()?, r.u8()? as usize);
+                        if k > story::STAGES {
+                            return None;
+                        }
+                        let mut done = Vec::with_capacity(k);
+                        for _ in 0..k {
+                            done.push(r.u16()? as i16);
+                        }
+                        StoryEntry::Quest { quest, stage, running: flags & 1 != 0, ended: flags & 2 != 0, done }
+                    }
+                    1 => {
+                        let (quest, index) = (r.u32()?, r.u16()?);
+                        let value = match r.u8()? {
+                            0 => StoryValue::Num(f64::from_bits(r.u64()?)),
+                            1 => StoryValue::Ref(r.u32()?),
+                            _ => return None,
+                        };
+                        StoryEntry::Var { quest, index, value }
+                    }
+                    _ => return None,
+                });
+            }
+            Msg::Story { entries }
+        }
         22 => Msg::Campfire { reference: r.u32()? },
         23 => {
             let n = r.u8()? as usize;
@@ -2713,6 +2810,16 @@ mod tests {
             Msg::Presence { list: LIST_ENABLED, serial: 7, page: 0, pages: 1, refs: Vec::new() },
             Msg::Presence { list: LIST_OPEN, serial: 8, page: 2, pages: 3, refs: vec![(0x0010_A202, true), (0x0016_8A92, false)] },
             Msg::Door { reference: 0x0010_C0DE, open: true },
+            Msg::Story { entries: Vec::new() },
+            Msg::Story {
+                entries: vec![
+                    StoryEntry::Quest { quest: 0x1E00_2B11, stage: 20, running: true, ended: false, done: vec![10, 20] },
+                    StoryEntry::Quest { quest: 0x0010_4C1D, stage: -1, running: false, ended: true, done: Vec::new() },
+                    StoryEntry::Var { quest: 0x1E00_2B11, index: 1, value: StoryValue::Num(1.0) },
+                    StoryEntry::Var { quest: 0x1E00_2B11, index: 2, value: StoryValue::Num(-0.125) },
+                    StoryEntry::Var { quest: 0x1E00_2B11, index: 900, value: StoryValue::Ref(0x0010_C0DE) },
+                ],
+            },
             Msg::Campfire { reference: 0x000C_DB59 },
             Msg::Presence { list: LIST_CAMPFIRE, serial: 1, page: 0, pages: 1, refs: vec![(0x000C_DB59, true)] },
             Msg::Wear { npcs: vec![(0x0010_C0DE, vec![0x0001_5EB6, 0x0008_F2E1]), (0xFF00_0643, Vec::new())] },
