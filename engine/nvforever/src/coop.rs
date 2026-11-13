@@ -283,6 +283,9 @@ const NPC_RUN_ROOM: f32 = 1.5;
 /// guest held the Dead Horses still and put them 131-166 units on about every 0.36 s
 /// (laptop deadhorse-look 74bac664, item 187 (a)) [observed].
 const NPC_GAP: f32 = 2.0 / SLOWEST_POSE_HZ;
+/// How long (seconds) a guest carries a moving NPC on past its newest state, waiting for
+/// the next: one round of the slowest pose rate [design].
+const NPC_CARRY_ON: f32 = 1.0 / SLOWEST_POSE_HZ;
 /// The slowest rate (Hz) the host sends an actor's pose to a guest at (`repl::pose_hz`).
 const SLOWEST_POSE_HZ: f32 = 3.0;
 /// How many of its own rounds behind its newest state a guest draws an NPC whose states
@@ -670,10 +673,28 @@ impl NpcTrack {
     /// Where to draw it at `t`: feet and heading blended between the states either side.
     /// `top`: the fastest it moves walking or running (units/s); a move faster than that
     /// (and longer than [`NPC_JUMP`]) is a jump.
+    /// Past its newest state while it was moving: carried on as it went between its last
+    /// two states, for at most [`NPC_CARRY_ON`] seconds, rather than held there until the
+    /// next comes. When its states come further apart all at once (from 10 Hz to 3 Hz as
+    /// it goes far from the guest), its delay is still short and the newest state is
+    /// passed: a guest held 0100B824 and put it 22-65 units on about every 0.35 s for a
+    /// second or two (laptop deadhorse-look d7992be2, item 187 (a)) [observed].
+    fn carried_on(&self, t: f32, top: f32) -> Option<([f32; 3], f32, bool)> {
+        let n = self.samples.len();
+        let ((ta, a), (tb, b)) = (*self.samples.get(n.checked_sub(2)?)?, *self.samples.back()?);
+        let span = tb - ta;
+        let gap = (0..3).map(|k| (b.feet[k] - a.feet[k]).powi(2)).sum::<f32>().sqrt();
+        if !b.has(npc_flag::MOVING) || a.space != b.space || span <= 1e-3 || span > NPC_GAP || gap / span > top {
+            return None;
+        }
+        let k = (t - tb).clamp(0.0, NPC_CARRY_ON) / span;
+        Some((std::array::from_fn(|i| b.feet[i] + (b.feet[i] - a.feet[i]) * k), b.heading, true))
+    }
+
     fn pose(&self, t: f32, top: f32) -> Option<([f32; 3], f32, bool)> {
         let last = self.samples.back()?.1;
         let (a, b, f) = match self.samples.iter().position(|(at, _)| *at > t) {
-            None => return Some((last.feet, last.heading, false)),
+            None => return Some(self.carried_on(t, top).unwrap_or((last.feet, last.heading, false))),
             Some(0) => return Some((self.samples[0].1.feet, self.samples[0].1.heading, false)),
             Some(i) => {
                 let (ta, a) = self.samples[i - 1];
@@ -4050,6 +4071,39 @@ mod tests {
         }
         // Its delay settled at one and a half of its rounds.
         assert!((t.delay - 0.325 * NPC_DELAY_ROUNDS).abs() < 0.05, "delay {}", t.delay);
+    }
+
+    /// Running on as it goes far from the guest: its poses come at 10 Hz, then at 3 Hz.
+    /// Drawn frame by frame, no frame puts it more than a few frames' run on, and it is
+    /// not held still (laptop deadhorse-look d7992be2: 22-65 unit steps every 0.35 s).
+    #[test]
+    fn an_npc_whose_poses_slow_down_runs_on_smoothly() {
+        let state = |x: f32| net::NpcState { reference: 0x0100_B824, feet: [x, 0.0, 0.0], heading: 0.0, pitch: 0.0, flags: npc_flag::MOVING, weapon: 0, attacks: 0, furniture: 0, base: 0, level: 0, all_levels: false, rolls: 0, hostile: false, space: 7 };
+        let run = 430.0;
+        let mut t = NpcTrack::default();
+        let (mut now, mut next_sent) = (0.0f32, 0.0f32);
+        let mut last: Option<f32> = None;
+        let mut biggest = 0.0f32;
+        while now < 8.0 {
+            if now >= next_sent {
+                t.samples.push_back((now, state(now * run)));
+                while t.samples.len() > 8 {
+                    t.samples.pop_front();
+                }
+                next_sent += if now < 3.0 { 0.1 } else { 0.35 };
+            }
+            t.delay = eased_delay(t.delay, t.spacing(), 1.0 / 60.0);
+            let x = t.pose(now - t.delay, run * NPC_RUN_ROOM).unwrap().0[0];
+            if let (Some(l), true) = (last, now > 0.5) {
+                biggest = biggest.max((x - l).abs());
+                assert!(x - l > -1.0, "went back {:.0} units at {now:.2} s", l - x);
+            }
+            last = Some(x);
+            now += 1.0 / 60.0;
+        }
+        // A frame's run is 7 units; a correction when a pose comes stays far under the
+        // 48 units a frame that count as a placement.
+        assert!(biggest < 24.0, "largest step {biggest:.0}");
     }
 
     #[test]
