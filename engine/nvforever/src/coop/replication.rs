@@ -954,6 +954,9 @@ fn guest_side(commands: &mut Commands, coop: &mut Coop, sim: &mut nvf_play::sim:
                         hostile: s.hostile,
                         space: s.space,
                     };
+                    if super::traced(p.reference) {
+                        info!("co-op trace: {:08X} pose heard at {now:.3}: ({:.0}, {:.0}, {:.0})", p.reference, n.feet[0], n.feet[1], n.feet[2]);
+                    }
                     let t = coop.npcs.entry(p.reference).or_default();
                     t.samples.push_back((now, n));
                     while t.samples.len() > 8 {

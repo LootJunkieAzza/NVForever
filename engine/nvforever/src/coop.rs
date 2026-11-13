@@ -275,10 +275,25 @@ const NPC_JUMP_SPEED: f32 = 2000.0;
 /// it counts as a jump [design: a run's speed-ups and the states' jitter; the fastest
 /// runner seen, a cazador, runs 955 units/s, observed: creature pace logs].
 const NPC_RUN_ROOM: f32 = 1.5;
-/// States further apart in time than this (seconds, over three rounds of
-/// [`net::NPC_HZ`]) with a move of more than [`NPC_JUMP`] between them: the host did not
-/// send it meanwhile (faded out, disabled for the move), so it is put there too.
-const NPC_GAP: f32 = 0.35;
+/// States further apart in time than this (seconds) with a move of more than
+/// [`NPC_JUMP`] between them: the host did not send it meanwhile (faded out, disabled for
+/// the move), so it is put there too. Two rounds of the slowest rate the host sends an
+/// actor's pose at (3 Hz, far from the guest: `repl::pose_hz`): at three rounds of
+/// [`net::NPC_HZ`] (0.35 s) every pose of a far actor running came after a "gap", and a
+/// guest held the Dead Horses still and put them 131-166 units on about every 0.36 s
+/// (laptop deadhorse-look 74bac664, item 187 (a)) [observed].
+const NPC_GAP: f32 = 2.0 / SLOWEST_POSE_HZ;
+/// The slowest rate (Hz) the host sends an actor's pose to a guest at (`repl::pose_hz`).
+const SLOWEST_POSE_HZ: f32 = 3.0;
+/// How many of its own rounds behind its newest state a guest draws an NPC whose states
+/// come further apart than [`NPC_DELAY`] allows for, up to [`NPC_DELAY_MAX`] seconds: drawn
+/// between two states, not held at the newest until the next comes [design].
+const NPC_DELAY_ROUNDS: f32 = 1.5;
+const NPC_DELAY_MAX: f32 = 0.6;
+/// The time (seconds) a guest takes to go over to another delay when an NPC's states come
+/// faster or slower (it comes nearer or into view): the drawn copy runs a little slower
+/// or faster meanwhile instead of jumping back or on [design].
+const NPC_DELAY_EASE: f32 = 1.0;
 /// The least time between two of an NPC's states on a guest, in rounds of
 /// [`net::NPC_HZ`] [design: under one round, so stamps on time do not drift later than
 /// they came; [`NPC_DELAY`] is two rounds, so a spaced state is still blended to].
@@ -601,6 +616,9 @@ pub(crate) struct Coop {
 #[derive(Default)]
 struct NpcTrack {
     samples: VecDeque<(f32, NpcState)>,
+    /// How far behind its newest state it is drawn (seconds; 0 until first drawn):
+    /// [`eased_delay`].
+    delay: f32,
     /// The attack counter played up to (None until the first state).
     played: Option<u8>,
     attacked_at: Option<f32>,
@@ -615,7 +633,27 @@ fn traced(r: u32) -> bool {
         .contains(&r)
 }
 
+/// How far behind its newest state a guest draws an NPC this frame (seconds): from
+/// `delay`, eased over [`NPC_DELAY_EASE`] towards [`NPC_DELAY_ROUNDS`] of the time between
+/// its states (`spacing`), at least [`NPC_DELAY`] and at most [`NPC_DELAY_MAX`].
+fn eased_delay(delay: f32, spacing: f32, dt: f32) -> f32 {
+    let target = (spacing * NPC_DELAY_ROUNDS).clamp(NPC_DELAY, NPC_DELAY_MAX);
+    if delay <= 0.0 {
+        return target;
+    }
+    delay + (target - delay) * (dt / NPC_DELAY_EASE).clamp(0.0, 1.0)
+}
+
 impl NpcTrack {
+    /// The time between its states as they came (seconds; [`NPC_DELAY`]'s round when
+    /// fewer than two).
+    fn spacing(&self) -> f32 {
+        match (self.samples.front(), self.samples.back()) {
+            (Some((a, _)), Some((b, _))) if self.samples.len() > 1 => (b - a) / (self.samples.len() - 1) as f32,
+            _ => 1.0 / net::NPC_HZ as f32,
+        }
+    }
+
     /// A state heard at `now`. States heard in one frame (one late, the next on time) are
     /// spaced [`NPC_SPACING`] of a round apart, not given the same time: blended over no
     /// time, the second was put on at once, and the Nipton survivor running about 516
@@ -2852,9 +2890,10 @@ fn follow_npcs(
         }
     }
     coop.npcs.retain(|_, t| t.samples.back().is_some_and(|(at, _)| now - at < NPC_FORGET));
+    let dt = time.delta_secs();
     let poses: HashMap<u32, RemotePose> = coop
         .npcs
-        .iter()
+        .iter_mut()
         .filter_map(|(&r, t)| {
             // Its furniture as the host has it now (a chair, a bed, a cross: module notes).
             // Not a dead one's: Chet, killed on the host, sat down on his chair again on a
@@ -2865,9 +2904,10 @@ fn follow_npcs(
             // and the Legion sniper's enables and first states at the Hoover Dam were
             // blended from where they were placed at 1165-1399 units/s (laptop 1110d).
             let top = residents.as_deref().and_then(|res| res.top_speed(r)).map_or(NPC_JUMP_SPEED, |run| (run * NPC_RUN_ROOM).min(NPC_JUMP_SPEED));
-            let pose = t.pose(now - NPC_DELAY, top);
+            t.delay = eased_delay(t.delay, t.spacing(), dt);
+            let pose = t.pose(now - t.delay, top);
             if let (true, Some((feet, _, moving))) = (traced(r), pose) {
-                info!("co-op trace: {r:08X} drawn at {now:.3} for {:.3} (top {top:.0}): ({:.0}, {:.0}, {:.0}) moving {moving}", now - NPC_DELAY, feet[0], feet[1], feet[2]);
+                info!("co-op trace: {r:08X} drawn at {now:.3} for {:.3} (top {top:.0}): ({:.0}, {:.0}, {:.0}) moving {moving}", now - t.delay, feet[0], feet[1], feet[2]);
             }
             pose.map(|(feet, heading, moving)| (r, RemotePose { feet, heading, moving, furniture, space }))
         })
@@ -3975,6 +4015,54 @@ mod tests {
             ok.heard(k as f32 * 0.1, state(k as f32 * 52.0));
         }
         assert!(ok.samples.iter().enumerate().all(|(k, s)| (s.0 - k as f32 * 0.1).abs() < 1e-6));
+    }
+
+    /// A Dead Horse running about 430 units/s far from the guest, its poses sent at 3 Hz
+    /// (every 6 or 7 ticks of 0.05 s): drawn frame by frame, it runs on every frame and
+    /// is never held still and put 131-166 units on (laptop deadhorse-look 74bac664).
+    #[test]
+    fn a_far_npc_sent_at_three_hz_runs_smoothly() {
+        let state = |x: f32| net::NpcState { reference: 0x0100_B824, feet: [x, 0.0, 0.0], heading: 0.0, pitch: 0.0, flags: npc_flag::MOVING, weapon: 0, attacks: 0, furniture: 0, base: 0, level: 0, all_levels: false, rolls: 0, hostile: false, space: 7 };
+        let run = 430.0;
+        let top = run * NPC_RUN_ROOM;
+        let mut t = NpcTrack::default();
+        let (mut now, mut next_sent, mut ticks) = (0.0f32, 0.0f32, 0u32);
+        let mut last: Option<f32> = None;
+        while now < 6.0 {
+            if now >= next_sent {
+                // As `replication` pushes a pose: stamped when it came.
+                t.samples.push_back((now, state(now * run)));
+                while t.samples.len() > 8 {
+                    t.samples.pop_front();
+                }
+                ticks += 1;
+                next_sent += if ticks % 2 == 0 { 0.30 } else { 0.35 };
+            }
+            t.delay = eased_delay(t.delay, t.spacing(), 1.0 / 60.0);
+            let x = t.pose(now - t.delay, top).unwrap().0[0];
+            if let (Some(l), true) = (last, now > 1.5) {
+                let step = x - l;
+                assert!(step < 48.0, "put {step:.0} units on at {now:.2} s (delay {:.2})", t.delay);
+                assert!(step > 0.0, "held still at {now:.2} s (delay {:.2})", t.delay);
+            }
+            last = Some(x);
+            now += 1.0 / 60.0;
+        }
+        // Its delay settled at one and a half of its rounds.
+        assert!((t.delay - 0.325 * NPC_DELAY_ROUNDS).abs() < 0.05, "delay {}", t.delay);
+    }
+
+    #[test]
+    fn the_delay_eases_to_its_rounds_within_bounds() {
+        // First drawn: at once.
+        assert_eq!(eased_delay(0.0, 0.1, 1.0 / 60.0), NPC_DELAY);
+        assert_eq!(eased_delay(0.0, 2.0, 1.0 / 60.0), NPC_DELAY_MAX);
+        // From 10 Hz to 3 Hz: a sixtieth of the way in a frame, all of it in a second.
+        let d = eased_delay(NPC_DELAY, 0.35, 1.0 / 60.0);
+        assert!(d > NPC_DELAY && d < NPC_DELAY + 0.01, "{d}");
+        assert!((eased_delay(NPC_DELAY, 0.35, NPC_DELAY_EASE) - 0.525).abs() < 1e-4);
+        // The far actor's 3 Hz rounds are no gap.
+        const { assert!(NPC_GAP > 0.35 * 1.5) };
     }
 
     #[test]
