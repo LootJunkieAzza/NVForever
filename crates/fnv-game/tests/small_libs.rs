@@ -534,3 +534,26 @@ fn format_k_prints_the_keys_name() {
     let mut g = game(&f);
     assert_eq!(q(&mut g, "SetFunctionValue (sv_Construct \"%k\" 18)"), s("E"));
 }
+
+#[test]
+fn cached_ini_file_quotes_are_removed_without_changing_default_or_cached_values() {
+    let f = fixture();
+    let mut g = game(&f);
+    q(&mut g, "SetINIString \"Template:Message\" (Sv_Construct \"%qAir %%.0f%q\") \"OwnedQuotes.ini\"");
+    assert_eq!(q(&mut g, "SetFunctionValue (GetINIString_Cached \"Template:Message\" \"OwnedQuotes.ini\")"), XVal::Str("Air %.0f".into()));
+    assert_eq!(q(&mut g, "SetFunctionValue (GetINIStringOrDefault_Cached \"Template:Missing\" \"OwnedQuotes.ini\" \"%qFallback%q\")"), XVal::Str("\"Fallback\"".into()));
+    q(&mut g, "SetINIString \"Quotes:Empty\" \"%q%q\" \"OwnedEmptyQuotes.ini\"");
+    q(&mut g, "SetINIString \"Quotes:Unmatched\" \"%qOpen\" \"OwnedEmptyQuotes.ini\"");
+    q(&mut g, "SetINIString \"Quotes:Internal\" \"%qA %qB%q C%q\" \"OwnedEmptyQuotes.ini\"");
+    assert_eq!(q(&mut g, "SetFunctionValue (GetINIString_Cached \"Quotes:Empty\" \"OwnedEmptyQuotes.ini\")"), XVal::Str(String::new()));
+    assert_eq!(q(&mut g, "SetFunctionValue (GetINIString_Cached \"Quotes:Unmatched\" \"OwnedEmptyQuotes.ini\")"), XVal::Str("\"Open".into()));
+    assert_eq!(q(&mut g, "SetFunctionValue (GetINIString_Cached \"Quotes:Internal\" \"OwnedEmptyQuotes.ini\")"), XVal::Str("A \"B\" C".into()));
+    assert_eq!(q(&mut g, "SetFunctionValue (GetINIStringOrCreate_Cached \"Template:Created\" \"OwnedQuotes.ini\" \"%qCached%q\")"), XVal::Str("\"Cached\"".into()));
+    assert_eq!(q(&mut g, "SetFunctionValue (GetINIString_Cached \"Template:Created\" \"OwnedQuotes.ini\")"), XVal::Str("\"Cached\"".into()));
+    q(&mut g, "SetINIString \"Template:Warm\" \"%qWarm%q\" \"OwnedWarmQuotes.ini\"");
+    assert_eq!(q(&mut g, "SetFunctionValue (HasINISetting_Cached \"Template:Warm\" \"OwnedWarmQuotes.ini\")"), XVal::Num(1.0));
+    assert_eq!(q(&mut g, "SetFunctionValue (GetINIString_Cached \"Template:Warm\" \"OwnedWarmQuotes.ini\")"), XVal::Str("Warm".into()));
+    q(&mut g, "SetINIString \"Template:Warm\" \"%qReloaded%q\" \"OwnedWarmQuotes.ini\"");
+    q(&mut g, "ReloadIniCache \"OwnedWarmQuotes.ini\"");
+    assert_eq!(q(&mut g, "SetFunctionValue (GetINIString_Cached \"Template:Warm\" \"OwnedWarmQuotes.ini\")"), XVal::Str("Reloaded".into()));
+}

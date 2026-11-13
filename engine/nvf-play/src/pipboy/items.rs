@@ -351,13 +351,14 @@ pub fn keys(
     pip: Res<PipBoy>,
     (repair, modding): (Res<super::repair::PipRepair>, Res<super::item_mod::PipItemMod>),
     active: Res<ActiveMenu>,
-    keys: Res<ButtonInput<KeyCode>>,
+    keys: crate::pad::ActionButtons<KeyCode>,
     mut wheel: MessageReader<MouseWheel>,
     mut lines: Local<f32>,
     mut out: MessageWriter<MenuInput>,
     (mut hold, mut hotkeys): (ResMut<HotkeyHold>, ResMut<Hotkeys>),
-    (pads, bindings): (Query<&Gamepad>, Option<Res<crate::bindings::Bindings>>),
+    (pads, bindings): (crate::pad::ActionPads, Option<Res<crate::bindings::Bindings>>),
 ) {
+    let keys = keys.snapshot();
     // Laid out in the Pip-Boy's screen texture, at its size whatever the UI scale (#1631).
     let _canvas = crate::interface::original_units();
     use KeyCode::*;
@@ -434,10 +435,11 @@ fn on_row_click(
     click: On<PointerClick>,
     rows: Query<&RowButton>,
     active: Res<ActiveMenu>,
-    keys: Res<ButtonInput<KeyCode>>,
+    keys: crate::pad::ActionButtons<KeyCode>,
     (mut hold, mut hotkeys): (ResMut<HotkeyHold>, ResMut<Hotkeys>),
     mut out: MessageWriter<MenuInput>,
 ) {
+    let keys = keys.snapshot();
     let Ok(r) = rows.get(click.entity) else { return };
     if click.button == PointerButton::Secondary {
         if hold.slot.is_none() {

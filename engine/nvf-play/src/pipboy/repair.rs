@@ -251,7 +251,7 @@ pub fn current(active: &ActiveMenu, sim: &mut SimState, script: Option<&ScriptSt
 #[allow(clippy::too_many_arguments)]
 pub fn keys(
     pip: Res<PipBoy>,
-    keys: Res<ButtonInput<KeyCode>>,
+    keys: crate::pad::ActionButtons<KeyCode>,
     mut aid: MessageReader<RepairInput>,
     mut repair: ResMut<PipRepair>,
     mut active: ResMut<ActiveMenu>,
@@ -261,6 +261,7 @@ pub fn keys(
     prompt: Res<crate::menu::PromptKeys>,
     modding: Res<super::item_mod::PipItemMod>,
 ) {
+    let keys = keys.snapshot();
     // Laid out in the Pip-Boy's screen texture, at its size whatever the UI scale (#1631).
     let _canvas = crate::interface::original_units();
     use KeyCode::*;

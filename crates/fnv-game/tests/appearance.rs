@@ -1,7 +1,7 @@
 //! AgeRace and SexChange on the player and on NPCs, SetLevel on an actor, and SetPCCanUsePowerArmor gating power armour on the player, on a
 //! synthetic plugin (no game data). docs/spec-notes/appearance-changes.md.
 
-mod common;
+use crate::common;
 
 use common::*;
 use fnv_esm::{LoadOrder, Plugin, Schema};

@@ -23,6 +23,20 @@ the spec it links to.
 
 ## Tier 1: felt in every fight or every session
 
+- **Automatic device switching (#2200).** [design, #2200] Switch the saved two-device
+  choice on fresh use, default ON with a Controls/INI opt-out; ignore only the switching
+  press edge, preserve all releases, and require the old device idle at frame start with
+  no release that frame (cancellations remain a backstop). Keep the current device on
+  simultaneous activity. Alternatives
+  from the issue: an Auto choice, ask once, or discoverability only. Ruling otherwise
+  changes this selection policy ([controller section 1](design/controller.md)).
+- **Pip-Boy pages from their menu files by default (#2215).** [design, #2215] An absent
+  `[UI] TileMenus` selects StatsMenu, InventoryMenu, RepairMenu, ItemModMenu, MapMenu and
+  QuantityMenu, keeping the hand-built fallback for missing or cut-down files. An empty
+  `TileMenus=` restores the hand-built pages. Keep this default at PR review? Reverting
+  `DEFAULT_PIPBOY_MENUS` to an empty list restores the old default; other menus and the
+  existing maintainer choices stay as they are. ([ui-tile-tree section 6.2](design/ui-tile-tree.md#62-one-menu-at-a-time-nothing-broken))
+
 1. **Crippled torso staggers on every hit.** An NPC with a crippled torso staggers on
    any hit (3 s cooldown), which goes further than your "crippling hit and later hits
    to that part" rule. The player flinches the same way: the view jumps up to 4°, the
@@ -46,6 +60,10 @@ the spec it links to.
      it. Cover is at most 1,024 units away.
    - Alarm calls allies within 4,096 units. A fled NPC re-checks after 30 s. Group
      searches give up after two sweeps.
+   - [design, #2010] A Lost search with no completed share for 300 s gives up, even
+     with shares still pending; each completed share renews that safety deadline.
+     A different bound changes how long unavailable navigation/AI holds combat.
+     ([alert section 2](design/alert.md))
    - Fire only with the target within 30° ahead, turning at 240°/s.
    - Creatures start blows on the run from up to 200 units beyond reach (minimum
      closing speed 100 units/s).
@@ -117,13 +135,18 @@ the spec it links to.
     picked up, and you can only walk while holding over 25 kg. All guessed.
     ([grab](spec-notes/grab.md))
 14. **Steps and road bumps.** Body and view follow the ground through a 0.2 s speed
-    prediction and a spring (2026-11-07, after "every bump" on roads): road ripples are
-    about 2.5-3x smoother, but running onto a steep hill the body is drawn up to 8 units
-    below the feet for a moment (up to 24 units allowed; over 48 counts as a teleport). A
-    step-up counts from 0.25 units of rise. Where a slope or stairs end the body carries
-    on up: up to 9.9 units over the top of a 30° slope and 4.2 over the top stair at a
-    run (6.1 and 1.2 walking; the old rule never overshot) [observed: replays, physics
-    §6.11]; cutting it halves the slope's overshoot but doubles the road roughness. Smooth enough, or too floaty?
+    prediction and a three-stage ease (2026-11-07, after "every bump" on roads; eased
+    2026-11-12 after feedback that curbs felt jarring): road ripples are about 2.5-3x
+    smoother, a curb starts and ends without a jolt, settling in about 0.24 s, and walking
+    off a rock or a road edge (up to 24 units down) is eased the same way instead of drawn
+    as a fall; walking, steps ease more slowly (over about the same distance walked)
+    and the view no longer twitches with the drawn floor of broken roads, but
+    running onto a steep hill the body is drawn up to 13 units below the feet for a
+    moment (up to 24 units allowed; over 48 counts as a teleport). A step-up counts from
+    0.25 units of rise. Where a slope or stairs end the body carries on up: up to 13.3
+    units over the top of a 30° slope and 2.6 over the top stair at a run (9.1 and 0.5
+    walking) [observed: replays, physics §6.11]; cutting it halves the slope's overshoot
+    but doubles the road roughness. Smooth enough, or too floaty?
     ([physics §6.8.1, §6.9.1](spec-notes/physics.md))
 15. **Third-person aim.** Shots and the activate prompt go to what is under the
     third-person crosshair, but the shot still leaves from the eye, so cover near you
@@ -194,6 +217,11 @@ the spec it links to.
     ([actor-behaviour §5.1](design/actor-behaviour.md), `FOLLOW_STOP_INSET`)
 
 ## Tier 3: rules where we chose to differ, or that the original has no answer for
+
+- **Linux overlay GPU source priority (#2249).** [design, #2249] `GPU_SOURCE_ORDER`
+  prefers whole-device NVML, then amdgpu, then game-only DRM client time. Choosing
+  DRM first would make supporting Linux drivers show the game's contribution consistently.
+  [Settings usage note](design/settings-page.md#performance-usage-availability-2249).
 
 19. **Walking away from a conversation.** The world freezes while you talk, as in the
     original, and walking off does not end it. Should walking off end it where the line

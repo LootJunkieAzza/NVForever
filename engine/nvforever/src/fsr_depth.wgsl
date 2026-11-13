@@ -26,3 +26,9 @@ const FIRST_PERSON_DEPTH_SHARE: f32 = 0.015625;
     let at = min(vec2<u32>(p.xy * vec2<f32>(resolution.xy) / vec2<f32>(resolution.zw)), resolution.xy - vec2<u32>(1u));
     return textureLoad(source, vec2<i32>(at), 0);
 }
+
+// FSR's depth (`prepare_depth`'s output) again as a colour value, for an upscaler that is
+// given its images through the FidelityFX API (ffx_api.rs).
+@fragment fn depth_as_color(@builtin(position) p: vec4<f32>) -> @location(0) f32 {
+    return textureLoad(source, vec2<i32>(p.xy), 0);
+}

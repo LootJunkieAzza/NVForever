@@ -1,7 +1,8 @@
 //! The Pip-Boy's DATA page drawn from `menus\main\map_menu.xml`, behind `[UI] TileMenus=MapMenu`
 //! [design: ui-tile-tree.md §6.2 step 3; the contract: docs/spec-notes/pipboy.md §5.3.1; issue
-//! #1513]. Off (the default), none of this runs and the hand-built page (`crate::pipboy::data`)
-//! prepares and draws as it always did.
+//! #1513]. On by default [design, #2215; super::vanilla::TileMenus::for_run]. Off, none
+//! of this runs and the hand-built page (`crate::pipboy::data`) prepares and draws as it
+//! always did.
 //!
 //! - **The tabs it draws** ([`TILED_TABS`]): Quests, Misc (the notes or the challenges, a note's
 //!   text, picture or audio), Radio (the stations, the waveform's frame from the file with the

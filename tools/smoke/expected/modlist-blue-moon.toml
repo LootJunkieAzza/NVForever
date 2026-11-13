@@ -15,4 +15,4 @@ units_picked = 2014
 units_from_source = 2006
 units_kept_bytes = 8
 # Functions the scripts call that NVForever has no entry for (their calls do nothing).
-"unknown_functions.#" = 45
+"unknown_functions.#" = 44

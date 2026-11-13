@@ -300,6 +300,44 @@ Goodsprings' settlers share GoodspringsFaction and have Assistance 2 [observed:
 `fnvtool actor values`], so shooting one brings the others that see it; Violet's dogs
 share FiendsFactionNV with her (Assistance 2), so they now join her fights.
 
+### 10.3.1 An Evil faction's area (#1538, owner decision 2026-11-13)
+
+**Owner decision** 2026-11-13, on #1538: "attacking the fiends should alert all fiends
+in the area that you are to be attacked". Witness or not, every Fiend in the area turns
+on the player as soon as the player attacks one. Built as `Game::evil_area_alert`
+(`fnv_game::provocation`), in these engine terms [design, from the ruling]:
+
+- **Who**: the members of each faction of the victim that is flagged **Evil** (FACT
+  DATA bit 2) [design: the ruling names the Fiends; the Evil flag is what kept the
+  usual rules from reaching them, below, so the rule goes with the flag and not with
+  one faction's name]. FiendsFactionNV is flagged Hidden, Evil and Track Crime
+  [observed: FalloutNV.esm]. The player's teammates are left out.
+- **The attack**: a hit by the player (`Game::attacked_by`, before the friendly-hit
+  allowance: an ally's first hits no longer pass) or the player's kill of it
+  (`Game::player_kills`, so a Fiend killed in one blow counts). Not a stray hit on a
+  victim already fighting someone else, as the owner's exception of §10.1.
+- **The area**: the loaded cells. Indoors the victim's own cell (Vault 3 is three
+  interior cells, Vault3a Recreation Area, Vault3b Living Quarters, Vault3c Maintenance
+  Wing [observed: `fnvtool world cells`], and only the one the player is in is loaded);
+  outdoors the exterior within the alarm radius (9,216 units, combat-groups.md §1) of
+  the victim.
+- **What they do**: each holds a grudge against the player (`Assist`) and gets an alarm
+  at the player's position (`Cause::Ally`), as an assisting ally does (§10.3), so it is
+  Alert at once and fights when it detects the player:
+  `provocation: … is alerted: the player attacked … of its faction`, then one line
+  `provocation: the player attacked … of … (Evil): N of its members in the area turn on
+  the player`. A faction that also tracks crime makes the player its enemy from then on
+  (`Game::crime_enemy`, as a witnessed murder does, spec-notes/crime-karma.md), so its members in the
+  cells not loaded are hostile too when the player gets there.
+
+Why the usual rules did not reach them [observed: FalloutNV.esm; crates/fnv-game]:
+Vault 3's entrance door (SCPT 0x000F2DF5, OnActivate) runs `SetAlly PlayerFaction
+FiendsFactionNV` when the player comes in with `iVault3Entrance` 2, so the Fiends are
+the player's allies; an ally lets iAllyHitNonCombatAllowed (3) hits pass out of combat
+(§10.1), assistance never fights a helper's own ally (§10.3), and the kill of an Evil
+NPC is no murder, so no witness turns (spec-notes/crime-karma.md). Karma is unchanged (killing an evil
+person stays good karma). Smoke `fiends-area-alert`.
+
 ### 10.4 Combat styles (`fnv_game::combat_style`, schema `ai.json` CSTY)
 
 CSTY is read (CSTD, CSAD, CSSD) [documented: layout xEdit wbDefinitionsFNV.pas CSTY;
