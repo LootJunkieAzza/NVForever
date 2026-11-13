@@ -370,7 +370,6 @@ fn ended(
         over = true;
         gone = true;
     }
-    let game = script.as_deref_mut().and_then(|s| s.rt.as_mut()).map(|rt| &mut rt.game);
     if over && !at.over {
         at.over = true;
         // A contest gone without its end (a load, a disconnect) takes the win shot with it.
@@ -378,11 +377,7 @@ fn ended(
             w.stage_until = 0.0;
         }
         if at.held {
-            if let Some(g) = game {
-                g.extra.entry(FormId::PLAYER_REF).or_default().unconscious = false;
-            }
-            w.woke += 1;
-            info!("drink world: {}: the contest is over: this player wakes and gets up", at.bar.key);
+            info!("drink world: {}: the contest is over: this player stays down until the win shot lets go", at.bar.key);
         } else {
             info!("drink world: {}: the contest is over: this player was still standing", at.bar.key);
         }
@@ -392,8 +387,9 @@ fn ended(
         return;
     }
     // The win shot and the dance hold until the winner's screen closes, then let go on
-    // every screen at once.
-    if w.stage.is_some() && time.elapsed_secs() < w.stage_until {
+    // every screen at once; a passed-out player lies where it fell until then (parity,
+    // ship17 pvp: the loser got up behind the dancing winner).
+    if !wake_due(w.stage.is_some(), time.elapsed_secs(), w.stage_until) {
         return;
     }
     if w.stage.take().is_some() {
@@ -401,6 +397,13 @@ fn ended(
             rt.game.other.alt_locks.remove(STAGE_LOCK_KEY);
         }
         info!("drink world: {}: the contest is over: the win camera lets go, the messages with it", at.bar.key);
+    }
+    if std::mem::take(&mut at.held) {
+        if let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) {
+            rt.game.extra.entry(FormId::PLAYER_REF).or_default().unconscious = false;
+        }
+        w.woke += 1;
+        info!("drink world: {}: the contest is over: this player wakes and gets up", at.bar.key);
     }
     if std::mem::take(&mut at.dancing) {
         emotes.write(crate::emotes::EmoteAsk::Cancel);
@@ -414,6 +417,12 @@ fn ended(
     control.pov = at.pov;
     info!("drink world: {}: this player stands again; the view is {:?} again", at.bar.key, at.pov);
     w.at = None;
+}
+
+/// Whether the contest's end may go on now (the held body wake, the win shot let go):
+/// not while a win shot is up and its time (`until`, the app's seconds) not yet come.
+fn wake_due(stage_up: bool, now: f32, until: f32) -> bool {
+    !stage_up || now >= until
 }
 
 /// [`NVF_PLAY_TEST_DRINK_TABLE`](self): a solo contest at the first bar's bottle.
@@ -469,6 +478,19 @@ fn report(mut exit: MessageReader<AppExit>, world: Res<DrinkWorld>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A passed-out loser never gets up while the win shot is up: only at its release,
+    /// or at once when there is no win shot (a draw, a contest gone).
+    #[test]
+    fn the_loser_stays_down_until_the_win_shot_lets_go() {
+        let until = 105.45;
+        for now in [100.0, 103.0, 105.0, 105.44] {
+            assert!(!wake_due(true, now, until), "{now}");
+        }
+        assert!(wake_due(true, until, until));
+        assert!(wake_due(true, 106.0, until));
+        assert!(wake_due(false, 100.0, until));
+    }
 
     #[test]
     fn a_passing_out_body_is_tipped_away_from_the_table() {
