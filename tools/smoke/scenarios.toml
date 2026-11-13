@@ -25670,7 +25670,7 @@ order = [[
   { re = 'drink world: test aid starts a contest at bottle FF7FA102 \(seed 42, skill Some\(3\.0\), 2 NPC\(s\)\)', label = "a contest at the saloon's bottle against two NPCs" },
   { re = 'drink contest: slot 0 \(You\) wins', label = "the player wins" },
   { re = 'drink world: goodsprings: player slot 0 wins: the win camera at \(-\d+, -\d+, \d+\) looks at the stage \(-60, -700, 3556\)', label = "the win camera on the stage" },
-  { re = 'drink world: goodsprings: the winner steps onto the stage \(-60, -700\) facing -160 deg', label = "the winner steps onto the stage, facing the camera" },
+  { re = 'drink world: goodsprings: the winner steps onto the stage \(-60, -700\) facing 200 deg', label = "the winner steps onto the stage, facing the camera" },
   { re = 'drink world: goodsprings: this player wins: the drink ends, the tap-dance until the contest', label = "the winner starts the tap dance" },
   { re = 'drink stage: the fill light comes up at', label = "the fill light fades up on the winner" },
   { text = "drink contest: closed", label = "the contest's screen closes" },

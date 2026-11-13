@@ -369,7 +369,9 @@ mod tests {
             let (p, _) = mark(bar, slot);
             assert!(p[0] < -20.0 - 22.0, "slot {slot} is in the wall");
         }
-        assert!(mark(bar, 0).0[1] < -562.4 - 22.0 && mark(bar, 1).0[1] < -550.0 - 22.0);
+        // Slot 0 by the straight run; slot 1 by the curve, whose face at x -204 is at y -490
+        // [observed: `fnvtool phys cell` rays at the waist, 2026-11-13].
+        assert!(mark(bar, 0).0[1] < -562.4 - 22.0 && mark(bar, 1).0[1] < -490.0 - 22.0);
     }
 
     #[test]
