@@ -469,9 +469,12 @@ on]: OptiScaler hooked all five entry points; 17,847 dispatches, none failed; th
 written under OptiScaler's FSR 2.2.1 (its default on Vulkan), FSR 3.1 and FSR 3.1 through
 its DX12 bridge; frame generation ran on top (about 75 real, 151 presented frames a second);
 the context was destroyed on exit. While OptiScaler changes its upscaler (about a second) it
-returns OK without writing the output. Not run: AMD's library without OptiScaler, FSR SDK
-2.x's library, a change of size or mode in play, the Vulkan validation layer, DLSS and XeSS
-behind OptiScaler, an AMD or Intel GPU. What is said below about those is from the
+returns OK without writing the output. AMD's own `amd_fidelityfx_vk.dll` (SDK 1.x, without
+OptiScaler) [observed 2026-11-13: RTX 5090, 1280x720 and a resize to 4K, Quality]: a context
+at each size, every dispatch ok, alone and with Streamline loaded (DLSS's files in the folder,
+the device made through its interposer); see "Vulkan functions the library asks for" below
+for what it took. Not run: FSR SDK 2.x's library, a change of size or mode in play, the
+Vulkan validation layer, DLSS and XeSS behind OptiScaler, an AMD or Intel GPU. What is said below about those is from the
 libraries' sources and headers.
 
 - **What is loaded.** The first of these that loads, by its bare name, the first time a view
@@ -517,6 +520,20 @@ libraries' sources and headers.
   copy of the common corrected depth (`upscaler/prep.rs` `depth_as_color`, `fsr_depth.wgsl`): the API has no depth formats, and OptiScaler
   makes its view under the format the API names, which a depth image does not allow
   [observed: OptiScaler's source, `FfxApi_Vk.cpp` `CreateIVandNVRes`].
+- **Vulkan functions the library asks for.** It is given `vkGetDeviceProcAddr` and looks
+  up what it calls. AMD's library asked for functions this device was not made with
+  (`vkGetBufferMemoryRequirements2KHR`, `vkSetDebugUtilsObjectNameEXT`,
+  `vkCmdBegin/EndDebugUtilsLabelEXT`, `vkCmdWriteBufferMarkerAMD`,
+  `vkCmdWriteBufferMarker2AMD`), got NULL, called one while it made its context, and the
+  game stopped with an access violation at address 0 [observed 2026-11-13, crash dumps].
+  So the library gets NVForever's own lookup in front of the device's (`ffx_api.rs`
+  `device_proc_addr`): a `KHR`/`EXT` name the device lacks is looked up again under its core
+  name (an extension promoted to core keeps its functions there, identical [documented: the
+  Vulkan specification, "Extension Promotion"]); the debug names and labels, which change
+  nothing the GPU does, are answered by a no-op; anything else by a stub that notes the call.
+  A library that calls such a stub is given up (at its context: not used; in a frame: a
+  failed dispatch), and the log names what it asked for. AMD's library then ran, asking for
+  the two AMD buffer markers without calling them on this NVIDIA GPU.
 - **Three command buffers a frame.** wgpu 30 allows no raw commands in an encoder that has
   commands of its own [documented: wgpu-core 30.0.1 `EncodingApi::set` panics]. So the
   library records into an encoder used only through `as_hal_mut`, and Bevy gets ours before,
@@ -547,9 +564,7 @@ libraries' sources and headers.
 - **Licence.** No AMD file is in the build or the package; what a player puts in the folder
   is theirs. LEGAL.md and [dependencies](dependencies.md) stand as they are.
 - **Not covered.** The library's GPU memory in the memory budget; translations of the
-  settings row; a smoke scenario (it needs a library to load). With DLSS's files in the
-  folder Vulkan is made through Streamline's interposer ([dlss-upscaling](dlss-upscaling.md)),
-  and a FidelityFX API library is then given that device's handles: not run. AMD's backend
+  settings row; a smoke scenario (it needs a library to load). AMD's backend
   picks its shader variants from what the GPU supports, not from what the device enabled
   [documented: SDK 1.1.4 `ffx_vk.cpp` `GetDeviceCapabilitiesVK`]: untested on an AMD GPU.
 - **What the log says.** Which library loaded and the file it came from (a tool that

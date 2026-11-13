@@ -210,6 +210,85 @@ struct CreateBackendVk {
     device_proc_addr: vk::PFN_vkGetDeviceProcAddr,
 }
 
+/// The device's own `vkGetDeviceProcAddr`, behind the one the library is given
+/// ([`device_proc_addr`]); set before each `ffxCreateContext`.
+static DEVICE_PROC_ADDR: std::sync::Mutex<Option<vk::PFN_vkGetDeviceProcAddr>> = std::sync::Mutex::new(None);
+
+/// The functions the library asked for that the device does not have, since the last
+/// `ffxCreateContext` began.
+static MISSING: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
+/// Whether the library called one of the [`MISSING`] functions ([`missing_function`]).
+static MISSING_CALLED: AtomicBool = AtomicBool::new(false);
+
+/// Debugging aids: object names and command labels for tools like RenderDoc, which change
+/// nothing the GPU does [documented: the Vulkan specification, VK_EXT_debug_utils]. Without
+/// the extension they are answered with [`debug_noop`].
+const DEBUG_ONLY: [&str; 5] = ["vkSetDebugUtilsObjectNameEXT", "vkSetDebugUtilsObjectTagEXT", "vkCmdBeginDebugUtilsLabelEXT", "vkCmdEndDebugUtilsLabelEXT", "vkCmdInsertDebugUtilsLabelEXT"];
+
+/// The `vkGetDeviceProcAddr` the library is given, in front of the device's own. A function
+/// the device was not made with comes back NULL from Vulkan [documented: the Vulkan
+/// specification, `vkGetDeviceProcAddr`], and AMD's library called such a NULL while it made
+/// its context: the game stopped with an access violation at address 0 [observed 2026-11-13:
+/// AMD's `amd_fidelityfx_vk.dll` without OptiScaler, RTX 5090; the crash dumps' faulting
+/// address 0, called from inside the library during `ffxCreateContext`]. It asked for
+/// `vkGetBufferMemoryRequirements2KHR`, the debug functions of [`DEBUG_ONLY`] and
+/// `vkCmdWriteBufferMarkerAMD`/`vkCmdWriteBufferMarker2AMD` [observed: same run]. So:
+/// - a name with an extension's suffix (`KHR`, `EXT`) that the device does not have under
+///   that name is looked up again without it: an extension promoted to core keeps its
+///   functions, identical, under the core name [documented: the Vulkan specification,
+///   "Extension Promotion"] (`vkGetBufferMemoryRequirements2`, core since 1.1);
+/// - a [`DEBUG_ONLY`] function is answered with [`debug_noop`];
+/// - anything else is answered with [`missing_function`] and its name kept: the library is
+///   given up only if it calls one ([`Upscaler::new`], [`Upscaler::dispatch`]).
+unsafe extern "system" fn device_proc_addr(device: vk::Device, name: *const std::ffi::c_char) -> vk::PFN_vkVoidFunction {
+    let real = (*DEVICE_PROC_ADDR.lock().unwrap())?;
+    // SAFETY: the library passes the device it was given and a NUL-terminated name.
+    let found = unsafe { real(device, name) };
+    if found.is_some() || name.is_null() {
+        return found;
+    }
+    // SAFETY: as above.
+    let text = unsafe { std::ffi::CStr::from_ptr(name) }.to_string_lossy();
+    if let Some(core) = text.strip_suffix("KHR").or_else(|| text.strip_suffix("EXT")) {
+        let core = std::ffi::CString::new(core).unwrap_or_default();
+        // SAFETY: a NUL-terminated name, the same device.
+        if let Some(found) = unsafe { real(device, core.as_ptr()) } {
+            return Some(found);
+        }
+    }
+    // SAFETY (both): Vulkan's generic function pointer type; the library casts it to the
+    // command's own signature before calling.
+    if DEBUG_ONLY.contains(&text.as_ref()) {
+        return Some(unsafe { std::mem::transmute::<unsafe extern "system" fn() -> i32, unsafe extern "system" fn()>(debug_noop) });
+    }
+    let mut missing = MISSING.lock().unwrap();
+    if !missing.iter().any(|m| *m == text) {
+        missing.push(text.into_owned());
+    }
+    Some(unsafe { std::mem::transmute::<unsafe extern "system" fn() -> i32, unsafe extern "system" fn()>(missing_function) })
+}
+
+/// A [`DEBUG_ONLY`] function without the extension: nothing, and `VK_SUCCESS` for the two
+/// that return a `VkResult`. Every Vulkan command is `extern "system"` and on x64 the caller
+/// removes its own arguments [documented: the x64 calling convention], so one stub serves
+/// every signature.
+unsafe extern "system" fn debug_noop() -> i32 {
+    vk::Result::SUCCESS.as_raw()
+}
+
+/// Any other missing function: nothing, `VK_ERROR_EXTENSION_NOT_PRESENT` for one that returns
+/// a `VkResult`, and the call noted ([`MISSING_CALLED`]).
+unsafe extern "system" fn missing_function() -> i32 {
+    MISSING_CALLED.store(true, Ordering::Relaxed);
+    vk::Result::ERROR_EXTENSION_NOT_PRESENT.as_raw()
+}
+
+/// The functions asked for and missing, for the log.
+fn missing_names() -> String {
+    MISSING.lock().unwrap().join(", ")
+}
+
 #[repr(C)]
 pub(crate) struct CreateUpscale {
     header: Header,
@@ -518,8 +597,11 @@ impl Upscaler {
                 message: Some(message),
             },
             version: CreateUpscaleVersion { header: Header { ty: CREATE_CONTEXT_DESC_TYPE_UPSCALE_VERSION, next: std::ptr::null_mut() }, version: library.upscaler_version.unwrap_or(0) },
-            backend: CreateBackendVk { header: Header { ty: library.backend_type, next: std::ptr::null_mut() }, device: vk_device, physical_device, device_proc_addr },
+            backend: CreateBackendVk { header: Header { ty: library.backend_type, next: std::ptr::null_mut() }, device: vk_device, physical_device, device_proc_addr: self::device_proc_addr },
         });
+        *DEVICE_PROC_ADDR.lock().unwrap() = Some(device_proc_addr);
+        MISSING.lock().unwrap().clear();
+        MISSING_CALLED.store(false, Ordering::Relaxed);
         // The chain: the upscale descriptor, the version where the library takes one, the
         // Vulkan backend.
         descs.upscale.header.next = &mut descs.backend.header;
@@ -531,8 +613,19 @@ impl Upscaler {
         // SAFETY: the descriptors are laid out as the headers declare them and stay alive in
         // `descs`; a null allocator means the library's own.
         let code = unsafe { (library.create_context)(&mut context, &mut descs.upscale.header, std::ptr::null()) };
+        if MISSING_CALLED.load(Ordering::Relaxed) {
+            if code == RETURN_OK && !context.is_null() {
+                // SAFETY: the context was just made and nothing was recorded with it.
+                unsafe { (library.destroy_context)(&mut context, std::ptr::null()) };
+            }
+            return Err(format!("the library called a Vulkan function this device was not made with (it asked for {}); ffxCreateContext returned {code} ({})", missing_names(), return_code_name(code)));
+        }
         if code != RETURN_OK || context.is_null() {
             return Err(format!("ffxCreateContext returned {code} ({})", return_code_name(code)));
+        }
+        let missing = missing_names();
+        if !missing.is_empty() {
+            info!("FSR: the FidelityFX API library asked for Vulkan functions this device does not have and did not call them: {missing}");
         }
         Ok(Self { library, context, _descs: descs, device: device.clone() })
     }
@@ -580,6 +673,9 @@ impl Upscaler {
         match code {
             // The encoder is dropped with whatever was recorded: nothing of it runs.
             None => Err("wgpu gave no Vulkan command buffer".into()),
+            // A command left out may leave the output wrong: not shown, and the library's use
+            // ends after a few such frames (fsr.rs `API_FAILURES`).
+            Some(_) if MISSING_CALLED.swap(false, Ordering::Relaxed) => Err(format!("the library called a Vulkan function this device was not made with (it asked for {})", missing_names())),
             Some(RETURN_OK) => Ok(encoder.finish()),
             Some(code) => Err(format!("ffxDispatch returned {code} ({})", return_code_name(code))),
         }
