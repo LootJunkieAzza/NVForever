@@ -12,6 +12,7 @@
 //!   the game)
 //! - [`layers`]: Havok collision layer numbers and names
 //! - [`primitive`]: collision primitives placed on references (CollisionMarker boxes)
+//! - [`hull`]: convex hulls whose large faces stay whole in contacts
 //! - [`placed`]: the collision objects of a placed reference (shared by the tools and the
 //!   game)
 //! - [`ragdoll`]: ragdolls, the jointed bodies of dead actors
@@ -40,6 +41,7 @@ pub mod debug_lines;
 pub mod drawn;
 pub mod gore;
 pub mod grab;
+pub mod hull;
 mod islands;
 pub mod layers;
 pub mod placed;

@@ -541,7 +541,9 @@ NVGSCrateContainer (one stacked on the other) and an NVWoodBarrel were all awake
 them, 2 did not]. With the wider distance all were asleep within 2 s, 3.5 units higher
 than without the skin. Why a skin wider than the prediction distance keeps bodies moving
 is not known (rapier's narrow phase) [hypothesis: contacts dropping in and out of the
-solver at the skin's edge]. Test `clutter_on_the_terrain_shell_falls_asleep`.
+solver at the skin's edge]. Test `clutter_on_the_terrain_shell_falls_asleep`. Since
+2026-11-13 the distance is widened only while the world holds terrain: indoors the wider
+one kept clutter trembling awake (§5.5).
 
 In our engine [observed, `nvforever --play`, 2026-10-08]: a stimpak (one dynamic Clutter
 object) dropped 30 units above Doc Mitchell's floor (z 7360) came to rest on its side at
@@ -1149,6 +1151,56 @@ How many fixed steps a second play takes [design: the owner's approved plan,
     #1801 found; not adopted.
   - `Stats::solver_us[4]` (rapier's `ccd_time`) reads 0 in rapier 0.36.0 whatever CCD
     costs (its timer is never started); CCD's work is in `counters.ccd` (#1798).
+
+### 5.5 Loose clutter at rest (2026-11-13)
+
+Clutter knocked about indoors stayed awake, trembling, some of it sunk into tables
+(the owner's report of 2026-11-11: "clutter stuck in geometry, twitching and never
+sleeping"). Two causes, both in how rapier picks a contact's points.
+
+- **rapier's sleep rule**: a body sleeps once its farthest point has moved slower than
+  twice its threshold (0.05 m/s: 7 units/s) at every step for 0.5 s, and only with every
+  body it touches (islands sleep whole) [documented: rapier3d 0.36.1
+  `RigidBodyActivation::update_energy`, `IslandManager::update_islands`].
+- **The prediction distance indoors**: rapier keeps at most four points of a contact,
+  the deepest and then those spread farthest from it among the points within the
+  prediction distance [documented: rapier3d 0.36.1 `reduce_manifold_naive`]. Raised by
+  the terrain's 3.5-unit shell everywhere (§5, `PhysWorld::new`, for clutter creeping on
+  the terrain), it let points of a surface a unit or two below the one a body lies on (a
+  shelf board's lower edge) displace the points it lies on: books, pots and bottles shook
+  at 10-15 units/s from step to step while staying within about a unit of where they lay,
+  and kept their neighbours awake. Since 2026-11-13 it is raised only while the world
+  holds terrain (`PhysWorld::fit_prediction`); interiors use rapier's own (0.02 m, 1.4
+  units). Test `a_book_over_a_lower_lip_falls_asleep_indoors`.
+  **`NVF_PHYS_INDOOR_PREDICTION=0`** (a test aid, read once) keeps it raised everywhere.
+  Exteriors keep the raised distance, so clutter on an outdoor shelf can still tremble
+  [hypothesis: not measured outdoors].
+- **Large hull faces**: parry gives rapier only the first four corners of a convex hull's
+  face, whatever its size [documented: parry3d 0.31.1
+  `ConvexPolyhedron::local_support_feature`, a TODO says the four should span the most
+  area]. A hull merges coplanar triangles into one face, so a table top of 11 corners
+  became a sliver along one edge; a body lying on the rest of it kept one contact point,
+  sank into the table and rocked there awake. `fnv_phys::hull` gives the four corners
+  that span the most of such a face (or, for a contact outside them, the most with the
+  corner nearest it). Test `a_stone_on_a_table_top_of_many_corners_rests_on_it`.
+  **`NVF_PHYS_HULL_FACES=0`** (a test aid, read once) builds parry's plain hull.
+- **Measured** [observed: a probe of `fnvtool phys cell`, not committed, 2026-11-13:
+  every dynamic reference of the cell added awake where it is placed, 20 s of settling,
+  then a kick from below at 400 units/s and 20 s more; bodies awake at the end of each,
+  and the deepest overlap with static geometry]:
+
+  | cell, rate | before | prediction only | hull only | both |
+  |---|---|---|---|---|
+  | GSDocMitchellHouse (169), 60 Hz | 32 / 18, 12.7 deep | 6 / 3 | 38 / 16 | 1 / 4, 2.3 deep |
+  | GSDocMitchellHouse, 160 Hz | 40 / 15, 8.3 deep | 4 / 2 | 34 / 8 | 1 / 2, 2.4 deep |
+  | GSGeneralStore (68), 60 Hz | 7 / 11 | 4 / 2 | 4 / 5 | 1 / 2 |
+  | GSGeneralStore, 160 Hz | 4 / 4 | 3 / 3 | 4 / 2 | 1 / 1 |
+  | GSProspectorSaloonInterior (110), 60 Hz | 11 / 13 | 6 / 6 | 8 / 9 | 2 / 1 |
+  | GSProspectorSaloonInterior, 160 Hz | 13 / 12 | 4 / 7 | 9 / 2 | 2 / 4 |
+
+  With both, what is still awake at the end is rolling (Doc Mitchell's two globes) or
+  thrown far by the kick. A small item fell through a floor after the kick in 5 of the
+  24 kicked runs (3 before, 2 with both), not this change's doing.
 
 ## 6. Character controller and capture questions
 

@@ -208,6 +208,17 @@ impl CollisionLines {
             hide_character_at_center: self.hide_character_at_center,
         };
         self.pipeline.render_colliders(&mut g, &world.w.bodies, &world.w.colliders);
+        // rapier draws no shape of its users' own: the hulls with large faces
+        // (`crate::hull`) are drawn here, edge by edge as rapier draws a hull.
+        for (h, co) in world.w.colliders.iter() {
+            let Some(hull) = co.shape().as_shape::<crate::hull::Hull>() else { continue };
+            let object = DebugRenderObject::Collider(h, co);
+            if g.filter_object(object) {
+                let poly = hull.polyhedron();
+                let edges: Vec<[u32; 2]> = poly.edges().iter().map(|e| e.vertices).collect();
+                g.draw_polyline(object, poly.points(), &edges, co.position(), rapier3d::math::Vector::splat(1.0), [0.0; 4]);
+            }
+        }
         self.dropped = g.dropped;
         self.colliders = g.colliders;
     }
