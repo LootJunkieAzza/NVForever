@@ -1257,3 +1257,38 @@ fn an_actor_waiting_on_furniture_greets_from_its_seat() {
     assert_eq!(a.walker.feet, feet);
     assert_eq!(a.walker.heading, heading);
 }
+
+/// A restrained actor (SetRestrained 1) given a Dialogue package does not move but still
+/// talks [documented: GECK wiki SetRestrained, restrained actors "will not move from
+/// their current position, or enter combat, but will continue to \"think\" ... and go
+/// into dialogue"]: it waits where it stands, greets the player once within the activate
+/// distance, and released during that conversation (the line that frees it, as Hardin's
+/// power armor training does) it does not greet again (#2309). The player is restrained
+/// too, as in that scene.
+#[test]
+fn a_restrained_actor_with_a_dialogue_package_talks_without_moving() {
+    let f = fixture();
+    let mut s = sim(&f, R_COME, [1000.0, 1000.0, 0.0]);
+    s.game.extra.entry(FormId(R_COME)).or_default().restrained = true;
+    s.game.extra.entry(FormId(PLAYER)).or_default().restrained = true;
+    // The player out of reach: it does not go up to the player (case 3 would).
+    s.run(5.0);
+    assert_eq!(s.agent(R_COME).walker.feet, CORNER);
+    assert_eq!(s.agent(R_COME).talk, Some(Talking::Waiting), "{:?}", s.events());
+    assert!(!s.events().iter().any(|e| matches!(e, AiEvent::Approach { .. } | AiEvent::Trip { .. })), "{:?}", s.events());
+    assert_eq!(s.talks(), 0);
+    // Put beside it (the training's MoveTo): the force greet, from where it stands.
+    s.player_to([200.0, 100.0, 0.0]);
+    s.run(1.0);
+    assert_eq!(s.talks(), 1, "{:?}", s.events());
+    assert_eq!(s.game.dialogue.as_ref().map(|c| c.actor), Some(FormId(R_COME)));
+    assert_eq!(s.agent(R_COME).talk, Some(Talking::Speaking));
+    assert_eq!(s.agent(R_COME).walker.feet, CORNER);
+    // The line releases both; the conversation ends.
+    s.game.extra.get_mut(&FormId(R_COME)).unwrap().restrained = false;
+    s.game.extra.get_mut(&FormId(PLAYER)).unwrap().restrained = false;
+    assert!(s.game.end_dialogue());
+    s.run(10.0);
+    assert_eq!(s.talks(), 1, "{:?}", s.events());
+    assert_eq!(s.agent(R_COME).talk, Some(Talking::Done));
+}

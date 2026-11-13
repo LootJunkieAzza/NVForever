@@ -399,10 +399,17 @@ impl Game<'_> {
             self.count_kill(r);
             self.challenge_kill(r);
         }
+        // A body already lying knocked out is a ragdoll already [hypothesis].
+        let lying = self.knockout(r).is_some_and(|k| k.lying());
         let e = self.extra.entry(r).or_default();
         e.dead = true;
         e.killer = killer;
         e.killing_hit = fatal;
+        // JIP's ragdoll handlers: any actor ragdolled on death [documented:
+        // SetOnRagdollEventHandler].
+        if !lying {
+            self.jip_event("ragdoll", Some(r), Vec::new());
+        }
         if let Some(b) = base_of(self, r) {
             *self.player.dead_count.entry(b).or_default() += 1;
         }

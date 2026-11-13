@@ -2411,3 +2411,21 @@ End
     assert_eq!(count(&mut g), XVal::Num(1.0));
     assert_eq!(nth(&mut g, 0), XVal::Ref(MISC), "the other member stays");
 }
+
+#[test]
+fn luck_skill_setting_fallback_preserves_loaded_overrides() {
+    let mut f = fixture();
+    let mut g = game(&f);
+    assert_eq!(call(&mut g, 0x1100, None, &[ArgValue::Str("favdskillluckbonusmult".into())]), 0.5);
+    drop(g);
+    f.forms.settings.insert("favdskillluckbonusmult".into(), fnv_sim::settings::Setting::Float(0.75));
+    let mut g = game(&f);
+    assert_eq!(call(&mut g, 0x1100, None, &[ArgValue::Str("fAVDSkillLuckBonusMult".into())]), 0.75);
+    g.run_source("SetNumericGameSetting \"fAVDSkillLuckBonusMult\" 0.25", Default::default()).unwrap();
+    assert_eq!(call(&mut g, 0x1100, None, &[ArgValue::Str("fAVDSkillLuckBonusMult".into())]), 0.25);
+    let before = g.events.len();
+    let ctx = Ctx { unit: "owned setting".into(), opcode: 0x1100, on: None, self_ref: None, action_ref: None, quest: None, inst: None, in_condition: false };
+    g.call_function(&ctx, &[ArgValue::Str("fOwnedUnknownSetting".into())]);
+    assert!(g.events[before..].iter().any(|e| matches!(&e.kind, EventKind::CallFailed { error, .. } if error.contains("fOwnedUnknownSetting"))));
+
+}
