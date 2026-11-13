@@ -2487,7 +2487,10 @@ pub const ITEM_PLACES_SAVE_HOOK: crate::save::SaveHook = crate::save::SaveHook {
 /// category at the top), the kept place is put back.
 fn remember_item_places(tweaks: Res<TweakSettings>, mut active: ResMut<crate::menu::ActiveMenu>, mut places: ResMut<ItemPlaces>, mut seen: Local<Option<crate::menu::model::Category>>) {
     use crate::menu::model::{Mode, Side};
-    let Some(m) = active.0.as_mut().filter(|m| m.mode == Mode::Inventory) else {
+    // Read first, written only when a place is put back: a write each frame marks the
+    // menu changed and redraws the Pip-Boy's lists every frame (a click's press and
+    // release then meet two rows; smoke pipboy-items-extras).
+    let Some(m) = active.0.as_ref().filter(|m| m.mode == Mode::Inventory) else {
         *seen = None;
         return;
     };
@@ -2501,13 +2504,16 @@ fn remember_item_places(tweaks: Res<TweakSettings>, mut active: ResMut<crate::me
         *seen = Some(category);
         let (selected, first) = places.place(category, m.lists[i].rows.len());
         if (selected, first) != (m.selected[i], m.scroll[i]) {
-            m.selected[i] = selected;
-            m.scroll[i] = first;
-            m.navigated = m.navigated.wrapping_add(1);
+            if let Some(m) = active.0.as_mut() {
+                m.selected[i] = selected;
+                m.scroll[i] = first;
+                m.navigated = m.navigated.wrapping_add(1);
+            }
         }
         return;
     }
-    places.keep(category, m.selected[i], m.scroll[i]);
+    let (selected, scroll) = (m.selected[i], m.scroll[i]);
+    places.keep(category, selected, scroll);
 }
 
 /// within [`TweakSettings::clear_marker_within`] of it, once they have been farther:
@@ -2798,7 +2804,11 @@ fn sync(
         }
     }
     let hidden = crate::quest_messages::Hidden { failed: tweaks.no_quest_failed_popup, discovered: tweaks.no_location_popup, objectives: tweaks.no_objective_popup };
-    if let Some(m) = active.as_deref_mut().and_then(|a| a.0.as_mut()) {
+    // Written without marking the menu changed: a change mark every frame redraws the
+    // Pip-Boy's lists every frame, and a click's press and release then meet two
+    // different rows (smoke pipboy-items-extras). The rows take the settings at the
+    // list's next refresh.
+    if let Some(m) = active.as_mut().and_then(|a| a.bypass_change_detection().0.as_mut()) {
         if m.sync_categories != tweaks.sync_categories {
             m.sync_categories = tweaks.sync_categories;
         }
