@@ -618,6 +618,7 @@ unless the player binds them, so nothing changes until then.
 | Repair Items Preview | `bRepairItemsPreview` | `pipboy::repair::keys` opens a `Session` with `preview` when Alt is held (the full-condition and skill checks skipped), and refuses Use in it. The switch: `Tweaks::repair_preview` |
 | Crippled Legs: Pain When Falling | `bCrippledLimbsPlayPainSoundWhenFalling` | `falls::hurt` says the player's `Hit` combat line (`Game::combat_line`) when the fall's height reaches `Tweaks::crippled_fall_pain` and either leg is crippled (`falls::crippled_leg`) |
 | Quantity Menu Respects Companion Carry Cap | `bQuantityMenuRespectsCompanionCarryCap` | `menu::apply_input` sets `MenuModel::companion_carry` (the teammate's CarryWeight) before a store; `asks_quantity` caps the prompt by `menu::model::carry_cap` against the container list's weight. The switch: `Tweaks::quantity_companion_cap` |
+| Skip Death Camera | `bSkipDeathcamHotkey` | nvforever `death_cam::watch` moves the camera's clock to `SKIPPED` (past the fade and the slow motion) on Left Alt or a late left click. The switches: `TweakSettings::skip_death_cam`, `skip_death_cam_attack` |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -639,8 +640,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 554 |
-| to do | 46 |
+| done | 555 |
+| to do | 45 |
 | unsure, skipped | 19 |
 | n/a | 16 |
 | skipped: fix | 10 |
@@ -943,6 +944,7 @@ game's Data folder, read-only).
 | `bScaleExplosionShake` | done |  | 2 | Scale Explosion Shake, camera multiplier; explosions now shake the view for everyone (`shake`, docs/owner-review.md); the HUD multiplier has no row: NVForever's HUD does not shake |
 | `bScopeVisibilityDelay` | done |  | 4 | Scope Delay (ms) (stops aiming while reloading was already so; the other options not built) |
 | `bSelectUnavailableRadios` | done | yes |  | Keep Stations Out of Range (the stations received before, while enabled; kept with the save) |
+| `bSkipDeathcamHotkey` | done | yes | 2 | Skip Death Camera: Left Alt jumps the death camera to its end (the screen black, the clock at full speed); By Attacking After is fAttackDebounceTime (a left click once that many seconds have passed; 0 leaves it out). The key is fixed at Left Alt (iHotkey not built) |
 | `bSkipVigorTesterSpecialPages` | done |  |  | S.P.E.C.I.A.L. Machine: Straight to the Summary |
 | `bSlotsAutoSpinHotkey` | done |  |  | Slots: Hold to Spin (W held) |
 | `bSwapAmmoWithWeaponHolstered` | done |  |  | Swap Ammo While Holstered (reloads when drawn) |
@@ -954,7 +956,6 @@ game's Data folder, read-only).
 | `bUseFirstPersonEmptyClipSound` | done |  |  | already so: one empty-clip sound, played at the listener |
 | `bDoubleTapReloadToChangeAmmoType` | to do | yes | 2 | the owner moved Lower Weapon off a double tap because it held reloads back; ask first |
 | `bRestore2Hotkey` | unsure, skipped | yes | 2 | needs the plugin's own menu XML |
-| `bSkipDeathcamHotkey` | to do | yes | 2 | the death camera (nvforever death_cam) has no end but a load yet |
 | `bAddItemUsesItemIcon` | unsure, skipped |  |  | needs an icon replacer |
 | `bAddNightVisionToggle` | to do |  | 4 | a night vision state plus flashlight and scope_view |
 | `bMoveDuringOpenPipboyAnim` | to do |  |  | the Pip-Boy is a menu; the game leaves Playing at once |

@@ -190,6 +190,10 @@ pub struct TweakSettings {
     pub no_xp_meter_in_combat: bool,
     /// `bDisableHUDCrippledLimbIndicator`: no crippled-limb figure on the HUD.
     pub no_limb_indicator: bool,
+    /// `bSkipDeathcamHotkey` (`fAttackDebounceTime`): Left Alt ends the death camera at
+    /// once; so does an attack this many seconds after the death (0: not by attacking).
+    pub skip_death_cam: bool,
+    pub skip_death_cam_attack: f32,
     /// `bDisableGrenadeIndicator`: no grenade indicator on the HUD.
     pub no_grenade_indicator: bool,
     /// `bHideGrenadeIndicatorForNoDamageExplosions`: grenades whose explosion does no
@@ -706,6 +710,8 @@ impl Default for TweakSettings {
             sneak_label_standing: false,
             no_xp_meter_in_combat: false,
             no_limb_indicator: false,
+            skip_death_cam: false,
+            skip_death_cam_attack: 0.0,
             no_grenade_indicator: false,
             grenade_indicator_skip_harmless: false,
             grenade_indicator_destructibles: false,
@@ -1416,6 +1422,8 @@ impl Plugin for TweaksPlugin {
         switch!(app, "sneak-label-standing", "Sneak Label While Standing", "The Hidden / Detected label shows while standing too. (Stewie's Tweaks bShowSneakLabelWhileStanding)", sneak_label_standing);
         switch!(app, "no-xp-meter-combat", "No XP Meter in Combat", "Experience gained in a fight shows once it is over, all together. (Stewie's Tweaks bNoXPBarInCombat)", no_xp_meter_in_combat);
         switch!(app, "no-limb-indicator", "No Crippled Limb Figure", "The crippled-limb figure stays off the HUD. (Stewie's Tweaks bDisableHUDCrippledLimbIndicator)", no_limb_indicator);
+        switch!(app, "skip-death-cam", "Skip Death Camera", "After you die, Left Alt goes straight to the end of the death camera: the screen black, ready to load. (Stewie's Tweaks bSkipDeathcamHotkey)", skip_death_cam);
+        amount!(app, "skip-death-cam-attack", "Skip Death Camera: By Attacking After", "With Skip Death Camera, attacking also skips it once this many seconds have passed since the death; 0 leaves attacking out. (Stewie's Tweaks bSkipDeathcamHotkey, fAttackDebounceTime)", 10.0, f32, skip_death_cam_attack);
         switch!(app, "no-grenade-indicator", "Hide Grenade Indicator", "No mark on the HUD for a grenade about to go off nearby. (Stewie's Tweaks bDisableGrenadeIndicator)", no_grenade_indicator);
         switch!(app, "grenade-indicator-harmless", "No Indicator for Harmless Blasts", "Grenades whose explosion does no damage get no mark. (Stewie's Tweaks bHideGrenadeIndicatorForNoDamageExplosions)", grenade_indicator_skip_harmless);
         switch!(app, "grenade-indicator-destructibles", "Mark Objects About to Explode", "Burning objects that will explode, such as cars on fire, get a grenade mark too. (Stewie's Tweaks bExplodingDestructibleIndicator)", grenade_indicator_destructibles);
