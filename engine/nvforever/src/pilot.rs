@@ -28,6 +28,12 @@
 //!   `say_first` and `say_to_done` are left to the game. A `trigger_enter` of another
 //!   actor is the AI's to bring about, not the player's, and so is a `call` that moves
 //!   another actor (`X.MoveTo`).
+//! - **A save after each chain** of a campaign, `pilot-after-<chain>`, in NVForever's
+//!   saves folder (run the pilot with `NVFOREVER_HOME` set to a folder of its own: the
+//!   game's autosaves after travel go there too, and a run in the player's home
+//!   overwrote the player's autosave slot). A later run goes on from one with `--load
+//!   pilot-after-<chain> --pilot <the next chains> --pilot-campaign`, so the chains
+//!   before it need not be played again. The next chain begins [`SAVE_SECS`] s later.
 //! - Menus: `wait_menu`, `get_menus`, `close_menus`, `press_button` and
 //!   `dismiss_message_boxes` act on the game's menu as the headless run does. A message
 //!   box no step is waiting for is answered after [`BOX_SECS`] s (headless such a box
@@ -147,6 +153,8 @@ const ADVANCE_CAP: f64 = 20.0;
 const TURN_RATE: f32 = 6.0;
 /// Seconds a message box nobody waits for stays up before the pilot closes it.
 pub const BOX_SECS: f64 = 1.5;
+/// Seconds the next chain waits for the save after the one before it.
+pub const SAVE_SECS: f64 = 3.0;
 /// Seconds a menu the pilot has no answer for stays up before it is closed.
 pub const MENU_SECS: f64 = 20.0;
 /// Seconds in which the line a `say_info` names must be begun, the player keeping its
@@ -293,6 +301,9 @@ struct Pilot {
     box_since: Option<f64>,
     /// A button of that box was picked and waits to be read.
     box_picked: bool,
+    /// The chain's save was asked for, and when the next chain may begin.
+    saved: bool,
+    resume_at: f64,
     /// The other menu up, and since when.
     menu_since: Option<(u16, f64)>,
     /// For a `say_info` kept company: how many lines had been begun when the chain (in
@@ -338,6 +349,8 @@ impl Pilot {
             campaign,
             box_since: None,
             box_picked: false,
+            saved: false,
+            resume_at: 0.0,
             menu_since: None,
             mark: 0,
             still: (0.0, [0.0; 3]),
@@ -1332,7 +1345,7 @@ fn drive(
     (mut player, mut intent, mut control, locks): (ResMut<Player>, ResMut<MoveIntent>, ResMut<PlayerControl>, Res<ControlLocks>),
     (location, target, nav, world, doors): Places,
     watch: Option<Res<nvf_play::softlock::SoftlockWatch>>,
-    mut travel: MessageWriter<TravelRequest>,
+    (mut travel, mut save): (MessageWriter<TravelRequest>, MessageWriter<nvf_play::save::SaveRequest>),
     mut exit: MessageWriter<AppExit>,
 ) {
     let p = &mut *pilot;
@@ -1525,6 +1538,22 @@ fn drive(
     if p.i < p.actions.len() {
         return;
     }
+    // The save after the chain is asked for once nothing holds the game, then waited for.
+    if p.campaign && !p.saved {
+        if *state.get() != PlayState::Playing {
+            h.game(|g| g.dialogue.is_some() && g.end_dialogue());
+            return;
+        }
+        let name = format!("pilot-after-{}", p.chain);
+        info!("pilot: chain {} over: saving {name}", p.chain);
+        save.write(nvf_play::save::SaveRequest { name, kind: fnv_save::SaveKind::Manual });
+        (p.saved, p.resume_at) = (true, p.now + SAVE_SECS);
+        return;
+    }
+    if p.now < p.resume_at {
+        return;
+    }
+    p.saved = false;
     p.chains_done += 1;
     info!("pilot: chain {} over at {:.0} s: {} divergences and {} findings so far", p.chain, p.now, p.divergences.len(), p.findings.len());
     if p.next_chain() {
