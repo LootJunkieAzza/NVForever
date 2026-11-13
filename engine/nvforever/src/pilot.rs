@@ -17,12 +17,16 @@
 //!   `given` gave false alarms: Doc Mitchell, activated with his opening only marked
 //!   done, started the opening again.
 //! - **A line the headless run says for an actor** (`say_info` with a speaker) is, in a
-//!   campaign, the player going to that actor and talking to it: the chains use it both
-//!   for what an actor says of its own accord and for the player's talk (Sunny's first
-//!   tutorial line). The game picks the line. When the line named has not been said
-//!   [`LINE_SECS`] s on, a `line_not_said` finding is kept and the line said as the
-//!   headless run says it. `say_first` and `say_to_done` are left to the game. A
-//!   `trigger_enter` of another actor is the AI's to bring about, not the player's.
+//!   campaign, the player keeping that actor company until it says the line: the chains
+//!   use it both for what an actor says of its own accord, often at the end of a walk
+//!   (Sunny goes behind the saloon before her line about the bottles: 2,774 units), and
+//!   for the player's talk (her first tutorial line). The player stays within
+//!   [`NEAR_TARGET`] of the actor wherever it goes; once the actor has stood still for
+//!   [`STILL_SECS`] s and said nothing, the player talks to it, once. The game picks
+//!   the line. When the line named has not been begun [`LINE_SECS`] s on, a
+//!   `line_not_said` finding is kept and the line said as the headless run says it.
+//!   `say_first` and `say_to_done` are left to the game. A `trigger_enter` of another
+//!   actor is the AI's to bring about, not the player's.
 //! - Menus: `wait_menu`, `get_menus`, `close_menus`, `press_button` and
 //!   `dismiss_message_boxes` act on the game's menu as the headless run does. A message
 //!   box no step is waiting for is closed after [`BOX_SECS`] s, as a player presses OK
@@ -61,6 +65,12 @@
 //!   alive after [`FIGHT_SECS`] is a `fight_not_won` finding and is killed as the
 //!   headless run kills it, so the chain goes on. Not yet: where to stand and when to
 //!   fire as the NPCs judge it (`npc_combat`: reach, cover, line of fire), melee.
+//! - **The player defends itself and whoever it is with.** An actor in combat whose
+//!   target is the player, or the actor the step walks to or keeps company, within
+//!   [`THREAT_RANGE`], is fought first, as a `kill` step fights, and the step goes on
+//!   afterwards with its time not counted. Without it Sunny, kept company to the second
+//!   well, was beaten to death by three geckos while the player stood by and waited for
+//!   her next line. A threat alive after [`DEFEND_SECS`] is a `fight_not_won` finding.
 //! - **God mode is on** unless `--pilot-no-god` [owner decision 2026-11-13]: the player
 //!   takes no damage and its magazine stays full (`nvf_play::combat::set_god_mode`). The
 //!   pilot looks for quests that cannot go on, not for fights that cannot be won; a run
@@ -122,8 +132,11 @@ const ADVANCE_CAP: f64 = 20.0;
 const TURN_RATE: f32 = 6.0;
 /// Seconds a message box nobody waits for stays up before the pilot closes it.
 pub const BOX_SECS: f64 = 1.5;
-/// Seconds after talking to an actor in which the line a `say_info` names must be said.
-pub const LINE_SECS: f64 = 8.0;
+/// Seconds in which the line a `say_info` names must be begun, the player keeping its
+/// speaker company.
+pub const LINE_SECS: f64 = 120.0;
+/// Seconds the speaker has stood still, silent, before the player talks to it.
+pub const STILL_SECS: f64 = 6.0;
 /// The weapon and ammo the pilot fights with (Editor IDs of FalloutNV.esm's records).
 pub const PILOT_WEAPON: &str = "WeapNV9mmPistol";
 pub const PILOT_AMMO: &str = "Ammo9mm";
@@ -132,6 +145,9 @@ pub const FIGHT_RANGE: f32 = 700.0;
 pub const FIGHT_NEAR: f32 = 220.0;
 pub const FIGHT_CLOSER_SECS: f64 = 12.0;
 pub const FIGHT_SECS: f64 = 75.0;
+/// How far off an attacker is fought, and for how long at most.
+pub const THREAT_RANGE: f32 = 2500.0;
+pub const DEFEND_SECS: f64 = 60.0;
 
 pub struct PilotPlugin {
     pub chains: Vec<PathBuf>,
@@ -252,6 +268,15 @@ struct Pilot {
     campaign: bool,
     /// Since when a message box nobody waits for has been up.
     box_since: Option<f64>,
+    /// For a `say_info` kept company: how many lines had been begun when the chain (in
+    /// a campaign, the first chain) began, and since when the speaker has stood where it stands.
+    mark: u64,
+    still: (f64, [f32; 3]),
+    /// An attacker being fought before the step goes on, since when, and when the
+    /// attackers are looked for next.
+    defend: Option<(Fight, Walk)>,
+    defend_from: f64,
+    threat_check: f64,
     title: String,
     given: Vec<Json>,
     actions: Vec<Action>,
@@ -285,6 +310,11 @@ impl Pilot {
             chains_done: 0,
             campaign,
             box_since: None,
+            mark: 0,
+            still: (0.0, [0.0; 3]),
+            defend: None,
+            defend_from: 0.0,
+            threat_check: 0.0,
             title: String::new(),
             given: Vec::new(),
             actions: Vec::new(),
@@ -644,8 +674,74 @@ fn walk(p: &mut Pilot, w: &mut Walk, h: &mut Hands) -> Walked {
     Walked::Going
 }
 
+fn walk_to(goal: Place, target: Option<FormId>, radius: f32, now: f64, feet: [f32; 3]) -> Walk {
+    Walk { goal, target, radius, follower: None, door_since: None, seen: (now, feet), replans: 0, cut: false, dodge: None, snapped: None }
+}
+
 fn new_walk(goal: Place, target: Option<FormId>, radius: f32, now: f64, feet: [f32; 3]) -> Phase {
-    Phase::Walk(Walk { goal, target, radius, follower: None, door_since: None, seen: (now, feet), replans: 0, cut: false, dodge: None, snapped: None })
+    Phase::Walk(walk_to(goal, target, radius, now, feet))
+}
+
+/// The nearest living actor in combat whose target is the player or `friend`, within
+/// [`THREAT_RANGE`] of `feet`, and where it is.
+fn threat(g: &Game, friend: Option<FormId>, feet: [f32; 3]) -> Option<(FormId, Option<FormId>, [f32; 3])> {
+    g.awareness
+        .actors
+        .iter()
+        .filter(|(a, _)| **a != FormId::PLAYER_REF && Some(**a) != friend && !g.is_dead(**a) && g.awareness.state(**a) == fnv_game::awareness::State::Combat)
+        .filter(|(_, w)| w.combat_target().is_some_and(|(t, _)| t == FormId::PLAYER_REF || Some(t) == friend))
+        .filter_map(|(a, _)| where_is(g, *a).map(|(cell, pos)| (*a, cell, pos)))
+        .filter(|(_, _, pos)| hdist(*pos, feet) < THREAT_RANGE)
+        .min_by(|a, b| hdist(a.2, feet).total_cmp(&hdist(b.2, feet)))
+}
+
+/// Give the player the pilot's weapon and ammo, once a run.
+fn arm(p: &mut Pilot, h: &mut Hands) {
+    if p.armed {
+        return;
+    }
+    p.armed = true;
+    let ids = h.game(|g| (runner::resolve(g, PILOT_WEAPON), runner::resolve(g, PILOT_AMMO)));
+    match ids {
+        Some((Ok(weapon), Ok(ammo))) => {
+            let w = &mut h.sim.world;
+            let r = w.add_item(FormId::PLAYER_REF, ammo, 500).and_then(|_| w.add_item(FormId::PLAYER_REF, weapon, 1)).and_then(|_| w.equip(FormId::PLAYER_REF, weapon));
+            match r {
+                Ok(_) => info!("pilot: the player is given {PILOT_WEAPON} and 500 {PILOT_AMMO} to fight with"),
+                Err(e) => p.finding("fight", format!("could not arm the player with {PILOT_WEAPON}: {e}")),
+            }
+        }
+        _ => p.finding("fight", format!("this load order has no {PILOT_WEAPON} or {PILOT_AMMO}: the player fights with what it holds")),
+    }
+}
+
+/// One frame of shooting at an actor: nearer while it is out of range, the view on its
+/// trunk and the trigger pulled when in range.
+fn engage(p: &mut Pilot, h: &mut Hands, name: &str, f: &mut Fight, w: &mut Walk) {
+    let target = f.target;
+    h.control.weapon_out = true;
+    match walk(p, w, h) {
+        Walked::Going => {
+            f.shooting = None;
+            h.control.trigger = false;
+        }
+        Walked::There | Walked::Put => {
+            let since = *f.shooting.get_or_insert(p.now);
+            let at = h.phys.world.actor_aim_point(target.0).or_else(|| h.game(|g| where_is(g, target)).flatten().map(|(_, pos)| [pos[0], pos[1], pos[2] + 80.0]));
+            if let Some(at) = at {
+                let cross: Option<Crosshair> = h.control.crosshair;
+                (h.player.heading, h.player.pitch) = Crosshair::aim_at(cross.as_ref(), h.player.eye(), at);
+            }
+            // The trigger is pulled and let go, as for a weapon that fires once a pull.
+            h.control.trigger = ((p.now - since) * 6.0) as i64 % 2 == 0;
+            if !f.near && p.now - since > FIGHT_CLOSER_SECS {
+                f.near = true;
+                f.shooting = None;
+                w.radius = FIGHT_NEAR;
+                info!("pilot: step {}: {name} still lives after {FIGHT_CLOSER_SECS:.0} s of shooting: the player goes closer", p.i);
+            }
+        }
+    }
 }
 
 /// One frame of turning the view onto a reference. `Some(true)`: the crosshair has it.
@@ -807,7 +903,8 @@ fn step(p: &mut Pilot, h: &mut Hands) -> Option<Option<String>> {
                             None => h.script.rt.as_mut().map(|rt| {
                                 with_world(rt, h.sim, |rt| rt.activate_as_player(target)).and_then(|by| match by {
                                     // A script may start the conversation itself, a moment later.
-                                    ByHand::Talk | ByHand::Greeted | ByHand::Choices | ByHand::Script => Ok(()),
+                                    // (So may its default action: the conversation is waited for.)
+                                    ByHand::Talk | ByHand::Greeted | ByHand::Choices | ByHand::Script | ByHand::Default(_) => Ok(()),
                                     other => Err(format!("activating {actor} did not start a conversation: {}", by_hand(&other))),
                                 })
                             }),
@@ -939,35 +1036,54 @@ fn step(p: &mut Pilot, h: &mut Hands) -> Option<Option<String>> {
             fight(p, h, &name, &a)
         }
         Action::SayInfo { info, speaker: Some(speaker), .. } if p.campaign => {
-            let said = |h: &mut Hands| h.game(|g| runner::resolve(g, info).is_ok_and(|i| g.said.iter().any(|(_, line)| *line == i))) == Some(true);
-            if p.part == 0 {
-                match approach(p, h, speaker, "talk to") {
+            // Begun since the chain began, not since this step did: the game does not wait
+            // for the chain's steps, and a line said while an earlier step was still being
+            // carried out is said (Sunny's lines at the wells came during the fights; the
+            // player then stood by her for two minutes a line, asking her what was up).
+            if matches!(p.phase, Phase::Begin) {
+                let (r, place) = match h.place_of(speaker) {
+                    Ok(x) => x,
                     Err(e) => return Some(Some(e)),
-                    Ok(None) => return None,
-                    Ok(Some(target)) => {
-                        // It may have come and spoken already; else the player talks to it.
-                        if h.game(|g| g.dialogue.is_some()) != Some(true) {
-                            let r = h.script.rt.as_mut().map(|rt| with_world(rt, h.sim, |rt| rt.activate_as_player(target)));
-                            info!("pilot: step {}: talks to {speaker} for the line {info}: {}", p.i, outcome(r.as_ref()));
-                        }
-                        (p.part, p.phase) = (2, Phase::Wait { until: p.now + LINE_SECS });
-                    }
-                }
+                };
+                p.still = (p.now, place.pos);
+                p.part = 0;
+                p.phase = new_walk(place, Some(r), NEAR_TARGET, p.now, h.feet());
             }
-            hear(p, h);
-            if said(h) {
+            let mark = p.mark;
+            let begun = h.game(|g| runner::resolve(g, info).is_ok_and(|i| g.softlock_seen.lines_since(mark).any(|l| l == i) || g.dialogue.as_ref().and_then(|c| c.line.as_ref()).is_some_and(|l| l.info == i)));
+            if begun == Some(true) {
+                info!("pilot: step {}: {speaker} has said {info} ({:.1} s into the step)", p.i, p.now - p.step_from);
+                p.phase = Phase::Begin;
                 return Some(None);
             }
-            match p.phase {
-                Phase::Wait { until } if p.now < until => None,
-                _ => {
-                    p.finding("line_not_said", format!("{speaker} did not say {info} within {LINE_SECS:.0} s of the player talking to it: said as the headless run says it"));
-                    let mut applier = std::mem::take(&mut p.applier);
-                    let r = h.game(|g| runner::apply_now(g, &mut applier, &a));
-                    p.applier = applier;
-                    Some(r.and_then(|r| r.err()))
+            if p.now - p.step_from > LINE_SECS {
+                p.finding("line_not_said", format!("{speaker} did not say {info} in {LINE_SECS:.0} s with the player beside it: said as the headless run says it"));
+                let mut applier = std::mem::take(&mut p.applier);
+                let r = h.game(|g| runner::apply_now(g, &mut applier, &a));
+                p.applier = applier;
+                return Some(r.and_then(|r| r.err()));
+            }
+            // Its other lines are heard out (and skipped) on the way.
+            let talking = hear(p, h) || h.game(|g| g.dialogue.is_some()) == Some(true);
+            let mut phase = std::mem::replace(&mut p.phase, Phase::Begin);
+            if let Phase::Walk(w) = &mut phase {
+                let there = !matches!(walk(p, w, h), Walked::Going);
+                let at = w.goal.pos;
+                if hdist(at, p.still.1) > 16.0 || talking || !there {
+                    p.still = (p.now, at);
+                } else if p.part == 0 && p.now - p.still.0 > STILL_SECS {
+                    p.part = 1;
+                    let target = w.target.expect("walks to the speaker");
+                    let r = h.script.rt.as_mut().map(|rt| with_world(rt, h.sim, |rt| rt.activate_as_player(target)));
+                    info!("pilot: step {}: {speaker} stands silent: the player talks to it for the line {info}: {}", p.i, outcome(r.as_ref()));
+                }
+                // A walk that ended is begun again: the speaker may go on.
+                if there {
+                    w.follower = None;
                 }
             }
+            p.phase = phase;
+            None
         }
         Action::SayFirst { .. } | Action::SayToDone { .. } if p.campaign => {
             info!("pilot: step {}: left to the game: a line the headless run says for an actor", p.i);
@@ -1081,21 +1197,7 @@ fn fight(p: &mut Pilot, h: &mut Hands, name: &str, a: &Action) -> Option<Option<
             Ok(x) => x,
             Err(e) => return Some(Some(e)),
         };
-        if !p.armed {
-            p.armed = true;
-            let ids = h.game(|g| (runner::resolve(g, PILOT_WEAPON), runner::resolve(g, PILOT_AMMO)));
-            match ids {
-                Some((Ok(weapon), Ok(ammo))) => {
-                    let w = &mut h.sim.world;
-                    let r = w.add_item(FormId::PLAYER_REF, ammo, 500).and_then(|_| w.add_item(FormId::PLAYER_REF, weapon, 1)).and_then(|_| w.equip(FormId::PLAYER_REF, weapon));
-                    match r {
-                        Ok(_) => info!("pilot: the player is given {PILOT_WEAPON} and 500 {PILOT_AMMO} to fight with"),
-                        Err(e) => p.finding("fight", format!("could not arm the player with {PILOT_WEAPON}: {e}")),
-                    }
-                }
-                _ => p.finding("fight", format!("this load order has no {PILOT_WEAPON} or {PILOT_AMMO}: the player fights with what it holds")),
-            }
-        }
+        arm(p, h);
         let Phase::Walk(w) = new_walk(place, Some(r), FIGHT_RANGE, p.now, h.feet()) else { unreachable!() };
         p.phase = Phase::Fight(Fight { target: r, shooting: None, near: false }, w);
     }
@@ -1114,29 +1216,7 @@ fn fight(p: &mut Pilot, h: &mut Hands, name: &str, a: &Action) -> Option<Option<
         p.applier = applier;
         return Some(r.and_then(|r| r.err()));
     }
-    h.control.weapon_out = true;
-    match walk(p, &mut w, h) {
-        Walked::Going => {
-            f.shooting = None;
-            h.control.trigger = false;
-        }
-        Walked::There | Walked::Put => {
-            let since = *f.shooting.get_or_insert(p.now);
-            let at = h.phys.world.actor_aim_point(target.0).or_else(|| h.game(|g| where_is(g, target)).flatten().map(|(_, pos)| [pos[0], pos[1], pos[2] + 80.0]));
-            if let Some(at) = at {
-                let cross: Option<Crosshair> = h.control.crosshair;
-                (h.player.heading, h.player.pitch) = Crosshair::aim_at(cross.as_ref(), h.player.eye(), at);
-            }
-            // The trigger is pulled and let go, as for a weapon that fires once a pull.
-            h.control.trigger = ((p.now - since) * 6.0) as i64 % 2 == 0;
-            if !f.near && p.now - since > FIGHT_CLOSER_SECS {
-                f.near = true;
-                f.shooting = None;
-                w.radius = FIGHT_NEAR;
-                info!("pilot: step {}: {name} still lives after {FIGHT_CLOSER_SECS:.0} s of shooting: the player goes closer", p.i);
-            }
-        }
-    }
+    engage(p, h, name, &mut f, &mut w);
     p.phase = Phase::Fight(f, w);
     None
 }
@@ -1229,6 +1309,11 @@ fn drive(
             }
         }
         let errors = h.game(|g| runner::apply_given_entries(g, &given)).unwrap_or_default();
+        // In a campaign a line said in an earlier chain is said (ghost-town-gunfight opens
+        // with the line intro ends on): the count is taken once, at the first chain.
+        if !p.campaign || p.chains_done == 0 {
+            p.mark = h.game(|g| g.softlock_seen.lines_begun).unwrap_or(0);
+        }
         info!("pilot: chain {}: {} given entries applied, {} checked, {} errors", p.chain, given.len(), checked.len(), errors.len());
         for e in errors {
             p.finding("given", e.to_string());
@@ -1248,6 +1333,46 @@ fn drive(
         }
         (false, _) => p.box_since = None,
         _ => {}
+    }
+    // Something attacks the player or the actor it is with: fought first (module notes).
+    if *state.get() == PlayState::Playing && !matches!(p.phase, Phase::Fight(..)) {
+        if p.defend.is_none() && p.now >= p.threat_check {
+            p.threat_check = p.now + 0.5;
+            let friend = match &p.phase {
+                Phase::Walk(w) => w.target,
+                Phase::Aim(a) => Some(a.target),
+                _ => None,
+            };
+            let feet = h.feet();
+            let world = h.world;
+            if let Some((who, cell, pos)) = h.game(|g| threat(g, friend, feet)).flatten() {
+                let space = cell.and_then(|c| crate::nav::space_of_cell(world, c.0)).unwrap_or(space_of(h.location));
+                arm(p, &mut h);
+                info!("pilot: step {}: {who} attacks {}: fought before the step goes on", p.i, if friend.is_some() { "the player or the actor it is with" } else { "the player" });
+                p.defend = Some((Fight { target: who, shooting: None, near: false }, walk_to(Place { space, pos }, Some(who), FIGHT_RANGE, p.now, feet)));
+                p.defend_from = p.now;
+            }
+        }
+        if let Some((mut f, mut w)) = p.defend.take() {
+            let who = f.target;
+            let dead = h.game(|g| g.is_dead(who)) == Some(true);
+            if dead || p.now - p.defend_from > DEFEND_SECS {
+                h.control.trigger = false;
+                if dead {
+                    info!("pilot: step {}: the attacker {who} is dead after {:.1} s", p.i, p.now - p.defend_from);
+                } else {
+                    p.finding("fight_not_won", format!("the attacker {who} still lives after {DEFEND_SECS:.0} s of shooting at it: the step goes on"));
+                    p.threat_check = p.now + 20.0;
+                }
+            } else {
+                engage(p, &mut h, "the attacker", &mut f, &mut w);
+                p.defend = Some((f, w));
+                // The step's own time stands still meanwhile.
+                p.step_from += dt as f64;
+                p.still.0 += dt as f64;
+                return;
+            }
+        }
     }
     // Steps that take no time follow one another within the frame.
     for _ in 0..64 {

@@ -2519,6 +2519,14 @@ impl<'a> Game<'a> {
         if let EventKind::StageSet { quest, stage, .. } = &kind {
             self.softlock_seen.stage = Some((*quest, *stage));
         }
+        if let EventKind::LineStarted { info, .. } = &kind {
+            let lines = &mut self.softlock_seen.lines;
+            if lines.len() == crate::softlock::LINES_KEPT {
+                lines.pop_front();
+            }
+            lines.push_back(*info);
+            self.softlock_seen.lines_begun += 1;
+        }
         let chatter = matches!(&kind, EventKind::LineStarted { topic, .. } if self.chatter_topic(*topic));
         if crate::softlock::story(&kind, chatter) {
             self.softlock_seen.story += 1;
