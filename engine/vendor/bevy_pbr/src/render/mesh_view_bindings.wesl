@@ -56,6 +56,9 @@ const VISIBILITY_RANGE_UNIFORM_BUFFER_SIZE: u32 = 64u;
 
 @if(SCREEN_SPACE_AMBIENT_OCCLUSION)
 @group(0) @binding(17) var screen_space_ambient_occlusion_texture: texture_2d<f32>;
+// NVForever screen indirect light (mesh_view_bindings.rs ScreenIndirectLight).
+@if(SCREEN_INDIRECT)
+@group(0) @binding(39) var screen_indirect_texture: texture_2d<f32>;
 
 @if(TONEMAP_IN_SHADER) {
 // NB: If you change these, make sure to update `tonemapping.wesl` too.

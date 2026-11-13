@@ -110,17 +110,36 @@ const DISPLAY_EDITS: [(&str, &str); 7] = [
         "    lighting_input.diffuse_color = diffuse_color;",
         "    let nvf_display = nvf_display_lighting();
     var nvf_direct = vec3(0.0);
+    // The screen indirect light (gi.rs): how open the pixel is to the ambient light, and
+    // the light bounced onto it from the surfaces around it (linear, after exposure).
+    // Point and spot lights cast no shadows, so they take part of the occlusion too.
+    var nvf_open = vec3(1.0);
+    var nvf_local_open = 1.0;
+    var nvf_bounce = vec3(0.0);
+    @if(SCREEN_INDIRECT) {
+        let nvf_si = textureLoad(view_bindings::screen_indirect_texture, vec2<i32>(in.frag_coord.xy - view_bindings::view.viewport.xy), 0);
+        // A debug view of the texture itself (gi.rs, NVF_GI's debug view).
+        if nvf_si.a < -0.5 {
+            return vec4(nvf_si.rgb, 1.0);
+        }
+        // The ambient light from above and below (sky and ground), by the surface's
+        // normal-mapped normal, so shapes read in the shade too [engineering choice].
+        let nvf_up = saturate(in.N.y * 0.5 + 0.5);
+        nvf_open = (1.0 - nvf_si.a) * mix(vec3(0.62, 0.56, 0.50), vec3(1.12, 1.14, 1.20), nvf_up);
+        nvf_local_open = 1.0 - 0.6 * nvf_si.a;
+        nvf_bounce = nvf_si.rgb;
+    }
     lighting_input.diffuse_color = select(diffuse_color, vec3(0.0), nvf_display);",
     ),
     (
         "        direct_light += light_contrib * shadow;",
         "        direct_light += light_contrib * shadow;
-        if nvf_display { nvf_direct += nvf_point_display(light_id, in.world_position.xyz, in.N) * shadow; }",
+        if nvf_display { nvf_direct += nvf_point_display(light_id, in.world_position.xyz, in.N) * shadow * nvf_local_open; }",
     ),
     (
         "        direct_light += light_contrib * shadow;",
         "        direct_light += light_contrib * shadow;
-        if nvf_display { nvf_direct += nvf_spot_display(light_id, in.world_position.xyz, in.N) * shadow; }",
+        if nvf_display { nvf_direct += nvf_spot_display(light_id, in.world_position.xyz, in.N) * shadow * nvf_local_open; }",
     ),
     (
         "        direct_light += light_contrib * shadow;",
@@ -133,8 +152,12 @@ const DISPLAY_EDITS: [(&str, &str); 7] = [
     ),
     (
         "    // Total light\n",
-        "    if nvf_display {
-        let nvf_ambient = view_bindings::lights.ambient_color.rgb * view_bindings::view.exposure * diffuse_occlusion;
+        "    direct_light += diffuse_color * nvf_bounce / view_bindings::view.exposure;
+    if !nvf_display {
+        indirect_light *= nvf_open;
+    }
+    if nvf_display {
+        let nvf_ambient = view_bindings::lights.ambient_color.rgb * view_bindings::view.exposure * diffuse_occlusion * nvf_open;
         let nvf_sum = max(nvf_weights.x * nvf_ambient + nvf_weights.y * nvf_direct, vec3(0.0));
         // Held to 1 per channel, as the original's lit colour is (lights.rs GAME_CLIP).
         direct_light += min(diffuse_color * pow(nvf_sum, vec3(2.2)), vec3(1.0)) / view_bindings::view.exposure;

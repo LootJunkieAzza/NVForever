@@ -155,6 +155,8 @@ mod limping;
 mod sneaking;
 mod swimming;
 mod ssao;
+mod gi;
+mod atmos;
 mod taa;
 mod fg_presenter;
 mod frame_gen;

@@ -387,6 +387,7 @@ pub fn check_views_need_specialization(
             Has<ExtractedAtmosphere>,
             Has<ScreenSpaceReflectionsUniform>,
             Has<ContactShadows>,
+            Has<ScreenIndirectLight>,
         ),
     )>,
     mut seen_views: Local<HashSet<RetainedViewEntity>>,
@@ -406,7 +407,7 @@ pub fn check_views_need_specialization(
         projection,
         distance_fog,
         (has_environment_maps, has_irradiance_volumes),
-        (has_oit, has_atmosphere, has_ssr, has_contact_shadows),
+        (has_oit, has_atmosphere, has_ssr, has_contact_shadows, has_screen_indirect),
     ) in views.iter_mut()
     {
         seen_views.insert(view.retained_view_entity);
@@ -494,6 +495,9 @@ pub fn check_views_need_specialization(
         }
         if ssao {
             view_key |= MeshPipelineKey::SCREEN_SPACE_AMBIENT_OCCLUSION;
+        }
+        if has_screen_indirect {
+            view_key |= MeshPipelineKey::SCREEN_INDIRECT;
         }
         if distance_fog {
             view_key |= MeshPipelineKey::DISTANCE_FOG;
@@ -3128,7 +3132,9 @@ bitflags::bitflags! {
         const INVERT_CULLING                    = 1 << 22;
         const PREPASS_READS_MATERIAL            = 1 << 23;
         const CONTACT_SHADOWS                   = 1 << 24;
-        const LAST_FLAG                         = Self::CONTACT_SHADOWS.bits();
+        // NVForever screen indirect light (mesh_view_bindings.rs ScreenIndirectLight).
+        const SCREEN_INDIRECT                   = 1 << 25;
+        const LAST_FLAG                         = Self::SCREEN_INDIRECT.bits();
 
         const ALL_PREPASS_BITS                  = Self::DEPTH_PREPASS.bits()
                                                 | Self::NORMAL_PREPASS.bits()
@@ -3584,6 +3590,9 @@ impl SpecializedMeshPipeline for MeshPipeline {
         }
 
         // Transparent meshes don't contribute to the depth prepass, so SSAO should not be applied.
+        if key.contains(MeshPipelineKey::SCREEN_INDIRECT) && depth_write_enabled {
+            shader_defs.push("SCREEN_INDIRECT".into());
+        }
         if key.contains(MeshPipelineKey::SCREEN_SPACE_AMBIENT_OCCLUSION) && depth_write_enabled {
             shader_defs.push("SCREEN_SPACE_AMBIENT_OCCLUSION".into());
         }

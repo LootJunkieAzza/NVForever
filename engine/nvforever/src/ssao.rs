@@ -81,6 +81,13 @@ impl Default for AmbientOcclusion {
 }
 
 impl AmbientOcclusion {
+    /// At `strength` instead of the default (0..1).
+    pub fn with_strength(strength: f32) -> Self {
+        let mut ao = AmbientOcclusion::default();
+        ao.params.y = strength;
+        ao
+    }
+
     /// Under FSR: the occlusion at the render size, on the HDR picture before FSR
     /// ([`ao_before_fsr`]), with the largest radius on the screen scaled to the render size
     /// so it covers what it did at the display size.
@@ -122,7 +129,8 @@ fn follow_projection(mut cams: Query<(&Projection, &mut AmbientOcclusion), With<
         let Projection::Perspective(p) = proj else { continue };
         let y = 1.0 / (p.fov * 0.5).tan();
         let x = y / p.aspect_ratio.max(1e-3);
-        let params = Vec4::new(RADIUS, STRENGTH, p.near, FADE_END);
+        // The strength is the camera's own (weaker beside global illumination, graphics.rs).
+        let params = Vec4::new(RADIUS, ao.params.y, p.near, FADE_END);
         let projv = Vec4::new(x, y, MAX_SCREEN_RADIUS, FADE_START);
         if ao.params != params || ao.proj != projv {
             ao.params = params;

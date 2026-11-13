@@ -87,6 +87,9 @@ pub enum Preset {
     Vanilla,
     /// Every improvement of this module on.
     Enhanced,
+    /// Enhanced, plus the remaster's lighting (docs/design/graphics-remaster.md): screen-space
+    /// global illumination and the rest of its switches.
+    Remaster,
 }
 
 /// The default of `--graphics` for normal play (test runs default to vanilla; see
@@ -135,11 +138,19 @@ pub struct Graphics {
     pub water_mirror: bool,
     /// How the sun's shadow maps are filtered (Bevy's default, Gaussian, in vanilla).
     pub shadow_filter: ShadowFilteringMethod,
+    /// Screen-space global illumination (`gi.rs`, remaster): bounced light and the ambient
+    /// light's occlusion inside the lighting. Replaces `ambient_occlusion` while on.
+    pub global_illumination: bool,
+    /// Volumetric atmosphere (`atmos.rs`, remaster): fog near the ground lit by the sun
+    /// through its shadow maps, and by the ambient light.
+    pub volumetric_fog: bool,
+    /// The remaster's colour grade after tonemapping (`post.wesl` `grade`).
+    pub colour_grade: bool,
 }
 
 /// The keys of `--graphics-only`: the settings page's switches and the anti-aliasing and
 /// shadow-filter choices that are not vanilla's, in the order of [`Graphics::describe`].
-pub const KEYS: [&str; 12] = [
+pub const KEYS: [&str; 15] = [
     "ambient-occlusion",
     "fine-shadows",
     "bloom",
@@ -152,11 +163,15 @@ pub const KEYS: [&str; 12] = [
     "water-reflections",
     "shadow-filter-hardware",
     "shadow-filter-temporal",
+    "global-illumination",
+    "volumetric-fog",
+    "colour-grade",
 ];
 
 impl Graphics {
     pub fn preset(p: Preset) -> Self {
-        let on = p == Preset::Enhanced;
+        let on = p != Preset::Vanilla;
+        let remaster = p == Preset::Remaster;
         Graphics {
             ambient_occlusion: on,
             fine_shadows: on,
@@ -176,6 +191,9 @@ impl Graphics {
             water_reflections: on,
             water_mirror: true,
             shadow_filter: ShadowFilteringMethod::Gaussian,
+            global_illumination: remaster,
+            volumetric_fog: remaster,
+            colour_grade: remaster,
         }
     }
 
@@ -193,6 +211,9 @@ impl Graphics {
             "anisotropic" => &mut self.anisotropic,
             "light-shafts" => &mut self.light_shafts,
             "water-reflections" => &mut self.water_reflections,
+            "global-illumination" => &mut self.global_illumination,
+            "volumetric-fog" => &mut self.volumetric_fog,
+            "colour-grade" => &mut self.colour_grade,
             _ => return None,
         })
     }
@@ -240,6 +261,9 @@ impl Graphics {
             (!self.water_mirror, "no mirrored water"),
             (self.shadow_filter == ShadowFilteringMethod::Hardware2x2, "hardware 2x2 shadow filtering"),
             (self.shadow_filter == ShadowFilteringMethod::Temporal, "temporal shadow filtering"),
+            (self.global_illumination, "global illumination"),
+            (self.volumetric_fog, "volumetric fog"),
+            (self.colour_grade, "colour grade"),
         ];
         let mut on: Vec<&str> = names.iter().filter(|(on, _)| *on).map(|(_, n)| *n).collect();
         if self.fsr.is_some() {
@@ -259,6 +283,8 @@ impl Graphics {
 /// Goodsprings for edges hardly sharper near the player [observed 2026-11-03, RTX 4070,
 /// 1920x1080; owner's choice 2026-11-03, #1367: the smaller maps, for the frame rate].
 const SHADOW_MAP: usize = 2048;
+/// The post-process occlusion's strength beside global illumination (0.55 without).
+const GI_CONTACT_AO: f32 = 0.35;
 /// With longer shadows they reach this many times `--shadow-distance`.
 pub const FINE_SHADOW_REACH: f32 = 1.5;
 
@@ -365,6 +391,7 @@ impl FrameTimes {
                 [] => Graphics::preset(Preset::Vanilla),
                 [k] if k == "vanilla" => Graphics::preset(Preset::Vanilla),
                 [k] if k == "enhanced" => Graphics::preset(Preset::Enhanced),
+                [k] if k == "remaster" => Graphics::preset(Preset::Remaster),
                 _ => Graphics::only(&keys)?,
             };
             Ok(CycleStep { graphics, no_sun_shadows, shadow_distance, cascades, shadow_thin })
@@ -405,7 +432,7 @@ impl Plugin for GraphicsPlugin {
         app.insert_resource(g)
             .insert_resource(MsaaSetting(self.1))
             .insert_resource(DirectionalLightShadowMap { size: SHADOW_MAP })
-            .add_plugins((crate::ssao::SsaoPlugin, crate::post::PostPlugin, crate::taa::TaaPlugin, crate::shafts::ShaftsPlugin, crate::fsr::FsrPlugin))
+            .add_plugins((crate::ssao::SsaoPlugin, crate::gi::GiPlugin, crate::atmos::AtmosPlugin, crate::post::PostPlugin, crate::taa::TaaPlugin, crate::shafts::ShaftsPlugin, crate::fsr::FsrPlugin))
             .add_systems(Startup, |g: Res<Graphics>| info!("graphics: {}", g.describe()))
             .add_systems(Update, (apply, sun_shadow_key.pipe(sun_shadow_quality).after(crate::sky::update_sky)).chain());
         if let Some(ft) = self.2.clone().filter(|f| f.every > 0.0) {
@@ -685,14 +712,27 @@ fn apply(
     *done = Some((*g, msaa.0, fsr_support.0, entities));
     for (cam, cam_msaa, ..) in &cams {
         let mut e = commands.entity(cam);
+        // Beside global illumination (which occludes the ambient light at a larger scale
+        // inside the lighting) the post-process occlusion stays for the small contact
+        // shadows, weaker.
         if g.ambient_occlusion {
-            e.insert(AmbientOcclusion::default());
+            e.insert(if g.global_illumination { AmbientOcclusion::with_strength(GI_CONTACT_AO) } else { AmbientOcclusion::default() });
         } else {
             e.remove::<AmbientOcclusion>();
         }
+        if g.volumetric_fog {
+            e.insert(crate::atmos::VolumetricAtmosphere::default());
+        } else {
+            e.remove::<(crate::atmos::VolumetricAtmosphere, crate::atmos::AtmosUniform)>();
+        }
+        if g.global_illumination {
+            e.insert(crate::gi::GlobalIllumination::default());
+        } else {
+            e.remove::<(crate::gi::GlobalIllumination, crate::gi::GiUniform, bevy::pbr::ScreenIndirectLight)>();
+        }
         // FSR already runs its own RCAS sharpening; do not sharpen the picture twice.
-        if g.bloom || (g.sharpen && fsr.is_none()) {
-            e.insert(PostEffects::new(g.bloom, g.sharpen && fsr.is_none()));
+        if g.bloom || (g.sharpen && fsr.is_none()) || g.colour_grade {
+            e.insert(PostEffects::new(g.bloom, g.sharpen && fsr.is_none()).graded(g.colour_grade));
         } else {
             e.remove::<PostEffects>();
         }

@@ -54,11 +54,22 @@ pub const SHARPENING: f32 = 0.5;
 #[extract_app(bevy::render::RenderApp)]
 pub struct PostEffects {
     pub params: Vec4,
+    /// x: the remaster's colour grade (0 off, 1 on; post.wesl `grade`).
+    pub grade: Vec4,
 }
 
 impl PostEffects {
     pub fn new(bloom: bool, sharpen: bool) -> Self {
-        PostEffects { params: Vec4::new(BLOOM_THRESHOLD, BLOOM_KNEE, if bloom { BLOOM_INTENSITY } else { 0.0 }, if sharpen { SHARPENING } else { 0.0 }) }
+        PostEffects {
+            params: Vec4::new(BLOOM_THRESHOLD, BLOOM_KNEE, if bloom { BLOOM_INTENSITY } else { 0.0 }, if sharpen { SHARPENING } else { 0.0 }),
+            grade: Vec4::ZERO,
+        }
+    }
+
+    /// With the remaster's colour grade (post.wesl `grade`).
+    pub fn graded(mut self, on: bool) -> Self {
+        self.grade.x = if on { 1.0 } else { 0.0 };
+        self
     }
 }
 
@@ -143,11 +154,13 @@ pub fn bright_pass(scale: f32) -> f32 {
 #[extract_app(bevy::render::RenderApp)]
 pub struct BrightPass {
     pub params: Vec4,
+    /// Always zero: the grade never runs on the bright pass (the layout of [`PostEffects`]).
+    pub grade: Vec4,
 }
 
 impl Default for BrightPass {
     fn default() -> Self {
-        BrightPass { params: Vec4::new(BRIGHT_PASS_THRESHOLD, BRIGHT_PASS_KNEE, 0.0, -BRIGHT_PASS_STEP) }
+        BrightPass { params: Vec4::new(BRIGHT_PASS_THRESHOLD, BRIGHT_PASS_KNEE, 0.0, -BRIGHT_PASS_STEP), grade: Vec4::ZERO }
     }
 }
 

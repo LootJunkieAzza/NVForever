@@ -9,6 +9,8 @@ import bevy_core_pipeline::fullscreen_vertex_shader::FullscreenVertexOutput;
 struct Post {
     // x: threshold, y: knee (softness), z: intensity (0: no bloom), w: sharpening (0..1).
     params: vec4<f32>,
+    // x: the remaster's colour grade (`grade`), 0 off.
+    grade: vec4<f32>,
 }
 
 @group(0) @binding(0) var source: texture_2d<f32>;
@@ -19,6 +21,27 @@ struct Post {
 
 fn luminance(c: vec3<f32>) -> f32 {
     return dot(c, vec3(0.2126, 0.7152, 0.0722));
+}
+
+// The remaster's colour grade on display values [engineering choice, by eye]: a gentle
+// S-curve around the middle grey (deeper blacks, the highlights held), the shade a little
+// cooler and the light a little warmer, and more colour where there is little.
+fn grade(c_in: vec3<f32>) -> vec3<f32> {
+    var c = clamp(c_in, vec3(0.0), vec3(1.0));
+    // S-curve: a smoothstep blended in by a fifth.
+    let s = c * c * (3.0 - 2.0 * c);
+    c = mix(c, s, 0.22);
+    let l = luminance(c);
+    // Split toning: shade towards blue-cyan, light towards amber.
+    let shade = 1.0 - smoothstep(0.0, 0.45, l);
+    let light = smoothstep(0.45, 1.0, l);
+    c *= mix(vec3(1.0), vec3(0.965, 0.99, 1.04), shade);
+    c *= mix(vec3(1.0), vec3(1.035, 1.0, 0.95), light * 0.8);
+    // Vibrance: lift the saturation of greyish colours more than of saturated ones.
+    let l2 = luminance(c);
+    let sat = max(c.r, max(c.g, c.b)) - min(c.r, min(c.g, c.b));
+    c = mix(vec3(l2), c, 1.0 + 0.25 * (1.0 - saturate(sat * 2.0)));
+    return clamp(c, vec3(0.0), vec3(1.0));
 }
 
 @fragment
@@ -126,6 +149,9 @@ fn composite(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
     }
     if post.params.z > 0.0 {
         c += textureSampleLevel(glow, source_sampler, in.uv, 0.0).rgb * post.params.z;
+    }
+    if post.grade.x > 0.0 {
+        c = mix(c, grade(c), post.grade.x);
     }
     return vec4(c, src.a);
 }

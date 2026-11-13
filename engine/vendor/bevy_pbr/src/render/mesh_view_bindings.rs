@@ -68,6 +68,22 @@ use bevy_render::render_resource::binding_types::texture_cube;
 #[cfg(debug_assertions)]
 use {crate::MESH_PIPELINE_VIEW_LAYOUT_SAFE_MAX_TEXTURES, bevy_utils::once, tracing::warn};
 
+/// NVForever screen indirect light: a camera with this component gets, at view binding
+/// [`SCREEN_INDIRECT_BINDING`], the texture of [`ScreenIndirectTexture`] (a zero texture
+/// until there is one), and its meshes that write depth get the shader def
+/// `SCREEN_INDIRECT`: rgb the indirect light at the pixel, a its occlusion of the
+/// ambient light (nvforever gi.rs).
+#[derive(Component, bevy_render::extract_component::ExtractComponent, Clone, Copy, Default, Debug)]
+#[extract_app(bevy_render::RenderApp)]
+pub struct ScreenIndirectLight;
+
+/// The view's screen indirect light texture (render world), one texel per main-pass pixel.
+#[derive(Component, Clone)]
+pub struct ScreenIndirectTexture(pub TextureView);
+
+/// NVForever screen indirect light's view binding.
+pub const SCREEN_INDIRECT_BINDING: u32 = 39;
+
 pub const TONEMAPPING_LUT_TEXTURE_BINDING_INDEX: u32 = 18;
 pub const TONEMAPPING_LUT_SAMPLER_BINDING_INDEX: u32 = 19;
 
@@ -100,6 +116,8 @@ bitflags::bitflags! {
         const DISTANCE_FOG                     = 1 << 14;
         const AREA_LIGHT_LUTS                  = 1 << 15;
         const VIEW_TRANSMISSION_TEXTURE        = 1 << 16;
+        // NVForever screen indirect light.
+        const SCREEN_INDIRECT                  = 1 << 17;
     }
 }
 
@@ -167,6 +185,9 @@ impl From<MeshPipelineKey> for MeshPipelineViewLayoutKey {
         }
         if value.contains(MeshPipelineKey::SCREEN_SPACE_AMBIENT_OCCLUSION) {
             result |= MeshPipelineViewLayoutKey::SCREEN_SPACE_AMBIENT_OCCLUSION;
+        }
+        if value.contains(MeshPipelineKey::SCREEN_INDIRECT) {
+            result |= MeshPipelineViewLayoutKey::SCREEN_INDIRECT;
         }
         if value.contains(MeshPipelineKey::IRRADIANCE_VOLUME) {
             result |= MeshPipelineViewLayoutKey::IRRADIANCE_VOLUME;
@@ -374,6 +395,12 @@ fn layout_entries(
             // Contact shadows settings
             (16, uniform_buffer::<ContactShadowsUniform>(true)),
         ));
+    }
+    if layout_key.contains(MeshPipelineViewLayoutKey::SCREEN_INDIRECT) {
+        entries = entries.extend_with_indices(((
+            SCREEN_INDIRECT_BINDING,
+            texture_2d(TextureSampleType::Float { filterable: false }),
+        ),));
     }
     if layout_key.contains(MeshPipelineViewLayoutKey::SCREEN_SPACE_AMBIENT_OCCLUSION) {
         entries = entries.extend_with_indices((
@@ -671,6 +698,7 @@ pub fn prepare_mesh_view_bind_groups(
             Option<&OrderIndependentTransparencySettingsOffset>,
             Has<ScreenSpaceTransmission>,
         ),
+        (Has<ScreenIndirectLight>, Option<&ScreenIndirectTexture>),
     )>,
     (images, fallback_image, fallback_image_zero): (
         Res<RenderAssets<GpuImage>>,
@@ -741,6 +769,7 @@ pub fn prepare_mesh_view_bind_groups(
                 view_oit_settings_offset,
                 has_transmission,
             ),
+            (has_screen_indirect, screen_indirect),
         ) in &views
         {
             let mut entries = DynamicBindGroupEntries::new();
@@ -864,6 +893,14 @@ pub fn prepare_mesh_view_bind_groups(
                     .screen_space_ambient_occlusion_texture
                     .default_view;
                 entries = entries.extend_with_indices(((17, ssao_view),));
+            }
+
+            if has_screen_indirect {
+                layout_key |= MeshPipelineViewLayoutKey::SCREEN_INDIRECT;
+                let view = screen_indirect
+                    .map(|t| &t.0)
+                    .unwrap_or(&fallback_image_zero.texture_view);
+                entries = entries.extend_with_indices(((SCREEN_INDIRECT_BINDING, view),));
             }
 
             if has_transmission {
