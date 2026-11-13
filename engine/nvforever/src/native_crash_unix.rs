@@ -19,8 +19,19 @@
 //! `dladdr` (the loader lock) or `backtrace`'s allocating resolver, so the log carries
 //! module + offset, which the release's line tables can symbolise later.
 //!
+//! Order matters: the signal line (signal, fault address, pc and module) is composed and
+//! written with no unwinding at all, so a stack the unwinder cannot walk — the common case
+//! in these crashes — cannot cost the fact of the crash or where it happened. Only then are
+//! the frames walked, under an `alarm(2)` watchdog (see [`UNWIND_WATCHDOG_SECS`]): on glibc
+//! older than 2.35, `_Unwind_FindFDE` goes through `dl_iterate_phdr` and takes the loader
+//! lock, so a fault while this thread held that lock would block the unwinder and freeze the
+//! game. `SIGALRM`'s default action then ends the process instead of hanging it.
+//!
 //! Privacy: the run log is a file players send, so the line gets the same treatment as
 //! `crash.rs` — the player's home folder is written `~` — done in place, in a fixed buffer.
+//! A game on a removable drive is mounted under the player's name too (`/run/media/<user>`,
+//! `/media/<user>`), and those prefixes are written `~` as well, so a module path from such
+//! an install does not carry the name into the log.
 //!
 //! Test aid `NVF_PLAY_TEST_NATIVE_CRASH=<seconds>` (shared with `native_crash.rs`): a thread
 //! writes to an unmapped address that long after the first frame, which this handler catches.
@@ -32,16 +43,27 @@
 //! before std looks, and std leaves both the disposition and the alternate stacks alone.
 //!
 //! Limits [our notes]: the handler runs on the crashing thread; a crash inside the allocator
-//! is fine (no allocation here), but a signal taken while the same thread held the dynamic
-//! loader's lock would deadlock a `dladdr`-based handler — modules come from `/proc`
-//! instead. A library or a driver that installs its own handler after us replaces ours
+//! is fine (no allocation here), and the module lookup takes no loader lock, so a fault
+//! inside `dlopen` still gets its line. The unwinder is the one place that can take that
+//! lock (glibc < 2.35, above), and that is why it runs after the line and under the
+//! watchdog. A library or a driver that installs its own handler after us replaces ours
 //! without telling us; such a crash leaves no line. The frames stop where the unwinder
-//! cannot go on (no unwind tables, a corrupted stack); they are the top frames. A fault
-//! inside the handler itself (a corrupted stack `_Unwind_Backtrace` cannot walk) comes back
-//! to the recursion guard, which lets the process die at once rather than loop. Only the
-//! main thread has an alternate stack (this module installs it there); a stack overflow on
-//! a thread with none — every other thread, since std is not making them — leaves nothing,
-//! while any ordinary fault there is delivered on its normal stack and does.
+//! cannot go on (no unwind tables, a corrupted stack); they are the top frames, and the line
+//! before them is written either way. The guard that catches a fault inside the handler is
+//! per thread (`gettid`): the thread already inside it has its line written before the
+//! unwinder starts, and another thread faulting at that moment dies at once rather than
+//! compose over it. Only the main thread has an alternate stack (this module installs it
+//! there); a stack overflow on a thread with none — every other thread, since std is not
+//! making them — leaves nothing, while any ordinary fault there is delivered on its normal
+//! stack and does.
+//!
+//! Regression [our notes]: arming from `.init_array` also stops std installing its own
+//! SIGSEGV/SIGBUS handler, which removes std's `thread '<name>' has overflowed its stack`
+//! message. Most game code runs on Bevy task-pool threads, so a stack overflow there now
+//! leaves nothing where it used to leave that line; the Limits paragraph above says why
+//! those threads get no line. Reproducing std's message would mean a formatted write from a
+//! handler that must not allocate; chaining to `.init_array`-era dispositions is not
+//! possible either (std installs its own only when the thread starts).
 
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicUsize, Ordering};
 
@@ -64,14 +86,23 @@ const MODULE_BYTES: usize = 200;
 
 /// This run's run-log file descriptor, opened at the start (`-1` until then).
 static RUN_LOG_FD: AtomicI32 = AtomicI32::new(-1);
-/// A signal inside the handler: the second one must not compose another line.
-static IN_HANDLER: AtomicBool = AtomicBool::new(false);
+/// The tid of the thread inside the handler, or 0: a second signal there must not compose
+/// another line over the first one's.
+static CRASHING_TID: AtomicI32 = AtomicI32::new(0);
+/// Seconds the unwinder gets before the process is left to die by `SIGALRM`: on glibc older
+/// than 2.35 `_Unwind_Find_FDE` goes through `dl_iterate_phdr`, which takes the loader lock,
+/// and a fault while that lock is held would otherwise freeze the game instead of ending it.
+const UNWIND_WATCHDOG_SECS: libc::c_uint = 5;
 /// The fixed buffers, allocated once at install (a handler may not allocate).
 static MAPS_BUF: AtomicUsize = AtomicUsize::new(0);
 static LINE_BUF: AtomicUsize = AtomicUsize::new(0);
 static HOME_BUF: AtomicUsize = AtomicUsize::new(0);
 static HOME_LEN: AtomicUsize = AtomicUsize::new(0);
 static ALTSTACK: AtomicUsize = AtomicUsize::new(0);
+/// `/run/media/<user>` and `/media/<user>`: a game on a removable drive carries the player's
+/// name in its module paths there, so those are written `~` as well.
+static MEDIA_BUF: [AtomicUsize; 2] = [AtomicUsize::new(0), AtomicUsize::new(0)];
+static MEDIA_LEN: [AtomicUsize; 2] = [AtomicUsize::new(0), AtomicUsize::new(0)];
 
 /// Arm the handler: its own alternate stack and the disposition for the five signals.
 ///
@@ -140,15 +171,26 @@ pub fn install() {
     RUN_LOG_FD.store(fd, Ordering::SeqCst);
     // The home folder, for the redaction: read once, here, where allocating is allowed.
     if let Ok(home) = std::env::var("HOME") {
-        let home = home.trim_end_matches('/').as_bytes();
+        let home = home.trim_end_matches('/');
         // `/` or a two-letter folder would hide every path: not a home to hide.
         if home.len() > 3 {
-            let ptr = alloc(home.len());
-            if !ptr.is_null() {
-                // SAFETY: `ptr` was just allocated with room for `home`.
-                unsafe { std::ptr::copy_nonoverlapping(home.as_ptr(), ptr, home.len()) };
-                HOME_BUF.store(ptr as usize, Ordering::SeqCst);
-                HOME_LEN.store(home.len(), Ordering::SeqCst);
+            keep(&HOME_BUF, &HOME_LEN, home.as_bytes());
+            // The desktop mounts removable drives under the player's name too
+            // (`/run/media/alex/...`, `/media/alex/...`), and a module path from a game
+            // installed there would otherwise name the player in a file that says it may be
+            // uploaded. The user name is the home folder's last segment.
+            let user = home.rsplit('/').next().unwrap_or("");
+            if !user.is_empty() {
+                for (i, root) in ["/run/media/", "/media/"].iter().enumerate() {
+                    let mut bytes = [0u8; 64];
+                    let tail = user.as_bytes();
+                    let head = root.as_bytes();
+                    if head.len() + tail.len() <= bytes.len() {
+                        bytes[..head.len()].copy_from_slice(head);
+                        bytes[head.len()..head.len() + tail.len()].copy_from_slice(tail);
+                        keep(&MEDIA_BUF[i], &MEDIA_LEN[i], &bytes[..head.len() + tail.len()]);
+                    }
+                }
             }
         }
     }
@@ -170,6 +212,19 @@ pub fn install() {
 fn alloc(bytes: usize) -> *mut u8 {
     // SAFETY: malloc with a nonzero size; the caller checks for null.
     unsafe { libc::malloc(bytes).cast() }
+}
+
+/// Copy `bytes` into process-lifetime memory and publish it in `ptr`/`len_at` (the handler
+/// reads both from any thread, so they are atomics).
+fn keep(ptr: &AtomicUsize, len_at: &AtomicUsize, bytes: &[u8]) {
+    let p = alloc(bytes.len());
+    if p.is_null() {
+        return;
+    }
+    // SAFETY: `p` has room for `bytes`, allocated above.
+    unsafe { std::ptr::copy_nonoverlapping(bytes.as_ptr(), p, bytes.len()) };
+    ptr.store(p as usize, Ordering::SeqCst);
+    len_at.store(bytes.len(), Ordering::SeqCst);
 }
 
 /// A crash as the handler sees it, with the code's module already found (a handler must not
@@ -211,8 +266,15 @@ impl Fault {
 
 /// The signal handler itself: one line, then die by the same signal.
 extern "C" fn handler(sig: libc::c_int, info: *mut libc::siginfo_t, ctx: *mut libc::c_void) {
-    // A fault inside the handler comes back here: let the process die at once.
-    if IN_HANDLER.swap(true, Ordering::SeqCst) {
+    // Per thread, not process-wide: a second thread that faults while the first composes its
+    // line dies at once (the first line is already written by then) instead of composing over
+    // it, and a *different* signal arriving inside this handler on the same thread is let
+    // through to its default action. A synchronous fault inside the handler does not come
+    // back here at all: the delivered signal is blocked during the handler (no SA_NODEFER),
+    // so the kernel force-delivers it with the default action and the process dies. Either
+    // way the line written before the unwinder is kept.
+    let tid = current_tid();
+    if CRASHING_TID.swap(tid, Ordering::SeqCst) != 0 {
         reraise(sig);
     }
     if LINE_BUF.load(Ordering::SeqCst) == 0 || MAPS_BUF.load(Ordering::SeqCst) == 0 {
@@ -231,17 +293,37 @@ extern "C" fn handler(sig: libc::c_int, info: *mut libc::siginfo_t, ctx: *mut li
     }
     // SAFETY: `info` and `ctx` are the kernel's arguments for a SA_SIGINFO handler.
     let mut fault = unsafe { fault_from(sig, info, ctx) };
-    let mut frames = [0usize; MAX_FRAMES];
-    let frame_count = unwind(&mut frames);
     // SAFETY: the maps buffer is live process-lifetime memory, filled by the call.
     let maps = unsafe { read_maps() };
     fault.resolve(maps);
+    // The signal line first, before any unwinding: it needs no stack walk, so a corrupt or
+    // blocked stack cannot cost the fact that the process crashed, or where.
     // SAFETY: the line buffer is process-lifetime memory, only this handler writes it.
     let mut line = Line::new(unsafe { std::slice::from_raw_parts_mut(LINE_BUF.load(Ordering::SeqCst) as *mut u8, LINE_BYTES) });
-    let len = write_fault_line(&fault, &frames[..frame_count], maps, &mut line);
-    let len = redact_in_place(line.bytes, len, home());
+    let len = compose_fault_line(&fault, &mut line);
+    let len = redact_in_place(line.bytes, len, &hide());
+    write_lines(&line.bytes[..len]);
+    // The watchdog: a fault taken while this thread holds the loader lock would leave the
+    // unwinder blocked forever. `SIGALRM`'s default action ends the process instead, and the
+    // line above is already on disk.
+    // SAFETY: alarm(2) is async-signal-safe and needs no state.
+    unsafe { libc::alarm(UNWIND_WATCHDOG_SECS) };
+    let mut frames = [0usize; MAX_FRAMES];
+    let frame_count = unwind(&mut frames);
+    // SAFETY: alarm(0) cancels the watchdog above.
+    unsafe { libc::alarm(0) };
+    let mut line = Line::new(unsafe { std::slice::from_raw_parts_mut(LINE_BUF.load(Ordering::SeqCst) as *mut u8, LINE_BYTES) });
+    let len = compose_frames(&frames[..frame_count], maps, &mut line);
+    let len = redact_in_place(line.bytes, len, &hide());
     write_lines(&line.bytes[..len]);
     reraise(sig);
+}
+
+/// This thread's id, by raw syscall: `syscall(2)` is async-signal-safe, where glibc's
+/// `gettid` wrapper is newer than some release bases.
+fn current_tid() -> libc::c_int {
+    // SAFETY: a plain gettid(2) with no arguments.
+    unsafe { libc::syscall(libc::SYS_gettid) as libc::c_int }
 }
 
 /// The fault `sig` describes: `si_addr` as the address, the context's instruction pointer.
@@ -426,9 +508,20 @@ impl Line<'_> {
     }
 }
 
-/// Compose the crash's lines: the signal with the fault address, the code's module and the
-/// top frames, one line each, `<stamp> ERROR nvforever::crash: ` prefixed.
+/// Compose the crash's lines in one buffer: the signal with the fault address, the code's
+/// module and the top frames, one line each, `<stamp> ERROR nvforever::crash: ` prefixed.
+/// The handler writes the two halves separately (the signal line before it unwinds), so this
+/// is the shape the tests read.
+#[cfg(test)]
 fn write_fault_line(fault: &Fault, frames: &[usize], maps: &[u8], line: &mut Line) -> usize {
+    compose_fault_line(fault, line);
+    compose_frames(frames, maps, line);
+    line.len
+}
+
+/// The one line that names the crash: signal, fault address, and where the code was. Needs
+/// no unwinding, so the handler writes it before it walks the stack.
+fn compose_fault_line(fault: &Fault, line: &mut Line) -> usize {
     line.push_prefix(now_secs());
     line.push(b"native crash, signal ");
     line.push(signal_name(fault.signal));
@@ -444,6 +537,11 @@ fn write_fault_line(fault: &Fault, frames: &[usize], maps: &[u8], line: &mut Lin
     line.push(b"+");
     line.push_hex(fault.pc.wrapping_sub(fault.module_base));
     line.push(b"\n");
+    line.len
+}
+
+/// One line per frame: address and module + offset, as `_Unwind_Backtrace` gave them.
+fn compose_frames(frames: &[usize], maps: &[u8], line: &mut Line) -> usize {
     for (i, &ip) in frames.iter().enumerate() {
         line.push_prefix(now_secs());
         line.push(b"  frame ");
@@ -556,14 +654,24 @@ unsafe fn read_maps() -> &'static [u8] {
 }
 
 /// The player's home folder, already in the fixed buffer (empty when it was not set).
-fn home() -> &'static [u8] {
-    let ptr = HOME_BUF.load(Ordering::SeqCst) as *const u8;
-    let len = HOME_LEN.load(Ordering::SeqCst);
-    if ptr.is_null() || len == 0 {
+fn kept(ptr: &AtomicUsize, len_at: &AtomicUsize) -> &'static [u8] {
+    let p = ptr.load(Ordering::SeqCst) as *const u8;
+    let len = len_at.load(Ordering::SeqCst);
+    if p.is_null() || len == 0 {
         return &[];
     }
-    // SAFETY: `ptr` points at `len` bytes copied at install, live for the process.
-    unsafe { std::slice::from_raw_parts(ptr, len) }
+    // SAFETY: `p` points at `len` bytes copied at install, live for the process.
+    unsafe { std::slice::from_raw_parts(p, len) }
+}
+
+fn home() -> &'static [u8] {
+    kept(&HOME_BUF, &HOME_LEN)
+}
+
+/// The paths a line writes `~` for: the home folder and the removable-drive mounts under the
+/// player's name (empty entries are skipped).
+fn hide() -> [&'static [u8]; 3] {
+    [home(), kept(&MEDIA_BUF[0], &MEDIA_LEN[0]), kept(&MEDIA_BUF[1], &MEDIA_LEN[1])]
 }
 
 /// Write `text` to the run log and the console with `write(2)`: no lock, no buffering (the
@@ -629,8 +737,8 @@ fn now_secs() -> u64 {
 /// treatment `crash::redact` gives logged lines, without touching the allocator. Letters in
 /// any case, `\` and `/` alike, a run of separators counting as one, and only where the
 /// folder name ends (a non-name byte or a separator), so `/home/al` leaves `/home/alex`.
-fn redact_in_place(line: &mut [u8], len: usize, home: &[u8]) -> usize {
-    if home.is_empty() || len == 0 {
+fn redact_in_place(line: &mut [u8], len: usize, prefixes: &[&[u8]]) -> usize {
+    if prefixes.iter().all(|p| p.is_empty()) || len == 0 {
         return len;
     }
     let sep = |c: u8| matches!(c, b'\\' | b'/');
@@ -638,41 +746,43 @@ fn redact_in_place(line: &mut [u8], len: usize, home: &[u8]) -> usize {
     let mut out = 0;
     let mut i = 0;
     while i < len {
-        if line[i] == home[0] || (sep(home[0]) && sep(line[i])) {
-            // Does `home` start at `i`?
+        let hit = prefixes.iter().filter(|p| !p.is_empty()).find_map(|prefix| {
+            if !(line[i] == prefix[0] || (sep(prefix[0]) && sep(line[i]))) {
+                return None;
+            }
+            // Does `prefix` start at `i`?
             let (mut li, mut hi) = (i, 0);
             let mut match_end = None;
-            while hi < home.len() {
-                if sep(home[hi]) {
+            while hi < prefix.len() {
+                if sep(prefix[hi]) {
                     if !line.get(li).is_some_and(|&c| sep(c)) {
                         break;
                     }
-                    while hi < home.len() && sep(home[hi]) {
+                    while hi < prefix.len() && sep(prefix[hi]) {
                         hi += 1;
                     }
                     while li < len && sep(line[li]) {
                         li += 1;
                     }
                 } else {
-                    if !line.get(li).is_some_and(|c| c.eq_ignore_ascii_case(&home[hi])) {
+                    if !line.get(li).is_some_and(|c| c.eq_ignore_ascii_case(&prefix[hi])) {
                         break;
                     }
                     li += 1;
                     hi += 1;
                 }
-                if hi == home.len() {
+                if hi == prefix.len() {
                     match_end = Some(li);
                 }
             }
             // The folder name must end there (the tail of a longer name is not a match).
-            if let Some(end) = match_end {
-                if end == len || sep(line[end]) || !name(line[end]) {
-                    line[out] = b'~';
-                    out += 1;
-                    i = end;
-                    continue;
-                }
-            }
+            match_end.filter(|&end| end == len || sep(line[end]) || !name(line[end]))
+        });
+        if let Some(end) = hit {
+            line[out] = b'~';
+            out += 1;
+            i = end;
+            continue;
         }
         line[out] = line[i];
         out += 1;
@@ -738,8 +848,16 @@ mod tests {
     fn the_home_folder_is_written_as_a_tilde() {
         let mut buf = *b"at /home/alex/nvf/target/release/nvforever+0x10 and /home/alexx/x and /home/alex\n";
         let len = buf.len();
-        let n = redact_in_place(&mut buf, len, b"/home/alex");
+        let n = redact_in_place(&mut buf, len, &[b"/home/alex"]);
         assert_eq!(text(&buf, n), "at ~/nvf/target/release/nvforever+0x10 and /home/alexx/x and ~\n");
+    }
+
+    #[test]
+    fn a_removable_drive_under_the_players_name_is_written_as_a_tilde_too() {
+        let mut buf = *b"at /run/media/alex/USB/nvforever+0x10 and /media/alex/DVD/x.so+0x20 and /media/bob/x\n";
+        let len = buf.len();
+        let n = redact_in_place(&mut buf, len, &[b"/home/alex", b"/run/media/alex", b"/media/alex"]);
+        assert_eq!(text(&buf, n), "at ~/USB/nvforever+0x10 and ~/DVD/x.so+0x20 and /media/bob/x\n");
     }
 
     #[test]

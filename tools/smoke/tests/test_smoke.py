@@ -402,6 +402,61 @@ class GameEnvTests(unittest.TestCase):
             del os.environ[FROM_SCRIPTS]
 
 
+class PlatformTests(unittest.TestCase):
+    """`platforms`: a scenario naming another system is skipped before anything is started,
+    and the parse refuses a name the runner does not know, so a typo cannot silently skip
+    the scenario everywhere (or run it where it fails for want of the platform's code)."""
+
+    def run_suite(self, extra, here):
+        import argparse
+        from unittest import mock
+        from smoke.runner import Env
+        suite = load_text(game("gated", extra=extra))
+        launches = plan(suite, suite.scenarios)
+        said = []
+        with tempfile.TemporaryDirectory() as d:
+            env = Env(repo=Path(d), out=Path(d), exe=Path(d) / "nvforever.exe", data="D", fnvtool=None)
+            def fake_run(x, e, locks):
+                (e.out / f"{x.name}.log").write_text("\n".join(LOG), encoding="utf-8")
+                return 0, "", 1.0
+
+            with mock.patch.object(cli, "run_launch", side_effect=fake_run) as run, \
+                    mock.patch("smoke.runner.platform_name", return_value=here):
+                verdicts = cli.run_launches(launches, env, None, 1, argparse.Namespace(context=3), said.append)
+        return verdicts, run, said
+
+    def test_another_system_skips_and_starts_nothing(self):
+        verdicts, run, said = self.run_suite('platforms = ["linux"]', "windows")
+        self.assertEqual([(v.scenario, v.status) for v in verdicts], [("gated", "SKIP")])
+        self.assertEqual(verdicts[0].reason, "linux only")
+        run.assert_not_called()
+        self.assertTrue(said[0].startswith("SKIP  gated"), said)
+
+    def test_the_same_system_runs(self):
+        verdicts, run, said = self.run_suite('platforms = ["linux"]', "linux")
+        self.assertEqual([(v.scenario, v.status) for v in verdicts], [("gated", "PASS")])
+        run.assert_called_once()
+
+    def test_no_platforms_runs_anywhere(self):
+        verdicts, run, said = self.run_suite("", "windows")
+        self.assertEqual([(v.scenario, v.status) for v in verdicts], [("gated", "PASS")])
+        run.assert_called_once()
+
+    def test_an_unknown_platform_is_refused(self):
+        with self.assertRaisesRegex(ScenarioError, "platforms takes"):
+            load_text(game("gated", extra='platforms = ["linx"]'))
+
+    def test_repo_native_crash_scenarios_are_gated_each_to_its_own_side(self):
+        """The signal line is Linux's, the minidump Windows': on the owner's Windows smoke
+        machine the Linux one would end with 0xC0000005 and fail both its expectations, and
+        every later change to crash.rs would select it there again."""
+        suite = load(HERE / "scenarios.toml")
+        by_name = suite.by_name()
+        self.assertEqual(by_name["native-crash-signal"].platforms, ["linux"])
+        self.assertEqual(by_name["native-crash-dump"].requires, ["WINDIR"])
+        self.assertEqual(by_name["native-crash-dump"].platforms, [])
+
+
 class RequiresTests(unittest.TestCase):
     """`requires`: a scenario whose environment variable is unset or empty is skipped before
     anything is started; with it set the scenario runs and is judged as usual (the DLSS

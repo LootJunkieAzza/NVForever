@@ -26221,6 +26221,10 @@ name = "native-crash-signal"
 source = "#2167, docs/design/player-reports.md section 3.2 (#1425, #1825): on Linux a native crash writes the signal, the fault address and the top frames into the run log, and the process still ends by the same signal (engine/nvforever/src/native_crash_unix.rs)"
 areas = ["crash"]
 paths = ["engine/nvforever/src/native_crash_unix.rs", "engine/nvforever/src/crash.rs"]
+# Linux only: the signal line is the Unix handler's. On Windows the same aid ends the process
+# with 0xC0000005 and the minidump scenario above judges it, so this one must not run there
+# (nor on any later change to crash.rs, which is on both paths).
+platforms = ["linux"]
 # The same aid as the Windows check: a write to an unmapped address 5 s after the first frame.
 env = { NVFOREVER_HOME = "native-crash-signal-home", NVF_PLAY_TEST_NATIVE_CRASH = "5" }
 args = ["--cell", "Goodsprings"]

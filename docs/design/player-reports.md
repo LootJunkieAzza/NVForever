@@ -170,9 +170,11 @@ Not in it: save names, character name, screenshots, typed console text (console
   another thread (none of which has an alternate stack) does not. The handler then restores the
   default disposition and re-raises, so the process still ends by the same signal (exit
   status `-11`, which `tools/smoke` reports as a failed scenario rather than a pass). The
-  home folder is written `~` as everywhere else. Because the evidence is in the run log,
+  home folder and the removable-drive mounts under the player's name (`/run/media/<user>`,
+  `/media/<user>`) are written `~` as everywhere else. Because the evidence is in the run log,
   a Linux `native` end is log-only (`native-nofile`) until a Linux dump pipeline exists;
-  nothing new is uploaded.
+  nothing new is uploaded. (`native-nofile` is a server-side report kind: nothing in this
+  repo implements it yet — planned, and its home is the reports service, not the engine.)
 
 The crash is grouped server-side by a **signature**: for panics, the message with numbers
 stripped plus the top 3 frames inside NVForever's own crates; for dumps, the faulting

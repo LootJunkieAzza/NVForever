@@ -256,7 +256,7 @@ pub fn install(data: &Path, previous_running: bool) {
     // log. The signal handler is armed from `.init_array` (native_crash_unix.rs, before
     // Rust's std takes SIGSEGV for its own stack-overflow check); this opens the log and
     // the buffers it writes into.
-    #[cfg(unix)]
+    #[cfg(target_os = "linux")]
     crate::native_crash_unix::install();
     set_hook();
     test_panic();
