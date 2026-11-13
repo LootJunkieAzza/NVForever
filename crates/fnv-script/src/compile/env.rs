@@ -105,6 +105,17 @@ impl<'a> LoadOrderIndex<'a> {
     fn def(&self, form: u32, viewer: usize) -> Option<&Def> {
         self.defs.get(&form)?.iter().rev().find(|d| self.visible[viewer][d.plugin])
     }
+
+    /// Every record the winning plugin holds under `form`, last first. A plugin can hold
+    /// two records under one FormID: oHUD.esm has QUST `aHUD` and MESG `iHUDMainMenu`
+    /// both at 0x01000801, and its scripts' compiled data name `aHUD` by that FormID and
+    /// read its quest script's variables [observed: SCDA of SCPT 0x0100080F decompiles to
+    /// `set 0x…801.f19`, its source says `set aHUD.mcmVersion`]; so the editor found the
+    /// name and the script through the record that carries them, not only the last.
+    fn defs_here(&self, form: u32, viewer: usize) -> impl Iterator<Item = &Def> {
+        let last = self.def(form, viewer).map(|d| d.plugin);
+        self.defs.get(&form).into_iter().flat_map(|v| v.iter().rev()).filter(move |d| Some(d.plugin) == last)
+    }
 }
 
 /// Forms of the game itself that scripts name and no plugin defines: Editor ID, FormID
@@ -131,8 +142,8 @@ impl Env for PluginEnv<'_> {
         // The last visible definition whose Editor ID (as the viewer sees the form) matches.
         let mut best: Option<(usize, FormInfo)> = None;
         for &f in cands {
-            if let Some(d) = self.ix.def(f, self.plugin) {
-                if d.edid.as_deref().is_some_and(|e| e.eq_ignore_ascii_case(editor_id)) && best.as_ref().is_none_or(|b| d.plugin >= b.0) {
+            if let Some(d) = self.ix.defs_here(f, self.plugin).find(|d| d.edid.as_deref().is_some_and(|e| e.eq_ignore_ascii_case(editor_id))) {
+                if best.as_ref().is_none_or(|b| d.plugin >= b.0) {
                     best = Some((d.plugin, FormInfo { form: f, sig: d.sig }));
                 }
             }
@@ -157,8 +168,7 @@ impl Env for PluginEnv<'_> {
     }
 
     fn script_vars(&self, form: u32) -> Option<Vec<VarDecl>> {
-        let d = self.ix.def(form, self.plugin)?;
-        let script = d.script.or_else(|| self.ix.def(d.base?, self.plugin)?.script)?;
+        let script = self.ix.defs_here(form, self.plugin).find_map(|d| d.script.or_else(|| self.ix.def(d.base?, self.plugin)?.script))?;
         let vis = &self.ix.visible[self.plugin];
         // The version the viewer sees; when only a later plugin's is at hand (a game reads
         // the winning records only), that one.
