@@ -700,7 +700,7 @@ fn own(
             let t = pl.clip.start + c.play.time();
             let rig = body.animators().get(if pl.view == View::First { 1 } else { 0 }).map(|(_, a)| (a.skel.clone(), a.nodes.clone()));
             let layer = RenderLayers::layer(if pl.view == View::First { crate::sky::ARMS_LAYER } else { crate::sky::BODY_LAYER });
-            let model_of = |item: FormId| fnv_world::placed::base_object(world.lo, world.schema, item.0).and_then(|b| b.model_path());
+            let model_of = |item: FormId| fnv_world::placed::base_object(world.lo, world.schema, item.0).and_then(|b| held_model(&b));
             let item_sound = consume_sound(pl.item);
             let fx = Fx { sfx: sfx.as_deref_mut(), sounds: &mut sounds, at: None, item_sound: item_sound.filter(|_| pl.keyed_sound) };
             let model = model_of(pl.item);
@@ -1019,12 +1019,28 @@ fn interact(
     }
 }
 
+/// The model an item is held by in the hand, and its key in B42 Loot's grips: for
+/// armour its world (ground) model, MOD2, else MODL; for anything else MODL. The mod's
+/// script takes `GetBipedModelPath 2` for armour (form type 24) and `GetModelPath`
+/// otherwise [observed: `ln_B42Loot.txt`, "SNATCH MODEL PATH"; index 2 is the male world
+/// model, `fnv_game::nvse`]. MODL is armour's male body model: picking up the Exposed
+/// Prostitute Outfit put the whole skinned outfit and body (`prosmale03.nif`, 7797
+/// vertices in its outfit shape) in the guest's hand instead of the folded clothes, and
+/// the guest's GPU stopped there (owner's co-op report, ship17).
+fn held_model(base: &fnv_world::placed::BaseObject) -> Option<String> {
+    if &base.sig == b"ARMO" {
+        base.world_model_path()
+    } else {
+        base.model_path()
+    }
+}
+
 /// Where B42 Loot puts `item` in the hand (module notes).
 fn loot_grip(loot: &b42::LootSet, world: &WorldData, script: Option<&nvf_play::script::ScriptState>, item: FormId) -> Option<Transform> {
     let base = fnv_world::placed::base_object(world.lo, world.schema, item.0)?;
     let anim = (&base.sig == b"WEAP").then(|| script.and_then(|s| s.rt.as_ref()).and_then(|rt| rt.game.data.weapon_anim_types.get(&item).copied())).flatten();
     let code = b42::loot_type(&base.sig, anim, None, false);
-    let g = loot.grip(base.model_path().as_deref(), code.as_deref())?;
+    let g = loot.grip(held_model(&base).as_deref(), code.as_deref())?;
     let [rx, ry, rz] = g.turn.map(f32::to_radians);
     Some(Transform { translation: Vec3::from(g.at), rotation: Quat::from_euler(EulerRot::XYZ, rx, ry, rz), scale: Vec3::splat(g.scale) })
 }
@@ -1193,7 +1209,7 @@ fn puppets(
         let t = pl.clip.start + c.play.time();
         let at = crate::world::bevy_to_game(gt.translation()).to_array();
         let item_sound = data.and_then(|d| d.ingestibles.get(&pl.item)).and_then(|d| d.consume_sound).filter(|_| pl.keyed_sound);
-        let model = fnv_world::placed::base_object(world.lo, world.schema, pl.item.0).and_then(|b| b.model_path());
+        let model = fnv_world::placed::base_object(world.lo, world.schema, pl.item.0).and_then(|b| held_model(&b));
         let (skel, nodes) = (rig.skel.clone(), rig.nodes.clone());
         let fx = Fx { sfx: sfx.as_deref_mut(), sounds: &mut sounds, at: Some(at), item_sound };
         // `step` takes the whole state for the file sounds: lend it the parts it uses.
@@ -1263,4 +1279,38 @@ fn report(mut exit: MessageReader<AppExit>, st: Res<ConsumeAnims>) {
         "consume anims summary: {} aid items used, {} animations played ({} the game's idles, {} interact, {} crafting, {} before an activation), {} activations without one, {} not animated, {} refused (Hardcore), {} models held, {} sent to co-op, {} played on puppets",
         s.used, s.played, s.fallback, s.interact, s.crafted, s.typed, s.untyped, s.skipped, s.refused, s.attached, s.sent, s.puppets
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use fnv_world::placed::BaseObject;
+
+    fn base(sig: &[u8; 4], model: Option<&str>, world_model: Option<&str>) -> BaseObject {
+        BaseObject { form_id: 0x0012_0855, sig: *sig, edid: None, model: model.map(Into::into), world_model: world_model.map(Into::into), world_alt_textures: Vec::new() }
+    }
+
+    #[test]
+    fn armour_is_held_by_its_world_model_not_the_worn_body() {
+        // The Exposed Prostitute Outfit (FalloutNV.esm 0x00120855) as stored: MODL the
+        // worn male body, MOD2 the folded clothes.
+        let outfit = base(b"ARMO", Some(r"Armor\Prostitutes\prosmale03.NIF"), Some(r"Armor\Prostitutes\prosGO.NIF"));
+        assert_eq!(held_model(&outfit).as_deref(), Some(r"meshes\armor\prostitutes\prosgo.nif"));
+    }
+
+    #[test]
+    fn armour_with_no_world_model_is_held_by_modl() {
+        let a = base(b"ARMO", Some(r"Armor\Hat\hat.NIF"), None);
+        assert_eq!(held_model(&a).as_deref(), Some(r"meshes\armor\hat\hat.nif"));
+    }
+
+    #[test]
+    fn a_weapon_is_held_by_its_modl_not_its_world_model() {
+        // The mod takes GetModelPath for anything not armour: a weapon's MODL is its
+        // model in the hand, MOD4 the one lying on the ground.
+        let w = base(b"WEAP", Some(r"Weapons\1HandPistol\9mmPistol.NIF"), Some(r"Weapons\1HandPistol\9mmPistolGO.NIF"));
+        assert_eq!(held_model(&w).as_deref(), Some(r"meshes\weapons\1handpistol\9mmpistol.nif"));
+        let food = base(b"ALCH", Some(r"Clutter\Food\Apple.NIF"), None);
+        assert_eq!(held_model(&food).as_deref(), Some(r"meshes\clutter\food\apple.nif"));
+    }
 }
