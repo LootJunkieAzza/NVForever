@@ -121,7 +121,9 @@ greetings 0x001579D7 and 0x001579D8 have no conditions of their own, their quest
 vDialogueEDE has GetIsID on the three ED-Es, and the voice type RobotEDE lacks the bit;
 hypothesis: the original counts the quest's conditions, since its ED-E says these lines.
 Without it the first greeting, whose result script gives the controls back after the
-repair in Primm, was never said: #2378]. A line whose INFO names its speaker (ANAM) is
+repair in Primm, was never said: #2378; checks: unit test `voice_gate`, smoke
+`ede-repair-greeting` and `mq-companion-ede`; what the original does for the Generic
+quest's voice-type list is observer check 127]. A line whose INFO names its speaker (ANAM) is
 allowed too, since it is said by that actor only [hypothesis]. A VTYP without DNAM
 (9 records) is not restricted [hypothesis]. The player's own lines are not gated.
 
