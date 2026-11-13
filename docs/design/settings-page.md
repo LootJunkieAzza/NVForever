@@ -151,6 +151,18 @@ so the dropdown, Left/Right, Defaults' fallback by index and the `NVF_PLAY_TEST_
 cannot take it. Loading the INI does not go through that check: a stored choice out of reach
 still loads, so a request survives a run in which it cannot be met.
 
+**A choice that is an action** [design: #2250]: a list's `names` may hold a choice that does
+something instead of being kept, as Reports' "Delete them now" does (`reports/delete.rs`).
+The Upscaler row lists `Download DLSS...` (shown as "Download DLSS…", or "Downloading DLSS…
+n%" while its download runs) while DLSS is out of reach only because its files are missing
+(`upscaler::Unavailable::FilesMissing`, Windows with Vulkan) and no download installed them
+this session. Its `pick` asks for nvforever's `dlss_download` dialog (over the page as the
+hand report's form is, `pause::FormOver`) and leaves `Graphics::upscaler` as it is, so the row
+keeps its chosen name and the INI its value; `settings: upscaler <chosen>` is still logged, as
+for every pick. The test aids name it `upscaler=Download DLSS...`. The dialog and its test aid
+`NVF_PLAY_TEST_DLSS_DOWNLOAD` are described in docs/dlss.md and
+`engine/nvforever/src/dlss_download/`.
+
 **A list that took over from an older row** [design: #2198's play-test]: the Upscaler and
 Upscaling mode rows replaced the one `fsr-upscaling` row. `set_older_key` lets a list read
 the older row's INI key while its own is not in the file (its `load` takes the older text;
