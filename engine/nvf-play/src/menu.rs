@@ -852,6 +852,14 @@ fn apply_input(
             dropping -= 1;
             continue;
         }
+        // The player's tweak: the quantity to store with a companion stops at what it can
+        // carry [design: docs/design/tweaks.md].
+        if let (Command::One, Mode::Container(c)) = (cmd, m.mode) {
+            let cap = script.as_mut().and_then(|s| s.rt.as_mut()).filter(|rt| rt.game.tweaks.quantity_companion_cap && rt.game.is_teammate(c)).map(|rt| {
+                crate::script::with_world(rt, &mut sim, |rt| fnv_game::functions::actor_value(&mut rt.game, c, fnv_game::actor_values::CARRY_WEIGHT).unwrap_or(0.0)) as f32
+            });
+            m.companion_carry = cap;
+        }
         // The player's tweak: no healing aid in a fight [design: docs/design/tweaks.md].
         if matches!(cmd, Command::One) && m.mode == Mode::Inventory {
             let item = m.selected_row(m.focus).filter(|r| !r.equipped && r.folder.is_none()).map(|r| r.item);

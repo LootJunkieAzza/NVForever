@@ -399,6 +399,9 @@ pub struct Tweaks {
     /// `bCrippledLimbsPlayPainSoundWhenFalling` (`fHeightThreshold`): a fall of at least
     /// this many units with a crippled leg says the player's pain line; 0 off.
     pub crippled_fall_pain: f32,
+    /// `bQuantityMenuRespectsCompanionCarryCap`: storing with a companion, the quantity
+    /// menu stops at what it can carry.
+    pub quantity_companion_cap: bool,
     /// `bNoSkillBooksAbove100`: a skill book whose skill is already at 100 is not read.
     pub no_skill_books_at_max: bool,
     /// `bLessFrequentPlayerPainSounds` (`iMinPlayerPainSoundIntervalMS`): seconds the
@@ -839,6 +842,7 @@ impl Default for Tweaks {
             repair_kits_in_list: false,
             repair_preview: false,
             crippled_fall_pain: 0.0,
+            quantity_companion_cap: false,
             no_skill_books_at_max: false,
             player_pain_gap: 0.0,
             pause_on_load: false,

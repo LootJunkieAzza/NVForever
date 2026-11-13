@@ -269,6 +269,15 @@ fn units_pick(&(_, at, mods): &Units) -> Pick {
     Pick::row(at.map(f32::from_bits), mods)
 }
 
+/// The most of `count` units weighing `weight` each that fit in `room` (at least one, so
+/// the quantity menu still offers a unit).
+pub fn carry_cap(count: i32, weight: f32, room: f32) -> i32 {
+    if weight <= 0.0 {
+        return count;
+    }
+    ((room / weight).floor().max(1.0) as i32).min(count)
+}
+
 /// The order of the player's inventory list under the Pip-Boy's Clicking the Tab Sorts
 /// tweak: by name (as always), by value or by weight, the most first [design:
 /// docs/design/tweaks.md; the readme names no orders].
@@ -777,6 +786,10 @@ pub struct MenuModel {
     /// The order of the player's inventory list ([`SortBy`]; the Pip-Boy's Clicking the
     /// Tab Sorts tweak).
     pub sort: SortBy,
+    /// The container is a companion whose carry weight this is (the player's Quantity Menu
+    /// Respects Companion Carry Cap tweak, set by `crate::menu` before a store): the
+    /// quantity asked stops at what it can still carry.
+    pub companion_carry: Option<f32>,
     /// The player's menu tweaks, set by `crate::tweaks`: Take All leaves the menu open;
     /// equipped items are left out of the player's side in barter and containers;
     /// category titles in title case.
@@ -986,6 +999,7 @@ impl MenuModel {
             vendor_lists_both: false,
             hide_misc_quest: false,
             sort: SortBy::Name,
+            companion_carry: None,
             take_all_stays: false,
             take_all_confirm: None,
             confirming_take_all: false,
@@ -1447,12 +1461,18 @@ impl MenuModel {
     fn asks_quantity(&self, cmd: Command) -> Option<Quantity> {
         let asks = matches!((self.mode, cmd), (Mode::Container(_) | Mode::Barter(_), Command::One) | (Mode::Inventory, Command::Drop));
         let r = self.selected_row(self.focus)?;
-        (asks && self.amount.is_none() && r.count > ASK_QUANTITY_ABOVE && r.folder.is_none() && r.kind != Some(ItemKind::CaravanCard)).then(|| Quantity {
+        // The player's tweak: storing with a companion, no more than it can carry (at
+        // least one) [design: docs/design/tweaks.md].
+        let max = match (self.mode, self.focus, self.companion_carry) {
+            (Mode::Container(_), Side::Player, Some(cap)) => carry_cap(r.count, r.weight.unwrap_or(0.0), cap - self.lists[Side::Container as usize].weight as f32),
+            _ => r.count,
+        };
+        (asks && self.amount.is_none() && r.count > ASK_QUANTITY_ABOVE && r.folder.is_none() && r.kind != Some(ItemKind::CaravanCard)).then_some(Quantity {
             cmd,
             side: self.focus,
             row: self.selected[self.focus as usize],
-            max: r.count,
-            amount: r.count,
+            max,
+            amount: max,
         })
     }
 

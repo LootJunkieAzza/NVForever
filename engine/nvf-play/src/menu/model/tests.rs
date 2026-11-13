@@ -1171,3 +1171,13 @@ fn the_player_list_sorts_by_value_or_weight() {
     assert_eq!(names(&rows), ["a", "b", "c"]);
     assert_eq!(SortBy::Name.next().next().next(), SortBy::Name);
 }
+
+/// The Quantity Menu Respects Companion Carry Cap tweak: what fits, at least one.
+#[test]
+fn a_companion_takes_no_more_than_it_can_carry() {
+    assert_eq!(carry_cap(10, 2.0, 7.0), 3);
+    assert_eq!(carry_cap(10, 2.0, 100.0), 10);
+    assert_eq!(carry_cap(10, 2.0, 1.0), 1);
+    assert_eq!(carry_cap(10, 2.0, -5.0), 1);
+    assert_eq!(carry_cap(10, 0.0, 0.0), 10);
+}
