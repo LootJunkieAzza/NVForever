@@ -298,7 +298,7 @@ fn topic_row(l: &Loaded, t: &TopicDef, text: bool, detail: bool) -> Value {
         "lines": lines.len(),
         "line_quests": names(l, &line_quests),
         "shared_infos": t.shared_infos.len(),
-        "definitions": l.lo.index.get(&t.form.0).map_or(0, Vec::len),
+        "definitions": l.lo.index.get(&t.form.0).map_or(0, |d| d.len()),
     });
     if text {
         row["name"] = json!(t.name);
@@ -345,7 +345,7 @@ fn topics(l: &Loaded, f: &Filter, top_level: bool, ty: Option<&str>) -> anyhow::
             *top_by_type.entry(type_name(t.topic_type)).or_default() += 1;
         }
         *priorities.entry(format!("{}", t.priority)).or_default() += 1;
-        let n = d.topics.get(&t.form).map_or(0, Vec::len);
+        let n = d.topics.get(&t.form).map_or(0, |d| d.len());
         let bucket = match n {
             0..=5 => n.to_string(),
             6..=10 => "6-10".into(),
@@ -363,7 +363,7 @@ fn topics(l: &Loaded, f: &Filter, top_level: bool, ty: Option<&str>) -> anyhow::
         rumors += (t.flags & TopicDef::RUMORS != 0) as u64;
         dumb += t.dumb_response.is_some() as u64;
         shared_topics += !t.shared_infos.is_empty() as u64;
-        several += (l.lo.index.get(&t.form.0).map_or(0, Vec::len) > 1) as u64;
+        several += (l.lo.index.get(&t.form.0).map_or(0, |d| d.len()) > 1) as u64;
         for s in &t.shared_infos {
             shared += 1;
             shared_no_quest += s.quest.is_none() as u64;
@@ -454,7 +454,7 @@ fn line_row(l: &Loaded, i: FormId, def: &InfoDef, text: bool) -> Value {
     let mut row = json!({
         "form": id(i),
         "plugin": l.lo.index.get(&i.0).and_then(|v| v.first()).map(|x| d.load_order[x.plugin as usize].clone()),
-        "definitions": l.lo.index.get(&i.0).map_or(0, Vec::len),
+        "definitions": l.lo.index.get(&i.0).map_or(0, |d| d.len()),
         "topic": def.topic.map(|t| named(l, t)),
         "position": position,
         "quest": def.quest.map(|q| named(l, q)),
@@ -509,7 +509,7 @@ fn lines(l: &Loaded, f: &Filter, info: Option<u32>) -> anyhow::Result<Value> {
         if let Some(p) = defs.and_then(|v| v.first()) {
             *by_plugin.entry(d.load_order[p.plugin as usize].clone()).or_default() += 1;
         }
-        bump("defined_in_several_plugins", (defs.map_or(0, Vec::len) > 1) as u64);
+        bump("defined_in_several_plugins", (defs.map_or(0, |d| d.len()) > 1) as u64);
         for (b, name) in info_flag::NAMES {
             if def.has(*b) {
                 *flags.entry(name.to_string()).or_default() += 1;

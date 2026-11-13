@@ -46,6 +46,7 @@ still has to be re-run there (84/84 Layer 1 scenarios expected).
 | 3 | temporal upscaling (FSR 3.1) | **chosen (2026-11-05)**: `wgpu-ffx` 0.1.0 and `wgpu-ffx-shaders-spv` 0.1.0 (MIT; the FidelityFX SDK 1.1.4 FSR 3.1.4 shaders as SPIR-V). Not on crates.io, so vendored at commit `6fe7064` with the FSR 3.1 shader sources and the compile tool (the SDK's other effects left out), and moved to wgpu 30 (engine/vendor/README.md). It turns on wgpu's `spirv` and `wgsl` and brings `pollster` 0.4 (MIT/Apache-2.0) and `termcolor` 1.4 (Unlicense/MIT, through naga's `codespan-reporting`). No AMD DLL; Vulkan only ([fsr-upscaling](fsr-upscaling.md)) |
 | 3 | scaled main passes (FSR) | `bevy_pbr` 0.20.1 patched (MIT/Apache-2.0, engine/vendor/README.md): the transmission pass and the clustered lights follow `MainPassResolutionOverride` |
 | 3 | frame generation (FSR 3.1) | **chosen (2026-11-07)**: no new crate. The vendored `wgpu-ffx` gains optical flow and frame interpolation, ported from FidelityFX SDK 1.1.4's MIT host code, with the SDK's MIT GLSL compiled to SPIR-V in `wgpu-ffx-shaders-spv` (engine/vendor/README.md). Not used: AMD's FSR SDK 2.x DLLs (binary-only licence) and its frame-generation swapchain; the frames are presented through Bevy's own window surface ([frame-generation](frame-generation.md)) |
+| 3 | temporal upscaling (NVIDIA DLSS, #2198) | **chosen (2026-11-12)**: no new crate. NVIDIA Streamline 2.14.16 is not linked: the player supplies its DLLs and NVIDIA's DLSS (`<program folder>\dlss\`), loaded at run time on Windows and only when DLSS is chosen at start; NVForever ships no NVIDIA file. The few declarations called are translated from Streamline's MIT headers (`engine/nvforever/src/dlss/ffi.rs`, `security.rs`; notice in `dlss/LICENSE-MIT`, carried into the releases' `THIRD-PARTY-LICENSES.txt` by `tools/release/third_party_licenses.py`). `windows-sys` 0.61 (already in the build) gains its `Win32_System_LibraryLoader`, `Win32_Security_WinTrust` and `Win32_Security_Cryptography` features; `ash` 0.38 (as above) reads the GPUs on a probe instance; the vendored `bevy_render` makes the Vulkan instance from the interposer (`RawVulkanInitSettings::set_vulkan_library`, engine/vendor/README.md). Not used: Bevy's own DLSS (`dlss_wgpu` links NVIDIA's NGX SDK statically, which NVIDIA's licence does not allow in an open-source program) ([dlss-upscaling](dlss-upscaling.md)) |
 | 3 | latency reduction (AMD Anti-Lag) | **chosen (2026-11-06)**: no new crate. Bevy's `raw_vulkan_init` feature (bevy_render 0.20.1) adds `VK_AMD_anti_lag` at device creation; the calls are written against the Vulkan registry, as ash 0.38 predates the extension ([latency-reduction](latency-reduction.md)) |
 | 3 | latency reduction (NVIDIA low latency) | **chosen (2026-11-12)**: no new crate. `VK_NV_low_latency2` from the public Vulkan registry through `ash` 0.38, which has its structures and calls; NVIDIA's Streamline, Reflex SDK and NvAPI are not used (proprietary). `wgpu-hal` 30.0.1 patched (MIT/Apache-2.0, engine/vendor/README.md): the swapchain is created with `VkSwapchainLatencyCreateInfoNV` on a device that has the extension ([latency-reduction](latency-reduction.md)) |
 | 3 | first Pip-Boy readiness (#1803) | `bevy_pbr` 0.20.1 patched (engine/vendor/README.md): the optional `MaterialQueueProbe` records watched main-pass entries for the rig's readiness check; nothing changes without it |
@@ -64,13 +65,24 @@ still has to be re-run there (84/84 Layer 1 scenarios expected).
 placeholder): dependencies may be permissive or GPL-3.0-compatible copyleft. Most are
 MIT/Apache-2.0 or similar, one MPL-2.0 (`option-ext`, via `directories`), and the intro
 film's decoder (`infinitier_bik_decoder`, `infinitier_datasource`) GPL-3.0-or-later.
-`cargo deny check` enforces the allow-list in `deny.toml` and RustSec advisories; CI runs
-it on every push to main.
+`cargo deny check` enforces the allow-list in `deny.toml` and RustSec advisories, for the
+root workspace and, with `--manifest-path engine/Cargo.toml`, the engine workspace (the
+game binary, its own lock) against the same `deny.toml`; CI runs both (#1998). The engine
+adds BSD-2-Clause (`arrayref`), MIT-0 (`encase`) and ISC (`libloading`, `inotify`) to
+the allow-list. One advisory is ignored with its reason: RUSTSEC-2026-0192, `ttf-parser`
+unmaintained, which comes only through winit's Linux window decorations in Bevy 0.20
+(no upgrade available; look again at the next Bevy upgrade).
 
 ## CI
 
-`.github/workflows/ci.yml`: one Linux job, run on pushes to main (and manually), that does
-`cargo deny`, tests and clippy (`-D warnings`) for both workspaces and the Python lab/capture
-self-tests. Pull requests, other branches, Windows and macOS are not run in CI (billed
-minutes); the local checks in CLAUDE.md cover them before each push. The parity job that needs game data stays in
-`parity-lab/ci/github-actions.yml` (self-hosted runner only).
+`.github/workflows/ci.yml` (read 2026-11-12): one Linux job, so branch protection has a
+single check to require. It runs on every pull request, on pushes to main that change more
+than docs (`docs/` and `*.md`), and by hand. In order: `cargo deny` (licences, advisories,
+bans, sources) for the root workspace; the root workspace's tests and clippy (`--release
+--locked`, `-D warnings`); the Python self-tests of the parity lab, the capture tools, the
+smoke runner, the stress tool and the profile campaign; the engine workspace's tests and
+clippy. A pull request that changes only docs skips those steps and passes at once; a newer
+push to the same branch or pull request cancels the run still in progress. The repository
+is public, so runner minutes are free. Windows and macOS are not run in CI; the local
+checks in CLAUDE.md cover them before each push. The parity job that needs game data
+stays in `parity-lab/ci/github-actions.yml`, a template for a self-hosted runner only.

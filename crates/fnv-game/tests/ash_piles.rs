@@ -3,7 +3,7 @@
 //! actor linked to it, counts Disintegrations for the player's kills, places one pile
 //! only, and ResurrectActor takes it away. docs/spec-notes/ash-piles.md.
 
-mod common;
+use crate::common;
 
 use common::*;
 use fnv_esm::{LoadOrder, Plugin, Schema};

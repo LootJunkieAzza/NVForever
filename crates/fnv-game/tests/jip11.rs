@@ -3,7 +3,7 @@
 //! base faction ranks, the unarmed effect, the dead) and the engine channels (breath,
 //! falls, armour hits, the weapon condition penalty).
 
-mod common;
+use crate::common;
 
 use common::*;
 use fnv_esm::{LoadOrder, Plugin, Schema};
