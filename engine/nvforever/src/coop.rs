@@ -322,6 +322,7 @@ impl Plugin for CoopPlugin {
             npcs: HashMap::new(),
             npc_attacks: HashMap::new(),
             ai_was_off: None,
+            joining_held: false,
             host_quest: None,
             quest_untold: None,
             host_place: None,
@@ -378,6 +379,7 @@ impl Plugin for CoopPlugin {
             .insert_resource(coop)
             .add_systems(Update, (replication::frame_clock, lobby, send, take_events, share_doors, campfires::share_campfires, tables, social_mates, share_npcs, areas::coop_areas, replication::replicate, follow_looks, follow_npcs, (leash, rejoin::rejoin_host, syncing::syncing).chain(), scene::share_scene, downed, revive::bodies, progress, duel_falls, replication::hud).chain().after(nvf_play::PlaySet::Physics))
             .add_systems(Update, peer_emotes.after(social_mates))
+            .add_systems(Update, hold_joining_world.before(nvf_play::PlaySet::Scripts))
             .add_systems(Update, (replication::dismember_out.before(replication::replicate), replication::dismember_in.after(replication::replicate)))
             .add_systems(Update, (replication::corpses_out.before(replication::replicate), replication::corpses_in.after(replication::replicate)))
             .add_systems(Update, far_combat::far_fights.after(areas::coop_areas).before(replication::replicate))
@@ -502,6 +504,9 @@ pub(crate) struct Coop {
     npc_attacks: HashMap<u32, u8>,
     /// A guest following the host's world: whether this game's actors' AI was off before.
     ai_was_off: Option<bool>,
+    /// A joining guest: its own world logic is held until it is flagged a guest
+    /// ([`hold_joining_world`]).
+    joining_held: bool,
     /// A guest's: the host's active quest as last heard.
     host_quest: Option<HostQuest>,
     /// A guest's: the host's quest as its messages last told it, while messages for a
@@ -1810,7 +1815,17 @@ fn take_events(
             }
             Event::Npcs(list) => {
                 for n in list {
-                    coop.npcs.entry(n.reference).or_default().heard(now, n);
+                    let track = coop.npcs.entry(n.reference).or_default();
+                    // A state after a pause in the host's (more than three rounds) that
+                    // puts it far on: where a guest's copy is then put at once
+                    // ([`NpcTrack::pose`]), to tell what the host did meanwhile.
+                    if let Some(&(last, was)) = track.samples.back() {
+                        let far = (0..3).map(|k| (n.feet[k] - was.feet[k]).powi(2)).sum::<f32>().sqrt();
+                        if now - last > NPC_GAP && far > NPC_JUMP {
+                            info!("co-op: {:08X} heard again after {:.2} s, {far:.0} units from its last state", n.reference, now - last);
+                        }
+                    }
+                    track.heard(now, n);
                 }
             }
             // A guest's, as its actor's in this world (module notes).
@@ -2415,8 +2430,13 @@ fn share_npcs(
     let sending: HashSet<u32> = npcs.iter().map(|n| n.reference).collect();
     coop.sent_npcs.retain(|r, since| {
         if sending.contains(r) {
-            *since = None;
+            if since.take().is_some() {
+                info!("co-op: {r:08X} drawn here again: its own state goes to the guests");
+            }
             return true;
+        }
+        if since.is_none() {
+            info!("co-op: {r:08X} not drawn here: sent from where its AI has it for {NPC_LINGER} s");
         }
         now_secs - *since.get_or_insert(now_secs) < NPC_LINGER
     });
@@ -2574,6 +2594,38 @@ fn follow_looks(
             Err(e) => warn!("co-op: {id} cannot be dressed as the host's game has it: {e}"),
         }
         coop.wear_taken.insert(r, items);
+    }
+}
+
+/// Whether a joining guest's own world logic is held: from the host's welcome
+/// (`joining`, `nvf_play::save::KeepSolo`) until the game is first flagged a guest
+/// (`seen_guest`; [`follow_npcs`] then turns it off itself), while the link is a guest's.
+fn holds_joining_world(joining: bool, seen_guest: bool, link_guest: bool) -> bool {
+    joining && !seen_guest && link_guest
+}
+
+/// A joining guest runs none of its own world logic from the host's welcome: it is
+/// flagged a guest ([`follow_npcs`]) only once its own game was kept
+/// (`nvf_play::save::SoloBase`), after the first frame past the loading screen, and that
+/// frame ran its own quests. s182 (desktop two-window run, 2026-11-13): Dead Money's
+/// NVDLC01MQ00 moved the joining guest out of the Sierra Madre bunker to the Mojave there
+/// (its own bTeleportOut was still 0), so the host's later move to the bunker's trigger
+/// left it "too far". Its triggers are held the same way (`script_trigger::held_for_guest`).
+fn hold_joining_world(mut coop: ResMut<Coop>, joining: Option<Res<nvf_play::save::KeepSolo>>, mut script: Option<ResMut<nvf_play::script::ScriptState>>, mut seen_guest: Local<bool>) {
+    let Some(g) = script.as_deref_mut().and_then(|s| s.rt.as_mut()).map(|rt| &mut rt.game) else { return };
+    *seen_guest |= g.coop_guest;
+    let hold = holds_joining_world(joining.is_some(), *seen_guest, coop.is_guest());
+    if hold {
+        if !coop.joining_held {
+            info!("replication: joining: this game's own world logic is held until the host's world reaches it");
+        }
+        coop.joining_held = true;
+        g.world_logic_off = true;
+        g.story_plugins = STORY_PLUGINS.get().cloned().unwrap_or_else(|| vec![0]);
+    } else if coop.joining_held && !g.coop_guest {
+        info!("replication: joining ended before the host's world reached this game: its own world logic runs again");
+        coop.joining_held = false;
+        g.world_logic_off = false;
     }
 }
 
@@ -2751,8 +2803,9 @@ fn follow_npcs(
     // Kept off (a console `tai` would turn it back on).
     g.toggles.actors_ai_off = true;
     g.coop_guest = true;
-    // Replication (phase 4): the host runs the world's logic, this game draws it.
-    if !g.world_logic_off {
+    // Replication (phase 4): the host runs the world's logic, this game draws it (held
+    // already while joining, [`hold_joining_world`]).
+    if !g.world_logic_off || std::mem::take(&mut coop.joining_held) {
         g.world_logic_off = true;
         g.story_plugins = STORY_PLUGINS.get().cloned().unwrap_or_else(|| vec![0]);
         info!("replication: this guest runs no world logic (story plugins {:?}); the host's world is drawn", g.story_plugins);
@@ -3840,6 +3893,19 @@ fn act(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// s182: a joining guest's own quests are held from the host's welcome until it is
+    /// flagged a guest (Dead Money's MQ00 moved it out of the bunker on that first frame);
+    /// a plain game, or one already a guest (the flag's own hold), or one whose link is
+    /// gone, holds nothing here.
+    #[test]
+    fn a_joining_guest_runs_no_world_logic_before_the_guest_flag() {
+        use super::holds_joining_world;
+        assert!(holds_joining_world(true, false, true), "welcomed, not yet flagged a guest");
+        assert!(!holds_joining_world(false, false, true), "not welcomed yet");
+        assert!(!holds_joining_world(true, true, true), "flagged a guest once: follow_npcs holds it");
+        assert!(!holds_joining_world(true, false, false), "the link is gone or a host's");
+    }
 
     fn speech(speaker: u32, target: Option<u32>, remaining: f64) -> fnv_game::game::Speech {
         let mut s = lines_in(&[net::LineView { speaker, target: 0, topic: 0x10, info: 0x11, remaining: 1.0, flags: 0, conversation: 0 }], 0.0, None).remove(0);
