@@ -86,6 +86,10 @@ struct Dialog {
     /// The last download's end was shown: the next open starts at the licence.
     end_seen: bool,
     opened_at: f64,
+    /// I accept's arming [design: #2250's review]: 1 while the licence page waits to be drawn,
+    /// 2 once drawn, so the next frame's first system arms it from that frame's start: a slow
+    /// frame that opened the dialog (fonts, layout) never uses up `ACCEPT_ARMS_AFTER`.
+    arming: u8,
     started_at: f64,
     ended_at: f64,
     /// The test aid's press on the licence page, its cancel, done.
@@ -153,6 +157,7 @@ impl Dialog {
                 self.scroll = 0;
                 self.download = None;
                 self.opened_at = now;
+                self.arming = 1;
                 self.aid_pressed = false;
                 info!("DLSS download: licence shown again ({} lines)", self.lines.len());
             }
@@ -201,7 +206,7 @@ fn stop_on_exit(mut exit: MessageReader<AppExit>) {
             _ => info!("DLSS download: stopped: the game ended"),
         },
         download::ExitStop::StillRunning => {
-            warn!("DLSS download: stopped: the game ended; the download did not stop within {EXIT_WAIT_SECS} s, so a staging folder may be left (removed at the next start)")
+            warn!("DLSS download: stopped: the game ended; the download did not stop within {EXIT_WAIT_SECS} s, so a staging folder may be left (removed at a later start, or by the next download)")
         }
     }
 }
@@ -247,6 +252,7 @@ fn open(
     d.download = if d.page == Page::Licence { None } else { current };
     let now = real.elapsed_secs_f64();
     d.opened_at = now;
+    d.arming = u8::from(d.page == Page::Licence);
     d.ended_at = now;
     d.aid_pressed = false;
     d.drawn = None;
@@ -318,6 +324,11 @@ fn keys(mut typed: MessageReader<KeyboardInput>, held: Res<ButtonInput<KeyCode>>
         return;
     }
     let now = real.elapsed_secs_f64();
+    // The first system of the frame after the licence page was drawn: I accept arms from here.
+    if d.arming == 2 {
+        d.opened_at = now;
+        d.arming = 0;
+    }
     let page = VIEW_LINES as isize - 1;
     let all = d.lines.len() as isize;
     for nav in nav_presses(&events, &held) {
@@ -508,6 +519,9 @@ fn draw(mut commands: Commands, mut d: ResMut<Dialog>, roots: Query<Entity, With
     }
     if d.page == Page::Closed {
         return;
+    }
+    if d.arming == 1 && d.page == Page::Licence {
+        d.arming = 2;
     }
     let progress = d.progress();
     d.drawn = progress.clone();

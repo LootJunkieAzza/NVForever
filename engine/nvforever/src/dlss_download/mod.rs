@@ -28,7 +28,8 @@
 //! - **The game's end** [design: #2250's review]: quitting, or loading a save or going to the main
 //!   menu (each starts a new run, `handoff.rs`), stops a running download and waits up to two
 //!   seconds for it, so no staging folder is left (`dialog::stop_on_exit`); one left anyway goes
-//!   at the next start (`dlss::download::clean_up_at_start`).
+//!   at a later start once that run has ended (`dlss::download::clean_up_at_start`), or when the
+//!   next download makes its own.
 //!
 //! Log lines start `DLSS download:` (the work's own lines, `dlss/download/`, too).
 
@@ -80,7 +81,7 @@ pub(crate) fn offered(files_missing: bool) -> bool {
 
 /// The share of the archive's bytes fetched, in percent (0 until the directory was read).
 fn percent(p: &download::Progress) -> u64 {
-    if p.to_fetch == 0 { 0 } else { (p.fetched.min(p.to_fetch) * 100) / p.to_fetch }
+    (p.fetched.min(p.to_fetch) * 100).checked_div(p.to_fetch).unwrap_or(0)
 }
 
 /// The choice's words now: Download DLSS…, or how far the running download is.
