@@ -30,11 +30,11 @@ from pathlib import Path
 from .expect import Expect, ScenarioError
 
 GAME, TOOL = "game", "tool"
+PLATFORMS = ("linux", "windows", "macos")  # what a scenario's `platforms` may name
 SCENARIO_KEYS = {
     "name", "kind", "source", "areas", "paths", "args", "run_seconds", "env", "launch", "offset",
-    "expect", "expect_file", "order", "forbid", "manual", "requires", "commands", "exit", "note", "timeout", "ends",
-    "front",
-    "serve",
+    "expect", "expect_file", "order", "forbid", "manual", "requires", "platforms", "commands", "exit", "note",
+    "timeout", "ends", "front", "serve",
 }
 SERVE_KEYS = {"status", "body"}
 
@@ -70,6 +70,7 @@ class Scenario:
     forbid: list[Expect] = field(default_factory=list)
     manual: str = ""  # what a person must still compare by hand (printed, not checked)
     requires: list[str] = field(default_factory=list)  # env vars needed (else skipped)
+    platforms: list[str] = field(default_factory=list)  # systems it runs on (empty: any)
     commands: list[list[str]] = field(default_factory=list)  # tool scenarios: fnvtool arguments
     exit: int = 0
     note: str = ""
@@ -164,6 +165,10 @@ def parse_scenario(d: dict, base: Path | None = None) -> Scenario:
     s.ends = str(d.get("ends", s.ends))
     s.offset = float(d.get("offset", 0))
     s.requires = list(d.get("requires", []))
+    s.platforms = list(d.get("platforms", []))
+    bad = [p for p in s.platforms if p not in PLATFORMS]
+    if bad:
+        raise ScenarioError(f"{name}: platforms takes {sorted(PLATFORMS)}, not {bad}")
     s.commands = [[str(a) for a in c] for c in d.get("commands", [])]
     s.exit = int(d.get("exit", 0))
     s.timeout = float(d.get("timeout", 0))
