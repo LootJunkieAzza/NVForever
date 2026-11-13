@@ -1937,13 +1937,17 @@ dlss-model=Preset K
 
     /// A settings page with the INI at `path` holding `text`, `apply_stored` run once.
     fn ini_app(path: &std::path::Path, text: &str, command_line: UpscalerChoice, given: GivenSwitches) -> App {
+        ini_app_with_frame_generation(path, text, command_line, given, crate::frame_gen::FrameGenKind::Off)
+    }
+
+    fn ini_app_with_frame_generation(path: &std::path::Path, text: &str, command_line: UpscalerChoice, given: GivenSwitches, frame_generation: crate::frame_gen::FrameGenKind) -> App {
         std::fs::write(path, text).unwrap();
         let mut app = App::new();
         let mut graphics = Graphics::preset(graphics::Preset::Vanilla);
         graphics.upscaler = command_line;
         app.insert_resource(graphics)
             .insert_resource(graphics::MsaaSetting(Msaa::Off))
-            .insert_resource(crate::frame_gen::FrameGeneration { kind: crate::frame_gen::FrameGenKind::Off })
+            .insert_resource(crate::frame_gen::FrameGeneration { kind: frame_generation })
             .init_resource::<crate::frame_gen::DlssgFrames>()
             .insert_resource(crate::anti_lag::LatencyReduction { on: false, by_frame_generation: false })
             .insert_resource(SettingsFile(Some(path.to_path_buf())))
@@ -1952,6 +1956,40 @@ dlss-model=Preset K
         app.add_systems(PostStartup, apply_stored);
         app.update();
         app
+    }
+
+    #[test]
+    fn saved_frame_generation_is_changed_and_defaults_restore_the_command_line() {
+        use crate::frame_gen::{FrameGenKind as K, FrameGeneration};
+        use nvf_play::settings::{changed_rows, restore, StartChoices, StartStates};
+        let dir = std::env::temp_dir().join(format!("nvf-frame-generation-defaults-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("NVForever.ini");
+        for (saved, command_line, win, want) in [
+            ("true", K::Off, false, K::Fsr),
+            ("fsr", K::Off, false, K::Fsr),
+            ("dlss", K::Off, false, K::Dlss),
+            ("dlss", K::Fsr, false, K::Dlss),
+            ("dlss", K::Fsr, true, K::Fsr),
+            ("true", K::Off, true, K::Off),
+        ] {
+            let text = format!("[Settings]\nframe-generation={saved}\n");
+            let given = GivenSwitches { given: if command_line != K::Off || win { ["--frame-generation".into()].into() } else { Default::default() }, win };
+            // Only the loader gets the early INI-resolved choice (main.rs).
+            assert_eq!(frame_generation_after_ini(command_line, Some(&text), Some(&given)), want);
+            let mut app = ini_app_with_frame_generation(&path, &text, UpscalerChoice::Off, given, command_line);
+            let world = app.world_mut();
+            let row = world.resource::<Settings>().list().iter().position(|s| s.key == FRAME_GENERATION_KEY).unwrap();
+            let baseline = world.resource::<StartStates>().0.clone();
+            assert_eq!(world.resource::<FrameGeneration>().kind, want, "INI/command-line precedence");
+            assert_eq!(world.resource::<StartChoices>().0.iter().find(|(i, _)| *i == row).unwrap().1, command_line.stored());
+            assert_eq!(changed_rows(world, &baseline).contains(&row), want != command_line, "Changed compares with the pre-INI choice");
+            restore(world, row, baseline[row]);
+            assert_eq!(world.resource::<FrameGeneration>().kind, command_line, "Defaults restores the pre-INI choice");
+            assert!(!changed_rows(world, &baseline).contains(&row));
+        }
+        std::fs::remove_file(&path).unwrap();
+        std::fs::remove_dir(&dir).unwrap();
     }
 
     /// The Frame generation row's names, INI texts and the old switch's values; the Generated

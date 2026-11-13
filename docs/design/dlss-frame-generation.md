@@ -52,6 +52,10 @@ generation never runs while DLSS-G is loaded.
   once. DLSS-G stays loaded when the start's Frame generation choice is DLSS (`main` reads it
   from the command line and the INI by the row's rule); otherwise it is unloaded now
   (`slSetFeatureLoaded`) and loaded when chosen. Reflex stays loaded for the session.
+  [documented: `main.rs`, `nvf_play::settings::apply_stored`] The early INI-resolved choice is
+  only for this loader decision. The settings resource starts with the command-line/default
+  choice, then normal INI application snapshots it for Defaults and Changed before loading
+  saved choices.
 
 ### One frame number for everything
 
