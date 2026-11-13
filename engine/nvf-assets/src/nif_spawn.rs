@@ -255,6 +255,17 @@ pub(crate) fn glow_emits_alone(props: &Props) -> bool {
     !props.unlit && props.glow.as_deref().is_some_and(|g| !g.to_ascii_lowercase().ends_with("_n.dds"))
 }
 
+/// Whether a shape's glow map is loaded: it emits light (`emissive`), a material track
+/// animates its emissive colour, or it is a lit External_Emittance shape (BSShaderFlags
+/// bit 29). The last one's emitted light can come from the reference's XEMI source alone:
+/// Long 15's Mad Roman sign (`AdvertFallen1.nif` shape `AD`, emissive black,
+/// `L15PostersRoman_gl.dds` through its TXST) glows in the source's colour
+/// (`nvforever` emittance.rs) [hypothesis]. Without XEMI its emissive stays black and the
+/// map adds nothing.
+pub(crate) fn loads_glow(props: &Props, emissive: bool) -> bool {
+    emissive || props.animated_emissive || (props.external_emittance && !props.unlit)
+}
+
 /// The shape is a decal: BSShaderFlags bit 26 "Decal_Single_Pass" or bit 27
 /// "Dynamic_Decal_Single_Pass" [documented: nif.xml BSShaderFlags]. 2,130 visible shapes
 /// in `Fallout - Meshes.bsa` set one (41 only bit 26, none only bit 27): dirt, stains,
@@ -897,7 +908,7 @@ fn shape_material_inner(props: &Props, mesh: &mut Mesh, textures: &mut impl Text
     // Emitted light × glow map, or uniform without a glow map. Not scaled by the camera
     // exposure (Bevy's default emissive_exposure_weight 0).
     let emissive = shape_emissive(props, alpha_mode);
-    let glow = (emissive.is_some() || props.animated_emissive)
+    let glow = loads_glow(props, emissive.is_some())
         .then_some(props.glow.as_deref())
         .flatten()
         .and_then(|t| textures.texture(t, true));
@@ -1358,6 +1369,15 @@ mod tests {
     use super::*;
 
     struct NoTextures;
+    #[test]
+    fn a_lit_external_emittance_shape_loads_its_glow_map_with_a_black_emissive_colour() {
+        let sign = Props { external_emittance: true, emissive: Some([0.0; 3]), glow: Some("l15postersroman_gl.dds".into()), ..Default::default() };
+        assert!(shape_emissive(&sign, AlphaMode::Opaque).is_none());
+        assert!(loads_glow(&sign, false));
+        assert!(!loads_glow(&Props { external_emittance: false, ..sign.clone() }, false));
+        assert!(!loads_glow(&Props { unlit: true, ..sign }, false));
+    }
+
     impl TextureSource for NoTextures {
         fn texture(&mut self, _: &str, _: bool) -> Option<Handle<Image>> {
             None
