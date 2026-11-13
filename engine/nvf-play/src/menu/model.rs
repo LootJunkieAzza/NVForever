@@ -899,6 +899,16 @@ impl MenuModel {
         Ok(m)
     }
 
+    /// The merchant's side of a trade as listed now: (rows, stacks in its stock), its caps
+    /// left out of both; `None` outside a trade. The menu logs it on opening, where every
+    /// row is in the "All" tab (owner's report of 2026-11-12, "vendors inventories are way
+    /// too small").
+    pub fn stock_rows(&self, world: &World<'_>) -> Option<(usize, usize)> {
+        let t = self.trade.as_ref()?;
+        let stacks = world.peek(t.stock).and_then(|s| s.inventory.as_ref()).map_or(0, |inv| inv.groups().filter(|g| g.0 != t.caps).count());
+        Some((self.lists[Side::Container as usize].rows.len(), stacks))
+    }
+
     /// Limit the merchant's rows to what it sells, and list the trade again.
     pub fn set_sells(&mut self, world: &mut World<'_>, sells: Sells) -> Result<(), SimError> {
         if let Some(t) = self.trade.as_mut() {
