@@ -205,6 +205,10 @@ the spec it links to.
     hit on <name>" in the corner with the masters' critical icon (`sCriticalStrikeIcon`),
     for everyone; the words are ours (the original's are not in the data). The Tweaks
     tab's Critical Hit Messages Name the Limb adds the part. (`combat.rs`)
+58. **"Map marker added" (#1891).** When a script puts a place on your map (ShowMap), a
+    corner message now says "Map marker added", for everyone (our words; the original's
+    pop-up is only known from a mod's readme). The Tweaks tab's Map Marker Added Names
+    the Place adds the name. (`engine/nvf-play/src/marker_added.rs`)
 
 ## Tier 3: rules where we chose to differ, or that the original has no answer for
 

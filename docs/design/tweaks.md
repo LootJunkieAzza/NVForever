@@ -636,6 +636,7 @@ unless the player binds them, so nothing changes until then.
 | Terminal close fade, Terminal Fade Time | `bTerminalFadeTime` | base: `terminal::close` marks the backdrop and screen `FadeOut`, `fade_out` dims and removes them, `draw` keeps the picture while it fades. The switch: `TweakSettings::terminal_fade`, `terminal_fade_seconds` |
 | Loaded ammo marked, Containers Show Equipped Ammo | `bContainersShowEquippedAmmo` | `MenuModel::current_ammo` (set by `tweaks::sync` from `Combat::player_ammo`) marks `Row::loaded`, drawn as the equipped square (`pipboy::items`, `menu::look`). The switch: `TweakSettings::containers_show_ammo` |
 | Critical-hit message, Name the Limb | `bCriticalHitMessagesIncludeLimbName` | base: `combat::hit_actor` emits a `NoteShown` with the `sCriticalStrikeIcon` icon for the player's critical; the switch `Tweaks::crit_message_limb` adds `limb_name` of the part |
+| Map marker added, Names the Place | `bDescriptiveMarkerAddedMessage` | base: `marker_added::watch` notes markers joining `PlayerState::map_markers` while played; the switch `TweakSettings::descriptive_marker_added` adds the name from `pipboy::data::read::markers` |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -657,8 +658,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 572 |
-| to do | 23 |
+| done | 573 |
+| to do | 22 |
 | unsure, skipped | 22 |
 | n/a | 18 |
 | skipped: fix | 10 |
@@ -999,6 +1000,7 @@ game's Data folder, read-only).
 | `bCriticalHitMessagesIncludeLimbName` | done |  |  | Critical Hit Messages Name the Limb: NVForever now shows a corner message on the player's critical hits with the masters' sCriticalStrikeIcon (our words, owner-review 57); the tweak adds the limb struck |
 | `bCustomAddToInventoryMessageTimer` | done |  | 1 | Item Added Line Time (slider, seconds) |
 | `bCustomSubtitleDistance` | done |  | 1 | Subtitle Distance (slider, game units) |
+| `bDescriptiveMarkerAddedMessage` | done | yes |  | Map Marker Added Names the Place: NVForever now says "Map marker added" in the corner when a script's ShowMap adds a marker (`marker_added`, our words, owner-review 58); the tweak adds the marker's name |
 | `bDetectedByWhom` | done |  | 5 | Detected by Whom with Names Shown (0 to 5; our own words; hand-built HUD) |
 | `bDisableCompassEdgeAlpha` | done |  |  | already so: the marks are not faded at the edge |
 | `bDisableGrenadeIndicator` | done |  |  | Hide Grenade Indicator: NVForever now draws the base grenade indicator (`grenade_indicator`); the switch draws none |
@@ -1047,7 +1049,6 @@ game's Data folder, read-only).
 | `bTalkWhileSneakingIfShiftIsHeld` | done |  |  | Shift to Talk While Sneaking |
 | `iDateFormat` | done |  | 1 | Date Format (four styles of ours) |
 | `iHUDMaxCompassNPCTicks` | done |  | 1 | already so: the compass has no cap on actors |
-| `bDescriptiveMarkerAddedMessage` | to do | yes |  | NVForever shows no marker-added popup |
 | `bHUDShowRegionNames` | to do |  | 1 | not built: the HUD has no region text |
 | `bHUDWeaponNameLabel` | unsure, skipped |  | 5 | needs the plugin's own menu XML |
 | `bWaterSourcesShowH2O` | to do |  | 1 | not built: water prompts carry no line |

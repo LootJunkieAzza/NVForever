@@ -65,6 +65,7 @@ pub mod hud;
 pub mod hud_breath;
 pub mod hud_limbs;
 pub mod heartbeat;
+pub mod marker_added;
 pub mod vanity;
 pub mod grenade_indicator;
 pub mod hud_needs;

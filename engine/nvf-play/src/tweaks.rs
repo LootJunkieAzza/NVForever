@@ -230,6 +230,8 @@ pub struct TweakSettings {
     /// `bContainersShowEquippedAmmo`: the loaded ammo has the equipped mark in a
     /// container's player column too.
     pub containers_show_ammo: bool,
+    /// `bDescriptiveMarkerAddedMessage`: the map-marker-added message names the place.
+    pub descriptive_marker_added: bool,
     /// `bDisableGrenadeIndicator`: no grenade indicator on the HUD.
     pub no_grenade_indicator: bool,
     /// `bHideGrenadeIndicatorForNoDamageExplosions`: grenades whose explosion does no
@@ -769,6 +771,7 @@ impl Default for TweakSettings {
             terminal_fade: false,
             terminal_fade_seconds: 1.0,
             containers_show_ammo: false,
+            descriptive_marker_added: false,
             no_grenade_indicator: false,
             grenade_indicator_skip_harmless: false,
             grenade_indicator_destructibles: false,
@@ -1518,6 +1521,7 @@ impl Plugin for TweaksPlugin {
         switch!(app, "terminal-fade", "Terminal Fade Time", "A terminal's screen fades out over the time below when it closes, instead of a quarter second. (Stewie's Tweaks bTerminalFadeTime)", terminal_fade);
         amount!(app, "terminal-fade-seconds", "Terminal Fade Time: Seconds", "How long a closing terminal takes to fade out; 0 closes it at once. (Stewie's Tweaks bTerminalFadeTime, fFadeLength)", 5.0, f32, terminal_fade_seconds);
         switch!(app, "containers-show-ammo", "Containers Show Equipped Ammo", "In a container, the ammo your weapon loads has the equipped square, as in the Pip-Boy. (Stewie's Tweaks bContainersShowEquippedAmmo)", containers_show_ammo);
+        switch!(app, "descriptive-marker-added", "Map Marker Added Names the Place", "The message when a place is put on your map names it. (Stewie's Tweaks bDescriptiveMarkerAddedMessage)", descriptive_marker_added);
         switch!(app, "no-grenade-indicator", "Hide Grenade Indicator", "No mark on the HUD for a grenade about to go off nearby. (Stewie's Tweaks bDisableGrenadeIndicator)", no_grenade_indicator);
         switch!(app, "grenade-indicator-harmless", "No Indicator for Harmless Blasts", "Grenades whose explosion does no damage get no mark. (Stewie's Tweaks bHideGrenadeIndicatorForNoDamageExplosions)", grenade_indicator_skip_harmless);
         switch!(app, "grenade-indicator-destructibles", "Mark Objects About to Explode", "Burning objects that will explode, such as cars on fire, get a grenade mark too. (Stewie's Tweaks bExplodingDestructibleIndicator)", grenade_indicator_destructibles);
