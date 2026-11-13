@@ -12,13 +12,17 @@
 //! | VRAM | this process's GPU memory against the budget | `memory_budget.rs`'s check every 2 s (`MemoryBudget::vram_use_mb`) |
 //! | RAM  | the game's working set, the machine's RAM in use | the process's memory counters ([`usage`]); `memory_budget.rs`'s check |
 //! | LOADED (off) | cells, references drawn, actors, entities | the stress samples' counts (`stress_sample::LoadedCounts`) |
+//! | UPSCALING (off) | the upscaler that draws, its mode, the render and output size, for DLSS the model asked for ([`readings::upscale_text`]) | the effective choice (`upscaler::effective_temporal`), `Graphics::dlss_model`, what the render world drew the main camera with (`upscaler::UpscaleDrawn`), the window's size [design, #2242] |
 //!
 //! The settings page's Frame rate counter switch and `--fps` show it (off by default);
 //! the rows are its own
 //! switches. [design, #2249] Missing CPU/GPU readings say `Not available`; other rows
 //! with nothing to read are left out. Nothing is read while the overlay is hidden: the
 //! frame times are kept only while the FPS or the graph row is on, the split's spans
-//! taken only while its row is on, the counts read only at a reading of their row.
+//! taken only while its row is on, the counts read only at a reading of their row. The
+//! upscaling row is read every frame while it is on (a lock and a few resources), so it
+//! follows a switch or a fallback within a frame or two; the log says each new text
+//! (`fps counter: upscaling …`).
 //! Frame generation's count of generated frames, one number, is noted every frame all the
 //! same, so that the first window of a showing counts them from where its first frame time
 //! begins ([`readings::Frames::note_generated`]). Not in the original [engineering choice,
@@ -56,14 +60,18 @@ mod usage;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, OnceLock};
 
+use bevy::ecs::system::SystemParam;
 use bevy::image::CompressedImageFormatSupport;
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 use nvf_assets::GameData;
 
 use crate::frame_gen::GeneratedFrames;
+use crate::fsr::FsrSupport;
+use crate::graphics::Graphics;
 use crate::memory_budget::MemoryBudget;
 use crate::stress_sample::LoadedCounts;
+use crate::upscaler::{UpscaleDrawn, UpscalerStatus};
 pub use readings::{Low, Rows};
 use readings::{Frames, Readings};
 
@@ -180,10 +188,74 @@ fn switch(counter: Res<FpsCounter>, mut overlay: ResMut<Overlay>, clock: Res<spl
     overlay.fresh = true;
 }
 
-fn sample(counter: Res<FpsCounter>, time: Res<Time<Real>>, generated: Option<Res<GeneratedFrames>>, budget: Option<Res<MemoryBudget>>, mut overlay: ResMut<Overlay>, timing: split::SplitInputs, counts: LoadedCounts) {
+/// The generated frames presented since the start, for the frame rate row
+/// ([`readings::Frames::note_generated`], its only consumer): FSR's frame generation's count
+/// (`frame_gen::GeneratedFrames`); none without frame generation. DLSS Frame Generation, once
+/// it exists, adds the frames Streamline presents itself here (#2242's second item), so the
+/// row keeps showing the frames shown and the rendered ones apart.
+fn generated_count(fsr: Option<&GeneratedFrames>) -> Option<u64> {
+    fsr.map(|g| g.0.load(Ordering::Relaxed))
+}
+
+/// What the upscaling row reads ([`readings::Upscale`]): the main world's effective choice,
+/// the DLSS model asked for, what the render world drew and the primary window's size.
+#[derive(SystemParam)]
+struct UpscaleInputs<'w, 's> {
+    graphics: Option<Res<'w, Graphics>>,
+    fsr: Option<Res<'w, FsrSupport>>,
+    status: Option<Res<'w, UpscalerStatus>>,
+    drawn: Option<Res<'w, UpscaleDrawn>>,
+    windows: Query<'w, 's, &'static Window, With<PrimaryWindow>>,
+}
+
+impl UpscaleInputs<'_, '_> {
+    /// None without the graphics settings (a run that draws nothing).
+    fn read(&self) -> Option<readings::Upscale> {
+        let graphics = self.graphics.as_ref()?;
+        let effective = crate::upscaler::effective_temporal(graphics.fsr(), self.fsr.as_ref().is_some_and(|s| s.0), self.status.as_deref());
+        Some(readings::Upscale {
+            effective,
+            model: graphics.dlss_model,
+            drawn: self.drawn.as_ref().and_then(|d| d.get()),
+            window: self.windows.single().ok().map(|w| w.physical_size()),
+        })
+    }
+}
+
+/// The upscaling row's reading now, while it is on: set (and the panel set again) when it
+/// changed, and its text logged when that changed (`fps counter: upscaling …`); let go while
+/// the row is off, so that turning it on logs it again.
+fn follow_upscale(o: &mut Overlay, on: bool, now: impl FnOnce() -> Option<readings::Upscale>) {
+    if !on {
+        o.readings.upscale = None;
+        return;
+    }
+    let now = now();
+    if now == o.readings.upscale {
+        return;
+    }
+    let text = now.as_ref().map(readings::upscale_text);
+    if text.is_some() && text != o.readings.upscale.as_ref().map(readings::upscale_text) {
+        info!("fps counter: upscaling {}", text.unwrap_or_default());
+    }
+    o.readings.upscale = now;
+    o.dirty = true;
+}
+
+#[allow(clippy::too_many_arguments)]
+fn sample(
+    counter: Res<FpsCounter>,
+    time: Res<Time<Real>>,
+    generated: Option<Res<GeneratedFrames>>,
+    budget: Option<Res<MemoryBudget>>,
+    mut overlay: ResMut<Overlay>,
+    timing: split::SplitInputs,
+    counts: LoadedCounts,
+    upscale: UpscaleInputs,
+) {
     // Frame generation's count, noted every frame after the frame's time, the overlay
     // shown or not ([`readings::Frames::note_generated`]).
-    let generated = generated.map(|g| g.0.load(Ordering::Relaxed));
+    let generated = generated_count(generated.as_deref());
     if !counter.show {
         overlay.frames.note_generated(generated);
         return;
@@ -196,6 +268,8 @@ fn sample(counter: Res<FpsCounter>, time: Res<Time<Real>>, generated: Option<Res
     u.set_want(rows.cpu, rows.gpu, rows.cpu, rows.ram);
     let due = overlay.step(&rows, time.delta_secs());
     overlay.frames.note_generated(generated);
+    // The upscaling row every frame, outside the half-second window.
+    follow_upscale(&mut overlay, rows.upscale, || upscale.read());
     if !due {
         return;
     }
@@ -208,7 +282,8 @@ fn sample(counter: Res<FpsCounter>, time: Res<Time<Real>>, generated: Option<Res
     let vram_share = vram_mb.map(|(used, b)| used as f64 / b.max(1) as f64);
     let (vram_warn, ram_warn) = readings::pressed_rows(budget.as_ref().is_some_and(|b| b.pressed), vram_share, ram_share);
     let o = &mut *overlay;
-    o.readings = Readings { frame, cpu: got.cpu, game_cores: got.cores, gpu: got.gpu, gpu_game: got.gpu_game, vram_mb, game_ram_mb: got.ram_mb, ram_share, vram_warn, ram_warn, split, loaded };
+    let upscale = o.readings.upscale.take();
+    o.readings = Readings { frame, cpu: got.cpu, game_cores: got.cores, gpu: got.gpu, gpu_game: got.gpu_game, vram_mb, game_ram_mb: got.ram_mb, ram_share, vram_warn, ram_warn, split, loaded, upscale };
     o.dirty = true;
     if let (false, Some(frame)) = (o.logged, frame) {
         o.logged = true;
@@ -443,6 +518,52 @@ mod tests {
         let plain = Readings { frame: r.frame.map(|f| readings::FrameReading { shown_fps: None, ..f }), ..Readings::default() };
         assert_eq!(rows_log(&readings::rows(&plain, &on)), "FPS 78  12.8 ms  1% low 14.0; CPU Not available; GPU Not available");
         assert_eq!(rows_log(&[]), "");
+        // The upscaling row last, as `NVF_FPS_LOG` logs it.
+        use crate::upscaler::{DlssModel, DrawnUpscale, UpscaleQuality, UpscalerChoice};
+        let fsr = UpscalerChoice::Fsr(UpscaleQuality::Quality);
+        let upscale = readings::Upscale {
+            effective: fsr,
+            model: DlssModel::Default,
+            drawn: Some(DrawnUpscale::Upscaled { choice: fsr, render: UVec2::new(853, 480), output: UVec2::new(1280, 720) }),
+            window: Some(UVec2::new(1280, 720)),
+        };
+        let with = Readings { upscale: Some(upscale), ..r.clone() };
+        let log = rows_log(&readings::rows(&with, &Rows { upscale: true, ..on }));
+        assert!(log.starts_with("FPS 156  (78 rendered)"), "{log}");
+        assert!(log.ends_with("; UPSCALING FSR 3.1 Quality  853x480 -> 1280x720"), "{log}");
+    }
+
+    #[test]
+    fn the_upscaling_row_follows_every_frame_and_lets_go_while_off() {
+        use crate::upscaler::{DlssModel, UpscalerChoice};
+        let mut o = Overlay::default();
+        let off = readings::Upscale { effective: UpscalerChoice::Off, model: DlssModel::Default, drawn: None, window: Some(UVec2::new(1280, 720)) };
+        // Off: nothing read, nothing kept.
+        follow_upscale(&mut o, false, || panic!("not read while the row is off"));
+        assert_eq!(o.readings.upscale, None);
+        assert!(!o.dirty);
+        // On: read and the panel set again.
+        follow_upscale(&mut o, true, || Some(off));
+        assert_eq!(o.readings.upscale, Some(off));
+        assert!(std::mem::take(&mut o.dirty));
+        // The same reading: nothing to set.
+        follow_upscale(&mut o, true, || Some(off));
+        assert!(!o.dirty);
+        // A model change while FSR or nothing draws reads the same text but is kept.
+        let k = readings::Upscale { model: DlssModel::K, ..off };
+        follow_upscale(&mut o, true, || Some(k));
+        assert_eq!(o.readings.upscale, Some(k));
+        // Off again: let go.
+        follow_upscale(&mut o, false, || None);
+        assert_eq!(o.readings.upscale, None);
+    }
+
+    #[test]
+    fn the_generated_count_is_fsr_frame_generations() {
+        assert_eq!(generated_count(None), None, "no frame generation");
+        let g = GeneratedFrames::default();
+        g.0.store(42, Ordering::Relaxed);
+        assert_eq!(generated_count(Some(&g)), Some(42));
     }
 
     #[test]
