@@ -509,3 +509,22 @@ fn cacheui_anh_and_the_small_plugins() {
     q(&mut g, "SetWorldspaceMapBounds TestWorld -10 20 30 -40");
     assert_eq!(g.world_map_bounds(FormId(WORLD)), Some([-10, 20, 30, -40]));
 }
+
+#[test]
+fn a_lambda_writes_its_makers_variables() {
+    // [documented: Lambda, its variables are its maker's; the High and Dry session's repro,
+    // #2275] Called in the run that made it, then again from the run's variables.
+    let f = fixture();
+    let mut g = game(&f);
+    let src = "int c\nref f\nint x\nBegin Function { }\nlet c := 1\nlet f := ({x} => c += x)\nCall f 10\nCall f 5\nSetFunctionValue c\nEnd\n";
+    assert_eq!(g.run_query(src, Default::default()).unwrap(), n(16.0));
+    let src = "int c\nref f\nint x\nBegin Function { }\nlet f := ({x} => x * 2)\nlet c := Call f 10\nSetFunctionValue c\nEnd\n";
+    assert_eq!(g.run_query(src, Default::default()).unwrap(), n(20.0));
+}
+
+#[test]
+fn format_k_prints_the_keys_name() {
+    let f = fixture();
+    let mut g = game(&f);
+    assert_eq!(q(&mut g, "SetFunctionValue (sv_Construct \"%k\" 18)"), s("E"));
+}

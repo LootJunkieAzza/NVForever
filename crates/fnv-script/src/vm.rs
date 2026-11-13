@@ -2418,7 +2418,10 @@ impl Vm<'_, '_> {
                     XVal::Str(s) => s,
                     other => self.text_of(&other)?,
                 },
-                'k' => format!("{}", next("key")?.num()? as i64),
+                // The key's name, as GetKeyName gives it [documented: String Formatting,
+                // `%k`, a key's description; hypothesis: GetKeyName's text; observed: MCM's
+                // key options print their key with `%k`, #2299].
+                'k' => crate::keys::key_name(next("key")?.num()? as i64).to_string(),
                 'c' => {
                     next("form")?;
                     next("index")?;

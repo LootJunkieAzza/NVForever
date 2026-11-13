@@ -3211,6 +3211,18 @@ impl<'a> Game<'a> {
                 }
             }
         }
+        // A lambda made by a run with no instance keeps what it wrote in that run's
+        // variables, for its next call and for the maker's run (`Exec::call_function`)
+        // [documented: Lambda, its variables are its maker's; observed: the High and Dry
+        // session's repro, `({x} => c += x)` called in its maker's query left `c` 1, #2275].
+        if id >= LAMBDA_BASE {
+            if let Locals::Temp(m) = &ex.locals {
+                let m = m.clone();
+                if let Some(d) = ex.game.lambdas.get_mut((id - LAMBDA_BASE) as usize).filter(|d| d.inst.is_none()) {
+                    d.captured = Some(m);
+                }
+            }
+        }
         // A function script's own strings and arrays go with it (a lambda's variables are
         // its maker's).
         if let (true, Locals::Temp(m)) = (id < LAMBDA_BASE, &ex.locals) {
@@ -6289,7 +6301,29 @@ impl Host for Exec<'_, '_> {
             _ => None,
         };
         let ctx = self.ctx;
-        self.game.run_function(f, on, args, caller, ctx)
+        // A lambda this run made, called in it, runs on this run's variables and leaves
+        // them as it wrote them (`Game::run_function_here`).
+        let mine = match (f, &self.locals) {
+            (fnv_script::vm::XVal::Ref(id), Locals::Temp(m)) if *id >= LAMBDA_BASE => {
+                let i = (*id - LAMBDA_BASE) as usize;
+                let unit = self.unit as *const Compiled;
+                match self.game.lambdas.get_mut(i) {
+                    Some(d) if d.inst.is_none() && d.unit.is_some_and(|u| std::ptr::eq(u, unit)) => {
+                        d.captured = Some(m.clone());
+                        Some(i)
+                    }
+                    _ => None,
+                }
+            }
+            _ => None,
+        };
+        let r = self.game.run_function(f, on, args, caller, ctx);
+        if let (Some(i), Locals::Temp(m)) = (mine, &mut self.locals) {
+            if let Some(c) = self.game.lambdas.get(i).and_then(|d| d.captured.clone()) {
+                *m = c;
+            }
+        }
+        r
     }
 
     fn event_call(&mut self, c: fnv_script::vm::EventCall) -> Result<fnv_script::vm::XVal, String> {
