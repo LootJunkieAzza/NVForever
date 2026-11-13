@@ -143,3 +143,8 @@ counts them).
 ### Container open and close sound getters
 
 Source-call implementation and owned combined-harness fixture ported to current main; refreshed release validation is pending. No native bytecode adapter or full mod-compatibility claim. Contract: [Container open and close sound getters](spec-notes/container-sound-getters.md).
+
+### TypeOf missing-key inspection
+
+Implemented the focused behavior correction and authored synthetic regression coverage;
+contract and limits: [TypeOf missing-key inspection](spec-notes/typeof-missing-key.md). This entry does not establish full mod compatibility.
