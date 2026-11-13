@@ -321,6 +321,10 @@ PAGELESS = [
                 {"name": "text", "type": "formattedString", "kind": "string"},
                 {"name": "formatVars(up to 20)", "type": None, "kind": "unknown", "optional": True}],
      "categories": ["Functions (MCM)"]},
+    # TTW NVSE (ttw_nvse.dll): "toggle radios working in child worldspaces on/off"
+    # [documented: the TTW NVSE mod page's function list; the GECK wiki has no page].
+    {"name": "TTW_EnableRadioFix", "page": None, "origin": "TTW", "returns": {"type": "void", "name": None},
+     "params": [_i("enable")], "categories": ["Functions (TTW)", "Radio Functions"]},
 ]
 
 # Pages whose template `name` is another function's (copied from a sibling page): the
