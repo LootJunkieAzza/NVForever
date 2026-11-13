@@ -1466,6 +1466,21 @@ expect = [
 ]
 
 [[scenario]]
+name = "softlock-hardin-training"
+source = "issue #2309 (found by the watchdog of #2365): Hardin's power armor training restrains the player and Hardin, turns the controls off and, 4 s on, gives Hardin the Dialogue package HVHardinPowerArmorTrainingPackage; only the line that package opens releases them [observed: INFO 0x001633C9's result script, SCPT HVMcNamaraHardinConvoScript]"
+note = "The console does what the line's result script does (the conversation that leads to it needs the Brotherhood's quests). Hidden Valley bunker L2, beside Hardin; the player is unseen because a bare start has the Brotherhood hostile"
+areas = ["ai", "quests", "dialogue"]
+paths = ["crates/fnv-game/src/softlock.rs", "engine/nvf-play/src/softlock.rs", "crates/fnv-ai/src/carry.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_UNSEEN = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_CONSOLE = "6:player.SetRestrained 1;6.2:EdgarHardinREF.SetRestrained 1;6.4:DisablePlayerControls;6.6:set HVMcNamaraHardinConvoTriggerREF.HardinTraining to 1;7:close" }
+args = ["--cell", "HiddenValley02", "--play", "--pos=3400,-3200,15546", "--hour", "12", "--no-voice"]
+run_seconds = 60
+expect = [
+  { re = 'player controls: movement, Pip-Boy, fighting, POV disabled by scripts', label = "the controls go off as the line's script turns them" },
+  { re = 'dialogue: conversation with EdgarHardinREF started', label = "Hardin, restrained, starts the training conversation", known_failing = "#2309: a restrained actor's Dialogue package never starts its conversation" },
+  { re = 'WARN nvf_play::softlock: softlock: ', count = 0, label = "the player is not left held", known_failing = "#2309: nothing releases the player; the watchdog reports controls_held after 30 s" },
+]
+
+[[scenario]]
 name = "crucified-stay"
 source = "owner's playtest list 7 item 34: the crucified Powder Gangers of Nipton get on their crosses (a Travel package to the linked cross, goal::package_furniture) and stay (their script restrains them on it)"
 areas = ["ai", "furniture"]
