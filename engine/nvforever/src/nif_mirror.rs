@@ -2,13 +2,17 @@
 //! docs/design/nif-blocks.md): each frame the scripts' node changes are applied to the
 //! entities of the reference they name, and the node tree of every reference a script
 //! asked about is told back. A reference's root is its actor rig, else the topmost
-//! entity drawing it.
+//! entity drawing it. A shape's NiMaterialProperty values (JIP's Get/SetMaterialPropertyValue)
+//! are read from the reference's model file, once per model, with the scripts' changes
+//! over them; a change draws the shape with its own copy of the material. The vertices of
+//! the shapes a script asked for (SUP's NifBlockGetVerticles) are told back each frame.
 
 use crate::limbs::ActorRig;
 use bevy::prelude::*;
-use fnv_game::nif_blocks::{SceneEdit, SceneNode};
+use bevy::camera::primitives::Aabb;
+use fnv_game::nif_blocks::{NodeInfo, SceneEdit, SceneNode};
 use fnv_sim::FormId;
-use nvf_assets::NifHidden;
+use nvf_assets::{GameData, NifHidden, NifMaterial};
 use nvf_play::script::ScriptState;
 use nvf_play::RefVisual;
 use std::collections::HashMap;
@@ -21,11 +25,132 @@ impl Plugin for NifMirrorPlugin {
     }
 }
 
-/// What the mirror keeps between frames: the references it logged, the held transforms.
+/// What the mirror keeps between frames: the references it logged, the held transforms,
+/// the models' material values, the scripts' material values and the shapes drawn with
+/// their own material since.
 #[derive(Default)]
 struct Memory {
     logged: std::collections::HashSet<u32>,
     held: HashMap<(u32, String), Held>,
+    tables: HashMap<String, HashMap<String, [f32; 9]>>,
+    materials: HashMap<(u32, String), [f32; 9]>,
+    owned: HashMap<Entity, Handle<NifMaterial>>,
+    /// Each model's shapes' NiAlphaProperty and NiStencilProperty values, by shape name.
+    props: HashMap<String, HashMap<String, Props>>,
+}
+
+/// A shape's alpha (flags, threshold) and stencil (flags, reference, mask) properties.
+type Props = (Option<[f32; 2]>, Option<[f32; 3]>);
+
+/// Each named shape's NiAlphaProperty and NiStencilProperty values in a model file (under
+/// meshes), for JohnnyGuitar's Get…PropertyValue [documented: nif.xml's fields;
+/// hypothesis: the functions' item order is the fields'].
+fn property_table(data: &GameData, model: &str) -> HashMap<String, Props> {
+    let mut out: HashMap<String, Props> = HashMap::new();
+    if model.is_empty() {
+        return out;
+    }
+    let Some(bytes) = data.read(&format!("meshes\\{model}")) else { return out };
+    let Ok(file) = fnv_nif::NifFile::parse(&bytes, Some(&data.schema)) else { return out };
+    let dec = fnv_nif::scene::Decoded::new(&file, &bytes, &data.schema);
+    for i in 0..file.blocks.len() {
+        let Some(s) = dec.get(i as i32) else { continue };
+        let Some(name) = s.text("name").filter(|n| !n.is_empty()) else { continue };
+        for &r in s.refs("properties").unwrap_or_default() {
+            let (Some(b), Some(p)) = (file.blocks.get(r as usize), dec.get(r)) else { continue };
+            let int = |k: &str| p.int(k).map(|v| v as f32);
+            let e = out.entry(name.to_string()).or_default();
+            match b.type_name.as_str() {
+                "NiAlphaProperty" => e.0 = Some([int("flags").unwrap_or(0.0), int("threshold").unwrap_or(0.0)]),
+                "NiStencilProperty" => {
+                    let reference = int("stencil_ref").or_else(|| int("stencil_reference")).unwrap_or(0.0);
+                    let mask = int("stencil_mask").unwrap_or(0.0);
+                    e.1 = Some([int("flags").unwrap_or(0.0), reference, mask]);
+                }
+                _ => {}
+            }
+        }
+    }
+    out
+}
+
+/// The world-space bounding sphere of `node` and what lies under it: of its shapes'
+/// boxes, or the node's own place (radius 0) without any.
+fn node_bound(at: usize, tree: &[(Entity, Option<usize>)], globals: &Query<&GlobalTransform>, boxes: &Query<&Aabb>) -> Option<[f32; 4]> {
+    let mut spheres: Vec<(Vec3, f32)> = Vec::new();
+    for (k, (e, _)) in tree.iter().enumerate() {
+        // k under `at` (or `at` itself).
+        let mut up = Some(k);
+        let mut under = false;
+        while let Some(i) = up {
+            if i == at {
+                under = true;
+                break;
+            }
+            up = tree[i].1;
+        }
+        if !under {
+            continue;
+        }
+        if let (Ok(b), Ok(g)) = (boxes.get(*e), globals.get(*e)) {
+            let c = g.transform_point(Vec3::from(b.center));
+            let s = g.compute_transform().scale.abs().max_element();
+            spheres.push((c, Vec3::from(b.half_extents).length() * s));
+        }
+    }
+    let own = globals.get(tree.get(at)?.0).ok()?.translation();
+    let (centre, radius) = if spheres.is_empty() {
+        (own, 0.0)
+    } else {
+        let (lo, hi) = spheres.iter().fold((Vec3::splat(f32::MAX), Vec3::splat(f32::MIN)), |(lo, hi), (c, r)| (lo.min(*c - *r), hi.max(*c + *r)));
+        let mid = (lo + hi) / 2.0;
+        (mid, spheres.iter().map(|(c, r)| c.distance(mid) + r).fold(0.0, f32::max))
+    };
+    let g = nvf_play::space::to_game(centre);
+    Some([g[0], g[1], g[2], radius])
+}
+
+/// What the mirror reads beside the nodes: their places in the world and boxes (bounds),
+/// and the particle systems.
+type Extra<'w, 's> = (Query<'w, 's, &'static GlobalTransform>, Query<'w, 's, &'static Aabb>, Option<ResMut<'w, crate::particles::Particles>>);
+
+/// Each named shape's NiMaterialProperty values in a model file (under meshes), in
+/// GetMaterialPropertyValue's order: specular R G B, emissive R G B, glossiness, alpha,
+/// emissive mult [documented: the page's value IDs; the fields: nif.xml
+/// NiMaterialProperty]. The emissive mult is 1 in files without it.
+fn material_table(data: &GameData, model: &str) -> HashMap<String, [f32; 9]> {
+    let mut out = HashMap::new();
+    if model.is_empty() {
+        return out;
+    }
+    let Some(bytes) = data.read(&format!("meshes\\{model}")) else { return out };
+    let Ok(file) = fnv_nif::NifFile::parse(&bytes, Some(&data.schema)) else { return out };
+    let dec = fnv_nif::scene::Decoded::new(&file, &bytes, &data.schema);
+    for i in 0..file.blocks.len() {
+        let Some(s) = dec.get(i as i32) else { continue };
+        let Some(name) = s.text("name").filter(|n| !n.is_empty()) else { continue };
+        for &r in s.refs("properties").unwrap_or_default() {
+            if !file.blocks.get(r as usize).is_some_and(|b| b.type_name == "NiMaterialProperty") {
+                continue;
+            }
+            let Some(m) = dec.get(r) else { continue };
+            let c = |f: &str| m.floats(f).filter(|v| v.len() >= 3).map_or([0.0; 3], |v| [v[0], v[1], v[2]]);
+            let (sp, em) = (c("specular_color"), c("emissive_color"));
+            let v = [sp[0], sp[1], sp[2], em[0], em[1], em[2], m.float("glossiness").unwrap_or(0.0), m.float("alpha").unwrap_or(1.0), m.float("emissive_mult").unwrap_or(1.0)];
+            out.entry(name.to_string()).or_insert(v);
+        }
+    }
+    out
+}
+
+/// A shape's material drawn with these values: the specular tint, the emitted light
+/// (colour times mult), the roughness of the glossiness, the alpha [hypothesis: the
+/// spawn's own display tuning of the emitted light is not redone here].
+fn set_material(m: &mut NifMaterial, v: &[f32; 9]) {
+    m.base.specular_tint = Color::linear_rgb(v[0], v[1], v[2]);
+    m.base.emissive = LinearRgba::rgb(v[3] * v[8], v[4] * v[8], v[5] * v[8]);
+    m.base.perceptual_roughness = nvf_assets::nif_spawn::gloss_roughness(v[6]);
+    m.base.base_color.set_alpha(v[7].clamp(0.0, 1.0));
 }
 
 /// A node transform a script set, held over the animation.
@@ -85,6 +210,13 @@ fn find(root: Entity, name: &str, nodes: &NodeQuery, rig: &HashMap<Entity, Strin
     all.iter().map(|(e, _)| *e).find(|&e| name_of(e, nodes, rig) == name).or_else(|| all.iter().map(|(e, _)| *e).find(|&e| name_of(e, nodes, rig).eq_ignore_ascii_case(name)))
 }
 
+/// The material side of [`mirror`]: the data files, the shapes' materials, the assets.
+type Materials<'w, 's> = (Option<Res<'w, GameData>>, Query<'w, 's, &'static MeshMaterial3d<NifMaterial>>, Option<ResMut<'w, Assets<NifMaterial>>>);
+
+/// The shapes' meshes, for SUP's NifBlockGetVerticles.
+type Shapes<'w, 's> = (Query<'w, 's, &'static Mesh3d>, Option<Res<'w, Assets<Mesh>>>);
+
+#[allow(clippy::too_many_arguments)]
 fn mirror(
     mut script: Option<ResMut<ScriptState>>,
     actors: Query<(Entity, &ActorRig)>,
@@ -93,13 +225,16 @@ fn mirror(
     mut nodes: NodeQuery,
     mut commands: Commands,
     mut mem: Local<Memory>,
+    (data, drawn, mut assets): Materials,
+    (shapes, meshes): Shapes,
+    (globals, boxes, mut particles): Extra,
 ) {
-    let Memory { logged, held } = &mut *mem;
+    let Memory { logged, held, tables, materials, owned, props } = &mut *mem;
     let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else { return };
-    let scene = &mut rt.game.scene;
-    for edit in scene.take_edits() {
+    let edits = rt.game.scene.take_edits();
+    for edit in edits {
         let r = match &edit {
-            SceneEdit::Translation { r, .. } | SceneEdit::Rotation { r, .. } | SceneEdit::Scale { r, .. } | SceneEdit::Flags { r, .. } | SceneEdit::Rename { r, .. } | SceneEdit::Remove { r, .. } | SceneEdit::Insert { r, .. } | SceneEdit::Attach { r, .. } => *r,
+            SceneEdit::Translation { r, .. } | SceneEdit::Rotation { r, .. } | SceneEdit::Scale { r, .. } | SceneEdit::Flags { r, .. } | SceneEdit::ChildFlags { r, .. } | SceneEdit::Rename { r, .. } | SceneEdit::Remove { r, .. } | SceneEdit::Insert { r, .. } | SceneEdit::Attach { r, .. } | SceneEdit::Material { r, .. } | SceneEdit::Particle { r, .. } => *r,
         };
         let Some(root) = root_of(r.0, &actors, &visuals) else { continue };
         let rig = rig_names(r.0, &actors);
@@ -114,6 +249,18 @@ fn mirror(
             SceneEdit::Scale { node, v, .. } => held.entry((r.0, node)).or_default().scale = Some(v),
             SceneEdit::Flags { node, flags, .. } => {
                 if let Some(e) = find(root, &node, &nodes, &rig) {
+                    if flags & 1 != 0 {
+                        commands.entity(e).insert((NifHidden, Visibility::Hidden));
+                    } else {
+                        commands.entity(e).remove::<NifHidden>().insert(Visibility::Inherited);
+                    }
+                }
+            }
+            // A child by its place under the node, in the order `walk` told the mirror
+            // (a switch's children, #2017).
+            SceneEdit::ChildFlags { node, child, flags, .. } => {
+                let kid = find(root, &node, &nodes, &rig).and_then(|p| nodes.get(p).ok().and_then(|(_, _, ch, _)| ch.and_then(|c| c.iter().nth(child))));
+                if let Some(e) = kid {
                     if flags & 1 != 0 {
                         commands.entity(e).insert((NifHidden, Visibility::Hidden));
                     } else {
@@ -149,6 +296,46 @@ fn mirror(
             // The model is not drawn yet [hypothesis: slice 2 spawns it through
             // nvf_assets::SpawnCtx]; the mirror holds the request only.
             SceneEdit::Attach { .. } => {}
+            // A placed model's particle system of that name (or emitting from a node of
+            // that name), changed while it lives (JohnnyGuitar's SetNiPSysModifierValue).
+            SceneEdit::Particle { node, id, v, .. } => {
+                if let Some(p) = particles.as_deref_mut() {
+                    for d in crate::particles::placed_systems(p, r.0) {
+                        if d.name.eq_ignore_ascii_case(&node) || d.emitter.object.as_deref().is_some_and(|o| o.eq_ignore_ascii_case(&node)) {
+                            crate::particles::set_script_value(d, id, v);
+                        }
+                    }
+                }
+            }
+            // The mirror has the value already; the shape is drawn with its own copy of
+            // the material from now on [hypothesis: the original's change is this
+            // reference's; the page's note puts an inventory reference's on the base].
+            SceneEdit::Material { node, id, v, .. } => {
+                let Some(d) = data.as_deref() else { continue };
+                let model = fnv_game::nif_blocks::model_of(&rt.game, r).unwrap_or_default();
+                let table = tables.entry(model.clone()).or_insert_with(|| material_table(d, &model));
+                let base = node.split(':').next().unwrap_or(&node).to_string();
+                let Some(&start) = table.get(&node).or_else(|| table.get(&base)) else { continue };
+                let vals = materials.entry((r.0, node.clone())).or_insert(start);
+                vals[id] = v;
+                let vals = *vals;
+                let (Some(e), Some(assets)) = (find(root, &node, &nodes, &rig), assets.as_deref_mut()) else { continue };
+                let Ok(handle) = drawn.get(e) else { continue };
+                match owned.get(&e).filter(|h| *h == &handle.0).cloned() {
+                    Some(h) => {
+                        if let Some(mut m) = assets.get_mut(&h) {
+                            set_material(&mut m, &vals);
+                        }
+                    }
+                    None => {
+                        let Some(mut m) = assets.get(&handle.0).cloned() else { continue };
+                        set_material(&mut m, &vals);
+                        let h = assets.add(m);
+                        owned.insert(e, h.clone());
+                        commands.entity(e).insert(MeshMaterial3d(h));
+                    }
+                }
+            }
         }
     }
     // The held transforms, over this frame's pose.
@@ -170,20 +357,36 @@ fn mirror(
         }
     }
     // The trees of the references scripts asked about.
-    let watched: Vec<FormId> = scene.watched().collect();
+    let watched: Vec<FormId> = rt.game.scene.watched().collect();
     for r in watched {
         let Some(root) = root_of(r.0, &actors, &visuals) else {
             if logged.insert(r.0) {
                 info!("nif mirror: {:08X} watched, not drawn", r.0);
             }
-            scene.forget(r);
+            rt.game.scene.forget(r);
             continue;
         };
         let rig = rig_names(r.0, &actors);
         let mut seen: HashMap<String, u32> = HashMap::new();
-        let tree: Vec<SceneNode> = walk(root, &nodes)
-            .into_iter()
-            .filter_map(|(e, parent)| {
+        let model = fnv_game::nif_blocks::model_of(&rt.game, r).unwrap_or_default();
+        let table = match data.as_deref() {
+            Some(d) => tables.entry(model.clone()).or_insert_with(|| material_table(d, &model)).clone(),
+            None => HashMap::new(),
+        };
+        let props = match data.as_deref() {
+            Some(d) => props.entry(model.clone()).or_insert_with(|| property_table(d, &model)).clone(),
+            None => HashMap::new(),
+        };
+        let systems: Vec<(String, Option<String>, [f32; 21])> = particles
+            .as_deref_mut()
+            .map(|p| crate::particles::placed_systems(p, r.0).into_iter().map(|d| (d.name.clone(), d.emitter.object.clone(), crate::particles::script_values(d))).collect())
+            .unwrap_or_default();
+        let walked = walk(root, &nodes);
+        let tree: Vec<SceneNode> = walked
+            .iter()
+            .enumerate()
+            .map(|(k, &(e, parent))| (k, e, parent))
+            .filter_map(|(k, e, parent)| {
                 let base = name_of(e, &nodes, &rig);
                 let (_, t, _, hidden) = nodes.get(e).ok()?;
                 // A name seen before gets ":0", ":1" … [observed: "Object", "Object:0"].
@@ -191,6 +394,10 @@ fn mirror(
                 let shown = if *n == 0 { base.clone() } else { format!("{base}:{}", *n - 1) };
                 *n += 1;
                 let (z, y, x) = t.rotation.to_euler(EulerRot::ZYX);
+                let material = materials.get(&(r.0, shown.clone())).or_else(|| table.get(&base)).copied();
+                let (alpha, stencil) = props.get(&base).copied().unwrap_or_default();
+                let emitter = systems.iter().find(|(n, o, _)| n.eq_ignore_ascii_case(&base) || o.as_deref().is_some_and(|o| o.eq_ignore_ascii_case(&base))).map(|s| s.2);
+                let info = NodeInfo { bound: node_bound(k, &walked, &globals, &boxes), emitter, alpha, stencil };
                 Some(SceneNode {
                     name: shown,
                     parent,
@@ -198,13 +405,31 @@ fn mirror(
                     rotation: [x.to_degrees(), y.to_degrees(), z.to_degrees()],
                     scale: t.scale.x,
                     flags: u32::from(hidden),
+                    material,
+                    info: Some(Box::new(info)),
                 })
             })
             .collect();
         if logged.insert(r.0 | 0x8000_0000) {
             info!("nif mirror: {:08X} told, {} nodes, first {:?}", r.0, tree.len(), tree.iter().take(4).map(|n| n.name.as_str()).collect::<Vec<_>>());
         }
-        scene.set_tree(r, tree);
+        rt.game.scene.set_tree(r, tree);
+    }
+    // The vertices of the shapes scripts asked about (SUP's NifBlockGetVerticles), in the
+    // shape's own space as its mesh holds them; none for a mesh kept on the GPU only
+    // [hypothesis: a skinned shape's are its bind pose].
+    let wanted: Vec<(FormId, String)> = rt.game.scene.wanted_vertices().cloned().collect();
+    for (r, node) in wanted {
+        let verts = root_of(r.0, &actors, &visuals)
+            .and_then(|root| find(root, &node, &nodes, &rig_names(r.0, &actors)))
+            .and_then(|e| shapes.get(e).ok())
+            .and_then(|m| meshes.as_deref()?.get(&m.0))
+            // `try_`: a mesh extracted to the render world gives none, where `attribute` panics (#2202).
+            .and_then(|mesh| match mesh.try_attribute_option(Mesh::ATTRIBUTE_POSITION).ok()?? {
+                bevy::mesh::VertexAttributeValues::Float32x3(v) => Some(v.clone()),
+                _ => None,
+            });
+        rt.game.scene.set_vertices(r, &node, verts);
     }
 }
 

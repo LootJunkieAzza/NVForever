@@ -113,7 +113,22 @@ pub enum Given {
         dead: Option<bool>,
         #[serde(default)]
         disabled: Option<bool>,
+        /// Removed from the world (taken, or MarkForDelete), as a save keeps it.
+        #[serde(default)]
+        deleted: Option<bool>,
+        /// The actor has talked to the player (GetTalkedToPC).
+        #[serde(default)]
+        talked_to_pc: Option<bool>,
     },
+    /// A faction's group combat reaction towards another (0 neutral, 1 enemy, 2 ally,
+    /// 3 friend), as SetEnemy/SetAlly leave it (a save's faction changes).
+    FactionReaction { faction: String, other: String, reaction: i64 },
+    /// The Pip-Boy's active quest, as ForceActiveQuest leaves it.
+    ActiveQuest { quest: String },
+    /// An item the actor carries, worn or held (a save's worn items).
+    Equip { of: String, item: String },
+    /// A base form's name, as SetName leaves it (the player's name in a save).
+    Name { of: String, name: String },
     /// The player's fame and infamy with a reputation (round 3, layer5-captures.md §9.2).
     Reputation {
         rep: String,
@@ -481,6 +496,14 @@ pub enum Action {
     },
 }
 
+/// Close the container menu a step opened (`Game::close_menu`, which opens a message box
+/// a script queued meanwhile); another menu on top since stays.
+fn close_container(g: &mut Game) {
+    if g.menu == Some(CONTAINER_MENU) {
+        g.close_menu();
+    }
+}
+
 /// [`Action::SaveLoad`]: the save's size in bytes.
 fn save_and_load(g: &mut Game) -> Result<usize, String> {
     let snap = g.snapshot();
@@ -562,7 +585,7 @@ pub fn resolve(g: &Game, s: &str) -> Result<FormId, String> {
         // order when several do).
         // `scripted:<script>#<n>`: the n-th (1-based) of them.
         let (script, n) = match script.split_once('#') {
-            Some((s, n)) => (s, n.parse::<usize>().map_err(|_| format!("bad index in {s:?}"))?),
+            Some((s, n)) => (s, n.parse::<usize>().ok().filter(|&n| n > 0).ok_or_else(|| format!("bad index in {s:?} (1-based)"))?),
             None => (script, 1),
         };
         let sc = resolve(g, script)?;
@@ -572,7 +595,7 @@ pub fn resolve(g: &Game, s: &str) -> Result<FormId, String> {
             .refs
             .values()
             .filter(|p| g.data.script_of_base(p.base) == Some(sc))
-            .nth(n.saturating_sub(1))
+            .nth(n - 1)
             .map(|p| p.id)
             .ok_or_else(|| format!("no placed reference number {n} runs {script}"));
     }
@@ -830,6 +853,21 @@ fn num_arg(x: f64) -> ArgValue {
     ArgValue::Value(Value::Num(x))
 }
 
+/// Apply `given` entries (the runner input's JSON, as `ext_save::save_given` writes them) to
+/// a game already running, in order; an entry that cannot be read or applied is returned
+/// with its index and the reason, and the rest still go in. The engine's query job uses it
+/// to give a run the original's save (#1024), as `fnvtool ext queries --save` does.
+pub fn apply_given_entries(g: &mut Game, given: &[Json]) -> Vec<Json> {
+    let mut errors = Vec::new();
+    for (i, v) in given.iter().enumerate() {
+        let r = serde_json::from_value::<Given>(v.clone()).map_err(|e| e.to_string()).and_then(|gv| apply_given(g, &gv));
+        if let Err(e) = r {
+            errors.push(json!({"given": i, "error": e}));
+        }
+    }
+    errors
+}
+
 fn apply_given(g: &mut Game, gv: &Given) -> Result<(), String> {
     match gv {
         Given::Quest { quest: name, running, completed, stage, done, not_done, objectives, vars, refs } => {
@@ -898,7 +936,7 @@ fn apply_given(g: &mut Game, gv: &Given) -> Result<(), String> {
             let r = resolve(g, of)?;
             g.world.set_enabled(r, !disabled).map_err(|e| e.to_string())?;
         }
-        Given::Ref { reference, vars, dead, disabled } => {
+        Given::Ref { reference, vars, dead, disabled, deleted, talked_to_pc } => {
             let r = resolve(g, reference)?;
             for (k, v) in vars {
                 let (key, script, i) = ref_var(g, r, k)?;
@@ -911,6 +949,31 @@ fn apply_given(g: &mut Game, gv: &Given) -> Result<(), String> {
             if let Some(d) = disabled {
                 g.world.set_enabled(r, !d).map_err(|e| e.to_string())?;
             }
+            if let Some(d) = deleted {
+                g.world.set_deleted(r, *d).map_err(|e| e.to_string())?;
+            }
+            if let Some(t) = talked_to_pc {
+                g.extra.entry(r).or_default().talked_to_pc = *t;
+            }
+        }
+        Given::FactionReaction { faction, other, reaction } => {
+            let (f, o) = (resolve(g, faction)?, resolve(g, other)?);
+            g.forms.faction_reactions.entry(f).or_default().insert(o, *reaction);
+            crate::functions::actor::forget_relations(g);
+        }
+        Given::Equip { of, item } => {
+            let (of, item) = (resolve(g, of)?, resolve(g, item)?);
+            if !g.world.peek(of).and_then(|s| s.inventory.as_ref()).is_some_and(|i| i.is_equipped(item)) {
+                g.world.equip(of, item).map_err(|e| e.to_string())?;
+            }
+        }
+        Given::Name { of, name } => {
+            let f = resolve(g, of)?;
+            g.name_overrides.insert(f, name.clone());
+        }
+        Given::ActiveQuest { quest: name } => {
+            let q = quest(g, name)?;
+            g.ui.active_quest = Some(q);
         }
         Given::Reputation { rep: name, fame, infamy } => {
             let r = rep(g, name)?;
@@ -1136,8 +1199,8 @@ fn waited(g: &Game, st: &RunState, obs: &mut Map<String, Json>, found: bool, sto
 /// the input has to close it. A Goodbye greeting said at the player opens no
 /// conversation (`Game::start_dialogue`): the wait goes on until its line has ended and
 /// its end script has run, as the player hears it out (issue #1114). The same for a
-/// chosen Goodbye line, which closes its conversation at once and is said on as a
-/// farewell (`Game::choose`, `Speech::farewell`).
+/// chosen Goodbye line under `GameConfig::goodbye_at_once`, which closes its
+/// conversation at once and is said on as a farewell (`Game::choose`, `Speech::farewell`).
 fn wait_talk(g: &mut Game, max: u64) -> Result<(), String> {
     for _ in 0..=max {
         match &g.dialogue {
@@ -1269,18 +1332,8 @@ fn step(g: &mut Game, st: &mut RunState, a: &Action) -> Result<Observed, String>
             lab = l.clone();
         }
         Action::Query { script, label: l, text } => {
-            use fnv_script::vm::XVal;
-            // A runtime-compiled query runs on no reference [observed: GetSelfAlt gives none
-            // in the original's capture queries].
-            let ctx = crate::game::RunCtx::default();
-            match g.run_query(script, ctx) {
-                Ok(XVal::Str(s)) => obs.insert("value".into(), json!(s)),
-                Ok(XVal::Ref(r)) if !*text => obs.insert("value".into(), json!(FormId(r).to_string())),
-                Ok(v) if *text => obs.insert("value".into(), json!(query_text(&v))),
-                Ok(XVal::Num(n)) => obs.insert("value".into(), json!(n)),
-                Ok(v) => obs.insert("value".into(), json!(query_text(&v))),
-                Err(e) => obs.insert("error".into(), json!(e)),
-            };
+            let step = crate::ext_probes::QueryStep { script: script.clone(), label: l.clone(), text: *text };
+            obs.extend(crate::ext_probes::run_step(g, &step));
             lab = Some(l.clone());
         }
         Action::CallUntil { line, max_frames, label: l } => {
@@ -1414,13 +1467,13 @@ fn step(g: &mut Game, st: &mut RunState, a: &Action) -> Result<Observed, String>
             }
             // The menu is open for `frames` frames counting the opening one; the value
             // is read in its last frame, then the menu closes (CloseAllMenus).
-            g.menu = Some(CONTAINER_MENU);
+            g.open_menu(CONTAINER_MENU);
             for _ in 1..*frames {
                 frame(g);
             }
             let v0 = g.var(key, idx).num();
             frame(g);
-            g.menu = None;
+            close_container(g);
             let mut drop = None;
             for _ in 0..*after {
                 frame(g);
@@ -1527,8 +1580,8 @@ fn step(g: &mut Game, st: &mut RunState, a: &Action) -> Result<Observed, String>
             let mut why = Vec::new();
             for name in infos {
                 let i = resolve(g, name)?;
-                let data = g.data;
-                let def = data.infos.get(&i).ok_or_else(|| format!("{name} is not a dialogue line"))?;
+                let dv = g.dialogue_view();
+                let def = dv.info(&i).ok_or_else(|| format!("{name} is not a dialogue line"))?;
                 let sp = s.or(def.speaker);
                 let pass = g.conditions_pass(&def.conditions, sp, Some(FormId::PLAYER_REF), &format!("INFO {i}"));
                 if pass {
@@ -1901,9 +1954,9 @@ fn step(g: &mut Game, st: &mut RunState, a: &Action) -> Result<Observed, String>
             if !opened_since(g, since) {
                 return Err(format!("activating {} opened no container menu", g.data.name(via)));
             }
-            g.menu = Some(CONTAINER_MENU);
+            g.open_menu(CONTAINER_MENU);
             g.frames(*frames);
-            g.menu = None;
+            close_container(g);
         }
         Action::DamageAv { of, av, value } | Action::RestoreAv { of, av, value } => {
             let who = actor_or_player(g, of)?;
@@ -2363,15 +2416,13 @@ fn run_as(
                     Ok(())
                 }
                 Ok(None) => Ok(()),
-                Err(e) => {
-                    // A labelled action that fails still answers, with its error.
-                    if let Some(l) = action_label(a) {
-                        observations.push(json!({"label": l, "step": i, "errors": {"action": e.clone()}}));
-                    }
-                    Err(e)
-                }
+                Err(e) => Err(e),
             },
         };
+        // A labelled action that fails still answers, with its error.
+        if let (Err(e), Some(l)) = (&res, action_label(a)) {
+            observations.push(json!({"label": l, "step": i, "errors": {"action": e.clone()}}));
+        }
         let wait = match a {
             Action::WaitFrames { frames } => *frames,
             Action::AdvanceSeconds { seconds } => (seconds / input.frame_seconds).round().max(0.0) as u64,
@@ -2473,17 +2524,9 @@ fn action_label(a: &Action) -> Option<String> {
         | Action::SampleItems { label, .. }
         | Action::MenuGap { label, .. }
         | Action::IsCurrentPackage { label, .. } => Some(label.clone()),
+        Action::Terminal { label, .. } | Action::Consume { label, .. } | Action::PlayNote { label, .. } | Action::SaveLoad { label, .. } => label.clone(),
+        Action::GetQuest { label, .. } | Action::SampleVar { label, .. } => label.clone(),
         _ => None,
     }
 }
 
-/// A query's value as text (`text: true`): numbers as the extender prints them.
-fn query_text(v: &fnv_script::vm::XVal) -> String {
-    use fnv_script::vm::XVal;
-    match v {
-        XVal::Num(n) => fnv_script::vm::number_text(*n),
-        XVal::Str(s) => s.clone(),
-        XVal::Ref(r) => FormId(*r).to_string(),
-        XVal::Array(id) => format!("array #{id}"),
-    }
-}

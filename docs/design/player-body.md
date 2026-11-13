@@ -34,7 +34,8 @@ controls.md (bindings).
 - **First person**: the game's arms rig, `characters\_1stperson\skeleton.nif`, with its
   own clips (`characters\_1stperson\`). It draws the hands (their `…1st.nif` meshes) and
   only the `Arms…` shapes of the upper body and of worn upper-body armour, with the
-  outfit's `PipBoyOn…` sleeve (gloves and the Pip-Boy whole; no head, hair or other
+  outfit's left forearm sleeve, `PipBoyOn…` or without a Pip-Boy `PipBoyOff…` (#2173)
+  (gloves and the Pip-Boy whole; no head, hair or other
   armour; skin tinted as in third person; `fnv_actor::first_person`), and the weapon's
   first-person model (WEAP `WNAM`, a STAT). `Bip01 Looking` turns with the view's pitch,
   so arms and weapon stay in front of the camera, which sits at the rig's `Camera1st`
@@ -129,6 +130,29 @@ view by code [hypothesis; the values are not known]. NVForever's sway
   Pip-Boy, while an idle drives the view and in third person.
 - A switch, on by default: `--no-weapon-sway`, "Weapon sway" on the settings page (key
   `weapon-sway`). The exit summary gives the most turn lag and the deepest bob.
+
+### 1.4a.1 The camera's bob: first person yes, third person no (owner, 2026-11-07)
+
+The owner, from a report: "we had headbob in third person, but none in first person?
+it should be the other way around". Before: the first-person camera sat on the arms
+rig's `Camera1st`, which no first-person movement clip moves (§1.4a), so only the arms
+bobbed; the third-person camera's pivot was the walking body's head bone, which rises
+and falls with each stride. Now (`engine/nvforever/src/head_bob.rs`) [design, constants
+tuned by eye]:
+
+- First person: the whole arms rig (camera node, arms and weapon together) dips 1.6
+  units at each footfall and swings 0.5 across once a stride, at the movement clip's
+  phase, growing with the ground speed to a run's; sneaking 60 %, down the sights 25 %,
+  none in the air, under the Pip-Boy or while an idle drives the view. The arms' own bob
+  (§1.4a) comes on top. A switch registered in the settings page's Display group and
+  shown under Gameplay › Camera (`head-bob`, `--no-head-bob`; settings-page.md), on by
+  default.
+- Third person: the pivot's height above the feet is the head's through two
+  first-order lags of 0.25 s: a run's stride bob is cut to about an eighth, a crouch
+  still lowers the camera (90 % in a second); a change over 40 units in a frame goes
+  through at once. The exit summary gives the deepest first-person dip and the
+  third-person pivot's frame-to-frame movement against the head's; smoke
+  `head-bob-first-person`, `head-bob-third-person`.
 
 ### 1.4b The weapon lowered near walls and friends (owner request 2026-10-26)
 

@@ -277,8 +277,8 @@ fn roll(
     mut commands: Commands,
     time: Res<Time<Real>>,
     mut credits: ResMut<Credits>,
-    keys: Res<ButtonInput<KeyCode>>,
-    mouse: Res<ButtonInput<MouseButton>>,
+    keys: crate::pad::ActionButtons<KeyCode>,
+    mouse: crate::pad::ActionButtons<MouseButton>,
     windows: Query<&Window, With<PrimaryWindow>>,
     data: Option<Res<GameData>>,
     mut images: ResMut<Assets<Image>>,
@@ -288,9 +288,14 @@ fn roll(
     (mut lines, mut pictures): (Query<&mut Node, Without<CreditsPicture>>, Pictures),
     (play, textures): (Option<Res<crate::PlayWorld>>, Option<ResMut<nvf_assets::TextureCache>>),
 ) {
+    let keys = keys.snapshot();
+    let mouse = mouse.snapshot();
     if !credits.open {
         return;
     }
+    // The roll fills the view at every UI scale: its lines come in at the view's bottom and
+    // leave at its top [design: #1631, not a menu].
+    let _full = crate::interface::original_units();
     paused.0 = true;
     let screen = windows.single().map_or(Vec2::new(1280.0, 960.0), |w| Vec2::new(960.0 * w.width() / w.height().max(1.0), 960.0));
     credits.scroll += SPEED * time.delta_secs();

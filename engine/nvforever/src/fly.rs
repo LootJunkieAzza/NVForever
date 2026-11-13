@@ -8,6 +8,12 @@ use bevy::prelude::*;
 #[derive(Resource, Default)]
 pub struct AutoFly(pub f32);
 
+/// The main world camera, the player's view (docs/design/layer4-play.md §2, "The main
+/// view"): put once on the camera `setup` spawns (main.rs) and never moved, with or without
+/// `--play` (`nvf_play::PlayerCamera` joins it on the same entity with `--play`). Systems
+/// that mean "where the player looks from" (streaming, level of detail, grass, water,
+/// particles, actors' heads and feet) find the camera by [`WorldCamera`], not as the only
+/// `Camera3d`: menus and scopes spawn 3D cameras of their own [design: issue #1753].
 #[derive(Component)]
 pub struct FlyCam {
     pub yaw: f32,
@@ -16,15 +22,23 @@ pub struct FlyCam {
     pub speed: f32,
 }
 
+/// Query filter for the main world camera (the player's view): the [`FlyCam`] camera, never
+/// the water reflection's, a scope lens's or a menu view's `Camera3d` beside it. The
+/// `Without<ReflectionCamera>` keeps queries that also write the reflection camera
+/// disjoint from it (`reflection::update_reflection`) [design: issue #1753].
+pub type WorldCamera = (With<Camera3d>, With<FlyCam>, Without<crate::reflection::ReflectionCamera>);
+
 pub fn fly(
     time: Res<Time>,
-    keys: Res<ButtonInput<KeyCode>>,
-    buttons: Res<ButtonInput<MouseButton>>,
+    keys: nvf_play::pad::ActionButtons<KeyCode>,
+    buttons: nvf_play::pad::ActionButtons<MouseButton>,
     motion: Res<AccumulatedMouseMotion>,
     scroll: Res<AccumulatedMouseScroll>,
     auto: Res<AutoFly>,
     mut cams: Query<(&mut Transform, &mut FlyCam)>,
 ) {
+    let keys = keys.snapshot();
+    let buttons = buttons.snapshot();
     let Ok((mut t, mut c)) = cams.single_mut() else { return };
     if buttons.pressed(MouseButton::Right) {
         c.yaw -= motion.delta.x * 0.003;

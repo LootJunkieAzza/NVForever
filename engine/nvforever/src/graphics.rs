@@ -44,6 +44,60 @@ use bevy::prelude::*;
 use bevy::anti_alias::fxaa::Fxaa;
 use bevy::anti_alias::smaa::Smaa;
 use bevy::render::camera::{MipBias, TemporalJitter};
+use crate::fsr::{FsrQuality, FsrUpscaling};
+use crate::upscaler::{DlssModel, DlssUpscaling, UpscaleQuality, UpscalerChoice, UpscalerStatus};
+
+/// The command line and saved settings expose the same upscaling modes.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, clap::ValueEnum)]
+pub enum FsrMode {
+    #[default]
+    Off,
+    NativeAa,
+    Quality,
+    Balanced,
+    Performance,
+    UltraPerformance,
+}
+
+impl FsrMode {
+    pub fn quality(self) -> Option<FsrQuality> {
+        match self {
+            Self::Off => None,
+            Self::NativeAa => Some(FsrQuality::NativeAa),
+            Self::Quality => Some(FsrQuality::Quality),
+            Self::Balanced => Some(FsrQuality::Balanced),
+            Self::Performance => Some(FsrQuality::Performance),
+            Self::UltraPerformance => Some(FsrQuality::UltraPerformance),
+        }
+    }
+}
+
+pub const FSR_CHOICES: [(&str, FsrMode); 6] = [
+    ("Off", FsrMode::Off),
+    ("Native AA", FsrMode::NativeAa),
+    ("Quality", FsrMode::Quality),
+    ("Balanced", FsrMode::Balanced),
+    ("Performance", FsrMode::Performance),
+    ("Ultra Performance", FsrMode::UltraPerformance),
+];
+
+/// The older `fsr-upscaling` row's choices by the names its INI lines and the test aids use:
+/// [`FSR_CHOICES`]' six as they always were (off and FSR 3.1 at each quality), then DLSS at
+/// each quality (#2198). The Upscaler and Upscaling mode rows took over from it and still
+/// read these (`settings.rs` `parse_legacy`, the test aid's `fsr-upscaling=<name>`).
+pub const FSR_UPSCALING_CHOICES: [(&str, UpscalerChoice); 11] = [
+    ("Off", UpscalerChoice::Off),
+    ("Native AA", UpscalerChoice::Fsr(UpscaleQuality::NativeAa)),
+    ("Quality", UpscalerChoice::Fsr(UpscaleQuality::Quality)),
+    ("Balanced", UpscalerChoice::Fsr(UpscaleQuality::Balanced)),
+    ("Performance", UpscalerChoice::Fsr(UpscaleQuality::Performance)),
+    ("Ultra Performance", UpscalerChoice::Fsr(UpscaleQuality::UltraPerformance)),
+    ("DLSS Native AA", UpscalerChoice::Dlss(UpscaleQuality::NativeAa)),
+    ("DLSS Quality", UpscalerChoice::Dlss(UpscaleQuality::Quality)),
+    ("DLSS Balanced", UpscalerChoice::Dlss(UpscaleQuality::Balanced)),
+    ("DLSS Performance", UpscalerChoice::Dlss(UpscaleQuality::Performance)),
+    ("DLSS Ultra Performance", UpscalerChoice::Dlss(UpscaleQuality::UltraPerformance)),
+];
 
 /// The look as a whole (`--graphics`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
@@ -90,6 +144,14 @@ pub struct Graphics {
     pub sharpen: bool,
     pub anisotropic: bool,
     pub screen_aa: ScreenAa,
+    /// The requested temporal upscaler (`upscaler.rs`), the one setting for FSR and DLSS. What
+    /// draws is the status's effective choice (`upscaler::UpscalerStatus`); it replaces the
+    /// selected AA while active; UI is drawn at output resolution. FSR's code reads and writes
+    /// it through [`Graphics::fsr`] and [`Graphics::set_fsr`].
+    pub upscaler: UpscalerChoice,
+    /// The DLSS model asked for (the DLSS model row, `--dlss-model`; `upscaler::DlssModel`):
+    /// used while DLSS draws, kept meanwhile. Default: NVIDIA's own pick for each quality.
+    pub dlss_model: DlssModel,
     pub light_shafts: bool,
     pub water_reflections: bool,
     /// Water mirrors the world through the reflection camera (`reflection.rs`; on in
@@ -118,6 +180,19 @@ pub const KEYS: [&str; 12] = [
 ];
 
 impl Graphics {
+    /// FSR's quality when FSR is the requested upscaler; `None` for off and for DLSS (FSR's
+    /// code treats a DLSS request as no FSR).
+    pub fn fsr(&self) -> Option<FsrQuality> {
+        self.upscaler.fsr()
+    }
+
+    /// FSR at `quality`, or off: the requested upscaler as the FSR row and `--fsr` set it
+    /// before DLSS joined them (both set `upscaler` now; the tests still use it).
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn set_fsr(&mut self, quality: Option<FsrQuality>) {
+        self.upscaler = UpscalerChoice::from_fsr(quality);
+    }
+
     pub fn preset(p: Preset) -> Self {
         let on = p == Preset::Enhanced;
         Graphics {
@@ -134,6 +209,8 @@ impl Graphics {
             // and the owner plays with 8x multisampling (docs/design/graphics-enhanced.md
             // §3.6). The shadow filter stays Bevy's default too (§3.9).
             screen_aa: ScreenAa::Off,
+            upscaler: UpscalerChoice::Off,
+            dlss_model: DlssModel::Default,
             light_shafts: on,
             water_reflections: on,
             water_mirror: true,
@@ -203,7 +280,14 @@ impl Graphics {
             (self.shadow_filter == ShadowFilteringMethod::Hardware2x2, "hardware 2x2 shadow filtering"),
             (self.shadow_filter == ShadowFilteringMethod::Temporal, "temporal shadow filtering"),
         ];
-        let on: Vec<&str> = names.iter().filter(|(on, _)| *on).map(|(_, n)| *n).collect();
+        let mut on: Vec<&str> = names.iter().filter(|(on, _)| *on).map(|(_, n)| *n).collect();
+        if self.fsr().is_some() {
+            on.retain(|n| !matches!(*n, "FXAA" | "SMAA" | "temporal anti-aliasing"));
+            on.push("FSR 3.1 upscaling");
+        } else if self.upscaler.is_dlss() {
+            on.retain(|n| !matches!(*n, "FXAA" | "SMAA" | "temporal anti-aliasing"));
+            on.push("DLSS upscaling");
+        }
         if on.is_empty() {
             "vanilla (no engine-level improvements)".to_string()
         } else {
@@ -237,7 +321,16 @@ pub const AA_CHOICES: [(&str, ScreenAa, Msaa); 7] = [
     ("TAA", ScreenAa::Taa, Msaa::Off),
 ];
 
-/// The anti-aliasing choice now, an index of [`AA_CHOICES`].
+/// Whether FSR draws now (the effective upscaler, `upscaler::effective`, is FSR): FSR's own
+/// question (frame generation). What every temporal upscaler shares asks
+/// `upscaler::temporal_active`. With DLSS asked for while FSR keeps drawing until a restart,
+/// this stays true.
+pub fn fsr_active(world: &World) -> bool {
+    crate::upscaler::effective(world).fsr().is_some()
+}
+
+/// The saved native anti-aliasing choice, an index of [`AA_CHOICES`]. It is kept
+/// while FSR is active, so switching FSR off restores it.
 pub fn aa_choice(world: &World) -> usize {
     let (aa, msaa) = (world.resource::<Graphics>().screen_aa, world.resource::<MsaaSetting>().0);
     AA_CHOICES.iter().position(|&(_, a, m)| a == aa && (aa != ScreenAa::Off || m == msaa)).unwrap_or(0)
@@ -327,11 +420,27 @@ impl FrameTimes {
 /// The improvements to start with, `--msaa` and the frame-time test aid.
 pub struct GraphicsPlugin(pub Graphics, pub Msaa, pub Option<FrameTimes>);
 
-/// Add the shared GPU diagnostics once when either profiling path needs them.
+/// Marks a run whose measuring paths (the frame-time aid, frame telemetry's `gpu`, the span
+/// profile) asked for the GPU diagnostics: they then record all the time, and the frame
+/// split (`perf_overlay::split`) never takes the recorder out.
+#[derive(Resource)]
+pub(crate) struct MeasuringDiagnostics;
+
+/// Add the shared GPU diagnostics once when a measuring path needs them, and mark the run
+/// as measuring with them ([`MeasuringDiagnostics`]).
 pub(crate) fn ensure_render_diagnostics(app: &mut App) {
-    if !app.is_plugin_added::<bevy::render::diagnostic::RenderDiagnosticsPlugin>() {
-        app.add_plugins(bevy::render::diagnostic::RenderDiagnosticsPlugin);
+    app.insert_resource(MeasuringDiagnostics);
+    add_render_diagnostics(app);
+}
+
+/// Add the GPU diagnostics unless they are there (another path, or Bevy's own with Tracy);
+/// true when this call added them.
+pub(crate) fn add_render_diagnostics(app: &mut App) -> bool {
+    if app.is_plugin_added::<bevy::render::diagnostic::RenderDiagnosticsPlugin>() {
+        return false;
     }
+    app.add_plugins(bevy::render::diagnostic::RenderDiagnosticsPlugin);
+    true
 }
 
 impl Plugin for GraphicsPlugin {
@@ -341,9 +450,9 @@ impl Plugin for GraphicsPlugin {
         app.insert_resource(g)
             .insert_resource(MsaaSetting(self.1))
             .insert_resource(DirectionalLightShadowMap { size: SHADOW_MAP })
-            .add_plugins((crate::ssao::SsaoPlugin, crate::post::PostPlugin, crate::taa::TaaPlugin, crate::shafts::ShaftsPlugin))
+            .add_plugins((crate::ssao::SsaoPlugin, crate::post::PostPlugin, crate::taa::TaaPlugin, crate::shafts::ShaftsPlugin, crate::upscaler::prep::PrepPlugin, crate::fsr::FsrPlugin, crate::dlss::DlssPassPlugin))
             .add_systems(Startup, |g: Res<Graphics>| info!("graphics: {}", g.describe()))
-            .add_systems(Update, (apply, sun_shadow_key.pipe(sun_shadow_quality).after(crate::sky::update_sky)).chain());
+            .add_systems(Update, (crate::upscaler::follow_request, apply, sun_shadow_key.pipe(sun_shadow_quality).after(crate::sky::update_sky)).chain());
         if let Some(ft) = self.2.clone().filter(|f| f.every > 0.0) {
             // GPU time per render pass (timestamp queries), logged with the frame time.
             ensure_render_diagnostics(app);
@@ -380,6 +489,11 @@ impl Plugin for GraphicsPlugin {
                     let total: f64 = passes.iter().filter(|(n, _)| !n.contains('/')).map(|(_, t)| t).sum();
                     let list: Vec<String> = passes.iter().filter(|(n, _)| !n.contains('/')).take(12).map(|(n, t)| format!("{n} {t:.2}")).collect();
                     info!("gpu time: {total:.2} ms in all top-level passes; {}", list.join(", "));
+                    // FSR's parts (fsr.rs sub-spans): AMD's upscaler and NVForever's passes.
+                    let fsr: Vec<String> = passes.iter().filter_map(|(n, t)| n.strip_prefix("nvf_fsr_3_1/").map(|part| format!("{part} {t:.3}"))).collect();
+                    if !fsr.is_empty() {
+                        info!("gpu time in FSR: {}", fsr.join(", "));
+                    }
                     // The player's fixed steps over the whole period (none logged when no
                     // frame was played).
                     if let Some(line) = phys_load.take_line() {
@@ -572,37 +686,68 @@ fn sun_shadow_quality(
 
 /// Put the improvements that are on onto the main camera and the sun, take those that are
 /// off away (when a switch changes, and once at the start).
+///
+/// What every temporal upscaler needs follows the effective upscaler (`temporal`: the HDR
+/// view, the depth and motion prepasses, the jitter and mip bias, blended cut-outs drawn
+/// alpha-tested, multisampling and the other anti-aliasing replaced); FSR's own sharpening and
+/// component follow FSR alone, and DLSS's component DLSS alone
+/// (`upscaler::effective_temporal`).
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
 fn apply(
     mut commands: Commands,
     g: Res<Graphics>,
     msaa: Res<MsaaSetting>,
+    fsr_support: Res<crate::fsr::FsrSupport>,
+    status: Option<Res<UpscalerStatus>>,
     mut sky: ResMut<SkyState>,
-    cams: Query<(Entity, &Msaa), With<FlyCam>>,
+    cams: Query<(Entity, &Msaa, Option<&FsrUpscaling>, Option<&DlssUpscaling>, Has<crate::taa::TemporalAa>, Has<Fxaa>, Has<Smaa>), With<FlyCam>>,
     suns: Query<(Entity, &DirectionalLight), With<Sun>>,
     eye: Res<crate::eye_adapt::EyeCurve>,
-    mut done: Local<Option<(Graphics, Msaa, usize)>>,
+    cutouts: Option<ResMut<nvf_assets::nif_material::BlendedCutouts>>,
+    mut done: Local<Option<(Graphics, Msaa, bool, UpscalerChoice, Vec<Entity>)>>,
 ) {
     let cam_count = cams.iter().count();
-    let suns_count = suns.iter().count();
-    if cam_count == 0 || suns_count == 0 {
+    if cam_count == 0 {
         return;
     }
-    if done.as_ref().is_some_and(|(d, m, n)| *d == *g && *m == msaa.0 && *n == cam_count + suns_count) {
+    let upscaler = crate::upscaler::effective_temporal(g.fsr(), fsr_support.0, status.as_deref());
+    let (fsr, dlss) = (upscaler.fsr(), upscaler.dlss());
+    let temporal = upscaler != UpscalerChoice::Off;
+    // Blended shapes that draw the same as cut-outs (the corn rows) are cut-outs for a
+    // temporal upscaler, which needs their depth and motion (nif_material::BlendedCutouts).
+    if let Some(mut cutouts) = cutouts {
+        cutouts.set_if_neq(nvf_assets::nif_material::BlendedCutouts(temporal));
+    }
+    let want_msaa = if g.screen_aa == ScreenAa::Off && !temporal { msaa.0 } else { Msaa::Off };
+    let aa_matches = cams.iter().all(|(_, actual_msaa, actual_fsr, actual_dlss, taa, fxaa, smaa)| {
+        *actual_msaa == want_msaa && actual_fsr.map(|f| f.quality) == fsr && actual_dlss.map(|d| d.quality) == dlss
+            && taa == (g.screen_aa == ScreenAa::Taa && !temporal)
+            && fxaa == (g.screen_aa == ScreenAa::Fxaa && !temporal)
+            && smaa == (g.screen_aa == ScreenAa::Smaa && !temporal)
+    });
+    let mut entities: Vec<Entity> = cams.iter().map(|c| c.0).chain(suns.iter().map(|s| s.0)).collect();
+    entities.sort_unstable();
+    if aa_matches && done.as_ref().is_some_and(|(d, m, supported, effective, previous)| *d == *g && *m == msaa.0 && *supported == fsr_support.0 && *effective == upscaler && *previous == entities) {
         return;
     }
     let first = done.is_none();
-    let msaa_changed = done.is_some_and(|(_, m, _)| m != msaa.0);
-    *done = Some((*g, msaa.0, cam_count + suns_count));
-    for (cam, cam_msaa) in &cams {
+    let msaa_changed = done.as_ref().is_some_and(|(previous, saved, _, effective, _)| {
+        let previous_effective = if previous.screen_aa == ScreenAa::Off && *effective == UpscalerChoice::Off { *saved } else { Msaa::Off };
+        previous_effective != want_msaa || *saved != msaa.0
+    });
+    let fsr_changed = done.as_ref().is_none_or(|(_, _, _, effective, _)| effective.fsr() != fsr);
+    let dlss_changed = done.as_ref().is_none_or(|(_, _, _, effective, _)| effective.dlss() != dlss);
+    *done = Some((*g, msaa.0, fsr_support.0, upscaler, entities));
+    for (cam, cam_msaa, ..) in &cams {
         let mut e = commands.entity(cam);
         if g.ambient_occlusion {
             e.insert(AmbientOcclusion::default());
         } else {
             e.remove::<AmbientOcclusion>();
         }
-        if g.bloom || g.sharpen {
-            e.insert(PostEffects::new(g.bloom, g.sharpen));
+        // FSR already runs its own RCAS sharpening; do not sharpen the picture twice.
+        if g.bloom || (g.sharpen && fsr.is_none()) {
+            e.insert(PostEffects::new(g.bloom, g.sharpen && fsr.is_none()));
         } else {
             e.remove::<PostEffects>();
         }
@@ -615,6 +760,9 @@ fn apply(
             e.insert((bevy::camera::Hdr, crate::post::glow_bloom(), crate::post::ImageSpaceGlow));
         } else {
             e.remove::<(bevy::post_process::bloom::Bloom, bevy::camera::Hdr, crate::post::ImageSpaceGlow)>();
+        }
+        if temporal {
+            e.insert(bevy::camera::Hdr);
         }
         // Eye adaptation (eye_adapt.rs) and the bright pass need the HDR view; each has
         // its own switch.
@@ -629,21 +777,45 @@ fn apply(
             e.remove::<crate::post::BrightPass>();
         }
         // Anti-aliasing after the picture replaces the multisampling.
-        let want_msaa = if g.screen_aa == ScreenAa::Off { msaa.0 } else { Msaa::Off };
         if *cam_msaa != want_msaa {
             e.insert(want_msaa);
         }
-        if g.screen_aa == ScreenAa::Taa {
+        if g.screen_aa == ScreenAa::Taa && !temporal {
             e.insert(crate::taa::components());
         } else {
             e.remove::<(crate::taa::TemporalAa, TemporalJitter, MipBias)>();
         }
-        if g.screen_aa == ScreenAa::Fxaa {
+        if let Some(quality) = fsr {
+            e.insert((
+                FsrUpscaling { quality, sharpness: if g.sharpen { 0.2 } else { 0.0 } },
+                bevy::core_pipeline::prepass::DepthPrepass,
+                bevy::core_pipeline::prepass::MotionVectorPrepass,
+                TemporalJitter::default(),
+                MipBias(-1.0),
+            ));
+        } else {
+            e.remove::<FsrUpscaling>();
+        }
+        if let Some(quality) = dlss {
+            e.insert((
+                DlssUpscaling { quality },
+                bevy::core_pipeline::prepass::DepthPrepass,
+                bevy::core_pipeline::prepass::MotionVectorPrepass,
+                TemporalJitter::default(),
+                MipBias(-1.0),
+            ));
+        } else {
+            e.remove::<DlssUpscaling>();
+        }
+        if !temporal {
+            e.remove::<bevy::core_pipeline::prepass::MotionVectorPrepass>();
+        }
+        if g.screen_aa == ScreenAa::Fxaa && !temporal {
             e.insert(Fxaa::default());
         } else {
             e.remove::<Fxaa>();
         }
-        if g.screen_aa == ScreenAa::Smaa {
+        if g.screen_aa == ScreenAa::Smaa && !temporal {
             e.insert(Smaa::default());
         } else {
             e.remove::<Smaa>();
@@ -674,13 +846,244 @@ fn apply(
         info!("graphics: {}", g.describe());
     }
     if msaa_changed {
-        info!("graphics: multisampling {}", msaa_name(msaa.0));
+        info!("graphics: multisampling {}", msaa_name(want_msaa));
+    }
+    if let Some(quality) = fsr.filter(|_| fsr_changed) {
+        info!("graphics: FSR {quality:?} active; native anti-aliasing off");
+    }
+    if let Some(quality) = dlss.filter(|_| dlss_changed) {
+        info!("graphics: DLSS {quality:?} active; native anti-aliasing off");
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn aa_app(screen_aa: ScreenAa, supported: bool) -> (App, Entity) {
+        let mut app = App::new();
+        let mut graphics = Graphics::preset(Preset::Vanilla);
+        graphics.screen_aa = screen_aa;
+        app.insert_resource(graphics)
+            .insert_resource(MsaaSetting(Msaa::Sample8))
+            .insert_resource(crate::fsr::FsrSupport(supported))
+            .init_resource::<SkyState>()
+            .init_resource::<Assets<bevy::post_process::auto_exposure::AutoExposureCompensationCurve>>()
+            .init_resource::<Assets<Image>>()
+            .init_resource::<crate::eye_adapt::EyeCurve>()
+            .add_systems(Update, apply);
+        let camera = app.world_mut().spawn((FlyCam { yaw: 0.0, pitch: 0.0, speed: 800.0 }, Msaa::Sample8)).id();
+        app.world_mut().spawn((Sun, DirectionalLight::default()));
+        (app, camera)
+    }
+
+    fn assert_native_aa(app: &App, camera: Entity, selected: ScreenAa) {
+        let camera = app.world().entity(camera);
+        assert!(!camera.contains::<FsrUpscaling>());
+        assert_eq!(*camera.get::<Msaa>().unwrap(), if selected == ScreenAa::Off { Msaa::Sample8 } else { Msaa::Off });
+        assert_eq!(camera.contains::<crate::taa::TemporalAa>(), selected == ScreenAa::Taa);
+        assert_eq!(camera.contains::<TemporalJitter>(), selected == ScreenAa::Taa);
+        assert_eq!(camera.contains::<MipBias>(), selected == ScreenAa::Taa);
+        assert_eq!(camera.contains::<Fxaa>(), selected == ScreenAa::Fxaa);
+        assert_eq!(camera.contains::<Smaa>(), selected == ScreenAa::Smaa);
+        assert!(!camera.contains::<bevy::core_pipeline::prepass::MotionVectorPrepass>());
+    }
+
+    #[test]
+    fn fsr_exclusively_owns_aa_and_off_restores_the_saved_native_choice() {
+        for selected in [ScreenAa::Off, ScreenAa::Taa, ScreenAa::Fxaa, ScreenAa::Smaa] {
+            for quality in FSR_CHOICES.into_iter().filter_map(|(_, m)| m.quality()) {
+                let (mut app, camera) = aa_app(selected, true);
+                app.update();
+                assert_native_aa(&app, camera, selected);
+
+                app.world_mut().resource_mut::<Graphics>().set_fsr(Some(quality));
+                app.update();
+                let entity = app.world().entity(camera);
+                assert_eq!(entity.get::<FsrUpscaling>().unwrap().quality, quality);
+                assert_eq!(*entity.get::<Msaa>().unwrap(), Msaa::Off);
+                assert!(!entity.contains::<crate::taa::TemporalAa>());
+                assert!(!entity.contains::<Fxaa>());
+                assert!(!entity.contains::<Smaa>());
+                assert!(entity.contains::<TemporalJitter>());
+                assert!(entity.contains::<bevy::core_pipeline::prepass::MotionVectorPrepass>());
+                assert!(entity.contains::<bevy::core_pipeline::prepass::DepthPrepass>());
+                assert_eq!(app.world().resource::<Graphics>().screen_aa, selected, "FSR preserves the saved native AA choice");
+
+                app.world_mut().resource_mut::<Graphics>().set_fsr(None);
+                app.update();
+                assert_native_aa(&app, camera, selected);
+            }
+        }
+    }
+
+    #[test]
+    fn dlss_owns_aa_like_fsr_without_fsr_components_and_off_restores_the_saved_native_choice() {
+        use crate::upscaler::{DlssState, Session, UpscaleQuality};
+        let ready = Session { streamline_loaded: true, dlss: DlssState::Ready, fsr: None };
+        for selected in [ScreenAa::Off, ScreenAa::Taa, ScreenAa::Fxaa, ScreenAa::Smaa] {
+            let (mut app, camera) = aa_app(selected, true);
+            app.update();
+            assert_native_aa(&app, camera, selected);
+
+            let mut status = UpscalerStatus::new(ready);
+            status.update(UpscalerChoice::Dlss(UpscaleQuality::Balanced));
+            app.insert_resource(status);
+            app.world_mut().resource_mut::<Graphics>().upscaler = UpscalerChoice::Dlss(UpscaleQuality::Balanced);
+            app.update();
+            let dlss_drawn = |app: &App| {
+                let entity = app.world().entity(camera);
+                assert_eq!(entity.get::<DlssUpscaling>().unwrap().quality, UpscaleQuality::Balanced);
+                assert!(!entity.contains::<FsrUpscaling>(), "no FSR component while DLSS draws");
+                assert_eq!(*entity.get::<Msaa>().unwrap(), Msaa::Off);
+                assert!(!entity.contains::<crate::taa::TemporalAa>() && !entity.contains::<Fxaa>() && !entity.contains::<Smaa>());
+                assert!(entity.contains::<TemporalJitter>() && entity.contains::<MipBias>());
+                assert!(entity.contains::<bevy::core_pipeline::prepass::MotionVectorPrepass>());
+                assert!(entity.contains::<bevy::core_pipeline::prepass::DepthPrepass>());
+                assert!(entity.contains::<bevy::camera::Hdr>());
+            };
+            dlss_drawn(&app);
+            assert_eq!(app.world().resource::<Graphics>().screen_aa, selected, "DLSS preserves the saved native AA choice");
+
+            // FSR asked for while DLSS draws (Streamline loaded): FSR at once, never both.
+            app.world_mut().resource_mut::<Graphics>().set_fsr(Some(FsrQuality::Quality));
+            app.world_mut().resource_mut::<UpscalerStatus>().update(UpscalerChoice::Fsr(FsrQuality::Quality));
+            app.update();
+            let entity = app.world().entity(camera);
+            assert_eq!(entity.get::<FsrUpscaling>().unwrap().quality, FsrQuality::Quality);
+            assert!(!entity.contains::<DlssUpscaling>(), "no DLSS component while FSR draws");
+            assert_eq!(*entity.get::<Msaa>().unwrap(), Msaa::Off);
+
+            // Back to DLSS, then off: the saved native choice is back at once.
+            app.world_mut().resource_mut::<Graphics>().upscaler = UpscalerChoice::Dlss(UpscaleQuality::Balanced);
+            app.world_mut().resource_mut::<UpscalerStatus>().update(UpscalerChoice::Dlss(UpscaleQuality::Balanced));
+            app.update();
+            dlss_drawn(&app);
+            app.world_mut().resource_mut::<Graphics>().set_fsr(None);
+            app.world_mut().resource_mut::<UpscalerStatus>().update(UpscalerChoice::Off);
+            app.update();
+            assert_native_aa(&app, camera, selected);
+            assert!(!app.world().entity(camera).contains::<DlssUpscaling>() && !app.world().entity(camera).contains::<FsrUpscaling>());
+        }
+    }
+
+    /// Review P2 (2026-11-12): DLSS asked for while FSR draws in a session that started without
+    /// Streamline (the files added since, or `NVF_DLSS_PRELOAD=0`): FSR keeps drawing (and
+    /// frame generation's question stays yes) until the restart.
+    #[test]
+    fn fsr_keeps_drawing_while_dlss_waits_for_a_restart() {
+        use crate::upscaler::{DlssState, Session, UpscaleQuality};
+        let (mut app, camera) = aa_app(ScreenAa::Smaa, true);
+        let stock = Session { streamline_loaded: false, dlss: DlssState::NotLoaded, fsr: None };
+        let mut status = UpscalerStatus::new(stock);
+        status.update(UpscalerChoice::Fsr(UpscaleQuality::Balanced));
+        app.insert_resource(status);
+        app.world_mut().resource_mut::<Graphics>().set_fsr(Some(UpscaleQuality::Balanced));
+        app.update();
+        assert_eq!(app.world().entity(camera).get::<FsrUpscaling>().unwrap().quality, UpscaleQuality::Balanced);
+
+        app.world_mut().resource_mut::<Graphics>().upscaler = UpscalerChoice::Dlss(UpscaleQuality::Quality);
+        app.world_mut().resource_mut::<UpscalerStatus>().update(UpscalerChoice::Dlss(UpscaleQuality::Quality));
+        assert!(app.world().resource::<UpscalerStatus>().restart_pending());
+        app.update();
+        let entity = app.world().entity(camera);
+        assert_eq!(entity.get::<FsrUpscaling>().unwrap().quality, UpscaleQuality::Balanced, "FSR keeps drawing until the restart");
+        assert!(!entity.contains::<DlssUpscaling>() && !entity.contains::<Smaa>());
+        assert!(fsr_active(app.world()) && crate::upscaler::temporal_active(app.world()));
+        assert_eq!(app.world().resource::<Graphics>().fsr(), None, "the request is DLSS");
+    }
+
+    /// The setting's DLSS, effective: the camera gets DLSS's component alone, the common
+    /// preparation reads it as DLSS's (its policy from the size DLSS reports, no FSR state), the
+    /// separate sharpening runs as it does natively (FSR's own is not there), and once DLSS's
+    /// pass gives up (`EvaluateFailed`) the camera draws natively, not with FSR.
+    #[test]
+    fn a_dlss_camera_from_the_setting_gets_dlsss_policy_and_no_fsr_and_draws_natively_once_dlss_fails() {
+        use crate::upscaler::prep::{self, UpscaleSettings};
+        use crate::upscaler::{DlssState, Session, Unavailable};
+        let (mut app, camera) = aa_app(ScreenAa::Fxaa, true);
+        let requested = UpscalerChoice::Dlss(UpscaleQuality::Performance);
+        {
+            let mut g = app.world_mut().resource_mut::<Graphics>();
+            g.sharpen = true;
+            g.upscaler = requested;
+        }
+        let ready = Session { streamline_loaded: true, dlss: DlssState::Ready, fsr: None };
+        let mut status = UpscalerStatus::new(ready);
+        status.update(requested);
+        app.insert_resource(status);
+        app.update();
+        let entity = app.world().entity(camera);
+        assert!(!entity.contains::<FsrUpscaling>(), "no FSR component");
+        assert!(!fsr_active(app.world()) && crate::upscaler::temporal_active(app.world()));
+        let settings = prep::camera_settings(entity.get::<FsrUpscaling>(), entity.get::<DlssUpscaling>(), true).expect("a temporal camera");
+        assert!(matches!(settings, UpscaleSettings::Dlss(UpscaleQuality::Performance)));
+        assert!(!prep::allocates_fsr_state(settings.upscaler()), "the common prepared view only");
+        let output = UVec2::new(1280, 720);
+        let optimal = crate::dlss::sizing::Optimal { render: UVec2::new(640, 360), min: UVec2::new(640, 360), max: UVec2::new(640, 360) };
+        let policy = prep::policy(settings, output, &wgpu::Limits::default(), |quality| {
+            assert_eq!(quality, UpscaleQuality::Performance);
+            Some(optimal)
+        })
+        .expect("DLSS reported a size");
+        assert_eq!(policy.render_size, optimal.render, "the size DLSS reports, not FSR's ratio");
+        assert!(entity.get::<PostEffects>().is_some_and(|p| p.params.w > 0.0), "the separate sharpening, as natively");
+
+        // DLSS's pass gives up: what follow_request makes of the session from then on.
+        {
+            let mut status = app.world_mut().resource_mut::<UpscalerStatus>();
+            status.session.dlss = DlssState::Unavailable(Unavailable::EvaluateFailed);
+            status.update(requested);
+        }
+        app.update();
+        assert_native_aa(&app, camera, ScreenAa::Fxaa);
+        assert!(!app.world().entity(camera).contains::<DlssUpscaling>());
+        assert!(!crate::upscaler::temporal_active(app.world()) && !fsr_active(app.world()), "native, not FSR");
+        assert_eq!(app.world().resource::<UpscalerStatus>().reason(), Some(Unavailable::EvaluateFailed));
+    }
+
+    #[test]
+    fn fsr_aa_is_applied_without_a_sun_to_replacement_cameras_and_repairs_conflicting_components() {
+        let (mut app, old) = aa_app(ScreenAa::Off, true);
+        let suns: Vec<Entity> = app.world_mut().query_filtered::<Entity, With<Sun>>().iter(app.world()).collect();
+        for sun in suns { app.world_mut().despawn(sun); }
+        app.world_mut().resource_mut::<Graphics>().set_fsr(Some(FsrQuality::NativeAa));
+        app.update();
+        assert_eq!(*app.world().get::<Msaa>(old).unwrap(), Msaa::Off);
+        assert!(app.world().get::<FsrUpscaling>(old).is_some());
+
+        app.world_mut().despawn(old);
+        let camera = app.world_mut().spawn((FlyCam { yaw: 0.0, pitch: 0.0, speed: 800.0 }, Msaa::Sample8)).id();
+        app.update();
+        assert_eq!(*app.world().get::<Msaa>(camera).unwrap(), Msaa::Off);
+        assert!(app.world().get::<FsrUpscaling>(camera).is_some(), "same camera count, different camera");
+
+        app.world_mut().entity_mut(camera).insert((Msaa::Sample8, crate::taa::TemporalAa::default(), Fxaa::default(), Smaa::default()));
+        app.update();
+        let entity = app.world().entity(camera);
+        assert_eq!(*entity.get::<Msaa>().unwrap(), Msaa::Off);
+        assert!(!entity.contains::<crate::taa::TemporalAa>() && !entity.contains::<Fxaa>() && !entity.contains::<Smaa>());
+        let tick = entity.get_ref::<FsrUpscaling>().unwrap().last_changed();
+        app.update();
+        assert_eq!(app.world().entity(camera).get_ref::<FsrUpscaling>().unwrap().last_changed(), tick, "stable frames do not reset the camera components");
+
+        app.world_mut().resource_mut::<crate::fsr::FsrSupport>().0 = false;
+        app.update();
+        assert_native_aa(&app, camera, ScreenAa::Off);
+        app.world_mut().resource_mut::<crate::fsr::FsrSupport>().0 = true;
+        app.update();
+        assert_eq!(*app.world().get::<Msaa>(camera).unwrap(), Msaa::Off);
+    }
+
+    #[test]
+    fn unsupported_fsr_keeps_native_aa_active() {
+        for selected in [ScreenAa::Off, ScreenAa::Taa, ScreenAa::Fxaa, ScreenAa::Smaa] {
+            let (mut app, camera) = aa_app(selected, false);
+            app.world_mut().resource_mut::<Graphics>().set_fsr(Some(FsrQuality::Quality));
+            app.update();
+            assert_native_aa(&app, camera, selected);
+        }
+    }
 
     #[test]
     fn the_moon_casts_cheaper_shadows_and_none_at_the_horizon() {
@@ -819,5 +1222,12 @@ mod tests {
         already_added.add_plugins(bevy::render::diagnostic::RenderDiagnosticsPlugin);
         ensure_render_diagnostics(&mut already_added);
         assert!(already_added.is_plugin_added::<bevy::render::diagnostic::RenderDiagnosticsPlugin>());
+        assert!(already_added.world().contains_resource::<MeasuringDiagnostics>(), "a measuring path marks the run even when the plugin was there");
+
+        // The overlay's request: true only for the call that added the plugin.
+        let mut overlay = App::new();
+        assert!(add_render_diagnostics(&mut overlay));
+        assert!(!add_render_diagnostics(&mut overlay));
+        assert!(!overlay.world().contains_resource::<MeasuringDiagnostics>());
     }
 }

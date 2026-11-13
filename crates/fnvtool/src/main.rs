@@ -34,7 +34,6 @@ mod spt_cmd;
 mod esm_cmd;
 mod esm_fields;
 mod ext_cmd;
-mod ext_save;
 mod install_cmd;
 mod nav_cmd;
 mod nav_path;
@@ -48,6 +47,7 @@ mod ui_cmd;
 mod voice_cmd;
 mod world_alt_textures;
 mod world_audio;
+mod world_posed_clutter;
 mod world_radio;
 mod world_terminals;
 mod world_cmd;
@@ -259,7 +259,8 @@ pub enum ActorCmd {
         survey: bool,
     },
     /// Fidgets from the IDLE tree: drawn-weapon ones (docs/spec-notes/idles.md §11),
-    /// each actor's weapon put out in a game where nothing has happened, or with
+    /// each actor's weapon put out in a game where nothing has happened, with
+    /// `--weapon-away` those of a person standing with its weapon away (§11.4), or with
     /// `--furniture` the ones on furniture (furniture.md §8); the tree asked `--checks`
     /// times, the picks counted per idle (fnv.actor.fidgets/1).
     Fidgets {
@@ -286,6 +287,10 @@ pub enum ActorCmd {
         /// The player's view is first person (`IsPC1stPerson`).
         #[arg(long)]
         first_person: bool,
+        /// Leave every actor's weapon away instead: the fidgets of a person standing
+        /// with its weapon away are asked for (idles.md §11.4), not the drawn-weapon ones.
+        #[arg(long, conflicts_with_all = ["weapon", "furniture"])]
+        weapon_away: bool,
     },
     /// Talking gestures (docs/spec-notes/idles.md §12): the player starts a
     /// conversation with each actor in a game where nothing has happened, and the IDLE
@@ -327,11 +332,13 @@ pub enum ActorCmd {
         /// Measure as in an interior (the shorter reach).
         #[arg(long)]
         interior: bool,
-        /// The light level of a lit place, 0–100.
-        #[arg(long, default_value_t = 90.0)]
+        /// The light level of a lit place, 0–100 (default: the original's at Goodsprings
+        /// at noon, docs/design/detection.md §3).
+        #[arg(long, default_value_t = 100.0)]
         light: f64,
-        /// The light level of a dark place, 0–100.
-        #[arg(long, default_value_t = 10.0)]
+        /// The light level of a dark place, 0–100 (default: the original's at Goodsprings
+        /// at midnight, 210/255; a cave is about 36, a dust storm 0).
+        #[arg(long, default_value_t = 82.35)]
         dark: f64,
     },
     /// The parts list of placed NPCs: skeleton, race parts, hair, head parts, worn
@@ -772,6 +779,18 @@ pub enum WorldCmd {
         /// Function catalogue (default: ../script/functions.json next to --schema).
         #[arg(long)]
         functions: Option<PathBuf>,
+    },
+    /// Every placed reference whose model is ragdoll-like or which carries XRGD, with the
+    /// branch NVForever takes (fnv.world.posed_clutter/1; dead-on-spawn.md §5.2).
+    PosedClutter {
+        #[command(flatten)]
+        w: WorldArgs,
+        /// NIF schema directory (default: `<schema>/../nif`).
+        #[arg(long)]
+        nif_schema: Option<PathBuf>,
+        /// Leave out the per-reference rows (summary counts only).
+        #[arg(long)]
+        summary: bool,
     },
     /// One terminal hacking game (fnv.world.hack/1) from the game's word list: the dump
     /// as the screen shows it, the words and their likeness, and the log after `--pick`s.

@@ -19,7 +19,10 @@
 //!   (its IK start node, `Bip01 Head`) and the largest angle (its Tracking Max Angle, 60
 //!   for `DefaultBodyPartData`) [documented: GECK wiki "Body Part", owner export;
 //!   observed: FalloutNV.esm BPTD 0x1D]. That angle limits the turn to either side
-//!   [hypothesis: degrees, and that it bounds the yaw]; up and down the head goes at most
+//!   [hypothesis: degrees, and that it bounds the yaw], measured from where the bone
+//!   above the neck faces (the chest), not the actor's root: a pose that twists the upper
+//!   body away (a fleeing actor's cower idle) would otherwise let the head end up facing
+//!   backwards [observed: owner report 2026-11-07, #1814]; up and down the head goes at most
 //!   [`HEAD_PITCH_LIMIT`] [design]. The neck bones above the head are turned by up to
 //!   [`NECK_SHARE`] of the turn ([`shares`]), so the neck does not twist at one joint
 //!   [design; whether the original turns anything but the IK start node is not known].
@@ -50,7 +53,8 @@
 //! The angles and timings are NVForever's design choices unless tagged otherwise.
 //!
 //! Log, one line each, starting `dialogue look:`: an actor starts facing the player
-//! (head and body, head only and why, or nobody and why; the angles), and stops.
+//! (head and body, head only and why, or nobody and why; the angles, and how far its
+//! chest as posed is off the player), and stops.
 //!
 //! Test aid `NVF_PLAY_TEST_TALK_HEAD_ONLY=1`: no body turns (as if every actor were
 //! [`BodyHeld`]), to see the head at its limit. Not a game behaviour.
@@ -145,6 +149,26 @@ pub fn sided(yaw: f32, before: Option<f32>) -> f32 {
         Some(b) if yaw.abs() > BEHIND && b.abs() > 1e-3 && b.signum() != yaw.signum() => b.signum() * yaw.abs(),
         _ => yaw,
     }
+}
+
+/// Where the bone above the neck faces, as a yaw in the actor's space: `frame` is how
+/// that bone is turned from its bind pose (in which it faces the actor's +y). Root
+/// forward (0) when the bone points nearly straight up or down and has no heading
+/// [design].
+pub fn torso_yaw(frame: Quat) -> f32 {
+    let f = frame * Vec3::Y;
+    if f.x.hypot(f.y) < 0.25 {
+        0.0
+    } else {
+        yaw_pitch(f).0
+    }
+}
+
+/// [`limited`] with the yaw measured from `torso` (the actor's space, [`torso_yaw`]):
+/// `want`'s yaw is given against the torso and the result is back in the actor's space.
+pub fn limited_from(want: (f32, f32), torso: f32, yaw_limit: f32) -> (f32, f32) {
+    let (yaw, pitch) = limited(want, yaw_limit);
+    (wrap(torso + yaw), pitch)
 }
 
 /// The yaw and pitch the head may take towards a target at `want`: within `yaw_limit` to
@@ -247,6 +271,9 @@ struct HeadRig {
     /// The head's forward and up axes in its own space.
     forward: Vec3,
     up: Vec3,
+    /// The bind rotation (actor space) of the bone above the chain, the one the yaw limit
+    /// is measured from.
+    frame_bind: Quat,
     yaw_limit: f32,
     /// For the log: the bones' names, and whether the limit is the body part data's.
     bones: String,
@@ -270,7 +297,7 @@ struct Look {
     active: bool,
     /// 0 (the animation's own pose) to 1 (on the player), before [`smooth`].
     weight: f32,
-    /// The yaw wanted last frame, before the limit ([`sided`]).
+    /// The yaw wanted last frame against the torso, before the limit ([`sided`]).
     wanted_yaw: Option<f32>,
     /// The yaw and pitch the head had last frame (the actor's space).
     shown: (f32, f32),
@@ -384,16 +411,28 @@ fn head_rig(rig: &ActorRig, combat: Option<&Combat>) -> Result<HeadRig, String> 
     let chain: Vec<(usize, f32)> = necks.iter().copied().chain([head]).zip(shares(necks.len())).collect();
     // In the bind pose the actor faces +y with z up: the head's own axes for those.
     let bind = rotation(rig.skel.bind_world.get(head).ok_or("no bind pose")?).inverse();
+    let top = rig.skel.parents.get(chain[0].0).copied().flatten().unwrap_or(0);
+    let frame_bind = if top == 0 { Quat::IDENTITY } else { rotation(rig.skel.bind_world.get(top).ok_or("no bind pose")?) };
     let asked = part.map(|p| p.tracking_max_angle.to_radians()).filter(|a| a.is_finite() && *a > 1e-3);
     let bones = chain.iter().map(|c| rig.skel.names[c.0].as_deref().unwrap_or("?")).collect::<Vec<_>>().join(", ");
     Ok(HeadRig {
         chain,
         forward: bind * Vec3::Y,
         up: bind * Vec3::Z,
+        frame_bind,
         yaw_limit: asked.unwrap_or(HEAD_YAW_LIMIT).min(HEAD_YAW_LIMIT_MAX),
         bones,
         limit_from_data: asked.is_some(),
     })
+}
+
+/// How far (degrees, clockwise) the chest as posed faces from the player, who is `off`
+/// radians off the actor's front: where the bone above the turned neck faces
+/// ([`torso_yaw`]), against the player.
+fn chest_off(rig: &ActorRig, h: &HeadRig, off: f32, transforms: &Query<&mut Transform>) -> Option<f32> {
+    let top = rig.skel.parents.get(h.chain[0].0).copied().flatten().unwrap_or(0);
+    let m = in_actor_space(rig, top, transforms)?;
+    Some(wrap(torso_yaw(rotation(&m) * h.frame_bind.inverse()) - off).to_degrees())
 }
 
 /// The compass heading (degrees) a root's rotation faces.
@@ -492,6 +531,13 @@ pub(crate) fn turn_speaker(
                         )
                     },
                 );
+                // Where the chest faces, against the player: a pose that turns the body
+                // away from the actor's heading shows here (#2246).
+                let chest = head.as_ref().ok().zip(off).and_then(|(h, off)| chest_off(rig, h, off, &transforms));
+                let reach = match chest {
+                    Some(c) => format!("{reach}; its chest is {c:+.0}° off the player"),
+                    None => reach,
+                };
                 let off_deg = off.map_or(f32::NAN, f32::to_degrees);
                 match (&turns, &body) {
                     (Turns::Nobody(why), _) => info!("dialogue look: {name} does not turn to the player: {why}"),
@@ -539,10 +585,17 @@ pub(crate) fn turn_speaker(
         };
         if look.active && talking != Some(r) {
             look.active = false;
-            if look.head.is_some() {
-                let heading = transforms.get(look.entity).map_or(f32::NAN, |t| heading_deg(t.rotation));
+            if let Some(h) = look.head.as_ref() {
+                let root = transforms.get(look.entity).ok().copied();
+                let heading = root.map_or(f32::NAN, |t| heading_deg(t.rotation));
+                // The player against the actor's front, and the chest against the player.
+                let off = root.zip(globals.get(child_of.parent()).ok()).map(|(root, parent)| {
+                    let to_actor = (parent.affine() * root.compute_affine()).inverse();
+                    yaw_pitch(to_actor.transform_point3(space::to_bevy(player.feet))).0
+                });
+                let chest = off.and_then(|off| chest_off(rig, h, off, &transforms)).map_or_else(String::new, |c| format!("; its chest is {c:+.0}° off the player"));
                 info!(
-                    "dialogue look: {} stops facing the player: the head (yaw {:+.0}°, pitch {:+.0}°) eases back over {HEAD_OUT_SECONDS:.2} s, the body keeps its heading {heading:.0}°",
+                    "dialogue look: {} stops facing the player: the head (yaw {:+.0}°, pitch {:+.0}°) eases back over {HEAD_OUT_SECONDS:.2} s, the body keeps its heading {heading:.0}°{chest}",
                     look.name,
                     look.shown.0.to_degrees(),
                     look.shown.1.to_degrees()
@@ -633,9 +686,12 @@ pub(crate) fn turn_speaker(
         let cur = yaw_pitch(head_rot * head.forward);
         let eye = root.inverse().transform_point3(space::to_bevy(player.eye()));
         let want = yaw_pitch(eye - Vec3::from(head_m.translation));
-        let yaw = sided(want.0, look.wanted_yaw);
+        // The limit is the neck's: measured from where the chest faces, whatever the
+        // animation does with the body below it.
+        let torso = torso_yaw(rotation(&above_m) * head.frame_bind.inverse());
+        let yaw = sided(wrap(want.0 - torso), look.wanted_yaw);
         look.wanted_yaw = Some(yaw);
-        let target = limited((yaw, want.1), head.yaw_limit);
+        let target = limited_from((yaw, want.1), torso, head.yaw_limit);
         // The animation's own nods and glances stay under the turn (a frozen picture has
         // none to keep).
         let rest = if instant { cur } else { follow_rest(look.rest, cur, dt) };
@@ -664,6 +720,16 @@ pub(crate) fn turn_speaker(
     }
     for r in over {
         looks.by_ref.remove(&r);
+    }
+    // With the turning switched off nothing above says where the face is, and the
+    // conversation's zoom (`nvf_play::dialogue_zoom`) still wants its distance.
+    if !settings.enabled {
+        let speaker = game.and_then(|g| g.dialogue.as_ref()).filter(|c| c.through.is_none()).map(|c| c.actor.0);
+        said = speaker.and_then(|r| {
+            let rig = actors.iter().find(|a| a.1.reference == r)?.1;
+            let at = globals.get(*rig.nodes.get(*rig.skel.by_name.get(HEAD_BONE)?)?).ok()?;
+            Some((r, space::to_game(at.translation())))
+        });
     }
     face.set_if_neq(SpeakerFace(said));
 }
@@ -716,6 +782,25 @@ mod tests {
         // But a player who is merely to the other side is followed there.
         assert!(near(sided(-1.0, Some(1.0)), -1.0));
         assert!(near(sided(4.0, None), wrap(4.0)));
+    }
+
+    #[test]
+    fn the_limit_is_measured_from_the_chest_not_the_root() {
+        let limit = 60f32.to_radians();
+        // Upright, untwisted: the root's limit.
+        assert!(torso_yaw(Quat::IDENTITY).abs() < 1e-6);
+        // A cowering pose twists the chest 120° to the right of the root; the player
+        // stands straight ahead of the root, 120° to the chest's left. The head stops 60°
+        // to the chest's left (60° right of the root), not 60° to the root's side
+        // (which is 180° from the chest: facing backwards).
+        let chest = Quat::from_rotation_z(-120f32.to_radians());
+        let torso = torso_yaw(chest);
+        assert!((torso - 120f32.to_radians()).abs() < 1e-5, "{torso}");
+        let (yaw, _) = limited_from((wrap(0.0 - torso), 0.0), torso, limit);
+        assert!((yaw - 60f32.to_radians()).abs() < 1e-5, "{}", yaw.to_degrees());
+        assert!(wrap(yaw - torso).abs() <= limit + 1e-5);
+        // A chest bent straight down has no heading: the root's.
+        assert_eq!(torso_yaw(Quat::from_rotation_x(FRAC_PI_2)), 0.0);
     }
 
     #[test]

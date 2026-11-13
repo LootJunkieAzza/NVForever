@@ -36,6 +36,9 @@
 //! player sleep (`SetPCSleepHours`) and stop a sleep (`WakeUpPC`); [`script_requests`]
 //! takes what they asked. A bed's own script is told of the sleep
 //! (`Runtime::bed_activated_for_sleep`): that is what gives Well Rested.
+//! A trip's loading screen that comes up while the menu is open passes the hours left
+//! at once behind it and closes the menu ([`pass_behind_screen`]; the raft to the Fort
+//! asks for its sleep in the frame it moves the player, issue #2281).
 //!
 //! Test aid `NVF_PLAY_TEST_WAIT=<seconds>:<what>[,…]`: at each time `open` presses the
 //! Wait control, `hours=<n>` sets the slider, `accept` and `cancel` press the buttons.
@@ -240,6 +243,7 @@ impl Plugin for WaitPlugin {
             // Before the scripts, as the running clock is (`crate::sim`): a frame's
             // scripts all see the hour that passed in it.
             .add_systems(Update, pass_hours.run_if(in_state(PlayState::Menu)).before(PlaySet::Scripts))
+            .add_systems(Update, pass_behind_screen.run_if(in_state(PlayState::Loading)).run_if(|m: Res<WaitMenu>| m.is_open()))
             .add_systems(
                 Update,
                 (
@@ -557,6 +561,8 @@ fn open(
     }
     // Scripts run MenuMode 1012 from now on.
     if let Some(rt) = script.as_mut().and_then(|s| s.rt.as_mut()) {
+        // GetSleepWaitMenuState tells the sleep from the wait (`fnv_game::nvse_jg8`).
+        rt.game.other.jg8.sleep_menu = m.sleep;
         rt.game.open_menu(crate::script::MENU_SLEEP_WAIT);
         // The bed's own script learns that the player sleeps on it.
         if let Some(bed) = bed.filter(|_| sleep) {
@@ -577,7 +583,8 @@ fn open(
     next.set(PlayState::Menu);
 }
 
-fn keys(keys: Res<ButtonInput<KeyCode>>, input: ControlInput, menu: Res<WaitMenu>, mut out: MessageWriter<WaitInput>) {
+fn keys(keys: crate::pad::ActionButtons<KeyCode>, input: ControlInput, menu: Res<WaitMenu>, mut out: MessageWriter<WaitInput>) {
+    let keys = keys.snapshot();
     use KeyCode::*;
     if !menu.is_open() {
         return;
@@ -699,34 +706,91 @@ fn pass_hours(
         return;
     }
     let p = m.passing.expect("an hour passed");
-    match sim.world.advance_hours(1.0) {
-        Ok(c) => {
-            stats.hours += 1;
-            passed.write(HourPassed { sleep: m.sleep });
-            if let Some(rt) = script.as_mut().and_then(|s| s.rt.as_mut()) {
-                let (sleep, hour) = (m.sleep, p.asked - p.left);
-                crate::script::with_world(rt, &mut sim, |rt| crate::aid::hour_passed(rt, sleep, hour));
-            }
-            info!(
-                "{}: hour {} of {} passed: {} (GameHour {:.3}, GameDaysPassed {:.3})",
-                if m.sleep { "sleep" } else { "wait" },
-                p.asked - p.left,
-                p.asked,
-                words.date_line(&c),
-                c.hour,
-                c.days_passed
-            );
-        }
-        Err(e) => {
-            warn!("wait menu: the game clock cannot advance: {e}");
-            next.set(PlayState::Playing);
-            return;
-        }
+    let mut hours = Hours { sim: &mut sim, words: &words, stats: &mut stats, passed: &mut passed, script: script.as_deref_mut() };
+    if !hours.pass(m.sleep, p.asked - p.left, p.asked) {
+        next.set(PlayState::Playing);
+        return;
     }
     if p.left == 0 {
         info!("wait menu: {} hour(s) passed; closed", p.asked);
         next.set(PlayState::Playing);
     }
+}
+
+/// What one hour of a wait or a sleep moves on: the calendar, the world's people (an
+/// [`HourPassed`]), the player's body and the scripts (`crate::aid::hour_passed`).
+struct Hours<'a, 'w> {
+    sim: &'a mut SimState,
+    words: &'a Words,
+    stats: &'a mut WaitStats,
+    passed: &'a mut MessageWriter<'w, HourPassed>,
+    script: Option<&'a mut ScriptState>,
+}
+
+impl Hours<'_, '_> {
+    /// Hour `hour` of `asked` passes; false when the game clock cannot advance.
+    fn pass(&mut self, sleep: bool, hour: u32, asked: u32) -> bool {
+        match self.sim.world.advance_hours(1.0) {
+            Ok(c) => {
+                self.stats.hours += 1;
+                self.passed.write(HourPassed { sleep });
+                if let Some(rt) = self.script.as_mut().and_then(|s| s.rt.as_mut()) {
+                    crate::script::with_world(rt, self.sim, |rt| crate::aid::hour_passed(rt, sleep, hour));
+                }
+                info!(
+                    "{}: hour {hour} of {asked} passed: {} (GameHour {:.3}, GameDaysPassed {:.3})",
+                    if sleep { "sleep" } else { "wait" },
+                    self.words.date_line(&c),
+                    c.hour,
+                    c.days_passed
+                );
+                true
+            }
+            Err(e) => {
+                warn!("wait menu: the game clock cannot advance: {e}");
+                false
+            }
+        }
+    }
+}
+
+/// A trip's loading screen is up with the menu still open: a script's sleep asked in the
+/// frame the trip began (the raft between Cottonwood Cove and the Fort: `MoveTo`, then
+/// `SetPCSleepHours 3`, issue #2281), or a trip that began while the menu was open. The
+/// hours still to pass go by at once behind the screen, and the menu closes without
+/// being seen, so the world comes back with the time moved on and nothing left to wait
+/// for [design: the screen already hides the world, so the hours take no time of the
+/// player's own]. Without this the loading screen hands the game back to play with the
+/// menu still open, where its hours never pass and its fade keeps the screen black.
+#[allow(clippy::too_many_arguments)]
+fn pass_behind_screen(
+    mut commands: Commands,
+    mut menu: ResMut<WaitMenu>,
+    mut sim: ResMut<SimState>,
+    words: Res<Words>,
+    mut stats: ResMut<WaitStats>,
+    mut passed: MessageWriter<HourPassed>,
+    mut ended: MessageWriter<RestEnded>,
+    mut script: Option<ResMut<ScriptState>>,
+    mut fade: ResMut<SleepFade>,
+    roots: Query<Entity, With<WaitRoot>>,
+) {
+    let Some(m) = menu.0.as_mut() else { return };
+    if let Some(left) = m.take_left() {
+        let (sleep, asked) = (m.sleep, *left.end());
+        info!("wait menu: a trip's loading screen is up: hours {}-{asked} of the {} pass behind it at once", left.start(), if sleep { "sleep" } else { "wait" });
+        let mut hours = Hours { sim: &mut sim, words: &words, stats: &mut stats, passed: &mut passed, script: script.as_deref_mut() };
+        for hour in left {
+            if !hours.pass(sleep, hour, asked) {
+                break;
+            }
+        }
+    } else {
+        info!("wait menu: closed under a trip's loading screen");
+    }
+    // The screen hides the world: no fade to come back from.
+    fade.0 = 0.0;
+    close_menu(&mut commands, &mut menu, &roots, script.as_deref_mut(), &mut ended);
 }
 
 fn fade(time: AidTime, menu: Res<WaitMenu>, mut fade: ResMut<SleepFade>) {
@@ -737,19 +801,36 @@ fn fade(time: AidTime, menu: Res<WaitMenu>, mut fade: ResMut<SleepFade>) {
     }
 }
 
-fn close(mut commands: Commands, mut menu: ResMut<WaitMenu>, roots: Query<Entity, With<WaitRoot>>, script: Option<ResMut<ScriptState>>, mut ended: MessageWriter<RestEnded>) {
+/// The menu state is left. When it is left for a trip's loading screen (the state is
+/// already the new one here) the menu stays for [`pass_behind_screen`], which passes its
+/// hours first.
+fn close(
+    mut commands: Commands,
+    state: Res<State<PlayState>>,
+    mut menu: ResMut<WaitMenu>,
+    roots: Query<Entity, With<WaitRoot>>,
+    mut script: Option<ResMut<ScriptState>>,
+    mut ended: MessageWriter<RestEnded>,
+) {
+    if *state.get() == PlayState::Loading && menu.is_open() {
+        return;
+    }
+    close_menu(&mut commands, &mut menu, &roots, script.as_deref_mut(), &mut ended);
+}
+
+fn close_menu(commands: &mut Commands, menu: &mut WaitMenu, roots: &Query<Entity, With<WaitRoot>>, script: Option<&mut ScriptState>, ended: &mut MessageWriter<RestEnded>) {
     if let Some(m) = menu.0.take() {
         if let Some(p) = m.passing.filter(|p| p.asked > p.left) {
             ended.write(RestEnded { sleep: m.sleep, hours: p.asked - p.left });
         }
-        if let Some(rt) = script.and_then(|s| s.into_inner().rt.as_mut()) {
+        if let Some(rt) = script.and_then(|s| s.rt.as_mut()) {
             if rt.game.menu == Some(crate::script::MENU_SLEEP_WAIT) {
                 rt.game.close_menu();
             }
             rt.game.rest.end();
         }
     }
-    for e in &roots {
+    for e in roots {
         commands.entity(e).despawn();
     }
 }
@@ -843,9 +924,10 @@ const MARKER_GAP: f32 = 17.0;
 /// A button's width: room for its label, which ends at its right [design].
 const BUTTON_WIDTH: f32 = 200.0;
 
-/// A length of the screenshot (720 pixels high) as a part of the view's height.
+/// A length of the screenshot (720 pixels high) as a part of the view's height, at the UI
+/// scale (`crate::interface::unit_scale`, #1631; at 100% `px / 7.2` exactly).
 fn u(px: f32) -> Val {
-    Val::Vh(px / 7.2)
+    Val::Vh(px * crate::interface::unit_scale() / 7.2)
 }
 
 fn shade(part: f32) -> Color {
@@ -1026,6 +1108,7 @@ fn set_glyphs(
     data: Option<Res<nvf_assets::GameData>>,
     mut images: ResMut<Assets<Image>>,
     formats: Option<Res<bevy::image::CompressedImageFormatSupport>>,
+    glyphs: Res<crate::pad::PadGlyphs>,
 ) {
     if texts.is_empty() {
         return;
@@ -1049,20 +1132,20 @@ fn set_glyphs(
             continue;
         }
         let Some(face) = faces.get(g.font) else { continue };
-        // The node's size in interface units (960 to the view's height).
+        // The node's size in interface units (960 to the view's height), at the original's
+        // size: the text's own lengths take the UI scale again.
         let size = |v: Val| match v {
-            Val::Vh(x) => x * 9.6,
+            Val::Vh(x) => x * 9.6 / crate::interface::unit_scale(),
             _ => 0.0,
         };
         let (w, h) = (size(node.width), size(node.height));
         let mut entity = commands.entity(e);
         entity.despawn_related::<Children>();
-        if let Some(line) = face.font.lines(&g.text, None).into_iter().next() {
-            let x = if g.right { w - line.width } else { (w - line.width) / 2.0 };
-            // The glyphs stand on a line a little below the middle [design].
-            let base = h / 2.0 + face.font.size * 0.3;
-            entity.with_children(|p| crate::interface::set_line(p, face, &line, x, base, now.1));
-        }
+        let width = crate::pad::hint_width(face, &g.text, &glyphs);
+        let x = if g.right { w - width } else { (w - width) / 2.0 };
+        // The glyphs stand on a line a little below the middle [design].
+        let base = h / 2.0 + face.font.size * 0.3;
+        entity.with_children(|p| { crate::pad::set_hint(p, face, &g.text, x, base, now.1, &glyphs); });
         g.drawn = Some(now);
     }
 }

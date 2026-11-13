@@ -256,12 +256,29 @@ location, in cell (radius ignored), near reference; the radius is editable.
 - **Travel**: go to the destination, using navmesh preferred triangles "but not in
   interiors"; stop at the edge of the destination radius; the destination must be on the
   navmesh. Package idles play at the destination.
+  - **At an xMarkerHeading** (built 2026-11-08) [documented: GECK wiki, NPC population,
+    level-design.md: the heading version "shows which way an actor standing there will
+    face"]: an actor whose package location is "near reference" an xMarkerHeading (the
+    engine's base 0x34) turns, once there, to the marker's heading at the standing turn
+    rate (`fnv_ai` `marker_heading`, set in `settle`, for every package type that
+    settles there; a sandbox keeps its own). Owner report (TTW, the G.O.A.T.): Mr.
+    Brotch at `CG03MrBrotchTeachMarker` (heading 22°, towards the desks) faced the lab
+    bench, the heading he walked in with. Whether the original turns for a radius other
+    than 0 (his `CG03MrBrotchGiveGOAT` has 20) is not known; ours turns for any.
 - **Sandbox**: ambient behaviour within the location radius: it scores nearby objects
   (food, furniture, idle markers, other actors), weights them by a per-kind probability
   that drops to zero for the kind just chosen and rises for the others; sleep start
   19:00–01:00 and duration 6–10 h rolled when the package starts; breakfast 6–9, lunch
   11–14, dinner 17–20, meals 0.5–2 h (defaults of the fSandbox… settings); a sandbox
   near the start of a linked patrol route sandboxes at each point for its idle time.
+  Repeating an action: the setting `iSandBoxPreventRepeatedActionTime` (default 30)
+  keeps a sandboxing NPC from repeating an action on the same object until that many
+  seconds have passed [documented: GECK wiki, iSandBoxPreventRepeatedActionTime]. The
+  page does not say when the seconds start (the action's start or its end) or what the
+  NPC does in the meantime when nothing else is open. NVForever does not read this
+  setting: its own rule for the object just used, and for the only object open
+  (60 s, issue #1505), is a design choice under the maintainer's review
+  (docs/design/actor-behaviour.md §5.5, docs/owner-review.md; observer check 114 asks the original).
 - **Patrol**: walk the chain of linked references; repeatable patrols loop (or go back
   and forth) and start at the nearest point; non-repeatable ones start at the first point
   and are done at the last; data on the points (Idle Markers, XMarkerHeading: idle time,
@@ -284,7 +301,18 @@ location, in cell (radius ignored), near reference; the radius is editable.
   DefaultGuardNPC (Strip securitrons, super mutant guards; 128), the Nellis Boomer tower
   guards (256 around a tower marker), PowderGangerGuardMixedPackage (linked reference,
   distance 0, radius 256 around the editor location) and V22MantisFemaleEggGuardPackage
-  (300) [observed: `fnvtool ai show`].
+  (300) [observed: `fnvtool ai show`]. **The wander, built 2026-11-11 (#2027)**: "If it
+  has a radius greater than 0, the actor will wander within that radius" [documented:
+  GECK wiki, Guard Package, Guard Location]; the location's radius, not the guarded
+  reference's guard radius (Count / Distance, for intruders). Of FalloutNV.esm's Guard
+  packages 115 have a location radius, used by 149 actor bases and 430 placed actors
+  [observed: the issue's census]. In the original two settlers on
+  DefaultGuardStayAtPosition01 (near editor location, 128) kept moving inside an area of
+  about that size, procedure 44 GUARD throughout [observed: AI observer 2026-11-10, issue
+  #2027]. Here (`fnv_ai::carry::guard_wander_radius`, `Sandbox::guard`) a guard that has
+  arrived wanders as a sandbox with only wandering on (actor-behaviour.md §5.5); a radius
+  of 0, and a Guard with Remain Near Reference to Guard (§7.7), stand as before
+  [design, #2027]. How often and how far it moves is ours (observer check 115).
 - **Follow / Accompany / Escort**: keep a distance to a target actor (follow walks
   behind it; accompany paths to its destination; escort leads it to a destination);
   follow can have start and end locations.
@@ -434,6 +462,24 @@ normal package behavior"]:
     CMNY): it picks it up (the default activation); flora: it harvests it; furniture: it
     sits (or lies) on it; an actor, a container or anything else: it goes up to it (for a
     specific reference, within the target's distance);
+  - furniture another actor sits on, or is on its way to, is passed over, and the
+    furniture it sets off to is kept for it, as for Use Item At (since 2026-11-08)
+    [hypothesis, from an owner report: in Tale of Two Wastelands nobody looked to sit at
+    the school desks in the G.O.A.T.]. Fallout 3's classroom (CG03, `Fallout3.esm`) seats
+    its students by Find packages (`CG03AmataTakeTest`, `CG03ButchTakeTest`,
+    `CG03PaulTakeTest`, `CG03WallyTakeTest`, `CG03SusieMackTakeTest`,
+    `CG03FreddieTakeTest`, `CG03ChristineKendallTakeTest`; target object type Furniture,
+    search near `CG03ClassroomMarker` radius 350, Run In Sequence `LooseSitTakingTest*`
+    idles) [observed: `fnvtool ai show`, TTW 3.4 load order]. Before, Amata and Wally both
+    went to Christine Kendall's desk and Butch and Paul to Susie Mack's, each pair beside
+    one already seated ("cannot use …: in use"), and only three students sat [observed in
+    ours]. Furniture the player or any other actor the engine seats is on is not free
+    either (`Game::furniture_used_by_other`, also for Use Item At): the player has no
+    desk of their own in the data (eight desks, seven students; the classroom trigger
+    `CG03ClassroomTriggerSCRIPT` sets stage 50 once the player sits and stage 60, the
+    test, only once all seven students report `GetSitting` 3), and Paul went to the desk
+    the player sat at and stood by it, so the test never began [observed in ours]. The 16
+    Find packages of the New Vegas masters that look for furniture follow the same rule;
   - a dead actor carrying what it looks for: it takes one from the body;
   - **Allow Killing**: it attacks a living actor it looks for, or one carrying what it
     looks for (the geckos' and stalkers' "Find Food" packages with object type Food and
@@ -495,6 +541,10 @@ ambush location, then will drop out of combat and perform the normal package beh
   reference, always; a base form or faction: its members) or, with no target, an actor it
   would attack (`Game::would_attack`) [hypothesis]. Without a location 2, within 1,024 of
   where it waits [our choice; every master Ambush has one].
+- In the original an ambusher on QJDeathclawAmbushPackage did not spring on the player
+  hidden inside its ambush location, nor on the player detected outside it; it sprang
+  when the player was both detected and inside [observed: npc-behaviour-compare.md
+  §16.2]. The rule above has no detection test.
 - **Hide While Ambushing** does not make it sneak [observed: §4, IsSneaking 0 in every
   sample of GoodspringsSettler04Ref waiting under GSSettlerAmbushPackage, which sets
   it]; what it does is not known, and here it is only reported.
@@ -650,7 +700,9 @@ different thing: `fnv_ai::alert`); ForceFlee]:
     (§1: Find's code, not known before), procedure 7 WANDER, package target none. She
     wandered about the saloon (1,400 units in 0.3 game hours) and did not go to the
     meat. Here the actor goes straight to the nearest object it looks for (§3.1): the
-    original's searching by wandering, and when it then finds, are open (§6).
+    original's searching by wandering, and when it then finds, are open (§6). In the open,
+    a settler and a copy of Cheyenne went straight to the meat (5 to 9 s) [observed
+    2026-11-10: npc-behaviour-compare.md §15.3].
   - **Use Item At** (DefaultUseNearbyFurniturePackage on GoodspringsSettler04Ref, at his
     editor location, a stool 46 units off): type 16 USEITEMAT, procedure 17 DONE at once,
     standing, not sitting, for 0.12 game hours; then the script package was gone and his
@@ -707,6 +759,22 @@ different thing: `fnv_ai::alert`); ForceFlee]:
   (walking to a spot of the sandbox 7, to an object 0; the getting-up 21 held until the
   next thing begins) [hypothesis for the split between 7 and 0 while walking, which the
   samples do not tell apart by destination].
+
+  Types with no done state. Sandbox, Sleep, Eat, Guard, Wander, Follow and Accompany
+  never read 17 above; Travel, Patrol, Dialogue, Use Item At, Flee Not Combat (and Find,
+  Escort, Ambush and Use Weapon, which finish at their goal) do. A script-added Sandbox
+  package is not done on arrival [observed: issue #2012, the original's GSChetRef given
+  DefaultSandboxEditorLocation256 by AddScriptPackage kept it for 1.5 game hours, 1,290
+  samples, with no OnPackageStart, OnPackageChange or OnPackageDone], and "On End idle
+  only works for packages which have a 'done' state" [documented: GECK wiki,
+  Category:Packages]. In NVForever (`PackageType::has_done_state`,
+  `Game::package_goal_met`) a package of those types never meets its goal:
+  - no end script or OnPackageDone on arrival;
+  - a script package of that type stays until it is removed or replaced;
+  - Must Complete keeps holding it.
+
+  A schedule duration still ends one of them on time, with its change script and no end
+  script [design: the original's end of a timed Sandbox is not captured].
 
 ## 5. The reader and the CLI contract
 
@@ -931,6 +999,18 @@ listed record data the engine ignored. What each piece means, and what is built:
   - Immobile: the AI keeps the creature where it is, as one without movement clips
     (nvforever `residents`, log `ai: <name> cannot move (no movement animations, or
     flagged Immobile)`).
+  - Immobile with a Turning Speed (CREA TNAM) of 0: the creature never turns either, not
+    for a conversation, a line it says to someone, a script's Look or a combat target,
+    and the engine does not draw it aimed at a target (fnv-ai `Ai::fix_heading`,
+    nvforever `residents` `never_turns`, log `ai: <name> never turns`). In FalloutNV.esm
+    4 of the 50 Immobile creatures have 0: MrHouse, MrHouseOFFLINE and YesManMainframe
+    (the penthouse and basement screens) and CRVoid; the 46 others (turrets, spore
+    plants, Festus, NVCRMrHouse, NVCRPenthousemaincomputer) have 30 to 300 [observed:
+    the master's records]. An Immobile creature with a Turning Speed above 0 turns in
+    place to its combat target (a turret). [hypothesis: that the original reads the two
+    fields so; the owner saw the screen stay still in the original and turn here after a
+    conversation and in a fight, issues #1543 and #2150.] Whether the original's screen
+    enters combat at all is not observed (observer-checks.md).
   - The flags come through a template with "Use Model/Animation" [hypothesis: the
     Animation tab goes with the model]; Immobile is read off the base record only.
 - Not built: a creature that swims but neither walks nor flies keeping to water (none in
@@ -983,7 +1063,8 @@ listed record data the engine ignored. What each piece means, and what is built:
   combat target. If the owning actor is the player, the target may also be any actor the
   player is currently aiming at, even outside of combat" [documented: GECK wiki
   Category:Conditions, Run On]. A condition run on it is evaluated on the subject's
-  combat target as GetCombatTarget gives it; with none (out of combat, or the player,
+  combat target as GetCombatTarget gives it (kept while out of sight, through Lost,
+  docs/design/alert.md §6); with none (out of combat, or the player,
   whose aim the engine does not hand to the conditions) the condition is run on nothing,
   as before.
 
@@ -1011,8 +1092,9 @@ PLAYERLAYMINE 56; the other PLAYER… topics have none.
   [documented: Category:Packages]; "said by actors on a random basis who aren't in
   combat" [documented: Conversation Tab]): one timer for the loaded area, drawn between
   `fIdleChatterCommentTimer` and `…Max` (15 and 60) [hypothesis: the settings'
-  meaning]; when due, an actor within 300 units of the player (the random conversations'
-  distance) is drawn and says its line. Log `ai … <actor>: chatters (<d> units from the
+  meaning]; when due, an actor within 200 units of the player (the hello distance) with a
+  clear line to it is drawn and says its line, under the waits and the memory of lines
+  that hellos have (dialogue.md §5.2; 300 units and neither until 2026-11-11, #2156). Log `ai … <actor>: chatters (<d> units from the
   player), line <info>`.
 - **Reaction To Player Actions** (the Topics Tab's "special topics used to get actors
   responding to player actions" [documented]): when the player's body starts a gun's
@@ -1071,6 +1153,14 @@ PLAYERLAYMINE 56; the other PLAYER… topics have none.
   LilyPsychoticBreakPACKAGE (a reference, 1,500), VHDMPStageGuardPackage (linked
   reference, 512) and VHDOliverNCRHeavyTrooperFireSupportHuntPlayerPackage (object type
   None: no reference, so its location stands) [observed: PKDT/PTDT of FalloutNV.esm].
+- **Guard type-specific flags, the unnamed bits**: of the 175 Guard packages in
+  FalloutNV.esm the raw value is 0 in 110, 2 in 31, 6 in 10, 4 in 9, 1 in 7 and 5, 16,
+  18, 21, 29 (twice) and 59 in the rest [observed: PKDT]. xEdit names bit 3 only. In the
+  original, of five Guard packages with Continue During Combat given to a knife trooper,
+  the two with raw value 2 held it inside the guard radius and the three with bit 2 set
+  (raw 6, 6, 4) did not [observed: AI observer 2026-11-12, observer-checks.md check 108;
+  that bit 2 is the cause is a hypothesis]. A spawned actor's editor location is the
+  spot PlaceAtMe put it at [observed, the same check].
 - **Stay-at locations by Object ID, Object Type, "At package location"**: the Standard
   Location page names only Near Editor Location, Near Current Location, In Cell and Near
   Reference; how the other kinds choose a place is undocumented. Built (#961)

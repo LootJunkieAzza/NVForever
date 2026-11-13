@@ -106,6 +106,16 @@ const GAME_HOURS_PER_SECOND: f32 = 30.0 / 3600.0;
 /// sky (centred on the camera) first; blended world meshes write no depth and would
 /// otherwise be painted over. Within the sky, lower biases are drawn first.
 const SKY_SORT_BIAS: f32 = -1.0e6;
+
+/// Whether a transparent item's sort key (view distance plus depth bias, as Bevy sorts
+/// them) is one of the sky's blended or additive parts ([`SKY_SORT_BIAS`]: the cloud
+/// layers, the night's starfield layer, the stars, the moon): above half again the bias and
+/// up to the terrain layers' band (`nif_material::sorts_first`), which leaves room for
+/// every view distance in the world (the stars sit at the world's origin, the moon
+/// [`SUN_DISTANCE`] out). FSR draws these into its reactive reference (fsr.rs).
+pub(crate) fn sorts_with_sky(sort_key: f32) -> bool {
+    sort_key > SKY_SORT_BIAS * 1.5 && sort_key <= nvf_assets::nif_material::SORT_FIRST_BIAS * 1.5
+}
 /// How far the sun's shadows reach when they are switched on in a run started without
 /// them (game units): the default of `--shadow-distance`. With [`DEFAULT_SHADOW_CASCADES`]
 /// [engineering choice, 2026-10-12, owner's playtest "shadow rendering seriously affects
@@ -215,6 +225,7 @@ impl Plugin for SkyPlugin {
 }
 
 #[derive(Resource)]
+#[cfg_attr(test, derive(Default))]
 pub struct SkyState {
     pub climate: Climate,
     pub weather: Weather,
@@ -290,6 +301,15 @@ pub struct SkyState {
     /// A lightning flash's light now (linear RGB, added to the ambient light and the
     /// sky's glow; `crate::weather_fx`).
     flash: [f32; 3],
+    /// The scripts' wind (SetWindDirection, `fnv_game::nvse_jip12`): degrees from the
+    /// game's +x toward +y; `None` leaves `crate::tree`'s fixed direction.
+    pub script_wind: Option<f32>,
+    /// The scripts' moon textures by phase (SetMoonTexture), under `textures\`; `None`
+    /// leaves the phase's own.
+    pub moon_textures: [Option<String>; 8],
+    /// A script asked for a lightning flash (TriggerLightningFX); `crate::weather_fx`
+    /// draws it.
+    pub lightning_request: bool,
 }
 
 /// An overriding weather region of the worldspace and its weathers.
@@ -402,7 +422,7 @@ impl SkyState {
     }
 
     /// [`SkyState::new`] with climate `clim_id`.
-    fn with_climate(world: &WorldData, clim_id: u32, pinned: Option<&str>, start: Option<&str>, hour: f32, seed: u64) -> Result<SkyState, String> {
+    pub fn with_climate(world: &WorldData, clim_id: u32, pinned: Option<&str>, start: Option<&str>, hour: f32, seed: u64) -> Result<SkyState, String> {
         let clim = climate(world.lo, world.schema, clim_id).ok_or("climate unreadable")?;
         let most_likely = || default_weather(&clim, |g| global_value(world.lo, world.schema, g)).ok_or("climate lists no weather");
         let wid = match (pinned, start) {
@@ -483,6 +503,9 @@ impl SkyState {
             live_globals: HashMap::new(),
             resume: start.map(|_| wid),
             flash: [0.0; 3],
+            script_wind: None,
+            moon_textures: Default::default(),
+            lightning_request: false,
         })
     }
 
@@ -761,12 +784,32 @@ impl SkyState {
         }
     }
 
+    /// Every colour type now as stored (0..255), for GetCurrentSkyColor
+    /// (`fnv_game::nvse_jg9`).
+    pub fn all_color_bytes(&self) -> [[f32; 3]; 10] {
+        use fnv_world::sky::ColorType::*;
+        [SkyUpper, Fog, Unused, Ambient, Sunlight, Sun, Stars, SkyLower, Horizon, EffectLighting].map(|t| self.color_bytes(t))
+    }
+
     /// A weather colour at the current hour, blended across a weather fade.
     pub fn color(&self, ty: ColorType) -> [f32; 3] {
         let cur = self.weather.color(&self.climate, ty, self.hour);
         match &self.prev {
             Some(p) => {
                 let old = p.color(&self.climate, ty, self.hour);
+                std::array::from_fn(|i| old[i] + (cur[i] - old[i]) * self.fade)
+            }
+            None => cur,
+        }
+    }
+
+    /// A colour type now as stored (0..255 per channel, blended on the bytes;
+    /// `fnv_world::sky::Weather::color_bytes`), blended across a weather fade.
+    pub fn color_bytes(&self, ty: ColorType) -> [f32; 3] {
+        let cur = self.weather.color_bytes(&self.climate, ty, self.hour);
+        match &self.prev {
+            Some(p) => {
+                let old = p.color_bytes(&self.climate, ty, self.hour);
                 std::array::from_fn(|i| old[i] + (cur[i] - old[i]) * self.fade)
             }
             None => cur,
@@ -1329,9 +1372,14 @@ pub fn setup_sky(
         }
     }
     if sky.climate.has_moon() {
+        // A script's texture for a phase in place of the phase's own (SetMoonTexture).
         let phases = MOON_PHASES
             .iter()
-            .map(|p| textures.get(&format!("sky\\masser_{p}.dds"), true, &data, &mut images, None))
+            .zip(&sky.moon_textures)
+            .map(|(p, set)| match set {
+                Some(t) => textures.get(t, true, &data, &mut images, None),
+                None => textures.get(&format!("sky\\masser_{p}.dds"), true, &data, &mut images, None),
+            })
             .collect();
         commands.spawn((
             Name::new("Moon disc"),
@@ -1612,10 +1660,15 @@ pub fn update_night_sky(
         t.translation = cam_pos;
         *vis = if star_vis > 0.0 { Visibility::Inherited } else { Visibility::Hidden };
         if refresh {
-            if let Some(mut mat) = materials.get_mut(&m.0) {
-                let c = sky.color(ColorType::Stars);
-                let v = star_vis * STAR_STRENGTH;
-                mat.base.base_color = Color::LinearRgba(LinearRgba::new(c[0] * v, c[1] * v, c[2] * v, 1.0));
+            let c = sky.color(ColorType::Stars);
+            let v = star_vis * STAR_STRENGTH;
+            let color = Color::LinearRgba(LinearRgba::new(c[0] * v, c[1] * v, c[2] * v, 1.0));
+            // Read first: taking the material mutably marks it changed, and by day (the
+            // stars at 0) every half game minute wrote the same black again.
+            if materials.get(&m.0).is_some_and(|mat| mat.base.base_color != color) {
+                if let Some(mut mat) = materials.get_mut(&m.0) {
+                    mat.base.base_color = color;
+                }
             }
         }
     }
@@ -1630,9 +1683,13 @@ pub fn update_night_sky(
         t.look_at(cam_pos, Vec3::Y);
         let phase = sky.moon_phase();
         if refresh || disc.shown != Some(phase) {
-            if let Some(mut mat) = materials.get_mut(&m.0) {
-                mat.base.base_color_texture = disc.phases[phase].clone();
-                mat.base.base_color = Color::LinearRgba(LinearRgba::new(1.0, 1.0, 1.0, moon_vis));
+            let color = Color::LinearRgba(LinearRgba::new(1.0, 1.0, 1.0, moon_vis));
+            // Read first, as the stars.
+            if materials.get(&m.0).is_some_and(|mat| mat.base.base_color_texture != disc.phases[phase] || mat.base.base_color != color) {
+                if let Some(mut mat) = materials.get_mut(&m.0) {
+                    mat.base.base_color_texture = disc.phases[phase].clone();
+                    mat.base.base_color = color;
+                }
             }
             disc.shown = Some(phase);
         }
@@ -1703,7 +1760,11 @@ fn to_color(c: [f32; 3]) -> Color {
     Color::LinearRgba(LinearRgba::rgb(c[0], c[1], c[2]))
 }
 
-pub fn sky_keys(input: Res<ButtonInput<KeyCode>>, mut sky: ResMut<SkyState>) {
+/// The explorer's `[` and `]`: the hour back or on (a quarter with left Shift). Not run
+/// with `--play`: there they are the radio's stations, and the hour moved here became the
+/// game's hour, schedules and timers shifted with it [#1988].
+pub fn sky_keys(input: nvf_play::pad::ActionButtons<KeyCode>, mut sky: ResMut<SkyState>) {
+    let input = input.snapshot();
     let step = if input.pressed(KeyCode::ShiftLeft) { 0.25 } else { 1.0 };
     if input.just_pressed(KeyCode::BracketRight) {
         let h = sky.hour + step;
@@ -1735,6 +1796,13 @@ pub fn interior_clip(sky: Res<SkyState>, mut cam: Query<&mut Projection, With<Fl
             info!("sky: the camera's far plane at {far:.0} units{}", if sky.interior.is_some() && far < OUTDOOR_FAR { " (the cell's fog clip distance)" } else { "" });
         }
     }
+}
+
+/// The sky's colours now, for GetCurrentSkyColor (`fnv_game::nvse_jg9`); none in an
+/// interior, which shows no sky.
+pub fn tell_sky_colors(sky: Res<SkyState>, mut script: Option<ResMut<nvf_play::script::ScriptState>>) {
+    let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else { return };
+    rt.game.other.jg9.sky_colors = sky.interior.is_none().then(|| sky.all_color_bytes());
 }
 
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
@@ -1785,11 +1853,7 @@ pub fn update_sky(
         ambient.color = crate::lights::display_ambient(shown(l.ambient));
         ambient.brightness = unit * INTERIOR_AMBIENT_SHARE;
         if let Ok((mut light, mut t)) = sun.single_mut() {
-            // XCLL directional rotation: xy = azimuth about z, z = elevation, in degrees
-            // [hypothesis].
-            let (az, el) = ((l.directional_rotation_xy as f32).to_radians(), (l.directional_rotation_z as f32).to_radians());
-            let from_game = Vec3::new(az.sin() * el.cos(), az.cos() * el.cos(), el.sin());
-            let from = game_to_bevy().rotation * from_game;
+            let from = game_to_bevy().rotation * interior_light_from(l.directional_rotation_xy, l.directional_rotation_z);
             *t = Transform::IDENTITY.looking_to(-from, Vec3::Y);
             light.color = crate::lights::display_color(shown(l.directional));
             light.illuminance = PI * unit * l.directional_fade.clamp(0.0, 1.0) * INTERIOR_DIRECTIONAL_SHARE;
@@ -1917,9 +1981,33 @@ pub fn initial_fog() -> DistanceFog {
     DistanceFog { color: Color::WHITE, falloff: FogFalloff::Linear { start: 8_000.0, end: 20_000.0 }, ..default() }
 }
 
+/// The direction towards an interior's directional light, in game axes, from its XCLL
+/// (or lighting template) rotation in degrees: `xy` an azimuth about z, `z` a pitch,
+/// together the direction the light shines in (270 straight down) [hypothesis, world.md
+/// §8 "Interior cells"; observer-checks 101].
+pub fn interior_light_from(xy: i32, z: i32) -> Vec3 {
+    let (az, el) = ((xy as f32).to_radians(), (z as f32).to_radians());
+    -Vec3::new(az.sin() * el.cos(), az.cos() * el.cos(), el.sin())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The common template pitch (z = 270) puts the light straight overhead, and the Gas
+    /// Station's (xy 180, z 250, #1645) puts it high above, not below the floor.
+    #[test]
+    fn interior_light_comes_from_above() {
+        let overhead = interior_light_from(0, 270);
+        assert!((overhead - Vec3::Z).length() < 1e-5, "{overhead:?}");
+        let gas_station = interior_light_from(180, 250);
+        assert!(gas_station.z > 0.9, "{gas_station:?}");
+        assert!((gas_station.length() - 1.0).abs() < 1e-5);
+        // In Bevy's axes (y up) the light shines downwards.
+        let from = game_to_bevy().rotation * gas_station;
+        let shines = Transform::IDENTITY.looking_to(-from, Vec3::Y).forward();
+        assert!(shines.y < -0.9, "{shines:?}");
+    }
 
     /// The rolls made once a sky that started on `sky_day` follows a restored game on day
     /// 25, half a game minute on from the save's noon, with a saved weather its list holds
@@ -1963,6 +2051,9 @@ mod tests {
             live_globals: HashMap::new(),
             resume: Some(SAVED),
             flash: [0.0; 3],
+            script_wind: None,
+            moon_textures: Default::default(),
+            lightning_request: false,
         };
         sky.place(Some(None));
         assert_eq!((sky.rolls, sky.pick), (0, SAVED), "the first look keeps the saved weather");
@@ -1976,7 +2067,7 @@ mod tests {
         assert_eq!(rolls_following_the_restored_game(25.0), 0);
         // On the plugins' day it counts the days between as hours passed (#1607).
         assert_eq!(rolls_following_the_restored_game(5.0), 1);
-        // Ahead of the game, as after a restore that failed: a step back, no roll.
+        // Ahead of the game: a step back, no roll.
         assert_eq!(rolls_following_the_restored_game(30.0), 0);
     }
 
@@ -2025,6 +2116,9 @@ mod tests {
             live_globals: HashMap::new(),
             resume: Some(HELD),
             flash: [0.0; 3],
+            script_wind: None,
+            moon_textures: Default::default(),
+            lightning_request: false,
         }
     }
 

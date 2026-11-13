@@ -101,6 +101,10 @@ pub fn sync(game: &mut Game<'_>, paused: bool, main_menu: bool) -> LifetimeRepor
         open.insert(menus::START);
     }
     open.retain(|code| !matches!(*code, menus::PIPBOY | menus::LOADING | menus::VATS));
+    // The engine's classic VATS target screen, drawn from the game's file (`Game::ui_vats`).
+    if game.ui_vats {
+        open.insert(menus::VATS);
+    }
     let roots: Vec<_> = game.ui_tree.menus().collect();
     for root in roots {
         let tile = game.ui_tree.tile(root);
@@ -210,6 +214,10 @@ impl Source for UiFiles {
 
     fn game_string(&self, name: &str) -> Option<String> {
         self.strings.get(name)
+    }
+
+    fn game_string_is_built_in(&self, name: &str) -> bool {
+        matches!(self.strings.lookup(name), Some((_, fnv_ui::strings::Origin::BuiltIn)))
     }
 }
 

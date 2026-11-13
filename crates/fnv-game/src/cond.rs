@@ -143,7 +143,7 @@ const XEDIT_ONLY: &[(u16, &[&str])] = &[
 /// record are FormIDs (mapped through the plugin's master list); enumerations are codes;
 /// the rest are integers (a quest stage, an objective, a variable index) [documented:
 /// xEdit parameter types; the reading per type is ours].
-fn param(ty: Option<&str>, raw: u32, map: &dyn Fn(u32) -> Option<u32>) -> ArgValue {
+pub(crate) fn param(ty: Option<&str>, raw: u32, map: &dyn Fn(u32) -> Option<u32>) -> ArgValue {
     const INTS: &[&str] = &["ptInteger", "ptQuestStage", "ptQuestObjective", "ptVariableName", "ptVATSValueParam"];
     const ENUMS: &[&str] = &[
         "ptActorValue",

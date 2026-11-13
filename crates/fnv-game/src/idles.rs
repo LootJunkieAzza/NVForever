@@ -38,11 +38,17 @@ pub enum IdleSource {
     Listener,
     /// A drawn-weapon fidget picked from the idle tree ([`Game::fidget`]).
     Fidget,
+    /// A fidget of a person standing with its weapon away, picked from the idle tree
+    /// (biting its nails, smoking, drinking while it eats; [`FidgetKind::WeaponAway`]).
+    HolsteredFidget,
     /// A fidget on furniture (sitting or lying) picked from the idle tree.
     FurnitureFidget,
     /// A creature standing alerted plays a combat idle from the idle tree (the gecko's
     /// hiss; [`FidgetKind::Alerted`]).
     CombatIdle,
+    /// A creature standing still and calm plays an idle from the idle tree (a
+    /// protectron's look about; [`FidgetKind::Calm`]).
+    CalmIdle,
     /// A talking or listening gesture picked from the idle tree
     /// ([`Game::talk_gesture`]).
     Gesture,
@@ -59,6 +65,8 @@ pub enum IdleSource {
     Stimpak,
     /// An actor picks up a weapon or ammunition it fetched (`crate::rearm`).
     PickUp,
+    /// An actor with a live explosive planted in its pocket panics ([`Game::panic_idle`]).
+    Panic,
 }
 
 /// Which fidgets of the idle tree are played: the branch below a node whose conditions
@@ -69,6 +77,15 @@ pub enum FidgetKind {
     /// Standing with the weapon out: below a node requiring `IsWeaponOut == 1`
     /// (idles.md §11).
     WeaponOut,
+    /// A person standing with the weapon away: below a node requiring `IsWeaponOut == 0`
+    /// or `IsWeaponOut != 1`, not joined by OR (idles.md §11.4, #2026) [observed:
+    /// FalloutNV.esm's people's tree has two such branches walked for NPCs: the general
+    /// fidgets, smoking and the Pip-Boy look below one node under the NPC-only node, and
+    /// the drinking idles of the root that wants the eat procedure; their own conditions
+    /// decide the rest: factions, random percentages, worn items]. Not asked for the
+    /// player [design: the player's fidgets standing are the weapon-out ones, owner
+    /// 2026-10-16].
+    WeaponAway,
     /// On furniture: below a node requiring `GetSitting == 3` or `GetSleeping == 3`, the
     /// state of being on it (furniture.md §8).
     OnFurniture,
@@ -77,6 +94,13 @@ pub enum FidgetKind {
     /// IsMoving != 1 and GetIsAlerted 1 or the combat or flee procedure; MWarning,
     /// StBWarning) [observed: FalloutNV.esm; idles.md §14].
     Alerted,
+    /// A creature standing still and calm (not alerted, not on furniture): no node gates
+    /// it, the tree's own conditions decide [observed: HELIOS One's stasis protectrons,
+    /// calm on ProtectronNotActive, play the protectron tree's CommonIdle leaves
+    /// IdleSearch, IdleLookLeft and IdleLookRight, #1977 probe 2, 2026-11-10]. The
+    /// Idle-section leaves are the standing looks' ([`Game::standing_idle`]): the engine
+    /// holds them back.
+    Calm,
 }
 
 impl FidgetKind {
@@ -88,16 +112,20 @@ impl FidgetKind {
     fn gated_by(self, conds: &[Condition]) -> bool {
         match self {
             FidgetKind::WeaponOut => requires(conds, IS_WEAPON_OUT, 1.0),
+            FidgetKind::WeaponAway => requires(conds, IS_WEAPON_OUT, 0.0) || requires_not(conds, IS_WEAPON_OUT, 1.0),
             FidgetKind::OnFurniture => requires(conds, GET_SITTING, 3.0) || requires(conds, GET_SLEEPING, 3.0),
             FidgetKind::Alerted => names(conds, GET_IS_ALERTED, 1.0),
+            FidgetKind::Calm => true,
         }
     }
 
     pub fn source(self) -> IdleSource {
         match self {
             FidgetKind::WeaponOut => IdleSource::Fidget,
+            FidgetKind::WeaponAway => IdleSource::HolsteredFidget,
             FidgetKind::OnFurniture => IdleSource::FurnitureFidget,
             FidgetKind::Alerted => IdleSource::CombatIdle,
+            FidgetKind::Calm => IdleSource::CalmIdle,
         }
     }
 }
@@ -268,6 +296,10 @@ impl<'a> Game<'a> {
     ///   without children are idles played on request and are not walked. The pick is
     ///   kept only when a node on its way, the leaf included, gates `kind`
     ///   ([`FidgetKind`]): the rest of the tree is not built [design].
+    /// - An NPC with its weapon away ([`FidgetKind::WeaponAway`]) walks the same way: the
+    ///   people's tree gates its general fidgets, smoking and Pip-Boy look, and its
+    ///   drinking idles while eating, by a node that wants the weapon away, and their
+    ///   factions and random percentages are the nodes' own conditions (#2026).
     /// - The player on furniture walks the same way: the furniture branch has the
     ///   player's own nodes (`PlayerSittingChairIdles`, third person only) [observed].
     /// - The player with a weapon out [design, owner 2026-10-16: fidgets for the player
@@ -275,7 +307,38 @@ impl<'a> Game<'a> {
     ///   under an NPC-only node, the player's under a node that wants the weapon away),
     ///   so the walk starts at each node that requires the weapon out, its own
     ///   conditions and those below it judged, those above it not.
+    ///
+    /// The weapon-away walks ([`FidgetKind::WeaponAway`], asked of every NPC standing
+    /// holstered) draw `GetRandomPercent` from the idle tree's own generator, as the
+    /// talking gestures do, so they do not move the scripts' random numbers [engineering
+    /// choice, #2026]. The other kinds still draw from the scripts' generator.
     pub fn fidget(&mut self, actor: FormId, folder: &str, kind: FidgetKind, held_back: &dyn Fn(FormId) -> bool) -> Option<FormId> {
+        if kind != FidgetKind::WeaponAway {
+            return self.fidget_walk(actor, folder, kind, held_back);
+        }
+        // The player standing with the weapon away fidgets not.
+        if actor == FormId::PLAYER_REF {
+            return None;
+        }
+        std::mem::swap(&mut self.rng, &mut self.idle_rng);
+        let pick = self.fidget_walk(actor, folder, kind, held_back);
+        std::mem::swap(&mut self.rng, &mut self.idle_rng);
+        pick
+    }
+
+    /// Whether what `actor` does now has idles of its own, or none, so it gets no fidget
+    /// with the weapon away and one playing ends (#2026) [design]: on furniture (getting
+    /// on, on it or getting off: the furniture's fidgets are its own, furniture.md §8),
+    /// its current package has an idle collection (whose idles play instead, §5), or its
+    /// current package is flagged No Idle Anims ("Turns off Idle animations during
+    /// package" [documented: GECK wiki, Category:Packages]). An idle marker's collection
+    /// is the animating layer's to tell.
+    pub fn fidget_held_off(&self, actor: FormId) -> bool {
+        let quiet = self.extra.get(&actor).and_then(|e| e.current_package).and_then(|p| self.package_def(&p)).is_some_and(|d| d.has(crate::package::flags::NO_IDLE_ANIMS));
+        self.furniture_use(actor).is_some() || self.package_idles(actor).is_some() || quiet
+    }
+
+    fn fidget_walk(&mut self, actor: FormId, folder: &str, kind: FidgetKind, held_back: &dyn Fn(FormId) -> bool) -> Option<FormId> {
         let data = self.data;
         let folder = folder.to_ascii_lowercase();
         let own = |id: &FormId| data.idles.get(id).and_then(|d| d.model.as_deref()).is_some_and(|m| m.to_ascii_lowercase().starts_with(&folder));
@@ -334,6 +397,46 @@ impl<'a> Game<'a> {
         roots.into_iter().find(|r| !held_back(*r) && self.idle_allowed(actor, *r))
     }
 
+    /// The panic idle of `actor`, with a live explosive in its pocket, from the idle tree,
+    /// or `None` (docs/spec-notes/pickpocket.md §5): the roots of the actor's own `folder`
+    /// in chain order whose conditions name `GetPlantedExplosive == 1`, gone into as for
+    /// [`Game::pick_idle`] (the first leaf with a file whose conditions pass; a root that
+    /// is itself such an idle is the pick when its conditions pass) [observed:
+    /// FalloutNV.esm has one, `PanicExplosivePlanted` 0x00042F24 under
+    /// `Characters\_Male\IdleAnims`, whose leaves are `PanicGrenadePlantPA` (GetEquipped
+    /// on a form list, the power armour one) and `PanicGrenadePlant`; no creature folder
+    /// has one, so a creature plays none and only stands; hypothesis: the original's idle
+    /// manager plays it by its conditions while GetPlantedExplosive holds].
+    pub fn panic_idle(&mut self, actor: FormId, folder: &str, held_back: &dyn Fn(FormId) -> bool) -> Option<FormId> {
+        let data = self.data;
+        let folder = folder.to_ascii_lowercase();
+        let roots: Vec<FormId> = data
+            .idle_children
+            .get(&None)
+            .into_iter()
+            .flatten()
+            .copied()
+            .filter(|r| {
+                data.idles.get(r).is_some_and(|d| d.model.as_deref().is_some_and(|m| m.to_ascii_lowercase().starts_with(&folder)) && names(d.conditions.as_deref().unwrap_or_default(), GET_PLANTED_EXPLOSIVE, 1.0))
+            })
+            .collect();
+        for root in roots {
+            if !self.idle_allowed(actor, root) {
+                continue;
+            }
+            if !data.idle_children.contains_key(&Some(root)) {
+                if data.idles[&root].has_file() && !held_back(root) {
+                    return Some(root);
+                }
+                continue;
+            }
+            if let Some((leaf, _)) = self.first_leaf(actor, root, None, true, held_back) {
+                return Some(leaf);
+            }
+        }
+        None
+    }
+
     /// The idle `actor` plays for a script's `PickIdle`, or `None`: the idle tree walked
     /// as for an NPC's fidget ([`Game::fidget`]: the roots of the actor's own `folder` in
     /// chain order, the first node whose conditions pass gone into, the first leaf with
@@ -352,6 +455,42 @@ impl<'a> Game<'a> {
                 continue;
             }
             if let Some((leaf, _)) = self.first_leaf(actor, root, None, true, held_back) {
+                return Some(leaf);
+            }
+        }
+        None
+    }
+
+    /// The powered-down pose of an actor that SetUnconscious holds standing (not one
+    /// knocked out, which lies down: `crate::unconscious`), or `None`: the first idle of
+    /// its own `folder`'s tree, in chain order, that names a file, tests GetUnconscious
+    /// and whose way down passes [observed: FalloutNV.esm has one such leaf per body,
+    /// `ProtectronTurnedOff` 0x0005B344 `MTSpecialIdle_Deactivate.kf`, `MrGutsyUnconscious`
+    /// 0x00060C89 `SpecialIdle_Deactivate.kf`, `SentryBotUnconscious`,
+    /// `RobobrainUnconscious` and more, each with the one condition GetUnconscious == 1;
+    /// the protectron and Gutsy clips hold the switched-off pose between their StartLoop
+    /// and EndLoop keys. Owner 2026-11-09, with a still of the original: HELIOS One's
+    /// stasis protectrons and PYTHON stand arms down until switched on; documented: GECK
+    /// wiki SetUnconscious, unconscious actors "will not use AI behavior"]. Played as the
+    /// standing look ([`Game::standing_idle`]), looping until SetUnconscious 0 ends it.
+    pub fn unconscious_idle(&mut self, actor: FormId, folder: &str) -> Option<FormId> {
+        if !self.extra.get(&actor).is_some_and(|e| e.unconscious && e.knocked_out.is_none() && !e.dead) {
+            return None;
+        }
+        let data = self.data;
+        let folder = folder.to_ascii_lowercase();
+        let own = |id: &FormId| data.idles.get(id).and_then(|d| d.model.as_deref()).is_some_and(|m| m.to_ascii_lowercase().starts_with(&folder));
+        let off = |id: FormId| data.idles.get(&id).is_some_and(|d| d.has_file() && d.conditions.as_deref().is_some_and(|c| c.iter().any(|c| c.function == GET_UNCONSCIOUS)));
+        let roots: Vec<FormId> = data.idle_children.get(&None).into_iter().flatten().copied().filter(own).collect();
+        for root in roots {
+            let branch = data.idle_children.contains_key(&Some(root));
+            if (!branch && !off(root)) || !self.idle_allowed(actor, root) {
+                continue;
+            }
+            if !branch {
+                return Some(root);
+            }
+            if let Some((leaf, _)) = self.first_leaf(actor, root, None, true, &|i| !off(i)) {
                 return Some(leaf);
             }
         }
@@ -377,6 +516,9 @@ impl<'a> Game<'a> {
     /// engine plays the pick looping and asks again now and then, so a change of state
     /// changes the look (#1542).
     pub fn standing_idle(&mut self, actor: FormId, folder: &str) -> Option<FormId> {
+        if let Some(off) = self.unconscious_idle(actor, folder) {
+            return Some(off);
+        }
         let data = self.data;
         let folder = folder.to_ascii_lowercase();
         let look = |id: FormId| data.idles.get(&id).is_some_and(|d| d.section == 0 && !d.loose && d.has_file());
@@ -402,6 +544,12 @@ impl<'a> Game<'a> {
 
     /// The first leaf below `node` whose way down passes, and whether a node on that
     /// way (or `gated`, said of those above) gates `kind`.
+    /// PlayIdleEx's pick under a parent idle (`crate::nvse_jip14`): its first leaf whose
+    /// conditions, and its branches', pass.
+    pub(crate) fn first_idle_leaf(&mut self, actor: FormId, parent: FormId) -> Option<FormId> {
+        self.first_leaf(actor, parent, None, true, &|_| false).map(|(leaf, _)| leaf)
+    }
+
     fn first_leaf(&mut self, actor: FormId, node: FormId, kind: Option<FidgetKind>, gated: bool, held_back: &dyn Fn(FormId) -> bool) -> Option<(FormId, bool)> {
         let data = self.data;
         for &child in data.idle_children.get(&Some(node)).into_iter().flatten() {
@@ -520,7 +668,8 @@ impl<'a> Game<'a> {
     /// Category:Dialogue, each response can name an idle for the speaker and one for the
     /// listener].
     pub(crate) fn ask_response_idles(&mut self, speaker: FormId, listener: Option<FormId>, info: FormId, response: usize) {
-        let Some(r) = self.data.infos.get(&info).and_then(|d| d.responses.get(response)) else { return };
+        let dv = self.dialogue_view();
+        let Some(r) = dv.info(&info).and_then(|d| d.responses.get(response)) else { return };
         let (s, l) = (r.speaker_idle, r.listener_idle);
         if let Some(idle) = s {
             self.ask_idle(speaker, idle, IdleSource::Speaker);
@@ -566,6 +715,10 @@ pub fn talk_node(data: &crate::data::GameData, idle: FormId) -> bool {
 }
 
 const GET_CURRENT_AI_PROCEDURE: u16 = 0x108F;
+
+/// GetUnconscious's condition function index [documented: schemas/script/
+/// command_opcodes.json, GetUnconscious 4338 = 0x1000 + 242].
+const GET_UNCONSCIOUS: u16 = 242;
 const IS_TALKING: u16 = 0x108D;
 const MENU_MODE: u16 = 0x1024;
 
@@ -600,6 +753,15 @@ fn requires(conds: &[Condition], opcode: u16, value: f64) -> bool {
     })
 }
 
+/// Whether conditions require `opcode != value`: such a condition not joined to another
+/// by OR (`EatIdles`' `IsWeaponOut != 1`).
+fn requires_not(conds: &[Condition], opcode: u16, value: f64) -> bool {
+    conds.iter().enumerate().any(|(i, c)| {
+        let joined = c.or || (i > 0 && conds[i - 1].or);
+        c.opcode() == opcode && c.cmp == crate::cond::Cmp::Ne && c.rhs == crate::cond::Operand::Value(value) && !joined
+    })
+}
+
 /// Whether conditions ask for `opcode == value`, alone or as one of several joined by OR.
 fn names(conds: &[Condition], opcode: u16, value: f64) -> bool {
     conds.iter().any(|c| c.opcode() == opcode && c.cmp == crate::cond::Cmp::Eq && c.rhs == crate::cond::Operand::Value(value))
@@ -611,6 +773,8 @@ const GET_SITTING: u16 = 0x109F;
 const GET_SLEEPING: u16 = 0x1031;
 /// Opcode of `GetIsAlerted` (`functions::mod`).
 const GET_IS_ALERTED: u16 = 0x105B;
+/// Opcode of `GetPlantedExplosive` (`functions::mod`).
+const GET_PLANTED_EXPLOSIVE: u16 = 0x11AC;
 /// The procedure of a fleeing actor, 16 FLEE (`functions::ai_state`).
 const FLEE_PROCEDURE: f64 = 16.0;
 
@@ -761,6 +925,26 @@ mod tests {
     }
 
     #[test]
+    fn holstered_fidgets_are_gated_by_the_weapon_away_alone() {
+        use crate::cond::{Cmp, Operand, RunOn};
+        let c = |function: u16, cmp: Cmp, v: f64, or: bool| Condition { cmp, or, run_on: RunOn::Subject, function, params: Vec::new(), rhs: Operand::Value(v) };
+        let (weapon, procedure, random) = (IS_WEAPON_OUT - 0x1000, 0x8F, 0x4D);
+        let away = FidgetKind::WeaponAway;
+        // A node wanting IsWeaponOut == 0 among others, and one wanting IsWeaponOut != 1
+        // with the eat procedure: both gate.
+        assert!(away.gated_by(&[c(0xB6, Cmp::Ne, 1.0, false), c(weapon, Cmp::Eq, 0.0, false)]));
+        assert!(away.gated_by(&[c(weapon, Cmp::Ne, 1.0, false), c(procedure, Cmp::Eq, 10.0, false)]));
+        // Joined by OR to another, or wanting the weapon out: no gate.
+        assert!(!away.gated_by(&[c(weapon, Cmp::Eq, 0.0, true), c(random, Cmp::Lt, 5.0, false)]));
+        assert!(!away.gated_by(&[c(random, Cmp::Lt, 5.0, true), c(weapon, Cmp::Ne, 1.0, false)]));
+        assert!(!away.gated_by(&[c(weapon, Cmp::Eq, 1.0, false)]));
+        assert!(!away.gated_by(&[c(weapon, Cmp::Ne, 0.0, false)]));
+        // The weapon-out kind does not take the weapon-away branches.
+        assert!(!FidgetKind::WeaponOut.gated_by(&[c(weapon, Cmp::Eq, 0.0, false)]));
+        assert_eq!(away.source(), IdleSource::HolsteredFidget);
+    }
+
+    #[test]
     fn creature_combat_idles_are_gated_by_get_is_alerted_alone_or_or_joined() {
         use crate::cond::{Cmp, Operand, RunOn};
         let c = |function: u16, cmp: Cmp, v: f64, or: bool| Condition { cmp, or, run_on: RunOn::Subject, function, params: Vec::new(), rhs: Operand::Value(v) };
@@ -776,6 +960,20 @@ mod tests {
         assert!(!a.gated_by(&[c(IS_WEAPON_OUT - 0x1000, Cmp::Eq, 1.0, false)]));
         assert!(!FidgetKind::WeaponOut.gated_by(&[c(alerted, Cmp::Eq, 1.0, false)]));
         assert_eq!(a.source(), IdleSource::CombatIdle);
+    }
+
+    #[test]
+    fn a_calm_creature_walks_the_whole_tree_by_its_own_conditions() {
+        use crate::cond::{Cmp, Operand, RunOn};
+        let c = |function: u16, cmp: Cmp, v: f64| Condition { cmp, or: false, run_on: RunOn::Subject, function, params: Vec::new(), rhs: Operand::Value(v) };
+        let calm = FidgetKind::Calm;
+        // The protectron's CommonIdle (IsInCombat == 0) and its leaves (GetRandomPercent,
+        // IsMoving) are no gate any kind names: every branch is a calm creature's, and
+        // the conditions met on the walk decide [observed: #1977 probe 2].
+        assert!(calm.gated_by(&[c(0x121, Cmp::Eq, 0.0)]));
+        assert!(calm.gated_by(&[]));
+        assert!(!FidgetKind::Alerted.gated_by(&[c(0x121, Cmp::Eq, 0.0)]));
+        assert_eq!(calm.source(), IdleSource::CalmIdle);
     }
 
     #[test]

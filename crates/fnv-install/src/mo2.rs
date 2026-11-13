@@ -152,7 +152,7 @@ fn pick_instance(app: &std::path::Path, current: &str, global: Option<&std::path
 
 /// The value of `key` under `[section]` of an MO2 `ModOrganizer.ini`: `@ByteArray(...)`
 /// unwrapped and `\\` read as `\` (Qt's escaping), or a plain value as it is. `None` when
-/// absent or empty.
+/// absent or empty. Qt's escapes are read ([`qt_unescape`]).
 pub fn ini_value(ini: &str, section: &str, key: &str) -> Option<String> {
     let header = format!("[{section}]");
     let mut inside = false;
@@ -167,15 +167,11 @@ pub fn ini_value(ini: &str, section: &str, key: &str) -> Option<String> {
             continue;
         }
         let v = v.trim();
-        let v = v.strip_prefix("@ByteArray(").and_then(|r| r.strip_suffix(')')).unwrap_or(v);
-        let mut out = String::new();
-        let mut chars = v.chars();
-        while let Some(c) = chars.next() {
-            match c {
-                '\\' => out.extend(chars.next()),
-                c => out.push(c),
-            }
-        }
+        let (v, bytes) = match v.strip_prefix("@ByteArray(").and_then(|r| r.strip_suffix(')')) {
+            Some(inner) => (inner, true),
+            None => (v, false),
+        };
+        let out = qt_unescape(v, bytes);
         return (!out.is_empty()).then_some(out);
     }
     None
@@ -320,6 +316,59 @@ pub fn enabled_mods(modlist: &str) -> Vec<String> {
 /// case-sensitive, a mod's file need not have the list's spelling), under its own name.
 fn file_in(dir: &Path, name: &str) -> Option<PathBuf> {
     std::fs::read_dir(dir).ok()?.flatten().map(|e| e.path()).find(|p| p.is_file() && p.file_name().is_some_and(|f| f.to_string_lossy().eq_ignore_ascii_case(name)))
+}
+
+/// A QSettings INI value with its escapes read: `\\`, `\"`, `\n`, `\t` and the other
+/// one-letter escapes, `\x` and hex digits, `\0` and octal digits. Qt writes a character
+/// outside printable ASCII that way, so a game folder such as `D:\Игры` or `C:\Users\José`
+/// is stored as `\xd0\x98…` [hypothesis: QSettings' INI format, general knowledge; the
+/// owner's instances show only `\\`, #1996]. In a `@ByteArray` (`bytes`) each escape is
+/// one byte and the bytes are UTF-8 (Latin-1 when they are not); in a plain value it is
+/// one character. The escape reads every hex (octal) digit that follows: Qt escapes a
+/// digit right after one too, so where it ends is plain [hypothesis].
+fn qt_unescape(v: &str, bytes: bool) -> String {
+    let mut out: Vec<u8> = Vec::with_capacity(v.len());
+    let put = |out: &mut Vec<u8>, c: char| out.extend_from_slice(c.encode_utf8(&mut [0; 4]).as_bytes());
+    let mut chars = v.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c != '\\' {
+            put(&mut out, c);
+            continue;
+        }
+        let Some(e) = chars.next() else { break };
+        let radix = match e {
+            'x' | 'X' => 16,
+            '0'..='7' => 8,
+            _ => {
+                let lit = match e {
+                    'n' => '\n',
+                    't' => '\t',
+                    'r' => '\r',
+                    'a' => '\u{7}',
+                    'b' => '\u{8}',
+                    'f' => '\u{c}',
+                    'v' => '\u{b}',
+                    other => other,
+                };
+                put(&mut out, lit);
+                continue;
+            }
+        };
+        let mut n: u32 = if radix == 8 { e.to_digit(8).unwrap_or(0) } else { 0 };
+        while let Some(d) = chars.peek().and_then(|c| c.to_digit(radix)) {
+            n = n.saturating_mul(radix).saturating_add(d);
+            chars.next();
+        }
+        match char::from_u32(n) {
+            Some(_) if bytes && n <= 0xFF => out.push(n as u8),
+            Some(c) => put(&mut out, c),
+            None => {}
+        }
+    }
+    match String::from_utf8(out) {
+        Ok(s) => s,
+        Err(e) => e.into_bytes().iter().map(|&b| b as char).collect(),
+    }
 }
 
 /// The game folder MO2's instance manages, when MO2 started this process and its instance
@@ -542,6 +591,22 @@ mod tests {
         assert!(!l.turn_on("caf\u{e9}.ESP").unwrap());
         assert_eq!(std::fs::read(l.profile.join("plugins.txt")).unwrap(), p);
         std::fs::remove_dir_all(&t).ok();
+    }
+
+    /// A game folder outside ASCII, as Qt escapes it in a `@ByteArray`: the bytes of its
+    /// UTF-8 as `\xNN` (Cyrillic `Игры`, accented `José`); a digit after an escape is
+    /// escaped too; the one-letter escapes; a plain value's `\x` is a character [#1996].
+    #[test]
+    fn game_path_escapes_outside_ascii() {
+        let cyr = "[General]\ngamePath=@ByteArray(D:\\\\\\xd0\\x98\\xd0\\xb3\\xd1\\x80\\xd1\\x8b\\\\Fallout New Vegas)\n";
+        assert_eq!(ini_game_path(cyr), Some(PathBuf::from("D:\\Игры\\Fallout New Vegas")));
+        let acc = "[General]\ngamePath=@ByteArray(C:\\\\Users\\\\Jos\\xc3\\xa9\\\\FNV)\n";
+        assert_eq!(ini_game_path(acc), Some(PathBuf::from("C:\\Users\\José\\FNV")));
+        // `é2`: the 2 after the escape is escaped as well, so the hex run ends at it.
+        assert_eq!(qt_unescape("Jos\\xc3\\xa9\\x32\\\"\\t", true), "José2\"\t");
+        // Bytes that are not UTF-8 read as Latin-1.
+        assert_eq!(qt_unescape("Jos\\xe9", true), "José");
+        assert_eq!(qt_unescape("Jos\\xe9 \\0101", false), "José A");
     }
 
     #[test]

@@ -16,6 +16,7 @@ pub fn show_message(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> 
     let def = g.data.messages.get(&m).ok_or_else(|| format!("{} is not a message", g.data.name(m)))?;
     // SetMessageFlags' Message Box bit (`nvse_jip6`).
     let (text, buttons, is_box) = (def.text.clone(), def.buttons.clone(), g.message_flags(m) & 1 != 0);
+    let (icon, seconds) = (def.icon, def.display_seconds);
     // "A disabled message will never be displayed by the game" [documented:
     // SetMessageDisabled].
     if g.message_disabled(m) {
@@ -35,6 +36,7 @@ pub fn show_message(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> 
     }
     // Player character string codes (`&PCName;` …) [documented: ext-format.md §6].
     let text = text.map(|t| g.expand_codes(&t));
+    let shown = text.clone().unwrap_or_default();
     g.emit(EventKind::MessageShown { message: m, text, buttons: buttons.clone(), hidden });
     // A message box (MESG flag Message Box, or buttons) is a menu until the player closes
     // it [observed: MenuMode 1001 while the pack plugins' boxes were open,
@@ -42,7 +44,11 @@ pub fn show_message(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> 
     if is_box || !buttons.is_empty() {
         g.show_box(m);
     } else {
-        g.queue_corner_message();
+        let icon = match icon.and_then(|i| crate::nvse::record_value(g, i, "ICON", "")) {
+            Some(fnv_script::vm::XVal::Str(p)) => p,
+            _ => String::new(),
+        };
+        g.queue_corner_message(&shown, &icon, seconds.map_or(crate::nvse_hud::CORNER_SECONDS, f64::from));
     }
     none()
 }
@@ -92,6 +98,9 @@ pub fn show_warning(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String>
 
 /// 0 to 99 from the game's seeded generator (deterministic per seed).
 pub fn get_random_percent(g: &mut Game, _ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    if let Some(v) = g.fixed_random_percent {
+        return Ok(Value::Num(v.min(99) as f64));
+    }
     Ok(Value::Num((g.rng.next_u32() % 100) as f64))
 }
 
@@ -115,9 +124,12 @@ pub fn clock_now(t: f64) -> f64 {
 /// instance) get 0.
 pub fn get_seconds_passed(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     let Some(key) = ctx.inst else { return none() };
-    let now = clock_now(g.time);
+    // Under a page, its own clock (`Game::page_time`).
+    let page = g.in_page();
+    let now = clock_now(if page { g.page_time } else { g.time });
     let Some(inst) = g.instances.get(&key) else { return none() };
-    let v = match (inst.run_last, inst.run_prev) {
+    let (last, prev) = if page { (inst.page_last, inst.page_prev) } else { (inst.run_last, inst.run_prev) };
+    let v = match (last, prev) {
         (Some(last), prev) if last == now => prev.map_or(0.0, |p| now - p),
         (Some(last), _) => now - last,
         (None, _) => 0.0,
@@ -224,7 +236,7 @@ pub fn menu_mode(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
 pub fn say_to(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let speaker = ctx.subject()?;
     let (target, topic) = (a.form(0)?, a.form(1)?);
-    if g.say(speaker, Some(target), topic, true).is_some() {
+    if g.say_by_script(speaker, Some(target), topic, true).is_some() {
         if a.num_or(3, 0.0) != 0.0 {
             g.set_line_look(speaker, LineLook::Speaker);
         }
@@ -246,7 +258,7 @@ pub fn say_to(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
 pub fn say(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let speaker = ctx.subject()?;
     let topic = a.form(0)?;
-    if g.say(speaker, None, topic, false).is_some() {
+    if g.say_by_script(speaker, None, topic, false).is_some() {
         g.set_line_flags(speaker, a.num_or(1, 0.0) != 0.0, a.num_or(3, 0.0) != 0.0);
     }
     none()
@@ -343,6 +355,7 @@ pub fn get_player_name(g: &mut Game, _ctx: &Ctx, _a: &Args) -> Result<Value, Str
 /// ShowRaceMenu: the race menu.
 pub fn show_race_menu(g: &mut Game, _ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     g.race_menu = crate::game::RaceMenu::Creator;
+    g.race_menu_studio = false;
     open(g, menus::RACE)
 }
 
@@ -350,13 +363,17 @@ pub fn show_race_menu(g: &mut Game, _ctx: &Ctx, _a: &Args) -> Result<Value, Stri
 /// 1036, `crate::game::RaceMenu::Surgeon`).
 pub fn show_plastic_surgeon_menu(g: &mut Game, _ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     g.race_menu = crate::game::RaceMenu::Surgeon;
+    g.race_menu_studio = false;
     open(g, menus::RACE)
 }
 
 /// ShowBarberMenu: the race menu as the barber's, the hair and beard only (menu 1036,
 /// `crate::game::RaceMenu::Barber`).
 pub fn show_barber_menu(g: &mut Game, _ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    // Unfiltered, whatever ShowBarberMenuEx set before (#2018).
+    g.other.jg10.barber_filter = None;
     g.race_menu = crate::game::RaceMenu::Barber;
+    g.race_menu_studio = false;
     open(g, menus::RACE)
 }
 
@@ -660,7 +677,7 @@ pub struct TextureSwaps {
 
 impl TextureSwaps {
     /// Draw `texture` on `on`'s shape `shape` (the last call per shape kept).
-    fn swap(&mut self, on: fnv_sim::FormId, shape: String, texture: String) {
+    pub(crate) fn swap(&mut self, on: fnv_sim::FormId, shape: String, texture: String) {
         let swaps = self.by_ref.entry(on).or_default();
         swaps.retain(|(s, _)| *s != shape);
         swaps.push((shape, texture));
@@ -754,7 +771,8 @@ pub struct ScriptLooks {
     /// Counts the changes of `shaders` and `alpha`.
     pub generation: u64,
     /// References a `Disable 1` is fading out, still enabled until this [`Game::time`]
-    /// (`refs::disable`).
+    /// (`refs::disable`); saved (`GameSnapshot::fading_out`), so a save during the hold
+    /// still disables.
     pub fading_out: std::collections::BTreeMap<fnv_sim::FormId, f64>,
     /// References whose fade-out hold ended and that are now disabled, for the engine to
     /// take (their collision and enable children follow).

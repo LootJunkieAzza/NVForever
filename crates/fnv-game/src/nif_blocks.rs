@@ -23,6 +23,28 @@ pub struct SceneNode {
     pub scale: f32,
     /// The NiAVObject flags; bit 0 hides it.
     pub flags: u32,
+    /// A shape's NiMaterialProperty values in Get/SetMaterialPropertyValue's order:
+    /// specular R G B, emissive R G B, glossiness, alpha, emissive mult [documented: the
+    /// pages' value IDs 0-8]; `None` for a node or a shape without one.
+    pub material: Option<[f32; 9]>,
+    /// What else the engine tells of the node for JohnnyGuitar's NIF functions
+    /// (`crate::nvse_jg_nif`); `None` when it told nothing more.
+    pub info: Option<Box<NodeInfo>>,
+}
+
+/// A node's drawn bound, particle system and render properties, as the engine tells them.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct NodeInfo {
+    /// The bounding sphere of the node and what is under it, in the world: centre X Y Z
+    /// and radius (GetNiBound).
+    pub bound: Option<[f32; 4]>,
+    /// A particle system's values by GetNiPSysModifierValue's IDs 0-19, then its spawn
+    /// rate (20).
+    pub emitter: Option<[f32; 21]>,
+    /// A shape's NiAlphaProperty: flags, threshold.
+    pub alpha: Option<[f32; 2]>,
+    /// A shape's NiStencilProperty: flags, reference, mask.
+    pub stencil: Option<[f32; 3]>,
 }
 
 /// A change a script made, for the engine to apply to the drawn nodes.
@@ -32,12 +54,20 @@ pub enum SceneEdit {
     Rotation { r: FormId, node: String, v: [f32; 3] },
     Scale { r: FormId, node: String, v: f32 },
     Flags { r: FormId, node: String, flags: u32 },
+    /// The flags of the `child`th child of `node` (0 first, in the order the engine told
+    /// them), for a switch whose children are unnamed or share names (#2017).
+    ChildFlags { r: FormId, node: String, child: usize, flags: u32 },
     Rename { r: FormId, node: String, to: String },
     Remove { r: FormId, node: String },
     /// A new empty node under `target`, or (`as_parent`) between `target` and its parent.
     Insert { r: FormId, target: String, name: String, as_parent: bool },
     /// A model's nodes under `target` (`model` under meshes).
     Attach { r: FormId, target: String, model: String },
+    /// One NiMaterialProperty value of a shape (`id` 0-8, as in [`SceneNode::material`]).
+    Material { r: FormId, node: String, id: usize, v: f32 },
+    /// A particle system's value by GetNiPSysModifierValue's IDs, 20 the spawn rate
+    /// (`crate::nvse_jg_nif`).
+    Particle { r: FormId, node: String, id: usize, v: f32 },
 }
 
 /// The mirror and the queued changes.
@@ -46,6 +76,14 @@ pub struct SceneMirror {
     trees: HashMap<FormId, Vec<SceneNode>>,
     watched: HashSet<FormId>,
     edits: Vec<SceneEdit>,
+    /// The shapes whose vertices a script asked for (SUP's NifBlockGetVerticles), by
+    /// reference and lower-case name, and what the engine told of them.
+    vert_wanted: HashSet<(FormId, String)>,
+    verts: HashMap<(FormId, String), Vec<[f32; 3]>>,
+    /// The alpha and stencil property values scripts set (JohnnyGuitar's
+    /// Set…PropertyValue), laid over each tree the engine tells: reference, node, alpha
+    /// (else stencil), item, value.
+    prop_sets: Vec<(FormId, String, bool, usize, f32)>,
 }
 
 impl SceneMirror {
@@ -55,8 +93,30 @@ impl SceneMirror {
     }
 
     /// The engine tells a watched reference's tree (parents before children).
-    pub fn set_tree(&mut self, r: FormId, nodes: Vec<SceneNode>) {
+    pub fn set_tree(&mut self, r: FormId, mut nodes: Vec<SceneNode>) {
+        for (pr, node, alpha, item, v) in &self.prop_sets {
+            if *pr == r {
+                if let Some(i) = find(&nodes, node) {
+                    lay_prop(&mut nodes[i], *alpha, *item, *v);
+                }
+            }
+        }
         self.trees.insert(r, nodes);
+    }
+
+    /// A shape's alpha (`alpha`) or stencil property value for the session's reads,
+    /// kept over the trees the engine tells next; false without the node or that
+    /// property on it.
+    pub fn set_prop(&mut self, r: FormId, node: &str, alpha: bool, item: usize, v: f32) -> bool {
+        let Some(t) = self.tree(r) else { return false };
+        let Some(i) = find(t, node) else { return false };
+        if !lay_prop(&mut t[i], alpha, item, v) {
+            return false;
+        }
+        let name = t[i].name.clone();
+        self.prop_sets.retain(|(pr, n, a, k, _)| !(*pr == r && n.eq_ignore_ascii_case(&name) && *a == alpha && *k == item));
+        self.prop_sets.push((r, name, alpha, item, v));
+        true
     }
 
     /// The reference's 3D is gone.
@@ -72,6 +132,72 @@ impl SceneMirror {
     fn tree(&mut self, r: FormId) -> Option<&mut Vec<SceneNode>> {
         self.watched.insert(r);
         self.trees.get_mut(&r)
+    }
+
+    /// A node of a reference's tree as the mirror holds it now (the reference watched
+    /// from now on); `None` without the tree or the node.
+    pub fn node_now(&mut self, r: FormId, node: &str) -> Option<SceneNode> {
+        let t = self.tree(r)?;
+        find(t, node).map(|i| t[i].clone())
+    }
+
+    /// A particle system's value for the engine (`SceneEdit::Particle`), shown in the
+    /// mirror at once; false without the node or a particle system there.
+    pub fn set_particle(&mut self, r: FormId, node: &str, id: usize, v: f32) -> bool {
+        let Some(t) = self.tree(r) else { return false };
+        let Some(i) = find(t, node) else { return false };
+        let Some(e) = t[i].info.as_mut().and_then(|n| n.emitter.as_mut()) else { return false };
+        let Some(slot) = e.get_mut(id) else { return false };
+        *slot = v;
+        let node = t[i].name.clone();
+        self.edits.push(SceneEdit::Particle { r, node, id, v });
+        true
+    }
+
+    /// A translation, rotation or scale for the engine, shown in the mirror at once as
+    /// the NIF block setters' (SUP's interpolations, `crate::nvse_sup7`).
+    pub fn push_edit(&mut self, e: SceneEdit) {
+        let (r, node) = match &e {
+            SceneEdit::Translation { r, node, .. } | SceneEdit::Rotation { r, node, .. } | SceneEdit::Scale { r, node, .. } => (*r, node.clone()),
+            _ => {
+                self.edits.push(e);
+                return;
+            }
+        };
+        if let Some(t) = self.tree(r) {
+            if let Some(i) = find(t, &node) {
+                match &e {
+                    SceneEdit::Translation { v, .. } => t[i].translation = *v,
+                    SceneEdit::Rotation { v, .. } => t[i].rotation = *v,
+                    SceneEdit::Scale { v, .. } => t[i].scale = *v,
+                    _ => {}
+                }
+            }
+        }
+        self.edits.push(e);
+    }
+
+    /// A shape's vertices as the engine last told them, in the shape's own space; asked
+    /// for from now on. `None` until told, or when the reference draws no such shape.
+    pub fn vertices(&mut self, r: FormId, node: &str) -> Option<Vec<[f32; 3]>> {
+        let key = (r, node.to_ascii_lowercase());
+        let v = self.verts.get(&key).cloned();
+        self.vert_wanted.insert(key);
+        v
+    }
+
+    /// The shapes whose vertices the engine should tell (reference, lower-case name).
+    pub fn wanted_vertices(&self) -> impl Iterator<Item = &(FormId, String)> + '_ {
+        self.vert_wanted.iter()
+    }
+
+    /// The engine tells a shape's vertices (none: it draws no shape of that name).
+    pub fn set_vertices(&mut self, r: FormId, node: &str, v: Option<Vec<[f32; 3]>>) {
+        let key = (r, node.to_ascii_lowercase());
+        match v {
+            Some(v) => self.verts.insert(key, v),
+            None => self.verts.remove(&key),
+        };
     }
 }
 
@@ -94,6 +220,20 @@ impl Game<'_> {
     /// ClearRuntimeNodes); the mirror forgets it at once.
     pub(crate) fn remove_node_now(&mut self, r: FormId, node: &str) {
         crate::nif_blocks::call(self, "removenifblock", Some(r), &[XVal::Str(node.to_string())]);
+    }
+}
+
+/// Puts an alpha or stencil property value on a node; false when it has no such property
+/// or item.
+fn lay_prop(n: &mut SceneNode, alpha: bool, item: usize, v: f32) -> bool {
+    let Some(info) = n.info.as_deref_mut() else { return false };
+    let slot = if alpha { info.alpha.as_mut().map(|a| a.as_mut_slice()) } else { info.stencil.as_mut().map(|s| s.as_mut_slice()) };
+    match slot.and_then(|s| s.get_mut(item)) {
+        Some(x) => {
+            *x = v;
+            true
+        }
+        None => false,
     }
 }
 
@@ -154,8 +294,116 @@ fn axis(v: Option<&XVal>) -> Option<usize> {
     }
 }
 
+/// A result and values for the script variables the VM writes (`Vm::out_call`).
+fn outputs(g: &mut Game, ret: f64, vals: &[f64]) -> XVal {
+    let entries = std::iter::once(ret).chain(vals.iter().copied()).enumerate().map(|(i, v)| (XKey::Num(i as f64), XVal::Num(v))).collect();
+    XVal::Array(g.ext.new_array(ArrayKind::List, entries))
+}
+
+pub(crate) type Mat = [[f32; 3]; 3];
+
+pub(crate) fn mul(a: &Mat, b: &Mat) -> Mat {
+    let mut o = [[0.0; 3]; 3];
+    for (i, row) in o.iter_mut().enumerate() {
+        for (j, c) in row.iter_mut().enumerate() {
+            *c = (0..3).map(|k| a[i][k] * b[k][j]).sum();
+        }
+    }
+    o
+}
+
+pub(crate) fn apply(m: &Mat, v: [f32; 3]) -> [f32; 3] {
+    [0, 1, 2].map(|i| m[i][0] * v[0] + m[i][1] * v[1] + m[i][2] * v[2])
+}
+
+/// The rotation of X Y Z angles (radians) taken about the fixed axes in that order,
+/// Rz·Ry·Rx: the mirror's convention (`SceneNode::rotation`, the engine's `EulerRot::ZYX`).
+pub(crate) fn rotation(a: [f32; 3]) -> Mat {
+    let (sx, cx) = a[0].sin_cos();
+    let (sy, cy) = a[1].sin_cos();
+    let (sz, cz) = a[2].sin_cos();
+    let rx = [[1.0, 0.0, 0.0], [0.0, cx, -sx], [0.0, sx, cx]];
+    let ry = [[cy, 0.0, sy], [0.0, 1.0, 0.0], [-sy, 0.0, cy]];
+    let rz = [[cz, -sz, 0.0], [sz, cz, 0.0], [0.0, 0.0, 1.0]];
+    mul(&rz, &mul(&ry, &rx))
+}
+
+/// [`rotation`]'s angles back, in degrees.
+pub(crate) fn extrinsic_angles(m: &Mat) -> [f32; 3] {
+    let y = (-m[2][0]).clamp(-1.0, 1.0).asin();
+    [m[2][1].atan2(m[2][2]), y, m[1][0].atan2(m[0][0])].map(f32::to_degrees)
+}
+
+/// The angles of the same rotation taken about the turning axes, X then Y then Z
+/// (Rx·Ry·Rz), in degrees.
+fn intrinsic_angles(m: &Mat) -> [f32; 3] {
+    let y = m[0][2].clamp(-1.0, 1.0).asin();
+    [(-m[1][2]).atan2(m[2][2]), y, (-m[0][1]).atan2(m[0][0])].map(f32::to_degrees)
+}
+
+/// A node's translation and rotation: as its parent holds it, or (`world`) in the world,
+/// through the nodes above it and the reference's own position and angles. `None`
+/// without the tree or the node.
+pub(crate) fn node_place(g: &mut Game, r: FormId, node: &str, world: bool) -> Option<([f32; 3], Mat)> {
+    let t = g.scene.tree(r)?.clone();
+    let mut i = find(&t, node)?;
+    let local = |n: &SceneNode| (n.translation, rotation(n.rotation.map(f32::to_radians)), n.scale);
+    let (mut pos, mut rot, _) = local(&t[i]);
+    if !world {
+        return Some((pos, rot));
+    }
+    while let Some(p) = t[i].parent {
+        let (pt, pr, ps) = local(&t[p]);
+        pos = apply(&pr, pos.map(|x| x * ps));
+        pos = [pos[0] + pt[0], pos[1] + pt[1], pos[2] + pt[2]];
+        rot = mul(&pr, &rot);
+        i = p;
+    }
+    let (rp, ra) = g.ref_pos_rot(r)?;
+    let rr = rotation(ra);
+    let p = apply(&rr, pos);
+    Some(([p[0] + rp[0], p[1] + rp[1], p[2] + rp[2]], mul(&rr, &rot)))
+}
+
+/// A node's place in the world (the reference's own place, and the nodes above it), for
+/// JohnnyGuitar's distances (`crate::nvse_jg_nif`); `None` without the tree or the node.
+pub(crate) fn node_world(g: &mut Game, r: FormId, node: &str) -> Option<[f32; 3]> {
+    node_place(g, r, node, true).map(|(p, _)| p)
+}
+
+/// Shows only the `show`th child of the node of that name (none for a place past the
+/// children), each child addressed by its place under the node, not by its name; the
+/// engine gets one [`SceneEdit::ChildFlags`] per child. `false` without the tree or the
+/// node.
+pub(crate) fn show_one_child(g: &mut Game, r: FormId, node: &str, show: Option<usize>) -> bool {
+    let Some(t) = g.scene.tree(r) else { return false };
+    let Some(i) = find(t, node) else { return false };
+    let kids: Vec<usize> = (0..t.len()).filter(|&k| t[k].parent == Some(i) && k != i).collect();
+    let mut edits = Vec::new();
+    for (place, k) in kids.into_iter().enumerate() {
+        let flags = if Some(place) == show { t[k].flags & !1 } else { t[k].flags | 1 };
+        t[k].flags = flags;
+        edits.push(SceneEdit::ChildFlags { r, node: node.to_string(), child: place, flags });
+    }
+    g.scene.edits.extend(edits);
+    true
+}
+
+/// The mirror's node of that name and its children, for JohnnyGuitar's NIF functions.
+pub(crate) fn node_and_children(g: &mut Game, r: FormId, node: &str) -> Option<(SceneNode, Vec<String>)> {
+    let t = g.scene.tree(r)?;
+    let i = find(t, node)?;
+    let kids = t.iter().enumerate().filter(|(k, n)| n.parent == Some(i) && *k != i).map(|(_, n)| n.name.clone()).collect();
+    Some((t[i].clone(), kids))
+}
+
+/// The name of the reference's root node in the mirror (the first without a parent).
+pub(crate) fn root_name(g: &mut Game, r: FormId) -> Option<String> {
+    g.scene.tree(r)?.iter().find(|n| n.parent.is_none()).map(|n| n.name.clone())
+}
+
 /// The model file of a base form (MODL), under meshes.
-pub(crate) fn model_of(g: &Game, f: FormId) -> Option<String> {
+pub fn model_of(g: &Game, f: FormId) -> Option<String> {
     let b = crate::functions::base_of(g, f).unwrap_or(f);
     match crate::nvse::record_value(g, b, "MODL", "").or_else(|| crate::nvse::record_value(g, b, "MODL", "model")) {
         Some(XVal::Str(s)) if !s.is_empty() => Some(s),
@@ -314,7 +562,7 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
                     Some(n) => (true, n.to_string()),
                     None => (false, what.to_string()),
                 };
-                let node = SceneNode { name: nm.clone(), parent: if as_parent { t[i].parent } else { Some(i) }, translation: [0.0; 3], rotation: [0.0; 3], scale: 1.0, flags: 0 };
+                let node = SceneNode { name: nm.clone(), parent: if as_parent { t[i].parent } else { Some(i) }, translation: [0.0; 3], rotation: [0.0; 3], scale: 1.0, flags: 0, material: None, info: None };
                 t.push(node);
                 if as_parent {
                     let new = t.len() - 1;
@@ -325,6 +573,55 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
                 g.scene.edits.push(SceneEdit::Attach { r: target_ref, target: target.to_string(), model: what.to_string() });
             }
             XVal::Num(1.0)
+        }
+        // ---- JIP batch 9 (docs/spec-notes/jip-ui-9.md §3)
+        // `block id`: a value of the block's NiMaterialProperty, 0 without one, a block
+        // of that name or 3D [hypothesis: the page names no failure value].
+        "getmaterialpropertyvalue" => {
+            let id = num(args, 1, -1.0);
+            let Some(t) = g.scene.tree(r) else { return Some(Ok(zero)) };
+            let v = find(t, &text(args, 0)).and_then(|i| t[i].material).filter(|_| (0.0..9.0).contains(&id)).map_or(0.0, |m| m[id as usize]);
+            XVal::Num(f64::from(v))
+        }
+        // `block id value`: the value, for the engine to draw; this reference's only
+        // [hypothesis: the page's note says an inventory reference changes the base's
+        // model]. 0 [hypothesis: as the other setters, though the page names a result].
+        "setmaterialpropertyvalue" => {
+            let (node, id, v) = (text(args, 0), num(args, 1, -1.0), num(args, 2, f64::NAN));
+            if !(0.0..9.0).contains(&id) || !v.is_finite() {
+                return Some(Ok(zero));
+            }
+            let (id, v) = (id as usize, v as f32);
+            let mut found = false;
+            if let Some(t) = g.scene.tree(r) {
+                if let Some(m) = find(t, &node).and_then(|i| t[i].material.as_mut()) {
+                    m[id] = v;
+                    found = true;
+                }
+            }
+            if found {
+                g.scene.edits.push(SceneEdit::Material { r, node, id, v });
+            }
+            zero
+        }
+        // `block [getWorld] [pcModel]` (the three variables taken out by the VM): 1 and
+        // the translation, or 0 and the variables unchanged [documented]. The world
+        // position adds the nodes above and the reference's own place [hypothesis: the
+        // reference's angles turn its model as a node's do]. pcModel is not read: the
+        // mirror has the drawn model only.
+        "getnifblocktranslationalt" => {
+            let world = num(args, 1, 0.0) != 0.0;
+            let Some((pos, _)) = node_place(g, r, &text(args, 0), world) else { return Some(Ok(outputs(g, 0.0, &[]))) };
+            outputs(g, 1.0, &pos.map(f64::from))
+        }
+        // `block [which] [pcModel]`: 0 extrinsic to the parent (as GetNifBlockRotation),
+        // 1 extrinsic in the world, 2 intrinsic to the parent, 3 intrinsic in the world
+        // [documented: the page's table].
+        "getnifblockrotationalt" => {
+            let which = num(args, 1, 0.0) as i64;
+            let Some((_, m)) = node_place(g, r, &text(args, 0), which == 1 || which == 3) else { return Some(Ok(outputs(g, 0.0, &[]))) };
+            let a = if which >= 2 { intrinsic_angles(&m) } else { extrinsic_angles(&m) };
+            outputs(g, 1.0, &a.map(f64::from))
         }
         // `form block`: the form's model has a node of that exact name [observed:
         // "projectilenode" 0 where "ProjectileNode" is 1].

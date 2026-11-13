@@ -215,6 +215,10 @@ const R_KEEPER: u32 = 0x8A0;
 const R_HUNTER: u32 = 0x8A1;
 const DOOR_A: u32 = 0x8D1;
 const DOOR_B: u32 = 0x8D2;
+const SCRIPT_DOOR_BASE: u32 = 0xF10;
+const SCRIPT_DOOR: u32 = 0xF11;
+const SCRIPT_DEST_DOOR: u32 = 0xF12;
+const SCRIPT_DEST: [f32; 3] = [5200.0, 5200.0, 50.0];
 // Cell D (furniture eligibility, issue #1522): 10 x 10 squares from (20000, 20000).
 const CELL_D: u32 = 0x8E0;
 const MARK_D: u32 = 0x8E1;
@@ -259,6 +263,12 @@ const PATROL: u8 = 13;
 const FOLLOW: u8 = 1;
 const GUARD: u8 = 14;
 const START: [f32; 3] = [50.0, 50.0, 0.0];
+/// An xMarkerHeading (the engine's base 0x34) facing 2.0 rad, the package that sends
+/// an actor to it, the actor's base and the actor.
+const HEAD_MARK: u32 = 0x8B0;
+const P_TO_HEADING: u32 = 0x8B1;
+const N_TO_HEADING: u32 = 0x8B2;
+const R_TO_HEADING: u32 = 0x8B3;
 /// A sandbox's switches for everything it does with objects and for talking.
 const NO_OBJECTS: u16 = type_flags::NO_EATING | type_flags::NO_SLEEPING | type_flags::NO_CONVERSATION | type_flags::NO_IDLE_MARKERS | type_flags::NO_FURNITURE;
 const C: Space = Space::Interior(CELL_C);
@@ -272,6 +282,8 @@ fn plugin_bytes() -> Vec<u8> {
         glob(0x804, "GameHour", 12.0),
         glob(G_DAYS, "GameDaysPassed", 5.0),
         glob(0x806, "TimeScale", 30.0),
+        // Counted by the tests' extender handlers.
+        glob(0x807, "TestGlobal", 0.0),
     ]
     .concat();
     let packs = [
@@ -279,6 +291,7 @@ fn plugin_bytes() -> Vec<u8> {
         pack(P_DEFAULT, "StayHome", 0, TRAVEL, (3, 0, 64), None),
         pack(P_IN_B, "TravelIntoB", 0, TRAVEL, (1, CELL_B, 0), None),
         pack(P_RADIUS, "TravelNearA", 0, TRAVEL, (0, MARK_A, 150), None),
+        pack(P_TO_HEADING, "TravelToHeading", 0, TRAVEL, (0, HEAD_MARK, 0), None),
         pack(P_PATROL, "PatrolOnce", 0, PATROL, (0, M1, 0), Some(false)),
         // Sent after the player: a Travel package near the player's reference.
         pack(P_HUNT, "HuntThePlayer", 0, TRAVEL, (0, 0x14, 0), None),
@@ -323,6 +336,7 @@ fn plugin_bytes() -> Vec<u8> {
         npc(N_TRAVEL, "Traveller", &[P_TRAVEL_B, P_DEFAULT]),
         npc(N_IN, "Lodger", &[P_IN_B]),
         npc(N_RADIUS, "Visitor", &[P_RADIUS]),
+        npc(N_TO_HEADING, "Teacher", &[P_TO_HEADING]),
         npc(N_PATROL, "Guard", &[P_PATROL]),
         npc(N_LOOP, "Sentry", &[P_LOOP]),
         npc(N_FOLLOW, "Follower", &[P_FOLLOW]),
@@ -382,6 +396,7 @@ fn plugin_bytes() -> Vec<u8> {
     let stat = record(b"STAT", STAT, &[sub(b"EDID", z("Marker"))]);
     let a_refs = [
         placed(b"REFR", MARK_A, "MarkA", STAT, [350.0, 350.0, 0.0], None),
+        placed_with(b"REFR", HEAD_MARK, "TeachMarker", 0x34, [300.0, 200.0, 0.0], 2.0, None, None),
         placed(b"REFR", M1, "M1", STAT, [350.0, 50.0, 0.0], Some(M2)),
         placed_with(b"REFR", M2, "M2", STAT, [350.0, 350.0, 0.0], 0.0, Some(M3), Some(6.0)),
         placed(b"REFR", M3, "M3", STAT, [50.0, 350.0, 0.0], None),
@@ -391,10 +406,18 @@ fn plugin_bytes() -> Vec<u8> {
         // The door the graph's door link names, placed so the game can lock it (away
         // from everything the tests walk to).
         placed(b"REFR", DOOR_A, "DoorA", STAT, [-2000.0, -2000.0, 0.0], None),
+        // A separate synthetic load door for script activation, off the walking route.
+        record(b"REFR", SCRIPT_DOOR, &[
+            sub(b"EDID", z("ScriptDoor")), sub(b"NAME", SCRIPT_DOOR_BASE.to_le_bytes().to_vec()), sub(b"DATA", vec![0; 24]),
+            // XTEL: destination door, position and rotation, No Alarm (u32) [xEdit REFR XTEL].
+            sub(b"XTEL", [SCRIPT_DEST_DOOR.to_le_bytes().to_vec(),
+                SCRIPT_DEST.into_iter().chain([0.0, 0.0, 1.0]).flat_map(f32::to_le_bytes).collect(), 0u32.to_le_bytes().to_vec()].concat()),
+        ]),
         placed(b"ACHR", R_TRAVEL, "TravellerRef", N_TRAVEL, START, None),
         placed(b"ACHR", R_HUNTER, "HunterRef", N_HUNTER, [150.0, 150.0, 0.0], None),
         placed(b"ACHR", R_IN, "LodgerRef", N_IN, START, None),
         placed(b"ACHR", R_RADIUS, "VisitorRef", N_RADIUS, START, None),
+        placed(b"ACHR", R_TO_HEADING, "TeacherRef", N_TO_HEADING, START, None),
         placed(b"ACHR", R_PATROL, "GuardRef", N_PATROL, START, None),
         placed(b"ACHR", R_LOOP, "SentryRef", N_LOOP, [60.0, 240.0, 0.0], Some(L1)),
         placed(b"ACHR", R_FOLLOW, "FollowerRef", N_FOLLOW, START, None),
@@ -408,7 +431,10 @@ fn plugin_bytes() -> Vec<u8> {
         placed(b"ACHR", R_SHOOTER, "ShooterRef", N_SHOOTER, START, None),
     ]
     .concat();
-    let b_refs = placed(b"REFR", MARK_B, "MarkB", STAT, [5250.0, 5250.0, 50.0], None);
+    let b_refs = [
+        placed(b"REFR", MARK_B, "MarkB", STAT, [5250.0, 5250.0, 50.0], None),
+        placed(b"REFR", SCRIPT_DEST_DOOR, "ScriptDestDoor", SCRIPT_DOOR_BASE, SCRIPT_DEST, None),
+    ].concat();
     let cell = |id: u32, edid: &str, refs: &[u8]| {
         let rec = record(b"CELL", id, &[sub(b"EDID", z(edid))]);
         [rec, group(id.to_le_bytes(), 6, &group(id.to_le_bytes(), 9, refs))].concat()
@@ -457,6 +483,7 @@ fn plugin_bytes() -> Vec<u8> {
         tes4(),
         top(b"GLOB", &globs),
         top(b"STAT", &stat),
+        top(b"DOOR", &record(b"DOOR", SCRIPT_DOOR_BASE, &[sub(b"EDID", z("ScriptDoorBase"))])),
         top(b"FURN", &furn),
         top(b"IDLM", &idlm),
         top(b"NPC_", &npcs),
@@ -616,6 +643,167 @@ fn a_travel_package_walks_through_the_door_and_meets_its_goal() {
     assert!(dist(st.pos, [5250.0, 5250.0, 50.0]) < 5.0);
     assert!(s.game.extra[&actor].package_goal_met);
     assert_eq!(s.game.package_held(actor), None);
+}
+
+/// #2123: the extender's OnActivate hears an actor the AI walks through a door once a
+/// crossing. Asked on every short step as it comes up to DoorA (no script), it is heard
+/// once; put back before the door and sent through it again with no game time gone (so
+/// not by `ASKED_SECONDS` running out), it is heard again, as the first crossing was
+/// closed when the door fell behind it.
+#[test]
+fn the_extender_hears_each_crossing_of_a_door_once() {
+    let f = fixture();
+    let mut s = sim(&f, &[R_TRAVEL]);
+    let actor = FormId(R_TRAVEL);
+    s.game.run_source("SetEventHandler \"OnActivate\" (begin function {ref rT, ref rA}
+if rT == DoorA
+let TestGlobal := TestGlobal + 1
+endif
+end)", Default::default()).expect("compiles");
+    let heard = |s: &Sim| s.game.world.global(FormId(0x807)).unwrap();
+    let crossings = |s: &Sim| s.events(R_TRAVEL).iter().filter(|e| matches!(e, AiEvent::Door { door, .. } if door.0 == DOOR_A)).count();
+    s.run(1.0);
+    assert_eq!(s.ai.agents[&actor].activity, Activity::Travelling);
+    // Short steps, the game's clock standing.
+    let step = |s: &mut Sim| s.ai.update(&mut s.game, &s.nav, 0.1);
+    let mut steps = 0;
+    while heard(&s) == 0.0 {
+        step(&mut s);
+        steps += 1;
+        assert!(steps < 400, "never asked at the door");
+    }
+    // The walker as it stands at its first asking, to send it through again.
+    let before = s.ai.agents[&actor].walker.clone();
+    let time = s.game.time;
+    let mut asks = 1;
+    while crossings(&s) == 0 {
+        step(&mut s);
+        asks += 1;
+        assert!(asks < 100, "never went through");
+    }
+    assert!(asks >= 5, "asked over several steps, {asks}");
+    assert_eq!(heard(&s), 1.0, "one crossing, one event");
+    step(&mut s);
+    let a = s.ai.agents.get_mut(&actor).unwrap();
+    a.walker = before;
+    a.activity = Activity::Travelling;
+    let mut steps = 0;
+    while crossings(&s) < 2 {
+        step(&mut s);
+        steps += 1;
+        assert!(steps < 100, "never went through again");
+    }
+    assert_eq!(s.game.time, time, "no game time gone");
+    assert_eq!(heard(&s), 2.0, "a second crossing, a second event");
+}
+
+/// #2123, review: the asking distance is a step's length plus a margin, so it changes
+/// with the frame time. An actor held at its edge (turning on the spot, `NoProgress`) by
+/// long and short frames by turns, then taken on through the door in long and short
+/// steps by turns, is on one crossing of the door: one event.
+#[test]
+fn frame_times_at_the_asking_edge_make_no_second_event() {
+    let f = fixture();
+    let mut s = sim(&f, &[R_TRAVEL]);
+    let actor = FormId(R_TRAVEL);
+    s.game.run_source("SetEventHandler \"OnActivate\" (begin function {ref rT, ref rA}
+if rT == DoorA
+let TestGlobal := TestGlobal + 1
+endif
+end)", Default::default()).expect("compiles");
+    let heard = |s: &Sim| s.game.world.global(FormId(0x807)).unwrap();
+    let crossings = |s: &Sim| s.events(R_TRAVEL).iter().filter(|e| matches!(e, AiEvent::Door { door, .. } if door.0 == DOOR_A)).count();
+    // How far the actor is from where its leg ends at the door.
+    let to_door = |s: &Sim| {
+        let w = &s.ai.agents[&actor].walker;
+        let f = w.follower.as_ref().expect("on its way");
+        dist(w.feet, *f.path.legs[f.leg].points.last().unwrap())
+    };
+    s.run(1.0);
+    assert_eq!(s.ai.agents[&actor].activity, Activity::Travelling);
+    // Short steps (reach 97 units) up to 120 units from the door: not asked yet.
+    let mut steps = 0;
+    while to_door(&s) > 120.0 {
+        s.ai.update(&mut s.game, &s.nav, 0.01);
+        steps += 1;
+        assert!(steps < 100_000, "never came near the door");
+    }
+    assert_eq!(heard(&s), 0.0);
+    // Held there: a long frame (reach 146) asks it, a short one (reach 97) leaves it out
+    // of reach, by turns.
+    for i in 0..8 {
+        let dt = if i % 2 == 0 { 0.5 } else { 0.01 };
+        s.ai.update_moved(&mut s.game, &s.nav, dt, &mut NoProgress);
+    }
+    assert!(to_door(&s) > 100.0, "held where it stood, {}", to_door(&s));
+    assert_eq!(heard(&s), 1.0, "held at the edge: one crossing");
+    // On in long and short steps by turns, through the door.
+    let mut steps = 0;
+    while crossings(&s) == 0 {
+        let dt = if steps % 2 == 0 { 0.2 } else { 0.01 };
+        s.ai.update(&mut s.game, &s.nav, dt);
+        steps += 1;
+        assert!(steps < 400, "never went through");
+    }
+    assert_eq!(heard(&s), 1.0, "one crossing, one event");
+}
+
+/// A door that opens in place across the corner at L2 of the sentry's round, at 45°:
+/// the way up from L1 crosses it 20 units before L2, the way on to L3 20 units after.
+fn door_at_l2() -> fnv_nav::InPlaceDoor {
+    let (c, si) = (std::f32::consts::FRAC_1_SQRT_2, std::f32::consts::FRAC_1_SQRT_2);
+    fnv_nav::InPlaceDoor {
+        door: DOOR_A,
+        space: A,
+        position: [240.0, 240.0, 0.0],
+        rotation: [c, si, 0.0, -si, c, 0.0, 0.0, 0.0, 1.0],
+        scale: 1.0,
+        bounds: ([-40.0, -4.0, 0.0], [40.0, 4.0, 200.0]),
+    }
+}
+
+/// #2123, review: the sentry (PatrolRound, no idle time at its points) goes through the
+/// door at L2, reaches L2 and is sent on to L3 through the same door, under the same
+/// package, at once (its arrival plans the next way in the same update). Two crossings,
+/// two events, whatever the frame time: the first crossing ends where the follower went
+/// through the door, not when a later step finds the door no longer next.
+#[test]
+fn a_patrol_back_through_the_door_it_just_passed_is_heard_again() {
+    let f = fixture();
+    let mut nav = nav();
+    nav.set_in_place_doors(vec![door_at_l2()], |_| None);
+    let at = |p: [f32; 3]| fnv_nav::Place { space: A, pos: p };
+    for (from, to) in [([250.0, 50.0, 0.0], [250.0, 250.0, 0.0]), ([250.0, 250.0, 0.0], [50.0, 250.0, 0.0])] {
+        let way = nav.find_path(at(from), at(to), &fnv_nav::PathParams::default()).unwrap();
+        assert_eq!(way.legs[0].door_stops.len(), 1, "the way from {from:?} to {to:?} stops at the door");
+    }
+    // Short frames, and the long ones of an actor out of the high process, which can
+    // take it from the door's stop (104 units before the door) to L2 in one step.
+    for dt in [0.5f32, 0.3, 1.8, 2.0, 2.5, 3.0, 4.0] {
+        let mut s = sim(&f, &[R_LOOP]);
+        s.nav.set_in_place_doors(vec![door_at_l2()], |_| None);
+        s.game.run_source("SetEventHandler \"OnActivate\" (begin function {ref rT, ref rA}
+if rT == DoorA
+let TestGlobal := TestGlobal + 1
+endif
+end)", Default::default()).expect("compiles");
+        let points = |s: &Sim| -> Vec<u32> {
+            s.events(R_LOOP).iter().filter_map(|e| match e {
+                AiEvent::Arrived { patrol_point: Some(p), .. } => Some(p.0),
+                _ => None,
+            }).collect()
+        };
+        let mut steps = 0;
+        while points(&s).len() < 4 {
+            s.game.tick();
+            s.ai.update(&mut s.game, &s.nav, dt);
+            steps += 1;
+            assert!(steps < 2000, "the round did not come round at {dt}: {:x?}", points(&s));
+        }
+        assert_eq!(&points(&s)[..4], &[L3, L1, L2, L3], "at {dt}");
+        let heard = s.game.world.global(FormId(0x807)).unwrap();
+        assert_eq!(heard, 2.0, "up to L2 and on from it, through the door both times, at {dt}");
+    }
 }
 
 #[test]
@@ -874,6 +1062,19 @@ fn a_radius_is_reached_at_its_edge() {
     assert!(d <= 150.0 && d > 90.0, "stopped {d} from the marker");
 }
 
+/// At an xMarkerHeading it stands the way the marker faces (level-design.md: the
+/// heading version "shows which way an actor standing there will face"; Mr. Brotch in
+/// the G.O.A.T. kept the heading he walked in with and faced the wall).
+#[test]
+fn an_actor_at_an_xmarkerheading_turns_to_its_heading() {
+    let f = fixture();
+    let mut s = sim(&f, &[R_TO_HEADING]);
+    s.run(30.0);
+    let a = &s.ai.agents[&FormId(R_TO_HEADING)];
+    assert_eq!(a.activity, Activity::There);
+    assert!(a.face_to == Some(2.0) || (a.walker.heading - 2.0).abs() < 1e-3, "{:?} {}", a.face_to, a.walker.heading);
+}
+
 #[test]
 fn always_run_packages_run() {
     let f = fixture();
@@ -882,6 +1083,138 @@ fn always_run_packages_run() {
     assert!(matches!(s.events(R_RUN)[1], AiEvent::Trip { running: true, .. }));
     // One second at 400 units a second against 100.
     assert!(dist(s.feet(R_RUN), START) > 3.0 * dist(s.feet(R_RADIUS), START));
+}
+
+/// Speeds of `walk` and `run`, calm and alert alike, as the engine gives people
+/// (`creature_pace.rs`).
+fn speeds(walk: f32, run: f32) -> fnv_ai::ActorSpeeds {
+    let s = fnv_ai::Speeds { walk, run };
+    fnv_ai::ActorSpeeds { calm: s, alert: s, turn_rate: None, spot_turn_start: None }
+}
+
+/// How far `actor` goes in one update of half a second.
+fn step_length(s: &mut Sim, actor: u32) -> f32 {
+    let before = s.ai.agents[&FormId(actor)].walker.travelled;
+    s.run(0.5);
+    s.ai.agents[&FormId(actor)].walker.travelled - before
+}
+
+/// The package and trip events so far: a new speed must not make the actor choose or
+/// plan again.
+fn plans(s: &Sim, actor: u32) -> usize {
+    s.events(actor).iter().filter(|e| matches!(e, AiEvent::Package { .. } | AiEvent::Trip { .. })).count()
+}
+
+/// A walk under way takes new speeds at the next step, in its gait, without a new
+/// package or plan: Speed Mult 100 → 200 → 0 → 100 (issue #2118: `plan` fixes the
+/// walker's speed when it plans, and `set_speeds` did not reach it). Crippled legs'
+/// pace stays its own.
+#[test]
+fn a_walk_under_way_takes_new_speeds_at_once_in_its_gait() {
+    let f = fixture();
+    let mut s = sim(&f, &[R_TRAVEL]);
+    let actor = FormId(R_TRAVEL);
+    // Speed Mult 100 of speeds half the configured ones, given before it plans, so the
+    // way to the door lasts the test; planned at that walk, past its first turn.
+    s.ai.set_speeds(actor, speeds(50.0, 200.0));
+    s.run(1.0);
+    assert_eq!(s.ai.agents[&actor].activity, Activity::Travelling);
+    let planned = plans(&s, R_TRAVEL);
+    let near = |got: f32, want: f32| assert!((got - want).abs() <= want.max(1.0) * 0.1, "{got} against {want}");
+    near(step_length(&mut s, R_TRAVEL), 25.0);
+    // Speed Mult 200.
+    s.ai.set_speeds(actor, speeds(100.0, 400.0));
+    near(step_length(&mut s, R_TRAVEL), 50.0);
+    // Speed Mult 0: it stands on its way, still travelling.
+    s.ai.set_speeds(actor, speeds(0.0, 0.0));
+    assert!(step_length(&mut s, R_TRAVEL).abs() < 1e-3);
+    assert_eq!(s.ai.agents[&actor].activity, Activity::Travelling);
+    // Back to 100: it walks on, not runs (200 units/s would be 100 a step).
+    s.ai.set_speeds(actor, speeds(50.0, 200.0));
+    near(step_length(&mut s, R_TRAVEL), 25.0);
+    // A crippled leg's pace is kept across a new speed: half of Speed Mult 200's walk.
+    s.ai.set_pace(actor, 0.5);
+    s.ai.set_speeds(actor, speeds(100.0, 400.0));
+    near(step_length(&mut s, R_TRAVEL), 25.0);
+    assert_eq!(s.ai.agents[&actor].walker.pace, 0.5);
+    assert_eq!(plans(&s, R_TRAVEL), planned, "{:?}", s.events(R_TRAVEL));
+    assert_eq!(s.ai.agents[&actor].activity, Activity::Travelling);
+}
+
+/// A run under way keeps running through new speeds and a stop at 0 (an Always Run
+/// package), at the new run speed.
+#[test]
+fn a_run_under_way_keeps_its_gait_through_a_stop() {
+    let f = fixture();
+    let mut s = sim(&f, &[R_RUN]);
+    let actor = FormId(R_RUN);
+    // Slow speeds before it plans, so the way to its marker lasts the test.
+    s.ai.set_speeds(actor, speeds(10.0, 40.0));
+    s.run(1.0);
+    assert!(matches!(s.events(R_RUN)[1], AiEvent::Trip { running: true, .. }));
+    let planned = plans(&s, R_RUN);
+    let near = |got: f32, want: f32| assert!((got - want).abs() <= want.max(1.0) * 0.1, "{got} against {want}");
+    near(step_length(&mut s, R_RUN), 20.0);
+    s.ai.set_speeds(actor, speeds(20.0, 80.0));
+    near(step_length(&mut s, R_RUN), 40.0);
+    s.ai.set_speeds(actor, speeds(0.0, 0.0));
+    assert!(step_length(&mut s, R_RUN).abs() < 1e-3);
+    // Back: the run's 40 units/s (20 a step), not the walk's 10.
+    s.ai.set_speeds(actor, speeds(10.0, 40.0));
+    near(step_length(&mut s, R_RUN), 20.0);
+    assert_eq!(plans(&s, R_RUN), planned, "{:?}", s.events(R_RUN));
+}
+
+/// A walk planned while the actor's speeds are 0 (Speed Mult 0 before its package's
+/// walk) does not stay standing when they come back: it goes on at the calm walk.
+#[test]
+fn a_walk_planned_at_speed_0_sets_off_when_the_speed_comes_back() {
+    let f = fixture();
+    let mut s = sim(&f, &[R_TRAVEL]);
+    let actor = FormId(R_TRAVEL);
+    s.ai.set_speeds(actor, speeds(0.0, 0.0));
+    s.run(1.0);
+    assert_eq!(s.ai.agents[&actor].activity, Activity::Travelling);
+    assert!(step_length(&mut s, R_TRAVEL).abs() < 1e-3);
+    let planned = plans(&s, R_TRAVEL);
+    s.ai.set_speeds(actor, speeds(50.0, 200.0));
+    // Its first step may still turn it towards its way.
+    s.run(1.0);
+    let near = |got: f32, want: f32| assert!((got - want).abs() <= want * 0.1, "{got} against {want}");
+    near(step_length(&mut s, R_TRAVEL), 25.0);
+    assert_eq!(plans(&s, R_TRAVEL), planned);
+}
+
+/// A package's walk planned while the speeds are 0 goes on in its own gait when they come
+/// back: an Always Run package runs; and a walking package taken up at 0 after a run was
+/// stopped walks, not at the stopped run's speed (the stop belongs to the walk, not to the
+/// actor).
+#[test]
+fn a_package_walk_planned_at_speed_0_keeps_its_own_gait() {
+    let f = fixture();
+    let near = |got: f32, want: f32| assert!((got - want).abs() <= want * 0.1, "{got} against {want}");
+    // Planned at 0: the run, 40 units/s (20 a step), not the walk's 10.
+    let mut s = sim(&f, &[R_RUN]);
+    let actor = FormId(R_RUN);
+    s.ai.set_speeds(actor, speeds(0.0, 0.0));
+    s.run(1.0);
+    assert!(matches!(s.events(R_RUN)[1], AiEvent::Trip { running: true, .. }));
+    assert!(step_length(&mut s, R_RUN).abs() < 1e-3);
+    s.ai.set_speeds(actor, speeds(10.0, 40.0));
+    s.run(1.0);
+    near(step_length(&mut s, R_RUN), 20.0);
+    // Stopped running, then given a walking package while still at 0.
+    s.ai.set_speeds(actor, speeds(0.0, 0.0));
+    assert!(step_length(&mut s, R_RUN).abs() < 1e-3);
+    s.game.extra.entry(actor).or_default().script_package = Some(FormId(P_TRAVEL_B));
+    assert_eq!(s.game.evaluate_package(actor), Some(FormId(P_TRAVEL_B)));
+    s.run(0.5);
+    assert!(s.events(R_RUN).iter().any(|e| matches!(e, AiEvent::Trip { package, running: false, .. } if package.0 == P_TRAVEL_B)), "{:?}", s.events(R_RUN));
+    assert!(step_length(&mut s, R_RUN).abs() < 1e-3);
+    // Back: the new walk's 10 units/s (5 a step), not the old run's 40.
+    s.ai.set_speeds(actor, speeds(10.0, 40.0));
+    s.run(1.0);
+    near(step_length(&mut s, R_RUN), 5.0);
 }
 
 #[test]
@@ -1129,6 +1462,55 @@ fn a_follower_far_behind_catches_up_faster_than_it_runs() {
     assert_eq!(catch_up(f32::INFINITY), 1.0 + CATCH_UP_BOOST);
 }
 
+/// [design: fnv-game/src/game.rs, fnv-ai/src/carry.rs] A script's door activation
+/// restarts an active walker before movement or social processing can write it back.
+#[test]
+fn a_walking_actor_sent_through_a_scripted_door_goes_on_at_the_destination() {
+    let f = fixture();
+    let mut s = sim(&f, &[R_TRAVEL]);
+    let actor = FormId(R_TRAVEL);
+    s.run(1.0);
+    assert_eq!(s.ai.agents[&actor].walker.space, A);
+    assert_eq!(s.ai.agents[&actor].activity, Activity::Travelling);
+    assert!(s.ai.agents[&actor].walker.follower.is_some());
+    assert!(s.game.take_teleported().is_empty(), "walking is no discontinuous move");
+    s.game.run_source("ScriptDoor.Activate TravellerRef", Default::default()).unwrap();
+    assert_eq!(s.game.cell_of(actor), Some(FormId(CELL_B)));
+    assert_eq!(s.game.world.peek(actor).unwrap().pos, SCRIPT_DEST);
+    assert_eq!(s.ai.moved_by_scripts(&mut s.game), vec![(actor, true)]);
+    let walker = &s.ai.agents[&actor].walker;
+    assert_eq!((walker.space, walker.feet, walker.heading), (B, SCRIPT_DEST, 1.0));
+    assert!(walker.follower.is_none(), "the source route was dropped");
+    assert!(s.ai.moved_by_scripts(&mut s.game).is_empty(), "the move is consumed once");
+    for _ in 0..20 {
+        s.run(0.5);
+        s.ai.social(&mut s.game, &s.nav, 0.5);
+        assert_eq!(s.ai.agents[&actor].walker.space, B);
+        assert_eq!(s.game.cell_of(actor), Some(FormId(CELL_B)));
+        assert_eq!(s.game.world.peek(actor).unwrap().pos, s.ai.agents[&actor].walker.feet);
+    }
+}
+
+#[test]
+fn an_actor_sent_through_a_scripted_door_before_ai_ownership_starts_there() {
+    let f = fixture();
+    let mut s = sim(&f, &[]);
+    let actor = FormId(R_TRAVEL);
+    s.game.run_source("ScriptDoor.Activate TravellerRef", Default::default()).unwrap();
+    assert_eq!(s.ai.moved_by_scripts(&mut s.game), vec![(actor, false)]);
+    assert_eq!(s.game.cell_of(actor), Some(FormId(CELL_B)));
+    s.ai.add(&s.game, actor).unwrap();
+    assert_eq!((s.ai.agents[&actor].walker.space, s.feet(R_TRAVEL)), (B, SCRIPT_DEST));
+    for _ in 0..20 {
+        s.run(0.5);
+        s.ai.social(&mut s.game, &s.nav, 0.5);
+        assert_eq!(s.ai.agents[&actor].walker.space, B);
+        assert_eq!(s.game.cell_of(actor), Some(FormId(CELL_B)));
+        assert_eq!(s.game.world.peek(actor).unwrap().pos, s.feet(R_TRAVEL));
+    }
+    assert!(s.ai.moved_by_scripts(&mut s.game).is_empty());
+}
+
 /// The player's teammate is brought along when the player changes cells (SetPlayerTeammate,
 /// "Changing cells will teleport the teammate to the player"; docs/design/followers.md), and
 /// so is an actor following the player on a Follow package (owner decision 2026-10-23).
@@ -1268,6 +1650,123 @@ fn a_look_turning_the_body_keeps_an_actor_off_its_seat_until_stop_look() {
     s.game.tick();
     s.ai.social(&mut s.game, &s.nav, 0.5);
     assert_eq!(s.ai.agents[&FormId(R_TO_CHAIR)].using, Some(FormId(CHAIR_C)));
+}
+
+/// ResetAI on `actor`, as a script calls it.
+fn reset_ai(s: &mut Sim, actor: FormId) {
+    let opcode = s.game.data.table.by_name("ResetAI").unwrap();
+    let ctx = fnv_game::functions::Ctx { unit: "test".into(), opcode, on: Some(actor), self_ref: Some(actor), action_ref: None, quest: None, inst: None, in_condition: false };
+    s.game.call_function(&ctx, &[]);
+}
+
+/// ResetAI on a seated actor whose package is chosen again: the package is taken up
+/// afresh (its furniture let go, begun again, the chair given anew), where before nothing
+/// happened and it stayed seated [design, issue #2119; the original's seated RingoRef read
+/// GET_UP one loop after ResetAI, observed: owner-decision-captures.md od_06]. A plain
+/// evaluation choosing the same package changes nothing.
+#[test]
+fn reset_ai_takes_the_same_package_up_afresh_and_lets_the_chair_go() {
+    let f = fixture();
+    let mut s = sim(&f, &[R_TO_CHAIR]);
+    let actor = FormId(R_TO_CHAIR);
+    s.run(30.0);
+    assert_eq!(s.ai.agents[&actor].using, Some(FormId(CHAIR_C)));
+    assert_eq!(s.ai.agents[&actor].restarts, 0);
+    // A plain evaluation, and the periodic choices, choose the same package: no restart.
+    let before = s.events(R_TO_CHAIR).len();
+    assert_eq!(s.game.evaluate_package(actor), Some(FormId(P_TO_CHAIR)));
+    s.run(15.0);
+    assert_eq!(s.events(R_TO_CHAIR).len(), before, "{:?}", &s.events(R_TO_CHAIR)[before..]);
+    assert_eq!(s.ai.agents[&actor].restarts, 0);
+    // ResetAI: the same package, begun again.
+    reset_ai(&mut s, actor);
+    assert_eq!(s.game.current_package(actor), Some(FormId(P_TO_CHAIR)));
+    s.run(0.5);
+    let ev: Vec<AiEvent> = s.events(R_TO_CHAIR)[before..].iter().copied().cloned().collect();
+    assert!(matches!(ev[0], AiEvent::Package { package: Some(p) } if p.0 == P_TO_CHAIR), "{ev:?}");
+    assert!(matches!(ev[1], AiEvent::Furniture { furniture: None }), "the chair let go: {ev:?}");
+    assert!(ev[2..].iter().any(|e| matches!(e, AiEvent::AlreadyThere { package } if package.0 == P_TO_CHAIR)), "{ev:?}");
+    assert!(matches!(ev.last().unwrap(), AiEvent::Furniture { furniture: Some(c) } if c.0 == CHAIR_C), "{ev:?}");
+    let a = &s.ai.agents[&actor];
+    assert_eq!((a.restarts, a.activity, a.using), (1, Activity::There, Some(FormId(CHAIR_C))));
+    assert!(a.walker.follower.is_none());
+    assert!(!s.game.extra[&actor].ai_reset, "the request is taken once");
+    // Two calls before the AI's update are one restart; the next updates are quiet.
+    reset_ai(&mut s, actor);
+    reset_ai(&mut s, actor);
+    s.run(5.0);
+    assert_eq!(s.ai.agents[&actor].restarts, 2);
+    let n = s.events(R_TO_CHAIR).iter().filter(|e| matches!(e, AiEvent::Package { .. })).count();
+    s.run(15.0);
+    assert_eq!(s.events(R_TO_CHAIR).iter().filter(|e| matches!(e, AiEvent::Package { .. })).count(), n);
+}
+
+/// ResetAI on an actor walking its package's way: the way is planned again from where it
+/// stands. While its AI is off the request waits, and is carried out once it is on.
+#[test]
+fn reset_ai_plans_a_walk_again_and_waits_while_the_ai_is_off() {
+    let f = fixture();
+    let mut s = sim(&f, &[R_TRAVEL]);
+    let actor = FormId(R_TRAVEL);
+    s.run(2.0);
+    assert_eq!(s.ai.agents[&actor].activity, Activity::Travelling);
+    let trips = |s: &Sim| s.events(R_TRAVEL).iter().filter(|e| matches!(e, AiEvent::Trip { .. })).count();
+    assert_eq!(trips(&s), 1);
+    s.game.extra.entry(actor).or_default().ai_off = true;
+    reset_ai(&mut s, actor);
+    s.run(1.0);
+    assert_eq!((trips(&s), s.ai.agents[&actor].restarts), (1, 0), "nothing while its AI is off");
+    s.game.extra.get_mut(&actor).unwrap().ai_off = false;
+    s.run(0.5);
+    assert_eq!((trips(&s), s.ai.agents[&actor].restarts), (2, 1), "{:?}", s.events(R_TRAVEL));
+    assert_eq!(s.ai.agents[&actor].activity, Activity::Travelling);
+}
+
+/// ResetAI, then a save before the AI's next update: the request is saved with the game
+/// (`RefExtra::ai_reset`), so after the load the actor's first update takes the package up
+/// afresh and the progress the save kept is forgotten: the patrol starts again at its
+/// first point rather than resuming at the saved one (`fnv_ai::progress`;
+/// docs/design/save-load.md §3.3).
+#[test]
+fn a_reset_saved_before_the_ai_took_it_is_carried_out_after_the_load() {
+    let f = fixture();
+    let mut s = sim(&f, &[R_PATROL]);
+    let actor = FormId(R_PATROL);
+    let point = |s: &Sim| s.ai.progress().iter().find(|p| p.actor == actor).and_then(|p| p.patrol_point);
+    while point(&s).is_none_or(|p| p < 2) {
+        s.run(0.5);
+    }
+    reset_ai(&mut s, actor);
+    // Saved with the request pending: the game's state and the AI's progress, as text.
+    let game_text = serde_json::to_string(&s.game.snapshot()).unwrap();
+    let progress_text = serde_json::to_string(&s.ai.progress()).unwrap();
+    assert!(game_text.contains("\"ai_reset\":true"), "the request is in the save");
+    // Loaded: a new game and a new AI from the text.
+    let back: fnv_game::game::GameSnapshot = serde_json::from_str(&game_text).unwrap();
+    let world = World::restore(&f.forms, &f.refs, &back.sim).unwrap();
+    let game = Game::restore(&f.data, world, s.game.cfg, &back).unwrap();
+    assert!(game.extra[&actor].ai_reset);
+    let mut ai = Ai::new(AiConfig { walk_speed: 100.0, run_speed: 400.0, ..AiConfig::default() });
+    ai.add(&game, actor).unwrap();
+    let saved: Vec<fnv_ai::progress::Progress> = serde_json::from_str(&progress_text).unwrap();
+    assert_eq!(saved.iter().find(|p| p.actor == actor).and_then(|p| p.patrol_point), Some(2));
+    ai.restore(saved);
+    let mut s = Sim { game, ai, nav: nav() };
+    s.run(0.5);
+    assert_eq!(s.ai.agents[&actor].restarts, 1);
+    assert!(!s.game.extra[&actor].ai_reset, "taken by the first update");
+    assert!(!s.events(R_PATROL).iter().any(|e| matches!(e, AiEvent::Resumed { .. })), "{:?}", s.events(R_PATROL));
+    assert!(matches!(s.events(R_PATROL)[1], AiEvent::Trip { patrol_point: Some(p), .. } if p.0 == M1), "{:?}", s.events(R_PATROL));
+    // Without the reset the same save resumes at the saved point.
+    let back: fnv_game::game::GameSnapshot = serde_json::from_str(&game_text.replace("\"ai_reset\":true", "\"ai_reset\":false")).unwrap();
+    let world = World::restore(&f.forms, &f.refs, &back.sim).unwrap();
+    let game = Game::restore(&f.data, world, s.game.cfg, &back).unwrap();
+    let mut ai = Ai::new(AiConfig { walk_speed: 100.0, run_speed: 400.0, ..AiConfig::default() });
+    ai.add(&game, actor).unwrap();
+    ai.restore(serde_json::from_str(&progress_text).unwrap());
+    let mut s = Sim { game, ai, nav: nav() };
+    s.run(0.5);
+    assert!(s.events(R_PATROL).iter().any(|e| matches!(e, AiEvent::Resumed { .. })), "{:?}", s.events(R_PATROL));
 }
 
 /// What a sandboxing actor did, in order.
@@ -1449,6 +1948,79 @@ fn a_sandboxer_sleeps_at_night_and_eats_at_mealtimes() {
     s.run(240.0);
     assert_eq!(s.ai.agents[&actor].sandbox.as_ref().unwrap().doing, Doing::Eating(Some(FormId(CHAIR_C))));
     assert_eq!(s.ai.agents[&actor].using, Some(FormId(CHAIR_C)));
+    // With the chair free, no choice was a meal window's without a seat.
+    assert_eq!(s.ai.agents[&actor].sandbox.as_ref().unwrap().seatless_meal_choices(), 0);
+}
+
+/// Run `seconds` of a meal window in which `actor` has no seat to eat on, checking each
+/// second that it is not eating (#2011); the choices it made meanwhile. Each of them is
+/// counted as a choice in a meal window with no free seat (`seatless_meal_choices`, what
+/// the engine's report and fnvtool ai run show).
+fn through_a_seatless_meal(s: &mut Sim, actor: u32, seconds: usize) -> Vec<Doing> {
+    let before = doings(s, actor).len();
+    let counted = s.ai.agents[&FormId(actor)].sandbox.as_ref().map_or(0, |sb| sb.seatless_meal_choices());
+    for _ in 0..seconds {
+        s.run(1.0);
+        let sb = s.ai.agents[&FormId(actor)].sandbox.as_ref().unwrap();
+        assert!(!matches!(sb.doing, Doing::Eating(_)) && sb.phase() != fnv_game::ai::SandboxPhase::Eating, "{:?} at {}", sb.doing, s.game.time);
+    }
+    let did = doings(s, actor)[before..].to_vec();
+    let counted = s.ai.agents[&FormId(actor)].sandbox.as_ref().unwrap().seatless_meal_choices() - counted;
+    assert!(counted > 0 && counted as usize >= did.len(), "{counted} counted for {did:?}");
+    did
+}
+
+/// With furniture off there is no seat: the meal window passes in wandering and idle
+/// markers, not standing on the spot [design, #2011].
+#[test]
+fn a_sandboxer_without_furniture_goes_on_through_its_meal() {
+    let mut f = fixture();
+    f.data.package_defs.get_mut(&FormId(P_SB_ALL)).unwrap().type_flags |= type_flags::NO_FURNITURE;
+    // The day's lunch, as this sandbox rolls it (the same numbers every run); the run
+    // itself starts inside it.
+    let mut probe = sim(&f, &[R_SB_ALL]);
+    set_clock(&mut probe, 16.5, 5.7);
+    probe.run(0.5);
+    let at = lunch(&probe, R_SB_ALL);
+    let mut s = sim(&f, &[R_SB_ALL]);
+    set_clock(&mut s, at, 5.7);
+    let did = through_a_seatless_meal(&mut s, R_SB_ALL, 300);
+    assert!(did.len() >= 3, "{did:?}");
+    assert!(did.iter().all(|d| matches!(d, Doing::Wandering | Doing::AtIdleMarker(_))), "{did:?}");
+    // Both kinds (the one marker is not chosen twice running, so mostly walks).
+    assert!(did.iter().any(|d| matches!(d, Doing::Wandering)) && did.contains(&Doing::AtIdleMarker(FormId(IDLE_C))), "{did:?}");
+}
+
+/// The only seat kept for another actor: no meal while it is (the day's choices go on);
+/// once it is free, the meal on it [design, #2011].
+#[test]
+fn a_sandboxer_eats_only_once_a_seat_is_free() {
+    let f = fixture();
+    let mut s = sim(&f, &[R_TO_CHAIR]);
+    set_clock(&mut s, 16.5, 5.7);
+    s.run(30.0);
+    assert_eq!(s.ai.agents[&FormId(R_TO_CHAIR)].using, Some(FormId(CHAIR_C)));
+    s.ai.add(&s.game, FormId(R_SB_ALL)).unwrap();
+    s.run(20.0);
+    let at = lunch(&s, R_SB_ALL);
+    set_clock(&mut s, at, 5.7);
+    let did = through_a_seatless_meal(&mut s, R_SB_ALL, 300);
+    assert!(did.len() >= 3, "{did:?}");
+    assert!(did.iter().any(|d| matches!(d, Doing::Wandering | Doing::AtIdleMarker(_))), "{did:?}");
+    assert!(!did.contains(&Doing::Sitting(FormId(CHAIR_C))), "{did:?}");
+    assert_eq!(s.ai.agents[&FormId(R_TO_CHAIR)].using, Some(FormId(CHAIR_C)));
+    // The chair is let go: within the meal window, the meal on it.
+    s.ai.root(&s.game, FormId(R_TO_CHAIR));
+    assert_eq!(s.ai.furniture_of(FormId(R_TO_CHAIR)), None);
+    let actor = FormId(R_SB_ALL);
+    for _ in 0..240 {
+        if s.ai.agents[&actor].using.is_some() {
+            break;
+        }
+        s.run(1.0);
+    }
+    assert_eq!(s.ai.agents[&actor].sandbox.as_ref().unwrap().doing, Doing::Eating(Some(FormId(CHAIR_C))), "{:?}", s.events(R_SB_ALL));
+    assert_eq!(s.ai.agents[&actor].using, Some(FormId(CHAIR_C)));
 }
 
 #[test]
@@ -1555,6 +2127,190 @@ fn an_alerted_actor_searches_where_the_alarm_is_and_goes_back_after() {
     assert!(s.ai.agents[&FormId(R_RADIUS)].search.is_none());
 }
 
+#[test]
+fn a_lost_search_walks_two_complete_shares_before_returning_to_normal() {
+    // [design, #2010] Synthetic navmesh and alarms exercise the walk/look completion
+    // path through Game::searched_once, rather than expiring an ordinary alarm.
+    use fnv_game::awareness::Target;
+    use fnv_game::combat_group::{GroupNote, GroupSettings};
+    let f = fixture();
+    let mut s = sim(&f, &[R_RADIUS]);
+    s.run(30.0);
+    let (actor, player, now) = (FormId(R_RADIUS), FormId::PLAYER_REF, s.game.time);
+    s.game.awareness.tactics.settings = Some(GroupSettings { remove_search_count: 2, search_interior: [80.0; 3], ..Default::default() });
+    let a = s.game.awareness.actors.entry(actor).or_default();
+    a.state = State::Lost;
+    a.since = now;
+    a.targets.insert(player, Target { band: Band::Hidden, value: -50.0, at: [150.0, 100.0, 0.0], detected: Some(now - 15.0), hidden_since: Some(now) });
+    a.alarm(player, [150.0, 100.0, 0.0], -50.0, Cause::LostTarget, now, &Timers::default());
+    for _ in 0..240 {
+        s.run(0.5);
+        s.game.settle_awareness();
+        if s.game.awareness.state(actor) == State::Normal {
+            break;
+        }
+    }
+    assert_eq!(s.game.awareness.state(actor), State::Normal);
+    let counts: Vec<_> = s.game.awareness.tactics.notes.iter().filter_map(|n| match n {
+        GroupNote::Searched { actor: who, count, needed, .. } if *who == actor => Some((*count, *needed)),
+        _ => None,
+    }).collect();
+    assert_eq!(counts, vec![(1, 2), (2, 2)]);
+    assert!(s.events(R_RADIUS).iter().filter(|e| matches!(e, AiEvent::SearchLook { .. })).count() >= 6);
+    s.run(0.5);
+    assert!(s.ai.agents[&actor].search.is_none());
+}
+
+#[test]
+fn nearby_lost_targets_each_need_two_complete_searches() {
+    // [design, #2010] Nearby synthetic alarms must not share a completed look or
+    // point count when finishing one target selects the other.
+    use fnv_game::awareness::Target;
+    use fnv_game::combat_group::{GroupNote, GroupSettings};
+    let f = fixture();
+    let mut s = sim(&f, &[R_RADIUS]);
+    s.run(30.0);
+    let (actor, player, other, now) = (FormId(R_RADIUS), FormId::PLAYER_REF, FormId(R_HERE), s.game.time);
+    s.game.awareness.tactics.settings = Some(GroupSettings { remove_search_count: 2, search_interior: [80.0; 3], ..Default::default() });
+    let a = s.game.awareness.actors.entry(actor).or_default();
+    a.state = State::Lost;
+    a.since = now;
+    for (target, at, refreshed) in [(other, [160.0, 100.0, 0.0], now - 0.5), (player, [150.0, 100.0, 0.0], now)] {
+        a.targets.insert(target, Target { band: Band::Hidden, value: -50.0, at, detected: Some(now - 15.0), hidden_since: Some(now) });
+        a.alarm(target, at, -50.0, Cause::LostTarget, refreshed, &Timers::default());
+    }
+    let mut completed = Vec::new();
+    let mut notes_at = s.game.awareness.tactics.notes.len();
+    for _ in 0..480 {
+        s.run(0.5);
+        let looks = s.events(R_RADIUS).iter().filter(|e| matches!(e, AiEvent::SearchLook { .. })).count();
+        for note in &s.game.awareness.tactics.notes[notes_at..] {
+            if let GroupNote::Searched { actor: who, about, count, needed } = note {
+                if *who == actor {
+                    assert_eq!(*needed, 2);
+                    completed.push((*about, *count, looks));
+                }
+            }
+        }
+        notes_at = s.game.awareness.tactics.notes.len();
+        s.game.settle_awareness();
+        if s.game.awareness.state(actor) == State::Normal {
+            break;
+        }
+    }
+    assert_eq!(completed, vec![(player, 1, 3), (player, 2, 6), (other, 1, 9), (other, 2, 12)]);
+    assert_eq!(s.game.awareness.state(actor), State::Normal);
+    s.run(0.5);
+    let events = s.events(R_RADIUS);
+    let over = events.iter().position(|e| matches!(e, AiEvent::SearchOver { .. })).expect("search ends");
+    assert!(matches!(events[over + 1], AiEvent::SearchBack { .. }), "{events:?}");
+    assert!(s.ai.agents[&actor].search.is_none());
+}
+
+#[test]
+fn switching_nearby_lost_targets_restarts_the_walk_and_look_progress() {
+    // [design, #2010] A newly selected owner starts fresh even within RECENTRE,
+    // whether the previous owner's third point is being walked to or looked at.
+    use fnv_ai::alert::Search;
+    use fnv_game::awareness::Target;
+    use fnv_game::combat_group::GroupSettings;
+    for looking in [false, true] {
+        let f = fixture();
+        let mut s = sim(&f, &[R_RADIUS]);
+        s.run(30.0);
+        let (actor, player, other, now) = (FormId(R_RADIUS), FormId::PLAYER_REF, FormId(R_HERE), s.game.time);
+        s.game.awareness.tactics.settings = Some(GroupSettings { remove_search_count: 2, search_interior: [80.0; 3], ..Default::default() });
+        let a = s.game.awareness.actors.entry(actor).or_default();
+        a.state = State::Lost;
+        a.since = now;
+        for (target, at, refreshed) in [(other, [160.0, 100.0, 0.0], now - 0.5), (player, [150.0, 100.0, 0.0], now)] {
+            a.targets.insert(target, Target { band: Band::Hidden, value: -50.0, at, detected: Some(now - 15.0), hidden_since: Some(now) });
+            a.alarm(target, at, -50.0, Cause::LostTarget, refreshed, &Timers::default());
+        }
+        let at_third_point = |s: &Sim<'_>| match s.ai.agents[&actor].search {
+            Some(Search::Going { points: 2, .. }) => !looking,
+            Some(Search::Looking { points: 2, .. }) => looking,
+            _ => false,
+        };
+        for _ in 0..120 {
+            s.run(0.5);
+            if at_third_point(&s) {
+                break;
+            }
+        }
+        assert!(at_third_point(&s), "looking={looking}");
+        let before = s.events(R_RADIUS).iter().filter(|e| matches!(e, AiEvent::SearchLook { .. })).count();
+        s.game.awareness.actors.get_mut(&actor).unwrap().alarms.iter_mut().find(|a| a.owner == other).unwrap().refreshed = s.game.time;
+        for _ in 0..120 {
+            s.run(0.5);
+            if s.game.searches_done(actor, other) > 0 {
+                break;
+            }
+        }
+        assert_eq!(s.game.searches_done(actor, other), 1, "looking={looking}");
+        assert_eq!(s.game.searches_done(actor, player), 0);
+        let after = s.events(R_RADIUS).iter().filter(|e| matches!(e, AiEvent::SearchLook { .. })).count();
+        assert_eq!(after - before, 3, "the replacement target needs three fresh looks; looking={looking}");
+    }
+}
+
+/// An alert takes an actor off its bed or chair; when the search ends inside its
+/// package's place it settles again (issue #2013) [observed: Easy Pete, fought off his
+/// chair, sat again about 5 real seconds after the fight, AI observer 2026-11-10].
+#[test]
+fn an_actor_taken_off_its_furniture_by_an_alert_settles_again() {
+    let f = fixture();
+    let mut s = sim(&f, &[R_TO_CHAIR, R_SLEEP_C]);
+    s.run(30.0);
+    assert_eq!(s.ai.agents[&FormId(R_SLEEP_C)].using, Some(FormId(BED_C)));
+    assert_eq!(s.ai.agents[&FormId(R_TO_CHAIR)].using, Some(FormId(CHAIR_C)));
+    for r in [R_SLEEP_C, R_TO_CHAIR] {
+        let at = s.feet(r);
+        alert(&mut s, r, [at[0] + 40.0, at[1], 0.0]);
+    }
+    s.run(2.0);
+    assert_eq!(s.ai.agents[&FormId(R_SLEEP_C)].using, None, "the alert gets it up");
+    assert_eq!(s.ai.agents[&FormId(R_TO_CHAIR)].using, None, "the alert gets it up");
+    for r in [R_SLEEP_C, R_TO_CHAIR] {
+        s.game.awareness.actors.remove(&FormId(r));
+    }
+    s.run(30.0);
+    // The Sleep package "in cell": anywhere in the cell is its place, so nothing to walk
+    // back to; it goes back to its bed.
+    let ev = s.events(R_SLEEP_C);
+    let over = ev.iter().rposition(|e| matches!(e, AiEvent::SearchOver { .. })).expect("search over");
+    assert!(ev[over..].iter().any(|e| matches!(e, AiEvent::Resettles { .. })), "{ev:?}");
+    assert_eq!(s.ai.agents[&FormId(R_SLEEP_C)].using, Some(FormId(BED_C)), "{ev:?}");
+    // The chair's sitter sits again, walking back first if the search took it out of
+    // its package's place.
+    assert_eq!(s.ai.agents[&FormId(R_TO_CHAIR)].using, Some(FormId(CHAIR_C)), "{:?}", s.events(R_TO_CHAIR));
+}
+
+/// A patroller whose walk to a point an alert cut off walks on along its route once the
+/// search ends (issue #2137: Nipton's patroller stood 118 s after a fight) [documented:
+/// "Actor moves along patrol route continuously until another package evaluates", GECK
+/// wiki Patrol Package].
+#[test]
+fn a_patroller_whose_walk_an_alert_cut_off_walks_on_after_the_search() {
+    let f = fixture();
+    let mut s = sim(&f, &[R_LOOP]);
+    s.run(3.0);
+    assert_eq!(s.ai.agents[&FormId(R_LOOP)].activity, Activity::Travelling);
+    let at = s.feet(R_LOOP);
+    alert(&mut s, R_LOOP, [at[0] + 40.0, at[1], 0.0]);
+    s.run(2.0);
+    s.game.awareness.actors.remove(&FormId(R_LOOP));
+    s.run(45.0);
+    let ev = s.events(R_LOOP);
+    let over = ev.iter().rposition(|e| matches!(e, AiEvent::SearchOver { .. })).expect("search over");
+    let points: Vec<u32> = ev[over..].iter().filter_map(|e| match e {
+        AiEvent::Arrived { patrol_point: Some(p), .. } => Some(p.0),
+        _ => None,
+    }).collect();
+    assert!(points.len() >= 2, "it goes round again: {ev:?}");
+    assert!(matches!(ev[over + 1], AiEvent::SearchBack { .. }), "{ev:?}");
+}
+
 /// An actor without packages (Ranger Ghost, playtest list 5 item 29) walks back to where
 /// it was placed after a search.
 #[test]
@@ -1647,6 +2403,67 @@ fn an_actor_in_combat_stops_and_faces_its_target() {
 }
 
 #[test]
+fn an_actor_going_into_combat_stands_a_moment_then_turns_at_the_combat_rate() {
+    // `crate::alert::COMBAT_REACTION_SECONDS` and `combat_turn_rate` (#1352, capture
+    // o25_turn): it stands on its heading for 1.1 s, then turns 275°/s with its target
+    // more than a quarter turn off and 225°/s within it.
+    use fnv_ai::alert::{combat_turn_rate, COMBAT_TURN_NEAR, COMBAT_TURN_WIDE};
+    assert_eq!(combat_turn_rate(0.2), COMBAT_TURN_NEAR);
+    assert_eq!(combat_turn_rate(-1.5), COMBAT_TURN_NEAR);
+    assert_eq!(combat_turn_rate(2.0), COMBAT_TURN_WIDE);
+    let f = fixture();
+    let mut s = sim(&f, &[R_TRAVEL]);
+    s.run(1.0);
+    assert_eq!(s.ai.agents[&FormId(R_TRAVEL)].activity, Activity::Travelling);
+    let (now, t) = (s.game.time, Timers::default());
+    let at = s.feet(R_TRAVEL);
+    let target = [at[0] + 300.0, at[1], at[2]];
+    let a = s.game.awareness.actors.entry(FormId(R_TRAVEL)).or_default();
+    a.observe(FormId::PLAYER_REF, &Detection { value: 5.0, band: Band::Detected, ..Default::default() }, target, now, &t);
+    a.settle(FormId(R_TRAVEL), now, &t, true);
+    assert_eq!(a.combat_began, Some(now));
+    let want = fnv_nav::follow::heading_of([300.0, 0.0]);
+    s.ai.agents.get_mut(&FormId(R_TRAVEL)).unwrap().walker.heading = want + 3.0;
+    let off = |s: &Sim| fnv_nav::follow::heading_delta(want, s.ai.agents[&FormId(R_TRAVEL)].walker.heading);
+    // A second in: it stands where it was, on its heading.
+    s.run(1.0);
+    assert_eq!(s.ai.agents[&FormId(R_TRAVEL)].activity, Activity::There);
+    assert!(dist(s.feet(R_TRAVEL), at) < 1.0, "it stands");
+    assert!((off(&s) - 3.0).abs() < 1e-4, "{}", off(&s));
+    // Then half a second at the wide rate, and on to face it at the near one.
+    s.run(0.5);
+    assert!((off(&s) - (3.0 - COMBAT_TURN_WIDE * 0.5)).abs() < 1e-3, "{}", off(&s));
+    s.run(0.5);
+    assert!(off(&s).abs() < 1e-3, "{}", off(&s));
+}
+
+#[test]
+fn a_creature_going_into_combat_turns_at_once() {
+    // People only stand 1.1 s on going into combat (#1352); a creature turns to its
+    // target at once, as before [hypothesis: a creature's reaction is unmeasured].
+    let f = fixture();
+    let mut s = sim(&f, &[R_HOUND]);
+    s.run(1.0);
+    let hound = FormId(R_HOUND);
+    assert!(fnv_ai::alert::creature(&s.game, hound));
+    let (now, t) = (s.game.time, Timers::default());
+    let at = s.feet(R_HOUND);
+    let target = [at[0] + 300.0, at[1], at[2]];
+    let a = s.game.awareness.actors.entry(hound).or_default();
+    a.observe(FormId::PLAYER_REF, &Detection { value: 5.0, band: Band::Detected, ..Default::default() }, target, now, &t);
+    a.settle(hound, now, &t, true);
+    assert_eq!(a.state, State::Combat);
+    assert_eq!(a.combat_began, Some(now));
+    assert!(!fnv_ai::alert::reacting(&s.game, hound));
+    assert_eq!(fnv_ai::alert::combat_began(&s.game, hound), None);
+    let want = fnv_nav::follow::heading_of([300.0, 0.0]);
+    s.ai.agents.get_mut(&hound).unwrap().walker.heading = want + 3.0;
+    s.run(0.5);
+    let off = fnv_nav::follow::heading_delta(want, s.ai.agents[&hound].walker.heading);
+    assert!(off.abs() < 2.5, "it turned within the half second a person stands: {off}");
+}
+
+#[test]
 fn an_actor_in_combat_closes_in_on_a_target_it_cannot_see() {
     let f = fixture();
     let mut s = sim(&f, &[R_TRAVEL]);
@@ -1673,6 +2490,9 @@ fn fighting(s: &mut Sim, actor: u32, at: [f32; 3]) {
     a.observe(FormId::PLAYER_REF, &Detection { value: 5.0, band: Band::Detected, ..Default::default() }, at, now, &t);
     a.settle(FormId(actor), now, &t, true);
     assert_eq!(a.state, State::Combat);
+    // Past the moment it stands on going into combat (`fnv_ai::alert::reacting`): what
+    // the tests below look at is what a fighter does once it fights.
+    a.combat_began = Some(now - fnv_ai::alert::COMBAT_REACTION_SECONDS - 1.0);
 }
 
 #[test]
@@ -1956,6 +2776,99 @@ fn a_fighter_whose_post_failed_beyond_its_distance_closes_in() {
     fight_on(&mut s, 5.0, &mut OnFoot);
     assert!(dist(s.feet(R_SB_NOTHING), POST_TARGET) < 150.0, "{:?}", s.feet(R_SB_NOTHING));
     assert_eq!(post_counts(&s), (1, 0, 1));
+}
+
+/// A fighter stopping within 100 units of the player, who backs away from it at `speed`
+/// units/s for 2 s: the share of the updates of the last second it was within `reach`.
+fn within_reach_of_a_backing_target(speed: f32, reach: f32) -> f32 {
+    let f = fixture();
+    let mut s = sim(&f, &[R_SB_NOTHING]);
+    s.run(1.0);
+    let start = s.feet(R_SB_NOTHING);
+    // The target 120 units off, backing straight away from the fighter towards POST_TARGET.
+    let to = [POST_TARGET[0] - start[0], POST_TARGET[1] - start[1]];
+    let len = to[0].hypot(to[1]);
+    let dir = [to[0] / len, to[1] / len];
+    assert!(len > 120.0 + speed * 2.0, "room to back away: {len}");
+    let (dt, mut within, mut counted) = (0.05, 0, 0);
+    for i in 0..40 {
+        let gone = 120.0 + speed * dt * i as f32;
+        let at = [start[0] + dir[0] * gone, start[1] + dir[1] * gone, start[2]];
+        s.game.time += f64::from(dt);
+        fighting(&mut s, R_SB_NOTHING, at);
+        s.game.awareness.engage.insert(FormId(R_SB_NOTHING), (100.0, reach));
+        s.ai.update_moved(&mut s.game, &s.nav, dt, &mut OnFoot);
+        if i >= 20 {
+            counted += 1;
+            within += usize::from(dist(s.feet(R_SB_NOTHING), at) <= reach);
+        }
+    }
+    within as f32 / counted as f32
+}
+
+#[test]
+fn a_fighter_keeps_within_reach_of_a_target_backing_away() {
+    // #2163: a target that keeps moving off is followed, not left to walk out of reach.
+    for speed in [70.0, 150.0] {
+        let share = within_reach_of_a_backing_target(speed, 106.0);
+        assert!(share >= 0.9, "backing away at {speed}: within reach {share} of the time");
+    }
+}
+
+#[test]
+fn a_fighter_chases_its_detected_target_where_it_is_not_where_it_was_measured() {
+    // #2163: detection measures a target a few times a second; the player has moved on
+    // 150 units since. The fighter does not stop where the player was measured.
+    let f = fixture();
+    let mut s = sim(&f, &[R_SB_NOTHING]);
+    s.run(1.0);
+    let start = s.feet(R_SB_NOTHING);
+    let to = [POST_TARGET[0] - start[0], POST_TARGET[1] - start[1]];
+    let len = to[0].hypot(to[1]);
+    let point = |d: f32| [start[0] + to[0] / len * d, start[1] + to[1] / len * d, start[2]];
+    let (measured, really) = (point(150.0), point(300.0));
+    {
+        let p = s.game.world.get(FormId::PLAYER_REF).unwrap();
+        (p.cell, p.pos) = (Some(FormId(CELL_C)), really);
+    }
+    for _ in 0..60 {
+        s.game.time += 0.05;
+        fighting(&mut s, R_SB_NOTHING, measured);
+        s.game.awareness.engage.insert(FormId(R_SB_NOTHING), (100.0, 106.0));
+        s.ai.update_moved(&mut s.game, &s.nav, 0.05, &mut OnFoot);
+    }
+    let feet = s.feet(R_SB_NOTHING);
+    assert!(dist(feet, really) <= 100.0, "{} from the player, {} from where it was measured", dist(feet, really), dist(feet, measured));
+    assert_eq!(search(&s), holding());
+    assert_eq!(s.events(R_SB_NOTHING).iter().filter(|e| matches!(e, AiEvent::Hold { .. })).count(), 1, "it stopped once, at its distance");
+}
+
+#[test]
+fn a_chase_is_planned_again_sooner_near_its_target_and_leads_one_that_moves() {
+    use fnv_ai::alert::{keeps_way, lead, replan_slack, Drift, CHASE_LEAD_MAX, CLOSE_REPLAN_DISTANCE, CLOSE_REPLAN_NEAR};
+    // Far off, the target may move 96 units before the way is planned again; with 100
+    // units still to come, 25; at its distance, 12.
+    assert_eq!(replan_slack(2000.0, 150.0), CLOSE_REPLAN_DISTANCE);
+    assert_eq!(replan_slack(250.0, 150.0), 25.0);
+    assert_eq!(replan_slack(160.0, 150.0), CLOSE_REPLAN_NEAR);
+    assert_eq!(replan_slack(100.0, 150.0), CLOSE_REPLAN_NEAR);
+    let to = [0.0, 0.0, 0.0];
+    assert!(keeps_way(to, 10.0, [20.0, 0.0, 0.0], 250.0, 150.0, 10.5));
+    assert!(!keeps_way(to, 10.0, [30.0, 0.0, 0.0], 250.0, 150.0, 10.5), "the target moved 30 units, 25 allowed");
+    assert!(!keeps_way(to, 10.0, [20.0, 0.0, 0.0], 250.0, 150.0, 11.6), "1.5 s have passed");
+    // The target's speed: measured over 0.05 s or more, evened with the one before.
+    let d = Drift::begin(to, 10.0);
+    assert_eq!(d.speed, [0.0, 0.0]);
+    assert_eq!(d.on([5.0, 0.0, 0.0], 10.02), d, "too soon to measure");
+    let d = d.on([30.0, 0.0, 0.0], 10.1);
+    assert!((d.speed[0] - 150.0).abs() < 0.01 && d.speed[1] == 0.0, "{d:?}");
+    let d = d.on([60.0, 0.0, 0.0], 10.2);
+    assert!((d.speed[0] - 225.0).abs() < 0.01, "{d:?}");
+    // A moving target is closed in on 0.35 s ahead of it, at most 96 units; a slow one
+    // where it is.
+    assert_eq!(lead([100.0, 50.0, 7.0], [200.0, 0.0]), [170.0, 50.0, 7.0]);
+    assert_eq!(lead([100.0, 50.0, 7.0], [0.0, -1000.0]), [100.0, 50.0 - CHASE_LEAD_MAX, 7.0]);
+    assert_eq!(lead([100.0, 50.0, 7.0], [30.0, 0.0]), [100.0, 50.0, 7.0]);
 }
 
 #[test]
@@ -2263,6 +3176,32 @@ fn a_rooted_actor_in_combat_turns_to_its_target_in_place() {
     assert_eq!(s.ai.agents[&FormId(R_TRAVEL)].activity, Activity::None);
 }
 
+/// A rooted actor that never turns (an Immobile creature with a Turning Speed of 0, Mr.
+/// House's screen: `Ai::fix_heading`) keeps its heading in combat too, where a turret
+/// turns to its target (#2150). An actor that is not rooted is not fixed.
+#[test]
+fn a_fixed_actor_in_combat_keeps_its_heading() {
+    let f = fixture();
+    let mut s = sim(&f, &[R_TRAVEL, R_TO_CHAIR]);
+    let start = s.feet(R_TRAVEL);
+    s.ai.fix_heading(FormId(R_TRAVEL));
+    assert!(!s.ai.agents[&FormId(R_TRAVEL)].fixed, "only a rooted actor is fixed");
+    s.ai.root(&s.game, FormId(R_TRAVEL));
+    s.ai.fix_heading(FormId(R_TRAVEL));
+    assert!(s.ai.agents[&FormId(R_TRAVEL)].fixed);
+    let target = s.game.world.placed.get(FormId(R_TO_CHAIR)).unwrap().pos;
+    let want = fnv_nav::follow::heading_of([target[0] - start[0], target[1] - start[1]]);
+    let away = want + 2.0;
+    s.ai.agents.get_mut(&FormId(R_TRAVEL)).unwrap().walker.heading = away;
+    let rot = s.game.world.peek(FormId(R_TRAVEL)).map(|r| r.rot);
+    s.game.start_combat(FormId(R_TRAVEL), FormId(R_TO_CHAIR));
+    assert!(s.game.awareness.state(FormId(R_TRAVEL)).in_combat());
+    s.run(5.0);
+    assert_eq!(s.ai.agents[&FormId(R_TRAVEL)].walker.heading, away);
+    assert_eq!(s.game.world.peek(FormId(R_TRAVEL)).map(|r| r.rot), rot);
+    assert_eq!(s.feet(R_TRAVEL), start);
+}
+
 // ---- process levels (fnv_ai::process) -------------------------------------------------
 
 #[test]
@@ -2512,6 +3451,107 @@ fn a_use_weapon_package_stands_at_its_place_and_meets_its_goal_when_its_shots_ar
     assert!(s.game.active_weapon_use(actor).is_none());
 }
 
+/// #2120: a Use Weapon package's fire waits while the actor is in a combat state (Alert,
+/// Combat, Lost), unless the package has Continue During Combat: then it goes on, at the
+/// package's own target, from its stand. A script's use goes on in every state; a spent
+/// use in none.
+#[test]
+fn a_use_weapon_package_fires_on_in_combat_only_with_continue_during_combat() {
+    use fnv_game::package::flags::CONTINUE_DURING_COMBAT;
+    use fnv_game::use_weapon::{After, Source, WeaponUse};
+    let actor = FormId(R_SHOOTER);
+    let stand = [350.0, 350.0, 0.0];
+    for continues in [false, true] {
+        let mut f = fixture();
+        if continues {
+            f.data.package_defs.get_mut(&FormId(P_SHOOT)).unwrap().flags |= CONTINUE_DURING_COMBAT;
+        }
+        let mut s = sim(&f, &[R_SHOOTER]);
+        s.run(15.0);
+        assert!(dist(s.feet(R_SHOOTER), stand) < 40.0);
+        // The first of its two volleys fired: one left.
+        assert_eq!(s.game.weapon_uses.get_mut(&actor).unwrap().shot(0.3), After::Pause(0.5));
+        for state in [State::Normal, State::Alert, State::Combat, State::Lost] {
+            s.game.awareness.actors.entry(actor).or_default().state = state;
+            let active = s.game.active_weapon_use(actor).map(|w| (w.source, w.target, w.volleys.unwrap() - w.volleys_done, w.in_place));
+            if !state.in_combat() || continues {
+                assert_eq!(active, Some((Source::Package(FormId(P_SHOOT)), FormId(R_LONER), 1, true)), "{state:?}, continues {continues}");
+            } else {
+                assert_eq!(active, None, "{state:?}: the package's fire waits for the fight to end");
+                // Held, not lost: the same target and volleys wait.
+                let w = s.game.weapon_use(actor).unwrap();
+                assert_eq!((w.target, w.volleys.unwrap() - w.volleys_done, w.done), (FormId(R_LONER), 1, false));
+            }
+        }
+        s.game.awareness.actors.remove(&actor);
+        if continues {
+            // In a real fight with the player (not its package's target), it keeps its
+            // stand and its package's target, its fire still on.
+            fighting(&mut s, R_SHOOTER, [stand[0] + 300.0, stand[1], 0.0]);
+            s.run(2.0);
+            assert_eq!(s.game.awareness.state(actor), State::Combat);
+            assert!(dist(s.feet(R_SHOOTER), stand) < 40.0, "{:?}", s.events(R_SHOOTER));
+            let w = s.game.active_weapon_use(actor).expect("its fire goes on in combat");
+            assert_eq!((w.target, w.volleys.unwrap() - w.volleys_done), (FormId(R_LONER), 1));
+            // Spent: the goal is met and the use stays, done; the fight takes over.
+            assert_eq!(s.game.weapon_uses.get_mut(&actor).unwrap().shot(0.3), After::Done);
+            s.game.end_weapon_use(actor);
+            assert!(s.game.weapon_use(actor).is_some_and(|w| w.done));
+            for state in [State::Normal, State::Alert, State::Combat, State::Lost] {
+                s.game.awareness.actors.entry(actor).or_default().state = state;
+                assert!(s.game.active_weapon_use(actor).is_none(), "{state:?}: a spent use is over");
+            }
+        }
+        // A script's use goes on in every state, the package's flag or not.
+        s.game.give_weapon_use(actor, WeaponUse::of_script(None, None, FormId(R_LONER), 2, true, true, false, false, None));
+        for state in [State::Normal, State::Alert, State::Combat, State::Lost] {
+            s.game.awareness.actors.entry(actor).or_default().state = state;
+            assert!(s.game.active_weapon_use(actor).is_some_and(|w| w.source == Source::Script && w.target == FormId(R_LONER)), "{state:?}");
+        }
+    }
+}
+
+/// #2145 review: a Continue During Combat package's use in Combat faces the package's
+/// target while the engine's shooter acts on it; once the fight takes it over
+/// (`WeaponUse::taken`: a marker target, one not drawn) the actor turns to its enemy, as a
+/// standing fighter does, and back to the package's target when the shooter has it again.
+/// It keeps its stand throughout.
+#[test]
+fn a_use_weapon_package_the_fight_took_over_turns_to_its_enemy() {
+    use fnv_game::package::flags::CONTINUE_DURING_COMBAT;
+    let actor = FormId(R_SHOOTER);
+    let stand = [350.0, 350.0, 0.0];
+    let mut f = fixture();
+    f.data.package_defs.get_mut(&FormId(P_SHOOT)).unwrap().flags |= CONTINUE_DURING_COMBAT;
+    let mut s = sim(&f, &[R_SHOOTER]);
+    s.run(15.0);
+    assert!(dist(s.feet(R_SHOOTER), stand) < 40.0);
+    let enemy = [stand[0] + 300.0, stand[1], 0.0];
+    fighting(&mut s, R_SHOOTER, enemy);
+    let faces = |s: &Sim, to: [f32; 2]| {
+        let feet = s.feet(R_SHOOTER);
+        let want = fnv_nav::follow::heading_of([to[0] - feet[0], to[1] - feet[1]]);
+        let have = s.ai.agents[&actor].walker.heading;
+        (want - have).sin().abs() < 0.1 && (want - have).cos() > 0.0
+    };
+    // The shooter has it: the package's target, the loner south of it.
+    s.run(2.0);
+    assert_eq!(s.game.awareness.state(actor), State::Combat);
+    assert!(s.game.awareness.get(actor).and_then(|a| a.combat_target()).is_some());
+    assert!(faces(&s, [350.0, 50.0]), "the package's target, heading {}", s.ai.agents[&actor].walker.heading);
+    // The fight took it over (set each frame by the engine): its enemy, to the east.
+    for _ in 0..4 {
+        s.game.weapon_use_taken(actor);
+        s.run(0.5);
+    }
+    assert!(faces(&s, [enemy[0], enemy[1]]), "its enemy, heading {}", s.ai.agents[&actor].walker.heading);
+    assert!(dist(s.feet(R_SHOOTER), stand) < 40.0, "it keeps its stand");
+    // The shooter has it again: back to the package's target.
+    s.game.weapon_uses_untaken();
+    s.run(2.0);
+    assert!(faces(&s, [350.0, 50.0]), "the package's target again, heading {}", s.ai.agents[&actor].walker.heading);
+}
+
 /// The UseWeapon function (`fnv_game::use_weapon`): the actor walks to where it is to
 /// stand, and once the use is over goes back to its package.
 #[test]
@@ -2641,6 +3681,283 @@ fn a_sandboxer_tells_the_game_what_it_does() {
             assert_ne!(w[1], SandboxPhase::Sitting, "{seen:?}");
         }
     }
+}
+
+// ---- the drawn walk (#2124, `fnv_ai::carry::drawn_walk_share`) --------------------
+
+/// Body armour of the medium class (upper body), for the drawn walk's armour rule.
+const MEDIUM_ARMOUR: u32 = 0xA05;
+
+/// [`with_arms`] with [`MEDIUM_ARMOUR`].
+fn with_arms_and_armour() -> Fixture {
+    use fnv_sim::forms::{ArmorClass, BaseData, BaseForm, ItemKind};
+    let mut f = with_arms(fixture());
+    let BaseData::Item(mut it) = f.forms.bases[&FormId(PISTOL)].data.clone() else { unreachable!("the pistol is an item") };
+    (it.kind, it.slots, it.armor_class, it.weapon_traits, it.drawable, it.projectile) = (ItemKind::Armor, Some(fnv_game::detection::UPPER_BODY), ArmorClass::Medium, None, false, None);
+    let id = FormId(MEDIUM_ARMOUR);
+    f.forms.sigs.insert(id, *b"ARMO");
+    f.forms.bases.insert(id, BaseForm { id, sig: *b"ARMO", edid: None, name: None, script: None, prompt: None, voice_filter: false, data: BaseData::Item(it) });
+    f
+}
+
+/// `actor` holds `weapon` (outfitted, as a drawn actor is) and has it out as SetWeaponOut
+/// 1 holds it (`Game::wants_weapon_out`).
+fn draw(s: &mut Sim, actor: u32, weapon: u32) {
+    let me = FormId(actor);
+    s.game.world.add_item(me, FormId(weapon), 1).unwrap();
+    s.game.world.outfit(me).unwrap();
+    s.game.world.equip(me, FormId(weapon)).unwrap();
+    assert_eq!(s.game.held_weapon(me).map(|w| w.0), Some(FormId(weapon)));
+    s.game.hud.forced_out.insert(me);
+}
+
+fn walk_speed(s: &Sim, actor: u32) -> f32 {
+    s.ai.agents[&FormId(actor)].walker.speed
+}
+
+#[test]
+fn a_person_with_a_pistol_drawn_walks_its_package_at_its_walk_over_fmovenoweaponmult() {
+    let f = with_arms(fixture());
+    let mut drawn = sim(&f, &[R_RADIUS]);
+    draw(&mut drawn, R_RADIUS, PISTOL);
+    let mut holstered = sim(&f, &[R_RADIUS]);
+    drawn.run(2.0);
+    holstered.run(2.0);
+    // 100 (the test's walk) / 1.1 (fMoveNoWeaponMult's default).
+    assert!((walk_speed(&drawn, R_RADIUS) - 100.0 / 1.1).abs() < 1e-3, "{}", walk_speed(&drawn, R_RADIUS));
+    assert_eq!(walk_speed(&holstered, R_RADIUS), 100.0);
+    // Both still on their way, the holstered one 1.1 times as far.
+    let gone = |s: &Sim| {
+        assert_eq!(s.ai.agents[&FormId(R_RADIUS)].activity, Activity::Travelling);
+        s.ai.agents[&FormId(R_RADIUS)].walker.travelled
+    };
+    let ratio = gone(&holstered) / gone(&drawn);
+    assert!((1.07..=1.13).contains(&ratio), "{ratio}");
+}
+
+#[test]
+fn a_walk_under_way_follows_the_weapon_drawn_and_put_away() {
+    let f = with_arms(fixture());
+    let mut s = sim(&f, &[R_RADIUS]);
+    let me = FormId(R_RADIUS);
+    s.game.world.add_item(me, FormId(PISTOL), 1).unwrap();
+    s.game.world.outfit(me).unwrap();
+    s.game.world.equip(me, FormId(PISTOL)).unwrap();
+    s.run(1.0);
+    assert_eq!(s.ai.agents[&me].activity, Activity::Travelling);
+    assert_eq!(walk_speed(&s, R_RADIUS), 100.0);
+    // The animating side tells the weapon out once it is drawn, after the walk was planned.
+    let frame = |s: &mut Sim, out: bool| {
+        s.game.set_weapon_out(me, out);
+        s.game.tick();
+        s.ai.update(&mut s.game, &s.nav, 0.5);
+    };
+    frame(&mut s, true);
+    assert!((walk_speed(&s, R_RADIUS) - 100.0 / 1.1).abs() < 1e-3, "{}", walk_speed(&s, R_RADIUS));
+    frame(&mut s, false);
+    assert_eq!(walk_speed(&s, R_RADIUS), 100.0);
+}
+
+#[test]
+fn the_drawn_walk_keeps_speed_mult_sneaking_and_the_setting() {
+    // Speed Mult 120 (the engine's people's speeds, `creature_pace::paced_speeds`: the
+    // walk × Speed Mult × the armour's share).
+    let f = with_arms(fixture());
+    let mut s = sim(&f, &[R_RADIUS]);
+    let own = fnv_ai::Speeds { walk: 120.0, run: 480.0 };
+    s.ai.set_speeds(FormId(R_RADIUS), fnv_ai::ActorSpeeds { calm: own, alert: own, turn_rate: None, spot_turn_start: None });
+    draw(&mut s, R_RADIUS, PISTOL);
+    s.run(1.0);
+    assert!((walk_speed(&s, R_RADIUS) - 120.0 / 1.1).abs() < 1e-3, "{}", walk_speed(&s, R_RADIUS));
+    // Sneaking: × fMoveSneakMult (0.57) on top.
+    let mut s = sim(&f, &[R_RADIUS]);
+    draw(&mut s, R_RADIUS, PISTOL);
+    s.game.extra.entry(FormId(R_RADIUS)).or_default().force_sneak = true;
+    s.run(1.0);
+    assert!((walk_speed(&s, R_RADIUS) - 100.0 / 1.1 * 0.57).abs() < 1e-3, "{}", walk_speed(&s, R_RADIUS));
+    // The load order's fMoveNoWeaponMult.
+    let mut f = with_arms(fixture());
+    f.forms.settings.insert("fmovenoweaponmult".into(), fnv_sim::settings::Setting::Float(1.25));
+    let mut s = sim(&f, &[R_RADIUS]);
+    draw(&mut s, R_RADIUS, PISTOL);
+    s.run(1.0);
+    assert!((walk_speed(&s, R_RADIUS) - 80.0).abs() < 1e-3, "{}", walk_speed(&s, R_RADIUS));
+}
+
+#[test]
+fn a_pistol_taken_off_on_the_way_gives_the_unarmed_walk_back() {
+    let f = with_arms(fixture());
+    let mut s = sim(&f, &[R_RADIUS]);
+    let me = FormId(R_RADIUS);
+    draw(&mut s, R_RADIUS, PISTOL);
+    s.run(1.0);
+    assert!((walk_speed(&s, R_RADIUS) - 100.0 / 1.1).abs() < 1e-3, "{}", walk_speed(&s, R_RADIUS));
+    // Back to its fists, SetWeaponOut 1 still on; the animating side's last drawn weapon
+    // (not cleared on unequipping) does not count against its inventory.
+    s.game.set_held_weapon(me, Some(FormId(PISTOL)));
+    s.game.world.unequip(me, FormId(PISTOL)).unwrap();
+    assert_eq!(s.game.held_weapon(me), None);
+    s.run(0.5);
+    assert_eq!(s.ai.agents[&me].activity, Activity::Travelling);
+    assert_eq!(walk_speed(&s, R_RADIUS), 100.0);
+}
+
+#[test]
+fn a_walk_whose_base_speed_changed_on_the_way_still_follows_the_weapon() {
+    let f = with_arms(fixture());
+    let mut s = sim(&f, &[R_RADIUS]);
+    let me = FormId(R_RADIUS);
+    s.game.world.add_item(me, FormId(PISTOL), 1).unwrap();
+    s.game.world.outfit(me).unwrap();
+    s.game.world.equip(me, FormId(PISTOL)).unwrap();
+    s.run(1.0);
+    assert_eq!(walk_speed(&s, R_RADIUS), 100.0);
+    let planned = plans(&s, R_RADIUS);
+    // New speeds of its own on the way (armour, Speed Mult): the walk takes them at once
+    // (`Ai::set_speeds`, issue #2118) and stays the package's own.
+    s.ai.set_speeds(me, speeds(120.0, 480.0));
+    assert_eq!(walk_speed(&s, R_RADIUS), 120.0);
+    s.run(0.5);
+    assert_eq!(walk_speed(&s, R_RADIUS), 120.0);
+    // Drawn, then put away: the walk follows from its new speed.
+    s.game.hud.forced_out.insert(me);
+    s.run(0.5);
+    assert_eq!(s.ai.agents[&me].activity, Activity::Travelling);
+    assert!((walk_speed(&s, R_RADIUS) - 120.0 / 1.1).abs() < 1e-3, "{}", walk_speed(&s, R_RADIUS));
+    s.game.hud.forced_out.remove(&me);
+    s.run(0.5);
+    assert!((walk_speed(&s, R_RADIUS) - 120.0).abs() < 1e-3, "{}", walk_speed(&s, R_RADIUS));
+    assert_eq!(plans(&s, R_RADIUS), planned, "{:?}", s.events(R_RADIUS));
+}
+
+/// A Speed Mult refresh during a drawn walk (`Ai::set_speeds` rewriting the walk under
+/// way, #2118) keeps the drawn share and the walk's ownership: the walk goes on at the new
+/// walk / fMoveNoWeaponMult and still follows the weapon, also through a stop at Speed
+/// Mult 0 in which the weapon is put away.
+#[test]
+fn a_speed_mult_refresh_during_a_drawn_walk_keeps_the_share() {
+    let f = with_arms(fixture());
+    let mut s = sim(&f, &[R_RADIUS]);
+    let me = FormId(R_RADIUS);
+    draw(&mut s, R_RADIUS, PISTOL);
+    s.run(1.0);
+    let near = |s: &Sim, want: f32| assert!((walk_speed(s, R_RADIUS) - want).abs() < 1e-3, "{} against {want}", walk_speed(s, R_RADIUS));
+    near(&s, 100.0 / 1.1);
+    let planned = plans(&s, R_RADIUS);
+    // Speed Mult 120: at once, and kept on the next steps (not given up as another's).
+    s.ai.set_speeds(me, speeds(120.0, 480.0));
+    near(&s, 120.0 / 1.1);
+    s.run(0.5);
+    near(&s, 120.0 / 1.1);
+    // Put away and drawn again: the walk is still the package's own.
+    s.game.hud.forced_out.remove(&me);
+    s.run(0.5);
+    near(&s, 120.0);
+    s.game.hud.forced_out.insert(me);
+    s.run(0.5);
+    near(&s, 120.0 / 1.1);
+    // Speed Mult 0: it stands; back to 120, the drawn walk again.
+    s.ai.set_speeds(me, speeds(0.0, 0.0));
+    s.run(0.5);
+    near(&s, 0.0);
+    s.ai.set_speeds(me, speeds(120.0, 480.0));
+    near(&s, 120.0 / 1.1);
+    // Standing again, put away while it stands: it goes on at the holstered walk, and
+    // drawn after at the drawn one.
+    s.ai.set_speeds(me, speeds(0.0, 0.0));
+    s.game.hud.forced_out.remove(&me);
+    s.run(0.5);
+    near(&s, 0.0);
+    s.ai.set_speeds(me, speeds(120.0, 480.0));
+    near(&s, 120.0);
+    s.game.hud.forced_out.insert(me);
+    s.run(0.5);
+    near(&s, 120.0 / 1.1);
+    assert_eq!(s.ai.agents[&me].activity, Activity::Travelling);
+    // All on the one walk: no new plan gave it its speeds.
+    assert_eq!(plans(&s, R_RADIUS), planned, "{:?}", s.events(R_RADIUS));
+}
+
+/// A package's walk planned with the pistol drawn while the speeds are 0 goes on at the
+/// drawn walk when they come back (`Ai::plan` keeps the share with the stop's gait).
+#[test]
+fn a_drawn_walk_planned_at_speed_0_goes_on_drawn() {
+    let f = with_arms(fixture());
+    let mut s = sim(&f, &[R_RADIUS]);
+    let me = FormId(R_RADIUS);
+    s.ai.set_speeds(me, speeds(0.0, 0.0));
+    draw(&mut s, R_RADIUS, PISTOL);
+    s.run(1.0);
+    assert_eq!(s.ai.agents[&me].activity, Activity::Travelling);
+    assert_eq!(walk_speed(&s, R_RADIUS), 0.0);
+    s.ai.set_speeds(me, speeds(120.0, 480.0));
+    assert!((walk_speed(&s, R_RADIUS) - 120.0 / 1.1).abs() < 1e-3, "{}", walk_speed(&s, R_RADIUS));
+    s.game.hud.forced_out.remove(&me);
+    s.run(0.5);
+    assert!((walk_speed(&s, R_RADIUS) - 120.0).abs() < 1e-3, "{}", walk_speed(&s, R_RADIUS));
+}
+
+#[test]
+fn a_walk_another_owner_takes_over_with_the_same_speed_is_left_alone() {
+    // A wanderer with its pistol out: its sandbox's walk is the drawn walk.
+    let f = with_arms(fixture());
+    let mut s = sim(&f, &[R_SB_WANDER, R_SB_NOTHING]);
+    let me = FormId(R_SB_WANDER);
+    draw(&mut s, R_SB_WANDER, PISTOL);
+    let drawn = 100.0 / 1.1;
+    let mut owned = false;
+    for _ in 0..120 {
+        s.run(0.5);
+        let a = &s.ai.agents[&me];
+        if a.activity == Activity::Travelling && (a.walker.speed - drawn).abs() < 1e-3 {
+            owned = true;
+            break;
+        }
+    }
+    assert!(owned, "the wanderer never walked with its pistol drawn: {:?}", doings(&s, R_SB_WANDER));
+    // In the same frame a random conversation takes the walk over at the speed it has
+    // (as `social`'s set-off would, the walk's end and the next walk in one frame).
+    let agent = s.ai.agents.get_mut(&me).unwrap();
+    agent.walker.go_to(&s.nav, fnv_nav::path::Place { space: C, pos: [10750.0, 10450.0, 0.0] }, &fnv_nav::path::PathParams::default()).unwrap();
+    agent.activity = Activity::Travelling;
+    agent.chat = Some(fnv_ai::Chat::Going { partner: FormId(R_SB_NOTHING), since: s.game.time });
+    // Put away: the conversation's walk keeps its speed.
+    s.game.hud.forced_out.remove(&me);
+    s.run(0.5);
+    assert_eq!(s.ai.agents[&me].activity, Activity::Travelling);
+    assert!((walk_speed(&s, R_SB_WANDER) - drawn).abs() < 1e-3, "{}", walk_speed(&s, R_SB_WANDER));
+}
+
+#[test]
+fn the_drawn_walk_leaves_runs_other_stances_armour_creatures_and_fights_alone() {
+    let f = with_arms_and_armour();
+    // A run with the pistol drawn keeps the run.
+    let mut s = sim(&f, &[R_RUN]);
+    draw(&mut s, R_RUN, PISTOL);
+    s.run(0.5);
+    assert_eq!(walk_speed(&s, R_RUN), 400.0);
+    // A knife (Melee 1 Hand, not measured) keeps the holstered walk.
+    let mut s = sim(&f, &[R_RADIUS]);
+    draw(&mut s, R_RADIUS, KNIFE);
+    s.run(1.0);
+    assert_eq!(walk_speed(&s, R_RADIUS), 100.0);
+    // So does the pistol in medium armour (not measured drawn).
+    let mut s = sim(&f, &[R_RADIUS]);
+    s.game.world.add_item(FormId(R_RADIUS), FormId(MEDIUM_ARMOUR), 1).unwrap();
+    draw(&mut s, R_RADIUS, PISTOL);
+    s.game.world.equip(FormId(R_RADIUS), FormId(MEDIUM_ARMOUR)).unwrap();
+    s.run(1.0);
+    assert_eq!(walk_speed(&s, R_RADIUS), 100.0);
+    // A creature given a pistol to hold, and a person fighting.
+    let mut s = sim(&f, &[R_HOUND, R_SB_NOTHING]);
+    s.game.set_held_weapon(FormId(R_HOUND), Some(FormId(PISTOL)));
+    s.game.hud.forced_out.insert(FormId(R_HOUND));
+    assert!(s.game.weapon_is_out(FormId(R_HOUND)));
+    assert_eq!(fnv_ai::carry::drawn_walk_share(&s.game, FormId(R_HOUND)), 1.0);
+    draw(&mut s, R_SB_NOTHING, PISTOL);
+    assert!(fnv_ai::carry::drawn_walk_share(&s.game, FormId(R_SB_NOTHING)) < 1.0);
+    fighting(&mut s, R_SB_NOTHING, [10450.0, 10950.0, 0.0]);
+    assert_eq!(fnv_ai::carry::drawn_walk_share(&s.game, FormId(R_SB_NOTHING)), 1.0);
 }
 
 // ---- re-arming (`fnv_ai::rearm`, docs/design/combat-ai.md §22) ----------------------
@@ -2831,6 +4148,34 @@ fn a_fighter_keeps_the_weapon_it_holds_over_its_other_carried_ones_until_it_lose
     s.game.world.remove_item(me, FormId(KNIFE), 1).unwrap();
     s.run(2.0);
     assert_eq!(s.game.held_weapon(me).map(|w| w.0), Some(FormId(PISTOL)), "{:?}", s.events(R_SB_NOTHING));
+}
+
+#[test]
+fn a_melee_only_fighter_holding_a_gun_takes_up_its_knife_by_the_style_rule() {
+    // #1721: a held weapon its combat style rules out is the style rule's to swap
+    // (`fnv_game::style_weapon`), not re-arming's, though re-arming runs first.
+    const MELEE_ONLY: u32 = 0xC51;
+    let mut f = with_arms(fixture());
+    f.data.combat_styles.insert(FormId(MELEE_ONLY), fnv_game::data::CombatStyleDef { weapon_restrictions: 1, ..Default::default() });
+    let mut s = sim(&f, &[R_SB_NOTHING]);
+    s.run(1.0);
+    let me = FormId(R_SB_NOTHING);
+    for (item, n) in [(KNIFE, 1), (PISTOL, 1), (ROUNDS, 5)] {
+        s.game.world.add_item(me, FormId(item), n).unwrap();
+    }
+    assert!(s.game.world.outfit(me).unwrap());
+    s.game.world.equip(me, FormId(PISTOL)).unwrap();
+    s.game.extra.entry(me).or_default().combat_style = Some(FormId(MELEE_ONLY));
+    fighting(&mut s, R_SB_NOTHING, [10450.0, 10950.0, 0.0]);
+    // The AI's update before the game's frame, as in the engine: re-arming sees the fight
+    // before `Game::arm_by_style` (only for actors already in `Game::fighting`) does.
+    s.ai.update(&mut s.game, &s.nav, 0.5);
+    assert!(!s.game.fighting.contains(&me));
+    assert_eq!(s.game.held_weapon(me).map(|w| w.0), Some(FormId(KNIFE)), "{:?}", s.events(R_SB_NOTHING));
+    s.run(1.5);
+    let ev = s.events(R_SB_NOTHING);
+    assert_eq!(s.game.held_weapon(me).map(|w| w.0), Some(FormId(KNIFE)), "{ev:?}");
+    assert!(!ev.iter().any(|e| matches!(e, AiEvent::Rearmed { .. })), "re-arming did not take it: {ev:?}");
 }
 
 #[test]
@@ -3575,13 +4920,15 @@ fn unsupported_creature_skips_seats_beds_and_meal_seats() {
     // The afternoon, with seats.
     set_clock(&mut s, 16.5, 5.7);
     watch(&mut s, 300);
-    // A meal: standing.
+    // A meal with no seat it can use: no meal, the day's choices go on (#2011).
     let at = lunch(&s, R_HOUND);
     set_clock(&mut s, at, 5.7);
+    let before = doings(&s, R_HOUND).len();
     watch(&mut s, 240);
-    assert_eq!(s.ai.agents[&hound].sandbox.as_ref().unwrap().doing, Doing::Eating(None));
+    assert!(!matches!(s.ai.agents[&hound].sandbox.as_ref().unwrap().doing, Doing::Eating(_)));
     let did = doings(&s, R_HOUND);
-    assert!(did.iter().all(|d| matches!(d, Doing::Wandering | Doing::Standing | Doing::Eating(None))), "{did:?}");
+    assert!(did.len() > before + 1, "choices went on through the meal: {:?}", &did[before..]);
+    assert!(did.iter().all(|d| matches!(d, Doing::Wandering | Doing::Standing)), "{did:?}");
     // Told once for each piece, however many choices were made.
     let mut told = eligibility(&s, R_HOUND);
     told.sort();
@@ -4105,6 +5452,39 @@ fn fail_at_the_chair(s: &mut Sim) {
     assert_eq!(standing_times(s), [5.5], "the failed choice's five seconds, not the ten of nothing open");
 }
 
+/// A meal whose only seat has no way to it: the seat waits out its delay and the meal is
+/// not held standing meanwhile; once there is a way, the meal on the seat [design, #2011].
+#[test]
+fn a_meal_whose_seat_has_no_way_to_it_waits_for_the_way() {
+    let mut f = lone_sandboxer(false);
+    f.data.package_defs.get_mut(&FormId(P_SB_OBJECTS)).unwrap().type_flags &= !type_flags::NO_EATING;
+    // The day's lunch, as this sandbox rolls it (the same numbers every run).
+    let mut probe = sim(&f, &[R_SB_OBJECTS]);
+    probe.run(0.5);
+    let at = lunch(&probe, R_SB_OBJECTS);
+    let mut s = sim(&f, &[R_SB_OBJECTS]);
+    set_clock(&mut s, at, 5.0);
+    s.nav = chair_cut_off();
+    // The first choice is the meal on the chair; there is no way to it, so nothing began.
+    assert_eq!(run_noting_choices(&mut s, 0.5), [0.5]);
+    assert!(doings(&s, R_SB_OBJECTS).is_empty(), "{:?}", s.events(R_SB_OBJECTS));
+    // While the chair waits out its 60 seconds: no meal, choices go on (nothing else is
+    // open in this package, so standing, ten seconds at a time).
+    let did = through_a_seatless_meal(&mut s, R_SB_OBJECTS, 50);
+    assert!(did.len() >= 3 && did.iter().all(|d| *d == Doing::Standing), "{did:?}");
+    // The way is back: after the wait, the meal on the chair.
+    s.nav = way_restored();
+    let actor = FormId(R_SB_OBJECTS);
+    for _ in 0..240 {
+        if s.ai.agents[&actor].using.is_some() {
+            break;
+        }
+        s.run(0.5);
+    }
+    assert_eq!(s.ai.agents[&actor].using, Some(FormId(CHAIR_C)), "{:?}", s.events(R_SB_OBJECTS));
+    assert_eq!(s.ai.agents[&actor].sandbox.as_ref().unwrap().doing, Doing::Eating(Some(FormId(CHAIR_C))));
+}
+
 #[test]
 fn a_sandbox_goes_back_to_a_failed_object_once_there_is_a_way() {
     let f = lone_sandboxer(false);
@@ -4306,4 +5686,392 @@ fn a_failed_object_can_be_chosen_from_the_moment_its_wait_ends() {
     };
     assert_eq!(choosing_at(60.0), (Vec::new(), Some((60.0, Doing::Standing))), "half a second before the deadline");
     assert_eq!(choosing_at(60.5), (vec![60.5], Some((60.5, Doing::Sitting(FormId(CHAIR_C))))), "at the deadline");
+}
+
+// ---- a sandbox's only object is used again after a while (#1505) --------------------
+
+use fnv_ai::sandbox::SOLE_OBJECT_AGAIN_AFTER;
+
+const SOLE_MARKER: u32 = 0x8A3;
+const SOLE_MARKER_AT: [f32; 3] = [10500.0, 10250.0, 0.0];
+
+/// The sandboxer's choices with their times, in order.
+fn timed_doings(s: &Sim) -> Vec<(f64, Doing)> {
+    s.ai.events.iter().filter(|e| e.actor == FormId(R_SB_OBJECTS)).filter_map(|e| match e.event {
+        AiEvent::Sandbox { doing, .. } => Some((e.time, doing)),
+        _ => None,
+    }).collect()
+}
+
+/// The times the sandboxer got off furniture.
+fn got_up_times(s: &Sim) -> Vec<f64> {
+    s.ai.events.iter().filter(|e| e.actor == FormId(R_SB_OBJECTS) && matches!(e.event, AiEvent::Furniture { furniture: None })).map(|e| e.time).collect()
+}
+
+/// For each use of `object` after the first: the first standing choice after the use before
+/// it ended (`ended`) and the use itself. Asserts that only standing came between.
+fn sole_object_gaps(did: &[(f64, Doing)], object: Doing, ended: &[f64]) -> Vec<(f64, f64)> {
+    let uses: Vec<f64> = did.iter().filter(|d| d.1 == object).map(|d| d.0).collect();
+    assert!(ended.len() + 1 >= uses.len(), "{ended:?} {uses:?}");
+    uses.iter().enumerate().skip(1).map(|(i, again)| {
+        let between: Vec<&(f64, Doing)> = did.iter().filter(|d| d.0 >= ended[i - 1] && d.0 < *again).collect();
+        assert!(!between.is_empty() && between.iter().all(|d| d.1 == Doing::Standing), "{between:?}");
+        (between[0].0, *again)
+    }).collect()
+}
+
+/// A sandboxer in cell C with a chair, an idle marker or both, its package leaving on only
+/// what is there (no wandering, eating, sleeping or conversation).
+fn sole_object_sandboxer(chair: bool, marker: bool) -> Fixture {
+    let globs = [
+        glob(0x801, "GameYear", 2281.0),
+        glob(0x802, "GameMonth", 9.0),
+        glob(0x803, "GameDay", 19.0),
+        glob(0x804, "GameHour", 12.0),
+        glob(G_DAYS, "GameDaysPassed", 5.0),
+        glob(0x806, "TimeScale", 30.0),
+    ]
+    .concat();
+    let mut off = type_flags::NO_WANDERING | type_flags::NO_EATING | type_flags::NO_SLEEPING | type_flags::NO_CONVERSATION;
+    if !chair {
+        off |= type_flags::NO_FURNITURE;
+    }
+    if !marker {
+        off |= type_flags::NO_IDLE_MARKERS;
+    }
+    let mut refs = [placed(b"REFR", MARK_C, "MarkC", STAT, MIDDLE_C, None), placed(b"ACHR", R_SB_OBJECTS, "SitterRef", N_SB_OBJECTS, SANDBOXER_AT, None)].concat();
+    if chair {
+        refs.extend(placed(b"REFR", CHAIR_C, "ChairC", CHAIR, CHAIR_AT, None));
+    }
+    if marker {
+        refs.extend(placed_with(b"REFR", SOLE_MARKER, "SoleMarker", IDLE_MARKER, SOLE_MARKER_AT, 1.25, None, None));
+    }
+    let cell = [record(b"CELL", CELL_C, &[sub(b"EDID", z("CellC"))]), group(CELL_C.to_le_bytes(), 6, &group(CELL_C.to_le_bytes(), 9, &refs))].concat();
+    let top = |sig: &[u8; 4], body: &[u8]| group(*sig, 0, body);
+    // A marker timing two idles ten seconds apart (no IDLE records: any skeleton fits).
+    let idlm = record(b"IDLM", IDLE_MARKER, &[sub(b"EDID", z("LeanMarker")), sub(b"IDLF", vec![0]), sub(b"IDLC", vec![2]), sub(b"IDLT", 10f32.to_le_bytes().to_vec()), sub(b"IDLA", [0x8F0u32.to_le_bytes(), 0x8F1u32.to_le_bytes()].concat())]);
+    fixture_of(
+        [
+            tes4(),
+            top(b"GLOB", &globs),
+            top(b"STAT", &record(b"STAT", STAT, &[sub(b"EDID", z("Marker"))])),
+            top(b"FURN", &record(b"FURN", CHAIR, &[sub(b"EDID", z("Chair")), sub(b"MNAM", 0x4000_0001u32.to_le_bytes().to_vec())])),
+            top(b"IDLM", &idlm),
+            top(b"NPC_", &npc(N_SB_OBJECTS, "Sitter", &[P_SB_OBJECTS])),
+            top(b"PACK", &pack_with(P_SB_OBJECTS, "SandboxSole", 0, SANDBOX, off, (0, MARK_C, 450), None)),
+            top(b"CELL", &group(0i32.to_le_bytes(), 2, &group(0i32.to_le_bytes(), 3, &cell))),
+        ]
+        .concat(),
+    )
+}
+
+/// The issue's case: one chair and nothing else on. Once it has been sat on, it is not
+/// chosen at the next look, but after a minute of standing it is again, and so on, in the
+/// same sandbox (no new package).
+#[test]
+fn a_sandboxs_only_chair_is_sat_on_again_after_a_minute_of_something_else() {
+    let f = lone_sandboxer(false);
+    let mut s = sim(&f, &[R_SB_OBJECTS]);
+    s.nav = way_restored();
+    assert!(way_to(&s, CHAIR_AT));
+    let actor = FormId(R_SB_OBJECTS);
+    let chair = Doing::Sitting(FormId(CHAIR_C));
+    s.run(900.0);
+    let allowed = s.ai.agents[&actor].sandbox.as_ref().unwrap().allowed;
+    assert!(allowed.furniture && !allowed.wandering && !allowed.idle_markers && !allowed.eating && !allowed.sleeping && !allowed.conversation);
+    let did = timed_doings(&s);
+    // Before #1505: one sit, then only standing (50 times in 600 seconds).
+    assert!(did.iter().filter(|d| d.1 == chair).count() >= 3, "{did:?}");
+    assert!(did.iter().all(|d| d.1 == chair || d.1 == Doing::Standing), "{did:?}");
+    let ups = got_up_times(&s);
+    for (first_stand, again) in sole_object_gaps(&did, chair, &ups) {
+        // Never at once: the look on getting up stands, and so does every look for the
+        // next minute; the first look a minute after that first stand takes the chair.
+        assert!(ups.contains(&first_stand), "the look on getting up stands: {first_stand} {ups:?}");
+        assert!(again - first_stand >= SOLE_OBJECT_AGAIN_AFTER, "{first_stand} to {again}");
+        assert!(again - first_stand < SOLE_OBJECT_AGAIN_AFTER + 10.0, "the first look after the minute: {first_stand} to {again}");
+    }
+    let furniture: Vec<Option<FormId>> = s.events(R_SB_OBJECTS).iter().filter_map(|e| match e {
+        AiEvent::Furniture { furniture } => Some(*furniture),
+        _ => None,
+    }).collect();
+    assert!(furniture.iter().filter(|f| **f == Some(FormId(CHAIR_C))).count() >= 3, "really sat on: {furniture:?}");
+    assert_eq!(package_events(&s), 1, "no new package or sandbox was needed");
+}
+
+/// The rule against choosing the object just used again at once still holds for the only
+/// object: an interruption right after getting up does not let it through early.
+#[test]
+fn a_sandboxs_only_chair_is_not_chosen_again_at_once() {
+    let f = lone_sandboxer(false);
+    let mut s = sim(&f, &[R_SB_OBJECTS]);
+    s.nav = way_restored();
+    let chair = Doing::Sitting(FormId(CHAIR_C));
+    // Until it gets up from the first sit.
+    for _ in 0..1200 {
+        s.run(0.5);
+        if !got_up_times(&s).is_empty() {
+            break;
+        }
+    }
+    let up = got_up_times(&s)[0];
+    assert_eq!(timed_doings(&s).last(), Some(&(up, Doing::Standing)));
+    // Combat for an update brings an early look: still standing.
+    s.run(20.0);
+    interrupt_for_one_update(&mut s);
+    s.run(0.5);
+    let did = timed_doings(&s);
+    assert!(did.iter().filter(|d| d.0 > up).all(|d| d.1 == Doing::Standing), "{did:?}");
+    assert_eq!(did.iter().filter(|d| d.1 == chair).count(), 1, "{did:?}");
+    // Up to the minute's end, no sit.
+    let until = up + SOLE_OBJECT_AGAIN_AFTER - 0.5 - s.game.time;
+    s.run(until);
+    assert_eq!(timed_doings(&s).iter().filter(|d| d.1 == chair).count(), 1, "{:?}", timed_doings(&s));
+    s.run(10.5);
+    assert_eq!(timed_doings(&s).iter().filter(|d| d.1 == chair).count(), 2, "{:?}", timed_doings(&s));
+    assert_eq!(package_events(&s), 1);
+}
+
+/// With two chairs the sandboxer goes from one to the other, never standing between and
+/// never on the same one twice running, as before #1505.
+#[test]
+fn two_chairs_still_take_turns() {
+    let f = lone_sandboxer(true);
+    let mut s = sim(&f, &[R_SB_OBJECTS]);
+    s.nav = way_restored();
+    s.run(900.0);
+    let did = doings(&s, R_SB_OBJECTS);
+    assert!(did.len() >= 4, "{did:?}");
+    let chairs = [Doing::Sitting(FormId(CHAIR_C)), Doing::Sitting(FormId(SECOND_CHAIR))];
+    assert!(did.iter().all(|d| chairs.contains(d)), "{did:?}");
+    assert!(did.windows(2).all(|w| w[0] != w[1]), "{did:?}");
+}
+
+/// A second chair that is disabled is no other object: the first is the only one open,
+/// and comes back after the minute as a lone chair does.
+#[test]
+fn a_disabled_second_chair_leaves_the_first_as_the_only_one() {
+    let f = lone_sandboxer(true);
+    let mut s = sim(&f, &[R_SB_OBJECTS]);
+    s.nav = way_restored();
+    s.game.world.set_enabled(FormId(SECOND_CHAIR), false).unwrap();
+    let chair = Doing::Sitting(FormId(CHAIR_C));
+    s.run(900.0);
+    let did = timed_doings(&s);
+    assert!(did.iter().all(|d| d.1 == chair || d.1 == Doing::Standing), "{did:?}");
+    assert!(did.iter().filter(|d| d.1 == chair).count() >= 3, "{did:?}");
+    for (first_stand, again) in sole_object_gaps(&did, chair, &got_up_times(&s)) {
+        assert!(again - first_stand >= SOLE_OBJECT_AGAIN_AFTER, "{first_stand} to {again}");
+    }
+}
+
+/// An idle marker as the only object: the same minute of standing between its uses, never
+/// the look right after one.
+#[test]
+fn a_sandboxs_only_idle_marker_is_used_again_after_a_minute_of_something_else() {
+    let f = sole_object_sandboxer(false, true);
+    assert!(f.data.issues.is_empty(), "{:?}", f.data.issues.to_json());
+    let mut s = sim(&f, &[R_SB_OBJECTS]);
+    s.nav = way_restored();
+    let marker = Doing::AtIdleMarker(FormId(SOLE_MARKER));
+    s.run(900.0);
+    let allowed = s.ai.agents[&FormId(R_SB_OBJECTS)].sandbox.as_ref().unwrap().allowed;
+    assert!(allowed.idle_markers && !allowed.furniture && !allowed.wandering);
+    let did = timed_doings(&s);
+    assert!(did.iter().all(|d| d.1 == marker || d.1 == Doing::Standing), "{did:?}");
+    assert!(did.iter().filter(|d| d.1 == marker).count() >= 3, "{did:?}");
+    // A marker's stint ends at a look, which stands: the time it ended is that look.
+    let ended: Vec<f64> = did.windows(2).filter(|w| w[0].1 == marker).map(|w| w[1].0).collect();
+    for (first_stand, again) in sole_object_gaps(&did, marker, &ended) {
+        assert!(again - first_stand >= SOLE_OBJECT_AGAIN_AFTER, "{first_stand} to {again}");
+        assert!(again - first_stand < SOLE_OBJECT_AGAIN_AFTER + 10.0, "{first_stand} to {again}");
+    }
+    assert_eq!(package_events(&s), 1);
+}
+
+/// A chair and an idle marker: each is the other's "something else", so the actor goes
+/// from one to the other without standing between, as before #1505.
+#[test]
+fn a_chair_and_an_idle_marker_still_take_turns_without_standing() {
+    let f = sole_object_sandboxer(true, true);
+    let mut s = sim(&f, &[R_SB_OBJECTS]);
+    s.nav = way_restored();
+    s.run(900.0);
+    let did = doings(&s, R_SB_OBJECTS);
+    assert!(did.len() >= 4, "{did:?}");
+    let both = [Doing::Sitting(FormId(CHAIR_C)), Doing::AtIdleMarker(FormId(SOLE_MARKER))];
+    assert!(did.iter().all(|d| both.contains(d)), "{did:?}");
+    assert!(did.windows(2).all(|w| w[0] != w[1]), "{did:?}");
+}
+
+/// A second chair with no way to it is out of the choices while it waits out its delay
+/// (#1504); in those waits the first chair is the only one open and comes back after the
+/// minute. The cut-off chair is never used and the backoff goes on.
+#[test]
+fn a_cut_off_second_chair_leaves_the_first_as_the_only_one_between_its_tries() {
+    let f = lone_sandboxer(true);
+    let mut s = sim(&f, &[R_SB_OBJECTS]);
+    // The sandboxer and the first chair on one walkable area, the second chair on its own.
+    let main = grid(1, [10400.0, 10400.0], 4, 0.0);
+    let apart = grid(2, [10250.0, 10450.0], 1, 0.0);
+    s.nav = NavGraph::assemble(&[(&main, Some(CELL_C), Some(C)), (&apart, Some(CELL_C), Some(C))]);
+    assert!(way_to(&s, CHAIR_AT));
+    assert!(!way_to(&s, SECOND_CHAIR_AT));
+    let chair = Doing::Sitting(FormId(CHAIR_C));
+    let tries = run_noting_choices(&mut s, 1800.0);
+    let did = timed_doings(&s);
+    assert!(did.iter().all(|d| d.1 == chair || d.1 == Doing::Standing), "the second chair never begun: {did:?}");
+    assert!(did.iter().filter(|d| d.1 == chair).count() >= 4, "{did:?}");
+    for (first_stand, again) in sole_object_gaps(&did, chair, &got_up_times(&s)) {
+        assert!(again - first_stand >= SOLE_OBJECT_AGAIN_AFTER, "{first_stand} to {again}");
+    }
+    // The choices that were neither a stand nor the first chair begun are the second
+    // chair's failed tries; their gaps grow with its delays (60, 120, 240, ...).
+    let begun: Vec<f64> = did.iter().map(|d| d.0).collect();
+    let failed: Vec<f64> = tries.iter().copied().filter(|t| !begun.contains(t)).collect();
+    assert!(failed.len() >= 3, "{failed:?} of {tries:?}");
+    for (i, w) in failed.windows(2).enumerate() {
+        let delay = [60.0, 120.0, 240.0, 480.0, 600.0][i.min(4)];
+        assert!(w[1] - w[0] >= delay, "try {} after {}: {failed:?}", i + 1, w[0]);
+    }
+    assert!(!s.events(R_SB_OBJECTS).iter().any(|e| matches!(e, AiEvent::Furniture { furniture: Some(c) } if c.0 == SECOND_CHAIR)));
+    assert_eq!(package_events(&s), 1);
+}
+
+// ---- #2122: how near a follower comes once its leader stops ---------------------------
+
+/// Where a follower on its way stops (`carry::follow_stop_at`, [design, #2122]):
+/// `FOLLOW_STOP_INSET` (150) inside its distance, not nearer than `COLUMN_GAP` (128), in
+/// step or not; short distances and a column's gaps as before.
+#[test]
+fn a_follower_stops_well_inside_its_distance() {
+    use fnv_ai::carry::follow_stop_at;
+    let arrive = AiConfig::default().arrive;
+    // Boone's 330, the pack brahmin's 450, DefaultFollowPlayerFar's 512: about the
+    // original's arrivals (177 and about 300 for the first two).
+    for (keep, at) in [(330.0, 180.0), (450.0, 300.0), (512.0, 362.0), (256.0, 128.0), (200.0, 128.0)] {
+        assert_eq!(follow_stop_at(keep, arrive, false, false), at, "{keep}");
+        assert_eq!(follow_stop_at(keep, arrive, true, false), at, "{keep} in step");
+    }
+    // At 128 and less: within the distance, or 64 inside it in step, as before.
+    assert_eq!(follow_stop_at(128.0, arrive, false, false), 128.0);
+    assert_eq!(follow_stop_at(128.0, arrive, true, false), 64.0);
+    assert_eq!(follow_stop_at(80.0, arrive, false, false), 80.0);
+    assert_eq!(follow_stop_at(80.0, arrive, true, false), arrive);
+    // In a column the gap to the one ahead is kept as before.
+    assert_eq!(follow_stop_at(128.0, arrive, false, true), 128.0);
+    assert_eq!(follow_stop_at(128.0, arrive, true, true), 64.0);
+}
+
+/// The fixture with the companion's Accompany package (after the player) at `distance`.
+fn companion_at(distance: i32) -> Fixture {
+    let mut f = fixture();
+    f.data.package_defs.get_mut(&FormId(P_WITH_PLAYER)).unwrap().target.as_mut().unwrap().count_distance = distance;
+    f
+}
+
+/// Cell C's navmesh made 40 × 40 squares (4,000 units a side) from (10000, 10000), for
+/// walks longer than the cell's own 1,000.
+fn wide_c() -> NavGraph {
+    let c = grid_of(3, [10000.0, 10000.0], 40, 100.0, 0.0);
+    NavGraph::assemble(&[(&c, Some(CELL_C), Some(C))])
+}
+
+/// The companion 100 units behind the player in a wide cell C; the player walks `walk`
+/// units north at 100 units/s, then stands for 12 s; an update every `dt` seconds.
+/// Returns the sim and the gap at each update while the player stands.
+fn walk_then_stand(f: &Fixture, walk: f32, dt: f64) -> (Sim<'_>, Vec<f32>) {
+    let world = World::new(&f.forms, &f.refs, SimConfig::default());
+    let game = Game::new(&f.data, world, GameConfig { strict: true, frame_seconds: dt, package_interval: Some(10.0), ..GameConfig::default() });
+    let mut s = Sim { game, ai: Ai::new(AiConfig { walk_speed: 100.0, run_speed: 400.0, ..AiConfig::default() }), nav: wide_c() };
+    let (mate, player) = (FormId(R_COMPANION), FormId::PLAYER_REF);
+    for (r, y) in [(player, 10300.0), (mate, 10200.0)] {
+        let p = s.game.world.get(r).unwrap();
+        (p.cell, p.pos, p.rot) = (Some(FormId(CELL_C)), [10500.0, y, 0.0], [0.0; 3]);
+    }
+    s.ai.add(&s.game, mate).unwrap();
+    let own = fnv_ai::Speeds { walk: 70.0, run: 300.0 };
+    s.ai.set_speeds(mate, fnv_ai::ActorSpeeds { calm: own, alert: own, turn_rate: None, spot_turn_start: None });
+    let step = |s: &mut Sim, moved: f32| {
+        s.game.world.get(player).unwrap().pos[1] += moved;
+        s.game.tick();
+        s.ai.update(&mut s.game, &s.nav, dt as f32);
+        dist(s.feet(R_COMPANION), s.game.world.peek(player).unwrap().pos)
+    };
+    step(&mut s, 0.0);
+    for _ in 0..(walk as f64 / (100.0 * dt)).round() as usize {
+        step(&mut s, (100.0 * dt) as f32);
+    }
+    let gaps = (0..(12.0 / dt) as usize).map(|_| step(&mut s, 0.0)).collect();
+    (s, gaps)
+}
+
+/// A follower walking after the player comes in well inside its package's distance once
+/// the player stops, and stands there (issue #2122: Boone came to 177 of his 330 in the
+/// original; before, ours stood at 404 of 512 in a run of main). In step on the way: it
+/// sets off once and does not stop and start.
+#[test]
+fn a_follower_comes_in_when_its_leader_stops() {
+    let inset = |keep: f32| fnv_ai::carry::follow_stop_at(keep, AiConfig::default().arrive, false, false);
+    for distance in [330, 450, 512, 256] {
+        let f = companion_at(distance);
+        for dt in [0.5, 0.1] {
+            let (s, gaps) = walk_then_stand(&f, 2000.0, dt);
+            let mate = FormId(R_COMPANION);
+            let ev = s.events(R_COMPANION);
+            let at = inset(distance as f32);
+            // One Follow, one CaughtUp after the player stopped: no stop and start.
+            assert_eq!(ev.iter().filter(|e| matches!(e, AiEvent::Follow { .. })).count(), 1, "{distance} {dt}: {ev:?}");
+            let caught: Vec<_> = ev.iter().filter_map(|e| match e {
+                AiEvent::CaughtUp { away, stop_at, .. } => Some((*away, *stop_at)),
+                _ => None,
+            }).collect();
+            assert_eq!(caught.len(), 1, "{distance} {dt}: {ev:?}");
+            assert_eq!(caught[0].1, at, "{distance} {dt}");
+            assert_eq!(s.ai.agents[&mate].activity, Activity::There, "{distance} {dt}");
+            // It stands at most one step (its pace, at most 160 units/s, over an update)
+            // inside where it was to stop.
+            let last = *gaps.last().unwrap();
+            assert!(last <= at + 1.0 && last >= at - 160.0 * dt as f32, "{distance} {dt}: stands {last} from the player, to stop at {at}");
+            assert!((last - caught[0].0).abs() < 1.0, "{distance} {dt}: it moved after it caught up");
+            // And well inside the distance: about the original's arrivals for 330 and 450.
+            if distance >= 330 {
+                assert!(last < distance as f32 - 100.0, "{distance} {dt}: {last}");
+            }
+        }
+    }
+}
+
+/// A short distance is kept as before: within it once the leader stops (in step, 64
+/// units inside it).
+#[test]
+fn a_follower_with_a_short_distance_stops_as_before() {
+    let f = companion_at(128);
+    let (s, gaps) = walk_then_stand(&f, 1000.0, 0.5);
+    let ev = s.events(R_COMPANION);
+    assert!(ev.iter().any(|e| matches!(e, AiEvent::CaughtUp { stop_at, .. } if *stop_at == 64.0 || *stop_at == 128.0)), "{ev:?}");
+    let last = *gaps.last().unwrap();
+    assert!((64.0 - 80.0..=128.0 + 1.0).contains(&last), "{last}");
+}
+
+/// A follower already standing outside its distance but within the slack does not set
+/// off (in the original Boone stood 383 units off, his distance 330, after a door, and
+/// did not set off: docs/spec-notes/npc-behaviour-compare.md); nor does it close in.
+#[test]
+fn a_follower_standing_within_the_slack_stays() {
+    let f = companion_at(330);
+    let world = World::new(&f.forms, &f.refs, SimConfig::default());
+    let game = Game::new(&f.data, world, GameConfig { strict: true, frame_seconds: 0.5, package_interval: Some(10.0), ..GameConfig::default() });
+    let mut s = Sim { game, ai: Ai::new(AiConfig { walk_speed: 100.0, run_speed: 400.0, ..AiConfig::default() }), nav: wide_c() };
+    let (mate, player) = (FormId(R_COMPANION), FormId::PLAYER_REF);
+    for (r, y) in [(player, 10683.0), (mate, 10300.0)] {
+        let p = s.game.world.get(r).unwrap();
+        (p.cell, p.pos, p.rot) = (Some(FormId(CELL_C)), [10500.0, y, 0.0], [0.0; 3]);
+    }
+    s.ai.add(&s.game, mate).unwrap();
+    s.run(15.0);
+    let ev = s.events(R_COMPANION);
+    assert!(!ev.iter().any(|e| matches!(e, AiEvent::Follow { .. })), "{ev:?}");
+    assert_eq!(s.ai.agents[&mate].activity, Activity::There);
+    assert!((dist(s.feet(R_COMPANION), s.game.world.peek(player).unwrap().pos) - 383.0).abs() < 1.0);
 }

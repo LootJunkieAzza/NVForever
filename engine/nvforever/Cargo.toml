@@ -19,6 +19,7 @@ fnv-util.workspace = true
 fnv-save.workspace = true
 texpresso.workspace = true
 fnv-spt.workspace = true
+fnv-font.workspace = true
 nvf-play.workspace = true
 fnv-actor.workspace = true
 fnv-sim.workspace = true
@@ -32,6 +33,14 @@ fnv-script.workspace = true
 fnv-voice.workspace = true
 clap.workspace = true
 serde_json = "1"
+# Player reports (reports/, docs/design/player-reports.md): random install and session ids
+# (MIT/Apache-2.0, the version Bevy already uses), the summary's gzip (MIT/Apache-2.0,
+# already built through fnv-inflate) and the CPU and memory lines (MIT, the version
+# bevy_diagnostic already uses).
+uuid = { version = "1", features = ["v4"] }
+flate2 = { version = "1", default-features = false, features = ["zlib-rs"] }
+png = "0.18"
+sysinfo = { version = "0.39", default-features = false, features = ["system"] }
 # Only for the window icon type (window_icon.rs); the version Bevy already uses.
 winit = { version = "0.30", default-features = false }
 # 16-bit floats for the FaceGen offset textures (facegen.rs); the version Bevy already uses.
@@ -40,6 +49,8 @@ half = "2"
 # GPU memory budget (memory_budget.rs): VK_EXT_memory_budget through wgpu's Vulkan device
 # (`Device::as_hal`); the versions Bevy already uses (MIT/Apache-2.0).
 wgpu = { version = "30", default-features = false, features = ["vulkan"] }
+# MIT FSR 3.1.4 source port, pinned and vendored with shaders/build sources/notices.
+wgpu-ffx = { path = "../vendor/wgpu-ffx/wgpu-ffx" }
 ash = { version = "0.38", default-features = false }
 # Only with the `tracy` feature: the Tracy client Bevy's trace_tracy uses, the version Bevy
 # already pins, made to record only while a viewer is connected (`ondemand`: no data piles
@@ -49,11 +60,28 @@ tracy-client = { version = "0.19", optional = true, default-features = false, fe
 
 # The first-start dialogs that ask for the game's folder (setup.rs); MIT.
 [target.'cfg(windows)'.dependencies]
-rfd = { version = "0.15", default-features = false }
+# Player reports (reports/upload.rs): HTTPS through the system's TLS (SChannel, the system's
+# certificates), not rustls. `native-tls-no-default`, not `native-tls`: the latter also
+# bundles webpki's root certificates (webpki-root-certs, CDLA-Permissive-2.0, outside
+# deny.toml), which the reports never use (they ask for RootCerts::PlatformVerifier, the
+# system's roots) (#1998). ureq and native-tls MIT/Apache-2.0, schannel MIT.
+ureq = { version = "3", default-features = false, features = ["native-tls-no-default"] }
+# `common-controls-v6`: the Task Dialog, whose buttons can carry words of our own (the
+# reports popup's "Send reports" / "Not now"); needs the manifest build.rs embeds.
+rfd = { version = "0.15", default-features = false, features = ["common-controls-v6"] }
 # The generated-terrain bake threads' priority (lodgen.rs) and the span profile's processor time
-# (profile.rs), and the machine's RAM (memory_budget.rs); a version already in the build;
+# (profile.rs), the machine's RAM (memory_budget.rs) and the performance overlay's CPU/GPU use
+# and working set (perf_overlay/usage.rs: performance counters, process memory counters),
+# DLSS's library loading and signature check (dlss/: LibraryLoader, WinTrust,
+# Cryptography; the functions themselves are looked up at run time, not linked; FileSystem
+# for the share flag the checked file is opened with) and a FidelityFX API library loaded
+# from the game's folder (ffx_api.rs: LibraryLoader); a version already in the build;
 # MIT/Apache-2.0.
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Threading", "Win32_System_SystemInformation"] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Threading", "Win32_System_SystemInformation", "Win32_System_Performance", "Win32_System_ProcessStatus", "Win32_System_Diagnostics_Debug", "Win32_System_Kernel", "Win32_System_LibraryLoader", "Win32_Security_WinTrust", "Win32_Security_Cryptography", "Win32_Storage_FileSystem"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# [design, #2249] Optional NVML at runtime; reuse engine/Cargo.lock's libloading.
+libloading = "0.8.9"
 
 [build-dependencies]
 # The program icon in the Windows executable (build.rs); MIT.
@@ -66,7 +94,7 @@ default = ["intro-video"]
 intro-video = ["nvf-play/intro-video"]
 # Bevy's spans for the in-engine span profile (profile.rs, NVF_PLAY_TEST_PROFILE); not for
 # release builds.
-profile = ["bevy/trace"]
+profile = ["bevy/trace", "fnv-phys/solver-timers"]
 # The same spans sent live to the Tracy profiler (docs/design/frame-rate-audit.md §1: the
 # viewer's version must match the tracy-client in Cargo.lock); not for release builds.
 tracy = ["profile", "bevy/trace_tracy", "dep:tracy-client"]

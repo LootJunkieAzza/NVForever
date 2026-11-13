@@ -96,6 +96,11 @@ impl GroupRig {
         self.model.rig.as_ref()?.groups.get(i)
     }
 
+    /// Its model's sequence names.
+    pub fn sequence_names(&self) -> Vec<String> {
+        self.model.rig.as_ref().map(|r| r.groups.iter().map(|c| c.name.clone()).collect()).unwrap_or_default()
+    }
+
     fn find(&self, name: &str) -> Option<usize> {
         self.model.rig.as_ref()?.groups.iter().position(|c| c.name.eq_ignore_ascii_case(name))
     }
@@ -194,8 +199,12 @@ pub fn drive(
     let game = &mut rt.game;
     game.anims.driven = true;
     let requests = std::mem::take(&mut game.anims.requests);
-    let by_ref: HashMap<u32, Entity> = rigs.iter().map(|(e, r, ..)| (r.form_id, e)).collect();
-    let drawn_actors: std::collections::HashSet<u32> = actors.iter().map(|a| a.reference).collect();
+    // The rigs by reference and the drawn actors are needed only for a script's requests
+    // and resets, so most frames build neither (#1994: they were built every frame over
+    // every rig).
+    let busy = !requests.is_empty() || !game.anims.resets.is_empty();
+    let by_ref: HashMap<u32, Entity> = if busy { rigs.iter().map(|(e, r, ..)| (r.form_id, e)).collect() } else { HashMap::new() };
+    let drawn_actors: std::collections::HashSet<u32> = if requests.is_empty() { Default::default() } else { actors.iter().map(|a| a.reference).collect() };
     let is_actor = |r: FormId| {
         drawn_actors.contains(&r.0)
             || sim.as_deref().and_then(|s| s.refs.refs.get(&r).and_then(|p| s.forms.sig(p.base))).is_some_and(|b| &b == b"NPC_" || &b == b"CREA")
@@ -207,7 +216,7 @@ pub fn drive(
     // they were not, or asked of before (drawn again after a load or streaming). Not
     // `is_added`: rigs drawn before the scripts run (the first frames of a load) were
     // added while this returned early above.
-    if seen.len() > by_ref.len() {
+    if seen.len() > rigs.iter().count() {
         seen.retain(|e| rigs.contains(*e));
     }
     for (root, mut rig, _, mats, _) in &mut rigs {
@@ -434,6 +443,29 @@ fn script_drawn(mut commands: Commands, mut models: ModelCtx, added: Query<(Enti
     }
 }
 
+/// Tells the game which sequences each drawn object's model has, for
+/// GetAnimSequenceFrequency (`fnv_game::nvse_jip14`), and forgets it when it is no
+/// longer drawn.
+fn publish_sequences(
+    mut script: Option<ResMut<ScriptState>>,
+    added: Query<(Entity, &GroupRig), Added<GroupRig>>,
+    mut gone: RemovedComponents<GroupRig>,
+    mut told: Local<HashMap<Entity, u32>>,
+) {
+    let Some(game) = script.as_deref_mut().and_then(|s| s.rt.as_mut()).map(|rt| &mut rt.game) else { return };
+    for e in gone.read() {
+        if let Some(r) = told.remove(&e) {
+            if !told.values().any(|&o| o == r) {
+                game.set_sequences(FormId(r), None);
+            }
+        }
+    }
+    for (e, rig) in &added {
+        told.insert(e, rig.form_id);
+        game.set_sequences(FormId(rig.form_id), Some(rig.sequence_names()));
+    }
+}
+
 /// Added by nvforever with `--play`.
 pub struct ObjectAnimsPlugin;
 
@@ -446,6 +478,7 @@ impl Plugin for ObjectAnimsPlugin {
             // Before physics poses the collision from it (`nvf_play::phys::pose_groups`):
             // what was drawn last frame.
             .add_systems(Update, publish_poses.before(nvf_play::PlaySet::Physics))
+            .add_systems(Update, publish_sequences.before(nvf_play::PlaySet::Scripts))
             // Actors' groups (actor_groups.rs): before their idles advance and they are posed.
             .add_systems(Update, crate::actor_groups::drive.after(drive).before(crate::idles::drive).before(crate::locomotion::walk_test))
             .add_systems(Last, (report, crate::actor_groups::report));

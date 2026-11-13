@@ -60,6 +60,14 @@ const ARROW: Vec2 = Vec2::new(17.5, 35.0);
 const FIGURE_RIGHT: f32 = 449.0;
 const CORNER: f32 = 40.0;
 const FOOTER_Y: f32 = 480.0;
+/// The controller's hint under each list, the button that picks it: the files'
+/// `*_Items_TitleButton` (LT) 15 in and `*_Container_TitleButton` (RT) 364 in from the
+/// half's left, 440 under its top, 85 square, shown only with a controller (`&xbox;`)
+/// [documented: container_menu.xml, barter_menu.xml; the hint drawn as text centred in
+/// the square in place of the button's picture: design, #1827].
+const PICK_HINT_X: [f32; 2] = [15.0, 364.0];
+const PICK_HINT_Y: f32 = 440.0;
+const PICK_HINT: f32 = 85.0;
 /// The bottom bracket, 820 down the screen.
 const BRACKET_Y: f32 = 740.0;
 /// Accept / Take All and Exit: right-aligned at 1034 less the box's 10, 670 down the
@@ -285,9 +293,9 @@ pub fn rows_marker(rows: usize, first: usize, page: usize, track: f32) -> Option
 /// menu's list of whole rows: `BAR_W` wide at `x`, `y`, `height` high. Nothing when the
 /// list fits.
 #[allow(clippy::too_many_arguments)]
-pub fn spawn_rows_bar(p: &mut ChildSpawnerCommands, kit: &mut Kit, data: Option<&GameData>, images: &mut Assets<Image>, bc: bool, (x, y, height): (f32, f32, f32), rows: usize, first: usize, page: usize) {
+pub fn spawn_rows_bar(p: &mut ChildSpawnerCommands, kit: &mut Kit, data: Option<&GameData>, images: &mut Assets<Image>, bc: bool, glyphs: &crate::pad::PadGlyphs, (x, y, height): (f32, f32, f32), rows: usize, first: usize, page: usize) {
     let Some((my, mh)) = rows_marker(rows, first, page, height - 2.0 * BAR_ARROW) else { return };
-    let mut c = Ctx { kit, data, images, bc };
+    let mut c = Ctx { kit, data, images, bc, glyphs };
     let bright = amber(255.0);
     c.image(p, "arrow_up.dds", at(x, y, BAR_W, BAR_ARROW), bright);
     c.image(p, "arrow_down.dds", at(x, y + height - BAR_ARROW, BAR_W, BAR_ARROW), bright);
@@ -304,6 +312,7 @@ struct Ctx<'a> {
     data: Option<&'a GameData>,
     images: &'a mut Assets<Image>,
     bc: bool,
+    glyphs: &'a crate::pad::PadGlyphs,
 }
 
 impl Ctx<'_> {
@@ -338,21 +347,22 @@ impl Ctx<'_> {
     #[allow(clippy::too_many_arguments)]
     fn text(&mut self, p: &mut ChildSpawnerCommands, title: bool, s: &str, x: f32, top: f32, align: Align, color: Color) -> f32 {
         let face = if title { &self.kit.title } else { &self.kit.body };
-        let line = first_line(&face.font, s);
+        let width = crate::pad::hint_width(face, s, self.glyphs);
         let x = match align {
             Align::Left => x,
-            Align::Right => x - line.width,
-            Align::Centre => x - line.width / 2.0,
+            Align::Right => x - width,
+            Align::Centre => x - width / 2.0,
         };
-        set_line(p, face, &line, x, top + if title { TITLE_BASE } else { BODY_BASE }, color);
-        line.width
+        let base = top + if title { TITLE_BASE } else { BODY_BASE };
+        crate::pad::set_hint(p, face, s, x, base, color, self.glyphs);
+        width
     }
 }
 
 /// Spawn the menu under `root`. `note`: the line under the menu.
 #[allow(clippy::too_many_arguments)]
-pub fn spawn(root: &mut ChildSpawnerCommands, m: &MenuModel, note: Option<&str>, info: Option<&Info>, kit: &mut Kit, data: Option<&GameData>, images: &mut Assets<Image>, bc: bool) {
-    let mut c = Ctx { kit, data, images, bc };
+pub fn spawn(root: &mut ChildSpawnerCommands, m: &MenuModel, note: Option<&str>, info: Option<&Info>, kit: &mut Kit, data: Option<&GameData>, images: &mut Assets<Image>, bc: bool, glyphs: &crate::pad::PadGlyphs) {
+    let mut c = Ctx { kit, data, images, bc, glyphs };
     let bright = amber(255.0);
     let main = Node {
         width: crate::interface::u(MAIN.x),
@@ -377,7 +387,7 @@ pub fn spawn(root: &mut ChildSpawnerCommands, m: &MenuModel, note: Option<&str>,
         match (m.mode, &m.trade) {
             (Mode::Barter(_), Some(t)) => {
                 if let Some(flow) = barter::flow(t.balance) {
-                    caps_flow(p, &mut c, flow, t.balance.unsigned_abs(), t.affordable());
+                    caps_flow(p, &mut c, flow, t.paid().unsigned_abs(), t.affordable());
                 }
             }
             (Mode::Container(_), _) if m.selected_row(m.focus).is_some() => {
@@ -394,6 +404,15 @@ pub fn spawn(root: &mut ChildSpawnerCommands, m: &MenuModel, note: Option<&str>,
         if let Some(n) = note.filter(|n| !n.is_empty()) {
             c.text(p, false, n, MAIN.x / 2.0, NOTE_Y + (31.0 + 20.0) / 2.0 + 20.0, Align::Centre, bright);
         }
+    });
+}
+
+/// [design: barter-menu.md section 9] Keep the model's own refusal note over the tiled
+/// barter view, whose file has no subtitle tile, at the existing hand-built place.
+pub fn spawn_note(root: &mut ChildSpawnerCommands, note: &str, kit: &mut Kit, data: Option<&GameData>, images: &mut Assets<Image>, bc: bool, glyphs: &crate::pad::PadGlyphs) {
+    let mut c = Ctx { kit, data, images, bc, glyphs };
+    root.spawn(Node { width: crate::interface::u(MAIN.x), height: crate::interface::u(MAIN.y), ..default() }).with_children(|p| {
+        c.text(p, false, note, MAIN.x / 2.0, NOTE_Y + (31.0 + 20.0) / 2.0 + 20.0, Align::Centre, amber(255.0));
     });
 }
 
@@ -424,7 +443,27 @@ fn half(p: &mut ChildSpawnerCommands, c: &mut Ctx, m: &MenuModel, side: Side) {
     c.fade(p, x0, TOP + FOOTER_Y - CORNER, true, bright);
     c.line(p, x0, TOP + FOOTER_Y, HALF_W, THICK, bright);
     c.fade(p, x0 + HALF_W - THICK, TOP + FOOTER_Y - CORNER, true, bright);
+    if let Some(hint) = pick_hint(m.mode, side, crate::pad::labels()) {
+        let x = x0 + PICK_HINT_X[side as usize] + PICK_HINT / 2.0;
+        c.text(p, false, &hint, x, TOP + PICK_HINT_Y + PICK_HINT / 2.0 - BODY_BASE, Align::Centre, bright);
+    }
     list(p, c, m, side, x0);
+}
+
+/// The hint under a half with a controller in use (labels `l`): the button that picks
+/// that list, "LT)" under the player's and "RT)" under the other ([`PICK_HINT_X`]).
+/// None with the keyboard, as the original shows none.
+pub fn pick_hint(mode: Mode, side: Side, l: crate::pad::Labels) -> Option<String> {
+    let at = match mode {
+        Mode::Barter(_) => crate::pad::at_menu(fnv_game::game::menus::BARTER),
+        Mode::Container(_) => crate::pad::at_menu(crate::script::MENU_CONTAINER),
+        Mode::Inventory => return None,
+    };
+    if l == crate::pad::Labels::Keys {
+        return None;
+    }
+    let key = if side == Side::Player { KeyCode::ArrowLeft } else { KeyCode::ArrowRight };
+    Some(crate::pad::hint_as(&[key], at, l))
 }
 
 fn list(p: &mut ChildSpawnerCommands, c: &mut Ctx, m: &MenuModel, side: Side, x0: f32) {
@@ -503,16 +542,19 @@ fn caps_flow(p: &mut ChildSpawnerCommands, c: &mut Ctx, flow: Flow, caps: u64, a
 }
 
 fn buttons(p: &mut ChildSpawnerCommands, c: &mut Ctx, m: &MenuModel) {
-    let list: Vec<(&str, &str, Command, bool)> = match (m.mode, &m.trade) {
-        (Mode::Barter(_), Some(t)) => vec![("Accept", "A)", Command::Accept, !t.is_empty()), ("Exit", "X)", Command::Close, true)],
-        _ => vec![("Take All", "R)", Command::TakeAll, !m.list(Side::Container).rows.is_empty()), ("Exit", "E)", Command::Close, true)],
+    use crate::pad::{at_menu, hint};
+    use KeyCode::*;
+    let (barter, container) = (at_menu(fnv_game::game::menus::BARTER), at_menu(crate::script::MENU_CONTAINER));
+    let list: Vec<(&str, String, Command, bool)> = match (m.mode, &m.trade) {
+        (Mode::Barter(_), Some(t)) => vec![("Accept", hint(&[KeyA], barter), Command::Accept, !t.is_empty()), ("Exit", hint(&[KeyX, Escape], barter), Command::Close, true)],
+        _ => vec![("Take All", hint(&[KeyR], container), Command::TakeAll, !m.list(Side::Container).rows.is_empty()), ("Exit", hint(&[KeyE, Escape], container), Command::Close, true)],
     };
     let h = 31.0 + BUTTON_PAD;
     for (i, (label, hint, cmd, on)) in list.into_iter().enumerate() {
         let color = amber(255.0).with_alpha(if on { 1.0 } else { DIM });
         let y = BUTTONS_Y + i as f32 * h;
         let w = c.text(p, false, label, BUTTONS_RIGHT, y + BUTTON_PAD, Align::Right, color);
-        c.text(p, false, hint, BUTTONS_RIGHT + HINT_GAP, y + BUTTON_PAD, Align::Left, color);
+        c.text(p, false, &hint, BUTTONS_RIGHT + HINT_GAP, y + BUTTON_PAD, Align::Left, color);
         p.spawn((Button, CmdButton(cmd), at(BUTTONS_RIGHT - w - 10.0, y, w + 20.0 + HINT_GAP + 30.0, h)));
     }
 }
@@ -531,12 +573,7 @@ fn item_data(p: &mut ChildSpawnerCommands, c: &mut Ctx, m: &MenuModel, r: &Row, 
         c.image(p, icon, at(ICON_AT.x, ICON_AT.y, ICON, ICON), bright);
     }
     let x0 = if matches!(m.mode, Mode::Barter(_)) { DATA_X_BARTER } else { DATA_X_CONTAINER };
-    let prices = m.trade.as_ref().map(|t| t.prices).unwrap_or_default();
-    let value = r.value.map(|v| prices.value_at(v, r.condition).round() as i64);
-    let condition = r.condition.filter(|_| matches!(r.kind, Some(ItemKind::Weapon | ItemKind::Armor)));
-    let mut i = info.cloned().unwrap_or_else(|| Info { condition, ..Info::default() });
-    i.weight = r.weight.filter(|w| *w > 0.0).map(|w| format!("{w:.2}"));
-    i.value = value.filter(|v| *v > 0).map(|v| v.to_string());
+    let i = item_figures(m, r, info);
     let tiles = tiles_in(&i, Vec2::new(3.0 * TILE.x, 3.0 * TILE.y));
     let shown: Vec<String> = tiles.iter().map(|t| if t.value.is_empty() { t.title.clone() } else { format!("{} {}", t.title, t.value) }).collect();
     info!("menu: figures of {}: {}", r.name, shown.join(", "));
@@ -550,6 +587,20 @@ fn item_data(p: &mut ChildSpawnerCommands, c: &mut Ctx, m: &MenuModel, r: &Row, 
             p.spawn((at(mx, my, mw * fill, 20.0), BackgroundColor(bright)));
         }
     }
+}
+
+/// The figures of the selected row in these menus: the Pip-Boy's ([`Info`]), with the weight
+/// and value of one unit, the value at its condition and before the trade's multiplier
+/// [owner's playtest list 7 item 25]. The hand-built drawing and the tiles
+/// (`crate::tiles::item_card`) both read these.
+pub fn item_figures(m: &MenuModel, r: &Row, info: Option<&Info>) -> Info {
+    let prices = m.trade.as_ref().map(|t| t.prices).unwrap_or_default();
+    let value = r.worth(&prices).map(|v| v.round() as i64);
+    let condition = r.condition.filter(|_| matches!(r.kind, Some(ItemKind::Weapon | ItemKind::Armor)));
+    let mut i = info.cloned().unwrap_or_else(|| Info { condition, ..Info::default() });
+    i.weight = r.weight.filter(|w| *w > 0.0).map(|w| format!("{w:.2}"));
+    i.value = value.filter(|v| *v > 0).map(|v| v.to_string());
+    i
 }
 
 /// A tile of figures `w` wide: a line along its top and one fading down its right side,
@@ -615,8 +666,9 @@ pub fn quantity_words(game: Option<&fnv_game::Game<'_>>) -> [String; 2] {
     })
 }
 
-pub fn spawn_quantity(root: &mut ChildSpawnerCommands, q: &Quantity, words: &[String; 2], kit: &mut Kit, data: Option<&GameData>, images: &mut Assets<Image>, bc: bool) {
-    let mut c = Ctx { kit, data, images, bc };
+#[allow(clippy::too_many_arguments)]
+pub fn spawn_quantity(root: &mut ChildSpawnerCommands, q: &Quantity, words: &[String; 2], kit: &mut Kit, data: Option<&GameData>, images: &mut Assets<Image>, bc: bool, glyphs: &crate::pad::PadGlyphs) {
+    let mut c = Ctx { kit, data, images, bc, glyphs };
     let bright = amber(255.0);
     let sheet = Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() };
     root.spawn((sheet, FocusPolicy::Block, PointerState::default()));
@@ -660,9 +712,12 @@ pub fn spawn_quantity(root: &mut ChildSpawnerCommands, q: &Quantity, words: &[St
             }
             c.text(p, true, &q.amount.to_string(), Q_CENTRE, Q_AMOUNT_Y, Align::Centre, bright);
             let h = 31.0 + BUTTON_PAD;
-            for ((label, hint, cmd), y) in [(words[0].as_str(), "A)", Command::AmountOk), (words[1].as_str(), "E)", Command::AmountCancel)].into_iter().zip(Q_BUTTONS_Y) {
+            // The prompt's own keys over any menu: A (Enter) and B (Esc) on a controller.
+            let any = crate::pad::MenuAt::default();
+            let (ok, cancel) = (crate::pad::hint(&[KeyCode::KeyA, KeyCode::Enter], any), crate::pad::hint(&[KeyCode::KeyE, KeyCode::Escape], any));
+            for ((label, hint, cmd), y) in [(words[0].as_str(), ok, Command::AmountOk), (words[1].as_str(), cancel, Command::AmountCancel)].into_iter().zip(Q_BUTTONS_Y) {
                 let w = c.text(p, false, label, Q_BUTTONS_RIGHT, y + BUTTON_PAD, Align::Right, bright);
-                c.text(p, false, hint, Q_BUTTONS_RIGHT + HINT_GAP, y + BUTTON_PAD, Align::Left, bright);
+                c.text(p, false, &hint, Q_BUTTONS_RIGHT + HINT_GAP, y + BUTTON_PAD, Align::Left, bright);
                 p.spawn((Button, CmdButton(cmd), at(Q_BUTTONS_RIGHT - w - 10.0, y, w + 20.0 + HINT_GAP + 30.0, h)));
             }
         });
@@ -687,6 +742,21 @@ mod tests {
         assert_eq!(flow_figure_x(Flow::Sell, 70.0), 20.0 + 449.0 + 20.0 + 32.5 + 7.5);
         assert_eq!(flow_figure_x(Flow::Buy, 90.0), 20.0 + 449.0 + 32.5 - 20.0);
         assert_eq!(flow_figure_x(Flow::Sell, 90.0), 20.0 + 449.0 + 20.0 + 40.0 + 20.0);
+    }
+
+    /// Issue #1827: with a controller each list names the trigger that picks it, as the
+    /// files' title buttons; with the keyboard none, as the original.
+    #[test]
+    fn the_lists_name_the_trigger_that_picks_them() {
+        use crate::pad::Labels;
+        use fnv_sim::FormId;
+        for mode in [Mode::Container(FormId(0x105658)), Mode::Barter(FormId(0x104C0C))] {
+            assert_eq!(pick_hint(mode, Side::Player, Labels::Xbox).as_deref(), Some("LT)"));
+            assert_eq!(pick_hint(mode, Side::Container, Labels::Xbox).as_deref(), Some("RT)"));
+            assert_eq!(pick_hint(mode, Side::Player, Labels::PlayStation).as_deref(), Some("L2)"));
+            assert_eq!(pick_hint(mode, Side::Player, Labels::Keys), None);
+        }
+        assert_eq!(pick_hint(Mode::Inventory, Side::Player, Labels::Xbox), None);
     }
 
     #[test]

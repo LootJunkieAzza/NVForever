@@ -16,10 +16,20 @@
 //! **Crash reports.** A panic on any thread writes `<home>\logs\crash-<UTC time>-<pid>.txt`:
 //! the thread, the message and where it was raised, the backtrace, the command line,
 //! where the camera was (worldspace or interior, cell, position; [`note_place`], kept
-//! every frame) and the name of the run log; the panic is logged too, and the default
-//! hook prints it to the console as before.
+//! every frame) and the name of the run log; the panic is logged too, and the console gets
+//! the words Rust's default hook prints, redacted (the default hook is not called: it would
+//! print the home folder).
 //!
-//! Not covered: native crashes (they skip Rust's panic hook; see the run log check above).
+//! **Structured events** (events_log.rs): the same events at `info` and up, as JSON lines
+//! with where and when they happened, in `events-<UTC time>-<pid>.jsonl` beside the run log.
+//!
+//! **Native crashes** skip Rust's panic hook; on Windows they leave a minidump
+//! (native_crash.rs) and a line in the run log, and the run log check above still names them.
+//!
+//! **Privacy.** Players send these files to us, so the player's home folder (which holds
+//! their account name: `C:\Users\<name>`) is written as `%USERPROFILE%` (`~` off Windows)
+//! in the run log, the console and crash reports ([`redact`]; owner's request 2026-11-06,
+//! #1710).
 
 use bevy::log::tracing_subscriber;
 use bevy::log::BoxedLayer;
@@ -51,6 +61,90 @@ static COMMAND: OnceLock<String> = OnceLock::new();
 /// Where the camera is (updated every frame by [`note_place`]).
 static PLACE: Mutex<String> = Mutex::new(String::new());
 
+/// The player's home folder and what it is written as in logs: `USERPROFILE` on Windows,
+/// `HOME` elsewhere. Read once.
+fn home_folder() -> Option<&'static (String, &'static str)> {
+    static HOME: OnceLock<Option<(String, &'static str)>> = OnceLock::new();
+    HOME.get_or_init(|| {
+        let (var, shown) = if cfg!(windows) { ("USERPROFILE", "%USERPROFILE%") } else { ("HOME", "~") };
+        let home = std::env::var(var).ok()?;
+        let home = home.trim_end_matches(['\\', '/']);
+        // A root or drive ("/", "C:") would hide every path: not a home to hide.
+        (home.len() > 3).then(|| (home.to_string(), shown))
+    })
+    .as_ref()
+}
+
+/// `text` with the player's home folder replaced (see the module's Privacy note).
+pub fn redact(text: &str) -> std::borrow::Cow<'_, str> {
+    match home_folder() {
+        Some((home, shown)) => redact_folder(text, home, shown),
+        None => std::borrow::Cow::Borrowed(text),
+    }
+}
+
+/// `text` with every `folder` in it written as `shown`: letters in any case (Windows paths
+/// are not case sensitive) and `\` and `/` alike, a run of them counting as one separator
+/// (a path printed with `{:?}` doubles its backslashes: `C:\\Users\\Alex`); only where the
+/// folder name ends (at a separator or a non-name character), so `C:\Users\Al` leaves
+/// `C:\Users\Alex` alone.
+pub(crate) fn redact_folder<'a>(text: &'a str, folder: &str, shown: &str) -> std::borrow::Cow<'a, str> {
+    let sep = |c: u8| matches!(c, b'\\' | b'/');
+    let (t, f) = (text.as_bytes(), folder.as_bytes());
+    if f.is_empty() {
+        return std::borrow::Cow::Borrowed(text);
+    }
+    // Where a match of `folder` that starts at `i` ends in `text`, if there is one.
+    let match_at = |i: usize| -> Option<usize> {
+        let (mut ti, mut fi) = (i, 0);
+        while fi < f.len() {
+            if sep(f[fi]) {
+                if !t.get(ti).is_some_and(|&c| sep(c)) {
+                    return None;
+                }
+                while fi < f.len() && sep(f[fi]) {
+                    fi += 1;
+                }
+                while ti < t.len() && sep(t[ti]) {
+                    ti += 1;
+                }
+            } else {
+                if !t.get(ti).is_some_and(|c| c.eq_ignore_ascii_case(&f[fi])) {
+                    return None;
+                }
+                ti += 1;
+                fi += 1;
+            }
+        }
+        Some(ti)
+    };
+    let mut out: Option<String> = None;
+    let (mut i, mut copied) = (0, 0);
+    while i < t.len() {
+        let found = match_at(i).filter(|&end| {
+            let ends = t.get(end).is_none_or(|&c| !(c.is_ascii_alphanumeric() || matches!(c, b'_' | b'-') || c >= 0x80));
+            ends && text.is_char_boundary(i) && text.is_char_boundary(end)
+        });
+        match found {
+            Some(end) => {
+                let o = out.get_or_insert_with(|| String::with_capacity(text.len()));
+                o.push_str(&text[copied..i]);
+                o.push_str(shown);
+                i = end;
+                copied = i;
+            }
+            None => i += 1,
+        }
+    }
+    match out {
+        Some(mut o) => {
+            o.push_str(&text[copied..]);
+            std::borrow::Cow::Owned(o)
+        }
+        None => std::borrow::Cow::Borrowed(text),
+    }
+}
+
 /// The logs folder in NVForever's home, created; `None` (with the reason) when there is
 /// no home or it may not be written there.
 pub(crate) fn logs_dir(data: &Path) -> Result<PathBuf, String> {
@@ -77,7 +171,7 @@ pub(crate) fn civil_from_days(z: i64) -> (i64, u32, u32) {
 }
 
 /// A UTC time stamp for file names, `YYYYMMDD-HHMMSS`.
-fn stamp(unix_secs: u64) -> String {
+pub(crate) fn stamp(unix_secs: u64) -> String {
     let (days, secs) = ((unix_secs / 86_400) as i64, unix_secs % 86_400);
     let (y, m, d) = civil_from_days(days);
     format!("{y:04}{m:02}{d:02}-{:02}{:02}{:02}", secs / 3600, secs / 60 % 60, secs % 60)
@@ -128,7 +222,7 @@ pub fn install(data: &Path, previous_running: bool) {
     let dir = match logs_dir(data) {
         Ok(d) => d,
         Err(e) => {
-            eprintln!("run log: not written ({e})");
+            eprintln!("run log: not written ({})", redact(&e));
             set_hook();
             return;
         }
@@ -138,19 +232,30 @@ pub fn install(data: &Path, previous_running: bool) {
     let mut names: Vec<String> = std::fs::read_dir(&dir).map(|r| r.flatten().filter_map(|e| e.file_name().into_string().ok()).collect()).unwrap_or_default();
     names.sort();
     let previous = names.iter().rev().find(|n| n.starts_with("nvforever-") && n.ends_with(".log")).map(|n| dir.join(n));
-    let path = dir.join(format!("nvforever-{}-{}.log", stamp(now_secs()), std::process::id()));
+    let run_stamp = stamp(now_secs());
+    let path = dir.join(format!("nvforever-{run_stamp}-{}.log", std::process::id()));
     names.push(path.file_name().and_then(|n| n.to_str()).unwrap_or_default().to_string());
-    for old in old_files(&names, "nvforever-", ".log", KEEP_LOGS).into_iter().chain(old_files(&names, "crash-", ".txt", KEEP_REPORTS)) {
+    for old in old_files(&names, "nvforever-", ".log", KEEP_LOGS)
+        .into_iter()
+        .chain(old_files(&names, "crash-", ".txt", KEEP_REPORTS))
+        .chain(old_files(&names, "recorder-", ".jsonl", KEEP_REPORTS))
+        .chain(old_files(&names, "snapshot-", ".json", KEEP_REPORTS))
+        // The events file of this run is made after this: one fewer old one kept.
+        .chain(old_files(&names, "events-", ".jsonl", KEEP_LOGS - 1))
+        .chain(old_files(&names, "crash-", ".dmp", crate::native_crash::KEEP_DUMPS))
+    {
         let _ = std::fs::remove_file(dir.join(old));
     }
     match File::create(&path) {
         Ok(f) => {
             let _ = RUN_LOG.set(RunLog { path: path.clone(), writer: Mutex::new(Some(LineWriter::new(f))) });
         }
-        Err(e) => eprintln!("run log: {}: {e}", path.display()),
+        Err(e) => eprintln!("run log: {}: {e}", redact(&path.display().to_string())),
     }
     set_hook();
     test_panic();
+    crate::native_crash::install(&dir, &run_stamp);
+    crate::events_log::install(&dir, &run_stamp);
     // Said once the log plugin is up (`report_start`).
     let unclean = previous.filter(|p| !previous_running && std::fs::read_to_string(p).is_ok_and(|t| ended_abnormally(&t)));
     let _ = UNCLEAN.set(unclean);
@@ -180,19 +285,76 @@ pub fn file_layer(_app: &mut App) -> Option<BoxedLayer> {
         let writer = move || RunLogWriter(log);
         Box::new(tracing_subscriber::fmt::layer().with_ansi(false).with_writer(writer)) as BoxedLayer
     });
-    let layers: Vec<BoxedLayer> = file.into_iter().chain(crate::profile::layer()).collect();
+    let layers: Vec<BoxedLayer> = file.into_iter().chain(crate::events_log::layer()).chain(crate::profile::layer()).chain(crate::reports::warnings_layer()).collect();
     (!layers.is_empty()).then(|| Box::new(layers) as BoxedLayer)
 }
 
-/// One write to the run log (the layer makes one per line).
+/// The console's lines (the log plugin's own layer, the same but for the home folder,
+/// [`redact`]).
+pub fn console_layer(_app: &mut App) -> Option<bevy::log::BoxedFmtLayer> {
+    Some(Box::new(tracing_subscriber::fmt::Layer::default().with_writer(|| ConsoleWriter)))
+}
+
+/// A line to the console, redacted (this crate's `eprintln!`, main.rs).
+pub fn eprint_line(args: std::fmt::Arguments<'_>) {
+    let _ = writeln!(std::io::stderr(), "{}", redact(&args.to_string()));
+}
+
+/// One write to the console, redacted (the layer writes each line whole).
+struct ConsoleWriter;
+
+impl Write for ConsoleWriter {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        std::io::stderr().write_all(redact(&String::from_utf8_lossy(buf)).as_bytes())?;
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        std::io::stderr().flush()
+    }
+}
+
+/// One write to the run log, redacted (the layer makes one per line).
 struct RunLogWriter(&'static RunLog);
+
+/// The last line written to the run log without its time stamp, and how many times it came
+/// again since (player-reports.md §4.1: a spammed line folded so it cannot push the useful
+/// lines out).
+static LAST_LINE: Mutex<(String, u64)> = Mutex::new((String::new(), 0));
+
+/// A log line's text without its leading time stamp (`2026-11-10T23:44:31.588916Z  INFO …`).
+fn without_stamp(line: &str) -> &str {
+    match line.split_once(' ') {
+        Some((first, rest)) if first.len() > 10 && first.as_bytes()[0].is_ascii_digit() && first.contains('T') => rest.trim_start(),
+        _ => line,
+    }
+}
+
+/// What to write for `line` given the last one: nothing (a repeat, counted), or the line,
+/// after a note of how many times the one before it came again.
+fn fold(last: &mut (String, u64), line: &str) -> Option<String> {
+    let body = without_stamp(line);
+    if !body.trim().is_empty() && body == last.0 {
+        last.1 += 1;
+        return None;
+    }
+    let note = (last.1 > 0).then(|| format!("… the line above repeated {} more time{}
+", last.1, if last.1 == 1 { "" } else { "s" }));
+    last.0 = body.to_string();
+    last.1 = 0;
+    Some(note.unwrap_or_default() + line)
+}
 
 impl Write for RunLogWriter {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        let text = redact(&String::from_utf8_lossy(buf)).into_owned();
+        let Some(out) = fold(&mut LAST_LINE.lock().unwrap_or_else(|e| e.into_inner()), &text) else {
+            return Ok(buf.len());
+        };
         // A panic while the lock was held must not stop the log.
         let mut w = self.0.writer.lock().unwrap_or_else(|e| e.into_inner());
         match w.as_mut() {
-            Some(f) => f.write(buf),
+            Some(f) => f.write_all(out.as_bytes()).map(|()| buf.len()),
             None => Ok(buf.len()),
         }
     }
@@ -203,12 +365,39 @@ impl Write for RunLogWriter {
     }
 }
 
+/// A native crash (native_crash.rs): a line in the run log naming the exception and the
+/// dump, written straight to the file (the log plugin may be where it crashed). Never waits
+/// on the log's lock: a crash while it was held writes nothing rather than hang.
+// Called only by native_crash.rs's Windows filter.
+#[cfg_attr(not(windows), allow(dead_code))]
+pub fn native_crash_line(code: u32, dump: Option<&Path>) {
+    let dump = dump.map_or_else(|| "no dump written".to_string(), |p| format!("dump written to {}", redact(&p.display().to_string())));
+    let line = format!("native crash, exception 0x{code:08X}; {dump}");
+    // The console too (stderr is not locked by the log plugin): the smoke runner reads it.
+    let _ = writeln!(std::io::stderr(), "{line}");
+    let Some(log) = RUN_LOG.get() else { return };
+    let Ok(mut w) = log.writer.try_lock() else { return };
+    if let Some(f) = w.as_mut() {
+        // A line still being repeated when the crash came: its count, which `fold` writes
+        // only when a different line arrives. (A run killed from outside still loses it.)
+        if let Ok(mut last) = LAST_LINE.try_lock() {
+            if last.1 > 0 {
+                let _ = writeln!(f, "… the line above repeated {} more time{}", last.1, if last.1 == 1 { "" } else { "s" });
+                last.1 = 0;
+            }
+        }
+        let _ = writeln!(f, "{} ERROR nvforever::crash: {line}", stamp(now_secs()));
+        crate::events_log::flush();
+        let _ = f.flush();
+    }
+}
+
 /// The game stops before the log plugin is up: the reason goes into the run log.
 pub fn early_exit(why: &str) {
     let Some(log) = RUN_LOG.get() else { return };
     let mut w = log.writer.lock().unwrap_or_else(|e| e.into_inner());
     if let Some(f) = w.as_mut() {
-        let _ = writeln!(f, "{ERROR_EXIT} {why}");
+        let _ = writeln!(f, "{ERROR_EXIT} {}", redact(why));
     }
 }
 
@@ -244,7 +433,6 @@ fn report_text(thread: &str, message: &str, location: &str, place: &str, command
 }
 
 fn set_hook() {
-    let default = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
         // A broken model, texture or animation: caught, and that file counts as failed
         // (nvf_assets::guard). Logged, not a crash.
@@ -268,7 +456,18 @@ fn set_hook() {
         let text = report_text(&thread, &message, &location, &place, COMMAND.get().map_or("", |s| s.as_str()), run_log_path(), &backtrace);
         let written = LOG_DIR.get().map(|dir| {
             let path = dir.join(format!("crash-{}-{}.txt", stamp(now_secs()), std::process::id()));
-            (std::fs::write(&path, &text).map(|_| path.clone()), path)
+            // The flight recorder's last 60 s beside it, when reports are on (reports/anomaly.rs).
+            if crate::reports::active().is_some() {
+                let rec = crate::reports::anomaly::dump_recorder(&dir.join(format!("recorder-{}-{}.jsonl", stamp(now_secs()), std::process::id())));
+                let snap = crate::reports::snapshot::dump(&dir.join(format!("snapshot-{}-{}.json", stamp(now_secs()), std::process::id())));
+                match (rec.is_ok(), snap.is_ok()) {
+                    (true, true) => info!("reports: the flight recorder and world snapshot written beside the crash report"),
+                    (true, false) => info!("reports: the flight recorder written beside the crash report (no world snapshot yet)"),
+                    (false, true) => info!("reports: the world snapshot written beside the crash report (no flight recorder)"),
+                    (false, false) => {}
+                }
+            }
+            (std::fs::write(&path, redact(&text).as_bytes()).map(|_| path.clone()), path)
         });
         let place = if place.is_empty() { "not known yet" } else { place.as_str() };
         match &written {
@@ -276,12 +475,22 @@ fn set_hook() {
             Some((Err(e), p)) => error!("panic on thread '{thread}' at {location}: {message}; the crash report could not be written to {}: {e}", p.display()),
             None => error!("panic on thread '{thread}' at {location}: {message} (no logs folder for a crash report)"),
         }
+        crate::events_log::flush();
         if let Some(l) = RUN_LOG.get() {
             if let Some(f) = l.writer.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
                 let _ = f.flush();
             }
         }
-        default(info);
+        // What Rust's default hook prints to the console, redacted: the default hook itself
+        // would print the message and backtrace with the home folder in them. Kept (rather
+        // than only the `error!` line) because it says the panic before the log plugin is
+        // up, and the smoke runner looks for "panicked" in the console.
+        eprint_line(format_args!("thread '{thread}' panicked at {location}:\n{message}"));
+        if std::env::var_os("RUST_BACKTRACE").is_some_and(|v| v != "0") {
+            eprint_line(format_args!("stack backtrace:\n{backtrace}"));
+        } else {
+            eprint_line(format_args!("note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace"));
+        }
     }));
 }
 
@@ -290,6 +499,9 @@ pub fn report_start(mut commands: Commands) {
     match run_log_path() {
         Some(p) => info!("run log: {}", p.display()),
         None => info!("run log: none"),
+    }
+    if let Some(p) = crate::events_log::path() {
+        info!("events log: {}", p.display());
     }
     if let Some(Some(p)) = UNCLEAN.get() {
         warn!("run log: the previous run did not end normally and left no crash report (a native crash, or the process was ended): {}", p.display());
@@ -361,13 +573,50 @@ pub fn place_text_suffix() -> String {
 /// Log [`CLEAN_EXIT`] when the run ends normally.
 pub fn report_exit(mut exit: MessageReader<AppExit>) {
     if exit.read().next().is_some() {
+        if let Some(n) = crate::events_log::flush() {
+            info!("events log: {n} events written");
+        }
         info!("{CLEAN_EXIT}");
+        crate::events_log::flush();
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// #2203: a system reading AppExit in Last after `ExitSystems` sees the exit Bevy writes
+    /// when the last window closes (here: no window at all) in that same, final frame.
+    #[test]
+    fn exit_readers_see_the_window_closed_exit() {
+        #[derive(Resource, Default)]
+        struct Seen(bool);
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, bevy::window::WindowPlugin { primary_window: None, ..default() }))
+            .init_resource::<Seen>()
+            .add_systems(Last, (|mut exit: MessageReader<AppExit>, mut seen: ResMut<Seen>| seen.0 |= exit.read().next().is_some()).after(bevy::window::ExitSystems));
+        app.update();
+        assert!(app.world().resource::<Seen>().0, "the exit written by exit_on_all_closed was missed");
+    }
+
+    #[test]
+    fn repeated_lines_are_folded() {
+        let mut last = (String::new(), 0);
+        assert_eq!(fold(&mut last, "2026-11-10T23:44:31.1Z  WARN x: spam
+").as_deref(), Some("2026-11-10T23:44:31.1Z  WARN x: spam
+"));
+        assert_eq!(fold(&mut last, "2026-11-10T23:44:31.2Z  WARN x: spam
+"), None);
+        assert_eq!(fold(&mut last, "2026-11-10T23:44:31.3Z  WARN x: spam
+"), None);
+        assert_eq!(
+            fold(&mut last, "2026-11-10T23:44:32.0Z  INFO y: other
+").as_deref(),
+            Some("… the line above repeated 2 more times
+2026-11-10T23:44:32.0Z  INFO y: other
+")
+        );
+    }
 
     #[test]
     fn stamps_are_utc_calendar_times() {
@@ -394,6 +643,23 @@ mod tests {
         assert!(ended_abnormally("line\nINFO streaming cell -2,26\n"));
         assert_eq!(stop_reason(&format!("a\n{ERROR_EXIT} --load: x was made with other plugins\n")).as_deref(), Some("--load: x was made with other plugins"));
         assert_eq!(stop_reason("a\nb\n"), None);
+    }
+
+    #[test]
+    fn the_home_folder_is_hidden_in_any_case_and_slash() {
+        let r = |t: &'static str| redact_folder(t, r"C:\Users\Alex", "%USERPROFILE%").into_owned();
+        assert_eq!(r(r"run log: C:\Users\Alex\Documents\My Games\NVForever\logs\a.log"), r"run log: %USERPROFILE%\Documents\My Games\NVForever\logs\a.log");
+        assert_eq!(r("data c:/users/ALEX/Games and C:\\Users\\Alex"), r"data %USERPROFILE%/Games and %USERPROFILE%");
+        // Another account whose name starts the same is left alone.
+        assert_eq!(r(r"C:\Users\Alexandra\x"), r"C:\Users\Alexandra\x");
+        assert!(matches!(redact_folder("no paths here", r"C:\Users\Alex", "~"), std::borrow::Cow::Borrowed(_)));
+        // A path printed with `{:?}` (doubled backslashes), and one with a stray double slash.
+        let debug = format!("{:?}", std::path::Path::new(r"C:\Users\Alex\Documents\a.ini"));
+        assert_eq!(redact_folder(&debug, r"C:\Users\Alex", "%USERPROFILE%"), r#""%USERPROFILE%\\Documents\\a.ini""#);
+        assert_eq!(r("C:\\\\Users\\\\Alexandra"), "C:\\\\Users\\\\Alexandra");
+        assert_eq!(r("c://users//alex//x"), "%USERPROFILE%//x");
+        // Not ASCII: matched byte for byte, and the text around it kept whole.
+        assert_eq!(redact_folder("é /home/Zoë/x é", "/home/Zoë", "~"), "é ~/x é");
     }
 
     #[test]

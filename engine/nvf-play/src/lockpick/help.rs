@@ -104,7 +104,7 @@ pub struct HelpTrack;
 /// Scrolls the help text: the wheel, Up/Down a line, Page Up/Down a window less a line,
 /// Home/End, or the bar held where the pointer is.
 pub fn scroll(
-    keys: Res<ButtonInput<KeyCode>>,
+    keys: crate::pad::ActionButtons<KeyCode>,
     wheel: Option<Res<AccumulatedMouseScroll>>,
     mut texts: Query<(&mut Node, &mut HelpScroll)>,
     mut lines: Query<(&mut Visibility, &ParagraphLine)>,
@@ -112,6 +112,7 @@ pub fn scroll(
     tracks: Query<(&PointerState, &RelativeCursorPosition), With<HelpTrack>>,
     mut spill: Local<f32>,
 ) {
+    let keys = keys.snapshot();
     let Ok((mut node, mut s)) = texts.single_mut() else {
         *spill = 0.0;
         return;
@@ -195,7 +196,8 @@ fn mouse_label(m: MouseButton) -> String {
     }
 }
 
-/// The help text with the executable's key strings replaced by the keys bound now:
+/// The help text with the executable's key strings replaced by the keys bound now (the
+/// buttons, with a controller as the Input Device):
 /// `&-sUActn<control>;` and `&sUActn<control>;` by the control's key (its mouse button
 /// when it has no key), `&sKB<key>;` by the key's name and the mouse strings by the
 /// button's. Anything else between `&` and `;` is kept as it is.
@@ -242,6 +244,12 @@ pub fn expand_keys(text: &str, bindings: &Bindings) -> String {
             _ => None,
         };
         match (control, name.strip_prefix("sKB"), mouse) {
+            // With a controller the control's button [design, #1662: the gamepad copies
+            // of the messages are not shown, so the PC text names the button].
+            (Some(c), _, _) if bindings.device == crate::bindings::InputDevice::Controller => match bindings.pad(c) {
+                Some(p) => out.push_str(crate::pad::pad_shown(p)),
+                None => out.push_str(Bindings::name(c)),
+            },
             (Some(c), _, _) => {
                 let b = bindings.get(c);
                 match (b.key, b.mouse) {
@@ -285,13 +293,46 @@ impl BoxWords {
 
 /// The box, over the whole view; `view_w`: the view's width in interface units.
 pub fn spawn(r: &mut ChildSpawnerCommands, c: &mut Ctx, help: &Help, view_w: f32) {
-    let w = view_w * BOX_PART;
-    let h = 960.0 * BOX_PART;
+    spawn_clear(r, c, help, view_w, Clear::NONE);
+}
+
+/// Where a menu's own words and buttons stand under the help box, in the view's units:
+/// the box's lines and its Close stay above `bottom` and left of `right`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Clear {
+    pub bottom: f32,
+    pub right: f32,
+}
+
+impl Clear {
+    pub const NONE: Clear = Clear { bottom: f32::INFINITY, right: f32::INFINITY };
+}
+
+/// The box's background (left, top, width, height): 0.8 of the view, centred, made
+/// smaller about the middle as far as `clear` needs, so its frame lines end above
+/// `clear.bottom` and left of `clear.right` (issue #1663: the Caravan bet box and buttons)
+/// [design]. Never smaller than half the view each way.
+pub fn box_rect(view_w: f32, clear: Clear) -> (f32, f32, f32, f32) {
+    let (mid_x, mid_y) = (view_w / 2.0, 480.0);
+    let w = (view_w * BOX_PART).min(2.0 * (clear.right - mid_x + SIDE)).max(view_w / 2.0);
+    let h = (960.0 * BOX_PART).min(2.0 * (clear.bottom - mid_y + TOP)).max(480.0);
+    (mid_x - w / 2.0, mid_y - h / 2.0, w, h)
+}
+
+/// Where the frame of a box at `rect` ([`box_rect`]) has its bottom line and its right
+/// line, in the view's units.
+pub fn frame_lines((left, top, w, h): (f32, f32, f32, f32)) -> (f32, f32) {
+    (top + h - TOP, left + w - SIDE)
+}
+
+/// [`spawn`], the box kept clear of a menu's words and buttons ([`box_rect`]).
+pub fn spawn_clear(r: &mut ChildSpawnerCommands, c: &mut Ctx, help: &Help, view_w: f32, clear: Clear) {
+    let (left, top, w, h) = box_rect(view_w, clear);
     let bright = amber(255.0);
     let bg = Node {
         position_type: PositionType::Absolute,
-        left: u((view_w - w) / 2.0),
-        top: u((960.0 - h) / 2.0),
+        left: u(left),
+        top: u(top),
         width: u(w),
         height: u(h),
         ..default()
@@ -356,7 +397,7 @@ pub fn spawn(r: &mut ChildSpawnerCommands, c: &mut Ctx, help: &Help, view_w: f32
         let right = w - BUTTONS_FROM_RIGHT;
         let top = bottom - FADE - body_h - 2.0 * VERBUF + CLOSE_LOWER;
         let cw = c.text_in(b, FontKind::Body, &help.words.close, right, top + VERBUF, true, dim);
-        c.text_in(b, FontKind::Body, &help.words.close_hint, right + HINT_GAP, top + VERBUF, false, dim);
+        c.text_in(b, FontKind::Body, &crate::pad::game_hint(&help.words.close_hint, &[KeyCode::KeyE, KeyCode::Escape], crate::pad::HELP_AT), right + HINT_GAP, top + VERBUF, false, dim);
         b.spawn((Button, LockButton(LockpickInput::CloseHelp), at(right - cw - 10.0, top, cw + 2.0 * HINT_GAP + 40.0, body_h + 2.0 * VERBUF)));
     });
 }
@@ -364,6 +405,22 @@ pub fn spawn(r: &mut ChildSpawnerCommands, c: &mut Ctx, help: &Help, view_w: f32
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_box_stays_clear_of_a_menus_words() {
+        // No limits: 0.8 of the view, centred.
+        let (l, t, w, h) = box_rect(1600.0, Clear::NONE);
+        assert_eq!((l, t, w, h), (160.0, 96.0, 1280.0, 768.0));
+        // Its bottom line (the background's foot less TOP) above 700, its right line
+        // (the right edge less SIDE) left of 1300, still centred.
+        let (l, t, w, h) = box_rect(1600.0, Clear { bottom: 700.0, right: 1300.0 });
+        assert!(t + h - TOP <= 700.0 + 1e-3 && l + w - SIDE <= 1300.0 + 1e-3, "{l} {t} {w} {h}");
+        assert!((l + w / 2.0 - 800.0).abs() < 1e-3 && (t + h / 2.0 - 480.0).abs() < 1e-3);
+        // Limits it already keeps change nothing; it never shrinks below half the view.
+        assert_eq!(box_rect(1600.0, Clear { bottom: 900.0, right: 1500.0 }), (160.0, 96.0, 1280.0, 768.0));
+        let (_, _, w, h) = box_rect(1600.0, Clear { bottom: 0.0, right: 0.0 });
+        assert_eq!((w, h), (800.0, 480.0));
+    }
 
     #[test]
     fn the_help_names_the_keys_bound() {
@@ -379,5 +436,11 @@ mod tests {
         assert_eq!(expand_keys("&sMouseLeftButton;, &sDeviceMouse;", &b), "Left Mouse, Mouse");
         assert_eq!(key_label(KeyCode::Digit4), "4");
         assert_eq!(key_label(KeyCode::Space), "Space");
+        // With a controller the controls' buttons (the game's: Sneak on the left stick's
+        // press, V.A.T.S. RB) [#1662].
+        let mut pad = Bindings::game_defaults();
+        pad.device = crate::bindings::InputDevice::Controller;
+        assert_eq!(expand_keys("nvf low, &sUActnCrouch;.", &pad), "nvf low, LS.");
+        assert_eq!(expand_keys("nvf aim &sUActnVats;", &pad), "nvf aim RB");
     }
 }

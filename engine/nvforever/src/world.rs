@@ -6,7 +6,7 @@ use crate::terrain::{prepare_terrain, spawn_terrain, TerrainCtx, TerrainMaterial
 use crate::water::{water_material, WaterCtx};
 use bevy::math::Affine3A;
 use bevy::prelude::*;
-use bevy::tasks::{futures::check_ready, AsyncComputeTaskPool, Task, TaskPool};
+use bevy::tasks::{futures::check_ready, Task};
 use fnv_esm::{LoadOrder, Plugin as EsmPlugin, Schema as EsmSchema};
 use fnv_world::imposter::ImposterRegions;
 use fnv_world::placed::{base_object, placement, BaseObject, Placement};
@@ -113,6 +113,12 @@ impl WorldData {
     pub fn grid_cell(&self, g: (i32, i32)) -> Option<&fnv_world::Cell> {
         let w = self.index.worldspaces.get(&self.world)?;
         self.index.cells.get(w.grid.get(&g)?)
+    }
+
+    /// The LAND of the grid squares around `g` ([`crate::terrain::NEIGHBOURS`]): a cell's
+    /// texture layers are stitched to theirs along its edges.
+    pub fn neighbour_lands(&self, g: (i32, i32)) -> [Option<u32>; 4] {
+        crate::terrain::NEIGHBOURS.map(|(dx, dy)| self.grid_cell((g.0 + dx, g.1 + dy)).and_then(|c| c.land))
     }
 
     /// Whether a reference is enabled at the start of a game: not deleted, and its enable
@@ -274,6 +280,9 @@ pub struct StreamStats {
     pub cells_waited: usize,
     pub cells_forced: usize,
     pub skipped_types: HashMap<String, usize>,
+    /// Frames [`stream`] found the main view's camera and the world root and went on
+    /// ([`note_other_cameras`] reads it).
+    pub frames: u64,
 }
 
 /// Game space → Bevy space.
@@ -296,7 +305,7 @@ pub fn stream(
     world: Res<WorldData>,
     mut streamer: ResMut<Streamer>,
     root: Query<Entity, With<WorldRoot>>,
-    camera: Query<&GlobalTransform, (With<Camera3d>, Without<crate::reflection::ReflectionCamera>)>,
+    camera: Query<&GlobalTransform, crate::fly::WorldCamera>,
     mut models: ModelCtx,
     mut terrain: TerrainMaterials,
     mut water: WaterCtx,
@@ -310,6 +319,7 @@ pub fn stream(
     children: Query<&Children>,
 ) {
     let (Ok(root), Ok(cam)) = (root.single(), camera.single()) else { return };
+    streamer.stats.frames += 1;
     let before = (streamer.stats.actors.equipment_spawns, streamer.stats.actors.record_spawns);
     let frame_start = std::time::Instant::now();
     let behind_screen = loading.is_some_and(|l| l.unseen_frames());
@@ -583,11 +593,12 @@ fn read_ahead(world: &WorldData, streamer: &mut Streamer, centre: (i32, i32), ri
             let mut refs = cell.refs.clone();
             refs.extend(world.persistent_by_grid.get(&c).into_iter().flatten());
             let land = cell.land;
+            let around = world.neighbour_lands(c);
             let (lo, schema, hide) = (world.lo, world.schema, hide.clone());
-            let task = AsyncComputeTaskPool::get_or_init(TaskPool::default).spawn(async move {
+            let task = nvf_assets::read_pool::read_pool().spawn(async move {
                 CellAhead {
                     models: cell_models(lo, schema, &refs, &hide),
-                    terrain: land.and_then(|l| prepare_terrain(lo, schema, l, c, tile)),
+                    terrain: land.and_then(|l| prepare_terrain(lo, schema, l, c, tile, around)),
                     ready: false,
                 }
             });
@@ -636,7 +647,7 @@ fn cell_models(lo: &LoadOrder, schema: &EsmSchema, refs: &[u32], hide: &[String]
             continue;
         }
         let Some(path) = base.world_model_path() else { continue };
-        if is_marker(&path) || hide.iter().any(|h| path.contains(h.as_str())) {
+        if script_marker(base.form_id).unwrap_or_else(|| is_marker(&path)) || hide.iter().any(|h| path.contains(h.as_str())) {
             continue;
         }
         if seen.insert((path.clone(), base.world_alt_textures.clone())) {
@@ -759,13 +770,36 @@ pub fn report(mut exit: MessageReader<AppExit>, streamer: Res<Streamer>, models:
 /// the window still answers, and fewer frames are drawn while the screen is up].
 const LOADING_SCREEN_FRAME: std::time::Duration = std::time::Duration::from_millis(200);
 
+/// Whether cells and actors may start loading: not yet under the start's screen until it
+/// has been drawn (`nvf_play::loading::Loading::world_held`). Before its first frame the
+/// screen is only asked for.
+pub fn world_not_held(loading: Option<Res<nvf_play::loading::Loading>>, cover: Option<Res<nvf_play::loading::StartCover>>) -> bool {
+    cover.is_none() && !loading.is_some_and(|l| l.world_held())
+}
+
 /// Tell the loading screen whether cells around the camera are still to be drawn (runs
 /// after [`stream`]; `travel` has run before it, so a travel sent this frame counts).
-pub fn loading_gate(streamer: Res<Streamer>, mut loading: ResMut<nvf_play::loading::Loading>) {
+pub fn loading_gate(
+    streamer: Res<Streamer>,
+    mut loading: ResMut<nvf_play::loading::Loading>,
+    gate: Res<crate::pipeline_gate::PipelineGate>,
+) {
     let busy = !streamer.settled;
     if loading.render_busy != busy {
         loading.render_busy = busy;
     }
+    // Pipelines not ready: what they would draw is missing from the view, which keeps the
+    // clear colour (`pipeline_gate`). Before the first render frame nothing has asked yet.
+    // The start's screen waits for all of them, a travel under it included.
+    let busy_now = if loading.travelling() && !loading.starting() { gate.busy_for_travel() } else { gate.busy() };
+    let pipelines = gate.frames() == 0 || busy_now > 0;
+    if loading.pipelines_busy != pipelines {
+        loading.pipelines_busy = pipelines;
+    }
+    if std::mem::take(&mut loading.pipeline_cap_note) {
+        gate.list_busy();
+    }
+    loading.release_picture_hold(gate.frames() >= nvf_play::loading::PICTURE_FRAMES && gate.screen_busy() == 0, std::time::Instant::now());
     // Actors around the player not drawn yet: a loading screen waits for them too, so
     // they are not seen appearing after it comes down (`readahead::actors_waiting`).
     let actors = crate::readahead::actors_waiting() > 0;
@@ -779,7 +813,7 @@ pub fn loading_gate(streamer: Res<Streamer>, mut loading: ResMut<nvf_play::loadi
 /// the cells of the world root, so a yaw about game Z in the billboard's own transform
 /// is a yaw about the world's up axis.
 pub fn face_billboards(
-    camera: Query<&GlobalTransform, (With<Camera3d>, Without<crate::reflection::ReflectionCamera>)>,
+    camera: Query<&GlobalTransform, crate::fly::WorldCamera>,
     mut trees: Query<(&mut Transform, &GlobalTransform), With<TreeBillboard>>,
 ) {
     let Ok(cam) = camera.single() else { return };
@@ -789,6 +823,65 @@ pub fn face_billboards(
         if d.x * d.x + d.y * d.y > 1e-6 {
             t.rotation = Quat::from_rotation_z(d.y.atan2(d.x));
         }
+    }
+}
+
+/// What [`note_other_cameras`] remembers between frames.
+#[derive(Default)]
+pub struct OtherCameras {
+    /// `StreamStats::frames` the frame before.
+    last: u64,
+    /// The other camera's name while one is active, once streaming has run beside it.
+    open: Option<String>,
+    /// Frames streaming ran while that camera was active.
+    frames: u64,
+}
+
+impl OtherCameras {
+    /// One frame: `frames` the streaming counter now, `other` the name of an active 3D
+    /// camera beside the main view's (a menu's or a scope's), if any. Returns the line to
+    /// log: when streaming first runs beside such a camera, and when the camera is gone.
+    pub fn step(&mut self, frames: u64, other: Option<&str>) -> Option<String> {
+        let ran = frames != std::mem::replace(&mut self.last, frames);
+        match other {
+            // Another camera took over with no frame between: close the first one's count.
+            Some(name) if ran && self.open.as_deref().is_some_and(|o| o != name) => {
+                let line = self.open.replace(name.to_string()).map(|prev| format!("world: streaming kept running behind another 3D camera ({prev}): {} frames", self.frames));
+                self.frames = 1;
+                line
+            }
+            Some(name) if ran => {
+                self.frames += 1;
+                if self.open.is_none() {
+                    self.open = Some(name.to_string());
+                    return Some(format!("world: streaming runs with another 3D camera active ({name}), the main view's camera found by its marker"));
+                }
+                None
+            }
+            Some(_) => None,
+            None => self.open.take().map(|name| format!("world: streaming kept running behind another 3D camera ({name}): {} frames", std::mem::take(&mut self.frames))),
+        }
+    }
+}
+
+/// The 3D cameras beside the main view's (a menu's, a scope's), the water reflection's
+/// left out, with their names.
+type OtherCameraQuery<'w, 's> =
+    Query<'w, 's, (&'static Camera, Option<&'static Name>), (With<Camera3d>, Without<crate::fly::FlyCam>, Without<crate::reflection::ReflectionCamera>)>;
+
+/// Log that streaming keeps running while a menu's or a scope's own 3D camera is active
+/// beside the main view's: once when it first runs beside one, and for how many frames
+/// when the camera is gone. Before, every system that took "the one `Camera3d`" stopped
+/// while such a camera existed [design: issue #1753, `fly::WorldCamera`]. The water
+/// reflection's camera does not count.
+pub fn note_other_cameras(
+    streamer: Res<Streamer>,
+    others: OtherCameraQuery,
+    mut state: Local<OtherCameras>,
+) {
+    let other = others.iter().find(|(c, _)| c.is_active).map(|(_, n)| n.map_or("unnamed", Name::as_str));
+    if let Some(line) = state.step(streamer.stats.frames, other) {
+        info!("{line}");
     }
 }
 
@@ -922,7 +1015,7 @@ fn begin_cell(
     let mut refs: Vec<u32> = cell.map(|c| c.refs.clone()).unwrap_or_default();
     if let CellKey::Exterior(g) = key {
         if let Some((c, land_id)) = cell.and_then(|c| Some((c, c.land?))) {
-            let prep = prep.or_else(|| prepare_terrain(world.lo, world.schema, land_id, g, tile));
+            let prep = prep.or_else(|| prepare_terrain(world.lo, world.schema, land_id, g, tile, world.neighbour_lands(g)));
             if let Some(prep) = prep {
                 let land = spawn_terrain(commands, cell_e, world, prep, &mut TerrainCtx { tm: terrain, assets: models });
                 // Grass grows on the landscape's textures (grass.rs); the water surface
@@ -1078,7 +1171,11 @@ fn spawn_placed_water(
     let Some(wid) = fnv_world::sky::placeable_water_type(world.lo, world.schema, base.form_id) else { return false };
     let Some(path) = base.world_model_path() else { return false };
     let Some(model) = models.model(&path) else { return false };
-    let Some(mat) = water_material(world, wid, models, water) else { return false };
+    let reflects = fnv_world::sky::placeable_water_reflects(world.lo, world.schema, base.form_id);
+    let Some(mat) = water_material(world, wid, reflects, true, models, water) else { return false };
+    if !reflects {
+        info!("placed water {r:08X}: its PWAT {:08X} does not set Reflects, drawn without reflection", base.form_id);
+    }
     for s in &model.shapes {
         commands.entity(cell_e).with_child((
             Mesh3d(s.mesh.clone()),
@@ -1116,7 +1213,7 @@ pub fn spawn_model(
     if hide.iter().any(|h| path.contains(h.as_str())) {
         return;
     }
-    if is_marker(&path) {
+    if script_marker(base.form_id).unwrap_or_else(|| is_marker(&path)) {
         stats.refs_skipped_type += 1;
         *stats.skipped_types.entry("marker".into()).or_default() += 1;
         return;
@@ -1200,26 +1297,32 @@ pub fn spawn_model(
             commands.entity(root).insert(crate::wrecks::WreckRig { form_id: r, path: path.clone(), nodes: nodes.clone() });
         }
         if !rig.groups.is_empty() {
-            commands.entity(root).insert(crate::object_anims::GroupRig::new(r, model.clone(), &path, nodes));
+            commands.entity(root).insert(crate::object_anims::GroupRig::new(r, model.clone(), &path, nodes.clone()));
             stats.refs_group_rigs += 1;
         }
+        // Its nodes by name, for what follows one (`nvf_play::RefNodes`, ui_attach.rs): the
+        // map spawn_nodes made, kept rather than dropped here (copied only when a GroupRig
+        // took it above, as before).
+        commands.entity(root).insert(nvf_play::RefNodes { reference: r, nodes });
         stats.shapes += drawn.len();
         stats.refs_drawn += 1;
         stats.refs_animated += 1;
         return;
     }
-    // A jointed object left posed by its designer (`XRGD`, clutter_pose.rs).
-    let posed = (crate::clutter_pose::posable(&base.sig) && model.nodes.len() > 1)
+    // A jointed object left posed by its designer (`XRGD`, clutter_pose.rs). Whether it
+    // poses is decided by `clutter_pose::pose` (the matching rule and every body on a
+    // named node below the model's root), the same condition the collision uses.
+    let posed = crate::clutter_pose::posable(&base.sig)
         .then(|| crate::clutter_pose::stored(world.lo, r))
         .flatten()
         .and_then(|bones| {
             let bodies = crate::clutter_pose::body_nodes(&models.data, &path)?;
             let posed = crate::clutter_pose::pose(&model.nodes, &bodies, &bones);
-            match posed {
-                Some(_) => info!("clutter pose: 0x{r:08X} {path} drawn in its stored pose ({} bodies)", bodies.len()),
-                None => debug!("clutter pose: 0x{r:08X} {path}: {} entries do not fit {} bodies", bones.len(), bodies.len()),
+            match &posed {
+                Ok(_) => info!("clutter pose: 0x{r:08X} {path} drawn in its stored pose ({} bodies)", bodies.len()),
+                Err(why) => crate::clutter_pose::log_refused(&path, why, &bones, &bodies),
             }
-            posed
+            posed.ok()
         });
     stats.refs_posed += usize::from(posed.is_some());
     for s in &model.shapes {
@@ -1413,7 +1516,7 @@ fn spawn_water(
     // The same surface the physics swims in (`Cell::water_surface`, physics.md §6.6).
     let Some(height) = c.water_surface(ws.default_water_height) else { return };
     let Some(wid) = c.water_type.or(ws.water) else { return };
-    let Some(mat) = water_material(world, wid, models, water) else { return };
+    let Some(mat) = water_material(world, wid, true, false, models, water) else { return };
     let s = CELL_SIZE;
     let mesh = water.plane(&mut models.meshes);
     commands.entity(cell_e).with_child((
@@ -1485,6 +1588,28 @@ fn base_type_name(b: Option<&BaseObject>) -> String {
     b.map_or("none".into(), |b| String::from_utf8_lossy(&b.sig).into_owned())
 }
 
+/// The base forms SetInternalMarker changed (`fnv_game::nvse_jip12`): drawn (false) or
+/// not (true), for the references drawn from then on. Kept here, filled by
+/// [`script_markers`], because every drawing path reads [`spawn_model`]'s marker test.
+static SCRIPT_MARKERS: std::sync::RwLock<std::collections::BTreeMap<u32, bool>> = std::sync::RwLock::new(std::collections::BTreeMap::new());
+
+fn script_marker(base: u32) -> Option<bool> {
+    SCRIPT_MARKERS.read().ok()?.get(&base).copied()
+}
+
+/// Take the scripts' marker changes from the game when they change.
+pub fn script_markers(script: Option<Res<nvf_play::script::ScriptState>>) {
+    let Some(g) = script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game) else { return };
+    let changes = g.internal_marker_changes();
+    let same = SCRIPT_MARKERS.read().is_ok_and(|m| m.len() == changes.len() && m.iter().all(|(k, v)| changes.get(&fnv_sim::FormId(*k)) == Some(v)));
+    if !same {
+        if let Ok(mut m) = SCRIPT_MARKERS.write() {
+            *m = changes.iter().map(|(k, v)| (k.0, *v)).collect();
+            info!("render: {} base form(s) made markers or drawn by a script (SetInternalMarker)", m.len());
+        }
+    }
+}
+
 /// Editor-only marker meshes [hypothesis: the game hides them; models named marker*].
 fn is_marker(path: &str) -> bool {
     let file = path.rsplit('\\').next().unwrap_or(path);
@@ -1503,6 +1628,56 @@ mod tests {
         assert!((bevy_to_game(b) - g).length() < 1e-5);
         // Game up (z) is Bevy up (y).
         assert!((t.transform_point(Vec3::Z) - Vec3::Y).length() < 1e-5);
+    }
+
+    /// Issue #1753: with a menu's own `Camera3d` beside the main view's (and the water
+    /// reflection's), a world system follows the main view's camera (`fly::WorldCamera`)
+    /// instead of stopping or taking the menu's.
+    #[test]
+    fn billboards_face_the_main_view_beside_a_menu_camera() {
+        let mut app = App::new();
+        app.add_systems(Update, face_billboards);
+        let at = |p: Vec3| GlobalTransform::from(Transform::from_translation(p));
+        // The menu's camera, spawned first, 1000 units along game +X (Bevy +X).
+        app.world_mut().spawn((Name::new("Lockpicking camera"), Camera3d::default(), at(Vec3::new(1000.0, 0.0, 0.0))));
+        // The main view, 1000 units along game +Y (Bevy -Z).
+        let main = app.world_mut().spawn((Camera3d::default(), at(Vec3::new(0.0, 0.0, -1000.0)), crate::fly::FlyCam { yaw: 0.0, pitch: 0.0, speed: 0.0 })).id();
+        // The reflection, 1000 units along game -X.
+        app.world_mut().spawn((Camera3d::default(), at(Vec3::new(-1000.0, 0.0, 0.0)), crate::reflection::ReflectionCamera));
+        let tree = app.world_mut().spawn((TreeBillboard, Transform::from_rotation(Quat::from_rotation_z(-1.0)), GlobalTransform::IDENTITY)).id();
+        app.update();
+        let r = app.world().get::<Transform>(tree).unwrap().rotation;
+        assert!(r.abs_diff_eq(Quat::from_rotation_z(FRAC_PI_2), 1e-5), "faces the main view (game +Y), not the menu's camera: {r:?}");
+        // The main view moves; the tree follows it.
+        app.world_mut().entity_mut(main).insert(at(Vec3::new(0.0, 0.0, 1000.0)));
+        app.update();
+        let r = app.world().get::<Transform>(tree).unwrap().rotation;
+        assert!(r.abs_diff_eq(Quat::from_rotation_z(-FRAC_PI_2), 1e-5), "follows the main view to game -Y: {r:?}");
+    }
+
+    /// The log of `note_other_cameras`: once when streaming first runs beside another
+    /// camera, nothing while it stays or while streaming does not run, the count at the end.
+    #[test]
+    fn other_camera_lines() {
+        let mut s = OtherCameras::default();
+        assert_eq!(s.step(1, None), None);
+        assert_eq!(s.step(2, None), None);
+        let opened = s.step(3, Some("Lockpicking camera")).expect("the first frame beside it");
+        assert!(opened.starts_with("world: streaming runs with another 3D camera active (Lockpicking camera)"), "{opened}");
+        assert_eq!(s.step(4, Some("Lockpicking camera")), None);
+        // Streaming held (a loading screen): not counted.
+        assert_eq!(s.step(4, Some("Lockpicking camera")), None);
+        assert_eq!(s.step(5, Some("Lockpicking camera")), None);
+        assert_eq!(s.step(6, None).as_deref(), Some("world: streaming kept running behind another 3D camera (Lockpicking camera): 3 frames"));
+        assert_eq!(s.step(7, None), None);
+        // A camera beside the main view while streaming never runs logs nothing.
+        assert_eq!(s.step(7, Some("Scope camera")), None);
+        assert_eq!(s.step(7, None), None);
+        // One camera taking over from another with no frame between: each its own count.
+        assert!(s.step(8, Some("Terminal camera")).is_some());
+        assert_eq!(s.step(9, Some("Terminal camera")), None);
+        assert_eq!(s.step(10, Some("Lockpicking camera")).as_deref(), Some("world: streaming kept running behind another 3D camera (Terminal camera): 2 frames"));
+        assert_eq!(s.step(11, None).as_deref(), Some("world: streaming kept running behind another 3D camera (Lockpicking camera): 1 frames"));
     }
 
     #[test]

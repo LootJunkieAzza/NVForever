@@ -51,7 +51,9 @@ These come from [LEGAL.md](LEGAL.md), which has the full reasoning.
 6. **Commit no game data.** That means no `.esm`/`.esp`/`.bsa`, meshes, textures, audio,
    saves or executables, and no screenshots or frames rendered from game data. Goldens,
    dumps and captures made from your copy stay in a private folder outside the
-   repository. CI checks this (`game-data-guard`), but don't rely on it.
+   repository. CI checks this (`game-data-guard`), but don't rely on it. It refuses
+   every image except the app's own icons and the vendored Bevy files; an image of
+   NVForever's own is added to its allow-list by path, in the pull request that adds it.
 7. **Don't write into the game.** The NVForever program never writes into the game folder
    or `Documents\My Games\FalloutNV`. See
    [docs/design/install-layout.md](docs/design/install-layout.md).
@@ -89,11 +91,21 @@ people building the same thing:
    Rust stable and Python 3.11+. Run the checks your change calls for:
 
    ```bash
-   cargo test --workspace --release
-   cargo clippy --workspace --all-targets --release -- -D warnings
-   (cd engine && cargo clippy --release --all-targets -- -D warnings)
-   python -m unittest discover -s parity-lab/tests      # and tools/capture, tools/smoke, tools/stress
+   cargo test --workspace --release --locked
+   cargo clippy --workspace --all-targets --release --locked -- -D warnings
+   (cd engine && cargo test --release --locked)
+   (cd engine && cargo clippy --release --locked --all-targets -- -D warnings)
+   cargo deny check licenses advisories bans sources
+   cargo deny --manifest-path engine/Cargo.toml check licenses advisories bans sources
+   python -m unittest discover -s parity-lab/tests
+   python -m unittest discover -s tools/capture/tests
+   python -m unittest discover -s tools/smoke/tests
+   python -m unittest discover -s tools/stress/tests
+   python -m unittest discover -s tools/profile/tests
+   python -m unittest discover -s tools/release/tests
    ```
+
+   These are the commands CI runs (the cargo deny ones need `cargo install cargo-deny`).
 
    `python tools/smoke plan` lists the checks and smoke scenarios that your changed files
    call for.
@@ -101,6 +113,19 @@ people building the same thing:
    (`python tools/smoke run …`) and the parity lab (`python -m fnvlab run`), and report
    the summaries in the pull request. You need your own copy of the game for these. If
    you don't have one, say so in the pull request and the maintainer will run them.
+
+   **Don't send player reports from development builds.** NVForever can send opt-in
+   reports to the project's server (docs/design/player-reports.md); they are meant to
+   show how *players'* games run. A build of yours, a half-finished change or a test
+   session would mix into those numbers (crash rates, performance, which quests players
+   can finish). Runs with `--data` / `NVFOREVER_DATA` and every smoke test never ask and
+   never send. If you start a build of your own like a player would, answer **Not now**
+   to the "Help fix NVForever?" popup, or set `NVF_REPORTS=0` in your environment, or
+   `Send=0` under `[Reports]` in your `NVForever.ini`. To work on reports themselves, run
+   the server locally (LootJunkieAzza/NVForever-Data, `npm run dev:ingest`) and use
+   `NVF_REPORTS=1 NVF_REPORTS_ENDPOINT=http://127.0.0.1:8787`; a test run never sends to
+   the project's server without its own `NVF_REPORTS_ENDPOINT`. A build you make yourself
+   never sends to the project's server anyway: only builds from the release workflow do.
 4. **Open a pull request** against `main` and fill in the template. CI runs the build and
    tests on Linux. First-time contributors' CI runs wait for a maintainer's approval.
 

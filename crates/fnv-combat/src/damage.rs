@@ -342,7 +342,7 @@ pub fn hit(
     let kind = AttackKind::of(w);
     let n = h.projectiles.max(1) as f32;
     let weapon_base = w.base_damage as f32 * r.damage_weapon_mult;
-    let cond = condition_mult(h.condition);
+    let cond = 1.0 - (CONDITION_DAMAGE_THRESHOLD - h.condition.clamp(0.0, 1.0)).max(0.0) * r.condition_damage_penalty;
     // Crippled-arm penalty for melee and unarmed [documented].
     let arm = weapon_base * (r.damage_arm_condition_base - 1.0 + r.damage_arm_condition_mult * a.arm_condition.clamp(0.0, 1.0)) / 2.0;
     let base = match kind {
@@ -401,6 +401,9 @@ pub fn hit(
 
 /// Melee reach in game units: `fCombatDistance` × the actor's scale × the weapon's Reach
 /// [documented: GECK wiki Weapons]; a Reach of 0 (the Fists) counts as 1 [hypothesis].
+/// It reaches from the attacker's body, not its centre: the original's NPCs began their
+/// swings about the two bodies' radii (45) plus 107 × Reach centre to centre [observed:
+/// o14_reach, 2026-11-01; the body reading is a hypothesis, combat-rules.md §10].
 pub fn melee_reach(r: &Rules, w: &WeaponStats, scale: f32) -> f32 {
     let reach = if w.reach > 0.0 { w.reach } else { 1.0 };
     r.combat_distance * scale * reach

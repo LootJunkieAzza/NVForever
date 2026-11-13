@@ -18,6 +18,11 @@ the masters' scripts decompiled with `fnvtool script decompile`. No game data is
 - The messages are message boxes (DNAM Message Box) with a title (FULL "Healing Limbs")
   and a text (DESC) marked up with `<div>` at the start and `<p>` between paragraphs
   [observed].
+- The text names the controls by key strings: `&-sUActnUse;`, `&sUActnCrouch;`,
+  `&sDeviceMouse;` [observed: #1909, Movement and Combat 0x0006D914]. The menu shows
+  them as the keys or buttons bound now, as the lockpick help and the notes do
+  (`lockpick::help::expand_keys`, lockpicking.md) [hypothesis: the game's words for the
+  keys; the strings are the same as the lockpick help's].
 
 ## 2. The menu file [documented: menus\tutorial_menu.xml]
 
@@ -58,9 +63,14 @@ The strings are game settings that are not in the masters (the executable's defa
   was open under it (MenuMode 0 after it) [observed: the same capture]; NVForever's
   `Game::close_all_menus` does the same.
 - Drawn as §2 says, with these choices: the words (`sNext`, `sPrevious`, `sCloseButton`,
-  `sPCMenuHintA/S/E`, `sVDSGManual`) are read by name from NVForever's game strings table,
+  `sVDSGManual`) are read by name from NVForever's game strings table,
   the load order's string settings over its own labels (menu-xml.md §2.4; the
-  maintainer's decision 2026-10-30) [design]; the background as dark as the other menus
+  maintainer's decision 2026-10-30) [design]; the key hints after the buttons in the
+  menus' usual button style, following the input device: "Close E)" with the keyboard,
+  "Close B)" with a controller [observed: the owner's play of the original, issue #1904],
+  and Next "A)" / "RT)", Previous "S)" / "LT)" in the same style [design]
+  (`tutorial_menu::hints`; `sPCMenuHintA/S/E` are in no plugin, and NVForever's own labels
+  for them were "[A]"-shaped); the background as dark as the other menus
   (0.75) instead of the file's alpha 32 [design: readable over the Pip-Boy]; the page
   count only with more than one page; a thin scroll mark instead of the scroll-bar
   prefab; the text in font 1 [hypothesis: a text tile without a font]; `<p>` and `<br>`

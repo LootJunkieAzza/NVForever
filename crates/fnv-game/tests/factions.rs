@@ -1,7 +1,7 @@
 //! The factions and AI package lists of templated and leveled actors on a synthetic
 //! plugin (no game data). docs/spec-notes/factions.md §2 and §3.
 
-mod common;
+use crate::common;
 
 use common::*;
 use fnv_esm::{LoadOrder, Plugin, Schema};
@@ -52,6 +52,10 @@ const LIST_NESTED: u32 = 0x853;
 const PACK_WOLF: u32 = 0x860;
 const PACK_RAT: u32 = 0x861;
 const PACK_OWN: u32 = 0x862;
+/// A Travel package that skips Fallout behaviour with every behaviour bit clear (as
+/// HELIOS One's ProtectronNotActive).
+const PACK_STILL: u32 = 0x863;
+const ADD_SCRIPT_PACKAGE: u16 = 0x1097;
 /// A rat that Helps Allies but is Cowardly (playtest list 4, item 14).
 const COWARD: u32 = 0x870;
 /// An unaggressive rat with an aggro radius of 650 (item 18).
@@ -237,6 +241,20 @@ fn plugin_bytes() -> Vec<u8> {
         top(b"FACT", &factions),
         top(b"MISC", &record(b"MISC", 0, PELT, &[sub(b"EDID", z("Pelt")), sub(b"DATA", [1i32.to_le_bytes(), 1f32.to_le_bytes()].concat())])),
         top(b"NPC_", &npcs),
+        top(
+            b"PACK",
+            &record(
+                b"PACK",
+                0,
+                PACK_STILL,
+                &[
+                    sub(b"EDID", z("Still")),
+                    sub(b"PKDT", [&0x1000u32.to_le_bytes()[..], &[6, 0], &[0; 6]].concat()),
+                    sub(b"PLDT", [0i32.to_le_bytes(), 0u32.to_le_bytes(), 0i32.to_le_bytes()].concat()),
+                    sub(b"PSDT", [&[0xFF, 0xFF, 0, 0xFF][..], &0u32.to_le_bytes()].concat()),
+                ],
+            ),
+        ),
         top(b"CREA", &creatures),
         top(b"LVLC", &lists),
         top(b"CELL", &group(0i32.to_le_bytes(), 2, &group(0i32.to_le_bytes(), 3, &[cell, children].concat()))),
@@ -597,6 +615,27 @@ fn an_actor_that_starts_fighting_alarms_its_allies_near_it() {
 }
 
 #[test]
+fn an_ally_on_a_package_without_observe_combat_takes_no_alarm() {
+    // HELIOS One's stasis protectrons (#1977, observed 2026-11-10): on ProtectronNotActive,
+    // which skips Fallout behaviour with Observe Combat Behavior clear, four stayed on
+    // their pods while the fifth fought. The helper, on such a package, is not alarmed.
+    use fnv_game::awareness::Change;
+    let f = fixture();
+    let mut g = game(&f);
+    let (own, helper, player) = (FormId(OWN_REF), FormId(HELPER_REF), FormId::PLAYER_REF);
+    only_near(&mut g, &[OWN_REF, HELPER_REF]);
+    call(&mut g, ADD_SCRIPT_PACKAGE, HELPER_REF, &[form(PACK_STILL)]);
+    assert!(!g.package_allows(helper, fnv_game::package::fallout::OBSERVE_COMBAT));
+    assert!(g.attacked_by(own, player));
+    fighting(&mut g, OWN_REF, PLAYER);
+    let now = g.time;
+    g.awareness.changes.push(Change { actor: own, from: State::Normal, to: State::Combat, time: now, about: Some(player), cause: None, at: Some([500.0, 0.0, 0.0]), value: Some(5.0) });
+    let near: std::collections::BTreeMap<FormId, [f32; 3]> = [(own, [0.0, 0.0, 0.0]), (helper, [1000.0, 0.0, 0.0]), (player, [500.0, 0.0, 0.0])].into_iter().collect();
+    assert_eq!(g.raise_alarms(&near), 0);
+    assert!(g.awareness.get(helper).is_none_or(|a| a.alarms.is_empty()));
+}
+
+#[test]
 fn an_alarm_reaches_far_allies_and_those_not_measured() {
     // #972 (docs/spec-notes/combat-groups.md §1): the helper 6,000 units off, beyond the
     // old 4,096, hears Own's alarm; so does it when the round did not measure it (not in
@@ -695,7 +734,8 @@ fn a_fighter_keeps_a_target_its_group_still_detects() {
     let hidden = Detection { value: -40.0, band: Band::Hidden, ..Default::default() };
     g.awareness.actors.get_mut(&helper).unwrap().observe(player, &hidden, [0.0; 3], g.time, &t);
     let start = g.time;
-    for k in 1..=40 {
+    let rounds = (t.lost.max(t.forget_target) * 2.0).ceil() as u32 + 2;
+    for k in 1..=rounds {
         g.time = start + k as f64 * 0.5;
         let now = g.time;
         g.awareness.actors.get_mut(&own).unwrap().observe(player, &Detection { value: 5.0, band: Band::Detected, ..Default::default() }, [k as f32, 0.0, 0.0], now, &t);
@@ -705,7 +745,7 @@ fn a_fighter_keeps_a_target_its_group_still_detects() {
     assert!(g.time - start > t.lost.max(t.forget_target));
     let a = g.awareness.get(helper).expect("still fighting");
     assert_eq!(a.state, State::Combat);
-    assert_eq!(a.targets.get(&player).map(|x| x.at), Some([40.0, 0.0, 0.0]), "where Own saw it");
+    assert_eq!(a.targets.get(&player).map(|x| x.at), Some([rounds as f32, 0.0, 0.0]), "where Own saw it");
     assert_eq!(a.shared.get(&player), Some(&g.time));
     // Nobody detects it: Lost together, the lost timer after Own's last sighting.
     let seen = g.time;
@@ -1032,6 +1072,36 @@ fn inside_half_its_aggro_radius_an_actor_attacks_without_warning() {
 }
 
 #[test]
+fn an_actor_created_at_run_time_attacks_inside_its_aggro_radius_without_warning() {
+    // `fnv_game::aggro` "Spawned actors do not warn" (#1341): the original's CrCoyote
+    // PlaceAtMe'd at a placed coyote's spot fought the player 700 of 1,024 units off at
+    // once, where the placed one warned for 14.9 s. The lurker's base placed at run time,
+    // 600 of its 650 units off (the placed one warns there): it attacks at the first tick.
+    let f = fixture();
+    let mut g = game(&f);
+    let player = FormId::PLAYER_REF;
+    g.world.get(player).unwrap().pos = [0.0; 3];
+    let cell = g.world.get(FormId(LURKER_REF)).unwrap().cell;
+    let spawned = g.world.place(FormId(LURKER), cell, [600.0, 0.0, 0.0], [0.0; 3], 1).unwrap();
+    assert!(spawned.is_dynamic());
+    assert_eq!(g.aggro_radius(spawned), Some(650.0));
+    assert!(!g.would_attack(spawned, player));
+    let now = g.time;
+    g.detection.pairs.insert((spawned, player), (Detection { value: 5.0, band: Band::Detected, ..Default::default() }, now));
+    assert_eq!(g.aggro_tick(), 1);
+    let notes = g.provocations.take_notes();
+    assert!(!notes.iter().any(|n| matches!(n, Note::AggroWarned { .. })), "{notes:?}");
+    assert!(notes.iter().any(|n| matches!(n, Note::AggroAttacks { actor, .. } if *actor == spawned)));
+    assert!(g.would_attack(spawned, player));
+    // Outside its radius it leaves the player alone, as a placed one does.
+    let far = g.world.place(FormId(LURKER), cell, [700.0, 0.0, 0.0], [0.0; 3], 1).unwrap();
+    let now = g.time;
+    g.detection.pairs.insert((far, player), (Detection { value: 5.0, band: Band::Detected, ..Default::default() }, now));
+    assert_eq!(g.aggro_tick(), 0);
+    assert!(!g.would_attack(far, player));
+}
+
+#[test]
 fn an_aggro_warning_ends_when_the_player_leaves_the_radius() {
     // The warning look (`fnv_game::aggro`, "The look") lasts while the player is inside;
     // the count is kept for the grace, the look is not.
@@ -1131,6 +1201,10 @@ fn a_mine_spares_its_owners_side() {
     assert!(!spares(&g, None, BANDIT_REF));
 }
 
+/// A frag grenade's blast (FalloutNV.esm GrenadeFragExplosion: 125 damage, no object
+/// effect, the weapon's damage type None [observed]).
+const FRAG: fnv_game::pickpocket::Explosive = fnv_game::pickpocket::Explosive { damage: 125.0, resist: None, enchantment: None };
+
 #[test]
 fn a_planted_explosive_goes_off_after_the_timer() {
     // GECK wiki Projectile notes: GetPlantedExplosive is true after
@@ -1141,17 +1215,401 @@ fn a_planted_explosive_goes_off_after_the_timer() {
     let (victim, grenade) = (FormId(OWN_REF), FormId(0x0000_4330));
     let rules = fnv_game::pickpocket::Rules::default();
     let start = g.time;
-    g.plant_explosive(victim, grenade);
+    g.plant_explosive(victim, grenade, FRAG).unwrap();
     assert!(!g.has_planted_explosive(victim), "not before the freak-out time");
     g.time = start + rules.freakout_time + 0.01;
     assert!(g.has_planted_explosive(victim));
     assert!(g.tick_planted().is_empty(), "not before the timer");
     g.time = start + rules.grenade_timer + 0.01;
     let blasts = g.tick_planted();
-    assert_eq!(blasts, vec![fnv_game::pickpocket::Blast { victim, item: grenade }]);
+    assert_eq!(blasts, vec![fnv_game::pickpocket::Blast { victim, item: grenade, killed: true }]);
     assert!(g.is_dead(victim));
     assert!(!g.has_planted_explosive(victim), "gone off");
     assert_eq!(g.misc_stat(fnv_game::misc_stats::PANTS_EXPLODED), 1.0);
     // A dead actor cannot be pickpocketed.
     assert_eq!(g.pickpocket_refusal(victim), Some(fnv_game::pickpocket::Refusal::NotAllowed));
+}
+
+/// Plant `blast` on `victim` and run the clock past the timer; the blasts.
+fn plant_and_wait(g: &mut Game, victim: FormId, blast: fnv_game::pickpocket::Explosive) -> Vec<fnv_game::pickpocket::Blast> {
+    let rules = fnv_game::pickpocket::Rules::default();
+    let start = g.time;
+    g.plant_explosive(victim, FormId(0x0000_4330), blast).unwrap();
+    g.time = start + rules.grenade_timer + 0.01;
+    g.tick_planted()
+}
+
+#[test]
+fn only_an_explosion_that_hurts_the_victims_kind_kills() {
+    // Owner 2026-11-05: "instantly killing them if it's a damaging type"; the rule
+    // (`Game::explosive_harms`) is a hypothesis (observer-checks.md).
+    use fnv_game::cond::{Cmp, Condition, Operand, RunOn};
+    use fnv_game::data::{EffectItem, MagicEffectDef};
+    const GET_IS_CREATURE: u16 = 0x40;
+    let (ench, damage_health, man, rat) = (FormId(0x9A0), FormId(0x9A1), FormId(LOAFER_REF), FormId(LURKER_REF));
+    let mut f = fixture();
+    // As the Pulse Grenade's EMP: Damage Health on some kinds only (here: creatures).
+    f.data.magic_effects.insert(damage_health, MagicEffectDef { flags: MagicEffectDef::HOSTILE | MagicEffectDef::DETRIMENTAL, actor_value: Some(av::HEALTH), ..Default::default() });
+    let only_creatures = Condition { cmp: Cmp::Eq, or: false, run_on: RunOn::Subject, function: GET_IS_CREATURE, params: Vec::new(), rhs: Operand::Value(1.0) };
+    f.data.effect_items.insert(ench, vec![EffectItem { effect: damage_health, magnitude: 200, area: 0, duration: 0, actor_value: Some(av::HEALTH), conditions: vec![only_creatures] }]);
+    let pulse = fnv_game::pickpocket::Explosive { damage: 10.0, resist: Some(fnv_game::functions::av_by_name("EMP Resistance").unwrap()), enchantment: Some(ench) };
+
+    // The EMP on a man: it goes off (one more Pants Exploded), he lives.
+    let mut g = game(&f);
+    let b = plant_and_wait(&mut g, man, pulse);
+    assert_eq!(b.len(), 1);
+    assert!(!b[0].killed && !g.is_dead(man), "{b:?}");
+    assert_eq!(g.misc_stat(fnv_game::misc_stats::PANTS_EXPLODED), 1.0);
+    // On a creature it kills.
+    let b = plant_and_wait(&mut g, rat, pulse);
+    assert!(b[0].killed && g.is_dead(rat), "{b:?}");
+
+    // A blast without damage kills nobody; a frag kills both.
+    let mut g = game(&f);
+    let flash = fnv_game::pickpocket::Explosive { damage: 0.0, resist: None, enchantment: None };
+    assert!(!plant_and_wait(&mut g, man, flash)[0].killed);
+    assert!(!g.is_dead(man));
+    assert!(plant_and_wait(&mut g, man, FRAG)[0].killed);
+    assert!(plant_and_wait(&mut g, rat, FRAG)[0].killed);
+}
+
+#[test]
+fn a_planted_explosive_does_not_go_live_on_an_essential_actor() {
+    // Fallout Wiki, Fallout 3 Pickpocket: a child just gets the explosive, no explosion;
+    // New Vegas and essential actors: hypothesis (observer-checks.md).
+    use fnv_game::pickpocket::NotLive;
+    let essential = FormId(WATCHMAN_REF);
+    let f = fixture();
+    let mut g = game(&f);
+    g.extra.entry(essential).or_default().essential = Some(true);
+    assert_eq!(g.plant_explosive(essential, FormId(0x4330), FRAG), Err(NotLive::Essential));
+    assert!(g.pickpocket.planted.is_empty(), "nothing goes live");
+    g.time += 10.0;
+    assert!(g.tick_planted().is_empty());
+    assert!(!g.is_dead(essential));
+    // A child: `functions.rs`, a_planted_explosive_stays_an_item_on_a_child.
+}
+
+#[test]
+fn a_planted_kill_is_seen_by_whoever_saw_the_player_while_it_was_live() {
+    // Fallout Wiki, New Vegas Pickpocket: staying hidden from the plant to the blast, no
+    // one turns hostile and no infamy is gained; the kill is judged with those who
+    // detected the player while it was live (pickpocket.md §5).
+    use fnv_game::crime::{Kind, Note as CrimeNote};
+    let (victim, witness, player) = (FormId(LOAFER_REF), FormId(GANGER_A_REF), FormId::PLAYER_REF);
+    let rules = fnv_game::pickpocket::Rules::default();
+    let murders = |g: &Game| -> Vec<Vec<FormId>> {
+        g.crimes.notes.iter().filter_map(|n| match n {
+            CrimeNote::Crime { kind: Kind::Murder, seen_by, .. } => Some(seen_by.clone()),
+            _ => None,
+        }).collect()
+    };
+    let f = fixture();
+
+    // Hidden all along: a murder nobody saw.
+    let mut g = game(&f);
+    plant_and_wait(&mut g, victim, FRAG);
+    assert!(g.is_dead(victim));
+    assert_eq!(murders(&g), vec![Vec::<FormId>::new()], "seen by nobody");
+
+    // Seen in the middle of the fuse, gone from view at the blast: still a witness.
+    let mut g = game(&f);
+    let start = g.time;
+    g.plant_explosive(victim, FormId(0x4330), FRAG).unwrap();
+    g.time = start + 0.5;
+    let t = g.time;
+    g.detection.pairs.insert((witness, player), (Detection { value: 30.0, band: Band::Detected, ..Default::default() }, t));
+    assert!(g.tick_planted().is_empty());
+    g.detection.pairs.remove(&(witness, player));
+    g.time = start + rules.grenade_timer + 0.01;
+    assert!(g.tick_planted()[0].killed);
+    assert_eq!(murders(&g), vec![vec![witness]]);
+    assert!(g.pickpocket.blast_witnesses.is_empty(), "only while the kill is judged");
+    assert!(g.crime_witnesses().is_empty());
+}
+
+#[test]
+fn a_planted_kill_counts_for_the_weapon_the_player_holds() {
+    // Fallout Wiki, New Vegas Pickpocket: the kill counts as one with the weapon type
+    // the player has equipped. Here the player holds nothing (fists, Unarmed), and the
+    // victim's last hit by the player was with a gun: the fists get the kill.
+    use fnv_game::challenges::{kind, ChallengeDef};
+    const UNARMED: u32 = 45;
+    const GUNS: u32 = 41;
+    let (victim, gun, by_fists, by_gun) = (FormId(LOAFER_REF), FormId(0x9B0), FormId(0x9B1), FormId(0x9B2));
+    let mut f = fixture();
+    f.data.weapon_skills.insert(gun, i64::from(GUNS));
+    for (c, skill) in [(by_fists, UNARMED), (by_gun, GUNS)] {
+        let def = ChallengeDef { form: c, kind: kind::KILL_FROM_LIST, threshold: 100, flags: 0, interval: 0, value1: 0, value2: skill, value3: 0, form1: None, form2: None, name: None, description: None };
+        f.data.challenge_defs.insert(c, def);
+    }
+    let mut g = game(&f);
+    g.extra.entry(victim).or_default().last_hit = Some(fnv_game::game::LastHit { attacker: Some(FormId::PLAYER_REF), weapon: Some(gun), location: 0, critical: false });
+    assert!(plant_and_wait(&mut g, victim, FRAG)[0].killed);
+    let progress = |c: FormId| g.player.challenges.get(&c).map_or(0, |c| c.progress);
+    assert_eq!((progress(by_fists), progress(by_gun)), (1, 0));
+    assert_eq!(g.misc_stat(fnv_game::misc_stats::PEOPLE_KILLED), 1.0);
+}
+
+/// The durable state crosses the actual JSON and world restore boundaries.
+fn restore_plants<'a>(f: &'a Fixture, g: &Game) -> Game<'a> {
+    let snap: fnv_game::game::GameSnapshot = serde_json::from_str(&serde_json::to_string(&g.snapshot()).unwrap()).unwrap();
+    let world = World::restore(&f.forms, &f.refs, &snap.sim).unwrap();
+    Game::restore(&f.data, world, g.cfg, &snap).unwrap()
+}
+
+#[test]
+fn a_saved_plant_keeps_its_remaining_fuse_before_and_after_freakout() {
+    use fnv_game::misc_stats::{PANTS_EXPLODED, PEOPLE_KILLED};
+    use fnv_game::trace::EventKind;
+    let f = fixture();
+    let (victim, item) = (FormId(OWN_REF), FormId(PELT));
+    let rules = fnv_game::pickpocket::Rules::default();
+    for elapsed in [0.05, 0.5] {
+        let mut g = game(&f);
+        g.time = 20.0;
+        g.world.add_item(victim, item, 2).unwrap();
+        g.plant_explosive(victim, item, FRAG).unwrap();
+        let at = g.time;
+        g.time += elapsed;
+        assert_eq!(g.has_planted_explosive(victim), elapsed >= rules.freakout_time);
+        // Transient witnesses and cached rules must not survive a load.
+        g.pickpocket.blast_witnesses.push(FormId(GANGER_A_REF));
+        g.pickpocket.rules.as_mut().unwrap().grenade_timer = 99.0;
+        let mut h = restore_plants(&f, &g);
+        assert_eq!(h.time, g.time);
+        assert_eq!(h.pickpocket.planted, g.pickpocket.planted);
+        assert!(h.pickpocket.rules.is_none());
+        assert!(h.pickpocket.blast_witnesses.is_empty());
+        assert_eq!(h.has_planted_explosive(victim), elapsed >= rules.freakout_time);
+        // Loading and an open menu do not age the fuse, even over many ticks.
+        h.loading = true;
+        h.frames(180);
+        h.loading = false;
+        h.menu = Some(1001);
+        h.frames(180);
+        h.menu = None;
+        assert_eq!(h.time, at + elapsed);
+        assert!(h.tick_planted().is_empty());
+        h.time = at + rules.grenade_timer - 0.01;
+        assert!(h.tick_planted().is_empty());
+        h.time += 0.02;
+        assert_eq!(h.tick_planted(), vec![fnv_game::pickpocket::Blast { victim, item, killed: true }]);
+        assert_eq!(h.world.item_count(victim, item).unwrap(), 1);
+        assert!(h.is_dead(victim));
+        assert_eq!((h.misc_stat(PANTS_EXPLODED), h.misc_stat(PEOPLE_KILLED)), (1.0, 1.0));
+        h.time += 10.0;
+        assert!(h.tick_planted().is_empty());
+        assert_eq!(h.world.item_count(victim, item).unwrap(), 1);
+        assert_eq!((h.misc_stat(PANTS_EXPLODED), h.misc_stat(PEOPLE_KILLED)), (1.0, 1.0));
+        // Completion stays complete through another save too.
+        let mut again = restore_plants(&f, &h);
+        assert!(again.tick_planted().is_empty());
+        assert_eq!(again.misc_stat(PANTS_EXPLODED), 1.0);
+        assert!(h.events.iter().all(|e| !matches!(e.kind, EventKind::CallFailed { .. })));
+    }
+}
+
+#[test]
+fn saved_multiple_plants_keep_their_blasts_and_independent_times() {
+    use fnv_game::misc_stats::{PANTS_EXPLODED, PEOPLE_KILLED};
+    let f = fixture();
+    let mut g = game(&f);
+    let (a, b, item) = (FormId(OWN_REF), FormId(LOAFER_REF), FormId(PELT));
+    let harmless = fnv_game::pickpocket::Explosive { damage: 0.0, resist: Some(av::POISON_RESISTANCE), enchantment: None };
+    for victim in [a, b] {
+        g.world.add_item(victim, item, 1).unwrap();
+    }
+    g.plant_explosive(a, item, harmless).unwrap();
+    let at = g.time;
+    g.time += 0.5;
+    g.plant_explosive(b, item, FRAG).unwrap();
+    g.time += 0.5;
+    let mut h = restore_plants(&f, &g);
+    assert_eq!(h.pickpocket.planted, g.pickpocket.planted);
+    h.time = at + 2.01;
+    assert_eq!(h.tick_planted(), vec![fnv_game::pickpocket::Blast { victim: a, item, killed: false }]);
+    assert!(!h.is_dead(a) && !h.is_dead(b));
+    assert_eq!(h.world.item_count(a, item).unwrap(), 0);
+    assert_eq!(h.world.item_count(b, item).unwrap(), 1);
+    let mut h = restore_plants(&f, &h);
+    h.time = at + 2.51;
+    assert_eq!(h.tick_planted(), vec![fnv_game::pickpocket::Blast { victim: b, item, killed: true }]);
+    assert!(!h.is_dead(a) && h.is_dead(b));
+    assert_eq!(h.world.item_count(b, item).unwrap(), 0);
+    assert_eq!((h.misc_stat(PANTS_EXPLODED), h.misc_stat(PEOPLE_KILLED)), (2.0, 1.0));
+    assert!(h.tick_planted().is_empty());
+}
+
+#[test]
+fn a_saved_plant_retains_witnesses_who_no_longer_see_the_player() {
+    use fnv_game::crime::{Kind, Note as CrimeNote};
+    let f = fixture();
+    let mut g = game(&f);
+    let (victim, witness, player) = (FormId(LOAFER_REF), FormId(GANGER_A_REF), FormId::PLAYER_REF);
+    g.plant_explosive(victim, FormId(PELT), FRAG).unwrap();
+    let at = g.time;
+    g.time += 0.5;
+    g.detection.pairs.insert((witness, player), (Detection { value: 30.0, band: Band::Detected, ..Default::default() }, g.time));
+    assert!(g.tick_planted().is_empty());
+    assert_eq!(g.pickpocket.planted[0].seen_by, vec![witness]);
+    let mut h = restore_plants(&f, &g);
+    assert!(h.crime_witnesses().is_empty());
+    h.time = at + 2.01;
+    assert!(h.tick_planted()[0].killed);
+    let murders: Vec<_> = h.crimes.notes.iter().filter_map(|n| match n {
+        CrimeNote::Crime { kind: Kind::Murder, seen_by, .. } => Some(seen_by.clone()),
+        _ => None,
+    }).collect();
+    assert_eq!(murders, vec![vec![witness]]);
+    assert!(h.pickpocket.blast_witnesses.is_empty());
+}
+
+/// The victim's units of `item`: (all, live, ordinary).
+fn units(g: &Game, victim: FormId, item: FormId) -> (i32, i32, i32) {
+    g.world.peek(victim).and_then(|s| s.inventory.as_ref()).map_or((0, 0, 0), |inv| (inv.count(item), inv.live_count(item), inv.free_count(item)))
+}
+
+#[test]
+fn each_plant_reserves_one_unit_that_its_blast_takes() {
+    // #1640 item 5: the live explosive is a unit apart from the victim's own of the same
+    // item; the victim cannot equip, use, drop or give it away; the blast takes exactly it.
+    let f = fixture();
+    let mut g = game(&f);
+    let (victim, item) = (FormId(OWN_REF), FormId(PELT));
+    g.world.add_item(victim, item, 3).unwrap();
+    let start = g.time;
+    g.plant_explosive(victim, item, FRAG).unwrap();
+    assert_eq!(units(&g, victim, item), (3, 1, 2));
+    g.time = start + 0.5;
+    g.plant_explosive(victim, item, FRAG).unwrap();
+    assert_eq!(units(&g, victim, item), (3, 2, 1));
+    // The victim's own unit goes; the live ones stay.
+    assert_eq!(g.world.remove_item(victim, item, 3).unwrap(), 1);
+    assert!(g.world.drop_item(victim, item, 1).unwrap().is_empty());
+    assert_eq!(g.world.transfer(victim, FormId::PLAYER_REF, item, 1).unwrap(), 0);
+    assert_eq!(units(&g, victim, item), (2, 2, 0));
+    // The first blast takes one live unit, not more.
+    g.time = start + 2.01;
+    let b = g.tick_planted();
+    assert_eq!(b.len(), 1);
+    assert!(b[0].killed && g.is_dead(victim));
+    assert_eq!(units(&g, victim, item), (1, 1, 0));
+    // The second plant's victim died before it went off: let off, its unit ordinary.
+    g.time = start + 2.51;
+    assert!(g.tick_planted().is_empty());
+    assert_eq!(units(&g, victim, item), (1, 0, 1));
+    assert_eq!(g.misc_stat(fnv_game::misc_stats::PANTS_EXPLODED), 1.0);
+}
+
+#[test]
+fn a_plant_on_an_essential_actor_stays_an_ordinary_item() {
+    use fnv_game::pickpocket::NotLive;
+    let f = fixture();
+    let mut g = game(&f);
+    let (essential, item) = (FormId(WATCHMAN_REF), FormId(PELT));
+    g.extra.entry(essential).or_default().essential = Some(true);
+    g.world.add_item(essential, item, 1).unwrap();
+    assert_eq!(g.plant_explosive(essential, item, FRAG), Err(NotLive::Essential));
+    assert_eq!(units(&g, essential, item), (1, 0, 1));
+}
+
+#[test]
+fn live_units_follow_the_saved_plants() {
+    let f = fixture();
+    let (victim, other, item) = (FormId(OWN_REF), FormId(LOAFER_REF), FormId(PELT));
+    let mut g = game(&f);
+    g.world.add_item(victim, item, 2).unwrap();
+    g.plant_explosive(victim, item, FRAG).unwrap();
+    // Saved and loaded: one live unit, one ordinary.
+    let h = restore_plants(&f, &g);
+    assert_eq!(units(&h, victim, item), (2, 1, 1));
+
+    // A save from before live units: its plant's unit is reserved on load.
+    let mut snap = g.snapshot();
+    let inv = snap.sim.refs.get_mut(&victim).unwrap().inventory.as_mut().unwrap();
+    assert_eq!(inv.set_live_count(item, 0), 0);
+    let world = World::restore(&f.forms, &f.refs, &snap.sim).unwrap();
+    let mut h = Game::restore(&f.data, world, g.cfg, &snap).unwrap();
+    assert_eq!(units(&h, victim, item), (2, 1, 1));
+    h.time += 10.0;
+    assert_eq!(h.tick_planted().len(), 1);
+    assert_eq!(units(&h, victim, item), (1, 0, 1), "exactly the reserved unit");
+
+    // A live unit without its plant (the plant dropped) is ordinary again on load.
+    let mut snap = g.snapshot();
+    snap.planted.clear();
+    let world = World::restore(&f.forms, &f.refs, &snap.sim).unwrap();
+    let h = Game::restore(&f.data, world, g.cfg, &snap).unwrap();
+    assert_eq!(units(&h, victim, item), (2, 0, 2));
+    // A plant whose unit is not carried still loads, reserving nothing.
+    let mut g = game(&f);
+    g.plant_explosive(other, item, FRAG).unwrap();
+    let h = restore_plants(&f, &g);
+    assert_eq!(h.pickpocket.planted.len(), 1);
+    assert_eq!(units(&h, other, item).1, 0);
+}
+
+#[test]
+fn an_old_save_reserves_a_planted_grenade_its_victim_had_put_on() {
+    // Before live units the victim could equip the planted grenade: a save with the plant
+    // and its only unit equipped gets that unit taken off and reserved on load, and the
+    // blast takes it.
+    let f = fixture();
+    let (victim, item) = (FormId(OWN_REF), FormId(PELT));
+    let mut g = game(&f);
+    g.world.add_item(victim, item, 1).unwrap();
+    g.plant_explosive(victim, item, FRAG).unwrap();
+    let mut snap: fnv_game::game::GameSnapshot = serde_json::from_str(&serde_json::to_string(&g.snapshot()).unwrap()).unwrap();
+    let inv = snap.sim.refs.get_mut(&victim).unwrap().inventory.as_mut().unwrap();
+    assert_eq!(inv.set_live_count(item, 0), 0);
+    assert!(inv.set_equipped(item));
+    assert!(!serde_json::to_string(&*inv).unwrap().contains("live"), "the old format");
+    let world = World::restore(&f.forms, &f.refs, &snap.sim).unwrap();
+    let mut h = Game::restore(&f.data, world, g.cfg, &snap).unwrap();
+    assert_eq!(units(&h, victim, item), (1, 1, 0));
+    assert!(!h.world.peek(victim).unwrap().inventory.as_ref().unwrap().is_equipped(item), "taken off");
+    h.time += 10.0;
+    assert!(h.tick_planted()[0].killed);
+    assert_eq!(units(&h, victim, item), (0, 0, 0), "the blast took it");
+}
+
+#[test]
+fn reset_inventory_keeps_a_planted_explosive() {
+    // ResetInventory during the fuse rolls the victim's own items again; the planted unit
+    // stays, and the blast takes it.
+    const RESET_INVENTORY: u16 = 0x11ED;
+    let f = fixture();
+    let (victim, item) = (FormId(OWN_REF), FormId(PELT));
+    let mut g = game(&f);
+    // Its carried items are the Wolf's (one Pelt), so the reset rolls something.
+    g.world.set_inventory_source(victim, Some(FormId(WOLF)));
+    g.world.add_item(victim, item, 3).unwrap();
+    g.plant_explosive(victim, item, FRAG).unwrap();
+    assert_eq!(units(&g, victim, item), (3, 1, 2));
+    call(&mut g, RESET_INVENTORY, OWN_REF, &[]);
+    assert_eq!(units(&g, victim, item), (2, 1, 1), "its own two went for the roll's one; the planted one stayed");
+    g.time += 10.0;
+    assert_eq!(g.tick_planted().len(), 1);
+    assert_eq!(units(&g, victim, item), (1, 0, 1), "the blast took the planted one");
+}
+
+#[test]
+fn an_old_save_has_no_live_plants_and_empty_plants_are_omitted() {
+    let f = fixture();
+    let mut g = game(&f);
+    assert!(serde_json::to_value(g.snapshot()).unwrap().get("planted").is_none());
+    let (victim, item) = (FormId(OWN_REF), FormId(PELT));
+    g.world.add_item(victim, item, 1).unwrap();
+    g.plant_explosive(victim, item, FRAG).unwrap();
+    let mut value = serde_json::to_value(g.snapshot()).unwrap();
+    assert!(value.as_object_mut().unwrap().remove("planted").is_some());
+    let snap: fnv_game::game::GameSnapshot = serde_json::from_value(value).unwrap();
+    let world = World::restore(&f.forms, &f.refs, &snap.sim).unwrap();
+    let mut h = Game::restore(&f.data, world, g.cfg, &snap).unwrap();
+    assert!(h.pickpocket.planted.is_empty());
+    h.time += 10.0;
+    assert!(h.tick_planted().is_empty());
+    assert!(!h.is_dead(victim));
+    assert_eq!(h.world.item_count(victim, item).unwrap(), 1);
 }

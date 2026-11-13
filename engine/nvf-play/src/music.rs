@@ -63,7 +63,7 @@ use crate::script::{with_world, ScriptState};
 use crate::sfx::PlaySound;
 use crate::sim::SimState;
 use crate::{Location, PlayState, PlayWorld};
-use bevy::audio::{ChannelCount, Decodable, Sample, SampleRate, Source};
+use bevy::audio::{AudioSinkPlayback, ChannelCount, Decodable, Sample, SampleRate, Source};
 use crate::audio_out::{AddAudioSource, SoundCategory};
 use bevy::prelude::*;
 use fnv_combat::rng::SplitMix;
@@ -392,8 +392,12 @@ pub fn incidental_wait(set: &audio::MediaSet, day: bool, r: f32) -> f32 {
 struct Track {
     key: Key,
     name: String,
-    /// `None`: no file of it could be played.
+    /// `None`: no file of it could be played, or its files are still being read
+    /// ([`Track::waiting`]).
     entity: Option<Entity>,
+    /// The stems still to come off the IO pool (layer, archive path) and whether it
+    /// loops: the track's sound starts when they are all in (#1993).
+    waiting: Option<(Vec<(usize, String)>, bool)>,
     levels: Arc<[AtomicU32; 3]>,
     /// How far each layer is faded in, 0–1.
     level: [f32; 3],
@@ -429,7 +433,7 @@ struct Battle {
 #[derive(Resource)]
 pub struct Music {
     /// File bytes by archive path; `None`: not there.
-    files: HashMap<String, Option<Arc<[u8]>>>,
+    pub files: crate::file_bytes::FileBytes,
     folders: HashMap<String, Vec<String>>,
     /// CELL `XCMO` and WRLD `ZNAM` by FormID.
     types: HashMap<u32, Option<u32>>,
@@ -461,12 +465,15 @@ pub struct Music {
     pub deaths: u32,
     /// Level-up music started ([`MusicCues::level_up`]).
     pub level_ups: u32,
+    /// SetMusicState 1 holds the music where it is until SetMusicState 2 (or 0)
+    /// [documented: SetMusicState].
+    paused: bool,
 }
 
 impl Default for Music {
     fn default() -> Self {
         Music {
-            files: HashMap::new(),
+            files: Default::default(),
             folders: HashMap::new(),
             types: HashMap::new(),
             regions: HashMap::new(),
@@ -489,6 +496,7 @@ impl Default for Music {
             stingers: 0,
             deaths: 0,
             level_ups: 0,
+            paused: false,
         }
     }
 }
@@ -500,7 +508,8 @@ impl Default for Music {
 pub struct MusicCues {
     pub combat: bool,
     pub alert: bool,
-    /// The hostile actor that made the battle, for the log.
+    /// The hostile actor that made the battle, for the log: the nearest one that has the
+    /// player detected (else the nearest that noticed the player).
     pub by: Option<u32>,
     /// The player is dead (`Game::is_dead`).
     pub dead: bool,
@@ -512,10 +521,50 @@ pub struct MusicCues {
     /// default objects' Level Up Music plays once, if its file is there (#991).
     pub level_up: bool,
     requests: Vec<FormId>,
+    /// SetMusicState's requests (`fnv_game::nvse_ttw`): 0 stop, 1 pause, 2 resume.
+    states: Vec<u8>,
     next: f32,
 }
 
+/// The audio markers between the music and scripts (`fnv_game::nvse_jg9`): their values
+/// told to the game once they are read, the marker whose music plays told every frame,
+/// and the markers a script changed (AudioMarkerSetController, AudioMarkerSetProperty)
+/// changed here, so the music picks from them from then on.
+fn script_markers(places: Option<ResMut<AudioPlaces>>, music: Option<Res<Music>>, script: Option<ResMut<crate::script::ScriptState>>, mut plugins: Local<Option<HashMap<u32, fnv_game::nvse_jg9::MarkerValues>>>) {
+    use fnv_game::nvse_jg9::MarkerValues;
+    let (Some(mut places), Some(mut script)) = (places, script) else { return };
+    let Some(rt) = script.rt.as_mut() else { return };
+    let st = &mut rt.game.other.jg9;
+    let values = |m: &AudioMarker| MarkerValues { controller: m.controller.map(fnv_sim::FormId), radius: m.radius, layer2: m.layer2_percent, layer3: m.layer3_percent };
+    let plugins = plugins.get_or_insert_with(|| places.audio.values().flatten().map(|m| (m.ref_id, values(m))).collect());
+    // A game state without them (the first, or one loaded since): told the plugins'
+    // values, and the markers put back to them (a script's changes last the session).
+    if st.markers.is_empty() && !plugins.is_empty() {
+        st.markers = plugins.iter().map(|(&r, &v)| (fnv_sim::FormId(r), v)).collect();
+        st.markers_changed = true;
+    }
+    st.current_marker = music.and_then(|m| m.marker).map(|m| fnv_sim::FormId(m.0));
+    if !std::mem::take(&mut st.markers_changed) {
+        return;
+    }
+    let edits = st.marker_edits.clone();
+    for m in places.audio.values_mut().flatten() {
+        let id = fnv_sim::FormId(m.ref_id);
+        let Some(&e) = edits.get(&id).or_else(|| plugins.get(&m.ref_id)) else { continue };
+        if e != values(m) {
+            (m.controller, m.radius, m.layer2_percent, m.layer3_percent) = (e.controller.map(|c| c.0), e.radius, e.layer2, e.layer3);
+            info!("music: audio marker {:08X} now: controller {:?}, radius {:.0}, layers {:.2} {:.2}", m.ref_id, m.controller, m.radius, m.layer2_percent, m.layer3_percent);
+        }
+    }
+}
+
 fn init(mut commands: Commands, d: Res<PlayWorld>) {
+    let d = d.0;
+    crate::start_read::start(&mut commands, "nvf-audio-read", move || read_places(d));
+}
+
+/// [`AudioPlaces`] from the plugins, on its own thread (`crate::start_read`).
+fn read_places(d: crate::PlayData) -> AudioPlaces {
     let t = std::time::Instant::now();
     let forms = AudioForms::build(d.lo, d.schema);
     let (am, sm) = audio::markers(d.lo, d.schema, d.index, d.index.cells.keys().copied());
@@ -536,7 +585,7 @@ fn init(mut commands: Commands, d: Res<PlayWorld>) {
         places.forms.regions.len(),
         t.elapsed().as_secs_f64() * 1000.0
     );
-    commands.insert_resource(places);
+    places
 }
 
 fn setting(sim: &SimState, (name, default): (&str, f32)) -> f32 {
@@ -561,6 +610,7 @@ fn cues(
 ) {
     let Some(rt) = script.and_then(|s| s.into_inner().rt.as_mut()) else { return };
     cues.requests.append(&mut rt.game.music_requests);
+    cues.states.append(&mut rt.game.take_music_states());
     rt.game.gaps.music_any = cues.playing;
     cues.dead = rt.game.is_dead(FormId::PLAYER_REF);
     let now = time.elapsed_secs();
@@ -571,9 +621,13 @@ fn cues(
     let (Some(places), Some(player)) = (places, player) else { return };
     let reach = setting(&sim, NEAR_COMBAT);
     let feet = player.feet;
-    let near: Vec<u32> = actors.map_or(Vec::new(), |a| {
-        a.living.iter().filter(|(_, p)| (0..3).map(|k| (p[k] - feet[k]).powi(2)).sum::<f32>() <= reach * reach).map(|(id, _)| *id).collect()
+    // Nearest first, so the battle is put down to the nearest threat (`MusicCues::by`, the
+    // log's), not to whichever the list held first.
+    let mut near: Vec<(f32, u32)> = actors.map_or(Vec::new(), |a| {
+        a.living.iter().map(|(id, p)| ((0..3).map(|k| (p[k] - feet[k]).powi(2)).sum::<f32>(), *id)).filter(|(d2, _)| *d2 <= reach * reach).collect()
     });
+    near.sort_by(|a, b| a.0.total_cmp(&b.0));
+    let near: Vec<u32> = near.into_iter().map(|(_, id)| id).collect();
     let factions: Vec<u32> = places.forms.controllers.values().filter_map(|c| c.faction).collect();
     let cues = &mut *cues;
     with_world(rt, &mut sim, |rt| {
@@ -591,7 +645,8 @@ fn cues(
                 by = by.or(Some(id));
             }
         }
-        cues.combat = combat.is_some();
+        // ToggleCombatMusic 0 keeps the battle music off (`fnv_game::nvse_jg7`).
+        cues.combat = combat.is_some() && !fnv_game::nvse_jg7::combat_music_off();
         cues.alert = alert || combat.is_some();
         cues.by = combat.or(by);
         for f in factions {
@@ -616,68 +671,40 @@ impl Music {
         Some(files[k.min(files.len() - 1)].clone())
     }
 
-    fn bytes(&mut self, vfs: &fnv_vfs::Vfs, file: &str) -> Option<Arc<[u8]>> {
-        let Some(path) = self.path(vfs, file) else {
-            if self.reported.insert(file.to_string()) {
-                warn!("music: no files in music\\{file}");
-            }
-            return None;
-        };
-        if !self.files.contains_key(&path) {
-            let read = match vfs.read(&path) {
-                Some(Ok(b)) => Some(Arc::<[u8]>::from(b)),
-                Some(Err(e)) => {
-                    warn!("music: {path}: {e}");
-                    None
-                }
-                None => {
-                    warn!("music: {path}: not in the game's files");
-                    None
-                }
-            };
-            self.files.insert(path.clone(), read);
+    /// The archive path of a music file, warning once when a folder has none.
+    fn file_path(&mut self, vfs: &fnv_vfs::Vfs, file: &str) -> Option<String> {
+        let path = self.path(vfs, file);
+        if path.is_none() && self.reported.insert(file.to_string()) {
+            warn!("music: no files in music\\{file}");
         }
-        self.files[&path].clone()
+        path
     }
 
-    /// Start what is wanted, silent, with its layers fading in.
-    fn start(&mut self, commands: &mut Commands, vfs: &fnv_vfs::Vfs, assets: &mut Assets<LayeredMusic>, w: &Wanted, now: f32) -> Track {
+    /// Whether a music file is there to be played (its folder has a file, the archives
+    /// have it and it was not found unreadable), without reading it.
+    fn playable(&mut self, vfs: &fnv_vfs::Vfs, file: &str) -> bool {
+        self.file_path(vfs, file).is_some_and(|p| vfs.exists(&p) && !matches!(self.files.peek(&p), Some(None)))
+    }
+
+    /// Start what is wanted, silent, with its layers fading in. Its files are read off
+    /// the main thread (`FileBytes::fetch`); the sound starts once they are all in
+    /// ([`Music::finish`]), this frame when they were kept already.
+    fn start(&mut self, commands: &mut Commands, vfs: &Arc<fnv_vfs::Vfs>, assets: &mut Assets<LayeredMusic>, w: &Wanted, now: f32) -> Track {
         let levels: Arc<[AtomicU32; 3]> = Arc::new([AtomicU32::new(0), AtomicU32::new(0), AtomicU32::new(0)]);
-        let mut stems: Vec<(usize, Arc<[u8]>)> = Vec::new();
-        let mut format: Option<(ChannelCount, SampleRate)> = None;
+        let mut paths = Vec::new();
         for (k, file) in w.files.iter().enumerate() {
             let Some(file) = file else { continue };
-            let Some(bytes) = self.bytes(vfs, file) else {
-                self.failed += 1;
-                continue;
-            };
-            match (open(&bytes).map(|d| (d.channels(), d.sample_rate())), format) {
-                (Some(f), None) => format = Some(f),
-                (Some(f), Some(first)) if f == first => {}
-                (f, _) => {
-                    self.failed += 1;
-                    if self.reported.insert(file.clone()) {
-                        warn!("music: {file}: {}", if f.is_some() { "another format than the set's first file" } else { "not decoded" });
-                    }
-                    continue;
-                }
+            match self.file_path(vfs, file) {
+                Some(p) => paths.push((k, p)),
+                None => self.failed += 1,
             }
-            stems.push((k, bytes));
         }
-        let entity = format.map(|(channels, rate)| {
-            let music = assets.add(LayeredMusic { stems, levels: levels.clone(), channels, rate, looping: w.looping, start: 0.0 });
-            commands.spawn((AudioPlayer::<LayeredMusic>(music), PlaybackSettings::DESPAWN, MusicSound, SoundCategory::Music)).id()
-        });
         self.started += 1;
-        let layers: Vec<&str> = (0..3).filter(|&k| w.on[k] && w.files[k].is_some()).map(|k| w.layers[k]).collect();
-        match entity {
-            Some(_) => info!("music: {} started, layers {}", w.name, layers.join("+")),
-            None => info!("music: {}: none of its files can be played", w.name),
-        }
-        Track {
+        let mut t = Track {
             key: w.key,
             name: w.name.clone(),
-            entity,
+            entity: None,
+            waiting: Some((paths, w.looping)),
             levels,
             level: [0.0; 3],
             target: w.on.map(|on| on as u8 as f32),
@@ -686,7 +713,63 @@ impl Music {
             min_on: w.min_on,
             on_since: [now; 3],
             layer_names: w.layers,
+        };
+        let layers: Vec<&str> = (0..3).filter(|&k| w.on[k] && w.files[k].is_some()).map(|k| w.layers[k]).collect();
+        t.layer_names = w.layers;
+        self.finish(commands, vfs, assets, &mut t, &layers.join("+"));
+        t
+    }
+
+    /// Start `t`'s sound if its files are all in (logging it started, with `layers`, or
+    /// that none of its files can be played); else leave it waiting.
+    fn finish(&mut self, commands: &mut Commands, vfs: &Arc<fnv_vfs::Vfs>, assets: &mut Assets<LayeredMusic>, t: &mut Track, layers: &str) {
+        let Some((paths, looping)) = t.waiting.as_ref() else { return };
+        // Every stem is asked for, so their reads run side by side.
+        let (mut got, mut waiting) = (Vec::new(), false);
+        for (k, p) in paths {
+            match self.files.fetch(p, vfs, "music") {
+                crate::file_bytes::Got::Pending => waiting = true,
+                crate::file_bytes::Got::Ready(b) => got.push((*k, p.clone(), b)),
+            }
         }
+        if waiting {
+            return;
+        }
+        let looping = *looping;
+        t.waiting = None;
+        let mut stems: Vec<(usize, Arc<[u8]>)> = Vec::new();
+        let mut format: Option<(ChannelCount, SampleRate)> = None;
+        for (k, path, bytes) in got {
+            let Some(bytes) = bytes else {
+                self.failed += 1;
+                continue;
+            };
+            match (open(&bytes).map(|d| (d.channels(), d.sample_rate())), format) {
+                (Some(f), None) => format = Some(f),
+                (Some(f), Some(first)) if f == first => {}
+                (f, _) => {
+                    self.failed += 1;
+                    if self.reported.insert(path.clone()) {
+                        warn!("music: {path}: {}", if f.is_some() { "another format than the set's first file" } else { "not decoded" });
+                    }
+                    continue;
+                }
+            }
+            stems.push((k, bytes));
+        }
+        t.entity = format.map(|(channels, rate)| {
+            let music = assets.add(LayeredMusic { stems, levels: t.levels.clone(), channels, rate, looping, start: 0.0 });
+            commands.spawn((AudioPlayer::<LayeredMusic>(music), PlaybackSettings::DESPAWN, MusicSound, SoundCategory::Music)).id()
+        });
+        match t.entity {
+            Some(_) => info!("music: {} started, layers {layers}", t.name),
+            None => info!("music: {}: none of its files can be played", t.name),
+        }
+    }
+
+    /// The layers `t` plays now, for [`Music::finish`]'s log of a track that waited.
+    fn layers_on(t: &Track) -> String {
+        (0..3).filter(|&k| t.target[k] > 0.0).map(|k| t.layer_names[k]).collect::<Vec<_>>().join("+")
     }
 
     /// Pick one of `sets` at random.
@@ -716,6 +799,52 @@ fn stinger(sounds: &mut MessageWriter<PlaySound>, sound: Option<u32>, what: &str
     }
 }
 
+/// The grid over each space's audio markers ([`marker_grid`]) and a frame's candidates
+/// (reused).
+#[derive(Default)]
+struct MarkerGrids {
+    grids: HashMap<Space, crate::sound_grid::FixedGrid>,
+    near: Vec<u32>,
+    candidates: Vec<AudioMarker>,
+}
+
+/// The distance [`audio::marker_at`] measures from `at` to a marker at `position`.
+fn marker_distance(at: [f32; 3], position: [f32; 3]) -> f32 {
+    ((at[0] - position[0]).powi(2) + (at[1] - position[1]).powi(2) + (at[2] - position[2]).powi(2)).sqrt()
+}
+
+/// The grid over a space's audio markers (`crate::sound_grid`) [design]: each at its
+/// place, reaching its radius. A marker [`audio::marker_at`] never picks (no controller,
+/// a radius not above 0) is left out. The markers stay where the plugins put them
+/// (`AudioPlaces` is read once), so the grid is made once per space.
+fn marker_grid(markers: &[AudioMarker]) -> crate::sound_grid::FixedGrid {
+    let picked_ever = |m: &AudioMarker| {
+        // `audio::marker_at`'s own skip; a NaN radius is kept (the grid hands it out always).
+        let never = m.controller.is_none() || m.radius <= 0.0;
+        !never
+    };
+    crate::sound_grid::FixedGrid::build(markers.iter().enumerate().filter(|(_, m)| picked_ever(m)).map(|(i, m)| (i as u32, m.position, m.radius)))
+}
+
+/// The marker whose music is heard at `eye`: [`audio::marker_at`] asked of the markers the
+/// grid says can reach `eye`, in list order. A marker farther than its radius is never
+/// picked and the ties go to the first in the list, so the answer is the one over the
+/// whole list. The candidates are copied into `candidates` (a handful at most), which the
+/// answer borrows.
+fn marker_near<'c>(
+    grid: &crate::sound_grid::FixedGrid,
+    markers: &[AudioMarker],
+    eye: [f32; 3],
+    enabled: impl Fn(&AudioMarker) -> bool,
+    near: &mut Vec<u32>,
+    candidates: &'c mut Vec<AudioMarker>,
+) -> Option<(&'c AudioMarker, f32)> {
+    grid.near(eye, |c, r| marker_distance(eye, c) > r, near);
+    candidates.clear();
+    candidates.extend(near.iter().map(|&i| markers[i as usize].clone()));
+    audio::marker_at(candidates, eye, enabled)
+}
+
 /// The world the music reads: where the player is, the clock, the game files.
 type Where<'a> = (Res<'a, PlayWorld>, Res<'a, Location>, Res<'a, SimState>, Option<Res<'a, Player>>, Option<Res<'a, nvf_assets::GameData>>);
 
@@ -734,6 +863,8 @@ fn play(
     (main_menu, intro): (Option<Res<crate::main_menu::MainMenu>>, Option<Res<crate::intro::Intro>>),
     sfx: Option<Res<crate::sfx::Sfx>>,
     poker: Option<Res<crate::poker::PokerScreen>>,
+    sinks: Query<&AudioSink, With<MusicSound>>,
+    mut grids: Local<MarkerGrids>,
 ) {
     let (Some(mut music), Some(places), Some(player), Some(data)) = (music, places, player, data) else { return };
     let music = &mut *music;
@@ -747,6 +878,38 @@ fn play(
     // casino's station (`crate::poker`).
     let front = main_menu.is_some_and(|m| m.open) || intro.is_some_and(|i| i.silences_music()) || poker.is_some_and(|p| p.0.is_some());
     let audible = settings.play && settings.volume > 0.0 && !front;
+
+    // SetMusicState [documented: SetMusicState]: 1 pauses what plays, 2 resumes it; 0
+    // stops the music a script played (PlayMusic), otherwise the place's music starts
+    // again from its beginning. Stopping also ends a pause [hypothesis].
+    for s in std::mem::take(&mut cues.states) {
+        match s {
+            1 => music.paused = true,
+            2 => music.paused = false,
+            _ => {
+                music.paused = false;
+                if let Some(mut old) = music.script.take() {
+                    info!("music: SetMusicState 0 stops {}", old.name);
+                    old.target = [0.0; 3];
+                    old.fade = 0.0;
+                    music.leaving.push(old);
+                } else if let Some(mut old) = music.current.take() {
+                    info!("music: SetMusicState 0 starts {} again", old.name);
+                    old.target = [0.0; 3];
+                    old.fade = 0.0;
+                    music.leaving.push(old);
+                }
+            }
+        }
+        info!("music: SetMusicState {s}{}", if music.paused { ", paused" } else { "" });
+    }
+    for sink in &sinks {
+        match (music.paused, sink.is_paused()) {
+            (true, false) => sink.pause(),
+            (false, true) => sink.play(),
+            _ => {}
+        }
+    }
 
     // Music scripts asked for: beside the place's music.
     for m in std::mem::take(&mut cues.requests) {
@@ -777,8 +940,14 @@ fn play(
 
     // The marker the player is in, and the set picked when it was entered (or when the
     // faction's standing changed).
-    let markers = places.audio.get(&Space::of(&loc)).map_or(&[][..], Vec::as_slice);
-    let at = audio::marker_at(markers, eye, |m| sim.world.is_enabled(fnv_sim::FormId(m.ref_id)).unwrap_or(!m.initially_disabled));
+    let space = Space::of(&loc);
+    let markers = places.audio.get(&space).map_or(&[][..], Vec::as_slice);
+    if places.is_changed() {
+        grids.grids.clear();
+    }
+    let grids = &mut *grids;
+    let grid = grids.grids.entry(space).or_insert_with(|| marker_grid(markers));
+    let at = marker_near(grid, markers, eye, |m| sim.world.is_enabled(fnv_sim::FormId(m.ref_id)).unwrap_or(!m.initially_disabled), &mut grids.near, &mut grids.candidates);
     let controller = at.and_then(|(m, _)| places.forms.controllers.get(&m.controller?));
     // A faction not yet measured counts as neutral.
     let relation = controller.and_then(|c| c.faction.map(|f| cues.relations.get(&f).copied().unwrap_or(0)));
@@ -830,7 +999,7 @@ fn play(
             // music plays (docs/spec-notes/default-objects.md); FalloutNV.esm's names
             // `special\death.mp3`, which is not shipped, so the SOUN below plays.
             let dobj = places.forms.default_objects.get(audio::DEFAULT_DEATH_MUSIC).copied().filter(|&m| m != 0).and_then(|m| places.forms.music.get(&m));
-            if let Some((ty, mut w)) = dobj.and_then(|t| Some((t, wanted_type(t)?))).filter(|(_, w)| w.files.iter().flatten().any(|f| music.bytes(&data.vfs, f).is_some())) {
+            if let Some((ty, mut w)) = dobj.and_then(|t| Some((t, wanted_type(t)?))).filter(|(_, w)| w.files.iter().flatten().any(|f| music.playable(&data.vfs, f))) {
                 info!("music: the player died: the music stops, the default objects' death music {} plays", ty.edid.as_deref().unwrap_or("?"));
                 if audible {
                     w.fade = SCRIPT_FADE;
@@ -863,7 +1032,7 @@ fn play(
     // data nothing plays and the level-up sound alone is heard (default-objects.md).
     if std::mem::take(&mut cues.level_up) && !music.dead {
         let dobj = places.forms.default_objects.get(audio::DEFAULT_LEVEL_UP_MUSIC).copied().filter(|&m| m != 0).and_then(|m| places.forms.music.get(&m));
-        match dobj.and_then(|t| Some((t, wanted_type(t)?))).filter(|(_, w)| w.files.iter().flatten().any(|f| music.bytes(&data.vfs, f).is_some())) {
+        match dobj.and_then(|t| Some((t, wanted_type(t)?))).filter(|(_, w)| w.files.iter().flatten().any(|f| music.playable(&data.vfs, f))) {
             Some((ty, mut w)) => {
                 info!("music: level up: the default objects' level-up music {} plays{}", ty.edid.as_deref().unwrap_or("?"), if audible { "" } else { " [silent: music is off]" });
                 if audible {
@@ -1014,6 +1183,25 @@ fn play(
         None => music.incidental = None,
     }
 
+    // Tracks whose files were still being read start once they are in (#1993); one
+    // that fades out before then never starts.
+    for slot in [0, 1] {
+        let taken = if slot == 0 { music.current.take() } else { music.script.take() };
+        let Some(mut t) = taken else { continue };
+        if t.waiting.is_some() {
+            let layers = Music::layers_on(&t);
+            music.finish(&mut commands, &data.vfs, &mut assets, &mut t, &layers);
+        }
+        if slot == 0 {
+            music.current = Some(t);
+        } else {
+            music.script = Some(t);
+        }
+    }
+    for t in &mut music.leaving {
+        t.waiting = None;
+    }
+
     let dt = time.delta_secs();
     let volume = if settings.play && !front { settings.volume.max(0.0) } else { 0.0 };
     for t in music.current.iter_mut().chain(music.script.iter_mut()).chain(music.leaving.iter_mut()) {
@@ -1052,16 +1240,24 @@ fn report(mut exit: MessageReader<AppExit>, music: Option<Res<Music>>) {
 
 pub struct MusicPlugin;
 
+/// Let go of the music's files nothing plays ([`crate::file_bytes`]).
+fn release_files(real: Res<Time<Real>>, limits: Option<Res<nvf_assets::KeepLimits>>, x: Option<ResMut<Music>>) {
+    if let Some(mut x) = x {
+        x.files.sweep(real.elapsed_secs_f64(), crate::file_bytes::limits(limits));
+    }
+}
+
 impl Plugin for MusicPlugin {
     fn build(&self, app: &mut App) {
+        crate::start_read::add_collect::<AudioPlaces>(app);
         app.init_resource::<MusicSettings>()
             .init_resource::<Music>()
             .init_resource::<MusicCues>()
             .add_audio_source::<LayeredMusic>()
             .add_systems(Startup, init)
             // Its stingers are sound effects: before sfx plays them (crate::sfx::SfxSet).
-            .add_systems(Update, (cues.after(crate::PlaySet::Scripts), play.after(crate::PlaySet::Activation)).chain().before(crate::sfx::SfxSet))
-            .add_systems(Last, report);
+            .add_systems(Update, (cues.after(crate::PlaySet::Scripts), script_markers, play.after(crate::PlaySet::Activation)).chain().before(crate::sfx::SfxSet))
+            .add_systems(Last, (release_files, report));
         crate::settings::add_setting(
             app,
             crate::settings::Setting {
@@ -1081,6 +1277,58 @@ impl Plugin for MusicPlugin {
 mod tests {
     use super::*;
     use fnv_world::audio::{MediaSet, MusicType};
+
+    /// The marker picked through the grid is the one `audio::marker_at` picks over the
+    /// whole list: markers across cell borders, on the edge of their radius, without a
+    /// controller or radius, disabled ones, and ties (the same place and radius twice).
+    #[test]
+    fn marker_through_the_grid_is_the_whole_lists() {
+        use crate::sound_grid::tests::Lcg;
+        let mut rng = Lcg(9);
+        let mut markers: Vec<AudioMarker> = (0..600u32)
+            .map(|i| {
+                let mut position = [rng.range(-30000.0, 30000.0), rng.range(-30000.0, 30000.0), rng.range(-500.0, 2500.0)];
+                if i % 4 == 0 {
+                    position[1] = 4096.0 * (rng.next_u32() % 9) as f32 - 16384.0;
+                }
+                let radius = match i % 6 {
+                    0 => rng.range(500.0, 2000.0),
+                    1 => 4096.0,
+                    2 => rng.range(3000.0, 9000.0),
+                    3 => 0.0,
+                    4 => rng.range(100.0, 600.0),
+                    _ => -10.0,
+                };
+                AudioMarker { ref_id: 0x3000 + i, position, radius, controller: (i % 10 != 7).then_some(2), initially_disabled: i % 11 == 0, ..marker(0.0) }
+            })
+            .collect();
+        // A tie: the same place and radius as the first, later in the list. Both enabled
+        // (the first would be disabled by the `i % 11` rule above), so the tie is decided
+        // by list order and checked below.
+        markers[0].initially_disabled = false;
+        let twin = AudioMarker { ref_id: 0x4000, ..markers[0].clone() };
+        markers.push(twin);
+        let grid = marker_grid(&markers);
+        let mut eyes: Vec<[f32; 3]> = (0..200).map(|_| [rng.range(-32000.0, 32000.0), rng.range(-32000.0, 32000.0), rng.range(0.0, 2000.0)]).collect();
+        eyes.extend([[0.0; 3], [0.0, 4096.0, 0.0], [f32::NAN, 0.0, 0.0], markers[0].position]);
+        for m in markers.iter().filter(|m| m.radius > 0.0).take(40) {
+            eyes.push([m.position[0] + m.radius, m.position[1], m.position[2]]);
+        }
+        let enabled = |m: &AudioMarker| !m.initially_disabled;
+        let (mut near, mut candidates) = (Vec::new(), Vec::new());
+        // At the twins' own place both are at distance 0: the earlier one wins, both ways.
+        let at_twins = markers[0].position;
+        assert_eq!(audio::marker_at(&markers, at_twins, enabled).map(|(m, _)| m.ref_id), Some(0x3000));
+        assert_eq!(marker_near(&grid, &markers, at_twins, enabled, &mut near, &mut candidates).map(|(m, _)| m.ref_id), Some(0x3000));
+        let mut picked = 0;
+        for eye in eyes {
+            let whole = audio::marker_at(&markers, eye, enabled).map(|(m, d)| (m.ref_id, d.to_bits()));
+            let through = marker_near(&grid, &markers, eye, enabled, &mut near, &mut candidates).map(|(m, d)| (m.ref_id, d.to_bits()));
+            assert_eq!(through, whole, "listener at {eye:?}");
+            picked += whole.is_some() as u32;
+        }
+        assert!(picked > 0);
+    }
 
     fn marker(radius: f32) -> AudioMarker {
         AudioMarker { ref_id: 1, cell: 1, position: [0.0; 3], radius, name: None, controller: Some(2), use_controller_values: true, layer2_percent: 0.33, layer3_percent: 0.67, initially_disabled: false }

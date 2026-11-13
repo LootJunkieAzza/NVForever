@@ -111,6 +111,14 @@ pub fn offset(heading: f32, from: [f32; 2], to: [f32; 2]) -> f32 {
     d * STRIP.x / 360.0
 }
 
+/// One of eight directions (0 front, 1 front right … 4 back … 7 front left) for a mark
+/// `x` compass units right of the heading point (GetNearestCompassHostileDirection,
+/// `fnv_game::nvse_jg9`) [hypothesis: eight equal sectors about the heading].
+pub fn direction_of(x: f32) -> u8 {
+    let degrees = x * 360.0 / STRIP.x;
+    ((degrees / 45.0).round() as i32).rem_euclid(8) as u8
+}
+
 /// The visible distance either side of the heading point
 /// [observed: hud.md §14.5 for actor ticks and one place mark;
 /// hypothesis: the same for quest marks].
@@ -205,7 +213,7 @@ const SAVE_HOOK: SaveHook = SaveHook {
 };
 
 /// Markers found since the last frame: the message, the experience, the log.
-pub(crate) fn discover(state: Option<ResMut<DataState>>, mut script: Option<ResMut<ScriptState>>, sim: Res<SimState>, messages: Option<ResMut<QuestMessages>>, loading_save: Option<Res<crate::save::PendingEngine>>) {
+pub(crate) fn discover(state: Option<ResMut<DataState>>, mut script: Option<ResMut<ScriptState>>, mut sim: ResMut<SimState>, messages: Option<ResMut<QuestMessages>>, loading_save: Option<Res<crate::save::PendingEngine>>) {
     let Some(mut state) = state else { return };
     // Found before the game runs (the first frames): kept until it does, for the XP.
     let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else { return };
@@ -226,8 +234,9 @@ pub(crate) fn discover(state: Option<ResMut<DataState>>, mut script: Option<ResM
     let xp = sim.forms.setting_f32("iXPRewardDiscoverMapMarker").map_or(DISCOVER_XP, |v| v as f64);
     for (form, name) in found {
         let gained = fnv_game::experience::award(&mut rt.game, fnv_game::experience::Source::Discovery, xp);
-        // Discovery challenges and Locations Discovered ones (`fnv_game::challenges`).
-        rt.game.challenge_marker_found(FormId(form));
+        // Discovery challenges and Locations Discovered ones (`fnv_game::challenges`), and
+        // JIP's location-discover event, whose handlers see the world.
+        with_world(rt, &mut sim, |rt| rt.game.challenge_marker_found(FormId(form)));
         info!("compass: discovered {name} ({}), +{gained} XP", FormId(form));
         if let (Some(m), false) = (messages.as_deref_mut(), name.trim().is_empty()) {
             m.push(QuestNotice::Discovered(name));
@@ -307,6 +316,9 @@ fn gather(
             perception = fnv_game::functions::actor_value_capped(g, FormId::PLAYER_REF, fnv_game::actor_values::PERCEPTION) as f32;
             let range = actor_range(g);
             let mut out = Vec::new();
+            // The nearest hostile mark's distance and offset, of all and of those not
+            // invisible (Invisibility or Chameleon).
+            let mut nearest: [Option<(f32, f32)>; 2] = [None; 2];
             for (r, at) in actors_near(g, &bodies) {
                 let d = ((at[0] - feet[0]).powi(2) + (at[1] - feet[1]).powi(2) + (at[2] - feet[2]).powi(2)).sqrt();
                 if d > range || g.is_dead(r) || !g.present(r) {
@@ -320,8 +332,18 @@ fn gather(
                 let fighting = g.awareness.get(r).and_then(|a| a.combat_target()).is_some_and(|(t, _)| t == FormId::PLAYER_REF);
                 let hostile = fighting || g.would_attack(r, FormId::PLAYER_REF);
                 let mark = if hostile { Mark::Hostile } else { Mark::Actor };
+                if hostile {
+                    let x = offset(heading, here, [at[0], at[1]]);
+                    let unseen = ["Invisibility", "Chameleon"].iter().filter_map(|n| fnv_game::functions::av_by_name(n)).any(|c| fnv_game::functions::actor_value_capped(g, r, c) > 0.0);
+                    for k in [0, 1] {
+                        if (k == 0 || !unseen) && nearest[k].is_none_or(|(nd, _)| d < nd) {
+                            nearest[k] = Some((d, x));
+                        }
+                    }
+                }
                 out.push((Near { mark, at: [at[0], at[1]], body: bodies.contains_key(&r.0).then_some(r.0) }, shown));
             }
+            g.other.jg9.compass_hostile = nearest.map(|n| n.map(|(_, x)| direction_of(x)));
             out
         });
         for (n, shown) in found {
@@ -461,6 +483,8 @@ fn draw(
     mut art: Local<Option<Art>>,
     mut spawned: Local<Spawned>,
 ) {
+    // The HUD's lengths at the UI scale (`crate::interface::hud_units`, #1631).
+    let _hud = crate::interface::hud_units();
     let Ok(layer) = layers.single() else { return };
     let fresh = added.get(layer).is_ok();
     if !view.is_changed() && !fresh {

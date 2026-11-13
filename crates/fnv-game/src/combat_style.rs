@@ -5,8 +5,11 @@
 //!   CSTY is the one its current package names (PACK CNAM, "the Combat Style the actor
 //!   will use when the package is being run" [documented: GECK wiki Category:Packages];
 //!   that it wins over SetCombatStyle's [hypothesis], docs/spec-notes/packages.md §7.3),
-//!   else the one SetCombatStyle gave the reference, else its record's ZNAM, from the template that supplies its AI data
-//!   [hypothesis: the style is set beside the AI data], else `DefaultCombatstyle`
+//!   else the one SetCombatStyle gave the reference, else its record's ZNAM, from the
+//!   template that supplies its traits, as the death item is [documented: GECK wiki
+//!   Traits Tab - NPC and Traits Tab - Creatures list "Combat Style" among the tab's
+//!   fields, AI Data Tab has none; Template Data, "Use Traits: Use the traits of the
+//!   ActorBase"; #2138], else `DefaultCombatstyle`
 //!   [hypothesis: the masters' style of that name, FormID 0x3D, is the default].
 //! - **Melee decision** [documented: Combat Style, Advanced]: the chance to attack is the
 //!   base Attack % Chance, plus the Hand-To-Hand bonus when the actor fights hand to hand,
@@ -47,13 +50,20 @@ impl<'a> Game<'a> {
     /// The combat style `actor` fights with (module notes).
     pub fn combat_style(&self, actor: FormId) -> Option<&'a CombatStyleDef> {
         let data = self.data;
+        let id = self.combat_style_id(actor).or_else(|| data.by_edid("DefaultCombatstyle"))?;
+        data.combat_styles.get(&id)
+    }
+
+    /// The combat style `actor`'s package, SetCombatStyle or record gives it (module
+    /// notes), without the DefaultCombatstyle fall back; none that is no combat style.
+    pub fn combat_style_id(&self, actor: FormId) -> Option<FormId> {
+        let data = self.data;
         // The current package's, else SetCombatStyle's, else the record's (module notes).
         let extra = self.extra.get(&actor);
         let package = extra.and_then(|e| e.current_package).and_then(|p| self.package_def(&p)).and_then(|d| d.combat_style).filter(|id| data.combat_styles.contains_key(id));
         let set = extra.and_then(|e| e.combat_style);
-        let own = package.or(set).or_else(|| self.def_following(actor, |d| d.template_ai).and_then(|d| d.combat_style));
-        let id = own.filter(|id| data.combat_styles.contains_key(id)).or_else(|| data.by_edid("DefaultCombatstyle"))?;
-        data.combat_styles.get(&id)
+        let own = package.or(set).or_else(|| self.traits_def(actor).and_then(|d| d.combat_style));
+        own.filter(|id| data.combat_styles.contains_key(id))
     }
 
     /// `actor`'s confidence threshold (module notes), from its Confidence rating and the

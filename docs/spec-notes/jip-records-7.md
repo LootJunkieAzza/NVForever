@@ -42,7 +42,7 @@ game's projectile and explosion data through the session's changes).
 |---|---|
 | GetImpactDataTrait `ipct trait` | 0-4 the impact data (DATA: duration, orientation, angle threshold, placement radius, sound level), 5-7 the texture set (DNAM) and sounds 1 and 2 (SNAM, NAM1), 8-15 the decal data (DODT: widths, heights, depth, shininess, scale, passes), 16 the flags, 17 the colour as R × 1000000 + G × 1000 + B [documented: the page's table]; past 17, 0 |
 | SetImpactDataTraitNumeric `ipct trait value` | the same without the forms: 0-4, 5-12 the decal data, 13 the flags, 14 the colour [documented] |
-| SetImpactDataTraitForm `ipct trait form` | 0 texture set, 1 sound 1, 2 sound 2 [documented] |
+| SetImpactDataTraitForm `ipct trait form` | 0 texture set, 1 sound 1, 2 sound 2 [documented]; a form of the wrong type (a creature for a sound) sets none [observed: jip7 ipct.setform.sound1] |
 | SetImpactDataSet `weapon dataset` | WEAP INAM |
 | Get/SetImpactMaterialType `[material] [baseActor]` | NAM4 of the NPC or creature, 0-11 [documented: the table]; a number past 11 is not set |
 
@@ -69,8 +69,8 @@ transitions take their own time (follow-up: the sky through these changes).
 |---|---|
 | SetArmorClass `armor class` | 1 light, 2 medium, 3 heavy [documented]: BMDT's general flags Medium (bit 3) and Heavy (bit 7), read by `Game::armor_class` |
 | SetArmorRCT `armor path` | BMCT, the ragdoll constraint template |
-| SetArmorConditionPenalty `[multiplier]` | kept and returned; left out, returned unchanged; 1.0 until set [documented] |
-| SetDamageToArmorMaxPercent `[share]` | kept and returned, 0-1; left out, returned unchanged [documented]; 1 (no cap) until set [hypothesis: the page gives no default] |
+| SetArmorConditionPenalty `[multiplier]` | kept; returns the value before the call; left out, unchanged; 1.0 until set [documented; observed: jip7 armor.condpenalty]; any number is taken (3, -1) [observed: jip7b armor.condpenalty.neg] |
+| SetDamageToArmorMaxPercent `[share]` | kept, 0-1 only (2 and -1 set nothing); returns the value before the call; left out, unchanged; 1 until set [observed: jip7 armor.maxpercent, jip7b armor.maxpercent.range] |
 
 Combat still uses the fixed multiplier 1.0 and no cap (`fnv_combat::condition`), and the
 ragdolls and movement read the records as loaded (follow-up: these through the changes).
@@ -90,3 +90,49 @@ SetWeatherTransitionTimeOverride's seconds (0 and up), SetArmorConditionPenalty'
 multiplier (0-2: past 2 the page's formula `1.0 - (0.5 - condition) × multiplier` goes below
 zero at 0% condition [hypothesis]) and SetDamageToArmorMaxPercent's share (0-1
 [documented]). The later batches use the same check.
+
+## Probed in the original (2026-11-08, #1006)
+
+Sets jip7 (108 rows) and jip7b (46 rows) of `tools/capture/jip_probes.py`, run from the
+`nvfairport` save on the 10mm round, AmmoEffectMagnumDTReduction, 10mmBulletProjectile,
+GrenadeFragExplosion, BaseBallBatMetalImpact (no decal data) and RipperImpactOrganic,
+NVWastelandClear, NVDefaultClimate and ArmorLeather; goldens private (lab L5.ext.jip7,
+L5.ext.jip7b). What §6 left open is settled field by field [observed]:
+- the setters of a trait return 0, as supposed;
+- ammunition: projectiles per shot keep their sign, cut to whole (-5, -2.5 reads -2); clip
+  rounds wrap as a byte (300 reads 44, 256 reads 0, -1 reads 255);
+- ammo effects: a type past 0-5 and a negative value set nothing;
+- projectiles: the type takes 0 or a single type bit (1, 2, 4, 8, 16; 3 and 17 set
+  nothing), the sound level only 1 or 2 (0, 3, 5 and -1 set nothing);
+- explosions: the sound level wraps as a byte with no range (9 reads 9, 300 reads 44);
+- impact data: the flags are kept as set, to nine bits (99, 256; -1 reads 511); a colour
+  past 0-255255255 sets nothing, a channel past 255 below it is kept (300 reads 300); an
+  impact without decal data reads widths and heights 8 to 32, depth 32, shininess 4,
+  parallax scale 1 and 4 passes.
+Equal after the fixes: jip7 105 of 108, jip7b 44 of 46. Left then: the colour of an impact
+without decal data, and 16777215 reading back as 16009218. Both were settled on 2026-11-11 (below)
+and built (`nvse_jip7.rs`, #2039): jip7 108 of 108, jip7b 46 of 46 since.
+
+### The colour's packing (2026-11-11, #2039)
+
+Probe job `rules2039`: 23 colours set on RipperImpactOrganic and BaseBallBatMetalImpact,
+each over 63063063, read back; GetImpactDataTrait 17 on every impact without DODT
+[observed; results private]. One rule fits every row:
+- **Set:** a number past 255255255 or below 0 sets nothing. Otherwise it is split as
+  RRRGGGBBB (R = n / 1000000, G = n / 1000 mod 1000, B = n mod 1000), and the colour's four
+  bytes become R + G × 256 + B × 65536 as one 32-bit sum. A channel past 255 carries into
+  the next byte: G 999 is 3 × 256 + 231, so the next byte gets 3 more.
+- **Get:** R is the first byte and G the second. B is not cut to a byte: it is the third
+  and fourth bytes together, as a 16-bit number.
+- **Checked by:** 256000 reads 1, 999000 reads 231003, 254999999 reads 254232002,
+  16777215 reads 16009218, and 300, 1256, 65535 and 65536 read back as set. 255255255 is
+  kept and 255255256 sets nothing. The two impacts gave the same rows.
+- **An impact without DODT** reads the decal data of its texture set (DNAM):
+  BallisticOrganicBBImpact reads 100000052, which is DecalOrganicBallisticBB's DODT colour
+  bytes 64 00 34 00. An impact with no texture set reads all four bytes as FF:
+  R 255, G 255, B 65535, which gives 255320535. This held for BaseBallBatMetalImpact,
+  BaseBallBatConcImpact, NoImpact, SwordOtherImpact and ImpactWaterSplashSm.
+- **Not probed:** that the other decal fields of such an impact also come from its texture
+  set [hypothesis]. Without one they read the defaults above.
+- **Probe side effect:** setting the colour back to 255320535 (past 255255255) set nothing,
+  so the bat impact kept 1256 for the rest of that game session. Nothing was saved.

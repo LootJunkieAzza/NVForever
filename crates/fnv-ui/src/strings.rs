@@ -34,6 +34,9 @@ pub type Entry = (&'static str, &'static str, &'static str);
 /// its neighbours, its place). None is looked up in the original (no screenshots, no
 /// setting readings, no lists of values), and none is changed on purpose: a short
 /// generic label is the word the use calls for. Menu files' comments are not copied.
+/// One more source is allowed [owner decision 2026-11-06, #1740, LEGAL.md]: a name or
+/// term the data files' own shown text already uses, spelled as the data spells it, with
+/// the record cited in the entry (`sStatsSpecial`'s "S.P.E.C.I.A.L.").
 ///
 /// Left out on purpose:
 /// - `sMorphine`: FalloutNV.esm has its GMST, so the load order answers it;
@@ -43,6 +46,15 @@ pub type Entry = (&'static str, &'static str, &'static str);
 ///
 /// `sExplosive` stands only in a comment of `hud_main_menu.xml`; its entry is for mods
 /// that bring the text back.
+///
+/// `sInventoryItems` and `sData` are headings only (the Pip-Boy's ITEMS and DATA pages, the
+/// repair page, the weapon mod menu, the container menu and the barter menu's all-items
+/// heading), so they are written in capitals, as NVForever's own hand-built Pip-Boy pages
+/// already write their headings ("STATS", "ITEMS", "DATA", `pipboy::Page::title`), so a page
+/// drawn from its file reads as the hand-built one beside it [design: #2212, consistency with
+/// our own words, not a transcription of the original]. The buttons and cards beside them
+/// (`sInventoryMod`, `sInventoryRepair`, `sRepairItem`, `sRepairSkill` and the rest) keep their
+/// spelling.
 pub const BUILT_IN: &[Entry] = &[
     ("sAccept", "Accept", "setting name + barter_menu.xml, recipe_menu.xml, vats_menu.xml: a button"),
     ("sAcceptText", "Accept", "setting name + caravan_bet_menu.xml: a button"),
@@ -66,7 +78,7 @@ pub const BUILT_IN: &[Entry] = &[
     ("sCurrentAnteText", "Your Bet", "setting name + caravan_bet_menu.xml: the player's bet title beside its value"),
     ("sCurrentObjective", "Current Objective", "setting name + loading_menu.xml: the label over the objective's text"),
     ("sCWheelTitle", "Companion", "setting name + companion_wheel_menu.xml: the wheel's centre title"),
-    ("sData", "Data", "setting name + map_menu.xml: the page's headline title"),
+    ("sData", "DATA", "setting name + map_menu.xml: the page's headline title, in capitals as NVForever's own hand-built Pip-Boy headings (STATS, ITEMS, DATA)"),
     ("sDevice", "Storage Device", "setting name + start_menu.xml: a button (the storage device)"),
     ("sDiscardCardText", "Discard Card", "setting name + caravan_game_menu.xml: a button"),
     ("sDiscardTrackText", "Discard Caravan", "setting name + caravan_game_menu.xml: a button (a track is one of the player's caravans)"),
@@ -90,7 +102,7 @@ pub const BUILT_IN: &[Entry] = &[
     ("sInventoryEffects", "Effects", "setting name + item_stats_display.xml: an item figure's card"),
     ("sInventoryEquip", "Equip", "setting name + inventory_menu.xml: a button"),
     ("sInventoryHotKey", "Hotkey", "setting name + inventory_menu.xml: a button"),
-    ("sInventoryItems", "Items", "setting name + barter_menu.xml, container_menu.xml, item_mod_menu.xml, repair_menu.xml: a title"),
+    ("sInventoryItems", "ITEMS", "setting name + barter_menu.xml, container_menu.xml, item_mod_menu.xml, repair_menu.xml: a title, in capitals as NVForever's own hand-built Pip-Boy headings (STATS, ITEMS, DATA)"),
     ("sInventoryMod", "Modify", "setting name + inventory_menu.xml, item_mod_menu.xml: a button"),
     ("sInventoryRepair", "Repair", "setting name + inventory_menu.xml: a button"),
     ("sInventoryStrReq", "Strength Req.", "setting name + item_stats_display.xml: an item figure's card (the strength needed)"),
@@ -165,7 +177,7 @@ pub const BUILT_IN: &[Entry] = &[
     ("sStatsRadResist", "Rad Resist", "setting name + stats_menu.xml: the label beside the level"),
     ("sStatsSkills", "Skills", "setting name + stats_menu.xml: a page's tail line"),
     ("sStatsSLPAbbrev", "SLP", "setting name + stats_menu.xml (a page tab), hud_main_menu.xml (the Hardcore word)"),
-    ("sStatsSpecial", "SPECIAL", "setting name + stats_menu.xml: a page's tail line"),
+    ("sStatsSpecial", "S.P.E.C.I.A.L.", "setting name + stats_menu.xml: a page's tail line; the system's name as FalloutNV.esm's own text spells it [observed: PERK IntenseTraining's description, MESG HelpDrugs, MESG CG04VaultExitMessage's button \"Edit S.P.E.C.I.A.L.\"] (LEGAL.md, owner 2026-11-06, #1740)"),
     ("sStatsStatus", "Status", "setting name + stats_menu.xml: a page's tail line"),
     ("sStatsXP", "XP", "setting name + stats_menu.xml (a headline card), hud_main_menu.xml (the XP label)"),
     ("sStimpak", "Use Stimpak", "setting name + surgerymenu.xml: a button"),
@@ -303,6 +315,20 @@ mod tests {
         assert_eq!(built_in("sOk"), built_in("sOK"));
         assert_eq!(built_in("squit"), built_in("sQuit"));
         assert_eq!(built_in("sNvfNowhere"), None);
+    }
+
+    #[test]
+    fn the_headings_are_in_capitals_and_a_plugin_still_wins() {
+        // [design: #2212] The headings read as NVForever's own hand-built Pip-Boy headings;
+        // the buttons beside them keep their spelling.
+        assert_eq!(built_in("sInventoryItems"), Some("ITEMS"));
+        assert_eq!(built_in("sData"), Some("DATA"));
+        assert_eq!(built_in("sInventoryMod"), Some("Modify"));
+        assert_eq!(built_in("sInventoryRepair"), Some("Repair"));
+        let s = GameStrings::from_settings([("SINVENTORYITEMS", "plugin items"), ("sData", "plugin data")]);
+        assert_eq!(s.lookup("sInventoryItems"), Some(("plugin items", Origin::LoadOrder)));
+        assert_eq!(s.lookup("sdata"), Some(("plugin data", Origin::LoadOrder)));
+        assert_eq!(GameStrings::from_settings(Vec::<(&str, &str)>::new()).lookup("sData"), Some(("DATA", Origin::BuiltIn)));
     }
 
     #[test]

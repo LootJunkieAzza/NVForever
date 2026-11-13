@@ -2,7 +2,7 @@
 //! task T9), on a synthetic plugin and menu files written for the test (no game data,
 //! made-up text): docs/spec-notes/menu-xml.md §9.
 
-mod common;
+use crate::common;
 
 use common::*;
 use fnv_esm::{LoadOrder, Plugin, Schema};
@@ -29,7 +29,9 @@ fn fixture() -> Fixture {
     let base = top(b"ACTI", &record(b"ACTI", 0, BASE, &[]));
     let reference = record(b"REFR", 0, REFERENCE, &[sub(b"NAME", u32s(&[BASE])), sub(b"DATA", vec![0; 24])]);
     let cell = top(b"CELL", &[record(b"CELL", 0, CELL, &[sub(b"DATA", vec![1, 0])]), group(CELL.to_le_bytes(), 6, &group(CELL.to_le_bytes(), 9, &reference))].concat());
-    let plugins = vec![Plugin::parse(&[tes4(), base, cell].concat(), "Empty.esm".into()).unwrap()];
+    // The player's base, for the HUD bars' equipment condition (the player's inventory).
+    let npcs = top(b"NPC_", &record(b"NPC_", 0, 0x7, &[sub(b"EDID", z("Player"))]));
+    let plugins = vec![Plugin::parse(&[tes4(), base, npcs, cell].concat(), "Empty.esm".into()).unwrap()];
     let lo = LoadOrder::new(&plugins).unwrap();
     let schema = Schema::load_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/../../schemas/fnv")).unwrap();
     let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/script/functions.json");
@@ -246,7 +248,7 @@ fn attachments_replace_by_reference_node_and_rect_and_are_pruned_each_frame() {
     assert!(!g.ui_tree.tile(old).live);
     let replaced = g.ui_extra.attached[0].tile;
     assert_eq!(g.ui_tree.tile(replaced).get("visible").unwrap().num(), 0.0);
-    assert_eq!(g.ui_tree.tile(replaced).get("x").unwrap().num(), 99.0);
+    assert_eq!(g.ui_tree.tile(replaced).get("x").unwrap().num(), 99.0, "the XML's constant x stays until placed");
     run_on(&mut g, "AttachUIComponent", Some(reference), &[s("Arm"), s(xml)]);
     run_on(&mut g, "AttachUIComponent", Some(other), &[s("Head"), s(xml)]);
     run_on(&mut g, "AttachUIComponent", Some(reference), &[s("Head"), s("<rect name=\"Other\"/>")]);
@@ -280,6 +282,112 @@ fn attachments_replace_by_reference_node_and_rect_and_are_pruned_each_frame() {
 }
 
 #[test]
+fn attachments_are_placed_at_their_node_and_hidden_without_it() {
+    use fnv_game::ui_more::{place_attachments, Placement};
+    let f = fixture();
+    let mut g = game(&f);
+    let reference = FormId(REFERENCE);
+    g.loaded_cells.insert(FormId(CELL));
+    let hud = g.ui_tree.menu("HUDMainMenu").unwrap();
+    g.ui_tree.set_trait(hud, "visible", Value::Num(1.0));
+    // The XML's own `x` and an expression in `visible` (made-up component).
+    let xml = r#"<rect name="Tag"><visible><copy src="parent()" trait="visible"/></visible><x>99</x><text name="T"><x>-10</x><string>t</string></text></rect>"#;
+    run_on(&mut g, "AttachUIComponent", Some(reference), &[s("Bip01 Head"), s(xml)]);
+    let tile = g.ui_extra.attached[0].tile;
+    let num = |g: &Game, t: &str| g.ui_tree.tile(tile).get(t).unwrap().num();
+    // Right after attaching, before any placement: x and y are there for scripts (the XML's
+    // constant x, a y it did not write made 0).
+    assert_eq!(float(&g, "HUDMainMenu/Tag/x"), 99.0);
+    assert_eq!(float(&g, "HUDMainMenu/Tag/y"), 0.0);
+    frame(&mut g, 0.0);
+    assert_eq!(num(&g, "visible"), 0.0, "hidden until placed");
+
+    // The node on screen: the rect's top left at its point, shown, one change reported.
+    let mut asked = Vec::new();
+    let changed = place_attachments(&mut g, |r, node| {
+        asked.push((r, node.to_string()));
+        Some((400.0, 300.0))
+    });
+    assert_eq!(asked, vec![(reference, "Bip01 Head".to_string())], "the node by its case-sensitive name");
+    assert_eq!(changed, vec![Placement { reference, node: "Bip01 Head".into(), rect: "Tag".into(), at: Some((400.0, 300.0)) }]);
+    assert_eq!((num(&g, "x"), num(&g, "y"), num(&g, "visible")), (400.0, 300.0, 1.0));
+    frame(&mut g, 0.0);
+    assert_eq!(num(&g, "visible"), 1.0, "the prune leaves a placed rect shown");
+    assert_eq!(float(&g, "HUDMainMenu/Tag/T/x"), -10.0, "the children keep their places");
+
+    // Following the node (an animated bone): moved, no state change, no write when still.
+    assert!(place_attachments(&mut g, |_, _| Some((410.5, 290.0))).is_empty());
+    assert_eq!((num(&g, "x"), num(&g, "y")), (410.5, 290.0));
+    let writes = g.ui_tree.trait_write_counts().0;
+    place_attachments(&mut g, |_, _| Some((410.5, 290.0)));
+    assert_eq!(g.ui_tree.trait_write_counts().0, writes, "a still node writes nothing");
+
+    // A script hides it while it stays on screen: it stays hidden.
+    g.ui_tree.set_trait(tile, "visible", Value::Num(0.0));
+    place_attachments(&mut g, |_, _| Some((410.5, 290.0)));
+    assert_eq!(num(&g, "visible"), 0.0);
+
+    // Off screen, behind the camera or the node not loaded: hidden, reported once, and held
+    // hidden through the expression when the HUD's `visible` changes.
+    let changed = place_attachments(&mut g, |_, _| None);
+    assert_eq!(changed.len(), 1);
+    assert_eq!(changed[0].at, None);
+    assert!(place_attachments(&mut g, |_, _| None).is_empty());
+    g.ui_tree.set_trait(hud, "visible", Value::Num(0.0));
+    frame(&mut g, 0.0);
+    g.ui_tree.set_trait(hud, "visible", Value::Num(1.0));
+    frame(&mut g, 0.0);
+    assert_eq!(num(&g, "visible"), 0.0);
+    // Back on screen: shown again.
+    assert_eq!(place_attachments(&mut g, |_, _| Some((1.0, 2.0))).len(), 1);
+    assert_eq!(num(&g, "visible"), 1.0);
+
+    // The tiles above count: a HUD root moved by (5, 7) leaves the rect on the point.
+    g.ui_tree.set_trait(hud, "x", Value::Num(5.0));
+    g.ui_tree.set_trait(hud, "y", Value::Num(7.0));
+    place_attachments(&mut g, |_, _| Some((100.0, 100.0)));
+    assert_eq!((num(&g, "x"), num(&g, "y")), (95.0, 93.0));
+
+    // Expressions in the rect's own x and y, whose source changes before the tree is worked
+    // out (as before each drawing): the placement holds.
+    let moving = r#"<rect name="Moving"><x><copy src="parent()" trait="width"/></x><y><copy src="parent()" trait="height"/></y></rect>"#;
+    run_on(&mut g, "AttachUIComponent", Some(reference), &[s("Bip01 Head"), s(moving)]);
+    assert!(g.ui_extra.attached.last().is_some(), "the moving rect is attached");
+    // Before the first placement, and while the node is not found, the expressions are gone
+    // but x and y stay numbers scripts read and write.
+    for unresolved in [false, true] {
+        if unresolved {
+            place_attachments(&mut g, |_, _| None);
+        }
+        g.ui_tree.set_trait(hud, "width", Value::Num(50.0));
+        frame(&mut g, 0.0);
+        let x = float(&g, "HUDMainMenu/Moving/x");
+        assert_ne!(x, -999.0, "x is still there");
+        assert_ne!(x, 50.0, "its expression no longer follows the source");
+        assert_ne!(float(&g, "HUDMainMenu/Moving/y"), -999.0, "y is still there");
+        assert!(g.ui_tree.set_float("HUDMainMenu/Moving/x", 12.0), "a script's SetUIFloat finds it");
+        assert_eq!(float(&g, "HUDMainMenu/Moving/x"), 12.0);
+        g.ui_tree.set_trait(hud, "width", Value::Num(60.0));
+        frame(&mut g, 0.0);
+        assert_eq!(float(&g, "HUDMainMenu/Moving/x"), 12.0, "the script's value holds");
+    }
+    place_attachments(&mut g, |_, _| Some((300.0, 200.0)));
+    for size in [111.0, 222.0] {
+        g.ui_tree.set_trait(hud, "width", Value::Num(size));
+        g.ui_tree.set_trait(hud, "height", Value::Num(size));
+        frame(&mut g, 0.0);
+        assert_eq!(float(&g, "HUDMainMenu/Moving/x"), 300.0 - 5.0, "the source changing does not move it");
+        assert_eq!(float(&g, "HUDMainMenu/Moving/y"), 200.0 - 7.0);
+    }
+
+    // A reference that unloads: the attachment goes, nothing more is asked.
+    g.loaded_cells.clear();
+    frame(&mut g, 0.0);
+    assert!(!g.ui_tree.tile(tile).live);
+    assert!(place_attachments(&mut g, |_, _| panic!("no attachment is left")).is_empty());
+}
+
+#[test]
 fn traits_added_and_value_and_element_types() {
     let f = fixture();
     let mut g = game(&f);
@@ -300,6 +408,37 @@ fn traits_added_and_value_and_element_types() {
     assert_eq!(n(run(&mut g, "GetUIElementType", &[s("TestMenu/Box/Words")])), 3.0);
     assert_eq!(n(run(&mut g, "GetUIElementType", &[s("TestMenu")])), 5.0);
     assert_eq!(n(run(&mut g, "GetUIElementType", &[s("")])), -1.0);
+}
+
+#[test]
+fn cursor_inspection_resolves_missing_and_invalid_paths_and_rejects_unloaded_tiles() {
+    let f = fixture();
+    let mut g = game(&f);
+    for args in [vec![], vec![s("Missing/Tile")]] {
+        assert_eq!(run(&mut g, "GetUIElementType", &args), x(-1.0));
+    }
+    run(&mut g, "DumpTileInfo", &[]);
+    run(&mut g, "DumpTileInfo", &[x(0.0), s("Missing/Tile")]);
+    assert!(g.console_out.is_empty());
+    g.ui_pointer.over = g.ui_tree.find_tile("TestMenu/Box/Words");
+    assert_eq!(run(&mut g, "GetUIElementType", &[s("TestMenu/Box/Pic")]), x(2.0));
+    for path in [None, Some("Missing/Tile")] {
+        let args = path.map(|p| vec![s(p)]).unwrap_or_default();
+        assert_eq!(run(&mut g, "GetUIElementType", &args), x(3.0));
+        let args = path.map(|p| vec![x(0.0), s(p)]).unwrap_or_default();
+        run(&mut g, "DumpTileInfo", &args);
+        assert!(g.console_out.iter().any(|l| l == "[ Tilename ] : Words"));
+        g.console_out.clear();
+    }
+    run(&mut g, "DumpTileInfo", &[x(0.0), s("TestMenu/Box/Pic")]);
+    assert!(g.console_out.iter().any(|l| l == "[ Tilename ] : Pic"));
+    g.console_out.clear();
+    let tile = g.ui_pointer.over.unwrap();
+    g.ui_tree.unload_tile(tile);
+    assert_eq!(run(&mut g, "GetUIElementType", &[]), x(-1.0));
+    assert_eq!(run(&mut g, "GetUIElementType", &[s("TestMenu/Box/Words")]), x(-1.0));
+    run(&mut g, "DumpTileInfo", &[]);
+    assert!(g.console_out.is_empty());
 }
 
 #[test]
@@ -326,8 +465,12 @@ fn sort_list_box_places_the_items_by_their_keys() {
 fn string_dimensions_by_the_engines_measure() {
     let f = fixture();
     let mut g = game(&f);
-    // Headless, no measure: nothing to write.
-    assert_eq!(n(run(&mut g, "GetStringUIDimensions", &[s("some words"), x(3.0), x(80.0)])), 0.0);
+    // [design] Headless outputs are deterministic, including through compiled locals.
+    let r = run(&mut g, "GetStringUIDimensions", &[s("some words"), x(3.0), x(80.0)]);
+    assert_eq!(array(&g, &r).into_iter().map(|(_, v)| v).collect::<Vec<_>>(), vec![x(0.0); 4]);
+    let script = "float w\nfloat h\nfloat lines\nlet w := -11\nlet h := -22\nlet lines := -33\nGetStringUIDimensions \"some words\" 3 80 w h lines\nSetFunctionValue (w * 1000000 + h * 1000 + lines)";
+    // The outputs packed in one number: a function's own array is let go when it ends.
+    assert_eq!(query(&mut g, script), x(0.0), "the sentinels are overwritten with zeros");
     // A stub: 10 units a letter, wrapped at the width, 20 a line in font 3.
     g.ui_extra.measure = Some(Box::new(|font, text, wrap| {
         let w = text.chars().count() as f64 * 10.0;
@@ -337,6 +480,7 @@ fn string_dimensions_by_the_engines_measure() {
     let r = run(&mut g, "GetStringUIDimensions", &[s("some words"), x(3.0), x(80.0)]);
     let vals: Vec<XVal> = array(&g, &r).into_iter().map(|(_, v)| v).collect();
     assert_eq!(vals, vec![x(0.0), x(80.0), x(40.0), x(2.0)]);
+    assert_eq!(query(&mut g, script), x(80_040_002.0));
 }
 
 #[test]
@@ -361,7 +505,7 @@ fn dump_tile_info_to_the_console_and_an_array() {
 }
 
 #[test]
-fn dump_tile_info_flushes_only_when_argument_one_names_the_hud() {
+fn inspection_flushes_only_for_the_resolved_hud_tile() {
     use fnv_game::ui_hud::{self, Shown, Texts};
     let f = fixture();
     let mut g = game(&f);
@@ -372,7 +516,14 @@ fn dump_tile_info_flushes_only_when_argument_one_names_the_hud() {
         frame: Default::default(),
     };
     ui_hud::defer(&mut g, Shown { root: true, ..Default::default() }, texts, None);
+    g.ui_pointer.over = g.ui_tree.menu("HUDMainMenu");
+    run(&mut g, "GetUIElementType", &[s("TestMenu/Box")]);
     run(&mut g, "DumpTileInfo", &[x(0.0), s("TestMenu/Box")]);
+    assert!(g.ui_hud_pending.is_some(), "explicit other-menu path wins over the HUD cursor");
+    g.ui_pointer.over = g.ui_tree.find_tile("TestMenu/Box");
+    run(&mut g, "GetUIElementType", &[]);
+    run(&mut g, "GetUIElementType", &[s("HUDMainMenu/Missing")]);
+    run(&mut g, "DumpTileInfo", &[x(0.0), s("HUDMainMenu/Missing")]);
     assert!(g.ui_hud_pending.is_some());
     assert!(!g.ui_used);
     g.console_out.clear();
@@ -380,6 +531,21 @@ fn dump_tile_info_flushes_only_when_argument_one_names_the_hud() {
     assert!(g.ui_hud_pending.is_none());
     assert!(g.ui_used);
     assert!(g.console_out.iter().any(|line| line == "[ visible ] : 1.000000"));
+    for command in ["GetUIElementType", "DumpTileInfo"] {
+        let texts = Texts {
+            radiation_word: String::new(), radiation_value: String::new(),
+            xp_label: String::new(), xp_level_up: String::new(),
+            needs: Default::default(), sneak: None, prompt_key: None, prompt_verb: None,
+            frame: Default::default(),
+        };
+        ui_hud::defer(&mut g, Shown { root: true, ..Default::default() }, texts, None);
+        g.ui_used = false;
+        g.ui_pointer.over = g.ui_tree.menu("HUDMainMenu");
+        let args = if command == "DumpTileInfo" { vec![x(0.0), s("Missing/Tile")] } else { vec![] };
+        run(&mut g, command, &args);
+        assert!(g.ui_hud_pending.is_none(), "{command} resolved the HUD cursor");
+        assert!(g.ui_used);
+    }
 }
 
 /// Compiles and runs a query through the VM to the host (`Game::run_query`, `nvse::call`).
@@ -745,7 +911,7 @@ fn hud_bars_made_of_tiles_in_the_hud() {
     assert!(g.ui_tree.find_tile(&path).is_none());
     run(&mut g, "HudBarDestroyAllBars", &[]);
     assert!(g.ui_extra.bars.list.is_empty());
-    // Not built: the script-variable value.
+    // Not this file's: the script-variable value (`nvse_sup7`, tests/sup7.rs).
     assert!(call(&mut g, "HudBarSetValueScriptVar", None, &[s("x"), x(1.0)]).is_none());
 }
 
@@ -765,4 +931,209 @@ fn hud_bars_are_made_again_in_a_rebuilt_tree() {
     assert_eq!(g.ui_extra.bars.list.len(), 1);
     let path = g.ui_extra.bars.list[0].path();
     assert_eq!(float(&g, &format!("{path}/y")), 2.0);
+}
+
+/// The frame's bar step alone (`Game::tick` calls it after the scripts).
+fn bar_frame(g: &mut Game, dt: f64) {
+    g.cfg.frame_seconds = dt;
+    fnv_game::ui_hudbar::tick(g);
+}
+
+fn visible(g: &mut Game, bar: &str) -> f64 {
+    n(run(g, "HudBarGetVisible", &[s(bar), x(10.0)]))
+}
+
+#[test]
+fn hud_bar_conditions_follow_the_players_state() {
+    let f = fixture();
+    let mut g = game(&f);
+    let p = FormId::PLAYER_REF;
+    run(&mut g, "HudBarCreate", &[s("C"), x(10.0), x(20.0), x(0.0)]);
+    let path = g.ui_extra.bars.list[0].path();
+    // Hidden by HudBarShowBar: 0, whatever the conditions.
+    run(&mut g, "HudBarSetBarTrait", &[s("C"), x(27.0), x(2.0)]);
+    g.senses.first_person = true;
+    assert_eq!(visible(&mut g, "C"), 0.0);
+    // Shown, hidden in first person: -1 at once, nothing drawn, no frame of it shown.
+    run(&mut g, "HudBarShowBar", &[s("C"), x(1.0)]);
+    assert_eq!(visible(&mut g, "C"), -1.0);
+    assert_eq!(float(&g, &format!("{path}/visible")), 0.0);
+    // Third person: 1, drawn after the frame.
+    g.senses.first_person = false;
+    assert_eq!(visible(&mut g, "C"), 1.0);
+    bar_frame(&mut g, 0.1);
+    assert_eq!(float(&g, &format!("{path}/visible")), 1.0);
+    run(&mut g, "HudBarSetBarTrait", &[s("C"), x(27.0), x(0.0)]);
+    // Each condition read from the game.
+    type Set = Box<dyn Fn(&mut Game, bool)>;
+    let checks: Vec<(i64, f64, Set)> = vec![
+        (21, 1.0, Box::new(|g, on| g.player.controls_disabled[0] = on)),
+        (22, 1.0, Box::new(move |g, on| {
+            g.senses.motion.insert(p, fnv_game::functions::senses::Motion { sneaking: on, ..Default::default() });
+        })),
+        (24, 2.0, Box::new(|g, on| g.jip2.told.sights_up = !on)),
+        (26, 1.0, Box::new(move |g, on| g.extra.entry(p).or_default().weapon_out = on)),
+        (26, 2.0, Box::new(move |g, on| g.extra.entry(p).or_default().weapon_out = !on)),
+        (0, 1.0, Box::new(|g, on| g.menu = on.then_some(1002))),
+    ];
+    for (k, v, set) in &checks {
+        run(&mut g, "HudBarSetBarTrait", &[s("C"), x(*k as f64), x(*v)]);
+        set(&mut g, true);
+        assert_eq!(visible(&mut g, "C"), -1.0, "trait {k} {v} hides");
+        bar_frame(&mut g, 0.1);
+        assert_eq!(float(&g, &format!("{path}/visible")), 0.0, "trait {k} {v} not drawn");
+        set(&mut g, false);
+        assert_eq!(visible(&mut g, "C"), 1.0, "trait {k} {v} shows again");
+        bar_frame(&mut g, 0.1);
+        assert_eq!(float(&g, &format!("{path}/visible")), 1.0, "trait {k} {v} drawn again");
+        run(&mut g, "HudBarSetBarTrait", &[s("C"), x(*k as f64), x(0.0)]);
+    }
+    // Aiming is the sights up as the engine tells it: Block held with a melee weapon, or
+    // with a gun while a reload holds the sights down, is Block held (`told.aiming`, as
+    // IsAiming reads it) without the sights up, so not aiming.
+    run(&mut g, "HudBarSetBarTrait", &[s("C"), x(24.0), x(2.0)]);
+    g.jip2.told.aiming = true;
+    g.jip2.told.sights_up = false;
+    assert_eq!(visible(&mut g, "C"), -1.0, "blocking or reloading: not aiming");
+    g.jip2.told.sights_up = true;
+    assert_eq!(visible(&mut g, "C"), 1.0, "the sights up");
+}
+
+#[test]
+fn hud_bar_item_condition_follows_equipment() {
+    let f = fixture();
+    let mut g = game(&f);
+    let (gun, vest, list) = (FormId(0x900), FormId(0x901), FormId(0x950));
+    run(&mut g, "HudBarCreate", &[s("Ammo"), x(0.0), x(0.0), x(0.0)]);
+    run(&mut g, "HudBarShowBar", &[s("Ammo"), x(1.0)]);
+    run(&mut g, "HudBarSetBarTrait", &[s("Ammo"), x(25.0), x(1.0)]);
+    // Neither an item nor a list: hidden.
+    assert_eq!(visible(&mut g, "Ammo"), -1.0);
+    run(&mut g, "HudBarSetItem", &[s("Ammo"), XVal::Ref(gun.0)]);
+    assert_eq!(visible(&mut g, "Ammo"), -1.0, "carried, not equipped");
+    let inv = g.world.inventory_mut(FormId::PLAYER_REF).unwrap();
+    inv.add(gun, 1);
+    inv.add(vest, 1);
+    inv.set_equipped(gun);
+    assert_eq!(visible(&mut g, "Ammo"), 1.0);
+    // The item removed (no form): hidden again though the gun is equipped.
+    run(&mut g, "HudBarSetItem", &[s("Ammo")]);
+    assert_eq!(visible(&mut g, "Ammo"), -1.0);
+    // A form list: any member equipped; an empty one hides.
+    g.form_lists.insert(list, Vec::new());
+    run(&mut g, "HudBarSetFormList", &[s("Ammo"), XVal::Ref(list.0)]);
+    assert_eq!(visible(&mut g, "Ammo"), -1.0, "an empty list");
+    g.form_lists.insert(list, vec![FormId(0x999), vest]);
+    assert_eq!(visible(&mut g, "Ammo"), -1.0, "the vest not equipped");
+    g.world.inventory_mut(FormId::PLAYER_REF).unwrap().set_equipped(vest);
+    assert_eq!(visible(&mut g, "Ammo"), 1.0);
+    // Item and list together: either is enough.
+    run(&mut g, "HudBarSetItem", &[s("Ammo"), XVal::Ref(0x998)]);
+    assert_eq!(visible(&mut g, "Ammo"), 1.0);
+    g.world.inventory_mut(FormId::PLAYER_REF).unwrap().remove(vest, 1);
+    assert_eq!(visible(&mut g, "Ammo"), -1.0, "the vest gone, the item not equipped");
+    // The trait off: shown, item or not.
+    run(&mut g, "HudBarSetBarTrait", &[s("Ammo"), x(25.0), x(0.0)]);
+    assert_eq!(visible(&mut g, "Ammo"), 1.0);
+}
+
+#[test]
+fn hud_bars_vanish_and_appear_gradually() {
+    let f = fixture();
+    let mut g = game(&f);
+    let p = FormId::PLAYER_REF;
+    run(&mut g, "HudBarCreate", &[s("F"), x(100.0), x(20.0), x(0.0)]);
+    run(&mut g, "HudBarShowBar", &[s("F"), x(1.0)]);
+    for (k, v) in [(22.0, 1.0), (41.0, 1.0), (42.0, 1.0), (43.0, 40.0), (44.0, 1.0), (61.0, 1.0), (62.0, 2.0), (63.0, -10.0), (64.0, 0.5)] {
+        run(&mut g, "HudBarSetBarTrait", &[s("F"), x(k), x(v)]);
+    }
+    let path = g.ui_extra.bars.list[0].path();
+    let meter = format!("{path}/Meter/alpha");
+    bar_frame(&mut g, 0.25);
+    assert_eq!(float(&g, &meter), 255.0);
+    // Sneaking: -1 at once, the bar fading out over 1 s to the right.
+    g.senses.motion.insert(p, fnv_game::functions::senses::Motion { sneaking: true, ..Default::default() });
+    assert_eq!(visible(&mut g, "F"), -1.0);
+    bar_frame(&mut g, 0.25);
+    assert_eq!(float(&g, &meter), 191.25);
+    assert_eq!(float(&g, &format!("{path}/x")), 110.0);
+    assert_eq!(float(&g, &format!("{path}/visible")), 1.0, "still drawn while it vanishes");
+    bar_frame(&mut g, 0.25);
+    assert_eq!(float(&g, &format!("{path}/x")), 120.0);
+    // Standing up half way: back from half, at the appearing speed, moving on from where
+    // it is (no jump to the appearing shift's line).
+    g.senses.motion.insert(p, fnv_game::functions::senses::Motion::default());
+    assert_eq!(visible(&mut g, "F"), 1.0);
+    bar_frame(&mut g, 0.125);
+    assert_eq!(float(&g, &meter), 191.25);
+    assert_eq!(float(&g, &format!("{path}/x")), 110.0);
+    assert_eq!(float(&g, &format!("{path}/y")), 20.0);
+    bar_frame(&mut g, 1.0);
+    assert_eq!(float(&g, &meter), 255.0);
+    assert_eq!(float(&g, &format!("{path}/x")), 100.0);
+    assert_eq!(float(&g, &format!("{path}/y")), 20.0);
+    // Gone all the way: not drawn.
+    g.senses.motion.insert(p, fnv_game::functions::senses::Motion { sneaking: true, ..Default::default() });
+    bar_frame(&mut g, 2.0);
+    assert_eq!(float(&g, &format!("{path}/visible")), 0.0);
+    // Appearing from hidden comes from the appearing shift (63: 10 above).
+    g.senses.motion.insert(p, fnv_game::functions::senses::Motion::default());
+    bar_frame(&mut g, 0.25);
+    assert_eq!(float(&g, &format!("{path}/x")), 100.0);
+    assert_eq!(float(&g, &format!("{path}/y")), 15.0);
+    assert_eq!(float(&g, &meter), 127.5);
+    // Only the fade's traits change during it: a width set behind the bar's back stays.
+    let width = format!("{path}/Meter/width");
+    let t = g.ui_tree.find_tile(&format!("{path}/Meter")).unwrap();
+    g.ui_tree.set_trait(t, "width", Value::Num(77.0));
+    bar_frame(&mut g, 0.125);
+    assert_eq!(float(&g, &width), 77.0);
+    assert_eq!(float(&g, &format!("{path}/y")), 17.5);
+    // Hidden by a camera condition (27) and shown again: at once both ways.
+    run(&mut g, "HudBarSetBarTrait", &[s("F"), x(27.0), x(2.0)]);
+    g.senses.first_person = true;
+    bar_frame(&mut g, 0.01);
+    assert_eq!(float(&g, &format!("{path}/visible")), 0.0);
+    g.senses.first_person = false;
+    bar_frame(&mut g, 0.01);
+    assert_eq!(float(&g, &meter), 255.0, "no fade in after the camera condition");
+    assert_eq!(float(&g, &format!("{path}/visible")), 1.0);
+    // The fades go on in menu mode (the engine runs `Game::tick` there; under the pause
+    // menu it runs none and they wait).
+    g.senses.motion.insert(p, fnv_game::functions::senses::Motion { sneaking: true, ..Default::default() });
+    g.menu = Some(1002);
+    bar_frame(&mut g, 0.5);
+    assert_eq!(float(&g, &meter), 127.5);
+    g.menu = None;
+    // A tree built again finishes the change at once.
+    let src = files();
+    let mut ui = fnv_ui::Ui::new();
+    ui.load_menu(&src, "menus\\hud.xml").unwrap();
+    g.ui_tree = ui;
+    fnv_game::ui_more::tree_rebuilt(&mut g);
+    assert_eq!(float(&g, &format!("{path}/visible")), 0.0);
+}
+
+#[test]
+fn authored_tile_smoke_scripts_compile_against_the_function_table() {
+    let f = fixture();
+    let g = game(&f);
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tools/smoke/fixtures");
+    for path in [
+        "ui-dimensions-home/mods/NVSE/plugins/Scripts/gr_nvf_dimensions.txt",
+        "ui-cursor-home/mods/NVSE/plugins/Scripts/gr_nvf_cursor.txt",
+        "ui-cursor-home/mods/NVSE/user_defined_functions/nvf_cursor_probe.txt",
+        "ui-typewriter-home/mods/NVSE/plugins/Scripts/gr_nvf_typewriter.txt",
+        "ui-typewriter-home/mods/NVSE/user_defined_functions/nvf_type_original.txt",
+        "ui-typewriter-home/mods/NVSE/user_defined_functions/nvf_type_replacement.txt",
+        "ui-typewriter-home/mods/NVSE/user_defined_functions/nvf_type_controller.txt",
+        "ui-hudbar-home/mods/NVSE/plugins/Scripts/gr_nvf_hudbar.txt",
+        "ui-hudbar-home/mods/NVSE/user_defined_functions/nvf_hudbar_controller.txt",
+        "ui-hudbar-home/mods/NVSE/user_defined_functions/nvf_hudbar_value.txt",
+    ] {
+        let src = std::fs::read_to_string(root.join(path)).unwrap();
+        let compiled = fnv_script::compile::compile(&src, &g.data.table, &fnv_game::game::GameEnv { g: &g }, None);
+        let errors: Vec<_> = compiled.errors().collect();
+        assert!(errors.is_empty(), "{path}: {errors:?}");
+    }
 }

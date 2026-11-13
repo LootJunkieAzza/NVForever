@@ -129,6 +129,23 @@ const ENEMY_METER_GAP: f32 = 2.0;
 /// Texture columns scaled to the measured 500-wide bracket [design; observed: private
 /// job hud_enemy3, g2_gecko_half]. Previously unscaled (56, 307).
 const ENEMY_MARKS: (f32, f32) = (56.0 * 500.0 / 512.0, 307.0 * 500.0 / 512.0);
+/// The enemy bar's visible middle in `EnemyHealth`: halfway between the bracket's corner
+/// marks, where its ticks are centred. The name and the Living Anatomy line are centred
+/// here, not on the piece's width (175), which put them right of the bar (#1826) [design].
+const ENEMY_MIDDLE: f32 = ENEMY_BRACKET_AT.x + (ENEMY_MARKS.0 + ENEMY_MARKS.1) / 2.0;
+
+/// The left `x` that centres a line's drawn letters on `middle`: from the first letter's
+/// picture to the end of the last one's, leaving out the empty room after the last letter
+/// that `Line::width` counts (and the room before the first) [design: #1826].
+fn centred_x(font: &Font, line: &fnv_font::Line, middle: f32) -> f32 {
+    let drawn = line.glyphs.iter().map(|p| (p, font.glyph(p.code))).filter(|(_, g)| g.drawn());
+    let (left, right) = drawn.fold((f32::INFINITY, f32::NEG_INFINITY), |(l, r), (p, g)| (l.min(p.x + g.before), r.max(p.x + g.before + g.width)));
+    if left > right {
+        // Nothing drawn (stand-in font, spaces): its set width.
+        return middle - line.width / 2.0;
+    }
+    middle - (left + right) / 2.0
+}
 
 // ---- set here; the files leave these to the game's code [hypothesis, §4] --------------
 
@@ -502,9 +519,13 @@ fn gather(
     let posed = driven.is_some_and(|d| d.0);
     let wheel_open = wheel.is_some_and(|w| w.is_open());
     // Nor while a kill camera plays (`crate::kill_cam`) [owner's playtest request #1034].
-    let killcam = kill_cam.is_some_and(|k| k.active());
+    // Nor while the classic VATS style plays its queued attacks (`VatsMode::playing_back`).
+    let playback = vats.as_ref().is_some_and(|v| v.playing_back());
+    let camera = kill_cam.is_some_and(|k| k.active());
+    let killcam = camera || playback;
     if killcam != view.kill_cam {
-        info!("hud: {}", if killcam { "hidden: the kill camera has the view" } else { "back after the kill camera" });
+        let why = if camera { "the kill camera has the view" } else { "the VATS attacks play" };
+        info!("hud: {}", if killcam { format!("hidden: {why}") } else { "back after the kill camera".to_string() });
     }
     let mut now = HudView { shown: *state.get() == PlayState::Playing && !held && !creating && !posed && !wheel_open && !killcam, kill_cam: killcam, ..view.clone() };
     if let Some(p) = &player {
@@ -798,7 +819,7 @@ fn spawn_hud(commands: &mut Commands, art: &mut Art, images: &mut Assets<Image>,
         // The enemy's health, bottom middle: its long line level with the corner pieces'
         // (§8).
         let red = crime_colour();
-        let enemy_top = HP_PANEL.y - LINE_Y + ENEMY_LINE_Y + ENEMY_BRACKET_AT.y - ENEMY.y;
+        let enemy_top = enemy_top();
         let piece = Node {
             position_type: PositionType::Absolute,
             left: Val::Percent(50.0),
@@ -829,6 +850,29 @@ fn spawn_hud(commands: &mut Commands, art: &mut Art, images: &mut Assets<Image>,
     });
 }
 
+/// The enemy piece's place from the HUD's bottom margin: its long line level with the
+/// corner pieces' (§8).
+fn enemy_top() -> f32 {
+    HP_PANEL.y - LINE_Y + ENEMY_LINE_Y + ENEMY_BRACKET_AT.y - ENEMY.y
+}
+
+/// How strongly a tick of the enemy bar is drawn that the damage in sight would take
+/// (VATS, `crate::hud_target::TargetHealth::after`) [design].
+const ENEMY_SIGHT_ALPHA: f32 = 0.08;
+/// They go from that to whole and back once in this many real seconds [design: the fork
+/// owner 2026-11-10, "make them blink by going from the minimum to max opacity"].
+const ENEMY_SIGHT_BLINK: f32 = 1.0;
+
+/// How strongly a tick the damage in sight would take is drawn `at` real seconds.
+pub fn sight_alpha(at: f32) -> f32 {
+    let wave = 0.5 - 0.5 * (at / ENEMY_SIGHT_BLINK * std::f32::consts::TAU).cos();
+    ENEMY_SIGHT_ALPHA + (1.0 - ENEMY_SIGHT_ALPHA) * wave
+}
+
+/// The enemy piece's top from the view's top while the classic VATS style chooses
+/// targets, interface units [design].
+const ENEMY_VATS_TOP: f32 = 40.0;
+
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn draw(
     mut commands: Commands,
@@ -840,10 +884,13 @@ fn draw(
     mut art: Local<Option<Art>>,
     mut root: Query<&mut Visibility, (With<HudRoot>, Without<ConditionRow>, Without<EnemyPiece>)>,
     mut condition: Query<&mut Visibility, (With<ConditionRow>, Without<HudRoot>, Without<EnemyPiece>)>,
-    mut enemy: Query<&mut Visibility, (With<EnemyPiece>, Without<HudRoot>, Without<ConditionRow>)>,
-    mut bar: Query<&mut Node, (With<ConditionBar>, Without<Strip>)>,
-    mut strip: Query<(&mut Strip, &mut Node), Without<ConditionBar>>,
+    mut enemy: Query<(&mut Visibility, &mut Node), (With<EnemyPiece>, Without<HudRoot>, Without<ConditionRow>, Without<ConditionBar>, Without<Strip>)>,
+    mut bar: Query<&mut Node, (With<ConditionBar>, Without<Strip>, Without<EnemyPiece>)>,
+    mut strip: Query<(&mut Strip, &mut Node), (Without<ConditionBar>, Without<EnemyPiece>)>,
+    vats: Option<Res<crate::vats_mode::VatsMode>>,
 ) {
+    // The HUD's lengths at the UI scale (`crate::interface::hud_units`, #1631).
+    let _hud = crate::interface::hud_units();
     if art.is_none() {
         // The first frame the HUD is wanted: read the game's pictures and set it up.
         if view.shown {
@@ -863,8 +910,18 @@ fn draw(
     for mut v in &mut condition {
         v.set_if_neq(show(view.weapon.condition.is_some()));
     }
-    for mut v in &mut enemy {
+    // While VATS is on, in either style, the enemy's piece stands at the top of the view,
+    // over the target [design: the fork owner 2026-11-10, "keep the NPC healthbar above",
+    // "on top in both versions"; the original keeps it at the bottom in VATS, observed on
+    // the owner's screenshots].
+    let at_top = vats.is_some_and(|v| v.active());
+    let (top, bottom) = if at_top { (u(ENEMY_VATS_TOP), Val::Auto) } else { (Val::Auto, u(MARGIN_Y + enemy_top())) };
+    for (mut v, mut node) in &mut enemy {
         v.set_if_neq(show(target.0.is_some()));
+        if node.top != top || node.bottom != bottom {
+            node.top = top;
+            node.bottom = bottom;
+        }
     }
     let width = u(condition_width(view.weapon.condition.unwrap_or(0.0)));
     for mut node in &mut bar {
@@ -889,7 +946,8 @@ fn pips(
     formats: Option<Res<CompressedImageFormatSupport>>,
     windows: Query<&Window, With<PrimaryWindow>>,
     rows: Query<(Entity, &PipRow)>,
-    mut ticks: Query<(&Pip, &mut Visibility)>,
+    mut ticks: Query<(&Pip, &mut Visibility, Option<&mut ImageNode>, Option<&mut BackgroundColor>)>,
+    real: Res<Time<Real>>,
     mut set_for: Local<Option<(f32, f32)>>,
     mut tick: Local<Option<Option<Handle<Image>>>>,
 ) {
@@ -897,7 +955,8 @@ fn pips(
         return;
     }
     let Ok(window) = windows.single() else { return };
-    let key = (window.physical_height() as f32, window.scale_factor());
+    // The ticks are set for the HUD's height at the UI scale: the view's at 100% (#1631).
+    let key = (window.physical_height() as f32 * crate::interface::ui_scale(), window.scale_factor());
     if rows.is_empty() {
         return;
     }
@@ -926,7 +985,10 @@ fn pips(
         return;
     }
     let enemy = target.0.as_ref().map_or(0.0, |t| t.health);
-    for (pip, mut v) in &mut ticks {
+    // In VATS the ticks the damage in sight would take are faint (`TargetHealth::after`):
+    // the bar empties towards its middle, so they are its outer lit ticks.
+    let after = target.0.as_ref().and_then(|t| t.after).map(|a| lit_middle(a, ENEMY_PIPS));
+    for (pip, mut v, image, fill) in &mut ticks {
         let on = match pip.bar {
             Bar::Health => pip.index < lit(view.health, PIPS),
             Bar::ActionPoints => PIPS - 1 - pip.index < lit(view.action_points, PIPS),
@@ -936,6 +998,21 @@ fn pips(
             }
         };
         v.set_if_neq(if on { Visibility::Inherited } else { Visibility::Hidden });
+        if pip.bar == Bar::Enemy {
+            // They blink, from faint to whole and back, in real time (the world may stand
+            // still).
+            let alpha = if after.is_some_and(|(from, to)| !(from..to).contains(&pip.index)) { sight_alpha(real.elapsed_secs()) } else { 1.0 };
+            if let Some(mut image) = image {
+                if image.color.alpha() != alpha {
+                    image.color = image.color.with_alpha(alpha);
+                }
+            }
+            if let Some(mut fill) = fill {
+                if fill.0.alpha() != alpha {
+                    fill.0 = fill.0.with_alpha(alpha);
+                }
+            }
+        }
     }
 }
 
@@ -955,6 +1032,8 @@ fn texts(
     stats: Query<Entity, With<EnemyStats>>,
     sneak: Query<Entity, With<SneakText>>,
 ) {
+    // The HUD's lengths at the UI scale (`crate::interface::hud_units`, #1631).
+    let _hud = crate::interface::hud_units();
     if !view.shown || ammo.is_empty() {
         return;
     }
@@ -983,7 +1062,7 @@ fn texts(
         if let Ok(e) = name.single() {
             commands.entity(e).despawn_related::<Children>().with_children(|p| {
                 if let Some(line) = enemy.as_deref().and_then(|n| font.lines(n, None).into_iter().next()) {
-                    set_line(p, face_, &line, (ENEMY.x - line.width) / 2.0, ENEMY_NAME_BASE, crime_colour());
+                    set_line(p, face_, &line, centred_x(font, &line, ENEMY_MIDDLE), ENEMY_NAME_BASE, crime_colour());
                 }
             });
             shown.1 = enemy;
@@ -995,7 +1074,7 @@ fn texts(
         if let Ok(e) = stats.single() {
             commands.entity(e).despawn_related::<Children>().with_children(|p| {
                 if let Some(line) = anatomy.as_deref().and_then(|n| font.lines(n, None).into_iter().next()) {
-                    set_line(p, face_, &line, (ENEMY.x - line.width) / 2.0, ENEMY_STATS_BASE, crime_colour());
+                    set_line(p, face_, &line, centred_x(font, &line, ENEMY_MIDDLE), ENEMY_STATS_BASE, crime_colour());
                 }
             });
             shown.3 = anatomy;
@@ -1063,7 +1142,7 @@ mod tests {
     fn enemy_ink_tracks_hostility_without_rebuilding_any_children() {
         use crate::hud_target::TargetHealth;
         let mut app = App::new();
-        app.insert_resource(HudTarget(Some(TargetHealth { form_id: 1, name: "Target".into(), health: 0.5, hostile: false, anatomy: Some((50.0, 2.0)) })))
+        app.insert_resource(HudTarget(Some(TargetHealth { form_id: 1, name: "Target".into(), health: 0.5, hostile: false, anatomy: Some((50.0, 2.0)), after: None })))
             .add_systems(Update, enemy_colours);
         let bracket = app.world_mut().spawn(ImageNode::default()).id();
         let tick = app.world_mut().spawn(BackgroundColor(Color::WHITE)).id();
@@ -1254,5 +1333,34 @@ mod tests {
         let room = ENEMY_MARKS.1 - ENEMY_MARKS.0;
         let (lefts, width) = tick_lefts(room, TICK_BLOCK, ENEMY_PIPS);
         assert!((lefts[ENEMY_PIPS - 1] + width - room).abs() < 0.6);
+    }
+
+    /// The enemy's name, and the Living Anatomy line, stand centred on its tick row, not
+    /// on the piece's width, whatever their length (#1826).
+    #[test]
+    fn the_enemy_name_is_centred_on_its_ticks() {
+        // Letters with room before and after their pictures, as the game's fonts have.
+        let mut font = plain_font(36.0, 0.0);
+        for g in font.glyphs.iter_mut().skip(0x21).take(0x5E) {
+            *g = fnv_font::Glyph { width: 10.0, height: 20.0, before: 1.0, after: 4.0, ascent: 16.0, ..*g };
+        }
+        font.glyphs[b' ' as usize].after = 6.0;
+        let from = ENEMY_BRACKET_AT.x + ENEMY_MARKS.0;
+        let (lefts, width) = tick_lefts(ENEMY_MARKS.1 - ENEMY_MARKS.0, TICK_BLOCK, ENEMY_PIPS);
+        let ticks = from + (lefts[0] + lefts[ENEMY_PIPS - 1] + width) / 2.0;
+        assert!((ticks - ENEMY_MIDDLE).abs() < 0.5, "ticks {ticks} middle {ENEMY_MIDDLE}");
+        for name in ["Fiend", "Gecko", "Cazador", "NCR Trooper", "Legion Veteran Decanus", "HP:120 DT:4"] {
+            let line = font.lines(name, None).remove(0);
+            let x = centred_x(&font, &line, ENEMY_MIDDLE);
+            let first = &line.glyphs[0];
+            let last = line.glyphs.last().unwrap();
+            let left = x + first.x + font.glyph(first.code).before;
+            let right = x + last.x + font.glyph(last.code).before + font.glyph(last.code).width;
+            assert!(((left + right) / 2.0 - ticks).abs() < 0.5, "{name}: {left}..{right} against {ticks}");
+        }
+        // Nothing drawn: its set width is centred.
+        let blank = font.lines("x", None).remove(0);
+        let x = centred_x(&plain_font(36.0, 15.0), &blank, ENEMY_MIDDLE);
+        assert_eq!(x, ENEMY_MIDDLE - blank.width / 2.0);
     }
 }

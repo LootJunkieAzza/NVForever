@@ -779,6 +779,8 @@ mod tests {
             radius: None,
             encounter_zone: None,
             level_modifier: None,
+            map_marker: None,
+            radio: None,
         }
     }
 
@@ -1121,6 +1123,7 @@ mod tests {
             shape: Shape::Box { half_extents: [5.0; 3] }.into(),
             shell: 0.0,
             material: None,
+            wind: false,
         };
         let body = RagdollBody { object, linear_damping: 0.1, angular_damping: 0.05, stored: Iso::IDENTITY, unit: 7.0 };
         let ragdoll = std::sync::Arc::new(Ragdoll { bodies: vec![body], joints: vec![], problems: vec![] });

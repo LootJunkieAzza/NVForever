@@ -30,6 +30,11 @@ struct TestHost {
     /// reference in the game host).
     stops: Option<u16>,
     stop: bool,
+    /// A call of this opcode asks the block to wait (JIP's ScriptWait) four cycles.
+    waits_on: Option<u16>,
+    wait: Option<u32>,
+    /// A step counter shared by the runs on this host (the game host's call tree, #1991).
+    shared: Option<u64>,
 }
 
 impl Host for TestHost {
@@ -60,6 +65,9 @@ impl Host for TestHost {
         if self.stops == Some(opcode) {
             self.stop = true;
         }
+        if self.waits_on == Some(opcode) {
+            self.wait = Some(4);
+        }
         match opcode {
             GET_STAGE => Ok(Value::Num(7.0)),
             SET_STAGE if self.recurse => Err("recursion".into()),
@@ -71,6 +79,12 @@ impl Host for TestHost {
     }
     fn take_return(&mut self) -> bool {
         std::mem::take(&mut self.stop)
+    }
+    fn take_wait(&mut self) -> Option<u32> {
+        self.wait.take()
+    }
+    fn shared_steps(&mut self) -> Option<&mut u64> {
+        self.shared.as_mut()
     }
 }
 
@@ -365,6 +379,30 @@ fn unknown_opcodes_fail_strict_runs_and_are_skipped_otherwise() {
 }
 
 #[test]
+fn runs_on_a_shared_counter_draw_on_one_budget() {
+    // #1991: a host that shares its counter (the game, across the runs nested under the
+    // outermost one) gives the runs one budget between them.
+    let t = table();
+    let body: Vec<Stmt> = (0..3).map(|_| call(DISABLE, vec![])).collect();
+    let opts = RunOpts { strict: true, max_steps: 10 };
+    let mut h = TestHost { shared: Some(0), ..Default::default() };
+    let mut first = Vm::new(&t, &mut h, opts);
+    first.run(&body).unwrap();
+    let used = first.steps();
+    assert!(used > 5 && used <= 10, "three calls take {used} steps");
+    assert_eq!(h.shared, Some(used), "the run counted on the shared counter");
+    // The same again on that counter goes past the budget of ten.
+    let e = Vm::new(&t, &mut h, opts).run(&body).unwrap_err();
+    assert_eq!(e, VmError::Budget(10));
+    assert!(h.calls.len() < 6, "the second run stopped partway: {} calls", h.calls.len());
+    // Without a shared counter each run has the whole budget.
+    let mut h = TestHost::default();
+    Vm::new(&t, &mut h, opts).run(&body).unwrap();
+    Vm::new(&t, &mut h, opts).run(&body).unwrap();
+    assert_eq!(h.calls.len(), 6);
+}
+
+#[test]
 fn the_step_budget_stops_long_runs() {
     let t = table();
     let body: Vec<Stmt> = (0..20).map(|_| call(DISABLE, vec![])).collect();
@@ -441,4 +479,42 @@ fn a_call_that_stops_the_script_inside_a_set_leaves_the_variable() {
     assert_eq!(exit, Exit::Returned);
     assert_eq!(h.locals[&1], Value::Num(5.0));
     assert!(!h.locals.contains_key(&2));
+}
+
+#[test]
+fn a_wait_stops_the_run_and_resume_goes_on_after_it() {
+    // JIP's ScriptWait [documented: ScriptWait, "When the time expires, the script will
+    // continue from the wait point"]: the run stops after the call; resuming goes on with
+    // the next statement inside the arm taken and then after the If, without testing the
+    // arms again or running what came before.
+    let t = table();
+    let mut h = TestHost { waits_on: Some(DISABLE), ..TestHost::default() };
+    let body = vec![
+        set(short(1), vec![var(short(1)), num(1.0), op(Op::Add)]),
+        if_(
+            vec![(vec![var(short(9))], vec![set(short(2), vec![num(5.0)])])],
+            Some(vec![set(short(2), vec![num(1.0)]), call(DISABLE, vec![]), set(short(2), vec![num(2.0)])]),
+        ),
+        set(short(3), vec![num(3.0)]),
+    ];
+    let mut vm = Vm::new(&t, &mut h, RunOpts { strict: true, max_steps: 1000 });
+    assert_eq!(vm.run(&body).unwrap(), Exit::Waiting);
+    let (cycles, at) = vm.take_wait().expect("a wait");
+    assert_eq!(cycles, 4);
+    // The If at 1, its Else (the arm after its one ElseIf-less arm), the call at 1.
+    assert_eq!(at, vec![(1, 1), (1, 0)]);
+    assert_eq!(h.locals[&1], Value::Num(1.0));
+    assert_eq!(h.locals[&2], Value::Num(1.0));
+    assert!(!h.locals.contains_key(&3));
+    // The arm's condition now holds, but the run goes on in the Else it took.
+    h.locals.insert(9, Value::Num(1.0));
+    let mut vm = Vm::new(&t, &mut h, RunOpts { strict: true, max_steps: 1000 });
+    assert_eq!(vm.resume(&body, &at).unwrap(), Exit::Finished);
+    assert_eq!(h.locals[&1], Value::Num(1.0), "nothing before the wait runs again");
+    assert_eq!(h.locals[&2], Value::Num(2.0));
+    assert_eq!(h.locals[&3], Value::Num(3.0));
+    // A host that never asks to wait: the same run finishes.
+    let mut h = TestHost::default();
+    assert_eq!(run(&body, &mut h).unwrap(), Exit::Finished);
+    assert_eq!(h.locals[&2], Value::Num(2.0));
 }

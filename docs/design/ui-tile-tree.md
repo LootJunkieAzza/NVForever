@@ -277,7 +277,14 @@ traits:
 - `text`: `string`, `font` (fnv-font), `justify`, `wrapwidth`;
 - colour: `systemcolor`, `red`/`green`/`blue`, `brightness`;
 - `nif`: a model drawn into the menu; since the T12 leftovers a model of flat textured
-  squares (the breath meter) is drawn as pictures (hud.md §14.12), other models later.
+  squares (the breath meter) is drawn as pictures (hud.md §14.12), other models later;
+- `rotateangle` about `rotateaxisx`/`rotateaxisy`: a picture or a box turned on the
+  screen, its clips unturned, its pointer box unturned (the map's arrows and dotted
+  lines; menu-xml.md §3.1.4);
+- an `image` whose `filename` starts with `nvf:`: a texture NVForever's code made
+  (`tiles::runtime_images::RuntimeImages`, the Local Map's outline), looked up before the
+  atlas and the files, repainted when its entry changes under the same name (menu-xml.md
+  §3.1.5).
 
 The layout is a pure function from the tree to rectangles (tested headless). What each
 drawing trait means exactly is checked against the original menu by menu (screenshots
@@ -296,8 +303,38 @@ at the same view size). That is the work of each migration task, not guessed up 
 3. **A menu moves to the tile renderer** when it matches the original as well as the
    current code does: compared against the same screenshots as the current spec notes.
    - Each menu has a switch, `NVForever.ini` `[UI] TileMenus=`, a list of menu names.
-     The old drawing stays the default until the owner agrees a menu has moved.
-     `HUDMainMenu` (T12), `MessageMenu` and `QuantityMenu` (T15a) are acted on.
+     [design, #2215] With no key, the default list is
+     `StatsMenu,InventoryMenu,RepairMenu,ItemModMenu,MapMenu,QuantityMenu`: the Pip-Boy's
+     pages and its quantity prompt use their menu files. An explicit list replaces these
+     defaults; an empty `[UI] TileMenus=` restores the hand-built Pip-Boy pages. The
+     existing missing-file and cut-down-file fallbacks remain (pipboy.md sections 5.1.1 to 5.3.1,
+     repair.md section 5.1, weapon-mods.md section 5.1). The maintainer decides at PR review whether to
+     keep this default (owner-review.md). The policy is one constant,
+     `tiles/vanilla.rs::DEFAULT_PIPBOY_MENUS`, to keep reverting it small.
+     Other menus' defaults are unchanged: StartMenu's Mods page stays on unless the
+     list names `-StartMenu` (#976); the other page renderers remain opt-in.
+     `HUDMainMenu` (T12), `MessageMenu` and `QuantityMenu` (T15a), `SleepWaitMenu` (T15b) and
+     `ContainerMenu` (T15c, a candidate: barter-menu.md §8; its prompt follows from
+     `QuantityMenu`'s file with no switch of its own, while the container is so drawn) are
+     acted on, and `BarterMenu` (candidate: barter-menu.md section 9, with the same
+     prompt rule) [design: `tiles/barter_menu.rs`], `RepairServicesMenu` (candidate:
+     repair.md §3.1) [design: `tiles/repair_services_menu.rs`], `RepairMenu`, the Pip-Boy's
+     repair page painted in its image (candidate: repair.md §5.1) [design: `tiles/repair_menu.rs`],
+     `ItemModMenu`, the Pip-Boy's weapon mod menu painted there too (candidate: weapon-mods.md
+     §5.1, issue #1513; the card writer shared with the repair pages) [design:
+     `tiles/item_mod_menu.rs`], and `RecipeMenu` (candidate: crafting.md section 4; its prompt stays hand-built) [design:
+     `tiles/recipe_menu.rs`].
+     Also `TraitMenu` (chargen.md §4.1), `CharGenMenu` (tag skills only, chargen.md §3.1), `DialogMenu` (its contract and fallback:
+     spec-notes/dialogue-menu.md §6), `StatsMenu` for the Pip-Boy's STATS page,
+     painted in the Pip-Boy's image (issue #1513, pipboy.md §5.1.1 to §5.1.3), and `InventoryMenu`
+     for its ITEMS page, painted there too, its prompt following from `QuantityMenu`'s file
+     (issues #1513, #1468, pipboy.md §5.2.1), and `MapMenu` for its DATA page's five tabs
+     (the Local Map's outline a runtime picture; Radio's trace and the question boxes painted over
+     the tiles) (issue #1513, pipboy.md §5.3.1).
+     `VATSMenu`, the classic VATS style's target screen, is drawn from its file behind a
+     switch of its own, `[UI] VatsMenuFile` (on unless set to 0; the engine-drawn screen is
+     its fallback), since VATS is no `Game::menu` here and the file is built only while
+     that screen is up [design: `tiles/vats_menu.rs`, vats-classic.md §11].
    - The game rules stay where they are (`menu::model`, `pipboy::items`,
      `wait::model`, …). Only the view changes: the model writes `io()` traits and
      template rows, input comes back as clicked tiles.
@@ -311,8 +348,9 @@ at the same view size). That is the work of each migration task, not guessed up 
 
 ## 7. What stays NVForever's own
 
-- The **settings pages** (Display, Gameplay, Sound, Controls), with their INI keys and
-  live switches. They are NVForever's design (settings.rs), not the original's.
+- The **settings pages** (Gameplay, Display, Audio, Controls, Graphics, Tweaks, Debug, with
+  headings: settings-page.md), with their INI keys and live switches. They are
+  NVForever's design (settings.rs, settings_layout.rs), not the original's.
 - The main menu's loading-screen background; the character creator; the poker table;
   the debug and test aids.
 - These may later be written as NVForever's own menu XML, so modders can restyle them

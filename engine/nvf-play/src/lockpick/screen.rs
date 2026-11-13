@@ -26,7 +26,6 @@ use bevy::image::CompressedImageFormatSupport;
 use bevy::prelude::*;
 use crate::ui_pointer::Button;
 use bevy::window::PrimaryWindow;
-use fnv_font::Line;
 use fnv_game::lockpick::{Phase, FULL_TURN, PIN_RANGE};
 use nvf_assets::GameData;
 
@@ -149,14 +148,10 @@ pub enum FontKind {
     Body,
 }
 
-fn text_line(face: &Face, s: &str) -> Line {
-    face.font.lines(s, None).into_iter().next().unwrap_or_default()
-}
-
 /// What the screen shows; drawn again when it changes.
 fn view_key(s: &Session, has_view: bool, view_w: f32) -> String {
     format!(
-        "{}:{}:{}:{:?}:{:?}:{}:{}:{}:{}:{view_w:.0}",
+        "{}:{}:{}:{:?}:{:?}:{}:{}:{}:{}:{view_w:.0}:{:?}",
         s.game.skill,
         s.game.pins,
         s.game.level.name(),
@@ -165,7 +160,8 @@ fn view_key(s: &Session, has_view: bool, view_w: f32) -> String {
         s.force_label(),
         has_view,
         s.help.is_some(),
-        s.leaving.is_some()
+        s.leaving.is_some(),
+        crate::pad::labels(),
     )
 }
 
@@ -180,6 +176,8 @@ pub fn in_detect_area(p: Vec2, size: Vec2) -> bool {
     if size.y <= 0.0 {
         return false;
     }
+    // The area is the interface's: where it is drawn at the UI scale (#1631).
+    let p = crate::interface::from_menu_frame(p, size, crate::interface::MIDDLE);
     let k = 960.0 / size.y;
     let (x, y, view_w) = (p.x * k, p.y * k, size.x * k);
     let left = EDGE + DETECT_X;
@@ -196,6 +194,7 @@ pub fn draw(
     window: Query<&Window, With<PrimaryWindow>>,
     mut images: ResMut<Assets<Image>>,
     formats: Option<Res<CompressedImageFormatSupport>>,
+    glyphs: Res<crate::pad::PadGlyphs>,
     roots: Query<Entity, With<LockpickRoot>>,
     (mut kit, mut shown): (Local<Option<Kit>>, Local<Option<String>>),
 ) {
@@ -211,7 +210,7 @@ pub fn draw(
     let Some(s) = screen.0.as_ref() else { return };
     let bc = crate::interface::bc_supported(formats.as_deref());
     let kit = kit.get_or_insert_with(|| Kit::load(data.as_deref(), &mut images, bc));
-    let mut c = Ctx { kit, data: data.as_deref(), images: &mut images, bc };
+    let mut c = Ctx { kit, data: data.as_deref(), images: &mut images, bc, glyphs: &glyphs };
     spawn(&mut commands, &mut c, s, view.as_deref(), view_w);
 }
 
@@ -220,6 +219,7 @@ pub struct Ctx<'a> {
     pub(crate) data: Option<&'a GameData>,
     pub(crate) images: &'a mut Assets<Image>,
     pub(crate) bc: bool,
+    pub(crate) glyphs: &'a crate::pad::PadGlyphs,
 }
 
 impl Ctx<'_> {
@@ -264,15 +264,21 @@ impl Ctx<'_> {
         self.text_in(p, FontKind::Menu, s, x, top, right, color)
     }
 
+    /// The width one line of text would take in a font.
+    pub fn text_width(&mut self, kind: FontKind, s: &str) -> f32 {
+        let (face, _) = self.face(kind);
+        crate::pad::hint_width(face, s, self.glyphs)
+    }
+
     /// One line of text in a font, its top at `top`; `right`: `x` is its right end. Its
     /// width.
     #[allow(clippy::too_many_arguments)]
     pub fn text_in(&mut self, p: &mut ChildSpawnerCommands, kind: FontKind, s: &str, x: f32, top: f32, right: bool, color: Color) -> f32 {
         let (face, base) = self.face(kind);
-        let line = text_line(face, s);
-        let x = if right { x - line.width } else { x };
-        set_line(p, face, &line, x, top + base, color);
-        line.width
+        let width = crate::pad::hint_width(face, s, self.glyphs);
+        let x = if right { x - width } else { x };
+        crate::pad::set_hint(p, face, s, x, top + base, color, self.glyphs);
+        width
     }
 
     /// Text wrapped at `wrap`, its top at `top`, its lines the font's size and `leading`
@@ -307,7 +313,9 @@ fn spawn(commands: &mut Commands, c: &mut Ctx, s: &Session, view: Option<&LockVi
             root.insert(BackgroundColor(Color::srgba(0.0, 0.0, 0.0, SHADE)));
         }
     }
-    root.with_children(|r| {
+    // The rectangle and the help at the UI scale, in the middle of the view
+    // (`crate::interface::menu_frame`, #1631); the lock's picture fills the view.
+    root.with_children(|r| crate::interface::in_menu_frame(r, crate::interface::MIDDLE, |r| {
         // The main rectangle.
         let main = Node { position_type: PositionType::Absolute, left: u(EDGE), right: u(EDGE), top: u(EDGE), bottom: u(EDGE), ..default() };
         r.spawn(main).with_children(|m| {
@@ -332,7 +340,12 @@ fn spawn(commands: &mut Commands, c: &mut Ctx, s: &Session, view: Option<&LockVi
             // documented: tutorial_menu.xml `no_click_past`).
             let usable = s.help.is_none() && s.leaving.is_none();
             let force_on = s.game.phase == Phase::Picking && s.ended.is_none();
-            let buttons = [(s.force_label(), &s.words.force_hint, LockpickInput::Force(None), force_on), (s.words.exit.clone(), &s.words.exit_hint, LockpickInput::Exit, true)];
+            // The game's PC hints, or the buttons that press their keys here: X (Force,
+            // `crate::pad::menu_buttons`) and B (Esc) [#1662].
+            let hint_at = crate::pad::at_menu(fnv_game::game::menus::LOCKPICK);
+            let force_hint = crate::pad::game_hint(&s.words.force_hint, &[KeyCode::KeyF], hint_at);
+            let exit_hint = crate::pad::game_hint(&s.words.exit_hint, &[KeyCode::KeyE, KeyCode::Escape], hint_at);
+            let buttons = [(s.force_label(), &force_hint, LockpickInput::Force(None), force_on), (s.words.exit.clone(), &exit_hint, LockpickInput::Exit, true)];
             let first = Node { position_type: PositionType::Absolute, right: u(BUTTONS_RIGHT), bottom: u(INFO_IN + INFO.y - BUTTONS_DOWN - 2.0 * BUTTON_H), width: u(0.0), height: u(2.0 * BUTTON_H), ..default() };
             m.spawn(first).with_children(|b| {
                 for (i, (label, hint, cmd, on)) in buttons.into_iter().enumerate() {
@@ -356,7 +369,7 @@ fn spawn(commands: &mut Commands, c: &mut Ctx, s: &Session, view: Option<&LockVi
         if let Some(h) = &s.help {
             super::help::spawn(r, c, h, view_w);
         }
-    });
+    }));
 }
 
 /// What the debug displays show, rounded so they are not drawn again every frame.
@@ -378,6 +391,7 @@ pub fn draw_debug(
     data: Option<Res<GameData>>,
     mut images: ResMut<Assets<Image>>,
     formats: Option<Res<CompressedImageFormatSupport>>,
+    glyphs: Res<crate::pad::PadGlyphs>,
     roots: Query<Entity, With<LockpickDebugRoot>>,
     (mut kit, mut shown): (Local<Option<Kit>>, Local<Option<String>>),
 ) {
@@ -392,7 +406,7 @@ pub fn draw_debug(
     let Some(s) = screen.0.as_ref().filter(|_| debug.0) else { return };
     let bc = crate::interface::bc_supported(formats.as_deref());
     let kit = kit.get_or_insert_with(|| Kit::load(data.as_deref(), &mut images, bc));
-    let mut c = Ctx { kit, data: data.as_deref(), images: &mut images, bc };
+    let mut c = Ctx { kit, data: data.as_deref(), images: &mut images, bc, glyphs: &glyphs };
     let g = &s.game;
     let bright = amber(255.0);
     let pct = |deg: f32| Val::Percent((deg / PIN_RANGE * 100.0).clamp(0.0, 100.0));
@@ -401,7 +415,7 @@ pub fn draw_debug(
         Node { position_type: PositionType::Absolute, left: pct(a), width: pct(b - a), top: u(0.0), height: u(METER_H), ..default() }
     };
     let full = Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() };
-    commands.spawn((LockpickDebugRoot, full, GlobalZIndex(107))).with_children(|r| {
+    commands.spawn((LockpickDebugRoot, crate::interface::framed_root(full, crate::interface::MIDDLE), GlobalZIndex(107))).with_children(|r| {
         let main = Node { position_type: PositionType::Absolute, left: u(EDGE), right: u(EDGE), top: u(EDGE), bottom: u(EDGE), ..default() };
         r.spawn(main).with_children(|m| {
             let meter = Node { position_type: PositionType::Absolute, left: u(0.0), right: u(0.0), top: u(METER_Y), height: u(METER_H), ..default() };

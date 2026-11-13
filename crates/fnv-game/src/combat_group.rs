@@ -28,6 +28,9 @@
 //! - an actor that **notices** a hostile (Normal → Alert) alarms its allies near it too,
 //!   so a camp wakes as one (the owner's list 2: "alerting their friends when they sense
 //!   an enemy presence");
+//! - an actor whose current package skips Fallout behaviour without Observe Combat
+//!   Behavior takes no alarm [observed: HELIOS One's stasis protectrons on
+//!   ProtectronNotActive stay on their pods while one of them fights, #1977];
 //! - **NPC against NPC** hits ([`Game::attacked_by_actor`]): a hit by an actor the victim
 //!   would leave alone starts a grudge as the player's hits do (`crate::provocation`),
 //!   except a stray hit between allies or friends, or between two actors both fighting
@@ -563,6 +566,14 @@ impl Game<'_> {
                 if self.is_dead(receiver) || !self.present(receiver) || self.awareness.state(receiver) == State::Combat {
                     continue;
                 }
+                // A package that skips Fallout behaviour without Observe Combat Behavior
+                // keeps its actor out of its allies' fights: it takes no alarm (it still
+                // detects and fights for itself). [observed: HELIOS One's stasis
+                // protectrons on ProtectronNotActive 0x0003BEB4 stay on their pods while
+                // the fifth fights 200-500 units off, #1977 probe 3, 2026-11-10]
+                if !self.package_allows(receiver, crate::package::fallout::OBSERVE_COMBAT) {
+                    continue;
+                }
                 // The foe's first starter, unless that is this receiver or its comrade; the
                 // foe it was called about stays `foe`, for its grudges.
                 let foe = about;
@@ -654,14 +665,46 @@ impl Game<'_> {
     /// being refreshed now (a hostile still noticed keeps its alarm) [documented: Combat
     /// Search, "N complete searches … before dropping out of combat (assuming the player
     /// remains below the detection threshold)"]. Returns whether it dropped them.
+    /// [design, #2010] Lost members wait for every member's shares and a hidden target;
+    /// a finished member may call again to check completion without adding a share.
     pub fn searched_once(&mut self, actor: FormId, about: FormId) -> bool {
         let needed = self.group_settings().remove_search_count;
+        let lost = self.awareness.state(actor) == State::Lost;
         let n = self.awareness.tactics.searched.entry((actor, about)).or_default();
-        *n += 1;
+        let progressed = !lost || *n < needed;
+        if progressed {
+            *n = n.saturating_add(1);
+        }
         let count = *n;
-        self.awareness.tactics.notes.push(GroupNote::Searched { actor, about, count, needed });
+        if progressed {
+            self.awareness.tactics.notes.push(GroupNote::Searched { actor, about, count, needed });
+        }
         if count < needed {
+            self.renew_lost_search(actor, about);
             return false;
+        }
+        // [design, #2010; documented: GECK wiki Combat Search] A Lost party finishes
+        // together: every member must finish its shares, with the target hidden.
+        let lost_party: Vec<FormId> = self.awareness.actors.iter()
+            .filter(|(id, a)| {
+                a.state == State::Lost && self.comrades(actor, **id)
+                    && a.alarms.iter().any(|x| x.owner == about && x.cause == Cause::LostTarget)
+            })
+            .map(|(id, _)| *id).collect();
+        if lost_party.contains(&actor) {
+            if progressed {
+                self.renew_lost_search(actor, about);
+            }
+            if lost_party.iter().any(|id| self.searches_done(*id, about) < needed
+                || self.awareness.actors[id].targets.get(&about).is_some_and(|t| t.band != crate::detection::Band::Hidden)) {
+                return false;
+            }
+            for id in lost_party {
+                let a = self.awareness.actors.get_mut(&id).expect("listed");
+                a.forget(about);
+                self.awareness.tactics.searched.remove(&(id, about));
+            }
+            return true;
         }
         let now = self.time;
         if let Some(a) = self.awareness.actors.get_mut(&actor) {
@@ -672,6 +715,18 @@ impl Game<'_> {
         }
         self.awareness.tactics.searched.remove(&(actor, about));
         true
+    }
+
+    /// [design, #2010] A completed share renews only the stall deadline, not an alarm
+    /// timeout. An actor whose AI cannot complete a share still has a finite search.
+    fn renew_lost_search(&mut self, actor: FormId, about: FormId) {
+        if let Some(a) = self.awareness.actors.get_mut(&actor) {
+            for alarm in &mut a.alarms {
+                if alarm.owner == about && alarm.cause == Cause::LostTarget {
+                    alarm.expires = self.time + crate::awareness::LOST_SEARCH_STALL_SECONDS;
+                }
+            }
+        }
     }
 }
 

@@ -133,7 +133,12 @@ impl<'a> Game<'a> {
     ///    cannot carry out is not documented];
     /// 4. a Once Per Day package is not chosen again within 24 game hours of the
     ///    moment the actor chose it [documented]; one that is still running may go on
-    ///    [hypothesis] until its duration ends it ([`Game::end_timed_packages`]);
+    ///    [hypothesis] until its duration ends it ([`Game::end_timed_packages`]) or its
+    ///    goal is met: a finished one is "not immediately selected again after being
+    ///    completed" [documented: GECK wiki, Category:Packages], so the next valid
+    ///    package takes over [observed: TTW's CG02AndyCutCake, Must Complete and Once
+    ///    Per Day, sets the cake stage CG02 16 only from its change script, which
+    ///    needs Andy to leave it once he has cut the cake; issue #2221];
     /// 5. the conditions, with the actor as the subject.
     pub fn check_package(&mut self, actor: FormId, package: FormId) -> PackageCheck {
         let Some(def) = self.package_def(&package) else { return PackageCheck::Missing };
@@ -149,7 +154,11 @@ impl<'a> Game<'a> {
         }
         if def.has(flags::ONCE_PER_DAY) {
             let e = self.extra.get(&actor);
-            let running = e.is_some_and(|e| e.current_package == Some(package));
+            // Finished, it still runs while its schedule duration holds it: the original's
+            // Goodsprings geckos kept a FindFood that reached DONE until its 2 h were up
+            // (owner-decision-captures.md §7; `Game::end_timed_packages`).
+            let timed = e.is_some_and(|e| e.package_ends_by_schedule && e.package_ends.is_some_and(|(p, until)| p == package && (now as f64) < until));
+            let running = e.is_some_and(|e| e.current_package == Some(package) && (!e.package_goal_met || timed));
             let chosen = e.and_then(|e| e.package_chosen_at.get(&package)).copied();
             if !running && chosen.is_some_and(|t| now - t < 1.0) {
                 return PackageCheck::OncePerDay;
@@ -178,7 +187,12 @@ impl<'a> Game<'a> {
     ///   GoodspringsSettler01Ref kept GSSettlerAAMSandbox6x16 through the night, 1,466
     ///   samples outside its window, when no other package of its list applied;
     ///   hypothesis: that this is "keep the current one" rather than "the last of the
-    ///   list", which are the same package there].
+    ///   list", which are the same package there]; not when the current one's own
+    ///   conditions fail: then the actor has no package and stands where it is, off any
+    ///   furniture [hypothesis, from the data: Fallout 3's Mister Burke sits on his bar
+    ///   chair under MS11BurkeBattle (MS11 battle 1); when the arrest talk sets battle 2
+    ///   no package of his list applies, and Lucas Simms' script (Fallout 3's and TTW's
+    ///   alike) has Burke shoot him only once Burke's GetSitting reads 0; issue #2235].
     pub fn select_package(&mut self, actor: FormId) -> Option<FormId> {
         let now = self.world.calendar().map(|c| c.days_passed as f64).unwrap_or(0.0);
         if let Some(e) = self.extra.get_mut(&actor) {
@@ -206,8 +220,12 @@ impl<'a> Game<'a> {
         // `current_package` answers with the one it had rather than choosing again.
         self.choosing_package.push(actor);
         let valid = list.iter().copied().find(|&p| self.check_package(actor, p) == PackageCheck::Valid);
+        let kept = match valid {
+            Some(_) => None,
+            None => self.extra.get(&actor).and_then(|e| e.current_package).filter(|c| list.contains(c)).filter(|&c| self.check_package(actor, c) != PackageCheck::ConditionsFail),
+        };
         self.choosing_package.pop();
-        valid.or_else(|| self.extra.get(&actor).and_then(|e| e.current_package).filter(|c| list.contains(c)))
+        valid.or(kept)
     }
 
     /// Whether the AI runs packages itself (their begin, end and change scripts and the
@@ -219,16 +237,19 @@ impl<'a> Game<'a> {
     /// Make `package` the actor's current package. A change is traced
     /// (`package_chosen`), starts the Once Per Day clock of the new package and, when
     /// the AI runs packages, runs the old package's change script and OnPackageChange
-    /// (unless it had finished) and the new one's begin script and OnPackageStart
-    /// [documented: GECK wiki, Category:Packages, Begin / End / Change; hypothesis: no
-    /// change event after the end event].
+    /// and the new one's begin script and OnPackageStart [documented: GECK wiki,
+    /// Category:Packages, Begin / End / Change]. The change script runs when the actor
+    /// leaves a package for another, also one whose goal was met (its end script ran
+    /// then) [hypothesis, from the data: TTW's CG02AndyCutCake (Must Complete, Once Per
+    /// Day, nothing else ends it) has only its change script set the cake stage CG02 16
+    /// the birthday party waits for; issue #2221. Most of the 99 packages of the TTW
+    /// load order with both scripts give them the same lines].
     pub(crate) fn set_package(&mut self, actor: FormId, package: Option<FormId>) {
         let e = self.extra.entry(actor).or_default();
         let old = e.current_package;
         if old == package {
             return;
         }
-        let finished = e.package_goal_met;
         e.current_package = package;
         e.package_goal_met = false;
         if let Some(p) = package.filter(|p| self.package_def(p).is_some_and(|d| d.has(flags::ONCE_PER_DAY))) {
@@ -247,7 +268,7 @@ impl<'a> Game<'a> {
                 self.package_doors(actor, p, flags::LOCK_DOORS_AT_START, flags::UNLOCK_DOORS_AT_START);
                 self.package_doors(actor, p, flags::LOCK_DOORS_AT_LOCATION, flags::UNLOCK_DOORS_AT_LOCATION);
             }
-            if let Some(o) = old.filter(|_| !finished) {
+            if let Some(o) = old {
                 self.package_event(actor, o, 2);
             }
             if let Some(p) = package {
@@ -330,13 +351,35 @@ impl<'a> Game<'a> {
     /// a Must Complete or Must Reach Location package may now be replaced, and, when
     /// the AI runs packages, its end script and OnPackageDone run [documented: GECK
     /// wiki, Category:Packages].
+    ///
+    /// A package type with no done state (`PackageType::has_done_state`: Sandbox, Sleep,
+    /// Eat, Guard, Wander, Follow, Accompany) never meets its goal: arriving changes
+    /// nothing, a script package of that type stays until it is removed or replaced, and
+    /// Must Complete keeps holding it (issue #2012).
     pub fn package_goal_met(&mut self, actor: FormId) {
+        let Some(p) = self.extra.get(&actor).and_then(|e| e.current_package.filter(|_| !e.package_goal_met)) else { return };
+        if !self.package_has_done_state(p) {
+            return;
+        }
         let Some(e) = self.extra.get_mut(&actor) else { return };
-        let Some(p) = e.current_package.filter(|_| !e.package_goal_met) else { return };
         e.package_goal_met = true;
         if self.runs_packages() {
             self.package_event(actor, p, 1);
         }
+    }
+
+    /// Whether `package`'s type has a done state (`PackageType::has_done_state`); a
+    /// package with no record counts as having one.
+    pub fn package_has_done_state(&self, package: FormId) -> bool {
+        self.package_def(&package).is_none_or(|d| d.ty.has_done_state())
+    }
+
+    /// For the layer that carries packages out: whether ResetAI asked for `actor`'s
+    /// package to be taken up afresh since it last asked (`RefExtra::ai_reset`), even when
+    /// the same package is current; the request is cleared. Repeated ResetAI calls before
+    /// that are one request [design].
+    pub fn take_ai_reset(&mut self, actor: FormId) -> bool {
+        self.extra.get_mut(&actor).is_some_and(|e| std::mem::take(&mut e.ai_reset))
     }
 
     /// The layer that carries packages out tells what `actor` does within its package
@@ -443,11 +486,19 @@ impl<'a> Game<'a> {
             // owner-decision-captures.md §4 and §7, the Goodsprings geckos' Once Per Day
             // FindFood (2 h) and patrol (3 h) ran 4.7 to 13 h when they never finished,
             // and a FindFood that reached DONE ended 2 h after it began].
-            if self.extra.get(&a).is_some_and(|e| e.package_ends_by_schedule && !e.package_goal_met) {
+            // A type with no done state never meets its goal: its schedule duration ends
+            // it on time, with no end script, and a script package of that type is let
+            // go then (issue #2012) [design].
+            let p = self.extra.get(&a).and_then(|e| e.current_package);
+            let done_state = p.is_none_or(|p| self.package_has_done_state(p));
+            if done_state && self.extra.get(&a).is_some_and(|e| e.package_ends_by_schedule && !e.package_goal_met) {
                 continue;
             }
-            self.extra.entry(a).or_default().package_ends = None;
-            let p = self.extra.get(&a).and_then(|e| e.current_package);
+            let e = self.extra.entry(a).or_default();
+            e.package_ends = None;
+            if !done_state && e.script_package == p {
+                e.script_package = None;
+            }
             self.package_goal_met(a);
             if p.is_some_and(|p| self.extra.get(&a).is_some_and(|e| e.script_package != Some(p))) {
                 self.set_package(a, None);
@@ -460,7 +511,24 @@ impl<'a> Game<'a> {
         }
     }
 
-    /// The references a script put somewhere since the last call (MoveTo; see
+    /// Finish a discontinuous move after placement succeeded (MoveTo, a follower
+    /// brought along, or a scripted door activation) [design: functions/refs.rs,
+    /// followers.rs, game.rs]. Ordinary walking uses `set_actor_place` instead.
+    pub(crate) fn note_relocated(&mut self, reference: FormId, cell: Option<FormId>, pos: [f32; 3]) {
+        if self.ref_script(reference).is_some() {
+            self.moved.insert(reference);
+        }
+        if reference != FormId::PLAYER_REF {
+            self.teleported.insert(reference);
+            // A drawn object is redrawn at its destination, as after SetPos.
+            if !is_actor_base(self.world.forms, functions::base_of(self, reference).unwrap_or(FormId(0))) {
+                self.turned.insert(reference);
+            }
+        }
+        self.emit(EventKind::Moved { reference, cell, pos });
+    }
+
+    /// The references a script put somewhere since the last call (MoveTo or a door; see
     /// [`Game::teleported`]).
     pub fn take_teleported(&mut self) -> BTreeSet<FormId> {
         std::mem::take(&mut self.teleported)

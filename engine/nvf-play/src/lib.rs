@@ -34,6 +34,7 @@ pub mod cursor;
 pub mod crime;
 pub mod dialogue;
 pub mod dialogue_look;
+pub mod dialogue_zoom;
 pub mod dialogue_menu;
 pub mod difficulty;
 pub mod hardcore;
@@ -45,9 +46,12 @@ pub mod effect_sounds;
 pub mod fade;
 pub mod drowning;
 pub mod falls;
+pub mod file_bytes;
+pub mod query_job;
 pub mod swing_traps;
 pub mod flashlight;
 pub mod free_cam;
+pub mod script_camera;
 pub mod game_start;
 pub mod furniture;
 pub mod grab;
@@ -65,6 +69,7 @@ pub mod hud_target;
 pub mod aim_assist;
 pub mod knockouts;
 pub mod loading;
+pub mod loading_look;
 pub mod main_menu;
 pub mod location_markers;
 pub mod lockpick;
@@ -83,7 +88,9 @@ pub mod message_menu;
 pub mod moved;
 pub mod music;
 pub mod pad;
+pub mod full_screen_key;
 pub mod pause;
+pub mod graphics_resume;
 pub mod phys;
 pub mod phys_load;
 pub mod pickpocket;
@@ -102,11 +109,18 @@ pub mod save;
 pub mod screen_splatter;
 pub mod script;
 pub mod script_input;
+pub mod script_switches;
 pub mod script_draw;
 pub mod script_events;
 pub mod script_hud;
+pub mod jip_physics;
+pub mod script_quantity;
+pub mod sup_screen;
+pub mod sup_shots;
 pub mod script_trigger;
 pub mod settings;
+pub mod settings_layout;
+pub mod settings_view;
 pub mod start_menu;
 pub mod sim;
 pub mod space;
@@ -119,11 +133,14 @@ mod test_aid;
 pub use test_aid::melee_knockback::MeleeKnockbackAid;
 pub use test_aid::{drives_run, MEASURING_AIDS};
 pub mod sfx;
+pub mod start_read;
 pub mod sneak_gauges;
+pub mod sound_grid;
 pub mod ui_colour;
 pub mod language;
 pub mod ui_sounds;
 pub mod stress;
+pub mod vats_classic;
 pub mod vats_mode;
 pub mod kill_cam;
 pub mod weapon_wheel;
@@ -221,6 +238,21 @@ pub struct PlayerCamera;
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
 #[component(immutable, on_insert = hitvol::ref_visual_inserted, on_remove = hitvol::ref_visual_removed)]
 pub struct RefVisual(pub u32);
+
+/// On the root of a reference's own node hierarchy (an animated model spawned with
+/// `nvf_assets::model::Rig::spawn_nodes`: nvforever's doors, containers, activators and
+/// scripted models, [`script_draw`]'s enabled references): the reference and its node
+/// entities by their names as the NIF spells them (the first of a repeated name), for what
+/// follows a named node (AttachUIComponent, nvforever `ui_attach.rs`). Those node entities
+/// carry no `Name` [design: #1835].
+///
+/// Immutable, so whoever indexes it by reference sees every change in its hooks.
+#[derive(Component, Clone, Debug)]
+#[component(immutable)]
+pub struct RefNodes {
+    pub reference: u32,
+    pub nodes: std::collections::HashMap<String, Entity>,
+}
 
 /// Put by nvforever on the entity of every render cell it streams in (its transform is
 /// the cell's origin in game space, under the world root). [`dropped`] spawns the
@@ -346,9 +378,12 @@ impl Plugin for PlayPlugin {
             .add_plugins((script::ScriptPlugin, hitvol::HitVolumePlugin, combat::CombatPlugin, sfx::SfxPlugin, music::MusicPlugin, ambient::AmbientPlugin, radio::RadioPlugin, voice::VoicePlugin, holotape::HolotapePlugin, loading::LoadingPlugin, dialogue_look::DialogueLookPlugin, hud::HudPlugin, compass::CompassPlugin))
             .add_plugins((world_sounds::WorldSoundsPlugin, effect_sounds::EffectSoundsPlugin, reticle::ReticlePlugin, xp_meter::XpMeterPlugin, radiation::RadiationPlugin))
             .add_plugins((ui_sounds::UiSoundsPlugin, pad::PadPlugin, rumble::RumblePlugin, script_input::ScriptInputPlugin, aim_assist::AimAssistPlugin))
+            .add_plugins(script_switches::ScriptSwitchesPlugin)
             .add_plugins((chargen::ChargenPlugin, creator::CreatorPlugin, fade::FadePlugin))
             .add_plugins((levelup::LevelUpPlugin, sneak_gauges::SneakGaugesPlugin))
             .add_plugins(perk_marks::PerkMarksPlugin)
+            .add_plugins(sup_screen::SupScreenPlugin)
+            .add_plugins(sup_shots::SupShotsPlugin)
             .add_plugins(tiles::TilesPlugin)
             .add_plugins(pipboy::PipBoyPlugin)
             .add_plugins(terminal::TerminalPlugin)
@@ -366,6 +401,7 @@ impl Plugin for PlayPlugin {
             .add_plugins(editor::EditorPlugin)
             .add_plugins(location_markers::LocationMarkersPlugin)
             .add_plugins(free_cam::FreeCamPlugin)
+            .add_plugins(script_camera::ScriptCameraPlugin)
             .add_plugins(aim_zoom::AimZoomPlugin)
             .add_plugins(save::SavePlugin)
             .add_plugins(main_menu::MainMenuPlugin)
@@ -374,6 +410,8 @@ impl Plugin for PlayPlugin {
             .add_plugins(screen_splatter::ScreenSplatterPlugin)
             .add_plugins(cursor::CursorPlugin)
             .add_plugins(crafting::CraftingPlugin)
+            .add_plugins(jip_physics::JipPhysicsPlugin)
+            .add_plugins(script_quantity::ScriptQuantityPlugin)
             .add_plugins(mines::MinesPlugin)
             .add_plugins(thrown::ThrownPlugin)
             .add_plugins(falls::FallsPlugin)
@@ -392,6 +430,7 @@ impl Plugin for PlayPlugin {
         test_aid::setup(app);
         stress::setup(app);
         settings::setup(app);
+        full_screen_key::setup(app);
     }
 }
 

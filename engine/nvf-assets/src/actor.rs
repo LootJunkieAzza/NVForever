@@ -33,7 +33,7 @@ use crate::anim_play::{BlendPlayer, BoundClip, Clip};
 use crate::data::GameData;
 use crate::model::ModelCtx;
 use crate::nif_material::NifMaterial;
-use crate::nif_spawn::{affine, build_mesh, is_editor_marker, shape_material, shape_props, shape_skin, to_bevy, Props};
+use crate::nif_spawn::{affine, build_mesh, is_editor_marker, shape_material, shape_material_reusing_tangents, shape_props, shape_skin, to_bevy, Props};
 use bevy::asset::RenderAssetUsages;
 use bevy::camera::visibility::DynamicSkinnedMeshBounds;
 use bevy::math::Affine3A;
@@ -43,7 +43,7 @@ use bevy::prelude::*;
 use fnv_nif::scene::{scene_objects, Decoded, SceneObject};
 use fnv_nif::{NifFile, Value};
 use crate::texture::TextureCache;
-use bevy::tasks::{futures::check_ready, AsyncComputeTaskPool, Task, TaskPool};
+use bevy::tasks::{futures::check_ready, Task};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -155,6 +155,22 @@ pub struct PreparedPart {
     pub prn: Option<String>,
     /// The root node's own transform (NIF space).
     pub root: Affine3A,
+    /// The part's `ProjectileNode…` nodes (where a creature's body weapon fires from)
+    /// with their transforms in the part's space, root transform included: read here so
+    /// that drawing a creature does not prepare the file again as a model to find them
+    /// (#1429: 23.8 ms in one frame for one creature [observed 2026-11-07, Sierra Madre
+    /// lobby]).
+    pub projectile_nodes: Vec<(String, Affine3A)>,
+    /// No shape is skinned and the file has controllers of its own (not driven by a
+    /// sequence) that move a node, drive a material or show and hide a node: a creature
+    /// draws such a part as a model playing them on its bone, not as still shapes
+    /// (nvforever `actors::spawn_creature`).
+    pub plays_itself: bool,
+}
+
+/// Whether a node is named as a projectile node (`ProjectileNode…`, WEAP NNAM).
+pub fn is_projectile_node(name: &str) -> bool {
+    name.get(..14).is_some_and(|p| p.eq_ignore_ascii_case("ProjectileNode"))
 }
 
 impl PreparedPart {
@@ -183,12 +199,21 @@ pub struct ActorParts {
     fetching: HashMap<String, Task<Fetched>>,
     /// KF clips being read on a worker thread ([`ActorCtx::clip_ready`]).
     clip_reads: HashMap<String, Task<Result<Clip, String>>>,
+    /// Textures an actor's materials name beyond its parts' own (a part's or the race's
+    /// skin texture and the normal map beside it) being read on a worker thread
+    /// ([`ActorCtx::textures_ready`]), by resolved path; and those whose read gave
+    /// nothing (so an actor does not wait for them).
+    texture_reads: HashMap<String, Task<TextureFiles>>,
+    textures_unread: std::collections::HashSet<String>,
     pub failures: Vec<String>,
 }
 
+/// Why a NIF or KF file was not read when no archive or loose file has it ([`decode`]).
+const ABSENT: &str = "not in any archive";
+
 /// The first controller sequence of the KF file at `path`.
 /// A panic while reading it, or a clip whose keys could not be played, is this clip's
-/// failure (guard.rs).
+/// failure (guard.rs); a file the game does not have is [`ABSENT`].
 fn read_clip(data: &GameData, path: &str) -> Result<Clip, String> {
     let (file, _, dec) = decode(data, path)?;
     crate::guard::guarded(|| {
@@ -246,6 +271,9 @@ type Nif = Result<(NifFile, Vec<u8>, Decoded), String>;
 
 /// A part read off the main thread, with the bytes of the textures its texture sets name
 /// (for [`TextureCache::offer`]).
+/// Texture files read on a worker thread: (resolved path, bytes).
+type TextureFiles = Vec<(String, Vec<u8>)>;
+
 struct Fetched {
     nif: Nif,
     textures: Vec<(String, Vec<u8>)>,
@@ -295,6 +323,22 @@ impl ActorParts {
             self.fetched.insert(path, (f.nif, now));
         }
         self.fetched.retain(|_, (_, at)| now - *at < FETCHED_KEEP_SECS);
+        let mut read = Vec::new();
+        self.texture_reads.retain(|path, task| match check_ready(task) {
+            Some(files) => {
+                read.push((path.clone(), files));
+                false
+            }
+            None => true,
+        });
+        for (path, files) in read {
+            if !files.iter().any(|(p, _)| *p == path) {
+                self.textures_unread.insert(path);
+            }
+            for (t, bytes) in files {
+                textures.offer(t, bytes, now);
+            }
+        }
         n
     }
 
@@ -336,6 +380,10 @@ pub struct PartUse {
     pub part: Arc<PreparedPart>,
     /// Per shape, the material to draw it with (overrides already applied).
     pub materials: Vec<Handle<NifMaterial>>,
+    /// Per shape, a second material the shape is drawn with again, from an entity of its
+    /// own beside the first (the blended layer of a hair model over its solid core,
+    /// `nif_spawn::hair_model_layer`); empty or `None`: drawn once.
+    pub layers: Vec<Option<Handle<NifMaterial>>>,
     /// Per shape, a replacement mesh (e.g. FaceGen-morphed), or `None` for the prepared one.
     pub meshes: Vec<Option<Handle<Mesh>>>,
     /// Shape names not to draw (e.g. the hair's `Hat` shape when no headgear is worn).
@@ -348,7 +396,7 @@ pub struct PartUse {
 /// Read and parse a NIF or KF; a panic while parsing is this file's failure (guard.rs).
 fn decode(data: &GameData, path: &str) -> Result<(NifFile, Vec<u8>, Decoded), String> {
     crate::guard::guarded(|| {
-        let bytes = data.read(path).ok_or("not in any archive")?;
+        let bytes = data.read(path).ok_or(ABSENT)?;
         let schema = data.schema.clone();
         let file = NifFile::parse(&bytes, Some(&schema)).map_err(|e| e.to_string())?;
         let dec = Decoded::new(&file, &bytes, &schema);
@@ -568,8 +616,34 @@ impl ActorCtx<'_, '_> {
                 continue;
             }
             let (data, job) = ((*self.models.data).clone(), key.clone());
-            let task = AsyncComputeTaskPool::get_or_init(TaskPool::default).spawn(async move { fetch(&data, &job) });
+            let task = crate::read_pool::read_pool().spawn(async move { fetch(&data, &job) });
             self.cache.fetching.insert(key, task);
+        }
+        ready
+    }
+
+    /// Whether the textures at the NIF texture paths `paths` are loaded or read ahead, so
+    /// that a material made with one ([`Self::material_with_texture`]) reads no file on this
+    /// thread. The rest are read, with the normal map beside each, on a worker thread
+    /// (once), taken in by [`ActorParts::take_fetched`]. Missing files count as ready.
+    /// Reading a race's skin texture there cost an NPC 5-6 ms in the frame it was drawn
+    /// [observed 2026-11-07, #1429, Sierra Madre lobby].
+    pub fn textures_ready<'p>(&mut self, paths: impl IntoIterator<Item = &'p str>) -> bool {
+        let mut ready = true;
+        for raw in paths {
+            let vfs = &self.models.data.vfs;
+            let path = crate::texture::resolved_path(raw, |p| vfs.exists(p));
+            if !vfs.exists(&path) || self.cache.textures_unread.contains(&path) || self.models.textures.has_or_ahead(&path) {
+                continue;
+            }
+            ready = false;
+            if self.cache.texture_reads.contains_key(&path) {
+                continue;
+            }
+            let normal = fnv_vfs::normal_map_beside(&path).filter(|n| vfs.exists(n) && !self.models.textures.has_or_ahead(n));
+            let (data, job) = ((*self.models.data).clone(), path.clone());
+            let task = crate::read_pool::read_pool().spawn(async move { [Some(job), normal].into_iter().flatten().filter_map(|p| data.read(&p).map(|b| (p, b))).collect() });
+            self.cache.texture_reads.insert(path, task);
         }
         ready
     }
@@ -650,15 +724,23 @@ impl ActorCtx<'_, '_> {
             return true;
         }
         let (data, job) = ((*self.models.data).clone(), key.clone());
-        let task = AsyncComputeTaskPool::get_or_init(TaskPool::default).spawn(async move { read_clip(&data, &job) });
+        let task = crate::read_pool::read_pool().spawn(async move { read_clip(&data, &job) });
         self.cache.clip_reads.insert(key, task);
         false
     }
 
-    /// Keep a clip read (or its failure) under `key`.
+    /// Keep a clip read (or its failure) under `key`. A KF file the game does not have is
+    /// no failure: callers ask for clips an actor may or may not have (a creature folder's
+    /// `talking.kf`, its unarmed stance, a weapon's sneak clips), and the base archives
+    /// lack most of them too, so it is logged at debug only, not reported as a missing
+    /// file (#2277).
     fn take_clip(&mut self, key: String, read: Result<Clip, String>) -> Option<Arc<Clip>> {
         let c = match read {
             Ok(c) => Some(Arc::new(c)),
+            Err(e) if e == ABSENT => {
+                debug!("{key}: no such clip");
+                None
+            }
             Err(e) => {
                 crate::guard::failed(&mut self.cache.failures, "actor file", format!("{key}: {e}"));
                 None
@@ -688,6 +770,7 @@ impl ActorCtx<'_, '_> {
         if let Some(m) = self.cache.materials.get(&key) {
             return m.clone();
         }
+        let _span = bevy::log::info_span!("actor::material_with_texture").entered();
         let s = &part.shapes[i];
         let mut props = s.props.clone();
         if props.textures.is_empty() {
@@ -701,9 +784,11 @@ impl ActorCtx<'_, '_> {
             }
             props.textures[1] = normal;
         }
+        let mesh_span = bevy::log::info_span!("actor::material_mesh_copy").entered();
         let mut mesh = (*s.cpu).clone();
+        drop(mesh_span);
         let m = &mut *self.models;
-        let (material, missing) = shape_material(&props, &mut mesh, &mut m.textures, &m.data, &mut m.images, m.formats.as_deref());
+        let (material, missing) = shape_material_reusing_tangents(&props, &mut mesh, &mut m.textures, &m.data, &mut m.images, m.formats.as_deref());
         let handle = match missing {
             // Keep the model's own texture when the replacement cannot be loaded.
             Some(t) => {
@@ -724,12 +809,13 @@ impl ActorCtx<'_, '_> {
         if let Some(m) = self.cache.materials.get(&key) {
             return m.clone();
         }
+        let _span = bevy::log::info_span!("actor::material_with_texture_set").entered();
         let s = &part.shapes[i];
         let mut props = s.props.clone();
         props.use_texture_set(set);
         let mut mesh = (*s.cpu).clone();
         let m = &mut *self.models;
-        let (material, missing) = shape_material(&props, &mut mesh, &mut m.textures, &m.data, &mut m.images, m.formats.as_deref());
+        let (material, missing) = shape_material_reusing_tangents(&props, &mut mesh, &mut m.textures, &m.data, &mut m.images, m.formats.as_deref());
         let handle = match missing {
             Some(t) => {
                 self.cache.failures.push(format!("{}: texture {t} not loaded", key.0));
@@ -768,6 +854,20 @@ impl ActorCtx<'_, '_> {
                 if let Some(x) = dec.get(e).filter(|x| x.text("name").is_some_and(|n| n.eq_ignore_ascii_case("Prn"))) {
                     out.prn = x.text("string_data").map(str::to_string);
                 }
+            }
+        }
+        if objects.iter().any(|o| o.is_node && o.name.as_deref().is_some_and(is_projectile_node)) {
+            let (nodes, _) = crate::model::model_nodes(&objects);
+            for (i, n) in nodes.iter().enumerate() {
+                let Some(name) = n.name.as_deref().filter(|n| is_projectile_node(n)) else { continue };
+                let mut path = Vec::new();
+                let mut at = Some(i);
+                while let Some(j) = at {
+                    path.push(j);
+                    at = nodes[j].parent;
+                }
+                let local = path.iter().rev().fold(out.root, |m, &j| m * nodes[j].local);
+                out.projectile_nodes.push((name.to_string(), local));
             }
         }
         let order = fnv_nif::scene::geometry_order(&objects);
@@ -859,6 +959,14 @@ impl ActorCtx<'_, '_> {
                 geometry_index: order.get(&o.block).copied().unwrap_or(usize::MAX),
             });
         }
+        // Controllers that run by themselves, on a part with no skin: the part moves by
+        // itself (Mister Handy's jet, `fxmrhandyjetaddon.nif`: scrolling flames,
+        // refraction clouds, billboards; #2228), so a creature draws it as a playing model
+        // ([`PreparedPart::plays_itself`]).
+        out.plays_itself = out.shapes.iter().all(|s| s.skin.is_none())
+            && (!crate::model::free_material_tracks(&file, &dec).is_empty()
+                || !crate::model::free_transform_tracks(&file, &dec).is_empty()
+                || !crate::model::free_visibility_tracks(&file, &dec).is_empty());
         Ok(out)
     }
 }
@@ -941,6 +1049,83 @@ pub fn creature_rigid_attach(skel: &PreparedSkeleton, part: &PreparedPart, s: &P
     }
 }
 
+/// [`creature_rigid_attach`] with the part's own named nodes kept as nodes: the bone,
+/// the nodes from it down to the shape (outermost first: name, local transform; `None`
+/// for the part's root, put in when the shape hangs from `Prn` below a named node, so
+/// those nodes keep the locals the part's clips key them by), and the shape's local
+/// transform under the last of them (under the bone when there are none). Unnamed nodes
+/// are folded into the node or shape below them. The product bone ∘ nodes ∘ shape is
+/// [`creature_rigid_attach`]'s placement. A clip names such a node to move it
+/// (`SpecialIdle_CutCake.kf` spins `Buzzsawblad`, a node of `gutsybuzzsaw.nif` that the
+/// Mister Handy skeleton lacks [observed: `fnvtool nif decode`, #2228]), so the actor
+/// needs an entity for it ([`SpawnedActor::part_nodes`]).
+pub fn creature_rigid_chain(skel: &PreparedSkeleton, part: &PreparedPart, s: &PartShape) -> (usize, Vec<(Option<String>, Affine3A)>, Affine3A) {
+    // Innermost first while walking up: each named node with the transform below it.
+    let mut named: Vec<(String, Affine3A)> = Vec::new();
+    let mut acc = s.own;
+    let mut shape_local = None;
+    let mut bone = None;
+    for (name, t) in &s.ancestors {
+        if let Some(&b) = name.as_ref().and_then(|n| skel.by_name.get(n)) {
+            bone = Some(b);
+            break;
+        }
+        match name.as_ref().filter(|n| !n.is_empty()) {
+            Some(n) => {
+                match named.last_mut() {
+                    Some(last) => last.1 = acc,
+                    None => shape_local = Some(acc),
+                }
+                named.push((n.clone(), Affine3A::IDENTITY));
+                acc = *t;
+            }
+            None => acc = *t * acc,
+        }
+    }
+    let mut root_node = None;
+    let bone = match bone {
+        Some(b) => b,
+        None => match part.prn.as_ref().and_then(|n| skel.by_name.get(n)) {
+            Some(&b) if named.is_empty() => {
+                acc = part.root * acc;
+                b
+            }
+            Some(&b) => {
+                root_node = Some(part.root);
+                b
+            }
+            None => 0,
+        },
+    };
+    match named.last_mut() {
+        Some(last) => last.1 = acc,
+        None => shape_local = Some(acc),
+    }
+    let mut chain: Vec<(Option<String>, Affine3A)> = root_node.map(|r| (None, r)).into_iter().collect();
+    chain.extend(named.into_iter().rev().map(|(n, t)| (Some(n), t)));
+    (bone, chain, shape_local.unwrap_or(acc))
+}
+
+/// Make a skinned shape that is drawn rigidly (a weapon's or a held object's shape hung
+/// from a bone, or a part whose bones the skeleton lacks) a valid skinned draw: a skin of
+/// `joints` joints that are all the shape's own entity `e`, with identity inverse bind
+/// poses, so each vertex lands where the rigid entity puts it and follows its transform.
+/// Its mesh keeps the skin's joint attributes, and Bevy draws such a mesh through the
+/// skinned pipeline; with no skin the see-through (blended) pass bound the model-only
+/// mesh group to it, a GPU validation error each frame that stopped the run (#1424: the
+/// Sierra Madre lobby hologram's boxing tape, drawn see-through by its effect shader)
+/// [observed 2026-11-06; bevy_pbr 0.20.1 `SetMeshBindGroup` chooses the blended pass's
+/// group by the entity's skin, the pipeline by the mesh's attributes].
+pub fn skin_in_place(commands: &mut Commands, e: Entity, joints: usize) {
+    let n = joints.max(1);
+    commands.queue(move |world: &mut World| {
+        let binds = world.resource_mut::<Assets<SkinnedMeshInverseBindposes>>().add(SkinnedMeshInverseBindposes::from(vec![Mat4::IDENTITY; n]));
+        if let Ok(mut ent) = world.get_entity_mut(e) {
+            ent.insert(SkinnedMesh { inverse_bindposes: binds, joints: vec![e; n] });
+        }
+    });
+}
+
 /// What [`spawn_actor`] spawned.
 #[derive(Debug)]
 pub struct SpawnedActor {
@@ -955,6 +1140,10 @@ pub struct SpawnedActor {
     pub shape_of: Vec<usize>,
     /// Skinned shapes whose bones the skeleton lacks: drawn rigidly at the root instead.
     pub unbound: usize,
+    /// The named nodes of creature parts that the skeleton lacks ([`creature_rigid_chain`]):
+    /// name, entity and local transform, for the actor's clips to drive
+    /// (`BlendPlayer::add_part_node`).
+    pub part_nodes: Vec<(String, Entity, Transform)>,
 }
 
 /// Spawn an actor under `parent`: the skeleton's nodes (root at `transform`), then every
@@ -971,7 +1160,7 @@ pub fn spawn_actor(commands: &mut Commands, parent: Entity, transform: Transform
     for (i, p) in skel.parents.iter().enumerate().skip(1) {
         commands.entity(nodes[p.unwrap_or(0)]).add_child(nodes[i]);
     }
-    let mut out = SpawnedActor { root: nodes[0], nodes, drawn: Vec::new(), part_of: Vec::new(), shape_of: Vec::new(), unbound: 0 };
+    let mut out = SpawnedActor { root: nodes[0], nodes, drawn: Vec::new(), part_of: Vec::new(), shape_of: Vec::new(), unbound: 0, part_nodes: Vec::new() };
     spawn_parts(commands, skel, parts, &mut out);
     out
 }
@@ -1059,7 +1248,10 @@ pub struct LimbShape {
 }
 
 pub fn spawn_parts(commands: &mut Commands, skel: &PreparedSkeleton, parts: &[PartUse], out: &mut SpawnedActor) {
-    let nodes = &out.nodes;
+    let nodes = out.nodes.clone();
+    // The part nodes spawned so far ([`creature_rigid_chain`]), by part and the way down
+    // to them, so that a part's shapes under one node share it.
+    let mut chains: HashMap<(usize, Vec<Option<String>>), Entity> = HashMap::new();
     for (pi, u) in parts.iter().enumerate() {
         let bone = skel.by_name.get(u.part.attach_bone()).copied();
         for (i, s) in u.part.shapes.iter().enumerate() {
@@ -1080,48 +1272,69 @@ pub fn spawn_parts(commands: &mut Commands, skel: &PreparedSkeleton, parts: &[Pa
             let material = u.materials.get(i).cloned().unwrap_or_else(|| s.material.clone());
             let joints: Option<Vec<Entity>> =
                 s.skin.as_ref().and_then(|(_, names)| names.iter().map(|n| skel.by_name.get(n).map(|&j| nodes[j])).collect());
-            let e = match (&s.skin, joints) {
-                (Some((binds, _)), Some(joints)) => {
-                    let e = commands
-                        .spawn((
-                            Mesh3d(mesh),
-                            MeshMaterial3d(material),
-                            Transform::IDENTITY,
-                            SkinnedMesh { inverse_bindposes: binds.clone(), joints },
-                            DynamicSkinnedMeshBounds,
-                        ))
-                        .id();
-                    commands.entity(nodes[0]).add_child(e);
-                    e
-                }
-                (Some(_), None) => {
-                    // Bones missing from the skeleton: draw the bind pose at the root.
-                    out.unbound += 1;
-                    let e = commands.spawn((Mesh3d(mesh), MeshMaterial3d(material), Transform::from_matrix(Mat4::from(s.transform)))).id();
-                    commands.entity(nodes[0]).add_child(e);
-                    e
-                }
-                (None, _) => {
-                    let (at, local) = match bone {
-                        _ if u.by_ancestor => {
-                            let (b, local) = creature_rigid_attach(skel, &u.part, s);
-                            (nodes[b], local)
-                        }
-                        Some(b) => (nodes[b], rigid_local(skel, b, &u.part.root, &s.transform)),
-                        None => (nodes[0], s.transform),
-                    };
-                    let e = commands.spawn((Mesh3d(mesh), MeshMaterial3d(material), Transform::from_matrix(Mat4::from(local)))).id();
-                    commands.entity(at).add_child(e);
-                    e
-                }
-            };
-            if let Some(n) = &s.name {
-                commands.entity(e).insert((ShapeName(n.to_ascii_lowercase()), s.stored_look()));
+            if matches!((&s.skin, &joints), (Some(_), None)) {
+                out.unbound += 1;
             }
-            commands.entity(e).insert(limb);
-            out.drawn.push(e);
-            out.part_of.push(pi);
-            out.shape_of.push(i);
+            // The shape, and its second layer where it has one (`PartUse::layers`): the
+            // same mesh at the same place under the same bones.
+            let layer = u.layers.get(i).cloned().flatten();
+            for material in std::iter::once(material).chain(layer) {
+                let e = match (&s.skin, joints.clone()) {
+                    (Some((binds, _)), Some(joints)) => {
+                        let e = commands
+                            .spawn((
+                                Mesh3d(mesh.clone()),
+                                MeshMaterial3d(material),
+                                Transform::IDENTITY,
+                                SkinnedMesh { inverse_bindposes: binds.clone(), joints },
+                                DynamicSkinnedMeshBounds,
+                            ))
+                            .id();
+                        commands.entity(nodes[0]).add_child(e);
+                        e
+                    }
+                    (Some((_, names)), None) => {
+                        // Bones missing from the skeleton: draw the bind pose at the root.
+                        let e = commands.spawn((Mesh3d(mesh.clone()), MeshMaterial3d(material), Transform::from_matrix(Mat4::from(s.transform)))).id();
+                        commands.entity(nodes[0]).add_child(e);
+                        skin_in_place(commands, e, names.len());
+                        e
+                    }
+                    (None, _) => {
+                        let (at, local) = match bone {
+                            _ if u.by_ancestor => {
+                                let (b, chain, local) = creature_rigid_chain(skel, &u.part, s);
+                                let mut at = nodes[b];
+                                let mut path: Vec<Option<String>> = Vec::with_capacity(chain.len());
+                                for (name, t) in chain {
+                                    path.push(name.clone());
+                                    at = *chains.entry((pi, path.clone())).or_insert_with(|| {
+                                        let local = Transform::from_matrix(Mat4::from(t));
+                                        let e = commands.spawn((local, Visibility::Inherited, ChildOf(at))).id();
+                                        if let Some(n) = name {
+                                            out.part_nodes.push((n, e, local));
+                                        }
+                                        e
+                                    });
+                                }
+                                (at, local)
+                            }
+                            Some(b) => (nodes[b], rigid_local(skel, b, &u.part.root, &s.transform)),
+                            None => (nodes[0], s.transform),
+                        };
+                        let e = commands.spawn((Mesh3d(mesh.clone()), MeshMaterial3d(material), Transform::from_matrix(Mat4::from(local)))).id();
+                        commands.entity(at).add_child(e);
+                        e
+                    }
+                };
+                if let Some(n) = &s.name {
+                    commands.entity(e).insert((ShapeName(n.to_ascii_lowercase()), s.stored_look()));
+                }
+                commands.entity(e).insert(limb.clone());
+                out.drawn.push(e);
+                out.part_of.push(pi);
+                out.shape_of.push(i);
+            }
         }
     }
 }
@@ -1148,7 +1361,12 @@ pub fn bind_clip(skel: &PreparedSkeleton, clip: Arc<Clip>) -> BoundClip {
 /// by node name, so skinned shapes and rigid parts under their bones follow
 /// (docs/spec-notes/actors.md §7 and §8).
 pub fn blend_player(actor: &SpawnedActor, skel: &PreparedSkeleton) -> BlendPlayer {
-    BlendPlayer::new(actor.nodes.clone(), Arc::new(skel.locals.clone()))
+    let mut player = BlendPlayer::new(actor.nodes.clone(), Arc::new(skel.locals.clone()));
+    // A creature part's own named nodes, which its clips may name ([`creature_rigid_chain`]).
+    for (name, e, local) in &actor.part_nodes {
+        player.add_part_node(name, *e, *local);
+    }
+    player
 }
 
 /// The prepared skeleton at `path`, read without a [`ClipReader`] (the examples).
@@ -1269,6 +1487,63 @@ mod tests {
         let (b, local) = creature_rigid_attach(&skel, &part, &shape);
         assert_eq!(b, 3);
         assert!((Vec3::from(local.translation) - Vec3::new(1.0, 5.0, 7.0)).length() < 1e-5);
+    }
+
+    #[test]
+    fn creature_part_nodes_are_kept_and_place_shapes_as_before() {
+        let skel = PreparedSkeleton {
+            by_name: HashMap::from([("Bip01 R Foot 01".to_string(), 2), ("Bip01 Head".to_string(), 3)]),
+            bind_world: vec![Affine3A::IDENTITY; 4],
+            ..Default::default()
+        };
+        let blade = Affine3A::from_rotation_translation(Quat::from_rotation_x(1.0), Vec3::new(15.9, -0.7, 0.1));
+        let spacer = Affine3A::from_translation(Vec3::new(0.0, 2.0, 0.0));
+        let own = Affine3A::from_translation(Vec3::new(21.8, 10.8, -3.6));
+        let shape = |ancestors: Vec<(Option<String>, Affine3A)>| PartShape {
+            name: None,
+            mesh: Handle::default(),
+            material: Handle::default(),
+            props: Props::default(),
+            cpu: Arc::new(Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::RENDER_WORLD)),
+            skin: None,
+            transform: ancestors.iter().rev().fold(Affine3A::IDENTITY, |acc, a| acc * a.1) * own,
+            cap: false,
+            partitions: Arc::default(),
+            ancestors,
+            own,
+            geometry_index: 0,
+        };
+        let product = |b: usize, chain: &[(Option<String>, Affine3A)], local: Affine3A| (b, chain.iter().fold(Affine3A::IDENTITY, |acc, (_, t)| acc * *t) * local);
+        let close = |a: Affine3A, b: Affine3A| Mat4::from(a).abs_diff_eq(Mat4::from(b), 1e-4);
+        // `gutsybuzzsaw.nif`: the blade's shape under `Buzzsawblad` under the root, `Prn`
+        // the foot. A root of its own when it is not the identity, then the blade node with
+        // its own transform (what the clip's keys replace), then the shape.
+        let mut part = PreparedPart { prn: Some("Bip01 R Foot 01".into()), root: Affine3A::from_translation(Vec3::new(0.0, 0.0, 3.0)), ..Default::default() };
+        let s = shape(vec![(None, spacer), (Some("Buzzsawblad".into()), blade)]);
+        let (b, chain, local) = creature_rigid_chain(&skel, &part, &s);
+        assert_eq!(b, 2);
+        assert_eq!(chain.iter().map(|(n, _)| n.clone()).collect::<Vec<_>>(), vec![None, Some("Buzzsawblad".to_string())]);
+        assert!(close(chain[1].1, blade));
+        assert!(close(local, spacer * own));
+        let (b0, old) = creature_rigid_attach(&skel, &part, &s);
+        let (b1, new) = product(b, &chain, local);
+        assert_eq!(b0, b1);
+        assert!(close(old, new));
+        // With nothing named below the root: no nodes, the old placement.
+        part.root = Affine3A::IDENTITY;
+        let s = shape(vec![(None, spacer)]);
+        let (b, chain, local) = creature_rigid_chain(&skel, &part, &s);
+        assert!(chain.is_empty());
+        assert_eq!((b, local), creature_rigid_attach(&skel, &part, &s));
+        // A named node below an ancestor the skeleton has: kept, under that bone.
+        let s = shape(vec![(Some("Screen01".into()), spacer), (Some("Bip01 Head".into()), blade)]);
+        let (b, chain, local) = creature_rigid_chain(&skel, &part, &s);
+        assert_eq!(b, 3);
+        assert_eq!(chain.len(), 1);
+        let (b0, old) = creature_rigid_attach(&skel, &part, &s);
+        let (b1, new) = product(b, &chain, local);
+        assert_eq!(b0, b1);
+        assert!(close(old, new));
     }
 
     #[test]

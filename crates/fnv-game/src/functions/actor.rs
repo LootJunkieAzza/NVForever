@@ -283,9 +283,15 @@ pub fn set_actor_value(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, Strin
     }
     // The player's skill keeps its part from the attributes: SetActorValue sets the rest
     // [observed: gaps6, Guns 17 (all from the attributes at level 1, untagged) reads 67
-    // after SetActorValue Guns 50, and 117 after 100, GetBaseActorValue the same].
+    // after SetActorValue Guns 50, and 117 after 100, GetBaseActorValue the same;
+    // o26_setav 2026-11-06, nvfdoc: `player.setav repair 35` from the console and from a
+    // script read 52 with Repair 17 from the attributes, issue #1575].
     let v = a.num(1)?;
-    let v = if r == FormId::PLAYER_REF && crate::actor_values::SKILLS.contains(&code) { v + g.derived_skill(r, code) } else { v };
+    // The tag bonus stays too, the points spent go [observed: o26_setav, nvfLanius at
+    // level 50, 27 from the attributes: Repair 127 read 62 after SetAV 35 and Science 127
+    // read 27 after SetAV 0, Guns 142 read 92 after SetAV 50, 15 above; that the 15 is
+    // Guns' tag bonus (fAVDTagSkillBonus) is a hypothesis, the save's tags were not read].
+    let v = if r == FormId::PLAYER_REF && crate::actor_values::SKILLS.contains(&code) { v + g.derived_skill(r, code) + g.tag_bonus(code) } else { v };
     set_base(g, r, code, v)?;
     none()
 }
@@ -294,13 +300,16 @@ pub fn set_actor_value(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, Strin
 /// change: (code, old value, new value) [observed: data3, ModAV Luck +1 gave (11, 10,
 /// 11), -1 (11, 11, 10)].
 fn watched(g: &mut Game, ctx: &Ctx, a: &Args, f: fn(&mut Game, &Ctx, &Args) -> Result<Value, String>) -> Result<Value, String> {
-    let target = ctx.subject().ok().zip(a.code(0).ok()).filter(|_| !g.gaps.av_handlers.is_empty());
+    let target = ctx.subject().ok().zip(a.code(0).ok()).filter(|_| !g.gaps.av_handlers.is_empty() || g.jg8_listening(crate::nvse_jg8::Ev::NpcActorValue));
     let before = target.and_then(|(r, c)| actor_value(g, r, c).ok());
     let out = f(g, ctx, a)?;
     if let (Some((r, c)), Some(old)) = (target, before) {
         if let Ok(new) = actor_value(g, r, c) {
             if new != old {
-                g.av_event(r, c, old, new);
+                if !g.gaps.av_handlers.is_empty() {
+                    g.av_event(r, c, old, new);
+                }
+                g.jg8_actor_value(r, c, old, new);
             }
         }
     }
@@ -308,6 +317,8 @@ fn watched(g: &mut Game, ctx: &Ctx, a: &Args, f: fn(&mut Game, &Ctx, &Args) -> R
 }
 
 pub fn set_actor_value_watched(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    // UnsetAV's base to go back to (`crate::nvse_jg6`).
+    crate::nvse_jg6::note_set_av(g, ctx, a);
     watched(g, ctx, a, set_actor_value)
 }
 pub fn mod_actor_value_watched(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
@@ -433,7 +444,7 @@ pub fn kill_actor(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     }
     if let Ok(location) = a.int(1) {
         if location >= 0 && g.is_dead(r) && r != FormId::PLAYER_REF {
-            g.combat_requests.push(crate::combat::CombatRequest::Dismember { actor: r, location, by: a.opt_form(0) });
+            g.combat_requests.push(crate::combat::CombatRequest::Dismember { actor: r, location, by: a.opt_form(0), explode: None });
         }
     }
     none()
@@ -474,11 +485,7 @@ pub fn is_weapon_out(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String
     if base_of(g, r).and_then(|b| g.data.sig(b)).as_ref() == Some(b"CREA") && super::items::equipped_weapon(g, r).is_none() {
         return yes(false);
     }
-    let told = g.senses.weapon_told.get(&r).is_some_and(|&t| (g.time - t).abs() < 1.0);
-    if r == FormId::PLAYER_REF || told {
-        return yes(g.extra.get(&r).is_some_and(|e| e.weapon_out));
-    }
-    yes(g.wants_weapon_out(r))
+    yes(g.weapon_is_out(r))
 }
 
 /// GetWeaponAnimType's value for a WEAP DNAM animation type (the record's numbering).
@@ -557,6 +564,10 @@ pub fn faction_rank(g: &Game, r: FormId, f: FormId) -> i32 {
     if let Some(&rank) = g.extra.get(&r).and_then(|e| e.factions.get(&f)) {
         return rank as i32;
     }
+    // SetBaseFactionRank's (`crate::nvse_jip11`).
+    if let Some(rank) = factions_source(g, r).and_then(|s| g.base_rank_override(s, f)) {
+        return rank.max(-1) as i32;
+    }
     base_factions(g, r).iter().find(|(x, _)| *x == f).map(|(_, rank)| *rank as i32).unwrap_or(-1)
 }
 
@@ -592,7 +603,7 @@ pub fn remove_from_faction(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, S
 /// A script changed `r`'s factions: the kept lists of them go ([`FactionKeep`]).
 fn forget_factions(g: &Game, r: FormId) {
     for keep in keeps(g) {
-        if let Ok(mut k) = keep.factions.lock() {
+        if let Ok(mut k) = keep.factions.write() {
             k.remove(&r);
         }
     }
@@ -603,7 +614,7 @@ fn forget_factions(g: &Game, r: FormId) {
 pub fn get_is_voice_type(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     let v = a.form(0)?;
-    let Some(voice) = g.traits_def(r).and_then(|d| d.voice) else { return yes(false) };
+    let Some(voice) = g.voice_type_of(r) else { return yes(false) };
     yes(voice == v || super::refs::list_members(g, v).contains(&voice))
 }
 
@@ -797,11 +808,11 @@ pub fn is_killer(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
 pub fn factions_of(g: &Game, r: FormId) -> Vec<FormId> {
     // Kept while asked again and again ([`FactionKeep`]).
     let kept = keep(g).map(|k| &k.factions);
-    if let Some(f) = kept.and_then(|k| k.lock().ok()?.get(&r).cloned()) {
+    if let Some(f) = kept.and_then(|k| k.read().ok()?.get(&r).cloned()) {
         return f;
     }
     let out = factions_now(g, r);
-    if let Some(mut k) = kept.and_then(|k| k.lock().ok()) {
+    if let Some(mut k) = kept.and_then(|k| k.write().ok()) {
         k.insert(r, out.clone());
     }
     out
@@ -813,10 +824,13 @@ pub fn factions_of(g: &Game, r: FormId) -> Vec<FormId> {
 /// (`Game::begin_faction_frame`). They change only by script (AddToFaction, SetEnemy and
 /// the like) and crimes (SetPCEnemyOfFaction's rule), which forget them
 /// ([`forget_factions`], [`forget_relations`]).
+///
+/// Read under a shared lock: a detection round works out its pairs' hostility on several
+/// threads at once (`Game::round_hostility`, #1799), and almost every ask is a read.
 #[derive(Debug, Default)]
 pub struct FactionKeep {
-    factions: std::sync::Mutex<std::collections::HashMap<FormId, Vec<FormId>>>,
-    relations: std::sync::Mutex<std::collections::HashMap<(FormId, FormId), i64>>,
+    factions: std::sync::RwLock<std::collections::HashMap<FormId, Vec<FormId>>>,
+    relations: std::sync::RwLock<std::collections::HashMap<(FormId, FormId), i64>>,
 }
 
 /// The keep in use: the detection round's while one runs, else the combat AI frame's.
@@ -829,8 +843,29 @@ fn keeps<'a>(g: &'a Game) -> impl Iterator<Item = &'a FactionKeep> {
     g.detection_round.as_ref().map(|round| &round.kept).into_iter().chain(g.faction_frame.as_ref())
 }
 
+/// The actor base that supplies `r`'s factions (its template chain's "Factions" source).
+fn factions_source(g: &Game, r: FormId) -> Option<FormId> {
+    if g.other.jip11.base_ranks.is_empty() {
+        return None;
+    }
+    base_of(g, r).map(|b| g.data.base_template_source(b, |d| d.template_factions))
+}
+
+/// SetBaseFactionRank changed a base: every kept faction list goes.
+pub(crate) fn forget_all_factions(g: &Game) {
+    for keep in keeps(g) {
+        if let Ok(mut k) = keep.factions.write() {
+            k.clear();
+        }
+    }
+    forget_relations(g);
+}
+
 fn factions_now(g: &Game, r: FormId) -> Vec<FormId> {
     let mut out: Vec<FormId> = base_factions(g, r).iter().map(|f| f.0).collect();
+    if let Some(s) = factions_source(g, r) {
+        out.extend(g.base_rank_overrides(s).into_iter().map(|(f, _)| f));
+    }
     if let Some(e) = g.extra.get(&r) {
         out.extend(e.factions.keys().copied());
     }
@@ -844,6 +879,10 @@ fn factions_now(g: &Game, r: FormId) -> Vec<FormId> {
 /// else FACT XNAM, else neutral (0) [documented: catalogue notes of
 /// GetFactionCombatReaction: 0 neutral for unlisted pairs, 1 enemy, 2 ally, 3 friend].
 pub fn reaction(g: &Game, a: FormId, b: FormId) -> i64 {
+    // SetAllyTemp's and SetEnemyTemp's first (`nvse_showoff3`).
+    if let Some(&v) = g.showoff.temp_reactions.get(&(a, b)) {
+        return v;
+    }
     if let Some(&v) = g.forms.faction_reactions.get(&a).and_then(|m| m.get(&b)) {
         return v;
     }
@@ -864,11 +903,11 @@ pub fn get_faction_combat_reaction(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result
 pub fn faction_relation(g: &Game, r: FormId, o: FormId) -> i64 {
     // Kept while asked again and again ([`FactionKeep`]).
     let kept = keep(g).map(|k| &k.relations);
-    if let Some(v) = kept.and_then(|k| k.lock().ok()?.get(&(r, o)).copied()) {
+    if let Some(v) = kept.and_then(|k| k.read().ok()?.get(&(r, o)).copied()) {
         return v;
     }
     let v = factions_relation(g, &factions_of(g, r), o);
-    if let Some(mut k) = kept.and_then(|k| k.lock().ok()) {
+    if let Some(mut k) = kept.and_then(|k| k.write().ok()) {
         k.insert((r, o), v);
     }
     v
@@ -878,7 +917,7 @@ pub fn faction_relation(g: &Game, r: FormId, o: FormId) -> i64 {
 /// relations go ([`FactionKeep`]).
 pub(crate) fn forget_relations(g: &Game) {
     for keep in keeps(g) {
-        if let Ok(mut k) = keep.relations.lock() {
+        if let Ok(mut k) = keep.relations.write() {
             k.clear();
         }
     }
@@ -891,7 +930,15 @@ pub fn factions_relation(g: &Game, mine: &[FormId], o: FormId) -> i64 {
     if o == FormId::PLAYER_REF && mine.iter().any(|f| g.player.enemy_of.contains(f)) {
         return 1;
     }
-    let theirs = factions_of(g, o);
+    factions_between(g, mine, o, &factions_of(g, o))
+}
+
+/// [`factions_relation`] with `o`'s factions given (`theirs`): reads no kept factions, so
+/// it takes no lock (a detection round's pairs on several threads, #1799).
+pub fn factions_between(g: &Game, mine: &[FormId], o: FormId, theirs: &[FormId]) -> i64 {
+    if o == FormId::PLAYER_REF && mine.iter().any(|f| g.player.enemy_of.contains(f)) {
+        return 1;
+    }
     let all: Vec<i64> = mine.iter().flat_map(|&x| theirs.iter().map(move |&y| (x, y))).map(|(x, y)| reaction(g, x, y)).collect();
     if all.contains(&1) {
         1
@@ -933,6 +980,8 @@ pub fn get_faction_relation(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, 
 /// or neutral (1) [documented: catalogue notes].
 pub fn set_enemy(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let (f1, f2) = (a.form(0)?, a.form(1)?);
+    g.showoff.temp_reactions.remove(&(f1, f2));
+    g.showoff.temp_reactions.remove(&(f2, f1));
     let v = |x: f64| if x != 0.0 { 0 } else { 1 };
     let (r12, r21) = (v(a.num_or(2, 0.0)), v(a.num_or(3, 0.0)));
     g.forms.faction_reactions.entry(f1).or_default().insert(f2, r12);
@@ -945,6 +994,8 @@ pub fn set_enemy(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
 /// or friend (1) [documented: catalogue notes].
 pub fn set_ally(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let (f1, f2) = (a.form(0)?, a.form(1)?);
+    g.showoff.temp_reactions.remove(&(f1, f2));
+    g.showoff.temp_reactions.remove(&(f2, f1));
     let v = |x: f64| if x != 0.0 { 3 } else { 2 };
     let (r12, r21) = (v(a.num_or(2, 0.0)), v(a.num_or(3, 0.0)));
     g.forms.faction_reactions.entry(f1).or_default().insert(f2, r12);

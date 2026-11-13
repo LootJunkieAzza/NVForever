@@ -27,6 +27,7 @@
 
 use crate::chargen::draw::{Align, Ctx, Kit, Which, BODY_BASE, LINE_PITCH, THICK};
 use crate::interface::{amber, at, set_line, u};
+use crate::bindings::Bindings;
 use crate::script::ScriptState;
 use crate::PlaySet;
 use bevy::image::CompressedImageFormatSupport;
@@ -82,8 +83,20 @@ const HINT_GAP: f32 = 5.0;
 /// symbol. None is in the masters; they are read by name from the game strings table
 /// ([`Words`]).
 const BUTTONS: [&str; 3] = ["sNext", "sPrevious", "sCloseButton"];
-const HINTS: [&str; 3] = ["sPCMenuHintA", "sPCMenuHintS", "sPCMenuHintE"];
 const MANUAL: &str = "sVDSGManual";
+/// The keys behind Next, Previous and Close (the file's `_PCButton_A`, `_S`, `_E`; Esc
+/// closes it too).
+const HINT_KEYS: [&[KeyCode]; 3] = [&[KeyCode::KeyA], &[KeyCode::KeyS], &[KeyCode::KeyE, KeyCode::Escape]];
+
+/// The key hints after Next, Previous and Close, in the menus' usual button style and
+/// following the input device: "A)", "S)", "E)" with the keyboard, the controller's
+/// buttons ("RT)", "LT)", "B)") with a controller [observed, issue #1904: the original
+/// shows "Close E)" with the keyboard and "Close B)" with a controller; Next and Previous
+/// in the same style: design]. The file's `&-sPCMenuHint*;` strings are in no plugin and
+/// were NVForever's own "[A]" labels (§2 of docs/spec-notes/tutorial-menu.md).
+pub fn hints(l: crate::pad::Labels) -> [String; 3] {
+    HINT_KEYS.map(|keys| crate::pad::hint_as(keys, crate::pad::at_menu(fnv_game::game::menus::TUTORIAL), l))
+}
 
 /// The menu's words: the load order's string settings over NVForever's own labels
 /// (`fnv_game::ui_loading::game_string`, `fnv_ui::strings::BUILT_IN`; menu-xml.md §2.4)
@@ -92,7 +105,7 @@ const MANUAL: &str = "sVDSGManual";
 pub struct Words {
     /// Next, Previous, Close.
     pub buttons: [String; 3],
-    /// Their PC key hints.
+    /// Their key hints ([`hints`]).
     pub hints: [String; 3],
     pub manual: String,
 }
@@ -104,7 +117,7 @@ impl Words {
             Some(g) => fnv_game::ui_loading::game_string(g, name),
             None => fnv_ui::strings::built_in(name).unwrap_or_default().to_owned(),
         };
-        Words { buttons: BUTTONS.map(word), hints: HINTS.map(word), manual: word(MANUAL) }
+        Words { buttons: BUTTONS.map(word), hints: hints(crate::pad::labels()), manual: word(MANUAL) }
     }
 }
 /// The background's darkness: the menus' (`crate::interface::MENU_BACKING`) [design: the
@@ -178,27 +191,35 @@ pub(crate) fn marks_to_breaks(s: &str) -> String {
     out
 }
 
-/// The pages of the open tutorial menu, none when it is not the open menu.
-pub fn pages(script: &ScriptState) -> Vec<Page> {
+/// The pages of the open tutorial menu, none when it is not the open menu; with `keys`
+/// the key strings name the keys bound now ([`pages_with`]).
+pub fn pages(script: &ScriptState, keys: Option<&Bindings>) -> Vec<Page> {
     let Some(rt) = script.rt.as_ref().filter(|rt| rt.game.menu == Some(menus::TUTORIAL)) else { return Vec::new() };
-    pages_of(&rt.game)
+    pages_of(&rt.game, keys)
 }
 
 /// The pages of the tutorial menu of `g`, as the hand-built drawing shows them.
-pub(crate) fn pages_of(g: &fnv_game::Game<'_>) -> Vec<Page> {
-    pages_with(g, plain_text)
+pub(crate) fn pages_of(g: &fnv_game::Game<'_>, keys: Option<&Bindings>) -> Vec<Page> {
+    pages_with(g, plain_text, keys)
 }
 
-/// The pages of the tutorial menu of `g`, each message's text read through `text`.
-pub(crate) fn pages_with(g: &fnv_game::Game<'_>, text: fn(&str) -> String) -> Vec<Page> {
+/// The pages of the tutorial menu of `g`, each message's text read through `text`. With
+/// `keys` its key strings (`&-sUActnUse;`, `&sDeviceMouse;`) name the keys or buttons
+/// bound now, as the lockpick help and the notes do (`crate::lockpick::help::expand_keys`)
+/// [observed: #1909, the Movement and Combat page printed the codes as they are].
+pub(crate) fn pages_with(g: &fnv_game::Game<'_>, text: fn(&str) -> String, keys: Option<&Bindings>) -> Vec<Page> {
     g.tutorial
         .iter()
         .map(|&m| {
             let def = g.data.messages.get(&m);
+            let body = text(def.and_then(|d| d.text.as_deref()).unwrap_or_default());
             Page {
                 message: m,
                 title: def.and_then(|d| d.title.clone()).unwrap_or_default(),
-                text: text(def.and_then(|d| d.text.as_deref()).unwrap_or_default()),
+                text: match keys {
+                    Some(k) => crate::lockpick::help::expand_keys(&body, k),
+                    None => body,
+                },
             }
         })
         .collect()
@@ -299,10 +320,11 @@ impl TutorialView {
 #[derive(Component)]
 struct TutorialRoot;
 
-/// What was drawn last: the pages, the view, the screen's size in units and whether the
-/// menu is drawn from its tiles (the scroll and the hover are then not this drawing's).
+/// What was drawn last: the pages, the view, the screen's size in units, whether the
+/// menu is drawn from its tiles (the scroll and the hover are then not this drawing's) and
+/// the key hints (a change of input device draws it again).
 #[derive(Default, PartialEq)]
-struct Shown(Vec<Page>, usize, i32, Option<TmButton>, (i32, i32), bool);
+struct Shown(Vec<Page>, usize, i32, Option<TmButton>, (i32, i32), bool, [String; 3]);
 
 pub struct TutorialMenuPlugin;
 
@@ -320,14 +342,16 @@ impl Plugin for TutorialMenuPlugin {
 /// pages: a tile's Next or Previous that frame is dropped, its Close and scroll still act
 /// [design].
 pub fn keys(
-    keys: Res<ButtonInput<KeyCode>>,
+    keys: crate::pad::ActionButtons<KeyCode>,
     (mut wheel, mut tiles): (MessageReader<MouseWheel>, MessageReader<TutorialInput>),
     clicks: Query<(&PointerState, &TmButton), Changed<PointerState>>,
     mut view: ResMut<TutorialView>,
     mut script: ResMut<ScriptState>,
+    (sticks, bindings, pads): (Option<Res<crate::pad::StickButtons>>, Option<Res<Bindings>>, crate::pad::ActionPads),
 ) {
+    let keys = keys.snapshot();
     use KeyCode::*;
-    let n = pages(&script).len();
+    let n = pages(&script, None).len();
     if n == 0 {
         wheel.clear();
         tiles.clear();
@@ -377,7 +401,9 @@ pub fn keys(
             return;
         }
     }
-    let mut by = 0.0;
+    let controller = bindings.is_some_and(|b| b.device == crate::bindings::InputDevice::Controller);
+    let filtered_sticks = sticks.as_ref().map(|s| pads.filter_sticks(s));
+    let mut by = stick_scroll(filtered_sticks.as_ref().filter(|_| controller));
     if keys.just_pressed(ArrowDown) {
         by += STEP;
     }
@@ -396,6 +422,24 @@ pub fn keys(
     }
 }
 
+/// How far the left stick scrolls the text this frame, with a controller working the
+/// controls: a step down or up for each push past [`crate::pad::STICK_PRESS`], as the
+/// D-pad's (issue #1905: in the original the left stick's Up and Down scroll the text as
+/// the D-pad's do, owner's play on a controller). A held push does not repeat [design:
+/// as the D-pad here].
+fn stick_scroll(sticks: Option<&crate::pad::StickButtons>) -> f32 {
+    use crate::pad::StickDir;
+    let Some(s) = sticks else { return 0.0 };
+    let mut by = 0.0;
+    if s.just_pressed(StickDir::Down) {
+        by += STEP;
+    }
+    if s.just_pressed(StickDir::Up) {
+        by -= STEP;
+    }
+    by
+}
+
 // ---- drawing -------------------------------------------------------------------------------
 
 #[allow(clippy::too_many_arguments)]
@@ -407,10 +451,12 @@ fn draw(
     windows: Query<&Window, With<PrimaryWindow>>,
     data: Option<Res<GameData>>,
     mut images: ResMut<Assets<Image>>,
+    glyphs: Res<crate::pad::PadGlyphs>,
     (formats, switch): (Option<Res<CompressedImageFormatSupport>>, Option<Res<crate::tiles::vanilla::TileMenus>>),
+    bindings: Option<Res<Bindings>>,
     mut shown: Local<Shown>,
 ) {
-    let pages = pages(&script);
+    let pages = pages(&script, bindings.as_deref());
     // T15b: with `[UI] TileMenus=TutorialMenu` the menu is drawn from its file
     // (`crate::tiles::tutorial_menu`); only the pages' lines and a sheet are left here.
     let tiled = script.rt.as_ref().is_some_and(|rt| crate::tiles::tutorial_menu::tiled(switch.as_ref().is_some_and(|s| s.tutorial), &rt.game));
@@ -419,7 +465,7 @@ fn draw(
     let screen = windows.single().map_or(Vec2::new(1280.0, 960.0), |w| Vec2::new(960.0 * w.width() / w.height().max(1.0), 960.0));
     let page = view.page.min(pages.len().saturating_sub(1));
     let (scroll, hover) = if tiled { (0, None) } else { (view.scroll.round() as i32, view.hover) };
-    let now = Shown(pages.clone(), page, scroll, hover, (screen.x.round() as i32, screen.y.round() as i32), tiled);
+    let now = Shown(pages.clone(), page, scroll, hover, (screen.x.round() as i32, screen.y.round() as i32), tiled, words.hints.clone());
     if now == *shown {
         return;
     }
@@ -427,6 +473,11 @@ fn draw(
         if let Some(p) = pages.get(page) {
             info!("tutorial menu: page {}/{} {:?} ({})", page + 1, pages.len(), p.title, p.message);
         }
+    }
+    if !tiled && !pages.is_empty() && (now.6 != shown.6 || shown.0.is_empty()) {
+        let [next, previous, close] = &words.hints;
+        let [n, pr, cl] = &words.buttons;
+        info!("tutorial menu: hints {n} {next}, {pr} {previous}, {cl} {close}");
     }
     let scroll_moved = now.2 != shown.2;
     *shown = now;
@@ -446,7 +497,7 @@ fn draw(
     let bc = crate::interface::bc_supported(formats.as_deref());
     let view = view.into_inner();
     let kit = view.kit.get_or_insert_with(|| Kit::load(data.as_deref(), &mut images, bc));
-    let mut c = Ctx { kit, data: data.as_deref(), images: &mut images, bc };
+    let mut c = Ctx { kit, data: data.as_deref(), images: &mut images, bc, glyphs: &glyphs };
     let (w, h) = (screen.x * SCALE, screen.y * SCALE);
     let widths = [0, 1, 2].map(|k| c.width(Which::Body, &words.buttons[k]));
     let l = layout(w, h, widths, crate::chargen::draw::BODY_H);
@@ -555,6 +606,32 @@ fn spawn_page(b: &mut ChildSpawnerCommands, c: &mut Ctx, l: &Layout, p: &Page, w
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Issue #1905: the left stick's push down or up scrolls a step, once per push.
+    #[test]
+    fn the_left_stick_scrolls_a_step_a_push() {
+        use crate::pad::{StickButtons, StickDir};
+        let mut s = StickButtons::default();
+        assert_eq!(stick_scroll(Some(&s)), 0.0);
+        s.now[StickDir::Down.index()] = true;
+        assert_eq!(stick_scroll(Some(&s)), STEP);
+        s.before = s.now;
+        assert_eq!(stick_scroll(Some(&s)), 0.0, "a held push does not repeat");
+        s = StickButtons::default();
+        s.now[StickDir::Up.index()] = true;
+        assert_eq!(stick_scroll(Some(&s)), -STEP);
+        assert_eq!(stick_scroll(None), 0.0, "no controller at work");
+    }
+
+    /// Issue #1904: the hints are in the usual button style and name the controller's
+    /// buttons with a controller (RT Next, LT Previous, B Close).
+    #[test]
+    fn hints_follow_the_input_device() {
+        use crate::pad::Labels;
+        assert_eq!(hints(Labels::Keys), ["A)", "S)", "E)"]);
+        assert_eq!(hints(Labels::Xbox), ["RT)", "LT)", "B)"]);
+        assert_eq!(hints(Labels::PlayStation), ["R2)", "L2)", "Circle)"]);
+    }
 
     #[test]
     fn the_marks_become_paragraphs() {
@@ -669,5 +746,57 @@ mod tests {
         assert_eq!(max_scroll(100.0, 456.0), 0.0);
         assert_eq!(max_scroll(456.0, 456.0), 30.0);
         assert_eq!(max_scroll(500.0, 456.0), 90.0);
+    }
+
+    /// A tutorial page's key strings name the keys bound now, in the hand-built and the
+    /// tiled menu's text alike [#1909]. A plugin with nothing but its header and the
+    /// player; the message is put in by hand (synthetic text, charter).
+    #[test]
+    fn a_tutorial_page_names_the_keys_bound() {
+        use fnv_esm::raw::{write_subrecords, Subrecord};
+        use fnv_esm::{LoadOrder, Plugin, Schema};
+        use fnv_game::{Game, GameConfig, GameData};
+        use fnv_sim::{FormStore, RefTable, SimConfig, World};
+        use fnv_sim::FormId;
+
+        let record = |sig: &[u8; 4], fid: u32, subs: &[Subrecord]| {
+            let payload = write_subrecords(subs);
+            [&sig[..], &(payload.len() as u32).to_le_bytes(), &0u32.to_le_bytes(), &fid.to_le_bytes(), &[0; 4], &15u16.to_le_bytes(), &[0; 2], &payload].concat()
+        };
+        let hedr = [1.34f32.to_le_bytes(), 0i32.to_le_bytes(), 0x800u32.to_le_bytes()].concat();
+        let player = record(b"NPC_", 0x7, &[Subrecord { sig: *b"EDID", data: b"Player ".to_vec(), extended: false }]);
+        let bytes = [
+            record(b"TES4", 0, &[Subrecord { sig: *b"HEDR", data: hedr, extended: false }]),
+            [&b"GRUP"[..], &((24 + player.len()) as u32).to_le_bytes(), b"NPC_", &0i32.to_le_bytes(), &[0; 8], &player].concat(),
+        ]
+        .concat();
+        let plugins = vec![Plugin::parse(&bytes, "Tutorial.esm".into()).unwrap()];
+        let lo = LoadOrder::new(&plugins).unwrap();
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas");
+        let schema = Schema::load_dir(root.join("fnv")).unwrap();
+        let functions = root.join("script/functions.json");
+        let json: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&functions).unwrap()).unwrap();
+        let (forms, refs) = (FormStore::build(&lo, &schema), RefTable::build(&lo, &schema));
+        let mut data = GameData::build(&lo, &schema, fnv_script::FunctionTable::load(&functions).unwrap(), &json, &refs);
+        let page = FormId(0x900);
+        let text = "nvf go:
+
+&-sUActnUse;: nvf hit &-sUActnBlock;: nvf hold
+&sDeviceMouse;: nvf look";
+        data.messages.insert(page, fnv_game::data::MessageDef { title: Some("nvf page".into()), text: Some(text.into()), ..Default::default() });
+        let mut g = Game::new(&data, World::new(&forms, &refs, SimConfig::default()), GameConfig::default());
+        g.tutorial.push(page);
+
+        let keys = Bindings::game_defaults();
+        let shown = pages_of(&g, Some(&keys));
+        assert_eq!(shown.len(), 1);
+        assert!(shown[0].text.contains("Left Mouse: nvf hit Left Alt: nvf hold"), "{}", shown[0].text);
+        assert!(shown[0].text.contains("Mouse: nvf look"), "{}", shown[0].text);
+        assert!(!shown[0].text.contains('&'), "{}", shown[0].text);
+        let tiled = pages_with(&g, crate::tiles::tutorial_menu::body_text, Some(&keys));
+        assert!(tiled[0].text.contains("Left Mouse: nvf hit") && !tiled[0].text.contains('&'), "{}", tiled[0].text);
+        // Block names its first key (the defaults: Left Alt, Right Mouse), as the lockpick
+        // help does. Without bindings (none loaded yet) the text is as it was.
+        assert!(pages_of(&g, None)[0].text.contains("&-sUActnUse;"));
     }
 }

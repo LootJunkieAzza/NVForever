@@ -241,6 +241,10 @@ impl Ai {
                 self.log(game, actor, AiEvent::Arrived { package, seconds, travelled, patrol_point: None });
                 self.lie_in_wait(game, actor, package, &am);
             }
+            // Back at its wait location after the fight (`Ai::back_to_package`): it stands.
+            (Some(Goal::Ambush(_)), Some(Errand::Ambush { sprung: true, .. })) => {
+                self.log(game, actor, AiEvent::Arrived { package, seconds, travelled, patrol_point: None });
+            }
             (Some(Goal::Flee(_)), Some(Errand::Flee { from, .. })) => {
                 self.log(game, actor, AiEvent::FleeSafe { package, from, seconds });
                 *self.errand_mut(actor) = Some(Errand::Flee { from: None, next_look: game.time + FLEE_LOOK_SECONDS });
@@ -449,9 +453,16 @@ impl Ai {
         if found >= f.count {
             return;
         }
+        // Furniture another actor sits on or is on its way to is not free (as for Use Item
+        // At): in Fallout 3's G.O.A.T. (CG03, TTW) every student's Find looks for "any
+        // furniture" near the classroom marker, and without this two of them went to
+        // the same desk and stood beside it. A seat the player (or any actor the engine
+        // seats) is on is not free either.
+        let taken = self.taken_by_others(actor);
         let objects: Vec<(f32, FormId)> = self.objects(game, actor, f.wanted, &f.area, centre, f.kill, f.steal, f.buy || self.cfg.find_buying, feet)
             .into_iter()
             .filter(|(_, r)| !given_up.contains(r))
+            .filter(|(_, r)| !taken.contains(r) && !game.furniture_used_by_other(actor, *r))
             // Furniture it has no clips for is not what it looks for: passed over before
             // a way is planned, it counts for nothing (`crate::furniture`).
             .filter(|(_, r)| self.furniture.fits_assigned(game, actor, *r))
@@ -462,8 +473,9 @@ impl Ai {
             let params = self.path_params(game, actor);
             let running = game.data.package_defs.get(&package).is_some_and(|d| d.has(fnv_game::package::flags::ALWAYS_RUN));
             let speed = self.pace(game, actor, running);
+            let own = Ai::walk_pace_of(game, actor, running, speed);
             let a = self.agents.get_mut(&actor).expect("listed");
-            a.walker.speed = speed;
+            (a.walker.speed, a.walk_pace) = (speed, own);
             let near = to.space == feet.space && hdist(to.pos, feet.pos) <= self.cfg.arrive.max(f.distance);
             let way = if near { Ok(0.0) } else { a.walker.go_to(nav, to, &params).map(|p| p.length) };
             let Ok(length) = way else {
@@ -478,6 +490,10 @@ impl Ai {
                 a.activity = Activity::Travelling;
                 a.trip_started = game.time;
                 a.trip_from = a.walker.travelled;
+            }
+            if game.data.furniture.contains_key(&fnv_game::functions::base_of(game, object).unwrap_or(FormId(0))) {
+                // Kept for it from now, so the next actor looks for another.
+                self.reserve(actor, object);
             }
             self.log(game, actor, AiEvent::FindGoes { package, object, length });
             if near {
@@ -616,7 +632,7 @@ impl Ai {
             }
         }
         let taken = self.taken_by_others(actor);
-        let free = |r: &FormId| !taken.contains(r);
+        let free = |game: &Game, r: FormId| !taken.contains(&r) && !game.furniture_used_by_other(actor, r);
         let sit = |game: &Game, r: FormId| fnv_game::functions::base_of(game, r).and_then(|b| game.data.furniture.get(&b)).is_some_and(|f| f & furniture::SIT != 0);
         let thing = match u.wanted {
             // Furniture it has no clips for is nothing to use: it goes to the package's
@@ -626,7 +642,7 @@ impl Ai {
             w => {
                 let area = Area { centre: Some(centre), radius: u.area.radius };
                 let found = self.objects(game, actor, w, &area, centre, false, true, false, feet);
-                found.into_iter().map(|x| x.1).filter(free).filter(|r| !u.sit_down || sit(game, *r)).find(|r| self.furniture.fits_assigned(game, actor, *r))
+                found.into_iter().map(|x| x.1).filter(|r| free(game, *r)).filter(|r| !u.sit_down || sit(game, *r)).find(|r| self.furniture.fits_assigned(game, actor, *r))
             }
         };
         *self.errand_mut(actor) = Some(Errand::UseAt { thing });
@@ -789,7 +805,7 @@ impl Ai {
         let params = self.path_params(game, actor);
         let speed = self.pace(game, actor, true);
         let a = self.agents.get_mut(&actor).expect("listed");
-        a.walker.speed = speed;
+        (a.walker.speed, a.walk_pace) = (speed, None);
         for to in tries {
             let Ok(length) = a.walker.go_to(nav, to, &params).map(|p| p.length) else { continue };
             a.activity = Activity::Travelling;

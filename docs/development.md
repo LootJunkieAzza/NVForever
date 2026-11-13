@@ -28,14 +28,25 @@ Python 3.11+.
 
 ```bash
 cargo build --release -p fnvtool            # the command-line tool: target/release/fnvtool(.exe)
-cargo test --workspace --release
+(cd engine && cargo build --release)        # Bevy viewer and game (first build takes a while)
+```
+
+The checks, the commands CI runs in its order (`python tools/smoke plan` lists the ones your
+changed files call for; the cargo deny ones need `cargo install cargo-deny`):
+
+```bash
+cargo test --workspace --release --locked
+cargo clippy --workspace --all-targets --release --locked -- -D warnings
+(cd engine && cargo test --release --locked)
+(cd engine && cargo clippy --release --locked --all-targets -- -D warnings)
+cargo deny check licenses advisories bans sources
+cargo deny --manifest-path engine/Cargo.toml check licenses advisories bans sources
 python -m unittest discover -s parity-lab/tests
 python -m unittest discover -s tools/capture/tests
 python -m unittest discover -s tools/smoke/tests
 python -m unittest discover -s tools/stress/tests
-cargo clippy --workspace --all-targets --release -- -D warnings
-cd engine && cargo build --release          # Bevy viewer and game (first build takes a while)
-cargo clippy --release --all-targets -- -D warnings   # in engine/: the Bevy workspace
+python -m unittest discover -s tools/profile/tests
+python -m unittest discover -s tools/release/tests
 ```
 
 With the game installed, two more checks run against your own data:
@@ -100,7 +111,8 @@ More options: `--world <WRLD>`, `--pitch`, `--weather`, `--fov`, `--size WxH`,
 `--actors-pass-through`. `nvforever --help` lists them all.
 
 Keys in `--play` are the game's defaults (W/A/S/D, E use, Tab Pip-Boy, T wait, F5/F9
-quicksave/quickload, Esc pause, `` ` `` console, F12 screenshot); the full list is in
+quicksave/quickload, Esc pause, `` ` `` console, F12 screenshot, saved as
+`nvforever-NNN.png` in the home's `screenshots` folder at the first free number); the full list is in
 [spec-notes/controls.md](spec-notes/controls.md). In the explorer:
 W/A/S/D move, Q/E down/up, Shift faster, right mouse drag look, wheel speed, `[`/`]` hour.
 

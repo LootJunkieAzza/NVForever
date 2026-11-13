@@ -169,6 +169,10 @@ const NPC_REF: u32 = 0x320;
 const NPC_AUTO_REF: u32 = 0x321;
 const PATROL_REF: u32 = 0x330;
 const OTHER_REF: u32 = 0x331;
+const TELEPORT_DOOR: u32 = 0x940;
+const DOOR_REF: u32 = 0x340;
+const DEST_DOOR_REF: u32 = 0x341;
+const DOOR_POS: [f32; 3] = [11.0, 22.0, 33.0];
 
 const SET_STAGE: u16 = 0x1039;
 const GET_SECONDS_PASSED: u16 = 0x100C;
@@ -257,12 +261,25 @@ fn plugin_bytes() -> Vec<u8> {
         ),
     ]
     .concat();
-    // NPC script: nDone (1, short).
+    // NPC script: nDone (1), nFrames (3), nOnLoad (7), all short counters.
     //   begin SayToDone
     //     set nDone to nDone + 1
     //   end
     let body = set(var(b's', 1), ex(&[var(b's', 1), a("1"), a("+")]));
-    let npcscript = [vec![sub(b"EDID", z("NpcScript"))], unit(0, &script(&[(0x07, None, body)]), &[(1, "nDone", 1)], &[])].concat();
+    let npcscript = [
+        vec![sub(b"EDID", z("NpcScript"))],
+        unit(
+            0,
+            &script(&[
+                (0x07, None, body),
+                (0, None, set(var(b's', 3), ex(&[var(b's', 3), a("1"), a("+")]))),
+                (0x15, None, set(var(b's', 7), ex(&[var(b's', 7), a("1"), a("+")]))),
+            ]),
+            &[(1, "nDone", 1), (3, "nFrames", 1), (7, "nOnLoad", 1)],
+            &[],
+        ),
+    ]
+    .concat();
     // Trigger script: fSum (1, float); no GameMode block.
     //   begin OnTrigger
     //     set fSum to fSum + GetSecondsPassed
@@ -413,17 +430,28 @@ fn plugin_bytes() -> Vec<u8> {
         ]
         .concat(),
     );
-    let children = group(CELL.to_le_bytes(), 6, &group(CELL.to_le_bytes(), 9, &[refr, trig_ref, achr, achr_auto, patrol_ref].concat()));
+    let door = record(b"DOOR", 0, TELEPORT_DOOR, &[sub(b"EDID", z("TestTeleportDoor"))]);
+    let destination: Vec<u8> = DOOR_POS.into_iter().chain([0.0, 0.0, 0.75]).flat_map(f32::to_le_bytes).collect();
+    let door_ref = record(b"REFR", 0, DOOR_REF, &[
+        sub(b"EDID", z("TestDoorREF")), sub(b"NAME", TELEPORT_DOOR.to_le_bytes().to_vec()), sub(b"DATA", vec![0; 24]),
+        // XTEL: destination door, position and rotation, No Alarm (u32) [xEdit REFR XTEL].
+        sub(b"XTEL", [DEST_DOOR_REF.to_le_bytes().to_vec(), destination, 0u32.to_le_bytes().to_vec()].concat()),
+    ]);
+    let dest_door = record(b"REFR", 0, DEST_DOOR_REF, &[
+        sub(b"NAME", TELEPORT_DOOR.to_le_bytes().to_vec()), sub(b"DATA", vec![0; 24]),
+    ]);
+    let children = group(CELL.to_le_bytes(), 6, &group(CELL.to_le_bytes(), 9, &[refr, trig_ref, achr, achr_auto, patrol_ref, door_ref].concat()));
     // A second cell, with one unscripted reference to move things to.
     let other_cell = record(b"CELL", 0, OTHER_CELL, &[sub(b"EDID", z("TestOtherCell"))]);
     let other_ref = record(b"REFR", 0, OTHER_REF, &[sub(b"EDID", z("TestOtherREF")), sub(b"NAME", MARKER.to_le_bytes().to_vec()), sub(b"DATA", vec![0; 24])]);
-    let other_children = group(OTHER_CELL.to_le_bytes(), 6, &group(OTHER_CELL.to_le_bytes(), 9, &other_ref));
+    let other_children = group(OTHER_CELL.to_le_bytes(), 6, &group(OTHER_CELL.to_le_bytes(), 9, &[other_ref, dest_door].concat()));
     [
         tes4(),
         top(b"GLOB", &glob),
         top(b"MESG", &mesg),
         top(b"SCPT", &scpt),
         top(b"ACTI", &[acti, trig, marker].concat()),
+        top(b"DOOR", &door),
         top(b"NPC_", &[npc, npc_auto].concat()),
         top(b"WEAP", &record(b"WEAP", 0, WEAPON, &[sub(b"EDID", z("TestWeapon")), sub(b"SCRI", WEAPON_SCRIPT.to_le_bytes().to_vec()), sub(b"DATA", vec![0; 15])])),
         top(b"PACK", &pack),
@@ -797,6 +825,41 @@ fn coop_players_round_trip_apart_from_the_player() {
     assert!(Game::restore(&f.data, world, g.cfg, &twice).is_err());
 }
 
+/// A change that spoils a snapshot.
+type SnapshotChange<'a> = Box<dyn Fn(&mut fnv_game::game::GameSnapshot) + 'a>;
+
+/// What a load asks before it starts anything from a save says what the restores would
+/// say (#1590): a good snapshot passes, and each refusal is the restores' own.
+#[test]
+fn a_snapshot_says_whether_the_restores_take_it() {
+    use fnv_game::coop::CoopPlayer;
+    use fnv_game::game::GameSnapshot;
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    g.world.get(FormId::PLAYER_REF).unwrap();
+    let p2 = CoopPlayer::copy_of_player(&g, 2).unwrap();
+    let good = g.snapshot();
+    let restores = |s: &GameSnapshot| World::restore(&f.forms, &f.refs, &s.sim).and_then(|w| Game::restore(&f.data, w, g.cfg, s).map(|_| ()));
+    assert_eq!(good.check(), Ok(()));
+    assert_eq!(restores(&good), Ok(()));
+    let bad: [(&str, SnapshotChange<'_>); 6] = [
+        ("unsupported snapshot format \"fnv.game.state/2\"", Box::new(|s| s.format = "fnv.game.state/2".into())),
+        ("unsupported snapshot format \"fnv.sim.state/2\"", Box::new(|s| s.sim.format = "fnv.sim.state/2".into())),
+        ("bad rng_word_pos \"x\"", Box::new(|s| s.rng_word_pos = "x".into())),
+        ("bad rng_word_pos \"y\"", Box::new(|s| s.sim.rng_word_pos = "y".into())),
+        ("given twice", Box::new(|s| s.coop = vec![p2.clone(), p2.clone()])),
+        ("slots are", Box::new(|s| s.coop = vec![CoopPlayer { slot: 1, ..p2.clone() }])),
+    ];
+    for (why, change) in bad {
+        let mut s = good.clone();
+        change(&mut s);
+        let e = s.check().unwrap_err();
+        assert!(e.contains(why), "{why}: {e}");
+        assert_eq!(restores(&s), Err(e));
+    }
+}
+
 #[test]
 fn a_save_made_with_another_load_order_drops_the_missing_plugins_forms() {
     // docs/design/save-load.md §4.1. The save was made with [Test.esm, Extra.esm] and is
@@ -1139,7 +1202,7 @@ fn a_disabled_reference_runs_on_load_when_its_cell_loads() {
     assert_eq!(loads(&g), 2.0);
 }
 
-/// How many times `r`'s OnLoad block has run (the activator script's nOnLoad).
+/// How many times `r`'s OnLoad block has run (the fixture scripts' nOnLoad).
 fn on_loads(g: &Game, r: FormId) -> f64 {
     match g.var(InstKey::Ref { reference: r }, 7) {
         Value::Num(x) => x,
@@ -1149,6 +1212,101 @@ fn on_loads(g: &Game, r: FormId) -> f64 {
 
 fn load_only(g: &mut Game, cell: u32) {
     g.set_loaded([FormId(cell)].into_iter().collect());
+}
+
+/// [design: game.rs scripted_refs_in] A scripted door move registers an NPC for
+/// destination GameMode and OnLoad selection, including after a save is restored.
+#[test]
+fn a_scripted_npc_sent_through_a_door_runs_in_its_destination() {
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    let npc = FormId(NPC_REF);
+    let frames = |g: &Game| g.var(InstKey::Ref { reference: npc }, 3);
+    load_only(&mut g, CELL);
+    assert_eq!(on_loads(&g, npc), 1.0);
+    g.tick();
+    assert_eq!(frames(&g), Value::Num(1.0));
+    g.events.clear();
+    g.run_source("TestDoorREF.Activate TestNpcREF", Default::default()).unwrap();
+    let s = g.world.peek(npc).unwrap();
+    assert_eq!((s.cell, s.pos, s.rot), (Some(FormId(OTHER_CELL)), DOOR_POS, [0.0, 0.0, 0.75]));
+    assert!(g.moved.contains(&npc));
+    assert_eq!(g.take_teleported(), [npc].into_iter().collect());
+    assert!(g.brought_along.is_empty());
+    assert!(!g.turned.contains(&npc));
+    assert_eq!(g.events.iter().filter(|e| matches!(e.kind, EventKind::Moved { reference, cell: Some(cell), pos }
+        if reference == npc && cell == FormId(OTHER_CELL) && pos == DOOR_POS)).count(), 1);
+    g.tick();
+    assert_eq!(frames(&g), Value::Num(1.0), "the source no longer runs the NPC");
+    load_only(&mut g, OTHER_CELL);
+    assert_eq!(on_loads(&g, npc), 2.0);
+    g.tick();
+    assert_eq!(frames(&g), Value::Num(2.0));
+    load_only(&mut g, OTHER_CELL);
+    assert_eq!(on_loads(&g, npc), 2.0, "no second load while the cell stays loaded");
+    load_only(&mut g, CELL);
+    assert_eq!(on_loads(&g, npc), 2.0, "the authored cell loads without it");
+    load_only(&mut g, OTHER_CELL);
+    assert_eq!(on_loads(&g, npc), 3.0, "once on destination reload");
+
+    let saved: fnv_game::game::GameSnapshot = serde_json::from_str(&serde_json::to_string(&g.snapshot()).unwrap()).unwrap();
+    let world = World::restore(&f.forms, &f.refs, &saved.sim).unwrap();
+    let mut restored = Game::restore(&f.data, world, g.cfg, &saved).unwrap();
+    assert_eq!(restored.cell_of(npc), Some(FormId(OTHER_CELL)));
+    assert!(restored.moved.contains(&npc));
+    restored.tick();
+    assert_eq!(frames(&restored), Value::Num(3.0));
+    load_only(&mut restored, CELL);
+    restored.tick();
+    assert_eq!(frames(&restored), Value::Num(3.0));
+    assert_eq!(on_loads(&restored, npc), 3.0);
+    load_only(&mut restored, OTHER_CELL);
+    assert_eq!(on_loads(&restored, npc), 4.0);
+    restored.tick();
+    assert_eq!(frames(&restored), Value::Num(4.0));
+}
+
+#[test]
+fn an_unscripted_npc_door_move_is_reported_only_after_success() {
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    load_only(&mut g, CELL);
+    let npc = FormId(NPC_AUTO_REF);
+    g.events.clear();
+    g.world.lock(FormId(DOOR_REF), Some(50)).unwrap();
+    g.run_source("TestDoorREF.Activate TestAutoNpcREF", Default::default()).unwrap();
+    assert_eq!(g.cell_of(npc), Some(FormId(CELL)));
+    assert!(g.take_teleported().is_empty());
+    assert!(!g.events.iter().any(|e| matches!(e.kind, EventKind::Moved { .. })));
+    g.world.unlock(FormId(DOOR_REF)).unwrap();
+    g.run_source("TestDoorREF.Activate TestAutoNpcREF", Default::default()).unwrap();
+    assert_eq!(g.cell_of(npc), Some(FormId(OTHER_CELL)));
+    assert_eq!(g.take_teleported(), [npc].into_iter().collect());
+    assert!(!g.moved.contains(&npc));
+    assert!(!g.turned.contains(&npc));
+    assert_eq!(g.loaded_cells, [FormId(CELL)].into_iter().collect());
+    assert_eq!(g.events.iter().filter(|e| matches!(e.kind, EventKind::Moved { reference, .. } if reference == npc)).count(), 1);
+}
+
+#[test]
+fn a_player_door_move_keeps_cell_entry_and_followers() {
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    load_only(&mut g, CELL);
+    let npc = FormId(NPC_REF);
+    g.extra.entry(npc).or_default().teammate = true;
+    g.events.clear();
+    g.run_source("TestDoorREF.Activate player", Default::default()).unwrap();
+    assert_eq!(g.cell_of(FormId::PLAYER_REF), Some(FormId(OTHER_CELL)));
+    assert_eq!(g.loaded_cells, [FormId(OTHER_CELL)].into_iter().collect());
+    assert_eq!(g.cell_of(npc), Some(FormId(OTHER_CELL)));
+    assert_eq!(g.brought_along, [npc].into_iter().collect());
+    assert_eq!(g.take_teleported(), [npc].into_iter().collect());
+    assert_eq!(g.events.iter().filter(|e| matches!(e.kind, EventKind::Moved { reference, .. } if reference == npc)).count(), 1);
+    assert!(!g.events.iter().any(|e| matches!(e.kind, EventKind::Moved { reference: FormId::PLAYER_REF, .. })));
 }
 
 /// OnLoad at a cell load goes by the cell a reference is in now: a moved one runs it when
@@ -1227,6 +1385,22 @@ fn a_moved_player_runs_no_on_load_at_a_cell_load() {
     assert_eq!(on_loads(&g, FormId::PLAYER_REF), 0.0);
 }
 
+/// A player moved to a marker turns to the marker's heading and keeps the view's pitch;
+/// moved to itself it keeps its heading (issue #2226: the ending's XMarkerHeading faces
+/// the slide).
+#[test]
+fn a_moved_player_takes_the_markers_heading() {
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    g.world.get(FormId(OTHER_REF)).unwrap().rot = [0.4, 0.0, 1.5];
+    g.world.get(FormId::PLAYER_REF).unwrap().rot = [0.3, 0.0, 2.5];
+    g.run_source("player.MoveTo TestOtherREF", Default::default()).unwrap();
+    assert_eq!(g.world.get(FormId::PLAYER_REF).unwrap().rot, [0.3, 0.0, 1.5]);
+    g.run_source("player.MoveTo player 0 0 10", Default::default()).unwrap();
+    assert_eq!(g.world.get(FormId::PLAYER_REF).unwrap().rot, [0.3, 0.0, 1.5]);
+}
+
 /// An OnLoad event handler that counts in TestGlobal: 1 for the activator, 10 for the
 /// trigger, 100 for the unscripted reference of the other cell.
 const COUNT_ON_LOADS: &str = "SetEventHandler \"OnLoad\" (begin function {ref rOn, ref rSame}\nif rOn == TestActivatorREF\nlet TestGlobal := TestGlobal + 1\nelseif rOn == TestTriggerREF\nlet TestGlobal := TestGlobal + 10\nelseif rOn == TestOtherREF\nlet TestGlobal := TestGlobal + 100\nendif\nend)";
@@ -1280,14 +1454,17 @@ fn an_ai_that_runs_packages_runs_their_begin_end_and_change_scripts() {
     add(&mut g);
     assert_eq!(g.evaluate_package(npc), Some(FormId(PACK_EVENTS)));
     assert_eq!(global(&g), 21.0);
-    // It reaches its goal: the end script; being replaced afterwards is not a change.
+    // It reaches its goal: the end script, once; being replaced afterwards is a change
+    // too (its change script runs as the actor leaves it, issue #2221).
     g.package_goal_met(npc);
     assert_eq!(global(&g), 22.0);
     g.package_goal_met(npc);
+    assert_eq!(global(&g), 22.0);
     remove(&mut g);
     g.world.set_global(FormId(GLOBAL), 0.0).unwrap();
     assert_eq!(g.evaluate_package(npc), Some(FormId(PACK_IDLE)));
-    assert_eq!(global(&g), 0.0);
+    assert_eq!(global(&g), 23.0, "the change script ran as the finished package was left");
+    g.world.set_global(FormId(GLOBAL), 0.0).unwrap();
     // Replaced before its goal: the change script.
     add(&mut g);
     g.evaluate_package(npc);
@@ -1372,6 +1549,37 @@ fn the_runner_fires_a_carried_weapon_and_runs_its_on_fire_block() {
     assert!(steps[2].get("error").is_none(), "{} {}", out["steps"], out["events"]);
     let obs = out["observations"].as_array().unwrap();
     assert_eq!(obs.iter().find(|o| o["label"] == "after").unwrap()["value"], 9.0);
+}
+
+/// #1848: a labelled step that fails answers with its error, whatever the action; the
+/// menu steps open and close the container menu as the game does; `#0` is no index.
+#[test]
+fn the_runners_failed_steps_answer_and_its_menus_open_and_close() {
+    let f = fixture();
+    let input: fnv_game::runner::Input = serde_json::from_value(json!({
+        "format": "fnv.script.actions/1",
+        "actions": [
+            {"op": "consume", "item": "NoSuchItem", "label": "consume"},
+            {"op": "get_quest", "quest": "NoSuchQuest", "fields": ["stage"], "label": "quest"},
+            {"op": "sample_ref_var", "ref": "TestActivatorREF", "var": "nNoSuchVar", "frames": 2, "label": "sample"},
+            {"op": "get_ref", "of": "scripted:ActScript#0", "label": "zero"},
+            {"op": "get_ref", "of": "scripted:ActScript#1", "label": "one"},
+            {"op": "call", "line": "TestNpcREF.KillActor"},
+            {"op": "hold_menu", "via": "TestNpcREF", "frames": 3}
+        ]
+    }))
+    .unwrap();
+    let out = fnv_game::runner::run(&f.data, &f.forms, &f.refs, &input).unwrap();
+    let steps = out["steps"].as_array().unwrap();
+    let obs = |l: &str| out["observations"].as_array().unwrap().iter().find(|o| o["label"] == l).cloned();
+    for (i, l) in ["consume", "quest", "sample", "zero"].into_iter().enumerate() {
+        assert!(steps[i].get("error").is_some(), "{l}: {}", out["steps"]);
+        assert!(obs(l).is_some_and(|o| o["errors"]["action"].is_string()), "{l}: {}", out["observations"]);
+    }
+    assert!(steps[4].get("error").is_none(), "{}", out["steps"]);
+    assert!(steps[6].get("error").is_none(), "{}", out["steps"]);
+    let events = out["events"].to_string();
+    assert!(events.contains(r#""kind":"menu_opened","menu":1008"#) && events.contains(r#""kind":"menu_closed","menu":1008"#), "{events}");
 }
 
 /// `save_load`: the game is written into a save's bytes and restored from them; what a
@@ -1616,6 +1824,47 @@ fn a_line_said_for_its_fixed_speaker_is_timed_by_the_fixed_speakers_file() {
 }
 
 #[test]
+fn a_scripts_say_falls_back_to_a_fixed_speakers_line_when_no_line_passes_the_check() {
+    // Issue #965: Dead Money's narrator is told to SayTo topics whose only line names
+    // Elijah (or Vera) as fixed speaker, with no GetIsID condition. A script's Say or
+    // SayTo then says that line in the fixed speaker's stead; other Say callers (combat
+    // barks, package topics) keep the check (dialogue.md §4).
+    let speaker = FormId(NPC_REF);
+    let mut f = fixture();
+    for i in [INFO_A, INFO_B] {
+        f.data.infos.get_mut(&FormId(i)).unwrap().speaker = Some(FormId(NPC_AUTO));
+    }
+    let mut g = game(&f);
+    g.new_game();
+    assert!(!g.can_say(speaker, Some(FormId::PLAYER_REF), FormId(INFO_A)));
+    assert_eq!(g.say(speaker, None, FormId(TOPIC), false), None);
+    assert_eq!(g.say_by_script(speaker, Some(FormId::PLAYER_REF), FormId(TOPIC), true), Some(FormId(INFO_A)));
+    // A topic with a line the speaker passes the check for picks as before: the
+    // fixed speaker's line stored first is passed over.
+    let mut f = fixture();
+    f.data.infos.get_mut(&FormId(INFO_A)).unwrap().speaker = Some(FormId(NPC_AUTO));
+    let mut g = game(&f);
+    g.new_game();
+    assert_eq!(g.say_by_script(speaker, None, FormId(TOPIC), false), Some(FormId(INFO_B)));
+}
+
+#[test]
+fn a_scripts_say_does_not_fall_back_when_the_speakers_own_line_is_spent() {
+    // Review of #1767: the fallback is decided from the data, not from the run-time
+    // result. The speaker's own Say Once line, once said, leaves the topic with no line
+    // it can say; the other speaker's fixed line beside it is still not said in its
+    // mouth, and the SayTo goes unsaid as before (dialogue.md §4).
+    let speaker = FormId(NPC_REF);
+    let mut f = fixture();
+    f.data.infos.get_mut(&FormId(INFO_A)).unwrap().speaker = Some(FormId(NPC_AUTO));
+    f.data.infos.get_mut(&FormId(INFO_B)).unwrap().say_once = true;
+    let mut g = game(&f);
+    g.new_game();
+    assert_eq!(g.say_by_script(speaker, Some(FormId::PLAYER_REF), FormId(TOPIC), true), Some(FormId(INFO_B)));
+    assert_eq!(g.say_by_script(speaker, Some(FormId::PLAYER_REF), FormId(TOPIC), true), None);
+}
+
+#[test]
 fn an_actor_whose_traits_come_from_a_leveled_list_speaks_with_the_picked_entrys_voice() {
     // Issue #1051: generic actors take race, sex and voice type from a leveled list of
     // male and female entries (template flag "Traits"). The voice is the entry's, the
@@ -1661,6 +1910,150 @@ fn an_actor_whose_traits_come_from_a_leveled_list_speaks_with_the_picked_entrys_
     f.data.actors.get_mut(&FormId(NPC)).unwrap().template = Some(FormId(LIST));
     let g = game(&f);
     assert_eq!(g.voice_base(FormId(NPC), speaker), FormId(NPC));
+}
+
+#[test]
+fn a_templated_actors_combat_style_follows_the_traits_flag() {
+    // Issue #2138: the combat style (ZNAM) is on the Traits tab [documented: GECK wiki
+    // Traits Tab - NPC, Traits Tab - Creatures], so a templated actor takes it from its
+    // template under "Use Traits", as the death item, not under "Use AI Data".
+    const OWN: u32 = 0xA20;
+    const PARENT: u32 = 0xA21;
+    const TOP: u32 = 0xA22;
+    const PACKAGE: u32 = 0xA23;
+    const SCRIPTED: u32 = 0xA24;
+    const MID: u32 = 0xA25;
+    const LIST: u32 = 0xA26;
+    let me = FormId(NPC_REF);
+    // NPC (own style OWN) templated on NPC_AUTO (style PARENT), with the given flags.
+    let with = |traits: bool, ai: bool| {
+        let mut f = fixture();
+        for s in [OWN, PARENT, TOP, PACKAGE, SCRIPTED] {
+            f.data.combat_styles.insert(FormId(s), fnv_game::data::CombatStyleDef::default());
+        }
+        f.data.actors.get_mut(&FormId(NPC_AUTO)).unwrap().combat_style = Some(FormId(PARENT));
+        let npc = f.data.actors.get_mut(&FormId(NPC)).unwrap();
+        npc.combat_style = Some(FormId(OWN));
+        npc.template = Some(FormId(NPC_AUTO));
+        npc.template_traits = traits;
+        npc.template_ai = ai;
+        f
+    };
+    // Traits only: the template's; AI Data only: its own; neither: its own; both: the
+    // template's.
+    for (traits, ai, style) in [(true, false, PARENT), (false, true, OWN), (false, false, OWN), (true, true, PARENT)] {
+        let f = with(traits, ai);
+        let g = game(&f);
+        assert_eq!(g.combat_style_id(me), Some(FormId(style)), "traits {traits}, AI data {ai}");
+    }
+    // A chain: NPC → NPC_AUTO → MID, each with Traits, takes MID's; NPC_AUTO without the
+    // flag stops at its own.
+    for (mid_traits, style) in [(true, TOP), (false, PARENT)] {
+        let mut f = with(true, false);
+        let mut mid = f.data.actors[&FormId(NPC_AUTO)].clone();
+        mid.combat_style = Some(FormId(TOP));
+        f.data.actors.insert(FormId(MID), mid);
+        let parent = f.data.actors.get_mut(&FormId(NPC_AUTO)).unwrap();
+        parent.template = Some(FormId(MID));
+        parent.template_traits = mid_traits;
+        let g = game(&f);
+        assert_eq!(g.combat_style_id(me), Some(FormId(style)), "parent's Traits flag {mid_traits}");
+    }
+    // A leveled list template stands for its picked entry.
+    let mut f = with(true, false);
+    f.data.leveled_actors.insert(FormId(LIST), fnv_game::data::LeveledActorDef { entries: vec![(1, FormId(NPC_AUTO))], counts: vec![1], ..Default::default() });
+    f.data.actors.get_mut(&FormId(NPC)).unwrap().template = Some(FormId(LIST));
+    let g = game(&f);
+    assert_eq!(g.combat_style_id(me), Some(FormId(PARENT)));
+    // The precedence is unchanged: the running package's style, then SetCombatStyle's,
+    // then the record's from its Traits source.
+    let mut f = with(true, false);
+    f.data.package_defs.get_mut(&FormId(PACK_IDLE)).unwrap().combat_style = Some(FormId(PACKAGE));
+    let mut g = game(&f);
+    g.extra.entry(me).or_default().combat_style = Some(FormId(SCRIPTED));
+    assert_eq!(g.combat_style_id(me), Some(FormId(SCRIPTED)));
+    g.extra.entry(me).or_default().current_package = Some(FormId(PACK_IDLE));
+    assert_eq!(g.combat_style_id(me), Some(FormId(PACKAGE)));
+    g.extra.entry(me).or_default().current_package = None;
+    g.extra.entry(me).or_default().combat_style = None;
+    assert_eq!(g.combat_style_id(me), Some(FormId(PARENT)));
+}
+
+#[test]
+fn the_player_speaks_with_the_default_objects_voice_of_her_or_his_sex() {
+    // Issue #2088: the player record names PlayerVoiceMale; a female player's Hit,
+    // PowerAttack and Death lines are in PlayerVoiceFemale's folder. The DefaultObjectManager
+    // names both (places 14 and 16); the player speaks with the one of her or his sex.
+    const VOICE_MALE: u32 = 0x9E1;
+    const VOICE_FEMALE: u32 = 0x9E2;
+    struct Sounds;
+    impl fnv_game::voice::VoiceLengths for Sounds {
+        fn response_seconds(&self, _info: FormId, _response: usize, _speaker_base: Option<FormId>) -> Option<f64> {
+            Some(0.9)
+        }
+        fn response_seconds_in_voice(&self, info: FormId, response: usize, voice_type: FormId) -> Option<f64> {
+            if info != FormId(INFO_A) || response != 0 {
+                return None;
+            }
+            match voice_type.0 {
+                VOICE_MALE => Some(0.3),
+                VOICE_FEMALE => Some(0.5),
+                _ => None,
+            }
+        }
+    }
+    let mut f = fixture();
+    let mut list = vec![None; 34];
+    list[14] = Some(FormId(VOICE_MALE));
+    list[16] = Some(FormId(VOICE_FEMALE));
+    f.data.default_objects = list;
+    let player = Some(FormId::PLAYER_BASE);
+    let mut g = game(&f);
+    g.voice = Some(std::sync::Arc::new(Sounds));
+    g.player.female = Some(true);
+    assert_eq!(g.voice_type_of(FormId::PLAYER_REF), Some(FormId(VOICE_FEMALE)));
+    assert_eq!(g.voice_override(player), Some(FormId(VOICE_FEMALE)));
+    assert_eq!(g.response_lengths_as(player, FormId(INFO_A)), vec![0.5]);
+    g.player.female = Some(false);
+    assert_eq!(g.voice_type_of(FormId::PLAYER_REF), Some(FormId(VOICE_MALE)));
+    assert_eq!(g.response_lengths_as(player, FormId(INFO_A)), vec![0.3]);
+    // A child race (Tale of Two Wastelands' Vault 101 childhood): the child places,
+    // the adult one of the same sex when the list names no child voice.
+    const CHILD_RACE: u32 = 0x9E5;
+    const VOICE_MALE_CHILD: u32 = 0x9E3;
+    const VOICE_FEMALE_CHILD: u32 = 0x9E4;
+    let mut f = fixture();
+    let mut list = vec![None; 34];
+    list[14] = Some(FormId(VOICE_MALE));
+    list[15] = Some(FormId(VOICE_MALE_CHILD));
+    list[16] = Some(FormId(VOICE_FEMALE));
+    f.data.default_objects = list.clone();
+    f.data.child_races.insert(FormId(CHILD_RACE));
+    let mut c = game(&f);
+    c.player.race = Some(FormId(CHILD_RACE));
+    c.player.female = Some(false);
+    assert_eq!(c.voice_type_of(FormId::PLAYER_REF), Some(FormId(VOICE_MALE_CHILD)));
+    c.player.female = Some(true);
+    assert_eq!(c.voice_type_of(FormId::PLAYER_REF), Some(FormId(VOICE_FEMALE)));
+    list[17] = Some(FormId(VOICE_FEMALE_CHILD));
+    f.data.default_objects = list;
+    let mut c = game(&f);
+    c.player.race = Some(FormId(CHILD_RACE));
+    c.player.female = Some(true);
+    assert_eq!(c.voice_type_of(FormId::PLAYER_REF), Some(FormId(VOICE_FEMALE_CHILD)));
+    // Grown up again: the adult voice.
+    c.player.race = None;
+    assert_eq!(c.voice_type_of(FormId::PLAYER_REF), Some(FormId(VOICE_FEMALE)));
+    // Other speakers keep their record's voice.
+    assert_eq!(g.voice_override(Some(FormId(NPC))), None);
+    assert_eq!(g.response_lengths_as(Some(FormId(NPC)), FormId(INFO_A)), vec![0.9]);
+    // A list without the places: the player record's own voice.
+    let f = fixture();
+    let mut g = game(&f);
+    g.voice = Some(std::sync::Arc::new(Sounds));
+    g.player.female = Some(true);
+    assert_eq!(g.voice_override(player), None);
+    assert_eq!(g.response_lengths_as(player, FormId(INFO_A)), vec![0.9]);
 }
 
 #[test]
@@ -1979,7 +2372,14 @@ fn dismembered_parts_are_kept_and_read_by_scripts() {
     call(&mut g, KILL_ACTOR, &[]);
     assert!(g.combat_requests.is_empty());
     call(&mut g, KILL_ACTOR, &[ArgValue::Value(Value::Ref(FormId::PLAYER_REF.0)), ArgValue::Value(Value::Num(3.0))]);
-    assert_eq!(g.combat_requests, vec![CombatRequest::Dismember { actor: npc, location: 3, by: Some(FormId::PLAYER_REF) }]);
+    assert_eq!(g.combat_requests, vec![CombatRequest::Dismember { actor: npc, location: 3, by: Some(FormId::PLAYER_REF), explode: None }]);
+    // #1846: ResurrectActor 1 does not update the body; ResurrectActor 0 brings it back whole.
+    g.resurrect(npc, true);
+    assert_eq!(g.limbs_gone(npc), vec![(1, true), (13, false)], "animate 1 keeps them gone");
+    assert!(g.hit(npc, 500.0, head).died);
+    g.resurrect(npc, false);
+    assert!(g.limbs_gone(npc).is_empty(), "animate 0: whole again");
+    assert_eq!(call(&mut g, IS_LIMB_GONE, &nums(&[0.0, 10.0])), 0.0);
 }
 
 #[test]
@@ -2096,6 +2496,38 @@ fn weapon_out_and_weapon_animation_type() {
 }
 
 #[test]
+fn player_limb_losses_fit_the_10mm_capture_at_200_maximum_health() {
+    use fnv_game::actor_values::HEALTH;
+    use fnv_game::combat::{HitInfo, LimbHit, HEAD, LEFT_ARM, LEFT_MOBILITY, RIGHT_ARM, RIGHT_MOBILITY, TORSO};
+    use fnv_game::functions::set_actor_value_current;
+    let f = fixture();
+    let p = FormId::PLAYER_REF;
+    // [observed: o17_air limbs_10mm, check 3] The losses below; maximum Health 200
+    // remains [hypothesis], since that run did not record its base Health.
+    for (condition, share, health_damage, limb_damage, loss) in [
+        (LEFT_ARM, 25.0, 16.06, 16.06, 16.06),
+        (RIGHT_ARM, 25.0, 16.06, 16.06, 16.06),
+        (LEFT_MOBILITY, 25.0, 16.06, 16.06, 16.06),
+        (RIGHT_MOBILITY, 25.0, 16.06, 16.06, 16.06),
+        (TORSO, 60.0, 16.06, 16.06, 6.69),
+        (HEAD, 20.0, 32.12, 16.06, 20.075),
+        (HEAD, 20.0, 76.12, 38.06, 47.575),
+    ] {
+        let mut g = game(&f);
+        g.new_game();
+        set_actor_value_current(&mut g, p, HEALTH, 200.0).unwrap();
+        let info = HitInfo { attacker: Some(FormId(NPC_REF)), limb: Some(LimbHit { condition, health_percent: share, damage: limb_damage, points: false }), ..Default::default() };
+        let r = g.hit(p, health_damage, info);
+        assert_eq!(r.max_health, 200.0);
+        assert!((r.dealt - health_damage).abs() < 1e-9);
+        let (code, after) = r.limb.unwrap();
+        assert_eq!(code, condition);
+        assert!((100.0 - after - loss).abs() < 0.005, "condition {condition}: loss {} against {loss}", 100.0 - after);
+        assert!(!r.crippled);
+    }
+}
+
+#[test]
 fn limb_hits_lower_conditions_and_cripple() {
     use fnv_game::combat::{HitInfo, LimbHit};
     let f = fixture();
@@ -2119,28 +2551,49 @@ fn limb_hits_lower_conditions_and_cripple() {
     assert_eq!(r.health, 40.0);
 }
 
-/// An explosion damages every limb it is given at once, crippling those whose pool it
-/// empties; the player's limbs take half; nothing on a dead actor
-/// (docs/spec-notes/crippled-limbs.md §5).
+/// An explosion's limb damage follows the original's shares (docs/spec-notes/crippled-
+/// limbs.md §5): for the five measured blasts (o25_limbs, Ringo; Health lost, then the
+/// torso's and the legs' condition points lost) the torso loses 1/30 of the Health
+/// damage and the legs 0.24 together, the head, arms and brain nothing [observed];
+/// nothing on a dead actor. The points come straight off the condition, whatever the
+/// actor's maximum Health [hypothesis: measured only at 5000 Health, on an NPC].
 #[test]
-fn blasts_damage_every_limb() {
-    use fnv_game::combat::{LimbHit, LEFT_MOBILITY, RIGHT_MOBILITY};
+fn blasts_take_the_measured_limb_shares() {
+    use fnv_game::combat::{blast_limb_shares, HEAD, LEFT_ARM, LEFT_MOBILITY, RIGHT_ARM, RIGHT_MOBILITY, TORSO};
+    const BRAIN: u16 = 31;
     let f = fixture();
+    let npc = FormId(NPC_REF);
+    let human = [LEFT_MOBILITY, RIGHT_MOBILITY, TORSO, RIGHT_ARM, LEFT_ARM, HEAD, BRAIN];
+    // (Health lost, torso, left leg + right leg) [observed 2026-11-06].
+    let measured = [(99.95, 3.33, 23.99), (96.99, 3.27, 23.52), (98.97, 3.33, 24.00), (98.00, 3.27, 23.52), (123.0, 4.10, 29.52)];
+    for (health, torso, legs) in measured {
+        let mut g = game(&f);
+        g.new_game();
+        let hurt = g.blast_limbs(npc, None, &blast_limb_shares(&human, health));
+        let lost = |c: u16| 100.0 - hurt.iter().find(|h| h.0 == c).map_or(100.0, |h| h.1);
+        let close = |ours: f64, theirs: f64| (ours - theirs).abs() <= theirs * 0.015;
+        assert!(close(lost(TORSO), torso), "torso {} against {torso} for {health}", lost(TORSO));
+        assert!(close(lost(LEFT_MOBILITY) + lost(RIGHT_MOBILITY), legs), "legs against {legs} for {health}: {hurt:?}");
+        for c in [HEAD, LEFT_ARM, RIGHT_ARM, BRAIN] {
+            assert_eq!(lost(c), 0.0, "{c} for {health}");
+            assert!(!g.is_crippled(npc, c));
+        }
+        // The left leg takes two thirds of the legs' share [hypothesis].
+        assert!((lost(LEFT_MOBILITY) - 2.0 * lost(RIGHT_MOBILITY)).abs() < 1e-9);
+    }
+    // A blast big enough cripples the left leg first; never an arm or the head.
     let mut g = game(&f);
     g.new_game();
-    let npc = FormId(NPC_REF);
-    // Maximum health 55: a head at 10 % has a pool of 5.5, a leg at 25 % one of 13.75.
-    let limb = |condition: u16, health_percent: f64| LimbHit { condition, health_percent, damage: 11.0, points: false };
-    let limbs = [limb(25, 10.0), limb(LEFT_MOBILITY, 25.0), limb(RIGHT_MOBILITY, 25.0)];
-    let hurt = g.blast_limbs(npc, None, &limbs);
-    assert_eq!(hurt, vec![(25, 0.0, true), (LEFT_MOBILITY, 20.0, false), (RIGHT_MOBILITY, 20.0, false)]);
-    assert!(g.is_crippled(npc, 25) && !g.is_crippled(npc, LEFT_MOBILITY));
-    // The player's limbs take fCombatPlayerLimbDamageMult (0.5) of it.
-    let hurt = g.blast_limbs(FormId::PLAYER_REF, None, &limbs[1..2]);
-    assert_eq!(hurt.len(), 1);
-    assert!(hurt[0].1 > 20.0 && hurt[0].1 < 100.0 && !hurt[0].2, "{hurt:?}");
+    let hurt = g.blast_limbs(npc, None, &blast_limb_shares(&human, 700.0));
+    assert_eq!(hurt.iter().filter(|h| h.2).map(|h| h.0).collect::<Vec<_>>(), vec![LEFT_MOBILITY]);
+    // One leg in the data takes the whole 0.24; no torso, no limb damage there.
+    let one = blast_limb_shares(&[RIGHT_MOBILITY], 100.0);
+    assert_eq!(one.len(), 1);
+    assert!((one[0].damage - 24.0).abs() < 1e-9 && one[0].points);
+    assert!(blast_limb_shares(&[HEAD, LEFT_ARM], 100.0).is_empty());
+    assert!(blast_limb_shares(&human, 0.0).is_empty());
     g.kill(npc, None);
-    assert!(g.blast_limbs(npc, None, &limbs).is_empty());
+    assert!(g.blast_limbs(npc, None, &blast_limb_shares(&human, 100.0)).is_empty());
 }
 
 /// A fall's leg (docs/spec-notes/physics.md §6.12): limb damage in condition points comes
@@ -3072,6 +3525,28 @@ CallWhen ({} => AuxVarSetFlt \"*o\" 1 -1) ({} => (AuxVarSize \"*w\") >= 2)");
     assert_eq!(q(&mut g, "SetFunctionValue (AuxVarSize \"*o\")"), XVal::Num(1.0), "when, exactly once");
 }
 
+/// A queued call whose function cannot run (a ref variable still 0, as the player
+/// reports' mods queued: "0x00000000 is not a function script") is reported once, not on
+/// every frame it comes due (#2280).
+#[test]
+fn a_call_that_cannot_run_is_reported_once() {
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let ctx = fnv_game::game::RunCtx { self_ref: Some(FormId::PLAYER_REF), ..Default::default() };
+    g.run_query("ref r
+Begin Function { }
+CallWhile r ({} => (AuxVarSize \"*never\") < 1)
+End
+", ctx).unwrap();
+    g.frames(10);
+    let errors: Vec<String> = g.events.iter().filter_map(|e| match &e.kind {
+        EventKind::ScriptError { unit, error } if unit == "delayed call" => Some(error.clone()),
+        _ => None,
+    }).collect();
+    assert_eq!(errors.len(), 1, "{errors:?}");
+    assert!(errors[0].ends_with("is not a function script"), "{errors:?}");
+}
+
 #[test]
 fn message_box_ex_alt_runs_its_callback_with_the_button() {
     // [documented: MessageBoxExAlt] the UDF gets the pressed button's index.
@@ -3373,7 +3848,7 @@ fn compile_script_reads_a_udf_file_and_print_var_names_variables() {
     let reader: fnv_game::mod_files::Reader = std::sync::Arc::new(|p: &str| {
         (p.eq_ignore_ascii_case("nvse\\user_defined_functions\\sub\\add.txt")).then(|| b"begin Function { int iA, int iB }\nSetFunctionValue iA + iB\nend\n".to_vec())
     });
-    fnv_game::mod_files::set_roots(fnv_game::mod_files::Roots { read: Vec::new(), config: None, write: None, lookup: None, reader: Some(reader) });
+    fnv_game::mod_files::set_roots(fnv_game::mod_files::Roots { read: Vec::new(), config: None, write: None, lookup: None, reader: Some(reader), archives: Vec::new() });
     let f = udf_fixture();
     let mut g = game(&f);
     let ctx = fnv_game::game::RunCtx::default;
@@ -3381,7 +3856,7 @@ fn compile_script_reads_a_udf_file_and_print_var_names_variables() {
     assert_eq!(q(&mut g, "let rF := CompileScript \"Sub/Add.txt\"\nSetFunctionValue (Call rF 2 3)"), Ok(XVal::Num(5.0)));
     assert_eq!(q(&mut g, "let rF := CompileScript \"sub\\add.txt\"\nlet rG := GetUDFFromFile \"Sub/Add.txt\"\nSetFunctionValue (rF == rG)"), Ok(XVal::Num(1.0)), "cached by path");
     assert_eq!(q(&mut g, "SetFunctionValue (CompileScript \"Sub/None.txt\")"), Ok(XVal::Ref(0)), "no file");
-    fnv_game::mod_files::set_roots(fnv_game::mod_files::Roots { read: Vec::new(), config: None, write: None, lookup: None, reader: None });
+    fnv_game::mod_files::set_roots(fnv_game::mod_files::Roots { read: Vec::new(), config: None, write: None, lookup: None, reader: None, archives: Vec::new() });
 
     g.console_out.clear();
     q(&mut g, "let fRes := 2.5\nlet aA := ar_List 2, 4\nPrintVar fRes, aA").unwrap();
@@ -3475,8 +3950,19 @@ fn extender_census() {
     let mut unbuilt: std::collections::BTreeMap<String, Vec<String>> = Default::default();
     let mut unknown = Vec::new();
     let mut seen = std::collections::HashSet::new();
+    // The catalogue's names the installed extenders do not register, read as text by
+    // the compiler (`fnv-script` encodings.json `compiler.not_commands`) [observed:
+    // nvse-fourth fose.*, `SetFunctionValue (GetFOSEVersion)` gives the text; lutana1
+    // misc.messagedisplaytime]: nothing to build, left out of the count (#1924).
+    let enc: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(format!("{root}/crates/fnv-script/data/encodings.json")).unwrap()).unwrap();
+    let not_commands: Vec<String> = enc["compiler"]["not_commands"].as_array().into_iter().flatten().filter_map(|v| v.as_str()).map(str::to_ascii_lowercase).collect();
+    let mut not_registered = Vec::new();
     for x in fs.iter().filter(|x| x["family"] == "extender") {
         let n = x["name"].as_str().unwrap_or_default();
+        if not_commands.contains(&n.to_ascii_lowercase()) {
+            not_registered.push(n.to_string());
+            continue;
+        }
         if n.is_empty() || !n.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') || STATEMENTS.contains(&n.to_ascii_lowercase().as_str()) || !seen.insert(n.to_ascii_lowercase()) {
             continue;
         }
@@ -3515,6 +4001,7 @@ fn extender_census() {
         out += &format!("{o} {}: {}\n", v.len(), v.join(", "));
     }
     out += &format!("not compiled with any argument count {}: {}\n", unknown.len(), unknown.join(", "));
+    out += &format!("not registered by the original, left out {}: {}\n", not_registered.len(), not_registered.join(", "));
     let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../target/tmp");
     std::fs::create_dir_all(dir).unwrap();
     std::fs::write(format!("{dir}/extender-census.txt"), &out).unwrap();
@@ -3851,4 +4338,274 @@ fn console_plm_clm_s1st_setvel_and_the_small_ones() {
     assert_eq!(g.ui.splatter.clears, 1);
     run(&mut g, "TestRaceSexTerimnal", &none, &[]).unwrap();
     assert_eq!(g.race_menu, fnv_game::game::RaceMenu::Creator);
+}
+
+// ---- TTW's extender functions (issue #1408, crate::nvse_ttw) -------------------------
+
+/// A cell with one reference of a scripted activator whose GameMode block waits
+/// (ScriptWait 3) halfway, and the global TestGlobal.
+fn wait_fixture() -> Fixture {
+    const GLOB: u32 = 0x800;
+    const SCPT: u32 = 0x801;
+    const ACTI: u32 = 0x802;
+    const CELL_: u32 = 0x803;
+    const REF: u32 = 0x804;
+    let (table, _) = catalogue();
+    struct Names;
+    impl fnv_script::compile::Env for Names {
+        fn form(&self, e: &str) -> Option<fnv_script::compile::FormInfo> {
+            (e.eq_ignore_ascii_case("testglobal")).then_some(fnv_script::compile::FormInfo { form: 0x800, sig: *b"GLOB" })
+        }
+        fn info(&self, _: u32) -> Option<fnv_script::compile::FormInfo> {
+            None
+        }
+        fn editor_id(&self, _: u32) -> Option<String> {
+            None
+        }
+        fn local_form(&self, _: u32) -> Option<u32> {
+            None
+        }
+        fn script_vars(&self, _: u32) -> Option<Vec<fnv_script::VarDecl>> {
+            None
+        }
+    }
+    let src = "scn TestWaitScript\nint n\nBegin GameMode\n  set n to n + 1\n  if n == 1\n    set TestGlobal to 10\n    ScriptWait 3\n    set TestGlobal to 20\n  endif\nEnd\n";
+    let c = fnv_script::compile::compile(src, &table, &Names, None);
+    assert!(c.errors().next().is_none(), "{:?}", c.diags);
+    let vars: Vec<(u32, String, u8)> = c.variables.iter().map(|v| (v.index, v.name.clone(), u8::from(v.ty == fnv_script::VarType::Int))).collect();
+    let vars: Vec<(u32, &str, u8)> = vars.iter().map(|(i, n, t)| (*i, n.as_str(), *t)).collect();
+    let refs: Vec<u32> = c.refs.iter().filter_map(|r| if let fnv_script::unit::RefSlot::Form(f) = r { Some(*f) } else { None }).collect();
+    let mut subs = unit(0, &c.bytes, &vars, &refs);
+    subs.push(sub(b"SCTX", src.as_bytes().to_vec()));
+    let scpt = record(b"SCPT", 0, SCPT, &[vec![sub(b"EDID", z("TestWaitScript"))], subs].concat());
+    let glob = record(b"GLOB", 0, GLOB, &[sub(b"EDID", z("TestGlobal")), sub(b"FNAM", vec![b'f']), sub(b"FLTV", 0f32.to_le_bytes().to_vec())]);
+    let acti = record(b"ACTI", 0, ACTI, &[sub(b"EDID", z("TestWaitActivator")), sub(b"SCRI", SCPT.to_le_bytes().to_vec())]);
+    let cell = record(b"CELL", 0, CELL_, &[sub(b"EDID", z("TestWaitCell"))]);
+    let refr = record(b"REFR", 0, REF, &[sub(b"EDID", z("TestWaitREF")), sub(b"NAME", ACTI.to_le_bytes().to_vec()), sub(b"DATA", vec![0; 24])]);
+    let children = group(CELL_.to_le_bytes(), 6, &group(CELL_.to_le_bytes(), 9, &refr));
+    let bytes = [
+        tes4(),
+        top(b"GLOB", &glob),
+        top(b"SCPT", &scpt),
+        top(b"ACTI", &acti),
+        top(b"CELL", &group(0i32.to_le_bytes(), 2, &group(0i32.to_le_bytes(), 3, &[cell, children].concat()))),
+    ]
+    .concat();
+    let plugins = vec![Plugin::parse(&bytes, "Wait.esm".into()).unwrap()];
+    let lo = LoadOrder::new(&plugins).unwrap();
+    let schema = schema();
+    let (table, j) = catalogue();
+    let forms = FormStore::build(&lo, &schema);
+    let refs = RefTable::build(&lo, &schema);
+    let data = GameData::build(&lo, &schema, table, &j, &refs);
+    Fixture { data, forms, refs }
+}
+
+#[test]
+fn script_wait_holds_the_rest_of_a_block_for_its_cycles() {
+    // [documented: ScriptWait; IsScriptWaiting]: the block stops at the call, is skipped
+    // while it waits (its first line does not run either), and goes on after the call in
+    // the third cycle after it.
+    let f = wait_fixture();
+    let mut g = game(&f);
+    g.new_game();
+    g.set_loaded([FormId(0x803)].into_iter().collect());
+    let global = |g: &Game| g.world.global(FormId(0x800)).unwrap();
+    let key = InstKey::Ref { reference: FormId(0x804) };
+    g.tick();
+    assert_eq!(global(&g), 10.0);
+    assert_eq!(g.var(key, 1), Value::Num(1.0));
+    let waiting = |g: &mut Game| {
+        g.run_source("let TestGlobal := TestWaitREF.IsScriptWaiting", Default::default()).unwrap();
+        global(g)
+    };
+    assert_eq!(waiting(&mut g), 1.0);
+    g.run_source("set TestGlobal to 10", Default::default()).unwrap();
+    g.tick();
+    g.tick();
+    assert_eq!(global(&g), 10.0, "still waiting");
+    assert_eq!(g.var(key, 1), Value::Num(1.0), "the waiting block is skipped whole");
+    g.tick();
+    assert_eq!(global(&g), 20.0, "the rest of the block ran");
+    assert_eq!(g.var(key, 1), Value::Num(1.0));
+    assert_eq!(waiting(&mut g), 0.0);
+    // The block runs from its start again.
+    g.tick();
+    assert_eq!(g.var(key, 1), Value::Num(2.0));
+    // A result script does not wait [documented: not in result scripts].
+    g.run_source("set TestGlobal to 1\nScriptWait 5\nset TestGlobal to 2", Default::default()).unwrap();
+    assert_eq!(global(&g), 2.0);
+}
+
+#[test]
+fn ash_pile_activators_must_be_marked_before_attach_ash_pile_ex() {
+    // [documented: MarkActivatorAshPile; AttachAshPileEx]
+    let f = wait_fixture();
+    let mut g = game(&f);
+    g.new_game();
+    let pile = |g: &Game| g.extra.get(&FormId(0x804)).and_then(|e| e.ash_pile);
+    g.run_source("TestWaitREF.AttachAshPileEx TestWaitActivator", Default::default()).unwrap();
+    assert_eq!(pile(&g), None, "not marked: no pile");
+    g.run_source("MarkActivatorAshPile TestWaitActivator\nTestWaitREF.AttachAshPileEx TestWaitActivator", Default::default()).unwrap();
+    let p = pile(&g).expect("a pile");
+    assert_eq!(g.ash_pile_source(p), Some(FormId(0x804)));
+    // The mark lasts the session, across a load.
+    let s = g.take_session();
+    let mut g2 = game(&f);
+    g2.new_game();
+    g2.put_session(s);
+    g2.run_source("TestWaitREF.AttachAshPileEx TestWaitActivator", Default::default()).unwrap();
+    assert!(g2.extra.get(&FormId(0x804)).and_then(|e| e.ash_pile).is_some());
+}
+
+#[test]
+fn jip_menu_key_crafting_and_discovery_events_reach_their_handlers() {
+    // [documented: SetOnMenuOpenEventHandler, SetOnMenuCloseEventHandler (a menu ID, or
+    // any menu), SetOnKeyUpEventHandler, SetOnCraftingEventHandler,
+    // SetOnLocationDiscoverEventHandler]
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let run = |g: &mut Game<'_>, src: &str| g.run_source(src, Default::default()).expect("compiles");
+    let global = |g: &Game| g.world.global(FormId(0x0000_0800)).unwrap();
+    run(&mut g, "SetOnMenuOpenEventHandler (begin function {int i}\nlet TestGlobal := i\nend) 1 1060");
+    g.open_menu(1002);
+    assert_eq!(global(&g), 0.0, "another menu");
+    g.close_menu();
+    g.open_menu(1060);
+    assert_eq!(global(&g), 1060.0);
+    run(&mut g, "SetOnMenuCloseEventHandler (begin function {int i}\nlet TestGlobal := i + 1\nend) 1");
+    g.close_menu();
+    assert_eq!(global(&g), 1061.0, "any menu that closes");
+    run(&mut g, "SetOnKeyUpEventHandler (begin function {int k}\nlet TestGlobal := k * 100\nend) 1 3");
+    g.input.held.insert(3);
+    g.tick();
+    assert_eq!(global(&g), 1061.0, "pressed, not let go");
+    g.input.held.remove(&3);
+    g.tick();
+    assert_eq!(global(&g), 300.0);
+    run(&mut g, "SetOnCraftingEventHandler (begin function {ref r, int q}\nlet TestGlobal := q\nend) 1");
+    g.item_crafted(FormId(0x0000_0800), 25);
+    assert_eq!(global(&g), 25.0);
+    run(&mut g, "SetOnLocationDiscoverEventHandler (begin function {ref m}\nlet TestGlobal := 77\nend) 1");
+    g.challenge_marker_found(FormId(0x0000_0800));
+    assert_eq!(global(&g), 77.0);
+}
+
+#[test]
+fn extra_misc_stats_music_states_eaten_corpses_and_terminal_art() {
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let run = |g: &mut Game<'_>, src: &str| g.run_source(src, Default::default()).expect("compiles");
+    let global = |g: &Game| g.world.global(FormId(0x0000_0800)).unwrap();
+    // A stat must be initialised first [documented: InitExtraMiscStat; observed: -1 after
+    // ModExtraMiscStat alone].
+    run(&mut g, "ModExtraMiscStat \"Bobbleheads Found\" 1\nlet TestGlobal := GetExtraMiscStat \"Bobbleheads Found\"");
+    assert_eq!(global(&g), -1.0);
+    run(&mut g, "InitExtraMiscStat \"Bobbleheads Found\"\nlet TestGlobal := GetExtraMiscStat \"Bobbleheads Found\"");
+    assert_eq!(global(&g), 0.0);
+    run(&mut g, "ModExtraMiscStat \"Bobbleheads Found\" 2\nInitExtraMiscStat \"Bobbleheads Found\"\nlet TestGlobal := GetExtraMiscStat \"Bobbleheads Found\"");
+    assert_eq!(global(&g), 2.0);
+    // Kept in the save [documented: ModExtraMiscStat].
+    assert_eq!(g.snapshot().extra_misc_stats.get("bobbleheads found"), Some(&2.0));
+    // SetMusicState's requests reach the engine; other numbers do nothing.
+    run(&mut g, "SetMusicState 1\nSetMusicState 7\nSetMusicState 0");
+    assert_eq!(g.take_music_states(), vec![1, 0]);
+    // DonnerReedKuruParty marks the calling actor's corpse eaten and back.
+    let on = fnv_game::game::RunCtx { self_ref: Some(FormId(0x0000_0901)), ..Default::default() };
+    g.run_source("DonnerReedKuruParty 1", on).unwrap();
+    assert!(g.extra[&FormId(0x0000_0901)].eaten);
+    g.run_source("DonnerReedKuruParty 0", on).unwrap();
+    assert!(!g.extra[&FormId(0x0000_0901)].eaten);
+    // SetTerminalUIModel: a path, and back to the default without one.
+    run(&mut g, "SetTerminalUIModel TestAdd \"Terminals\\TerminalInterface02.NIF\"");
+    assert_eq!(g.terminal_ui_model(FormId(0x0000_0901)), Some("Terminals\\TerminalInterface02.NIF"));
+    run(&mut g, "SetTerminalUIModel TestAdd");
+    assert_eq!(g.terminal_ui_model(FormId(0x0000_0901)), None);
+}
+
+#[test]
+fn planted_forms_remap_and_missing_dependencies_are_dropped() {
+    use fnv_game::game::GameSnapshot;
+    use fnv_game::pickpocket::{Explosive, Planted};
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    let victim = FormId(NPC_REF);
+    g.world.get(victim).unwrap();
+    let mut snap = g.snapshot();
+    let extra = FormId(0x01000800);
+    let base_gone = FormId(0xFF000090);
+    let cell_gone = FormId(0xFF000091);
+    let mut reference = snap.sim.refs[&victim].clone();
+    reference.base = extra;
+    snap.sim.refs.insert(base_gone, reference);
+    let mut reference = snap.sim.refs[&victim].clone();
+    reference.cell = Some(extra);
+    snap.sim.refs.insert(cell_gone, reference);
+    let plant = Planted { victim, item: FormId(ACTIVATOR), at: 12.5, blast: Explosive { damage: 3.0, resist: Some(19), enchantment: Some(FormId(ACTIVATOR)) }, seen_by: vec![victim, extra, base_gone, cell_gone] };
+    snap.planted = vec![
+        plant.clone(),
+        Planted { victim: extra, ..plant.clone() },
+        Planted { item: extra, ..plant.clone() },
+        Planted { blast: Explosive { enchantment: Some(extra), ..plant.blast }, ..plant.clone() },
+        Planted { victim: base_gone, ..plant.clone() },
+        Planted { victim: cell_gone, ..plant.clone() },
+    ];
+    let entry = |name: &str| fnv_save::PluginEntry { name: name.into(), size: 0 };
+    let before = [entry("Test.esm"), entry("Extra.esm")];
+    let after = [entry("Extra.esm"), entry("Test.esm")];
+    let mut value = serde_json::to_value(&snap).unwrap();
+    fnv_save::remap_json(&mut value, &fnv_save::PluginRemap::new(&before, &after));
+    let mut moved: GameSnapshot = serde_json::from_value(value.clone()).unwrap();
+    assert_eq!(moved.drop_gone(|id| fnv_save::is_gone(id.0)), 0);
+    assert_eq!(moved.planted[0].victim, FormId(NPC_REF | 0x01000000));
+    assert_eq!(moved.planted[0].item, FormId(ACTIVATOR | 0x01000000));
+    assert_eq!(moved.planted[0].blast.enchantment, Some(FormId(ACTIVATOR | 0x01000000)));
+    assert_eq!(moved.planted[0].seen_by, vec![FormId(NPC_REF | 0x01000000), FormId(0x800), base_gone, cell_gone]);
+    assert_eq!(moved.planted[0].at, 12.5);
+    // Moving the plugin back restores every serialized field exactly.
+    fnv_save::remap_json(&mut value, &fnv_save::PluginRemap::new(&after, &before));
+    let back: GameSnapshot = serde_json::from_value(value).unwrap();
+    assert_eq!(back, snap);
+    let world = World::restore(&f.forms, &f.refs, &back.sim).unwrap();
+    let h = Game::restore(&f.data, world, g.cfg, &back).unwrap();
+    assert_eq!(h.pickpocket.planted, snap.planted);
+    assert!(h.pickpocket.blast_witnesses.is_empty());
+
+    let mut value = serde_json::to_value(&snap).unwrap();
+    fnv_save::remap_json(&mut value, &fnv_save::PluginRemap::new(&before, &[entry("Test.esm")]));
+    let mut back: GameSnapshot = serde_json::from_value(value).unwrap();
+    assert_eq!(back.drop_gone(|id| fnv_save::is_gone(id.0)), 7, "two removed references and five plants");
+    assert_eq!(back.planted, vec![Planted { seen_by: vec![victim], ..plant }]);
+    assert!(!back.sim.refs.contains_key(&base_gone) && !back.sim.refs.contains_key(&cell_gone));
+    let world = World::restore(&f.forms, &f.refs, &back.sim).unwrap();
+    let h = Game::restore(&f.data, world, g.cfg, &back).unwrap();
+    assert_eq!(h.pickpocket.planted, back.planted);
+    // Cleanup also handles a gone witness supplied directly in a record field.
+    back.planted[0].seen_by.push(extra);
+    assert_eq!(back.drop_gone(|id| id == extra), 0);
+    assert_eq!(back.planted[0].seen_by, vec![victim]);
+}
+
+/// An activator opens and closes like a door: SetOpenState and its default activation
+/// change its open state (GetOpenState) and ask for its "Open" or "Close" sequence, as
+/// PlayGroup asks one (TTW's Overseer desk and vault door, issues #2231, #2232). Setting
+/// the state it has asks for nothing.
+#[test]
+fn an_activator_plays_open_and_close_with_its_open_state() {
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    let r = FormId(ACT_REF);
+    assert!(!g.world.get(r).unwrap().open);
+    g.run_source("TestActivatorREF.SetOpenState 1", Default::default()).unwrap();
+    assert!(g.world.get(r).unwrap().open);
+    assert_eq!(g.anims.asked(r).map(|(_, n)| n), Some("Open"));
+    let asked = g.anims.requests.len();
+    g.run_source("TestActivatorREF.SetOpenState 1", Default::default()).unwrap();
+    assert_eq!(g.anims.requests.len(), asked, "already open: nothing asked");
+    // Its default activation (a script's Activate, the vault door's pod) closes it again.
+    g.default_activation(FormId::PLAYER_REF, r, false).unwrap();
+    assert!(!g.world.get(r).unwrap().open);
+    assert_eq!(g.anims.asked(r).map(|(_, n)| n), Some("Close"));
 }

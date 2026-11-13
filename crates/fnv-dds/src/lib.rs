@@ -14,9 +14,17 @@ pub enum DdsError {
     Truncated(usize),
     #[error("unsupported pixel format {0}")]
     Unsupported(String),
+    /// Less pixel data than the layout needs (more is taken, [`Dds::parse`]).
     #[error("pixel data is {actual} bytes, the layout needs {expected}")]
     SizeMismatch { expected: usize, actual: usize },
+    #[error("size {width}x{height} out of range (1 to {MAX_SIDE})")]
+    BadSize { width: u32, height: u32 },
 }
+
+/// The largest side [`Dds::parse`] takes. Above every texture the game ships (4096 at
+/// most [observed: dds.md §3]) and the engine's own cap (`nvf_assets::texture::MAX_TEXTURE_SIDE`);
+/// a larger side, or 0, is a broken header [#1995].
+pub const MAX_SIDE: u32 = 16384;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PixelFormat {
@@ -76,10 +84,12 @@ impl Format {
         }
     }
 
+    /// Bytes of one level `w`×`h`, saturating on absurd sizes (a product that would wrap
+    /// gave 0, so an empty payload matched a 2-billion-wide header [#1995]).
     pub fn level_size(self, w: u32, h: u32) -> usize {
         let (w, h) = (w as usize, h as usize);
         match self.block_bytes() {
-            Some(b) => w.div_ceil(4).max(1) * h.div_ceil(4).max(1) * b,
+            Some(b) => w.div_ceil(4).max(1).saturating_mul(h.div_ceil(4).max(1)).saturating_mul(b),
             None => {
                 let bpp = match self {
                     Format::A8R8G8B8 | Format::X8R8G8B8 | Format::A8B8G8R8 | Format::X8B8G8R8 => 4,
@@ -87,7 +97,7 @@ impl Format {
                     Format::L8 => 1,
                     _ => 2,
                 };
-                w * h * bpp
+                w.saturating_mul(h).saturating_mul(bpp)
             }
         }
     }
@@ -241,9 +251,16 @@ impl<'a> Dds<'a> {
     pub fn parse(data: &'a [u8]) -> Result<Dds<'a>, DdsError> {
         let header = DdsHeader::parse(data)?;
         let format = header.pixel_format.format().map_err(DdsError::Unsupported)?;
+        // A side of 0 laid out as 1 wide while the header kept 0; one past the cap gave
+        // callers that size the image from the header a 2-billion-wide texture [#1995].
+        if !(1..=MAX_SIDE).contains(&header.width) || !(1..=MAX_SIDE).contains(&header.height) {
+            return Err(DdsError::BadSize { width: header.width, height: header.height });
+        }
         let payload = &data[HEADER_LEN..];
         let expected = header.expected_size(format);
-        if payload.len() != expected || header.levels() > 32 {
+        // More data than the layout needs is taken: the levels the header counts are
+        // read and the rest is left alone (dds.md §3, #2164). Less is a cut-off file.
+        if payload.len() < expected || header.levels() > 32 {
             return Err(DdsError::SizeMismatch { expected, actual: payload.len() });
         }
         let mut levels = Vec::new();
@@ -489,6 +506,17 @@ mod tests {
         assert_eq!(Dds::parse(&short).unwrap_err(), DdsError::SizeMismatch { expected: 40, actual: 39 });
     }
 
+    /// Bytes after the last level the header counts are left alone: a mod's DXT1 with
+    /// one block more in the file than its counted levels need loads those levels [#2164].
+    #[test]
+    fn data_after_the_last_level_is_ignored() {
+        let d = build(8, 4, 3, PF_FOURCC, b"DXT1", 0, [0; 4], 0, 40);
+        let t = Dds::parse(&d).unwrap();
+        assert_eq!(t.levels[0].iter().map(|l| l.len()).collect::<Vec<_>>(), [16, 8, 8]);
+        let argb = build(2, 1, 1, PF_RGB | PF_ALPHA_PIXELS, &[0; 4], 32, [0xFF0000, 0xFF00, 0xFF, 0xFF000000], 0, 11);
+        assert_eq!(Dds::parse(&argb).unwrap().levels[0][0].len(), 8);
+    }
+
     #[test]
     fn zero_mip_count_means_one_level() {
         let d = build(4, 4, 0, PF_FOURCC, b"DXT5", 0, [0; 4], 0, 16);
@@ -543,6 +571,24 @@ mod tests {
     fn bad_input() {
         assert!(matches!(DdsHeader::parse(b"XXXX"), Err(DdsError::BadMagic(_))));
         assert_eq!(DdsHeader::parse(b"DDS \0\0"), Err(DdsError::Truncated(6)));
+    }
+
+    /// A side of 0 or past the cap is refused; the overflowing header that used to parse
+    /// with an empty payload (0x80000000 square A8R8G8B8: its size wrapped to 0) too [#1995].
+    #[test]
+    fn sizes_out_of_range_are_refused() {
+        let argb = |w: u32, h: u32, payload: usize| build(w, h, 1, PF_RGB | PF_ALPHA_PIXELS, b"\0\0\0\0", 32, [0x00FF_0000, 0x0000_FF00, 0x0000_00FF, 0xFF00_0000], 0, payload);
+        let huge = argb(0x8000_0000, 0x8000_0000, 0);
+        assert_eq!(Dds::parse(&huge).unwrap_err(), DdsError::BadSize { width: 0x8000_0000, height: 0x8000_0000 });
+        assert!(matches!(Dds::parse(&argb(0, 4, 16)), Err(DdsError::BadSize { width: 0, height: 4 })));
+        assert!(matches!(Dds::parse(&argb(4, 0, 16)), Err(DdsError::BadSize { .. })));
+        assert!(matches!(Dds::parse(&argb(MAX_SIDE * 2, 1, 0)), Err(DdsError::BadSize { .. })));
+        assert!(Dds::parse(&argb(4, 4, 64)).is_ok());
+        // The listing reads the header as it is (fnvtool dds list).
+        assert_eq!(DdsHeader::parse(&huge).unwrap().width, 0x8000_0000);
+        // Sizes saturate rather than wrap.
+        assert_eq!(Format::A8R8G8B8.level_size(u32::MAX, u32::MAX), (u32::MAX as usize).saturating_mul(u32::MAX as usize).saturating_mul(4));
+        assert_ne!(Format::A8R8G8B8.level_size(0x8000_0000, 0x8000_0000), 0);
     }
 
     proptest::proptest! {

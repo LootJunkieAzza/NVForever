@@ -1,7 +1,8 @@
 //! Fast travel from the World Map (docs/spec-notes/fast-travel.md).
 //!
-//! - A click on a marker of the World Map (or the test aid's `travel=`) is a
-//!   [`FastTravelAsk`]; [`answer`] tries the refusals (§2, [`refusal`]) and puts up the
+//! - A click on a marker of the World Map, or the controller's A on one (or the test
+//!   aid's `travel=`) is a [`FastTravelAsk`]; [`answer`] tries the refusals (§2,
+//!   [`refusal`]) and puts up the
 //!   question box ([`Popup`]): "Do you want to travel to …?" with Yes and No, or the
 //!   refusal's text with OK. The DATA page draws the box over the map and takes its keys
 //!   and clicks (`super::take_input`); Yes is a [`FastTravelGo`].
@@ -25,8 +26,8 @@ use bevy::prelude::*;
 use fnv_sim::settings::Setting;
 use fnv_sim::FormId;
 
-/// A click on a map marker of the World Map (or the test aid's `travel=`): ask to go
-/// there.
+/// A click on a map marker of the World Map, or the controller's A on one (or the test
+/// aid's `travel=`): ask to go there.
 #[derive(Message, Clone, Copy, Debug, PartialEq)]
 pub struct FastTravelAsk(pub u32);
 
@@ -148,9 +149,12 @@ pub enum Ask {
     Travel(u32),
     /// A refusal: OK only.
     Refused,
+    /// Place Marker's question (`super::marker`, #1954).
+    Marker(super::marker::MarkerAsk),
 }
 
-/// The question box over the World Map.
+/// The question box over the map: fast travel's on the World Map, Place Marker's on
+/// either map.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Popup {
     pub ask: Ask,
@@ -166,6 +170,11 @@ impl Popup {
 
     pub fn refused(text: String) -> Popup {
         Popup { ask: Ask::Refused, text, buttons: vec!["OK".into()], selected: 0 }
+    }
+
+    /// Place Marker's question (`super::marker::Words`), the first answer chosen.
+    pub fn marker(ask: super::marker::MarkerAsk, text: String, buttons: Vec<String>) -> Popup {
+        Popup { ask: Ask::Marker(ask), text, buttons, selected: 0 }
     }
 
     /// Move the choice, stopping at the ends.
@@ -203,7 +212,9 @@ fn travel_target(st: &DataState, script: Option<&ScriptState>, m: &read::Marker)
         let p = &rt.game.player;
         p.travel_markers.contains(&FormId(m.form)) || p.all_markers.is_some_and(|a| a.shown && a.travel)
     });
-    st.discovered.contains(&m.form) || m.flags & 2 != 0 || by_script
+    // LU's SetMapMarkerTravel over the record's flag (`fnv_game::nvse_lu2`).
+    let flags = script.and_then(|s| s.rt.as_ref()).and_then(|rt| rt.game.marker_flags(FormId(m.form))).unwrap_or(m.flags);
+    st.discovered.contains(&m.form) || flags & 2 != 0 || by_script
 }
 
 /// What the refusals look at: the player's body, where they are, the actors near, the
@@ -394,6 +405,8 @@ pub fn depart(
             (p.cell, p.pos, p.rot) = (cell, t.travel.feet, [0.0, 0.0, t.rot[2]]);
         }
         g.player_entered(cell);
+        // GetPCFastTravelled (`fnv_game::nvse_jip12`).
+        g.note_fast_travel();
         let brought = g.bring_teammates(from);
         info!("fast travel: under way to {}; {} teammate(s) or follower(s) come along", FormId(t.to), brought.len());
     });

@@ -26,6 +26,10 @@
 //!   page), `reset`, `done`.
 //! - The race menu (1036) is the character creator's (`crate::creator`), NVForever's own
 //!   design (docs/spec-notes/character-creator.md).
+//! - With `[UI] TileMenus=TraitMenu` the trait menu is drawn from its file
+//!   (`crate::tiles::trait_menu`) when that is ready: [`draw_menus`] leaves a sheet in place of
+//!   its own drawing, and the tiles' clicks come here as [`TileAct`]s. The sheet, the keys,
+//!   the sounds and Done stay as above.
 
 pub mod draw;
 pub mod lists;
@@ -45,6 +49,7 @@ use crate::ui_pointer::PointerState;
 use fnv_game::chargen as rules;
 use fnv_game::game::menus;
 use fnv_game::Game;
+use fnv_sim::FormId;
 use lists::{ListButton, ListMenu, ListRow, ListView};
 use name::{NameMenu, OkButton};
 use nvf_assets::GameData;
@@ -78,7 +83,7 @@ pub fn finish(script: &mut ScriptState, sim: &mut SimState, code: u16, how: &str
 }
 
 /// Run `f` on the game with the simulation's world in it.
-fn with_game<R>(script: &mut ScriptState, sim: &mut SimState, f: impl FnOnce(&mut Game) -> R) -> Option<R> {
+pub(crate) fn with_game<R>(script: &mut ScriptState, sim: &mut SimState, f: impl FnOnce(&mut Game) -> R) -> Option<R> {
     let rt = script.rt.as_mut()?;
     Some(crate::script::with_world(rt, sim, |rt| f(&mut rt.game)))
 }
@@ -105,7 +110,74 @@ pub struct ChargenMenus {
     dirty: bool,
     /// Done was pressed; the runtime closes the menu after this frame's scripts.
     answered: bool,
+    /// Counted up each time a menu opens, so nothing a drawing queued for one acts on the next.
+    generation: u64,
+    /// Counted up each time the keys or the test aid move the chosen row: a tile list brings
+    /// that row into view, and leaves it where it is for the pointer's choice
+    /// (`crate::tiles::trait_menu`). Not part of [`ListMenu`], so the hand-built drawing is
+    /// not spawned again for it.
+    navigated: u32,
+    /// [`draw_menus`] last left the menu to its tiles.
+    tiles_draw: bool,
     kit: Option<draw::Kit>,
+}
+
+/// [design] The open trait or tag-skill list, as the tile drawing reads it. The sheet
+/// stays [`ListMenu`]'s: the drawing never makes one of its own, as the sheets' constructors
+/// use up what the scripts asked for.
+pub struct TraitsOpen<'a> {
+    pub menu: &'a ListMenu,
+    pub generation: u64,
+    pub navigated: u32,
+    /// Done was pressed: the menu closes after the frame's scripts, and takes nothing more.
+    pub answered: bool,
+}
+
+impl ChargenMenus {
+    /// [design] The requested selection page, from the sheet already opened by sync.
+    /// SpecialSheet uses menu 1048 too and deliberately stays with its hand-built drawing.
+    pub fn list_open(&self, code: u16) -> Option<TraitsOpen<'_>> {
+        match &self.open {
+            Some(OpenMenu::List(m)) if m.code == code && (code == menus::TRAITS || (code == menus::TAG_SKILLS && matches!(m.sheet, lists::Sheet::Tags { .. }))) =>
+                Some(TraitsOpen { menu: m, generation: self.generation, navigated: self.navigated, answered: self.answered }),
+            _ => None,
+        }
+    }
+    pub fn traits_open(&self) -> Option<TraitsOpen<'_>> { self.list_open(menus::TRAITS) }
+    pub fn tags_open(&self) -> Option<TraitsOpen<'_>> { self.list_open(menus::TAG_SKILLS) }
+}
+
+/// What a click or the pointer on a selection menu's tiles asks of the menu, for [`input`] to
+/// turn into the same changes as the hand-built parts ([`tile_ops`]). A row is named by its
+/// trait or skill, not its place, so an act queued before anything changed acts on that row or on
+/// nothing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TileAct {
+    /// The pointer came onto a row: it is chosen.
+    Hover(FormId),
+    /// A click on a row: it is chosen, then taken or given back.
+    Click(FormId),
+    /// [design] A skill actor-value code, kept apart from trait FormIDs.
+    SkillHover(u16),
+    SkillClick(u16),
+    Reset,
+    Done,
+    /// The pointer came onto Reset or Done, for its sound (text_box.xml's).
+    ButtonFocus,
+}
+
+/// The changes a tile's act makes, as the hand-built row's and buttons' (`input`). A row the
+/// sheet no longer has makes none.
+fn tile_ops(m: &ListMenu, act: TileAct) -> Vec<(Op, &'static str)> {
+    match act {
+        TileAct::Hover(key) => m.trait_row(key).map_or_else(Vec::new, |i| vec![(Op::Select(i), "pointer")]),
+        TileAct::Click(key) => m.trait_row(key).map_or_else(Vec::new, |i| vec![(Op::Select(i), "pointer"), (Op::Click, "click")]),
+        TileAct::SkillHover(key) => m.tag_row(key).map_or_else(Vec::new, |i| vec![(Op::Select(i), "pointer")]),
+        TileAct::SkillClick(key) => m.tag_row(key).map_or_else(Vec::new, |i| vec![(Op::Select(i), "pointer"), (Op::Click, "click")]),
+        TileAct::Reset => vec![(Op::Reset, "click")],
+        TileAct::Done => vec![(Op::Done, "click")],
+        TileAct::ButtonFocus => Vec::new(),
+    }
 }
 
 #[derive(Component)]
@@ -185,6 +257,23 @@ pub struct ChargenSet;
 
 fn sync(mut st: ResMut<ChargenMenus>, script: Option<ResMut<ScriptState>>, sim: Option<ResMut<SimState>>) {
     let (Some(mut script), Some(mut sim)) = (script, sim) else { return };
+    // SetTextInputString on a script's text input menu (`fnv_game::nvse_jip12`).
+    if matches!(&st.open, Some(OpenMenu::Name(n)) if n.script.is_some()) {
+        if let Some(t) = with_game(&mut script, &mut sim, |g| g.take_text_input_string()).flatten() {
+            if let Some(OpenMenu::Name(m)) = st.open.as_mut() {
+                m.set_text(&t);
+            }
+            st.dirty = true;
+        }
+        // SetTextInputExtendedProps on a later frame reaches the open box (#2018).
+        if let Some(OpenMenu::Name(m)) = st.open.as_mut() {
+            let changed = with_game(&mut script, &mut sim, |g| g.text_input().is_some_and(|t| m.update_rules(t))).unwrap_or(false);
+            if changed {
+                info!("script: text input menu rules changed");
+                st.dirty = true;
+            }
+        }
+    }
     let code = open_code(&script).filter(|&c| has_own_menu(c) && c != menus::LOVE_TESTER);
     if st.open.as_ref().map(OpenMenu::code) == code {
         return;
@@ -195,9 +284,14 @@ fn sync(mut st: ResMut<ChargenMenus>, script: Option<ResMut<ScriptState>>, sim: 
     st.open = None;
     st.answered = false;
     st.dirty = true;
+    st.generation = st.generation.wrapping_add(1);
     let Some(code) = code else { return };
     st.open = with_game(&mut script, &mut sim, |g| {
-        if code == menus::NAME {
+        if let Some(t) = g.text_input().filter(|_| code == menus::NAME) {
+            let m = NameMenu::script(t, Some(g));
+            info!("script: text input menu open, \"{}\" ({} to {} characters)", m.prompt, t.min, t.max);
+            OpenMenu::Name(m)
+        } else if code == menus::NAME {
             let m = NameMenu::open(rules::name_offered(g), Some(g));
             info!("chargen: name menu open, offering \"{}\"", m.text);
             OpenMenu::Name(m)
@@ -233,8 +327,8 @@ fn input(
     mut st: ResMut<ChargenMenus>,
     mut aid: ResMut<ChargenAid>,
     time: AidTime,
-    keys: Res<ButtonInput<KeyCode>>,
-    mut typed: MessageReader<KeyboardInput>,
+    keys: crate::pad::ActionButtons<KeyCode>,
+    (mut typed, switching): (MessageReader<KeyboardInput>, Option<Res<crate::pad::SwitchingInput>>),
     mut wheel: MessageReader<MouseWheel>,
     rows: Query<(&PointerState, &ListRow), Changed<PointerState>>,
     buttons: Query<(&PointerState, &ListButton), Changed<PointerState>>,
@@ -242,12 +336,20 @@ fn input(
     script: Option<ResMut<ScriptState>>,
     sim: Option<ResMut<SimState>>,
     mut sounds: MessageWriter<UiSound>,
+    mut traits: Option<ResMut<crate::tiles::trait_menu::TraitTiles>>,
+    mut tags: Option<ResMut<crate::tiles::tag_menu::TagTiles>>,
 ) {
+    let keys = keys.snapshot();
     use KeyCode::*;
-    let typed: Vec<KeyboardInput> = typed.read().cloned().collect();
+    let typed: Vec<KeyboardInput> = typed.read().filter(|e| switching.as_ref().is_none_or(|s| s.allows(e))).cloned().collect();
     let wheel: f32 = wheel.read().map(|w| if w.unit == MouseScrollUnit::Line { w.y } else { w.y / 40.0 }).sum();
     let (Some(mut script), Some(mut sim)) = (script, sim) else { return };
     if st.open.is_none() || st.answered {
+        // Nothing the tiles queued acts on a menu closing.
+        if let Some(t) = traits.as_mut().filter(|t| t.menu.is_some()) {
+            t.drop_acts();
+        }
+        if let Some(t) = tags.as_mut() { t.drop_acts(); }
         return;
     }
     let mut ops: Vec<(Op, &str)> = Vec::new();
@@ -261,11 +363,15 @@ fn input(
     let mut hover_ok = None;
     let mut hover_button = Vec::new();
     match st.open.as_ref() {
-        Some(OpenMenu::Name(_)) => {
+        Some(OpenMenu::Name(m)) => {
+            // A script's menu takes Enter as Done only when it says so [documented:
+            // SetTextInputExtendedProps switch 2; decision: a new line is not typed].
+            let enter_done = m.script.as_ref().is_none_or(|s| s.enter_closes);
             for k in typed.iter().filter(|k| k.state.is_pressed()) {
                 match &k.logical_key {
                     Key::Backspace => ops.push((Op::Backspace, "key")),
-                    Key::Enter => ops.push((Op::Done, "Enter")),
+                    Key::Enter if enter_done => ops.push((Op::Done, "Enter")),
+                    Key::Enter => {}
                     _ => {
                         if let Some(t) = k.text.as_deref().filter(|t| !t.is_empty() && t.chars().all(|c| !c.is_control()) && fnv_util::text::encodable(t)) {
                             ops.push((Op::Type(t.to_string()), "key"));
@@ -281,14 +387,39 @@ fn input(
             }
         }
         Some(OpenMenu::List(m)) => {
-            let page = m.visible() as i32;
-            if m.attributes() {
-                for k in typed.iter().filter(|k| k.state.is_pressed()) {
-                    match k.logical_key {
-                        Key::ArrowRight => ops.push((Op::Adjust(None, true), "key")),
-                        Key::ArrowLeft => ops.push((Op::Adjust(None, false), "key")),
-                        _ => {}
+            // Drawn from its tiles the rows' place and the scroll are the drawing's; while it
+            // takes nothing (the pause menu over it) neither do these.
+            let tiles: Option<&mut dyn crate::tiles::selection_menu::SelectionInput> = if m.code == menus::TRAITS {
+                traits.as_deref_mut().filter(|t| t.menu.is_some() && t.is_for(st.generation)).map(|t| t as &mut dyn crate::tiles::selection_menu::SelectionInput)
+            } else if m.code == menus::TAG_SKILLS && !m.attributes() {
+                tags.as_deref_mut().filter(|t| t.menu.is_some() && t.is_for(st.generation)).map(|t| t as &mut dyn crate::tiles::selection_menu::SelectionInput)
+            } else { None };
+            let tiled = tiles.is_some();
+            let page = tiles.as_ref().map_or(m.visible() as i32, |t| t.page_rows());
+            let keys_on = tiles.as_ref().is_none_or(|t| t.takes().is_some());
+            if let Some(t) = tiles.filter(|t| t.takes().is_some()) {
+                if wheel.abs() >= 1.0 {
+                    t.wheel(-f64::from(wheel.round()));
+                }
+                // NVForever's addition [design]: the keyboard and controller route to the end
+                // of a long description. They move nothing in the original trait menu [observed: its job
+                // `trait`, chargen.md §4.1].
+                for (k, by) in [(ArrowLeft, -1.0), (ArrowRight, 1.0)] {
+                    if keys.just_pressed(k) {
+                        t.scroll_text(by);
                     }
+                }
+                for act in t.take_acts(st.generation) {
+                    if act == TileAct::ButtonFocus {
+                        sounds.write(UiSound { menu: list_menu(m.code), event: UiEvent::Focus });
+                    }
+                    ops.extend(tile_ops(m, act));
+                }
+            }
+            if m.attributes() {
+                // The keyboard's Left and Right and the controller's D-pad (issue #1910).
+                for right in crate::pad::sideways(&typed, &keys) {
+                    ops.push((Op::Adjust(None, right), "key"));
                 }
             }
             for (k, op) in [
@@ -301,11 +432,11 @@ fn input(
                 ([KeyR, KeyR], Op::Reset),
                 ([KeyA, KeyA], Op::Done),
             ] {
-                if keys.any_just_pressed(k) {
+                if keys_on && keys.any_just_pressed(k) {
                     ops.push((op, "key"));
                 }
             }
-            if wheel.abs() >= 1.0 {
+            if wheel.abs() >= 1.0 && !tiled {
                 ops.push((Op::Scroll(-wheel.round() as i32), "wheel"));
             }
             for (i, r) in &rows {
@@ -386,6 +517,24 @@ fn apply(st: &mut ChargenMenus, script: &mut ScriptState, sim: &mut SimState, op
     let open = st.open.as_mut()?;
     let code = open.code();
     match open {
+        OpenMenu::Name(m) if m.script.is_some() => {
+            let changed = match op {
+                Op::Type(t) => m.type_text(&t),
+                Op::Backspace => m.backspace(),
+                Op::Clear => !std::mem::take(&mut m.text).is_empty(),
+                Op::Done if m.can_finish() => {
+                    let text = m.text.clone();
+                    if with_game(script, sim, |g| g.finish_text_input(text.clone())).is_some() {
+                        info!("script: text input menu done ({how}): \"{text}\"");
+                        st.answered = true;
+                    }
+                    false
+                }
+                _ => false,
+            };
+            st.dirty |= changed;
+            None
+        }
         OpenMenu::Name(m) => {
             let changed = match op {
                 Op::Type(t) => m.type_text(&t),
@@ -411,6 +560,9 @@ fn apply(st: &mut ChargenMenus, script: &mut ScriptState, sim: &mut SimState, op
         OpenMenu::List(m) => {
             let before = m.clone();
             let mut event = None;
+            if matches!(op, Op::Step(_) | Op::Pick(_)) {
+                st.navigated = st.navigated.wrapping_add(1);
+            }
             match op {
                 Op::Step(by) => m.step(by),
                 Op::Select(i) => m.select(i),
@@ -536,13 +688,35 @@ fn draw_menus(
     data: Option<Res<GameData>>,
     mut images: ResMut<Assets<Image>>,
     formats: Option<Res<CompressedImageFormatSupport>>,
+    glyphs: Res<crate::pad::PadGlyphs>,
+    traits: Option<Res<crate::tiles::trait_menu::TraitTiles>>,
+    tags: Option<Res<crate::tiles::tag_menu::TagTiles>>,
 ) {
+    // The drawing's own decision, this frame's (`crate::tiles::trait_menu::drawn`): the menu
+    // goes the frame its tiles draw, and comes back whole, its sheet as it stands, when they
+    // cannot, and a menu the scripts put in its place is drawn at once. Off, this stays false.
+    let game = script.as_ref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game);
+    let tiled = traits.as_ref().is_some_and(|t| crate::tiles::trait_menu::drawn(t, st.traits_open(), game).is_some())
+        || tags.as_ref().is_some_and(|t| crate::tiles::tag_menu::drawn(t, st.tags_open(), game).is_some());
+    if tiled != st.tiles_draw {
+        st.tiles_draw = tiled;
+        st.dirty = true;
+    }
     if !st.dirty {
         return;
     }
     st.dirty = false;
     for e in &roots {
         commands.entity(e).despawn();
+    }
+    if tiled {
+        // No click goes past it [documented: trait_menu.xml, `stackingtype` `&no_click_past;`];
+        // the tile pointer reads the cursor itself.
+        let full = Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() };
+        commands.spawn((full, GlobalZIndex(crate::interface::TOP_MENU_Z), ChargenRoot)).with_children(|r| {
+            r.spawn(crate::tiles::menus::modal_sheet());
+        });
+        return;
     }
     let (Some(mut script), Some(mut sim)) = (script, sim) else { return };
     let view = match st.open.as_ref() {
@@ -556,7 +730,7 @@ fn draw_menus(
     let bc = crate::interface::bc_supported(formats.as_deref());
     let st = st.into_inner();
     let kit = st.kit.get_or_insert_with(|| draw::Kit::load(data.as_deref(), &mut images, bc));
-    let mut c = draw::Ctx { kit, data: data.as_deref(), images: &mut images, bc };
+    let mut c = draw::Ctx { kit, data: data.as_deref(), images: &mut images, bc, glyphs: &glyphs };
     let root = Node {
         position_type: PositionType::Absolute,
         width: Val::Percent(100.0),
@@ -586,8 +760,38 @@ mod tests {
     }
 
     #[test]
+    fn a_tile_act_names_its_row_by_its_trait() {
+        use fnv_game::chargen::TraitSheet;
+        let sheet = TraitSheet { traits: vec![FormId(7), FormId(9)], chosen: Default::default(), max: 2 };
+        let m = ListMenu { code: menus::TRAITS, sheet: lists::Sheet::Traits { now: sheet.clone(), start: sheet, allowed: vec![true, true] }, selected: 0, scroll: 0, hover: None };
+        assert_eq!(tile_ops(&m, TileAct::Hover(FormId(9))), vec![(Op::Select(1), "pointer")]);
+        assert_eq!(tile_ops(&m, TileAct::Click(FormId(9))), vec![(Op::Select(1), "pointer"), (Op::Click, "click")]);
+        assert!(tile_ops(&m, TileAct::Click(FormId(5))).is_empty(), "a trait no longer on the sheet");
+        assert_eq!(tile_ops(&m, TileAct::Done), vec![(Op::Done, "click")]);
+        assert!(tile_ops(&m, TileAct::ButtonFocus).is_empty());
+    }
+
+    #[test]
     fn the_own_menus() {
         assert!(has_own_menu(menus::NAME) && has_own_menu(menus::TRAITS) && has_own_menu(menus::TAG_SKILLS) && has_own_menu(menus::LOVE_TESTER));
         assert!(!has_own_menu(menus::RACE) && !has_own_menu(menus::MESSAGE));
     }
+    #[test]
+    fn tag_tile_acts_resolve_skill_codes_and_special_stays_hand_built() {
+        use fnv_game::chargen::{TagSheet, SpecialSheet};
+        let tags = TagSheet { skills: vec![32, 35], tagged: Default::default(), locked: Default::default(), count: 4 };
+        let menu = ListMenu { code: menus::TAG_SKILLS, sheet: lists::Sheet::Tags { now: tags.clone(), start: tags }, selected: 0, scroll: 0, hover: None };
+        assert_eq!(tile_ops(&menu, TileAct::SkillClick(35)), vec![(Op::Select(1), "pointer"), (Op::Click, "click")]);
+        assert_eq!(tile_ops(&menu, TileAct::SkillHover(32)), vec![(Op::Select(0), "pointer")]);
+        assert!(tile_ops(&menu, TileAct::Click(FormId(35))).is_empty());
+        assert!(tile_ops(&menu, TileAct::SkillClick(99)).is_empty());
+        let mut st = ChargenMenus { open: Some(OpenMenu::List(menu)), generation: 8, ..Default::default() };
+        assert_eq!(st.tags_open().unwrap().generation, 8); assert!(st.traits_open().is_none());
+        let special = SpecialSheet::new([5; 7]);
+        st.open = Some(OpenMenu::List(ListMenu { code: menus::TAG_SKILLS, sheet: lists::Sheet::Special { now: special, start: special }, selected: 0, scroll: 0, hover: None }));
+        assert!(st.tags_open().is_none());
+        let Some(OpenMenu::List(menu)) = st.open.as_ref() else { panic!("missing sheet") };
+        assert!(tile_ops(menu, TileAct::SkillClick(32)).is_empty());
+    }
+
 }

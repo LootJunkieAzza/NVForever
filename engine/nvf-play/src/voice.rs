@@ -15,6 +15,11 @@
 //!   (cut by another line, or its speaker gone) has the sound stopped. One log line per
 //!   sound started: `voice: playing <path> (<seconds> s) ...`; a response without a file
 //!   logs `voice: no file ...`.
+//! - **A line's sound stopped** (cut by another line, its speaker gone, a response
+//!   replaced) fades out over `audio_out::DECLICK_FADE` (#2217) [design] instead of being
+//!   cut mid-waveform (`audio_out::stop_sound`, counted as voice stops in `sfx declicks:
+//!   …`), the voice files, the panned and the cut-to-one-cry lines alike; a held line is
+//!   resumed for its fade. A line nearly over is still left to finish by itself.
 //! - **Held with its line.** Whatever holds a line's timer holds its sound
 //!   ([`line_held`]): a SayTo or Say line stands still in menu mode (the inventory, a
 //!   container, a message box, a conversation with the player), so its sound is paused
@@ -31,7 +36,7 @@
 //!   player's eye, falling as minimum ÷ distance beyond it and fading to nothing at
 //!   [`DIALOG_MAX_DISTANCE`] ([`voice_gain`]),
 //!   and panned to the side it is on (`crate::sfx::pan_gains`), following the speaker and
-//!   the player while it plays. A speaker in another cell (an interior other than the
+//!   the player while it plays (its gains eased, `crate::sfx::PAN_EASE`). A speaker in another cell (an interior other than the
 //!   player's, or inside while the player is outside) is not heard. While a line is not
 //!   heard it is silent and shows no subtitle (`crate::script_hud`; [`audible`]): both
 //!   follow the distance while the line lasts; the log says `voice: … out of hearing`
@@ -40,9 +45,9 @@
 //!   [`VoiceState::spoken`] from `nvforever`'s `lips.rs` (docs/spec-notes/lipsync.md).
 //!
 //! - **Through a helmet or a speaker** ([`crate::voice_filter`]): a speaker wearing an
-//!   armour that "modulates voice" (power armour helmets) or a talking activator without
-//!   "No Voice Filter" is heard through the voice filter (`voice: playing … through the
-//!   voice filter`).
+//!   armour that "modulates voice" (power armour helmets) is heard through the voice
+//!   filter (`voice: playing … through the voice filter`). A talking activator's lines play
+//!   as their files: the intercoms' files are already processed (issue #992).
 //!
 //! - **In the room** ([`crate::reverb::for_voice`]): a line heard where it is said goes,
 //!   after the voice filter, into the reverb of the place the listener is in, and its
@@ -55,20 +60,28 @@
 //!   instead of a voice file, through `crate::sfx` (`voice: … plays its sound <edid>`); the
 //!   line keeps its fitted length.
 //!
+//! - **One cry of a long generic death file** ([`one_cry`], issue #1539, voice.md §9.1):
+//!   a Generic Death file over 5 s (MaleAdult07's hold several cries) is decoded, split
+//!   at its silences, and one cry picked at random plays; the game's line ends with it
+//!   (`Game::cut_line_after`) and lip sync follows the cry's place in the file
+//!   (`voice: one cry of <path>: cry <k> of <n>, …`).
+//!
 //! Switches: [`VoiceSettings`] (`nvforever --no-voice`, `--voice-volume`);
 //! `NVF_PLAY_VOICE_LENGTHS=0` keeps the fitted line lengths (sounds still play).
 
 use crate::player::Player;
 use crate::script::ScriptState;
-use crate::sfx::{pan_gains, Pan, Panned, PlaySound};
+use crate::sfx::{pan_gains, Pan, Panned, PcmSound, PlaySound};
 use crate::sim::SimState;
 use crate::{PlaySet, PlayWorld};
 use bevy::audio::Volume;
-use crate::audio_out::{AddAudioSource, SoundCategory};
+use crate::audio_out::{stop_sound, AddAudioSource, Retiring, SoundCategory, StopReason};
 use bevy::prelude::*;
 use fnv_game::game::Speech;
 use fnv_game::Game;
+use fnv_combat::rng::SplitMix;
 use fnv_sim::FormId;
+use fnv_voice::cry::{self, Cut};
 use fnv_voice::VoiceBank;
 use std::collections::HashMap;
 use std::sync::mpsc::{self, Receiver};
@@ -178,6 +191,9 @@ struct Playing {
     started_at: f64,
     /// Real seconds the sound has stood still so far (`held`).
     held_secs: f64,
+    /// Seconds into the file at which the sound began: one cry of a long generic death
+    /// file starts inside it ([`one_cry`]); 0 otherwise.
+    offset: f64,
     /// A line heard where it is said: its left and right gains, distance included,
     /// followed while it plays (`None`: the conversation's, flat and whole).
     pan: Option<Pan>,
@@ -212,7 +228,18 @@ impl Spoken<'_> {
 impl VoiceState {
     /// The responses being said this frame, one per speaker.
     pub fn spoken(&self) -> impl Iterator<Item = Spoken<'_>> {
-        self.playing.iter().map(|(&speaker, p)| Spoken { speaker, info: p.info, response: p.response, path: p.path.as_deref(), started_at: p.started_at, ends_at: p.ends_at, held_secs: p.held_secs })
+        // A sound that began inside its file (one cry, [`one_cry`]) reports when the file's
+        // start would have been heard, so a mouth following the file's `.lip` is at the
+        // cry; it stops at the cut (`ends_at`).
+        self.playing.iter().map(|(&speaker, p)| Spoken {
+            speaker,
+            info: p.info,
+            response: p.response,
+            path: p.path.as_deref(),
+            started_at: p.started_at - p.offset,
+            ends_at: p.ends_at,
+            held_secs: p.held_secs,
+        })
     }
 }
 
@@ -233,6 +260,10 @@ pub struct VoiceState {
     pub filtered: u64,
     /// Responses played through the room's reverb ([`crate::reverb::for_voice`]).
     pub reverbed: u64,
+    /// Long generic death files of which one cry was played ([`one_cry`]).
+    pub one_cry: u64,
+    /// Picks the cry (seeded from the clock on first use).
+    rng: Option<SplitMix>,
 }
 
 /// Marks the audio entity of a line.
@@ -338,6 +369,25 @@ pub fn line_held(conversation: bool, pause_menu: bool, in_menu: bool, menu_on_to
     pause_menu || if conversation { menu_on_top } else { in_menu }
 }
 
+/// One cry of a long generic death file (issue #1539, `fnv_voice::cry`, voice.md §9.1):
+/// the file decoded, split at its silences and one cry picked by `roll` (in [0, 1)), cut
+/// out with its fades; with the cut and the file's length. `None`: the file plays whole
+/// (short, silent, or not decodable).
+pub fn one_cry(bytes: Vec<u8>, roll: f64) -> Option<(PcmSound, Cut, f64)> {
+    let pcm = PcmSound::from_encoded(bytes).ok()?;
+    let found = cry::cries(pcm.samples(), pcm.channels(), pcm.rate());
+    let cut = cry::choose(&found, pcm.seconds(), roll)?;
+    let samples = cry::cut_samples(pcm.samples(), pcm.channels(), pcm.rate(), &cut);
+    Some((PcmSound::from_samples(samples, pcm.channels(), pcm.rate()), cut, pcm.seconds()))
+}
+
+/// Whether a response's file is cut to one cry ([`one_cry`]): a generic death file
+/// (`fnv_voice::cry::is_generic_death`) longer than `fnv_voice::cry::LONG_SECONDS`, of a
+/// line of one response said outside the conversation with the player.
+pub fn cut_to_one_cry(path: &str, seconds: f64, responses: usize, conversation: bool) -> bool {
+    !conversation && responses <= 1 && seconds > cry::LONG_SECONDS && cry::is_generic_death(path)
+}
+
 /// A sound whose line stopped this long before the sound's end is left to finish (the
 /// line's clock and the sound's are not the same clock); earlier, it is stopped.
 pub const TAIL_SECONDS: f64 = 0.25;
@@ -410,13 +460,15 @@ fn play(
     time: Res<Time<Real>>,
     settings: Res<VoiceSettings>,
     mut state: ResMut<VoiceState>,
-    script: Res<ScriptState>,
+    mut script: ResMut<ScriptState>,
     sim: Res<SimState>,
     (sounds, mut panned, player): (Option<ResMut<Assets<AudioSource>>>, Option<ResMut<Assets<Panned<AudioSource>>>>, Option<Res<Player>>),
     paused: Res<crate::pause::Paused>,
-    sinks: Query<&AudioSink, With<VoiceSound>>,
+    // Not a line fading out after it was stopped (audio_out).
+    sinks: Query<&AudioSink, (With<VoiceSound>, Without<Retiring>)>,
     mut effects: MessageWriter<PlaySound>,
     (sfx, sfx_settings): (Option<Res<crate::sfx::Sfx>>, Option<Res<crate::sfx::SfxSettings>>),
+    mut cut_sounds: Option<ResMut<Assets<Panned<PcmSound>>>>,
 ) {
     let player = player.as_deref();
     let st = &mut *state;
@@ -425,13 +477,15 @@ fn play(
     let now = time.elapsed_secs_f64();
     let mut sounds = sounds;
     let said_now = said_now(g, &sim);
+    // Lines cut to one cry this frame: (speaker, line, seconds), told to the game after.
+    let mut cuts: Vec<(FormId, FormId, f64)> = Vec::new();
     // Lines no longer said: stop a sound that is not nearly over (the line was cut).
     // A held sound cannot finish by itself: it is stopped as well.
     st.playing.retain(|speaker, p| {
         let said = said_now.iter().any(|s| s.speaker == *speaker && s.info == p.info);
         if !said && (p.held || now < p.ends_at - TAIL_SECONDS) {
             if let Some(e) = p.entity.take() {
-                commands.entity(e).try_despawn();
+                stop_sound(&mut commands, e, StopReason::Voice);
             }
             info!("voice: stopped {} line {} ({:.2} s before its end)", g.data.name(*speaker), g.data.name(p.info), p.ends_at - now);
         }
@@ -477,7 +531,7 @@ fn play(
         if let Some(old) = st.playing.remove(&s.speaker) {
             if old.held || now < old.ends_at - TAIL_SECONDS {
                 if let Some(e) = old.entity {
-                    commands.entity(e).try_despawn();
+                    stop_sound(&mut commands, e, StopReason::Voice);
                 }
             }
         }
@@ -494,7 +548,14 @@ fn play(
         // A fixed speaker that is the placed base is no other actor: its file is in the
         // record's own voice, not the one the actor speaks with (issue #1051).
         let fixed = g.data.infos.get(&s.info).and_then(|d| d.speaker).filter(|f| Some(*f) != base && Some(*f) != placed);
-        let file = base.and_then(|b| bank.file(s.info.0, k, b.0)).or_else(|| fixed.and_then(|f| bank.file(s.info.0, k, f.0)));
+        // The player speaks in the voice of the sex she or he is (`Game::voice_override`,
+        // issue #2088), not the player record's.
+        let own_voice = g.voice_override(base);
+        let own = match own_voice {
+            Some(vt) => bank.file_for_voice(s.info.0, k, vt.0),
+            None => base.and_then(|b| bank.file(s.info.0, k, b.0)),
+        };
+        let file = own.or_else(|| fixed.and_then(|f| bank.file(s.info.0, k, f.0)));
         // A line outside the conversation is heard from where it is said, or not at all;
         // a 2D one (Say's is2D) as the conversation's.
         let heard = if s.conversation || s.two_d { None } else { Some(player.and_then(|p| hearing(&sim, p, s.speaker))) };
@@ -523,13 +584,34 @@ fn play(
             info!("voice: {who} line {} response {number} plays its sound {}{}", g.data.name(s.info), g.data.name(sound), if out_of_hearing.is_some() { " [out of hearing]" } else { "" });
             st.playing.insert(
                 s.speaker,
-                Playing { info: s.info, response: k, entity: None, ends_at: now + fitted, remaining: s.remaining, path: None, started_at: now, held_secs: 0.0, conversation: s.conversation, held: false, pan },
+                Playing { info: s.info, response: k, entity: None, ends_at: now + fitted, remaining: s.remaining, path: None, started_at: now, held_secs: 0.0, conversation: s.conversation, held: false, pan, offset: 0.0 },
             );
             continue;
         }
+        let mut offset = 0.0;
         let (entity, seconds) = match &file {
             Some(path) => {
-                let seconds = bank.seconds(path).unwrap_or(fitted);
+                let mut seconds = bank.seconds(path).unwrap_or(fitted);
+                // A long generic death file: one cry of it (issue #1539).
+                let responses = g.data.infos.get(&s.info).map_or(0, |d| d.responses.len());
+                let cry = if cut_to_one_cry(path, seconds, responses, s.conversation) {
+                    let rng = st.rng.get_or_insert_with(|| SplitMix(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(7, |d| d.as_nanos() as u64)));
+                    let roll = rng.next_f32() as f64;
+                    bank.read(path).and_then(|b| crate::sfx::checked(path, b)).and_then(|b| one_cry(b, roll))
+                } else {
+                    None
+                };
+                if let Some((_, cut, total)) = &cry {
+                    seconds = cut.span.seconds();
+                    offset = cut.span.start;
+                    st.one_cry += 1;
+                    cuts.push((s.speaker, s.info, seconds));
+                    let which = match cut.cry {
+                        Some((k, n)) => format!("cry {} of {n}", k + 1),
+                        None => "a stretch (no silence found)".to_string(),
+                    };
+                    info!("voice: one cry of {path}: {which}, {:.2}-{:.2} s of its {total:.2} s; {who} line {} ends with it", cut.span.start, cut.span.end, g.data.name(s.info));
+                }
                 // Played also out of hearing, silent: it is heard if the speaker comes
                 // near (or the player does) while it lasts.
                 // Said through a helmet or a speaker: the voice filter (crate::voice_filter).
@@ -538,22 +620,31 @@ fn play(
                 let room = sfx.as_ref().and_then(|x| x.room_reverb);
                 let reverb_on = sfx_settings.as_ref().is_some_and(|x| x.reverb);
                 let reverb = crate::reverb::for_voice(room, reverb_on, settings.reverb, pan.is_some() && out_of_hearing.is_none());
-                let entity = match (settings.play, sounds.as_mut(), bank.read(path).and_then(|b| crate::sfx::checked(path, b))) {
-                    (true, Some(assets), Some(bytes)) => {
-                        let source = AudioSource { bytes: bytes.into() };
-                        let volume = Volume::Linear(settings.volume.max(0.0));
-                        let playback = PlaybackSettings::DESPAWN.with_volume(volume);
-                        // The conversation's line, filtered, at both ears whole.
-                        let pan = pan.clone().or_else(|| filtered.then(|| Pan::new([1.0, 1.0])));
-                        match (&pan, panned.as_mut()) {
-                            (Some(pan), Some(panned)) => {
-                                let handle = panned.add(Panned { voice_filter: filtered, reverb, ..Panned::new(source, pan.clone()) });
-                                Some(commands.spawn((AudioPlayer::<Panned<AudioSource>>(handle), playback, VoiceSound, SoundCategory::Voice)).id())
-                            }
-                            _ => Some(commands.spawn((AudioPlayer::new(assets.add(source)), playback, VoiceSound, SoundCategory::Voice)).id()),
-                        }
+                let entity = match (settings.play, cry.as_ref(), cut_sounds.as_mut()) {
+                    // One cry: its samples, at the speaker's place (or whole at both ears).
+                    (true, Some((pcm, ..)), Some(cut_sounds)) => {
+                        let playback = PlaybackSettings::DESPAWN.with_volume(Volume::Linear(settings.volume.max(0.0)));
+                        let pan = pan.clone().unwrap_or_else(|| Pan::new([1.0, 1.0]));
+                        let handle = cut_sounds.add(Panned { voice_filter: filtered, reverb, ..Panned::new(pcm.clone(), pan) });
+                        Some(commands.spawn((AudioPlayer::<Panned<PcmSound>>(handle), playback, VoiceSound, SoundCategory::Voice)).id())
                     }
-                    _ => None,
+                    _ => match (settings.play, sounds.as_mut(), bank.read(path).and_then(|b| crate::sfx::checked(path, b))) {
+                        (true, Some(assets), Some(bytes)) => {
+                            let source = AudioSource { bytes: bytes.into() };
+                            let volume = Volume::Linear(settings.volume.max(0.0));
+                            let playback = PlaybackSettings::DESPAWN.with_volume(volume);
+                            // The conversation's line, filtered, at both ears whole.
+                            let pan = pan.clone().or_else(|| filtered.then(|| Pan::new([1.0, 1.0])));
+                            match (&pan, panned.as_mut()) {
+                                (Some(pan), Some(panned)) => {
+                                    let handle = panned.add(Panned { voice_filter: filtered, reverb, ..Panned::new(source, pan.clone()) });
+                                    Some(commands.spawn((AudioPlayer::<Panned<AudioSource>>(handle), playback, VoiceSound, SoundCategory::Voice)).id())
+                                }
+                                _ => Some(commands.spawn((AudioPlayer::new(assets.add(source)), playback, VoiceSound, SoundCategory::Voice)).id()),
+                            }
+                        }
+                        _ => None,
+                    },
                 };
                 st.started += 1;
                 st.filtered += u64::from(filtered && entity.is_some());
@@ -580,7 +671,7 @@ fn play(
                 if let Some(why) = &out_of_hearing {
                     info!("voice: {who} line {} response {number} is out of hearing ({why}): no subtitle", g.data.name(s.info));
                 }
-                let voice = base.and_then(|b| bank.index.voice_of(b.0)).and_then(|v| bank.index.voice_types.get(&v));
+                let voice = own_voice.map(|v| v.0).or_else(|| base.and_then(|b| bank.index.voice_of(b.0))).and_then(|v| bank.index.voice_types.get(&v));
                 info!("voice: no file for {who} line {} response {number} (voice type {})", g.data.name(s.info), voice.map_or("none", |v| v.as_str()));
                 (None, fitted)
             }
@@ -588,8 +679,14 @@ fn play(
         st.unheard += u64::from(out_of_hearing.is_some());
         st.playing.insert(
             s.speaker,
-            Playing { info: s.info, response: k, entity, ends_at: now + seconds, remaining: s.remaining, path: file, started_at: now, held_secs: 0.0, conversation: s.conversation, held: false, pan },
+            Playing { info: s.info, response: k, entity, ends_at: now + seconds, remaining: s.remaining, path: file, started_at: now, held_secs: 0.0, conversation: s.conversation, held: false, pan, offset },
         );
+    }
+    // The lines cut to one cry end with it (and DeathResponse comes then).
+    if let Some(rt) = script.rt.as_mut() {
+        for (speaker, info, seconds) in cuts {
+            rt.game.cut_line_after(speaker, info, seconds);
+        }
     }
 }
 
@@ -600,6 +697,7 @@ impl Plugin for VoicePlugin {
         app.init_resource::<VoiceSettings>()
             .init_resource::<VoiceState>()
             .add_audio_source::<Panned<AudioSource>>()
+            .add_audio_source::<Panned<PcmSound>>()
             .add_systems(Update, (load, hook, play).chain().in_set(PlaySet::Ui))
             .add_systems(Last, report);
         crate::settings::add_setting(
@@ -621,8 +719,8 @@ impl Plugin for VoicePlugin {
 fn report(mut exit: MessageReader<AppExit>, state: Res<VoiceState>) {
     if exit.read().next().is_some() {
         info!(
-            "voice summary: {} responses started with a file, {} without one, {} started out of the player's hearing (silent, no subtitle while out of it), {} through the voice filter, {} through the room's reverb",
-            state.started, state.missing, state.unheard, state.filtered, state.reverbed
+            "voice summary: {} responses started with a file, {} without one, {} started out of the player's hearing (silent, no subtitle while out of it), {} through the voice filter, {} through the room's reverb, {} long generic death files cut to one cry",
+            state.started, state.missing, state.unheard, state.filtered, state.reverbed, state.one_cry
         );
     }
 }
@@ -630,6 +728,17 @@ fn report(mut exit: MessageReader<AppExit>, state: Res<VoiceState>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_long_generic_death_lines_are_cut_to_one_cry() {
+        let long = r"sound\voice\falloutnv.esm\maleadult07\generic_death_00175182_1.ogg";
+        assert!(cut_to_one_cry(long, 15.23, 1, false));
+        assert!(!cut_to_one_cry(long, 1.09, 1, false), "a short file plays whole");
+        assert!(!cut_to_one_cry(long, 15.23, 2, false), "a line of several responses is left whole");
+        assert!(!cut_to_one_cry(long, 15.23, 1, true), "the conversation's line is left whole");
+        let named = r"sound\voice\falloutnv.esm\bennyvoice\vmsbennydialogue_death_00112233_1.ogg";
+        assert!(!cut_to_one_cry(named, 15.23, 1, false), "a named NPC's own Death line is not cut");
+    }
 
     #[test]
     fn dialogue_is_heard_by_distance() {

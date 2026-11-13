@@ -13,6 +13,7 @@ use crate::convert::{self, arr3, vec3, ConvertError, Leaf};
 use fnv_collide::{CollisionObject, Iso, Motion, Shape};
 use rapier3d::math::{Pose, Vector};
 use rapier3d::parry::query::ShapeCastOptions;
+use rapier3d::parry::shape::TypedCompositeShape;
 use rapier3d::prelude::*;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
@@ -52,6 +53,10 @@ impl Default for PhysParams {
 /// the bare surface.
 pub const TERRAIN_SHELL: f32 = 3.5;
 
+/// Where [`Owner::encode_segment`] puts the segment in `user_data` (above the owner's
+/// 104 bits).
+const SEGMENT_SHIFT: u32 = 104;
+
 /// What a collider belongs to. Stored in the collider's `user_data`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -78,6 +83,19 @@ impl Owner {
             Owner::Actor { form_id, layer, part } => (4, form_id, part as u32, layer as u32),
         };
         kind | (a as u128) << 8 | (b as u128) << 40 | (c as u128) << 72
+    }
+
+    /// [`Self::encode`] with `segment`, which of the owner's colliders this is (the index
+    /// of a part capsule in its actor's list, of a leaf in its collision object), in bits
+    /// 104..120. [`Self::decode`] ignores it; first-hit queries break exact ties by it
+    /// after the owner (physics.md §5.1, [design, #1459]).
+    pub fn encode_segment(self, segment: u16) -> u128 {
+        self.encode() | (segment as u128) << SEGMENT_SHIFT
+    }
+
+    /// The segment [`Self::encode_segment`] stored in `v` (0 for [`Self::encode`]).
+    pub fn segment(v: u128) -> u16 {
+        (v >> SEGMENT_SHIFT) as u16
     }
 
     pub fn decode(v: u128) -> Option<Owner> {
@@ -156,6 +174,20 @@ pub struct Stats {
     /// Colliders by rapier shape type name (`"cuboid"`, `"heightfield"`, ...).
     pub colliders: BTreeMap<String, usize>,
     pub steps: u64,
+    /// The solver's load (#1798): bodies awake, contact pairs touching, their manifolds
+    /// and contact points the solver works on, and the joints.
+    pub bodies_awake: usize,
+    pub contact_pairs: usize,
+    pub manifolds: usize,
+    pub solver_contacts: usize,
+    pub joints: usize,
+    /// rapier's stage timers summed over every step so far, microseconds (all 0 without
+    /// the `solver-timers` feature): the solver's serial set-up (velocity assembly), its
+    /// solve (velocity resolution: the constraint iterations and writeback), collision
+    /// detection, island construction, CCD, the whole rapier step. Not serialized (timings
+    /// differ run to run).
+    #[serde(skip)]
+    pub solver_us: [u64; 6],
 }
 
 /// State of one body, for readback (e.g. dynamic clutter positions).
@@ -189,9 +221,13 @@ struct PreparedObject {
     material: Material,
     /// Body pose in the world, rapier units.
     pose: Pose,
+    /// It responds to the weather's wind (`CollisionObject::wind`).
+    wind: bool,
     leaves: Vec<Leaf>,
     /// Contact shell times the reference's scale, game units.
     shell: f32,
+    /// The node the object hangs on (`CollisionObject::node`).
+    node: Option<String>,
 }
 
 /// The surface and mass properties of a collision object.
@@ -246,8 +282,10 @@ impl PreparedRef {
                 motion: o.motion,
                 material: Material { friction: o.friction, restitution: o.restitution, mass: o.mass, code: o.material },
                 pose: body_pose,
+                wind: o.wind,
                 leaves,
                 shell: o.shell * pose.scale,
+                node: o.node.clone(),
             });
         }
         out
@@ -361,16 +399,23 @@ pub struct PhysWorld {
     pub(crate) k: f32,
     terrain: BTreeMap<(i32, i32), ColliderHandle>,
     pub(crate) refs: BTreeMap<u32, Vec<RigidBodyHandle>>,
+    /// The node each body of a reference hangs on, in `refs`' order (`crate::script`).
+    pub(crate) ref_nodes: BTreeMap<u32, Vec<Option<String>>>,
     /// The keyframed bodies of each reference (a subset of `refs`), kept because they are
     /// fixed bodies like the static ones and so cannot be told apart by body type. A door's
     /// moving parts are keyframed; its static frame is not.
     pub(crate) keyframed: BTreeMap<u32, Vec<RigidBodyHandle>>,
+    /// The dynamic bodies of each reference that respond to the wind ([`PhysWorld::blow`]).
+    pub(crate) wind: BTreeMap<u32, Vec<RigidBodyHandle>>,
     /// Actor hit volumes by reference FormID (`crate::actors`).
     pub(crate) actors: BTreeMap<u32, crate::actors::ActorBody>,
     /// Ragdolls by actor reference FormID, and the ragdoll body each of their rigid
     /// bodies is (`crate::ragdoll`).
     pub(crate) ragdolls: BTreeMap<u32, crate::ragdoll::RagdollBodies>,
     pub(crate) ragdoll_of: HashMap<RigidBodyHandle, (u32, u16)>,
+    /// References whose bodies pass through one actor's ragdoll, by reference FormID:
+    /// that actor's ([`PhysWorld::set_ref_passes_ragdoll`]).
+    pub(crate) passes_ragdoll: HashMap<u32, u32>,
     /// Gore pieces by their id (`crate::gore`).
     pub(crate) gore: BTreeMap<u32, RigidBodyHandle>,
     /// Per-triangle material codes of triangle-mesh colliders; one code for a convex
@@ -405,6 +450,8 @@ pub struct PhysWorld {
     /// Standalone hit-volume colliders written since the last refresh or step: (collider,
     /// actor body, pose on the body), placed by `flush_hit_volumes`.
     pub(crate) hitvol_pending: Vec<(ColliderHandle, RigidBodyHandle, Pose)>,
+    /// [`Stats::solver_us`], milliseconds.
+    pub(crate) solver_ms: [f64; 6],
 }
 
 impl PhysWorld {
@@ -421,16 +468,21 @@ impl PhysWorld {
         // `clutter_on_the_terrain_shell_falls_asleep`]. Why is not known; a prediction
         // distance of the default plus the skin rests them (asleep within 2 s).
         w.integration_parameters.normalized_prediction_distance += TERRAIN_SHELL * k;
+        #[cfg(feature = "solver-timers")]
+        w.physics_pipeline.counters.enable();
         PhysWorld {
             params,
             w,
             k,
             terrain: BTreeMap::new(),
             refs: BTreeMap::new(),
+            ref_nodes: BTreeMap::new(),
             keyframed: BTreeMap::new(),
+            wind: BTreeMap::new(),
             actors: BTreeMap::new(),
             ragdolls: BTreeMap::new(),
             ragdoll_of: HashMap::new(),
+            passes_ragdoll: HashMap::new(),
             gore: BTreeMap::new(),
             materials: HashMap::new(),
             shells: HashMap::new(),
@@ -445,6 +497,7 @@ impl PhysWorld {
             grip: None,
             standalone_hit_volumes: true,
             hitvol_pending: Vec::new(),
+            solver_ms: [0.0; 6],
         }
     }
 
@@ -502,16 +555,26 @@ impl PhysWorld {
                 Motion::Static | Motion::Keyframed => RigidBodyBuilder::fixed(),
                 Motion::Dynamic => RigidBodyBuilder::dynamic().sleeping(p.asleep),
             };
+            // A body that responds to the wind starts awake, so the wind takes it on from
+            // where it was placed until it comes to rest (`blow`) [hypothesis: the
+            // original's tumbleweeds near the player were rolling when a game was
+            // loaded and came to rest within 15 s, o27_tumble, docs/spec-notes/wind.md].
+            let blown = o.wind && o.motion == Motion::Dynamic;
+            let builder = if blown { builder.sleeping(false) } else { builder };
             // A dynamic body that has not moved yet would keep the clutter touching it
             // awake (a cleaner bottle on a container's lid): asleep too.
-            let hold = p.asleep && o.motion == Motion::Dynamic;
+            let hold = p.asleep && o.motion == Motion::Dynamic && !blown;
             let builder = if hold { builder.sleeping(true) } else { builder };
             let body = self.insert_body(builder.pose(o.pose).user_data(owner.encode()));
             // Kept with the reference at once, so a caller that catches a panic part way
             // (`nvf_assets::guard`) can take every body out with `remove_ref`.
             self.refs.entry(p.form_id).or_default().push(body);
+            self.ref_nodes.entry(p.form_id).or_default().push(o.node.clone());
             if o.motion == Motion::Keyframed {
                 self.keyframed.entry(p.form_id).or_default().push(body);
+            }
+            if blown {
+                self.wind.entry(p.form_id).or_default().push(body);
             }
             report.colliders += self.attach(body, owner, &o.material, o.leaves, o.shell);
             if o.motion == Motion::Dynamic {
@@ -532,8 +595,8 @@ impl PhysWorld {
 
     fn attach(&mut self, body: RigidBodyHandle, owner: Owner, o: &Material, leaves: Vec<Leaf>, shell: f32) -> usize {
         let n = leaves.len();
-        for leaf in leaves {
-            let mut c = ColliderBuilder::new(leaf.shape).position(leaf.pose).user_data(owner.encode());
+        for (i, leaf) in leaves.into_iter().enumerate() {
+            let mut c = ColliderBuilder::new(leaf.shape).position(leaf.pose).user_data(owner.encode_segment(i as u16));
             if o.friction.is_finite() && o.friction >= 0.0 {
                 c = c.friction(o.friction);
             }
@@ -598,13 +661,35 @@ impl PhysWorld {
 
     /// Remove a reference's bodies only.
     fn remove_bodies(&mut self, form_id: u32) -> bool {
+        self.passes_ragdoll.remove(&form_id);
         let Some(bodies) = self.refs.remove(&form_id) else { return false };
+        self.ref_nodes.remove(&form_id);
         self.keyframed.remove(&form_id);
+        self.wind.remove(&form_id);
         for b in bodies {
             self.remove_body(b);
         }
         self.mark_dirty(DirtyBy::Bodies);
         true
+    }
+
+    /// Let reference `form_id`'s bodies pass through actor `actor`'s ragdoll (no contacts
+    /// between them) until the reference's bodies are removed. An ash pile starts where
+    /// its source's body lies and would otherwise be shoved by it (ash-piles.md §3).
+    pub fn set_ref_passes_ragdoll(&mut self, form_id: u32, actor: u32) {
+        if self.refs.contains_key(&form_id) {
+            self.passes_ragdoll.insert(form_id, actor);
+        }
+    }
+
+    /// The actor whose ragdoll reference `form_id`'s bodies pass through, if any.
+    pub fn ref_passes_ragdoll(&self, form_id: u32) -> Option<u32> {
+        self.passes_ragdoll.get(&form_id).copied()
+    }
+
+    /// The colliders changed (the scripts' layer and collision switches, `crate::script`).
+    pub(crate) fn mark_dirty_bodies(&mut self) {
+        self.mark_dirty(DirtyBy::Bodies);
     }
 
     pub(crate) fn remove_body(&mut self, b: RigidBodyHandle) {
@@ -645,6 +730,15 @@ impl PhysWorld {
         body.set_position(p, true);
         self.mark_dirty(DirtyBy::Transform);
         true
+    }
+
+    /// Whether collision object `object` of reference `form_id` is a keyframed body: one
+    /// an animation or a script moves (a door's leaf, a gate, a force field), not a fixed
+    /// one.
+    pub fn ref_object_keyframed(&self, form_id: u32, object: u16) -> bool {
+        self.keyframed.get(&form_id).is_some_and(|bodies| {
+            bodies.iter().any(|&b| matches!(Owner::decode(self.w.bodies[b].user_data), Some(Owner::Ref { form_id: f, object: o, .. }) if f == form_id && o == object))
+        })
     }
 
     /// Make a reference's keyframed bodies solid or not: when not, their colliders take
@@ -697,6 +791,33 @@ impl PhysWorld {
             b.apply_impulse(dir * (dv * m), true);
             // A query before the next step must not lose the wake-up (`update_queries`).
             self.struck.push(h);
+            n += 1;
+        }
+        n
+    }
+
+    /// The references with bodies that respond to the wind, and the centre of mass of
+    /// their first such body (game units).
+    pub fn wind_refs(&self) -> Vec<(u32, [f32; 3])> {
+        self.wind.iter().filter_map(|(&id, b)| Some((id, arr3(self.w.bodies.get(*b.first()?)?.center_of_mass() / self.k)))).collect()
+    }
+
+    /// Blow reference `form_id`'s bodies that respond to the wind for `dt` seconds: each
+    /// awake one's horizontal velocity is drawn towards `wind` (game units a second,
+    /// horizontal) by at most `accel` × `dt` (game units a second squared), so a slope it
+    /// cannot climb or something it lodges against stops it, and once it has come to rest
+    /// and fallen asleep the wind leaves it there [hypothesis: the original's tumbleweeds,
+    /// docs/spec-notes/wind.md]. A body asleep is not woken. Returns how many it blew.
+    pub fn blow(&mut self, form_id: u32, wind: [f32; 2], accel: f32, dt: f32) -> usize {
+        let k = self.k;
+        let Some(bodies) = self.wind.get(&form_id) else { return 0 };
+        let mut n = 0;
+        for &b in bodies {
+            let Some(body) = self.w.bodies.get_mut(b).filter(|x| x.is_dynamic() && !x.is_sleeping()) else { continue };
+            let v = body.linvel();
+            let want = Vector::new(wind[0] * k, wind[1] * k, v.z);
+            let dv = (want - v).clamp_length_max((accel * dt).max(0.0) * k);
+            body.set_linvel(v + Vector::new(dv.x, dv.y, 0.0), false);
             n += 1;
         }
         n
@@ -838,6 +959,10 @@ impl PhysWorld {
         {
             let _span = tracing::info_span!("phys::rapier_step").entered();
             self.step_world();
+            let c = &self.w.physics_pipeline.counters;
+            for (a, t) in self.solver_ms.iter_mut().zip([c.solver.velocity_assembly_time, c.solver.velocity_resolution_time, c.stages.collision_detection_time, c.stages.island_construction_time, c.stages.ccd_time, c.step_time]) {
+                *a += t.time_ms();
+            }
         }
         // Diagnostics: marks the step's own detection took, with no refresh between.
         if self.dirty {
@@ -852,6 +977,17 @@ impl PhysWorld {
 
     pub fn steps(&self) -> u64 {
         self.steps
+    }
+
+    /// Change the fixed step, seconds (`PhysParams::dt`): the next [`PhysWorld::step`] and
+    /// everything that reads the step (characters, buoyancy, the grab) go by it. For a
+    /// clock that runs slow: a step of the same share of the usual one keeps the steps as
+    /// many a real second as at full speed. Not positive: left as it is.
+    pub fn set_step(&mut self, dt: f32) {
+        if dt > 0.0 && dt.is_finite() {
+            self.params.dt = dt;
+            self.w.integration_parameters.dt = dt;
+        }
     }
 
     /// Bring the broad phase up to date after adding or removing bodies, so that queries
@@ -996,6 +1132,16 @@ impl PhysWorld {
         for (_, c) in self.w.colliders.iter() {
             *s.colliders.entry(shape_name(c.shape().shape_type())).or_default() += 1;
         }
+        s.bodies_awake = self.w.islands.num_active_bodies();
+        for pair in self.w.narrow_phase.contact_pairs().filter(|p| p.has_any_active_contact()) {
+            s.contact_pairs += 1;
+            for m in pair.solver_manifolds().iter().filter(|m| !m.data.solver_contacts.is_empty()) {
+                s.manifolds += 1;
+                s.solver_contacts += m.data.solver_contacts.len();
+            }
+        }
+        s.joints = self.w.impulse_joints.len();
+        s.solver_us = self.solver_ms.map(|v| (v * 1000.0) as u64);
         s
     }
 
@@ -1025,10 +1171,13 @@ impl PhysWorld {
             k: self.k,
             terrain: self.terrain.clone(),
             refs: self.refs.clone(),
+            ref_nodes: self.ref_nodes.clone(),
             keyframed: self.keyframed.clone(),
+            wind: self.wind.clone(),
             actors: self.actors.clone(),
             ragdolls: self.ragdolls.clone(),
             ragdoll_of: self.ragdoll_of.clone(),
+            passes_ragdoll: self.passes_ragdoll.clone(),
             gore: self.gore.clone(),
             materials: self.materials.clone(),
             shells: self.shells.clone(),
@@ -1043,6 +1192,7 @@ impl PhysWorld {
             grip: self.grip.clone(),
             standalone_hit_volumes: self.standalone_hit_volumes,
             hitvol_pending: self.hitvol_pending.clone(),
+            solver_ms: self.solver_ms,
         }
     }
 
@@ -1205,7 +1355,18 @@ impl Queries<'_> {
         let dir = vec3(direction).try_normalize()?;
         let ray = Ray::new(vec3(origin) * self.world.k, dir);
         let w = &self.world.w;
-        let (c, hit) = self.with_filter(filter, |f| w.cast_ray_and_get_normal(&ray, max_distance * self.world.k, true, f))?;
+        let (c, hit) = self.with_filter(filter, |f| {
+            let qp = w.query_pipeline_with_filter(f);
+            let found = first_hit(
+                qp.bvh,
+                max_distance * self.world.k,
+                |node, bound| node.cast_ray(&ray, bound),
+                // `bound` lets a candidate tied with the best so far through (`first_hit`).
+                |id, bound| qp.map_typed_part_at(id, |pose, part, _| part.cast_ray_and_get_normal(pose.expect("a collider has a pose"), &ray, bound, true).map(|h| (h.time_of_impact, h)))?,
+                |a, ha, b, hb| tie_key(qp.colliders, a).cmp(&tie_key(qp.colliders, b)).then_with(|| ha.normal.to_array().map(f32::to_bits).cmp(&hb.normal.to_array().map(f32::to_bits))).then(ha.subshape.cmp(&hb.subshape)).is_lt(),
+            )?;
+            Some((qp.colliders.get_unknown_gen(found.0)?.1, found.1))
+        })?;
         Some(self.ray_hit(c, &ray, hit))
     }
 
@@ -1227,11 +1388,14 @@ impl Queries<'_> {
         let Some(dir) = vec3(direction).try_normalize() else { return Vec::new() };
         let ray = Ray::new(vec3(origin) * self.world.k, dir);
         let w = &self.world.w;
-        let mut hits: Vec<RayHit> = self.with_filter(filter, |f| {
-            w.intersect_ray(ray, max_distance * self.world.k, true, f).map(|(c, _, hit)| self.ray_hit(c, &ray, hit)).collect()
+        // Ties as in `ray` (`first_hit`): owner, segment, then the hit's normal and subshape.
+        let mut hits: Vec<(RayHit, u16, u32)> = self.with_filter(filter, |f| {
+            w.intersect_ray(ray, max_distance * self.world.k, true, f).map(|(c, co, hit)| (self.ray_hit(c, &ray, hit), Owner::segment(co.user_data), hit.subshape)).collect()
         });
-        hits.sort_by(|a, b| a.distance.total_cmp(&b.distance).then(a.owner.cmp(&b.owner)));
-        hits
+        hits.sort_by(|(a, sa, ta), (b, sb, tb)| {
+            a.distance.total_cmp(&b.distance).then(a.owner.cmp(&b.owner)).then(sa.cmp(sb)).then_with(|| a.normal.map(f32::to_bits).cmp(&b.normal.map(f32::to_bits))).then(ta.cmp(tb))
+        });
+        hits.into_iter().map(|(h, ..)| h).collect()
     }
 
     /// Sweep a convex `shape` placed at `from` along `motion`; the first contact.
@@ -1240,7 +1404,34 @@ impl Queries<'_> {
         let (pose, shape) = probe(shape, from, k)?;
         let w = &self.world.w;
         let opts = ShapeCastOptions { max_time_of_impact: 1.0, stop_at_penetration: true, ..Default::default() };
-        let hit = self.with_filter(filter, |f| w.cast_shape(&pose, vec3(motion) * k, shape.as_ref(), opts, f));
+        let vel = vec3(motion) * k;
+        let hit = self.with_filter(filter, |f| {
+            let qp = w.query_pipeline_with_filter(f);
+            // As parry's composite shape cast does it [design: parry3d 0.31.1
+            // `query/shape_cast/shape_cast_composite_shape_shape.rs:15-60`]: a node's bound is
+            // where the motion meets the node's box grown by the shape's box; each collider
+            // is cast with the full options (every leaf answers as it did before #1459).
+            let ls_aabb = shape.compute_aabb(&pose);
+            let ray = Ray::new(Vector::ZERO, vel);
+            let (shift, margin) = (-ls_aabb.center(), ls_aabb.half_extents() + Vector::splat(opts.target_distance));
+            let found = first_hit(
+                qp.bvh,
+                opts.max_time_of_impact,
+                |node, bound| Aabb { mins: node.mins() + shift - margin, maxs: node.maxs() + shift + margin }.cast_local_ray(&ray, bound, true).unwrap_or(f32::MAX),
+                |id, _| {
+                    qp.map_untyped_part_at(id, |part_pose, part, _| {
+                        let part_pose = part_pose.expect("a collider has a pose");
+                        let hit = qp.dispatcher.cast_shapes(&part_pose.inv_mul(&pose), part_pose.rotation.inverse() * vel, part, shape.as_ref(), opts).ok()??.transform1_by(part_pose);
+                        Some((hit.time_of_impact, hit))
+                    })?
+                },
+                |a, ha, b, hb| {
+                    let geom = |h: &ShapeCastHit| (h.witness1.to_array().map(f32::to_bits), h.normal1.to_array().map(f32::to_bits));
+                    tie_key(qp.colliders, a).cmp(&tie_key(qp.colliders, b)).then_with(|| geom(ha).cmp(&geom(hb))).is_lt()
+                },
+            )?;
+            Some((qp.colliders.get_unknown_gen(found.0)?.1, found.1))
+        });
         Ok(hit.map(|(c, hit)| {
             let co = &self.world.w.colliders[c];
             SweepHit {
@@ -1282,6 +1473,51 @@ impl Queries<'_> {
         out.dedup();
         Ok(out)
     }
+}
+
+/// The first hit of a query over the broad phase's tree, the same whatever the tree's
+/// shape (physics.md §5.1, [design, #1459]): the candidate with the smallest time of impact
+/// (below `max_cost`) and, among exactly tied ones, the one `before` puts first (owner,
+/// segment, then the hit's own geometry; the caller's order must be total).
+///
+/// parry's `Bvh::find_best` keeps a result only on a strictly smaller cost and visits a
+/// node only when its bound is strictly below the best cost [design: parry3d 0.31.1
+/// `partitioning/bvh/bvh_traverse.rs:402-422`], so a tied candidate would be dropped or
+/// never reached, and which one stays depends on where the tree put it. Here the best is
+/// kept beside the traversal: a leaf the rule takes reports the next float above its time
+/// of impact to `find_best`, so `find_best`'s best cost is always just above the best time
+/// so far. Nodes whose bound equals it are still visited and `leaf` is asked with that
+/// bound, so it can return a tie; nothing is collected or sorted, and `before` runs only on
+/// exact ties. A leaf `find_best` would have kept before is kept now, so answers without a
+/// tie are the same as parry's.
+fn first_hit<T>(
+    bvh: &rapier3d::parry::partitioning::Bvh,
+    max_cost: f32,
+    node_cost: impl Fn(&rapier3d::parry::partitioning::BvhNode, f32) -> f32,
+    leaf: impl Fn(u32, f32) -> Option<(f32, T)>,
+    before: impl Fn(u32, &T, u32, &T) -> bool,
+) -> Option<(u32, T)> {
+    let best: std::cell::RefCell<Option<(u32, f32, T)>> = std::cell::RefCell::new(None);
+    bvh.find_best(max_cost, node_cost, |id, bound| {
+        let (toi, hit) = leaf(id, bound)?;
+        let mut best = best.borrow_mut();
+        let take = match &*best {
+            None => toi < max_cost,
+            Some((b, t, h)) => toi < *t || (toi == *t && before(id, &hit, *b, h)),
+        };
+        if !take {
+            return None;
+        }
+        *best = Some((id, toi, hit));
+        Some(toi.next_up())
+    });
+    best.into_inner().map(|(id, _, hit)| (id, hit))
+}
+
+/// What breaks an exact tie first, after the time of impact: the collider's owner (form id,
+/// layer, part for an actor's capsule), then its segment ([`Owner::encode_segment`]).
+fn tie_key(colliders: &ColliderSet, id: u32) -> (Option<Owner>, u16) {
+    colliders.get_unknown_gen(id).map_or((None, 0), |(c, _)| (Owner::decode(c.user_data), Owner::segment(c.user_data)))
 }
 
 /// A single query shape (compounds are not supported as probes), scaled by `k`.

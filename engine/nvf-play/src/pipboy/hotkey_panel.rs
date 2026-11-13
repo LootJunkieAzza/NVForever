@@ -24,9 +24,9 @@
 //! Log lines: `pipboy hotkeys: key <n> held`, `pipboy hotkeys: let go`,
 //! `hotkeys: slot <n> holds <name> (<form>)`.
 
-use super::frame::{Align, Ctx, LINE, MAIN, TEXT, THICK};
+use super::frame::{Align, Ctx, Kit, LINE, MAIN, THICK};
 use crate::bindings::Bindings;
-use crate::hotkeys::{Hotkeys, Refused, Slot, AMMO_SWAP, SLOTS};
+use crate::hotkeys::{Hotkeys, Refused, Slot, AMMO_SWAP};
 use crate::interface::{amber, at};
 use crate::menu::model::Row;
 use crate::sim::SimState;
@@ -118,10 +118,13 @@ fn held_slot(bindings: &Bindings, keys: &ButtonInput<KeyCode>) -> Option<usize> 
 pub fn track(
     pip: Res<super::PipBoy>,
     (repair, modding): (Res<super::repair::PipRepair>, Res<super::item_mod::PipItemMod>),
-    keys: Res<ButtonInput<KeyCode>>,
+    keys: crate::pad::ActionButtons<KeyCode>,
     bindings: Option<Res<Bindings>>,
     mut hold: ResMut<HotkeyHold>,
 ) {
+    let keys = keys.snapshot();
+    // Laid out in the Pip-Boy's screen texture, at its size whatever the UI scale (#1631).
+    let _canvas = crate::interface::original_units();
     let items = pip.open() && pip.page == super::Page::Items && !repair.is_open() && !modding.is_open();
     let now = if items { hold.aid.or_else(|| bindings.as_ref().and_then(|b| held_slot(b, &keys))) } else { None };
     if now != hold.slot {
@@ -157,14 +160,14 @@ pub fn assign_row(hotkeys: &mut Hotkeys, slot: usize, r: &Row) -> String {
 /// The panel, at the menus' rectangle's `IM_HotKeyWheel`.
 pub fn draw(p: &mut ChildSpawnerCommands, c: &mut Ctx, hotkeys: &Hotkeys, hold: &HotkeyHold, pointed: Option<&Row>, sim: &SimState, combat: Option<&crate::combat::Combat>) {
     let o = MAIN.min + PANEL.min;
-    let (line, bright) = (amber(LINE), amber(TEXT));
+    let (line, bright) = (amber(LINE), c.bright());
     let rose = Rect::from_corners(o + ROSE_AT.min, o + ROSE_AT.max);
     c.image(p, ROSE, at(rose.min.x, rose.min.y, rose.width(), rose.height()), bright);
     if let Some(icon) = pointed.and_then(|r| icon_of(r.item, sim, combat)) {
         let r = Rect::from_corners(o + CENTRE_ICON.min, o + CENTRE_ICON.max);
         c.image(p, icon, at(r.min.x, r.min.y, r.width(), r.height()), bright);
     }
-    for slot in 0..SLOTS {
+    for (slot, &key) in hotkeys.0.iter().enumerate() {
         let b = o + box_at(slot);
         if slot == AMMO_SWAP {
             if hold.slot == Some(slot) {
@@ -178,7 +181,7 @@ pub fn draw(p: &mut ChildSpawnerCommands, c: &mut Ctx, hotkeys: &Hotkeys, hold: 
         }
         let inner = Rect::from_corners(b + Vec2::splat(INSET), b + Vec2::splat(BOX - INSET));
         c.boxed(p, inner, line, None);
-        if let Some(icon) = hotkeys.0[slot].and_then(|s| icon_of(FormId(s.item), sim, combat)) {
+        if let Some(icon) = key.and_then(|s| icon_of(FormId(s.item), sim, combat)) {
             c.image(p, icon, at(inner.min.x + THICK, inner.min.y + THICK, inner.width() - 2.0 * THICK, inner.height() - 2.0 * THICK), bright);
         }
         // The number at the box's right foot: its bottom 5 under the box's [documented:
@@ -186,16 +189,65 @@ pub fn draw(p: &mut ChildSpawnerCommands, c: &mut Ctx, hotkeys: &Hotkeys, hold: 
         let h = c.line_height(TEXT_FONT);
         c.text(p, TEXT_FONT, &(slot + 1).to_string(), b.x + BOX, b.y + BOX - h + INSET, Align::Left, bright);
     }
-    let said = hold.said.clone().or_else(|| {
+    if let Some(s) = panel_line(hotkeys, hold, sim) {
+        c.text(p, TEXT_FONT, &s, o.x + TEXT_AT.x, o.y + TEXT_AT.y, Align::Centre, bright);
+    }
+}
+
+/// Marks the panel drawn over the ITEMS page while that page is drawn from its file.
+#[derive(Component)]
+pub struct PanelOverTiles;
+
+/// The panel over the ITEMS page drawn from its file (`crate::tiles::inventory_menu`), which has no
+/// hand-built body to hold it: the same panel at the same place, the owner's [design: the file's own
+/// wheel was not captured and is not drawn]. In the Pip-Boy's image, at the page's level.
+#[allow(clippy::too_many_arguments)]
+pub fn draw_over_tiles(
+    mut commands: Commands,
+    screen: Option<Res<super::PipBoyScreen>>,
+    tiles: Option<Res<crate::tiles::inventory_menu::InventoryTiles>>,
+    roots: Query<Entity, With<PanelOverTiles>>,
+    (hold, hotkeys, active): (Res<HotkeyHold>, Res<Hotkeys>, Res<crate::menu::ActiveMenu>),
+    (sim, combat): (Res<SimState>, Option<Res<crate::combat::Combat>>),
+    mut kit: ResMut<Kit>,
+    data: Option<Res<nvf_assets::GameData>>,
+    mut images: ResMut<Assets<Image>>,
+    formats: Option<Res<bevy::image::CompressedImageFormatSupport>>,
+    glyphs: Res<crate::pad::PadGlyphs>,
+) {
+    // Laid out in the Pip-Boy's screen texture, at its size whatever the UI scale (#1631).
+    let _canvas = crate::interface::original_units();
+    let slot = hold.slot.filter(|_| tiles.is_some_and(|t| t.ready.is_some()));
+    let (Some(slot), Some(screen)) = (slot, screen) else {
+        for e in &roots {
+            commands.entity(e).despawn();
+        }
+        return;
+    };
+    if !roots.is_empty() && !hold.is_changed() && !hotkeys.is_changed() && !active.is_changed() {
+        return;
+    }
+    for e in &roots {
+        commands.entity(e).despawn();
+    }
+    info!("pipboy hotkeys: panel drawn, key {} chosen{}", slot + 1, hold.said.as_ref().map_or_else(String::new, |s| format!(", says {s:?}")));
+    let pointed = active.0.as_ref().and_then(|m| m.selected_row(crate::menu::model::Side::Player));
+    let mut c = Ctx::new(&mut kit, data.as_deref(), &mut images, formats.as_deref(), &glyphs);
+    let root = Node { overflow: Overflow::clip(), ..at(0.0, 0.0, super::CANVAS.x, super::CANVAS.y) };
+    commands
+        .spawn((PanelOverTiles, root, UiTargetCamera(screen.camera), GlobalZIndex(crate::tiles::draw::PIPBOY_TILES_Z), Pickable::IGNORE, Name::new("Hotkey panel over the page")))
+        .with_children(|p| draw(p, &mut c, &hotkeys, &hold, pointed, &sim, combat.as_deref()));
+}
+
+/// The line under the panel: what the last click did, else what the held slot holds.
+pub fn panel_line(hotkeys: &Hotkeys, hold: &HotkeyHold, sim: &SimState) -> Option<String> {
+    hold.said.clone().or_else(|| {
         let slot = hold.slot?;
         if slot == AMMO_SWAP {
             return Some("Ammo Swap".into());
         }
         Some(hotkeys.0[slot].map_or_else(|| "Empty".into(), |s| sim.name(FormId(s.item)).unwrap_or("?").to_string()))
-    });
-    if let Some(s) = said {
-        c.text(p, TEXT_FONT, &s, o.x + TEXT_AT.x, o.y + TEXT_AT.y, Align::Centre, bright);
-    }
+    })
 }
 
 #[cfg(test)]

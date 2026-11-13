@@ -6,12 +6,22 @@ use fnv_ui::{Tile, TileId, Ui, Value};
 /// The private trait of a tile that takes no `alpha` from the tiles above it. `tutorial_menu.xml`
 /// nests all its content under its background picture [documented: the file]; under that
 /// picture at alpha 193.8 the text and lines read full strength (255, 182, 66) at 1280 x 720
-/// [observed: shot 091 of hud_menus]. Whether pictures pass alpha on elsewhere is not known
-/// (observer check 83) [hypothesis]. It drops every alpha from above, an ancestor's fade too.
-/// [design] An engine-written mark, in no game file, written by a menu's model so nothing else
-/// changes: an ordinary trait to the tree, so generic trait dumps list it and a file naming
-/// it would be read too.
+/// [observed: shot 091 of hud_menus]. [observed] In the original's container menu the
+/// `StrengthReqInfo` card reads `alpha` 0 and its top line and side line still show at full
+/// strength (launchtest shot, 1280 x 720; barter-menu.md §8), the scrollbar image reads `alpha` 0
+/// with its arrows shown, and the text buttons, an image and a rect at `alpha` 0, show their
+/// words. Whether pictures pass alpha on elsewhere, or this holds outside these two menus, is
+/// not known (observer check 83; barter-menu.md §8) [hypothesis]. It drops every alpha from
+/// above, an ancestor's fade too. [design] An engine-written mark, in no game file, written by
+/// a menu's model so nothing else changes: an ordinary trait to the tree, so generic trait dumps
+/// list it and a file naming it would be read too.
 pub const OWN_ALPHA: &str = "_NVFOwnAlpha";
+
+/// The private trait of a hotrect that draws its own box filled at its `alpha` and
+/// `brightness` (the list highlight's faint fill, [documented: `list_box.xml`'s `_fill_alpha`
+/// 40 through `box.xml`]; hotrects draw nothing otherwise). [design] Written by a menu's
+/// model, so the other T15 menus' hotrects stay as they are.
+pub const HOTRECT_FILL: &str = "_NVFHotrectFill";
 
 /// [design] Rectangle in the tree's screen units, without viewport scaling.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -100,6 +110,71 @@ pub enum Kind {
     Menu,
 }
 
+/// How a tile is turned on the screen: its `rotateangle` about the point its `rotateaxisx`
+/// and `rotateaxisy` name (docs/spec-notes/menu-xml.md §3.1.4).
+///
+/// - `angle`: radians [documented: GECK wiki "Rotation UI directives", `Rotateangle` "sets
+///   the rotation degree of an element, in radians", its example 1.570796 "Pi/2
+///   rotation"]; a positive angle turns the tile clockwise on the screen, the view's y
+///   running down [hypothesis: the wiki gives no sense; `map_menu.xml` turns its player
+///   arrow by the code, and a heading runs clockwise from north; the same sense as Bevy's
+///   `UiTransform` rotation and the hand-built DATA page's arrow and dotted lines].
+/// - `pivot`: the point turned about, in interface units from the tile's own box's top
+///   left: `rotateaxisx` "relative to X coordinate of an element", `rotateaxisy` the same
+///   for Y [documented: the wiki page, its example `width` / 2 "the X center of the
+///   element"; `map_menu.xml`'s comments "Rotate arrow about its center" over `width` / 2
+///   and `height` / 2, and "leftmost-center point" over 0 and `height` / 2]. Without the
+///   traits the box's top left (0, 0) [hypothesis: no file turns a tile without them].
+///
+/// [documented: the wiki page, "Those traits won't work if element has children"] A tile
+/// with live children is not turned, and a turn is never passed to children. [design] The
+/// tile is turned as drawn only: clips above it still cut it on the screen, unturned, and
+/// the pointer is tested against its unturned box (`fnv_ui::input::hit`; no tile the
+/// files turn takes the pointer: the arrows and the dotted path lines have no `target`
+/// [documented: `map_menu.xml`]).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Turn {
+    pub angle: f64,
+    pub pivot: (f64, f64),
+}
+
+impl Turn {
+    /// Where the point `at` (interface units, as `rect`) of a tile whose unturned box is
+    /// `rect` stands once turned.
+    pub fn point(self, rect: Rect, at: (f64, f64)) -> (f64, f64) {
+        let (ox, oy) = (rect.left + self.pivot.0, rect.top + self.pivot.1);
+        let (dx, dy) = (at.0 - ox, at.1 - oy);
+        let (sin, cos) = self.angle.sin_cos();
+        (ox + dx * cos - dy * sin, oy + dx * sin + dy * cos)
+    }
+
+    /// The turned box's corners: top left, top right, bottom right, bottom left.
+    pub fn corners(self, rect: Rect) -> [(f64, f64); 4] {
+        let (l, t, r, b) = (rect.left, rect.top, rect.left + rect.width, rect.top + rect.height);
+        [(l, t), (r, t), (r, b), (l, b)].map(|c| self.point(rect, c))
+    }
+
+    /// How far a node turned about its own box's middle (as Bevy turns a UI node) must be
+    /// moved so that it stands turned about [`Turn::pivot`] instead: `(I - R)(pivot -
+    /// middle)` for a box `width` by `height`, in interface units.
+    pub fn shift(self, width: f64, height: f64) -> (f64, f64) {
+        let (px, py) = (self.pivot.0 - width / 2.0, self.pivot.1 - height / 2.0);
+        let (sin, cos) = self.angle.sin_cos();
+        (px - (px * cos - py * sin), py - (px * sin + py * cos))
+    }
+}
+
+/// A tile's [`Turn`]: none at angle 0 (an unturned tile behaves as before: no turn, no transform),
+/// for an angle that is not a number, or for a tile with live children ([`Turn`]).
+fn turn(ui: &Ui, tile: &Tile) -> Option<Turn> {
+    let angle = number(tile, "rotateangle", 0.0);
+    if angle == 0.0 || !angle.is_finite() || tile.children.iter().any(|&c| ui.tile(c).live) {
+        return None;
+    }
+    let axis = |name| Some(number(tile, name, 0.0)).filter(|v| v.is_finite()).unwrap_or(0.0);
+    Some(Turn { angle, pivot: (axis("rotateaxisx"), axis("rotateaxisy")) })
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct DrawItem {
     pub tile: TileId,
@@ -111,6 +186,8 @@ pub struct DrawItem {
     pub visible: bool,
     pub clip: Option<Rect>,
     pub colour: Colour,
+    /// Its own turn ([`Turn`]); never one of a tile above.
+    pub turn: Option<Turn>,
 }
 
 /// [design] Font number, string and optional wrap width in; measured screen units out.
@@ -123,12 +200,17 @@ struct Context {
     alpha: f64,
     visible: bool,
     clip: Option<Rect>,
+    /// The crop without the parent's own window, for a tile marked outside it.
+    clip_above: Option<Rect>,
     t15: bool,
+    /// Children are placed from a tile only when its `locus` is on, else from where the
+    /// tile itself was placed from ([`layout_by_locus`]).
+    by_locus: bool,
 }
 
 impl Default for Context {
     fn default() -> Self {
-        Self { rect: Rect::default(), depth: 0.0, alpha: 255.0, visible: true, clip: None, t15: false }
+        Self { rect: Rect::default(), depth: 0.0, alpha: 255.0, visible: true, clip: None, clip_above: None, t15: false, by_locus: false }
     }
 }
 
@@ -225,37 +307,64 @@ fn place(tile: &Tile, kind: &Kind, parent: Context, measure: &Measure<'_>) -> Co
             _ => parent.alpha * number(tile, "alpha", 255.0).clamp(0.0, 255.0) / 255.0,
         },
         visible: parent.visible && tile.get("visible").is_none_or(Value::truthy),
-        clip: parent.clip,
+        clip: if tile.get(fnv_ui::input::OUTSIDE_CLIP).is_some_and(Value::truthy) { parent.clip_above } else { parent.clip },
+        clip_above: parent.clip_above,
         t15: parent.t15,
+        by_locus: parent.by_locus,
     }
 }
 
-fn children_context(tile: &Tile, mut context: Context) -> Context {
+/// What a tile's children stand in: `context` is the tile's own, `above` its parent's.
+fn children_context(tile: &Tile, mut context: Context, above: Context) -> Context {
+    context.clip_above = context.clip;
     // `clips`, or a `clipwindow` its menu turned on: the same rule as under the pointer.
     if fnv_ui::input::clips_children(tile) {
         context.clip = Some(context.clip.map_or(context.rect, |clip| clip.intersect(context.rect)));
+    }
+    // A mark only a menu's model writes (`fnv_ui::input::NO_ORIGIN`), the same under the pointer.
+    let no_locus = context.by_locus && !tile.get("locus").is_some_and(Value::truthy);
+    if no_locus || tile.get(fnv_ui::input::NO_ORIGIN).is_some_and(Value::truthy) {
+        context.rect.left = above.rect.left;
+        context.rect.top = above.rect.top;
     }
     context
 }
 
 /// [design] Lay out a live subtree in parent-first order, siblings stably sorted by
 /// local depth. Ancestors outside root still contribute place, alpha, depth and clips.
-/// Hidden items retain visible=false; menu/hotrect containers emit no item.
+/// Hidden items retain visible=false; menu/hotrect containers emit no item. A turned tile
+/// keeps its unturned box in `rect` and its turn in `turn` ([`Turn`]).
 /// `t15` is `tiles::interface_screen`'s switch gate for the hotrect-alpha hypothesis.
 pub fn layout(ui: &Ui, root: TileId, measure: &Measure<'_>, t15: bool) -> Vec<DrawItem> {
+    layout_in(ui, root, measure, Context { t15, ..Default::default() })
+}
+
+/// [`layout`] with the `locus` rule: a tile's `x` and `y` count from the nearest tile
+/// above it whose `locus` is on (the menu's root has it), not from its parent's place
+/// [documented: GetUIFloatInherited, "all parent tiles with an active locus" make up a
+/// tile's place; observed: MCM's window, its `MCM` rect without `locus` and its background
+/// copying that rect's `x` and `y`, stood at the rect's place in the original, the owner's
+/// screenshots 2026-11-12, menu-xml.md §10.1]. Used for the start menu's Mods page only
+/// (`super::mods`); the HUD and the other tile menus keep [`layout`]'s rule until they are
+/// checked against it (a follow-up) [design].
+pub fn layout_by_locus(ui: &Ui, root: TileId, measure: &Measure<'_>, t15: bool) -> Vec<DrawItem> {
+    layout_in(ui, root, measure, Context { t15, by_locus: true, ..Default::default() })
+}
+
+fn layout_in(ui: &Ui, root: TileId, measure: &Measure<'_>, start: Context) -> Vec<DrawItem> {
     let mut ancestors = Vec::new();
     let mut at = ui.tile(root).parent;
     while let Some(id) = at {
         ancestors.push(id);
         at = ui.tile(id).parent;
     }
-    let mut context = Context { t15, ..Default::default() };
+    let mut context = start;
     for id in ancestors.into_iter().rev() {
         let tile = ui.tile(id);
         if !tile.live {
             return Vec::new();
         }
-        context = children_context(tile, place(tile, &kind(tile), context, measure));
+        context = children_context(tile, place(tile, &kind(tile), context, measure), context);
     }
     let mut out = Vec::new();
     let mut stack = vec![(root, context)];
@@ -266,7 +375,8 @@ pub fn layout(ui: &Ui, root: TileId, measure: &Measure<'_>, t15: bool) -> Vec<Dr
         }
         let kind = kind(tile);
         let context = place(tile, &kind, parent, measure);
-        if !matches!(kind, Kind::Menu | Kind::Hotrect) {
+        let fill = matches!(kind, Kind::Hotrect) && tile.get(HOTRECT_FILL).is_some_and(Value::truthy);
+        if fill || !matches!(kind, Kind::Menu | Kind::Hotrect) {
             out.push(DrawItem {
                 tile: id,
                 kind,
@@ -283,9 +393,10 @@ pub fn layout(ui: &Ui, root: TileId, measure: &Measure<'_>, t15: bool) -> Vec<Dr
                     systemcolor: optional(tile, "systemcolor"),
                     systemcolor_name: symbol(tile, "systemcolor"),
                 },
+                turn: turn(ui, tile),
             });
         }
-        let parent = children_context(tile, context);
+        let parent = children_context(tile, context, parent);
         let mut children = tile.children.clone();
         children.sort_by(|&a, &b| number(ui.tile(a), "depth", 0.0).total_cmp(&number(ui.tile(b), "depth", 0.0)));
         stack.extend(children.into_iter().rev().map(|id| (id, parent)));
@@ -308,6 +419,26 @@ mod tests {
 
     fn unmeasured(_: f64, _: &str, _: Option<f64>) -> (f64, f64) {
         panic!("this tree needs no text measurement")
+    }
+
+    #[test]
+    fn a_tile_outside_its_window_stays_inside_the_ones_above() {
+        // [design] A window in a window: the mark skips the nearest only.
+        let (mut ui, root) = tree(
+            r#"<menu name="M"><rect name="Outer"><width>100</width><height>100</height><clips>&true;</clips>
+              <rect name="Inner"><width>50</width><height>50</height><clips>&true;</clips>
+                <image name="Beside"><x>50</x><width>20</width><height>20</height></image>
+                <image name="In"><width>20</width><height>20</height></image>
+              </rect></rect></menu>"#,
+        );
+        let beside = ui.find_tile("M/Outer/Inner/Beside").unwrap();
+        let clip = |ui: &Ui, t: TileId| layout(ui, root, &unmeasured, true).into_iter().find(|i| i.tile == t).unwrap().clip.unwrap();
+        assert_eq!(clip(&ui, beside).width, 50.0, "both windows");
+        ui.set_trait(beside, fnv_ui::input::OUTSIDE_CLIP, Value::Num(1.0));
+        ui.update();
+        assert_eq!(clip(&ui, beside).width, 100.0, "the outer window still crops it");
+        let inside = ui.find_tile("M/Outer/Inner/In").unwrap();
+        assert_eq!(clip(&ui, inside).width, 50.0, "its neighbour keeps both");
     }
 
     #[test]
@@ -414,6 +545,51 @@ mod tests {
         assert_eq!(alpha(&ui, "I"), 127.5, "under the mark, only what is below it");
     }
 
+    /// A marked tile keeps its own place, and its children stand from where it stands.
+    #[test]
+    fn a_tile_marked_no_origin_gives_its_children_no_place() {
+        let src = MemSource::default().with("n.xml", r#"<menu name="N"><rect name="Line"><x>11</x><y>23</y><hotrect name="Tab"><x>101</x><y>53</y><image name="Inner"><x>101</x><y>53</y></image></hotrect></rect></menu>"#);
+        let mut ui = Ui::new();
+        let menu = ui.load_menu(&src, "n.xml").unwrap();
+        ui.update();
+        let inner = ui.find_tile("N/Line/Tab/Inner").unwrap();
+        let place = |ui: &Ui| layout(ui, menu, &|_, _, _| (0.0, 0.0), true).into_iter().find(|i| i.tile == inner).map(|i| (i.rect.left, i.rect.top));
+        assert_eq!(place(&ui), Some((213.0, 129.0)), "unmarked, twice over");
+        let tab = ui.find_tile("N/Line/Tab").unwrap();
+        ui.set_trait(tab, fnv_ui::input::NO_ORIGIN, Value::Num(1.0));
+        assert_eq!(place(&ui), Some((112.0, 76.0)));
+        // From a subtree too: what stands above it counts the same.
+        let from_tab = layout(&ui, tab, &|_, _, _| (0.0, 0.0), true);
+        assert_eq!(from_tab.iter().find(|i| i.tile == inner).map(|i| (i.rect.left, i.rect.top)), Some((112.0, 76.0)));
+    }
+
+    #[test]
+    fn scrollbar_children_are_visible() {
+        // [design] A scrollbar as an image at alpha 0 over its pieces, the marker's alpha copied.
+        let xml = r#"<menu name="M"><hotrect name="L"><alpha>0</alpha>
+            <image name="lb_scrollbar"><alpha>0</alpha><_marker_alpha>255</_marker_alpha>
+              <image name="scrollbar_vert_marker"><filename>m.dds</filename><alpha><copy src="parent()" trait="_marker_alpha"/></alpha></image>
+            </image></hotrect></menu>"#;
+        let (mut ui, root) = tree(xml);
+        let marker = ui.find_tile("M/L/lb_scrollbar/scrollbar_vert_marker").unwrap();
+        let alpha = |ui: &Ui| layout(ui, root, &unmeasured, true).into_iter().find(|i| i.tile == marker).unwrap().alpha;
+        assert_eq!(alpha(&ui), 0.0, "unmarked, the image's alpha hides it");
+        ui.set_trait(marker, OWN_ALPHA, Value::Num(1.0));
+        assert_eq!(alpha(&ui), 255.0, "on the 0-255 scale, what `draw::pieces` divides by 255");
+    }
+
+    #[test]
+    fn a_hotrect_draws_its_fill_only_when_marked() {
+        let (mut ui, root) = tree(r#"<menu name="M"><hotrect name="H"><alpha>40</alpha><width>9</width><height>9</height><image name="I"/></hotrect></menu>"#);
+        let h = ui.find_tile("M/H").unwrap();
+        assert!(layout(&ui, root, &unmeasured, true).iter().all(|i| i.tile != h), "a hotrect draws nothing");
+        ui.set_trait(h, HOTRECT_FILL, Value::Num(1.0));
+        ui.set_trait(h, OWN_ALPHA, Value::Num(1.0));
+        let items = layout(&ui, root, &unmeasured, true);
+        let item = items.iter().find(|i| i.tile == h).unwrap();
+        assert_eq!((item.alpha, &item.kind), (40.0, &Kind::Hotrect));
+    }
+
     #[test]
     fn clipwindow_clips_hotrect_descendants() {
         let (mut ui, root) = tree(
@@ -508,6 +684,87 @@ mod tests {
         assert_eq!(items[3].rect, Rect { left: 100.0, top: 20.0, width: 0.0, height: 0.0 });
         let Kind::Text(text) = &items[3].kind else { panic!("expected text") };
         assert_eq!((text.justify, text.alignment), (17.0, Alignment::Left));
+    }
+
+    fn close(a: (f64, f64), b: (f64, f64)) -> bool {
+        (a.0 - b.0).abs() < 1e-9 && (a.1 - b.1).abs() < 1e-9
+    }
+
+    #[test]
+    fn an_unturned_tile_lays_out_as_one_without_the_traits() {
+        // [design] Angle 0 with the axis traits, and no traits at all: the same items.
+        let plain = r#"<menu name="M"><rect name="W"><x>5</x><y>7</y><width>60</width><height>40</height><clips>&true;</clips>
+            <image name="A"><filename>a.dds</filename><x>3</x><y>4</y><width>20</width><height>10</height></image></rect></menu>"#;
+        let zero = r#"<menu name="M"><rect name="W"><x>5</x><y>7</y><width>60</width><height>40</height><clips>&true;</clips>
+            <image name="A"><filename>a.dds</filename><x>3</x><y>4</y><width>20</width><height>10</height>
+              <rotateangle>0</rotateangle><rotateaxisx>10</rotateaxisx><rotateaxisy>5</rotateaxisy></image></rect></menu>"#;
+        let (a, ra) = tree(plain);
+        let (b, rb) = tree(zero);
+        let (items_a, mut items_b) = (layout(&a, ra, &unmeasured, true), layout(&b, rb, &unmeasured, true));
+        // Two trees: their tile ids differ, everything else is compared.
+        assert_eq!(items_a.len(), items_b.len());
+        for (x, y) in items_a.iter().zip(items_b.iter_mut()) {
+            assert_eq!(a.tile(x.tile).name, b.tile(y.tile).name);
+            y.tile = x.tile;
+        }
+        assert_eq!(items_a, items_b);
+        assert!(items_b.iter().all(|i| i.turn.is_none()));
+    }
+
+    #[test]
+    fn a_quarter_turn_about_a_corner_and_about_the_middle() {
+        // [design] A 40 x 10 picture at (10, 20), turned a quarter (pi / 2) clockwise.
+        let (mut ui, root) = tree(
+            r#"<menu name="M"><image name="P"><filename>p.dds</filename><x>10</x><y>20</y><width>40</width><height>10</height>
+              <rotateangle>1.5707963267948966</rotateangle></image></menu>"#,
+        );
+        let item = |ui: &Ui| layout(ui, root, &unmeasured, true).remove(0);
+        let it = item(&ui);
+        assert_eq!(it.rect, Rect { left: 10.0, top: 20.0, width: 40.0, height: 10.0 }, "the box is the unturned one");
+        let turn = it.turn.expect("turned");
+        assert_eq!(turn.pivot, (0.0, 0.0), "no axis traits: the top left");
+        // About its top left: the right end swings down, the box now 10 wide and 40 down.
+        let c = turn.corners(it.rect);
+        assert!(close(c[0], (10.0, 20.0)) && close(c[1], (10.0, 60.0)) && close(c[2], (0.0, 60.0)) && close(c[3], (0.0, 20.0)), "{c:?}");
+        assert!(close(turn.shift(40.0, 10.0), (-25.0, 15.0)), "a node turned about its middle is moved back onto the corner");
+        // About its middle (the axis traits half its size, as the arrows'): the middle stays.
+        let p = ui.find_tile("M/P").unwrap();
+        ui.set_trait(p, "rotateaxisx", Value::Num(20.0));
+        ui.set_trait(p, "rotateaxisy", Value::Num(5.0));
+        ui.update();
+        let it = item(&ui);
+        let turn = it.turn.unwrap();
+        assert!(close(turn.point(it.rect, (30.0, 25.0)), (30.0, 25.0)));
+        let c = turn.corners(it.rect);
+        assert!(close(c[0], (35.0, 5.0)) && close(c[2], (25.0, 45.0)), "{c:?}");
+        assert!(close(turn.shift(40.0, 10.0), (0.0, 0.0)), "Bevy's own pivot, nothing to move");
+        // About its left middle (the dotted lines'): that point stays, the line points down.
+        ui.set_trait(p, "rotateaxisx", Value::Num(0.0));
+        ui.update();
+        let it = item(&ui);
+        let turn = it.turn.unwrap();
+        assert!(close(turn.point(it.rect, (10.0, 25.0)), (10.0, 25.0)));
+        assert!(close(turn.point(it.rect, (50.0, 25.0)), (10.0, 65.0)));
+    }
+
+    #[test]
+    fn a_turned_tile_keeps_the_unturned_clips_above_it_and_turns_nothing_else() {
+        // [design] A turned picture under a clipping rect: the crop is the rect's own box;
+        // the rect's turn (it has a child) and the picture's never reach other tiles.
+        let (ui, root) = tree(
+            r#"<menu name="M"><rect name="W"><x>100</x><y>50</y><width>80</width><height>60</height><clips>&true;</clips><rotateangle>1</rotateangle>
+              <image name="P"><filename>p.dds</filename><x>-20</x><width>200</width><height>8</height><rotateangle>-0.5</rotateangle><rotateaxisy>4</rotateaxisy></image>
+              <image name="Q"><filename>q.dds</filename><width>8</width><height>8</height></image></rect></menu>"#,
+        );
+        let items = layout(&ui, root, &unmeasured, true);
+        let at = |name: &str| items.iter().find(|i| ui.tile(i.tile).name == name).unwrap();
+        assert_eq!(at("W").turn, None, "a tile with children is not turned");
+        assert_eq!(at("P").turn, Some(Turn { angle: -0.5, pivot: (0.0, 4.0) }));
+        assert_eq!(at("P").clip, Some(Rect { left: 100.0, top: 50.0, width: 80.0, height: 60.0 }));
+        assert_eq!(at("P").rect, Rect { left: 80.0, top: 50.0, width: 200.0, height: 8.0 });
+        assert_eq!(at("Q").turn, None, "a sibling is not turned");
+        // Laid out alone, the same turn.
+        assert_eq!(layout(&ui, at("P").tile, &unmeasured, true)[0].turn, at("P").turn);
     }
 
     #[test]

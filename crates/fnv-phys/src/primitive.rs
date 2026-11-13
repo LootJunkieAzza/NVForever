@@ -111,8 +111,18 @@ pub fn primitive_object(p: &Primitive, meaning: BoundsMeaning) -> Option<Collisi
         body_transform: Iso::IDENTITY,
         motion: Motion::Static,
         // No XTRI (all but 3 of the masters' 8,819 primitives): an invisible wall
-        // (physics.md §4.1) [hypothesis: what a CollisionMarker is for].
-        layer: p.layer.map_or(crate::layers::INVISIBLE_WALL, |l| l.min(255) as u8),
+        // (physics.md §4.1) [hypothesis: what a CollisionMarker is for]. A marker on the
+        // Transparent layer is one too, so shots pass it as they pass the others
+        // (`layers::shot_ignores`) [observed: Transparent is the commonest XTRI of the
+        // TTW load order's references, 96 of 277, ahead of Invisible Wall's 60; TTW's
+        // Vault 101 BB gun range has one across the hall between the player and the
+        // targets the birthday quest needs hit, issue #2223; hypothesis: the original
+        // lets shots through it].
+        layer: match p.layer {
+            None => crate::layers::INVISIBLE_WALL,
+            Some(l) if l == crate::layers::TRANSPARENT as u32 => crate::layers::INVISIBLE_WALL,
+            Some(l) => l.min(255) as u8,
+        },
         mass: 0.0,
         friction: 0.5,
         restitution: 0.0,
@@ -120,6 +130,7 @@ pub fn primitive_object(p: &Primitive, meaning: BoundsMeaning) -> Option<Collisi
         // No Havok radius is known for placed primitives [hypothesis: 0].
         shell: 0.0,
         material: None,
+        wind: false,
     })
 }
 
@@ -148,6 +159,11 @@ mod tests {
         let s = Primitive { bounds: [8.0, 8.0, 8.0], kind: PrimitiveKind::Sphere, layer: None };
         assert_eq!(primitive_object(&s, BoundsMeaning::HalfExtents).unwrap().layer, crate::layers::INVISIBLE_WALL);
         assert_eq!(*primitive_object(&s, BoundsMeaning::HalfExtents).unwrap().shape, Shape::Sphere { radius: 8.0 });
+        // A Transparent marker (TTW's BB gun range, #2223) is an invisible wall: shots pass.
+        let glassy = Primitive { bounds: [239.0, 1.0, 153.0], kind: PrimitiveKind::PortalBox, layer: Some(crate::layers::TRANSPARENT as u32) };
+        let o = primitive_object(&glassy, BoundsMeaning::HalfExtents).unwrap();
+        assert_eq!(o.layer, crate::layers::INVISIBLE_WALL);
+        assert!(crate::layers::shot_ignores().contains(o.layer) && !crate::layers::character_ignores().contains(o.layer));
         let none = Primitive { bounds: [1.0; 3], kind: PrimitiveKind::None, layer: None };
         assert!(primitive_object(&none, BoundsMeaning::HalfExtents).is_none());
     }

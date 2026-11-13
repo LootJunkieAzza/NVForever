@@ -27,6 +27,7 @@ use crate::trace::EventKind;
 use fnv_sim::{clock, FormId};
 use rand_core::RngCore;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeSet;
 
 /// How far from the player a StartConversation speaker may be and still talk at once,
 /// game units ([`Game::walk_up_greet`]) [design: twice the AI's standard talk distance].
@@ -41,6 +42,9 @@ pub const DIALOGUE_MENU: u16 = 1009;
 /// `fSayOncePerDayInfoTimer` is not defined [documented: Category:Dialogue, 12 hours].
 pub const SAY_ONCE_A_DAY_HOURS: f64 = 12.0;
 pub const SAY_ONCE_A_DAY_SETTING: &str = "fSayOncePerDayInfoTimer";
+/// A hello or idle chatter line is not said again, by any actor, within this many seconds
+/// of play ([`Game::say_hello_fresh`]) [design: owner's playtest 2026-11-11, #2156].
+pub const IDLE_LINE_MEMORY: f64 = 180.0;
 
 /// The line an actor is saying in a conversation.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -91,8 +95,8 @@ pub struct Choice {
     /// The text is the line's prompt (else the topic's name).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub prompt: bool,
-    /// The line has the Goodbye flag: choosing it ends the conversation at once, and the
-    /// actor finishes the line in the world (`Game::choose`).
+    /// The line has the Goodbye flag: it ends the conversation when it has been said
+    /// (`Game::finish_line`).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub goodbye: bool,
     /// The entry is shaded as already chosen: the actor said this line before and the
@@ -139,6 +143,16 @@ pub struct Conversation {
     /// A line's end result script is running ([`Game::finish_line`]).
     #[serde(skip)]
     pub ending: bool,
+}
+
+/// Which screen of which conversation is up, as one number, for input queued on it: the
+/// conversation (`serial`, counted up for each started), the lines said so far, and the
+/// response being said, with choices or nothing being said as 0 [design: a stale click must
+/// not act on what replaced its screen, dialogue-menu.md §6.5]. 0 without a conversation.
+pub fn conversation_stamp(serial: u32, c: Option<&Conversation>) -> u64 {
+    let Some(c) = c else { return 0 };
+    let response = c.line.as_ref().map_or(0, |l| (l.response as u64 & 0xF_FFFF) + 1);
+    (u64::from(serial) << 40) | ((u64::from(c.lines) & 0xF_FFFF) << 20) | response | (1 << 63)
 }
 
 /// Whether a line may be said in a conversation between two actors: only Conversation
@@ -191,6 +205,10 @@ pub enum Says {
     Actor,
     /// A radio station's placed reference (`crate::radio`).
     Station,
+    /// The speaker a script's Say or SayTo names, when no line of the topic passes the
+    /// fixed-speaker check: it says a fixed speaker's line in that speaker's stead
+    /// ([`Game::say_by_script`]). The other checks are an actor's.
+    InStead,
 }
 
 /// A topic a line leads to ([`Game::links_after`]): by the line's own choices (TCLT,
@@ -243,8 +261,8 @@ pub enum Blocked {
 /// together: a line without the Random flag alone, else the Random lines from there to
 /// the first line without the flag, or through the first one with Random End
 /// ([`Game::select_line`], rule 3). Shared by the game and the debugger.
-pub(crate) fn group_end(data: &crate::data::GameData, lines: &[FormId], at: usize) -> usize {
-    let flag = |i: &FormId, f: u16| data.infos.get(i).is_some_and(|d| d.has(f));
+pub(crate) fn group_end(dv: &crate::dialogue_edits::DialogueView, lines: &[FormId], at: usize) -> usize {
+    let flag = |i: &FormId, f: u16| dv.info(i).is_some_and(|d| d.has(f));
     if !flag(&lines[at], info_flag::RANDOM) {
         return at + 1;
     }
@@ -287,7 +305,10 @@ impl<'a> Game<'a> {
     ///   own GetIsID condition, 167 of them the end slides (fixed speaker a Boomer or
     ///   another character, GetIsID Narrator), which the narrator says
     ///   [hypothesis: the condition is the run-time rule and the field a leftover;
-    ///   docs/handoff/mq-walkthrough-2026-10-27.md];
+    ///   docs/handoff/mq-walkthrough-2026-10-27.md]. A script's Say or SayTo whose topic
+    ///   has no line passing this check, judged from the data alone
+    ///   ([`Game::no_line_for_speaker`]), tries the lines without it
+    ///   ([`Game::say_by_script`], [`Says::InStead`]);
     /// - the line's quest is running and the quest's own conditions pass [owner
     ///   statement 2026-10-10: every actor has the line as long as the quest is active
     ///   and the conditions are met; documented: Quest Data Tab: quest conditions gate
@@ -298,6 +319,24 @@ impl<'a> Game<'a> {
     ///   target [documented: Category:Conditions, Run On].
     pub fn can_say(&mut self, speaker: FormId, listener: Option<FormId>, info: FormId) -> bool {
         self.can_say_as(speaker, listener, info, Says::Actor)
+    }
+
+    /// The fixed-speaker (ANAM) check alone, from the data: the line names a fixed speaker
+    /// that is neither `speaker` nor its base, and has no GetIsID condition of its own
+    /// ([`Game::can_say`]). It does not look at run-time state (Say Once, conditions).
+    pub(crate) fn fixed_speaker_refuses(&self, def: &InfoDef, speaker: FormId) -> bool {
+        def.speaker.is_some_and(|s| !def.conditions.iter().any(is_own_id_condition) && s != speaker && Some(s) != crate::functions::base_of(self, speaker))
+    }
+
+    /// Whether every line of `topic` ([`GameData::lines_tried`]) fails the fixed-speaker
+    /// check for `speaker` ([`Game::fixed_speaker_refuses`]), decided from the data alone:
+    /// the case in which a script's Say or SayTo says a fixed speaker's line in the
+    /// speaker's stead ([`Game::say_by_script`]). A topic with no lines is not one.
+    pub(crate) fn no_line_for_speaker(&self, speaker: FormId, topic: FormId) -> bool {
+        let data = self.data;
+        let dv = self.dialogue_view();
+        let lines = data.lines_tried(topic);
+        !lines.is_empty() && lines.iter().all(|i| dv.info(i).is_some_and(|def| self.fixed_speaker_refuses(def, speaker)))
     }
 
     /// [`Game::can_say`] for an actor or a radio station. A station is not held to a
@@ -316,8 +355,9 @@ impl<'a> Game<'a> {
     /// disagree with the game (docs/design/editor.md §14.3).
     pub(crate) fn line_verdict(&mut self, speaker: FormId, listener: Option<FormId>, info: FormId, says: Says) -> Result<Vec<CondResult>, Blocked> {
         let data = self.data;
-        let Some(def) = data.infos.get(&info) else { return Err(Blocked::NotALine) };
-        if def.say_once && self.said.iter().any(|&(_, i)| i == info) {
+        let dv = self.dialogue_view();
+        let Some(def) = dv.info(&info) else { return Err(Blocked::NotALine) };
+        if def.say_once && self.said_once(info) {
             return Err(Blocked::SaidOnce);
         }
         // Low / High Intelligence lines: for a dim player, and for one who is not
@@ -334,10 +374,8 @@ impl<'a> Game<'a> {
                 }
             }
         }
-        if let Some(s) = def.speaker.filter(|_| says == Says::Actor && !def.conditions.iter().any(is_own_id_condition)) {
-            if s != speaker && Some(s) != crate::functions::base_of(self, speaker) {
-                return Err(Blocked::Speaker(s));
-            }
+        if let Some(s) = def.speaker.filter(|_| says == Says::Actor && self.fixed_speaker_refuses(def, speaker)) {
+            return Err(Blocked::Speaker(s));
         }
         if let Some(q) = def.quest {
             if !self.quests.get(&q).is_some_and(|s| s.running) {
@@ -352,7 +390,7 @@ impl<'a> Game<'a> {
         }
         // A voice type without Allow Default Dialog says only lines conditioned on it; not
         // the player's own lines (its voice types lack the flag, observed).
-        if says == Says::Actor && speaker != FormId::PLAYER_REF && def.speaker.is_none() && self.voice_without_default(speaker) && !def.conditions.iter().any(|c| VOICE_GATE_FUNCTIONS.contains(&c.function)) {
+        if says != Says::Station && speaker != FormId::PLAYER_REF && def.speaker.is_none() && self.voice_without_default(speaker) && !def.conditions.iter().any(|c| VOICE_GATE_FUNCTIONS.contains(&c.function)) {
             return Err(Blocked::VoiceType);
         }
         let r = self.eval_conditions(&def.conditions, Some(speaker), listener, &format!("INFO {info}"));
@@ -366,7 +404,7 @@ impl<'a> Game<'a> {
     /// Whether `speaker`'s voice type (from the definition supplying its traits) leaves
     /// "Allow Default Dialog" off (docs/spec-notes/actor-flags.md §9).
     fn voice_without_default(&self, speaker: FormId) -> bool {
-        self.traits_def(speaker).and_then(|d| d.voice).is_some_and(|v| self.data.voices_without_default.contains(&v))
+        self.voice_type_of(speaker).is_some_and(|v| self.data.voices_without_default.contains(&v))
     }
 
     /// The line of `topic` that `speaker` says to `listener` now, for greetings, chosen
@@ -431,8 +469,9 @@ impl<'a> Game<'a> {
     /// (the Legion's and Yes Man's chains need it).
     pub(crate) fn select_choice_line(&mut self, speaker: FormId, listener: Option<FormId>, topic: FormId, keep: impl Fn(&InfoDef) -> bool) -> Option<FormId> {
         let data = self.data;
+        let dv = self.dialogue_view();
         let lines = data.lines_tried(topic);
-        if lines.iter().any(|i| data.follow_up_targets.contains(i)) {
+        if lines.iter().any(|i| dv.is_follow_up(i)) {
             if let Some(i) = self.select_among(speaker, listener, &lines, &keep, true, Says::Actor) {
                 return Some(i);
             }
@@ -444,13 +483,24 @@ impl<'a> Game<'a> {
     /// `lead_only`, follow-up lines ([`GameData::follow_up_targets`]) count as lines the
     /// speaker cannot say.
     fn select_among(&mut self, speaker: FormId, listener: Option<FormId>, lines: &[FormId], keep: &impl Fn(&InfoDef) -> bool, lead_only: bool, says: Says) -> Option<FormId> {
-        let data = self.data;
-        let kept = |i: &FormId| !(lead_only && data.follow_up_targets.contains(i)) && data.infos.get(i).is_some_and(keep);
+        self.select_among_but(speaker, listener, lines, keep, lead_only, says, &BTreeSet::new())
+    }
+
+    /// [`Game::select_among`], a pool picking among its lines that are not in `stale`
+    /// while it has one ([`Game::say_hello_fresh`]). Which plain line or which pool is
+    /// taken does not change: a stale line still counts as one the speaker can say, so a
+    /// line stored further down is not said in its place.
+    #[allow(clippy::too_many_arguments)]
+    fn select_among_but(&mut self, speaker: FormId, listener: Option<FormId>, lines: &[FormId], keep: &impl Fn(&InfoDef) -> bool, lead_only: bool, says: Says, stale: &BTreeSet<FormId>) -> Option<FormId> {
+        let dv = self.dialogue_view();
+        let kept = |i: &FormId| !(lead_only && dv.is_follow_up(i)) && dv.info(i).is_some_and(keep);
         let mut at = 0;
         while at < lines.len() {
-            let end = group_end(data, lines, at);
+            let end = group_end(&dv, lines, at);
             // A plain line is a group of one; a Random pool may be more.
             let sayable: Vec<FormId> = lines[at..end].iter().copied().filter(|i| kept(i) && self.can_say_as(speaker, listener, *i, says)).collect();
+            let fresh: Vec<FormId> = sayable.iter().copied().filter(|i| !stale.contains(i)).collect();
+            let sayable = if fresh.is_empty() { sayable } else { fresh };
             match sayable.len() {
                 0 => {}
                 1 => return Some(sayable[0]),
@@ -475,7 +525,7 @@ impl<'a> Game<'a> {
                 out.push(Link { topic: t, from: None });
             }
         }
-        for &t in self.data.linked_from.get(&topic).map(Vec::as_slice).unwrap_or_default() {
+        for &t in self.dialogue_view().linked_from(topic) {
             if !out.iter().any(|l| l.topic == t) {
                 out.push(Link { topic: t, from: Some(topic) });
             }
@@ -507,7 +557,11 @@ impl<'a> Game<'a> {
     /// from every actor once any has said it. `always` remembers every line
     /// (conversations: the shading of choices already made).
     pub(crate) fn mark_said(&mut self, speaker: FormId, info: FormId, always: bool) {
-        let Some(def) = self.data.infos.get(&info) else { return };
+        let dv = self.dialogue_view();
+        let Some(def) = dv.info(&info) else { return };
+        // Said now: a value a script set for the session gives way [hypothesis: saying
+        // the line sets the flag in the original].
+        self.dialogue_edits.said_once.remove(&info);
         if def.say_once || always {
             self.said.insert((speaker, info));
         }
@@ -532,7 +586,7 @@ impl<'a> Game<'a> {
     /// Seconds a whole line lasts: its responses one after another; a line without
     /// responses lasts as long as an empty response.
     pub fn line_seconds(&self, speaker: FormId, info: FormId) -> f64 {
-        let n = self.data.infos.get(&info).map_or(0, |d| d.responses.len());
+        let n = self.dialogue_view().info(&info).map_or(0, |d| d.responses.len());
         if n == 0 {
             return self.response_seconds(speaker, info, 0);
         }
@@ -600,6 +654,7 @@ impl<'a> Game<'a> {
 
     fn open_dialogue(&mut self, actor: FormId, topic: Option<FormId>, forced: bool) -> Result<FormId, String> {
         let data = self.data;
+        let dv = self.dialogue_view();
         if let Some(c) = &self.dialogue {
             return Err(format!("a conversation with {} is running", data.name(c.actor)));
         }
@@ -635,11 +690,12 @@ impl<'a> Game<'a> {
         };
         // Through a talking activator a Goodbye greeting opens a conversation too, which
         // the line ends (`crate::talking_activators`).
-        if !forced && through.is_none() && Some(topic) == data.greeting && data.infos.get(&info).is_some_and(|d| d.goodbye) {
+        if !forced && through.is_none() && Some(topic) == data.greeting && dv.info(&info).is_some_and(|d| d.goodbye) {
             self.extra.entry(actor).or_default().talked_to_pc = true;
             self.say_line(actor, listener, topic, info, LineKind::Greeting);
             return Ok(info);
         }
+        self.dialogue_serial = self.dialogue_serial.wrapping_add(1);
         self.dialogue = Some(Conversation { actor, through, line: None, choices: Vec::new(), topic_list: false, lines: 0, then: None, ending: false });
         self.extra.entry(actor).or_default().talked_to_pc = true;
         self.emit(EventKind::DialogueStarted { actor, topic });
@@ -655,8 +711,8 @@ impl<'a> Game<'a> {
     /// asked for, that moment is when the line is picked; the masters set the flag only
     /// on Radio and Conversation lines].
     fn speak(&mut self, actor: FormId, topic: FormId, info: FormId) {
-        let data = self.data;
-        let Some(def) = data.infos.get(&info) else { return };
+        let dv = self.dialogue_view();
+        let Some(def) = dv.info(&info) else { return };
         // A SayTo line the actor was saying stops [hypothesis, as for a second SayTo].
         self.cut_line(actor);
         self.mark_said(actor, info, true);
@@ -670,6 +726,8 @@ impl<'a> Game<'a> {
             c.choices.clear();
             c.lines += 1;
         }
+        // The line is up, whether or not a script of it runs: whoever started it reads it next.
+        self.dialogue_transition();
         self.emit_response(actor, def, info, 0);
         self.run_line_result(actor, def, false);
         if def.has(info_flag::RUN_IMMEDIATELY) {
@@ -682,6 +740,8 @@ impl<'a> Game<'a> {
         let resp = &def.responses[r];
         let seconds = self.response_seconds(actor, info, r);
         self.emit(EventKind::ResponseSaid { speaker: actor, info, number: resp.number, chars: def.response_chars[r], emotion: resp.emotion, seconds });
+        // JohnnyGuitar's NPC response handlers (`crate::nvse_jg8`).
+        self.jg8_npc_response(actor, info, r, resp);
         // The listener of a conversation's line is the player.
         self.ask_response_idles(actor, Some(FormId::PLAYER_REF), info, r);
     }
@@ -689,6 +749,11 @@ impl<'a> Game<'a> {
     fn run_line_result(&mut self, actor: FormId, def: &InfoDef, end: bool) {
         let data = self.data;
         if let Some(u) = if end { def.end } else { def.begin } {
+            // An end script runs as the line goes: what it reads is up by then. A begin script
+            // comes right after the line's own transition.
+            if end {
+                self.dialogue_transition();
+            }
             self.emit(EventKind::ResultScript { unit: data.unit(u).key(), on: Some(actor) });
             self.run_result(u, RunCtx { self_ref: Some(actor), action_ref: None, quest: def.quest });
         }
@@ -708,9 +773,9 @@ impl<'a> Game<'a> {
             self.end_dialogue_as(ended::ACTOR_GONE);
             return;
         }
-        let data = self.data;
+        let dv = self.dialogue_view();
         let Some(mut line) = c.line.clone() else { return };
-        let Some(def) = data.infos.get(&line.info) else { return };
+        let Some(def) = dv.info(&line.info) else { return };
         let order = def.response_order();
         line.remaining -= dt;
         while line.remaining <= 1e-9 {
@@ -726,8 +791,25 @@ impl<'a> Game<'a> {
                 }
             }
         }
+        let moved = self.dialogue.as_ref().and_then(|c| c.line.as_ref()).is_some_and(|l| l.response != line.response);
         if let Some(c) = self.dialogue.as_mut() {
             c.line = Some(line);
+        }
+        if moved {
+            self.dialogue_transition();
+        }
+    }
+
+    /// Tell [`Game::ui_dialogue_hook`] of a conversation that has moved on: the line or
+    /// response begun or over, the choices offered. In the middle of the runtime's own work, as
+    /// a script that runs next is to read what is up already.
+    pub fn dialogue_transition(&mut self) {
+        if self.dialogue.is_none() {
+            return;
+        }
+        if let Some(mut hook) = self.ui_dialogue_hook.take() {
+            hook(self);
+            self.ui_dialogue_hook = Some(hook);
         }
     }
 
@@ -737,9 +819,9 @@ impl<'a> Game<'a> {
     ///    ([`crate::game::PlayerState::topics`], the set `AddTopic` fills)
     ///    [documented: xEdit INFO "Add Topics"; hypothesis: they are added when the
     ///    line ends, and stay known after the conversation];
-    /// 3. a Goodbye line ends the conversation [documented: Category:Dialogue] (one the
-    ///    player chose has ended it already, as it started, and ends as a farewell:
-    ///    `Game::choose`, `Game::end_line`);
+    /// 3. a Goodbye line ends the conversation [documented: Category:Dialogue] (with
+    ///    `GameConfig::goodbye_at_once` one the player chose has ended it already, as it
+    ///    started, and ends as a farewell: `Game::choose`, `Game::end_line`);
     /// 4. otherwise, if the line has follow-up lines (TCFU), the first one the actor can
     ///    say is said next, with no choice by the player [owner statement 2026-10-10:
     ///    follow-ups have no player response, as in Doc Mitchell's farewell; not yet
@@ -757,8 +839,8 @@ impl<'a> Game<'a> {
     /// conversation (Goodbye, or nothing to offer) starts once it has closed
     /// ([`Game::hold_force_greet`]) [design, issue #1107; observer check 39].
     fn finish_line(&mut self, actor: FormId, topic: FormId, info: FormId) {
-        let data = self.data;
-        let Some(def) = data.infos.get(&info) else { return };
+        let dv = self.dialogue_view();
+        let Some(def) = dv.info(&info) else { return };
         if let Some(c) = self.dialogue.as_mut() {
             c.line = None;
             c.ending = true;
@@ -783,7 +865,7 @@ impl<'a> Game<'a> {
         }
         let listener = Some(FormId::PLAYER_REF);
         for &f in &def.follow_ups {
-            let Some(fd) = data.infos.get(&f) else { continue };
+            let Some(fd) = dv.info(&f) else { continue };
             if !(fd.goodbye && !def.choices.is_empty()) && self.can_say(actor, listener, f) {
                 self.drop_held_greet();
                 self.speak(actor, fd.topic.unwrap_or(FormId(0)), f);
@@ -801,6 +883,7 @@ impl<'a> Game<'a> {
             c.choices = choices;
             c.topic_list = def.choices.is_empty();
         }
+        self.dialogue_transition();
     }
 
     /// StartConversation with the player from `speaker` farther than [`WALK_UP_REACH`]
@@ -941,17 +1024,18 @@ impl<'a> Game<'a> {
     /// Goodbye].
     pub fn build_choices(&mut self, actor: FormId, topic: FormId, def: &InfoDef) -> Vec<Choice> {
         let data = self.data;
-        let priority = |t: &FormId| data.topic_defs.get(t).map_or(50.0, |d| d.priority);
+        let dv = self.dialogue_view();
+        let priority = |t: &FormId| dv.topic(t).map_or(50.0, |d| d.priority);
         let mut links = self.links_after(topic, def);
         if !def.choices.is_empty() {
             links.sort_by(|a, b| priority(&b.topic).total_cmp(&priority(&a.topic)));
             let out = self.offer(actor, &links);
             return self.itr_menu(actor, out);
         }
-        let mut listed: Vec<Link> = data.top_level.iter().map(|&t| Link { topic: t, from: None }).collect();
-        let known = self.player.topics.iter().filter(|t| !data.top_level.contains(t)).map(|&t| Link { topic: t, from: None });
+        let mut listed: Vec<Link> = dv.top_level().iter().map(|&t| Link { topic: t, from: None }).collect();
+        let known = self.player.topics.iter().filter(|t| !dv.top_level().contains(t)).map(|&t| Link { topic: t, from: None });
         let mut known: Vec<Link> = known.collect();
-        links.retain(|l| !data.top_level.contains(&l.topic) && !self.player.topics.contains(&l.topic));
+        links.retain(|l| !dv.top_level().contains(&l.topic) && !self.player.topics.contains(&l.topic));
         known.append(&mut links);
         if !known.is_empty() {
             listed.append(&mut known);
@@ -959,13 +1043,13 @@ impl<'a> Game<'a> {
             // one the player also learned) in record order.
             let key = |t: &FormId| ListKey {
                 priority: priority(t),
-                learned: (!data.top_level.contains(t)).then(|| self.player.topics.iter().position(|k| k == t)).flatten(),
-                order: data.topic_defs.get(t).map_or((usize::MAX, 0), |d| d.order),
+                learned: (!dv.top_level().contains(t)).then(|| self.player.topics.iter().position(|k| k == t)).flatten(),
+                order: dv.topic(t).map_or((usize::MAX, 0), |d| d.order),
             };
             listed.sort_by(|a, b| key(&a.topic).list_cmp(&key(&b.topic)));
         }
         let mut out = self.offer(actor, &listed);
-        if !out.iter().any(|c| c.goodbye && data.infos.get(&c.info).is_some_and(|d| d.end.is_none())) {
+        if !out.iter().any(|c| c.goodbye && dv.info(&c.info).is_some_and(|d| d.end.is_none())) {
             if let Some(bye) = data.goodbye.filter(|b| !out.iter().any(|c| c.topic == *b)) {
                 out.extend(self.offer(actor, &[Link { topic: bye, from: None }]));
             }
@@ -977,7 +1061,7 @@ impl<'a> Game<'a> {
     /// The entries for the topics of `links` the actor has a line for ([`Game::link_line`]),
     /// in that order.
     fn offer(&mut self, actor: FormId, links: &[Link]) -> Vec<Choice> {
-        let data = self.data;
+        let dv = self.dialogue_view();
         // A dim player's lines read as their topics' Dumb Responses ([`Game::player_dim`]).
         let dim = self.player_dim();
         let listener = Some(FormId::PLAYER_REF);
@@ -990,7 +1074,7 @@ impl<'a> Game<'a> {
             // Link From reaches player dialogue only from the Topics tab: a player line
             // (type Topic) of a topic of type Topic, as before conversations between actors
             // and the radio shared [`GameData::linked_from`].
-            if link.from.is_some() && data.topic_defs.get(&topic).is_none_or(|d| d.topic_type != crate::data::topic_type::TOPIC) {
+            if link.from.is_some() && dv.topic(&topic).is_none_or(|d| d.topic_type != crate::data::topic_type::TOPIC) {
                 continue;
             }
             let player_line = |d: &InfoDef| link.from.is_none() || d.info_type == crate::data::topic_type::TOPIC;
@@ -999,17 +1083,18 @@ impl<'a> Game<'a> {
                 Some(_) => self.link_line_where(actor, listener, link, player_line, Says::Actor),
             };
             let Some(info) = found else { continue };
-            let def = &data.infos[&info];
+            // The script-edited line, so a flag or prompt set by SUP's setters shows here too.
+            let Some(def) = dv.info(&info) else { continue };
             let challenge = def.challenge_form.map(|form| {
                 let (needed, have, skill) = self.challenge_levels(def);
                 Challenge { form, difficulty: def.challenge_difficulty, needed, have, skill }
             });
             let said = self.said.contains(&(actor, info));
-            let dumb = dim && data.topic_defs.get(&topic).is_some_and(|t| t.dumb_response.is_some());
+            let dumb = dim && dv.topic(&topic).is_some_and(|t| t.dumb_response.is_some());
             out.push(Choice {
                 topic,
                 info,
-                chars: if dumb { data.topic_defs[&topic].dumb_response.as_deref().unwrap_or("").chars().count() } else { data.choice_text(topic, info).chars().count() },
+                chars: if dumb { dv.topic(&topic).expect("topic").dumb_response.as_deref().unwrap_or("").chars().count() } else { dv.choice_text(topic, info).chars().count() },
                 dumb,
                 prompt: def.prompt.is_some(),
                 goodbye: def.goodbye,
@@ -1046,12 +1131,20 @@ impl<'a> Game<'a> {
     /// The text of a choice: the topic's Dumb Response for a dim player, else the line's
     /// prompt, else the topic's name [documented: Category:Dialogue, "Prompt"; for the
     /// Dumb Response see [`Game::player_dim`]].
-    pub fn choice_text(&self, c: &Choice) -> &'a str {
+    /// A script's edits show (`crate::dialogue_edits`): TopicInfoSetPrompt's prompt.
+    pub fn choice_text(&self, c: &Choice) -> std::borrow::Cow<'a, str> {
         let data = self.data;
         match data.topic_defs.get(&c.topic).and_then(|t| t.dumb_response.as_deref()).filter(|_| c.dumb) {
-            Some(d) => d,
-            None => data.choice_text(c.topic, c.info),
+            Some(d) => std::borrow::Cow::Borrowed(d),
+            None => self.dialogue_view().choice_text(c.topic, c.info),
         }
+    }
+
+    /// [`Game::choice_text`] as the menu shows it, its player string codes expanded
+    /// ([`Game::expand_codes`]; FalloutNV.esm's topics read "The name's &PCName;."
+    /// [observed]).
+    pub fn shown_choice_text(&self, c: &Choice) -> String {
+        self.expand_codes(&self.choice_text(c))
     }
 
     /// Whether the player is dim: Intelligence at or below
@@ -1071,8 +1164,10 @@ impl<'a> Game<'a> {
     }
 
     /// The player picks entry `index` of the offered list: the actor says its line. A
-    /// Goodbye line closes the conversation at once and goes on in the world
-    /// ([`Game::say_farewell`]).
+    /// line with the Goodbye flag is said in the conversation like any other, the player
+    /// held, and ends it when it is over ([`Game::finish_line`]) [owner statement
+    /// 2026-11-11, issue #2157]. With `GameConfig::goodbye_at_once` it closes the
+    /// conversation at once and goes on in the world ([`Game::say_farewell`]).
     pub fn choose(&mut self, index: usize) -> Result<FormId, String> {
         let c = self.dialogue.as_ref().ok_or("no conversation is running")?;
         if c.line.is_some() {
@@ -1086,7 +1181,7 @@ impl<'a> Game<'a> {
         // [hypothesis, dialogue.md §3.3]. New Vegas's skill checks (KNAM without the
         // flag) give none here: their pass lines' result scripts carry RewardXP (638 of
         // the 1,499 in the masters [observed]), which would count twice.
-        if let Some(d) = self.data.infos.get(&choice.info).filter(|d| d.has(info_flag::SPEECH_CHALLENGE)).and_then(|d| d.challenge_difficulty) {
+        if let Some(d) = self.dialogue_view().info(&choice.info).filter(|d| d.has(info_flag::SPEECH_CHALLENGE)).and_then(|d| d.challenge_difficulty) {
             self.count_stat(crate::misc_stats::SPEECH_SUCCESSES, 1.0);
             let x = crate::experience::speech_challenge_xp(self, d);
             crate::experience::award(self, crate::experience::Source::SpeechChallenge, x);
@@ -1104,11 +1199,22 @@ impl<'a> Game<'a> {
         Ok(choice.info)
     }
 
-    /// A Goodbye line the player chose closes the conversation at once: the menu goes and
-    /// the actor finishes the line in the world, said at the player as a farewell
-    /// ([`Speech::farewell`]) [observed: owner's playtest 2026-11-05, against the
-    /// original: choosing a Goodbye closes the menu at once and the actor finishes the
-    /// line as the player walks away]. The line keeps the time it has left: the rest of
+    /// **Off by default** (`GameConfig::goodbye_at_once`): a chosen line with the Goodbye
+    /// flag stays in the conversation and holds the player until it is said, like the
+    /// lines before it; it ends the conversation when it is over ([`Game::finish_line`])
+    /// [owner statement 2026-11-11, issue #2157: the last line of a conversation must
+    /// hold the player like the rest; said in the world, a quest's line can be
+    /// interrupted in play]. From 2026-11-05 (#1606) until then every chosen Goodbye line
+    /// closed its conversation at once. The data does not tell a plain goodbye from a
+    /// quest's last line: actors' own "Goodbye." lines are ordinary topics (Chet's is
+    /// VFreeformGoodspringsGoodspringsChetTopic001 [observed]), so one rule holds for all.
+    ///
+    /// With the switch on, a Goodbye line the player chose closes the conversation at
+    /// once: the menu goes and the actor finishes the line in the world, said at the
+    /// player as a farewell ([`Speech::farewell`]) [observed: owner's playtest
+    /// 2026-11-05, against the original: choosing a Goodbye closes the menu at once and
+    /// the actor finishes the line as the player walks away]. The line keeps the time it
+    /// has left: the rest of
     /// the response being said and the responses after it, so it lasts as long as it
     /// would have in the conversation. Its begin script, `line_started`, its first
     /// `response_said` and Say Once already came with [`Game::speak`] and do not come
@@ -1141,8 +1247,12 @@ impl<'a> Game<'a> {
     /// follow-up are not chosen: they end their conversation when they are over, as
     /// before (`Game::finish_line`) [owner statement 2026-10-11 for the force greet].
     fn say_farewell(&mut self, actor: FormId, topic: FormId, info: FormId, lines: u32) {
-        let data = self.data;
-        let Some(def) = data.infos.get(&info).filter(|d| d.goodbye) else { return };
+        let dv = self.dialogue_view();
+        let Some(def) = dv.info(&info).filter(|d| d.goodbye) else { return };
+        // Off by default: the line holds the player until it is said (#2157).
+        if !self.cfg.goodbye_at_once {
+            return;
+        }
         if self.speech.iter().any(|s| s.speaker == actor) {
             return;
         }
@@ -1172,6 +1282,7 @@ impl<'a> Game<'a> {
             force_subtitles: false,
             two_d: false,
             end_ran: def.has(info_flag::RUN_IMMEDIATELY),
+            leads_on: false,
         });
         self.farewell_said = Some((actor, info));
         self.end_dialogue_as(ended::GOODBYE);
@@ -1312,6 +1423,47 @@ impl<'a> Game<'a> {
         Some(info)
     }
 
+    /// [`Game::say_hello`] for the hellos actors say on their own (`fnv_ai::social`),
+    /// without the lines said of late: a hello or idle chatter line any actor said within
+    /// [`IDLE_LINE_MEMORY`] seconds is not said again. A Random pool picks among its
+    /// other lines; an actor whose line (a plain one, or every line of its pool it can
+    /// say) was said of late says nothing rather than a line stored further down, which
+    /// the earlier lines are there to keep back [design: owner's playtest 2026-11-11,
+    /// #2156: "all the legion in the Legion Fort say the same", the slaves' Burned Man
+    /// stories "one after another without variations"; the original's rule is not
+    /// documented].
+    pub fn say_hello_fresh(&mut self, actor: FormId) -> Option<FormId> {
+        let topic = self.hello_topic()?;
+        self.say_idle(actor, topic, |d| d.link_from.is_empty(), LineKind::Hello)
+    }
+
+    /// `actor` says its line of `topic` (IdleChatter) to nobody, as [`Game::say`] does,
+    /// unless the line was said of late ([`Game::say_hello_fresh`]).
+    pub fn say_chatter(&mut self, actor: FormId, topic: FormId) -> Option<FormId> {
+        self.say_idle(actor, topic, |_| true, LineKind::Say)
+    }
+
+    fn say_idle(&mut self, actor: FormId, topic: FormId, keep: impl Fn(&InfoDef) -> bool, kind: LineKind) -> Option<FormId> {
+        let now = self.time;
+        self.idle_said.retain(|_, at| now - *at < IDLE_LINE_MEMORY);
+        let stale: BTreeSet<FormId> = self.idle_said.keys().copied().collect();
+        let data = self.data;
+        let lines = data.lines_tried(topic);
+        let listener = Some(FormId::PLAYER_REF);
+        let Some(info) = self.select_among_but(actor, listener, &lines, &keep, false, Says::Actor, &stale) else {
+            if kind != LineKind::Hello {
+                self.emit(EventKind::NoLine { speaker: actor, topic });
+            }
+            return None;
+        };
+        if stale.contains(&info) {
+            return None;
+        }
+        self.idle_said.insert(info, now);
+        self.say_line(actor, if kind == LineKind::Hello { listener } else { None }, topic, info, kind);
+        Some(info)
+    }
+
     /// Whether an actor is saying, or listening to, a line of a conversation between
     /// actors.
     pub fn in_actor_conversation(&self, actor: FormId) -> bool {
@@ -1350,9 +1502,10 @@ impl<'a> Game<'a> {
     ///    dialogue.md §5.1].
     pub(crate) fn next_conversation_line(&mut self, said: &Speech, lines: u32) {
         let data = self.data;
+        let dv = self.dialogue_view();
         let (speaker, Some(listener)) = (said.speaker, said.target) else { return };
         let end = |g: &mut Self, reason: &'static str| g.emit(EventKind::ActorConversationEnded { speaker, target: listener, reason, lines });
-        let Some(def) = data.infos.get(&said.info) else { return end(self, ended::NO_LINKS) };
+        let Some(def) = dv.info(&said.info) else { return end(self, ended::NO_LINKS) };
         if def.goodbye {
             return end(self, ended::GOODBYE);
         }
@@ -1372,8 +1525,8 @@ impl<'a> Game<'a> {
         // but it carries the history on.
         let earlier: Vec<FormId> = said.earlier_topics.iter().copied().chain(std::iter::once(said.topic)).collect();
         for &(who, to) in turns {
-            if let Some(&f) = def.follow_ups.iter().find(|&&f| data.infos.get(&f).is_some_and(between_actors) && self.can_say(who, Some(to), f)) {
-                let topic = data.infos.get(&f).and_then(|d| d.topic).unwrap_or(FormId(0));
+            if let Some(&f) = def.follow_ups.iter().find(|&&f| dv.info(&f).is_some_and(between_actors) && self.can_say(who, Some(to), f)) {
+                let topic = dv.info(&f).and_then(|d| d.topic).unwrap_or(FormId(0));
                 self.say_line(who, Some(to), topic, f, next);
                 self.set_line_look(who, said.look);
                 if let Some(s) = self.speech.iter_mut().find(|s| s.speaker == who && s.info == f) {
@@ -1384,7 +1537,7 @@ impl<'a> Game<'a> {
             let mut linked: Vec<(FormId, FormId)> = Vec::new();
             for link in self.links_after(said.topic, def) {
                 if let Some(i) = self.link_line_where(who, Some(to), link, between_actors, Says::Actor) {
-                    let repeats_ok = data.infos.get(&i).and_then(|d| d.quest).and_then(|q| data.quests.get(&q)).is_some_and(|q| q.repeated_topics());
+                    let repeats_ok = dv.info(&i).and_then(|d| d.quest).and_then(|q| data.quests.get(&q)).is_some_and(|q| q.repeated_topics());
                     if earlier.contains(&link.topic) && !repeats_ok {
                         continue;
                     }
@@ -1415,16 +1568,16 @@ impl<'a> Game<'a> {
     /// in a conversation, or the response of a SayTo line being said; 0 (Neutral) otherwise
     /// [documented: GECK wiki GetDialogueEmotion, the codes; hypothesis: 0 when silent].
     pub fn dialogue_emotion(&self, actor: FormId) -> u8 {
-        let data = self.data;
+        let dv = self.dialogue_view();
         if let Some(l) = self.dialogue.as_ref().filter(|c| c.actor == actor).and_then(|c| c.line.as_ref()) {
-            if let Some(def) = data.infos.get(&l.info) {
+            if let Some(def) = dv.info(&l.info) {
                 return def.response_order().get(l.response).map_or(0, |&r| def.responses[r].emotion);
             }
         }
         self.speech
             .iter()
             .find(|s| s.speaker == actor)
-            .and_then(|s| data.infos.get(&s.info).map(|def| (def, s.response)))
+            .and_then(|s| dv.info(&s.info).map(|def| (def, s.response)))
             .and_then(|(def, at)| {
                 let order = def.response_order();
                 order.get(at).or(order.first()).map(|&r| def.responses[r].emotion)
@@ -1452,6 +1605,24 @@ impl ListKey {
 
 #[cfg(test)]
 mod list_order_tests {
+    #[test]
+    fn the_conversation_stamp_tells_screens_apart() {
+        use super::{conversation_stamp, Conversation, Line};
+        use fnv_sim::FormId;
+        let line = |response| Line { topic: FormId(1), info: FormId(2), response, remaining: 1.0 };
+        let talk = |l: Option<Line>, lines| Conversation { actor: FormId(3), through: None, line: l, choices: Vec::new(), topic_list: false, lines, then: None, ending: false };
+        assert_eq!(conversation_stamp(7, None), 0);
+        let first = conversation_stamp(7, Some(&talk(Some(line(0)), 1)));
+        assert_ne!(first, 0);
+        assert_eq!(first, conversation_stamp(7, Some(&talk(Some(line(0)), 1))));
+        // The next response of the line; the choices after it; the next line; the same actor's
+        // next conversation at the same place.
+        assert_ne!(first, conversation_stamp(7, Some(&talk(Some(line(1)), 1))));
+        assert_ne!(first, conversation_stamp(7, Some(&talk(None, 1))));
+        assert_ne!(first, conversation_stamp(7, Some(&talk(Some(line(0)), 2))));
+        assert_ne!(first, conversation_stamp(8, Some(&talk(Some(line(0)), 1))));
+    }
+
     use super::ListKey;
 
     #[test]

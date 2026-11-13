@@ -19,7 +19,8 @@
 //!   that sound at that place [design], following it as it moves.
 //! - Loops are decoded as they play (WAV or Ogg Vorbis, [`LayeredMusic`] with one file),
 //!   so a long one costs no more memory than its file. Placed loops are panned
-//!   ([`crate::sfx::Panned`], as the sound effects are), the background loop is not.
+//!   ([`crate::sfx::Panned`], as the sound effects are, their gains eased over
+//!   [`crate::sfx::PAN_EASE`]), the background loop is not.
 //! - The Esc pause menu, a loading screen and the poker table (`crate::poker`) hold the
 //!   loops; other menus do not [design].
 //! - **SOUN flags** (audio.md §15.2): a 2D sound is not panned; a loop with Start at
@@ -37,6 +38,13 @@
 //!   and region sounds (REGN `RDSD`). Placed loops and random markers play through the
 //!   acoustic space's reverb ([`crate::reverb`]); the background loop does not.
 //!
+//! - **Stopped loops fade out** (#2217) [design]: a placed loop or a source no longer
+//!   heard, and every loop of a place left (another worldspace or interior), fade out over
+//!   `audio_out::DECLICK_FADE` instead of being cut (`audio_out::stop_sound`, counted as
+//!   ambient stops in `sfx declicks: …`); they leave [`Ambient`]'s map at once and are
+//!   neither held nor resumed with the loops while they fade. A background loop giving
+//!   way keeps its own [`BED_FADE`] and is removed once silent.
+//!
 //! Switched off with the sound effects (`nvforever --no-sound`). An `ambient summary`
 //! line at the end.
 
@@ -45,12 +53,13 @@ use crate::pause::Paused;
 use crate::player::Player;
 use crate::sfx::{distance_gain, folder_unlisted, one_shot_heard, pan_gains, resolve, static_gain, OneShotNow, Out, Pan, Panned, PcmSound, Resolved, Sfx, SfxSettings, SoundSource};
 use crate::sim::SimState;
+use crate::sound_grid::FixedGrid;
 use crate::{Location, PlayState, PlayWorld};
 use bevy::audio::AudioSinkPlayback;
-use crate::audio_out::AddAudioSource;
+use crate::audio_out::{stop_sound, AddAudioSource, Retiring, StopReason};
 use bevy::prelude::*;
 use fnv_sim::FormId;
-use fnv_world::audio;
+use fnv_world::audio::{self, SoundMarker};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
@@ -114,7 +123,7 @@ pub struct Ambient {
     /// CELL `XCAS` by cell.
     spaces: HashMap<u32, Option<u32>>,
     /// Loop files by archive path; `None`: not there.
-    files: HashMap<String, Option<Arc<[u8]>>>,
+    pub files: crate::file_bytes::FileBytes,
     bed: Option<Bed>,
     beds_leaving: Vec<Bed>,
     pub loops_started: u32,
@@ -132,6 +141,11 @@ pub struct Ambient {
     held_why: Option<&'static str>,
     /// A scripted film with `muteAudio 0` plays and the loops go on under it.
     under_film: bool,
+    /// The grid over each space's sound markers ([`marker_grid`]), the number of sound
+    /// forms it was made with, and this frame's candidates (reused).
+    marker_grids: HashMap<Space, FixedGrid>,
+    grid_sounds: usize,
+    near: Vec<u32>,
 }
 
 /// A marker or a source in earshot, this frame.
@@ -148,33 +162,56 @@ fn distance(a: [f32; 3], b: [f32; 3]) -> f32 {
     ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2) + (a[2] - b[2]).powi(2)).sqrt()
 }
 
+/// Whether a placed sound whose sound's maximum distance is `max_distance` is out of
+/// earshot `dist` away: never heard with no distance, and a loop already `playing` keeps
+/// going a little farther ([`LEAVE`]).
+fn beyond(max_distance: f32, dist: f32, playing: bool) -> bool {
+    max_distance <= 0.0 || dist >= max_distance * if playing { LEAVE } else { 1.0 }
+}
+
+/// The grid over a space's sound markers (`crate::sound_grid`) [design]: each at its
+/// place, reaching as far as [`beyond`] lets a playing loop be heard (its sound's maximum
+/// distance times [`LEAVE`], at least the distance a marker not playing is heard within).
+/// A marker whose sound is not in the load order (`max_distance` answers `None`), or
+/// whose maximum distance is not above 0, is never heard and left out. The markers stay
+/// where the plugins put them (`AudioPlaces` is read once), so the grid is made once per
+/// space; a frame asks [`beyond`] of the grid's candidates only, in list order, so the
+/// Play At Random rolls are drawn in the same order as over the whole list.
+fn marker_grid(markers: &[SoundMarker], max_distance: impl Fn(u32) -> Option<f32>) -> FixedGrid {
+    FixedGrid::build(markers.iter().enumerate().filter_map(|(i, m)| {
+        let d = max_distance(m.sound)?;
+        if d <= 0.0 {
+            return None;
+        }
+        Some((i as u32, m.position, d * LEAVE))
+    }))
+}
+
+/// Whether `sound`'s file is still coming off the IO pool (asking starts the read): its
+/// loop starts on a later frame, and a missing file is not taken for one (#1993).
+fn file_pending(amb: &mut Ambient, sfx: &mut Sfx, vfs: &Arc<fnv_vfs::Vfs>, sound: u32) -> bool {
+    if folder_unlisted(sfx, FormId(sound)) {
+        return false;
+    }
+    let Some(Resolved { path, .. }) = resolve(sfx, vfs, FormId(sound)) else { return false };
+    matches!(amb.files.fetch(&path, vfs, "ambient"), crate::file_bytes::Got::Pending)
+}
+
 /// Start a SOUN going round, silent; the record's static gain with it. With `pan` it
 /// plays at a place.
 #[allow(clippy::too_many_arguments)]
-fn start_loop(commands: &mut Commands, amb: &mut Ambient, sfx: &mut Sfx, settings: &SfxSettings, vfs: &fnv_vfs::Vfs, assets: &mut Streams, sound: u32, pan: Option<Pan>) -> Option<(Playing, f32)> {
+fn start_loop(commands: &mut Commands, amb: &mut Ambient, sfx: &mut Sfx, settings: &SfxSettings, vfs: &Arc<fnv_vfs::Vfs>, assets: &mut Streams, sound: u32, pan: Option<Pan>) -> Option<(Playing, f32)> {
     // A folder of loops not listed yet (sfx's folder index): tried again next frame.
     if folder_unlisted(sfx, FormId(sound)) {
         return None;
     }
     let Resolved { s, name, path } = resolve(sfx, vfs, FormId(sound))?;
-    let bytes = amb
-        .files
-        .entry(path.clone())
-        .or_insert_with(|| match vfs.read(&path) {
-            Some(Ok(b)) => Some(b.into()),
-            Some(Err(e)) => {
-                warn!("ambient: {name}: {path}: {e}");
-                None
-            }
-            None => {
-                warn!("ambient: {name}: {path}: not in the archives");
-                None
-            }
-        })
-        .clone()?;
+    // Read off the main thread (#1993): `file_pending` holds the start back until it is in.
+    let crate::file_bytes::Got::Ready(bytes) = amb.files.fetch(&path, vfs, "ambient") else { return None };
+    let bytes = bytes?;
     let Some((music, level)) = LayeredMusic::single(bytes, true) else {
         warn!("ambient: {name}: {path}: not decoded");
-        amb.files.insert(path, None);
+        amb.files.mark_broken(path);
         return None;
     };
     // Start at Random Position: somewhere in the file (audio.md §15.2).
@@ -203,7 +240,7 @@ fn start_loop(commands: &mut Commands, amb: &mut Ambient, sfx: &mut Sfx, setting
 /// The loops' stream assets: as they are (background loops) and panned (placed ones).
 pub(crate) type Streams<'a> = (ResMut<'a, Assets<LayeredMusic>>, ResMut<'a, Assets<Panned<LayeredMusic>>>);
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn play(
     mut commands: Commands,
     time: Res<Time<Real>>,
@@ -218,7 +255,8 @@ fn play(
     mut pcm: ResMut<Assets<PcmSound>>,
     mut streams: Streams,
     mut sources: MessageReader<SoundSource>,
-    sinks: Query<&AudioSink, With<AmbientSound>>,
+    // Not the loops fading out after a stop: they play their fade out (audio_out).
+    sinks: Query<&AudioSink, (With<AmbientSound>, Without<Retiring>)>,
 ) {
     let (Some(places), Some(mut sfx), Some(player), Some(data)) = (places, sfx, player, data) else {
         sources.clear();
@@ -260,7 +298,7 @@ fn play(
     if amb.space != Some(space) {
         // Another worldspace or interior: nothing of the last one is heard here.
         for (_, p) in amb.loops.drain() {
-            commands.entity(p.entity).try_despawn();
+            stop_sound(&mut commands, p.entity, StopReason::Ambient);
         }
         amb.busy_until.clear();
         amb.picks.clear();
@@ -270,11 +308,23 @@ fn play(
     if roll {
         amb.next_roll = now + 1.0;
     }
-    // The markers of this place that are enabled, then the sources sent this frame (the
-    // last word for each key).
+    // The markers of this place that can be in earshot (`marker_grid`) and are enabled,
+    // then the sources sent this frame (the last word for each key).
     let markers = if settings.play { places.sounds.get(&space).map_or(&[][..], Vec::as_slice) } else { &[] };
-    let mut heard: Vec<Heard> = markers
+    if places.is_changed() || amb.grid_sounds != sfx.forms.sounds.len() {
+        amb.marker_grids.clear();
+        amb.grid_sounds = sfx.forms.sounds.len();
+    }
+    if markers.is_empty() {
+        amb.near.clear();
+    } else {
+        let grid = amb.marker_grids.entry(space).or_insert_with(|| marker_grid(markers, |s| sfx.forms.sounds.get(&FormId(s)).map(|r| r.max_distance)));
+        grid.near(eye, |c, r| distance(c, eye) >= r, &mut amb.near);
+    }
+    let mut heard: Vec<Heard> = amb
+        .near
         .iter()
+        .map(|&i| &markers[i as usize])
         .filter(|m| sim.world.is_enabled(FormId(m.ref_id)).unwrap_or(!m.initially_disabled))
         .map(|m| Heard { key: u64::from(m.ref_id), sound: m.sound, at: m.position, source: false, looping: false })
         .collect();
@@ -292,7 +342,7 @@ fn play(
         let Some(s) = sfx.forms.sounds.get(&FormId(m.sound)) else { continue };
         let dist = distance(m.at, eye);
         let playing = amb.loops.contains_key(&m.key);
-        if s.max_distance <= 0.0 || dist >= s.max_distance * if playing { LEAVE } else { 1.0 } {
+        if beyond(s.max_distance, dist, playing) {
             continue;
         }
         if !in_hours(s.start_hour, s.stop_hour, hour) {
@@ -314,6 +364,9 @@ fn play(
             } else if !held {
                 // A 2D sound is not panned (audio.md §15.2).
                 let pan = (!s.has("2D")).then(|| Pan::new(pan_gains(eye, player.heading, m.at)));
+                if file_pending(amb, sfx, &data.vfs, m.sound) {
+                    continue;
+                }
                 let Some((p, _)) = start_loop(&mut commands, amb, sfx, &settings, &data.vfs, &mut streams, m.sound, pan) else { continue };
                 p.set(gain);
                 amb.loops.insert(m.key, p);
@@ -355,7 +408,7 @@ fn play(
     amb.loops.retain(|r, p| {
         let keep = sounding.contains(r);
         if !keep {
-            commands.entity(p.entity).try_despawn();
+            stop_sound(&mut commands, p.entity, StopReason::Ambient);
         }
         keep
     });
@@ -398,8 +451,9 @@ fn play(
 /// out, unless the loops are `held`. A bed naming a folder waits for sfx's folder index,
 /// tried again each frame (it would be remembered as having no file otherwise).
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn switch_bed(commands: &mut Commands, amb: &mut Ambient, sfx: &mut Sfx, settings: &SfxSettings, vfs: &fnv_vfs::Vfs, streams: &mut Streams, wanted: Option<u32>, held: bool) {
-    let listing = wanted.is_some_and(|s| folder_unlisted(sfx, FormId(s)));
+pub(crate) fn switch_bed(commands: &mut Commands, amb: &mut Ambient, sfx: &mut Sfx, settings: &SfxSettings, vfs: &Arc<fnv_vfs::Vfs>, streams: &mut Streams, wanted: Option<u32>, held: bool) {
+    // A bed whose file is still being read waits the same way (#1993).
+    let listing = wanted.is_some_and(|s| folder_unlisted(sfx, FormId(s)) || file_pending(amb, sfx, vfs, s));
     if amb.bed.as_ref().map(|b| b.sound) != wanted && !held && !listing {
         if let Some(old) = amb.bed.take() {
             amb.beds_leaving.push(old);
@@ -511,6 +565,13 @@ fn report(mut exit: MessageReader<AppExit>, amb: Res<Ambient>) {
 
 pub struct AmbientPlugin;
 
+/// Let go of the ambient's files nothing plays ([`crate::file_bytes`]).
+fn release_files(real: Res<Time<Real>>, limits: Option<Res<nvf_assets::KeepLimits>>, x: Option<ResMut<Ambient>>) {
+    if let Some(mut x) = x {
+        x.files.sweep(real.elapsed_secs_f64(), crate::file_bytes::limits(limits));
+    }
+}
+
 impl Plugin for AmbientPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Ambient>()
@@ -519,13 +580,69 @@ impl Plugin for AmbientPlugin {
             // listener under water) and before its play, which plays the region sounds
             // asked for here in the same frame.
             .add_systems(Update, (play, region_sounds).chain().in_set(crate::sfx::SfxStep::Ambient))
-            .add_systems(Last, report);
+            .add_systems(Last, (release_files, report));
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The markers the grid hands out, each asked as the loop asks it, are the ones the
+    /// whole list gives, in the same order (the Play At Random rolls are drawn in it):
+    /// markers across cell borders, on the edge of their reach, with sounds of no distance,
+    /// a negative or NaN one, one not in the load order, and disabled ones; loops playing
+    /// and not.
+    #[test]
+    fn marker_grid_keeps_every_marker_in_earshot_in_list_order() {
+        use crate::sound_grid::tests::Lcg;
+        fn max_distance(sound: u32) -> Option<f32> {
+            match sound {
+                0 => Some(500.0),
+                1 => Some(4096.0 / LEAVE),
+                2 => Some(3000.0),
+                3 => Some(0.0),
+                4 => Some(-200.0),
+                5 => Some(f32::NAN),
+                6 => Some(9000.0),
+                _ => None,
+            }
+        }
+        let mut rng = Lcg(5);
+        let markers: Vec<SoundMarker> = (0..1200u32)
+            .map(|i| {
+                let mut position = [rng.range(-30000.0, 30000.0), rng.range(-30000.0, 30000.0), rng.range(-1000.0, 3000.0)];
+                if i % 6 == 0 {
+                    position[0] = 4096.0 * (rng.next_u32() % 11) as f32 - 20480.0;
+                }
+                SoundMarker { ref_id: 0x2000 + i, cell: 1, position, sound: i % 8, initially_disabled: i % 9 == 0, enable_parent: None }
+            })
+            .collect();
+        let grid = marker_grid(&markers, max_distance);
+        let mut eyes: Vec<[f32; 3]> = (0..150).map(|_| [rng.range(-32000.0, 32000.0), rng.range(-32000.0, 32000.0), rng.range(0.0, 2000.0)]).collect();
+        eyes.extend([[0.0; 3], [4096.0, 0.0, 0.0], [f32::NAN, 0.0, 0.0]]);
+        for m in markers.iter().filter(|m| m.sound < 3).take(40) {
+            let d = max_distance(m.sound).unwrap();
+            eyes.push([m.position[0] + d, m.position[1], m.position[2]]);
+            eyes.push([m.position[0] - d * LEAVE, m.position[1], m.position[2]]);
+        }
+        let mut near = Vec::new();
+        let mut heard_any = 0;
+        for eye in eyes {
+            for playing in [false, true] {
+                let heard = |m: &&SoundMarker| !m.initially_disabled && max_distance(m.sound).is_some_and(|d| !beyond(d, distance(m.position, eye), playing));
+                let whole: Vec<u32> = markers.iter().filter(heard).map(|m| m.ref_id).collect();
+                grid.near(eye, |c, r| distance(c, eye) >= r, &mut near);
+                let indexed: Vec<u32> = near.iter().map(|&i| &markers[i as usize]).filter(heard).map(|m| m.ref_id).collect();
+                assert_eq!(indexed, whole, "listener at {eye:?}, playing {playing}");
+                if eye[0].is_finite() {
+                    assert!(near.len() < markers.len() / 4, "the grid narrows the candidates at {eye:?}");
+                }
+                heard_any += whole.len();
+            }
+        }
+        assert!(heard_any > 0);
+    }
 
     #[test]
     fn hours_of_a_sound() {

@@ -38,7 +38,11 @@ all four record types decode over FalloutNV.esm with no bytes left over [observe
 - **ASPC, acoustic space** (113): five `SNAM` in a row, by position the looping sound of
   dawn (or the default loop), afternoon, dusk and night, and a "walla" sound; `WNAM`
   walla trigger count; `RDAT` "use sound from region (interiors only)"; `ANAM` a reverb
-  environment by name; `INAM` is interior.
+  environment by name; `INAM` is interior. No shipped master names a walla sound: the
+  fifth `SNAM` is null and `WNAM` 0 on all 145 acoustic spaces of FalloutNV.esm (113),
+  Dead Money (18), Honest Hearts (2), Old World Blues (3) and Lonesome Road (9); the other
+  add-ons have none [observed 2026-11-06, `fnvtool esm decode` of every ASPC, issue #990].
+  The casinos' crowd sounds are sound markers instead (e.g. `AMBTopsCasinoAWallaOS`).
 - **On cells and worldspaces**: CELL `XCMO` a music type (297 cells), CELL `XCAS` an
   acoustic space (17,485 cells), WRLD `ZNAM` a music type (3 worldspaces).
 - **On references**: the audio marker data `MMRK` (empty), `FULL` a location name,
@@ -151,7 +155,14 @@ environment: §14.6.
   sound is not played when the file arrives, the marker plays on a later roll. The
   exit line `sfx files: …` counts the
   sounds that began in the frame they were asked for, those that waited, those decided
-  silent and the rolls skipped; at its end, the one-shots dropped as too late.
+  silent and the rolls skipped; at its end, the one-shots dropped as too late. The
+  frames are counted from the frame a sound was asked in to the frame it began,
+  whatever it waited for: its file, a voice slot's sound fading out (below), or both; a
+  one-shot waiting for a slot is counted when it starts there or is silenced, one
+  dropped while it waits for the slot is not in this line (`sfx voices: …` counts it).
+  At the line's end, apart, how soon the files were ready: `N requests found their file
+  ready in the frame they were asked for, M later (at most F frames)`, counted as each
+  file is ready, whatever became of the request.
 - A second chance late in each frame (`late_start`, `PostUpdate`, before the audio
   output takes up new players) starts the requests whose file finished decoding since
   the frame's requests were played, as they would have started then, so a file decoded
@@ -182,6 +193,59 @@ environment: §14.6.
   the original cuts a previous shot's sound is not known (observer check). The exit log
   names every SOUN that met a limit: `sfx: <EDID>: N started, S of them over its oldest
   voice, R refused at the voice limit`.
+- **Voice slots** (#2217, since stage 2) [design]: the limits count what is heard. Every
+  one-shot holds a slot until its sound has ended, also while it fades out after a stop
+  (below), so 8 of a SOUN and 64 in all are never passed, not even for a fade. A
+  one-shot beyond 8 of its SOUN has one slot's sound fade out (one fading already,
+  else the oldest voice) and waits for it: it starts once that sound has ended, about
+  5 ms and a frame or two after it was asked for, with the file and the pitch chosen
+  when it was asked for (a Random Frequency Shift is rolled once) and the listener as
+  it is then (its gain, pan and place worked out again). A
+  slot has one waiting replacement at most, so with every slot of the SOUN promised
+  one more is refused; nothing else (a placed sound, a late start) can take a promised
+  slot. A game event's one-shot whose wait for its file and its slot comes to more
+  than 150 ms is dropped; a script's sound is answered (its seconds) when it starts, a
+  StopSound drops the ones asked for before it. One-shots started in the same frame
+  have made no sound yet: one taken over among them goes at once and the new one starts
+  in its place. `S of them over its oldest voice` counts the one-shots started in a
+  slot taken over.
+- **Measurements of the mix and of stopped sounds** (#2217: crackle with many sounds)
+  [design]. Every sound reaches the device (or the drain without one) through one mix
+  bus (`nvf-play/src/audio_out.rs` `MixBus`), which counts, for the whole run, the
+  loudest sample and the samples over full scale (`abs(sample) > 1`, each channel apart;
+  exactly ±1 is not over), before the output's protection (a limiter, §18, since
+  stage 4) and after it, and the frames the limiter turned down; the raw overloads stay
+  measured, after the limiter none should be over. Every stop of a playing sound
+  before its end goes through `audio_out::stop_sound`, which counts it by why: a one-shot
+  taken over at the voice limit, a LoopSound stopped, a script's StopSound without a
+  fade, an ambient loop, a radio or a voice line no longer wanted, a holotape stopped
+  (by a script, or another note picked), a film skipped. Since stage 2 every
+  such stop fades the sound out over 5 ms (`audio_out::DECLICK_FADE`, a straight fall of
+  the amplitude, timed by the rate the player plays the sound at: its rate times the
+  sink's speed, as rodio's speed stage reports it, whatever that speed, slow motion's
+  and a script's time multiplier included) and the sound goes once the fade has
+  played (a skipped film's sound fades on what it has queued, silence after); a film
+  played to its end lets its sound play out; removing a playing sound at
+  once, which cut its waveform, is counted as a hard stop and should not happen any
+  more. One asked for but not attached to the output yet, or already over, is not
+  counted. The fades of their own (music's layers, a background loop giving way, a
+  script's fade) and natural ends are not stops. Whether the original limits its mix,
+  cuts or fades voices it stops, or what its limits are, is not known. Exit lines:
+  `audio mix: pre peak P, N samples over full scale; post peak Q, M samples over full
+  scale; K frames limited` (peaks to nine decimals), `sfx hard stops: S steals, L loop
+  stops, T script stops, A ambient stops, R radio stops, V voice stops, H holotape
+  stops, F film stops`, `sfx declicks: S steals, … V voice stops; C completed, W
+  pending; H holotape stops, F film stops` (the same reasons, for stops faded out; C
+  the fades played out, W those of every reason not over at the end; the holotape and
+  film reasons came later and close each line) and `sfx voices: at most V total, S of
+  one SOUN; Q replacements waiting, R replacements started, C replacements cancelled,
+  E replacements expired, M replacements silenced at start, P replacements still
+  waiting; I one-shots started at once over one not heard yet` (the most slots taken,
+  fading ones counted; Q the one-shots that waited for a slot, and what became of
+  them, Q = R + C + E + M + P: R started in their slot, C dropped by a StopSound, E
+  dropped past the 150 ms bound, M decided silent when their turn came, P waiting at
+  the end; I the one-shots that took over one of their SOUN started in the same frame,
+  with no wait; `S of them over its oldest voice` counts both kinds).
 
 ## 8. Tools
 
@@ -451,6 +515,13 @@ original] (`fnv-game/src/nvse_sound.rs` `SoundState::stop`, `nvf-play/src/sfx.rs
   at once: IsSoundPlaying reads 0 for it, as for a one-shot with no file.
 - `LoopSound` on then off for one SOUN in one frame leaves nothing playing (the off drops
   the start still waiting for its file).
+- A sound stopped while it plays (StopSound without a fade, LoopSound off or on again)
+  fades out over 5 ms instead of being cut (#2217, §7) [design]; it is no longer the
+  script's or the loop at once (a second StopSound or LoopSound off finds nothing of
+  it). A one-shot started earlier in the same frame has
+  made no sound and goes at once. StopSound with a fade time keeps its own fade. A
+  script's one-shot that waits for a voice slot (§7) is answered when it starts; a
+  StopSound drops it as one waiting for its file, so it never starts after the stop.
 
 ### 11.6 Checks and what is left
 
@@ -723,7 +794,8 @@ Seen [observed 2026-10-11, `nvforever --play`, the owner's load order]:
 - The retrigger delay (its values look unset) and `NAM1`; the inner radius and threat
   ratios of the combat music settings; the crossfade overlap time (sets loop by
   starting their files again).
-- `IsMusicPlaying`, `SetMusicState` and the other NVSE music functions.
+- The other NVSE music functions. IsMusicPlaying and SetMusicState are built
+  (`nvse_gaps.rs`, [jip-ttw-functions.md](jip-ttw-functions.md) §2).
 
 ### 13.4 Open
 
@@ -817,8 +889,9 @@ creature_sound_survey` (FalloutNV.esm alone; `--show <CREA edid>`, `--near x,y,r
   A living creature within 3,000 units sounds its Conscious Loop (the chance rolled once
   per creature [design]) and while it moves (over 20 units/s) its Movement Loop, as
   sources the ambient plays like sound markers (§14.3). A creature without sounds steps
-  like a person (§10.2). Aware also plays when the creature becomes aware (§16).
-  Not built: Attack beyond the keys (§16), Weapon, the type-21 sound.
+  like a person (§10.2). Nothing else plays a type: Aware, Idle and Attack without a key
+  and the type-21 siren stay silent, as in the original (§16.1). Weapon is not built (no
+  list names one).
 
 ### 14.2 The player's and actors' movement
 
@@ -895,6 +968,19 @@ player's eye and heading, followed while the sound plays. Panned: effects at a p
 loops and random markers, objects' and creatures' sources, radios. Not panned: sounds at
 the listener (the player's own, interface), background loops, music, voices (a
 recorded decision: voice plays flat, voice.md).
+
+**Pan easing** (#2217, since stage 3) [design: how the original moves a sound's pan is
+not known]. The listener's turn or a sound passing changes a playing sound's left and
+right gains once a game frame; set at once, the gains jump between two samples, which
+can click on a loud sound. Each panned sound's decoder (`PcmDecoder`, and
+`PanDecoder` for the other modules' panned streams: placed loops, radios, voices) keeps
+the gains it plays at, its own (the shared targets are the main thread's): its first
+frame plays at the targets as they are, then each gain moves toward its target by at
+most `1 / (rate × PAN_EASE)` a frame, `PAN_EASE` = 20 ms for a whole unit (the scale of
+the volume sliders' easing), `rate` the sound's own sample rate, so slowed playing
+stretches it with the sound. Both ears of a frame play one pair of gains. A sound
+swapping sides (a gain moving 0.7) gets there in 14 ms; a sound that moves follows
+slightly behind. A target that is not a number leaves the gain where it is.
 
 ### 14.6 Reverb
 
@@ -977,6 +1063,9 @@ reverb indoors, owner-review.md].
   inputs are scaled so an impulse's late tail carries its level's energy. Density scales
   the comb lengths (half to whole), Diffusion the all-passes' gain (up to 0.5). Room
   Rolloff Factor is 0 in every preset.
+- **A sound stopped before its end** (#2217, §7) [design]: its fade (5 ms) takes the
+  whole sound, reverb tail included, so a forced stop shortens the tail and frees the
+  voice slot promptly; a sound that ends by itself keeps its whole tail.
 - Not built: a reverb that changes under a sound already playing. (The `GNAM` reverb
   attenuation was built 2026-10-24, §15.5; voices in rooms 2026-11-01, above.)
 - Smoke: `reverb-cave-exit` (the Goodsprings cave, a shot, out through its door).
@@ -1084,9 +1173,12 @@ Submerged 2,846, Start at Random Position 110. 2,423 keep the attenuation curve
   The attenuation curve and the reverb control are built (§15.5).
 - **ASPC walla** (a crowd loop with a trigger count) and **ALOC location / retrigger
   delays**: how the count and the delays act is not documented; music.md keeps the
-  delays "not built".
-- **ARMO Modulates Voice** and **TACT No Voice Filter**: built (§15.5); what the
-  original's filter sounds like is still a capture question.
+  delays "not built". The walla is used by no shipped master (§1; issue #990), so the
+  original cannot show what the count counts without a plugin that sets one, and there
+  is nothing to play until a mod does [observed 2026-11-06].
+- **ARMO Modulates Voice**: built (§15.5); what the original's helmet filter sounds
+  like is still a capture question. **TACT No Voice Filter**: read, and nothing is
+  filtered for a talking activator (§15.5, observed).
 - **The Bolt and Area Sounds** of MGEF: one bolt sound, no area sound in the master,
   and no spell projectile is drawn.
 
@@ -1153,11 +1245,38 @@ From the ESM audit (docs/handoff/esm-full-audit-2026-10-24.md, gaps 7, 15, 17). 
   Voice Filter" [documented: GECK wiki GetFormFlag] is heard through a filter. 85 of
   FalloutNV.esm's 87 TACT lack the bit (intercoms, speakers, the Lucky 38 mainframe), the
   two with it are radios (`TopsBruceIsaacRadio`, `TopsLonesomeDrifterRadio`); Dead
-  Money, Honest Hearts and Old World Blues set it on none of their 45 [observed]. That
-  the TACT without the bit are filtered is a [hypothesis] from the bit's name. The
+  Money, Honest Hearts and Old World Blues set it on none of their 45 [observed]. The
   filter's sound is NVForever's [hypothesis]: a 350–3,200 Hz band, a mild saturation
-  and a 3.5 ms ring, at about the same level (`voice_filter.rs`). The voice files of the
-  intercoms may already be processed; heard twice it would be too much (owner review).
+  and a 3.5 ms ring, at about the same level (`voice_filter.rs`).
+- **Talking activators are not filtered** (issue #992, observer batch o28, 2026-11-06)
+  [observed]:
+  - *The files are processed.* The lines said only through an activator (condition
+    `IsActorTalkingThroughActivator == 1`: Benny 11 files, Chris Haversam 7, Ramos 21,
+    Tabitha 11, Captain Graham 2) against the same speakers' lines said face to face
+    (12 to 26 files each), by the share of the file's energy per band: below 300 Hz
+    0.02–0.05 of it through the activator against 0.30–0.43 face to face, above 6 kHz
+    0.0001–0.0009 against 0.007–0.037; Benny's through the intercom lie 25–30 dB under
+    his own below 200 Hz and 10–20 dB under above 8 kHz, Tabitha's radio lines are a band
+    of about 400–2,500 Hz, Ramos's carry added noise above 3 kHz. Only the NCR radio
+    operator's two lines look like plain speech. (Private script over the Voices
+    archives, `fnvtool voice line` and `bsa extract`, decoded with ffmpeg.)
+  - *The original adds nothing.* Observer campaign `o28_intercom` (save `nvfstrip`, the
+    Tops presidential suite, 249 units from VTopsPresidentialIntercomREF 0x00129556):
+    `SetTalkingActivatorActor BennyREF` and `Activate player` on the intercom (as its
+    trigger's script does, observer-checks 47) opened the dialogue and Benny's GREETING
+    0x00147865 played, all three responses, while the game's output was recorded on the
+    WASAPI loopback. Each response's file is found in the recording with a normalised
+    correlation of 0.80–0.83, and the transfer from the file to the recording stays
+    within +4.5 and −4.1 dB of its 600–1,500 Hz level from 200 Hz to 6 kHz (coherence
+    0.8–1.0): +4 dB at 300–400 Hz, −4 dB at 2–3.5 kHz, +0.7 dB at 4–5 kHz. A 350 Hz
+    high-pass and a 3,200 Hz low-pass would take 3 dB at 350 Hz and about 8 dB at 5 kHz.
+    The tilt is unexplained (the room, the game's mix) [hypothesis]; no band filter is
+    applied to the line. Above 6 kHz the file holds too little to measure.
+  - *Built*: a talking activator's lines play as their files; the voice filter is only for
+    armour that modulates the voice. The TACT "No Voice Filter" flag is read but changes
+    nothing heard [hypothesis: it may name the pre-processing done to the files, or
+    another use; nothing shows it]. Whether the original filters a helmet wearer's voice
+    is not captured (observer-checks).
 
 ## 16. Creature sound audit (owner's playtest list 7 item 46, 2026-10-23)
 
@@ -1183,13 +1302,11 @@ archive) [observed 2026-10-23].
   every pick, 159 from some (their lists hold Fallout 3 creatures without sounds as
   well), 26 from none (the ceiling turrets `LvlTurretCeiling…`, `LvlCrTrogg`,
   `BethesdaGhoul`, a few FFER/quest creatures, `NVCRTumbleweedBaby`).
-- **Aware**: a creature whose awareness state (`fnv_game::awareness`) goes from Normal
-  or Lost to Alert or Combat plays its Aware sound, at its chance, once per change
-  (nvforever `anim_sounds.rs`; the first frame a creature is seen only notes its state,
-  so a cell's creatures do not all call out as it loads) [hypothesis: by the name; the
-  Aware lists of the radscorpion, mirelurk and lakelurk king have no `Enum: Aware` key in
-  any clip, so something other than a key must play them]. Seen: `creature-sounds-aware`
-  (a radscorpion placed at the player: "Aware 1").
+- **Aware**: only an `Enum: Aware` key plays it (the mole rat's `mtforward.kf`, the
+  mirelurk king's `specialidle_alert.kf`, 9 clips in all). From 2026-10-23 to 2026-11-06 a
+  creature becoming aware (`fnv_game::awareness` Normal or Lost to Alert or Combat) played
+  it as well [hypothesis then]; the original does not (§16.1), so that was dropped.
+  `creature-sounds-aware` now checks that radscorpions noticing the player play none.
 - **Attack** is still only played by the clips' keys (`Enum: Attack`, in the radroach,
   radscorpion, giant rat, ant, queen ant, spore carrier, brahmin and the gecko's power
   attacks). Not at every attack's start [design]: the ghoul's list has Attack
@@ -1221,14 +1338,45 @@ feet, MoveLP/ConsLP the movement and conscious loops, AuxN how many Auxiliary ty
 | NVCrRaven | Aux2 (take-off, fly away) |
 
 Every type these list now plays where something calls for it: feet and Auxiliary and
-Idle and Attack types by the clips' keys, Hit and Death on hits (`ActorHit`), Aware on
-becoming aware, the loops while the creature lives (and moves). Left: Weapon (no list
-names one), the type-21 siren, an Idle type for creatures whose idle clip has no
-`Enum: Idle` key (the mole rat, yao guai, giant rat: nothing says when else it plays),
-Attack without a key (above), super mutants' and robots' combat voices (dialogue
-topics, not creature sounds), and the 26 creatures whose templates give none. Checks:
-the `anim sounds summary` (types counted, "Aware n"), smoke `creature-sounds-ghoul`,
-`creature-sounds-aware`, `bighorner`.
+Idle, Aware and Attack types by the clips' keys, Hit and Death on hits (`ActorHit`), the
+loops while the creature lives (and moves). Not played, as in the original (§16.1): the
+type-21 siren, Idle without an `Enum: Idle` key (the mole rat, yao guai, giant rat), Aware
+and Attack without a key (the radscorpion's and lakelurk king's Aware, the lakelurk king's
+Attack). Left: Weapon (no list names one), super mutants' and robots' combat voices
+(dialogue topics, not creature sounds), and the 26 creatures whose templates give none.
+Checks: the `anim sounds summary` (types counted, "Aware n"), smoke
+`creature-sounds-ghoul`, `creature-sounds-aware`, `bighorner`.
+
+### 16.1 What the original plays without a key (issue #989, 2026-11-06)
+
+Observer campaigns `o28_creature_sounds` and `o28_creature_sounds2` (plugin version 10,
+save `nvfairport`, the Searchlight Airport runway, god mode): one creature spawned with
+`PlaceAtMe` per session, and every sample (5 game loops) JIP's `IsSoundPlaying <sound>
+<creature>` [documented: GECK wiki IsSoundPlaying, JIP: "Returns 1 if the specified Sound
+is currently being played by the passed objectRef"] for three of its sounds, plus the
+first one from any source, read back through the player's `Variable01`-`09`. The probe
+works: it read the Securitrons' Conscious Loop the whole time, `NPCSecuritronForward`
+as they set off, the mole rat's Aware `NPCMoleRatMtFwdVox` twice while it ran (its
+`mtforward.kf` has the `Enum: Aware` key) and the radscorpion's Attack
+`NPCRadScorpionClawAtk` five times in its fight (its clips' `Enum: Attack` keys)
+[observed]. What was never read [observed 2026-11-06]:
+
+| Creature (sound template) | Situation | Sound, never playing |
+|---|---|---|
+| VStreetSecuritron (Cops), VStreetSecuritronMk2 (Army) | 21–24 s standing, then `StartCombat player`: 26 s (36 hits) and 12 s (8 hits) of fight | siren `NPCSecuritronSiren` (type 21) |
+| VStreetSecuritron | `player.SendAssaultAlarm` on it (it fought, 37 s, 70 hits), `SendTrespassAlarm player` (it did not fight; 36 s), in combat and hurt with `DamageAV Health` until it died | the siren |
+| CrMoleRatDomesticated (MoleRat) | 83 s idling and wandering (procedures 0 and 7), then 25 s in combat | Idle `NPCMoleRatIdle` (50 %) |
+| NVCrGiantRat (GiantRat) | 3 s idle, then it attacked by itself: 93 s, 39 hits | Idle `NPCMoleRatIdle` (50 %) |
+| CrLakelurkKingCG (LakelurkKing) | 25 s out of combat, then `StartCombat player`: 70 s, 46 hits on the player; again finding the player by itself (combat at once), 72 s, 51 hits | Aware `NPCMirelurkKingEquip` (100 %), Attack `NPCMirelurkKingAttack` (50 %), Idle `NPCMirelurkKingIdleFeeding` (50 %) |
+| CrRadscorpion1Small (RadScorpion) | found the player by itself: 60 s of fight, 15 hits | Aware `NPCRadScorpionAware` (75 %), Idle `NPCRadScorpionIdle` (100 %) |
+
+No script of FalloutNV.esm names the siren or these Idle, Aware and Attack sounds
+(`fnvtool script decompile`, all units) [observed]. So in what was tried the original
+plays a creature's Idle, Aware and Attack only from its clips' keys, and the siren not at
+all; when, if ever, the siren plays is open (observer-checks 96). NVForever plays none of
+them otherwise (nvforever `anim_sounds.rs`); the Aware on becoming aware it played
+before is dropped. The siren's folder is `fx\npc\robotsecuritron\futz\`.
+
 
 ## 17. Volume sliders (issue #1450, 2026-11-03)
 
@@ -1258,3 +1406,46 @@ the `anim sounds summary` (types counted, "Aware n"), smoke `creature-sounds-gho
   music at 0.6 still louder than the original's in game; the in-game music level (music
   types' `ANAM` decibels, §13) was not measured. Owner checks:
   docs/handoff/observer-checks.md.
+
+## 18. Output protection (#2217, 2026-11-12)
+
+Whether the original game limits, compresses or clips its summed mix is not known; this
+is NVForever's own [design]. Many sounds at once (a minigun's shots, a pack of mantises)
+can add up past full scale, and what the device's conversion then does with them is not
+measured here [hypothesis: it clips them]. So the summed 48 kHz stereo mix, after the
+categories' and the master's volumes, goes through a look-ahead limiter on its way to
+the device (or to the drain without one) (`nvf-play/src/audio_out.rs` `Limiter`, in the
+run-long `MixBus`):
+
+- **Threshold** 0.98 (`LIMIT_THRESHOLD`): no sample leaves the bus louder; a little
+  below full scale, so nothing over it reaches the device, and ordinary sound below it is
+  not touched.
+- **Look-ahead** 144 frames, 3 ms (`LIMIT_LOOKAHEAD`): each frame needs a gain
+  `a = 0.98 / max(|left|, |right|)` when its louder sample is over 0.98, else 1. A frame
+  goes out 144 frames later at `min(ceiling, the last gain + release step)`, the ceiling
+  being the lowest of `a[n + k] + k / 144` over the next 144 frames and itself (at most
+  1): the gain starts down in a straight line within the look-ahead before a peak, from
+  the farthest frame whose `a + k / 144` is below 1 (the deeper the cut, the earlier: a
+  peak needing 0.49 is met 73 frames, 1.5 ms, ahead), so even a single frame over cannot
+  pass, and is never above what the frame itself needs. A frame turned down also has
+  its samples held to 0.98, so the product's rounding (one f32 step) cannot pass it.
+- **Release** 50 ms from no gain to unity at most (`LIMIT_RELEASE`, a step of 1/2400 a
+  frame), so the gain does not pump between peaks close together.
+- **One gain for both channels** of a frame: a sound's place in stereo is kept.
+- **Unity below the threshold**: a mix that stays at or below 0.98 comes out exactly as
+  it went in, 144 frames later. Around an overload the look-ahead and the release turn
+  some quieter samples down with it (less than 3 ms before a peak and up to 50 ms
+  after).
+- **Latency**: all sound reaches the device 3 ms later than it did.
+- A frame with a sample that is not a number (or infinite) goes out as silence (each
+  sound's own guard, `audio_out.rs` `GuardedSource`, turns such samples to silence
+  already).
+- The limiter's delay and gain belong to the bus, so a device reopened (`audio_out.rs`'s
+  watcher, on a change of device) goes on with them. Per frame it costs a few compares and two multiplies; its
+  buffers are allocated at the start; the audio thread allocates, locks and logs nothing
+  more for it.
+- **Measured** in the exit line `audio mix: pre peak P, N samples over full scale; post
+  peak Q, M samples over full scale; K frames limited`: `pre` before the limiter (the raw
+  mix's overloads stay counted), `post` after it (M should be 0 and Q at most 0.98), K
+  the frames it played below unity. It works on the 48 kHz bus; what the device's own
+  conversion does after it is not measured here.

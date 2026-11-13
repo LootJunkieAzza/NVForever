@@ -50,7 +50,7 @@ pub enum RefSlot {
 }
 
 /// Where a unit lives. FormIDs are load-order (global) FormIDs.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
 #[serde(tag = "owner", rename_all = "snake_case")]
 pub enum UnitOwner {
     /// A standalone `SCPT` record.
@@ -73,7 +73,7 @@ pub enum UnitOwner {
     Other { sig: String, form: u32, ordinal: u32 },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PackageEvent {
     Begin,
@@ -341,6 +341,9 @@ pub fn read_record(
                         let ty = match v.get("type") {
                             Some(Value::String(t)) if t == "Integer" => VarType::Int,
                             Some(Value::String(t)) if t == "FloatOrRef" => VarType::FloatOrRef,
+                            Some(Value::String(t)) if t == "String (xNVSE)" => VarType::Other("string_var".into()),
+                            Some(Value::String(t)) if t == "Array (xNVSE)" => VarType::Other("array_var".into()),
+                            Some(Value::String(t)) if t == "Ref (xNVSE)" => VarType::FloatOrRef,
                             Some(t) => VarType::Other(t.to_string()),
                             None => VarType::Other(String::new()),
                         };

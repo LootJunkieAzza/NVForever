@@ -70,7 +70,7 @@ use crate::sky::{Sun, ARMS_LAYER, BODY_LAYER, SHADOW_LAYER};
 use crate::world::WorldRoot;
 use crate::view_sway::{SwayInput, SwayPose, ViewSway};
 use crate::weapon_lower::{LowerInput, WeaponLower};
-use bevy::camera::visibility::RenderLayers;
+use bevy::camera::visibility::{NoFrustumCulling, RenderLayers};
 use bevy::light::CascadeShadowConfigBuilder;
 use bevy::math::Affine3A;
 use bevy::mesh::VertexAttributeValues;
@@ -318,13 +318,15 @@ fn no_arms_shade() -> bool {
 fn shade_light(
     mut commands: Commands,
     state: Res<PlayerBody>,
+    performance: Res<crate::shadow_rate::PerformanceShadows>,
     sun: Query<(Entity, &DirectionalLight), (With<Sun>, Without<ArmsShade>)>,
     mut shade: Query<(Entity, &mut DirectionalLight), With<ArmsShade>>,
 ) {
     // A sun casting no shadows has no shade light either.
     let Ok((sun, sun_light)) = sun.single() else { return };
     let arms_drawn = state.body.as_ref().and_then(|b| b.first.as_ref()).is_some_and(|f| f.shown == Some(true));
-    let on = arms_drawn && sun_light.shadow_maps_enabled && !no_arms_shade();
+    // Nor with Sun shadows on Performance (shadow_rate.rs): one shadow view less.
+    let on = arms_drawn && sun_light.shadow_maps_enabled && !no_arms_shade() && !performance.0;
     let illuminance = sun_light.illuminance * ARMS_SHADE_SHARE;
     if let Ok((e, mut light)) = shade.single_mut() {
         if !on {
@@ -776,6 +778,9 @@ struct Motion {
     velocity: Vec2,
     /// The first-person arms' sway (`view_sway.rs`).
     sway: ViewSway,
+    /// The camera's bob: first person's, and the third-person pivot's smoothing
+    /// (`head_bob.rs`).
+    head: crate::head_bob::HeadBob,
     /// The first-person weapon lowered against a wall or a friend (`weapon_lower.rs`).
     lower: WeaponLower,
     /// The true iron sights were last reported on the eye (a smoke check).
@@ -829,6 +834,7 @@ impl Default for Motion {
             names: HashMap::new(),
             velocity: Vec2::ZERO,
             sway: ViewSway::default(),
+            head: crate::head_bob::HeadBob::default(),
             lower: WeaponLower::default(),
             sights_told: false,
             lower_told: false,
@@ -844,6 +850,9 @@ pub struct PlayerBody {
     /// Sway and bob the first-person arms and weapon (`view_sway.rs`; off with
     /// `--no-weapon-sway`, the settings page).
     pub weapon_sway: bool,
+    /// Bob the first-person camera while walking (`head_bob.rs`; off with
+    /// `--no-head-bob`, the settings page).
+    pub head_bob: bool,
     /// Lower the first-person weapon against a wall or a friendly actor close ahead
     /// (`weapon_lower.rs`; off with `--no-weapon-lower`, the settings page).
     pub weapon_lower: bool,
@@ -864,6 +873,21 @@ pub struct PlayerBody {
 }
 
 impl PlayerBody {
+    /// [design: show_rigs] Add-ons follow the part at their attachment, with the body
+    /// as the fallback for an attachment outside the known skeleton.
+    pub(crate) fn effect_part(&self, attachment: Entity) -> EffectPart {
+        let Some(rig) = self.body.as_ref().map(|b| &b.third) else { return EffectPart::Body };
+        if let Some(d) = rig.drawn.iter().find(|d| d.entity == attachment) {
+            return if d.head { EffectPart::Head } else if d.arm { EffectPart::Arms } else { EffectPart::Body };
+        }
+        rig.animator.nodes.iter().position(|e| *e == attachment).map_or(EffectPart::Body, |i| effect_bone_part(&rig.animator.skel, i))
+    }
+
+    /// [design: show_rigs] The camera's current decision, including the headless body.
+    pub(crate) fn sees_effect(&self, part: EffectPart) -> bool {
+        self.body.as_ref().and_then(|b| b.third.seen).is_some_and(|s| s.effect_part(part))
+    }
+
     /// The landing clip after a jump or fall is playing (GetAnimAction 12, `anim_state`).
     pub fn landing(&self) -> bool {
         self.body.as_ref().is_some_and(|b| b.third.animator.layers.iter().any(|l| l.tag == TAG_LAND && !l.finished()))
@@ -879,6 +903,11 @@ impl PlayerBody {
     /// Whether the first-person rig is drawn (`pipboy_arm.rs`).
     pub fn first_person_drawn(&self) -> bool {
         self.body.as_ref().and_then(|b| b.first.as_ref()).is_some_and(|f| f.shown == Some(true))
+    }
+
+    /// The real arms rig available for hidden draws [design: pipboy_arm.rs].
+    pub fn first_person_root(&self) -> Option<Entity> {
+        self.body.as_ref()?.first.as_ref().map(|f| f.root)
     }
 
     /// The root entities of the rigs built (the body's, then the arms rig's).
@@ -949,6 +978,8 @@ pub struct PlayerBodyPlugin {
     pub first_person_body: bool,
     /// Not `--no-weapon-sway`.
     pub weapon_sway: bool,
+    /// Not `--no-head-bob`.
+    pub head_bob: bool,
     /// Not `--no-weapon-lower`.
     pub weapon_lower: bool,
     /// Not `--no-true-iron-sights`.
@@ -958,14 +989,125 @@ pub struct PlayerBodyPlugin {
 impl Plugin for PlayerBodyPlugin {
     fn build(&self, app: &mut App) {
         // Furniture (`furniture.rs`) says what the body plays before it is posed.
-        app.insert_resource(PlayerBody { first_person_body: self.first_person_body, weapon_sway: self.weapon_sway, weapon_lower: self.weapon_lower, true_iron_sights: self.true_iron_sights, ..default() })
+        app.insert_resource(PlayerBody { first_person_body: self.first_person_body, weapon_sway: self.weapon_sway, head_bob: self.head_bob, weapon_lower: self.weapon_lower, true_iron_sights: self.true_iron_sights, ..default() })
             .init_resource::<crate::furniture::BodyOverride>()
             .init_resource::<crate::furniture::PlayerUse>()
             .init_resource::<crate::weapon_lower::Ahead>()
-            .add_systems(Update, (crate::furniture::drive_player, ensure_body, crate::weapon_lower::sense, drive_body, drive_weapon_emitters, shade_light).chain().in_set(nvf_play::player::BodySet))
+            .init_resource::<WarmPose>()
+            .add_systems(Update, (restore_warm_pose, crate::furniture::drive_player, ensure_body, crate::weapon_lower::sense, drive_body, drive_weapon_emitters, shade_light, draw_warm_pose).chain().in_set(nvf_play::player::BodySet))
             .add_systems(PostUpdate, near_shade_casters.after(bevy::light::SimulationLightSystems::CheckLightVisibility))
             .add_systems(Last, report);
     }
+}
+
+/// [design: this file] Only ECS transforms/visibility are borrowed for a render frame.
+#[derive(Resource, Default)]
+struct WarmPose {
+    transforms: Vec<(Entity, Transform)>,
+    visibility: Option<(Entity, Visibility)>,
+}
+
+/// [design: this file] Marks only culling overrides inserted by the warm-up.
+#[derive(Component)]
+struct WarmUnculled;
+
+fn restore_warm_pose(
+    mut commands: Commands,
+    mut pip: ResMut<nvf_play::pipboy::PipBoy>,
+    mut saved: ResMut<WarmPose>,
+    mut transforms: Query<&mut Transform>,
+    mut visibility: Query<&mut Visibility>,
+    unculled: Query<Entity, With<WarmUnculled>>,
+) {
+    for (e, before) in saved.transforms.drain(..) {
+        if let Ok(mut t) = transforms.get_mut(e) {
+            *t = before;
+        }
+    }
+    if let Some((e, before)) = saved.visibility.take() {
+        if let Ok(mut v) = visibility.get_mut(e) {
+            *v = before;
+        }
+    }
+    for e in &unculled {
+        commands.entity(e).remove::<(NoFrustumCulling, WarmUnculled)>();
+    }
+    pip.pose_hidden = false;
+}
+
+/// [design: this file] Pose after the normal body has supplied the eye, view and weapon
+/// state. Restore animator locals/layers immediately; restore ECS transforms before the
+/// next body tick, even if the body then returns early (death, furniture, a missing rig).
+#[allow(clippy::too_many_arguments)]
+fn draw_warm_pose(
+    mut commands: Commands,
+    mut pip: ResMut<nvf_play::pipboy::PipBoy>,
+    mut state: ResMut<PlayerBody>,
+    mut saved: ResMut<WarmPose>,
+    mut parts: ResMut<ActorParts>,
+    mut models: ModelCtx,
+    mut transforms: Query<&mut Transform>,
+    mut visibility: Query<&mut Visibility>,
+    children: Query<&Children>,
+    mut meshes: Query<(Has<NoFrustumCulling>, &mut Mesh3d)>,
+    cameras: Query<(&GlobalTransform, &Projection), With<nvf_play::PlayerCamera>>,
+) {
+    let Some(t) = pip.warm_clip() else { return };
+    let Ok((cam, projection)) = cameras.single() else { return };
+    // [design: world.rs::setup_root] The rig's parent is in game space, the camera is not.
+    let eye = crate::world::bevy_to_game(cam.translation());
+    let forward = crate::world::bevy_to_game(cam.forward().as_vec3());
+    let Some(body) = state.body.as_mut() else { return };
+    let female = body.female;
+    let Some(rig) = body.first.as_mut() else { return };
+    let mut ctx = ActorCtx { cache: &mut parts, models: &mut models };
+    let Some(clip) = rig.clip(&mut ctx, ClipKey::PipBoy(female)) else { return };
+    // [design: this file] Capture descendants, including extra weapon nodes and the lens.
+    let outer = rig.lens.map_or(rig.root, |l| l[0]);
+    for e in std::iter::once(outer).chain(children.iter_descendants(outer)) {
+        if let Ok(before) = transforms.get(e) {
+            saved.transforms.push((e, *before));
+        }
+        if let Ok((unculled, mut mesh)) = meshes.get_mut(e) {
+            // [design: #1803] Rebuild retained colour bins after borrowing visibility
+            // and swapping materials, including retries delayed by an upload.
+            mesh.set_changed();
+            if !unculled {
+                commands.entity(e).insert((NoFrustumCulling, WarmUnculled));
+            }
+        }
+    }
+    if let Ok(mut v) = visibility.get_mut(rig.root) {
+        saved.visibility = Some((rig.root, *v));
+        *v = Visibility::Inherited;
+    }
+    let a = &mut rig.animator;
+    let layers = a.layers.clone();
+    let locals = a.locals.clone();
+    a.begin();
+    let i = a.want(&clip.clip, TAG_PIPBOY, 1.0, Mode::Once, 0.0);
+    a.layers[i].time = t;
+    a.layers[i].ease = 1.0;
+    a.end();
+    a.pose();
+    a.apply(&mut transforms);
+    a.layers = layers;
+    a.locals = locals;
+    // [design: this file] Covered draws use the normal lens. The backstop also places
+    // the rig behind the camera, so FOV/aspect cannot expose any of the down pose.
+    let covered = pip.warming.as_ref().is_some_and(|w| w.covered);
+    if !covered {
+        if let Ok(mut root) = transforms.get_mut(outer) {
+            root.translation = eye - forward * 10_000.0;
+        }
+    } else if let (Some([_, inner]), Projection::Perspective(p)) = (rig.lens, projection) {
+        if let Ok(mut lens) = transforms.get_mut(inner) {
+            let k = arms_magnification(p.fov, PIPBOY_FOV);
+            lens.scale = Vec3::new(k, 1.0, k);
+        }
+    }
+    pip.warming.as_mut().expect("warm pose").drawn = true;
+    pip.pose_hidden = true;
 }
 
 /// The body's falls at exit (smoke tests read it).
@@ -974,6 +1116,8 @@ fn report(mut exit: MessageReader<AppExit>, body: Res<PlayerBody>) {
         let m = &body.motion;
         info!("player body summary: {} falls (the jump loop), {} landings", m.falls, m.landings);
         info!("player body summary: weapon sway {}, most turn lag {:.2} degrees sideways and {:.2} up or down, deepest bob {:.2} units", if body.weapon_sway { "on" } else { "off" }, m.sway.peak_lag.x.to_degrees(), m.sway.peak_lag.y.to_degrees(), m.sway.peak_dip);
+        let (head, pivot) = m.head.pivot_rms();
+        info!("player body summary: head bob {}, deepest first-person dip {:.2} units; third-person pivot over {} frames moved {pivot:.3} units a frame (rms) against the head's {head:.3}, pivot/head {:.2}", if body.head_bob { "on" } else { "off" }, m.head.peak_dip, m.head.frames, pivot / head.max(1e-3));
         info!("player body summary: weapon lowering {}, lowered {} times, most {:.2}", if body.weapon_lower { "on" } else { "off" }, m.lower.times, m.lower.peak);
     }
 }
@@ -986,7 +1130,9 @@ fn equipped(sim: &SimState, world: &ActorWorld) -> (Vec<FormId>, Option<FormId>,
     let weapon = eq.iter().copied().find(|id| world.actors.weapons.contains_key(id));
     // A weapon with "Hide Backpack" goes with the armour: while it is equipped the body is
     // dressed without the pieces in the Backpack slot (`Resolver::resolve_wearing`).
-    worn.extend(weapon.filter(|w| world.actors.weapons.get(w).is_some_and(|x| x.hide_backpack)));
+    // So does one with armour addons of its own (WEAP BIPL: a hand-to-hand weapon's hand
+    // model, `Resolver::resolve_wearing`), for the third-person body ([`build`]).
+    worn.extend(weapon.filter(|w| world.actors.weapons.get(w).is_some_and(|x| x.hide_backpack || !x.addons.is_empty())));
     (worn, weapon, weapon.map_or(0, |w| inv.equipped_mods(w)))
 }
 
@@ -1268,7 +1414,12 @@ fn build(commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &mut 
     let scale = a.race_height as f32;
     let third = build_rig(commands, parent, world, ctx, &a, View::Third, None)?;
     let vfs = ctx.models.data.vfs.clone();
-    let (fa, shows) = first_person::appearance(&world.actors, &a, |p| vfs.exists(p));
+    // The first-person arms keep the bare hand: a held weapon's own addons (the power
+    // fist's metal hand, `equipped`) are for the third-person body only [hypothesis: the
+    // first-person weapon models are drawn over the arms' hands as before].
+    let first_worn: Vec<FormId> = worn.iter().copied().filter(|w| world.actors.weapons.get(w).is_none_or(|x| x.addons.is_empty())).collect();
+    let first_a = if first_worn.len() == worn.len() { None } else { Some(world.resolve_as(FormId::PLAYER_BASE.0, FormId::PLAYER_REF.0, Some(&first_worn), look)?) };
+    let (fa, shows) = first_person::appearance(&world.actors, first_a.as_ref().unwrap_or(&a), |p| vfs.exists(p));
     let first = match build_rig(commands, parent, world, ctx, &fa, View::First, Some(&shows)) {
         Ok(r) => Some(r),
         Err(e) => {
@@ -1289,7 +1440,8 @@ fn build_rig(commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &
         warn!("player {view:?} rig: {} parts not loaded", stats.parts_missing);
     }
     if let Some(shows) = shows {
-        // Upper-body models show their `Arms` shapes and the Pip-Boy sleeve only.
+        // Upper-body models show their `Arms` shapes and the left forearm sleeve only
+        // (`PipBoyOn…` or `PipBoyOff…`, whichever the player wears).
         for (i, u) in &mut uses {
             if shows[*i] == Show::Arms {
                 let hide = u.part.shapes.iter().filter_map(|s| s.name.clone().filter(|n| !is_first_person_shape(n)));
@@ -1341,7 +1493,7 @@ fn build_rig(commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &
         // The arms rig casts no shadow on the world: the third-person body casts the
         // player's.
         for e in &spawned.drawn {
-            commands.entity(*e).insert(RenderLayers::layer(ARMS_LAYER));
+            commands.entity(*e).insert((RenderLayers::layer(ARMS_LAYER), crate::pipboy_ready::PipBoyShape));
         }
         for ((&e, &p), &s) in spawned.drawn.iter().zip(&spawned.part_of).zip(&spawned.shape_of) {
             let shape = &uses[p].part.shapes[s];
@@ -2046,7 +2198,38 @@ struct Seen {
     weapon: bool,
 }
 
+/// [design: show_rigs] The independently hidden parts of the third-person body.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum EffectPart {
+    Body,
+    Head,
+    Arms,
+}
+
+/// [design: build_rig] Descendants follow their head or arm branch. Unclassified
+/// bones follow the body; the names select branches, not individual finger bones.
+fn effect_bone_part(skel: &PreparedSkeleton, mut bone: usize) -> EffectPart {
+    for _ in 0..skel.parents.len() {
+        match skel.names.get(bone).and_then(|n| n.as_deref()) {
+            Some("Bip01 Head") => return EffectPart::Head,
+            Some("Bip01 L UpperArm" | "Bip01 R UpperArm") => return EffectPart::Arms,
+            _ => {}
+        }
+        let Some(parent) = skel.parents.get(bone).copied().flatten() else { break };
+        bone = parent;
+    }
+    EffectPart::Body
+}
+
 impl Seen {
+    fn effect_part(self, part: EffectPart) -> bool {
+        self.body && match part {
+            EffectPart::Body => true,
+            EffectPart::Head => self.head,
+            EffectPart::Arms => self.arms,
+        }
+    }
+
     /// The render layer of a drawn entity: the seen body's when the camera sees it, else
     /// the one only the sun's shadows are cast from. Neither is the world's, so the
     /// flashlight casts no shadow from the player (`flashlight.rs`).
@@ -2136,7 +2319,7 @@ fn drive_body(
     mut transforms: Query<&mut Transform>,
     mut visibility: Query<&mut Visibility>,
     mut anim: ResMut<WeaponAnim>,
-    (furniture, mut idles, mut seat, pip, cams, first_fov, limbs, (death, knock), (zoom, combat, mut true_sights, scope, mut lens3d, lens_sway), (ahead, mut lunge, s1st)): (
+    (furniture, mut idles, mut seat, pip, cams, first_fov, limbs, (death, knock), (zoom, combat, mut true_sights, scope, mut lens3d, lens_sway), (ahead, mut lunge, s1st, vats)): (
         Res<crate::furniture::BodyOverride>,
         ResMut<PlayerIdles>,
         ResMut<nvf_play::furniture::PlayerSeat>,
@@ -2146,7 +2329,7 @@ fn drive_body(
         Option<Res<nvf_play::combat::PlayerLimbs>>,
         (Res<crate::death_cam::DeathCam>, Res<crate::player_knockdown::PlayerKnockdown>),
         (Option<Res<nvf_play::aim_zoom::AimZoom>>, Option<Res<nvf_play::combat::Combat>>, Option<ResMut<nvf_play::aim_zoom::TrueSights>>, Option<Res<nvf_play::aim_zoom::Scope>>, Option<ResMut<nvf_play::aim_zoom::Scope3d>>, Option<Res<nvf_play::aim_zoom::LensSway>>),
-        (Res<crate::weapon_lower::Ahead>, ResMut<nvf_play::player::Lunge>, Option<Res<nvf_play::console::ShowFirstPerson>>),
+        (Res<crate::weapon_lower::Ahead>, ResMut<nvf_play::player::Lunge>, Option<Res<nvf_play::console::ShowFirstPerson>>, Option<Res<nvf_play::vats_mode::VatsMode>>),
     ),
     mut driven: ResMut<nvf_play::player::ViewDriven>,
 ) {
@@ -2299,6 +2482,7 @@ fn drive_body(
         // back, the higher, clear of the bed.
         let lift = lying.map_or(0.0, |frame| LYING_PIVOT_UP * (1.0 - (frame * Vec3::Z).z).clamp(0.0, 1.0));
         view.pivot = eye.map(|e| [o.pos[0], o.pos[1], e.z + 5.0 + lift]);
+        m.head.pivot_reset();
         anim.ready = false;
         anim.muzzle = None;
         anim.casing = None;
@@ -2454,8 +2638,13 @@ fn drive_body(
         wind_now,
     };
     // The body stands on the drawn ground under the feet (`nvf_play::phys::drawn_sink`);
-    // its eye counts from the feet as before.
+    // its eye counts from the feet as before: without the sink, and without the share of
+    // the lift that easing the body onto changes of the drawn ground put there (else a
+    // crack in a broken road's drawn floor moved the view at once and eased it back,
+    // feedback 2026-11-12; `step_lift::StepLift::ground_at`).
     let sink = Vec3::Z * phys.drawn_sink_of(FormId::PLAYER_REF.0);
+    let ground_lift = phys.drawn_ground_lift_of(FormId::PLAYER_REF.0);
+    let eye_sink = sink - Vec3::Z * ground_lift;
     // A script's SetScale on the player sizes both rigs, so the view (the first-person
     // camera node) comes down with the body: Fallout 3's baby stage, CG01 stage 0,
     // `player.SetScale 0.4`, stage 100 `1` [observed: TTW's Fallout3.esm, fnvtool script
@@ -2469,7 +2658,7 @@ fn drive_body(
     }
     let root = Transform { translation: Vec3::from_array(feet) - sink, rotation: Quat::from_rotation_z(-player.heading), scale: Vec3::splat(body.scale * script_scale) };
     let third = Posed { root, look_pitch: player.pitch, special: &idles.third, pipboy: None, sway: SwayPose::NONE, sights: None };
-    let third_eye = pose_rig(&mut body.third, &frame, &events, third, &mut ctx, &mut transforms).map(|(e, _)| e + sink);
+    let third_eye = pose_rig(&mut body.third, &frame, &events, third, &mut ctx, &mut transforms).map(|(e, _)| e + eye_sink);
     // The third-person body's melee attack clip carries the player by its root's travel
     // (actors.md §8.13), turned by the heading and scaled with the body.
     if let Some(d) = body.third.carry.filter(|_| dt > 0.0) {
@@ -2482,12 +2671,12 @@ fn drive_body(
         }
         lunge.carrying = true;
     }
-    let (held, pitch, at) = idles.held.map_or((player.heading, player.pitch, feet), |h| (h.heading, player.pitch - h.pitch, h.feet));
+    let (held, pitch, mut at) = idles.held.map_or((player.heading, player.pitch, [feet[0], feet[1], feet[2] - ground_lift]), |h| (h.heading, player.pitch - h.pitch, h.feet));
     if let Some(h) = idles.held {
         // The character stays where the scene plays (and collides with nothing there).
         seat.hold = Some(h.feet);
     }
-    let pipboy = pip.on_arm().then_some(pip.clip_time);
+    let pipboy = (pip.on_arm() && pip.warming.is_none()).then_some(pip.clip_time);
     // The arms sway in first person by themselves: not under the Pip-Boy or an idle.
     let sway = body.first.as_ref().map_or(SwayPose::NONE, |f| {
         m.sway.update(SwayInput {
@@ -2502,6 +2691,21 @@ fn drive_body(
             on: state.weapon_sway && !third_view && idles.held.is_none() && !idles.first.covers() && pipboy.is_none(),
         })
     });
+    // The head bob in first person moves the whole arms rig, camera node, arms and
+    // weapon together (`head_bob.rs`).
+    if let Some(f) = body.first.as_ref() {
+        let o = m.head.first_person(crate::head_bob::BobInput {
+            dt,
+            speed: m.speed,
+            phase: f.animator.phase,
+            heading: player.heading,
+            sights: control.aiming,
+            sneaking: stance == Stance::Sneak,
+            airborne: m.falling,
+            on: state.head_bob && !third_view && idles.held.is_none() && !idles.first.covers() && pipboy.is_none(),
+        });
+        at = [at[0] + o.x, at[1] + o.y, at[2] + o.z];
+    }
     // Lowered against a wall or a friend ahead (`weapon_lower.rs`): a drawn weapon, not
     // fists; aiming, the trigger, an attack or a reload bring it up.
     let lowered = m.lower.update(LowerInput {
@@ -2570,7 +2774,7 @@ fn drive_body(
         });
         // The console's `fov` can ask for another first-person field of view.
         let first_fov = first_fov.and_then(|f| f.0).unwrap_or(FIRST_PERSON_FOV);
-        let k = match (pip.on_arm(), vfov) {
+        let k = match (pip.on_arm() && pip.warming.is_none(), vfov) {
             (true, Some(v)) => {
                 let normal = arms_magnification(v, first_fov);
                 normal + (arms_magnification(v, PIPBOY_FOV) - normal) * pipboy_ease(pip.clip_time)
@@ -2605,14 +2809,25 @@ fn drive_body(
         if let (false, Some(h)) = (m.hands.in_hand, body.third.head) {
             let head = Affine3A::from_scale_rotation_translation(root.scale, root.rotation, root.translation) * body.third.animator.model_space(h);
             let right = Vec3::new(player.heading.cos(), -player.heading.sin(), 0.0);
-            let neck = Vec3::from(head.translation) + sink;
+            let neck = Vec3::from(head.translation) + eye_sink;
             e = neck + Quat::from_axis_angle(right, NECK_PITCH * player.pitch) * (e - neck);
         }
         Some(e)
     });
     player.body_eye = eye.map(|e| e.to_array());
     state.head_eye = third_eye.filter(|_| third_view).map(|e| e.to_array());
-    view.pivot = third_eye.or(eye).map(|e| [feet[0], feet[1], e.z + 5.0]);
+    // The third-person pivot: the head's height above the feet without the stride's
+    // rise and fall (`head_bob.rs`).
+    view.pivot = third_eye.or(eye).map(|e| {
+        // From the feet without the drawn ground's share of the lift, as the eye.
+        let base = feet[2] - ground_lift;
+        let up = e.z - base;
+        let up = if third_view { m.head.pivot_height(up, dt) } else { up };
+        [feet[0], feet[1], base + up + 5.0]
+    });
+    if !third_view {
+        m.head.pivot_reset();
+    }
 
     // The body in first person stands where its eyes are under the camera (and a little
     // behind), feet on the ground: the view is the arms rig's, the body is moved to it.
@@ -2684,7 +2899,11 @@ fn drive_body(
     let scoped = scope.as_deref().is_some_and(|s| s.on && !s.lens_3d);
     // The console's Show1stPerson shows it in third person too, at the eye.
     let s1st = s1st.is_some_and(|s| s.0);
-    show_rigs(body, &mut commands, &mut visibility, seen, (!third_view || s1st) && !scoped);
+    // Nor while the classic VATS style chooses targets: the view is on the target alone
+    // [observed: the owner's screenshots of the original's VATS, 2026-11-10, no arms or
+    // weapon in the picture].
+    let targeting = vats.is_some_and(|v| v.selected().is_some());
+    show_rigs(body, &mut commands, &mut visibility, seen, (!third_view || s1st) && !scoped && !targeting);
 
     m.log_elapsed += dt;
     if m.log_elapsed >= 1.0 {
@@ -2718,6 +2937,52 @@ fn drive_body(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn hidden_pose_cleanup_restores_transforms_visibility_and_only_its_own_culling() {
+        use bevy::ecs::system::RunSystemOnce;
+        let mut world = World::new();
+        let original = Transform::from_xyz(1.0, 2.0, 3.0);
+        let rig = world.spawn((Transform::from_xyz(9.0, 9.0, 9.0), Visibility::Inherited)).id();
+        let borrowed = world.spawn((NoFrustumCulling, WarmUnculled)).id();
+        let existing = world.spawn(NoFrustumCulling).id();
+        world.insert_resource(WarmPose { transforms: vec![(rig, original)], visibility: Some((rig, Visibility::Hidden)) });
+        let mut pip = nvf_play::pipboy::PipBoy::default();
+        pip.pose_hidden = true;
+        world.insert_resource(pip);
+        world.run_system_once(restore_warm_pose).unwrap();
+        assert_eq!(*world.get::<Transform>(rig).unwrap(), original);
+        assert_eq!(*world.get::<Visibility>(rig).unwrap(), Visibility::Hidden);
+        assert!(world.get::<NoFrustumCulling>(borrowed).is_none());
+        assert!(world.get::<WarmUnculled>(borrowed).is_none());
+        assert!(world.get::<NoFrustumCulling>(existing).is_some());
+        assert!(world.resource::<WarmPose>().transforms.is_empty());
+        assert!(!world.resource::<nvf_play::pipboy::PipBoy>().pose_hidden);
+    }
+
+    #[test]
+    fn effect_bones_follow_their_branch_and_unknown_bones_follow_the_body() {
+        let skel = PreparedSkeleton {
+            names: ["Bip01", "Bip01 Head", "eye", "Bip01 L UpperArm", "finger", "Bip01 R UpperArm", "hand", "extra"].map(|n| Some(n.to_string())).to_vec(),
+            parents: vec![None, Some(0), Some(1), Some(0), Some(3), Some(0), Some(5), None],
+            ..default()
+        };
+        for (bone, part) in [(0, EffectPart::Body), (1, EffectPart::Head), (2, EffectPart::Head), (3, EffectPart::Arms), (4, EffectPart::Arms), (5, EffectPart::Arms), (6, EffectPart::Arms), (7, EffectPart::Body), (99, EffectPart::Body)] {
+            assert_eq!(effect_bone_part(&skel, bone), part);
+        }
+    }
+
+    #[test]
+    fn effect_addons_follow_first_person_headless_and_third_person_parts() {
+        let parts = [EffectPart::Body, EffectPart::Head, EffectPart::Arms];
+        let first = Seen { body: false, head: true, arms: true, weapon: true };
+        assert_eq!(parts.map(|p| first.effect_part(p)), [false, false, false]);
+        let headless = Seen { body: true, head: false, arms: false, weapon: false };
+        assert_eq!(parts.map(|p| headless.effect_part(p)), [true, false, false]);
+        let third = Seen { body: true, head: true, arms: true, weapon: true };
+        assert_eq!(parts.map(|p| third.effect_part(p)), [true, true, true]);
+        assert!(!PlayerBody::default().sees_effect(EffectPart::Body));
+    }
 
     #[test]
     fn shade_casters_near_the_line_to_the_sun() {

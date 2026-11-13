@@ -369,7 +369,7 @@ impl Plugin for PlayerPlugin {
             .configure_sets(Update, BodySet.in_set(PlaySet::Physics).after(log_status).before(crate::control::place_camera))
             .add_systems(
                 Update,
-                (place_initial, interior_net, step, crate::phys::settle_created, sync_sim, log_status)
+                (place_initial, interior_net, crate::phys::piles_pass_their_corpses, step, crate::phys::settle_created, sync_sim, log_status)
                     .chain()
                     .in_set(PlaySet::Physics)
                     .after(crate::phys::PhysSystems),
@@ -447,11 +447,15 @@ fn grab_cursor(
     look: Option<Res<crate::dialogue::FreeLook>>,
     over_lock: Option<Res<crate::lockpick::PointerOverLock>>,
     free_cam: Option<Res<crate::free_cam::FreeCam>>,
-    (intro, view, creator): (Option<Res<crate::intro::Intro>>, Option<Res<ViewDriven>>, Option<Res<crate::creator::CreatorMenu>>),
+    (intro, view, creator, vats): (Option<Res<crate::intro::Intro>>, Option<Res<ViewDriven>>, Option<Res<crate::creator::CreatorMenu>>, Option<Res<crate::vats_mode::VatsMode>>),
     mut windows: Query<(&Window, &mut CursorOptions), With<PrimaryWindow>>,
     mut wanted_before: Local<Option<(bool, bool)>>,
+    switches: Option<Res<crate::script_switches::ScriptSwitches>>,
 ) {
     let Ok((window, mut cursor)) = windows.single_mut() else { return };
+    // A script's HUD cursor (ToggleHUDCursor, `crate::script_switches`): the pointer shows
+    // over the world, free.
+    let hud_cursor = switches.is_some_and(|s| s.hud_cursor) && *state.get() == PlayState::Playing;
     let driven = d.auto_walk > 0.0 || unattended.is_some_and(|u| u.0);
     let boxed = hud.is_some_and(|h| h.front().is_some());
     // Also while an actor speaks in a conversation (free look, `crate::dialogue`), and
@@ -461,7 +465,10 @@ fn grab_cursor(
     let playing = !creating && (matches!(*state.get(), PlayState::Playing | PlayState::Loading) || look.is_some_and(|l| l.0) || free_cam.is_some_and(|f| f.active));
     let film = intro.as_ref().is_some_and(|i| i.is_playing());
     let scene = view.is_some_and(|v| v.0) && *state.get() != PlayState::Menu && !boxed && !creating;
-    let wanted = creating || ((!playing || boxed) && !film && !scene);
+    // The classic VATS style's target screen has the pointer: its parts and arrows are
+    // chosen with it [observed: the owner's screenshots of the original's VATS, 2026-11-10].
+    let targeting = vats.is_some_and(|v| v.pointer_wanted());
+    let wanted = creating || targeting || ((!playing || boxed) && !film && !scene);
     // Logged when it changes, and when a film starts or ends over a pointer already hidden.
     if *wanted_before != Some((wanted, film)) {
         let why = if creating {
@@ -478,7 +485,7 @@ fn grab_cursor(
         info!("pointer: {}{why}", if wanted { "shown" } else { "hidden" });
         *wanted_before = Some((wanted, film));
     }
-    let grab = playing && !driven && !boxed && window.focused;
+    let grab = playing && !driven && !boxed && window.focused && !hud_cursor && !targeting;
     // Windows cannot lock the cursor in place; confining it still gives raw motion.
     let mode = match (grab, cfg!(target_os = "windows")) {
         (false, _) => CursorGrabMode::None,
@@ -487,7 +494,7 @@ fn grab_cursor(
     };
     // Out of focus or under a test aid the mouse is the desktop's: its pointer stays. The
     // lockpicking menu hides the pointer over the lock (`crate::lockpick`).
-    let visible = !grab && (wanted || driven || !window.focused) && !over_lock.is_some_and(|o| o.0);
+    let visible = !grab && (wanted || driven || !window.focused || hud_cursor) && !over_lock.is_some_and(|o| o.0);
     if cursor.grab_mode != mode || cursor.visible != visible {
         cursor.grab_mode = mode;
         cursor.visible = visible;
@@ -725,7 +732,7 @@ fn take_knockbacks(knocks: Option<MessageReader<crate::combat::Knockback>>, mut 
 #[allow(clippy::too_many_arguments)]
 fn mouse_look(
     motion: Res<AccumulatedMouseMotion>,
-    (pads, time): (Query<&Gamepad>, Res<Time>),
+    (pads, time, vats): (crate::pad::ActionPads, Res<Time>, Option<Res<crate::vats_mode::VatsMode>>),
     state: Res<State<PlayState>>,
     bindings: Res<Bindings>,
     cursor: Query<&CursorOptions, With<PrimaryWindow>>,
@@ -738,11 +745,17 @@ fn mouse_look(
     free_cam: Option<Res<crate::free_cam::FreeCam>>,
     kill_cam: Option<Res<crate::kill_cam::KillCam>>,
     assist: Option<Res<crate::aim_assist::AimAssistState>>,
+    (talk, switches): (Option<Res<crate::dialogue_zoom::DialogueZoom>>, Option<Res<crate::script_switches::ScriptSwitches>>),
 ) {
+    // The classic VATS style turns the view itself (`crate::vats_mode`, vats-classic.md §5).
+    if vats.is_some_and(|v| v.holds_view()) {
+        return;
+    }
     // The console's free camera takes the mouse (`crate::free_cam`), and so does the
     // weapon wheel while it is open (`crate::weapon_wheel`); a playing kill camera holds
-    // it (`crate::kill_cam`).
-    if driven.is_some_and(|d| d.0) || free_cam.is_some_and(|f| f.on) || control.wheel || kill_cam.is_some_and(|k| k.active()) {
+    // it (`crate::kill_cam`). A script's HUD cursor has the mouse too (ToggleHUDCursor,
+    // `crate::script_switches`).
+    if driven.is_some_and(|d| d.0) || free_cam.is_some_and(|f| f.on) || control.wheel || kill_cam.is_some_and(|k| k.active()) || switches.as_deref().is_some_and(|s| s.hud_cursor) {
         return;
     }
     let grabbed = cursor.single().is_ok_and(|c| c.grab_mode != CursorGrabMode::None);
@@ -759,11 +772,16 @@ fn mouse_look(
         let dt = time.delta_secs() * assist.map_or(1.0, |a| a.look_scale) * bindings.stick_sensitivity;
         (Vec2::new(curve(v.x) * bindings.look_speed[0] * dt, -curve(v.y) * bindings.look_speed[1] * dt), STICK_LOOK_RADIANS)
     } else {
-        (motion.delta, bindings.mouse_sensitivity)
+        // The axes ToggleMouseMovement left on (`crate::script_switches`).
+        (switches.as_deref().map_or(motion.delta, |s| s.look(motion.delta)), bindings.mouse_sensitivity)
     };
+    // The Controls tab's Vertical Sensitivity of the device in use (#2201).
+    let delta = vertical_scaled(delta, bindings.vertical_sensitivity());
     if !grabbed || !playing || locks.looking || delta == Vec2::ZERO {
         return;
     }
+    // A conversation's zoom: the picture moves as far as it does unzoomed.
+    let s = s * talk.as_deref().map_or(1.0, crate::dialogue_zoom::DialogueZoom::look_scale);
     let inv = bindings.invert_y;
     if control.orbit.held {
         let o = &mut control.orbit;
@@ -774,7 +792,7 @@ fn mouse_look(
         o.moved = true;
         return;
     }
-    if control.orbit.free {
+    if control.orbit.free && control.talk_camera == 0.0 {
         // The detached camera (`crate::control::detach_camera`): the camera turns, the
         // player does not.
         let (yaw, pitch) = look_with(control.orbit.yaw, player.pitch, delta, s, inv);
@@ -789,6 +807,13 @@ fn mouse_look(
         seat.look[0] += delta.x * s;
         seat.look[1] -= dy * s;
     }
+}
+
+/// `delta` (mouse counts, or the right stick's turn) with its vertical part times
+/// `vertical`, the Controls tab's Vertical Sensitivity of the device in use [design:
+/// #2201]; 1 leaves it exactly as it is.
+pub fn vertical_scaled(delta: Vec2, vertical: f32) -> Vec2 {
+    Vec2::new(delta.x, delta.y * vertical)
 }
 
 /// Radians per unit of the right stick's turn (a look speed of 1000 turns a radian a
@@ -1266,11 +1291,11 @@ fn step(
         drop(blocks_span);
         let move_span = info_span!("phys::player_move").entered();
         let was_swimming = c.swimming;
-        let was_on_ground = c.grounded && !c.swimming;
+        let was_footing = crate::phys::step_lift::footing(c);
         let s = p.world.move_character(c, CharacterInput { velocity: go, jump: intent.jump && i == 0, vertical: vz, view });
         // The drawn body and view climb steps and bumps smoothly (`phys::step_lift`).
         let moved = (c.feet[0] - p.prev_feet[0]).hypot(c.feet[1] - p.prev_feet[1]);
-        p.player_lift.step(c.feet[2] - p.prev_feet[2], moved, was_on_ground && c.grounded && !c.swimming, dt);
+        p.player_lift.step(c.feet[2] - p.prev_feet[2], moved, was_footing && crate::phys::step_lift::footing(c), dt);
         if s.swimming != was_swimming {
             let depth = p.world.water_surface_at(s.feet[0], s.feet[1]).map_or("no water".to_string(), |w| format!("feet {:.1} below the water", w - s.feet[2]));
             info!("player: {} at ({:.0}, {:.0}, {:.1}), {depth}", if s.swimming { "starts swimming" } else { "stops swimming" }, s.feet[0], s.feet[1], s.feet[2]);
@@ -1279,6 +1304,9 @@ fn step(
             landed.write(crate::rumble::Landed { speed });
         }
         // A fall's damage (`crate::falls`).
+        if let Some(f) = falls.as_deref_mut() {
+            f.note_player(c.id);
+        }
         if let Some(height) = falls.as_deref_mut().and_then(|f| f.step(c.id, p.prev_feet[2], &s)) {
             fell.write(crate::falls::Fell { actor: FormId::PLAYER_REF, height, feet: s.feet });
         }
@@ -1333,9 +1361,9 @@ fn move_npcs(
     let mut moving: Vec<(u32, &mut crate::phys::NpcBody, [f32; 2])> = npcs.iter_mut().zip(walking).map(|((&id, b), v)| (id, b, v)).collect();
     let plan = |b: &mut crate::phys::NpcBody, v: [f32; 2]| {
         b.prev_feet = b.ch.feet;
-        let was_on_ground = b.ch.grounded && !b.ch.swimming;
+        let was_footing = crate::phys::step_lift::footing(&b.ch);
         let (s, push) = reader.plan_move(&mut b.ch, CharacterInput { velocity: v, jump: std::mem::take(&mut b.jump), ..Default::default() });
-        (was_on_ground, s, push)
+        (was_footing, s, push)
     };
     let plans: Vec<_> = if moving.len() < PARALLEL_MOVES {
         moving.iter_mut().map(|(_, b, v)| plan(b, *v)).collect()
@@ -1344,10 +1372,10 @@ fn move_npcs(
     };
     drop(plan_span);
     let _apply = info_span!("phys::npc_apply").entered();
-    for ((id, b, _), (was_on_ground, s, push)) in moving.into_iter().zip(plans) {
+    for ((id, b, _), (was_footing, s, push)) in moving.into_iter().zip(plans) {
         world.apply_move(&b.ch, push);
         let (f, from) = (b.ch.feet, b.prev_feet);
-        b.lift.step(f[2] - from[2], (f[0] - from[0]).hypot(f[1] - from[1]), was_on_ground && b.ch.grounded && !b.ch.swimming, dt);
+        b.lift.step(f[2] - from[2], (f[0] - from[0]).hypot(f[1] - from[1]), was_footing && crate::phys::step_lift::footing(&b.ch), dt);
         if let Some(height) = falls.as_deref_mut().and_then(|f| f.step(id, b.prev_feet[2], &s)) {
             fell.write(crate::falls::Fell { actor: FormId(id), height, feet: s.feet });
         }
@@ -1496,6 +1524,31 @@ mod tests {
     use std::f32::consts::{FRAC_PI_2, PI};
 
     const SPEEDS: MoveSpeeds = MoveSpeeds { walk: 77.0, run: 308.0 };
+
+    /// #2201: at the default Vertical Sensitivity (1) the mouse and the right stick turn the
+    /// view exactly as before; another value changes the pitch only.
+    #[test]
+    fn the_vertical_sensitivity_at_its_default_leaves_the_look_as_it_was() {
+        let b = crate::bindings::Bindings::game_defaults();
+        let mut pad = b.clone();
+        pad.device = crate::bindings::InputDevice::Controller;
+        // A mouse's counts, and a stick's turn as the look system builds it.
+        let mouse = Vec2::new(37.0, -21.0);
+        let stick = Vec2::new(0.6 * b.look_speed[0] * 0.016, -0.4 * b.look_speed[1] * 0.016);
+        for (bind, delta, s) in [(&b, mouse, b.mouse_sensitivity), (&pad, stick, STICK_LOOK_RADIANS)] {
+            assert_eq!(bind.vertical_sensitivity(), 1.0);
+            let scaled = vertical_scaled(delta, bind.vertical_sensitivity());
+            assert_eq!(scaled, delta);
+            for inv in [false, true] {
+                assert_eq!(look_with(0.3, 0.1, scaled, s, inv), look_with(0.3, 0.1, delta, s, inv));
+            }
+            // Half: the heading as before, the pitch turned half as far.
+            let (h, p) = look_with(0.3, 0.1, vertical_scaled(delta, 0.5), s, false);
+            let (h1, p1) = look_with(0.3, 0.1, delta, s, false);
+            assert_eq!(h, h1);
+            assert!(((p - 0.1) - (p1 - 0.1) / 2.0).abs() < 1e-6, "{p} {p1}");
+        }
+    }
 
     fn close(a: [f32; 2], b: [f32; 2]) -> bool {
         (a[0] - b[0]).abs() < 1e-3 && (a[1] - b[1]).abs() < 1e-3

@@ -16,7 +16,8 @@
 //! (beside `[Settings]`, `crate::settings::SettingsFile`), one line per control by its
 //! game INI name, the key and mouse button by name: `Forward=W`, `Block=Left Alt, Right
 //! Mouse`, `Use=Left Mouse`, `Auto Move=None` ([`KEY_NAMES`], [`MOUSE_NAMES`]), and
-//! `Always Run By Default`, `Invert Y` (1/0) and `Mouse Sensitivity`. Each start reads
+//! `Always Run By Default`, `Invert Y` (1/0), `Mouse Sensitivity` and `Mouse Vertical
+//! Sensitivity` (#2201, read as 1 when missing). Each start reads
 //! them ([`apply_stored`], `PostStartup`); a line missing from an INI that exists is
 //! written with the control's key then, so the file always lists every control to edit.
 //! A value that does not parse is skipped with a warning (the default stays). The pause
@@ -299,12 +300,27 @@ pub struct Bindings {
     pub invert_y: bool,
     pub mouse_sensitivity: f32,
     pub device: InputDevice,
+    /// Switch the saved device on use [design, #2200; `crate::pad`].
+    pub automatic_input_switching: bool,
     /// Right-stick look speeds (see [`LOOK_SPEED_HORIZONTAL`]).
     pub look_speed: [f32; 2],
     /// The controller rumbles (`crate::rumble`).
     pub rumble: bool,
     /// The Controls tab's Stick Sensitivity: the right stick's look speeds times this.
     pub stick_sensitivity: f32,
+    /// The Controls tab's Vertical Sensitivity of keyboard and mouse and of the controller
+    /// ([`device_slot`]): the vertical look's speed as a multiple of the horizontal's, 1 as
+    /// the game has it (the mouse's one value for both axes, the stick's own vertical look
+    /// speed) [design: #2201; the original has no such setting].
+    pub vertical: [f32; 2],
+}
+
+/// The place of `device` in [`Bindings::vertical`].
+pub fn device_slot(device: InputDevice) -> usize {
+    match device {
+        InputDevice::KeyboardMouse => 0,
+        InputDevice::Controller => 1,
+    }
 }
 
 impl Default for Bindings {
@@ -323,6 +339,11 @@ impl Bindings {
         }
     }
 
+    /// The Vertical Sensitivity of the device in use ([`Bindings::vertical`]).
+    pub fn vertical_sensitivity(&self) -> f32 {
+        self.vertical[device_slot(self.device)]
+    }
+
     pub fn game_defaults() -> Bindings {
         Bindings {
             map: GAME_CONTROLS.iter().map(|&(c, _, v)| (c, Binding::from_ini(v))).collect(),
@@ -331,9 +352,11 @@ impl Bindings {
             invert_y: INVERT_Y,
             mouse_sensitivity: MOUSE_SENSITIVITY,
             device: InputDevice::KeyboardMouse,
+            automatic_input_switching: AUTOMATIC_INPUT_SWITCHING,
             look_speed: [LOOK_SPEED_HORIZONTAL, LOOK_SPEED_VERTICAL],
             rumble: RUMBLE,
             stick_sensitivity: 1.0,
+            vertical: [1.0, 1.0],
         }
     }
 
@@ -368,7 +391,7 @@ impl Bindings {
     pub fn prompt(&self, c: Control) -> String {
         let b = self.get(c);
         let name = match self.device {
-            InputDevice::Controller => self.pad(c).map(|p| crate::pad::pad_name(p).to_string()),
+            InputDevice::Controller => self.pad(c).map(|p| crate::pad::pad_shown(p).to_string()),
             InputDevice::KeyboardMouse => b.key.and_then(key_name).map(String::from).or_else(|| b.mouse.map(mouse_name)),
         };
         format!("{})", name.unwrap_or_else(|| "?".into()))
@@ -378,7 +401,8 @@ impl Bindings {
     pub fn text_on(&self, c: Control) -> String {
         match self.device {
             InputDevice::KeyboardMouse => self.get(c).text(),
-            InputDevice::Controller => pad_text(self.pad(c)),
+            // The button style's names (#1452); the INI keeps the Xbox ones ([`pad_text`]).
+            InputDevice::Controller => self.pad(c).map_or_else(|| "None".into(), |p| crate::pad::pad_shown(p).to_string()),
         }
     }
 
@@ -593,11 +617,17 @@ const ALWAYS_RUN_KEY: &str = "Always Run By Default";
 const INVERT_Y_KEY: &str = "Invert Y";
 const SENSITIVITY_KEY: &str = "Mouse Sensitivity";
 const DEVICE_KEY: &str = "Input Device";
+/// Default policy, with a Controls opt-out [design, #2200].
+pub const AUTOMATIC_INPUT_SWITCHING: bool = true;
+pub const AUTOMATIC_INPUT_KEY: &str = "Automatic Input Switching";
 /// The INI section the controller's buttons are kept in.
 pub const PAD_SECTION: &str = "Controller";
 const LOOK_KEYS: [&str; 2] = ["Look Speed Horizontal", "Look Speed Vertical"];
 pub const RUMBLE_KEY: &str = "Rumble";
 const STICK_SENSITIVITY_KEY: &str = "Stick Sensitivity";
+/// Where each device's Vertical Sensitivity is kept ([`Bindings::vertical`]): a multiple,
+/// two decimals.
+const VERTICAL_KEYS: [(&str, &str); 2] = [(SECTION, "Mouse Vertical Sensitivity"), (PAD_SECTION, "Stick Vertical Sensitivity")];
 
 fn bit(on: bool) -> &'static str {
     if on {
@@ -607,18 +637,32 @@ fn bit(on: bool) -> &'static str {
     }
 }
 
+/// The INI's `Mouse Sensitivity`: four decimals as before (`0.0020`), more where the low
+/// end of the slider needs them (6% is `0.00012`), trailing zeros past the fourth dropped.
+fn mouse_sensitivity_text(s: f32) -> String {
+    let mut t = format!("{s:.6}");
+    while t.ends_with('0') && t.split_once('.').is_some_and(|(_, f)| f.len() > 4) {
+        t.pop();
+    }
+    t
+}
+
 /// `text` (an INI, or empty) with every control in `[Controls]`.
 pub fn with_controls(text: &str, b: &Bindings) -> String {
     let mut t = b.all().fold(text.to_string(), |t, (c, x)| ini_set(&t, SECTION, Bindings::name(c), &x.text()));
     t = ini_set(&t, SECTION, ALWAYS_RUN_KEY, bit(b.always_run_by_default));
     t = ini_set(&t, SECTION, INVERT_Y_KEY, bit(b.invert_y));
-    t = ini_set(&t, SECTION, SENSITIVITY_KEY, &format!("{:.4}", b.mouse_sensitivity));
+    t = ini_set(&t, SECTION, SENSITIVITY_KEY, &mouse_sensitivity_text(b.mouse_sensitivity));
     t = ini_set(&t, SECTION, DEVICE_KEY, b.device.name());
+    t = ini_set(&t, SECTION, AUTOMATIC_INPUT_KEY, bit(b.automatic_input_switching));
     t = b.all().fold(t, |t, (c, _)| ini_set(&t, PAD_SECTION, Bindings::name(c), &pad_text(b.pad(c))));
     for (k, v) in LOOK_KEYS.iter().zip(b.look_speed) {
         t = ini_set(&t, PAD_SECTION, k, &format!("{v:.0}"));
     }
     t = ini_set(&t, PAD_SECTION, STICK_SENSITIVITY_KEY, &format!("{:.2}", b.stick_sensitivity));
+    for ((section, k), v) in VERTICAL_KEYS.iter().zip(b.vertical) {
+        t = ini_set(&t, section, k, &format!("{v:.2}"));
+    }
     ini_set(&t, PAD_SECTION, RUMBLE_KEY, bit(b.rumble))
 }
 
@@ -655,10 +699,13 @@ pub fn read_controls(text: &str, b: &mut Bindings, bad: &mut Vec<String>) -> (us
     };
     switch(SECTION, ALWAYS_RUN_KEY, &mut b.always_run_by_default, &mut found, &mut changed, bad);
     switch(SECTION, INVERT_Y_KEY, &mut b.invert_y, &mut found, &mut changed, bad);
+    switch(SECTION, AUTOMATIC_INPUT_KEY, &mut b.automatic_input_switching, &mut found, &mut changed, bad);
     if let Some(v) = ini_get(text, SECTION, SENSITIVITY_KEY) {
         found += 1;
         match v.trim().parse::<f32>() {
             Ok(s) if s.is_finite() && s > 0.0 => {
+                // Below the slider's least (a hand edit) it is brought up to it, not refused.
+                let s = clamp_to_least(s, SENSITIVITY_LEAST * MOUSE_SENSITIVITY);
                 if (s - b.mouse_sensitivity).abs() > 1e-7 {
                     changed.push(format!("{SENSITIVITY_KEY} {s}"));
                     b.mouse_sensitivity = s;
@@ -715,6 +762,7 @@ pub fn read_controls(text: &str, b: &mut Bindings, bad: &mut Vec<String>) -> (us
         found += 1;
         match v.trim().parse::<f32>() {
             Ok(m) if m.is_finite() && m > 0.0 => {
+                let m = clamp_to_least(m, SENSITIVITY_LEAST);
                 if (m - b.stick_sensitivity).abs() > 1e-4 {
                     changed.push(format!("[{PAD_SECTION}] {STICK_SENSITIVITY_KEY} {m}"));
                     b.stick_sensitivity = m;
@@ -723,12 +771,27 @@ pub fn read_controls(text: &str, b: &mut Bindings, bad: &mut Vec<String>) -> (us
             _ => bad.push(format!("[{PAD_SECTION}] {STICK_SENSITIVITY_KEY}={v} (not a number above 0)")),
         }
     }
+    for (i, (section, k)) in VERTICAL_KEYS.iter().enumerate() {
+        let Some(v) = ini_get(text, section, k) else { continue };
+        found += 1;
+        let name = if *section == PAD_SECTION { format!("[{PAD_SECTION}] {k}") } else { k.to_string() };
+        match v.trim().parse::<f32>() {
+            Ok(m) if m.is_finite() && m > 0.0 => {
+                let m = clamp_to_least(m, SENSITIVITY_LEAST);
+                if (m - b.vertical[i]).abs() > 1e-4 {
+                    changed.push(format!("{name} {m}"));
+                    b.vertical[i] = m;
+                }
+            }
+            _ => bad.push(format!("{name}={v} (not a number above 0)")),
+        }
+    }
     switch(PAD_SECTION, RUMBLE_KEY, &mut b.rumble, &mut found, &mut changed, bad);
     (found, changed)
 }
 
 /// The number of `[Controls]` lines a full section has.
-const LINES: usize = 2 * GAME_CONTROLS.len() + 4 + LOOK_KEYS.len() + 2;
+const LINES: usize = 2 * GAME_CONTROLS.len() + 5 + LOOK_KEYS.len() + 2 + VERTICAL_KEYS.len();
 
 /// Read the player's keys from the INI (module notes) and fill in the lines it lacks.
 pub fn apply_stored(world: &mut World) {
@@ -787,8 +850,36 @@ pub fn rebind_pad(world: &mut World, c: Control, p: PadInput) {
 /// Switch the device that works the controls (the Controls tab's first row).
 pub fn set_device(world: &mut World, d: InputDevice) {
     let Some(mut b) = world.get_resource_mut::<Bindings>() else { return };
+    let changed = b.device != d;
     b.device = d;
+    // Cancel pending release actions before readers can interpret the device change
+    // as a completed tap/selection. Hardware releases remain visible [design, #2200].
+    if changed {
+        if let Some(mut control) = world.get_resource_mut::<crate::control::PlayerControl>() {
+            control.cancel_input_holds();
+        }
+        if let Some(mut grab) = world.get_resource_mut::<crate::grab::GrabState>() {
+            grab.tap = None;
+        }
+        if let Some(mut wheel) = world.get_resource_mut::<crate::weapon_wheel::WeaponWheel>() {
+            wheel.cancel_input_hold();
+        }
+        let mut pointers = world.query::<&mut crate::ui_pointer::PointerState>();
+        for mut pointer in pointers.iter_mut(world) {
+            if *pointer == crate::ui_pointer::PointerState::Pressed {
+                *pointer = crate::ui_pointer::PointerState::None;
+            }
+        }
+    }
     info!("controls: input device {}", d.name());
+    store(world);
+}
+
+/// Set the Controls opt-out, saved with the device [design, #2200].
+pub fn set_automatic_input_switching(world: &mut World, on: bool) {
+    let Some(mut b) = world.get_resource_mut::<Bindings>() else { return };
+    b.automatic_input_switching = on;
+    info!("controls: automatic input switching {}", if on { "on" } else { "off" });
     store(world);
 }
 
@@ -809,34 +900,64 @@ pub fn set_invert_y(world: &mut World, on: bool) {
 }
 
 /// The Controls tab's Mouse Sensitivity and Stick Sensitivity sliders, as multiples of the
-/// game's (`fMouseSensitivity`, the right stick's look speeds): from a quarter to three
-/// times in twentieths [design: owner 2026-11-03, #1451: NVForever's own range, not the
-/// original slider's, to be tuned by playing; the mouse and the stick set apart].
-pub const SENSITIVITY_LEAST: f32 = 0.25;
+/// game's (`fMouseSensitivity`, the right stick's look speeds): from a twentieth to three
+/// times [design: owner 2026-11-03, #1451: NVForever's own range, not the original
+/// slider's, to be tuned by playing; the mouse and the stick set apart. #1632: the least
+/// lowered from 25% to 5%, as 25% still turned a full circle in about 20 cm at 1600 dpi;
+/// 5% is about 100 cm, 100% about 5 cm, 300% about 1.7 cm, reading `fMouseSensitivity` as
+/// radians a count (hypothesis, see [`MOUSE_SENSITIVITY`])].
+pub const SENSITIVITY_LEAST: f32 = 0.05;
 pub const SENSITIVITY_MOST: f32 = 3.0;
-pub const SENSITIVITY_STEP: f32 = 0.05;
+
+/// The sliders' steps in percent [design, #1632]: about a tenth apart (a step changes the
+/// turn by about the same share anywhere on the slider), whole percents at the bottom, and
+/// the round values the slider had before (50%, 100%, 150%, ...) kept.
+pub const SENSITIVITY_STEPS: [u16; 44] = [
+    5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 18, 20, 22, 25, 28, 32, 36, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 100, 110, 120, 130,
+    140, 150, 165, 180, 200, 225, 250, 275, 300,
+];
+
+/// `v` raised to `least` when below it (a value read from the INI under the slider's least
+/// is clamped, not refused); a hair under is left as it is (an INI's rounding).
+fn clamp_to_least(v: f32, least: f32) -> f32 {
+    if v < least * (1.0 - 1e-4) {
+        least
+    } else {
+        v
+    }
+}
 
 /// A sensitivity multiple as the Controls tab shows it: a percentage of the game's.
 pub fn sensitivity_text(m: f32) -> String {
     format!("{:.0}%", m * 100.0)
 }
 
-/// The sensitivity `steps` of [`SENSITIVITY_STEP`] from multiple `m`, on the steps and in
-/// the sliders' range.
-pub fn step_sensitivity(m: f32, steps: i32) -> f32 {
-    let at = (m / SENSITIVITY_STEP).round() as i32 + steps;
-    let (least, most) = ((SENSITIVITY_LEAST / SENSITIVITY_STEP).round() as i32, (SENSITIVITY_MOST / SENSITIVITY_STEP).round() as i32);
-    at.clamp(least, most) as f32 * SENSITIVITY_STEP
+/// The index of the step of [`SENSITIVITY_STEPS`] nearest multiple `m` (on the
+/// logarithmic scale the meter uses).
+fn nearest_step(m: f32) -> usize {
+    let at = m.max(SENSITIVITY_LEAST / 2.0).ln();
+    let off = |p: u16| (f32::from(p) / 100.0).ln() - at;
+    (0..SENSITIVITY_STEPS.len()).min_by(|&a, &b| off(SENSITIVITY_STEPS[a]).abs().total_cmp(&off(SENSITIVITY_STEPS[b]).abs())).unwrap_or(0)
 }
 
-/// Multiple `m` as a part of the slider's meter (0 at the least, 1 at the most).
+/// The sensitivity `steps` of [`SENSITIVITY_STEPS`] from multiple `m` (from the step
+/// nearest it), on the steps and in the sliders' range.
+pub fn step_sensitivity(m: f32, steps: i32) -> f32 {
+    let last = SENSITIVITY_STEPS.len() as i32 - 1;
+    let at = (nearest_step(m) as i32 + steps).clamp(0, last);
+    f32::from(SENSITIVITY_STEPS[at as usize]) / 100.0
+}
+
+/// Multiple `m` as a part of the slider's meter (0 at the least, 1 at the most), on a
+/// logarithmic scale so the slow end, where a few percent matter, has room [design,
+/// #1632].
 pub fn sensitivity_part(m: f32) -> f32 {
-    ((m - SENSITIVITY_LEAST) / (SENSITIVITY_MOST - SENSITIVITY_LEAST)).clamp(0.0, 1.0)
+    ((m.max(f32::MIN_POSITIVE) / SENSITIVITY_LEAST).ln() / (SENSITIVITY_MOST / SENSITIVITY_LEAST).ln()).clamp(0.0, 1.0)
 }
 
 /// The multiple at part `p` of the slider's meter, on the steps.
 pub fn sensitivity_at_part(p: f32) -> f32 {
-    step_sensitivity(SENSITIVITY_LEAST + p.clamp(0.0, 1.0) * (SENSITIVITY_MOST - SENSITIVITY_LEAST), 0)
+    step_sensitivity(SENSITIVITY_LEAST * (SENSITIVITY_MOST / SENSITIVITY_LEAST).powf(p.clamp(0.0, 1.0)), 0)
 }
 
 /// Set the look sensitivity of the device in use to multiple `m` of the game's (the
@@ -853,6 +974,20 @@ pub fn set_sensitivity(world: &mut World, m: f32) {
         b.mouse_sensitivity = m * MOUSE_SENSITIVITY;
         info!("controls: mouse sensitivity {} ({:.4})", sensitivity_text(m), b.mouse_sensitivity);
     }
+    store(world);
+}
+
+/// Set the Vertical Sensitivity of the device in use to multiple `m` of its horizontal
+/// look (the Controls tab's Vertical Sensitivity, on the steps of the sensitivity sliders);
+/// acts at once.
+pub fn set_vertical(world: &mut World, m: f32) {
+    let Some(mut b) = world.get_resource_mut::<Bindings>() else { return };
+    let i = device_slot(b.device);
+    if (b.vertical[i] - m).abs() <= 1e-4 {
+        return;
+    }
+    b.vertical[i] = m;
+    info!("controls: {} vertical sensitivity {}", if i == 1 { "stick" } else { "mouse" }, sensitivity_text(m));
     store(world);
 }
 
@@ -887,6 +1022,57 @@ pub fn reset(world: &mut World) {
     store(world);
 }
 
+/// The Controls tab's rows away from the game's defaults ([`Bindings::game_defaults`]),
+/// of both devices, in the order of `crate::settings_view::ControlRow::all`: the Changed
+/// list's Controls rows [design: #1953 point 6]. A control's key and mouse button and its
+/// controller button are each their own row; the sensitivities are compared as the sliders
+/// show them (to a ten-thousandth of the game's).
+pub fn changed_controls(b: &Bindings) -> Vec<crate::settings_view::ControlRow> {
+    use crate::settings_view::ControlRow as R;
+    let d = Bindings::game_defaults();
+    let same = |row: R| match row {
+        R::Device => b.device == d.device,
+        R::AutomaticInput => b.automatic_input_switching == d.automatic_input_switching,
+        R::Binding(c, InputDevice::KeyboardMouse) => b.get(c) == d.get(c),
+        R::Binding(c, InputDevice::Controller) => b.pad(c) == d.pad(c),
+        R::Invert => b.invert_y == d.invert_y,
+        R::Sensitivity(InputDevice::KeyboardMouse) => ((b.mouse_sensitivity - d.mouse_sensitivity) / MOUSE_SENSITIVITY).abs() <= 1e-4,
+        R::Sensitivity(InputDevice::Controller) => (b.stick_sensitivity - d.stick_sensitivity).abs() <= 1e-4,
+        R::Vertical(dev) => (b.vertical[device_slot(dev)] - d.vertical[device_slot(dev)]).abs() <= 1e-4,
+        R::Rumble => b.rumble == d.rumble,
+    };
+    R::all().into_iter().filter(|r| !same(*r)).collect()
+}
+
+/// Put exactly `rows` of the Controls tab back as the game has them by default (the
+/// Changed list's Defaults), each set directly, with no swap: a control's key goes back
+/// without moving another control's, every other row is left as it is [design: #1953].
+/// Logged and kept in the INI once.
+pub fn restore_rows(world: &mut World, rows: &[crate::settings_view::ControlRow]) {
+    use crate::settings_view::ControlRow as R;
+    if rows.is_empty() {
+        return;
+    }
+    let Some(mut b) = world.get_resource_mut::<Bindings>() else { return };
+    let d = Bindings::game_defaults();
+    for row in rows {
+        match *row {
+            R::Device => b.device = d.device,
+            R::AutomaticInput => b.automatic_input_switching = d.automatic_input_switching,
+            R::Binding(c, InputDevice::KeyboardMouse) => b.set(c, d.get(c)),
+            R::Binding(c, InputDevice::Controller) => b.set_pad(c, d.pad(c)),
+            R::Invert => b.invert_y = d.invert_y,
+            R::Sensitivity(InputDevice::KeyboardMouse) => b.mouse_sensitivity = d.mouse_sensitivity,
+            R::Sensitivity(InputDevice::Controller) => b.stick_sensitivity = d.stick_sensitivity,
+            R::Vertical(dev) => b.vertical[device_slot(dev)] = d.vertical[device_slot(dev)],
+            R::Rumble => b.rumble = d.rumble,
+        }
+    }
+    let names: Vec<String> = rows.iter().map(|r| r.name()).collect();
+    info!("controls: {} back to the game's", names.join(", "));
+    store(world);
+}
+
 /// Write `[Controls]` to the INI, keeping its other lines.
 fn store(world: &World) {
     let Some(path) = world.get_resource::<crate::settings::SettingsFile>().and_then(|f| f.0.clone()) else { return };
@@ -909,21 +1095,31 @@ fn write(path: &Path, b: &Bindings) -> Result<(), String> {
     std::fs::write(path, with_controls(&old, b)).map_err(|e| format!("{}: {e}", path.display()))
 }
 
-/// The controls' state this frame, from the keyboard and mouse or the controller as
-/// [`InputDevice`] says. While the console's free camera flies (`crate::free_cam`) its
-/// keys are the camera's: no control reads as pressed.
+/// A text field has the keyboard this frame (the settings page's search while it is open,
+/// `crate::pause`): no control reads as pressed or released, so a letter typed there
+/// moves, fires or saves nothing [design: #1953]. Set each frame in `PreUpdate`, before
+/// the game's input, and still on the frame the field closes.
+#[derive(Resource, Default, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct KeyboardCapture(pub bool);
+
+/// Presses follow [`InputDevice`]; releases query both devices [design, #2200].
+/// While the console's free camera flies (`crate::free_cam`) its
+/// keys are the camera's: no control reads as pressed; while a text field has the keys
+/// ([`KeyboardCapture`]) none reads as pressed or released.
 #[derive(SystemParam)]
 pub struct ControlInput<'w, 's> {
-    pub keys: Res<'w, ButtonInput<KeyCode>>,
-    pub mouse: Res<'w, ButtonInput<MouseButton>>,
+    pub keys: crate::pad::ActionButtons<'w, KeyCode>,
+    pub mouse: crate::pad::ActionButtons<'w, MouseButton>,
     pub bindings: Res<'w, Bindings>,
     pub free_cam: Option<Res<'w, crate::free_cam::FreeCam>>,
-    pub pads: Query<'w, 's, &'static Gamepad>,
+    pub pads: crate::pad::ActionPads<'w, 's>,
     pub sticks: Option<Res<'w, crate::pad::StickButtons>>,
     /// Keys and buttons scripts disabled (DisableKey, DisableControl; task D6).
     pub blocked: Option<Res<'w, crate::script_input::ScriptBlocked>>,
     /// A playing kill camera holds the gameplay controls (`crate::kill_cam`).
     pub kill_cam: Option<Res<'w, crate::kill_cam::KillCam>>,
+    /// A text field has the keyboard ([`KeyboardCapture`]).
+    pub capture: Option<Res<'w, KeyboardCapture>>,
 }
 
 /// How a controller input is asked about.
@@ -935,9 +1131,14 @@ enum Ask {
 }
 
 impl ControlInput<'_, '_> {
-    /// The free camera has the keys.
+    /// The free camera or a text field has the keys.
     pub fn suppressed(&self) -> bool {
-        self.free_cam.as_ref().is_some_and(|f| f.active)
+        self.free_cam.as_ref().is_some_and(|f| f.active) || self.captured()
+    }
+
+    /// A text field has the keyboard ([`KeyboardCapture`]).
+    pub fn captured(&self) -> bool {
+        self.capture.as_ref().is_some_and(|c| c.0)
     }
 
     /// A playing kill camera holds `c`: every control but those that open a menu or
@@ -951,6 +1152,11 @@ impl ControlInput<'_, '_> {
         self.bindings.device == InputDevice::Controller
     }
 
+    /// Derived physical stick edges with the switching crossing filtered [design, #2200].
+    pub fn stick_buttons(&self) -> Option<crate::pad::StickButtons> {
+        self.sticks.as_ref().map(|s| self.pads.filter_sticks(s))
+    }
+
     fn pad_is(&self, c: Control, ask: Ask) -> bool {
         match self.bindings.pad(c) {
             Some(PadInput::Button(b)) => self.pads.iter().any(|g| match ask {
@@ -959,8 +1165,8 @@ impl ControlInput<'_, '_> {
                 Ask::JustReleased => g.just_released(b),
             }),
             Some(PadInput::Stick(d)) => self.sticks.as_ref().is_some_and(|s| match ask {
-                Ask::Pressed => s.pressed(d),
-                Ask::JustPressed => s.just_pressed(d),
+                Ask::Pressed => s.pressed(d) && self.pads.iter().any(|g| d.amount(g.left_stick()) >= crate::pad::STICK_PRESS),
+                Ask::JustPressed => s.just_pressed(d) && self.pads.iter().any(|g| d.amount(g.left_stick()) >= crate::pad::STICK_PRESS),
                 Ask::JustReleased => s.just_released(d),
             }),
             None => false,
@@ -1006,14 +1212,11 @@ impl ControlInput<'_, '_> {
 
     /// Released this frame, and neither of its inputs is still down.
     pub fn just_released(&self, c: Control) -> bool {
-        if self.held(c) {
+        if self.held(c) || self.captured() {
             return false;
         }
-        if self.controller() {
-            return self.pad_is(c, Ask::JustReleased) && !self.pressed(c);
-        }
         let b = self.bindings.get(c);
-        let released = b.key.is_some_and(|k| self.keys.just_released(k)) || b.mouse.is_some_and(|m| self.mouse.just_released(m));
+        let released = self.pad_is(c, Ask::JustReleased) || b.key.is_some_and(|k| self.keys.just_released(k)) || b.mouse.is_some_and(|m| self.mouse.just_released(m));
         released && !self.pressed(c)
     }
 }
@@ -1023,18 +1226,54 @@ mod tests {
     use super::*;
 
     #[test]
+    fn automatic_input_switching_round_trips_and_legacy_devices_keep_their_meaning() {
+        for device in [InputDevice::KeyboardMouse, InputDevice::Controller] {
+            let mut b = Bindings::default();
+            let mut bad = Vec::new();
+            read_controls(&format!("[Controls]\nInput Device={}\n", device.name()), &mut b, &mut bad);
+            assert_eq!(b.device, device);
+            assert!(b.automatic_input_switching);
+            b.automatic_input_switching = false;
+            let text = with_controls("", &b);
+            let mut back = Bindings::default();
+            assert_eq!(read_controls(&text, &mut back, &mut bad).0, LINES);
+            assert_eq!(back.device, device);
+            assert!(!back.automatic_input_switching);
+            assert!(bad.is_empty());
+            read_controls("[Controls]\nAutomatic Input Switching=bad\n", &mut back, &mut bad);
+            assert!(!back.automatic_input_switching);
+            assert_eq!(bad.len(), 1);
+        }
+        use crate::settings_view::ControlRow;
+        let mut app = App::new();
+        app.init_resource::<Bindings>();
+        set_automatic_input_switching(app.world_mut(), false);
+        assert_eq!(changed_controls(app.world().resource::<Bindings>()), [ControlRow::AutomaticInput]);
+        restore_rows(app.world_mut(), &[ControlRow::AutomaticInput]);
+        assert!(changed_controls(app.world().resource::<Bindings>()).is_empty());
+    }
+
+    #[test]
     fn the_sensitivity_steps_within_its_range() {
         let near = |a: f32, b: f32| (a - b).abs() < 1e-5;
         assert_eq!(sensitivity_text(1.0), "100%");
-        assert!(near(step_sensitivity(1.0, 1), 1.05));
+        assert!(near(step_sensitivity(1.0, 1), 1.1));
         assert!(near(step_sensitivity(1.0, -2), 0.9));
-        assert!(near(step_sensitivity(1.0, -100), 0.25), "not under a quarter");
+        assert!(near(step_sensitivity(1.0, -100), 0.05), "not under a twentieth");
         assert!(near(step_sensitivity(1.0, 100), 3.0), "not past three times");
+        assert!(near(step_sensitivity(0.05, 1), 0.06), "whole percents at the bottom");
         // A value from the INI off the steps is brought onto them.
-        assert!(near(step_sensitivity(1.063, 0), 1.05));
-        assert!(near(sensitivity_part(0.25), 0.0) && near(sensitivity_part(3.0), 1.0));
+        assert!(near(step_sensitivity(1.03, 0), 1.0) && near(step_sensitivity(1.063, 0), 1.1), "the nearest on the log scale");
+        assert!(near(step_sensitivity(0.0001, 0), 0.05) && near(step_sensitivity(9.0, -1), 2.75));
+        assert!(near(sensitivity_part(0.05), 0.0) && near(sensitivity_part(3.0), 1.0));
+        assert!(near(sensitivity_part(0.01), 0.0) && near(sensitivity_part(0.0), 0.0));
         assert!(near(sensitivity_at_part(sensitivity_part(1.5)), 1.5));
         assert!(near(sensitivity_at_part(2.0), 3.0), "a drag past the meter's end stops at the most");
+        assert!(near(sensitivity_at_part(-1.0), 0.05));
+        // The values the slider had before are still steps (the smoke scenarios use them).
+        for p in [25, 50, 100, 150, 200, 300] {
+            assert!(SENSITIVITY_STEPS.contains(&p), "{p}");
+        }
         // The mouse's and the stick's are kept apart.
         let mut b = Bindings::game_defaults();
         b.mouse_sensitivity = 0.003;
@@ -1046,6 +1285,107 @@ mod tests {
         let (_, changed) = read_controls(&ini_set(&with_controls("", &b), PAD_SECTION, STICK_SENSITIVITY_KEY, "2.00"), &mut back, &mut bad);
         assert!(bad.is_empty(), "{bad:?}");
         assert!(near(back.stick_sensitivity, 2.0) && near(back.mouse_sensitivity, 0.003), "{changed:?}");
+    }
+
+    /// #2201: each device's Vertical Sensitivity is kept in the INI and read back apart; an
+    /// INI written before it (no such lines) reads as 1, the look as before.
+    #[test]
+    fn the_vertical_sensitivities_are_kept_apart_and_missing_lines_read_as_one() {
+        let near = |a: f32, b: f32| (a - b).abs() < 1e-5;
+        let mut b = Bindings::game_defaults();
+        assert_eq!(b.vertical, [1.0, 1.0]);
+        b.vertical = [0.8, 1.2];
+        assert!(near(b.vertical_sensitivity(), 0.8));
+        b.device = InputDevice::Controller;
+        assert!(near(b.vertical_sensitivity(), 1.2));
+        let text = with_controls("", &b);
+        assert!(text.contains("Mouse Vertical Sensitivity=0.80") && text.contains("Stick Vertical Sensitivity=1.20"), "{text}");
+        let (mut back, mut bad) = (Bindings::game_defaults(), vec![]);
+        let (found, changed) = read_controls(&text, &mut back, &mut bad);
+        assert!(bad.is_empty(), "{bad:?}");
+        assert_eq!(found, LINES);
+        assert!(near(back.vertical[0], 0.8) && near(back.vertical[1], 1.2), "{changed:?}");
+        assert!(changed.contains(&"Mouse Vertical Sensitivity 0.8".to_string()) && changed.contains(&"[Controller] Stick Vertical Sensitivity 1.2".to_string()), "{changed:?}");
+        // Without the lines: 1 each, and two lines fewer found (written at the start).
+        let old: String = text.lines().filter(|l| !l.contains("Vertical Sensitivity")).map(|l| format!("{l}\n")).collect();
+        let mut back = Bindings::game_defaults();
+        let (found, _) = read_controls(&old, &mut back, &mut bad);
+        assert_eq!((found, back.vertical), (LINES - 2, [1.0, 1.0]));
+        // Below the slider's least: clamped; not a number: refused.
+        let low = ini_set(&ini_set(&text, SECTION, "Mouse Vertical Sensitivity", "0.01"), PAD_SECTION, "Stick Vertical Sensitivity", "x");
+        let mut back = Bindings::game_defaults();
+        read_controls(&low, &mut back, &mut bad);
+        assert!(near(back.vertical[0], SENSITIVITY_LEAST) && near(back.vertical[1], 1.0));
+        assert_eq!(bad, ["[Controller] Stick Vertical Sensitivity=x (not a number above 0)"]);
+        // Away from the default: in the Changed list, and its Defaults puts it back.
+        use crate::settings_view::ControlRow as R;
+        let mut b = Bindings::game_defaults();
+        b.vertical[1] = 0.5;
+        assert_eq!(changed_controls(&b), [R::Vertical(InputDevice::Controller)]);
+        let mut app = App::new();
+        app.insert_resource(b);
+        restore_rows(app.world_mut(), &[R::Vertical(InputDevice::Controller)]);
+        assert_eq!(app.world().resource::<Bindings>().vertical, [1.0, 1.0]);
+    }
+
+    /// #1632: centimetres of mouse travel for a full turn at 1600 dpi, reading the
+    /// sensitivity as radians a count [hypothesis, as `MOUSE_SENSITIVITY`].
+    fn cm_per_turn_at_1600_dpi(m: f32) -> f32 {
+        std::f32::consts::TAU / (m * MOUSE_SENSITIVITY) / 1600.0 * 2.54
+    }
+
+    #[test]
+    fn the_slowest_mouse_sensitivity_suits_a_1600_dpi_mouse() {
+        assert!(cm_per_turn_at_1600_dpi(SENSITIVITY_LEAST) >= 60.0, "{}", cm_per_turn_at_1600_dpi(SENSITIVITY_LEAST));
+        let default = cm_per_turn_at_1600_dpi(1.0);
+        assert!((4.9..5.1).contains(&default), "the default is unchanged: {default}");
+        assert!(cm_per_turn_at_1600_dpi(SENSITIVITY_MOST) < 2.0);
+        // The steps rise, stay in the range, and no step changes the turn by more than a
+        // fifth (finer than the old 25% -> 30% at the bottom).
+        assert_eq!(f32::from(SENSITIVITY_STEPS[0]) / 100.0, SENSITIVITY_LEAST);
+        assert_eq!(f32::from(SENSITIVITY_STEPS[SENSITIVITY_STEPS.len() - 1]) / 100.0, SENSITIVITY_MOST);
+        for w in SENSITIVITY_STEPS.windows(2) {
+            assert!(w[0] < w[1] && f32::from(w[1]) / f32::from(w[0]) <= 1.2 + 1e-6, "{w:?}");
+        }
+        // Each step walks to the next and back.
+        for (i, &p) in SENSITIVITY_STEPS.iter().enumerate() {
+            let m = f32::from(p) / 100.0;
+            assert_eq!(nearest_step(m), i, "{p}");
+            assert!((sensitivity_at_part(sensitivity_part(m)) - m).abs() < 1e-5, "{p}");
+        }
+        // The meter is logarithmic: the slow end has room, 100% sits about three quarters in.
+        let at_default = sensitivity_part(1.0);
+        assert!((0.7..0.76).contains(&at_default), "{at_default}");
+    }
+
+    #[test]
+    fn a_saved_sensitivity_below_the_least_is_clamped_not_refused() {
+        let near = |a: f32, b: f32| (a - b).abs() < 1e-7;
+        let text = with_controls("", &Bindings::game_defaults());
+        // Old INIs: 25% (the old least) keeps loading as it was.
+        let mut b = Bindings::game_defaults();
+        let mut bad = vec![];
+        read_controls(&ini_set(&text, SECTION, SENSITIVITY_KEY, "0.0005"), &mut b, &mut bad);
+        assert!(bad.is_empty() && near(b.mouse_sensitivity, 0.0005), "{bad:?}");
+        // Under the new least: brought up to it.
+        let low = ini_set(&ini_set(&text, SECTION, SENSITIVITY_KEY, "0.00001"), PAD_SECTION, STICK_SENSITIVITY_KEY, "0.01");
+        let mut b = Bindings::game_defaults();
+        read_controls(&low, &mut b, &mut bad);
+        assert!(bad.is_empty(), "{bad:?}");
+        assert!(near(b.mouse_sensitivity, SENSITIVITY_LEAST * MOUSE_SENSITIVITY), "{}", b.mouse_sensitivity);
+        assert!((b.stick_sensitivity - SENSITIVITY_LEAST).abs() < 1e-6);
+        // Zero is still refused (not a number above 0).
+        let mut b = Bindings::game_defaults();
+        read_controls(&ini_set(&text, SECTION, SENSITIVITY_KEY, "0"), &mut b, &mut bad);
+        assert_eq!(bad.len(), 1);
+        // The low end is written with the decimals it needs and read back.
+        assert_eq!(mouse_sensitivity_text(0.002), "0.0020");
+        assert_eq!(mouse_sensitivity_text(0.06 * MOUSE_SENSITIVITY), "0.00012");
+        let mut slow = Bindings::game_defaults();
+        slow.mouse_sensitivity = 0.07 * MOUSE_SENSITIVITY;
+        let mut back = Bindings::game_defaults();
+        read_controls(&with_controls("", &slow), &mut back, &mut bad);
+        assert!((back.sensitivity() - 0.07).abs() < 1e-4, "{}", back.sensitivity());
     }
 
     #[test]
@@ -1165,5 +1505,58 @@ Rumble=1"), "{text}");
         let c = sys.get(app.world()).expect("resources");
         assert!(c.pressed(Control::TogglePov) && c.just_pressed(Control::TogglePov));
         assert!(!c.pressed(Control::Use));
+    }
+
+    #[test]
+    fn a_text_field_holding_the_keys_hides_them_from_the_controls() {
+        let mut app = App::new();
+        app.init_resource::<ButtonInput<KeyCode>>().init_resource::<ButtonInput<MouseButton>>().init_resource::<Bindings>().init_resource::<KeyboardCapture>();
+        app.world_mut().resource_mut::<ButtonInput<KeyCode>>().press(KeyCode::KeyW);
+        let mut sys = bevy::ecs::system::SystemState::<ControlInput>::new(app.world_mut());
+        assert!(sys.get(app.world()).unwrap().just_pressed(Control::Forward));
+        app.world_mut().resource_mut::<KeyboardCapture>().0 = true;
+        let c = sys.get(app.world()).unwrap();
+        assert!(c.suppressed() && !c.pressed(Control::Forward) && !c.just_pressed(Control::Forward));
+        // Let go while the field holds the keys (the frame it closes too): no release either.
+        app.world_mut().resource_mut::<ButtonInput<KeyCode>>().release(KeyCode::KeyW);
+        assert!(!sys.get(app.world()).unwrap().just_released(Control::Forward));
+        app.world_mut().resource_mut::<KeyboardCapture>().0 = false;
+        assert!(sys.get(app.world()).unwrap().just_released(Control::Forward));
+    }
+
+    #[test]
+    fn the_changed_controls_go_back_one_by_one_without_a_swap() {
+        use crate::settings_view::ControlRow as R;
+        let mut app = App::new();
+        app.init_resource::<Bindings>();
+        let world = app.world_mut();
+        assert!(changed_controls(world.resource::<Bindings>()).is_empty());
+        // Jump to W (Forward gets Space), the controller's Jump to RB, the stick slower, no rumble.
+        let mut b = world.resource_mut::<Bindings>();
+        b.rebind(Control::Jump, Input::Key(KeyCode::KeyW));
+        b.rebind_pad(Control::Jump, PadInput::Button(GamepadButton::RightTrigger));
+        b.stick_sensitivity = 0.5;
+        b.rumble = false;
+        let changed = changed_controls(world.resource::<Bindings>());
+        assert_eq!(
+            changed,
+            [
+                R::Binding(Control::Forward, InputDevice::KeyboardMouse),
+                R::Binding(Control::Jump, InputDevice::KeyboardMouse),
+                R::Binding(Control::Jump, InputDevice::Controller),
+                R::Binding(Control::Vats, InputDevice::Controller),
+                R::Sensitivity(InputDevice::Controller),
+                R::Rumble,
+            ]
+        );
+        // Jump's key alone back: Forward keeps Space (no swap), everything else as it was.
+        restore_rows(world, &[R::Binding(Control::Jump, InputDevice::KeyboardMouse), R::Rumble]);
+        let b = world.resource::<Bindings>();
+        assert_eq!(b.get(Control::Jump).key, Some(KeyCode::Space));
+        assert_eq!(b.get(Control::Forward).key, Some(KeyCode::Space), "Forward is not given W back");
+        assert!(b.rumble);
+        assert_eq!(changed_controls(b), [R::Binding(Control::Forward, InputDevice::KeyboardMouse), R::Binding(Control::Jump, InputDevice::Controller), R::Binding(Control::Vats, InputDevice::Controller), R::Sensitivity(InputDevice::Controller)]);
+        restore_rows(world, &changed_controls(world.resource::<Bindings>()));
+        assert!(changed_controls(world.resource::<Bindings>()).is_empty());
     }
 }

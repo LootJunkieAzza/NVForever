@@ -110,8 +110,8 @@ pub struct Portrait {
     pub drop: f32,
     /// Looking down (positive) or up, radians.
     pub pitch: f32,
-    /// The camera stepped this far to its left, game units, so the player stands right
-    /// of the picture's middle (clear of the creator's panel).
+    /// The camera stepped this far to its left, game units (to its right when negative,
+    /// so the player stands left of the picture's middle, clear of the creator's panel).
     pub shift: f32,
 }
 
@@ -170,6 +170,10 @@ pub struct PlayerControl {
     /// A kill camera has the view (`crate::kill_cam`): it counts as a third-person view,
     /// so the body is drawn and the first-person arms are not.
     pub cinematic: bool,
+    /// A conversation's close-up from third person (`crate::dialogue_zoom`): how far the
+    /// camera has travelled from its place behind the player to the first-person eye, 0 to 1.
+    /// [`Self::pov`] stays the player's own.
+    pub talk_camera: f32,
 }
 
 impl Default for PlayerControl {
@@ -192,14 +196,33 @@ impl Default for PlayerControl {
             crosshair: None,
             portrait: None,
             cinematic: false,
+            talk_camera: 0.0,
         }
     }
 }
 
 impl PlayerControl {
-    /// Whether the camera shows the player from outside (third person, or circling).
+    /// Cancel holds owned by the previous input device without performing their tap
+    /// actions. Keep intentional toggles and the camera's angles [design, #2200].
+    pub(crate) fn cancel_input_holds(&mut self) {
+        self.orbit.held = false;
+        self.orbit.moved = false;
+        self.ready_held = None;
+        self.aiming = false;
+        self.trigger = false;
+    }
+
+    /// Whether the player's own view is from outside (third person, or circling), whatever a
+    /// conversation's close-up does with the camera.
+    pub fn own_third_person(&self) -> bool {
+        self.pov == Pov::Third || self.orbit.active()
+    }
+
+    /// Whether the camera shows the player from outside: the player's own view, unless a
+    /// conversation's close-up has come so close that the body goes
+    /// ([`TALK_CAMERA_CLOSE`]), or a camera that does (the creator's, a kill camera).
     pub fn third_person_view(&self) -> bool {
-        self.pov == Pov::Third || self.orbit.active() || self.portrait.is_some() || self.cinematic
+        self.portrait.is_some() || self.cinematic || (self.own_third_person() && self.talk_camera < TALK_CAMERA_CLOSE)
     }
 
     /// The heading the view looks along for a player facing `heading`: turned by the
@@ -461,7 +484,8 @@ pub fn tell_scripts(mut control: ResMut<PlayerControl>, mut script: Option<ResMu
         control.always_run = run;
     }
     g.gaps.always_run = control.always_run;
-    g.set_first_person(!control.third_person_view());
+    // The player's own view: a conversation's close-up does not change what scripts see.
+    g.set_first_person(!PlayerControl { talk_camera: 0.0, ..*control }.third_person_view());
     let mut m = g.motion(fnv_sim::FormId::PLAYER_REF);
     if m.sneaking != control.sneak {
         m.sneaking = control.sneak;
@@ -482,6 +506,10 @@ pub fn report_locks(mut exit: MessageReader<AppExit>, locks: Res<ControlLocks>, 
     );
 }
 
+/// A conversation's close-up from third person: from this much of the camera's travel to
+/// the eye the view counts as first person, so the body goes while the camera is still
+/// behind the head, not through it [design].
+pub const TALK_CAMERA_CLOSE: f32 = 0.85;
 /// Holding Ready Item this long with the weapon out holsters it, seconds [hypothesis].
 pub const HOLSTER_HOLD: f32 = 0.5;
 /// The circling camera swings back behind the player with this time constant, seconds
@@ -558,6 +586,7 @@ pub fn read_controls(
     state: Res<State<PlayState>>,
     mut control: ResMut<PlayerControl>,
     hud: Option<ResMut<HudMessage>>,
+    switches: Option<Res<crate::script_switches::ScriptSwitches>>,
 ) {
     if *state.get() != PlayState::Playing {
         control.aiming = false;
@@ -640,7 +669,10 @@ pub fn read_controls(
             c.pov = Pov::Third;
         }
     }
-    if c.third_person_view() && scroll.delta.y != 0.0 && !input.suppressed() {
+    // Not while a script turned the vanity wheel off (ToggleVanityWheel,
+    // `crate::script_switches`).
+    let wheel = switches.is_none_or(|s| s.vanity_wheel);
+    if wheel && c.third_person_view() && scroll.delta.y != 0.0 && !input.suppressed() {
         c.distance = zoom(c.distance, scroll.delta.y);
     }
     if let Some(m) = message {
@@ -780,6 +812,7 @@ pub fn place_camera(
     mut phys: ResMut<PhysState>,
     mut cams: Query<&mut Transform, With<PlayerCamera>>,
     mut told: Local<Option<bool>>,
+    switches: Option<Res<crate::script_switches::ScriptSwitches>>,
 ) {
     // Say which line the crosshair follows when it changes (smoke tests read it).
     let third = control.crosshair.is_some();
@@ -811,7 +844,10 @@ pub fn place_camera(
         t.rotation = space::look_rotation(heading, pitch);
         return;
     }
-    if !control.third_person_view() {
+    let third_view = control.third_person_view();
+    // On its way to or from a conversation's close-up the camera is between the two places.
+    let close = control.talk_camera;
+    if !third_view && (close <= 0.0 || close >= 1.0) {
         t.rotation = p.body_view.map_or_else(|| space::look_rotation(p.heading, p.pitch), space::view_rotation);
         t.translation = space::to_bevy(eye);
         return;
@@ -834,7 +870,9 @@ pub fn place_camera(
     for leg in 0..2 {
         let d = [to[0] - from[0], to[1] - from[1], to[2] - from[2]];
         let len = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
-        if len > 1e-3 {
+        // ToggleCameraCollision 0: the camera goes through walls (`crate::script_switches`).
+        let collides = switches.as_deref().is_none_or(|s| s.camera_collision);
+        if len > 1e-3 && collides {
             let reach = match phys.ray(from, d, len + WALL_MARGIN, filter.clone()) {
                 Some(h) => (h.distance - WALL_MARGIN).max(0.0).min(len),
                 None => len,
@@ -848,10 +886,13 @@ pub fn place_camera(
             (from, to) = (out, want);
         }
     }
+    for (o, e) in out.iter_mut().zip(eye) {
+        *o += (e - *o) * close;
+    }
     t.translation = space::to_bevy(out);
     // While circling, the camera does not look where the player does: aim from the eye.
     // Detached, what the player uses is what the camera looks at.
-    if !control.orbit.active() || control.orbit.free {
+    if third_view && (!control.orbit.active() || control.orbit.free) {
         control.crosshair = Some(Crosshair::placed(out, heading, pitch, pivot));
     }
 }
@@ -984,6 +1025,23 @@ mod tests {
         // Not pushed: nothing turns and the spin goes.
         assert_eq!(steer(1.0, 2.0, 0.0, 0.0, 3.0, 0.1), (1.0, 2.0, 0.0, 0.0));
         assert!((wrap_angle(3.0 * PI / 2.0) + FRAC_PI_2).abs() < 1e-5 && (wrap_angle(PI) - PI).abs() < 1e-5);
+    }
+
+    #[test]
+    fn a_conversations_close_up_leaves_the_players_own_view_alone() {
+        let mut c = PlayerControl { pov: Pov::Third, ..Default::default() };
+        assert!(c.third_person_view() && c.own_third_person());
+        // On the way the body is still drawn; close to the eye it goes.
+        c.talk_camera = TALK_CAMERA_CLOSE - 0.01;
+        assert!(c.third_person_view());
+        c.talk_camera = TALK_CAMERA_CLOSE;
+        assert!(!c.third_person_view() && c.own_third_person() && c.pov == Pov::Third);
+        // The view looks along the heading then.
+        c.orbit.yaw = 0.5;
+        assert_eq!(c.view_heading(1.0), 1.0);
+        // A camera that shows the player from outside still does.
+        c.cinematic = true;
+        assert!(c.third_person_view());
     }
 
     #[test]

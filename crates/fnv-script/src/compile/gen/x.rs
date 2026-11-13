@@ -371,7 +371,14 @@ impl Gen<'_> {
                 let on = match head {
                     Some(h) => match self.reference(h) {
                         Some(r) => Some(Box::new(XExpr::Ref { r: RefIndex(r) })),
-                        None => return self.xerr("unresolved_name", h.to_string()),
+                        // `GetSelf.Function`: the call on what a function of no arguments
+                        // returns [documented: Chained dot syntax, "GetSelf is a function
+                        // that returns a reference"; observed: the projectile set's
+                        // proj.reg rows compile in the original, #2036].
+                        None => match self.xfunction(h) {
+                            Some(hf) => Some(Box::new(XExpr::Call { call: XCall { on: None, func: hf.func, args: Vec::new() } })),
+                            None => return self.xerr("unresolved_name", h.to_string()),
+                        },
                     },
                     None => None,
                 };
@@ -428,6 +435,16 @@ impl Gen<'_> {
         let formatted = u.params.iter().any(|p| p.name.starts_with("...") || p.name.to_ascii_lowercase().contains("format"));
         // The wiki's type is "string", not "string_var" (Sv_Erase takes the variable).
         matches!(u.origin.as_str(), "NVSE" | "FOSE1") && !formatted && u.params.get(k).is_some_and(|p| p.kind == "string" && p.wiki_type.as_deref().is_some_and(|t| t.eq_ignore_ascii_case("string")))
+    }
+
+    /// An extender function without an opcode whose parameter `k` the catalogue gives as
+    /// an axis (`kind: "axis"`): `X`, `Y` or `Z` there is the axis even when a record of
+    /// the load order has that editor ID [observed: sup3, `SetTFCAngle Z 45` read back 45
+    /// in the original with OldWorldBlues.esm and LonesomeRoad.esm loaded, each with a
+    /// reference named `Z`].
+    fn axis_param(&self, f: &XFn, k: usize) -> bool {
+        let FuncId::Name(n) = &f.func else { return false };
+        f.opcode.is_none() && self.table.unnumbered.get(&n.to_ascii_lowercase()).and_then(|u| u.params.get(k)).is_some_and(|p| p.kind == "axis" || p.wiki_type.as_deref().is_some_and(axis_letters))
     }
 
     /// The function's parameter `k` takes a form, or is named for a global (the base
@@ -491,7 +508,11 @@ impl Gen<'_> {
                     }
                 }
             }
-            let enc = f.opcode.map(|o| self.table.param_enc(o, args.len())).unwrap_or(ParamEnc::Value);
+            let enc = match f.opcode {
+                Some(o) => self.table.param_enc(o, args.len()),
+                None if self.axis_param(f, args.len()) => ParamEnc::Axis,
+                None => ParamEnc::Value,
+            };
             let min = if f.aware {
                 ARG_OVERRIDE
             } else if self.co {
@@ -504,9 +525,51 @@ impl Gen<'_> {
             let a = self.xarg(p, &enc, min);
             self.in_args = was;
             self.in_arg_any = was_any;
-            args.push(a?);
+            let a = a?;
+            if self.runtime {
+                self.runtime_refusal(f, args.len(), &a);
+            }
+            args.push(a);
         }
         Some(args)
+    }
+
+    /// What the extender's runtime compiler refuses in argument `k` of `f`
+    /// ([`crate::compile::compile_runtime`]; docs/spec-notes/ext-syntax.md §11):
+    ///
+    /// - a number literal with a fraction for an int parameter of a plugin function
+    ///   (`SetBaseKarma 37.5`, `ApplyEasingAlt 0.5 1.5 0`) [observed: jip.n7 karma.set,
+    ///   jip6 dest.settrait.1.1.3.5, showoff3 so3.ease.badcode and so3.seed.range.fraction,
+    ///   jg3 casino.setwin.tops.frac, jg4 regn.setpriority.gs.frac, sup1 roundalt.flag2 and
+    ///   words.7p9 did not compile; the whole-number rows beside each did]. A literal
+    ///   with nothing after the point (`37.0`) is not refused [hypothesis: no row];
+    /// - the result of a command registered without a return type given to a form
+    ///   parameter (`GetFormIDString (GetPackageLocation rG)`) [observed: nvse.misc
+    ///   pkg.nth0.location, nvse-seventh pkg.removeat0, jg6 GetCurrentFurnitureRef
+    ///   (ext-jg6.md), all under GetFormIDString; hypothesis: any form parameter].
+    fn runtime_refusal(&mut self, f: &XFn, k: usize, a: &XExpr) {
+        let (FuncId::Name(name), None) = (&f.func, f.opcode) else { return };
+        let low = name.to_ascii_lowercase();
+        let literal = match a {
+            XExpr::Num { value, text } => Some((*value, text.clone())),
+            XExpr::Unary { op: XUnary::Neg, e } => match &**e {
+                XExpr::Num { value, text } => Some((-*value, format!("-{text}"))),
+                _ => None,
+            },
+            _ => None,
+        };
+        if let Some((_, text)) = literal.filter(|(v, _)| v.fract() != 0.0) {
+            let int = INT_PARAMS_OBSERVED.contains(&(low.as_str(), k))
+                || self.table.unnumbered.get(&low).and_then(|u| u.params.get(k)).is_some_and(|p| p.kind == "int");
+            if int {
+                self.diag("fraction_for_int_parameter", true, format!("{name}: {text}"));
+            }
+        }
+        if let XExpr::Call { call: XCall { func: FuncId::Name(inner), .. } } = a {
+            if UNTYPED_RESULTS.iter().any(|u| inner.eq_ignore_ascii_case(u)) && self.form_param(f, k) {
+                self.diag("untyped_result_for_form", true, format!("{inner} as {name}'s argument"));
+            }
+        }
     }
 
     /// Arguments left after a call line's call has all it takes, parsed as operands and
@@ -560,6 +623,12 @@ impl Gen<'_> {
     }
 }
 
+/// A wiki type of axis letters, `X/Z` or `X/Y/Z` (SetTFCAngle's page types its axis
+/// `X/Z`, which the catalogue does not take for an axis).
+fn axis_letters(t: &str) -> bool {
+    t.len() >= 3 && t.split('/').all(|c| matches!(c.trim(), "X" | "Y" | "Z" | "x" | "y" | "z"))
+}
+
 fn val_expr(v: Val) -> XExpr {
     match v {
         Val::Num(text) => XExpr::Num { value: text.parse().unwrap_or(0.0), text },
@@ -569,6 +638,18 @@ fn val_expr(v: Val) -> XExpr {
         Val::Ref(r) => XExpr::Ref { r: RefIndex(r) },
     }
 }
+
+/// Plugin functions' parameters the original's runtime compiler takes as int though the
+/// catalogue gives a float, by lower-case name and position: SetBaseKarma's karma
+/// [observed: jip.n7 karma.set, `SetBaseKarma 37.5 rBase` did not compile where
+/// karma.set.int, `SetBaseKarma 37 rBase`, did].
+const INT_PARAMS_OBSERVED: [(&str, usize); 1] = [("setbasekarma", 0)];
+
+/// Commands registered without a return type whose result may not be given to a form
+/// parameter at run time [observed: nvse.misc pkg.nth0.location, nvse-seventh
+/// pkg.removeat0 and ext-jg6.md's GetCurrentFurnitureRef, each `GetFormIDString (…)`
+/// refused in the original; the catalogue's return types do not tell them apart].
+const UNTYPED_RESULTS: [&str; 3] = ["GetPackageLocation", "RemovePackageAt", "GetCurrentFurnitureRef"];
 
 /// Functions whose string takes format values the catalogue does not list (the VM's
 /// `…Ex` setters, vm.rs).

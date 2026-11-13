@@ -449,7 +449,7 @@ pub fn part_uses(a: &Appearance, world: &ActorWorld, ctx: &mut ActorCtx, stats: 
     for (pi, p) in a.parts.iter().enumerate() {
         // A worn item's or head part's alternate textures (texture-swaps.md §4) are in
         // the part's own shapes and materials from here on.
-        let Some(part) = ctx.part_swapped(&p.model, world.actors.part_alt_textures(p, a.female)) else {
+        let Some(part) = info_span!("actor::part_swapped").in_scope(|| ctx.part_swapped(&p.model, world.actors.part_alt_textures(p, a.female))) else {
             stats.parts_missing += 1;
             continue;
         };
@@ -477,12 +477,14 @@ pub fn part_uses(a: &Appearance, world: &ActorWorld, ctx: &mut ActorCtx, stats: 
         }
         let mut meshes = vec![None; part.shapes.len()];
         if let Some(shape) = &shape {
+            let _span = info_span!("actor::facegen_morph").entered();
             let mut cache = world.facegen.lock().expect("facegen cache");
             meshes = cache.morph(ctx, &part, &p.model, shape);
             // The face: the head's texture (the race's, on its skin shapes) takes the
             // offset of the `.egt` beside the head model.
             if p.role == "head:head" {
-                if let Some(offset) = fgts.and_then(|fgts| cache.face_offset(ctx, &p.model, fgts)) {
+                let _face_span = info_span!("actor::face_tint").entered();
+            if let Some(offset) = fgts.and_then(|fgts| cache.face_offset(ctx, &p.model, fgts)) {
                     for (i, _) in takes_texture.iter().enumerate().filter(|(_, &takes)| takes) {
                         if let Some(m) = cache.tinted(&mut ctx.models.materials, &materials[i], &offset) {
                             materials[i] = m;
@@ -494,6 +496,7 @@ pub fn part_uses(a: &Appearance, world: &ActorWorld, ctx: &mut ActorCtx, stats: 
         // Skin: every shape whose diffuse is one of the race's skin textures (the race
         // body and hands, and skin inside outfits and gloves) takes the skin's offset
         // [hypothesis, actors.md §4.1].
+        let skin_span = info_span!("actor::skin_tint").entered();
         if let Some(fg) = fgts {
             for (i, s) in part.shapes.iter().enumerate() {
                 let given = worn_skin[i].or(p.texture.as_deref().filter(|_| takes_texture[i]));
@@ -520,6 +523,7 @@ pub fn part_uses(a: &Appearance, world: &ActorWorld, ctx: &mut ActorCtx, stats: 
         // hair model's shapes, and the head parts' hair-shader shapes (beards), which
         // were drawn untinted, near white (playtest list 5 item 26,
         // actors.md §3).
+        drop(skin_span);
         if p.role == "hair" || p.role == "head_part" {
             if let Some([r, g, b]) = a.hair_color {
                 let tint = Color::srgb(2.0 * f32::from(r) / 255.0, 2.0 * f32::from(g) / 255.0, 2.0 * f32::from(b) / 255.0).to_linear();
@@ -536,12 +540,16 @@ pub fn part_uses(a: &Appearance, world: &ActorWorld, ctx: &mut ActorCtx, stats: 
                 }
             }
         }
-        // The hair model is drawn as a cut-out, solid like the original's
-        // (`nif_spawn::hair_model_cut_out`, #1454).
+        // The hair model is drawn as a solid cut-out core (`nif_spawn::hair_model_cut_out`,
+        // #1454) with its fainter texels blended over it from a second draw
+        // (`nif_spawn::hair_model_layer`, #1576): shaved sides stay see-through.
+        let mut layers = Vec::new();
         if p.role == "hair" {
+            layers = vec![None; part.shapes.len()];
             for (i, _) in part.shapes.iter().enumerate().filter(|(_, s)| !s.cap) {
                 let Some(mut m) = ctx.models.materials.get(&materials[i]).cloned() else { continue };
                 if matches!(m.base.alpha_mode, AlphaMode::Blend) {
+                    layers[i] = nvf_assets::nif_spawn::hair_model_layer(&m).map(|l| ctx.models.materials.add(l));
                     nvf_assets::nif_spawn::hair_model_cut_out(&mut m);
                     materials[i] = ctx.models.materials.add(m);
                 }
@@ -552,7 +560,7 @@ pub fn part_uses(a: &Appearance, world: &ActorWorld, ctx: &mut ActorCtx, stats: 
         // The Pip-Boy light's glow shows only with the light on, which is not built, and
         // outfits hold a left sleeve for wearing a Pip-Boy and one for not (actors.md §1.2).
         hidden_shapes.extend(part.shapes.iter().filter_map(|s| s.name.clone().filter(|n| fnv_actor::mesh::hidden_for_pipboy(n, pipboy))));
-        uses.push((pi, PartUse { meshes, part, materials, hidden_shapes, by_ancestor: false }));
+        uses.push((pi, PartUse { meshes, part, materials, layers, hidden_shapes, by_ancestor: false }));
     }
     uses
 }
@@ -574,6 +582,7 @@ pub fn spawn(
     stats: &mut ActorStats,
     hidden: bool,
 ) -> bool {
+    let appearance_span = info_span!("actor::appearance").entered();
     let equipment = crate::outfits::Equipment::of(world, sim, reference);
     let a = match crate::outfits::appearance(world, base, reference, equipment.as_ref()) {
         Ok(a) => a,
@@ -587,15 +596,20 @@ pub fn spawn(
         stats.unresolved += 1;
         return false;
     };
+    drop(appearance_span);
+    let uses_span = info_span!("actor::part_uses").entered();
     let (part_index, uses): (Vec<usize>, Vec<PartUse>) = part_uses(&a, world, ctx, stats).into_iter().unzip();
+    drop(uses_span);
     // The race's height scales the actor [hypothesis, actors.md §3], times its own (NAM6,
     // docs/spec-notes/actor-flags.md §5) [hypothesis].
     let rt = rt * Affine3A::from_scale(Vec3::splat((a.race_height * a.height) as f32));
-    let spawned = spawn_actor(commands, parent, Transform::from_matrix(Mat4::from(rt)), &skel, &uses);
+    let spawned = info_span!("actor::spawn_entities").in_scope(|| spawn_actor(commands, parent, Transform::from_matrix(Mat4::from(rt)), &skel, &uses));
+    let lips_span = info_span!("actor::lips_rig").entered();
     // The shapes a `.tri` can move when the actor speaks (lips.rs).
     if let Some(rig) = crate::lips::rig(&a, &part_index, &uses, &spawned, &ctx.models.data, a.shape_facegen(world.race_facegen).filter(|_| world.facegen_enabled)) {
         commands.entity(spawned.root).insert(rig);
     }
+    drop(lips_span);
     commands.entity(spawned.root).insert((
         Name::new(format!("Actor {reference:08X} {}", a.edid.as_deref().unwrap_or(""))),
         RefVisual(reference),
@@ -611,6 +625,7 @@ pub fn spawn(
         stats.spawned_hidden += 1;
     }
     if world.pose == ActorPose::Idle {
+        let _anims_span = info_span!("actor::anims_and_arm").entered();
         let body = if a.female { Body::Female } else { Body::Male };
         match world.anims.clip_set(ctx, &a.skeleton, &skel, body) {
             Some(set) => {
@@ -647,7 +662,7 @@ pub fn spawn(
                 // documents this presentation). Arm from the simulated appearance too:
                 // changing equipment here must not leave a record-selected weapon on the
                 // corpse, or rely on `follow_inventory` to rearm it (it never arms corpses).
-                let weapon = arm(commands, &spawned, &skel, &a, reference, world, ctx, &mut player, stats);
+                let weapon = info_span!("actor::arm").in_scope(|| arm(commands, &spawned, &skel, &a, reference, world, ctx, &mut player, stats));
                 let mut ec = commands.entity(spawned.root);
                 ec.insert((lo, player));
                 if let Some(w) = weapon {
@@ -696,22 +711,58 @@ pub fn spawn_creature(
         stats.creatures_unresolved += 1;
         return false;
     };
+    let parts_span = info_span!("creature::parts").entered();
     let mut uses = Vec::with_capacity(c.parts.len());
+    // Parts that move by themselves, drawn as playing models on their bone below.
+    let mut playing: Vec<(String, Arc<nvf_assets::actor::PreparedPart>)> = Vec::new();
+    // The creature's idle, read only when a part would play by itself (#2282).
+    let mut idle: Option<Option<Arc<nvf_assets::anim_play::Clip>>> = None;
     for p in &c.parts {
         let Some(part) = ctx.part(&p.model) else {
             stats.parts_missing += 1;
             continue;
         };
+        if plays_on_bone(&part, &skel) && !idle.get_or_insert_with(|| ctx.clip(&idle_path(&c.skeleton))).as_deref().is_some_and(|clip| drives_part(clip, &part)) {
+            playing.push((p.model.clone(), part));
+            continue;
+        }
         let materials = part.shapes.iter().map(|s| s.material.clone()).collect();
         let meshes = vec![None; part.shapes.len()];
-        uses.push(PartUse { meshes, part, materials, hidden_shapes: Vec::new(), by_ancestor: true });
+        uses.push(PartUse { meshes, part, materials, layers: Vec::new(), hidden_shapes: Vec::new(), by_ancestor: true });
     }
     // The creature's base scale (BNAM) on top of the reference's [hypothesis, §10.1].
+    drop(parts_span);
     let rt = rt * Affine3A::from_scale(Vec3::splat(c.base_scale as f32));
-    let spawned = spawn_actor(commands, parent, Transform::from_matrix(Mat4::from(rt)), &skel, &uses);
+    let spawned = info_span!("creature::spawn_entities").in_scope(|| spawn_actor(commands, parent, Transform::from_matrix(Mat4::from(rt)), &skel, &uses));
     // Where its body weapons fire from, when a body part holds the node (#1535).
+    let nodes_span = info_span!("creature::projectile_nodes").entered();
     for p in &c.parts {
-        crate::body_weapons::spawn_part_projectile_nodes(commands, ctx.models, &p.model, &skel, &spawned.nodes);
+        if let Some(part) = ctx.part(&p.model) {
+            crate::body_weapons::spawn_part_projectile_nodes(commands, &p.model, &part, &skel, &spawned.nodes);
+        }
+    }
+    drop(nodes_span);
+    for (path, part) in &playing {
+        let Some(pm) = ctx.models.model(path) else {
+            stats.parts_missing += 1;
+            continue;
+        };
+        let (bone, place) = match part.prn.as_ref().and_then(|n| skel.by_name.get(n)) {
+            Some(&b) => (b, Transform::from_matrix(Mat4::from(part.root))),
+            None => (0, Transform::IDENTITY),
+        };
+        let (_, drawn) = crate::shot_fx::spawn_playing_itself(commands, spawned.nodes[bone], &pm, place, path);
+        for e in drawn {
+            commands.entity(e).insert(RefVisual(reference));
+        }
+        if first_creature_report(base, path) {
+            let on = skel.names.get(bone).cloned().flatten().unwrap_or_default();
+            info!("creature parts: {} ({base:08X}): {path} plays its own controllers on {on}", c.edid.as_deref().unwrap_or(""));
+        }
+    }
+    if !spawned.part_nodes.is_empty() && first_creature_report(base, "") {
+        let names: Vec<&str> = spawned.part_nodes.iter().map(|(n, ..)| n.as_str()).collect();
+        info!("creature parts: {} ({base:08X}): part node(s) {} for its clips to drive", c.edid.as_deref().unwrap_or(""), names.join(", "));
     }
     commands.entity(spawned.root).insert((
         Name::new(format!("Creature {reference:08X} {}", c.edid.as_deref().unwrap_or(""))),
@@ -726,6 +777,7 @@ pub fn spawn_creature(
         stats.spawned_hidden += 1;
     }
     if world.pose == ActorPose::Idle {
+        let _anims_span = info_span!("creature::anims").entered();
         match world.anims.clip_set(ctx, &c.skeleton, &skel, Body::Male) {
             Some(set) => {
                 let mut lo = Locomotion::new(set.clone(), clip_phase(reference));
@@ -756,6 +808,56 @@ pub fn spawn_creature(
     stats.unbound_shapes += spawned.unbound;
     stats.creatures += 1;
     true
+}
+
+/// Whether `what` (a part's path, or "" for its part nodes) of creature `base` is
+/// reported for the first time: the line is written once per creature and part, not for
+/// every reference.
+fn first_creature_report(base: u32, what: &str) -> bool {
+    static SEEN: std::sync::OnceLock<Mutex<std::collections::HashSet<(u32, String)>>> = std::sync::OnceLock::new();
+    SEEN.get_or_init(Default::default).lock().is_ok_and(|mut s| s.insert((base, what.to_string())))
+}
+
+/// Whether a creature draws `part` as a model playing its own controllers on its `Prn`
+/// bone (`shot_fx::spawn_playing_itself`) rather than as still shapes: the part moves by
+/// itself ([`nvf_assets::actor::PreparedPart::plays_itself`]) and no shape hangs from a
+/// node of the part named as one of the skeleton's (actors.md §10.2), which a model on
+/// one bone could not follow [design, #2228: Mister Handy's jet].
+fn plays_on_bone(part: &nvf_assets::actor::PreparedPart, skel: &PreparedSkeleton) -> bool {
+    part.plays_itself && part.shapes.iter().all(|s| s.ancestors.iter().all(|(n, _)| n.as_ref().is_none_or(|n| !skel.by_name.contains_key(n))))
+}
+
+/// The creature's idle clip: `mtidle.kf` beside its skeleton (`locomotion::STANCE`).
+fn idle_path(skeleton: &str) -> String {
+    let folder = skeleton.rfind(['\\', '/']).map_or("", |i| &skeleton[..i]);
+    format!("{folder}\\{}idle.kf", crate::locomotion::STANCE)
+}
+
+/// Whether `clip` drives a shape of `part` (a material track naming the shape) or moves
+/// one of the part's named nodes (a transform track naming it). Such a part stays a
+/// part of the actor, posed and lit by the actor's clips, rather than playing its own
+/// controllers on its bone ([`plays_on_bone`]): the street Securitron's screen
+/// (`nvsecuritronpolicescreen01.nif`, `Screen01:0`) has looping controllers of its own,
+/// and its `mtidle.kf` keys `Screen01` and the shape's glow and texture too; drawn as a
+/// playing model it was not reached by the idle any more (#2282, after #2228)
+/// [observed: smoke securitron-screen; hypothesis: the idle's tracks are what the
+/// original shows on the screen, docs/spec-notes/effects-animation-audit.md §2].
+/// Visibility tracks do not count: Mister Handy's `mtidle.kf` shows and hides its jet's
+/// `##JetFlames01`/`02` (NiVisController) [observed: `fnvtool nif decode`], and the jet
+/// is the part #2228 plays by itself.
+fn drives_part(clip: &nvf_assets::anim_play::Clip, part: &nvf_assets::actor::PreparedPart) -> bool {
+    let shapes: Vec<&str> = part.shapes.iter().filter_map(|s| s.name.as_deref()).collect();
+    let nodes: Vec<&str> = part.shapes.iter().flat_map(|s| s.ancestors.iter().filter_map(|(n, _)| n.as_deref())).collect();
+    let material_shapes: Vec<&str> = clip.materials.iter().map(|m| m.shape.as_str()).collect();
+    let keyed_nodes: Vec<&str> = clip.tracks.iter().map(|(t, _)| t.as_str()).collect();
+    names_driven(&shapes, &nodes, &material_shapes, &keyed_nodes)
+}
+
+/// [`drives_part`] by names (case does not matter): a part's shape names and node names
+/// against the shapes a clip's material tracks name and the nodes its transform tracks
+/// name.
+fn names_driven(shapes: &[&str], nodes: &[&str], material_shapes: &[&str], keyed_nodes: &[&str]) -> bool {
+    shapes.iter().any(|s| material_shapes.iter().any(|m| m.eq_ignore_ascii_case(s))) || nodes.iter().any(|n| keyed_nodes.iter().any(|k| k.eq_ignore_ascii_case(n)))
 }
 
 /// Give an actor its weapon (part H, actors.md §9): the model under the skeleton's
@@ -840,6 +942,12 @@ pub(crate) fn arm_weapon(
     if !shapes.back.is_empty() || !shapes.gun.is_empty() {
         info!("actor weapons: {reference:08X} {path}: {} shape(s) on the back, {} gun shape(s) the clips show and hide", shapes.back.len(), shapes.gun.len());
     }
+    // The weapon's own hand models (WEAP BIPL: the power fist's metal hand), drawn as
+    // worn parts in place of the bare hand (`fnv_actor::Resolver::resolve_wearing`).
+    if !w.addons.is_empty() {
+        let models: Vec<&str> = w.addons.iter().filter_map(|a| world.actors.armors.get(a)).filter_map(|a| a.worn[0].as_deref()).collect();
+        info!("actor weapons: {reference:08X} {path}: worn with its hand model(s) {models:?} in place of the bare hand");
+    }
     hold.gun = shapes.gun.into_iter().map(|(e, n)| (e, n, None)).collect();
     hold.back = shapes.back;
     if !shapes.posed.is_empty() {
@@ -869,6 +977,17 @@ pub(crate) fn arm_weapon(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_part_the_idle_drives_stays_a_part() {
+        assert_eq!(idle_path(r"meshes\creatures\nvsecuritron\skeleton.nif"), r"meshes\creatures\nvsecuritron\mtidle.kf");
+        // The street Securitron's screen: mtidle.kf keys the screen's glow and its node.
+        assert!(names_driven(&["Screen01:0"], &["Screen01"], &["screen01:0", "ScreenStatic:0"], &["Bip01 Wheel"]));
+        assert!(names_driven(&["Screen01:0"], &["Screen01"], &[], &["screen01"]));
+        // Mister Handy's jet: its idle moves none of the jet's nodes and lights none of
+        // its shapes (it only shows and hides `##JetFlames01`, not counted; #2228).
+        assert!(!names_driven(&["JetFlame01"], &["##JetFlames01"], &[], &["Bip01", "Bip01 Spine 01"]));
+    }
 
     #[test]
     fn phases_spread_within_the_clip() {

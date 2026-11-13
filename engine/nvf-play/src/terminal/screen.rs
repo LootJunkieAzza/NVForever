@@ -418,11 +418,17 @@ fn blur(a: &mut [f32], w: usize, h: usize, sigma: f32, reach: usize) {
 /// dark text over a lit cell; the two share one layout.
 fn soft_faces(path: &str, data: &GameData, images: &mut Assets<Image>) -> Option<(Face, Face)> {
     let font = Font::parse(&data.read(&crate::interface::font_file(path))?).ok()?;
-    let bytes = data.read(&font.texture_path())?;
-    let dds = fnv_dds::Dds::parse(&bytes).ok()?;
-    let (w, h) = (dds.header.width, dds.header.height);
-    let top = dds.levels.first()?.first()?;
-    let rgba = fnv_dds::to_rgba8(dds.format, top).or_else(|| fnv_dds::decode_blocks(dds.format, w, h, top))?;
+    // The `.tex` before the `.dds`, as every font is drawn (interface::font_tex).
+    let (w, h, rgba) = match crate::interface::font_tex(&font, data) {
+        Some(t) => (t.width, t.height, t.rgba),
+        None => {
+            let bytes = data.read(&font.texture_path())?;
+            let dds = fnv_dds::Dds::parse(&bytes).ok()?;
+            let (w, h) = (dds.header.width, dds.header.height);
+            let top = dds.levels.first()?.first()?;
+            (w, h, fnv_dds::to_rgba8(dds.format, top).or_else(|| fnv_dds::decode_blocks(dds.format, w, h, top))?)
+        }
+    };
     let alpha: Vec<f32> = rgba.iter().skip(3).step_by(4).map(|&a| a as f32 / 255.0).collect();
     let mut bent = |ink: Color, under: Color| {
         let (ink, under) = (ink.to_srgba().green, under.to_srgba().green);
@@ -518,7 +524,8 @@ pub fn spawn_backdrop(commands: &mut Commands, under: Under) {
         Under::Monitor(_) => (false, SHADE),
     };
     // The flat picture's top is [`CANVAS_TOP`] down; the monitor's picture fills the window.
-    let top = if flat { u(CANVAS_TOP) } else { Val::ZERO };
+    // At the UI scale the flat picture keeps to the view's middle (#1631).
+    let top = if flat { crate::interface::from_top(CANVAS_TOP, 0.5) } else { Val::ZERO };
     let root = Node { justify_content: JustifyContent::Center, align_items: AlignItems::FlexStart, padding: UiRect::top(top), ..full.clone() };
     commands.spawn((Backdrop { flat }, Name::new("Terminal backdrop"), root, BackgroundColor(Color::srgba(0.0, 0.0, 0.0, shade)), GlobalZIndex(106))).with_children(|r| match under {
         Under::Flat(image) => {
@@ -586,7 +593,7 @@ fn centred(p: &mut ChildSpawnerCommands, face: &Face, s: &str, width: f32, top: 
 
 /// Draw the screen into the picture `camera` renders; returns the menu's rows on the
 /// canvas, for the pointer.
-pub fn spawn(commands: &mut Commands, camera: Entity, faces: &Faces, session: &Session, terminals: &fnv_game::GameData, cursor_on: bool) -> Vec<(usize, Rect)> {
+pub fn spawn(commands: &mut Commands, camera: Entity, faces: &Faces, session: &Session, game: &fnv_game::Game, cursor_on: bool) -> Vec<(usize, Rect)> {
     let mut rows = Vec::new();
     let root = Node { overflow: Overflow::clip(), ..at(0.0, 0.0, CANVAS.x, CANVAS.y) };
     commands.spawn((ScreenRoot, root, UiTargetCamera(camera), Name::new("Terminal screen"))).with_children(|c| {
@@ -601,7 +608,7 @@ pub fn spawn(commands: &mut Commands, camera: Entity, faces: &Faces, session: &S
         match &session.page {
             Page::Hacking(h) => hacking_page(c, &faces.text, &faces.lit, h, cursor_on),
             Page::LockedOut(lines) => lockout_page(c, &faces.text, lines),
-            Page::Menu(m) => menu_page(c, &faces.text, &faces.lit, m, terminals, cursor_on, &mut rows),
+            Page::Menu(m) => menu_page(c, &faces.text, &faces.lit, m, game, cursor_on, &mut rows),
         }
         // [design] Over everything on the canvas, under the monitor's glare (§2, §7).
         if let Some(lines) = &faces.scanlines {
@@ -689,8 +696,9 @@ pub fn note_text(n: Option<&NoteDef>) -> String {
     }
 }
 
-fn menu_page(c: &mut ChildSpawnerCommands, face: &Face, lit_face: &Face, m: &MenuView, data: &fnv_game::GameData, cursor_on: bool, rows: &mut Vec<(usize, Rect)>) {
+fn menu_page(c: &mut ChildSpawnerCommands, face: &Face, lit_face: &Face, m: &MenuView, game: &fnv_game::Game, cursor_on: bool, rows: &mut Vec<(usize, Rect)>) {
     let bright = bright();
+    let data = game.data;
     let Some(t) = data.terminals.get(&m.terminal) else { return };
     let mut y = MENU_HEADER_Y;
     for line in [words::MENU_TITLE, words::MENU_COPYRIGHT, &fnv_game::terminal::server_text(m.server)] {
@@ -699,7 +707,9 @@ fn menu_page(c: &mut ChildSpawnerCommands, face: &Face, lit_face: &Face, m: &Men
     }
     y += 20.0;
     // The welcome text (the top terminal's, or the sub menu's own when it has one).
-    let welcome = if t.welcome.trim().is_empty() { &m.welcome } else { &t.welcome };
+    // Its player string codes expanded (`fnv_game::text_codes`; the top's is already).
+    let own = game.expand_codes(&t.welcome);
+    let welcome = if t.welcome.trim().is_empty() { &m.welcome } else { &own };
     let mut widest: f32 = 0.0;
     for para in welcome.replace('\r', "").split('\n') {
         for line in face.font.lines(para, Some(WELCOME_WRAP)) {
@@ -717,7 +727,7 @@ fn menu_page(c: &mut ChildSpawnerCommands, face: &Face, lit_face: &Face, m: &Men
     y += 12.0;
     match m.note {
         Some(n) => {
-            let text = note_text(data.notes.get(&n));
+            let text = game.expand_codes(&note_text(data.notes.get(&n)));
             let mut lines = Vec::new();
             for para in text.split('\n') {
                 let l = face.font.lines(para, Some(WELCOME_WRAP));
@@ -965,8 +975,8 @@ mod tests {
         // next shelf must produce exactly the same cell, including its empty border.
         for (i, &(x0, y0)) in origins.iter().enumerate() {
             let mut solo = font.clone();
-            for code in 65..68 {
-                if code != 65 + i { solo.glyphs[code] = Glyph::default(); }
+            for (k, g) in solo.glyphs[65..68].iter_mut().enumerate() {
+                if k != i { *g = Glyph::default(); }
             }
             let single = soften(&solo, &alpha, 750, 4, SOFT_SIGMA, |a| a).unwrap();
             let height = [1, 4, 2][i] + 2 * SOFT_PAD;

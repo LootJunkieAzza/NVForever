@@ -72,7 +72,6 @@ fn show_hits_and_deaths(
     let now = time.elapsed_secs();
     let tuning = combat.map(|c| c.tuning.clone()).unwrap_or_default();
     for (e, r, rig, lo, flinch, mut t, gt, dressed) in &mut actors {
-        let hit = fresh.iter().rev().find(|h| h.form_id == r.0);
         let dead = is_dead(script.as_deref(), r.0);
         if dead {
             let templates = crate::ragdoll::worn_templates(actor_world.as_deref(), dressed.map_or(&[][..], |d| &d.worn));
@@ -80,7 +79,10 @@ fn show_hits_and_deaths(
             if lo.is_none() && corpse.is_none() {
                 continue;
             }
-            let died_now = hit.is_some_and(|h| h.died);
+            // Killed by any of this frame's hits on it: a blast kill sends more than one (the
+            // round's impact and its blast, or several blasts), and those after the killing
+            // hit landed on the corpse (`died` false) (#2218).
+            let died_now = died_this_frame(&fresh, r.0);
             // Killed in sight on loaded ground: the ragdoll takes the pose as it is.
             let falls = died_now && corpse.is_some() && phys.as_deref().is_some_and(|p| p.ready_at(nvf_play::space::to_game(gt.translation())));
             // The death pose varies by reference [design].
@@ -139,6 +141,11 @@ fn show_hits_and_deaths(
     }
 }
 
+/// Whether one of the frame's hits killed the actor `form_id`.
+fn died_this_frame(hits: &[ActorHit], form_id: u32) -> bool {
+    hits.iter().any(|h| h.form_id == form_id && h.died)
+}
+
 /// Put the pose its reference stores (`XRGD`) where `ragdoll.rs` takes a corpse's resting
 /// pose from, for a corpse a new game laid out that has no resting pose yet.
 fn authored(ragdolls: &mut Ragdolls, script: Option<&ScriptState>, world: &WorldData, c: &crate::ragdoll::Corpse, rig: &ActorRig, gt: &GlobalTransform) {
@@ -167,5 +174,25 @@ fn authored(ragdolls: &mut Ragdolls, script: Option<&ScriptState>, world: &World
             ragdolls.authored_skipped += 1;
             debug!("ragdoll: actor {r:08X}: its stored pose is not used ({e})");
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn hit(form_id: u32, died: bool) -> ActorHit {
+        ActorHit { form_id, died, knocked_out: false, location: 0, crippled: false, part_crippled: false, torso_crippled: false, by: None, share: 0.5, guard_broken: false, weapon: None }
+    }
+
+    /// A grenade rifle round's impact kills and its blast lands on the corpse in the same
+    /// frame: the death is fresh, whichever hit came last (#2218).
+    #[test]
+    fn a_kill_followed_by_a_hit_on_the_corpse_is_a_fresh_death() {
+        let hits = [hit(7, true), hit(7, false), hit(9, false)];
+        assert!(died_this_frame(&hits, 7));
+        assert!(!died_this_frame(&hits, 9));
+        assert!(died_this_frame(&[hit(7, false), hit(7, true)], 7));
+        assert!(!died_this_frame(&[], 7));
     }
 }

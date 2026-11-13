@@ -189,7 +189,9 @@ impl Props {
         self.external_emittance
     }
 
-    /// The stored emissive colour (black when none) and multiplier (1 when none).
+    /// The stored emissive colour (black when none) and multiplier (1 when none), held
+    /// for unlit pictures by [`shape_emissive_mult`] [hypothesis, nif.md §6
+    /// "Unlit shapes that are pictures, and cut-out signs"].
     pub(crate) fn emissive_parts(&self) -> ([f32; 3], f32) {
         (self.emissive.unwrap_or([0.0; 3]), self.emissive_mult.unwrap_or(1.0).max(0.0))
     }
@@ -641,6 +643,38 @@ pub(crate) fn burns(props: &Props) -> bool {
     e.iter().fold(0.0f32, |a, &c| a.max(c)) * m > 1.0
 }
 
+/// An opaque unlit surface without External Emittance is a picture, including House's
+/// authored opaque screen drawn with an actor alpha gate (`shape_alpha_mode`): its colour
+/// times its multiplier is held to 1, so a Securitron's face (grey 0.05 x 30) and House's
+/// screen show their texture and no more. Blended and additive effects and authored
+/// cut-outs keep their authored multipliers, and a material track's keys multiply the
+/// stored multiplier, as authored (`Props::emissive_parts`) [hypothesis, fitted to the
+/// original's frames of 2026-11-06; nif.md section 6 "Unlit shapes that are pictures, and
+/// cut-out signs"].
+pub(crate) fn shape_emissive_mult(props: &Props, alpha_mode: AlphaMode) -> f32 {
+    let mult = props.emissive_mult.unwrap_or(1.0).max(0.0);
+    let opaque = matches!(alpha_mode, AlphaMode::Opaque)
+        || (props.alpha.is_none() && props.alpha_gated && !props.lod_building && matches!(alpha_mode, AlphaMode::Mask(_)));
+    if props.unlit && !props.external_emittance && opaque {
+        let top = props.emissive.map_or(1.0, |e| e.iter().copied().fold(0.0f32, f32::max));
+        mult.min(1.0 / top.max(f32::EPSILON))
+    } else {
+        mult
+    }
+}
+
+/// Unlit shapes without External Emittance skip the image-space scale (x). An authored
+/// cut-out sign skips it too, and takes the plain path of blended shapes rather than
+/// `hot_light` (y), so its texture keeps its letters and it stays under the bright pass's
+/// threshold [hypothesis, fitted to the same frames and nif.md's section].
+pub(crate) fn shape_emissive_rule(props: &Props, alpha_mode: AlphaMode) -> Vec4 {
+    if !props.unlit {
+        return Vec4::ZERO;
+    }
+    let cutout = props.alpha.is_some() && matches!(alpha_mode, AlphaMode::Mask(_));
+    Vec4::new(if !props.external_emittance || cutout { 1.0 } else { 0.0 }, if cutout { 1.0 } else { 0.0 }, 0.0, 0.0)
+}
+
 /// Emitted light of a shape: emissive colour × emissive multiplier (× the glow map and the
 /// surface colour in the shader) [hypothesis, docs/spec-notes/nif.md §6 "Emissive light"],
 /// `None` when the colour is black. An unlit shape's value is [`unlit_emissive`]. A
@@ -649,7 +683,7 @@ pub(crate) fn burns(props: &Props) -> bool {
 /// ([`display_emissive`], nif.md §6 "Multiply blend", "Additive blend").
 pub(crate) fn shape_emissive(props: &Props, alpha_mode: AlphaMode) -> Option<LinearRgba> {
     let e = props.emissive.filter(|e| e.iter().any(|&c| c > 0.0))?;
-    let m = props.emissive_mult.unwrap_or(1.0).max(0.0);
+    let m = shape_emissive_mult(props, alpha_mode);
     if props.unlit && !matches!(alpha_mode, AlphaMode::Multiply) {
         let mut tint = unlit_emissive(e, m);
         if emissive_in_display(alpha_mode) {
@@ -702,6 +736,11 @@ pub(crate) trait TextureSource {
     fn texture(&mut self, raw_path: &str, srgb: bool) -> Option<Handle<Image>>;
     /// Whether the texture of `h` has no alpha channel ([`lacks_alpha`]).
     fn lacks_alpha(&self, h: &Handle<Image>) -> bool;
+    /// Whether the texture at a NIF texture path has a cut-out mask in its alpha
+    /// (`texture::AlphaShares::is_mask`), read from the archives once per file
+    /// (`texture::WorkerTextures::alpha_is_mask`): asked only for the shapes
+    /// [`blended_cutout`] concerns.
+    fn alpha_is_mask(&self, raw_path: &str) -> bool;
 }
 
 /// The main thread's textures: the cache and the image store.
@@ -720,6 +759,42 @@ impl TextureSource for StoreTextures<'_> {
     fn lacks_alpha(&self, h: &Handle<Image>) -> bool {
         self.images.get(h).is_some_and(lacks_alpha)
     }
+
+    fn alpha_is_mask(&self, raw_path: &str) -> bool {
+        self.textures.workers.alpha_is_mask(raw_path, self.data)
+    }
+}
+
+/// The alpha cut of a blended cut-out (`NifSurface::blended_cutout`) [engineering choice:
+/// half way; the masks it applies to have under 13% of their texels between clear and
+/// opaque, and the game's single corn plants cut the same texture at 124 of 255].
+pub(crate) const BLENDED_CUTOUT_CUT: f32 = 0.5;
+
+/// Whether a shape drawn blended draws the same as a cut-out, and its cut if so: it blends
+/// SRC_ALPHA / INV_SRC_ALPHA and tests alpha (below [`BLEND_TEST_CUT`], or it would be
+/// drawn alpha-tested already), and nothing but its base texture sets its alpha, which is
+/// a cut-out mask (`mask`, asked last): no vertex-alpha cut, material alpha 1, no alpha
+/// animation, view-angle falloff, light, decal, refraction or hair shading. Where alpha is
+/// 0 or 1, blending and testing give the same pixels; they differ only on the mask's edge
+/// texels. The game's corn rows (`scol\scolmaizerow1b.nif`, flags 0x12ED, threshold 0,
+/// `maize_d.dds`) are such shapes [observed]; dirty glass (`nvposter01.nif`, the same
+/// flags, `marquee.dds` 40% in between) is not. Survey: docs/design/fsr-upscaling.md
+/// "Blended cut-outs". The test function (bits 10-12) is not asked: such a shape is drawn blended
+/// whatever its function ([`alpha_mode`] below the cut), so the cut-out draws the pixels the
+/// blend does, as FSR's switch needs.
+pub(crate) fn blended_cutout(props: &Props, cut: Option<f32>, alpha_mode: AlphaMode, mask: impl FnOnce() -> bool) -> Option<f32> {
+    let (flags, threshold) = props.alpha?;
+    let source_over = (flags >> 1) & 0xF == 6 && (flags >> 5) & 0xF == 7;
+    let tested = flags & 0x200 != 0 && threshold < BLEND_TEST_CUT;
+    let alpha_from_texture_only = cut.is_none()
+        && props.material_alpha.unwrap_or(1.0) >= 1.0
+        && !props.animated_alpha
+        && props.falloff.is_none()
+        && !props.unlit
+        && !props.decal
+        && props.refraction.is_none()
+        && !props.hair;
+    (matches!(alpha_mode, AlphaMode::Blend) && source_over && tested && alpha_from_texture_only && mask()).then_some(BLENDED_CUTOUT_CUT)
 }
 
 /// The material for a shape's properties; also returns the base texture path when it
@@ -735,8 +810,28 @@ pub(crate) fn shape_material(
     shape_material_with(props, mesh, &mut StoreTextures { textures, data, images, formats })
 }
 
+/// [`shape_material`] for a copy of a mesh that went through it before (an actor part's
+/// kept CPU mesh, `actor::PartShape::cpu`): tangents it already has are the ones
+/// generating them again would give, so they are kept. The copy only serves to make the
+/// material; generating them again cost an actor 5 ms in the frame it was drawn
+/// [observed 2026-11-07, #1429, Sierra Madre lobby].
+pub(crate) fn shape_material_reusing_tangents(
+    props: &Props,
+    mesh: &mut Mesh,
+    textures: &mut TextureCache,
+    data: &GameData,
+    images: &mut Assets<Image>,
+    formats: Option<&CompressedImageFormatSupport>,
+) -> (NifMaterial, Option<String>) {
+    shape_material_inner(props, mesh, &mut StoreTextures { textures, data, images, formats }, true)
+}
+
 /// [`shape_material`] with its textures from `textures`.
 pub(crate) fn shape_material_with(props: &Props, mesh: &mut Mesh, textures: &mut impl TextureSource) -> (NifMaterial, Option<String>) {
+    shape_material_inner(props, mesh, textures, false)
+}
+
+fn shape_material_inner(props: &Props, mesh: &mut Mesh, textures: &mut impl TextureSource, keep_tangents: bool) -> (NifMaterial, Option<String>) {
     fix_vertex_colors(mesh, props.vertex_alpha);
     if props.unlit {
         unlit_vertex_colors(mesh);
@@ -745,9 +840,10 @@ pub(crate) fn shape_material_with(props: &Props, mesh: &mut Mesh, textures: &mut
     let normal = props.textures.get(1).filter(|t| !t.is_empty()).and_then(|t| textures.texture(t, false));
     let missing = if base.is_none() { props.textures.first().filter(|t| !t.is_empty()).cloned() } else { None };
     let has_uv = mesh.attribute(Mesh::ATTRIBUTE_UV_0).is_some();
-    let normal = normal.filter(|_| has_uv && mesh.generate_tangents().is_ok());
+    let normal = normal.filter(|_| has_uv && ((keep_tangents && mesh.attribute(Mesh::ATTRIBUTE_TANGENT).is_some()) || mesh.generate_tangents().is_ok()));
     let cut = blend_cut(props, mesh);
     let alpha_mode = if cut.is_some() { AlphaMode::Blend } else { shape_alpha_mode(props) };
+    let cutout = blended_cutout(props, cut, alpha_mode, || props.textures.first().is_some_and(|t| !t.is_empty() && textures.alpha_is_mask(t)));
     let gloss = props.glossiness.unwrap_or(10.0);
     // Emitted light × glow map, or uniform without a glow map. Not scaled by the camera
     // exposure (Bevy's default emissive_exposure_weight 0).
@@ -782,11 +878,13 @@ pub(crate) fn shape_material_with(props: &Props, mesh: &mut Mesh, textures: &mut
         material.extension.falloff = f.params;
     }
     material.extension.alpha_cut = cut.unwrap_or(0.0);
+    material.extension.blended_cutout = cutout;
     if props.hair && cut.is_none() && matches!(alpha_mode, AlphaMode::Blend) {
         material.extension.alpha_cut = HAIR_DEPTH_CUT;
         material.extension.depth_write = true;
     }
     material.extension.add_whole = if adds_whole(props) { 1.0 } else { 0.0 };
+    material.extension.emissive_rule = shape_emissive_rule(props, alpha_mode);
     material.extension.decal = props.decal;
     if crate::nif_material::soft_intersections(alpha_mode, props.unlit, props.refraction.is_some(), burns(props)) {
         material.extension.soft.x = crate::nif_material::soft_distance(mesh_extent(mesh));
@@ -809,22 +907,27 @@ pub(crate) fn shape_material_with(props: &Props, mesh: &mut Mesh, textures: &mut
 /// in the smoke or flames behind it, low enough that the strands keep their soft ends].
 pub const HAIR_DEPTH_CUT: f32 = 0.25;
 
-/// The alpha from which a hair model's shapes (the HAIR record's model) are drawn: they
-/// are cut-outs, solid at and above it and absent below ([`hair_model_cut_out`]).
-/// [engineering choice, judged on Chet against the store window beside the owner's frame
-/// of the original, 2026-11-03 (#1454): the original's hair is solid over the soft band
-/// its outer layer is mapped to (texture alpha 0.4–0.7), with a clean hairline].
-pub const HAIR_MODEL_CUT: f32 = 0.25;
+/// The alpha from which a hair model's shapes (the HAIR record's model) are drawn solid:
+/// a cut-out at it ([`hair_model_cut_out`]) holds the hair's depth and shadow, and the
+/// fainter texels are drawn blended over it ([`hair_model_layer`]) (docs/spec-notes/nif.md
+/// §6 "Hair models: a solid core and a blended layer") [engineering choice, from the
+/// hair textures' alpha: the Mohawk's shaved sides (`hairraider01.dds`, which 11 of the
+/// 67 HAIR models use) are a plateau at 0.65–0.75 that has to stay see-through, while
+/// `hairbase.dds` (Buzz Saw, Balding, Combover) is a plateau at 0.85–0.95 with no texel
+/// above it, so a cut above 0.85 would leave those hairs no solid part at all].
+pub const HAIR_MODEL_CUT: f32 = 0.8;
 
-/// Make a hair model's shape a cut-out ([`HAIR_MODEL_CUT`]) in place of the blend its
-/// NiAlphaProperty asks for (docs/spec-notes/nif.md §6 "Hair and depth"). Blended, the
-/// outer layer of `hairwavy.nif` (Chet) is mapped onto the soft edge of its texture's
-/// alpha and showed as a see-through shell around his head against a bright window,
-/// where the original draws solid hair [observed: owner's frame of the original,
-/// 2026-11-03, #1454]. Head parts that use the hair shader (beards, brows) stay blended:
-/// as cut-outs `beardthin.nif` became a full beard, where the original's is thin.
-/// A cut-out draws in the opaque passes, so it hides what lies behind it whatever the
-/// order of the blended shapes, and it casts a shadow.
+/// Make a hair model's shape the solid core of the hair: a cut-out at [`HAIR_MODEL_CUT`]
+/// in place of the blend its NiAlphaProperty asks for (docs/spec-notes/nif.md §6). The
+/// fainter texels are drawn by a second, blended draw of the shape
+/// ([`hair_model_layer`]). Blended alone, the outer layer of `hairwavy.nif` (Chet), mapped
+/// onto the soft edge of its texture's alpha, showed as a see-through shell around his
+/// head against a bright window where the original draws solid hair [observed: owner's
+/// frame of the original, 2026-11-03, #1454]: a blended layer that writes depth hides the
+/// hair drawn after it behind it. Head parts that use the hair shader (beards, brows)
+/// stay blended: as cut-outs `beardthin.nif` became a full beard, where the original's is
+/// thin. A cut-out draws in the opaque passes, so it hides what lies behind it whatever
+/// the order of the blended shapes, and it casts a shadow.
 pub fn hair_model_cut_out(material: &mut NifMaterial) {
     if !matches!(material.base.alpha_mode, AlphaMode::Blend) || material.extension.refract {
         return;
@@ -832,6 +935,25 @@ pub fn hair_model_cut_out(material: &mut NifMaterial) {
     material.base.alpha_mode = AlphaMode::Mask(HAIR_MODEL_CUT);
     material.extension.alpha_cut = 0.0;
     material.extension.depth_write = false;
+}
+
+/// The blended layer drawn over a hair model's solid core ([`hair_model_cut_out`]), made
+/// from the shape's blended material: the texels below [`HAIR_MODEL_CUT`] (shaved and
+/// stubbled scalp, the soft ends and edges of the strands) blend over what lies behind
+/// them, the hair's own core included, as the NiAlphaProperty asks (SRC_ALPHA /
+/// INV_SRC_ALPHA). It writes no depth, so its order among the hair's layers does not
+/// matter, and it casts no shadow. Over the core it draws the core's own colour again at
+/// the core's depth, which the main passes' depth test (greater or equal) lets through
+/// and which leaves the colour as it is. `None` for a shape that is not blended or that
+/// refracts.
+pub fn hair_model_layer(material: &NifMaterial) -> Option<NifMaterial> {
+    if !matches!(material.base.alpha_mode, AlphaMode::Blend) || material.extension.refract {
+        return None;
+    }
+    let mut layer = material.clone();
+    layer.extension.alpha_cut = 0.0;
+    layer.extension.depth_write = false;
+    Some(layer)
 }
 
 /// Make `material` a refracting one (`nif_material`, module notes "Refraction"): drawn
@@ -1120,6 +1242,54 @@ mod tests {
         fn lacks_alpha(&self, _: &Handle<Image>) -> bool {
             false
         }
+        fn alpha_is_mask(&self, _: &str) -> bool {
+            false
+        }
+    }
+
+    /// Textures whose alpha is a cut-out mask when their path says "mask".
+    struct MaskTextures;
+    impl TextureSource for MaskTextures {
+        fn texture(&mut self, _: &str, _: bool) -> Option<Handle<Image>> {
+            None
+        }
+        fn lacks_alpha(&self, _: &Handle<Image>) -> bool {
+            false
+        }
+        fn alpha_is_mask(&self, raw_path: &str) -> bool {
+            raw_path.contains("mask")
+        }
+    }
+
+    #[test]
+    fn blended_shapes_with_a_cut_out_mask_are_blended_cutouts() {
+        let quad = || {
+            let mut m = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default());
+            m.insert_attribute(Mesh::ATTRIBUTE_POSITION, vec![[0.0f32, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]);
+            m
+        };
+        // The corn rows: blend SRC_ALPHA / INV_SRC_ALPHA, test GREATER 0 (0x12ED), lit.
+        let corn = Props { alpha: Some((0x12ED, 0)), textures: vec![r"landscape\plants\maize_mask.dds".into()], ..Default::default() };
+        let (m, _) = shape_material_with(&corn, &mut quad(), &mut MaskTextures);
+        assert!(matches!(m.base.alpha_mode, AlphaMode::Blend), "drawn blended until FSR asks");
+        assert_eq!(m.extension.blended_cutout, Some(BLENDED_CUTOUT_CUT));
+        // Translucent texture alpha (dirty glass), or no texture: stays blended only.
+        assert_eq!(shape_material_with(&corn, &mut quad(), &mut NoTextures).0.extension.blended_cutout, None);
+        // Anything else that sets alpha keeps it a real blend.
+        for props in [
+            Props { material_alpha: Some(0.5), ..corn.clone() },
+            Props { animated_alpha: true, ..corn.clone() },
+            Props { unlit: true, ..corn.clone() },
+            Props { decal: true, ..corn.clone() },
+            Props { hair: true, ..corn.clone() },
+            Props { refraction: Some(1.0), ..corn.clone() },
+            // Not tested, additive, or tested at a cut that already makes it a cut-out.
+            Props { alpha: Some((0x12ED & !0x200, 0)), ..corn.clone() },
+            Props { alpha: Some((0x12ED & !(0xF << 5), 0)), ..corn.clone() },
+            Props { alpha: Some((0x12ED, 128)), ..corn.clone() },
+        ] {
+            assert_eq!(shape_material_with(&props, &mut quad(), &mut MaskTextures).0.extension.blended_cutout, None, "{props:?}");
+        }
     }
 
     fn triangle() -> Mesh {
@@ -1141,21 +1311,28 @@ mod tests {
         assert_eq!(m.extension.alpha_cut, 0.0);
     }
 
-    /// A hair model's blended shape becomes a solid cut-out (#1454); one that is already
-    /// a cut-out or refracts is left alone.
+    /// A hair model's blended shape becomes a solid cut-out (#1454) with a blended layer
+    /// drawn over it (#1576); one that is already a cut-out or refracts is left alone.
     #[test]
-    fn hair_models_are_cut_outs() {
+    fn hair_models_are_a_core_and_a_layer() {
         let hair = Props { hair: true, alpha: Some((4333, 0)), ..Default::default() };
-        let (mut m, _) = shape_material_with(&hair, &mut triangle(), &mut NoTextures);
+        let (blended, _) = shape_material_with(&hair, &mut triangle(), &mut NoTextures);
+        let mut m = blended.clone();
         hair_model_cut_out(&mut m);
         assert_eq!(m.base.alpha_mode, AlphaMode::Mask(HAIR_MODEL_CUT));
         assert!(!m.extension.depth_write);
         assert_eq!(m.extension.alpha_cut, 0.0);
         assert!(!crate::nif_material::see_through(&m), "a cut-out casts a shadow");
+        let layer = hair_model_layer(&blended).expect("a blended hair shape has a layer");
+        assert_eq!(layer.base.alpha_mode, AlphaMode::Blend);
+        assert!(!layer.extension.depth_write, "the layer writes no depth");
+        assert_eq!(layer.extension.alpha_cut, 0.0, "the layer drops nothing");
+        assert!(crate::nif_material::see_through(&layer), "the layer casts no shadow");
         let mut masked = m.clone();
         masked.base.alpha_mode = AlphaMode::Mask(0.7);
         hair_model_cut_out(&mut masked);
         assert_eq!(masked.base.alpha_mode, AlphaMode::Mask(0.7));
+        assert!(hair_model_layer(&masked).is_none());
     }
 
     #[test]
@@ -1270,6 +1447,82 @@ mod tests {
         let warm = Props { unlit: true, emissive: Some([1.0, 0.5, 0.0]), emissive_mult: Some(2.0), ..Default::default() };
         let w = shape_emissive(&warm, AlphaMode::Add).unwrap();
         assert!((w.red - 2f32.powf(2.2)).abs() < 1e-4 && (w.green - (0.5f32 * 2.0).powf(2.2)).abs() < 1e-4 && w.blue == 0.0);
+    }
+
+    #[test]
+    fn an_unlit_pictures_tracks_multiply_the_stored_multiplier_not_the_held_one() {
+        let picture = Props { unlit: true, emissive: Some([1.0; 3]), emissive_mult: Some(30.0), ..Default::default() };
+        assert_eq!(shape_emissive_mult(&picture, AlphaMode::Opaque), 1.0);
+        assert_eq!(shape_emissive(&picture, AlphaMode::Opaque).unwrap(), LinearRgba::WHITE);
+        assert_eq!(picture.emissive_parts(), ([1.0; 3], 30.0));
+        let gated = Props { dynamic_alpha: true, alpha_gated: true, ..picture.clone() };
+        assert_eq!(gated.emissive_parts(), ([1.0; 3], 30.0));
+        assert_eq!(shape_emissive(&gated, shape_alpha_mode(&gated)).unwrap(), LinearRgba::WHITE);
+
+        let blended = Props { alpha: Some((0x12ed, 0)), emissive_mult: Some(40.0), ..picture.clone() };
+        assert_eq!(shape_emissive_mult(&blended, AlphaMode::Blend), 40.0);
+        assert_eq!(blended.emissive_parts().1, 40.0);
+        assert_eq!(shape_emissive(&blended, AlphaMode::Blend).unwrap().red, 40.0);
+        let additive = Props { alpha: Some((1, 0)), ..blended };
+        assert_eq!(shape_emissive_mult(&additive, AlphaMode::Add), 40.0);
+        assert_eq!(additive.emissive_parts().1, 40.0);
+        assert!((shape_emissive(&additive, AlphaMode::Add).unwrap().red - 40f32.powf(2.2)).abs() < 1e-2);
+
+        let neon = Props { external_emittance: true, emissive_mult: Some(25.0), ..picture };
+        assert_eq!(shape_emissive_mult(&neon, AlphaMode::Opaque), 25.0);
+        assert_eq!(neon.emissive_parts().1, 25.0);
+        assert_eq!(shape_emissive(&neon, AlphaMode::Opaque).unwrap().red, 25.0);
+    }
+
+    #[test]
+    fn a_picture_holds_its_colour_times_its_multiplier() {
+        // A Securitron's screen: grey 0.05 x 30 shows its texture, not a twentieth of it.
+        let face = Props { unlit: true, emissive: Some([0.05; 3]), emissive_mult: Some(30.0), ..Default::default() };
+        // Its idle track keys 0.032 x 30, about 1, on the stored multiplier.
+        assert_eq!(face.emissive_parts().1, 30.0);
+        assert!((shape_emissive(&face, AlphaMode::Opaque).unwrap().red - 1.0).abs() < 1e-5);
+        // Under 1 it is left alone; with the flag it is no picture.
+        let dim = Props { emissive_mult: Some(4.0), ..face.clone() };
+        assert_eq!(shape_emissive_mult(&dim, AlphaMode::Opaque), 4.0);
+        let neon = Props { external_emittance: true, ..face };
+        assert_eq!(shape_emissive_mult(&neon, AlphaMode::Opaque), 30.0);
+    }
+
+    #[test]
+    fn unlit_cutouts_take_the_plain_path_and_no_scale() {
+        let no_scale = Vec4::new(1.0, 0.0, 0.0, 0.0);
+        let cutout_rule = Vec4::new(1.0, 1.0, 0.0, 0.0);
+        let picture = Props { unlit: true, emissive_mult: Some(30.0), ..Default::default() };
+        for mode in [AlphaMode::Opaque, AlphaMode::Blend, AlphaMode::Add] {
+            assert_eq!(shape_emissive_rule(&picture, mode), no_scale);
+        }
+        // A gated screen with no authored alpha is a picture, not a cut-out.
+        assert_eq!(shape_emissive_rule(&picture, AlphaMode::Mask(0.5)), no_scale);
+        let sign = Props { external_emittance: true, emissive_mult: Some(4.0), alpha: Some((0x12EC, 128)), ..picture };
+        for mult in [4.0, 7.5, 14.0] {
+            let sign = Props { emissive_mult: Some(mult), ..sign.clone() };
+            assert_eq!(shape_emissive_rule(&sign, AlphaMode::Mask(0.5)), cutout_rule);
+            assert_eq!(shape_emissive_mult(&sign, AlphaMode::Mask(0.5)), mult);
+            let no_flag = Props { external_emittance: false, ..sign };
+            assert_eq!(shape_emissive_rule(&no_flag, AlphaMode::Mask(0.5)), cutout_rule);
+        }
+        for mode in [AlphaMode::Opaque, AlphaMode::Blend, AlphaMode::Add] {
+            assert_eq!(shape_emissive_rule(&sign, mode), Vec4::ZERO);
+        }
+    }
+
+    #[test]
+    fn lit_shapes_keep_their_emissive_rules() {
+        for external_emittance in [false, true] {
+            let lit = Props { external_emittance, emissive: Some([1.0; 3]), emissive_mult: Some(30.0), ..Default::default() };
+            for mode in [AlphaMode::Opaque, AlphaMode::Mask(0.5), AlphaMode::Blend, AlphaMode::Add] {
+                assert_eq!(shape_emissive_mult(&lit, mode), 30.0);
+                assert_eq!(shape_emissive_rule(&lit, mode), Vec4::ZERO);
+            }
+            assert_eq!(lit.emissive_parts().1, 30.0);
+            assert_eq!(shape_emissive(&lit, AlphaMode::Opaque).unwrap().red, 30.0);
+            assert_eq!(shape_emissive_rule(&Props { emissive_mult: Some(4.0), ..lit }, AlphaMode::Mask(0.5)), Vec4::ZERO);
+        }
     }
 
     #[test]

@@ -19,7 +19,8 @@ engine if needed, and delete the item here.
 - **Unattended, from the saves we have** (a session can run them): 1, 2, the rest of 3,
   5 (weapon health around scripted shots), 6 (nvftest, Sunny), the rest of 8, 11 (72 h at a raised
   TimeScale), 13, 15, 20, 21, 22 (dialogue events), the rest of 33, 35, 36, 52, 53, and
-  #1076 (melee reach; measured 2026-11-01, o14_reach: combat-rules §8).
+  #1076 (melee reach; measured 2026-11-01, o14_reach: combat-rules §10; built in #1334),
+  92.
 - **A save from the owner** (quest or character state no save has yet):
   - Hardcore on: done (nvfHardcore).
   - Boone, Rex and ED-E hired (19, 22's complaints, 18's wheel): Boone done (nvfBoone).
@@ -37,6 +38,17 @@ engine if needed, and delete the item here.
   `SetNumericINISetting "bGeneralSubtitles:Interface" 1` showed no subtitles; a timed
   cleanup by sample count can miss a session's end (samples run 15-60 a second) and
   `GameHour >= 10.13` fired at once (sessions start near 10.1, not 10.0).
+- **Observer notes from o26 (2026-11-06):** sessions of one campaign run in one game, one
+  after another: the save is loaded once, so each session starts where the last left
+  off (reset in a `timed` item). A `timed` script naming a ref variable `rW` or `rO`
+  did not compile ("script did not compile" for every hook), the same lines with
+  `rItem`, `rBase` did (like `fW` before). Values a script works out go to the header
+  through the player's `Variable01`-`Variable10` (`player.SetAV VariableNN x`, read as
+  `player.GetAV VariableNN`); they come back as whole numbers. Real time from a header:
+  `floor(days) × 24 + hour` (GameDaysPassed is fractional). `IsHardcore` and
+  `SetHardcore` need `player.` in a script. The capture job's `query` steps with a full
+  script all failed again (plugin version 10, o26_setav steps), so read through the
+  observer.
 - **Screenshots or video** (window in front, both locks): 7 (casino menus by key taps),
   12 (Ringo, Nash, Red Lucy, Doc Mitchell: nvftest/nvfdoc have them), 16, 17, 26, 27, 54.
 
@@ -95,6 +107,18 @@ engine if needed, and delete the item here.
    the player, placed (not spawned) animals, warnings, allies, onlookers, escorts.
    (killall between sessions left the earlier spawns standing: later sessions had them
    around too.)
+   Placed against spawned, 2026-11-06 (o25_coyote, Goodsprings at VERGSCoyote6REF
+   0x00157B38, the player in god mode MoveTo'd 700 units off, one run each) [observed]:
+   the placed coyote warned for 14.9 s (0.124 game h under a package made at run time,
+   FF0011EA, GetCurrentAIPackage 35, procedure 44, drawing and holstering about every
+   2 s), then OnStartCombat and bit the player 7 times. A CrCoyote spawned at the same
+   spot by the placed one's PlaceAtMe, the placed one disabled, was already in combat
+   (package type 5, procedure 13) at the first sample and bit 12 times, with no warning.
+   The CrCoyote base has Aggro Radius Behavior on with radius 1,024 and the same two
+   packages as the coyotes placed around it [observed: `fnvtool esm decode`], so the
+   difference is placed against spawned, not the spot or the record. Why [hypothesis]:
+   a PlaceAtMe'd actor has no editor location for the aggro radius to be kept around,
+   or it starts alerted. Answers #1341's question.
 3. **Damage numbers.** Ours:
    - Power attacks do 3× standing and 2× moving.
    - A damage type uses its resistance in place of DR (capped at 85 %, after DT).
@@ -118,10 +142,21 @@ engine if needed, and delete the item here.
    10mm Pistol, three runs to the player's death, 38 hits) [observed]: each body hit
    took 16.06 Health; the arm or leg hit lost the same 16.06 of its condition, the torso
    (EnduranceCondition) 6.69 (0.4167 of it); a head hit took 32.12 Health and 20.075
-   PerceptionCondition (0.625 of the Health lost, as on one larger 76.12 head hit). So
-   nothing halved arm and leg damage here; whether ours' `fCombatPlayerLimbDamageMult`
-   halving is cancelled by body-part multipliers is open (#1345). The lead-pipe trooper
-   never landed a blow in 0.15 h (no data).
+   PerceptionCondition (0.625 of the Health lost); one larger head hit took 76.12
+   Health and 47.575 PerceptionCondition. Maximum Health 200 remains [hypothesis]:
+   the run did not record base Health. At 200, with DefaultBodyPartData's shares
+   (arms and legs 25 %, torso 60 %, head 20 %, ×2 Health) and Limb Dmg Mult 1,
+   `damage before the part multiplier × 1 × 0.5 × 100 / (200 × part health % / 100)`
+   gives 16.06, 6.69, 20.075 and 47.575 [design: `Game::damage_limb`, `limb_hit`,
+   crippled-limbs.md §5]. The part ratios follow from the shares alone: nothing
+   cancels the halving, and the existing formula needs no change under that Health
+   hypothesis. Pinned by a synthetic 200-Health player test (#1345).
+   Still open: **how does the original choose the part on the player's capsule,
+   and what condition and Health do blows take?** Record base Health, hit point,
+   facing, GetHitLocation and all six conditions around shots and blows. NVForever's
+   capsule bands and unchanged melee Health multiplier are [hypothesis]
+   (combat-rules.md §12). The lead-pipe trooper never landed a blow in 0.15 h
+   [observed: o17_air], so that run gave no melee data.
 4. **Hardcore needs and waiting.** Partly answered 2026-10-31 (o7_00, o7_05, owner save
    nvfHardcore, TimeScale 30, about 59 frames a second):
    - The needs rise at our rates [observed]: Dehydration 2 every 0.168 game hours
@@ -132,7 +167,11 @@ engine if needed, and delete the item here.
      [observed, unexplained; one case].
    - `IsHardcore` read 0 in this Hardcore save, so it does not tell whether Hardcore is
      on. SetHardcore 1 on nvfairport still did nothing: the needs stayed 0 for two hours
-     (o6_00-01).
+     (o6_00-01). Explained 2026-11-06 (o26_stim): both need the player as calling
+     reference in a script. `IsHardcore` alone does not compile ("requires a calling
+     reference") and `SetHardcore 1` alone fails; `player.IsHardcore` reads 1 on
+     `nvfHardcore`, and `player.SetHardcore 1` / `0` switches it on `nvfairport` and
+     `nvfHardcore`. The needs-over-two-hours run could be redone that way.
    - Beer and Nuka-Cola, drunk by EquipItem, raised Dehydration by no more than the
      normal rate over 11 s (14, 14, 15 and 15, 15, 16) [observed]. The job had `tgm` on
      at the time (o7_00 steps 6 to 101; it went off before the Stimpak) [observed: the
@@ -195,6 +234,18 @@ engine if needed, and delete the item here.
    So the spawned troopers' 0 in o14_detect was the trooper, not the readout. Not yet
    enough for the light, FOV or flashlight rules: next, sneak at noon vs midnight from
    the same spot and distances, by settler, with the flashlight on.
+   Added 2026-11-11 (#2121), what scripts read once the target is out of sight. Ours:
+   GetIsAlerted 0 in a fight (SetAlert's alone); GetCombatTarget keeps the target it
+   fought, unseen, through Combat and Lost, until the target dies or is forgotten, StopCombat,
+   a new target or Normal (our Lost lasts until its alarms run out, `Timers::alarm`, 20 s); Lost reads procedure 13
+   and package 5; an Alert that never fought reads procedure 36, package 29, no target
+   (alert.md §6). To check, on a lone hostile with no other actor near (a bighorner took
+   the gecko's attention in Goodsprings, #2121's comment): (a) how long GetCombatTarget
+   stays the player with GetDetected player 0 before it reads 0, and whether IsInCombat
+   drops with it (73 stretches of under 10 to 293 real s are recorded, 8 that ended unseen
+   after 1.1-11.9 real s; no rule yet, #2010); (b) an Alert without combat, a hostile
+   given a sound with no sight line at all (npc-behaviour-compare.md §11): its
+   GetIsAlerted, procedure, package and combat target.
 7. **Casino payouts.**
    - Slots: ours pays back about 1.35 per chip, so max winnings come fast. Check the
      reading of "= BET × N", the cherry rule and the middle row.
@@ -303,14 +354,36 @@ engine if needed, and delete the item here.
     Speed Mult × their skeleton's share). Still open, ours:
     - People turn ≤180°/s walking, 120°/s standing; creatures 300°/s × scale (measured
       on cazadors only); the CREA Turning Speed field is unused. People's combat turns
-      measured 2026-11-01: about 270°/s at first, easing out (actors §8.9, issue #1352);
-      a package turn out of combat is still unmeasured.
+      measured 2026-11-01 and 2026-11-06 (o25_turn): about 1.1 s after StartCombat, a
+      steady 225°/s for 45° and 90° and 275°/s at first for 135° and 180°, slower only once
+      it steps forward (actors §8.9, issue #1352); a package turn out of combat is still
+      unmeasured.
     - Speed Mult on people: answered 2026-11-01 (o18_air): a trooper ran 305 units/s at
       100 and about 460 at 150, proportional as ours (actors §8.10); Cook-Cook (110, ran
       as if 100) stays the one exception, asked in owner-review.md.
-    - People walking with a weapon drawn (77–78 seen outside combat, about 100 in
-      combat) are not built.
-    - Follow distances: stand within distance + 64, run beyond 512.
+    - People walking with a weapon drawn: built only for the measured case (#2124), a
+      person in light armour or clothes with a pistol out, outside combat: its walk /
+      fMoveNoWeaponMult, 77.5 (77.5–78.3 seen with a 10mm pistol). Still open, ours: every
+      other stance and armour class walks drawn at the holstered pace. A capture that
+      tells the three candidates apart (the setting, the stance's walk clip, fMoveBaseSpeed
+      77): people walking a package outside combat with a rifle (`2hr` clip 85.26; the
+      setting gives 77.5), a knife or fists (`1hm`/`h2h` 77.5), and a pistol in medium
+      armour (the setting gives 71.7), each next to a holstered walker. Walking drawn in
+      combat (about 100) is not built. Whether a follower walking after its leader takes
+      the drawn walk is not known either (ours: a follower in step keeps its leader's pace, the
+      drawn walk showing only where that pace is not known or as the slowest it eases to,
+      actors §8.10): a person with a
+      pistol drawn given a Follow package after a holstered walker (85): does it keep
+      step, or drop back at 77.5?
+    - Follow distances: stand within distance + 64, run beyond 512. Where a follower
+      stops once its leader stops: ours 150 inside the distance, not nearer than 128
+      (#2122, from two arrivals: Boone 177 of 330, the pack brahmin about 300 of 450).
+      To tell a fixed inset from a share of the distance (or a game setting such as
+      fFollowStopZoneMinMult, whose meaning is not documented): two followers with
+      different distances (DefaultFollowPlayerFar 512 and a 256 one) on open ground, the
+      player walking 2,000 units and standing; the settled gap of each, a few seconds
+      after it stops, several runs each, with the follower's speed as it comes in (does
+      it slow before it stops?).
     - Aiming or blocking slows you to a walk.
     - Swimming starts at 115 units deep.
     - The step-up is 24 units with a 45° slope limit.
@@ -602,7 +675,11 @@ The numbers above stay put so links to them hold; each item here gives its own p
     High-Roller Suite", whose fixed speaker is the entrance Victor (Lucky38VictorEntrance)
     [observed]; later talks to him open with his usual elevator greeting, as a Say
     Once line should. Ours does the same (dialogue.rs `can_say_as`). Still open: lines with a
-    fixed speaker and no GetIsID condition (the Dead Money end slides, #965). The
+    fixed speaker and no GetIsID condition (the Dead Money intro and end slides, #965);
+    ours lets a script's Say/SayTo say them when no line of the topic passes the check
+    (dialogue.md §4, [hypothesis]); finishing Dead Money (and starting it, IntroSlide02)
+    and seeing whether Elijah's and Vera's narration plays, and in whose voice, would
+    settle it. The
     Boomers' end slide (VEndingBoomers, ANAM NellisPete, GetIsID Narrator) plays in the
     child Pete's voice, not the narrator's (owner, nvfSlides) [observed]; ours says it
     as the narrator with the fixed speaker's file (voice.rs), which matches. Also: the penthouse elevator can only be
@@ -1093,44 +1170,21 @@ The numbers above stay put so links to them hold; each item here gives its own p
     `…/x`, `…/y`, `…/width`, `…/_alpha`, `…/_enabled`, and `StartMenu/_isPauseMenu`; then
     the same with the Settings page open.
 
-## Added 2026-11-01 (explosions' limb damage, issue #1338)
+    Answered for the pause menu 2026-11-12 (job mcm976e, nvftest, MCM 1.5 and Just
+    Assorted Mods active) [observed]: `childcount` 8, `x` 1301.67, `y` 336, `width` 375,
+    `_alpha` 255, `_enabled` 1, `_isPauseMenu` 0; the column's six rows and MCM's trigger
+    are in [menu-xml §10.1](../spec-notes/menu-xml.md). Still open: the main menu's
+    column and the Settings page's.
 
-74. **How much of a blast reaches each limb?** (P2; crippled-limbs.md §5.) Blasts damage
-    limbs [documented: GetHitLimbDamage returns 0 for an explosion "even if the explosion
-    dealt limb damage"], and NVForever takes the full blast damage after armour off every
-    limb [hypothesis]. In the original, with a fresh NPC of known Health (e.g. an NCR
-    trooper at the airport, `nvfairport`, tgm on the player): read all seven limb
-    conditions (GetAV PerceptionCondition, EnduranceCondition, LeftAttackCondition,
-    RightAttackCondition, LeftMobilityCondition, RightMobilityCondition,
-    BrainCondition) and Health; `PlaceAtMe MineFragExplosion` at known distances (0, 64,
-    128 units) and read them again. Repeat with a Frag Grenade thrown by the player, and
-    once on the player. The answer: which limbs lose condition, how much each against the
-    Health lost, and whether distance or the side facing the blast matters.
+## Added 2026-11-01 (explosions' limb damage, issue #1338; open part since 2026-11-06, #1741)
 
-## Added 2026-11-02 (the player's Speed Mult and armour, issue #1364)
-
-75. **Does Speed Mult, and body armour, change the player's speed?** (P2; actors.md
-    §8.10, The player.) NVForever now multiplies the player's walk and run by its current
-    Speed Mult / 100 and by its body armour's share (medium 0.925, heavy 0.85), as
-    measured on people [hypothesis for the player]. In the original (`nvfairport`, the
-    runway, holstered, light or no armour): run 1,500 units forward and time it at
-    `player.setav speedmult 100`, `150` and `50`; then at 100 in medium armour
-    (ArmorNVNCRTrooper*) and in metal armour (ArmorMetal 0003307F). Also once with
-    `player.modav speedmult 50` (whether a modifier counts as SetAV does), and whether the
-    run clip plays faster at 150 or the feet slide. The answer: the speeds in units/s.
-
-## Added 2026-11-03 (a Stimpak's Hardcore effects outside Hardcore, issue #1438)
-
-76. **Does an aid effect whose conditions fail still count down its duration?** (P3;
-    aid-items.md §6.) The Stimpak's Health effects split by IsHardcore. NVForever now
-    holds a lasting effect whose conditions fail as inactive and lets its time run, so
-    outside Hardcore the Stimpak's 6 s heal over time is gone 6 s after the use
-    [hypothesis]. In the original (`nvfstrip`, Hardcore off): `player.damageav health
-    60`, use a Stimpak, wait 3 s, `SetHardcore 1` (or the settings switch), and log
-    `player.getav health` each second for 10 s: whether Health rises after Hardcore comes
-    on (the held effect taking hold) or not. Then again with 10 s between the use and
-    Hardcore on. Also whether STATS EFF lists the Stimpak at any point outside Hardcore.
-    The answer: the Health log and the EFF screenshots.
+74. **How much of a blast reaches each limb, at stock Health and on the player?** (P2;
+    crippled-limbs.md §5.) Answered in part 2026-11-06 (o25_limbs) [observed]: on Ringo at
+    `SetAV Health 5000` the torso lost 1/30 of the Health damage and the legs 0.24 of it,
+    nothing else; NVForever takes those as condition points. Still open: rerun on an NPC at
+    its stock Health (100–200) and once on the player, to tell condition points straight
+    off the condition from a share of the limb's pool (of maximum Health), and whether the
+    player's limbs take `fCombatPlayerLimbDamageMult`.
 
 ## Added 2026-11-03 (collision of animated objects, issue #1396)
 
@@ -1304,3 +1358,571 @@ The numbers above stay put so links to them hold; each item here gives its own p
     standing at a negative Health, and GetDead); on the lone NPC, the player's XP and karma
     before and after (is the kill anyone's?). Also: does Health stay negative or stop at 0?
     The answer: the logs.
+    Answered in part [observed: campaign o29_dmg, 2026-11-08, `nvfairport`, issue #1858]:
+    a lone trooper and the player both die in the next game loop, Health stays at the
+    negative value (-9949), OnDeath names no killer and karma does not move, as ours does
+    (unconscious.md §2.2). Still open: an essential NPC (SetEssential on a spawned leveled
+    trooper's base did not take; needs a save with a real essential NPC near) and the XP.
+    Trap: a session that kills the player loops, since the death reload reloads the save and
+    the plugin starts the pending job again; give it `--retries 0` and take its job file out
+    of `jobs\` once the first death is logged.
+
+## Added 2026-11-04 (the container menu from its file, issue #1468)
+
+90. **The container menu: what the reads could not show.** (P3; barter-menu.md §8; the capture
+    `hud_container_*`, parts c, d and g retaken since, with shots.) With a long list on both
+    sides at 1280 x 720: (a) does a selected row show a faint fill beside its lines, and how
+    faint against NVForever's `_NVFHotrectFill`? (b) DAM and DPS on a weapon's card: do they
+    fade into each other at one place, how fast, and is DPS ever above DAM? (c) what does
+    `CNDArrows` (`repair_meter_pips.dds`) show at a weapon's and armour's condition, and does it
+    move with it? (d) keys: do the arrow keys and W/S move a row, A the Take All only?
+    (e) the wheel: does `_wheelmoved` move the list and not the selection, and by what? (f)
+    the marker's drag: `dragstarty`, `dragy` and `dragoffsety` through a drag and after it.
+    (g) how dark is the backing at 193.8 compared with NVForever's at that value?
+
+## Added 2026-11-06 (the trait menu from its file, issue #1519)
+
+91. **The trait menu: what the capture could not take.** (P3; chargen.md §4.1.) In character
+    creation at 1280 x 720: (a) take a trait, then a second: how do `_CurrPoints`, the row's mark
+    and the counter follow? (b) what does Reset restore with traits taken? (c) `_TextAlpha` and
+    `_enabled` on a trait that cannot be taken. (d) a real wheel over the list. (e) the
+    description scrolled to value 8. (f) why did the capture's list lack two traits?
+92. **The player's melee reach, and the deathclaw's.** (P2; combat-rules.md §10,
+    npc-behaviour-compare.md §3.) Ours now reaches `fCombatDistance` 107 × Reach from the
+    player's body (fitted to the NPCs' swings), so long weapons reach less than before (a
+    lead pipe 156 units from the eye, was 188). In `nvfairport`, a standing settler: the
+    farthest centre-to-centre distance at which the player's knife, sledgehammer and lead
+    pipe swings still land (GetHealthPercentage or OnHit per swing, the player backing off
+    5 units a swing). And a deathclaw (VCrTier4DeathClawMed) on the standing god-mode
+    player again: o12_reach had one start at 88 units, far nearer than its RNAM 192 gives.
+
+## Added 2026-11-06 (observer batch o27: issues #970, #986, #1401)
+
+Answered [observed, 2026-11-06, `nvfairport`]: the light at an actor (#970, o27_light:
+the brightest channel of the sunlight outdoors, of the cell's ambient indoors;
+detection.md §3) and the tumbleweeds (#1401, o27_tumble: awake after a load, rolling
+north-north-west until they rest; wind.md §2). Open:
+
+93. **The light at an actor where something shades it, and a lamp's share.** (P3;
+    detection.md §3.) `player.GetActorLightAmount` at noon under a roof outdoors (the
+    Goodsprings gas station's canopy, SCOLgsGasStation at (-75584, 4562)), and indoors
+    at set distances from one lamp of known radius (a dark interior such as
+    SLGoodspringsCaveINT, which reads 36.08 away from its lamps). NVForever gives a
+    shaded target the weather's ambient and adds the lamps' brightest channel ×
+    (1 − (d/r)²) [hypothesis].
+    Lamp answered [observed: job o29_light, 2026-11-08]: a RedLight of radius 384 reads 100
+    to 192 units, about 96 at 256, 68 at 320 and only the ambient from 384 out; ours comes
+    within about 5 (detection.md §3). Shade still open: 14 spots around the gas station read
+    100, but which stood under the canopy is not known; take a frame at each next time.
+94. **Tumbleweeds against the wind's speed, and whether they start again.** (P3; wind.md
+    §4.) Force HVDustStorm (127) and then load the save (or `coc` away and back) so the
+    tumbleweeds wake under it; compare their speeds with o27_tumble's 150–210 units a
+    second under 50. Then watch one at rest for an hour of game time at TimeScale 30.
+95. **Holotapes: subtitles and the radio.** (P2; holotapes.md §3, #986.) Tried
+    2026-11-06 (o27_holotape, `nvfairport`): the job gives VMQ01BeagleJournalNote and
+    waits; the Pip-Boy was to be driven by hand (computer use) with the game's sound
+    recorded by loopback (the `soundcard` module records the default output device), but
+    the input was interrupted before the Pip-Boy opened, so the run was stopped. Still to
+    do: tune the Pip-Boy radio to Radio New Vegas, play the note from DATA > Misc, close
+    the Pip-Boy; screenshots during the tape show whether a subtitle is drawn (the
+    owner's INI has dialogue subtitles on, general subtitles off), and the recording
+    whether the radio goes quiet under the tape, ducks or plays on, and comes back
+    after. The plugin cannot pick a menu entry, so this needs the owner or hand input.
+
+## Added 2026-11-06 (observer batch o28, sound: issues #989, #990, #992)
+
+Answered in this batch (audio.md §15.5, §16.1): talking activators' lines are not
+filtered by the original and their files are already processed (#992); a creature's Idle,
+Aware and Attack sounds play only from clip keys, and the Securitrons' siren played in
+none of the five situations tried (#989); no shipped master sets an acoustic space's walla
+(#990). Tools for this batch (scratchpad, not committed): JIP `IsSoundPlaying <sound>
+<ref>` read every sample through the player's `Variable01`-`09`, and the WASAPI loopback
+recorded with Python `soundcard` (ffmpeg has no loopback device on this machine), fitted
+to the decoded file by cross-correlation and a per-band transfer estimate.
+
+96. **When does a Securitron sound its siren (`NPCSecuritronSiren`, CREA sound type 21)?**
+    (P3; audio.md §16.1.) Not on spawning, standing 20 s, `StartCombat`, an assault or
+    trespass alarm, nor while hurt to death (o28_creature_sounds, o28_creature_sounds2).
+    Left to try: a Strip Securitron reacting to a crime it sees for itself in `nvfstrip`
+    (the player shooting a Strip NPC by `FireWeapon`, IsSoundPlaying without a ref), a
+    Securitron switching to its Mk II (Lucky 38 upgrade), and the Hoover Dam battle's
+    Securitrons (VHDSecuritronBattle…). If none, it is unused data.
+97. **Does the original filter a helmet wearer's voice?** (P3; audio.md §15.5.) A line
+    said by an NPC given a power armour helmet (Modulates Voice) recorded on the loopback
+    beside the same line bare-headed, fitted to the file as o28_intercom was. Needs a
+    line the observer can make an NPC say with a known file (`SayTo player <topic>` with
+    a topic whose line has conditions only on the speaker).
+
+## Added 2026-11-06 (exploding pants, issue #1640)
+
+98. **A planted explosive: who dies, who panics, who sees.** (P3; pickpocket.md §5.)
+    Reverse-pickpocket while sneaking and unseen, each in its own run from a fresh load: (a)
+    a Pulse Grenade on an ordinary NPC (a Goodsprings settler): does it die? Note its
+    Health before and after; NVForever keeps it alive [hypothesis]. (b) The same on a
+    robot (a Protectron or Mister Handy): does it die? (c) A Frag Grenade on a child (Freeside
+    or Westside) and on an essential NPC (Sunny Smiles before Back in the Saddle, or Doc
+    Mitchell): does it go live (GetPlantedExplosive 1 after 0.1 s) and go off? Is it still
+    in their inventory afterwards? NVForever: neither goes live. (d) During the panic,
+    stand within 2 m in view with Sneak low: does the victim detect the player
+    (`GetDetected` on it, then hostility after the blast)? (e) The panic on a creature that
+    can be pickpocketed (a giant rat): does it play anything, does it stop, or does it go
+    on walking? (f) Seen by a third NPC halfway through the fuse, then hidden at the blast:
+    does that NPC turn hostile? NVForever counts it as a witness. (g) The live item
+    (#1640 item 5): plant one Frag Grenade on an NPC who already carries Frag Grenades,
+    then reopen the pocket before the blast. Is the planted one a row of its own, and what
+    does that row say? Does the count of the victim's own row change? Can the player take
+    the planted one back, and does that roll? NVForever: a separate "(Armed)" row, refused,
+    no roll. (h) During the fuse, run `<victim>.RemoveItem <grenade> 1`, `<victim>.Drop
+    <grenade> 1` and `<victim>.EquipItem <grenade>` from the console, then
+    `GetItemCount`: which unit goes, the planted one or the victim's own? Does the blast
+    still happen? NVForever: only the victim's own units move; the blast takes the planted
+    unit. (i) The same NPC with the planted grenade its only grenade, in combat with
+    someone else during the fuse: does it throw the planted one? NVForever: no.
+
+## Added 2026-11-06 (the power fist's hand, issue #1586)
+
+99. **The power fist's hand on Veronica: what is left open.** (P3; actors.md §9.2.) Capture
+    `pf_h2h_rest3` (nvfairport, Veronica at her placed spot at the 188, power fist drawn
+    with SetAlert, AI off, first-person camera 110 units off in front, to her right and to
+    her side; brass knuckles the same way): the gauntlet sits on the forearm where
+    NVForever puts it. At its front the original shows the weapon's metal hand (the WEAP's
+    BIPL addon `ARMAPowerfist`), not her bare hand. Still to look at: the same with the
+    weapon holstered, and in the player's first person.
+
+## Added 2026-11-06 (burning in first person, issue #1772)
+
+100. **What does burning draw on the first-person arms?** (P2; effect-shaders.md §4.)
+    NVForever puts shader overlays only on the third-person body and leaves the
+    first-person arms alone [design: `effect_shaders.rs::play`]. Whether the original
+    puts Flames01's membrane, flames or add-on models on the arms is unconfirmed
+    [hypothesis]. Capture the same first-person view before and during
+    `player.PlayMagicShaderVisuals 0005F9B6`, with a weapon lowered and then raised;
+    switch to third person while it plays for comparison. Do the arms change colour,
+    carry flame sprites, or emit particles, and does switching perspective change that?
+    Answered in part 2026-11-06 (private job ov_burn, the Prospector Saloon) [observed]: with
+    the weapon holstered first person shows nothing of the burn, third person shows flames at
+    the head, and back in first person nothing again. The raised weapon's arms are still open.
+
+## Added 2026-11-07 (interior light direction, issue #1645)
+
+101. **Interior lighting: which way does the cell's directional light point, and does it
+    cast shadows?** (P3; world.md §8 "Interior cells".) NVForever reads XCLL's pitch as
+    the direction the light shines in (270 straight down) [hypothesis, from the templates'
+    values]; the azimuth's zero and sense are unknown, and whether the original draws
+    shadows from it at all is too (outdoors it casts no sun shadows from the world, world.md
+    §6). Capture GSGasStation (azimuth 180, pitch 250) at hour 12 from the door, looking
+    down at the tiled floor under the hanging lamps, then up at the ceiling: (a) are there
+    shadows under the lamps, the crates and the counter, or on the ceiling beside the
+    lamps, or none; (b) which side of the crates and counter is lit brighter (that gives
+    the azimuth). The same frame of a cell with azimuth 0 and pitch 270 (a cave on
+    CavesDefaultTemplate) shows whether straight down holds.
+
+## Added 2026-11-09 (NVSE probe runs of the new batches and the merged sets, issue #1920)
+
+102. **Extender calls the runtime compiler refuses: HSVtoRGB, RGBtoHSV,
+    HudBarSetValueScriptVar.** (P3; ext-jg7.md, ext-sup7.md.) In the original none of
+    them compiles in a runtime-compiled probe script (xNVSE 6.4.9): HSVtoRGB/RGBtoHSV in 7
+    forms (literal inputs, float or int output variables, `let fA :=`, `let aR :=`, a bare
+    statement) and HudBarSetValueScriptVar in 7 (GameHour, a literal, a local float, 2 or 3
+    arguments, a quest variable, a missing bar) [observed: probe set jg7 and two
+    diagnostic sets, 2026-11-08]. NVForever's compiler takes all of them, so their answers
+    (channel rounding, hue in degrees, whether the bar follows the variable) are still
+    [hypothesis]. They need a script compiled into an ESP (the GECK, or NVFExtProbe.esp's
+    next version): for HSVtoRGB 120 0.5 0.5 and RGBtoHSV 0 0 255 and 64 128 64, print the
+    three outputs; for HudBarSetValueScriptVar, bind a bar to a quest float, change it, and
+    read the bar.
+    Also from these runs: HideItemBarterEx never made IsItemBarterHiddenEx read 1, on the
+    caps (F) or a 10mm pistol (434F), with and without the vendor argument [observed: jg7,
+    two runs]. Does HideItemBarterEx hide the item in Doc Mitchell's barter menu at all?
+    That needs the menu open (a capture with screenshots).
+
+103. **Setup the probe game lacks (owner step).** (P2; extender-compat.md.) On
+    2026-11-09 the probe game's load order gave NVFExtProbe.esp and The Mod Configuration
+    Menu.esp mod index 255 (not active), and the DLC packs load as GunRunnersArsenal 5,
+    ClassicPack 6, MercenaryPack 7, TribalPack 8, CaravanPack 9, not in the lab's order
+    [observed: GetModIndex in the original]. **Done 2026-11-10, except the order:** the owner
+    installed ITR NVSE, copied the test INIs of `tools/capture/jip-probes/config` into
+    `Data\Config`, and `plugins.txt` now lists both plugins. The sets itr, ini-files,
+    nvse-vars and the five xNVSE core `ext/*` sets were then recorded and labbed
+    (docs/handoff/l5ext-final-rerun-2026-11-10.md §3). ppNVSE and JIP++ are not installed
+    and must not stay installed: ppNVSE needs JIP++, and JIP++ replaces JIP LN, which
+    JohnnyGuitar checks for. They go in only for a single run with `bJIPFixes=0`, as
+    ext-jippp.md §3 describes. The pp and jipppln goldens from 2026-11-01 are on the other
+    machine. Still open: the plugin order, or the word that the lab should take the
+    game's order; and recapturing the rows that read NVFExtProbe.esp as missing
+    (nvse-fourth, plugin-odds, gaps1, showoff4, mcm).
+
+## Added 2026-11-09 (a walking Securitron's wheel)
+
+104. **Does a walking Securitron's wheel roll on smoothly, or jump back once a cycle?**
+    (P3; animation.md §9.12.) The walk `nvsecuritron\locomotion\mtforward.kf` turns
+    `Bip01 Wheel` 661° in its 2.67 s loop with a `BSRotAccumTransfInterpolator`, so its
+    last key is 59° on from its first. NVForever adds that turn up from cycle to cycle
+    [hypothesis, from the name and the keys]; played as an ordinary loop the wheel would
+    snap back 59° every 2.67 s. Record Victor walking beside the player out of Goodsprings
+    (the wheel side on, 30 fps or better, 10 s or more) and step through the frames at
+    each 2.67 s mark: a steady turn says it adds up, a jump says it does not.
+
+## Added 2026-11-11 (Mr. House's screen, issue #2150)
+
+105. **Does Mr. House's screen enter combat, and does it ever turn?** (P3; packages.md
+     §7.1b.) NVForever keeps an Immobile creature with a Turning Speed of 0 at its placed
+     heading always [hypothesis for the rule; the owner saw the original's screen stay
+     still]. Not observed: whether the original's `Lucky38MrHouseREF` (0x001264C5) takes
+     a combat target at all when a fight starts in the penthouse or it is shot
+     (`IsInCombat`, `GetCombatTarget`), and its `GetAngle Z` through a conversation, a
+     goodbye line and a fight. Here it can still be in combat, only without turning.
+
+## Added 2026-11-11 (a regenerating weapon's ammo counter)
+
+106. **What do the HUD counter's two figures show with a Recharger Rifle out?** (P3;
+    hud.md §5, #2170.) NVForever shows the weapon's charge as the first figure and the
+    carried count of its ammo type, with nothing taken off, as the second [hypothesis].
+    Equip a Recharger Rifle, screenshot the counter at full charge, after three shots and
+    again once it has recharged; the same with a Recharger Pistol and the MF Hyperbreeder
+    Alpha. Note whether the second figure is 0, the clip size or something else, and
+    whether an ammo label stands left of the counter.
+
+## Added 2026-11-12 (Continue During Combat in combat, issue #2155)
+
+Asked by #2155: NVForever read the package flag as "the actor stays on its package in
+every combat state", so a melee fighter on such a package never reached its enemy. What
+does the original do? Measured 2026-11-11 and 12 with the AI observer
+(`tools/capture/observe/cdc_leash.campaign.json`, `cdc_lanius.campaign.json`; private
+outputs `obs_cdc_leash_*`, `obs_cdc_lanius_*`). Distances are game units, flat (X, Y).
+The rule the engine fix should follow is in alert.md §5.
+
+How the leash sessions work: on the Searchlight Airport runway (save `nvfairport`) one
+`LvlNCRTrooper` at a time is spawned 500, 1,000 or 2,000 units from the standing player
+(god mode), armed with a knife or a service rifle, and given its package there by
+AddScriptPackage, so the place of a "near current location" package (its **post**
+below) is that spot. Eight seconds later it is set on the player with StartCombat, and
+37 s after that stopped with StopCombat. Sampled 30 times a second. A script package
+and a forced StartCombat are not an NPC's own package list and its own hostility: where
+that could matter it is said.
+
+The packages [observed: `fnvtool ai show` over FalloutNV.esm]:
+`VFSOrrisThugGetShotPackage` (Travel, near current location, radius 0; Skip Fallout
+Behavior, Weapon Drawn, Continue During Combat; no conditions), the kind Lanius is on;
+`DefaultGuardinCombatInterior` (Guard, near current location, radius 512; Continue
+During Combat only); `FFEU03NPCGuard` (Guard, near current location, radius 0; Skip
+Fallout Behavior, Weapon Drawn, Continue During Combat).
+
+107. **Legate Lanius in the final battle: does he leave his marker?** (P1; alert.md §5,
+    issue #2155.) **Answered [observed, 2026-11-12, campaign `cdc_lanius` from the
+    owner's save `nvfLanius`]: yes. He runs to a player he detects, fights there, and
+    goes back to his marker when the fight ends. No leash showed, up to 2,557 units.**
+    - *The data* [observed: `fnvtool ai show`, `esm decode`]. His list, in order:
+      `VHDLegionOliverFightLegateWalkOut` and `VHDLegatePlayerDialogPackage` (Dialogue),
+      `VHDLegatePreConversationPackage` (Travel, editor location, before the battle),
+      `VHDLegateShowdownWaitPackage01` (Travel to `VLegateWaitPlayerMarker`, radius 0,
+      **without** the flag; conditions `VLegateShowdown.ShowdownStart == 1` and
+      `vHDBattleController.iBattleState == 1`, the NCR ending),
+      `VHDLegateShowdownWaitPackage` (the same Travel **with** Continue During Combat,
+      also Must Reach Location, Must Complete, Always Run, Allow Falls; `iBattleState >=
+      3`, the House and Independent endings), `DefaultStayAtEditorLocation`. His scripts
+      add script packages: `VLegateRunToRanger01` (Travel to the same marker, radius 256,
+      the flag), `VLegateWaitPlayerSpot` (radius 32, the flag), `VLegateHide01` / `02`
+      (Travel to his two healing spots, the flag) and `VLegateShowdownGreet` (Dialogue).
+      Combat style `CSNVLegateLanius`: combat radius 10,000, cover search radius 2,048,
+      no weapon restriction, attack chance 90, rushing attack chance 45 at 1.5 times the
+      distance. Speed multiplier 180, Aggressive, Foolhardy.
+    - *The save* (`cdc_lanius_state`): the real battle of an Independent ending,
+      `iBattleState` 4, `ShowdownStart` 1, `LegateRuns` 1, `LegateFightsPlayer` 0; he
+      stands 20 units from the marker on `VLegateRunToRanger01`, procedure DONE, the
+      player 1,461 units from him. So no staging was needed. What the capture adds: god
+      mode, and his hostility by the lines of his own OnHit block (`AddToFaction
+      VCaesarsLegionFaction 0`, `StartCombat player`), since it can neither answer his
+      talk nor hit him; `LegateFightsPlayer` stays 0, so no reinforcement wave comes, and
+      the player never strikes, so his healing and fury stages do not run. About 13
+      samples a second there.
+    - *Player 1,461 units off, as saved* (`as_saved_1461`): 1.2 s after turning hostile
+      he was 630 units from the marker, after 3.8 s within 86 units of the player. He
+      fought there for the two minutes the session gave him (1,311 of 1,560 samples in
+      an attack phase), 1,295 to 1,660 units from the marker. Calmed (out of the
+      faction, StopCombat), he had `VHDLegateShowdownWaitPackage` at the next sample,
+      procedure TRAVEL, and stood 16 units from the marker 4.7 s later.
+    - *Player 760 units off* (`at_760`): the same; he fought 575 to 830 units from the
+      marker and was back within 19 units 3.2 s after the fight ended.
+    - *Player 2,360 and 3,482 units off, down in the lower camp* (`at_2360`, `at_3482`):
+      he never detected the player there (GetDetected 0 throughout). In combat he walked,
+      not ran, 1,659 and 1,661 units from the marker (the same spot both times, about
+      350 units from where the first session's fight had been), left combat by himself
+      10 s after it began and was back on the marker 5 to 7 s later. A target he could
+      not find, not a leash.
+    - *Player teleported from 760 to 3,482 units mid-fight* (`at_760_then_3482`): he lost
+      his target at that sample, was out of combat 0.5 s later and on the marker (14
+      units) 3.3 s after that; he did not follow a player he no longer detected.
+    - *Made hostile on his way back to the marker* (`en_route`: put 3,482 units from it,
+      the player 2,360 units from the marker to one side, hostile when he was 1,225
+      units from the marker and did not detect the player): for 10 s he kept on toward
+      the marker, to within 201 units, away from the player; he dropped out of combat
+      once and came back into it, then went for the player, detected it at 651 units and
+      fought it 2,235 to 2,557 units from the marker until calmed 65 s later, when he
+      set off for the marker again. Whether those first 10 s were his Travel going on
+      (what the GECK wiki says of the flag) or a search for a target he did not see is
+      not told apart [hypothesis either way].
+    - **Not measured**: the fight begun by his talk or by the player's blow, with the
+      reinforcement waves; a detected player further than 2,557 units from the marker;
+      the NCR ending (his package there has no flag) and the House ending (the same
+      package as here).
+
+108. **A melee NPC on a Guard or Travel package with the flag, an enemy at 500, 1,000 and
+    2,000 units.** (P1; alert.md §5.) **Answered [observed, 2026-11-11 and 12, campaign `cdc_leash`, sessions
+    `knife_*`]: on Travel it closes in and attacks at every distance, with no leash. On
+    Guard it depends on the package: two held the trooper when the enemy was outside
+    the guard radius the GECK wiki gives, three did not hold it at all.**
+    - *Travel* (`VFSOrrisThugGetShotPackage`; picked because it is a plain stand-in-place
+      Travel like Lanius's, with no condition, no script and a place a spawned actor can
+      have). The trooper stood on its post, procedure DONE. Set on the player 500, 1,000
+      and 2,000 units off, it ran in and struck first after 3.2, 5.1 and 8.3 s, and fought
+      40 to 220 units from the player to the end (609, 645 and 585 of 1,101 samples in an
+      attack phase), up to 863, 1,226 and 2,043 units from its post. It never stopped or
+      turned back: no leash, and no different from the trooper with no package (check
+      111). A script package does not come back after the fight, so "does it return" is
+      answered by Lanius (check 107), not here.
+    - *Guard on a fixed post* (near editor location: a spawned actor's editor location
+      is where PlaceAtMe put it, as `knife_guarded128_1000` showed: sent 1,000 units off,
+      it walked back there. In the `knife_ed*_walk*` sessions the trooper is spawned
+      beside the player and the player walks away down the runway before the fight; the
+      distances are the player's from that post when combat began):
+      - `EvergreenMillsSniperStayAtPosition01` (radius 0; Weapon Drawn, No Warn/Attack
+        Behavior). Player **167** units off: it closed in and fought, up to 412 units
+        from the post, and stood 9 units from the post again after the fight. Player
+        **654** units off: in combat for the whole 35 s with the player as its target and
+        detected, it **stood on its post (0 units) and never attacked**.
+      - `DefaultGuardStayAtPosition01` (radius 128; Weapon Drawn, No Warn/Attack Behavior;
+        LvlRaiderGunGuard's and the Great Khans' package). Player 366, 456 and 621 units
+        off: it closed in and fought every time, up to 596, 735 and 899 units from the
+        post, and was 12 to 180 units from it after the fight.
+      - `DefaultGuardLinkedRef512StayAtEdLoc400` (radius 400; also Defensive Combat).
+        Player 212, 587 and 932 units off: it closed in and fought every time, up to 549,
+        897 and 1,250 units from the post, and was 86 to 474 units from it afterwards.
+      - The trooper with no package, player 943 units off (`knife_none_walk750`): closed
+        in, fought up to 1,144 units from where it stood, and stayed where the fight
+        ended.
+    - *Guard near the current location* (the post is where the trooper got the package;
+      not a fixed point, it seems: after a fight the trooper stayed where it was):
+      - `DefaultGuardinCombatInterior` (radius 512; the flag and nothing else). Before
+        the fight the trooper wandered up to about 770 units from its post. With the
+        player **1,001, 1,005 and 2,000 units from the post** (3 sessions) it was in
+        combat with the player as its target, detected, for the whole 37 s (80 s in one),
+        **stood where it was and never attacked**, the player 810 to 1,898 units from
+        it. With the player **154, 301, 301, 501 and 502 units from the post** (5
+        sessions) it closed in from 419 to 831 units away and fought, staying within 472
+        to 769 units of the post. In one more session with the player 501 units from
+        the post it stood, 763 units from the player, and did not attack [not
+        explained].
+      - `FFEU03NPCGuard` (radius 0; Skip Fallout Behavior, Weapon Drawn): from 1,000
+        units it struck first after 4.2 s and fought up to 1,180 units from its post.
+    - *Reading.* The two packages that held their trooper match the GECK wiki's rule for
+      a Guard with the flag ("will not move outside the guard radius in order to pursue
+      the target", the radius being the package radius × 1.5 or 384, whichever is
+      higher): 384 lies between 167 and 654, 768 between 502 and 1,001. What decides is
+      where the **target** is, measured from the post; a held actor does not walk to the
+      edge, it stands. The three packages that did not hold theirs at 1.6 to 4.9 times
+      that radius all have bit 2 (value 4) of the Guard type-specific flags set, and the
+      two that held have not (raw values 6, 6, 4 against 2, 2) [observed over these five
+      packages; that the bit is the cause is a hypothesis: xEdit names no Guard flag
+      there, and the packages differ in other fields too].
+    - **Run without their walk** (2026-11-12, the last run): in `knife_ed0plain_walk300`
+      and `_walk750` (`RHSAmbusherGuard`: radius 0, type-specific flags 0, as most
+      Guard packages with the flag have), `knife_ed0_walk450` and `_walk550` and
+      `knife_ed128_walk1900` the player's walk did not happen (the drive ended at its
+      frame limit, the Forward key having no effect in that run), so the player stood
+      166 to 259 units from the post and all five troopers closed in and fought, as a
+      near enemy let every Guard do. They settle nothing more: whether a Guard with no
+      type-specific flags holds its actor, where between 167 and 654 units the radius-0
+      line is, and whether the radius-128 Guard is held further out than 621 units,
+      are open. Run them again with the game window in front.
+    - **Not measured**: an engaged guard whose target then leaves the radius on foot
+      (the teleport sessions end the fight for any trooper, check 111); a Guard near a
+      reference or the linked reference; an NPC hostile by its own faction instead of
+      StartCombat.
+
+109. **Control: does a ranged NPC on the same packages hold its place and shoot?** (P2;
+    alert.md §5.) **Answered [observed, 2026-11-11, sessions `rifle_*`]:** it shoots, and
+    it does not hold its place: it moves as a rifleman with no package does.
+    - On the Guard package (radius 512), the player 1,000 and 2,000 units from the post:
+      first shot 2.4 s after combat began, firing through the 37 s (742 and 748 of 1,101
+      samples in an attack phase) from 928 to 1,065 and from 1,331 to 1,494 units, while
+      it moved from 138 to 1,059 and from 647 to 1,212 units from its post.
+    - On the Travel package (radius 0), 1,000 and 2,000 units: first shot after 2.2 s,
+      from 892 to 1,056 and from 1,895 to 2,040 units, moving up to 547 and 1,346 units
+      from its post.
+    - No package given, 2,000 units: first shot after 2.4 s, from 1,882 to 1,995 units,
+      moving up to 565 units from where it stood.
+    So the flag does not pin a gunman either; our "sniper posts stay put" reading rests
+    on the flag's name only. Not measured: a gunman whose target is out of its weapon's
+    range, and one on a Guard package whose target is outside the guard radius of a fixed
+    post (the troopers' posts here were "near current location").
+
+110. **A melee creature on a package with the flag.** (P2; alert.md §5.) The data has
+    them: 85 creature bases carry at least one such package [observed: `fnvtool ai show`
+    over every CREA of FalloutNV.esm; of the 399 packages 251 are on some actor's list,
+    291 NPC bases and 85 creature bases]. Most are Fallout 3's; New Vegas's own melee
+    ones are `V22FemaleMantis` (its only package: `V22MantisFemaleEggGuardPackage`, Guard
+    on its linked reference, the flag alone), `Lily` and `Rex` (their wait and go-home
+    packages) and `VStreetCrBrahmin` (the brahmin rush). **Answered in part [observed,
+    2026-11-11 and 12, sessions `coyote_*`, `mantis_own_*`]:** a coyote given the Guard
+    (radius 512) or the Travel package, and a spawned `V22FemaleMantis` on its own
+    package, attacked the player at once and fought in melee, 81 to 264 units away, as
+    the coyote with no package did; the package made no difference at that distance.
+    **Not measured: how far they go.** A creature spawned beside the player attacks before
+    it can be put anywhere, and moving the player 1,000 units off mid-fight ended the
+    fight within 0.6 s for all three coyotes, the one with no package too (it stood
+    1,009 units from the player for two minutes): the teleport, not a leash. Afterwards
+    only the one on the Travel package found the player again and attacked; one run each,
+    so that is no rule. To settle it: a creature placed in the data with such a package
+    (the Vault 22 mantis mothers), the player walking up and backing off on foot.
+
+111. **Baseline: how far does the same melee NPC chase with no such package?** (P2.)
+    **Answered [observed, 2026-11-11, `knife_none_2000`]:** the knife trooper with no
+    package given (its own list) ran 2,000 units to the player, struck first 8 s after
+    combat began and fought 40 to 125 units from it for the rest of the 37 s (590 of
+    1,101 samples in an attack phase), 2,178 units from where it started. The trooper on
+    the flagged Travel package did the same from the same distance (`knife_travel0_2000`:
+    first blow after 8.3 s, 585 samples, 2,043 units from its post).
+    A limit of these sessions: when the player was teleported 1,500 units away mid-fight,
+    the trooper lost its target at that sample and was out of combat 2 s later, with no
+    package (`knife_none_500_away`) as with the Guard package
+    (`knife_guard512_500_away`), and did not follow. The troopers are not hostile to
+    the player by themselves, so a teleport ends a StartCombat fight; it measures no
+    leash.
+
+## Added 2026-11-11 (a Use Weapon package with Continue During Combat, issue #2120)
+
+112. **Attacked, does a Use Weapon package's actor with Continue During Combat keep firing at
+    its package's target, or turn on its attacker?** (P3; use-weapon.md §3, spec note.) The
+    GECK wiki's Use Weapon Package page says the actor "will continue to fire and stand at the
+    designated position, even during Combat" [documented], not at whom. NVForever keeps it at
+    its stand firing the package's volleys at the package's target, ignoring its attacker,
+    while the use is one the shooter can act on (in place, its target among the drawn
+    standing actors); when it is not (a marker target, a target not drawn, not yet at its
+    stand) it fights its attacker with the ordinary attacks while its package still moves
+    it
+    [design, #2145]; the other reading is that it holds its stand and fights its attacker
+    (owner-review item 57). Pick a package with the flag whose target 2 is an actor and whose
+    conditions hold from a save (`fnvtool ai packages` lists the flag), watch the actor fire at
+    its target, then attack it from the side: (a) does it keep firing
+    at the package's target, turn to the player and fight from its stand, or leave its stand;
+    (b) for a Repeat Fire package, does that last, or does it go back to the package's target
+    after a while? A package aiming at a marker (the Ultra-Luxe kitchen's) is worth the same
+    look: does it fire at the marker in combat at all?
+
+## Added 2026-11-11 (sandbox meals and seats, issue #2011)
+
+113. **Does a sandboxer that may eat ever enter EAT, and does a free seat decide it?**
+    (P3; actor-behaviour.md §5.5 Choosing step 2.) Under Sandbox packages that allow eating
+    the original reported no EAT procedure: GoodspringsSettler01Ref
+    (GSSettlerAAMSandbox6x16) and GoodspringsSettler03Ref (GSSettlerSandbox) over 24 game
+    hours from 06:00 (AI observer, 2026-11-09), and none in about 240 actor-hours under
+    Sandbox records (npc-behaviour-compare.md §6a) [observed]. NVForever now takes a
+    sandbox meal only on a free seat and otherwise goes on with its choices [design,
+    #2011]. Put an eating-allowed sandboxer whose area has a free chair (an interior with
+    a table, e.g. the Prospector Saloon's sandboxers) through its breakfast, lunch and
+    dinner windows (06:00-09:00, 11:00-14:00, 17:00-20:00) and log GetCurrentAIProcedure
+    with the furniture it sits on: EAT on the chair says seated meals happen; SITTING only
+    says the original's sandbox does not run meals as a procedure at all, and step 2 should
+    go.
+
+## Added 2026-11-11 (a sandbox's only object, issue #1505)
+
+114. **Does a sandboxer with one seat and nothing else to use sit on it again, and when?**
+    (P3; actor-behaviour.md §5.5, "The only object, used again"; packages.md §3.) NVForever
+    lets the object just used come back once it is the only one open and the actor has
+    stood or wandered for 60 s [design, #1505]. The GECK wiki documents
+    `iSandBoxPreventRepeatedActionTime`, default 30: no repeated action on the same object
+    until that many seconds have passed [documented: GECK wiki], without saying when the
+    seconds start. In the original: an NPC whose sandbox area holds a single free chair
+    (idle markers and wandering off or absent, outside meal and sleep windows), watched for
+    about 10 minutes with GetSitting (or the furniture it uses) sampled each second: does it
+    sit again, and how long after getting up (or after sitting down)? Never, a fixed wait
+    near 30 s from either end, or random gaps each settle the number; record the package's
+    flags and the cell's other objects.
+
+## Added 2026-11-11 (a guard's wander, #2027)
+
+115. **How does a Guard package with a location radius wander: how often, how far, and
+    round what?** (P3; actor-behaviour.md §5.5, packages.md §3.) The wiki says only that a
+    guard whose location has a radius over 0 "will wander within that radius" [documented:
+    GECK wiki, Guard Package]. The 2026-11-10 capture (issue #2027) saw two placed
+    GSSettlerAAM on DefaultGuardStayAtPosition01 (radius 128) moving in 20 % and 39 % of
+    the samples, one walking 4,212 units in 317 s, spread 235 × 206 units, at most 152 from
+    its average spot [observed]. NVForever wanders as a sandbox does: a random point of the
+    navmesh within the radius, a walk there, a pause of 4 to 12 s, the walk not kept inside
+    the circle [design, #2027]. Record a placed (editor-located) settler given that package,
+    10:00 to 13:00, sampling position and IsMoving every 10 game loops: the pauses' lengths,
+    the walks' lengths, whether any sample lies past the radius from the editor location
+    (and by how much), and whether a radius round a reference that moves (the player, a
+    walking actor as the location) follows it or stays where the package began.
+
+## Added 2026-11-11 (fidgets with the weapon away, issue #2026)
+
+116. **How often does the original ask its idle tree for a standing NPC's fidget, and
+    what cuts one short?** (P2; idles.md §11.4, §11.3.) NVForever asks every 2 s
+    [design, not calibrated]; with `NPCGeneralIdles`' random < 1 that gives a general
+    fidget about every 200 s, where the 2026-11-10 capture saw a travelling merchant
+    (GeneralIdleFaction only) begin 3 in 360 real s [observed]. The GECK wiki says an
+    actor picks an idle when its "energy level timer has run down", and that actors
+    with low Energy idle more often [documented: Idle Animations], with no numbers.
+    Place NVMerchantMale and GSSettlerAAM by AddScriptPackage
+    DefaultSandboxNoMoveCurrentLocation200 (as in #2026), sample IsIdlePlaying and JIP
+    GetPlayedIdle every game loop for 20 real minutes, and count the general fidgets
+    begun per minute; repeat with an NPC of low and of high Energy (AI data) to see
+    whether the rate moves. In the same run, walk the player into one of them mid-fidget
+    and start a conversation: does the fidget stop, or play out?
+
+## Added 2026-11-11 (NPCs at doors and the extender's OnActivate, issue #2123)
+
+117. **Which doors fire the extender's OnActivate for an NPC, and in which order?** (P3;
+    doors.md §5.2.) NVForever dispatches it at every door an NPC walks through, before the
+    door's block, once per asking [documented: NVSE Event Handling; design for the rest].
+    With an unfiltered OnActivate handler logging both references and the time: (a) a door
+    with no script at all on a resident's way (the Goodsprings gas station's door, base
+    OffDoorMetalSmL01, which Ringo uses): does an event name the NPC? (b) a door whose
+    block refuses NPCs (VStripGate, GomorraElevatorDoor): one event per crossing, or one
+    per try? (c) at a door whose block calls `Activate` for NPCs, one event or two? (d) a
+    `Begin OnActivate player` door (IndDoorSmAnim01): does the block run for the NPC (a
+    variable it sets), as the GECK wiki's OnActivate page (Bugs) has it, or not, as
+    NVForever does?
+
+## Added 2026-11-12 (MCM's list functions, issue #976)
+
+118. **Why did `SetMCMFloatMass 1 36 37` leave ArrowUp alone?** (P3; menu-xml.md §10.2.)
+     In the original `SetMCMFloatMass 1 36 37 "depth" 33` set Option36's depth but not
+     ArrowUp's, though ArrowUp is MCM_Options' 37th child in MCM.xml, while MCM's own
+     `5 24 33` reaches MCM_ModList's 24th to 33rd children [observed: job mcm976e;
+     hypothesis: the function counts only children of the first row's kind, or its range
+     stops at a row without the trait]. NVForever counts every child. To check, with the
+     pause menu and MCM's window open: `SetMCMFloatMass 1 37 38 "depth" 33` and `1 36 37
+     "visible" 0`, reading ArrowUp, ArrowDown and Option36 before and after in one script;
+     and `5 23 24 "_enable" 1` reading Mod23 and SubMenu1.
+
+## Added 2026-11-12 (created actors' editor location, issue #2278)
+
+120. **Where is a created actor's editor location?** (P2; crates/fnv-ai/src/goal.rs
+     `editor_place_of`.) NVForever takes the cell and position where a PlaceAtMe'd or
+     spawned reference was created as its editor location [hypothesis], so its packages
+     near the editor location (DefaultSandboxEditorLocation256/512, the player reports'
+     spawned coyotes and Legion recruits) have a place. To check: PlaceAtMe a CrCoyote
+     (DefaultSandboxEditorLocation512) beside the player at the Goodsprings coyotes' spot,
+     MoveTo it 2,000 units off, and sample its position for 60 s: does it walk back to the
+     creation spot and wander there, or sandbox where it now stands? And
+     `GetStartingPos X` on it before and after the move.
+
+## Added 2026-11-12 (Lost fighters, issue #2010)
+
+122. **Why do some fighters remain in COMBAT for minutes without searching?** (P2;
+     alert.md section 2.) [observed: issue #2010 capture, 2026-11-10] Three placed Fiends
+     detected the player for 4.5 real seconds; after a 2,500-unit player move two
+     remained IsInCombat 1, procedure COMBAT, for the remaining 235 real seconds,
+     stationary with no reported target; the third ended combat immediately. In
+     contrast, eight actors ended combat 1.1-11.9 real seconds after detection loss
+     [observed: npc-behaviour-compare.md section 11]; later timer experiments are in
+     sections 15.6 and 16.1. Repeat with hostile actors placed by the data, both walking
+     away and teleporting, recording GetDetected, GetCombatTarget, IsInCombat,
+     procedure, positions, combat allies and the timer settings. Do stationary survivors
+     retain a target or an ally's fight, and do any actually complete searches? Our
+     two-sweep design and 300 s stall bound do not assert parity with those durations
+     [design, #2010]; relate any answer to observer check 6's target-retention question.

@@ -45,6 +45,11 @@ pub struct GrassParams {
     pub motion: Vec4,
     /// x: factor on the ambient light; y: factor on every other light (the sun).
     pub light: Vec4,
+    /// Parameters before the most recent change; used only on that rendered frame.
+    pub previous_wind: Vec4,
+    pub previous_motion: Vec4,
+    /// x: rendered frame of the change (FrameCount increments in Last).
+    pub change_frame: UVec4,
 }
 
 /// The extension part of [`GrassMaterial`]: the vertex shader of the main pass and the
@@ -74,8 +79,14 @@ impl MaterialExtension for GrassSway {
     ) -> Result<(), SpecializedMeshPipelineError> {
         // Grass fades in and out with its cell (fade.rs).
         nvf_assets::fade_prepass(descriptor, key.mesh_key);
-        // Main pass of a multisampled view: the fragment's alpha is the share of the
-        // pixel's samples it covers.
+        // A multisampled view with a depth-only prepass: the prepass writes the share of
+        // the pixel's samples each blade covers, and the main pass tests depth for
+        // equality (nvf_assets `grass_edges`).
+        if nvf_assets::grass_edges(descriptor, key.mesh_key) {
+            return Ok(());
+        }
+        // Main pass of any other multisampled view: the fragment's alpha is the share of
+        // the pixel's samples it covers.
         let prepass = descriptor.vertex.shader_defs.contains(&"PREPASS_PIPELINE".into());
         if !prepass && descriptor.multisample.count > 1 {
             if let Some(fragment) = descriptor.fragment.as_mut() {
@@ -83,6 +94,9 @@ impl MaterialExtension for GrassSway {
                 descriptor.multisample.alpha_to_coverage_enabled = true;
             }
         }
+        // Without multisampling both passes test the alpha at the cutoff: the main pass
+        // tests depth for equality with the prepass (left alone with alpha to coverage).
+        nvf_assets::depth_equal(descriptor, key.mesh_key);
         Ok(())
     }
 }
@@ -200,7 +214,7 @@ fn wind_magnitude(strength: f32) -> f32 {
 /// and the distances it goes at (the settings page's grass distance,
 /// `draw_distance.rs`): materials are only touched when these or the set of materials
 /// change.
-fn wind(sky: Res<crate::sky::SkyState>, config: Res<GrassConfig>, cache: Res<GrassCache>, mut materials: ResMut<Assets<GrassMaterial>>, mut last: Local<(Vec4, Vec2, usize)>) {
+fn wind(sky: Res<crate::sky::SkyState>, config: Res<GrassConfig>, cache: Res<GrassCache>, frame: Res<bevy::diagnostic::FrameCount>, mut materials: ResMut<Assets<GrassMaterial>>, mut last: Local<(Vec4, Vec2, usize)>) {
     let dir = crate::tree::wind_vector(&sky);
     let wind = dir.truncate().extend(wind_magnitude(dir.w));
     let fade = Vec2::new(config.fade_start, config.fade_range.max(1.0));
@@ -213,6 +227,9 @@ fn wind(sky: Res<crate::sky::SkyState>, config: Res<GrassConfig>, cache: Res<Gra
         // Read first: taking the asset mutably marks it changed.
         if materials.get(&s.material).is_some_and(|m| m.extension.params.wind != wind || m.extension.params.motion.yz() != fade) {
             if let Some(mut m) = materials.get_mut(&s.material) {
+                m.extension.params.previous_wind = m.extension.params.wind;
+                m.extension.params.previous_motion = m.extension.params.motion;
+                m.extension.params.change_frame.x = frame.0.wrapping_add(1);
                 m.extension.params.wind = wind;
                 m.extension.params.motion.y = fade.x;
                 m.extension.params.motion.z = fade.y;
@@ -250,7 +267,7 @@ fn grow_owed(
 fn cull(
     config: Res<GrassConfig>,
     mut cache: ResMut<GrassCache>,
-    camera: Query<&GlobalTransform, (With<Camera3d>, Without<crate::reflection::ReflectionCamera>)>,
+    camera: Query<&GlobalTransform, crate::fly::WorldCamera>,
     mut chunks: Query<(&GrassChunk, &mut Visibility)>,
 ) {
     let Ok(cam) = camera.single() else { return };
@@ -294,6 +311,7 @@ impl GrassCtx<'_> {
             wind: Vec4::ZERO,
             motion: Vec4::new(wave_speed(g.wave_period), self.config.fade_start, self.config.fade_range.max(1.0), 0.0),
             light: Vec4::new(self.config.light.0, self.config.light.1, 0.0, 0.0),
+            ..default()
         };
         let name = g.edid.clone().unwrap_or_else(|| format!("{:08X}", g.form_id));
         let made = match g.model.as_deref().map(model_path) {

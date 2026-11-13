@@ -1,8 +1,8 @@
 # In-game plugin editor and quest debugger (design)
 
-Work in progress on the branch `local/editor-encoder` (backed up to GitHub 2026-11-03; no issue or pull
-request yet: the owner keeps it off the repo until it is known to work, 2026-11-01). The
-owner's decisions are in §21.2.
+Partly built, on `main` since 2026-11-13 (owner: "work on getting it into the main branch"),
+built until then on the local branch `local/editor-encoder`. Still locked behind `editor=1`
+(§21.2 item 1). The owner's decisions are in §21.2.
 
 An editor mode inside `nvforever`: the player types `editor` in the console, the game freezes, and the
 world, its records, its terrain, its navmeshes, its quests and its dialogue can be
@@ -40,6 +40,17 @@ Contents:
 22. Risks
 
 ---
+
+## Handover (2026-11-13, onto `main`)
+
+**Start here.** The owner asked for the editor on `main`; the branch was brought up to
+`origin/main` (1682 commits behind; conflicts in the free camera, the plugin list, MO2's
+INI reader and dialogue) and goes in through an issue and pull request like any other
+work. Two things changed in the merge: the line rules and the debugger read lines through
+`main`'s `Game::dialogue_view` (script edits to topics and lines, SUP batch 2), so the
+explainer shows the edited lines the game says; MO2's `ini_value` reads Qt's escapes with
+`main`'s `qt_unescape`. New work goes on ordinary `claude/` branches from `main` now; the
+next tasks are those of the fourth session's handover below.
 
 ## Handover (2026-11-06, fourth session; the earlier ones below)
 
@@ -82,8 +93,8 @@ The record picker's smoke `editor-find-place`, left unrun here, passed in the th
 
 **Where everything is**
 - Worktree `C:\Users\Loot\source\repos\NVForever-editor`, branch `local/editor-encoder`, on
-  `origin/main` at b87893d4. Its `pushRemote` is `no_push`, so a push fails. **The owner keeps
-  this off the repo**: no issue, no PR, no push until they say (memory `editor-workstream`).
+  `origin/main` at b87893d4. Its `pushRemote` is `no_push`, so a push fails. (Kept off the
+  repo until 2026-11-13; it is on `main` now, see the newest handover.)
 - Build caches: `F:/nvf-target/editor-root` (root crates, fnvtool) and
   `F:/nvf-target/editor-engine` (engine). Build the engine with
   `cd engine && CARGO_TARGET_DIR=F:/nvf-target/editor-engine cargo build --release -p nvforever`.

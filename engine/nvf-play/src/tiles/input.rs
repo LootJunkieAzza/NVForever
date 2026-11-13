@@ -2,10 +2,14 @@
 //! (`fnv_game::ui_input`, `fnv_ui::input`), each frame before scripts [design:
 //! ui-tile-tree.md §4.1 step 1].
 //!
+//! - **Turned tiles** (`rotateangle`, `super::layout::Turn`): hit-tested on their unturned
+//!   box, as `fnv_ui::input::hit` reads the tree [design: no tile the files turn takes the
+//!   pointer, `map_menu.xml`'s arrows and dotted path lines have no `target`; menu-xml.md
+//!   §3.1.4].
 //! - **Which menus take input**: a menu drawn from its file that the player works: since
 //!   T15a the message box and the "How many?" prompt while drawn from tiles
-//!   (`[UI] TileMenus=MessageMenu,QuantityMenu`, `super::menus`), the prompt under the
-//!   box; since T11 the start menu while the pause menu's Mods page is up
+//!   (`[UI] TileMenus=MessageMenu,QuantityMenu`, or for the prompt a container menu drawn
+//!   from its tiles, `super::menus`), the prompt under the box; since T11 the start menu while the pause menu's Mods page is up
 //!   (`[UI] TileMenus=StartMenu`, `super::mods`). The HUD (`[UI] TileMenus=HUDMainMenu`) is drawn from tiles but has no pointer in
 //!   play [hypothesis: the original's HUD takes no clicks]. With none, nothing is fed and
 //!   the frame does no tree work [design: the maintainer's review of #902], unless the test
@@ -36,6 +40,39 @@
 //!   past it [documented: `&no_click_past;`]. The wheel stays the hand-built menu's. On the
 //!   frame it is first built, when the hand-built buttons of the frame before still stand, it
 //!   takes nothing, so a press acts once, on what was on screen [design].
+//! - **The Pip-Boy's STATS page** (`super::stats_menu`): takes the pointer on its own
+//!   canvas (`crate::pipboy::PipBoyScreen::pointer`), so its input is its own system,
+//!   `super::stats_menu::feed`, on a frame no other menu takes input; this one then leaves
+//!   the frame's one step to it. The ITEMS page likewise (`super::inventory_menu::feed`).
+//! - **The Pip-Boy's repair page** (`super::repair_menu`): likewise, by its own system,
+//!   `super::repair_menu::feed`; and the weapon mod menu (`super::item_mod_menu::feed`).
+//! - **The container menu** (T15c, `super::container_menu`): a row the pointer comes onto is
+//!   selected, unless the wheel holds the selection; a click on a row, a heading or its arrow,
+//!   Take All and Exit send the hand-built menu's commands (`crate::menu::MenuInput`), to
+//!   `apply_input`, a row's behind a guard saying what the row stood for, checked as they apply.
+//!   A click on a heading steps it on [observed: `container__category_heading_click`]. The
+//!   scrollbar's arrows, page areas and marker move the list's view, no
+//!   command of the model's. Under the "How many?" prompt it takes nothing. The wheel stays
+//!   `crate::menu::menu_mouse`'s, told which heading the pointer is over.
+//! - **The recipe menu** (`super::recipe_menu`): a row the pointer comes onto is selected, a
+//!   click on a row selects it or, on the selected row, accepts; the arrows and the title step
+//!   the filter; Accept and Exit act. What it asks goes to `crate::crafting`'s `keys` as
+//!   `crate::crafting::RecipeInput`. The scrollbars' arrows, page areas and markers move the
+//!   lists' views. Under the "How many?" prompt it takes nothing. The wheel stays the model's.
+//! - **The trait menu** (`super::trait_menu`): a row the pointer comes onto is chosen, a click on
+//!   a row, Reset or Done is queued for `crate::chargen`'s `input`, named by its trait; the two
+//!   bars' arrows, page areas and markers move their views. On the frame it is first ready, when
+//!   the hand-built menu of the frame before still stands, it takes nothing, as the tutorial
+//!   menu. The wheel and the keys stay `crate::chargen`'s.
+//! - **The dialogue menu** (`super::dialog_menu`): while drawn from its tiles with nothing over
+//!   it and no pause menu; what it asks goes to `crate::dialogue::input` through
+//!   `crate::dialogue::ViewInput`, the same commands as the keys. It takes the input as drawn
+//!   the frame before, so a click is on what was on screen.
+//! - **The vendor's repair menu** (`super::repair_services_menu`): a row the pointer comes onto
+//!   is selected; a click on the selected row or Repair repairs it, on another row selects it;
+//!   Repair All and Done act. What it asks goes to `crate::repair`'s `keys` as
+//!   `crate::repair::RepairServicesInput`. The scrollbar's arrows, page areas and marker move the
+//!   list's view. The keys and the wheel stay the model's.
 //! - **Units**: the cursor's logical pixels to interface units, 960 to the view's height,
 //!   as the tile renderer draws (`super::draw`, `crate::interface::u`) [design].
 //! - **Keys**: A to Z as `_PCButton_<letter>` [documented: the vanilla files' letters;
@@ -56,6 +93,8 @@
 //! it go. The mouse, keys and controller then reach it too (`NVF_PLAY_TEST_KEYS`).
 
 use crate::script::ScriptState;
+use super::list;
+use crate::menu::model::Side;
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 use fnv_ui::input::{no_measure, Input};
@@ -142,11 +181,20 @@ pub fn to_units(at: Vec2, window_height: f32) -> (f64, f64) {
     (f64::from(at.x) / per, f64::from(at.y) / per)
 }
 
+/// A window position (logical pixels from the top left, `window` the window's logical
+/// size) in the interface units of a tile menu drawn at the UI scale in a frame kept at
+/// `anchor` (`crate::interface::menu_frame`; `super::draw` draws the menus so): the
+/// point where the menu, drawn at the original's size, would have what the pointer is on
+/// [design: #1631]. [`to_units`] at the original's size.
+pub fn to_menu_units(at: Vec2, window: Vec2, anchor: Vec2) -> (f64, f64) {
+    to_units(crate::interface::from_menu_frame(at, window, anchor), window.y)
+}
+
 #[derive(bevy::ecs::system::SystemParam)]
 pub(crate) struct Devices<'w, 's> {
-    keys: Res<'w, ButtonInput<KeyCode>>,
-    mouse: Res<'w, ButtonInput<MouseButton>>,
-    pads: Query<'w, 's, &'static Gamepad>,
+    pub(super) keys: crate::pad::ActionButtons<'w, KeyCode>,
+    pub(super) mouse: crate::pad::ActionButtons<'w, MouseButton>,
+    pads: crate::pad::ActionPads<'w, 's>,
     windows: Query<'w, 's, &'static Window, With<PrimaryWindow>>,
 }
 
@@ -181,6 +229,32 @@ pub(crate) struct MenuInputs<'w, 's> {
     tutorial_drag: Local<'s, Option<super::tutorial_menu::Drag>>,
     /// The tutorial menu's hand-built buttons, while they stand.
     tutorial_hand_built: Query<'w, 's, (), With<crate::tutorial_menu::TmButton>>,
+    /// T15c: the container menu's state, the writer's and this input's.
+    container: ResMut<'w, super::container_menu::ContainerTiles>,
+    barter: Option<ResMut<'w, super::barter_menu::BarterTiles>>,
+    /// The recipe menu's state, the model and what the tiles ask of it.
+    recipe: Option<ResMut<'w, super::recipe_menu::RecipeTiles>>,
+    recipe_model: Option<Res<'w, crate::crafting::RecipeMenu>>,
+    recipe_commands: MessageWriter<'w, crate::crafting::RecipeInput>,
+    /// The Pip-Boy's repair page's decision, and whether its list is open.
+    repair_page: Option<ResMut<'w, super::repair_menu::RepairTiles>>,
+    repair_list: Option<Res<'w, crate::pipboy::repair::PipRepair>>,
+    /// The vendor's repair menu's state, and what the tiles ask of its model.
+    repair_services: Option<ResMut<'w, super::repair_services_menu::RepairServicesTiles>>,
+    repair_commands: MessageWriter<'w, crate::repair::RepairServicesInput>,
+    /// The pointer's place last frame, to know a list moved under it from it moving.
+    last_at: Local<'s, Option<(f64, f64)>>,
+    hold: Option<Res<'w, crate::menu::WheelHold>>,
+    wheel_title: ResMut<'w, super::container_menu::TileWheelTitle>,
+    /// The trait menu's state, the writer's and this input's.
+    traits: Option<ResMut<'w, super::trait_menu::TraitTiles>>,
+    tags: Option<ResMut<'w, super::tag_menu::TagTiles>>,
+    /// The hand-built trait menu's rows, while they stand.
+    trait_hand_built: Query<'w, 's, (), With<crate::chargen::lists::ListRow>>,
+    /// The dialogue menu's one decision, what it asks of the conversation, and its scroll.
+    dialog: Option<Res<'w, super::dialog_menu::DialogTiles>>,
+    view_input: Option<ResMut<'w, crate::dialogue::ViewInput>>,
+    dialog_written: Option<Res<'w, super::dialog_menu::SharedWritten>>,
 }
 
 impl MenuInputs<'_, '_> {
@@ -188,9 +262,19 @@ impl MenuInputs<'_, '_> {
         self.active.as_ref().and_then(|a| a.0.as_ref()).and_then(|m| m.quantity)
     }
 
+    /// The recipe menu's own prompt is open: it stays hand-built, and has the input.
+    fn recipe_asking(&self) -> bool {
+        self.recipe_model.as_ref().and_then(|m| m.0.as_ref()).is_some_and(|o| o.quantity.is_some())
+    }
+
+    /// The recipe menu while it takes input.
+    fn recipe_takes(&self) -> Option<fnv_ui::TileId> {
+        super::container_menu::takes_input(self.recipe.as_ref().and_then(|r| r.menu), self.recipe_asking())
+    }
+
     /// The menus drawn from tiles that take input this frame, back to front: the prompt,
     /// then the message box over it.
-    fn taking(&self, menus: super::vanilla::TileMenus, game: &fnv_game::Game<'_>) -> Vec<fnv_ui::TileId> {
+    fn taking(&self, menus: super::vanilla::TileMenus, game: &fnv_game::Game<'_>, inventory_tiled: bool) -> Vec<fnv_ui::TileId> {
         use super::menus::{message_tiled, quantity_tiled, MESSAGE_MENU, QUANTITY_MENU};
         let mut out = Vec::new();
         if super::tutorial_menu::tiled(menus.tutorial, game) {
@@ -201,7 +285,15 @@ impl MenuInputs<'_, '_> {
             }
             return out;
         }
-        if quantity_tiled(menus.quantity, game, self.quantity().is_some()) {
+        out.extend(super::container_menu::takes_input(self.container.menu, self.quantity().is_some()));
+        out.extend(super::container_menu::takes_input(self.barter.as_ref().and_then(|b| b.menu()), self.quantity().is_some()));
+        out.extend(self.recipe_takes());
+        out.extend(self.repair_services.as_ref().and_then(|r| r.menu));
+        if self.trait_hand_built.is_empty() {
+            out.extend(self.traits.as_ref().and_then(|t| t.takes()));
+            out.extend(self.tags.as_ref().and_then(|t| t.takes()));
+        }
+        if quantity_tiled(menus.quantity, game, self.quantity().is_some(), self.container.menu.is_some() || self.barter.as_ref().is_some_and(|b| b.menu().is_some()) || inventory_tiled) {
             out.extend(game.ui_tree.menu(QUANTITY_MENU));
         }
         if message_tiled(menus.message, game) {
@@ -274,10 +366,260 @@ impl MenuInputs<'_, '_> {
         }
     }
 
-    /// Act on a frame's report (see the module doc): `at` the pointer, `held` the left
-    /// button down, `physical` the keys from the keyboard (or a controller standing in for
-    /// them) this frame.
-    fn follow(&mut self, ui: &fnv_ui::Ui, report: &fnv_ui::input::Report, at: Option<(f64, f64)>, held: bool, physical: &[&str], tutorial: Option<fnv_ui::TileId>) -> Option<u32> {
+    /// [design] Act on a click on the vendor's repair menu's tiles (see the module doc). `None` when
+    /// the click is not for it. `row_acted`: as [`Self::follow_item_menu`]'s.
+    fn follow_repair_services(&mut self, ui: &fnv_ui::Ui, c: &fnv_ui::input::Click, at: Option<(f64, f64)>, inputs: Pressed<'_>, row_acted: &mut bool) -> Option<()> {
+        use super::repair_services_menu::{row_input, RepairServicesTile, REPAIR_SERVICES_MENU};
+        use crate::repair::RepairServicesInput as Ask;
+        use fnv_ui::input::By;
+        let st = self.repair_services.as_mut()?;
+        let what = st.clicked(ui, c.tile)?;
+        if let By::Key(k) = &c.by {
+            if !super::menus::key_click_acts(REPAIR_SERVICES_MENU, k, inputs.physical) {
+                return Some(());
+            }
+        }
+        let ask = match what {
+            RepairServicesTile::Row(index) => {
+                let at = if *row_acted { None } else { st.row_at(index) };
+                let Some(index) = at else {
+                    info!("tiles: {REPAIR_SERVICES_MENU} a click on a row no longer there is ignored");
+                    return Some(());
+                };
+                *row_acted = true;
+                row_input(st.selected(), index)
+            }
+            RepairServicesTile::Repair => Ask::Repair,
+            RepairServicesTile::RepairAll => Ask::All,
+            RepairServicesTile::Done => Ask::Done,
+            RepairServicesTile::Bar(list::BarPiece::Marker) => {
+                let menu = st.menu;
+                let list_tile = st.list_tile(ui);
+                st.drag = at.filter(|_| inputs.held && matches!(c.by, By::Pointer)).zip(menu).zip(list_tile).and_then(|(((_, y), menu), l)| list::marker_grab(ui, menu, l, y));
+                return Some(());
+            }
+            RepairServicesTile::Bar(piece) => {
+                let value = st.value();
+                if let Some(v) = st.list_tile(ui).and_then(|l| list::after_piece(ui, l, piece, value)) {
+                    info!("tiles: {REPAIR_SERVICES_MENU} {piece:?} on its tiles");
+                    st.scroll_to(v);
+                }
+                return Some(());
+            }
+            RepairServicesTile::Other => return Some(()),
+        };
+        // A repair is of the row the tree shows selected, whatever a key did this frame, and no
+        // pointer step or other row click after it this frame chooses another.
+        let selected = st.selected();
+        if ask == Ask::Repair {
+            *row_acted = true;
+        }
+        if let (Ask::Repair, Some(i)) = (ask, selected) {
+            self.repair_commands.write(Ask::Select(i));
+        }
+        info!("tiles: {REPAIR_SERVICES_MENU} {ask:?} on its tiles");
+        self.repair_commands.write(ask);
+        Some(())
+    }
+
+    /// The vendor's repair menu's pointer besides clicks: a drag on the scroll marker, the row it
+    /// came onto.
+    fn follow_repair_services_pointer(&mut self, ui: &fnv_ui::Ui, report: &fnv_ui::input::Report, at: Option<(f64, f64)>, moved: bool, row_acted: bool) {
+        use super::repair_services_menu::{RepairServicesTile, REPAIR_SERVICES_MENU};
+        use crate::repair::RepairServicesInput as Ask;
+        let holds = self.hold.as_ref().is_some_and(|h| h.held());
+        let Some(st) = self.repair_services.as_mut() else { return };
+        if let (Some(drag), Some((_, y))) = (st.drag, at) {
+            if let Some(v) = list::value_under(ui, drag, y) {
+                st.scroll_to(v);
+            }
+        }
+        let Some((_, Some(to))) = report.over else { return };
+        let Some(RepairServicesTile::Row(index)) = st.clicked(ui, to) else { return };
+        let already = st.selected() == Some(index);
+        if !row_acted && super::container_menu::hover_selects(moved, holds, already) && st.row_at(index).is_some() {
+            let ask = Ask::Hover(index);
+            info!("tiles: {REPAIR_SERVICES_MENU} {ask:?} on its tiles");
+            self.repair_commands.write(ask);
+        }
+    }
+
+    /// [design] Act on a click on the container or barter menu's tiles (see the module doc). `None` when
+    /// the click is not for it, so the other menus' rules see it. `row_acted` is set by the
+    /// row click that acts: the commands are applied later in the frame, so a second row
+    /// click would be on rows the first may change.
+    fn follow_item_menu(&mut self, ui: &fnv_ui::Ui, c: &fnv_ui::input::Click, at: Option<(f64, f64)>, inputs: Pressed<'_>, row_acted: &mut bool) -> Option<()> {
+        use super::container_menu::{row_commands, ContainerTile};
+        use crate::menu::{model::Command, MenuInput};
+        use fnv_ui::input::By;
+        let st = if self.container.menu.is_some() { &mut *self.container } else { &mut self.barter.as_mut()?.view };
+        let menu_name = st.name();
+        let what = st.clicked(ui, c.tile)?;
+        if let By::Key(k) = &c.by {
+            if !super::menus::key_click_acts(menu_name, k, inputs.physical) {
+                return Some(());
+            }
+        }
+        let m = self.active.as_ref().and_then(|a| a.0.as_ref())?;
+        if m.quantity.is_some() {
+            return Some(());
+        }
+        let mut guard = None;
+        let commands = match what {
+            ContainerTile::Row(side, index) => {
+                let at = if *row_acted { None } else { st.row_at(m, side, index) };
+                let Some(index) = at else {
+                    info!("tiles: {menu_name} a click on a row no longer there is ignored");
+                    return Some(());
+                };
+                *row_acted = true;
+                let on_it = m.focus == side && m.selected[side as usize] == index;
+                let commands = row_commands(side, index, on_it, inputs.shift);
+                guard = st.guard(m.mode, side, index, on_it, commands.len() as u8);
+                commands
+            }
+            ContainerTile::Arrow(side, by) => vec![Command::Category(side, by)],
+            ContainerTile::Title(side) => vec![Command::Category(side, 1)],
+            ContainerTile::TakeAll => vec![Command::TakeAll],
+            ContainerTile::Accept => vec![Command::Accept],
+            ContainerTile::Exit => vec![Command::Close],
+            ContainerTile::Bar(side, list::BarPiece::Marker) => {
+                let menu = st.menu;
+                let list_tile = st.list_tile(ui, side);
+                st.drag = at.filter(|_| inputs.held && matches!(c.by, By::Pointer)).zip(menu).zip(list_tile).and_then(|(((_, y), menu), l)| list::marker_grab(ui, menu, l, y));
+                return Some(());
+            }
+            ContainerTile::Bar(side, piece) => {
+                let value = st.value(side);
+                if let Some(v) = st.list_tile(ui, side).and_then(|l| list::after_piece(ui, l, piece, value)) {
+                    info!("tiles: {menu_name} {piece:?} on its tiles");
+                    st.scroll_to(side, v);
+                }
+                return Some(());
+            }
+            ContainerTile::Focus(_) | ContainerTile::Other => return Some(()),
+        };
+        if let Some(guard) = guard {
+            self.commands.write(MenuInput(Command::Expect(guard)));
+        }
+        for cmd in commands {
+            info!("tiles: {menu_name} {cmd:?} on its tiles");
+            self.commands.write(MenuInput(cmd));
+        }
+        Some(())
+    }
+
+    /// [design] Act on a click on the recipe menu's tiles (see the module doc). `None` when the
+    /// click is not for it. `row_acted`: as [`Self::follow_item_menu`]'s.
+    fn follow_recipe(&mut self, ui: &fnv_ui::Ui, c: &fnv_ui::input::Click, at: Option<(f64, f64)>, inputs: Pressed<'_>, row_acted: &mut bool) -> Option<()> {
+        use super::recipe_menu::{row_input, RecipeTile, RECIPE_MENU};
+        use crate::crafting::RecipeInput;
+        use fnv_ui::input::By;
+        let asking = self.recipe_asking();
+        let st = self.recipe.as_mut()?;
+        let what = st.clicked(ui, c.tile)?;
+        if let By::Key(k) = &c.by {
+            if !super::menus::key_click_acts(RECIPE_MENU, k, inputs.physical) {
+                return Some(());
+            }
+        }
+        if asking {
+            return Some(());
+        }
+        let input = match what {
+            RecipeTile::Row(index) => {
+                let at = if *row_acted { None } else { st.row_at(index) };
+                let Some(index) = at else {
+                    info!("tiles: {RECIPE_MENU} a click on a row no longer there is ignored");
+                    return Some(());
+                };
+                *row_acted = true;
+                row_input(st.selected(), index)
+            }
+            RecipeTile::Arrow(by) => RecipeInput::Filter(by),
+            RecipeTile::Title => RecipeInput::Filter(1),
+            RecipeTile::Accept => RecipeInput::Accept,
+            RecipeTile::Exit => RecipeInput::Exit,
+            RecipeTile::Bar(list_at, list::BarPiece::Marker) => {
+                let menu = st.menu;
+                let list_tile = st.list_tile(ui, list_at);
+                st.drag = at.filter(|_| inputs.held && matches!(c.by, By::Pointer)).zip(menu).zip(list_tile).and_then(|(((_, y), menu), l)| list::marker_grab(ui, menu, l, y));
+                return Some(());
+            }
+            RecipeTile::Bar(list_at, piece) => {
+                let value = st.value(list_at);
+                if let Some(v) = st.list_tile(ui, list_at).and_then(|l| list::after_piece(ui, l, piece, value)) {
+                    info!("tiles: {RECIPE_MENU} {piece:?} on its tiles");
+                    st.scroll_to(list_at, v);
+                }
+                return Some(());
+            }
+            RecipeTile::Other => return Some(()),
+        };
+        info!("tiles: {RECIPE_MENU} {input:?} on its tiles");
+        self.recipe_commands.write(input);
+        Some(())
+    }
+
+    /// The recipe menu's pointer besides clicks: a drag on a scroll marker, the row it came onto.
+    fn follow_recipe_pointer(&mut self, ui: &fnv_ui::Ui, report: &fnv_ui::input::Report, at: Option<(f64, f64)>, moved: bool, row_acted: bool) {
+        use super::recipe_menu::{RecipeTile, RECIPE_MENU};
+        use crate::crafting::RecipeInput;
+        let holds = self.hold.as_ref().is_some_and(|h| h.held());
+        let Some(st) = self.recipe.as_mut() else { return };
+        if let (Some(drag), Some((_, y))) = (st.drag, at) {
+            if let (Some(list_at), Some(v)) = (st.list_of(ui, drag.list), list::value_under(ui, drag, y)) {
+                st.scroll_to(list_at, v);
+            }
+        }
+        let Some((_, Some(to))) = report.over else { return };
+        let Some(RecipeTile::Row(index)) = st.clicked(ui, to) else { return };
+        let already = st.selected() == Some(index);
+        if !row_acted && super::container_menu::hover_selects(moved, holds, already) && st.row_at(index).is_some() {
+            let input = RecipeInput::Hover(index);
+            info!("tiles: {RECIPE_MENU} {input:?} on its tiles");
+            self.recipe_commands.write(input);
+        }
+    }
+
+    /// T15c: the pointer's part besides clicks: a drag on a scroll marker, the row it came
+    /// onto, the heading under it for the hand-built wheel.
+    fn follow_item_menu_pointer(&mut self, ui: &fnv_ui::Ui, report: &fnv_ui::input::Report, over: Option<fnv_ui::TileId>, at: Option<(f64, f64)>, moved: bool, row_acted: bool) {
+        use super::container_menu::{hover_selects, ContainerTile};
+        use crate::menu::{model::Command, MenuInput};
+        let st = if self.container.menu.is_some() { &mut *self.container } else {
+            let Some(b) = self.barter.as_mut() else { return };
+            &mut b.view
+        };
+        if let (Some(drag), Some((_, y))) = (st.drag, at) {
+            let side = [Side::Container, Side::Player].into_iter().find(|&s| st.list_tile(ui, s) == Some(drag.list));
+            if let (Some(side), Some(v)) = (side, list::value_under(ui, drag, y)) {
+                st.scroll_to(side, v);
+            }
+        }
+        self.wheel_title.0 = over.and_then(|t| st.clicked(ui, t)).and_then(|w| match w {
+            ContainerTile::Title(side) | ContainerTile::Arrow(side, _) => Some(side),
+            _ => None,
+        });
+        let Some((_, Some(to))) = report.over else { return };
+        let Some(ContainerTile::Row(side, index)) = st.clicked(ui, to) else { return };
+        let Some(m) = self.active.as_ref().and_then(|a| a.0.as_ref()).filter(|m| m.quantity.is_none()) else { return };
+        let already = m.focus == side && m.selected[side as usize] == index;
+        let holds = self.hold.as_ref().is_some_and(|h| h.held());
+        if !row_acted && hover_selects(moved, holds, already) && st.row_at(m, side, index).is_some() {
+            info!("tiles: {} Hover({side:?}, {index}) on its tiles", st.name());
+            if let Some(guard) = st.guard(m.mode, side, index, false, 1) {
+                self.commands.write(MenuInput(Command::Expect(guard)));
+            }
+            self.commands.write(MenuInput(Command::Hover(side, index)));
+        }
+    }
+
+    /// Act on a frame's report (see the module doc): `at` the pointer, `over` the tile under
+    /// it now, `held` the left button down, `shift` a Shift key down, `physical` the keys from
+    /// the keyboard (or a controller standing in for them) this frame.
+    #[allow(clippy::too_many_arguments)]
+    fn follow(&mut self, ui: &fnv_ui::Ui, report: &fnv_ui::input::Report, at: Option<(f64, f64)>, over: Option<fnv_ui::TileId>, held: bool, shift: bool, physical: &[&str], tutorial: Option<fnv_ui::TileId>) -> Option<u32> {
         use super::menus::{chosen_row, key_click_acts, message_pick, nav_by_hand, quantity_tile, row_button, QuantityTile, QUANTITY_MENU};
         use crate::menu::{model::Command, MenuInput};
         use fnv_ui::input::By;
@@ -300,8 +642,26 @@ impl MenuInputs<'_, '_> {
         }
         let mut wait_clicked = false;
         self.drag_tutorial(ui, at);
+        let mut row_acted = false;
+        let moved = at != *self.last_at;
+        *self.last_at = at;
         for c in report.clicks.iter().filter(|c| ui.is_live(c.tile)) {
             if self.follow_tutorial(ui, c, at, held, physical, tutorial).is_some() {
+                continue;
+            }
+            if self.traits.as_mut().filter(|t| t.menu.is_some()).is_some_and(|t| super::trait_menu::follow_click(t, ui, c, at, held, physical).is_some()) {
+                continue;
+            }
+            if self.follow_repair_services(ui, c, at, Pressed { held, shift, physical }, &mut row_acted).is_some() {
+                continue;
+            }
+            if self.tags.as_mut().filter(|t| t.menu.is_some()).is_some_and(|t| super::selection_menu::follow_click(t, ui, c, at, held, physical).is_some()) {
+                continue;
+            }
+            if self.follow_item_menu(ui, c, at, Pressed { held, shift, physical }, &mut row_acted).is_some() {
+                continue;
+            }
+            if self.follow_recipe(ui, c, at, Pressed { held, shift, physical }, &mut row_acted).is_some() {
                 continue;
             }
             if let Some(hours) = self.follow_wait(ui, c, at, held, physical) {
@@ -354,8 +714,31 @@ impl MenuInputs<'_, '_> {
                 slider = Some(h);
             }
         }
+        if self.container.menu.is_some() || self.barter.as_ref().is_some_and(|b| b.menu().is_some()) {
+            self.follow_item_menu_pointer(ui, report, over, at, moved, row_acted);
+        }
+        if self.recipe_takes().is_some() {
+            self.follow_recipe_pointer(ui, report, at, moved, row_acted);
+        }
+        if let Some(t) = self.traits.as_mut().filter(|t| t.takes().is_some()) {
+            super::trait_menu::follow_pointer(t, ui, report, at, moved);
+        }
+        if self.repair_services.as_ref().is_some_and(|r| r.menu.is_some()) {
+            self.follow_repair_services_pointer(ui, report, at, moved, row_acted);
+        }
+        if let Some(t) = self.tags.as_mut().filter(|t| t.takes().is_some()) {
+            super::selection_menu::follow_pointer(t, ui, report, at, moved);
+        }
         slider
     }
+}
+
+/// What a frame's buttons and keys are, for a click's rules.
+#[derive(Clone, Copy)]
+struct Pressed<'a> {
+    held: bool,
+    shift: bool,
+    physical: &'a [&'a str],
 }
 
 /// T15b: the hours the Wait menu's slider was written for this frame (`feed`), and the
@@ -397,6 +780,72 @@ fn stood_in(button: GamepadButton, at: crate::pad::MenuAt, just_pressed: &dyn Fn
     crate::pad::menu_key_at(button, at).is_some_and(just_pressed)
 }
 
+/// The frame's keys into `input`: the keyboard's, a script's MenuTapKey and the controller's.
+/// Returns the keys from the keyboard and the controller buttons that stood in for a key this
+/// frame in the menu `pad_menu` (`crate::pad::menu_key`): what the hand-built handlers saw too.
+pub(super) fn frame_keys(input: &mut Input, devices: &Devices, game: &mut fnv_game::Game<'_>, pad_menu: crate::pad::MenuAt) -> Vec<&'static str> {
+    let mut physical: Vec<&'static str> = Vec::new();
+    for k in devices.keys.get_just_pressed() {
+        if let Some(n) = key_name(*k) {
+            push(input, n);
+            physical.push(n.1);
+        }
+    }
+    for code in std::mem::take(&mut game.ui_taps) {
+        if let Some(n) = u8::try_from(code).ok().and_then(crate::bindings::dik_key).and_then(key_name) {
+            push(input, n);
+        }
+    }
+    for (button, name) in PAD {
+        if devices.pads.iter().any(|g| g.just_pressed(button)) {
+            push(input, (false, name));
+            if stood_in(button, pad_menu, &|k| devices.keys.just_pressed(k)) {
+                physical.push(name);
+            }
+        }
+    }
+    physical
+}
+
+/// A step's log lines: what the pointer is over, each click, each key that named nothing.
+pub(super) fn log_report(ui: &fnv_ui::Ui, report: &fnv_ui::input::Report) {
+    if let Some((_, to)) = report.over {
+        match to.filter(|&t| ui.is_live(t)) {
+            Some(t) => {
+                let id = ui.tile(t).get("id").map_or_else(|| "no id".to_string(), |v| format!("id {}", v.text()));
+                let over = ui.tile(t).get(fnv_ui::input::MOUSEOVER).map_or(0.0, fnv_ui::Value::num);
+                info!("tiles: pointer over {} ({id}), mouseover {over}", ui.path_of(t));
+            }
+            None => info!("tiles: pointer over nothing"),
+        }
+    }
+    for c in &report.clicks {
+        if ui.is_live(c.tile) {
+            let clicked = ui.tile(c.tile).get(fnv_ui::input::CLICKED).map_or(0.0, fnv_ui::Value::num);
+            info!("tiles: {}, clicked {clicked}", fnv_game::ui_input::click_line(ui, c));
+        }
+    }
+    for line in &report.unfollowed {
+        info!("tiles: key not followed: {line}");
+    }
+}
+
+/// What else says who takes the frame's input: the pause menu and its page, and the Pip-Boy's
+/// pages drawn from tiles (`super::stats_menu`, `super::inventory_menu`).
+#[derive(bevy::ecs::system::SystemParam)]
+pub(crate) struct Others<'w> {
+    paused: Option<Res<'w, crate::pause::Paused>>,
+    page: Option<Res<'w, crate::pause::Page>>,
+    stats: Option<ResMut<'w, super::stats_menu::StatsTiles>>,
+    inventory: Option<ResMut<'w, super::inventory_menu::InventoryTiles>>,
+    map: Option<ResMut<'w, super::map_menu::MapTiles>>,
+    repair: Option<Res<'w, crate::pipboy::repair::PipRepair>>,
+    modding: Option<Res<'w, crate::pipboy::item_mod::PipItemMod>>,
+    /// The weapon mod menu's decision (`super::item_mod_menu`).
+    item_mod: Option<ResMut<'w, super::item_mod_menu::ItemModTiles>>,
+    pip: Option<Res<'w, crate::pipboy::PipBoy>>,
+}
+
 pub(crate) fn feed(
     mut script: ResMut<ScriptState>,
     menus: Res<super::vanilla::TileMenus>,
@@ -404,11 +853,15 @@ pub(crate) fn feed(
     time: crate::pause::AidTime,
     devices: Devices,
     mut inputs: MenuInputs,
-    (paused, page): (Option<Res<crate::pause::Paused>>, Option<Res<crate::pause::Page>>),
+    others: Others,
 ) {
+    let Others { paused, page, mut stats, mut inventory, mut map, repair, modding, mut item_mod, pip } = others;
     let Some(rt) = script.rt.as_mut() else { return };
     if rt.game.ui_files.is_none() {
         return;
+    }
+    if let Some(v) = inputs.view_input.as_deref_mut() {
+        *v = Default::default();
     }
     // The test aid's pointer, moved on its clock.
     let mut aid_click = false;
@@ -434,12 +887,16 @@ pub(crate) fn feed(
         aid_at = aid.now;
     }
     // The menus that take input, back to front (see the module doc): the HUD only under
-    // the test aid.
+    // the test aid, or with a script's HUD cursor (ToggleHUDCursor, `fnv_game::nvse_jip9`).
     let mut taking = Vec::new();
-    if aid_at.is_some() && menus.hud {
+    let hud_cursor = rt.game.other.jip9.hud_cursor;
+    if (aid_at.is_some() || hud_cursor) && menus.hud {
         taking.extend(rt.game.ui_tree.menu(super::draw::HUD_MENU));
     }
-    taking.extend(inputs.taking(*menus, &rt.game));
+    // The dialogue menu, under anything over the conversation (it does not take with one up).
+    let dialog_menu = inputs.dialog.as_ref().and_then(|d| d.taking(&rt.game, paused.as_ref().is_some_and(|p| p.0)));
+    taking.extend(dialog_menu);
+    taking.extend(inputs.taking(*menus, &rt.game, inventory.as_ref().is_some_and(|i| i.ready.is_some())));
     // T11: the pause menu's Mods page takes the pointer and keys for the start menu's
     // tiles (`super::mods`).
     if menus.start && paused.as_ref().zip(page.as_ref()).is_some_and(|(p, pg)| crate::pause::mods_open(p, pg)) {
@@ -450,75 +907,155 @@ pub(crate) fn feed(
     let tutorial = super::tutorial_menu::tiled_menu(menus.tutorial, &rt.game);
     let held = aid_click || devices.mouse.pressed(MouseButton::Left);
     *inputs.tutorial_drag = inputs.tutorial_drag.filter(|d| super::tutorial_menu::drag_holds(d, tutorial, held));
+    // T15c: a drag on a scroll marker ends with its press, that menu or under a prompt,
+    // whether or not any menu takes input this frame; so does the heading the wheel reads.
+    let container_now = super::container_menu::takes_input(inputs.container.menu, inputs.quantity().is_some());
+    inputs.container.drag = inputs.container.drag.filter(|d| list::drag_holds(d, container_now, held));
+    let barter_now = super::container_menu::takes_input(inputs.barter.as_ref().and_then(|b| b.menu()), inputs.quantity().is_some());
+    if let Some(b) = inputs.barter.as_mut() {
+        b.view.drag = b.view.drag.filter(|d| list::drag_holds(d, barter_now, held));
+    }
+    if let Some(r) = inputs.repair_services.as_mut() {
+        let now = r.menu;
+        r.drag = r.drag.filter(|d| list::drag_holds(d, now, held));
+    }
+    if container_now.is_none() && barter_now.is_none() {
+        inputs.wheel_title.0 = None;
+    }
+    let recipe_now = inputs.recipe_takes();
+    if let Some(r) = inputs.recipe.as_mut() {
+        r.drag = r.drag.filter(|d| list::drag_holds(d, recipe_now, held));
+    }
+    if let Some(t) = inputs.traits.as_mut().filter(|t| t.menu.is_some()) {
+        t.hold_drag(held);
+    }
+    if let Some(t) = inputs.tags.as_mut().filter(|t| t.menu.is_some()) { t.hold_drag(held); }
+    // The pointer on the menus as drawn at the UI scale (#1631): the dialogue menu keeps to
+    // the view's bottom when it takes input alone, the others to its middle (`super::draw`).
+    // The test aid's place is in the tree's units already and is read as given, through no
+    // frame: so the HUD, which takes input only under the aid and is drawn in none, is hit
+    // where its tiles stand.
+    let anchor = super::draw::menu_anchor(dialog_menu.is_some() && taking.len() == 1);
+    // The HUD alone under a script's cursor is hit where its tiles stand, in no frame.
+    let hud_alone = hud_cursor && aid_at.is_none() && taking.len() == 1 && rt.game.ui_tree.menu(super::draw::HUD_MENU) == taking.first().copied();
+    let cursor = || {
+        aid_at.or_else(|| {
+            devices.windows.single().ok().and_then(|w| {
+                let p = w.cursor_position()?;
+                Some(if hud_alone { to_units(p, w.height()) } else { to_menu_units(p, Vec2::new(w.width(), w.height()), anchor) })
+            })
+        })
+    };
     let wait_tiled = super::wait_menu::tiled(menus.sleep_wait, &rt.game);
     inputs.wait_check.wrote = None;
     if !wait_tiled {
         inputs.wait_check.drawn = None;
     }
+    let others = !taking.is_empty();
+    if let Some(s) = stats.as_mut().filter(|s| s.others != others) {
+        s.others = others;
+    }
+    if let Some(s) = inventory.as_mut().filter(|s| s.others != others) {
+        s.others = others;
+    }
+    if let Some(r) = inputs.repair_page.as_mut().filter(|r| r.others != others) {
+        r.others = others;
+    }
+    if let Some(m) = map.as_mut().filter(|m| m.others != others) {
+        m.others = others;
+    }
+    if let Some(m) = item_mod.as_mut().filter(|m| m.others != others) {
+        m.others = others;
+    }
     if taking.is_empty() {
+        // The Pip-Boy's page has the frame's step (`super::stats_menu::feed`).
+        let is_paused = paused.as_ref().is_some_and(|p| p.0);
+        if stats.as_deref().zip(pip.as_deref()).is_some_and(|(s, p)| super::stats_menu::takes(s, *menus, p, &rt.game, is_paused).is_some()) {
+            return;
+        }
+        // Likewise the ITEMS page's (`super::inventory_menu::feed`).
+        let lists_closed = super::inventory_menu::lists_closed(repair.as_deref(), modding.as_deref());
+        if inventory.as_deref().zip(pip.as_deref()).is_some_and(|(s, p)| super::inventory_menu::takes(s, *menus, p, &rt.game, is_paused, lists_closed, inputs.quantity().is_some()).is_some()) {
+            return;
+        }
+        // Likewise the DATA page's (`super::map_menu::feed`).
+        if map.as_deref().zip(pip.as_deref()).is_some_and(|(m, p)| super::map_menu::takes(m, *menus, p, &rt.game, is_paused).is_some()) {
+            return;
+        }
+        // Likewise the repair page's (`super::repair_menu::feed`).
+        let list_open = inputs.repair_list.as_ref().is_some_and(|r| r.is_open());
+        if inputs.repair_page.as_deref().zip(pip.as_deref()).is_some_and(|(r, p)| super::repair_menu::takes(r, *menus, p, list_open, &rt.game, is_paused).is_some()) {
+            return;
+        }
+        // Likewise the weapon mod menu's (`super::item_mod_menu::feed`).
+        let mod_open = modding.as_ref().is_some_and(|m| m.is_open());
+        if item_mod.as_deref().zip(pip.as_deref()).is_some_and(|(m, p)| super::item_mod_menu::takes(m, *menus, p, mod_open, &rt.game, is_paused).is_some()) {
+            return;
+        }
         // A highlight left from the last menu that took input goes (mouseover back to 0),
         // and the scripts' clicks end and fire their events; otherwise nothing to do
         // [design: `fnv_game::ui_input::idle`].
         if fnv_game::ui_input::idle(&mut rt.game).is_some_and(|r| r.over.is_some()) {
             info!("tiles: pointer over nothing (no menu takes input)");
         }
+        // A click's pulse ended there too: the scroll is the view's again.
+        if inputs.container.menu.is_some() {
+            inputs.container.rewrite(&mut rt.game.ui_tree);
+        }
+        if let Some(b) = inputs.barter.as_ref().filter(|b| b.menu().is_some()) {
+            b.view.rewrite(&mut rt.game.ui_tree);
+        }
+        if let Some(r) = inputs.recipe.as_ref().filter(|r| r.menu.is_some()) {
+            r.rewrite(&mut rt.game.ui_tree);
+        }
+        if let Some(r) = inputs.repair_services.as_ref().filter(|r| r.menu.is_some()) {
+            r.rewrite(&mut rt.game.ui_tree);
+        }
+        if let Some(t) = inputs.traits.as_ref().filter(|t| t.menu.is_some()) {
+            t.rewrite(&mut rt.game.ui_tree);
+        }
+        if let Some(t) = inputs.tags.as_ref().filter(|t| t.menu.is_some()) { t.rewrite(&mut rt.game.ui_tree); }
+        // Where the pointer rests when a menu takes input again is no move onto a row.
+        *inputs.last_at = cursor();
         return;
     }
     // The aid's pointer, else the cursor in the window.
-    let at = aid_at.or_else(|| devices.windows.single().ok().and_then(|w| Some(to_units(w.cursor_position()?, w.height()))));
+    let at = cursor();
     let mut input = Input {
         at,
         press: aid_click || devices.mouse.just_pressed(MouseButton::Left),
         shift: devices.keys.pressed(KeyCode::ShiftLeft) || devices.keys.pressed(KeyCode::ShiftRight),
         ..Input::default()
     };
-    // The keys from the keyboard, and the controller buttons that stood in for a key this
-    // frame (`crate::pad::menu_key`): what the hand-built handlers saw too.
-    let mut physical: Vec<&'static str> = Vec::new();
     // The tutorial menu's triggers stand for its own keys (`crate::pad::menu_buttons`), which
     // a press of them would otherwise turn a page with twice: here and through the file.
-    let pad_menu = crate::pad::MenuAt { code: tutorial.map(|_| fnv_game::game::menus::TUTORIAL), tab: 0 };
-    for k in devices.keys.get_just_pressed() {
-        if let Some(n) = key_name(*k) {
-            push(&mut input, n);
-            physical.push(n.1);
+    // [design] X stands for R in the container and A in barter (the same table).
+    let pad_menu = crate::pad::MenuAt { code: tutorial.map(|_| fnv_game::game::menus::TUTORIAL).or(inputs.container.menu.map(|_| crate::script::MENU_CONTAINER)).or(inputs.barter.as_ref().and_then(|b| b.menu()).map(|_| crate::script::MENU_BARTER)).or(inputs.recipe.as_ref().and_then(|r| r.menu).map(|_| fnv_game::crafting::RECIPE_MENU)).or(inputs.traits.as_ref().and_then(|t| t.takes()).map(|_| fnv_game::game::menus::TRAITS)).or(inputs.tags.as_ref().and_then(|t| t.takes()).map(|_| fnv_game::game::menus::TAG_SKILLS)).or(inventory.as_ref().and_then(|i| i.ready).map(|_| fnv_game::game::menus::INVENTORY)), tab: 0 };
+    let pad_menu = crate::pad::MenuAt { code: pad_menu.code.or(inputs.repair_services.as_ref().and_then(|r| r.menu).map(|_| fnv_game::repair::REPAIR_SERVICES_MENU)), ..pad_menu };
+    let physical = frame_keys(&mut input, &devices, &mut rt.game, pad_menu);
+    // The dialogue menu's pointer decides on what was drawn (`super::dialog_menu`).
+    if let (Some(_), [_], Some(d)) = (dialog_menu, taking.as_slice(), inputs.dialog.as_ref()) {
+        input.resolved = Some(d.hits().to_vec());
+    }
+    if let (Some(st), Some(at)) = (inputs.barter.as_ref(), at) {
+        if let Some(candidates) = super::barter_menu::pointer_candidates(&mut rt.game.ui_tree, st, &taking, at) {
+            input.resolved = Some(candidates);
         }
     }
-    for code in std::mem::take(&mut rt.game.ui_taps) {
-        if let Some(n) = u8::try_from(code).ok().and_then(crate::bindings::dik_key).and_then(key_name) {
-            push(&mut input, n);
-        }
-    }
-    for (button, name) in PAD {
-        if devices.pads.iter().any(|g| g.just_pressed(button)) {
-            push(&mut input, (false, name));
-            if stood_in(button, pad_menu, &|k| devices.keys.just_pressed(k)) {
-                physical.push(name);
-            }
-        }
-    }
+    // A frame's own clicks are for the screen up now; a script's kept theirs when queued.
+    rt.game.ui_pointer.stamp = crate::dialogue::stamp_now(&rt.game);
     let report = fnv_game::ui_input::step(&mut rt.game, &taking, &input, &no_measure);
+    let over = rt.game.ui_pointer.active(&rt.game.ui_tree);
     let ui = &rt.game.ui_tree;
-    let slider = inputs.follow(ui, &report, at, held, &physical, tutorial);
-    if let Some((_, to)) = report.over {
-        match to.filter(|&t| ui.is_live(t)) {
-            Some(t) => {
-                let id = ui.tile(t).get("id").map_or_else(|| "no id".to_string(), |v| format!("id {}", v.text()));
-                let over = ui.tile(t).get(fnv_ui::input::MOUSEOVER).map_or(0.0, fnv_ui::Value::num);
-                info!("tiles: pointer over {} ({id}), mouseover {over}", ui.path_of(t));
-            }
-            None => info!("tiles: pointer over nothing"),
+    let slider = inputs.follow(ui, &report, at, over, held, input.shift, &physical, tutorial);
+    if let (Some(menu), Some(v)) = (dialog_menu, inputs.view_input.as_deref_mut()) {
+        let mut steps = 0;
+        super::dialog_menu::follow(ui, &report, &physical, menu, inputs.dialog.as_ref().and_then(|d| d.list()), v, &mut steps);
+        if let Some(shared) = inputs.dialog_written.as_ref() {
+            shared.scroll(steps);
         }
     }
-    for c in &report.clicks {
-        if ui.is_live(c.tile) {
-            let clicked = ui.tile(c.tile).get(fnv_ui::input::CLICKED).map_or(0.0, fnv_ui::Value::num);
-            info!("tiles: {}, clicked {clicked}", fnv_game::ui_input::click_line(ui, c));
-        }
-    }
-    for line in &report.unfollowed {
-        info!("tiles: key not followed: {line}");
-    }
+    log_report(ui, &report);
     // T15b: the slider's value is the model's again on every frame the menu is tiled, over
     // the file's own count of the clicks and their pulses' ends (`super::wait_menu`), after
     // this frame's step and before the tree is worked out after scripts: the hours a command
@@ -530,6 +1067,24 @@ pub(crate) fn feed(
             inputs.wait_check.wrote = Some(h);
         }
     }
+    // T15c: the scroll and highlight are the view's again, over the file's own count of the
+    // clicks and their pulses' ends, with what the frame's bar clicks and drag did.
+    if inputs.container.menu.is_some() {
+        inputs.container.rewrite(&mut rt.game.ui_tree);
+    }
+    if let Some(b) = inputs.barter.as_ref().filter(|b| b.menu().is_some()) {
+        b.view.rewrite(&mut rt.game.ui_tree);
+    }
+    if let Some(r) = inputs.recipe.as_ref().filter(|r| r.menu.is_some()) {
+        r.rewrite(&mut rt.game.ui_tree);
+    }
+    if let Some(r) = inputs.repair_services.as_ref().filter(|r| r.menu.is_some()) {
+        r.rewrite(&mut rt.game.ui_tree);
+    }
+    if let Some(t) = inputs.traits.as_ref().filter(|t| t.menu.is_some()) {
+        t.rewrite(&mut rt.game.ui_tree);
+    }
+    if let Some(t) = inputs.tags.as_ref().filter(|t| t.menu.is_some()) { t.rewrite(&mut rt.game.ui_tree); }
 }
 
 /// Read the test aid at start.
@@ -558,6 +1113,48 @@ mod tests {
         let items = crate::test_aid::timed("3:10:20,4:10:20:click,9:off").unwrap();
         assert_eq!(items.len(), 3);
         assert_eq!(aid_pointer(items[1].1), Ok(AidPointer::At { x: 10.0, y: 20.0, click: true }));
+    }
+
+    #[test]
+    fn controller_take_all_acts_once() {
+        // X stands for R in the container menu: the hand-built handler takes all, so a file's
+        // `xbuttonx` would not do it again; a controller not working the controls presses no
+        // key, and the file's binding is the one press.
+        use super::super::container_menu::CONTAINER_MENU;
+        use super::super::menus::key_click_acts;
+        let at = crate::pad::MenuAt { code: Some(crate::script::MENU_CONTAINER), tab: 0 };
+        let r_down = |k: KeyCode| k == KeyCode::KeyR;
+        assert!(stood_in(GamepadButton::West, at, &r_down));
+        assert!(!key_click_acts(CONTAINER_MENU, "xbuttonx", &["R", "xbuttonx"]));
+        assert!(!stood_in(GamepadButton::West, at, &|_| false));
+        // Elsewhere X stands for nothing.
+        assert!(!stood_in(GamepadButton::West, crate::pad::MenuAt { code: None, tab: 0 }, &r_down));
+    }
+
+    #[test]
+    fn controller_repair_all_acts_once() {
+        // X stands for A in the vendor's repair menu: the model repairs all, so the file's
+        // `xbuttonx` does not do it again.
+        use super::super::menus::key_click_acts;
+        use super::super::repair_services_menu::REPAIR_SERVICES_MENU;
+        let at = crate::pad::at_menu(fnv_game::repair::REPAIR_SERVICES_MENU);
+        assert!(stood_in(GamepadButton::West, at, &|key| key == KeyCode::KeyA));
+        assert!(!key_click_acts(REPAIR_SERVICES_MENU, "xbuttonx", &["A", "xbuttonx"]));
+        // B stands for Esc, which closes it.
+        assert!(stood_in(GamepadButton::East, at, &|key| key == KeyCode::Escape));
+        assert!(!key_click_acts(REPAIR_SERVICES_MENU, "xbuttonb", &["xbuttonb"]));
+    }
+
+    #[test]
+    fn controller_barter_accept_acts_once() {
+        use super::super::barter_menu::BARTER_MENU;
+        use super::super::menus::key_click_acts;
+        let at = crate::pad::MenuAt { code: Some(crate::script::MENU_BARTER), tab: 0 };
+        assert!(stood_in(GamepadButton::West, at, &|key| key == KeyCode::KeyA));
+        assert!(!key_click_acts(BARTER_MENU, "xbuttonx", &["A", "xbuttonx"]));
+        assert!(!key_click_acts(BARTER_MENU, "A", &["A", "xbuttonx"]));
+        assert!(key_click_acts(BARTER_MENU, "xbuttonx", &[]));
+        assert!(key_click_acts(BARTER_MENU, "A", &[]));
     }
 
     #[test]
@@ -617,14 +1214,19 @@ mod tests {
             .init_resource::<ButtonInput<KeyCode>>()
             .init_resource::<ButtonInput<MouseButton>>()
             .init_resource::<Assets<Image>>()
+            .init_resource::<crate::pad::PadGlyphs>()
             .init_resource::<MessageClick>()
             .init_resource::<WaitSliderCheck>()
             .init_resource::<PointerAid>()
+            .init_resource::<super::super::container_menu::ContainerTiles>()
+            .init_resource::<super::super::container_menu::TileWheelTitle>()
             .insert_resource(super::super::vanilla::TileMenus { tutorial: true, ..Default::default() })
             .insert_resource(state)
             .add_message::<bevy::input::mouse::MouseWheel>()
             .add_message::<crate::menu::MenuInput>()
             .add_message::<crate::wait::WaitInput>()
+            .add_message::<crate::crafting::RecipeInput>()
+            .add_message::<crate::repair::RepairServicesInput>()
             .add_plugins(TutorialMenuPlugin)
             .add_systems(Update, (feed, keys).chain().before(crate::PlaySet::Ui));
         app
@@ -735,6 +1337,21 @@ mod tests {
     }
 
     #[test]
+    fn the_trait_menus_keys_act_once() {
+        // Y and X stand for R and A there: the hand-built handler acts, so the file's bindings
+        // do not act again; a controller not working the controls presses no key.
+        use super::super::menus::key_click_acts;
+        use super::super::trait_menu::TRAIT_MENU;
+        let at = crate::pad::MenuAt { code: Some(fnv_game::game::menus::TRAITS), tab: 0 };
+        assert!(stood_in(GamepadButton::North, at, &|k| k == KeyCode::KeyR));
+        assert!(stood_in(GamepadButton::West, at, &|k| k == KeyCode::KeyA));
+        for (key, physical) in [("R", vec!["R"]), ("A", vec!["A"]), ("xbuttony", vec!["R", "xbuttony"]), ("xbuttonx", vec!["A", "xbuttonx"])] {
+            assert!(!key_click_acts(TRAIT_MENU, key, &physical), "{key} by hand");
+            assert!(key_click_acts(TRAIT_MENU, key, &[]), "{key} by a script or the file");
+        }
+    }
+
+    #[test]
     fn keys_and_units() {
         assert_eq!(key_name(KeyCode::KeyE), Some((true, "E")));
         assert_eq!(key_name(KeyCode::ArrowDown), Some((false, "xdown")));
@@ -742,5 +1359,55 @@ mod tests {
         // 960 units to the height: at 1280 x 720, a pixel is 4/3 of a unit.
         assert_eq!(to_units(Vec2::new(640.0, 360.0), 720.0), (853.3333333333334, 480.0));
         assert_eq!(to_units(Vec2::new(0.0, 960.0), 960.0), (0.0, 960.0));
+    }
+    #[test]
+    fn the_tag_menus_physical_keys_act_once_and_script_keys_still_act() {
+        let menu = super::super::tag_menu::TAG_MENU;
+        for key in super::super::trait_menu::HAND_BUILT_KEYS {
+            assert!(!super::super::menus::key_click_acts(menu, key, &[key]));
+            assert!(super::super::menus::key_click_acts(menu, key, &[]));
+        }
+    }
+
+    /// #1631: a tile menu drawn at the UI scale (its root `crate::interface::framed_root`,
+    /// its pieces placed with `crate::interface::at`, as `super::super::draw::paint` does)
+    /// takes a click on a piece's drawn middle as a click on the piece in the tree's units,
+    /// at 50% and 75% (the menus grow no larger, `crate::interface::menu_scale`), kept to the middle or (the dialogue menu) to the bottom; at 100% the
+    /// pointer reads as [`to_units`] does, bit for bit.
+    #[test]
+    fn a_click_lands_on_the_tile_drawn_under_it_at_any_ui_scale() {
+        let window = Vec2::new(1280.0, 720.0);
+        let full = Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() };
+        let px = |v: Val, along: f32| match v {
+            Val::Percent(x) => x / 100.0 * along,
+            Val::Vh(x) => x / 100.0 * window.y,
+            other => panic!("{other:?}"),
+        };
+        {
+            let _s = crate::interface::units_at(1.0);
+            for at in [Vec2::new(640.0, 360.0), Vec2::new(3.5, 700.25)] {
+                assert_eq!(to_menu_units(at, window, crate::interface::MIDDLE), to_units(at, window.y));
+            }
+        }
+        for s in [0.5f32, 0.75] {
+            let _s = crate::interface::units_at(s);
+            for dialog in [false, true] {
+                let anchor = super::super::draw::menu_anchor(dialog);
+                let root = crate::interface::framed_root(full.clone(), anchor);
+                // A button tile at (900, 700) units, 120 x 30, in a 1280 x 720 window
+                // (1706.7 units wide).
+                let piece = crate::interface::at(900.0, 700.0, 120.0, 30.0);
+                let left = px(root.left, window.x) + px(piece.left, window.x);
+                let top = px(root.top, window.y) + px(piece.top, window.y);
+                let (w, h) = (px(piece.width, window.x), px(piece.height, window.y));
+                assert!((w - 120.0 * s * 0.75).abs() < 1e-3, "{s}: drawn {w} px wide");
+                let (x, y) = to_menu_units(Vec2::new(left + w / 2.0, top + h / 2.0), window, anchor);
+                assert!((x - 960.0).abs() < 1e-3 && (y - 715.0).abs() < 1e-3, "{s} {dialog}: ({x}, {y})");
+                // Just left of the drawn tile: left of the tile in units too.
+                let (x, _) = to_menu_units(Vec2::new(left - 0.5, top + h / 2.0), window, anchor);
+                assert!(x < 900.0, "{s} {dialog}: {x}");
+            }
+            assert_eq!(super::super::draw::menu_anchor(true), crate::interface::BOTTOM_MIDDLE);
+        }
     }
 }

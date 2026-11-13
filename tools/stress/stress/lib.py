@@ -16,6 +16,7 @@ import threading
 import time
 import tomllib
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[3]
@@ -58,19 +59,75 @@ class Ctx:
     ini: Path | None = None  # an NVForever.ini copied into each launch's home (the player's settings)
 
 
+def folder_name(name: str) -> str:
+    """A single output-directory component, never a path supplied by the caller."""
+    path = Path(name)
+    if not name or name in {".", ".."} or "/" in name or "\\" in name or ":" in name or path.drive or path.name != name:
+        raise ValueError(f"invalid run name {name!r}: use one directory name")
+    return name
+
+
+def new_folder(parent: Path, name: str) -> Path:
+    """Make one new named output folder without reusing a previous run's files."""
+    d = Path(parent) / folder_name(name)
+    try:
+        d.mkdir(parents=True, exist_ok=False)
+    except FileExistsError as e:
+        raise FileExistsError(f"run output already exists: {d}") from e
+    return d
+
+
 def run_folder(repo: Path, test: str, name: str | None = None) -> Path:
-    stamp = name or time.strftime("%Y%m%d-%H%M%S")
-    d = repo / "target" / "stress" / test / stamp
-    d.mkdir(parents=True, exist_ok=True)
+    """Make a fresh run folder below this test's output root."""
+    root = repo / "target" / "stress" / folder_name(test)
+    return new_folder(root, name or time.strftime("%Y%m%d-%H%M%S"))
+
+
+def existing_run_folder(repo: Path, test: str, name: str) -> Path:
+    """Find a named prior run for an explicit resume, without accepting traversal."""
+    d = repo / "target" / "stress" / folder_name(test) / folder_name(name)
+    if not d.is_dir():
+        raise FileNotFoundError(f"no run {name} under target/stress/{test}/")
     return d
 
 
 # ---------------------------------------------------------------- memory
 
-def process_memory(pid: int) -> tuple[int, int] | None:
-    """(working set, private bytes) of a process, Windows only; None elsewhere or on error."""
-    if os.name != "nt":
+def _kb_field(text: str, key: str) -> int | None:
+    """The kB of a `/proc` line such as `VmRSS:    1234 kB`, or None."""
+    for line in text.splitlines():
+        if line.startswith(key):
+            try:
+                return int(line.split()[1])
+            except (IndexError, ValueError):
+                return None
+    return None
+
+
+def _linux_process_memory(pid: int) -> tuple[int, int] | None:
+    """(resident, private) bytes from /proc: `VmRSS`, and `smaps_rollup`'s private pages
+    (`Private_Clean` + `Private_Dirty`), falling back to `RssAnon` where smaps is not
+    readable (hidepid)."""
+    try:
+        status = Path(f"/proc/{pid}/status").read_text(encoding="utf-8")
+    except OSError:
         return None
+    rss = _kb_field(status, "VmRSS:")
+    if rss is None:
+        return None
+    private = None
+    try:
+        rollup = Path(f"/proc/{pid}/smaps_rollup").read_text(encoding="utf-8")
+        private = (_kb_field(rollup, "Private_Clean:") or 0) + (_kb_field(rollup, "Private_Dirty:") or 0)
+    except OSError:
+        private = _kb_field(status, "RssAnon:")
+    return rss * 1024, (private if private is not None else rss) * 1024
+
+
+def process_memory(pid: int) -> tuple[int, int] | None:
+    """(working set, private bytes) of a process; None when it cannot be read."""
+    if os.name != "nt":
+        return _linux_process_memory(pid)
 
     class PMC(ctypes.Structure):
         _fields_ = [("cb", ctypes.c_ulong), ("PageFaultCount", ctypes.c_ulong)] + [
@@ -93,11 +150,40 @@ def process_memory(pid: int) -> tuple[int, int] | None:
         k32.CloseHandle(h)
 
 
+def _proc_cpu_busy_secs(stat: str, hz: int) -> float | None:
+    """Busy seconds from `/proc/stat`'s `cpu` line: every core's total less idle and iowait
+    (user, nice, system, irq, softirq, steal)."""
+    for line in stat.splitlines():
+        if line.startswith("cpu "):
+            try:
+                ticks = [int(t) for t in line.split()[1:9]]
+            except ValueError:
+                return None
+            idle = ticks[3] + ticks[4]
+            return max(sum(ticks) - idle, 0) / hz
+    return None
+
+
+def _proc_pid_busy_secs(stat: str, hz: int) -> float | None:
+    """Seconds a process has used, from `/proc/<pid>/stat`: `utime` + `stime` (fields 14 and
+    15). The command name in field 2 can hold spaces and brackets, so the fields are counted
+    from after the last `)`."""
+    try:
+        fields = stat[stat.rindex(")") + 1:].split()
+        return (int(fields[11]) + int(fields[12])) / hz
+    except (ValueError, IndexError):
+        return None
+
+
 def system_busy_secs() -> float | None:
     """Processor time every core has spent busy since boot (kernel less idle, plus user),
-    seconds summed over the cores; Windows only."""
+    seconds summed over the cores; Windows and Linux."""
     if os.name != "nt":
-        return None
+        try:
+            stat = Path("/proc/stat").read_text(encoding="utf-8")
+        except OSError:
+            return None
+        return _proc_cpu_busy_secs(stat, os.sysconf("SC_CLK_TCK"))
     ft = [ctypes.c_ulonglong() for _ in range(3)]
     if not ctypes.windll.kernel32.GetSystemTimes(*(ctypes.byref(x) for x in ft)):
         return None
@@ -106,9 +192,13 @@ def system_busy_secs() -> float | None:
 
 
 def process_busy_secs(pid: int) -> float | None:
-    """Processor time a process has used (kernel and user), seconds; Windows only."""
+    """Processor time a process has used (kernel and user), seconds; Windows and Linux."""
     if os.name != "nt":
-        return None
+        try:
+            stat = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8")
+        except OSError:
+            return None
+        return _proc_pid_busy_secs(stat, os.sysconf("SC_CLK_TCK"))
     k32 = ctypes.windll.kernel32
     h = k32.OpenProcess(0x1000, False, pid)  # QUERY_LIMITED_INFORMATION
     if not h:
@@ -329,6 +419,7 @@ def run(ctx: Ctx, launch: Launch) -> Result:
     status, stacks = "ok", None
     started = time.monotonic()
     load = CpuLoad(os.cpu_count() or 1, started)
+    started_at_utc = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     try:
         with open(log, "w", encoding="utf-8", errors="replace") as f:
             p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, cwd=ctx.out,
@@ -370,6 +461,7 @@ def run(ctx: Ctx, launch: Launch) -> Result:
         if ctx.locks:
             ctx.locks.release()
     secs = time.monotonic() - started
+    finished_at_utc = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     lines = [clean(x) for x in log.read_text(encoding="utf-8", errors="replace").splitlines()]
     crashes = collect_crashes(home)
     code = p.returncode
@@ -388,7 +480,8 @@ def run(ctx: Ctx, launch: Launch) -> Result:
             c.writelines(f"{s},{g},{o},{e}\n" for s, g, o, e in load.samples)
     r = Result(launch.name, code, round(secs, 1), status, log, lines, crashes, memory, stacks, load.samples, load.skipped)
     (ctx.out / f"{launch.name}.exit.json").write_text(json.dumps(
-        {"exit": code, "status": status, "seconds": r.seconds, "crashes": [c.path for c in crashes]}), encoding="utf-8")
+        {"exit": code, "status": status, "seconds": r.seconds, "crashes": [c.path for c in crashes],
+         "started_at_utc": started_at_utc, "finished_at_utc": finished_at_utc}), encoding="utf-8")
     return r
 
 
@@ -419,7 +512,7 @@ def stray_report(s: dict) -> list[str]:
     return out
 
 
-PROFILE_HITCH = re.compile(r"profile hitch: ([\d.]+) ms; spans ms: (.*?)\s*$")
+PROFILE_HITCH = re.compile(r"profile hitch: ([\d.]+) ms; spans ms: (.*?)(?:; pipelines .*)?\s*$")
 HITCH_SPAN = re.compile(r"^(.+) ([\d.]+) \((\d+)\)$")
 
 

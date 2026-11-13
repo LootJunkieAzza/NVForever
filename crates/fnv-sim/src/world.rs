@@ -101,6 +101,31 @@ enum Placing {
     Ring,
 }
 
+/// An inventory `new` rebuilt in place of `old`, with `old`'s live units (planted
+/// explosives, `Extra::live`) kept: a rebuild never takes a planted explosive away from its
+/// plant [design, #1640]. `None` stays `None` only when `old` had no live unit.
+fn with_live(old: Option<&Inventory>, new: Option<Inventory>) -> Option<Inventory> {
+    match old.filter(|o| o.has_live()) {
+        None => new,
+        Some(o) => {
+            let mut inv = new.unwrap_or_default();
+            inv.keep_live_of(o);
+            Some(inv)
+        }
+    }
+}
+
+/// Whether putting on `it` takes `other` off ([`World::equip_at`]): a weapon replaces the
+/// equipped weapon, armour equipped armour that shares a body slot (BMDT biped flags).
+fn equip_clashes(forms: &FormStore, it: &crate::forms::Item, other: FormId) -> bool {
+    let Some(o) = forms.item(other) else { return false };
+    match (it.kind, o.kind) {
+        (ItemKind::Weapon, ItemKind::Weapon) => true,
+        (ItemKind::Armor, ItemKind::Armor) => it.slots.unwrap_or(0) & o.slots.unwrap_or(0) != 0,
+        _ => false,
+    }
+}
+
 /// The offset across the ground, from the player's position, of place `slot` around a
 /// player facing `heading` (z rotation): ring `slot / PLAYER_DROP_RING`, in it straight
 /// ahead first, then alternately right and left of it a step further round, the last one
@@ -190,6 +215,11 @@ pub struct RefState {
     /// there picks this reference up ([`World::dropped_beside`]).
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub dropped_by: Option<FormId>,
+    /// A reference created at run time ([`World::place`]): the cell and position it was
+    /// created at, its editor location for packages and `GetStartingPos`-like questions
+    /// that a placed reference answers from the plugins (#2278) [hypothesis].
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub made_at: Option<(Option<FormId>, [f32; 3])>,
 }
 
 impl RefState {
@@ -424,6 +454,21 @@ pub type DeathItemRoll = (u16, Vec<(FormId, i32)>);
 
 pub const SNAPSHOT_FORMAT: &str = "fnv.sim.state/1";
 
+impl Snapshot {
+    /// Whether [`World::restore`] can take this snapshot: a load asks before it starts
+    /// anything from the save (docs/design/save-load.md §6).
+    pub fn check(&self) -> Result<(), String> {
+        if self.format != SNAPSHOT_FORMAT {
+            return Err(format!("unsupported snapshot format {:?}", self.format));
+        }
+        self.word_pos().map(|_| ())
+    }
+
+    fn word_pos(&self) -> Result<u128, String> {
+        self.rng_word_pos.parse().map_err(|_| format!("bad rng_word_pos {:?}", self.rng_word_pos))
+    }
+}
+
 /// A starting [`World::lock_serial`] no other world of this process used.
 fn next_world_serial() -> u64 {
     static WORLDS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
@@ -509,6 +554,15 @@ pub struct World<'a> {
     /// world starts from a number no other world of this process used, as
     /// `lock_serial`.
     presence_serial: u64,
+    /// ShowOff's SetEnableParent: a reference's enable parent for the session in place of
+    /// its XESP (`None`: removed) [documented: SetEnableParent]. Not saved [hypothesis: the
+    /// page does not say the change is savebaked].
+    enable_parent_edits: BTreeMap<FormId, Option<crate::refs::EnableParent>>,
+    /// References DisableAlt or EnableAlt set: their own enable flag counts, whatever their
+    /// enable parent says [documented: DisableAlt, EnableAlt, "Ignores Disable's limitation
+    /// of being unable to disable references that have an Enable Parent"; hypothesis: until
+    /// SetEnableParent changes their parent]. Not saved.
+    own_enable: std::collections::BTreeSet<FormId>,
     next_dynamic: u32,
     rng: ChaCha8Rng,
 }
@@ -543,6 +597,8 @@ impl<'a> World<'a> {
             deleted_created: BTreeMap::new(),
             lock_serial: serial,
             presence_serial: serial,
+            enable_parent_edits: BTreeMap::new(),
+            own_enable: std::collections::BTreeSet::new(),
             next_dynamic: FormId::FIRST_DYNAMIC.0,
             rng: ChaCha8Rng::seed_from_u64(cfg.seed),
         }
@@ -689,12 +745,14 @@ impl<'a> World<'a> {
                 owner: placed.and_then(|p| p.owner),
                 equipped: false,
                 mods: 0,
+                live: false,
             },
             actor_values: BTreeMap::new(),
             last_restock: None,
             scale: None,
             equip_locks: BTreeMap::new(),
             dropped_by: None,
+            made_at: None,
             outfitted: false,
         })
     }
@@ -907,7 +965,7 @@ impl<'a> World<'a> {
         for (id, base) in due {
             let inv = self.roll_inventory(base, self.item_level(id))?;
             let s = self.get(id)?;
-            s.inventory = inv;
+            s.inventory = with_live(s.inventory.as_ref(), inv);
             s.last_restock = Some(day as f32);
         }
         Ok(())
@@ -1013,7 +1071,9 @@ impl<'a> World<'a> {
         Ok(out)
     }
 
-    /// Remove up to `count`; returns how many were removed.
+    /// Remove up to `count`; returns how many were removed. A live unit (a planted
+    /// explosive, `Extra::live`) is not removed here, nor moved or dropped by the methods
+    /// below: no `Pick` names it [design, #1640].
     pub fn remove_item(&mut self, from: FormId, item: FormId, count: i32) -> Result<i32, SimError> {
         if count <= 0 {
             return Err(SimError::BadCount(count));
@@ -1066,7 +1126,8 @@ impl<'a> World<'a> {
     /// ownership is cleared"].
     pub fn transfer_all_owned(&mut self, from: FormId, to: FormId, keep_owner: bool) -> Result<Vec<(FormId, i32)>, SimError> {
         self.inventory(to)?;
-        let all: Vec<_> = self.inventory(from)?.iter().collect();
+        // A live unit (a planted explosive, `Extra::live`) stays with its holder.
+        let all: Vec<_> = self.inventory(from)?.free_iter().collect();
         let stacks: Vec<_> = all.into_iter().filter(|&(i, _)| !self.stays(from, i)).collect();
         for &(item, n) in &stacks {
             let groups = unequipped(self.inventory(from)?.take_at(item, n, Pick::ANY));
@@ -1089,13 +1150,14 @@ impl<'a> World<'a> {
     /// that other non-playable items and other holders behave alike is hypothesis]
     pub fn remove_all_items(&mut self, from: FormId) -> Result<Vec<(FormId, i32)>, SimError> {
         let groups: Vec<_> = self.inventory(from)?.groups().collect();
-        let keep: Vec<_> = groups.into_iter().filter(|&(i, _, _)| self.stays(from, i)).collect();
+        // A live unit (a planted explosive, `Extra::live`) stays too [design, #1640].
+        let keep: Vec<_> = groups.into_iter().filter(|&(i, e, _)| e.live || self.stays(from, i)).collect();
         let inv = self.inventory(from)?;
         let mut kept = Inventory::new();
         for &(item, extra, n) in &keep {
             kept.add_extra(item, n, extra);
         }
-        let stacks: Vec<_> = inv.iter().filter(|&(i, _)| kept.count(i) == 0).collect();
+        let stacks: Vec<_> = inv.iter().map(|(i, n)| (i, n - kept.count(i))).filter(|&(_, n)| n > 0).collect();
         *inv = kept;
         Ok(stacks)
     }
@@ -1254,6 +1316,7 @@ impl<'a> World<'a> {
                     scale: None,
                     equip_locks: BTreeMap::new(),
                     dropped_by: None,
+                    made_at: None,
                 },
             );
             out.push(id);
@@ -1311,60 +1374,23 @@ impl<'a> World<'a> {
     }
 
     /// As [`World::equip`], equipping (or using) one of the units `at` names: a menu
-    /// row's.
+    /// row's. Its checks are [`World::equip_check`]'s.
     pub fn equip_at(&mut self, actor: FormId, item: FormId, at: Pick) -> Result<Equip, SimError> {
-        let it = self.forms.item(item).ok_or(SimError::NotAnItem(item))?.clone();
         let forms = self.forms;
-        let trained = self.power_armor_training;
+        let it = forms.item(item).ok_or(SimError::NotAnItem(item))?;
+        // Materialise the actor first; the checks read its state.
+        self.inventory(actor)?;
+        let consumed = self.equip_check(actor, item, at)?;
         let inv = self.inventory(actor)?;
-        // A skill book is read, and so used up like an aid item (`fnv_game::books`,
-        // docs/spec-notes/skill-books.md §2); a book that teaches nothing is not used.
-        if it.kind == ItemKind::Aid || (it.kind == ItemKind::Book && it.teaches.is_some()) {
+        if consumed {
             return match inv.take_at(item, 1, at).iter().map(|g| g.1).sum::<i32>() {
                 1 => Ok(Equip { consumed: true, unequipped: Vec::new() }),
                 _ => Err(SimError::NotCarried { actor, item }),
             };
         }
-        if !matches!(it.kind, ItemKind::Weapon | ItemKind::Armor) {
-            return Err(SimError::NotEquippable(item));
-        }
-        if inv.count(item) == 0 {
-            return Err(SimError::NotCarried { actor, item });
-        }
-        if it.kind == ItemKind::Weapon && !inv.has_sound_at(item, at) && !inv.is_equipped(item) {
-            return Err(SimError::Broken(item));
-        }
-        if it.power_armor && actor == FormId::PLAYER_REF && !trained && !inv.is_equipped(item) {
-            return Err(SimError::NoPowerArmorTraining(item));
-        }
-        let clashes = |other: FormId| -> bool {
-            let Some(o) = forms.item(other) else { return false };
-            match (it.kind, o.kind) {
-                (ItemKind::Weapon, ItemKind::Weapon) => true,
-                (ItemKind::Armor, ItemKind::Armor) => it.slots.unwrap_or(0) & o.slots.unwrap_or(0) != 0,
-                _ => false,
-            }
-        };
-        let locks = &self.refs.get(&actor).ok_or(SimError::UnknownRef(actor))?.equip_locks;
-        if locks.get(&item) == Some(&EquipLock::NoEquip) {
-            return Err(SimError::EquipLocked { item, on: false });
-        }
-        // "EquipItem will not work if there is already an item in that slot that has
-        // been equipped with the NoUnequipFlag set" [documented: GECK wiki EquipItem].
-        let inv = self.refs.get(&actor).and_then(|s| s.inventory.as_ref()).ok_or(SimError::NoInventory(actor))?;
-        if let Some(held) = inv.equipped().into_iter().find(|&o| o != item && clashes(o) && locks.get(&o) == Some(&EquipLock::NoUnequip)) {
-            return Err(SimError::EquipLocked { item: held, on: true });
-        }
-        // Check a unit `at` names can be put on before taking anything off, so a failed
-        // equip leaves the actor dressed as it was (#1083). The clash loop below frees
-        // the equipped units of `item` itself when it clashes with itself.
-        if !inv.can_equip_at(item, at, clashes(item)) {
-            return Err(SimError::NotCarried { actor, item });
-        }
-        let inv = self.inventory(actor)?;
         let mut unequipped = Vec::new();
         for other in inv.equipped() {
-            if clashes(other) && inv.clear_equipped(other) {
+            if equip_clashes(forms, it, other) && inv.clear_equipped(other) {
                 unequipped.push(other);
             }
         }
@@ -1373,13 +1399,73 @@ impl<'a> World<'a> {
         Ok(Equip { consumed: false, unequipped })
     }
 
+    /// Whether [`World::equip_at`] takes `item` (one of the units `at` names) on `actor`,
+    /// changing nothing: `Ok(true)` when it is used up (an aid item, a skill book),
+    /// `Ok(false)` when it is put on, else the error `equip_at` returns. `equip_at` runs
+    /// these checks itself, so a menu's hint reading them (#1896) agrees with the action.
+    /// Only a materialised actor is read ([`World::peek`]); `equip_at` materialises it.
+    pub fn equip_check(&self, actor: FormId, item: FormId, at: Pick) -> Result<bool, SimError> {
+        let forms = self.forms;
+        let it = forms.item(item).ok_or(SimError::NotAnItem(item))?;
+        let state = self.refs.get(&actor).ok_or(SimError::UnknownRef(actor))?;
+        if state.deleted() {
+            return Err(SimError::Deleted(actor));
+        }
+        let inv = state.inventory.as_ref().ok_or(SimError::NoInventory(actor))?;
+        // A skill book is read, and so used up like an aid item (`fnv_game::books`,
+        // docs/spec-notes/skill-books.md §2); a book that teaches nothing is not used.
+        if it.kind == ItemKind::Aid || (it.kind == ItemKind::Book && it.teaches.is_some()) {
+            // Any unit `at` names is taken (`Inventory::take_at`).
+            return if inv.can_equip_at(item, at, true) { Ok(true) } else { Err(SimError::NotCarried { actor, item }) };
+        }
+        if !matches!(it.kind, ItemKind::Weapon | ItemKind::Armor) {
+            return Err(SimError::NotEquippable(item));
+        }
+        // A live unit (a planted explosive, `Extra::live`) is not the actor's to equip.
+        if inv.free_count(item) == 0 {
+            return Err(SimError::NotCarried { actor, item });
+        }
+        if it.kind == ItemKind::Weapon && !inv.has_sound_at(item, at) && !inv.is_equipped(item) {
+            return Err(SimError::Broken(item));
+        }
+        if it.power_armor && actor == FormId::PLAYER_REF && !self.power_armor_training && !inv.is_equipped(item) {
+            return Err(SimError::NoPowerArmorTraining(item));
+        }
+        let locks = &state.equip_locks;
+        if locks.get(&item) == Some(&EquipLock::NoEquip) {
+            return Err(SimError::EquipLocked { item, on: false });
+        }
+        // "EquipItem will not work if there is already an item in that slot that has
+        // been equipped with the NoUnequipFlag set" [documented: GECK wiki EquipItem].
+        if let Some(held) = inv.equipped().into_iter().find(|&o| o != item && equip_clashes(forms, it, o) && locks.get(&o) == Some(&EquipLock::NoUnequip)) {
+            return Err(SimError::EquipLocked { item: held, on: true });
+        }
+        // Check a unit `at` names can be put on before taking anything off, so a failed
+        // equip leaves the actor dressed as it was (#1083). `equip_at` frees the equipped
+        // units of `item` itself when it clashes with itself.
+        if !inv.can_equip_at(item, at, equip_clashes(forms, it, item)) {
+            return Err(SimError::NotCarried { actor, item });
+        }
+        Ok(false)
+    }
+
     /// Unequip `item`; returns whether it was equipped. An item a script locked on
-    /// ([`EquipLock::NoUnequip`]) stays on.
+    /// ([`EquipLock::NoUnequip`]) stays on ([`World::unequip_check`]).
     pub fn unequip(&mut self, actor: FormId, item: FormId) -> Result<bool, SimError> {
-        if self.equip_lock(actor, item) == Some(EquipLock::NoUnequip) && self.inventory(actor)?.is_equipped(item) {
+        self.inventory(actor)?;
+        self.unequip_check(actor, item)?;
+        Ok(self.inventory(actor)?.clear_equipped(item))
+    }
+
+    /// Whether [`World::unequip`] takes `item` off `actor` (or finds it off), changing
+    /// nothing: the error it returns for an item a script locked on. Only a materialised
+    /// actor is read, as [`World::equip_check`].
+    pub fn unequip_check(&self, actor: FormId, item: FormId) -> Result<(), SimError> {
+        let worn = self.refs.get(&actor).and_then(|s| s.inventory.as_ref()).is_some_and(|i| i.is_equipped(item));
+        if worn && self.equip_lock(actor, item) == Some(EquipLock::NoUnequip) {
             return Err(SimError::EquipLocked { item, on: true });
         }
-        Ok(self.inventory(actor)?.clear_equipped(item))
+        Ok(())
     }
 
     /// The script lock on an actor's item, if any.
@@ -1555,7 +1641,8 @@ impl<'a> World<'a> {
         let mut cur = id;
         let mut seen = vec![id];
         loop {
-            let Some(ep) = self.placed.get(cur).and_then(|p| p.enable_parent) else {
+            let parent = if self.own_enable.contains(&cur) { None } else { self.enable_parent(cur) };
+            let Some(ep) = parent else {
                 return Ok(own(self, cur).unwrap_or(start) ^ invert);
             };
             if seen.contains(&ep.reference) || own(self, ep.reference).is_none() {
@@ -1565,6 +1652,38 @@ impl<'a> World<'a> {
             seen.push(ep.reference);
             cur = ep.reference;
         }
+    }
+
+    /// A reference's enable parent: SetEnableParent's for the session, else its XESP.
+    pub fn enable_parent(&self, id: FormId) -> Option<crate::refs::EnableParent> {
+        match self.enable_parent_edits.get(&id) {
+            Some(e) => *e,
+            None => self.placed.get(id).and_then(|p| p.enable_parent),
+        }
+    }
+
+    /// SetEnableParent: `parent` (none: no parent) in place of the record's, not
+    /// opposite, for the session; the reference follows it again even after DisableAlt
+    /// or EnableAlt [hypothesis].
+    pub fn set_enable_parent(&mut self, id: FormId, parent: Option<FormId>) {
+        let pop_in = self.enable_parent(id).is_some_and(|e| e.pop_in);
+        self.enable_parent_edits.insert(id, parent.map(|reference| crate::refs::EnableParent { reference, opposite: false, pop_in }));
+        self.own_enable.remove(&id);
+        self.presence_serial += 1;
+    }
+
+    /// DisableAlt / EnableAlt: from now on the reference's own flag counts, not its enable
+    /// parent's state (`own_enable`).
+    pub fn keep_own_enable(&mut self, id: FormId) {
+        if self.own_enable.insert(id) {
+            self.presence_serial += 1;
+        }
+    }
+
+    /// Whether the reference's own flag counts over its enable parent
+    /// ([`World::keep_own_enable`]).
+    pub fn keeps_own_enable(&self, id: FormId) -> bool {
+        self.own_enable.contains(&id)
     }
 
     /// Current value of a global.
@@ -1619,7 +1738,8 @@ impl<'a> World<'a> {
     pub fn advance_to_hour(&mut self, hour: f64) -> Result<f64, SimError> {
         let before = self.calendar()?;
         let (c, hours) = self.fine_clock.advance_to_hour(before, hour);
-        if hours > 0.0 {
+        // A GameHour out of range can come to the hour with no time passing.
+        if c != before {
             self.store_calendar(before, c)?;
         }
         Ok(hours)
@@ -1842,6 +1962,7 @@ impl<'a> World<'a> {
                 scale: None,
                 equip_locks: BTreeMap::new(),
                 dropped_by: None,
+                made_at: Some((cell, pos)),
             },
         );
         Ok(id)
@@ -1879,14 +2000,16 @@ impl<'a> World<'a> {
         let mut inv = self.roll_inventory(source, self.item_level(id))?;
         let outfitted = self.equip_default(source, &mut inv);
         let s = self.get(id)?;
-        s.inventory = inv;
+        s.inventory = with_live(s.inventory.as_ref(), inv);
         s.outfitted = outfitted;
         Ok(())
     }
 
     /// A fresh roll of the base's carried items replaces the reference's inventory
-    /// (ResetInventory, Layer 5). `false` when the base carries no items. A death item
-    /// still owed is dropped: the actor starts again.
+    /// (ResetInventory, Layer 5; respawns and resurrections call it too). `false` when the
+    /// base carries no items. A death item still owed is dropped: the actor starts again.
+    /// A live unit (a planted explosive, `Extra::live`) stays: its plant still goes off
+    /// [design, #1640].
     pub fn reset_inventory(&mut self, id: FormId) -> Result<bool, SimError> {
         self.death_items.remove(&id);
         let base = self.get(id)?.base;
@@ -1898,9 +2021,18 @@ impl<'a> World<'a> {
         let s = self.get(id)?;
         let had = inv.is_some();
         if had {
-            s.inventory = inv;
+            s.inventory = with_live(s.inventory.as_ref(), inv);
         }
         Ok(had)
+    }
+
+    /// Empty `id`'s inventory (no inventory at all), but for its live units (planted
+    /// explosives, `Extra::live`), which stay [design, #1640]: a resurrected actor whose
+    /// new pick carries nothing.
+    pub fn clear_inventory_but_live(&mut self, id: FormId) -> Result<(), SimError> {
+        let s = self.get(id)?;
+        s.inventory = with_live(s.inventory.as_ref(), None);
+        Ok(())
     }
 
     /// References created at run time (drops), in FormID order, taken ones included
@@ -2129,10 +2261,8 @@ impl<'a> World<'a> {
     }
 
     pub fn restore(forms: &'a FormStore, placed: &'a RefTable, s: &Snapshot) -> Result<World<'a>, String> {
-        if s.format != SNAPSHOT_FORMAT {
-            return Err(format!("unsupported snapshot format {:?}", s.format));
-        }
-        let pos: u128 = s.rng_word_pos.parse().map_err(|_| format!("bad rng_word_pos {:?}", s.rng_word_pos))?;
+        s.check()?;
+        let pos = s.word_pos()?;
         let mut w = World::new(forms, placed, s.config);
         w.rng.set_word_pos(pos);
         w.next_dynamic = s.next_dynamic;

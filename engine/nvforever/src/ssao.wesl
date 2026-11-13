@@ -4,7 +4,9 @@
 // (1 open, 0 closed) and writes that with the pixel's distance into a texture of its own;
 // entry `apply` blurs that over the 4 x 4 texels its sample pattern repeats over, keeping
 // to texels at about this pixel's distance (so nothing bleeds across a depth edge), and
-// multiplies the picture by it. An engineering choice, not the original game's.
+// multiplies the picture by it. Under FSR the passes run at the render size before FSR
+// instead, and entry `multiply` gives the factor to a blend (ssao.rs `ao_before_fsr`). An
+// engineering choice, not the original game's.
 
 import bevy_core_pipeline::fullscreen_vertex_shader::FullscreenVertexOutput;
 import nvf_assets::first_person_depth::unsqueeze;
@@ -16,6 +18,14 @@ struct Ao {
     // x, y: the projection's x and y scale (clip_from_view[0][0], [1][1]); z: the
     // largest radius on the screen (pixels); w: the distance where the fade starts.
     proj: vec4<f32>,
+    // x, y: the size the depth prepass was drawn at; z, w: the picture's size. They differ
+    // under FSR's upscaling (fsr.rs `prepare`), whose depth is expanded to the picture's
+    // size by nearest texels (fsr_depth.wgsl `expand_depth`); all 1 otherwise.
+    render_scale: vec4<f32>,
+    // x, y: the size of the picture the passes cover, from the top left of the depth
+    // texture: FSR's render size while the occlusion is applied before FSR (entry
+    // `multiply`, ssao.rs `ao_before_fsr`); 0 for the depth texture's whole size.
+    area: vec4<f32>,
 }
 
 @if(MULTISAMPLED) @group(0) @binding(0) var depth: texture_depth_multisampled_2d;
@@ -44,6 +54,9 @@ const BIAS: f32 = 0.12;
 const TAU: f32 = 6.2831853;
 
 fn dims() -> vec2<i32> {
+    if ao.area.x > 0.0 {
+        return vec2<i32>(ao.area.xy);
+    }
     return vec2<i32>(textureDimensions(depth));
 }
 
@@ -61,6 +74,47 @@ fn view_pos(p: vec2<f32>, d: f32) -> vec3<f32> {
     let ndc = vec2(p.x / size.x * 2.0 - 1.0, 1.0 - p.y / size.y * 2.0);
     let z = ao.params.z / max(d, 1e-7);
     return vec3(ndc.x * z / ao.proj.x, ndc.y * z / ao.proj.y, -z);
+}
+
+// The texel of the depth as drawn that the pixel centred at `p` shows, as fsr_depth.wgsl
+// `expand_depth` picks it; without upscaling, the pixel itself.
+fn drawn_texel(p: vec2<f32>) -> vec2<f32> {
+    return floor(p * ao.render_scale.xy / ao.render_scale.zw);
+}
+
+// The centre of drawn texel `t`, in pixels of the picture.
+fn texel_centre(t: vec2<f32>) -> vec2<f32> {
+    return (t + 0.5) * ao.render_scale.zw / ao.render_scale.xy;
+}
+
+// The view-space position at the centre of drawn texel `t`, its depth read at a pixel
+// that shows it.
+fn texel_pos(t: vec2<f32>) -> vec3<f32> {
+    let c = texel_centre(t);
+    return view_pos(c, depth_at(vec2<i32>(floor(c))));
+}
+
+// The view-space normal at pixel `px`, whose depth is `d`: from the neighbouring texels of
+// the depth as drawn, on each axis the side with the smaller step in depth, so an edge
+// does not bend it. Without upscaling a texel is a pixel. Under FSR's upscaling a texel
+// covers 1.5 to 3 pixels, so neighbouring pixels often held this pixel's own depth: the
+// normal faced the camera and every surface seen at an angle occluded itself, a grey veil
+// over the ground and walls [observed 2026-11-06, FSR Performance at Goodsprings: mean
+// darkening 4.2%, against 0.7% without FSR].
+fn normal_at(px: vec2<i32>, d: f32) -> vec3<f32> {
+    let t = drawn_texel(vec2<f32>(px) + 0.5);
+    let p = view_pos(texel_centre(t), d);
+    let l = texel_pos(t - vec2(1.0, 0.0));
+    let r = texel_pos(t + vec2(1.0, 0.0));
+    let u = texel_pos(t - vec2(0.0, 1.0));
+    let b = texel_pos(t + vec2(0.0, 1.0));
+    let dx = select(p - l, r - p, abs(r.z - p.z) < abs(p.z - l.z));
+    let dy = select(p - u, b - p, abs(b.z - p.z) < abs(p.z - u.z));
+    var n = normalize(cross(dx, dy));
+    if dot(n, -p) < 0.0 {
+        n = -n;
+    }
+    return n;
 }
 
 // The 4 x 4 ordered pattern that turns each pixel's spiral (0..1).
@@ -85,18 +139,7 @@ fn occlusion(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
     if fade <= 0.0 {
         return texel(1.0, dist);
     }
-    // The normal from the neighbours on the side with the smaller step in depth, so an
-    // edge does not bend it.
-    let l = view_pos(c - vec2(1.0, 0.0), depth_at(px - vec2(1, 0)));
-    let r = view_pos(c + vec2(1.0, 0.0), depth_at(px + vec2(1, 0)));
-    let u = view_pos(c - vec2(0.0, 1.0), depth_at(px - vec2(0, 1)));
-    let b = view_pos(c + vec2(0.0, 1.0), depth_at(px + vec2(0, 1)));
-    let dx = select(p - l, r - p, abs(r.z - p.z) < abs(p.z - l.z));
-    let dy = select(p - u, b - p, abs(b.z - p.z) < abs(p.z - u.z));
-    var n = normalize(cross(dx, dy));
-    if dot(n, -p) < 0.0 {
-        n = -n;
-    }
+    let n = normal_at(px, d);
     let radius = ao.params.x;
     let size = vec2<f32>(dims());
     let on_screen = min(radius * ao.proj.y * 0.5 * size.y / dist, ao.proj.z);
@@ -133,6 +176,27 @@ fn apply(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
     if d <= 0.0 {
         return src;
     }
+    return vec4(src.rgb * openness_at(px, d), src.a);
+}
+
+// Before FSR: the factor the picture is multiplied by, through the pipeline's blend (the
+// render-size rectangle of the HDR picture and of FSR's opaque copy, ssao.rs `ao_before_fsr`).
+@fragment
+fn multiply(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
+    let px = vec2<i32>(floor(in.position.xy));
+    let d = depth_at(px);
+    if d <= 0.0 {
+        return vec4(1.0);
+    }
+    // Never a value outside 0..1 nor NaN (comparisons with NaN are false): FSR's exposure
+    // averages the whole HDR picture, so one NaN pixel would blacken the frame.
+    let open = openness_at(px, d);
+    let safe = select(1.0, min(open, 1.0), open >= 0.0);
+    return vec4(safe, safe, safe, 1.0);
+}
+
+// How open pixel `px` (depth value `d`, not the sky) is, from the half-resolution texels.
+fn openness_at(px: vec2<i32>, d: f32) -> f32 {
     let z = ao.params.z / d;
     let size = vec2<i32>(textureDimensions(openness));
     // The 4 x 4 texels around this pixel: texel q stands for full pixel 2q.
@@ -157,6 +221,5 @@ fn apply(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
             }
         }
     }
-    let open = select(nearest, total / weight, weight > 0.0);
-    return vec4(src.rgb * open, src.a);
+    return select(nearest, total / weight, weight > 0.0);
 }

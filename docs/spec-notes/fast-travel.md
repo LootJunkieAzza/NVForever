@@ -3,8 +3,9 @@
 Tags as in `nif.md`: `[documented]` cites a page or file, `[observed]` says what was
 looked at, `[hypothesis]` is a reading that nothing has confirmed yet. `[design]` marks
 what is NVForever's own. Implementation: `engine/nvf-play/src/pipboy/data/travel.rs`
-(the rules, the box's model, the trip) and `pipboy/data.rs` (the click on the map and
-the box drawn over it). The Pip-Boy itself: `pipboy.md` §5.3.
+(the rules, the box's model, the trip) and `pipboy/data.rs` (the click on the map — or
+the controller's A on a marker — and the box drawn over it). The Pip-Boy itself:
+`pipboy.md` §5.3.
 
 ## 1. Sources
 
@@ -33,6 +34,17 @@ file keeps a flag per marker, "True if this marker can be used for fast-travelin
 [documented: map_menu.xml, `MapMarkerTemplate` `user0`]. A click on a known marker that
 is not a travel target is answered with the setting `sNoFastTravelUndiscovered`
 [hypothesis: by its name].
+
+The World Map includes markers from every worldspace sharing its map root: follow
+`WNAM` while `PNAM` Use Map Data (bit 2) is set [documented: xEdit WRLD,
+`schemas/fnv/world.json`]. Each uses its own `ONAM` and bounds before projection on
+the root's `ICON` / `MNAM`; the root's own offsets apply too [observed: run08 captures
+of MapMenu traits, 2026-11-07; formula in `pipboy.md` §5.3]. Discovery within `XRDS`
+requires the player to be in the marker's own worldspace. The Local Map and compass
+keep that worldspace's markers [design: `engine/nvf-play/src/pipboy/data.rs`].
+Travel uses the marker or linked arrival reference's destination worldspace, including
+another member of the map family; the clock rule below is unchanged
+[design: `engine/nvf-play/src/pipboy/data/travel.rs::go`].
 
 **From where.** The game settings name the refusals [documented: GECK wiki, game
 settings list]: `sNoFastTravelScriptBlock`, `sNoFastTravelCell`, `sNoFastTravelInAir`,
@@ -93,7 +105,7 @@ NVForever [design unless marked]: the box is drawn into the DATA page over the m
 the Pip-Boy's amber, by the screenshot's look: 520 wide, centred on the map window,
 the text in font 2 and the answers under it, the chosen one framed as the message box
 frames its button (`message-menu.md` §2: the line at brightness 200, the fill at 40
-opacity). It opens on Yes [observed: the screenshot]. Up and Down (W and S) move the
+opacity). Each answer's row is its text and 20, the text at the row's bottom, as the message box's buttons (`message-menu.md` §2) [design: the rows were 16 more than the text with the text halfway, which set the word high in its frame (a screenshot from play, 2026-11-07)]. It opens on Yes [observed: the screenshot]. Up and Down (W and S) move the
 choice, Enter, Space or E take it, Y and N answer directly; the pointer chooses the
 answer it is on and a click takes it. While it is up the map does not pan or follow the
 pointer. A refusal is the same box with its text and an "OK" [hypothesis: the original

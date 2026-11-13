@@ -111,7 +111,7 @@ type Looked = (&'static ActorRig, &'static InheritedVisibility, Option<&'static 
 
 /// Whether what plays on an actor's idle slot gives way to a stimpak.
 fn gives_way(source: IdleSource) -> bool {
-    matches!(source, IdleSource::Fidget | IdleSource::FurnitureFidget | IdleSource::CombatIdle | IdleSource::Gesture | IdleSource::Cower | IdleSource::PackageIdles | IdleSource::MarkerIdles)
+    matches!(source, IdleSource::Fidget | IdleSource::HolsteredFidget | IdleSource::FurnitureFidget | IdleSource::CombatIdle | IdleSource::CalmIdle | IdleSource::Gesture | IdleSource::Cower | IdleSource::PackageIdles | IdleSource::MarkerIdles)
 }
 
 #[allow(clippy::too_many_arguments)]

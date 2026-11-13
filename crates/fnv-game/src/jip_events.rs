@@ -8,7 +8,6 @@
 //!   event; hypothesis for the others, jip-events.md §1].
 
 use crate::game::{Game, RunCtx};
-use crate::trace::EventKind;
 use fnv_script::vm::{Value, XVal};
 use fnv_sim::FormId;
 
@@ -24,6 +23,43 @@ pub struct JipEvents {
     seq: u64,
     /// Each actor's hit in progress, or its last one (task J7, jip-hit-info.md §5).
     pub hits: std::collections::HashMap<FormId, JipHit>,
+    /// The keys and mouse buttons held last frame, for the key-down and key-up events.
+    pub keys_held: std::collections::BTreeSet<u16>,
+    /// ScriptWait: the waiting block of each script instance (one at a time
+    /// [documented: ScriptWait]); not saved [hypothesis, as the registrations].
+    pub waits: std::collections::HashMap<crate::game::InstKey, Waiting>,
+    /// A ScriptWait call's cycles, for the block run that made it (`Exec::take_wait`).
+    pub wait_request: Option<u32>,
+    /// The script depth of the block run that may wait: ScriptWait elsewhere (a result
+    /// script, a function, an effect) does not [documented: ScriptWait, "cannot be used
+    /// in Effect-type scripts, UDF scripts, or result scripts"].
+    pub wait_depth: Option<u32>,
+    /// SetMusicState's requests for the engine: 0 stop, 1 pause, 2 resume [documented].
+    pub music_states: Vec<u8>,
+    /// What lasts the whole session, across loads (`Game::take_session`).
+    pub kept: JipKept,
+}
+
+/// JIP's settings that last until the game is quit (`crate::nvse_ttw`).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct JipKept {
+    /// MarkActivatorAshPile's activators [documented: "remains in effect for the duration
+    /// of the current game session"].
+    pub ash_pile_bases: std::collections::BTreeSet<FormId>,
+    /// SetTerminalUIModel's menu art, by terminal form, a path under `meshes\`
+    /// [documented]; kept for the session as MarkActivatorAshPile's marks [hypothesis:
+    /// the page does not say].
+    pub terminal_models: std::collections::BTreeMap<FormId, String>,
+}
+
+/// A block that waits (ScriptWait): which, the processing cycles still to wait and where
+/// it goes on ([`fnv_script::vm::WaitPoint`]).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Waiting {
+    pub script: FormId,
+    pub block: usize,
+    pub left: u32,
+    pub at: fnv_script::vm::WaitPoint,
 }
 
 /// What JIP's GetHit… functions read [documented: jip-hit-info.md §1].
@@ -159,7 +195,7 @@ impl Game<'_> {
             }
             match self.run_function(&h.func, on.map(|f| Value::Ref(f.0)), args.clone(), None, ctx) {
                 Ok(_) => ran += 1,
-                Err(error) => self.emit(EventKind::ScriptError { unit: format!("JIP {event} handler"), error }),
+                Err(error) => self.handler_failed(format!("JIP {event} handler"), error),
             }
         }
         ran
@@ -209,6 +245,38 @@ impl Game<'_> {
         })
     }
 
+    /// Each frame (`Game::tick`): the key-down and key-up events of the keys and mouse
+    /// buttons pressed and let go since the last frame, by DirectX scancode (256 + n for
+    /// the mouse) [documented: SetOnKeyDownEventHandler, SetOnKeyUpEventHandler; the
+    /// handler gets the key]. The keys held are the player's whatever DisableKey says, as
+    /// the events "still run even if the key has been disabled" [documented:
+    /// SetOnKeyDownEventHandler].
+    pub(crate) fn jip_keys(&mut self) {
+        if self.jip.keys_held == self.input.held {
+            return;
+        }
+        let now = self.input.held.clone();
+        let before = std::mem::replace(&mut self.jip.keys_held, now.clone());
+        if self.jip.handlers.iter().all(|h| h.event != "keydown" && h.event != "keyup") {
+            return;
+        }
+        for &k in now.difference(&before) {
+            self.jip_event("keydown", None, vec![XVal::Num(f64::from(k))]);
+        }
+        for &k in before.difference(&now) {
+            self.jip_event("keyup", None, vec![XVal::Num(f64::from(k))]);
+        }
+    }
+
+    /// An item was made in the recipe menu: SetOnCraftingEventHandler's event, with the
+    /// item's base form and the quantity [documented: SetOnCraftingEventHandler]. Called
+    /// once per output of the recipe, with all of that output the making gave
+    /// [hypothesis: the page does not say how a recipe made several times, or one with
+    /// two outputs, is reported].
+    pub fn item_crafted(&mut self, item: FormId, quantity: i64) {
+        self.jip_event("crafting", None, vec![XVal::Ref(item.0), XVal::Num(quantity as f64)]);
+    }
+
     /// The main-loop callbacks due this frame (`Game::tick`).
     pub(crate) fn run_main_loop(&mut self) {
         if self.jip.main_loop.is_empty() {
@@ -225,7 +293,7 @@ impl Game<'_> {
             let on = m.on.unwrap_or(FormId::PLAYER_REF);
             let ctx = RunCtx { self_ref: Some(on), ..RunCtx::default() };
             if let Err(error) = self.run_function(&m.func, Some(Value::Ref(on.0)), Vec::new(), None, ctx) {
-                self.emit(EventKind::ScriptError { unit: "JIP main-loop callback".into(), error });
+                self.handler_failed("JIP main-loop callback".into(), error);
             }
         }
     }

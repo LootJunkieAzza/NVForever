@@ -172,7 +172,13 @@ census of the winning REFR records]:
 walls; the name suggests it], and leaves portals, rooms, occlusion planes and trigger
 activators out (they are culling volumes and script triggers by their bases [hypothesis];
 triggers will become sensors when scripts need them, Layer 5). A primitive without XTRI
-gets layer 0.
+is an Invisible Wall (#1545, #1665): it stops actors, and shots pass it
+(`layers::shot_ignores`). So is one whose XTRI is **Transparent** (#2223): TTW's load
+order has 277 references with XTRI, Transparent the commonest (96, then Invisible Wall
+60, Actor Zone 57, Static 31) [observed: `fnvtool esm fields`, 2026-11-12], and its
+Vault 101 BB gun range has a Transparent Portal Box marker across the hall between the
+player and the targets the birthday quest needs hit [hypothesis: the original lets
+shots through such a marker]. Other XTRI layers are kept as stored.
 
 **Bounds are read as half extents** (sphere: the first value is the radius). Evidence
 [observed]: for the 3,007 exterior CollisionMarker boxes without x/y rotation, the box
@@ -612,7 +618,8 @@ world-sounds test knocked Sunny's three bottles 117–128 units ("impacts by mat
 
 The three motorcycles outside the Goodsprings saloon could be pushed by the player; in the
 game they do not move, while tumbleweeds and Sarsaparilla crates do [observed: owner,
-playtest list 5 item 59].
+playtest list 5 item 59]. The tumbleweeds roll with the weather's wind: [wind](wind.md)
+(their model's body flag, issue #1401).
 
 - They are STAT references (`Motorcycle01Static`, 0x00106341, 0x00106342, 0x0010750C)
   [observed: `fnvtool world refs --world WastelandNV`]. Their model,
@@ -781,7 +788,37 @@ decides what the next query refresh costs.
       rejects non-ties. All 400 such differences, in the six relaxed scenarios that
       have them pass [observed: `cargo test -p fnv-phys --test synthetic hitvol`,
       2026-11-03].
-    - Canonical tie-break (time of impact, then owner): not done; issue #1459.
+    - Canonical tie-break (time of impact, then owner): not done; issue #1459. Done
+      since, see the next item.
+- **Canonical tie-break** [design, #1459]. First-hit `ray` and `sweep` now return, of all
+  candidates, the one with the smallest time of impact and, among exactly equal times
+  (the same f32), the smallest by:
+  1. owner (`Owner`'s order: kind, then for an actor's capsule form id, layer, part);
+  2. segment: which of the owner's colliders it is, stored in `user_data` bits 104..120
+     (`Owner::encode_segment`): the index of the part capsule in the list given to
+     `set_actor_parts`, or of the leaf in its collision object; 0 elsewhere (terrain,
+     characters, whole-actor capsules, ragdolls, gore);
+  3. the hit's own geometry, as bits: for a ray the normal then the sub-shape (triangle),
+     for a sweep the witness point then the normal on the hit collider. Two candidates
+     equal in all of these give the same answer, so which collider it came from no longer
+     shows.
+  - `ray_all` sorts equal distances by the same keys (owner, segment, normal, sub-shape).
+  - How: a custom leaf cost over parry's `Bvh::find_best`, not collect-all-then-sort
+    (`first_hit`, `crates/fnv-phys/src/world.rs`). The best (time, key) is kept beside the
+    traversal; a leaf the rule takes reports the next float above its time to
+    `find_best`, so nodes whose bound equals the best time are still visited and each
+    collider is asked with that bound (a tie is returned, not cut off). The key is worked
+    out only on exact ties. A sweep casts each collider with the full options, as parry's
+    composite cast does [design: parry3d 0.31.1
+    `query/shape_cast/shape_cast_composite_shape_shape.rs:15-60`], so every answer without
+    a tie is the one parry gave before.
+  - The answer no longer depends on the tree's history: the six exact tests above pass
+    without `#[ignore]` (attached and standalone capsules, skipped and forced writes,
+    snapshots, coincident twins in a crowd) [observed: `cargo test -p fnv-phys --test
+    synthetic hitvol`, 2026-11-06].
+  - Combat: with coincident actors the hit now goes to the lower form id, and inside two
+    overlapping parts to the lower part index (then the earlier segment), always. Before,
+    either could win depending on the tree.
 
 ## 6. Character controller and capture questions
 
@@ -947,6 +984,27 @@ motion of the step is dropped: once in 60 steps of a walk along a terrain cell s
 character moved 0.06 units instead of 1.28. `move_character` continues such a step with
 the horizontal motion it lost, only when every hit of the step was level (test
 `walking_on_level_ground_loses_no_step`). Re-check both when upgrading rapier.
+
+A third, about cost (issue #1797) [observed: rapier 0.36.0 source and a per-move timer in
+the 50-a-side battle at Goodsprings, 2026-11-07]: the controller's move sweeps the shape at
+most 20 times, sliding along what each sweep meets, with the autostep's casts and a
+contact pass for the ground after each; pressed into a crease between two meshes every
+slide meets the other surface and the normal nudge keeps the motion left over above the
+stop threshold, so the move used all 20 and went nowhere. One actor between the terrain
+and a canyon rock's mesh (NVNRockCanyon02) took 3 ms a step, one perched between two
+yuccas' meshes 22 ms, against about 0.1 ms for the others, every step, the feet exactly
+where they were; with up to 8 steps a long frame the battle fell into frames of 400 ms.
+A groove of two planes steeper than walkable reproduces it (test
+`a_stuck_character_is_held_with_the_steps_it_would_have_had`). **Rule**
+(`Character::hold_when_stuck`, on for the actors the game walks, off for the player and
+the tools' probes) [engineering choice]: a move whose first controller move met something
+on all 20 sweeps and left the feet exactly where they were holds the character there; the
+next 19 steps return the same standing step without sweeping, the 20th is a full move
+again (which holds it again, or moves it on). A character in the same place with the same
+input gets the same step from the controller, so the hold only differs when the input or
+the world changed during the third of a second; the test shows the same steps held and
+not held in the groove, and none held walking up steps, along a wall, into a steep ramp
+and into a corner.
 
 ### 6.2 Rest height after a teleport (arrival rule)
 
@@ -2341,20 +2399,123 @@ feet (`drawn_sink`, floating-actors.md §6-7) changes height from one step to th
 over models with drawn floors; the body, and the view that is the body's eye, were drawn
 there at once.
 
+**First rule** (2026-10-23, PR #600): the change of the feet's height beyond the
+horizontal distance walked × the slope walked lately (the size of the recent changes,
+filtered over 0.25 s, at least 0.35) went into the lift, which sprang back with
+ω = 25/s. The owner found walking down a road still rough: the body and camera "dropping/
+raising far too often" (2026-11-07) [observed: owner]. Traced, the feet follow every
+facet of the road models' collision: the height runs in straight lines with a kink at
+each edge, ±0.05 per unit along the Goodsprings road, and drops 5.5 units over two steps
+where the road piece 0x00104FB6 meets the ground [observed: `fnvtool phys walk` along y
+2312 from x −71900, 2026-11-07]. Running at 300 units/s a step covers 5 units, so up to
+1.75 units a step passed as "slope", and the slope measure (sizes, not signs) grew on
+the ripples themselves: on the road the first rule smoothed nothing. Over rough ground
+the controller also snaps the feet down 4-6 units in a step (§6.4.2) and climbs steep
+rock (0x00107B90) in 3-unit steps every other fixed step.
+
 **Now** [design; `engine/nvf-play/src/phys/step_lift.rs`]: every character (the player
 and the actors the controller walks) has a drawn lift. In each fixed step on the ground,
-the change of the feet's height beyond the horizontal distance walked × the slope
-walked lately (filtered over 0.25 s, at least 0.35, about 19°) is taken into the lift
-with the opposite sign, so the drawn height does not jump; a change of the drawn ground
-is taken in whole. The lift goes back to 0 as a critically damped spring (ω = 25/s: a
-step is 95 % climbed after about 0.19 s), at most 24 units either way; a change over 48
-units in a step (a placement), the air and swimming take nothing in. The feet, the
-capsule, the reference's position and every query stay where the controller has them;
-the player's body, its first- and third-person view and the actors' drawn bodies use
-the lift (`PhysState::drawn_lift_of`, `npc_drawn_feet`). A long hill is drawn as walked
-(the slope filter); the first quarter second of a steep climb lags a few units. The exit
-report says how many steps the player's lift took in and its largest value; smoke
-`camper-steps`.
+the change of the feet's height beyond what the predicted vertical speed gives is taken
+into the lift with the opposite sign; the prediction is the vertical speed on the ground
+filtered over 0.2 s, each sample kept within 0.4 × the distance walked of the prediction,
+so a step does not feed it and is not overshot. A change of the drawn ground is taken in
+whole. The lift goes back to 0 as a critically damped spring, ω = 8/s for a small lift
+and stiffer the larger it is (ω × (1 + |lift| / 6)), at most 24 units either way; a
+change over 48 units in a step (a placement), the air and swimming take nothing in and
+restart the prediction from 0. The feet, the capsule, the reference's position and every
+query stay where the controller has them; the player's body, its first- and third-person
+view and the actors' drawn bodies use the lift (`PhysState::drawn_lift_of`,
+`npc_drawn_feet`). A long hill is drawn as walked once the prediction has caught up;
+running onto a 30° slope the body is drawn up to 8 units below the feet for a moment.
+Replayed on the traces [observed: `fnvtool phys walk` traces through the filter,
+2026-11-07], the RMS vertical acceleration of the drawn height (feet / first rule / now,
+units/s²): road run 741 / 741 / 284, road walk 239 / 206 / 85, rough desert run
+2621 / 1072 / 504, the hill run `move_hill_run` 787 / 660 / 334, Doc Mitchell's porch
+steps 2078 / 1690 / 629; largest lift 6.6, 4.2, 16, 7.9 and 9.9 units. The broken
+side of the road piece (WastelandRoadStraightLongB 0x00104FB5, lanes 160-240 units off
+its centre line) is the roughest: the feet move 2-3.4 units in single steps over its
+broken parts; there 2093 / 1367 / 260 and 2477 / 1965 / 388. In game on that lane
+[observed: smoke `road-run-smooth`, 2026-11-07] the exit report gave 2081 for the feet
+and 427 for the drawn height over 597 steps. The exit report says how many steps the
+player's lift took in, its largest value, and the RMS vertical acceleration of the feet
+and of the drawn height while walking on the ground (`StepLift::rough`); smoke
+`camper-steps`, `road-run-smooth`.
+
+**Stopping and the top of a slope** (2026-11-07, review of PR #1806) [design]: the
+prediction is never more than 2 × the horizontal distance walked per step (a 63° grade,
+`MAX_GRADE`), so standing still it is 0; without that, stopping after running up a 30°
+slope left the prediction at 173 units/s and the body drawn 11.4 units above the feet
+for as long as it stood (7.8 after a walk). Remaining overshoot [observed: synthetic
+replays in the module's tests, 2026-11-07]: running (5 units a step) up a 30° slope onto
+the level, the body is drawn up to 9.9 units over the top, walking (2.5) 6.1; at the top
+of a flight of stairs (8-unit risers, 12-unit treads) up to 4.2 over the top step
+running and 1.2 walking: the prediction carries on past the kink or the last riser for
+about 0.2 s, and the spring brings the body back down. The first rule never overshot.
+Tried and left out [observed: smoke `road-run-smooth`, 2026-11-07]: setting the
+prediction to the step's sample at once where the ground falls short of it by more than
+the step allowance while the body is already drawn past the feet halved the slope's
+overshoot (4.8 / 2.7) but doubled the drawn height's RMS on the broken road lane
+(426 → 826 units/s², drawn/feet 0.20 → 0.40); smoother damping of the prediction
+(shorter filter while the body is ahead of the feet) cost rough ground as much for less.
+With the bound alone the road run gave 2086 / 426 (0.20), as before.
+
+**Easing onto curbs** (2026-11-12, player feedback that walking onto obstacles of
+varying height "seems a bit jarring") [design; `step_lift.rs`]: the spring started the
+lift back towards 0 at full acceleration in the very step a curb was climbed or dropped
+off, so the view went from still to about 50 units/s within one fixed step. The lift now
+goes back through three first-order stages of rate 22/s one after the other (a triple
+critically damped pole; the change beyond the prediction is taken into all three), so
+after a curb the drawn height starts with no vertical speed and no vertical acceleration
+and is within a tenth of the step after about 0.24 s. The stiffening with the size of the
+lift is gone; the prediction, its bounds, the air, swimming and placements are as
+before. Replayed [observed: synthetic replays in the module's tests, 2026-11-12;
+before / now]: on a 10-unit curb the largest change of the drawn vertical speed from one
+step to the next is 0.66 / 0.34 units a step at a walk and 0.73 / 0.42 at a run, and
+the first step on it moves the drawn height 0.5 / 0.06 units; over the top of a flight
+of stairs the body is drawn 4.2 / 2.6 units over the top step running, 1.2 / 0.5
+walking. The cost: running onto and over a 30° slope the body lags and then overshoots
+by up to 13.3 units (9.9 before), walking 6.6 (6.1). A rate of 18/s was gentler
+still on a curb but made a run up the stairs far rougher (RMS vertical acceleration of
+the drawn height 356 → 1838 units/s² in the replay); 22/s also kept the replayed road
+ripples a little smoother than before (218 → 205). In game on the broken road lane
+[observed: smoke `road-run-smooth`, 2026-11-12] the exit report gave 2083 for the feet and
+365 for the drawn height over 596 steps (427 before, drawn/feet 0.21 → 0.18), largest lift
+14.3 units; `camper-steps`, `repconn-catwalk-stairs`, `pete-porch` and `pete-terrain`
+pass.
+
+**Small drops count as the ground** (2026-11-12, the same feedback, narrowed to walking
+off a road onto the terrain and over small rock clusters) [design; `step_lift::footing`]:
+running over rocks the controller leaves the ground for 2-4 fixed steps each time the feet
+come off one, dropping 16-20 units [observed: `fnvtool phys walk` running south-east over
+the desert south of Goodsprings, from (−70500, −2500) at (250, −150) units/s,
+2026-11-12]; drawn as a fall, the view dropped with the feet and stopped dead on landing.
+The lift now takes in a step in the air too while the character walked off an edge (the
+controller's `walked_off_z`, not set by a jump) and its feet are no more than the step
+height (24) below where it left the ground; a jump, swimming and any drop deeper than that
+are the air as before, so a real fall is not slowed. Replayed on that trace the drawn
+height's RMS vertical acceleration while moving fell from 7409 to 549 units/s² and its
+largest from 66 218 to 2712 (the feet 8153 / 68 609); walks along and across the road
+that never leave the ground are unchanged.
+
+**The view and walking pace** (2026-11-12, the owner's video and save walking west over
+Novac's broken road, cell −13,−13, from (−52595, −52475) facing 269°) [design;
+`step_lift.rs`, `player_body.rs`]: two things still moved the view there. (1) The body is
+drawn on the drawn ground (`drawn_sink`) and the eye counts from the feet, but a change of
+the drawn ground went whole into the lift, which the eye includes: a crack in the road
+model's drawn floor moved the view at once and eased it back. The lift now keeps the
+drawn ground's share apart (`StepLift::ground_at`, eased the same way), and the eye, the
+first-person rig and the third-person pivot leave it out. (2) The feet drop off the
+broken road pieces' edges in quick 8-10 unit drops [observed: `fnvtool phys walk` on
+that line at 75 units/s, 2026-11-12]; eased in 0.24 s at a walk they showed as a dip.
+The stages' rate now follows the horizontal speed: 22/s at 250 units/s and faster, in
+proportion below, at least 10/s, so a step is eased over about the same distance walked.
+In game on that line at a walk [observed: smoke `novac-broken-road-walk`, 2026-11-12]
+the RMS vertical acceleration of the view fell from 203 to 61 units/s² (the body 203 →
+70, the feet 2534); replayed, a walk along the Goodsprings road 102 → 82, the broken lane
+walked 145 → 88. Runs are unchanged (the road run's view 290 for the body's 363). The
+cost: walking, the body is drawn up to 22 units off the feet for a moment after those
+drops, and 9.1 over the top of a 30° slope (6.6).
+
 ### 6.12 Fall damage (playtest list 7 item 21, 2026-10-23; `engine/nvf-play/src/falls.rs`)
 
 - **Settings** [observed: FalloutNV.esm GMST]: `fJumpFallHeightMin` 600,

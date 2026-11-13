@@ -117,6 +117,9 @@ pub struct Row {
     /// A weapon's attached mods (`Extra::mods`): its units are a row of their own, named
     /// with " +" (docs/spec-notes/weapon-mods.md §3).
     pub mods: u8,
+    /// What the attached mods add to one unit's value: their IMOD values, which its
+    /// condition does not lower (`FormStore::mods_value`, issue #982).
+    pub mods_value: i32,
     /// The Misc tab's folder rows (the keyring, the caravan cards, and "Back" inside
     /// one): no item of their own ([`Folder`]).
     pub folder: Option<FolderRow>,
@@ -124,6 +127,26 @@ pub struct Row {
     /// reference this row stands for. Taking the row picks that reference up, so the
     /// weapon on the ground and the row are one item (#1032).
     pub reference: Option<FormId>,
+    /// A live explosive planted in this pocket (`Extra::live`): a row of its own, named
+    /// with [`LIVE_NOTE`], that no command takes, moves or puts up (#1640).
+    pub live: bool,
+}
+
+/// What a live explosive's row says after its name (`fnv_game::pickpocket`, a grenade or
+/// mine planted in a pocket and not yet gone off). FalloutNV.esm has no game setting for
+/// it [observed: none of its GMSTs names a live or armed item], so the word is NVForever's
+/// own [design, #1640; owner-review.md].
+pub const LIVE_NOTE: &str = "Armed";
+
+/// A live explosive's row name: its item's name, then [`LIVE_NOTE`] in brackets.
+pub fn live_name(name: String) -> String {
+    format!("{name} ({LIVE_NOTE})")
+}
+
+/// The status line when a command is refused on a live explosive's row (`name`, the
+/// row's name) [design, #1640: the words are NVForever's].
+pub fn live_refusal(name: &str) -> String {
+    format!("Cannot take or move {name}")
 }
 
 /// A folder of the inventory's Misc tab: the keys and the Caravan cards are listed in
@@ -172,7 +195,7 @@ impl Row {
             FolderRow::Open(f) => f.name().to_string(),
             FolderRow::Back => BACK.to_string(),
         };
-        Row { item: FormId(0), at: None, name, count, weight: None, value: None, kind: None, equipped: false, quest: false, condition: None, icon: None, price: None, bartered: false, mods: 0, folder: Some(f), reference: None }
+        Row { item: FormId(0), at: None, name, count, weight: None, value: None, kind: None, equipped: false, quest: false, condition: None, icon: None, price: None, bartered: false, mods: 0, mods_value: 0, folder: Some(f), reference: None, live: false }
     }
 }
 
@@ -244,6 +267,13 @@ pub fn plain_error(forms: &FormStore, e: &SimError) -> String {
 pub type Units = (FormId, Option<u32>, u8);
 
 impl Row {
+    /// One unit's value before a trade's multiplier: the item's value at its condition
+    /// plus what its attached mods add, which the condition does not lower [observed:
+    /// o26_value 2026-11-06, `FormStore::mods_value`; issue #982].
+    pub fn worth(&self, prices: &Prices) -> Option<f32> {
+        self.value.map(|v| prices.value_at(v, self.condition) + self.mods_value as f32)
+    }
+
     pub fn units(&self) -> Units {
         (self.item, self.at.map(f32::to_bits), self.mods)
     }
@@ -288,16 +318,18 @@ pub fn listing(world: &mut World<'_>, holder: FormId) -> Result<Listing, SimErro
         }
         let kind = it.map(|i| i.kind);
         let at = matches!(kind, Some(ItemKind::Weapon | ItemKind::Armor)).then(|| extra.condition_or_whole());
-        // Groups of one item come together (`Inventory::groups`).
-        if let Some(r) = rows.iter_mut().rev().take_while(|r| r.item == item).find(|r| r.at == at && r.mods == extra.mods) {
+        // Groups of one item come together (`Inventory::groups`); live units are a row of
+        // their own.
+        if let Some(r) = rows.iter_mut().rev().take_while(|r| r.item == item).find(|r| r.at == at && r.mods == extra.mods && r.live == extra.live) {
             r.count += count;
             r.equipped |= extra.equipped;
             continue;
         }
+        let name = modded_name(display_name(forms, item), extra.mods);
         rows.push(Row {
             item,
             at,
-            name: modded_name(display_name(forms, item), extra.mods),
+            name: if extra.live { live_name(name) } else { name },
             count,
             weight: it.and_then(|i| i.weight),
             value: it.and_then(|i| i.worth()),
@@ -309,15 +341,17 @@ pub fn listing(world: &mut World<'_>, holder: FormId) -> Result<Listing, SimErro
             price: None,
             bartered: false,
             mods: extra.mods,
+            mods_value: forms.mods_value(item, extra.mods),
             folder: None,
             reference: None,
+            live: extra.live,
         });
     }
     for r in &mut rows {
         r.quest = world.is_quest_item(r.item);
     }
     sort_rows(&mut rows);
-    let value = rows.iter().map(|r| r.value.unwrap_or(0) as i64 * r.count as i64).sum();
+    let value = rows.iter().map(|r| (r.value.unwrap_or(0) + r.mods_value) as i64 * r.count as i64).sum();
     Ok(Listing { rows, weight: totals.weight, value, hidden })
 }
 
@@ -351,11 +385,13 @@ fn add_dropped_beside(world: &World<'_>, holder: FormId, l: &mut Listing) {
             price: None,
             bartered: false,
             mods: s.extra.mods,
+            mods_value: forms.mods_value(s.base, s.extra.mods),
             folder: None,
             reference: Some(r),
+            live: false,
         };
         l.weight += f64::from(row.weight.unwrap_or(0.0)) * f64::from(row.count);
-        l.value += row.value.unwrap_or(0) as i64 * row.count as i64;
+        l.value += (row.value.unwrap_or(0) + row.mods_value) as i64 * row.count as i64;
         l.rows.push(row);
         added = true;
     }
@@ -454,10 +490,47 @@ pub enum Mode {
     Barter(FormId),
 }
 
+/// What a row stands for: its units, the reference a corpse's dropped weapon is, and which of
+/// rows alike it is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RowKey {
+    pub units: Units,
+    pub reference: Option<FormId>,
+    pub nth: u32,
+}
+
+impl RowKey {
+    /// The key of `rows[index]`.
+    pub fn at(rows: &[Row], index: usize) -> Option<RowKey> {
+        let row = rows.get(index)?;
+        let (units, reference) = (row.units(), row.reference);
+        let nth = rows[..index].iter().filter(|r| r.units() == units && r.reference == reference).count() as u32;
+        Some(RowKey { units, reference, nth })
+    }
+}
+
+/// [design] A row as the input that clicked or came onto it saw it: the commands after
+/// [`Command::Expect`] are for this row of this menu, and for no other row a command queued
+/// before them leaves at its index.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RowGuard {
+    pub mode: Mode,
+    pub side: Side,
+    pub index: usize,
+    pub key: RowKey,
+    /// The commands act on the row as the selected one.
+    pub selected: bool,
+    /// How many commands follow the guard.
+    pub then: u8,
+}
+
 /// What the player asks the menu to do (keys, mouse and the test aid all go through
 /// this).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Command {
+    /// The next commands hold only if the row is still there ([`MenuModel::row_is`]);
+    /// `crate::menu::apply_input` drops them otherwise.
+    Expect(RowGuard),
     Up,
     Down,
     PageUp,
@@ -578,6 +651,9 @@ pub struct Trade {
     /// The merchant's items held back at the last refresh, with the category it does not
     /// sell them under, in row order.
     pub withheld: Vec<(FormId, &'static str)>,
+    /// A script's price multipliers, buying and selling (SetBarterPriceMult,
+    /// `fnv_game::nvse_jip12`), in place of the rules'.
+    pub mult_set: [Option<f32>; 2],
 }
 
 /// Whether the merchant sells an item: `None` when it does, else the name of the service
@@ -599,7 +675,8 @@ impl PartialEq for Sells {
 }
 
 impl Trade {
-    /// Whether the side that pays holds the caps the balance asks of it.
+    /// Whether the side that pays holds the caps the balance asks of it. When it does not,
+    /// the figure dims; only a player who is short is refused ([`Trade::paid`]).
     pub fn affordable(&self) -> bool {
         let (player, merchant) = (Side::Player as usize, Side::Container as usize);
         match self.balance {
@@ -608,12 +685,25 @@ impl Trade {
         }
     }
 
-    /// What one unit of value is worth when it comes from `from`.
+    /// The caps the trade moves, positive when the player is paid: the balance, held at the
+    /// merchant's purse when it cannot pay all of it [observed 2026-11-06: barter-menu.md
+    /// section 9, the original completes such a sale at that amount].
+    pub fn paid(&self) -> i64 {
+        self.balance.min(i64::from(self.purse[Side::Container as usize]))
+    }
+
+    /// What one unit of value is worth when it comes from `from`: a script's multiplier,
+    /// else the rules'.
     fn mult(&self, from: Side) -> f32 {
         match from {
-            Side::Player => self.prices.selling(self.skill, self.discount),
-            Side::Container => self.prices.buying(self.skill, self.discount),
+            Side::Player => self.mult_set[1].unwrap_or_else(|| self.prices.selling(self.skill, self.discount)),
+            Side::Container => self.mult_set[0].unwrap_or_else(|| self.prices.buying(self.skill, self.discount)),
         }
+    }
+
+    /// The multipliers in use, buying and selling (GetBarterPriceMult).
+    pub fn mults(&self) -> [f32; 2] {
+        [self.mult(Side::Container), self.mult(Side::Player)]
     }
 
     /// What holds a side's items.
@@ -643,6 +733,11 @@ pub struct MenuModel {
     /// where they are (only the wheel and the keys scroll them; owner's playtest list 7,
     /// item 11). The menu keeps `scroll` at the rows it draws (`look::drawn_first`).
     pub pointer_pick: bool,
+    /// Counts the keys' and the wheel's moves of the selection, also one that ends on the same
+    /// row: asked to move, the tile menu shows the selected row again.
+    pub navigated: u32,
+    /// By column: the rows the category leaves out (the file's `_num_filtered`).
+    pub filtered: [usize; 2],
     /// Rows per column; the container column is empty in the inventory menu.
     pub lists: [Listing; 2],
     /// The category each column shows.
@@ -726,12 +821,15 @@ pub struct Steal {
     /// The player's and the victim's Sneak.
     pub thief: f64,
     pub target: f64,
+    /// Equipped items are listed too (ShowOff's SetPlayerCanPickpocketEquippedItems,
+    /// `fnv_game::Game::pickpocket_worn`).
+    pub worn: bool,
     rng: fnv_combat::rng::SplitMix,
 }
 
 impl Steal {
     pub fn new(victim: FormId, rules: fnv_game::pickpocket::Rules, thief: f64, target: f64, seed: u64) -> Steal {
-        Steal { victim, rules, thief, target, rng: fnv_combat::rng::SplitMix(seed) }
+        Steal { victim, rules, thief, target, worn: false, rng: fnv_combat::rng::SplitMix(seed) }
     }
 
     /// The chance, percent, of moving `count` units of `row` either way.
@@ -785,6 +883,7 @@ impl MenuModel {
             balance: 0,
             sells: None,
             withheld: Vec::new(),
+            mult_set: [None; 2],
         });
         m.focus = Side::Player;
         m.refresh(world)?;
@@ -806,6 +905,8 @@ impl MenuModel {
             selected: [0; 2],
             scroll: [0; 2],
             pointer_pick: false,
+            navigated: 0,
+            filtered: [0; 2],
             lists: [Listing::default(), Listing::default()],
             category: [Category::All; 2],
             encumbrance: Err(String::new()),
@@ -855,7 +956,7 @@ impl MenuModel {
     /// Re-read the inventories from the simulation, keeping each column's selection on
     /// the same row when it is still there (else on the same position).
     pub fn refresh(&mut self, world: &mut World<'_>) -> Result<(), SimError> {
-        let keep = [Side::Container, Side::Player].map(|s| self.selected_row(s).map(|r| (r.units(), r.bartered, r.folder)));
+        let keep = [Side::Container, Side::Player].map(|s| self.selected_row(s).map(|r| (r.units(), r.bartered, r.folder, r.live)));
         if self.trade.is_some() {
             self.refresh_trade(world)?;
         } else {
@@ -869,8 +970,10 @@ impl MenuModel {
                     add_dropped_beside(world, holder, &mut l);
                 }
                 let forms = world.forms;
+                let all = l.rows.len();
                 l.rows.retain(|r| self.category[side as usize].holds_item(r.kind, forms.item(r.item)));
-                if side == Side::Container && self.steal.is_some() {
+                self.filtered[side as usize] = all - l.rows.len();
+                if side == Side::Container && self.steal.as_ref().is_some_and(|s| !s.worn) {
                     l.rows.retain(|r| !r.equipped);
                 }
                 if self.mode == Mode::Inventory && self.category[side as usize] == Category::Misc {
@@ -882,7 +985,7 @@ impl MenuModel {
         for &side in self.columns() {
             let i = side as usize;
             let rows = &self.lists[i].rows;
-            let at = keep[i].and_then(|k| rows.iter().position(|r| (r.units(), r.bartered, r.folder) == k));
+            let at = keep[i].and_then(|k| rows.iter().position(|r| (r.units(), r.bartered, r.folder, r.live) == k));
             self.selected[i] = at.unwrap_or(self.selected[i]).min(rows.len().saturating_sub(1));
             self.ensure_visible(side);
         }
@@ -907,7 +1010,8 @@ impl MenuModel {
             own[i] = l
                 .rows
                 .into_iter()
-                .filter(|r| r.item != t.caps && !r.quest)
+                // A live explosive (`Row::live`) is not for trade (#1640).
+                .filter(|r| r.item != t.caps && !r.quest && !r.live)
                 .filter(|r| {
                     let why = (side == Side::Container).then(|| t.sells.as_ref().and_then(|s| (s.0)(r.item))).flatten();
                     if let Some(w) = why.filter(|_| !withheld.iter().any(|(i, _)| *i == r.item)) {
@@ -916,7 +1020,7 @@ impl MenuModel {
                     why.is_none()
                 })
                 .map(|mut r| {
-                    r.price = r.value.map(|v| prices.value_at(v, r.condition) * mult);
+                    r.price = r.worth(&prices).map(|v| v * mult);
                     r
                 })
                 .collect();
@@ -994,8 +1098,10 @@ impl MenuModel {
                                 price: None,
                                 bartered: false,
                                 mods: 0,
+                                mods_value: 0,
                                 folder: None,
                                 reference: None,
+                                live: false,
                             }),
                         }
                     }
@@ -1067,6 +1173,9 @@ impl MenuModel {
             return self.apply_quantity(world, cmd);
         }
         let page = self.page() as i64 - 1;
+        if matches!(cmd, Command::Up | Command::Down | Command::PageUp | Command::PageDown | Command::Scroll(_)) {
+            self.navigated = self.navigated.wrapping_add(1);
+        }
         match cmd {
             Command::Hover(..) => self.pointer_pick = true,
             Command::Up | Command::Down | Command::PageUp | Command::PageDown | Command::Scroll(_) | Command::Select(..) | Command::SetCategory(..) => {
@@ -1154,11 +1263,19 @@ impl MenuModel {
         out
     }
 
+    /// Whether `g`'s row is still the row its input saw, in this menu and with no prompt over it.
+    pub fn row_is(&self, g: &RowGuard) -> bool {
+        self.mode == g.mode
+            && self.quantity.is_none()
+            && RowKey::at(&self.list(g.side).rows, g.index) == Some(g.key)
+            && (!g.selected || (self.focus == g.side && self.selected[g.side as usize] == g.index))
+    }
+
     /// The prompt asked for by `cmd` on the selected row, if its stack is large enough.
     fn asks_quantity(&self, cmd: Command) -> Option<Quantity> {
         let asks = matches!((self.mode, cmd), (Mode::Container(_) | Mode::Barter(_), Command::One) | (Mode::Inventory, Command::Drop));
         let r = self.selected_row(self.focus)?;
-        (asks && self.amount.is_none() && r.count > ASK_QUANTITY_ABOVE && r.folder.is_none() && r.kind != Some(ItemKind::CaravanCard)).then(|| Quantity {
+        (asks && self.amount.is_none() && r.count > ASK_QUANTITY_ABOVE && r.folder.is_none() && !r.live && r.kind != Some(ItemKind::CaravanCard)).then(|| Quantity {
             cmd,
             side: self.focus,
             row: self.selected[self.focus as usize],
@@ -1203,7 +1320,8 @@ impl MenuModel {
             (Mode::Container(c), Command::TakeAll) => {
                 // The listed stacks only: non-playable and nameless items stay hidden in the container.
                 let mut moved = Vec::new();
-                for r in &self.lists[Side::Container as usize].rows {
+                // A live explosive's row stays (`Row::live`).
+                for r in self.lists[Side::Container as usize].rows.iter().filter(|r| !r.live) {
                     let n = match r.reference {
                         Some(at) => take_reference(world, at, &mut out.picked)?,
                         None => world.transfer_at(c, PLAYER, r.item, r.count, r.pick())?,
@@ -1225,6 +1343,24 @@ impl MenuModel {
                     Side::Container => (c, PLAYER),
                     Side::Player => (PLAYER, c),
                 };
+                // A live explosive in a pocket is taken by nobody, the player included,
+                // and costs no roll [design, #1640; owner-review.md].
+                if r.live {
+                    self.amount = None;
+                    return Ok(live_refusal(&r.name));
+                }
+                // Picking a pocket, nothing is rolled for a row whose units the simulation
+                // will not move (one listed before its explosive was armed, #1640).
+                if self.steal.is_some() && r.reference.is_none() {
+                    let inv = world.peek(from).and_then(|s| s.inventory.as_ref());
+                    if inv.map_or(0, |i| i.count_at(r.item, r.pick())) == 0 {
+                        self.amount = None;
+                        return Ok(match inv.is_some_and(|i| i.live_count(r.item) > 0) {
+                            true => live_refusal(&live_name(r.name.clone())),
+                            false => format!("Cannot find {} in the inventory", r.name),
+                        });
+                    }
+                }
                 let want = self.want(cmd == Command::One, &r);
                 if let Some(st) = self.steal.as_mut() {
                     let chance = st.chance(&r, want);
@@ -1250,6 +1386,10 @@ impl MenuModel {
             }
             (Mode::Barter(_), Command::One | Command::Stack) => {
                 let Some(r) = sel else { return Ok("Nothing selected".into()) };
+                if r.live {
+                    self.amount = None;
+                    return Ok(live_refusal(&r.name));
+                }
                 let want = self.want(cmd == Command::One, &r);
                 let Some(t) = self.trade.as_mut() else { return Ok(String::new()) };
                 out.changed = true;
@@ -1343,15 +1483,16 @@ impl MenuModel {
         }
     }
 
-    /// Barter: move what was put up and the caps it comes to, if the paying side can pay.
+    /// Barter: move what was put up and the caps it comes to, if the player can pay; a
+    /// merchant who cannot pays what it holds ([`Trade::paid`]).
     fn accept(&mut self, world: &mut World<'_>, out: &mut Applied) -> Result<String, SimError> {
         let Some(t) = self.trade.as_mut() else { return Ok(String::new()) };
         if t.is_empty() {
             return Ok("Nothing to trade".into());
         }
         let (player, merchant) = (Side::Player as usize, Side::Container as usize);
-        if !t.affordable() {
-            return Ok(if t.balance < 0 { "You don't have enough caps.".into() } else { format!("{} doesn't have enough caps.", self.title) });
+        if t.balance < 0 && !t.affordable() {
+            return Ok("You don't have enough caps.".into());
         }
         for (u, &n) in &t.offered[player] {
             world.transfer_at(PLAYER, t.stock, u.0, n, units_pick(u))?;
@@ -1359,7 +1500,7 @@ impl MenuModel {
         for (u, &n) in &t.offered[merchant] {
             world.transfer_at(t.stock, PLAYER, u.0, n, units_pick(u))?;
         }
-        let paid = t.balance;
+        let paid = t.paid();
         match paid {
             p if p > 0 => world.transfer(t.stock, PLAYER, t.caps, p as i32)?,
             p if p < 0 => world.transfer(PLAYER, t.stock, t.caps, (-p) as i32)?,
@@ -1421,6 +1562,22 @@ pub fn nearest_container(
             (is_container && present).then_some((p.id, d))
         })
         .min_by(|a, b| a.1.total_cmp(&b.1).then(a.0.cmp(&b.0)))
+}
+
+/// Whether the inventory's Enter (`Command::One` on the row `r`, an item row) does
+/// anything: the game takes off what is worn ([`World::unequip_check`]) and puts on or uses
+/// the rest ([`World::equip_check`], the checks `World::equip_at` runs: a book that teaches
+/// nothing, a broken weapon, misc and ammo are refused); a Caravan card is for the table.
+/// The Pip-Boy's equip hint reads it (#1896). `false` for a folder row (Enter opens it).
+pub fn enter_acts(world: &World<'_>, r: &Row) -> bool {
+    if r.folder.is_some() || r.kind == Some(ItemKind::CaravanCard) {
+        return false;
+    }
+    if r.equipped {
+        world.unequip_check(PLAYER, r.item).is_ok()
+    } else {
+        world.equip_check(PLAYER, r.item, r.pick()).is_ok()
+    }
 }
 
 #[cfg(test)]

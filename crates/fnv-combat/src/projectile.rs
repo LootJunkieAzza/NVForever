@@ -9,7 +9,8 @@
 //! the explosion goes off on impact, or with Alt. Trigger on a timer or proximity, or on
 //! detonation for Detonates. A mine (`crate::mine::is_mine`) does not trigger itself in
 //! flight: once it comes to rest it is [`ProjEvent::Settled`] and the engine places it
-//! as a mine in the world (`nvf_play::mines`), armed at once [owner 2026-10-19: "your own
+//! as a mine in the world (`nvf_play::mines`), armed at once; a Detonates charge (C-4)
+//! settles the same way and waits there for its detonator (#1986) [owner 2026-10-19: "your own
 //! mines arm immediately after leaving the player hand"]. How gravity scales is a hypothesis: the PROJ value
 //! multiplies the world's gravity (9.81 m/s² at 70 units per metre, `fnv-phys`).
 //!
@@ -112,8 +113,8 @@ pub enum Motion {
 pub enum ProjEvent {
     /// A hit to apply after `delay` seconds (hitscan: distance ÷ speed).
     Hit { actor: Option<ActorId>, part: Option<u8>, object: Option<u64>, point: V3, normal: V3, material: Option<u32>, delay: f32 },
-    /// The projectile's explosion goes off here.
-    Explode { explosion: FormId, point: V3 },
+    /// The projectile's explosion goes off here, with a contact normal on impact.
+    Explode { explosion: FormId, point: V3, normal: Option<V3> },
     /// Out of range or out of time without a hit.
     Expired { point: V3 },
     /// A mine came to rest here, on a surface with this normal: it leaves flight.
@@ -152,6 +153,18 @@ pub struct Projectile {
     /// It has gone into water once ([`ProjEvent::Splash`]): a lobber bouncing on the bed
     /// splashes no more.
     splashed: bool,
+    /// Where it was and how it flew as its first step began (after any speed change since
+    /// [`Projectile::spawn`]), and where and when (its age) it first touched something:
+    /// for the logs that compare its arc with the original's (issue #1471).
+    pub launch: Option<(V3, V3)>,
+    pub first_contact: Option<(V3, f32)>,
+    /// A thrown grenade (a lobber with a fuse, neither a mine nor set off by remote): it
+    /// rolls once it lands instead of bouncing (combat-rules.md §5), with these shares.
+    pub rolls: bool,
+    pub rolling: bool,
+    restitution: f32,
+    roll_keep: f32,
+    roll_damping: f32,
 }
 
 /// Lobbers stop bouncing below this speed, units/s [design].
@@ -160,6 +173,11 @@ const REST_SPEED: f32 = 40.0;
 const NUDGE: f32 = 0.5;
 /// Lifetime of a projectile with no other end, seconds [design].
 const MAX_AGE: f32 = 60.0;
+/// A surface whose normal points at least this far up is ground a grenade rolls on
+/// (about 45°) [design].
+const GROUND_NORMAL_Z: f32 = 0.7;
+/// Surfaces a rolling grenade slides along in one step at most [design].
+const MAX_SLIDES: u32 = 4;
 
 impl Projectile {
     /// Its speed times `mult` (a mod's "Increase Projectile Speed"); a hitscan projectile is
@@ -182,6 +200,8 @@ impl Projectile {
             _ => Motion::Missile,
         };
         let dir = vec::normalize(dir);
+        let mine = crate::mine::is_mine(p);
+        let rolls = motion == Motion::Lobber && p.has("Alt. Trigger") && p.alt_trigger_timer > 0.0 && p.alt_trigger_proximity <= 0.0 && !mine && !p.has("Detonates");
         Projectile {
             pos: origin,
             vel: vec::scale(dir, p.speed),
@@ -206,9 +226,16 @@ impl Projectile {
             bounce: t.default_bounce * if p.bouncy_mult > 0.0 { p.bouncy_mult } else { 1.0 },
             landed: false,
             alive: true,
-            mine: crate::mine::is_mine(p),
+            mine,
             hit_actors: Vec::new(),
             splashed: false,
+            launch: None,
+            first_contact: None,
+            rolls,
+            rolling: false,
+            restitution: t.grenade_restitution,
+            roll_keep: t.grenade_roll_keep,
+            roll_damping: t.grenade_roll_damping,
         }
     }
 
@@ -261,6 +288,9 @@ impl Projectile {
             return out;
         }
         let first = self.age == 0.0;
+        if first {
+            self.launch = Some((self.pos, self.vel));
+        }
         self.age += dt;
         // Instant traces: beams and hitscan projectiles resolve on their first step.
         if first && (self.hitscan || self.motion == Motion::Beam) && self.motion != Motion::Lobber {
@@ -276,7 +306,7 @@ impl Projectile {
                     let delay = if self.motion == Motion::Beam || self.speed <= 0.0 { 0.0 } else { h.distance / self.speed };
                     out.push(ProjEvent::Hit { actor: h.actor, part: h.part, object: h.object, point: h.point, normal: h.normal, material: h.material, delay });
                     if let Some(e) = self.impact_explosion() {
-                        out.push(ProjEvent::Explode { explosion: e, point: h.point });
+                        out.push(ProjEvent::Explode { explosion: e, point: h.point, normal: Some(h.normal) });
                     }
                 }
                 None => out.push(ProjEvent::Expired { point: end }),
@@ -289,12 +319,12 @@ impl Projectile {
             if self.proximity > 0.0 {
                 if armed && world.actors_near(self.pos, self.proximity).iter().any(|(a, _)| Some(*a) != self.shooter) {
                     self.alive = false;
-                    out.push(ProjEvent::Explode { explosion: e, point: self.pos });
+                    out.push(ProjEvent::Explode { explosion: e, point: self.pos, normal: None });
                     return out;
                 }
             } else if self.timer > 0.0 && armed && !self.detonates {
                 self.alive = false;
-                out.push(ProjEvent::Explode { explosion: e, point: self.pos });
+                out.push(ProjEvent::Explode { explosion: e, point: self.pos, normal: None });
                 return out;
             }
         }
@@ -305,6 +335,11 @@ impl Projectile {
         }
         if self.landed {
             return out;
+        }
+        // A grenade rolling on the ground loses speed as it rolls [observed: fitted to
+        // the original's frag grenade, o26_gl frag0; combat-rules.md §5].
+        if self.rolling {
+            self.vel = vec::scale(self.vel, (-self.roll_damping * dt).exp());
         }
         // Swept flight.
         let vel = [self.vel[0], self.vel[1], self.vel[2] - self.gravity * dt];
@@ -318,7 +353,8 @@ impl Projectile {
             len = left;
             ends = true;
         }
-        let to = vec::add(self.pos, step);
+        let start = self.pos;
+        let mut to = vec::add(self.pos, step);
         self.vel = vel;
         let mut from = self.pos;
         // Water this step goes down through, when nothing solid comes first (a flame
@@ -329,6 +365,14 @@ impl Projectile {
                 out.push(ProjEvent::Splash { point: p, dir: vec::normalize(step) });
             }
         }
+        // Where and when (its age) it first touched something, along this step.
+        let touched = |me: &mut Projectile, point: V3| {
+            if me.first_contact.is_none() {
+                let share = (vec::len(vec::sub(point, start)) / len.max(1e-6)).min(1.0);
+                me.first_contact = Some((point, me.age - dt * (1.0 - share)));
+            }
+        };
+        let mut slides = 0;
         while let Some(h) = self.trace(world, from, to) {
             match (self.motion, h.actor) {
                 // A flame goes on through actors, hitting each once.
@@ -338,7 +382,39 @@ impl Projectile {
                     from = h.point;
                     continue;
                 }
+                // A thrown grenade: what goes into the surface keeps the restitution's
+                // share, what runs along it the roll's share (all of it once it rolls), and
+                // it goes on along the surface for the rest of the step, rolling once it is
+                // on the ground (combat-rules.md §5).
+                (Motion::Lobber, _) if self.rolls => {
+                    touched(self, h.point);
+                    let n = h.normal;
+                    let v = self.vel;
+                    let into = vec::dot(v, n);
+                    let keep = if self.rolling { 1.0 } else { self.roll_keep };
+                    let off = if into < 0.0 { -into * self.restitution } else { into };
+                    self.vel = vec::add(vec::scale(vec::sub(v, vec::scale(n, into)), keep), vec::scale(n, off));
+                    if n[2] >= GROUND_NORMAL_Z {
+                        self.rolling = true;
+                    }
+                    self.travelled += h.distance;
+                    let rest = vec::sub(to, h.point);
+                    let rest = vec::sub(rest, vec::scale(n, vec::dot(rest, n).min(0.0)));
+                    self.pos = vec::add(h.point, vec::scale(n, NUDGE));
+                    from = self.pos;
+                    to = vec::add(self.pos, vec::scale(rest, keep));
+                    slides += 1;
+                    let stopped = self.rolling && vec::len(self.vel) < REST_SPEED;
+                    if stopped {
+                        self.vel = [0.0; 3];
+                        self.landed = true;
+                    }
+                    if stopped || slides >= MAX_SLIDES {
+                        return out;
+                    }
+                }
                 (Motion::Lobber, _) if self.alt_trigger || self.detonates => {
+                    touched(self, h.point);
                     // Bounce off whatever it met; settle when slow.
                     let n = h.normal;
                     let v = self.vel;
@@ -349,7 +425,10 @@ impl Projectile {
                     if vec::len(self.vel) < REST_SPEED {
                         self.vel = [0.0; 3];
                         self.landed = true;
-                        if self.mine {
+                        // A mine, and a charge that waits for its detonator (C-4), leave
+                        // flight at rest: the engine places them as references, which are
+                        // saved and belong to a cell (#1986) [design].
+                        if self.mine || self.detonates {
                             self.alive = false;
                             out.push(ProjEvent::Settled { point: self.pos, normal: n });
                         }
@@ -357,19 +436,20 @@ impl Projectile {
                     return out;
                 }
                 _ => {
+                    touched(self, h.point);
                     self.alive = false;
                     self.travelled += h.distance;
                     self.pos = h.point;
                     out.push(ProjEvent::Hit { actor: h.actor, part: h.part, object: h.object, point: h.point, normal: h.normal, material: h.material, delay: 0.0 });
                     if let Some(e) = self.impact_explosion() {
-                        out.push(ProjEvent::Explode { explosion: e, point: h.point });
+                        out.push(ProjEvent::Explode { explosion: e, point: h.point, normal: Some(h.normal) });
                     }
                     return out;
                 }
             }
         }
+        self.travelled += if slides == 0 { len } else { vec::len(vec::sub(to, from)) };
         self.pos = to;
-        self.travelled += len;
         if ends {
             self.alive = false;
             out.push(ProjEvent::Expired { point: to });
@@ -383,7 +463,7 @@ impl Projectile {
             return None;
         }
         self.alive = false;
-        self.explosion.map(|e| ProjEvent::Explode { explosion: e, point: self.pos })
+        self.explosion.map(|e| ProjEvent::Explode { explosion: e, point: self.pos, normal: None })
     }
 }
 
@@ -485,6 +565,8 @@ pub struct BlastHit {
 /// at once [design].
 const BLAST_LIFT: f32 = 16.0;
 
+/// `contact_normal`, when finite and nonzero, clears the visibility origins 0.5 units
+/// outward from an impact; `None` preserves explosions without a known contact [design].
 /// The actors an explosion at `center` reaches: every one whose body lies within its
 /// radius, and in line of sight of the centre unless the EXPL ignores it [documented:
 /// GECK wiki Explosion]; damage falls off with distance [design]. Only the world shields:
@@ -495,11 +577,17 @@ const BLAST_LIFT: f32 = 16.0;
 /// with every part beyond it takes the edge's damage. Grenades beside a giant radscorpion
 /// did it no harm: the centre of its bounds lay past the radius, or out of sight under
 /// the ground the line from the blast ran along (the owner, 2026-10-27) [design].
-pub fn blast(world: &dyn CombatWorld, t: &CombatTuning, e: &ExplosionStats, center: V3) -> Vec<BlastHit> {
+pub fn blast(world: &dyn CombatWorld, t: &CombatTuning, e: &ExplosionStats, center: V3, contact_normal: Option<V3>) -> Vec<BlastHit> {
     let los = !e.flags.iter().any(|f| f == "Ignore LOS Check");
-    let lifted = [center[0], center[1], center[2] + BLAST_LIFT];
+    // Clear only a known contact, by the same bounded distance as a bouncing shot.
+    // The physical centre still controls radius, falloff and push [design: combat-rules.md section 11].
+    let origin = contact_normal.filter(|n| n.iter().all(|v| v.is_finite())).and_then(|n| {
+        let len = vec::len(n);
+        (len.is_finite() && len > 1e-6).then(|| vec::add(center, vec::scale(n, NUDGE / len)))
+    }).unwrap_or(center);
+    let lifted = [origin[0], origin[1], origin[2] + BLAST_LIFT];
     // Not from above a ceiling or a floor it went off under.
-    let origins: Vec<V3> = if world.cover_ray(center, lifted).is_some() { vec![center] } else { vec![center, lifted] };
+    let origins: Vec<V3> = if world.cover_ray(origin, lifted).is_some() { vec![origin] } else { vec![origin, lifted] };
     let seen = |from: V3, to: V3| {
         let d = vec::len(vec::sub(to, from));
         !world.cover_ray(from, to).is_some_and(|h| h.distance + NUDGE < d)

@@ -483,6 +483,28 @@ impl Game<'_> {
         self.is_faction(o.owner) && faction_rank(self, witness, o.owner) >= 0
     }
 
+    /// SendTrespassAlarmAlt on `r`: the alarm goes to the owner of `r` (someone other
+    /// than the player) instead of an actor's base: each witness who stands for that
+    /// owner counts the trespass and turns on the player, as the trespass warnings' last
+    /// step does [documented: SendTrespassAlarmAlt, "uses the calling reference's owner";
+    /// hypothesis: the owner's people who see the player are the ones told]. How many
+    /// turned.
+    pub(crate) fn trespass_alarm_for(&mut self, r: FormId) -> usize {
+        let Some(o) = self.owned_by_other(r) else { return 0 };
+        let mut turned = 0;
+        for w in self.crime_witnesses() {
+            if !self.speaks_for(w, &o) {
+                continue;
+            }
+            self.count_crime(w, Kind::Trespass);
+            if self.player.crime_enemies.insert(w) {
+                turned += 1;
+                self.crimes.notes.push(Note::Crime { kind: Kind::Trespass, victim: Some(o.owner), seen_by: vec![w], hostile: vec![w] });
+            }
+        }
+        turned
+    }
+
     /// Whether stealing from this owner costs karma (module notes).
     pub(crate) fn karma_for_theft_from(&mut self, o: &Ownership) -> bool {
         self.karma_for_theft(o)
@@ -510,11 +532,15 @@ impl Game<'_> {
     /// player's teammates and do not ignore crime.
     pub fn crime_witnesses(&self) -> Vec<FormId> {
         let now = self.time;
+        // Those who saw the player while a planted explosive was live, when its kill is
+        // judged (`crate::pickpocket`).
+        let planted = self.pickpocket.blast_witnesses.iter().copied().filter(|w| !self.detection.pairs.get(&(*w, FormId::PLAYER_REF)).is_some_and(|(d, at)| d.band == Band::Detected && now - at <= 1.0));
         self.detection
             .pairs
             .iter()
             .filter(|((w, t), (d, at))| *t == FormId::PLAYER_REF && *w != FormId::PLAYER_REF && d.band == Band::Detected && now - at <= 1.0)
             .map(|((w, _), _)| *w)
+            .chain(planted)
             .filter(|&w| self.present(w) && !self.is_dead(w) && !self.extra.get(&w).is_some_and(|e| e.teammate || e.ignore_crime || e.out_cold()))
             .collect()
     }

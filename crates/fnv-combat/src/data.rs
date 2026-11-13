@@ -152,6 +152,10 @@ pub struct WeaponStats {
     /// part of any report.
     #[serde(skip)]
     pub base_vats_to_hit: u32,
+    /// The weapon's VATS special attack (WEAP `VATS`), when it has one. Not part of any
+    /// report.
+    #[serde(skip)]
+    pub vats_special: Option<crate::vats::SpecialAttack>,
     pub regen_rate: f32,
     pub kill_impulse: f32,
     pub impulse_dist: f32,
@@ -989,6 +993,11 @@ fn weapon(cx: &mut Ctx, d: &[Decoded]) -> WeaponStats {
         strength_req: u(dn, "strength_req"),
         skill_req: u(dn, "skill_req"),
         base_vats_to_hit: u(dn, "base_vats_to_hit_chance"),
+        vats_special: {
+            let v = first(d, b"VATS");
+            let effect = cx.field("VATS effect", v, "effect");
+            crate::vats::SpecialAttack::from_fields(effect, f(v, "skill"), f(v, "dam_mult"), f(v, "ap"))
+        },
         regen_rate: f(dn, "regen_rate"),
         kill_impulse: f(dn, "kill_impulse"),
         impulse_dist: f(dn, "impulse_dist"),

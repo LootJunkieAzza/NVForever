@@ -1,6 +1,7 @@
 //! The Wait / Sleep menu as plain data (docs/spec-notes/wait-menu.md): the hours chosen,
 //! the hours still to pass once accepted, and the lines the menu shows. No Bevy.
 
+use bevy::prelude::KeyCode;
 use fnv_sim::clock::Calendar;
 
 /// The most hours one wait takes [observed: the slider of the owner's screenshot has 24
@@ -111,6 +112,16 @@ impl Model {
         true
     }
 
+    /// The hours still to pass, all at once (behind a trip's loading screen): the hour
+    /// numbers they are, in order, from the first still to pass to the last asked; `None`
+    /// when nothing passes.
+    pub fn take_left(&mut self) -> Option<std::ops::RangeInclusive<u32>> {
+        let p = self.passing.as_mut().filter(|p| p.left > 0)?;
+        let first = p.asked - p.left + 1;
+        p.left = 0;
+        Some(first..=p.asked)
+    }
+
     /// The hours the slider shows: those chosen, or those left while they pass.
     pub fn marker(&self) -> u32 {
         self.passing.map_or(self.hours, |p| p.left)
@@ -124,13 +135,17 @@ impl Model {
             hours: words.hours_line(hours, minute_of_day(now)),
             date: words.date_line(now),
             marker: hours,
-            accept: format!("{} E)", if self.sleep { &words.sleep } else { &words.wait }),
+            // E and X, with a controller A (Enter) and B (Esc) [#1662].
+            accept: format!("{} {}", if self.sleep { &words.sleep } else { &words.wait }, crate::pad::hint(&[KeyCode::KeyE, KeyCode::Enter], WAIT_AT)),
             action: if self.sleep { words.sleep.clone() } else { words.wait.clone() },
-            cancel: format!("{} X)", words.cancel),
+            cancel: format!("{} {}", words.cancel, crate::pad::hint(&[KeyCode::KeyX, KeyCode::Escape], WAIT_AT)),
             can_accept: self.passing.is_none(),
         }
     }
 }
+
+/// The wait menu, for its hints.
+const WAIT_AT: crate::pad::MenuAt = crate::pad::MenuAt { code: Some(crate::script::MENU_SLEEP_WAIT), tab: 0 };
 
 /// The minute of the day of a calendar's hour (GameHour is in hours, with a fraction).
 pub fn minute_of_day(c: &Calendar) -> u32 {
@@ -499,6 +514,20 @@ mod tests {
         let mut m = Model::open(false);
         m.sleep_for(0);
         assert_eq!((m.sleep, m.hours, m.passing), (true, 1, None));
+    }
+
+    #[test]
+    fn the_hours_left_can_pass_at_once() {
+        let mut m = Model::open(false);
+        m.sleep_for(3);
+        assert!(m.tick(0.5, 0.5));
+        // Hour 1 has passed: 2 and 3 are left, and then none.
+        assert_eq!(m.take_left(), Some(2..=3));
+        assert_eq!(m.passing.map(|p| (p.asked, p.left)), Some((3, 0)));
+        assert_eq!(m.take_left(), None);
+        assert!(!m.tick(0.5, 0.5));
+        // Nothing passing: nothing to take.
+        assert_eq!(Model::open(true).take_left(), None);
     }
 
     #[test]

@@ -158,7 +158,7 @@ impl Game<'_> {
         for f in hs {
             let args = if gained { vec![XVal::Ref(perk.0), XVal::Num(f64::from(before)), XVal::Num(f64::from(after))] } else { vec![XVal::Ref(perk.0)] };
             if let Err(error) = self.run_function(&f, None, args, None, RunCtx::default()) {
-                self.emit(crate::trace::EventKind::ScriptError { unit: "JohnnyGuitar perk handler".into(), error });
+                self.handler_failed("JohnnyGuitar perk handler".into(), error);
             }
         }
     }
@@ -170,7 +170,7 @@ impl Game<'_> {
         for f in hs {
             let args = vec![XVal::Num(f64::from(code)), XVal::Num(old), XVal::Num(new)];
             if let Err(error) = self.run_function(&f, None, args, None, RunCtx::default()) {
-                self.emit(crate::trace::EventKind::ScriptError { unit: "JohnnyGuitar actor value handler".into(), error });
+                self.handler_failed("JohnnyGuitar actor value handler".into(), error);
             }
         }
     }
@@ -181,7 +181,7 @@ impl Game<'_> {
         let hs: Vec<XVal> = self.gaps.quest_handlers.iter().filter(|(s, _, q)| *s == started && q.is_none_or(|q| q == quest)).map(|(_, f, _)| f.clone()).collect();
         for f in hs {
             if let Err(error) = self.run_function(&f, None, vec![XVal::Ref(quest.0)], None, RunCtx::default()) {
-                self.emit(crate::trace::EventKind::ScriptError { unit: "JohnnyGuitar quest handler".into(), error });
+                self.handler_failed("JohnnyGuitar quest handler".into(), error);
             }
         }
     }
@@ -296,37 +296,57 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // ---- magic items and effects ----
         // The item's effects in record order [observed: gaps2, the stimpak 4, the first
         // RestoreHealth, past the end 0].
-        "getnumeffects" => XVal::Num(form(args, 0).and_then(|f| g.data.effect_items.get(&f)).map_or(0, Vec::len) as f64),
+        // Less RemoveNthEffect's (`crate::nvse_jip11`).
+        // AddNewEffect's entries too (`crate::nvse_jip14`).
+        // One index space for every Nth-effect function (`Game::effect_slot`, #2016).
+        "getnumeffects" => XVal::Num(form(args, 0).map_or(0, |f| g.effect_count(f)) as f64),
         "getntheffectbase" => {
-            let i = num(args, 1, 0.0);
+            use crate::nvse_jip14::EffectSlot;
             let f = form(args, 0).unwrap_or(FormId(0));
-            let e = g.data.effect_items.get(&f).and_then(|l| if i >= 0.0 { l.get(i as usize) } else { None });
-            match e {
-                Some(e) => XVal::Ref(g.gaps.effect_bases.get(&(f, i as usize)).copied().unwrap_or(e.effect).0),
-                None => XVal::Ref(0),
-            }
+            let slot = usize::try_from(num(args, 1, -1.0) as i64).ok().and_then(|i| g.effect_slot(f, i));
+            XVal::Ref(match slot {
+                Some(EffectSlot::Added { back, at }) => g.added_effect(f, back, at).map_or(0, |e| e.effect.0),
+                Some(EffectSlot::Own(r)) => {
+                    let e = g.data.effect_items.get(&f).and_then(|l| l.get(r));
+                    e.map_or(0, |e| g.gaps.effect_bases.get(&(f, r)).copied().unwrap_or(e.effect).0)
+                }
+                None => 0,
+            })
         }
         // Returns 0 (not the old base), for the session [observed: gaps10, the stimpak's
         // first effect set to Silver Sting's reads 00033595, and back].
         "setntheffectbase" => {
+            use crate::nvse_jip14::EffectSlot;
             let (Some(f), Some(b)) = (form(args, 0), form(args, 2)) else { return Some(Ok(zero)) };
-            let i = num(args, 1, -1.0);
-            if i >= 0.0 && g.data.effect_items.get(&f).is_some_and(|l| (i as usize) < l.len()) {
-                g.gaps.effect_bases.insert((f, i as usize), b);
+            match usize::try_from(num(args, 1, -1.0) as i64).ok().and_then(|i| g.effect_slot(f, i)) {
+                Some(EffectSlot::Own(r)) => {
+                    g.gaps.effect_bases.insert((f, r), b);
+                }
+                Some(EffectSlot::Added { back, at }) => {
+                    if let Some(e) = g.added_effect_mut(f, back, at) {
+                        e.effect = b;
+                    }
+                }
+                None => {}
             }
             XVal::Ref(0)
         }
         // ENIT flags, bit by bit [observed: gaps3, the stimpak's flags 5 read 1 0 1].
+        // An actor effect's SPIT, an object effect's or ingestible's ENIT; SetEffectFlag's
+        // change first (`crate::nvse_jip8`).
         "geteffectflag" => {
             let f = form(args, 0).unwrap_or(FormId(0));
-            bit(json_num(g.data.record_field(f, "ENIT", "flags")), num(args, 1, -1.0))
+            let sub = if g.data.sig(f) == Some(*b"SPEL") { "SPIT" } else { "ENIT" };
+            let flags = crate::nvse::record_value(g, f, sub, "flags").and_then(|v| v.num().ok()).unwrap_or(0.0);
+            bit(flags, num(args, 1, -1.0))
         }
         // MGEF DATA [observed: gaps3, RestoreHealth archetype 0, actor value 16, flags
         // 112 so bits 0–3 read 0].
         "getbaseeffectarchetype" => XVal::Num(form(args, 0).and_then(|f| g.data.magic_effects.get(&f)).map_or(0, |m| m.archetype) as f64),
         "getbaseeffectav" => XVal::Num(form(args, 0).and_then(|f| g.data.magic_effects.get(&f)).and_then(|m| m.actor_value).map_or(-1.0, f64::from)),
         "getbaseeffectflag" => {
-            let flags = form(args, 0).and_then(|f| g.data.magic_effects.get(&f)).map_or(0, |m| m.flags);
+            // SetBaseEffectFlag's change first (`crate::nvse_jip8`).
+            let flags = form(args, 0).map_or(0, |f| g.base_effect_flags(f));
             bit(f64::from(flags), num(args, 1, -1.0))
         }
         // ---- ammunition ----
@@ -415,7 +435,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // gaps5, Toughness/Lead Belly/Educated/Commando 1, Rad Resistance and Small Frame 5,
         // Intense Training 6].
         "getnthperkentrytype" => {
-            let e = form(args, 0).and_then(|f| g.data.perks.get(&f)).and_then(|p| p.entries.get(num(args, 1, 0.0).max(0.0) as usize));
+            let e = form(args, 0).and_then(|f| crate::nvse_lu3::nth_entry_of(g, f, num(args, 1, -1.0)));
             XVal::Num(match e.map(|e| &e.effect) {
                 Some(crate::data::PerkEffect::EntryPoint(_)) => 1.0,
                 Some(crate::data::PerkEffect::Ability(_)) => 5.0,
@@ -427,7 +447,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // GetNthPerkEntryString, "Activate Prompt" for type 4]; "" for an entry without
         // one [observed: jip-forms perkentry.0, ""].
         "getnthperkentrystring" => {
-            let e = form(args, 0).and_then(|f| g.data.perks.get(&f)).and_then(|p| p.entries.get(num(args, 1, 0.0).max(0.0) as usize));
+            let e = form(args, 0).and_then(|f| crate::nvse_lu3::nth_entry_of(g, f, num(args, 1, -1.0)));
             XVal::Str(match e.map(|e| &e.effect) {
                 Some(crate::data::PerkEffect::EntryPoint(d)) => d.button.clone().unwrap_or_default(),
                 _ => String::new(),
@@ -435,7 +455,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         }
         // The entry point's code [observed: gaps4, Toughness's first 56].
         "getnthperkentryfunction" => {
-            let e = form(args, 0).and_then(|f| g.data.perks.get(&f)).and_then(|p| p.entries.get(num(args, 1, 0.0).max(0.0) as usize));
+            let e = form(args, 0).and_then(|f| crate::nvse_lu3::nth_entry_of(g, f, num(args, 1, -1.0)));
             XVal::Num(match e.map(|e| &e.effect) {
                 Some(crate::data::PerkEffect::EntryPoint(d)) => f64::from(d.point),
                 _ => -1.0,
@@ -473,7 +493,11 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // [observed: gaps4, the street brahmin's PNAM 00015833]
         "getbodypartdata" => {
             let b = form(args, 0).or(subject).map(|f| base(g, f)).unwrap_or(FormId(0));
-            if g.data.sig(b) == Some(*b"CREA") { json_form(g.data.record_field(b, "PNAM", "")) } else { XVal::Ref(0) }
+            // SetBodyPartData's change first (`crate::nvse_jip8`).
+            match crate::nvse::record_value(g, b, "PNAM", "") {
+                Some(XVal::Ref(r)) if g.data.sig(b) == Some(*b"CREA") => XVal::Ref(r),
+                _ => XVal::Ref(0),
+            }
         }
         // YNAM [observed: gaps2, the 10mm pistol 000864D5, the stimpak none].
         "getpickupsound" => match form(args, 0).and_then(|f| crate::nvse::record_value(g, f, "YNAM", "")) {
@@ -741,12 +765,16 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         }
         // 0 the actors in the loaded cells, 3 the others; 1 and 2 none here, no array
         // [observed: gaps3, 16, ar_Null, ar_Null, over 1000; hypothesis: NVForever runs
-        // every loaded actor fully].
+        // every loaded actor fully]. Not disabled ones, which have no process [observed:
+        // ai-observer-jip.md, GetActorProcessingLevel -1 when disabled; L5.ext rerun,
+        // #2040: 16 in the start cell 0xDEB16, where the loaded actors are 20 with 4
+        // disabled Golden Geckos; hypothesis: the same at level 3].
         "getactorsbyprocessinglevel" => {
             let high = g.package_actors();
+            let on = |r: &FormId| g.world.is_enabled(*r).unwrap_or(false);
             let actors: Vec<XVal> = match num(args, 0, -1.0) as i64 {
-                0 => high.iter().map(|r| XVal::Ref(r.0)).collect(),
-                3 => g.world.placed.refs.iter().filter(|(r, p)| matches!(&p.sig, b"ACHR" | b"ACRE") && !high.contains(r)).map(|(r, _)| XVal::Ref(r.0)).collect(),
+                0 => high.iter().filter(|r| on(r)).map(|r| XVal::Ref(r.0)).collect(),
+                3 => g.world.placed.refs.iter().filter(|(r, p)| matches!(&p.sig, b"ACHR" | b"ACRE") && !high.contains(r) && on(r)).map(|(r, _)| XVal::Ref(r.0)).collect(),
                 _ => Vec::new(),
             };
             if actors.is_empty() { zero } else { list(g, actors) }
@@ -867,14 +895,9 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             zero
         }
         // The player's worldspace's climate; none indoors [observed: gaps4 and gaps8,
-        // 0008809B in the Mojave, unchanged by RefreshCurrentClimate].
-        "getcurrentclimate" => {
-            let w = g.cell_of(FormId::PLAYER_REF).and_then(|c| g.world.placed.world_of(c));
-            match w.and_then(|w| crate::nvse::record_value(g, w, "CNAM", "")) {
-                Some(XVal::Ref(c)) => XVal::Ref(c),
-                _ => XVal::Ref(0),
-            }
-        }
+        // 0008809B in the Mojave, unchanged by RefreshCurrentClimate]. ForceClimate's
+        // or SetCurrentClimate's when a script set one (`crate::nvse_jip12`).
+        "getcurrentclimate" => XVal::Ref(crate::nvse_jip12::current_climate(g).map_or(0, |c| c.0)),
         "refreshcurrentclimate" => zero,
         // WRLD DATA flags bit by bit [observed: gaps8, WastelandNV only 7].
         "getworldspaceflag" | "setworldspaceflag" => {
@@ -1166,9 +1189,15 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // ---- cells, climates, recipes ----
         // CELL DATA flags bit by bit [observed: gaps3, Doc's house (Interior, Public)
         // reads 1 0 0 0].
+        // 0-7 DATA, 8-16 the lighting template inherit flags (LNAM bits 0-8)
+        // [documented: the page's table; hypothesis: LNAM's order]; SetCellFlag's change
+        // first (`crate::nvse_jip8`).
         "getcellflag" => {
             let c = form(args, 0).unwrap_or(FormId(0));
-            bit(json_num(g.data.record_field(c, "DATA", "")), num(args, 1, -1.0))
+            let k = num(args, 1, -1.0);
+            let (sub, k) = if k >= 8.0 { ("LNAM", k - 8.0) } else { ("DATA", k) };
+            let flags = crate::nvse::record_value(g, c, sub, "").and_then(|v| v.num().ok()).unwrap_or(0.0);
+            bit(flags, k)
         }
         // XCIM [observed: gaps4, Doc's house 0001507A].
         "getcellimagespace" => json_form(form(args, 0).and_then(|c| g.data.record_field(c, "XCIM", ""))),
@@ -1197,7 +1226,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             yes(rise != set && (hour < rise || hour >= set))
         }
         "getrecipeoutputforms" => {
-            let outs: Vec<XVal> = form(args, 0).and_then(|f| g.data.recipes.get(&f)).map(|r| r.outputs.iter().map(|(f, _)| XVal::Ref(f.0)).collect()).unwrap_or_default();
+            let outs: Vec<XVal> = form(args, 0).and_then(|f| crate::nvse_lutana::recipe(g, f)).map(|r| r.outputs.iter().map(|(f, _)| XVal::Ref(f.0)).collect()).unwrap_or_default();
             list(g, outs)
         }
         "getactivequest" => XVal::Ref(g.ui.active_quest.map_or(0, |q| q.0)),
@@ -1209,7 +1238,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             let seconds = num(args, 0, 2.0) as f32;
             let (text, icon, sound) = split_styled(&text(args, 1));
             if let Some(s) = sound.and_then(|s| g.data.by_edid(&s)) {
-                g.ask_sound(crate::sound::SoundRequest { sound: s, at: None, system: true, id: 0 });
+                g.ask_sound(crate::sound::SoundRequest { sound: s, at: None, system: true, id: 0, point: None });
             }
             g.emit(crate::trace::EventKind::NoteShown { text, icon, seconds });
             zero
@@ -1278,7 +1307,8 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             XVal::Num(if on { 2.0 } else { 0.0 })
         }
         // `x y`: the terrain's height there, from the engine's loaded terrain; outside it
-        // -20.48 [observed: gaps7, 60.3 at the player; -20.48 far outside the loaded cells].
+        // -2048 [observed: gaps7, 60.3 at the player; L5.ext rerun, #2040: `Floor` of it far
+        // outside the loaded cells is -2048, so -2048 to -2047; hypothesis: -2048 itself].
         // `x y z force [origin]`: the reference's loose body is pushed away from the
         // origin (the reference's place, or `origin`'s, moved by x y z), towards it for a
         // negative force; the engine applies it at its next frame [documented: PushObject;
@@ -1351,7 +1381,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             let top = 100_000.0f32;
             match crate::ray::cast([x, y, top], [x, y, -top], crate::ray::CastKind::Terrain) {
                 Some(d) => XVal::Num(f64::from(top - d)),
-                None => XVal::Num(-20.48),
+                None => XVal::Num(-2048.0),
             }
         }
         // `[max]`: the distance along the crosshair to what it meets, 0 for nothing
@@ -1373,8 +1403,11 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         "ispcincombat" => yes(g.awareness.hunted(FormId::PLAYER_REF)),
         // Nothing to reload: the engine draws the equipped models as they are.
         "reloadequippedmodels" => zero,
-        // NVForever is no 32-bit program [observed: gaps4, 0].
-        "getislaa" => zero,
+        // Whether the program may use more than 2 GB (the 4 GB patch). The original
+        // without the patch answers 0 [observed: gaps4]; NVForever is a 64-bit program with
+        // no such limit, so it answers 1 [design, owner 2026-11-08: TTW's start-up check
+        // `GetIsLAA == 0` showed "4GB patch missing" (TTW4GBMissingMessage)].
+        "getislaa" => XVal::Num(1.0),
         // The open menu's code, 0 in game mode [observed: gaps3, 0].
         "getactivemenumode" => XVal::Num(g.menu.map_or(0.0, f64::from)),
         // [observed: gaps3, 1]

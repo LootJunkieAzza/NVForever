@@ -2,7 +2,8 @@
 //! full screen on the display chosen in the Display group's "Monitor" row (the first
 //! display until one is chosen; `--window borderless`). The settings page's Display group
 //! switches it while the game runs (`settings.rs`), kept in `NVForever.ini` like every
-//! switch. Each mode the primary window takes is logged.
+//! switch. Alt+Enter flips the same row from anywhere in the game (#2209,
+//! `nvf_play::full_screen_key`). Each mode the primary window takes is logged.
 //!
 //! **The resolution** is the Display group's first row, a dropdown of the sizes the
 //! window's monitor can show (its video modes, smallest first) [owner 2026-10-18: a

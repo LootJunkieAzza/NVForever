@@ -2,7 +2,7 @@
 //! ammunition, ammo effects, projectiles, explosions, impact data, weathers and climates,
 //! armour.
 
-mod common;
+use crate::common;
 
 use common::*;
 use fnv_esm::{LoadOrder, Plugin, Schema};
@@ -32,6 +32,12 @@ const WTHR2: u32 = 0x90F;
 const CLMT: u32 = 0x910;
 const GLOB: u32 = 0x911;
 const ARMO: u32 = 0x912;
+const IPCT_BARE: u32 = 0x913;
+const IPCT_NONE: u32 = 0x914;
+const TXST_DECAL: u32 = 0x915;
+const TXST_LAND: u32 = 0x916;
+const TXST_FLAG: u32 = 0x917;
+const LTEX: u32 = 0x918;
 
 fn f32b(v: f32) -> Vec<u8> {
     v.to_le_bytes().to_vec()
@@ -86,7 +92,24 @@ fn plugin_bytes() -> Vec<u8> {
         "TestImpact",
         &[sub(b"DATA", [f32b(2.0), u32s(&[1]), f32b(15.0), f32b(4.0), u32s(&[1, 0])].concat()), sub(b"DODT", dodt), sub(b"DNAM", u32s(&[TXST])), sub(b"SNAM", u32s(&[SOUN]))],
     );
-    let txst = edid(b"TXST", TXST, "TestDecal", &[]);
+    let ipct = [
+        ipct,
+        // Without decal data: one with a texture set whose DODT colour bytes are 64 00 34 00,
+        // one with no texture set (jip-records-7.md, the colour's packing).
+        edid(b"IPCT", IPCT_BARE, "TestImpactBare", &[sub(b"DATA", [f32b(2.0), u32s(&[1]), f32b(15.0), f32b(4.0), u32s(&[1, 0])].concat()), sub(b"DNAM", u32s(&[TXST_DECAL]))]),
+        edid(b"IPCT", IPCT_NONE, "TestImpactNone", &[sub(b"DATA", [f32b(2.0), u32s(&[1]), f32b(15.0), f32b(4.0), u32s(&[1, 0])].concat())]),
+    ]
+    .concat();
+    let decal = [f32b(8.0), f32b(16.0), f32b(8.0), f32b(16.0), f32b(4.0), f32b(0.5), f32b(0.04), vec![4, 0, 0, 0, 0x64, 0, 0x34, 0]].concat();
+    let txst = [
+        edid(b"TXST", TXST, "TestDecal", &[]),
+        edid(b"TXST", TXST_DECAL, "TestDecalColoured", &[sub(b"DODT", decal)]),
+        // A landscape texture's set with DNAM 0, and another set with DNAM 1 (jip-records-5.md).
+        edid(b"TXST", TXST_LAND, "TestLandSet", &[sub(b"DNAM", vec![0, 0])]),
+        edid(b"TXST", TXST_FLAG, "TestFlaggedSet", &[sub(b"DNAM", vec![1, 0])]),
+    ]
+    .concat();
+    let ltex = edid(b"LTEX", LTEX, "TestLand", &[sub(b"TNAM", u32s(&[TXST_LAND]))]);
     let soun = edid(b"SOUN", SOUN, "TestSound", &[]);
     let ipds = edid(b"IPDS", IPDS, "TestImpactSet", &[]);
     let weap = edid(b"WEAP", WEAP, "TestGun", &[]);
@@ -112,6 +135,7 @@ fn plugin_bytes() -> Vec<u8> {
         top(b"EXPL", &expl),
         top(b"IPCT", &ipct),
         top(b"TXST", &txst),
+        top(b"LTEX", &ltex),
         top(b"SOUN", &soun),
         top(b"IPDS", &ipds),
         top(b"WEAP", &weap),
@@ -241,6 +265,37 @@ fn projectiles_explosions_and_impact_data() {
     assert_eq!(n(&mut g, "GetImpactMaterialType TestCreature"), 10.0, "12 is past the table");
 }
 
+/// The impact colour's packing and the texture-set flag 0 (jip-records-7.md and
+/// jip-records-5.md, #2039).
+#[test]
+fn impact_colour_packing_and_texture_set_flag() {
+    let f = fixture();
+    let mut g = game(&f);
+    // Set as R + G × 256 + B × 65536, carries included; read B as the upper 16 bits.
+    for (set, read) in [(256_000.0, 1.0), (999_000.0, 231_003.0), (254_999_999.0, 254_232_002.0), (16_777_215.0, 16_009_218.0), (300.0, 300.0), (1256.0, 1256.0), (65535.0, 65535.0), (65536.0, 65536.0), (255_255_255.0, 255_255_255.0)] {
+        q(&mut g, &format!("SetImpactDataTraitNumeric TestImpact 14 {set}"));
+        assert_eq!(n(&mut g, "GetImpactDataTrait TestImpact 17"), read, "set {set}");
+    }
+    // Past 255255255 or below 0 nothing is set.
+    for bad in ["255255256", "-1"] {
+        q(&mut g, &format!("SetImpactDataTraitNumeric TestImpact 14 {bad}"));
+        assert_eq!(n(&mut g, "GetImpactDataTrait TestImpact 17"), 255_255_255.0, "set {bad}");
+    }
+    // No DODT: the texture set's colour (64 00 34 00), or all FF without a texture set.
+    assert_eq!(n(&mut g, "GetImpactDataTrait TestImpactBare 17"), 100_000_052.0);
+    assert_eq!(n(&mut g, "GetImpactDataTrait TestImpactNone 17"), 255_320_535.0);
+    q(&mut g, "SetImpactDataTraitNumeric TestImpactNone 14 300300300");
+    assert_eq!(n(&mut g, "GetImpactDataTrait TestImpactNone 17"), 255_320_535.0, "past 255255255");
+    q(&mut g, "SetImpactDataTraitNumeric TestImpactNone 14 10020030");
+    assert_eq!(n(&mut g, "GetImpactDataTrait TestImpactNone 17"), 10_020_030.0);
+    // Flag 0: 1 for a texture set a landscape texture names, whatever its DNAM; DNAM bit 0
+    // for the others, 0 without DNAM.
+    assert_eq!(n(&mut g, "GetTextureSetFlag TestLandSet 0"), 1.0);
+    assert_eq!(n(&mut g, "GetTextureSetFlag TestFlaggedSet 0"), 1.0);
+    assert_eq!(n(&mut g, "GetTextureSetFlag TestDecalColoured 0"), 0.0);
+    assert_eq!(n(&mut g, "GetTextureSetFlag TestDecal 0"), 0.0);
+}
+
 #[test]
 fn weathers_and_climates() {
     let f = fixture();
@@ -283,27 +338,28 @@ fn armour() {
     q(&mut g, "SetArmorClass TestArmor 4");
     assert_eq!(g.armor_class(FormId(ARMO)), 1, "4 is past the table");
     q(&mut g, "SetArmorRCT TestArmor \"other.rdt\"");
-    // Left out, the value is returned unchanged [documented].
+    // Each returns the value before the call; left out, it is unchanged [documented;
+    // observed: jip7 armor.condpenalty, armor.maxpercent].
     assert_eq!(n(&mut g, "SetArmorConditionPenalty"), 1.0);
-    assert_eq!(n(&mut g, "SetArmorConditionPenalty 1.5"), 1.5);
+    assert_eq!(n(&mut g, "SetArmorConditionPenalty 1.5"), 1.0);
     assert_eq!(n(&mut g, "SetArmorConditionPenalty"), 1.5);
-    assert_eq!(n(&mut g, "SetDamageToArmorMaxPercent 0.025"), 0.025);
+    assert_eq!(n(&mut g, "SetDamageToArmorMaxPercent 0.025"), 1.0);
     assert_eq!(n(&mut g, "SetDamageToArmorMaxPercent"), 0.025);
 }
 
-/// Every setter keeps its field in range: NaN and infinity set nothing, a number past the
-/// field is clamped to it (`crate::nvse::field_number`, #1358 review).
+/// NaN and infinity set nothing (#1358 review); a number past the field is taken as the
+/// original takes it [observed: jip7, jip7b].
 #[test]
 fn setters_keep_their_fields_in_range() {
     let f = fixture();
     let mut g = game(&f);
     const INF: &str = "(Pow 10 400)";
     const NAN: &str = "((Pow 10 400) - (Pow 10 400))";
-    // Ammunition: clip rounds are a u8, projectiles per shot a u32.
+    // Ammunition: clip rounds wrap as a byte, projectiles per shot keep their sign.
     q(&mut g, "SetAmmoTraitNumeric TestAmmo 3 300");
-    assert_eq!(g.num_field(FormId(AMMO), "DATA", "clip_rounds"), 255.0);
+    assert_eq!(g.num_field(FormId(AMMO), "DATA", "clip_rounds"), 44.0);
     q(&mut g, "SetAmmoTraitNumeric TestAmmo 1 -4");
-    assert_eq!(g.num_field(FormId(AMMO), "DAT2", "projectiles_per_shot"), 0.0);
+    assert_eq!(g.num_field(FormId(AMMO), "DAT2", "projectiles_per_shot"), -4.0);
     for bad in [INF, NAN] {
         q(&mut g, &format!("SetAmmoTraitNumeric TestAmmo 0 {bad}"));
         assert_eq!(n(&mut g, "GetAmmoSpeed TestAmmo"), 2000.0, "{bad}");
@@ -317,11 +373,11 @@ fn setters_keep_their_fields_in_range() {
         q(&mut g, &format!("SetImpactDataTraitNumeric TestImpact 0 {bad}"));
         assert_eq!(n(&mut g, "GetImpactDataTrait TestImpact 0"), 2.0, "{bad}");
     }
-    // An effect type past 0-5, a sound level past 0-2: clamped.
+    // An effect type past 0-5 and a projectile sound level other than 1-2 set nothing.
     q(&mut g, "SetAmmoEffectTraitNumeric TestAmmoEffect 0 9");
-    assert_eq!(n(&mut g, "GetAmmoEffectTraitNumeric TestAmmoEffect 0"), 5.0);
+    assert_eq!(n(&mut g, "GetAmmoEffectTraitNumeric TestAmmoEffect 0"), 2.0, "the fixture's type kept");
     q(&mut g, "SetProjectileTraitNumeric TestProjectile 14 7");
-    assert_eq!(g.num_field(FormId(PROJ), "VNAM", ""), 2.0);
+    assert_eq!(g.num_field(FormId(PROJ), "VNAM", ""), 1.0, "7 sets nothing");
     // The weather transition: infinity changes nothing.
     q(&mut g, "SetWeatherTransitionTimeOverride 90");
     q(&mut g, &format!("SetWeatherTransitionTimeOverride {INF}"));
@@ -331,9 +387,12 @@ fn setters_keep_their_fields_in_range() {
         assert_eq!(n(&mut g, &format!("SetArmorConditionPenalty {bad}")), 1.0, "{bad}");
         assert_eq!(n(&mut g, &format!("SetDamageToArmorMaxPercent {bad}")), 1.0, "{bad}");
     }
-    assert_eq!(n(&mut g, "SetArmorConditionPenalty -1"), 0.0);
-    assert_eq!(n(&mut g, "SetArmorConditionPenalty 7"), 2.0);
+    // The penalty takes any number, the share only 0-1.
+    assert_eq!(n(&mut g, "SetArmorConditionPenalty -1"), 1.0);
+    assert_eq!(n(&mut g, "SetArmorConditionPenalty 7"), -1.0);
+    assert_eq!(n(&mut g, "SetArmorConditionPenalty"), 7.0);
     assert_eq!(n(&mut g, "SetDamageToArmorMaxPercent 3"), 1.0);
+    assert_eq!(n(&mut g, "SetDamageToArmorMaxPercent"), 1.0);
     // A climate chance that is NaN adds nothing.
     assert_eq!(n(&mut g, &format!("ClimateAddWeatherType TestClimate TestWeather2 {NAN}")), 0.0);
     assert_eq!(n(&mut g, "GetClimateNumWeatherTypes TestClimate"), 1.0);

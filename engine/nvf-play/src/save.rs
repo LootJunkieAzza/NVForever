@@ -23,7 +23,10 @@
 //!   starts there, and hands the body over as [`PendingLoad`]; `crate::script` restores the
 //!   game and the simulation when its runtime is made and sends `RefChanged` (marked
 //!   `restored`) for every reference the save changed, so the drawn world follows it;
-//!   [`apply_engine`] then puts back the engine's part. Loading while playing ([`LoadRequest`]: the console's
+//!   [`apply_engine`] then puts back the engine's part. A save that cannot be restored is
+//!   refused as it is read ([`read_for_load`]: nvforever opens the main menu and says why),
+//!   before anything starts from it; were a restore still to fail, [`LoadRefused`] ends the
+//!   same way. Loading while playing ([`LoadRequest`]: the console's
 //!   `load <name>`, the QuickLoad key F9) is nvforever's: it starts itself again with
 //!   `--load`, so the save always lands in a world built fresh from the plugins.
 //! - Not saved (design §3): physics in motion (objects load at rest), menus, music and
@@ -207,6 +210,26 @@ pub struct SaveBody {
     pub engine: EngineSnapshot,
 }
 
+impl SaveBody {
+    /// Whether the runtime can restore this body: every format in it, and all that the
+    /// snapshots' own restores check.
+    fn check(&self) -> Result<(), String> {
+        if self.format != BODY_FORMAT {
+            return Err(format!("body format {:?}, this NVForever reads {BODY_FORMAT}", self.format));
+        }
+        if self.engine.format != ENGINE_FORMAT {
+            return Err(format!("engine format {:?}, this NVForever reads {ENGINE_FORMAT}", self.engine.format));
+        }
+        self.game.check()
+    }
+}
+
+/// A save [`read_for_load`] let through that the runtime could not restore, and why:
+/// nvforever starts again on the main menu and says why, as for a save refused when it was
+/// read [owner 2026-11-01, #1357].
+#[derive(Message, Debug, Clone)]
+pub struct LoadRefused(pub String);
+
 /// The save to apply as the game starts (nvforever `--load`).
 #[derive(Resource)]
 pub struct PendingLoad {
@@ -336,6 +359,7 @@ impl Plugin for SavePlugin {
             .add_message::<SaveRequest>()
             .add_message::<SaveDone>()
             .add_message::<LoadRequest>()
+            .add_message::<LoadRefused>()
             .add_systems(Update, (requests, autosaves).in_set(PlaySet::Ui))
             .add_systems(Update, (write_saves, take_shot, finish_writes, apply_engine).chain().after(PlaySet::Sync))
             .add_systems(Last, flush_on_exit);
@@ -467,6 +491,11 @@ fn not_now(world: &World) -> Option<String> {
     if player_dead(world) {
         return Some(DEAD.into());
     }
+    // ToggleDisableSaves 1 (`fnv_game::nvse_jg7`): until every plugin that disabled saving
+    // enables it again or a save is loaded [documented: ToggleDisableSaves].
+    if rt.game.saves_disabled() {
+        return Some("a script disabled saving".into());
+    }
     if rt.game.dialogue.is_some() {
         return Some("in a conversation".into());
     }
@@ -553,7 +582,7 @@ fn save_now(world: &mut World, r: &SaveRequest) -> Result<(), String> {
         SaveKind::Manual => r.name.as_str(),
     };
     let path = cfg.path_of(name)?;
-    let game = world.resource_scope(|world, mut sim: Mut<SimState>| {
+    let mut game = world.resource_scope(|world, mut sim: Mut<SimState>| {
         let mut st = world.resource_mut::<ScriptState>();
         let rt = st.rt.as_mut().ok_or("the scripts are not running")?;
         // The extender's SaveGame event, with the save's name [documented: NVSE Event
@@ -563,6 +592,10 @@ fn save_now(world: &mut World, r: &SaveRequest) -> Result<(), String> {
             rt.game.snapshot()
         }))
     })?;
+    // Test aid: this save reads as one from a later version (smoke `save-refused-load`).
+    if std::env::var("NVF_PLAY_TEST_SAVE_UNKNOWN_FORMAT").is_ok_and(|n| n == name) {
+        game.format = "fnv.game.state/2".into();
+    }
     let engine = engine_snapshot(world);
     let header = header(world, r.kind, &game, &engine);
     let refs = game.sim.refs.len();
@@ -660,6 +693,12 @@ fn report_written(world: &mut World) {
                 let kind = format!("{:?}", d.kind).to_lowercase();
                 let thumb = if *shot > 0 { format!("thumbnail {THUMB_W}x{THUMB_H} ({shot} bytes PNG)") } else { "no thumbnail".into() };
                 info!("save: wrote {} ({kind}, {bytes} bytes, {} changed references), {thumb} in {:.0} ms (snapshot {:.0} ms)", d.path.display(), d.refs, d.t0.elapsed().as_secs_f64() * 1e3, d.snapshot_ms);
+                // SUP's GetSaveName and GetSavedSaveSize read the last save written
+                // (`fnv_game::nvse_sup4`).
+                if let Some(rt) = world.get_resource_mut::<ScriptState>().and_then(|s| s.into_inner().rt.as_mut()) {
+                    let name = d.path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+                    rt.game.save_files.saved = Some(fnv_game::nvse_sup4::SaveFile { name, bytes: *bytes as u64 });
+                }
                 if let Some(mut c) = world.get_resource_mut::<crate::corner_messages::CornerMessages>() {
                     c.push(if d.kind == SaveKind::Auto { "Autosaved".to_string() } else { "Game saved".to_string() }.into());
                 }
@@ -826,6 +865,11 @@ fn apply_engine(world: &mut World) {
         return;
     }
     let Some(PendingEngine(e, path, order)) = world.remove_resource::<PendingEngine>() else { return };
+    // GetLoadOrderChanged (`fnv_game::nvse_jip12`): the save's plugins moved or are gone
+    // [hypothesis: plugins only added after the save's own do not count].
+    if let Some(rt) = world.get_resource_mut::<ScriptState>().and_then(|s| s.into_inner().rt.as_mut()) {
+        rt.game.set_load_order_changed(order.is_some());
+    }
     world.insert_resource(CoopEngineState(e.coop.clone()));
     if let Some(mut c) = world.get_resource_mut::<crate::control::PlayerControl>() {
         c.pov = if e.third_person { crate::control::Pov::Third } else { crate::control::Pov::First };
@@ -873,8 +917,9 @@ pub fn missing_content_text(missing: &[String]) -> String {
     format!("This save relies on content that is no longer present: {}. What came from it was removed.", missing.join(", "))
 }
 
-/// Read a save for `--load`: its header (to start the world at its place) and its body.
-/// A save made with another load order is remapped by plugin name (design §4.1): every
+/// Read a save for `--load`: its header (to start the world at its place) and its body,
+/// refused here when the runtime could not restore it ([`SaveBody::check`]), before anything
+/// starts from it. A save made with another load order is remapped by plugin name (design §4.1): every
 /// FormID's mod index moves to its plugin's place now; what came from plugins no longer
 /// loaded is dropped and reported. Called before the log is set up: its lines go straight
 /// to the output, as nvforever's first `load:` line.
@@ -883,9 +928,7 @@ pub fn read_for_load(path: &std::path::Path, current: &[PluginEntry]) -> Result<
     let remap = fnv_save::PluginRemap::new(&f.header.plugins, current);
     let body_of = |v: serde_json::Value| -> Result<SaveBody, String> {
         let body: SaveBody = serde_json::from_value(v).map_err(|e| format!("{}: {e}", path.display()))?;
-        if body.format != BODY_FORMAT {
-            return Err(format!("{}: body format {:?}, this NVForever reads {BODY_FORMAT}", path.display(), body.format));
-        }
+        body.check().map_err(|e| format!("{}: {e}", path.display()))?;
         Ok(body)
     };
     let raw: serde_json::Value = serde_json::from_slice(&f.body).map_err(|e| format!("{}: {e}", path.display()))?;
@@ -902,7 +945,7 @@ pub fn read_for_load(path: &std::path::Path, current: &[PluginEntry]) -> Result<
     let added: Vec<&str> = current.iter().filter(|c| !f.header.plugins.iter().any(|p| p.name.eq_ignore_ascii_case(&c.name))).map(|c| c.name.as_str()).collect();
     let moved = remap.moved().iter().map(|(n, a, b)| format!("{n} {a:02X}->{b:02X}")).collect::<Vec<_>>();
     let mut raw = raw;
-    let report = fnv_save::remap_json(&mut raw, &remap);
+    let report = fnv_save::remap_json_with(&mut raw, &remap, &fnv_game::game::SAVE_PAIR_FIELDS);
     let mut body = body_of(raw)?;
     let gone = |id: fnv_sim::FormId| fnv_save::is_gone(id.0);
     let dropped_game = body.game.drop_gone(gone);
@@ -979,5 +1022,59 @@ mod tests {
         assert_eq!(cfg.path_of("Before Primm").unwrap(), PathBuf::from("saves").join("Before Primm.nvfsave"));
         assert_eq!(cfg.path_of("C:/x/y.nvfsave").unwrap(), PathBuf::from("C:/x/y.nvfsave"));
         assert!(cfg.path_of("bad:name").is_err());
+    }
+
+    /// A change that spoils a save's body.
+    type BodyChange = fn(&mut SaveBody);
+
+    /// The restore's own refusals come at the read, before the world starts at the save's
+    /// place, and the player is told why (#1590).
+    #[test]
+    fn a_save_whose_snapshots_cannot_be_restored_is_refused_as_it_is_read() {
+        let st = ScriptState::over_no_plugins();
+        let good = SaveBody { format: BODY_FORMAT.into(), game: st.rt.as_ref().unwrap().game.snapshot(), engine: EngineSnapshot { format: ENGINE_FORMAT.into(), ..default() } };
+        let dir = std::env::temp_dir().join(format!("nvf-refused-save-{}", std::process::id()));
+        let read = |name: &str, body: &SaveBody| {
+            let path = dir.join(format!("{name}.nvfsave"));
+            fnv_save::write(&path, &SaveHeader::new(SaveKind::Manual), &[], &serde_json::to_vec(body).unwrap(), false).unwrap();
+            read_for_load(&path, &[]).map(|_| ())
+        };
+        assert_eq!(read("good", &good), Ok(()));
+        let changed: [(&str, BodyChange, &str); 6] = [
+            ("body", |b| b.format = "nvf.save.body/2".into(), "body format"),
+            ("engine", |b| b.engine.format = "nvf.engine.state/2".into(), "engine format"),
+            ("game", |b| b.game.format = "fnv.game.state/2".into(), "unsupported snapshot format \"fnv.game.state/2\""),
+            ("sim", |b| b.game.sim.format = "fnv.sim.state/2".into(), "unsupported snapshot format \"fnv.sim.state/2\""),
+            ("game-rng", |b| b.game.rng_word_pos = "x".into(), "bad rng_word_pos"),
+            ("sim-rng", |b| b.game.sim.rng_word_pos = "y".into(), "bad rng_word_pos"),
+        ];
+        for (name, change, why) in changed {
+            let mut bad = good.clone();
+            change(&mut bad);
+            let e = read(name, &bad).unwrap_err();
+            assert!(e.contains(why) && e.contains(&format!("{name}.nvfsave")), "{name}: {e}");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A restore refused late leaves no runtime: the engine part stays unapplied, its
+    /// success line unwritten, and no save is taken of what is there (#1590).
+    #[test]
+    fn with_no_runtime_a_pending_save_puts_nothing_back_and_saves_nothing() {
+        let mut world = World::new();
+        world.init_resource::<SaveHooks>();
+        world.init_resource::<SaveLog>();
+        world.init_resource::<SaveWrites>();
+        let mut st = ScriptState::over_no_plugins();
+        st.rt = None;
+        world.insert_resource(st);
+        world.insert_resource(SaveQueue(vec![SaveRequest { name: "after".into(), kind: SaveKind::Manual }]));
+        world.insert_resource(PendingEngine(EngineSnapshot { format: ENGINE_FORMAT.into(), ..default() }, PathBuf::from("refused.nvfsave"), None));
+        apply_engine(&mut world);
+        write_saves(&mut world);
+        assert!(world.contains_resource::<PendingEngine>());
+        assert!(world.resource::<SaveLog>().0.is_empty());
+        assert_eq!(world.resource::<SaveQueue>().0.len(), 1);
+        assert!(!world.resource::<SaveWrites>().busy());
     }
 }

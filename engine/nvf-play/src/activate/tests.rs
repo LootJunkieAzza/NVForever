@@ -41,7 +41,7 @@ fn item(kind: ItemKind) -> BaseData {
     BaseData::Item(Item { kind, value: Some(1), money: None, weight: Some(0.5), slots: None, projectile: None, health: None, non_playable: false, cant_drop: false, armor_class: Default::default(), power_armor: false, armor_dr: None, armor_dt: None, weapon_damage: None, weight_mods: [0.0; 3], drawable: false, not_for_npcs: false, thrown: false, quest_item: false, icon: None, placed_count: None, teaches: None, cant_be_taken: false, modulates_voice: false, weapon_traits: None })
 }
 
-fn placed(id: u32, base: u32, cell: u32) -> PlacedRef {
+pub(crate) fn placed(id: u32, base: u32, cell: u32) -> PlacedRef {
     PlacedRef {
         id: FormId(id),
         sig: *b"REFR",
@@ -76,6 +76,8 @@ fn placed(id: u32, base: u32, cell: u32) -> PlacedRef {
         radius: None,
         encounter_zone: None,
         level_modifier: None,
+        map_marker: None,
+        radio: None,
     }
 }
 
@@ -107,6 +109,9 @@ fn sim() -> SimState {
     let hidden = placed(0x7779, HIDDEN_DOOR, CELL_EXT);
     let hidden_travel = PlacedRef { teleport: Some(tp), ..placed(0x777A, HIDDEN_DOOR, CELL_EXT) };
     let hidden_prompted = PlacedRef { prompt: Some("Enter Hatch".into()), ..placed(0x777B, HIDDEN_DOOR, CELL_EXT) };
+    // A nameless activator with a prompt (#2160: Hoover Dam's control panel).
+    let panel = PlacedRef { prompt: Some("Activate".into()), ..placed(0x777C, TRIGGER, CELL_EXT) };
+    refs.refs.insert(panel.id, panel);
     let box_trigger = PlacedRef { primitive: Some(fnv_sim::refs::Primitive { sphere: false, bounds: [30.0, 25.0, 31.0] }), ..placed(LEVER_TRIGGER_REF, LEVER, CELL_EXT) };
     for r in [stim, safe, door, sealed, prompted, hidden, hidden_travel, hidden_prompted, box_trigger, placed(LEVER_REF, LEVER, CELL_EXT), placed(CHEST_REF, CHEST, CELL_EXT), placed(DOOR_DEST, DOOR, CELL_INT), placed(TRIGGER_REF, TRIGGER, CELL_EXT), placed(CHAIR_REF, CHAIR, CELL_EXT)] {
         refs.refs.insert(r.id, r);
@@ -144,6 +149,7 @@ fn boxed(half: f32) -> CollisionObject {
         shape: Shape::Box { half_extents: [half; 3] }.into(),
         shell: 0.0,
         material: None,
+        wind: false,
     }
 }
 
@@ -226,6 +232,11 @@ fn describe_by_type_lock_and_destination() {
     assert_eq!(describe(&sim, ix, SAFE_REF), Some(("Chest".into(), Action::Locked { level: 50 })));
     assert_eq!(describe(&sim, ix, DOOR_REF), Some(("Door".into(), Action::Travel { to: Some("Doc Mitchell's House".into()) })));
     assert_eq!(describe(&sim, ix, TRIGGER_REF), None, "unnamed activators are not offered");
+    // With an Activation Prompt it is offered, by the prompt alone (#2160).
+    assert_eq!(describe(&sim, ix, 0x777C), Some((String::new(), Action::Activate)));
+    let t = Targeted { form_id: 0x777C, name: String::new(), action: Action::Activate, distance: 50.0, source: pick::Source::Bounds, crime: false, empty: false };
+    let p = crate::reticle::Prompt::of(&t, &sim);
+    assert_eq!((p.action.as_str(), p.name.as_str()), ("Activate", ""));
     assert_eq!(describe(&sim, ix, 0x7779), None, "nor an unnamed door leading nowhere (#1598)");
     assert!(
         matches!(describe(&sim, ix, 0x777A), Some((_, Action::Travel { .. }))),
@@ -443,4 +454,35 @@ fn e_on_a_chest_opens_the_container_menu_and_it_stays_open() {
     press_e(&mut app);
     app.update();
     assert_eq!(*app.world().resource::<State<PlayState>>().get(), PlayState::Playing);
+}
+
+
+#[test]
+fn switching_cancels_a_holdable_activate_tap_before_it_can_take_the_item() {
+    use crate::{bindings::{Bindings, InputDevice}, grab::{Candidate, GrabState}};
+    use bevy::input::{gamepad::{RawGamepadButtonChangedEvent, RawGamepadEvent}, keyboard::{Key, KeyboardInput}, ButtonState};
+    let mut app = scene(&[]);
+    app.add_plugins((MinimalPlugins, bevy::input::InputPlugin, crate::pad::InputSwitchPlugin));
+    app.init_resource::<GrabState>();
+    visual(&mut app, STIM_REF, [60.0, 0.0, 100.0]);
+    app.world_mut().resource_mut::<GrabState>().candidate = Some(Candidate {
+        on: fnv_phys::GripOn::Ref(STIM_REF), at: [60.0, 0.0, 100.0], distance: 60.0,
+    });
+    let pad = app.world_mut().spawn(Gamepad::default()).id();
+    let e = KeyboardInput { key_code: KeyCode::KeyE, logical_key: Key::Character("e".into()), state: ButtonState::Pressed, text: None, repeat: false, window: Entity::PLACEHOLDER };
+    app.world_mut().write_message(e.clone());
+    app.update();
+    assert!(app.world().resource::<GrabState>().tap.is_some());
+    app.world_mut().write_message(RawGamepadEvent::Button(RawGamepadButtonChangedEvent::new(pad, GamepadButton::North, 1.0)));
+    app.update();
+    assert_eq!(app.world().resource::<Bindings>().device, InputDevice::KeyboardMouse);
+    crate::bindings::set_device(app.world_mut(), InputDevice::Controller);
+    assert_eq!(app.world().resource::<Bindings>().device, InputDevice::Controller);
+    assert!(app.world().resource::<GrabState>().tap.is_none());
+    assert!(drain::<RefChanged>(&mut app).is_empty());
+    app.world_mut().write_message(KeyboardInput { state: ButtonState::Released, ..e });
+    app.update();
+    assert!(app.world().resource::<ButtonInput<KeyCode>>().just_released(KeyCode::KeyE));
+    assert!(drain::<RefChanged>(&mut app).is_empty());
+    assert_eq!(app.world().resource::<SimState>().world.peek(FormId::PLAYER_REF).and_then(|r| r.inventory.as_ref()).map_or(0, |i| i.count(FormId(STIMPAK))), 0);
 }

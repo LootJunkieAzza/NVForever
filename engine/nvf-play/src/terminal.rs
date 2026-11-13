@@ -21,7 +21,10 @@
 //!
 //! Keys (hacking.md §7): in the hacking game the arrows (or W A S D) move the cursor a
 //! character or a row, over a word at once; Enter or E enters what is under it; the
-//! pointer moves it and a click enters. In the menu Up / Down choose, Enter or E
+//! pointer moves it and a click enters. The cursor follows the pointer at once, but its
+//! hover sound (`UiEvent::Focus`) is asked for at most once every [`HOVER_SOUND_GAP`] of
+//! real time (a sound whose file is still being read can start later); the moves in
+//! between are silent and their sounds are dropped, not played later (#2216) [design]. A key's move always sounds. In the menu Up / Down choose, Enter or E
 //! (or a click) takes the item. Tab or Backspace go back: from a note to the list, from a
 //! sub menu to its parent, else out of the terminal; Esc leaves at once. [hypothesis: the
 //! original's PC keys beyond Tab are not captured]
@@ -40,8 +43,11 @@
 //! that for terminals, `wrong` enters a word that is not the password, `right` the
 //! password, `brackets` the first bracket pair left, `symbol` a lone symbol,
 //! `item:<n>` takes the n-th listed item (from 0), `back` and `exit` as Tab and Esc,
-//! `power` clicks the monitor's power button.
-//! At exit, when a terminal was opened: "terminal summary: …".
+//! `power` clicks the monitor's power button, `point:<index>` puts the hacking cursor on
+//! dump character `index` as the pointer does (`TerminalInput::Point`).
+//! At exit, when a terminal was opened: "terminal summary: …"; when the pointer moved the
+//! hacking cursor: "terminal hover: P changed points, F focus sounds, S suppressed" (the
+//! pointer's moves onto another character, or showing it, and how many of them sounded).
 
 pub mod screen;
 
@@ -63,6 +69,7 @@ use fnv_sim::FormId;
 use nvf_assets::GameData;
 use rand_chacha::ChaCha8Rng;
 use rand_core::SeedableRng;
+use std::time::Duration;
 
 /// The menu codes scripts see [documented: GECK wiki GetMenuTargetRef].
 pub const MENU_HACKING: u16 = 1055;
@@ -73,6 +80,11 @@ pub const MENU_TERMINAL: u16 = 1057;
 /// screen [design].
 pub const GRANTED_SECONDS: f32 = 2.0;
 pub const LOCKED_SECONDS: f32 = 1.5;
+
+/// The pointer's hover sound in the hacking game is asked for at most this often (real time):
+/// the hover record's file is a click 66.6 ms long (issue #2216), so this is that rounded
+/// up, whatever the frame rate [design]. Keys and the menu's rows are not held to it.
+pub const HOVER_SOUND_GAP: Duration = Duration::from_millis(70);
 
 /// The game's word list [observed: `Fallout - Misc.bsa`].
 pub const DICTIONARY: &str = "menus\\falloutdict.txt";
@@ -192,6 +204,82 @@ pub struct Hacking {
     pub hidden: bool,
     /// When the game ended (aid clock seconds): won or locked out.
     pub ended: Option<f32>,
+    /// When the pointer's last hover sound started (real time, `Time<Real>`): the next
+    /// waits [`HOVER_SOUND_GAP`]. The pointer leaving the dump does not clear it, so going
+    /// off and on again does not skip the wait; a new game starts without one.
+    pub last_hover_focus: Option<Duration>,
+}
+
+impl Hacking {
+    pub fn new(puzzle: Puzzle, cursor: usize) -> Self {
+        Hacking { puzzle, cursor, hidden: true, ended: None, last_hover_focus: None }
+    }
+}
+
+/// What an input did to the hacking game's cursor ([`cursor_step`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CursorStep {
+    /// Enter the dump character at this index.
+    Pick(usize),
+    /// Nothing entered; the cursor's focus sound.
+    Moved(Focus),
+}
+
+/// The focus sound of a cursor input that entered nothing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Focus {
+    /// The cursor stayed where it was, or went out of sight: no sound.
+    Silent,
+    /// It moved onto another character, or showed again: the sound.
+    Sound,
+    /// The pointer moved it within [`HOVER_SOUND_GAP`] of the last hover sound: no sound,
+    /// and none later.
+    Suppressed,
+}
+
+/// Apply a cursor input to the hacking game at real time `now`: where the cursor goes,
+/// what is to be entered, and whether its move sounds. A pointer's move (`Point`) sounds
+/// at most once every [`HOVER_SOUND_GAP`] (#2216) [design]; a key's (`Step`) always.
+fn cursor_step(h: &mut Hacking, cmd: TerminalInput, now: Duration) -> CursorStep {
+    let (cursor_was, hidden_was) = (h.cursor, h.hidden);
+    let pick = match cmd {
+        TerminalInput::Point(i) => {
+            (h.cursor, h.hidden) = (i, false);
+            None
+        }
+        TerminalInput::Unpoint => {
+            h.hidden = true;
+            None
+        }
+        // The first key shows the cursor where it is.
+        TerminalInput::Step(dx, dy) => {
+            if !h.hidden {
+                h.cursor = step_cursor(&h.puzzle, h.cursor, dx, dy);
+            }
+            h.hidden = false;
+            None
+        }
+        TerminalInput::Select if h.hidden => None,
+        TerminalInput::Select => Some(h.cursor),
+        TerminalInput::Aid(a) => aid_pick(&h.puzzle, a),
+        _ => None,
+    };
+    if let Some(at) = pick {
+        (h.cursor, h.hidden) = (at, false);
+        return CursorStep::Pick(at);
+    }
+    // Sound only when the cursor moved onto another character (or showed again).
+    if h.hidden || (h.cursor == cursor_was && !hidden_was) {
+        return CursorStep::Moved(Focus::Silent);
+    }
+    if !matches!(cmd, TerminalInput::Point(_)) {
+        return CursorStep::Moved(Focus::Sound);
+    }
+    if h.last_hover_focus.is_some_and(|last| now.saturating_sub(last) < HOVER_SOUND_GAP) {
+        return CursorStep::Moved(Focus::Suppressed);
+    }
+    h.last_hover_focus = Some(now);
+    CursorStep::Moved(Focus::Sound)
 }
 
 pub struct MenuView {
@@ -260,6 +348,27 @@ struct TerminalStats {
     items: u32,
     /// Result scripts that called ForceTerminalBack.
     forced_back: u32,
+    /// The pointer's moves of the hacking cursor onto another character (or showing it),
+    /// and of those, the ones that sounded and the ones held back by [`HOVER_SOUND_GAP`].
+    hover_points: u32,
+    hover_sounds: u32,
+    hover_suppressed: u32,
+}
+
+impl TerminalStats {
+    /// Counts a cursor input's hover sound for the exit line: only the pointer's moves
+    /// onto another character (or showing it) count, each as sounded or held back.
+    fn count_hover(&mut self, cmd: TerminalInput, focus: Focus) {
+        if !matches!(cmd, TerminalInput::Point(_)) || focus == Focus::Silent {
+            return;
+        }
+        self.hover_points += 1;
+        if focus == Focus::Sound {
+            self.hover_sounds += 1;
+        } else {
+            self.hover_suppressed += 1;
+        }
+    }
 }
 
 /// `NVF_PLAY_TEST_TERMINAL`.
@@ -293,7 +402,14 @@ fn parse_aid(v: &str) -> Result<Vec<(f32, AidStep)>, String> {
                 "back" => AidStep::Input(TerminalInput::Back),
                 "exit" => AidStep::Input(TerminalInput::Exit),
                 "power" => AidStep::Power,
-                _ => return Err(format!("{what:?}: expected open:, science:, wrong, right, brackets, symbol, item:, back, exit or power")),
+                "point" => AidStep::Input(TerminalInput::Point(
+                    arg.trim()
+                        .parse()
+                        .ok()
+                        .filter(|&i| i < fnv_game::hacking::DUMP_CHARS)
+                        .ok_or_else(|| format!("{what:?}: expected point:<index below {}>", fnv_game::hacking::DUMP_CHARS))?,
+                )),
+                _ => return Err(format!("{what:?}: expected open:, science:, wrong, right, brackets, symbol, item:, back, exit, power or point:")),
             };
             Ok((t, step))
         })
@@ -464,7 +580,7 @@ fn menu_view(rt: &mut crate::script::Runtime, reference: FormId, terminal: FormI
 
 /// The lines of terminal `terminal`'s items `items`.
 fn labels(rt: &crate::script::Runtime, terminal: FormId, items: &[usize]) -> Vec<String> {
-    items.iter().map(|&i| rules::item(&rt.game, terminal, i).map(|it| it.text).unwrap_or_default()).collect()
+    items.iter().map(|&i| rules::item(&rt.game, terminal, i).map(|it| rt.game.expand_codes(&it.text)).unwrap_or_default()).collect()
 }
 
 /// The menu lists `items` of `terminal`, with their lines: every change of the list
@@ -477,9 +593,11 @@ fn list(rt: &crate::script::Runtime, m: &mut MenuView, terminal: FormId, items: 
 
 fn log_menu(rt: &crate::script::Runtime, m: &MenuView) {
     let data = rt.game.data;
-    let Some(t) = data.terminals.get(&m.terminal) else { return };
+    if !data.terminals.contains_key(&m.terminal) {
+        return;
+    }
     let names: Vec<String> = m.labels.iter().map(|l| format!("{l:?}")).collect();
-    info!("terminal: menu of {} ({} of {} items listed): {}", data.name(m.terminal), m.items.len(), t.items.len(), names.join(", "));
+    info!("terminal: menu of {} ({} of {} items listed): {}", data.name(m.terminal), m.items.len(), rules::item_count(&rt.game, m.terminal), names.join(", "));
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -574,7 +692,7 @@ fn open(
             );
             rt.game.open_menu(MENU_HACKING);
             let cursor = first_target(&puzzle);
-            Page::Hacking(Hacking { puzzle, cursor, hidden: true, ended: None })
+            Page::Hacking(Hacking::new(puzzle, cursor))
         }
     };
     screen.0 = Some(Session { reference, base, page });
@@ -625,7 +743,8 @@ pub fn step_cursor(p: &Puzzle, cursor: usize, dx: i32, dy: i32) -> usize {
     }
 }
 
-fn keys(keys: Res<ButtonInput<KeyCode>>, screen: Res<TerminalScreen>, mut out: MessageWriter<TerminalInput>) {
+fn keys(keys: crate::pad::ActionButtons<KeyCode>, screen: Res<TerminalScreen>, mut out: MessageWriter<TerminalInput>) {
+    let keys = keys.snapshot();
     use KeyCode::*;
     let Some(s) = screen.0.as_ref() else { return };
     let mut send = |i| {
@@ -661,13 +780,14 @@ fn keys(keys: Res<ButtonInput<KeyCode>>, screen: Res<TerminalScreen>, mut out: M
 /// character or the menu row under it, and a click enters that.
 fn mouse(
     screen: Res<TerminalScreen>,
-    buttons: Res<ButtonInput<MouseButton>>,
+    buttons: crate::pad::ActionButtons<MouseButton>,
     pointer: Res<TerminalPointer>,
     rows: Res<MenuRows>,
     mut last: Local<Option<usize>>,
     mut last_row: Local<Option<usize>>,
     mut out: MessageWriter<TerminalInput>,
 ) {
+    let buttons = buttons.snapshot();
     let Some(s) = screen.0.as_ref() else { return };
     match &s.page {
         Page::Hacking(h) => {
@@ -723,15 +843,35 @@ fn apply(
     mut sim: ResMut<SimState>,
     mut script: Option<ResMut<ScriptState>>,
     time: AidTime,
+    real: Res<Time<Real>>,
     mut stats: ResMut<TerminalStats>,
     mut rng: Local<Option<ChaCha8Rng>>,
     (mut sounds, mut opened): (MessageWriter<UiSound>, MessageWriter<crate::lockpick::LockOpened>),
 ) {
     let now = time.elapsed_secs();
+    // The hover sound's gap is real time: the menu's pause and the game's speed do not
+    // stretch it.
+    let real_now = real.elapsed();
     // The hacking menu's sounds (list 5 item 47; `crate::ui_sounds`).
     let mut sound = |event| {
         sounds.write(UiSound { menu: UiMenu::Terminal, event });
     };
+    // RefreshTerminalMenu (`fnv_game::nvse_jg9`): the open menu's list is read again; with
+    // no terminal open the request is dropped.
+    if let Some(rt) = script.as_mut().and_then(|s| s.rt.as_mut()) {
+        if std::mem::take(&mut rt.game.other.jg9.refresh_terminal) {
+            if let Some(s) = screen.0.as_mut() {
+                if let Page::Menu(m) = &mut s.page {
+                    let (reference, t) = (s.reference, m.terminal);
+                    let items = with_world(rt, &mut sim, |rt| rules::items(&mut rt.game, reference, t));
+                    list(rt, m, t, items);
+                    m.selected = m.selected.min(m.items.len().saturating_sub(1));
+                    info!("terminal: a script redraws the menu");
+                    log_menu(rt, m);
+                }
+            }
+        }
+    }
     for &cmd in input.read() {
         let Some(s) = screen.0.as_mut() else { return };
         let Some(rt) = script.as_mut().and_then(|s| s.rt.as_mut()) else { return };
@@ -747,39 +887,17 @@ fn apply(
                 if h.ended.is_some() {
                     continue;
                 }
-                let p = &mut h.puzzle;
-                let (cursor_was, hidden_was) = (h.cursor, h.hidden);
-                let pick = match cmd {
-                    TerminalInput::Point(i) => {
-                        (h.cursor, h.hidden) = (i, false);
-                        None
-                    }
-                    TerminalInput::Unpoint => {
-                        h.hidden = true;
-                        None
-                    }
-                    // The first key shows the cursor where it is.
-                    TerminalInput::Step(dx, dy) => {
-                        if !h.hidden {
-                            h.cursor = step_cursor(p, h.cursor, dx, dy);
+                let at = match cursor_step(h, cmd, real_now) {
+                    CursorStep::Pick(at) => at,
+                    CursorStep::Moved(focus) => {
+                        stats.count_hover(cmd, focus);
+                        if focus == Focus::Sound {
+                            sound(UiEvent::Focus);
                         }
-                        h.hidden = false;
-                        None
+                        continue;
                     }
-                    TerminalInput::Select if h.hidden => None,
-                    TerminalInput::Select => Some(h.cursor),
-                    TerminalInput::Aid(a) => aid_pick(p, a),
-                    _ => None,
                 };
-                let Some(at) = pick else {
-                    // The cursor moved onto another character (or showed again).
-                    if !h.hidden && (h.cursor != cursor_was || hidden_was) {
-                        sound(UiEvent::Focus);
-                    }
-                    continue;
-                };
-                h.cursor = at;
-                h.hidden = false;
+                let p = &mut h.puzzle;
                 sound(UiEvent::Picked);
                 let entered = p.text(p.target(at));
                 let rng = rng.get_or_insert_with(|| ChaCha8Rng::seed_from_u64(seed(reference, now)));
@@ -903,7 +1021,7 @@ fn apply(
                     c.submenu.map(|s| format!(", sub menu {}", rt.game.data.name(s))).unwrap_or_default(),
                     c.note.map(|n| format!(", note {}", rt.game.data.name(n))).unwrap_or_default()
                 );
-                m.result = c.result;
+                m.result = rt.game.expand_codes(&c.result);
                 // The result script called ForceTerminalBack: back one level, or out of
                 // the terminal from its top level [documented: GECK wiki ForceTerminalBack].
                 if c.back {
@@ -1012,6 +1130,9 @@ fn draw(
     mut faces: Local<Option<screen::Faces>>,
     mut shown: Local<Option<String>>,
 ) {
+    // The screen is laid out in its own texture, at its size whatever the UI scale; the
+    // picture of it on the window scales (`screen::spawn_backdrop`, #1631).
+    let _canvas = crate::interface::original_units();
     let key = screen.0.as_ref().map(view_key);
     let on = ((time.elapsed_secs() / screen::BLINK_SECONDS) as u32).is_multiple_of(2);
     if key == *shown {
@@ -1027,7 +1148,7 @@ fn draw(
     rows.0.clear();
     let (Some(s), Some(rt), Some(image)) = (screen.0.as_ref(), script.as_ref().and_then(|s| s.rt.as_ref()), image) else { return };
     let faces = faces.get_or_insert_with(|| screen::load_faces(data.as_deref(), &mut images, bc_supported(formats.as_deref())));
-    rows.0 = screen::spawn(&mut commands, image.camera, faces, s, rt.game.data, on);
+    rows.0 = screen::spawn(&mut commands, image.camera, faces, s, &rt.game, on);
 }
 
 fn close(
@@ -1102,13 +1223,18 @@ mod opening_tests {
 }
 
 fn report(mut exit: MessageReader<AppExit>, stats: Res<TerminalStats>) {
-    if exit.read().next().is_none() || (stats.opened == 0 && stats.refused == 0) {
+    if exit.read().next().is_none() {
         return;
     }
-    info!(
-        "terminal summary: {} opened ({} refused), {} hacking games ({} hacked, {} locked out), {} words entered, {} bracket pairs ({} duds removed, {} allowances replenished), {} menu items chosen ({} sent back by ForceTerminalBack)",
-        stats.opened, stats.refused, stats.hacks, stats.hacked, stats.locked_out, stats.guesses, stats.pairs, stats.duds, stats.refills, stats.items, stats.forced_back
-    );
+    if stats.opened != 0 || stats.refused != 0 {
+        info!(
+            "terminal summary: {} opened ({} refused), {} hacking games ({} hacked, {} locked out), {} words entered, {} bracket pairs ({} duds removed, {} allowances replenished), {} menu items chosen ({} sent back by ForceTerminalBack)",
+            stats.opened, stats.refused, stats.hacks, stats.hacked, stats.locked_out, stats.guesses, stats.pairs, stats.duds, stats.refills, stats.items, stats.forced_back
+        );
+    }
+    if stats.hover_points != 0 {
+        info!("terminal hover: {} changed points, {} focus sounds, {} suppressed", stats.hover_points, stats.hover_sounds, stats.hover_suppressed);
+    }
 }
 
 #[cfg(test)]
@@ -1174,5 +1300,100 @@ mod tests {
         assert_eq!(s[3], (4.0, AidStep::Input(TerminalInput::Aid(AidPick::Item(2)))));
         assert_eq!(s[4], (5.0, AidStep::Input(TerminalInput::Back)));
         assert!(parse_aid("1:dance").is_err());
+        let s = parse_aid("6:point:12").unwrap();
+        assert_eq!(s[0], (6.0, AidStep::Input(TerminalInput::Point(12))));
+        assert!(parse_aid(&format!("6:point:{}", DUMP_CHARS - 1)).is_ok());
+        assert!(parse_aid(&format!("6:point:{DUMP_CHARS}")).is_err(), "past the dump");
+        assert!(parse_aid("6:point:x").is_err());
+        assert!(parse_aid("6:point").is_err());
+    }
+
+    fn game() -> Hacking {
+        Hacking::new(puzzle(), first_target(&puzzle()))
+    }
+
+    fn ms(n: u64) -> Duration {
+        Duration::from_millis(n)
+    }
+
+    #[test]
+    fn a_mouse_sweep_limits_focus_sounds() {
+        for hz in [60u64, 144] {
+            let mut h = game();
+            let inputs = 120;
+            let mut sounded: Vec<Duration> = Vec::new();
+            for k in 0..inputs {
+                let now = Duration::from_nanos(k as u64 * 1_000_000_000 / hz);
+                let step = cursor_step(&mut h, TerminalInput::Point(k), now);
+                assert_eq!(h.cursor, k, "{hz} Hz: the cursor follows every point");
+                assert!(!h.hidden);
+                match step {
+                    CursorStep::Moved(Focus::Sound) => sounded.push(now),
+                    CursorStep::Moved(Focus::Suppressed) => {}
+                    other => panic!("{hz} Hz: a changed point is a sound or held back, not {other:?}"),
+                }
+            }
+            assert!(!sounded.is_empty() && sounded.len() < inputs, "{hz} Hz: {} sounds for {inputs} points", sounded.len());
+            for w in sounded.windows(2) {
+                assert!(w[1] - w[0] >= HOVER_SOUND_GAP, "{hz} Hz: sounds {:?} apart", w[1] - w[0]);
+            }
+        }
+    }
+
+    #[test]
+    fn hover_sounds_resume_at_the_gap() {
+        let mut h = game();
+        let t = Duration::from_secs(1);
+        assert_eq!(cursor_step(&mut h, TerminalInput::Point(1), t), CursorStep::Moved(Focus::Sound));
+        assert_eq!(cursor_step(&mut h, TerminalInput::Point(2), t + HOVER_SOUND_GAP - Duration::from_micros(1)), CursorStep::Moved(Focus::Suppressed));
+        assert_eq!(h.cursor, 2, "held back, the cursor still moves");
+        assert_eq!(cursor_step(&mut h, TerminalInput::Point(3), t + HOVER_SOUND_GAP), CursorStep::Moved(Focus::Sound));
+    }
+
+    #[test]
+    fn leaving_the_dump_does_not_reset_the_sound_gap() {
+        let mut h = game();
+        let steps = [(TerminalInput::Point(1), ms(0)), (TerminalInput::Unpoint, ms(10)), (TerminalInput::Point(2), ms(20))];
+        let got: Vec<CursorStep> = steps.iter().map(|&(i, t)| cursor_step(&mut h, i, t)).collect();
+        assert_eq!(got, [CursorStep::Moved(Focus::Sound), CursorStep::Moved(Focus::Silent), CursorStep::Moved(Focus::Suppressed)]);
+        assert_eq!((h.cursor, h.hidden), (2, false), "shown again where the pointer is");
+    }
+
+    #[test]
+    fn keyboard_focus_is_not_throttled() {
+        let mut h = game();
+        assert_eq!(cursor_step(&mut h, TerminalInput::Point(5), ms(0)), CursorStep::Moved(Focus::Sound));
+        // Keys right after the pointer's sound, and after each other: every move sounds.
+        for (k, t) in [(6, 1), (7, 2), (8, 3)] {
+            assert_eq!(cursor_step(&mut h, TerminalInput::Step(1, 0), ms(t)), CursorStep::Moved(Focus::Sound));
+            assert_eq!(h.cursor, k);
+        }
+        // A point that does not move the cursor neither sounds nor starts the wait again.
+        assert_eq!(cursor_step(&mut h, TerminalInput::Point(20), ms(100)), CursorStep::Moved(Focus::Sound));
+        assert_eq!(cursor_step(&mut h, TerminalInput::Point(20), ms(150)), CursorStep::Moved(Focus::Silent));
+        assert_eq!(cursor_step(&mut h, TerminalInput::Point(21), ms(170)), CursorStep::Moved(Focus::Sound), "70 ms after the last sound");
+        // A new game: its first point sounds at once.
+        let mut next = game();
+        assert_eq!(cursor_step(&mut next, TerminalInput::Point(3), ms(171)), CursorStep::Moved(Focus::Sound));
+    }
+
+    #[test]
+    fn the_hover_line_counts_the_pointers_moves() {
+        // A sweep at 144 Hz, with keys, unchanged points and Unpoint between: only the
+        // pointer's moves count, each as sounded or held back (P = F + S).
+        let mut h = game();
+        let mut stats = TerminalStats::default();
+        let mut sounds = 0;
+        let mut inputs: Vec<TerminalInput> = (0..60).map(TerminalInput::Point).collect();
+        inputs.extend([TerminalInput::Point(59), TerminalInput::Step(1, 0), TerminalInput::Unpoint, TerminalInput::Step(-1, 0)]);
+        for (k, cmd) in inputs.into_iter().enumerate() {
+            let CursorStep::Moved(focus) = cursor_step(&mut h, cmd, Duration::from_nanos(k as u64 * 1_000_000_000 / 144)) else { panic!("nothing is entered") };
+            stats.count_hover(cmd, focus);
+            sounds += u32::from(focus == Focus::Sound && matches!(cmd, TerminalInput::Point(_)));
+        }
+        assert_eq!(stats.hover_points, 60, "the 60 moves; the unchanged point, the keys and Unpoint do not count");
+        assert_eq!(stats.hover_sounds, sounds);
+        assert_eq!(stats.hover_points, stats.hover_sounds + stats.hover_suppressed);
+        assert!(stats.hover_sounds >= 1 && stats.hover_suppressed >= 1);
     }
 }

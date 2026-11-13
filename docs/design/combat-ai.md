@@ -86,7 +86,8 @@ fists (the default draws it holstered).
   built: reloading a part-empty magazine in cover or out of sight, the weapon model's
   own reload animation on NPCs (the revolver's cylinder). Smoke `combat-npc-reload`.
 - **Aim**: from its eyes at the target's chest, inside a cone of the documented actor
-  spread for its weapon skill (standing, not aiming down the sights), plus 4° that
+  spread for its weapon skill (its sights, crouch and gait: walking or running as it
+  fires widens it, `npc_combat::shot_stance`, #2125), plus 4° that
   settles away over 3 s of firing at the same target (the first shots of a burst miss
   more).
 - **Melee**: a blow every 1.2 s divided by the weapon's attack speed, while the gap
@@ -101,7 +102,8 @@ closes in again (`Awarenesses::engage`):
 | Fighting with | Stops at | Closes in again beyond |
 |---|---|---|
 | a gun | 80 % of its reach (§16: WEAP max range × style mult, within the projectile's range), between 400 and 2,500 units, clear of its own blast, never beyond 90 % of its reach | its reach (at most 3,125) |
-| melee, creature | its body 6 units from the target's | a 24-unit gap |
+| melee, a person | 6 units short of its reach (`fCombatDistance` 107 × scale × WEAP Reach) plus the two bodies' radii (two people's, 44, until the bodies are known), centre to centre, never nearer than a 6-unit gap between the bodies; the walk ends 10 % inside that, where it mostly swings (a lead pipe 170, the original 180: combat-rules.md §10, open) | its reach plus the radii (at least a 24-unit gap): a knife 97.5, a lead pipe 178 against the original's 95 and 180 [observed: o14_reach, 2026-11-01, combat-rules.md §10] |
+| melee, a creature | 6 units short of (RNAM + its skeleton's reach beyond it) × scale, centre to centre, never nearer than a 6-unit gap | (RNAM + its skeleton's reach beyond it) × scale: a gecko 81, a bighorner bull 232, as the original's swing starts [observed: o14_reach, o12_reach; npc-behaviour-compare.md §3] |
 | melee without bodies to measure | 80 % of its reach | its reach |
 
 The bodies are the blocks `nvf_play::blocking` keeps (a dog's reaches well in front of
@@ -120,7 +122,7 @@ their reach and field of view.
 |---|---|---|
 | StartCombat | the actor fights the target from now on, hostile whatever its records say, until StopCombat; it counts as detecting the target at once (Combat) | [documented: catalogue notes]; the target's combat group: not built |
 | StopCombat | the actor leaves its combat state; StartCombat's hostility is undone | [documented] |
-| IsInCombat, GetCombatTarget | as alert.md §6 | |
+| IsInCombat, GetCombatTarget, GetIsAlerted, GetCurrentAIProcedure / Package | as alert.md §6: a fight reads GetIsAlerted 0 (SetAlert's alone); GetCombatTarget keeps the target it fought while it is out of sight, through Lost; Lost reads procedure COMBAT 13 and package COMBAT 5 (#2121) | |
 | StopCombatAlarmOnActor | every actor fighting or hunting the calling actor stops (StopCombat) | [documented: GECK wiki StopCombatAlarmOnActor] |
 | GetFriendHit | the friendly hits of the target on the actor that still count (§10.1) | [documented: GECK wiki GetFriendHit, Friendly Fire] |
 | GetAttacked | 1 once anyone attacked the actor, cleared when it leaves combat | [documented: GECK wiki GetAttacked] |
@@ -284,7 +286,9 @@ that other take up its fight against each actor on its target list (and whoever 
 it) when the other's Assistance helps it: 1 Helps Allies for an ally, 2 Helps Friends and
 Allies for a friend too [documented: GECK wiki GetFactionCombatReaction, "An actor's
 Assistance setting determine whether it will help an Ally / a Friend in combat or not";
-the codes: xEdit AIDT]. Never against one of its own allies or friends ("cannot attack
+the codes: xEdit AIDT]. In one capture an actor with Assistance 0 stayed out of a
+fellow's fight for 7.6 s while one with Helps Friends and Allies joined within 2 s
+[observed: npc-behaviour-compare.md §16.6]. Never against one of its own allies or friends ("cannot attack
 each other under any circumstances" [documented]). Actors sharing a faction, or placed
 from the same base form, count as allies [engineering choice: the rule that keeps them
 from fighting each other, alert.md §3]. The helper holds a grudge (`Assist`) and gets an
@@ -300,8 +304,10 @@ share FiendsFactionNV with her (Assistance 2), so they now join her fights.
 
 CSTY is read (CSTD, CSAD, CSSD) [documented: layout xEdit wbDefinitionsFNV.pas CSTY;
 meanings GECK wiki Combat Style]; FalloutNV.esm has 84 [observed]. An actor's style is
-its ZNAM, from the template that supplies its AI data [hypothesis], else
-`DefaultCombatstyle` (0x3D) [hypothesis]. Used now (nvforever `npc_combat`):
+its ZNAM, from the template that supplies its traits, as the death item is
+[documented: GECK wiki Traits Tab - NPC and Traits Tab - Creatures list Combat Style
+among the tab's fields, AI Data Tab has none; Template Data, "Use Traits: Use the traits
+of the ActorBase"; #2138], else `DefaultCombatstyle` (0x3D) [hypothesis]. Used now (nvforever `npc_combat`):
 
 - **Weapon Restrictions** Melee Only: a gun held is not fired; the actor fights with
   its fists. Ranged Only changes nothing yet (there is no weapon choice).
@@ -355,12 +361,25 @@ NPCs should not be able to move at full speed whilst aiming" (the player's half 
   sights on a way already planned, `walks on, aiming down the sights at the player`
   (`runs on, sights lowered, at …` when it lowers them). The sights come up only while
   it can fire (it sees its target, its weapon drawn) [design].
+- Its shots fired on the move take the formula's moving terms as the player's do
+  (fWalkingSpreadPenalty walking, fRunningSpreadPenalty running [documented: Gun Spread
+  Formula (New Vegas); docs/design/combat.md, its Gun Spread Formula notes]; before
+  #2125 every NPC shot was spread as if standing). Its gait comes from its locomotion
+  (`npc_combat::shot_gait`): moving, in any direction, while its velocity at its clips'
+  pace reaches the speed a walk clip starts at; running while a run clip plays, the
+  walk/run choice of its own clips, so an actor's scale or a creature's pace moves no
+  fixed cut-off; a velocity of nought stands even while the run clip still plays, and an
+  actor with no locomotion stands. The shot takes the most recent gait `fight` finds,
+  read before `locomotion::drive` chooses the frame's clip and unordered against the
+  walker's velocity update: up to a frame old at a start, a stop or a change between
+  walk and run [design].
 - Not used: the WEAP's Sight Usage ("the percentage of fCombatIronSightsDistance" beyond
   which an actor uses its sights [documented: GECK wiki Weapons]), because the owner's
   20 m rule stands in and fCombatIronSightsDistance is neither in FalloutNV.esm nor on
   the wiki; the NPC spread's fNPCMaxGunWobbleAngle term (Gun Spread Formula (New
   Vegas): spread × fNPCMaxGunWobbleAngle + spread, ×16 with the masters' 15) [design:
-  NPCs keep the player's formula; combat is not a parity target].
+  NPCs keep the player's formula, its walking and running terms with it; combat is not
+  a parity target].
 - Log: `npc combat: … aims down the sights, its target … units away (beyond 1400):
   walks while aiming`, `… fires from the hip …`, and in the summary `… down the sights,
   … from the hip, sights raised … times`.
@@ -389,7 +408,8 @@ NPCs should not be able to move at full speed whilst aiming" (the player's half 
 ### 10.7 Melee reaches low targets
 
 The owner could not hit a gecko with a machete. The player's swing was a fan of rays
-from the eye at eye height, as long as the reach (fCombatDistance 150 × Reach): a gecko
+from the eye at eye height, as long as the reach (then fCombatDistance 150 × Reach; 107 × Reach plus the player's
+radius since #1334): a gecko
 at the player's feet lies under the fan, and a ray pitched down to it spends most of
 the reach on the drop from the eye. `fnv_combat::projectile::swing_reaching` adds every
 actor whose centre is within the reach across the ground (plus 24 units for its body),
@@ -444,9 +464,9 @@ for a later workstream (2026-10-12). Every behaviour in the second column is
 | Confidence | Frenzied actors never flee | missing | with fleeing (next) |
 | Combat Flee | Door, cover or run away; at the flee spot wait, more confident when hurt or cornered | missing | next (fleeing); `would flee` logged |
 | Combat Package Flags | No Combat Alert | have | alert.md §2 |
-| Combat Package Flags | Continue During Combat | partial | alert.md §5: the package goes on and the actor fights as any other; no cover on the way |
+| Combat Package Flags | Continue During Combat | wrong | built as "the package goes on in every combat state", which pins melee fighters (#2155). The original, by package type [documented, and observed 2026-11-12]: Travel holds only on the way, Guard only while the target is outside the guard radius; the rule to build is alert.md §5.2. No cover on the way; a Use Weapon package fires its own volleys at its own target instead of the ordinary attacks (use-weapon.md §3, #2120) |
 | Combat Package Flags | Pretend In Combat | missing | next |
-| Combat Package Flags | Follow and Guard radii in combat (fCombatFollowRadiusMult, fCombatGuardRadiusMult) | missing | next |
+| Combat Package Flags | Follow and Guard radii in combat (fCombatFollowRadiusMult, fCombatGuardRadiusMult) | missing | next, with #2155: Guard radius = package radius × 1.5, at least 384, measured from the post to the target [documented; observed for two Guard packages, not for three with type-flag bit 2]; Follow radius × 3, at least 512 [documented]; alert.md §5.2 |
 | Combat Search | Alert and Lost actors search | partial | alert.md §5: each alone, not the combat group splitting the navmesh |
 | Combat Search | The combat group's searches; iCombatTargetLostRemoveSearchCount; the hidden-target timers | missing | next (search parties); our timers are alert.md §2's |
 | Weapons | Sight FOV 0 disables iron sights | have | §10.6 |
@@ -907,7 +927,7 @@ Smoke scenarios (`tools/smoke/scenarios.toml`), observed on this branch 2026-10-
 | Combat Style | Cover: search radius, take-cover chance, wait / wait-to-fire / fire timers | have (§12.6) |
 | Combat Search | The combat group's searches; iCombatTargetLostRemoveSearchCount | have, by sectors (§12.5); fCombatSearchTargetHiddenRemoveTime/MaxTime: alert.md §2's timers stand in |
 | Combat Search | Almost detected: the search centres midway | have (§12.5) |
-| Combat Package Flags | Continue During Combat: "using cover along the way" | partial: no cover on the way |
+| Combat Package Flags | Continue During Combat: "using cover along the way" | wrong reading built (#2155; the rule to build: alert.md §5.2); no cover on the way |
 | Combat Tab | Flee line | have (§12.2); the other combat barks: missing |
 
 Left for later: grenades and threats, blocking, dodging and power attacks, combat barks
@@ -973,6 +993,18 @@ The owner's list 4, items 14, 18, 19 and 20 (`docs/handoff/archive/playtest-list
   weapon or stance every 2-2.5 s; the owner judged that a quirk (2026-10-25): NVForever's
   draw once and hold it, and say a GuardTrespass line at each warning (the Detection
   lines' cooldown does not hold warnings back).
+- **Spawned actors do not warn** (#1341, built 2026-11-06) [observed: capture
+  o25_coyote, original game, docs/handoff/observer-checks.md item 2]: a CrCoyote
+  PlaceAtMe'd at the spot of the placed VERGSCoyote6REF, the player 700 units off (of
+  1,024), was in combat at the first sample with no warning, where the placed coyote
+  warned for 14.9 s first; the base has the same aggro radius and packages. Spawned
+  coyotes on the airport runway did the same at 250 and 700 units (o16_air). So an actor
+  created at run time (a dynamic reference, FormID 0xFF……) that the aggro rules above
+  would warn attacks at once instead, as one inside half its radius does; who, the
+  package, the radius stay as for placed ones [hypothesis: every created actor, people
+  too, which no capture tried; why: a PlaceAtMe'd actor has no editor location for the
+  radius to be kept around, or it starts alerted]. Placed ones keep warning. Smoke
+  `aggro-spawned-no-warning`.
 - **Guard packages do not warn** (built 2026-10-24, taken out 2026-10-25): Gomorrah's
   room guards on vGomorrahGuardPackage, with no aggro radius of their own, neither
   warned nor fought the player by the door they guard [observed: capture `warnings2`].
@@ -1011,11 +1043,11 @@ Each ACBS template flag now decides where its group is read (factions.md §7):
 
 | Flag | Read from the template's source now | Before |
 |---|---|---|
-| Traits | GetIsRace, GetIsSex, GetIsVoiceType, GetIsClass, IsChild, child immunity | the placed base |
+| Traits | GetIsRace, GetIsSex, GetIsVoiceType, GetIsClass, IsChild, child immunity; combat style (#2138; before it, from the AI Data source) | the placed base |
 | Stats | health, attributes, skills, level, fatigue, speed; a creature's attack, GetIsCreatureType [hypothesis: the type sits in CREA DATA with the stats] | the same (type: the base) |
 | Factions | factions | the same |
 | Actor Effect List | not read by the game layer | — |
-| AI Data | aggression, confidence, assistance, mood, energy, responsibility, aggro radius, combat style | the same |
+| AI Data | aggression, confidence, assistance, mood, energy, responsibility, aggro radius | the same |
 | AI Packages | the package list | the same |
 | Model/Animation | the drawn model, skeleton and animations (`fnv_actor::resolve`) | the same |
 | Base Data | the name shown (prompt, loot menu, conversation, hit messages); Essential, Respawn, No Low Level Processing, Invulnerable | the base's (Respawn: the same) |
@@ -1796,11 +1828,13 @@ checked against the original (observer-checks.md item 20):
   carrying 5 frags threw none in 27 s at 600 units. So a held grenade is thrown every
   1.6-3.6 s from the start, from 800 units at least (not from 300), against ours' first
   throw after 4-10 s, one every 12-25 s and nothing within 990 units [issue #1351].
-- **When**: holding it, not fleeing, ready on a target it sees; the first throw 4 to 10 s
-  after it is first ready on that target, then one every 12 to 25 s, rolled on the
-  grenade rolls' own sequence [design; the original's one throw came within a second].
-- **Where**: only at a target beyond 1.1 times the blast's radius (a frag grenade's
-  blast radius is 900 units, so beyond 990) and within the throw's reach:
+- **When** (since 2026-11-06, #1351): holding it, not fleeing, ready on a target it sees;
+  the first throw 0 to 1 s after it is first ready on that target, then one every 1.6 to
+  3.6 s, rolled on the grenade rolls' own sequence [observed: the frag captures above].
+  It was 4 to 10 s, then 12 to 25 s [design].
+- **Where**: only at a target beyond 550 units [design: between the observed 300 (no
+  throw) and 800 (thrown); the original's floor is not pinned. Until #1351 it was 1.1
+  times the blast's radius, 990 for a frag] and within the throw's reach:
   the low arc's under the projectile's gravity, at most 1,500 units. Held when a comrade
   or a bystander would be caught, by the combat style's Ignore Damaging flags as an
   explosive shot is (§17.6).
@@ -1977,7 +2011,8 @@ target through every phase of the attack and fired only once turned to it
 - **The lock** (`npc_combat::Fighters::lock_on`): each frame, a person the AI runs, in combat,
   that sees its target and does not run from it (a flight away or by a door; a flight to cover keeps
   it) is locked on where that target is drawn this frame. `residents` draws it facing that
-  place, turning at the combat turn rate (240° a second standing, 360° walking) and, once
+  place, turning at the combat turn rate (standing 225° a second with its target within a
+  quarter turn, 275° beyond; walking 180°; #1352, below) and, once
   within 10° (`LOCK_HOLD`), following it exactly; once held it stays on that target even
   when the target sweeps more than 10° in one frame (2026-11-01, #1162 [design]: melee
   Fiends circling troopers 70–340 units away, and long frames, slipped out of the hold and
@@ -1985,6 +2020,23 @@ target through every phase of the attack and fired only once turned to it
   [observed: smoke logs of #1292]); a new target is still turned to at the turn rate. On its way to cover, a post or a flee
   spot it strafes or backs away with its target in front. Out of sight it faces the
   target's AI place as before (`Core::aims`).
+- **The turn onto a target** (#1352, built 2026-11-06 from capture o25_turn,
+  docs/spec-notes/actors.md §8.9 [observed]): a person going into Combat from Normal or
+  Alert stands on its heading for 1.1 s (`fnv_ai::alert::COMBAT_REACTION_SECONDS`;
+  `Awareness::combat_began`), neither turning, setting off nor locked on, then turns at
+  225°/s while its target is within 90° of its heading and 275°/s beyond
+  (`combat_turn_rate`), steadily with no ease-out, and walking at the walk's own turn
+  rate (180°/s). Before, it turned at once at 240°/s standing and 360°/s walking. Back in
+  Combat from Lost it does not stand again [hypothesis: not measured; nor is the delay
+  when combat starts by detection rather than StartCombat]. `combat_turn_rate` picks the
+  rate from the angle still left to turn; the original may set it when the turn begins,
+  and the data cannot tell the two apart [hypothesis]. Creatures are unchanged
+  (`fnv_ai::alert::creature`, `combat_began` is `None` for them): no stand, and their
+  standing combat turn is still twice the standing rate with their own × 1.25
+  (`COMBAT_TURN_CREATURE`) [hypothesis: a creature's reaction and turn are unmeasured;
+  only a human trooper was, and o25's spawned coyotes were in combat at once]. The facing summary (`npc_combat`, smoke battle-ncr-fiends,
+  combat-violet) gives a fighter its 0.6 s to turn (`REACTION_SECONDS`) from the end of
+  that moment, not from first seeing its target, and does not count it locked meanwhile.
 - **Why it slipped**: the drawn facing used the target's AI place, which for a charging
   Fiend was 110 units from where it was drawn; a trooper shooting at it faced 16° off.
   Flights to cover were not turned to the target at all.

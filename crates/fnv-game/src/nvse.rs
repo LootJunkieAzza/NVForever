@@ -154,7 +154,7 @@ impl Game<'_> {
 
 /// An xNVSE function by catalogue name (lower case); `None` when it is not built here.
 /// `on` is the reference it was called on, else the calling reference.
-pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, on: Option<FormId>, args: &[XVal]) -> Option<Result<XVal, String>> {
+pub fn call(g: &mut Game, ctx: &RunCtx, name: &str, on: Option<FormId>, args: &[XVal]) -> Option<Result<XVal, String>> {
     if let Some(r) = crate::delayed::call(g, ctx, name, on, args) {
         return Some(r);
     }
@@ -170,6 +170,12 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, on: Option<FormId>, a
         return Some(Ok(v));
     }
     let subject = on.or(ctx.self_ref);
+    if let Some(r) = crate::nvse_lutana::call(g, ctx, name, subject, args) {
+        return Some(r);
+    }
+    if let Some(r) = crate::nvse_ttw::call(g, ctx, name, subject, args) {
+        return Some(r);
+    }
     if let Some(r) = crate::nvse_refs::call(g, name, subject, args) {
         return Some(r);
     }
@@ -212,7 +218,46 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, on: Option<FormId>, a
     if let Some(r) = crate::nvse_jg4::call(g, ctx, name, subject, args) {
         return Some(r);
     }
+    if let Some(r) = crate::nvse_jg5::call(g, ctx, name, subject, args) {
+        return Some(r);
+    }
+    if let Some(r) = crate::nvse_jg6::call(g, ctx, name, subject, args) {
+        return Some(r);
+    }
+    if let Some(r) = crate::nvse_jg7::call(g, ctx, name, subject, args) {
+        return Some(r);
+    }
+    if let Some(r) = crate::nvse_jg8::call(g, name, subject, args) {
+        return Some(r);
+    }
+    if let Some(r) = crate::nvse_jg9::call(g, name, subject, args) {
+        return Some(r);
+    }
+    if let Some(r) = crate::nvse_jg10::call(g, name, subject, args) {
+        return Some(r);
+    }
     if let Some(r) = crate::nvse_sup1::call(g, ctx, name, subject, args) {
+        return Some(r);
+    }
+    if let Some(r) = crate::nvse_dialogue::call(g, ctx, name, subject, args) {
+        return Some(r);
+    }
+    if let Some(r) = crate::nvse_sup3::call(g, ctx, name, subject, args) {
+        return Some(r);
+    }
+    if let Some(r) = crate::nvse_sup6::call(g, ctx, name, subject, args) {
+        return Some(r);
+    }
+    if let Some(r) = crate::nvse_sup5::call(g, ctx, name, subject, args) {
+        return Some(r);
+    }
+    if let Some(r) = crate::nvse_sup7::call(g, ctx, name, subject, args) {
+        return Some(r);
+    }
+    if let Some(r) = crate::nvse_jg_nif::call(g, ctx, name, subject, args) {
+        return Some(r);
+    }
+    if let Some(r) = crate::nvse_sup4::call(g, ctx, name, subject, args) {
         return Some(r);
     }
     if let Some(r) = crate::nvse_jip5::call(g, ctx, name, subject, args) {
@@ -224,10 +269,46 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, on: Option<FormId>, a
     if let Some(r) = crate::nvse_jip7::call(g, ctx, name, subject, args) {
         return Some(r);
     }
+    if let Some(r) = crate::nvse_jip8::call(g, ctx, name, subject, args) {
+        return Some(r);
+    }
+    if let Some(r) = crate::nvse_jip9::call(g, ctx, name, subject, args) {
+        return Some(r);
+    }
+    if let Some(r) = crate::nvse_jip10::call(g, ctx, name, subject, args) {
+        return Some(r);
+    }
+    if let Some(r) = crate::nvse_jip14::call(g, ctx, name, subject, args) {
+        return Some(r);
+    }
+    if let Some(r) = crate::nvse_jip11::call(g, ctx, name, subject, args) {
+        return Some(r);
+    }
+    if let Some(r) = crate::nvse_jip13::call(g, ctx, name, subject, args) {
+        return Some(r);
+    }
+    if let Some(r) = crate::nvse_jip12::call(g, ctx, name, subject, args) {
+        return Some(r);
+    }
     if let Some(r) = crate::nvse_pp::call(g, name, subject, args) {
         return Some(r);
     }
+    if let Some(r) = crate::nvse_lu2::call(g, ctx, name, subject, args) {
+        return Some(r);
+    }
+    if let Some(r) = crate::nvse_lu3::call(g, ctx, name, subject, args) {
+        return Some(r);
+    }
+    if let Some(r) = crate::nvse_showoff5::call(g, ctx, name, subject, args) {
+        return Some(r);
+    }
     if let Some(r) = crate::nvse_showoff2::call(g, ctx, name, subject, args) {
+        return Some(r);
+    }
+    if let Some(r) = crate::nvse_showoff3::call(g, ctx, name, subject, args) {
+        return Some(r);
+    }
+    if let Some(r) = crate::nvse_showoff4::call(g, ctx, name, subject, args) {
         return Some(r);
     }
     if let Some(r) = crate::nvse_anh::call(g, ctx, name, subject, args) {
@@ -474,13 +555,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, on: Option<FormId>, a
         // base's, neither the reference's own FULL nor SetRefName's name; a static
         // without one reads "<no name>" [observed: plugins3, the Goodsprings map marker
         // and the 605 references round the player; gaps4, Doc after SetRefName].
-        "getname" => {
-            let f = as_form(args.first()).or(subject).unwrap_or(FormId(0));
-            let named = |x: FormId| g.name_overrides.get(&x).or_else(|| g.data.full_names.get(&g.unclone(x))).cloned();
-            let b = crate::functions::base_of(g, f).filter(|&b| b != f).unwrap_or(f);
-            let n = named(b).or_else(|| (g.data.sig(b) == Some(*b"STAT")).then(|| "<no name>".to_string()));
-            XVal::Str(n.unwrap_or_default())
-        }
+        "getname" => XVal::Str(shown_name(g, as_form(args.first()).or(subject).unwrap_or(FormId(0)))),
         // [documented: GetParentCell] the cell the reference is in.
         "getparentcell" => XVal::Ref(subject.and_then(|r| g.cell_of(r)).map_or(0, |c| c.0)),
         // [documented: GetInventoryObject] the base form of the container's nth kind of
@@ -518,7 +593,8 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, on: Option<FormId>, a
                 _ => String::new(),
             };
             let parent = as_form(args.get(if setter { 2 } else { 1 })).or(subject).unwrap_or(FormId(0));
-            let slot = g.instance_of(parent).and_then(|(key, script)| Some((key, script, g.data.script(script)?.var_index(&var)?)));
+            // AddScriptVariable's variables too (`crate::nvse_jip10`).
+            let slot = g.instance_of(parent).and_then(|(key, script)| Some((key, script, g.data.script(script).and_then(|u| u.var_index(&var)).or_else(|| g.added_var_index(script, &var))?)));
             let Some((key, script, i)) = slot else {
                 return Some(Ok(match name {
                     "getstringvariable" => XVal::Str(String::new()),
@@ -818,4 +894,12 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, on: Option<FormId>, a
 fn attack_animation_index(code: i64) -> f64 {
     let order: [i64; 23] = [255, 38, 44, 50, 56, 62, 68, 26, 74, 32, 80, 86, 114, 120, 126, 132, 138, 102, 108, 144, 150, 156, 162];
     order.iter().position(|&c| c == code).map_or(0.0, |i| i as f64)
+}
+
+/// GetName's name of a form (module notes at its arm): the base's full name, as set
+/// names change it; "<no name>" for a static without one; empty otherwise.
+pub(crate) fn shown_name(g: &Game, f: FormId) -> String {
+    let named = |x: FormId| g.name_overrides.get(&x).or_else(|| g.data.full_names.get(&g.unclone(x))).cloned();
+    let b = crate::functions::base_of(g, f).filter(|&b| b != f).unwrap_or(f);
+    named(b).or_else(|| (g.data.sig(b) == Some(*b"STAT")).then(|| "<no name>".to_string())).unwrap_or_default()
 }

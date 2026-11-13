@@ -36,15 +36,35 @@
 //! kept back. Off, one cached flag a frame is read here and the tree's two counters advance
 //! anyway ([`fnv_ui::Ui::trait_write_counts`]).
 
+pub mod container_menu;
+pub mod barter_menu;
+pub mod recipe_menu;
+pub mod repair_cards;
+pub mod repair_menu;
+pub mod repair_services_menu;
+pub mod runtime_images;
+mod item_menu;
+pub mod dialog_menu;
 pub mod draw;
 pub mod input;
+pub mod inventory_menu;
+pub mod item_card;
+pub mod item_mod_menu;
 pub mod layout;
+pub mod list;
+pub mod map_menu;
 pub mod menus;
 pub mod model;
 pub mod mods;
 pub mod notices;
+pub mod stats_menu;
+pub(crate) mod selection_menu;
+pub mod tag_menu;
+pub mod texmod;
+pub mod trait_menu;
 pub mod tutorial_menu;
 pub mod vanilla;
+pub mod vats_menu;
 pub mod wait_menu;
 
 use crate::{script::ScriptState, PlaySet, PlayState};
@@ -60,9 +80,25 @@ pub(crate) struct MenuFiles<'w, 's> {
     paused: Option<Res<'w, crate::pause::Paused>>,
     main_menu: Option<Res<'w, crate::main_menu::MainMenu>>,
     menus: Option<Res<'w, vanilla::TileMenus>>,
+    page: Option<Res<'w, crate::pause::Page>>,
 }
 
 impl MenuFiles<'_, '_> {
+    /// Install before startup/load scripts, and retry if GameData arrived later.
+    /// Game::restore creates fresh UiExtra, so every new game gets its own cache [design].
+    pub(crate) fn install_measure(&self, game: &mut fnv_game::Game<'_>) {
+        if game.ui_extra.measure.is_some() {
+            return;
+        }
+        let Some(data) = self.data.as_ref() else { return };
+        let vfs = data.vfs.clone();
+        game.ui_extra.measure = Some(draw::string_measure(move |number| {
+            let path = crate::interface::font_file(crate::interface::FONT_FILES[number as usize - 1]);
+            let bytes = vfs.read(&path)?.ok()?;
+            fnv_font::Font::parse(&bytes).ok()
+        }));
+    }
+
     pub(crate) fn load(&self, game: &mut fnv_game::Game<'_>, world: &fnv_sim::World<'_>) {
         let Some(data) = self.data.as_ref() else { return };
         let files = UiFiles::new(data.vfs.clone(), world);
@@ -78,14 +114,34 @@ impl MenuFiles<'_, '_> {
         info!("ui: game strings: {} read, {} without text", report.game_strings, report.game_strings_unresolved);
     }
 
+    /// The pointer's place in the window, logical pixels; none while it is outside.
+    pub(crate) fn pointer(&self) -> Option<(f32, f32)> {
+        self.windows.single().ok().and_then(|w| w.cursor_position()).map(|p| (p.x, p.y))
+    }
+
+    /// The window's size, logical pixels.
+    pub(crate) fn window_size(&self) -> Option<(f32, f32)> {
+        self.windows.single().ok().map(|w| (w.width(), w.height()))
+    }
+
     pub(crate) fn write(&self, game: &mut fnv_game::Game<'_>) {
+        self.install_measure(game);
         if game.ui_files.is_none() {
             return;
         }
         if let Ok(window) = self.windows.single() {
             // T15a: interface units only while a T15 menu is drawn from its file.
-            let units = self.menus.as_ref().is_some_and(|m| interface_screen(**m));
-            write_screen(&mut game.ui_tree, window.width(), window.height(), units);
+            // Also while the classic VATS screen is the game's file (`vats_menu`), which
+            // places its pieces by `screen()` as those menus do.
+            // And while the start menu's Mods page is up (`mods`): MCM's window centres
+            // itself by `screen()` [observed: menu-xml.md §10.1].
+            let mods_page = self.menus.as_ref().is_some_and(|m| m.start) && self.paused.as_deref().zip(self.page.as_deref()).is_some_and(|(p, pg)| crate::pause::mods_open(p, pg));
+            let units = self.menus.as_ref().is_some_and(|m| interface_screen(**m)) || game.ui_vats || mods_page;
+            if game.ui_vats {
+                write_screen_scaled(&mut game.ui_tree, window.width(), window.height(), crate::interface::menu_scale());
+            } else {
+                write_screen(&mut game.ui_tree, window.width(), window.height(), units);
+            }
         }
         let report = ui_loading::sync(game, self.paused.as_ref().is_some_and(|p| p.0), self.main_menu.as_ref().is_some_and(|m| m.open));
         for line in report.changes {
@@ -98,13 +154,22 @@ impl MenuFiles<'_, '_> {
 }
 
 /// Whether `screen()` is written in interface units ([`write_screen`]): only while a T15
-/// menu (`MessageMenu`, `QuantityMenu`, `SleepWaitMenu`, `TutorialMenu`) or the start menu's Mods page
-/// (T11, `mods`) is switched on, whose files centre their boxes by `screen()` (MCM's `x`
-/// and `y`, menu-xml.md §10). The default game and the tile HUD alone keep the window's
-/// pixels [design]. The original reports interface units [observed: hud_menus capture
-/// 2026-10-31, three window sizes]; applying them unconditionally is a follow-up.
+/// menu (`MessageMenu`, `QuantityMenu`, `SleepWaitMenu`, `TutorialMenu`, `ContainerMenu`, `TraitMenu`, `CharGenMenu`, `DialogMenu`) is switched on,
+/// whose files centre their boxes by `screen()`, or `StatsMenu`, whose lines take their thickness from the
+/// converter and whose hotrects' `alpha` 0 this same gate lets pass (pipboy.md §5.1.1). The
+/// default game and the tile HUD alone keep the window's pixels [design]. The gate is one for
+/// the whole tree, not a menu's own: `StatsMenu` beside the tile HUD changes the shared screen
+/// traits and the HUD's hotrect-alpha handling, as any of these does, and beside another of
+/// them changes nothing more. The Pip-Boy's canvas is never written here. The original reports
+/// interface units [observed: hud_menus capture 2026-10-31, three window sizes]; applying them
+/// unconditionally is a follow-up. The start menu's switch is not one of them: it is on by
+/// default, and its Mods page asks for interface units only while it is up
+/// ([`MenuFiles::write`]).
 pub fn interface_screen(menus: vanilla::TileMenus) -> bool {
-    menus.message || menus.quantity || menus.sleep_wait || menus.tutorial || menus.start
+    if menus.repair_services || menus.repair_menu || menus.item_mod {
+        return true;
+    }
+    menus.message || menus.quantity || menus.sleep_wait || menus.tutorial || menus.container || menus.barter || menus.recipe || menus.traits || menus.tags || menus.stats || menus.dialog || menus.inventory || menus.map
 }
 
 /// Write `screen()`'s traits for a window `window_width` x `window_height` (logical
@@ -112,7 +177,7 @@ pub fn interface_screen(menus: vanilla::TileMenus) -> bool {
 /// ([`screen_size`]) and `resolutionconverter` ([`resolution_converter`]); otherwise the
 /// window's size, as fnvtool's `--screen`, and no converter, as before T15a [design:
 /// menu-xml.md §4.2, `screen()` row]. `cropx` and `cropy` stay unset until their units are
-/// known [design]. The HUD's places are worked out from the shape alone
+/// known, but while the dialogue menu's file reads them (`dialog_menu`) [design]. The HUD's places are worked out from the shape alone
 /// (`fnv_game::ui_hud::write`), so they are the same either way.
 pub fn write_screen(ui: &mut fnv_ui::Ui, window_width: f32, window_height: f32, interface_units: bool) {
     let id = ui.screen();
@@ -125,6 +190,20 @@ pub fn write_screen(ui: &mut fnv_ui::Ui, window_width: f32, window_height: f32, 
         ui.set_trait(id, "width", Value::Num(f64::from(window_width)));
         ui.set_trait(id, "height", Value::Num(f64::from(window_height)));
     }
+}
+
+/// [`write_screen`] in interface units for a view drawn at `scale` (the UI scale, at most
+/// 100 %: `crate::interface::menu_scale`, #1631) in the window's own frame, as the HUD is: the view is
+/// 960 / scale units high, so a file that places its pieces by `screen()` keeps them at
+/// the window's edges at any scale. Written while the VATS target screen is up
+/// (`vats_menu`), which is drawn so.
+pub fn write_screen_scaled(ui: &mut fnv_ui::Ui, window_width: f32, window_height: f32, scale: f32) {
+    let id = ui.screen();
+    let s = if scale.is_finite() && scale > 0.0 { f64::from(scale) } else { 1.0 };
+    let (width, height) = screen_size(window_width, window_height);
+    ui.set_trait(id, "width", Value::Num(width / s));
+    ui.set_trait(id, "height", Value::Num(height / s));
+    ui.set_trait(id, "resolutionconverter", Value::Num(resolution_converter(window_height) / s));
 }
 
 /// `screen()`'s width and height for a window in interface units: 960 high and
@@ -336,6 +415,7 @@ impl HudTiles<'_> {
             need_stages,
             crippled: std::array::from_fn(|i| self.player_limbs.as_ref().is_some_and(|l| l.crippled(25 + i as u16))),
             animation: Default::default(),
+            ui_scale: f64::from(crate::interface::ui_scale()),
             health: self.bars.as_ref().map_or(1.0, |v| f64::from(v.health)),
             action_points: self.bars.as_ref().map_or(1.0, |v| f64::from(v.action_points)),
             condition: weapon.condition.map(f64::from),
@@ -406,8 +486,9 @@ struct MenusWritten {
     quantity: Option<(fnv_ui::TileId, menus::Amount)>,
     /// T15b: the Wait / Sleep menu.
     sleep_wait: Option<wait_menu::Shown>,
-    /// The text sizes written, the message box's, the prompt's and the Wait menu's.
-    sizes: [menus::SizesWritten; 3],
+    /// The text sizes written, the message box's, the prompt's, the Wait menu's and the
+    /// start menu's.
+    sizes: [menus::SizesWritten; 4],
     /// [design] Each fallback reason is warned once per session, including after reopen.
     fallbacks: std::collections::HashSet<String>,
 }
@@ -431,6 +512,8 @@ struct MenuTiles<'w, 's> {
     /// T15b: the Wait / Sleep menu and its words.
     wait: Option<Res<'w, crate::wait::WaitMenu>>,
     words: Option<Res<'w, crate::wait::model::Words>>,
+    /// The ITEMS page's decision, for its prompt (`inventory_menu`).
+    inventory: Option<Res<'w, inventory_menu::InventoryTiles>>,
     written: Local<'s, MenusWritten>,
 }
 
@@ -445,15 +528,36 @@ impl MenuTiles<'_, '_> {
     /// (each measured again only when its string changed), before scripts [design:
     /// ui-tile-tree.md §4.1]. Off, or without the menu files, nothing.
     fn write(&mut self, game: &mut fnv_game::Game<'_>, switch: vanilla::TileMenus, fonts: &mut draw::FontKit, calendar: Option<fnv_sim::clock::Calendar>) {
-        if !(switch.message || switch.quantity || switch.sleep_wait) || game.ui_files.is_none() {
+        if !(switch.message || switch.quantity || switch.sleep_wait || switch.container || switch.barter || switch.inventory || switch.start) || game.ui_files.is_none() {
             return;
+        }
+        // T11: the start menu's text sizes while a mod's tiles are in it, as the code
+        // measures them: MCM's mod-list rows take their height from a measured text
+        // (`MCM_ModList_Size`, ModListRect.xml) and GetMCMListWidth reads the rows' text
+        // widths [observed: menu-xml.md §10.2]. The start menu is built only while the
+        // pause menu is open.
+        if switch.start {
+            if let Some(menu) = game.ui_tree.menu(mods::START_MENU).filter(|&m| game.ui_tree.has_mod_added_tiles(m)) {
+                let ui = &mut game.ui_tree;
+                let texts = menus::texts(ui, menu);
+                let size = fonts.menu_measure(&menus::fonts_of(ui, &texts));
+                menus::write_text_sizes_of(ui, &texts, &mut self.written.sizes[3], &size);
+            }
         }
         self.write_wait(game, switch, fonts, calendar);
         // [design] Reconsider an overflowing box when its view changes: using the final
         // tiled decision here would prevent a later short box from being written.
         let message_open = switch.message && game.menu == Some(fnv_game::game::menus::MESSAGE);
         let message = (message_open && menus::message_built(&game.ui_tree).yes()).then(|| game.ui_tree.menu(menus::MESSAGE_MENU)).flatten();
-        let quantity = self.quantity().filter(|_| menus::quantity_tiled(switch.quantity, game, true));
+        // [design] Over either item menu drawn from tiles the prompt is too. This frame's
+        // decision, the one the item-menu writers take after this writer: their menu state
+        // here would still be last frame's.
+        let shown = self.active.as_ref().and_then(|a| a.0.as_ref());
+        let prompt_open = shown.is_some_and(|m| m.quantity.is_some());
+        let container_tiled = prompt_open && (container_menu::tiled(switch.container, game, container_menu::is_container(shown))
+            || barter_menu::tiled(switch.barter, game, barter_menu::is_barter(shown))
+            || self.inventory.as_ref().is_some_and(|i| i.ready.is_some()));
+        let quantity = self.quantity().filter(|_| menus::quantity_tiled(switch.quantity, game, true, container_tiled));
         let prompt = quantity.and_then(|q| game.ui_tree.menu(menus::QUANTITY_MENU).map(|m| (m, q)));
         // Which showing the box on screen is (counted up for every box shown, one alike
         // included): its rows are made again for another (`menus::another_box`).
@@ -490,7 +594,7 @@ impl MenuTiles<'_, '_> {
         if message_open {
             written.warn_fallback(menus::MESSAGE_MENU, menus::message_status(ui));
         }
-        if switch.quantity && self.active.as_ref().and_then(|a| a.0.as_ref()).is_some_and(|m| m.quantity.is_some()) {
+        if (switch.quantity || container_tiled) && prompt_open {
             written.warn_fallback(menus::QUANTITY_MENU, menus::quantity_built(ui));
         }
         match prompt {
@@ -706,6 +810,7 @@ fn write_tutorial(
     mut fonts: draw::FontKit,
     mut written: Local<TutorialWritten>,
     mut check: ResMut<TutorialScrollCheck>,
+    bindings: Option<Res<crate::bindings::Bindings>>,
 ) {
     check.wrote = None;
     if !switch.tutorial {
@@ -723,7 +828,7 @@ fn write_tutorial(
         check.drawn = None;
         return;
     }
-    let pages = crate::tutorial_menu::pages_with(game, tutorial_menu::body_text);
+    let pages = crate::tutorial_menu::pages_with(game, tutorial_menu::body_text, bindings.as_deref());
     let (Some(menu), false) = (game.ui_tree.menu(tutorial_menu::TUTORIAL_MENU), pages.is_empty()) else { return };
     let at = view.page.min(pages.len() - 1);
     let now = tutorial_menu::Shown { menu, page: pages[at].clone(), at, of: pages.len() };
@@ -768,16 +873,110 @@ fn check_tutorial_drawn(ui: &mut fnv_ui::Ui, check: &mut TutorialScrollCheck) {
     }
 }
 
+/// T15c: write the container menu's traits before the input's step (`input::feed`): a new
+/// snapshot of the model when it changed, then its sizes, places, scroll and highlight every
+/// frame it is drawn (`container_menu::settle`), so the input and the drawing see one state.
+#[allow(clippy::too_many_arguments)]
+fn write_container(
+    mut script: ResMut<ScriptState>,
+    switch: Res<vanilla::TileMenus>,
+    active: Res<crate::menu::ActiveMenu>,
+    mut sim: ResMut<crate::sim::SimState>,
+    (combat, play): (Option<Res<crate::combat::Combat>>, Option<Res<crate::PlayWorld>>),
+    mut forms: Local<Option<crate::pipboy::stats::read::Forms>>,
+    mut fonts: draw::FontKit,
+    mut st: ResMut<container_menu::ContainerTiles>,
+) {
+    if !switch.container {
+        return;
+    }
+    let model = active.0.as_ref().filter(|_| container_menu::is_container(active.0.as_ref()));
+    let Some(rt) = script.rt.as_ref() else { return };
+    let game = &rt.game;
+    if model.is_some() && game.ui_files.is_some() && game.menu == Some(crate::script::MENU_CONTAINER) && !st.warned {
+        if let menus::Tiled::No(reason) = container_menu::built(&game.ui_tree) {
+            warn!("{} drawn by hand: {reason}", container_menu::CONTAINER_MENU);
+            st.warned = true;
+        }
+    }
+    let Some(m) = model else {
+        if st.menu.is_some() || st.shown().is_some() {
+            st.close();
+        }
+        return;
+    };
+    let menu = if container_menu::tiled(true, game, true) { game.ui_tree.menu(container_menu::CONTAINER_MENU) } else { None };
+    st.menu = menu;
+    let Some(menu) = menu else { return };
+    // What the model shows is read when it changed: an aid's figures run its conditions.
+    let due = active.is_changed() || st.needs_snapshot(menu);
+    // The load order's setting over NVForever's label.
+    // With a controller the button that takes all (X, `crate::pad::menu_buttons`) [#1662].
+    let hint = if due { crate::pad::game_hint(&fnv_game::ui_loading::game_string(game, container_menu::TAKE_ALL_HINT), &[KeyCode::KeyR], crate::pad::at_menu(crate::script::MENU_CONTAINER)) } else { String::new() };
+    let new = due.then(|| {
+        if forms.is_none() {
+            *forms = play.as_ref().map(|p| crate::pipboy::stats::read::Forms::new(p.lo, p.schema));
+        }
+        let note = crate::menu::note(m, &sim);
+        let info = m.selected_row(m.focus).map(|r| crate::pipboy::items::info_of(r, combat.as_deref(), sim.bypass_change_detection(), forms.as_mut(), Some(script.bypass_change_detection())));
+        container_menu::Snapshot::of(m, info.as_ref(), note, hint)
+    });
+    let Some(rt) = script.rt.as_mut() else { return };
+    let ui = &mut rt.game.ui_tree;
+    let mut told = false;
+    if let Some(s) = new {
+        if st.is_new(menu, &s) {
+            container_menu::write(ui, &s, &mut st);
+            told = true;
+        }
+    }
+    let texts = menus::texts(ui, menu);
+    // Each round's fonts as the tree stands then: a computed font follows what was just written.
+    let mut write_sizes = |ui: &mut fnv_ui::Ui, sizes: &mut menus::SizesWritten| {
+        let size = fonts.menu_measure(&menus::fonts_of(ui, &texts));
+        menus::write_text_sizes_of(ui, &texts, sizes, &size)
+    };
+    st.settle_shown(ui, &mut write_sizes);
+    if let (true, Some(s)) = (told, st.shown()) {
+        // New rows are marked before this frame's input (the clip) too.
+        container_menu::mark_tiles(ui);
+        info!("{}", container_menu::describe(ui, s));
+    }
+}
+
 /// Works the tree out after the scripts; nothing to do on a frame where nothing changed
 /// it (`fnv_ui::Ui::update`). The scripts' gradual changes step first, on real time
 /// (`fnv_game::ui_gradients`, task T9).
-fn update(mut script: ResMut<ScriptState>, time: Res<Time<Real>>, mut wait_check: ResMut<input::WaitSliderCheck>, mut tutorial_check: ResMut<TutorialScrollCheck>) {
+#[allow(clippy::too_many_arguments)]
+fn update(mut script: ResMut<ScriptState>, time: Res<Time<Real>>, mut wait_check: ResMut<input::WaitSliderCheck>, mut tutorial_check: ResMut<TutorialScrollCheck>, mut container: ResMut<container_menu::ContainerTiles>, mut barter: ResMut<barter_menu::BarterTiles>, mut recipe: ResMut<recipe_menu::RecipeTiles>, mut traits: ResMut<trait_menu::TraitTiles>, mut tags: ResMut<tag_menu::TagTiles>) {
     let Some(rt) = script.rt.as_mut() else { return };
     rt.game.ui_gradients.step(&mut rt.game.ui_tree, f64::from(time.delta_secs()));
     if rt.game.ui_files.is_some() {
         rt.game.ui_tree.update();
         input::check_wait_drawn(&rt.game.ui_tree, &mut wait_check);
         check_tutorial_drawn(&mut rt.game.ui_tree, &mut tutorial_check);
+        // T15c: the marks after the scripts (a tile injected this frame is covered), and the
+        // scroll drawn.
+        if container.menu.is_some() {
+            container_menu::mark_tiles(&mut rt.game.ui_tree);
+            container.check_drawn(&rt.game.ui_tree, &mut |line| info!("{line}"));
+        }
+        if barter.menu().is_some() {
+            barter_menu::mark_tiles(&mut rt.game.ui_tree);
+            barter.view.check_drawn(&rt.game.ui_tree, &mut |line| info!("{line}"));
+        }
+        if recipe.menu.is_some() {
+            recipe_menu::mark_tiles(&mut rt.game.ui_tree);
+            recipe.check_drawn(&rt.game.ui_tree, &mut |line| info!("{line}"));
+        }
+        if traits.menu.is_some() {
+            trait_menu::mark_tiles(&mut rt.game.ui_tree);
+            traits.check_drawn(&rt.game.ui_tree, &mut |line| info!("{line}"));
+        }
+        if tags.menu.is_some() {
+            selection_menu::mark_tiles::<{ fnv_game::game::menus::TAG_SKILLS }>(&mut rt.game.ui_tree);
+            tags.check_drawn(&rt.game.ui_tree, &mut |line| info!("{line}"));
+        }
         // Once, if something changes the tree's shape every frame (#1061).
         if let Some(line) = rt.game.ui_tree.take_reshape_warning() {
             warn!("{line}");
@@ -798,16 +997,82 @@ impl Plugin for TilesPlugin {
         // hidden after every drawing system, before visibility is passed down [design].
         vanilla::setup(app);
         input::setup(app);
+        stats_menu::setup(app);
+        inventory_menu::setup(app);
+        map_menu::setup(app);
+        vats_menu::setup(app);
         app.init_resource::<draw::TileFonts>()
+            .init_resource::<runtime_images::RuntimeImages>()
             .init_resource::<TutorialScrollCheck>()
+            .init_resource::<container_menu::ContainerTiles>()
+            .init_resource::<barter_menu::BarterTiles>()
+            .init_resource::<recipe_menu::RecipeTiles>()
+            .init_resource::<repair_services_menu::RepairServicesTiles>()
+            .init_resource::<repair_menu::RepairTiles>()
+            .init_resource::<item_mod_menu::ItemModTiles>()
+            .add_message::<crate::repair::RepairServicesInput>()
+            .init_resource::<container_menu::TileWheelTitle>()
+            .init_resource::<tag_menu::TagTiles>()
+            .insert_resource(tag_menu::aid_from_env())
+            .init_resource::<trait_menu::TraitTiles>()
+            .insert_resource(trait_menu::aid_from_env())
             .init_resource::<menus::TileMenuBlur>()
+            .init_resource::<dialog_menu::DialogTiles>()
+            .init_resource::<dialog_menu::SharedWritten>()
             // T15b: after the tutorial menu's keys, in the scripts' chain, before they run.
             .add_systems(Update, write_tutorial.in_set(PlaySet::Scripts).after(crate::tutorial_menu::keys).before(crate::script::run_scripts))
             .add_systems(Update, write.after(PlaySet::Physics).after(crate::compass::place).before(PlaySet::Activation))
+            // T15c: the container menu's state for this frame's input.
+            .add_systems(Update, write_container.after(write).before(input::feed))
+            .add_systems(Update, barter_menu::write_system.after(write).before(input::feed))
+            .add_systems(Update, recipe_menu::write_system.after(write).before(input::feed))
+            .add_systems(Update, repair_services_menu::write_system.after(write).before(input::feed))
+            // [design] The trait and tag-skill lists, likewise.
+            .add_systems(Update, trait_menu::write_system.after(write).before(input::feed))
+            .add_systems(Update, selection_menu::write_system::<{ fnv_game::game::menus::TAG_SKILLS }>.after(write).before(input::feed))
             // T8: the pointer and keys after the engine's writes, before scripts (§4.1 step 1).
-            .add_systems(Update, input::feed.after(write).before(PlaySet::Activation))
+            .add_systems(Update, input::feed.after(write).after(crate::menu::WheelHoldSet).before(PlaySet::Activation))
             .add_systems(Update, update.after(PlaySet::Scripts).before(PlaySet::Ui))
-            .add_systems(Update, (draw::draw, draw::scroll, model::animate).chain().in_set(PlaySet::Ui))
+            .add_systems(Update, repair_services_menu::after_update.after(update).before(PlaySet::Ui))
+            // The Pip-Boy's STATS page: written after the tile input and before the scripts;
+            // again after its keys and decided before the frame and the tile drawing read it.
+            .add_systems(Update, stats_menu::feed.after(input::feed).after(crate::pipboy::PointerSet).before(PlaySet::Activation))
+            .add_systems(Update, stats_menu::write.after(stats_menu::feed).before(PlaySet::Activation))
+            .add_systems(Update, stats_menu::settle.in_set(PlaySet::Ui).after(crate::pipboy::stats::prepare).before(crate::pipboy::frame::draw))
+            // The Pip-Boy's ITEMS page, in the same three steps; its model's keys and commands
+            // have run by `prepare`, the first system after them in the Pip-Boy's chain.
+            .add_systems(Update, inventory_menu::feed.after(input::feed).after(crate::pipboy::PointerSet).before(PlaySet::Activation))
+            .add_systems(Update, inventory_menu::write.after(inventory_menu::feed).before(PlaySet::Activation))
+            .add_systems(Update, inventory_menu::settle.in_set(PlaySet::Ui).after(crate::pipboy::stats::prepare).before(crate::pipboy::frame::draw))
+            // The Pip-Boy's DATA page, in the same three steps; its preparation (the model's keys,
+            // the acts, what it shows) is `data::prepare`, before the decision and the frame.
+            .add_systems(Update, map_menu::feed.after(input::feed).after(crate::pipboy::PointerSet).before(PlaySet::Activation))
+            .add_systems(Update, map_menu::write.after(map_menu::feed).before(PlaySet::Activation))
+            // The Local Map's outline as its runtime picture, before the decision writes its name.
+            .add_systems(Update, map_menu::give_outline.in_set(PlaySet::Ui).after(crate::pipboy::data::prepare).before(map_menu::settle))
+            .add_systems(Update, map_menu::settle.in_set(PlaySet::Ui).after(crate::pipboy::data::prepare).before(crate::pipboy::frame::draw))
+            // The Pip-Boy's repair page, in the same three steps; its model's keys have run by
+            // `prepare`, in the Pip-Boy's chain.
+            .add_systems(Update, repair_menu::feed.after(input::feed).after(crate::pipboy::PointerSet).before(PlaySet::Activation))
+            .add_systems(Update, repair_menu::write_system.after(repair_menu::feed).before(PlaySet::Activation))
+            .add_systems(Update, repair_menu::settle.in_set(PlaySet::Ui).after(crate::pipboy::stats::prepare).before(crate::pipboy::frame::draw))
+            // The Pip-Boy's weapon mod menu, in the same three steps; its model's keys have run
+            // by `prepare`, in the Pip-Boy's chain.
+            .add_systems(Update, item_mod_menu::feed.after(input::feed).after(crate::pipboy::PointerSet).before(PlaySet::Activation))
+            .add_systems(Update, item_mod_menu::write_system.after(item_mod_menu::feed).before(PlaySet::Activation))
+            .add_systems(Update, item_mod_menu::settle.in_set(PlaySet::Ui).after(crate::pipboy::stats::prepare).before(crate::pipboy::frame::draw))
+            // The dialogue menu (`dialog_menu`): what the model says, at each of the runtime's
+            // transitions and before the frame's scripts; then what they left measured and
+            // placed, worked out by `update`, and what can be hit as it is then drawn.
+            .add_systems(Update, dialog_menu::install_hook.after(PlaySet::Physics).before(PlaySet::Activation))
+            .add_systems(Update, dialog_menu::publish_system.in_set(PlaySet::Scripts).after(crate::dialogue::input).before(crate::script::run_scripts))
+            .add_systems(Update, dialog_menu::write_system.after(PlaySet::Scripts).before(update))
+            .add_systems(Update, dialog_menu::snapshot_system.after(update).before(PlaySet::Ui))
+            // The classic VATS screen (`vats_menu`): after the mode's work for the frame and
+            // the scripts, built, written and worked out by `update` before it is drawn.
+            .add_systems(Update, vats_menu::write_system.after(PlaySet::Scripts).after(crate::vats_mode::VatsUpdate).before(update))
+            // After the character menus' sync, so the trait menu's decision reads this frame's.
+            .add_systems(Update, (draw::draw, draw::scroll, model::animate).chain().in_set(PlaySet::Ui).after(crate::pipboy::frame::draw).after(crate::chargen::ChargenSet))
             .add_systems(PostUpdate, vanilla::hide_hand_built.before(bevy::camera::visibility::VisibilitySystems::VisibilityPropagate));
     }
 }
@@ -816,6 +1081,49 @@ impl Plugin for TilesPlugin {
 mod tests {
     use super::*;
     use fnv_ui::{MemSource, Ui};
+
+    #[test]
+    fn string_metrics_install_when_source_arrives_and_again_after_restore() {
+        fn install(files: MenuFiles, mut scripts: ResMut<ScriptState>) {
+            files.install_measure(&mut scripts.rt.as_mut().unwrap().game);
+        }
+        let mut app = App::new();
+        app.insert_resource(ScriptState::over_no_plugins()).add_systems(Update, install);
+        app.update();
+        assert!(app.world().resource::<ScriptState>().rt.as_ref().unwrap().game.ui_extra.measure.is_none());
+
+        // A synthetic, empty source: installation must not depend on GPU assets or a HUD.
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../target-check").join(format!("string-metrics-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let schema = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/nif");
+        app.insert_resource(GameData::open_for_plugins(&dir, &[] as &[&str], &schema).unwrap());
+        app.update();
+        {
+            let mut scripts = app.world_mut().resource_mut::<ScriptState>();
+            let game = &mut scripts.rt.as_mut().unwrap().game;
+            assert!(game.ui_extra.measure.is_some());
+            assert_eq!(game.ui_extra.measure.as_ref().unwrap()(9.0, "ab", 0.0), (0.0, 0.0, 0.0));
+            // A later frame preserves the installed callback rather than replacing its cache.
+            game.ui_extra.measure = Some(Box::new(|_, _, _| (12.0, 34.0, 1.0)));
+        }
+        app.update();
+        {
+            let mut scripts = app.world_mut().resource_mut::<ScriptState>();
+            let game = &mut scripts.rt.as_mut().unwrap().game;
+            assert_eq!(game.ui_extra.measure.as_ref().unwrap()(9.0, "ab", 0.0), (12.0, 34.0, 1.0));
+            let snapshot = game.snapshot();
+            let world = fnv_sim::World::restore(game.world.forms, game.world.placed, &snapshot.sim).unwrap();
+            *game = fnv_game::Game::restore(game.data, world, game.cfg, &snapshot).unwrap();
+            assert!(game.ui_extra.measure.is_none());
+        }
+        // This is the same installation used before the restart/load script runners.
+        app.update();
+        let scripts = app.world().resource::<ScriptState>();
+        let game = &scripts.rt.as_ref().unwrap().game;
+        assert_eq!(game.ui_extra.measure.as_ref().unwrap()(9.0, "ab", 0.0), (0.0, 0.0, 0.0));
+        drop(app);
+        std::fs::remove_dir(&dir).unwrap();
+    }
 
     #[test]
     fn fallback_reasons_are_warned_once_across_reopens() {
@@ -845,6 +1153,38 @@ mod tests {
         ui
     }
 
+    /// [design] The gate is global: `StatsMenu` beside the tile HUD changes what the HUD gets,
+    /// the screen's units and whether a hotrect's `alpha` 0 passes to what is under it, and
+    /// beside another menu of the gate it changes nothing more. A synthetic hotrect and image.
+    #[test]
+    fn stats_menu_turns_on_the_one_gate_every_menu_shares() {
+        use vanilla::TileMenus;
+        let hud = TileMenus { hud: true, ..Default::default() };
+        let stats = TileMenus { stats: true, ..Default::default() };
+        let both = TileMenus { hud: true, stats: true, ..Default::default() };
+        assert!(!interface_screen(hud));
+        assert!(interface_screen(stats));
+        assert!(interface_screen(both), "the HUD beside it gets interface units too");
+        let message = TileMenus { message: true, ..Default::default() };
+        assert_eq!(interface_screen(message), interface_screen(TileMenus { stats: true, ..message }), "already on: no further change");
+        let src = MemSource::default().with("m.xml", r#"<menu name="M"><hotrect name="H"><alpha>0</alpha><image name="I"><width>4</width><height>4</height><filename>a.dds</filename></image></hotrect></menu>"#);
+        let mut ui = Ui::new();
+        let menu = ui.load_menu(&src, "m.xml").unwrap();
+        ui.update();
+        let drawn = |menus: TileMenus| {
+            let measure = |_: f64, _: &str, _: Option<f64>| (0.0, 0.0);
+            draw::pieces(&ui, menu, &measure, draw::Select::Whole { kept: &[], strip: None }, interface_screen(menus)).0.len()
+        };
+        assert_eq!(drawn(hud), 0, "the tile HUD alone keeps the hotrect's alpha");
+        assert_eq!(drawn(both), 1, "beside StatsMenu the hotrect's alpha 0 passes");
+        // The screen's traits are the window's interface units, never the Pip-Boy's canvas.
+        write_screen(&mut ui, 1280.0, 720.0, interface_screen(both));
+        ui.update();
+        let s = ui.tile(ui.screen());
+        assert_eq!(s.get("height").map(Value::num), Some(960.0));
+        assert_eq!(s.get("resolutionconverter").map(Value::num), Some(960.0 / 720.0));
+    }
+
     #[test]
     fn screen_keeps_the_windows_pixels_unless_a_t15_menu_is_on() {
         // Off (the default game, or the tile HUD alone): the window's size, no converter,
@@ -862,9 +1202,20 @@ mod tests {
         // On: interface units, 960 high, and the converter.
         assert!(interface_screen(vanilla::TileMenus { message: true, ..Default::default() }));
         assert!(interface_screen(vanilla::TileMenus { quantity: true, ..Default::default() }));
-        assert!(interface_screen(vanilla::TileMenus { start: true, ..Default::default() }));
+        // The start menu's switch alone does not (on by default; its Mods page asks while up).
+        assert!(!interface_screen(vanilla::TileMenus { start: true, ..Default::default() }));
         assert!(interface_screen(vanilla::TileMenus { sleep_wait: true, ..Default::default() }));
         assert!(interface_screen(vanilla::TileMenus { tutorial: true, ..Default::default() }));
+        assert!(interface_screen(vanilla::TileMenus { container: true, ..Default::default() }));
+        assert!(interface_screen(vanilla::TileMenus { barter: true, ..Default::default() }));
+        assert!(interface_screen(vanilla::TileMenus { recipe: true, ..Default::default() }));
+        assert!(interface_screen(vanilla::TileMenus { repair_services: true, ..Default::default() }));
+        assert!(interface_screen(vanilla::TileMenus { repair_menu: true, ..Default::default() }));
+        assert!(interface_screen(vanilla::TileMenus { item_mod: true, ..Default::default() }));
+        assert!(interface_screen(vanilla::TileMenus { traits: true, ..Default::default() }));
+        assert!(interface_screen(vanilla::TileMenus { tags: true, ..Default::default() }));
+        assert!(interface_screen(vanilla::TileMenus { dialog: true, ..Default::default() }));
+        assert!(interface_screen(vanilla::TileMenus { map: true, ..Default::default() }));
         write_screen(&mut ui, 1280.0, 720.0, true);
         ui.update();
         assert_eq!(ui.get_float("M/Box/x").map(|x| (x * 100.0).round() / 100.0), Some(803.33));

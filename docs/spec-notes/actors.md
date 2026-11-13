@@ -131,7 +131,11 @@ actor meshes`]:
   the elbow to the Pip-Boy, and another outfit's brown cuff between the Pip-Boy and the
   glove], any other actor the `PipBoyOff…` shapes [hypothesis, from the names]
   (`fnv_actor::mesh::pipboy_sleeve`). The same holds in first person, where the sleeve
-  is drawn beside the `Arms…` shapes (`fnv_actor::first_person::is_first_person_shape`).
+  is drawn beside the `Arms…` shapes (`fnv_actor::first_person::is_first_person_shape`):
+  `PipBoyOn…` with a Pip-Boy, `PipBoyOff…` without [hypothesis: the original's player
+  always wears one]. Until 2026-11-11 only `PipBoyOn…` was a first-person shape, so with
+  the Pip-Boy off the arms had no forearm sleeve and the body shown in first person kept
+  `PipBoyOff…` in the air where its hidden arm was (#2173).
   Before 2026-10-10 both sleeves were drawn on everyone, and none in first person.
 - Hair-shader shapes (BSShaderFlags bit 18) carry a mask in their vertex colours, not a
   colour: red 0.04–0.39 with green and blue at 1 in `hairbase.nif` and
@@ -213,11 +217,11 @@ actor.
 
 | Flag | What NVForever takes from the source | Where | Verdict |
 |---|---|---|---|
-| Traits | race, sex, class, karma, death item (`INAM`), voice type | `Game::traits_def` (appearance, GetIsSex, GetIsClass, GetIsVoiceType, death items, dialogue), crime alignment, `fnv_actor::resolve` | right in `fnv-game`. Voice files: `fnv_voice::VoiceIndex::voice_of` follows `TPLT` only to an actor and the engine passes the placed base, so a list-templated actor speaks with the record's own `VTCK` (#1051, fixed separately) |
+| Traits | race, sex, class, karma, death item (`INAM`), combat style (`ZNAM`), voice type | `Game::traits_def` (appearance, GetIsSex, GetIsClass, GetIsVoiceType, death items, combat style, dialogue), crime alignment, `fnv_actor::resolve` | right in `fnv-game`. Voice files: `fnv_voice::VoiceIndex::voice_of` follows `TPLT` only to an actor and the engine passes the placed base, so a list-templated actor speaks with the record's own `VTCK` (#1051, fixed separately) |
 | Stats | level, attributes, skills, health, speed mult, creature type, combat skill, base scale | `Game::stats_def`, `creature_pace`, `fnv_actor::resolve` | right |
 | Factions | `SNAM` list | `GameData::base_factions_at` | right; NVSE GetBaseNumFactions / GetBaseNthFaction / GetBaseNthRank / GetBaseFactions follow an NPC template chain whenever the flag is set (`GameData::base_template_source`, #1057) |
 | Actor Effect List | `SPLO` abilities | `abilities.rs`, `combat.rs` | right; NVSE GetBaseSpellListSpells follows an NPC template chain whenever the flag is set (#1057) |
-| AI Data | aggression, confidence, …, combat style, services, aggro radius | `def_following(template_ai)` | right |
+| AI Data | aggression, confidence, …, services, aggro radius | `def_following(template_ai)` | right; the combat style was read from here until #2138, but the GECK wiki puts it on the Traits tab (Traits Tab - NPC, Traits Tab - Creatures; AI Data Tab has none) [documented] |
 | AI Packages | `PKID` list | `GameData::base_package_list_at` | right; NVSE GetPackageCount / GetNthPackage / GetBasePackages follow an NPC template chain whenever the flag is set (`GameData::base_template_source`, #1057) |
 | Model/Animation | skeleton, head parts, FaceGen, creature models and animations, No Blood flags, movement flags, impact material, creature impact data set, creature sounds | `fnv_actor::resolve`, `GameData::no_blood`, `movement_def`, `GameData::model_base_at` | was wrong: impact material and impact data set read from the placed base (#1053), creature sounds took the picked creature's own list first (#1054); fixed |
 | Base Data | name, Essential, Respawn, No Low Level Processing, Invulnerable, Is Ghost, Not Pushable, head and limb flags, Can't Open Doors, Allow PC Dialogue | `base_data_def`, `display_base`, `minor_flags` | right; No VATS Melee is read from the record's own flags, as documented |
@@ -1116,6 +1120,8 @@ sequences): 70 directly in it, 9 in `male\`, 9 in `female\`, 8 in `child\` and 2
   copies) start `Bip01` off height 0, at a constant 67–68 with no `Bip01 NonAccum`
   track; taken as they are they lifted NPCs 66 units off the ground
   [observed; rule hypothesis, docs/spec-notes/floating-actors.md].
+  The same four clips also turn `Bip01` 90° about z: with no `Bip01 NonAccum` track a
+  clip's root rotation counts from its track's start too (floating-actors.md §8, #2246).
 
 ### 8.3 Selection, blending, phase and speed (engine)
 
@@ -1163,6 +1169,17 @@ All rules here are engine choices unless tagged otherwise. Layer 6 replaces the 
   `Enum: Right` at 0.57 s), so they are not used]. During such a fade both clips advance
   at the weight-blended cycle rate so the feet stay in step. Idle and turns start at
   phase 0, except an actor's first idle, which starts at its spread phase (§7.3).
+- **Jumps are not steps** (#1473): a drawn actor's velocity is its drawn step over the
+  frame, so a script's MoveTo or MoveToMarkerWithFade (the Strip travellers sent to
+  another port, the crowd the Freeside gate's script places) read as thousands of units
+  per second; the smoothed gait speed then took about a second to fall under the
+  walk/run switch, and the actor ran while it faded in, though its package does not run
+  [observed: owner playtest 2026-11-03; the travellers' packages have no Always Run,
+  `fnvtool ai show`]. A frame in which a script put the actor somewhere, or whose step
+  is longer than 512 units (`nav::JUMP_STEP`), keeps last frame's velocity and turn
+  [design]. Log (actors a script created, enabled or moved, their first second drawn):
+  `ai [hh:mm] <label>: first second drawn after <why>: N walk frames, M run frames
+  (walker at S units/s)`; smoke `strip-fade-in-walk`.
 - **Body**: female actors use `locomotion\female\`, others `locomotion\male\`
   (`fnv_actor::locomotion::clip_candidates`; a missing file falls back to `male\`).
   Children (`child\`) need the race's child flag, which the records reader does not take
@@ -1314,6 +1331,20 @@ only in the walk test and on the player's body. All rules here are engine choice
   0.12 s, 128 to 98° in 0.27 s (it stepped about 125 units/s meanwhile); a trooper
   spawned 14° off turned it at 225°/s. So a person's combat turn starts near 270°/s and
   eases out, faster than ours (120°/s standing) [issue #1352].
+  Measured again 2026-11-06 (capture o25_turn, nvfairport runway, an LvlNCRTrooper with
+  a 10mm spawned 400 units north of the player, SetAngle Z to 45°, 90° or 135° off its
+  bearing to the player, then StartCombat; heading every game loop, about 64 a second)
+  [observed]: the trooper stood still on its first heading for about 1.1 s after
+  StartCombat (in combat at once, GetAnimAction −1), then turned. Off by 45° and by
+  90° (two runs each, the same to the tenth of a degree), it turned 3.5° a game loop,
+  about 225°/s, at a steady rate to within 2° of the bearing and stopped on it,
+  standing; it set off only after. Off by 135°, it turned 4.3° a loop (about 275°/s,
+  the rate seen at 180°) while standing, then slower (3.0, 2.5, then 1.4° a loop) from
+  the moment it began to step forward, 0.13 s into the turn. So there is no ease-out
+  by angle or time: the rate is set when the turn begins (about 225°/s up to 90°, 275°/s
+  beyond [hypothesis: a threshold between 90° and 135°]) and falls while the actor
+  moves. Ours: 240°/s flat standing in combat (`SPOT_TURN_RATE` × `COMBAT_TURN`), with
+  no delay before the turn.
 - **Before walking** (`fnv_nav::Walker`): a walker that stands (it did not move in its
   last update: at the start of a path, after waiting at a door, after arriving through a
   teleport door) and whose way lies more than 20° off its heading
@@ -1583,7 +1614,8 @@ stopped and started, as Victor's walk had before #258). Code:
   (`fnv_ai::keep_step_speed`, `catch_up`: up to 1.5 × the run, 333).
   The brahmin kept 440–530 units behind it while both walked, closed to
   about 300 when the merchant stopped, and ran when about 800–1,060 behind
-  (docs/design/actor-behaviour.md, Follow).
+  (docs/design/actor-behaviour.md, Follow; since #2122 ours closes to 150 inside the
+  distance once its target stops, 300 for 450).
 - **People** (added 2026-10-24; `fnv_ai::NPC_WALK`, `NPC_RUN`,
   `fnv_game::combat::armor_speed`, `creature_pace::person_pace`). Before this every person
   walked at 86.8 and ran at 344, the player's speeds (physics.md §6.3).
@@ -1620,7 +1652,7 @@ stopped and started, as Victor's walk had before #258). Code:
     the merchant's 77–78 was with its weapon drawn. The player's 86.8 is 1.7% above the
     people's median and kept for the player. Speed Mult: people move at it ("a
     multiplier times a standard movement speed" [documented: GECK wiki Stats Tab - NPC],
-    `creature_pace::npc_speeds`, from the ESM actor audit); against it [observed, one
+    `creature_pace::paced_speeds`, from the ESM actor audit); against it [observed, one
     actor]: Cook-Cook has Speed Mult 110 and ran 255, the 258 above without it, 284 with
     it (asked in docs/owner-review.md); every other person measured had Speed Mult 100.
     Measured 2026-11-01 (observer check 13, o18_air run_speedmult100/150) [observed]: an
@@ -1628,8 +1660,10 @@ stopped and started, as Victor's walk had before #258). Code:
     at SetAV SpeedMult 100 and 457-468 at 150 (two troopers), 1.5 times: a person's run
     is proportional to its Speed Mult, as ours; Cook-Cook stays the one exception seen.
   - **Built**: `NPC_WALK` 85.3 and `NPC_RUN` 344 are every person's speeds, times its
-    Speed Mult (`npc_speeds`); a drawn person's both are also scaled by its body armour's
-    share (`person_pace`), the armour
+    current Speed Mult (`creature_pace::current_speed_mult`: the record's ACBS field
+    through the Stats template or SetAV's base, ModAV's, ForceAV's and effects'
+    modifiers, less damage, as GetActorValue reads it; `npc pace:` log lines); a drawn
+    person's both are also scaled by its body armour's share (`person_pace`), the armour
     being what it wears by the rules in the simulation's world (`World::equipment`, which
     the engine dresses it by: before its outfitting the pieces that will be put on),
     looked at again every second so that changes of armour count (`person pace:` log
@@ -1637,18 +1671,93 @@ stopped and started, as Victor's walk had before #258). Code:
     two-handed run penalty was built before (`npc_combat::pace`, item 61) for every
     two-handed weapon drawn in combat; whether rifles count as "big" is not measured
     (the paladins walked holstered with Gauss rifles at about the heavy armour's pace).
-  - **Not built**: the walk with a weapon drawn outside combat (77–78 here, about the
-    `1hm`/`h2h` clip or `fMoveBaseSpeed`, which of the two is open); in combat, walking
-    with a weapon drawn was faster (a fiend 105, Cook-Cook 97; not explained).
-  - **The player** (issue #1364) [hypothesis: the people's rule; not measured on the
-    player]: the player's walk and run (86.8 and 344) are multiplied by its current Speed
-    Mult over 100 (SetAV's base, ModAV's and effects' modifiers and damage, as
-    GetActorValue reads it; 0 at the least) and by its body armour's share (1, 0.925,
-    0.85 as above), on top of the crippled legs, the two-handed run, the Modify Run Speed
-    perks and the reload (`Game::move_speed_mult`, nvf-play `StatSpeed`, asked every
-    frame; smoke `player-speedmult`). Whether `setav speedmult` on the player changes
-    its speed in the original, and whether its animations then keep up, is to be checked
-    with the observer (docs/handoff/observer-checks.md).
+  - **The walk with a pistol drawn** (issue #2124; `fnv_ai::carry::drawn_walk_share`)
+    [design, the fit chosen: docs/owner-review.md]: a person, not a creature, in light
+    armour or clothes, with a pistol out (WEAP animation type 3 or 4, the ballistic and
+    energy pistols; IsWeaponOut's state, `Game::weapon_is_out`) and not in combat walks its
+    walk divided by `fMoveNoWeaponMult` (1.1 [documented: GECK wiki Movement Settings,
+    "Movement speed is multiplied by this when the actor's weapon is holstered, or the
+    actor has no weapon equipped"]): 85.3 / 1.1 = 77.5 against the 10mm pistol walks
+    above (78.0, 77.5, 78.3). Our holstered walk being the fitted one, the setting is
+    read backwards; the `1hm`/`h2h` walk clip (77.5) and `fMoveBaseSpeed` (77) give
+    about the same number and are not taken. It is a package's walk (`Ai::pace`), times
+    the actor's Speed Mult and fMoveSneakMult as before; a walk under way changes
+    between the two paces when the weapon is drawn or put away, a run, a follower's
+    matched pace and the alert and combat speeds do not. New speeds on the way (a Speed
+    Mult or armour change, `Ai::set_speeds`, issue #2118) keep the walk's share: the walk
+    goes on at the new walk / 1.1 and still follows the weapon, also through a stop at
+    Speed Mult 0 [design]. A follower (a Follow or Accompany package) takes the share
+    too, as every walk `Ai::pace` gives does [design: no person was measured following
+    with a weapon drawn, observer check 13; the movement settings apply "to all actors
+    unless otherwise noted", documented: GECK wiki Movement Settings]: in step with its
+    target it goes at the target's pace (`keep_step_speed`; the share only lowers its
+    slowest walk), and at the drawn walk where the target's pace is not known (its first
+    plan, a way through another space). Its speed is worked out again under way as the
+    gap changes (`follow_step`, `follow_speed`), so a weapon drawn or put away on the way
+    shows at once: as its walk where the target's pace is not known, as the slowest it
+    eases to otherwise. Every other stance, medium and
+    heavy armour keep the holstered walk until they are measured drawn (the stances'
+    walk clips differ, above; observer check 13).
+  - **Not built**: in combat, walking with a weapon drawn was faster (a fiend 105,
+    Cook-Cook 97; not explained).
+  - **The player** (issues #1364, #1742): the player's walk and run (86.8 and 344) are
+    multiplied by its Speed Mult over 100 (SetAV's base, ModAV's and effects' modifiers
+    and damage, as GetActorValue reads it; 0 at the least) and by its body armour's
+    share (1, 0.925, 0.85 as above), on top of the crippled legs, the two-handed run, the
+    Modify Run Speed perks and the reload; in the original that product is the one last
+    taken, not the one now (below), which NVForever does not copy.
+    Measured 2026-11-06 (capture o25_speed, `nvfairport`, the player running about 1,200
+    units along the runway by the observer's walk, holstered, one game load for all six
+    in this order) [observed]: at `setav speedmult` 100 the run was 339.7 units/s (median
+    over 10-loop windows); after `setav speedmult 150` and then `50` it was still 339.7,
+    while GetAV SpeedMult read 150 and 50. With `setav speedmult 100` and Metal Armor
+    (0x0003307F, heavy) equipped, 288.7 (0.850); with NCR Trooper Armor (0x000EE692,
+    medium), 314.2 (0.925); with that armour taken off and `modav speedmult 50` (GetAV
+    150), 509.5 (1.500). So the armour shares hold for the player, and a Speed Mult of
+    150 gives 1.5 times the run; but SetAV alone left the speed as it was until something
+    else changed in the same session (the armour put on or taken off). Whether the speed
+    is taken again only when the equipment changes, or whether ModAV applies at once and
+    SetAV never does, is open; a ModAV with no equipment change would tell. The run
+    clip's rate at 150 was not looked at (no frames).
+    Rule built (issue #1742) [design, owner 2026-11-06: the lag is a bug in the original,
+    not copied]: the factor is taken every frame, so SetAV, ModAV, ForceAV, DamageAV and
+    effects (chems, abilities) change the player's speed at once, as they do people's;
+    an equipment change is not needed. `Game::move_speed_mult`, nvf-play `StatSpeed`
+    (asked every frame; smoke `player-speedmult`). (#1756 had copied the lag with a cache
+    taken again on an equip; this replaced it.)
+  - **People and creatures** (issue #2118) [design, on the player's rule above and the
+    troopers' SetAV SpeedMult 150 run]: a drawn person's or creature's speeds follow its
+    current Speed Mult too, read every quarter second (`creature_pace::refresh_speeds`,
+    `SPEED_MULT_EVERY`) and worked out afresh from the unscaled speeds and clips each
+    time (the people's speeds × Speed Mult × the armour's share; a creature's clips ×
+    scale × Speed Mult × its skeleton's share, below), so changes never multiply on each
+    other; the armour's share, the skeleton's, the scale, the alert clips, turning and the
+    crippled legs' share stay as they are. Before, the speeds were given once from the
+    record's value and only an armour change gave them again, so SetAV, ModAV and effects
+    did nothing (a follower ran at the same speed at SetAV SpeedMult 100 and 200 in our
+    engine's run of 2026-11-11, not the original's). A walk under way takes the new
+    speeds at its next step, in the gait it was in (walk or run, a sneak's or a
+    follower's catch-up share kept: `fnv_ai::Ai::set_speeds`); a Speed Mult of 0 stops
+    the actor where it is, and it goes on in the same gait when its Speed Mult comes
+    back. Standing at 0 near the player it keeps its walk and its body, does not turn on
+    the spot and is not counted as stuck (`residents::stuck_rule`: the physics mover's
+    stuck rule is not asked at a speed of 0 and keeps in step with the speed the actor
+    moves at, so one slowed under a fifth of its walk's first speed is not moved on along
+    its path either; `fnv_nav::follow::Unstuck::set_speed`) [design]. A record whose own field
+    is 0 counts as 100, as before [design]; a 0 from SetAV, the modifiers or damage
+    stands. GetRunSpeed reads the run given (`npc pace: ... (Speed Mult 200 now, ...)`
+    lines; smoke `npc-speed-mult-changes`). Whether the clips keep up with a changed Speed
+    Mult is the same open question as for the record's value (docs/owner-review.md); they
+    follow it as they do now (`Locomotion::pace`). An actor not drawn keeps the speeds it
+    had when it was last drawn until it is drawn again; then it is given its current
+    speeds, at Speed Mult 100 and armour 1 too (`creature_pace::first_pace`), so one that
+    left at 200 or 0 does not keep them. A walk stopped at 0 keeps its gait only for that
+    walk: a package's walk planned at 0 goes on in the gait the package chose
+    (`Ai::plan`), any other at the calm walk until it is planned again. The gait kept
+    for a stopped walk (`Ai::stalled`) is not saved, nor is the walk (`fnv_ai::progress`):
+    after a load the walk is planned again at 0, and when the Speed Mult comes back a
+    package's goes on in the gait `Ai::plan` chose, any other at the calm walk until it
+    is planned again, whatever gait it stood in before the save [design].
 - **Alert stance** [observed: the owner, 2026-10-16: "the cazadors scurry along the
   ground when not alert and fly when they are alert/in combat"]: the cazador's folder
   has `h2hforward.kf` (298.15 units/s), `h2hfastforward.kf` (545.54) and `h2hidle.kf`
@@ -2107,6 +2216,35 @@ Per prefix (length of equip / unequip in seconds; where the weapon hangs, §9.2)
   clip's and the change came at the `prn:` keys: NPCs held the baseball bat end over
   end (hung from the left hand, owner's playtest 2026-10-16), and every stance's weapon
   sat in the wrong place between the `prn:` key and `Attach` / `Detach`.
+- **Hand-to-hand weapons and the hand** (#1586). The `h2h` clips' `Weapon` track is
+  the same in all four (`h2hequip`, `h2haim`, `h2hunequip`, `h2hholster`): (29.29, 0,
+  −6.50) with no rotation, under `Bip01 R ForeTwist`, which sits at the elbow ((0, 0, 0)
+  under `Bip01 R Forearm`; the hand is 18.13 along x). `powerfistrigid.nif`'s main shape
+  runs x −28.5…−8.3 in the model's frame. So the gauntlet goes from the elbow to just past
+  the wrist, and the hand would show in front of it [observed: `fnvtool nif decode`].
+  The weapon also names its own hand: WEAP `BIPL` "Biped Model List" [documented: xEdit
+  WEAP] is a form list of armour addons. `WeapPowerFistVeronica` (0x00176E5A) →
+  `WeaponPowerfist` → `ARMAPowerfist` (0x00044947, BMDT Right Hand, `PowerFist.NIF`: one
+  shape skinned to the hand bones, dismember partition 5, a metal hand). `WeapBrassKnuckles`
+  (0x00004324) → `WeaponBrassKnuckles` → `ARMABrassKnuckles` (Right Hand,
+  `BrassKnuckles.NIF` / `BrassKnucklesf.NIF`: the knuckles and a `RightHand:0` skin,
+  both skinned). The Ballistic Fist, the zap gloves and the Displacer Gloves name theirs
+  the same way [observed: FalloutNV.esm; `fnvtool actor appearance --all` draws such a
+  hand on 25 placed NPCs]. In the original, Veronica with the power fist drawn shows the
+  metal hand at the gauntlet's front and no bare hand, and the rigid gauntlet sits where
+  NVForever puts it [observed: capture `pf_h2h_rest3`, 2026-11-06, nvfairport save, her
+  placed spot at the 188, first-person camera 110 units in front and to her side, frames
+  private]. Rule (`fnv_actor::Resolver`): a held weapon's addons are worn like an outfit's.
+  They cover their slots (the race's right hand is not drawn), and a worn addon that
+  shares any slot with them (an outfit's right glove, or one glove model for both hands)
+  gives way to them, one hand model per hand; the race's bare hand shows in a slot the
+  given-way addon left [observed for the drawn power fist; hypothesis: the same while it
+  is holstered, since h2h weapons hang on the forearm either way; hypothesis: the
+  both-hands case, no such addon checked]. An NPC is dressed again when its weapon
+  changes to one with other addons (`outfits::same_worn`). The player's third-person body
+  wears them too. The first-person arms keep the bare hand [hypothesis: the first-person
+  weapon model is drawn over it, as before]. The placement was left as it was: the
+  frames show the gauntlet in the same place in both.
 - That NPCs show holstered weapons at the pelvis or on the back is [hypothesis, from the
   holster clips]; an in-game screenshot of an NPC with a holstered pistol and one with a
   rifle would settle it.
@@ -2517,6 +2655,31 @@ Rules (engine, `nvf_assets::actor`, `PartUse::by_ancestor`):
   the skeleton's root with the whole transform below the part's root.
 - Hidden nodes, editor markers and dismemberment caps are left out as for NPCs.
 - Textures are the models' own (NIFT texture hashes are not read).
+- **Part nodes for the clips** (#2228): the named nodes between such a shape and where
+  it hangs are kept as nodes of their own (`creature_rigid_chain`; with a `Prn` bone and
+  a named node, the part's root as one too), and a clip track naming a node the
+  skeleton lacks drives the part node of that name (`BlendPlayer::add_part_node`). The
+  same placement as before when nothing moves. [observed: `SpecialIdle_CutCake.kf`
+  (IDLE `CutCake`, Mister Handy cutting the cake) has 40 rotation keys on
+  `Buzzsawblad`, about one turn every 0.4 s from 3.3 s; `Buzzsawblad` is a node of
+  `gutsybuzzsaw.nif` (root the identity, `Prn` `Bip01 R Foot 01`), whose stored
+  rotation is the track's first key, and not of `creatures\mistergutsy\skeleton.nif`;
+  hypothesis: the original grafts the part's nodes under the bone, so its clips reach
+  them.]
+- **Parts that move by themselves** (#2228): a part with no skinned shape whose file has
+  controllers no sequence drives (Active, not manager controlled: texture scrolls,
+  alpha, emittance, refraction strength, transforms, visibility; `nvf_assets::model`
+  "free" tracks) is drawn as a model on its `Prn` bone at the part's root transform,
+  playing them each on its own cycle as a placed object does, its billboards turning
+  and add-on nodes emitting (`shot_fx::spawn_playing_itself`), unless a shape of it
+  hangs from a skeleton-named node of the part. [observed: Mister Handy's and Gutsy's
+  jet `fxmrhandyjetaddon.nif` (`Prn` `Bip01 Pelvis`) has no sequence; under three
+  NiBillboardNodes `##JetFlames…`, the three flame shapes share one
+  NiTexturingProperty with two looping NiTextureTransformControllers (0.47 s and
+  2.13 s) and one NiMaterialProperty with an NiAlphaController; each refraction cloud
+  node has a looping NiTransformController (0.67 s) and its shader property a
+  BSRefractionStrengthController.] Such a part is not a dismemberment shape (it is not
+  hidden with a severed limb) [design].
 
 ### 10.3 Idle
 

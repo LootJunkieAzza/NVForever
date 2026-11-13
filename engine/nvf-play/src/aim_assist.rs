@@ -49,7 +49,8 @@ use fnv_phys::{layers, Filter, Key, Owner};
 use fnv_sim::settings::Setting as GameSetting;
 use fnv_sim::FormId;
 
-/// The settings page's group of the controller's aim assist.
+/// The group the controller's rows register with (shown on the Controls tab with a
+/// controller only, `crate::settings_layout`).
 pub const GROUP: &str = "Controller";
 
 /// The range when the load order has no `fAutoAimMaxDistance` [documented: GECK wiki
@@ -328,7 +329,7 @@ impl Plugin for AimAssistPlugin {
                     set: |w, v| w.resource_mut::<AimAssist>().slowdown = v,
                     min: 0.0,
                     step: 0.05,
-                    shown: Some(|v| if v <= 0.0 { "OFF".to_string() } else { format!("{:.0}% slower", v * MAX_SLOWDOWN * 100.0) }),
+                    shown: Some(|v| if v <= 0.0 { "OFF".to_string() } else { fnv_util::words::trf("{n}% slower", &[("n", &format!("{:.0}", v * MAX_SLOWDOWN * 100.0))]) }),
                 },
             ),
         );
@@ -351,7 +352,7 @@ impl Plugin for AimAssistPlugin {
 fn assist(
     time: Res<Time>,
     state: Res<State<PlayState>>,
-    (settings, bindings, pads): (Res<AimAssist>, Res<Bindings>, Query<&Gamepad>),
+    (settings, bindings, pads): (Res<AimAssist>, Res<Bindings>, crate::pad::ActionPads),
     (locks, look, free_cam, kill_cam): (Res<ControlLocks>, Option<Res<crate::dialogue::FreeLook>>, Option<Res<crate::free_cam::FreeCam>>, Option<Res<crate::kill_cam::KillCam>>),
     (vats, driven, cursor, seat): (Option<Res<crate::vats_mode::VatsMode>>, Option<Res<crate::player::ViewDriven>>, Query<&CursorOptions, With<PrimaryWindow>>, Option<Res<crate::furniture::PlayerSeat>>),
     control: Res<PlayerControl>,
@@ -638,6 +639,7 @@ mod tests {
             shape: Shape::Box { half_extents: [half; 3] }.into(),
             shell: 0.0,
             material: None,
+            wind: false,
         };
         world.add_ref(&fnv_phys::RefPose { form_id: id, position: at, rotation: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0], scale: 1.0 }, &[wall]);
     }

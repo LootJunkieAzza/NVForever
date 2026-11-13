@@ -53,10 +53,12 @@ pub mod frame;
 pub mod hotkey_panel;
 pub mod items;
 pub mod item_mod;
+pub mod labels;
 pub mod repair;
 pub mod sounds;
 pub mod stats;
 mod test_aid;
+pub mod transition;
 
 use crate::control::{PlayerControl, Pov};
 use crate::interface::u;
@@ -108,6 +110,36 @@ const SHADE: f32 = 0.98;
 /// The pointer on the Pip-Boy's screen, for Bevy's picking.
 pub const PIPBOY_POINTER: PointerId = PointerId::Custom(Uuid::from_u128(0x6e76_665f_7069_7062_6f79_5f70_6f69_6e74));
 
+/// Where the pointer on the screen is found for the frame ([`PipBoyScreen::pointer`]): after
+/// the body is posed and before the tile input (`crate::tiles::stats_menu::feed`), which takes
+/// this frame's button with it, so a move and a press in one frame act at the new place. The
+/// device's system is nvforever's `pipboy_arm`; the flat image's is here.
+#[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct PointerSet;
+
+/// Hidden draws are arranged before the clip advances [design: nvforever/pipboy_arm.rs].
+#[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct WarmSet;
+
+/// Which system finds the pointer this frame ([`pointer_source`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PointerSource {
+    Device,
+    Flat,
+}
+
+/// One producer of [`PipBoyScreen::pointer`] for the frame, from the frame in use and whether
+/// the model shows the image: the device only while both say so. The two can disagree for a
+/// moment (`follow_frame` changes the frame before the body gives the model's screen up), and
+/// the flat image then has it, so the two systems can never overwrite each other.
+pub fn pointer_source(frame: Frame, on_model: bool) -> PointerSource {
+    if frame == Frame::Device && on_model {
+        PointerSource::Device
+    } else {
+        PointerSource::Flat
+    }
+}
+
 /// The three pages, in the order of the device's buttons.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Hash)]
 pub enum Page {
@@ -120,21 +152,43 @@ pub enum Page {
 impl Page {
     pub const ALL: [Page; 3] = [Page::Stats, Page::Items, Page::Data];
 
-    /// The page's title at the screen's top left [observed: the owner's screenshots].
+    /// The page's title at the screen's top left [observed: the owner's screenshots]: its
+    /// setting's text when the load order defines it (`labels`, #1443).
     pub fn title(self) -> &'static str {
+        use labels::label;
         match self {
-            Page::Stats => "STATS",
-            Page::Items => "ITEMS",
-            Page::Data => "DATA",
+            Page::Stats => label("sStats", "STATS"),
+            Page::Items => label("sInventoryItems", "ITEMS"),
+            Page::Data => label("sData", "DATA"),
         }
     }
 
-    /// The page's tabs, left to right [observed: the owner's screenshots].
+    /// The page's tabs, left to right [observed: the owner's screenshots]: each one's
+    /// setting's text when the load order defines it (`labels`, #1443).
     pub fn tabs(self) -> [&'static str; 5] {
+        use labels::label;
         match self {
-            Page::Stats => ["Status", "S.P.E.C.I.A.L.", "Skills", "Perks", "General"],
-            Page::Items => ["Weapons", "Apparel", "Aid", "Misc", "Ammo"],
-            Page::Data => ["Local Map", "World Map", "Quests", "Misc", "Radio"],
+            Page::Stats => [
+                label("sStatsStatus", "Status"),
+                label("sStatsSpecial", "S.P.E.C.I.A.L."),
+                label("sStatsSkills", "Skills"),
+                label("sStatsPerks", "Perks"),
+                label("sStatsGeneral", "General"),
+            ],
+            Page::Items => [
+                label("sInventoryWeapons", "Weapons"),
+                label("sInventoryApparel", "Apparel"),
+                label("sInventoryAid", "Aid"),
+                label("sInventoryMisc", "Misc"),
+                label("sInventoryAmmo", "Ammo"),
+            ],
+            Page::Data => [
+                label("sLocalMapTabText", "Local Map"),
+                label("sWorldMapTabText", "World Map"),
+                label("sQuestsTabText", "Quests"),
+                label("sMiscTabText", "Misc"),
+                label("sCommsTabText", "Radio"),
+            ],
         }
     }
 
@@ -232,22 +286,58 @@ pub struct PipBoy {
     saved_pov: Option<Pov>,
     /// The tab of the tab line under the pointer ([`frame::hover_boxes`]).
     pub hover_tab: Option<usize>,
+    /// Hidden rendering interval; a real opening still reports its page [design: pipboy_arm.rs].
+    pub warming: Option<Warming>,
+    pub warmed: bool,
+    /// [design: nvforever/player_body.rs] True until the borrowed pose is restored.
+    pub pose_hidden: bool,
+}
+
+/// One hidden draw interval [design: nvforever/pipboy_arm.rs].
+#[derive(Debug)]
+pub struct Warming {
+    pub since: std::time::Instant,
+    pub frames: u32,
+    pub asked_at: u32,
+    pub covered: bool,
+    pub device: bool,
+    pub saved_frame: Frame,
+    pub saved_page: Option<(Page, usize)>,
+    pub drawn: bool,
 }
 
 impl PipBoy {
-    /// Whether any of the Pip-Boy shows (coming up, up, going down).
+    /// Whether to draw the Pip-Boy, including hidden warming [design: nvforever/pipboy_arm.rs].
     pub fn shown(&self) -> bool {
-        self.phase != Phase::Down
+        self.warming.is_some() || self.phase != Phase::Down
     }
 
-    /// Whether the menus take input (coming up or up).
+    /// Whether the menus take input (coming up or up, after hidden warming) [design: this file].
     pub fn open(&self) -> bool {
-        matches!(self.phase, Phase::Raising | Phase::Up)
+        self.warming.is_none() && matches!(self.phase, Phase::Raising | Phase::Up)
     }
 
-    /// Whether the device shows on the arm (any of it; not in the screen menu).
+    /// [design: this file] A real opening reports its page and accepts Close during a hold.
+    pub fn opening(&self) -> bool {
+        matches!(self.phase, Phase::Raising | Phase::Up) && !self.warming.as_ref().is_some_and(|w| w.covered)
+    }
+
+    /// Whether to draw the device on the arm, including hidden warming [design: this file].
     pub fn on_arm(&self) -> bool {
-        self.shown() && self.frame == Frame::Device
+        self.warming.as_ref().map_or(self.shown() && self.frame == Frame::Device, |w| w.device)
+    }
+
+    /// The hidden pose's time, independent of the player's clip [design: player_body.rs].
+    pub fn warm_clip(&self) -> Option<f32> {
+        self.warming.as_ref().filter(|w| w.device).map(|w| if w.covered { HOLD_SECONDS } else { 0.0 })
+    }
+
+    /// A new rig/material must be drawn again, within the original cap [design: pipboy_arm.rs].
+    pub fn invalidate_warm(&mut self) {
+        self.warmed = false;
+        if let Some(w) = &mut self.warming {
+            w.drawn = false;
+        }
     }
 
     /// The tab of the page shown.
@@ -258,6 +348,9 @@ impl PipBoy {
     /// Move the clip on by `dt` seconds; true when the Pip-Boy reached the top or the
     /// bottom in this step.
     pub fn advance(&mut self, dt: f32) -> bool {
+        if self.warming.is_some() {
+            return false;
+        }
         match self.phase {
             Phase::Raising => {
                 self.clip_time = (self.clip_time + dt).min(HOLD_SECONDS);
@@ -301,7 +394,7 @@ impl PipBoy {
             (self.phase, self.clip_time) = (Phase::Down, 0.0);
             return;
         }
-        if self.open() {
+        if matches!(self.phase, Phase::Raising | Phase::Up) {
             self.phase = Phase::Lowering;
             self.clip_time = self.clip_time.max(HOLD_SECONDS);
         }
@@ -367,6 +460,9 @@ pub struct PipBoyAid {
     pub drag: Vec2,
     /// A note of the Notes list to select and use (`note=`), taken by the DATA page.
     pub note: Option<u32>,
+    /// The maps' Place Marker (`placemarker`), as X or a click on its hint, taken by the
+    /// DATA page.
+    pub place_marker: bool,
 }
 
 /// Where the test aid points.
@@ -391,7 +487,7 @@ pub struct PipBoyRoot;
 
 /// The flat image in the window (no model screen).
 #[derive(Component)]
-struct FlatScreen;
+pub struct FlatScreen;
 
 /// The screen menu's black shade over the window, which holds the header and the image.
 #[derive(Component)]
@@ -405,7 +501,10 @@ impl Plugin for PipBoyPlugin {
             .init_resource::<UsePipBoy>()
             .init_resource::<PipBoyAid>()
             .init_resource::<frame::Kit>()
+            .init_resource::<stats::Prepared>()
             .init_resource::<device_screen::ScreenFx>()
+            .init_resource::<transition::PageChange>()
+            .init_resource::<transition::ScreenLook>()
             .init_resource::<repair::PipRepair>()
             .add_message::<repair::RepairInput>()
             .init_resource::<item_mod::PipItemMod>()
@@ -424,6 +523,7 @@ impl Plugin for PipBoyPlugin {
                 (
                     (apply_use, follow_menu.after(crate::menu::MenuSystems), follow_frame).chain(),
                     reset_manager,
+                    close_keys.run_if(|pip: Res<PipBoy>| pip.opening()).run_if(takes_keys),
                     (keys, apply_input).chain().run_if(pipboy_open).run_if(takes_keys),
                     repair::keys.run_if(takes_keys),
                     item_mod::keys.run_if(takes_keys),
@@ -433,10 +533,13 @@ impl Plugin for PipBoyPlugin {
                     advance,
                     camera_on,
                     (image_scale, flat_screen),
+                    // With `MapMenu` on, the DATA page's preparation too, before the tile pages'
+                    // decisions and the frame (`data::prepare`); off, it does nothing.
+                    (stats::prepare, data::prepare).chain(),
                     frame::draw,
-                    (device_screen::draw, device_screen::sweep).chain(),
+                    (device_screen::draw, device_screen::sweep, transition::run).chain(),
                     (stats::draw, items::draw, data::draw),
-                    data::wave_moves,
+                    (hotkey_panel::draw_over_tiles, data::trace_over_tiles, data::popup_over_tiles, data::wave_moves).chain(),
                     stats::use_hints,
                     (data::travel::answer, data::travel::go, data::travel::depart),
                     (frame::hover_boxes, sounds::play),
@@ -444,8 +547,12 @@ impl Plugin for PipBoyPlugin {
                     .chain()
                     .in_set(PlaySet::Ui),
             )
-            .add_systems(First, drive_pointer.in_set(PickingSystems::Input));
+            .configure_sets(Update, WarmSet.after(follow_frame).before(reset_manager))
+            .configure_sets(Update, PointerSet.after(crate::player::BodySet).before(PlaySet::Activation))
+            .add_systems(Update, flat_pointer.in_set(PointerSet))
+            .add_systems(PreUpdate, drive_pointer.after(crate::pad::device::automatic).before(PickingSystems::ProcessInput));
         test_aid::setup(app);
+        crate::save::add_save_hook(app, data::CUSTOM_MARKER_SAVE_HOOK);
         crate::settings::add_setting(
             app,
             crate::settings::Setting {
@@ -467,9 +574,22 @@ pub fn pipboy_open(pip: Res<PipBoy>) -> bool {
 }
 
 /// Whether the Pip-Boy's keys are its own: not while the tutorial menu is open over it
-/// (`crate::tutorial_menu`, whose A, S and E are Next, Previous and Close).
-fn takes_keys(script: Option<Res<crate::script::ScriptState>>) -> bool {
-    !script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.menu == Some(menus::TUTORIAL))
+/// (`crate::tutorial_menu`, whose A, S and E are Next, Previous and Close), and with the
+/// page drawn from its tiles not in the frame a menu over it closes either: that key was the
+/// menu's (`crate::tiles::stats_menu::StatsTiles::modal`,
+/// `crate::tiles::repair_menu::RepairTiles::modal`, `crate::tiles::inventory_menu::InventoryTiles::modal`,
+/// `crate::tiles::map_menu::MapTiles::modal`, `crate::tiles::item_mod_menu::ItemModTiles::modal`). A question box over the DATA page (fast travel's,
+/// Place Marker's) holds none of them, whichever drawing shows it: Tab and Esc close the Pip-Boy
+/// and the box with it, as they always did; the box over the page drawn from its tiles holds only
+/// the tile input (`crate::tiles::map_menu::MapTiles::popup_owns`).
+fn takes_keys(script: Option<Res<crate::script::ScriptState>>, tiles: Option<Res<crate::tiles::stats_menu::StatsTiles>>, repair_tiles: Option<Res<crate::tiles::repair_menu::RepairTiles>>, inventory: Option<Res<crate::tiles::inventory_menu::InventoryTiles>>, map: Option<Res<crate::tiles::map_menu::MapTiles>>, item_mod: Option<Res<crate::tiles::item_mod_menu::ItemModTiles>>) -> bool {
+    !box_holds_keys(script.as_ref().and_then(|s| s.rt.as_ref()).and_then(|rt| rt.game.menu), tiles.as_deref()) && !repair_tiles.is_some_and(|t| t.modal) && !inventory.is_some_and(|t| t.modal) && !map.is_some_and(|t| t.modal) && !item_mod.is_some_and(|t| t.modal)
+}
+
+/// The rule of [`takes_keys`], by the scripts' open menu and the tiles' state: a box over the
+/// Pip-Boy holds its keys. Also read by the STATS page's own keys (`stats::prepare`).
+pub(crate) fn box_holds_keys(menu: Option<u16>, tiles: Option<&crate::tiles::stats_menu::StatsTiles>) -> bool {
+    menu == Some(menus::TUTORIAL) || tiles.is_some_and(|t| t.modal)
 }
 
 /// The menu code the Pip-Boy shows (`MenuMode`): its page's, or the repair list's or the
@@ -490,7 +610,7 @@ pub fn menu_code(page: Page, repairing: bool, modding: bool) -> u16 {
 /// it opens as the inventory, 1002, `crate::script::engine_menu_opened`). Logged:
 /// `pipboy: menu code <code>`.
 fn report_menu(pip: Res<PipBoy>, repair: Res<repair::PipRepair>, modding: Res<item_mod::PipItemMod>, script: Option<ResMut<crate::script::ScriptState>>) {
-    if !pip.open() {
+    if !pip.opening() {
         return;
     }
     let Some(rt) = script.and_then(|s| s.into_inner().rt.as_mut()) else { return };
@@ -549,7 +669,7 @@ fn setup_screen(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
 /// arm; the screen menu leaves the view alone).
 fn follow_menu(active: Res<ActiveMenu>, mut pip: ResMut<PipBoy>, mut control: ResMut<PlayerControl>, use_pipboy: Res<UsePipBoy>, sim: Option<Res<crate::sim::SimState>>) {
     let inventory = active.0.as_ref().is_some_and(|m| m.mode == Mode::Inventory);
-    if inventory && !pip.open() {
+    if inventory && !matches!(pip.phase, Phase::Raising | Phase::Up) {
         if pip.phase == Phase::Down {
             pip.frame = frame_for(!use_pipboy.on, sim.as_deref().is_some_and(wears_pipboy));
             info!("pipboy: frame {:?}", pip.frame);
@@ -563,7 +683,7 @@ fn follow_menu(active: Res<ActiveMenu>, mut pip: ResMut<PipBoy>, mut control: Re
             control.pov = Pov::First;
             control.orbit = default();
         }
-    } else if !inventory && pip.open() {
+    } else if !inventory && matches!(pip.phase, Phase::Raising | Phase::Up) {
         info!("pipboy: down");
         pip.lower();
     }
@@ -571,8 +691,8 @@ fn follow_menu(active: Res<ActiveMenu>, mut pip: ResMut<PipBoy>, mut control: Re
 
 /// While the menus are up, follow the setting and the Pip-Boy being put on or taken off
 /// (ITEMS > Apparel): to the screen menu, the view goes back to what it was and the arm
-/// is gone; to the device, the arm is up at once (held at `Hit`, no clip from the bottom)
-/// and the view first person [design].
+/// is gone; to a warm device, the arm is up at once. A cold device raises from the
+/// bottom so the hidden hold can precede it [design: nvforever/pipboy_arm.rs, #1803].
 fn follow_frame(mut pip: ResMut<PipBoy>, mut control: ResMut<PlayerControl>, use_pipboy: Res<UsePipBoy>, sim: Option<Res<crate::sim::SimState>>) {
     if pip.phase != Phase::Up {
         return;
@@ -591,7 +711,11 @@ fn follow_frame(mut pip: ResMut<PipBoy>, mut control: ResMut<PlayerControl>, use
         }
         Frame::Device => {
             pip.saved_pov = Some(control.pov);
-            pip.clip_time = HOLD_SECONDS;
+            if pip.warmed {
+                pip.clip_time = HOLD_SECONDS;
+            } else {
+                (pip.phase, pip.clip_time) = (Phase::Raising, 0.0);
+            }
             control.pov = Pov::First;
             control.orbit = default();
         }
@@ -631,7 +755,7 @@ pub fn use_changes(on: bool, changed: bool, worn: &[fnv_sim::FormId], carried: &
 /// Make the player's equipment follow the setting ([`use_changes`]): while it is off every
 /// frame, while on only once it changed and there is a player. A change the game refuses
 /// (a script's equip lock) is logged once.
-fn apply_use(mut use_pipboy: ResMut<UsePipBoy>, sim: Option<ResMut<crate::sim::SimState>>, mut refused: Local<Vec<fnv_sim::FormId>>) {
+fn apply_use(mut use_pipboy: ResMut<UsePipBoy>, mut pip: ResMut<PipBoy>, sim: Option<ResMut<crate::sim::SimState>>, mut refused: Local<Vec<fnv_sim::FormId>>) {
     if use_pipboy.on && !use_pipboy.pending {
         return;
     }
@@ -639,6 +763,9 @@ fn apply_use(mut use_pipboy: ResMut<UsePipBoy>, sim: Option<ResMut<crate::sim::S
     let player = fnv_sim::FormId::PLAYER_REF;
     let Some(inv) = sim.world.peek(player).and_then(|r| r.inventory.as_ref()) else { return };
     let changed = std::mem::take(&mut use_pipboy.pending);
+    if changed && use_pipboy.on {
+        pip.invalidate_warm();
+    }
     let worn = inv.equipped();
     let carried: Vec<fnv_sim::FormId> = if use_pipboy.on { inv.iter().filter(|&(_, n)| n > 0).map(|(id, _)| id).collect() } else { Vec::new() };
     let changes = use_changes(use_pipboy.on, changed, &worn, &carried, |id| sim.forms.item(id).and_then(|i| i.slots).is_some_and(|s| s & PIPBOY_SLOT != 0));
@@ -665,6 +792,11 @@ fn apply_use(mut use_pipboy: ResMut<UsePipBoy>, sim: Option<ResMut<crate::sim::S
 /// virtual clock, which held the Pip-Boy at the bottom until it was closed, when only
 /// the way down played (#1330). Logged: `pipboy: raised`.
 fn advance(time: crate::pause::AidTime, mut pip: ResMut<PipBoy>, mut control: ResMut<PlayerControl>) {
+    if pip.phase == Phase::Down {
+        if let Some(p) = pip.saved_pov.take() {
+            control.pov = p;
+        }
+    }
     if !matches!(pip.phase, Phase::Raising | Phase::Lowering) {
         return;
     }
@@ -688,6 +820,9 @@ fn camera_on(pip: Res<PipBoy>, screen: Option<Res<PipBoyScreen>>, fx: Res<device
     if let Ok(mut c) = cams.get_mut(screen.camera) {
         if c.is_active != pip.shown() {
             c.is_active = pip.shown();
+            if !c.is_active {
+                info!("pipboy: screen camera off");
+            }
         }
         let clear = if pip.frame == Frame::Screen { Color::NONE } else { device_screen::undercoat(fx.kept) };
         if !matches!(c.clear_color, ClearColorConfig::Custom(now) if now == clear) {
@@ -699,15 +834,15 @@ fn camera_on(pip: Res<PipBoy>, screen: Option<Res<PipBoyScreen>>, fx: Res<device
 /// Keys of the Pip-Boy: Tab, Esc and E close it; F1–F3 the pages; A/D and Left/Right
 /// the tabs; none while the menus' "How many?" prompt is open. The ITEMS page's own keys
 /// are in [`items`].
-fn keys(
-    keys: Res<ButtonInput<KeyCode>>,
+fn close_keys(
+    keys: crate::pad::ActionButtons<KeyCode>,
     prompt: Res<crate::menu::PromptKeys>,
     active: Res<crate::menu::ActiveMenu>,
     repair: Res<repair::PipRepair>,
     modding: Res<item_mod::PipItemMod>,
-    mut out: MessageWriter<PipBoyInput>,
     mut menu: MessageWriter<crate::menu::MenuInput>,
 ) {
+    let keys = keys.snapshot();
     use KeyCode::*;
     // "How many?" has the keys (`crate::menu`).
     if prompt.held(&active) {
@@ -717,6 +852,13 @@ fn keys(
     // still puts the Pip-Boy away.
     if keys.just_pressed(Tab) || (keys.just_pressed(Escape) && !repair.is_open() && !modding.is_open()) {
         menu.write(crate::menu::MenuInput(crate::menu::model::Command::Close));
+    }
+}
+
+fn keys(keys: crate::pad::ActionButtons<KeyCode>, prompt: Res<crate::menu::PromptKeys>, active: Res<ActiveMenu>, pip: Res<PipBoy>, stats: Option<Res<stats::StatsView>>, mut out: MessageWriter<PipBoyInput>) {
+    let keys = keys.snapshot();
+    use KeyCode::*;
+    if prompt.held(&active) || keys.any_just_pressed([Tab, Escape]) {
         return;
     }
     for (k, p) in [(F1, Page::Stats), (F2, Page::Items), (F3, Page::Data)] {
@@ -724,7 +866,10 @@ fn keys(
             out.write(PipBoyInput::Page(p));
         }
     }
-    if keys.any_just_pressed([KeyA, ArrowLeft]) {
+    // [design] RAD owns keyboard A too, even with no RadAway carried. The arrows
+    // still step tabs; no other STATS view owns A/D or Left/Right (stats::keys).
+    let rad = pip.page == Page::Stats && pip.tab() == 0 && stats.is_some_and(|s| s.status == 1);
+    if keys.just_pressed(ArrowLeft) || (keys.just_pressed(KeyA) && !rad) {
         out.write(PipBoyInput::StepTab(-1));
     }
     if keys.any_just_pressed([KeyD, ArrowRight]) {
@@ -752,7 +897,7 @@ struct FlatCrop(f32);
 /// camera told, so the menus still lay out on the canvas's units.
 fn image_scale(pip: Res<PipBoy>, screen: Option<ResMut<PipBoyScreen>>, windows: Query<&Window, With<PrimaryWindow>>, mut images: ResMut<Assets<Image>>, mut targets: Query<&mut RenderTarget>) {
     let Some(mut screen) = screen else { return };
-    let want = match (pip.shown() && pip.frame == Frame::Screen, windows.single()) {
+    let want = match (pip.shown() && pip.warming.is_none() && pip.frame == Frame::Screen, windows.single()) {
         (true, Ok(w)) => (w.physical_height() as f32 * SCREEN_IMAGE_H / 960.0 / SCREEN_CROP.y).clamp(1.0, MAX_SCALE),
         _ => 1.0,
     };
@@ -773,24 +918,22 @@ fn image_scale(pip: Res<PipBoy>, screen: Option<ResMut<PipBoyScreen>>, windows: 
 
 /// Where nothing shows the model's screen, and always in the screen menu, the image is
 /// drawn flat in the middle of the window over the world blacked out, under the header's
-/// strip (docs/design/screen-menu.md §3); the pointer on it is found here.
+/// strip (docs/design/screen-menu.md §3); [`flat_pointer`] finds the pointer on it.
 fn flat_screen(
     mut commands: Commands,
     pip: Res<PipBoy>,
-    screen: Option<ResMut<PipBoyScreen>>,
-    flat: Query<(Entity, &ComputedNode, &UiGlobalTransform, &FlatCrop), With<FlatScreen>>,
+    screen: Option<Res<PipBoyScreen>>,
+    flat: Query<&FlatCrop, With<FlatScreen>>,
     shades: Query<Entity, With<ScreenShade>>,
-    windows: Query<&Window, With<PrimaryWindow>>,
-    aid: Res<PipBoyAid>,
 ) {
-    let Some(mut screen) = screen else { return };
+    let Some(screen) = screen else { return };
     // Only once the arm is all the way up: the body takes the screen a frame or more after
     // the Pip-Boy starts up (later still from third person, the first-person body not yet
     // drawn), and the flat image flashed in the middle of the window until it did (the
     // owner's playtest list 5, item 2).
     let want = pip.phase == Phase::Up && (pip.frame == Frame::Screen || !screen.on_model);
     // A change of the image's scale needs the image node's crop made again.
-    let stale = flat.iter().next().is_some_and(|(_, _, _, crop)| crop.0 != screen.scale);
+    let stale = flat.iter().next().is_some_and(|crop| crop.0 != screen.scale);
     match (want && !stale, flat.iter().next()) {
         (true, None) => {
             for e in &shades {
@@ -817,20 +960,46 @@ fn flat_screen(
                 commands.entity(e).despawn();
             }
         }
-        (true, Some((_, computed, at, _))) => {
-            if let Some(AidTarget::Canvas(p)) = aid.target {
-                screen.pointer = Some(p);
-                return;
-            }
-            let cursor = windows.single().ok().and_then(|w| w.physical_cursor_position());
-            let size = computed.size();
-            screen.pointer = cursor.and_then(|c| {
-                let local = c - (at.translation - size / 2.0);
-                let p = local / size * SCREEN_CROP;
-                (p.x >= 0.0 && p.y >= 0.0 && p.x < SCREEN_CROP.x && p.y < SCREEN_CROP.y).then_some(p)
-            });
-        }
-        (false, None) => {}
+        (true, Some(_)) | (false, None) => {}
+    }
+}
+
+/// Where a cursor in physical pixels lies on the canvas shown in a node of `size` around
+/// `centre`, if on it.
+pub fn crop_point(cursor: Vec2, centre: Vec2, size: Vec2) -> Option<Vec2> {
+    let p = (cursor - (centre - size / 2.0)) / size * SCREEN_CROP;
+    (p.x >= 0.0 && p.y >= 0.0 && p.x < SCREEN_CROP.x && p.y < SCREEN_CROP.y).then_some(p)
+}
+
+/// The pointer on the flat image: the test aid's point, else the window's cursor.
+fn flat_point(aid: &PipBoyAid, windows: &Query<&Window, With<PrimaryWindow>>, computed: &ComputedNode, at: &UiGlobalTransform) -> Option<Vec2> {
+    if let Some(AidTarget::Canvas(p)) = aid.target {
+        return Some(p);
+    }
+    let cursor = windows.single().ok().and_then(|w| w.physical_cursor_position())?;
+    crop_point(cursor, at.translation, computed.size())
+}
+
+/// The flat image's pointer for this frame's tile input ([`PointerSet`]), from the cursor now
+/// and the image's place as last laid out. Nothing while the device has the pointer
+/// ([`pointer_source`]). Until the image stands up the last place stays: the hand-built page
+/// compares it with a row's hover, so a reopening under a resting cursor selects nothing
+/// (`stats::View::drawn_at`).
+pub fn flat_pointer(
+    pip: Res<PipBoy>,
+    screen: Option<ResMut<PipBoyScreen>>,
+    flat: Query<(&ComputedNode, &UiGlobalTransform), With<FlatScreen>>,
+    windows: Query<&Window, With<PrimaryWindow>>,
+    aid: Res<PipBoyAid>,
+) {
+    let Some(mut screen) = screen else { return };
+    if pointer_source(pip.frame, screen.on_model) != PointerSource::Flat {
+        return;
+    }
+    let Some((computed, at)) = flat.iter().next().filter(|_| pip.phase == Phase::Up) else { return };
+    let now = flat_point(&aid, &windows, computed, at);
+    if screen.pointer != now {
+        screen.pointer = now;
     }
 }
 
@@ -843,7 +1012,7 @@ fn drive_pointer(
     screen: Option<Res<PipBoyScreen>>,
     mut last: Local<Option<Vec2>>,
     mut spawned: Local<bool>,
-    mut window_events: MessageReader<WindowEvent>,
+    (mut window_events, switching): (MessageReader<WindowEvent>, Option<Res<crate::pad::SwitchingInput>>),
     mut out: MessageWriter<PointerInput>,
     mut aid: ResMut<PipBoyAid>,
 ) {
@@ -864,6 +1033,9 @@ fn drive_pointer(
     }
     for e in window_events.read() {
         let WindowEvent::MouseButtonInput(input) = e else { continue };
+        if switching.as_ref().is_some_and(|s| !s.allows_mouse(input)) {
+            continue;
+        }
         if at.is_none() {
             continue;
         }
@@ -914,6 +1086,125 @@ pub fn on_click(click: On<PointerClick>, nodes: Query<&Clickable>, mut out: Mess
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn warming(covered: bool, device: bool) -> Warming {
+        Warming { since: std::time::Instant::now(), frames: 0, asked_at: 0, covered, device, saved_frame: Frame::Device, saved_page: None, drawn: false }
+    }
+
+    #[test]
+    fn hidden_warming_draws_without_opening_a_menu_or_advancing_the_clip() {
+        let mut p = PipBoy { warming: Some(warming(true, true)), ..default() };
+        assert!(p.shown() && p.on_arm());
+        assert!(!p.open());
+        assert_eq!(p.warm_clip(), Some(HOLD_SECONDS));
+        assert!(!p.advance(9.0));
+        assert_eq!((p.phase, p.clip_time, p.saved_pov), (Phase::Down, 0.0, None));
+        p.warming = None;
+        assert!(!p.shown() && !p.on_arm());
+    }
+
+    #[test]
+    fn a_held_raise_can_close_and_a_screen_only_warm_has_no_arm() {
+        let mut p = PipBoy::default();
+        p.raise();
+        p.warming = Some(warming(false, true));
+        assert_eq!(p.warm_clip(), Some(0.0));
+        assert!(!p.advance(9.0));
+        assert_eq!(p.clip_time, 0.0);
+        p.lower();
+        assert_eq!(p.phase, Phase::Lowering);
+        p.warming = Some(warming(true, false));
+        assert!(!p.on_arm());
+        assert_eq!(p.warm_clip(), None);
+    }
+
+    #[test]
+    fn tab_and_escape_dispatch_close_through_the_held_raise_key_path() {
+        for key in [KeyCode::Tab, KeyCode::Escape] {
+            let mut app = App::new();
+            app.init_resource::<ButtonInput<KeyCode>>()
+                .init_resource::<crate::menu::PromptKeys>()
+                .init_resource::<ActiveMenu>()
+                .init_resource::<repair::PipRepair>()
+                .init_resource::<item_mod::PipItemMod>()
+                .add_message::<crate::menu::MenuInput>()
+                .insert_resource(PipBoy { phase: Phase::Raising, warming: Some(warming(false, true)), ..default() })
+                .add_systems(Update, close_keys.run_if(|pip: Res<PipBoy>| pip.opening()).run_if(takes_keys));
+            app.world_mut().resource_mut::<ButtonInput<KeyCode>>().press(key);
+            app.update();
+            let messages: Vec<_> = app.world_mut().resource_mut::<Messages<crate::menu::MenuInput>>().drain().collect();
+            assert_eq!(messages.len(), 1);
+            assert_eq!(messages[0].0, crate::menu::model::Command::Close);
+        }
+    }
+
+    #[test]
+    fn a_held_opening_reports_the_real_page_but_startup_is_silent() {
+        use bevy::ecs::system::RunSystemOnce;
+        let mut world = World::new();
+        world.insert_resource(repair::PipRepair::default());
+        world.insert_resource(item_mod::PipItemMod::default());
+        world.insert_resource(crate::script::ScriptState::over_no_plugins());
+        for page in [Page::Stats, Page::Data] {
+            world.resource_mut::<crate::script::ScriptState>().rt.as_mut().unwrap().game.open_menu(menus::INVENTORY);
+            world.insert_resource(PipBoy { page, phase: Phase::Raising, warming: Some(warming(false, true)), ..default() });
+            world.run_system_once(report_menu).unwrap();
+            assert_eq!(world.resource::<crate::script::ScriptState>().rt.as_ref().unwrap().game.menu,
+                Some(if page == Page::Stats { menus::STATS } else { menus::MAP }));
+            world.resource_mut::<crate::script::ScriptState>().rt.as_mut().unwrap().game.close_menu();
+            world.resource_mut::<PipBoy>().warming.as_mut().unwrap().covered = true;
+            world.run_system_once(report_menu).unwrap();
+            assert_eq!(world.resource::<crate::script::ScriptState>().rt.as_ref().unwrap().game.menu, None);
+        }
+    }
+
+    #[test]
+    fn the_screen_camera_stops_after_a_hidden_warm() {
+        use bevy::ecs::system::RunSystemOnce;
+        let mut world = World::new();
+        let camera = world.spawn(Camera { is_active: false, ..default() }).id();
+        world.insert_resource(PipBoyScreen { camera, image: Handle::default(), on_model: false, pointer: None, scale: 1.0 });
+        world.insert_resource(device_screen::ScreenFx::default());
+        world.insert_resource(PipBoy { warming: Some(warming(true, true)), ..default() });
+        world.run_system_once(camera_on).unwrap();
+        assert!(world.get::<Camera>(camera).unwrap().is_active);
+        world.resource_mut::<PipBoy>().warming = None;
+        world.run_system_once(camera_on).unwrap();
+        assert!(!world.get::<Camera>(camera).unwrap().is_active);
+    }
+
+    #[test]
+    fn one_system_finds_the_pointer_whatever_the_frame_and_the_model_say() {
+        assert_eq!(pointer_source(Frame::Device, true), PointerSource::Device);
+        assert_eq!(pointer_source(Frame::Device, false), PointerSource::Flat, "nothing shows the model's screen");
+        assert_eq!(pointer_source(Frame::Screen, true), PointerSource::Flat, "the frame changed, the body has not let go yet");
+        assert_eq!(pointer_source(Frame::Screen, false), PointerSource::Flat);
+    }
+
+    #[test]
+    fn the_flat_pointer_keeps_its_last_place_while_the_image_is_not_up() {
+        use bevy::ecs::system::RunSystemOnce;
+        let mut world = World::new();
+        world.insert_resource(PipBoy::default());
+        world.insert_resource(PipBoyAid::default());
+        let camera = world.spawn_empty().id();
+        let last = Some(Vec2::new(200.0, 240.0));
+        world.insert_resource(PipBoyScreen { image: Handle::default(), camera, on_model: false, pointer: last, scale: 1.0 });
+        assert_ne!(world.resource::<PipBoy>().phase, Phase::Up);
+        world.run_system_once(flat_pointer).unwrap();
+        assert_eq!(world.resource::<PipBoyScreen>().pointer, last, "down, with no image");
+    }
+
+    #[test]
+    fn a_cursor_is_found_on_the_flat_image_by_its_crop() {
+        // An image twice the crop's size, its middle at 1000, 800.
+        let size = SCREEN_CROP * 2.0;
+        let centre = Vec2::new(1000.0, 800.0);
+        assert_eq!(crop_point(centre, centre, size), Some(SCREEN_CROP / 2.0));
+        assert_eq!(crop_point(centre - size / 2.0, centre, size), Some(Vec2::ZERO));
+        assert_eq!(crop_point(centre - size / 2.0 - Vec2::X, centre, size), None);
+        assert_eq!(crop_point(centre + size / 2.0, centre, size), None);
+    }
 
     #[test]
     fn each_page_has_its_menu_code() {

@@ -107,6 +107,7 @@ original lacks it); **Save?**: *yes* (must be saved), *have* (already in the sna
 |---|---|---|---|
 | NPC positions | written back into `RefState` through `Game::set_actor_place` | ACHR moved data | have |
 | Current package, goal met, chosen-at | `RefExtra.packages/current_package/...` | ACHR flags 18 etc. (not decoded) | have |
+| A ResetAI not yet taken by the AI | `RefExtra.ai_reset` (`Game::take_ai_reset`) | not decoded | have (since issue #2119): a save between the call and the AI's next update keeps the request, so the load cannot resume the progress it dropped |
 | Agent progress: patrol index, sandbox schedule (energy, rolled sleep/meal times), wait, furniture in use | `Agent` (`crates/fnv-ai/src/carry.rs`, `sandbox.rs`) | ACHR records change with time on every actor (§7 of the spec) | **saved since 2026-10-25** (`fnv_ai::progress`, engine save part `ai_progress`): the patrol point walked to and the sandbox's day (its random numbers, the day's sleep and meal times, energy), put back when the actor takes up the same package again; the rest rebuilt from the packages |
 | Process levels, furniture occupancy | `Ai` | none | drop |
 
@@ -162,7 +163,12 @@ body    u32 length + zstd(JSON or postcard) of SaveBody
   added to docs/design/dependencies.md with the licence check there.
 - Writing is atomic: write `<name>.nvfsave.tmp`, flush, rename over the old file; the
   previous file of a rolling slot (quick, auto) becomes `.bak`, as the original does with
-  `autosave.fos.bak` [observed: the backups held `.fos` and `.fos.bak` pairs].
+  `autosave.fos.bak` [observed: the backups held `.fos` and `.fos.bak` pairs]. The backup
+  is made as a second name for the old file (a hard link, or a copy), so the save never
+  leaves its own name, and one save is written at a time, so two saves to one slot a
+  frame apart cannot share the `.tmp` (#1982).
+- A name the player gives is refused when it is a Windows device name (`con`, `nul`,
+  `com1` …, on every system) or a rolling slot's own name (#1983).
 
 Form IDs in the snapshot are load-order form IDs (mod index = plugin position). The
 original stores a plugin list and resolves form IDs by position in it [observed: save M,
@@ -205,7 +211,10 @@ What NVForever does (`fnv_save::PluginRemap`, `fnv_save::remap_json`,
 4. A form of a missing plugin: where it is a map key, a list entry, or in a pair or tuple
    that is a list entry, that entry is removed (a reference of the plugin's, an item in an
    inventory, a quest's state, a global, a form-list entry, a remembered pair).
-   Anywhere else (a field) it is moved to the *gone* slot `FE` with its low bytes, which no
+   A tuple that is a field's value keeps its length, or the save could not be read
+   back: one of form IDs beside other values (`package_ends`) is known by its shape, one
+   of form IDs alone by its field's name (`fnv_game::game::SAVE_PAIR_FIELDS`) (#1981).
+   Anywhere else (a field, such a tuple) it is moved to the *gone* slot `FE` with its low bytes, which no
    plugin uses; then the game layer drops what stands on one: references whose base or
    cell is gone (created ones of the plugin's bases), script instances whose key or script
    is gone, magic effects whose effect, source, target or script is gone, the radio station
@@ -241,7 +250,8 @@ and Lonesome Road dropped, 36 more by the game layer; the base game's changes ba
    reached the world, so no request a script made is still queued.
 2. **Autosaves**: after each loading screen (door travel, `coc`, a script moving the
    player) and when a script calls `Autosave` [documented: GECK wiki Autosave], each with
-   its own switch on the settings page (group Saving), both on by default. Three more
+   its own switch on the settings page (registered in group Saving, shown under
+   Gameplay › Saving: settings-page.md), both on by default. Three more
    switches there, on by default [owner request 2026-10-27]: Save on fast travel (after
    a fast travel's loading screen, in place of the travel switch), Save on wait and Save
    on sleep (when the menu closes with at least one hour passed, also after Cancel). Their timing
@@ -300,7 +310,13 @@ and Lonesome Road dropped, 36 more by the game layer; the base game's changes ba
   mark on each notice and not a gate on the frames of the restore, so a real pick-up or a
   load script's change in those frames has its normal effect [design:
   `crime::report_deeds`, `world_sounds::objects`; smoke `save-theft-write`,
-  `save-theft-load`]. The sky takes the save's hold and the rolls' random state as it is
+  `save-theft-load`].
+  A `MoveToMarkerWithFade` the save caught during its fade is made in the
+  restore, on the world that is played, before any script of the load runs; the reference
+  is drawn where it ends up, without the fade, and its `RefChanged` is marked `restored`
+  too: the move was asked for before the save [design: `Game::restore`,
+  `Runtime::restore_save`; smoke `save-fade-move-write`, `save-fade-move-load`].
+  The sky takes the save's hold and the rolls' random state as it is
   made, before its first look at the weather lists, not when the engine part is put back:
   a hold set after that look would hold what its roll chose, and setting them later would
   undo a load script's release [design: `SkyState::restore_saved`; smoke
@@ -308,13 +324,10 @@ and Lonesome Road dropped, 36 more by the game layer; the base game's changes ba
   a new game, so `--day` never changes a loaded game's GameDaysPassed [design:
   `residents::Core::prepare`; smoke `save-days-write`, `save-days-load`]. The sky alone
   starts on the header's `game_days_passed`, over `--day` (`start_days` in `main.rs`), so
-  its weather rolls see no hours pass at the load. A restore that fails goes on from the
-  plugins' game, on `--day` or the plugins' day and at the save's hour; its sky starts on
-  the failed save's day and takes the game's once the game's hour has moved half a game
-  minute (about a second of play at TimeScale 30, not while paused or at TimeScale 0).
-  Going back to a lower day makes no volatility check; going forward (a failed save on day
-  25 with `--day 30`) can. A save made before the header held the day leaves the sky on
-  `--day` or the plugins' day; it takes the game's day at the same step, with up to 24
+  its weather rolls see no hours pass at the load. A save made before the header held the
+  day leaves the sky on `--day` or the plugins' day; it takes the game's day once the game's
+  hour has moved half a game minute (about a second of play at TimeScale 30, not while
+  paused or at TimeScale 0), with up to 24
   volatility checks at once, which can make one weather roll and replace the weather kept
   from the save [design: `SkyState::follow_climate`, `SkyState::follow_game_clock`]. The
   sky does not follow the game under two flags: with
@@ -340,7 +353,12 @@ and Lonesome Road dropped, 36 more by the game layer; the base game's changes ba
   same way. If the new run ends before it is shown (it stops at the start), the screen
   comes down and the old game goes on; a new run that fails later is on its own (its
   crash report). Closing the old window while it waits ends the new run; a new run
-  still hidden after 120 s shows itself. The new run gets none of the old run's test aids
+  still hidden after 120 s shows itself. The old run never waits for ever (#1903, a
+  Linux report of two games playing from one Continue: the new run loaded with its
+  window shown and never took part): the new run writes a marker as it starts, and the
+  old run ends itself, leaving the new run to play, when the new run is running without
+  one after 30 s, or has not said it is up 135 s after it started. The old run logs the
+  new run's whole command line. The new run gets none of the old run's test aids
   (`NVF_PLAY_TEST_*`) except `NVF_PLAY_TEST_HANDOFF_EXIT=1` (end once it has taken over
   and its world or main menu is in; smoke `load-handoff`; the smoke runner waits for the
   processes a launch starts).
@@ -349,7 +367,15 @@ and Lonesome Road dropped, 36 more by the game layer; the base game's changes ba
   main menu instead, and once its window is up a message box says the save could not be
   loaded and why (none in unattended runs; the log line `load: <why>; opening the main
   menu` carries it). The same for `--load` given by hand and for a load while playing
-  (smoke `load-handoff-refused`).
+  (smoke `load-handoff-refused`). All that the restore itself checks (the formats of the
+  body, game, simulation and engine parts, both random-number positions, the co-op
+  players) is asked as the save is read, before the world starts at its place
+  [design: `nvf_play::save::read_for_load`, `GameSnapshot::check`; smoke
+  `save-refused-write`, `save-refused-load`]. No game ever goes on from a save that failed:
+  should a restore still fail after that read, the run keeps no runtime (no script runs,
+  no engine part is put back, nothing can be saved, the loading screen stays up) and
+  starts again on the main menu with the same message [design: `nvf_play::save::LoadRefused`,
+  `--load-refused`; smoke `load-refused-late`, through a test aid, as no save reaches it now].
 - **Memory** (#1357, load-handoff scenario at Goodsprings, private bytes): one run's
   start peak was 6.9 GB, 3.3 GB of it the script data build holding every record's read
   at once (now read a slice at a time, `fnv_game::data`): 4.1 GB. Old and new run

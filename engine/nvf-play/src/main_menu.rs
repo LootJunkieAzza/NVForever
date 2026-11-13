@@ -220,7 +220,7 @@ impl Plugin for MainMenuPlugin {
             }
             aid.sort_by(|a, b| a.0.total_cmp(&b.0));
         }
-        app.init_resource::<MainMenu>().insert_resource(MenuAid(aid)).add_systems(Update, (open_at_start, choose, slideshow, show_entries, theme).chain().in_set(PlaySet::Ui));
+        app.init_resource::<MainMenu>().insert_resource(MenuAid(aid)).add_systems(Update, (open_at_start, choose, slideshow, relabel, show_entries, theme).chain().in_set(PlaySet::Ui));
     }
 }
 
@@ -353,37 +353,63 @@ fn spawn(commands: &mut Commands, menu: &MainMenu, logo: Option<(Handle<Image>, 
             // Stretched to the window whatever its shape.
             root.spawn((ImageNode { image_mode: NodeImageMode::Stretch, ..ImageNode::new(edge) }, full.clone()));
             root.spawn((ImageNode { image_mode: NodeImageMode::Stretch, ..ImageNode::new(shade) }, Node { position_type: PositionType::Absolute, right: Val::Px(0.0), top: Val::Px(0.0), width: Val::Percent(40.0), height: Val::Percent(100.0), ..default() }));
-            if let Some((image, size)) = logo {
-                let h = LOGO_WIDTH * size.y / size.x.max(1.0);
-                root.spawn((Logo, ImageNode::new(image), Node { position_type: PositionType::Absolute, left: u(LOGO_LEFT), top: u(LOGO_TOP), width: u(LOGO_WIDTH), height: u(h), ..default() }));
-            }
-            let Some(f) = menu.face.as_ref() else { return };
-            let n = Entry::ALL.len() as f32;
-            let top = (960.0 - n * ITEM) / 2.0;
-            let width = COLUMN - 5.0;
-            for (i, e) in Entry::ALL.iter().enumerate() {
-                let line = f.font.lines(e.label(), None).into_iter().next();
-                let w = f.font.width(e.label());
-                // The whole row takes the pointer; its border is the highlight box (`show_entries`).
-                root.spawn((
-                    EntryNode(i),
-                    Button,
-                    Node { position_type: PositionType::Absolute, right: u(RIGHT), top: u(top + i as f32 * ITEM), width: u(width), height: u(ITEM), border: UiRect::all(u(LINE)), ..default() },
-                    BorderColor::all(Color::NONE),
-                    BackgroundColor(Color::NONE),
-                ))
-                .with_children(|p| {
-                    if let Some(line) = line {
-                        set_line(p, f, &line, width - w - 10.0 - 2.0 * LINE, BASE - LINE, color(Shade::Bright));
-                    }
-                });
-            }
+            // The logo and the entries at the UI scale, in the middle of the view
+            // (`crate::interface::menu_frame`, #1631); the pictures above fill the view.
+            crate::interface::in_menu_frame(root, crate::interface::MIDDLE, |root| {
+                if let Some((image, size)) = logo {
+                    let h = LOGO_WIDTH * size.y / size.x.max(1.0);
+                    root.spawn((Logo, ImageNode::new(image), Node { position_type: PositionType::Absolute, left: u(LOGO_LEFT), top: u(LOGO_TOP), width: u(LOGO_WIDTH), height: u(h), ..default() }));
+                }
+                let Some(f) = menu.face.as_ref() else { return };
+                let n = Entry::ALL.len() as f32;
+                let top = (960.0 - n * ITEM) / 2.0;
+                let width = COLUMN - 5.0;
+                for (i, e) in Entry::ALL.iter().enumerate() {
+                    // The whole row takes the pointer; its border is the highlight box (`show_entries`).
+                    root.spawn((
+                        EntryNode(i),
+                        Button,
+                        Node { position_type: PositionType::Absolute, right: u(RIGHT), top: u(top + i as f32 * ITEM), width: u(width), height: u(ITEM), border: UiRect::all(u(LINE)), ..default() },
+                        BorderColor::all(Color::NONE),
+                        BackgroundColor(Color::NONE),
+                    ))
+                    .with_children(|p| entry_label(p, f, *e));
+                }
+            });
         });
+}
+
+/// An entry's label in the language chosen, right-aligned in its row.
+fn entry_label(p: &mut ChildSpawnerCommands, f: &Face, e: Entry) {
+    let label = fnv_util::words::tr(e.label());
+    if let Some(line) = f.font.lines(label, None).into_iter().next() {
+        let w = f.font.width(label);
+        set_line(p, f, &line, COLUMN - 5.0 - w - 10.0 - 2.0 * LINE, BASE - LINE, color(Shade::Bright));
+    }
+}
+
+/// The entries' labels drawn again in the new language when it changes (a choice on the
+/// settings page, which opens over this menu).
+fn relabel(menu: Res<MainMenu>, mut seen: Local<Option<u32>>, entries: Query<(Entity, &EntryNode)>, mut commands: Commands) {
+    let now = fnv_util::words::generation();
+    if *seen == Some(now) {
+        return;
+    }
+    let Some(f) = menu.face.as_ref() else { return };
+    if entries.is_empty() {
+        return;
+    }
+    if seen.is_some() {
+        for (id, e) in &entries {
+            commands.entity(id).despawn_related::<Children>().with_children(|p| entry_label(p, f, Entry::ALL[e.0]));
+        }
+    }
+    *seen = Some(now);
 }
 
 #[allow(clippy::too_many_arguments)]
 fn choose(
-    keys: Res<ButtonInput<KeyCode>>,
+    keys: crate::pad::ActionButtons<KeyCode>,
     time: AidTime,
     mut aid: ResMut<MenuAid>,
     mut menu: ResMut<MainMenu>,
@@ -398,6 +424,7 @@ fn choose(
     mut last_page: Local<Option<Page>>,
     mut sounds: MessageWriter<crate::ui_sounds::UiSound>,
 ) {
+    let keys = keys.snapshot();
     use crate::ui_sounds::{UiEvent, UiMenu, UiSound};
     if !menu.open {
         return;
@@ -474,7 +501,7 @@ fn choose(
             info!("main menu: closed, the intro film plays");
         }
         Entry::Load => request.0 = Some(Page::Load { selected: 0 }),
-        Entry::Settings => request.0 = Some(Page::Settings { selected: 0 }),
+        Entry::Settings => request.0 = Some(Page::Settings { selected: None }),
         Entry::Quit => {
             exit.write(AppExit::Success);
         }
@@ -533,15 +560,17 @@ fn slideshow(
 }
 
 /// Every entry that can be taken bright, a greyed one at half, the highlight box round
-/// the chosen one; the column hidden while a page of the pause menu draws it.
-#[allow(clippy::type_complexity)]
+/// the chosen one; the column hidden while a page of the pause menu draws it [design].
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn show_entries(
     menu: Res<MainMenu>,
     page: Res<Page>,
-    mut entries: Query<(&EntryNode, &Children, &mut BorderColor, &mut BackgroundColor, &mut Visibility)>,
+    mut entries: Query<(Entity, &EntryNode, &mut BorderColor, &mut BackgroundColor, &mut Visibility)>,
+    children: Query<&Children>,
     mut glyphs: Query<&mut ImageNode, Without<Slide>>,
     mut texts: Query<&mut TextColor>,
     mut logo: Query<&mut Visibility, (With<Logo>, Without<EntryNode>)>,
+    mut drawn: Local<[Option<(Color, usize)>; Entry::ALL.len()]>,
 ) {
     if !menu.open {
         return;
@@ -550,7 +579,7 @@ fn show_entries(
         v.set_if_neq(if *page == Page::Main { Visibility::Inherited } else { Visibility::Hidden });
     }
     let (line, fill) = highlight_colors();
-    for (e, children, mut border, mut bg, mut vis) in &mut entries {
+    for (id, e, mut border, mut bg, mut vis) in &mut entries {
         let shown = if *page == Page::Main { Visibility::Inherited } else { Visibility::Hidden };
         vis.set_if_neq(shown);
         let entry = Entry::ALL[e.0];
@@ -559,15 +588,31 @@ fn show_entries(
         let want = if chosen { BorderColor::all(line) } else { BorderColor::all(Color::NONE) };
         border.set_if_neq(want);
         bg.set_if_neq(BackgroundColor(if chosen { fill } else { Color::NONE }));
-        for &child in children {
+        let (mut ink, mut count) = (None, 0);
+        // [design, #2247] set_line/set_marked put the coloured nodes below a line
+        // anchor (interface.rs); reach them even when the label has extra containers.
+        for child in children.iter_descendants(id) {
             if let Ok(mut g) = glyphs.get_mut(child) {
                 if g.color != c {
                     g.color = c;
                 }
+                ink = Some(g.color);
+                count += 1;
             }
             if let Ok(mut t) = texts.get_mut(child) {
-                t.0 = c;
+                t.set_if_neq(TextColor(c));
+                ink = Some(t.0);
+                count += 1;
             }
+        }
+        // [design, #2247] Report actual nonempty glyph assignments on first draw or
+        // a colour/count change, so smoke checks cannot pass from enablement alone.
+        let now = ink.map(|colour| (colour, count));
+        if drawn[e.0] != now {
+            if let Some((colour, count)) = now {
+                info!("main menu: {} glyph colour rgba {:?} ({count} glyphs)", entry.label(), colour.to_srgba().to_u8_array());
+            }
+            drawn[e.0] = now;
         }
     }
 }
@@ -592,6 +637,78 @@ fn theme(real: Res<Time<Real>>, mut menu: ResMut<MainMenu>, settings: Option<Res
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// [design, #2247] Synthetic font metrics and a dummy handle exercise the real
+    /// spawn/entry_label/set_line hierarchy without reading any game files.
+    fn colour_app(bitmap: bool) -> (App, Vec<(Entity, Entry, Vec<Entity>)>) {
+        let mut app = App::new();
+        let glyph = fnv_font::Glyph { uv: [0.0, 0.0, 0.5, 0.75], width: 8.0, height: 12.0, ascent: 10.0, after: 1.0, ..default() };
+        let face = Face {
+            font: fnv_font::Font { size: 16.0, texture: String::new(), glyphs: vec![glyph; 256] },
+            image: bitmap.then(|| (Handle::default(), Vec2::splat(16.0))),
+        };
+        let menu = MainMenu { open: true, selected: 1, face: Some(face), ..default() };
+        spawn(&mut app.world_mut().commands(), &menu, None, Handle::default(), Handle::default());
+        app.world_mut().flush();
+        app.insert_resource(menu).init_resource::<Page>().add_systems(Update, show_entries);
+        let world = app.world_mut();
+        let entries: Vec<_> = world.query::<(Entity, &EntryNode)>().iter(world).map(|(id, e)| (id, Entry::ALL[e.0])).collect();
+        assert_eq!(entries.len(), Entry::ALL.len());
+        let entries = entries.into_iter().map(|(id, entry)| {
+            let anchors = world.get::<Children>(id).unwrap();
+            let mut glyphs = Vec::new();
+            for anchor in anchors {
+                assert!(world.get::<ImageNode>(*anchor).is_none() && world.get::<TextColor>(*anchor).is_none());
+                glyphs.extend(world.get::<Children>(*anchor).unwrap().iter());
+            }
+            assert!(!glyphs.is_empty(), "{} has ink below its anchor", entry.label());
+            (id, entry, glyphs)
+        }).collect();
+        (app, entries)
+    }
+
+    fn check_entry_colours(bitmap: bool) {
+        let (mut app, entries) = colour_app(bitmap);
+        for saves in [0, 1, 0] {
+            app.world_mut().resource_mut::<MainMenu>().saves = saves;
+            app.update();
+            for (id, entry, glyphs) in &entries {
+                let expected = color(if entry.enabled(saves) { Shade::Bright } else { Shade::Dim });
+                for glyph in glyphs {
+                    let actual = if bitmap {
+                        app.world().get::<ImageNode>(*glyph).unwrap().color
+                    } else {
+                        app.world().get::<TextColor>(*glyph).unwrap().0
+                    };
+                    assert_eq!(actual, expected, "{} with {saves} saves", entry.label());
+                }
+                let (line, fill) = highlight_colors();
+                let selected = *entry == Entry::New;
+                assert_eq!(*app.world().get::<BorderColor>(*id).unwrap(), BorderColor::all(if selected { line } else { Color::NONE }));
+                assert_eq!(app.world().get::<BackgroundColor>(*id).unwrap().0, if selected { fill } else { Color::NONE });
+            }
+        }
+        *app.world_mut().resource_mut::<Page>() = Page::Settings { selected: None };
+        app.update();
+        for (id, _, _) in &entries {
+            assert_eq!(*app.world().get::<Visibility>(*id).unwrap(), Visibility::Hidden);
+        }
+        *app.world_mut().resource_mut::<Page>() = Page::Main;
+        app.update();
+        for (id, _, _) in &entries {
+            assert_eq!(*app.world().get::<Visibility>(*id).unwrap(), Visibility::Inherited);
+        }
+    }
+
+    #[test]
+    fn bitmap_entry_glyphs_dim_without_saves_and_brighten_when_a_save_appears() {
+        check_entry_colours(true);
+    }
+
+    #[test]
+    fn fallback_entry_text_dims_without_saves_and_brightens_when_a_save_appears() {
+        check_entry_colours(false);
+    }
 
     #[test]
     fn without_saves_continue_and_load_are_skipped() {

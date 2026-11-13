@@ -91,7 +91,7 @@ impl Game<'_> {
             }
             let args = subject.map(|s| vec![XVal::Ref(s.0)]).unwrap_or_default();
             if let Err(error) = self.run_function(&f, None, args, None, RunCtx::default()) {
-                self.emit(crate::trace::EventKind::ScriptError { unit: "JohnnyGuitar event handler".into(), error });
+                self.handler_failed("JohnnyGuitar event handler".into(), error);
             }
         }
     }
@@ -381,6 +381,11 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
                     ]
                 })
                 .collect();
+            // None listed gives no array [observed: gaps7 tempeffects.player, ar_Size -1;
+            // L5.ext rerun, #2040].
+            if rows.is_empty() {
+                return Some(Ok(zero));
+            }
             let mut outer = Vec::with_capacity(rows.len());
             for (i, r) in rows.into_iter().enumerate() {
                 let inner = r.into_iter().enumerate().map(|(k, v)| (fnv_script::vm::XKey::Num(k as f64), v)).collect();

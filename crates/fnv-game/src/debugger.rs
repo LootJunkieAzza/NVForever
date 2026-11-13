@@ -51,15 +51,16 @@ impl<'a> Game<'a> {
     /// (`select_choice_line`); that rule is not shown here.
     pub fn explain_topic(&mut self, speaker: FormId, listener: Option<FormId>, topic: FormId) -> TopicExplained {
         let data = self.data;
+        let dv = self.dialogue_view();
         let tried = data.lines_tried(topic);
         let mut lines = Vec::with_capacity(tried.len());
         let mut winners = Vec::new();
         let (mut at, mut group) = (0, 0);
         while at < tried.len() {
-            let end = group_end(data, &tried, at);
+            let end = group_end(&dv, &tried, at);
             let mut sayable = Vec::new();
             for &info in &tried[at..end] {
-                let def = data.infos.get(&info);
+                let def = dv.info(&info);
                 let verdict = self.line_verdict(speaker, listener, info, Says::Actor);
                 if verdict.is_ok() {
                     sayable.push(info);
@@ -95,7 +96,8 @@ impl<'a> Game<'a> {
         if matches!(verdict, Err(Blocked::Speaker(_) | Blocked::VoiceType | Blocked::NotALine)) {
             return false;
         }
-        let Some(def) = data.infos.get(&info) else { return false };
+        let dv = self.dialogue_view();
+        let Some(def) = dv.info(&info) else { return false };
         let quest = def.quest.and_then(|q| data.quests.get(&q)).map(|q| q.conditions.as_slice()).unwrap_or_default();
         for conds in [quest, def.conditions.as_slice()] {
             let mut at = 0;
@@ -121,6 +123,7 @@ impl<'a> Game<'a> {
         let e = self.explain_topic(speaker, listener, topic);
         let hidden = if every { 0 } else { e.lines.iter().filter(|l| !l.fits).count() };
         let data = self.data;
+        let dv = self.dialogue_view();
         let named = |f: FormId| match data.edid_of.get(&f) {
             Some(n) => format!("{f} ({n})"),
             None => f.to_string(),
@@ -136,7 +139,7 @@ impl<'a> Game<'a> {
             out.push(format!("  {hidden} line(s) written for other speakers are not shown (add `all` to list every line)"));
         }
         for (n, l) in e.lines.iter().enumerate().filter(|(_, l)| every || l.fits) {
-            let def = data.infos.get(&l.info);
+            let def = dv.info(&l.info);
             let text = def.and_then(|d| d.responses.first()).map(|r| short(&r.text)).unwrap_or_default();
             let quest = l.quest.map(|q| format!(" quest {} (priority {})", named(q), l.priority)).unwrap_or_default();
             let pool = if l.random { format!(" random pool {}", l.group) } else { String::new() };

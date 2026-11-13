@@ -4,7 +4,10 @@
 //!   1` then `ResurrectActor 0` on Ringo, GetDead 0, GetCauseofDeath −1,
 //!   GetHealthPercentage 1.0]: not dead or unconscious, its killer and cause of death
 //!   forgotten, unharmed (every actor value's damage gone, the limbs' too [hypothesis:
-//!   the owner's "generated again from its record", below]).
+//!   the owner's "generated again from its record", below]). With Anim 0 its severed and
+//!   exploded limbs come back ([`RefExtra::limbs_gone`](crate::game::RefExtra::limbs_gone)
+//!   cleared, so the engine draws it whole); with 1 they stay gone [documented: "body data
+//!   will not be updated"].
 //! - **Generated again** [observed: owner, 2026-10-17: "resurrect rerolls any level list
 //!   or random gen on the actor record so if it comes from a template with an item list
 //!   or its a generic that can be male female all this will be re rolled on the
@@ -80,6 +83,12 @@ impl Game<'_> {
         e.critical_stage = 0;
         e.furniture = None;
         e.weapon_out = false;
+        // With 1 "body data will not be updated" [documented: GECK wiki ResurrectActor]: a
+        // severed limb stays gone; with 0 the actor comes back whole [hypothesis: read
+        // from that note].
+        if !animate {
+            e.limbs_gone.clear();
+        }
         if regenerated {
             e.rolls += 1;
         }
@@ -105,11 +114,10 @@ impl Game<'_> {
         }
         let source = self.data.template_source_at(base, roll_seed(r, rolls), self.leveled_at(r), |d| d.template_inventory).map(|(s, _)| s).filter(|&s| s != base);
         self.world.set_inventory_source(r, source);
-        // A source with no carried items: it carries nothing.
+        // A source with no carried items: it carries nothing (but a planted explosive's
+        // live unit, `Extra::live`, #1640).
         if !self.world.reset_inventory(r).unwrap_or(true) {
-            if let Ok(s) = self.world.get(r) {
-                s.inventory = None;
-            }
+            let _ = self.world.clear_inventory_but_live(r);
         }
     }
 

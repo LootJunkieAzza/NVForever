@@ -3,7 +3,7 @@
 use fnv_game::ui_hud::{self, Shown, Texts};
 use fnv_ui::{MemSource, Ui, Value};
 
-mod common;
+use crate::common;
 
 // Columns are 4:3, 16:10 and 16:9. The half-unit reticle offset follows the
 // truncated middle [hypothesis: hud.md §14, its child's 607.5/735.5/820.5].
@@ -147,6 +147,47 @@ fn places_at_the_three_observed_aspect_ratios_and_resize() {
         }
         assert_eq!(ui.get_float("HUDMainMenu/CNDArrows/height"), Some(20.0));
         assert_eq!(ui.get_float("HUDMainMenu/DDTIconAP/x"), None);
+    }
+}
+
+/// #1631: at a UI scale of 75% the view is 1280 units high (960 / 0.75) and 2275.55 wide
+/// at 16:9: the left pieces keep their x, the right ones and the middle ones follow the
+/// wider view, and each piece keeps its distance from its edge (bottom pieces 320 units
+/// further down, the middle ones 160, the top ones where they were).
+#[test]
+fn a_smaller_ui_scale_keeps_each_piece_at_its_edge() {
+    let mut ui = fixture();
+    screen(&mut ui, 1920.0, 1080.0);
+    let mut t = texts();
+    t.frame.ui_scale = 0.75;
+    ui_hud::write(&mut ui, all_shown(), &t);
+    ui.update();
+    let (right, middle) = ((1280.0f64 * 1920.0 / 1080.0).floor(), (1280.0f64 * 1920.0 / 1080.0 / 2.0).floor());
+    assert_eq!((right, middle), (2275.0, 1137.0));
+    for (name, x, y) in [
+        ("HitPoints", 40.0, 803.0 + 320.0),
+        ("ActionPoints", right - 386.0, 803.0 + 320.0),
+        ("XPMeter", right - 420.0, 650.0 + 320.0),
+        ("CNDArrows", right - 253.0, 886.0 + 320.0),
+        ("EnemyHealth", middle - 175.0, 843.0 + 320.0),
+        ("ReticleCenter", middle - 34.5, 439.5 + 160.0),
+        ("Info", middle - 160.0, 820.0 + 160.0),
+        ("SneakMeter", middle, 30.0),
+        ("RadiationMeter", right - 417.0, 30.0),
+        ("Messages", 25.0, 55.0),
+    ] {
+        assert_eq!(ui.get_float(&format!("HUDMainMenu/{name}/x")), Some(x), "{name}");
+        assert_eq!(ui.get_float(&format!("HUDMainMenu/{name}/y")), Some(y), "{name}");
+    }
+    assert_eq!(ui.get_float("HUDMainMenu/Subtitles/x"), Some(middle - 400.0));
+    // The subtitles keep to the middle, as the prompt they rise over.
+    assert_eq!(ui.get_float("HUDMainMenu/Subtitles/y"), Some(660.0 + 160.0));
+    // Back at 100%: the observed places.
+    ui_hud::write(&mut ui, all_shown(), &texts());
+    ui.update();
+    for (name, xs, y) in PLACES {
+        assert_eq!(ui.get_float(&format!("HUDMainMenu/{name}/x")), Some(xs[2]), "{name}");
+        assert_eq!(ui.get_float(&format!("HUDMainMenu/{name}/y")), Some(*y), "{name}");
     }
 }
 

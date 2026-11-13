@@ -55,8 +55,13 @@ const INGESTIBLE_BITS: [Option<u32>; 4] = [None, Some(0), Some(1), Some(0)];
 /// curves; an unknown name gives -1 [observed: plugins1 and plugins2, quad, cubic, quart,
 /// quint, sine, expo, circ, back, elastic and bounce at 0.25 in all three modes;
 /// "linear" -1].
-fn ease(t: f64, name: &str, mode: i64) -> f64 {
-    let t = t.clamp(0.0, 1.0);
+pub(crate) fn ease(t: f64, name: &str, mode: i64) -> f64 {
+    ease_unclamped(t.clamp(0.0, 1.0), name, mode)
+}
+
+/// [`ease`] without holding `t` to 0-1: ApplyEasingAlt eases 1.5 by quad-in to 2.25
+/// [observed: showoff3 so3.ease.outside].
+pub(crate) fn ease_unclamped(t: f64, name: &str, mode: i64) -> f64 {
     let f: fn(f64) -> f64 = match name.to_ascii_lowercase().as_str() {
         "quad" => |t| t * t,
         "cubic" => |t| t * t * t,
@@ -147,7 +152,7 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         // [observed: plugins1, Recipe127mm 4 inputs, the first 00140AAA; category
         // 00153621, subcategory 0013E44E]
         "getrecipeinputforms" => {
-            let ins: Vec<XVal> = form(args, 0).and_then(|f| g.data.recipes.get(&f)).map(|r| r.ingredients.iter().map(|(f, _)| XVal::Ref(f.0)).collect()).unwrap_or_default();
+            let ins: Vec<XVal> = form(args, 0).and_then(|f| crate::nvse_lutana::recipe(g, f)).map(|r| r.ingredients.iter().map(|(f, _)| XVal::Ref(f.0)).collect()).unwrap_or_default();
             list(g, ins)
         }
         "getrecipecategory" | "getrecipesubcategory" => {
@@ -186,7 +191,7 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             yes((0.0..4.0).contains(&k) && INGESTIBLE_BITS[k as usize].is_some_and(|b| flags >> b & 1 != 0))
         }
         // [observed: plugins1, 2]
-        "getdefaultmessagetime" => XVal::Num(2.0),
+        "getdefaultmessagetime" => XVal::Num(crate::nvse_lutana::message_time(g)),
         // ---- JohnnyGuitar ----
         // The current value by code [observed: plugins1, Strength 5, Health 200, Barter
         // and Guns 17].
@@ -209,12 +214,14 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             XVal::Num(crate::functions::actor::actor_value_capped(g, a, code))
         }
         "getquestfailed" => yes(form(args, 0).is_some_and(|q| g.quest_state(q).failed)),
-        // RACE DATA flags bit by bit [observed: plugins1, CaucasianOld 0 0 0].
+        // RACE DATA flags bit by bit [observed: plugins1, CaucasianOld 0 0 0]: the bit's
+        // value, not 1 [observed: jg4 race.get.child.2 read 4, race.set.testqa.1.1 2,
+        // race.set.testqa.3.1 8; race.get.caucasian.0 1].
         "getraceflag" => {
             let f = form(args, 0).unwrap_or(FormId(0));
             let flags = crate::nvse::record_value(g, f, "DATA", "flags").and_then(|v| v.num().ok()).unwrap_or(0.0) as u64;
             let k = num(args, 1, -1.0);
-            yes((0.0..32.0).contains(&k) && flags >> (k as u64) & 1 != 0)
+            XVal::Num(if (0.0..32.0).contains(&k) { (flags & 1 << (k as u64)) as f64 } else { 0.0 })
         }
         "isdllloaded" => {
             let n = text(args, 0).to_ascii_lowercase();

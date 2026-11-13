@@ -20,8 +20,13 @@
 //! Log lines: `holotape: <note> plays <line> said by <speaker>, <n> responses`, then
 //! `holotape: playing <path> (<seconds> s) response <k>/<n>` per response, `holotape:
 //! paused <note>` / `holotape: <note> goes on` and `holotape: <note> is over`.
+//!
+//! A response stopped before its end (the tape stopped by a script, or another note
+//! picked) fades out as every stopped sound does (`crate::audio_out::stop_sound`, #2217,
+//! counted as a holotape stop in `sfx declicks: …`); the tape no longer holds it, so its
+//! pause leaves it alone while the fade plays out.
 
-use crate::audio_out::SoundCategory;
+use crate::audio_out::{stop_sound, Retiring, SoundCategory, StopReason};
 use crate::script::ScriptState;
 use crate::sfx::PlaySound;
 use crate::voice::{VoiceSettings, VoiceState};
@@ -63,7 +68,8 @@ pub struct HolotapeSound;
 impl Holotape {
     fn stop(&mut self, commands: &mut Commands) {
         if let Some(e) = self.entity.take() {
-            commands.entity(e).try_despawn();
+            // Faded out, not cut (#2217); gone at once if it has made no sound yet.
+            stop_sound(commands, e, StopReason::Holotape);
         }
         self.playing = None;
         self.queue.clear();
@@ -87,14 +93,39 @@ fn play(
     settings: Res<VoiceSettings>,
     voice: Res<VoiceState>,
     mut tape_state: ResMut<Holotape>,
-    script: Res<ScriptState>,
+    mut script: ResMut<ScriptState>,
     paused: Res<crate::pause::Paused>,
     mut sounds: Option<ResMut<Assets<AudioSource>>>,
-    sinks: Query<&AudioSink, With<HolotapeSound>>,
+    sinks: Query<&AudioSink, (With<HolotapeSound>, Without<Retiring>)>,
     mut effects: MessageWriter<PlaySound>,
 ) {
     let st = &mut *tape_state;
-    let Some(rt) = script.rt.as_ref() else { return };
+    let Some(rt) = script.rt.as_mut() else { return };
+    // PlayHolotape and StopHolotape (`fnv_game::nvse_jg9`): a note is played as one
+    // picked, but picking the one playing goes on with it rather than pausing it; a stop
+    // ends the tape as its end does, without its end script [hypothesis: the page says
+    // only that it stops].
+    for r in rt.game.take_holotape_requests() {
+        match r {
+            fnv_game::nvse_jg9::HolotapeRequest::Play(note) if st.playing == Some(note) => {
+                if st.paused {
+                    st.paused = false;
+                    info!("holotape: a script goes on with {}", rt.game.data.name(note));
+                }
+            }
+            fnv_game::nvse_jg9::HolotapeRequest::Play(note) => {
+                info!("holotape: a script plays {}", rt.game.data.name(note));
+                st.picks.push(note);
+            }
+            fnv_game::nvse_jg9::HolotapeRequest::Stop => {
+                st.picks.clear();
+                if let Some(note) = st.playing {
+                    info!("holotape: a script stops {}", rt.game.data.name(note));
+                    st.stop(&mut commands);
+                }
+            }
+        }
+    }
     let g = &rt.game;
     let now = time.elapsed_secs_f64();
     let picks = std::mem::take(&mut st.picks);

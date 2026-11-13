@@ -53,6 +53,9 @@ const IDLE_LEAF_OWN: u32 = 0xA07;
 const IDLE_LEAF_ANY: u32 = 0xA08;
 /// A third leaf, of the Idle section (DATA section 0): a standing look.
 const IDLE_LEAF_LOOK: u32 = 0xA09;
+/// A fourth leaf, a special idle wanting GetUnconscious == 1: the switched-off pose
+/// (FalloutNV.esm's `ProtectronTurnedOff`, #1977).
+const IDLE_LEAF_OFF: u32 = 0xA0A;
 const P_FIRST: u32 = 0xB01;
 const P_SECOND: u32 = 0xB02;
 const P_PLAIN: u32 = 0xB03;
@@ -91,6 +94,11 @@ fn idle_if(fid: u32, edid: &str, conds: Vec<Subrecord>) -> Vec<u8> {
 }
 
 const GET_IS_ID: u16 = 72;
+/// GetPlantedExplosive (condition function index).
+const GET_PLANTED_EXPLOSIVE: u16 = 0x1AC;
+const IDLE_PANIC: u32 = 0xC40;
+const IDLE_PANIC_PA: u32 = 0xC41;
+const IDLE_PANIC_PLAIN: u32 = 0xC42;
 
 /// An IDLE with a file below `parent` in the tree, after `previous` (ANAM), with conditions.
 fn leaf(fid: u32, edid: &str, parent: u32, previous: u32, conds: Vec<Subrecord>) -> Vec<u8> {
@@ -116,6 +124,7 @@ fn ctda_eq(function: u16, value: f32, or: bool) -> Subrecord {
 
 /// IsMoving and GetCurrentAIProcedure (condition function indices).
 const IS_MOVING: u16 = 25;
+const GET_UNCONSCIOUS: u16 = 242;
 const GET_CURRENT_AI_PROCEDURE: u16 = 143;
 
 /// A Travel package at the editor location with a begin idle, a change idle and an idle
@@ -157,6 +166,22 @@ fn plugin_bytes() -> Vec<u8> {
         leaf(IDLE_LEAF_OWN, "LeafOwn", IDLE_FOLDER, 0, vec![ctda(GET_IS_ID, NPC)]),
         leaf(IDLE_LEAF_ANY, "LeafAny", IDLE_FOLDER, IDLE_LEAF_OWN, vec![]),
         leaf_in(IDLE_LEAF_LOOK, "LeafLook", IDLE_FOLDER, IDLE_LEAF_ANY, vec![ctda(GET_IS_ID, NPC)], 0),
+        leaf(IDLE_LEAF_OFF, "LeafOff", IDLE_FOLDER, IDLE_LEAF_LOOK, vec![ctda_eq(GET_UNCONSCIOUS, 1.0, false)]),
+        // As FalloutNV.esm's PanicExplosivePlanted: a root of the folder that wants
+        // GetPlantedExplosive == 1, its power armour leaf (here: never) before the plain one.
+        record(
+            b"IDLE",
+            IDLE_PANIC,
+            &[
+                sub(b"EDID", z("PanicExplosivePlanted")),
+                sub(b"MODL", z("Characters\\_Male\\IdleAnims")),
+                ctda_eq(GET_PLANTED_EXPLOSIVE, 1.0, false),
+                sub(b"ANAM", [0u32.to_le_bytes(), IDLE_FOLDER.to_le_bytes()].concat()),
+                sub(b"DATA", vec![7, 0, 0, 0, 0, 0, 0, 0]),
+            ],
+        ),
+        leaf(IDLE_PANIC_PA, "PanicGrenadePlantPA", IDLE_PANIC, 0, vec![ctda(GET_IS_ID, 0xBAD)]),
+        leaf(IDLE_PANIC_PLAIN, "PanicGrenadePlant", IDLE_PANIC, IDLE_PANIC_PA, vec![]),
     ]
     .concat();
     let packs = [
@@ -211,6 +236,7 @@ fn call(g: &mut Game, opcode: u16, on: FormId, args: &[ArgValue]) -> Value {
 }
 
 const PLAY_IDLE: u16 = 0x1190;
+const SET_UNCONSCIOUS: u16 = 0x10F1;
 const IS_IDLE_PLAYING: u16 = 0x1070;
 const ADD_SCRIPT_PACKAGE: u16 = 0x1097;
 const REMOVE_SCRIPT_PACKAGE: u16 = 0x1098;
@@ -223,7 +249,7 @@ fn asked(g: &mut Game) -> Vec<(u32, u32, IdleSource)> {
 fn idle_records_and_package_idle_data_are_read() {
     let f = fixture();
     let d = &f.data;
-    assert_eq!(d.idles.len(), 9);
+    assert_eq!(d.idles.len(), 13);
     let wake = &d.idles[&FormId(IDLE_WAKE)];
     assert_eq!((wake.model.as_deref(), wake.loop_min, wake.loop_max, wake.has_file()), (Some("Characters\\_Male\\IdleAnims\\Wake.kf"), 255, 255, true));
     assert!(!d.idles[&FormId(IDLE_FOLDER)].has_file());
@@ -383,6 +409,29 @@ fn pick_idle_walks_the_tree() {
     assert_eq!(g.pick_idle(actor, "creatures\\dog", &|_| false), None, "another folder: nothing");
 }
 
+/// The panic of a victim of a planted explosive: the root naming GetPlantedExplosive,
+/// its first leaf whose conditions pass, only while the explosive is live
+/// (pickpocket.md §5).
+#[test]
+fn the_panic_idle_is_the_root_naming_get_planted_explosive() {
+    let f = fixture();
+    let mut g = game(&f);
+    let actor = FormId(ACTOR);
+    let folder = "characters\\_male";
+    assert_eq!(g.panic_idle(actor, folder, &|_| false), None, "nothing planted");
+    let start = g.time;
+    g.plant_explosive(actor, FormId(0x4330), fnv_game::pickpocket::Explosive { damage: 125.0, ..Default::default() }).unwrap();
+    assert_eq!(g.panic_idle(actor, folder, &|_| false), None, "before the freak-out time");
+    g.time = start + 0.2;
+    assert_eq!(g.panic_idle(actor, folder, &|_| false), Some(FormId(IDLE_PANIC_PLAIN)), "the power armour leaf's conditions fail");
+    assert_eq!(g.panic_idle(actor, "creatures\\dog", &|_| false), None, "a creature's folder has none");
+    // The tree's other walks pass the panic root by.
+    assert_eq!(g.pick_idle(FormId::PLAYER_REF, folder, &|_| false), Some(FormId(IDLE_LEAF_ANY)));
+    g.time = start + 2.1;
+    g.tick_planted();
+    assert_eq!(g.panic_idle(actor, folder, &|_| false), None, "gone off");
+}
+
 /// A standing look: the tree walked as for PickIdle, only the Idle section's leaves
 /// counted (#1542).
 #[test]
@@ -393,4 +442,21 @@ fn standing_idle_takes_only_idle_section_leaves() {
     assert_eq!(g.standing_idle(FormId(ACTOR), folder), Some(FormId(IDLE_LEAF_LOOK)), "the special idles before it are passed over");
     assert_eq!(g.standing_idle(FormId::PLAYER_REF, folder), None, "its conditions fail: no look");
     assert_eq!(g.standing_idle(FormId(ACTOR), "creatures\\dog"), None, "another folder: nothing");
+}
+
+/// SetUnconscious holds an actor standing in its tree's GetUnconscious idle, the
+/// switched-off pose, in place of any other look, until SetUnconscious 0 (#1977).
+#[test]
+fn an_unconscious_actor_stands_in_its_switched_off_idle() {
+    let f = fixture();
+    let mut g = game(&f);
+    let actor = FormId(ACTOR);
+    let folder = "characters\\_male";
+    assert_eq!(g.unconscious_idle(actor, folder), None, "conscious: no off pose");
+    call(&mut g, SET_UNCONSCIOUS, actor, &[ArgValue::Value(Value::Num(1.0))]);
+    assert_eq!(g.unconscious_idle(actor, folder), Some(FormId(IDLE_LEAF_OFF)));
+    assert_eq!(g.standing_idle(actor, folder), Some(FormId(IDLE_LEAF_OFF)), "before the Idle-section look");
+    assert_eq!(g.unconscious_idle(actor, "creatures\\dog"), None, "another folder: nothing");
+    call(&mut g, SET_UNCONSCIOUS, actor, &[ArgValue::Value(Value::Num(0.0))]);
+    assert_eq!(g.standing_idle(actor, folder), Some(FormId(IDLE_LEAF_LOOK)), "switched on: its look again");
 }
