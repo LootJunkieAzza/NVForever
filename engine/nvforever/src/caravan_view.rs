@@ -956,7 +956,8 @@ fn build(commands: &mut Commands, models: &mut ModelCtx, window: Option<&Window>
             ChildOf(space),
         ))
         .id();
-    let card_mesh = models.meshes.add(quad()?);
+    // A card's rounded outline (`crate::card_shape`): the pictures' own corners are opaque.
+    let card_mesh = models.meshes.add(crate::card_shape::card_mesh(Vec2::ONE, 0.0, true));
     let size = window.map(|w| Extent3d { width: w.physical_width().max(1), height: w.physical_height().max(1), depth_or_array_layers: 1 }).unwrap_or(Extent3d { width: 1280, height: 720, depth_or_array_layers: 1 });
     let mut image = Image::new_fill(size, TextureDimension::D2, &[0, 0, 0, 255], TextureFormat::Bgra8UnormSrgb, RenderAssetUsages::default());
     image.texture_descriptor.usage = TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST | TextureUsages::RENDER_ATTACHMENT;

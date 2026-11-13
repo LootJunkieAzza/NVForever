@@ -98,6 +98,7 @@ mod blackjack_view;
 mod slots_view;
 mod caravan_pot;
 mod caravan_view;
+mod card_shape;
 mod body_weapons;
 mod terminal_view;
 mod scope_lens;

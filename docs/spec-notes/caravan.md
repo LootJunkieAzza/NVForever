@@ -61,6 +61,29 @@ owner, 2026-10-19), 43 screenshots of a game against Ringo taken by the owner
   2026-10-23 NVForever ran none and the player owned 0 cards after Ringo's gift, owner's
   playtest list 7 item 8].
 
+### 2.1 The card's shape (2026-11-12)
+
+- The card pictures are opaque, corners included. The faces and backs are DXT1, 128 by
+  256, with no transparent texel; their corners are pale paper [observed: cardb_s09.dds,
+  cardg_back.dds, cardt_c01.dds, the first level's corner blocks].
+- The original's card models round the corners with their shape. The face of
+  `meshes\terminals\nv_caravan\player_1_01.nif` is a 12-point outline, 2.5 across and 3.5
+  long. Each corner is cut by three points, in the top right quarter (1.107, 1.75),
+  (1.205, 1.705) and (1.25, 1.597), mirrored into the others [observed: its 12-vertex
+  NiTriStripsData; the 24-vertex shapes are the shadow round it].
+- Its picture coordinates lay the whole picture (0 to 1 both ways, the 128 across the
+  card's width) on the full 2.5 by 3.5 rectangle, so each outline point takes the
+  picture at its own place: 0.0572 and 0.0437 at the corner's ends, 0.018 and 0.0129 at
+  its middle point, and one minus those [observed: the same block's UVs]. No part of the
+  picture is inset, and nothing lies past 0 to 1. The picture's corners outside the
+  outline are near white (an `fffaff` texel at 0,0 outside the drawn grey arc) and are
+  never drawn [observed: cardb_s09.dds].
+- NVForever draws a Caravan or poker card as that outline fitted to the card's size, the
+  picture laid on it as on the whole rectangle (`card_shape.rs`) [design]. Before
+  2026-11-12 the card was a full rectangle and its square corners showed past the rounded
+  ones (owner, ship17, "card corners are visible"). Blackjack draws the game's own card
+  models, so it already has the outline.
+
 ## 3. The bet (first screen)
 
 From the screenshots [observed] and the in-game help `HelpCaravanBetting` [documented]:
