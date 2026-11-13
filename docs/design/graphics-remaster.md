@@ -106,6 +106,12 @@ rust and wood stay matte). Sun-shadow edges: the Gaussian filter averages Bevy's
 with its 8-tap spiral at 2.5x, turned per pixel and not per frame (vendored
 `shadow_sampling.wesl`), a wider penumbra without temporal noise under MSAA.
 
+**Detail** (terrain.wesl, nif_material.wesl `nvf_detail_*`): near the camera, where the 2010
+textures run out of resolution, procedural world-space relief (two octaves of value noise with
+an integer hash, cells of 9 and 3.5 units) tilts the normal (terrain 6, shapes 4) and shades
+the colour by up to 18 % (terrain) or 12 % (shapes), faded out between 250 and 1,100 units;
+not on FaceGen skin.
+
 **Cloud shadows** (lights.rs `nvf_sun_cloud`, atmos.wesl): value noise (3 octaves, cells of
 17,000 units) at a cloud layer 30,000 units up, read where the ray from the surface to the
 sun crosses it, drifting with time; the sun dims to 0.4 under a cloud. Only on a directional

@@ -136,6 +136,51 @@ fn layer_normal(k: u32, instance_index: u32, uv: vec2<f32>) -> vec3<f32> {
     }
 }
 
+// NVForever remaster (graphics-remaster.md §4 "Detail"): procedural micro-relief on the
+// normal near the camera, where the 2010 textures run out of resolution: the gradient of
+// two octaves of world-space value noise (cells of 9 and 3.5 game units), tilting the
+// normal by up to about 0.3, faded out between 250 and 1,100 units [engineering choice].
+// The same code is in terrain.wesl and nif_material.wesl. Integer hashing keeps it exact
+// at the Mojave's coordinates (tens of thousands of units).
+fn nvf_hash3(c: vec3<i32>) -> f32 {
+    var h = (u32(c.x) * 0x8da6b343u) ^ (u32(c.y) * 0xd8163841u) ^ (u32(c.z) * 0xcb1ab31fu);
+    h = (h ^ (h >> 16u)) * 0x7feb352du;
+    h = (h ^ (h >> 15u)) * 0x846ca68bu;
+    h = h ^ (h >> 16u);
+    return f32(h & 0xffffu) / 65535.0;
+}
+fn nvf_noise3(p: vec3<f32>) -> f32 {
+    let i = vec3<i32>(floor(p));
+    let f = fract(p);
+    let u = f * f * (3.0 - 2.0 * f);
+    let a = mix(mix(nvf_hash3(i), nvf_hash3(i + vec3(1, 0, 0)), u.x), mix(nvf_hash3(i + vec3(0, 1, 0)), nvf_hash3(i + vec3(1, 1, 0)), u.x), u.y);
+    let b = mix(mix(nvf_hash3(i + vec3(0, 0, 1)), nvf_hash3(i + vec3(1, 0, 1)), u.x), mix(nvf_hash3(i + vec3(0, 1, 1)), nvf_hash3(i + vec3(1, 1, 1)), u.x), u.y);
+    return mix(a, b, u.z);
+}
+fn nvf_relief(p: vec3<f32>) -> f32 {
+    return nvf_noise3(p / 9.0) * 0.65 + nvf_noise3(p / 3.5) * 0.35;
+}
+// The same relief as a detail map on the colour: darker in its hollows, lighter on its
+// crests, by up to `amount`, near the camera only.
+fn nvf_detail_colour(c: vec3<f32>, p: vec3<f32>, distance: f32, amount: f32) -> vec3<f32> {
+    let fade = 1.0 - smoothstep(250.0, 1100.0, distance);
+    if fade <= 0.0 {
+        return c;
+    }
+    return c * (1.0 + amount * fade * (nvf_relief(p) - 0.5) * 2.0);
+}
+fn nvf_detail_normal(n: vec3<f32>, p: vec3<f32>, distance: f32, strength: f32) -> vec3<f32> {
+    let fade = 1.0 - smoothstep(250.0, 1100.0, distance);
+    if fade <= 0.0 {
+        return n;
+    }
+    let e = 0.6;
+    let h = nvf_relief(p);
+    let g = vec3(nvf_relief(p + vec3(e, 0.0, 0.0)) - h, nvf_relief(p + vec3(0.0, e, 0.0)) - h, nvf_relief(p + vec3(0.0, 0.0, e)) - h) / e;
+    let tangential = g - dot(g, n) * n;
+    return normalize(n - tangential * (strength * fade));
+}
+
 @fragment
 fn fragment(
     vertex: VertexOutput,
@@ -186,6 +231,11 @@ fn fragment(
         pbr_input.N = normalize(normal);
     }
     pbr_input.material.base_color.a = 1.0;
+    @if(SCREEN_INDIRECT) {
+        let nvf_d = length(view.world_position - pbr_input.world_position.xyz);
+        pbr_input.N = nvf_detail_normal(pbr_input.N, pbr_input.world_position.xyz, nvf_d, 6.0);
+        pbr_input.material.base_color = vec4(nvf_detail_colour(pbr_input.material.base_color.rgb, pbr_input.world_position.xyz, nvf_d, 0.18), 1.0);
+    }
 
     var out: FragmentOutput;
     out.color = apply_pbr_lighting(pbr_input);
