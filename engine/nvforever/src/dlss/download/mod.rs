@@ -95,7 +95,7 @@ pub enum Failure {
     FolderHolds(String),
     /// Writing the staging folder or moving the files failed (the error).
     Write(String),
-    /// The archive's address answered with a redirect to a place not allowed (where).
+    /// The archive's address answered with a redirect to a place not allowed (scheme and host only).
     Redirect(String),
     /// DLSS, and so the download, is Windows only.
     // Made only off Windows (`start`).

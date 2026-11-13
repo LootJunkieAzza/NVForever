@@ -18,7 +18,8 @@
 //!   of our own words ([`ATTRIBUTION`]); no logo, and none of the names the licence lists as
 //!   NVIDIA's marks.
 //!
-//! Test aid `NVF_PLAY_TEST_DLSS_DOWNLOAD=<item>[,…]`: `clear` at the start deletes the four
+//! Test aid `NVF_PLAY_TEST_DLSS_DOWNLOAD=<item>[,…]` (only with `--data` / `NVFOREVER_DATA`):
+//! `clear` at the start deletes the four
 //! listed files from the DLSS folder, only when `NVF_DLSS_DIR` names a folder whose name
 //! starts with `smoke-dlss-` (never another file, never another folder); `accept` presses I
 //! accept a second after the licence is shown; `cancel` presses Cancel there instead;
@@ -60,6 +61,21 @@ pub(crate) const ATTRIBUTION: [&str; 2] = ["NVIDIA DLSS", "Upscaling by NVIDIA C
 const AID: &str = "NVF_PLAY_TEST_DLSS_DOWNLOAD";
 /// The only folders the aid's `clear` empties: their name starts so.
 const AID_FOLDER_PREFIX: &str = "smoke-dlss-";
+
+/// [design] Both download test hooks use the reports' developer-run condition.
+pub(crate) fn test_aid_value(variable: &str) -> Option<String> {
+    test_aid_for_run(std::env::var(variable).ok(), crate::reports::developer_data())
+}
+
+fn test_aid_for_run(value: Option<String>, developer_data: bool) -> Option<String> {
+    let value = value.filter(|v| !v.trim().is_empty())?;
+    if !developer_data {
+        static WARNED: std::sync::Once = std::sync::Once::new();
+        WARNED.call_once(|| warn!("DLSS download: NVF_PLAY_TEST_DLSS_DOWNLOAD and NVF_DLSS_DOWNLOAD_URL ignored without --data / NVFOREVER_DATA"));
+        return None;
+    }
+    Some(value)
+}
 
 /// Whether `name` is the download choice (its name, or its words, any case).
 pub(crate) fn is_choice(name: &str) -> bool {
@@ -215,7 +231,7 @@ impl AidPlan {
 
     /// From the environment; `None` without the aid.
     fn from_env() -> Option<AidPlan> {
-        let value = std::env::var(AID).ok().filter(|v| !v.trim().is_empty())?;
+        let value = test_aid_value(AID)?;
         let (plan, unknown) = Self::parse(&value);
         for item in unknown {
             warn!("test aid {AID}: {item:?} is not clear, accept, cancel or cancel-at:<seconds>");
@@ -344,6 +360,16 @@ mod tests {
         let (plan, unknown) = AidPlan::parse("cancel,cancel-at:x,skip");
         assert!(plan.cancel && plan.cancel_at.is_none());
         assert_eq!(unknown, ["cancel-at:x", "skip"]);
+    }
+
+    #[test]
+    fn download_test_hooks_are_ignored_in_player_runs() {
+        for value in ["clear,accept,cancel,cancel-at:2", "http://127.0.0.1:9/test.zip"] {
+            assert_eq!(test_aid_for_run(Some(value.into()), false), None);
+            assert_eq!(test_aid_for_run(Some(value.into()), true), Some(value.into()));
+        }
+        assert_eq!(test_aid_for_run(None, true), None);
+        assert_eq!(test_aid_for_run(Some("  ".into()), true), None);
     }
 
     #[test]

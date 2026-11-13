@@ -13,7 +13,8 @@
 //! body a time bound scaled by its size ([`body_time`]: a minute plus 8 KiB a second), so a
 //! server trickling bytes cannot hold the download forever while a slow line still finishes.
 //!
-//! Test aid: `NVF_DLSS_DOWNLOAD_URL=<url>` replaces [`ASSET_URL`] only when it is `http` on
+//! Test aid (only with `--data` / `NVFOREVER_DATA`): `NVF_DLSS_DOWNLOAD_URL=<url>` replaces
+//! [`ASSET_URL`] only when it is `http` on
 //! this machine (`127.0.0.1`, `localhost`, `[::1]`); anything else is ignored with a warning.
 //! The pins still apply: the size, the entries, every hash.
 
@@ -43,6 +44,13 @@ fn scheme_host(url: &str) -> Option<(String, String)> {
     };
     let port_ok = port.is_empty() || port.strip_prefix(':').is_some_and(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit()));
     (port_ok && !host.is_empty()).then(|| (scheme.to_ascii_lowercase(), host.to_ascii_lowercase()))
+}
+
+/// [design] A refused redirect retains only its scheme and host, never a signed path/query.
+fn redirect_destination(location: &str) -> String {
+    scheme_host(location)
+        .filter(|(scheme, host)| scheme.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.')) && host.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '.' | '[' | ']' | ':')))
+        .map_or_else(|| "an invalid or missing address".into(), |(scheme, host)| format!("{scheme}://{host}"))
 }
 
 /// Whether `url` is `http` on this machine (the test aid's only allowed form).
@@ -114,10 +122,10 @@ mod http {
     impl Http {
         /// The pinned address, or the test aid's when it is set and allowed.
         pub(in crate::dlss::download) fn new() -> Self {
-            match std::env::var(TEST_URL_VAR) {
-                Ok(url) if !url.is_empty() && is_loopback_http(&url) => Self::with_url(url, true),
-                Ok(url) if !url.is_empty() => {
-                    bevy::log::warn!("DLSS download: {TEST_URL_VAR}={url} is not an http address on this machine (127.0.0.1, localhost, [::1]); ignored");
+            match crate::dlss_download::test_aid_value(TEST_URL_VAR) {
+                Some(url) if is_loopback_http(&url) => Self::with_url(url, true),
+                Some(_) => {
+                    bevy::log::warn!("DLSS download: {TEST_URL_VAR} is not an http address on this machine (127.0.0.1, localhost, [::1]); ignored");
                     Self::with_url(ASSET_URL.to_string(), false)
                 }
                 _ => Self::with_url(ASSET_URL.to_string(), false),
@@ -164,7 +172,7 @@ mod http {
                 301 | 302 | 303 | 307 | 308 => {
                     let location = answer.headers().get("location").and_then(|v| v.to_str().ok()).unwrap_or_default().to_string();
                     if !redirect_allowed(&location, self.test_aid) {
-                        return Err(Failure::Redirect(if location.is_empty() { "nowhere".into() } else { location }));
+                        return Err(Failure::Redirect(super::redirect_destination(&location)));
                     }
                     location
                 }
@@ -220,6 +228,21 @@ mod http {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn refused_redirects_keep_only_the_scheme_and_host() {
+        let destination = redirect_destination("http://release-assets.githubusercontent.com:80/private/file?sig=secret#token");
+        assert_eq!(destination, "http://release-assets.githubusercontent.com");
+        let failure = Failure::Redirect(destination);
+        for shown in [failure.to_string(), format!("{failure:?}")] {
+            assert!(!shown.contains("private"));
+            assert!(!shown.contains("secret") && !shown.contains("token"));
+        }
+        for invalid in ["", "/private?sig=secret", "https://user:secret@example.com/file", "https://bad\\secret/file"] {
+            assert_eq!(redirect_destination(invalid), "an invalid or missing address");
+        }
+        assert_eq!(redirect_destination("http://[::1]:80/file?sig=secret"), "http://[::1]");
+    }
 
     #[test]
     fn only_https_on_the_asset_hosts_is_followed() {
