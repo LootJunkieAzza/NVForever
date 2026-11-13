@@ -22445,6 +22445,217 @@ expect = [
 manual = "font_glyph_baseline.png, compared with upstream main and the original at 1280x720: every x-height letter in 'NVF box without buttons' has the same top and bottom ink rows; the two u glyphs have equal heights; capitals and ascenders share their own height. Check the whole box, including its frame and Ok button, for position or size changes. Log expectations only verify the scene and capture; the glyph appearance needs this image review."
 
 [[scenario]]
+name = "editor-save-write"
+source = "owner 2026-11-01 (local editor design): editor mode from the console moves a placed reference and saves it into a plugin in the home's mods folder; editor-save-load reads it, so run them together"
+areas = ["editor"]
+paths = ["engine/nvf-play/src/editor.rs", "crates/fnv-esm/src/edit.rs", "crates/fnv-esm/src/encode.rs", "crates/fnv-install/src/plugins.rs"]
+# The bottle 0x0010A202 (Goodsprings, at x -68375.41) moves 64 along X and turns 45°.
+env = { NVFOREVER_HOME = "editor-home", NVF_PLAY_TEST_EDITOR = "1", NVF_PLAY_TEST_EDITOR_REPLACE = "1", NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "16:editor;17:editor select 0010A202;17.5:editor move 64 0 0;18:editor turn 45;18.5:0010A202.getpos x;19:editor save EditSmoke;20:editor;20.5:close" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
+run_seconds = 23
+expect = [
+  "editor: on",
+  "editor: selected 0x0010A202",
+  { re = 'editor: moved 0x0010A202 by \(64, 0, 0\), turned 0°', label = "the move" },
+  { re = 'editor: moved 0x0010A202 by \(0, 0, 0\), turned 45°', label = "the turn" },
+  { re = 'console: GetPos on 0x0010A202 >> -68311\.4', label = "it is drawn at its new place in the run" },
+  { re = 'editor: saved 1 references and 0 new \(\) into .*EditSmoke\.esp \(\d+ bytes, 1 masters\)', label = "the plugin is written to the mods folder" },
+  { re = 'console: EditSmoke\.esp (is|was already) on in .*plugins\.txt', label = "and on in the home's plugin list (already, when the smoke home is kept from a run before)" },
+  { re = 'editor: off; 1 reference\(s\) moved, 0 deleted, 0 placed this session', label = "editor mode goes off" },
+]
+
+[[scenario]]
+name = "editor-save-load"
+source = "owner 2026-11-01 (local editor design): the second half: a start with the plugin editor-save-write saved finds the bottle where it was moved"
+areas = ["editor"]
+paths = ["engine/nvf-play/src/editor.rs", "crates/fnv-esm/src/edit.rs", "crates/fnv-install/src/plugins.rs", "engine/nvforever/src/world.rs"]
+env = { NVFOREVER_HOME = "editor-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "16:0010A202.getpos x;16.5:0010A202.getangle z;17:close" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--plugins", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm", "GunRunnersArsenal.esm", "ClassicPack.esm", "MercenaryPack.esm", "TribalPack.esm", "CaravanPack.esm", "EditSmoke.esp"]
+run_seconds = 20
+expect = [
+  { re = 'console: GetPos on 0x0010A202 >> -68311\.4', label = "the bottle starts where editor mode moved it" },
+  { re = 'console: GetAngle on 0x0010A202 >> 222\.6', label = "turned as it was" },
+]
+
+[[scenario]]
+name = "editor-delete-undo"
+source = "owner 2026-11-01 (local editor design): editor mode deletes a reference (disabled in the run, Initially Disabled when saved), and Ctrl+Z / editor undo puts a move and a delete back"
+areas = ["editor"]
+paths = ["engine/nvf-play/src/editor.rs", "crates/fnv-esm/src/edit.rs"]
+# 0x0010A206 (VCG02SunnyPatrolTrigger) has no enable parent: Disable and Enable act on it
+# itself, unlike the bottle 0x0010A202, which follows a disabled parent.
+env = { NVFOREVER_HOME = "editor-home-delete", NVF_PLAY_TEST_EDITOR = "1", NVF_PLAY_TEST_EDITOR_REPLACE = "1", NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "16:editor;17:editor select 0010A206;17.5:editor move 64 0 0;18:editor undo;18.5:0010A206.getpos x;19:editor delete;19.5:0010A206.getdisabled;20:editor undo;20.5:0010A206.getdisabled;21:editor delete;21.5:editor save EditGone;22:editor;22.5:close" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
+run_seconds = 25
+expect = [
+  "editor: undid the move of 0x0010A206",
+  { re = 'console: GetPos on VCG02SunnyPatrolTriggerREF >> -68299\.2', label = "the move is put back" },
+  "editor: deleted 0x0010A206",
+  { re = 'console: GetDisabled on VCG02SunnyPatrolTriggerREF >> 1\.00', label = "deleted: disabled in the run" },
+  "editor: undid the delete of 0x0010A206",
+  { re = 'console: GetDisabled on VCG02SunnyPatrolTriggerREF >> 0\.00', label = "the delete is put back" },
+  { re = 'editor: saved 1 references and 0 new \(\) into .*EditGone\.esp', label = "the delete is saved" },
+  { re = 'editor: off; 0 reference\(s\) moved, 1 deleted, 0 placed this session', label = "counted as deleted" },
+]
+
+[[scenario]]
+name = "editor-save-mo2"
+source = "owner 2026-11-01 (local editor design §21.2 item 4): under Mod Organizer 2 a save goes into the mod that gives Data the plugin, else MO2's overwrite folder, and is turned on in the MO2 profile, not NVForever's list"
+areas = ["editor"]
+paths = ["engine/nvf-play/src/editor.rs", "crates/fnv-install/src/mo2.rs"]
+# NVF_PLAY_TEST_EDITOR_MO2 stands in for MO2 (sessions cannot start it): a fresh instance
+# folder gets profile Smoke, no mods, so a new plugin goes to its overwrite folder.
+env = { NVFOREVER_HOME = "editor-home-mo2", NVF_PLAY_TEST_EDITOR = "1", NVF_PLAY_TEST_EDITOR_REPLACE = "1", NVF_PLAY_TEST_EDITOR_MO2 = "editor-mo2", NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "16:editor;17:editor select 0010A202;17.5:editor move 64 0 0;18:editor save EditMo2;19:editor;19.5:close" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
+run_seconds = 22
+expect = [
+  { re = 'editor: saved 1 references and 0 new \(\) into .*smoke.editor-mo2.overwrite.EditMo2\.esp \(\d+ bytes, 1 masters\)', label = "written into the MO2 overwrite folder" },
+  { re = 'console: \(MO2: into the overwrite folder\)', label = "the console says where" },
+  { re = 'console: EditMo2\.esp (is|was already) on in MO2.s profile .*smoke.editor-mo2.profiles.Smoke', label = "on in the MO2 profile's list (already, when the instance is kept from a run before)" },
+]
+forbid = [
+  { re = 'editor-home-mo2.mods.EditMo2', label = "not into NVForever's own mods folder" },
+]
+
+
+[[scenario]]
+name = "editor-open-write"
+source = "local editor design §6.1: editor open lists the plugins and picks the target, refusing a master; editor save without a name writes into the target, which the home's INI remembers; editor-open-last reads it, so run them together"
+areas = ["editor"]
+paths = ["engine/nvf-play/src/editor.rs", "engine/nvf-play/src/console.rs"]
+env = { NVFOREVER_HOME = "editor-home-open", NVF_PLAY_TEST_EDITOR = "1", NVF_PLAY_TEST_EDITOR_REPLACE = "1", NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "16:editor;17:editor open;17.3:editor open FalloutNV.esm;17.6:editor open EditOpen;18:editor select 0010A202;18.3:editor move 32 0 0;18.6:editor save;19.5:editor;20:close" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
+run_seconds = 23
+expect = [
+  { re = 'console: Plugins to open', label = "editor open lists the plugins" },
+  { re = 'editor: not opened: FalloutNV\.esm holds \w+ records', label = "a master holding other records is refused" },
+  { re = 'editor: target EditOpen\.esp \((new|loaded, \d+ reference)', label = "the target is picked (loaded when the smoke home is kept from a run before)" },
+  { re = 'editor: saved 1 references and 0 new \(\) into .*EditOpen\.esp', label = "editor save without a name writes into the target" },
+]
+
+
+[[scenario]]
+name = "editor-open-last"
+source = "local editor design §6.1: the next run's first editor opens the last target again, and editor save without a name writes into it"
+areas = ["editor"]
+paths = ["engine/nvf-play/src/editor.rs", "engine/nvf-play/src/console.rs"]
+env = { NVFOREVER_HOME = "editor-home-open", NVF_PLAY_TEST_EDITOR = "1", NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "16:editor;17:editor select 0010A202;17.5:editor move 0 32 0;18:editor save;19:editor;19.5:close" }
+# Smoke runs load the fixed masters whatever the home's list says: the plugin is named.
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--plugins", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm", "GunRunnersArsenal.esm", "ClassicPack.esm", "MercenaryPack.esm", "TribalPack.esm", "CaravanPack.esm", "EditOpen.esp"]
+run_seconds = 22
+expect = [
+  { re = 'editor: target EditOpen\.esp \(loaded, 1 reference\(s\) of its own.*the last one used', label = "the last target is opened again, loaded with its reference" },
+  { re = 'editor: saved 1 references and 0 new \(\) into .*EditOpen\.esp', label = "saved into it without a name" },
+]
+
+
+[[scenario]]
+name = "editor-drag-drop"
+source = "local editor design §7.2: a drag moves the selection on its plane (editor drag, the test form of the mouse drag), End / editor drop sets it down on what is below, each one undo step"
+areas = ["editor"]
+paths = ["engine/nvf-play/src/editor.rs", "engine/nvf-play/src/phys.rs"]
+# A bottle (base 0x0010A1F6) placed where the screen's centre points, raised 64, set
+# down again (about 64 back), the set-down undone, then dragged from below the centre to
+# the right of it: across only, its height kept.
+env = { NVFOREVER_HOME = "editor-home-drag", NVF_PLAY_TEST_EDITOR = "1", NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "16:editor;17:editor place 0010A1F6;17.5:editor move 0 0 64;17.8:FF000000.getpos z;18:editor drop;18.5:editor undo;19:editor drag 0.5 0.6 0.6 0.6;20:editor;20.5:close" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
+run_seconds = 23
+expect = [
+  { re = 'editor: placed 0x0010A1F6 as 0x[0-9A-F]{8}', label = "a bottle is placed" },
+  { re = 'console: GetPos on 0xFF000000 >> 846\d\.', label = "the raise sticks: a dynamic body's collision follows SetPos (phys repose_ref)" },
+  { re = 'editor: set 0x[0-9A-F]{8} down by -(5\d|6\d|7\d) onto ', label = "raised 64, it is set down by about as much" },
+  { re = 'editor: undid the move of 0x[0-9A-F]{8}', label = "the set-down is one undo step" },
+  { re = 'editor: dragged 0x[0-9A-F]{8} by \((-?[1-9]\d*, -?\d+|-?\d+, -?[1-9]\d*), -?0\)', label = "the drag moves it across, not up or down" },
+  { re = 'editor: off; 0 reference\(s\) moved, 0 deleted, 1 placed this session', label = "counted as placed" },
+]
+
+
+[[scenario]]
+name = "editor-find-place"
+source = "local editor design §7.3: editor find lists placeable records by name (the console's record index), editor place #n places one, an actor base is refused (a new reference is written as a REFR)"
+areas = ["editor"]
+paths = ["engine/nvf-play/src/editor.rs", "engine/nvf-play/src/console.rs"]
+# 0x00000007 is the player's NPC_ base: refused. The find runs as soon as the index the
+# console builds on opening is ready (under a second).
+env = { NVFOREVER_HOME = "editor-home-find", NVF_PLAY_TEST_EDITOR = "1", NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "16:editor;17:editor find nuka cola;18.5:editor place #1;19:editor place 00000007;19.5:editor place NoSuchEditorId;20:editor;20.5:close" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
+run_seconds = 23
+expect = [
+  { re = 'editor: find "nuka cola": [1-9]\d* placeable record\(s\)', label = "the find lists placeable records" },
+  { re = 'console:   #1 0x[0-9A-F]{8} [A-Z_]{4} ', label = "numbered in the console" },
+  { re = 'editor: placed 0x[0-9A-F]{8} as 0x[0-9A-F]{8} at', label = "editor place #1 places the first" },
+  { re = 'editor: 0x00000007 not placed: a NPC_ is placed as an actor', label = "an actor base is refused" },
+  { re = 'editor: not placed: no record has the Editor ID "NoSuchEditorId"', label = "an unknown Editor ID is refused" },
+  { re = 'editor: off; 0 reference\(s\) moved, 0 deleted, 1 placed this session', label = "one placed" },
+]
+
+
+[[scenario]]
+name = "editor-why"
+source = "local editor design §14: editor why explains the selected actor's lines of a topic (GREETING by default) from the game's own line verdicts; read-only"
+areas = ["editor"]
+paths = ["engine/nvf-play/src/editor.rs", "engine/nvf-play/src/console.rs", "crates/fnv-game/src/debugger.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/cond.rs"]
+# Sunny Smiles, selected with prid; GREETING, then GOODBYE by Editor ID, then a word that
+# names no topic and one that names a form that is not a topic.
+env = { NVFOREVER_HOME = "editor-home-why", NVF_PLAY_TEST_EDITOR = "1", NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "15:editor why;16:editor;17:prid SunnyRef;17.5:editor why;18:editor why GOODBYE all;18.5:editor why NoSuchTopic;19:editor why 00000007;20:editor;20.5:close" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
+run_seconds = 23
+expect = [
+  { re = 'console: Editor mode is off: type editor first', label = "refused outside editor mode" },
+  { re = 'editor: why 0x[0-9A-F]{8} for 0x[0-9A-F]{8}: [1-9]\d* console line\(s\); (Said now: |Nothing to say)', min = 2, label = "GREETING and GOODBYE explained, with the line said now" },
+  { re = 'console: Topic 0x[0-9A-F]{8} \(GREETING\) for 0x[0-9A-F]{8} \(SunnyRef\) talking to ', label = "the speaker and topic named" },
+  { re = 'console: +\d+\. \[(no|SAID|could)\] 0x[0-9A-F]{8}', label = "lines listed with their verdicts" },
+  { re = 'console: +\d+ (pass|FAIL) [A-Za-z]+\(.*\) = ', label = "conditions with live values" },
+  { re = 'console:   [1-9]\d* line\(s\) written for other speakers are not shown', label = "lines for other speakers hidden on GREETING" },
+  { re = 'console: editor why: no topic "NoSuchTopic"', label = "an unknown topic is refused" },
+  { re = 'console: editor why: 00000007 is not a topic \(DIAL\)', label = "a form that is not a topic is refused" },
+]
+
+[[scenario]]
+name = "editor-place-write"
+source = "owner 2026-11-01 (local editor design): editor mode places a new reference and saves it as the plugin's own; editor-place-load finds it, so run them together"
+areas = ["editor"]
+paths = ["engine/nvf-play/src/editor.rs", "crates/fnv-esm/src/edit.rs"]
+# The bottle's base 0x0010A1F6, placed where the screen's centre points; the plugin's
+# first new reference is 0x0A000800 in the load order (the ten masters, then the plugin);
+# in the file it is 0x01000800, FalloutNV.esm being its one master (clean masters).
+env = { NVFOREVER_HOME = "editor-home-place", NVF_PLAY_TEST_EDITOR = "1", NVF_PLAY_TEST_EDITOR_REPLACE = "1", NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "16:editor;17:editor place 0010A1F6;17.5:editor place 0010A1F6;18:editor undo;18.5:editor save EditPlace;19:editor;19.5:close" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
+run_seconds = 22
+expect = [
+  { re = 'editor: placed 0x0010A1F6 as 0x[0-9A-F]{8} at \(-?\d+, -?\d+, -?\d+\)', min = 2, label = "two placed in the run" },
+  { re = 'editor: undid the placing of 0x[0-9A-F]{8}', label = "the second one is undone" },
+  { re = 'editor: saved 0 references and 1 new \(0x0A000800\) into .*EditPlace\.esp', label = "one new reference saved, numbered after the masters" },
+  { re = 'editor: off; 0 reference\(s\) moved, 0 deleted, 1 placed this session', label = "counted as placed" },
+]
+
+[[scenario]]
+name = "editor-place-load"
+source = "owner 2026-11-01 (local editor design): the second half: a start with EditPlace.esp has its new reference"
+areas = ["editor"]
+paths = ["engine/nvf-play/src/editor.rs", "crates/fnv-esm/src/edit.rs"]
+env = { NVFOREVER_HOME = "editor-home-place", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "16:0A000800.getpos x;16.5:0A000800.getpos z;17:close" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--plugins", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm", "GunRunnersArsenal.esm", "ClassicPack.esm", "MercenaryPack.esm", "TribalPack.esm", "CaravanPack.esm", "EditPlace.esp"]
+run_seconds = 20
+expect = [
+  { re = 'console: GetPos on 0x0A000800 >> -6\d{4}\.\d+', label = "the new reference is in the world, near Goodsprings" },
+  { re = 'console: GetPos on 0x0A000800 >> 8\d{3}\.\d+', label = "at the height it was placed (about 8400; the ground under the camera's centre)" },
+]
+
+[[scenario]]
+name = "editor-locked"
+source = "owner 2026-11-01 (docs/design/editor.md §21.2): editor mode is locked behind editor=1 in NVForever.ini; without it the console says how to turn it on"
+areas = ["editor"]
+paths = ["engine/nvf-play/src/editor.rs"]
+env = { NVFOREVER_HOME = "editor-home-locked", NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "16:editor;16.5:close" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
+run_seconds = 19
+expect = [
+  "editor: Editor mode is locked: add editor=1 under [Settings] in NVForever.ini",
+  { re = 'editor: on', count = 0, label = "and it stays off" },
+]
+
+[[scenario]]
 name = "arrive-door-seated"
 source = "issue #1208 (owner): after a load door or a fast travel the destination's actors are already where their package has them, seated on its furniture, not walking there in front of the player; those loaded before the trip are not moved (docs/spec-notes/packages.md §8)"
 note = "Goodsprings at 20:00, every resident; at 14 s the player goes through the Prospector Saloon's door. GoodspringsSettler04Ref (00104F08) is behind the door on GoodspringsSettlerSaloonPackage, at the bar stool 00106192 (the low process took him there): he is drawn on it at once. Before the change he walked up to it and played SpecialIdle_StoolEnter in front of the player (2026-11-01)"
