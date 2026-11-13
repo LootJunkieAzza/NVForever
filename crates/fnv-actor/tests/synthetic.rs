@@ -122,6 +122,7 @@ const POWER_FIST: u32 = 0x120; // WEAP, BIPL FIST_LIST
 const MITTENS: u32 = 0x121; // ARMA, both hands, one glove model
 const MITTEN_LIST: u32 = 0x122; // FLST: MITTENS
 const PARKA: u32 = 0x123; // upper body; BIPL MITTEN_LIST
+const HOLOGRAM: u32 = 0x124; // head, hair, upper body, both hands on its own record; no BIPL
 const BASE: u32 = 0x200; // man: outfit + armour + gloves, beard
 const HATTED: u32 = 0x201; // cowboy hat
 const HELMETED: u32 = 0x202;
@@ -188,6 +189,7 @@ fn plugin_bytes() -> Vec<u8> {
         &armo(PIPBOY_GLOVE, "PipBoyGlove", slot::LEFT_HAND, 0.0, "characters\\_male\\lefthandpipboyglove.nif", None),
         &armo_with(b"ARMO", LEATHER, "Leather", slot::UPPER_BODY, 3.0, "armor\\leather.nif", None, Some(LEATHER_GLOVES)),
         &armo_with(b"ARMO", PARKA, "Parka", slot::UPPER_BODY, 1.0, "armor\\parka.nif", None, Some(MITTEN_LIST)),
+        &armo(HOLOGRAM, "HologramOutfit", slot::HEAD | slot::HAIR | slot::UPPER_BODY | slot::LEFT_HAND | slot::RIGHT_HAND, 0.0, "armor\\hologram.nif", None),
     ]);
     let arma = cat(&[
         &armo_with(b"ARMA", HAND_R, "BaseGloveR", slot::RIGHT_HAND, 0.0, "characters\\_male\\righthand.nif", None, None),
@@ -344,6 +346,27 @@ fn an_addon_gives_way_to_a_worn_item_in_its_slot() {
     let a = r.resolve(FormId(RANGER), FormId(0x905)).unwrap();
     let armor: Vec<String> = roles(&a).into_iter().filter(|p| !p.starts_with("head") && !p.starts_with("hair")).collect();
     assert_eq!(armor, vec!["body:right_hand righthand.nif", "armor leather.nif", "armor glovel.nif"]);
+}
+
+#[test]
+fn a_worn_item_with_more_slots_takes_them_on_its_own_record() {
+    // The hologram outfits declare both hands on their own record and list no addon; the
+    // Pip-Boy Glove gives way to them, as to an outfit's glove addon, so one left hand is
+    // drawn (#1523). Plain gloves on both hands do the same.
+    let f = fixture();
+    assert!(f.actors.issues.is_empty(), "{:?}", f.actors.issues.to_json());
+    assert!(f.actors.armors[&FormId(HOLOGRAM)].addons.is_empty());
+    let r = Resolver { actors: &f.actors, forms: &f.forms };
+    let a = r.resolve_wearing(FormId(DWELLER), FormId(0x908), Some(&[FormId(HOLOGRAM), FormId(PIPBOY_GLOVE)])).unwrap();
+    assert_eq!(roles(&a), vec!["armor hologram.nif"]);
+    let a = r.resolve_wearing(FormId(DWELLER), FormId(0x908), Some(&[FormId(PIPBOY_GLOVE), FormId(HOLOGRAM)])).unwrap();
+    assert_eq!(roles(&a), vec!["armor hologram.nif"]);
+    let body = |a: &fnv_actor::Appearance| roles(a).into_iter().filter(|p| !p.starts_with("head") && !p.starts_with("hair")).collect::<Vec<_>>();
+    let a = r.resolve_wearing(FormId(DWELLER), FormId(0x908), Some(&[FormId(VAULT_SUIT), FormId(GLOVES), FormId(PIPBOY_GLOVE)])).unwrap();
+    assert_eq!(body(&a), vec!["armor vaultsuit.nif", "armor gloves.nif"]);
+    // The glove still stays with an item that does not take its whole slot set.
+    let a = r.resolve_wearing(FormId(DWELLER), FormId(0x908), Some(&[FormId(OUTFIT), FormId(PIPBOY_GLOVE)])).unwrap();
+    assert_eq!(body(&a), vec!["body:right_hand righthand.nif", "armor outfit.nif", "armor lefthandpipboyglove.nif"]);
 }
 
 #[test]

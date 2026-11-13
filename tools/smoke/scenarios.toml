@@ -5632,7 +5632,26 @@ expect = [
   { re = 'lights: game attenuation installed', label = "lights fall off as the game's" },
   { re = 'light colour lines not found|apply_pbr_lighting not as expected|Tony McMapface not found|atmospheric fog not found', count = 0, label = "no patch missed its Bevy lines (a CRLF checkout once broke them all, #946)" },
   { re = 'failed to process shader', count = 0, label = "every shader builds (grass.wgsl needs the patched pbr_functions)" },
+  { re = "lights: the highlight's Fresnel factor stays at F0 in world views", label = "the lights' highlight takes F = F0 in world views (#2266)" },
+  { re = "the highlight's Fresnel line not found", count = 0, label = "the Fresnel patch found its Bevy line (#2266)" },
 ]
+
+[[scenario]]
+name = "primm-barrel-no-streak"
+source = "docs/spec-notes/world.md §8 \"Highlights at grazing angles\" (#2266): Primm's fire barrel Barrel03Fire1024 by day from the casino's arcade side, crouched 6 m away, where Bevy's Fresnel drew an orange streak on the shaded sidewalk; lights.rs FRESNEL_EDIT keeps the highlight at F = F0 in world views (a Bevy upgrade that moves the patched line fails here); a frame in target/smoke (primm_barrel_no_streak.png)"
+areas = ["renderer", "lights"]
+paths = ["engine/nvforever/src/lights.rs", "engine/vendor/bevy_pbr/src/render/pbr_lighting.wesl", "engine/Cargo.toml"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_UNSEEN = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONTROL = "4:sneak", NVF_PLAY_TEST_SHOTS = "9:primm_barrel_no_streak.png" }
+args = ["--play", "--world", "WastelandNV", "--pos=-53782.6,-52327.9,5828", "--heading", "135", "--pitch=-3", "--hour", "13", "--size", "1280x720", "--no-voice", "--no-messages", "--weather", "NVWastelandClear", "--graphics-only", "no-eye-adaptation"]
+run_seconds = 12
+manual = "primm_barrel_no_streak.png: no orange glossy band on the shaded sidewalk between the camera and the barrel (#2266)"
+expect = [
+  { re = "lights: the highlight's Fresnel factor stays at F0 in world views", label = "primm: the lights' highlight takes F = F0 in world views" },
+  { re = "the highlight's Fresnel line not found", count = 0, label = "primm: the Fresnel patch found its Bevy line" },
+  { re = 'failed to process shader', count = 0, label = "primm: the patched lighting shader builds" },
+  { re = 'Screenshot saved to .*primm_barrel_no_streak\.png', label = "primm: the frame was written" },
+]
+forbid = [{ text = "Caught rendering error", label = "a rendering (validation) error at the Primm barrel" }]
 
 [[scenario]]
 name = "model-lights-lantern"
@@ -7424,10 +7443,10 @@ forbid = [{ re = 'provocation: .*0xFF0000[0-9A-F]{2} warns the player inside its
 [[scenario]]
 name = "aggro-warning-look"
 source = "owner's playtest 2026-10-24, \"baby geckos were not showing the aggressive stay away from me warnings\" (crates/fnv-game/src/aggro.rs \"The look\", crates/fnv-ai/src/alert.rs Warnings, engine/nvforever/src/idles.rs creatures' combat idles): a young gecko warning the player stops and faces the player and draws its unarmed stance and holds it (owner 2026-10-25; the original drew and put it away every 2 s, capture `warnings`), not alerted, then attacks 15 s after its first warning; standing in the fight it plays its idle tree's combat idles (hiss, side hops)"
-note = "VERGSGecko6REF 0x00157B3C (VSpawnTier1GeckoSmall, a Young Gecko: Unaggressive, aggro radius 500, DefaultSandboxEditorLocation512 all day, which allows it); the player starts about 350 units east of its editor spot. The two GS02 gecko hunters 0x0016518B/0x0016518C (within 600 units) and the geckos 0x00157B3F, 0x00157B40, 0x00157B41 (within 5,000) are disabled so that no other fight is joined. At 3 s the player is moved 300 units from the gecko (#2011): at 12:00 the gecko is in a rolled lunch window, and before #2011 it stood there through a meal with no seat, about 350 units from the player; now it goes on wandering within 512 of its editor spot, as a sandboxer does, and could wander out of its 500-unit aggro radius before warning"
+note = "VERGSGecko6REF 0x00157B3C (VSpawnTier1GeckoSmall, a Young Gecko: Unaggressive, aggro radius 500, DefaultSandboxEditorLocation512 all day, which allows it); the player starts about 350 units east of its editor spot. The two GS02 gecko hunters 0x0016518B/0x0016518C (within 600 units) and the geckos 0x00157B3F, 0x00157B40, 0x00157B41 (within 5,000) are disabled so that no other fight is joined. At 3 s the player is moved 300 units from the gecko (#2011): at 12:00 the gecko is in a rolled lunch window, and before #2011 it stood there through a meal with no seat, about 350 units from the player; now it goes on wandering within 512 of its editor spot, as a sandboxer does, and could wander out of its 500-unit aggro radius before warning. From 4 s to 6 s the player runs a few short steps back and forth there (#2286): until #2286 the player's settling after the move counted as running and the gecko heard that; a player standing still is no footstep, so the steps are the noise it hears"
 areas = ["combat", "alert", "idles"]
 paths = ["crates/fnv-game/src/aggro.rs", "crates/fnv-game/src/awareness.rs", "crates/fnv-game/src/idles.rs", "crates/fnv-ai/src/alert.rs", "engine/nvforever/src/idles.rs", "engine/nvforever/src/creature_stance.rs", "engine/nvforever/src/npc_combat.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "3:moveto:player:VERGSGecko6REF:300:0:0,1:call:0x0016518B:Disable,1:call:0x0016518C:Disable,1:call:0x00157B3F:Disable,1:call:0x00157B40:Disable,1:call:0x00157B41:Disable" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_MOVE = "4:0:1,4.4:0:-1,4.8:0:1,5.2:0:-1,5.6:0:0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "3:moveto:player:VERGSGecko6REF:300:0:0,1:call:0x0016518B:Disable,1:call:0x0016518C:Disable,1:call:0x00157B3F:Disable,1:call:0x00157B40:Disable,1:call:0x00157B41:Disable" }
 args = ["--play", "--pos=-66099,-24341,7400", "--hour", "12", "--no-voice", "--no-messages"]
 run_seconds = 50
 order = [[
@@ -22046,6 +22065,20 @@ expect = [
 ]
 
 [[scenario]]
+name = "shot-ref-not-drawn"
+source = "#2186: each shot's temporary reference for scripts (fnv_game::nvse_proj) was drawn as a dropped item, a second bullet or mini nuke lying unturned at the shooter beside the flying one shot_fx draws"
+note = "as jip-projectiles (which checks that scripts still find the shot's reference): the player, aimed up, fires a FireWeapon shot, and nvf_play::dropped draws no model for its reference; the shot is fired some seconds after the call on a busy machine, so the run lasts 20 s"
+areas = ["scripts", "combat"]
+paths = ["crates/fnv-game/src/nvse_proj.rs", "engine/nvf-play/src/dropped.rs", "engine/nvf-play/src/phys.rs"]
+env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_CONSOLE = "9:player.SetAngle X -60;9.3:player.FireWeapon 0000434F;9.32:close" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
+run_seconds = 20
+expect = [
+  { re = 'combat: FireWeapon: 0x00000014 fires Weap10mmPistol', label = "the shot is fired" },
+  { re = '(?i)dropped reference 0x[0-9A-F]{8} drawn: meshes.(projectiles|weapons)', count = 0, label = "the shot's reference is not drawn as a dropped item (its flying model is shot_fx's)" },
+]
+
+[[scenario]]
 name = "jip-raycast-points"
 source = "JIP's GetPointRayCastPos through the engine's physics (fnv_game::ray::cast_hit, the terrain included) and GetAnglesBetweenPoints, both writing script variables (the VM's out_call)"
 areas = ["scripts", "physics"]
@@ -22254,6 +22287,35 @@ expect = [
 ]
 
 [[scenario]]
+name = "pipboy-glove-hologram"
+source = "#1523 (docs/spec-notes/actors.md §2.3): the Dead Money hologram outfit declares head, hair, upper body and both hands on its own record with no addon list, and its model has finger bones; only addons pushed the Pip-Boy Glove out, so both left hands were drawn. A worn item with more slots now takes them on its own record too"
+note = "the player wears the hologram outfit (nvdlc01hologramoutfit, DeadMoney.esm 0x0100307B with FalloutNV.esm and DeadMoney.esm loaded) in Goodsprings; third person, the camera turned to the player's front at 6 s, a frame at 7 s (one left hand, the outfit's)"
+areas = ["actors", "player-body"]
+paths = ["crates/fnv-actor/src/resolve.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_EQUIP = "0100307B", NVF_PLAY_TEST_CONTROL = "5:view,5.4:zoom=120,5.8:orbit=160:5", NVF_PLAY_TEST_SHOTS = "7:pipboy_glove_hologram.png" }
+args = ["--cell", "Goodsprings", "--pos=-61000,4500,8500", "--play", "--hour", "12", "--no-voice", "--no-messages", "--plugins", "FalloutNV.esm", "DeadMoney.esm"]
+run_seconds = 9
+expect = [
+  { re = 'player body: armour drawn \[[^\]]*"nvdlc01hologramoutfit"', label = "the hologram outfit is drawn" },
+  { re = 'player body: armour drawn \[(?=[^\]]*"PipBoyGlove")(?=[^\]]*"nvdlc01hologramoutfit")', count = 0, label = "never together with the Pip-Boy Glove" },
+]
+
+[[scenario]]
+name = "pipboy-raised-own-body"
+source = "#1523 (docs/design/player-body.md §1.5): with the body in first person, the weapon away and the Pip-Boy raised, the body's own arms stayed seen beside the arms rig's raised arm, as only the weapon hid them; the raised Pip-Boy now hides them too"
+note = "the player wears the Vault 21 Jumpsuit (VaultSuit21 0x00104184) in Goodsprings with --first-person-body and no weapon drawn; the Pip-Boy is raised at 4 s and lowered at 7 s, a frame at 5.5 s (one pair of hands: the arms rig's)"
+areas = ["player-body", "pipboy"]
+paths = ["engine/nvforever/src/player_body.rs"]
+env = { RUST_LOG = "info,nvforever::player_body=debug", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_EQUIP = "00104184", NVF_PLAY_TEST_PIPBOY = "4:open,7:close", NVF_PLAY_TEST_LOOK = "3:0:-30", NVF_PLAY_TEST_SHOTS = "5.5:pipboy_raised_own_body.png" }
+args = ["--cell", "Goodsprings", "--pos=-61000,4500,8500", "--play", "--hour", "12", "--no-voice", "--no-messages", "--plugins", "FalloutNV.esm", "--first-person-body"]
+run_seconds = 9
+expect = [
+  { re = 'player body: the camera sees Seen \{ body: true, head: false, arms: true, weapon: true \} of the body', label = "weapon away, Pip-Boy down: the body's own arms are seen" },
+  { re = 'player body: the camera sees Seen \{ body: true, head: false, arms: false, weapon: true \} of the body', label = "Pip-Boy up: the arms rig's arm stands in for them" },
+]
+order = [["player body: the camera sees Seen { body: true, head: false, arms: true, weapon: true } of the body", "player body: the camera sees Seen { body: true, head: false, arms: false, weapon: true } of the body"]]
+
+[[scenario]]
 name = "jukebox-tubes-off"
 source = "#1079 (docs/spec-notes/activators.md §3): switched off, the saloon jukebox's light tubes (JukeBox01:1, unlit shader) stayed lit at full texture brightness; the original's go dark [observed: owner 2026-10-30]. While off, every unlit shape the idle drives is drawn black: the opaque tubes go dark, the additive notes and bubbles vanish"
 note = "the jukebox seen from the test spot in front of it (NVF_PLAY_TEST_NEAR), on at 6 s (frame), switched off by E at 7 s, frame at 9 s, on again at 10 s, frame at 12 s"
@@ -22413,6 +22475,217 @@ expect = [
   { re = 'test aid: screenshot .*font_glyph_baseline[.]png', label = "the glyph comparison frame is saved" },
 ]
 manual = "font_glyph_baseline.png, compared with upstream main and the original at 1280x720: every x-height letter in 'NVF box without buttons' has the same top and bottom ink rows; the two u glyphs have equal heights; capitals and ascenders share their own height. Check the whole box, including its frame and Ok button, for position or size changes. Log expectations only verify the scene and capture; the glyph appearance needs this image review."
+
+[[scenario]]
+name = "editor-save-write"
+source = "owner 2026-11-01 (local editor design): editor mode from the console moves a placed reference and saves it into a plugin in the home's mods folder; editor-save-load reads it, so run them together"
+areas = ["editor"]
+paths = ["engine/nvf-play/src/editor.rs", "crates/fnv-esm/src/edit.rs", "crates/fnv-esm/src/encode.rs", "crates/fnv-install/src/plugins.rs"]
+# The bottle 0x0010A202 (Goodsprings, at x -68375.41) moves 64 along X and turns 45°.
+env = { NVFOREVER_HOME = "editor-home", NVF_PLAY_TEST_EDITOR = "1", NVF_PLAY_TEST_EDITOR_REPLACE = "1", NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "16:editor;17:editor select 0010A202;17.5:editor move 64 0 0;18:editor turn 45;18.5:0010A202.getpos x;19:editor save EditSmoke;20:editor;20.5:close" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
+run_seconds = 23
+expect = [
+  "editor: on",
+  "editor: selected 0x0010A202",
+  { re = 'editor: moved 0x0010A202 by \(64, 0, 0\), turned 0°', label = "the move" },
+  { re = 'editor: moved 0x0010A202 by \(0, 0, 0\), turned 45°', label = "the turn" },
+  { re = 'console: GetPos on 0x0010A202 >> -68311\.4', label = "it is drawn at its new place in the run" },
+  { re = 'editor: saved 1 references and 0 new \(\) into .*EditSmoke\.esp \(\d+ bytes, 1 masters\)', label = "the plugin is written to the mods folder" },
+  { re = 'console: EditSmoke\.esp (is|was already) on in .*plugins\.txt', label = "and on in the home's plugin list (already, when the smoke home is kept from a run before)" },
+  { re = 'editor: off; 1 reference\(s\) moved, 0 deleted, 0 placed this session', label = "editor mode goes off" },
+]
+
+[[scenario]]
+name = "editor-save-load"
+source = "owner 2026-11-01 (local editor design): the second half: a start with the plugin editor-save-write saved finds the bottle where it was moved"
+areas = ["editor"]
+paths = ["engine/nvf-play/src/editor.rs", "crates/fnv-esm/src/edit.rs", "crates/fnv-install/src/plugins.rs", "engine/nvforever/src/world.rs"]
+env = { NVFOREVER_HOME = "editor-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "16:0010A202.getpos x;16.5:0010A202.getangle z;17:close" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--plugins", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm", "GunRunnersArsenal.esm", "ClassicPack.esm", "MercenaryPack.esm", "TribalPack.esm", "CaravanPack.esm", "EditSmoke.esp"]
+run_seconds = 20
+expect = [
+  { re = 'console: GetPos on 0x0010A202 >> -68311\.4', label = "the bottle starts where editor mode moved it" },
+  { re = 'console: GetAngle on 0x0010A202 >> 222\.6', label = "turned as it was" },
+]
+
+[[scenario]]
+name = "editor-delete-undo"
+source = "owner 2026-11-01 (local editor design): editor mode deletes a reference (disabled in the run, Initially Disabled when saved), and Ctrl+Z / editor undo puts a move and a delete back"
+areas = ["editor"]
+paths = ["engine/nvf-play/src/editor.rs", "crates/fnv-esm/src/edit.rs"]
+# 0x0010A206 (VCG02SunnyPatrolTrigger) has no enable parent: Disable and Enable act on it
+# itself, unlike the bottle 0x0010A202, which follows a disabled parent.
+env = { NVFOREVER_HOME = "editor-home-delete", NVF_PLAY_TEST_EDITOR = "1", NVF_PLAY_TEST_EDITOR_REPLACE = "1", NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "16:editor;17:editor select 0010A206;17.5:editor move 64 0 0;18:editor undo;18.5:0010A206.getpos x;19:editor delete;19.5:0010A206.getdisabled;20:editor undo;20.5:0010A206.getdisabled;21:editor delete;21.5:editor save EditGone;22:editor;22.5:close" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
+run_seconds = 25
+expect = [
+  "editor: undid the move of 0x0010A206",
+  { re = 'console: GetPos on VCG02SunnyPatrolTriggerREF >> -68299\.2', label = "the move is put back" },
+  "editor: deleted 0x0010A206",
+  { re = 'console: GetDisabled on VCG02SunnyPatrolTriggerREF >> 1\.00', label = "deleted: disabled in the run" },
+  "editor: undid the delete of 0x0010A206",
+  { re = 'console: GetDisabled on VCG02SunnyPatrolTriggerREF >> 0\.00', label = "the delete is put back" },
+  { re = 'editor: saved 1 references and 0 new \(\) into .*EditGone\.esp', label = "the delete is saved" },
+  { re = 'editor: off; 0 reference\(s\) moved, 1 deleted, 0 placed this session', label = "counted as deleted" },
+]
+
+[[scenario]]
+name = "editor-save-mo2"
+source = "owner 2026-11-01 (local editor design §21.2 item 4): under Mod Organizer 2 a save goes into the mod that gives Data the plugin, else MO2's overwrite folder, and is turned on in the MO2 profile, not NVForever's list"
+areas = ["editor"]
+paths = ["engine/nvf-play/src/editor.rs", "crates/fnv-install/src/mo2.rs"]
+# NVF_PLAY_TEST_EDITOR_MO2 stands in for MO2 (sessions cannot start it): a fresh instance
+# folder gets profile Smoke, no mods, so a new plugin goes to its overwrite folder.
+env = { NVFOREVER_HOME = "editor-home-mo2", NVF_PLAY_TEST_EDITOR = "1", NVF_PLAY_TEST_EDITOR_REPLACE = "1", NVF_PLAY_TEST_EDITOR_MO2 = "editor-mo2", NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "16:editor;17:editor select 0010A202;17.5:editor move 64 0 0;18:editor save EditMo2;19:editor;19.5:close" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
+run_seconds = 22
+expect = [
+  { re = 'editor: saved 1 references and 0 new \(\) into .*smoke.editor-mo2.overwrite.EditMo2\.esp \(\d+ bytes, 1 masters\)', label = "written into the MO2 overwrite folder" },
+  { re = 'console: \(MO2: into the overwrite folder\)', label = "the console says where" },
+  { re = 'console: EditMo2\.esp (is|was already) on in MO2.s profile .*smoke.editor-mo2.profiles.Smoke', label = "on in the MO2 profile's list (already, when the instance is kept from a run before)" },
+]
+forbid = [
+  { re = 'editor-home-mo2.mods.EditMo2', label = "not into NVForever's own mods folder" },
+]
+
+
+[[scenario]]
+name = "editor-open-write"
+source = "local editor design §6.1: editor open lists the plugins and picks the target, refusing a master; editor save without a name writes into the target, which the home's INI remembers; editor-open-last reads it, so run them together"
+areas = ["editor"]
+paths = ["engine/nvf-play/src/editor.rs", "engine/nvf-play/src/console.rs"]
+env = { NVFOREVER_HOME = "editor-home-open", NVF_PLAY_TEST_EDITOR = "1", NVF_PLAY_TEST_EDITOR_REPLACE = "1", NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "16:editor;17:editor open;17.3:editor open FalloutNV.esm;17.6:editor open EditOpen;18:editor select 0010A202;18.3:editor move 32 0 0;18.6:editor save;19.5:editor;20:close" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
+run_seconds = 23
+expect = [
+  { re = 'console: Plugins to open', label = "editor open lists the plugins" },
+  { re = 'editor: not opened: FalloutNV\.esm holds \w+ records', label = "a master holding other records is refused" },
+  { re = 'editor: target EditOpen\.esp \((new|loaded, \d+ reference)', label = "the target is picked (loaded when the smoke home is kept from a run before)" },
+  { re = 'editor: saved 1 references and 0 new \(\) into .*EditOpen\.esp', label = "editor save without a name writes into the target" },
+]
+
+
+[[scenario]]
+name = "editor-open-last"
+source = "local editor design §6.1: the next run's first editor opens the last target again, and editor save without a name writes into it"
+areas = ["editor"]
+paths = ["engine/nvf-play/src/editor.rs", "engine/nvf-play/src/console.rs"]
+env = { NVFOREVER_HOME = "editor-home-open", NVF_PLAY_TEST_EDITOR = "1", NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "16:editor;17:editor select 0010A202;17.5:editor move 0 32 0;18:editor save;19:editor;19.5:close" }
+# Smoke runs load the fixed masters whatever the home's list says: the plugin is named.
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--plugins", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm", "GunRunnersArsenal.esm", "ClassicPack.esm", "MercenaryPack.esm", "TribalPack.esm", "CaravanPack.esm", "EditOpen.esp"]
+run_seconds = 22
+expect = [
+  { re = 'editor: target EditOpen\.esp \(loaded, 1 reference\(s\) of its own.*the last one used', label = "the last target is opened again, loaded with its reference" },
+  { re = 'editor: saved 1 references and 0 new \(\) into .*EditOpen\.esp', label = "saved into it without a name" },
+]
+
+
+[[scenario]]
+name = "editor-drag-drop"
+source = "local editor design §7.2: a drag moves the selection on its plane (editor drag, the test form of the mouse drag), End / editor drop sets it down on what is below, each one undo step"
+areas = ["editor"]
+paths = ["engine/nvf-play/src/editor.rs", "engine/nvf-play/src/phys.rs"]
+# A bottle (base 0x0010A1F6) placed where the screen's centre points, raised 64, set
+# down again (about 64 back), the set-down undone, then dragged from below the centre to
+# the right of it: across only, its height kept.
+env = { NVFOREVER_HOME = "editor-home-drag", NVF_PLAY_TEST_EDITOR = "1", NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "16:editor;17:editor place 0010A1F6;17.5:editor move 0 0 64;17.8:FF000000.getpos z;18:editor drop;18.5:editor undo;19:editor drag 0.5 0.6 0.6 0.6;20:editor;20.5:close" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
+run_seconds = 23
+expect = [
+  { re = 'editor: placed 0x0010A1F6 as 0x[0-9A-F]{8}', label = "a bottle is placed" },
+  { re = 'console: GetPos on 0xFF000000 >> 846\d\.', label = "the raise sticks: a dynamic body's collision follows SetPos (phys repose_ref)" },
+  { re = 'editor: set 0x[0-9A-F]{8} down by -(5\d|6\d|7\d) onto ', label = "raised 64, it is set down by about as much" },
+  { re = 'editor: undid the move of 0x[0-9A-F]{8}', label = "the set-down is one undo step" },
+  { re = 'editor: dragged 0x[0-9A-F]{8} by \((-?[1-9]\d*, -?\d+|-?\d+, -?[1-9]\d*), -?0\)', label = "the drag moves it across, not up or down" },
+  { re = 'editor: off; 0 reference\(s\) moved, 0 deleted, 1 placed this session', label = "counted as placed" },
+]
+
+
+[[scenario]]
+name = "editor-find-place"
+source = "local editor design §7.3: editor find lists placeable records by name (the console's record index), editor place #n places one, an actor base is refused (a new reference is written as a REFR)"
+areas = ["editor"]
+paths = ["engine/nvf-play/src/editor.rs", "engine/nvf-play/src/console.rs"]
+# 0x00000007 is the player's NPC_ base: refused. The find runs as soon as the index the
+# console builds on opening is ready (under a second).
+env = { NVFOREVER_HOME = "editor-home-find", NVF_PLAY_TEST_EDITOR = "1", NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "16:editor;17:editor find nuka cola;18.5:editor place #1;19:editor place 00000007;19.5:editor place NoSuchEditorId;20:editor;20.5:close" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
+run_seconds = 23
+expect = [
+  { re = 'editor: find "nuka cola": [1-9]\d* placeable record\(s\)', label = "the find lists placeable records" },
+  { re = 'console:   #1 0x[0-9A-F]{8} [A-Z_]{4} ', label = "numbered in the console" },
+  { re = 'editor: placed 0x[0-9A-F]{8} as 0x[0-9A-F]{8} at', label = "editor place #1 places the first" },
+  { re = 'editor: 0x00000007 not placed: a NPC_ is placed as an actor', label = "an actor base is refused" },
+  { re = 'editor: not placed: no record has the Editor ID "NoSuchEditorId"', label = "an unknown Editor ID is refused" },
+  { re = 'editor: off; 0 reference\(s\) moved, 0 deleted, 1 placed this session', label = "one placed" },
+]
+
+
+[[scenario]]
+name = "editor-why"
+source = "local editor design §14: editor why explains the selected actor's lines of a topic (GREETING by default) from the game's own line verdicts; read-only"
+areas = ["editor"]
+paths = ["engine/nvf-play/src/editor.rs", "engine/nvf-play/src/console.rs", "crates/fnv-game/src/debugger.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/cond.rs"]
+# Sunny Smiles, selected with prid; GREETING, then GOODBYE by Editor ID, then a word that
+# names no topic and one that names a form that is not a topic.
+env = { NVFOREVER_HOME = "editor-home-why", NVF_PLAY_TEST_EDITOR = "1", NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "15:editor why;16:editor;17:prid SunnyRef;17.5:editor why;18:editor why GOODBYE all;18.5:editor why NoSuchTopic;19:editor why 00000007;20:editor;20.5:close" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
+run_seconds = 23
+expect = [
+  { re = 'console: Editor mode is off: type editor first', label = "refused outside editor mode" },
+  { re = 'editor: why 0x[0-9A-F]{8} for 0x[0-9A-F]{8}: [1-9]\d* console line\(s\); (Said now: |Nothing to say)', min = 2, label = "GREETING and GOODBYE explained, with the line said now" },
+  { re = 'console: Topic 0x[0-9A-F]{8} \(GREETING\) for 0x[0-9A-F]{8} \(SunnyRef\) talking to ', label = "the speaker and topic named" },
+  { re = 'console: +\d+\. \[(no|SAID|could)\] 0x[0-9A-F]{8}', label = "lines listed with their verdicts" },
+  { re = 'console: +\d+ (pass|FAIL) [A-Za-z]+\(.*\) = ', label = "conditions with live values" },
+  { re = 'console:   [1-9]\d* line\(s\) written for other speakers are not shown', label = "lines for other speakers hidden on GREETING" },
+  { re = 'console: editor why: no topic "NoSuchTopic"', label = "an unknown topic is refused" },
+  { re = 'console: editor why: 00000007 is not a topic \(DIAL\)', label = "a form that is not a topic is refused" },
+]
+
+[[scenario]]
+name = "editor-place-write"
+source = "owner 2026-11-01 (local editor design): editor mode places a new reference and saves it as the plugin's own; editor-place-load finds it, so run them together"
+areas = ["editor"]
+paths = ["engine/nvf-play/src/editor.rs", "crates/fnv-esm/src/edit.rs"]
+# The bottle's base 0x0010A1F6, placed where the screen's centre points; the plugin's
+# first new reference is 0x0A000800 in the load order (the ten masters, then the plugin);
+# in the file it is 0x01000800, FalloutNV.esm being its one master (clean masters).
+env = { NVFOREVER_HOME = "editor-home-place", NVF_PLAY_TEST_EDITOR = "1", NVF_PLAY_TEST_EDITOR_REPLACE = "1", NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "16:editor;17:editor place 0010A1F6;17.5:editor place 0010A1F6;18:editor undo;18.5:editor save EditPlace;19:editor;19.5:close" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
+run_seconds = 22
+expect = [
+  { re = 'editor: placed 0x0010A1F6 as 0x[0-9A-F]{8} at \(-?\d+, -?\d+, -?\d+\)', min = 2, label = "two placed in the run" },
+  { re = 'editor: undid the placing of 0x[0-9A-F]{8}', label = "the second one is undone" },
+  { re = 'editor: saved 0 references and 1 new \(0x0A000800\) into .*EditPlace\.esp', label = "one new reference saved, numbered after the masters" },
+  { re = 'editor: off; 0 reference\(s\) moved, 0 deleted, 1 placed this session', label = "counted as placed" },
+]
+
+[[scenario]]
+name = "editor-place-load"
+source = "owner 2026-11-01 (local editor design): the second half: a start with EditPlace.esp has its new reference"
+areas = ["editor"]
+paths = ["engine/nvf-play/src/editor.rs", "crates/fnv-esm/src/edit.rs"]
+env = { NVFOREVER_HOME = "editor-home-place", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "16:0A000800.getpos x;16.5:0A000800.getpos z;17:close" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--plugins", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm", "GunRunnersArsenal.esm", "ClassicPack.esm", "MercenaryPack.esm", "TribalPack.esm", "CaravanPack.esm", "EditPlace.esp"]
+run_seconds = 20
+expect = [
+  { re = 'console: GetPos on 0x0A000800 >> -6\d{4}\.\d+', label = "the new reference is in the world, near Goodsprings" },
+  { re = 'console: GetPos on 0x0A000800 >> 8\d{3}\.\d+', label = "at the height it was placed (about 8400; the ground under the camera's centre)" },
+]
+
+[[scenario]]
+name = "editor-locked"
+source = "owner 2026-11-01 (docs/design/editor.md §21.2): editor mode is locked behind editor=1 in NVForever.ini; without it the console says how to turn it on"
+areas = ["editor"]
+paths = ["engine/nvf-play/src/editor.rs"]
+env = { NVFOREVER_HOME = "editor-home-locked", NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "16:editor;16.5:close" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
+run_seconds = 19
+expect = [
+  "editor: Editor mode is locked: add editor=1 under [Settings] in NVForever.ini",
+  { re = 'editor: on', count = 0, label = "and it stays off" },
+]
 
 [[scenario]]
 name = "arrive-door-seated"
@@ -25834,7 +26107,7 @@ expect = [
 [[scenario]]
 name = "helios-stasis-held-at-field"
 source = "#1977 (owner 2026-11-09): HELIOS One's stasis protectrons stay in their pods until the tripwire. In the original (#1977 probe 3) p4 fights from inside its pod, moving 12 units in 30 s against the pod's stasis field (VHELIOSStasisField4REF, keyframed collision). Ours got stuck there too, then the nav unstick's skip moved it on through the field; now a skip whose way crosses keyframed collision holds the actor where it is (engine/nvforever/src/residents.rs, PhysState::keyframed_between)"
-note = "HELIOSOneTower, the player 295 units south of p4 (0x0009A260) behind the pods' wall: p4 and p3 (0x0009A261) notice it and try to search; their fields are 0x00099D27 and 0x00099D28; the tripwire VHeliosTrapLaserTripwire 0x0009A1E8 north-east of the pods"
+note = "HELIOSOneTower, the player 295 units south of p4 (0x0009A260) behind the pods' wall: p4 notices it and tries to search, p3 (0x0009A261) stays idle (#2286); their fields are 0x00099D27 and 0x00099D28; the tripwire VHeliosTrapLaserTripwire 0x0009A1E8 north-east of the pods"
 areas = ["ai", "nav"]
 paths = ["engine/nvforever/src/residents.rs", "engine/nvf-play/src/phys.rs", "crates/fnv-phys/src/world.rs"]
 env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05" }
@@ -25842,8 +26115,24 @@ args = ["--cell", "HELIOSOneTower", "--play", "--no-voice", "--no-messages", "--
 run_seconds = 25
 expect = [
   { re = 'actor 0009A260 stuck at .*: held at 00099D27.s moving collision', label = "p4 is held at its pod's stasis field" },
-  { re = 'actor 0009A261 stuck at .*: held at 00099D28.s moving collision', label = "p3 is held at its pod's stasis field" },
+  { re = 'actor 0009A261 stuck at ', max = 0, label = "p3 never walks into its field (0x00099D28): it stays idle, as in the original (#2286; before, it noticed the player's settling as running and was held at the field)" },
   { re = 'actor 0009A26[01] stuck at .*moved on along its path', max = 0, label = "and neither is moved on through its field (both were before; p2 and p1, alarmed or noticing, leave through their pods' fixed walls: the alarm is #2009's, the notice the detection edge on #1977)" },
+]
+
+[[scenario]]
+name = "helios-stasis-only-p4-notices"
+source = "#2286 (from #1977 probe 3, observed in the original with the player at (-2987,-648)): only p4 goes for the player, from inside its pod; p1, p2, p3 and p5 stay idle and undetected. Ours had p1 and p3 notice at about 500 units by the sound of the player 'running' while its capsule settled after the placement (-19.7 and -19.8, hidden at -21.6 standing); the player now makes footsteps only while its movement controls are held (engine/nvforever/src/detection.rs)"
+note = "HELIOSOneTower, the player 295 units south of p4 (0x0009A260) behind the pods' wall; p3 0x0009A261 and p1 0x0009A263 at about 500 units, p2 0x0009A262 at 800, p5 0x0009A256 at 1,240; p4's field 0x00099D27"
+areas = ["alert", "ai"]
+paths = ["engine/nvforever/src/detection.rs", "crates/fnv-game/src/detection.rs", "crates/fnv-game/src/awareness.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05" }
+args = ["--cell", "HELIOSOneTower", "--play", "--no-voice", "--no-messages", "--pos=-2995,-650,6600", "--heading", "0"]
+run_seconds = 25
+expect = [
+  { re = 'alert: LvlStasisRobot 0009A260 Normal → Alert: noticed the player', label = "p4 notices the player through its pod's wall" },
+  { re = 'alert: LvlStasisRobot (0009A26[123]|0009A256) Normal → ', max = 0, label = "and none of the other four stasis protectrons does (p1 and p3 did, at the -20 edge)" },
+  { re = 'detection: LvlStasisRobot 0009A2\w\w → the player: .*, running\)', max = 0, label = "the player, standing where it was put, is never heard running" },
+  { re = 'actor 0009A260 stuck at .*moved on along its path', max = 0, label = "p4 stays in its pod (held at its field, not moved on through it)" },
 ]
 
 [[scenario]]
