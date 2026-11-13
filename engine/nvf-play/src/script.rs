@@ -311,6 +311,9 @@ pub struct Runtime {
     /// The start menu's MenuMode 1013 frames have run before the first GameMode frame
     /// (`Game::came_through_start_menu`).
     came_through: bool,
+    /// A save restored before the start menu's frames: its LoadGame and PostLoadGame
+    /// events, and the Script Runner's load files, wait for the end of those frames.
+    loaded_pending: Option<std::path::PathBuf>,
     pub triggers: crate::script_trigger::Triggers,
     /// Enable parent → references that follow it.
     children: HashMap<FormId, Vec<FormId>>,
@@ -472,16 +475,6 @@ pub fn engine_menu_closed(script: Option<&mut ScriptState>, mode: Mode) {
             rt.game.queue_ref_event(c, event::ON_CLOSE, Some(FormId::PLAYER_REF));
         }
     }
-}
-
-/// The extender's LoadGame (the save's file name) and PostLoadGame (success) events after a
-/// load [documented: NVSE Event Handling, session events].
-pub(crate) fn loaded_events(rt: &mut Runtime, sim: &mut SimState, path: &std::path::Path) {
-    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-    with_world(rt, sim, |rt| {
-        rt.game.dispatch_event("LoadGame", vec![fnv_script::vm::XVal::Str(name)], None);
-        rt.game.dispatch_event("PostLoadGame", vec![fnv_script::vm::XVal::Num(1.0)], None);
-    });
 }
 
 /// JIP's Script Runner files of a moment (`fnv_game::script_runner`), in the played world;
@@ -677,6 +670,7 @@ impl Runtime {
             location: None,
             frozen_frames: 0,
             came_through: false,
+            loaded_pending: None,
             triggers: Default::default(),
             children,
             started: Instant::now(),
@@ -1536,7 +1530,7 @@ impl Plugin for ScriptPlugin {
             .init_resource::<ClockScale>()
             .init_resource::<PlayerTimeScale>()
             .add_plugins((crate::script_hud::ScriptHudPlugin, crate::script_draw::ScriptDrawPlugin, crate::dialogue::DialoguePlugin))
-            .add_systems(Update, (take_pending_game, crate::script_hud::menu_keys, crate::tutorial_menu::keys, run_scripts, start_world_aids, sync_locks, walk_player, hold_player, time_multiplier, exit_game).chain().in_set(PlaySet::Scripts))
+            .add_systems(Update, (take_pending_game, crate::script_hud::menu_keys, crate::tutorial_menu::keys, run_scripts, start_world_aids, sync_locks, walk_player, hold_player, time_multiplier, exit_game, exit_to_main_menu_event).chain().in_set(PlaySet::Scripts))
             .add_systems(Last, (crate::aid::report, write_final));
     }
 }
@@ -1571,6 +1565,18 @@ fn exit_game(
             to_main.write(crate::pause::MainMenuRequest);
         }
     }
+}
+
+/// The extender's ExitToMainMenu event when the game goes back to the main menu (the pause
+/// menu's Quit, ExitGame's credits) [documented: NVSE Event Handling, ExitToMainMenu, one
+/// of the plugin API's events; hypothesis: before the run hands over, #2275].
+fn exit_to_main_menu_event(mut script: ResMut<ScriptState>, mut sim: ResMut<SimState>, mut asked: MessageReader<crate::pause::MainMenuRequest>) {
+    if asked.read().count() == 0 {
+        return;
+    }
+    let Some(rt) = script.rt.as_mut() else { return };
+    let n = with_world(rt, &mut sim, |rt| rt.game.dispatch_event("ExitToMainMenu", Vec::new(), None));
+    info!("scripts: ExitToMainMenu ({n} handlers ran)");
 }
 
 /// A save handed over by `crate::save` waits in the script state until the runtime is
@@ -1839,8 +1845,15 @@ pub(crate) fn run_scripts(
                             // restore takes the game's state, lambdas included, from the
                             // save): the game restart's, then the load's after LoadGame.
                             script_runner(&mut rt, &mut sim, Moment::Restart);
-                            loaded_events(&mut rt, &mut sim, &path);
-                            script_runner(&mut rt, &mut sim, Moment::Load);
+                            // LoadGame, PostLoadGame and the load's files after the start
+                            // menu's frames (`loaded_pending`), as the original loads a save
+                            // from its main menu once those frames have run: a mod that
+                            // registers its handlers there under GetGameRestarted
+                            // (SetEventHandler "PostLoadGame" …) gets the load's events
+                            // [documented: NVSE Event Handling, LoadGame "runs after the save
+                            // has been mostly loaded"; design: run before them, as they were, a
+                            // handler registered there could not get the first load, #2275].
+                            rt.loaded_pending = Some(path.clone());
                             // The frames after a load are the loading screen's for the
                             // scripts, as after travel: their `Begin MenuMode 1007`
                             // blocks run (`game::menus::LOADING`) [hypothesis].
@@ -2035,6 +2048,12 @@ pub(crate) fn run_scripts(
             }
             rt.game.came_through_start_menu(START_MENU_FRAMES, 1.0 / 60.0);
             info!("scripts: the start menu's MenuMode 1013 blocks ran {START_MENU_FRAMES} frames before the game, as under the original's main menu");
+            if let Some(path) = rt.loaded_pending.take() {
+                let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                let n = rt.game.dispatch_event("LoadGame", vec![fnv_script::vm::XVal::Str(name)], None) + rt.game.dispatch_event("PostLoadGame", vec![fnv_script::vm::XVal::Num(1.0)], None);
+                info!("scripts: LoadGame and PostLoadGame after the start menu's frames ({n} handlers ran)");
+                log_script_runner(rt.game.run_script_runner(Moment::Load), Moment::Load);
+            }
         }
         rt.observe_inventory();
         let aid_from = rt.game.events.len();
@@ -2051,6 +2070,12 @@ pub(crate) fn run_scripts(
             log_script_runner(rt.game.run_script_runner(Moment::NewGame), Moment::NewGame);
         }
         if std::mem::take(&mut rt.opening_pending) {
+            // The extender's NewGame event as the new game begins; a `--cell` start is
+            // the console's CenterOnCell from the main menu, which runs none
+            // [documented: NVSE Event Handling, NewGame "Doesn't run for entering the
+            // game using CenterOnCell from the main menu"].
+            let n = rt.game.dispatch_event("NewGame", Vec::new(), None);
+            info!("scripts: NewGame ({n} handlers ran)");
             rt.start_opening();
         }
         for a in &due {
@@ -2495,6 +2520,7 @@ impl ScriptState {
             location: None,
             frozen_frames: 0,
             came_through: false,
+            loaded_pending: None,
             triggers: Default::default(),
             children: HashMap::new(),
             started: Instant::now(),
