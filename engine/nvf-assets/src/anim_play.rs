@@ -995,7 +995,7 @@ impl BlendPlayer {
                 // side while an NPC turned to face the player at a conversation's start
                 // and back at its end (owner's report, 2026-11-13). Keyed root rotations
                 // still play [hypothesis: none seen in the data yet].
-                let static_root_turn = is_root && matches!(track.rotation, Channel::Static(_));
+                let static_root_turn = is_root && matches!(track.rotation, fnv_nif::anim::Channel::Static(_));
                 let r = if static_root_turn {
                     Quat::IDENTITY
                 } else {
