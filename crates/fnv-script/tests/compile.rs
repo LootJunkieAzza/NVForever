@@ -1616,3 +1616,11 @@ fn an_old_name_stands_for_the_reference_list_form_the_source_never_names() {
         assert!(c.errors().any(|d| d.kind == "unresolved_name" && d.detail == "OldCapsName"), "{refs:?}: {:?}", c.diags);
     }
 }
+
+#[test]
+fn spellings_the_extender_registers_are_names_too() {
+    // [observed: the Blue Moon install's nvse.log, `ReadFromJSONFile (ReadFromJSON)`.]
+    let t = table();
+    assert_eq!(t.unnumbered.get("readfromjsonfile").map(|u| u.name.as_str()), Some("ReadFromJSON"));
+    assert!(t.unnumbered.contains_key("getedid") || t.by_name("getedid").is_some());
+}
