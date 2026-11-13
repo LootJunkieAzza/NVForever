@@ -151,6 +151,11 @@ impl SlResult {
 
 /// `sl::Feature` is a `uint32_t`; `kFeatureDLSS = 0` [documented: `sl_core_types.h:221, 224`].
 pub const FEATURE_DLSS: u32 = 0;
+/// `kFeatureReflex = 3`, `kFeaturePCL = 4`, `kFeatureDLSS_G = 1000` [documented:
+/// `sl_core_types.h:233, 236, 244`]; the DLSS Frame Generation spike's (#2317, `frame_gen.rs`).
+pub const FEATURE_REFLEX: u32 = 3;
+pub const FEATURE_PCL: u32 = 4;
+pub const FEATURE_DLSS_G: u32 = 1000;
 
 /// `sl::LogType` values [documented: `sl_core_types.h:490-499`].
 pub const LOG_TYPE_WARN: u32 = 1;
@@ -296,6 +301,10 @@ impl Default for FeatureVersion {
 /// `sl::FeatureRequirementFlags::eVulkanSupported`, a `uint32_t` bit [documented:
 /// `sl_core_types.h:625-630`].
 pub const FEATURE_REQUIREMENT_VULKAN_SUPPORTED: u32 = 1 << 2;
+/// `eVSyncOffRequired` ("If set V-Sync must be disabled when feature is active") and
+/// `eHardwareSchedulingRequired` [documented: `sl_core_types.h:631-634`].
+pub const FEATURE_REQUIREMENT_VSYNC_OFF_REQUIRED: u32 = 1 << 3;
+pub const FEATURE_REQUIREMENT_HARDWARE_SCHEDULING_REQUIRED: u32 = 1 << 4;
 
 /// `sl::FeatureRequirements`, version 2, GUID {66714097-AC6D-4BC6-8915-1E0F55A6B61F}
 /// [documented: `sl_core_types.h:642-692`]. Every pointer points into Streamline's memory
@@ -738,6 +747,11 @@ pub type SlShutdown = unsafe extern "C" fn() -> SlResult;
 pub type SlIsFeatureSupported = unsafe extern "C" fn(u32, *const AdapterInfo) -> SlResult;
 /// `slIsFeatureLoaded(Feature, bool& loaded)`.
 pub type SlIsFeatureLoaded = unsafe extern "C" fn(u32, *mut u8) -> SlResult;
+/// `slSetFeatureLoaded(Feature, bool loaded)` (`sl_core_api.h:54, 134`): the `bool` by value,
+/// one byte as C++'s `bool` is with MSVC [hypothesis: the standard MSVC x64 ABI, as for the
+/// references above]. "NOT thread safe and requires DX/VK device to be created"; no Vulkan call
+/// may run in parallel (`:120-134`; `ProgrammingGuide.md` §2.14).
+pub type SlSetFeatureLoaded = unsafe extern "C" fn(u32, bool) -> SlResult;
 /// `slGetFeatureVersion(Feature, FeatureVersion&)`.
 pub type SlGetFeatureVersion = unsafe extern "C" fn(u32, *mut FeatureVersion) -> SlResult;
 /// `slGetNewFrameToken(FrameToken*& token, const uint32_t* frameIndex)` (`sl_core_api.h:70,
@@ -1080,6 +1094,14 @@ mod tests {
         assert_eq!((r.vk_num_device_extensions, r.vk_num_instance_extensions, r.vk_num_features12, r.vk_num_features13), (0, 0, 0, 0));
         assert!(r.required_tags.is_null() && r.vk_device_extensions.is_null() && r.vk_instance_extensions.is_null() && r.vk_features12.is_null() && r.vk_features13.is_null());
         assert_eq!(FEATURE_REQUIREMENT_VULKAN_SUPPORTED, 4, "eVulkanSupported = 1 << 2 (sl_core_types.h:630)");
+    }
+
+    #[test]
+    fn frame_generation_constants_match_the_headers() {
+        // sl_core_types.h:233, 236, 244 (features); :630-634 (requirement flags).
+        assert_eq!((FEATURE_REFLEX, FEATURE_PCL, FEATURE_DLSS_G), (3, 4, 1000));
+        assert_eq!((FEATURE_REQUIREMENT_VULKAN_SUPPORTED, FEATURE_REQUIREMENT_VSYNC_OFF_REQUIRED, FEATURE_REQUIREMENT_HARDWARE_SCHEDULING_REQUIRED), (4, 8, 16));
+        assert_eq!(size_of::<SlSetFeatureLoaded>(), size_of::<usize>(), "a plain function pointer");
     }
 
     #[test]

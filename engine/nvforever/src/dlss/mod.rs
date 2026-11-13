@@ -101,8 +101,18 @@
 //!   files, held open since the folder pass (`win.rs` `Pins`), are released. The interposer stays
 //!   loaded.
 //!
-//! Log lines start `DLSS:`; lines before the log is up wait in a buffer, written each frame
-//! (`First`) and at shutdown.
+//! - **Frame Generation spike** (#2317, fork-notes `fg-spike-design.md`; nothing of it runs or
+//!   is logged unless `NVF_DLSSG_SPIKE` is set): with `NVF_DLSSG_SPIKE=1` and the four files of
+//!   [`FG_FILES`] in the folder beside the four above, `slInit` asks for DLSS, DLSS Frame
+//!   Generation and Reflex; DLSS-G's and Reflex's requirements are logged and merged into the
+//!   device check, and when that or `slInit` fails, Streamline is shut down and initialised again
+//!   with DLSS alone (today's path). Once the device exists, their support and versions are
+//!   logged and both are unloaded (`slSetFeatureLoaded`) before the window's swapchain is made,
+//!   so presents, latency reduction and DLSS run as without the spike (`win.rs`
+//!   `frame_generation_after_device` says where that is in Bevy's start-up).
+//!
+//! Log lines start `DLSS:` (`DLSS-G spike:` for the spike's own); lines before the log is up
+//! wait in a buffer, written each frame (`First`) and at shutdown.
 
 #[cfg(any(windows, test))]
 use std::path::{Path, PathBuf};
@@ -144,6 +154,46 @@ const FOLDER_NAME: &str = "dlss";
 /// The files the folder must hold, the interposer first.
 #[cfg(any(windows, test))]
 const FILES: [&str; 4] = ["sl.interposer.dll", "sl.common.dll", "sl.dlss.dll", "nvngx_dlss.dll"];
+/// The DLSS Frame Generation spike's files beside [`FILES`] (#2317): the feature, its NGX model,
+/// and Reflex and PCL, which DLSS-G requires through Streamline [documented:
+/// `ProgrammingGuideDLSS_G.md` §8.0, `ProgrammingGuideReflex.md` §6.0;
+/// fork-notes `fg-facts.md` §1]. The preflight already pins the three `sl.*` files and accepts
+/// NVIDIA-signed `nvngx_*.dll` (`preflight.rs` `RELEASE_DLLS`).
+#[cfg(any(windows, test))]
+const FG_FILES: [&str; 4] = ["sl.dlss_g.dll", "nvngx_dlssg.dll", "sl.reflex.dll", "sl.pcl.dll"];
+
+/// `NVF_DLSSG_SPIKE`: the DLSS Frame Generation spike's switch (#2317; fork-notes
+/// `fg-spike-design.md`, "Decisions" 1). Unset, the loader asks Streamline for DLSS alone, as
+/// before the spike.
+#[cfg(any(windows, test))]
+const SPIKE_ENV: &str = "NVF_DLSSG_SPIKE";
+
+/// What `NVF_DLSSG_SPIKE` asks for.
+#[cfg(any(windows, test))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum FgSpike {
+    /// `1`: DLSS-G and Reflex requested in `slInit`, their support, versions and requirements
+    /// logged, both unloaded before the window's swapchain exists (stage 1).
+    Report,
+}
+
+/// `NVF_DLSSG_SPIKE`'s value read: `Ok(None)` unset or empty, `Err` with the line to log for a
+/// value this build does not know (then it runs as unset).
+#[cfg(any(windows, test))]
+fn spike_from(value: Option<&std::ffi::OsStr>) -> Result<Option<FgSpike>, String> {
+    let Some(value) = value.map(|v| v.to_string_lossy().trim().to_string()).filter(|v| !v.is_empty()) else { return Ok(None) };
+    match value.as_str() {
+        "1" => Ok(Some(FgSpike::Report)),
+        "loaded" | "on" => Err(format!("{SPIKE_ENV}={value} is a later stage of the spike, not in this build; DLSS only as without the spike")),
+        other => Err(format!("{SPIKE_ENV}={other} is not 1; DLSS only as without the spike")),
+    }
+}
+
+/// The files of [`FG_FILES`] that `folder` lacks, in that order.
+#[cfg(any(windows, test))]
+fn missing_fg_files(folder: &Path) -> Vec<&'static str> {
+    FG_FILES.iter().copied().filter(|name| !folder.join(name).is_file()).collect()
+}
 
 /// Lines waiting for the log: written before the log is up, or by Streamline's own log thread.
 static PENDING: Mutex<Vec<(Level, String)>> = Mutex::new(Vec::new());
@@ -163,6 +213,12 @@ fn push(level: Level, text: String) {
 /// A line of DLSS's for the log.
 fn note(level: Level, text: impl AsRef<str>) {
     push(level, format!("DLSS: {}", text.as_ref()));
+}
+
+/// A line of the DLSS Frame Generation spike's (#2317) for the log.
+#[cfg(windows)]
+fn note_fg(level: Level, text: impl AsRef<str>) {
+    push(level, format!("DLSS-G spike: {}", text.as_ref()));
 }
 
 /// A line of Streamline's own log (its callback) for the log.
@@ -881,6 +937,35 @@ mod tests {
         assert_eq!(resolve_folder(Some(elsewhere.as_os_str()), None), Ok((elsewhere, FolderSource::EnvDir)));
         assert!(resolve_folder(Some(OsStr::new("relative\\dlss")), Some(&exe)).unwrap_err().contains("not an absolute path"));
         assert!(resolve_folder(None, None).is_err());
+    }
+
+    #[test]
+    fn the_frame_generation_spike_switch() {
+        assert_eq!(spike_from(None), Ok(None));
+        assert_eq!(spike_from(Some(OsStr::new(""))), Ok(None), "empty counts as unset");
+        assert_eq!(spike_from(Some(OsStr::new("1"))), Ok(Some(FgSpike::Report)));
+        assert_eq!(spike_from(Some(OsStr::new(" 1 "))), Ok(Some(FgSpike::Report)));
+        assert!(spike_from(Some(OsStr::new("on"))).unwrap_err().contains("NVF_DLSSG_SPIKE=on is a later stage"));
+        assert!(spike_from(Some(OsStr::new("yes"))).unwrap_err().contains("NVF_DLSSG_SPIKE=yes is not 1"));
+    }
+
+    #[test]
+    fn frame_generation_files_checked_by_name() {
+        let dir = std::env::temp_dir().join(format!("nvf-dlssg-files-test-{}-{}", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos())));
+        assert_eq!(missing_fg_files(&dir), FG_FILES.to_vec(), "no folder: all missing");
+        std::fs::create_dir_all(&dir).unwrap();
+        for name in FILES {
+            std::fs::write(dir.join(name), b"").unwrap();
+        }
+        assert_eq!(missing_fg_files(&dir), FG_FILES.to_vec(), "the four SR files are not the frame generation ones");
+        std::fs::write(dir.join("sl.dlss_g.dll"), b"").unwrap();
+        std::fs::write(dir.join("sl.reflex.dll"), b"").unwrap();
+        assert_eq!(missing_fg_files(&dir), vec!["nvngx_dlssg.dll", "sl.pcl.dll"]);
+        std::fs::write(dir.join("nvngx_dlssg.dll"), b"").unwrap();
+        std::fs::write(dir.join("sl.pcl.dll"), b"").unwrap();
+        assert!(missing_fg_files(&dir).is_empty());
+        assert!(missing_files(&dir).is_empty());
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

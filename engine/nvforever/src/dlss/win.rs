@@ -21,11 +21,16 @@ use super::evaluate::{Evaluator, OptionsKey, VIEWPORT};
 use super::ffi::{
     get_proc, wide, AdapterInfo, FeatureRequirements, FeatureVersion, Preferences, SlDlssGetOptimalSettings, SlDlssSetOptions, SlEvaluateFeature, SlFreeResources,
     SlGetFeatureFunction, SlGetFeatureRequirements, SlGetFeatureVersion, SlGetNewFrameToken, SlInit, SlIsFeatureLoaded, SlIsFeatureSupported, SlResult, SlSetConstants,
-    SlShutdown, ViewportHandle, FEATURE_DLSS, LOG_TYPE_ERROR, LOG_TYPE_WARN, PREFERENCE_ALLOW_OTA, PREFERENCE_LOAD_DOWNLOADED_PLUGINS, RENDER_API_VULKAN, SDK_VERSION,
+    SlSetFeatureLoaded, SlShutdown, Version, ViewportHandle, FEATURE_DLSS, FEATURE_DLSS_G, FEATURE_PCL, FEATURE_REFLEX, FEATURE_REQUIREMENT_HARDWARE_SCHEDULING_REQUIRED,
+    FEATURE_REQUIREMENT_VSYNC_OFF_REQUIRED, FEATURE_REQUIREMENT_VULKAN_SUPPORTED, LOG_TYPE_ERROR, LOG_TYPE_WARN, PREFERENCE_ALLOW_OTA, PREFERENCE_LOAD_DOWNLOADED_PLUGINS,
+    RENDER_API_VULKAN, SDK_VERSION,
 };
 use super::preflight::{self, Checked, Pin, Requirements, Snapshot};
 use super::sizing::{Key, Optimal};
-use super::{missing_files, note, note_ngx_line, note_sl, resolve_folder, set_loader_state, FolderSource, Frame, Outcome, ACTIVE, ENV_DIR, FILES, STREAMLINE_DEVICE};
+use super::{
+    missing_fg_files, missing_files, note, note_fg, note_ngx_line, note_sl, resolve_folder, set_loader_state, spike_from, FgSpike, FolderSource, Frame, Outcome, ACTIVE, ENV_DIR,
+    FILES, SPIKE_ENV, STREAMLINE_DEVICE,
+};
 use crate::upscaler::{DlssModel, DlssState, Unavailable};
 
 /// `Preferences::projectId`: a fixed GUID written for NVForever (not one NVIDIA issued).
@@ -41,6 +46,7 @@ pub(super) struct Api {
     shutdown: SlShutdown,
     is_feature_supported: SlIsFeatureSupported,
     is_feature_loaded: SlIsFeatureLoaded,
+    set_feature_loaded: SlSetFeatureLoaded,
     get_feature_version: SlGetFeatureVersion,
     get_feature_function: SlGetFeatureFunction,
     get_feature_requirements: SlGetFeatureRequirements,
@@ -77,6 +83,9 @@ struct Spike {
     eval: Option<Evaluator>,
     /// The checked files, held open until Streamline is shut down; `None` once it is.
     pins: Option<Pins>,
+    /// The DLSS Frame Generation spike (#2317): what `NVF_DLSSG_SPIKE` asked for, when DLSS-G and
+    /// Reflex were requested in `slInit` and the merged device check passed; `None` otherwise.
+    fg: Option<FgSpike>,
 }
 
 /// The files checked before Streamline was loaded, held open (sharing read access only, the
@@ -245,37 +254,79 @@ pub(super) fn start(app: &mut App) {
     let Some(second_pass) = folder_allows_streamline(&folder) else { return };
     drop(first_pass);
 
+    // The DLSS Frame Generation spike (#2317, `NVF_DLSSG_SPIKE`): DLSS-G and Reflex are asked for
+    // beside DLSS only with all eight files in the folder. Unset, nothing of it runs or is said.
+    let spike = match spike_from(std::env::var_os(SPIKE_ENV).as_deref()) {
+        Ok(spike) => spike,
+        Err(line) => {
+            note_fg(Level::WARN, line);
+            None
+        }
+    };
+    let mut fg = spike.filter(|_| {
+        let missing = missing_fg_files(&folder);
+        if !missing.is_empty() {
+            note_fg(Level::INFO, format!("inactive: the folder lacks {}; DLSS only as without the spike", missing.join(", ")));
+        }
+        missing.is_empty()
+    });
+
     let folder_w = wide(folder.as_os_str());
     let paths = [folder_w.as_ptr()];
-    let features = [FEATURE_DLSS];
     let engine_version = CString::new(env!("CARGO_PKG_VERSION")).unwrap_or_default();
-    let prefs = spike_preferences(&paths, &features, &engine_version, PROJECT_ID);
-    // SAFETY: preferences built from the constructor's defaults with every pointer alive for the
-    // call; the callback is a static function. Before any Vulkan call through the interposer.
-    let result = unsafe { (api.init)(&prefs, SDK_VERSION) };
-    // The checked files stay held past slInit: Streamline and NGX load some of them later
-    // (`Pins`). On the two failures below they go when this returns, after slShutdown.
-    if !result.is_ok() {
-        note(Level::WARN, format!("slInit: {}; inactive, the stock Vulkan path", result.name()));
-        // Whatever slInit loaded before it failed goes again (eErrorNotInitialized when nothing
-        // was loaded [documented: src/sl.cpp:312-316]); no Vulkan object was made through it.
-        // SAFETY: the interposer's export, after its slInit.
-        let down = unsafe { (api.shutdown)() };
-        note(Level::INFO, format!("slShutdown after the failed slInit: {}", down.name()));
-        set_loader_state(DlssState::Unavailable(Unavailable::StreamlineRefused));
-        return;
+    // With the spike, a first try with DLSS, DLSS Frame Generation and Reflex; when its slInit or
+    // its merged device check fails, slShutdown and the try without them, which is today's path
+    // [design: fork-notes `fg-spike-design.md` decision 4; Streamline may be initialised again
+    // after slShutdown, its plugin manager starting over from unloaded, `src/pluginManager.cpp:941`
+    // "valid to restart"]. Without the spike there is one try, as before.
+    loop {
+        let features: &[u32] = if fg.is_some() { &[FEATURE_DLSS, FEATURE_DLSS_G, FEATURE_REFLEX] } else { &[FEATURE_DLSS] };
+        let prefs = spike_preferences(&paths, features, &engine_version, PROJECT_ID);
+        // SAFETY: preferences built from the constructor's defaults with every pointer alive for
+        // the call; the callback is a static function. Before any Vulkan call through the
+        // interposer.
+        let result = unsafe { (api.init)(&prefs, SDK_VERSION) };
+        // The checked files stay held past slInit: Streamline and NGX load some of them later
+        // (`Pins`). On the two failures below they go when this returns, after slShutdown.
+        if !result.is_ok() {
+            // Whatever slInit loaded before it failed goes again (eErrorNotInitialized when
+            // nothing was loaded [documented: src/sl.cpp:312-316]); no Vulkan object was made
+            // through it.
+            if fg.take().is_some() {
+                // SAFETY: the interposer's export, after its slInit.
+                let down = unsafe { (api.shutdown)() };
+                note_fg(Level::WARN, format!("slInit with DLSS Frame Generation and Reflex: {}; slShutdown {}; slInit again with DLSS only", result.name(), down.name()));
+                continue;
+            }
+            note(Level::WARN, format!("slInit: {}; inactive, the stock Vulkan path", result.name()));
+            // SAFETY: the interposer's export, after its slInit.
+            let down = unsafe { (api.shutdown)() };
+            note(Level::INFO, format!("slShutdown after the failed slInit: {}", down.name()));
+            set_loader_state(DlssState::Unavailable(Unavailable::StreamlineRefused));
+            return;
+        }
+        let asked = if fg.is_some() { "DLSS + DLSS Frame Generation + Reflex" } else { "DLSS" };
+        note(Level::INFO, format!("slInit: {} (SDK 2.14.16, Vulkan, {asked}, plugins from the folder, over-the-air flags off, engine {} with a project id)", result.name(), env!("CARGO_PKG_VERSION")));
+        // The device check, before the renderer is told about the interposer (preflight.rs).
+        match device_check(&api, &snapshot, fg.is_some()) {
+            Ok(()) => break,
+            Err((reason, why)) => {
+                if fg.take().is_some() {
+                    // SAFETY: after slInit; no Vulkan object was made through the interposer.
+                    let down = unsafe { (api.shutdown)() };
+                    note_fg(Level::WARN, format!("device check with DLSS Frame Generation and Reflex declined: {why}; slShutdown {}; slInit again with DLSS only", down.name()));
+                    continue;
+                }
+                note(Level::WARN, format!("inactive: {why}; the stock Vulkan path"));
+                // SAFETY: after slInit; no Vulkan object was made through the interposer.
+                let down = unsafe { (api.shutdown)() };
+                note(Level::INFO, format!("slShutdown after the device check: {}", down.name()));
+                set_loader_state(DlssState::Unavailable(reason));
+                return;
+            }
+        }
     }
-    note(Level::INFO, format!("slInit: {} (SDK 2.14.16, Vulkan, DLSS, plugins from the folder, over-the-air flags off, engine {} with a project id)", result.name(), env!("CARGO_PKG_VERSION")));
-    // The device check, before the renderer is told about the interposer (preflight.rs).
-    if let Err((reason, why)) = device_check(&api, &snapshot) {
-        note(Level::WARN, format!("inactive: {why}; the stock Vulkan path"));
-        // SAFETY: after slInit; no Vulkan object was made through the interposer.
-        let down = unsafe { (api.shutdown)() };
-        note(Level::INFO, format!("slShutdown after the device check: {}", down.name()));
-        set_loader_state(DlssState::Unavailable(reason));
-        return;
-    }
-    *state() = Some(Spike { api, phase: Phase::Initialised, eval: None, pins: Some(Pins { _interposer: accepted, _folder: second_pass }) });
+    *state() = Some(Spike { api, phase: Phase::Initialised, eval: None, pins: Some(Pins { _interposer: accepted, _folder: second_pass }), fg });
     let mut settings = app.world_mut().get_resource_or_init::<RawVulkanInitSettings>();
     // SAFETY: the interposer exports `vkGetInstanceProcAddr` and forwards what it does not
     // intercept to the system's loader [documented: `src/wrapper.cpp:2365-2403`]; `load` keeps it
@@ -338,10 +389,23 @@ fn folder_allows_streamline(folder: &Path) -> Option<preflight::Pinned> {
 }
 
 /// DLSS's requirements fetched and copied, and every GPU Vulkan exposes checked against them
-/// (preflight.rs `candidates`). After `slInit`, before `set_vulkan_library`.
-fn device_check(api: &Api, snapshot: &Snapshot) -> Result<(), (Unavailable, String)> {
-    let requirements = requirements(api).map_err(|why| (Unavailable::StreamlineRefused, why))?;
+/// (preflight.rs `candidates`). After `slInit`, before `set_vulkan_library`. With
+/// `frame_generation` (the spike, #2317), DLSS-G's and Reflex's requirements are logged field by
+/// field and merged in first (`Requirements::merge`), so any GPU short of the three together
+/// declines and the caller tries again with DLSS only: Streamline's device proxy refuses a
+/// device lacking any loaded plugin's required extension, which wgpu-hal turns into a panic
+/// [documented: `src/wrapper.cpp:816-829`; fork-notes `fg-facts.md` §2.1].
+fn device_check(api: &Api, snapshot: &Snapshot, frame_generation: bool) -> Result<(), (Unavailable, String)> {
+    let (mut requirements, _) = self::requirements(api, FEATURE_DLSS, "DLSS").map_err(|why| (Unavailable::StreamlineRefused, why))?;
     note(Level::INFO, format!("requirements: DLSS asks for {requirements}"));
+    if frame_generation {
+        for (feature, name) in [(FEATURE_DLSS_G, "DLSS-G"), (FEATURE_REFLEX, "Reflex")] {
+            let (theirs, details) = self::requirements(api, feature, name).map_err(|why| (Unavailable::StreamlineRefused, why))?;
+            note_fg(Level::INFO, requirements_line(name, &theirs, &details));
+            requirements.merge(&theirs);
+        }
+        note_fg(Level::INFO, format!("requirements merged (DLSS, DLSS-G, Reflex): {requirements}"));
+    }
     let checked = preflight::judge(snapshot, &requirements).map_err(|d| (d.reason, d.why))?;
     note(Level::INFO, format!("device check: passed for {} (every GPU Vulkan exposes)", checked.join(", ")));
     // The same candidates `judge` checked, for the pin (preflight.rs `pin`); Bevy reads
@@ -366,48 +430,106 @@ fn device_check(api: &Api, snapshot: &Snapshot) -> Result<(), (Unavailable, Stri
     Ok(())
 }
 
-/// `slGetFeatureRequirements(DLSS)`, its lists copied out of Streamline's memory at once.
-fn requirements(api: &Api) -> Result<Requirements, String> {
+/// What `slGetFeatureRequirements` reports beside the device check's [`Requirements`], for the
+/// spike's log (#2317): every other field of `FeatureRequirements` (`sl_core_types.h:647-689`).
+struct RequirementDetails {
+    max_cpu_threads: u32,
+    max_viewports: u32,
+    required_tags: Vec<u32>,
+    os_detected: Version,
+    os_required: Version,
+    driver_detected: Version,
+    driver_required: Version,
+}
+
+/// `slGetFeatureRequirements(feature)` (`name` for the messages), its lists copied out of
+/// Streamline's memory at once.
+fn requirements(api: &Api, feature: u32, name: &str) -> Result<(Requirements, RequirementDetails), String> {
     let mut raw = FeatureRequirements::new();
     // SAFETY: a FeatureRequirements from its constructor; after slInit.
-    let result = unsafe { (api.get_feature_requirements)(FEATURE_DLSS, &mut raw) };
+    let result = unsafe { (api.get_feature_requirements)(feature, &mut raw) };
     if !result.is_ok() {
-        return Err(format!("slGetFeatureRequirements(DLSS) {}", result.name()));
+        return Err(format!("slGetFeatureRequirements({name}) {}", result.name()));
     }
-    // SAFETY: Streamline's lists, each `count` NUL-terminated strings it keeps in its own context
-    // [documented: src/sl.cpp:994-1074], read before any other Streamline call.
+    // SAFETY: Streamline's lists, each `count` entries it keeps in its own context
+    // [documented: src/sl.cpp:981-1074], read before any other Streamline call.
     unsafe {
-        Ok(Requirements {
-            flags: raw.flags,
-            instance_extensions: copy_strings(raw.vk_instance_extensions, raw.vk_num_instance_extensions, "instance extensions")?,
-            device_extensions: copy_strings(raw.vk_device_extensions, raw.vk_num_device_extensions, "device extensions")?,
-            features12: copy_strings(raw.vk_features12, raw.vk_num_features12, "1.2 features")?,
-            features13: copy_strings(raw.vk_features13, raw.vk_num_features13, "1.3 features")?,
-            graphics_queues: raw.vk_num_graphics_queues_required,
-            compute_queues: raw.vk_num_compute_queues_required,
-            optical_flow_queues: raw.vk_num_optical_flow_queues_required,
-        })
+        let required_tags = if raw.num_required_tags == 0 || raw.required_tags.is_null() {
+            Vec::new()
+        } else {
+            std::slice::from_raw_parts(raw.required_tags, raw.num_required_tags as usize).to_vec()
+        };
+        Ok((
+            Requirements {
+                flags: raw.flags,
+                instance_extensions: copy_strings(raw.vk_instance_extensions, raw.vk_num_instance_extensions, name, "instance extensions")?,
+                device_extensions: copy_strings(raw.vk_device_extensions, raw.vk_num_device_extensions, name, "device extensions")?,
+                features12: copy_strings(raw.vk_features12, raw.vk_num_features12, name, "1.2 features")?,
+                features13: copy_strings(raw.vk_features13, raw.vk_num_features13, name, "1.3 features")?,
+                graphics_queues: raw.vk_num_graphics_queues_required,
+                compute_queues: raw.vk_num_compute_queues_required,
+                optical_flow_queues: raw.vk_num_optical_flow_queues_required,
+            },
+            RequirementDetails {
+                max_cpu_threads: raw.max_num_cpu_threads,
+                max_viewports: raw.max_num_viewports,
+                required_tags,
+                os_detected: raw.os_version_detected,
+                os_required: raw.os_version_required,
+                driver_detected: raw.driver_version_detected,
+                driver_required: raw.driver_version_required,
+            },
+        ))
     }
 }
 
+/// The spike's line with every requirement field of one feature (#2317; fork-notes
+/// `fg-spike-design.md`, Stage 1 log lines). The flags' bits from `sl_core_types.h:625-638`.
+fn requirements_line(name: &str, req: &Requirements, details: &RequirementDetails) -> String {
+    let yes = |bit: u32| if req.flags & bit != 0 { "yes" } else { "no" };
+    let list = |items: &[String]| format!("[{}]", items.join(", "));
+    let tags: Vec<String> = details.required_tags.iter().map(u32::to_string).collect();
+    format!(
+        "requirements of {name}: Vulkan {}, vsync off required {}, GPU scheduling required {} (flags {:#x}), OS {}/{}, driver {}/{} (detected/required), max CPU threads {}, max viewports {}, required tags [{}], queues graphics {} compute {} optical flow {}, device extensions {}, instance extensions {}, 1.2 features {}, 1.3 features {}",
+        yes(FEATURE_REQUIREMENT_VULKAN_SUPPORTED),
+        yes(FEATURE_REQUIREMENT_VSYNC_OFF_REQUIRED),
+        yes(FEATURE_REQUIREMENT_HARDWARE_SCHEDULING_REQUIRED),
+        req.flags,
+        details.os_detected,
+        details.os_required,
+        details.driver_detected,
+        details.driver_required,
+        details.max_cpu_threads,
+        details.max_viewports,
+        tags.join(", "),
+        req.graphics_queues,
+        req.compute_queues,
+        req.optical_flow_queues,
+        list(&req.device_extensions),
+        list(&req.instance_extensions),
+        list(&req.features12),
+        list(&req.features13),
+    )
+}
+
 /// `count` C strings from `list`, copied; a null list or entry where `count` promises one is an
-/// error (the check cannot read what DLSS asks for).
+/// error (the check cannot read what `feature` asks for).
 ///
 /// # Safety
 /// `list` is null or points at `count` pointers, each null or a NUL-terminated string.
-unsafe fn copy_strings(list: *const *const c_char, count: u32, what: &str) -> Result<Vec<String>, String> {
+unsafe fn copy_strings(list: *const *const c_char, count: u32, feature: &str, what: &str) -> Result<Vec<String>, String> {
     if count == 0 {
         return Ok(Vec::new());
     }
     if list.is_null() {
-        return Err(format!("slGetFeatureRequirements(DLSS) names {count} {what} but gives no list"));
+        return Err(format!("slGetFeatureRequirements({feature}) names {count} {what} but gives no list"));
     }
     (0..count as usize)
         .map(|i| {
             // SAFETY: within the `count` pointers the caller vouches for.
             let entry = unsafe { *list.add(i) };
             if entry.is_null() {
-                Err(format!("slGetFeatureRequirements(DLSS) gives a null entry among its {what}"))
+                Err(format!("slGetFeatureRequirements({feature}) gives a null entry among its {what}"))
             } else {
                 // SAFETY: a NUL-terminated string, per the caller.
                 Ok(unsafe { CStr::from_ptr(entry) }.to_string_lossy().into_owned())
@@ -442,7 +564,7 @@ fn load(interposer: &Path) -> Option<Api> {
     if api.is_none() {
         note(
             Level::WARN,
-            "inactive: the interposer lacks one of Streamline's slInit, slShutdown, slIsFeatureSupported, slIsFeatureLoaded, slGetFeatureVersion, slGetFeatureFunction, slGetFeatureRequirements, slFreeResources, slGetNewFrameToken, slSetConstants, slEvaluateFeature; the stock Vulkan path",
+            "inactive: the interposer lacks one of Streamline's slInit, slShutdown, slIsFeatureSupported, slIsFeatureLoaded, slSetFeatureLoaded, slGetFeatureVersion, slGetFeatureFunction, slGetFeatureRequirements, slFreeResources, slGetNewFrameToken, slSetConstants, slEvaluateFeature; the stock Vulkan path",
         );
         set_loader_state(DlssState::Unavailable(Unavailable::StreamlineRefused));
     }
@@ -515,6 +637,7 @@ fn exports(module: windows_sys::Win32::Foundation::HMODULE) -> Option<Api> {
             shutdown: get_proc(module, c"slShutdown")?,
             is_feature_supported: get_proc(module, c"slIsFeatureSupported")?,
             is_feature_loaded: get_proc(module, c"slIsFeatureLoaded")?,
+            set_feature_loaded: get_proc(module, c"slSetFeatureLoaded")?,
             get_feature_version: get_proc(module, c"slGetFeatureVersion")?,
             get_feature_function: get_proc(module, c"slGetFeatureFunction")?,
             get_feature_requirements: get_proc(module, c"slGetFeatureRequirements")?,
@@ -573,6 +696,9 @@ pub(super) fn after_device(app: &mut App) {
     let Some(render) = app.get_sub_app(RenderApp) else {
         note(Level::WARN, "no render world; slShutdown will be skipped at exit (the device's lifetime cannot be followed without it)");
         set_loader_state(DlssState::Unavailable(Unavailable::StreamlineRefused));
+        if spike.fg.is_some() {
+            unload_frame_generation(&spike.api, "no render world to drain");
+        }
         return;
     };
     let world = render.world();
@@ -582,6 +708,9 @@ pub(super) fn after_device(app: &mut App) {
     else {
         note(Level::WARN, "the renderer's device is not in the render world; slShutdown will be skipped at exit");
         set_loader_state(DlssState::Unavailable(Unavailable::StreamlineRefused));
+        if spike.fg.is_some() {
+            unload_frame_generation(&spike.api, "no render device to drain");
+        }
         return;
     };
     let held = Held { queue: (**queue).clone(), device: device.wgpu_device().clone(), adapter: (**adapter).clone(), instance: (**instance).clone() };
@@ -608,13 +737,8 @@ pub(super) fn after_device(app: &mut App) {
         }
     };
     let (supported, asked, refusal) = match identity {
-        Some((physical, Some(mut luid))) => {
-            let mut info = AdapterInfo::new();
-            info.device_luid = luid.as_mut_ptr();
-            info.device_luid_size_in_bytes = luid.len() as u32;
-            info.vk_physical_device = std::ptr::with_exposed_provenance_mut(physical.as_raw() as usize);
-            // SAFETY: an AdapterInfo from its constructor; `luid` lives through the call.
-            let r = unsafe { (spike.api.is_feature_supported)(FEATURE_DLSS, &info) };
+        Some((physical, Some(luid))) => {
+            let r = ask_supported(&spike.api, physical, luid, FEATURE_DLSS);
             (r.is_ok(), format!("slIsFeatureSupported {}", r.name()), Unavailable::GpuNotSupported)
         }
         Some((_, None)) => (false, "not asked: the adapter reports no valid LUID".to_string(), Unavailable::GpuNotSupported),
@@ -637,6 +761,9 @@ pub(super) fn after_device(app: &mut App) {
             loaded_result.name()
         ),
     );
+    if let Some(mode) = spike.fg {
+        frame_generation_after_device(&spike.api, mode, &held, identity);
+    }
     spike.phase = Phase::Holding(held);
     STREAMLINE_DEVICE.store(true, std::sync::atomic::Ordering::Relaxed);
     if !adapter_ok {
@@ -654,6 +781,122 @@ pub(super) fn after_device(app: &mut App) {
         note(Level::INFO, "evaluate off: DLSS is not supported here; the camera draws without it");
         set_loader_state(DlssState::Unavailable(refusal));
     }
+}
+
+/// `slIsFeatureSupported(feature)` for the renderer's adapter: its physical device and LUID.
+fn ask_supported(api: &Api, physical: vk::PhysicalDevice, mut luid: [u8; 8], feature: u32) -> SlResult {
+    let mut info = AdapterInfo::new();
+    info.device_luid = luid.as_mut_ptr();
+    info.device_luid_size_in_bytes = luid.len() as u32;
+    info.vk_physical_device = std::ptr::with_exposed_provenance_mut(physical.as_raw() as usize);
+    // SAFETY: an AdapterInfo from its constructor; `luid` lives through the call.
+    unsafe { (api.is_feature_supported)(feature, &info) }
+}
+
+/// The DLSS Frame Generation spike once the device exists (#2317; fork-notes
+/// `fg-spike-design.md`, Stage 1): DLSS-G's, Reflex's and PCL's support on the renderer's
+/// adapter (the same `AdapterInfo` DLSS is asked with) and their versions logged, then the GPU
+/// drained and both requested features unloaded.
+///
+/// **Where this runs** [design, read in the code]: `Plugin::cleanup` of [`super::DlssInitPlugin`],
+/// which `main` adds before `DefaultPlugins` (main.rs:1375-1378). Bevy runs every plugin's
+/// `finish`, then every plugin's `cleanup`, in the order they were added (bevy_app 0.20.1
+/// `app.rs:261-298`), once all plugins are ready (bevy_winit 0.20.1 `state.rs:155-161` and
+/// `:1032-1034`), and only after that the first `App::update` (`state.rs:796-797`). The render
+/// device is in the render world by then (vendored bevy_render `lib.rs:493-507`,
+/// `RenderPlugin::finish`), and the render world has not run yet: pipelined rendering moves it to
+/// its thread in its own `cleanup`, after this one (`pipelined_rendering.rs:156-166`). The window's
+/// swapchain is first made by `create_surfaces` in the render world's `Render` schedule
+/// (`view/window/mod.rs:55-61`; `configure_surface` at `:661`), so the unload here comes before
+/// it. The only Vulkan surfaces made earlier are never configured, so they make no swapchain:
+/// the renderer's own for picking the adapter (`renderer/mod.rs:250-264`) and `frame_pace`'s
+/// present-mode query, which runs in the render world (frame_pace.rs:265, 441-461). One thing runs
+/// before this point with DLSS-G and Reflex still loaded: `AntiLagPlugin::finish` loading NVIDIA
+/// low latency (anti_lag.rs:221-249, `nv_low_latency::load`), which only looks up functions and
+/// makes a semaphore, no swapchain call.
+///
+/// `slSetFeatureLoaded` wants no Vulkan call in parallel and the pipeline flushed
+/// [documented: `sl_core_api.h:120-134`; `ProgrammingGuide.md` §2.14]: the render thread has not
+/// started, and the GPU is drained first (`Device::poll` wait, as `evaluate.rs` drains before
+/// freeing DLSS's resources).
+fn frame_generation_after_device(api: &Api, mode: FgSpike, held: &Held, identity: Option<(vk::PhysicalDevice, Option<[u8; 8]>)>) {
+    let support = |feature: u32| match identity {
+        Some((physical, Some(luid))) => ask_supported(api, physical, luid, feature).name(),
+        Some((_, None)) => "not asked (no valid LUID)".to_string(),
+        None => "not asked (not a Vulkan adapter)".to_string(),
+    };
+    let version = |feature: u32| {
+        let mut version = FeatureVersion::new();
+        // SAFETY: a FeatureVersion from its constructor.
+        let got = unsafe { (api.get_feature_version)(feature, &mut version) };
+        if !got.is_ok() {
+            format!("unknown ({})", got.name())
+        } else if version.version_ngx == Version::default() {
+            version.version_sl.to_string()
+        } else {
+            format!("{} (ngx {})", version.version_sl, version.version_ngx)
+        }
+    };
+    note_fg(
+        Level::INFO,
+        format!(
+            "supported: DLSS-G {}, Reflex {}, PCL {}; versions sl.dlss_g {}, sl.reflex {}, sl.pcl {}",
+            support(FEATURE_DLSS_G),
+            support(FEATURE_REFLEX),
+            support(FEATURE_PCL),
+            version(FEATURE_DLSS_G),
+            version(FEATURE_REFLEX),
+            version(FEATURE_PCL)
+        ),
+    );
+    match mode {
+        FgSpike::Report => unload_frame_generation(api, &drain(held)),
+    }
+}
+
+/// The GPU drained through wgpu (`Device::poll` wait), for the log.
+fn drain(held: &Held) -> String {
+    match held.device.poll(wgpu::PollType::wait_indefinitely()) {
+        Ok(status) if status.wait_finished() => "GPU drained".to_string(),
+        other => format!("GPU drain incomplete: poll {other:?}"),
+    }
+}
+
+/// `slSetFeatureLoaded(feature, false)`.
+fn unload(api: &Api, feature: u32) -> SlResult {
+    // SAFETY: after the device exists, from `Plugin::cleanup`, before the render thread starts
+    // (`frame_generation_after_device`).
+    unsafe { (api.set_feature_loaded)(feature, false) }
+}
+
+/// `slIsFeatureLoaded(feature)` for the log.
+fn loaded_text(api: &Api, feature: u32) -> String {
+    let mut loaded = 0u8;
+    // SAFETY: a byte for the `bool&`.
+    let result = unsafe { (api.is_feature_loaded)(feature, &mut loaded) };
+    if result.is_ok() {
+        (loaded != 0).to_string()
+    } else {
+        format!("unknown ({})", result.name())
+    }
+}
+
+/// DLSS-G and Reflex unloaded (`drained` says how the GPU was drained first), with the line
+/// the spike's stage 1 scenario looks for.
+fn unload_frame_generation(api: &Api, drained: &str) {
+    let frame_generation = unload(api, FEATURE_DLSS_G);
+    let reflex = unload(api, FEATURE_REFLEX);
+    let level = if frame_generation.is_ok() && reflex.is_ok() { Level::INFO } else { Level::WARN };
+    note_fg(
+        level,
+        format!(
+            "unloaded DLSS-G ({}) and Reflex ({}) before the window's swapchain ({drained}; loaded now: DLSS-G {}, Reflex {})",
+            frame_generation.name(),
+            reflex.name(),
+            loaded_text(api, FEATURE_DLSS_G),
+            loaded_text(api, FEATURE_REFLEX)
+        ),
+    );
 }
 
 /// DLSS's two functions, by name through `slGetFeatureFunction`, after the device exists
@@ -851,15 +1094,15 @@ mod tests {
     fn requirement_lists_are_copied_or_refused() {
         let names = [c"VK_NVX_binary_import".as_ptr(), c"VK_KHR_push_descriptor".as_ptr()];
         // SAFETY: two NUL-terminated strings behind the list.
-        let copied = unsafe { copy_strings(names.as_ptr(), 2, "device extensions") };
+        let copied = unsafe { copy_strings(names.as_ptr(), 2, "DLSS", "device extensions") };
         assert_eq!(copied, Ok(vec!["VK_NVX_binary_import".to_string(), "VK_KHR_push_descriptor".to_string()]));
         // SAFETY: a count of zero reads nothing.
-        assert_eq!(unsafe { copy_strings(std::ptr::null(), 0, "1.3 features") }, Ok(vec![]));
+        assert_eq!(unsafe { copy_strings(std::ptr::null(), 0, "DLSS", "1.3 features") }, Ok(vec![]));
         // SAFETY: a null list is refused before it is read.
-        assert!(unsafe { copy_strings(std::ptr::null(), 3, "1.2 features") }.unwrap_err().contains("names 3 1.2 features but gives no list"));
+        assert!(unsafe { copy_strings(std::ptr::null(), 3, "DLSS", "1.2 features") }.unwrap_err().contains("slGetFeatureRequirements(DLSS) names 3 1.2 features but gives no list"));
         let holes = [c"timelineSemaphore".as_ptr(), std::ptr::null()];
         // SAFETY: two pointers, one null.
-        assert!(unsafe { copy_strings(holes.as_ptr(), 2, "1.2 features") }.unwrap_err().contains("null entry"));
+        assert!(unsafe { copy_strings(holes.as_ptr(), 2, "DLSS-G", "1.2 features") }.unwrap_err().contains("null entry"));
     }
 
     #[test]
