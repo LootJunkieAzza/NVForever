@@ -92,6 +92,14 @@ pub struct Tweaks {
     /// `bKeepBrokenItemsEquipped`: a player's weapon that breaks stays in the hand, without
     /// the message; it does not fire or swing until repaired.
     pub keep_broken_equipped: bool,
+    /// `bHostilesPrioritizePlayer`: a fighter whose chosen target is a companion fights
+    /// the player instead, at `prefer_player_start` (0 to 1) when its fight begins or
+    /// `prefer_player_mid` later, if it detects the player at `prefer_player_detection`
+    /// or above.
+    pub hostiles_prefer_player: bool,
+    pub prefer_player_start: f32,
+    pub prefer_player_mid: f32,
+    pub prefer_player_detection: f32,
     // ---- Action Points ----
     /// `bKillsRewardAP`/`iKillRewardAmount`: Action Points a kill by the player gives
     /// back; 0 changes nothing.
@@ -663,6 +671,10 @@ impl Default for Tweaks {
             hardcore_sleep_heals: false,
             equip_broken_items: false,
             keep_broken_equipped: false,
+            hostiles_prefer_player: false,
+            prefer_player_start: 0.5,
+            prefer_player_mid: 0.25,
+            prefer_player_detection: 0.0,
             kill_reward_ap: 0.0,
             wait_only_seated: false,
             skill_points: None,

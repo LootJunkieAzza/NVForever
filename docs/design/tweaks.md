@@ -598,6 +598,7 @@ unless the player binds them, so nothing changes until then.
 | More Precise RAD Meter | `bMorePreciseRadMeter` | `radiation::set_rad_decimals` (0 off): `value_text` writes the resisted rads a second with that many places, for the hand-built and tile HUDs both |
 | Hardcore Rules One by One | `bHardcoreTweaks` | ammo: `fnv_sim::inventory::WeightRules::ammo_weight` (the player's, from `Game::sync_perk_weights`) overrides the Hardcore switch in `totals_with`; companions: `functions::actor::essential`; sleep: `Game::pass_hours_healing` |
 | Equip Broken Items, Keep Broken Items Equipped | `bEquipBrokenItems`, `bKeepBrokenItemsEquipped` | `fnv_sim::World::set_player_equips_broken` (set each frame by the game) lifts `SimError::Broken` for the player; `combat::set_broken_kept`: `equip_sync` leaves a broken weapon in the hand, `wear_weapon` keeps the player's on breaking without the message, and `broken_in_hand` holds the trigger (gun and melee) until it is repaired |
+| Hostiles Prioritize Player | `bHostilesPrioritizePlayer` | `Game::prefer_player` runs after each fighter's targets settle: when `Awareness::own_target` is a teammate and the player is detected at the threshold, one roll (start or mid chance, from the awareness module's own sequence) sets `Awareness::prefer_player`, which `combat_target` honours while the player is detected; cleared out of Combat |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -619,8 +620,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 529 |
-| to do | 73 |
+| done | 530 |
+| to do | 72 |
 | unsure, skipped | 18 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -674,6 +675,7 @@ game's Data folder, read-only).
 | `bHardcoreTweaks` | done |  | 3 | Hardcore Rules One by One: Ammo Has Weight, Companions Cannot Die, Sleep Heals, each whatever the mode |
 | `bHittingWeaponsDoesntDamageThem` | done |  |  | Shots Spare Weapons |
 | `bHoldToHolsterMeleeWeapons` | done |  |  | already so: a tap reloads, holstering needs the hold, and melee drops the reload |
+| `bHostilesPrioritizePlayer` | done |  | 3 | Hostiles Prioritize Player with Chance at the Start, Chance Mid-Fight and Detection Needed; one roll for each companion a fighter would pick |
 | `bImprovedHacking` | done |  | 10 | four Hacking switches (symbols do nothing, no repeat guesses, dud when attempts full, duds spare tried words); the print options not built |
 | `bJumpingCostsAP` | done |  | 3 | Action Points per Jump (slider 0-50; the combat-only and jump-anyway options not built) |
 | `bJumpSwimsUpwards` | done |  | 2 | Jump Swims Upwards (at the walking stroke speed; the sub-options not offered) |
@@ -763,7 +765,6 @@ game's Data folder, read-only).
 | `bCrippledLimbsPlayPainSoundWhenFalling` | to do |  | 1 | falls::hurt with a crippled leg; NVForever has no pain sound, only the landing ones |
 | `bHipFireAnimsWhileScoped` | unsure, skipped |  |  | depends on alternate animations |
 | `bHoldToActivate` | to do |  | 9 | a hold on E is taken by grab; needs a timer and per-kind choices |
-| `bHostilesPrioritizePlayer` | to do |  | 3 | Awareness::combat_target has no game or rolls |
 | `bMapSelectableCompanions` | to do |  | 2 | not built: companions are not on the map and cannot be summoned |
 | `bNoLockEncounterZoneLevels` | unsure, skipped |  |  | encounter-zone level locking not yet checked in NVForever |
 | `bNPCsDropLiveGrenades` | to do |  |  | not built: NPC grenades have no in-hand phase |
