@@ -2085,7 +2085,7 @@ fn draw(
         let base = if p.look.is_some() { PLAYER_BASE } else { base };
         let who = Who { reference, base, creature: false, scale: 1.0, strafe: true, air: newest.has(flag::AIR), jumped: false };
         let sim_world = sim.as_deref().map(|s| &s.world);
-        if let Err(e) = show_actor(&mut commands, world_root, visible, actor_world.as_deref(), sim_world, &mut ahead, &mut stats, &mut parts, &mut models, &roots, &mut actors, who, (&mut p.spawned, &mut p.root), (feet, yaw), moving, dt) {
+        if let Err(e) = show_actor(&mut commands, world_root, visible, actor_world.as_deref(), sim_world, &mut ahead, &mut stats, &mut parts, &mut models, &roots, &gone, &mut actors, who, (&mut p.spawned, &mut p.root), (feet, yaw), moving, dt) {
             warn!("co-op: {} cannot be drawn as {base:#010X}: {e}", label(id, &p.name));
             p.failed = true;
         }
