@@ -396,6 +396,18 @@ script decompile`]. "Mod source" below means the engine's compile (`Seed::unknow
   plugin's records carries it, and a quest variable through the one with a script
   [observed: oHUD's shipped bytes write `0x…801.f19` where the source says
   `set aHUD.mcmVersion`].
+- Inside an expression (an `if eval` or `let` line, another call's arguments,
+  parentheses) an NVSE-aware function's argument stops at a comparison or logical
+  operator, which then applies to the call's result: `if eval Ar_HasKey aConvo,
+  "Conditions" == 1` compares the call with 1, `GetINIFloatOrDefault_Cached "S:k" "f.ini"
+  == 1` likewise [observed: Party Banter 2.esm SCPT 0x0701D892 and mil_Add-On.esp SCPT
+  0x07002549 ship such lines with compiled bytes]. Arithmetic stays in the argument and a
+  range or pair (`1:2`, `"k"::v`) continues it [hypothesis, as in an override block].
+  A call that is its own line, a parameter documented as a whole expression (`eval`,
+  `TestExpr`, `Print`, `while`, `ToString`) and `let` keep whole expressions
+  (`eval x && let s += "+"`, JustAssortedMods.esp). On Blue Moon this changes 14 units
+  (LifeAfterDeath, Another Millenia, Party Banter, WeaponModMod, Immersive Fast Travel
+  Encounters) and MCM Extender's Script Runner file, all toward the shipped reading.
 
 Left with their bytes, as the source cannot be compiled to them: five result scripts whose
 classic `if` has a surplus argument (`GetObjectiveDisplayed Q 30 1 && …`), which stop the
