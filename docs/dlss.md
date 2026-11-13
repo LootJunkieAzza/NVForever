@@ -37,7 +37,16 @@ NVForever ships no NVIDIA file. NVIDIA's files come under NVIDIA's own licence t
        nvngx_dlss.dll
    ```
 
-Copy only these four. **Do not copy `nvngx_update.exe`**: NVForever refuses to use a `dlss`
+For DLSS Frame Generation (below), four more files go into the same folder: `sl.dlss_g.dll`,
+`sl.reflex.dll` and `sl.pcl.dll` from the same `bin\x64`, and `nvngx_dlssg.dll` (NVIDIA's frame
+generation model, from the same archive or from NVIDIA's DLSS repository,
+[NVIDIA/DLSS](https://github.com/NVIDIA/DLSS), `lib/Windows_x86_64/rel/`). Without them DLSS
+Super Resolution works as before.
+
+TODO (#2250, on its own branch): the download list there gains `sl.dlss_g.dll`,
+`nvngx_dlssg.dll`, `sl.reflex.dll` and `sl.pcl.dll`.
+
+Copy only these files. **Do not copy `nvngx_update.exe`**: NVForever refuses to use a `dlss`
 folder that holds a file of that name, because NVIDIA's code would start it without checking
 it.
 
@@ -71,9 +80,8 @@ it.
 
 Tools that replace or hook the game's upscaler themselves (OptiScaler, for example) should not
 be used together with DLSS through Streamline: both reach into the same place, and that is
-untested. Likewise, NVIDIA's low latency mode, when NVForever gains it, will run through
-Streamline's `sl.interposer.dll` whenever the DLSS files are present; that combination has not
-been tested yet.
+untested. With the frame generation files present, NVIDIA's latency reduction goes through
+Streamline's Reflex (`sl.reflex.dll`) rather than its own calls; without them it is unchanged.
 
 ## Turning it on
 
@@ -124,14 +132,42 @@ While DLSS is on:
 - the anti-aliasing row reads "Off (upscaling active)": DLSS does the anti-aliasing, and the
   saved anti-aliasing comes back when Upscaler is Off;
 - the Sharpening switch drives NVForever's ordinary sharpening pass;
-- frame generation is not available: its row reads "Not with DLSS" (frame generation works
-  with FSR 3.1 only).
+- FSR 3.1's frame generation is not available (its choice reads "Not with DLSS"); DLSS Frame
+  Generation is (below).
 
 Whenever the files are in the `dlss` folder, NVIDIA's driver may update DLSS in the background,
 as it does for other games that use DLSS, whichever upscaler is chosen: NVForever loads NVIDIA's
 Streamline at every start the files are there, so that DLSS can be switched to without a
 restart. NVForever cannot switch the driver's updates off. With the files there, FSR 3.1 runs
 through Streamline too; remove the folder to keep NVIDIA's code out altogether.
+
+## DLSS Frame Generation
+
+With the four frame generation files in the `dlss` folder as well (above), **Settings >
+Graphics > Frame generation** offers **DLSS**: NVIDIA's DLSS Frame Generation makes frames
+between the real ones, and **Generated frames** below it chooses how many: 2x (one per real
+frame), 3x or 4x (two or three, where the graphics card offers them: the RTX 50 series). On the
+command line: `--frame-generation dlss`. Switching it on or off takes effect at once (the screen
+may blink once as the game remakes its swapchain).
+
+It needs:
+
+- an NVIDIA RTX 40 series or newer graphics card with a current driver;
+- Windows' **hardware-accelerated GPU scheduling** turned on (Windows Settings > System >
+  Display > Graphics > Change default graphics settings), then a restart of Windows;
+- an upscaler: FSR 3.1 or DLSS, any mode (frame generation reads the upscaler's depth and
+  motion);
+- **Display sync: Off**: on Vulkan, NVIDIA's frame generation does not run with vertical sync.
+  A G-Sync screen still shows the frames as they come;
+- the game's window in front: while another window is in front, no frames are generated.
+
+When it cannot run, the DLSS choice is greyed out with the reason: "The DLSS Frame Generation
+files are missing", "Needs an NVIDIA RTX 40 series or newer", "Needs hardware-accelerated GPU
+scheduling", "Needs a newer NVIDIA driver", "Not on this GPU", "Needs an upscaler" or "Needs
+vsync off". Latency reduction turns on with it, through NVIDIA's Reflex. The HUD and menus are
+not generated; menus and loading screens show real frames only. The performance overlay's frame
+rate shows the frames shown and, in brackets, the real ones. The log's `DLSS-G:` lines say what
+happened.
 
 ## When DLSS is greyed out
 
