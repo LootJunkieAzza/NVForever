@@ -266,7 +266,7 @@ impl Game<'_> {
     }
 }
 
-impl Game {
+impl Game<'_> {
     /// Per form named by an entry with no condition: that entry's third-person (`first`
     /// false) or first-person files, the lowest priority first as for an actor
     /// ([`files_by_form`]); `None` before the folders are read. For the bodies the engine
