@@ -22001,6 +22001,21 @@ expect = [
 ]
 
 [[scenario]]
+name = "unlisted-attach-light"
+source = "#2318 (docs/spec-notes/ext-unlisted-commands.md §2.1): JIP's AttachLight puts a lit node under a node of Ringo's drawn model (1), the node shows among the head's children, RemoveLight takes it away again"
+areas = ["scripts", "actors"]
+paths = ["crates/fnv-game/src/nvse_unlisted.rs", "engine/nvforever/src/nif_mirror.rs"]
+env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_CONSOLE = "9:RingoRef.MoveTo player 0 200 0;11:PrintC \"nvf head %g\", (Ar_Size (RingoRef.GetChildBlocks \"Bip01 Head\"));12:PrintC \"nvf light %g\", (RingoRef.AttachLight \"Bip01 Head\" Fire420 0 0 10);13:PrintC \"nvf head lit %g\", (Ar_Size (RingoRef.GetChildBlocks \"Bip01 Head\"));14:RingoRef.RemoveLight \"Bip01 Head\";15:PrintC \"nvf head after %g\", (Ar_Size (RingoRef.GetChildBlocks \"Bip01 Head\"))" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
+run_seconds = 18
+expect = [
+  { re = 'script: print "nvf light 1"', label = "AttachLight on the head gives 1" },
+  { re = "nif mirror: light 00004477 on 00104C7D's Bip01 Head, radius [1-9]", label = "the engine draws Fire420's light under Ringo's head" },
+  { re = 'script: print "nvf head lit [1-9][0-9]*"', label = "the head's children read with the light's node" },
+  { re = 'script: print "nvf head after [0-9]+"', label = "RemoveLight leaves the head readable" },
+]
+
+[[scenario]]
 name = "knvse-anim-replace"
 source = "N5 slice 2 (docs/design/knvse-anim.md): SetActorAnimationPath with a standing-stance file replaces that move in the actor's own copy of its set; taking it back restores the shared set"
 areas = ["scripts", "actors"]

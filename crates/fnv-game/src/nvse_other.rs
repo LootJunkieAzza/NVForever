@@ -99,6 +99,8 @@ pub struct OtherState {
     pub jip10: crate::nvse_jip10::Jip10State,
     /// JIP batch 14's effects, primitives, models, VATS, fuses and frequencies (`nvse_jip14`).
     pub jip14: crate::nvse_jip14::Jip14State,
+    /// The unlisted JIP commands' locks, switches and lights (`nvse_unlisted`).
+    pub unlisted: crate::nvse_unlisted::UnlistedState,
     /// JIP batch 11's actor overrides and engine requests (`nvse_jip11`).
     pub jip11: crate::nvse_jip11::Jip11State,
     /// JIP batch 13's physics view, requests and follows (`nvse_jip13`).

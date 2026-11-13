@@ -82,6 +82,7 @@ pub mod intro;
 pub mod jip_events;
 pub mod nvse;
 pub mod nvse_ttw;
+pub mod nvse_unlisted;
 pub mod delayed;
 pub mod nvse_refs;
 pub mod nvse_misc;
