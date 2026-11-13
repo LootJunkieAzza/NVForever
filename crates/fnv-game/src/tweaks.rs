@@ -405,6 +405,13 @@ pub struct Tweaks {
     /// `bArmorPreventsBloodDecals`: a shot that does not get through the target's DT
     /// leaves no blood decal.
     pub armor_blocks_blood: bool,
+    /// `bRobotCompanionsHealWithScrapMetal` (`fBase`, `fRepairMult`,
+    /// `fRoboticsExpertBonus`): the companion wheel heals a robot with Scrap Metal, this
+    /// much health each, plus this much per 10 points of Repair and this with Robotics Expert.
+    pub robots_heal_with_scrap: bool,
+    pub robot_heal_base: f32,
+    pub robot_heal_per_repair: f32,
+    pub robot_heal_expert: f32,
     /// `bNoSkillBooksAbove100`: a skill book whose skill is already at 100 is not read.
     pub no_skill_books_at_max: bool,
     /// `bLessFrequentPlayerPainSounds` (`iMinPlayerPainSoundIntervalMS`): seconds the
@@ -847,6 +854,10 @@ impl Default for Tweaks {
             crippled_fall_pain: 0.0,
             quantity_companion_cap: false,
             armor_blocks_blood: false,
+            robots_heal_with_scrap: false,
+            robot_heal_base: 20.0,
+            robot_heal_per_repair: 5.0,
+            robot_heal_expert: 25.0,
             no_skill_books_at_max: false,
             player_pain_gap: 0.0,
             pause_on_load: false,

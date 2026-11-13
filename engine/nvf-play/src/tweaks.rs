@@ -38,6 +38,17 @@ pub static SECOND_SIGHT: std::sync::atomic::AtomicBool = std::sync::atomic::Atom
 /// Force Hi-Res Weapon Models, for the actors' weapons (nvforever `actors`) [design: docs/design/tweaks.md].
 pub static HI_RES_NPC_WEAPONS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
+/// The sound list's first choice: the game's own sound.
+const GAME_SOUND: &str = "(the game's own)";
+
+/// Take a sound for the Location Discovered Sound tweak by Editor ID (the game's own for
+/// [`GAME_SOUND`] or nothing).
+fn pick_discovered_sound(w: &mut World, name: &str) -> bool {
+    let Some(mut t) = w.get_resource_mut::<TweakSettings>() else { return false };
+    t.discovered_sound = if name == GAME_SOUND { String::new() } else { name.trim().to_string() };
+    true
+}
+
 /// Every tweak's value. `Default`: the original's behaviour.
 #[derive(Resource, Debug, Clone, PartialEq)]
 pub struct TweakSettings {
@@ -513,6 +524,12 @@ pub struct TweakSettings {
     /// `bMousewheelScrollsWeaponHotkeys`: in first person the mouse wheel steps through
     /// the hotkeyed weapons.
     pub wheel_cycles_hotkeys: bool,
+    /// `bWeaponCycleUpDownHotkeys`: with a controller, the D-pad's left and right step
+    /// through the hotkeyed weapons (instead of Hotkey 4 and Ammo Swap).
+    pub dpad_cycles_hotkeys: bool,
+    /// `bCustomLocationDiscoveredSound` (`sEditorID`): the sound a discovered place plays,
+    /// by Editor ID; empty: the game's own.
+    pub discovered_sound: String,
     /// `bCompassNPCDistanceBasedAlpha`: actors' compass pips fade with distance over the
     /// sneak range.
     pub compass_pips_fade: bool,
@@ -868,6 +885,8 @@ impl Default for TweakSettings {
             breath_ap: 5.0,
             scope_wheel_zoom: false,
             wheel_cycles_hotkeys: false,
+            dpad_cycles_hotkeys: false,
+            discovered_sound: String::new(),
             compass_pips_fade: false,
             compass_places_fade: false,
             recent_dead_secs: 0.0,
@@ -1041,6 +1060,33 @@ impl Plugin for TweaksPlugin {
             .add_systems(Update, objectives_on_arrival.in_set(crate::PlaySet::Ui))
             .add_systems(PreUpdate, trigger_dead_zones.before(bevy::input::InputSystems))
             .add_systems(Update, ap_costs.after(crate::PlaySet::Input).after(crate::player::encumbered_walks).before(crate::PlaySet::Physics));
+        // A sound by Editor ID: the plugins' interface sounds (`UI…`) as a list.
+        crate::settings::add_choice_list(
+            app,
+            Setting {
+                key: "tweak-discovered-sound",
+                group: GROUP,
+                label: "Location Discovered Sound",
+                note: "The sound a newly discovered place plays: the game's own, or another of its interface sounds. (Stewie's Tweaks bCustomLocationDiscoveredSound)",
+                get: |_| false,
+                set: |_, _| {},
+                slider: None,
+            },
+            crate::settings::ChoiceList {
+                names: |w| {
+                    let mut v: Vec<String> = w.get_resource::<crate::sfx::Sfx>().map(|s| s.forms.sounds.values().filter_map(|x| x.edid.clone()).filter(|e| e.starts_with("UI")).collect()).unwrap_or_default();
+                    v.sort();
+                    v.dedup();
+                    v.insert(0, GAME_SOUND.to_string());
+                    v
+                },
+                chosen: |w| w.get_resource::<TweakSettings>().map(|t| t.discovered_sound.clone()).filter(|s| !s.is_empty()).unwrap_or_else(|| GAME_SOUND.to_string()),
+                pick: pick_discovered_sound,
+                save: |w| w.get_resource::<TweakSettings>().map(|t| t.discovered_sound.clone()).unwrap_or_default(),
+                load: pick_discovered_sound,
+                ask_keep: false,
+            },
+        );
         // ---- experience ----
         add_setting(
             app,
@@ -1698,6 +1744,10 @@ impl Plugin for TweaksPlugin {
         amount!(app, "crippled-fall-pain", "Crippled Legs: Pain When Falling", "A fall of at least this many units with a crippled leg makes you cry out in pain; 0 turns it off. (Stewie's Tweaks bCrippledLimbsPlayPainSoundWhenFalling, fHeightThreshold)", 1000.0, f32, game.crippled_fall_pain);
         switch!(app, "quantity-companion-cap", "Quantity Menu Respects Companion Carry Cap", "Giving a stack to a companion, the quantity menu goes no higher than what they can still carry. (Stewie's Tweaks bQuantityMenuRespectsCompanionCarryCap)", game.quantity_companion_cap);
         switch!(app, "armor-blocks-blood", "Armor Prevents Blood Decals", "A shot whose damage does not get through the target's Damage Threshold leaves no blood on them. (Stewie's Tweaks bArmorPreventsBloodDecals)", game.armor_blocks_blood);
+        switch!(app, "robots-heal-with-scrap", "Robot Companions Heal With Scrap Metal", "The companion wheel's Use Stimpak gives a robot companion Scrap Metal instead. (Stewie's Tweaks bRobotCompanionsHealWithScrapMetal)", game.robots_heal_with_scrap);
+        amount!(app, "robot-heal-base", "Scrap Metal: Health Each", "Health one Scrap Metal gives a robot companion. (Stewie's Tweaks bRobotCompanionsHealWithScrapMetal, fBase)", 200.0, f32, game.robot_heal_base);
+        amount!(app, "robot-heal-per-repair", "Scrap Metal: Health per 10 Repair", "Health added for each 10 points of your Repair skill. (Stewie's Tweaks bRobotCompanionsHealWithScrapMetal, fRepairMult)", 50.0, f32, game.robot_heal_per_repair);
+        amount!(app, "robot-heal-expert", "Scrap Metal: Robotics Expert Bonus", "Health added when you have Robotics Expert. (Stewie's Tweaks bRobotCompanionsHealWithScrapMetal, fRoboticsExpertBonus)", 200.0, f32, game.robot_heal_expert);
         switch!(app, "no-weapon-move-penalty", "No Weapon Movement Penalty", "A drawn two-handed weapon does not slow the player's run. (Stewie's Tweaks bNoEquippedWeaponMovementPenalty)", no_weapon_move_penalty);
         switch!(app, "unequip-broken-armor", "Unequip Broken Armour", "The player's armour is taken off when it breaks, staying in the inventory. (Stewie's Tweaks bUnequipBrokenArmor)", unequip_broken_armor);
         switch!(app, "hide-crosshair-first", "No Crosshair in First Person", "The crosshair is not drawn in first person; the activation prompt stays. (Stewie's Tweaks bHideCrosshairInFirstPerson)", hide_crosshair_first);
@@ -1980,6 +2030,7 @@ impl Plugin for TweaksPlugin {
         amount!(app, "breath-ap", "Held Breath AP", "Action Points holding the breath costs each second (Hold Breath Through a Scope). (Stewie's Tweaks bScopeHoldBreath)", 20.0, f32, breath_ap);
         switch!(app, "scope-wheel-zoom", "Wheel Zooms Scopes", "Through a scope the mouse wheel zooms in (up) and out, from half to double its usual magnification; it starts as usual each time. (Stewie's Tweaks bAdjustableScopeZoom)", scope_wheel_zoom);
         switch!(app, "wheel-cycles-hotkeys", "Mouse Wheel Changes Weapon", "In first person, rolling the mouse wheel takes out the next (up) or previous weapon on your hotkeys. (Stewie's Tweaks bMousewheelScrollsWeaponHotkeys)", wheel_cycles_hotkeys);
+        switch!(app, "dpad-cycles-hotkeys", "D-Pad Changes Weapon", "With a controller, the D-pad's right takes out the next weapon on your hotkeys and its left the one before, instead of Ammo Swap and hotkey 4. (Stewie's Tweaks bWeaponCycleUpDownHotkeys)", dpad_cycles_hotkeys);
         switch!(app, "compass-pips-fade", "Fade Pips by Distance", "People and creatures on the compass grow fainter the further away they are, over the distance they could notice you sneaking. (Stewie's Tweaks bCompassNPCDistanceBasedAlpha)", compass_pips_fade);
         switch!(app, "compass-places-fade", "Fade Places by Distance", "Places on the compass grow fainter the further away they are, over the distance they show at. (Stewie's Tweaks bCompassLocationDistanceBasedAlpha)", compass_places_fade);
         switch!(app, "buffed-health-bars", "Health Bars Count Buffs", "A target's health bar includes Health raised by chems and effects, so a buffed enemy's bar shows how much it can take. (Stewie's Tweaks bEnemyHealthbarShowBuffedHP)", game.buffed_health_bars);

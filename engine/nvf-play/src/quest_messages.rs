@@ -431,10 +431,15 @@ fn draw(
             let kit = kit.get_or_insert_with(|| Kit::load(data.as_deref(), &mut images, bc));
             info!("quest message on screen: {} ({} waiting)", describe(n), quests.waiting());
             spawn_area(&mut commands, n, kit, data.as_deref(), &mut images, bc);
-            let found = sound(n).and_then(|name| {
-                let sfx = sfx.as_deref()?;
-                *sound_forms.entry(name).or_insert_with(|| sfx.forms.sounds.iter().find(|(_, s)| s.edid.as_deref().is_some_and(|e| e.eq_ignore_ascii_case(name))).map(|(f, _)| *f))
-            });
+            // The player's tweak: a discovered place plays the sound it names [design: docs/design/tweaks.md].
+            let own = tweaks.as_ref().map(|t| t.discovered_sound.as_str()).filter(|s| !s.is_empty() && matches!(n, QuestNotice::Discovered(_)));
+            let found = match (own, sfx.as_deref()) {
+                (Some(name), Some(sfx)) => sfx.forms.sounds.iter().find(|(_, s)| s.edid.as_deref().is_some_and(|e| e.eq_ignore_ascii_case(name))).map(|(f, _)| *f),
+                _ => sound(n).and_then(|name| {
+                    let sfx = sfx.as_deref()?;
+                    *sound_forms.entry(name).or_insert_with(|| sfx.forms.sounds.iter().find(|(_, s)| s.edid.as_deref().is_some_and(|e| e.eq_ignore_ascii_case(name))).map(|(f, _)| *f))
+                }),
+            };
             if let Some(sound) = found {
                 sounds.write(PlaySound { sound, at: None });
             }

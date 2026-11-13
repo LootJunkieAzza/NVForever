@@ -414,7 +414,23 @@ fn read(
     }
     // The player's tweak: holding a hotkey does not open the wheel [design: docs/design/tweaks.md].
     let mut f = Frame { dt: real.delta_secs(), no_hold_open: tweaks.as_ref().is_some_and(|t| t.no_hotkey_wheel), ..default() };
+    // The player's tweak: the D-pad's left and right step through the hotkeyed weapons
+    // instead of being Hotkey 4 and Ammo Swap [design: docs/design/tweaks.md].
+    let pad_cycles = tweaks.as_ref().is_some_and(|t| t.dpad_cycles_hotkeys) && input.bindings.device == InputDevice::Controller;
+    let dpad = |b: GamepadButton, just: bool| pad_cycles && input.pads.iter().any(|p| if just { p.just_pressed(b) } else { p.pressed(b) });
+    let pad_step = if dpad(GamepadButton::DPadRight, true) {
+        Some(true)
+    } else if dpad(GamepadButton::DPadLeft, true) {
+        Some(false)
+    } else {
+        None
+    };
     for (i, &c) in CONTROLS.iter().enumerate() {
+        // The D-pad's own presses are the stepping's, not these controls'.
+        let taken = (c == crate::bindings::Control::AmmoSwap && dpad(GamepadButton::DPadRight, false)) || (c == crate::bindings::Control::Hotkey4 && dpad(GamepadButton::DPadLeft, false));
+        if taken {
+            continue;
+        }
         f.down[i] = input.pressed(c);
         if f.pressed.is_none() && input.just_pressed(c) {
             f.pressed = Some(i);
@@ -491,8 +507,11 @@ fn read(
     // mouse wheel steps to the next hotkey (up) or the one before holding a carried
     // weapon not in hand [design: docs/design/tweaks.md].
     let notches = scroll.as_ref().map_or(0.0, |s| s.delta.y);
-    let wheel_steps = tweaks.as_ref().is_some_and(|t| t.wheel_cycles_hotkeys) && notches != 0.0;
-    if wheel_steps && !f.blocked && !was_open && !wheel.is_open() && !control.third_person_view() && !scope.is_some_and(|s| s.on) && !hotkeys_off && !reloading_blocks {
+    let wheel_steps = tweaks.as_ref().is_some_and(|t| t.wheel_cycles_hotkeys) && notches != 0.0 && !control.third_person_view() && !scope.is_some_and(|s| s.on);
+    // Up the list: the wheel rolled up, or the D-pad's right (the tweak above).
+    let up = if wheel_steps { Some(notches > 0.0) } else { pad_step };
+    if let (Some(up), false, false, false, false, false) = (up, f.blocked, was_open, wheel.is_open(), hotkeys_off, reloading_blocks) {
+        let notches = if up { 1.0 } else { -1.0 };
         let in_hand = sim.world.equipment(FormId::PLAYER_REF).unwrap_or_default().into_iter().find(|&e| sim.forms.item(e).is_some_and(|i| i.kind == fnv_sim::forms::ItemKind::Weapon));
         let from = in_hand.and_then(|w| hotkeys.0.iter().position(|s| s.is_some_and(|s| FormId(s.item) == w))).unwrap_or(0);
         let step = if notches > 0.0 { 1 } else { hotkeys::SLOTS - 1 };
@@ -502,7 +521,7 @@ fn read(
                 Some(why) => why,
                 None => act(n, &hotkeys, &mut sim, &mut control, &mut used, &mut sounds, &mut wait, false, toggle_in_hand, quiet),
             };
-            info!("hotkeys: the mouse wheel steps to slot {}: {line} (tweak)", n + 1);
+            info!("hotkeys: the mouse wheel or the D-pad steps to slot {}: {line} (tweak)", n + 1);
         }
     }
     // Once the game clock has followed (`script::time_multiplier` sets it).

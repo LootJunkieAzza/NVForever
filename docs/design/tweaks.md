@@ -621,6 +621,9 @@ unless the player binds them, so nothing changes until then.
 | Skip Death Camera | `bSkipDeathcamHotkey` | nvforever `death_cam::watch` moves the camera's clock to `SKIPPED` (past the fade and the slow motion) on Left Alt or a late left click. The switches: `TweakSettings::skip_death_cam`, `skip_death_cam_attack` |
 | Armor Prevents Blood Decals | `bArmorPreventsBloodDecals` | the projectile hit path in `combat.rs` sets `ImpactFx::no_decal` when `blood_stopped` (the weapon's damage against `target_armor`'s DT); `show_impact` now keeps a decal already refused. The switch: `Tweaks::armor_blocks_blood` |
 | Console in the Pause Menu | `bReplaceHelpWithConsole` | `pause::entries` adds `Entry::Console` after Settings; choosing it sets `Console::open_asked` and asks to resume; `console::toggle` opens it once the world is free. The switch: `TweakSettings::help_is_console` |
+| Robot Companions Heal With Scrap Metal | `bRobotCompanionsHealWithScrapMetal` | `fnv_game::companion_wheel`: `wheel_scrap` (robot, SpareParts carried) turns Use Stimpak's context and use to Scrap Metal; `scrap_heal` restores the health. The switches: `Tweaks::robots_heal_with_scrap`, `robot_heal_base`, `robot_heal_per_repair`, `robot_heal_expert` |
+| D-Pad Changes Weapon | `bWeaponCycleUpDownHotkeys` | `weapon_wheel::read` takes the D-pad's left and right from the controls Hotkey 4 and Ammo Swap and steps as the mouse wheel's tweak does. The switch: `TweakSettings::dpad_cycles_hotkeys` |
+| Location Discovered Sound | `bCustomLocationDiscoveredSound` | a `ChoiceList` row (`tweaks::pick_discovered_sound`) keeps `TweakSettings::discovered_sound`; `quest_messages` plays it for `QuestNotice::Discovered` by Editor ID |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -642,8 +645,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 557 |
-| to do | 43 |
+| done | 560 |
+| to do | 40 |
 | unsure, skipped | 19 |
 | n/a | 16 |
 | skipped: fix | 10 |
@@ -943,6 +946,7 @@ game's Data folder, read-only).
 | `bRemoveLandingAnim` | done |  |  | No Landing Animation (the player) |
 | `bRepairRequiresWeaponSkill` | done |  |  | Repair Needs the Weapon's Skill (Pip-Boy repair) |
 | `bRepeatJumping` | done |  |  | Hold to Keep Jumping |
+| `bRobotCompanionsHealWithScrapMetal` | done |  | 4 | Robot Companions Heal With Scrap Metal: for a robot companion (creature type Robot) the wheel's Use Stimpak takes the master's Scrap Metal and heals Health Each + Repair x per point + the Robotics Expert bonus (our defaults 20, 5 per 10 Repair, 25; the readme gives none). The item option (sHealingItemName) is not built: always Scrap Metal |
 | `bScaleExplosionShake` | done |  | 2 | Scale Explosion Shake, camera multiplier; explosions now shake the view for everyone (`shake`, docs/owner-review.md); the HUD multiplier has no row: NVForever's HUD does not shake |
 | `bScopeVisibilityDelay` | done |  | 4 | Scope Delay (ms) (stops aiming while reloading was already so; the other options not built) |
 | `bSelectUnavailableRadios` | done | yes |  | Keep Stations Out of Range (the stations received before, while enabled; kept with the save) |
@@ -956,6 +960,7 @@ game's Data folder, read-only).
 | `bUnequipBrokenArmor` | done |  | 1 | Unequip Broken Armour (no message, sArmorBreakMessage not done) |
 | `bUnspokenNPCIndicator` | done |  |  | Mark Strangers |
 | `bUseFirstPersonEmptyClipSound` | done |  |  | already so: one empty-clip sound, played at the listener |
+| `bWeaponCycleUpDownHotkeys` | done |  |  | D-Pad Changes Weapon: with a controller the D-pad's right takes out the next hotkeyed weapon and its left the one before (the Mouse Wheel Changes Weapon stepping); while it is on, those two presses are not Ammo Swap and hotkey 4 |
 | `bDoubleTapReloadToChangeAmmoType` | to do | yes | 2 | the owner moved Lower Weapon off a double tap because it held reloads back; ask first |
 | `bRestore2Hotkey` | unsure, skipped | yes | 2 | needs the plugin's own menu XML |
 | `bAddItemUsesItemIcon` | unsure, skipped |  |  | needs an icon replacer |
@@ -963,8 +968,6 @@ game's Data folder, read-only).
 | `bMoveDuringOpenPipboyAnim` | to do |  |  | the Pip-Boy is a menu; the game leaves Playing at once |
 | `bNoLTRTOnPipboy` | n/a |  |  | the original's controller texture swap |
 | `bRemoveFollowerTopics` | to do |  |  | not built: companions make no such comments |
-| `bRobotCompanionsHealWithScrapMetal` | to do |  | 4 | robot detection, another item and a heal formula |
-| `bWeaponCycleUpDownHotkeys` | to do |  |  | D-pad left and right are bindings (Hotkey 4, Ammo Swap) a player can change; cycling would override a binding |
 
 ### HUD
 
@@ -1249,6 +1252,7 @@ game's Data folder, read-only).
 | `bClickToExitLoadScreens` | done |  | 2 | Press to Leave Loading Screens (every screen; bHideWheel and bLoadGameOnly not done; our prompt words) |
 | `bContainerRespawnsMessage` | done |  | 2 | already so: respawning containers say so (not on NPCs) |
 | `bControllerTriggerDeadzones` | done |  | 2 | Trigger Dead Zones (press points per trigger, on every use of LT/RT) |
+| `bCustomLocationDiscoveredSound` | done |  | 1 | Location Discovered Sound: a list of the plugins' interface sounds (Editor IDs starting UI), the game's own first; the chosen one plays for a discovered place |
 | `bDetachedBeams` | done |  |  | Detached Beams |
 | `bDisableControllerDeadzones` | done |  | 2 | Controller Dead Zones (ours on top of Bevy's own small dead zone) |
 | `bDisableGodmodeOnLoad` | done |  |  | God Mode Off on Load |
@@ -1307,7 +1311,6 @@ game's Data folder, read-only).
 | `bAnimDebugging` | n/a |  |  | a mod-author debug print |
 | `bAutoReadNotes` | unsure, skipped |  | 3 | needs another mod (Book Menu Restored) |
 | `bContinueGameHotkey` | n/a |  |  | a mod-author debug key |
-| `bCustomLocationDiscoveredSound` | to do |  | 1 | quest_messages sound; the cache takes static names |
 | `bDialogMenuDebugging` | n/a |  |  | a mod-author debug print |
 | `bDisableAchievements` | n/a |  |  | NVForever has no achievements |
 | `bDisableCharacterRespec` | to do |  |  | the respec is plugin script data |
