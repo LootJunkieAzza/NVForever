@@ -8,8 +8,11 @@ import shutil
 import signal
 import subprocess
 import sys
+import threading
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass, field
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from .expect import Outcome, check_forbid, check_one, check_order, clean
@@ -559,50 +562,98 @@ def expand(arg: str, ctx: dict[str, str], masters: list[str] = ()) -> list[str] 
     return [out]
 
 
+def launch_serve(launch: Launch) -> dict:
+    """The `serve` table of a launch's members (load_text checked they agree), or {}."""
+    return next((s.serve for s in launch.scenarios if s.serve), {})
+
+
+@contextmanager
+def serving(serve: dict):
+    """A loopback HTTP server answering every request with `serve`'s status and body, for
+    one launch; yields its address (`http://127.0.0.1:<port>`), or None without `serve`."""
+    if not serve:
+        yield None
+        return
+    status, body = serve["status"], serve.get("body", "").encode("utf-8")
+
+    class Answer(BaseHTTPRequestHandler):
+        def _answer(self, with_body: bool) -> None:
+            self.send_response(status)
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Connection", "close")
+            self.end_headers()
+            if with_body:
+                self.wfile.write(body)
+
+        def do_GET(self):  # noqa: N802 (the handler's names)
+            self._answer(True)
+
+        def do_HEAD(self):  # noqa: N802
+            self._answer(False)
+
+        def log_message(self, *_args):  # quiet: the game's log is the record
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Answer)
+    server.daemon_threads = True
+    thread = threading.Thread(target=server.serve_forever, name="smoke-serve", daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{server.server_address[1]}"
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
 def run_launch(launch: Launch, env: Env, locks: Locks | None) -> tuple[int | None, str, float]:
     """Run one launch; its log goes to out/<name>.log. (exit code, error, seconds)."""
     log = env.out / f"{launch.name}.log"
     started = time.monotonic()
     if launch.kind == GAME:
-        cmd = [str(env.exe), "--data", str(env.data), *launch.args, "--run-seconds", fmt(launch.run_seconds)]
-        # `{repo}` in a value: the repository (a fixture's path).
-        aids = {k: v.replace("{repo}", str(env.repo)) for k, v in game_env(launch).items()}
-        (env.out / f"{launch.name}.cmd.txt").write_text(
-            "".join(f"{k}={v}\n" for k, v in sorted(aids.items())) + subprocess.list2cmdline(cmd) + "\n")
-        (env.out / f"{launch.name}.stacks.txt").unlink(missing_ok=True)
-        (env.out / f"{launch.name}.front.txt").unlink(missing_ok=True)
-        held = locks.acquire() if locks else None  # a smoke slot, or None for the old locks
-        started = time.monotonic()  # the launch's own time, without waiting for the locks
-        try:
-            with open(log, "w", encoding="utf-8", errors="replace") as f:
-                p = subprocess.Popen(cmd, stdout=f, stderr=subprocess.STDOUT, cwd=env.out,
-                                     env=aid_free_environ(aids), **launch_popen_kw())
-                exe = Path(env.exe).name
-                # `front = true`: the launch's own window held in front until it ends.
-                front = Front(p.pid, log=env.out / f"{launch.name}.front.txt").start() if launch.front else None
-                try:
-                    code = p.wait(timeout=launch_timeout(launch))
-                    # A load hands over to a new run that goes on writing to this log.
-                    err = wait_rest(p, exe, started + launch_timeout(launch))
-                except subprocess.TimeoutExpired:
-                    # Where it stopped, before it goes: every thread's stack.
-                    stacks = env.out / f"{launch.name}.stacks.txt"
-                    stacks.write_text(dump_stacks(p.pid, Path(env.exe).parent), encoding="utf-8")
-                    born = own_times(p)
-                    p.kill()
-                    p.wait()
-                    # A new run it started goes too: it is this launch's.
-                    if os.name == "nt":
-                        wait_for_children(p.pid, child_pids(p.pid, born, exe), time.monotonic())
-                    else:
-                        wait_for_group(p.pid, time.monotonic())
-                    code, err = None, f"timed out after {launch_timeout(launch):.0f} s; thread stacks in {stacks}"
-                finally:
-                    if front:
-                        front.stop()
-        finally:
-            if locks:
-                locks.release(held)
+        with serving(launch_serve(launch)) as served:
+            cmd = [str(env.exe), "--data", str(env.data), *launch.args, "--run-seconds", fmt(launch.run_seconds)]
+            # `{repo}` in a value: the repository (a fixture's path); `{serve}`: the
+            # launch's loopback HTTP server (`serve`).
+            aids = {k: v.replace("{repo}", str(env.repo)) for k, v in game_env(launch).items()}
+            if served:
+                aids = {k: v.replace("{serve}", served) for k, v in aids.items()}
+            (env.out / f"{launch.name}.cmd.txt").write_text(
+                "".join(f"{k}={v}\n" for k, v in sorted(aids.items())) + subprocess.list2cmdline(cmd) + "\n")
+            (env.out / f"{launch.name}.stacks.txt").unlink(missing_ok=True)
+            (env.out / f"{launch.name}.front.txt").unlink(missing_ok=True)
+            held = locks.acquire() if locks else None  # a smoke slot, or None for the old locks
+            started = time.monotonic()  # the launch's own time, without waiting for the locks
+            try:
+                with open(log, "w", encoding="utf-8", errors="replace") as f:
+                    p = subprocess.Popen(cmd, stdout=f, stderr=subprocess.STDOUT, cwd=env.out,
+                                         env=aid_free_environ(aids), **launch_popen_kw())
+                    exe = Path(env.exe).name
+                    # `front = true`: the launch's own window held in front until it ends.
+                    front = Front(p.pid, log=env.out / f"{launch.name}.front.txt").start() if launch.front else None
+                    try:
+                        code = p.wait(timeout=launch_timeout(launch))
+                        # A load hands over to a new run that goes on writing to this log.
+                        err = wait_rest(p, exe, started + launch_timeout(launch))
+                    except subprocess.TimeoutExpired:
+                        # Where it stopped, before it goes: every thread's stack.
+                        stacks = env.out / f"{launch.name}.stacks.txt"
+                        stacks.write_text(dump_stacks(p.pid, Path(env.exe).parent), encoding="utf-8")
+                        born = own_times(p)
+                        p.kill()
+                        p.wait()
+                        # A new run it started goes too: it is this launch's.
+                        if os.name == "nt":
+                            wait_for_children(p.pid, child_pids(p.pid, born, exe), time.monotonic())
+                        else:
+                            wait_for_group(p.pid, time.monotonic())
+                        code, err = None, f"timed out after {launch_timeout(launch):.0f} s; thread stacks in {stacks}"
+                    finally:
+                        if front:
+                            front.stop()
+            finally:
+                if locks:
+                    locks.release(held)
     else:
         s = launch.scenarios[0]
         ctx = {"data": str(env.data), "repo": str(env.repo)}

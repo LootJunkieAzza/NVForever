@@ -723,7 +723,7 @@ fn register_graphics(app: &mut App) {
         app,
         Setting { key: UPSCALER_KEY, group: GROUP_GRAPHICS, label: "Upscaler", note: UPSCALER_NOTE, get: |_| false, set: |_, _| {}, slider: None },
         ChoiceList {
-            names: |_| UPSCALERS.iter().map(|(name, _)| (*name).to_string()).collect(),
+            names: upscaler_names,
             chosen: upscaler_chosen,
             pick: pick_upscaler,
             save: upscaler_chosen,
@@ -733,6 +733,8 @@ fn register_graphics(app: &mut App) {
     );
     nvf_play::settings::set_choice_labels(app, UPSCALER_KEY, upscaler_label);
     nvf_play::settings::set_choice_unavailable(app, UPSCALER_KEY, upscaler_unavailable);
+    // Download DLSS… opens its dialog: nothing of the row to keep or store (#2250).
+    nvf_play::settings::set_choice_action(app, UPSCALER_KEY, crate::dlss_download::is_choice);
     nvf_play::settings::set_older_key(app, UPSCALER_KEY, LEGACY_KEY);
     nvf_play::settings::set_older_split(app, LEGACY_KEY, split_legacy);
     add_choice_list(
@@ -1120,7 +1122,26 @@ fn upscaler_chosen(world: &World) -> String {
     UPSCALERS.iter().find(|(_, u)| *u == upscaler).map_or("Off", |(name, _)| *name).to_string()
 }
 
+/// The Upscaler row's choices: Off, FSR 3.1, DLSS, and Download DLSS… while DLSS's files are
+/// missing (`dlss_download`: picking it opens its dialog; #2250).
+fn upscaler_names(world: &World) -> Vec<String> {
+    let mut names: Vec<String> = UPSCALERS.iter().map(|(name, _)| (*name).to_string()).collect();
+    if crate::dlss_download::offered(dlss_files_missing(world)) {
+        names.push(crate::dlss_download::CHOICE.to_string());
+    }
+    names
+}
+
+/// The pick: an upscaler, or Download DLSS…, which opens its dialog and leaves the request
+/// (`Graphics::upscaler`) as it is.
 fn pick_upscaler(world: &mut World, name: &str) -> bool {
+    if crate::dlss_download::is_choice(name) {
+        if !crate::dlss_download::offered(dlss_files_missing(world)) {
+            return false;
+        }
+        crate::dlss_download::ask(world);
+        return true;
+    }
     let Some(upscaler) = upscaler_named(name) else { return false };
     set_rows_state(world, with_upscaler(rows_state(world), upscaler));
     true
@@ -1181,9 +1202,13 @@ fn quality_label(world: &World, name: &str) -> String {
 
 /// The words the Upscaler row shows for a choice: `Off` in the language shown, `FSR 3.1`,
 /// `DLSS`; the requested DLSS as `DLSS (restart)` while a restart is pending for it
-/// (`upscaler::UpscalerStatus::restart_pending`; the row's note says why).
+/// (`upscaler::UpscalerStatus::restart_pending`; the row's note says why); Download DLSS…, or
+/// how far its download is (`dlss_download::choice_words`).
 fn upscaler_label(world: &World, name: &str) -> String {
     use fnv_util::words::tr_str;
+    if crate::dlss_download::is_choice(name) {
+        return crate::dlss_download::choice_words();
+    }
     match upscaler_named(name) {
         Some(Upscaler::Off) => tr_str("Off").to_string(),
         Some(Upscaler::Dlss) => {
@@ -1202,14 +1227,23 @@ fn upscaler_label(world: &World, name: &str) -> String {
 /// Off and FSR are always in reach (FSR on a device without it draws natively, as before).
 /// A stored DLSS choice still loads from the INI.
 fn dlss_unavailable(world: &World) -> Option<String> {
-    let why = match world.get_resource::<crate::upscaler::UpscalerStatus>() {
+    dlss_reason(world).map(|why| why.words().to_string())
+}
+
+/// Why DLSS cannot be taken this run, by the status's rule ([`dlss_unavailable`]'s reason).
+fn dlss_reason(world: &World) -> Option<crate::upscaler::Unavailable> {
+    match world.get_resource::<crate::upscaler::UpscalerStatus>() {
         Some(status) => status.dlss_unavailable(),
         None => match crate::upscaler::dlss_state_now() {
             crate::upscaler::DlssState::Unavailable(why) => Some(why),
             _ => None,
         },
-    };
-    why.map(|why| why.words().to_string())
+    }
+}
+
+/// DLSS is out of reach only because its files are missing: what Download DLSS… mends.
+fn dlss_files_missing(world: &World) -> bool {
+    dlss_reason(world) == Some(crate::upscaler::Unavailable::FilesMissing)
 }
 
 fn upscaler_unavailable(world: &World, name: &str) -> Option<String> {
@@ -1641,6 +1675,47 @@ mod fsr_settings_tests {
         app.insert_resource(UpscalerStatus::new(READY));
         app.world_mut().resource_mut::<UpscalerStatus>().update(requested);
         assert_eq!(label(&app, u, "DLSS"), "DLSS");
+    }
+
+    /// Download DLSS… (#2250) is a choice of the Upscaler row only while DLSS's files are what is
+    /// missing (on Windows, where that reason arises): picking it asks for its dialog and leaves
+    /// the request as it is.
+    #[test]
+    fn download_dlss_is_a_choice_only_while_the_files_are_missing() {
+        use crate::dlss_download::{Asked, CHOICE};
+        let missing = Session { streamline_loaded: false, dlss: DlssState::Unavailable(Unavailable::FilesMissing), fsr: None };
+        let mut app = rows_app();
+        app.insert_resource(UpscalerStatus::new(missing));
+        let u = row(&app, UPSCALER_KEY);
+        let names = |app: &App| (app.world().resource::<Settings>().choices(u).unwrap().names)(app.world());
+        if !cfg!(windows) {
+            assert_eq!(names(&app), ["Off", "FSR 3.1", "DLSS"], "DLSS, and its download, are Windows only");
+            assert!(!pick_upscaler(app.world_mut(), CHOICE));
+            return;
+        }
+        assert_eq!(names(&app), ["Off", "FSR 3.1", "DLSS", CHOICE]);
+        let settings = app.world().resource::<Settings>();
+        assert_eq!(settings.choice_unavailable(app.world(), u, CHOICE), None, "in reach while DLSS is not");
+        assert_eq!(settings.choice_unavailable(app.world(), u, "DLSS").as_deref(), Some(Unavailable::FilesMissing.words()));
+        assert_eq!(settings.choice_label(app.world(), u, CHOICE), "Download DLSS…");
+        assert!(nvf_play::settings::pick(app.world_mut(), u, CHOICE));
+        assert!(app.world().contains_resource::<Asked>(), "the dialog asked for");
+        assert_eq!(requested(&app), UpscalerChoice::Off, "the request unchanged");
+        assert_eq!(upscaler_chosen(app.world()), "Off");
+        // Any other reason, or DLSS in reach: no download offered.
+        for session in [
+            READY,
+            STOCK,
+            Session { streamline_loaded: false, dlss: DlssState::Unavailable(Unavailable::NotVulkan), fsr: None },
+            Session { streamline_loaded: false, dlss: DlssState::Unavailable(Unavailable::UpdaterInFolder), fsr: None },
+            Session { streamline_loaded: false, dlss: DlssState::Unavailable(Unavailable::GpuNotSupported), fsr: None },
+        ] {
+            let mut app = rows_app();
+            app.insert_resource(UpscalerStatus::new(session));
+            assert_eq!(names(&app), ["Off", "FSR 3.1", "DLSS"], "{session:?}");
+            assert!(!pick_upscaler(app.world_mut(), CHOICE), "{session:?}");
+            assert!(!app.world().contains_resource::<Asked>());
+        }
     }
 
     #[test]

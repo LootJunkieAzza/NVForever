@@ -141,6 +141,7 @@ use crate::upscaler::{DlssModel, DlssState, UpscaleQuality, Unavailable, Upscale
 mod evaluate;
 #[cfg(windows)]
 mod ffi;
+pub(crate) mod download;
 #[cfg(windows)]
 mod frame_gen;
 #[cfg(windows)]
