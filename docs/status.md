@@ -142,17 +142,17 @@ counts them).
 
 ### Container open and close sound getters
 
-Source-call implementation and owned combined-harness fixture ported to current main; refreshed release validation is pending. No native bytecode adapter or full mod-compatibility claim. Contract: [Container open and close sound getters](spec-notes/container-sound-getters.md).
+Source-compiled calls support the two legacy JIP container sound getter names through the shared reader and session overrides, with an owned combined-harness regression. No native bytecode adapter or full mod-compatibility claim. Contract: [Container sounds and legacy JIP getters](spec-notes/ext-jg1.md#legacy-jip-container-getters).
 
 ### TypeOf missing-key inspection
 
 Implemented the focused behavior correction and authored synthetic regression coverage;
-contract and limits: [TypeOf missing-key inspection](spec-notes/typeof-missing-key.md). This entry does not establish full mod compatibility.
+contract and limits: [TypeOf and absent string-map keys](spec-notes/ext-forms.md#1-validity-and-kind). This entry does not establish full mod compatibility.
 
 ### Script-unit extender variable kinds
 
 Implemented the focused behavior correction and authored synthetic regression coverage;
-contract and limits: [Script-unit extender variable kinds](spec-notes/extender-variable-kinds.md). This entry does not establish full mod compatibility.
+contract and limits: [SLSD variable types](spec-notes/ext-bytecode.md#6-variable-types-in-slsd). This entry does not establish full mod compatibility.
 
 ### Cached INI file quote handling
 
