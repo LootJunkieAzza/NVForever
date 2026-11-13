@@ -200,6 +200,11 @@ the spec it links to.
 
 ## Tier 3: rules where we chose to differ, or that the original has no answer for
 
+- **Linux overlay GPU source priority (#2249).** [design, #2249] `GPU_SOURCE_ORDER`
+  prefers whole-device NVML, then amdgpu, then game-only DRM client time. Choosing
+  DRM first would make supporting Linux drivers show the game's contribution consistently.
+  [Settings usage note](design/settings-page.md#performance-usage-availability-2249).
+
 19. **Walking away from a conversation.** The world freezes while you talk, as in the
     original, and walking off does not end it. Should walking off end it where the line
     allows leaving? ([dialogue](design/dialogue.md))

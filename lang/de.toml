@@ -299,3 +299,9 @@ name = "Deutsch"
 "Fast" = "Schnell"
 "Smooth" = "Weich"
 "Temporal" = "Zeitlich"
+
+# [design, #2249] Overlay availability and source scope (perf_overlay/readings.rs, settings.rs).
+"Not available" = "Nicht verfügbar"
+"game {percent}%" = "Spiel {percent}%"
+"Machine and game CPU use, read once a second while shown. Windows uses performance counters; Linux uses /proc. Missing machine readings say Not available. Game use is cores kept busy: 1.0 is one full core." = "CPU-Auslastung des Rechners und des Spiels, einmal pro Sekunde bei sichtbarer Anzeige. Windows nutzt Leistungsindikatoren, Linux /proc. Fehlende Rechnerwerte erscheinen als Nicht verfügbar. Die Spielauslastung zählt belegte Kerne: 1.0 ist ein vollständig belegter Kern."
+"GPU use, read once a second while shown. Windows: busiest engine across programs. Linux: NVIDIA NVML, then amdgpu, then DRM client time. DRM reads game use and says game; the other Linux sources read whole-device use. Missing readings say Not available." = "GPU-Auslastung, einmal pro Sekunde bei sichtbarer Anzeige. Windows: am stärksten ausgelastete Engine aller Programme. Linux: NVIDIA NVML, dann amdgpu, dann DRM-Clientzeit. DRM zeigt die Spielauslastung mit Spiel an; die anderen Linux-Quellen messen das ganze Gerät. Fehlende Werte erscheinen als Nicht verfügbar."

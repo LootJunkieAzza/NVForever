@@ -26370,6 +26370,21 @@ expect = [
   { json = "decode_errors.#", schema = "fnv.bsa.verify/1", equals = 0, label = "no decode errors" },
 ]
 
+
+[[scenario]]
+name = "perf-overlay-usage-availability"
+source = "[design, #2249] perf_overlay/{usage,readings,mod}.rs: CPU and GPU separately report a percentage or Not available; DRM GPU percentages say game. Existing fps-counter numeric expectations stay unchanged."
+areas = ["renderer", "settings"]
+paths = ["engine/nvforever/src/perf_overlay/*", "engine/nvforever/src/settings.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_FPS_LOG = "0.5" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--fps"]
+run_seconds = 16
+expect = [
+  { re = 'fps counter: usage availability  CPU (\d+%|Not available)  GPU ((game )?\d+%|Not available)$', count = 1, label = "each usage source has a reading or explicitly unavailable status" },
+  { re = 'fps counter: FPS .*; CPU (\d+%|Not available)(  game [\d.]+ cores)?; GPU ((game +)?\d+%|Not available)(;|$)', label = "the visible CPU and GPU rows explain missing readings and game-only scope" },
+]
+forbid = [{ text = "Caught rendering error" }]
+
 [[scenario]]
 name = "main-menu-disabled-glyphs"
 source = "[design, #2247] main_menu::show_entries must reach glyphs under the line anchor (docs/spec-notes/fonts.md section 3.2), using the existing start_menu::color shades"
