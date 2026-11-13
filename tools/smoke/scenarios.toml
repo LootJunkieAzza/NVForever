@@ -22218,6 +22218,23 @@ expect = [
 ]
 
 [[scenario]]
+name = "nif-script-root-renames"
+source = "docs/spec-notes/nif-script-root-renames.md: explicit player root renames survive subsequent real mirror publication while initial factory labels retain skeleton-name precedence; runtime queries discover the existing root names"
+areas = ["scripts", "actors"]
+paths = ["engine/nvforever/src/nif_mirror.rs", "engine/nvforever/src/player_body.rs", "tools/smoke/fixtures/nif-root-renames.steps.json"]
+env = { NVF_PLAY_TEST_CONSOLE = "6:player.GetChildBlocks \"\" 2", NVF_PLAY_TEST_QUERIES = "{repo}/tools/smoke/fixtures/nif-root-renames.steps.json", NVF_PLAY_TEST_QUERIES_AT = "10" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
+run_seconds = 18
+expect = [
+  { re = 'script: print "nvf root first rename 1"', label = "the dynamic first-root rename succeeds" },
+  { re = 'script: print "nvf root first kept 1"', label = "the first root keeps its new name after deferred publication" },
+  { re = 'script: print "nvf root third rename 1"', label = "the dynamic third-root rename succeeds" },
+  { re = 'script: print "nvf root first still kept 1"', label = "renaming the third root preserves the first root's name" },
+  { re = 'script: print "nvf root third kept 1"', label = "the third root keeps its new name after deferred publication" },
+  { re = 'query job: nif-script-root-renames: 6 steps, 6 rows, 0 errors, written to ', label = "all source-query steps complete without compile/runtime errors" },
+]
+
+[[scenario]]
 name = "knvse-anim-replace"
 source = "N5 slice 2 (docs/design/knvse-anim.md): SetActorAnimationPath with a standing-stance file replaces that move in the actor's own copy of its set; taking it back restores the shared set"
 areas = ["scripts", "actors"]

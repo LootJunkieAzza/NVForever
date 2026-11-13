@@ -182,3 +182,13 @@ core lint pass. Renderer validation, runtime smoke, native omitted-selector
 behaviour and complete armor HUD acceptance remain incomplete.
 Contract and limits:
 [Player model selection](spec-notes/nif-player-model-selection.md).
+
+### Explicit script names on skeleton roots
+
+Provisional implementation: an explicit rename marker lets a skeleton root retain
+its script name without exposing ordinary factory entity labels as NIF names.
+Initial three-producer controls and four mirror helpers pass. The final four-case
+producer comparison adds an exact-JSON query consumer and remains pending; the
+actual query-job smoke, rendered/native acceptance and same-frame structural
+ordering remain unqualified.
+Contract: [Script root renames](spec-notes/nif-script-root-renames.md).

@@ -121,3 +121,118 @@ fn real_player_body_mirror_dispatch_and_held_edits_keep_rigs_separate() {
     assert_eq!(scale(&mut app, Some(2.0)), XVal::Num(0.0), "removed first rig never falls back");
     assert_eq!(scale(&mut app, Some(1.0)), XVal::Num(1.0));
 }
+
+type NamedRig = (Entity, ActorRig);
+
+fn naming_fixture() -> (App, crate::outfits::tests::TestFiles, NamedRig, NamedRig) {
+    let (mut app, files) = crate::outfits::tests::asset_fixture();
+    let forms = Box::leak(Box::<fnv_sim::FormStore>::default());
+    let refs = Box::leak(Box::<fnv_sim::RefTable>::default());
+    let game = crate::outfits::tests::game(fnv_sim::World::new(forms, refs, Default::default()));
+    let third = rig(app.world_mut(), "ThirdRoot", 30.0);
+    let first = rig(app.world_mut(), "FirstRoot", 10.0);
+    app.world_mut().entity_mut(third.0).insert(Name::new("Factory Third Label"));
+    app.world_mut().entity_mut(first.0).insert(Name::new("Factory First Label"));
+    app.insert_resource(crate::player_body::PlayerBody::synthetic_script_models(third.clone(), Some(first.clone())))
+        .insert_resource(TestGame(game)).init_resource::<TestMemory>()
+        .add_systems(Update, produce);
+    assert_eq!(scale(&mut app, None), XVal::Num(0.0));
+    app.update();
+    (app, files, third, first)
+}
+
+fn published(app: &mut App, r: FormId, view: ModelView, name: &str) -> Option<SceneNode> {
+    app.world_mut().resource_mut::<TestGame>().0.scene.node_for_model(r, view, name)
+}
+
+#[test]
+fn explicitly_renamed_player_roots_override_factory_labels_and_keep_per_rig_identity() {
+    let (mut app, _files, third, first) = naming_fixture();
+    assert!(published(&mut app, FormId::PLAYER_REF, ModelView::ThirdPerson, "ThirdRoot").is_some());
+    assert!(published(&mut app, FormId::PLAYER_REF, ModelView::FirstPerson, "FirstRoot").is_some());
+    assert!(published(&mut app, FormId::PLAYER_REF, ModelView::FirstPerson, "Factory First Label").is_none(), "factory labels are not NIF names");
+    for (selector, view, root, old, new) in [
+        (2, ModelView::FirstPerson, first.0, "FirstRoot", "OwnedFirstRoot"),
+        (1, ModelView::ThirdPerson, third.0, "ThirdRoot", "OwnedThirdRoot"),
+    ] {
+        // Dynamic source argument: get the real published root name rather than
+        // baking a game asset's root name into a script or a smoke scenario.
+        let script = format!("array_var roots\nstring_var rootName\nfloat success\nBegin Function {{ }}\nlet roots := PlayerREF.GetChildBlocks \"\" {selector}\nlet rootName := roots[0]\nlet success := PlayerREF.RenameNifBlock rootName \"{new}\" {selector}\nSetFunctionValue success\nEnd\n");
+        assert_eq!(app.world_mut().resource_mut::<TestGame>().0.run_query(&script, RunCtx::default()).unwrap(), XVal::Num(1.0));
+        assert!(published(&mut app, FormId::PLAYER_REF, view, new).is_some(), "script mirror changes at once");
+        app.update(); app.update(); // Deferred Name edit, then a fresh publication.
+        assert_eq!(app.world().get::<Name>(root).unwrap().as_str(), new);
+        assert!(published(&mut app, FormId::PLAYER_REF, view, new).is_some(), "explicit root rename survives the real producer");
+        assert!(published(&mut app, FormId::PLAYER_REF, view, old).is_none());
+    }
+    call(&mut app, "setnifblockscale", &[XVal::Str("OwnedFirstRoot".into()), XVal::Num(1.25), XVal::Num(2.0)]);
+    app.update();
+    assert_eq!(app.world().get::<Transform>(first.0).unwrap().scale, Vec3::splat(1.25), "new root name remains addressable by later edits");
+    assert_eq!(app.world().get::<Transform>(third.0).unwrap().scale, Vec3::ONE);
+    // A fresh rig of the same reference keeps its own skeleton name; the explicit
+    // marker belongs to the old entity, not to that reference or bone-name string.
+    let replacement = rig(app.world_mut(), "FirstRoot", 12.0);
+    app.world_mut().entity_mut(replacement.0).insert(Name::new("Replacement Factory Label"));
+    app.insert_resource(crate::player_body::PlayerBody::synthetic_script_models(third, Some(replacement)));
+    app.world_mut().entity_mut(first.0).despawn();
+    app.update();
+    assert!(published(&mut app, FormId::PLAYER_REF, ModelView::FirstPerson, "FirstRoot").is_some());
+    assert!(published(&mut app, FormId::PLAYER_REF, ModelView::FirstPerson, "OwnedFirstRoot").is_none());
+    assert!(published(&mut app, FormId::PLAYER_REF, ModelView::FirstPerson, "Replacement Factory Label").is_none());
+}
+
+#[test]
+fn ordinary_actor_root_and_nonroot_renames_keep_existing_name_rules() {
+    let (mut app, _files, _third, _first) = naming_fixture();
+    call(&mut app, "renamenifblock", &[XVal::Str("SharedBone".into()), XVal::Str("OwnedFirstBone".into()), XVal::Num(2.0)]);
+    app.update(); app.update();
+    assert!(published(&mut app, FormId::PLAYER_REF, ModelView::FirstPerson, "OwnedFirstBone").is_some());
+    assert!(published(&mut app, FormId::PLAYER_REF, ModelView::ThirdPerson, "SharedBone").is_some());
+    let receiver = FormId(0x505);
+    let (root, mut actor) = rig(app.world_mut(), "ActorRoot", 50.0);
+    actor.reference = receiver.0;
+    app.world_mut().entity_mut(root).insert((actor, Name::new("Factory Actor Label")));
+    let dispatch = |app: &mut App, name, args: &[XVal]| fnv_game::nvse::call(
+        &mut app.world_mut().resource_mut::<TestGame>().0, &RunCtx::default(), name, Some(receiver), args).unwrap().unwrap();
+    dispatch(&mut app, "getchildblocks", &[XVal::Str(String::new())]);
+    app.update();
+    assert!(published(&mut app, receiver, ModelView::Reference, "ActorRoot").is_some());
+    assert!(published(&mut app, receiver, ModelView::Reference, "Factory Actor Label").is_none());
+    assert_eq!(dispatch(&mut app, "renamenifblock", &[XVal::Str("ActorRoot".into()), XVal::Str("OwnedActorRoot".into())]), XVal::Num(1.0));
+    app.update(); app.update();
+    assert!(published(&mut app, receiver, ModelView::Reference, "OwnedActorRoot").is_some());
+    assert!(published(&mut app, receiver, ModelView::Reference, "ActorRoot").is_none());
+    assert_eq!(app.world().get::<Name>(root).unwrap().as_str(), "OwnedActorRoot");
+}
+
+#[test]
+fn owned_smoke_query_strings_keep_both_roots_through_the_real_cpu_producer() {
+    let job: serde_json::Value = serde_json::from_str(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"), "/../../tools/smoke/fixtures/nif-root-renames.steps.json"
+    ))).unwrap();
+    let (set, steps) = fnv_game::ext_probes::query_steps(&job).unwrap();
+    assert_eq!(set, "nif-script-root-renames", "the runtime consumer normalizes the raw job name before logging it");
+    assert_eq!(steps.len(), 6);
+    let (mut app, _files, _third, _first) = naming_fixture();
+    let mut values = Vec::new();
+    for step in steps {
+        let value = {
+            let mut state = app.world_mut().resource_mut::<TestGame>();
+            let before = state.0.events.len();
+            let observation = fnv_game::ext_probes::run_step(&mut state.0, &step);
+            assert!(!observation.contains_key("error"), "{}: {observation:?}", step.label);
+            assert!(!state.0.events[before..].iter().any(|event|
+                matches!(&event.kind, fnv_game::trace::EventKind::ScriptError { .. })),
+                "{} emitted a ScriptError", step.label);
+            observation.get("value").and_then(serde_json::Value::as_f64)
+                .unwrap_or_else(|| panic!("{}: numeric query result expected, got {observation:?}", step.label))
+        };
+        values.push(value);
+        // One real CPU mirror publication between each actual query string. The
+        // owned dummy steps provide the deferred-command flush before each oracle.
+        app.update();
+    }
+    assert_eq!(values, [1.0, 0.0, 1.0, 1.0, 0.0, 1.0]);
+    assert!(!app.world().resource::<TestGame>().0.events.iter().any(|event|
+        matches!(&event.kind, fnv_game::trace::EventKind::ScriptError { .. })));
+}

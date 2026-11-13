@@ -208,7 +208,12 @@ struct Held {
 
 type Visuals<'w, 's> = Query<'w, 's, (Entity, &'static RefVisual, Option<&'static ChildOf>), crate::lights::NotLightSource>;
 
-type NodeQuery<'w, 's> = Query<'w, 's, (Option<&'static Name>, &'static mut Transform, Option<&'static Children>, Has<NifHidden>)>;
+/// Distinguish an explicit NIF rename from factory entity labels on actor roots.
+/// The marker dies with the entity; it is not a FormId/name override for a new rig.
+#[derive(Component)]
+struct RenamedNifNode;
+
+type NodeQuery<'w, 's> = Query<'w, 's, (Option<&'static Name>, &'static mut Transform, Option<&'static Children>, Has<NifHidden>, Has<RenamedNifNode>)>;
 
 /// The actors' rigs and both built player models.
 type Rigs<'w, 's> = (Query<'w, 's, (Entity, &'static ActorRig)>, Option<Res<'w, crate::player_body::PlayerBody>>);
@@ -254,13 +259,13 @@ fn walk(root: Entity, nodes: &NodeQuery, rig: &RigNames) -> Vec<(Entity, Option<
     } else {
         None
     };
-    if let Ok((_, _, Some(ch), _)) = nodes.get(root) {
+    if let Ok((_, _, Some(ch), _, _)) = nodes.get(root) {
         stack.extend(ch.iter().rev().map(|c| (c, top)));
     }
     while let Some((e, parent)) = stack.pop() {
         let at = out.len();
         out.push((e, parent));
-        if let Ok((_, _, Some(ch), _)) = nodes.get(e) {
+        if let Ok((_, _, Some(ch), _, _)) = nodes.get(e) {
             stack.extend(ch.iter().rev().map(|c| (c, Some(at))));
         }
     }
@@ -283,12 +288,16 @@ fn rig_names(r: u32, view: ModelView, rigs: &Rigs) -> RigNames {
 
 /// A node's name: an actor root's from its skeleton, else its `Name`, else the rig's.
 fn name_of(e: Entity, nodes: &NodeQuery, rig: &RigNames) -> String {
+    let node = nodes.get(e).ok();
+    if let Some(name) = node.as_ref().filter(|n| n.4).and_then(|n| n.0) {
+        return name.as_str().to_string();
+    }
     if rig.root == Some(e) {
         if let Some(n) = rig.names.get(&e) {
             return n.clone();
         }
     }
-    nodes.get(e).ok().and_then(|n| n.0.map(|n| n.as_str().to_string())).or_else(|| rig.names.get(&e).cloned()).unwrap_or_default()
+    node.and_then(|n| n.0.map(|n| n.as_str().to_string())).or_else(|| rig.names.get(&e).cloned()).unwrap_or_default()
 }
 
 /// The node of that name under `root`: exactly, else without regard to case.
@@ -419,7 +428,7 @@ fn mirror_game(
             // A child by its place under the node, in the order `walk` told the mirror
             // (a switch's children, #2017).
             SceneEdit::ChildFlags { node, child, flags, .. } => {
-                let kid = find(root, &node, &nodes, &rig).and_then(|p| nodes.get(p).ok().and_then(|(_, _, ch, _)| ch.and_then(|c| c.iter().nth(child))));
+                let kid = find(root, &node, &nodes, &rig).and_then(|p| nodes.get(p).ok().and_then(|(_, _, ch, _, _)| ch.and_then(|c| c.iter().nth(child))));
                 if let Some(e) = kid {
                     if flags & 1 != 0 {
                         commands.entity(e).insert((NifHidden, Visibility::Hidden));
@@ -430,7 +439,7 @@ fn mirror_game(
             }
             SceneEdit::Rename { node, to, .. } => {
                 if let Some(e) = find(root, &node, &nodes, &rig) {
-                    commands.entity(e).insert(Name::new(to.clone()));
+                    commands.entity(e).insert((Name::new(to.clone()), RenamedNifNode));
                     if let Some(h) = held.remove(&(r.0, view, node)) {
                         held.insert((r.0, view, to), h);
                     }
@@ -593,7 +602,7 @@ fn mirror_game(
                 .map(|(k, &(e, parent))| (k, e, parent))
                 .filter_map(|(k, e, parent)| {
                     let base = name_of(e, &nodes, &rig);
-                    let (_, t, _, hidden) = nodes.get(e).ok()?;
+                    let (_, t, _, hidden, _) = nodes.get(e).ok()?;
                     // A name seen before gets ":0", ":1" … [observed: "Object", "Object:0"].
                     let n = seen.entry(base.to_ascii_lowercase()).or_insert(0);
                     let shown = if *n == 0 { base.clone() } else { format!("{base}:{}", *n - 1) };
