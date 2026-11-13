@@ -256,6 +256,11 @@ fn sample_shadow_map(
     frag_coord_xy: vec2<f32>,
     texel_size: f32,
 ) -> f32 {
+    // NVForever remaster (nvforever gi.rs, SCREEN_INDIRECT): softer sun-shadow edges, the
+    // smooth 13-tap filter beside a wider 8-tap spiral turned per pixel (not per frame).
+    @if(SCREEN_INDIRECT && SHADOW_FILTER_METHOD_GAUSSIAN)
+    return 0.5 * sample_shadow_map_castano_thirteen(light_local, depth, array_index)
+        + 0.5 * sample_shadow_map_jimenez_fourteen(light_local, depth, array_index, frag_coord_xy, texel_size, 2.5, false);
     @if(SHADOW_FILTER_METHOD_GAUSSIAN)
     return sample_shadow_map_castano_thirteen(light_local, depth, array_index);
     @elif(SHADOW_FILTER_METHOD_TEMPORAL)
