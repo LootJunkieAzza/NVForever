@@ -1390,7 +1390,7 @@ fn draw(
     mut images: ResMut<Assets<Image>>,
     formats: Option<Res<CompressedImageFormatSupport>>,
     roots: Query<Entity, OwnRoots>,
-    (mut kit, mut shown): (Local<Option<Kit>>, Local<Option<String>>),
+    (mut kit, mut shown, glyphs): (Local<Option<Kit>>, Local<Option<String>>, Res<crate::pad::PadGlyphs>),
 ) {
     let controller = bindings.device == InputDevice::Controller;
     let key = view_key(&photo, controller);
@@ -1406,7 +1406,7 @@ fn draw(
     }
     let bc = crate::interface::bc_supported(formats.as_deref());
     let kit = kit.get_or_insert_with(|| Kit::load(data.as_deref(), &mut images, bc));
-    let mut c = Ctx { kit, data: data.as_deref(), images: &mut images, bc };
+    let mut c = Ctx { kit, data: data.as_deref(), images: &mut images, bc, glyphs: &glyphs };
     spawn_panel(&mut commands, &mut c, &photo, controller);
     if photo.settings.grid() {
         spawn_grid(&mut commands);
