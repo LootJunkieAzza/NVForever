@@ -1695,10 +1695,12 @@ fn an_if_with_open_parentheses_takes_the_lines_that_continue_it() {
 fn a_mods_runtime_file_calls_a_function_nothing_knows() {
     // A Script Runner file naming a plugin function with no page compiles; the console's
     // line keeps the error.
-    let src = probe("EnableImprovedRecipeMenu 1\nplayer.RefreshAnimData");
+    // (EnableImprovedRecipeMenu and RefreshAnimData, the names first used here, have
+    // catalogue rows since #2318/#2326: names no plugin registers stand in.)
+    let src = probe("NvfUnregisteredCommandA 1\nplayer.NvfUnregisteredCommandB");
     let c = fnv_script::compile::compile_mod_runtime(&src, &table(), &World);
     assert_eq!(c.errors().count(), 0, "{:?}", c.errors().collect::<Vec<_>>());
-    assert!(!runtime_errors("EnableImprovedRecipeMenu 1").is_empty());
+    assert!(!runtime_errors("NvfUnregisteredCommandA 1").is_empty());
 }
 
 #[test]
