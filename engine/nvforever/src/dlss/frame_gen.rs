@@ -58,8 +58,9 @@
 //! - **Errors**: with DLSS-G loaded, `vkQueuePresentKHR` and `vkAcquireNextImageKHR` run
 //!   asynchronously inside Streamline and the host sees only "the last known error"; the
 //!   callback reports each call whose `VkResult` is not `VK_SUCCESS` and must return at once
-//!   [documented: §6.7; `sl_core_types.h:516-517`]. It stores the value in atomics, errors
-//!   (negative) apart from the positive results such as `VK_SUBOPTIMAL_KHR` a resize gives.
+//!   [documented: §6.7; `sl_core_types.h:516-517`]. It stores the value in atomics: errors
+//!   (negative), the swapchain out of date or suboptimal (`VK_ERROR_OUT_OF_DATE_KHR`,
+//!   `VK_SUBOPTIMAL_KHR`: a resize, answered by a reconfigure) and other positive results apart.
 //!
 //! Every system here runs only while DLSS-G is installed ([`active`], a static flag, so without
 //! the spike nothing is locked or called). The DLSS-G functions are "NOT thread safe"
@@ -237,6 +238,16 @@ static API_ERRORS: AtomicU32 = AtomicU32::new(0);
 static LAST_API_ERROR: AtomicI32 = AtomicI32::new(0);
 static API_OTHER: AtomicU32 = AtomicU32::new(0);
 static LAST_API_OTHER: AtomicI32 = AtomicI32::new(0);
+/// `VK_ERROR_OUT_OF_DATE_KHR` and `VK_SUBOPTIMAL_KHR` apart: the swapchain no longer matching
+/// the window (a resize), which Bevy answers with a reconfigure; not an error.
+static API_OUT_OF_DATE: AtomicU32 = AtomicU32::new(0);
+
+/// Whether a present or acquire result only says the swapchain no longer matches the surface:
+/// `VK_ERROR_OUT_OF_DATE_KHR` or `VK_SUBOPTIMAL_KHR` [documented: the Vulkan specification's
+/// `vkQueuePresentKHR` and `vkAcquireNextImageKHR` return codes].
+fn out_of_date(value: i32) -> bool {
+    value == vk::Result::ERROR_OUT_OF_DATE_KHR.as_raw() || value == vk::Result::SUBOPTIMAL_KHR.as_raw()
+}
 
 fn frame_gen() -> MutexGuard<'static, Option<FrameGen>> {
     FRAME_GEN.lock().unwrap_or_else(PoisonError::into_inner)
@@ -340,7 +351,9 @@ unsafe extern "C" fn on_api_error(error: *const ApiError) {
     // SAFETY: Streamline passes a reference to its `APIError`; on Vulkan its `vkRes` member is the
     // one written, and every bit pattern of the 4-byte union is a valid `i32`.
     let value = unsafe { (*error).vk_res };
-    if value < 0 {
+    if out_of_date(value) {
+        API_OUT_OF_DATE.fetch_add(1, Ordering::Relaxed);
+    } else if value < 0 {
         LAST_API_ERROR.store(value, Ordering::Relaxed);
         API_ERRORS.fetch_add(1, Ordering::Relaxed);
     } else {
@@ -708,7 +721,7 @@ fn state(world: &mut World) {
         fg.last_state_line = Some(now);
         let errors = (API_ERRORS.swap(0, Ordering::Relaxed), LAST_API_ERROR.load(Ordering::Relaxed));
         let other = (API_OTHER.swap(0, Ordering::Relaxed), LAST_API_OTHER.load(Ordering::Relaxed));
-        note_fg(Level::INFO, state_line(&state, errors, other));
+        note_fg(Level::INFO, state_line(&state, errors, other, API_OUT_OF_DATE.swap(0, Ordering::Relaxed)));
     }
     if matches!(fg.mode, Mode::On { .. }) {
         if let Some(period) = fg.period.as_mut().filter(|p| now.duration_since(p.since) >= RATIO_EVERY) {
@@ -867,9 +880,10 @@ fn window_changes(world: &mut World) {
     );
 }
 
-/// The state line, with the present and acquire results since the last one: errors (negative)
-/// and other non-success results (positive) apart, each `(count, last value)`.
-fn state_line(state: &DlssgState, errors: (u32, i32), other: (u32, i32)) -> String {
+/// The state line, with the present and acquire results since the last one: errors (negative),
+/// other non-success results (positive), each `(count, last value)`, and the swapchain out of
+/// date or suboptimal apart ([`out_of_date`]).
+fn state_line(state: &DlssgState, errors: (u32, i32), other: (u32, i32), out_of_date: u32) -> String {
     let errors = if errors.0 == 0 { "none".to_string() } else { format!("{} (the last VkResult {})", errors.0, errors.1) };
     let mut line = format!(
         "state: status {}, frames to generate at most {}, min size {}, vsync supported {}, dynamic MFG {}, presented for the last frame {}; present and acquire errors since last: {errors}",
@@ -880,6 +894,9 @@ fn state_line(state: &DlssgState, errors: (u32, i32), other: (u32, i32)) -> Stri
         boolean_name(state.b_is_dynamic_mfg_supported),
         state.num_frames_actually_presented,
     );
+    if out_of_date > 0 {
+        line.push_str(&format!(", swapchain out of date {out_of_date}"));
+    }
     if other.0 > 0 {
         line.push_str(&format!(", other non-success results {} (the last VkResult {})", other.0, other.1));
     }
@@ -1006,27 +1023,32 @@ mod tests {
         state.min_width_or_height = 100;
         state.num_frames_actually_presented = 2;
         assert_eq!(
-            state_line(&state, (0, 0), (0, 0)),
+            state_line(&state, (0, 0), (0, 0), 0),
             "state: status eOk, frames to generate at most 5, min size 100, vsync supported eFalse, dynamic MFG eFalse, presented for the last frame 2; present and acquire errors since last: none"
         );
-        assert!(state_line(&state, (2, -1_000_001_004), (3, 1_000_001_003)).ends_with("errors since last: 2 (the last VkResult -1000001004), other non-success results 3 (the last VkResult 1000001003)"));
+        assert!(state_line(&state, (2, -4), (3, 5), 0).ends_with("errors since last: 2 (the last VkResult -4), other non-success results 3 (the last VkResult 5)"));
+        assert!(state_line(&state, (0, 0), (0, 0), 2).ends_with("errors since last: none, swapchain out of date 2"), "a resize is not an error");
         state.status = 0b10;
-        assert!(state_line(&state, (0, 0), (0, 0)).starts_with("state: status eFailReflexNotDetectedAtRuntime,"));
+        assert!(state_line(&state, (0, 0), (0, 0), 0).starts_with("state: status eFailReflexNotDetectedAtRuntime,"));
         assert_eq!(ratio_line(Duration::from_secs(10), 600, 1200, None), "10.0 s: 600 real frames, 1200 presented (2.00 per real frame), status eOk");
         assert!(ratio_line(Duration::from_secs(10), 0, 0, Some("eFailCommonConstantsInvalid")).ends_with("(0.00 per real frame), off since status eFailCommonConstantsInvalid"));
     }
 
     #[test]
     fn the_error_callback_counts_errors_and_other_results_apart() {
-        let (errors, other) = (API_ERRORS.load(Ordering::Relaxed), API_OTHER.load(Ordering::Relaxed));
+        let (errors, other, stale) = (API_ERRORS.load(Ordering::Relaxed), API_OTHER.load(Ordering::Relaxed), API_OUT_OF_DATE.load(Ordering::Relaxed));
         // SAFETY: valid APIErrors, as Streamline passes; a null one is ignored.
         unsafe {
             on_api_error(&ApiError { vk_res: -4 });
+            on_api_error(&ApiError { vk_res: 1_000_018_000 });
+            on_api_error(&ApiError { vk_res: -1_000_001_004 });
             on_api_error(&ApiError { vk_res: 1_000_001_003 });
             on_api_error(std::ptr::null());
         }
         assert!(API_ERRORS.load(Ordering::Relaxed) > errors);
         assert!(API_OTHER.load(Ordering::Relaxed) > other);
-        assert_eq!((LAST_API_ERROR.load(Ordering::Relaxed), LAST_API_OTHER.load(Ordering::Relaxed)), (-4, 1_000_001_003));
+        assert!(API_OUT_OF_DATE.load(Ordering::Relaxed) >= stale + 2, "out of date and suboptimal");
+        assert_eq!((LAST_API_ERROR.load(Ordering::Relaxed), LAST_API_OTHER.load(Ordering::Relaxed)), (-4, 1_000_018_000));
+        assert!(out_of_date(-1_000_001_004) && out_of_date(1_000_001_003) && !out_of_date(-4));
     }
 }
