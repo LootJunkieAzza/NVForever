@@ -32,6 +32,25 @@ pub struct RagdollBody {
     /// what a Ragdoll Template's pivots are multiplied by.
     #[serde(skip)]
     pub unit: f32,
+    /// The stored inertia tensor (the rigid body info's `inertia_tensor`), kg·game unit²,
+    /// rows of a 3×3 matrix in the body's frame; `None` when it is missing or not a usable
+    /// tensor (ragdoll.md §2).
+    pub inertia: Option<[f32; 9]>,
+}
+
+/// A stored inertia tensor (three rows of four floats, kg·Havok unit²) in kg·game unit²
+/// for a body with `unit` game units per Havok unit: `None` unless every entry is finite,
+/// the matrix symmetric and its diagonal positive (so a broken or empty tensor leaves the
+/// physics engine's own, from the shapes).
+pub fn stored_inertia(rows: &[f32], unit: f32) -> Option<[f32; 9]> {
+    if rows.len() < 11 {
+        return None;
+    }
+    let m: [f32; 9] = std::array::from_fn(|i| rows[(i / 3) * 4 + i % 3] * unit * unit);
+    let ok = m.iter().all(|v| v.is_finite())
+        && [0, 4, 8].iter().all(|&i| m[i] > 0.0)
+        && [(1, 3), (2, 6), (5, 7)].iter().all(|&(a, b)| (m[a] - m[b]).abs() <= 1e-3 * (m[0] + m[4] + m[8]));
+    ok.then_some(m)
 }
 
 impl RagdollBody {
@@ -196,6 +215,7 @@ pub fn ragdoll(file: &NifFile, dec: &Decoded) -> Ragdoll {
             angular_damping: info.and_then(|s| s.float("angular_damping")).unwrap_or(0.0),
             stored,
             unit: f,
+            inertia: info.and_then(|s| s.floats("inertia_tensor")).and_then(|t| stored_inertia(t, f)),
         });
         scales.push(f);
     }
@@ -355,8 +375,13 @@ impl Ragdoll {
                 continue;
             };
             out.bones += 1;
-            let o = &mut self.bodies[i].object;
+            let body = &mut self.bodies[i];
+            let o = &mut body.object;
             if bone.mass.is_finite() && bone.mass > 0.0 {
+                // The same shape heavier or lighter: its inertia in proportion.
+                if o.mass > 0.0 {
+                    body.inertia = body.inertia.map(|t| t.map(|v| v * bone.mass / o.mass));
+                }
                 o.mass = bone.mass;
             } else {
                 out.skipped.push(format!("{}: mass {} kept at {}", bone.name, bone.mass, o.mass));
@@ -558,5 +583,22 @@ mod tests {
         let i = Iso { translation: [3.0, -2.0, 7.0], rotation: rot(2, 0.7).compose(&rot(0, -0.4)).rotation };
         let p = i.inverse().apply(i.apply([1.0, 2.0, 3.0]));
         assert!((p[0] - 1.0).abs() < 1e-5 && (p[1] - 2.0).abs() < 1e-5 && (p[2] - 3.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn stored_inertia_is_read_by_rows_and_scaled_to_game_units() {
+        // Three rows of four floats; the fourth column is not part of the matrix.
+        let rows = [2.0, 0.5, 0.0, 9.0, 0.5, 3.0, 0.0, 9.0, 0.0, 0.0, 4.0, 9.0];
+        let t = stored_inertia(&rows, 7.0).unwrap();
+        assert_eq!(t, [98.0, 24.5, 0.0, 24.5, 147.0, 0.0, 0.0, 0.0, 196.0]);
+        // Missing, empty, broken or lopsided tensors leave the physics engine's own.
+        assert_eq!(stored_inertia(&rows[..8], 7.0), None);
+        assert_eq!(stored_inertia(&[0.0; 12], 7.0), None);
+        let mut nan = rows;
+        nan[5] = f32::NAN;
+        assert_eq!(stored_inertia(&nan, 7.0), None);
+        let mut lopsided = rows;
+        lopsided[1] = 1.5;
+        assert_eq!(stored_inertia(&lopsided, 7.0), None);
     }
 }

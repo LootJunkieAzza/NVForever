@@ -53,7 +53,7 @@ fn body(name: &str, shape: Shape, mass: f32, rest: [f32; 3]) -> RagdollBody {
     let mut object = object(shape, Motion::Keyframed, layers::BIPED, mass);
     object.node = Some(name.into());
     object.node_transform = iso(rest);
-    RagdollBody { object, linear_damping: 0.1, angular_damping: 0.05, stored: iso(rest), unit: 7.0 }
+    RagdollBody { object, linear_damping: 0.1, angular_damping: 0.05, stored: iso(rest), unit: 7.0, inertia: None }
 }
 
 fn joint(a: usize, b: usize, pivot_a: [f32; 3], pivot_b: [f32; 3], kind: JointKind) -> RagdollJoint {
