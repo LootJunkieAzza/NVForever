@@ -71,7 +71,7 @@ settings (seconds of `Game::time`):
 | `lost` | `fCombatDetectionLostTime` | 15 s |
 | `forget_target` (outside an active Lost search) | `fCombatTargetLostRemoveTime` | 30 s |
 
-`fDetectionEventExpireTime` (10 in the same capture) is not read: by its name it is how
+`fDetectionEventExpireTime` (10 in the #2010 capture [observed]) is not read: by its name it is how
 long an event itself can be heard [hypothesis: the setting's name], and our events are
 heard in the round they are raised. Used as the hearer's alarm length it sent Cook-Cook,
 who heard the player's shot and called the camp, back to Normal at 12 s, before the
