@@ -866,9 +866,11 @@ pub(super) fn judge(snapshot: &Snapshot, req: &Requirements) -> Result<Vec<Strin
     }
     let mut unknown: Vec<String> = req.features12.iter().filter(|f| !FEATURES_12.contains(&f.as_str())).map(|f| format!("1.2 feature {f}")).collect();
     unknown.extend(req.features13.iter().filter(|f| !FEATURES_13.contains(&f.as_str())).map(|f| format!("1.3 feature {f}")));
-    if req.optical_flow_queues > 0 {
-        unknown.push(format!("{} optical flow queue(s)", req.optical_flow_queues));
-    }
+    // Optical flow queues (DLSS Frame Generation asks for one) are not judged: the interposer
+    // adds them, from their own queue family, only when the GPU flows natively and the family has
+    // room, and otherwise leaves them out without failing [documented: Streamline 2.14.16
+    // `source/core/sl.interposer/vulkan/wrapper.cpp:950-959`]; DLSS Frame Generation then runs its
+    // optical flow in interop mode [documented: `docs/ProgrammingGuideDLSS_G.md` §3.1 note].
     if !unknown.is_empty() {
         return Err(unsuitable(format!("DLSS asks for what this check does not know: {}", unknown.join(", "))));
     }
@@ -1188,12 +1190,13 @@ mod tests {
         for req in [
             Requirements { features12: vec!["shaderTimeTravel".into()], ..dlss_requirements() },
             Requirements { features13: vec!["robustBufferAccess2".into()], ..dlss_requirements() },
-            Requirements { optical_flow_queues: 1, ..dlss_requirements() },
         ] {
             let err = judge(&snapshot(vec![rtx()]), &req).unwrap_err();
             assert_eq!(err.reason, Unavailable::DeviceUnsuitable);
             assert!(err.why.contains("does not know"), "{}", err.why);
         }
+        // Optical flow queues are the interposer's to add or leave out, never a reason to decline.
+        assert!(judge(&snapshot(vec![rtx()]), &Requirements { optical_flow_queues: 1, ..dlss_requirements() }).is_ok());
         let no_vulkan = Requirements { flags: 0b011, ..dlss_requirements() };
         assert_eq!(judge(&snapshot(vec![rtx()]), &no_vulkan).unwrap_err().reason, Unavailable::NotVulkan);
         let mut loader = snapshot(vec![rtx()]);
