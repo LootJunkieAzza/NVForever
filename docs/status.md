@@ -139,3 +139,8 @@ counts them).
   combat style's attack chance).
 - Not reproduced from the playtest lists: shadow flicker after leaving an interior (debug
   lines kept); the Crimson Caravan crash (the next one leaves a report).
+
+### Built-in luck setting getter fallback
+
+Implemented the focused behavior correction and authored synthetic regression coverage;
+contract and limits: [Built-in luck setting getter fallback](spec-notes/builtin-luck-setting.md). This entry does not establish full mod compatibility.
