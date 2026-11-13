@@ -89,6 +89,7 @@ mod limbs;
 mod lips;
 mod memory_budget;
 mod gpu_poll;
+mod pilot;
 mod pipeline_gate;
 mod lockpick_view;
 mod roulette_view;
@@ -586,6 +587,17 @@ struct Args {
     /// or jumps up the ledge (docs/spec-notes/actor-jumps.md).
     #[arg(long, requires = "npc_travel")]
     npc_ledges: bool,
+    /// With --play: the quest pilot (pilot.rs, issue #2365) plays this headless
+    /// walkthrough chain (`fnv.script.actions/1`) with the player character, then exits.
+    #[arg(long, requires = "play")]
+    pilot: Option<PathBuf>,
+    /// The headless trace of the same chain (`fnvtool script run --actions`): the
+    /// pilot's labelled reads are compared with it.
+    #[arg(long, requires = "pilot")]
+    pilot_expect: Option<PathBuf>,
+    /// Where the pilot writes its report (`fnv.pilot.report/1`).
+    #[arg(long, requires = "pilot")]
+    pilot_out: Option<PathBuf>,
     /// Walking speed of --npc-travel NPCs, game units per second.
     #[arg(long, default_value_t = nav::WALK_SPEED)]
     npc_speed: f32,
@@ -1797,6 +1809,9 @@ fn main() -> AppExit {
             .add_systems(Startup, furniture::log_startup)
             .add_systems(Update, (furniture::seat_orders, furniture::drive_actors).chain().after(nav::drive).before(locomotion::walk_test))
             .add_systems(Last, furniture::report);
+    }
+    if let Some(chain) = &args.pilot {
+        app.add_plugins(pilot::PilotPlugin { chain: chain.clone(), expect: args.pilot_expect.clone(), out: args.pilot_out.clone() });
     }
     if let Some(n) = nav_state {
         let follow = n.follow;
