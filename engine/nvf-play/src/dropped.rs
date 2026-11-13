@@ -186,6 +186,11 @@ pub fn modded_model(w: Option<&fnv_actor::records::Weapon>, mods: u8) -> Option<
 #[derive(Component, Clone, Copy, Debug)]
 pub struct DroppedRoot(pub u32);
 
+/// On a [`DroppedRoot`]: the model drawn (under meshes), for JIP's NIF block functions
+/// (nvforever nif_mirror.rs reads the tree of an item drawn as flat shapes from it, #2132).
+#[derive(Component, Clone, Debug)]
+pub struct DroppedModel(pub String);
+
 /// A drawn created reference.
 #[derive(Debug, Clone, Copy)]
 pub struct DrawnRef {
@@ -280,7 +285,7 @@ fn sync_drawn(
         // `ChildOf` on the new entity (not a command on the cell): if render streaming
         // despawns the cell this frame, the relationship is dropped with a warning and
         // the next frame despawns the root, instead of a command failing on the cell.
-        let root = commands.spawn((Name::new(format!("Dropped {id:08X}")), DroppedRoot(id), t, Visibility::default(), ChildOf(cell_e))).id();
+        let root = commands.spawn((Name::new(format!("Dropped {id:08X}")), DroppedRoot(id), DroppedModel(path.clone()), t, Visibility::default(), ChildOf(cell_e))).id();
         // Animated: its own node hierarchy, as render streaming does, for a door, an idle,
         // or (without one) script groups. Not for an idle of nothing but parts the
         // holder's clips move (a gun's slide), which an item on the ground keeps still
