@@ -13,11 +13,26 @@
 //! records the next frame, and `queue_submit` finds them done. The work and the callbacks
 //! (buffer mappings, work-done notices) are the same; they only run on this thread.
 //! Nothing drawn changes.
+//!
+//! [`quiet`]: a caller that needs no Vulkan call from this thread for a while (DLSS Frame
+//! Generation's live switch, `slSetFeatureLoaded`, "no other DXGI/D3D/Vulkan APIs should be
+//! invoked in parallel", Streamline's `sl_core_api.h:130-131`) holds the gate's write side; each
+//! poll holds its read side.
 
 use bevy::prelude::*;
 use bevy::render::renderer::RenderDevice;
 use bevy::render::{Render, RenderApp, RenderSystems};
+use std::sync::{PoisonError, RwLock, RwLockWriteGuard};
 use std::time::Duration;
+
+/// The gate each poll passes ([`quiet`]).
+static GATE: RwLock<()> = RwLock::new(());
+
+/// No poll from this thread until the guard is dropped (the module comment).
+#[cfg_attr(not(windows), allow(dead_code))]
+pub(crate) fn quiet() -> RwLockWriteGuard<'static, ()> {
+    GATE.write().unwrap_or_else(PoisonError::into_inner)
+}
 
 /// How long the thread sleeps between polls.
 const PERIOD: Duration = Duration::from_millis(1);
@@ -40,7 +55,11 @@ fn start_poll(device: Res<RenderDevice>, mut started: Local<bool>) {
     let device = device.wgpu_device().clone();
     let spawned = std::thread::Builder::new().name("gpu poll".into()).spawn(move || loop {
         std::thread::sleep(PERIOD);
-        if let Err(e) = device.poll(wgpu::PollType::Poll) {
+        let polled = {
+            let _gate = GATE.read().unwrap_or_else(PoisonError::into_inner);
+            device.poll(wgpu::PollType::Poll)
+        };
+        if let Err(e) = polled {
             warn!("gpu poll: stopped, {e}");
             return;
         }

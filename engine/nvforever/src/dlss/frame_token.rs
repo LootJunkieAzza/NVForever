@@ -44,19 +44,6 @@ pub(super) struct FrameCalls {
 
 static CALLS: Mutex<Option<FrameCalls>> = Mutex::new(None);
 
-/// The live toggle's switch is under way (`frame_gen.rs` `toggle_switch`): the sleep and the
-/// markers are skipped meanwhile (`slSetFeatureLoaded` wants no Vulkan call in parallel,
-/// `sl_core_api.h:130-131`).
-static SWITCHING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-
-/// Marks the switch under way or over.
-pub(super) fn switching(on: bool) {
-    SWITCHING.store(on, std::sync::atomic::Ordering::SeqCst);
-}
-
-fn switch_under_way() -> bool {
-    SWITCHING.load(std::sync::atomic::Ordering::SeqCst)
-}
 
 fn calls() -> MutexGuard<'static, Option<FrameCalls>> {
     CALLS.lock().unwrap_or_else(PoisonError::into_inner)
@@ -167,9 +154,6 @@ pub(super) fn set_tags(index: u32, tags: &[ResourceTag]) -> SlResult {
 
 /// `slPCLSetMarker(marker)` for frame number `index`.
 pub(super) fn mark(marker: u32, index: u32) -> SlResult {
-    if switch_under_way() {
-        return SlResult::OK;
-    }
     // SAFETY: a marker value from `sl_pcl.h`; the token read in the call.
     flat(with_token(index, |c, token| unsafe { (c.pcl_set_marker)(marker, token) }))
 }
@@ -177,9 +161,6 @@ pub(super) fn mark(marker: u32, index: u32) -> SlResult {
 /// `slReflexSleep` for frame number `index`: the token taken under the lock, the sleep outside
 /// it (the module comment).
 pub(super) fn sleep(index: u32) -> SlResult {
-    if switch_under_way() {
-        return SlResult::OK;
-    }
     let taken = with_token(index, |c, token| (c.reflex_sleep, token as usize));
     match taken {
         // SAFETY: Reflex's function; the token is Streamline's slot, alive for the process (its
