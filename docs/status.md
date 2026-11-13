@@ -139,3 +139,7 @@ counts them).
   combat style's attack chance).
 - Not reproduced from the playtest lists: shadow flicker after leaving an interior (debug
   lines kept); the Crimson Caravan crash (the next one leaves a report).
+
+### Container open and close sound getters
+
+Source-call implementation and owned combined-harness fixture ported to current main; refreshed release validation is pending. No native bytecode adapter or full mod-compatibility claim. Contract: [Container open and close sound getters](spec-notes/container-sound-getters.md).

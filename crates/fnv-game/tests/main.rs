@@ -25,6 +25,7 @@ mod combat_blocks;
 mod combat_lines_data;
 mod combat_transitions;
 mod companion_wheel;
+mod container_sound_getters;
 mod crime;
 mod crippled_limbs_data;
 mod dead_on_spawn;
