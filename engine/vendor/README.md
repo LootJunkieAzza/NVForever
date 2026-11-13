@@ -255,6 +255,24 @@ Review fixes (2026-11-09, h9x000/NVForever#6), marked `NVForever (2026-11-09)`:
 
 Upstream Bevy has no way for a thread other than the render thread to present a window.
 
+Window changes held for one frame (2026-11-13, the DLSS Frame Generation spike, #2317), in
+`src/view/window/mod.rs`, each part marked `NVForever (2026-11-13)`:
+
+- `HoldSurfaceReconfigure`, a render-world resource (default `false`). While `true`,
+  `create_surfaces` does not reconfigure a window whose size or present mode changed or whose
+  surface is outdated: it marks the surface outdated (the 2026-11-09 mark) and reconfigures it
+  on the first frame after the hold is released; `prepare_windows` gives a window whose image
+  comes back `Outdated` no image that frame (marked the same way) instead of configuring the
+  surface there.
+- `SurfaceData::reconfigure_pending`: whether `create_surfaces` would reconfigure the surface
+  this frame, for the system that decides the hold.
+
+NVIDIA's DLSS Frame Generation must be off (its mode set off and presented once) before the
+swapchain changes [documented: Streamline 2.14.16 `ProgrammingGuideDLSS_G.md` §12.0, §17],
+and upstream reconfigures in the frame the change is extracted. NVForever's
+`engine/nvforever/src/dlss/frame_gen.rs` holds the reconfigure for that one frame. Nothing
+else sets it, so every other run takes upstream's path.
+
 Vulkan library for the instance (2026-11-12, DLSS spike, #2198), in
 `src/renderer/raw_vulkan_init.rs`, each part marked by a comment starting `NVForever
 (2026-11-12, DLSS spike #2198)`, and an optional `ash` 0.38 dependency (the version wgpu-hal

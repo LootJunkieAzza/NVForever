@@ -51,6 +51,8 @@ impl Plugin for WindowRenderPlugin {
 
         if let Some(render_app) = app.get_sub_app_mut(RenderApp) {
             render_app
+                // NVForever (2026-11-13): see `HoldSurfaceReconfigure`.
+                .init_resource::<HoldSurfaceReconfigure>()
                 .add_systems(ExtractSchedule, extract_windows.before(extract_cameras))
                 .add_systems(
                     Render,
@@ -87,6 +89,15 @@ pub struct ExtractedWindow {
     /// See <https://wayland.app/protocols/xdg-shell#xdg_surface>
     pub needs_initial_present: bool,
 }
+
+/// NVForever (2026-11-13): while `true`, no window's surface is reconfigured: a size or
+/// present-mode change, or an outdated surface, is marked instead ([`SurfaceData`]'s outdated
+/// mark) and [`create_surfaces`] reconfigures it on the first frame after the hold is released;
+/// [`prepare_windows`] gives an outdated window no image that frame. NVForever's DLSS Frame
+/// Generation holds it for the frame it presents with DLSS-G off before a window change (DLSS-G
+/// must be off before the swapchain changes). Upstream behaviour while `false`, the default.
+#[derive(Resource, Default, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct HoldSurfaceReconfigure(pub bool);
 
 /// NVForever (2026-11-08): time the render thread spent in the swapchain's calls, presents and
 /// takes (`get_current_texture`), since the start: a measuring aid (frame generation's log).
@@ -434,6 +445,19 @@ impl SurfaceData {
     fn outdated(&self) -> bool {
         self.shared.outdated.load(core::sync::atomic::Ordering::Relaxed)
     }
+
+    /// NVForever (2026-11-13): whether [`create_surfaces`] would reconfigure the surface this
+    /// frame: `window`'s size or present mode changed, or the surface is marked outdated (also
+    /// by a [`HoldSurfaceReconfigure`] that held a change back).
+    pub fn reconfigure_pending(&self, window: &ExtractedWindow) -> bool {
+        window.size_changed || window.present_mode_changed || self.outdated()
+    }
+
+    /// NVForever (2026-11-13): marks the surface outdated, so [`create_surfaces`] reconfigures it
+    /// when no [`HoldSurfaceReconfigure`] holds.
+    fn hold_back(&self) {
+        self.shared.outdated.store(true, core::sync::atomic::Ordering::Relaxed);
+    }
 }
 
 /// (re)configures window surfaces, and obtains a swapchain texture for rendering.
@@ -461,6 +485,8 @@ pub fn prepare_windows(
     mut windows: Query<(MainEntity, &mut ExtractedWindow, Option<&SurfaceData>, Option<&mut DeferredSwapchain>)>,
     render_device: Res<RenderDevice>,
     sorted_cameras: Res<crate::camera::SortedCameras>,
+    // NVForever (2026-11-13): an outdated surface is not configured here while this holds.
+    hold: Option<Res<HoldSurfaceReconfigure>>,
     #[cfg(target_os = "linux")] render_instance: Res<RenderInstance>,
 ) {
     for (main_entity, mut window, maybe_surface_data, deferred) in &mut windows {
@@ -541,6 +567,11 @@ pub fn prepare_windows(
                         of your Linux GPU driver, so it can be safely ignored."
                 );
             }
+            // NVForever (2026-11-13): while a hold is on, marked for `create_surfaces` instead,
+            // and the window gets no image this frame.
+            wgpu::CurrentSurfaceTexture::Outdated if hold.as_ref().is_some_and(|h| h.0) => {
+                surface_data.hold_back();
+            }
             wgpu::CurrentSurfaceTexture::Outdated => {
                 render_device.configure_surface(surface, &surface_data.configuration);
                 let frame = match surface.get_current_texture() {
@@ -597,6 +628,8 @@ pub fn create_surfaces(
     render_instance: Res<RenderInstance>,
     render_adapter: Res<RenderAdapter>,
     render_device: Res<RenderDevice>,
+    // NVForever (2026-11-13): a change is marked, not applied, while this holds.
+    hold: Option<Res<HoldSurfaceReconfigure>>,
 ) {
     for (entity, mut window, handle, mut maybe_surface_data) in &mut windows {
         let Some(data) = maybe_surface_data.as_mut() else {
@@ -679,6 +712,11 @@ pub fn create_surfaces(
         // which can happen with the window's size unchanged (alt-tab, a display mode or HDR
         // change); the holder does not configure it itself.
         if window.size_changed || window.present_mode_changed || data.outdated() {
+            // NVForever (2026-11-13): held back for a later frame (`HoldSurfaceReconfigure`).
+            if hold.as_ref().is_some_and(|h| h.0) {
+                data.hold_back();
+                continue;
+            }
             // normally this is dropped on present but we double check here to be safe as failure to
             // drop it will cause validation errors in wgpu
             drop(window.swap_chain_texture.take());

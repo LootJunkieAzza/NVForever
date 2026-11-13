@@ -1095,6 +1095,17 @@ pub(super) fn optimal_settings(key: Key) -> Result<Optimal, String> {
     eval.optimal_settings(key)
 }
 
+/// `slSetFeatureLoaded(DLSS-G, loaded)` for the live toggle (`frame_gen.rs` `window_changes`),
+/// with the swapchain released and the GPU drained ("no other Vulkan APIs should be invoked in
+/// parallel", `sl_core_api.h:120-134`: the render thread is in that exclusive system, before the
+/// frame is recorded).
+pub(super) fn set_frame_generation_loaded(loaded: bool) -> SlResult {
+    let guard = state();
+    let Some(spike) = guard.as_ref() else { return SlResult(21) };
+    // SAFETY: after the device exists, nothing in flight (above).
+    unsafe { (spike.api.set_feature_loaded)(FEATURE_DLSS_G, loaded) }
+}
+
 /// Whether DLSS's evaluator would reset its next evaluate (`Evaluator::history_stale`); false
 /// while DLSS is not active.
 pub(super) fn dlss_history_stale() -> bool {

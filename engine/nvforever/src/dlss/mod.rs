@@ -367,6 +367,59 @@ pub(crate) fn reflex_mark(marker: ash::vk::LatencyMarkerNV, present_id: u64) {
     let _ = (marker, present_id);
 }
 
+/// When the DLSS passes were added (app construction): the clock of the Frame Generation
+/// spike's test aids (`NVF_DLSSG_RESIZE`, `NVF_DLSSG_TOGGLE`).
+static TEST_START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+
+/// Seconds since [`TEST_START`].
+fn test_seconds() -> f64 {
+    TEST_START.get_or_init(std::time::Instant::now).elapsed().as_secs_f64()
+}
+
+/// `NVF_DLSSG_RESIZE=<seconds>:<w>x<h>,...`: the window resized during play (a test aid for the
+/// Frame Generation spike's window changes, `frame_gen.rs` `window_changes`; seconds since
+/// [`TEST_START`]). No other aid resizes outside the pause menu.
+const RESIZE_ENV: &str = "NVF_DLSSG_RESIZE";
+
+/// [`RESIZE_ENV`]'s steps.
+#[derive(Resource, Default)]
+struct ResizePlan {
+    steps: Vec<(f64, UVec2)>,
+    next: usize,
+}
+
+/// `NVF_DLSSG_RESIZE` read: `<seconds>:<w>x<h>` steps, in time order.
+fn resizes_from(value: &str) -> Result<Vec<(f64, UVec2)>, String> {
+    let mut steps = Vec::new();
+    for item in value.split(',').map(str::trim).filter(|i| !i.is_empty()) {
+        let parsed = item.split_once(':').and_then(|(at, size)| {
+            let at = at.trim().parse::<f64>().ok().filter(|t| t.is_finite() && *t >= 0.0)?;
+            let (w, h) = size.trim().split_once('x')?;
+            let size = UVec2::new(w.trim().parse().ok()?, h.trim().parse().ok()?);
+            (size.min_element() >= 64).then_some((at, size))
+        });
+        match parsed {
+            Some(step) => steps.push(step),
+            None => return Err(format!("{RESIZE_ENV}: '{item}' is not <seconds>:<width>x<height> (at least 64x64); no resize")),
+        }
+    }
+    steps.sort_by(|a, b| a.0.total_cmp(&b.0));
+    Ok(steps)
+}
+
+/// The resize test aid: the primary window's physical size set at each step's time.
+fn resize_aid(mut plan: ResMut<ResizePlan>, mut windows: Query<&mut Window, With<bevy::window::PrimaryWindow>>) {
+    let Some(&(at, size)) = plan.steps.get(plan.next) else { return };
+    if test_seconds() < at {
+        return;
+    }
+    plan.next += 1;
+    for mut window in &mut windows {
+        window.resolution.set_physical_resolution(size.x, size.y);
+        info!("test aid: window resized to {}x{} ({RESIZE_ENV}, {at} s)", size.x, size.y);
+    }
+}
+
 /// The files of [`FG_FILES`] that `folder` lacks, in that order.
 #[cfg(any(windows, test))]
 fn missing_fg_files(folder: &Path) -> Vec<&'static str> {
@@ -767,6 +820,15 @@ pub struct DlssPassPlugin;
 
 impl Plugin for DlssPassPlugin {
     fn build(&self, app: &mut App) {
+        TEST_START.get_or_init(std::time::Instant::now);
+        if let Ok(value) = std::env::var(RESIZE_ENV) {
+            match resizes_from(&value) {
+                Ok(steps) => {
+                    app.insert_resource(ResizePlan { steps, next: 0 }).add_systems(Update, resize_aid);
+                }
+                Err(line) => warn!("{line}"),
+            }
+        }
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else { return };
         render_app
             .init_resource::<DlssMainState>()
@@ -1150,6 +1212,14 @@ mod tests {
         assert_eq!(spike_from(Some(OsStr::new("loaded"))), Ok(Some(FgSpike::KeepLoaded)));
         assert_eq!(spike_from(Some(OsStr::new("on"))), Ok(Some(FgSpike::On)));
         assert!(spike_from(Some(OsStr::new("yes"))).unwrap_err().contains("NVF_DLSSG_SPIKE=yes is none of 1, loaded or on"));
+    }
+
+    #[test]
+    fn the_resize_aid_reads_seconds_and_sizes() {
+        assert_eq!(resizes_from("24:1280x720, 16:1600x900"), Ok(vec![(16.0, UVec2::new(1600, 900)), (24.0, UVec2::new(1280, 720))]));
+        assert!(resizes_from("16:10x10").unwrap_err().contains("at least 64x64"));
+        assert!(resizes_from("16:1600").is_err());
+        assert_eq!(resizes_from(""), Ok(vec![]));
     }
 
     #[test]
