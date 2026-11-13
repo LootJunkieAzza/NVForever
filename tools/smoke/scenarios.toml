@@ -22236,6 +22236,35 @@ expect = [
 ]
 
 [[scenario]]
+name = "pipboy-glove-hologram"
+source = "#1523 (docs/spec-notes/actors.md §2.3): the Dead Money hologram outfit declares head, hair, upper body and both hands on its own record with no addon list, and its model has finger bones; only addons pushed the Pip-Boy Glove out, so both left hands were drawn. A worn item with more slots now takes them on its own record too"
+note = "the player wears the hologram outfit (nvdlc01hologramoutfit, DeadMoney.esm 0x0100307B with FalloutNV.esm and DeadMoney.esm loaded) in Goodsprings; third person, the camera turned to the player's front at 6 s, a frame at 7 s (one left hand, the outfit's)"
+areas = ["actors", "player-body"]
+paths = ["crates/fnv-actor/src/resolve.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_EQUIP = "0100307B", NVF_PLAY_TEST_CONTROL = "5:view,5.4:zoom=120,5.8:orbit=160:5", NVF_PLAY_TEST_SHOTS = "7:pipboy_glove_hologram.png" }
+args = ["--cell", "Goodsprings", "--pos=-61000,4500,8500", "--play", "--hour", "12", "--no-voice", "--no-messages", "--plugins", "FalloutNV.esm", "DeadMoney.esm"]
+run_seconds = 9
+expect = [
+  { re = 'player body: armour drawn \[[^\]]*"nvdlc01hologramoutfit"', label = "the hologram outfit is drawn" },
+  { re = 'player body: armour drawn \[(?=[^\]]*"PipBoyGlove")(?=[^\]]*"nvdlc01hologramoutfit")', count = 0, label = "never together with the Pip-Boy Glove" },
+]
+
+[[scenario]]
+name = "pipboy-raised-own-body"
+source = "#1523 (docs/design/player-body.md §1.5): with the body in first person, the weapon away and the Pip-Boy raised, the body's own arms stayed seen beside the arms rig's raised arm, as only the weapon hid them; the raised Pip-Boy now hides them too"
+note = "the player wears the Vault 21 Jumpsuit (VaultSuit21 0x00104184) in Goodsprings with --first-person-body and no weapon drawn; the Pip-Boy is raised at 4 s and lowered at 7 s, a frame at 5.5 s (one pair of hands: the arms rig's)"
+areas = ["player-body", "pipboy"]
+paths = ["engine/nvforever/src/player_body.rs"]
+env = { RUST_LOG = "info,nvforever::player_body=debug", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_EQUIP = "00104184", NVF_PLAY_TEST_PIPBOY = "4:open,7:close", NVF_PLAY_TEST_LOOK = "3:0:-30", NVF_PLAY_TEST_SHOTS = "5.5:pipboy_raised_own_body.png" }
+args = ["--cell", "Goodsprings", "--pos=-61000,4500,8500", "--play", "--hour", "12", "--no-voice", "--no-messages", "--plugins", "FalloutNV.esm", "--first-person-body"]
+run_seconds = 9
+expect = [
+  { re = 'player body: the camera sees Seen \{ body: true, head: false, arms: true, weapon: true \} of the body', label = "weapon away, Pip-Boy down: the body's own arms are seen" },
+  { re = 'player body: the camera sees Seen \{ body: true, head: false, arms: false, weapon: true \} of the body', label = "Pip-Boy up: the arms rig's arm stands in for them" },
+]
+order = [["player body: the camera sees Seen { body: true, head: false, arms: true, weapon: true } of the body", "player body: the camera sees Seen { body: true, head: false, arms: false, weapon: true } of the body"]]
+
+[[scenario]]
 name = "jukebox-tubes-off"
 source = "#1079 (docs/spec-notes/activators.md §3): switched off, the saloon jukebox's light tubes (JukeBox01:1, unlit shader) stayed lit at full texture brightness; the original's go dark [observed: owner 2026-10-30]. While off, every unlit shape the idle drives is drawn black: the opaque tubes go dark, the additive notes and bubbles vanish"
 note = "the jukebox seen from the test spot in front of it (NVF_PLAY_TEST_NEAR), on at 6 s (frame), switched off by E at 7 s, frame at 9 s, on again at 10 s, frame at 12 s"
