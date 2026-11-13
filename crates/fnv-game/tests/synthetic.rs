@@ -3811,6 +3811,119 @@ fn console_functions_run_their_commands() {
 }
 
 #[test]
+fn script_console_assignments_update_quest_variables_instead_of_calling_their_names() {
+    use fnv_script::vm::XVal;
+    let f = fixture();
+    let mut g = game(&f);
+    let result = g.run_query("Begin Function {}\nConsole \"Q.fTimer = 2\"\nConsole \"Q.fTimer += 0.5\"\nConsole \"set Q.bRun to 7.8\"\nSetFunctionValue (ar_List Q.fTimer Q.bRun)\nEnd", Default::default()).unwrap();
+    let XVal::Array(array) = result else { panic!("expected an array of the actual quest state") };
+    let values: Vec<_> = g.ext.array(array).unwrap().entries.iter().map(|(_, value)| value.clone()).collect();
+    assert_eq!(values, [XVal::Num(2.5), XVal::Num(7.0)]);
+    assert!(g.console_out.iter().all(|line| !line.starts_with("Script error:")), "{:?}", g.console_out);
+    assert!(g.events.iter().all(|e| !matches!(&e.kind, EventKind::ScriptError { .. })));
+}
+
+#[test]
+fn script_console_assignment_expressions_preserve_the_callers_next_statement() {
+    use fnv_script::vm::XVal;
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let result = g.run_query("float result\nBegin Function {}\nConsole \"set TestGlobal to 5\"\nConsole \"TestGlobal += 3 * 2\"\nlet result := TestGlobal + 1\nSetFunctionValue result\nEnd", Default::default()).unwrap();
+    assert_eq!(result, XVal::Num(12.0));
+    assert_eq!(g.world.global(FormId(0x800)).unwrap(), 11.0);
+    assert!(g.console_out.is_empty(), "success is silent with echo off: {:?}", g.console_out);
+}
+
+#[test]
+fn script_console_classic_set_accepts_single_token_expressions() {
+    use fnv_script::vm::XVal;
+    let f = udf_fixture();
+    let mut g = game(&f);
+    for (line, expected) in [("set TestGlobal to (5)", 5.0), ("set TestGlobal to 3*2", 6.0), ("set TestGlobal to -7", -7.0)] {
+        fnv_game::nvse::call(&mut g, &Default::default(), "console", None, &[XVal::Str(line.into())]).unwrap().unwrap();
+        assert_eq!(g.world.global(FormId(0x800)).unwrap(), expected);
+    }
+    assert!(g.console_out.is_empty(), "{:?}", g.console_out);
+}
+
+#[test]
+fn script_console_cache_limits_distinct_sources_but_reuses_existing_entries() {
+    use fnv_script::vm::XVal;
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let run = |g: &mut fnv_game::Game, line: String| {
+        fnv_game::nvse::call(g, &Default::default(), "console", None, &[XVal::Str(line)]).unwrap().unwrap();
+    };
+    for i in 0..256 { run(&mut g, format!("TestGlobal = {i}")); }
+    assert!(g.console_out.is_empty());
+    run(&mut g, "TestGlobal = 999".into());
+    assert_eq!(g.console_out.len(), 1);
+    assert!(g.console_out[0].contains("256 distinct"));
+    assert_eq!(g.world.global(FormId(0x800)).unwrap(), 255.0);
+    run(&mut g, "TestGlobal = 3".into());
+    assert_eq!(g.console_out.len(), 1, "cache hits remain executable at the limit");
+    assert_eq!(g.world.global(FormId(0x800)).unwrap(), 3.0);
+}
+
+#[test]
+fn script_console_source_length_boundary_does_not_disable_shorter_lines() {
+    use fnv_script::vm::XVal;
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let run = |g: &mut fnv_game::Game, line: String| {
+        fnv_game::nvse::call(g, &Default::default(), "console", None, &[XVal::Str(line)]).unwrap().unwrap();
+    };
+    let mut exact = "TestGlobal = 7".to_string();
+    exact.extend(std::iter::repeat_n(' ', 16 * 1024 - exact.len()));
+    run(&mut g, exact.clone());
+    assert!(g.console_out.is_empty());
+    assert_eq!(g.world.global(FormId(0x800)).unwrap(), 7.0);
+    exact.push(' ');
+    run(&mut g, exact);
+    assert_eq!(g.console_out.len(), 1);
+    assert!(g.console_out[0].contains("16 KiB"));
+    run(&mut g, "TestGlobal = 8".into());
+    assert_eq!(g.world.global(FormId(0x800)).unwrap(), 8.0);
+    assert_eq!(g.console_out.len(), 1);
+}
+
+#[test]
+fn script_console_unknown_plain_commands_still_report_errors_and_continue() {
+    use fnv_script::vm::XVal;
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let result = g.run_query("Begin Function {}\nConsole \"OwnMissingCommand\"\nConsole \"set TestGlobal to 9\"\nSetFunctionValue TestGlobal\nEnd", Default::default()).unwrap();
+    assert_eq!(result, XVal::Num(9.0));
+    assert_eq!(g.console_out.len(), 1);
+    assert!(g.console_out[0].contains("OwnMissingCommand"));
+}
+
+#[test]
+fn script_console_repeated_expressions_reuse_their_compilation_and_read_live_state() {
+    use fnv_script::vm::XVal;
+    let f = udf_fixture();
+    let mut g = game(&f);
+    g.world.set_global(FormId(0x800), 0.0).unwrap();
+    for _ in 0..300 {
+        fnv_game::nvse::call(&mut g, &Default::default(), "console", None, &[XVal::Str("TestGlobal += 1".into())]).unwrap().unwrap();
+    }
+    assert_eq!(g.world.global(FormId(0x800)).unwrap(), 300.0);
+    assert!(g.console_out.is_empty(), "the repeated expression must not exhaust its cache: {:?}", g.console_out);
+}
+
+#[test]
+fn script_console_runtime_and_syntax_failures_are_diagnostic_and_do_not_end_the_caller() {
+    use fnv_script::vm::XVal;
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let result = g.run_query("Begin Function {}\nConsole \"TestGlobal = 1 / 0\"\nConsole \"TestGlobal +=\"\nConsole \"set TestGlobal to 13\"\nSetFunctionValue TestGlobal\nEnd", Default::default()).unwrap();
+    assert_eq!(result, XVal::Num(13.0));
+    assert_eq!(g.console_out.len(), 2, "{:?}", g.console_out);
+    assert!(g.console_out[0].contains("division by zero"));
+    assert!(g.console_out[1].starts_with("Script error: console:"));
+}
+
+#[test]
 fn generic_form_lists_and_animation_lists_change_for_the_session() {
     // #914 [documented: GenericAddForm "-2 will add to the end", GenericDeleteForm and
     // GenericReplaceForm return the form taken out; AddAnimation, DelAnimation,

@@ -1240,6 +1240,8 @@ pub struct Game<'a> {
     /// (lower case) to them.
     compiled_files: Vec<&'a Compiled>,
     compiled_paths: std::collections::HashMap<String, u32>,
+    /// Repeated script Console expressions compile once, separately from debug lines.
+    console_sources: std::collections::HashMap<String, ConsoleSource<'a>>,
     /// JIP's Script Runner: its files and their units (`crate::script_runner`).
     pub(crate) sr: crate::script_runner::SrState<'a>,
     /// A lambda already made, by its unit, its number in the unit and whose variables it
@@ -2252,6 +2254,8 @@ pub struct RunCtx {
     pub quest: Option<FormId>,
 }
 
+type ConsoleSource<'a> = Result<(&'a Compiled, Vec<String>), String>;
+
 /// The compiler's view of a running game: names as the winning records give them, a
 /// form's script by [`Game::instance_of`] (`fnv_script::compile::Env`).
 pub struct GameEnv<'g, 'a> {
@@ -2298,6 +2302,7 @@ impl<'a> Game<'a> {
             unusable_reported: Default::default(),
             compiled_files: Vec::new(),
             compiled_paths: std::collections::HashMap::new(),
+            console_sources: Default::default(),
             sr: Default::default(),
             lambda_ids: Default::default(),
             handlers: Vec::new(),
@@ -2966,6 +2971,38 @@ impl<'a> Game<'a> {
     pub fn run_source(&mut self, src: &str, ctx: RunCtx) -> Result<Vec<String>, String> {
         let (unit, warnings) = self.compile_statements(src, "console", "CONS")?;
         self.run_statements(unit, ctx);
+        Ok(warnings)
+    }
+
+    /// The script Console wrapper's expression path. Unlike interactive debugging
+    /// lines, a mod can run the same source every frame; cache it under bounded budgets
+    /// (script-console-dispatch.md) and surface runtime errors as well as syntax.
+    pub(crate) fn run_script_console_source(&mut self, src: &str, ctx: RunCtx) -> Result<Vec<String>, String> {
+        if src.len() > 16 * 1024 {
+            return Err("script Console source exceeds the 16 KiB safety budget".into());
+        }
+        let compiled = match self.console_sources.get(src) {
+            Some(compiled) => compiled.clone(),
+            None => {
+                if self.console_sources.len() >= 256 {
+                    return Err("script Console exceeds 256 distinct compiled sources in one game".into());
+                }
+                // Keep the runtime/no-plugin identity used by the interactive console;
+                // a diagnostic label must not invent a private AuxVar namespace.
+                let compiled = self.compile_statements(src, "console", "CONS");
+                self.console_sources.insert(src.to_string(), compiled.clone());
+                compiled
+            }
+        };
+        let (unit, warnings) = compiled?;
+        let from = self.events.len();
+        if !self.run_statements(unit, ctx) {
+            let error = self.events[from..].iter().find_map(|event| match &event.kind {
+                EventKind::ScriptError { error, .. } => Some(error.as_str()),
+                _ => None,
+            }).unwrap_or("statement evaluation failed");
+            return Err(format!("{src:?}: {error}"));
+        }
         Ok(warnings)
     }
 

@@ -932,6 +932,16 @@ pub fn split_call(line: &str) -> Option<(Option<String>, String, Vec<String>)> {
     Some((on, func, w[1..].to_vec()))
 }
 
+/// An expression operator or parenthesis outside quoted command arguments. A word
+/// reader can reject these lines even though the statement compiler accepts them.
+pub fn has_expression_operator(line: &str) -> bool {
+    let mut quoted = false;
+    line.chars().any(|c| {
+        if c == '"' { quoted = !quoted; }
+        !quoted && "+-*/%()<>=&|".contains(c)
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -944,6 +954,15 @@ mod tests {
         assert_eq!(hex_form_id("0x00104C0C"), Some(FormId(0x0010_4C0C)));
         assert_eq!(hex_form_id("0000000F"), Some(FormId(0xF)));
         assert_eq!(hex_form_id("player"), None);
+    }
+
+    #[test]
+    fn expression_fallback_ignores_operators_in_quoted_command_arguments() {
+        assert!(has_expression_operator("OwnQuest.value = 2"));
+        assert!(has_expression_operator("player.SetAV Luck (5)"));
+        assert!(!has_expression_operator("Print \"x+=1\""));
+        assert!(!has_expression_operator("ShowMessage \"a-b\""));
+        assert!(!has_expression_operator("player.additem f 100"));
     }
 
     /// Every registered name is a console-only command of the catalogue (one numbered
