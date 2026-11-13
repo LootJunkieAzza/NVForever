@@ -840,6 +840,9 @@ struct Resident {
     /// Handed to the AI (once the game state is there).
     joined: bool,
     spawned: bool,
+    /// Created by a script and not drawn yet: drawn in the first frame it is in view,
+    /// past the read-ahead and the frame's spawn budget (`nav::Who::at_once`).
+    at_once: bool,
     root: Option<Entity>,
     failed: bool,
     /// In the world and enabled, as the game has it.
@@ -1504,6 +1507,7 @@ impl Core {
             self.add_resident(id, base.0, creature, 1.0, pos, label, true);
             if let Some(r) = self.list.last_mut().filter(|r| r.actor == id) {
                 r.first_steps = Some(FirstSteps::new("its creation by a script"));
+                r.at_once = true;
             }
         }
     }
@@ -1550,6 +1554,7 @@ impl Core {
             named,
             joined: false,
             spawned: false,
+            at_once: false,
             root: None,
             failed: false,
             present: false,
@@ -3171,7 +3176,7 @@ pub fn drive(
         let Some(agent) = core.ai.agents.get(&r.actor) else { continue };
         let w = &agent.walker;
         let visible = r.present && drawn(&world, &streamer, w.space, w.feet);
-        if visible && !r.spawned {
+        if visible && !r.spawned && !r.at_once {
             if budget == 0 {
                 continue;
             }
@@ -3304,11 +3309,14 @@ pub fn drive(
             }
         }
         let stage = (&mut r.spawned, &mut r.root);
-        if let Err(e) = nav::show_actor(&mut commands, root, visible, actor_world.as_deref(), equipment_world, &mut ahead, &mut spawn_stats, &mut parts, &mut models, &roots, &mut actors, nav::Who { reference: r.actor.0, base: r.base, creature: r.creature, scale: r.scale, strafe, air: agent.walker.air.is_some(), jumped: moved }, stage, (feet, heading), moving, dt) {
+        if let Err(e) = nav::show_actor(&mut commands, root, visible, actor_world.as_deref(), equipment_world, &mut ahead, &mut spawn_stats, &mut parts, &mut models, &roots, &mut actors, nav::Who { reference: r.actor.0, base: r.base, creature: r.creature, scale: r.scale, strafe, air: agent.walker.air.is_some(), jumped: moved, at_once: r.at_once }, stage, (feet, heading), moving, dt) {
             if r.named {
                 warn!("ai: {} could not be drawn ({e})", r.label);
             }
             r.failed = true;
+        }
+        if r.spawned {
+            r.at_once = false;
         }
         // Its first second drawn after a script made, enabled or moved it: the clips it
         // walks or runs with (`FirstSteps`).

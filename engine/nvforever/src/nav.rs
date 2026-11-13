@@ -403,7 +403,7 @@ pub fn drive(
         let moving = ev == WalkEvent::Moved;
         let stage = (&mut tr.spawned, &mut tr.root);
         let air = tr.walker.air.is_some();
-        if let Err(e) = show_actor(&mut commands, root, visible, actor_world.as_deref(), sim.as_deref().map(|s| &s.world), &mut ahead, &mut spawn_stats, &mut parts, &mut models, &roots, &mut actors, Who { reference: tr.reference, base: tr.base, creature: false, scale: tr.scale, strafe: false, air, jumped: false }, stage, (tr.walker.feet, tr.walker.heading), moving, dt) {
+        if let Err(e) = show_actor(&mut commands, root, visible, actor_world.as_deref(), sim.as_deref().map(|s| &s.world), &mut ahead, &mut spawn_stats, &mut parts, &mut models, &roots, &mut actors, Who { reference: tr.reference, base: tr.base, creature: false, scale: tr.scale, strafe: false, air, jumped: false, at_once: false }, stage, (tr.walker.feet, tr.walker.heading), moving, dt) {
             warn!("nav: {} could not be drawn", tr.label);
             tr.failed = Some(e.into());
         }
@@ -429,6 +429,10 @@ pub(crate) struct Who {
     /// Put somewhere this frame rather than walked there (a script's MoveTo or
     /// MoveToMarkerWithFade): the jump is no step of its gait ([`JUMP_STEP`]).
     pub jumped: bool,
+    /// Drawn in this frame, its parts read now if they are not yet, not once the
+    /// read-ahead has them: an actor a script just created beside the player, whose 3D
+    /// the original has within five frames [observed: nif-blocks.md; #2133].
+    pub at_once: bool,
 }
 
 /// A drawn actor's move in one frame longer than this (units) is a jump, not a step:
@@ -464,7 +468,7 @@ pub(crate) fn show_actor(
     moving: bool,
     dt: f32,
 ) -> Result<(), &'static str> {
-    let Who { reference, base, creature, scale, strafe, air, jumped } = who;
+    let Who { reference, base, creature, scale, strafe, air, jumped, at_once } = who;
     if !visible {
         if let Some(e) = root.take() {
             commands.entity(e).despawn();
@@ -481,7 +485,7 @@ pub(crate) fn show_actor(
         // the frame it comes into view (`readahead::ready_to_draw`) [engineering choice: it
         // appears a few frames later, out at the edge of the loaded cells].
         let ready_span = info_span!("ai::ready_to_draw").entered();
-        let ready = crate::readahead::ready_to_draw(aw, sim, &mut ctx, ahead, reference, base, creature);
+        let ready = at_once || crate::readahead::ready_to_draw(aw, sim, &mut ctx, ahead, reference, base, creature);
         drop(ready_span);
         if !ready {
             return Ok(());
