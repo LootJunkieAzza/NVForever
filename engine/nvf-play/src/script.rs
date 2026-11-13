@@ -1094,7 +1094,7 @@ impl Runtime {
     /// Something the player does to the game between ticks (a choice on the dialogue
     /// screen, a skipped response): inventory changes the menus made are seen first, and
     /// what the action's scripts change is the scripts' own.
-    pub(crate) fn player_action<R>(&mut self, f: impl FnOnce(&mut Game<'static>) -> R) -> R {
+    pub fn player_action<R>(&mut self, f: impl FnOnce(&mut Game<'static>) -> R) -> R {
         self.observe_inventory();
         let r = f(&mut self.game);
         self.snapshot_inventory();
@@ -1104,7 +1104,7 @@ impl Runtime {
     /// The player activates `r` as E does, wherever the crosshair is (test aids). Nobody
     /// else applies a default action's outcome here: its trace events become effects like
     /// a script's.
-    pub(crate) fn activate_as_player(&mut self, r: FormId) -> Result<ByHand, String> {
+    pub fn activate_as_player(&mut self, r: FormId) -> Result<ByHand, String> {
         let from = self.game.events.len();
         let done = self.by_hand(r)?;
         if !matches!(done, ByHand::Talk | ByHand::Greeted | ByHand::Wheel) {

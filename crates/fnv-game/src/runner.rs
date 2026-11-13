@@ -2485,6 +2485,83 @@ fn run_as(
     Ok((trace, g.coverage.take()))
 }
 
+/// The runner's own state between actions, for a caller that applies actions to a game
+/// it runs itself ([`apply_now`]).
+#[derive(Default)]
+pub struct Applier(RunState);
+
+/// Whether [`apply_now`] takes the action: the ones whose step runs no frame of its own.
+/// The others wait on the game (`choose`, `wait_talk`, `wait_quest`, `press_button`,
+/// `dismiss_message_boxes`, `trigger_enter`, the samplers), `wait_frames` and
+/// `advance_seconds` are waits, and `get_quest` is read by the run loop
+/// ([`quest_field`]); a caller with its own frames carries those out itself.
+pub fn applies_now(a: &Action) -> bool {
+    !matches!(
+        a,
+        Action::CallUntil { .. }
+            | Action::SampleItems { .. }
+            | Action::MenuGap { .. }
+            | Action::TriggerEnter { .. }
+            | Action::PressButton { .. }
+            | Action::DismissMessageBoxes { .. }
+            | Action::WaitQuest { .. }
+            | Action::WaitMenu { .. }
+            | Action::GetMenus { .. }
+            | Action::GetTagSkills { .. }
+            | Action::GetRef { .. }
+            | Action::GetQuest { .. }
+            | Action::WaitAv { .. }
+            | Action::HoldMenu { .. }
+            | Action::SampleAv { .. }
+            | Action::SampleAvDamage { .. }
+            | Action::SampleJumps { .. }
+            | Action::SampleVar { .. }
+            | Action::SampleRefVar { .. }
+            | Action::Choose { .. }
+            | Action::WaitTalk { .. }
+            | Action::WaitFrames { .. }
+            | Action::AdvanceSeconds { .. }
+    )
+}
+
+/// One action on a game the caller runs (the quest pilot in play, #2365): what the
+/// headless run does for it, with no frame run here. The observation of a labelled
+/// action is its label and fields. An action [`applies_now`] refuses is an error.
+pub fn apply_now(g: &mut Game, st: &mut Applier, a: &Action) -> Result<Option<(String, Map<String, Json>)>, String> {
+    if !applies_now(a) {
+        return Err("this action waits on the game: the caller carries it out".into());
+    }
+    step(g, &mut st.0, a)
+}
+
+/// The label of a labelled action.
+pub fn label_of(a: &Action) -> Option<String> {
+    action_label(a)
+}
+
+/// The choice a `choose` action names among the ones offered now.
+pub fn choice_index(g: &Game, topic: &Option<String>, prompt: &Option<String>, index: &Option<usize>) -> Result<usize, String> {
+    pick_choice(g, topic, prompt, index)
+}
+
+/// One field of a quest as `get_quest` and `wait_quest` read it.
+pub fn quest_field(g: &Game, q: &str, f: &str) -> Result<Json, String> {
+    let q = quest(g, q)?;
+    field(g, q, f)
+}
+
+/// One field of a reference as `get_ref` reads it.
+pub fn reference_field(g: &mut Game, r: &str, f: &str) -> Result<Json, String> {
+    let r = resolve(g, r)?;
+    ref_field(g, r, f)
+}
+
+/// Where `go_to_cell` puts the player in a cell: the cell and the point.
+pub fn cell_arrival(g: &Game, cell: &str) -> Result<(FormId, [f32; 3]), String> {
+    let c = resolve(g, cell)?;
+    Ok((c, coc_destination(g, c)?))
+}
+
 fn action_label(a: &Action) -> Option<String> {
     match a {
         Action::SetStageRead { label, .. } => Some(label.clone()),
