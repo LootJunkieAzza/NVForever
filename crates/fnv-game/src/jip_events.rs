@@ -222,9 +222,28 @@ impl Game<'_> {
         match f {
             XVal::Num(x) => *x == 0.0,
             XVal::Ref(0) | XVal::Ref(XMARKER) => true,
-            XVal::Ref(r) => self.data.sig(FormId(*r)) == Some(*b"FLST") && crate::functions::list_members(self, FormId(*r)).is_empty(),
+            XVal::Ref(r) => self.jip_empty_form_list(FormId(*r)),
             _ => false,
         }
+    }
+
+    /// Resolve a materialized clone's declared type, keeping its own list edits.
+    /// Unmaterialized clones cannot use an absent copied list as a wildcard
+    /// (docs/spec-notes/jip-cloned-list-wildcard.md).
+    fn jip_empty_form_list(&self, list: FormId) -> bool {
+        if self.clones.contains_key(&list) && !self.list_edits.contains_key(&list) && !self.form_lists.contains_key(&list) {
+            return false;
+        }
+        let mut original = list;
+        // At most one step per alias plus its terminal authored record. Public
+        // TempCloneForm makes acyclic chains; malformed cycles fail closed here.
+        for _ in 0..=self.clones.len() {
+            match self.clones.get(&original) {
+                Some(&next) => original = next,
+                None => return self.data.sig(original) == Some(*b"FLST") && crate::functions::list_members(self, list).is_empty(),
+            }
+        }
+        false
     }
 
     /// Whether a quest-stage registration that matches asked to skip the stage's result
