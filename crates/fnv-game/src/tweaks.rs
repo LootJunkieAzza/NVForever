@@ -100,6 +100,9 @@ pub struct Tweaks {
     pub prefer_player_start: f32,
     pub prefer_player_mid: f32,
     pub prefer_player_detection: f32,
+    /// `bInteriorExteriorMapDoorIcon`: the local map tells doors leading outside from
+    /// those leading in (the plugin's two pictures when installed).
+    pub map_door_kinds: bool,
     // ---- Action Points ----
     /// `bKillsRewardAP`/`iKillRewardAmount`: Action Points a kill by the player gives
     /// back; 0 changes nothing.
@@ -675,6 +678,7 @@ impl Default for Tweaks {
             prefer_player_start: 0.5,
             prefer_player_mid: 0.25,
             prefer_player_detection: 0.0,
+            map_door_kinds: false,
             kill_reward_ap: 0.0,
             wait_only_seated: false,
             skill_points: None,

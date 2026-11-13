@@ -201,6 +201,8 @@ pub struct Door {
     pub form: u32,
     pub pos: [f32; 3],
     pub name: String,
+    /// It leads outside: its destination door stands in a worldspace's cell.
+    pub outside: bool,
 }
 
 /// REFR header flag "Hidden From Local Map" (bit 6): "The reference will not be displayed
@@ -238,12 +240,13 @@ pub fn doors(lo: &LoadOrder, schema: &Schema, index: &WorldIndex, refs: &RefTabl
             }
             let Some(dest) = refs.get(t.door) else { continue };
             let Some(dest_cell) = dest.cell else { continue };
+            let outside = refs.cell_world.contains_key(&dest_cell);
             let name = match refs.cell_world.get(&dest_cell) {
                 Some(w) => place_name(lo, schema, index, w.0, None, dest.pos),
                 None => place_name(lo, schema, index, 0, Some(dest_cell.0), dest.pos),
             };
             if !name.trim().is_empty() {
-                out.push(Door { form: id.0, pos: r.pos, name });
+                out.push(Door { form: id.0, pos: r.pos, name, outside });
             }
         }
     }

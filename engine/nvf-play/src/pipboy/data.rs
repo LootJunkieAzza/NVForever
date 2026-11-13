@@ -276,6 +276,14 @@ const PATH_H: f32 = NODE / 3.0;
 /// line's height [hypothesis: the template tiles the file (`tile`) at the menu's scale].
 const PATH_TILE: f32 = PATH_H * 4.0;
 const DOOR_ICON: &str = "interface\\icons\\local map\\icon_local_door.dds";
+/// The doors' pictures under the player's Exterior and Interior Door Icons tweak: the
+/// files Stewie's Tweaks names (its readme), drawn when the load order has them; without
+/// them the plain door, an interior one dimmer [design: docs/design/tweaks.md].
+const DOOR_ICON_OUTSIDE: &str = "interface\\icons\\local map\\iron_exterior_door.dds";
+const DOOR_ICON_INSIDE: &str = "interface\\icons\\local map\\iron_interior_door.dds";
+/// How bright an interior door is drawn, of a door's brightness, with the tweak on and its
+/// own pictures missing [design].
+const INSIDE_DOOR_DIM: f32 = 0.55;
 
 // ---- state --------------------------------------------------------------------------------
 
@@ -546,13 +554,20 @@ struct MapMark {
     at: Vec2,
     /// Drawn in red: found in this run, under the player's tweak.
     recent: bool,
+    /// A door under the player's Exterior and Interior Door Icons tweak: whether it leads
+    /// outside.
+    outside: Option<bool>,
 }
 
 impl MapMark {
     fn picture(&self) -> String {
         match self.icon {
             Some((kind, found)) => model::marker_icon(kind, found),
-            None => DOOR_ICON.into(),
+            None => match self.outside {
+                Some(true) => DOOR_ICON_OUTSIDE.into(),
+                Some(false) => DOOR_ICON_INSIDE.into(),
+                None => DOOR_ICON.into(),
+            },
         }
     }
 }
@@ -2212,7 +2227,7 @@ fn world_map(st: &mut DataState, game: &Game, pointer: Option<Vec2>, aiming: boo
         let Some(found) = known(st, game, mk) else { continue };
         drawn_other += usize::from(mk.world != world);
         let recent = red_recent && st.found_this_run.contains(&mk.form);
-        marks.push(MapMark { icon: Some((mk.kind, found)), highlighted: false, at: on_map(projection.uv(mk.pos[0], mk.pos[1])), recent });
+        marks.push(MapMark { icon: Some((mk.kind, found)), highlighted: false, at: on_map(projection.uv(mk.pos[0], mk.pos[1])), recent, outside: None });
         names.push(mk.name.clone());
         forms.push(mk.form);
         // The player's tweak leaves the reputation line out [design: docs/design/tweaks.md].
@@ -2402,10 +2417,13 @@ fn local_map(st: &mut DataState, game: &Game, pointer: Option<Vec2>) -> MapShown
     // A door disabled now (a script's Disable, an enable parent off) is not drawn
     // [hypothesis: as a disabled marker is not, `known`].
     let enabled = |form: u32| game.sim.as_ref().is_none_or(|s| s.present(form));
+    // The player's tweak tells doors leading outside from those leading in [design:
+    // docs/design/tweaks.md].
+    let door_kinds = game.script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.map_door_kinds);
     for d in st.doors.get(&key).into_iter().flatten().filter(|d| enabled(d.form)) {
         let at = on_map(d.pos[0], d.pos[1]);
         if inside(at) {
-            marks.push(MapMark { icon: None, highlighted: false, at, recent: false });
+            marks.push(MapMark { icon: None, highlighted: false, at, recent: false, outside: door_kinds.then_some(d.outside) });
             names.push(d.name.clone());
         }
     }
@@ -2415,7 +2433,7 @@ fn local_map(st: &mut DataState, game: &Game, pointer: Option<Vec2>) -> MapShown
             let Some(found) = known(st, game, mk) else { continue };
             let at = on_map(mk.pos[0], mk.pos[1]);
             if inside(at) {
-                marks.push(MapMark { icon: Some((mk.kind, found)), highlighted: false, at, recent: false });
+                marks.push(MapMark { icon: Some((mk.kind, found)), highlighted: false, at, recent: false, outside: None });
                 names.push(mk.name.clone());
             }
         }
@@ -3128,7 +3146,12 @@ fn map(p: &mut ChildSpawnerCommands, c: &mut Ctx, m: &MapShown) {
             let (size, brightness) = if mk.highlighted { (MARKER * MARKER_GROW, MARKER_BRIGHTNESS.1) } else { (MARKER, MARKER_BRIGHTNESS.0) };
             // The player's tweak draws a marker found in this run red [design: docs/design/tweaks.md].
             let colour = if mk.recent { Color::srgb(1.0, 0.25, 0.2).with_alpha(amber(brightness).alpha()) } else { amber(brightness) };
-            c.image(p, &mk.picture(), at(mk.at.x - size / 2.0, mk.at.y - size / 2.0, size, size), colour);
+            let node = at(mk.at.x - size / 2.0, mk.at.y - size / 2.0, size, size);
+            if c.image(p, &mk.picture(), node.clone(), colour).is_none() && mk.outside.is_some() {
+                // The tweak's own pictures missing: the plain door, an interior one dimmer.
+                let colour = if mk.outside == Some(false) { colour.with_alpha(colour.alpha() * INSIDE_DOOR_DIM) } else { colour };
+                c.image(p, DOOR_ICON, node, colour);
+            }
         };
         for mk in m.marks.iter().filter(|mk| !mk.highlighted) {
             marker(p, c, mk);
@@ -3215,6 +3238,15 @@ fn highlight(p: &mut ChildSpawnerCommands, c: &mut Ctx, centre: Vec2, label: Opt
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Exterior and Interior Door Icons: each kind its picture; off, the plain door.
+    #[test]
+    fn doors_take_their_kind_s_picture_under_the_tweak() {
+        let door = |outside| MapMark { icon: None, highlighted: false, at: Vec2::ZERO, recent: false, outside };
+        assert_eq!(door(None).picture(), DOOR_ICON);
+        assert_eq!(door(Some(true)).picture(), DOOR_ICON_OUTSIDE);
+        assert_eq!(door(Some(false)).picture(), DOOR_ICON_INSIDE);
+    }
 
     /// A world with what the page's systems read, the DATA page's state fresh, `MapMenu` on or off
     /// and the Pip-Boy as given; no hand-built body (the frame did not run).

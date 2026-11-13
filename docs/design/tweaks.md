@@ -603,6 +603,7 @@ unless the player binds them, so nothing changes until then.
 | Scale Explosion Shake | `bScaleExplosionShake` | `shake`: each `ExplosionFx` within reach (`rumble::explosion`'s pulse) adds a fading shake that turns the camera after it is placed; `ShakeScale` (set by `tweaks::sync`, 1 with the switch off) multiplies it |
 | Take All Confirmation | `bTakeAllConfirmation` | `menu::model::MenuModel::take_all_confirm` (set by `tweaks::sync`): `apply` turns the first Take All of enough listed units into a status question (`confirming_take_all`); the next acting command, Take All included, ends it |
 | Repair All Confirmation | `bRepairAllConfirmation` | `repair::Open::confirming`: in `keys` a Repair All at or over the price only asks (the button's text, `View::confirming`, the tiles' `button_text` too); the next Repair All pays, a row's repair or a move takes it back |
+| Exterior and Interior Door Icons | `bInteriorExteriorMapDoorIcon` | `pipboy::data::read::Door::outside` (the destination door stands in a worldspace cell); under the switch a door's `MapMark::outside` picks `iron_exterior_door.dds` / `iron_interior_door.dds`, and when those are not in the load order the plain door, an interior one at `INSIDE_DOOR_DIM` |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -624,8 +625,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 534 |
-| to do | 68 |
+| done | 535 |
+| to do | 67 |
 | unsure, skipped | 18 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -1078,6 +1079,7 @@ game's Data folder, read-only).
 | `bHideReputationTabIfEmpty` | done |  |  | Hide an Empty Reputation List (the hand-built Stats page; the tiles page not yet) |
 | `bHideUnavailableRadios` | done |  |  | already so: the Pip-Boy lists only stations in range |
 | `bIndividialItemStats` | done |  |  | One Item's Figures (the Pip-Boy; containers already show one) |
+| `bInteriorExteriorMapDoorIcon` | done |  |  | Exterior and Interior Door Icons on the hand-built local map: the plugin's two pictures when the load order has them, else interior doors dimmer |
 | `bInvertContainerTitleScrollwheelDirection` | done |  |  | Reverse Category Wheel |
 | `bInvertPipboyRepairMenuSorting` | done |  |  | Repair List: Low Condition First |
 | `bKarmaTitleShowsValue` | done |  |  | already so: the karma number is under its title |
@@ -1141,7 +1143,6 @@ game's Data folder, read-only).
 | `bCustomHackingAnswerLength` | to do |  | 8 | the readme gives no defaults and does not say how the attempts are worked out |
 | `bCustomPopupIcons` | to do |  | 17 | per-kind icons at each message |
 | `bEmboldenTagSkills` | to do |  |  | no tagged flag on rows and no bold face |
-| `bInteriorExteriorMapDoorIcon` | to do |  |  | doors carry no leads-outside field |
 | `bLocalMapRespawnedCellIndicator` | to do |  | 2 | not built: the local map has no cell grid |
 | `bMapShowUnconsciousCompanions` | to do |  |  | companions are not drawn on the world map yet |
 | `bNoMinCompanionMapDistance` | to do |  |  | companions are not drawn on the world map yet |
