@@ -242,7 +242,7 @@ struct S {
 
 #[derive(Debug, Clone)]
 enum SK {
-    Decl(String, Vec<(String, Option<E>)>),
+    Decl(String, Vars),
     Expr(E),
     If(Vec<(E, Vec<S>)>, Option<Vec<S>>),
     While(E, Vec<S>),
@@ -262,9 +262,12 @@ enum ForVar {
     Destructure(Vec<Option<(String, String)>>),
 }
 
+/// Declared names and their values.
+type Vars = Vec<(String, Option<E>)>;
+
 enum Item {
     Name(String),
-    Decl(usize, String, Vec<(String, Option<E>)>),
+    Decl(usize, String, Vars),
     Fn(usize, Vec<(String, String)>, Vec<S>),
     Event(usize, String, Option<String>, Vec<S>),
 }
@@ -378,7 +381,7 @@ impl Parser {
         Ok(ps)
     }
 
-    fn decl(&mut self) -> Result<(String, Vec<(String, Option<E>)>), Diag> {
+    fn decl(&mut self) -> Result<(String, Vars), Diag> {
         let ty = self.word()?;
         let mut vars = Vec::new();
         loop {
@@ -564,8 +567,7 @@ impl Parser {
     /// Precedence climbing over the operators of NVSE Expressions, as `gen/x.rs`.
     fn expr(&mut self, min: u8) -> Result<E, Diag> {
         let mut left = self.unary()?;
-        loop {
-            let Some(T::Op(op)) = self.peek().cloned() else { break };
+        while let Some(T::Op(op)) = self.peek().cloned() {
             let Some((lb, rb)) = binding(&op) else { break };
             if lb < min {
                 break;
