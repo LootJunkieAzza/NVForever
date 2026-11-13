@@ -80,3 +80,7 @@ path = "tests/sup5.rs"
 [[test]]
 name = "synthetic"
 path = "tests/synthetic.rs"
+
+[[test]]
+name = "runtime_origin"
+path = "tests/runtime_origin.rs"
