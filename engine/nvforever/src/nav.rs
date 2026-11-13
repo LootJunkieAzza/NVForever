@@ -478,13 +478,14 @@ pub(crate) fn show_actor(
     let Some(aw) = actor_world else { return Ok(()) };
     if !*spawned {
         // A body of it left behind is not drawn a second time over.
-        for e in bodies() {
-            warn!("nav: {reference:08X} had a body left behind ({e}); it goes before it is drawn again");
-            commands.entity(e).despawn();
-            // Not kept as its root: the body drawn next is found as that.
-            if *root == Some(e) {
-                *root = None;
+        for (e, was_root) in bodies_before_drawing(root, bodies) {
+            if was_root {
+                // Drawn anew (`Residents::redraw`).
+                info!("nav: {reference:08X} is drawn anew: its body {e} goes first");
+            } else {
+                warn!("nav: {reference:08X} had a body left behind ({e}); it goes before it is drawn again");
             }
+            commands.entity(e).despawn();
         }
         let at = Vec3::from_array(feet);
         let rt = bevy::math::Affine3A::from_scale_rotation_translation(Vec3::splat(scale), Quat::from_rotation_z(-heading), at);
@@ -512,6 +513,11 @@ pub(crate) fn show_actor(
             return Err("not drawn");
         }
         *spawned = true;
+        // Its root is looked for from the next frame on: the body just spawned is not in
+        // the query yet, and a body let go above still is until the commands run, so a
+        // search now kept that one as the root (ship5 guest, 2026-11-11).
+        *root = None;
+        return Ok(());
     }
     // The actor's root: the entity of its reference placed directly under the world
     // root (spawned last frame; its parts sit below it). Found now, it still stands
@@ -578,6 +584,20 @@ pub(crate) fn bodies_to_let_go<I: Iterator<Item = Entity>>(root: &mut Option<Ent
         }
     }
     *spawned = false;
+    out
+}
+
+/// The bodies of an actor about to be drawn that go first, each once: every one found
+/// under the world root, and whether it was the one drawn (`root`, kept by
+/// `Residents::redraw` for this). `root` is cleared: the body drawn next is found as that.
+pub(crate) fn bodies_before_drawing<I: Iterator<Item = Entity>>(root: &mut Option<Entity>, bodies: impl FnOnce() -> I) -> Vec<(Entity, bool)> {
+    let was = root.take();
+    let mut out: Vec<(Entity, bool)> = Vec::new();
+    for e in bodies() {
+        if !out.iter().any(|(x, _)| *x == e) {
+            out.push((e, was == Some(e)));
+        }
+    }
     out
 }
 
@@ -750,6 +770,20 @@ mod tests {
         // Never spawned: nothing.
         let (mut root, mut spawned) = (None, false);
         assert!(bodies_to_let_go(&mut root, &mut spawned, || vec![b].into_iter()).is_empty());
+    }
+
+    #[test]
+    fn a_body_drawn_anew_goes_once() {
+        // `Residents::redraw` keeps the drawn body as the root with `spawned` false.
+        let mut w = World::new();
+        let (a, stray) = (w.spawn_empty().id(), w.spawn_empty().id());
+        let mut root = Some(a);
+        assert_eq!(bodies_before_drawing(&mut root, || vec![a, stray].into_iter()), vec![(a, true), (stray, false)]);
+        assert_eq!(root, None, "the old body is not kept as the root");
+        // Hidden instead before it is drawn again: let go once, not twice.
+        let (mut root, mut spawned) = (Some(a), false);
+        assert_eq!(bodies_to_let_go(&mut root, &mut spawned, || vec![a].into_iter()), vec![a]);
+        assert_eq!(root, None);
     }
 
     #[test]
