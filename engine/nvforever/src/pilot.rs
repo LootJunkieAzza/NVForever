@@ -26,7 +26,8 @@
 //!   the line. When the line named has not been begun [`LINE_SECS`] s on, a
 //!   `line_not_said` finding is kept and the line said as the headless run says it.
 //!   `say_first` and `say_to_done` are left to the game. A `trigger_enter` of another
-//!   actor is the AI's to bring about, not the player's.
+//!   actor is the AI's to bring about, not the player's, and so is a `call` that moves
+//!   another actor (`X.MoveTo`).
 //! - Menus: `wait_menu`, `get_menus`, `close_menus`, `press_button` and
 //!   `dismiss_message_boxes` act on the game's menu as the headless run does. A message
 //!   box no step is waiting for is closed after [`BOX_SECS`] s, as a player presses OK
@@ -71,6 +72,13 @@
 //!   afterwards with its time not counted. Without it Sunny, kept company to the second
 //!   well, was beaten to death by three geckos while the player stood by and waited for
 //!   her next line. A threat alive after [`DEFEND_SECS`] is a `fight_not_won` finding.
+//! - **The player levels up.** The level-up menu holds the game until it is answered
+//!   (in the first Primm run it came up on arrival and every step behind it timed out):
+//!   after [`BOX_SECS`] the pilot spends the level's skill points evenly down the list,
+//!   takes the first perk on offer at a perk level, and presses Done
+//!   (`fnv_game::levelup`, `nvf_play::chargen::finish`). Any other menu the scripts
+//!   opened that no step waits for and that is still up after [`MENU_SECS`] is closed,
+//!   with a `menu_closed` finding.
 //! - **God mode is on** unless `--pilot-no-god` [owner decision 2026-11-13]: the player
 //!   takes no damage and its magazine stays full (`nvf_play::combat::set_god_mode`). The
 //!   pilot looks for quests that cannot go on, not for fights that cannot be won; a run
@@ -132,6 +140,8 @@ const ADVANCE_CAP: f64 = 20.0;
 const TURN_RATE: f32 = 6.0;
 /// Seconds a message box nobody waits for stays up before the pilot closes it.
 pub const BOX_SECS: f64 = 1.5;
+/// Seconds a menu the pilot has no answer for stays up before it is closed.
+pub const MENU_SECS: f64 = 20.0;
 /// Seconds in which the line a `say_info` names must be begun, the player keeping its
 /// speaker company.
 pub const LINE_SECS: f64 = 120.0;
@@ -268,6 +278,8 @@ struct Pilot {
     campaign: bool,
     /// Since when a message box nobody waits for has been up.
     box_since: Option<f64>,
+    /// The other menu up, and since when.
+    menu_since: Option<(u16, f64)>,
     /// For a `say_info` kept company: how many lines had been begun when the chain (in
     /// a campaign, the first chain) began, and since when the speaker has stood where it stands.
     mark: u64,
@@ -310,6 +322,7 @@ impl Pilot {
             chains_done: 0,
             campaign,
             box_since: None,
+            menu_since: None,
             mark: 0,
             still: (0.0, [0.0; 3]),
             defend: None,
@@ -693,6 +706,36 @@ fn threat(g: &Game, friend: Option<FormId>, feet: [f32; 3]) -> Option<(FormId, O
         .filter_map(|(a, _)| where_is(g, *a).map(|(cell, pos)| (*a, cell, pos)))
         .filter(|(_, _, pos)| hdist(*pos, feet) < THREAT_RANGE)
         .min_by(|a, b| hdist(a.2, feet).total_cmp(&hdist(b.2, feet)))
+}
+
+/// Answer the level-up menu for the player: the level's skill points spent one at a time
+/// down the list, the first perks on offer taken at a perk level. What was done, in words.
+fn level_up(g: &mut Game) -> String {
+    use fnv_game::levelup::{perk_due, PerkSheet, SkillSheet};
+    let level = g.player_level().round() as i32;
+    let mut skills = SkillSheet::of_player(g, level);
+    let n = skills.skills.len();
+    let (mut i, mut refused) = (0, 0);
+    while skills.remaining() > 0 && refused < n && n > 0 {
+        refused = if skills.raise(i % n) { 0 } else { refused + 1 };
+        i += 1;
+    }
+    let spent = skills.points - skills.remaining();
+    skills.apply(g);
+    let mut taken = 0;
+    if perk_due(g, level) {
+        let mut perks = PerkSheet::of_player(g, level);
+        for perk in perks.perks.clone() {
+            if perks.left() == 0 {
+                break;
+            }
+            if perks.can_take(perk) && perks.toggle(perk) {
+                taken += 1;
+            }
+        }
+        perks.apply(g);
+    }
+    format!("level {level}, {spent} skill points spent, {taken} perk(s) taken")
 }
 
 /// Give the player the pilot's weapon and ammo, once a run.
@@ -1085,6 +1128,12 @@ fn step(p: &mut Pilot, h: &mut Hands) -> Option<Option<String>> {
             p.phase = phase;
             None
         }
+        // A console line that moves another actor stands in for its walk (Beagle's run
+        // back to Primm): the AI's to make.
+        Action::Call { line, .. } if p.campaign && line.to_ascii_lowercase().contains(".moveto") && !line.to_ascii_lowercase().starts_with("player") => {
+            info!("pilot: step {}: left to the AI: {line}", p.i);
+            Some(None)
+        }
         Action::SayFirst { .. } | Action::SayToDone { .. } if p.campaign => {
             info!("pilot: step {}: left to the game: a line the headless run says for an actor", p.i);
             Some(None)
@@ -1333,6 +1382,26 @@ fn drive(
         }
         (false, _) => p.box_since = None,
         _ => {}
+    }
+    // Another menu the scripts opened that no step waits for: the level-up menu is
+    // answered as a player answers it, anything else closed after a while.
+    let menu = h.game(|g| g.menu).flatten().filter(|m| *m != fnv_game::game::menus::MESSAGE && !waited_for);
+    match (menu, p.menu_since) {
+        (Some(m), Some((was, t))) if m == was => {
+            let up = p.now - t;
+            if m == fnv_game::game::menus::LEVEL_UP && up > BOX_SECS {
+                let mut told = String::new();
+                let done = nvf_play::chargen::finish(h.script, h.sim, m, "the pilot's Done", |g| told = level_up(g));
+                info!("pilot: step {}: level-up menu answered ({}): {told}", p.i, if done { "done" } else { "not open" });
+                p.menu_since = None;
+            } else if up > MENU_SECS {
+                h.game(|g| g.close_all_menus());
+                p.finding("menu_closed", format!("menu {m} was up for {MENU_SECS:.0} s with no step waiting for it: closed"));
+                p.menu_since = None;
+            }
+        }
+        (Some(m), _) => p.menu_since = Some((m, p.now)),
+        (None, _) => p.menu_since = None,
     }
     // Something attacks the player or the actor it is with: fought first (module notes).
     if *state.get() == PlayState::Playing && !matches!(p.phase, Phase::Fight(..)) {
