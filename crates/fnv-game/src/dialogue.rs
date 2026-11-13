@@ -1042,6 +1042,10 @@ impl<'a> Game<'a> {
             listed.sort_by(|a, b| key(&a.topic).list_cmp(&key(&b.topic)));
         }
         let mut out = self.offer(actor, &listed);
+        // NVForever's own: a traveling merchant plays Caravan (`crate::caravan_traders`).
+        if let Some(c) = self.merchant_caravan_choice(actor, &out) {
+            out.push(c);
+        }
         if !out.iter().any(|c| c.goodbye && dv.info(&c.info).is_some_and(|d| d.end.is_none())) {
             if let Some(bye) = data.goodbye.filter(|b| !out.iter().any(|c| c.topic == *b)) {
                 out.extend(self.offer(actor, &[Link { topic: bye, from: None }]));
@@ -1197,6 +1201,7 @@ impl<'a> Game<'a> {
             self.count_stat(if passed { crate::misc_stats::SPEECH_SUCCESSES } else { crate::misc_stats::SPEECH_FAILURES }, 1.0);
         }
         self.speak(actor, choice.topic, choice.info);
+        self.merchant_caravan_chosen(actor, &choice);
         self.say_farewell(actor, choice.topic, choice.info, lines + 1);
         Ok(choice.info)
     }
