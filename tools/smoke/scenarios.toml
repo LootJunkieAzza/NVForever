@@ -8485,6 +8485,24 @@ expect = [
 order = [["repair menu: open", "repair menu: repaired 9mm Pistol", "repair menu: done", "repair menu: closed"]]
 
 [[scenario]]
+name = "repair-from-dialogue"
+source = "issue #2308: asking a vendor whose repair line has no Goodbye flag (Mick, VFreeformFreesideVFSMickTopic008, INFO 0x0011BCA6: its end script calls ShowRepairMenu) opens the repair services over the conversation, and closing them returns to his topic list (engine/nvf-play/src/repair.rs scripts_open and after_close, dialogue.rs sync_state); before the fix the conversation was held under a menu that never opened"
+note = "Mick (0x0010D8E3) offers the repair topic in his first topic list from the new-game state (fnvtool dialogue talk); the repair aid's done at 30 s acts once the menu is open (a step past its time runs on the menu's first frame), then the talk aid leaves by Goodbye. The topic list is offered (logged) as the line ends, before the menu opens; the Goodbye chosen after the menu closed shows the conversation went on under it"
+areas = ["repair", "dialogue", "menus"]
+paths = ["engine/nvf-play/src/repair.rs", "engine/nvf-play/src/crafting.rs", "engine/nvf-play/src/dialogue.rs", "crates/fnv-game/src/functions/misc.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_TALK = "10:0x0010D8E3=VFreeformFreesideVFSMickTopic008|leave", NVF_PLAY_TEST_REPAIR = "30:done" }
+args = ["--cell", "FreesideMickandRalphs", "--play", "--no-voice"]
+run_seconds = 50
+expect = [
+  { re = 'dialogue: choice \d+ made: .*\[VFreeformFreesideVFSMickTopic008\]', label = "the player asks Mick for repairs" },
+  { re = 'repair menu: open, vendor FreesideMickREF', label = "his line's end script opens the repair services over the conversation" },
+  "repair menu: done",
+  "repair menu: closed",
+  { re = 'dialogue: conversation with .* ended \(', label = "the conversation goes on after the menu and ends by Goodbye" },
+]
+order = [["dialogue: choice …VFreeformFreesideVFSMickTopic008", "repair menu: open, vendor FreesideMickREF", "repair menu: done", "repair menu: closed", "dialogue: choice …[GOODBYE]", "dialogue: conversation with … ended ("]]
+
+[[scenario]]
 name = "pipboy-items-extras"
 source = "outstanding.md §2 Interface (2026-10-19; docs/spec-notes/pipboy.md §5, repair.md §5): the ITEMS page's skill badge (the Guns picture and the skill the pistol needs, in place of a DPS card, which the original does not show there) and Mod X) for a worn 10mm Pistol; the repair list taken by the pointer: the pointer on the part chooses it, a click on it then uses it (a click on a row not chosen only chooses it: unit test a_click_chooses_a_row_and_a_second_click_uses_the_part)"
 areas = ["repair", "pipboy"]
