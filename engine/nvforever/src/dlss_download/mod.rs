@@ -25,6 +25,11 @@
 //! `cancel-at:<s>` cancels the download `s` seconds after it started. With the aid set, the
 //! dialog closes itself a second after the result is shown.
 //!
+//! - **The game's end** [design: #2250's review]: quitting, or loading a save or going to the main
+//!   menu (each starts a new run, `handoff.rs`), stops a running download and waits up to two
+//!   seconds for it, so no staging folder is left (`dialog::stop_on_exit`); one left anyway goes
+//!   at the next start (`dlss::download::clean_up_at_start`).
+//!
 //! Log lines start `DLSS download:` (the work's own lines, `dlss/download/`, too).
 
 mod dialog;
@@ -130,19 +135,31 @@ pub(crate) fn open_in_shell(target: std::ffi::OsString) {
     }
 }
 
+/// [documented: ShellExecuteW, learn.microsoft.com: "Because ShellExecute can delegate execution
+/// to Shell extensions ... that are activated using COM, COM should be initialized before
+/// ShellExecute is called", with `COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE`; a return
+/// value greater than 32 is success.] The thread is this call's own, so COM is set up and torn
+/// down around it.
 #[cfg(windows)]
 fn shell_open(target: &std::ffi::OsStr) -> Result<(), String> {
     use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::System::Com::{CoInitializeEx, CoUninitialize, COINIT_APARTMENTTHREADED, COINIT_DISABLE_OLE1DDE};
     use windows_sys::Win32::UI::Shell::ShellExecuteW;
     use windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
     let wide = |s: &std::ffi::OsStr| s.encode_wide().chain(Some(0)).collect::<Vec<u16>>();
     let (verb, file) = (wide(std::ffi::OsStr::new("open")), wide(target));
-    // SAFETY: both strings are NUL-terminated UTF-16 that outlive the call; no window, no
-    // parameters, no working folder.
-    let result = unsafe { ShellExecuteW(std::ptr::null_mut(), verb.as_ptr(), file.as_ptr(), std::ptr::null(), std::ptr::null(), SW_SHOWNORMAL) };
-    // [documented: ShellExecuteW, learn.microsoft.com: a value greater than 32 is success]
-    let code = result as isize;
-    if code > 32 { Ok(()) } else { Err(format!("ShellExecuteW answered {code}")) }
+    // SAFETY: COM set up on this thread (no reserved pointer), and torn down once only when
+    // that succeeded (S_OK or S_FALSE, both non-negative); both strings are NUL-terminated
+    // UTF-16 that outlive the call; no window, no parameters, no working folder.
+    unsafe {
+        let com = CoInitializeEx(std::ptr::null(), (COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE) as u32);
+        let result = ShellExecuteW(std::ptr::null_mut(), verb.as_ptr(), file.as_ptr(), std::ptr::null(), std::ptr::null(), SW_SHOWNORMAL);
+        if com >= 0 {
+            CoUninitialize();
+        }
+        let code = result as isize;
+        if code > 32 { Ok(()) } else { Err(format!("ShellExecuteW answered {code}")) }
+    }
 }
 
 #[cfg(not(windows))]
@@ -260,6 +277,9 @@ pub fn add(app: &mut App) {
     if let Some(plan) = AidPlan::from_env() {
         app.insert_resource(dialog::Aid(plan));
     }
+    // Staging folders an earlier run left beside the DLSS folder go at the start
+    // (`dlss::download::clean_up_at_start`).
+    crate::dlss::download::clean_up_at_start();
     app.init_resource::<nvf_play::credits::ExtraCredits>().add_systems(Startup, aid_clear).add_systems(Update, attribution);
     dialog::add(app);
 }
@@ -284,7 +304,7 @@ mod tests {
         assert!(shown.chars().all(|c| c == '\n' || (' '..='~').contains(&c)), "only printable ASCII and line ends");
         assert!(!shown.contains('?'), "no letter left without a stand-in");
         assert_eq!(shown.lines().count(), LICENCE.lines().count(), "the same lines");
-        assert!(shown.contains("(the \"SDK\")"), "the curly quotes as plain ones");
+        assert!(shown.contains("(in each case, the \"SDK\")"), "the curly quotes as plain ones");
     }
 
     #[test]

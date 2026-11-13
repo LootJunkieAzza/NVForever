@@ -10,8 +10,8 @@
 //! destination ([`move_new`]), so a file that appears there meanwhile is never overwritten,
 //! nor removed by the rollback. The staging folder is removed when its guard drops: on a
 //! failure, on a cancel and after the install. Staging folders an earlier run left (a crash, a
-//! power cut) are removed when a new one is made, unless the run that made them is still going
-//! ([`remove_stale`]).
+//! power cut) are removed at the start of a played game and when a new one is made, unless the
+//! run that made them is still going ([`remove_stale`]).
 
 use std::fs::{self, File};
 use std::io::{self, Read};
@@ -66,6 +66,14 @@ impl Drop for Staging {
         if !self.moved {
             let _ = fs::remove_dir_all(&self.dir);
         }
+    }
+}
+
+/// The staging folders other runs left beside `target` removed ([`remove_stale`]), without
+/// making anything: the start's clean-up (`super::clean_up_at_start`).
+pub(super) fn remove_stale_beside(target: &Path) {
+    if let Some(parent) = target.parent().filter(|p| !p.as_os_str().is_empty()) {
+        remove_stale(parent, std::process::id(), &crate::reports::upload::still_running);
     }
 }
 

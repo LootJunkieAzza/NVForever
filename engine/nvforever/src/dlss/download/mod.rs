@@ -265,6 +265,61 @@ pub fn start(_accepted: LicenceAccepted) -> Handle {
     Handle { shared }
 }
 
+/// Staging folders an earlier run left beside the DLSS folder removed (`install::remove_stale`:
+/// only `.dlss-download-<process id>` folders of runs no longer going), on a thread of its own so
+/// the start does not wait. Windows only, like the download.
+pub fn clean_up_at_start() {
+    #[cfg(windows)]
+    {
+        let spawned = std::thread::Builder::new().name("nvf-dlss-clean".into()).spawn(|| {
+            if let Ok(target) = target_folder() {
+                install::remove_stale_beside(&target);
+            }
+        });
+        if let Err(e) = spawned {
+            bevy::log::warn!("DLSS download: the staging clean-up did not start: {e}");
+        }
+    }
+}
+
+/// How the game's end left a running download ([`stop_for_exit`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExitStop {
+    /// None was running.
+    NoneRunning,
+    /// It stopped (cancelled, or its install finished) within the time given.
+    Stopped,
+    /// It did not stop in time; a staging folder may be left for the next start's clean-up.
+    StillRunning,
+}
+
+/// The game is ending (quit, or a load or the main menu handing over to a new run): a running
+/// download is cancelled, unless its files are being moved in, which is let finish, and
+/// waited for up to `wait` so its staging folder's guard runs before the process ends.
+pub fn stop_for_exit(wait: std::time::Duration) -> ExitStop {
+    let Some(shared) = CURRENT.lock().unwrap_or_else(PoisonError::into_inner).clone() else { return ExitStop::NoneRunning };
+    stop_shared(&shared, wait)
+}
+
+fn stop_shared(shared: &Shared, wait: std::time::Duration) -> ExitStop {
+    let phase = |s: &Shared| s.progress.lock().unwrap_or_else(PoisonError::into_inner).phase.clone();
+    let now = phase(shared);
+    if now.finished() {
+        return ExitStop::NoneRunning;
+    }
+    if now != Phase::Installing {
+        shared.cancel.store(true, Ordering::Relaxed);
+    }
+    let until = std::time::Instant::now() + wait;
+    while !phase(shared).finished() {
+        if std::time::Instant::now() >= until {
+            return ExitStop::StillRunning;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    ExitStop::Stopped
+}
+
 /// A panic's message, as far as it is text.
 fn panic_text(panic: &(dyn std::any::Any + Send)) -> String {
     panic.downcast_ref::<&str>().map(|s| (*s).to_string()).or_else(|| panic.downcast_ref::<String>().cloned()).unwrap_or_else(|| "a panic".to_string())
@@ -519,6 +574,31 @@ mod tests {
         for end in [Phase::Done(PathBuf::from("dlss")), Phase::Failed(Failure::Http(404)), Phase::Cancelled] {
             assert!(end.finished(), "{end:?}");
         }
+    }
+
+    #[test]
+    fn the_games_end_cancels_a_running_download_and_waits_for_it_but_lets_an_install_finish() {
+        use std::time::Duration;
+        // Nothing running.
+        let done = Shared::new();
+        done.set_phase(Phase::Cancelled);
+        assert_eq!(stop_shared(&done, Duration::from_millis(50)), ExitStop::NoneRunning);
+        // A download that ends once cancelled (a worker standing in for the download thread).
+        let shared = Arc::new(Shared::new());
+        let worker = shared.clone();
+        let thread = std::thread::spawn(move || {
+            while !worker.cancelled() {
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            worker.set_phase(Phase::Cancelled);
+        });
+        assert_eq!(stop_shared(&shared, Duration::from_secs(5)), ExitStop::Stopped);
+        thread.join().unwrap();
+        // Moving the files in: not cancelled; waited for while it finishes, given up after the bound.
+        let installing = Shared::new();
+        installing.set_phase(Phase::Installing);
+        assert_eq!(stop_shared(&installing, Duration::from_millis(30)), ExitStop::StillRunning);
+        assert!(!installing.cancelled(), "an install under way is let finish");
     }
 
     #[test]

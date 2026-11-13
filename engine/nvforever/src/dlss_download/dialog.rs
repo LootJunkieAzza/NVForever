@@ -35,6 +35,9 @@ const TEXT_WIDTH: f32 = PANEL_WIDTH - 48.0;
 const VIEW_LINES: usize = 16;
 /// How often the progress page is drawn again while bytes come in, seconds [design].
 const PROGRESS_REDRAW: f64 = 0.25;
+/// I accept takes no press this soon after the licence is shown, seconds: a click fires as the
+/// button goes down, so a click meant for what stood there before cannot accept [design].
+const ACCEPT_ARMS_AFTER: f64 = 0.5;
 
 /// The test aid's plan (`super` module notes).
 #[derive(Resource, Debug)]
@@ -124,6 +127,7 @@ impl Dialog {
     /// What a press of `act` does on the page shown.
     fn act(&mut self, act: Act, now: f64) {
         match (act, self.page) {
+            (Act::Accept, Page::Licence) if now - self.opened_at < ACCEPT_ARMS_AFTER => return,
             (Act::Accept, Page::Licence) => {
                 self.download = Some(download::start(LicenceAccepted::by_player()));
                 self.page = Page::Progress;
@@ -171,9 +175,35 @@ impl Dialog {
 }
 
 pub(super) fn add(app: &mut App) {
+    // After Bevy's window-closed exit, as `crash::report_exit`, and before the clean-exit line:
+    // the frame that writes AppExit is the last (a quit, or a load or the main menu handing
+    // over to a new run, which then ends the process at once, `handoff::EndNow`).
+    app.add_systems(Last, stop_on_exit.after(bevy::window::ExitSystems).before(crate::crash::report_exit));
     app.init_resource::<Dialog>()
         .add_systems(PreUpdate, clear_form_over.run_if(resource_exists::<FormOver>))
         .add_systems(Update, (open, keys, wheel, clicks, test_aid, follow, draw).chain().run_if(resource_exists::<FormOver>));
+}
+
+/// How long the game's end waits for a running download to stop (its staging folder removed,
+/// or its files moved in), seconds [design].
+const EXIT_WAIT_SECS: u64 = 2;
+
+/// The game ends: a running download is stopped and waited for briefly, so it leaves no
+/// staging folder (`dlss::download::stop_for_exit`).
+fn stop_on_exit(mut exit: MessageReader<AppExit>) {
+    if exit.read().next().is_none() {
+        return;
+    }
+    match download::stop_for_exit(std::time::Duration::from_secs(EXIT_WAIT_SECS)) {
+        download::ExitStop::NoneRunning => {}
+        download::ExitStop::Stopped => match download::current().map(|h| h.progress().phase) {
+            Some(Phase::Done(_)) => info!("DLSS download: the game ended after the files were installed"),
+            _ => info!("DLSS download: stopped: the game ended"),
+        },
+        download::ExitStop::StillRunning => {
+            warn!("DLSS download: stopped: the game ended; the download did not stop within {EXIT_WAIT_SECS} s, so a staging folder may be left (removed at the next start)")
+        }
+    }
 }
 
 fn clear_form_over(mut d: ResMut<Dialog>, mut over: ResMut<FormOver>) {
@@ -232,26 +262,76 @@ fn open(
     over.set_if_neq(FormOver(true));
 }
 
-fn keys(mut typed: MessageReader<KeyboardInput>, mut d: ResMut<Dialog>, real: Res<Time<Real>>) {
-    let pressed: Vec<Key> = typed.read().filter(|k| k.state.is_pressed()).map(|k| k.logical_key.clone()).collect();
+/// The dialog's keys: Esc, the paging and arrow keys, Home and End.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Nav {
+    Escape,
+    PageUp,
+    PageDown,
+    Up,
+    Down,
+    Home,
+    End,
+}
+
+const NAV_CODES: [(KeyCode, Nav); 7] = [
+    (KeyCode::Escape, Nav::Escape),
+    (KeyCode::PageUp, Nav::PageUp),
+    (KeyCode::PageDown, Nav::PageDown),
+    (KeyCode::ArrowUp, Nav::Up),
+    (KeyCode::ArrowDown, Nav::Down),
+    (KeyCode::Home, Nav::Home),
+    (KeyCode::End, Nav::End),
+];
+
+/// The dialog's keys pressed this frame: typed on the keyboard (repeats too), and pressed in the
+/// key state without being typed, which is how a controller's menu buttons arrive
+/// (`nvf_play::pad::menu_keys`: Start and East as Esc, LB/RB as PgUp/PgDn, the D-pad as the
+/// arrows). A keyboard press is in both and counted once, as `nvf_play::pad::sideways` does.
+fn nav_presses(typed: &[KeyboardInput], keys: &ButtonInput<KeyCode>) -> Vec<Nav> {
+    let mut out: Vec<Nav> = typed
+        .iter()
+        .filter(|k| k.state.is_pressed())
+        .filter_map(|k| match k.logical_key {
+            Key::Escape => Some(Nav::Escape),
+            Key::PageUp => Some(Nav::PageUp),
+            Key::PageDown => Some(Nav::PageDown),
+            Key::ArrowUp => Some(Nav::Up),
+            Key::ArrowDown => Some(Nav::Down),
+            Key::Home => Some(Nav::Home),
+            Key::End => Some(Nav::End),
+            _ => None,
+        })
+        .collect();
+    for (code, nav) in NAV_CODES {
+        let typed_now = typed.iter().any(|k| k.state.is_pressed() && !k.repeat && k.key_code == code);
+        if keys.just_pressed(code) && !typed_now {
+            out.push(nav);
+        }
+    }
+    out
+}
+
+fn keys(mut typed: MessageReader<KeyboardInput>, held: Res<ButtonInput<KeyCode>>, mut d: ResMut<Dialog>, real: Res<Time<Real>>) {
+    let events: Vec<KeyboardInput> = typed.read().cloned().collect();
     if d.page == Page::Closed {
         return;
     }
     let now = real.elapsed_secs_f64();
     let page = VIEW_LINES as isize - 1;
     let all = d.lines.len() as isize;
-    for key in pressed {
-        match (d.page, key) {
-            (_, Key::Escape) => {
+    for nav in nav_presses(&events, &held) {
+        match (d.page, nav) {
+            (_, Nav::Escape) => {
                 d.escape(now);
                 return;
             }
-            (Page::Licence, Key::PageDown) => d.scroll_by(page),
-            (Page::Licence, Key::PageUp) => d.scroll_by(-page),
-            (Page::Licence, Key::ArrowDown) => d.scroll_by(1),
-            (Page::Licence, Key::ArrowUp) => d.scroll_by(-1),
-            (Page::Licence, Key::Home) => d.scroll_by(-all),
-            (Page::Licence, Key::End) => d.scroll_by(all),
+            (Page::Licence, Nav::PageDown) => d.scroll_by(page),
+            (Page::Licence, Nav::PageUp) => d.scroll_by(-page),
+            (Page::Licence, Nav::Down) => d.scroll_by(1),
+            (Page::Licence, Nav::Up) => d.scroll_by(-1),
+            (Page::Licence, Nav::Home) => d.scroll_by(-all),
+            (Page::Licence, Nav::End) => d.scroll_by(all),
             _ => {}
         }
     }
@@ -473,7 +553,7 @@ fn draw(mut commands: Commands, mut d: ResMut<Dialog>, roots: Query<Entity, With
                     p.spawn((Node { width: u(TEXT_WIDTH), height: u(16.0), border: UiRect::all(Val::Px(1.0)), flex_shrink: 0.0, ..default() }, BorderColor::all(dim))).with_children(|bar| {
                         bar.spawn((Node { width: Val::Percent(share), height: Val::Percent(100.0), ..default() }, BackgroundColor(amber(200.0))));
                     });
-                    block(p, small, tr("The game goes on meanwhile. Hide keeps the download running; its choice on the Upscaler row shows this again."), TEXT_WIDTH, dim);
+                    block(p, small, tr("The game goes on meanwhile. Hide keeps the download running; its choice on the Upscaler row shows this again. Loading a save, going to the main menu or quitting stops it."), TEXT_WIDTH, dim);
                     buttons(p, small, &[(with_key(tr("Hide"), "Esc"), Act::Hide, true), (tr("Cancel download").to_string(), Act::StopDownload, true)]);
                 }
                 Page::Result => {
@@ -537,6 +617,38 @@ mod tests {
         let mut short = dialog(3);
         short.scroll_by(10);
         assert_eq!(short.scroll, 0, "a licence that fits does not scroll");
+    }
+
+    #[test]
+    fn a_controllers_menu_buttons_close_and_scroll_the_dialog() {
+        use bevy::input::ButtonState;
+        let typed = |code, key, repeat| KeyboardInput { key_code: code, logical_key: key, state: ButtonState::Pressed, text: None, repeat, window: Entity::PLACEHOLDER };
+        // East or Start: Esc in the key state, nothing typed.
+        let mut keys = ButtonInput::<KeyCode>::default();
+        keys.press(KeyCode::Escape);
+        assert_eq!(nav_presses(&[], &keys), [Nav::Escape]);
+        // LB/RB and the D-pad.
+        let mut keys = ButtonInput::<KeyCode>::default();
+        keys.press(KeyCode::PageDown);
+        keys.press(KeyCode::ArrowUp);
+        assert_eq!(nav_presses(&[], &keys), [Nav::PageDown, Nav::Up]);
+        // The keyboard's press is typed and in the key state: once.
+        let mut keys = ButtonInput::<KeyCode>::default();
+        keys.press(KeyCode::Escape);
+        assert_eq!(nav_presses(&[typed(KeyCode::Escape, Key::Escape, false)], &keys), [Nav::Escape]);
+        // A held key's repeats are typed only; a button held from before presses nothing.
+        keys.clear();
+        assert_eq!(nav_presses(&[typed(KeyCode::PageDown, Key::PageDown, true)], &keys), [Nav::PageDown]);
+        assert!(nav_presses(&[], &keys).is_empty());
+    }
+
+    #[test]
+    fn i_accept_takes_no_press_right_after_the_licence_is_shown() {
+        let mut d = dialog(40);
+        d.opened_at = 10.0;
+        d.act(Act::Accept, 10.2);
+        assert_eq!(d.page, Page::Licence, "too soon: not accepted");
+        assert!(d.download.is_none(), "nothing started");
     }
 
     #[test]
