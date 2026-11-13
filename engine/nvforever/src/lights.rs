@@ -481,7 +481,7 @@ fn patch_attenuation(mut state: ResMut<LightingShader>, mut shaders: ResMut<Asse
     }
     if patched.matches(FRESNEL_EDIT.0).count() == 1 {
         patched = patched.replace(FRESNEL_EDIT.0, FRESNEL_EDIT.1);
-        info!("lights: highlights keep their head-on strength at grazing angles in world views (Fresnel F = F0)");
+        info!("lights: the highlight's Fresnel factor stays at F0 in world views");
     } else {
         error!("{PBR_LIGHTING}: the highlight's Fresnel line not found once (Bevy changed?); highlights keep Bevy's Fresnel rise");
     }
@@ -497,10 +497,12 @@ fn patch_attenuation(mut state: ResMut<LightingShader>, mut shaders: ResMut<Asse
 /// [observed: bevy_pbr 0.20.1 `pbr_lighting.wesl`; the helper goes in front of
 /// `getDistanceAttenuation`]. Without it, lamps put white sparkles on the floors of
 /// Jacobstown's lodge that the original does not show.
-/// The lights' highlight in a world view keeps its head-on strength at every angle
-/// (Fresnel F = F0), in place of Bevy's Schlick Fresnel, which raises it towards
-/// f90 = saturate(49.5 × F0), up to about 50 times, as the view grazes the surface
-/// (bevy_pbr 0.20.1 `pbr_lighting.wesl` `fresnel`). With that rise, a fire barrel in
+/// The Fresnel factor of the direct lights' isotropic highlight in a world view stays at
+/// F0, in place of Bevy's Schlick Fresnel, which raises it towards f90 (for a grey F0,
+/// saturate(49.5 × F0)), up to about 50 times, as the view grazes the surface
+/// (bevy_pbr 0.20.1 `pbr_lighting.wesl` `fresnel`). The rest of the highlight (the GGX
+/// distribution, visibility and the multiscatter compensation) still varies with the
+/// angle. This covers the sun's highlight as well as the point and spot lights'. With that rise, a fire barrel in
 /// Primm drew a long orange streak on the shaded sidewalk where the original shows none
 /// [observed: #2266, a tester's run 2026-11-12, and both games at the same spots
 /// 2026-11-13; docs/spec-notes/world.md §8 "Highlights at grazing angles"]. The

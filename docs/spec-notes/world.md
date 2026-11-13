@@ -1603,11 +1603,14 @@ Textures2.bsa`, `Fallout - Misc.bsa`, DLC archives]:
   no Fresnel) removed the streak each time: the sidewalk's red and green means in the
   streak, 165/124 with Bevy's Fresnel, came to 148/114 with each switch [observed
   2026-11-13]. So the streak is Bevy's Fresnel rise: Schlick's curve towards
-  f90 = saturate(49.5 × F0) (bevy_pbr 0.20.1 `pbr_lighting.wesl` `fresnel`) lifts the
+  f90 (saturate(49.5 × F0) for a grey F0) (bevy_pbr 0.20.1 `pbr_lighting.wesl` `fresnel`) lifts the
   sidewalk's faint highlight (reflectance 35/255, F0 ≈ 0.003, nif_spawn.rs
   `UNMASKED_SPECULAR`) up to about 50 times at a low view. NVForever's lights.rs
-  `FRESNEL_EDIT` now keeps the direct lights' highlight at F = F0 in world views
-  [design]. Open: whether the original's highlight is Blinn-Phong as nif.md "Specular"
+  `FRESNEL_EDIT` now keeps the Fresnel factor of the direct lights' isotropic highlight
+  (the sun's included) at F0 in world views; the GGX distribution and visibility still
+  vary with the angle [design]. Highlights the original may show at low angles on glass
+  or metal lose the rise too; no scene of the original with such a highlight has been
+  compared yet. Open: whether the original's highlight is Blinn-Phong as nif.md "Specular"
   supposes, which needs a scene where the original does show highlights (the casino
   floor's captures failed: the capture plugin took no shots indoors).
 

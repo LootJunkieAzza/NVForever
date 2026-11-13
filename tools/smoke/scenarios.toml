@@ -5632,22 +5632,26 @@ expect = [
   { re = 'lights: game attenuation installed', label = "lights fall off as the game's" },
   { re = 'light colour lines not found|apply_pbr_lighting not as expected|Tony McMapface not found|atmospheric fog not found', count = 0, label = "no patch missed its Bevy lines (a CRLF checkout once broke them all, #946)" },
   { re = 'failed to process shader', count = 0, label = "every shader builds (grass.wgsl needs the patched pbr_functions)" },
+  { re = "lights: the highlight's Fresnel factor stays at F0 in world views", label = "the lights' highlight takes F = F0 in world views (#2266)" },
+  { re = "the highlight's Fresnel line not found", count = 0, label = "the Fresnel patch found its Bevy line (#2266)" },
 ]
 
 [[scenario]]
 name = "primm-barrel-no-streak"
 source = "docs/spec-notes/world.md §8 \"Highlights at grazing angles\" (#2266): Primm's fire barrel Barrel03Fire1024 by day from the casino's arcade side, crouched 6 m away, where Bevy's Fresnel drew an orange streak on the shaded sidewalk; lights.rs FRESNEL_EDIT keeps the highlight at F = F0 in world views (a Bevy upgrade that moves the patched line fails here); a frame in target/smoke (primm_barrel_no_streak.png)"
 areas = ["renderer", "lights"]
-paths = ["engine/nvforever/src/lights.rs", "engine/Cargo.toml"]
+paths = ["engine/nvforever/src/lights.rs", "engine/vendor/bevy_pbr/src/render/pbr_lighting.wesl", "engine/Cargo.toml"]
 env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_UNSEEN = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONTROL = "4:sneak", NVF_PLAY_TEST_SHOTS = "9:primm_barrel_no_streak.png" }
 args = ["--play", "--world", "WastelandNV", "--pos=-53782.6,-52327.9,5828", "--heading", "135", "--pitch=-3", "--hour", "13", "--size", "1280x720", "--no-voice", "--no-messages", "--weather", "NVWastelandClear", "--graphics-only", "no-eye-adaptation"]
 run_seconds = 12
 manual = "primm_barrel_no_streak.png: no orange glossy band on the shaded sidewalk between the camera and the barrel (#2266)"
 expect = [
-  { re = 'lights: highlights keep their head-on strength at grazing angles in world views', label = "the lights' highlight takes F = F0 in world views" },
-  { re = "the highlight's Fresnel line not found", count = 0, label = "the Fresnel patch found its Bevy line" },
-  { re = 'failed to process shader', count = 0, label = "the patched lighting shader builds" },
+  { re = "lights: the highlight's Fresnel factor stays at F0 in world views", label = "primm: the lights' highlight takes F = F0 in world views" },
+  { re = "the highlight's Fresnel line not found", count = 0, label = "primm: the Fresnel patch found its Bevy line" },
+  { re = 'failed to process shader', count = 0, label = "primm: the patched lighting shader builds" },
+  { re = 'Screenshot saved to .*primm_barrel_no_streak\.png', label = "primm: the frame was written" },
 ]
+forbid = [{ text = "Caught rendering error", label = "a rendering (validation) error at the Primm barrel" }]
 
 [[scenario]]
 name = "model-lights-lantern"
