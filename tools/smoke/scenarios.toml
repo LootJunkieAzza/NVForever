@@ -1462,7 +1462,7 @@ order = [[
   { re = 'softlock: controls_held for 5 s: scripts hold the controls \(movement, Pip-Boy, fighting, POV\), outside any conversation or menu, and no story event has happened', label = "5 s later the hold is reported" },
 ]]
 expect = [
-  { re = 'softlock: ', count = 1, label = "one finding for the one hold, none while the player was free" },
+  { re = 'WARN nvf_play::softlock: softlock: ', count = 1, label = "one finding for the one hold, none while the player was free" },
 ]
 
 [[scenario]]
