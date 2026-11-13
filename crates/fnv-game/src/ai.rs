@@ -133,7 +133,12 @@ impl<'a> Game<'a> {
     ///    cannot carry out is not documented];
     /// 4. a Once Per Day package is not chosen again within 24 game hours of the
     ///    moment the actor chose it [documented]; one that is still running may go on
-    ///    [hypothesis] until its duration ends it ([`Game::end_timed_packages`]);
+    ///    [hypothesis] until its duration ends it ([`Game::end_timed_packages`]) or its
+    ///    goal is met: a finished one is "not immediately selected again after being
+    ///    completed" [documented: GECK wiki, Category:Packages], so the next valid
+    ///    package takes over [observed: TTW's CG02AndyCutCake, Must Complete and Once
+    ///    Per Day, sets the cake stage CG02 16 only from its change script, which
+    ///    needs Andy to leave it once he has cut the cake; issue #2221];
     /// 5. the conditions, with the actor as the subject.
     pub fn check_package(&mut self, actor: FormId, package: FormId) -> PackageCheck {
         let Some(def) = self.package_def(&package) else { return PackageCheck::Missing };
@@ -149,7 +154,11 @@ impl<'a> Game<'a> {
         }
         if def.has(flags::ONCE_PER_DAY) {
             let e = self.extra.get(&actor);
-            let running = e.is_some_and(|e| e.current_package == Some(package));
+            // Finished, it still runs while its schedule duration holds it: the original's
+            // Goodsprings geckos kept a FindFood that reached DONE until its 2 h were up
+            // (owner-decision-captures.md §7; `Game::end_timed_packages`).
+            let timed = e.is_some_and(|e| e.package_ends_by_schedule && e.package_ends.is_some_and(|(p, until)| p == package && (now as f64) < until));
+            let running = e.is_some_and(|e| e.current_package == Some(package) && (!e.package_goal_met || timed));
             let chosen = e.and_then(|e| e.package_chosen_at.get(&package)).copied();
             if !running && chosen.is_some_and(|t| now - t < 1.0) {
                 return PackageCheck::OncePerDay;
@@ -178,7 +187,12 @@ impl<'a> Game<'a> {
     ///   GoodspringsSettler01Ref kept GSSettlerAAMSandbox6x16 through the night, 1,466
     ///   samples outside its window, when no other package of its list applied;
     ///   hypothesis: that this is "keep the current one" rather than "the last of the
-    ///   list", which are the same package there].
+    ///   list", which are the same package there]; not when the current one's own
+    ///   conditions fail: then the actor has no package and stands where it is, off any
+    ///   furniture [hypothesis, from the data: Fallout 3's Mister Burke sits on his bar
+    ///   chair under MS11BurkeBattle (MS11 battle 1); when the arrest talk sets battle 2
+    ///   no package of his list applies, and Lucas Simms' script (Fallout 3's and TTW's
+    ///   alike) has Burke shoot him only once Burke's GetSitting reads 0; issue #2235].
     pub fn select_package(&mut self, actor: FormId) -> Option<FormId> {
         let now = self.world.calendar().map(|c| c.days_passed as f64).unwrap_or(0.0);
         if let Some(e) = self.extra.get_mut(&actor) {
@@ -206,8 +220,12 @@ impl<'a> Game<'a> {
         // `current_package` answers with the one it had rather than choosing again.
         self.choosing_package.push(actor);
         let valid = list.iter().copied().find(|&p| self.check_package(actor, p) == PackageCheck::Valid);
+        let kept = match valid {
+            Some(_) => None,
+            None => self.extra.get(&actor).and_then(|e| e.current_package).filter(|c| list.contains(c)).filter(|&c| self.check_package(actor, c) != PackageCheck::ConditionsFail),
+        };
         self.choosing_package.pop();
-        valid.or_else(|| self.extra.get(&actor).and_then(|e| e.current_package).filter(|c| list.contains(c)))
+        valid.or(kept)
     }
 
     /// Whether the AI runs packages itself (their begin, end and change scripts and the
@@ -219,16 +237,19 @@ impl<'a> Game<'a> {
     /// Make `package` the actor's current package. A change is traced
     /// (`package_chosen`), starts the Once Per Day clock of the new package and, when
     /// the AI runs packages, runs the old package's change script and OnPackageChange
-    /// (unless it had finished) and the new one's begin script and OnPackageStart
-    /// [documented: GECK wiki, Category:Packages, Begin / End / Change; hypothesis: no
-    /// change event after the end event].
+    /// and the new one's begin script and OnPackageStart [documented: GECK wiki,
+    /// Category:Packages, Begin / End / Change]. The change script runs when the actor
+    /// leaves a package for another, also one whose goal was met (its end script ran
+    /// then) [hypothesis, from the data: TTW's CG02AndyCutCake (Must Complete, Once Per
+    /// Day, nothing else ends it) has only its change script set the cake stage CG02 16
+    /// the birthday party waits for; issue #2221. Most of the 99 packages of the TTW
+    /// load order with both scripts give them the same lines].
     pub(crate) fn set_package(&mut self, actor: FormId, package: Option<FormId>) {
         let e = self.extra.entry(actor).or_default();
         let old = e.current_package;
         if old == package {
             return;
         }
-        let finished = e.package_goal_met;
         e.current_package = package;
         e.package_goal_met = false;
         if let Some(p) = package.filter(|p| self.package_def(p).is_some_and(|d| d.has(flags::ONCE_PER_DAY))) {
@@ -247,7 +268,7 @@ impl<'a> Game<'a> {
                 self.package_doors(actor, p, flags::LOCK_DOORS_AT_START, flags::UNLOCK_DOORS_AT_START);
                 self.package_doors(actor, p, flags::LOCK_DOORS_AT_LOCATION, flags::UNLOCK_DOORS_AT_LOCATION);
             }
-            if let Some(o) = old.filter(|_| !finished) {
+            if let Some(o) = old {
                 self.package_event(actor, o, 2);
             }
             if let Some(p) = package {

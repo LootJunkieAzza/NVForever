@@ -1291,11 +1291,11 @@ fn step(
         drop(blocks_span);
         let move_span = info_span!("phys::player_move").entered();
         let was_swimming = c.swimming;
-        let was_on_ground = c.grounded && !c.swimming;
+        let was_footing = crate::phys::step_lift::footing(c);
         let s = p.world.move_character(c, CharacterInput { velocity: go, jump: intent.jump && i == 0, vertical: vz, view });
         // The drawn body and view climb steps and bumps smoothly (`phys::step_lift`).
         let moved = (c.feet[0] - p.prev_feet[0]).hypot(c.feet[1] - p.prev_feet[1]);
-        p.player_lift.step(c.feet[2] - p.prev_feet[2], moved, was_on_ground && c.grounded && !c.swimming, dt);
+        p.player_lift.step(c.feet[2] - p.prev_feet[2], moved, was_footing && crate::phys::step_lift::footing(c), dt);
         if s.swimming != was_swimming {
             let depth = p.world.water_surface_at(s.feet[0], s.feet[1]).map_or("no water".to_string(), |w| format!("feet {:.1} below the water", w - s.feet[2]));
             info!("player: {} at ({:.0}, {:.0}, {:.1}), {depth}", if s.swimming { "starts swimming" } else { "stops swimming" }, s.feet[0], s.feet[1], s.feet[2]);
@@ -1361,9 +1361,9 @@ fn move_npcs(
     let mut moving: Vec<(u32, &mut crate::phys::NpcBody, [f32; 2])> = npcs.iter_mut().zip(walking).map(|((&id, b), v)| (id, b, v)).collect();
     let plan = |b: &mut crate::phys::NpcBody, v: [f32; 2]| {
         b.prev_feet = b.ch.feet;
-        let was_on_ground = b.ch.grounded && !b.ch.swimming;
+        let was_footing = crate::phys::step_lift::footing(&b.ch);
         let (s, push) = reader.plan_move(&mut b.ch, CharacterInput { velocity: v, jump: std::mem::take(&mut b.jump), ..Default::default() });
-        (was_on_ground, s, push)
+        (was_footing, s, push)
     };
     let plans: Vec<_> = if moving.len() < PARALLEL_MOVES {
         moving.iter_mut().map(|(_, b, v)| plan(b, *v)).collect()
@@ -1372,10 +1372,10 @@ fn move_npcs(
     };
     drop(plan_span);
     let _apply = info_span!("phys::npc_apply").entered();
-    for ((id, b, _), (was_on_ground, s, push)) in moving.into_iter().zip(plans) {
+    for ((id, b, _), (was_footing, s, push)) in moving.into_iter().zip(plans) {
         world.apply_move(&b.ch, push);
         let (f, from) = (b.ch.feet, b.prev_feet);
-        b.lift.step(f[2] - from[2], (f[0] - from[0]).hypot(f[1] - from[1]), was_on_ground && b.ch.grounded && !b.ch.swimming, dt);
+        b.lift.step(f[2] - from[2], (f[0] - from[0]).hypot(f[1] - from[1]), was_footing && crate::phys::step_lift::footing(&b.ch), dt);
         if let Some(height) = falls.as_deref_mut().and_then(|f| f.step(id, b.prev_feet[2], &s)) {
             fell.write(crate::falls::Fell { actor: FormId(id), height, feet: s.feet });
         }

@@ -590,6 +590,8 @@ pub fn allocate_uniforms(
     current_view: ViewQuery<Option<&ViewLightEntities>, Without<SkipGpuPreprocess>>,
     view_query: Query<&ExtractedView, Without<SkipGpuPreprocess>>,
     light_query: Query<&LightEntity>,
+    // NVForever held shadow maps (light.rs `HoldDirectionalShadowMaps`).
+    hold_directional: Option<Res<crate::HoldDirectionalShadowMaps>>,
     batched_instance_buffers: Res<BatchedInstanceBuffers<MeshUniform, MeshInputUniform>>,
     pipeline_cache: Res<PipelineCache>,
     preprocess_pipelines: Res<PreprocessPipelines>,
@@ -645,7 +647,7 @@ pub fn allocate_uniforms(
     let view_entity = current_view.entity();
     let shadow_cascade_views = current_view.into_inner();
     let all_views =
-        gather_shadow_cascades_for_view(view_entity, shadow_cascade_views, &light_query);
+        gather_shadow_cascades_for_view(view_entity, shadow_cascade_views, &light_query, hold_directional.as_deref());
 
     // Loop over each view…
     for view_entity in all_views {
@@ -715,6 +717,8 @@ pub fn unpack_bins(
     current_view: ViewQuery<Option<&ViewLightEntities>, Without<SkipGpuPreprocess>>,
     view_query: Query<&ExtractedView, Without<SkipGpuPreprocess>>,
     light_query: Query<&LightEntity>,
+    // NVForever held shadow maps (light.rs `HoldDirectionalShadowMaps`).
+    hold_directional: Option<Res<crate::HoldDirectionalShadowMaps>>,
     batched_instance_buffers: Res<BatchedInstanceBuffers<MeshUniform, MeshInputUniform>>,
     pipeline_cache: Res<PipelineCache>,
     preprocess_pipelines: Res<PreprocessPipelines>,
@@ -736,7 +740,7 @@ pub fn unpack_bins(
     let view_entity = current_view.entity();
     let shadow_cascade_views = current_view.into_inner();
     let all_views =
-        gather_shadow_cascades_for_view(view_entity, shadow_cascade_views, &light_query);
+        gather_shadow_cascades_for_view(view_entity, shadow_cascade_views, &light_query, hold_directional.as_deref());
 
     // Don't run if the shaders haven't been compiled yet.
     if let Some(bin_unpacking_pipeline_id) = preprocess_pipelines.bin_unpacking.pipeline_id
@@ -800,6 +804,8 @@ pub fn early_gpu_preprocess(
         Without<SkipGpuPreprocess>,
     >,
     light_query: Query<&LightEntity>,
+    // NVForever held shadow maps (light.rs `HoldDirectionalShadowMaps`).
+    hold_directional: Option<Res<crate::HoldDirectionalShadowMaps>>,
     batched_instance_buffers: Res<BatchedInstanceBuffers<MeshUniform, MeshInputUniform>>,
     pipeline_cache: Res<PipelineCache>,
     preprocess_pipelines: Res<PreprocessPipelines>,
@@ -820,7 +826,7 @@ pub fn early_gpu_preprocess(
     let view_entity = current_view.entity();
     let shadow_cascade_views = current_view.into_inner();
     let all_views =
-        gather_shadow_cascades_for_view(view_entity, shadow_cascade_views, &light_query);
+        gather_shadow_cascades_for_view(view_entity, shadow_cascade_views, &light_query, hold_directional.as_deref());
 
     // Run the compute passes.
     for view_entity in all_views {
@@ -984,9 +990,12 @@ fn gather_shadow_cascades_for_view(
     view_entity: Entity,
     shadow_cascade_views: Option<&ViewLightEntities>,
     light_query: &Query<&LightEntity>,
+    hold_directional: Option<&crate::HoldDirectionalShadowMaps>,
 ) -> SmallVec<[Entity; 8]> {
     let mut all_views: SmallVec<[_; 8]> = SmallVec::new();
     all_views.push(view_entity);
+    // NVForever held shadow maps: nothing is prepared for the cascades not drawn this frame.
+    let hold = hold_directional.copied().unwrap_or_default();
     if let Some(shadow_cascade_views) = shadow_cascade_views {
         all_views.extend(
             shadow_cascade_views
@@ -994,7 +1003,7 @@ fn gather_shadow_cascades_for_view(
                 .iter()
                 .filter(|light_entity| {
                     light_query.get(**light_entity).is_ok_and(|light_entity| {
-                        matches!(*light_entity, LightEntity::Directional { .. })
+                        matches!(*light_entity, LightEntity::Directional { cascade_index, .. } if !hold.holds(cascade_index))
                     })
                 })
                 .copied(),

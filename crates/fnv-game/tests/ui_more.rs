@@ -2,7 +2,7 @@
 //! task T9), on a synthetic plugin and menu files written for the test (no game data,
 //! made-up text): docs/spec-notes/menu-xml.md §9.
 
-mod common;
+use crate::common;
 
 use common::*;
 use fnv_esm::{LoadOrder, Plugin, Schema};

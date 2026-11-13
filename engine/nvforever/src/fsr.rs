@@ -9,8 +9,19 @@
 //! comes from, and light that moved away from FSR's last output mark the history that would
 //! trail (`fsr_reactive.wgsl`).
 //! The depth prepass is expanded afterwards for NVForever's screen-space effects.
+//!
+//! What any temporal upscaler needs (camera history and cuts, the render size, jitter and mip
+//! bias applied, the corrected and expanded depth, the resolution uniform, the spatial fallback
+//! and the alpha copy) is the common preparation in `upscaler/prep.rs`, which runs first; this
+//! module adds FSR's own: its [`policy`] (ratios, phase count, mip bias), its context, the
+//! opaque copy and reference, the masks and their history, and the dilation buffers
+//! ([`PreparedFsr`]), made only for a camera FSR draws.
+//!
+//! A FidelityFX API library in the game's folder (ffx_api.rs, the FSR library setting) takes
+//! the port's place for the reconstruction itself ([`Upscaler::Api`]): it is given the same
+//! colour, motion and masks, the common corrected depth as a colour image, and the output.
 
-use std::{borrow::Cow, ops::{Deref, Range}, sync::{atomic::{AtomicBool, AtomicUsize, Ordering}, Mutex}};
+use std::{ops::{Deref, Range}, sync::{atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering}, Mutex}};
 
 use bevy::camera::{CameraMainTextureUsages, Hdr, MainPassResolutionOverride, Viewport};
 use bevy::core_pipeline::{
@@ -18,30 +29,23 @@ use bevy::core_pipeline::{
     prepass::{DepthPrepass, MotionVectorPrepass, ViewPrepassTextures},
     Core3d, Core3dSystems,
 };
-use bevy::diagnostic::FrameCount;
 use bevy::prelude::*;
 use bevy::render::{
     camera::{ExtractedCamera, MipBias, TemporalJitter},
     diagnostic::RecordDiagnostics,
     render_phase::ViewSortedRenderPhases,
     renderer::{RenderAdapter, RenderContext, RenderDevice, RenderQueue, ViewQuery},
-    sync_world::RenderEntity,
     view::{prepare_view_targets, ExtractedView, ViewDepthStencilTexture, ViewTarget},
-    Extract, ExtractSchedule, Render, RenderApp, RenderSystems,
+    Render, RenderApp, RenderSystems,
 };
 use wgpu::util::DeviceExt;
 use wgpu_ffx::{FsrContext, FsrContextFlags, FsrContextInfo, FsrDispatchFlags, FsrDispatchInfo, FsrView};
 
-/// AMD's standard fixed-resolution modes. Native AA reconstructs at 1:1.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, clap::ValueEnum)]
-pub enum FsrQuality {
-    NativeAa,
-    #[default]
-    Quality,
-    Balanced,
-    Performance,
-    UltraPerformance,
-}
+use crate::upscaler::prep::{self, Allocation, Policy, PreparedUpscale, UpscaleRenderer, UpscaleSettings};
+
+/// AMD's standard fixed-resolution modes. Native AA reconstructs at 1:1. The quality list is
+/// shared with DLSS (`upscaler.rs`); the ratios below are FSR's alone.
+pub type FsrQuality = crate::upscaler::UpscaleQuality;
 
 impl FsrQuality {
     pub fn ratio(self) -> f32 {
@@ -74,61 +78,6 @@ impl Default for FsrUpscaling {
     }
 }
 
-#[derive(Component, Clone, Copy)]
-pub(crate) struct FsrCamera {
-    settings: FsrUpscaling,
-    translation: Vec3,
-    rotation: Quat,
-    pub(crate) near: f32,
-    pub(crate) fov: f32,
-    frame: u32,
-    pub(crate) delta_ms: f32,
-    loading_generation: u32,
-    play_state: Option<nvf_play::PlayState>,
-    /// The Pip-Boy's screen is on its model: the one shape that marks its pixels in the
-    /// picture's alpha (`imagespace.wesl` `SCREEN_MARK`), which FSR's output has to get back
-    /// ([`AuxiliaryPipelines::restore_alpha`]).
-    screen_mark: bool,
-}
-
-/// The most the field of view may magnify or widen the view in one frame (the ratio of
-/// tan(fov / 2) to the previous frame's) while FSR keeps its history. Bevy computes the
-/// motion vectors from this and the previous frame's projections, so a smooth zoom, such as
-/// the aim zoom's 0.25 s ease (`nvf_play::aim_zoom`), reprojects like any camera move.
-/// Resetting on every changed frame threw the history away for the whole zoom, in and out
-/// [observed 2026-11-06: in an aim zoom capture all 18 frames whose field of view changed
-/// reset]. A jump (the console's `fov`, a cut to another lens) still resets. [engineering
-/// choice: 2 keeps the history through the aim zoom of a 20° sight at 15 frames a second
-/// and up, `an_aim_zoom_keeps_the_history_and_a_lens_jump_resets_it`.]
-const LENS_CUT_RATIO: f32 = 2.0;
-
-impl FsrCamera {
-    fn cut_from(&self, previous: &Self) -> bool {
-        let zoom = (self.fov * 0.5).tan() / (previous.fov * 0.5).tan();
-        self.frame != previous.frame.wrapping_add(1)
-            || self.translation.distance_squared(previous.translation) >= 400.0 * 400.0
-            || self.rotation.angle_between(previous.rotation).abs() > std::f32::consts::FRAC_PI_4
-            || !(1.0 / LENS_CUT_RATIO..=LENS_CUT_RATIO).contains(&zoom)
-            || self.near != previous.near
-            || self.settings.quality != previous.settings.quality
-            || self.delta_ms > 250.0
-            || self.loading_generation != previous.loading_generation
-            || play_state_cut(previous.play_state, self.play_state)
-    }
-}
-
-/// Whether a change of play state is a cut for FSR's history: into or out of dialogue (its
-/// close-up) or a loading screen. The Pip-Boy and the other menus (`PlayState::Menu`) raise
-/// over the view or stop the world without moving the camera, so the history stays: thrown
-/// away, the whole view was rebuilt from single jittered frames for about a second every time
-/// the Pip-Boy opened or closed [observed 2026-11-08, frame-exact captures of the Pip-Boy's
-/// raise at Goodsprings, docs/design/fsr-upscaling.md "History resets"]. A view the camera
-/// stops drawing resets anyway (`frame` skips).
-fn play_state_cut(before: Option<nvf_play::PlayState>, now: Option<nvf_play::PlayState>) -> bool {
-    use nvf_play::PlayState::{Dialogue, Loading};
-    before != now && [before, now].iter().any(|state| matches!(state, Some(Dialogue | Loading)))
-}
-
 pub struct FsrPlugin;
 
 /// What is added to log2(render / display) for the texture mip bias: AMD's −1 [documented:
@@ -155,8 +104,7 @@ impl Plugin for FsrPlugin {
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else { return };
         render_app
             .init_resource::<FsrRenderer>()
-            .add_systems(ExtractSchedule, extract)
-            .add_systems(Render, prepare.in_set(RenderSystems::PrepareViews).before(prepare_view_targets))
+            .add_systems(Render, prepare.in_set(RenderSystems::PrepareViews).after(prep::prepare).before(prepare_view_targets))
             .add_systems(
                 Core3d,
                 capture_opaque
@@ -233,62 +181,89 @@ fn supports_size(limits: &wgpu::Limits, render: UVec2, output: UVec2) -> bool {
         && output.max_element().div_ceil(8) <= limits.max_compute_workgroups_per_dimension
 }
 
-#[allow(clippy::too_many_arguments, clippy::type_complexity)]
-fn extract(
-    mut commands: Commands,
-    cameras: Extract<Query<(RenderEntity, &Camera, &Projection, &GlobalTransform, Option<&FsrUpscaling>)>>,
-    existing: Query<Entity, With<FsrCamera>>,
-    frame: Extract<Res<FrameCount>>,
-    time: Extract<Res<Time<Real>>>,
-    support: Extract<Res<FsrSupport>>,
-    loading: Extract<Option<Res<nvf_play::loading::Loading>>>,
-    play_state: Extract<Option<Res<State<nvf_play::PlayState>>>>,
-    pipboy_screen: Extract<Option<Res<nvf_play::pipboy::PipBoyScreen>>>,
-) {
-    let mut active = Vec::new();
-    for (entity, camera, projection, transform, fsr) in &cameras {
-        let (Some(fsr), Projection::Perspective(projection)) = (fsr, projection) else { continue };
-        if !support.0 || !camera.is_active || camera.physical_viewport_size().is_none_or(|s| s.x < 32 || s.y < 32) {
-            continue;
-        }
-        active.push(entity);
-        commands.entity(entity).insert(FsrCamera {
-            settings: *fsr,
-            translation: transform.translation(),
-            rotation: transform.rotation(),
-            near: projection.near,
-            fov: projection.fov,
-            frame: frame.0,
-            delta_ms: (time.delta_secs() * 1000.0).max(1.0),
-            loading_generation: loading.as_ref().map_or(0, |loading| loading.shown),
-            play_state: play_state.as_ref().map(|state| *state.get()),
-            screen_mark: pipboy_screen.as_ref().is_some_and(|screen| screen.on_model),
-        });
+/// FSR's [`Policy`] for a view of `output` size: AMD's fixed ratio for the quality, AMD's jitter
+/// phase count for the two widths, and the mip bias log2(render / display) plus AMD's −1 (or
+/// `NVF_FSR_MIP_BIAS_OFFSET`). `None` where the size is beyond what the port can run
+/// ([`supports_size`]): the view renders natively.
+pub(crate) fn policy(quality: FsrQuality, output: UVec2, limits: &wgpu::Limits) -> Option<Policy> {
+    let render_size = quality.render_size(output);
+    if !supports_size(limits, render_size, output) {
+        return None;
     }
-    for entity in &existing {
-        if !active.contains(&entity) {
-            commands.entity(entity).remove::<(FsrCamera, PreparedFsr, MainPassResolutionOverride, UnsuitableViewWarned)>();
+    Some(Policy {
+        render_size,
+        jitter_phases: wgpu_ffx::get_jitter_phase_count(render_size.x as i32, output.x as i32),
+        mip_bias: (render_size.x as f32 / output.x as f32).log2() + *MIP_BIAS_OFFSET,
+    })
+}
+
+#[derive(Resource, Default)]
+pub(crate) struct FsrRenderer {
+    auxiliary: Option<AuxiliaryPipelines>,
+    /// The wgpu-ffx port's context, made the first time a view upscales with it: not at all
+    /// while a FidelityFX API library does the upscaling.
+    port: Option<FsrContext>,
+}
+
+/// What reconstructs a view.
+enum Upscaler {
+    /// The vendored wgpu-ffx port, with the three resources FSR writes beside its output.
+    Port { view: Box<Mutex<FsrView>>, dilated_depth: wgpu::Texture, dilated_motion: wgpu::Texture, reconstructed_depth: wgpu::Buffer },
+    /// A FidelityFX API library in the game's folder (ffx_api.rs), with the corrected depth as
+    /// the colour image it is given, the dispatches that failed in a row, and the view's main
+    /// textures the library has been given to write ([`Upscaler::first_output`]).
+    Api { context: Mutex<crate::ffx_api::Upscaler>, depth: wgpu::Texture, failures: AtomicU32, outputs: Mutex<Vec<wgpu::Texture>> },
+}
+
+impl Upscaler {
+    /// Whether a FidelityFX API library is given this output for the first time. wgpu clears
+    /// a texture it has seen no write to before the first read, and it does not see the
+    /// library's: left alone, that clear would wipe the first upscaled frame. The caller
+    /// clears such a texture itself, before the library writes. A view has two main textures;
+    /// the two given last are remembered.
+    fn first_output(outputs: &Mutex<Vec<wgpu::Texture>>, output: &wgpu::Texture) -> bool {
+        let mut outputs = outputs.lock().unwrap();
+        if outputs.contains(output) {
+            return false;
         }
+        if outputs.len() == 2 {
+            outputs.remove(0);
+        }
+        outputs.push(output.clone());
+        true
     }
 }
 
-/// A view FSR cannot use (multisampled, not HDR, or offset) whose warning has been
-/// logged: [`prepare`] meets it every frame and says so once, until the view is usable
-/// again or FSR is switched off.
-#[derive(Component)]
-pub(crate) struct UnsuitableViewWarned;
+/// A FidelityFX API library whose dispatch fails this many frames in a row is not used any
+/// more: the port takes over [our choice].
+const API_FAILURES: u32 = 3;
 
-#[derive(Resource, Default)]
-pub(crate) struct FsrRenderer(Option<(FsrContext, AuxiliaryPipelines)>);
+/// The port's context, with its pipelines.
+fn port_context(device: &wgpu::Device) -> FsrContext {
+    let mut flags = FsrContextFlags::HIGH_DYNAMIC_RANGE | FsrContextFlags::DEPTH_INVERTED | FsrContextFlags::DEPTH_INFINITE | FsrContextFlags::AUTO_EXPOSURE;
+    if *FP16 {
+        flags |= FsrContextFlags::ALLOW_FP16;
+    }
+    let context = FsrContext::new(FsrContextInfo { device: device.clone(), flags });
+    let shaders = if context.uses_fp16() {
+        "half precision (accumulate pass)"
+    } else if *FP16 {
+        "full precision (the GPU lacks 16-bit shader floats or integers)"
+    } else {
+        "full precision (NVF_FSR_FP16=0)"
+    };
+    info!("FSR 3.1 shaders: {shaders}");
+    context
+}
 
+/// FSR's own state beside the common prepared view ([`PreparedUpscale`]): only a camera FSR
+/// draws has one.
 #[derive(Component)]
 pub(crate) struct PreparedFsr {
-    view: Mutex<FsrView>,
+    upscaler: Upscaler,
+    /// The sizes it was made for (the prepared view's when it was made).
     pub(crate) render_size: UVec2,
     pub(crate) output_size: UVec2,
-    pub(crate) camera: FsrCamera,
-    /// A camera cut this frame (`FsrCamera::cut_from`).
-    pub(crate) reset: bool,
     opaque: wgpu::Texture,
     /// FSR's reactive and transparency/composition masks (`fsr_reactive.wgsl`).
     reactive: wgpu::Texture,
@@ -305,106 +280,57 @@ pub(crate) struct PreparedFsr {
     history_luma: wgpu::Texture,
     /// FSR's jitter this frame, for the masks (render pixels, AMD's sign).
     mask_jitter: wgpu::Buffer,
-    /// The depth FSR reads (render size, first-person depth unsqueezed); frame
-    /// generation's prepare pass reads it too.
-    pub(crate) fsr_depth: wgpu::Texture,
-    expanded_depth: wgpu::Texture,
-    dilated_depth: wgpu::Texture,
-    dilated_motion: wgpu::Texture,
-    reconstructed_depth: wgpu::Buffer,
-    resolution: wgpu::Buffer,
     dispatch_logged: AtomicBool,
     reference_logged: AtomicBool,
     sky_logged: AtomicBool,
-    /// FSR reconstructed this frame (not its spatial fallback).
-    pub(crate) history_valid: AtomicBool,
 }
 
+/// FSR's part of the view preparation, after the common one (`upscaler::prep::prepare`, which
+/// checked the view, applied FSR's [`policy`] and made or kept the [`PreparedUpscale`]): the
+/// pipelines, the main textures' usages FSR needs, and [`PreparedFsr`], made again when the
+/// prepared view's sizes change or what should reconstruct it did (its FidelityFX API library
+/// was given up on, or the FSR library setting was switched). A view without a prepared view,
+/// or drawn by another upscaler, loses its FSR state.
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
 pub(crate) fn prepare(
     mut commands: Commands,
     device: Res<RenderDevice>,
     queue: Res<RenderQueue>,
     mut renderer: ResMut<FsrRenderer>,
+    upscale: Res<UpscaleRenderer>,
     frame_generation: Option<Res<crate::frame_gen::FrameGenRequest>>,
-    mut views: Query<(
-        Entity, &ExtractedView, &FsrCamera, &Msaa, &mut CameraMainTextureUsages,
-        &mut TemporalJitter, &mut MipBias, Option<&mut PreparedFsr>, Option<&mut crate::ssao::AmbientOcclusion>,
-        Has<UnsuitableViewWarned>,
-    )>,
+    mut views: Query<(Entity, &PreparedUpscale, &TemporalJitter, &mut CameraMainTextureUsages, Option<&PreparedFsr>)>,
+    stale: Query<Entity, (With<PreparedFsr>, Without<PreparedUpscale>)>,
 ) {
-    for (entity, view, camera, msaa, mut usages, mut jitter, mut bias, old, ao, warned) in &mut views {
-        if *msaa != Msaa::Off || view.target_format != wgpu::TextureFormat::Rgba16Float || view.viewport.xy() != UVec2::ZERO {
-            // Met every frame while it lasts: said once. The view renders natively, without
-            // FSR's jitter and mip bias, as for an unsupported size below.
-            if !warned {
-                warn!("FSR 3.1 requires a single-sampled HDR view with no viewport offset; rendering natively until it is one");
-                commands.entity(entity).insert(UnsuitableViewWarned);
+    for entity in &stale {
+        commands.entity(entity).remove::<PreparedFsr>();
+    }
+    for (entity, prepared, jitter, mut usages, old) in &mut views {
+        let UpscaleSettings::Fsr(settings) = prepared.camera.settings else {
+            if old.is_some() {
+                commands.entity(entity).remove::<PreparedFsr>();
             }
-            jitter.offset = Vec2::ZERO;
-            bias.0 = 0.0;
-            commands.entity(entity).remove::<(PreparedFsr, MainPassResolutionOverride)>();
             continue;
-        }
-        if warned {
-            commands.entity(entity).remove::<UnsuitableViewWarned>();
-        }
-        let output_size = view.viewport.zw();
-        let render_size = camera.settings.quality.render_size(output_size);
-        if !supports_size(&device.limits(), render_size, output_size) {
-            jitter.offset = Vec2::ZERO;
-            bias.0 = 0.0;
-            commands.entity(entity).remove::<(PreparedFsr, MainPassResolutionOverride)>();
-            continue;
-        }
-        let (context, _) = renderer.0.get_or_insert_with(|| {
-            let mut flags = FsrContextFlags::HIGH_DYNAMIC_RANGE | FsrContextFlags::DEPTH_INVERTED
-                | FsrContextFlags::DEPTH_INFINITE | FsrContextFlags::AUTO_EXPOSURE;
-            if *FP16 {
-                flags |= FsrContextFlags::ALLOW_FP16;
-            }
-            let context = FsrContext::new(FsrContextInfo { device: device.wgpu_device().clone(), flags });
-            let shaders = if context.uses_fp16() {
-                "half precision (accumulate pass)"
-            } else if *FP16 {
-                "full precision (the GPU lacks 16-bit shader floats or integers)"
-            } else {
-                "full precision (NVF_FSR_FP16=0)"
-            };
-            info!("FSR 3.1 shaders: {shaders}");
-            (context, AuxiliaryPipelines::new(device.wgpu_device()))
-        });
+        };
+        debug_assert!(prep::allocates_fsr_state(prepared.camera.settings.upscaler()));
+        // Made with the prepared view (`prep::prepare`).
+        let Some(common) = &upscale.0 else { continue };
+        renderer.auxiliary.get_or_insert_with(|| AuxiliaryPipelines::new(device.wgpu_device(), common));
         usages.0 |= wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::COPY_SRC;
-        let phases = wgpu_ffx::get_jitter_phase_count(render_size.x as i32, output_size.x as i32);
-        let offset = Vec2::from_array(wgpu_ffx::get_jitter_offset((camera.frame % i32::MAX as u32) as i32, phases));
-        // Bevy applies its projection jitter with the opposite displacement sign.
-        jitter.offset = -offset;
-        bias.0 = (render_size.x as f32 / output_size.x as f32).log2() + *MIP_BIAS_OFFSET;
-        // The ambient occlusion: at the render size before FSR (ssao.rs `ao_before_fsr`), or
-        // with `NVF_AO_BEFORE_FSR=0` after tonemapping, from the depth prepass drawn at the
-        // render size and expanded by nearest texels ([`AuxiliaryPipelines::expand_depth`]),
-        // its normals taken from neighbouring texels as drawn (ssao.wesl `normal_at`). Before
-        // the uniforms are written (RenderSystems::PrepareResources); the extraction resets
-        // it every frame.
-        if let Some(mut ao) = ao {
-            if *crate::ssao::AO_BEFORE_FSR {
-                ao.before_fsr(render_size, output_size);
-            } else if render_size != output_size {
-                ao.render_scale = Vec4::new(render_size.x as f32, render_size.y as f32, output_size.x as f32, output_size.y as f32);
-            }
-        }
+        // FSR's jitter (AMD's sign): the common preparation gave Bevy its opposite.
+        let offset = -jitter.offset;
+        let (render_size, output_size) = (prepared.render_size, prepared.output_size);
         match old {
-            Some(mut old) if old.render_size == render_size && old.output_size == output_size => {
-                old.reset = camera.cut_from(&old.camera);
-                old.camera = *camera;
+            Some(old) if old.render_size == render_size && old.output_size == output_size && old.through_api() == crate::ffx_api::library().is_some() => {
                 queue.write_buffer(&old.mask_jitter, 0, &mask_jitter_bytes(offset));
             }
             _ => {
-                info!("FSR 3.1.4: {:?}, {}x{} -> {}x{}, frame generation {}", camera.settings.quality, render_size.x, render_size.y, output_size.x, output_size.y, on_off(frame_generation.as_ref().is_some_and(|f| f.on())));
-                commands.entity(entity).insert(PreparedFsr::new(context, &device, &queue, *camera, render_size, output_size, offset));
+                let fsr = PreparedFsr::new(&mut renderer.port, &device, &queue, render_size, output_size, offset);
+                let through = if fsr.through_api() { "FSR through the FidelityFX API" } else { "FSR 3.1.4" };
+                info!("{through}: {:?}, {}x{} -> {}x{}, frame generation {}", settings.quality, render_size.x, render_size.y, output_size.x, output_size.y, on_off(frame_generation.as_ref().is_some_and(|f| f.on())));
+                commands.entity(entity).insert(fsr);
             }
         }
-        commands.entity(entity).insert(MainPassResolutionOverride(render_size));
     }
 }
 
@@ -417,6 +343,37 @@ fn on_off(on: bool) -> &'static str {
     if on { "on" } else { "off" }
 }
 
+/// FSR's own textures, in [`PreparedFsr`]'s order: the opaque copy (display-sized like the
+/// depth attachment it is drawn with, [`reference_sky_and_terrain_layers`]; only the render
+/// rectangle is used), the masks, the two presences, the light change, the history luminance
+/// and the dilation targets. Its buffers are the mask jitter and the reconstructed depth.
+/// The dilation targets and the reconstructed depth are the port's alone: through a
+/// FidelityFX API library they are not made, and [`api_depth_texture`] is.
+pub(crate) fn fsr_textures(render_size: UVec2, output_size: UVec2) -> [Allocation; 9] {
+    let sampled = wgpu::TextureUsages::TEXTURE_BINDING;
+    let storage = sampled | wgpu::TextureUsages::STORAGE_BINDING;
+    let attachment = sampled | wgpu::TextureUsages::RENDER_ATTACHMENT;
+    let texture = |label, size, format, usage| Allocation { label, size, format, usage };
+    [
+        texture("fsr_opaque", output_size, wgpu::TextureFormat::Rgba16Float, attachment | wgpu::TextureUsages::COPY_DST),
+        texture("fsr_reactive", render_size, wgpu::TextureFormat::R8Unorm, attachment),
+        texture("fsr_transparency_and_composition", render_size, wgpu::TextureFormat::R8Unorm, attachment),
+        texture("fsr_transparency_presence", render_size, wgpu::TextureFormat::R8Unorm, attachment | wgpu::TextureUsages::COPY_DST),
+        texture("fsr_transparency_presence", render_size, wgpu::TextureFormat::R8Unorm, attachment | wgpu::TextureUsages::COPY_DST),
+        texture("fsr_light_change", render_size, wgpu::TextureFormat::R16Float, attachment),
+        texture("fsr_history_luma", render_size, wgpu::TextureFormat::R16Float, attachment | wgpu::TextureUsages::COPY_DST),
+        texture("fsr_dilated_depth", render_size, wgpu::TextureFormat::R32Float, storage),
+        texture("fsr_dilated_motion", render_size, wgpu::TextureFormat::Rg16Float, storage),
+    ]
+}
+
+/// The colour copy of the corrected depth a FidelityFX API library is given
+/// (`prep::Pipelines::depth_as_color`).
+fn api_depth_texture(render_size: UVec2) -> Allocation {
+    let usage = wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::RENDER_ATTACHMENT;
+    Allocation { label: "fsr_api_depth", size: render_size, format: wgpu::TextureFormat::R32Float, usage }
+}
+
 impl PreparedFsr {
     /// The opaque copy the masks compare the finished frame with (display-sized; the render
     /// rectangle is used): the ambient occlusion before FSR darkens it as it does the frame.
@@ -424,45 +381,52 @@ impl PreparedFsr {
         &self.opaque
     }
 
-    fn new(context: &FsrContext, device: &RenderDevice, queue: &RenderQueue, camera: FsrCamera, render_size: UVec2, output_size: UVec2, jitter: Vec2) -> Self {
+    /// Whether a FidelityFX API library upscales the view, not the port.
+    fn through_api(&self) -> bool {
+        matches!(self.upscaler, Upscaler::Api { .. })
+    }
+
+    /// `port` is the port's context, made here when this is the first view to use it.
+    fn new(port: &mut Option<FsrContext>, device: &RenderDevice, queue: &RenderQueue, render_size: UVec2, output_size: UVec2, jitter: Vec2) -> Self {
         let device = device.wgpu_device();
-        let texture = |label, size: UVec2, format, usage| device.create_texture(&wgpu::TextureDescriptor {
-            label: Some(label), size: wgpu::Extent3d { width: size.x, height: size.y, depth_or_array_layers: 1 },
-            mip_level_count: 1, sample_count: 1, dimension: wgpu::TextureDimension::D2, format, usage, view_formats: &[],
-        });
-        let sampled = wgpu::TextureUsages::TEXTURE_BINDING;
-        let storage = sampled | wgpu::TextureUsages::STORAGE_BINDING;
-        let attachment = sampled | wgpu::TextureUsages::RENDER_ATTACHMENT;
-        let resolution_bytes: Vec<u8> = [render_size.x, render_size.y, output_size.x, output_size.y].into_iter().flat_map(u32::to_ne_bytes).collect();
-        Self {
-            view: Mutex::new(context.create_view(queue, render_size.to_array(), output_size.to_array())),
-            render_size, output_size, camera, reset: true,
-            dispatch_logged: AtomicBool::new(false),
-            reference_logged: AtomicBool::new(false),
-            sky_logged: AtomicBool::new(false),
-            history_valid: AtomicBool::new(false),
-            // Display-sized like the depth attachment it is drawn with ([`reference_sky_and_terrain_layers`]);
-            // only the render rectangle is used.
-            opaque: texture("fsr_opaque", output_size, wgpu::TextureFormat::Rgba16Float, attachment | wgpu::TextureUsages::COPY_DST),
-            reactive: texture("fsr_reactive", render_size, wgpu::TextureFormat::R8Unorm, attachment),
-            composition: texture("fsr_transparency_and_composition", render_size, wgpu::TextureFormat::R8Unorm, attachment),
-            presence: [0, 1].map(|_| texture("fsr_transparency_presence", render_size, wgpu::TextureFormat::R8Unorm, attachment | wgpu::TextureUsages::COPY_DST)),
-            presence_written: AtomicUsize::new(0),
-            light_change: texture("fsr_light_change", render_size, wgpu::TextureFormat::R16Float, attachment),
-            history_luma: texture("fsr_history_luma", render_size, wgpu::TextureFormat::R16Float, attachment | wgpu::TextureUsages::COPY_DST),
-            mask_jitter: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("fsr_mask_jitter"), contents: &mask_jitter_bytes(jitter), usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        let [opaque, reactive, composition, presence_0, presence_1, light_change, history_luma, dilated_depth, dilated_motion] = fsr_textures(render_size, output_size);
+        let [opaque, reactive, composition, presence_0, presence_1, light_change, history_luma] =
+            [opaque, reactive, composition, presence_0, presence_1, light_change, history_luma].map(|a| a.create(device));
+        // A FidelityFX API library in the game's folder upscales when it gives a context;
+        // otherwise, and with none there, the port.
+        let api = crate::ffx_api::library().and_then(|library| match crate::ffx_api::Upscaler::new(library, device, render_size.to_array(), output_size.to_array()) {
+            Ok(context) => Some(Upscaler::Api {
+                context: Mutex::new(context),
+                depth: api_depth_texture(render_size).create(device),
+                failures: AtomicU32::new(0),
+                outputs: Mutex::new(Vec::new()),
             }),
-            fsr_depth: texture("fsr_linear_camera_depth", render_size, wgpu::TextureFormat::Depth32Float, attachment),
-            expanded_depth: texture("fsr_full_resolution_depth", output_size, wgpu::TextureFormat::Depth32Float, attachment | wgpu::TextureUsages::COPY_SRC),
-            dilated_depth: texture("fsr_dilated_depth", render_size, wgpu::TextureFormat::R32Float, storage),
-            dilated_motion: texture("fsr_dilated_motion", render_size, wgpu::TextureFormat::Rg16Float, storage),
+            Err(why) => {
+                crate::ffx_api::give_up(&why);
+                None
+            }
+        });
+        let upscaler = api.unwrap_or_else(|| Upscaler::Port {
+            view: Box::new(Mutex::new(port.get_or_insert_with(|| port_context(device)).create_view(queue, render_size.to_array(), output_size.to_array()))),
+            dilated_depth: dilated_depth.create(device),
+            dilated_motion: dilated_motion.create(device),
             reconstructed_depth: device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("fsr_reconstructed_depth"), size: render_size.x as u64 * render_size.y as u64 * 4,
                 usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST, mapped_at_creation: false,
             }),
-            resolution: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("fsr_resolution"), contents: &resolution_bytes, usage: wgpu::BufferUsages::UNIFORM,
+        });
+        Self {
+            upscaler,
+            render_size, output_size,
+            dispatch_logged: AtomicBool::new(false),
+            reference_logged: AtomicBool::new(false),
+            sky_logged: AtomicBool::new(false),
+            opaque, reactive, composition,
+            presence: [presence_0, presence_1],
+            presence_written: AtomicUsize::new(0),
+            light_change, history_luma,
+            mask_jitter: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("fsr_mask_jitter"), contents: &mask_jitter_bytes(jitter), usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             }),
         }
     }
@@ -568,21 +532,24 @@ fn sky_range(sort_keys: impl Iterator<Item = f32>) -> Range<usize> {
 /// without the light term.
 static DEBUG_VIEW: std::sync::LazyLock<bool> = std::sync::LazyLock::new(|| std::env::var("NVF_FSR_DEBUG_VIEW").is_ok_and(|v| v.trim() == "1"));
 
-/// Reconstruction is before every effect expecting the full display-sized image.
-#[allow(clippy::type_complexity)]
+/// Reconstruction is before every effect expecting the full display-sized image. The common
+/// passes (the corrected depth, the fallback, the alpha copy, the expanded depth) are
+/// `upscaler::prep::Pipelines`', called here in the order FSR always ran them.
+#[allow(clippy::type_complexity, clippy::too_many_arguments)]
 pub(crate) fn fsr_pass(
-    view: ViewQuery<(&ViewTarget, &PreparedFsr, Option<&ViewPrepassTextures>, &TemporalJitter)>,
-    renderer: Res<FsrRenderer>, device: Res<RenderDevice>, frame_generation: Option<Res<crate::frame_gen::FrameGenRequest>>, mut ctx: RenderContext,
+    view: ViewQuery<(&ViewTarget, &PreparedUpscale, &PreparedFsr, Option<&ViewPrepassTextures>, &TemporalJitter)>,
+    renderer: Res<FsrRenderer>, upscale: Res<UpscaleRenderer>, device: Res<RenderDevice>, frame_generation: Option<Res<crate::frame_gen::FrameGenRequest>>, mut ctx: RenderContext,
 ) {
-    let (target, prepared, prepass, jitter) = view.into_inner();
-    let Some((context, auxiliary)) = &renderer.0 else { return };
+    let (target, prepared, fsr, prepass, jitter) = view.into_inner();
+    let (Some(auxiliary), Some(common)) = (&renderer.auxiliary, &upscale.0) else { return };
+    let UpscaleSettings::Fsr(settings) = prepared.camera.settings else { return };
     let recording = crate::frame_pace::recording();
     let inputs = prepass.and_then(|prepass| prepass.depth.as_ref().zip(prepass.motion_vectors.as_ref()));
     let Some((depth, motion)) = inputs else {
         prepared.history_valid.store(false, Ordering::Relaxed);
-        auxiliary.fallback(device.wgpu_device(), ctx.command_encoder(), prepared, target);
+        common.fallback(device.wgpu_device(), ctx.command_encoder(), prepared, target);
         if let Some(depth) = prepass.and_then(|prepass| prepass.depth.as_ref()) {
-            auxiliary.expand_depth(device.wgpu_device(), ctx.command_encoder(), prepared, &depth.texture.texture);
+            common.expand_depth(device.wgpu_device(), ctx.command_encoder(), prepared, &depth.texture.texture);
         }
         return;
     };
@@ -595,158 +562,156 @@ pub(crate) fn fsr_pass(
     // Sub-spans (`nvf_fsr_3_1/...`, logged with `--log-frame-times`): NVForever's own passes
     // around AMD's, to tell their cost apart.
     let inputs_span = diagnostics.time_span(encoder, "inputs");
-    auxiliary.prepare_inputs(device, encoder, prepared, target.main_texture(), &depth.texture.texture, &motion.texture.texture, reset);
+    common.corrected_depth(device, encoder, prepared, &depth.texture.texture);
+    auxiliary.prepare_inputs(device, encoder, common, fsr, target.main_texture(), &motion.texture.texture, reset);
     inputs_span.end(encoder);
     let source = target.main_texture().deref().clone();
     let destination = target.main_texture_other().deref().clone();
-    let info = FsrDispatchInfo {
-        color: source, depth: prepared.fsr_depth.clone(), motion_vectors: motion.texture.texture.deref().clone(),
-        exposure: None, reactive_mask: Some(prepared.reactive.clone()), transparency_and_composition: Some(prepared.composition.clone()),
-        dilated_depth: prepared.dilated_depth.clone(), dilated_motion_vectors: prepared.dilated_motion.clone(),
-        reconstructed_previous_depth: prepared.reconstructed_depth.clone(), output: destination,
-        jitter_offset: (-jitter.offset).to_array(), motion_vector_scale: (-prepared.render_size.as_vec2()).to_array(),
-        render_size: prepared.render_size.to_array(), upscale_size: prepared.output_size.to_array(),
-        enable_sharpening: prepared.camera.settings.sharpness > 0.0, sharpness: prepared.camera.settings.sharpness.clamp(0.0, 1.0),
-        frame_time_delta: prepared.camera.delta_ms, pre_exposure: 1.0,
-        reset_history: reset,
-        camera_near: f32::MAX, camera_far: prepared.camera.near, camera_fov_y: prepared.camera.fov,
-        // NVForever's world coordinates are the game's units, about 70 a metre [hypothesis, the
-        // scale fnv-phys uses (`PhysParams::units_per_metre`): the game's gravity of 684-686
-        // units/s² (physics.md §6.3, observed) is 9.81 m/s² at 70 units a metre].
-        view_space_to_meters_factor: 1.0 / 70.0,
-        flags: if *DEBUG_VIEW { FsrDispatchFlags::DRAW_DEBUG_VIEW } else { FsrDispatchFlags::empty() },
+    let jitter_offset = (-jitter.offset).to_array();
+    let motion_vector_scale = (-prepared.render_size.as_vec2()).to_array();
+    let sharpness = settings.sharpness.clamp(0.0, 1.0);
+    // NVForever's world coordinates are the game's units, about 70 a metre [hypothesis, the
+    // scale fnv-phys uses (`PhysParams::units_per_metre`): the game's gravity of 684-686
+    // units/s² (physics.md §6.3, observed) is 9.81 m/s² at 70 units a metre].
+    let view_space_to_meters_factor = 1.0 / 70.0;
+    let dispatched: Result<(), String> = match &fsr.upscaler {
+        Upscaler::Port { view, dilated_depth, dilated_motion, reconstructed_depth } => {
+            let info = FsrDispatchInfo {
+                color: source, depth: prepared.depth.clone(), motion_vectors: motion.texture.texture.deref().clone(),
+                exposure: None, reactive_mask: Some(fsr.reactive.clone()), transparency_and_composition: Some(fsr.composition.clone()),
+                dilated_depth: dilated_depth.clone(), dilated_motion_vectors: dilated_motion.clone(),
+                reconstructed_previous_depth: reconstructed_depth.clone(), output: destination,
+                jitter_offset, motion_vector_scale,
+                render_size: prepared.render_size.to_array(), upscale_size: prepared.output_size.to_array(),
+                enable_sharpening: sharpness > 0.0, sharpness,
+                frame_time_delta: prepared.camera.delta_ms, pre_exposure: 1.0,
+                reset_history: reset,
+                camera_near: f32::MAX, camera_far: prepared.camera.near, camera_fov_y: prepared.camera.fov,
+                view_space_to_meters_factor,
+                flags: if *DEBUG_VIEW { FsrDispatchFlags::DRAW_DEBUG_VIEW } else { FsrDispatchFlags::empty() },
+            };
+            let upscale_span = diagnostics.time_span(encoder, "upscale");
+            let dispatched = match &renderer.port {
+                Some(context) => context.dispatch(&mut view.lock().unwrap(), encoder, &info).map_err(|error| error.to_string()),
+                None => Err("the FSR context is missing".into()),
+            };
+            upscale_span.end(encoder);
+            dispatched
+        }
+        Upscaler::Api { context, depth: api_depth, failures, outputs } => {
+            common.depth_as_color(device, encoder, prepared, api_depth);
+            if Upscaler::first_output(outputs, &destination) {
+                encoder.clear_texture(&destination, &wgpu::ImageSubresourceRange::default());
+            }
+            let frame = crate::ffx_api::Frame {
+                color: &source, depth: api_depth, motion_vectors: &motion.texture.texture,
+                reactive: &fsr.reactive, transparency_and_composition: &fsr.composition, output: &destination,
+                jitter_offset, motion_vector_scale,
+                render_size: prepared.render_size.to_array(), upscale_size: prepared.output_size.to_array(),
+                sharpness, frame_time_delta: prepared.camera.delta_ms, reset,
+                camera_near: f32::MAX, camera_far: prepared.camera.near, camera_fov_y: prepared.camera.fov,
+                view_space_to_meters_factor, debug_view: *DEBUG_VIEW,
+            };
+            // The last thing in these commands: the library's own, which wgpu does not
+            // track, find every image in the state the API is told (ffx_api.rs).
+            encoder.transition_resources(std::iter::empty(), frame.transitions().into_iter());
+            let upscale_span = diagnostics.time_span(encoder, "upscale");
+            // Its commands go between the ones recorded so far and the ones that follow.
+            let dispatched = context.lock().unwrap().dispatch(&frame).map(|commands| ctx.add_command_buffer(commands));
+            upscale_span.end(ctx.command_encoder());
+            match &dispatched {
+                Ok(()) => failures.store(0, Ordering::Relaxed),
+                Err(why) if failures.fetch_add(1, Ordering::Relaxed) + 1 >= API_FAILURES => crate::ffx_api::give_up(why),
+                Err(_) => {}
+            }
+            dispatched
+        }
     };
-    let upscale_span = diagnostics.time_span(encoder, "upscale");
-    let dispatched = context.dispatch(&mut prepared.view.lock().unwrap(), encoder, &info);
-    upscale_span.end(encoder);
+    let api = fsr.through_api();
+    let encoder = ctx.command_encoder();
     match dispatched {
         Ok(()) => {
             let after_span = diagnostics.time_span(encoder, "alpha_and_history");
             // Only while a shape marks its pixels in alpha (the Pip-Boy's screen on its
             // model): otherwise FSR's alpha of 1 is what the post passes expect, and the
-            // display-sized pass is saved.
-            if prepared.camera.screen_mark {
-                auxiliary.restore_alpha(device, encoder, prepared, target);
+            // display-sized pass is saved. What another upscaler behind the FidelityFX API
+            // leaves in alpha is not known, so there the scene's own always comes back.
+            if prepared.camera.screen_mark || api {
+                common.restore_alpha(device, encoder, prepared, target);
             }
             target.post_process_write();
             if *DEBUG_VIEW {
                 // The output is AMD's grid, not what FSR's history shows: a cleared history
                 // makes the next frame's light term skip (`DEBUG_VIEW`).
-                encoder.clear_texture(&prepared.history_luma, &wgpu::ImageSubresourceRange::default());
+                encoder.clear_texture(&fsr.history_luma, &wgpu::ImageSubresourceRange::default());
             } else {
-                auxiliary.keep_history_luma(device, encoder, prepared, target);
+                auxiliary.keep_history_luma(device, encoder, common, prepared, fsr, target);
             }
             after_span.end(encoder);
             prepared.history_valid.store(true, Ordering::Relaxed);
-            if !prepared.dispatch_logged.swap(true, Ordering::Relaxed) {
-                info!("FSR dispatch active: 3.1.4, {}x{} -> {}x{}, Vulkan source shaders, frame generation {}", prepared.render_size.x, prepared.render_size.y, prepared.output_size.x, prepared.output_size.y, on_off(frame_generation.as_ref().is_some_and(|f| f.on())));
+            if !fsr.dispatch_logged.swap(true, Ordering::Relaxed) {
+                let through = match crate::ffx_api::library().filter(|_| api) {
+                    Some(library) => format!("FidelityFX API ({})", library.path),
+                    None => "3.1.4".into(),
+                };
+                let shaders = if api { "the library's own upscaler" } else { "Vulkan source shaders" };
+                info!("FSR dispatch active: {through}, {}x{} -> {}x{}, {shaders}, frame generation {}", prepared.render_size.x, prepared.render_size.y, prepared.output_size.x, prepared.output_size.y, on_off(frame_generation.as_ref().is_some_and(|f| f.on())));
             }
         }
         Err(error) => {
             prepared.history_valid.store(false, Ordering::Relaxed);
             error!("FSR dispatch failed: {error}; presenting spatial fallback");
-            auxiliary.fallback(device, encoder, prepared, target);
+            common.fallback(device, encoder, prepared, target);
         }
     }
     let depth_span = diagnostics.time_span(encoder, "depth_expand");
-    auxiliary.expand_depth(device, encoder, prepared, &depth.texture.texture);
+    common.expand_depth(device, encoder, prepared, &depth.texture.texture);
     depth_span.end(encoder);
     span.end(ctx.command_encoder());
     crate::frame_pace::recorded(crate::frame_pace::Recorded::Fsr, recording, true);
 }
 
+/// FSR's own passes: the masks (`fsr_reactive.wgsl`) and its output's luminance for the next
+/// frame's light term (`fsr_fallback.wgsl` `luma`, on the common fallback layout).
 struct AuxiliaryPipelines {
     presence_layout: wgpu::BindGroupLayout,
     reactive_layout: wgpu::BindGroupLayout,
-    depth_layout: wgpu::BindGroupLayout,
-    fallback_layout: wgpu::BindGroupLayout,
     presence: wgpu::RenderPipeline,
     reactive: wgpu::RenderPipeline,
     history_luma: wgpu::RenderPipeline,
-    prepare_depth: wgpu::RenderPipeline,
-    expand_depth: wgpu::RenderPipeline,
-    fallback: wgpu::RenderPipeline,
-    alpha: wgpu::RenderPipeline,
-    sampler: wgpu::Sampler,
 }
 
 impl AuxiliaryPipelines {
-    fn new(device: &wgpu::Device) -> Self {
-        let texture_entry = |binding, depth| wgpu::BindGroupLayoutEntry {
+    fn new(device: &wgpu::Device, common: &prep::Pipelines) -> Self {
+        let texture_entry = |binding| wgpu::BindGroupLayoutEntry {
             binding, visibility: wgpu::ShaderStages::FRAGMENT,
-            ty: wgpu::BindingType::Texture { sample_type: if depth { wgpu::TextureSampleType::Depth } else { wgpu::TextureSampleType::Float { filterable: true } }, view_dimension: wgpu::TextureViewDimension::D2, multisampled: false }, count: None,
+            ty: wgpu::BindingType::Texture { sample_type: wgpu::TextureSampleType::Float { filterable: true }, view_dimension: wgpu::TextureViewDimension::D2, multisampled: false }, count: None,
         };
-        let uniform_entry = wgpu::BindGroupLayoutEntry { binding: 1, visibility: wgpu::ShaderStages::FRAGMENT, ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Uniform, has_dynamic_offset: false, min_binding_size: None }, count: None };
         // fsr_reactive.wgsl's first pass: the opaque copy and the finished frame, motion, FSR's
         // last output luminance, a linear sampler and the jitter; its second: motion, last
         // presence, the sampler, and the first pass's presence and light change.
         let sampler_entry = wgpu::BindGroupLayoutEntry { binding: 5, visibility: wgpu::ShaderStages::FRAGMENT, ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering), count: None };
         let presence_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor { label: Some("fsr_presence_layout"), entries: &[
-            texture_entry(0, false), texture_entry(1, false), texture_entry(2, false), texture_entry(4, false), sampler_entry,
+            texture_entry(0), texture_entry(1), texture_entry(2), texture_entry(4), sampler_entry,
             wgpu::BindGroupLayoutEntry { binding: 6, visibility: wgpu::ShaderStages::FRAGMENT, ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Uniform, has_dynamic_offset: false, min_binding_size: None }, count: None },
         ] });
         let reactive_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor { label: Some("fsr_reactive_layout"), entries: &[
-            texture_entry(2, false), texture_entry(3, false), sampler_entry, texture_entry(7, false), texture_entry(8, false),
+            texture_entry(2), texture_entry(3), sampler_entry, texture_entry(7), texture_entry(8),
         ] });
-        let depth_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor { label: Some("fsr_depth_layout"), entries: &[texture_entry(0, true), uniform_entry] });
-        let fallback_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor { label: Some("fsr_fallback_layout"), entries: &[
-            texture_entry(0, false), uniform_entry,
-            wgpu::BindGroupLayoutEntry { binding: 2, visibility: wgpu::ShaderStages::FRAGMENT, ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering), count: None },
-        ] });
-        let make_targets = |label, source: &'static str, layout: &wgpu::BindGroupLayout, entry, colors: &[(wgpu::TextureFormat, wgpu::ColorWrites)]| {
-            let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor { label: Some(label), source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(source)) });
-            let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: Some(label), bind_group_layouts: &[Some(layout)], immediate_size: 0 });
-            let targets: Vec<_> = colors.iter().map(|&(format, write_mask)| Some(wgpu::ColorTargetState { format, blend: None, write_mask })).collect();
-            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: Some(label), layout: Some(&pipeline_layout),
-                vertex: wgpu::VertexState { module: &shader, entry_point: Some("vertex"), compilation_options: default(), buffers: &[] },
-                fragment: Some(wgpu::FragmentState { module: &shader, entry_point: Some(entry), compilation_options: default(), targets: &targets }),
-                primitive: default(), depth_stencil: colors.is_empty().then_some(wgpu::DepthStencilState { format: wgpu::TextureFormat::Depth32Float, depth_write_enabled: Some(true), depth_compare: Some(wgpu::CompareFunction::Always), stencil: default(), bias: default() }),
-                multisample: default(), multiview_mask: None, cache: None,
-            })
-        };
-        let make = |label, source: &'static str, layout: &wgpu::BindGroupLayout, entry, color: Option<(wgpu::TextureFormat, wgpu::ColorWrites)>| {
-            make_targets(label, source, layout, entry, color.as_slice())
-        };
         let mask = (wgpu::TextureFormat::R8Unorm, wgpu::ColorWrites::ALL);
         Self {
-            presence: make_targets("fsr_presence", include_str!("fsr_reactive.wgsl"), &presence_layout, "presence_pass", &[mask, (wgpu::TextureFormat::R16Float, wgpu::ColorWrites::ALL)]),
-            reactive: make_targets("fsr_reactive", include_str!("fsr_reactive.wgsl"), &reactive_layout, "fragment", &[mask, mask]),
-            history_luma: make("fsr_history_luma", include_str!("fsr_fallback.wgsl"), &fallback_layout, "luma", Some((wgpu::TextureFormat::R16Float, wgpu::ColorWrites::ALL))),
-            prepare_depth: make("fsr_prepare_depth", include_str!("fsr_depth.wgsl"), &depth_layout, "prepare_depth", None),
-            expand_depth: make("fsr_expand_depth", include_str!("fsr_depth.wgsl"), &depth_layout, "expand_depth", None),
-            fallback: make("fsr_spatial_fallback", include_str!("fsr_fallback.wgsl"), &fallback_layout, "fragment", Some((wgpu::TextureFormat::Rgba16Float, wgpu::ColorWrites::ALL))),
-            alpha: make("fsr_restore_alpha", include_str!("fsr_fallback.wgsl"), &fallback_layout, "alpha", Some((wgpu::TextureFormat::Rgba16Float, wgpu::ColorWrites::ALPHA))),
-            sampler: device.create_sampler(&wgpu::SamplerDescriptor { mag_filter: wgpu::FilterMode::Linear, min_filter: wgpu::FilterMode::Linear, ..default() }),
-            presence_layout, reactive_layout, depth_layout, fallback_layout,
+            presence: prep::fullscreen_pipeline(device, "fsr_presence", include_str!("fsr_reactive.wgsl"), &presence_layout, "presence_pass", &[mask, (wgpu::TextureFormat::R16Float, wgpu::ColorWrites::ALL)]),
+            reactive: prep::fullscreen_pipeline(device, "fsr_reactive", include_str!("fsr_reactive.wgsl"), &reactive_layout, "fragment", &[mask, mask]),
+            history_luma: prep::fullscreen_pipeline(device, "fsr_history_luma", include_str!("fsr_fallback.wgsl"), &common.fallback_layout, "luma", &[(wgpu::TextureFormat::R16Float, wgpu::ColorWrites::ALL)]),
+            presence_layout, reactive_layout,
         }
     }
 
-    fn depth_group(&self, device: &wgpu::Device, fsr: &PreparedFsr, source: &wgpu::TextureView) -> wgpu::BindGroup {
-        device.create_bind_group(&wgpu::BindGroupDescriptor { label: Some("fsr_depth_group"), layout: &self.depth_layout, entries: &[
-            wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(source) },
-            wgpu::BindGroupEntry { binding: 1, resource: fsr.resolution.as_entire_binding() },
-        ] })
-    }
-
-    fn draw_depth(encoder: &mut wgpu::CommandEncoder, target: &wgpu::TextureView, pipeline: &wgpu::RenderPipeline, group: &wgpu::BindGroup) {
-        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("fsr_depth_conversion"), color_attachments: &[],
-            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment { view: target, depth_ops: Some(wgpu::Operations { load: wgpu::LoadOp::Clear(0.0), store: wgpu::StoreOp::Store }), stencil_ops: None }),
-            timestamp_writes: None, occlusion_query_set: None, multiview_mask: None,
-        });
-        pass.set_pipeline(pipeline);
-        pass.set_bind_group(0, group, &[]);
-        pass.draw(0..3, 0..1);
-    }
-
-    /// FSR's depth and its two masks. On a history reset last frame's presence and output
-    /// luminance are cleared: the masks then hold this frame's presence alone.
+    /// FSR's two masks (its depth is the common corrected depth, drawn just before). On a
+    /// history reset last frame's presence and output luminance are cleared: the masks then
+    /// hold this frame's presence alone.
     #[allow(clippy::too_many_arguments)]
-    fn prepare_inputs(&self, device: &wgpu::Device, encoder: &mut wgpu::CommandEncoder, fsr: &PreparedFsr, color: &wgpu::Texture, depth: &wgpu::Texture, motion: &wgpu::Texture, reset: bool) {
-        let depth_view = depth.create_view(&default());
-        let group = self.depth_group(device, fsr, &depth_view);
-        Self::draw_depth(encoder, &fsr.fsr_depth.create_view(&default()), &self.prepare_depth, &group);
+    fn prepare_inputs(&self, device: &wgpu::Device, encoder: &mut wgpu::CommandEncoder, common: &prep::Pipelines, fsr: &PreparedFsr, color: &wgpu::Texture, motion: &wgpu::Texture, reset: bool) {
         let written = 1 - fsr.presence_written.load(Ordering::Relaxed);
         let previous = &fsr.presence[1 - written];
         if reset {
@@ -772,14 +737,14 @@ impl AuxiliaryPipelines {
             wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(&color) },
             wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::TextureView(&motion) },
             wgpu::BindGroupEntry { binding: 4, resource: wgpu::BindingResource::TextureView(&history) },
-            wgpu::BindGroupEntry { binding: 5, resource: wgpu::BindingResource::Sampler(&self.sampler) },
+            wgpu::BindGroupEntry { binding: 5, resource: wgpu::BindingResource::Sampler(&common.sampler) },
             wgpu::BindGroupEntry { binding: 6, resource: fsr.mask_jitter.as_entire_binding() },
         ] });
         draw(encoder, "fsr_presence", &[attachment(&presence), attachment(&change)], &self.presence, &group);
         let group = device.create_bind_group(&wgpu::BindGroupDescriptor { label: Some("fsr_reactive_group"), layout: &self.reactive_layout, entries: &[
             wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::TextureView(&motion) },
             wgpu::BindGroupEntry { binding: 3, resource: wgpu::BindingResource::TextureView(&previous) },
-            wgpu::BindGroupEntry { binding: 5, resource: wgpu::BindingResource::Sampler(&self.sampler) },
+            wgpu::BindGroupEntry { binding: 5, resource: wgpu::BindingResource::Sampler(&common.sampler) },
             wgpu::BindGroupEntry { binding: 7, resource: wgpu::BindingResource::TextureView(&presence) },
             wgpu::BindGroupEntry { binding: 8, resource: wgpu::BindingResource::TextureView(&change) },
         ] });
@@ -789,12 +754,8 @@ impl AuxiliaryPipelines {
 
     /// The luminance of FSR's output (the main texture, after the flip), for the next
     /// frame's masks (`fsr_reactive.wgsl` `light_change`).
-    fn keep_history_luma(&self, device: &wgpu::Device, encoder: &mut wgpu::CommandEncoder, fsr: &PreparedFsr, target: &ViewTarget) {
-        let group = device.create_bind_group(&wgpu::BindGroupDescriptor { label: Some("fsr_history_luma_group"), layout: &self.fallback_layout, entries: &[
-            wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(target.main_texture_view()) },
-            wgpu::BindGroupEntry { binding: 1, resource: fsr.resolution.as_entire_binding() },
-            wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::Sampler(&self.sampler) },
-        ] });
+    fn keep_history_luma(&self, device: &wgpu::Device, encoder: &mut wgpu::CommandEncoder, common: &prep::Pipelines, prepared: &PreparedUpscale, fsr: &PreparedFsr, target: &ViewTarget) {
+        let group = common.fallback_group(device, "fsr_history_luma_group", prepared, target.main_texture_view());
         let history = fsr.history_luma.create_view(&default());
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("fsr_history_luma"), color_attachments: &[Some(wgpu::RenderPassColorAttachment { view: &history, depth_slice: None, resolve_target: None, ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color::BLACK), store: wgpu::StoreOp::Store } })],
@@ -804,53 +765,13 @@ impl AuxiliaryPipelines {
         pass.set_bind_group(0, &group, &[]);
         pass.draw(0..3, 0..1);
     }
-
-    fn expand_depth(&self, device: &wgpu::Device, encoder: &mut wgpu::CommandEncoder, fsr: &PreparedFsr, depth: &wgpu::Texture) {
-        if fsr.render_size == fsr.output_size { return; }
-        let source = depth.create_view(&default());
-        let group = self.depth_group(device, fsr, &source);
-        Self::draw_depth(encoder, &fsr.expanded_depth.create_view(&default()), &self.expand_depth, &group);
-        encoder.copy_texture_to_texture(fsr.expanded_depth.as_image_copy(), depth.as_image_copy(), fsr.expanded_depth.size());
-    }
-
-    fn fallback(&self, device: &wgpu::Device, encoder: &mut wgpu::CommandEncoder, fsr: &PreparedFsr, target: &ViewTarget) {
-        let post = target.post_process_write();
-        let group = device.create_bind_group(&wgpu::BindGroupDescriptor { label: Some("fsr_fallback_group"), layout: &self.fallback_layout, entries: &[
-            wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(post.source) },
-            wgpu::BindGroupEntry { binding: 1, resource: fsr.resolution.as_entire_binding() },
-            wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::Sampler(&self.sampler) },
-        ] });
-        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("fsr_spatial_fallback"), color_attachments: &[Some(wgpu::RenderPassColorAttachment { view: post.destination, depth_slice: None, resolve_target: None, ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color::BLACK), store: wgpu::StoreOp::Store } })],
-            depth_stencil_attachment: None, timestamp_writes: None, occlusion_query_set: None, multiview_mask: None,
-        });
-        pass.set_pipeline(&self.fallback);
-        pass.set_bind_group(0, &group, &[]);
-        pass.draw(0..3, 0..1);
-    }
-
-    /// FSR's output has alpha 1: the scene's own alpha is copied over from the nearest
-    /// render-resolution texel (the main texture, before the flip), so the marks drawn into
-    /// it (the Pip-Boy screen's, `imagespace.wesl` `SCREEN_MARK`) reach the post passes.
-    fn restore_alpha(&self, device: &wgpu::Device, encoder: &mut wgpu::CommandEncoder, fsr: &PreparedFsr, target: &ViewTarget) {
-        let group = device.create_bind_group(&wgpu::BindGroupDescriptor { label: Some("fsr_restore_alpha_group"), layout: &self.fallback_layout, entries: &[
-            wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(target.main_texture_view()) },
-            wgpu::BindGroupEntry { binding: 1, resource: fsr.resolution.as_entire_binding() },
-            wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::Sampler(&self.sampler) },
-        ] });
-        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("fsr_restore_alpha"), color_attachments: &[Some(wgpu::RenderPassColorAttachment { view: target.main_texture_other_view(), depth_slice: None, resolve_target: None, ops: wgpu::Operations { load: wgpu::LoadOp::Load, store: wgpu::StoreOp::Store } })],
-            depth_stencil_attachment: None, timestamp_writes: None, occlusion_query_set: None, multiview_mask: None,
-        });
-        pass.set_pipeline(&self.alpha);
-        pass.set_bind_group(0, &group, &[]);
-        pass.draw(0..3, 0..1);
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    // The camera history and its cuts moved to the common preparation unchanged.
+    use crate::upscaler::prep::UpscaleCamera as FsrCamera;
 
     #[test]
     fn quality_modes_have_standard_ratios() {
@@ -966,6 +887,47 @@ mod tests {
         assert_eq!(sky_band.end, layer_band.start, "the two bands are drawn as one run, in order");
         assert_eq!(sky_range(layers.iter().chain(&others).copied()), 0..0, "no sky parts in view (clear sky by day)");
         assert_eq!(sky_range(others.iter().copied()), 0..0);
+    }
+
+    #[test]
+    fn fsr_allocates_its_textures_as_before() {
+        let (render, output) = (UVec2::new(853, 480), UVec2::new(1280, 720));
+        let sampled = wgpu::TextureUsages::TEXTURE_BINDING;
+        let attachment = sampled | wgpu::TextureUsages::RENDER_ATTACHMENT;
+        let storage = sampled | wgpu::TextureUsages::STORAGE_BINDING;
+        let copy_dst = wgpu::TextureUsages::COPY_DST;
+        use wgpu::TextureFormat::{R16Float, R32Float, R8Unorm, Rg16Float, Rgba16Float};
+        let expected = [
+            ("fsr_opaque", output, Rgba16Float, attachment | copy_dst),
+            ("fsr_reactive", render, R8Unorm, attachment),
+            ("fsr_transparency_and_composition", render, R8Unorm, attachment),
+            ("fsr_transparency_presence", render, R8Unorm, attachment | copy_dst),
+            ("fsr_transparency_presence", render, R8Unorm, attachment | copy_dst),
+            ("fsr_light_change", render, R16Float, attachment),
+            ("fsr_history_luma", render, R16Float, attachment | copy_dst),
+            ("fsr_dilated_depth", render, R32Float, storage),
+            ("fsr_dilated_motion", render, Rg16Float, storage),
+        ];
+        let actual: Vec<_> = fsr_textures(render, output).iter().map(|a| (a.label, a.size, a.format, a.usage)).collect();
+        assert_eq!(actual, expected);
+        // The depths are the common prepared view's, not FSR's own.
+        let common: Vec<&str> = prep::common_textures(render, output).iter().map(|a| a.label).collect();
+        assert_eq!(common, ["fsr_linear_camera_depth", "fsr_full_resolution_depth"]);
+        assert!(fsr_textures(render, output).iter().all(|a| !common.contains(&a.label)));
+    }
+
+    #[test]
+    fn fsr_policy_keeps_its_ratio_phases_and_bias() {
+        let limits = wgpu::Limits { max_storage_textures_per_shader_stage: 8, ..default() };
+        let output = UVec2::new(1920, 1080);
+        for quality in FsrQuality::ALL {
+            let render = quality.render_size(output);
+            let policy = policy(quality, output, &limits).expect("supported");
+            assert_eq!(policy.render_size, render);
+            assert_eq!(policy.jitter_phases, wgpu_ffx::get_jitter_phase_count(render.x as i32, output.x as i32));
+            assert_eq!(policy.mip_bias, (render.x as f32 / output.x as f32).log2() + *MIP_BIAS_OFFSET);
+        }
+        assert_eq!(policy(FsrQuality::UltraPerformance, UVec2::splat(96), &limits), None, "renders natively below 64 texels");
     }
 
     #[test]
