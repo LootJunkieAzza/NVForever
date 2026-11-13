@@ -161,6 +161,9 @@ pub struct PreparedPart {
     /// (#1429: 23.8 ms in one frame for one creature [observed 2026-11-07, Sierra Madre
     /// lobby]).
     pub projectile_nodes: Vec<(String, Affine3A)>,
+    /// The weapon parts (`##` nodes) the file's own visibility controllers hide or show
+    /// at rest (`model::part_rest_visibility`): a revolver's speed loader, hidden.
+    pub part_rest: Vec<(String, bool)>,
 }
 
 /// Whether a node is named as a projectile node (`ProjectileNode…`, WEAP NNAM).
@@ -854,6 +857,7 @@ impl ActorCtx<'_, '_> {
                 out.projectile_nodes.push((name.to_string(), local));
             }
         }
+        out.part_rest = crate::model::part_rest_visibility(&file, &dec);
         let order = fnv_nif::scene::geometry_order(&objects);
         for o in objects.iter().filter(|o| !o.is_node) {
             // Below the root; the root's own transform is `out.root` (see `rigid_local`).

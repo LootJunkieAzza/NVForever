@@ -27,6 +27,7 @@ mod activators;
 mod reports;
 mod native_crash;
 mod nif_mirror;
+mod anim_overrides;
 mod anim_paths;
 mod actor_feet;
 mod tumble;
@@ -1786,7 +1787,7 @@ fn main() -> AppExit {
             // JIP's NIF block functions on the drawn nodes (nif_mirror.rs).
             app.add_plugins(nif_mirror::NifMirrorPlugin);
             // kNVSE's replacement animations on the drawn actors (anim_paths.rs).
-            app.add_plugins(anim_paths::AnimPathsPlugin);
+            app.add_plugins((anim_paths::AnimPathsPlugin, anim_overrides::AnimOverridesPlugin));
         }
     }
     if play.is_some() {

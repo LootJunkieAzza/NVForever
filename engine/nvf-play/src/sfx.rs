@@ -927,9 +927,11 @@ fn is_sound_file(path: &str) -> bool {
     path.ends_with(".wav") || path.ends_with(".ogg")
 }
 
-/// The folder (ending in `\`) a SOUN's path stands for; `None` for a file.
+/// The folder (ending in `\`) a SOUN's path stands for; `None` for a file (an `.mp3`
+/// too: a clip's `SoundPath:` key can name one, `chamber_spin_ratchet.mp3` in Another
+/// Millenia's Mateba reload [observed]; a folder's takes stay `.wav` and `.ogg`).
 fn folder_of(path: &str) -> Option<String> {
-    if is_sound_file(path) {
+    if is_sound_file(path) || path.ends_with(".mp3") {
         return None;
     }
     Some(if path.ends_with('\\') { path.to_string() } else { format!("{path}\\") })
@@ -972,7 +974,7 @@ fn pick_file(sfx: &mut Sfx, vfs: &fnv_vfs::Vfs, file: &str) -> Option<String> {
         let ogg = format!("{stem}.ogg");
         return Some(if !vfs.exists(&path) && vfs.exists(&ogg) { ogg } else { path });
     }
-    if path.ends_with(".ogg") {
+    if path.ends_with(".ogg") || path.ends_with(".mp3") {
         return Some(path);
     }
     let folder = folder_of(&path)?;
@@ -2551,6 +2553,9 @@ mod tests {
         assert_eq!(pick_file(&mut sfx, &vfs, "fx\\beep.wav").as_deref(), Some("sound\\fx\\beep.wav"));
         assert_eq!(pick_file(&mut sfx, &vfs, "FX/Only.wav").as_deref(), Some("sound\\fx\\only.ogg"));
         assert_eq!(pick_file(&mut sfx, &vfs, "\\fx\\only.ogg").as_deref(), Some("sound\\fx\\only.ogg"));
+        // An .mp3 a clip's `SoundPath:` key names is a file, not a folder.
+        assert_eq!(pick_file(&mut sfx, &vfs, "fx\\Ani\\MatebaMod6\\chamber_spin_ratchet.mp3").as_deref(), Some("sound\\fx\\ani\\matebamod6\\chamber_spin_ratchet.mp3"));
+        assert_eq!(folder_of("sound\\fx\\a.mp3"), None);
         let take = pick_file(&mut sfx, &vfs, "fx\\takes").unwrap();
         assert!(["sound\\fx\\takes\\a.wav", "sound\\fx\\takes\\b.wav"].contains(&take.as_str()), "{take}");
         assert_eq!(pick_file(&mut sfx, &vfs, "fx\\empty"), None);

@@ -76,12 +76,27 @@ pub struct Stance {
     /// The facts of the crouched draw cycle: each clip's crouched form where there is one,
     /// else the standing clip's.
     pub sneak_facts: StanceFacts,
+    /// The clips a mod's override files stand in for (`anim_overrides`), standing and
+    /// crouched (`true`): the file each plays from.
+    pub replaced: BTreeMap<(EquipClip, bool), String>,
 }
 
 impl Stance {
     /// The stance `prefix` for the skeleton at `skeleton` (archive path), or why not; also
     /// a report line.
     pub fn load(ctx: &mut impl ClipSource, skeleton: &str, skel: &PreparedSkeleton, prefix: &str) -> Result<(Stance, String), String> {
+        Stance::load_with(ctx, skeleton, skel, prefix, None)
+    }
+
+    /// [`Stance::load`] with the clips that a held weapon's kNVSE override files
+    /// (`by_stem`, `anim_overrides::override_stems`) stand in for taken from those files:
+    /// Another Millenia's dual pistols hold their second gun in the left hand by their own
+    /// `1hpAim.kf` and `1hpEquip.kf`, which key the model's `Akimbo` node [observed: the
+    /// mod's `_male` files and `DualGlock19\Glock19.nif`, whose `Akimbo` node sits 2.5
+    /// units beside the right gun]. The clips without a file stay the stance's.
+    pub fn load_with(ctx: &mut impl ClipSource, skeleton: &str, skel: &PreparedSkeleton, prefix: &str, by_stem: Option<&crate::anim_overrides::ByStem>) -> Result<(Stance, String), String> {
+        let over = |path: &str| by_stem.and_then(|m| crate::anim_overrides::pick(m, &[path.to_string()], 0));
+        let mut replaced = BTreeMap::new();
         // A skeleton without a `Weapon` node: its root stands in (`no_weapon_node`). The
         // protectron's has none; its Hand and Head Lasers are body parts that fire from
         // their own projectile nodes [observed: creatures\protectron\skeleton.nif, its
@@ -96,6 +111,13 @@ impl Stance {
         let mut facts = StanceFacts::new();
         for c in EquipClip::ALL {
             let path = clip_path(&folder, prefix, c);
+            let path = match over(&path) {
+                Some(p) if ctx.clip(&p).is_some() => {
+                    replaced.insert((c, false), p.clone());
+                    p
+                }
+                _ => path,
+            };
             // A creature's stance may be in its `specialanims` folder (Mister Handy and
             // Gutsy, protectrons: `fnv_actor::anims::special_anims_path`).
             if let Some(clip) = ctx.clip(&path).or_else(|| fnv_actor::anims::special_anims_path(&path).and_then(|p| ctx.clip(&p))) {
@@ -110,6 +132,13 @@ impl Stance {
         let mut sneak_facts = facts.clone();
         for c in EquipClip::ALL {
             let Some(path) = sneak_clip_path(&folder, prefix, c) else { continue };
+            let path = match over(&path) {
+                Some(p) if ctx.clip(&p).is_some() => {
+                    replaced.insert((c, true), p.clone());
+                    p
+                }
+                _ => path,
+            };
             if let Some(clip) = ctx.clip(&path) {
                 sneak_facts.insert(c, fnv_actor::weapon::ClipFacts::from_parts(clip.start, clip.stop, &clip.text_keys));
                 sneak.insert(c, Arc::new(bind_clip(skel, clip)));
@@ -146,7 +175,8 @@ impl Stance {
         let sneak_grip = sneak.get(&EquipClip::Equip).filter(|_| real).and_then(|c| left_grip(skel, c, weapon_node)).or(grip);
         let holstered_off = clips.get(&EquipClip::Holster).map_or_else(Vec::new, |c| holstered_off(&c.clip));
         let line = if no_weapon_node { format!("{line}; no Weapon node: for body weapons only") } else { line };
-        Ok((Stance { prefix: prefix.to_string(), clips, weapon_only, facts, holster, drawn, weapon_node, no_weapon_node, bones, weapon_rest, sneak_weapon_rest, grip, sneak_grip, holstered_off, moves: Arc::new(moves), folder, sneak, sneak_weapon_only, sneak_facts }, line))
+        let line = if replaced.is_empty() { line } else { format!("{line}; from override files: {:?}", replaced.values().collect::<Vec<_>>()) };
+        Ok((Stance { prefix: prefix.to_string(), clips, weapon_only, facts, holster, drawn, weapon_node, no_weapon_node, bones, weapon_rest, sneak_weapon_rest, grip, sneak_grip, holstered_off, moves: Arc::new(moves), folder, sneak, sneak_weapon_only, sneak_facts, replaced }, line))
     }
 
     /// The left hand's grip standing or crouched ([`Stance::grip`]).
@@ -176,6 +206,10 @@ impl Stance {
 
     /// The file clip `c` plays from, standing or crouched.
     pub fn path_for(&self, c: EquipClip, crouched: bool) -> String {
+        let crouched_here = crouched && self.sneak.contains_key(&c);
+        if let Some(p) = self.replaced.get(&(c, crouched_here)) {
+            return p.clone();
+        }
         match sneak_clip_path(&self.folder, &self.prefix, c).filter(|_| crouched && self.sneak.contains_key(&c)) {
             Some(p) => p,
             None => clip_path(&self.folder, &self.prefix, c),
@@ -504,7 +538,10 @@ pub fn spawn_model(
         let names = || s.ancestors.iter().filter_map(|(n, _)| n.as_deref()).chain(s.name.as_deref());
         let bone = names().find_map(|n| skel.by_name.get(bones.get(n)?.trim()).copied());
         let tr = Transform::from_matrix(Mat4::from(part.root * s.transform));
-        let e = commands.spawn((Mesh3d(s.mesh.clone()), MeshMaterial3d(s.material.clone()), tr)).id();
+        // A part the model's own controllers hide at rest (a revolver's speed loader,
+        // `model::part_rest_visibility`): hidden, as no clip of the holder shows it here.
+        let visibility = if rests_hidden(&part.part_rest, names()) { Visibility::Hidden } else { Visibility::Inherited };
+        let e = commands.spawn((Mesh3d(s.mesh.clone()), MeshMaterial3d(s.material.clone()), tr, visibility)).id();
         if let Some((_, names)) = &s.skin {
             nvf_assets::actor::skin_in_place(commands, e, names.len());
         }
@@ -548,6 +585,12 @@ fn drawn_place(held: &[&nvf_assets::anim_play::Clip], s: &nvf_assets::actor::Par
         acc * pose.map_or(*local, |p| Affine3A::from_scale_rotation_translation(p.scale, p.rotation, p.translation))
     });
     moved.then_some(m * s.own)
+}
+
+/// Whether a shape under the nodes `names` rests hidden: one of them is a weapon part the
+/// model's own controllers hide at rest (`rest`, `PreparedPart::part_rest`).
+fn rests_hidden<'a>(rest: &[(String, bool)], mut names: impl Iterator<Item = &'a str>) -> bool {
+    names.any(|n| rest.iter().any(|(r, v)| !*v && r == n))
 }
 
 /// Whether the gun shapes under node `name` ([`WeaponHold::gun`]) show now: as the
@@ -601,6 +644,17 @@ mod tests {
     use super::*;
     use fnv_actor::weapon::{ClipFacts, Stage};
 
+    /// An NPC's or co-op puppet's Colt Anaconda: the speed loader's shapes, which the
+    /// model rests hidden, spawn hidden; the cylinder and casings show.
+    #[test]
+    fn an_actors_revolver_holds_no_speed_loader() {
+        let rest = [("##swmCasing".to_string(), true), ("##SpeedLoader".to_string(), false)];
+        assert!(rests_hidden(&rest, ["##swmCrane", "##swmCylinder", "##SpeedLoader", "##SpeedLoader:0"].into_iter()));
+        assert!(!rests_hidden(&rest, ["##swmCrane", "##swmCylinder", "##swmCasing", "##swmCasing:0"].into_iter()));
+        assert!(!rests_hidden(&rest, ["##swmCrane", "##swmCylinder", "##swmCylinder:0"].into_iter()));
+        assert!(!rests_hidden(&[], ["##SpeedLoader"].into_iter()));
+    }
+
     fn stance() -> Arc<Stance> {
         let f = |duration: f32, bone: &str| ClipFacts { duration, blend_time: 0.2, prn: vec![(0.5, bone.to_string())], switch: None };
         let facts = StanceFacts::from([
@@ -610,7 +664,7 @@ mod tests {
             (EquipClip::Unequip, f(0.5, "Bip01 Pelvis")),
         ]);
         let bones = HashMap::from([("Bip01 Pelvis".to_string(), 3), ("Bip01 R Hand".to_string(), 7)]);
-        Arc::new(Stance { prefix: "1hp".into(), clips: BTreeMap::new(), weapon_only: BTreeMap::new(), sneak_facts: facts.clone(), facts, holster: "Bip01 Pelvis".into(), drawn: "Bip01 R Hand".into(), weapon_node: 8, no_weapon_node: false, bones, weapon_rest: None, sneak_weapon_rest: None, grip: None, sneak_grip: None, holstered_off: Vec::new(), moves: Arc::default(), folder: r"meshes\characters\_male".into(), sneak: BTreeMap::new(), sneak_weapon_only: BTreeMap::new() })
+        Arc::new(Stance { prefix: "1hp".into(), clips: BTreeMap::new(), weapon_only: BTreeMap::new(), sneak_facts: facts.clone(), facts, holster: "Bip01 Pelvis".into(), drawn: "Bip01 R Hand".into(), weapon_node: 8, no_weapon_node: false, bones, weapon_rest: None, sneak_weapon_rest: None, grip: None, sneak_grip: None, holstered_off: Vec::new(), moves: Arc::default(), folder: r"meshes\characters\_male".into(), sneak: BTreeMap::new(), sneak_weapon_only: BTreeMap::new(), replaced: BTreeMap::new() })
     }
 
     #[test]

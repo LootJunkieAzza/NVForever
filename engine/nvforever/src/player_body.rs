@@ -65,6 +65,7 @@
 //! does. In third person the camera's pivot is lifted clear of the bed.
 
 use crate::actors::{part_uses, ActorWorld};
+use crate::anim_overrides::{clip_stem, override_stems, ordered_aim_variant};
 use crate::idles::{IdleSlot, PlayerIdles};
 use crate::sky::{Sun, ARMS_LAYER, BODY_LAYER, SHADOW_LAYER};
 use crate::world::WorldRoot;
@@ -77,7 +78,7 @@ use bevy::mesh::VertexAttributeValues;
 use bevy::prelude::*;
 use fnv_actor::first_person::{self, is_first_person_shape, shape_shows, Show};
 use fnv_actor::player_clips::{
-    aim_clips, aim_variant, aim_weights, attack_clips, attack_stem, block_clips, blocks, direction_weights, equip_clips, holster_clips, idle_clips, jump_clips,
+    aim_clips, aim_weights, attack_clips, attack_stem, block_clips, blocks, direction_weights, equip_clips, holster_clips, idle_clips, jump_clips,
     limping_idle_clips, limping_move_clips, limping_turn_clips, move_clips, reload_clips, reload_open_clips, turn_clips, Aim, ClipKeys, Dir, HandEvent, Stance, Transition, WeaponHands, WeaponPhase, UNARMED,
 };
 use fnv_actor::weapon::AnimType;
@@ -486,10 +487,11 @@ enum View {
 /// One shape of the weapon model.
 struct WeaponPart {
     entity: Entity,
-    /// The model nodes above it whose names begin `##`, each with whether the clips
-    /// last showed it: clips show and hide such nodes (the minigun's gun while it is
-    /// holstered) [observed: animation.md §9.7].
-    tags: Vec<(String, bool)>,
+    /// The model nodes above it whose names begin `##`, each with whether it is shown and
+    /// how the model's own controllers leave it at rest (`PreparedModel::part_rest`):
+    /// clips show and hide such nodes (the minigun's gun while it is holstered)
+    /// [observed: animation.md §9.7].
+    tags: Vec<(String, bool, Option<bool>)>,
     /// Whether it hangs from a bone of its own (the minigun's backpack) rather than
     /// from the `Weapon` node.
     on_bone: bool,
@@ -497,6 +499,20 @@ struct WeaponPart {
     never: bool,
     /// The visibility last written to the entity.
     shown: Option<bool>,
+}
+
+/// Whether a weapon part (a `##` node) is shown: as the playing clips key it (`clip`),
+/// else hidden when the model's own controllers hide it at rest (`rest`: a revolver's
+/// speed loader, the C96's stripper clip, shown only while the reload keys them), else
+/// as it was (`was`: a part no clip speaks for stays as the last clip left it, the
+/// minigun's gun) [hypothesis, model::part_rest_visibility]. A part the model rests
+/// shown is not shown again by that: an empty launcher's round (`##NifRound`, which
+/// Another Millenia's RPG-7 rests shown) stays as the attack left it until the reload
+/// [observed: of Another Millenia's weapon models, only `##SpeedLoader` (29 models)
+/// and `##cmClip` (12) rest hidden; `##nmClip` (173), bullets, shells and casings rest
+/// shown].
+fn part_on(clip: Option<bool>, rest: Option<bool>, was: bool) -> bool {
+    clip.or(rest.filter(|shown| !shown)).unwrap_or(was)
 }
 
 /// One skeleton with its parts, clips and weapon.
@@ -1502,10 +1518,18 @@ fn ensure_body(
                         // On the body, behind the first-person view.
                         continue;
                     }
-                    let tags: Vec<(String, bool)> =
-                        s.ancestors.iter().chain(s.name.as_ref()).filter(|n| n.starts_with("##")).map(|n| (n.clone(), true)).collect();
+                    let tags: Vec<(String, bool, Option<bool>)> = s
+                        .ancestors
+                        .iter()
+                        .chain(s.name.as_ref())
+                        .filter(|n| n.starts_with("##"))
+                        .map(|n| {
+                            let rest = pm.part_rest.iter().find(|(r, _)| r == n).map(|(_, v)| *v);
+                            (n.clone(), part_on(None, rest, true), rest)
+                        })
+                        .collect();
                     let never = mine && nvf_play::mines::lit_part(s.name.as_deref(), &s.ancestors);
-                    let shown = !never && (tags.is_empty() || in_hand);
+                    let shown = !never && (tags.is_empty() || in_hand) && tags.iter().all(|(_, on, _)| *on);
                     let visibility = if shown { Visibility::Inherited } else { Visibility::Hidden };
                     // On a bone of its own the shape keeps its place in the whole model;
                     // else it sits under its node, which the clips may move.
@@ -2623,84 +2647,6 @@ fn drive_weapon_emitters(state: Res<PlayerBody>, mut emitters: Query<&mut crate:
     }
 }
 
-#[allow(clippy::too_many_arguments, clippy::type_complexity)]
-/// A clip file's stem for override matching: its name without folder and `.kf`, lower
-/// case, up to its first space (`1hpReloadL v1.6.kf`, `1hpEquip Combat.kf`,
-/// `1hpAttackRight last.kf` [observed: Another Millenia's AnimGroupOverride files,
-/// 2026-11-06]).
-fn clip_stem(file: &str) -> String {
-    let name = file.rsplit(['\\', '/']).next().unwrap_or("").to_ascii_lowercase();
-    let name = name.strip_suffix(".kf").unwrap_or(&name);
-    name.split(' ').next().unwrap_or("").to_string()
-}
-
-/// The files that replace the rig's clips, by [`clip_stem`]: a later folder wins, but
-/// within one override folder a plain name (`1hpEquip.kf`) beats one with words after a
-/// space (`1hpEquip Combat.kf`) [hypothesis: the spaced ones are a mod's alternatives].
-/// Files ending `_order_N` make one set of the stem before that ending, played in turn by
-/// N ([`Rig::set_turn`]; documented: kNVSE's Nexus page); a file of that stem without the
-/// ending, in the same folder, comes first in the set [hypothesis: Another Millenia's
-/// `Sneak1hpAttackRightDOWN.kf` beside `Sneak1hpAttackRightDOWN_order_2.kf` stands for
-/// order 1]. A later folder with the stem replaces the whole set [hypothesis: the files
-/// come from the one folder that wins; the akimbo sets' last-shot folders hold one file
-/// of the set each, which then plays alone while its condition holds]. `_hurt` files are
-/// left out [hypothesis: played while hurt; not done]. Paths are under meshes.
-fn override_stems(paths: &[String]) -> HashMap<String, Vec<String>> {
-    // By stem: the folder, and its files (order number, path, a plain name).
-    type Files = (String, Vec<(u32, String, bool)>);
-    let mut out: HashMap<String, Files> = HashMap::new();
-    for p in paths {
-        let p = p.replace('/', "\\");
-        let name = p.rsplit('\\').next().unwrap_or("").to_ascii_lowercase();
-        if !name.ends_with(".kf") {
-            continue;
-        }
-        let (stem, order) = order_of(&clip_stem(&name));
-        if stem.is_empty() || stem.contains("_hurt") {
-            continue;
-        }
-        let exact = !name.contains(' ');
-        let lower = p.to_ascii_lowercase();
-        let folder = ["\\_1stperson\\", "\\_male\\"].iter().find_map(|v| lower.find(v)).map_or(lower.clone(), |i| lower[..i].to_string());
-        let entry = out.entry(stem).or_insert_with(|| (folder.clone(), Vec::new()));
-        if entry.0 != folder {
-            *entry = (folder, Vec::new());
-        }
-        let files = &mut entry.1;
-        match files.iter().position(|f| f.0 == order) {
-            Some(i) if files[i].2 && !exact => {}
-            Some(i) => files[i] = (order, p, exact),
-            None => files.push((order, p, exact)),
-        }
-    }
-    out.into_iter()
-        .map(|(k, (_, mut files))| {
-            files.sort_by_key(|f| f.0);
-            (k, files.into_iter().map(|f| f.1).collect())
-        })
-        .collect()
-}
-
-/// A stem without its `_order_N` ending, and N (0 for a stem without one).
-fn order_of(stem: &str) -> (String, u32) {
-    match stem.rsplit_once("_order_").and_then(|(base, n)| Some((base, n.parse::<u32>().ok()?))) {
-        Some((base, n)) => (base.to_string(), n),
-        None => (stem.to_string(), 0),
-    }
-}
-
-/// The up or down form of clip file `path` ([`aim_variant`]), the aim's ending going
-/// before an `_order_N` one: `1hpAttackRightUP_order_1.kf` [observed: Another Millenia's
-/// akimbo `_male` files].
-fn ordered_aim_variant(path: &str, aim: Aim) -> String {
-    let stem = &path[..path.len() - if path.to_ascii_lowercase().ends_with(".kf") { 3 } else { 0 }];
-    let lower = stem.to_ascii_lowercase();
-    match lower.rfind("_order_").filter(|&i| lower[i + 7..].parse::<u32>().is_ok()) {
-        Some(i) => aim_variant(&stem[..i], aim).replacen(".kf", &format!("{}.kf", &stem[i..]), 1),
-        None => aim_variant(path, aim),
-    }
-}
-
 /// kNVSE's AnimGroupOverride folders and SetActorAnimationPath on the player's rigs
 /// (`fnv_game::nvse_anim_folders`): each view takes the files the game gives it now, and
 /// whether a reload would be partial.
@@ -3287,12 +3233,10 @@ fn drive_body(
     // no playing clip speaks for stays as it was).
     for rig in std::iter::once(&mut body.third).chain(body.first.as_mut()) {
         for p in &mut rig.weapon_parts {
-            for (tag, on) in &mut p.tags {
-                if let Some(v) = rig.animator.visible(tag) {
-                    *on = v;
-                }
+            for (tag, on, rest) in &mut p.tags {
+                *on = part_on(rig.animator.visible(tag), *rest, *on);
             }
-            let shown = !p.never && p.tags.iter().all(|(_, on)| *on);
+            let shown = !p.never && p.tags.iter().all(|(_, on, _)| *on);
             if p.shown != Some(shown) {
                 if let Ok(mut v) = visibility.get_mut(p.entity) {
                     *v = if shown { Visibility::Inherited } else { Visibility::Hidden };
@@ -3388,6 +3332,30 @@ fn drive_body(
 
 #[cfg(test)]
 mod tests {
+    /// The Colt Anaconda's speed loader (`##SpeedLoader`, rest hidden): hidden drawn and
+    /// idle, also with the magazine at 0/0 (no clip keys it); shown while the reload
+    /// (`1hpReloadE.kf`, which holds it shown) plays; hidden again once the reload ends.
+    /// Its casings (`##swmCasing`, rest shown) stay shown; the minigun's gun, which the
+    /// model has no rest for, stays as the last clip left it.
+    #[test]
+    fn a_speed_loader_shows_only_while_the_reload_keys_it() {
+        let loader = Some(false);
+        let mut on = super::part_on(None, loader, true);
+        assert!(!on, "drawn, before any reload");
+        on = super::part_on(None, loader, on);
+        assert!(!on, "idle at 0/0");
+        on = super::part_on(Some(true), loader, on);
+        assert!(on, "mid-reload");
+        on = super::part_on(None, loader, on);
+        assert!(!on, "after the reload");
+        assert!(super::part_on(None, Some(true), true), "the casings");
+        assert!(!super::part_on(None, None, false), "a part with no rest keeps the last clip's word");
+        assert!(super::part_on(None, None, true));
+        // An RPG-7's round (rest shown) hidden by the attack stays hidden after it.
+        assert!(!super::part_on(None, Some(true), false), "an empty launcher's round");
+        assert!(super::part_on(Some(true), Some(true), false), "the reload puts it back");
+    }
+
     #[test]
     fn override_files_replace_clips_by_stem() {
         let f = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
@@ -3438,11 +3406,11 @@ mod tests {
         let m = super::override_stems(&f(&last));
         assert_eq!(m["1hpattackright"], ["AnimGroupOverride\\Johnsonn_9mmAkimboRightLast\\_1stPerson\\1hpAttackRight_order_1.kf"]);
         assert_eq!(m["1hpaim"].len(), 1, "a stem the later folder lacks keeps its file");
-        assert_eq!(super::order_of("1hpattackright_order_12"), ("1hpattackright".to_string(), 12));
-        assert_eq!(super::order_of("1hpattackright_order_x"), ("1hpattackright_order_x".to_string(), 0));
+        assert_eq!(crate::anim_overrides::order_of("1hpattackright_order_12"), ("1hpattackright".to_string(), 12));
+        assert_eq!(crate::anim_overrides::order_of("1hpattackright_order_x"), ("1hpattackright_order_x".to_string(), 0));
         let up = super::ordered_aim_variant("meshes\\AnimGroupOverride\\J\\_male\\1hpAttackRight_order_1.kf", Aim::Up);
         assert_eq!(up, "meshes\\AnimGroupOverride\\J\\_male\\1hpAttackRightup_order_1.kf");
-        assert_eq!(super::ordered_aim_variant("a\\2hrattackleft.kf", Aim::Up), aim_variant("a\\2hrattackleft.kf", Aim::Up));
+        assert_eq!(super::ordered_aim_variant("a\\2hrattackleft.kf", Aim::Up), fnv_actor::player_clips::aim_variant("a\\2hrattackleft.kf", Aim::Up));
     }
 
     use super::*;
