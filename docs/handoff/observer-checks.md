@@ -1898,3 +1898,15 @@ Fallout Behavior, Weapon Drawn, Continue During Combat).
      pause menu and MCM's window open: `SetMCMFloatMass 1 37 38 "depth" 33` and `1 36 37
      "visible" 0`, reading ArrowUp, ArrowDown and Option36 before and after in one script;
      and `5 23 24 "_enable" 1` reading Mod23 and SubMenu1.
+
+## Added 2026-11-12 (created actors' editor location, issue #2278)
+
+120. **Where is a created actor's editor location?** (P2; crates/fnv-ai/src/goal.rs
+     `editor_place_of`.) NVForever takes the cell and position where a PlaceAtMe'd or
+     spawned reference was created as its editor location [hypothesis], so its packages
+     near the editor location (DefaultSandboxEditorLocation256/512, the player reports'
+     spawned coyotes and Legion recruits) have a place. To check: PlaceAtMe a CrCoyote
+     (DefaultSandboxEditorLocation512) beside the player at the Goodsprings coyotes' spot,
+     MoveTo it 2,000 units off, and sample its position for 60 s: does it walk back to the
+     creation spot and wander there, or sandbox where it now stands? And
+     `GetStartingPos X` on it before and after the move.

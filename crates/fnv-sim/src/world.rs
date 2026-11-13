@@ -215,6 +215,11 @@ pub struct RefState {
     /// there picks this reference up ([`World::dropped_beside`]).
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub dropped_by: Option<FormId>,
+    /// A reference created at run time ([`World::place`]): the cell and position it was
+    /// created at, its editor location for packages and `GetStartingPos`-like questions
+    /// that a placed reference answers from the plugins (#2278) [hypothesis].
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub made_at: Option<(Option<FormId>, [f32; 3])>,
 }
 
 impl RefState {
@@ -747,6 +752,7 @@ impl<'a> World<'a> {
             scale: None,
             equip_locks: BTreeMap::new(),
             dropped_by: None,
+            made_at: None,
             outfitted: false,
         })
     }
@@ -1310,6 +1316,7 @@ impl<'a> World<'a> {
                     scale: None,
                     equip_locks: BTreeMap::new(),
                     dropped_by: None,
+                    made_at: None,
                 },
             );
             out.push(id);
@@ -1955,6 +1962,7 @@ impl<'a> World<'a> {
                 scale: None,
                 equip_locks: BTreeMap::new(),
                 dropped_by: None,
+                made_at: Some((cell, pos)),
             },
         );
         Ok(id)

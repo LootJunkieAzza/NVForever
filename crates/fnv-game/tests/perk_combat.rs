@@ -3,7 +3,7 @@
 //! entries take the highest rank's, and the functions resolve to numbers.
 //! docs/spec-notes/perk-entry-points.md.
 
-mod common;
+use crate::common;
 
 use common::*;
 use fnv_esm::raw::Subrecord;

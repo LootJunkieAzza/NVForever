@@ -1,7 +1,7 @@
 //! The factions and AI package lists of templated and leveled actors on a synthetic
 //! plugin (no game data). docs/spec-notes/factions.md §2 and §3.
 
-mod common;
+use crate::common;
 
 use common::*;
 use fnv_esm::{LoadOrder, Plugin, Schema};
