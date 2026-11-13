@@ -26380,7 +26380,7 @@ env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_T
 args = ["--cell", "Vault3a", "--play", "--no-voice", "--no-messages"]
 run_seconds = 16
 expect = [
-  { re = 'provocation: the player attacked .*0x000F26F1 of FiendsFactionNV \(Evil\): (?P<n>\d+) of its members in the area turn on the player', range = [8, 30], label = "every Fiend in the room turns on the player" },
+  { re = 'provocation: the player attacked .*0x000F26F1 of FiendsFactionNV \S+ \(Evil\): (?P<n>\d+) of its members in the area turn on the player', range = [8, 30], label = "every Fiend in the room turns on the player" },
   { re = 'provocation: .*0x000F2DFC is alerted: the player attacked .*0x000F26F1 of its faction', label = "a Fiend at the far end, who saw nothing, too" },
   { re = 'provocation: .*0x000F26F1 \(ally\) is attacked by the player and fights back', label = "the Fiend hit fights back at the first hit" },
 ]
