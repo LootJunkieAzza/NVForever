@@ -588,12 +588,21 @@ struct Args {
     npc_ledges: bool,
     /// With --play: the quest pilot (pilot.rs, issue #2365) plays this headless
     /// walkthrough chain (`fnv.script.actions/1`) with the player character, then exits.
+    /// Given several times: the chains are played one after the other in the one game.
     #[arg(long, requires = "play")]
-    pilot: Option<PathBuf>,
-    /// The headless trace of the same chain (`fnvtool script run --actions`): the
-    /// pilot's labelled reads are compared with it.
+    pilot: Vec<PathBuf>,
+    /// The headless trace of the chain at the same place in the list (`fnvtool script
+    /// run --actions`): the pilot's labelled reads are compared with it.
     #[arg(long, requires = "pilot")]
-    pilot_expect: Option<PathBuf>,
+    pilot_expect: Vec<PathBuf>,
+    /// The pilot's chains go on from the game's own state (use with --new-game): their
+    /// given states are checked as preconditions, not set.
+    #[arg(long, requires = "pilot")]
+    pilot_campaign: bool,
+    /// The pilot's player can be hurt and runs out of ammunition (god mode is on for
+    /// the pilot otherwise).
+    #[arg(long, requires = "pilot")]
+    pilot_no_god: bool,
     /// Where the pilot writes its report (`fnv.pilot.report/1`).
     #[arg(long, requires = "pilot")]
     pilot_out: Option<PathBuf>,
@@ -1809,8 +1818,8 @@ fn main() -> AppExit {
             .add_systems(Update, (furniture::seat_orders, furniture::drive_actors).chain().after(nav::drive).before(locomotion::walk_test))
             .add_systems(Last, furniture::report);
     }
-    if let Some(chain) = &args.pilot {
-        app.add_plugins(pilot::PilotPlugin { chain: chain.clone(), expect: args.pilot_expect.clone(), out: args.pilot_out.clone() });
+    if !args.pilot.is_empty() {
+        app.add_plugins(pilot::PilotPlugin { chains: args.pilot.clone(), expect: args.pilot_expect.clone(), out: args.pilot_out.clone(), campaign: args.pilot_campaign, god: !args.pilot_no_god });
     }
     if let Some(n) = nav_state {
         let follow = n.follow;

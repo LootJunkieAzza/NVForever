@@ -4,6 +4,29 @@
 //! trips over. All of it is [design].
 //!
 //! `--pilot <chain> [--pilot-expect <trace>] [--pilot-out <report>]`, with `--play`.
+//! Both may be given several times: the chains are played one after the other in the one
+//! game, each compared with the trace at its place in the list.
+//!
+//! - **A campaign** (`--pilot-campaign`, with `--new-game`): the chains go on from the
+//!   game's own state, as a player's do, instead of each from its `given` state. A
+//!   chain's `given` is then a precondition: a quest entry is compared with the game and
+//!   a difference kept as a `precondition` finding, never set; what a player would have
+//!   had to earn or carry (actor values, items, skill points, tag skills, reputations,
+//!   globals) is given, so the chain's own checks can pass. The first chain's `given` is
+//!   left out altogether: the game is where New Game put it. A chain started from a thin
+//!   `given` gave false alarms: Doc Mitchell, activated with his opening only marked
+//!   done, started the opening again.
+//! - **A line the headless run says for an actor** (`say_info` with a speaker) is, in a
+//!   campaign, the player going to that actor and talking to it: the chains use it both
+//!   for what an actor says of its own accord and for the player's talk (Sunny's first
+//!   tutorial line). The game picks the line. When the line named has not been said
+//!   [`LINE_SECS`] s on, a `line_not_said` finding is kept and the line said as the
+//!   headless run says it. `say_first` and `say_to_done` are left to the game. A
+//!   `trigger_enter` of another actor is the AI's to bring about, not the player's.
+//! - Menus: `wait_menu`, `get_menus`, `close_menus`, `press_button` and
+//!   `dismiss_message_boxes` act on the game's menu as the headless run does. A message
+//!   box no step is waiting for is closed after [`BOX_SECS`] s, as a player presses OK
+//!   (headless such a box holds nothing up).
 //!
 //! - **The player is driven like an NPC and acts directly.** It walks the navmesh paths
 //!   the NPCs walk (`fnv_nav`, through doors) on its own movement controls, so the
@@ -37,9 +60,12 @@
 //!   alive after [`FIGHT_SECS`] is a `fight_not_won` finding and is killed as the
 //!   headless run kills it, so the chain goes on. Not yet: where to stand and when to
 //!   fire as the NPCs judge it (`npc_combat`: reach, cover, line of fire), melee.
-//! - Not yet: `hit` (the script call of the headless run), `press_button`,
-//!   `dismiss_message_boxes` (the test aid `NVF_PLAY_TEST_SCRIPT_MENUS` closes boxes)
-//!   and the samplers; the last three are `not_carried_out` findings.
+//! - **God mode is on** unless `--pilot-no-god` [owner decision 2026-11-13]: the player
+//!   takes no damage and its magazine stays full (`nvf_play::combat::set_god_mode`). The
+//!   pilot looks for quests that cannot go on, not for fights that cannot be won; a run
+//!   without it says whether a fight can be.
+//! - Not yet: `hit` (the script call of the headless run) and the samplers
+//!   (`not_carried_out` findings).
 //!
 //! Log: `pilot: step <n> <op> ...`, `pilot: finding <kind>: ...`, `pilot: divergence at
 //! step <n> ...`, and at the end `pilot: done: <n> steps, <d> divergences, <f> findings,
@@ -88,6 +114,10 @@ const AIM_SECS: f64 = 0.25;
 const WAIT_CAP: f64 = 120.0;
 const ADVANCE_CAP: f64 = 20.0;
 const TURN_RATE: f32 = 6.0;
+/// Seconds a message box nobody waits for stays up before the pilot closes it.
+pub const BOX_SECS: f64 = 1.5;
+/// Seconds after talking to an actor in which the line a `say_info` names must be said.
+pub const LINE_SECS: f64 = 8.0;
 /// The weapon and ammo the pilot fights with (Editor IDs of FalloutNV.esm's records).
 pub const PILOT_WEAPON: &str = "WeapNV9mmPistol";
 pub const PILOT_AMMO: &str = "Ammo9mm";
@@ -98,20 +128,66 @@ pub const FIGHT_CLOSER_SECS: f64 = 12.0;
 pub const FIGHT_SECS: f64 = 75.0;
 
 pub struct PilotPlugin {
-    pub chain: PathBuf,
-    pub expect: Option<PathBuf>,
+    pub chains: Vec<PathBuf>,
+    pub expect: Vec<PathBuf>,
     pub out: Option<PathBuf>,
+    pub campaign: bool,
+    pub god: bool,
 }
 
 impl Plugin for PilotPlugin {
     fn build(&self, app: &mut App) {
-        match Pilot::load(&self.chain, self.expect.as_deref(), self.out.clone()) {
-            Ok(p) => {
-                info!("pilot: {} steps of {}{}", p.actions.len(), self.chain.display(), if p.expect.is_empty() { "" } else { ", compared with a headless trace" });
-                app.insert_resource(p).add_systems(Update, drive.in_set(PlaySet::Input).after(nvf_play::control::read_controls).before(nvf_play::control::enforce_locks));
+        let loaded: Result<Vec<Chain>, String> = self.chains.iter().enumerate().map(|(k, c)| Chain::load(c, self.expect.get(k).map(PathBuf::as_path)).map_err(|e| format!("{}: {e}", c.display()))).collect();
+        match loaded {
+            Ok(chains) if !chains.is_empty() => {
+                for c in &chains {
+                    info!("pilot: chain {}: {} steps{}", c.name, c.actions.len(), if c.expect.is_empty() { "" } else { ", compared with a headless trace" });
+                }
+                if self.god {
+                    nvf_play::combat::set_god_mode(true);
+                    info!("pilot: god mode on: the player takes no damage and its magazine stays full (--pilot-no-god for a run without)");
+                }
+                if self.campaign {
+                    info!("pilot: a campaign: the chains go on from the game's own state; their given states are preconditions");
+                }
+                app.insert_resource(Pilot::new(chains, self.out.clone(), self.campaign)).add_systems(Update, drive.in_set(PlaySet::Input).after(nvf_play::control::read_controls).before(nvf_play::control::enforce_locks));
             }
-            Err(e) => error!("pilot: {}: {e}", self.chain.display()),
+            Ok(_) => error!("pilot: no chain"),
+            Err(e) => error!("pilot: {e}"),
         }
+    }
+}
+
+/// One chain to play.
+struct Chain {
+    name: String,
+    title: String,
+    given: Vec<Json>,
+    actions: Vec<Action>,
+    ops: Vec<String>,
+    expect: std::collections::HashMap<usize, Json>,
+}
+
+impl Chain {
+    fn load(chain: &std::path::Path, expect: Option<&std::path::Path>) -> Result<Chain, String> {
+        let text = std::fs::read_to_string(chain).map_err(|e| e.to_string())?;
+        let raw: Json = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+        let input: runner::Input = serde_json::from_value(raw.clone()).map_err(|e| e.to_string())?;
+        if input.format != runner::ACTIONS_FORMAT {
+            return Err(format!("format {:?}, want {:?}", input.format, runner::ACTIONS_FORMAT));
+        }
+        let ops = raw["actions"].as_array().map(|a| a.iter().map(|x| x["op"].as_str().unwrap_or("?").to_string()).collect()).unwrap_or_default();
+        let mut expected = std::collections::HashMap::new();
+        if let Some(p) = expect {
+            let t: Json = serde_json::from_str(&std::fs::read_to_string(p).map_err(|e| format!("{}: {e}", p.display()))?).map_err(|e| format!("{}: {e}", p.display()))?;
+            for o in t["observations"].as_array().into_iter().flatten() {
+                if let Some(step) = o["step"].as_u64() {
+                    expected.insert(step as usize, o.clone());
+                }
+            }
+        }
+        let name = chain.file_name().map(|n| n.to_string_lossy().trim_end_matches(".actions.json").to_string()).unwrap_or_default();
+        Ok(Chain { name, title: input.title.clone().unwrap_or_default(), given: raw["given"].as_array().cloned().unwrap_or_default(), actions: input.actions, ops, expect: expected })
     }
 }
 
@@ -163,6 +239,13 @@ enum Phase {
 
 #[derive(Resource)]
 struct Pilot {
+    /// The chains still to play, the one being played and how many are done.
+    queue: std::collections::VecDeque<Chain>,
+    chain: String,
+    chains_done: usize,
+    campaign: bool,
+    /// Since when a message box nobody waits for has been up.
+    box_since: Option<f64>,
     title: String,
     given: Vec<Json>,
     actions: Vec<Action>,
@@ -189,29 +272,18 @@ struct Pilot {
 }
 
 impl Pilot {
-    fn load(chain: &std::path::Path, expect: Option<&std::path::Path>, out: Option<PathBuf>) -> Result<Pilot, String> {
-        let text = std::fs::read_to_string(chain).map_err(|e| e.to_string())?;
-        let raw: Json = serde_json::from_str(&text).map_err(|e| e.to_string())?;
-        let input: runner::Input = serde_json::from_value(raw.clone()).map_err(|e| e.to_string())?;
-        if input.format != runner::ACTIONS_FORMAT {
-            return Err(format!("format {:?}, want {:?}", input.format, runner::ACTIONS_FORMAT));
-        }
-        let ops = raw["actions"].as_array().map(|a| a.iter().map(|x| x["op"].as_str().unwrap_or("?").to_string()).collect()).unwrap_or_default();
-        let mut expected = std::collections::HashMap::new();
-        if let Some(p) = expect {
-            let t: Json = serde_json::from_str(&std::fs::read_to_string(p).map_err(|e| format!("{}: {e}", p.display()))?).map_err(|e| format!("{}: {e}", p.display()))?;
-            for o in t["observations"].as_array().into_iter().flatten() {
-                if let Some(step) = o["step"].as_u64() {
-                    expected.insert(step as usize, o.clone());
-                }
-            }
-        }
-        Ok(Pilot {
-            title: input.title.clone().unwrap_or_default(),
-            given: raw["given"].as_array().cloned().unwrap_or_default(),
-            actions: input.actions,
-            ops,
-            expect: expected,
+    fn new(chains: Vec<Chain>, out: Option<PathBuf>, campaign: bool) -> Pilot {
+        let mut p = Pilot {
+            queue: chains.into(),
+            chain: String::new(),
+            chains_done: 0,
+            campaign,
+            box_since: None,
+            title: String::new(),
+            given: Vec::new(),
+            actions: Vec::new(),
+            ops: Vec::new(),
+            expect: Default::default(),
             out,
             applier: Applier::default(),
             given_applied: false,
@@ -227,12 +299,22 @@ impl Pilot {
             divergences: Vec::new(),
             findings: Vec::new(),
             done: false,
-        })
+        };
+        p.next_chain();
+        p
+    }
+
+    /// Take the next chain of the queue. Whether there was one.
+    fn next_chain(&mut self) -> bool {
+        let Some(c) = self.queue.pop_front() else { return false };
+        (self.chain, self.title, self.given, self.actions, self.ops, self.expect) = (c.name, c.title, c.given, c.actions, c.ops, c.expect);
+        (self.i, self.phase, self.part, self.given_applied, self.step_from) = (0, Phase::Begin, 0, false, self.now);
+        true
     }
 
     fn finding(&mut self, kind: &str, text: String) {
         warn!("pilot: finding {kind}: step {} {}: {text}", self.i, self.ops.get(self.i).map_or("", String::as_str));
-        self.findings.push(json!({"kind": kind, "step": self.i, "op": self.ops.get(self.i), "text": text}));
+        self.findings.push(json!({"kind": kind, "chain": self.chain, "step": self.i, "op": self.ops.get(self.i), "text": text}));
     }
 
     /// The step is over: the next one begins.
@@ -243,7 +325,7 @@ impl Pilot {
             Some(e) => warn!("pilot: step {} {op} failed after {secs:.1} s: {e}", self.i),
             None => info!("pilot: step {} {op} done in {secs:.1} s", self.i),
         }
-        let mut s = json!({"step": self.i, "op": op, "seconds": (secs * 10.0).round() / 10.0});
+        let mut s = json!({"chain": self.chain, "step": self.i, "op": op, "seconds": (secs * 10.0).round() / 10.0});
         if let Some(e) = error {
             s["error"] = json!(e);
         }
@@ -261,7 +343,7 @@ impl Pilot {
         if !differing.is_empty() && !keep {
             return false;
         }
-        let mut o = json!({"label": label, "step": self.i});
+        let mut o = json!({"chain": self.chain, "label": label, "step": self.i});
         for (k, v) in fields {
             o[k.as_str()] = v.clone();
         }
@@ -270,13 +352,13 @@ impl Pilot {
             return true;
         }
         warn!("pilot: divergence at step {} ({label}): {}", self.i, Json::Array(differing.clone()));
-        self.divergences.push(json!({"step": self.i, "label": label, "fields": differing}));
+        self.divergences.push(json!({"chain": self.chain, "step": self.i, "label": label, "fields": differing}));
         false
     }
 
     fn report(&self, softlocks: u32) -> Json {
         json!({
-            "format": REPORT_FORMAT, "title": self.title, "steps_total": self.actions.len(), "seconds": self.now.round(),
+            "format": REPORT_FORMAT, "campaign": self.campaign, "chains": self.chains_done, "last_title": self.title, "seconds": self.now.round(),
             "steps": self.steps, "observations": self.observations, "divergences": self.divergences, "findings": self.findings, "softlocks": softlocks,
         })
     }
@@ -363,6 +445,8 @@ struct Hands<'a, 'w> {
     nav: Option<&'a crate::nav::NavState>,
     world: &'a crate::world::WorldData,
     doors: &'a nvf_play::doors::Doors,
+    /// A menu holds the game this frame: the player cannot move.
+    in_menu: bool,
     travel: &'a mut MessageWriter<'w, TravelRequest>,
     dt: f32,
 }
@@ -500,7 +584,7 @@ fn walk(p: &mut Pilot, w: &mut Walk, h: &mut Hands) -> Walked {
                 _ => w.dodge = None,
             }
             // Held by a script: a wait, and the watchdog's to judge.
-            if h.locks.movement || hdist(feet, w.seen.1) > STUCK_UNITS {
+            if h.locks.movement || h.in_menu || hdist(feet, w.seen.1) > STUCK_UNITS {
                 w.seen = (p.now, feet);
             } else if p.now - w.seen.0 > STUCK_SECS {
                 w.seen = (p.now, feet);
@@ -653,6 +737,10 @@ fn step(p: &mut Pilot, h: &mut Hands) -> Option<Option<String>> {
                 }
             }
             walk_phase(p, h)
+        }
+        Action::TriggerEnter { trigger, actor: Some(actor), .. } if actor != "player" => {
+            info!("pilot: step {}: left to the AI: {actor} entering {trigger}", p.i);
+            Some(None)
         }
         Action::TriggerEnter { trigger, .. } => {
             if matches!(p.phase, Phase::Begin) {
@@ -822,6 +910,103 @@ fn step(p: &mut Pilot, h: &mut Hands) -> Option<Option<String>> {
             let name = target.clone().or_else(|| actor.clone()).expect("checked");
             fight(p, h, &name, &a)
         }
+        Action::SayInfo { info, speaker: Some(speaker), .. } if p.campaign => {
+            let said = |h: &mut Hands| h.game(|g| runner::resolve(g, info).is_ok_and(|i| g.said.iter().any(|(_, line)| *line == i))) == Some(true);
+            if p.part == 0 {
+                match approach(p, h, speaker, "talk to") {
+                    Err(e) => return Some(Some(e)),
+                    Ok(None) => return None,
+                    Ok(Some(target)) => {
+                        // It may have come and spoken already; else the player talks to it.
+                        if h.game(|g| g.dialogue.is_some()) != Some(true) {
+                            let r = h.script.rt.as_mut().map(|rt| with_world(rt, h.sim, |rt| rt.activate_as_player(target)));
+                            info!("pilot: step {}: talks to {speaker} for the line {info}: {}", p.i, outcome(r.as_ref()));
+                        }
+                        (p.part, p.phase) = (2, Phase::Wait { until: p.now + LINE_SECS });
+                    }
+                }
+            }
+            hear(p, h);
+            if said(h) {
+                return Some(None);
+            }
+            match p.phase {
+                Phase::Wait { until } if p.now < until => None,
+                _ => {
+                    p.finding("line_not_said", format!("{speaker} did not say {info} within {LINE_SECS:.0} s of the player talking to it: said as the headless run says it"));
+                    let mut applier = std::mem::take(&mut p.applier);
+                    let r = h.game(|g| runner::apply_now(g, &mut applier, &a));
+                    p.applier = applier;
+                    Some(r.and_then(|r| r.err()))
+                }
+            }
+        }
+        Action::SayFirst { .. } | Action::SayToDone { .. } if p.campaign => {
+            info!("pilot: step {}: left to the game: a line the headless run says for an actor", p.i);
+            Some(None)
+        }
+        Action::WaitMenu { menu, max_frames, label, .. } => {
+            let limit = (*max_frames as f64 / 60.0).clamp(5.0, WAIT_CAP);
+            let open = h.game(|g| g.menu_open(*menu)) == Some(true);
+            if open || p.now - p.step_from > limit {
+                if !open {
+                    p.finding("wait_timed_out", format!("menu {menu} did not open in {limit:.0} s"));
+                }
+                p.observe(label, &Map::from_iter([("found".to_string(), json!(open))]), true);
+                return Some((!open).then(|| format!("menu {menu} did not open")));
+            }
+            None
+        }
+        Action::GetMenus { menus, label } => {
+            let read = h.game(|g| menus.iter().map(|c| (format!("menu.{c}"), json!(g.menu_open(*c)))).collect::<Map<String, Json>>()).unwrap_or_default();
+            p.observe(label, &read, true);
+            Some(None)
+        }
+        Action::PressButton { button } => {
+            // As the play loop answers a box: the button is set, the box stays a moment so
+            // that MenuMode blocks read it, then it closes.
+            if p.part == 0 {
+                let set = h.game(|g| match g.message_box.as_mut() {
+                    Some(m) => m.can_press(*button).map(|_| m.pressed = Some(*button)).map(|_| true),
+                    None => Ok(false),
+                });
+                return match set {
+                    Some(Ok(true)) => {
+                        (p.part, p.phase) = (1, Phase::Wait { until: p.now + 0.1 });
+                        None
+                    }
+                    Some(Ok(false)) => (p.now - p.step_from > 10.0).then(|| Some("no message box opened in 10 s".to_string())),
+                    Some(Err(e)) => Some(Some(e)),
+                    None => Some(Some("the scripts are not running".into())),
+                };
+            }
+            match p.phase {
+                Phase::Wait { until } if p.now < until => None,
+                _ => {
+                    h.game(|g| (g.menu == Some(fnv_game::game::menus::MESSAGE)).then(|| g.close_menu()));
+                    Some(None)
+                }
+            }
+        }
+        Action::DismissMessageBoxes { max, wait_frames, label } => {
+            // `part` counts the boxes closed; the wait for each starts again in `phase`.
+            let wait = (*wait_frames as f64 / 60.0).clamp(1.0, 30.0);
+            if matches!(p.phase, Phase::Begin) {
+                p.phase = Phase::Wait { until: p.now + wait };
+            }
+            if h.game(|g| g.menu == Some(fnv_game::game::menus::MESSAGE) && g.close_menu().is_some()) == Some(true) {
+                p.part += 1;
+                p.phase = Phase::Wait { until: p.now + wait };
+            }
+            let over = p.part as u32 >= *max || matches!(p.phase, Phase::Wait { until } if p.now >= until);
+            if over {
+                if let Some(l) = label {
+                    p.observe(l, &Map::from_iter([("closed".to_string(), json!(p.part))]), true);
+                }
+                return Some(None);
+            }
+            None
+        }
         Action::Package { actor, package, event } => {
             info!("pilot: step {}: left to the AI: {actor}'s package {package} ({event})", p.i);
             Some(None)
@@ -954,7 +1139,7 @@ type Places<'w> = (Res<'w, Location>, Res<'w, Target>, Option<Res<'w, crate::nav
 fn drive(
     real: Res<Time<Real>>,
     state: Res<State<PlayState>>,
-    loading: Res<Loading>,
+    (loading, paused): (Res<Loading>, Res<nvf_play::pause::Paused>),
     mut pilot: ResMut<Pilot>,
     (mut script, mut sim, mut phys): (ResMut<ScriptState>, ResMut<SimState>, ResMut<PhysState>),
     (mut player, mut intent, mut control, locks): (ResMut<Player>, ResMut<MoveIntent>, ResMut<PlayerControl>, Res<ControlLocks>),
@@ -964,7 +1149,10 @@ fn drive(
     mut exit: MessageWriter<AppExit>,
 ) {
     let p = &mut *pilot;
-    if p.done || loading.active() || !matches!(*state.get(), PlayState::Playing | PlayState::Dialogue) || script.rt.is_none() {
+    // In play, in a conversation, and in a menu the scripts opened (the opening's menus,
+    // a message box): not behind the pause menu or a loading screen.
+    let scripts_menu = *state.get() == PlayState::Menu && !paused.0 && script.rt.as_ref().is_some_and(|rt| rt.game.menu.is_some());
+    if p.done || loading.active() || !(matches!(*state.get(), PlayState::Playing | PlayState::Dialogue) || scripts_menu) || script.rt.is_none() {
         return;
     }
     let dt = real.delta_secs().min(0.25);
@@ -985,19 +1173,53 @@ fn drive(
         nav: nav.as_deref(),
         world: &world,
         doors: &doors,
+        in_menu: scripts_menu,
         travel: &mut travel,
         dt,
     };
     if !p.given_applied {
         p.given_applied = true;
-        let given = p.given.clone();
+        let all = p.given.clone();
+        // In a campaign the given state is a precondition (module notes).
+        let (given, checked): (Vec<Json>, Vec<Json>) = match (p.campaign, p.chains_done) {
+            (false, _) => (all, Vec::new()),
+            (true, 0) => (Vec::new(), Vec::new()),
+            (true, _) => all.into_iter().filter(|e| e["kind"] != "menu" && e["kind"] != "place" && e["kind"] != "ref" && e["kind"] != "disabled").partition(|e| e["kind"] != "quest"),
+        };
+        for e in &checked {
+            let Some(quest) = e["quest"].as_str() else { continue };
+            let differing: Vec<String> = ["running", "completed", "stage"]
+                .iter()
+                .filter(|f| !e[**f].is_null())
+                .filter_map(|f| match h.game(|g| runner::quest_field(g, quest, f)) {
+                    Some(Ok(v)) if !same(&v, &e[*f]) => Some(format!("{f} is {v}, the chain starts from {}", e[*f])),
+                    _ => None,
+                })
+                .collect();
+            if !differing.is_empty() {
+                p.finding("precondition", format!("{quest}: {}", differing.join("; ")));
+            }
+        }
         let errors = h.game(|g| runner::apply_given_entries(g, &given)).unwrap_or_default();
-        info!("pilot: {} given entries applied, {} errors", given.len(), errors.len());
+        info!("pilot: chain {}: {} given entries applied, {} checked, {} errors", p.chain, given.len(), checked.len(), errors.len());
         for e in errors {
             p.finding("given", e.to_string());
         }
         p.step_from = p.now;
         return;
+    }
+    // A message box no step waits for: closed as a player presses OK.
+    let waited_for = matches!(p.actions.get(p.i), Some(Action::PressButton { .. } | Action::DismissMessageBoxes { .. } | Action::WaitMenu { .. } | Action::GetMenus { .. } | Action::CloseMenus { .. }));
+    let boxed = h.game(|g| g.menu == Some(fnv_game::game::menus::MESSAGE)) == Some(true);
+    match (boxed && !waited_for, p.box_since) {
+        (true, None) => p.box_since = Some(p.now),
+        (true, Some(t)) if p.now - t > BOX_SECS => {
+            h.game(|g| g.close_menu());
+            info!("pilot: step {}: closes a message box no step waits for", p.i);
+            p.box_since = None;
+        }
+        (false, _) => p.box_since = None,
+        _ => {}
     }
     // Steps that take no time follow one another within the frame.
     for _ in 0..64 {
@@ -1012,10 +1234,15 @@ fn drive(
     if p.i < p.actions.len() {
         return;
     }
+    p.chains_done += 1;
+    info!("pilot: chain {} over at {:.0} s: {} divergences and {} findings so far", p.chain, p.now, p.divergences.len(), p.findings.len());
+    if p.next_chain() {
+        return;
+    }
     p.done = true;
     let softlocks = watch.map_or(0, |w| w.found);
     let failed = p.steps.iter().filter(|s| s.get("error").is_some()).count();
-    info!("pilot: done: {} steps ({failed} failed), {} divergences, {} findings, {softlocks} soft locks in {:.0} s", p.steps.len(), p.divergences.len(), p.findings.len(), p.now);
+    info!("pilot: done: {} chain(s), {} steps ({failed} failed), {} divergences, {} findings, {softlocks} soft locks in {:.0} s", p.chains_done, p.steps.len(), p.divergences.len(), p.findings.len(), p.now);
     if let Some(out) = &p.out {
         match serde_json::to_string_pretty(&p.report(softlocks)).map_err(|e| e.to_string()).and_then(|t| std::fs::write(out, t).map_err(|e| e.to_string())) {
             Ok(()) => info!("pilot: report written to {}", out.display()),
