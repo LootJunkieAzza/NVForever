@@ -736,6 +736,11 @@ pub struct MenuModel {
     /// equipped items are left out of the player's side in barter and containers;
     /// category titles in title case.
     pub take_all_stays: bool,
+    /// The player's Take All Confirmation tweak: Take All of at least this many units asks
+    /// to be pressed again (`None`: off), and whether it is asking now [design:
+    /// docs/design/tweaks.md].
+    pub take_all_confirm: Option<i32>,
+    confirming_take_all: bool,
     /// The player's Store All tweak: Shift with Take All stores instead.
     pub store_all: bool,
     /// The player's tweak: the barter figure shows the whole total, past what the
@@ -936,6 +941,8 @@ impl MenuModel {
             vendor_lists_both: false,
             hide_misc_quest: false,
             take_all_stays: false,
+            take_all_confirm: None,
+            confirming_take_all: false,
             store_all: false,
             full_barter_total: false,
             barter_caps_change: false,
@@ -1324,6 +1331,14 @@ impl MenuModel {
             }
             Command::Amount(_) | Command::AmountStep(_) | Command::AmountOk | Command::AmountCancel => {}
             _ => {
+                // The player's Take All Confirmation tweak: the first Take All asks, the next
+                // does it; anything else takes the question back [design: docs/design/tweaks.md].
+                let confirmed = std::mem::take(&mut self.confirming_take_all);
+                if let (Command::TakeAll, false, Some(n)) = (cmd, confirmed, self.take_all_asks()) {
+                    self.confirming_take_all = true;
+                    self.status = Some(format!("Take all {n} items? Take All again to confirm"));
+                    return out;
+                }
                 if let Some(q) = self.asks_quantity(cmd) {
                     self.quantity = Some(q);
                     self.status = None;
@@ -1351,6 +1366,19 @@ impl MenuModel {
             && self.quantity.is_none()
             && RowKey::at(&self.list(g.side).rows, g.index) == Some(g.key)
             && (!g.selected || (self.focus == g.side && self.selected[g.side as usize] == g.index))
+    }
+
+    /// Whether Take All asks first (the player's tweak): in a container, not stealing, with at
+    /// least its count of units listed; the count.
+    fn take_all_asks(&self) -> Option<i32> {
+        let min = self.take_all_confirm?;
+        let n: i32 = self.lists[Side::Container as usize].rows.iter().map(|r| r.count).sum();
+        (matches!(self.mode, Mode::Container(_)) && self.steal.is_none() && n > 0 && n >= min).then_some(n)
+    }
+
+    /// Whether Take All is asking to be pressed again (the player's Take All Confirmation tweak).
+    pub fn confirming_take_all(&self) -> bool {
+        self.confirming_take_all
     }
 
     /// The prompt asked for by `cmd` on the selected row, if its stack is large enough.

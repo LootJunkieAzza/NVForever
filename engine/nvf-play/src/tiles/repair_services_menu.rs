@@ -158,6 +158,8 @@ pub struct Snapshot {
     pub all_ready: bool,
     /// What Repair All costs, after the file's words on its button.
     pub total: u32,
+    /// Repair All asks to be pressed again (the player's Repair All Confirmation tweak).
+    pub confirming: bool,
     pub hints: [String; 2],
 }
 
@@ -212,6 +214,7 @@ impl Snapshot {
             beyond: chosen.is_some_and(|r| r.quote == Quote::Beyond),
             all_ready: v.all_ready,
             total: v.total,
+            confirming: v.confirming,
             hints: w.hints.clone(),
         }
     }
@@ -387,7 +390,9 @@ fn write(ui: &mut Ui, s: &Snapshot, st: &mut RepairServicesTiles) {
     let words = st.all_words.get_or_insert_with(|| ui.get_string(&format!("{REPAIR_ALL}/button_text/string")).unwrap_or_default());
     // The file's words, a space, the total in brackets, offered even when out of reach [observed:
     // the same job, read and in its pictures].
-    set(ui, &format!("{REPAIR_ALL}/button_text"), "string", Value::Str(format!("{words} ({})", s.total)));
+    // Asking under the player's Repair All Confirmation tweak [design: our own words].
+    let ask = if s.confirming { "? Again to confirm" } else { "" };
+    set(ui, &format!("{REPAIR_ALL}/button_text"), "string", Value::Str(format!("{words} ({}){ask}", s.total)));
     set(ui, DONE, "visible", on(true));
     set(ui, DONE, "target", on(true));
     for (button, hint) in [REPAIR_ALL, DONE].into_iter().zip(&s.hints) {
@@ -608,7 +613,7 @@ mod tests {
         second.count = 3;
         second.label = "Item 2 (3)".into();
         let third = row(3, 0.9, Quote::Beyond, false);
-        View { rows: vec![first, second, third], selected: 0, first: 0, skill: 60, caps: 90, total: 61, all_ready: true, labels: crate::pad::Labels::Keys }
+        View { rows: vec![first, second, third], selected: 0, first: 0, skill: 60, caps: 90, total: 61, all_ready: true, confirming: false, labels: crate::pad::Labels::Keys }
     }
 
     fn frame(ui: &mut Ui, s: Snapshot, st: &mut RepairServicesTiles) {

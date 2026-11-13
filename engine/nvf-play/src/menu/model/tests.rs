@@ -1134,3 +1134,17 @@ fn barter_kind_mults_pick_the_side_and_kind() {
     assert_eq!(k.of(true, Some(ItemKind::Aid), true), 1.0);
     assert_eq!(BarterKindMults { water_unscaled: false, ..k }.of(true, Some(ItemKind::Aid), true), 2.2);
 }
+
+/// Take All Confirmation: the first Take All asks, the next takes.
+#[test]
+fn take_all_asks_first_under_the_tweak() {
+    let f = fixture();
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    let mut m = MenuModel::open_container(&mut w, FormId(BOX_REF)).unwrap();
+    m.take_all_confirm = Some(1);
+    let a = m.apply(&mut w, Command::TakeAll);
+    assert!(!a.changed && m.confirming_take_all(), "{:?}", m.status);
+    let a = m.apply(&mut w, Command::TakeAll);
+    assert!(a.changed);
+    assert!(m.list(Side::Container).rows.is_empty());
+}

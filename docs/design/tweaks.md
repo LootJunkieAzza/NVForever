@@ -601,6 +601,8 @@ unless the player binds them, so nothing changes until then.
 | Hostiles Prioritize Player | `bHostilesPrioritizePlayer` | `Game::prefer_player` runs after each fighter's targets settle: when `Awareness::own_target` is a teammate and the player is detected at the threshold, one roll (start or mid chance, from the awareness module's own sequence) sets `Awareness::prefer_player`, which `combat_target` honours while the player is detected; cleared out of Combat |
 | Key Repeat Acceleration | `bKeyRepeatAcceleration` | `key_repeat`: in a menu a held arrow, W/A/S/D or Page key (the pad's too, through `pad::menu_keys`) is released and pressed again after `FIRST_DELAY` then every `INTERVAL`; `Acceleration` (set by `tweaks::sync`) divides the interval by its multipliers after its delays |
 | Scale Explosion Shake | `bScaleExplosionShake` | `shake`: each `ExplosionFx` within reach (`rumble::explosion`'s pulse) adds a fading shake that turns the camera after it is placed; `ShakeScale` (set by `tweaks::sync`, 1 with the switch off) multiplies it |
+| Take All Confirmation | `bTakeAllConfirmation` | `menu::model::MenuModel::take_all_confirm` (set by `tweaks::sync`): `apply` turns the first Take All of enough listed units into a status question (`confirming_take_all`); the next acting command, Take All included, ends it |
+| Repair All Confirmation | `bRepairAllConfirmation` | `repair::Open::confirming`: in `keys` a Repair All at or over the price only asks (the button's text, `View::confirming`, the tiles' `button_text` too); the next Repair All pays, a row's repair or a move takes it back |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -622,8 +624,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 532 |
-| to do | 70 |
+| done | 534 |
+| to do | 68 |
 | unsure, skipped | 18 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -1098,6 +1100,7 @@ game's Data folder, read-only).
 | `bPreviewPerksOnLevelUp` | done |  |  | Preview Perks on Level Up (the page with none to take) |
 | `bQuestTextVisibleInMenus` | done |  |  | Quest Text Over the Pip-Boy (and terminals; while sitting it already shows) |
 | `bRememberPipboyScrollPositions` | done | yes |  | Remember Item List Places (the Items lists' rows, each tab its own, kept with the save) |
+| `bRepairAllConfirmation` | done |  | 2 | Repair All Confirmation with From This Price: the first Repair All turns its button into the question, the next pays (hand-built and tile menus); the message text is ours |
 | `bReputationShowsFameInfamy` | done |  | 3 | Show Fame and Infamy (numbers; the percentage option not built) |
 | `bRightClickChangesToPreviousContainerCategory` | done |  |  | Right Click for the Previous Category (container and barter; not the recipe menu) |
 | `bSavingDoesntClosePauseMenu` | done |  |  | already so: saving leaves the pause menu open |
@@ -1122,6 +1125,7 @@ game's Data folder, read-only).
 | `bTabBackInStartMenu` | done |  |  | Tab Goes Back in the Pause Menu (where Tab steps no tabs) |
 | `bTabClosesPipboyFromKeyAndLimbMenus` | done |  |  | already so: Tab closes the Pip-Boy from every page |
 | `bTabClosesTerminals` | done |  |  | Tab Closes Terminals (Backspace still goes back) |
+| `bTakeAllConfirmation` | done |  | 2 | Take All Confirmation with From This Many: the first Take All asks in the menu's status line, the next takes; the message text is ours (rows hold numbers only) |
 | `bTerminalGreyReadNotes` | done |  |  | Dim Read Terminal Entries (entries whose note was read, from the switch on, kept with the save) |
 | `bTerminalInstantDisplayHotkey` | done |  |  | already so: terminal text is shown whole |
 | `bTimescaleAffectsMinigames` | done |  |  | Lockpicking Follows the Time Speed (the lock only; the card and slot games keep their pace) |
@@ -1143,10 +1147,8 @@ game's Data folder, read-only).
 | `bNoMinCompanionMapDistance` | to do |  |  | companions are not drawn on the world map yet |
 | `bNoteMenuShowSeparateMenu` | unsure, skipped |  | 1 | needs another mod (Book Menu Restored) |
 | `bQuantityMenuRespectsCompanionCarryCap` | to do |  |  | asks_quantity has no world |
-| `bRepairAllConfirmation` | to do |  | 2 | a confirmation box in repair |
 | `bRepairItemsPreview` | to do |  | 1 | a preview session in the repair list |
 | `bShowInventorySortButton` | unsure, skipped |  | 11 | needs the plugin's own menu XML |
-| `bTakeAllConfirmation` | to do |  | 2 | a confirmation prompt in the menu model |
 | `bVATSAPDisplayIncludesReloadCost` | to do |  |  | not built: V.A.T.S. queues never reload |
 
 ### Hotkeys

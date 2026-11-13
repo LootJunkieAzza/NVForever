@@ -189,6 +189,14 @@ pub struct TweakSettings {
     pub no_limb_indicator: bool,
     /// `bContainerTakeAllDoesntCloseMenu`: Take All leaves the container open.
     pub take_all_stays: bool,
+    /// `bTakeAllConfirmation`: Take All of at least `take_all_confirm_min` items asks to be
+    /// pressed again.
+    pub take_all_confirm: bool,
+    pub take_all_confirm_min: f32,
+    /// `bRepairAllConfirmation`: Repair All costing `repair_all_threshold` caps or more asks
+    /// to be pressed again.
+    pub repair_all_confirm: bool,
+    pub repair_all_threshold: f32,
     /// `bHideEquippedItemsInBarter`: equipped items are not offered in barter.
     pub hide_equipped_barter: bool,
     /// `bHideEquippedItemsInContainers`: equipped items are not listed in containers.
@@ -679,6 +687,10 @@ impl Default for TweakSettings {
             no_xp_meter_in_combat: false,
             no_limb_indicator: false,
             take_all_stays: false,
+            take_all_confirm: false,
+            take_all_confirm_min: 2.0,
+            repair_all_confirm: false,
+            repair_all_threshold: 0.0,
             hide_equipped_barter: false,
             hide_equipped_containers: false,
             title_case_categories: false,
@@ -1377,6 +1389,10 @@ impl Plugin for TweaksPlugin {
         switch!(app, "single-item-figures", "One Item's Figures", "A stack shows one item's weight and value in the Pip-Boy. (Stewie's Tweaks bIndividialItemStats)", game.single_item_figures);
         switch!(app, "mark-other-ammo", "Mark Other Ammo", "A weapon's ammo line ends with + when another ammo it takes is carried. (Stewie's Tweaks bShowAlternateAmmoTypesAvailableInMenus)", game.mark_other_ammo);
         switch!(app, "show-fame-infamy", "Show Fame and Infamy", "Reputations show their fame and infamy. (Stewie's Tweaks bReputationShowsFameInfamy)", game.show_fame_infamy);
+        switch!(app, "take-all-confirm", "Take All Confirmation", "Take All asks first; press it again to take everything. (Stewie's Tweaks bTakeAllConfirmation)", take_all_confirm);
+        amount!(app, "take-all-confirm-min", "Take All Confirmation: From This Many", "Take All asks only when the container holds at least this many items. (Stewie's Tweaks bTakeAllConfirmation, iMinItemCount)", 100.0, f32, take_all_confirm_min);
+        switch!(app, "repair-all-confirm", "Repair All Confirmation", "Repair All at a vendor asks first; press it again to pay. (Stewie's Tweaks bRepairAllConfirmation)", repair_all_confirm);
+        amount!(app, "repair-all-threshold", "Repair All Confirmation: From This Price", "Repair All asks only when it costs at least this many caps. (Stewie's Tweaks bRepairAllConfirmation, iPriceThreshold)", 5000.0, f32, repair_all_threshold);
         switch!(app, "take-all-stays", "Take All Stays Open", "Take All leaves the container open. (Stewie's Tweaks bContainerTakeAllDoesntCloseMenu)", take_all_stays);
         switch!(app, "hide-equipped-barter", "Hide Worn Items in Barter", "Equipped items are not offered in barter. (Stewie's Tweaks bHideEquippedItemsInBarter)", hide_equipped_barter);
         switch!(app, "hide-equipped-containers", "Hide Worn Items in Containers", "Equipped items are not listed on the player's side of a container. (Stewie's Tweaks bHideEquippedItemsInContainers)", hide_equipped_containers);
@@ -2611,6 +2627,10 @@ fn sync(
         }
         if m.barter_caps_change != tweaks.barter_caps_change {
             m.barter_caps_change = tweaks.barter_caps_change;
+        }
+        let confirm = tweaks.take_all_confirm.then_some(tweaks.take_all_confirm_min.max(1.0) as i32);
+        if m.take_all_confirm != confirm {
+            m.take_all_confirm = confirm;
         }
         let menu = (tweaks.take_all_stays, tweaks.hide_equipped_barter, tweaks.hide_equipped_containers, tweaks.title_case_categories);
         if (m.take_all_stays, m.hide_equipped_barter, m.hide_equipped_containers, m.title_case_categories) != menu {

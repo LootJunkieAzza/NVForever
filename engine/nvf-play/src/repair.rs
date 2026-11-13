@@ -155,6 +155,9 @@ pub struct Open {
     /// A count of the keys' and the wheel's moves: the tiles' list brings their row into view
     /// (`crate::tiles::list::settle_list`).
     navigated: u32,
+    /// The player's Repair All Confirmation tweak asked once: the next Repair All does it,
+    /// anything else takes the question back [design: docs/design/tweaks.md].
+    confirming: bool,
 }
 
 impl Open {
@@ -246,6 +249,8 @@ pub(crate) struct View {
     /// What Repair All costs, and whether the player can pay it.
     pub(crate) total: u32,
     pub(crate) all_ready: bool,
+    /// Repair All asks to be pressed again (the player's Repair All Confirmation tweak).
+    pub(crate) confirming: bool,
     /// The names the hints use (`crate::pad::labels`).
     pub(crate) labels: crate::pad::Labels,
 }
@@ -302,7 +307,7 @@ fn view(rt: &mut crate::script::Runtime, sim: &mut SimState, combat: Option<&cra
         rows.sort_by(|a, b| b.ready.cmp(&a.ready).then_with(|| a.label.cmp(&b.label)).then(a.condition.total_cmp(&b.condition)));
         let total: u32 = rows.iter().filter_map(|r| r.quote.cost().map(|c| c * r.count.max(1) as u32)).sum();
         let selected = open.selected.min(rows.len().saturating_sub(1));
-        View { all_ready: total > 0 && total as i64 <= caps as i64, rows, selected, first: open.first, skill: skill.max(0.0).floor() as i32, caps, total, labels: crate::pad::labels() }
+        View { all_ready: total > 0 && total as i64 <= caps as i64, rows, selected, first: open.first, skill: skill.max(0.0).floor() as i32, caps, total, confirming: open.confirming, labels: crate::pad::labels() }
     })
 }
 
@@ -346,7 +351,7 @@ fn scripts_open(
     }
     let Some(r) = rt.game.repair_requests.pop() else { return };
     rt.game.repair_requests.clear();
-    let open = Open { vendor: r.vendor, selected: 0, first: 0, drawn: None, pointer_pick: false, navigated: 0 };
+    let open = Open { vendor: r.vendor, selected: 0, first: 0, drawn: None, pointer_pick: false, navigated: 0, confirming: false };
     let v = view(rt, &mut sim, combat.as_deref(), &open);
     let first: Vec<String> = v.rows.iter().take(6).map(|r| format!("{} {}%{}", r.label, (r.condition * 100.0).round(), r.quote.cost().map_or(" beyond".to_string(), |c| format!(" {c} caps")))).collect();
     info!(
@@ -380,6 +385,7 @@ fn keys(
     mut moved: MessageReader<bevy::window::CursorMoved>,
     mut commands: Commands,
     mut on_tiles: MessageReader<RepairServicesInput>,
+    tweaks: Option<Res<crate::tweaks::TweakSettings>>,
 ) {
     // Only a pointer that moves takes the selection: the rows drawn when the menu opens
     // (or redrawn) under a resting pointer leave the keys' choice alone (as `crate::menu`).
@@ -429,6 +435,9 @@ fn keys(
     let tile_asked = |a: RepairServicesInput| asked.contains(&a);
     if open.selected != before {
         sounds.write(UiSound { menu: UiMenu::Repair, event: UiEvent::Focus });
+        if std::mem::take(&mut open.confirming) {
+            open.drawn = None;
+        }
     }
     if keys.any_just_pressed([KeyCode::KeyE, KeyCode::Escape, KeyCode::Tab]) || clicked == Some(RepairButton::Done) || act("done") || tile_asked(RepairServicesInput::Done) {
         info!("repair menu: done");
@@ -440,6 +449,20 @@ fn keys(
     let vendor = open.vendor;
     let one = keys.any_just_pressed([KeyCode::Enter, KeyCode::NumpadEnter]) || matches!(clicked, Some(RepairButton::Row(_))) || act("repair") || tile_asked(RepairServicesInput::Repair);
     let all = keys.just_pressed(KeyCode::KeyA) || clicked == Some(RepairButton::All) || act("all") || tile_asked(RepairServicesInput::All);
+    // The player's Repair All Confirmation tweak: a Repair All at or over its price asks
+    // first; any other repair takes the question back [design: docs/design/tweaks.md].
+    let asks = tweaks.as_deref().filter(|t| t.repair_all_confirm).is_some_and(|t| v.total as f32 >= t.repair_all_threshold);
+    if one && std::mem::take(&mut open.confirming) {
+        open.drawn = None;
+    }
+    if all && asks && v.all_ready && !std::mem::take(&mut open.confirming) {
+        info!("repair menu: Repair All for {} caps asks to be pressed again (Repair All Confirmation)", v.total);
+        open.confirming = true;
+        open.drawn = None;
+        sounds.write(UiSound { menu: UiMenu::Repair, event: UiEvent::Focus });
+        return;
+    }
+    open.confirming = false;
     if one {
         let Some(r) = v.rows.get(open.selected.min(n.saturating_sub(1))) else { return };
         let name = crate::menu::model::display_name(forms, r.item);
@@ -653,7 +676,13 @@ fn spawn(commands: &mut Commands, look: &mut RepairLook, v: &View, data: Option<
             // A and E, with a controller X (`repair_services_menu.xml`'s Repair All) and B
             // (Esc) [#1662].
             let hint_at = crate::pad::at_menu(fnv_game::repair::REPAIR_SERVICES_MENU);
-            let all = format!("Repair All ({})  {}", v.total, crate::pad::hint_as(&[KeyCode::KeyA], hint_at, v.labels));
+            // The player's Repair All Confirmation tweak: asking, the button says so [design:
+            // our own words].
+            let all = if v.confirming {
+                format!("Repair All ({})? Again to confirm  {}", v.total, crate::pad::hint_as(&[KeyCode::KeyA], hint_at, v.labels))
+            } else {
+                format!("Repair All ({})  {}", v.total, crate::pad::hint_as(&[KeyCode::KeyA], hint_at, v.labels))
+            };
             let done = format!("Done  {}", crate::pad::hint_as(&[KeyCode::KeyE, KeyCode::Escape], hint_at, v.labels));
             for (k, (label, b, on)) in [(all.as_str(), RepairButton::All, v.all_ready), (done.as_str(), RepairButton::Done, true)].into_iter().enumerate() {
                 let w = crate::pad::hint_width(&look.row, label, glyphs);
@@ -747,7 +776,7 @@ mod tests {
     use super::*;
 
     fn open() -> Open {
-        Open { vendor: FormId(1), selected: 0, first: 0, drawn: None, pointer_pick: false, navigated: 0 }
+        Open { vendor: FormId(1), selected: 0, first: 0, drawn: None, pointer_pick: false, navigated: 0, confirming: false }
     }
 
     #[test]
