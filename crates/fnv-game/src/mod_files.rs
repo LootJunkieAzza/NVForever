@@ -461,7 +461,27 @@ fn ini_path(g: &Game, file: Option<&str>) -> String {
         }
     };
     let f = if f.to_ascii_lowercase().ends_with(".ini") { f } else { format!("{f}.ini") };
-    format!("Config\\{f}")
+    inside_data(&format!("Config\\{f}"))
+}
+
+/// A Data-relative path with its `.` and `..` parts worked out, so a path that steps out
+/// of `Config` and back into Data names its file: MCM Extender reads its menus'
+/// translations from `..\MCM\Translations\<mod>.ini` [observed: the shipped
+/// gr_MCMExtender.txt, GetINIString_Cached on that path, and the INIs sit in
+/// `Data\MCM\Translations`]. A path that would leave Data keeps a `..` part, so
+/// [`on_disk`] still refuses it (CLAUDE.md charter).
+fn inside_data(rel: &str) -> String {
+    let mut parts: Vec<&str> = Vec::new();
+    for part in rel.split(['\\', '/']).filter(|c| !c.is_empty() && *c != ".") {
+        if part == ".." {
+            if parts.pop().is_none() {
+                return rel.to_string();
+            }
+        } else {
+            parts.push(part);
+        }
+    }
+    parts.join("\\")
 }
 
 /// `Section:Key` with ":", "/" or "\" between [observed: all three work], lower case.
@@ -1294,6 +1314,16 @@ mod path_tests {
         assert_eq!(on_disk_any_case(&base, "nvse\\plugins\\missing.txt"), None);
         assert_eq!(on_disk_any_case(&base, "..\\x"), None, "the plain-name rule of on_disk still holds");
         let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn an_ini_path_may_step_out_of_config_but_not_out_of_data() {
+        assert_eq!(super::inside_data("Config\\..\\MCM\\Translations\\A.ini"), "MCM\\Translations\\A.ini");
+        assert_eq!(super::inside_data("Config\\.\\Sub\\..\\A.ini"), "Config\\A.ini");
+        for out in ["Config\\..\\..\\A.ini", "Config\\..\\..\\Data\\A.ini"] {
+            let p = super::inside_data(out);
+            assert_eq!(on_disk(Path::new("layer"), &p), None, "{out} leaves Data: {p}");
+        }
     }
 
     #[test]

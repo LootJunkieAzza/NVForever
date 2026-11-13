@@ -557,3 +557,16 @@ fn cached_ini_file_quotes_are_removed_without_changing_default_or_cached_values(
     q(&mut g, "ReloadIniCache \"OwnedWarmQuotes.ini\"");
     assert_eq!(q(&mut g, "SetFunctionValue (GetINIString_Cached \"Template:Warm\" \"OwnedWarmQuotes.ini\")"), XVal::Str("Reloaded".into()));
 }
+
+#[test]
+fn an_ini_path_out_of_config_reads_another_data_folder() {
+    // MCM Extender's translations: `..\MCM\Translations\<mod>.ini` from Data\Config.
+    let f = fixture();
+    let mut g = game(&f);
+    q(&mut g, "SetINIString \"Translations:$ModName\" \"Owned Mod\" \"..\\MCM\\Translations\\OwnedMod.ini\"");
+    assert_eq!(
+        q(&mut g, "SetFunctionValue (GetINIString_Cached \"Translations:$ModName\" \"..\\MCM\\Translations\\OwnedMod.ini\" \"$ModName\")"),
+        s("Owned Mod")
+    );
+    assert_eq!(q(&mut g, "SetFunctionValue (GetINIString_Cached \"Translations:$ModName\" \"..\\..\\OwnedMod.ini\" \"$ModName\")"), s("$ModName"), "out of Data: not read");
+}
