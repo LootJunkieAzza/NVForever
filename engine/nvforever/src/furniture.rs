@@ -544,6 +544,9 @@ pub struct OnFurniture {
     /// The frame the getting-off clip plays in: placed so that its first `Bip01`
     /// position is where the getting-on clip left the body (module notes).
     exit_frame: Option<Frame>,
+    /// How far the getting-off clip's end is moved to stand clear of the players
+    /// ([`clear_exit`]), game x and y; added over the clip.
+    shift: [f32; 2],
     /// The actor's parent's place in game space (its own transform is relative to it).
     origin: Vec3,
     stay_left: Option<f32>,
@@ -603,6 +606,14 @@ pub struct LeaveNow;
 /// What [`drive_actors`] reads and writes of an actor about to begin a use.
 type Starting = (Entity, &'static ActorRig, &'static mut Transform, &'static GlobalTransform, &'static SitOn, Option<&'static SitRefused>);
 
+/// The players, for [`drive_actors`]' exits ([`clear_exit`]): this one and the others'
+/// puppets.
+type Players<'w, 's> = (
+    Option<Res<'w, nvf_play::player::Player>>,
+    Option<Res<'w, PlayerUse>>,
+    Query<'w, 's, (Entity, &'static GlobalTransform, Has<OnFurniture>), With<crate::coop::Puppet>>,
+);
+
 /// What [`drive_actors`] reads and writes of an actor on furniture.
 type Seated = (Entity, &'static ActorRig, &'static mut Transform, &'static mut OnFurniture, Option<&'static mut Locomotion>, Has<GetUp>, Has<LeaveNow>);
 
@@ -621,8 +632,34 @@ pub fn drive_actors(
     mut script: Option<ResMut<ScriptState>>,
     mut nav: Option<ResMut<NavState>>,
     sim: Option<Res<nvf_play::sim::SimState>>,
+    (player, player_use, mates): Players,
 ) {
     let dt = time.delta_secs().min(0.1);
+    // The players' feet (this one's and the others' puppets, by their entity), for the
+    // exits' room.
+    // A player on furniture itself (sitting or getting up too) is left out: where it will
+    // stand is not known yet, and every screen sees it there differently [observed:
+    // c-ship15-fix run 6, wide: the Settler moved 10 over on the watcher's screen for the
+    // other player's body halfway up, not on that player's own].
+    let players: Vec<(Option<Entity>, [f32; 2])> = player
+        .as_deref()
+        .filter(|_| !player_use.as_deref().is_some_and(PlayerUse::in_use))
+        .map(|p| (None, [p.feet[0], p.feet[1]]))
+        .into_iter()
+        .chain(mates.iter().filter(|(_, _, on)| !on).map(|(e, g, _)| {
+            let p = to_game(g.translation());
+            (Some(e), [p.x, p.y])
+        }))
+        .collect();
+    // Where those on furniture (this player, the actors) will stand up: their entry points,
+    // for the exits' room.
+    let seats: Vec<(Option<Entity>, [f32; 2])> = player_use
+        .as_deref()
+        .and_then(|u| u.using.as_ref())
+        .map(|u| (None, [u.plan.entry.pos[0], u.plan.entry.pos[1]]))
+        .into_iter()
+        .chain(using.iter().filter(|(_, _, _, on, ..)| on.seated()).map(|(e, _, _, on, ..)| (Some(e), [on.plan.entry.pos[0], on.plan.entry.pos[1]])))
+        .collect();
     // Actors no longer drawn leave their furniture free: drawn again, they are put back
     // on it (`SitOn::at_once`) or go elsewhere [fix of the owner's playtest 2026-10-11:
     // the stool stayed "in use" by its own sitter, who then stood in it].
@@ -685,6 +722,7 @@ pub fn drive_actors(
                     stay,
                     get_off: None,
                     exit_frame: None,
+                    shift: [0.0; 2],
                     origin,
                     stay_left: sit.stay,
                 });
@@ -784,6 +822,32 @@ pub fn drive_actors(
                         }
                         on.exit_frame = bound.as_ref().map(|(ends, _)| exit_frame(clip_frame, &clip_ends(&on.plan.get_on), ends));
                         on.get_off = bound.map(|(ends, b)| (b, ends));
+                        // Up clear of the players, as the player gets up ([`clear_exit`]).
+                        let end = match &on.get_off {
+                            Some((_, ends)) => UseFrames { clip: on.exit_frame.unwrap_or(clip_frame), on: on.plan.frames.on }.after(ends, on.plan.standing_yaw).pos,
+                            None => on.plan.entry.pos,
+                        };
+                        // A puppet getting up (another player's body on this screen) is not
+                        // in its own way [observed: c-ship15-fix run 5, close P2: P1's
+                        // puppet moved 50 over, P1's own screen 35].
+                        let others: Vec<[f32; 2]> = players.iter().filter(|(pe, _)| *pe != Some(e)).map(|(_, p)| *p).collect();
+                        let seat = on.plan.frames.on.pos;
+                        let seats: Vec<[f32; 2]> = std::iter::once([seat[0], seat[1]]).chain(seats.iter().filter(|(se, _)| *se != Some(e)).map(|(_, p)| *p)).collect();
+                        let to = clear_exit([end[0], end[1]], &seats, &others);
+                        on.shift = [to[0] - end[0], to[1] - end[1]];
+                        if on.shift != [0.0; 2] {
+                            info!(
+                                "furniture: {:08X} gets off {:08X} {:.0} units over, clear of a player (up at {:.0}, {:.0} instead of {:.0}, {:.0}); kept from {:?}",
+                                on.who.reference,
+                                on.plan.furniture,
+                                on.shift[0].hypot(on.shift[1]),
+                                to[0],
+                                to[1],
+                                end[0],
+                                end[1],
+                                &seats[1..]
+                            );
+                        }
                         tell_scripts(&mut script, on.who.reference, Some((&on.plan, state::GETTING_OFF)));
                     }
                 }
@@ -810,7 +874,8 @@ pub fn drive_actors(
                             let travel = Vec3::from_array(ends.stop.bip01) - Vec3::from_array(ends.start.bip01);
                             on.pose = Some((clip.clone(), phase));
                             let frame = on.exit_frame.unwrap_or(clip_frame);
-                            place(Frame { pos: frame.point([travel.x * phase, travel.y * phase, 0.0]), heading: frame.heading });
+                            let p = frame.point([travel.x * phase, travel.y * phase, 0.0]);
+                            place(Frame { pos: [p[0] + on.shift[0] * phase, p[1] + on.shift[1] * phase, p[2]], heading: frame.heading });
                         }
                     }
                     Phase::GettingOff => {
@@ -819,6 +884,7 @@ pub fn drive_actors(
                             Some((_, ends)) => UseFrames { clip: on.exit_frame.unwrap_or(clip_frame), on: on.plan.frames.on }.after(ends, on.plan.standing_yaw),
                             None => Frame { pos: on.plan.entry.pos, heading: on.plan.entry.heading },
                         };
+                        let end = Frame { pos: [end.pos[0] + on.shift[0], end.pos[1] + on.shift[1], end.pos[2]], heading: end.heading };
                         place(end);
                         if let Some(tr) = nav.as_deref_mut().and_then(|n| n.travellers.iter_mut().find(|tr| tr.reference == on.who.reference)) {
                             tr.walker.feet = end.pos;
@@ -870,6 +936,48 @@ struct PlayerUsing {
     plan: Plan,
     usage: Use,
     get_off: Option<(Arc<Clip>, ClipEnds)>,
+    /// How far the getting-off clip's end is moved so that the player stands clear of the
+    /// other players ([`clear_exit`]), game x and y; added over the clip.
+    shift: [f32; 2],
+}
+
+/// How far from another player's feet a player getting off furniture ends (game units)
+/// [design: the lead's request of 2026-11-12, the original game observed to pick an
+/// unobstructed exit (not in furniture.md); a body is about 40 across, but at about 50 the
+/// other's body filled each one's first-person view (c-ship15-fix close: P1 play-72.5s,
+/// P2 play-68s, P1 up from the arm-wrestling stool beside the watcher)].
+pub const EXIT_CLEAR: f32 = 80.0;
+
+/// Where an actor getting off furniture ends: `end` (game x and y) when every one of
+/// `others` (the players' feet) is [`EXIT_CLEAR`] or more from it, else the nearest spot
+/// that is (rings 5 units apart, 24 headings each) and no nearer any of `keep` than `end`
+/// is: first its own seat (the body on the furniture), so not into the furniture or the
+/// table it stands at [observed: c-ship15-fix run 4, sw: the player moved between the
+/// stools], then where the others on furniture will stand up (their entry points), so not
+/// into one getting up beside it [observed: c-ship15-fix run 7, sw: the player moved 30
+/// toward the Settler and its shoulder met his as he rose, P1 play-70s, P2 play-67.5s;
+/// counting his seat instead still left the player 50 from where he stood up]; else `end`.
+pub fn clear_exit(end: [f32; 2], keep: &[[f32; 2]], others: &[[f32; 2]]) -> [f32; 2] {
+    let gap = |p: [f32; 2]| others.iter().map(|o| (o[0] - p[0]).hypot(o[1] - p[1])).fold(f32::INFINITY, f32::min);
+    let outs: Vec<f32> = keep.iter().map(|s| (end[0] - s[0]).hypot(end[1] - s[1]) - 1e-3).collect();
+    let out_of_seats = |p: [f32; 2]| keep.iter().zip(&outs).all(|(s, out)| (p[0] - s[0]).hypot(p[1] - s[1]) >= *out);
+    if gap(end) >= EXIT_CLEAR {
+        return end;
+    }
+    for ring in 1..=(2.0 * EXIT_CLEAR / 5.0) as i32 {
+        let r = ring as f32 * 5.0;
+        let best = (0..24)
+            .map(|k| {
+                let a = k as f32 * std::f32::consts::TAU / 24.0;
+                [end[0] + r * a.sin(), end[1] + r * a.cos()]
+            })
+            .filter(|&p| gap(p) >= EXIT_CLEAR && out_of_seats(p))
+            .max_by(|a, b| gap(*a).total_cmp(&gap(*b)));
+        if let Some(p) = best {
+            return p;
+        }
+    }
+    end
 }
 
 /// The player's use of furniture.
@@ -894,6 +1002,16 @@ fn root_at(frame: &Frame, clip: &Clip, t: f32) -> [f32; 3] {
     frame.point([p[0], p[1], 0.0])
 }
 
+/// [`drive_player`]'s other resources: the HUD message, the Wait menu, the simulation and
+/// the other players' puppets.
+type PlayerExtras<'w, 's> = (
+    ResMut<'w, nvf_play::activate::HudMessage>,
+    MessageWriter<'w, nvf_play::wait::OpenWait>,
+    Option<Res<'w, nvf_play::sim::SimState>>,
+    Query<'w, 's, (&'static GlobalTransform, Has<OnFurniture>), With<crate::coop::Puppet>>,
+    Query<'w, 's, &'static OnFurniture>,
+);
+
 /// The player's use of furniture: start it on activation, advance it, end it.
 #[allow(clippy::too_many_arguments)]
 pub fn drive_player(
@@ -911,7 +1029,7 @@ pub fn drive_player(
     mut parts: ResMut<ActorParts>,
     mut models: ModelCtx,
     mut script: Option<ResMut<ScriptState>>,
-    (mut hud, mut rest, sim): (ResMut<nvf_play::activate::HudMessage>, MessageWriter<nvf_play::wait::OpenWait>, Option<Res<nvf_play::sim::SimState>>),
+    (mut hud, mut rest, sim, mates, seated): PlayerExtras,
 ) {
     let Some(mut f) = f else { return };
     let dt = time.delta_secs().min(0.1);
@@ -941,7 +1059,7 @@ pub fn drive_player(
                     let usage = Use::begin(FormId(plan.furniture), FormId(plan.base), plan.entry, plan.get_on.length());
                     tell_scripts(&mut script, who.reference, Some((&plan, state::GETTING_ON)));
                     st.serial += 1;
-                    st.using = Some(PlayerUsing { plan, usage, get_off: None });
+                    st.using = Some(PlayerUsing { plan, usage, get_off: None, shift: [0.0; 2] });
                     seat.leave = false;
                 }
                 Err(why) => {
@@ -975,6 +1093,35 @@ pub fn drive_player(
         let clip = f.get_off(&mut ctx, &u.plan, who, &|func, p| game_value(&script, func, p)).map(|(_, c)| c);
         u.usage.begin_leaving(clip.as_ref().map_or(0.0, |c| c.length()));
         u.get_off = clip.map(|c| (c.clone(), clip_ends(&c)));
+        // Up clear of the other players: the clip's end moved, a little each frame.
+        let end = match &u.get_off {
+            Some((_, ends)) => u.plan.frames.after(ends, u.plan.standing_yaw).pos,
+            None => u.plan.entry.pos,
+        };
+        let others: Vec<[f32; 2]> = mates
+            .iter()
+            .filter(|(_, on)| !on)
+            .map(|(g, _)| {
+                let p = nvf_play::space::to_game(g.translation());
+                [p[0], p[1]]
+            })
+            .collect();
+        // Its own seat, then where the others on furniture will stand up.
+        let seats: Vec<[f32; 2]> = std::iter::once(u.plan.frames.on.pos).chain(seated.iter().filter(|o| o.seated()).map(|o| o.plan.entry.pos)).map(|p| [p[0], p[1]]).collect();
+        let to = clear_exit([end[0], end[1]], &seats, &others);
+        u.shift = [to[0] - end[0], to[1] - end[1]];
+        if u.shift != [0.0; 2] {
+            info!(
+                "furniture: the player gets off {:08X} {:.0} units over, clear of another player (up at {:.0}, {:.0} instead of {:.0}, {:.0}); kept from {:?}",
+                u.plan.furniture,
+                u.shift[0].hypot(u.shift[1]),
+                to[0],
+                to[1],
+                end[0],
+                end[1],
+                &seats[1..]
+            );
+        }
         st.serial += 1;
         tell_scripts(&mut script, who.reference, Some((&u.plan, state::GETTING_OFF)));
     }
@@ -1008,7 +1155,11 @@ pub fn drive_player(
             clip: c.clone(),
             looped: false,
             serial: st.serial,
-            pos: root_at(&frames.clip, c, u.usage.t),
+            pos: {
+                let k = (u.usage.t / c.length().max(1e-3)).clamp(0.0, 1.0);
+                let p = root_at(&frames.clip, c, u.usage.t);
+                [p[0] + u.shift[0] * k, p[1] + u.shift[1] * k, p[2]]
+            },
             heading: frames.clip.heading,
             lying,
             over: None,
@@ -1031,7 +1182,8 @@ pub fn drive_player(
                 Some((_, ends)) => frames.after(ends, u.plan.standing_yaw),
                 None => Frame { pos: u.plan.entry.pos, heading: u.plan.entry.heading },
             };
-            phys.place_player(end.pos, 60.0, 200.0);
+            let at = [end.pos[0] + u.shift[0], end.pos[1] + u.shift[1], end.pos[2]];
+            phys.place_player(at, 60.0, 200.0);
             seat.hold = None;
             seat.bed = false;
             seat.on = None;
@@ -1088,6 +1240,39 @@ mod tests {
         let f = exit_frame(clip, &on, &doc);
         let first = f.point([-52.2, 0.1, 0.0]);
         assert!((first[0] - seat[0]).abs() < 1e-3 && (first[1] - seat[1]).abs() < 1e-3, "{first:?} {seat:?}");
+    }
+
+    /// A player getting up beside another ends clear of it, as near its own exit as that
+    /// allows; nobody about, or nobody near, leaves the exit as it is.
+    #[test]
+    fn a_player_gets_up_clear_of_the_others() {
+        let (end, seat) = ([315.0, 286.0], [315.0, 337.7]);
+        let from_seat = |p: [f32; 2]| (p[0] - seat[0]).hypot(p[1] - seat[1]);
+        assert_eq!(clear_exit(end, &[seat], &[]), end);
+        assert_eq!(clear_exit(end, &[seat], &[[315.0, 286.0 - EXIT_CLEAR - 1.0]]), end);
+        // The arm-wrestling stool's exit, the close watcher 50 away.
+        let watcher = [350.0, 250.0];
+        let to = clear_exit(end, &[seat], &[watcher]);
+        let gap = (to[0] - watcher[0]).hypot(to[1] - watcher[1]);
+        let moved = (to[0] - end[0]).hypot(to[1] - end[1]);
+        assert!(gap >= EXIT_CLEAR, "{to:?} {gap}");
+        assert!(moved <= EXIT_CLEAR, "moved {moved}");
+        // Not toward the stool and the table.
+        assert!(from_seat(to) >= from_seat(end) - 1e-2, "{to:?}");
+        // Two others either side: clear of both.
+        let to = clear_exit(end, &[seat], &[[290.0, 286.0], [340.0, 286.0]]);
+        assert!(from_seat(to) >= from_seat(end) - 1e-2, "{to:?}");
+        assert!([[290.0, 286.0], [340.0, 286.0]].iter().all(|o: &[f32; 2]| (to[0] - o[0]).hypot(to[1] - o[1]) >= EXIT_CLEAR), "{to:?}");
+        // The sw watcher (c-ship15-fix run 7) with the opponent still on the other stool:
+        // clear of the watcher, and no nearer where the opponent stands up than the exit is.
+        let (watcher, other) = ([272.0, 259.0], [385.0, 285.0]);
+        let near_other = |p: [f32; 2]| (p[0] - other[0]).hypot(p[1] - other[1]);
+        let to = clear_exit(end, &[seat, other], &[watcher]);
+        assert_ne!(to, end);
+        assert!((to[0] - watcher[0]).hypot(to[1] - watcher[1]) >= EXIT_CLEAR, "{to:?}");
+        assert!(from_seat(to) >= from_seat(end) - 1e-2 && near_other(to) >= near_other(end) - 1e-2, "{to:?}");
+        // Without the other stool counted it went toward it (the run-7 placement).
+        assert!(near_other(clear_exit(end, &[seat], &[watcher])) < near_other(end));
     }
 
     /// Easy Pete stopped in his chair, facing it (north), with the front entry point 54

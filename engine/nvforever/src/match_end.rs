@@ -771,6 +771,10 @@ pub struct MatchEnd {
     watching: Option<[u32; 2]>,
     /// The point a watcher's end view aims at (the pair's middle), picked with it.
     arm_aim: Option<[f32; 3]>,
+    /// The reference of this player's opponent's body (the stranger, or the other
+    /// player's puppet), for its own end view to aim at the pair's own heads
+    /// ([`arm_hold`]).
+    arm_mate: Option<u32>,
 }
 
 /// An arm-wrestling result waiting for its pair to stand: the end view starts once no
@@ -1201,6 +1205,15 @@ fn arm_hold(real: Res<Time<Real>>, mut st: ResMut<MatchEnd>, coop: Option<Res<cr
         None => info!("match end: the pair are up after {waited:.1} s; the end view"),
     }
     st.watching = h.watcher;
+    st.arm_mate = if h.watcher.is_some() {
+        None
+    } else {
+        h.ended.sides.iter().find_map(|&(who, _)| match who {
+            Who::Me => None,
+            Who::Peer(p) => coop.as_deref().map(|c| c.puppet_reference(p)),
+            Who::Npc(r) => Some(r),
+        })
+    };
     st.timed = Some((h.ended, now));
 }
 
@@ -1362,14 +1375,27 @@ fn camera(
                 watch_shot(&heads, pair, arm_seats(), eye[2])
             }
             None => sim.as_deref().and_then(|s| s.world.peek(fnv_sim::FormId(table))).and_then(|t| arm_heading([t.pos[0], t.pos[1]], arm_seats(), feet)).map(|base| {
-                let heads: Vec<[f32; 3]> = st.crowd.iter().map(|c| c.2).collect();
-                (aim, base, [eye, arm_opponent(eye, aim)], onlookers(&heads, arm_seats(), feet))
+                // The opponent's own head when it is drawn: up from the chair clear of
+                // the players ([`crate::furniture::clear_exit`]) he may stand further off
+                // than beside his chair [observed: c-ship15-fix run 5, close P1
+                // play-70s, the Settler 35 further east cut by the frame's edge].
+                let mate = st.arm_mate.and_then(|r| st.crowd.iter().find(|c| c.1 == r)).map(|c| (c.1, c.2));
+                match mate {
+                    Some((r, o)) => {
+                        let level = |h: &[f32; 3]| (h[0] - feet[0]).hypot(h[1] - feet[1]);
+                        let crowd = st.crowd.iter().filter(|c| c.1 != r).map(|c| c.2).filter(|h| (ARM_SELF..ARM_CROWD).contains(&level(h))).collect();
+                        let mid = [(eye[0] + o[0]) * 0.5, (eye[1] + o[1]) * 0.5, (eye[2] + o[2]) * 0.5];
+                        (mid, base, [eye, o], crowd)
+                    }
+                    None => {
+                        let heads: Vec<[f32; 3]> = st.crowd.iter().map(|c| c.2).collect();
+                        (aim, base, [eye, arm_opponent(eye, aim)], onlookers(&heads, arm_seats(), feet))
+                    }
+                }
             }),
         };
         if let Some((aim, base, pair, crowd)) = shot {
-            if st.watching.is_some() {
-                st.arm_aim = Some(aim);
-            }
+            st.arm_aim = Some(aim);
             let (h, d, clear) = pick_arm(aim, base, pair, &crowd, |at, look| match phys.as_deref_mut() {
                 Some(phys) => crate::death_cam::clear(phys, space::to_bevy(look), space::to_bevy(at)).distance(space::to_bevy(look)),
                 None => f32::INFINITY,
