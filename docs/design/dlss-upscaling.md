@@ -339,8 +339,9 @@ copying them by hand; the manual way stays ([dlss.md](../dlss.md)).
   local header to the next (the four unpack to about 61 MB). The asset's address answers with a
   redirect, followed only to `https` on GitHub's asset hosts; every answer must be a `206`
   whose `Content-Range` names the range asked for out of that size; a `200` (no ranges), any
-  other status or size, and the download fails. No overall timeout; a connect and a per-read
-  timeout. Test aid: `NVF_DLSS_DOWNLOAD_URL`, taken only for `http` on this machine
+  other status or size, and the download fails. A connect and a per-read timeout, and each
+  answer's body a bound scaled by its size (a minute plus a second per 8 KiB), so a trickling
+  server cannot hold the download for ever. Test aid: `NVF_DLSS_DOWNLOAD_URL`, taken only for `http` on this machine
   (`127.0.0.1`, `localhost`, `[::1]`), with every pin still checked.
 - **Every file pinned.** Each entry's size and the SHA-256 of its unpacked bytes are pinned
   in the source (`download/files.rs`: the `sl.*` hashes are the loader's `RELEASE_DLLS`;
@@ -352,7 +353,8 @@ copying them by hand; the manual way stays ([dlss.md](../dlss.md)).
   (`security::check_interposer`) and the NGX runtime's NVIDIA signature (`check_ngx`).
 - **Nothing written unless all pass.** The files are unpacked into `.dlss-download-<process
   id>` beside the DLSS folder (same volume), removed on a failure or a cancel and after the
-  install; staging folders an earlier run left are removed at the next start. An absent DLSS
+  install; staging folders an earlier run left (`.dlss-download-<digits>`, of an NVForever that is no
+  longer running) are removed at the next start. An absent DLSS
   folder is made by renaming the staging folder; a present one gets only the listed files it
   lacks, moved one by one and taken back if a later move fails. A folder that holds
   `nvngx_update.exe` (any case) or a listed file with other bytes is left as it is: no file of

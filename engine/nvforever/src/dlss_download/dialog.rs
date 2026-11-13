@@ -360,10 +360,8 @@ fn failure_words(failure: &Failure) -> String {
         Failure::FolderHolds(name) => trf("The dlss folder already holds {name}, which was left as it is: remove it, or copy the files by hand.", &[("name", name)]),
         Failure::Write(_) => tr("The files could not be written to the dlss folder.").to_string(),
         Failure::NotWindows => tr("DLSS needs Windows").to_string(),
-        // `Failure::Internal` (a panic in the download thread, from the core's review fix) and any
-        // variant added later. Unreachable until that variant lands on this branch.
-        #[allow(unreachable_patterns)]
-        _ => tr("The download stopped on an internal error; the log says more.").to_string(),
+        // A panic in the download thread (the core catches it and ends the download here).
+        Failure::Internal(_) => tr("The download stopped on an internal error; the log says more.").to_string(),
     }
 }
 
