@@ -3815,10 +3815,10 @@ fn script_console_assignments_update_quest_variables_instead_of_calling_their_na
     use fnv_script::vm::XVal;
     let f = fixture();
     let mut g = game(&f);
-    let result = g.run_query("Begin Function {}\nConsole \"Q.fTimer = 2\"\nConsole \"Q.fTimer += 0.5\"\nConsole \"set Q.bRun to 7.8\"\nSetFunctionValue (ar_List Q.fTimer Q.bRun)\nEnd", Default::default()).unwrap();
-    let XVal::Array(array) = result else { panic!("expected an array of the actual quest state") };
-    let values: Vec<_> = g.ext.array(array).unwrap().entries.iter().map(|(_, value)| value.clone()).collect();
-    assert_eq!(values, [XVal::Num(2.5), XVal::Num(7.0)]);
+    let timer = g.run_query("Begin Function {}\nConsole \"Q.fTimer = 2\"\nConsole \"Q.fTimer += 0.5\"\nConsole \"set Q.bRun to 7.8\"\nSetFunctionValue Q.fTimer\nEnd", Default::default()).unwrap();
+    assert_eq!(timer, XVal::Num(2.5));
+    let run_flag = g.run_query("Begin Function {}\nSetFunctionValue Q.bRun\nEnd", Default::default()).unwrap();
+    assert_eq!(run_flag, XVal::Num(7.0));
     assert!(g.console_out.iter().all(|line| !line.starts_with("Script error:")), "{:?}", g.console_out);
     assert!(g.events.iter().all(|e| !matches!(&e.kind, EventKind::ScriptError { .. })));
 }
