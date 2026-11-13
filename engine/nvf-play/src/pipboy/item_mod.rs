@@ -31,8 +31,11 @@
 //! - Rows are silent [documented: the template's `&nosound;`]; attaching plays
 //!   `UIRepairWeapon` [hypothesis].
 //! - Test aid: the Pip-Boy aid's `mod=open|down|up|use|cancel` (`test_aid.rs`).
+//! - Behind `[UI] TileMenus=ItemModMenu` the menu is drawn from its file instead
+//!   (`crate::tiles::item_mod_menu`, weapon-mods.md §5.1): the rules, figures ([`compare`]),
+//!   sounds and log lines here stay, and the drawing here stands while that page is not ready.
 
-use super::frame::{self, Align, Ctx, Hint, LINE, MAIN, TEXT};
+use super::frame::{self, Align, Ctx, Hint, LINE, MAIN};
 use super::{Page, PipBoy};
 use crate::interface::{pipboy_amber as amber, at};
 use crate::menu::model::{Mode, Side};
@@ -64,7 +67,7 @@ const LINE_PITCH: f32 = 35.0;
 const ICON: Rect = Rect { min: Vec2::new(450.0, 20.0), max: Vec2::new(650.0, 220.0) };
 const DESC: Vec2 = Vec2::new(450.0, 220.0);
 const DESC_WRAP: f32 = 350.0;
-const DESC_LINES: usize = 3;
+pub const DESC_LINES: usize = 3;
 const COMPARE: Rect = Rect { min: Vec2::new(415.0, 400.0), max: Vec2::new(842.0, 580.0) };
 const CARD_H: f32 = 60.0;
 const ARROW: f32 = 80.0;
@@ -126,8 +129,13 @@ struct ModExit;
 #[derive(Component, Clone, Copy)]
 struct ModAct;
 
-/// Only a row not chosen yet (as the repair list's rows, `super::repair`).
-fn on_row_over(over: On<PointerOver>, rows: Query<&ModRow>, menu: Res<PipItemMod>, mut out: MessageWriter<ModInput>) {
+/// Only a row not chosen yet (as the repair list's rows, `super::repair`). Not while the
+/// menu drawn from its file has yet to decide (`crate::tiles::item_mod_menu::ItemModTiles::waiting`):
+/// these rows stand for that frame, and a pointer at rest would choose a mod.
+fn on_row_over(over: On<PointerOver>, rows: Query<&ModRow>, menu: Res<PipItemMod>, tiles: Option<Res<crate::tiles::item_mod_menu::ItemModTiles>>, mut out: MessageWriter<ModInput>) {
+    if tiles.is_some_and(|t| t.waiting) {
+        return;
+    }
     let (Ok(r), Some(s)) = (rows.get(over.entity), menu.0.as_ref()) else { return };
     if s.selected != r.0 {
         out.write(ModInput::Hover(r.0));
@@ -449,7 +457,7 @@ fn bar(p: &mut ChildSpawnerCommands, r: Rect, fill: f32, color: Color) {
 /// The mod menu in place of the ITEMS page's body. `desc` is the chosen mod's
 /// description (IMOD DESC).
 pub fn draw_list(p: &mut ChildSpawnerCommands, c: &mut Ctx, s: &Session, combat: Option<&crate::combat::Combat>, desc: Option<&str>) {
-    let bright = amber(TEXT);
+    let bright = c.bright();
     let line = amber(LINE);
     let o = &s.offer;
     frame::heading_named(p, c, Page::Items.title(), &o.name, NAME_RIGHT_IN);
@@ -459,7 +467,7 @@ pub fn draw_list(p: &mut ChildSpawnerCommands, c: &mut Ctx, s: &Session, combat:
     let hints = menu_hints(s);
     let rows = c.hint_column(p, &hints, MAIN.min.x + BUTTONS.x, by);
     let area = |r: &Rect| at(r.min.x, r.min.y - 5.0, r.width() + 10.0, 40.0);
-    let chosen = s.selected.checked_sub(1).and_then(|i| o.choices.get(i));
+    let chosen = chosen(s);
     if let (Some(r), true) = (rows.first(), chosen.is_some()) {
         p.spawn((area(r), ModAct, Pickable::default())).observe(on_act_click);
     }
@@ -469,7 +477,7 @@ pub fn draw_list(p: &mut ChildSpawnerCommands, c: &mut Ctx, s: &Session, combat:
     // The rows: the weapon, then the mods (an attached one marked, as the equipped
     // weapon), each mod's effect under its name.
     let rows: Vec<(String, bool, Option<&str>)> = std::iter::once((o.name.clone(), o.extra.equipped, None))
-        .chain(o.choices.iter().map(|ch| (if ch.count > 1 && !ch.attached { format!("{} ({})", ch.name, ch.count) } else { ch.name.clone() }, ch.attached, ch.effect.as_deref())))
+        .chain(o.choices.iter().map(|ch| (row_name(ch), ch.attached, ch.effect.as_deref())))
         .collect();
     let x0 = MAIN.min.x + LIST.min.x + ROW_X;
     let mut y = MAIN.min.y + LIST.min.y;
@@ -512,28 +520,75 @@ pub fn draw_list(p: &mut ChildSpawnerCommands, c: &mut Ctx, s: &Session, combat:
     }
     // The figures: the weapon as it is, and on a mod after attaching or removing it.
     let Some(w) = combat.and_then(|cb| cb.forms.weapons.get(&o.item)) else { return };
+    let cmp = compare(s, w);
+    let cr = Rect::from_corners(MAIN.min + COMPARE.min, MAIN.min + COMPARE.max);
+    let half = cr.width() / 2.0;
+    let cards = |p: &mut ChildSpawnerCommands, c: &mut Ctx, y: f32, stat: &Option<(&'static str, String)>| {
+        frame::card(p, c, cr.min.x, y, half - 5.0, super::labels::label("sInventoryCondition", "CND"), "");
+        let m = Rect::new(cr.min.x + half - 5.0 - METER.x - 15.0, y + 17.0, cr.min.x + half - 5.0 - 15.0, y + 17.0 + METER.y);
+        bar(p, m, cmp.condition, bright);
+        let (t, v) = stat.as_ref().map_or(("", ""), |(t, v)| (*t, v.as_str()));
+        frame::card(p, c, cr.min.x + half + 5.0, y, half - 5.0, t, v);
+    };
+    cards(p, c, cr.min.y, &cmp.now);
+    if let Some(after) = &cmp.after {
+        let ay = cr.min.y + (cr.height() - ARROW) / 2.0 - 5.0;
+        c.image(p, "interface\\shared\\arrow\\repair_arrow_down.dds", at(cr.min.x + (cr.width() - ARROW) / 2.0, ay, ARROW, ARROW), bright);
+        if let Some(gain) = &cmp.gain {
+            c.text(p, 4, gain, cr.min.x + cr.width() * 0.75, ay + 30.0, Align::Centre, bright);
+        }
+        cards(p, c, cr.max.y - CARD_H, after);
+    }
+}
+
+/// What the figures compare, for the hand-built cards and the page drawn from the file's
+/// (`crate::tiles::item_mod_menu`) alike: the weapon's condition, its stat card as it is (the
+/// figure the chosen mod changes, else its damage when it has any), on a mod the same after
+/// attaching or removing it, and the gain between them in words ([`gain_text`]).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Compare {
+    pub condition: f32,
+    /// The stat card's title and value; `None` for none to show.
+    pub now: Option<(&'static str, String)>,
+    /// On a mod: the stat card after it (itself `None` for none to show).
+    pub after: Option<Option<(&'static str, String)>>,
+    pub gain: Option<String>,
+}
+
+/// [`Compare`] for the session's chosen row, by the weapon's stats `w`.
+pub fn compare(s: &Session, w: &WeaponStats) -> Compare {
+    let o = &s.offer;
+    let chosen = s.selected.checked_sub(1).and_then(|i| o.choices.get(i));
     let now = w.modded(o.extra.mods);
     let condition = o.extra.condition_or_whole();
     let effect = chosen.and_then(|ch| w.mods.iter().find(|m| m.slot == ch.slot)).and_then(|m| m.effect.clone());
-    let cr = Rect::from_corners(MAIN.min + COMPARE.min, MAIN.min + COMPARE.max);
-    let half = cr.width() / 2.0;
-    let cards = |p: &mut ChildSpawnerCommands, c: &mut Ctx, y: f32, ws: &WeaponStats| {
-        frame::card(p, c, cr.min.x, y, half - 5.0, super::labels::label("sInventoryCondition", "CND"), "");
-        let m = Rect::new(cr.min.x + half - 5.0 - METER.x - 15.0, y + 17.0, cr.min.x + half - 5.0 - 15.0, y + 17.0 + METER.y);
-        bar(p, m, condition, bright);
-        let shown = if effect.is_some() { figure(effect.as_deref(), ws, condition) } else { (ws.base_damage > 0).then(|| (super::labels::label("sInventoryDamage", "DAM"), ws.base_damage.to_string(), None)) };
-        let (t, v) = shown.map_or(("", String::new()), |(t, v, _)| (t, v));
-        frame::card(p, c, cr.min.x + half + 5.0, y, half - 5.0, t, &v);
-    };
-    cards(p, c, cr.min.y, &now);
-    if let Some(ch) = chosen {
-        let after = w.modded(o.extra.mods ^ mod_flag(ch.slot));
-        let ay = cr.min.y + (cr.height() - ARROW) / 2.0 - 5.0;
-        c.image(p, "interface\\shared\\arrow\\repair_arrow_down.dds", at(cr.min.x + (cr.width() - ARROW) / 2.0, ay, ARROW, ARROW), bright);
-        if let (Some((_, _, Some(a))), Some((_, _, Some(b)))) = (figure(effect.as_deref(), &now, condition), figure(effect.as_deref(), &after, condition)) {
-            c.text(p, 4, &gain_text(a, b), cr.min.x + cr.width() * 0.75, ay + 30.0, Align::Centre, bright);
+    let stat = |ws: &WeaponStats| {
+        if effect.is_some() {
+            figure(effect.as_deref(), ws, condition).map(|(t, v, _)| (t, v))
+        } else {
+            (ws.base_damage > 0).then(|| (super::labels::label("sInventoryDamage", "DAM"), ws.base_damage.to_string()))
         }
-        cards(p, c, cr.max.y - CARD_H, &after);
+    };
+    let after = chosen.map(|ch| w.modded(o.extra.mods ^ mod_flag(ch.slot)));
+    let gain = after.as_ref().and_then(|after| match (figure(effect.as_deref(), &now, condition), figure(effect.as_deref(), after, condition)) {
+        (Some((_, _, Some(a))), Some((_, _, Some(b)))) => Some(gain_text(a, b)),
+        _ => None,
+    });
+    Compare { condition, now: stat(&now), after: after.as_ref().map(stat), gain }
+}
+
+/// The chosen row's mod, if a mod's row is chosen.
+pub fn chosen(s: &Session) -> Option<&Choice> {
+    s.selected.checked_sub(1).and_then(|i| s.offer.choices.get(i))
+}
+
+/// A row's name as the list shows it: a carried mod's count after its name when more than one
+/// [design: the hand-built list's].
+pub fn row_name(ch: &Choice) -> String {
+    if ch.count > 1 && !ch.attached {
+        format!("{} ({})", ch.name, ch.count)
+    } else {
+        ch.name.clone()
     }
 }
 
@@ -657,6 +712,27 @@ mod tests {
         assert_eq!(gain_text(0.8, 0.4), "-0.40");
         assert_eq!(figure(Some("Silence"), &w.modded(4), 1.0).map(|f| f.1), Some("Silent".into()));
         assert_eq!(figure(None, &w, 1.0), None);
+    }
+
+    /// What both drawings' cards compare (`compare`): the weapon's damage on its own row; on a mod
+    /// the figure it changes before and after, whole, decimal or in words, and the gain.
+    #[test]
+    fn the_comparison_words_whole_decimal_and_worded_figures() {
+        let forms = store();
+        let on = Extra { equipped: true, ..Extra::default() };
+        let groups = vec![(GUN, on, 1), (MAGS, Extra::default(), 1), (SIGHT, Extra::default(), 1), (SILENCER, Extra::default(), 1)];
+        let offer = offer(&groups, &forms, &pistol(), GUN, Some(1.0), 0, true).unwrap();
+        let at = |name: &str| offer.choices.iter().position(|c| c.name.ends_with(name)).unwrap() + 1;
+        let cmp = |selected: usize| compare(&Session { offer: offer.clone(), first: 0, selected }, &pistol());
+        let weapon = cmp(0);
+        assert_eq!((weapon.now.map(|f| f.1), weapon.after, weapon.gain, weapon.condition), (Some("22".to_string()), None, None, 1.0));
+        let mags = cmp(at("Mags"));
+        assert_eq!((mags.now.map(|f| f.1), mags.after.flatten().map(|f| f.1), mags.gain.as_deref()), (Some("12".into()), Some("16".into()), Some("+4")));
+        let sight = cmp(at("Sight"));
+        assert_eq!((sight.now.map(|f| f.1), sight.after.flatten().map(|f| f.1), sight.gain.as_deref()), (Some("0.80".into()), Some("0.40".into()), Some("-0.40")));
+        let quiet = cmp(at("Silencer"));
+        assert_eq!(quiet.after.flatten(), Some(("Noise", "Silent".to_string())));
+        assert_eq!(quiet.gain, None, "words have no gain");
     }
 
     #[test]

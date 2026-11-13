@@ -264,6 +264,12 @@ impl Ctx<'_> {
         self.text_in(p, FontKind::Menu, s, x, top, right, color)
     }
 
+    /// The width one line of text would take in a font.
+    pub fn text_width(&mut self, kind: FontKind, s: &str) -> f32 {
+        let (face, _) = self.face(kind);
+        crate::pad::hint_width(face, s, self.glyphs)
+    }
+
     /// One line of text in a font, its top at `top`; `right`: `x` is its right end. Its
     /// width.
     #[allow(clippy::too_many_arguments)]

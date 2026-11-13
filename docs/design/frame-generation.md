@@ -10,7 +10,11 @@ the passes are in the vendored `wgpu-ffx` (`opticalflow.rs`, `frameinterpolation
 **Settings > Graphics > Frame generation**, or `--frame-generation`. Off by default, saved like
 every switch. It runs when:
 
-- FSR 3.1 upscaling is on, in any mode (Native AA too): it reads the depth and motion FSR gets;
+- FSR 3.1 is the upscaler that draws, in any mode (Native AA too): it reads the depth and
+  motion FSR gets. Not with DLSS ([dlss-upscaling](dlss-upscaling.md)): frame generation
+  assumes FSR drew the frame, and DLSS's pass makes none of FSR's state; with FSR asked for
+  in a session that loaded Streamline (`NVF_DLSS_PRELOAD=1`), it runs as usual
+  (`frame_gen::usable`, `graphics::fsr_active`, by the effective upscaler);
 - vsync is on (Vertical sync or Variable refresh): the two frames are paced by the swapchain;
 - the GPU runs the passes: Vulkan with SPIR-V passthrough and read-write storage textures in
   the formats they use (`frame_gen::FrameGenPlugin::finish`);
@@ -21,7 +25,8 @@ every switch. It runs when:
   capabilities [observed: their `OpCapability`s], and wgpu-hal 30 does not enable the Vulkan
   1.0 features that would allow them otherwise.
 
-Otherwise the row is dimmed with the reason ("Needs FSR 3.1", "Needs vsync", "Not on this GPU")
+Otherwise the row is dimmed with the reason ("Not on this GPU", "Not with DLSS", "Needs FSR 3.1",
+"Needs vsync", checked in that order)
 and the log says `frame generation: on but not running (...)`. While it runs, real frames are
 capped slightly below half the refresh rate (78 at 160 Hz) and latency reduction is on
 ([latency-reduction](latency-reduction.md), AMD GPUs only).
@@ -39,7 +44,8 @@ runs AMD's GLSL compiled to SPIR-V and a Rust port of AMD's host code
 Per real frame, in the camera's render schedule (`Core3d`):
 
 1. After FSR (`fsr::fsr_pass`): frame interpolation's prepare pass on FSR's depth
-   (`PreparedFsr::fsr_depth`, render size, first-person depth unsqueezed) and Bevy's motion
+   (the common preparation's `PreparedUpscale::depth`, `upscaler/prep.rs`, render size,
+   first-person depth unsqueezed; only on a camera FSR draws) and Bevy's motion
    vectors, with FSR's scale (minus the render size), reversed infinite depth and FSR's
    jitter. AMD's host code passes the upscaler's jitter on
    (`ffxFsr3ContextDispatchFrameGenerationPrepare`); its pass reads it only to find
@@ -83,7 +89,7 @@ frame differed from the real one by 0.2-0.4 of 255.
 ### When no frame is generated
 
 Menus, dialogue, loading screens and pauses (every `PlayState` but Playing), a camera cut
-(`FsrCamera::cut_from`, as for FSR's history), a frame FSR did not reconstruct (its spatial
+(`UpscaleCamera::cut_from`, as for FSR's history), a frame FSR did not reconstruct (its spatial
 fallback), and the first frame after any of them: those frames go through the passes with a
 reset (to start the history again) and are presented once. AMD's scene-change detection also
 stops interpolation for four frames after a detected cut; such frames show the real frame.
@@ -134,8 +140,9 @@ Limits and notes:
   78 fps), as before within 0.1 ms. The generated frame is presented when the presenter sees the
   GPU finish the frame (polled about every 0.5 ms), where the driver showed it before: about
   0.3-0.5 ms later at the same frame rate, and much earlier where the old path fell below the
-  cap. Latency reduction is turned on to offset it where the driver has it (AMD). NVIDIA's
-  `VK_NV_low_latency2` is not used (needs swapchain hooks wgpu lacks).
+  cap. Latency reduction is turned on to offset it where the driver has it: AMD Anti-Lag, or
+  NVIDIA low latency, whose markers map both presents to the rendered frame
+  ([latency-reduction](latency-reduction.md), "Frame generation").
 - **Catching up**: at the cap two paced presents take nearly a whole real frame, so a backlog
   (a late frame followed by an early one) drained by only about 0.2 ms a frame, and frames
   waited in the presenter for up to another frame [observed 2026-11-09, 4K, 78 real fps: the
@@ -236,8 +243,8 @@ Limits and notes:
 ## Measurements
 
 RTX 5090 (NVIDIA 621.14), Ryzen 9 9950X3D, Vulkan, 1920x1080 window on a 160 Hz monitor (vsync
-presents as FIFO relaxed), FSR Quality, `--graphics enhanced`, a 30 s walk in Goodsprings
-(`dev\tools\fg-measure.ps1`), 2026-11-07:
+presents as FIFO relaxed), FSR Quality, `--graphics enhanced`, a 30 s walk in Goodsprings,
+2026-11-07:
 
 | | Real fps | Presented fps | GPU time (mean per real frame) |
 |---|---|---|---|
@@ -254,8 +261,8 @@ needs PresentMon or present timing from the driver).
 
 **The presenter** (2026-11-08, h9x000/NVForever#1): the same PC at the owner's settings (a copy
 of their `NVForever.ini`: 3840x2160 borderless, variable refresh, FSR Quality, every slider and
-effect at the top), playing at the Goodsprings skyline at noon, 45 s runs, the last 30 s
-(`dev\tools\fg-pacing.ps1`). The heavy case adds 4 ms of render-thread work a frame
+effect at the top), playing at the Goodsprings skyline at noon, 45 s runs, the last 30 s.
+The heavy case adds 4 ms of render-thread work a frame
 (`NVF_TEST_RENDER_STALL_MS=4`), standing in for the owner's heavier view:
 
 | | Real fps | Shown fps | Between presents, 95th percentile | Presents' time on the render thread |
@@ -301,7 +308,7 @@ presents from when each returned and fell short of the cap (74-77 real fps): eac
 [observed 2026-11-10, RTX 5090 (NVIDIA), Ryzen 9 9950X3D, the owner's settings: 3840x2160
 borderless, variable refresh (cap 152), FSR Native AA, every slider and effect at the top;
 Goodsprings at noon, walking on and turning every two seconds, one game at a time, 100 s
-runs, the 10 s periods after the first 20 s (`dev\tools\fg-update-test.ps1`, `NVF_PACE_LOG=1`);
+runs, the 10 s periods after the first 20 s (`NVF_PACE_LOG=1`);
 the view is held by the main thread, about 76 real fps before]
 
 | Frame generation on | Before | After, catch-up off | After |
@@ -322,7 +329,7 @@ With frame generation off and standing still (vsync off, `--log-frame-times`): F
 us; the frame rate is the main thread's there (88-103 fps in both, the same within the runs'
 spread). From a frame's start to its first present, the two rows added: about 24 ms before,
 20 with the catch-up off, 16 with it. The picture: a capture of generated and real frames
-(1280x720, FSR Quality, strafing; `fg_capture_check.py`) gives the generated frame 0.75-0.84 of
+(1280x720, FSR Quality, strafing; `NVF_FRAME_GEN_CAPTURE_DIR`, compared as under "Checks") gives the generated frame 0.75-0.84 of
 the real frames' difference from each neighbour and 0.20-0.33 of 255 on the HUD's pixels, as
 before the change ("Checks"); a screenshot with frame generation on is of the real frame. Not measured: what reaches the screen and when
 (PresentMon), and views the GPU or the cap holds, where the limiter's wait, and so what moving

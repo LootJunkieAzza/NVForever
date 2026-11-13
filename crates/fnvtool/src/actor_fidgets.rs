@@ -1,9 +1,10 @@
 //! `fnvtool actor fidgets`: the fidgets the IDLE tree gives actors, drawn-weapon ones
-//! (docs/spec-notes/idles.md §11) or, with `--furniture`, the ones on furniture
+//! (docs/spec-notes/idles.md §11), with `--weapon-away` those of a person standing with
+//! its weapon away (§11.4), or, with `--furniture`, the ones on furniture
 //! (docs/spec-notes/furniture.md §8). For each actor, in a game where nothing has
-//! happened yet, its weapon is put out (or it is put on the furniture, in the state of
-//! being on it) and the tree is asked many times (`Game::fidget`, without replay
-//! delays); the picks are counted per idle (fnv.actor.fidgets/1).
+//! happened yet, its weapon is put out (left away, or it is put on the furniture, in the
+//! state of being on it) and the tree is asked many times (`Game::fidget`, without
+//! replay delays); the picks are counted per idle (fnv.actor.fidgets/1).
 //! `--weapon` puts that weapon in every actor's hands (none is equipped in a fresh game).
 
 use fnv_esm::{LoadOrder, Schema};
@@ -23,6 +24,8 @@ pub struct How<'a> {
     /// `REF:MARKER_ID`: on this furniture.
     pub furniture: Option<&'a str>,
     pub first_person: bool,
+    /// The weapon left away: the weapon-away fidgets.
+    pub weapon_away: bool,
     pub checks: u32,
 }
 
@@ -40,13 +43,17 @@ pub fn run(lo: &LoadOrder, schema: &Schema, data: &GameData, refs: &RefTable, ac
         }
         None => None,
     };
-    let kind = if seat.is_some() { FidgetKind::OnFurniture } else { FidgetKind::WeaponOut };
+    let kind = match (seat.is_some(), how.weapon_away) {
+        (true, _) => FidgetKind::OnFurniture,
+        (false, true) => FidgetKind::WeaponAway,
+        (false, false) => FidgetKind::WeaponOut,
+    };
     let mut rows = Vec::new();
     for name in actors {
         let actor = crate::actor_factions::resolve(&g, refs, name)?;
         match seat {
             Some(s) => g.set_furniture_use(actor, Some(s)),
-            None => g.set_weapon_out(actor, true),
+            None => g.set_weapon_out(actor, !how.weapon_away),
         }
         // The weapon in the hands, as the engine tells it for a drawn NPC.
         if let Some(w) = how.weapon {
@@ -54,9 +61,13 @@ pub fn run(lo: &LoadOrder, schema: &Schema, data: &GameData, refs: &RefTable, ac
             g.set_held_weapon(actor, Some(w));
         }
         let mut picks: BTreeMap<String, u32> = BTreeMap::new();
+        // The picks by the node above them (a branch's leaves together).
+        let mut by_parent: BTreeMap<String, u32> = BTreeMap::new();
         for _ in 0..how.checks {
             if let Some(idle) = g.fidget(actor, PEOPLE_FOLDER, kind, &|_| false) {
                 *picks.entry(data.name(idle)).or_default() += 1;
+                let parent = data.idles.get(&idle).and_then(|d| d.parent).map_or_else(|| "(root)".to_string(), |p| data.name(p));
+                *by_parent.entry(parent).or_default() += 1;
             }
         }
         let anim_type = g.weapon_anim_type(actor);
@@ -68,6 +79,7 @@ pub fn run(lo: &LoadOrder, schema: &Schema, data: &GameData, refs: &RefTable, ac
             "checks": how.checks,
             "fidgets": picks.values().sum::<u32>(),
             "by_idle": picks,
+            "by_parent": by_parent,
         }));
     }
     Ok(json!({ "schema": "fnv.actor.fidgets/1", "kind": kind, "actors": rows }))

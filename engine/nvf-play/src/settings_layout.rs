@@ -69,9 +69,10 @@ const fn section(tab: &'static str, heading: Option<&'static str>, keys: &'stati
 /// Every named row's tab and heading, in the order the page shows them [design: #1953's
 /// table; the colours' red, green and blue each after their colour].
 pub const SECTIONS: &[Section] = &[
-    section("Gameplay", Some("Game"), &["difficulty", "hardcore", "kill-camera", "reload-slows", "UsePipBoy"]),
+    section("Gameplay", Some("Game"), &["difficulty", "hardcore", "kill-camera", "vats-style", "vats-slowdown", "reload-slows", "UsePipBoy"]),
     section("Gameplay", Some("Saving"), &["autosave-travel", "autosave-fast-travel", "autosave-wait", "autosave-sleep", "autosave-scripts"]),
     section("Gameplay", Some("Dialogue"), &["menu-pause", "dialogue-goodbye-hint", "dialogue-look", "dialogue-recentre", "dialogue-zoom", "lip-sync"]),
+    section("Gameplay", Some("Reports"), &["send-reports", "reports-delete"]),
     section("Gameplay", Some("Camera"), &["detached-camera", "true-iron-sights", "first-person-body", "weapon-sway", "head-bob", "weapon-lower", "field-of-view"]),
     section("Display", Some("Screen"), &["resolution", "borderless", "monitor", "display-sync", "frame-cap", "ui-scale"]),
     section(
@@ -96,7 +97,9 @@ pub const SECTIONS: &[Section] = &[
             "enhanced",
             "grade",
             "sun-shadows",
-            "fsr-upscaling",
+            "upscaler",
+            "upscaler-quality",
+            "dlss-model",
             "frame-generation",
             "anti-aliasing",
             "latency-reduction",
@@ -300,8 +303,10 @@ mod tests {
     }
 
     /// Every row the registry can hold today (upstream main 9af0a4552 and f4015fae8, with #1966's
-    /// quality and enhanced rows and #2014's counter rows), by the group it registers with.
-    const KNOWN: [(&str, &str); 100] = [
+    /// quality and enhanced rows, #2014's counter rows, the two VATS rows and #2198's Upscaler
+    /// and Upscaling mode rows in place of the one upscaling row, and its DLSS model row), by
+    /// the group it registers with.
+    const KNOWN: [(&str, &str); 106] = [
         ("detached-camera", "Gameplay"),
         ("menu-pause", "Gameplay"),
         ("dialogue-goodbye-hint", "Gameplay"),
@@ -316,6 +321,8 @@ mod tests {
         ("sneak-gauges", "Gameplay"),
         ("UsePipBoy", "Gameplay"),
         ("kill-camera", "Gameplay"),
+        ("vats-style", "Gameplay"),
+        ("vats-slowdown", "Gameplay"),
         ("difficulty", "Gameplay"),
         ("hardcore", "Gameplay"),
         ("lip-sync", "Gameplay"),
@@ -372,7 +379,9 @@ mod tests {
         ("item-distance", "Display"),
         ("shadow-distance", "Display"),
         ("grass-distance", "Display"),
-        ("fsr-upscaling", "Graphics"),
+        ("upscaler", "Graphics"),
+        ("upscaler-quality", "Graphics"),
+        ("dlss-model", "Graphics"),
         ("frame-generation", "Graphics"),
         ("anti-aliasing", "Graphics"),
         ("latency-reduction", "Graphics"),
@@ -402,6 +411,8 @@ mod tests {
         ("hit-markers", "Debug"),
         ("god-mode", "Debug"),
         ("navmesh", "Debug"),
+        ("send-reports", "Reports"),
+        ("reports-delete", "Reports"),
     ];
 
     #[test]
@@ -429,7 +440,7 @@ mod tests {
         assert_eq!(all.len(), list.len());
         all.sort_unstable();
         assert_eq!(all, (0..list.len()).collect::<Vec<_>>(), "each registered row once");
-        assert_eq!(keys(&list, &l, "Gameplay")[..7], ["[Game]", "difficulty", "hardcore", "kill-camera", "reload-slows", "UsePipBoy", "[Saving]"]);
+        assert_eq!(keys(&list, &l, "Gameplay")[..9], ["[Game]", "difficulty", "hardcore", "kill-camera", "vats-style", "vats-slowdown", "reload-slows", "UsePipBoy", "[Saving]"]);
         assert_eq!(keys(&list, &l, "Audio"), ["volume-master", "volume-music", "volume-footstep", "volume-voice", "volume-effects", "volume-radio", "music", "voice", "reverb", "voice-reverb"]);
         assert_eq!(keys(&list, &l, "Controls"), CONTROLLER_KEYS);
         assert_eq!(keys(&list, &l, "Debug"), ["overlay", "hit-markers", "god-mode", "navmesh", "scope-3d"]);

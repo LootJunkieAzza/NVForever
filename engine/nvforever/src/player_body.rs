@@ -318,13 +318,15 @@ fn no_arms_shade() -> bool {
 fn shade_light(
     mut commands: Commands,
     state: Res<PlayerBody>,
+    performance: Res<crate::shadow_rate::PerformanceShadows>,
     sun: Query<(Entity, &DirectionalLight), (With<Sun>, Without<ArmsShade>)>,
     mut shade: Query<(Entity, &mut DirectionalLight), With<ArmsShade>>,
 ) {
     // A sun casting no shadows has no shade light either.
     let Ok((sun, sun_light)) = sun.single() else { return };
     let arms_drawn = state.body.as_ref().and_then(|b| b.first.as_ref()).is_some_and(|f| f.shown == Some(true));
-    let on = arms_drawn && sun_light.shadow_maps_enabled && !no_arms_shade();
+    // Nor with Sun shadows on Performance (shadow_rate.rs): one shadow view less.
+    let on = arms_drawn && sun_light.shadow_maps_enabled && !no_arms_shade() && !performance.0;
     let illuminance = sun_light.illuminance * ARMS_SHADE_SHARE;
     if let Ok((e, mut light)) = shade.single_mut() {
         if !on {
@@ -1438,7 +1440,8 @@ fn build_rig(commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &
         warn!("player {view:?} rig: {} parts not loaded", stats.parts_missing);
     }
     if let Some(shows) = shows {
-        // Upper-body models show their `Arms` shapes and the Pip-Boy sleeve only.
+        // Upper-body models show their `Arms` shapes and the left forearm sleeve only
+        // (`PipBoyOn…` or `PipBoyOff…`, whichever the player wears).
         for (i, u) in &mut uses {
             if shows[*i] == Show::Arms {
                 let hide = u.part.shapes.iter().filter_map(|s| s.name.clone().filter(|n| !is_first_person_shape(n)));
@@ -2316,7 +2319,7 @@ fn drive_body(
     mut transforms: Query<&mut Transform>,
     mut visibility: Query<&mut Visibility>,
     mut anim: ResMut<WeaponAnim>,
-    (furniture, mut idles, mut seat, pip, cams, first_fov, limbs, (death, knock), (zoom, combat, mut true_sights, scope, mut lens3d, lens_sway), (ahead, mut lunge, s1st)): (
+    (furniture, mut idles, mut seat, pip, cams, first_fov, limbs, (death, knock), (zoom, combat, mut true_sights, scope, mut lens3d, lens_sway), (ahead, mut lunge, s1st, vats)): (
         Res<crate::furniture::BodyOverride>,
         ResMut<PlayerIdles>,
         ResMut<nvf_play::furniture::PlayerSeat>,
@@ -2326,7 +2329,7 @@ fn drive_body(
         Option<Res<nvf_play::combat::PlayerLimbs>>,
         (Res<crate::death_cam::DeathCam>, Res<crate::player_knockdown::PlayerKnockdown>),
         (Option<Res<nvf_play::aim_zoom::AimZoom>>, Option<Res<nvf_play::combat::Combat>>, Option<ResMut<nvf_play::aim_zoom::TrueSights>>, Option<Res<nvf_play::aim_zoom::Scope>>, Option<ResMut<nvf_play::aim_zoom::Scope3d>>, Option<Res<nvf_play::aim_zoom::LensSway>>),
-        (Res<crate::weapon_lower::Ahead>, ResMut<nvf_play::player::Lunge>, Option<Res<nvf_play::console::ShowFirstPerson>>),
+        (Res<crate::weapon_lower::Ahead>, ResMut<nvf_play::player::Lunge>, Option<Res<nvf_play::console::ShowFirstPerson>>, Option<Res<nvf_play::vats_mode::VatsMode>>),
     ),
     mut driven: ResMut<nvf_play::player::ViewDriven>,
 ) {
@@ -2635,8 +2638,13 @@ fn drive_body(
         wind_now,
     };
     // The body stands on the drawn ground under the feet (`nvf_play::phys::drawn_sink`);
-    // its eye counts from the feet as before.
+    // its eye counts from the feet as before: without the sink, and without the share of
+    // the lift that easing the body onto changes of the drawn ground put there (else a
+    // crack in a broken road's drawn floor moved the view at once and eased it back,
+    // feedback 2026-11-12; `step_lift::StepLift::ground_at`).
     let sink = Vec3::Z * phys.drawn_sink_of(FormId::PLAYER_REF.0);
+    let ground_lift = phys.drawn_ground_lift_of(FormId::PLAYER_REF.0);
+    let eye_sink = sink - Vec3::Z * ground_lift;
     // A script's SetScale on the player sizes both rigs, so the view (the first-person
     // camera node) comes down with the body: Fallout 3's baby stage, CG01 stage 0,
     // `player.SetScale 0.4`, stage 100 `1` [observed: TTW's Fallout3.esm, fnvtool script
@@ -2650,7 +2658,7 @@ fn drive_body(
     }
     let root = Transform { translation: Vec3::from_array(feet) - sink, rotation: Quat::from_rotation_z(-player.heading), scale: Vec3::splat(body.scale * script_scale) };
     let third = Posed { root, look_pitch: player.pitch, special: &idles.third, pipboy: None, sway: SwayPose::NONE, sights: None };
-    let third_eye = pose_rig(&mut body.third, &frame, &events, third, &mut ctx, &mut transforms).map(|(e, _)| e + sink);
+    let third_eye = pose_rig(&mut body.third, &frame, &events, third, &mut ctx, &mut transforms).map(|(e, _)| e + eye_sink);
     // The third-person body's melee attack clip carries the player by its root's travel
     // (actors.md §8.13), turned by the heading and scaled with the body.
     if let Some(d) = body.third.carry.filter(|_| dt > 0.0) {
@@ -2663,7 +2671,7 @@ fn drive_body(
         }
         lunge.carrying = true;
     }
-    let (held, pitch, mut at) = idles.held.map_or((player.heading, player.pitch, feet), |h| (h.heading, player.pitch - h.pitch, h.feet));
+    let (held, pitch, mut at) = idles.held.map_or((player.heading, player.pitch, [feet[0], feet[1], feet[2] - ground_lift]), |h| (h.heading, player.pitch - h.pitch, h.feet));
     if let Some(h) = idles.held {
         // The character stays where the scene plays (and collides with nothing there).
         seat.hold = Some(h.feet);
@@ -2801,7 +2809,7 @@ fn drive_body(
         if let (false, Some(h)) = (m.hands.in_hand, body.third.head) {
             let head = Affine3A::from_scale_rotation_translation(root.scale, root.rotation, root.translation) * body.third.animator.model_space(h);
             let right = Vec3::new(player.heading.cos(), -player.heading.sin(), 0.0);
-            let neck = Vec3::from(head.translation) + sink;
+            let neck = Vec3::from(head.translation) + eye_sink;
             e = neck + Quat::from_axis_angle(right, NECK_PITCH * player.pitch) * (e - neck);
         }
         Some(e)
@@ -2811,9 +2819,11 @@ fn drive_body(
     // The third-person pivot: the head's height above the feet without the stride's
     // rise and fall (`head_bob.rs`).
     view.pivot = third_eye.or(eye).map(|e| {
-        let up = e.z - feet[2];
+        // From the feet without the drawn ground's share of the lift, as the eye.
+        let base = feet[2] - ground_lift;
+        let up = e.z - base;
         let up = if third_view { m.head.pivot_height(up, dt) } else { up };
-        [feet[0], feet[1], feet[2] + up + 5.0]
+        [feet[0], feet[1], base + up + 5.0]
     });
     if !third_view {
         m.head.pivot_reset();
@@ -2889,7 +2899,11 @@ fn drive_body(
     let scoped = scope.as_deref().is_some_and(|s| s.on && !s.lens_3d);
     // The console's Show1stPerson shows it in third person too, at the eye.
     let s1st = s1st.is_some_and(|s| s.0);
-    show_rigs(body, &mut commands, &mut visibility, seen, (!third_view || s1st) && !scoped);
+    // Nor while the classic VATS style chooses targets: the view is on the target alone
+    // [observed: the owner's screenshots of the original's VATS, 2026-11-10, no arms or
+    // weapon in the picture].
+    let targeting = vats.is_some_and(|v| v.selected().is_some());
+    show_rigs(body, &mut commands, &mut visibility, seen, (!third_view || s1st) && !scoped && !targeting);
 
     m.log_elapsed += dt;
     if m.log_elapsed >= 1.0 {

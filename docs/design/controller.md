@@ -62,8 +62,8 @@ Start cannot be bound.
 
   | Menu | Buttons |
   |------|---------|
-  | Container | X Take All |
-  | Barter | X Accept |
+  | Container | X Take All; LT / RT pick the player's list / the container's, "LT)" and "RT)" drawn under them; D-pad left / right the picked list's category [observed: the original, #1827; documented: `CM_Items_TitleButton`, `CM_Container_TitleButton`]; while "How many?" is up its own buttons rest: the D-pad steps the amount, LT / RT by ten [design, #1827] |
+  | Barter | X Accept; LT / RT and the D-pad as the container menu's [documented: `BM_Items_TitleButton`, `BM_Container_TitleButton`; the D-pad: hypothesis, #1827] |
   | Pip-Boy (every page) | LT / RT the previous / next page (STATS, ITEMS, DATA, round again); D-pad left / right the tabs [design: owner 2026-11-02] |
   | Pip-Boy ITEMS | X Drop (`pipboy::items`, not while "How many?" is up), Y Repair, LB Mod |
   | Pip-Boy STATS | status tab: A Stimpak, Y Doctor's Bag, X Rad-X; General tab: X switch lists |
@@ -76,7 +76,7 @@ Start cannot be bound.
   | Blackjack | A Hit, Y Double/Deal, RT Split/Raise, LT Switch/Lower, X Surrender/Max Bet, B Stay/Exit |
   | Roulette | A Place, Y Remove, X Finish, LT Lower, RT Raise, B Exit |
   | Slot machine | A Spin, RT Raise, LT Lower, Y Payouts, X Max Bet, B Exit |
-  | Tutorial | RT Next, LT Previous |
+  | Tutorial | RT Next, LT Previous; the D-pad or the left stick up / down scrolls the text, a step a push [observed, #1905: the left stick in the original] |
   | Caravan bet [design, #1662] | A Accept, Y Auto Match, RT Raise, B Exit |
   | Caravan deck [design, #1662] | A Add, X Remove, Y Randomize, RT Play Caravan (B, the shared Esc, leaves) |
   | Caravan game [design, #1662] | A Select Card, X Discard Card, Y Discard Track, B Cancel; D-pad left / right the hand |
@@ -126,7 +126,8 @@ Start cannot be bound.
   General/Reputation switch, DATA's Challenges/Notes, crafting, repair services,
   level-up and the tag-skill/trait lists, lockpicking and every minigame's help box
   Close, blackjack, roulette, slots, caravan, poker, the Wait/Sleep menu, the dialogue's
-  Goodbye hint, the pause menu's Delete and Yes/No. The help texts' control strings
+  Goodbye hint, the pause menu's Delete and Yes/No and its pages' Back ("Back  B)" [observed, #1893]; Defaults has none, its Y in the original being the rail key here, #1953), the tutorial menu's Next, Previous
+  and Close ("Close E)", with a controller "Close B)" [observed, #1904]). The help texts' control strings
   (`&sUActnCrouch;` …, `lockpick::help::expand_keys`) name the control's button. Menus
   drawn with a view kept for change detection redraw when the device changes; the others
   (the container, barter and Pip-Boy pages) take the new names at their next redraw.

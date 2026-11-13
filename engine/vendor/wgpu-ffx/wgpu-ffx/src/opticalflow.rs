@@ -274,6 +274,7 @@ impl OpticalFlowContext {
         let slot = |index: u64| Res::Slot(&view.constants, index * fg_pass::SLOT, std::mem::size_of::<Constants>() as u64);
         let v = fg_pass::whole;
         let kept = &view.bind_groups;
+        kept.next_frame();
 
         let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
             label: Some("FSR3 optical flow"),

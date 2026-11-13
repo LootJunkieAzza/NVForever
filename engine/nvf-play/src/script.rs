@@ -307,6 +307,9 @@ pub struct Runtime {
     /// door's loading screen).
     location: Option<Location>,
     frozen_frames: u32,
+    /// The start menu's MenuMode 1013 frames have run before the first GameMode frame
+    /// (`Game::came_through_start_menu`).
+    came_through: bool,
     pub triggers: crate::script_trigger::Triggers,
     /// Enable parent → references that follow it.
     children: HashMap<FormId, Vec<FormId>>,
@@ -672,6 +675,7 @@ impl Runtime {
             start: GameStart::default(),
             location: None,
             frozen_frames: 0,
+            came_through: false,
             triggers: Default::default(),
             children,
             started: Instant::now(),
@@ -1601,7 +1605,7 @@ fn time_multiplier(
     sound: Option<ResMut<crate::audio_out::SoundSpeed>>,
     mut clock: ResMut<Time<Virtual>>,
     mut player_scale: ResMut<PlayerTimeScale>,
-    mut told: Local<Option<f32>>,
+    (mut told, mut told_turbo): (Local<Option<f32>>, Local<Option<f32>>),
 ) {
     let Some(rt) = script.rt.as_mut() else { return };
     let asked = rt.game.ui.time_multiplier.unwrap_or(1.0) as f32;
@@ -1611,13 +1615,17 @@ fn time_multiplier(
     }
     // Turbo slows the world but for the player (docs/spec-notes/magic-archetypes.md §2).
     let turbo = rt.game.turbo_time_scale() as f32;
-    let exempt = 1.0 / turbo.max(0.01);
-    if (player_scale.0 - exempt).abs() > 1e-6 {
+    if (told_turbo.replace(turbo).unwrap_or(1.0) - turbo).abs() > 1e-6 {
         if turbo < 1.0 {
             info!("magic: Turbo on: the world runs at {turbo:.2}, the player at full speed");
         } else {
             info!("magic: Turbo off");
         }
+    }
+    // A VATS camera shot's Player time multiplier: the player against the world it slows
+    // (`kill_cam::KillCam::player_scale`).
+    let exempt = 1.0 / turbo.max(0.01) * kill_cam.as_deref().and_then(|k| k.player_scale()).unwrap_or(1.0);
+    if (player_scale.0 - exempt).abs() > 1e-6 {
         player_scale.0 = exempt;
     }
     // A kill camera's shot sets the world's speed in place of VATS mode's (vats-mode.md §19).
@@ -1635,7 +1643,9 @@ fn time_multiplier(
 
 /// How much faster than the game's clock the player moves and animates (1 for the same):
 /// Turbo slows the world's clock and the player keeps its own speed by this factor, the
-/// clock's inverse (`fnv_game::magic_archetypes`, docs/spec-notes/magic-archetypes.md §2).
+/// clock's inverse (`fnv_game::magic_archetypes`, docs/spec-notes/magic-archetypes.md §2);
+/// a VATS camera shot's Player time multiplier multiplies in while the shot plays
+/// (`crate::kill_cam`).
 #[derive(Resource, Clone, Copy, Debug, PartialEq)]
 pub struct PlayerTimeScale(pub f32);
 
@@ -1732,12 +1742,18 @@ type UsesAndLoads<'w> = (MessageWriter<'w, crate::furniture::UseFurniture>, Mess
 /// [`run_scripts`]'s loading screen, keys, menu files, the pause menu's page and the
 /// count of MenuMode frames under its Mods page (`crate::tiles::mods`), and the main menu
 /// still to open (`--menu`).
+/// The start menu's frames run before the game (`Game::came_through_start_menu`): a
+/// second at 60 frames a second, longer than the half-second MenuMode timers MCM mods
+/// wait before adding themselves to MCM's list [observed: Just Assorted Mods' scripts]
+/// [design].
+const START_MENU_FRAMES: u32 = 60;
+
 type ScreenAndMenus<'w, 's> = (
     ResMut<'w, crate::loading::Loading>,
     Option<Res<'w, crate::bindings::Bindings>>,
     crate::tiles::MenuFiles<'w, 's>,
     Res<'w, crate::pause::Page>,
-    Local<'s, u64>,
+    ResMut<'w, crate::tiles::mods::ModsPage>,
     Option<Res<'w, crate::main_menu::MainMenuStart>>,
 );
 
@@ -1886,17 +1902,16 @@ pub(crate) fn run_scripts(
         if let Some(rt) = st.rt.as_mut() {
             rt.game.cfg.frame_seconds = time.delta_secs_f64();
             // In the played world, as every run of the game's scripts (`with_world`).
-            with_world(rt, &mut sim, |rt| with_ray_caster(&mut phys, &play.0, location.world, || crate::tiles::mods::tick(&mut rt.game)));
-            *mods_ticks += 1;
-            if *mods_ticks == 1 {
+            with_world(rt, &mut sim, |rt| with_ray_caster(&mut phys, &play.0, location.world, || crate::tiles::mods::tick(&mut rt.game, &mut mods_ticks)));
+            if mods_ticks.frames == 1 {
                 info!("scripts: MenuMode {} blocks run under the pause menu's Mods page", fnv_game::game::menus::START);
             }
         }
         return;
     }
-    if *mods_ticks > 0 {
-        info!("scripts: the Mods page closed after {} MenuMode frames", *mods_ticks);
-        *mods_ticks = 0;
+    if mods_ticks.frames > 0 {
+        info!("scripts: the Mods page closed after {} MenuMode frames", mods_ticks.frames);
+        mods_ticks.frames = 0;
     }
     if paused.0 || screen.active() {
         // Under a loading screen the game is held for everyone, not only for the
@@ -1981,6 +1996,14 @@ pub(crate) fn run_scripts(
     let mut aid_lines = Vec::new();
     let mut walks = Vec::new();
     with_world(rt, &mut sim, |rt| {
+        // The original's main menu is its start menu: its MenuMode 1013 blocks run there
+        // before the game, where MCM mods add themselves to MCM's list; NVForever comes
+        // straight into the game, so a second of them runs first (fnv_game, module notes).
+        if !rt.came_through {
+            rt.came_through = true;
+            rt.game.came_through_start_menu(START_MENU_FRAMES, 1.0 / 60.0);
+            info!("scripts: the start menu's MenuMode 1013 blocks ran {START_MENU_FRAMES} frames before the game, as under the original's main menu");
+        }
         rt.observe_inventory();
         let aid_from = rt.game.events.len();
         for &(item, limb) in &used {
@@ -2160,7 +2183,7 @@ pub(crate) fn run_scripts(
                 if here {
                     info!("script: the player is moved to where they stand ({:?}); no travel", t.feet);
                 } else {
-                    info!("script: travel to {:?} / {:?} at {:?}", t.interior, t.world, t.feet);
+                    info!("script: travel to {:?} / {:?} at {:?} heading {:.1}", t.interior, t.world, t.feet, t.heading_deg);
                     if loading_menu {
                         // EnableLoadingMenu before the move: its screen is one for
                         // anywhere, not the destination's [documented: GECK wiki
@@ -2439,6 +2462,7 @@ impl ScriptState {
             start: GameStart::default(),
             location: None,
             frozen_frames: 0,
+            came_through: false,
             triggers: Default::default(),
             children: HashMap::new(),
             started: Instant::now(),

@@ -2,7 +2,7 @@
 
 [design, proposal 2026-11-10] A specification for collecting data from players' games so
 bugs and crashes can be found and fixed without a player having to file an issue by hand.
-Nothing here is built yet. Owner's direction (2026-11-10): opt-in only, asked once in a
+What is built is listed under "Status" below. Owner's direction (2026-11-10): opt-in only, asked once in a
 popup at the first launch; once a player opts in, their sessions are sent automatically;
 a player can also send a report by hand; the receiving end and a dashboard run on
 Cloudflare.
@@ -20,6 +20,25 @@ What exists already and is reused, not rewritten:
   performance part below, but it stays a developer aid; nothing below turns it on.
 - [documented: `engine/nvforever/src/setup.rs`] The first-start flow (welcome box, folder
   picker) and `NVForever.ini` in the home, where the choice below is stored.
+
+## Status (2026-11-11)
+
+[documented: `engine/nvforever/src/reports/`, `crash.rs`, `native_crash.rs`, `events_log.rs`]
+
+- Built: the popup and INI keys (§2), the session summary with plugin sizes and CRC32s
+  (§3.1), crash reports with the run log, the flight recorder, the world snapshot and, on
+  Windows, a minidump (§3.2), "Delete my reports" (§6), `[Log]` levels and folded repeats
+  (§4.1), the structured events file (§4.1, local only, not sent), the flight recorder
+  (§4.2, log events only), the world snapshot (§4.3) and the anomaly detectors in
+  `anomaly.rs` (§4.4).
+- Not yet:
+  - the hand report form (§3.3);
+  - the summary's count of loose files in Data (§3.1; it needs the server's schema first);
+  - breadcrumbs the log does not already carry (§4.2);
+  - the AI's procedure and the most expensive scripts in the snapshot (§4.3);
+  - the actor-stuck, quest-stall and script-time detectors, and thresholds set from
+    `/v1/config` (§4.4);
+  - symbolising dumps (§5.4: the release PDB is over the Workers request limit).
 
 ## 1. Principles
 
@@ -76,7 +95,8 @@ Endpoint=           ; empty = the project's server; set for a self-hosted one
 - `InstallId` is random, made at opt-in, not derived from hardware or account. Turning
   reports off and on again makes a new one (the old one is unlinked).
 - Settings → General → Reports: a toggle (Send reports), "Open reports folder",
-  "Send a report now…" (§3.3), "Delete my reports" (§6), last sent time.
+  "Delete my reports" (§6), last sent time. The hand report (§3.3) is opened from the
+  pause menu's "Report a bug", not from Settings.
 - `NVF_REPORTS=0` forces off for any run (developers, CI, the smoke tests set it).
 
 ## 3. What is captured
@@ -116,13 +136,15 @@ Not in it: save names, character name, screenshots, typed console text (console
 [design] When a session ends `panic` or `native`, the next start sends with its summary:
 
 - the panic report that `crash.rs` already writes (already redacted), now with the
-  flight recorder's last 30 s and a world snapshot (§4.3);
+  flight recorder's last 60 s and a world snapshot (§4.3);
 - the session's run log (as in §3.1);
 - for `native`: a **minidump** — new work. Windows: a vectored/unhandled-exception
   handler writes a small minidump (thread stacks and module list only, no heap:
   `MiniDumpNormal`-sized, typically < 1 MiB) to `<home>\logs\crash-<time>-<pid>.dmp`, so
   start-up access violations (#1425), shutdown faults (#1825) and driver crashes are
-  covered. Writing the dump does not depend on opting in (it helps players who send
+  covered. The dump is binary and is sent as written: the server scrubs the user name
+  from its module paths [documented: LootJunkieAzza/NVForever-Data, #2109], but thread
+  stacks can still hold other text, so dumps are private like logs (§6). Writing the dump does not depend on opting in (it helps players who send
   files by hand); sending it does. Symbols (PDBs) for each release are uploaded to the
   server's private store at release time (§5.4), never shipped.
 
@@ -145,6 +167,18 @@ none in release builds; F12-style keys are taken). It opens a small form:
 A player who has not opted in sees the same form; sending it is consent for that one
 report only and does not change `Send`. The form shows what will be sent and the total
 size before the Send button.
+
+[built, #2151] `engine/nvforever/src/reports/form.rs`. Opened from **Report a bug** at the
+pause menu's bottom left, over the version line, on its first page and the settings page
+(in a game; not under the main menu) [owner 2026-11-12: a pause-menu entry, not a settings
+row]; the pause-menu key is not built yet.
+It also sends the world snapshot and the flight recorder (§4.2, §4.3) under the summary's
+and the log's tick boxes; without reports on there is no summary, only the snapshot, and
+no install ID. Sending follows §8: never from a developer or test run without
+`NVF_REPORTS_ENDPOINT`, the project's server only from an official build. The screenshot
+is PNG, at most 1280 wide and halved until under 1.5 MiB; the save is written for the
+report under `<home>\reports\form\` and deleted once sent. Bevy's font draws the form
+[our choice: the player's text may be in any script].
 
 ## 4. Extending the logger for bug hunting
 
@@ -329,6 +363,15 @@ login, allow-list).
   run. Offline is normal and silent.
 - All files go through `fnv_install::guard_write` under the home; nothing is written to
   the game folder or `Documents\My Games\FalloutNV`.
+- **Developers do not send reports** [owner 2026-11-11]: a development build, a
+  half-finished change or a test session would skew the numbers that are meant to show
+  players' games. Developer and smoke runs (`--data` / `NVFOREVER_DATA`, test aids) never
+  ask or send; a developer starting a build like a player answers Not now or sets
+  `NVF_REPORTS=0` (CONTRIBUTING.md, CLAUDE.md). `NVF_REPORTS=1` sends only to
+  `NVF_REPORTS_ENDPOINT`, never to the project's server. Enforced too: only official
+  builds (the release workflow sets `NVF_OFFICIAL_BUILD=1` when it builds) ask and send to
+  the project's server; a local build never does, unless it is pointed at a server of its
+  own or `NVF_REPORTS_PRODUCTION=1` is set (the owner's own testing).
 - Test aids: `NVF_REPORTS_ENDPOINT` to point at a local `wrangler dev` server; a smoke
   scenario that checks the popup is not shown in a scripted run, that `NVF_REPORTS=0`
   sends nothing, and that a session file is written and is valid `nvf-session/1`.

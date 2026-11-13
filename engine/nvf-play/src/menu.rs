@@ -23,7 +23,9 @@
 //!   Esc or Tab close [observed: the screenshot's "Take All R)" and "Exit E)"]. Barter:
 //!   the same, but Left/Right only, A accepts and X exits [observed: "Accept A)", "Exit
 //!   X)"]; Esc and Tab exit too. In both, `[` and `]` change the focused list's category
-//!   [design], the pointer selects the row it is on and a click acts on it, Shift+click
+//!   [design]; with a controller LT and RT pick the list (the arrow keys) and the D-pad's
+//!   left and right change its category (`[` and `]`), the hints "LT)" and "RT)" under
+//!   the lists [observed: the original, #1827; `crate::pad::menu_buttons`], the pointer selects the row it is on and a click acts on it, Shift+click
 //!   on the whole stack; the title arrows and the buttons are clickable. The inventory's
 //!   keys are the Pip-Boy's (`crate::pipboy::items`). [hypothesis:
 //!   the original's PC keys beyond the hints shown are not captured]
@@ -807,6 +809,7 @@ fn apply_input(
     mut sounds: MessageWriter<crate::ui_sounds::UiSound>,
     (mut taken, mut stolen): (MessageWriter<crate::crime::ItemsTaken>, MessageWriter<crate::pickpocket::Pickpocketed>),
     mut held: ResMut<PromptKeys>,
+    combat: Option<Res<crate::combat::Combat>>,
 ) {
     let mut script = script.map(|s| s.into_inner());
     // The commands left of a guard that failed ([`Command::Expect`]).
@@ -834,6 +837,13 @@ fn apply_input(
         if asking && m.quantity.is_none() && matches!(cmd, Command::AmountCancel | Command::Close) {
             info!("menu: {cmd:?}: prompt closed");
         }
+        match cmd {
+            Command::Category(side, _) | Command::SetCategory(side, _) if m.mode != Mode::Inventory => {
+                info!("menu: {cmd:?}: the {side:?} list shows {:?}", m.category[side as usize]);
+            }
+            Command::Focus(_) => info!("menu: {cmd:?}: the {:?} list has the focus", m.focus),
+            _ => {}
+        }
         // What the command did, for its sound (`crate::ui_sounds`).
         if let Some(event) = crate::ui_sounds::menu_event(cmd, &before, m, &a) {
             sounds.write(crate::ui_sounds::UiSound { menu: crate::ui_sounds::UiMenu::of(m.mode), event });
@@ -860,10 +870,19 @@ fn apply_input(
                 rt.game.count_stat(fnv_game::misc_stats::BARTER_AMOUNT_TRADED, f64::from(a.traded));
             }
         }
-        // Picking a pocket: the pickpocket rules judge it (`crate::pickpocket`).
+        // Picking a pocket: the pickpocket rules judge it (`crate::pickpocket`). A live
+        // explosive placed is armed now, and the pocket listed again, before the next
+        // command reads its rows (#1640).
         if let Some(victim) = m.steal.as_ref().map(|s| s.victim) {
+            let mut placed = Vec::new();
+            if !a.given.is_empty() {
+                if let Some(rt) = script.as_mut().and_then(|s| s.rt.as_mut()) {
+                    let c = combat.as_deref();
+                    placed = crate::pickpocket::arm_given(rt, &mut sim, Some(&mut *m), |item| c.and_then(|c| crate::pickpocket::explosive_of(c, item)), victim, &a.given);
+                }
+            }
             if !a.taken.is_empty() || !a.given.is_empty() || a.caught.is_some() {
-                stolen.write(crate::pickpocket::Pickpocketed { victim, taken: a.taken.clone(), given: a.given.clone(), caught: a.caught });
+                stolen.write(crate::pickpocket::Pickpocketed { victim, taken: a.taken.clone(), given: a.given.clone(), placed, caught: a.caught });
             }
         } else if let (Mode::Container(c), false) = (m.mode, a.taken.is_empty()) {
             // Taking owned items is theft (`crate::crime`).

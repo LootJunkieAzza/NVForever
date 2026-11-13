@@ -27,7 +27,7 @@ Audio and Controls, observed in the original's pause menu, 2026-11-09].
 
 | Tab | Heading | Rows (keys), in order |
 |---|---|---|
-| Gameplay | Game | `difficulty`, `hardcore`, `kill-camera`, `reload-slows`, `UsePipBoy` |
+| Gameplay | Game | `difficulty`, `hardcore`, `kill-camera`, `vats-style`, `vats-slowdown`, `reload-slows`, `UsePipBoy` |
 | Gameplay | Saving | `autosave-travel`, `autosave-fast-travel`, `autosave-wait`, `autosave-sleep`, `autosave-scripts` |
 | Gameplay | Dialogue | `menu-pause`, `dialogue-goodbye-hint`, `dialogue-look`, `dialogue-recentre`, `dialogue-zoom`, `lip-sync` |
 | Gameplay | Camera | `detached-camera`, `true-iron-sights`, `first-person-body`, `weapon-sway`, `head-bob`, `weapon-lower`, `field-of-view` |
@@ -37,7 +37,7 @@ Audio and Controls, observed in the original's pause menu, 2026-11-09].
 | Audio | (none) | `volume-master`, `volume-music`, `volume-footstep`, `volume-voice`, `volume-effects`, `volume-radio`, `music`, `voice`, `reverb`, `voice-reverb` |
 | Controls | (none) | the Controls tab's own rows (§4), then `button-style`, `aim-assist`, `aim-slowdown`, `aim-lock` |
 | Graphics | Quality | `quality` (#1966; only when the install has its preset files: docs/spec-notes/quality-presets.md) |
-| Graphics | Picture | `enhanced` (#1966), `grade`, `sun-shadows`, `fsr-upscaling`, `anti-aliasing`, `shadow-filter`, `ambient-occlusion`, `fine-shadows`, `bloom`, `glow`, `eye-adaptation`, `neon-glow`, `sharpen`, `anisotropic`, `light-shafts`, `water-reflections`, `water-mirror` |
+| Graphics | Picture | `enhanced` (#1966), `grade`, `sun-shadows`, `upscaler`, `upscaler-quality`, `dlss-model`, `anti-aliasing`, `shadow-filter`, `ambient-occlusion`, `fine-shadows`, `bloom`, `glow`, `eye-adaptation`, `neon-glow`, `sharpen`, `anisotropic`, `light-shafts`, `water-reflections`, `water-mirror` |
 | Graphics | Distance | `distant-lod`, `grass`, `object-distance`, `actor-distance`, `item-distance`, `shadow-distance`, `grass-distance` |
 | Graphics | World | `head-tracking`, `foot-ik`, `sky-clock` |
 | Tweaks | (none) | none named yet |
@@ -134,6 +134,38 @@ back the controls of the device in use (`bindings::reset`, as before) and the ta
 registered rows; Defaults on every other tab puts back every registered row, as before
 (`pause menu: settings back to their defaults`). A control waiting for its new key is
 `pause::Listening` (the pad presses no menu keys meanwhile).
+
+**A list's choices** [design: #2198, step 7 of docs/design/dlss-upscaling.md]: besides a
+whole row being disabled with a status in place of its value (`set_disabled_status`, the
+anti-aliasing row's "Off (upscaling active)" while an upscaler draws), a list row can show
+its choices by other words than their names (`set_choice_labels`) and hold some out of reach
+for a reason (`set_choice_unavailable`), both kept per row key in the registry, so the other
+lists draw as before. The names stay what the INI, the log and the test aids use; only the
+words shown change (the Upscaler row shows its requested `DLSS` as "DLSS (restart)" while a
+restart is pending for it, the long reason in the row's note). A choice out of
+reach is drawn dim in the open list, and in the row's box when it is the chosen one; its
+reason is the note under the rows while the keys or the pointer are on it; Enter, A or a
+click leave the list open, and Left/Right on the row pass over it. `settings::pick` refuses
+it centrally, also by a name in another case (`settings: <key> <name> not taken: <reason>`),
+so the dropdown, Left/Right, Defaults' fallback by index and the `NVF_PLAY_TEST_SETTINGS` aid
+cannot take it. Loading the INI does not go through that check: a stored choice out of reach
+still loads, so a request survives a run in which it cannot be met.
+
+**A list that took over from an older row** [design: #2198's play-test]: the Upscaler and
+Upscaling mode rows replaced the one `fsr-upscaling` row. `set_older_key` lets a list read
+the older row's INI key while its own is not in the file (its `load` takes the older text;
+the row is written under its own key from then on, the older line left as it is). Where the
+older row's one value stands for several rows, `set_older_split` splits it into each row's
+own value before the INI is read (`with_older_split`: only while the row of `set_older_key`
+lacks its own key, and only for rows whose own key is missing too), so each row loads, and in
+a test run keeps (`KeptRows`), a value of its own [design: from the review of 2026-11-12: the
+Upscaler row alone kept the older text, and a save then wrote the command line's quality
+beside it]. And
+`set_list_alias` lets the test aids still name the older row (`fsr-upscaling=<choice>`):
+`pick_alias` takes the older row's choice as `pick` takes a list's, refused with a log line
+while out of reach, logged as `settings: <older key> <choice>`, the rows it sets the
+player's and kept in the INI. The older key is no row of its own: it is not on the page, in
+the search or in the Changed list.
 
 ## 5. Custom colours (`ui_colour.rs`)
 

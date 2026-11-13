@@ -222,6 +222,20 @@ class ScenarioFileTests(unittest.TestCase):
         self.assertEqual(dead, [])
 
 
+class ExeTests(unittest.TestCase):
+    def test_the_newer_of_release_and_release_quick(self):
+        with tempfile.TemporaryDirectory() as d:
+            t = Path(d)
+            self.assertEqual(cli.newest_build(t, "x.exe"), t / "release" / "x.exe")
+            for sub, when in (("release", 1000), ("release-quick", 2000)):
+                (t / sub).mkdir()
+                (t / sub / "x.exe").write_text("")
+                os.utime(t / sub / "x.exe", (when, when))
+            self.assertEqual(cli.newest_build(t, "x.exe"), t / "release-quick" / "x.exe")
+            os.utime(t / "release" / "x.exe", (3000, 3000))
+            self.assertEqual(cli.newest_build(t, "x.exe"), t / "release" / "x.exe")
+
+
 class SelectionTests(unittest.TestCase):
     def test_globs(self):
         m = choose.matches
@@ -334,6 +348,40 @@ class JudgeTests(unittest.TestCase):
         s = self.suite('order = [["run finished", "music summary"]]')
         self.assertEqual(judge(s, LOG, 0).status, "FAIL")
 
+    def known(self, reason='known_failing = { linux = "bug 1" }'):
+        return self.suite(f'expect = [{{ text = "music summary: 9 started", {reason} }}]')
+
+    def test_platform_mark_is_known_only_where_named(self):
+        s = self.known()
+        v = judge(s, LOG, 0, platform="linux")
+        self.assertEqual((v.status, [o.known for o in v.failures]), ("KNOWN", ["bug 1"]))
+        v = judge(s, LOG, 0, platform="windows")
+        self.assertEqual((v.status, [o.known for o in v.failures], v.xpass), ("FAIL", [None], []))
+        self.assertEqual(v.failures[0].what, "missing")
+
+    def test_platform_mark_reports_a_pass_only_where_named(self):
+        s = self.suite('expect = [{ text = "music summary: 1 started", known_failing = { linux = "bug 1" } }]')
+        v = judge(s, LOG, 0, platform="linux")
+        self.assertEqual((v.status, v.xpass), ("PASS", ["music summary: 1 started"]))
+        v = judge(s, LOG, 0, platform="windows")
+        self.assertEqual((v.status, v.xpass), ("PASS", []))
+
+    def test_plain_string_is_known_on_every_platform(self):
+        s = self.suite('expect = [{ text = "music summary: 9 started", known_failing = "bug 1" }]')
+        for platform in ("linux", "windows", "macos"):
+            self.assertEqual(judge(s, LOG, 0, platform=platform).status, "KNOWN", platform)
+
+    def test_platform_mark_syntax(self):
+        e = Expect.parse({"text": "x", "known_failing": {"linux": "why"}})
+        self.assertEqual((e.known_reason("linux"), e.known_reason("windows")), ("why", None))
+        self.assertEqual(e.known_reason("macos"), None)
+        with self.assertRaises(ScenarioError):
+            Expect.parse({"text": "x", "known_failing": {"linnux": "why"}})
+        with self.assertRaises(ScenarioError):
+            Expect.parse({"text": "x", "known_failing": {}})
+        with self.assertRaises(ScenarioError):
+            Expect.parse({"text": "x", "known_failing": {"linux": ""}})
+
 
 class GameEnvTests(unittest.TestCase):
     def test_play_runs_count_the_world_aids_from_the_scripts(self):
@@ -352,6 +400,95 @@ class GameEnvTests(unittest.TestCase):
             self.assertNotIn(FROM_SCRIPTS, aid_free_environ({}))
         finally:
             del os.environ[FROM_SCRIPTS]
+
+
+class RequiresTests(unittest.TestCase):
+    """`requires`: a scenario whose environment variable is unset or empty is skipped before
+    anything is started; with it set the scenario runs and is judged as usual (the DLSS
+    scenarios, NVF_DLSS_DIR)."""
+
+    VAR = "NVF_SMOKE_SELFTEST_REQUIRED_DIR"
+
+    def setUp(self):
+        self.saved = os.environ.pop(self.VAR, None)
+
+    def tearDown(self):
+        os.environ.pop(self.VAR, None)
+        if self.saved is not None:
+            os.environ[self.VAR] = self.saved
+
+    def run_suite(self, fake_run):
+        import argparse
+        from unittest import mock
+        from smoke.runner import Env
+        suite = load_text(game("gated", extra=f'requires = ["{self.VAR}"]\nexpect = ["music summary: 1 started"]'))
+        launches = plan(suite, suite.scenarios)
+        said = []
+        with tempfile.TemporaryDirectory() as d:
+            env = Env(repo=Path(d), out=Path(d), exe=Path(d) / "nvforever.exe", data="D", fnvtool=None)
+            with mock.patch.object(cli, "run_launch", side_effect=lambda x, e, locks: fake_run(x, e)) as run, \
+                    mock.patch("subprocess.Popen", side_effect=AssertionError("a process was started")):
+                verdicts = cli.run_launches(launches, env, None, 1, argparse.Namespace(context=3), said.append)
+        return verdicts, run, said
+
+    def never(self, x, e):
+        raise AssertionError("a skipped scenario was launched")
+
+    def test_an_absent_variable_skips_and_starts_nothing(self):
+        verdicts, run, said = self.run_suite(self.never)
+        self.assertEqual([(v.scenario, v.status) for v in verdicts], [("gated", "SKIP")])
+        self.assertEqual(verdicts[0].reason, f"set {self.VAR}")
+        run.assert_not_called()
+        self.assertTrue(said[0].startswith("SKIP  gated"), said)
+
+    def test_an_empty_variable_skips_too(self):
+        os.environ[self.VAR] = ""
+        verdicts, run, _ = self.run_suite(self.never)
+        self.assertEqual([v.status for v in verdicts], ["SKIP"])
+        run.assert_not_called()
+
+    def test_with_the_variable_it_runs_and_a_failure_stays_a_failure(self):
+        os.environ[self.VAR] = "C:/somewhere"
+
+        def passing(x, e):
+            (e.out / f"{x.name}.log").write_text("\n".join(LOG), encoding="utf-8")
+            return 0, "", 1.0
+
+        def failing(x, e):
+            (e.out / f"{x.name}.log").write_text("\n".join(LOG[:-1]), encoding="utf-8")  # no "run finished"
+            return 3, "", 1.0
+
+        verdicts, run, _ = self.run_suite(passing)
+        self.assertEqual([v.status for v in verdicts], ["PASS"])
+        run.assert_called_once()
+        verdicts, run, _ = self.run_suite(failing)
+        self.assertEqual([v.status for v in verdicts], ["FAIL"])
+        run.assert_called_once()
+
+    def test_the_variable_reaches_the_game_unless_the_scenario_sets_its_own(self):
+        os.environ[self.VAR] = "C:/bundle"
+        self.assertEqual(aid_free_environ({})[self.VAR], "C:/bundle")
+        self.assertEqual(aid_free_environ({self.VAR: "elsewhere"})[self.VAR], "elsewhere")
+
+    def test_repo_dlss_scenarios(self):
+        """Every DLSS hardware scenario waits for NVF_DLSS_DIR and inherits it; dlss-no-files
+        runs everywhere on the empty fixture, which holds none of DLSS's four files."""
+        suite = load(HERE / "scenarios.toml")
+        dlss = {s.name: s for s in suite.scenarios if s.name.startswith("dlss-")}
+        self.assertIn("dlss-no-files", dlss)
+        self.assertGreaterEqual(len(dlss), 9)
+        for name, s in dlss.items():
+            if name == "dlss-no-files":
+                self.assertEqual(s.requires, [])
+            else:
+                self.assertEqual(s.requires, ["NVF_DLSS_DIR"], name)
+                self.assertNotIn("NVF_DLSS_DIR", s.env, name)
+        free = dlss["dlss-no-files"]
+        self.assertEqual(free.env["NVF_DLSS_PRELOAD"], "0")
+        folder = Path(free.env["NVF_DLSS_DIR"].replace("{repo}", str(HERE.parent.parent)))
+        self.assertTrue(folder.is_dir(), folder)
+        for f in ("sl.interposer.dll", "sl.common.dll", "sl.dlss.dll", "nvngx_dlss.dll"):
+            self.assertFalse((folder / f).exists(), f)
 
 
 class LockTests(unittest.TestCase):
@@ -381,6 +518,46 @@ class LockTests(unittest.TestCase):
             locks = Locks([theirs], poll=0.01, wait_max=0.05, say=lambda s: None)
             self.assertEqual(locks.try_take(), theirs)
             self.assertTrue(theirs.is_dir())
+
+    def test_a_pid_used_again_does_not_keep_a_lock_held(self):
+        from smoke.runner import owner_line, process_birth
+
+        born = process_birth(os.getpid())
+        if born is None:
+            self.skipTest("no process birth time on this system")
+        with tempfile.TemporaryDirectory() as d:
+            lock = Path(d) / "smoke.lock"
+            lock.mkdir()
+            # This process's pid with another birth: the runner that wrote it has ended.
+            (lock / "smoke-owner.txt").write_text(f"{os.getpid()} smoke runner 2026-01-01 00:00:00 born={born + 1}\n")
+            locks = Locks([lock], poll=0.01, wait_max=0.05, say=lambda s: None)
+            self.assertIsNone(locks.try_take())
+            self.assertIn(f"born={born}", (lock / "smoke-owner.txt").read_text())
+            locks.release()
+            # The same pid and birth: a live runner's lock, kept.
+            lock.mkdir()
+            (lock / "smoke-owner.txt").write_text(owner_line())
+            self.assertEqual(Locks([lock], say=lambda s: None).try_take(), lock)
+            self.assertTrue((lock / "smoke-owner.txt").exists())
+
+    def test_a_left_lock_is_replaced_only_under_the_mutex(self):
+        from smoke.slots import FileLock
+
+        with tempfile.TemporaryDirectory() as d:
+            lock = Path(d) / "smoke.lock"
+            lock.mkdir()
+            (lock / "smoke-owner.txt").write_text("999999999 smoke runner\n")  # no such process
+            other = FileLock(Path(d) / "smoke-slots" / "mutex.lock")
+            self.assertTrue(other.try_lock())  # another runner is replacing it now
+            try:
+                locks = Locks([lock], say=lambda s: None)
+                self.assertEqual(locks.try_take(), lock)
+                self.assertIn("999999999", (lock / "smoke-owner.txt").read_text())  # left alone
+            finally:
+                other.unlock()
+            self.assertIsNone(locks.try_take())
+            self.assertIn(str(os.getpid()), (lock / "smoke-owner.txt").read_text())
+            locks.release()
 
 
     def test_old_mkdir_lock_without_a_game_is_reported_not_removed(self):
@@ -502,6 +679,22 @@ class ChildProcessTests(unittest.TestCase):
     """A load's new run outlives the run the runner started (engine/nvforever/src/handoff.rs):
     the runner waits for it, and for nothing it did not start."""
 
+    @unittest.skipUnless(os.name != "nt", "POSIX process groups")
+    def test_posix_waits_for_the_launchs_process_group(self):
+        from smoke.runner import launch_popen_kw, wait_for_group, wait_rest
+
+        starter = "import subprocess, sys; subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(2)'])"
+        p = subprocess.Popen([sys.executable, "-c", starter], **launch_popen_kw())
+        p.wait()
+        t = time.monotonic()
+        self.assertEqual(wait_rest(p, Path(sys.executable).name, t + 20), "")
+        self.assertGreater(time.monotonic() - t, 0.5)
+        # Past the deadline the group is ended.
+        p = subprocess.Popen([sys.executable, "-c", starter.replace("sleep(2)", "sleep(60)")], **launch_popen_kw())
+        p.wait()
+        self.assertIn("process group", wait_for_group(p.pid, time.monotonic() + 0.3))
+
+    @unittest.skipUnless(os.name == "nt", "Windows finds a launch's children by parent")
     def test_only_the_launchs_own_children(self):
         from smoke.runner import child_pids, own_times, wait_for_children
 

@@ -21,9 +21,29 @@ pub const MAIN: Rect = Rect { min: Vec2::new(50.0, 50.0), max: Vec2::new(905.0, 
 /// Every line is 2 thick on a PC.
 pub const THICK: f32 = 2.0;
 /// Lines are drawn at brightness 200, text at 255, a dimmed text at 128; a box's fill at
-/// brightness 128 and alpha 32.
+/// brightness 128 and alpha 32. The screen menu keeps these; on the device the bright text
+/// is [`DEVICE_TEXT`] ([`Kit::text`]).
 pub const LINE: f32 = 200.0;
 pub const TEXT: f32 = 255.0;
+/// On the device (`Frame::Device`) the bright text is drawn at 213, not the file's 255: on
+/// the arm the original's text peaks at 1.31 times its lines' brightness where 255 gave
+/// NVForever's 1.57, so its letters read heavier [observed: S.P.E.C.I.A.L. at 1280 x 720,
+/// the original's heading line 128 and names 168 red (private job pipboy_fx_still),
+/// NVForever's 129 and 202 (scenario pipboy-screen-text); hypothesis: why the original's
+/// text comes out dimmer; the dimmed text is not measured and keeps 128]. The same value
+/// tints the hand-built pages' pictures (the Vault Boy, icons, bars, map markers), and the
+/// dimming holds for them: at 213 the S.P.E.C.I.A.L. Vault Boy reads 190 red at its 99th
+/// percentile and 85.5 on average against the original's 191 and 80.7 (212 and 96.2 at
+/// 255), the Status page's bright parts 144 at the 95th percentile against 114 (169 at
+/// 255), and the bars stay at the screen's red ceiling, about 205 to 212, in all three
+/// [observed: private job pipboy_fx_still; scenario pipboy-screen-text]. So it is the
+/// device's drawn picture as a whole that the original shows dimmer. Only the device was
+/// measured: the screen menu (Use Pip-Boy off) keeps the file's 255. The flat image a
+/// Pip-Boy model without a screen falls back to shows the device's drawing, so it takes 213
+/// with it [design: the canvas is drawn once per frame kind]. The pages drawn from their
+/// menu files take it on the device too, for their pieces at the file's full bright level
+/// (`crate::tiles::draw::device_brightness`, docs/spec-notes/pipboy.md §3).
+pub const DEVICE_TEXT: f32 = 213.0;
 pub const DIMMED: f32 = 128.0;
 pub const FILL: (f32, f32) = (128.0, 32.0);
 /// A vertical fade line is 60 long.
@@ -66,9 +86,9 @@ impl Hint {
         format!("{} {}", self.word, self.key)
     }
 
-    /// The colour it is drawn in: bright, or dimmed.
-    pub fn color(&self) -> Color {
-        amber(if self.dim { DIMMED } else { TEXT })
+    /// The colour it is drawn in: bright (at `text`, [`Kit::text`]), or dimmed.
+    pub fn color(&self, text: f32) -> Color {
+        amber(if self.dim { DIMMED } else { text })
     }
 }
 
@@ -150,6 +170,12 @@ impl Kit {
     pub fn face(&self, n: usize) -> &Face {
         &self.faces[n.clamp(1, FONTS.len()) - 1]
     }
+
+    /// The bright text's brightness: the file's 255 in the screen menu, [`DEVICE_TEXT`] on
+    /// the device.
+    pub fn text(&self) -> f32 {
+        if self.screen { TEXT } else { DEVICE_TEXT }
+    }
 }
 
 /// Where a text's letters start for a given anchor.
@@ -174,6 +200,11 @@ impl<'a> Ctx<'a> {
         let bc = crate::interface::bc_supported(formats);
         kit.load(data, images, bc);
         Ctx { kit, data, images, bc, glyphs }
+    }
+
+    /// The bright text's colour on this frame ([`Kit::text`]).
+    pub fn bright(&self) -> Color {
+        amber(self.kit.text())
     }
 
     pub fn picture(&mut self, path: &str) -> Option<Picture> {
@@ -255,7 +286,7 @@ impl<'a> Ctx<'a> {
     pub fn hint_column(&mut self, p: &mut ChildSpawnerCommands, hints: &[Hint], words_right: f32, top: f32) -> Vec<Rect> {
         let rects = self.hint_column_rects(hints, words_right, top);
         for (h, r) in hints.iter().zip(&rects) {
-            self.text(p, 2, &h.text(), r.min.x, r.min.y, Align::Left, h.color());
+            self.text(p, 2, &h.text(), r.min.x, r.min.y, Align::Left, h.color(self.kit.text()));
         }
         rects
     }
@@ -351,7 +382,7 @@ pub fn heading_title(p: &mut ChildSpawnerCommands, c: &mut Ctx, title: &str) -> 
     if c.kit.screen {
         return x0 + LEAD_LINE;
     }
-    let w = c.text(p, 4, title, x0 + TITLE_X, y0 - base(&c.kit.face(4).font) + THICK, Align::Left, amber(TEXT));
+    let w = c.text(p, 4, title, x0 + TITLE_X, y0 - base(&c.kit.face(4).font) + THICK, Align::Left, c.bright());
     x0 + TITLE_X + w + TITLE_GAP
 }
 
@@ -361,7 +392,7 @@ pub fn heading_title(p: &mut ChildSpawnerCommands, c: &mut Ctx, title: &str) -> 
 pub fn heading_named(p: &mut ChildSpawnerCommands, c: &mut Ctx, title: &str, name: &str, right_in: f32) {
     let (x0, y0) = (MAIN.min.x, MAIN.min.y);
     let line = amber(LINE);
-    let bright = amber(TEXT);
+    let bright = c.bright();
     c.fade(p, x0, y0, FADE, false, line);
     c.line(p, x0, y0, LEAD_LINE, THICK, line);
     let top = y0 - base(&c.kit.face(4).font) + THICK;
@@ -378,7 +409,7 @@ pub fn heading_named(p: &mut ChildSpawnerCommands, c: &mut Ctx, title: &str, nam
 /// and the value right-aligned, both in font 2.
 pub fn card(p: &mut ChildSpawnerCommands, c: &mut Ctx, x: f32, y: f32, width: f32, title: &str, value: &str) {
     let line = amber(LINE);
-    let bright = amber(TEXT);
+    let bright = c.bright();
     c.line(p, x, y, width, THICK, line);
     c.fade(p, x + width - THICK, y, FADE, false, line);
     c.text(p, 2, title, x + CARD_TEXT_X, y + CARD_TEXT_Y, Align::Left, bright);
@@ -440,7 +471,7 @@ pub fn tab_boxes(widths: &[f32]) -> (Vec<Rect>, f32) {
 /// font 2 joined by lines at their middle, the tab shown boxed and filled.
 fn tab_line(p: &mut ChildSpawnerCommands, c: &mut Ctx, page: Page, current: usize) {
     let line = amber(LINE);
-    let bright = amber(TEXT);
+    let bright = c.bright();
     let names = page.tabs();
     let text_h = c.line_height(2);
     let widths: Vec<f32> = names.iter().map(|n| c.width(2, n)).collect();
@@ -528,6 +559,7 @@ pub fn draw(
     inventory: Option<Res<crate::tiles::inventory_menu::InventoryTiles>>,
     repair_tiles: Option<Res<crate::tiles::repair_menu::RepairTiles>>,
     map_tiles: Option<Res<crate::tiles::map_menu::MapTiles>>,
+    item_mod_tiles: Option<Res<crate::tiles::item_mod_menu::ItemModTiles>>,
     mut shown: Local<Option<(Page, usize, Frame, bool)>>,
 ) {
     // Laid out in the Pip-Boy's screen texture, at its size whatever the UI scale (#1631).
@@ -536,6 +568,8 @@ pub fn draw(
     let tiled = tiles.is_some_and(|t| t.ready.is_some()) || inventory.is_some_and(|t| t.ready.is_some());
     // The repair page likewise (`crate::tiles::repair_menu::RepairTiles::ready`).
     let tiled = tiled || repair_tiles.is_some_and(|t| t.ready.is_some());
+    // The weapon mod menu likewise (`crate::tiles::item_mod_menu::ItemModTiles::ready`).
+    let tiled = tiled || item_mod_tiles.is_some_and(|t| t.ready.is_some());
     // The DATA page likewise, on the tabs it draws (`crate::tiles::map_menu::MapTiles::ready`).
     let tiled = tiled || map_tiles.is_some_and(|t| t.ready.is_some());
     let want = pip.shown().then(|| (pip.page, pip.tab(), pip.frame, tiled));
@@ -619,7 +653,7 @@ fn header(r: &mut ChildSpawnerCommands, c: &mut Ctx, page: Page) {
                 } else {
                     n.spawn((at(0.0, 0.0, b.width(), b.height()), HeaderHover, Visibility::Hidden, Pickable::IGNORE)).with_children(|h| c.boxed(h, local, line, None));
                 }
-                set_line(n, c.kit.face(HEADER_FONT), &name, x, base, amber(if selected { TEXT } else { DIMMED }));
+                set_line(n, c.kit.face(HEADER_FONT), &name, x, base, amber(if selected { c.kit.text() } else { DIMMED }));
             })
             .observe(super::on_click)
             .observe(on_header_over)

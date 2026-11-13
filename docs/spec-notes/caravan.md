@@ -194,3 +194,8 @@ Misc statistics: Caravan Games Won and Caravan Games Lost are counted (misc-stat
 - The help messages are shown once each, over the screen they explain (betting, deck
   building, the opening, the contract war) [hypothesis: the original's tutorial timing
   is unknown].
+- On the betting screen the help box (the tutorial box, 0.8 of the view) is made smaller
+  about its middle so its lines end 40 units above the bet box and left of the buttons'
+  labels, in the table frame's units, scaled into the view (`help_clear`,
+  `lockpick::help::box_rect`); at full size it ran through both (issue #1663) [design: the
+  original's placement over this menu is not captured].

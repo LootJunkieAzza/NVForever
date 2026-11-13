@@ -102,6 +102,12 @@ impl Outline {
     /// round `centre` (game x, y), anchored to a lattice a quarter of its size so a little
     /// panning keeps it.
     pub fn new(interior: Option<u32>, world: u32, centre: [f32; 2], feet: f32, window: Vec2, scale: f32) -> Outline {
+        let o = Outline::sized(interior, world, centre, feet, window, scale);
+        Outline { heights: Vec::with_capacity(o.size[0] * o.size[1]), ..o }
+    }
+
+    /// [`Outline::new`]'s grid with no room made for its samples.
+    fn sized(interior: Option<u32>, world: u32, centre: [f32; 2], feet: f32, window: Vec2, scale: f32) -> Outline {
         let step = if interior.is_some() { INTERIOR_STEP } else { EXTERIOR_STEP };
         let extent = extent(interior.is_some(), window, scale);
         let snap = extent / 4.0;
@@ -116,9 +122,17 @@ impl Outline {
             size,
             interior: interior.is_some(),
             feet,
-            heights: Vec::with_capacity(size[0] * size[1]),
+            heights: Vec::new(),
             image: None,
         }
+    }
+
+    /// The top left (game x, y, y the largest) and the size (game units) of the grid
+    /// [`Outline::new`] would make for these, without making it: the Local Map's frame before
+    /// its outline is begun (`super::view::LocalProjection`).
+    pub fn frame_for(interior: Option<u32>, world: u32, centre: [f32; 2], feet: f32, window: Vec2, scale: f32) -> ([f32; 2], Vec2) {
+        let o = Outline::sized(interior, world, centre, feet, window, scale);
+        (o.origin, Vec2::new(o.size[0] as f32, o.size[1] as f32) * o.step)
     }
 
     /// The key a grid for these would have (to tell whether the one made still serves).

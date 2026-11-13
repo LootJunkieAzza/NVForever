@@ -529,6 +529,7 @@ fn under_clip(idle: &BoundClip) -> BoundClip {
         root: None,
         root_track: None,
         carried: None,
+        unbound: Arc::new(idle.unbound.iter().map(|(n, t, _)| (n.clone(), t.clone(), UNDER_PRIORITY)).collect()),
     }
 }
 
@@ -1494,7 +1495,7 @@ mod tests {
         let clip = nvf_assets::anim_play::Clip {
             name: String::new(), start: 0.0, stop: 1.0, frequency: 1.0, cycle_type: 0, tracks: Vec::new(), priorities: Vec::new(), skipped: 0, accum_root: None, text_keys: Vec::new(), visibility: Vec::new(), emitters: Vec::new(), materials: Vec::new(), free: Vec::new(), free_visibility: Vec::new(), lights: Vec::new(),
         };
-        Arc::new(BoundClip { clip: Arc::new(clip), tracks: vec![(0, track, 30)], root: None, root_track: None, carried: None })
+        Arc::new(BoundClip { clip: Arc::new(clip), tracks: vec![(0, track, 30)], root: None, root_track: None, carried: None, unbound: Default::default() })
     }
 
     /// One frame of `secs`: (tracks sampled so far, frames held so far, frames at the
@@ -1599,7 +1600,7 @@ mod tests {
         // Infos only (no bound tracks are needed to choose and blend).
         let bound = Arc::new(BoundClip { clip: Arc::new(nvf_assets::anim_play::Clip {
             name: String::new(), start: 0.0, stop: 1.0, frequency: 1.0, cycle_type: 0, tracks: Vec::new(), priorities: Vec::new(), skipped: 0, accum_root: None, text_keys: Vec::new(), visibility: Vec::new(), emitters: Vec::new(), materials: Vec::new(), free: Vec::new(), free_visibility: Vec::new(), lights: Vec::new(),
-        }), tracks: Vec::new(), root: None, root_track: None, carried: None });
+        }), tracks: Vec::new(), root: None, root_track: None, carried: None, unbound: Default::default() });
         let mut s = ClipSet::default();
         for (m, duration, speed) in [(Move::Idle, 4.0, 0.0), (Move::Forward, 1.2, 85.26), (Move::Backward, 1.133, 67.44), (Move::TurnLeft, 1.0, 0.0), (Move::TurnRight, 1.0, 0.0)] {
             s.clips.insert(m, SetClip { bound: bound.clone(), info: ClipInfo { duration, speed, foot_phase: 0.3, blend_time: 0.2 }, path: format!("mt{}.kf", m.group()) });

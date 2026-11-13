@@ -220,7 +220,7 @@ impl Plugin for MainMenuPlugin {
             }
             aid.sort_by(|a, b| a.0.total_cmp(&b.0));
         }
-        app.init_resource::<MainMenu>().insert_resource(MenuAid(aid)).add_systems(Update, (open_at_start, choose, slideshow, show_entries, theme).chain().in_set(PlaySet::Ui));
+        app.init_resource::<MainMenu>().insert_resource(MenuAid(aid)).add_systems(Update, (open_at_start, choose, slideshow, relabel, show_entries, theme).chain().in_set(PlaySet::Ui));
     }
 }
 
@@ -365,8 +365,6 @@ fn spawn(commands: &mut Commands, menu: &MainMenu, logo: Option<(Handle<Image>, 
                 let top = (960.0 - n * ITEM) / 2.0;
                 let width = COLUMN - 5.0;
                 for (i, e) in Entry::ALL.iter().enumerate() {
-                    let line = f.font.lines(e.label(), None).into_iter().next();
-                    let w = f.font.width(e.label());
                     // The whole row takes the pointer; its border is the highlight box (`show_entries`).
                     root.spawn((
                         EntryNode(i),
@@ -375,14 +373,38 @@ fn spawn(commands: &mut Commands, menu: &MainMenu, logo: Option<(Handle<Image>, 
                         BorderColor::all(Color::NONE),
                         BackgroundColor(Color::NONE),
                     ))
-                    .with_children(|p| {
-                        if let Some(line) = line {
-                            set_line(p, f, &line, width - w - 10.0 - 2.0 * LINE, BASE - LINE, color(Shade::Bright));
-                        }
-                    });
+                    .with_children(|p| entry_label(p, f, *e));
                 }
             });
         });
+}
+
+/// An entry's label in the language chosen, right-aligned in its row.
+fn entry_label(p: &mut ChildSpawnerCommands, f: &Face, e: Entry) {
+    let label = fnv_util::words::tr(e.label());
+    if let Some(line) = f.font.lines(label, None).into_iter().next() {
+        let w = f.font.width(label);
+        set_line(p, f, &line, COLUMN - 5.0 - w - 10.0 - 2.0 * LINE, BASE - LINE, color(Shade::Bright));
+    }
+}
+
+/// The entries' labels drawn again in the new language when it changes (a choice on the
+/// settings page, which opens over this menu).
+fn relabel(menu: Res<MainMenu>, mut seen: Local<Option<u32>>, entries: Query<(Entity, &EntryNode)>, mut commands: Commands) {
+    let now = fnv_util::words::generation();
+    if *seen == Some(now) {
+        return;
+    }
+    let Some(f) = menu.face.as_ref() else { return };
+    if entries.is_empty() {
+        return;
+    }
+    if seen.is_some() {
+        for (id, e) in &entries {
+            commands.entity(id).despawn_related::<Children>().with_children(|p| entry_label(p, f, Entry::ALL[e.0]));
+        }
+    }
+    *seen = Some(now);
 }
 
 #[allow(clippy::too_many_arguments)]

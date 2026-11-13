@@ -164,6 +164,8 @@ pub(crate) struct FontKit<'w> {
     data: Option<Res<'w, GameData>>,
     images: ResMut<'w, Assets<Image>>,
     formats: Option<Res<'w, CompressedImageFormatSupport>>,
+    /// The pictures the code made (`super::runtime_images`).
+    runtime: Option<Res<'w, super::runtime_images::RuntimeImages>>,
 }
 
 impl FontKit<'_> {
@@ -340,6 +342,12 @@ pub enum Source {
     /// own file's slanted ends and single line on the original's screenshots, not the
     /// shared atlas piece's square ends and doubled line; menu-xml.md §3.1.3].
     Own,
+    /// A `filename` with the runtime prefix (`super::runtime_images::PREFIX`): a texture
+    /// the code made, looked up before any atlas or file, stamped with its entry's revision
+    /// and size as the pieces are painted (`super::runtime_images::mark`; none from
+    /// [`pieces`], none while no entry is set), so a new picture under the same name
+    /// repaints [design: menu-xml.md §3.1.5].
+    Runtime(Option<super::runtime_images::Stamp>),
 }
 
 /// What one drawn tile looks like.
@@ -488,6 +496,16 @@ pub struct Piece {
     /// A picture's SetUITexOffset offset and SetUIAlphaMap mask, put on by
     /// [`super::texmod::mark`] as the pieces are painted (#1833); none from [`pieces`].
     pub tex: Option<super::texmod::TexMod>,
+    /// Its tile's turn ([`layout::Turn`]): a box's or a picture's (not the compass strip's);
+    /// texts and models are not turned, as no file turns one [design: menu-xml.md §3.1.4].
+    pub turn: Option<layout::Turn>,
+    /// A picture's `cropx` and `cropy`: the point of its picture, after its `zoom`, put at its
+    /// box's top left [documented: GECK wiki "Tutorial: Understanding XML", "`cropx`, `cropy`
+    /// specifies the point of the texture that will be placed at the upper left-hand corner";
+    /// "Cropx", "applied after the zoom trait"], interface units; read for a picture drawn at
+    /// its texels' size times its zoom ([`Placed::At`]), none otherwise or without either trait
+    /// [design: `map_menu.xml`'s map markers crop their icons so, 14 texels times the zoom].
+    pub crop: Option<(f64, f64)>,
 }
 
 /// Which tiles of the menu draw.
@@ -497,7 +515,9 @@ pub enum Select<'a> {
     /// [`fnv_ui::Ui::mod_tile_drawn`] accepts it against these vanilla names), every
     /// picture stretched over its box from the shared atlas or its own file, as T5 drew
     /// them.
-    Mods { vanilla: Option<&'a HashSet<String>> },
+    /// `by_locus`: laid out by the `locus` rule (`layout::layout_by_locus`; the start
+    /// menu's Mods page).
+    Mods { vanilla: Option<&'a HashSet<String>>, by_locus: bool },
     /// T12a, `[UI] TileMenus=HUDMainMenu`: every tile of the menu (the file's, the
     /// code-made copies and the mods'), but the file's and the code's under `kept` (the
     /// pieces NVForever still draws by hand, `super::vanilla::KEPT_PIECES`); `zoom`,
@@ -543,7 +563,7 @@ fn system_colour(v: &Value) -> Option<[f32; 3]> {
 /// Color UI directives, "Systemcolor is by default 1 and always assign"; observed: the
 /// ammo type's label, a menu child with no `systemcolor` above it, drew white before
 /// T12c where the hand-built HUD and the original draw the HUD's texts amber].
-fn base_colour(ui: &Ui, id: TileId, own: [f32; 3]) -> [f32; 3] {
+pub(super) fn base_colour(ui: &Ui, id: TileId, own: [f32; 3]) -> [f32; 3] {
     let tile = ui.tile(id);
     if let Some(v) = tile.get("systemcolor") {
         return system_colour(v).unwrap_or(own);
@@ -595,7 +615,10 @@ fn under(ui: &Ui, id: TileId, of: &[TileId]) -> bool {
 pub fn pieces(ui: &Ui, menu: TileId, measure: &layout::Measure<'_>, select: Select<'_>, t15: bool) -> (Vec<Piece>, usize) {
     let roots = ui.mod_added_tiles(menu);
     let items: Vec<(Option<TileId>, layout::DrawItem)> = match select {
-        Select::Mods { .. } => roots.iter().flat_map(|&r| layout::layout(ui, r, measure, t15).into_iter().map(move |i| (Some(r), i))).collect(),
+        Select::Mods { by_locus, .. } => roots
+            .iter()
+            .flat_map(|&r| if by_locus { layout::layout_by_locus(ui, r, measure, t15) } else { layout::layout(ui, r, measure, t15) }.into_iter().map(move |i| (Some(r), i)))
+            .collect(),
         Select::Whole { .. } => layout::layout(ui, menu, measure, t15).into_iter().map(|i| (roots.iter().copied().find(|&r| under(ui, i.tile, &[r])), i)).collect(),
     };
     let whole = matches!(select, Select::Whole { .. });
@@ -603,7 +626,7 @@ pub fn pieces(ui: &Ui, menu: TileId, measure: &layout::Measure<'_>, select: Sele
     let mut drawn_roots = HashSet::new();
     for (root, item) in items {
         let wanted = match select {
-            Select::Mods { vanilla } => ui.mod_tile_drawn(item.tile, vanilla),
+            Select::Mods { vanilla, .. } => ui.mod_tile_drawn(item.tile, vanilla),
             // A mod's own tiles draw under the kept pieces too [design].
             Select::Whole { kept, .. } => !under(ui, item.tile, kept) || (root.is_some() && ui.mod_tile_drawn(item.tile, None)),
         };
@@ -623,6 +646,7 @@ pub fn pieces(ui: &Ui, menu: TileId, measure: &layout::Measure<'_>, select: Sele
                     _ => Fit::Stretch,
                 };
                 let source = match image.texatlas.as_ref().map(|a| a.text().trim().to_string()).filter(|a| !a.is_empty()) {
+                    _ if super::runtime_images::is_runtime(&image.filename) => Source::Runtime(None),
                     _ if !whole => Source::Shared,
                     Some(atlas) => Source::Index(atlas),
                     None => Source::Own,
@@ -655,7 +679,16 @@ pub fn pieces(ui: &Ui, menu: TileId, measure: &layout::Measure<'_>, select: Sele
         if matches!(item.kind, Kind::Hotrect) {
             alpha = alpha.powf(2.2);
         }
-        out.push(Piece { tile: item.tile, look, rect: item.rect, clip: item.clip, colour: [r, g, bl, alpha], depth: item.depth, tex: None });
+        let turn = match &look {
+            Look::Box => item.turn,
+            Look::Picture { fit, .. } if *fit != Fit::Strip => item.turn,
+            _ => None,
+        };
+        let crop = match &item.kind {
+            Kind::Image(image) if image.cropx.is_some() || image.cropy.is_some() => Some((image.cropx.unwrap_or(0.0), image.cropy.unwrap_or(0.0))),
+            _ => None,
+        };
+        out.push(Piece { tile: item.tile, look, rect: item.rect, clip: item.clip, colour: [r, g, bl, alpha], depth: item.depth, tex: None, turn, crop });
         if let Some(r) = root {
             drawn_roots.insert(r);
         }
@@ -797,6 +830,8 @@ pub(crate) struct Drawn {
     /// The texture offsets' and alpha maps' textures, baked images, budget and told lines
     /// (`super::texmod`).
     tex: super::texmod::State,
+    /// What was said once about the runtime pictures (`super::runtime_images`).
+    runtime_told: super::runtime_images::Told,
 }
 
 /// A `tile` picture baked into one image ([`crate::repeat`]): the image and its node's
@@ -822,7 +857,7 @@ pub fn change(old: &Piece, new: &Piece) -> Change {
     let size = |r: &TileRect| (r.width, r.height);
     if old == new {
         Change::Same
-    } else if old.look == new.look && old.tex == new.tex && size(&old.rect) == size(&new.rect) && old.clip.map(|c| size(&c)) == new.clip.map(|c| size(&c)) {
+    } else if old.look == new.look && old.tex == new.tex && old.crop == new.crop && size(&old.rect) == size(&new.rect) && old.clip.map(|c| size(&c)) == new.clip.map(|c| size(&c)) {
         // A model's parts take no Ink: spawned again in its new colour.
         if old.colour != new.colour && matches!(new.look, Look::Model { .. }) {
             Change::Spawn
@@ -865,6 +900,32 @@ fn f(v: f64) -> f32 {
     v as f32
 }
 
+/// The transform that turns a piece's outer node (its box's size) by its turn about its
+/// pivot: Bevy turns a node about its middle, so it is moved by [`layout::Turn::shift`]
+/// too; the identity for an unturned piece [design: menu-xml.md §3.1.4].
+///
+/// The shift is worked out from the box's unrounded size, so a turned node is laid out
+/// unrounded ([`UNROUNDED`]): Bevy turns about the middle of the size it lays out, and a
+/// rounded size (a 20 x 10 box is 15 x 8 pixels at 0.75 a unit, not 15 x 7.5) would put
+/// the pivot up to half a pixel off, changing as the box moves across pixel edges. The
+/// shift is known in the frame it is written, where the rounded size is known only after
+/// Bevy's layout, a frame late; and a turned quad stands on no pixel grid anyway [design].
+pub fn turned(piece: &Piece) -> UiTransform {
+    match piece.turn {
+        Some(turn) => {
+            let (x, y) = turn.shift(piece.rect.width, piece.rect.height);
+            UiTransform { translation: Val2::new(u(f(x)), u(f(y))), rotation: Rot2::radians(f(turn.angle)), ..default() }
+        }
+        None => UiTransform::IDENTITY,
+    }
+}
+
+/// Where a picture drawn at its texels' size times its zoom stands in its box: moved up and left
+/// by its crop ([`Piece::crop`]), so that point of the picture is at the box's top left.
+pub fn piece_crop(piece: &Piece) -> (f64, f64) {
+    piece.crop.unwrap_or((0.0, 0.0))
+}
+
 /// What setting a piece out reads besides the piece.
 struct Ctx<'a> {
     fonts: &'a TileFonts,
@@ -875,7 +936,44 @@ struct Ctx<'a> {
     heading: f32,
 }
 
+/// How a turned piece's clip wrapper and outer node (and what they hold) are laid out:
+/// unrounded ([`turned`]). The wrapper too: the outer node stands at its place less the
+/// clip's unrounded origin, so a wrapper rounded to the pixel (a clip at x 10.3 units is 8
+/// pixels at 0.75 a unit, not 7.725) would move the pivot by the rounding, changing as the
+/// clip moves. Unturned pieces' nodes carry no `LayoutConfig` and are rounded as before.
+pub const UNROUNDED: LayoutConfig = LayoutConfig { use_rounding: false };
+
+/// Turn (or turn back) a piece's spawned nodes as its piece says: the outer node `outer`
+/// takes the transform, it and the clip `wrapper` the unrounded layout, while turned; the
+/// identity and the inherited rounding when not.
+fn set_turn(commands: &mut Commands, wrapper: Option<Entity>, outer: Entity, piece: &Piece) {
+    let turned_now = piece.turn.is_some();
+    let mut node = commands.entity(outer);
+    if turned_now {
+        node.insert((turned(piece), UNROUNDED));
+    } else {
+        node.insert(UiTransform::IDENTITY).remove::<LayoutConfig>();
+    }
+    if let Some(w) = wrapper {
+        if turned_now {
+            commands.entity(w).insert(UNROUNDED);
+        } else {
+            commands.entity(w).remove::<LayoutConfig>();
+        }
+    }
+}
+
+/// A piece's outer node, turned when its tile is ([`turned`]; inside its clip wrapper, so
+/// the unturned clip cuts the turned quad). An unturned piece's nodes are spawned as before.
 fn spawn_piece(p: &mut ChildSpawnerCommands, piece: &Piece, ctx: &Ctx<'_>, picture: Option<SizedPicture>, baked: Option<Baked>, strip: Option<StripWindow>, model: Option<model::Prepared>) -> Option<Entity> {
+    let outer = spawn_unturned(p, piece, ctx, picture, baked, strip, model)?;
+    if piece.turn.is_some() {
+        set_turn(&mut p.commands(), None, outer, piece);
+    }
+    Some(outer)
+}
+
+fn spawn_unturned(p: &mut ChildSpawnerCommands, piece: &Piece, ctx: &Ctx<'_>, picture: Option<SizedPicture>, baked: Option<Baked>, strip: Option<StripWindow>, model: Option<model::Prepared>) -> Option<Entity> {
     let r = piece.rect;
     let (dx, dy) = piece.clip.map_or((0.0, 0.0), |c| (c.left, c.top));
     let [cr, cg, cb, ca] = piece.colour;
@@ -907,12 +1005,14 @@ fn spawn_piece(p: &mut ChildSpawnerCommands, piece: &Piece, ctx: &Ctx<'_>, pictu
                         p.spawn((node, picture(mode), Ink::Drawn, Pickable::IGNORE)).id()
                     }
                 },
-                Placed::At { width, height } => p
-                    .spawn((cut, Pickable::IGNORE))
-                    .with_children(|c| {
-                        c.spawn((at(0.0, 0.0, f(width), f(height)), picture(NodeImageMode::Stretch), Ink::Drawn, Pickable::IGNORE));
-                    })
-                    .id(),
+                Placed::At { width, height } => {
+                    let (cx, cy) = piece_crop(piece);
+                    p.spawn((cut, Pickable::IGNORE))
+                        .with_children(|c| {
+                            c.spawn((at(f(-cx), f(-cy), f(width), f(height)), picture(NodeImageMode::Stretch), Ink::Drawn, Pickable::IGNORE));
+                        })
+                        .id()
+                }
                 // One image of the window's strip, its right end faded as the original's
                 // (`crate::compass_strip`, T12e); without the strip's texels the doubled
                 // strip moved by the heading, unfaded.
@@ -996,11 +1096,15 @@ pub(crate) struct View<'w, 's> {
     page: Option<Res<'w, crate::pause::Page>>,
     /// The Pip-Boy's image and the STATS tiles' one decision (`super::stats_menu`).
     screen: Option<Res<'w, crate::pipboy::PipBoyScreen>>,
+    /// The Pip-Boy's frame, for its pages' brightness on the device ([`pipboy_brightness`]).
+    pip: Option<Res<'w, crate::pipboy::PipBoy>>,
     stats: Option<ResMut<'w, super::stats_menu::StatsTiles>>,
     /// The ITEMS page's one decision (`super::inventory_menu`).
     inventory: Option<ResMut<'w, super::inventory_menu::InventoryTiles>>,
     /// The Pip-Boy's repair page's one decision (`super::repair_menu`).
     repair_page: Option<ResMut<'w, super::repair_menu::RepairTiles>>,
+    /// The Pip-Boy's weapon mod menu's one decision (`super::item_mod_menu`).
+    item_mod: Option<ResMut<'w, super::item_mod_menu::ItemModTiles>>,
     /// The DATA page's one decision (`super::map_menu`).
     map: Option<ResMut<'w, super::map_menu::MapTiles>>,
     /// T15c: the container menu, when this frame's writer has it drawn from its tiles.
@@ -1012,6 +1116,8 @@ pub(crate) struct View<'w, 's> {
     /// The trait menu, when this frame's writer has it drawn from its tiles.
     traits: Option<Res<'w, super::trait_menu::TraitTiles>>,
     tags: Option<Res<'w, super::tag_menu::TagTiles>>,
+    /// The classic VATS screen, when this frame's writer has it drawn from its file.
+    vats: Option<Res<'w, super::vats_menu::VatsTiles>>,
     /// The open character menu, for the same decision as the hand-built trait menu's.
     chargen: Option<Res<'w, crate::chargen::ChargenMenus>>,
 }
@@ -1047,6 +1153,8 @@ pub(crate) struct MenusDrawn {
     inventory: Drawn,
     /// The Pip-Boy's repair page, in the Pip-Boy's image.
     repair_page: Drawn,
+    /// The Pip-Boy's weapon mod menu, in the Pip-Boy's image.
+    item_mod: Drawn,
     /// The Pip-Boy's DATA page, in the Pip-Boy's image.
     map: Drawn,
     container: Drawn,
@@ -1056,6 +1164,8 @@ pub(crate) struct MenusDrawn {
     traits: Drawn,
     tags: Drawn,
     dialog: Drawn,
+    /// The classic VATS target screen (`super::vats_menu`).
+    vats: Drawn,
 }
 
 /// The stacking levels of the menus drawn from tiles besides the HUD: their hand-built
@@ -1120,6 +1230,7 @@ pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, mut view: V
         (super::trait_menu::TRAIT_MENU, view.traits.as_ref().is_some_and(|t| super::trait_menu::drawn(t, view.chargen.as_ref().and_then(|c| c.traits_open()), game).is_some()), TRAIT_Z, &mut others.traits),
         (super::tag_menu::TAG_MENU, view.tags.as_ref().is_some_and(|t| super::tag_menu::drawn(t, view.chargen.as_ref().and_then(|c| c.tags_open()), game).is_some()), TRAIT_Z, &mut others.tags),
         (super::dialog_menu::DIALOG_MENU, view.dialog.as_ref().is_some_and(|d| d.drawn()), DIALOG_Z, &mut others.dialog),
+        (super::vats_menu::VATS_MENU, view.vats.as_ref().is_some_and(|v| v.drawn), super::vats_menu::VATS_Z, &mut others.vats),
     ] {
         let ui = game.map(|g| &g.ui_tree);
         let menu = ui.filter(|_| on).and_then(|ui| ui.menu(name).map(|m| (ui, m)));
@@ -1138,10 +1249,12 @@ pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, mut view: V
                     info!("tiles: {name} drawn from tiles ({file} file tiles, {code} code tiles)");
                     drawn.told_menu = Some(menu);
                 }
-                let mut pieces = whole_pieces(ui, menu, &mut kit, super::interface_screen(switch));
+                // The VATS screen writes `screen()` in interface units itself while it is up.
+                let mut pieces = whole_pieces(ui, menu, &mut kit, super::interface_screen(switch) || name == super::vats_menu::VATS_MENU);
                 // Marked as `paint` marks them, so a modified picture is not told as a change
                 // every frame (#1833).
                 super::texmod::mark(&mut pieces, game.map(|g| &g.other.itr));
+                super::runtime_images::mark(&mut pieces, kit.runtime.as_deref(), &mut drawn.runtime_told);
                 if name == super::dialog_menu::DIALOG_MENU && pieces != drawn.pieces {
                     info!("{}", super::dialog_menu::painted(ui, &pieces));
                 }
@@ -1152,11 +1265,24 @@ pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, mut view: V
         // At the menus' scale (#1631, the UI scale at most 100%): the units `scale × it` logical pixels, in a frame
         // kept at the menu's anchor.
         let anchor = menu_anchor(name == super::dialog_menu::DIALOG_MENU);
-        paint(&mut commands, drawn, pieces, Target::window(scale * interface::menu_scale(), z).in_frame(anchor), heading, ui, &mut kit, &mut nodes, &glyphs);
+        if name == super::vats_menu::VATS_MENU {
+            // The VATS target screen is a piece of the HUD: its arrows, buttons and queue
+            // keep to the view's edges and its boxes stand on the target, so it takes the
+            // UI scale in the view's own frame, as the HUD does, with `screen()` written
+            // for the scaled view (`super::write_screen_scaled`). Above 100 % it stays at
+            // the original's size, as the menus do: the file sets its buttons and its
+            // queue out for a view 960 units high, and in a lower one they run into each
+            // other (seen at 150 %).
+            let _units = interface::units_at(interface::menu_scale());
+            paint(&mut commands, drawn, pieces, Target::window(scale * interface::menu_scale(), z), Brightness::File, heading, ui, &mut kit, &mut nodes, &glyphs);
+            continue;
+        }
+        paint(&mut commands, drawn, pieces, Target::window(scale * interface::menu_scale(), z).in_frame(anchor), Brightness::File, heading, ui, &mut kit, &mut nodes, &glyphs);
     }
     *blur = blur_now;
     pipboy_pages(&mut commands, game, &mut view, &mut kit, (&mut others.stats, &mut others.inventory, &mut others.map), &mut nodes, heading, &glyphs);
     repair_page(&mut commands, game, &mut view, &mut kit, &mut others.repair_page, &mut nodes, heading, &glyphs);
+    item_mod_page(&mut commands, game, &mut view, &mut kit, &mut others.item_mod, &mut nodes, heading, &glyphs);
     // T11: the Mods page, the start menu's mod tiles over the pause menu.
     let mods_on = switch.start && view.paused.as_ref().zip(view.page.as_ref()).is_some_and(|(p, page)| crate::pause::mods_open(p, page));
     mods_page(&mut commands, &script, mods_on, &mut kit, &mut others.start, &mut nodes, scale * interface::menu_scale(), heading, &glyphs);
@@ -1166,6 +1292,14 @@ pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, mut view: V
     hud(&mut commands, &script, &view, &mut kit, &mut drawn, &mut nodes, scale * interface::ui_scale(), heading, &glyphs);
 }
 
+/// How bright the Pip-Boy's pages drawn from their files are painted: the hand-built pages'
+/// device brightness while the Pip-Boy is on the device (`Frame::Device`, the flat image a model
+/// without a screen falls back to included: it shows the device's drawing), the file's in the
+/// screen menu ([`device_brightness`]). Not the image target: the screen menu draws into one too.
+fn pipboy_brightness(view: &View) -> Brightness {
+    Brightness::pipboy(view.pip.as_ref().is_some_and(|p| p.frame == crate::pipboy::Frame::Device))
+}
+
 /// The Pip-Boy's pages drawn from their files, in the Pip-Boy's image, each while it is ready
 /// (`super::stats_menu::StatsTiles::ready`, `super::inventory_menu::InventoryTiles::ready`,
 /// decided before this drawing). What was painted is published for the next frame's tile input,
@@ -1173,6 +1307,7 @@ pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, mut view: V
 #[allow(clippy::too_many_arguments)]
 fn pipboy_pages(commands: &mut Commands, game: Option<&fnv_game::Game<'_>>, view: &mut View, kit: &mut FontKit, (stats_drawn, inventory_drawn, map_drawn): (&mut Drawn, &mut Drawn, &mut Drawn), nodes: &mut Nodes, heading: f32, glyphs: &crate::pad::PadGlyphs) {
     let Some(target) = view.screen.as_ref().map(|s| Target::image(s.camera, crate::pipboy::CANVAS, s.scale, PIPBOY_TILES_Z)) else { return };
+    let target = (target, pipboy_brightness(view));
     let ui = game.map(|g| &g.ui_tree);
     let live = |ready: Option<TileId>| ready.filter(|&m| ui.is_some_and(|ui| ui.is_live(m)));
     // The one measured layout each decision checked; worked out again next frame.
@@ -1200,7 +1335,7 @@ fn pipboy_pages(commands: &mut Commands, game: Option<&fnv_game::Game<'_>>, view
 /// Logged when it changes: how many pieces go to the painter, and how many of them are the rows'
 /// names. That is structure, before painting: it says nothing of the pixels, which only shots can.
 #[allow(clippy::too_many_arguments)]
-fn pipboy_page(commands: &mut Commands, ui: Option<&Ui>, name: &str, menu: Option<TileId>, pieces: Vec<Piece>, target: Target, kit: &mut FontKit, drawn: &mut Drawn, nodes: &mut Nodes, heading: f32, glyphs: &crate::pad::PadGlyphs) {
+fn pipboy_page(commands: &mut Commands, ui: Option<&Ui>, name: &str, menu: Option<TileId>, pieces: Vec<Piece>, (target, brightness): (Target, Brightness), kit: &mut FontKit, drawn: &mut Drawn, nodes: &mut Nodes, heading: f32, glyphs: &crate::pad::PadGlyphs) {
     match ui.zip(menu) {
         Some((ui, menu)) => {
             // The STATS page is told once its rows are there, on whichever tab first has some:
@@ -1221,7 +1356,7 @@ fn pipboy_page(commands: &mut Commands, ui: Option<&Ui>, name: &str, menu: Optio
         }
         None => drawn.counts = (0, 0),
     }
-    paint(commands, drawn, pieces, target, heading, ui, kit, nodes, glyphs);
+    paint(commands, drawn, pieces, target, brightness, heading, ui, kit, nodes, glyphs);
 }
 
 /// The Pip-Boy's repair page, in the Pip-Boy's image, while it is ready
@@ -1229,6 +1364,7 @@ fn pipboy_page(commands: &mut Commands, ui: Option<&Ui>, name: &str, menu: Optio
 #[allow(clippy::too_many_arguments)]
 fn repair_page(commands: &mut Commands, game: Option<&fnv_game::Game<'_>>, view: &mut View, kit: &mut FontKit, drawn: &mut Drawn, nodes: &mut Nodes, heading: f32, glyphs: &crate::pad::PadGlyphs) {
     let Some(target) = view.screen.as_ref().map(|s| Target::image(s.camera, crate::pipboy::CANVAS, s.scale, PIPBOY_TILES_Z)) else { return };
+    let brightness = pipboy_brightness(view);
     let name = super::repair_menu::REPAIR_MENU;
     let ui = game.map(|g| &g.ui_tree);
     let ready = view.repair_page.as_ref().and_then(|s| s.ready);
@@ -1254,10 +1390,25 @@ fn repair_page(commands: &mut Commands, game: Option<&fnv_game::Game<'_>>, view:
             Vec::new()
         }
     };
-    paint(commands, drawn, pieces, target, heading, ui, kit, nodes, glyphs);
+    paint(commands, drawn, pieces, target, brightness, heading, ui, kit, nodes, glyphs);
     let shown = menu.map(|(_, m)| m);
     if let Some(page) = view.repair_page.as_mut().filter(|s| s.shown != shown) {
         page.shown = shown;
+    }
+}
+
+/// The Pip-Boy's weapon mod menu, in the Pip-Boy's image, while it is ready
+/// (`super::item_mod_menu::ItemModTiles::ready`, decided before this drawing), by [`pipboy_page`].
+#[allow(clippy::too_many_arguments)]
+fn item_mod_page(commands: &mut Commands, game: Option<&fnv_game::Game<'_>>, view: &mut View, kit: &mut FontKit, drawn: &mut Drawn, nodes: &mut Nodes, heading: f32, glyphs: &crate::pad::PadGlyphs) {
+    let Some(target) = view.screen.as_ref().map(|s| Target::image(s.camera, crate::pipboy::CANVAS, s.scale, PIPBOY_TILES_Z)) else { return };
+    let target = (target, pipboy_brightness(view));
+    let ui = game.map(|g| &g.ui_tree);
+    let menu = view.item_mod.as_ref().and_then(|s| s.ready).filter(|&m| ui.is_some_and(|ui| ui.is_live(m)));
+    let pieces = menu.and(view.item_mod.as_mut()).map_or_else(Vec::new, |s| std::mem::take(&mut s.pieces));
+    pipboy_page(commands, ui, super::item_mod_menu::ITEM_MOD_MENU, menu, pieces, target, kit, drawn, nodes, heading, glyphs);
+    if let Some(page) = view.item_mod.as_mut().filter(|s| s.shown != menu) {
+        page.shown = menu;
     }
 }
 
@@ -1282,7 +1433,13 @@ fn mods_page(commands: &mut Commands, script: &ScriptState, on: bool, kit: &mut 
             }
             let measured = |font: f64, text: &str, wrap: Option<f64>| kit.face(font).map_or((0.0, 0.0), |face| measure(&face.font, font_number(font), text, wrap));
             let vanilla = files.and_then(|files| archived_names(ui, menu, files, &mut drawn.vanilla));
-            pieces(ui, menu, &measured, Select::Mods { vanilla }, true)
+            let (mut drawn, roots) = pieces(ui, menu, &measured, Select::Mods { vanilla, by_locus: true }, true);
+            // MCM's trigger is its row in the original's pause column, which NVForever's
+            // column stands for (its Mods entry): not drawn over it [design: owner-review.md #34].
+            if let Some(trigger) = ui.find_tile(super::mods::MCM_TRIGGER) {
+                drawn.retain(|p| !under(ui, p.tile, &[trigger]));
+            }
+            (drawn, roots)
         }
         None => (Vec::new(), 0),
     };
@@ -1292,7 +1449,7 @@ fn mods_page(commands: &mut Commands, script: &ScriptState, on: bool, kit: &mut 
         drawn.counts = counts;
     }
     // In the middle of the view, as the pause menu's page under it (`crate::pause`).
-    paint(commands, drawn, pieces, Target::window(scale, super::mods::MODS_Z).in_frame(interface::MIDDLE), heading, ui, kit, nodes, glyphs);
+    paint(commands, drawn, pieces, Target::window(scale, super::mods::MODS_Z).in_frame(interface::MIDDLE), Brightness::File, heading, ui, kit, nodes, glyphs);
 }
 
 /// The fonts of `pieces`' texts that are not loaded (`loaded` says which are), each once:
@@ -1395,7 +1552,7 @@ fn hud(commands: &mut Commands, script: &ScriptState, view: &View, kit: &mut Fon
                 pieces(ui, menu, &measured, Select::Whole { kept: &kept, strip: ui.find_tile(STRIP_TILE) }, t15)
             } else {
                 let vanilla = files.and_then(|files| archived_names(ui, menu, files, &mut drawn.vanilla));
-                pieces(ui, menu, &measured, Select::Mods { vanilla }, t15)
+                pieces(ui, menu, &measured, Select::Mods { vanilla, by_locus: false }, t15)
             }
         }
         _ => (Vec::new(), 0),
@@ -1412,17 +1569,78 @@ fn hud(commands: &mut Commands, script: &ScriptState, view: &View, kit: &mut Fon
         drawn.counts = counts;
     }
     // The HUD keeps the view's own frame: its places are written for the scaled view.
-    paint(commands, drawn, pieces, Target::window(scale, TILES_Z), heading, ui, kit, nodes, glyphs);
+    paint(commands, drawn, pieces, Target::window(scale, TILES_Z), Brightness::File, heading, ui, kit, nodes, glyphs);
+}
+
+/// How bright a menu's pieces are painted ([`paint`]), chosen by the caller.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Brightness {
+    /// As the file resolves them: every menu in the window, and the Pip-Boy's pages in the
+    /// screen menu (Use Pip-Boy off), where the hand-built pages keep the file's 255 too.
+    File,
+    /// A Pip-Boy page on the device (`crate::pipboy::Frame::Device`, its flat fallback image
+    /// too), whose page colour is `bright` (`crate::interface::pipboy_rgb`): the pieces at the
+    /// file's full bright level take the hand-built pages' device brightness
+    /// ([`device_brightness`]).
+    PipBoyDevice { bright: [u8; 3] },
+}
+
+impl Brightness {
+    /// A Pip-Boy page's: [`Brightness::PipBoyDevice`] while the Pip-Boy is on the device
+    /// (`device`), else the file's.
+    pub(crate) fn pipboy(device: bool) -> Brightness {
+        if device {
+            Brightness::PipBoyDevice { bright: interface::pipboy_rgb() }
+        } else {
+            Brightness::File
+        }
+    }
+}
+
+/// The hand-built pages' device brightness on the Pip-Boy's pages drawn from their files
+/// [design: #2212]. On the device the hand-built pages draw only their bright role at
+/// `crate::pipboy::frame::DEVICE_TEXT` (213) instead of the file's 255: the text, the Vault
+/// Boy, icons, bars and the map's picture (`Ctx::bright`); their lines stay at 200, the dimmed
+/// text and the fills at 128 and the map's location icons at 220 (255 under the highlight box)
+/// (`pipboy::frame`, `pipboy::data`, docs/spec-notes/pipboy.md §3). So no flat multiplier:
+/// a piece painted at the page's colour at its full level (the file's resolved `brightness`
+/// 255 over `bright`, what [`pieces`] gives as `bright / 255`) takes 213 of 255; a piece the
+/// file already dims (its lines' 200, its dimmed texts and fills, its background's 90), one
+/// in another colour, and the map's location icons (`super::map_menu::MARKER_ROW`, whose
+/// 220/255 the hand-built page keeps too) keep the file's colour; the alpha is never touched.
+/// The file's heading lines resolve at 255 (`line.xml`'s brightness picked by the heading),
+/// so they take 213 where the hand-built heading's lines are 200 [design: the rule kept
+/// whole rather than special-cased by picture; docs/spec-notes/pipboy.md §3].
+pub(crate) fn device_brightness(pieces: &mut [Piece], ui: Option<&Ui>, brightness: Brightness) {
+    let Brightness::PipBoyDevice { bright } = brightness else { return };
+    let factor = crate::pipboy::frame::DEVICE_TEXT / 255.0;
+    let full = bright.map(|c| f32::from(c) / 255.0);
+    for p in pieces.iter_mut() {
+        // A float tolerance, not half a level: the pieces' colour is `bright * brightness / 255`
+        // in floats, so a brightness of 254 over a dark colour must not pass for 255.
+        let at_full = p.colour[..3].iter().zip(full).all(|(c, f)| (c - f).abs() <= 1e-4);
+        if !at_full || ui.is_some_and(|ui| super::map_menu::keeps_file_brightness(ui, p.tile)) {
+            continue;
+        }
+        for c in &mut p.colour[..3] {
+            *c *= factor;
+        }
+    }
 }
 
 /// Bring one menu's drawn nodes in line with its `pieces` on `target`: nothing when they and
 /// the target are as last drawn; otherwise each piece's slot kept, moved and recoloured in
-/// place, spawned again or removed ([`change`]).
+/// place, spawned again or removed ([`change`]). `brightness` is applied to the pieces before
+/// they are compared ([`device_brightness`]), so a page whose frame switches between the
+/// device and the screen menu is recoloured.
 #[allow(clippy::too_many_arguments)]
-fn paint(commands: &mut Commands, drawn: &mut Drawn, mut pieces: Vec<Piece>, target: Target, heading: f32, ui: Option<&Ui>, kit: &mut FontKit, nodes: &mut Nodes, glyphs: &crate::pad::PadGlyphs) {
+fn paint(commands: &mut Commands, drawn: &mut Drawn, mut pieces: Vec<Piece>, target: Target, brightness: Brightness, heading: f32, ui: Option<&Ui>, kit: &mut FontKit, nodes: &mut Nodes, glyphs: &crate::pad::PadGlyphs) {
+    device_brightness(&mut pieces, ui, brightness);
     let scale = target.scale;
     // ITR's texture offsets and alpha maps on the pictures, before they are compared (#1833).
     super::texmod::mark(&mut pieces, nodes.script.rt.as_ref().map(|rt| &rt.game.other.itr));
+    // The runtime pictures' revisions and sizes, so a new one under the same name repaints.
+    super::runtime_images::mark(&mut pieces, kit.runtime.as_deref(), &mut drawn.runtime_told);
     drawn.tex.frame();
     drawn.tex.prune(&pieces, ui);
     // A camera's image is laid out at its own size whatever the UI scale (#1631).
@@ -1510,6 +1728,12 @@ fn paint(commands: &mut Commands, drawn: &mut Drawn, mut pieces: Vec<Piece>, tar
                         }
                     }
                 }
+                // Turned further (the map's arrow as the player turns): turned in place.
+                if was.turn != piece.turn {
+                    if let Some(e) = slot.outer {
+                        set_turn(commands, slot.wrapper, e, piece);
+                    }
+                }
                 if was.colour != piece.colour {
                     let [r, g, b, a] = piece.colour;
                     let colour = Color::srgba(r, g, b, a);
@@ -1533,11 +1757,19 @@ fn paint(commands: &mut Commands, drawn: &mut Drawn, mut pieces: Vec<Piece>, tar
                     Source::Shared => pictures.picture_sized(name, None, data, &mut kit.images, bc),
                     Source::Index(atlas) => pictures.picture_sized(name, Some(atlas), data, &mut kit.images, bc),
                     Source::Own => pictures.own_sized(name, data, &mut kit.images, bc),
+                    Source::Runtime(_) => super::runtime_images::picture(kit.runtime.as_deref(), name, &mut drawn.runtime_told),
                 },
                 _ => None,
             };
             // A `tile` picture's repeats, baked into one image.
             let baked = match (&piece.look, &picture, data) {
+                // A runtime picture's texels are not read back: Bevy's tiles repeat it.
+                (Look::Picture { name, source: Source::Runtime(_), fit }, Some((_, rect, size)), _) => {
+                    if matches!(placed(*fit, rect.is_some(), (f64::from(size.x), f64::from(size.y))), Placed::Repeat { .. }) {
+                        super::runtime_images::unbaked(name, &mut drawn.runtime_told);
+                    }
+                    None
+                }
                 (Look::Picture { name, source, fit }, Some((_, rect, size)), Some(data)) => {
                     let texels = (f64::from(size.x), f64::from(size.y));
                     match placed(*fit, rect.is_some(), texels) {
@@ -1577,7 +1809,7 @@ fn paint(commands: &mut Commands, drawn: &mut Drawn, mut pieces: Vec<Piece>, tar
             };
             // The compass strip's window, baked into one image (`crate::compass_strip`).
             let strip = match (&piece.look, &picture, data) {
-                (Look::Picture { name, source, fit: Fit::Strip }, Some((_, rect, _)), Some(data)) => {
+                (Look::Picture { name, source, fit: Fit::Strip }, Some((_, rect, _)), Some(data)) if !matches!(source, Source::Runtime(_)) => {
                     let atlas = match source {
                         Source::Index(a) => Some(a.as_str()),
                         _ => None,
@@ -1650,6 +1882,10 @@ fn fill(s: &mut ChildSpawnerCommands, piece: &Piece, ctx: &Ctx<'_>, picture: Opt
             wrapper.overflow = Overflow::clip();
             let mut outer = None;
             let id = s.spawn((wrapper, Pickable::IGNORE)).with_children(|w| outer = spawn_piece(w, piece, ctx, picture, baked, strip, model)).id();
+            // A turned piece's wrapper unrounded with it ([`UNROUNDED`]); others as before.
+            if piece.turn.is_some() {
+                s.commands().entity(id).insert(UNROUNDED);
+            }
             (Some(id), outer)
         }
         None => (None, spawn_piece(s, piece, ctx, picture, baked, strip, model)),
@@ -1664,6 +1900,10 @@ pub(crate) fn scroll(hud: Option<Res<HudView>>, mut images: ResMut<Assets<Image>
         strip.0.follow(hud.heading, node, &mut images);
     }
 }
+
+#[cfg(test)]
+#[path = "draw_layout_tests.rs"]
+mod layout_tests;
 
 #[cfg(test)]
 mod tests {
@@ -1866,7 +2106,7 @@ mod tests {
     fn only_the_mods_tiles_draw_and_code_copies_never() {
         let (mut ui, src) = hud();
         let menu = ui.menu(HUD_MENU).unwrap();
-        assert_eq!(pieces(&ui, menu, &plain, Select::Mods { vanilla: None }, false), (Vec::new(), 0));
+        assert_eq!(pieces(&ui, menu, &plain, Select::Mods { vanilla: None, by_locus: false }, false), (Vec::new(), 0));
         ui.add_code_tile_from_template(&src, "HUDMainMenu/Piece", "row", None).unwrap();
         assert!(ui.inject_text(
             &src,
@@ -1877,7 +2117,7 @@ mod tests {
                 <rect name="Empty"/><nif name="Model"/></rect>"#
         ));
         ui.update();
-        let (drawn, roots) = pieces(&ui, menu, &plain, Select::Mods { vanilla: None }, false);
+        let (drawn, roots) = pieces(&ui, menu, &plain, Select::Mods { vanilla: None, by_locus: false }, false);
         assert_eq!(roots, 1);
         let names: Vec<_> = drawn.iter().map(|p| ui.tile(p.tile).name.as_str()).collect();
         assert_eq!(names, ["Mod", "Pic", "Words"]);
@@ -1895,10 +2135,10 @@ mod tests {
         // The HUD hidden hides them; a zero alpha too.
         let hidden = ui.find_tile("HUDMainMenu").unwrap();
         ui.set_trait(hidden, "visible", Value::Num(0.0));
-        assert_eq!(pieces(&ui, menu, &plain, Select::Mods { vanilla: None }, false).1, 0);
+        assert_eq!(pieces(&ui, menu, &plain, Select::Mods { vanilla: None, by_locus: false }, false).1, 0);
         ui.set_trait(hidden, "visible", Value::Num(1.0));
         ui.set_float("HUDMainMenu/Piece/Mod/alpha", 0.0);
-        assert_eq!(pieces(&ui, menu, &plain, Select::Mods { vanilla: None }, false).1, 0);
+        assert_eq!(pieces(&ui, menu, &plain, Select::Mods { vanilla: None, by_locus: false }, false).1, 0);
     }
 
     #[test]
@@ -1914,7 +2154,7 @@ mod tests {
               <text name="Zero"><string>x</string><font>0</font><wrapwidth>0</wrapwidth></text>"#
         ));
         ui.update();
-        let (drawn, roots) = pieces(&ui, menu, &plain, Select::Mods { vanilla: None }, false);
+        let (drawn, roots) = pieces(&ui, menu, &plain, Select::Mods { vanilla: None, by_locus: false }, false);
         assert_eq!(roots, 2);
         let names: Vec<_> = drawn.iter().map(|p| ui.tile(p.tile).name.as_str()).collect();
         assert_eq!(names, ["Back", "Clip", "Zero", "Front"]);
@@ -1946,9 +2186,9 @@ mod tests {
         let mut ui = Ui::new();
         let menu = ui.load_menu(&src, "hud.xml").unwrap();
         ui.update();
-        assert_eq!(pieces(&ui, menu, &plain, Select::Mods { vanilla: None }, false).1, 0);
+        assert_eq!(pieces(&ui, menu, &plain, Select::Mods { vanilla: None, by_locus: false }, false).1, 0);
         let vanilla: HashSet<String> = ["hudmainmenu".to_string()].into();
-        assert_eq!(pieces(&ui, menu, &plain, Select::Mods { vanilla: Some(&vanilla) }, false).1, 1);
+        assert_eq!(pieces(&ui, menu, &plain, Select::Mods { vanilla: Some(&vanilla), by_locus: false }, false).1, 1);
         // No archived copy under it: nothing to compare with, nothing drawn (#975).
         let mut kept = None;
         assert_eq!(archived_names(&ui, menu, &src, &mut kept), None);
@@ -1969,7 +2209,7 @@ mod tests {
         let mut kept = None;
         let vanilla = archived_names(&ui, menu, &src, &mut kept).cloned();
         assert_eq!(vanilla, Some(["hudmainmenu".to_string(), "hudmainmenu/old".to_string()].into()));
-        let (drawn, roots) = pieces(&ui, menu, &plain, Select::Mods { vanilla: vanilla.as_ref() }, false);
+        let (drawn, roots) = pieces(&ui, menu, &plain, Select::Mods { vanilla: vanilla.as_ref(), by_locus: false }, false);
         assert_eq!((drawn.len(), roots), (1, 1));
         assert_eq!(drawn[0].tile, ui.find_tile("HUDMainMenu/New").unwrap());
     }
@@ -2114,7 +2354,7 @@ mod tests {
     fn with_the_switch_on_the_files_and_the_codes_tiles_draw_but_the_kept_pieces() {
         let (mut ui, src, menu) = vanilla_hud();
         // Off (T5): none of them.
-        assert_eq!(pieces(&ui, menu, &plain, Select::Mods { vanilla: None }, false).0, Vec::new());
+        assert_eq!(pieces(&ui, menu, &plain, Select::Mods { vanilla: None, by_locus: false }, false).0, Vec::new());
         let kept = [ui.find_tile("HUDMainMenu/Info").unwrap()];
         let strip = ui.find_tile("HUDMainMenu/HitPoints/compass_window");
         let whole = |ui: &Ui| pieces(ui, menu, &plain, Select::Whole { kept: &kept, strip }, false);
@@ -2169,6 +2409,30 @@ mod tests {
             ["none", "free", "scale", "hundred", "more", "tiled", "untiled", "tiled_scale", "tiled_free"].map(fit_of),
             [Fit::Natural, Fit::Stretch, Fit::Stretch, Fit::Zoom(100.0), Fit::Zoom(125.0), Fit::Tiled(50.0), Fit::Natural, Fit::Tiled(100.0), Fit::Tiled(100.0)]
         );
+    }
+
+    /// A picture's `cropx` and `cropy` go with its piece, the point of the zoomed picture put at
+    /// the box's top left (a map marker's icon, 14 texels in, times its zoom); a crop changed
+    /// spawns the piece again, as the picture inside it moves; none without either trait.
+    #[test]
+    fn a_pictures_crop_puts_that_point_at_its_boxs_top_left() {
+        let src = MemSource::default().with(
+            "c.xml",
+            r#"<menu name="C"><image name="icon"><filename>i.dds</filename><width>40</width><height>40</height><zoom>120</zoom><cropx>16.8</cropx><cropy>16.8</cropy></image>
+              <image name="half"><filename>i.dds</filename><width>40</width><height>40</height><zoom>120</zoom><cropy>5</cropy></image>
+              <image name="plain"><filename>i.dds</filename><width>40</width><height>40</height><zoom>120</zoom></image></menu>"#,
+        );
+        let mut ui = Ui::new();
+        ui.load_menu(&src, "c.xml").unwrap();
+        ui.update();
+        let menu = ui.menu("C").unwrap();
+        let set = pieces(&ui, menu, &|_, _, _| (0.0, 0.0), Select::Whole { kept: &[], strip: None }, true).0;
+        let of = |name: &str| set.iter().find(|p| ui.tile(p.tile).name == name).unwrap().clone();
+        assert_eq!((of("icon").crop, of("half").crop, of("plain").crop), (Some((16.8, 16.8)), Some((0.0, 5.0)), None));
+        assert_eq!((piece_crop(&of("icon")), piece_crop(&of("plain"))), ((16.8, 16.8), (0.0, 0.0)));
+        let mut moved = of("icon");
+        moved.crop = Some((0.0, 0.0));
+        assert_eq!(change(&of("icon"), &moved), Change::Spawn, "the picture moved inside its box");
     }
 
     /// T12c: no zoom stretches an atlas piece over its box and stands a picture of its own
@@ -2276,7 +2540,7 @@ mod tests {
               <text name="Eight"><string>LEVEL UP</string><font>8</font></text>"#
         ));
         ui.update();
-        let (drawn, _) = pieces(&ui, menu, &plain, Select::Mods { vanilla: None }, false);
+        let (drawn, _) = pieces(&ui, menu, &plain, Select::Mods { vanilla: None, by_locus: false }, false);
         let font = plain_font(36.0, 15.0);
         let bases = |name: &str| {
             let piece = drawn.iter().find(|p| ui.tile(p.tile).name == name).expect("a text piece");
@@ -2372,6 +2636,8 @@ mod tests {
             colour: [1.0, 0.7, 0.3, 1.0],
             depth: 0.0,
             tex: None,
+            turn: None,
+            crop: None,
         };
         let mut dimmer = model.clone();
         dimmer.colour[3] = 0.5;
@@ -2391,6 +2657,238 @@ mod tests {
         assert_eq!(keys[0], (all[0].tile, 0));
         assert_eq!(*keys.last().unwrap(), (all[0].tile, 1));
         assert_eq!(keys.iter().collect::<HashSet<_>>().len(), keys.len());
+    }
+
+    /// [design] Turns reach a picture's and a box's piece, not a text's; a piece only turned
+    /// further changes in place; an unturned piece's node keeps the identity transform.
+    #[test]
+    fn a_turned_picture_carries_its_turn_and_turns_about_its_pivot() {
+        let src = MemSource::default().with(
+            "r.xml",
+            r#"<menu name="R"><rect name="Clip"><width>50</width><height>50</height><clips>&true;</clips>
+              <image name="Arrow"><filename>arrow.dds</filename><x>10</x><y>10</y><width>20</width><height>30</height><zoom>-1</zoom>
+                <rotateangle>3.141592653589793</rotateangle><rotateaxisx>10</rotateaxisx><rotateaxisy>15</rotateaxisy></image>
+              <rect name="Bar"><width>40</width><height>4</height><red>255</red><rotateangle>0.5</rotateangle></rect>
+              <text name="Word"><string>N</string><rotateangle>1</rotateangle></text>
+              <image name="Still"><filename>still.dds</filename><width>8</width><height>8</height></image></rect></menu>"#,
+        );
+        let mut ui = Ui::new();
+        let menu = ui.load_menu(&src, "r.xml").unwrap();
+        ui.update();
+        let (drawn, _) = pieces(&ui, menu, &plain, Select::Whole { kept: &[], strip: None }, true);
+        let of = |name: &str| drawn.iter().find(|p| ui.tile(p.tile).name == name).unwrap();
+        let arrow = of("Arrow");
+        assert_eq!(arrow.turn, Some(layout::Turn { angle: std::f64::consts::PI, pivot: (10.0, 15.0) }));
+        assert_eq!(arrow.clip, Some(TileRect { left: 0.0, top: 0.0, width: 50.0, height: 50.0 }), "the clip stays the unturned window");
+        // About its middle: Bevy's own pivot, the node only turned.
+        let t = turned(arrow);
+        assert_eq!(t.translation, Val2::new(u(0.0), u(0.0)));
+        // A half turn: by its sine and cosine (Rot2 may hold it as -pi).
+        assert!((t.rotation.cos + 1.0).abs() < 1e-6 && t.rotation.sin.abs() < 1e-6, "{:?}", t.rotation);
+        assert_eq!(of("Bar").turn.map(|t| t.pivot), Some((0.0, 0.0)));
+        assert_eq!(of("Word").turn, None, "texts are not turned");
+        assert_eq!(of("Still").turn, None);
+        assert_eq!(turned(of("Still")), UiTransform::IDENTITY);
+        // About its top left a quarter: moved by the shift the layout works out.
+        let mut corner = arrow.clone();
+        corner.turn = Some(layout::Turn { angle: std::f64::consts::FRAC_PI_2, pivot: (0.0, 0.0) });
+        let (x, y) = corner.turn.unwrap().shift(20.0, 30.0);
+        assert!((x - -25.0).abs() < 1e-9 && (y - -5.0).abs() < 1e-9, "({x}, {y})");
+        assert_eq!(turned(&corner).translation, Val2::new(u(f(x)), u(f(y))));
+        // Turned further, same look and size: in place.
+        assert_eq!(change(arrow, &corner), Change::InPlace);
+    }
+
+    /// [design] The tree and menu a test paints through [`paint`] itself.
+    #[derive(Resource)]
+    struct Painted(Ui, TileId);
+
+    fn paint_painted(mut commands: Commands, painted: Res<Painted>, mut kit: FontKit, mut nodes: Nodes, glyphs: Res<crate::pad::PadGlyphs>, mut drawn: Local<Drawn>) {
+        let (set, _) = pieces(&painted.0, painted.1, &plain, Select::Whole { kept: &[], strip: None }, true);
+        paint(&mut commands, &mut drawn, set, Target::window(1.0, 1), Brightness::File, 0.0, Some(&painted.0), &mut kit, &mut nodes, &glyphs);
+    }
+
+    /// A small page of its own (#1512) in one colour, 200 100 50, at the brightness levels a
+    /// Pip-Boy page's file resolves: a bright text, a dimmed text, a line at 200, a faint fill
+    /// at full brightness, a location icon at 255, and a text in another colour.
+    const DEVICE_PAGE: &str = r#"<menu name="D"><rect name="Page"><width>400</width><height>300</height>
+      <text name="Bright"><string>A</string><red>200</red><green>100</green><blue>50</blue></text>
+      <text name="Dimmed"><string>B</string><red>200</red><green>100</green><blue>50</blue><brightness>128</brightness><y>30</y></text>
+      <image name="Line"><filename>solid.dds</filename><width>100</width><height>2</height><red>200</red><green>100</green><blue>50</blue><brightness>200</brightness><y>60</y></image>
+      <rect name="Fill"><width>50</width><height>20</height><red>200</red><green>100</green><blue>50</blue><alpha>32</alpha><y>90</y></rect>
+      <image name="MapMarker"><filename>icon.dds</filename><width>20</width><height>20</height><red>200</red><green>100</green><blue>50</blue><y>120</y></image>
+      <text name="Other"><string>C</string><red>10</red><green>20</green><blue>30</blue><y>150</y></text>
+    </rect></menu>"#;
+    const DEVICE_BRIGHT: [u8; 3] = [200, 100, 50];
+
+    fn device_page() -> (Ui, TileId) {
+        let src = MemSource::default().with("d.xml", DEVICE_PAGE);
+        let mut ui = Ui::new();
+        let menu = ui.load_menu(&src, "d.xml").unwrap();
+        ui.update();
+        (ui, menu)
+    }
+
+    /// [design: #2212] On the device only the pieces at the page colour's full level take the
+    /// hand-built pages' device brightness (213 of 255); the dimmed text, the line at 200, the
+    /// location icon and a piece in another colour keep the file's; the alpha is never touched.
+    /// The file's brightness (the screen menu, every window menu) changes nothing.
+    #[test]
+    fn a_pipboy_page_on_the_device_dims_only_its_full_bright_pieces() {
+        let (ui, menu) = device_page();
+        let (set, _) = pieces(&ui, menu, &plain, Select::Whole { kept: &[], strip: None }, true);
+        let of = |set: &[Piece], name: &str| set.iter().find(|p| ui.tile(p.tile).name == name).unwrap().colour;
+        let full = DEVICE_BRIGHT.map(|c| f32::from(c) / 255.0);
+        assert_eq!(of(&set, "Bright"), [full[0], full[1], full[2], 1.0], "the fixture's bright text is at its full colour");
+        let mut file = set.clone();
+        device_brightness(&mut file, Some(&ui), Brightness::File);
+        assert_eq!(file, set, "the file's brightness: nothing changes");
+        assert_eq!(Brightness::pipboy(false), Brightness::File, "the screen menu keeps the file's");
+        let mut device = set.clone();
+        device_brightness(&mut device, Some(&ui), Brightness::PipBoyDevice { bright: DEVICE_BRIGHT });
+        let k = crate::pipboy::frame::DEVICE_TEXT / 255.0;
+        let near = |a: [f32; 4], b: [f32; 4]| a.iter().zip(b).all(|(x, y)| (x - y).abs() < 1e-6);
+        assert!(near(of(&device, "Bright"), [full[0] * k, full[1] * k, full[2] * k, 1.0]), "{:?}", of(&device, "Bright"));
+        let fill = of(&set, "Fill");
+        assert!((fill[3] - 32.0 / 255.0).abs() < 1e-6, "the fill is faint: {fill:?}");
+        assert!(near(of(&device, "Fill"), [full[0] * k, full[1] * k, full[2] * k, fill[3]]), "a full-bright fill dimmed, its alpha kept: {:?}", of(&device, "Fill"));
+        for kept in ["Dimmed", "Line", "MapMarker", "Other"] {
+            assert_eq!(of(&device, kept), of(&set, kept), "{kept} keeps the file's colour");
+        }
+        // Without the tree the location icon is not known, and is at full colour: dimmed.
+        let mut blind = set.clone();
+        device_brightness(&mut blind, None, Brightness::PipBoyDevice { bright: DEVICE_BRIGHT });
+        assert_ne!(of(&blind, "MapMarker"), of(&set, "MapMarker"));
+        // Every Pip-Boy switch off: no pieces, nothing to change.
+        let mut none: Vec<Piece> = Vec::new();
+        device_brightness(&mut none, Some(&ui), Brightness::PipBoyDevice { bright: DEVICE_BRIGHT });
+        assert!(none.is_empty());
+    }
+
+    /// [design] The brightness a test paints [`DEVICE_PAGE`] with.
+    #[derive(Resource)]
+    struct PaintedBrightness(Brightness);
+
+    fn paint_device_page(mut commands: Commands, painted: Res<Painted>, brightness: Res<PaintedBrightness>, mut kit: FontKit, mut nodes: Nodes, glyphs: Res<crate::pad::PadGlyphs>, mut drawn: Local<Drawn>) {
+        let (set, _) = pieces(&painted.0, painted.1, &plain, Select::Whole { kept: &[], strip: None }, true);
+        paint(&mut commands, &mut drawn, set, Target::window(1.0, 1), brightness.0, 0.0, Some(&painted.0), &mut kit, &mut nodes, &glyphs);
+    }
+
+    /// [design: #2212] The brightness is part of what the painter compares: the frame switched
+    /// from the device to the screen menu and back recolours the full-bright fill in place.
+    #[test]
+    fn a_pipboy_page_is_recoloured_when_its_frame_switches() {
+        let (ui, menu) = device_page();
+        let mut app = App::new();
+        app.init_resource::<Assets<Image>>()
+            .init_resource::<TileFonts>()
+            .init_resource::<crate::pad::PadGlyphs>()
+            .init_resource::<super::super::runtime_images::RuntimeImages>()
+            .insert_resource(ScriptState::over_no_plugins())
+            .insert_resource(Painted(ui, menu))
+            .insert_resource(PaintedBrightness(Brightness::PipBoyDevice { bright: DEVICE_BRIGHT }))
+            .add_systems(Update, paint_device_page);
+        let fills = |app: &mut App| -> Vec<(Entity, Srgba)> {
+            let world = app.world_mut();
+            world.query::<(Entity, &Ink, &BackgroundColor)>().iter(world).filter(|(_, ink, _)| **ink == Ink::Fill).map(|(e, _, c)| (e, c.0.to_srgba())).collect()
+        };
+        let k = crate::pipboy::frame::DEVICE_TEXT / 255.0;
+        let red = f32::from(DEVICE_BRIGHT[0]) / 255.0;
+        app.update();
+        let device = fills(&mut app);
+        assert_eq!(device.len(), 1, "one fill: {device:?}");
+        assert!((device[0].1.red - red * k).abs() < 1e-5 && (device[0].1.alpha - 32.0 / 255.0).abs() < 1e-5, "{device:?}");
+        app.world_mut().resource_mut::<PaintedBrightness>().0 = Brightness::File;
+        app.update();
+        let screen = fills(&mut app);
+        assert_eq!(screen[0].0, device[0].0, "recoloured in place");
+        assert!((screen[0].1.red - red).abs() < 1e-5, "the screen menu: the file's 255: {screen:?}");
+        app.world_mut().resource_mut::<PaintedBrightness>().0 = Brightness::PipBoyDevice { bright: DEVICE_BRIGHT };
+        app.update();
+        assert!((fills(&mut app)[0].1.red - red * k).abs() < 1e-5, "back on the device: dimmed again");
+    }
+
+    /// The pictures drawn: each node's entity and texture.
+    fn drawn_images(app: &mut App) -> Vec<(Entity, Handle<Image>)> {
+        let world = app.world_mut();
+        world.query::<(Entity, &ImageNode)>().iter(world).map(|(e, i)| (e, i.image.clone())).collect()
+    }
+
+    /// [design] A runtime picture through the real painting: nothing while no entry is set,
+    /// its texture once one is, repainted by a new handle, by the same handle set again and
+    /// by a new size under the one name, kept while nothing changes, gone when removed.
+    #[test]
+    fn a_runtime_picture_repaints_when_its_entry_changes_under_the_same_name() {
+        let src = MemSource::default().with(
+            "rt.xml",
+            r#"<menu name="RT"><image name="Map"><filename> nvf:test_map </filename><width>64</width><height>32</height><zoom>-1</zoom></image></menu>"#,
+        );
+        let mut ui = Ui::new();
+        let menu = ui.load_menu(&src, "rt.xml").unwrap();
+        ui.update();
+        let mut app = App::new();
+        app.init_resource::<Assets<Image>>()
+            .init_resource::<TileFonts>()
+            .init_resource::<crate::pad::PadGlyphs>()
+            .init_resource::<super::super::runtime_images::RuntimeImages>()
+            .insert_resource(ScriptState::over_no_plugins())
+            .insert_resource(Painted(ui, menu))
+            .add_systems(Update, paint_painted);
+        let image = |app: &mut App| app.world_mut().resource_mut::<Assets<Image>>().add(Image::default());
+        let set = |app: &mut App, h: &Handle<Image>, size: Vec2| {
+            let name = app.world_mut().resource_mut::<super::super::runtime_images::RuntimeImages>().set("test_map", h.clone(), size);
+            assert_eq!(name, "nvf:test_map");
+        };
+        app.update();
+        assert!(drawn_images(&mut app).is_empty(), "no entry: nothing drawn");
+        let (a, b) = (image(&mut app), image(&mut app));
+        set(&mut app, &a, Vec2::new(64.0, 32.0));
+        app.update();
+        let first = drawn_images(&mut app);
+        assert_eq!(first.iter().map(|(_, h)| h.clone()).collect::<Vec<_>>(), std::slice::from_ref(&a), "set late: drawn");
+        app.update();
+        assert_eq!(drawn_images(&mut app), first, "nothing changed: the same node");
+        set(&mut app, &b, Vec2::new(64.0, 32.0));
+        app.update();
+        let second = drawn_images(&mut app);
+        assert_eq!(second.iter().map(|(_, h)| h.clone()).collect::<Vec<_>>(), std::slice::from_ref(&b), "a new handle, the same name: repainted");
+        set(&mut app, &b, Vec2::new(64.0, 32.0));
+        app.update();
+        let third = drawn_images(&mut app);
+        assert_eq!(third.len(), 1);
+        assert_ne!(third[0].0, second[0].0, "the same handle set again (its texels changed): repainted");
+        set(&mut app, &b, Vec2::new(128.0, 32.0));
+        app.update();
+        assert_ne!(drawn_images(&mut app)[0].0, third[0].0, "a new size: repainted");
+        assert!(app.world_mut().resource_mut::<super::super::runtime_images::RuntimeImages>().remove("nvf:test_map"));
+        app.update();
+        assert!(drawn_images(&mut app).is_empty(), "removed: nothing drawn");
+    }
+
+    /// [design] A runtime name is looked up as a runtime picture whatever the tile's atlas,
+    /// and its piece carries no stamp until painted.
+    #[test]
+    fn a_runtime_name_is_its_own_source() {
+        let src = MemSource::default().with(
+            "rn.xml",
+            r#"<menu name="RN"><image name="A"><filename>NVF:Outline</filename><texatlas>Interface\InterfaceShared.tai</texatlas><width>9</width><height>9</height></image>
+              <image name="B"><filename>Interface\nvf\b.dds</filename><width>9</width><height>9</height></image></menu>"#,
+        );
+        let mut ui = Ui::new();
+        let menu = ui.load_menu(&src, "rn.xml").unwrap();
+        ui.update();
+        let (set, _) = pieces(&ui, menu, &plain, Select::Whole { kept: &[], strip: None }, true);
+        assert!(matches!(&set[0].look, Look::Picture { source: Source::Runtime(None), .. }));
+        assert!(matches!(&set[1].look, Look::Picture { source: Source::Own, .. }));
+        // Stamped by its entry; a texture offset is dropped from it, said once.
+        let mut set = set;
+        set[0].tex = Some(super::super::texmod::TexMod { offset: (0.5, 0.0), mask: None });
+        let mut images = super::super::runtime_images::RuntimeImages::default();
+        images.set("outline", Handle::default(), Vec2::new(9.0, 9.0));
+        let mut told = super::super::runtime_images::Told::default();
+        super::super::runtime_images::mark(&mut set, Some(&images), &mut told);
+        assert!(matches!(&set[0].look, Look::Picture { source: Source::Runtime(Some(s)), .. } if s.size == Vec2::new(9.0, 9.0)));
+        assert!(set[0].tex.is_none() && told.texmod("nvf:outline"));
     }
 
     #[test]

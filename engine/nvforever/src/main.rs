@@ -25,6 +25,8 @@ macro_rules! eprintln {
 
 mod activators;
 mod fos_start;
+mod reports;
+mod native_crash;
 mod nif_mirror;
 mod anim_paths;
 mod actor_feet;
@@ -45,6 +47,7 @@ mod alert;
 mod anim_sounds;
 mod cpu_placement;
 mod crash;
+mod events_log;
 mod creature_pace;
 mod creature_stance;
 mod creator_view;
@@ -69,6 +72,8 @@ mod fog;
 mod fly;
 mod foot_ik;
 mod anti_lag;
+mod dlss;
+mod nv_low_latency;
 mod frame_pace;
 mod frame_telemetry;
 mod blit_warm;
@@ -140,6 +145,7 @@ mod view_sway;
 mod weapon_lower;
 mod setup;
 mod shadow_probe;
+mod shadow_rate;
 mod shadow_thin;
 mod shafts;
 mod imagespace;
@@ -155,6 +161,7 @@ mod taa;
 mod fg_presenter;
 mod frame_gen;
 mod fsr;
+mod upscaler;
 mod speech_look;
 mod stress_sample;
 mod profile;
@@ -165,10 +172,12 @@ mod terrain;
 mod texture_swap;
 mod effect_particles;
 mod effect_shaders;
+mod vats_highlight;
 mod tree;
 mod treelod;
 mod underwater;
 mod vigor_view;
+mod walk_probe;
 mod water;
 mod window_icon;
 mod window_mode;
@@ -331,8 +340,10 @@ struct Args {
     /// frame cost and that flicker). Runs without --play (screenshots, the parity lab)
     /// keep them off: the original game casts no sun shadows from the world
     /// (docs/spec-notes/world.md §6, "Sun path and shadows").
-    #[arg(long)]
-    sun_shadows: bool,
+    /// `--sun-shadows=performance` chooses the cheaper mode (shadow_rate.rs); a bare
+    /// `--sun-shadows` or `=quality` the default one.
+    #[arg(long, value_enum, num_args = 0..=1, default_missing_value = "quality", require_equals = true)]
+    sun_shadows: Option<shadow_rate::SunShadowMode>,
     /// With --play: the sun casts no shadows (the settings page turns them on and off too).
     #[arg(long, conflicts_with = "sun_shadows")]
     no_sun_shadows: bool,
@@ -439,8 +450,9 @@ struct Args {
     /// switch wins over this flag, as for every switch.
     #[arg(long)]
     fps: bool,
-    /// Latency reduction: AMD Anti-Lag through Vulkan (AMD GPUs only), the driver keeping the
-    /// CPU from preparing frames ahead of the GPU (anti_lag.rs). Once any setting is saved,
+    /// Latency reduction: AMD Anti-Lag or NVIDIA low latency through Vulkan, whichever the
+    /// GPU's driver has, the driver keeping the CPU from preparing frames ahead of the GPU
+    /// (anti_lag.rs, nv_low_latency.rs). Once any setting is saved,
     /// NVForever.ini's Latency reduction switch wins over this flag, as for every switch.
     #[arg(long)]
     latency_reduction: bool,
@@ -464,9 +476,27 @@ struct Args {
     #[arg(long, value_enum)]
     graphics: Option<graphics::Preset>,
     /// FSR 3.1 upscaling (frame generation: --frame-generation). Replaces other anti-aliasing while on.
-    /// Saved Graphics settings take precedence in normal play, as for other switches.
-    #[arg(long, value_enum, default_value = "off")]
-    fsr: graphics::FsrMode,
+    /// Saved Graphics settings take precedence in normal play, as for other switches. The older
+    /// form of `--upscaler fsr --upscaler-quality <mode>` (`off`: no upscaler); given with
+    /// --upscaler, both must say the same. Off when neither is given.
+    #[arg(long, value_enum)]
+    fsr: Option<graphics::FsrMode>,
+    /// The temporal upscaler: off, fsr (FSR 3.1) or dlss (NVIDIA DLSS through Streamline, with
+    /// NVIDIA's files in the dlss folder beside the program; upscaler.rs, dlss/), at
+    /// --upscaler-quality. Saved Graphics settings take precedence in normal play, as for other
+    /// switches. Streamline is loaded when the start chooses DLSS or the files are in the dlss
+    /// folder; then every switch takes effect at once.
+    #[arg(long, value_enum)]
+    upscaler: Option<upscaler::Upscaler>,
+    /// The quality of --upscaler fsr or dlss (default: quality). Native AA reconstructs at
+    /// full resolution (DLSS: DLAA).
+    #[arg(long, value_enum)]
+    upscaler_quality: Option<upscaler::UpscaleQuality>,
+    /// The DLSS model: default (NVIDIA's pick for each mode) or NVIDIA's preset k, l, m or j
+    /// (upscaler.rs `DlssModel`, docs/dlss.md). Used while DLSS draws. Saved Graphics settings
+    /// take precedence in normal play, as for other switches. Default: default.
+    #[arg(long, value_enum)]
+    dlss_model: Option<upscaler::DlssModel>,
     /// Instead of --graphics: exactly these improvements on, by the settings page's keys
     /// (ambient-occlusion, fine-shadows, bloom, sharpen, anisotropic, light-shafts,
     /// water-reflections) and choices (fxaa, smaa or taa instead of --msaa;
@@ -957,6 +987,8 @@ fn main() -> AppExit {
     }
     // The run log and crash reports in NVForever's home (crash.rs).
     crash::install(args.data(), args.handoff.is_some());
+    // Player reports: the player's choice, asked once on a player's start (reports/).
+    reports::decide(developer_data, args.handoff.is_some());
     let fail = |e: String| {
         eprintln!("error: {e}");
         crash::early_exit(&e);
@@ -1126,7 +1158,11 @@ fn main() -> AppExit {
     if let Some(saved) = pending.as_ref().and_then(|p| p.body.engine.extra.get(sky::SAVE_HOOK.key)) {
         sky_state.restore_saved(saved);
     }
-    sky_state.shadows = (args.sun_shadows || (args.play && !args.no_sun_shadows)) && args.shadow_distance > 0.0;
+    sky_state.shadows = (args.sun_shadows.is_some() || (args.play && !args.no_sun_shadows)) && args.shadow_distance > 0.0;
+    let performance_shadows = args.sun_shadows == Some(shadow_rate::SunShadowMode::Performance);
+    if performance_shadows {
+        sky_state.shadow_cascades = shadow_rate::PERFORMANCE_CASCADES;
+    }
     if args.shadow_distance > 0.0 {
         sky_state.shadow_distance = args.shadow_distance;
     }
@@ -1310,7 +1346,13 @@ fn main() -> AppExit {
         },
         None => graphics::Graphics::preset(graphics_preset(&args)),
     };
-    graphics.fsr = args.fsr.quality();
+    // The requested upscaler: the command line's (upscaler.rs `command_line_choice`).
+    let requested_upscaler = match upscaler::command_line_choice(args.fsr, args.upscaler, args.upscaler_quality) {
+        Ok(choice) => choice,
+        Err(e) => return fail(e),
+    };
+    graphics.upscaler = requested_upscaler;
+    graphics.dlss_model = args.dlss_model.unwrap_or_default();
     let frame_times = match (args.log_frame_times, args.graphics_cycle.as_deref()) {
         (None, _) => None,
         (Some(every), cycle) => {
@@ -1336,11 +1378,32 @@ fn main() -> AppExit {
         app.insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(std::time::Duration::from_secs_f64(ms / 1000.0)));
         app.add_systems(Startup, move || info!("fixed frame time: every frame {ms} ms (NVF_FIXED_FRAME_TIME_MS)"));
     }
-    // Asks for VK_AMD_anti_lag when Bevy creates the device: before DefaultPlugins (anti_lag.rs).
+    // Asks for VK_AMD_anti_lag or VK_NV_low_latency2 when Bevy creates the device: before
+    // DefaultPlugins (anti_lag.rs, nv_low_latency.rs).
     app.add_plugins(anti_lag::AntiLagInitPlugin);
+    // The upscaler this run starts with, before the renderer exists: Streamline must be loaded
+    // and initialised before the Vulkan instance is made (dlss/, #2198), so the settings' INI is
+    // read here by the rows' own rules and precedence, as `apply_stored` applies them at
+    // PostStartup (settings.rs `upscaler_after_ini`). The DLSS loader runs for a DLSS choice or
+    // when NVIDIA's four files are in the DLSS folder, so every later switch is live; the test
+    // aid NVF_DLSS_PRELOAD=1 runs it always, =0 only for DLSS (upscaler.rs, "Start").
+    let start_upscaler = {
+        let given = play.is_some().then(|| settings::given_switches(&args, &command_line()));
+        let ini = given.as_ref().and_then(|_| settings::settings_text_at_start()).map(|text| settings::UpscalerIni::read(&text));
+        settings::upscaler_after_ini(graphics.upscaler, ini.as_ref(), given.as_ref())
+    };
+    let startup = upscaler::UpscalerStartup::new(start_upscaler, std::env::var_os(upscaler::PRELOAD_ENV).as_deref(), upscaler::platform_supports_dlss(), dlss::bundle_present);
+    app.insert_resource(startup);
+    app.add_systems(Startup, move || info!("upscaler: {}", startup.describe()));
+    if startup.loads_streamline() {
+        app.add_plugins(dlss::DlssInitPlugin);
+    }
     app.add_plugins(
         DefaultPlugins
             .set(task_pools(cpu_placed.pool_threads))
+            // Bevy's own renderer plugin, with the GPU the DLSS loader checked asked for by
+            // name when it pinned one (dlss/ "Adapter pin"); otherwise `RenderPlugin::default()`.
+            .set(dlss::render_plugin())
             .set(ImagePlugin {
                 default_sampler: ImageSamplerDescriptor {
                     address_mode_u: ImageAddressMode::Repeat,
@@ -1376,7 +1439,7 @@ fn main() -> AppExit {
             .disable::<bevy::ui_widgets::TabPlugin>()
             .disable::<bevy::input_focus::pointer_focus::PointerFocusPlugin>()
             // The console's lines go to the run log too (crash.rs).
-            .set(bevy::log::LogPlugin { custom_layer: crash::file_layer, fmt_layer: crash::console_layer, ..default() })
+            .set(bevy::log::LogPlugin { custom_layer: crash::file_layer, fmt_layer: crash::console_layer, filter: reports::log_filter(), ..default() })
             .set(WindowPlugin {
                 // Scale factor 1 so screenshots are exactly --size pixels on any display.
                 primary_window: Some(Window {
@@ -1398,7 +1461,7 @@ fn main() -> AppExit {
     )
     .add_plugins((window_icon::WindowIconPlugin, window_mode::WindowModePlugin))
     .add_plugins(nvf_play::audio_out::AudioOutPlugin)
-    .add_plugins((ArchivePlugin(game), lights::LightsPlugin, fog::FogPlugin, eye_adapt::EyeAdaptPlugin, emittance::EmittancePlugin, water::WaterPlugin, tree::TreePlugin, reflection::ReflectionPlugin, ripples::RipplesPlugin))
+    .add_plugins((ArchivePlugin(game), lights::LightsPlugin, fog::FogPlugin, eye_adapt::EyeAdaptPlugin, emittance::EmittancePlugin, water::WaterPlugin, tree::TreePlugin, terrain::TerrainPlugin, reflection::ReflectionPlugin, ripples::RipplesPlugin))
     .add_plugins((imagespace::ImageSpacePlugin, sky::SkyPlugin, graphics::GraphicsPlugin(graphics, msaa, frame_times)))
     // The switches the settings page weighs against the INI (`--play` only), for the
     // frame split's start-time decision (perf_overlay/split.rs).
@@ -1426,6 +1489,7 @@ fn main() -> AppExit {
     .add_plugins(draw_distance::DrawDistancePlugin(draw_distance::DrawDistances::new(&args)))
     // Small objects far away cast no sun shadows (shadow_thin.rs).
     .add_plugins(shadow_thin::ShadowThinPlugin(args.shadow_thin))
+    .add_plugins(shadow_rate::ShadowRatePlugin { performance: performance_shadows })
     // Interiors draw the rooms seen through portals only (rooms.rs).
     .add_plugins(rooms::RoomsPlugin { off: args.no_room_culling, planes_off: args.no_occlusion_planes, planes_outdoors: args.occlusion_planes_outdoors })
     .insert_resource(ClearColor(Color::srgb(0.62, 0.72, 0.85)))
@@ -1528,7 +1592,11 @@ fn main() -> AppExit {
     .add_systems(Startup, (crash::report_start, report_archives))
     .add_systems(Startup, move || cpu_placed.report())
     .add_plugins(start_times::StartTimesPlugin)
-    .add_systems(Last, (crash::note_place, crash::report_exit, stray_commands::report));
+    .add_plugins(reports::ReportsPlugin { plugins: args.plugins.clone(), data: args.data().to_path_buf(), mo2: fnv_install::mo2::usvfs_loaded(), handoff: args.handoff.is_some(), start_kind: if args.load.is_some() { "save_load" } else { "new_game" } })
+    .add_systems(Last, (crash::note_place, events_log::note_context, stray_commands::report))
+    // After Bevy's window-closed exit, which writes AppExit in Last too: before it, closing
+    // the window left no clean-exit line and the run was reported as a native crash (#2203).
+    .add_systems(Last, crash::report_exit.after(bevy::window::ExitSystems));
     if let Some(probe) = actor_feet::from_env() {
         app.insert_resource(probe).add_systems(Last, actor_feet::probe);
     }
@@ -1582,6 +1650,7 @@ fn main() -> AppExit {
         app.add_plugins(texture_swap::TextureSwapPlugin);
         // Effect shaders and actor alpha scripts and magic effects ask for (effect_shaders.rs).
         app.add_plugins(effect_shaders::EffectShadersPlugin);
+        app.add_plugins(vats_highlight::VatsHighlightPlugin);
         // How many refracting meshes are in view, for the log (refraction.rs).
         app.add_plugins(refraction::RefractionPlugin);
         // The lock and the bobby pin of the lockpicking menu (lockpick_view.rs).
@@ -1670,6 +1739,8 @@ fn main() -> AppExit {
             app.add_plugins(actor_scale::ActorScalePlugin);
             // Creatures' own speeds and alert stance (creature_pace.rs).
             app.add_plugins(creature_pace::CreaturePacePlugin);
+            // How fast chosen actors walk (NVF_PLAY_TEST_WALK_PROBE; nothing without it).
+            app.add_plugins(walk_probe::WalkProbePlugin);
             // Heads held by a script's Look (script_look.rs).
             app.add_plugins(script_look::ScriptLookPlugin);
             // Actors in Combat attack their target (npc_combat.rs).
@@ -1776,7 +1847,10 @@ fn main() -> AppExit {
             // The start's loading screen does not count: the run's seconds are counted
             // from when it comes down (nvf_play::loading::StartCover).
             if !clocks.3.as_deref().is_some_and(|l| l.starting()) {
-                t.0 += if clocks.0.is_paused() { clocks.1.delta_secs().min(0.25) } else { time.delta_secs() };
+                // (A clock running at no speed, the classic VATS style's full stop, counts
+                // real time as well.)
+                let still = clocks.0.is_paused() || nvf_play::pause::stands_still(false, clocks.0.relative_speed());
+                t.0 += if still { clocks.1.delta_secs().min(0.25) } else { time.delta_secs() };
             }
             t.1 += 1;
             // The seconds a late start held the world test aids back (`--play` with
@@ -1876,7 +1950,29 @@ fn main() -> AppExit {
             }
         });
     }
-    app.run()
+    // `Update` runs its systems one after another on the main thread (Bevy's
+    // single-threaded executor). The game's Update is some hundreds of small systems,
+    // most of them chained or sharing data, so the multithreaded executor found little to
+    // run side by side and its own work (a task per system, woken on another thread) cost
+    // more than the systems did: at Goodsprings the schedule took about 4.2 ms of the
+    // main thread around 1.5 ms of systems [observed 2026-11-10, Ryzen 7 7700X, release
+    // build, frames held by the CPU: Goodsprings 5.67 -> 5.36 ms, the Strip 5.93 -> 5.68 ms,
+    // a 25-a-side battle 10.72 -> 10.62 ms, the Prospector Saloon unchanged;
+    // docs/design/frame-rate-audit.md section 9]. Systems that split their own work over
+    // the task pools (transform propagation, par_iter) still do. The other schedules
+    // measured no different either way and keep Bevy's default.
+    // `NVF_PLAY_TEST_UPDATE_EXECUTOR=multi` (test aid) puts Bevy's default back, for
+    // measuring one against the other.
+    if std::env::var("NVF_PLAY_TEST_UPDATE_EXECUTOR").as_deref() != Ok("multi") {
+        app.edit_schedule(Update, |s| {
+            s.set_executor(bevy::ecs::schedule::SingleThreadedExecutor::new());
+        });
+    }
+    let exit = app.run();
+    // The app and its renderer are gone; Streamline shut down before the device and instance it
+    // used (dlss/, "Shutdown"). Nothing when Streamline was not loaded.
+    dlss::shutdown();
+    exit
 }
 
 /// `--load <name>`: read the save in full for the plugins opened and start at its place
@@ -2057,17 +2153,28 @@ fn keys(
     input: Res<ButtonInput<KeyCode>>,
     play_state: Option<Res<State<nvf_play::PlayState>>>,
     mut commands: Commands,
-    mut n: Local<u32>,
 ) {
     // With --play, Esc is nvf-play's: it opens the pause menu (Continue / Save / Load / Settings / Quit) or closes
     // the open menu, instead of quitting.
     if input.just_pressed(KeyCode::Escape) && play_state.is_none() {
         commands.write_message(AppExit::Success);
     }
+    // F12: a shot in the home's screenshots folder at the first free number, through the
+    // write guard. It went to the working folder unguarded, and the count restarted at 1
+    // each run, over the last run's shots [#1987].
     if input.just_pressed(KeyCode::F12) {
-        *n += 1;
-        let path = format!("nvforever-{:03}.png", *n);
-        commands.spawn(Screenshot::primary_window()).observe(save_to_disk(path));
+        let dir = fnv_install::EngineHome::user().map_or_else(|| std::path::PathBuf::from("."), |h| h.screenshots());
+        let path = fnv_install::first_unused(&dir, "nvforever-", "png");
+        let ready = fnv_install::guard_write(&path, None)
+            .map_err(|e| e.to_string())
+            .and_then(|()| std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display())));
+        match ready {
+            Ok(()) => {
+                info!("screenshot: {}", path.display());
+                commands.spawn(Screenshot::primary_window()).observe(save_to_disk(path));
+            }
+            Err(e) => warn!("screenshot not taken: {e}"),
+        }
     }
 }
 
@@ -2301,11 +2408,35 @@ mod tests {
     }
 
     #[test]
+    fn dlss_model_takes_default_or_a_preset() {
+        use crate::upscaler::DlssModel;
+        assert_eq!(parse(&[]).dlss_model, None, "not given: the default model, the INI's in normal play");
+        for (name, model) in [("default", DlssModel::Default), ("j", DlssModel::J), ("k", DlssModel::K), ("l", DlssModel::L), ("m", DlssModel::M)] {
+            assert_eq!(parse(&["--dlss-model", name]).dlss_model, Some(model), "{name}");
+        }
+        assert_eq!(parse(&["--dlss-model=l"]).dlss_model, Some(DlssModel::L));
+        let line = |m: &str| with_default_mode(["nvforever", "--dlss-model", m].map(String::from).to_vec());
+        assert!(Args::try_parse_from(line("a")).is_err(), "removed presets are not offered");
+        assert!(Args::try_parse_from(line("n")).is_err());
+    }
+
+    #[test]
     fn no_arguments_open_the_main_menu() {
         for a in [&[][..], &["--data", "D"], &["--data=D", "--run-seconds", "20", "--size", "1600x900", "--no-music"]] {
             let args = parse(a);
             assert!(args.play && args.menu && !args.explore, "{a:?}");
         }
+    }
+
+    /// `--sun-shadows` alone still means the default mode (Quality); `=performance` the
+    /// cheaper one; the value needs its `=`, so a following argument is never taken for it.
+    #[test]
+    fn sun_shadows_take_an_optional_mode() {
+        use crate::shadow_rate::SunShadowMode;
+        assert_eq!(parse(&["--cell", "Goodsprings"]).sun_shadows, None);
+        assert_eq!(parse(&["--sun-shadows", "--cell", "Goodsprings"]).sun_shadows, Some(SunShadowMode::Quality));
+        assert_eq!(parse(&["--sun-shadows=performance"]).sun_shadows, Some(SunShadowMode::Performance));
+        assert_eq!(parse(&["--sun-shadows=quality"]).sun_shadows, Some(SunShadowMode::Quality));
     }
 
     #[test]

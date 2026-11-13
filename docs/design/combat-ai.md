@@ -86,7 +86,8 @@ fists (the default draws it holstered).
   built: reloading a part-empty magazine in cover or out of sight, the weapon model's
   own reload animation on NPCs (the revolver's cylinder). Smoke `combat-npc-reload`.
 - **Aim**: from its eyes at the target's chest, inside a cone of the documented actor
-  spread for its weapon skill (standing, not aiming down the sights), plus 4° that
+  spread for its weapon skill (its sights, crouch and gait: walking or running as it
+  fires widens it, `npc_combat::shot_stance`, #2125), plus 4° that
   settles away over 3 s of firing at the same target (the first shots of a burst miss
   more).
 - **Melee**: a blow every 1.2 s divided by the weapon's attack speed, while the gap
@@ -121,7 +122,7 @@ their reach and field of view.
 |---|---|---|
 | StartCombat | the actor fights the target from now on, hostile whatever its records say, until StopCombat; it counts as detecting the target at once (Combat) | [documented: catalogue notes]; the target's combat group: not built |
 | StopCombat | the actor leaves its combat state; StartCombat's hostility is undone | [documented] |
-| IsInCombat, GetCombatTarget | as alert.md §6 | |
+| IsInCombat, GetCombatTarget, GetIsAlerted, GetCurrentAIProcedure / Package | as alert.md §6: a fight reads GetIsAlerted 0 (SetAlert's alone); GetCombatTarget keeps the target it fought while it is out of sight, through Lost; Lost reads procedure COMBAT 13 and package COMBAT 5 (#2121) | |
 | StopCombatAlarmOnActor | every actor fighting or hunting the calling actor stops (StopCombat) | [documented: GECK wiki StopCombatAlarmOnActor] |
 | GetFriendHit | the friendly hits of the target on the actor that still count (§10.1) | [documented: GECK wiki GetFriendHit, Friendly Fire] |
 | GetAttacked | 1 once anyone attacked the actor, cleared when it leaves combat | [documented: GECK wiki GetAttacked] |
@@ -285,7 +286,9 @@ that other take up its fight against each actor on its target list (and whoever 
 it) when the other's Assistance helps it: 1 Helps Allies for an ally, 2 Helps Friends and
 Allies for a friend too [documented: GECK wiki GetFactionCombatReaction, "An actor's
 Assistance setting determine whether it will help an Ally / a Friend in combat or not";
-the codes: xEdit AIDT]. Never against one of its own allies or friends ("cannot attack
+the codes: xEdit AIDT]. In one capture an actor with Assistance 0 stayed out of a
+fellow's fight for 7.6 s while one with Helps Friends and Allies joined within 2 s
+[observed: npc-behaviour-compare.md §16.6]. Never against one of its own allies or friends ("cannot attack
 each other under any circumstances" [documented]). Actors sharing a faction, or placed
 from the same base form, count as allies [engineering choice: the rule that keeps them
 from fighting each other, alert.md §3]. The helper holds a grudge (`Assist`) and gets an
@@ -301,8 +304,10 @@ share FiendsFactionNV with her (Assistance 2), so they now join her fights.
 
 CSTY is read (CSTD, CSAD, CSSD) [documented: layout xEdit wbDefinitionsFNV.pas CSTY;
 meanings GECK wiki Combat Style]; FalloutNV.esm has 84 [observed]. An actor's style is
-its ZNAM, from the template that supplies its AI data [hypothesis], else
-`DefaultCombatstyle` (0x3D) [hypothesis]. Used now (nvforever `npc_combat`):
+its ZNAM, from the template that supplies its traits, as the death item is
+[documented: GECK wiki Traits Tab - NPC and Traits Tab - Creatures list Combat Style
+among the tab's fields, AI Data Tab has none; Template Data, "Use Traits: Use the traits
+of the ActorBase"; #2138], else `DefaultCombatstyle` (0x3D) [hypothesis]. Used now (nvforever `npc_combat`):
 
 - **Weapon Restrictions** Melee Only: a gun held is not fired; the actor fights with
   its fists. Ranged Only changes nothing yet (there is no weapon choice).
@@ -356,12 +361,25 @@ NPCs should not be able to move at full speed whilst aiming" (the player's half 
   sights on a way already planned, `walks on, aiming down the sights at the player`
   (`runs on, sights lowered, at …` when it lowers them). The sights come up only while
   it can fire (it sees its target, its weapon drawn) [design].
+- Its shots fired on the move take the formula's moving terms as the player's do
+  (fWalkingSpreadPenalty walking, fRunningSpreadPenalty running [documented: Gun Spread
+  Formula (New Vegas); docs/design/combat.md, its Gun Spread Formula notes]; before
+  #2125 every NPC shot was spread as if standing). Its gait comes from its locomotion
+  (`npc_combat::shot_gait`): moving, in any direction, while its velocity at its clips'
+  pace reaches the speed a walk clip starts at; running while a run clip plays, the
+  walk/run choice of its own clips, so an actor's scale or a creature's pace moves no
+  fixed cut-off; a velocity of nought stands even while the run clip still plays, and an
+  actor with no locomotion stands. The shot takes the most recent gait `fight` finds,
+  read before `locomotion::drive` chooses the frame's clip and unordered against the
+  walker's velocity update: up to a frame old at a start, a stop or a change between
+  walk and run [design].
 - Not used: the WEAP's Sight Usage ("the percentage of fCombatIronSightsDistance" beyond
   which an actor uses its sights [documented: GECK wiki Weapons]), because the owner's
   20 m rule stands in and fCombatIronSightsDistance is neither in FalloutNV.esm nor on
   the wiki; the NPC spread's fNPCMaxGunWobbleAngle term (Gun Spread Formula (New
   Vegas): spread × fNPCMaxGunWobbleAngle + spread, ×16 with the masters' 15) [design:
-  NPCs keep the player's formula; combat is not a parity target].
+  NPCs keep the player's formula, its walking and running terms with it; combat is not
+  a parity target].
 - Log: `npc combat: … aims down the sights, its target … units away (beyond 1400):
   walks while aiming`, `… fires from the hip …`, and in the summary `… down the sights,
   … from the hip, sights raised … times`.
@@ -446,9 +464,9 @@ for a later workstream (2026-10-12). Every behaviour in the second column is
 | Confidence | Frenzied actors never flee | missing | with fleeing (next) |
 | Combat Flee | Door, cover or run away; at the flee spot wait, more confident when hurt or cornered | missing | next (fleeing); `would flee` logged |
 | Combat Package Flags | No Combat Alert | have | alert.md §2 |
-| Combat Package Flags | Continue During Combat | partial | alert.md §5: the package goes on and the actor fights as any other; no cover on the way |
+| Combat Package Flags | Continue During Combat | wrong | built as "the package goes on in every combat state", which pins melee fighters (#2155). The original, by package type [documented, and observed 2026-11-12]: Travel holds only on the way, Guard only while the target is outside the guard radius; the rule to build is alert.md §5.2. No cover on the way; a Use Weapon package fires its own volleys at its own target instead of the ordinary attacks (use-weapon.md §3, #2120) |
 | Combat Package Flags | Pretend In Combat | missing | next |
-| Combat Package Flags | Follow and Guard radii in combat (fCombatFollowRadiusMult, fCombatGuardRadiusMult) | missing | next |
+| Combat Package Flags | Follow and Guard radii in combat (fCombatFollowRadiusMult, fCombatGuardRadiusMult) | missing | next, with #2155: Guard radius = package radius × 1.5, at least 384, measured from the post to the target [documented; observed for two Guard packages, not for three with type-flag bit 2]; Follow radius × 3, at least 512 [documented]; alert.md §5.2 |
 | Combat Search | Alert and Lost actors search | partial | alert.md §5: each alone, not the combat group splitting the navmesh |
 | Combat Search | The combat group's searches; iCombatTargetLostRemoveSearchCount; the hidden-target timers | missing | next (search parties); our timers are alert.md §2's |
 | Weapons | Sight FOV 0 disables iron sights | have | §10.6 |
@@ -909,7 +927,7 @@ Smoke scenarios (`tools/smoke/scenarios.toml`), observed on this branch 2026-10-
 | Combat Style | Cover: search radius, take-cover chance, wait / wait-to-fire / fire timers | have (§12.6) |
 | Combat Search | The combat group's searches; iCombatTargetLostRemoveSearchCount | have, by sectors (§12.5); fCombatSearchTargetHiddenRemoveTime/MaxTime: alert.md §2's timers stand in |
 | Combat Search | Almost detected: the search centres midway | have (§12.5) |
-| Combat Package Flags | Continue During Combat: "using cover along the way" | partial: no cover on the way |
+| Combat Package Flags | Continue During Combat: "using cover along the way" | wrong reading built (#2155; the rule to build: alert.md §5.2); no cover on the way |
 | Combat Tab | Flee line | have (§12.2); the other combat barks: missing |
 
 Left for later: grenades and threats, blocking, dodging and power attacks, combat barks
@@ -1025,11 +1043,11 @@ Each ACBS template flag now decides where its group is read (factions.md §7):
 
 | Flag | Read from the template's source now | Before |
 |---|---|---|
-| Traits | GetIsRace, GetIsSex, GetIsVoiceType, GetIsClass, IsChild, child immunity | the placed base |
+| Traits | GetIsRace, GetIsSex, GetIsVoiceType, GetIsClass, IsChild, child immunity; combat style (#2138; before it, from the AI Data source) | the placed base |
 | Stats | health, attributes, skills, level, fatigue, speed; a creature's attack, GetIsCreatureType [hypothesis: the type sits in CREA DATA with the stats] | the same (type: the base) |
 | Factions | factions | the same |
 | Actor Effect List | not read by the game layer | — |
-| AI Data | aggression, confidence, assistance, mood, energy, responsibility, aggro radius, combat style | the same |
+| AI Data | aggression, confidence, assistance, mood, energy, responsibility, aggro radius | the same |
 | AI Packages | the package list | the same |
 | Model/Animation | the drawn model, skeleton and animations (`fnv_actor::resolve`) | the same |
 | Base Data | the name shown (prompt, loot menu, conversation, hit messages); Essential, Respawn, No Low Level Processing, Invulnerable | the base's (Respawn: the same) |

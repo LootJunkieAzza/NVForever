@@ -377,7 +377,13 @@ pub struct CreatedBody {
     pub added_step: u64,
     /// At rest (its body asleep) since it last moved.
     pub settled: bool,
+    /// How many of the pose marks (`CREATED_MARKS`) were logged.
+    pub marks: usize,
 }
+
+/// Seconds after its collision was added at which a moving dynamic created reference's
+/// pose is logged, so a log shows where it went.
+pub const CREATED_MARKS: [f32; 3] = [1.0, 3.0, 10.0];
 
 /// A door whose keyframed bodies follow its animation.
 #[derive(Clone)]
@@ -804,6 +810,18 @@ impl PhysState {
             if self.player.is_some() { self.player_lift.at(a) } else { 0.0 }
         } else {
             self.npcs.get(&id).map_or(0.0, |b| b.lift.at(a))
+        }
+    }
+
+    /// The share of [`PhysState::drawn_lift_of`] that changes of the drawn ground under
+    /// the feet put there ([`step_lift::StepLift::ground_at`]): the view leaves it out, as
+    /// it leaves out the drawn sink.
+    pub fn drawn_ground_lift_of(&self, id: u32) -> f32 {
+        let a = (self.stepper.accumulated / self.world.params.dt).clamp(0.0, 1.0);
+        if id == fnv_sim::FormId::PLAYER_REF.0 {
+            if self.player.is_some() { self.player_lift.ground_at(a) } else { 0.0 }
+        } else {
+            self.npcs.get(&id).map_or(0.0, |b| b.lift.ground_at(a))
         }
     }
 
@@ -1375,7 +1393,7 @@ impl PhysState {
             joined.map_or_else(String::new, |(n, _)| format!(": the model's {n} dynamic bodies joined into one"))
         );
         let added_step = self.world.steps();
-        self.created.insert(id, CreatedBody { local, dynamic, start: s.pos, added_step, settled: false });
+        self.created.insert(id, CreatedBody { local, dynamic, start: s.pos, added_step, settled: false, marks: 0 });
         true
     }
 
@@ -1391,6 +1409,19 @@ impl PhysState {
             let Some(local) = cb.local.filter(|_| cb.dynamic) else { continue };
             let Some(b) = self.world.ref_bodies(id).first().copied() else { continue };
             let (pos, rot) = dropped::ref_pose_from_body(&b, &local, 1.0);
+            let t = elapsed(cb.added_step);
+            if CREATED_MARKS.get(cb.marks).is_some_and(|&m| t >= m) {
+                cb.marks += 1;
+                info!(
+                    "dropped 0x{id:08X} {t:.1} s after its collision was added: at ({:.1}, {:.1}, {:.1}), {:.1} below the start, speed {:.0} units/s{}",
+                    pos[0],
+                    pos[1],
+                    pos[2],
+                    cb.start[2] - pos[2],
+                    b.linvel.iter().map(|v| v * v).sum::<f32>().sqrt(),
+                    if b.sleeping { ", at rest" } else { "" }
+                );
+            }
             if pos[2] < cb.start[2] - CREATED_FELL_THROUGH {
                 lost.push(id);
                 continue;
@@ -1723,7 +1754,50 @@ impl Plugin for PhysPlugin {
             .add_systems(Last, (frame_times, report).chain())
             .add_message::<crate::RefRepose>()
             .add_systems(Update, (travel, ref_changed, destruction_models, stream, pose_doors, pose_groups).chain().in_set(PhysSystems).in_set(crate::PlaySet::Physics))
+            .add_systems(Update, pace_steps.after(crate::PlaySet::Input).before(crate::PlaySet::Physics))
             .add_systems(PostUpdate, trace::trace);
+    }
+}
+
+/// The slowest clock the physics step follows down: under this share of full speed the
+/// step stays this share of the usual one [design: a kill camera's slowest world,
+/// `kill_cam::SLOWEST`].
+pub const SLOWEST_PACED: f32 = 0.02;
+
+/// The fixed step for a clock running at `speed` of full speed, the usual step `full`:
+/// that share of it while the clock runs slow, so the physics takes as many steps a real
+/// second as at full speed; the usual one otherwise (a stopped or a faster clock).
+pub fn paced_step(full: f32, speed: f32) -> f32 {
+    if speed > 0.0 && speed < 1.0 {
+        full * speed.max(SLOWEST_PACED)
+    } else {
+        full
+    }
+}
+
+/// The physics keeps its steps a real second while the game's clock runs slow
+/// ([`paced_step`]). The step is 1/60 s of the game's clock; with that clock at an eighth
+/// (VATS mode's shots, a kill camera) a step came every eighth frame, and what the
+/// physics moves, a falling corpse, its severed parts, a head's pieces, went in jerks
+/// [design: the fork owner 2026-11-10, "vats slows down time by X in the shooting/kill
+/// slowmo cutscenes so the physics ticks are increased by X"].
+fn pace_steps(virt: Res<Time<Virtual>>, mut phys: ResMut<PhysState>, mut told: Local<Option<f32>>) {
+    let full = play_params().dt;
+    let speed = if virt.is_paused() { 1.0 } else { virt.relative_speed() };
+    let dt = paced_step(full, speed);
+    if (phys.world.params.dt - dt).abs() <= f32::EPSILON * dt {
+        return;
+    }
+    phys.world.set_step(dt);
+    // Once a change of pace, not every frame of an easing clock.
+    let paced = dt < full;
+    if told.is_some() != paced {
+        *told = paced.then_some(dt);
+        if paced {
+            info!("phys: the clock runs at {speed:.2}: the step follows it, {:.2} ms ({:.0} steps a real second)", dt * 1000.0, speed / dt);
+        } else {
+            info!("phys: the clock is back at full speed: the step is {:.2} ms again", dt * 1000.0);
+        }
     }
 }
 
@@ -1855,6 +1929,24 @@ fn destruction_models(
     phys.set_destruction_models(&ctx, want);
 }
 
+/// An ash or goo pile passes through the ragdoll of the actor it came from: it is made
+/// where that body lies, and the body would otherwise shove it aside or down through the
+/// floor before the critical stage culls it (issue #2030; ash-piles.md §3) [design]. Runs
+/// before the frame's fixed steps, so a pile's first step already passes.
+pub(crate) fn piles_pass_their_corpses(mut phys: ResMut<PhysState>, script: Option<Res<crate::script::ScriptState>>) {
+    let Some(rt) = script.as_deref().and_then(|s| s.rt.as_ref()) else { return };
+    let phys = &mut *phys;
+    for &id in phys.created.keys() {
+        if phys.world.ref_passes_ragdoll(id).is_some() {
+            continue;
+        }
+        if let Some(source) = rt.game.ash_pile_source(FormId(id)) {
+            phys.world.set_ref_passes_ragdoll(id, source.0);
+            info!("ash pile 0x{id:08X} passes through the body of {source}");
+        }
+    }
+}
+
 /// The settle write-back for dropped items ([`PhysState::settle_created`]) after the
 /// frame's fixed steps (in the player's chain, after its step).
 pub(crate) fn settle_created(d: Res<PlayWorld>, mut sim: ResMut<SimState>, mut phys: ResMut<PhysState>) {
@@ -1933,6 +2025,8 @@ fn report(mut exit: MessageReader<AppExit>, phys: Res<PhysState>, f: Res<FrameTi
         info!("physics: the player's drawn height took up {} steps and bumps, lifted {:.1} units at most", l.taken_up, l.most);
         let (feet, drawn) = l.rough.rms();
         info!("physics: walking on the ground for {} steps, vertical acceleration {feet:.0} units/s2 of the feet and {drawn:.0} of the drawn height (rms), drawn/feet {:.2}", l.rough.steps, drawn / feet.max(1.0));
+        // The view counts from the feet: the lift without the drawn ground's share.
+        info!("physics: the view's vertical acceleration while walking {:.0} units/s2 (rms)", l.rough.view_rms());
     }
     // Loose items in water (`fnv_phys::buoyancy`): floating at the surface or sunk.
     let wet = phys.world.loose_in_water();

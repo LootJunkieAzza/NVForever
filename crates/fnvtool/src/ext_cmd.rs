@@ -70,6 +70,10 @@ pub enum ExtCmd {
         /// Also run the runaway loop and the deep recursion.
         #[arg(long)]
         risky: bool,
+        /// Start every quest's run from the original game's save (`.fos`, only read), as
+        /// `ext queries --save`. What it could not carry over is listed under `save`.
+        #[arg(long)]
+        save: Option<PathBuf>,
     },
     /// Run a runtime-query job (fnv.capture.steps/1, as tools/capture/jip_probes.py writes
     /// it) headless, one runner query per step in order, and write fnv.ext.probes/1 as
@@ -167,7 +171,7 @@ pub fn run(cmd: ExtCmd) -> anyhow::Result<Value> {
             let schema = Schema::load_dir(&schema)?;
             scan(&order, &schema, &fp)
         }
-        ExtCmd::Probes { lo, schema, functions, probes, probes_dir, frames, risky } => {
+        ExtCmd::Probes { lo, schema, functions, probes, probes_dir, frames, risky, save } => {
             let fp = functions.unwrap_or_else(|| schema.join("..").join("script").join("functions.json"));
             let plans = probe_plans(&probes_dir.join(&probes), risky)?;
             let ftext = std::fs::read_to_string(&fp).with_context(|| fp.display().to_string())?;
@@ -179,21 +183,41 @@ pub fn run(cmd: ExtCmd) -> anyhow::Result<Value> {
             let forms = fnv_sim::FormStore::build(&order, &schema);
             let refs = fnv_sim::RefTable::build(&order, &schema);
             let data = fnv_game::GameData::build(&order, &schema, table, &fjson, &refs);
+            let start = match &save {
+                Some(p) => {
+                    let fos = fnv_save::fos::Fos::parse(&std::fs::read(p).with_context(|| p.display().to_string())?).with_context(|| p.display().to_string())?;
+                    Some(crate::ext_save::save_given(&fos, &crate::ext_save::Loaded { data: &data, forms: &forms, refs: &refs }, &lo.plugins)?)
+                }
+                None => None,
+            };
             let mut lines = Vec::new();
             let mut runs = Vec::new();
+            let mut given_errors = Vec::new();
             for plan in &plans {
-                let input: fnv_game::runner::Input = serde_json::from_value(plan.input(frames)).context("probe actions")?;
+                let mut input = plan.input(frames);
+                if let Some((given, _)) = &start {
+                    input["given"] = json!(given);
+                    input["new_game"] = json!(true);
+                }
+                let input: fnv_game::runner::Input = serde_json::from_value(input).context("probe actions")?;
                 match fnv_game::runner::run(&data, &forms, &refs, &input) {
                     Ok(trace) => {
                         let before = lines.len();
                         probe_lines(&trace, &mut lines);
                         runs.push(json!({"quest": plan.quest, "which": plan.which, "lines": lines.len() - before}));
+                        if given_errors.is_empty() {
+                            given_errors = trace["given_errors"].as_array().cloned().unwrap_or_default();
+                        }
                     }
                     Err(e) => runs.push(json!({"quest": plan.quest, "which": plan.which, "error": e})),
                 }
             }
             let mut doc = probes_doc(&probes, &lines);
             doc["runs"] = json!(runs);
+            if let Some((_, mut notes)) = start {
+                notes["given_errors"] = json!(given_errors);
+                doc["save"] = notes;
+            }
             Ok(doc)
         }
         ExtCmd::ScriptRunner { lo, schema, functions, roots, run, no_data_files } => script_runner(&lo, &schema, functions, roots, run, no_data_files),
@@ -243,7 +267,7 @@ pub fn run(cmd: ExtCmd) -> anyhow::Result<Value> {
             }
             let mut save_notes = None;
             if let Some(fos) = &fos {
-                let (given, notes) = crate::ext_save::save_given(fos, &crate::ext_save::Loaded { data: &data, forms: &forms }, &lo.plugins)?;
+                let (given, notes) = crate::ext_save::save_given(fos, &crate::ext_save::Loaded { data: &data, forms: &forms, refs: &refs }, &lo.plugins)?;
                 input["given"] = json!(given);
                 input["new_game"] = json!(true);
                 save_notes = Some(notes);
@@ -284,6 +308,9 @@ pub(crate) fn units_to_dump<'a>(units: &'a [ScriptUnit], plugin: Option<&str>, a
 }
 
 fn dump_units(units: &[ScriptUnit], table: &FunctionTable, plugin: Option<&str>, all: bool, dir: &Path) -> anyhow::Result<Value> {
+    // The folder is guarded before anything is made: the files used to be written first and
+    // only units.json refused, inside the game's Data folder [#1987].
+    fnv_install::guard_write(dir, None)?;
     std::fs::create_dir_all(dir).with_context(|| dir.display().to_string())?;
     let mut index = Vec::new();
     for (n, u) in units_to_dump(units, plugin, all).into_iter().enumerate() {

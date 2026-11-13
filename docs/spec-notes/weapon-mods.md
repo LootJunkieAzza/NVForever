@@ -88,8 +88,8 @@ WeaponHasModType's list], with what the values do [documented: GECK wiki Weapon 
 | Increase Rate of Fire | A: extra multiplier, 0.2 = 20 % faster | `fire_rate`, `attack_shots_per_sec` and `attack_mult` × (1 + A) [hypothesis: which figures "rate of fire" means] |
 | Increase Zoom | A: flat value subtracted from the zoom field of view | `sight_fov − A`, not below 1 |
 | Split Beam | A: projectiles added (negative: taken); B: min spread multiplier (1 keeps it); "the 30% bonus the modification already applies" | `projectile_count + A` (at least 1), `min_spread × B` when B ≠ 0; the 30 % is not applied [hypothesis: the wiki does not say what it applies to] |
-| Silence | no values; silences the weapon | `sound_level` "Silent" [hypothesis: the weapon's own noise, the wiki calls it untested] |
-| Suppressor | (no description) | as Silence [hypothesis] |
+| Silence | no values; "Sets the weapon's Sound Detection Level to Silent and switches to a new set of firing sounds" | `sound_level` "Silent"; detection hears each shot at the level of the weapon as fired, the unit's mod flags carried on the shot (`ShotFired::mods`, nvforever `detection::hear_shot`), the player's and other actors' alike (§7) |
+| Suppressor | "Sets the weapon's Sound Detection Level to Normal and switches to a new set of firing sounds" | as Silence: `sound_level` "Silent" [hypothesis], which detection now hears (#2117). A retained discrepancy with the documented rule (the wiki: Normal; ours: Silent), unchanged here and a separate question |
 | Increase Projectile Speed | A: multiplier of the projectile speed | the shot's speed × A, not for hitscan projectiles ([weapon-data-fields](weapon-data-fields.md) §5) |
 | Regenerate Ammo (shots / seconds) | shots: every 4th shot is free; seconds: A added to the recharge time | shots: the player's every fourth shot uses no ammunition; seconds: `regen_rate + A` on a recharging weapon, at least 0.1 s (weapon-data-fields.md §5) |
 | Decrease Equip Time, VATS Bonus | (VATS Bonus "unused in game") | kept, not applied (no master mod uses either) |
@@ -138,7 +138,8 @@ WeaponHasModType's list], with what the values do [documented: GECK wiki Weapon 
   model" (GECK wiki Weapon Mods) holds for every view of the weapon; the `MWD` fields are
   the third-person ones]. An NPC holding a modded weapon (the unit it has equipped, else
   the one it would take) draws the same model in its hand [hypothesis, as above]. Its
-  shots use the plain figures (only the player's weapon is modded in combat yet).
+  shots use the plain figures (only the player's weapon is modded in combat yet), but
+  for their sound and their loudness for detection, which take the unit's mods (§7).
 
 ## 4. The ITEMS page's Mod hint and key
 
@@ -222,6 +223,95 @@ being modded (Inventory Reference)"]. NVForever counts it among the Pip-Boy's co
   flags m)`, `pipboy mod: <weapon> - <mod> (slot n, flags m)`, `pipboy mod: cancel`, `pipboy mod: clicked row <n>`.
 - Test aid: the Pip-Boy aid's `mod=open|down|up|use|cancel` (`test_aid.rs`).
 
+### 5.1 The menu drawn from its file
+
+Behind `[UI] TileMenus=ItemModMenu`, off by default, the mod menu is drawn from
+`menus\item_mod_menu.xml`, painted into the Pip-Boy's image (issue #1513) [design:
+`engine/nvf-play/src/tiles/item_mod_menu.rs`, in the way of the repair page, repair.md §5.1;
+the card pairs in `tiles/repair_cards.rs`, the list in `tiles/list.rs`, both shared with the
+repair page]. Off, nothing here runs and the hand-built menu above is unchanged; with the switch
+on and the file short of a tile, the whole hand-built menu stands and the log says why once
+(`ItemModMenu drawn by hand: <path> missing`). The rules, keys, figures, sounds and log lines stay
+`engine/nvf-play/src/pipboy/item_mod.rs`'s (the figures: `item_mod::compare`, which the
+hand-built cards now read too); a click reaches them as `ModInput`, as the hand-built rows' do.
+MenuMode is 1061 alone while the menu is open (the ITEMS page's 1002 is not open beside it); the
+menu's tree is always loaded (`fnv_game::ui_loading::ALWAYS_LOADED`), and a tree built again
+(a new menu tile) is written whole, keeping no tile of the one before [design]. While the menu is
+open the ITEMS page drawn from its file (`InventoryMenu`) gives way, as for the repair list
+(pipboy.md §5.2.1), so with this switch off the hand-built menu draws as before.
+
+**From its file: what the code writes** [design; tile names documented: item_mod_menu.xml]:
+
+| Tile | What is written | Source |
+| --- | --- | --- |
+| `IMM_Headline_Title` | not written | the file's (`sInventoryItems`) |
+| `IMM_ItemName` `string` | the weapon's name, "+" when modded | the record's name; "+" is ours (§5) |
+| `IMM_Headline_h2` `_length` | from where the line starts (after the title; the lead line's end in the screen menu) to 20 before the name's words, as the hand-built heading; written last each pass, so a script's own write to it does not last | [design]: the file's own reads `IMM_Headline_PlayerSkillInfo`, a tile only the repair file has, and comes to 0 |
+| `WMM_Background` `visible` | 0: the Pip-Boy's own backing | [design, as RM_Background] |
+| a row's `ListItemText` `string` | name, count, and under a mod's name its effect on a second line | the record's name; "(n)" and the effect words are ours (`item_mod::effect_text`) |
+| a row's `ListItemText` `alpha` | 255 | the file leaves it to code [hypothesis: no row dims] |
+| a row's `_IsItemModItem` | 1 on the weapon's row | [design: as `_IsRepairItem`]; `user0`, `user1` not written |
+| `IMM_Template_ItemMarker` `visible` | the weapon worn, or the mod on it | the model |
+| `IMM_LeftBracket` `y`, `height` | on the weapon's row, scrolled with it, one less than the row | as the repair page (repair.md §5.1) |
+| the list's highlight | the model's chosen row | the model |
+| `IMM_ItemIcon` | the chosen mod's picture, the weapon's on its row | the records |
+| `IMM_ModDesc` `string` | the chosen mod's description; empty on the weapon's row | the record (IMOD DESC) |
+| `IMM_ItemHealth`, `IMM_ModItemHealth` | the weapon's condition (`user0`), both sides alike | the model |
+| their `_Title` | the file's; only where the file has none | `sInventoryCondition` |
+| `IMM_ItemStat`, `IM_ModItemStat` | the figure the chosen mod changes (else DAM), as the model words it: whole ("11"), decimal ("0.40") or words ("Silent") | `item_mod::compare` |
+| `IMM_StatImprovementText` | the gain, "+3" or "-0.50"; hidden for words | `item_mod::gain_text` |
+| `IMM_HealthImprovementText` | hidden: a mod does not change the condition | the model |
+| `IMM_ChooseItemText` | hidden, empty | [design: the hand-built menu has none and the original's was not seen] |
+| `IMM_ItemModButton` `target` | 1 on a mod's row; `visible` stays the file's (shown on a controller only) | the model |
+| `IMM_CancelButton` `_PCButtonText` | hint | `sPCMenuHintE` (a controller's button name, `pad::game_hint`) |
+
+The card values are words, not numbers [design: `repair_cards::CardValues`]: the repair pages'
+whole positive gains ("+N%", "+N") and the mod menu's decimal, negative and worded figures go
+through the same card writer; the repair pages' words are unchanged.
+
+**Input** [design]: the pointer is the Pip-Boy's own; a row it comes onto, once it has moved, is
+chosen (`Hover`); leaving the rows keeps the choice, as the hand-built rows do. A click on a row
+sends `Click` (choose it, or on the chosen mod attach or remove it, `item_mod::resolve`), the Mod
+button `Use`, Cancel `Cancel`; the scrollbar's arrows, page areas and marker move the list's own
+view. The keys stay the model's (`item_mod_menu::HAND_BUILT_KEYS`); a script's MenuTapKey of E
+still clicks Cancel by the file's `_PCButton_E`. A click and a key in the same frame are not
+arbitrated: each is acted on in turn, as with the hand-built menu (a click on the chosen mod and
+Enter in one frame attach it and take it off again); only one key is kept from acting twice
+(`menus::key_click_acts`). A hover and an arrow key in one frame: the model applies the hover
+first and the key after, so the key decides the chosen row. The list treats that as a key's move
+(and brings the row into view) only when the chosen row changes in the frame; a hover and a key
+that end on the row already chosen move nothing [design].
+
+**The description** [design]: the file gives `IMM_ModDesc` a `height` of 100 at y 220 and the
+cards stand at y 400, but a text tile is measured to its words here and not clipped by its own
+height, so an unlimited description could run over the cards. It is cut to the hand-built menu's
+three lines (`item_mod::DESC_LINES`, whole words, `item_mod_menu::first_lines`). Of the two ways
+to keep it off the cards, this is the one with a rule already in the code; clipping to the file's
+100 would need the renderer to clip a text tile by its height, which no menu does yet, and how
+the original fits a long description in that box was not seen [hypothesis].
+
+**Log lines** (smoke reads them): `tiles: ItemModMenu ready: drawn from tiles` and
+`tiles: ItemModMenu no longer drawn from tiles after <n> passes: <why>` at each change of the
+decision, so a fallback of one frame shows; `tiles: ItemModMenu drawn from tiles: <n> rows (<m>
+with an effect line); weapon "<name>"; highlight "<name>"; figures: <cards>` when what it shows
+changes; `tiles: ItemModMenu <Click(n)|Hover(n)|Use|Cancel> on its tiles`.
+
+**Known differences from the hand-built menu** (the maintainer's design, kept as the default)
+[design]:
+
+- The effect line wraps with the name at the file's 270, not 338: the file's row has one text.
+- The Mod hint stands on a controller only (the file's `&xbox;`); on a PC the hand-built column
+  shows "Mod Enter)" too (#1896). Enter and a click on the chosen mod still attach or remove it.
+- An item with no figure has no stat card; the hand-built menu draws an empty one.
+- The description is cut at three lines as the hand-built one, but wrapped at the file's 350 in
+  its text tile (above).
+- The list scrolls as the file's list does (its own view), not by the model's eight rows.
+
+**Open** [hypothesis]: beyond the controller screenshot on issue #1896 (§5, the two hints), the
+original's mod menu was not captured, so these were not seen: what it writes in `user0`, `user1`,
+`_IsItemModItem` and the choose text, whether its rows show the effect at all, its cards' words
+for each effect, and how it fits a long description.
+
 ## 6. Not built
 
 - An NPC's modded figures in combat.
@@ -286,6 +376,17 @@ being modded (Inventory Reference)"]. NVForever counts it among the Pip-Boy's co
   those of the unit it has equipped, else the one it would take
   (`Inventory::mods_in_use`), so an NPC with a silenced pistol sounds silenced
   [hypothesis: the same rule as the player's; its other figures stay plain, §3].
+- **Detection hears the same unit**: each shot's message (`ShotFired`) carries the mod
+  flags of the unit that fired it, as they were at the shot (the player's equipped unit;
+  another actor's or a script shot's `Inventory::mods_in_use`), and detection takes the
+  shot's loudness from the modded weapon (`WeaponStats::modded(mods).sound_level`, §2),
+  not from whatever is equipped when the shot is measured: with a Silence mod on the
+  shot is Silent (iSoundLevelSilent), as the shooter's action sound and as the impact
+  fallback when the impact has no level of its own (an impact with an IPCT sound level
+  keeps it; detection.md §8) [documented: the Silence effect above; design: docs/design/
+  detection.md §3]. A Suppressor mod gives Silent too, against the wiki's Normal
+  [hypothesis, retained, a separate question; §2]. Before #2117 detection read the base
+  weapon's level.
 - **Log**: `combat: <weapon> shoots its silenced sound <SOUN>` once each time the
   player's sound changes to a mod sound [design], and at debug level each NPC
   shot's choice (`combat: npc <ref> shot sound <SOUN> (silenced|plain, 3D|distant)`).

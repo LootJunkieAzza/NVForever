@@ -85,7 +85,8 @@
 //! window's text, `KeyboardInput`, read every frame in `PreUpdate` so nothing typed before
 //! comes in late) goes into it, Backspace takes the last letter off, and while it is open
 //! the letters are its own: N, L, S, Q, W/S, A/D and Space do nothing else, and the game's
-//! controls read no key (`crate::bindings::KeyboardCapture`). It finds every row of every
+//! controls read no key (`crate::bindings::KeyboardCapture`; nvforever's hand-report form
+//! holds the keys the same way while it is over the menu, [`FormOver`]). It finds every row of every
 //! tab whose label or note (in the language shown or in English) or INI key holds each
 //! word typed, any case (`crate::settings_view::search`), the Controls tab's own rows too
 //! by their label, note and INI name; an empty text lists every row. The results are in
@@ -121,6 +122,14 @@
 //! resolution?" with the seconds left and Keep / Revert (Left/Right/Up/Down choose, Enter
 //! or Space take, Esc reverts, a click takes); unanswered it goes back by itself
 //! (`crate::settings::KEEP_SECS`).
+//! A list may show its choices by other words than their names and hold some out of reach
+//! (`crate::settings::set_choice_labels`, `set_choice_unavailable`) [design:
+//! docs/design/dlss-upscaling.md]: the box and the open list show the words; a choice out
+//! of reach is drawn dim, the keys and the pointer still come onto it and the note under
+//! the rows then gives its reason, but Enter, Space, A or a click leave the list open and
+//! take nothing (`settings: <key> <name> not taken: <reason>`), and Left/Right on the row
+//! pass over it. The test aids still name a choice by its name; one out of reach is
+//! refused the same way.
 //!
 //! **The Controls tab** [design; owner 2026-10-16: keys can be mapped from the settings]
 //! lists every control of `crate::bindings` with its key and mouse button. Up/Down (W/S)
@@ -138,7 +147,9 @@
 //! (`fMouseSensitivity`), Stick Sensitivity with a controller (the right stick's look
 //! speeds), each kept apart (Left/Right or the arrows a step of `crate::bindings::SENSITIVITY_STEPS`,
 //! about a tenth apart, a press or drag on the logarithmic meter the value under the
-//! pointer; `crate::bindings::SENSITIVITY_LEAST`..`SENSITIVITY_MOST`, 5%-300%)
+//! pointer; `crate::bindings::SENSITIVITY_LEAST`..`SENSITIVITY_MOST`, 5%-300%), and under
+//! it Vertical Sensitivity, each device's own, sets the vertical look's speed as a
+//! percentage of the horizontal's on the same steps (100% as the game has it, #2201)
 //! [design: owner 2026-11-03, #1451; #1632]; with a controller Rumble comes after, then
 //! the registered controller rows, Button style and the aim assist's (`crate::pad`,
 //! `crate::aim_assist`; shown with the controller only) [design: #1953].
@@ -146,11 +157,12 @@
 //! **Quit** asks first [observed: the original's question and its choices]: Main Menu
 //! (nvforever starts again with `--menu`, [`MainMenuRequest`]), Exit Game, Cancel.
 //!
-//! **Mods** (issue #976, T11; `crate::tiles::mods`): with `[UI] TileMenus=StartMenu` and a
-//! mod's tiles in the start menu (MCM's include), a Mods entry stands before Quit
-//! ([`ModsEntry`]). Its page draws the mod's tiles from the tree over this menu, gives them
-//! the pointer and keys, and runs the start menu's MenuMode scripts each frame; Esc,
-//! Backspace or Back go back to the column [design: owner-review.md #34]. Off by default.
+//! **Mods** (issue #976, T11; `crate::tiles::mods`): with a mod's tiles in the start menu
+//! (MCM's include), a Mods entry stands before Quit ([`ModsEntry`]). Its page draws the
+//! mod's tiles from the tree over this menu, gives them the pointer and keys, and runs the
+//! start menu's MenuMode scripts each frame; MCM's window opens with it. Esc, Backspace,
+//! Back or MCM's own Back go back to the column [design: owner-review.md #34]. On by
+//! default; `[UI] TileMenus=-StartMenu` turns it off.
 //!
 //! **What a menu holds** (docs/design/dialogue.md §8, Pausing). Every menu holds game
 //! logic by its own means (`PlayState`, the runtime's menu mode). Whether the picture
@@ -181,13 +193,16 @@
 //! would, `padbind:<control>=<button>` (`padbind:Jump=RB`) a controller button,
 //! `device:<name>` (`device:Controller`) picks the input device, `rumble:1` or `rumble:0`
 //! sets the controller's Rumble row, `invert:1` or `invert:0` the Invert Y row and
-//! `sensitivity:<percent>` (`sensitivity:150`) the sensitivity slider of the device in use;
+//! `sensitivity:<percent>` (`sensitivity:150`) the sensitivity slider of the device in use,
+//! `vertical:<percent>` (`vertical:80`) its Vertical Sensitivity;
 //! `tab:<name>` (`tab:Tweaks`, an empty tab too) shows a tab on its first row,
 //! `select:<key>` chooses a row without changing it (a hidden one: the row that stands for
 //! it), `layout` logs the tabs and each row's place (`settings layout: menu-pause ->
 //! Gameplay > Dialogue`), `search:<text>` opens the search on that text with the keys on
 //! its results (`pause menu: search "<text>": <n> result(s); keys …`) and `changed` the
-//! Changed list [design: #1953].
+//! Changed list [design: #1953]. An older list's key (`crate::settings::set_list_alias`:
+//! nvforever's `fsr-upscaling=<choice>`) shows the row that took over and takes the older
+//! row's choice there.
 //! `NVF_PLAY_TEST_PAUSE_MENU=<seconds>:<action>[,…]`: with the pause menu open, `save` (the
 //! Save button), `load` (the load page), `down`, `up`, `pick` (Enter on the load page, the
 //! quit question, a settings row or its open dropdown, where `down` and `up` move too),
@@ -215,7 +230,7 @@ use crate::interface::{bc_supported, u, Face, Picture, Pictures};
 use crate::settings::{add_setting, Setting, Settings};
 use crate::settings_layout::{ResolvedLayout, CONTROLS_TAB};
 use crate::settings_view::{ControlRow, Found, RailItem, RowId, SettingsFocus, SettingsLayout, SettingsScope, ViewEntry, Visibility, NO_ROW_SOUND, SEARCH, WINDOW_ROWS};
-use fnv_util::words::tr;
+use fnv_util::words::{tr, tr_str};
 use crate::start_menu::{color, highlight_colors, text as sm_text, Faces, Shade, BASE, COLUMN, ITEM, LINE, RIGHT, SUB_RIGHT, SUB_WIDTH};
 use crate::{PlaySet, PlayState};
 use bevy::ecs::system::SystemParam;
@@ -377,6 +392,13 @@ impl WorldAidClock {
     }
 }
 
+/// The virtual clock is not paused and yet runs at no speed: real time is to be counted
+/// for it by the clocks that must not stop with the world ([`tick_play_clock`], nvforever's
+/// `--run-seconds`).
+pub fn stands_still(paused: bool, relative_speed: f32) -> bool {
+    !paused && relative_speed <= 0.0
+}
+
 /// The start's loading screen (`crate::loading::StartCover`) counts on neither clock: the
 /// test aids count from when it comes down, as if the run began then.
 pub(crate) fn tick_play_clock(virt: Res<Time<Virtual>>, real: Res<Time<Real>>, loading: Option<Res<crate::loading::Loading>>, mut clock: ResMut<PlayClock>) {
@@ -385,6 +407,12 @@ pub(crate) fn tick_play_clock(virt: Res<Time<Virtual>>, real: Res<Time<Real>>, l
         return;
     }
     clock.stopped += clock.frame.unwrap_or(0.0);
+    // A clock running at no speed (the classic VATS style's full stop, `crate::vats_mode`)
+    // stands still too, but nothing takes the picture: the frame's time stays the
+    // world's, none, and only the aids' clock goes on, so a timed key still comes.
+    if stands_still(virt.is_paused(), virt.relative_speed()) {
+        clock.stopped += real.delta_secs().min(0.25);
+    }
 }
 
 /// Pause the virtual clock while the picture is held ([`picture_held`]), or while the
@@ -464,6 +492,31 @@ fn fire(due: &mut Vec<f32>, now: f32) -> bool {
 #[derive(Resource, Default, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Paused(pub bool);
 
+/// A form of nvforever's own is up over the pause menu (the hand report,
+/// nvforever's `reports/form.rs`, player-reports.md §3.3): the pause menu takes no key or
+/// click while it is, and a text field has the keyboard ([`crate::bindings::KeyboardCapture`]).
+/// The form clears it the frame after it closes, so the key that closed it does nothing
+/// here.
+#[derive(Resource, Default, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FormOver(pub bool);
+
+/// The "Report a bug" entry at the pause menu's bottom left, over the version (owner
+/// 2026-11-12): `shown` when nvforever's hand-report form is there to open
+/// (`reports/form.rs` sets it); a click sets `asked`, which the form takes. Only over a
+/// game, never under the main menu.
+#[derive(Resource, Default, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ReportEntry {
+    pub shown: bool,
+    pub asked: bool,
+}
+
+/// The report entry's words [design: NVForever's own].
+const REPORT_LABEL: &str = "Report a bug";
+
+fn no_form(form: Option<Res<FormOver>>) -> bool {
+    !form.is_some_and(|f| f.0)
+}
+
 /// The page of the pause menu that is up; on the settings page, the row the keys are on.
 #[derive(Resource, Default, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Page {
@@ -511,11 +564,10 @@ impl Page {
 #[derive(Resource, Default, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Listening(pub Option<(crate::bindings::Control, crate::bindings::InputDevice)>);
 
-/// Whether the column has a Mods entry this frame: with `[UI] TileMenus=StartMenu` on, a
-/// mod added tiles to `StartMenu` (MCM's include) [design: owner-review.md #34, "a Mods
-/// entry appears only when a mod added one"; ui-tile-tree.md §7]. Written by
-/// `crate::tiles` each frame; off by default, as the page shows only what the mod's own
-/// scripts draw (docs/handoff/ui-tile-tree-tasks.md, T11).
+/// Whether the column has a Mods entry this frame: with the start menu's switch on (the
+/// default, `crate::tiles::vanilla::TileMenus::for_run`), a mod added tiles to `StartMenu`
+/// (MCM's include) [design: owner-review.md #34, "a Mods entry appears only when a mod
+/// added one"; ui-tile-tree.md §7]. Written by `crate::tiles` each frame.
 #[derive(Resource, Default, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ModsEntry(pub bool);
 
@@ -686,6 +738,8 @@ enum PauseButton {
     Delete,
     /// An answer of the delete question: yes or no.
     DeleteAnswer(bool),
+    /// "Report a bug" at the bottom left ([`ReportEntry`]).
+    Report,
 }
 
 /// A row's value, kept as text too (tests read it).
@@ -775,6 +829,8 @@ const RUMBLE_ROW: &str = "Rumble";
 const INVERT_ROW: &str = "Invert Y";
 /// The Controls tab's slider after Invert Y, with keyboard and mouse and with a controller.
 const SENSITIVITY_ROWS: [&str; 2] = ["Mouse Sensitivity", "Stick Sensitivity"];
+/// The Controls tab's slider under the sensitivity, each device's own (#2201).
+const VERTICAL_ROW: &str = "Vertical Sensitivity";
 
 const OPTION_ROW: f32 = 52.0;
 /// The scroll bar right of the settings page's rows when not all of them fit, 32 wide
@@ -941,6 +997,8 @@ struct PauseView {
     last: Option<(SettingsScope, Option<RowId>, usize)>,
     /// The rail's line under the pointer (boxed unfilled, bright).
     rail_hover: Option<RailItem>,
+    /// "Report a bug" is under the pointer (boxed unfilled).
+    report_hover: bool,
     /// The wheel's movement short of a notch.
     wheel: f32,
     /// A list's open dropdown.
@@ -1049,6 +1107,9 @@ struct Drawn {
     column: Vec<(&'static str, bool)>,
     /// Under the main menu (its entries make the column; no pause screen).
     under_main: bool,
+    /// The Mods page shows a mod's own window with its own Back (MCM's): ours is not
+    /// drawn over it (`crate::tiles::mods::ModsPage::mcm_open`) [design].
+    mod_window: bool,
     /// The load page's thumbnail: the row it is of and whether there is one.
     thumb: Option<(usize, bool)>,
     /// The Controls tab's values, in `GAME_CONTROLS`' order, on the device in use.
@@ -1061,10 +1122,16 @@ struct Drawn {
     invert_y: bool,
     /// The device in use's look sensitivity, a multiple of the game's.
     sensitivity: f32,
+    /// The device in use's Vertical Sensitivity, a multiple of its horizontal look.
+    vertical: f32,
     /// The settings page's (or the load page's) first row shown ([`PauseView::scroll`]).
     scroll: usize,
     /// The list rows: each one's row, choices and chosen one.
     lists: Vec<(usize, Vec<String>, String)>,
+    /// The list rows that show their choices by other words or hold some out of reach
+    /// (`crate::settings::ChoiceLooks`; the others have none here): each one's row and its
+    /// words and reasons.
+    looks: Vec<(usize, ListLooks)>,
     dropdown: Option<Dropdown>,
     /// The keep question: its row's label, the seconds left and the chosen answer.
     keep: Option<(&'static str, u32, usize)>,
@@ -1080,6 +1147,8 @@ struct Drawn {
     /// On the search and the Changed list: the rows listed as another row, by that row,
     /// their names as the page shows them (`crate::settings_view::stands_for`).
     stand_ins: Vec<(RowId, Vec<String>)>,
+    /// "Report a bug" at the bottom left ([`ReportEntry`]), and whether the pointer is on it.
+    report: Option<bool>,
 }
 
 impl Drawn {
@@ -1087,6 +1156,37 @@ impl Drawn {
     fn list(&self, i: usize) -> Option<(&[String], &str)> {
         self.lists.iter().find(|l| l.0 == i).map(|l| (l.1.as_slice(), l.2.as_str()))
     }
+
+    fn looks(&self, i: usize) -> Option<&ListLooks> {
+        self.looks.iter().find(|l| l.0 == i).map(|l| &l.1)
+    }
+
+    /// The words shown for choice `k` (named `name`) of list row `i`.
+    fn choice_words<'a>(&'a self, i: usize, k: usize, name: &'a str) -> &'a str {
+        self.looks(i).and_then(|l| l.labels.get(k)).map_or(name, String::as_str)
+    }
+
+    /// Why choice `k` of list row `i` cannot be taken now; `None`: it can.
+    fn choice_reason(&self, i: usize, k: usize) -> Option<&str> {
+        self.looks(i)?.reasons.get(k)?.as_deref()
+    }
+
+    /// List row `i`'s chosen one as shown: its words (`chosen`, its name, without any) and
+    /// whether it is out of reach now (a stored request it cannot meet).
+    fn chosen_words<'a>(&'a self, i: usize, chosen: &'a str) -> (&'a str, bool) {
+        self.looks(i).map_or((chosen, false), |l| (l.chosen.0.as_str(), l.chosen.1.is_some()))
+    }
+}
+
+/// A list row's choices as the page shows them (`crate::settings::ChoiceLooks`), in the
+/// order of its names.
+#[derive(Clone, PartialEq, Debug, Default)]
+struct ListLooks {
+    labels: Vec<String>,
+    /// Why each cannot be taken now; `None`: it can.
+    reasons: Vec<Option<String>>,
+    /// The chosen one's words and reason (it may be out of reach: loaded from the INI).
+    chosen: (String, Option<String>),
 }
 
 impl Drawn {
@@ -1182,7 +1282,10 @@ impl Plugin for PausePlugin {
             .add_systems(Startup, read_settings_tab)
             .init_resource::<PauseInputAid>()
             .init_resource::<crate::bindings::KeyboardCapture>()
+            .init_resource::<FormOver>()
+            .init_resource::<ReportEntry>()
             .init_resource::<ModsEntry>()
+            .init_resource::<crate::tiles::mods::ModsPage>()
             .add_message::<MainMenuRequest>()
             .init_resource::<MenuPause>()
             .init_resource::<PlayClock>()
@@ -1202,7 +1305,7 @@ impl Plugin for PausePlugin {
                 // Over a conversation, a barter menu takes Esc for itself (`crate::menu`).
                 (
                     open.run_if(in_state(PlayState::Playing).or_else(in_state(PlayState::Dialogue)).and_then(crate::menu::no_menu)),
-                    (choose, finish_resume, show_status, draw).chain().run_if(in_state(PlayState::Menu)),
+                    (choose.run_if(no_form), finish_resume, show_status, draw).chain().run_if(in_state(PlayState::Menu)),
                 )
                     .in_set(PlaySet::Ui),
             )
@@ -1235,6 +1338,20 @@ fn from_right(right: f32, top: f32, width: f32, height: f32) -> Node {
 /// A node whose left edge is `left` from the view's middle.
 fn from_middle(left: f32, top: f32, width: f32, height: f32) -> Node {
     Node { position_type: PositionType::Absolute, left: Val::Percent(50.0), margin: UiRect::left(u(left)), top: u(top), width: u(width), height: u(height), ..default() }
+}
+
+/// Back at the bottom right with its hint, as Delete has its own: "Back  Esc)", with a
+/// controller "Back  B)" [observed, issue #1893: the original's Settings pages show
+/// "Back" with the controller's B; the keyboard's key in the same place: design].
+/// Defaults keeps no hint: the original's is Y, which here puts the keys on the rail
+/// (#1953), not a press of Defaults.
+fn back_label() -> String {
+    back_label_as(crate::pad::labels())
+}
+
+/// [`back_label`] with the labels `l`.
+fn back_label_as(l: crate::pad::Labels) -> String {
+    format!("{}  {}", tr("Back"), crate::pad::hint_as(&[KeyCode::Escape], crate::pad::PAUSE_AT, l))
 }
 
 /// A right-aligned list entry: the whole row takes the pointer, the box round it when
@@ -1340,20 +1457,21 @@ fn spawn_page(commands: &mut Commands, d: &Drawn, look: &PauseLook, settings: &[
             let lit = d.page_entry();
             for (i, (label, ok)) in d.column.iter().enumerate() {
                 let shade = if (on_column && *ok) || (!on_column && i == lit) { Shade::Bright } else { Shade::Dim };
-                right_entry(root, &f.entry, label, from_right(RIGHT, top + i as f32 * ITEM, COLUMN - 5.0, ITEM), COLUMN - 5.0, shade, on_column && i == d.main_selected, PauseButton::Column(i), glyphs);
+                right_entry(root, &f.entry, tr_str(label), from_right(RIGHT, top + i as f32 * ITEM, COLUMN - 5.0, ITEM), COLUMN - 5.0, shade, on_column && i == d.main_selected, PauseButton::Column(i), glyphs);
             }
             match d.page {
                 Page::Main => {
                     if let Some(sel) = d.confirm {
                         // The question: its lines end left of the choices [observed: the owner's screenshot].
-                        let qw = f.entry.font.width(QUESTION);
+                        let (warning, question) = (tr(WARNING), tr(QUESTION));
+                        let qw = f.entry.font.width(question);
                         let at = 280.0;
-                        root.spawn(from_middle(at - 20.0 - qw, 480.0 - ITEM, 900.0, ITEM)).with_children(|t| sm_text(t, &f.entry, WARNING, 0.0, BASE, color(Shade::Bright)));
-                        root.spawn(from_middle(at - 20.0 - qw, 480.0, qw, ITEM)).with_children(|t| sm_text(t, &f.entry, QUESTION, 0.0, BASE, color(Shade::Bright)));
-                        let width = CONFIRM.iter().map(|c| f.entry.font.width(c)).fold(0.0, f32::max) + 30.0;
+                        root.spawn(from_middle(at - 20.0 - qw, 480.0 - ITEM, 900.0, ITEM)).with_children(|t| sm_text(t, &f.entry, warning, 0.0, BASE, color(Shade::Bright)));
+                        root.spawn(from_middle(at - 20.0 - qw, 480.0, qw, ITEM)).with_children(|t| sm_text(t, &f.entry, question, 0.0, BASE, color(Shade::Bright)));
+                        let width = CONFIRM.iter().map(|c| f.entry.font.width(tr(c))).fold(0.0, f32::max) + 30.0;
                         for (i, c) in CONFIRM.iter().enumerate() {
                             root.spawn((Button, PauseButton::Confirm(i), boxed(from_middle(at, 480.0 + i as f32 * ITEM, width, ITEM), i == sel)))
-                            .with_children(|t| sm_text(t, &f.entry, c, 10.0, BASE, color(Shade::Bright)));
+                            .with_children(|t| sm_text(t, &f.entry, tr(c), 10.0, BASE, color(Shade::Bright)));
                         }
                     } else if !d.status.is_empty() {
                         root.spawn((PauseStatusText, from_right(RIGHT, top + d.column.len() as f32 * ITEM + 10.0, 700.0, ITEM))).with_children(|t| {
@@ -1367,11 +1485,19 @@ fn spawn_page(commands: &mut Commands, d: &Drawn, look: &PauseLook, settings: &[
                 Page::Mods => {}
             }
             // Back (and Defaults) at the bottom right.
-            if d.page != Page::Main {
+            if d.page != Page::Main && !d.mod_window {
                 let on = |item| matches!(d.page, Page::Settings { .. }) && d.focus == SettingsFocus::Rail(item);
-                right_entry(root, &f.entry, "Back", from_right(RIGHT, BACK_TOP, 200.0, ITEM), 200.0, Shade::Bright, on(RailItem::Back), PauseButton::Back, glyphs);
+                right_entry(root, &f.entry, &back_label(), from_right(RIGHT, BACK_TOP, 200.0, ITEM), 200.0, Shade::Bright, on(RailItem::Back), PauseButton::Back, glyphs);
                 if matches!(d.page, Page::Settings { .. }) {
-                    right_entry(root, &f.entry, "Defaults", from_right(RIGHT, BACK_TOP - ITEM, 200.0, ITEM), 200.0, Shade::Bright, on(RailItem::Defaults), PauseButton::Defaults, glyphs);
+                    right_entry(root, &f.entry, tr("Defaults"), from_right(RIGHT, BACK_TOP - ITEM, 200.0, ITEM), 200.0, Shade::Bright, on(RailItem::Defaults), PauseButton::Defaults, glyphs);
+                }
+            }
+            // "Report a bug" over the version at the bottom left; the first page shows the
+            // version too (the settings page draws its own).
+            if let Some(hovered) = d.report {
+                report_entry(root, f, hovered, glyphs);
+                if d.page == Page::Main {
+                    version(root, f);
                 }
             }
             if let Some((label, left, sel)) = d.keep {
@@ -1388,8 +1514,11 @@ fn keep_question(root: &mut ChildSpawnerCommands, f: &Faces, label: &str, left: 
     root.spawn((crate::interface::over_view(full(), crate::interface::MIDDLE, true), BackgroundColor(Color::BLACK.with_alpha(0.6)), Button, GlobalZIndex(112)));
     let (w, h) = (640.0, 4.0 * ITEM + 40.0);
     let (line, _) = highlight_colors();
-    let question = format!("Keep this {}?", label.to_lowercase());
-    let count = format!("Going back in {left} s.");
+    // The row's name as the language writes it; English's in lower case ("Keep this resolution?").
+    let row = tr_str(label);
+    let row = if row == label { label.to_lowercase() } else { row.to_string() };
+    let question = fnv_util::words::trf("Keep this {row}?", &[("row", &row)]);
+    let count = fnv_util::words::trf("Going back in {left} s.", &[("left", &left)]);
     root.spawn((KeepLine, Text::new(format!("{question} {count}")), Node { display: Display::None, ..default() }));
     root.spawn((Node { border: UiRect::all(u(LINE)), ..from_middle(-w / 2.0, 480.0 - h / 2.0, w, h) }, BorderColor::all(line), BackgroundColor(Color::BLACK), GlobalZIndex(113))).with_children(|b| {
         for (k, t) in [&question, &count].into_iter().enumerate() {
@@ -1399,6 +1528,7 @@ fn keep_question(root: &mut ChildSpawnerCommands, f: &Faces, label: &str, left: 
         let bw = 180.0;
         for (k, a) in KEEP_ANSWERS.iter().enumerate() {
             let x = w / 2.0 + if k == 0 { -bw - 20.0 } else { 20.0 };
+            let a = tr(a);
             let aw = f.entry.font.width(a);
             b.spawn((Button, PauseButton::Keep(k), boxed(at(x, 20.0 + 2.0 * ITEM + 20.0, bw, ITEM), k == sel))).with_children(|r| sm_text(r, &f.entry, a, (bw - aw) / 2.0, BASE, color(Shade::Bright)));
         }
@@ -1437,8 +1567,13 @@ fn settings_page(root: &mut ChildSpawnerCommands, d: &Drawn, look: &PauseLook, l
             ViewEntry::Row(id) => row_line(root, d, look, list, id, selected == Some(id), left, y, glyphs),
         }
     }
-    // The chosen row's note under the rows.
-    let note = selected.map_or_else(String::new, |id| note_of(list, id, d));
+    // The chosen row's note under the rows; with its list open on a choice out of reach,
+    // that choice's reason.
+    let reason = d.dropdown.filter(|o| selected == Some(RowId::Setting(o.row))).and_then(|o| d.choice_reason(o.row, o.at));
+    let note = match reason {
+        Some(r) => tr_str(r).to_string(),
+        None => selected.map_or_else(String::new, |id| note_of(list, id, d)),
+    };
     root.spawn((SwitchNote, Text::new(note.clone()), Node { display: Display::None, ..default() }));
     let shown = (entries.len() - first.min(entries.len())).min(OPTION_ROWS) as f32;
     note_lines(root, f, &note, left, top + shown * OPTION_ROW + 20.0);
@@ -1453,9 +1588,11 @@ fn settings_page(root: &mut ChildSpawnerCommands, d: &Drawn, look: &PauseLook, l
     let (line, _) = highlight_colors();
     root.spawn((Node { border: UiRect::all(u(LINE)), ..from_middle(left + LIST_LEFT, y, LIST_WIDTH, h) }, BorderColor::all(line), BackgroundColor(Color::BLACK), GlobalZIndex(111))).with_children(|b| {
         for (k, name) in names.iter().enumerate().skip(o.first).take(shown) {
+            let name = tr_str(d.choice_words(o.row, k, name));
+            let shade = if d.choice_reason(o.row, k).is_some() { Shade::Dim } else { Shade::Bright };
             let nw = f.entry.font.width(name);
             b.spawn((Button, PauseButton::Choice(o.row, k), boxed(at(0.0, (k - o.first) as f32 * DROP_ITEM, LIST_WIDTH - 2.0 * LINE, DROP_ITEM), k == o.at)))
-            .with_children(|r| sm_text(r, &f.entry, name, (LIST_WIDTH - nw) / 2.0 - LINE, DROP_ITEM * 0.72, color(Shade::Bright)));
+            .with_children(|r| sm_text(r, &f.entry, name, (LIST_WIDTH - nw) / 2.0 - LINE, DROP_ITEM * 0.72, color(shade)));
         }
     });
 }
@@ -1544,7 +1681,7 @@ fn row_line(root: &mut ChildSpawnerCommands, d: &Drawn, look: &PauseLook, list: 
                     return;
                 }
                 if let Some((_, chosen)) = d.list(i) {
-                    list_row(r, look, id, chosen, d.dropdown.is_some_and(|o| o.row == i));
+                    list_row(r, look, id, chosen, d.chosen_words(i, chosen), d.dropdown.is_some_and(|o| o.row == i));
                     return;
                 }
                 let value = tr(if v > 0.5 { "ON" } else { "OFF" });
@@ -1557,8 +1694,9 @@ fn row_line(root: &mut ChildSpawnerCommands, d: &Drawn, look: &PauseLook, list: 
             let (name, value) = control_line(d, c);
             root.spawn((Button, PauseButton::Row(id), node)).with_children(|r| {
                 sm_text(r, &f.entry, name, 10.0, BASE + 2.0, color(Shade::Bright));
-                if matches!(c, ControlRow::Sensitivity(_)) {
-                    slider_row(r, look, id, crate::bindings::sensitivity_part(d.sensitivity), &value);
+                if let ControlRow::Sensitivity(_) | ControlRow::Vertical(_) = c {
+                    let m = if matches!(c, ControlRow::Vertical(_)) { d.vertical } else { d.sensitivity };
+                    slider_row(r, look, id, crate::bindings::sensitivity_part(m), &value);
                     return;
                 }
                 let vw = crate::pad::button_width(&f.entry, &value, glyphs);
@@ -1582,6 +1720,7 @@ fn control_line(d: &Drawn, c: ControlRow) -> (&'static str, String) {
         }
         ControlRow::Invert => (INVERT_ROW, on_off(d.invert_y)),
         ControlRow::Sensitivity(_) => (SENSITIVITY_ROWS[usize::from(controller)], crate::bindings::sensitivity_text(d.sensitivity)),
+        ControlRow::Vertical(_) => (VERTICAL_ROW, crate::bindings::sensitivity_text(d.vertical)),
         ControlRow::Rumble => (RUMBLE_ROW, on_off(d.rumble)),
     }
 }
@@ -1606,6 +1745,16 @@ fn row_note(list: &[Setting], id: RowId, d: &Drawn) -> String {
             crate::bindings::sensitivity_text(crate::bindings::SENSITIVITY_LEAST),
             crate::bindings::sensitivity_text(crate::bindings::SENSITIVITY_MOST)
         ),
+        ControlRow::Vertical(_) if controller => format!(
+            "Left/Right or a click on the meter: how fast the right stick turns the view up and down, as a part of its speed left and right (100% as the game has it, {} to {}). Kept as \"Stick Vertical Sensitivity\" in [Controller] of NVForever.ini.",
+            crate::bindings::sensitivity_text(crate::bindings::SENSITIVITY_LEAST),
+            crate::bindings::sensitivity_text(crate::bindings::SENSITIVITY_MOST)
+        ),
+        ControlRow::Vertical(_) => format!(
+            "Left/Right or a click on the meter: how far the view turns up and down as the mouse moves, as a part of how far it turns left and right (100% the same, as the game has it, {} to {}). Kept as \"Mouse Vertical Sensitivity\" in [Controls] of NVForever.ini.",
+            crate::bindings::sensitivity_text(crate::bindings::SENSITIVITY_LEAST),
+            crate::bindings::sensitivity_text(crate::bindings::SENSITIVITY_MOST)
+        ),
         ControlRow::Rumble => format!(
             "A or a click: the controller shakes when you fire (harder for a heavier weapon), take damage, land a hard fall or an explosion goes off near you. Kept as \"{RUMBLE_ROW}\" in [Controller] of NVForever.ini."
         ),
@@ -1627,14 +1776,19 @@ fn row_note(list: &[Setting], id: RowId, d: &Drawn) -> String {
     }
 }
 
-/// A list's row: its choice in a box with a down arrow (lit while its dropdown is open).
-fn list_row(r: &mut ChildSpawnerCommands, look: &PauseLook, i: RowId, chosen: &str, open: bool) {
+/// A list's row: its choice in a box with a down arrow (lit while its dropdown is open),
+/// shown by its words (`shown`), dim when out of reach now.
+fn list_row(r: &mut ChildSpawnerCommands, look: &PauseLook, i: RowId, chosen: &str, shown: (&str, bool), open: bool) {
     let bright = color(Shade::Bright);
     let (line, fill) = highlight_colors();
     r.spawn((Node { border: UiRect::all(u(LINE)), ..at(LIST_LEFT, 6.0, LIST_WIDTH, OPTION_ROW - 12.0) }, BorderColor::all(line.with_alpha(if open { 1.0 } else { 0.6 })), BackgroundColor(if open { fill } else { Color::NONE })));
-    let vw = look.faces.entry.font.width(chosen);
+    // The state kept as text stays the English name (tests and aids read it); the page
+    // shows it in the language chosen.
     r.spawn((SwitchState(i), Text::new(chosen), Node { display: Display::None, ..default() }));
-    sm_text(r, &look.faces.entry, chosen, LIST_LEFT + (LIST_WIDTH - 30.0 - vw) / 2.0, BASE + 2.0, bright);
+    let (words, out_of_reach) = shown;
+    let words = tr_str(words);
+    let vw = look.faces.entry.font.width(words);
+    sm_text(r, &look.faces.entry, words, LIST_LEFT + (LIST_WIDTH - 30.0 - vw) / 2.0, BASE + 2.0, if out_of_reach { color(Shade::Dim) } else { bright });
     // The right arrow turned to point down.
     let node = at(LIST_LEFT + LIST_WIDTH - 30.0, (OPTION_ROW - METER_ARROW.y) / 2.0, METER_ARROW.x, METER_ARROW.y);
     let turned = UiTransform { rotation: Rot2::degrees(90.0), ..default() };
@@ -1745,6 +1899,16 @@ fn version(root: &mut ChildSpawnerCommands, f: &Faces) {
     });
 }
 
+/// "Report a bug" just over [`version`]'s line, left-aligned with it; boxed unfilled while
+/// the pointer is on it, as the rail's lines.
+fn report_entry(root: &mut ChildSpawnerCommands, f: &Faces, hovered: bool, glyphs: &crate::pad::PadGlyphs) {
+    let label = tr(REPORT_LABEL);
+    let w = crate::pad::hint_width(&f.entry, label, glyphs) + 20.0;
+    let node = Node { position_type: PositionType::Absolute, left: u(20.0), top: u(960.0 - 60.0 - ITEM), width: u(w), height: u(ITEM), ..default() };
+    let look = if hovered { BoxLook::Outline } else { BoxLook::None };
+    right_entry_look(root, &f.entry, label, node, w, if hovered { Shade::Bright } else { Shade::Dim }, look, PauseButton::Report, glyphs);
+}
+
 /// A node at `x`, `y` in its parent, `w` × `h`.
 fn at(x: f32, y: f32, w: f32, h: f32) -> Node {
     Node { position_type: PositionType::Absolute, left: u(x), top: u(y), width: u(w), height: u(h), ..default() }
@@ -1779,8 +1943,10 @@ fn slider_row(r: &mut ChildSpawnerCommands, look: &PauseLook, i: RowId, v: f32, 
             None => r.spawn((Button, PauseButton::SliderStep(i, step), node, BackgroundColor(bright.with_alpha(0.5)))),
         };
     }
-    let vw = look.faces.entry.font.width(value);
     r.spawn((SwitchState(i), Text::new(value), Node { display: Display::None, ..default() }));
+    // A value with words ("Off" on the frame rate limit) in the language shown.
+    let value = tr_str(value);
+    let vw = look.faces.entry.font.width(value);
     sm_text(r, &look.faces.entry, value, PERCENT_AT - vw / 2.0, BASE + 2.0, bright);
 }
 
@@ -1984,6 +2150,7 @@ struct ControlState {
     rumble: bool,
     invert: bool,
     sensitivity: f32,
+    vertical: f32,
 }
 
 /// Whether row `id` takes A and D as Left and Right (a slider, a list; a switch takes the
@@ -1991,7 +2158,7 @@ struct ControlState {
 fn takes_letters(settings: &Settings, id: RowId) -> bool {
     match id {
         RowId::Setting(i) => settings.choices(i).is_some() || settings.list().get(i).is_some_and(|s| s.slider.is_some()),
-        RowId::Control(c) => matches!(c, ControlRow::Sensitivity(_)),
+        RowId::Control(c) => matches!(c, ControlRow::Sensitivity(_) | ControlRow::Vertical(_)),
     }
 }
 
@@ -2052,6 +2219,11 @@ fn act_on_row(id: RowId, action: RowAction, settings: &Settings, view: &mut Paus
             (ControlRow::Sensitivity(_), Step(s)) => {
                 let m = crate::bindings::step_sensitivity(controls.sensitivity, s);
                 commands.queue(move |world: &mut World| crate::bindings::set_sensitivity(world, m));
+                sounds.write(flipped);
+            }
+            (ControlRow::Vertical(_), Step(s)) => {
+                let m = crate::bindings::step_sensitivity(controls.vertical, s);
+                commands.queue(move |world: &mut World| crate::bindings::set_vertical(world, m));
                 sounds.write(flipped);
             }
             _ => {}
@@ -2278,12 +2450,12 @@ fn refresh_search(view: &mut PauseView, layout: &ResolvedLayout, list: &[Setting
 /// rows are not registered settings, so this stands in for their label and note].
 fn control_words(c: ControlRow) -> String {
     use crate::bindings::InputDevice;
-    let controller = matches!(c, ControlRow::Binding(_, InputDevice::Controller) | ControlRow::Sensitivity(InputDevice::Controller) | ControlRow::Rumble);
+    let controller = matches!(c, ControlRow::Binding(_, InputDevice::Controller) | ControlRow::Sensitivity(InputDevice::Controller) | ControlRow::Vertical(InputDevice::Controller) | ControlRow::Rumble);
     let d = Drawn { device: ("", controller), ..default() };
     let (label, _) = control_line(&d, c);
     let key = match c {
         ControlRow::Binding(k, _) => crate::bindings::Bindings::name(k),
-        ControlRow::Device | ControlRow::Invert | ControlRow::Sensitivity(_) | ControlRow::Rumble => label,
+        ControlRow::Device | ControlRow::Invert | ControlRow::Sensitivity(_) | ControlRow::Vertical(_) | ControlRow::Rumble => label,
     };
     let note = row_note(&[], RowId::Control(c), &d);
     crate::settings_view::haystack(&[label, note.as_str(), key])
@@ -2311,12 +2483,14 @@ fn search_keys(events: &[KeyboardInput], modifiers: bool) -> Vec<SearchKey> {
 /// the keyboard's messages read, the search's keys kept for the pause menu while the
 /// search is open, and the keyboard held for it then ([`crate::bindings::KeyboardCapture`])
 /// [design: #1953].
+#[allow(clippy::too_many_arguments)]
 fn collect_search_keys(
     mut typed: MessageReader<KeyboardInput>,
     keys: Res<ButtonInput<KeyCode>>,
     paused: Option<Res<Paused>>,
     page: Option<Res<Page>>,
     view: Option<Res<PauseView>>,
+    form: Option<Res<FormOver>>,
     mut out: ResMut<SearchKeys>,
     mut capture: ResMut<crate::bindings::KeyboardCapture>,
 ) {
@@ -2324,7 +2498,7 @@ fn collect_search_keys(
     let open = paused.is_some_and(|p| p.0) && page.is_some_and(|p| matches!(*p, Page::Settings { .. })) && view.is_some_and(|v| v.scope == SettingsScope::Search);
     let modifiers = keys.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight, KeyCode::AltLeft, KeyCode::AltRight, KeyCode::SuperLeft, KeyCode::SuperRight]);
     out.0 = if open { search_keys(&events, modifiers) } else { Vec::new() };
-    capture.set_if_neq(crate::bindings::KeyboardCapture(open));
+    capture.set_if_neq(crate::bindings::KeyboardCapture(open || form.is_some_and(|f| f.0)));
 }
 
 /// A key the pause menu aid presses: its code, what it types and its text.
@@ -2383,7 +2557,7 @@ fn points_at(at: &PointAt, b: PauseButton, list: &[Setting]) -> bool {
 }
 
 /// `point:<target>`: `search`, `search-field`, `changed`, `defaults`, `back`,
-/// `heading-up`, `heading-down`, `tab:<name>`, `row:<key>` (a Controls row by its name,
+/// `heading-up`, `heading-down`, `report` ("Report a bug"), `tab:<name>`, `row:<key>` (a Controls row by its name,
 /// `bind:Jump`), `choice:<n>` (the open dropdown's, from 0).
 fn parse_point(t: &str) -> Option<PointAt> {
     let t = t.trim();
@@ -2395,6 +2569,7 @@ fn parse_point(t: &str) -> Option<PointAt> {
         "back" => PointAt::Button(PauseButton::Back),
         "heading-up" => PointAt::Button(PauseButton::HeadingStep(-1)),
         "heading-down" => PointAt::Button(PauseButton::HeadingStep(1)),
+        "report" => PointAt::Button(PauseButton::Report),
         _ => {
             if let Some(n) = t.strip_prefix("tab:") {
                 PointAt::Tab(n.trim().to_string())
@@ -2484,6 +2659,7 @@ fn log_inspect(list: &[Setting], view: &PauseView, selected: Option<RowId>, entr
     }
     info!("pause menu: inspect: words {}", words.join(" | "));
     info!("pause menu: inspect: hovered {}", view.rail_hover.map_or("none", |r| r.name()));
+    info!("pause menu: inspect: back {}", back_label());
 }
 
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
@@ -2501,7 +2677,7 @@ fn choose(
     mut commands: Commands,
     mut sounds: MessageWriter<crate::ui_sounds::UiSound>,
     mut menu: SaveMenu,
-    (mut request, main_menu, intro, mut to_main, mouse, typed_in, mut input_aid): (
+    (mut request, main_menu, intro, mut to_main, mouse, typed_in, mut input_aid, mut mods_page): (
         ResMut<PageRequest>,
         Option<Res<crate::main_menu::MainMenu>>,
         Option<Res<crate::intro::Intro>>,
@@ -2509,6 +2685,7 @@ fn choose(
         Res<ButtonInput<MouseButton>>,
         Option<Res<SearchKeys>>,
         Option<ResMut<PauseInputAid>>,
+        Option<ResMut<crate::tiles::mods::ModsPage>>,
     ),
     (bindings, pads, sticks, pending, mods, mut listening, mut layout, colours): (
         Option<Res<crate::bindings::Bindings>>,
@@ -2520,7 +2697,7 @@ fn choose(
         ResMut<SettingsLayout>,
         Option<Res<crate::ui_colour::CustomColours>>,
     ),
-    (meters, pointed, mut tab_store): (Query<(&PauseButton, &RelativeCursorPosition)>, Query<(&PointerState, &PauseButton)>, Option<ResMut<SettingsTabStore>>),
+    (meters, pointed, mut tab_store, mut report): (Query<(&PauseButton, &RelativeCursorPosition)>, Query<(&PointerState, &PauseButton)>, Option<ResMut<SettingsTabStore>>, Option<ResMut<ReportEntry>>),
 ) {
     use crate::bindings::{Bindings, Input, InputDevice};
     use crate::pad::PadInput;
@@ -2652,6 +2829,19 @@ fn choose(
             }
             continue;
         }
+        if let Some(v) = item.strip_prefix("vertical:") {
+            // `vertical:<percent>`: the device in use's Vertical Sensitivity set to it (onto
+            // the sliders' steps).
+            match v.trim_end_matches('%').parse::<f32>() {
+                Ok(p) if p.is_finite() => {
+                    let m = crate::bindings::step_sensitivity(p / 100.0, 0);
+                    show_row(&mut page, &mut view, layout, control(ControlRow::Vertical(device)));
+                    commands.queue(move |world: &mut World| crate::bindings::set_vertical(world, m));
+                }
+                _ => warn!("NVF_PLAY_TEST_SETTINGS: {item:?}: expected vertical:<percent>"),
+            }
+            continue;
+        }
         if let Some(d) = item.strip_prefix("device:") {
             match InputDevice::parse(d) {
                 Some(d) => {
@@ -2732,6 +2922,22 @@ fn choose(
             (Some(i), _) => {
                 show_row(&mut page, &mut view, layout, RowId::Setting(i));
                 fx.flips.push(i);
+            }
+            (None, _) if settings.alias(&key).is_some() => {
+                // An older list's key (settings::set_list_alias): its row shown, its choice taken
+                // by the older row's name.
+                if let Some(i) = settings.alias(&key).and_then(|(_, a)| a.rows.first()).and_then(|row| settings.index(row)) {
+                    show_row(&mut page, &mut view, layout, RowId::Setting(i));
+                }
+                match item.split_once('=') {
+                    Some((_, v)) => {
+                        let (key, name) = (key.clone(), v.trim().to_string());
+                        commands.queue(move |world: &mut World| {
+                            crate::settings::pick_alias(world, &key, &name);
+                        });
+                    }
+                    None => warn!("NVF_PLAY_TEST_SETTINGS: {key} is a list: give it a choice, {key}=<choice>"),
+                }
             }
             (None, "page") => show_scope(&mut page, &mut view, SettingsScope::default()),
             (None, "controls") => show_row(&mut page, &mut view, layout, RowId::Control(ControlRow::Device)),
@@ -2860,6 +3066,7 @@ fn choose(
         rumble: bindings.as_ref().is_some_and(|b| b.rumble),
         invert: bindings.as_ref().is_some_and(|b| b.invert_y),
         sensitivity: bindings.as_ref().map_or(1.0, |b| b.sensitivity()),
+        vertical: bindings.as_ref().map_or(1.0, |b| b.vertical_sensitivity()),
     };
     // The settings page made whole for what the aids chose ([`sv::normalize`]).
     let mut rows: Vec<ViewEntry> = Vec::new();
@@ -2938,6 +3145,14 @@ fn choose(
         }
         view.rail_hover = hover;
     }
+    // "Report a bug" under the pointer: boxed unfilled, the focus sound once.
+    let on_report = !over && pointed.iter().any(|(s, b)| *s == PointerState::Hovered && *b == PauseButton::Report);
+    if on_report != view.report_hover {
+        if on_report {
+            sounds.write(UiSound { menu: UiMenu::Pause, event: UiEvent::Focus });
+        }
+        view.report_hover = on_report;
+    }
     if act("defaults") && matches!(*page, Page::Settings { .. }) {
         clicked = Some(PauseButton::Defaults);
     }
@@ -2999,7 +3214,12 @@ fn choose(
             o.first = o.first.max((o.at + 1).saturating_sub(DROP_ROWS)).min(o.at).min(last);
             sounds.write(UiSound { menu: UiMenu::Settings, event: UiEvent::Focus });
         }
-        if let Some(name) = take.and_then(|k| names.get(k)) {
+        let out_of_reach = take.is_some_and(|k| view.drawn.as_ref().is_some_and(|d| d.choice_reason(o.row, k).is_some()));
+        if let Some((k, name)) = take.and_then(|k| Some((k, names.get(k)?))).filter(|_| out_of_reach) {
+            // Out of reach: the list stays open on it, its reason under the rows.
+            refuse_choice(&mut commands, o.row, name.clone());
+            o.at = k;
+        } else if let Some(name) = take.and_then(|k| names.get(k)) {
             pick_choice(&mut commands, &mut sounds, o.row, name.clone());
             shut = true;
         } else if shut {
@@ -3009,6 +3229,15 @@ fn choose(
         return;
     }
     view.dropdown = None;
+    // "Report a bug": the form opens over the page (nvforever's `reports/form.rs`).
+    if clicked == Some(PauseButton::Report) {
+        if let Some(r) = report.as_mut().filter(|r| r.shown) {
+            info!("pause menu: report a bug");
+            r.asked = true;
+            sounds.write(UiSound { menu: UiMenu::Pause, event: UiEvent::Picked });
+        }
+        return;
+    }
     // A click on the column's entry of another page (the page's own entry closes it). From
     // an open search the search closes first, and the frame's keys (its text) reach no
     // other page [design: #1953].
@@ -3182,6 +3411,9 @@ fn choose(
                 }
                 Some(Entry::Mods) => {
                     info!("pause menu: mods page");
+                    if let Some(m) = mods_page.as_deref_mut() {
+                        *m = Default::default();
+                    }
                     *page = Page::Mods;
                 }
                 Some(Entry::Continue) if !resume.pending() => {
@@ -3442,6 +3674,12 @@ fn choose(
                                 commands.queue(move |world: &mut World| crate::bindings::set_sensitivity(world, m));
                             }
                         }
+                        (RowId::Control(ControlRow::Vertical(_)), Some(p)) => {
+                            let m = crate::bindings::sensitivity_at_part(p.x + 0.5);
+                            if (m - controls.vertical).abs() > 1e-4 {
+                                commands.queue(move |world: &mut World| crate::bindings::set_vertical(world, m));
+                            }
+                        }
                         _ => {}
                     }
                 } else {
@@ -3451,8 +3689,10 @@ fn choose(
         }
         // The mod's page takes the pointer and the keys through its tiles
         // (`crate::tiles::input`); Esc, Backspace or Back go back to the column.
+        // MCM's window closing itself (its Back) closes the page too (`crate::tiles::mods`).
         Page::Mods => {
-            if keys.any_just_pressed([KeyCode::Escape, KeyCode::Backspace]) || clicked == Some(PauseButton::Back) || act("back") {
+            let by_mod = mods_page.as_deref().is_some_and(|m| m.closed);
+            if by_mod || keys.any_just_pressed([KeyCode::Escape, KeyCode::Backspace]) || clicked == Some(PauseButton::Back) || act("back") {
                 info!("pause menu: mods page closed");
                 *page = Page::Main;
             }
@@ -3639,8 +3879,26 @@ fn choose(
     }
     for (i, name) in fx.picks {
         if view_disabled(&view, i) { continue; }
+        if view_out_of_reach(&view, i, &name) {
+            refuse_choice(&mut commands, i, name);
+            continue;
+        }
         pick_choice(&mut commands, &mut sounds, i, name);
     }
+}
+
+/// A choice out of reach asked for: nothing taken, `crate::settings::pick` logs why.
+fn refuse_choice(commands: &mut Commands, i: usize, name: String) {
+    commands.queue(move |world: &mut World| {
+        crate::settings::pick(world, i, &name);
+    });
+}
+
+/// Whether choice `name` of list row `i` was out of reach when the page was last drawn.
+fn view_out_of_reach(view: &PauseView, i: usize, name: &str) -> bool {
+    let Some(d) = view.drawn.as_ref() else { return false };
+    let Some((names, _)) = d.list(i) else { return false };
+    names.iter().position(|n| n == name).is_some_and(|k| d.choice_reason(i, k).is_some())
 }
 
 /// Take choice `name` of list row `i` (`crate::settings::pick`).
@@ -3662,12 +3920,21 @@ fn open_dropdown(view: &mut PauseView, i: usize) {
     view.dropdown = Some(Dropdown { row: i, at, first });
 }
 
-/// The choice `step` (-1 or 1) from list row `i`'s chosen one, not past the ends.
+/// The choice `step` (-1 or 1) from list row `i`'s chosen one, not past the ends, passing
+/// over those out of reach.
 fn neighbour(view: &PauseView, i: usize, step: i32) -> Option<String> {
     if view_disabled(view, i) { return None; }
-    let (names, chosen) = view.drawn.as_ref()?.list(i)?;
-    let at = names.iter().position(|n| n == chosen)? as i32 + step;
-    names.get(usize::try_from(at).ok()?).cloned()
+    let d = view.drawn.as_ref()?;
+    let (names, chosen) = d.list(i)?;
+    let mut at = names.iter().position(|n| n == chosen)? as i32;
+    loop {
+        at += step;
+        let k = usize::try_from(at).ok()?;
+        let name = names.get(k)?;
+        if d.choice_reason(i, k).is_none() {
+            return Some(name.clone());
+        }
+    }
 }
 
 /// Whether row `i` was disabled when the page was last drawn.
@@ -3778,6 +4045,22 @@ fn drawn_now(world: &mut World) -> Drawn {
         let settings = world.resource::<Settings>();
         (0..list.len()).filter_map(|i| settings.choices(i).map(|c| (i, (c.names)(world), (c.chosen)(world)))).collect()
     };
+    let looks: Vec<(usize, ListLooks)> = {
+        let settings = world.resource::<Settings>();
+        lists
+            .iter()
+            .filter(|(i, _, _)| settings.choice_looks(*i).is_some())
+            .map(|(i, names, chosen)| {
+                let i = *i;
+                let looks = ListLooks {
+                    labels: names.iter().map(|n| settings.choice_label(world, i, n)).collect(),
+                    reasons: names.iter().map(|n| settings.choice_unavailable(world, i, n)).collect(),
+                    chosen: (settings.choice_label(world, i, chosen), settings.choice_unavailable(world, i, chosen)),
+                };
+                (i, looks)
+            })
+            .collect()
+    };
     let keep = world.get_resource::<crate::settings::PendingKeep>().map(|p| {
         let now = world.get_resource::<Time<Real>>().map_or(0.0, |t| t.elapsed_secs_f64());
         (list.get(p.row).map_or("choice", |s| s.label), p.left(now), world.resource::<PauseView>().keep_selected)
@@ -3793,6 +4076,9 @@ fn drawn_now(world: &mut World) -> Drawn {
         let vis = Visibility::of_world(world);
         crate::settings_view::stands_for(&list, ids, vis).into_iter().map(|(by, rows)| (by, rows.into_iter().map(|r| stand_in_name(&list, r)).collect())).collect()
     };
+    // Over a game only, on the first page and the settings page (the load page's rows
+    // and a mod's page have the bottom left).
+    let report_shown = main.is_none() && matches!(page, Page::Main | Page::Settings { .. }) && world.get_resource::<ReportEntry>().is_some_and(|r| r.shown);
     let view = world.resource::<PauseView>();
     let thumb = world.resource::<LoadList>().thumb.as_ref().map(|(i, h)| (*i, h.is_some()));
     Drawn {
@@ -3809,6 +4095,7 @@ fn drawn_now(world: &mut World) -> Drawn {
         disabled,
         status: world.resource::<PauseStatus>().line.clone(),
         under_main: main.is_some(),
+        mod_window: page == Page::Mods && world.get_resource::<crate::tiles::mods::ModsPage>().is_some_and(|m| m.mcm_open),
         column: main.unwrap_or_else(|| entries(world.get_resource::<ModsEntry>().is_some_and(|m| m.0)).iter().map(|e| (e.label(), true)).collect()),
         thumb,
         controls: world.get_resource::<crate::bindings::Bindings>().map(|b| b.all().map(|(c, _)| b.text_on(c)).collect()).unwrap_or_default(),
@@ -3816,8 +4103,10 @@ fn drawn_now(world: &mut World) -> Drawn {
         rumble: world.get_resource::<crate::bindings::Bindings>().is_some_and(|b| b.rumble),
         invert_y: world.get_resource::<crate::bindings::Bindings>().is_some_and(|b| b.invert_y),
         sensitivity: world.get_resource::<crate::bindings::Bindings>().map_or(1.0, |b| b.sensitivity()),
+        vertical: world.get_resource::<crate::bindings::Bindings>().map_or(1.0, |b| b.vertical_sensitivity()),
         scroll: view.scroll,
         lists,
+        looks,
         dropdown: view.dropdown.filter(|_| matches!(page, Page::Settings { .. })),
         keep,
         delete_ask: view.delete_ask.filter(|_| matches!(page, Page::Load { .. })),
@@ -3825,6 +4114,7 @@ fn drawn_now(world: &mut World) -> Drawn {
         language: fnv_util::words::generation(),
         search: (matches!(page, Page::Settings { .. }) && view.scope == SettingsScope::Search).then(|| (view.search.query.clone(), view.focus == SettingsFocus::SearchText)),
         stand_ins,
+        report: report_shown.then_some(view.report_hover),
     }
 }
 
@@ -3835,11 +4125,11 @@ fn stand_in_name(list: &[Setting], id: RowId) -> String {
     match id {
         RowId::Setting(i) => list.get(i).map_or_else(String::new, |s| tr(s.label).to_string()),
         RowId::Control(c) => {
-            let controller = matches!(c, ControlRow::Binding(_, InputDevice::Controller) | ControlRow::Sensitivity(InputDevice::Controller) | ControlRow::Rumble);
+            let controller = matches!(c, ControlRow::Binding(_, InputDevice::Controller) | ControlRow::Sensitivity(InputDevice::Controller) | ControlRow::Vertical(InputDevice::Controller) | ControlRow::Rumble);
             let d = Drawn { device: ("", controller), ..default() };
             let (label, _) = control_line(&d, c);
             match c {
-                ControlRow::Binding(_, dev) => format!("{label} ({})", tr(dev.name())),
+                ControlRow::Binding(_, dev) | ControlRow::Vertical(dev) => format!("{label} ({})", tr(dev.name())),
                 _ => label.to_string(),
             }
         }
@@ -3921,6 +4211,7 @@ fn close(mut commands: Commands, mut paused: ResMut<Paused>, mut page: ResMut<Pa
     view.scroll = 0;
     view.followed = None;
     view.rail_hover = None;
+    view.report_hover = false;
     view.dropdown = None;
     view.search = SearchState::default();
     view.found = Found::default();
@@ -3983,6 +4274,15 @@ fn finish_resume(world: &mut World) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Issue #1893: Back carries its hint, the keyboard's Esc or the controller's B.
+    #[test]
+    fn back_names_its_key_and_button() {
+        use crate::pad::Labels;
+        assert_eq!(back_label_as(Labels::Keys), format!("{}  Esc)", tr("Back")));
+        assert_eq!(back_label_as(Labels::Xbox), format!("{}  B)", tr("Back")));
+        assert_eq!(back_label_as(Labels::PlayStation), format!("{}  Circle)", tr("Back")));
+    }
 
     fn resume_app() -> App {
         let mut app = App::new();
@@ -4317,6 +4617,37 @@ mod tests {
         assert!(buttons.contains(&PauseButton::HeadingStep(-1)) && buttons.contains(&PauseButton::HeadingStep(1)));
         // Three rows and two headings: five lines, the window's count.
         assert_eq!(world.resource::<PauseView>().drawn.as_ref().unwrap().entries.len(), 5);
+    }
+
+    #[test]
+    fn report_a_bug_is_drawn_over_the_version_only_when_the_form_is_there() {
+        let drawn = |app: &mut App| {
+            app.update();
+            let world = app.world_mut();
+            let reports: Vec<PauseButton> = world.query::<&PauseButton>().iter(world).copied().filter(|b| *b == PauseButton::Report).collect();
+            let version = world.query::<&Text>().iter(world).any(|t| t.0.starts_with("NVForever"));
+            (reports, version)
+        };
+        // Without the form (a viewer or menu-only run): no entry, and no version on the first page.
+        let mut app = settings_app(&[("difficulty", "Gameplay")], Page::Main);
+        assert_eq!(drawn(&mut app), (vec![], false));
+        // With it: once on the first page, over the version; the settings page has it too.
+        for page in [Page::Main, Page::Settings { selected: None }] {
+            let mut app = settings_app(&[("difficulty", "Gameplay")], page);
+            app.insert_resource(ReportEntry { shown: true, asked: false });
+            let (reports, version) = drawn(&mut app);
+            assert_eq!(reports.len(), 1, "{page:?}");
+            assert!(version, "{page:?}: the version under it");
+        }
+        // Not on the load page, whose rows reach the bottom.
+        let mut app = settings_app(&[("difficulty", "Gameplay")], Page::Load { selected: 0 });
+        app.insert_resource(ReportEntry { shown: true, asked: false });
+        assert!(drawn(&mut app).0.is_empty());
+    }
+
+    #[test]
+    fn report_a_bug_points_like_the_other_buttons() {
+        assert_eq!(parse_point("report"), Some(PointAt::Button(PauseButton::Report)));
     }
 
     #[test]
@@ -5062,5 +5393,137 @@ mod tests {
         assert_eq!(value_of(&mut app, is_invert).as_deref(), Some("OFF"));
         crate::bindings::set_invert_y(app.world_mut(), true);
         assert_eq!(value_of(&mut app, is_invert).as_deref(), Some("ON"));
+    }
+
+    #[derive(Resource)]
+    struct ListSize(String);
+
+    /// 1920x1080 out of reach while this is false.
+    #[derive(Resource)]
+    struct ListBig(bool);
+
+    /// A settings page with one list row, its choices shown by words, 1920x1080 out of
+    /// reach; the page's input and its drawing both run.
+    fn reach_app() -> App {
+        const NAMES: [&str; 3] = ["800x600", "1280x800", "1920x1080"];
+        let mut app = App::new();
+        app.insert_resource(ListSize("1280x800".into())).insert_resource(ListBig(false));
+        app.init_resource::<Time>().init_resource::<PlayClock>().init_resource::<PauseAid>();
+        app.init_resource::<ButtonInput<KeyCode>>().init_resource::<ButtonInput<MouseButton>>();
+        app.insert_resource(NextState::<PlayState>::default()).init_resource::<PageRequest>().init_resource::<Listening>().init_resource::<SettingsLayout>().init_resource::<crate::graphics_resume::GraphicsResume>();
+        app.init_resource::<LoadList>().init_resource::<Assets<Image>>().init_resource::<crate::save::SaveConfig>().init_resource::<PauseStatus>();
+        app.init_resource::<crate::pad::PadGlyphs>().insert_resource(PauseLook::plain());
+        app.add_message::<AppExit>().add_message::<crate::ui_sounds::UiSound>().add_message::<crate::save::SaveRequest>().add_message::<crate::save::LoadRequest>().add_message::<MainMenuRequest>();
+        let row = Setting { key: "size", group: "Test", label: "Size", note: "How big.", get: |_| false, set: |_, _| {}, slider: None };
+        let list = crate::settings::ChoiceList {
+            names: |_| NAMES.map(String::from).to_vec(),
+            chosen: |w| w.resource::<ListSize>().0.clone(),
+            pick: |w, n| {
+                let ok = NAMES.contains(&n);
+                if ok {
+                    w.resource_mut::<ListSize>().0 = n.to_string();
+                }
+                ok
+            },
+            save: |w| w.resource::<ListSize>().0.clone(),
+            load: |w, t| {
+                let ok = NAMES.contains(&t);
+                if ok {
+                    w.resource_mut::<ListSize>().0 = t.to_string();
+                }
+                ok
+            },
+            ask_keep: false,
+        };
+        crate::settings::add_choice_list(&mut app, row, list);
+        crate::settings::set_choice_labels(&mut app, "size", |_, n| ["Small", "Medium", "Large"][NAMES.iter().position(|x| *x == n).unwrap_or(0)].to_string());
+        crate::settings::set_choice_unavailable(&mut app, "size", |w, n| (n == "1920x1080" && !w.resource::<ListBig>().0).then(|| "Needs a bigger monitor".to_string()));
+        app.insert_resource(Paused(true)).insert_resource(Page::Settings { selected: Some(RowId::Setting(0)) }).init_resource::<PauseView>();
+        app.add_systems(Update, (choose, draw).chain());
+        app
+    }
+
+    fn texts(app: &mut App) -> Vec<(String, Color)> {
+        let world = app.world_mut();
+        world.query::<(&Text, &TextColor)>().iter(world).map(|(t, c)| (t.0.clone(), c.0)).collect()
+    }
+
+    fn note(app: &mut App) -> String {
+        let world = app.world_mut();
+        world.query_filtered::<&Text, With<SwitchNote>>().single(world).unwrap().0.clone()
+    }
+
+    fn row_state(app: &mut App) -> String {
+        let world = app.world_mut();
+        world.query::<(&SwitchState, &Text)>().single(world).unwrap().1.0.clone()
+    }
+
+    #[test]
+    fn a_choice_out_of_reach_is_drawn_dim_gives_its_reason_and_is_not_taken_by_any_input() {
+        let mut app = reach_app();
+        app.update();
+        // The box shows the chosen one's words; the state kept as text stays its name.
+        assert_eq!(row_state(&mut app), "1280x800");
+        assert!(texts(&mut app).contains(&("Medium".to_string(), color(Shade::Bright))), "{:?}", texts(&mut app));
+        assert_eq!(note(&mut app), "How big.");
+        // Enter opens the list on the chosen one; Down comes onto the one out of reach:
+        // drawn dim, its reason under the rows.
+        press_only(&mut app, KeyCode::Enter);
+        app.update();
+        assert_eq!(app.world().resource::<PauseView>().dropdown.map(|o| o.at), Some(1));
+        press_only(&mut app, KeyCode::ArrowDown);
+        app.update();
+        assert_eq!(app.world().resource::<PauseView>().dropdown.map(|o| o.at), Some(2));
+        let all = texts(&mut app);
+        assert!(all.contains(&("Large".to_string(), color(Shade::Dim))) && all.contains(&("Small".to_string(), color(Shade::Bright))), "{all:?}");
+        assert_eq!(note(&mut app), "Needs a bigger monitor");
+        // Enter on it: nothing taken, the list stays open on it.
+        press_only(&mut app, KeyCode::Enter);
+        app.update();
+        assert_eq!(app.world().resource::<ListSize>().0, "1280x800");
+        assert_eq!(app.world().resource::<PauseView>().dropdown.map(|o| o.at), Some(2), "still open");
+        // A click on it: the same.
+        app.world_mut().resource_mut::<ButtonInput<KeyCode>>().reset_all();
+        app.world_mut().spawn((Button, PauseButton::Choice(0, 2), PointerState::Pressed));
+        app.update();
+        assert_eq!(app.world().resource::<ListSize>().0, "1280x800");
+        assert!(app.world().resource::<PauseView>().dropdown.is_some(), "still open");
+        // Esc closes it; Right on the row passes over the one out of reach (nothing after
+        // it), Left takes the one before.
+        press_only(&mut app, KeyCode::Escape);
+        app.update();
+        assert!(app.world().resource::<PauseView>().dropdown.is_none());
+        press_only(&mut app, KeyCode::ArrowRight);
+        app.update();
+        assert_eq!(app.world().resource::<ListSize>().0, "1280x800");
+        press_only(&mut app, KeyCode::ArrowLeft);
+        app.update();
+        assert_eq!(app.world().resource::<ListSize>().0, "800x600");
+        // Right from there passes over nothing: 1280x800; again: still not 1920x1080.
+        press_only(&mut app, KeyCode::ArrowRight);
+        app.update();
+        assert_eq!(app.world().resource::<ListSize>().0, "1280x800");
+        press_only(&mut app, KeyCode::ArrowRight);
+        app.update();
+        assert_eq!(app.world().resource::<ListSize>().0, "1280x800");
+        // The settings aid asks for it by name: refused the same way.
+        app.world_mut().resource_mut::<ButtonInput<KeyCode>>().reset_all();
+        app.world_mut().resource_mut::<PauseAid>().switches = vec![(0.0, "size=1920x1080".into())];
+        app.update();
+        assert_eq!(app.world().resource::<ListSize>().0, "1280x800");
+        // In reach again: drawn bright and taken as any other.
+        app.world_mut().resource_mut::<ListBig>().0 = true;
+        app.update();
+        app.world_mut().resource_mut::<PauseAid>().switches = vec![(0.0, "size=1920x1080".into())];
+        app.update();
+        assert_eq!(app.world().resource::<ListSize>().0, "1920x1080");
+        app.update();
+        assert_eq!(row_state(&mut app), "1920x1080");
+        assert!(texts(&mut app).contains(&("Large".to_string(), color(Shade::Bright))));
+        // Out of reach once chosen (a stored request): the box shows it dim.
+        app.world_mut().resource_mut::<ListBig>().0 = false;
+        app.update();
+        assert!(texts(&mut app).contains(&("Large".to_string(), color(Shade::Dim))));
+        assert_eq!(row_state(&mut app), "1920x1080");
     }
 }

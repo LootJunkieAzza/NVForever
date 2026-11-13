@@ -42,12 +42,14 @@ pub mod recipe_menu;
 pub mod repair_cards;
 pub mod repair_menu;
 pub mod repair_services_menu;
+pub mod runtime_images;
 mod item_menu;
 pub mod dialog_menu;
 pub mod draw;
 pub mod input;
 pub mod inventory_menu;
 pub mod item_card;
+pub mod item_mod_menu;
 pub mod layout;
 pub mod list;
 pub mod map_menu;
@@ -62,6 +64,7 @@ pub mod texmod;
 pub mod trait_menu;
 pub mod tutorial_menu;
 pub mod vanilla;
+pub mod vats_menu;
 pub mod wait_menu;
 
 use crate::{script::ScriptState, PlaySet, PlayState};
@@ -77,6 +80,7 @@ pub(crate) struct MenuFiles<'w, 's> {
     paused: Option<Res<'w, crate::pause::Paused>>,
     main_menu: Option<Res<'w, crate::main_menu::MainMenu>>,
     menus: Option<Res<'w, vanilla::TileMenus>>,
+    page: Option<Res<'w, crate::pause::Page>>,
 }
 
 impl MenuFiles<'_, '_> {
@@ -110,6 +114,16 @@ impl MenuFiles<'_, '_> {
         info!("ui: game strings: {} read, {} without text", report.game_strings, report.game_strings_unresolved);
     }
 
+    /// The pointer's place in the window, logical pixels; none while it is outside.
+    pub(crate) fn pointer(&self) -> Option<(f32, f32)> {
+        self.windows.single().ok().and_then(|w| w.cursor_position()).map(|p| (p.x, p.y))
+    }
+
+    /// The window's size, logical pixels.
+    pub(crate) fn window_size(&self) -> Option<(f32, f32)> {
+        self.windows.single().ok().map(|w| (w.width(), w.height()))
+    }
+
     pub(crate) fn write(&self, game: &mut fnv_game::Game<'_>) {
         self.install_measure(game);
         if game.ui_files.is_none() {
@@ -117,8 +131,17 @@ impl MenuFiles<'_, '_> {
         }
         if let Ok(window) = self.windows.single() {
             // T15a: interface units only while a T15 menu is drawn from its file.
-            let units = self.menus.as_ref().is_some_and(|m| interface_screen(**m));
-            write_screen(&mut game.ui_tree, window.width(), window.height(), units);
+            // Also while the classic VATS screen is the game's file (`vats_menu`), which
+            // places its pieces by `screen()` as those menus do.
+            // And while the start menu's Mods page is up (`mods`): MCM's window centres
+            // itself by `screen()` [observed: menu-xml.md §10.1].
+            let mods_page = self.menus.as_ref().is_some_and(|m| m.start) && self.paused.as_deref().zip(self.page.as_deref()).is_some_and(|(p, pg)| crate::pause::mods_open(p, pg));
+            let units = self.menus.as_ref().is_some_and(|m| interface_screen(**m)) || game.ui_vats || mods_page;
+            if game.ui_vats {
+                write_screen_scaled(&mut game.ui_tree, window.width(), window.height(), crate::interface::menu_scale());
+            } else {
+                write_screen(&mut game.ui_tree, window.width(), window.height(), units);
+            }
         }
         let report = ui_loading::sync(game, self.paused.as_ref().is_some_and(|p| p.0), self.main_menu.as_ref().is_some_and(|m| m.open));
         for line in report.changes {
@@ -131,21 +154,22 @@ impl MenuFiles<'_, '_> {
 }
 
 /// Whether `screen()` is written in interface units ([`write_screen`]): only while a T15
-/// menu (`MessageMenu`, `QuantityMenu`, `SleepWaitMenu`, `TutorialMenu`, `ContainerMenu`, `TraitMenu`, `CharGenMenu`, `DialogMenu`) or the start menu's Mods page
-/// (T11, `mods`) is switched on, whose files centre their boxes by `screen()` (MCM's `x`
-/// and `y`, menu-xml.md §10), or `StatsMenu`, whose lines take their thickness from the
+/// menu (`MessageMenu`, `QuantityMenu`, `SleepWaitMenu`, `TutorialMenu`, `ContainerMenu`, `TraitMenu`, `CharGenMenu`, `DialogMenu`) is switched on,
+/// whose files centre their boxes by `screen()`, or `StatsMenu`, whose lines take their thickness from the
 /// converter and whose hotrects' `alpha` 0 this same gate lets pass (pipboy.md §5.1.1). The
 /// default game and the tile HUD alone keep the window's pixels [design]. The gate is one for
 /// the whole tree, not a menu's own: `StatsMenu` beside the tile HUD changes the shared screen
 /// traits and the HUD's hotrect-alpha handling, as any of these does, and beside another of
 /// them changes nothing more. The Pip-Boy's canvas is never written here. The original reports
 /// interface units [observed: hud_menus capture 2026-10-31, three window sizes]; applying them
-/// unconditionally is a follow-up.
+/// unconditionally is a follow-up. The start menu's switch is not one of them: it is on by
+/// default, and its Mods page asks for interface units only while it is up
+/// ([`MenuFiles::write`]).
 pub fn interface_screen(menus: vanilla::TileMenus) -> bool {
-    if menus.repair_services || menus.repair_menu {
+    if menus.repair_services || menus.repair_menu || menus.item_mod {
         return true;
     }
-    menus.message || menus.quantity || menus.sleep_wait || menus.tutorial || menus.container || menus.barter || menus.recipe || menus.traits || menus.tags || menus.start || menus.stats || menus.dialog || menus.inventory || menus.map
+    menus.message || menus.quantity || menus.sleep_wait || menus.tutorial || menus.container || menus.barter || menus.recipe || menus.traits || menus.tags || menus.stats || menus.dialog || menus.inventory || menus.map
 }
 
 /// Write `screen()`'s traits for a window `window_width` x `window_height` (logical
@@ -166,6 +190,20 @@ pub fn write_screen(ui: &mut fnv_ui::Ui, window_width: f32, window_height: f32, 
         ui.set_trait(id, "width", Value::Num(f64::from(window_width)));
         ui.set_trait(id, "height", Value::Num(f64::from(window_height)));
     }
+}
+
+/// [`write_screen`] in interface units for a view drawn at `scale` (the UI scale, at most
+/// 100 %: `crate::interface::menu_scale`, #1631) in the window's own frame, as the HUD is: the view is
+/// 960 / scale units high, so a file that places its pieces by `screen()` keeps them at
+/// the window's edges at any scale. Written while the VATS target screen is up
+/// (`vats_menu`), which is drawn so.
+pub fn write_screen_scaled(ui: &mut fnv_ui::Ui, window_width: f32, window_height: f32, scale: f32) {
+    let id = ui.screen();
+    let s = if scale.is_finite() && scale > 0.0 { f64::from(scale) } else { 1.0 };
+    let (width, height) = screen_size(window_width, window_height);
+    ui.set_trait(id, "width", Value::Num(width / s));
+    ui.set_trait(id, "height", Value::Num(height / s));
+    ui.set_trait(id, "resolutionconverter", Value::Num(resolution_converter(window_height) / s));
 }
 
 /// `screen()`'s width and height for a window in interface units: 960 high and
@@ -448,8 +486,9 @@ struct MenusWritten {
     quantity: Option<(fnv_ui::TileId, menus::Amount)>,
     /// T15b: the Wait / Sleep menu.
     sleep_wait: Option<wait_menu::Shown>,
-    /// The text sizes written, the message box's, the prompt's and the Wait menu's.
-    sizes: [menus::SizesWritten; 3],
+    /// The text sizes written, the message box's, the prompt's, the Wait menu's and the
+    /// start menu's.
+    sizes: [menus::SizesWritten; 4],
     /// [design] Each fallback reason is warned once per session, including after reopen.
     fallbacks: std::collections::HashSet<String>,
 }
@@ -489,8 +528,21 @@ impl MenuTiles<'_, '_> {
     /// (each measured again only when its string changed), before scripts [design:
     /// ui-tile-tree.md §4.1]. Off, or without the menu files, nothing.
     fn write(&mut self, game: &mut fnv_game::Game<'_>, switch: vanilla::TileMenus, fonts: &mut draw::FontKit, calendar: Option<fnv_sim::clock::Calendar>) {
-        if !(switch.message || switch.quantity || switch.sleep_wait || switch.container || switch.barter || switch.inventory) || game.ui_files.is_none() {
+        if !(switch.message || switch.quantity || switch.sleep_wait || switch.container || switch.barter || switch.inventory || switch.start) || game.ui_files.is_none() {
             return;
+        }
+        // T11: the start menu's text sizes while a mod's tiles are in it, as the code
+        // measures them: MCM's mod-list rows take their height from a measured text
+        // (`MCM_ModList_Size`, ModListRect.xml) and GetMCMListWidth reads the rows' text
+        // widths [observed: menu-xml.md §10.2]. The start menu is built only while the
+        // pause menu is open.
+        if switch.start {
+            if let Some(menu) = game.ui_tree.menu(mods::START_MENU).filter(|&m| game.ui_tree.has_mod_added_tiles(m)) {
+                let ui = &mut game.ui_tree;
+                let texts = menus::texts(ui, menu);
+                let size = fonts.menu_measure(&menus::fonts_of(ui, &texts));
+                menus::write_text_sizes_of(ui, &texts, &mut self.written.sizes[3], &size);
+            }
         }
         self.write_wait(game, switch, fonts, calendar);
         // [design] Reconsider an overflowing box when its view changes: using the final
@@ -948,13 +1000,16 @@ impl Plugin for TilesPlugin {
         stats_menu::setup(app);
         inventory_menu::setup(app);
         map_menu::setup(app);
+        vats_menu::setup(app);
         app.init_resource::<draw::TileFonts>()
+            .init_resource::<runtime_images::RuntimeImages>()
             .init_resource::<TutorialScrollCheck>()
             .init_resource::<container_menu::ContainerTiles>()
             .init_resource::<barter_menu::BarterTiles>()
             .init_resource::<recipe_menu::RecipeTiles>()
             .init_resource::<repair_services_menu::RepairServicesTiles>()
             .init_resource::<repair_menu::RepairTiles>()
+            .init_resource::<item_mod_menu::ItemModTiles>()
             .add_message::<crate::repair::RepairServicesInput>()
             .init_resource::<container_menu::TileWheelTitle>()
             .init_resource::<tag_menu::TagTiles>()
@@ -993,12 +1048,19 @@ impl Plugin for TilesPlugin {
             // the acts, what it shows) is `data::prepare`, before the decision and the frame.
             .add_systems(Update, map_menu::feed.after(input::feed).after(crate::pipboy::PointerSet).before(PlaySet::Activation))
             .add_systems(Update, map_menu::write.after(map_menu::feed).before(PlaySet::Activation))
+            // The Local Map's outline as its runtime picture, before the decision writes its name.
+            .add_systems(Update, map_menu::give_outline.in_set(PlaySet::Ui).after(crate::pipboy::data::prepare).before(map_menu::settle))
             .add_systems(Update, map_menu::settle.in_set(PlaySet::Ui).after(crate::pipboy::data::prepare).before(crate::pipboy::frame::draw))
             // The Pip-Boy's repair page, in the same three steps; its model's keys have run by
             // `prepare`, in the Pip-Boy's chain.
             .add_systems(Update, repair_menu::feed.after(input::feed).after(crate::pipboy::PointerSet).before(PlaySet::Activation))
             .add_systems(Update, repair_menu::write_system.after(repair_menu::feed).before(PlaySet::Activation))
             .add_systems(Update, repair_menu::settle.in_set(PlaySet::Ui).after(crate::pipboy::stats::prepare).before(crate::pipboy::frame::draw))
+            // The Pip-Boy's weapon mod menu, in the same three steps; its model's keys have run
+            // by `prepare`, in the Pip-Boy's chain.
+            .add_systems(Update, item_mod_menu::feed.after(input::feed).after(crate::pipboy::PointerSet).before(PlaySet::Activation))
+            .add_systems(Update, item_mod_menu::write_system.after(item_mod_menu::feed).before(PlaySet::Activation))
+            .add_systems(Update, item_mod_menu::settle.in_set(PlaySet::Ui).after(crate::pipboy::stats::prepare).before(crate::pipboy::frame::draw))
             // The dialogue menu (`dialog_menu`): what the model says, at each of the runtime's
             // transitions and before the frame's scripts; then what they left measured and
             // placed, worked out by `update`, and what can be hit as it is then drawn.
@@ -1006,6 +1068,9 @@ impl Plugin for TilesPlugin {
             .add_systems(Update, dialog_menu::publish_system.in_set(PlaySet::Scripts).after(crate::dialogue::input).before(crate::script::run_scripts))
             .add_systems(Update, dialog_menu::write_system.after(PlaySet::Scripts).before(update))
             .add_systems(Update, dialog_menu::snapshot_system.after(update).before(PlaySet::Ui))
+            // The classic VATS screen (`vats_menu`): after the mode's work for the frame and
+            // the scripts, built, written and worked out by `update` before it is drawn.
+            .add_systems(Update, vats_menu::write_system.after(PlaySet::Scripts).after(crate::vats_mode::VatsUpdate).before(update))
             // After the character menus' sync, so the trait menu's decision reads this frame's.
             .add_systems(Update, (draw::draw, draw::scroll, model::animate).chain().in_set(PlaySet::Ui).after(crate::pipboy::frame::draw).after(crate::chargen::ChargenSet))
             .add_systems(PostUpdate, vanilla::hide_hand_built.before(bevy::camera::visibility::VisibilitySystems::VisibilityPropagate));
@@ -1137,7 +1202,8 @@ mod tests {
         // On: interface units, 960 high, and the converter.
         assert!(interface_screen(vanilla::TileMenus { message: true, ..Default::default() }));
         assert!(interface_screen(vanilla::TileMenus { quantity: true, ..Default::default() }));
-        assert!(interface_screen(vanilla::TileMenus { start: true, ..Default::default() }));
+        // The start menu's switch alone does not (on by default; its Mods page asks while up).
+        assert!(!interface_screen(vanilla::TileMenus { start: true, ..Default::default() }));
         assert!(interface_screen(vanilla::TileMenus { sleep_wait: true, ..Default::default() }));
         assert!(interface_screen(vanilla::TileMenus { tutorial: true, ..Default::default() }));
         assert!(interface_screen(vanilla::TileMenus { container: true, ..Default::default() }));
@@ -1145,6 +1211,7 @@ mod tests {
         assert!(interface_screen(vanilla::TileMenus { recipe: true, ..Default::default() }));
         assert!(interface_screen(vanilla::TileMenus { repair_services: true, ..Default::default() }));
         assert!(interface_screen(vanilla::TileMenus { repair_menu: true, ..Default::default() }));
+        assert!(interface_screen(vanilla::TileMenus { item_mod: true, ..Default::default() }));
         assert!(interface_screen(vanilla::TileMenus { traits: true, ..Default::default() }));
         assert!(interface_screen(vanilla::TileMenus { tags: true, ..Default::default() }));
         assert!(interface_screen(vanilla::TileMenus { dialog: true, ..Default::default() }));

@@ -255,6 +255,8 @@ pub fn hand_built_takes(menu: &str, key: &str) -> bool {
         &super::repair_services_menu::HAND_BUILT_KEYS
     } else if menu.eq_ignore_ascii_case(super::repair_menu::REPAIR_MENU) {
         &super::repair_menu::HAND_BUILT_KEYS
+    } else if menu.eq_ignore_ascii_case(super::item_mod_menu::ITEM_MOD_MENU) {
+        &super::item_mod_menu::HAND_BUILT_KEYS
     } else {
         &[]
     };

@@ -501,6 +501,7 @@ impl FrameInterpolationContext {
     /// `ffxFrameInterpolationPrepare`: reconstruct and dilate this frame's depth and motion.
     pub fn prepare(&self, view: &mut FrameInterpolationView, encoder: &mut wgpu::CommandEncoder, info: &FrameInterpolationPrepareInfo) {
         assert!(info.render_size[0] <= view.max_render_size[0] && info.render_size[1] <= view.max_render_size[1]);
+        view.bind_groups.next_frame();
         let c = &mut view.constants;
         c.render_size = [info.render_size[0] as i32, info.render_size[1] as i32];
         c.jitter = info.jitter_offset;
@@ -552,6 +553,7 @@ impl FrameInterpolationContext {
         let display = view.display_size;
         assert_eq!([info.output.width(), info.output.height()], display, "frame interpolation output size");
         assert_eq!(info.optical_flow.resolution(), display, "optical flow resolution");
+        view.bind_groups.next_frame();
 
         let reset = view.dispatch_count == 0 || info.reset;
         let disjoint = info.frame_id < view.previous_frame_id || info.frame_id - view.previous_frame_id > 1;

@@ -113,7 +113,22 @@ pub enum Given {
         dead: Option<bool>,
         #[serde(default)]
         disabled: Option<bool>,
+        /// Removed from the world (taken, or MarkForDelete), as a save keeps it.
+        #[serde(default)]
+        deleted: Option<bool>,
+        /// The actor has talked to the player (GetTalkedToPC).
+        #[serde(default)]
+        talked_to_pc: Option<bool>,
     },
+    /// A faction's group combat reaction towards another (0 neutral, 1 enemy, 2 ally,
+    /// 3 friend), as SetEnemy/SetAlly leave it (a save's faction changes).
+    FactionReaction { faction: String, other: String, reaction: i64 },
+    /// The Pip-Boy's active quest, as ForceActiveQuest leaves it.
+    ActiveQuest { quest: String },
+    /// An item the actor carries, worn or held (a save's worn items).
+    Equip { of: String, item: String },
+    /// A base form's name, as SetName leaves it (the player's name in a save).
+    Name { of: String, name: String },
     /// The player's fame and infamy with a reputation (round 3, layer5-captures.md §9.2).
     Reputation {
         rep: String,
@@ -906,7 +921,7 @@ fn apply_given(g: &mut Game, gv: &Given) -> Result<(), String> {
             let r = resolve(g, of)?;
             g.world.set_enabled(r, !disabled).map_err(|e| e.to_string())?;
         }
-        Given::Ref { reference, vars, dead, disabled } => {
+        Given::Ref { reference, vars, dead, disabled, deleted, talked_to_pc } => {
             let r = resolve(g, reference)?;
             for (k, v) in vars {
                 let (key, script, i) = ref_var(g, r, k)?;
@@ -919,6 +934,31 @@ fn apply_given(g: &mut Game, gv: &Given) -> Result<(), String> {
             if let Some(d) = disabled {
                 g.world.set_enabled(r, !d).map_err(|e| e.to_string())?;
             }
+            if let Some(d) = deleted {
+                g.world.set_deleted(r, *d).map_err(|e| e.to_string())?;
+            }
+            if let Some(t) = talked_to_pc {
+                g.extra.entry(r).or_default().talked_to_pc = *t;
+            }
+        }
+        Given::FactionReaction { faction, other, reaction } => {
+            let (f, o) = (resolve(g, faction)?, resolve(g, other)?);
+            g.forms.faction_reactions.entry(f).or_default().insert(o, *reaction);
+            crate::functions::actor::forget_relations(g);
+        }
+        Given::Equip { of, item } => {
+            let (of, item) = (resolve(g, of)?, resolve(g, item)?);
+            if !g.world.peek(of).and_then(|s| s.inventory.as_ref()).is_some_and(|i| i.is_equipped(item)) {
+                g.world.equip(of, item).map_err(|e| e.to_string())?;
+            }
+        }
+        Given::Name { of, name } => {
+            let f = resolve(g, of)?;
+            g.name_overrides.insert(f, name.clone());
+        }
+        Given::ActiveQuest { quest: name } => {
+            let q = quest(g, name)?;
+            g.ui.active_quest = Some(q);
         }
         Given::Reputation { rep: name, fame, infamy } => {
             let r = rep(g, name)?;
@@ -1144,8 +1184,8 @@ fn waited(g: &Game, st: &RunState, obs: &mut Map<String, Json>, found: bool, sto
 /// the input has to close it. A Goodbye greeting said at the player opens no
 /// conversation (`Game::start_dialogue`): the wait goes on until its line has ended and
 /// its end script has run, as the player hears it out (issue #1114). The same for a
-/// chosen Goodbye line, which closes its conversation at once and is said on as a
-/// farewell (`Game::choose`, `Speech::farewell`).
+/// chosen Goodbye line under `GameConfig::goodbye_at_once`, which closes its
+/// conversation at once and is said on as a farewell (`Game::choose`, `Speech::farewell`).
 fn wait_talk(g: &mut Game, max: u64) -> Result<(), String> {
     for _ in 0..=max {
         match &g.dialogue {

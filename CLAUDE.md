@@ -4,7 +4,7 @@ NVForever is an open-source, clean-room reimplementation of the Fallout: New Veg
 (OpenMW-style). The owner wants sessions to work autonomously, including pushing.
 
 The state of every system is in `docs/status.md`; the open gameplay decisions for the owner
-are in `docs/owner-review.md` (a short ranked list: add a bullet, never a running log), the
+are in `docs/owner-review.md` (ranked, most important first: add a bullet, never a running log), the
 questions the original game can answer in `docs/handoff/observer-checks.md`. **Read first**:
 the code-checked project audit `docs/handoff/project-audit-2026-10-23.md` (completion,
 playthrough blockers; its 2026-10-25 note and §7 say what is still open: the Hoover Dam
@@ -12,7 +12,8 @@ load test, a recorded parity-lab run; the main-quest walkthroughs past Novac and
 stalls: `docs/handoff/mq-walkthrough-2026-10-27.md`) and the owner's
 `playtest-list-7.md`. What ESM data the engine still does nothing with:
 `docs/handoff/esm-audit-2026-10-25.md`. Finished, kept for their Outcome sections and
-history only, in `docs/handoff/archive/`: playtest lists 1-5, the queue of 2026-10-20, the
+history only, in `docs/handoff/archive/`: playtest lists 1-5 (`playtest-2026-10-12.md` holds 1-3,
+then `playtest-list-4.md` and `playtest-list-5.md`), the queue of 2026-10-20, the
 handovers of 2026-10-21/22, the outstanding audit of 2026-10-23 and the site update.
 Script extender compatibility (xNVSE, JIP LN, JohnnyGuitar as engine code, no DLLs, no
 extender source read): `docs/design/extender-compat.md`, core tasks in
@@ -51,19 +52,26 @@ Fix or explain every regression.
 ## Checks before every push
 
 Run only the ones your change calls for (`python tools/smoke plan` lists them; `run --checks`
-runs them): root tests and clippy when `crates/` (or the root Cargo files, `schemas/`)
-changed, engine clippy when `engine/` or `crates/` changed, a Python suite when its folder
-changed.
+runs them): cargo deny when a Cargo file or `deny.toml` changed (`cargo install cargo-deny`),
+root tests and clippy when `crates/` (or the root Cargo files, `schemas/`) changed, engine
+tests and clippy (the Bevy workspace: viewer and game) when `engine/` or `crates/` changed,
+a Python suite when its folder changed (`tools/release/tests`: `.github/workflows/` too).
+They are the commands CI runs, in its order (`tools/smoke/tests/test_check_lists.py` keeps
+this list, CONTRIBUTING.md, docs/development.md, the `[[check]]` entries and ci.yml the same).
 
 ```
-cargo test --workspace --release
-cargo clippy --workspace --all-targets --release -- -D warnings
+cargo test --workspace --release --locked
+cargo clippy --workspace --all-targets --release --locked -- -D warnings
+(cd engine && cargo test --release --locked)
+(cd engine && cargo clippy --release --locked --all-targets -- -D warnings)
+cargo deny check licenses advisories bans sources
+cargo deny --manifest-path engine/Cargo.toml check licenses advisories bans sources
 python -m unittest discover -s parity-lab/tests
 python -m unittest discover -s tools/capture/tests
 python -m unittest discover -s tools/smoke/tests
 python -m unittest discover -s tools/stress/tests
 python -m unittest discover -s tools/profile/tests
-(cd engine && cargo clippy --release --all-targets -- -D warnings)   # Bevy workspace (viewer + game)
+python -m unittest discover -s tools/release/tests
 ```
 
 With game data available (owner's install, read-only): build `fnvtool`, set
@@ -80,6 +88,10 @@ python tools/smoke run --exe <engine target>/release/nvforever.exe --data <Data>
 # (--changed origin/main is the default selection; add --checks to run the push checks it lists)
 ```
 
+- While iterating, build with `cargo quick` (in `engine/` for nvforever, at the root for
+  fnvtool): release with incremental compilation in `target/release-quick`, a rebuild after
+  a one-line edit in 10-25 s instead of 2-4 min. The runner takes it when it is newer than
+  `target/release`'s. Profile, measure and ship from `--release` (#1956).
 - It picks the scenarios whose paths your branch changed (`--only NAME…`, `--area A…`,
   `--all` otherwise), shares a game launch between scenarios where that was checked to be
   safe, and runs up to 3 nvforever games on the machine at once (smoke slots,
@@ -94,7 +106,9 @@ python tools/smoke run --exe <engine target>/release/nvforever.exe --data <Data>
   It prints one line per scenario. **The summary is enough**: open a log in
   `target/smoke/` only for a FAIL, and then only the lines it quotes. `plan` shows what
   would run; `check` judges the saved logs again after you edit a scenario; `--no-merge`
-  runs scenarios one by one. Environment instead of arguments: `NVF_EXE`, `NVF_DATA`,
+  runs scenarios one by one. While fixing: `--failed` reruns only the last run's FAILs,
+  `--fail-fast` starts no launch after the first FAIL (a full run before the push still).
+  Environment instead of arguments: `NVF_EXE`, `NVF_DATA`,
   `NVF_FNVTOOL`, `NVF_SMOKE_LOCKS` (other machines), `NVF_OBSERVER_SAMPLES` (the AI observer
   captures).
 - **Stop only your own runner, by the PID you started.** Never stop processes by a
@@ -109,6 +123,15 @@ python tools/smoke run --exe <engine target>/release/nvforever.exe --data <Data>
 - **Adding a feature worth a smoke test: add a `[[scenario]]` to the file**, not prose here
   (expectation syntax: `tools/smoke/smoke/expect.py`). Never loosen an expectation to make
   a run pass; mark it `known_failing` with the reason instead.
+
+## Player reports: never from a session's runs
+
+Reports (`engine/nvforever/src/reports/`, docs/design/player-reports.md) measure players'
+games; a session's runs would skew them. Every run passes `--data` (the smoke runner does),
+which keeps reports off; never answer the "Help fix NVForever?" popup with Send reports
+and never set `NVF_REPORTS=1` without `NVF_REPORTS_ENDPOINT` pointing at a local server
+(LootJunkieAzza/NVForever-Data `npm run dev:ingest`, `http://127.0.0.1:8787`). A run
+without `--data` that must start like a player's sets `NVF_REPORTS=0`.
 
 ## Claiming work (outside contributors work here too)
 
