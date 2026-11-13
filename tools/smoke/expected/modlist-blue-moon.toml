@@ -6,14 +6,14 @@
 #
 # units_picked: the units the game runs from their source text (they use the extender);
 # units_kept_bytes: those whose source does not compile, which keep compiled bytes whose
-# extender calls all give 0 (the 13 left: docs/spec-notes/script-compiler.md §8.1). A branch that fixes a cause lowers units_kept_bytes and
+# extender calls all give 0 (the 8 left: docs/spec-notes/script-compiler.md §8.1). A branch that fixes a cause lowers units_kept_bytes and
 # raises units_from_source by as much; a rise fails the run (find the plugin and cause in
 # the report's per_plugin list before raising anything). A change to the mod list itself changes these too: write the new summary here.
 
 [summary]
 units_picked = 2014
-units_from_source = 2001
-units_kept_bytes = 13
+units_from_source = 2006
+units_kept_bytes = 8
 # Functions the scripts call that NVForever has no entry for (their calls do nothing).
 # 46 -> 14 with the unlisted JIP commands (#2318, docs/spec-notes/ext-unlisted-commands.md);
 # the 14 left: 7 names no installed plugin registers (RemoveFac, GetRespawn, dATan2,

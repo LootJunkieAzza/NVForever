@@ -391,12 +391,16 @@ script decompile`]. "Mod source" below means the engine's compile (`Seed::unknow
 - A game setting's name given alone to a plugin function's string parameter is text.
 - `SetStringSetting` is LU's two-parameter function; the catalogue's console row of that
   name (from another page) gave way to it.
+- A plugin can hold two records under one FormID (oHUD.esm: QUST `aHUD` and MESG
+  `iHUDMainMenu`, both 0x01000801). A name resolves through whichever of the winning
+  plugin's records carries it, and a quest variable through the one with a script
+  [observed: oHUD's shipped bytes write `0x…801.f19` where the source says
+  `set aHUD.mcmVersion`].
 
 Left with their bytes, as the source cannot be compiled to them: five result scripts whose
 classic `if` has a surplus argument (`GetObjectiveDisplayed Q 30 1 && …`), which stop the
-script in the original as in the VM (observer-checks.md check 32); oHUD.esm's five units
-naming `aHUD`, a quest that shares its FormID with a message in the same plugin; and three
-units whose source names forms renamed or replaced since their bytes were written.
+script in the original as in the VM (observer-checks.md check 32); and three units whose
+source names forms renamed or replaced since their bytes were written.
 
 ## 9. Values in the VM (tasks B1, B3, B7, B8)
 
