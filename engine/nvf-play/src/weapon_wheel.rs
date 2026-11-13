@@ -142,6 +142,12 @@ pub struct WeaponWheel {
 }
 
 impl WeaponWheel {
+    /// Cancel pending/open hotkey use without choosing a slot [design, #2200].
+    pub(crate) fn cancel_input_hold(&mut self) {
+        self.press = None;
+        self.closed_now = self.open.take().is_some();
+    }
+
     /// Feed one frame; returns what happened.
     pub fn step(&mut self, f: &Frame) -> Vec<Outcome> {
         let mut out = Vec::new();
@@ -576,6 +582,50 @@ fn report(mut exit: MessageReader<AppExit>, stats: Res<WheelStats>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn switching_cancels_pending_and_open_hotkeys_without_using_a_slot() {
+        use bevy::input::{gamepad::{RawGamepadButtonChangedEvent, RawGamepadEvent}, keyboard::{Key, KeyboardInput}, ButtonState};
+        for open in [false, true] {
+            let forms = Box::leak(Box::new(fnv_sim::FormStore::default()));
+            let refs = Box::leak(Box::new(fnv_sim::RefTable::default()));
+            let sim = SimState { forms, refs, world: fnv_sim::World::new(forms, refs, fnv_sim::SimConfig::default()) };
+            let mut app = App::new();
+            app.add_plugins((MinimalPlugins, bevy::input::InputPlugin, bevy::state::app::StatesPlugin, crate::pad::InputSwitchPlugin))
+                .insert_state(PlayState::Playing)
+                .insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(std::time::Duration::from_millis(50)))
+                .init_resource::<crate::bindings::Bindings>().init_resource::<PlayerControl>()
+                .init_resource::<WeaponWheel>().init_resource::<Hotkeys>().init_resource::<WheelAid>().init_resource::<WheelStats>()
+                .insert_resource(sim)
+                .add_message::<ItemUsed>().add_message::<UiSound>()
+                .add_systems(Update, read);
+            let pad = app.world_mut().spawn(Gamepad::default()).id();
+            let code = app.world().resource::<crate::bindings::Bindings>().get(CONTROLS[0]).key.unwrap();
+            let key = KeyboardInput { key_code: code, logical_key: Key::Character("1".into()), state: ButtonState::Pressed, text: None, repeat: false, window: Entity::PLACEHOLDER };
+            app.world_mut().write_message(key.clone());
+            app.update();
+            if open {
+                for _ in 0..20 { app.update(); }
+                assert!(app.world().resource::<WeaponWheel>().is_open());
+                app.world_mut().resource_mut::<WeaponWheel>().open.as_mut().unwrap().picked = 3;
+            } else {
+                assert!(app.world().resource::<WeaponWheel>().press.is_some());
+            }
+            app.world_mut().write_message(RawGamepadEvent::Button(RawGamepadButtonChangedEvent::new(pad, GamepadButton::North, 1.0)));
+            app.update();
+            assert_eq!(app.world().resource::<crate::bindings::Bindings>().device, InputDevice::KeyboardMouse);
+            crate::bindings::set_device(app.world_mut(), InputDevice::Controller);
+            assert_eq!(app.world().resource::<crate::bindings::Bindings>().device, InputDevice::Controller);
+            app.world_mut().write_message(KeyboardInput { state: ButtonState::Released, ..key });
+            app.update();
+            let wheel = app.world().resource::<WeaponWheel>();
+            assert!(!wheel.is_open() && wheel.press.is_none());
+            let stats = app.world().resource::<WheelStats>();
+            assert_eq!(stats.taps, 0);
+            assert!(stats.chosen.is_empty());
+            assert!(app.world().resource::<Messages<ItemUsed>>().is_empty());
+        }
+    }
 
     #[test]
     fn a_hotkeyed_weapon_comes_in_holstered() {

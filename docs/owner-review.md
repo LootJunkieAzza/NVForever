@@ -23,6 +23,20 @@ the spec it links to.
 
 ## Tier 1: felt in every fight or every session
 
+- **Automatic device switching (#2200).** [design, #2200] Switch the saved two-device
+  choice on fresh use, default ON with a Controls/INI opt-out; ignore only the switching
+  press edge, preserve all releases, and require the old device idle at frame start with
+  no release that frame (cancellations remain a backstop). Keep the current device on
+  simultaneous activity. Alternatives
+  from the issue: an Auto choice, ask once, or discoverability only. Ruling otherwise
+  changes this selection policy ([controller section 1](design/controller.md)).
+- **Pip-Boy pages from their menu files by default (#2215).** [design, #2215] An absent
+  `[UI] TileMenus` selects StatsMenu, InventoryMenu, RepairMenu, ItemModMenu, MapMenu and
+  QuantityMenu, keeping the hand-built fallback for missing or cut-down files. An empty
+  `TileMenus=` restores the hand-built pages. Keep this default at PR review? Reverting
+  `DEFAULT_PIPBOY_MENUS` to an empty list restores the old default; other menus and the
+  existing maintainer choices stay as they are. ([ui-tile-tree section 6.2](design/ui-tile-tree.md#62-one-menu-at-a-time-nothing-broken))
+
 1. **Crippled torso staggers on every hit.** An NPC with a crippled torso staggers on
    any hit (3 s cooldown), which goes further than your "crippling hit and later hits
    to that part" rule. The player flinches the same way: the view jumps up to 4°, the
@@ -46,6 +60,10 @@ the spec it links to.
      it. Cover is at most 1,024 units away.
    - Alarm calls allies within 4,096 units. A fled NPC re-checks after 30 s. Group
      searches give up after two sweeps.
+   - [design, #2010] A Lost search with no completed share for 300 s gives up, even
+     with shares still pending; each completed share renews that safety deadline.
+     A different bound changes how long unavailable navigation/AI holds combat.
+     ([alert section 2](design/alert.md))
    - Fire only with the target within 30° ahead, turning at 240°/s.
    - Creatures start blows on the run from up to 200 units beyond reach (minimum
      closing speed 100 units/s).

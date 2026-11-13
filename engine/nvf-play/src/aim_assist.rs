@@ -352,7 +352,7 @@ impl Plugin for AimAssistPlugin {
 fn assist(
     time: Res<Time>,
     state: Res<State<PlayState>>,
-    (settings, bindings, pads): (Res<AimAssist>, Res<Bindings>, Query<&Gamepad>),
+    (settings, bindings, pads): (Res<AimAssist>, Res<Bindings>, crate::pad::ActionPads),
     (locks, look, free_cam, kill_cam): (Res<ControlLocks>, Option<Res<crate::dialogue::FreeLook>>, Option<Res<crate::free_cam::FreeCam>>, Option<Res<crate::kill_cam::KillCam>>),
     (vats, driven, cursor, seat): (Option<Res<crate::vats_mode::VatsMode>>, Option<Res<crate::player::ViewDriven>>, Query<&CursorOptions, With<PrimaryWindow>>, Option<Res<crate::furniture::PlayerSeat>>),
     control: Res<PlayerControl>,
