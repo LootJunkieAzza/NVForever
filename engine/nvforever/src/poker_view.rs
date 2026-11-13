@@ -319,24 +319,10 @@ fn quad_mesh(size: Vec2, uv_scale: Vec2) -> Mesh {
     g.mesh()
 }
 
-/// A card: its face up (+Z), its back down; a hair apart.
+/// A card: its face up (+Z), its back down; a hair apart. Each is the card's rounded
+/// outline (`crate::card_shape`): the pictures' own corners are opaque.
 fn card_meshes() -> (Mesh, Mesh) {
-    let (w, h) = (CARD.x / 2.0, CARD.y / 2.0);
-    let mut front = Geo::default();
-    front.quad([
-        (Vec3::new(-w, -h, 0.02), Vec3::Z, Vec2::new(0.0, 1.0)),
-        (Vec3::new(w, -h, 0.02), Vec3::Z, Vec2::new(1.0, 1.0)),
-        (Vec3::new(w, h, 0.02), Vec3::Z, Vec2::new(1.0, 0.0)),
-        (Vec3::new(-w, h, 0.02), Vec3::Z, Vec2::ZERO),
-    ]);
-    let mut back = Geo::default();
-    back.quad([
-        (Vec3::new(-w, h, 0.0), -Vec3::Z, Vec2::new(1.0, 0.0)),
-        (Vec3::new(w, h, 0.0), -Vec3::Z, Vec2::ZERO),
-        (Vec3::new(w, -h, 0.0), -Vec3::Z, Vec2::new(0.0, 1.0)),
-        (Vec3::new(-w, -h, 0.0), -Vec3::Z, Vec2::new(1.0, 1.0)),
-    ]);
-    (front.mesh(), back.mesh())
+    (crate::card_shape::card_mesh(CARD, 0.02, true), crate::card_shape::card_mesh(CARD, 0.0, false))
 }
 
 /// A stack of `count` chips of one colour (the picture's `column`), each a little off the
