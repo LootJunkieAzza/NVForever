@@ -1279,7 +1279,7 @@ struct RunState {
 
 /// Run one action; returns its observation fields (for labelled actions).
 /// A labelled observation: label and fields.
-type Observed = Option<(String, Map<String, Json>)>;
+pub type Observed = Option<(String, Map<String, Json>)>;
 
 fn step(g: &mut Game, st: &mut RunState, a: &Action) -> Result<Observed, String> {
     let mut obs = Map::new();
@@ -2527,7 +2527,7 @@ pub fn applies_now(a: &Action) -> bool {
 /// One action on a game the caller runs (the quest pilot in play, #2365): what the
 /// headless run does for it, with no frame run here. The observation of a labelled
 /// action is its label and fields. An action [`applies_now`] refuses is an error.
-pub fn apply_now(g: &mut Game, st: &mut Applier, a: &Action) -> Result<Option<(String, Map<String, Json>)>, String> {
+pub fn apply_now(g: &mut Game, st: &mut Applier, a: &Action) -> Result<Observed, String> {
     if !applies_now(a) {
         return Err("this action waits on the game: the caller carries it out".into());
     }

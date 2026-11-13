@@ -500,9 +500,7 @@ fn walk(p: &mut Pilot, w: &mut Walk, h: &mut Hands) -> Walked {
                 _ => w.dodge = None,
             }
             // Held by a script: a wait, and the watchdog's to judge.
-            if h.locks.movement {
-                w.seen = (p.now, feet);
-            } else if hdist(feet, w.seen.1) > STUCK_UNITS {
+            if h.locks.movement || hdist(feet, w.seen.1) > STUCK_UNITS {
                 w.seen = (p.now, feet);
             } else if p.now - w.seen.0 > STUCK_SECS {
                 w.seen = (p.now, feet);
@@ -949,6 +947,9 @@ fn walk_phase(p: &mut Pilot, h: &mut Hands) -> Option<Option<String>> {
     out
 }
 
+/// Where things are, for [`drive`].
+type Places<'w> = (Res<'w, Location>, Res<'w, Target>, Option<Res<'w, crate::nav::NavState>>, Res<'w, crate::world::WorldData>, Res<'w, nvf_play::doors::Doors>);
+
 #[allow(clippy::too_many_arguments)]
 fn drive(
     real: Res<Time<Real>>,
@@ -957,7 +958,7 @@ fn drive(
     mut pilot: ResMut<Pilot>,
     (mut script, mut sim, mut phys): (ResMut<ScriptState>, ResMut<SimState>, ResMut<PhysState>),
     (mut player, mut intent, mut control, locks): (ResMut<Player>, ResMut<MoveIntent>, ResMut<PlayerControl>, Res<ControlLocks>),
-    (location, target, nav, world, doors): (Res<Location>, Res<Target>, Option<Res<crate::nav::NavState>>, Res<crate::world::WorldData>, Res<nvf_play::doors::Doors>),
+    (location, target, nav, world, doors): Places,
     watch: Option<Res<nvf_play::softlock::SoftlockWatch>>,
     mut travel: MessageWriter<TravelRequest>,
     mut exit: MessageWriter<AppExit>,
