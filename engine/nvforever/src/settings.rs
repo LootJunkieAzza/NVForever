@@ -720,6 +720,8 @@ fn register_graphics(app: &mut App) {
     );
     nvf_play::settings::set_choice_labels(app, UPSCALER_KEY, upscaler_label);
     nvf_play::settings::set_choice_unavailable(app, UPSCALER_KEY, upscaler_unavailable);
+    // Download DLSS… opens its dialog: nothing of the row to keep or store (#2250).
+    nvf_play::settings::set_choice_action(app, UPSCALER_KEY, crate::dlss_download::is_choice);
     nvf_play::settings::set_older_key(app, UPSCALER_KEY, LEGACY_KEY);
     nvf_play::settings::set_older_split(app, LEGACY_KEY, split_legacy);
     add_choice_list(

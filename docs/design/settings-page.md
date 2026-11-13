@@ -157,9 +157,12 @@ The Upscaler row lists `Download DLSS...` (shown as "Download DLSS…", or "Down
 n%" while its download runs) while DLSS is out of reach only because its files are missing
 (`upscaler::Unavailable::FilesMissing`, Windows with Vulkan) and no download installed them
 this session. Its `pick` asks for nvforever's `dlss_download` dialog (over the page as the
-hand report's form is, `pause::FormOver`) and leaves `Graphics::upscaler` as it is, so the row
-keeps its chosen name and the INI its value; `settings: upscaler <chosen>` is still logged, as
-for every pick. The test aids name it `upscaler=Download DLSS...`. The dialog and its test aid
+hand report's form is, `pause::FormOver`) and leaves `Graphics::upscaler` as it is. The row
+marks it as an action (`set_choice_action`): `settings::pick` hands it to the list's `pick` and
+then neither owns the row nor writes the INI, so a run whose command line set another upscaler
+does not write that over the stored choice (`KeptRows`); the log says `settings: upscaler
+Download DLSS... (an action; nothing kept)`, or `... not taken` where it is not offered. The
+test aids name it `upscaler=Download DLSS...`. The dialog and its test aid
 `NVF_PLAY_TEST_DLSS_DOWNLOAD` are described in docs/dlss.md and
 `engine/nvforever/src/dlss_download/`.
 
