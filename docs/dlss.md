@@ -9,11 +9,65 @@ DLSS needs:
 - Windows;
 - an NVIDIA RTX graphics card with a current driver;
 - the Vulkan renderer, which is NVForever's default;
-- four of NVIDIA's files, which you download from NVIDIA yourself (below).
+- four of NVIDIA's files, which the game can download from NVIDIA's own release once you
+  accept NVIDIA's licence, or which you copy yourself (below).
 
 NVForever ships no NVIDIA file. NVIDIA's files come under NVIDIA's own licence terms.
 
-## Getting the files
+## Getting the files from the settings: Download DLSS…
+
+While the four files are missing, the Upscaler row (pause menu, **Settings > Graphics**) offers
+**Download DLSS…** beside Off, FSR 3.1 and DLSS (Windows only, with the Vulkan renderer).
+Choosing it changes nothing in the row; it opens a dialog:
+
+1. **NVIDIA's licence.** The dialog says what is fetched and shows NVIDIA's licence for
+   `nvngx_dlss.dll`, the licence file that comes with the files in NVIDIA's archive. It scrolls
+   with PgUp, PgDn, the arrow keys, Home, End or the mouse wheel (on a controller: LB, RB and
+   the D-pad); **Open on GitHub** opens the release's page in your browser. **Nothing is
+   downloaded and the game does not go online before you press I accept.** I accept takes a
+   mouse click only, so that no key or button pressed by habit accepts a licence: a player
+   using a controller alone needs a mouse for that one click, or gets the files by hand (below).
+   Cancel (or Esc, or B and Start on a controller) closes the dialog with nothing done. The
+   three `sl.*` files are under Streamline's MIT licence.
+2. **The download.** The game fetches only the four files from the official archive of
+   NVIDIA's Streamline release 2.14.16 on GitHub
+   (`https://github.com/NVIDIA-RTX/Streamline/releases/download/v2.14.16/streamline-sdk-v2.14.16.zip`):
+   it reads the archive's list of files from its end and asks for just those four entries,
+   about 60 MB instead of the whole 276 MB archive. The dialog shows the step, the file and the
+   megabytes; **Hide** (Esc) closes it and the download goes on while you play (the Upscaler
+   row then reads "Downloading DLSS… n%", and choosing it shows the dialog again);
+   **Cancel download** stops it. Loading a save, going to the main menu or quitting the game
+   stops a download that is still running (each of them starts the game anew), with nothing
+   written; choose Download DLSS… again afterwards.
+3. **The checks.** Each file must be exactly the file of that release (its size and SHA-256,
+   pinned in NVForever), and `sl.interposer.dll` and `nvngx_dlss.dll` must pass the signature
+   checks described below. The files are unpacked into a temporary folder beside the `dlss`
+   folder and moved in only when all four passed; on any failure or cancel nothing is written
+   in the `dlss` folder and the temporary folder is removed. `nvngx_update.exe` is never
+   written, and a file of yours already in the `dlss` folder is never overwritten.
+4. **The result.** "DLSS is ready: restart NVForever to use it." The restart is needed once,
+   because NVIDIA's Streamline must be loaded before the game's renderer starts; after it,
+   every switch is live (below). If the download failed, the dialog says why (no answer from
+   GitHub, an error from GitHub, a file that did not match, a folder that holds a file of its
+   own) and offers the manual way: **Open release page**, **Open dlss folder** (made if it is
+   not there) and **Try again**.
+
+The files go into the `dlss` folder beside `nvforever.exe` (or the folder `NVF_DLSS_DIR`
+names), never into the game folder. The game downloads only when you choose Download DLSS…
+and accept: there are no automatic updates and no checks in the background.
+
+[design] Before creating anything, the download checks its destination and temporary folder
+with the install guard, including a destination set through `NVF_DLSS_DIR`. The guard refuses
+the game install and the original game's user folders. **Open dlss folder** uses the same
+guard; a refusal creates nothing and the log says why
+([install layout](design/install-layout.md#rules-enforced-in-code-cratesfnv-install)).
+
+[design] The download's test aids, `NVF_PLAY_TEST_DLSS_DOWNLOAD` (including automatic
+acceptance, cancellation and clearing smoke files) and `NVF_DLSS_DOWNLOAD_URL` (a loopback
+server), work only in developer runs with `--data` or `NVFOREVER_DATA`. A normal player run
+ignores them with one warning in the log.
+
+## Getting the files by hand
 
 1. From NVIDIA's Streamline repository on GitHub
    ([NVIDIA-RTX/Streamline, releases](https://github.com/NVIDIA-RTX/Streamline/releases)),
@@ -153,13 +207,22 @@ game again. The log
 |---|---|
 | DLSS needs Windows | DLSS runs on Windows only. Elsewhere, FSR 3.1 is the upscaler. |
 | DLSS needs the Vulkan renderer | The game was started with another renderer (the `WGPU_BACKEND` variable, for example `dx12`). Start it with Vulkan, the default. |
-| DLSS files missing: put them in the dlss folder beside nvforever.exe, then restart | The `dlss` folder is not next to `nvforever.exe`, or one of the four files is not in it. The log names the missing files. Once all four are there, DLSS reads DLSS (restart). |
+| DLSS files missing: choose Download DLSS… in this list, or put them in the dlss folder beside nvforever.exe, then restart | The `dlss` folder is not next to `nvforever.exe`, or one of the four files is not in it. The log names the missing files. Download DLSS… in the same list gets them (above), or copy them by hand. Once all four are there, DLSS reads DLSS (restart). |
 | The dlss folder holds NVIDIA's updater (nvngx_update.exe): remove it, then restart | Delete `nvngx_update.exe` from the `dlss` folder. This is also shown when the folder could not be read. |
 | A file in the dlss folder is not from the tested NVIDIA release (Streamline 2.14.16) | A DLL in the `dlss` folder did not pass NVForever's checks. Every `sl.*.dll` (and `NvLowLatencyVk.dll`) must be exactly the file of Streamline 2.14.16's `bin\x64`, and `sl.interposer.dll` must also carry NVIDIA's signature; besides those, only NVIDIA's `nvngx_*.dll` files may be there, signed by NVIDIA Corporation. Another version, a changed file, an `nvngx_*.dll` without NVIDIA's signature, a DLL that is a link, or any other DLL is refused. The log names the file, and its SHA-256 or signer. Download release 2.14.16 again from NVIDIA's page, copy its files unchanged, and remove any other DLL from the folder. |
 | DLSS did not start (the log says why) | NVIDIA's Streamline would not load or start. The log's `DLSS:` lines say where it stopped. This is also shown when the `dlss` folder itself is a link (a symbolic link or junction) rather than a real folder, or a DLL in it could not be read. |
 | A graphics card the game may use cannot run DLSS | A graphics card Vulkan can see lacks what DLSS needs. This is typical on laptops whose built-in graphics also show up in Vulkan beside the NVIDIA card: the game checks every card Vulkan shows, since it could end up starting on any of them. DLSS stays off rather than risk a crash at start. The log names the card. |
 | Not on this GPU or driver (DLSS needs an NVIDIA RTX card) | DLSS does not run on this graphics card or driver. It needs an NVIDIA RTX card; updating the driver may help. |
 | DLSS stopped working this session; it is tried again at the next start | DLSS gave no picture for a while in this session. For the rest of the session a DLSS choice draws without upscaling; FSR 3.1 and Off can still be chosen and take effect at once. DLSS is tried again at the next start. |
+
+## NVIDIA's attribution
+
+While the four files are in the `dlss` folder (downloaded or copied by hand), the end credits
+finish with a short plain-text line naming NVIDIA DLSS: upscaling by NVIDIA Corporation, through
+NVIDIA Streamline. NVIDIA's licence asks for attribution in the credits (its supplement,
+section 7.1(b)). The licence also says that NVIDIA's marks it names (NVIDIA RTX, GeForce RTX and
+Quadro RTX) and NVIDIA's logos need NVIDIA's prior written approval (section 7.2(c)); NVForever
+has no such approval and uses none of them, in the game or in its pages beyond naming them here.
 
 ## Removing it
 

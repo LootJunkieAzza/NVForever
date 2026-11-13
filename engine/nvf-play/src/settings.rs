@@ -308,12 +308,17 @@ pub type ChoiceLabel = fn(&World, &str) -> String;
 /// ([`set_choice_unavailable`]).
 pub type ChoiceUnavailable = fn(&World, &str) -> Option<String>;
 
+/// Whether a list's choice of this name is an action rather than a state to keep
+/// ([`set_choice_action`]).
+pub type ChoiceAction = fn(&str) -> bool;
+
 /// How a list shows its choices and which it holds out of reach (module notes); a list
-/// without them shows every choice by its name, every one in reach.
+/// without them shows every choice by its name, every one in reach, none an action.
 #[derive(Clone, Copy, Default)]
 pub struct ChoiceLooks {
     pub label: Option<ChoiceLabel>,
     pub unavailable: Option<ChoiceUnavailable>,
+    pub action: Option<ChoiceAction>,
 }
 
 /// The switches in the registry's order: by group, each group in the order its switches
@@ -496,6 +501,15 @@ pub fn set_choice_unavailable(app: &mut App, key: &'static str, unavailable: Cho
     choice_looks_mut(&mut app.world_mut().resource_mut::<Settings>(), key).unavailable = Some(unavailable);
 }
 
+/// Mark the choices of list `key` for which `action` says yes as actions [design: #2250,
+/// Download DLSS…]: [`pick`] hands such a choice to the list's `pick`, which does something
+/// instead of changing the row's state, and then neither keeps the row nor writes the INI (the
+/// row's state is not the player's change, so a stored value the run set aside stays stored).
+pub fn set_choice_action(app: &mut App, key: &'static str, action: ChoiceAction) {
+    app.init_resource::<Settings>();
+    choice_looks_mut(&mut app.world_mut().resource_mut::<Settings>(), key).action = Some(action);
+}
+
 fn choice_looks_mut<'a>(settings: &'a mut Settings, key: &'static str) -> &'a mut ChoiceLooks {
     let at = match settings.4.iter().position(|(k, _)| *k == key) {
         Some(at) => at,
@@ -626,6 +640,17 @@ pub fn pick(world: &mut World, i: usize, name: &str) -> bool {
         }
     }
     let pick = c.pick;
+    if settings.choice_looks(i).and_then(|l| l.action).is_some_and(|is_action| is_action(name)) {
+        // An action: done, nothing kept (set_choice_action).
+        let key = settings.list()[i].key;
+        let done = pick(world, name);
+        if done {
+            info!("settings: {key} {name} (an action; nothing kept)");
+        } else {
+            info!("settings: {key} {name} not taken");
+        }
+        return done;
+    }
     take(world, i, |w| pick(w, name))
 }
 
@@ -1415,6 +1440,58 @@ reach=0.5
         add_choice_list(app, setting("size", "Test"), ChoiceList { ask_keep: false, ..sizes() });
         set_choice_labels(app, "size", |_, n| format!("{n} pixels"));
         set_choice_unavailable(app, "size", |w, n| (n == "1920x1080" && !w.resource::<Big>().0).then(|| "Needs a bigger monitor".to_string()));
+    }
+
+    /// How often the test list's action ran.
+    #[derive(Resource, Default)]
+    struct Acted(u32);
+
+    /// A choice marked as an action (`set_choice_action`, Download DLSS… in nvforever) is done
+    /// by the list's pick, and then neither keeps the row nor writes the INI, so a stored value
+    /// the run set aside (`KeptRows`) stays; an ordinary choice still does both.
+    #[test]
+    fn an_action_choice_is_done_and_nothing_is_kept_or_written() {
+        let dir = std::env::temp_dir().join(format!("nvf-settings-action-{}", std::process::id()));
+        let path = dir.join("NVForever.ini");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(&path, "[Settings]\nsize=1920x1080;kept\n").unwrap();
+        let mut app = App::new();
+        app.init_resource::<Lamp>().init_resource::<Acted>().insert_resource(Size("1280x800".into()));
+        app.insert_resource(SettingsFile(Some(path.clone())));
+        add_choice_list(
+            &mut app,
+            setting("size", "Test"),
+            ChoiceList {
+                ask_keep: false,
+                names: |_| ["800x600", "1280x800", "1920x1080", "Measure..."].map(String::from).to_vec(),
+                pick: |w, n| {
+                    if n == "Measure..." {
+                        w.resource_mut::<Acted>().0 += 1;
+                        return true;
+                    }
+                    (sizes().pick)(w, n)
+                },
+                ..sizes()
+            },
+        );
+        set_choice_action(&mut app, "size", |n| n == "Measure...");
+        app.add_systems(PostStartup, apply_stored);
+        app.update();
+        let w = app.world_mut();
+        // As a run whose command line gave another size keeps the stored one aside.
+        w.resource_mut::<Size>().0 = "800x600".into();
+        w.insert_resource(KeptRows(vec![(0, "1920x1080;kept".into())]));
+        assert!(pick(w, 0, "Measure..."));
+        assert_eq!(w.resource::<Acted>().0, 1, "the action ran");
+        assert_eq!(w.resource::<Size>().0, "800x600", "the row's state unchanged");
+        assert_eq!(w.resource::<KeptRows>().0, vec![(0, "1920x1080;kept".to_string())], "the stored value still set aside");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "[Settings]\nsize=1920x1080;kept\n", "the INI not written");
+        // An ordinary choice is the player's: kept and written.
+        assert!(pick(w, 0, "1280x800"));
+        assert!(w.resource::<KeptRows>().0.is_empty());
+        assert!(std::fs::read_to_string(&path).unwrap().contains("size=1280x800;kept"));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

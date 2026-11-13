@@ -24474,6 +24474,103 @@ expect = [
 ]
 forbid = [{ text = "DLSS: evaluate active", label = "a DLSS evaluate with FSR chosen" }, { re = 'graphics: DLSS \w+ active', label = "DLSS put on the camera" }, { text = "frame generation: on but not running", label = "frame generation held off" }, { text = "FSR dispatch failed", label = "FSR failing" }, { text = "FSR 3.1 unavailable", label = "FSR unavailable through the interposer" }, { text = "Validation Error", label = "a Vulkan validation error" }, { text = "Caught rendering error", label = "a rendering error" }]
 
+# Download DLSS... from the settings (#2250, docs/dlss.md): the Upscaler row's choice, NVIDIA's licence in a dialog, the
+# download of the four files from NVIDIA's release. dlss-download-decline, -offline and -404 need no network and no NVIDIA
+# file: their NVF_DLSS_DIR names a folder under target/ that holds none (so the choice is offered), and their download address
+# is the test aid's loopback one (NVF_DLSS_DOWNLOAD_URL, taken only for http on this machine). Off Windows the choice is not
+# offered (DLSS is Windows only; picking it logs "not taken"), so each expectation takes either outcome, as dlss-no-files does. dlss-download-real and
+# -real-restart fetch the real files from GitHub (about 60 MB): only with NVF_DLSS_DOWNLOAD_REAL set.
+[[scenario]]
+name = "dlss-download-decline"
+source = "#2250, docs/dlss.md \"Download DLSS…\": Download DLSS... picked on the Upscaler row opens NVIDIA's licence; Cancel closes it and nothing is downloaded: no network access before I accept"
+note = "NVF_DLSS_DIR names target/smoke-dlss-decline, which holds no DLSS file, and NVF_DLSS_PRELOAD=0 keeps a preload in the runner's environment out, so DLSS is out of reach as files-missing and the row offers the download. The download address is a closed loopback port, so even a wrong acceptance would not reach the network. Off Windows the row does not offer it (the settings say it is not taken). Its own NVFOREVER_HOME: the pick is an action and writes no INI, but a run's settings stay out of the player's home all the same"
+areas = ["graphics", "ui"]
+paths = ["engine/nvforever/src/dlss_download/**", "engine/nvforever/src/dlss/download/**", "engine/nvforever/src/settings.rs", "engine/nvforever/src/upscaler*", "engine/nvf-play/src/settings.rs", "engine/nvf-play/src/pause.rs"]
+env = { WGPU_BACKEND = "vulkan", NVFOREVER_HOME = "dlss-download-decline-home", NVF_DLSS_DIR = "{repo}/target/smoke-dlss-decline", NVF_DLSS_PRELOAD = "0", NVF_DLSS_DOWNLOAD_URL = "http://127.0.0.1:9/streamline-sdk-v2.14.16.zip", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "8:16", NVF_PLAY_TEST_SETTINGS = "9:upscaler=Download DLSS...", NVF_PLAY_TEST_DLSS_DOWNLOAD = "cancel" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--size", "1280x720", "--upscaler", "off", "--no-voice", "--no-lodgen"]
+run_seconds = 19
+expect = [
+  { re = '(DLSS download: licence shown \(\d+ lines\)|settings: upscaler Download DLSS\.\.\. not taken)', label = "the licence shown (Windows), or not taken (DLSS is Windows only)" },
+  { re = '(DLSS download: licence not accepted; nothing downloaded|settings: upscaler Download DLSS\.\.\. not taken)', label = "Cancel closes it with nothing downloaded" },
+]
+forbid = [{ text = "DLSS download: licence accepted", label = "a download started without I accept" }, { text = "settings: upscaler Off", label = "the action taken as a change of the row (kept and stored)" }, { re = 'DLSS download: \d+ entries', label = "the archive read" }, { text = "DLSS download: failed", label = "a download tried" }, { text = "Validation Error", label = "a Vulkan validation error" }]
+
+[[scenario]]
+name = "dlss-download-offline"
+source = "#2250, docs/dlss.md \"Download DLSS…\": I accept starts the download; with no answer from the server it fails, nothing is written, and the dialog shows the result with the manual way"
+note = "NVF_DLSS_DOWNLOAD_URL is a closed port on this machine (http://127.0.0.1:9), which refuses the connection: the offline failure without the network. NVF_DLSS_DIR names target/smoke-dlss-offline (no DLSS file in it; the download writes nothing there). The aid closes the dialog a second after the result. Off Windows the row does not offer it. Its own NVFOREVER_HOME"
+areas = ["graphics", "ui"]
+paths = ["engine/nvforever/src/dlss_download/**", "engine/nvforever/src/dlss/download/**", "engine/nvforever/src/settings.rs", "engine/nvforever/src/upscaler*", "engine/nvf-play/src/settings.rs"]
+env = { WGPU_BACKEND = "vulkan", NVFOREVER_HOME = "dlss-download-offline-home", NVF_DLSS_DIR = "{repo}/target/smoke-dlss-offline", NVF_DLSS_PRELOAD = "0", NVF_DLSS_DOWNLOAD_URL = "http://127.0.0.1:9/streamline-sdk-v2.14.16.zip", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "8:22", NVF_PLAY_TEST_SETTINGS = "9:upscaler=Download DLSS...", NVF_PLAY_TEST_DLSS_DOWNLOAD = "accept" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--size", "1280x720", "--upscaler", "off", "--no-voice", "--no-lodgen"]
+run_seconds = 25
+expect = [
+  { re = '(test aid NVF_PLAY_TEST_DLSS_DOWNLOAD: I accept pressed|settings: upscaler Download DLSS\.\.\. not taken)', label = "I accept pressed on the licence (Windows)" },
+  { re = '(DLSS download: licence accepted|settings: upscaler Download DLSS\.\.\. not taken)', label = "the download starts only now" },
+  { re = '(DLSS download: failed: no answer from the server \(.+\); nothing written|settings: upscaler Download DLSS\.\.\. not taken)', label = "no answer: failed, nothing written" },
+  { re = '(DLSS download: result shown \(failed\)|settings: upscaler Download DLSS\.\.\. not taken)', label = "the dialog shows the failure and the manual way" },
+]
+order = [[{ re = '(DLSS download: licence shown|settings: upscaler Download DLSS\.\.\. not taken)' }, { re = '(DLSS download: licence accepted|settings: upscaler Download DLSS\.\.\. not taken)' }]]
+forbid = [{ text = "DLSS download: installed in", label = "anything installed" }, { re = 'DLSS download: \S+ \d+ bytes, SHA-256 ok', label = "a file fetched" }, { text = "panicked", label = "a panic" }, { text = "Validation Error", label = "a Vulkan validation error" }]
+
+[[scenario]]
+name = "dlss-download-404"
+source = "#2250, docs/dlss.md \"Download DLSS…\": the archive's address answering 404 fails the download with the status, nothing written"
+note = "The runner's loopback server (serve) answers every request 404; NVF_DLSS_DOWNLOAD_URL points the download at it. NVF_DLSS_DIR names target/smoke-dlss-404 (no DLSS file in it). Off Windows the row does not offer it. Its own NVFOREVER_HOME"
+areas = ["graphics", "ui"]
+paths = ["engine/nvforever/src/dlss_download/**", "engine/nvforever/src/dlss/download/**", "engine/nvforever/src/settings.rs", "tools/smoke/smoke/runner.py"]
+serve = { status = 404 }
+env = { WGPU_BACKEND = "vulkan", NVFOREVER_HOME = "dlss-download-404-home", NVF_DLSS_DIR = "{repo}/target/smoke-dlss-404", NVF_DLSS_PRELOAD = "0", NVF_DLSS_DOWNLOAD_URL = "{serve}/streamline-sdk-v2.14.16.zip", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "8:20", NVF_PLAY_TEST_SETTINGS = "9:upscaler=Download DLSS...", NVF_PLAY_TEST_DLSS_DOWNLOAD = "accept" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--size", "1280x720", "--upscaler", "off", "--no-voice", "--no-lodgen"]
+run_seconds = 23
+expect = [
+  { re = '(DLSS download: licence accepted|settings: upscaler Download DLSS\.\.\. not taken)', label = "accepted (Windows)" },
+  { re = '(DLSS download: failed: the server answered HTTP 404; nothing written|settings: upscaler Download DLSS\.\.\. not taken)', label = "a 404: failed with the status, nothing written" },
+  { re = '(DLSS download: result shown \(failed\)|settings: upscaler Download DLSS\.\.\. not taken)', label = "the dialog shows the failure" },
+]
+forbid = [{ text = "DLSS download: installed in", label = "anything installed" }, { re = 'DLSS download: \d+ entries', label = "an archive read from a 404" }, { text = "is not an http address on this machine", label = "the loopback address refused" }, { text = "panicked", label = "a panic" }, { text = "Validation Error", label = "a Vulkan validation error" }]
+
+[[scenario]]
+name = "dlss-download-real"
+source = "#2250, docs/dlss.md \"Download DLSS…\": the real download from NVIDIA's Streamline 2.14.16 release: only the four entries fetched by ranges, each SHA-256 checked, installed in the DLSS folder, the dialog says to restart; NVIDIA's attribution joins the credits. dlss-download-real-restart then loads DLSS from them"
+note = "needs the network and NVF_DLSS_DOWNLOAD_REAL=1 (about 60 MB from GitHub). The first half of a pair with dlss-download-real-restart (they share NVFOREVER_HOME and NVF_DLSS_DIR, so they run in this order). The aid's clear deletes the four files from target/smoke-dlss-real at the start (it touches only a smoke-dlss-* folder), so the choice is offered every run; NVF_DLSS_PRELOAD=0 and --upscaler off keep the DLSS loader from holding a file left by the last run"
+areas = ["graphics", "ui"]
+paths = ["engine/nvforever/src/dlss_download/**", "engine/nvforever/src/dlss/download/**"]
+requires = ["NVF_DLSS_DOWNLOAD_REAL"]
+env = { WGPU_BACKEND = "vulkan", NVFOREVER_HOME = "dlss-download-real-home", NVF_DLSS_DIR = "{repo}/target/smoke-dlss-real", NVF_DLSS_PRELOAD = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "8:170", NVF_PLAY_TEST_SETTINGS = "9:upscaler=Download DLSS...", NVF_PLAY_TEST_DLSS_DOWNLOAD = "clear,accept" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--size", "1280x720", "--upscaler", "off", "--no-voice", "--no-lodgen"]
+run_seconds = 175
+expect = [
+  { re = 'test aid NVF_PLAY_TEST_DLSS_DOWNLOAD: clear: \d of the listed files deleted', label = "the folder emptied of the four files" },
+  "DLSS download: licence accepted",
+  { re = 'DLSS download: 4 entries, \d+ bytes to fetch from https://github\.com/NVIDIA-RTX/Streamline/releases/download/v2\.14\.16/streamline-sdk-v2\.14\.16\.zip', label = "the four entries, from the pinned address" },
+  "DLSS download: sl.interposer.dll 652928 bytes, SHA-256 ok",
+  "DLSS download: sl.common.dll 843904 bytes, SHA-256 ok",
+  "DLSS download: sl.dlss.dll 422016 bytes, SHA-256 ok",
+  "DLSS download: nvngx_dlss.dll 58956912 bytes, SHA-256 ok",
+  { re = 'DLSS download: installed in .*smoke-dlss-real; restart NVForever to use DLSS', label = "installed in the folder" },
+  "DLSS download: result shown (ready)",
+  { text = "DLSS download: NVIDIA's attribution added to the credits", label = "the attribution once the files are there" },
+]
+forbid = [{ text = "DLSS download: failed", label = "a failed download" }, { text = "nvngx_update.exe", label = "the updater named" }, { text = "panicked", label = "a panic" }, { text = "Validation Error", label = "a Vulkan validation error" }]
+
+[[scenario]]
+name = "dlss-download-real-restart"
+source = "#2250, docs/dlss.md \"Download DLSS…\": after dlss-download-real, a restart with DLSS chosen loads Streamline from the downloaded files and DLSS draws"
+note = "runs after dlss-download-real in the same NVFOREVER_HOME and NVF_DLSS_DIR; needs NVF_DLSS_DOWNLOAD_REAL (and that run's files)"
+areas = ["graphics"]
+paths = ["engine/nvforever/src/dlss_download/**", "engine/nvforever/src/dlss/download/**"]
+requires = ["NVF_DLSS_DOWNLOAD_REAL"]
+env = { WGPU_BACKEND = "vulkan", NVFOREVER_HOME = "dlss-download-real-home", NVF_DLSS_DIR = "{repo}/target/smoke-dlss-real" }
+args = ["--cell", "Goodsprings", "--size", "1280x720", "--upscaler", "dlss", "--upscaler-quality", "quality", "--no-voice", "--no-lodgen"]
+run_seconds = 18
+expect = [
+  "DLSS: route: interposer (the Vulkan instance was made through sl.interposer.dll)",
+  { re = 'DLSS: output observed: .*, generation 1, mean RGB', label = "DLSS's output seen, so NGX drew from the downloaded files" },
+  "upscaler: DLSS Quality asked for, DLSS Quality draws",
+]
+forbid = [{ re = 'DLSS: output not (observed|valid)' }, { text = "DLSS: inactive:", label = "the loader refusing the downloaded folder" }, { text = "slEvaluateFeature: ", label = "a failed evaluate" }, { text = "Validation Error", label = "a Vulkan validation error" }]
+
 # [design: issue #1803] Compare identical first raises with and without hidden draws.
 [[scenario]]
 name = "pipboy-first-open"

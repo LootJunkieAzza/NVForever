@@ -213,6 +213,25 @@ pub mod sha256 {
     pub fn to_hex(b: &[u8]) -> String {
         hex::encode(b)
     }
+
+    /// SHA-256 over data given in pieces (a file read or a download streamed through it): the
+    /// same digest as [`digest`] of the pieces joined.
+    #[derive(Clone, Default)]
+    pub struct Stream(Sha256);
+
+    impl Stream {
+        pub fn new() -> Self {
+            Self::default()
+        }
+
+        pub fn update(&mut self, data: &[u8]) {
+            self.0.update(data);
+        }
+
+        pub fn finish(self) -> [u8; 32] {
+            self.0.finalize().into()
+        }
+    }
 }
 
 /// Bounds-checked little-endian reader over a byte slice.
@@ -302,6 +321,26 @@ mod tests {
             sha256::hex(&vec![b'a'; 1_000_000]),
             "cdc76e5c9914fb9281a1c7e284d73e67f1809a48a497200e046d39ccc7112cd0"
         );
+    }
+
+    #[test]
+    fn sha256_stream_matches_the_one_shot_digest_whatever_the_pieces() {
+        let data: Vec<u8> = (0..200_000u32).map(|i| (i * 7 + i / 255) as u8).collect();
+        let whole = sha256::digest(&data);
+        for piece in [1, 63, 64, 65, 4096, 65_536, data.len()] {
+            let mut stream = sha256::Stream::new();
+            for chunk in data.chunks(piece) {
+                stream.update(chunk);
+            }
+            assert_eq!(stream.finish(), whole, "pieces of {piece} bytes");
+        }
+        let mut empty = sha256::Stream::new();
+        empty.update(&[]);
+        assert_eq!(sha256::to_hex(&empty.finish()), "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
+        let mut abc = sha256::Stream::default();
+        abc.update(b"a");
+        abc.update(b"bc");
+        assert_eq!(sha256::to_hex(&abc.finish()), "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
     }
 
     #[test]

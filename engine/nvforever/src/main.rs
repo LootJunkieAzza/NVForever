@@ -75,6 +75,7 @@ mod fly;
 mod foot_ik;
 mod anti_lag;
 mod dlss;
+mod dlss_download;
 mod nv_low_latency;
 mod frame_pace;
 mod frame_telemetry;
@@ -1936,6 +1937,7 @@ fn main() -> AppExit {
     }
     if play.is_some() {
         settings::register(&mut app);
+        dlss_download::add(&mut app);
         console_toggles::register(&mut app);
         app.init_resource::<handoff::Handoff>().add_systems(Update, (handoff::leave, handoff::reveal.after(world::loading_gate), handoff::hold_restore.after(handoff::reveal)));
         handoff::add_end_now(&mut app);

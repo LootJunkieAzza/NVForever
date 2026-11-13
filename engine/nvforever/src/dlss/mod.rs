@@ -125,6 +125,7 @@ use crate::upscaler::{DlssModel, DlssState, UpscaleQuality, Unavailable, Upscale
 mod evaluate;
 #[cfg(windows)]
 mod ffi;
+pub(crate) mod download;
 #[cfg(any(windows, test))]
 mod preflight;
 #[cfg(windows)]
