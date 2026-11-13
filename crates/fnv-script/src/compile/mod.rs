@@ -105,6 +105,18 @@ pub fn compile_runtime(src: &str, table: &FunctionTable, env: &dyn Env) -> Compi
     g.unit(src)
 }
 
+/// A mod's text compiled at run time (JIP's Script Runner files, CompileScript's): as
+/// [`compile_runtime`], and as a mod's source the engine compiles ([`Seed::unknown_calls`]):
+/// a name nothing knows where a call stands is a call of that name, which reports "not
+/// built" when it runs, instead of costing the whole file [decision, #2275: the owner's Blue
+/// Moon list skipped whole Script Runner files over one plugin function the catalogue has
+/// no page for (EnableImprovedRecipeMenu, GetExtraAccuracyPenaltyMult, …)].
+pub fn compile_mod_runtime(src: &str, table: &FunctionTable, env: &dyn Env) -> Compiled {
+    let mut g = gen::Gen::new(table, env, Some(Seed { variables: &[], refs: &[], unknown_calls: true }));
+    g.runtime = true;
+    g.unit(src)
+}
+
 /// The player reference, which source may call `player` or `playerref`
 /// [observed: scripts.md §3.4].
 pub const PLAYER: u32 = 0x14;

@@ -66,7 +66,8 @@ fn files() {
              set SRRegistered to SRRegistered * 10 + RegisterSRScript \"optional\\gr_late.txt\"\r\n",
         );
         w("optional/gl_extra.txt", "set SRLoads to SRLoads + 100\r\n");
-        w("optional/gl_broken.txt", "set SRLoads to SRNoSuchForm\r\n");
+        // Does not compile: Set without To (an unknown name alone is a call in a mod's file, #2275).
+        w("optional/gl_broken.txt", "set SRLoads 1\r\n");
         // A registered gr_ file runs after the folder's gr_ files.
         w("optional/gr_late.txt", "set SRLate to SROrder\r\n");
         w("gl_top.txt", "set SRLoads to SRLoads + 1\r\n");
@@ -75,7 +76,7 @@ fn files() {
         // Outside the game restart RegisterSRScript does nothing.
         w("gn_register.txt", "set SRNew to SRNew + 1000 * RegisterSRScript \"optional\\gl_extra.txt\"\r\n");
         // Skipped: does not compile; no known prefix; not a text file.
-        w("gr_broken.txt", "set SROrder to SRNoSuchForm\r\n");
+        w("gr_broken.txt", "set SROrder 99\r\n");
         w("readme.txt", "set SROrder to 99\r\n");
         w("gr_notes.ini", "set SROrder to 99\r\n");
     });

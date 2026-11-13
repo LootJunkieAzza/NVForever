@@ -3046,6 +3046,12 @@ impl Vm<'_, '_> {
             }
         };
         match name.to_ascii_lowercase().as_str() {
+            // `(eval Expression)` inside an expression: the expression's value [documented:
+            // Eval, an NVSE-aware command taking an expression; observed: the owner's Blue
+            // Moon list's Script Runner files write `AuxVarSetFlt "*x" (eval
+            // GetINIFloat_Cached "s:k" "f.ini" 1) 5`, and their statements were skipped as
+            // not built, #2275].
+            "eval" => arg(self, 0),
             // [documented: ToString; ToNumber] (the hex and reportError arguments of
             // ToNumber: D1).
             "tostring" => {

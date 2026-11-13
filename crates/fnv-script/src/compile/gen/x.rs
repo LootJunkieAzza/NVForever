@@ -675,8 +675,13 @@ impl Gen<'_> {
             _ => None,
         };
         if let Some((_, text)) = literal.filter(|(v, _)| v.fract() != 0.0) {
+            // A plugin's function, as every row observed; xNVSE's own keep the fraction
+            // [hypothesis: the owner's Blue Moon list's Vanilla SWEEP files pass
+            // `SetWeaponFireRate 7.5` (NVSE, whose page types the rate int while
+            // GetWeaponFireRate gives a float), #2275].
+            let plugin = self.table.unnumbered.get(&low).is_some_and(|u| !matches!(u.origin.as_str(), "NVSE" | "FOSE1" | "GECK1"));
             let int = INT_PARAMS_OBSERVED.contains(&(low.as_str(), k))
-                || self.table.unnumbered.get(&low).and_then(|u| u.params.get(k)).is_some_and(|p| p.kind == "int");
+                || plugin && self.table.unnumbered.get(&low).and_then(|u| u.params.get(k)).is_some_and(|p| p.kind == "int");
             if int {
                 self.diag("fraction_for_int_parameter", true, format!("{name}: {text}"));
             }

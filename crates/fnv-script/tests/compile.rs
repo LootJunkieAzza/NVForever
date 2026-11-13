@@ -1690,3 +1690,18 @@ fn an_if_with_open_parentheses_takes_the_lines_that_continue_it() {
     let Stmt::If { arms, .. } = &body(&p)[0] else { panic!("{:?}", body(&p)) };
     assert_eq!(ops(&arms[0].cond), ["var", "4", "==", "var", "1", "<", "&&", "var", "3", "==", "var", "2", "<", "&&", "||"]);
 }
+
+#[test]
+fn a_mods_runtime_file_calls_a_function_nothing_knows() {
+    // A Script Runner file naming a plugin function with no page compiles; the console's
+    // line keeps the error.
+    let src = probe("EnableImprovedRecipeMenu 1\nplayer.RefreshAnimData");
+    let c = fnv_script::compile::compile_mod_runtime(&src, &table(), &World);
+    assert_eq!(c.errors().count(), 0, "{:?}", c.errors().collect::<Vec<_>>());
+    assert!(!runtime_errors("EnableImprovedRecipeMenu 1").is_empty());
+}
+
+#[test]
+fn xnvses_own_int_parameter_keeps_a_fraction_at_run_time() {
+    assert_eq!(runtime_errors("SetWeaponFireRate 7.5"), Vec::<&str>::new());
+}
