@@ -6166,7 +6166,7 @@ impl<'a> Game<'a> {
         let secs = c.since.elapsed().as_secs_f64();
         let ms = |d: std::time::Duration| d.as_secs_f64() * 1000.0 / secs;
         let mut scripts: Vec<_> = c.scripts.into_iter().collect();
-        scripts.sort_by(|a, b| b.1 .1.cmp(&a.1 .1));
+        scripts.sort_by_key(|s| std::cmp::Reverse(s.1 .1));
         let script_name = |g: &Self, id: u32| -> String {
             if id >= LAMBDA_BASE {
                 return g.lambdas.get((id - LAMBDA_BASE) as usize).map(|d| format!("lambda in {}", d.key)).unwrap_or_else(|| format!("lambda {id:08X}"));
@@ -6178,12 +6178,12 @@ impl<'a> Game<'a> {
         };
         let top: Vec<String> = scripts.iter().take(25).map(|(id, (n, d))| format!("{} {:.2} ms/s ({n})", script_name(self, *id), ms(*d))).collect();
         let mut funcs: Vec<_> = c.functions.into_iter().collect();
-        funcs.sort_by(|a, b| b.1 .1.cmp(&a.1 .1));
+        funcs.sort_by_key(|f| std::cmp::Reverse(f.1 .1));
         let data = self.data;
         let fname = |op: u16| data.table.get(op).map(|f| f.name.clone()).unwrap_or_else(|| format!("0x{op:04X}"));
         let mut topf: Vec<(String, u64, std::time::Duration)> = funcs.iter().map(|(op, (n, d))| (fname(*op), *n, *d)).collect();
         topf.extend(c.named.into_iter().map(|(k, (n, d))| (k, n, d)));
-        topf.sort_by(|a, b| b.2.cmp(&a.2));
+        topf.sort_by_key(|f| std::cmp::Reverse(f.2));
         let topf: Vec<String> = topf.iter().take(25).map(|(f, n, d)| format!("{f} {:.2} ms/s ({n})", ms(*d))).collect();
         Some(format!("script cost: {secs:.1} s; scripts (ms a second, runs): {}
 script cost: functions (ms a second, calls): {}", top.join(", "), topf.join(", ")))
