@@ -1,0 +1,21 @@
+# The totals `fnvtool ext report {data} --mo2-profile <Begin Again profile> --schema
+# schemas/fnv` must print for the owner's Begin Again list (a Tale of Two Wastelands list,
+# 203 plugins, profile "Begin Again"): the smoke scenario modlist-begin-again
+# (tools/smoke/scenarios.toml) expects each value below, by its JSON path, to equal the
+# run's (issue #2335). Counts only; nothing of the mods is kept here.
+#
+# units_picked: the units the game runs from their source text (they use the extender);
+# units_kept_bytes: those whose source does not compile, which keep compiled bytes whose
+# extender calls all give 0. Of the 2 left, both are TTW - Capital Wasteland
+# Adjustments.esm's NVSEScript units (`name X;`), which the NVSEScript front end of #2297
+# compiles. A branch that fixes a cause lowers units_kept_bytes and raises
+# units_from_source by as much; a rise fails the run (find the plugin and cause in the
+# report's per_plugin list before raising anything). A change to the mod list itself
+# changes these too: write the new summary here.
+
+[summary]
+units_picked = 934
+units_from_source = 932
+units_kept_bytes = 2
+# Functions the scripts call that NVForever has no entry for (their calls do nothing).
+"unknown_functions.#" = 14

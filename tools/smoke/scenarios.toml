@@ -16023,6 +16023,20 @@ expect_file = "expected/modlist-blue-moon.toml"
 manual = "a rise: compare the report's per_plugin failed lists with main's; a drop: write the new summary into expected/modlist-blue-moon.toml"
 
 [[scenario]]
+name = "modlist-begin-again"
+kind = "tool"
+source = "issue #2335: the Begin Again mod list (Tale of Two Wastelands, MO2 game TTW, 203 plugins) as modlist-blue-moon reads Blue Moon: its extender scripts as the game builds them at start (fnvtool ext report), from its Mod Organizer 2 profile"
+areas = ["scripts", "extender", "mods"]
+paths = ["crates/fnv-game/src/source_compile.rs", "crates/fnv-script/src/compile/", "crates/fnv-script/src/decode.rs", "crates/fnv-script/src/table.rs", "crates/fnv-script/data/encodings.json", "crates/fnvtool/src/ext_cmd.rs", "crates/fnvtool/src/mo2_args.rs", "crates/fnv-install/src/mo2.rs", "schemas/script/functions.json", "tools/smoke/expected/modlist-begin-again.toml"]
+requires = ["NVF_MODLIST_BEGIN_AGAIN"]
+note = "NVF_MODLIST_BEGIN_AGAIN: the folder of the Begin Again profile on this machine (<MO2 instance>\\profiles\\Begin Again; the owner's). Plugins come from the instance's mods by modlist.txt priority (the Fallout 3 masters from the TTW mod) and its game folder's Data; {data} is only the data folder argument"
+commands = [["ext", "report", "{data}", "--mo2-profile", "{env:NVF_MODLIST_BEGIN_AGAIN}", "--schema", "schemas/fnv"]]
+# The totals live in expected/modlist-begin-again.toml: a branch that makes more units
+# compile lowers units_kept_bytes there; a rise fails this run.
+expect_file = "expected/modlist-begin-again.toml"
+manual = "a rise: compare the report's per_plugin failed lists with main's; a drop: write the new summary into expected/modlist-begin-again.toml"
+
+[[scenario]]
 name = "mq-old-world-blues"
 kind = "tool"
 source = "headless add-on walkthrough crates/fnv-game/walkthrough/old-world-blues.actions.json: Old World Blues from the drive-in satellite through the Think Tank, X-2, X-8, X-13, the Forbidden Zone and the Think Tank talked down, the end slides to NVDLC03MQ05 100"
