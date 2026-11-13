@@ -49,14 +49,37 @@ Before the main pass, from the depth prepass alone (the custom prepasses write n
    2 x 2 blocks with each block's distance, for the next frame.
 
 In the lighting (lights.rs): the ambient term of the display sum is multiplied by the
-openness (occlusion capped at 0.6, so dim rooms keep their corners) and by a sky/ground
-hemisphere on the **normal-mapped** normal (1.12-1.20 above, 0.50-0.62 below), so shapes read
+openness (occlusion capped at 0.45, so dim rooms keep their corners) and by a sky/ground
+hemisphere on the **normal-mapped** normal (1.10-1.17 above, 0.68-0.80 below), so shapes read
 in the shade, where the game's flat ambient showed no normal map at all. Point and spot lights
-take 60 % of the occlusion (they cast no shadows). The bounce is added as diffuse colour ×
+take 60 % of the occlusion (they cast no shadows). The openness is raised to 1/2.2 first:
+the display sum is raised to 2.2 afterwards, and without it 45 % occlusion took 73 % of the
+ambient light and crushed sunlit scenes' shade.
+
+Outdoors (a shadow-casting sun in the light) the remaster leans the light towards the sun,
+sun x1.15 and ambient x0.9, growing with the sun's height from 12 to 35 degrees (dawn and
+dusk keep their soft shade): a harder desert light whose shade the bounce fills. The bounce is added as diffuse colour ×
 light. The post-process AO (graphics-enhanced.md §3.1) stays on at 0.35 for contact shadows.
 
-Known limits: nothing off the screen bounces; light from far emitters (the Strip's neon a
-block away) does not reach the pavement, as the march reaches 450 units.
+Two longer tiers sit on top of the march, in the manner of radiance cascades (fine and
+short near, coarse and long further out):
+
+- **Far cascade**: 4 more steps per side out to 8 times the near reach (at most 0.45 of the
+  screen height), with 4 times the thickness, light only: they light sectors nothing nearer
+  closed and leave the occlusion to the near steps, so whole valleys are not darkened.
+- **Emissive glow field**: last frame's light of texels brighter than 1.5-4 (a soft
+  threshold, after exposure: neon, bulbs, fire, lit stair treads; never the sky) at a
+  sixteenth of the picture's size, blurred wide both ways and added at strength 7 to the
+  bounce of surfaces within 3,000-9,000 units (`NVF_GI`'s seventh value tunes it). The Strip's steps,
+  rails and fountain take the signs' warm light, which no march of a few hundred units
+  reached.
+
+Indoors (the cell has its own lighting) 0.07 of light (linear) is added where the
+surroundings are open: FNV's dimmest rooms (the Prospector Saloon) otherwise crush to black
+under the occlusion and the grade.
+
+Known limits: nothing off the screen bounces; the glow field ignores occlusion and
+direction (a sign's light reaches round a corner within its blur).
 
 ## 3. Volumetric atmosphere (`atmos.rs`)
 
@@ -83,6 +106,12 @@ rust and wood stay matte). Sun-shadow edges: the Gaussian filter averages Bevy's
 with its 8-tap spiral at 2.5x, turned per pixel and not per frame (vendored
 `shadow_sampling.wesl`), a wider penumbra without temporal noise under MSAA.
 
+**Cloud shadows** (lights.rs `nvf_sun_cloud`, atmos.wesl): value noise (3 octaves, cells of
+17,000 units) at a cloud layer 30,000 units up, read where the ray from the surface to the
+sun crosses it, drifting with time; the sun dims to 0.4 under a cloud. Only on a directional
+light that casts shadows (the sun outdoors), on surfaces and in the fog's sun light (there
+taken at the ray's two ends and blended).
+
 ## 5. Colour grade (`post.wesl` `grade`)
 
 On display values after tonemapping, in the bloom/sharpen composite: × 1.06, a luminance
@@ -96,7 +125,17 @@ within -4..+5 of `enhanced`; contrast (standard deviation) rises in seven of the
 --graphics-cycle "enhanced;remaster"`, free camera at Goodsprings noon, sun shadows on]:
 GPU time per pass: GI 1.10-1.26 ms (1.58 with 12 steps; 8 kept), volumetric fog 0.41-0.46 ms,
 main opaque pass +0.27 ms (the extra lighting); about +1.8 ms of GPU in all. Frame time
-4.8 ms (enhanced) against 6.4 ms (remaster) in the first cycle.
+4.8 ms (enhanced) against 6.4 ms (remaster) in the first cycle. With the far cascade, the glow
+field and the cloud shadows (same place and method, later the same day): GI 1.78-1.89 ms,
+fog 0.45-0.46 ms, main pass 1.74 ms (enhanced 1.47); frame time 4.86 against 7.17 ms; the
+final build 4.91 against 7.34 ms (GI 1.93, fog 0.47, main pass 1.82).
+
+Final build against `vanilla` (mean / standard deviation / share of pixels under 20):
+Goodsprings noon 97.8/58.6/8.1 % → 97.1/60.5/12.0 %, dusk 78.8/50.7/3.4 % → 92.7/55.1/2.9 %,
+road 101.1/77.7/11.3 % → 114.8/81.8/4.4 %, Doc Mitchell's house 37.6/20.1/15.2 % →
+42.5/21.8/10.0 %, saloon 17.5/28.7/77.4 % → 19.8/27.2/73.0 %, Novac 71.7/42.6/3.1 % →
+75.6/45.2/2.4 %, Strip 60.1/56.0/24.3 % → 60.6/58.0/25.2 %, Primm 88.6/51.2/2.7 % →
+90.0/53.1/4.7 %.
 
 Mean / standard deviation of luminance of the eight test views (1600 x 900 screenshots),
 `enhanced` against `remaster`: Goodsprings noon 96.9/59.4 → 92.8/60.1, dusk 87.1/53.2 →
@@ -111,9 +150,8 @@ the march, and true contact-hardening shadows.
 
 ## 7. Next candidates
 
-- Emissive surfaces as light sources beyond the screen-space reach (the Strip's neon): a
-  low-resolution voxel or radiance-cascade pass over the near world, or light probes placed
-  at bright emitters.
+- World-space light (a low-resolution voxel or probe pass) for what is off the screen and
+  for occlusion of the glow field.
 - Contact-hardening (PCSS) sun shadows: Bevy's needs the `experimental_pbr_pcss` feature and
   is noisy without temporal filtering; a blocker search of our own in the vendored sampler.
 - The game's environment maps (shader texture slot 4) drawn on the shapes that name one.
