@@ -1,13 +1,10 @@
-//! DLSS Frame Generation (DLSS-G) through Streamline, the spike's stages 1b and 2 (#2317;
-//! fork-notes `fg-spike-design.md`). Not FSR's frame generation (`crate::frame_gen`), which never
-//! starts while DLSS-G is loaded.
+//! DLSS Frame Generation (DLSS-G) through Streamline (#2317; docs/design/dlss-frame-generation.md).
+//! Not FSR's frame generation (`crate::frame_gen`), which never starts while DLSS-G is loaded.
 //!
-//! - **`NVF_DLSSG_SPIKE=loaded`** (stage 1b): DLSS-G stays loaded with its mode off, so the
-//!   window presents through Streamline's proxy swapchain while no frame is generated: the
-//!   options are set once (mode `eOff`, `eRetainResourcesWhenOff`, the error callback) and the
-//!   state is read after every present.
-//! - **`NVF_DLSSG_SPIKE=on`** (stage 2): one frame generated per real frame (or
-//!   `NVF_DLSSG_FRAMES`, 1 to 3, at most what the state allows), in play:
+//! - **What runs** while DLSS-G and Reflex were set up (`win.rs`): the Frame generation row
+//!   asks for DLSS ([`follow_request`], from `crate::frame_gen::DlssgRequest`) and DLSS-G is
+//!   loaded; frames are generated in play, `requested_frames` per real frame (the Generated
+//!   frames row, at most what the state allows):
 //!   - [`set_constants`] (before the frame is recorded): the common constants once a frame for
 //!     whichever upscaler draws (FSR or DLSS; `evaluate.rs` `constants_for`), with our frame
 //!     number's token (`frame_token.rs`); DLSS's evaluate then sets none of its own.
@@ -67,8 +64,7 @@
 //!   what the hold covers is the swapchain's reconfigure, which happens only after a frame was
 //!   presented with the mode off. A hold whose image comes back `Outdated` presents nothing;
 //!   no present since the mode went off counts as off ([`state`]).
-//! - **On and off live** (`NVF_DLSSG_TOGGLE=<s>:off,<s>:on`, a test aid, seconds since the
-//!   start): "the swap chain must be torn down and recreated every time DLSS-G is switched on
+//! - **On and off live** (the Frame generation row, [`follow_request`]): "the swap chain must be torn down and recreated every time DLSS-G is switched on
 //!   or off" [documented: §18.0]. Off: the mode set off and presented once; then, in the next
 //!   frame's extraction ([`toggle_switch`]: the main thread is extracting and the render thread
 //!   waits, so neither calls Vulkan meanwhile, and the main thread's Reflex calls come after the
@@ -97,7 +93,7 @@
 //!   `VK_SUBOPTIMAL_KHR`: a resize, answered by a reconfigure) and other positive results apart.
 //!
 //! Every system here runs only while DLSS-G is installed ([`active`], a static flag, so without
-//! the spike nothing is locked or called). The DLSS-G functions are "NOT thread safe"
+//! DLSS-G and Reflex set up nothing is locked or called). The DLSS-G functions are "NOT thread safe"
 //! (`sl_dlss_g.h:187-208`) and are called only from the exclusive systems, which run on the
 //! render thread (exclusive systems run on the thread that runs the schedule, and Bevy's
 //! `render_system`, itself exclusive, runs the render graph's schedule there).
@@ -137,22 +133,8 @@ const RATIO_EVERY: Duration = Duration::from_secs(10);
 /// submission is done, but DLSS-G reads the tags at the present, on its own queue, possibly
 /// later [design: a margin over Bevy's frames in flight].
 const KEEP_FRAMES: usize = 4;
-/// `NVF_DLSSG_FRAMES`: frames generated per real frame (1 = 2x, 2 = 3x, 3 = 4x; `sl_dlss_g.h:75-79`).
-const FRAMES_ENV: &str = "NVF_DLSSG_FRAMES";
-/// `NVF_DLSSG_TOGGLE=<seconds>:off,<seconds>:on,...`: frame generation switched off and on live
-/// (a test aid; seconds since the start, `super::test_seconds`).
-const TOGGLE_ENV: &str = "NVF_DLSSG_TOGGLE";
 /// The most frames a window change is held for DLSS-G to be presented off first.
 const MAX_HOLD: u32 = 3;
-
-/// What the spike asked of DLSS-G.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum Mode {
-    /// Stage 1b: loaded, mode off.
-    KeptOff,
-    /// Stage 2: frame generation on in play, `frames` asked for (before the state's limit).
-    On { frames: u32 },
-}
 
 /// The options as last set, to set them again only on a change.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -193,12 +175,16 @@ impl Period {
     }
 }
 
-/// DLSS-G's functions and the spike's state.
+/// DLSS-G's functions and its state.
 struct FrameGen {
     get_state: SlDlssgGetState,
     set_options: SlDlssgSetOptions,
-    mode: Mode,
     applied: Option<Applied>,
+    /// Frames to generate per real frame, as the Generated frames row asks (before the state's
+    /// limit).
+    requested_frames: u32,
+    /// Frames in a row the row has asked for DLSS while DLSS-G is unloaded ([`follow_request`]).
+    want_on_frames: u32,
     /// The options and result of the last failed call, said once.
     failed_said: Option<(Applied, i32)>,
     /// A status other than `eOk` while on: frame generation off for the session.
@@ -223,9 +209,7 @@ struct FrameGen {
     presented_off: bool,
     /// Frames the pending window change has been held so far.
     hold_frames: u32,
-    /// `NVF_DLSSG_TOGGLE`'s plan and the next step; the switch asked for and not done yet.
-    toggle_plan: Vec<(f64, bool)>,
-    toggle_next: usize,
+    /// The switch asked for (the Frame generation row) and not done yet.
     toggle: Option<bool>,
     /// The last frame number tags were set for (null tags at shutdown).
     last_index: Option<u32>,
@@ -278,12 +262,13 @@ fn fragment(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
 ";
 
 impl FrameGen {
-    fn new(get_state: SlDlssgGetState, set_options: SlDlssgSetOptions, mode: Mode, toggle_plan: Vec<(f64, bool)>) -> Self {
+    fn new(get_state: SlDlssgGetState, set_options: SlDlssgSetOptions, loaded: bool) -> Self {
         Self {
             get_state,
             set_options,
-            mode,
             applied: None,
+            requested_frames: 1,
+            want_on_frames: 0,
             failed_said: None,
             status_failed: None,
             max_frames: 0,
@@ -295,12 +280,10 @@ impl FrameGen {
             last_state_line: None,
             period: None,
             said: Vec::new(),
-            loaded: true,
+            loaded,
             window_off: false,
             presented_off: true,
             hold_frames: 0,
-            toggle_plan,
-            toggle_next: 0,
             toggle: None,
             last_index: None,
             pending_load: None,
@@ -348,43 +331,17 @@ fn on() -> bool {
     ON.load(Ordering::Relaxed)
 }
 
-/// `NVF_DLSSG_FRAMES` read: 1 when unset; `Err` with the line to say for another value (then 1).
-pub(super) fn frames_from(value: Option<&str>) -> Result<u32, String> {
-    match value.map(str::trim).filter(|v| !v.is_empty()) {
-        None => Ok(1),
-        Some(v) => match v.parse::<u32>() {
-            Ok(n @ 1..=3) => Ok(n),
-            _ => Err(format!("{FRAMES_ENV}={v} is not 1, 2 or 3; one generated frame per real frame")),
-        },
-    }
-}
-
-/// `NVF_DLSSG_FRAMES` from the environment ([`frames_from`]), a bad value said.
-pub(super) fn frames_asked() -> u32 {
-    frames_from(std::env::var(FRAMES_ENV).ok().as_deref()).unwrap_or_else(|line| {
-        note_fg(Level::WARN, line);
-        1
-    })
-}
-
 /// DLSS-G kept loaded (`win.rs` `frame_generation_after_device`): its two functions, fetched with
 /// `slGetFeatureFunction` under `kFeatureDLSS_G`.
-pub(super) fn install(get_state: SlDlssgGetState, set_options: SlDlssgSetOptions, mode: Mode) {
-    let toggle_plan = match (mode, std::env::var(TOGGLE_ENV).ok()) {
-        (Mode::On { .. }, Some(value)) => toggles_from(&value).unwrap_or_else(|line| {
-            note_fg(Level::WARN, line);
-            Vec::new()
-        }),
-        _ => Vec::new(),
-    };
-    *frame_gen() = Some(FrameGen::new(get_state, set_options, mode, toggle_plan));
-    ON.store(matches!(mode, Mode::On { .. }), Ordering::Relaxed);
+pub(super) fn install(get_state: SlDlssgGetState, set_options: SlDlssgSetOptions, loaded: bool) {
+    *frame_gen() = Some(FrameGen::new(get_state, set_options, loaded));
+    ON.store(true, Ordering::Relaxed);
     ACTIVE.store(true, Ordering::Relaxed);
 }
 
 /// At shutdown (stage 4 item 6; `win.rs` `shutdown`, the render thread gone), the first steps of
-/// the order eOff, null tags, drain, `slFreeResources`, `slShutdown`: the mode set off and, with
-/// the spike's `on`, the three tags set null for the next frame number [documented:
+/// the order eOff, null tags, drain, `slFreeResources`, `slShutdown`: the mode set off and the frame's
+/// tags set null for the next frame number [documented:
 /// `ProgrammingGuide.md:1017-1025`, a tag set to null before the resource goes; fork-notes
 /// `fg-facts.md` §4], then the functions dropped. The render world, and with it the tagged
 /// textures, is gone already (Bevy drops it before `App::run` returns); no present has followed
@@ -409,7 +366,7 @@ pub(super) fn uninstall() -> Option<bool> {
     // call; nothing else calls it now (the render thread is gone).
     let result = unsafe { (fg.set_options)(&viewport, &options) };
     note_fg(if result.is_ok() { Level::INFO } else { Level::WARN }, format!("shutdown: options mode eOff: {}", result.name()));
-    if matches!(fg.mode, Mode::On { .. }) {
+    {
         let index = fg.last_index.map_or(0, |i| i.wrapping_add(1));
         let tagged = frame_token::set_tags(index, &null_tags());
         note_fg(if tagged.is_ok() { Level::INFO } else { Level::WARN }, format!("shutdown: null tags (frame {index}): {}", tagged.name()));
@@ -424,6 +381,7 @@ pub(super) fn add_systems(render_app: &mut SubApp) {
         .add_systems(Render, set_constants.in_set(RenderSystems::PrepareResources).after(crate::upscaler::prep::prepare).run_if(on))
         .add_systems(Render, window_changes.before(create_surfaces).run_if(on))
         .add_systems(ExtractSchedule, toggle_switch.after(extract_windows).run_if(on))
+        .add_systems(ExtractSchedule, follow_request.before(toggle_switch).run_if(on))
         .add_systems(ExtractSchedule, exit_watch.before(extract_windows).run_if(active))
         .add_systems(Core3d, tag.after(Core3dSystems::PostProcess).before(ui_pass).run_if(on))
         .add_systems(Core3d, ui_buffer.after(ui_pass).before(upscaling).run_if(on))
@@ -699,15 +657,10 @@ fn tag_inputs(
 /// here [design: the review's P3e].
 fn wanted(fg: &FrameGen, decision: Option<Decision>) -> Applied {
     let back_buffers = 0;
-    match fg.mode {
-        Mode::KeptOff => Applied { on: false, frames: 1, render: UVec2::ZERO, output: UVec2::ZERO, back_buffers: 0 },
-        Mode::On { frames } => {
-            let last = fg.applied;
-            let (render, output) = decision.map(|d| (d.render, d.output)).or(last.map(|a| (a.render, a.output))).unwrap_or_default();
-            let on = decision.is_some_and(|d| d.generate) && fg.status_failed.is_none() && !fg.window_off && fg.loaded && !fg.exiting;
-            Applied { on, frames: frames.clamp(1, fg.max_frames.max(1)), render, output, back_buffers }
-        }
-    }
+    let last = fg.applied;
+    let (render, output) = decision.map(|d| (d.render, d.output)).or(last.map(|a| (a.render, a.output))).unwrap_or_default();
+    let on = decision.is_some_and(|d| d.generate) && fg.status_failed.is_none() && !fg.window_off && fg.loaded && !fg.exiting;
+    Applied { on, frames: fg.requested_frames.clamp(1, fg.max_frames.max(1)), render, output, back_buffers }
 }
 
 /// Whether the options must be set: they differ, except that off stays off whatever the sizes.
@@ -734,17 +687,13 @@ fn options(_world: &mut World) {
     if !must_set(fg.applied, want) {
         return;
     }
-    let options = match fg.mode {
-        Mode::KeptOff => off_options(),
-        Mode::On { .. } => options_for(want),
-    };
+    let options = options_for(want);
     let viewport = ViewportHandle::new(VIEWPORT);
     // SAFETY: DLSS-G's function with its header signature; a viewport handle and options from
     // their constructors, alive for the call; the callback is a static function.
     let result = unsafe { (fg.set_options)(&viewport, &options) };
-    let text = match fg.mode {
-        Mode::KeptOff => format!("options: mode eOff, flags eRetainResourcesWhenOff, the API error callback set, viewport {VIEWPORT}: {}", result.name()),
-        Mode::On { .. } if want.on => format!(
+    let text = if want.on {
+        format!(
             "options: mode On, {} generated frame(s) per real frame (at most {}), {}x{}, depth and motion {}x{}, back buffers left to DLSS-G, user interface recomposition on: {}",
             want.frames,
             fg.max_frames,
@@ -753,8 +702,9 @@ fn options(_world: &mut World) {
             want.render.x,
             want.render.y,
             result.name()
-        ),
-        Mode::On { .. } => format!("options: mode Off (resources kept), {}x{}: {}", want.output.x, want.output.y, result.name()),
+        )
+    } else {
+        format!("options: mode Off (resources kept), {}x{}: {}", want.output.x, want.output.y, result.name())
     };
     if result.is_ok() {
         fg.applied = Some(want);
@@ -787,6 +737,7 @@ fn state(world: &mut World) {
         return;
     }
     fg.max_frames = state.num_frames_to_generate_max;
+    super::FG_MAX_FRAMES.store(fg.max_frames, Ordering::Relaxed);
     fg.min_size = state.min_width_or_height;
     // The mode is off now: a window change may go ahead, whether or not a frame was presented
     // (an image that came back `Outdated` presents nothing, and DLSS-G has had no present to
@@ -804,7 +755,7 @@ fn state(world: &mut World) {
         period.presented += u64::from(state.num_frames_actually_presented);
     }
     let is_on = fg.applied.is_some_and(|a| a.on);
-    if matches!(fg.mode, Mode::On { .. }) {
+    {
         if let Some(generated) = &generated {
             generated.0.fetch_add(u64::from(state.num_frames_actually_presented.saturating_sub(1)), Ordering::Relaxed);
         }
@@ -821,7 +772,7 @@ fn state(world: &mut World) {
         let other = (API_OTHER.swap(0, Ordering::Relaxed), LAST_API_OTHER.load(Ordering::Relaxed));
         note_fg(Level::INFO, state_line(&state, errors, other, API_OUT_OF_DATE.swap(0, Ordering::Relaxed)));
     }
-    if matches!(fg.mode, Mode::On { .. }) {
+    {
         if let Some(period) = fg.period.as_mut().filter(|p| now.duration_since(p.since) >= RATIO_EVERY) {
             let line = ratio_line(now.duration_since(period.since), period.real, period.presented, fg.status_failed.as_deref());
             *period = Period::new(now);
@@ -996,25 +947,34 @@ fn draw_ui_alpha(
     if result.is_ok() { Ok(()) } else { Err(format!("slSetTagForFrame {}", result.name())) }
 }
 
-/// `NVF_DLSSG_TOGGLE` read: `<seconds>:off` and `<seconds>:on` steps, in time order.
-pub(super) fn toggles_from(value: &str) -> Result<Vec<(f64, bool)>, String> {
-    let mut plan = Vec::new();
-    for item in value.split(',').map(str::trim).filter(|i| !i.is_empty()) {
-        let parsed = item.split_once(':').and_then(|(at, what)| {
-            let at = at.trim().parse::<f64>().ok().filter(|t| t.is_finite() && *t >= 0.0)?;
-            match what.trim() {
-                "off" => Some((at, false)),
-                "on" => Some((at, true)),
-                _ => None,
-            }
-        });
-        match parsed {
-            Some(step) => plan.push(step),
-            None => return Err(format!("{TOGGLE_ENV}: '{item}' is not <seconds>:off or <seconds>:on; no live toggle")),
+/// The Frame generation row's request, read in the extraction (`crate::frame_gen::DlssgRequest`):
+/// the frames to generate, and the live switch: off at once when DLSS is no longer what the row
+/// asks for (or can be had); on once DLSS has been asked for three frames in a row while
+/// unloaded, so FSR's frame generation, switched off in the same change, has let go of the
+/// window's surface first (its presenter ends with the next extraction, `crate::frame_gen`).
+fn follow_request(request: Extract<Option<Res<crate::frame_gen::DlssgRequest>>>) {
+    let Some(request) = request.as_deref().copied() else { return };
+    let mut guard = frame_gen();
+    let Some(fg) = guard.as_mut() else { return };
+    fg.requested_frames = request.frames.clamp(1, 3);
+    super::FG_MULTIPLIER.store(fg.requested_frames + 1, Ordering::Relaxed);
+    if fg.toggle.is_some() || fg.pending_load.is_some() || fg.status_failed.is_some() {
+        return;
+    }
+    if request.on && !fg.loaded {
+        fg.want_on_frames += 1;
+        if fg.want_on_frames >= 3 {
+            fg.want_on_frames = 0;
+            fg.toggle = Some(true);
+            note_fg(Level::INFO, "switch: frame generation on asked (the Frame generation row)");
+        }
+    } else {
+        fg.want_on_frames = 0;
+        if !request.on && fg.loaded {
+            fg.toggle = Some(false);
+            note_fg(Level::INFO, "switch: frame generation off asked (the Frame generation row)");
         }
     }
-    plan.sort_by(|a, b| a.0.total_cmp(&b.0));
-    Ok(plan)
 }
 
 /// What [`window_changes`] does to the surface this frame.
@@ -1063,15 +1023,9 @@ fn window_changes(world: &mut World) {
             (entity, data.reconfigure_pending(window), what)
         })
     };
-    let seconds = super::test_seconds();
     let step = {
         let mut guard = frame_gen();
         let Some(fg) = guard.as_mut() else { return };
-        if let Some(&(at, on)) = fg.toggle_plan.get(fg.toggle_next).filter(|(at, _)| seconds >= *at) {
-            fg.toggle_next += 1;
-            fg.toggle = Some(on);
-            note_fg(Level::INFO, format!("toggle: frame generation {} asked ({TOGGLE_ENV}, {at} s)", if on { "on" } else { "off" }));
-        }
         // A switch to what DLSS-G is already: nothing to do (the review's P3b).
         if fg.toggle == Some(fg.loaded) {
             fg.toggle = None;
@@ -1084,7 +1038,7 @@ fn window_changes(world: &mut World) {
                 fg.hold_frames += 1;
                 if fg.hold_frames == 1 {
                     let what = match (fg.toggle, &found) {
-                        (Some(_), _) => "the live toggle".to_string(),
+                        (Some(_), _) => "the live switch".to_string(),
                         (None, Some((_, _, what))) => what.clone(),
                         (None, None) => "a window change".to_string(),
                     };
@@ -1127,7 +1081,7 @@ fn toggle_switch(world: &mut World) {
         windows.iter(world).next()
     };
     let Some(entity) = entity else {
-        note_fg(Level::WARN, "toggle: no window surface to make again; nothing switched");
+        note_fg(Level::WARN, "switch: no window surface to make again; nothing switched");
         return;
     };
     // The main thread's Reflex calls come after the extraction (`anti_lag.rs`), the render thread
@@ -1168,7 +1122,7 @@ fn toggle_switch(world: &mut World) {
     note_fg(
         if result.is_ok() { Level::INFO } else { Level::WARN },
         format!(
-            "toggle: frame generation {}: GPU drained ({}), the swapchain released, {freed}slSetFeatureLoaded(DLSS-G, {load}) {}, the swapchain made again this frame ({})",
+            "switch: frame generation {}: GPU drained ({}), the swapchain released, {freed}slSetFeatureLoaded(DLSS-G, {load}) {}, the swapchain made again this frame ({})",
             if load { "on" } else { "off" },
             if matches!(&polled, Ok(s) if s.wait_finished()) { "ok" } else { "incomplete" },
             result.name(),
@@ -1294,7 +1248,8 @@ mod tests {
         assert!(must_set(Some(on), Applied { output: UVec2::new(1600, 900), ..on }), "a resize while on");
         let off = Applied { on: false, ..on };
         assert!(!must_set(Some(off), Applied { output: UVec2::new(1600, 900), ..off }), "off stays off whatever the sizes");
-        let mut fg = FrameGen::new(dummy_get_state, dummy_set_options, Mode::On { frames: 3 }, Vec::new());
+        let mut fg = FrameGen::new(dummy_get_state, dummy_set_options, true);
+        fg.requested_frames = 3;
         let decision = Decision { generate: true, render: on.render, output: on.output };
         assert_eq!(wanted(&fg, Some(decision)).frames, 1, "the limit not known yet: one");
         fg.max_frames = 5;
@@ -1333,22 +1288,6 @@ mod tests {
         assert_eq!(window_step(false, Some(false), true, true, 1), Load(false));
         assert_eq!(window_step(false, Some(true), false, true, 0), Load(true), "switching on: at once (native presents)");
         assert_eq!(window_step(false, Some(true), true, false, 0), Go { off: false }, "already on: nothing to switch");
-    }
-
-    #[test]
-    fn the_toggle_plan_reads_seconds_and_switches() {
-        assert_eq!(toggles_from("22:on, 16:off"), Ok(vec![(16.0, false), (22.0, true)]));
-        assert_eq!(toggles_from(""), Ok(vec![]));
-        assert!(toggles_from("16:maybe").unwrap_err().contains("'16:maybe' is not <seconds>:off or <seconds>:on"));
-        assert!(toggles_from("x:on").is_err());
-    }
-
-    #[test]
-    fn frames_asked_for_are_one_to_three() {
-        assert_eq!(frames_from(None), Ok(1));
-        assert_eq!(frames_from(Some(" 3 ")), Ok(3));
-        assert!(frames_from(Some("4")).unwrap_err().contains("NVF_DLSSG_FRAMES=4 is not 1, 2 or 3"));
-        assert!(frames_from(Some("x")).is_err());
     }
 
     #[test]

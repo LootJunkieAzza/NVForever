@@ -21,7 +21,7 @@
 //!    size within the range DLSS reported; otherwise the spatial fallback draws the frame (said
 //!    once per size).
 //! 2. `slGetNewFrameToken` (Streamline counts the frames) and `slSetConstants` with it. With the
-//!    DLSS Frame Generation spike's `on` (#2317, `frame_token.rs` installed) neither: the frame's
+//!    DLSS Frame Generation and Reflex set up (#2317, `frame_token.rs` installed) neither: the frame's
 //!    constants were set before the frame was recorded (`frame_gen.rs` `set_constants`, once a
 //!    frame for whichever upscaler draws), and the evaluate takes the token of our own frame
 //!    number (`Frame::frame_index`) in step 5.
@@ -955,7 +955,7 @@ impl Evaluator {
     }
 
     /// Whether the next evaluate resets: the last frame was not DLSS's evaluate (a fallback, new
-    /// options, DLSS stopped drawing). The Frame Generation spike's constants OR it in
+    /// options, DLSS stopped drawing). DLSS Frame Generation's constants OR it in
     /// (`frame_gen.rs` `set_constants`), as step 2 does.
     pub(super) fn history_stale(&self) -> bool {
         !self.previous_was_dlss
@@ -1114,7 +1114,7 @@ pub(super) struct ConstantsInput<'a> {
 }
 
 /// The common constants for any upscaler's camera ([`constants`] for DLSS's evaluate;
-/// `frame_gen.rs` `set_constants` for the Frame Generation spike, FSR or DLSS drawing).
+/// `frame_gen.rs` `set_constants` for DLSS Frame Generation, FSR or DLSS drawing).
 pub(super) fn constants_for(input: &ConstantsInput) -> Constants {
     let clip_from_view = input.view.clip_from_view;
     let view_from_clip = clip_from_view.inverse();

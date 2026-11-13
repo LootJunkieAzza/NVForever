@@ -292,34 +292,18 @@ pub fn effective_cap(cap: u32, vrr: u32) -> u32 {
     }
 }
 
-/// The window's present mode as `sync` asks, when that changes. While the DLSS Frame Generation
-/// spike runs frame generation (`NVF_DLSSG_SPIKE=on`, #2317; `dlss::frame_generation_on`) the
-/// window presents without vsync whatever the setting, which stays as it is: DLSS-G requires
-/// vsync off here [observed: its requirements' "vsync off required yes" on Vulkan, fork-notes
-/// `fg-spike-results.md`; documented: "VSync with Frame Generation is only supported on D3D12",
-/// `ProgrammingGuideDLSS_G.md` §22.5] [design: a spike-only override until the settings decide
-/// the rule, fork-notes `fg-spike-design.md` Stage 2]. Off for as long as frame generation runs
-/// (`dlss::frame_generation_running`), menus included, where DLSS-G's mode is off for a while;
-/// once a failed status has ended it for the session, the setting's present mode comes back.
-fn apply_vsync(pace: Res<FramePace>, mut windows: Query<&mut Window, With<PrimaryWindow>>, mut forced: Local<bool>) {
-    let running = crate::dlss::frame_generation_running();
-    if !pace.is_changed() && *forced == running {
+/// The window's present mode as `sync` asks, when that changes. (DLSS Frame Generation needs
+/// vsync off on Vulkan: its row's DLSS choice asks for Display sync Off rather than this
+/// overriding it, `frame_gen::dlss_unavailable_reason`.)
+fn apply_vsync(pace: Res<FramePace>, mut windows: Query<&mut Window, With<PrimaryWindow>>) {
+    if !pace.is_changed() {
         return;
     }
-    let ended = *forced && !running;
-    *forced = running;
-    let forced_off = pace.sync.vsync() && running;
-    let mode = if pace.sync.vsync() && !forced_off { PresentMode::AutoVsync } else { PresentMode::AutoNoVsync };
+    let mode = if pace.sync.vsync() { PresentMode::AutoVsync } else { PresentMode::AutoNoVsync };
     for mut w in &mut windows {
         if w.present_mode != mode {
             w.present_mode = mode;
-            if forced_off {
-                info!("frame pace: vsync off while DLSS Frame Generation runs (NVF_DLSSG_SPIKE=on; it needs vsync off on Vulkan); the display sync setting stays {}", pace.sync.name());
-            } else if ended {
-                info!("frame pace: vsync {} again (DLSS Frame Generation ended for the session)", if pace.sync.vsync() { "on" } else { "off" });
-            } else {
-                info!("frame pace: vsync {}", if pace.sync.vsync() { "on" } else { "off" });
-            }
+            info!("frame pace: vsync {}", if pace.sync.vsync() { "on" } else { "off" });
         }
     }
 }

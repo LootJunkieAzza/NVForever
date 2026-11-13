@@ -152,7 +152,7 @@ impl SlResult {
 /// `sl::Feature` is a `uint32_t`; `kFeatureDLSS = 0` [documented: `sl_core_types.h:221, 224`].
 pub const FEATURE_DLSS: u32 = 0;
 /// `kFeatureReflex = 3`, `kFeaturePCL = 4`, `kFeatureDLSS_G = 1000` [documented:
-/// `sl_core_types.h:233, 236, 244`]; the DLSS Frame Generation spike's (#2317, `frame_gen.rs`).
+/// `sl_core_types.h:233, 236, 244`]; DLSS Frame Generation's (#2317, `frame_gen.rs`).
 pub const FEATURE_REFLEX: u32 = 3;
 pub const FEATURE_PCL: u32 = 4;
 pub const FEATURE_DLSS_G: u32 = 1000;
@@ -169,7 +169,7 @@ pub const PREFERENCE_DISABLE_CL_STATE_TRACKING: u64 = 1 << 0;
 pub const PREFERENCE_ALLOW_OTA: u64 = 1 << 3;
 pub const PREFERENCE_LOAD_DOWNLOADED_PLUGINS: u64 = 1 << 6;
 /// `eUseFrameBasedResourceTagging`: tags given per frame with `slSetTagForFrame` [documented:
-/// `sl_core_types.h:547-549`]; the Frame Generation spike's `on` (#2317).
+/// `sl_core_types.h:547-549`]; DLSS Frame Generation's (#2317).
 pub const PREFERENCE_USE_FRAME_BASED_RESOURCE_TAGGING: u64 = 1 << 7;
 
 /// `sl::EngineType::eCustom` [documented: `sl_appidentity.h:12-18`].

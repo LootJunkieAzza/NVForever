@@ -82,10 +82,100 @@ use wgpu_ffx::opticalflow::{OpticalFlowContext, OpticalFlowDispatchInfo, Optical
 use crate::fsr::PreparedFsr;
 use crate::upscaler::prep::PreparedUpscale;
 
-/// The switch (the settings row, `--frame-generation`).
+/// Which frame generation the Frame generation row (`--frame-generation`) asks for: none, FSR
+/// 3.1's (this module) or NVIDIA's DLSS Frame Generation through Streamline (`dlss/frame_gen.rs`,
+/// #2317).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum FrameGenKind {
+    #[default]
+    Off,
+    Fsr,
+    Dlss,
+}
+
+impl FrameGenKind {
+    /// The row's choices, in order.
+    pub const ALL: [FrameGenKind; 3] = [FrameGenKind::Off, FrameGenKind::Fsr, FrameGenKind::Dlss];
+
+    /// The name the row shows.
+    pub fn name(self) -> &'static str {
+        match self {
+            FrameGenKind::Off => "Off",
+            FrameGenKind::Fsr => "FSR 3.1",
+            FrameGenKind::Dlss => "DLSS",
+        }
+    }
+
+    /// As kept in `NVForever.ini` (`frame-generation=`).
+    pub fn stored(self) -> &'static str {
+        match self {
+            FrameGenKind::Off => "off",
+            FrameGenKind::Fsr => "fsr",
+            FrameGenKind::Dlss => "dlss",
+        }
+    }
+
+    /// From the row's name, the INI's text or the command line's value, any case; also the
+    /// switch the row was before (#2317): on (`true`, `1`, `yes`) is FSR 3.1's, off is Off.
+    pub fn parse(text: &str) -> Option<FrameGenKind> {
+        let t = text.trim().to_ascii_lowercase();
+        FrameGenKind::ALL.into_iter().find(|k| k.stored() == t || k.name().to_ascii_lowercase() == t).or(match t.as_str() {
+            "true" | "on" | "1" | "yes" | "fsr 3" | "fsr3" => Some(FrameGenKind::Fsr),
+            "false" | "0" | "no" => Some(FrameGenKind::Off),
+            _ => None,
+        })
+    }
+}
+
+/// The row's choice (the settings row, `--frame-generation`).
 #[derive(Resource, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct FrameGeneration {
+    pub kind: FrameGenKind,
+}
+
+impl FrameGeneration {
+    /// FSR 3.1's frame generation is chosen.
+    pub fn fsr(&self) -> bool {
+        self.kind == FrameGenKind::Fsr
+    }
+}
+
+/// Frames DLSS Frame Generation generates per real frame (the Generated frames row: 1 = 2x,
+/// 2 = 3x, 3 = 4x), at most what the GPU allows (`dlss::frame_generation_max`).
+#[derive(Resource, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DlssgFrames(pub u32);
+
+impl Default for DlssgFrames {
+    fn default() -> Self {
+        Self(1)
+    }
+}
+
+/// What the row asks of DLSS Frame Generation this frame, for the render world
+/// (`dlss/frame_gen.rs` `follow_request`): on when DLSS is chosen and can run
+/// ([`dlss_unavailable_reason`]), and the frames to generate.
+#[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct DlssgRequest {
     pub on: bool,
+    pub frames: u32,
+}
+
+/// Why the row's DLSS choice cannot run now, in the settings page's words: the loader's reason
+/// (`dlss::frame_generation_unavailable`: the files, the GPU, Windows' GPU scheduling, the
+/// driver), no upscaler drawing (DLSS-G takes the upscaler's depth and motion), or vsync on
+/// (DLSS-G requires vsync off on Vulkan [observed: its requirements' "vsync off required yes",
+/// fork-notes `fg-spike-results.md`; documented: "VSync with Frame Generation is only supported
+/// on D3D12", `ProgrammingGuideDLSS_G.md` §22.5]).
+pub fn dlss_unavailable_reason(world: &World) -> Option<&'static str> {
+    if let Some(why) = crate::dlss::frame_generation_unavailable() {
+        Some(why)
+    } else if !crate::upscaler::temporal_active(world) {
+        Some("Needs an upscaler")
+    } else if world.resource::<crate::frame_pace::FramePace>().sync.vsync() {
+        Some("Needs vsync off")
+    } else {
+        None
+    }
 }
 
 /// Whether this device can run the passes (Vulkan SPIR-V passthrough, read-write storage
@@ -99,8 +189,8 @@ pub struct FrameGenSupport(pub bool);
 /// (also in a session that loaded Streamline, `NVF_DLSS_PRELOAD=1`) FSR's pass drew the frame
 /// frame generation follows.
 pub fn usable(world: &World) -> bool {
-    world.resource::<FrameGeneration>().on
-        // Never while Streamline's DLSS Frame Generation is loaded (the DLSS-G spike, #2317): its
+    world.resource::<FrameGeneration>().fsr()
+        // Never while Streamline's DLSS Frame Generation is loaded (DLSS Frame Generation, #2317): its
         // proxy swapchain paces and presents, the presenter's two presents would be its app frames.
         && !crate::dlss::frame_generation_loaded()
         && world.get_resource::<FrameGenSupport>().is_some_and(|s| s.0)
@@ -154,12 +244,14 @@ pub struct FrameGenUsable(pub bool);
 #[derive(Resource, Clone, Copy, Default, Debug, PartialEq, Eq)]
 pub struct FrameGenCap(pub u32);
 
-pub struct FrameGenPlugin(pub bool);
+pub struct FrameGenPlugin(pub FrameGenKind);
 
 impl Plugin for FrameGenPlugin {
     fn build(&self, app: &mut App) {
         let generated = GeneratedFrames::default();
-        app.insert_resource(FrameGeneration { on: self.0 })
+        app.insert_resource(FrameGeneration { kind: self.0 })
+            .init_resource::<DlssgFrames>()
+            .init_resource::<DlssgRequest>()
             .insert_resource(generated.clone())
             .init_resource::<FrameGenCap>()
             .init_resource::<FrameGenUsable>();
@@ -277,8 +369,20 @@ fn add_switch_systems(app: &mut App) {
 static SAID_DLSSG: AtomicBool = AtomicBool::new(false);
 
 fn follow_switch(world: &mut World) {
-    if world.resource::<FrameGeneration>().on && crate::dlss::frame_generation_loaded() && !SAID_DLSSG.swap(true, Ordering::Relaxed) {
-        warn!("frame generation: FSR 3.1 frame generation stays off while Streamline's DLSS Frame Generation is loaded (NVF_DLSSG_SPIKE)");
+    if world.resource::<FrameGeneration>().fsr() && crate::dlss::frame_generation_loaded() && !SAID_DLSSG.swap(true, Ordering::Relaxed) {
+        warn!("frame generation: FSR 3.1 frame generation waits until Streamline's DLSS Frame Generation is unloaded");
+    }
+    // DLSS Frame Generation's request for the render world.
+    let request = DlssgRequest {
+        on: world.resource::<FrameGeneration>().kind == FrameGenKind::Dlss && dlss_unavailable_reason(world).is_none(),
+        // At most what the GPU allows once it is known (`DLSSGState::numFramesToGenerateMax`).
+        frames: world.resource::<DlssgFrames>().0.clamp(1, match crate::dlss::frame_generation_max() {
+            0 => 3,
+            max => max.min(3),
+        }),
+    };
+    if *world.resource::<DlssgRequest>() != request {
+        *world.resource_mut::<DlssgRequest>() = request;
     }
     let usable = usable(world);
     let playing = world.get_resource::<State<nvf_play::PlayState>>().is_none_or(|s| *s.get() == nvf_play::PlayState::Playing);
@@ -289,8 +393,8 @@ fn follow_switch(world: &mut World) {
     if world.resource::<FrameGenUsable>().0 != usable {
         world.resource_mut::<FrameGenUsable>().0 = usable;
     }
-    // DLSS-G (the spike's `on`, #2317, Stage 3) turns latency reduction on as FSR's does: it
-    // needs Reflex on [documented: `sl_dlss_g.h:131-132`, eFailReflexNotDetectedAtRuntime].
+    // DLSS Frame Generation (#2317) turns latency reduction on as FSR's does: it needs Reflex on
+    // [documented: `sl_dlss_g.h:131-132`, eFailReflexNotDetectedAtRuntime].
     let by_frame_generation = usable || crate::dlss::frame_generation_running();
     let mut latency = world.resource_mut::<crate::anti_lag::LatencyReduction>();
     if latency.by_frame_generation != by_frame_generation {
@@ -300,19 +404,31 @@ fn follow_switch(world: &mut World) {
 
 /// Says when frame generation turns on or off, and why it cannot run. (The real-frame cap
 /// comes and goes with menus; only whether the refresh rate is known is said.)
-/// What [`log_switch`] last said: the switch, why it cannot run, the refresh rate.
-type SwitchState = (bool, Option<&'static str>, Option<u32>);
+/// What [`log_switch`] last said: the choice, why it cannot run, the refresh rate.
+type SwitchState = (FrameGenKind, Option<&'static str>, Option<u32>);
 
 fn log_switch(world: &World, mut said: Local<Option<SwitchState>>) {
-    let on = world.resource::<FrameGeneration>().on;
-    let reason = unavailable_reason(world);
+    let kind = world.resource::<FrameGeneration>().kind;
+    let reason = match kind {
+        FrameGenKind::Off => None,
+        FrameGenKind::Fsr => unavailable_reason(world),
+        FrameGenKind::Dlss => dlss_unavailable_reason(world),
+    };
     let refresh = world.resource::<crate::frame_pace::Refresh>().millihertz;
-    let now = (on, reason, refresh);
-    if *said == Some(now) || (said.is_none() && !on) {
+    let now = (kind, reason, refresh);
+    if *said == Some(now) || (said.is_none() && kind == FrameGenKind::Off) {
         *said = Some(now);
         return;
     }
     *said = Some(now);
+    let on = kind == FrameGenKind::Fsr;
+    match (kind, reason) {
+        (FrameGenKind::Dlss, Some(why)) => return warn!("frame generation: DLSS chosen but not running ({why})"),
+        (FrameGenKind::Dlss, None) => {
+            return info!("frame generation: DLSS Frame Generation (NVIDIA, through Streamline; the generated frames per real frame on the Generated frames row; latency reduction on)")
+        }
+        _ => {}
+    }
     match (on, reason, real_frame_cap(refresh)) {
         (false, _, _) => info!("frame generation: off"),
         (true, Some(why), _) => warn!("frame generation: on but not running ({why})"),
@@ -1177,7 +1293,7 @@ mod tests {
         app.insert_resource(crate::graphics::Graphics::preset(crate::graphics::Preset::Vanilla))
             .insert_resource(crate::fsr::FsrSupport(true))
             .insert_resource(FrameGenSupport(true))
-            .insert_resource(FrameGeneration { on: true })
+            .insert_resource(FrameGeneration { kind: FrameGenKind::Fsr })
             .insert_resource(crate::frame_pace::FramePace { sync: crate::frame_pace::DisplaySync::Vsync, cap: 0 });
         assert_eq!(unavailable_reason(app.world()), Some("Needs FSR 3.1"));
         assert!(!usable(app.world()));
@@ -1221,10 +1337,12 @@ mod tests {
         app.insert_resource(crate::graphics::Graphics::preset(crate::graphics::Preset::Vanilla))
             .insert_resource(crate::fsr::FsrSupport(true))
             .insert_resource(FrameGenSupport(true))
-            .insert_resource(FrameGeneration { on: true })
+            .insert_resource(FrameGeneration { kind: FrameGenKind::Fsr })
             .insert_resource(crate::frame_pace::FramePace { sync: crate::frame_pace::DisplaySync::Vsync, cap: 0 })
             .insert_resource(crate::frame_pace::Refresh::default())
             .insert_resource(crate::anti_lag::LatencyReduction { on: false, by_frame_generation: false })
+            .init_resource::<DlssgFrames>()
+            .init_resource::<DlssgRequest>()
             .init_resource::<FrameGenCap>()
             .init_resource::<FrameGenUsable>();
         // Registered before follow_request: only the ordering puts the switch after it.

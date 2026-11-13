@@ -811,12 +811,12 @@ fn register_graphics(app: &mut App) {
     add_setting(
         app,
         Setting {
-            key: "frame-generation",
+            key: FRAME_GENERATION_KEY,
             group: GROUP_GRAPHICS,
             label: "Frame generation",
-            note: "FSR 3.1 frame generation: a frame made between each two real frames, so motion looks twice as smooth; what you do reaches the screen a little later. Needs FSR 3.1 upscaling (any mode; not with DLSS) and vertical sync or variable refresh; real frames are held to just under half the refresh rate, and latency reduction turns on with it. The HUD and menus are not generated; menus, loading screens and camera cuts show real frames only. Best from 60 real frames a second. Not in the original. (--frame-generation)",
-            get: |w| w.resource::<crate::frame_gen::FrameGeneration>().on,
-            set: |w, on| w.resource_mut::<crate::frame_gen::FrameGeneration>().on = on,
+            note: FRAME_GENERATION_NOTE,
+            get: |w| w.resource::<crate::frame_gen::FrameGeneration>().fsr(),
+            set: |w, on| w.resource_mut::<crate::frame_gen::FrameGeneration>().kind = if on { crate::frame_gen::FrameGenKind::Fsr } else { crate::frame_gen::FrameGenKind::Off },
             slider: None,
         },
     );
@@ -1245,6 +1245,21 @@ pub(crate) fn upscaler_after_ini(command_line: UpscalerChoice, ini: Option<&Upsc
         ini.quality.as_deref().and_then(|t| quality_text(after_upscaler, t.trim())).unwrap_or(after_upscaler).0
     });
     nvf_play::settings::after_ini(command_line, stored, given, UPSCALER_NOTE)
+}
+
+/// The Frame generation row's key and note (#2317). The note names the switch, so a test run
+/// that gives it keeps the row at the command line's choice over the INI.
+pub(crate) const FRAME_GENERATION_KEY: &str = "frame-generation";
+pub(crate) const FRAME_GENERATION_NOTE: &str = "FSR 3.1 frame generation: a frame made between each two real frames, so motion looks twice as smooth; what you do reaches the screen a little later. Needs FSR 3.1 upscaling (any mode; not with DLSS) and vertical sync or variable refresh; real frames are held to just under half the refresh rate, and latency reduction turns on with it. The HUD and menus are not generated; menus, loading screens and camera cuts show real frames only. Best from 60 real frames a second. Not in the original. (--frame-generation)";
+
+/// The Frame generation choice this run starts with, decided before the renderer exists (DLSS
+/// Frame Generation stays loaded from the start only for DLSS; `main`): the command line's,
+/// then the INI's row by `nvf_play::settings::after_ini`'s precedence. `given`: `None` without
+/// a settings page (not `--play`: the command line decides).
+pub(crate) fn frame_generation_after_ini(command_line: crate::frame_gen::FrameGenKind, ini: Option<&str>, given: Option<&nvf_play::settings::GivenSwitches>) -> crate::frame_gen::FrameGenKind {
+    let Some(given) = given else { return command_line };
+    let stored = ini.and_then(|text| fnv_install::ini_get(text, nvf_play::settings::SECTION, FRAME_GENERATION_KEY)).and_then(|v| crate::frame_gen::FrameGenKind::parse(&v));
+    nvf_play::settings::after_ini(command_line, stored, given, FRAME_GENERATION_NOTE)
 }
 
 /// Distant LOD on or off now; indoors there is none either way, and the door out goes
@@ -1840,7 +1855,7 @@ dlss-model=Preset K
         graphics.upscaler = command_line;
         app.insert_resource(graphics)
             .insert_resource(graphics::MsaaSetting(Msaa::Off))
-            .insert_resource(crate::frame_gen::FrameGeneration { on: false })
+            .insert_resource(crate::frame_gen::FrameGeneration { kind: crate::frame_gen::FrameGenKind::Off })
             .insert_resource(crate::anti_lag::LatencyReduction { on: false, by_frame_generation: false })
             .insert_resource(SettingsFile(Some(path.to_path_buf())))
             .insert_resource(given);

@@ -28,8 +28,8 @@ use super::ffi::{
 use super::preflight::{self, Checked, Pin, Requirements, Snapshot};
 use super::sizing::{Key, Optimal};
 use super::{
-    missing_fg_files, missing_files, note, note_fg, note_ngx_line, note_sl, resolve_folder, set_loader_state, spike_from, FgSpike, FolderSource, Frame, Outcome, ACTIVE, ENV_DIR,
-    FG_KEPT_LOADED, FG_ON, FILES, SPIKE_ENV, STREAMLINE_DEVICE,
+    missing_fg_files, missing_files, note, note_fg, note_ngx_line, note_sl, resolve_folder, set_fg_availability, set_loader_state, FgAvailability, FolderSource, Frame, Outcome,
+    ACTIVE, ENV_DIR, FG_AT_START, FG_KEPT_LOADED, FG_ON, FG_UNLOADED, FILES, STREAMLINE_DEVICE,
 };
 use crate::upscaler::{DlssModel, DlssState, Unavailable};
 
@@ -84,9 +84,9 @@ struct Spike {
     eval: Option<Evaluator>,
     /// The checked files, held open until Streamline is shut down; `None` once it is.
     pins: Option<Pins>,
-    /// The DLSS Frame Generation spike (#2317): what `NVF_DLSSG_SPIKE` asked for, when DLSS-G and
-    /// Reflex were requested in `slInit` and the merged device check passed; `None` otherwise.
-    fg: Option<FgSpike>,
+    /// DLSS Frame Generation (#2317): DLSS-G and Reflex were requested in `slInit` and the merged
+    /// device check passed.
+    fg: bool,
 }
 
 /// The files checked before Streamline was loaded, held open (sharing read access only, the
@@ -255,37 +255,31 @@ pub(super) fn start(app: &mut App) {
     let Some(second_pass) = folder_allows_streamline(&folder) else { return };
     drop(first_pass);
 
-    // The DLSS Frame Generation spike (#2317, `NVF_DLSSG_SPIKE`): DLSS-G and Reflex are asked for
-    // beside DLSS only with all eight files in the folder. Unset, nothing of it runs or is said.
-    let spike = match spike_from(std::env::var_os(SPIKE_ENV).as_deref()) {
-        Ok(spike) => spike,
-        Err(line) => {
-            note_fg(Level::WARN, line);
-            None
-        }
-    };
-    let mut fg = spike.filter(|_| {
+    // DLSS Frame Generation (#2317): DLSS-G and Reflex are asked for beside DLSS with all eight
+    // files in the folder; without the four of frame generation, DLSS as before.
+    let mut fg = {
         let missing = missing_fg_files(&folder);
         if !missing.is_empty() {
-            note_fg(Level::INFO, format!("inactive: the folder lacks {}; DLSS only as without the spike", missing.join(", ")));
+            note_fg(Level::INFO, format!("not available: the folder lacks {}; DLSS Super Resolution as usual", missing.join(", ")));
+            set_fg_availability(FgAvailability::FilesMissing);
         }
         missing.is_empty()
-    });
+    };
 
     let folder_w = wide(folder.as_os_str());
     let paths = [folder_w.as_ptr()];
     let engine_version = CString::new(env!("CARGO_PKG_VERSION")).unwrap_or_default();
-    // With the spike, a first try with DLSS, DLSS Frame Generation and Reflex; when its slInit or
-    // its merged device check fails, slShutdown and the try without them, which is today's path
-    // [design: fork-notes `fg-spike-design.md` decision 4; Streamline may be initialised again
-    // after slShutdown, its plugin manager starting over from unloaded, `src/pluginManager.cpp:941`
-    // "valid to restart"]. Without the spike there is one try, as before.
+    // With the frame generation files, a first try with DLSS, DLSS Frame Generation and Reflex;
+    // when its slInit or its merged device check fails, slShutdown and the try without them
+    // [design: docs/design/dlss-frame-generation.md; Streamline may be initialised again after
+    // slShutdown, its plugin manager starting over from unloaded, `src/pluginManager.cpp:941`
+    // "valid to restart"]. Without them there is one try, as before.
     loop {
-        let features: &[u32] = if fg.is_some() { &[FEATURE_DLSS, FEATURE_DLSS_G, FEATURE_REFLEX] } else { &[FEATURE_DLSS] };
+        let features: &[u32] = if fg { &[FEATURE_DLSS, FEATURE_DLSS_G, FEATURE_REFLEX] } else { &[FEATURE_DLSS] };
         let mut prefs = spike_preferences(&paths, features, &engine_version, PROJECT_ID);
-        // The spike's `on`: tags per frame (`slSetTagForFrame`), which DLSS-G's inputs need
-        // [documented: `ProgrammingGuide.md:897-904`; `sl_core_types.h:547-549`].
-        if fg == Some(FgSpike::On) {
+        // Tags per frame (`slSetTagForFrame`), which DLSS-G's inputs need [documented:
+        // `ProgrammingGuide.md:897-904`; `sl_core_types.h:547-549`].
+        if fg {
             prefs.flags |= PREFERENCE_USE_FRAME_BASED_RESOURCE_TAGGING;
         }
         // SAFETY: preferences built from the constructor's defaults with every pointer alive for
@@ -298,7 +292,8 @@ pub(super) fn start(app: &mut App) {
             // Whatever slInit loaded before it failed goes again (eErrorNotInitialized when
             // nothing was loaded [documented: src/sl.cpp:312-316]); no Vulkan object was made
             // through it.
-            if fg.take().is_some() {
+            if std::mem::take(&mut fg) {
+                set_fg_availability(FgAvailability::Failed);
                 // SAFETY: the interposer's export, after its slInit.
                 let down = unsafe { (api.shutdown)() };
                 note_fg(Level::WARN, format!("slInit with DLSS Frame Generation and Reflex: {}; slShutdown {}; slInit again with DLSS only", result.name(), down.name()));
@@ -311,17 +306,14 @@ pub(super) fn start(app: &mut App) {
             set_loader_state(DlssState::Unavailable(Unavailable::StreamlineRefused));
             return;
         }
-        let asked = match fg {
-            Some(FgSpike::On) => "DLSS + DLSS Frame Generation + Reflex, frame-based tagging",
-            Some(_) => "DLSS + DLSS Frame Generation + Reflex",
-            None => "DLSS",
-        };
+        let asked = if fg { "DLSS + DLSS Frame Generation + Reflex, frame-based tagging" } else { "DLSS" };
         note(Level::INFO, format!("slInit: {} (SDK 2.14.16, Vulkan, {asked}, plugins from the folder, over-the-air flags off, engine {} with a project id)", result.name(), env!("CARGO_PKG_VERSION")));
         // The device check, before the renderer is told about the interposer (preflight.rs).
-        match device_check(&api, &snapshot, fg.is_some()) {
+        match device_check(&api, &snapshot, fg) {
             Ok(()) => break,
             Err((reason, why)) => {
-                if fg.take().is_some() {
+                if std::mem::take(&mut fg) {
+                    set_fg_availability(FgAvailability::Failed);
                     // SAFETY: after slInit; no Vulkan object was made through the interposer.
                     let down = unsafe { (api.shutdown)() };
                     note_fg(Level::WARN, format!("device check with DLSS Frame Generation and Reflex declined: {why}; slShutdown {}; slInit again with DLSS only", down.name()));
@@ -339,10 +331,8 @@ pub(super) fn start(app: &mut App) {
     // Before any plugin's `finish`: NVIDIA low latency, loaded there, stays off while DLSS-G will
     // stay loaded, and goes through Streamline's Reflex while that stays loaded
     // (`nv_low_latency::load`; whether they are supported is known only in `Plugin::cleanup`).
-    if matches!(fg, Some(FgSpike::KeepLoaded | FgSpike::On)) {
+    if fg {
         FG_KEPT_LOADED.store(true, std::sync::atomic::Ordering::Relaxed);
-    }
-    if fg == Some(FgSpike::On) {
         FG_ON.store(true, std::sync::atomic::Ordering::Relaxed);
     }
     *state() = Some(Spike { api, phase: Phase::Initialised, eval: None, pins: Some(Pins { _interposer: accepted, _folder: second_pass }), fg });
@@ -720,7 +710,7 @@ pub(super) fn after_device(app: &mut App) {
     let Some(render) = app.get_sub_app(RenderApp) else {
         note(Level::WARN, "no render world; slShutdown will be skipped at exit (the device's lifetime cannot be followed without it)");
         set_loader_state(DlssState::Unavailable(Unavailable::StreamlineRefused));
-        if spike.fg.is_some() {
+        if spike.fg {
             unload_frame_generation(&spike.api, "no render world to drain");
         }
         return;
@@ -732,7 +722,7 @@ pub(super) fn after_device(app: &mut App) {
     else {
         note(Level::WARN, "the renderer's device is not in the render world; slShutdown will be skipped at exit");
         set_loader_state(DlssState::Unavailable(Unavailable::StreamlineRefused));
-        if spike.fg.is_some() {
+        if spike.fg {
             unload_frame_generation(&spike.api, "no render device to drain");
         }
         return;
@@ -785,8 +775,8 @@ pub(super) fn after_device(app: &mut App) {
             loaded_result.name()
         ),
     );
-    if let Some(mode) = spike.fg {
-        frame_generation_after_device(&spike.api, mode, &held, identity);
+    if spike.fg {
+        frame_generation_after_device(&spike.api, &held, identity);
     }
     spike.phase = Phase::Holding(held);
     STREAMLINE_DEVICE.store(true, std::sync::atomic::Ordering::Relaxed);
@@ -844,7 +834,7 @@ fn ask_supported(api: &Api, physical: vk::PhysicalDevice, mut luid: [u8; 8], fea
 /// [documented: `sl_core_api.h:120-134`; `ProgrammingGuide.md` §2.14]: the render thread has not
 /// started, and the GPU is drained first (`Device::poll` wait, as `evaluate.rs` drains before
 /// freeing DLSS's resources).
-fn frame_generation_after_device(api: &Api, mode: FgSpike, held: &Held, identity: Option<(vk::PhysicalDevice, Option<[u8; 8]>)>) {
+fn frame_generation_after_device(api: &Api, held: &Held, identity: Option<(vk::PhysicalDevice, Option<[u8; 8]>)>) {
     let ask = |feature: u32| match identity {
         Some((physical, Some(luid))) => Ok(ask_supported(api, physical, luid, feature)),
         Some((_, None)) => Err("not asked (no valid LUID)"),
@@ -877,74 +867,58 @@ fn frame_generation_after_device(api: &Api, mode: FgSpike, held: &Held, identity
         ),
     );
     let drained = drain(held);
-    match mode {
-        FgSpike::Report => unload_frame_generation(api, &drained),
-        FgSpike::KeepLoaded => {
-            let functions = match frame_generation {
-                Ok(result) if result.is_ok() => dlssg_functions(api),
-                Ok(result) => Err(format!("slIsFeatureSupported(DLSS-G) {}", result.name())),
-                Err(why) => Err(format!("slIsFeatureSupported(DLSS-G) {why}")),
-            };
-            match functions {
-                Ok((get_state, set_options)) => {
-                    let reflex = unload(api, FEATURE_REFLEX);
-                    super::frame_gen::install(get_state, set_options, super::frame_gen::Mode::KeptOff);
-                    let level = if reflex.is_ok() { Level::INFO } else { Level::WARN };
-                    note_fg(
-                        level,
-                        format!(
-                            "DLSS-G kept loaded, mode off (the window presents through Streamline's swapchain); Reflex unloaded ({}) ({drained}; loaded now: DLSS-G {}, Reflex {}); no latency reduction this session (NVIDIA low latency stays off while DLSS-G is loaded)",
-                            reflex.name(),
-                            loaded_text(api, FEATURE_DLSS_G),
-                            loaded_text(api, FEATURE_REFLEX)
-                        ),
-                    );
-                }
-                Err(why) => {
-                    note_fg(
-                        Level::WARN,
-                        format!("DLSS-G not kept loaded: {why}; NVIDIA low latency stays off this session (it was declined at start, while DLSS-G was to stay loaded)"),
-                    );
-                    unload_frame_generation(api, &drained);
-                }
+    // The GPU's answer for the settings page's reason.
+    set_fg_availability(match frame_generation {
+        Ok(r) if r.is_ok() => FgAvailability::Ready,
+        Ok(SlResult(4)) => FgAvailability::SchedulingOff,
+        Ok(SlResult(2)) => FgAvailability::DriverOld,
+        Ok(SlResult(6 | 7)) => FgAvailability::GpuNotSupported,
+        _ => FgAvailability::Failed,
+    });
+    let reflex_supported = ask(FEATURE_REFLEX);
+    let fetched = match (frame_generation, reflex_supported) {
+        (Ok(g), Ok(r)) if g.is_ok() && r.is_ok() => dlssg_functions(api).and_then(|dlssg| frame_calls(api).map(|calls| (dlssg, calls))),
+        (g, r) => Err(format!("slIsFeatureSupported DLSS-G {}, Reflex {}", text(g), text(r))),
+    };
+    let ((get_state, set_options), calls) = match fetched {
+        Ok(fetched) => fetched,
+        Err(why) => {
+            if !why.starts_with("slIsFeatureSupported") {
+                set_fg_availability(FgAvailability::Failed);
             }
+            note_fg(Level::WARN, format!("not started: {why}; DLSS-G and Reflex unloaded, so NVIDIA low latency makes its direct calls (where the device has VK_NV_low_latency2)"));
+            unload_frame_generation(api, &drained);
+            return;
         }
-        FgSpike::On => {
-            let reflex_supported = ask(FEATURE_REFLEX);
-            let fetched = match (frame_generation, reflex_supported) {
-                (Ok(g), Ok(r)) if g.is_ok() && r.is_ok() => dlssg_functions(api).and_then(|dlssg| frame_calls(api).map(|calls| (dlssg, calls))),
-                (g, r) => Err(format!("slIsFeatureSupported DLSS-G {}, Reflex {}", text(g), text(r))),
-            };
-            match fetched {
-                Ok(((get_state, set_options), calls)) => {
-                    super::frame_token::install(calls);
-                    // At least once, and with DLSS-G on Reflex must be on (`eFailReflexNotDetectedAtRuntime`,
-                    // `sl_dlss_g.h:131-132`; `ProgrammingGuideReflex.md:177`); not thread
-                    // safe, so here, before the render thread starts.
-                    let reflex = super::frame_token::set_reflex_options(REFLEX_MODE_LOW_LATENCY, 0).unwrap_or(SlResult::OK);
-                    let frames = super::frame_gen::frames_asked();
-                    super::FG_MULTIPLIER.store(frames + 1, std::sync::atomic::Ordering::Relaxed);
-                    super::frame_gen::install(get_state, set_options, super::frame_gen::Mode::On { frames });
-                    note_fg(
-                        if reflex.is_ok() { Level::INFO } else { Level::WARN },
-                        format!(
-                            "frame generation on: DLSS-G and Reflex kept loaded ({drained}; loaded now: DLSS-G {}, Reflex {}), Reflex eLowLatency ({}), frame-based tagging, every Streamline call with our frame number; {frames} generated frame(s) per real frame asked (NVF_DLSSG_FRAMES), at most what DLSS-G allows; latency calls through Streamline (sl.reflex, sl.pcl) whatever the latency reduction switch",
-                            loaded_text(api, FEATURE_DLSS_G),
-                            loaded_text(api, FEATURE_REFLEX),
-                            reflex.name()
-                        ),
-                    );
-                }
-                Err(why) => {
-                    note_fg(
-                        Level::WARN,
-                        format!("frame generation not started: {why}; DLSS-G and Reflex unloaded, so NVIDIA low latency makes its direct calls (where the device has VK_NV_low_latency2)"),
-                    );
-                    unload_frame_generation(api, &drained);
-                }
-            }
-        }
+    };
+    super::frame_token::install(calls);
+    // At least once, and with DLSS-G on Reflex must be on (`eFailReflexNotDetectedAtRuntime`,
+    // `sl_dlss_g.h:131-132`; `ProgrammingGuideReflex.md:177`); not thread safe, so here,
+    // before the render thread starts. The latency reduction switch sets it from then on.
+    let reflex = super::frame_token::set_reflex_options(REFLEX_MODE_LOW_LATENCY, 0).unwrap_or(SlResult::OK);
+    // DLSS-G stays loaded when the start's choice is DLSS; otherwise it is unloaded now, before
+    // the window's swapchain exists, and loaded when chosen (`frame_gen.rs`).
+    let at_start = FG_AT_START.load(std::sync::atomic::Ordering::Relaxed);
+    let unloaded = if at_start { None } else { Some(unload(api, FEATURE_DLSS_G)) };
+    let loaded = unloaded.is_none_or(|r| !r.is_ok());
+    if !loaded {
+        FG_KEPT_LOADED.store(false, std::sync::atomic::Ordering::Relaxed);
+        FG_UNLOADED.store(true, std::sync::atomic::Ordering::Relaxed);
     }
+    super::frame_gen::install(get_state, set_options, loaded);
+    note_fg(
+        if reflex.is_ok() && unloaded.is_none_or(|r| r.is_ok()) { Level::INFO } else { Level::WARN },
+        format!(
+            "ready: DLSS-G and Reflex set up ({drained}), Reflex eLowLatency ({}), frame-based tagging, every Streamline call with our frame number; latency calls through Streamline (sl.reflex, sl.pcl); DLSS-G {} (loaded now: DLSS-G {}, Reflex {})",
+            reflex.name(),
+            match unloaded {
+                None => "kept loaded: the start's Frame generation choice is DLSS".to_string(),
+                Some(r) => format!("unloaded before the window's swapchain ({}): loaded when DLSS is chosen", r.name()),
+            },
+            loaded_text(api, FEATURE_DLSS_G),
+            loaded_text(api, FEATURE_REFLEX)
+        ),
+    );
 }
 
 /// A function of `feature` by name through `slGetFeatureFunction` (after the device exists).

@@ -1,5 +1,5 @@
-//! One Streamline frame per engine frame, for the DLSS Frame Generation spike's `on` (#2317;
-//! fork-notes `fg-spike-design.md`, decision 5 and Stage 2): every call that names a frame
+//! One Streamline frame per engine frame, for DLSS Frame Generation (#2317;
+//! docs/design/dlss-frame-generation.md): every call that names a frame
 //! (constants, frame tags, DLSS's evaluate, Reflex's sleep and the PCL markers) takes the token
 //! of the same number, our frame index plus one (`anti_lag.rs` `Frames`/`Presenting`, the
 //! number `nv_low_latency.rs` `present_id` gives the driver's markers), so DLSS-G can match the

@@ -47,7 +47,7 @@
 //! - **Off** makes no call each frame; when the switch goes off, low latency mode is turned off
 //!   on the swapchain once. `NVF_NV_LOW_LATENCY=0` never asks for the extension.
 //! - `NVF_PACE_LOG=1` adds a line every ten seconds with what the driver's sleep waited.
-//! - **Through Streamline** (the DLSS Frame Generation spike's `on`, #2317): while Streamline's
+//! - **Through Streamline** (with DLSS Frame Generation's files, #2317): while Streamline's
 //!   Reflex runs, every call goes through it instead ([`ViaStreamline`]: `slReflexSetOptions`,
 //!   `slReflexSleep`, `slPCLSetMarker`), every frame whatever the switch; `NVF_PACE_LOG=1` then
 //!   gives Reflex's own latency report.
@@ -199,8 +199,8 @@ impl Calls for Vulkan {
     }
 }
 
-/// The calls while the DLSS Frame Generation spike asks for Streamline's Reflex
-/// (`NVF_DLSSG_SPIKE=on`, #2317; fork-notes `fg-spike-design.md` decision 6 and Stage 3):
+/// The calls while DLSS Frame Generation asks for Streamline's Reflex (#2317;
+/// docs/design/dlss-frame-generation.md):
 /// whenever `sl.reflex` runs (`dlss::reflex_running`: kept loaded and its calls installed,
 /// known once the DLSS loader's `Plugin::cleanup` has run, after this was chosen in
 /// `AntiLagPlugin::finish`), every call goes through Streamline and none directly; when it does
@@ -434,7 +434,7 @@ impl NvLowLatency {
     fn refused(&self, call: &str, error: vk::Result) {
         if !self.0.said_refused.swap(true, Ordering::Relaxed) {
             if self.0.calls.through_streamline() {
-                warn!("latency reduction: Streamline's Reflex refused {call} (its result is in the DLSS-G spike's lines); frames are not paced by it");
+                warn!("latency reduction: Streamline's Reflex refused {call} (its result is in the DLSS-G lines); frames are not paced by it");
             } else {
                 warn!("latency reduction: the driver refused NVIDIA low latency ({call}: {error:?}); frames are not paced by it");
             }
@@ -486,12 +486,11 @@ pub(crate) fn add_systems(app: &mut App) {
 /// The driver for the render device, when the device was made with the extension; with why
 /// not (for the start's log line) otherwise. `AntiLagPlugin::finish` calls this.
 pub(crate) fn load(app: &App) -> Result<NvLowLatency, &'static str> {
-    // The DLSS Frame Generation spike (#2317, `NVF_DLSSG_SPIKE=loaded`): with Streamline's DLSS-G
-    // loaded the window's swapchain is Streamline's proxy, which these direct calls must not
-    // reach [design: fork-notes `fg-spike-design.md`, Stage 1b; whether the handle wgpu holds is
-    // the driver's is unknown, `fg-facts.md` §2.2].
-    // With frame generation on (`NVF_DLSSG_SPIKE=on`) Streamline's Reflex is to stay loaded,
-    // and the calls go through it once it runs, the direct ones otherwise (`ViaStreamline`).
+    // With DLSS Frame Generation set up (#2317) Streamline's Reflex is to stay loaded, and the
+    // calls go through it once it runs, the direct ones otherwise (`ViaStreamline`). With
+    // Streamline's DLSS-G loaded and Reflex not, the window's swapchain is Streamline's proxy,
+    // which the direct calls must not reach [hypothesis: whether the handle wgpu holds is the
+    // driver's is unknown, fork-notes `fg-facts.md` §2.2].
     if crate::dlss::frame_generation_on() {
         let direct = direct(app).ok().map(|calls| Box::new(calls) as Box<dyn Calls>);
         return Ok(NvLowLatency::new(Box::new(ViaStreamline { direct })));
@@ -682,7 +681,7 @@ pub(crate) mod tests {
         );
     }
 
-    /// Through Streamline (the DLSS Frame Generation spike's `on`, Stage 3) the sleep and the
+    /// Through Streamline (with DLSS Frame Generation's files) the sleep and the
     /// markers come every frame with the switch off too, each with the frame's number
     /// (presentID); the mode is handed over every frame with the switch's value (Streamline sets
     /// Reflex's options only on a change, `dlss::reflex_options`).

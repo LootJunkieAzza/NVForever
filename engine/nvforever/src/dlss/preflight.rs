@@ -672,7 +672,7 @@ pub(super) struct Requirements {
 
 impl Requirements {
     /// `other`'s requirements added, as Streamline's `vkCreateDevice` adds every loaded plugin's
-    /// for the DLSS Frame Generation spike's merged device check (#2317, `win.rs`
+    /// for DLSS Frame Generation's merged device check (#2317, `win.rs`
     /// `device_check`): the extension and feature lists joined (each name once; the proxy keeps
     /// them in sets), the extra graphics and compute queues summed (it adds each plugin's count
     /// to the last, `extraGraphicsQueues += ...`), the optical flow queues the larger (it keeps
@@ -1205,7 +1205,7 @@ mod tests {
         assert!(err.why.contains("lacks the instance extension(s) VK_KHR_external_memory_capabilities"), "{}", err.why);
     }
 
-    /// The DLSS Frame Generation spike's merged check (#2317): the lists joined, queues summed,
+    /// DLSS Frame Generation's merged check (#2317): the lists joined, queues summed,
     /// Vulkan only when every feature lists it, and a GPU lacking a name only another feature
     /// asks for (here Reflex's `VK_NV_low_latency`, `reflexEntry.cpp:282-286`) declined.
     #[test]
