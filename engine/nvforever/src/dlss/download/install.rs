@@ -252,7 +252,7 @@ pub(super) mod tests {
         assert!(staging_path.file_name().unwrap().to_string_lossy().starts_with(STAGING_PREFIX));
         assert_eq!(staging_path.parent(), Some(root.as_path()), "beside the target");
         verify_staged(&staging, &files, &|_| Ok(())).unwrap();
-        place(&mut staging, &files, &target, &mut |a, b| rename(a, b)).unwrap();
+        place(&mut staging, &files, &target, &mut rename).unwrap();
         drop(staging);
         assert_eq!(listing(&target), ["a.dll", "b.dll", "c.dll"]);
         assert_eq!(fs::read(target.join("b.dll")).unwrap(), B);
@@ -291,7 +291,7 @@ pub(super) mod tests {
             fs::create_dir(&target).unwrap();
             fs::write(target.join(name), bytes).unwrap();
             let mut staging = staged(&target, &files, &[A, B]);
-            let result = place(&mut staging, &files, &target, &mut |a, b| rename(a, b));
+            let result = place(&mut staging, &files, &target, &mut rename);
             assert_eq!(result, Err(Failure::FolderHolds(name.to_string())), "{label}");
             drop(staging);
             assert_eq!(listing(&target), [name], "{label}: nothing written");

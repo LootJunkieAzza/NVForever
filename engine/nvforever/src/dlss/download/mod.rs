@@ -29,12 +29,18 @@
 // goes with the dialog's commit.
 #![cfg_attr(windows, allow(dead_code))]
 
+#[cfg(any(windows, test))]
+use std::io::{self, Read, Write};
+#[cfg(any(windows, test))]
+use std::path::Path;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
 #[cfg(any(windows, test))]
 mod decode;
+#[cfg(any(windows, test))]
+mod fetch;
 mod files;
 #[cfg(any(windows, test))]
 mod install;
@@ -43,6 +49,8 @@ mod test_zip;
 #[cfg(any(windows, test))]
 mod zip;
 
+// Off Windows only the tests use the list, and not through these names.
+#[cfg_attr(not(windows), allow(unused_imports))]
 pub use files::{DOWNLOAD_FILES, DownloadFile};
 
 /// The archive the files come from: the official asset of NVIDIA-RTX/Streamline's release
@@ -210,10 +218,44 @@ pub fn target_folder() -> Result<PathBuf, String> {
     }
 }
 
+/// The download started last in this session, if any (a finished one included).
+static CURRENT: Mutex<Option<Arc<Shared>>> = Mutex::new(None);
+
+/// The download started last in this session (running or finished), so a dialog opened again
+/// finds it.
+pub fn current() -> Option<Handle> {
+    CURRENT.lock().unwrap_or_else(PoisonError::into_inner).clone().map(|shared| Handle { shared })
+}
+
 /// Starts the download on its own thread (`nvf-dlss-download`); the game goes on meanwhile.
+/// While one is running, its handle is returned instead of a second one starting.
 pub fn start(_accepted: LicenceAccepted) -> Handle {
+    let mut current = CURRENT.lock().unwrap_or_else(PoisonError::into_inner);
+    if let Some(running) = current.as_ref().filter(|s| !s.progress.lock().unwrap_or_else(PoisonError::into_inner).phase.finished()) {
+        return Handle { shared: running.clone() };
+    }
     bevy::log::info!("DLSS download: licence accepted");
     let shared = Arc::new(Shared::new());
+    *current = Some(shared.clone());
+    drop(current);
+    #[cfg(windows)]
+    {
+        let worker = shared.clone();
+        let spawned = std::thread::Builder::new().name("nvf-dlss-download".into()).spawn(move || {
+            let phase = match target_folder() {
+                Err(why) => Phase::Failed(Failure::Write(why)),
+                Ok(target) => {
+                    let mut source = fetch::Http::new();
+                    run(&mut source, DOWNLOAD_FILES, &target, &worker, &|dir| install::signature_checks(dir, DOWNLOAD_FILES))
+                }
+            };
+            finish(&worker, phase);
+        });
+        if let Err(e) = spawned {
+            finish(&shared, Phase::Failed(Failure::Write(format!("the download thread did not start: {e}"))));
+        }
+    }
+    #[cfg(not(windows))]
     finish(&shared, Phase::Failed(Failure::NotWindows));
     Handle { shared }
 }
@@ -227,6 +269,213 @@ fn finish(shared: &Shared, phase: Phase) {
         _ => {}
     }
     shared.set_phase(phase);
+}
+
+/// The archive's bytes by range: HTTP in the game (`fetch.rs`), memory in the tests.
+#[cfg(any(windows, test))]
+trait RangeSource {
+    /// Where the bytes come from, for the log.
+    fn describe(&self) -> String;
+    /// The archive's size in bytes.
+    fn size(&mut self) -> Result<u64, Failure>;
+    /// A reader of the `len` bytes from `start`; its errors are the transport's.
+    fn range(&mut self, start: u64, len: u64) -> Result<Box<dyn Read + '_>, Failure>;
+}
+
+/// How a download stopped before its end.
+#[cfg(any(windows, test))]
+enum Stop {
+    Failed(Failure),
+    Cancelled,
+}
+
+#[cfg(any(windows, test))]
+impl From<Failure> for Stop {
+    fn from(failure: Failure) -> Self {
+        Self::Failed(failure)
+    }
+}
+
+/// A range's reader as the download reads it: never more than the range, its bytes counted
+/// into the progress, the cancel flag looked at on every read, an early end or a transport
+/// error kept as the failure.
+#[cfg(any(windows, test))]
+struct Tap<'a> {
+    inner: Box<dyn Read + 'a>,
+    shared: &'a Shared,
+    left: u64,
+    failed: Option<String>,
+}
+
+#[cfg(any(windows, test))]
+impl<'a> Tap<'a> {
+    fn new(inner: Box<dyn Read + 'a>, shared: &'a Shared, len: u64) -> Self {
+        Self { inner, shared, left: len, failed: None }
+    }
+
+    /// Why reading stopped: the cancel, else the transport's failure, else `otherwise`.
+    fn stop(&mut self, e: io::Error, otherwise: impl FnOnce(io::Error) -> Failure) -> Stop {
+        if self.shared.cancelled() {
+            Stop::Cancelled
+        } else if let Some(why) = self.failed.take() {
+            Stop::Failed(Failure::Offline(why))
+        } else {
+            Stop::Failed(otherwise(e))
+        }
+    }
+
+    /// `buf` filled from the range.
+    fn fill(&mut self, buf: &mut [u8]) -> Result<(), Stop> {
+        let read = self.read_exact(buf);
+        read.map_err(|e| self.stop(e, |e| Failure::NotAZip(e.to_string())))
+    }
+
+    /// `n` bytes read and dropped.
+    fn skip(&mut self, n: u64) -> Result<(), Stop> {
+        let copied = io::copy(&mut self.by_ref().take(n), &mut io::sink());
+        copied.map(|_| ()).map_err(|e| self.stop(e, |e| Failure::NotAZip(e.to_string())))
+    }
+}
+
+#[cfg(any(windows, test))]
+impl Read for Tap<'_> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        if self.shared.cancelled() {
+            return Err(io::Error::other("cancelled"));
+        }
+        if self.left == 0 || buf.is_empty() {
+            return Ok(0);
+        }
+        let max = buf.len().min(usize::try_from(self.left).unwrap_or(usize::MAX));
+        match self.inner.read(&mut buf[..max]) {
+            Ok(0) => {
+                let why = format!("the answer ended {} bytes early", self.left);
+                self.failed = Some(why.clone());
+                Err(io::Error::new(io::ErrorKind::UnexpectedEof, why))
+            }
+            Ok(n) => {
+                self.left -= n as u64;
+                self.shared.update(|p| p.fetched += n as u64);
+                Ok(n)
+            }
+            Err(e) if e.kind() == io::ErrorKind::Interrupted => Err(e),
+            Err(e) => {
+                self.failed = Some(e.to_string());
+                Err(e)
+            }
+        }
+    }
+}
+
+/// The `len` bytes from `start`, whole.
+#[cfg(any(windows, test))]
+fn read_all<S: RangeSource>(src: &mut S, shared: &Shared, start: u64, len: u64) -> Result<Vec<u8>, Stop> {
+    let size = usize::try_from(len).map_err(|_| Failure::NotAZip(format!("a read of {len} bytes")))?;
+    let mut tap = Tap::new(src.range(start, len)?, shared, len);
+    let mut bytes = vec![0u8; size];
+    tap.fill(&mut bytes)?;
+    Ok(bytes)
+}
+
+/// One download from `src` into `target`, to its end: the files of `files` fetched, unpacked,
+/// checked (their pins, then `checks` on the staging folder) and installed; the phase it ended
+/// in (done, failed or cancelled). Nothing is written in `target` unless every file passed.
+#[cfg(any(windows, test))]
+fn run<S: RangeSource>(src: &mut S, files: &[DownloadFile], target: &Path, shared: &Shared, checks: &dyn Fn(&Path) -> Result<(), Failure>) -> Phase {
+    match fetch_and_install(src, files, target, shared, checks) {
+        Ok(()) => Phase::Done(target.to_path_buf()),
+        Err(Stop::Failed(failure)) => Phase::Failed(failure),
+        Err(Stop::Cancelled) => Phase::Cancelled,
+    }
+}
+
+#[cfg(any(windows, test))]
+fn fetch_and_install<S: RangeSource>(src: &mut S, files: &[DownloadFile], target: &Path, shared: &Shared, checks: &dyn Fn(&Path) -> Result<(), Failure>) -> Result<(), Stop> {
+    let go_on = || if shared.cancelled() { Err(Stop::Cancelled) } else { Ok(()) };
+    shared.set_phase(Phase::Connecting);
+    let size = src.size()?;
+    go_on()?;
+    // The directory: the archive's end, the ZIP64 record if there is one, the directory.
+    shared.set_phase(Phase::Directory);
+    let tail_len = size.min(zip::TAIL_LEN);
+    let tail_start = size - tail_len;
+    let tail = read_all(src, shared, tail_start, tail_len)?;
+    // `len` bytes at `at`: from the tail when it holds them, else fetched.
+    let bytes_at = |src: &mut S, at: u64, len: u64| -> Result<Vec<u8>, Stop> {
+        if at >= tail_start && at.checked_add(len).is_some_and(|end| end <= size) {
+            let from = (at - tail_start) as usize;
+            Ok(tail[from..from + len as usize].to_vec())
+        } else {
+            read_all(src, shared, at, len)
+        }
+    };
+    let dir = match zip::find_end(&tail, tail_start).map_err(Failure::NotAZip)? {
+        zip::End::Directory(dir) => dir,
+        zip::End::Zip64At(at) => zip::parse_zip64_end(&bytes_at(src, at, zip::ZIP64_EOCD_LEN as u64)?, at).map_err(Failure::NotAZip)?,
+    };
+    let entries = zip::read_directory(&bytes_at(src, dir.offset, dir.size)?, &dir).map_err(Failure::NotAZip)?;
+    let selected = zip::select(&entries, files)?;
+    let spans = zip::plan(&selected, &entries, &dir).map_err(Failure::NotAZip)?;
+    let to_fetch: u64 = spans.iter().map(zip::Span::len).sum();
+    shared.update(|p| {
+        p.fetched = 0;
+        p.to_fetch = to_fetch;
+    });
+    bevy::log::info!("DLSS download: {} entries, {to_fetch} bytes to fetch from {}", selected.len(), src.describe());
+    go_on()?;
+    // The files, unpacked into the staging folder as they arrive.
+    let mut staging = install::Staging::create(target)?;
+    let mut index = 0;
+    for span in &spans {
+        let mut tap = Tap::new(src.range(span.start, span.len())?, shared, span.len());
+        let mut pos = span.start;
+        for &i in &span.items {
+            let zip::Selected { file, entry } = &selected[i];
+            index += 1;
+            shared.set_phase(Phase::File { name: file.name, index, of: selected.len() });
+            tap.skip(entry.local_offset - pos)?;
+            let mut header = [0u8; zip::LOCAL_HEADER_LEN];
+            tap.fill(&mut header)?;
+            let local = zip::local_header(&header).map_err(|why| Failure::NotAZip(format!("{}: {why}", file.zip_path)))?;
+            let mut name = vec![0u8; local.name_len];
+            tap.fill(&mut name)?;
+            if local.method != entry.method || String::from_utf8_lossy(&name).replace('\\', "/") != entry.name {
+                return Err(Failure::NotAZip(format!("{}: its local header is not its directory entry's", file.zip_path)).into());
+            }
+            tap.skip(local.extra_len as u64)?;
+            let data_end = entry.local_offset + (zip::LOCAL_HEADER_LEN + local.name_len + local.extra_len) as u64 + entry.compressed;
+            if data_end > span.end {
+                return Err(Failure::NotAZip(format!("{}: its data runs past the next entry", file.zip_path)).into());
+            }
+            let path = staging.path().join(file.name);
+            let mut out = io::BufWriter::with_capacity(decode::CHUNK, staging.create_file(file)?);
+            let unpacked = {
+                let mut packed = (&mut tap).take(entry.compressed);
+                decode::decode(&mut packed, entry.method, file.size, &mut out, &|| shared.cancelled())
+                    .and_then(|decoded| io::copy(&mut packed, &mut io::sink()).map(|_| decoded).map_err(decode::DecodeError::Source))
+            };
+            let decoded = unpacked.map_err(|e| match e {
+                decode::DecodeError::Cancelled => Stop::Cancelled,
+                decode::DecodeError::Oversize => Failure::NotAZip(format!("{} unpacks to more than {} bytes", file.zip_path, file.size)).into(),
+                decode::DecodeError::Write(e) => Failure::Write(format!("{}: {e}", path.display())).into(),
+                decode::DecodeError::Source(e) => tap.stop(e, |e| Failure::NotAZip(format!("{}: {e}", file.zip_path))),
+            })?;
+            out.flush().map_err(|e| Failure::Write(format!("{}: {e}", path.display())))?;
+            let written = out.into_inner().map_err(|e| Failure::Write(format!("{}: {}", path.display(), e.error())))?;
+            written.sync_all().map_err(|e| Failure::Write(format!("{}: {e}", path.display())))?;
+            drop(written);
+            decode::verify(&decoded, entry.crc32, file)?;
+            bevy::log::info!("DLSS download: {} {} bytes, SHA-256 ok", file.name, decoded.size);
+            pos = data_end;
+        }
+    }
+    go_on()?;
+    shared.set_phase(Phase::Checking);
+    install::verify_staged(&staging, files, checks)?;
+    go_on()?;
+    shared.set_phase(Phase::Installing);
+    install::place(&mut staging, files, target, &mut install::rename)?;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -259,5 +508,222 @@ mod tests {
         assert!(ASSET_URL.ends_with("/streamline-sdk-v2.14.16.zip"));
         assert_eq!(RELEASE_PAGE, "https://github.com/NVIDIA-RTX/Streamline/releases/tag/v2.14.16");
         assert_eq!(Failure::Http(404).to_string(), "the server answered HTTP 404");
+    }
+
+    use super::install::tests::scratch;
+    use super::test_zip::{self, Options, TestEntry};
+    use std::cell::Cell;
+    use std::fs;
+
+    /// The archive in memory, each range asked for kept; optionally the cancel flag set, or the
+    /// answer cut short, from the second range on (the files' ranges: the test archives' whole
+    /// directory is in the first, the tail).
+    struct Memory<'a> {
+        zip: Vec<u8>,
+        ranges: Vec<(u64, u64)>,
+        cancel: Option<&'a Shared>,
+        cut_to: Option<usize>,
+    }
+
+    impl Memory<'_> {
+        fn new(zip: Vec<u8>) -> Self {
+            Self { zip, ranges: Vec::new(), cancel: None, cut_to: None }
+        }
+    }
+
+    impl RangeSource for Memory<'_> {
+        fn describe(&self) -> String {
+            "memory".into()
+        }
+
+        fn size(&mut self) -> Result<u64, Failure> {
+            Ok(self.zip.len() as u64)
+        }
+
+        fn range(&mut self, start: u64, len: u64) -> Result<Box<dyn Read + '_>, Failure> {
+            self.ranges.push((start, len));
+            let mut bytes = &self.zip[start as usize..(start + len) as usize];
+            if self.ranges.len() > 1 {
+                if let Some(shared) = self.cancel {
+                    shared.cancel.store(true, Ordering::Relaxed);
+                }
+                if let Some(cut) = self.cut_to {
+                    bytes = &bytes[..cut.min(bytes.len())];
+                }
+            }
+            Ok(Box::new(bytes))
+        }
+    }
+
+    fn a_data() -> Vec<u8> {
+        (0..200_000u32).map(|i| ((i / 3) ^ (i * 13)) as u8).collect()
+    }
+
+    const B_DATA: &[u8] = b"the second file, stored";
+
+    fn hex(data: &[u8]) -> &'static str {
+        Box::leak(fnv_util::sha256::hex(data).into_boxed_str())
+    }
+
+    fn files() -> Vec<DownloadFile> {
+        let a = a_data();
+        vec![
+            DownloadFile { name: "a.dll", zip_path: "bin/x64/a.dll", size: a.len() as u64, sha256: hex(&a) },
+            DownloadFile { name: "b.dll", zip_path: "bin/x64/b.dll", size: B_DATA.len() as u64, sha256: hex(B_DATA) },
+        ]
+    }
+
+    fn archive(options: &Options) -> Vec<u8> {
+        let a = a_data();
+        test_zip::build(
+            &[
+                TestEntry::deflated("bin/x64/a.dll", &a),
+                TestEntry::stored("readme.txt", b"not listed"),
+                TestEntry::stored("bin/x64/b.dll", B_DATA),
+                TestEntry::deflated("bin/x64/nvngx_update.exe", b"never written"),
+            ],
+            options,
+        )
+    }
+
+    /// The local header offsets of the archive's entries, by name.
+    fn offsets(zip: &[u8]) -> Vec<(String, u64)> {
+        let dir = match zip::find_end(zip, 0).unwrap() {
+            zip::End::Directory(dir) => dir,
+            zip::End::Zip64At(at) => zip::parse_zip64_end(&zip[at as usize..], at).unwrap(),
+        };
+        let entries = zip::read_directory(&zip[dir.offset as usize..(dir.offset + dir.size) as usize], &dir).unwrap();
+        entries.into_iter().map(|e| (e.name, e.local_offset)).collect()
+    }
+
+    fn listing(dir: &Path) -> Vec<String> {
+        let mut names: Vec<String> = fs::read_dir(dir).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();
+        names.sort();
+        names
+    }
+
+    #[test]
+    fn a_download_fetches_only_the_listed_entries_and_installs_them() {
+        for options in [Options::default(), Options { zip64: true, descriptor: true, comment: b"a comment".to_vec() }] {
+            let root = scratch("run");
+            let target = root.join("dlss");
+            let zip = archive(&options);
+            let mut src = Memory::new(zip.clone());
+            let shared = Shared::new();
+            let checked = Cell::new(false);
+            let phase = run(&mut src, &files(), &target, &shared, &|dir| {
+                assert_eq!(listing(dir), ["a.dll", "b.dll"], "the checks see both staged files");
+                checked.set(true);
+                Ok(())
+            });
+            assert_eq!(phase, Phase::Done(target.clone()));
+            assert!(checked.get());
+            assert_eq!(listing(&target), ["a.dll", "b.dll"]);
+            assert_eq!(fs::read(target.join("a.dll")).unwrap(), a_data());
+            assert_eq!(fs::read(target.join("b.dll")).unwrap(), B_DATA);
+            assert_eq!(listing(&root), ["dlss"], "no staging folder left");
+            // The tail, then one range per listed entry, from its local header.
+            let at = offsets(&zip);
+            let of = |name: &str| at.iter().find(|(n, _)| n == name).unwrap().1;
+            assert_eq!(src.ranges[0].0 + src.ranges[0].1, zip.len() as u64, "the first range is the archive's end");
+            let starts: Vec<u64> = src.ranges[1..].iter().map(|r| r.0).collect();
+            assert_eq!(starts, [of("bin/x64/a.dll"), of("bin/x64/b.dll")]);
+            assert_eq!(src.ranges[1].0 + src.ranges[1].1, of("readme.txt"), "a.dll's range stops at the next header");
+            let updater = of("bin/x64/nvngx_update.exe");
+            assert!(src.ranges[1..].iter().all(|&(s, l)| s + l <= updater), "the updater's bytes are never asked for");
+            let progress = shared.progress.lock().unwrap().clone();
+            assert_eq!(progress.fetched, progress.to_fetch);
+            assert_eq!(progress.to_fetch, src.ranges[1..].iter().map(|r| r.1).sum::<u64>());
+            let _ = fs::remove_dir_all(root);
+        }
+    }
+
+    /// A run that must fail or be cancelled, and leave nothing behind.
+    fn refused(label: &str, src: &mut Memory<'_>, files: &[DownloadFile], shared: &Shared, checks: &dyn Fn(&Path) -> Result<(), Failure>) -> Phase {
+        let root = scratch(label);
+        let target = root.join("dlss");
+        let phase = run(src, files, &target, shared, checks);
+        assert!(!target.exists(), "{label}: nothing written");
+        assert!(listing(&root).is_empty(), "{label}: no staging folder left");
+        let _ = fs::remove_dir_all(root);
+        phase
+    }
+
+    #[test]
+    fn a_file_other_than_its_pin_or_refused_by_the_checks_writes_nothing() {
+        let mut wrong = files();
+        wrong[1].sha256 = hex(b"another build");
+        let phase = refused("mismatch", &mut Memory::new(archive(&Options::default())), &wrong, &Shared::new(), &|_| Ok(()));
+        assert_eq!(phase, Phase::Failed(Failure::Mismatch { name: "b.dll", sha256: fnv_util::sha256::hex(B_DATA) }));
+        let phase = refused("signature", &mut Memory::new(archive(&Options::default())), &files(), &Shared::new(), &|_| {
+            Err(Failure::Signature { name: "a.dll", why: "not signed".into() })
+        });
+        assert_eq!(phase, Phase::Failed(Failure::Signature { name: "a.dll", why: "not signed".into() }));
+        let mut missing = files();
+        missing[0].zip_path = "bin/x64/missing.dll";
+        let phase = refused("missing", &mut Memory::new(archive(&Options::default())), &missing, &Shared::new(), &|_| Ok(()));
+        assert_eq!(phase, Phase::Failed(Failure::EntryMissing("bin/x64/missing.dll")));
+        let phase = refused("not-a-zip", &mut Memory::new(b"not an archive at all".to_vec()), &files(), &Shared::new(), &|_| Ok(()));
+        assert!(matches!(phase, Phase::Failed(Failure::NotAZip(_))), "{phase:?}");
+    }
+
+    #[test]
+    fn a_cancel_or_a_cut_answer_writes_nothing() {
+        let shared = Shared::new();
+        let mut src = Memory::new(archive(&Options::default()));
+        src.cancel = Some(&shared);
+        assert_eq!(refused("cancel", &mut src, &files(), &shared, &|_| Ok(())), Phase::Cancelled);
+        let mut src = Memory::new(archive(&Options::default()));
+        src.cut_to = Some(1000);
+        let phase = refused("cut", &mut src, &files(), &Shared::new(), &|_| Ok(()));
+        assert!(matches!(&phase, Phase::Failed(Failure::Offline(why)) if why.contains("ended")), "{phase:?}");
+    }
+
+    #[test]
+    fn a_folder_holding_the_updater_is_left_as_it_is() {
+        let root = scratch("run-updater");
+        let target = root.join("dlss");
+        fs::create_dir(&target).unwrap();
+        fs::write(target.join("nvngx_update.exe"), b"x").unwrap();
+        let phase = run(&mut Memory::new(archive(&Options::default())), &files(), &target, &Shared::new(), &|_| Ok(()));
+        assert_eq!(phase, Phase::Failed(Failure::FolderHolds("nvngx_update.exe".into())));
+        assert_eq!(listing(&target), ["nvngx_update.exe"]);
+        assert_eq!(listing(&root), ["dlss"]);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    /// A server on this machine answering every request with `answer`; its address.
+    #[cfg(windows)]
+    fn serve(answer: &'static str) -> String {
+        use std::io::{BufRead, BufReader};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            for stream in listener.incoming().take(4) {
+                let Ok(mut stream) = stream else { continue };
+                let mut reader = BufReader::new(stream.try_clone().unwrap());
+                let mut line = String::new();
+                while reader.read_line(&mut line).is_ok_and(|n| n > 0) && line != "\r\n" {
+                    line.clear();
+                }
+                let _ = stream.write_all(answer.as_bytes());
+            }
+        });
+        format!("http://127.0.0.1:{port}/streamline-sdk-v2.14.16.zip")
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_404_or_an_answer_without_ranges_fails_with_nothing_written() {
+        let not_found = serve("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+        let root = scratch("http");
+        let target = root.join("dlss");
+        let phase = run(&mut fetch::Http::with_url(not_found, true), DOWNLOAD_FILES, &target, &Shared::new(), &|_| Ok(()));
+        assert_eq!(phase, Phase::Failed(Failure::Http(404)));
+        let whole = serve("HTTP/1.1 200 OK\r\nContent-Length: 5\r\nConnection: close\r\n\r\nhello");
+        let phase = run(&mut fetch::Http::with_url(whole, true), DOWNLOAD_FILES, &target, &Shared::new(), &|_| Ok(()));
+        assert_eq!(phase, Phase::Failed(Failure::NoRanges));
+        assert!(listing(&root).is_empty(), "nothing written");
+        let _ = fs::remove_dir_all(root);
     }
 }
