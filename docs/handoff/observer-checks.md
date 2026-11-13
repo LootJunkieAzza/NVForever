@@ -1996,3 +1996,13 @@ Fallout Behavior, Weapon Drawn, Continue During Combat).
      pause menu and MCM's window open: `SetMCMFloatMass 1 37 38 "depth" 33` and `1 36 37
      "visible" 0`, reading ArrowUp, ArrowDown and Option36 before and after in one script;
      and `5 23 24 "_enable" 1` reading Mod23 and SubMenu1.
+
+## Added 2026-11-13 (a seated NPC's weapon, owner bug "weapon isnt away")
+
+119. **Does an NPC put its weapon away to sit, and what does IsWeaponOut read then?**
+     (P2; furniture.md §7.) NVForever holsters a weapon out of a fight while an NPC gets
+     on, sits on or gets off furniture, even under a package's Weapon Drawn flag, and
+     answers IsWeaponOut 0 for it [hypothesis]. To check: an NPC whose package has
+     Weapon Drawn and that sits (a Mercenary or NCR trooper on a sandbox with chairs).
+     Sample IsWeaponOut, GetSitting and GetAnimAction every 0.25 s from the walk to the
+     seat until it stands, with a screenshot of the hand at GetSitting 3.

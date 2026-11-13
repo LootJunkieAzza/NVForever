@@ -765,7 +765,9 @@ impl Game<'_> {
     /// package's Weapon Drawn flag, or a scripted weapon use (UseWeapon); never under its
     /// package's Weapons Unequipped flag while it does not fight, nor while it flees a
     /// fight [owner 2026-10-17: "they holster their weapon"; docs/design/combat-ai.md
-    /// §12.2.1]. The rule the engine
+    /// §12.2.1], nor while it uses furniture (getting on, on it, getting off) out of a
+    /// fight [owner 2026-11-13: "weapon isnt away", a Mercenary seated with a machete;
+    /// hypothesis: the original holsters for furniture; docs/spec-notes/furniture.md §7]. The rule the engine
     /// draws and holsters NPCs' weapons by (`nvforever` alert.rs), kept here so that
     /// IsWeaponOut answers for actors the engine does not draw [engineering choice; the
     /// flags' meanings: docs/spec-notes/packages.md].
@@ -779,7 +781,11 @@ impl Game<'_> {
         let drawn = self.package_has(actor, flags::WEAPON_DRAWN) || self.package_has(actor, flags::PRETEND_IN_COMBAT);
         // SetWeaponOut 1 holds it drawn (`crate::nvse_hud`).
         let held = self.hud.forced_out.contains(&actor);
-        !unequipped && !fleeing && (self.draws_weapon(actor) || drawn || held || self.active_weapon_use(actor).is_some())
+        // Furniture puts it away out of a fight, as the engine shows it (`nvforever`
+        // alert.rs `put_away`), so IsWeaponOut reads 0 for a seated actor the engine does
+        // not draw too [documented: IsWeaponOut follows the weapon on the weapon node].
+        let seated = !fighting && self.furniture_use(actor).is_some();
+        !unequipped && !fleeing && !seated && (self.draws_weapon(actor) || drawn || held || self.active_weapon_use(actor).is_some())
     }
 
     /// A hit's limb damage on one limb ([`Game::damage_limb`]) with what crippling it
