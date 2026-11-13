@@ -289,6 +289,17 @@ pub fn mcm_list_line(ui: &fnv_ui::Ui) -> Option<String> {
             )
         })
         .collect();
+    // The rows with a suffix: its text and measured width, and where the value's text
+    // stands left of it (OptionRect.xml: `_xSuffix` is minus the suffix's width).
+    let suffixes: Vec<String> = on
+        .iter()
+        .filter(|n| ui.get_float(&format!("{OPTIONS}/{n}/_suffix")).unwrap_or(0.0) != 0.0)
+        .map(|n| {
+            let text = ui.get_string(&format!("{OPTIONS}/{n}/value/suffix/string")).unwrap_or_default();
+            format!("{n} suffix {text:?} width {} value x {}", option(&format!("{n}/value/suffix/width")), option(&format!("{n}/value/text/x")))
+        })
+        .collect();
+    let shown = if suffixes.is_empty() { shown } else { [shown, vec![format!("suffixes: {}", suffixes.join(", "))]].concat() };
     let options = format!(
         "options: panel x {} y {} width {} visible {}, _x1 {}, _x2 {}, _columns {}; MCM x {} y {} width {}; {} rows on{}{}",
         option("x"),

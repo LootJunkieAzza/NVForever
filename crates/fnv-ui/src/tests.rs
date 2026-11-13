@@ -1041,3 +1041,33 @@ fn a_menus_sibling_is_another_menu() {
     ui.update();
     assert_eq!(ui.get_float("StartMenu/_VUI+"), Some(1.0));
 }
+
+/// MCM's OptionRect: the value text stands left of the suffix by the suffix's width, which
+/// the renderer writes after the suffix's string changed (issue #2298, "6seconds").
+#[test]
+fn a_measured_width_moves_what_reads_it() {
+    let src = MemSource::default().with(
+        "menus/m.xml",
+        r#"<menu name="M"> <_suffix> 0 </_suffix> <_suffixText> </_suffixText>
+             <rect name="value">
+               <_xSuffix> <copy> 0 </copy> <sub src="child(suffix)" trait="width"/> <onlyif src="parent()" trait="_suffix"/> </_xSuffix>
+               <text name="text"> <x> <copy src="parent()" trait="_xSuffix"/> </x> </text>
+               <text name="suffix"> <string> <copy src="grandparent()" trait="_suffixText"/> </string> <visible> <copy src="grandparent()" trait="_suffix"/> </visible> </text>
+             </rect> </menu>"#,
+    );
+    let mut ui = Ui::new();
+    ui.load_menu(&src, "menus/m.xml").unwrap();
+    ui.update();
+    let suffix = ui.find_tile("M/value/suffix").unwrap();
+    ui.set_trait(suffix, "width", Value::Num(0.0));
+    ui.update();
+    // The script: the suffix and its text, then a frame's update.
+    ui.set_float("M/_suffix", 1.0);
+    ui.set_string("M/_suffixText", " seconds");
+    ui.update();
+    assert_eq!(ui.get_float("M/value/text/x"), Some(0.0));
+    // The next frame's measure, then its update.
+    ui.set_trait(suffix, "width", Value::Num(80.0));
+    ui.update();
+    assert_eq!(ui.get_float("M/value/text/x"), Some(-80.0));
+}
