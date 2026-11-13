@@ -34,6 +34,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
 mod files;
+#[cfg(test)]
+mod test_zip;
+#[cfg(any(windows, test))]
+mod zip;
 
 pub use files::{DOWNLOAD_FILES, DownloadFile};
 
