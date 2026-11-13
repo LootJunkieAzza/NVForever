@@ -66,8 +66,10 @@
 //!   LIGH; hypothesis: the penalty is that light in the light level, docs/design/detection.md §9].
 //!   Our own flashlight cone is not counted: it is not the game's light.
 //! - **Moving and running**: from how far an actor went since the last measurement
-//!   [engineering choice]; the player runs when moving at the run gait (not holding Walk)
-//!   [hypothesis: a sneaking run counts as running]. Other actors sneak while
+//!   [engineering choice]; the player moves only while its movement controls are held (a
+//!   placement settling, a push or a slide makes no footsteps; #2286) and runs when
+//!   moving at the run gait (not holding Walk) [hypothesis: a sneaking run counts as
+//!   running]. Other actors sneak while
 //!   `Game::sneaks` says so (SetForceSneak, a package's Always Sneak; `sneaking.rs`).
 //! - **Turning** (IsTurning): the heading changed by more than [`TURN_RATE`] per second
 //!   since the last measurement, left or right [hypothesis: the game's threshold is not
@@ -814,7 +816,13 @@ fn measure(
     let mut people = Vec::new();
     let player_run_mode = !intent.as_deref().is_some_and(|i| i.walk);
     let pspeed = motion(FormId::PLAYER_REF.0, player.feet, &mut state.last);
-    let pmoving = pspeed > MOVING_SPEED;
+    // The player moves (footsteps, for the sound term and IsMoving) only while it walks or
+    // runs by its own controls: being set down, settling on the floor after a placement or
+    // a load, a push or a slide is no footstep [hypothesis, #2286: placed at HELIOS One's
+    // stasis pods, our player drifted 4 units while its capsule settled, read as running,
+    // and two protectrons the original leaves undetected noticed it by that sound].
+    let own_steps = intent.as_deref().is_none_or(|i| i.forward != 0.0 || i.right != 0.0);
+    let pmoving = pspeed > MOVING_SPEED && own_steps;
     // The player detects from its eyes along its heading; GetLineOfSight is the camera's,
     // first or third person [documented: GECK wiki GetLineOfSight; observed: capture
     // detection-2 det4, the detection's edge symmetric about the facing, the line of

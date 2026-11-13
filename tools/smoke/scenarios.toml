@@ -25829,6 +25829,22 @@ expect = [
 ]
 
 [[scenario]]
+name = "helios-stasis-only-p4-notices"
+source = "#2286 (from #1977 probe 3, observed in the original with the player at (-2987,-648)): only p4 goes for the player, from inside its pod; p1, p2, p3 and p5 stay idle and undetected. Ours had p1 and p3 notice at about 500 units by the sound of the player 'running' while its capsule settled after the placement (-19.7 and -19.8, hidden at -21.6 standing); the player now makes footsteps only while its movement controls are held (engine/nvforever/src/detection.rs)"
+note = "HELIOSOneTower, the player 295 units south of p4 (0x0009A260) behind the pods' wall; p3 0x0009A261 and p1 0x0009A263 at about 500 units, p2 0x0009A262 at 800, p5 0x0009A256 at 1,240; p4's field 0x00099D27"
+areas = ["alert", "ai"]
+paths = ["engine/nvforever/src/detection.rs", "crates/fnv-game/src/detection.rs", "crates/fnv-game/src/awareness.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05" }
+args = ["--cell", "HELIOSOneTower", "--play", "--no-voice", "--no-messages", "--pos=-2995,-650,6600", "--heading", "0"]
+run_seconds = 25
+expect = [
+  { re = 'alert: LvlStasisRobot 0009A260 Normal → Alert: noticed the player', label = "p4 notices the player through its pod's wall" },
+  { re = 'alert: LvlStasisRobot (0009A26[123]|0009A256) Normal → ', max = 0, label = "and none of the other four stasis protectrons does (p1 and p3 did, at the -20 edge)" },
+  { re = 'detection: LvlStasisRobot 0009A2\w\w → the player: .*, running\)', max = 0, label = "the player, standing where it was put, is never heard running" },
+  { re = 'actor 0009A260 stuck at .*moved on along its path', max = 0, label = "p4 stays in its pod (held at its field, not moved on through it)" },
+]
+
+[[scenario]]
 name = "reports-off-in-smoke-runs"
 source = "#2055, docs/design/player-reports.md section 2.1: never asked and nothing sent in a scripted run (engine/nvforever/src/reports/)"
 areas = ["reports"]
