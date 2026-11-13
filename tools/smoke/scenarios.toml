@@ -22149,6 +22149,19 @@ expect = [
 ]
 
 [[scenario]]
+name = "nif-blocks-player"
+source = "issue #2335: the player's nodes in the NIF block mirror. 360Movement.esp (Begin Again list) reads `Player.GetNifBlockTranslation \"Bip01 NonAccum\"` every frame; the player's third-person body is no ActorRig, so the mirror had no tree for it and every call gave ar_Null"
+areas = ["scripts", "actors"]
+paths = ["crates/fnv-game/src/nif_blocks.rs", "engine/nvforever/src/nif_mirror.rs", "engine/nvforever/src/player_body.rs"]
+env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_CONSOLE = "11:PrintC \"nvf player first %g\", (Ar_Size (Player.GetChildBlocks \"\"));12:PrintC \"nvf player nonaccum %g\", (Ar_Size (Player.GetNifBlockTranslation \"Bip01 NonAccum\"));12.5:PrintC \"nvf player blocks %g\", (Ar_Size (Player.GetChildBlocks \"\"))" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
+run_seconds = 15
+expect = [
+  { re = 'script: print "nvf player nonaccum 3"', label = "the player's Bip01 NonAccum translation is three numbers" },
+  { re = 'script: print "nvf player blocks [1-9][0-9]*"', label = "the player's skeleton nodes are in the mirror" },
+]
+
+[[scenario]]
 name = "knvse-anim-replace"
 source = "N5 slice 2 (docs/design/knvse-anim.md): SetActorAnimationPath with a standing-stance file replaces that move in the actor's own copy of its set; taking it back restores the shared set"
 areas = ["scripts", "actors"]

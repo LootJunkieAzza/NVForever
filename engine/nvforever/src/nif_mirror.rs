@@ -165,10 +165,16 @@ type Visuals<'w, 's> = Query<'w, 's, (Entity, &'static RefVisual, Option<&'stati
 
 type NodeQuery<'w, 's> = Query<'w, 's, (Option<&'static Name>, &'static mut Transform, Option<&'static Children>, Has<NifHidden>)>;
 
+/// The actors' rigs: each actor's, and the player's third-person body, which is no
+/// `ActorRig` component (`PlayerBody::third_rig`), so that a script's
+/// `Player.GetNifBlockTranslation "Bip01 NonAccum"` finds the player's skeleton [observed:
+/// 360Movement.esp reads it every frame; the mirror had no tree for the player, #2335].
+type Rigs<'a> = [(Entity, &'a ActorRig)];
+
 /// The root entity of a reference's drawing.
-fn root_of(r: u32, actors: &Query<(Entity, &ActorRig)>, visuals: &Visuals) -> Option<Entity> {
+fn root_of(r: u32, actors: &Rigs, visuals: &Visuals) -> Option<Entity> {
     if let Some((e, _)) = actors.iter().find(|(_, a)| a.reference == r) {
-        return Some(e);
+        return Some(*e);
     }
     visuals.iter().filter(|(_, v, _)| v.0 == r).find(|(_, _, p)| p.is_none_or(|p| visuals.get(p.parent()).is_ok_and(|(_, v, _)| v.0 != r))).map(|(e, _, _)| e)
 }
@@ -191,7 +197,7 @@ fn walk(root: Entity, nodes: &NodeQuery) -> Vec<(Entity, Option<usize>)> {
 }
 
 /// An actor's skeleton node names, by entity (its node entities carry no `Name`).
-fn rig_names(r: u32, actors: &Query<(Entity, &ActorRig)>) -> HashMap<Entity, String> {
+fn rig_names(r: u32, actors: &Rigs) -> HashMap<Entity, String> {
     actors
         .iter()
         .find(|(_, a)| a.reference == r)
@@ -219,7 +225,8 @@ type Shapes<'w, 's> = (Query<'w, 's, &'static Mesh3d>, Option<Res<'w, Assets<Mes
 #[allow(clippy::too_many_arguments)]
 fn mirror(
     mut script: Option<ResMut<ScriptState>>,
-    actors: Query<(Entity, &ActorRig)>,
+    actor_rigs: Query<(Entity, &ActorRig)>,
+    player_body: Option<Res<crate::player_body::PlayerBody>>,
     visuals: Visuals,
     parents: Query<&ChildOf>,
     mut nodes: NodeQuery,
@@ -230,6 +237,8 @@ fn mirror(
     (globals, boxes, mut particles): Extra,
 ) {
     let Memory { logged, held, tables, materials, owned, props } = &mut *mem;
+    let player = player_body.as_deref().and_then(|b| b.third_rig());
+    let actors: Vec<(Entity, &ActorRig)> = actor_rigs.iter().chain(player.as_ref().map(|(e, rig)| (*e, rig))).collect();
     let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else { return };
     let edits = rt.game.scene.take_edits();
     for edit in edits {
@@ -443,7 +452,7 @@ mod tests {
     fn a_light_source_is_not_a_references_root() {
         const R: u32 = 0x301;
         fn root(world: &mut World) -> Option<Entity> {
-            world.run_system_once(|actors: Query<(Entity, &ActorRig)>, visuals: Visuals| root_of(R, &actors, &visuals)).unwrap()
+            world.run_system_once(|actors: Query<(Entity, &ActorRig)>, visuals: Visuals| root_of(R, &actors.iter().collect::<Vec<_>>(), &visuals)).unwrap()
         }
         // Without a parent, so that each entity passes the test on its parent and only the
         // filter on light sources can leave it out.
