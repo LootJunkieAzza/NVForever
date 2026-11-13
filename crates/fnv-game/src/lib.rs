@@ -86,6 +86,7 @@ pub mod nvse;
 pub mod nvse_ttw;
 pub mod nvse_unlisted;
 pub mod nvse_unlisted2;
+pub mod nvse_json;
 pub mod delayed;
 pub mod nvse_refs;
 pub mod nvse_misc;

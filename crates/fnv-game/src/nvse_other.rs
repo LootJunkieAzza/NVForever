@@ -103,6 +103,8 @@ pub struct OtherState {
     pub unlisted: crate::nvse_unlisted::UnlistedState,
     /// The New Game flag of the unlisted commands' batch 1 (`nvse_unlisted2`).
     pub unlisted2: crate::nvse_unlisted2::Unlisted2State,
+    /// SUP's cached JSON files (`nvse_json`).
+    pub json: crate::nvse_json::JsonState,
     /// JIP batch 11's actor overrides and engine requests (`nvse_jip11`).
     pub jip11: crate::nvse_jip11::Jip11State,
     /// JIP batch 13's physics view, requests and follows (`nvse_jip13`).

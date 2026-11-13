@@ -182,6 +182,9 @@ pub fn call(g: &mut Game, ctx: &RunCtx, name: &str, on: Option<FormId>, args: &[
     if let Some(r) = crate::nvse_unlisted2::call(g, ctx, name, subject, args) {
         return Some(r);
     }
+    if let Some(r) = crate::nvse_json::call(g, name, args) {
+        return Some(r);
+    }
     if let Some(r) = crate::nvse_refs::call(g, name, subject, args) {
         return Some(r);
     }

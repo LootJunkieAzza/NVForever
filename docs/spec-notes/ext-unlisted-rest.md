@@ -121,8 +121,43 @@ always, as the name says it is broken].
 - **IsNewGame**: 0 in a loaded save [observed: rest1.isnewgame]. NVForever gives 1 from the
   New Game menu until a save is loaded [hypothesis].
 
-## 6. Left for the next batches
+## 6. SUP's JSON commands (batch 2)
 
-SUP's JSON commands (14), kNVSE's animation commands (20), JIP's (~50), JohnnyGuitar's
-(17), the rest of ShowOff's (~13), SUP's NIF and misc commands (~10), One111's (5) and
-ITR's (6). Their shapes are in the compile-shape run; each family gets its probe set.
+These work on a JSON file under the game folder (`Data…` reaches Data), by top-level key.
+Probed with a file of our own in the sandbox [observed: sets json1, json2; each command
+that crashed ran alone]. In NVForever, files a mod writes go to NVForever's own layer,
+never the game folder (`crate::mod_files`). Code: `crates/fnv-game/src/nvse_json.rs`.
+
+- **JSONCacheFile** `path flag`: reads the file into a cache; 0, or -4 for no such file.
+- **JSONIsFileCached** `path`: 1 or 0.
+- **JSONToString** `path`: the cached copy in one line, keys sorted; "" when not cached.
+- **JSONCloseFile** `path flag [n]`: `1` drops the cached copy and gives 0; `0` gives -5
+  and keeps it.
+- **JSONCacheFileFromString** `text name`: -3 both times, with either order, for text whose
+  quotes came through escaped [hypothesis: -3 is "not JSON"; NVForever caches valid text
+  under the name].
+- **JSONGetValueType** `path key flag`: object 1, array 2, string 3, number 5, missing -2
+  [hypothesis: boolean 4, null 0]. Only top-level keys: `obj/inner`, `obj.inner` and
+  `/obj/inner` all gave -2.
+- **JSONGetValueArray** `path key flag`: an array of 3 for a 3-element array. Its elements
+  read back neither as numbers nor as strings, and an object gave an array of 1 and a
+  number one of 2 [observed: json1.arr.*, json2.arr.*]. NVForever gives the array's
+  elements, an object's pairs as a string map, and nothing for a scalar [hypothesis; open].
+- **The last flag of the readers and writers**: 0 is the file on disk, 1 the cached copy.
+  With 0 the file is rewritten at once, indented by four spaces, and the cache keeps its
+  old copy. With 1 a file that is not cached gives -4 (`json2.uncached.set.cache`).
+- **JSONSetValueFloat / JSONSetValueString** `path key value flag [n]`: set the key; 1.
+- **JSONAppendValueFloat / JSONAppendValueString**: add to the key's array; 1.
+- **JSONEraseArrayElement** `path key index flag`: take an element out; 1.
+- **JSONClearKey** `path key flag`: empty the key's object (`{}`); 1.
+- **JSONEraseKey** `path key flag`: crashed the original with either flag
+  (`json2r0`, `json2r1`). NVForever takes the key out and gives 1 [decision].
+- **Float writes**: some came out as `true` in the original (4 appended, 2 set into the
+  cache) and others as numbers (9, 10) [observed]. NVForever writes the number [decision:
+  the plugin's fault, nothing a mod can rely on].
+
+## 7. Left for the next batches
+
+kNVSE's animation commands (20), JIP's (~50), JohnnyGuitar's (17), the rest of ShowOff's
+(~13), SUP's NIF and misc commands (~10), One111's (5) and ITR's (6). Their shapes are in
+the compile-shape run; each family gets its probe set.

@@ -362,3 +362,39 @@ SetFunctionValue (sv_Construct \"%g %g\" aList[0][1] aList[1][0])")) {
     assert_eq!(t(&mut g, "Matrix_Transpose_OLD"), t(&mut g, "Matrix_Transpose"));
     assert_eq!(t(&mut g, "Matrix_Transpose_OLD"), "3 2");
 }
+
+// ---- #2326, batch 2: SUP's JSON commands ----
+
+#[test]
+fn json_files_cached_and_on_disk() {
+    let f = fixture();
+    let mut g = game(&f);
+    assert_eq!(n(&mut g, "JSONCacheFile \"nvfj.json\" 0"), -4.0, "no such file");
+    q(&mut g, "WriteStringToFile \"nvfj.json\" 0 \"{%qnum%q:1.5,%qarr%q:[1,2],%qobj%q:{%qa%q:1}}\"");
+    assert_eq!(n(&mut g, "JSONCacheFile \"nvfj.json\" 0"), 0.0);
+    assert_eq!(n(&mut g, "JSONIsFileCached \"nvfj.json\""), 1.0);
+    assert_eq!(s(&mut g, "JSONToString \"nvfj.json\""), "{\"arr\":[1,2],\"num\":1.5,\"obj\":{\"a\":1}}");
+    let types: Vec<f64> = ["num", "arr", "obj", "none"].iter().map(|k| n(&mut g, &format!("JSONGetValueType \"nvfj.json\" \"{k}\" 1"))).collect();
+    assert_eq!(types, vec![5.0, 2.0, 1.0, -2.0]);
+    assert_eq!(n(&mut g, "ar_Size (JSONGetValueArray \"nvfj.json\" \"arr\" 1)"), 2.0);
+    // 0 changes the file, not the cache; 1 the cache.
+    assert_eq!(n(&mut g, "JSONSetValueFloat \"nvfj.json\" \"num\" 7 0"), 1.0);
+    assert!(s(&mut g, "JSONToString \"nvfj.json\"").contains("\"num\":1.5"));
+    assert_eq!(n(&mut g, "JSONGetValueType \"nvfj.json\" \"num\" 0"), 5.0);
+    assert_eq!(n(&mut g, "JSONSetValueString \"nvfj.json\" \"str\" \"x\" 1"), 1.0);
+    assert_eq!(n(&mut g, "JSONAppendValueFloat \"nvfj.json\" \"arr\" 3 1"), 1.0);
+    assert_eq!(n(&mut g, "JSONEraseArrayElement \"nvfj.json\" \"arr\" 0 1"), 1.0);
+    assert_eq!(n(&mut g, "JSONClearKey \"nvfj.json\" \"obj\" 1"), 1.0);
+    assert_eq!(n(&mut g, "JSONEraseKey \"nvfj.json\" \"num\" 1"), 1.0);
+    assert_eq!(s(&mut g, "JSONToString \"nvfj.json\""), "{\"arr\":[2,3.0],\"obj\":{},\"str\":\"x\"}");
+    assert_eq!(n(&mut g, "JSONCloseFile \"nvfj.json\" 0"), -5.0);
+    assert_eq!(n(&mut g, "JSONCloseFile \"nvfj.json\" 1"), 0.0);
+    assert_eq!(n(&mut g, "JSONIsFileCached \"nvfj.json\""), 0.0);
+    assert_eq!(s(&mut g, "JSONToString \"nvfj.json\""), "");
+    // The cached write of a file not cached is refused.
+    assert_eq!(n(&mut g, "JSONSetValueFloat \"nvfj.json\" \"num\" 2 1"), -4.0);
+    // The file on disk kept the write with 0, indented by four spaces.
+    assert_eq!(n(&mut g, "JSONCacheFile \"nvfj.json\" 0"), 0.0);
+    assert!(s(&mut g, "JSONToString \"nvfj.json\"").contains("\"num\":7.0"));
+    assert_eq!(n(&mut g, "JSONCacheFileFromString \"not json\" \"nvfm.json\""), -3.0);
+}

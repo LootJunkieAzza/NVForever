@@ -460,6 +460,28 @@ PAGELESS += [
 ]
 
 
+
+# Batch 2 (#2326): SUP's JSON commands, shapes from the compile-shape run, behaviour from
+# sets json1 and json2 (docs/spec-notes/ext-unlisted-rest.md §6).
+_JP = lambda: _S("path")  # noqa: E731
+PAGELESS += [
+    _x("JSONCacheFile", "SUP", "int", [_JP(), _I("flag")]),
+    _x("JSONCacheFileFromString", "SUP", "int", [_S("json"), _S("path")]),
+    _x("JSONIsFileCached", "SUP", "int", [_JP()]),
+    _x("JSONToString", "SUP", "string_var", [_JP()]),
+    _x("JSONCloseFile", "SUP", "int", [_JP(), _I("flag"), _I("extra", True)]),
+    _x("JSONGetValueType", "SUP", "int", [_JP(), _S("key"), _I("cached")]),
+    _x("JSONGetValueArray", "SUP", "array", [_JP(), _S("key"), _I("cached")]),
+    _x("JSONSetValueFloat", "SUP", "int", [_JP(), _S("key"), _F("value"), _I("cached"), _I("extra", True)]),
+    _x("JSONSetValueString", "SUP", "int", [_JP(), _S("key"), _S("value"), _I("cached")]),
+    _x("JSONAppendValueFloat", "SUP", "int", [_JP(), _S("key"), _F("value"), _I("cached"), _I("extra", True)]),
+    _x("JSONAppendValueString", "SUP", "int", [_JP(), _S("key"), _S("value"), _I("cached"), _I("extra", True)]),
+    _x("JSONEraseArrayElement", "SUP", "int", [_JP(), _S("key"), _I("index"), _I("cached")]),
+    _x("JSONClearKey", "SUP", "int", [_JP(), _S("key"), _I("cached")]),
+    _x("JSONEraseKey", "SUP", "int", [_JP(), _S("key"), _I("cached")]),
+]
+
+
 # Pages whose template `name` is another function's (copied from a sibling page): the
 # page title is the function's name [documented: each page's title and its example,
 # e.g. "GetConditionFormOneFloat HitReactionIdles 0 1"; the template says
