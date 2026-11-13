@@ -675,6 +675,26 @@ order = [[
 forbid = [{ text = "Caught rendering error", label = "a rendering (validation) error while the multisampling changes" }]
 
 [[scenario]]
+name = "graphics-remaster"
+source = "docs/design/graphics-remaster.md: the remaster look starts, and its global illumination (a view binding of the vendored bevy_pbr), volumetric fog and film grade switch off and global illumination on again while the game runs, without a rendering error"
+areas = ["renderer", "graphics"]
+paths = [
+  "engine/nvforever/src/graphics.rs", "engine/nvforever/src/gi*", "engine/nvforever/src/atmos*",
+  "engine/nvforever/src/post*", "engine/nvforever/src/lights.rs", "engine/nvforever/src/settings.rs",
+  "engine/vendor/bevy_pbr/src/render/mesh*", "engine/vendor/bevy_pbr/src/render/shadow_sampling.wesl",
+]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:16", NVF_PLAY_TEST_SETTINGS = "11:global-illumination,12:volumetric-fog,13:colour-grade,14:global-illumination" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--hour", "18.5", "--graphics", "remaster"]
+run_seconds = 20
+order = [[
+  { re = 'graphics: ambient occlusion, longer shadows, bloom, light glow, sharpening, 16x anisotropic filtering, sun shafts, screen-space water reflections, volumetric fog, colour grade$' },
+  { re = 'graphics: ambient occlusion, longer shadows, bloom, light glow, sharpening, 16x anisotropic filtering, sun shafts, screen-space water reflections, colour grade$' },
+  { re = 'graphics: ambient occlusion, longer shadows, bloom, light glow, sharpening, 16x anisotropic filtering, sun shafts, screen-space water reflections$' },
+  { re = 'graphics: ambient occlusion, longer shadows, bloom, light glow, sharpening, 16x anisotropic filtering, sun shafts, screen-space water reflections, global illumination$' },
+]]
+forbid = [{ text = "Caught rendering error", label = "a rendering (validation) error while the remaster's passes and view binding come and go" }]
+
+[[scenario]]
 name = "ui-scale-write"
 source = "issue #1631: the settings page's Display row UI scale (ui-scale) sets the HUD's size, kept in NVForever.ini; the first half of the round trip, ui-scale-read starts with what this run keeps"
 note = "The home's INI may hold any scale from an earlier run, so the row is set to 100% first and then to 75%: the second is always a change and is written"

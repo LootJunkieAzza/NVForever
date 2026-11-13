@@ -712,6 +712,8 @@ elevation, and the casters each cascade of each light drew; with sun shadows on 
 
 ## 7. Next candidates
 
+- A third preset, `remaster` (screen-space GI, volumetric fog, a colour grade, sky reflections and softer sun-shadow edges on top of `enhanced`), was built 2026-11-12: [graphics-remaster](graphics-remaster.md).
+
 - Bloom and eye adaptation driven by the image spaces' own HDR values (IMGS DNAM's 14 HDR
   floats and 3 bloom floats), once their meanings are documented from xEdit: that would move
   bloom from an engine choice towards parity.

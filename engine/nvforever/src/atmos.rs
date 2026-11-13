@@ -304,7 +304,7 @@ fn prepare(
     textures.0.retain(|k, _| seen.contains(k));
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn atmos_pass(
     view: ViewQuery<(&DynamicUniformIndex<AtmosUniform>, &AtmosUniform, &AtmosView, &ViewPrepassTextures, &ViewTarget, &MeshViewBindGroup)>,
     pipelines: Res<AtmosPipelines>,

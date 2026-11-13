@@ -740,7 +740,28 @@ fn register_graphics(app: &mut App) {
         },
     );
     nvf_play::settings::set_disabled_status(app, "latency-reduction", |w| (!crate::anti_lag::available(w)).then_some("Not on this GPU"));
-    let switches: [Switch; 11] = [
+    let switches: [Switch; 14] = [
+        (
+            "global-illumination",
+            "Global illumination",
+            "On: light bounces from lit surfaces onto those around them, the ambient light comes from the sky above and the ground below (so shapes and their normal maps read in the shade) and is shut out of corners, smooth surfaces reflect the sky, and sun-shadow edges are softer. From what is on the screen. About 1.1 ms a frame at 1920x1080 on an RTX 4070. Not in the original. (--graphics remaster)",
+            |w| w.resource::<Graphics>().global_illumination,
+            |w, on| w.resource_mut::<Graphics>().global_illumination = on,
+        ),
+        (
+            "volumetric-fog",
+            "Volumetric fog",
+            "On: a thin haze near the ground, lit by the sun through the shadows of buildings, rocks and trees (shafts at dawn and dusk) and by the sky; outdoors only. Needs the light glow. About 0.4 ms a frame at 1920x1080 on an RTX 4070. Not in the original. (--graphics remaster)",
+            |w| w.resource::<Graphics>().volumetric_fog,
+            |w, on| w.resource_mut::<Graphics>().volumetric_fog = on,
+        ),
+        (
+            "colour-grade",
+            "Film grade",
+            "On: a gentle film-like curve (deeper shade, held highlights), shade a touch cooler and light a touch warmer, and a little more colour where there is little; after the game's own image space. Not in the original. (--graphics remaster)",
+            |w| w.resource::<Graphics>().colour_grade,
+            |w, on| w.resource_mut::<Graphics>().colour_grade = on,
+        ),
         (
             "ambient-occlusion",
             "Ambient occlusion",

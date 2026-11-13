@@ -390,3 +390,19 @@ and prebuilt binaries.
   `MaterialBindlessSlab::get_bindless_index_table`, reversed in 0.19.1, which kept freed
   `ExtendedMaterial`s' textures in the slabs. Fixed upstream (bevyengine/bevy#25848);
   Bevy 0.20 has the fix, in `bevy_render::material_bind_groups` (#934).
+
+### bevy_pbr: NVForever screen indirect light (remaster, docs/design/graphics-remaster.md)
+
+Each part marked `NVForever screen indirect light` (or `NVForever remaster`):
+
+- `src/render/mesh_view_bindings.rs`: `ScreenIndirectLight` (an extracted camera component),
+  `ScreenIndirectTexture` (the render world's texture) and view binding 39
+  (`SCREEN_INDIRECT_BINDING`); a new layout key bit binds the texture, or the zero fallback
+  until there is one.
+- `src/render/mesh_view_bindings.wesl`: `screen_indirect_texture` under `SCREEN_INDIRECT`.
+- `src/render/mesh.rs`: `MeshPipelineKey::SCREEN_INDIRECT` (now `LAST_FLAG`) from the view's
+  component, and the `SCREEN_INDIRECT` shader def on meshes that write depth.
+- `src/render/shadow_sampling.wesl`: under `SCREEN_INDIRECT` the Gaussian filter is
+  softened (its 13 taps averaged with an 8-tap spiral turned per pixel).
+
+Without the component every view draws as upstream.
