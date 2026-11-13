@@ -156,8 +156,45 @@ never the game folder (`crate::mod_files`). Code: `crates/fnv-game/src/nvse_json
   cache) and others as numbers (9, 10) [observed]. NVForever writes the number [decision:
   the plugin's fault, nothing a mod can rely on].
 
-## 7. Left for the next batches
+## 7. kNVSE's animation commands (batch 3)
 
-kNVSE's animation commands (20), JIP's (~50), JohnnyGuitar's (17), the rest of ShowOff's
-(~13), SUP's NIF and misc commands (~10), One111's (5) and ITR's (6). Their shapes are in
-the compile-shape run; each family gets its probe set.
+Probed on a placed Doc Mitchell and the player [observed: sets knv1-knv3; the rows that
+crashed ran alone]. Code: `crates/fnv-game/src/nvse_unlisted2.rs`.
+
+- **GetAnimPathBySequenceType** `type [n]` (alias GetAnimPathByType), on an actor: the
+  actor's current file for type 0 (`Characters\_Male\Locomotion\mtidle.kf` for Doc, the
+  first-person idle for the player), "" for types 1-3; the call fails for a form given as
+  argument (`knv1.pathbytype.form`). NVForever gives the actor's body clip for type 0
+  [hypothesis: type 0 is that layer].
+- **GetAnimWeight, GetAnimHandType, IsAnimAdditive, IsAnimQueued, GetAnimInterpPriority,
+  GetAnimTextKeyTime** `path …`: 0, -1, 0, 0, -1 and -1, for any path, even the exact one
+  GetAnimPathBySequenceType gave for the playing idle (`knv3.weight.var` … `textkey`).
+  NVForever answers the same [hypothesis: they read kNVSE's own animation overrides, which
+  NVForever has none of].
+- **SetAnimInterpPriority, CopyAnimPriorities, RemoveAnimTextKey, QueueNextAnim,
+  SetAnimAdditiveInterpsWeightMult**: 0, and no getter showed a change (`knv2.setprio` then
+  `prio.after` -1; `queue` then `queued.after` 0). NVForever answers 0.
+- **SetAnimCycleType, SetAnimDestFrame** `path n [n]`: 1 for a file of the game
+  (`knv2.cycletype`, `destframe`). NVForever gives 1 when the file exists, else 0
+  [hypothesis].
+- **EraseCurrentAnimAction**: 1 on the player (`knv2r2`).
+- **ThisAnim, ThisAnimDir**: "" outside an animation's own script (`knv1.thisanim.*`).
+- **EjectWeapon**: 0 on the player. **RegisterCustomAnimGroup** `group name` compiled in the
+  shape run but not as a statement in a probe; NVForever answers 0.
+- **CreateIdleAnimForm** `path`: crashed the original, with a real file and with none
+  (`knv2r0`, `knv2r1`). NVForever gives no form [decision].
+- **PlayGroupAlt** `group flag`: takes an animation group name as PlayGroup does and gives
+  1 (`knv3.playgroupalt.*`). NVForever plays it as PlayGroup [hypothesis: what "Alt"
+  changes is not seen].
+- **GetDirectoryFiles** `pattern [n]`: the paths a wildcard pattern matches, folders and the
+  `.` and `..` entries too, each as the pattern's folder plus the name, in reverse order of
+  name; the second argument changed nothing (`knv3.dir.*`). A pattern without a wildcard
+  gives the folder itself, one ending in `\` nothing, a missing folder an empty array
+  (`knv2.dir.*`). NVForever lists Data through its read roots (NVForever's layer, then the
+  game's Data) and nothing outside Data [decision].
+
+## 8. Left for the next batches
+
+JIP's (~50), JohnnyGuitar's (17), the rest of ShowOff's (~13), SUP's NIF and misc commands
+(~10), One111's (5) and ITR's (6). Their shapes are in the compile-shape run; each family
+gets its probe set.

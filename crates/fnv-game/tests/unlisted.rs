@@ -398,3 +398,32 @@ fn json_files_cached_and_on_disk() {
     assert!(s(&mut g, "JSONToString \"nvfj.json\"").contains("\"num\":7.0"));
     assert_eq!(n(&mut g, "JSONCacheFileFromString \"not json\" \"nvfm.json\""), -3.0);
 }
+
+// ---- #2326, batch 3: kNVSE's animation commands ----
+
+#[test]
+fn knvse_answers_and_play_group_alt() {
+    let f = fixture();
+    let mut g = game(&f);
+    for (call, want) in [
+        ("NpcRef.GetAnimWeight \"characters/_male/locomotion/mtidle.kf\"", 0.0),
+        ("NpcRef.GetAnimHandType \"characters/_male/locomotion/mtidle.kf\"", -1.0),
+        ("NpcRef.GetAnimInterpPriority \"characters/_male/locomotion/mtidle.kf\" \"Bip01 Head\"", -1.0),
+        ("NpcRef.GetAnimTextKeyTime \"characters/_male/locomotion/mtidle.kf\" \"Start\"", -1.0),
+        ("NpcRef.IsAnimQueued \"x.kf\"", 0.0),
+        ("NpcRef.QueueNextAnim \"x.kf\"", 0.0),
+        ("NpcRef.SetAnimCycleType \"nvfnosuch.kf\" 0", 0.0),
+        ("NpcRef.EraseCurrentAnimAction", 1.0),
+        ("CreateIdleAnimForm \"x.kf\"", 0.0),
+    ] {
+        assert_eq!(n(&mut g, call), want, "{call}");
+    }
+    assert_eq!(s(&mut g, "NpcRef.GetAnimPathBySequenceType 1"), "");
+    assert_eq!(s(&mut g, "ThisAnim"), "");
+    let before = g.events.len();
+    assert_eq!(n(&mut g, "NpcRef.PlayGroupAlt Idle 1"), 1.0);
+    assert!(g.events[before..].iter().any(|e| format!("{e:?}").contains("AnimAsked")), "the group is asked for");
+    // No read roots here: a wildcard finds only `.` and `..`, in reverse order.
+    assert_eq!(s(&mut g, "sv_Join (GetDirectoryFiles \"Data\\NoFolder\\*\") \"|\""), "Data\\NoFolder\\..|Data\\NoFolder\\.");
+    assert_eq!(n(&mut g, "ar_Size (GetDirectoryFiles \"Data\\NoFolder\")"), 0.0);
+}

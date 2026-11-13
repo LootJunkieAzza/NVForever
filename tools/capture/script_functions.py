@@ -482,6 +482,37 @@ PAGELESS += [
 ]
 
 
+
+# Batch 3 (#2326): kNVSE's animation commands, shapes from the compile-shape run,
+# behaviour from sets knv1-knv3 (docs/spec-notes/ext-unlisted-rest.md §7).
+_KF = lambda: _S("animPath")  # noqa: E731
+_KN = "kNVSE"
+PAGELESS += [
+    _x("GetAnimPathBySequenceType", _KN, "string_var", [_I("sequenceType"), _I("flag", True)], ref="reference", aliases=["GetAnimPathByType"]),
+    _x("GetAnimWeight", _KN, "float", [_KF()], ref="reference"),
+    _x("GetAnimHandType", _KN, "int", [_KF()], ref="reference"),
+    _x("IsAnimAdditive", _KN, "int", [_KF()], ref="reference"),
+    _x("IsAnimQueued", _KN, "int", [_KF()], ref="reference"),
+    _x("GetAnimInterpPriority", _KN, "int", [_KF(), _S("node")], ref="reference"),
+    _x("SetAnimInterpPriority", _KN, "int", [_KF(), _S("node"), _I("priority")], ref="reference"),
+    _x("GetAnimTextKeyTime", _KN, "float", [_KF(), _S("textKey")], ref="reference"),
+    _x("RemoveAnimTextKey", _KN, "int", [_KF(), _I("index")], ref="reference"),
+    _x("CopyAnimPriorities", _KN, "int", [_KF(), _S("fromPath")], ref="reference"),
+    _x("SetAnimCycleType", _KN, "int", [_KF(), _I("cycleType"), _I("flag", True)], ref="reference"),
+    _x("SetAnimDestFrame", _KN, "int", [_KF(), _F("frame"), _I("flag", True)], ref="reference"),
+    _x("SetAnimAdditiveInterpsWeightMult", _KN, "int", [_I("a"), _I("b"), _I("c"), _F("mult"), _I("flag", True)], ref="reference"),
+    _x("QueueNextAnim", _KN, "int", [_KF(), _I("flag", True)], ref="reference"),
+    _x("RegisterCustomAnimGroup", _KN, "int", [_I("group"), _S("name")]),
+    _x("EraseCurrentAnimAction", _KN, "int", ref="reference"),
+    _x("EjectWeapon", _KN, "int", ref="reference"),
+    _x("ThisAnim", _KN, "string_var"),
+    _x("ThisAnimDir", _KN, "string_var"),
+    _x("CreateIdleAnimForm", _KN, "ref", [_KF(), _I("flag", True)]),
+    _x("PlayGroupAlt", _KN, "int", [_S("group"), _I("flag")], ref="reference"),
+    _x("GetDirectoryFiles", _KN, "array", [_S("pattern"), _I("flag", True)]),
+]
+
+
 # Pages whose template `name` is another function's (copied from a sibling page): the
 # page title is the function's name [documented: each page's title and its example,
 # e.g. "GetConditionFormOneFloat HitReactionIdles 0 1"; the template says
