@@ -111,6 +111,10 @@ pub struct Tweaks {
     pub map_unconscious_companions: bool,
     /// `bCompanionsUseLocationFontOnMap`: companions' names in the locations' font.
     pub companions_location_font: bool,
+    /// `bMapSelectableCompanions`: a click on companions on the World Map summons them
+    /// beside the player; knocked-out ones too under `summon_unconscious`.
+    pub map_summon_companions: bool,
+    pub summon_unconscious: bool,
     // ---- Action Points ----
     /// `bKillsRewardAP`/`iKillRewardAmount`: Action Points a kill by the player gives
     /// back; 0 changes nothing.
@@ -690,6 +694,8 @@ impl Default for Tweaks {
             no_min_companion_distance: false,
             map_unconscious_companions: false,
             companions_location_font: false,
+            map_summon_companions: false,
+            summon_unconscious: false,
             kill_reward_ap: 0.0,
             wait_only_seated: false,
             skill_points: None,

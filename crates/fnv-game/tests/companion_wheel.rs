@@ -398,3 +398,23 @@ fn wait_and_stop_waiting_hold_a_follow_package() {
     g.extra.entry(c).or_default().current_package = None;
     assert!(!g.waits(c));
 }
+
+/// Map Selectable Companions: a teammate told to wait far away is summoned beside the
+/// player; someone who is not a teammate is not.
+#[test]
+fn a_summoned_teammate_comes_to_the_players_side() {
+    let f = fixture();
+    let mut g = game(&f);
+    // The companion far off in the player's cell.
+    let cell = g.world.get(companion()).unwrap().cell;
+    let player = g.world.get(FormId::PLAYER_REF).unwrap();
+    player.cell = cell;
+    let p = player.pos;
+    g.world.get(companion()).unwrap().pos = [p[0] + 20000.0, p[1], p[2]];
+    assert!(g.summon_teammates(&[companion()]).is_empty(), "not a teammate yet");
+    g.extra.entry(companion()).or_default().teammate = true;
+    let got = g.summon_teammates(&[companion()]);
+    assert_eq!(got, vec![companion()]);
+    let at = g.world.peek(companion()).unwrap().pos;
+    assert!((at[0] - p[0]).hypot(at[1] - p[1]) < 400.0, "{at:?} beside {p:?}");
+}

@@ -607,6 +607,7 @@ unless the player binds them, so nothing changes until then.
 | Fatigue Indicator | `bHUDFatigueIndicator` | `hud_needs::watch` reads the player's Fatigue against its base under the switch; `fatigue_look` gives the word's look, `draw` sets it out as a sixth word at `FATIGUE_X`. The tile HUD's five texts are the file's and stay as they are |
 | Switch Device by Pressing | `bToggleControllerIfAttackPressed` | `tweaks::toggle_device` (PlaySet::Input): with the keyboard working, a pad's South just pressed sets `bindings::Bindings::device` to Controller; with the controller, a left click sets it back; not while the Controls tab listens for a binding |
 | Companions on the World Map | `bNoMinCompanionMapDistance`, `bMapShowUnconsciousCompanions`, `bCompanionsUseLocationFontOnMap` | base: `pipboy::data::map_companions` lists the teammates in exterior cells of the map's family, less those within `COMPANION_MIN_DISTANCE` of the player and the knocked out; `world_map` writes their names in font 2 under the arrow. The switches drop the distance, keep the knocked out (red) and use font 1. Hand-built Pip-Boy only |
+| Summon Companions from the Map | `bMapSelectableCompanions` | `pipboy::data::world_map` keeps the companions within `SUMMON_REACH` of the highlight box (`DataState::companions_under`); a map click on them sends `SummonCompanions` in place of a travel ask, and `summon_companions` calls `Game::summon_teammates`, which places them as `bring_teammates` does (`place_beside_player`) |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -628,8 +629,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 540 |
-| to do | 61 |
+| done | 541 |
+| to do | 60 |
 | unsure, skipped | 18 |
 | n/a | 16 |
 | skipped: fix | 10 |
@@ -696,6 +697,7 @@ game's Data folder, read-only).
 | `bLockpickRememberBobbyPinAngle` | done |  |  | already so: a new pin keeps the angle |
 | `bLootUnconsciousVictims` | done |  |  | Search the Unconscious |
 | `bLuckDoesntAffectGambling` | done |  | 1 | already so: NVForever's casino games do not read Luck |
+| `bMapSelectableCompanions` | done |  | 2 | Summon Companions from the Map with Knocked-Out Too: a click on the companions under the World Map's highlight box brings them all beside the player (in place of the readme's Summon All button, whose text option is a string) |
 | `bMarkNearbyLocationsOnMap` | done |  | 1 | Mark Nearby Places (slider, game units) |
 | `bModifySkillPointsEarned` | done |  | 2 | Own Skill Points Rule (switch + base and per-Intelligence sliders) |
 | `bMousewheelScrollsWeaponHotkeys` | done |  | 1 | Mouse Wheel Changes Weapon (no invert option) |
@@ -773,7 +775,6 @@ game's Data folder, read-only).
 | `bCrippledLimbsPlayPainSoundWhenFalling` | to do |  | 1 | falls::hurt with a crippled leg; NVForever has no pain sound, only the landing ones |
 | `bHipFireAnimsWhileScoped` | unsure, skipped |  |  | depends on alternate animations |
 | `bHoldToActivate` | to do |  | 9 | a hold on E is taken by grab; needs a timer and per-kind choices |
-| `bMapSelectableCompanions` | to do |  | 2 | not built: companions are not on the map and cannot be summoned |
 | `bNoLockEncounterZoneLevels` | unsure, skipped |  |  | encounter-zone level locking not yet checked in NVForever |
 | `bNPCsDropLiveGrenades` | to do |  |  | not built: NPC grenades have no in-hand phase |
 | `bPickpocketOverhaul` | to do |  | 15 | Steal::chance needs weight, Perception and detection |

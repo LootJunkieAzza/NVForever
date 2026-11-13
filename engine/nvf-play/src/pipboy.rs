@@ -517,6 +517,8 @@ impl Plugin for PipBoyPlugin {
             .add_message::<stats::UseHint>()
             .add_message::<sounds::TabHovered>()
             .add_message::<data::travel::FastTravelAsk>()
+            .add_message::<data::SummonCompanions>()
+            .add_systems(Update, data::summon_companions.in_set(crate::PlaySet::Sync))
             .add_message::<data::travel::FastTravelGo>()
             .init_resource::<data::travel::Pending>()
             .init_resource::<data::WaveScope>()

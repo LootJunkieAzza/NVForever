@@ -475,6 +475,9 @@ pub struct DataState {
     world_logged: Option<(u32, usize, usize, usize, usize)>,
     /// The World Map's companion count at the last log.
     companions_logged: Option<usize>,
+    /// The companions under the World Map's highlight box (the player's Map Selectable
+    /// Companions tweak).
+    companions_under: Vec<FormId>,
     /// The World Map's marker under the highlight box, when last drawn.
     cursor_marker: Option<u32>,
     /// The marker the Travel hint, Enter and the controller's A travel to
@@ -665,6 +668,7 @@ pub struct Input<'w, 's> {
     buttons: Res<'w, ButtonInput<MouseButton>>,
     aid: ResMut<'w, PipBoyAid>,
     ask: MessageWriter<'w, FastTravelAsk>,
+    summon: MessageWriter<'w, SummonCompanions>,
     go: MessageWriter<'w, FastTravelGo>,
     pads: Query<'w, 's, &'static Gamepad>,
     bindings: Option<Res<'w, Bindings>>,
@@ -1441,7 +1445,13 @@ fn take_input(st: &mut DataState, tab: usize, l: &Lists, game: &mut Game, input:
     // asks to travel there (`travel`); so does the controller's A (the confirm button) on a
     // highlighted marker [observed: the original; docs/design/controller.md §3].
     let mouse = (input.buttons.just_pressed(MouseButton::Left), input.buttons.just_released(MouseButton::Left));
-    if let Some(m) = travel_ask(st, tab, pointer, mouse, travel) {
+    // The player's Map Selectable Companions tweak: a click on companions summons them,
+    // not a travel [design: docs/design/tweaks.md].
+    let summon_click = tab == WORLD && mouse.1 && !st.companions_under.is_empty() && !on_button(st, tab, pointer) && st.press.is_some_and(|(_, moved)| moved <= CLICK_SLOP);
+    if summon_click {
+        st.press = None;
+        input.summon.write(SummonCompanions(st.companions_under.clone()));
+    } else if let Some(m) = travel_ask(st, tab, pointer, mouse, travel) {
         input.ask.write(FastTravelAsk(m));
     }
     // Dragging a map moves the point at its middle: the left button held down on it (not
@@ -2224,9 +2234,31 @@ const LOCATION_FONT: usize = 1;
 pub const COMPANION_MIN_DISTANCE: f32 = 4096.0;
 /// How far above its place a companion's name stands (canvas units) [design].
 const COMPANION_NAME_RISE: f32 = 14.0;
+/// How near the highlight box's middle a companion's place must be for a click to summon it,
+/// under the player's Map Selectable Companions tweak (canvas units) [design].
+const SUMMON_REACH: f32 = 24.0;
+
+/// The World Map asks for these companions beside the player (the player's Map Selectable
+/// Companions tweak); `summon_companions` does it.
+#[derive(Message, Clone, Debug, PartialEq)]
+pub struct SummonCompanions(pub Vec<FormId>);
+
+/// Put the companions the World Map asked for beside the player
+/// (`fnv_game::Game::summon_teammates`), and log them.
+pub(crate) fn summon_companions(mut asks: MessageReader<SummonCompanions>, script: Option<ResMut<ScriptState>>, sim: Option<ResMut<SimState>>) {
+    let asked: Vec<FormId> = asks.read().flat_map(|a| a.0.iter().copied()).collect();
+    if asked.is_empty() {
+        return;
+    }
+    let (Some(rt), Some(mut sim)) = (script.and_then(|s| s.into_inner().rt.as_mut()), sim) else { return };
+    let done = crate::script::with_world(rt, &mut sim, |rt| rt.game.summon_teammates(&asked));
+    let names: Vec<String> = done.iter().map(|f| rt.game.data.name(*f)).collect();
+    info!("pipboy map: summoned {} beside the player (Map Selectable Companions)", if names.is_empty() { "nobody".to_string() } else { names.join(", ") });
+}
 
 /// A companion written on the World Map.
 struct MapCompanion {
+    form: FormId,
     world: u32,
     pos: [f32; 3],
     name: String,
@@ -2250,7 +2282,7 @@ fn map_companions(game: &Game, player: Option<(u32, [f32; 3])>, show_down: bool)
             continue;
         }
         let name = sim.ref_name(Some(&rt.game), id.0).map(str::to_string).unwrap_or_else(|| rt.game.data.name(id));
-        out.push(MapCompanion { world, pos: s.pos, name, down });
+        out.push(MapCompanion { form: id, world, pos: s.pos, name, down });
     }
     out
 }
@@ -2342,11 +2374,25 @@ fn world_map(st: &mut DataState, game: &Game, pointer: Option<Vec2>, aiming: boo
     // The player's companions out in this map's worldspaces [see `map_companions`].
     let tw = game.script.as_ref().and_then(|s| s.rt.as_ref()).map(|rt| (rt.game.tweaks.no_min_companion_distance, rt.game.tweaks.map_unconscious_companions, rt.game.tweaks.companions_location_font));
     let (no_min, show_down, location_font) = tw.unwrap_or_default();
+    let summon = game.script.as_ref().and_then(|s| s.rt.as_ref()).map(|rt| (rt.game.tweaks.map_summon_companions, rt.game.tweaks.summon_unconscious));
     let mut companions = Vec::new();
+    let mut forms_shown = Vec::new();
     for c in map_companions(game, player.filter(|_| !no_min).map(|(p, _)| (world, p)), show_down) {
         let Some(projection) = map_for(st, game, c.world).filter(|p| p.root == m.root) else { continue };
+        forms_shown.push((c.form, c.down));
         companions.push((on_map(projection.uv(c.pos[0], c.pos[1])), c.name, c.down));
     }
+    // The player's Map Selectable Companions tweak: the companions under the highlight box,
+    // which a click summons [design: docs/design/tweaks.md].
+    st.companions_under = match summon {
+        Some((true, down_too)) => companions
+            .iter()
+            .zip(&forms_shown)
+            .filter(|((at_, _, _), (_, down))| at_.distance(cursor) <= SUMMON_REACH && (!down || down_too))
+            .map(|(_, (f, _))| *f)
+            .collect(),
+        _ => Vec::new(),
+    };
     if st.companions_logged != Some(companions.len()) {
         st.companions_logged = Some(companions.len());
         info!("pipboy data: world map shows {} companions", companions.len());
@@ -3340,6 +3386,7 @@ mod tests {
         w.init_resource::<Messages<MenuInput>>();
         w.init_resource::<Messages<PipBoyInput>>();
         w.init_resource::<Messages<FastTravelAsk>>();
+        w.init_resource::<Messages<SummonCompanions>>();
         w.init_resource::<Messages<FastTravelGo>>();
         w
     }
