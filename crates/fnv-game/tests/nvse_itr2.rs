@@ -4,7 +4,7 @@
 //! paths and cover through a lent navmesh answerer, ground through a lent ray caster,
 //! doors, references by distance, perk eligibility, recipes and the menus.
 
-mod common;
+use crate::common;
 
 use common::*;
 use fnv_esm::{LoadOrder, Plugin, Schema};

@@ -187,26 +187,28 @@ fn marker_grid(markers: &[SoundMarker], max_distance: impl Fn(u32) -> Option<f32
     }))
 }
 
+/// Whether `sound`'s file is still coming off the IO pool (asking starts the read): its
+/// loop starts on a later frame, and a missing file is not taken for one (#1993).
+fn file_pending(amb: &mut Ambient, sfx: &mut Sfx, vfs: &Arc<fnv_vfs::Vfs>, sound: u32) -> bool {
+    if folder_unlisted(sfx, FormId(sound)) {
+        return false;
+    }
+    let Some(Resolved { path, .. }) = resolve(sfx, vfs, FormId(sound)) else { return false };
+    matches!(amb.files.fetch(&path, vfs, "ambient"), crate::file_bytes::Got::Pending)
+}
+
 /// Start a SOUN going round, silent; the record's static gain with it. With `pan` it
 /// plays at a place.
 #[allow(clippy::too_many_arguments)]
-fn start_loop(commands: &mut Commands, amb: &mut Ambient, sfx: &mut Sfx, settings: &SfxSettings, vfs: &fnv_vfs::Vfs, assets: &mut Streams, sound: u32, pan: Option<Pan>) -> Option<(Playing, f32)> {
+fn start_loop(commands: &mut Commands, amb: &mut Ambient, sfx: &mut Sfx, settings: &SfxSettings, vfs: &Arc<fnv_vfs::Vfs>, assets: &mut Streams, sound: u32, pan: Option<Pan>) -> Option<(Playing, f32)> {
     // A folder of loops not listed yet (sfx's folder index): tried again next frame.
     if folder_unlisted(sfx, FormId(sound)) {
         return None;
     }
     let Resolved { s, name, path } = resolve(sfx, vfs, FormId(sound))?;
-    let bytes = amb.files.get_or_read(&path, || match vfs.read(&path) {
-        Some(Ok(b)) => Some(b.into()),
-        Some(Err(e)) => {
-            warn!("ambient: {name}: {path}: {e}");
-            None
-        }
-        None => {
-            warn!("ambient: {name}: {path}: not in the archives");
-            None
-        }
-    })?;
+    // Read off the main thread (#1993): `file_pending` holds the start back until it is in.
+    let crate::file_bytes::Got::Ready(bytes) = amb.files.fetch(&path, vfs, "ambient") else { return None };
+    let bytes = bytes?;
     let Some((music, level)) = LayeredMusic::single(bytes, true) else {
         warn!("ambient: {name}: {path}: not decoded");
         amb.files.mark_broken(path);
@@ -362,6 +364,9 @@ fn play(
             } else if !held {
                 // A 2D sound is not panned (audio.md §15.2).
                 let pan = (!s.has("2D")).then(|| Pan::new(pan_gains(eye, player.heading, m.at)));
+                if file_pending(amb, sfx, &data.vfs, m.sound) {
+                    continue;
+                }
                 let Some((p, _)) = start_loop(&mut commands, amb, sfx, &settings, &data.vfs, &mut streams, m.sound, pan) else { continue };
                 p.set(gain);
                 amb.loops.insert(m.key, p);
@@ -446,8 +451,9 @@ fn play(
 /// out, unless the loops are `held`. A bed naming a folder waits for sfx's folder index,
 /// tried again each frame (it would be remembered as having no file otherwise).
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn switch_bed(commands: &mut Commands, amb: &mut Ambient, sfx: &mut Sfx, settings: &SfxSettings, vfs: &fnv_vfs::Vfs, streams: &mut Streams, wanted: Option<u32>, held: bool) {
-    let listing = wanted.is_some_and(|s| folder_unlisted(sfx, FormId(s)));
+pub(crate) fn switch_bed(commands: &mut Commands, amb: &mut Ambient, sfx: &mut Sfx, settings: &SfxSettings, vfs: &Arc<fnv_vfs::Vfs>, streams: &mut Streams, wanted: Option<u32>, held: bool) {
+    // A bed whose file is still being read waits the same way (#1993).
+    let listing = wanted.is_some_and(|s| folder_unlisted(sfx, FormId(s)) || file_pending(amb, sfx, vfs, s));
     if amb.bed.as_ref().map(|b| b.sound) != wanted && !held && !listing {
         if let Some(old) = amb.bed.take() {
             amb.beds_leaving.push(old);

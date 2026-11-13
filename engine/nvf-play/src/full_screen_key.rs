@@ -80,20 +80,26 @@ pub(crate) fn step(alts: &mut Alts, pressed: [bool; 2], keyboard: ([bool; 2], [b
 
 /// Read the keys right after the test aid's presses and before the menus' and the
 /// controller's: take the combination's keys ([`step`]) and ask for the switch.
-pub(crate) fn read(mut events: MessageReader<KeyboardInput>, mut keys: ResMut<ButtonInput<KeyCode>>, mut alts: ResMut<Alts>, mut asked: ResMut<Asked>) {
+pub(crate) fn read((mut events, switching): (MessageReader<KeyboardInput>, Option<Res<crate::pad::SwitchingInput>>), mut keys: ResMut<ButtonInput<KeyCode>>, mut alts: ResMut<Alts>, mut asked: ResMut<Asked>) {
     let (mut repeated, mut lifted, mut struck) = ([false; 2], [false; 2], [false; 2]);
     for e in events.read() {
         let Some(i) = ALTS.iter().position(|k| *k == e.key_code) else { continue };
+        // The shared filter always allows releases [design, #2200].
+        if e.state.is_pressed() && switching.as_ref().is_some_and(|s| !s.allows(e)) {
+            continue;
+        }
         match e.state {
             ButtonState::Released => lifted[i] = true,
             ButtonState::Pressed if e.repeat => repeated[i] = true,
             ButtonState::Pressed => struck[i] = true,
         }
     }
-    let pressed = ALTS.map(|k| keys.pressed(k));
+    let view = switching.as_ref().map_or_else(|| std::borrow::Cow::Borrowed(&*keys), |s| s.filter(&keys));
+    let pressed = ALTS.map(|k| view.pressed(k));
     // A fresh press: the keyboard's own, or the test aid's (it sends no keyboard event).
-    let fresh = [0, 1].map(|i| struck[i] || (keys.just_pressed(ALTS[i]) && !repeated[i]));
-    let enter = keys.any_just_pressed(ENTERS);
+    let fresh = [0, 1].map(|i| struck[i] || (view.just_pressed(ALTS[i]) && !repeated[i]));
+    let enter = view.any_just_pressed(ENTERS);
+    drop(view);
     if step(&mut alts, pressed, (struck, lifted), fresh, enter) {
         for k in ENTERS {
             keys.clear_just_pressed(k);

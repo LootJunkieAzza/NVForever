@@ -2,7 +2,7 @@
 //! effect shaders' traits and textures, media sets' traits, casinos' chips and winnings,
 //! terminals' menu items, and the quest script delay.
 
-mod common;
+use crate::common;
 
 use common::*;
 use fnv_esm::{LoadOrder, Plugin, Schema};

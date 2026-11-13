@@ -311,7 +311,8 @@ epairmenuPlayer, Repair 17]:
 
 ### 5.1 The page drawn from its file
 
-Behind `[UI] TileMenus=RepairMenu`, off by default, the repair list is drawn from
+Behind `[UI] TileMenus=RepairMenu`, on by default when the list is absent [design, #2215;
+ui-tile-tree.md section 6.2], the repair list is drawn from
 `menus\main\repair_menu.xml`, painted into the Pip-Boy's image (issue #1468) [design:
 `engine/nvf-play/src/tiles/repair_menu.rs`, in the way of the S.P.E.C.I.A.L. page, pipboy.md
 §5.1.1; the card pairs in `tiles/repair_cards.rs`]. Off, nothing here runs and the hand-built

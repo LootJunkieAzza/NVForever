@@ -1226,3 +1226,46 @@ fn a_modded_weapon_is_worth_its_mods_on_top() {
     assert_eq!(f.forms.mods_value(FormId(RIFLE), 1), 0);
     assert_eq!(f.forms.mods_value(FormId(RIFLE), 3), 125);
 }
+
+
+#[test]
+fn switching_cancels_quantity_meter_drag_and_preserves_the_mouse_release() {
+    use bevy::prelude::*;
+    use bevy::input::{gamepad::{RawGamepadButtonChangedEvent, RawGamepadEvent}, keyboard::{Key, KeyboardInput}, mouse::MouseButtonInput, ButtonState};
+    use crate::{bindings::{Bindings, InputDevice}, menu::{ActiveMenu, AmountMeter, MenuInput, quantity_mouse}, ui_pointer::{PointerState, UiPointerPlugin}};
+    let mut model = MenuModel::empty(Mode::Inventory, "Synthetic inventory".into());
+    model.quantity = Some(Quantity { cmd: crate::menu::model::Command::One, side: Side::Player, row: 0, max: 10, amount: 1 });
+    let mut app = App::new();
+    app.add_plugins((MinimalPlugins, bevy::input::InputPlugin, crate::pad::InputSwitchPlugin, UiPointerPlugin))
+        .init_resource::<Bindings>().init_resource::<bevy::ui::UiStack>()
+        .insert_resource(ActiveMenu(Some(model)))
+        .add_message::<MenuInput>().add_systems(Update, quantity_mouse);
+    let meter = app.world_mut().spawn((AmountMeter, PointerState::Pressed,
+        bevy::ui::RelativeCursorPosition { normalized: Some(Vec2::ZERO), ..default() })).id();
+    app.world_mut().write_message(MouseButtonInput { button: MouseButton::Left, state: ButtonState::Pressed, window: Entity::PLACEHOLDER });
+    app.update();
+    assert_eq!(app.world().resource::<Messages<MenuInput>>().len(), 1, "the real quantity reader sees the initial drag");
+    app.world_mut().resource_mut::<Messages<MenuInput>>().clear();
+    let pad = app.world_mut().spawn(Gamepad::default()).id();
+    app.world_mut().write_message(RawGamepadEvent::Button(RawGamepadButtonChangedEvent::new(pad, GamepadButton::South, 1.0)));
+    app.update();
+    assert_eq!(app.world().resource::<Bindings>().device, InputDevice::KeyboardMouse);
+    crate::bindings::set_device(app.world_mut(), InputDevice::Controller);
+    assert_eq!(app.world().resource::<Bindings>().device, InputDevice::Controller);
+    assert_ne!(app.world().get::<PointerState>(meter), Some(&PointerState::Pressed));
+    app.world_mut().write_message(KeyboardInput { key_code: KeyCode::KeyX, logical_key: Key::Character("x".into()), state: ButtonState::Pressed, text: None, repeat: false, window: Entity::PLACEHOLDER });
+    app.update();
+    assert_eq!(app.world().resource::<Bindings>().device, InputDevice::Controller);
+    crate::bindings::set_device(app.world_mut(), InputDevice::KeyboardMouse);
+    assert_eq!(app.world().resource::<Bindings>().device, InputDevice::KeyboardMouse);
+    app.world_mut().write_message(MouseButtonInput { button: MouseButton::Left, state: ButtonState::Released, window: Entity::PLACEHOLDER });
+    app.update();
+    assert!(app.world().resource::<ButtonInput<MouseButton>>().just_released(MouseButton::Left));
+    assert_ne!(app.world().get::<PointerState>(meter), Some(&PointerState::Pressed));
+    // Isolate post-release travel from buffered commands from earlier drag frames
+    // [design, #2200; menu::quantity_mouse, bevy::ecs::message::Messages].
+    app.world_mut().resource_mut::<Messages<MenuInput>>().clear();
+    app.world_mut().get_mut::<bevy::ui::RelativeCursorPosition>(meter).unwrap().normalized = Some(Vec2::splat(0.4));
+    app.update();
+    assert!(app.world().resource::<Messages<MenuInput>>().is_empty(), "pointer travel after release cannot change the quantity");
+}

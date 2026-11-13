@@ -1,5 +1,11 @@
 # ESM data the engine does not act on (audit, 2026-10-21)
 
+> **Superseded for status (2026-10-25):** many rows below have been built since and some
+> were found wrong (rows 8, 9, 17 and 18 built; the FACT XNAM, NPC_ KFFZ and CDCK rows
+> wrong: [project-audit-2026-10-23](project-audit-2026-10-23.md) §6). What is still open is
+> in [esm-audit-2026-10-25](esm-audit-2026-10-25.md); spec notes that cite this file cite
+> it for its reasoning, not for what is built (#2005).
+
 The owner asked for this after finding that "Non-Playable" was honoured only on armour
 (fixed for weapons and ammo in PR #509). It lists every record field, flag bit and record
 type that FNV's masters carry but NVForever ignores or only stores.

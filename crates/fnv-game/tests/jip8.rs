@@ -2,7 +2,7 @@
 //! actor base data, actor effects, ingestibles and base effects, weapons, idles, body-part
 //! names and limb models, cells and water.
 
-mod common;
+use crate::common;
 
 use common::*;
 use fnv_esm::{LoadOrder, Plugin, Schema};

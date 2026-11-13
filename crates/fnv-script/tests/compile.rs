@@ -1734,3 +1734,21 @@ fn sv_replace_edits_the_variable_an_assignment_in_its_place_sets() {
     assert_eq!(h.text(1), "Rifle");
     assert_eq!(h.0[&3], Value::Num(1.0));
 }
+
+#[test]
+fn typeof_absent_key_is_null_without_creating_it() {
+    let h = run("array_var a\nstring_var missing\nstring_var present\nint count\nbegin GameMode\nlet a := ar_Map \"present\"::7\nlet missing := TypeOf a[\"absent\"]\nlet present := TypeOf a[\"present\"]\nlet count := ar_Size a\nend");
+    assert_eq!(h.text(2), "NULL");
+    assert_eq!(h.text(3), "Number");
+    assert_eq!(h.0[&4], Value::Num(1.0));
+}
+
+#[test]
+fn typeof_does_not_hide_invalid_indexing_or_direct_missing_access() {
+    for expression in ["a[\"absent\"]", "TypeOf a[\"present\"][\"absent\"]", "TypeOf a[a]"] {
+        let (c, p) = build(&format!("array_var a\nstring_var result\nbegin GameMode\nlet a := ar_Map \"present\"::7\nlet result := {expression}\nend"));
+        let mut host = host_for(&c);
+        let error = Vm::new(&table(), &mut host, RunOpts { strict: true, ..Default::default() }).run(&p.blocks[0].body);
+        assert!(error.is_err(), "{expression}: {error:?}");
+    }
+}

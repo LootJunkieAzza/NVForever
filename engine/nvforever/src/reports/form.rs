@@ -478,8 +478,9 @@ fn encode_png(rgb: &[u8], w: u32, h: u32) -> Option<Vec<u8>> {
 }
 
 /// The keys while the form is open.
-fn keys(mut typed: MessageReader<KeyboardInput>, held: Res<ButtonInput<KeyCode>>, mut form: ResMut<Form>, mut commands: Commands, mut saves: MessageWriter<nvf_play::save::SaveRequest>, real: Res<Time<Real>>) {
-    let events: Vec<KeyboardInput> = typed.read().filter(|k| k.state.is_pressed()).cloned().collect();
+fn keys((mut typed, switching): (MessageReader<KeyboardInput>, Option<Res<nvf_play::pad::SwitchingInput>>), held: nvf_play::pad::ActionButtons<KeyCode>, mut form: ResMut<Form>, mut commands: Commands, mut saves: MessageWriter<nvf_play::save::SaveRequest>, real: Res<Time<Real>>) {
+    let held = held.snapshot();
+    let events: Vec<KeyboardInput> = typed.read().filter(|k| k.state.is_pressed() && switching.as_ref().is_none_or(|s| s.allows(k))).cloned().collect();
     let ctrl = held.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight]);
     let other_mods = held.any_pressed([KeyCode::AltLeft, KeyCode::AltRight, KeyCode::SuperLeft, KeyCode::SuperRight]);
     for k in events {
@@ -899,6 +900,29 @@ fn tail_chars(s: &str, n: usize) -> std::borrow::Cow<'_, str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn switching_escape_keeps_the_report_open_until_a_fresh_escape() {
+        use bevy::input::ButtonState;
+        use nvf_play::bindings::{Bindings, InputDevice};
+        let mut bindings = Bindings::default();
+        bindings.device = InputDevice::Controller;
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, bevy::input::InputPlugin, nvf_play::pad::InputSwitchPlugin))
+            .insert_resource(bindings)
+            .insert_resource(Form { phase: Phase::Open, ..default() })
+            .add_message::<nvf_play::save::SaveRequest>().add_systems(Update, keys);
+        let escape = KeyboardInput { key_code: KeyCode::Escape, logical_key: Key::Escape, state: ButtonState::Pressed, text: None, repeat: false, window: Entity::PLACEHOLDER };
+        app.world_mut().write_message(escape.clone());
+        app.update();
+        assert_eq!(app.world().resource::<Bindings>().device, InputDevice::KeyboardMouse);
+        assert!(matches!(app.world().resource::<Form>().phase, Phase::Open));
+        app.world_mut().write_message(KeyboardInput { state: ButtonState::Released, ..escape.clone() });
+        app.update();
+        app.world_mut().write_message(escape);
+        app.update();
+        assert!(matches!(app.world().resource::<Form>().phase, Phase::Closed));
+    }
 
     #[test]
     fn the_last_lines_of_a_log() {
