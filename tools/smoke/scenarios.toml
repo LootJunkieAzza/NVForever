@@ -25914,6 +25914,8 @@ name = "native-crash-dump"
 source = "#2055, docs/design/player-reports.md section 3.2 (#1425, #1825): a native crash leaves a minidump beside the run log (engine/nvforever/src/native_crash.rs)"
 areas = ["crash"]
 paths = ["engine/nvforever/src/native_crash.rs", "engine/nvforever/src/crash.rs"]
+# Windows only: the minidump is that side's evidence; native-crash-signal covers Linux.
+requires = ["WINDIR"]
 # A thread of its own writes to an unmapped address 5 s after the first frame: the process ends with 0xC0000005.
 env = { NVFOREVER_HOME = "native-crash-home", NVF_PLAY_TEST_NATIVE_CRASH = "5" }
 args = ["--cell", "Goodsprings"]
@@ -25924,6 +25926,34 @@ ends = "test aid NVF_PLAY_TEST_NATIVE_CRASH: an access violation now"
 expect = [
   { re = 'native crash, exception 0xC0000005; dump written to .*crash-\d{8}-\d{6}-\d+\.dmp', label = "the dump beside the run log" },
 ]
+
+[[scenario]]
+name = "native-crash-signal"
+source = "#2167, docs/design/player-reports.md section 3.2 (#1425, #1825): on Linux a native crash writes the signal, the fault address and the top frames into the run log, and the process still ends by the same signal (engine/nvforever/src/native_crash_unix.rs)"
+areas = ["crash"]
+paths = ["engine/nvforever/src/native_crash_unix.rs", "engine/nvforever/src/crash.rs"]
+# The same aid as the Windows check: a write to an unmapped address 5 s after the first frame.
+env = { NVFOREVER_HOME = "native-crash-signal-home", NVF_PLAY_TEST_NATIVE_CRASH = "5" }
+args = ["--cell", "Goodsprings"]
+run_seconds = 30
+# -11: the handler re-raises SIGSEGV, so a crash still reads as a crash.
+exit = -11
+ends = "test aid NVF_PLAY_TEST_NATIVE_CRASH: an access violation now"
+expect = [
+  { re = 'native crash, signal SIGSEGV \(11\), fault address 0x[0-9a-f]+; at 0x[0-9a-f]+ \S+\+0x[0-9a-f]+', label = "the signal, the fault address and the module" },
+  { re = 'frame 1: 0x[0-9a-f]+ \S+\+0x[0-9a-f]+', label = "the top frames" },
+]
+
+[[scenario]]
+name = "native-crash-clean-log"
+source = "#2167: a clean --run-seconds exit writes only the clean-exit line, so the previous-run check (crash.rs) still reads it and nothing looks like a crash (engine/nvforever/src/native_crash_unix.rs)"
+areas = ["crash"]
+paths = ["engine/nvforever/src/native_crash_unix.rs"]
+env = { NVFOREVER_HOME = "native-crash-clean-home" }
+args = ["--cell", "Goodsprings"]
+run_seconds = 10
+expect = ["run log: the game exited normally"]
+forbid = [{ re = 'native crash, signal ', label = "a native crash line in a clean run" }]
 
 [[scenario]]
 name = "reports-delete-unreachable"

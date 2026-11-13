@@ -4715,6 +4715,7 @@ dependencies = [
  "fnv-voice",
  "fnv-world",
  "half",
+ "libc",
  "nvf-assets",
  "nvf-play",
  "png",

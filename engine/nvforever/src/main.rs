@@ -26,6 +26,8 @@ macro_rules! eprintln {
 mod activators;
 mod reports;
 mod native_crash;
+#[cfg(unix)]
+mod native_crash_unix;
 mod nif_mirror;
 mod anim_paths;
 mod actor_feet;
