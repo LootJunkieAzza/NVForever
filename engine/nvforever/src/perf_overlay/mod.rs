@@ -234,8 +234,9 @@ fn follow_upscale(o: &mut Overlay, on: bool, now: impl FnOnce() -> Option<readin
     if now == o.readings.upscale {
         return;
     }
-    // Logged once per change of the text, leaving out the brief `<choice>  --` of a switch the
-    // render world has not drawn yet (one or two frames), so a switch logs only where it lands.
+    // Logged when the text changes, leaving out the `<choice>  --` of a switch the render world
+    // has not drawn yet (one or two frames) or of a loading screen, so a switch logs only where it
+    // lands (a return to the same text after a loading screen logs it again).
     let text = now.as_ref().map(readings::upscale_text);
     let changed = text != o.readings.upscale.as_ref().map(readings::upscale_text);
     if let Some(t) = text.as_deref().filter(|t| changed && !t.ends_with("  --")) {
