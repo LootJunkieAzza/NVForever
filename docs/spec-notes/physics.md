@@ -686,6 +686,17 @@ playtest list 5 item 59]. The tumbleweeds roll with the weather's wind: [wind](w
   `a_sleeping_body_struck_then_queried_still_moves`; in play, a bottle shot off a fence
   stayed put]. `update_queries` puts such a body to sleep and wakes it with its velocity
   again.
+  The list of struck bodies missed one: a sleeping corpse struck by a shot or a VATS hit
+  (`push_ragdoll`). The bone woken was left in its sleeping set: the corpse froze, and once
+  a piece landed on it its island held bodies of both the awake set and a sleeping one.
+  When that island fell asleep rapier panicked [observed: the owner's crash of
+  2026-11-11, `extract_sleeping_sub_island` island.rs:54, after a VATS head kill; tests
+  `a_sleeping_corpse_struck_before_a_query_wakes_whole` and
+  `rapiers_islands_hold_under_random_play` (seed 4) in `tests/islands.rs`]. So after every
+  refresh `fnv_phys::islands` checks rapier's islands whatever made the change: a body awake
+  outside the awake set, or one in a sleeping set whose island has a body in the awake set,
+  is woken with its island; a fixed body still listed in an island has its type told again
+  for the next step. The exit log's "island repairs after query refreshes" line counts them.
 - **Drawing is not stepping**: frames come at their own rate, between the fixed steps;
   what physics moves is drawn between its last two steps (§5.2), which reads the world
   and never writes it. Everything the simulation sees (the poses written back to the

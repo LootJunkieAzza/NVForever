@@ -40,6 +40,7 @@ pub mod debug_lines;
 pub mod drawn;
 pub mod gore;
 pub mod grab;
+mod islands;
 pub mod layers;
 pub mod placed;
 pub mod primitive;

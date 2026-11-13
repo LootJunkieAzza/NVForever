@@ -394,6 +394,9 @@ pub struct RefreshStats {
     pub repair_sleep: u64,
     /// Bodies struck since the last step, summed over the refreshes (woken again).
     pub repair_struck: u64,
+    /// Bodies whose islands the refreshes put right after the detection
+    /// (`crate::islands`): woken with their island, or a fixed body's type told again.
+    pub repair_islands: u64,
 }
 
 pub struct PhysWorld {
@@ -1121,6 +1124,11 @@ impl PhysWorld {
                     b.set_angvel(spin, true);
                 }
             }
+            // Any other change the detection took from rapier's islands: a sleeping corpse
+            // struck (`push_ragdoll`) was left awake in its sleeping set, and later
+            // crashed rapier (`crate::islands`).
+            let repaired = self.repair_islands();
+            self.refresh_stats.repair_islands += repaired as u64;
             self.dirty = false;
         }
     }

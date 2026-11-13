@@ -2146,6 +2146,9 @@ fn report(mut exit: MessageReader<AppExit>, phys: Res<PhysState>, f: Res<FrameTi
         "physics: drawn between steps: {} references at most in a frame, over {} frames; {kept} bodies at most kept before a step; quarantined {} bodies and {} colliders",
         phys.between.most, phys.between.frames, st.quarantined_bodies, st.quarantined_colliders
     );
+    // Bodies a query's refresh had to put back into rapier's islands (`fnv_phys::islands`):
+    // without it they froze, and could crash rapier later.
+    info!("physics: island repairs after query refreshes: {} bodies", phys.world.refresh_stats().repair_islands);
     // Placed bodies physics has moved (pushed, shot, knocked over), as they are now.
     for (&id, p) in phys.placed_dynamic.iter().filter(|(_, p)| p.moved) {
         if let Some(b) = phys.world.ref_bodies(id).first() {
