@@ -24,6 +24,7 @@ macro_rules! eprintln {
 }
 
 mod activators;
+mod fos_start;
 mod reports;
 mod native_crash;
 mod nif_mirror;
@@ -753,8 +754,9 @@ struct Args {
     #[arg(long)]
     no_dialogue_look: bool,
     /// With --play: in a conversation, bring the view back onto the actor each time the
-    /// choices appear. Off by default (owner decision 2026-10-10): only the opening turn
-    /// happens and the view is the player's own for the rest of the conversation.
+    /// choices appear (without the dialogue zoom, which keeps the view on the speaker).
+    /// Off by default (owner decision 2026-10-10): only the opening turn happens and the
+    /// view is the player's own for the rest of the conversation.
     #[arg(long)]
     dialogue_recentre: bool,
     /// Accepted for older command lines; not coming back is the default now.
@@ -1057,12 +1059,36 @@ fn main() -> AppExit {
         crash::tell_player_at_start(&text, args.handoff.is_some());
         return fail(why);
     }
+    // Test aid NVF_PLAY_TEST_START_FOS: start where an original game's save stands (only
+    // read; fos_start.rs).
+    let fos_start = match std::env::var_os("NVF_PLAY_TEST_START_FOS").filter(|v| !v.is_empty()) {
+        Some(p) => match fos_start::read(std::path::Path::new(&p), &args.plugins) {
+            Ok(s) => Some(s),
+            Err(e) => return fail(format!("NVF_PLAY_TEST_START_FOS {}: {e}", std::path::Path::new(&p).display())),
+        },
+        None => None,
+    };
     let t0 = std::time::Instant::now();
-    let world = match WorldData::open(&args.esm_schema, opened, &args.world) {
+    let mut world = match WorldData::open(&args.esm_schema, opened, &args.world) {
         Ok(w) => w,
         Err(e) => return fail(e),
     };
     info!("world index built in {:.2}s", t0.elapsed().as_secs_f64());
+    if let Some(s) = fos_start {
+        if world.index.worldspaces.contains_key(&s.at) {
+            world.set_world(s.at);
+            args.world = format!("0x{:08X}", s.at);
+        } else if world.index.cells.get(&s.at).is_some_and(|c| c.world.is_none()) {
+            args.cell = format!("0x{:08X}", s.at);
+        } else {
+            return fail(format!("NVF_PLAY_TEST_START_FOS: {:08X} is neither a worldspace nor an interior cell", s.at));
+        }
+        args.pos = Some(format!("{},{},{}", s.feet[0], s.feet[1], s.feet[2] + nvf_play::player::EYE_HEIGHT));
+        args.eye_height = 0.0;
+        args.heading = s.heading_deg;
+        // The log is not up yet: straight to the output.
+        eprintln!("test aid NVF_PLAY_TEST_START_FOS: start at {:08X}, feet {:?}, heading {:.1}", s.at, s.feet, s.heading_deg);
+    }
 
     // The main menu stands over a new game, held until New Game is chosen.
     if args.menu {
@@ -1918,6 +1944,14 @@ fn main() -> AppExit {
                 _ => info!("handoff: started as the new run (ready file {})", file.display()),
             }
             app.insert_resource(handoff::Hidden::new(file, args.window_maximized));
+            // The save waits from the first frame, not only once `hold_restore` has run:
+            // the first frame's Update takes seconds (7.2 s observed), long enough for the
+            // script data to come in during it, and `run_scripts` took it, putting the
+            // save back before the old run had ended, when it ran before `hold_restore`
+            // (#2210).
+            if let Some(mut s) = app.world_mut().get_resource_mut::<nvf_play::script::ScriptState>() {
+                s.held = true;
+            }
         }
         nvf_play::save::add_save_hook(&mut app, sky::SAVE_HOOK);
     }
@@ -2128,10 +2162,11 @@ models {} (failed {})  textures failed {}  terrain layers {}  quadrants without 
 }
 
 fn keys(
-    input: Res<ButtonInput<KeyCode>>,
+    input: nvf_play::pad::ActionButtons<KeyCode>,
     play_state: Option<Res<State<nvf_play::PlayState>>>,
     mut commands: Commands,
 ) {
+    let input = input.snapshot();
     // With --play, Esc is nvf-play's: it opens the pause menu (Continue / Save / Load / Settings / Quit) or closes
     // the open menu, instead of quitting.
     if input.just_pressed(KeyCode::Escape) && play_state.is_none() {
