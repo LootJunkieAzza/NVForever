@@ -574,7 +574,7 @@ fn draw(mut commands: Commands, mut d: ResMut<Dialog>, roots: Query<Entity, With
                     let phase = progress.map(|p| p.phase);
                     match &phase {
                         Some(Phase::Done(folder)) => {
-                            block(p, title, tr("DLSS is ready"), TEXT_WIDTH, bright);
+                            block(p, title, tr("Download finished"), TEXT_WIDTH, bright);
                             block(p, small, tr("DLSS is ready: restart NVForever to use it."), TEXT_WIDTH, bright);
                             block(p, small, &trf("Installed in {folder}.", &[("folder", &folder.display())]), TEXT_WIDTH, dim);
                             buttons(p, small, &[(with_key(tr("Close"), "Esc"), Act::Close, true)]);
