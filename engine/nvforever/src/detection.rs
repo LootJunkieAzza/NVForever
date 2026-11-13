@@ -714,6 +714,13 @@ fn hear_shot(state: &mut DetectionState, weapon: Option<&WeaponStats>, s: &ShotF
     state.shot_levels.insert(s.shooter.0, loud);
 }
 
+/// Whether the player moves, for its footstep sound and IsMoving: faster than
+/// [`MOVING_SPEED`] with its movement controls held (`intent`; without one, by speed
+/// alone) (the comment at the call, #2286).
+fn player_moving(speed: f32, intent: Option<&MoveIntent>) -> bool {
+    speed > MOVING_SPEED && intent.is_none_or(|i| i.forward != 0.0 || i.right != 0.0)
+}
+
 /// Measure every pair (the module notes).
 #[allow(clippy::too_many_arguments)]
 fn measure(
@@ -821,8 +828,7 @@ fn measure(
     // a load, a push or a slide is no footstep [hypothesis, #2286: placed at HELIOS One's
     // stasis pods, our player drifted 4 units while its capsule settled, read as running,
     // and two protectrons the original leaves undetected noticed it by that sound].
-    let own_steps = intent.as_deref().is_none_or(|i| i.forward != 0.0 || i.right != 0.0);
-    let pmoving = pspeed > MOVING_SPEED && own_steps;
+    let pmoving = player_moving(pspeed, intent.as_deref());
     // The player detects from its eyes along its heading; GetLineOfSight is the camera's,
     // first or third person [documented: GECK wiki GetLineOfSight; observed: capture
     // detection-2 det4, the detection's edge symmetric about the facing, the line of
@@ -1426,6 +1432,20 @@ fn report(mut exit: MessageReader<AppExit>, state: Res<DetectionState>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A player drifting while its capsule settles makes no footsteps; one walking does,
+    /// and so does one stuck to a wall only when it gets anywhere (#2286).
+    #[test]
+    fn the_player_moves_only_by_its_own_controls() {
+        let still = MoveIntent::default();
+        let walking = MoveIntent { forward: 1.0, ..MoveIntent::default() };
+        let strafing = MoveIntent { right: -1.0, ..MoveIntent::default() };
+        assert!(!player_moving(16.0, Some(&still)), "a settle drift of 4 units in 0.25 s");
+        assert!(player_moving(16.0, Some(&walking)));
+        assert!(player_moving(344.0, Some(&strafing)));
+        assert!(!player_moving(5.0, Some(&walking)), "held against a wall");
+        assert!(player_moving(16.0, None), "no controls: by speed alone, as before");
+    }
 
     #[test]
     fn light_adds_point_lights_with_the_game_falloff_and_caps_at_100() {

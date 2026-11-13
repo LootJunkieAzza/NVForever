@@ -25816,7 +25816,7 @@ expect = [
 [[scenario]]
 name = "helios-stasis-held-at-field"
 source = "#1977 (owner 2026-11-09): HELIOS One's stasis protectrons stay in their pods until the tripwire. In the original (#1977 probe 3) p4 fights from inside its pod, moving 12 units in 30 s against the pod's stasis field (VHELIOSStasisField4REF, keyframed collision). Ours got stuck there too, then the nav unstick's skip moved it on through the field; now a skip whose way crosses keyframed collision holds the actor where it is (engine/nvforever/src/residents.rs, PhysState::keyframed_between)"
-note = "HELIOSOneTower, the player 295 units south of p4 (0x0009A260) behind the pods' wall: p4 and p3 (0x0009A261) notice it and try to search; their fields are 0x00099D27 and 0x00099D28; the tripwire VHeliosTrapLaserTripwire 0x0009A1E8 north-east of the pods"
+note = "HELIOSOneTower, the player 295 units south of p4 (0x0009A260) behind the pods' wall: p4 notices it and tries to search, p3 (0x0009A261) stays idle (#2286); their fields are 0x00099D27 and 0x00099D28; the tripwire VHeliosTrapLaserTripwire 0x0009A1E8 north-east of the pods"
 areas = ["ai", "nav"]
 paths = ["engine/nvforever/src/residents.rs", "engine/nvf-play/src/phys.rs", "crates/fnv-phys/src/world.rs"]
 env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05" }
@@ -25824,7 +25824,7 @@ args = ["--cell", "HELIOSOneTower", "--play", "--no-voice", "--no-messages", "--
 run_seconds = 25
 expect = [
   { re = 'actor 0009A260 stuck at .*: held at 00099D27.s moving collision', label = "p4 is held at its pod's stasis field" },
-  { re = 'actor 0009A261 stuck at .*: held at 00099D28.s moving collision', label = "p3 is held at its pod's stasis field" },
+  { re = 'actor 0009A261 stuck at ', max = 0, label = "p3 never walks into its field (0x00099D28): it stays idle, as in the original (#2286; before, it noticed the player's settling as running and was held at the field)" },
   { re = 'actor 0009A26[01] stuck at .*moved on along its path', max = 0, label = "and neither is moved on through its field (both were before; p2 and p1, alarmed or noticing, leave through their pods' fixed walls: the alarm is #2009's, the notice the detection edge on #1977)" },
 ]
 
