@@ -96,6 +96,7 @@ mod ui_mcm;
 mod ui_more;
 mod unconscious;
 mod vendor_services;
+mod voice_gate;
 mod zones;
 
 /// With `autotests = false` Cargo builds only the files named, so a new file in `tests/`

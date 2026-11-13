@@ -149,6 +149,14 @@ enforced by `cargo deny` ([deny.toml](deny.toml),
 carries `THIRD-PARTY-LICENSES.txt`: each package the programs are built from, its
 licence and where its source is, and the licence texts the packages ship.
 
+`engine/nvforever/src/dlss_download/nvngx_dlss.license.txt` is NVIDIA's licence text for
+its DLSS files, copied unchanged from NVIDIA's Streamline 2.14.16 release archive. It is
+NVIDIA's text, not under NVForever's licence, and is included only so that a player can read
+and accept it in the game before choosing to download NVIDIA's files from NVIDIA's own
+release (Download DLSS…, [docs/dlss.md](docs/dlss.md)). NVForever ships no NVIDIA binary:
+the files come from NVIDIA's release on the player's request, and nothing of them is hosted,
+mirrored or bundled by the project.
+
 The capture plugin `nvf_capture` is a separate program that runs inside the original
 game. It is under the same licence with an additional permission under GPLv3 section 7
 to be combined with the game and the xNVSE script extender

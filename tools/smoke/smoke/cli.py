@@ -36,11 +36,11 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from . import choose, integrity, slots
+from . import choose, front, integrity, slots
 from .expect import ScenarioError
 from .plan import Launch, plan
 from .runner import (Env, Locks, Verdict, default_lock_paths, exe_is_stale, judge, missing_requirements,
-                     read_lines, report, run_launch)
+                     read_lines, report, run_launch, unmet_platforms)
 from .scenarios import GAME, Suite, load
 
 HERE = Path(__file__).resolve().parent.parent  # tools/smoke
@@ -274,15 +274,32 @@ def cmd_run(a, suite: Suite, say) -> int:
     say(f"{len(chosen)} scenarios in {len(games)} game launches and {len(launches) - len(games)} tool runs; logs in {env.out}")
     if games:
         say(f"nvforever: {env.exe}")
-    locks, jobs = game_gate(a, say, game_groups(launches))
-    if jobs > 1 and len(launches) > 1:
-        say(f"up to {jobs} launches at once (smoke slots: {locks.count if isinstance(locks, slots.Slots) else 'none'})")
+    # `front = true` launches need the screen to themselves: run after the others, one at a
+    # time under both game locks (smoke/front.py).
+    rest, fronts = front.split(launches, chains(launches))
     started = time.monotonic()
-    try:
-        verdicts = run_launches(launches, env, locks, jobs, a, say)
-    finally:
-        if locks:
-            locks.finish()
+    verdicts = []
+    if rest:
+        locks, jobs = game_gate(a, say, game_groups(rest))
+        if jobs > 1 and len(rest) > 1:
+            say(f"up to {jobs} launches at once (smoke slots: {locks.count if isinstance(locks, slots.Slots) else 'none'})")
+        try:
+            verdicts = run_launches(rest, env, locks, jobs, a, say)
+        finally:
+            if locks:
+                locks.finish()
+    if fronts:
+        say(f"{len(fronts)} launches run last, one at a time with the machine to themselves (front = true, and the rest of their NVFOREVER_HOME chains)")
+        paths = default_lock_paths(a.repo)
+        alone = None if a.no_locks or not paths else Locks(paths, poll=a.lock_poll, say=say)
+        try:
+            verdicts += run_launches(fronts, env, alone, 1, a, say)
+        finally:
+            if alone:
+                alone.finish()
+        for x in [x for x in fronts if x.front]:
+            line = front.last_line(env.out / f"{x.name}.front.txt")
+            say(f"  {x.name}: {line or 'front: no record (not on Windows, or the launch did not start)'}")
     checks_ok = run_checks(checks, env, say) if (a.checks and checks) else True
     return finish(verdicts, env, time.monotonic() - started, checks_ok, say)
 
@@ -356,6 +373,10 @@ def run_launches(launches: list[Launch], env: Env, locks, jobs: int, a, say) -> 
         missing = sorted({r for s in x.scenarios for r in missing_requirements(s)})
         if missing:
             skip(i, f"set {', '.join(missing)}")
+            return
+        others = sorted({p for s in x.scenarios for p in unmet_platforms(s)})
+        if others:
+            skip(i, f"{', '.join(others)} only")
             return
         code, err, secs = run_launch(x, env, locks)
         with out:

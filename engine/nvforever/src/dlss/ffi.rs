@@ -151,6 +151,11 @@ impl SlResult {
 
 /// `sl::Feature` is a `uint32_t`; `kFeatureDLSS = 0` [documented: `sl_core_types.h:221, 224`].
 pub const FEATURE_DLSS: u32 = 0;
+/// `kFeatureReflex = 3`, `kFeaturePCL = 4`, `kFeatureDLSS_G = 1000` [documented:
+/// `sl_core_types.h:233, 236, 244`]; DLSS Frame Generation's (#2317, `frame_gen.rs`).
+pub const FEATURE_REFLEX: u32 = 3;
+pub const FEATURE_PCL: u32 = 4;
+pub const FEATURE_DLSS_G: u32 = 1000;
 
 /// `sl::LogType` values [documented: `sl_core_types.h:490-499`].
 pub const LOG_TYPE_WARN: u32 = 1;
@@ -163,6 +168,9 @@ pub const LOG_LEVEL_DEFAULT: u32 = 1;
 pub const PREFERENCE_DISABLE_CL_STATE_TRACKING: u64 = 1 << 0;
 pub const PREFERENCE_ALLOW_OTA: u64 = 1 << 3;
 pub const PREFERENCE_LOAD_DOWNLOADED_PLUGINS: u64 = 1 << 6;
+/// `eUseFrameBasedResourceTagging`: tags given per frame with `slSetTagForFrame` [documented:
+/// `sl_core_types.h:547-549`]; DLSS Frame Generation's (#2317).
+pub const PREFERENCE_USE_FRAME_BASED_RESOURCE_TAGGING: u64 = 1 << 7;
 
 /// `sl::EngineType::eCustom` [documented: `sl_appidentity.h:12-18`].
 pub const ENGINE_CUSTOM: u32 = 0;
@@ -296,6 +304,10 @@ impl Default for FeatureVersion {
 /// `sl::FeatureRequirementFlags::eVulkanSupported`, a `uint32_t` bit [documented:
 /// `sl_core_types.h:625-630`].
 pub const FEATURE_REQUIREMENT_VULKAN_SUPPORTED: u32 = 1 << 2;
+/// `eVSyncOffRequired` ("If set V-Sync must be disabled when feature is active") and
+/// `eHardwareSchedulingRequired` [documented: `sl_core_types.h:631-634`].
+pub const FEATURE_REQUIREMENT_VSYNC_OFF_REQUIRED: u32 = 1 << 3;
+pub const FEATURE_REQUIREMENT_HARDWARE_SCHEDULING_REQUIRED: u32 = 1 << 4;
 
 /// `sl::FeatureRequirements`, version 2, GUID {66714097-AC6D-4BC6-8915-1E0F55A6B61F}
 /// [documented: `sl_core_types.h:642-692`]. Every pointer points into Streamline's memory
@@ -382,12 +394,23 @@ pub const RESOURCE_TYPE_TEX2D: u8 = 0;
 /// `sl::ResourceLifecycle::eValidUntilEvaluate`, a plain `enum` (int) [documented:
 /// `sl_core_types.h:397-405`].
 pub const LIFECYCLE_VALID_UNTIL_EVALUATE: u32 = 2;
+/// `sl::ResourceLifecycle::eValidUntilPresent`: "does NOT change, gets destroyed or reused ...
+/// until the frame is presented" [documented: `sl_core_types.h:397-405`].
+pub const LIFECYCLE_VALID_UNTIL_PRESENT: u32 = 1;
 
 /// `sl::BufferType` values (`uint32_t`) [documented: `sl_core_types.h:66, 68, 72, 74`].
 pub const BUFFER_DEPTH: u32 = 0;
 pub const BUFFER_MOTION_VECTORS: u32 = 1;
 pub const BUFFER_SCALING_INPUT_COLOR: u32 = 3;
 pub const BUFFER_SCALING_OUTPUT_COLOR: u32 = 4;
+/// `kBufferTypeHUDLessColor` [documented: `sl_core_types.h:70`].
+pub const BUFFER_HUDLESS_COLOR: u32 = 2;
+/// `kBufferTypeUIColorAndAlpha`: "UI/HUD color and alpha", alpha with enough precision
+/// [documented: `sl_core_types.h:111-113`]; only nulled here (the UI buffer is UI alpha).
+pub const BUFFER_UI_COLOR_AND_ALPHA: u32 = 23;
+/// `kBufferTypeUIAlpha`: "similar to kBufferTypeUIColorAndAlpha, but only the alpha channel"
+/// [documented: `sl_core_types.h:207-208`].
+pub const BUFFER_UI_ALPHA: u32 = 69;
 
 /// `sl::Extent`: top **before** left [documented: `sl_consts.h:143-169`]; all zero = the whole
 /// resource (`sl_core_types.h:425`).
@@ -724,6 +747,190 @@ impl Default for DlssOptimalSettings {
     }
 }
 
+// DLSS Frame Generation (`include/sl_dlss_g.h` at the tag; the spike's copy is
+// `fork-notes/dlss-streamline/sources/fg/sl_dlss_g.h`), and the error callback's types from
+// `sl_core_types.h`.
+
+/// `sl::DLSSGMode::eOff`, an `enum class : uint32_t` [documented: `sl_dlss_g.h:34-41`].
+pub const DLSSG_MODE_OFF: u32 = 0;
+/// `sl::DLSSGMode::eOn` [documented: `sl_dlss_g.h:34-41`].
+pub const DLSSG_MODE_ON: u32 = 1;
+
+/// `sl::DLSSGFlags::eRetainResourcesWhenOff`, a `uint32_t` bit [documented: `sl_dlss_g.h:43-53`].
+pub const DLSSG_FLAG_RETAIN_RESOURCES_WHEN_OFF: u32 = 1 << 3;
+
+/// `sl::DLSSGStatus` bits (`enum class : uint32_t`, `eOk = 0`) with their header names
+/// [documented: `sl_dlss_g.h:125-143`].
+pub const DLSSG_STATUS_NAMES: [(u32, &str); 6] = [
+    (1 << 0, "eFailResolutionTooLow"),
+    (1 << 1, "eFailReflexNotDetectedAtRuntime"),
+    (1 << 2, "eFailHDRFormatNotSupported"),
+    (1 << 3, "eFailCommonConstantsInvalid"),
+    (1 << 4, "eFailGetCurrentBackBufferIndexNotCalled"),
+    (1 << 5, "eReserved5"),
+];
+
+/// A `DLSSGStatus` for the log: `eOk`, or the set bits' names joined, an unknown bit as hex.
+pub fn dlssg_status_name(status: u32) -> String {
+    if status == 0 {
+        return "eOk".to_string();
+    }
+    let mut names: Vec<String> = DLSSG_STATUS_NAMES.iter().filter(|(bit, _)| status & bit != 0).map(|(_, name)| (*name).to_string()).collect();
+    let known = DLSSG_STATUS_NAMES.iter().fold(0, |all, (bit, _)| all | bit);
+    if status & !known != 0 {
+        names.push(format!("unknown bits {:#x}", status & !known));
+    }
+    names.join(" | ")
+}
+
+/// An `sl::Boolean` for the log [documented: `sl_consts.h:172-177`].
+pub fn boolean_name(value: u8) -> String {
+    match value {
+        BOOL_FALSE => "eFalse".to_string(),
+        BOOL_TRUE => "eTrue".to_string(),
+        BOOL_INVALID => "eInvalid".to_string(),
+        other => format!("unknown Boolean {other}"),
+    }
+}
+
+/// `sl::APIError`: a union of `HRESULT` (`long`, 32 bits on Windows) and `SL_VKResult`
+/// (`VkResult`, or `int` without Vulkan's headers) [documented: `sl_core_types.h:42-46,
+/// 508-515`]. On Vulkan the `VkResult` is the member to read.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub union ApiError {
+    pub hres: i32,
+    pub vk_res: i32,
+}
+
+/// `PFunOnAPIErrorCallback`: `void(const APIError& lastError)`, called "immediately upon return
+/// from the API call but ONLY if return code != 0" on DLSS-G's presenting thread, which it must
+/// not stall [documented: `sl_core_types.h:516-517`; `ProgrammingGuideDLSS_G.md` §6.7].
+pub type OnApiErrorCallback = unsafe extern "C" fn(*const ApiError);
+
+/// `sl::DLSSGOptions`, version 5, GUID {FAC5F1CB-2DFD-4F36-A1E6-3A9E865256C5} [documented:
+/// `sl_dlss_g.h:72-122`]. The formats are native format values (`VkFormat`), `Boolean` is a
+/// `char`.
+#[repr(C)]
+#[derive(Debug)]
+pub struct DlssgOptions {
+    pub base: BaseStructure,
+    pub mode: u32,
+    pub num_frames_to_generate: u32,
+    pub flags: u32,
+    pub dynamic_res_width: u32,
+    pub dynamic_res_height: u32,
+    pub num_back_buffers: u32,
+    pub mvec_depth_width: u32,
+    pub mvec_depth_height: u32,
+    pub color_width: u32,
+    pub color_height: u32,
+    pub color_buffer_format: u32,
+    pub mvec_buffer_format: u32,
+    pub depth_buffer_format: u32,
+    pub hud_less_buffer_format: u32,
+    pub ui_buffer_format: u32,
+    /// `PFunOnAPIErrorCallback*`.
+    pub on_error_callback: Option<OnApiErrorCallback>,
+    /// Version 2.
+    pub b_reserved15: u8,
+    /// Version 3: `DLSSGQueueParallelismMode` (`uint32_t`, `:55-66`).
+    pub queue_parallelism_mode: u32,
+    /// Version 4.
+    pub enable_user_interface_recomposition: u8,
+    /// Version 5.
+    pub dynamic_target_frame_rate: f32,
+}
+
+impl DlssgOptions {
+    const GUID: StructType = StructType { data1: 0xfac5_f1cb, data2: 0x2dfd, data3: 0x4f36, data4: [0xa1, 0xe6, 0x3a, 0x9e, 0x86, 0x52, 0x56, 0xc5] };
+
+    /// The member initialisers (`sl_dlss_g.h:73-120`): mode off, one frame to generate, every
+    /// other number zero, no callback, `bReserved15` `eInvalid`, the default queue mode
+    /// (`eBlockPresentingClientQueue`), recomposition `eFalse`, target rate 0.
+    pub fn new() -> Self {
+        Self {
+            base: BaseStructure::new(Self::GUID, 5),
+            mode: DLSSG_MODE_OFF,
+            num_frames_to_generate: 1,
+            flags: 0,
+            dynamic_res_width: 0,
+            dynamic_res_height: 0,
+            num_back_buffers: 0,
+            mvec_depth_width: 0,
+            mvec_depth_height: 0,
+            color_width: 0,
+            color_height: 0,
+            color_buffer_format: 0,
+            mvec_buffer_format: 0,
+            depth_buffer_format: 0,
+            hud_less_buffer_format: 0,
+            ui_buffer_format: 0,
+            on_error_callback: None,
+            b_reserved15: BOOL_INVALID,
+            queue_parallelism_mode: 0,
+            enable_user_interface_recomposition: BOOL_FALSE,
+            dynamic_target_frame_rate: 0.0,
+        }
+    }
+}
+
+impl Default for DlssgOptions {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// `sl::DLSSGState`, version 4, GUID {CC8AC8E1-A179-44F5-97FA-E74112F9BC61} [documented:
+/// `sl_dlss_g.h:149-183`].
+#[repr(C)]
+#[derive(Debug)]
+pub struct DlssgState {
+    pub base: BaseStructure,
+    pub estimated_vram_usage_in_bytes: u64,
+    /// `DLSSGStatus` bits ([`dlssg_status_name`]).
+    pub status: u32,
+    pub min_width_or_height: u32,
+    /// "Number of frames presented since the last 'slDLSSGGetState' call" (`:156-157`).
+    pub num_frames_actually_presented: u32,
+    /// Version 2.
+    pub num_frames_to_generate_max: u32,
+    pub b_reserved4: u8,
+    pub b_is_vsync_support_available: u8,
+    /// `void*`.
+    pub inputs_processing_completion_fence: *mut c_void,
+    pub last_present_inputs_processing_completion_fence_value: u64,
+    /// Version 4.
+    pub b_is_dynamic_mfg_supported: u8,
+}
+
+impl DlssgState {
+    const GUID: StructType = StructType { data1: 0xcc8a_c8e1, data2: 0xa179, data3: 0x44f5, data4: [0x97, 0xfa, 0xe7, 0x41, 0x12, 0xf9, 0xbc, 0x61] };
+
+    /// The member initialisers: every member `{}`, so zero, null and `eFalse` (`:150-181`).
+    pub fn new() -> Self {
+        Self {
+            base: BaseStructure::new(Self::GUID, 4),
+            estimated_vram_usage_in_bytes: 0,
+            status: 0,
+            min_width_or_height: 0,
+            num_frames_actually_presented: 0,
+            num_frames_to_generate_max: 0,
+            b_reserved4: BOOL_FALSE,
+            b_is_vsync_support_available: BOOL_FALSE,
+            inputs_processing_completion_fence: std::ptr::null_mut(),
+            last_present_inputs_processing_completion_fence_value: 0,
+            b_is_dynamic_mfg_supported: BOOL_FALSE,
+        }
+    }
+}
+
+impl Default for DlssgState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 // The interposer's exports [documented: `sl_core_api.h:50-65` (types), `:83-209`
 // (declarations); `src/exports.def:254-273`]. `SL_API` is `extern "C"` with no calling
 // convention named (`sl_core_api.h:36-44`): on x86-64 Windows there is one. C++ references are
@@ -738,6 +945,11 @@ pub type SlShutdown = unsafe extern "C" fn() -> SlResult;
 pub type SlIsFeatureSupported = unsafe extern "C" fn(u32, *const AdapterInfo) -> SlResult;
 /// `slIsFeatureLoaded(Feature, bool& loaded)`.
 pub type SlIsFeatureLoaded = unsafe extern "C" fn(u32, *mut u8) -> SlResult;
+/// `slSetFeatureLoaded(Feature, bool loaded)` (`sl_core_api.h:54, 134`): the `bool` by value,
+/// one byte as C++'s `bool` is with MSVC [hypothesis: the standard MSVC x64 ABI, as for the
+/// references above]. "NOT thread safe and requires DX/VK device to be created"; no Vulkan call
+/// may run in parallel (`:120-134`; `ProgrammingGuide.md` §2.14).
+pub type SlSetFeatureLoaded = unsafe extern "C" fn(u32, bool) -> SlResult;
 /// `slGetFeatureVersion(Feature, FeatureVersion&)`.
 pub type SlGetFeatureVersion = unsafe extern "C" fn(u32, *mut FeatureVersion) -> SlResult;
 /// `slGetNewFrameToken(FrameToken*& token, const uint32_t* frameIndex)` (`sl_core_api.h:70,
@@ -765,6 +977,197 @@ pub type SlGetFeatureRequirements = unsafe extern "C" fn(u32, *mut FeatureRequir
 pub type SlDlssGetOptimalSettings = unsafe extern "C" fn(*const DlssOptions, *mut DlssOptimalSettings) -> SlResult;
 /// `slDLSSSetOptions(const ViewportHandle&, const DLSSOptions&)`.
 pub type SlDlssSetOptions = unsafe extern "C" fn(*const ViewportHandle, *const DlssOptions) -> SlResult;
+
+// DLSS Frame Generation's two functions, fetched the same way under `kFeatureDLSS_G`
+// [documented: `sl_dlss_g.h:197, 208` (types), `:212-222` (the helpers'
+// `SL_FEATURE_FUN_IMPORT_STATIC(sl::kFeatureDLSS_G, ...)`)]. Both "NOT thread safe".
+
+/// `slDLSSGGetState(const ViewportHandle&, DLSSGState&, const DLSSGOptions*)`; the options may
+/// be null (no VRAM estimate).
+pub type SlDlssgGetState = unsafe extern "C" fn(*const ViewportHandle, *mut DlssgState, *const DlssgOptions) -> SlResult;
+/// `slDLSSGSetOptions(const ViewportHandle&, const DLSSGOptions&)`.
+pub type SlDlssgSetOptions = unsafe extern "C" fn(*const ViewportHandle, *const DlssgOptions) -> SlResult;
+
+/// `slSetTagForFrame(const FrameToken&, const ViewportHandle&, const ResourceTag*, uint32_t,
+/// CommandBuffer*)`, an interposer export (`sl_core_api.h:63, 152`; `src/exports.def:264`); the
+/// command buffer "can be null if ALL tags are null or have eValidUntilPresent life-cycle"
+/// (`:145`). Needs `eUseFrameBasedResourceTagging` (`src/sl.cpp` `slSetTagForFrame`).
+pub type SlSetTagForFrame = unsafe extern "C" fn(*const FrameToken, *const ViewportHandle, *const ResourceTag, u32, *mut c_void) -> SlResult;
+
+// Reflex and PCL (`include/sl_reflex.h`, `include/sl_pcl.h` at the tag; the spike's copies are
+// `fork-notes/dlss-streamline/sources/fg/`), fetched with `slGetFeatureFunction` under
+// `kFeatureReflex` and `kFeaturePCL` as their helpers do (`SL_FEATURE_FUN_IMPORT_STATIC`).
+
+/// `sl::ReflexMode`, a plain C `enum` (`int`): `eOff`, `eLowLatency` [documented:
+/// `sl_reflex.h` `enum ReflexMode`].
+pub const REFLEX_MODE_OFF: i32 = 0;
+pub const REFLEX_MODE_LOW_LATENCY: i32 = 1;
+
+/// `sl::ReflexOptions`, version 1, GUID {F03AF81A-6D0B-4902-A651-C4965E215434} [documented:
+/// `sl_reflex.h` `SL_STRUCT_BEGIN(ReflexOptions, ...)`].
+#[repr(C)]
+#[derive(Debug)]
+pub struct ReflexOptions {
+    pub base: BaseStructure,
+    /// `ReflexMode`.
+    pub mode: i32,
+    /// 0: no frame limit; microseconds otherwise.
+    pub frame_limit_us: u32,
+    /// C++ `bool`.
+    pub use_markers_to_optimize: bool,
+    pub virtual_key: u16,
+    pub id_thread: u32,
+}
+
+impl ReflexOptions {
+    const GUID: StructType = StructType { data1: 0xf03a_f81a, data2: 0x6d0b, data3: 0x4902, data4: [0xa6, 0x51, 0xc4, 0x96, 0x5e, 0x21, 0x54, 0x34] };
+
+    /// The member initialisers: mode `eOff`, no frame limit, markers not used to optimise, no
+    /// hot-key, no thread id.
+    pub fn new() -> Self {
+        Self { base: BaseStructure::new(Self::GUID, 1), mode: 0, frame_limit_us: 0, use_markers_to_optimize: false, virtual_key: 0, id_thread: 0 }
+    }
+}
+
+impl Default for ReflexOptions {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// `sl::PCLMarker` values (`enum class : uint32_t`) [documented: `sl_pcl.h` `enum class
+/// PCLMarker`]: `eInputSample = 6` is deprecated and has none.
+pub const PCL_SIMULATION_START: u32 = 0;
+pub const PCL_SIMULATION_END: u32 = 1;
+pub const PCL_RENDER_SUBMIT_START: u32 = 2;
+pub const PCL_RENDER_SUBMIT_END: u32 = 3;
+pub const PCL_PRESENT_START: u32 = 4;
+pub const PCL_PRESENT_END: u32 = 5;
+pub const PCL_OUT_OF_BAND_PRESENT_START: u32 = 11;
+pub const PCL_OUT_OF_BAND_PRESENT_END: u32 = 12;
+
+/// `sl::kReflexFrameReportCount` [documented: `sl_reflex.h`].
+pub const REFLEX_FRAME_REPORT_COUNT: usize = 64;
+
+/// `sl::ReflexReport`, version 1, GUID {0D569B37-A1C8-4453-BE4D-40F4DE57952B} [documented:
+/// `sl_reflex.h` `SL_STRUCT_BEGIN(ReflexReport, ...)`]. On Vulkan the times are the driver's
+/// microseconds and `frameID` its present id [documented: `vknvll2.cpp:274-288`].
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct ReflexReport {
+    pub base_next: *mut BaseStructure,
+    pub base_type: StructType,
+    pub base_version: usize,
+    pub frame_id: u64,
+    pub input_sample_time: u64,
+    pub sim_start_time: u64,
+    pub sim_end_time: u64,
+    pub render_submit_start_time: u64,
+    pub render_submit_end_time: u64,
+    pub present_start_time: u64,
+    pub present_end_time: u64,
+    pub driver_start_time: u64,
+    pub driver_end_time: u64,
+    pub os_render_queue_start_time: u64,
+    pub os_render_queue_end_time: u64,
+    pub gpu_render_start_time: u64,
+    pub gpu_render_end_time: u64,
+    pub gpu_active_render_time_us: u32,
+    pub gpu_frame_time_us: u32,
+}
+
+impl ReflexReport {
+    const GUID: StructType = StructType { data1: 0x0d56_9b37, data2: 0xa1c8, data3: 0x4453, data4: [0xbe, 0x4d, 0x40, 0xf4, 0xde, 0x57, 0x95, 0x2b] };
+
+    /// The constructor: every member `{}`. (The header is a `BaseStructure` like the others; its
+    /// fields are spelt out because the type is `Copy` for the array.)
+    pub fn new() -> Self {
+        Self {
+            base_next: std::ptr::null_mut(),
+            base_type: Self::GUID,
+            base_version: 1,
+            frame_id: 0,
+            input_sample_time: 0,
+            sim_start_time: 0,
+            sim_end_time: 0,
+            render_submit_start_time: 0,
+            render_submit_end_time: 0,
+            present_start_time: 0,
+            present_end_time: 0,
+            driver_start_time: 0,
+            driver_end_time: 0,
+            os_render_queue_start_time: 0,
+            os_render_queue_end_time: 0,
+            gpu_render_start_time: 0,
+            gpu_render_end_time: 0,
+            gpu_active_render_time_us: 0,
+            gpu_frame_time_us: 0,
+        }
+    }
+}
+
+/// `sl::ReflexReport2`, version 1, GUID {68BB0632-5E1C-402B-899D-B49F633C56C2} [documented:
+/// `sl_reflex.h` `SL_STRUCT_BEGIN(ReflexReport2, ...)`].
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct ReflexReport2 {
+    pub base_next: *mut BaseStructure,
+    pub base_type: StructType,
+    pub base_version: usize,
+    pub camera_constructed_time: u64,
+    pub cross_adapter_copy_time_us: u32,
+}
+
+impl ReflexReport2 {
+    const GUID: StructType = StructType { data1: 0x68bb_0632, data2: 0x5e1c, data3: 0x402b, data4: [0x89, 0x9d, 0xb4, 0x9f, 0x63, 0x3c, 0x56, 0xc2] };
+
+    pub fn new() -> Self {
+        Self { base_next: std::ptr::null_mut(), base_type: Self::GUID, base_version: 1, camera_constructed_time: 0, cross_adapter_copy_time_us: 0 }
+    }
+}
+
+/// `sl::ReflexState`, version 2, GUID {F0BB5985-DAF9-4728-B2FD-AE80A2BD7989} [documented:
+/// `sl_reflex.h` `SL_STRUCT_BEGIN(ReflexState, ...)`]; 12848 bytes, so built on the heap.
+#[repr(C)]
+#[derive(Debug)]
+pub struct ReflexState {
+    pub base: BaseStructure,
+    pub low_latency_available: bool,
+    pub latency_report_available: bool,
+    /// No initialiser in C++; zero here.
+    pub stats_window_message: u32,
+    pub frame_report: [ReflexReport; REFLEX_FRAME_REPORT_COUNT],
+    pub flash_indicator_driver_controlled: bool,
+    /// Version 2.
+    pub frame_report2: [ReflexReport2; REFLEX_FRAME_REPORT_COUNT],
+}
+
+impl ReflexState {
+    const GUID: StructType = StructType { data1: 0xf0bb_5985, data2: 0xdaf9, data3: 0x4728, data4: [0xb2, 0xfd, 0xae, 0x80, 0xa2, 0xbd, 0x79, 0x89] };
+
+    /// The constructor: both availability flags false, every report constructed.
+    pub fn boxed() -> Box<Self> {
+        Box::new(Self {
+            base: BaseStructure::new(Self::GUID, 2),
+            low_latency_available: false,
+            latency_report_available: false,
+            stats_window_message: 0,
+            frame_report: [ReflexReport::new(); REFLEX_FRAME_REPORT_COUNT],
+            flash_indicator_driver_controlled: false,
+            frame_report2: [ReflexReport2::new(); REFLEX_FRAME_REPORT_COUNT],
+        })
+    }
+}
+
+/// `slReflexGetState(ReflexState&)`: "NOT thread safe" (`sl_reflex.h` `PFun_slReflexGetState`).
+pub type SlReflexGetState = unsafe extern "C" fn(*mut ReflexState) -> SlResult;
+
+/// `slReflexSleep(const FrameToken&)`: "thread safe" (`sl_reflex.h` `PFun_slReflexSleep`).
+pub type SlReflexSleep = unsafe extern "C" fn(*const FrameToken) -> SlResult;
+/// `slReflexSetOptions(const ReflexOptions&)`: "NOT thread safe" (`PFun_slReflexSetOptions`).
+pub type SlReflexSetOptions = unsafe extern "C" fn(*const ReflexOptions) -> SlResult;
+/// `slPCLSetMarker(PCLMarker, const FrameToken&)`: "thread safe" (`sl_pcl.h` `PFun_slPCLSetMarker`).
+pub type SlPclSetMarker = unsafe extern "C" fn(u32, *const FrameToken) -> SlResult;
 
 /// `s` as a NUL-terminated UTF-16 string for Windows.
 pub fn wide(s: &OsStr) -> Vec<u16> {
@@ -1080,6 +1483,170 @@ mod tests {
         assert_eq!((r.vk_num_device_extensions, r.vk_num_instance_extensions, r.vk_num_features12, r.vk_num_features13), (0, 0, 0, 0));
         assert!(r.required_tags.is_null() && r.vk_device_extensions.is_null() && r.vk_instance_extensions.is_null() && r.vk_features12.is_null() && r.vk_features13.is_null());
         assert_eq!(FEATURE_REQUIREMENT_VULKAN_SUPPORTED, 4, "eVulkanSupported = 1 << 2 (sl_core_types.h:630)");
+    }
+
+    /// Not from the probe table (it predates these structures): the Windows x64 layouts worked
+    /// out by hand from `sl_dlss_g.h:72-122` and `:149-183`, as for `FeatureRequirements`.
+    /// `DLSSGOptions`: `BaseStructure` (32 bytes), then fifteen `uint32_t`s/`enum class :
+    /// uint32_t`s at 32-88; the callback pointer 8-aligned at 96 after 4 bytes of padding;
+    /// `bReserved15` (`Boolean`, a `char`) at 104; `queueParallelismMode` 4-aligned at 108;
+    /// `enableUserInterfaceRecomposition` at 112; `dynamicTargetFrameRate` at 116; 120 bytes.
+    /// `DLSSGState`: the `uint64_t` at 32, four `uint32_t`s at 40-52, two `Boolean`s at 56 and
+    /// 57, the fence pointer 8-aligned at 64, its `uint64_t` value at 72, the last `Boolean` at
+    /// 80, rounded up to 88. No Streamline source pins these (the DLSS-G plugin is binary only,
+    /// fork-notes `fg-facts.md`), so a run is the check that they are right.
+    #[test]
+    fn frame_generation_layouts_from_the_header() {
+        assert_eq!((size_of::<DlssgOptions>(), align_of::<DlssgOptions>()), (120, 8));
+        check(
+            "DlssgOptions",
+            &[
+                (offset_of!(DlssgOptions, mode), 32),
+                (offset_of!(DlssgOptions, num_frames_to_generate), 36),
+                (offset_of!(DlssgOptions, flags), 40),
+                (offset_of!(DlssgOptions, dynamic_res_width), 44),
+                (offset_of!(DlssgOptions, dynamic_res_height), 48),
+                (offset_of!(DlssgOptions, num_back_buffers), 52),
+                (offset_of!(DlssgOptions, mvec_depth_width), 56),
+                (offset_of!(DlssgOptions, mvec_depth_height), 60),
+                (offset_of!(DlssgOptions, color_width), 64),
+                (offset_of!(DlssgOptions, color_height), 68),
+                (offset_of!(DlssgOptions, color_buffer_format), 72),
+                (offset_of!(DlssgOptions, mvec_buffer_format), 76),
+                (offset_of!(DlssgOptions, depth_buffer_format), 80),
+                (offset_of!(DlssgOptions, hud_less_buffer_format), 84),
+                (offset_of!(DlssgOptions, ui_buffer_format), 88),
+                (offset_of!(DlssgOptions, on_error_callback), 96),
+                (offset_of!(DlssgOptions, b_reserved15), 104),
+                (offset_of!(DlssgOptions, queue_parallelism_mode), 108),
+                (offset_of!(DlssgOptions, enable_user_interface_recomposition), 112),
+                (offset_of!(DlssgOptions, dynamic_target_frame_rate), 116),
+            ],
+        );
+        assert_eq!((size_of::<DlssgState>(), align_of::<DlssgState>()), (88, 8));
+        check(
+            "DlssgState",
+            &[
+                (offset_of!(DlssgState, estimated_vram_usage_in_bytes), 32),
+                (offset_of!(DlssgState, status), 40),
+                (offset_of!(DlssgState, min_width_or_height), 44),
+                (offset_of!(DlssgState, num_frames_actually_presented), 48),
+                (offset_of!(DlssgState, num_frames_to_generate_max), 52),
+                (offset_of!(DlssgState, b_reserved4), 56),
+                (offset_of!(DlssgState, b_is_vsync_support_available), 57),
+                (offset_of!(DlssgState, inputs_processing_completion_fence), 64),
+                (offset_of!(DlssgState, last_present_inputs_processing_completion_fence_value), 72),
+                (offset_of!(DlssgState, b_is_dynamic_mfg_supported), 80),
+            ],
+        );
+        // `APIError`: a union of two 4-byte integers (`sl_core_types.h:508-515`).
+        assert_eq!((size_of::<ApiError>(), align_of::<ApiError>()), (4, 4));
+        assert_eq!(size_of::<Option<OnApiErrorCallback>>(), 8, "a nullable function pointer, as `PFunOnAPIErrorCallback*`");
+    }
+
+    #[test]
+    fn frame_generation_constructors_match_the_header() {
+        // GUIDs and versions [documented: sl_dlss_g.h:72, 149].
+        let o = DlssgOptions::new();
+        assert_eq!(o.base.struct_type, StructType { data1: 0xfac5f1cb, data2: 0x2dfd, data3: 0x4f36, data4: [0xa1, 0xe6, 0x3a, 0x9e, 0x86, 0x52, 0x56, 0xc5] });
+        assert_eq!(o.base.struct_version, 5);
+        assert_eq!((o.mode, o.num_frames_to_generate, o.flags, o.num_back_buffers, o.queue_parallelism_mode), (0, 1, 0, 0, 0));
+        assert_eq!((o.b_reserved15, o.enable_user_interface_recomposition, o.dynamic_target_frame_rate), (BOOL_INVALID, BOOL_FALSE, 0.0));
+        assert!(o.on_error_callback.is_none());
+        let s = DlssgState::new();
+        assert_eq!(s.base.struct_type, StructType { data1: 0xcc8ac8e1, data2: 0xa179, data3: 0x44f5, data4: [0x97, 0xfa, 0xe7, 0x41, 0x12, 0xf9, 0xbc, 0x61] });
+        assert_eq!(s.base.struct_version, 4);
+        assert_eq!((s.status, s.num_frames_actually_presented, s.num_frames_to_generate_max, s.estimated_vram_usage_in_bytes), (0, 0, 0, 0));
+        assert!(s.inputs_processing_completion_fence.is_null());
+        // sl_dlss_g.h:36, 48, 125-139.
+        assert_eq!((DLSSG_MODE_OFF, DLSSG_FLAG_RETAIN_RESOURCES_WHEN_OFF), (0, 8));
+        assert_eq!(dlssg_status_name(0), "eOk");
+        assert_eq!(dlssg_status_name(0b1010), "eFailReflexNotDetectedAtRuntime | eFailCommonConstantsInvalid");
+        assert_eq!(dlssg_status_name((1 << 9) | 1), "eFailResolutionTooLow | unknown bits 0x200");
+        assert_eq!((boolean_name(0), boolean_name(1), boolean_name(2), boolean_name(7)), ("eFalse".to_string(), "eTrue".to_string(), "eInvalid".to_string(), "unknown Boolean 7".to_string()));
+        assert_eq!((size_of::<SlDlssgGetState>(), size_of::<SlDlssgSetOptions>()), (8, 8));
+    }
+
+    /// Not from the probe table: the Windows x64 layout of `ReflexOptions` by hand from
+    /// `sl_reflex.h`: `BaseStructure` (32), `mode` (an `int`) at 32, `frameLimitUs` at 36,
+    /// `useMarkersToOptimize` (a one-byte `bool`) at 40, `virtualKey` (`uint16_t`) 2-aligned at
+    /// 42, `idThread` at 44, 48 bytes.
+    #[test]
+    fn reflex_and_tagging_from_the_headers() {
+        assert_eq!((size_of::<ReflexOptions>(), align_of::<ReflexOptions>()), (48, 8));
+        check(
+            "ReflexOptions",
+            &[
+                (offset_of!(ReflexOptions, mode), 32),
+                (offset_of!(ReflexOptions, frame_limit_us), 36),
+                (offset_of!(ReflexOptions, use_markers_to_optimize), 40),
+                (offset_of!(ReflexOptions, virtual_key), 42),
+                (offset_of!(ReflexOptions, id_thread), 44),
+            ],
+        );
+        let r = ReflexOptions::new();
+        assert_eq!(r.base.struct_type, StructType { data1: 0xf03af81a, data2: 0x6d0b, data3: 0x4902, data4: [0xa6, 0x51, 0xc4, 0x96, 0x5e, 0x21, 0x54, 0x34] });
+        assert_eq!((r.base.struct_version, r.mode, r.frame_limit_us, r.use_markers_to_optimize, r.virtual_key, r.id_thread), (1, 0, 0, false, 0, 0));
+        assert_eq!((REFLEX_MODE_OFF, REFLEX_MODE_LOW_LATENCY), (0, 1));
+        // sl_pcl.h's PCLMarker.
+        assert_eq!(
+            [PCL_SIMULATION_START, PCL_SIMULATION_END, PCL_RENDER_SUBMIT_START, PCL_RENDER_SUBMIT_END, PCL_PRESENT_START, PCL_PRESENT_END, PCL_OUT_OF_BAND_PRESENT_START, PCL_OUT_OF_BAND_PRESENT_END],
+            [0, 1, 2, 3, 4, 5, 11, 12]
+        );
+        // sl_core_types.h:70, 397-405, 547-549; sl_dlss_g.h:34-41.
+        assert_eq!((BUFFER_HUDLESS_COLOR, LIFECYCLE_VALID_UNTIL_PRESENT, PREFERENCE_USE_FRAME_BASED_RESOURCE_TAGGING, DLSSG_MODE_ON), (2, 1, 0x80, 1));
+        assert_eq!((BUFFER_UI_COLOR_AND_ALPHA, BUFFER_UI_ALPHA), (23, 69), "sl_core_types.h:113, 208");
+        assert_eq!((size_of::<SlSetTagForFrame>(), size_of::<SlReflexSleep>(), size_of::<SlReflexSetOptions>(), size_of::<SlPclSetMarker>()), (8, 8, 8, 8));
+    }
+
+    /// Not from the probe table: by hand from `sl_reflex.h`. `ReflexReport`: header (32), fourteen
+    /// `uint64_t` at 32-144, two `uint32_t` at 144 and 148: 152 bytes. `ReflexReport2`: header,
+    /// a `uint64_t` at 32, a `uint32_t` at 40, rounded to 48. `ReflexState`: header, two `bool`s at
+    /// 32 and 33, `statsWindowMessage` at 36, 64 reports (8-aligned) at 40 to 9768, the `bool` at
+    /// 9768, 64 `ReflexReport2` at 9776 to 12848.
+    #[test]
+    fn reflex_state_layout_from_the_header() {
+        assert_eq!((size_of::<ReflexReport>(), align_of::<ReflexReport>()), (152, 8));
+        check(
+            "ReflexReport",
+            &[
+                (offset_of!(ReflexReport, base_type), 8),
+                (offset_of!(ReflexReport, base_version), 24),
+                (offset_of!(ReflexReport, frame_id), 32),
+                (offset_of!(ReflexReport, sim_start_time), 48),
+                (offset_of!(ReflexReport, present_end_time), 88),
+                (offset_of!(ReflexReport, gpu_render_start_time), 128),
+                (offset_of!(ReflexReport, gpu_render_end_time), 136),
+                (offset_of!(ReflexReport, gpu_active_render_time_us), 144),
+                (offset_of!(ReflexReport, gpu_frame_time_us), 148),
+            ],
+        );
+        assert_eq!((size_of::<ReflexReport2>(), offset_of!(ReflexReport2, camera_constructed_time), offset_of!(ReflexReport2, cross_adapter_copy_time_us)), (48, 32, 40));
+        assert_eq!((size_of::<ReflexState>(), align_of::<ReflexState>()), (12848, 8));
+        check(
+            "ReflexState",
+            &[
+                (offset_of!(ReflexState, low_latency_available), 32),
+                (offset_of!(ReflexState, latency_report_available), 33),
+                (offset_of!(ReflexState, stats_window_message), 36),
+                (offset_of!(ReflexState, frame_report), 40),
+                (offset_of!(ReflexState, flash_indicator_driver_controlled), 9768),
+                (offset_of!(ReflexState, frame_report2), 9776),
+            ],
+        );
+        let state = ReflexState::boxed();
+        assert_eq!((state.base.struct_type.data1, state.base.struct_version), (0xf0bb5985, 2));
+        assert_eq!((state.frame_report[63].base_type.data1, state.frame_report[63].base_version, state.frame_report2[0].base_type.data1), (0x0d569b37, 1, 0x68bb0632));
+        assert!(!state.low_latency_available && !state.latency_report_available);
+        assert_eq!(size_of::<SlReflexGetState>(), 8);
+    }
+
+    #[test]
+    fn frame_generation_constants_match_the_headers() {
+        // sl_core_types.h:233, 236, 244 (features); :630-634 (requirement flags).
+        assert_eq!((FEATURE_REFLEX, FEATURE_PCL, FEATURE_DLSS_G), (3, 4, 1000));
+        assert_eq!((FEATURE_REQUIREMENT_VULKAN_SUPPORTED, FEATURE_REQUIREMENT_VSYNC_OFF_REQUIRED, FEATURE_REQUIREMENT_HARDWARE_SCHEDULING_REQUIRED), (4, 8, 16));
+        assert_eq!(size_of::<SlSetFeatureLoaded>(), size_of::<usize>(), "a plain function pointer");
     }
 
     #[test]
