@@ -21,6 +21,14 @@ playthrough, is gathered in [outstanding.md](outstanding.md).
   original game can settle in [observer-checks](handoff/observer-checks.md), and every
   guess is still in its spec note.
 
+Qualified private CPU host: [explicitly cleared cloned form-list JIP
+wildcards](spec-notes/jip-cloned-list-wildcard.md). Exact f30 original/candidate
+production and identical six authored fixtures in validation context 54830c0 gave
+4 passes/2 assertion failures then 6 passes; fixture-target strict lint passed.
+This was not a canonical or pristine whole-f30 run. Automatic animation-event
+production, untouched copied-list membership, production lint, native/GPU parity
+and complete mod compatibility remain unqualified.
+
 Checks referred to below: the parity lab (`parity-lab/`, scenarios per layer `L1`–`L5`,
 compared with independent readers and in-game captures) and the smoke runner
 (`tools/smoke`, the scenarios in `tools/smoke/scenarios.toml`; `python tools/smoke verify`
