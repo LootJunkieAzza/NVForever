@@ -5635,6 +5635,21 @@ expect = [
 ]
 
 [[scenario]]
+name = "primm-barrel-no-streak"
+source = "docs/spec-notes/world.md §8 \"Highlights at grazing angles\" (#2266): Primm's fire barrel Barrel03Fire1024 by day from the casino's arcade side, crouched 6 m away, where Bevy's Fresnel drew an orange streak on the shaded sidewalk; lights.rs FRESNEL_EDIT keeps the highlight at F = F0 in world views (a Bevy upgrade that moves the patched line fails here); a frame in target/smoke (primm_barrel_no_streak.png)"
+areas = ["renderer", "lights"]
+paths = ["engine/nvforever/src/lights.rs", "engine/Cargo.toml"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_UNSEEN = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONTROL = "4:sneak", NVF_PLAY_TEST_SHOTS = "9:primm_barrel_no_streak.png" }
+args = ["--play", "--world", "WastelandNV", "--pos=-53782.6,-52327.9,5828", "--heading", "135", "--pitch=-3", "--hour", "13", "--size", "1280x720", "--no-voice", "--no-messages", "--weather", "NVWastelandClear", "--graphics-only", "no-eye-adaptation"]
+run_seconds = 12
+manual = "primm_barrel_no_streak.png: no orange glossy band on the shaded sidewalk between the camera and the barrel (#2266)"
+expect = [
+  { re = 'lights: highlights keep their head-on strength at grazing angles in world views', label = "the lights' highlight takes F = F0 in world views" },
+  { re = "the highlight's Fresnel line not found", count = 0, label = "the Fresnel patch found its Bevy line" },
+  { re = 'failed to process shader', count = 0, label = "the patched lighting shader builds" },
+]
+
+[[scenario]]
 name = "model-lights-lantern"
 source = "docs/spec-notes/model-lights.md §1-§2: the North sewers (OVNorthSewers01, 36 LamplightWarmBrighter lights) take their lantern model's Idle colour keys (lamplightwarm.nif, NiLightColorController); frames 0.3 s apart in target/smoke (model_lights_lantern_N.png)"
 areas = ["effects", "lights"]
