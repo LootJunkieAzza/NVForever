@@ -161,8 +161,8 @@ const DISPLAY_EDITS: [(&str, &str); 7] = [
     // the light bounced onto it from the surfaces around it (linear, after exposure).
     // Point and spot lights cast no shadows, so they take part of the occlusion too.
     var nvf_open = vec3(1.0);
-    // A sun that casts shadows lights the view (outdoors): the remaster leans the outdoor
-    // light from the ambient towards the sun, a harder desert light (nvf_sun_cloud).
+    // A sun that casts shadows lights the view (outdoors): the remaster lights it up to
+    // 1.15x as it climbs, a harder desert light (nvf_lean_at); the ambient stays.
     var nvf_lean = 0.0;
     var nvf_local_open = 1.0;
     var nvf_bounce = vec3(0.0);
@@ -230,10 +230,7 @@ const DISPLAY_EDITS: [(&str, &str); 7] = [
         indirect_light *= nvf_open;
     }
     if nvf_display {
-        var nvf_ambient = view_bindings::lights.ambient_color.rgb * view_bindings::view.exposure * diffuse_occlusion * nvf_open;
-        @if(SCREEN_INDIRECT) {
-            nvf_ambient *= 1.0 - 0.1 * nvf_lean;
-        }
+        let nvf_ambient = view_bindings::lights.ambient_color.rgb * view_bindings::view.exposure * diffuse_occlusion * nvf_open;
         let nvf_sum = max(nvf_weights.x * nvf_ambient + nvf_weights.y * nvf_direct, vec3(0.0));
         // Held to 1 per channel, as the original's lit colour is (lights.rs GAME_CLIP).
         direct_light += min(diffuse_color * pow(nvf_sum, vec3(2.2)), vec3(1.0)) / view_bindings::view.exposure;
