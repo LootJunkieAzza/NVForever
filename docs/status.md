@@ -139,3 +139,8 @@ counts them).
   combat style's attack chance).
 - Not reproduced from the playtest lists: shadow flicker after leaving an interior (debug
   lines kept); the Crimson Caravan crash (the next one leaves a report).
+
+### CompileScript sibling paths
+
+Implemented the focused behavior correction and authored synthetic regression coverage;
+contract and limits: [CompileScript sibling paths](spec-notes/compilescript-relative-paths.md). This entry does not establish full mod compatibility.
