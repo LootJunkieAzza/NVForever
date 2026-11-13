@@ -103,12 +103,14 @@ pub struct MainLoop {
 enum Slot {
     On,
     Arg(usize),
+    /// A required animation code: zero is a value, not an actor wildcard.
+    ExactArg(usize),
 }
 
 fn slots(event: &str) -> &'static [Slot] {
     match event {
         "hit" | "healthdamage" | "crippledlimb" | "fireweapon" | "projectileimpact" => &[Slot::On],
-        "animaction" | "playgroup" => &[Slot::On, Slot::Arg(0)],
+        "animaction" | "playgroup" => &[Slot::On, Slot::ExactArg(0)],
         "criticalhit" => &[Slot::On, Slot::Arg(0), Slot::Arg(1)],
         "queststage" => &[Slot::Arg(0), Slot::Arg(1)],
         "useaiditem" | "dialogtopic" | "keydown" | "keyup" | "controldown" | "controlup" | "triggerdown" | "triggerup" | "menuopen" | "menuclose" | "mouseoverchange" => &[Slot::Arg(0)],
@@ -203,12 +205,12 @@ impl Game<'_> {
 
     fn jip_matches(&self, h: &JipHandler, on: Option<FormId>, args: &[XVal]) -> bool {
         slots(&h.event).iter().zip(&h.filters).all(|(s, f)| {
-            if self.jip_wildcard(f) {
+            if !matches!(s, Slot::ExactArg(_)) && self.jip_wildcard(f) {
                 return true;
             }
             let v = match s {
                 Slot::On => on.map(|r| XVal::Ref(r.0)),
-                Slot::Arg(i) => args.get(*i).cloned(),
+                Slot::Arg(i) | Slot::ExactArg(i) => args.get(*i).cloned(),
             };
             v.is_some_and(|v| self.filter_matches(f, &v, false))
         })
