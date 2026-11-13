@@ -396,6 +396,9 @@ pub struct Tweaks {
     pub repair_kits_in_list: bool,
     /// `bRepairItemsPreview`: Alt held with R opens the repair list as a preview.
     pub repair_preview: bool,
+    /// `bCrippledLimbsPlayPainSoundWhenFalling` (`fHeightThreshold`): a fall of at least
+    /// this many units with a crippled leg says the player's pain line; 0 off.
+    pub crippled_fall_pain: f32,
     /// `bNoSkillBooksAbove100`: a skill book whose skill is already at 100 is not read.
     pub no_skill_books_at_max: bool,
     /// `bLessFrequentPlayerPainSounds` (`iMinPlayerPainSoundIntervalMS`): seconds the
@@ -835,6 +838,7 @@ impl Default for Tweaks {
             repair_low_first: false,
             repair_kits_in_list: false,
             repair_preview: false,
+            crippled_fall_pain: 0.0,
             no_skill_books_at_max: false,
             player_pain_gap: 0.0,
             pause_on_load: false,

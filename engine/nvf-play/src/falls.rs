@@ -274,6 +274,17 @@ fn hurt(
         let armored = tweaks.as_ref().map_or(1.0, |t| t.power_armor_fall_damage).ne(&1.0) && crate::tweaks::wears_power_armor(&sim.world, f.actor);
         let mult = if armored { mult * f64::from(tweaks.as_ref().map_or(1.0, |t| t.power_armor_fall_damage)) } else { mult };
         let dmg = rules.damage(f.height) * mult as f32;
+        // The player's tweak: a fall of at least the tweak's height on a crippled leg says
+        // the player's pain line, the damage's own chance aside [design: docs/design/tweaks.md].
+        if f.actor == FormId::PLAYER_REF {
+            if let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) {
+                let at = rt.game.tweaks.crippled_fall_pain;
+                if at > 0.0 && f.height >= at && crate::script::with_world(rt, &mut sim, |rt| crippled_leg(&mut rt.game)) {
+                    let said = crate::script::with_world(rt, &mut sim, |rt| rt.game.combat_line(FormId::PLAYER_REF, None, "Hit"));
+                    info!("falls: the player lands on a crippled leg from {:.0} units: pain line {} (tweak)", f.height, if said.is_some() { "said" } else { "none found" });
+                }
+            }
+        }
         if dmg <= 0.0 {
             debug!("falls: {} lands from {:.0} units, no damage (from {:.0})", f.actor, f.height, rules.min);
             continue;
@@ -334,6 +345,11 @@ fn hurt(
             info!("falls: {} {side} leg condition {condition:.1}{}", f.actor, if crippled { ", crippled" } else { "" });
         }
     }
+}
+
+/// Whether either of the player's legs is crippled.
+fn crippled_leg(g: &mut fnv_game::Game) -> bool {
+    [fnv_game::combat::LEFT_MOBILITY, fnv_game::combat::RIGHT_MOBILITY].into_iter().any(|c| g.is_crippled(FormId::PLAYER_REF, c))
 }
 
 #[cfg(test)]

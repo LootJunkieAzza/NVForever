@@ -616,6 +616,7 @@ unless the player binds them, so nothing changes until then.
 | Revive Unconscious Companions | `bReviveUnconsciousCompanions` | `fnv_game::unconscious` (`can_revive`, `revive`: the master's Stimpak used up, then the usual getting up; `essential_down` for the time); `activate::actor_action_in` gives `Action::Revive`, Activate calls `revive`. The switches: `Tweaks::revive_companions`, `revive_down_seconds` |
 | Clicking the Tab Sorts | `bClickingActiveTabTogglesSorting` | `pipboy::apply_input` steps `PipBoy::item_sort` on a click on the open tab; `pipboy::items::keys` hands it to the model (`Command::SetSort`); `menu::model::SortBy::apply` orders the player's list after the category filter. The switch: `TweakSettings::tab_click_sorts` |
 | Repair Items Preview | `bRepairItemsPreview` | `pipboy::repair::keys` opens a `Session` with `preview` when Alt is held (the full-condition and skill checks skipped), and refuses Use in it. The switch: `Tweaks::repair_preview` |
+| Crippled Legs: Pain When Falling | `bCrippledLimbsPlayPainSoundWhenFalling` | `falls::hurt` says the player's `Hit` combat line (`Game::combat_line`) when the fall's height reaches `Tweaks::crippled_fall_pain` and either leg is crippled (`falls::crippled_leg`) |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -637,8 +638,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 552 |
-| to do | 48 |
+| done | 553 |
+| to do | 47 |
 | unsure, skipped | 19 |
 | n/a | 16 |
 | skipped: fix | 10 |
@@ -667,6 +668,7 @@ game's Data folder, read-only).
 | `bCompanionsDontUseAmmo` | done |  |  | already so: NPCs carry no ammo and reload without spending any |
 | `bContactMines` | done |  | 2 | Contact Mines (Player) and (Others): a mine stood on, within 24 units of the body's axis, goes off with no fuse |
 | `bCrippledLegsScaleJumpHeight` | done |  | 2 | Jumping on a Crippled Leg (one part per crippled leg) |
+| `bCrippledLimbsPlayPainSoundWhenFalling` | done |  | 1 | Crippled Legs: Pain When Falling (its fHeightThreshold, 0 off): a fall of at least that height with a crippled leg says the player's Hit line, whatever the damage's own chance; the pain image modifier is not built (NVForever has none for pain) |
 | `bCripplingDoesntDisarm` | done |  |  | Crippling Never Disarms |
 | `bCritChanceIgnoresFireRate` | done |  |  | Automatic Criticals Not Cut by Fire Rate |
 | `bCustomArmorConditionPenalty` | done |  | 1 | Armour Condition Penalty (x0 to x2 on the penalty below half condition; the repair menus still show DT at x1) |
@@ -784,7 +786,6 @@ game's Data folder, read-only).
 | `bHiddenFragsFix` | to do | yes |  | NPCs' own unplayable explosives are hidden from the pickpocket list |
 | `bMoreFrequentNPCLightUpdates` | unsure, skipped | yes | 1 | NVForever lights actors its own way; unclear what to change |
 | `bCharacterRadiation` | to do |  | 1 | not built: only the player takes environment radiation |
-| `bCrippledLimbsPlayPainSoundWhenFalling` | to do |  | 1 | falls::hurt with a crippled leg; NVForever has no pain sound, only the landing ones |
 | `bHipFireAnimsWhileScoped` | unsure, skipped |  |  | depends on alternate animations |
 | `bHoldToActivate` | to do |  | 9 | a hold on E is taken by grab; needs a timer and per-kind choices |
 | `bNoLockEncounterZoneLevels` | unsure, skipped |  |  | encounter-zone level locking not yet checked in NVForever |
