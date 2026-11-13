@@ -201,6 +201,10 @@ the spec it links to.
     loads the equipped square, for everyone (observer check 111); the Tweaks tab's
     Containers Show Equipped Ammo shows it in containers too. Terminals also fade out as
     they close now (the menu file's 0.25 s). (`menu/model.rs`, `terminal.rs`)
+57. **Critical-hit corner message (#1891).** A critical by the player now shows "Critical
+    hit on <name>" in the corner with the masters' critical icon (`sCriticalStrikeIcon`),
+    for everyone; the words are ours (the original's are not in the data). The Tweaks
+    tab's Critical Hit Messages Name the Limb adds the part. (`combat.rs`)
 
 ## Tier 3: rules where we chose to differ, or that the original has no answer for
 

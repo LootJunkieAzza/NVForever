@@ -3909,6 +3909,22 @@ fn hit_actor(
             info!("combat: critical effect {spell_name} ({spell}) on {name} {target}{}: {} effect(s)", if on_death { " (on death)" } else { "" }, ids.len());
         }
     }
+    // A critical by the player says so in the corner with the masters' critical icon
+    // [observed: FalloutNV.esm `sCriticalStrikeIcon`, the Critical Chance picture; design:
+    // the words are ours, the original's are not in the data]; the player's Critical Hit
+    // Messages Name the Limb tweak adds the part struck [design: docs/design/tweaks.md].
+    if mine && info.critical && !r.immune {
+        let limb = r.limb.map(|(code, _)| limb_name(code)).filter(|_| rt.game.tweaks.crit_message_limb);
+        let text = match limb {
+            Some(l) => format!("Critical hit on {name}'s {l}"),
+            None => format!("Critical hit on {name}"),
+        };
+        let icon = match sim.world.setting_value("sCriticalStrikeIcon") {
+            Some(fnv_sim::settings::Setting::Str(s)) if !s.is_empty() => Some(s.clone()),
+            _ => None,
+        };
+        rt.game.emit(fnv_game::trace::EventKind::NoteShown { text, icon, seconds: CRIT_NOTE_SECONDS });
+    }
     if mine {
         stats.damage += r.dealt as f32;
     } else if info.attacker.is_some() && !r.immune {
@@ -3961,6 +3977,9 @@ fn hit_actor(
 }
 
 /// A limb's name by its condition code (25–31).
+/// How long the critical-hit corner message shows, seconds [design].
+const CRIT_NOTE_SECONDS: f32 = 2.0;
+
 fn limb_name(code: u16) -> &'static str {
     code.checked_sub(25).and_then(|i| LIMB_NAMES.get(i as usize)).copied().unwrap_or("limb")
 }

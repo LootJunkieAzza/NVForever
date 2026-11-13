@@ -437,6 +437,8 @@ pub struct Tweaks {
     pub vats_throw_visibility: bool,
     /// `bRemoveFollowerTopics`: companions do not say they are hurt, crippled or out of ammo.
     pub quiet_followers: bool,
+    /// `bCriticalHitMessagesIncludeLimbName`: the critical-hit message names the part struck.
+    pub crit_message_limb: bool,
     /// `bRobotCompanionsHealWithScrapMetal` (`fBase`, `fRepairMult`,
     /// `fRoboticsExpertBonus`): the companion wheel heals a robot with Scrap Metal, this
     /// much health each, plus this much per 10 points of Repair and this with Robotics Expert.
@@ -906,6 +908,7 @@ impl Default for Tweaks {
             quick_use: false,
             vats_throw_visibility: false,
             quiet_followers: false,
+            crit_message_limb: false,
             robots_heal_with_scrap: false,
             robot_heal_base: 20.0,
             robot_heal_per_repair: 5.0,
