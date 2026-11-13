@@ -15,11 +15,13 @@
 //!   Human-style actors (ACHR) keep the numbers above whatever their hit volume
 //!   says: a hat or a seat changes that, and not their framing.
 //! - **Framing.** The opening turn (`crate::dialogue_look`) aims [`face_drop`] under the
-//!   face, so the face lands at [`FACE_FROM_TOP`]. Follow lasts throughout dialogue by
-//!   default; with `dialogue-lock` off it ends when the player looks away [design,
-//!   #2254; `crate::dialogue_look::Ease::follow`].
-//! - **Looking around with the lock off** is scaled with the zoom
-//!   ([`DialogueZoom::look_scale`]) [design, #2254].
+//!   face, so the face lands at [`FACE_FROM_TOP`], and the zoom locks the view: it follows
+//!   the face for the whole conversation and the mouse moves only the cursor [owner
+//!   decision 2026-11-13, #2254: "want it split so free look camera does not zoom and when
+//!   zoom lock the camera"; `crate::dialogue_look::view_locked`, `Ease::follow`].
+//! - **Looking around as the zoom eases out** is scaled with the zoom
+//!   ([`DialogueZoom::look_scale`]), so the mouse moves the picture as far as it does
+//!   unzoomed.
 //! - **Who owns the field of view** (as `chargen/vigor.rs`'s `fov_before`). [`DialogueZoom`]
 //!   keeps what was on the camera underneath its own value and gives it back. A value on
 //!   the camera that is not the one it last wrote is someone else's (the settings slider,

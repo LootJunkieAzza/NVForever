@@ -23,15 +23,6 @@ the spec it links to.
 
 ## Tier 1: felt in every fight or every session
 
-- **Zoomed dialogue follows and locks by default (#2254).** [design, #2254] This changes
-  the 2026-10-10 free-look decision for zoomed conversations only: that decision predates
-  the zoom (2026-11-06), players report drift, and players report that the vanilla camera
-  stays on the speaker [hypothesis: player reports, not captured]. `dialogue-lock=0`
-  restores free look, following until the player looks away. Follow smoothing uses a
-  0.08 s time constant (`FACE_FOLLOW_SECONDS`); dialogue capture ignores the transition
-  and next input frame (`DIALOGUE_CURSOR_SETTLE_FRAMES`). Both are tunable design choices.
-  ([dialogue-play §8](design/dialogue-play.md#8-facing-each-other-step-d7-2026-10-10))
-
 1. **Crippled torso staggers on every hit.** An NPC with a crippled torso staggers on
    any hit (3 s cooldown), which goes further than your "crippling hit and later hits
    to that part" rule. The player flinches the same way: the view jumps up to 4°, the

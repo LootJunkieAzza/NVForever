@@ -11,16 +11,19 @@
 //!
 //! - **Opening.** When a conversation starts the view eases onto the actor's face over
 //!   [`OPEN_SECONDS`] ([`smooth`], no snap).
-//! - **Zoomed lock** [design, #2254]: by default the cursor stays free and the view
-//!   follows the face for the whole conversation. With the lock off, zoomed follow
-//!   lasts until the player moves the view. Without zoom the opening-only free look
-//!   remains [design: `Ease::step`, owner decision 2026-10-10].
-//! - **Choices in free-look modes.** After takeover the view does not come back by itself
-//!   [design: `face_speaker`; owner decision 2026-10-10: "never
-//!   come back i just want the initial look at npc to happen then allow the player to
-//!   free look the rest of the time"]. With [`LookSettings::recentre_on_choices`] on
-//!   (`nvforever --dialogue-recentre`) the view eases back onto the face over
-//!   [`RECENTRE_SECONDS`] each time the choices appear.
+//! - **Zoom locks, free look does not zoom** [owner decision 2026-11-13, #2254: "want it
+//!   split so free look camera does not zoom and when zoom lock the camera"]: while the
+//!   conversation is zoomed ([`view_locked`]) the view follows the face for the whole
+//!   conversation and the mouse moves only the cursor ([`Ease::follow`]). Without the
+//!   zoom only the opening turn happens and the mouse looks around as before; an ease
+//!   never fights it [owner decision 2026-10-10, `crate::dialogue::FreeLook`;
+//!   `Ease::step`].
+//! - **Choices without the zoom.** The view does not come back by itself: after the
+//!   opening turn it is the player's own for the rest of the conversation [owner decision
+//!   2026-10-10: "never come back i just want the initial look at npc to happen then
+//!   allow the player to free look the rest of the time"]. With
+//!   [`LookSettings::recentre_on_choices`] on (`nvforever --dialogue-recentre`) the view
+//!   eases back onto the face over [`RECENTRE_SECONDS`] each time the choices appear.
 //! - **No roll.** Only the view's heading and pitch change here (`Player::heading`,
 //!   `Player::pitch`). The zoom is `crate::dialogue_zoom`'s (the field of view and, from
 //!   third person, the camera's place, dialogue-play.md §8.8); with it the turn aims a
@@ -55,8 +58,8 @@ pub const RECENTRE_SECONDS: f32 = 0.35;
 /// Choices recenter only when the view is at least this far off the face, radians
 /// [design: face_speaker].
 pub const ON_TARGET: f32 = 0.5 * PI / 180.0;
-/// Moving-face follow time constant, seconds; filters frame-to-frame head motion after
-/// the opening ease [design, #2254].
+/// Moving-face follow time constant while zoomed, seconds; filters frame-to-frame head
+/// motion after the opening ease [design, #2254].
 pub const FACE_FOLLOW_SECONDS: f32 = 0.08;
 /// Log final framing error when a conversation lasted at least this long [design, #2254].
 pub const FRAMING_LOG_SECONDS: f32 = 6.0;
@@ -75,26 +78,25 @@ pub const FACE_ABOVE_REFERENCE: f32 = 112.0;
 /// Whether the two turn to each other in a conversation (`nvforever --no-dialogue-look`
 /// switches it off), and whether the view comes back onto the actor when the choices
 /// appear (off unless `--dialogue-recentre`; owner decision 2026-10-10).
-/// Zoomed conversations also have a default-on lock [design, #2254].
 #[derive(Resource, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct LookSettings {
     pub enabled: bool,
     pub recentre_on_choices: bool,
-    /// Default-on zoomed view lock [design, #2254].
-    pub lock_on_speaker: bool,
 }
 
 impl Default for LookSettings {
     fn default() -> Self {
-        LookSettings { enabled: true, recentre_on_choices: false, lock_on_speaker: true }
+        LookSettings { enabled: true, recentre_on_choices: false }
     }
 }
 
-impl LookSettings {
-    /// The lock applies only when the conversation actually zooms [design, #2254].
-    pub fn locked(&self, zoomed: bool) -> bool {
-        self.enabled && self.lock_on_speaker && zoomed
-    }
+/// Whether the conversation's view is locked: whenever it is zoomed. The mouse and the
+/// right stick then move only the cursor, and the view follows the speaker's face (with
+/// the turning on) [owner decision 2026-11-13, #2254: "want it split so free look camera
+/// does not zoom and when zoom lock the camera"]. One rule for `crate::dialogue::sync_state`
+/// (the cursor), `crate::player::mouse_look`, the look test aid and [`face_speaker`].
+pub fn view_locked(zoom: &DialogueZoom) -> bool {
+    zoom.wanted()
 }
 
 /// Where the face of the conversation's actor is drawn this frame (the reference, a
@@ -165,22 +167,21 @@ impl Ease {
         Ease { from, t: 0.0, seconds, last: from, snaps: 0 }
     }
 
-    /// Keep following after the opening ease while zoomed, smoothing the moving face.
-    /// Only the locked mode may overwrite another writer's view [design, #2254].
-    pub fn follow(&mut self, now: (f32, f32), target: (f32, f32), dt: f32, instant: bool, zoomed: bool, locked: bool) -> Step {
-        if locked {
-            self.last = now;
+    /// Advance as [`Ease::step`]; while the view is locked ([`view_locked`]) it never ends:
+    /// after the turn it keeps on the moving face, smoothed over [`FACE_FOLLOW_SECONDS`],
+    /// and nothing else writes the view meanwhile, so it is never dropped [design, #2254].
+    pub fn follow(&mut self, now: (f32, f32), target: (f32, f32), dt: f32, instant: bool, locked: bool) -> Step {
+        if !locked {
+            return self.step(now, target, dt, instant);
         }
-        if zoomed && !instant && self.t >= self.seconds {
-            if apart(now, self.last) > 1e-4 {
-                return Step::Dropped;
-            }
+        self.last = now;
+        if !instant && self.t >= self.seconds {
             let weight = 1.0 - (-dt.max(0.0) / FACE_FOLLOW_SECONDS).exp();
             self.last = ((now.0 + wrap(target.0 - now.0) * weight).rem_euclid(TAU), (now.1 + (target.1 - now.1) * weight).clamp(-MAX_PITCH, MAX_PITCH));
             return Step::Turn(self.last);
         }
         match self.step(now, target, dt, instant) {
-            Step::Done(v) if zoomed => Step::Turn(v),
+            Step::Done(v) => Step::Turn(v),
             step => step,
         }
     }
@@ -195,7 +196,7 @@ impl Ease {
         }
         if instant {
             self.t = self.seconds;
-            // Zoomed follow keeps stepping after completion [design, #2254].
+            // The locked follow keeps stepping after completion [design, #2254].
             self.snaps = self.snaps.saturating_add(1);
             self.last = (target.0.rem_euclid(TAU), target.1.clamp(-MAX_PITCH, MAX_PITCH));
             return if self.snaps >= SNAP_FRAMES { Step::Done(self.last) } else { Step::Turn(self.last) };
@@ -260,14 +261,6 @@ pub struct ViewLook {
 }
 
 impl ViewLook {
-    /// Accepted look input gives up zoomed follow, even for sub-threshold angular
-    /// changes at a narrow field of view [design, #2254; player::mouse_look].
-    pub(crate) fn hand_to_player(&mut self) {
-        if self.talk.as_mut().is_some_and(|t| t.ease.take().is_some()) {
-            info!("dialogue look: the view was moved (the mouse, or a test aid): it is left where the player put it");
-        }
-    }
-
     /// Whether an ease is turning the view now.
     pub fn turning(&self) -> bool {
         self.talk.as_ref().is_some_and(|t| t.ease.is_some())
@@ -330,18 +323,6 @@ impl Plugin for DialogueLookPlugin {
                 note: "On: in a conversation the view narrows onto the speaker, with what is behind them out of focus; from third person the camera comes to the eyes. Off: the view stays as it is. (--no-dialogue-zoom)",
                 get: |w| w.resource::<ZoomSettings>().enabled,
                 set: |w, on| w.resource_mut::<ZoomSettings>().enabled = on,
-                slider: None,
-            },
-        );
-        add_setting(
-            app,
-            Setting {
-                key: "dialogue-lock",
-                group: crate::pause::GROUP_MENUS,
-                label: "Keep the view on the speaker",
-                note: "On: with dialogue zoom, follow the speaker throughout the conversation; the mouse moves only the cursor. Off: follow until you look away. Needs dialogue turning and zoom. (--no-dialogue-lock)",
-                get: |w| w.resource::<LookSettings>().lock_on_speaker,
-                set: |w, on| w.resource_mut::<LookSettings>().lock_on_speaker = on,
                 slider: None,
             },
         );
@@ -410,6 +391,7 @@ fn face_speaker(
     // With a zoom the face sits above the view's centre (`crate::dialogue_zoom`).
     let target = aim(player.eye(), point);
     let target = (target.0, target.1 - zoom.face_drop());
+    let locked = view_locked(&zoom);
     if !talk.opened {
         talk.opened = true;
         talk.ease = Some(Ease::new(now, OPEN_SECONDS));
@@ -427,7 +409,18 @@ fn face_speaker(
             deg(now.1),
             deg(target.1)
         );
-    } else if talk.ease.is_none() && (settings.locked(zoom.wanted()) || (choosing && !talk.choosing && settings.recentre_on_choices && apart(now, target) > ON_TARGET)) {
+    } else if talk.ease.is_none() && locked {
+        // A zoom that came after the opening turn: the locked view comes onto the face.
+        talk.ease = Some(Ease::new(now, RECENTRE_SECONDS));
+        info!(
+            "dialogue look: the zoom locks the view on {}: heading {:.1}° to {:.1}°, pitch {:.1}° to {:.1}°, over {RECENTRE_SECONDS:.2} s",
+            talk.name,
+            deg(now.0),
+            deg(target.0),
+            deg(now.1),
+            deg(target.1)
+        );
+    } else if talk.ease.is_none() && choosing && !talk.choosing && settings.recentre_on_choices && apart(now, target) > ON_TARGET {
         talk.ease = Some(Ease::new(now, RECENTRE_SECONDS));
         info!(
             "dialogue look: choices: the view comes back onto {}: heading {:.1}° to {:.1}°, pitch {:.1}° to {:.1}°, over {RECENTRE_SECONDS:.2} s",
@@ -442,7 +435,7 @@ fn face_speaker(
     // With `--menu-pause original` the picture stands still: no ease could be seen.
     let instant = *mode == MenuPause::Original;
     if let Some(ease) = talk.ease.as_mut() {
-        match ease.follow(now, target, time.delta_secs(), instant, zoom.wanted(), settings.locked(zoom.wanted())) {
+        match ease.follow(now, target, time.delta_secs(), instant, locked) {
             Step::Turn(v) => (player.heading, player.pitch) = v,
             Step::Done(v) => {
                 (player.heading, player.pitch) = v;
@@ -455,7 +448,7 @@ fn face_speaker(
             }
         }
     }
-    talk.framing = zoom.wanted().then(|| (apart((player.heading, player.pitch), target).to_degrees(), settings.locked(true)));
+    talk.framing = zoom.wanted().then(|| (apart((player.heading, player.pitch), target).to_degrees(), locked));
 }
 
 #[cfg(test)]
@@ -528,51 +521,45 @@ mod tests {
     }
 
     #[test]
-    fn zoom_follows_a_face_after_six_seconds_in_both_lock_modes() {
-        for locked in [false, true] {
-            let mut e = Ease::new((1.0, 0.0), OPEN_SECONDS);
-            let mut now = e.from;
-            for frame in 0..480 {
-                // Synthetic moving face, starts walking well after the old 1.6 s hold
-                // [design, #2254].
-                let target = (2.0 + ((frame as f32 / 60.0 - 2.0) * 0.05).max(0.0), 0.1);
-                let Step::Turn(v) = e.follow(now, target, 1.0 / 60.0, false, true, locked) else { panic!("follow ended at frame {frame}") };
-                now = v;
-                if frame > 360 {
-                    assert!(apart(now, target).to_degrees() < 0.25, "{now:?}, {target:?}");
-                }
-            }
-            let moved = (now.0 + 0.02, now.1);
-            let step = e.follow(moved, (2.4, 0.1), 0.1, false, true, locked);
-            if locked {
-                assert!(matches!(step, Step::Turn(_)));
-            } else {
-                assert_eq!(step, Step::Dropped);
+    fn the_zoomed_lock_follows_a_face_after_six_seconds_and_is_never_dropped() {
+        let mut e = Ease::new((1.0, 0.0), OPEN_SECONDS);
+        let mut now = e.from;
+        for frame in 0..480 {
+            // Synthetic moving face, starts walking well after the old 1.6 s hold
+            // [design, #2254].
+            let target = (2.0 + ((frame as f32 / 60.0 - 2.0) * 0.05).max(0.0), 0.1);
+            let Step::Turn(v) = e.follow(now, target, 1.0 / 60.0, false, true) else { panic!("follow ended at frame {frame}") };
+            now = v;
+            if frame > 360 {
+                assert!(apart(now, target).to_degrees() < 0.25, "{now:?}, {target:?}");
             }
         }
+        // Another writer moved the view: the lock takes it back, it does not let go.
+        let moved = (now.0 + 0.02, now.1);
+        assert!(matches!(e.follow(moved, (2.4, 0.1), 0.1, false, true), Step::Turn(_)));
     }
 
     #[test]
     fn zoom_off_keeps_the_opening_only_and_mouse_takeover() {
-        let settings = LookSettings::default();
-        assert!(!settings.locked(false));
+        assert!(!view_locked(&DialogueZoom::default()));
+        assert!(view_locked(&DialogueZoom::for_test_conversation()));
         let mut e = Ease::new((1.0, 0.0), OPEN_SECONDS);
-        assert!(matches!(e.follow(e.from, (2.0, 0.1), 0.5, false, false, settings.locked(false)), Step::Done(_)));
+        assert!(matches!(e.follow(e.from, (2.0, 0.1), 0.5, false, false), Step::Done(_)));
         let mut e = Ease::new((1.0, 0.0), OPEN_SECONDS);
-        assert_eq!(e.follow((1.02, 0.0), (2.0, 0.1), 0.1, false, false, false), Step::Dropped);
+        assert_eq!(e.follow((1.02, 0.0), (2.0, 0.1), 0.1, false, false), Step::Dropped);
     }
 
     #[test]
     fn follow_filters_motion_and_wraps_the_short_way() {
         let mut e = Ease::new((359f32.to_radians(), 0.0), 0.0);
-        let Step::Turn(v) = e.follow(e.from, (1f32.to_radians(), 0.0), 0.01, false, true, true) else { panic!() };
+        let Step::Turn(v) = e.follow(e.from, (1f32.to_radians(), 0.0), 0.01, false, true) else { panic!() };
         assert!(wrap(v.0 - e.from.0) > 0.0);
         assert!(apart(v, e.from) < 1f32.to_radians());
         assert!(apart(v, (1f32.to_radians(), 0.0)) > 1f32.to_radians());
-        assert_eq!(e.follow(v, (0.1, 0.3), 0.0, false, true, true), Step::Turn(v));
+        assert_eq!(e.follow(v, (0.1, 0.3), 0.0, false, true), Step::Turn(v));
     }
 
-    fn mouse_app(zoomed: bool, locked: bool) -> App {
+    fn mouse_app(zoomed: bool) -> App {
         use bevy::input::mouse::AccumulatedMouseMotion;
         use bevy::window::{CursorGrabMode, CursorOptions, PrimaryWindow};
         let mut app = App::new();
@@ -584,8 +571,6 @@ mod tests {
             .init_resource::<crate::furniture::PlayerSeat>()
             .insert_resource(crate::dialogue::FreeLook(true))
             .insert_resource(if zoomed { DialogueZoom::for_test_conversation() } else { DialogueZoom::default() })
-            .insert_resource(LookSettings { lock_on_speaker: locked, ..default() })
-            .insert_resource(ViewLook { talk: Some(Talk { actor: FormId(7), name: "Test speaker".into(), opened: true, choosing: false, ease: Some(Ease::new((1.0, 0.0), OPEN_SECONDS)), elapsed: 0.0, framing: None }) })
             .insert_resource(AccumulatedMouseMotion { delta: Vec2::ZERO })
             .insert_resource(Player { heading: 1.0, pitch: 0.0, eye_height: 112.0, feet: [0.0; 3], body_eye: None, body_view: None, placed: None })
             .add_systems(Update, crate::player::mouse_look);
@@ -596,80 +581,44 @@ mod tests {
     }
 
     #[test]
-    fn real_mouse_motion_is_blocked_only_for_locked_zoom() {
+    fn mouse_motion_turns_the_view_only_without_the_zoom() {
         use bevy::input::mouse::AccumulatedMouseMotion;
-        for (zoomed, locked) in [(true, true), (true, false), (false, true), (false, false)] {
-            let mut app = mouse_app(zoomed, locked);
+        for zoomed in [true, false] {
+            let mut app = mouse_app(zoomed);
             app.world_mut().resource_mut::<AccumulatedMouseMotion>().delta = Vec2::new(80.0, 20.0);
             app.update();
             let p = app.world().resource::<Player>();
-            assert_eq!(p.heading == 1.0 && p.pitch == 0.0, zoomed && locked);
-            assert_eq!(app.world().resource::<ViewLook>().turning(), !zoomed || locked);
-            let mut ease = Ease::new((1.0, 0.0), OPEN_SECONDS);
-            assert_eq!(matches!(ease.follow((p.heading, p.pitch), (2.0, 0.1), 0.1, false, zoomed, zoomed && locked), Step::Dropped), !(zoomed && locked));
+            assert_eq!(p.heading == 1.0 && p.pitch == 0.0, zoomed, "zoomed={zoomed}");
         }
-    }
-
-    #[test]
-    fn a_single_mouse_count_hands_over_zoomed_follow_permanently() {
-        use bevy::input::mouse::AccumulatedMouseMotion;
-        let mut app = mouse_app(true, false);
-        app.world_mut().resource_mut::<crate::bindings::Bindings>().mouse_sensitivity = 1e-5;
-        app.world_mut().resource_mut::<AccumulatedMouseMotion>().delta = Vec2::X;
-        app.update();
-        assert!(!app.world().resource::<ViewLook>().turning());
-        let heading = app.world().resource::<Player>().heading;
-        assert!(heading > 1.0 && heading - 1.0 < 1e-4);
-        app.world_mut().resource_mut::<AccumulatedMouseMotion>().delta = Vec2::ZERO;
-        app.update();
-        assert!(!app.world().resource::<ViewLook>().turning());
-        assert_eq!(app.world().resource::<Player>().heading, heading);
     }
 
     #[test]
     fn cursor_release_and_regrab_motion_do_not_take_over_the_view() {
         use bevy::input::mouse::AccumulatedMouseMotion;
         use bevy::window::{CursorGrabMode, CursorOptions};
-        for zoomed in [false, true] {
-            let mut app = mouse_app(zoomed, false);
-            let mut cursors = app.world_mut().query_filtered::<Entity, With<CursorOptions>>();
-            let entity = cursors.single(app.world()).unwrap();
-            app.world_mut().resource_mut::<AccumulatedMouseMotion>().delta = Vec2::new(80.0, 20.0);
-            for mode in [CursorGrabMode::None, CursorGrabMode::Confined] {
-                app.world_mut().get_mut::<CursorOptions>(entity).unwrap().grab_mode = mode;
-                app.update();
-                app.update();
-                assert_eq!(app.world().resource::<Player>().heading, 1.0);
-                assert!(app.world().resource::<ViewLook>().turning(), "capture does not release follow");
-            }
+        // Free look, without the zoom: the grab at each line and the release at the
+        // choices are not taken as the player moving the mouse.
+        let mut app = mouse_app(false);
+        let mut cursors = app.world_mut().query_filtered::<Entity, With<CursorOptions>>();
+        let entity = cursors.single(app.world()).unwrap();
+        app.world_mut().resource_mut::<AccumulatedMouseMotion>().delta = Vec2::new(80.0, 20.0);
+        for mode in [CursorGrabMode::None, CursorGrabMode::Confined] {
+            app.world_mut().get_mut::<CursorOptions>(entity).unwrap().grab_mode = mode;
             app.update();
-            assert_ne!(app.world().resource::<Player>().heading, 1.0, "subsequent real motion is accepted");
+            app.update();
+            assert_eq!(app.world().resource::<Player>().heading, 1.0, "after {mode:?}");
         }
+        app.update();
+        assert_ne!(app.world().resource::<Player>().heading, 1.0, "subsequent real motion is accepted");
     }
 
     #[test]
-    fn lock_setting_is_default_on_registered_next_to_zoom_and_reads_its_ini_value() {
+    fn there_is_no_lock_setting_beside_the_zoom() {
         let mut app = App::new();
         app.add_plugins(DialogueLookPlugin);
         let settings = app.world().resource::<crate::settings::Settings>();
-        let index = settings.index("dialogue-lock").unwrap();
-        assert_eq!(index, settings.index("dialogue-zoom").unwrap() + 1);
-        let row = settings.list()[index];
-        assert!((row.get)(app.world()));
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("../../target-engine/dialogue-lock-{}.ini", std::process::id()));
-        let _ = std::fs::remove_file(&path);
-        app.insert_resource(crate::settings::SettingsFile(Some(path.clone())));
-        assert_eq!(crate::settings::flip(app.world_mut(), index), Some(false));
-        assert_eq!(row.value(app.world()), 0.0);
-        let text = std::fs::read_to_string(&path).unwrap();
-        assert_eq!(fnv_install::ini_get(&text, "Settings", "dialogue-lock").as_deref(), Some("0"));
-        assert!(text.find("dialogue-zoom=").unwrap() < text.find("dialogue-lock=").unwrap());
-        let mut restarted = App::new();
-        restarted.add_plugins(DialogueLookPlugin);
-        restarted.insert_resource(crate::settings::SettingsFile(Some(path.clone())));
-        crate::settings::apply_stored(restarted.world_mut());
-        assert!(!restarted.world().resource::<LookSettings>().lock_on_speaker);
-        std::fs::remove_file(path).unwrap();
+        assert!(settings.index("dialogue-zoom").is_some());
+        assert!(settings.index("dialogue-lock").is_none(), "the zoom is the lock [owner decision 2026-11-13]");
     }
 
     #[test]
@@ -689,17 +638,15 @@ mod tests {
     }
 
     #[test]
-    fn frozen_zoom_follows_for_more_than_256_frames_in_both_lock_modes() {
-        for locked in [false, true] {
-            let mut e = Ease::new((0.0, 0.0), OPEN_SECONDS);
-            let mut now = e.from;
-            for frame in 0..1024 {
-                // Synthetic moving target with no virtual time passing [design, #2254].
-                let target = (3.0 + frame as f32 * 0.001, -0.5);
-                let Step::Turn(v) = e.follow(now, target, 0.0, true, true, locked) else { panic!("frozen follow ended at frame {frame}, locked={locked}") };
-                assert!(apart(v, target) < 1e-5, "frame {frame}, locked={locked}: {v:?}");
-                now = v;
-            }
+    fn frozen_zoom_follows_for_more_than_256_frames() {
+        let mut e = Ease::new((0.0, 0.0), OPEN_SECONDS);
+        let mut now = e.from;
+        for frame in 0..1024 {
+            // Synthetic moving target with no virtual time passing [design, #2254].
+            let target = (3.0 + frame as f32 * 0.001, -0.5);
+            let Step::Turn(v) = e.follow(now, target, 0.0, true, true) else { panic!("frozen follow ended at frame {frame}") };
+            assert!(apart(v, target) < 1e-5, "frame {frame}: {v:?}");
+            now = v;
         }
     }
 

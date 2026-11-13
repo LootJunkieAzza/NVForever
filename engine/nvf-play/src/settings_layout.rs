@@ -71,7 +71,7 @@ const fn section(tab: &'static str, heading: Option<&'static str>, keys: &'stati
 pub const SECTIONS: &[Section] = &[
     section("Gameplay", Some("Game"), &["difficulty", "hardcore", "kill-camera", "vats-style", "vats-slowdown", "reload-slows", "UsePipBoy"]),
     section("Gameplay", Some("Saving"), &["autosave-travel", "autosave-fast-travel", "autosave-wait", "autosave-sleep", "autosave-scripts"]),
-    section("Gameplay", Some("Dialogue"), &["menu-pause", "dialogue-goodbye-hint", "dialogue-look", "dialogue-recentre", "dialogue-zoom", "dialogue-lock", "lip-sync"]),
+    section("Gameplay", Some("Dialogue"), &["menu-pause", "dialogue-goodbye-hint", "dialogue-look", "dialogue-recentre", "dialogue-zoom", "lip-sync"]),
     section("Gameplay", Some("Reports"), &["send-reports", "reports-delete"]),
     section("Gameplay", Some("Camera"), &["detached-camera", "true-iron-sights", "first-person-body", "weapon-sway", "head-bob", "weapon-lower", "field-of-view"]),
     section("Display", Some("Screen"), &["resolution", "borderless", "monitor", "display-sync", "frame-cap", "ui-scale"]),
@@ -306,8 +306,8 @@ mod tests {
     /// Every row the registry can hold today (upstream main 9af0a4552 and f4015fae8, with #1966's
     /// quality and enhanced rows, #2014's counter rows, the two VATS rows and #2198's Upscaler
     /// and Upscaling mode rows in place of the one upscaling row, its DLSS model row and #2169's
-    /// FSR library row, and #2254's dialogue lock row), by the group it registers with.
-    const KNOWN: [(&str, &str); 108] = [
+    /// FSR library row), by the group it registers with.
+    const KNOWN: [(&str, &str); 107] = [
         ("detached-camera", "Gameplay"),
         ("menu-pause", "Gameplay"),
         ("dialogue-goodbye-hint", "Gameplay"),
@@ -317,7 +317,6 @@ mod tests {
         ("dialogue-look", "Gameplay"),
         ("dialogue-recentre", "Gameplay"),
         ("dialogue-zoom", "Gameplay"),
-        ("dialogue-lock", "Gameplay"),
         ("dynamic-crosshair", "Gameplay"),
         ("crosshair-style", "Gameplay"),
         ("sneak-gauges", "Gameplay"),

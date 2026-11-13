@@ -25,15 +25,11 @@ Seven tabs, the original's four categories first: **Gameplay, Display, Audio, Co
 Graphics, Tweaks, Debug** [design: #1953; the original's Settings opens Gameplay, Display,
 Audio and Controls, observed in the original's pause menu, 2026-11-09].
 
-[design, #2254] `dialogue-lock` defaults on: keep the zoomed view on the speaker and
-leave the mouse to the cursor. Off: follow until the player looks away. It is kept as
-`[Settings] dialogue-lock=1` next to `dialogue-zoom` (dialogue-play.md §8).
-
 | Tab | Heading | Rows (keys), in order |
 |---|---|---|
 | Gameplay | Game | `difficulty`, `hardcore`, `kill-camera`, `vats-style`, `vats-slowdown`, `reload-slows`, `UsePipBoy` |
 | Gameplay | Saving | `autosave-travel`, `autosave-fast-travel`, `autosave-wait`, `autosave-sleep`, `autosave-scripts` |
-| Gameplay | Dialogue | `menu-pause`, `dialogue-goodbye-hint`, `dialogue-look`, `dialogue-recentre`, `dialogue-zoom`, `dialogue-lock`, `lip-sync` |
+| Gameplay | Dialogue | `menu-pause`, `dialogue-goodbye-hint`, `dialogue-look`, `dialogue-recentre`, `dialogue-zoom`, `lip-sync` |
 | Gameplay | Camera | `detached-camera`, `true-iron-sights`, `first-person-body`, `weapon-sway`, `head-bob`, `weapon-lower`, `field-of-view` |
 | Display | Screen | `resolution`, `borderless`, `monitor`, `display-sync`, `frame-cap`, `ui-scale` |
 | Display | Interface | `hud-colour`, `hud-red`, `hud-green`, `hud-blue`, `pipboy-colour`, `pipboy-red`, `pipboy-green`, `pipboy-blue`, `language`, `dynamic-crosshair`, `crosshair-style`, `sneak-gauges` |
@@ -47,8 +43,7 @@ leave the mouse to the cursor. Off: follow until the player looks away. It is ke
 | Tweaks | (none) | none named yet |
 | Debug | (none) | `overlay`, `hit-markers`, `god-mode`, `navmesh`, `scope-3d` |
 
-The table names every row the registry can hold, including #2254's `dialogue-lock`
-[design: `settings_layout.rs`], #1966's `quality` and `enhanced`
+The table names every row the registry can hold, 100 with #1966's `quality` and `enhanced`
 and #2014's nine `fps-counter-*` rows (`KNOWN` in `settings_layout.rs`); a test keeps
 it so (`settings_layout.rs`, `the_table_names_each_key_once_in_one_of_the_tabs`). The
 original puts the HUD and Pip-Boy colours and the crosshair in its Display category

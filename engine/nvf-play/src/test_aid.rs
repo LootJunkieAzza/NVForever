@@ -33,8 +33,8 @@
 //! - `NVF_PLAY_TEST_LOOK=<seconds>:<heading deg>:<pitch deg>[,...]` turns the view (the
 //!   compass heading, 0 north, 90 east; the pitch, negative looks down) at those times,
 //!   as if the mouse had moved there (ignored, as the mouse is, while an animation
-//!   drives the view, `player::ViewDriven`; also held by the dialogue lock [design,
-//!   #2254; `goto_and_look`]).
+//!   drives the view, `player::ViewDriven`; and while a zoomed conversation locks the view,
+//!   `dialogue_look::view_locked`).
 //! - `NVF_PLAY_TEST_GOTO=<seconds>:<x>:<y>:<z>[,...]` puts the player's feet on whatever
 //!   is under that point (game space, in the current cell or worldspace) at those times.
 //! - `NVF_PLAY_TEST_GIVE=<item FormID hex>[:<count>][,...]` adds items to the player's
@@ -811,7 +811,7 @@ fn goto_and_look(
     locks: Res<crate::control::ControlLocks>,
     mut stats: ResMut<crate::control::LockStats>,
     (driven, kill_cam): (Option<Res<crate::player::ViewDriven>>, Option<Res<crate::kill_cam::KillCam>>),
-    (state, facing, zoom): (Res<State<crate::PlayState>>, Option<Res<crate::dialogue_look::LookSettings>>, Option<Res<crate::dialogue_zoom::DialogueZoom>>),
+    (state, zoom): (Res<State<crate::PlayState>>, Option<Res<crate::dialogue_zoom::DialogueZoom>>),
 ) {
     let now = time.elapsed_secs();
     if phys.player.is_some() {
@@ -836,8 +836,9 @@ fn goto_and_look(
     // aids' clock, as the faces do.
     let Some(now) = time.world_secs() else { return };
     for (h, p) in take_due(&mut aids.looks, now) {
-        // The look aid obeys the same dialogue lock as mouse_look [design, #2254].
-        if *state.get() == crate::PlayState::Dialogue && facing.as_deref().is_some_and(|s| s.locked(zoom.as_deref().is_some_and(|z| z.wanted()))) {
+        // The aid stands in for the mouse, which a zoomed conversation's lock holds
+        // (`player::mouse_look`; owner decision 2026-11-13, #2254).
+        if *state.get() == crate::PlayState::Dialogue && zoom.as_deref().is_some_and(crate::dialogue_look::view_locked) {
             info!("test aid: look heading {:.1} pitch {:.1} ignored: dialogue view locked", h.to_degrees(), p.to_degrees());
             continue;
         }

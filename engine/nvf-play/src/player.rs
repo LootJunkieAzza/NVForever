@@ -746,15 +746,17 @@ pub(crate) fn mouse_look(
     kill_cam: Option<Res<crate::kill_cam::KillCam>>,
     assist: Option<Res<crate::aim_assist::AimAssistState>>,
     (talk, switches): (Option<Res<crate::dialogue_zoom::DialogueZoom>>, Option<Res<crate::script_switches::ScriptSwitches>>),
-    (facing, mut mouse_guard, mut facing_view): (Option<Res<crate::dialogue_look::LookSettings>>, Local<DialogueMouseGuard>, Option<ResMut<crate::dialogue_look::ViewLook>>),
+    mut mouse_guard: Local<DialogueMouseGuard>,
 ) {
     let dialogue = *state.get() == PlayState::Dialogue;
     let grabbed = cursor.single().is_ok_and(|c| c.grab_mode != CursorGrabMode::None);
     let playing = *state.get() == PlayState::Playing || look.is_some_and(|l| l.0);
     let mouse_delta = mouse_guard.filter(motion.delta, grabbed && playing, dialogue);
-    // Locked dialogue owns the view even if capture has not yet caught up [design,
-    // #2254; dialogue::sync_state releases the pointer]. Includes the right stick.
-    if dialogue && facing.is_some_and(|s| s.locked(talk.as_deref().is_some_and(|z| z.wanted()))) {
+    // A zoomed conversation locks the view: the mouse moves only the cursor, even if the
+    // capture has not caught up yet (`dialogue::sync_state` frees the pointer), and the
+    // right stick does not turn it either [owner decision 2026-11-13, #2254;
+    // `crate::dialogue_look::view_locked`].
+    if dialogue && talk.as_deref().is_some_and(crate::dialogue_look::view_locked) {
         return;
     }
     // The classic VATS style turns the view itself (`crate::vats_mode`, vats-classic.md §5).
@@ -787,14 +789,7 @@ pub(crate) fn mouse_look(
     if !grabbed || !playing || locks.looking || delta == Vec2::ZERO {
         return;
     }
-    // Any accepted input ends unlocked zoom follow, including one slow mouse count
-    // below Ease::step's angular tolerance [design, #2254].
-    if dialogue && talk.as_deref().is_some_and(|z| z.wanted()) {
-        if let Some(view) = facing_view.as_deref_mut() {
-            view.hand_to_player();
-        }
-    }
-    // A conversation's zoom: the picture moves as far as it does unzoomed.
+    // A conversation's zoom as it eases out: the picture moves as far as it does unzoomed.
     let s = s * talk.as_deref().map_or(1.0, crate::dialogue_zoom::DialogueZoom::look_scale);
     let inv = bindings.invert_y;
     if control.orbit.held {

@@ -26,14 +26,15 @@
 //!   real time (`Game::tick` advances them in menu mode too).
 //!   What the picture does is the switch for every menu, [`MenuPause`] (`--menu-pause`,
 //!   `crate::pause`): `living` (the default) keeps everything that is only presentation
-//!   running (animations, wind, water, sky, effects). Zoomed dialogue locks the view by
-//!   default [design, #2254; `crate::dialogue_look`]; free-look modes allow looking around
-//!   with the mouse while the actor speaks ([`FreeLook`]; the cursor comes back when
-//!   choices are offered [owner decision 2026-10-10]); `original` stops the virtual
-//!   clock, so the picture stands still, with the cursor free throughout [owner
-//!   preference 2026-10-10 for `living`: a deliberate departure from the original's look
-//!   that keeps what scripts see]. A message box a result script shows holds the
-//!   conversation until it is answered (the runtime's rule); Esc opens the pause menu,
+//!   running (animations, wind, water, sky, effects). A zoomed conversation locks the view
+//!   on the speaker [owner decision 2026-11-13, #2254; `crate::dialogue_look::view_locked`];
+//!   without the zoom the player looks around with the mouse while the actor speaks
+//!   ([`FreeLook`]; the cursor comes back when choices are offered [owner decision
+//!   2026-10-10]); `original` stops the virtual clock, so the picture stands still,
+//!   with the cursor free throughout [owner preference 2026-10-10 for `living`: a
+//!   deliberate departure from the original's look that keeps what scripts see]. A
+//!   message box a result script shows holds the conversation until it is answered (the
+//!   runtime's rule); Esc opens the pause menu,
 //!   which holds everything, the actor's voice included.
 //! - **The actor speaks.** The response being said is shown on a dark band, the actor's
 //!   name at the top right (`crate::dialogue_menu`); the log's `subtitle:` line has it as
@@ -685,8 +686,9 @@ impl ViewInput {
 pub struct WorldHeld(pub bool);
 
 /// The player may look around with the mouse although not `Playing`: while an actor
-/// speaks in an unlocked conversation, in [`MenuPause::Living`] [design, #2254;
-/// `player::mouse_look`, `player::grab_cursor`].
+/// speaks in a conversation that is not zoomed, in [`MenuPause::Living`]
+/// (`player::mouse_look`, `player::grab_cursor`; a zoomed one locks the view [owner
+/// decision 2026-11-13, #2254]).
 #[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct FreeLook(pub bool);
 
@@ -987,7 +989,6 @@ fn sync_state(
     mut next: ResMut<NextState<PlayState>>,
     mut world_held: ResMut<WorldHeld>,
     mut look: ResMut<FreeLook>,
-    facing: Res<crate::dialogue_look::LookSettings>,
     zoom: Res<crate::dialogue_zoom::DialogueZoom>,
 ) {
     let game = script.as_ref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game);
@@ -1005,8 +1006,9 @@ fn sync_state(
     // message box.
     let speaking = game.is_some_and(|g| !held(g) && g.dialogue.as_ref().is_some_and(|c| c.line.is_some()));
     // Whether the picture stands still meanwhile is `crate::pause::freeze_picture`'s.
-    // Keep the pointer free throughout a locked close-up [design, #2254].
-    look.set_if_neq(FreeLook(*mode == MenuPause::Living && speaking && *state.get() == PlayState::Dialogue && !facing.locked(zoom.wanted())));
+    // The pointer stays free throughout a zoomed conversation: the zoom locks the view
+    // [owner decision 2026-11-13, #2254].
+    look.set_if_neq(FreeLook(*mode == MenuPause::Living && speaking && *state.get() == PlayState::Dialogue && !crate::dialogue_look::view_locked(&zoom)));
 }
 
 // ---- drawing ----------------------------------------------------------------------------

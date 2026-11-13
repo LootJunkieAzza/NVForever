@@ -26373,7 +26373,7 @@ expect = [
 
 [[scenario]]
 name = "dialogue-zoom-lock-hold"
-source = "[design, #2254] docs/design/dialogue-play.md section 8: default locked zoom follows throughout dialogue"
+source = "[owner decision 2026-11-13, #2254] docs/design/dialogue-play.md section 8: the dialogue zoom locks the view, which follows the speaker throughout the conversation"
 note = "[design, #2254] Chet's conversation starts at 11 s; choices wait 12 s. No view input. The final framing sample is logged on leaving, after at least six conversation seconds. Bound is 0.5 degrees from the framing point. Living world; no freeze switch."
 areas = ["dialogue", "camera"]
 paths = ["engine/nvf-play/src/dialogue_look.rs", "engine/nvf-play/src/dialogue_zoom.rs", "engine/nvf-play/src/dialogue.rs", "engine/nvf-play/src/player.rs"]
@@ -26390,8 +26390,8 @@ expect = [
 
 [[scenario]]
 name = "dialogue-zoom-lock-motion"
-source = "[design, #2254] docs/design/dialogue-play.md section 8: mouse view input cannot break locked zoom"
-note = "[design, #2254] As dialogue-zoom-lock-hold, with attempted view motion at 14, 16 and 18 s. The existing absolute look aid obeys the same lock as the mouse; this is not raw mouse injection. Raw mouse input and capture transitions have synthetic ECS tests in dialogue_look.rs."
+source = "[owner decision 2026-11-13, #2254] docs/design/dialogue-play.md section 8: while zoomed, view input cannot turn the locked view"
+note = "[design, #2254] As dialogue-zoom-lock-hold, with attempted view motion at 14, 16 and 18 s. The existing absolute look aid obeys the same lock as the mouse; this is not raw mouse injection. Raw mouse input (zoomed and not) and capture transitions (without the zoom) have synthetic ECS tests in dialogue_look.rs."
 areas = ["dialogue", "camera"]
 paths = ["engine/nvf-play/src/dialogue_look.rs", "engine/nvf-play/src/dialogue.rs", "engine/nvf-play/src/player.rs", "engine/nvf-play/src/test_aid.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_TALK = "11:GSChetRef=", NVF_PLAY_TEST_TALK_DELAY = "12", NVF_PLAY_TEST_LOOK = "14:90:20,16:180:-20,18:270:10" }
