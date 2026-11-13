@@ -365,6 +365,9 @@ const NUDGE: f32 = 0.5;
 
 /// Seconds a creature's "has something to say" answer is kept before it is asked again.
 const TALKER_SECONDS: f64 = 2.0;
+/// The corner line when the player has no Stimpak to revive a companion with (the
+/// Revive Unconscious Companions tweak) [design: our own words].
+const REVIVE_NEEDS_STIMPAK: &str = "You need a Stimpak to revive them.";
 
 /// What E does to a living or dead actor (playtest list 4, item 19): a dead one is
 /// searched (combat C5); one hostile to the player (it would attack the player, or is
@@ -393,6 +396,10 @@ fn shift_talks(keys: Res<ButtonInput<KeyCode>>, tweaks: Option<Res<crate::tweaks
 
 fn actor_action_in(g: &mut fnv_game::Game, creature: bool, id: u32, talkers: &mut HashMap<u32, (bool, f64)>) -> Action {
     let r = FormId(id);
+    // The player's tweak: a knocked-out companion is revived [design: docs/design/tweaks.md].
+    if g.can_revive(r) {
+        return Action::Revive;
+    }
     // The player's tweak lets an unconscious actor be searched as a dead one is [design: docs/design/tweaks.md].
     if g.is_dead(r) || (g.tweaks.loot_unconscious && g.knockout(r).is_some()) {
         return Action::Search;
@@ -620,6 +627,19 @@ pub(crate) fn activate(
     }
     if t.action == Action::Inaccessible {
         info!("activate 0x{:08X} {}: nothing to do (an inaccessible door)", t.form_id, t.name);
+        return;
+    }
+    // The player's tweak: a Stimpak gets a knocked-out companion up [design: docs/design/tweaks.md].
+    if t.action == Action::Revive {
+        let done = script.as_deref_mut().and_then(|s| s.rt.as_mut()).map(|rt| crate::script::with_world(rt, &mut sim, |rt| rt.game.revive(FormId(t.form_id))));
+        match done {
+            Some(Ok(())) => info!("activate 0x{:08X} {} (Revive): a Stimpak used, they get up (tweak)", t.form_id, t.name),
+            Some(Err(fnv_game::unconscious::ReviveRefusal::NoStimpak)) => {
+                info!("activate 0x{:08X} {} (Revive): no Stimpak (tweak)", t.form_id, t.name);
+                hud.show(REVIVE_NEEDS_STIMPAK.to_string());
+            }
+            _ => info!("activate 0x{:08X} {} (Revive): they cannot be revived now", t.form_id, t.name),
+        }
         return;
     }
     // The player's tweak: a mine's disarm is a roll on the player's skill against the

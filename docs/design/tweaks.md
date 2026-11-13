@@ -613,6 +613,7 @@ unless the player binds them, so nothing changes until then.
 | Repair Kits in the Repair List | `bUseWeaponRepairKitsInRepairMenu` | `fnv_game::repair` (`is_weapon_repair_kit`, `kit_condition`, the kit script's rule); `pipboy::repair::with_kits` adds the carried kits to a weapon's offer, `Session::after` gives a kit's result, Use takes one kit. The switch: `Tweaks::repair_kits_in_list` |
 | Idle vanity camera, Vanity Camera Returns to First Person | `bVanityCamReturnsToFirstPerson` | base: `vanity` starts the circling camera (`control::Orbit`) after `fVanityModeAutoDelay` (120) s without input and ends it at any input (observer check 109). The switch: `TweakSettings::vanity_returns_first`, read by `vanity::end_view` from `vanity` and from `control::read_controls`'s Toggle POV release |
 | Target Projectiles in V.A.T.S., Mines Too, Your Own Projectiles, Ignores Non-Explosive | `bTargetProjectilesInVATS`, `bVATSTargetPlayerProjectiles`, `bVATSIgnoreNonExplosiveProjectiles` | `vats_mode::projectile_under` picks from `Combat::vats_projectiles` by `ProjectileRules`; `mark_projectile` marks it (target FormId 0, `Spot::projectile`), `follow` tracks it and drops it when it ends; a landed shot asks `Combat::shoot_down`. Mines lying armed are marked as objects (`Mines::is_live`) and set off by the shot as destructibles. The switches: `Tweaks::vats_target_projectiles`, `vats_target_mines`, `vats_target_own_projectiles`, `vats_ignore_non_explosive` |
+| Revive Unconscious Companions | `bReviveUnconsciousCompanions` | `fnv_game::unconscious` (`can_revive`, `revive`: the master's Stimpak used up, then the usual getting up; `essential_down` for the time); `activate::actor_action_in` gives `Action::Revive`, Activate calls `revive`. The switches: `Tweaks::revive_companions`, `revive_down_seconds` |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -634,8 +635,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 549 |
-| to do | 51 |
+| done | 550 |
+| to do | 50 |
 | unsure, skipped | 19 |
 | n/a | 16 |
 | skipped: fix | 10 |
@@ -746,6 +747,7 @@ game's Data folder, read-only).
 | `bRememberBobbyPinHealth` | done |  |  | Remember Bobby Pin Wear (kept on the player in the save) |
 | `bRepairScalesCraftingCondition` | done |  |  | Crafting Uses Repair (half condition at Repair 0, whole at 100) |
 | `bRepairsRewardXP` | done |  | 1 | Experience per Repair (slider; Pip-Boy repairs) |
+| `bReviveUnconsciousCompanions` | done |  | 3 | Revive Unconscious Companions: a knocked-out companion's prompt is Revive (our word; sPrompt not built, no text field); E uses a Stimpak and they get up at once, else a corner line says one is needed. Revive: Companions Stay Down is fUnconsciousTime (0 keeps our 10 s) |
 | `bRunningCostsAP` | done |  | 8 | Action Points per Second Running (slider 0-20, a flat rate; the Endurance formula not built) |
 | `bRunSlowerInWater` | done |  | 1 | Wading Pace (slider; deeper water slows more) |
 | `bScalePlayerMeleeReach` | done |  | 3 | Melee Reach (multiplier slider; the min and max options not built) |
@@ -788,7 +790,6 @@ game's Data folder, read-only).
 | `bPickpocketOverhaul` | to do |  | 15 | Steal::chance needs weight, Perception and detection |
 | `bPreventRepairIfNotAtWorkbench` | to do |  |  | workbenches are activators whose own scripts open the recipe menu; nothing marks one for the crosshair |
 | `bQuickUse` | to do |  | 9 | two input paths that do not exist yet |
-| `bReviveUnconsciousCompanions` | to do |  | 3 | not built: no revive action |
 | `bRunAndGunAPInCombatOnly` | to do |  |  | not built: no run-and-gun AP rule |
 | `bSneakingDoesntForcePowerAttacks` | unsure, skipped |  |  | depends on separate animations |
 | `bStrengthAffectsAllThrowables` | unsure, skipped |  |  | how fThrowingStrengthPenalty shortens a throw is not documented (the GECK wiki export names the setting but has no page for it), and NVForever applies it to no throw yet |

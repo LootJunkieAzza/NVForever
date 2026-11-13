@@ -63,6 +63,10 @@ pub struct Tweaks {
     // ---- actors ----
     /// `bLootUnconsciousVictims`: an unconscious actor can be searched.
     pub loot_unconscious: bool,
+    /// `bReviveUnconsciousCompanions` (`fUnconsciousTime`): a Stimpak revives a knocked-out
+    /// companion; such a companion lies at least this many seconds (0 keeps ours).
+    pub revive_companions: bool,
+    pub revive_down_seconds: f32,
     /// `bPickpocketWornItems`: what an actor wears can be pickpocketed.
     pub pickpocket_worn_items: bool,
     // ---- combat ----
@@ -689,6 +693,8 @@ impl Default for Tweaks {
             no_terminal_lockout: false,
             no_casino_bans: false,
             loot_unconscious: false,
+            revive_companions: false,
+            revive_down_seconds: 0.0,
             pickpocket_worn_items: false,
             no_sneak_criticals: false,
             reload_only_when_empty: false,

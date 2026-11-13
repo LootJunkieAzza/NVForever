@@ -1138,6 +1138,8 @@ impl Plugin for TweaksPlugin {
         switch!(app, "no-terminal-lockout", "No Terminal Lockout", "A failed hack does not lock the terminal. (Stewie's Tweaks bNoLockFailedTerminals)", game.no_terminal_lockout);
         switch!(app, "no-casino-bans", "No Casino Bans", "Winning big never bans the player from a casino. (Stewie's Tweaks bNoCasinoBans)", game.no_casino_bans);
         switch!(app, "loot-unconscious", "Search the Unconscious", "An unconscious actor can be searched like a dead one. (Stewie's Tweaks bLootUnconsciousVictims)", game.loot_unconscious);
+        switch!(app, "revive-companions", "Revive Unconscious Companions", "Activating a knocked-out companion uses a Stimpak and gets them up at once. (Stewie's Tweaks bReviveUnconsciousCompanions)", game.revive_companions);
+        amount!(app, "revive-down-seconds", "Revive: Companions Stay Down", "With Revive Unconscious Companions, how long a knocked-out companion lies at least, in seconds; 0 keeps the usual 10 (and while a fight goes on near them). (Stewie's Tweaks bReviveUnconsciousCompanions, fUnconsciousTime)", 600.0, f32, game.revive_down_seconds);
         switch!(app, "pickpocket-worn", "Pickpocket Worn Items", "What an actor wears can be pickpocketed (never a child's). (Stewie's Tweaks bPickpocketWornItems)", game.pickpocket_worn_items);
         switch!(app, "no-sneak-criticals", "No Sneak Criticals", "The player's sneak attacks are not criticals. (Stewie's Tweaks bNoSneakAttacksCriticals)", game.no_sneak_criticals);
         switch!(app, "reload-when-empty", "Reload Only When Empty", "The player cannot reload a magazine that still has rounds. (Stewie's Tweaks bDisableReloadingNonEmptyClip)", game.reload_only_when_empty);

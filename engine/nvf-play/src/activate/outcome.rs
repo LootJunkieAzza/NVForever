@@ -49,6 +49,9 @@ pub enum Action {
     /// A door whose reference is flagged Inaccessible (header bit 8): it shows its name
     /// with "Inaccessible" and E does nothing (docs/spec-notes/cells-refs.md §2).
     Inaccessible,
+    /// A knocked-out companion a Stimpak gets up (the player's Revive Unconscious
+    /// Companions tweak, docs/design/tweaks.md).
+    Revive,
 }
 
 /// A lock level by the name the game gives it: the levels the editor offers, 0 Very Easy,
@@ -103,6 +106,8 @@ impl Action {
             Action::Name => String::new(),
             // [hypothesis: the flag's name, cells-refs.md §2]
             Action::Inaccessible => "Inaccessible".into(),
+            // Our word for the tweak's prompt.
+            Action::Revive => "Revive".into(),
         }
     }
 }
