@@ -1924,3 +1924,19 @@ Fallout Behavior, Weapon Drawn, Continue During Combat).
      Does the view keep following the face as the actor steps or walks? Does mouse
      motion move only the cursor, or also the view? Repeat across a choices-to-line
      transition without touching the mouse; record any camera motion on cursor capture.
+
+## Added 2026-11-12 (Lost fighters, issue #2010)
+
+122. **Why do some fighters remain in COMBAT for minutes without searching?** (P2;
+     alert.md section 2.) [observed: issue #2010 capture, 2026-11-10] Three placed Fiends
+     detected the player for 4.5 real seconds; after a 2,500-unit player move two
+     remained IsInCombat 1, procedure COMBAT, for the remaining 235 real seconds,
+     stationary with no reported target; the third ended combat immediately. In
+     contrast, eight actors ended combat 1.1-11.9 real seconds after detection loss
+     [observed: npc-behaviour-compare.md section 11]; later timer experiments are in
+     sections 15.6 and 16.1. Repeat with hostile actors placed by the data, both walking
+     away and teleporting, recording GetDetected, GetCombatTarget, IsInCombat,
+     procedure, positions, combat allies and the timer settings. Do stationary survivors
+     retain a target or an ally's fight, and do any actually complete searches? Our
+     two-sweep design and 300 s stall bound do not assert parity with those durations
+     [design, #2010]; relate any answer to observer check 6's target-retention question.

@@ -6,7 +6,7 @@
 //! over (a record the reader does not understand, a form outside the load order, a form
 //! the save created) is left out and counted by reason.
 
-use fnv_game::GameData;
+use crate::GameData;
 use fnv_save::fos::{Fos, VarValue, FORM_DELETED, FORM_DISABLED, FORM_TALKED_TO_PC, TYPE_REFR};
 use fnv_save::{PluginEntry, PluginRemap};
 use fnv_sim::{FormId, FormStore, RefTable};
@@ -20,7 +20,7 @@ fn hex(id: u32) -> String {
 }
 
 /// What the load order holds, as `save_given` asks it.
-pub(crate) trait Lookup {
+pub trait Lookup {
     fn is_global(&self, id: u32) -> bool;
     fn is_quest(&self, id: u32) -> bool;
     /// The name of a quest script's variable by its index.
@@ -32,7 +32,7 @@ pub(crate) trait Lookup {
 }
 
 /// The load order's data and forms.
-pub(crate) struct Loaded<'a> {
+pub struct Loaded<'a> {
     pub data: &'a GameData,
     pub forms: &'a FormStore,
     pub refs: &'a RefTable,
@@ -59,7 +59,7 @@ impl Lookup for Loaded<'_> {
 }
 
 /// The `given` entries for a save, and what was left out (counts by reason).
-pub(crate) fn save_given(fos: &Fos, look: &dyn Lookup, plugins: &[String]) -> anyhow::Result<(Vec<Value>, Value)> {
+pub fn save_given(fos: &Fos, look: &dyn Lookup, plugins: &[String]) -> Result<(Vec<Value>, Value), String> {
     let saved: Vec<PluginEntry> = fos.plugins.iter().map(|n| PluginEntry { name: n.clone(), size: 0 }).collect();
     let remap = PluginRemap::from_names(&saved, plugins);
     // A form of the load order, or why not: a form the save created exists only in it.
@@ -76,7 +76,7 @@ pub(crate) fn save_given(fos: &Fos, look: &dyn Lookup, plugins: &[String]) -> an
         *n = json!(n.as_u64().unwrap_or(0) + 1);
     };
 
-    for (id, value) in fos.global_variables()? {
+    for (id, value) in fos.global_variables().map_err(|e| e.0)? {
         match map(id) {
             Ok(id) if look.is_global(id) => given.push(json!({"kind": "global", "name": hex(id), "value": value})),
             Ok(_) => skip("global", "no GLOB record"),
@@ -152,7 +152,7 @@ pub(crate) fn save_given(fos: &Fos, look: &dyn Lookup, plugins: &[String]) -> an
         given.push(json!({"kind": "name", "of": hex(fnv_save::fos::PLAYER_BASE), "name": fos.header.player_name}));
     }
 
-    let p = fos.player()?;
+    let p = fos.player().map_err(|e| e.0)?;
     if let Some(special) = p.special {
         for (i, v) in special.iter().enumerate() {
             given.push(json!({"kind": "actor_value", "of": "player", "av": (STRENGTH + i as u32).to_string(), "value": *v as f64}));
