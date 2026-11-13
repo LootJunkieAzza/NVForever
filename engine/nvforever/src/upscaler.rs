@@ -266,7 +266,7 @@ impl Unavailable {
         match self {
             Self::NotWindows => "DLSS needs Windows",
             Self::NotVulkan => "DLSS needs the Vulkan renderer",
-            Self::FilesMissing => "DLSS files missing: put them in the dlss folder beside nvforever.exe, then restart",
+            Self::FilesMissing => "DLSS files missing: choose Download DLSS… in this list, or put them in the dlss folder beside nvforever.exe, then restart",
             Self::UpdaterInFolder => "The dlss folder holds NVIDIA's updater (nvngx_update.exe): remove it, then restart",
             Self::SignatureRejected => "A file in the dlss folder is not from the tested NVIDIA release (Streamline 2.14.16)",
             Self::StreamlineRefused => "DLSS did not start (the log says why)",

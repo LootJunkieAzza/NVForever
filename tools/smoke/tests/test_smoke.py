@@ -474,7 +474,8 @@ class RequiresTests(unittest.TestCase):
         """Every DLSS hardware scenario waits for NVF_DLSS_DIR and inherits it; dlss-no-files
         runs everywhere on the empty fixture, which holds none of DLSS's four files."""
         suite = load(HERE / "scenarios.toml")
-        dlss = {s.name: s for s in suite.scenarios if s.name.startswith("dlss-")}
+        # The download's scenarios name folders of their own (test_repo_dlss_download_scenarios).
+        dlss = {s.name: s for s in suite.scenarios if s.name.startswith("dlss-") and not s.name.startswith("dlss-download-")}
         self.assertIn("dlss-no-files", dlss)
         self.assertGreaterEqual(len(dlss), 9)
         for name, s in dlss.items():
@@ -489,6 +490,31 @@ class RequiresTests(unittest.TestCase):
         self.assertTrue(folder.is_dir(), folder)
         for f in ("sl.interposer.dll", "sl.common.dll", "sl.dlss.dll", "nvngx_dlss.dll"):
             self.assertFalse((folder / f).exists(), f)
+
+
+    def test_repo_dlss_download_scenarios(self):
+        """Download DLSS... (#2250): every scenario names its own DLSS folder under target/
+        whose name starts smoke-dlss- (the only folders the aid's clear empties); the ones
+        that need no network download from this machine only, the real ones wait for
+        NVF_DLSS_DOWNLOAD_REAL."""
+        suite = load(HERE / "scenarios.toml")
+        down = {s.name: s for s in suite.scenarios if s.name.startswith("dlss-download-")}
+        self.assertEqual(set(down), {"dlss-download-decline", "dlss-download-offline", "dlss-download-404",
+                                     "dlss-download-real", "dlss-download-real-restart"})
+        for name, s in down.items():
+            folder = s.env["NVF_DLSS_DIR"]
+            self.assertTrue(folder.startswith("{repo}/target/smoke-dlss-"), name)
+            if name.startswith("dlss-download-real"):
+                self.assertEqual(s.requires, ["NVF_DLSS_DOWNLOAD_REAL"], name)
+                self.assertNotIn("NVF_DLSS_DOWNLOAD_URL", s.env, name)
+            else:
+                self.assertEqual(s.requires, [], name)
+                self.assertRegex(s.env["NVF_DLSS_DOWNLOAD_URL"], r"^(http://127\.0\.0\.1:\d+|\{serve\})/", name)
+        self.assertEqual(down["dlss-download-404"].serve, {"status": 404, "body": ""})
+        self.assertEqual(down["dlss-download-real"].env["NVFOREVER_HOME"], down["dlss-download-real-restart"].env["NVFOREVER_HOME"])
+        # Every one runs in a home of its own, never the player's (the real pair shares one).
+        homes = {s.env["NVFOREVER_HOME"] for s in down.values()}
+        self.assertEqual(len(homes), len(down) - 1)
 
 
 class LockTests(unittest.TestCase):
@@ -672,6 +698,72 @@ class StackTests(unittest.TestCase):
             self.assertIn("=== thread", (out / "hangs.stacks.txt").read_text(encoding="utf-8"))
             time.sleep(4)  # the orphaned sleeper lets go of the log
 
+
+
+class ServeTests(unittest.TestCase):
+    """`serve`: a loopback HTTP server for one launch, its address in `{serve}` (the DLSS
+    download's failure paths without the network)."""
+
+    def test_parse_and_errors(self):
+        s = load_text(game("s", env='{ URL = "{serve}/x.zip" }', extra="serve = { status = 404 }")).scenarios[0]
+        self.assertEqual(s.serve, {"status": 404, "body": ""})
+        for extra in ('serve = { status = 99 }', 'serve = { status = "404" }', 'serve = { status = 404, x = 1 }',
+                      'serve = 404', 'serve = { status = 200, body = 3 }'):
+            with self.assertRaises(ScenarioError, msg=extra):
+                load_text(game("s", extra=extra))
+        with self.assertRaises(ScenarioError):  # {serve} without a server
+            load_text(game("s", env='{ URL = "{serve}/x.zip" }'))
+        with self.assertRaises(ScenarioError):  # a shared launch serving two ways
+            load_text(game("a", extra='launch = "L"\nserve = { status = 404 }')
+                      + game("b", extra='launch = "L"\nserve = { status = 500 }'))
+        suite = load_text(game("a", extra='launch = "L"\nserve = { status = 404 }') + game("b", extra='launch = "L"'))
+        self.assertEqual(len(plan(suite, suite.scenarios)), 1)
+
+    def test_the_server_answers_every_request_and_stops(self):
+        import urllib.error
+        import urllib.request
+        from smoke.runner import serving
+        with serving({}) as none:
+            self.assertIsNone(none)
+        with serving({"status": 404, "body": "gone"}) as url:
+            self.assertRegex(url, r"^http://127\.0\.0\.1:\d+$")
+            with self.assertRaises(urllib.error.HTTPError) as e:
+                urllib.request.urlopen(url + "/streamline.zip", timeout=10)
+            self.assertEqual(e.exception.code, 404)
+            self.assertEqual(e.exception.read(), b"gone")
+            e.exception.close()
+        with self.assertRaises(OSError):
+            urllib.request.urlopen(url + "/again", timeout=2)
+
+    def test_the_launch_gets_the_address(self):
+        from smoke.runner import Env, run_launch
+        suite = load_text(game("served", env='{ NVF_SMOKE_SELFTEST_URL = "{serve}/x.zip" }',
+                               extra="serve = { status = 404 }"))
+        launch = plan(suite, suite.scenarios)[0]
+        fetch = "\n".join([
+            "import os, urllib.request, urllib.error",
+            "u = os.environ['NVF_SMOKE_SELFTEST_URL']",
+            "try:",
+            "    urllib.request.urlopen(u, timeout=10)",
+            "except urllib.error.HTTPError as e:",
+            "    print('answer', e.code, u)",
+            "",
+        ])
+        with tempfile.TemporaryDirectory() as d:
+            out = Path(d)
+            (out / "fetch.py").write_text(fetch, encoding="utf-8")
+            if os.name == "nt":
+                exe = out / "fetch.cmd"
+                exe.write_text(f'@"{sys.executable}" "{out / "fetch.py"}"\n')
+            else:
+                exe = out / "fetch.sh"
+                exe.write_text(f'#!/bin/sh\nexec "{sys.executable}" "{out / "fetch.py"}"\n')
+                exe.chmod(0o755)
+            code, err, _ = run_launch(launch, Env(repo=out, out=out, exe=exe, data="D", fnvtool=None), None)
+            self.assertEqual((code, err), (0, ""))
+            self.assertRegex((out / "served.log").read_text(encoding="utf-8"),
+                             r"answer 404 http://127\.0\.0\.1:\d+/x\.zip")
+            self.assertIn("NVF_SMOKE_SELFTEST_URL=http://127.0.0.1:", (out / "served.cmd.txt").read_text())
 
 
 @unittest.skipUnless(os.name == "nt", "Windows process ids")
