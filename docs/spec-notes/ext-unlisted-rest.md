@@ -206,6 +206,14 @@ original's answer and changes nothing.
   has no offset].
 - **TopicGetTopicInfoQuest** `info` (SUP): the dialogue line's quest (0008D243); no form for
   a topic.
+- **BaseCopyFaceGenFrom** `to from` (ShowOff): answers 1 [observed: the row below]. NPC
+  base `to` takes `from`'s look for the session, on every reference of it: race, sex,
+  face geometry, skin tone, hair, eyes and head parts [documented: CopyFaceGenFrom, the
+  reference form of the same copy; hypothesis: the base form copies the same things, in
+  `to from` order, and height and outfit stay the actor's own]. GetIsRace and GetIsSex
+  read the copy (`Game::face_from_base`), and the engine draws it (`nvforever`
+  actors.rs). Not saved [documented: CopyFaceGenFrom, other NPCs' changes "will not be
+  saved"]. ScriptedNVR2's Script Runner file calls it 1,436 times at the game restart.
 - **GetCasinoDeckTexture** `casino index` (JohnnyGuitar): the deck's back texture, the
   casino's ICO2 entries in order (`terminals\NV_PlayingCards\DeckB\cardB_Back.dds` for the
   Atomic Wrangler).

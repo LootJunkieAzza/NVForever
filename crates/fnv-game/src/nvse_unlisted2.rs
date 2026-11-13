@@ -260,7 +260,23 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         "getactorcoverstate" | "getweapadditionalfloat" | "hudbarsetforcehide" => XVal::Num(-1.0),
         "getextraaccuracypenaltymult" | "setextraaccuracypenaltymult" | "removeextraaccuracypenaltymult" | "getcamerashotpath"
         | "setcamerashotpath" | "setmusictypepath" | "setmedialocationcontrolleroverride" | "clearmedialocationcontrolleroverride"
-        | "setcasinodecktexture" | "basecopyfacegenfrom" => XVal::Num(1.0),
+        | "setcasinodecktexture" => XVal::Num(1.0),
+        // `to from`: NPC base `to` takes `from`'s look for the session, every reference
+        // of it [documented: CopyFaceGenFrom, the reference form; the name's "Base" and
+        // ShowOff's `to from` order, hypothesis]: race, sex, face, skin tone, hair, eyes
+        // and head parts, drawn by the engine (`nvforever` actors.rs), and GetIsRace and
+        // GetIsSex read them. 1 as the original answered [observed: §8]; the same NPC
+        // twice, or not two NPCs, changes nothing.
+        "basecopyfacegenfrom" => {
+            let (to, from) = (form_arg(args, 0), form_arg(args, 1));
+            if let (Some(to), Some(from)) = (to, from) {
+                let npc = |f: FormId| g.data.sig(f).is_some_and(|s| &s == b"NPC_");
+                if to != from && npc(to) && npc(from) {
+                    g.face_from_base.insert(to, from);
+                }
+            }
+            XVal::Num(1.0)
+        }
         "getcurrentdialogue" | "setdismemberedlimbvelocity" | "spawntempparticle" | "getswitchnodeindex" | "setweapadditionalfloat"
         | "setweapadditionalflag" | "setondamagecalcflag" | "addperkentry" | "istemporaryreference" | "getlevelupmenuunspentpoints"
         | "setlevelupmenupoints" | "getnoequipshowoff" | "setnoequipshowoff" | "getliveeffectbasetrait" | "setliveeffectmagnitudemodifier"
