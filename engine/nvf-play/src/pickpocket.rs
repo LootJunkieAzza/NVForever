@@ -110,6 +110,15 @@ fn results(
         for &(item, n) in &p.taken {
             stats.taken += 1;
             crate::script::with_world(rt, &mut sim, |rt| rt.game.pickpocket_took(victim, item, n));
+            // The player's Pickpocket Overhaul tweak's experience [design: docs/design/tweaks.md].
+            if rt.game.tweaks.pickpocket_overhaul && rt.game.tweaks.pp_reward_xp {
+                let it = sim.forms.item(item);
+                let (value, weight) = it.map_or((0.0, 0.0), |i| (f64::from(i.value.unwrap_or(0).max(0)) * f64::from(n), f64::from(i.weight.unwrap_or(0.0).max(0.0)) * f64::from(n)));
+                let xp = crate::script::with_world(rt, &mut sim, |rt| rt.game.pickpocket_overhaul(victim).map_or(0.0, |o| o.xp(value, weight)));
+                if xp > 0.0 {
+                    crate::script::with_world(rt, &mut sim, |rt| fnv_game::experience::award(&mut rt.game, fnv_game::experience::Source::Pickpocket, xp));
+                }
+            }
             info!("pickpocket: took {} x{n} from {name} {victim} unseen", item_name(&sim, item));
         }
         for &(item, n) in &p.given {

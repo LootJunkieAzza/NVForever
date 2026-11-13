@@ -1767,6 +1767,18 @@ impl Plugin for TweaksPlugin {
         switch!(app, "quantity-companion-cap", "Quantity Menu Respects Companion Carry Cap", "Giving a stack to a companion, the quantity menu goes no higher than what they can still carry. (Stewie's Tweaks bQuantityMenuRespectsCompanionCarryCap)", game.quantity_companion_cap);
         switch!(app, "armor-blocks-blood", "Armor Prevents Blood Decals", "A shot whose damage does not get through the target's Damage Threshold leaves no blood on them. (Stewie's Tweaks bArmorPreventsBloodDecals)", game.armor_blocks_blood);
         switch!(app, "embolden-tags", "Tag Skills in Bold", "The Pip-Boy's Skills list shows your tag skills in bold. (Stewie's Tweaks bEmboldenTagSkills)", game.embolden_tags);
+        switch!(app, "pickpocket-overhaul", "Pickpocket Overhaul", "The pickpocket chance counts the item's weight, the target's Perception and how well they see you, with your Agility, Luck and Sneak; the game's own lowest and highest chance still hold. (Stewie's Tweaks bPickpocketOverhaul)", game.pickpocket_overhaul);
+        amount!(app, "pp-base", "Pickpocket Overhaul: Base Chance", "The chance before the figures, in percent. (Stewie's Tweaks bPickpocketOverhaul, fBaseChance)", 100.0, f32, game.pp_base);
+        amount!(app, "pp-agility", "Pickpocket Overhaul: Agility", "Tenths of a percent per point of your Agility. (fPlayerAgilityMult)", 50.0, f32, game.pp_agility);
+        amount!(app, "pp-luck", "Pickpocket Overhaul: Luck", "Tenths of a percent per point of your Luck. (fPlayerLuckMult)", 50.0, f32, game.pp_luck);
+        amount!(app, "pp-sneak", "Pickpocket Overhaul: Sneak", "Tenths of a percent per point of your Sneak. (fPlayerSneakMult)", 50.0, f32, game.pp_sneak);
+        amount!(app, "pp-perception", "Pickpocket Overhaul: Target Perception", "Tenths of a percent off per point of the target's Perception. (fTargetPerceptionMult)", 100.0, f32, game.pp_perception);
+        amount!(app, "pp-detection", "Pickpocket Overhaul: Being Seen", "Tenths of a percent off per point of how well the target detects you (0 to 100). (fDetectionValueMult)", 100.0, f32, game.pp_detection);
+        amount!(app, "pp-value", "Pickpocket Overhaul: Item Value", "Hundredths of a percent off per cap the items are worth. (fItemValueMult)", 50.0, f32, game.pp_value);
+        amount!(app, "pp-weight", "Pickpocket Overhaul: Item Weight", "Tenths of a percent off per pound the items weigh. (fItemWeightMult)", 100.0, f32, game.pp_weight);
+        amount!(app, "pp-worn", "Pickpocket Overhaul: Worn Items", "A worn item's chance times this many tenths. (fWornItemChanceMult)", 50.0, f32, game.pp_worn);
+        switch!(app, "pp-free-items", "Pickpocket Overhaul: Free Items Always", "Items worth nothing, such as keys, are always taken unseen. (bIgnoreFreeItems)", game.pp_free_items);
+        switch!(app, "pp-reward-xp", "Pickpocket Overhaul: Experience", "A pocket picked gives experience: the items' weight and value by their figures above, plus the target's Perception. (bRewardXP)", game.pp_reward_xp);
         switch!(app, "robots-heal-with-scrap", "Robot Companions Heal With Scrap Metal", "The companion wheel's Use Stimpak gives a robot companion Scrap Metal instead. (Stewie's Tweaks bRobotCompanionsHealWithScrapMetal)", game.robots_heal_with_scrap);
         amount!(app, "robot-heal-base", "Scrap Metal: Health Each", "Health one Scrap Metal gives a robot companion. (Stewie's Tweaks bRobotCompanionsHealWithScrapMetal, fBase)", 200.0, f32, game.robot_heal_base);
         amount!(app, "robot-heal-per-repair", "Scrap Metal: Health per 10 Repair", "Health added for each 10 points of your Repair skill. (Stewie's Tweaks bRobotCompanionsHealWithScrapMetal, fRepairMult)", 50.0, f32, game.robot_heal_per_repair);

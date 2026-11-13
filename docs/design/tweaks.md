@@ -627,6 +627,7 @@ unless the player binds them, so nothing changes until then.
 | Alternate Level-Up Sounds | `bAlternateLevelupSounds` | `xp_meter::alternate_level_sound` picks A or B for the coming level; `level_up` plays it by Editor ID. The rows: `amount!` counts and `sound_list!` lists (`TweakSettings::level_sound_*`) |
 | Keyboard and Mouse With a Controller | `bAllowKeyboardAndMouseWithControllerConnected` | `bindings::ControlInput` asks the keys and mouse buttons as well as the pad when `keys_with_pad`; `player::mouse_look` takes a moving mouse. The switch: `TweakSettings::keys_with_pad` |
 | Tag Skills in Bold | `bEmboldenTagSkills` | `pipboy::stats::read` marks `Row::bold` on the player's tag skills; `stats::list` draws a bold row's name again `BOLD_SHIFT` to the right. The switch: `Tweaks::embolden_tags` |
+| Pickpocket Overhaul | `bPickpocketOverhaul` | `fnv_game::pickpocket::Overhaul` (`chance`, `xp`), `Game::pickpocket_overhaul` reads the figures as the menu opens; `menu::model::Steal::chance` uses it; `pickpocket` awards the experience (`experience::Source::Pickpocket`). The switches: `Tweaks::pickpocket_overhaul`, `pp_*` |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -648,8 +649,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 563 |
-| to do | 36 |
+| done | 564 |
+| to do | 35 |
 | unsure, skipped | 19 |
 | n/a | 17 |
 | skipped: fix | 10 |
@@ -744,6 +745,7 @@ game's Data folder, read-only).
 | `bPickLocksWithoutSkill` | done |  | 1 | Pick Any Lock (the lock plays as before; the difficulty option not built) |
 | `bPickpocketCaughtCausesDetection` | done |  |  | Caught Pickpocketing Means Detected |
 | `bPickpocketFleeingActors` | done |  |  | Pickpocket the Fleeing |
+| `bPickpocketOverhaul` | done |  | 15 | Pickpocket Overhaul: the readme's formula (Agility, Luck, Sneak, the target's Perception and detection of the player, the items' value and weight, worn items) within fPickPocketMinChance and fPickPocketMaxChance, its multipliers as Tweaks tab amounts (our defaults; the readme gives none); Free Items Always and Experience (the menu file's XP formula) built. The success rate already shows under the menu; the two karma options and sSuccessMessage are not built |
 | `bPlantingLiveGrenadesRequiresWeaponSkill` | done |  |  | Planting Grenades Needs the Skill (under it the explosive stays a plain item) |
 | `bPowerArmorNeedsNoTraining` | done |  |  | Power Armor Without Training |
 | `bPowerArmorScalesFallDamage` | done |  | 2 | Falls in Power Armor (slider; applies to everyone, the player-only option not built) |
@@ -800,7 +802,6 @@ game's Data folder, read-only).
 | `bHoldToActivate` | to do |  | 9 | a hold on E is taken by grab; needs a timer and per-kind choices |
 | `bNoLockEncounterZoneLevels` | unsure, skipped |  |  | encounter-zone level locking not yet checked in NVForever |
 | `bNPCsDropLiveGrenades` | to do |  |  | not built: NPC grenades have no in-hand phase |
-| `bPickpocketOverhaul` | to do |  | 15 | Steal::chance needs weight, Perception and detection |
 | `bPreventRepairIfNotAtWorkbench` | to do |  |  | workbenches are activators whose own scripts open the recipe menu; nothing marks one for the crosshair |
 | `bQuickUse` | to do |  | 9 | two input paths that do not exist yet |
 | `bRunAndGunAPInCombatOnly` | to do |  |  | not built: no run-and-gun AP rule |

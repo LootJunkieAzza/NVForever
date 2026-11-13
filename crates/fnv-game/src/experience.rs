@@ -47,6 +47,8 @@ pub enum Source {
     Script,
     /// A Pip-Boy repair (the Repairs Give XP tweak, `crate::tweaks`).
     Repair,
+    /// A pocket picked (the Pickpocket Overhaul tweak's Reward XP, `crate::pickpocket`).
+    Pickpocket,
 }
 
 impl Source {
@@ -60,6 +62,7 @@ impl Source {
             Source::Discovery => "a place found",
             Source::Script => "a script",
             Source::Repair => "a repair",
+            Source::Pickpocket => "a pocket picked",
         }
     }
 }

@@ -909,18 +909,23 @@ pub struct Steal {
     /// Equipped items are listed too (ShowOff's SetPlayerCanPickpocketEquippedItems,
     /// `fnv_game::Game::pickpocket_worn`).
     pub worn: bool,
+    /// The Pickpocket Overhaul tweak's figures (`fnv_game::Game::pickpocket_overhaul`).
+    pub overhaul: Option<fnv_game::pickpocket::Overhaul>,
     rng: fnv_combat::rng::SplitMix,
 }
 
 impl Steal {
     pub fn new(victim: FormId, rules: fnv_game::pickpocket::Rules, thief: f64, target: f64, seed: u64) -> Steal {
-        Steal { victim, rules, thief, target, worn: false, rng: fnv_combat::rng::SplitMix(seed) }
+        Steal { victim, rules, thief, target, worn: false, overhaul: None, rng: fnv_combat::rng::SplitMix(seed) }
     }
 
     /// The chance, percent, of moving `count` units of `row` either way.
     pub fn chance(&self, row: &Row, count: i32) -> i32 {
         let value = f64::from(row.value.unwrap_or(0).max(0)) * f64::from(count.max(1));
-        self.rules.chance(self.thief, self.target, value)
+        match &self.overhaul {
+            Some(o) => o.chance(&self.rules, value, f64::from(row.weight.unwrap_or(0.0).max(0.0)) * f64::from(count.max(1)), row.equipped),
+            None => self.rules.chance(self.thief, self.target, value),
+        }
     }
 
     /// Roll against `chance`: whether the move goes unnoticed.

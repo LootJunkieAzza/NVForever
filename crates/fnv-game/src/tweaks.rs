@@ -407,6 +407,23 @@ pub struct Tweaks {
     pub armor_blocks_blood: bool,
     /// `bEmboldenTagSkills`: the Pip-Boy's Skills list shows the tag skills in bold.
     pub embolden_tags: bool,
+    /// `bPickpocketOverhaul`: the pickpocket chance by its own formula
+    /// (`crate::pickpocket::Overhaul`): a base, tenths of a point per point of Agility,
+    /// Luck, Sneak, the victim's Perception and its detection of the player, hundredths
+    /// per cap of value, tenths per pound, tenths for a worn item; free items always, and
+    /// experience for each pocket picked.
+    pub pickpocket_overhaul: bool,
+    pub pp_base: f32,
+    pub pp_agility: f32,
+    pub pp_luck: f32,
+    pub pp_sneak: f32,
+    pub pp_perception: f32,
+    pub pp_detection: f32,
+    pub pp_value: f32,
+    pub pp_weight: f32,
+    pub pp_worn: f32,
+    pub pp_free_items: bool,
+    pub pp_reward_xp: bool,
     /// `bRobotCompanionsHealWithScrapMetal` (`fBase`, `fRepairMult`,
     /// `fRoboticsExpertBonus`): the companion wheel heals a robot with Scrap Metal, this
     /// much health each, plus this much per 10 points of Repair and this with Robotics Expert.
@@ -857,6 +874,18 @@ impl Default for Tweaks {
             quantity_companion_cap: false,
             armor_blocks_blood: false,
             embolden_tags: false,
+            pickpocket_overhaul: false,
+            pp_base: 40.0,
+            pp_agility: 20.0,
+            pp_luck: 10.0,
+            pp_sneak: 5.0,
+            pp_perception: 30.0,
+            pp_detection: 3.0,
+            pp_value: 5.0,
+            pp_weight: 20.0,
+            pp_worn: 5.0,
+            pp_free_items: false,
+            pp_reward_xp: false,
             robots_heal_with_scrap: false,
             robot_heal_base: 20.0,
             robot_heal_per_repair: 5.0,

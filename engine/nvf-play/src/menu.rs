@@ -404,12 +404,17 @@ pub(crate) fn open_menus(
         }
         (None, Some(c)) if steal.is_some() => {
             let victim = FormId(c.container);
-            let rules = script.as_deref_mut().and_then(|s| s.rt.as_mut()).map(|rt| crate::script::with_world(rt, &mut sim, |rt| (rt.game.pickpocket_settings(), rt.game.pickpocket_skills(victim), rt.game.pickpocket_worn(victim))));
-            let (rules, (thief, target), worn) = rules.unwrap_or((fnv_game::pickpocket::Rules::default(), (0.0, 0.0), false));
+            let rules = script.as_deref_mut().and_then(|s| s.rt.as_mut()).map(|rt| crate::script::with_world(rt, &mut sim, |rt| (rt.game.pickpocket_settings(), rt.game.pickpocket_skills(victim), rt.game.pickpocket_worn(victim), rt.game.pickpocket_overhaul(victim))));
+            let (rules, (thief, target), worn, overhaul) = rules.unwrap_or((fnv_game::pickpocket::Rules::default(), (0.0, 0.0), false, None));
             info!("pickpocket: open on {victim}: Sneak {thief:.0} against {target:.0}");
             MenuModel::open_container(&mut sim.world, victim).and_then(|mut m| {
                 let mut steal = model::Steal::new(victim, rules, thief, target, u64::from(victim.0) ^ 0x5EED);
                 steal.worn = worn;
+                // The player's Pickpocket Overhaul tweak [design: docs/design/tweaks.md].
+                if let Some(o) = &overhaul {
+                    info!("pickpocket: the overhaul's figures: Agility {:.0}, Luck {:.0}, Sneak {:.0}, Perception {:.0}, detection {:.0} (tweak)", o.agility, o.luck, o.sneak, o.perception, o.detection);
+                }
+                steal.overhaul = overhaul;
                 m.steal = Some(steal);
                 m.refresh(&mut sim.world)?;
                 Ok(m)
