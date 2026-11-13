@@ -469,3 +469,27 @@ fn recipes_containers_duplicates_races_and_menus() {
     assert!(g.other.itr2.primitives_shown);
     assert_eq!(num(&mut g, "CenterOnCellAlt \"CellB\""), 1.0);
 }
+
+/// ObjectUnderReticle casts the crosshair's ray between its two ranges, out to 50000
+/// units, and gives the first reference it meets [documented: ObjectUnderReticle].
+#[test]
+fn object_under_reticle_casts_the_crosshairs_ray_between_its_ranges() {
+    let f = fixture();
+    let mut g = game(&f);
+    // No ray told (headless): nothing.
+    assert_eq!(num(&mut g, "IsFormValid (ObjectUnderReticle 0 2048)"), 0.0);
+    g.senses.reticle = Some(fnv_game::functions::senses::Reticle { start: [0.0, 0.0, 0.0], dir: [0.0, 1.0, 0.0], hit: None });
+    // An actor 1000 units along the ray.
+    let npc = |a: [f32; 3], b: [f32; 3], _k: fnv_game::ray::CastKind| {
+        (a[1] <= 1000.0 && b[1] >= 1000.0).then(|| fnv_game::ray::Hit { distance: 1000.0 - a[1], point: [0.0, 1000.0, 0.0], form: Some(NPC_REF), material: None })
+    };
+    let (near, far, beyond, short) = fnv_game::ray::with_caster(&npc, || {
+        (
+            num(&mut g, "(ObjectUnderReticle 0 2048) == TestNpcRef"),
+            num(&mut g, "(ObjectUnderReticle 500 90000) == TestNpcRef"),
+            num(&mut g, "(ObjectUnderReticle 1500 4000) == TestNpcRef"),
+            num(&mut g, "(ObjectUnderReticle 0 900) == TestNpcRef"),
+        )
+    });
+    assert_eq!((near, far, beyond, short), (1.0, 1.0, 0.0, 0.0));
+}
