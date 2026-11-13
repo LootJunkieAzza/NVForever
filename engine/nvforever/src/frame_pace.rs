@@ -292,16 +292,27 @@ pub fn effective_cap(cap: u32, vrr: u32) -> u32 {
     }
 }
 
-/// The window's present mode as `sync` asks, when that changes.
+/// The window's present mode as `sync` asks, when that changes. While the DLSS Frame Generation
+/// spike runs frame generation (`NVF_DLSSG_SPIKE=on`, #2317; `dlss::frame_generation_on`) the
+/// window presents without vsync whatever the setting, which stays as it is: DLSS-G requires
+/// vsync off here [observed: its requirements' "vsync off required yes" on Vulkan, fork-notes
+/// `fg-spike-results.md`; documented: "VSync with Frame Generation is only supported on D3D12",
+/// `ProgrammingGuideDLSS_G.md` §22.5] [design: a spike-only override until the settings decide
+/// the rule, fork-notes `fg-spike-design.md` Stage 2].
 fn apply_vsync(pace: Res<FramePace>, mut windows: Query<&mut Window, With<PrimaryWindow>>) {
     if !pace.is_changed() {
         return;
     }
-    let mode = if pace.sync.vsync() { PresentMode::AutoVsync } else { PresentMode::AutoNoVsync };
+    let forced_off = pace.sync.vsync() && crate::dlss::frame_generation_on();
+    let mode = if pace.sync.vsync() && !forced_off { PresentMode::AutoVsync } else { PresentMode::AutoNoVsync };
     for mut w in &mut windows {
         if w.present_mode != mode {
             w.present_mode = mode;
-            info!("frame pace: vsync {}", if pace.sync.vsync() { "on" } else { "off" });
+            if forced_off {
+                info!("frame pace: vsync off while DLSS Frame Generation runs (NVF_DLSSG_SPIKE=on; it needs vsync off on Vulkan); the display sync setting stays {}", pace.sync.name());
+            } else {
+                info!("frame pace: vsync {}", if pace.sync.vsync() { "on" } else { "off" });
+            }
         }
     }
 }

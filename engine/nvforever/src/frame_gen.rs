@@ -100,6 +100,9 @@ pub struct FrameGenSupport(pub bool);
 /// frame generation follows.
 pub fn usable(world: &World) -> bool {
     world.resource::<FrameGeneration>().on
+        // Never while Streamline's DLSS Frame Generation is loaded (the DLSS-G spike, #2317): its
+        // proxy swapchain paces and presents, the presenter's two presents would be its app frames.
+        && !crate::dlss::frame_generation_loaded()
         && world.get_resource::<FrameGenSupport>().is_some_and(|s| s.0)
         && crate::graphics::fsr_active(world)
         && world.resource::<crate::frame_pace::FramePace>().sync.vsync()
@@ -270,7 +273,13 @@ fn add_switch_systems(app: &mut App) {
     app.add_systems(Update, (follow_switch, log_switch).after(crate::frame_pace::ApplyFramePace).after(crate::upscaler::follow_request));
 }
 
+/// FSR frame generation was asked for while DLSS-G is loaded (said once).
+static SAID_DLSSG: AtomicBool = AtomicBool::new(false);
+
 fn follow_switch(world: &mut World) {
+    if world.resource::<FrameGeneration>().on && crate::dlss::frame_generation_loaded() && !SAID_DLSSG.swap(true, Ordering::Relaxed) {
+        warn!("frame generation: FSR 3.1 frame generation stays off while Streamline's DLSS Frame Generation is loaded (NVF_DLSSG_SPIKE)");
+    }
     let usable = usable(world);
     let playing = world.get_resource::<State<nvf_play::PlayState>>().is_none_or(|s| *s.get() == nvf_play::PlayState::Playing);
     let cap = if usable && playing { real_frame_cap(world.resource::<crate::frame_pace::Refresh>().millihertz) } else { 0 };

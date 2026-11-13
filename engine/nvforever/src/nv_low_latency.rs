@@ -130,13 +130,18 @@ trait Calls: Send + Sync + 'static {
     /// `vkSetLatencySleepModeNV`: low latency mode on or off, boost off, no minimum interval.
     fn set_sleep_mode(&self, swapchain: u64, on: bool) -> Result<(), vk::Result>;
     /// `vkLatencySleepNV`: asks the driver to signal the sleep's semaphore with `value` when the
-    /// next frame's CPU work should start.
-    fn sleep(&self, swapchain: u64, value: u64) -> Result<(), vk::Result>;
+    /// next frame's CPU work should start; `present_id` is that frame's marker number.
+    fn sleep(&self, swapchain: u64, value: u64, present_id: u64) -> Result<(), vk::Result>;
     /// Waits until the semaphore reaches `value`; false when `limit` passed first (or the wait
     /// failed).
     fn wait(&self, value: u64, limit: Duration) -> bool;
     /// `vkSetLatencyMarkerNV`.
     fn mark(&self, swapchain: u64, marker: vk::LatencyMarkerNV, present_id: u64);
+    /// The calls go through Streamline's Reflex ([`Streamline`]): made every frame whatever the
+    /// switch.
+    fn through_streamline(&self) -> bool {
+        false
+    }
 }
 
 /// The calls through Vulkan.
@@ -160,7 +165,7 @@ impl Calls for Vulkan {
         unsafe { self.functions.set_latency_sleep_mode(vk::SwapchainKHR::from_raw(swapchain), Some(&info)) }
     }
 
-    fn sleep(&self, swapchain: u64, value: u64) -> Result<(), vk::Result> {
+    fn sleep(&self, swapchain: u64, value: u64, _present_id: u64) -> Result<(), vk::Result> {
         let info = vk::LatencySleepInfoNV::default().signal_semaphore(self.semaphore).value(value);
         // SAFETY: as above; the semaphore is a timeline semaphore of this device
         // (VUID-VkLatencySleepInfoNV-signalSemaphore-09361).
@@ -178,6 +183,50 @@ impl Calls for Vulkan {
         let info = vk::SetLatencyMarkerInfoNV::default().present_id(present_id).marker(marker);
         // SAFETY: the device has the extension, and `with_swapchain` keeps the swapchain alive.
         unsafe { self.functions.set_latency_marker(vk::SwapchainKHR::from_raw(swapchain), &info) };
+    }
+}
+
+/// The calls through Streamline's Reflex and PCL, while the DLSS Frame Generation spike keeps
+/// `sl.reflex` loaded (`NVF_DLSSG_SPIKE=on`, #2317; fork-notes `fg-spike-design.md` decision 6:
+/// then the direct `VK_NV_low_latency2` calls are never made, the same points call
+/// `slReflexSleep` and `slPCLSetMarker`). Streamline's own backend makes the same driver calls on
+/// the swapchain it tracks [documented: `vknvll2.cpp:210-385`], so there is no swapchain here,
+/// no mode per swapchain (Reflex's options are set once, `eLowLatency`, by the DLSS loader) and
+/// no wait (the sleep waits inside Streamline, `vknvll2.cpp:323-331`). The calls run every frame
+/// whatever the switch, as Reflex asks [documented: `ProgrammingGuideReflex.md:117-118, 170-177`],
+/// and each carries the frame's marker number ([`present_id`]), the number the frame's constants
+/// and tags have (`dlss/frame_token.rs` `index_of`). `INPUT_SAMPLE` has no PCL marker and is
+/// dropped (`dlss::reflex_mark`).
+struct Streamline;
+
+impl Calls for Streamline {
+    fn with_swapchain(&self, call: &mut dyn FnMut(u64)) -> bool {
+        call(0);
+        true
+    }
+
+    fn set_sleep_mode(&self, _swapchain: u64, _on: bool) -> Result<(), vk::Result> {
+        Ok(())
+    }
+
+    fn sleep(&self, _swapchain: u64, _value: u64, present_id: u64) -> Result<(), vk::Result> {
+        if crate::dlss::reflex_sleep(present_id) {
+            Ok(())
+        } else {
+            Err(vk::Result::ERROR_UNKNOWN)
+        }
+    }
+
+    fn wait(&self, _value: u64, _limit: Duration) -> bool {
+        true
+    }
+
+    fn mark(&self, _swapchain: u64, marker: vk::LatencyMarkerNV, present_id: u64) {
+        crate::dlss::reflex_mark(marker, present_id);
+    }
+
+    fn through_streamline(&self) -> bool {
+        true
     }
 }
 
@@ -235,6 +284,11 @@ impl NvLowLatency {
         Self(Arc::new(Shared { calls, pacing: Mutex::default(), said_refused: AtomicBool::new(false) }))
     }
 
+    /// Whether the calls go through Streamline's Reflex: then every frame, whatever the switch.
+    pub(crate) fn through_streamline(&self) -> bool {
+        self.0.calls.through_streamline()
+    }
+
     /// A marker for `frame`, on the newest swapchain (nothing while there is none).
     pub(crate) fn mark(&self, marker: vk::LatencyMarkerNV, frame: u64) {
         self.0.calls.with_swapchain(&mut |swapchain| self.0.calls.mark(swapchain, marker, present_id(frame)));
@@ -246,6 +300,8 @@ impl NvLowLatency {
     /// off once on a swapchain it was on.
     fn input(&self, on: bool, frame: u64) {
         let shared = &*self.0;
+        // Through Streamline the sleep and markers run every frame (`Streamline`).
+        let on = on || shared.calls.through_streamline();
         let mut pacing = shared.pacing.lock().unwrap_or_else(PoisonError::into_inner);
         let mut asked = None;
         shared.calls.with_swapchain(&mut |swapchain| {
@@ -258,14 +314,18 @@ impl NvLowLatency {
                         return;
                     }
                     if on && !std::mem::replace(&mut pacing.said_set, true) {
-                        info!("latency reduction: NVIDIA low latency mode is set on the window's swapchain (boost off); the driver now times each frame's start");
+                        if shared.calls.through_streamline() {
+                            info!("latency reduction: NVIDIA Reflex through Streamline (sl.reflex, eLowLatency) on the window's swapchain; its sleep and markers every frame, whatever the switch");
+                        } else {
+                            info!("latency reduction: NVIDIA low latency mode is set on the window's swapchain (boost off); the driver now times each frame's start");
+                        }
                     }
                 }
                 pacing.mode = Some((swapchain, on));
             }
             if on {
                 let value = pacing.value + 1;
-                match shared.calls.sleep(swapchain, value) {
+                match shared.calls.sleep(swapchain, value, present_id(frame)) {
                     Ok(()) => {
                         pacing.value = value;
                         asked = Some(value);
@@ -351,6 +411,11 @@ pub(crate) fn load(app: &App) -> Result<NvLowLatency, &'static str> {
     // loaded the window's swapchain is Streamline's proxy, which these direct calls must not
     // reach [design: fork-notes `fg-spike-design.md`, Stage 1b; whether the handle wgpu holds is
     // the driver's is unknown, `fg-facts.md` §2.2].
+    // With frame generation on (`NVF_DLSSG_SPIKE=on`) Streamline's Reflex is loaded too, and the
+    // calls go through it (`Streamline`), whatever the device was made with.
+    if crate::dlss::frame_generation_on() {
+        return Ok(NvLowLatency::new(Box::new(Streamline)));
+    }
     if crate::dlss::frame_generation_loaded() {
         return Err("Streamline's DLSS Frame Generation is loaded");
     }
@@ -396,7 +461,7 @@ pub(crate) fn input(world: &World, on: bool, frame: u64) {
 }
 
 fn render_submit_start(presenting: Res<Presenting>, driver: Option<Res<NvLowLatency>>) {
-    if let Some(driver) = driver.filter(|_| presenting.on) {
+    if let Some(driver) = driver.filter(|d| presenting.on || d.through_streamline()) {
         driver.mark(vk::LatencyMarkerNV::RENDERSUBMIT_START, presenting.frame);
     }
 }
@@ -404,14 +469,14 @@ fn render_submit_start(presenting: Res<Presenting>, driver: Option<Res<NvLowLate
 /// After the render graph has submitted the frame: Bevy's `render_system` presents next (or
 /// frame generation hands the frame to its presenter).
 fn present_start(presenting: Res<Presenting>, driver: Option<Res<NvLowLatency>>) {
-    if let Some(driver) = driver.filter(|_| presenting.on) {
+    if let Some(driver) = driver.filter(|d| presenting.on || d.through_streamline()) {
         driver.mark(vk::LatencyMarkerNV::RENDERSUBMIT_END, presenting.frame);
         driver.mark(vk::LatencyMarkerNV::PRESENT_START, presenting.frame);
     }
 }
 
 pub(crate) fn present_end(presenting: Res<Presenting>, driver: Option<Res<NvLowLatency>>) {
-    if let Some(driver) = driver.filter(|_| presenting.on) {
+    if let Some(driver) = driver.filter(|d| presenting.on || d.through_streamline()) {
         driver.mark(vk::LatencyMarkerNV::PRESENT_END, presenting.frame);
     }
 }
@@ -462,6 +527,8 @@ pub(crate) mod tests {
         pub(crate) swapchain: AtomicU64,
         pub(crate) asked: Mutex<Vec<Asked>>,
         refuse_mode: AtomicBool,
+        /// Answers as the calls through Streamline do (every frame).
+        streamline: AtomicBool,
     }
 
     impl Calls for Arc<Recorder> {
@@ -478,7 +545,7 @@ pub(crate) mod tests {
             if self.refuse_mode.load(Ordering::Relaxed) { Err(vk::Result::ERROR_INITIALIZATION_FAILED) } else { Ok(()) }
         }
 
-        fn sleep(&self, swapchain: u64, value: u64) -> Result<(), vk::Result> {
+        fn sleep(&self, swapchain: u64, value: u64, _present_id: u64) -> Result<(), vk::Result> {
             self.asked.lock().unwrap().push(Asked::Sleep(swapchain, value));
             Ok(())
         }
@@ -490,6 +557,10 @@ pub(crate) mod tests {
 
         fn mark(&self, swapchain: u64, marker: vk::LatencyMarkerNV, present_id: u64) {
             self.asked.lock().unwrap().push(Asked::Mark(swapchain, marker, present_id));
+        }
+
+        fn through_streamline(&self) -> bool {
+            self.streamline.load(Ordering::Relaxed)
         }
     }
 
@@ -522,6 +593,25 @@ pub(crate) mod tests {
             taken(&recorder),
             [Asked::Mark(7, M::SIMULATION_END, 5), Asked::Sleep(7, 2), Asked::Wait(2), Asked::Mark(7, M::SIMULATION_START, 6), Asked::Mark(7, M::INPUT_SAMPLE, 6)]
         );
+    }
+
+    /// Through Streamline (the DLSS Frame Generation spike's `on`) the sleep and the markers come
+    /// every frame with the switch off too, each with the frame's number (presentID).
+    #[test]
+    fn through_streamline_every_frame_sleeps_and_marks_whatever_the_switch() {
+        let (driver, recorder) = recorded();
+        recorder.streamline.store(true, Ordering::Relaxed);
+        assert!(driver.through_streamline());
+        driver.input(false, 4);
+        assert_eq!(
+            taken(&recorder),
+            [Asked::Mode(7, true), Asked::Sleep(7, 1), Asked::Wait(1), Asked::Mark(7, M::SIMULATION_START, 5), Asked::Mark(7, M::INPUT_SAMPLE, 5)]
+        );
+        driver.simulation_end(4);
+        driver.input(false, 5);
+        assert_eq!(taken(&recorder), [Asked::Mark(7, M::SIMULATION_END, 5), Asked::Sleep(7, 2), Asked::Wait(2), Asked::Mark(7, M::SIMULATION_START, 6), Asked::Mark(7, M::INPUT_SAMPLE, 6)]);
+        let (direct, _) = recorded();
+        assert!(!direct.through_streamline(), "the direct calls follow the switch");
     }
 
     #[test]

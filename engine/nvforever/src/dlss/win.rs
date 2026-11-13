@@ -21,15 +21,15 @@ use super::evaluate::{Evaluator, OptionsKey, VIEWPORT};
 use super::ffi::{
     get_proc, wide, AdapterInfo, FeatureRequirements, FeatureVersion, Preferences, SlDlssGetOptimalSettings, SlDlssSetOptions, SlEvaluateFeature, SlFreeResources,
     SlGetFeatureFunction, SlGetFeatureRequirements, SlGetFeatureVersion, SlGetNewFrameToken, SlInit, SlIsFeatureLoaded, SlIsFeatureSupported, SlResult, SlSetConstants,
-    SlDlssgGetState, SlDlssgSetOptions, SlSetFeatureLoaded, SlShutdown, Version, ViewportHandle, FEATURE_DLSS, FEATURE_DLSS_G, FEATURE_PCL, FEATURE_REFLEX,
+    SlDlssgGetState, SlDlssgSetOptions, SlPclSetMarker, SlReflexSetOptions, SlReflexSleep, SlSetFeatureLoaded, SlSetTagForFrame, SlShutdown, Version, ViewportHandle, FEATURE_DLSS, FEATURE_DLSS_G, FEATURE_PCL, FEATURE_REFLEX,
     FEATURE_REQUIREMENT_HARDWARE_SCHEDULING_REQUIRED, FEATURE_REQUIREMENT_VSYNC_OFF_REQUIRED, FEATURE_REQUIREMENT_VULKAN_SUPPORTED, LOG_TYPE_ERROR, LOG_TYPE_WARN,
-    PREFERENCE_ALLOW_OTA, PREFERENCE_LOAD_DOWNLOADED_PLUGINS, RENDER_API_VULKAN, SDK_VERSION,
+    PREFERENCE_ALLOW_OTA, PREFERENCE_LOAD_DOWNLOADED_PLUGINS, PREFERENCE_USE_FRAME_BASED_RESOURCE_TAGGING, REFLEX_MODE_LOW_LATENCY, RENDER_API_VULKAN, SDK_VERSION,
 };
 use super::preflight::{self, Checked, Pin, Requirements, Snapshot};
 use super::sizing::{Key, Optimal};
 use super::{
     missing_fg_files, missing_files, note, note_fg, note_ngx_line, note_sl, resolve_folder, set_loader_state, spike_from, FgSpike, FolderSource, Frame, Outcome, ACTIVE, ENV_DIR,
-    FG_KEPT_LOADED, FILES, SPIKE_ENV, STREAMLINE_DEVICE,
+    FG_KEPT_LOADED, FG_ON, FILES, SPIKE_ENV, STREAMLINE_DEVICE,
 };
 use crate::upscaler::{DlssModel, DlssState, Unavailable};
 
@@ -54,6 +54,7 @@ pub(super) struct Api {
     pub(super) get_new_frame_token: SlGetNewFrameToken,
     pub(super) set_constants: SlSetConstants,
     pub(super) evaluate_feature: SlEvaluateFeature,
+    set_tag_for_frame: SlSetTagForFrame,
 }
 
 /// The spike's own handles on the renderer, so the device and instance outlive the app until
@@ -281,7 +282,12 @@ pub(super) fn start(app: &mut App) {
     // "valid to restart"]. Without the spike there is one try, as before.
     loop {
         let features: &[u32] = if fg.is_some() { &[FEATURE_DLSS, FEATURE_DLSS_G, FEATURE_REFLEX] } else { &[FEATURE_DLSS] };
-        let prefs = spike_preferences(&paths, features, &engine_version, PROJECT_ID);
+        let mut prefs = spike_preferences(&paths, features, &engine_version, PROJECT_ID);
+        // The spike's `on`: tags per frame (`slSetTagForFrame`), which DLSS-G's inputs need
+        // [documented: `ProgrammingGuide.md:897-904`; `sl_core_types.h:547-549`].
+        if fg == Some(FgSpike::On) {
+            prefs.flags |= PREFERENCE_USE_FRAME_BASED_RESOURCE_TAGGING;
+        }
         // SAFETY: preferences built from the constructor's defaults with every pointer alive for
         // the call; the callback is a static function. Before any Vulkan call through the
         // interposer.
@@ -305,7 +311,11 @@ pub(super) fn start(app: &mut App) {
             set_loader_state(DlssState::Unavailable(Unavailable::StreamlineRefused));
             return;
         }
-        let asked = if fg.is_some() { "DLSS + DLSS Frame Generation + Reflex" } else { "DLSS" };
+        let asked = match fg {
+            Some(FgSpike::On) => "DLSS + DLSS Frame Generation + Reflex, frame-based tagging",
+            Some(_) => "DLSS + DLSS Frame Generation + Reflex",
+            None => "DLSS",
+        };
         note(Level::INFO, format!("slInit: {} (SDK 2.14.16, Vulkan, {asked}, plugins from the folder, over-the-air flags off, engine {} with a project id)", result.name(), env!("CARGO_PKG_VERSION")));
         // The device check, before the renderer is told about the interposer (preflight.rs).
         match device_check(&api, &snapshot, fg.is_some()) {
@@ -327,9 +337,13 @@ pub(super) fn start(app: &mut App) {
         }
     }
     // Before any plugin's `finish`: NVIDIA low latency, loaded there, stays off while DLSS-G will
-    // stay loaded (`nv_low_latency::load`).
-    if fg == Some(FgSpike::KeepLoaded) {
+    // stay loaded, and goes through Streamline's Reflex while that stays loaded
+    // (`nv_low_latency::load`; whether they are supported is known only in `Plugin::cleanup`).
+    if matches!(fg, Some(FgSpike::KeepLoaded | FgSpike::On)) {
         FG_KEPT_LOADED.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+    if fg == Some(FgSpike::On) {
+        FG_ON.store(true, std::sync::atomic::Ordering::Relaxed);
     }
     *state() = Some(Spike { api, phase: Phase::Initialised, eval: None, pins: Some(Pins { _interposer: accepted, _folder: second_pass }), fg });
     let mut settings = app.world_mut().get_resource_or_init::<RawVulkanInitSettings>();
@@ -569,7 +583,7 @@ fn load(interposer: &Path) -> Option<Api> {
     if api.is_none() {
         note(
             Level::WARN,
-            "inactive: the interposer lacks one of Streamline's slInit, slShutdown, slIsFeatureSupported, slIsFeatureLoaded, slSetFeatureLoaded, slGetFeatureVersion, slGetFeatureFunction, slGetFeatureRequirements, slFreeResources, slGetNewFrameToken, slSetConstants, slEvaluateFeature; the stock Vulkan path",
+            "inactive: the interposer lacks one of Streamline's slInit, slShutdown, slIsFeatureSupported, slIsFeatureLoaded, slSetFeatureLoaded, slGetFeatureVersion, slGetFeatureFunction, slGetFeatureRequirements, slFreeResources, slGetNewFrameToken, slSetConstants, slEvaluateFeature, slSetTagForFrame; the stock Vulkan path",
         );
         set_loader_state(DlssState::Unavailable(Unavailable::StreamlineRefused));
     }
@@ -650,6 +664,7 @@ fn exports(module: windows_sys::Win32::Foundation::HMODULE) -> Option<Api> {
             get_new_frame_token: get_proc(module, c"slGetNewFrameToken")?,
             set_constants: get_proc(module, c"slSetConstants")?,
             evaluate_feature: get_proc(module, c"slEvaluateFeature")?,
+            set_tag_for_frame: get_proc(module, c"slSetTagForFrame")?,
         })
     }
 }
@@ -675,6 +690,7 @@ fn instance_report(outcome: Result<(), &str>) {
             spike.pins = None;
             spike.phase = Phase::Down;
             FG_KEPT_LOADED.store(false, std::sync::atomic::Ordering::Relaxed);
+            FG_ON.store(false, std::sync::atomic::Ordering::Relaxed);
             set_loader_state(DlssState::Unavailable(Unavailable::StreamlineRefused));
         }
     }
@@ -695,6 +711,7 @@ pub(super) fn after_device(app: &mut App) {
             spike.pins = None;
             spike.phase = Phase::Down;
             FG_KEPT_LOADED.store(false, std::sync::atomic::Ordering::Relaxed);
+            FG_ON.store(false, std::sync::atomic::Ordering::Relaxed);
             set_loader_state(DlssState::Unavailable(Unavailable::StreamlineRefused));
             return;
         }
@@ -871,7 +888,7 @@ fn frame_generation_after_device(api: &Api, mode: FgSpike, held: &Held, identity
             match functions {
                 Ok((get_state, set_options)) => {
                     let reflex = unload(api, FEATURE_REFLEX);
-                    super::frame_gen::install(get_state, set_options);
+                    super::frame_gen::install(get_state, set_options, super::frame_gen::Mode::KeptOff);
                     let level = if reflex.is_ok() { Level::INFO } else { Level::WARN };
                     note_fg(
                         level,
@@ -884,11 +901,81 @@ fn frame_generation_after_device(api: &Api, mode: FgSpike, held: &Held, identity
                     );
                 }
                 Err(why) => {
-                    note_fg(Level::WARN, format!("DLSS-G not kept loaded: {why}"));
+                    note_fg(
+                        Level::WARN,
+                        format!("DLSS-G not kept loaded: {why}; NVIDIA low latency stays off this session (it was declined at start, while DLSS-G was to stay loaded)"),
+                    );
                     unload_frame_generation(api, &drained);
                 }
             }
         }
+        FgSpike::On => {
+            let reflex_supported = ask(FEATURE_REFLEX);
+            let fetched = match (frame_generation, reflex_supported) {
+                (Ok(g), Ok(r)) if g.is_ok() && r.is_ok() => dlssg_functions(api).and_then(|dlssg| frame_calls(api).map(|calls| (dlssg, calls))),
+                (g, r) => Err(format!("slIsFeatureSupported DLSS-G {}, Reflex {}", text(g), text(r))),
+            };
+            match fetched {
+                Ok(((get_state, set_options), calls)) => {
+                    super::frame_token::install(calls);
+                    // At least once, and with DLSS-G on Reflex must be on (`eFailReflexNotDetectedAtRuntime`,
+                    // `sl_dlss_g.h:131-132`; `ProgrammingGuideReflex.md:177`); not thread
+                    // safe, so here, before the render thread starts.
+                    let reflex = super::frame_token::set_reflex_mode(REFLEX_MODE_LOW_LATENCY);
+                    let frames = super::frame_gen::frames_asked();
+                    super::frame_gen::install(get_state, set_options, super::frame_gen::Mode::On { frames });
+                    note_fg(
+                        if reflex.is_ok() { Level::INFO } else { Level::WARN },
+                        format!(
+                            "frame generation on: DLSS-G and Reflex kept loaded ({drained}; loaded now: DLSS-G {}, Reflex {}), Reflex eLowLatency ({}), frame-based tagging, every Streamline call with our frame number; {frames} generated frame(s) per real frame asked (NVF_DLSSG_FRAMES), at most what DLSS-G allows; latency calls through Streamline (sl.reflex, sl.pcl) whatever the latency reduction switch",
+                            loaded_text(api, FEATURE_DLSS_G),
+                            loaded_text(api, FEATURE_REFLEX),
+                            reflex.name()
+                        ),
+                    );
+                }
+                Err(why) => {
+                    note_fg(
+                        Level::WARN,
+                        format!("frame generation not started: {why}; no latency reduction this session (NVIDIA low latency was set up through Streamline's Reflex at start)"),
+                    );
+                    unload_frame_generation(api, &drained);
+                }
+            }
+        }
+    }
+}
+
+/// A function of `feature` by name through `slGetFeatureFunction` (after the device exists).
+fn feature_function(api: &Api, feature: u32, name: &CStr) -> Result<*mut std::ffi::c_void, String> {
+    let mut function = std::ptr::null_mut();
+    // SAFETY: a NUL-terminated name and an out pointer.
+    let r: SlResult = unsafe { (api.get_feature_function)(feature, name.as_ptr(), &mut function) };
+    if r.is_ok() && !function.is_null() {
+        Ok(function)
+    } else {
+        Err(format!("slGetFeatureFunction({}) {}", name.to_string_lossy(), r.name()))
+    }
+}
+
+/// The calls that name a frame (`frame_token.rs`): the interposer's token, constants and frame
+/// tags, Reflex's sleep and options (`kFeatureReflex`) and PCL's marker (`kFeaturePCL`), as
+/// `sl_reflex.h`'s and `sl_pcl.h`'s helpers fetch them (`SL_FEATURE_FUN_IMPORT_STATIC`).
+fn frame_calls(api: &Api) -> Result<super::frame_token::FrameCalls, String> {
+    let sleep = feature_function(api, FEATURE_REFLEX, c"slReflexSleep")?;
+    let set_options = feature_function(api, FEATURE_REFLEX, c"slReflexSetOptions")?;
+    let marker = feature_function(api, FEATURE_PCL, c"slPCLSetMarker")?;
+    // SAFETY: the plugins hand these out under these names with the signatures their headers
+    // declare (ffi.rs); all plain function pointers.
+    unsafe {
+        Ok(super::frame_token::FrameCalls {
+            get_new_frame_token: api.get_new_frame_token,
+            set_constants: api.set_constants,
+            set_tag_for_frame: api.set_tag_for_frame,
+            reflex_sleep: std::mem::transmute::<*mut std::ffi::c_void, SlReflexSleep>(sleep),
+            reflex_set_options: std::mem::transmute::<*mut std::ffi::c_void, SlReflexSetOptions>(set_options),
+            pcl_set_marker: std::mem::transmute::<*mut std::ffi::c_void, SlPclSetMarker>(marker),
+        })
     }
 }
 
@@ -949,6 +1036,7 @@ fn loaded_text(api: &Api, feature: u32) -> String {
 /// the spike's stage 1 scenario looks for.
 fn unload_frame_generation(api: &Api, drained: &str) {
     FG_KEPT_LOADED.store(false, std::sync::atomic::Ordering::Relaxed);
+    FG_ON.store(false, std::sync::atomic::Ordering::Relaxed);
     let frame_generation = unload(api, FEATURE_DLSS_G);
     let reflex = unload(api, FEATURE_REFLEX);
     let level = if frame_generation.is_ok() && reflex.is_ok() { Level::INFO } else { Level::WARN };
@@ -1038,9 +1126,8 @@ fn adapter_identity(adapter: &wgpu::Adapter) -> Option<(vk::PhysicalDevice, Opti
 
 /// From `main` after `App::run`: the order of the module comment's "Shutdown".
 pub(super) fn shutdown() {
-    // The spike's DLSS-G functions are not called again (the render thread is gone already).
-    super::frame_gen::uninstall();
     FG_KEPT_LOADED.store(false, std::sync::atomic::Ordering::Relaxed);
+    FG_ON.store(false, std::sync::atomic::Ordering::Relaxed);
     let Some(spike) = state().take() else { return };
     match spike.phase {
         Phase::Holding(held) => {
@@ -1061,6 +1148,15 @@ pub(super) fn shutdown() {
                 }
                 eval.report();
             }
+            // The Frame Generation spike's DLSS-G: mode off (when it was on) and its resources for
+            // the viewport freed, after the drain, before slShutdown; then the frame calls go.
+            if super::frame_gen::uninstall() {
+                let viewport = ViewportHandle::new(VIEWPORT);
+                // SAFETY: after the GPU drain; a viewport handle from its constructor.
+                let freed = unsafe { (spike.api.free_resources)(FEATURE_DLSS_G, &viewport) };
+                note_fg(if freed.is_ok() { Level::INFO } else { Level::WARN }, format!("shutdown: slFreeResources(DLSS-G, viewport {VIEWPORT}) {}", freed.name()));
+            }
+            super::frame_token::uninstall();
             // SAFETY: after slInit; the device Streamline stored is still alive.
             let down = unsafe { (spike.api.shutdown)() };
             // Each headline only when its calls succeeded; a failure is named with its value.

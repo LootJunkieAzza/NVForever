@@ -168,6 +168,9 @@ pub const LOG_LEVEL_DEFAULT: u32 = 1;
 pub const PREFERENCE_DISABLE_CL_STATE_TRACKING: u64 = 1 << 0;
 pub const PREFERENCE_ALLOW_OTA: u64 = 1 << 3;
 pub const PREFERENCE_LOAD_DOWNLOADED_PLUGINS: u64 = 1 << 6;
+/// `eUseFrameBasedResourceTagging`: tags given per frame with `slSetTagForFrame` [documented:
+/// `sl_core_types.h:547-549`]; the Frame Generation spike's `on` (#2317).
+pub const PREFERENCE_USE_FRAME_BASED_RESOURCE_TAGGING: u64 = 1 << 7;
 
 /// `sl::EngineType::eCustom` [documented: `sl_appidentity.h:12-18`].
 pub const ENGINE_CUSTOM: u32 = 0;
@@ -391,12 +394,17 @@ pub const RESOURCE_TYPE_TEX2D: u8 = 0;
 /// `sl::ResourceLifecycle::eValidUntilEvaluate`, a plain `enum` (int) [documented:
 /// `sl_core_types.h:397-405`].
 pub const LIFECYCLE_VALID_UNTIL_EVALUATE: u32 = 2;
+/// `sl::ResourceLifecycle::eValidUntilPresent`: "does NOT change, gets destroyed or reused ...
+/// until the frame is presented" [documented: `sl_core_types.h:397-405`].
+pub const LIFECYCLE_VALID_UNTIL_PRESENT: u32 = 1;
 
 /// `sl::BufferType` values (`uint32_t`) [documented: `sl_core_types.h:66, 68, 72, 74`].
 pub const BUFFER_DEPTH: u32 = 0;
 pub const BUFFER_MOTION_VECTORS: u32 = 1;
 pub const BUFFER_SCALING_INPUT_COLOR: u32 = 3;
 pub const BUFFER_SCALING_OUTPUT_COLOR: u32 = 4;
+/// `kBufferTypeHUDLessColor` [documented: `sl_core_types.h:70`].
+pub const BUFFER_HUDLESS_COLOR: u32 = 2;
 
 /// `sl::Extent`: top **before** left [documented: `sl_consts.h:143-169`]; all zero = the whole
 /// resource (`sl_core_types.h:425`).
@@ -739,6 +747,8 @@ impl Default for DlssOptimalSettings {
 
 /// `sl::DLSSGMode::eOff`, an `enum class : uint32_t` [documented: `sl_dlss_g.h:34-41`].
 pub const DLSSG_MODE_OFF: u32 = 0;
+/// `sl::DLSSGMode::eOn` [documented: `sl_dlss_g.h:34-41`].
+pub const DLSSG_MODE_ON: u32 = 1;
 
 /// `sl::DLSSGFlags::eRetainResourcesWhenOff`, a `uint32_t` bit [documented: `sl_dlss_g.h:43-53`].
 pub const DLSSG_FLAG_RETAIN_RESOURCES_WHEN_OFF: u32 = 1 << 3;
@@ -971,6 +981,70 @@ pub type SlDlssSetOptions = unsafe extern "C" fn(*const ViewportHandle, *const D
 pub type SlDlssgGetState = unsafe extern "C" fn(*const ViewportHandle, *mut DlssgState, *const DlssgOptions) -> SlResult;
 /// `slDLSSGSetOptions(const ViewportHandle&, const DLSSGOptions&)`.
 pub type SlDlssgSetOptions = unsafe extern "C" fn(*const ViewportHandle, *const DlssgOptions) -> SlResult;
+
+/// `slSetTagForFrame(const FrameToken&, const ViewportHandle&, const ResourceTag*, uint32_t,
+/// CommandBuffer*)`, an interposer export (`sl_core_api.h:63, 152`; `src/exports.def:264`); the
+/// command buffer "can be null if ALL tags are null or have eValidUntilPresent life-cycle"
+/// (`:145`). Needs `eUseFrameBasedResourceTagging` (`src/sl.cpp` `slSetTagForFrame`).
+pub type SlSetTagForFrame = unsafe extern "C" fn(*const FrameToken, *const ViewportHandle, *const ResourceTag, u32, *mut c_void) -> SlResult;
+
+// Reflex and PCL (`include/sl_reflex.h`, `include/sl_pcl.h` at the tag; the spike's copies are
+// `fork-notes/dlss-streamline/sources/fg/`), fetched with `slGetFeatureFunction` under
+// `kFeatureReflex` and `kFeaturePCL` as their helpers do (`SL_FEATURE_FUN_IMPORT_STATIC`).
+
+/// `sl::ReflexMode`, a plain C `enum` (`int`): `eOff`, `eLowLatency` [documented:
+/// `sl_reflex.h` `enum ReflexMode`].
+pub const REFLEX_MODE_LOW_LATENCY: i32 = 1;
+
+/// `sl::ReflexOptions`, version 1, GUID {F03AF81A-6D0B-4902-A651-C4965E215434} [documented:
+/// `sl_reflex.h` `SL_STRUCT_BEGIN(ReflexOptions, ...)`].
+#[repr(C)]
+#[derive(Debug)]
+pub struct ReflexOptions {
+    pub base: BaseStructure,
+    /// `ReflexMode`.
+    pub mode: i32,
+    /// 0: no frame limit; microseconds otherwise.
+    pub frame_limit_us: u32,
+    /// C++ `bool`.
+    pub use_markers_to_optimize: bool,
+    pub virtual_key: u16,
+    pub id_thread: u32,
+}
+
+impl ReflexOptions {
+    const GUID: StructType = StructType { data1: 0xf03a_f81a, data2: 0x6d0b, data3: 0x4902, data4: [0xa6, 0x51, 0xc4, 0x96, 0x5e, 0x21, 0x54, 0x34] };
+
+    /// The member initialisers: mode `eOff`, no frame limit, markers not used to optimise, no
+    /// hot-key, no thread id.
+    pub fn new() -> Self {
+        Self { base: BaseStructure::new(Self::GUID, 1), mode: 0, frame_limit_us: 0, use_markers_to_optimize: false, virtual_key: 0, id_thread: 0 }
+    }
+}
+
+impl Default for ReflexOptions {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// `sl::PCLMarker` values (`enum class : uint32_t`) [documented: `sl_pcl.h` `enum class
+/// PCLMarker`]: `eInputSample = 6` is deprecated and has none.
+pub const PCL_SIMULATION_START: u32 = 0;
+pub const PCL_SIMULATION_END: u32 = 1;
+pub const PCL_RENDER_SUBMIT_START: u32 = 2;
+pub const PCL_RENDER_SUBMIT_END: u32 = 3;
+pub const PCL_PRESENT_START: u32 = 4;
+pub const PCL_PRESENT_END: u32 = 5;
+pub const PCL_OUT_OF_BAND_PRESENT_START: u32 = 11;
+pub const PCL_OUT_OF_BAND_PRESENT_END: u32 = 12;
+
+/// `slReflexSleep(const FrameToken&)`: "thread safe" (`sl_reflex.h` `PFun_slReflexSleep`).
+pub type SlReflexSleep = unsafe extern "C" fn(*const FrameToken) -> SlResult;
+/// `slReflexSetOptions(const ReflexOptions&)`: "NOT thread safe" (`PFun_slReflexSetOptions`).
+pub type SlReflexSetOptions = unsafe extern "C" fn(*const ReflexOptions) -> SlResult;
+/// `slPCLSetMarker(PCLMarker, const FrameToken&)`: "thread safe" (`sl_pcl.h` `PFun_slPCLSetMarker`).
+pub type SlPclSetMarker = unsafe extern "C" fn(u32, *const FrameToken) -> SlResult;
 
 /// `s` as a NUL-terminated UTF-16 string for Windows.
 pub fn wide(s: &OsStr) -> Vec<u16> {
@@ -1368,6 +1442,37 @@ mod tests {
         assert_eq!(dlssg_status_name((1 << 9) | 1), "eFailResolutionTooLow | unknown bits 0x200");
         assert_eq!((boolean_name(0), boolean_name(1), boolean_name(2), boolean_name(7)), ("eFalse".to_string(), "eTrue".to_string(), "eInvalid".to_string(), "unknown Boolean 7".to_string()));
         assert_eq!((size_of::<SlDlssgGetState>(), size_of::<SlDlssgSetOptions>()), (8, 8));
+    }
+
+    /// Not from the probe table: the Windows x64 layout of `ReflexOptions` by hand from
+    /// `sl_reflex.h`: `BaseStructure` (32), `mode` (an `int`) at 32, `frameLimitUs` at 36,
+    /// `useMarkersToOptimize` (a one-byte `bool`) at 40, `virtualKey` (`uint16_t`) 2-aligned at
+    /// 42, `idThread` at 44, 48 bytes.
+    #[test]
+    fn reflex_and_tagging_from_the_headers() {
+        assert_eq!((size_of::<ReflexOptions>(), align_of::<ReflexOptions>()), (48, 8));
+        check(
+            "ReflexOptions",
+            &[
+                (offset_of!(ReflexOptions, mode), 32),
+                (offset_of!(ReflexOptions, frame_limit_us), 36),
+                (offset_of!(ReflexOptions, use_markers_to_optimize), 40),
+                (offset_of!(ReflexOptions, virtual_key), 42),
+                (offset_of!(ReflexOptions, id_thread), 44),
+            ],
+        );
+        let r = ReflexOptions::new();
+        assert_eq!(r.base.struct_type, StructType { data1: 0xf03af81a, data2: 0x6d0b, data3: 0x4902, data4: [0xa6, 0x51, 0xc4, 0x96, 0x5e, 0x21, 0x54, 0x34] });
+        assert_eq!((r.base.struct_version, r.mode, r.frame_limit_us, r.use_markers_to_optimize, r.virtual_key, r.id_thread), (1, 0, 0, false, 0, 0));
+        assert_eq!(REFLEX_MODE_LOW_LATENCY, 1);
+        // sl_pcl.h's PCLMarker.
+        assert_eq!(
+            [PCL_SIMULATION_START, PCL_SIMULATION_END, PCL_RENDER_SUBMIT_START, PCL_RENDER_SUBMIT_END, PCL_PRESENT_START, PCL_PRESENT_END, PCL_OUT_OF_BAND_PRESENT_START, PCL_OUT_OF_BAND_PRESENT_END],
+            [0, 1, 2, 3, 4, 5, 11, 12]
+        );
+        // sl_core_types.h:70, 397-405, 547-549; sl_dlss_g.h:34-41.
+        assert_eq!((BUFFER_HUDLESS_COLOR, LIFECYCLE_VALID_UNTIL_PRESENT, PREFERENCE_USE_FRAME_BASED_RESOURCE_TAGGING, DLSSG_MODE_ON), (2, 1, 0x80, 1));
+        assert_eq!((size_of::<SlSetTagForFrame>(), size_of::<SlReflexSleep>(), size_of::<SlReflexSetOptions>(), size_of::<SlPclSetMarker>()), (8, 8, 8, 8));
     }
 
     #[test]

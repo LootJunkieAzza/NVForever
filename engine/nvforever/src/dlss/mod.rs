@@ -113,7 +113,14 @@
 //!   `NVF_DLSSG_SPIKE=loaded` DLSS-G stays loaded with its mode off and only Reflex is unloaded:
 //!   the window presents through Streamline's swapchain, `frame_gen.rs` sets the options once
 //!   and logs DLSS-G's state once a second, and NVIDIA low latency stays off
-//!   ([`frame_generation_loaded`]).
+//!   ([`frame_generation_loaded`]). With `NVF_DLSSG_SPIKE=on` (stage 2) DLSS-G and Reflex stay
+//!   loaded with frame-based tagging asked for in `slInit`: every Streamline call that names a
+//!   frame uses our frame number (`frame_token.rs`), `frame_gen.rs` sets the constants once a
+//!   frame for FSR or DLSS, tags the depth, motion and a copy of the frame without the HUD on
+//!   frames that may be generated and sets DLSS-G's options on changes and reads its state after
+//!   every present; NVIDIA low latency goes through Streamline's Reflex
+//!   ([`frame_generation_on`], `nv_low_latency.rs`), the window presents without vsync
+//!   (`frame_pace.rs`), and FSR's frame generation stays off (`crate::frame_gen::usable`).
 //!
 //! Log lines start `DLSS:` (`DLSS-G spike:` for the spike's own); lines before the log is up
 //! wait in a buffer, written each frame (`First`) and at shutdown.
@@ -141,6 +148,8 @@ mod evaluate;
 mod ffi;
 #[cfg(windows)]
 mod frame_gen;
+#[cfg(windows)]
+mod frame_token;
 #[cfg(any(windows, test))]
 mod preflight;
 #[cfg(windows)]
@@ -184,6 +193,9 @@ enum FgSpike {
     /// `loaded`: as `Report`, but DLSS-G stays loaded with its mode off, so the window presents
     /// through Streamline's swapchain; Reflex is unloaded (stage 1b, `frame_gen.rs`).
     KeepLoaded,
+    /// `on`: DLSS-G and Reflex stay loaded, frame-based tagging, our frame numbers for every
+    /// call (`frame_token.rs`), and frame generation on in play (stage 2, `frame_gen.rs`).
+    On,
 }
 
 /// `NVF_DLSSG_SPIKE`'s value read: `Ok(None)` unset or empty, `Err` with the line to log for a
@@ -194,12 +206,12 @@ fn spike_from(value: Option<&std::ffi::OsStr>) -> Result<Option<FgSpike>, String
     match value.as_str() {
         "1" => Ok(Some(FgSpike::Report)),
         "loaded" => Ok(Some(FgSpike::KeepLoaded)),
-        "on" => Err(format!("{SPIKE_ENV}=on is a later stage of the spike, not in this build; DLSS only as without the spike")),
-        other => Err(format!("{SPIKE_ENV}={other} is none of 1 or loaded; DLSS only as without the spike")),
+        "on" => Ok(Some(FgSpike::On)),
+        other => Err(format!("{SPIKE_ENV}={other} is none of 1, loaded or on; DLSS only as without the spike")),
     }
 }
 
-/// DLSS Frame Generation stays loaded this session (the spike's `loaded`, #2317): set at the
+/// DLSS Frame Generation stays loaded this session (the spike's `loaded` or `on`, #2317): set at the
 /// start once DLSS-G was requested in `slInit` and the device check passed with it, before any
 /// plugin's `finish`, and cleared again if it is unloaded after all (`win.rs`) or at shutdown.
 static FG_KEPT_LOADED: AtomicBool = AtomicBool::new(false);
@@ -210,6 +222,47 @@ static FG_KEPT_LOADED: AtomicBool = AtomicBool::new(false);
 /// loader's `cleanup`). Always false off Windows and without `NVF_DLSSG_SPIKE=loaded`.
 pub(crate) fn frame_generation_loaded() -> bool {
     FG_KEPT_LOADED.load(Ordering::Relaxed)
+}
+
+/// DLSS Frame Generation runs this session (the spike's `on`, #2317): DLSS-G and Reflex stay
+/// loaded. Set at the start like [`FG_KEPT_LOADED`] (which it implies), cleared with it.
+static FG_ON: AtomicBool = AtomicBool::new(false);
+
+/// Whether Streamline's DLSS Frame Generation and Reflex stay loaded with frame generation on
+/// (`NVF_DLSSG_SPIKE=on`): NVIDIA low latency then goes through Streamline's Reflex
+/// (`nv_low_latency::load`), and the window presents without vsync (`frame_pace.rs`), which
+/// DLSS-G requires on Vulkan [observed: fork-notes `fg-spike-results.md`, its requirements'
+/// "vsync off required yes"]. Always false off Windows and without the spike.
+pub(crate) fn frame_generation_on() -> bool {
+    FG_ON.load(Ordering::Relaxed)
+}
+
+/// Reflex's sleep through Streamline for the frame whose marker number is `present_id`
+/// (`nv_low_latency.rs` `present_id`, the engine frame plus one: the number `frame_token.rs`
+/// `index_of` gives the frame's constants and tags), while [`frame_generation_on`]; `false` when
+/// it was not made (not installed, or refused).
+pub(crate) fn reflex_sleep(present_id: u64) -> bool {
+    #[cfg(windows)]
+    {
+        frame_token::sleep(frame_token::number(present_id)).is_ok()
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = present_id;
+        false
+    }
+}
+
+/// A latency marker through Streamline's PCL for the frame whose marker number is `present_id`
+/// (as [`reflex_sleep`]), while [`frame_generation_on`]: the driver's marker mapped to PCL's
+/// (none for `INPUT_SAMPLE`, which PCL no longer has).
+pub(crate) fn reflex_mark(marker: ash::vk::LatencyMarkerNV, present_id: u64) {
+    #[cfg(windows)]
+    if let Some(pcl) = frame_token::pcl_marker(marker) {
+        frame_token::mark(pcl, frame_token::number(present_id));
+    }
+    #[cfg(not(windows))]
+    let _ = (marker, present_id);
 }
 
 /// The files of [`FG_FILES`] that `folder` lacks, in that order.
@@ -561,6 +614,9 @@ pub(crate) struct Frame<'a> {
     pub fov: f32,
     /// A camera cut or an invalid history this frame.
     pub reset: bool,
+    /// The frame's Streamline number (`Presenting::frame` plus one), for the Frame Generation
+    /// spike's own frame tokens (`frame_token.rs`); `None` without latency's frame counter.
+    pub frame_index: Option<u32>,
 }
 
 /// What [`dlss_pass`] does after [`evaluate`].
@@ -614,10 +670,6 @@ impl Plugin for DlssPassPlugin {
             .init_resource::<DlssMainState>()
             .add_systems(ExtractSchedule, extract_main_state)
             .add_systems(Render, configure.in_set(RenderSystems::PrepareResources).after(prep::prepare))
-            // The Frame Generation spike's options and state (#2317): on the render thread, which
-            // presents, after Bevy's `render_system` has (where FSR's frame generation hands its
-            // frame over). It does nothing unless DLSS-G was kept loaded.
-            .add_systems(Render, frame_generation_state.in_set(RenderSystems::Render).after(bevy::render::renderer::render_system))
             .add_systems(
                 bevy::core_pipeline::Core3d,
                 // Where `fsr_pass` is for FSR: after the occlusion before the upscaler (ssao.rs
@@ -630,6 +682,10 @@ impl Plugin for DlssPassPlugin {
                     .before(bevy::post_process::bloom::bloom)
                     .before(crate::post::bright_pass_hdr),
             );
+        // The Frame Generation spike's render systems (#2317, `frame_gen.rs`); each does nothing
+        // unless DLSS-G was kept loaded.
+        #[cfg(windows)]
+        frame_gen::add_systems(render_app);
     }
 }
 
@@ -681,14 +737,19 @@ pub(crate) fn configure(views: Query<(&ExtractedView, &PreparedUpscale)>, sizes:
     let _ = (optimal, main.model);
 }
 
-/// The spike's DLSS-G options and state (`frame_gen.rs`); off Windows nothing.
-#[cfg(windows)]
-fn frame_generation_state() {
-    frame_gen::state_log();
+/// The Streamline frame number of the frame the render world draws (`frame_token::index_of`);
+/// `None` off Windows or without latency reduction's frame counter.
+fn frame_index(presenting: Option<&crate::anti_lag::Presenting>) -> Option<u32> {
+    #[cfg(windows)]
+    {
+        presenting.map(|p| frame_token::index_of(p.frame))
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = presenting;
+        None
+    }
 }
-
-#[cfg(not(windows))]
-fn frame_generation_state() {}
 
 /// DLSS's resources freed when options are set (`win::release`); off Windows nothing is held.
 #[cfg(windows)]
@@ -708,6 +769,7 @@ pub(crate) fn dlss_pass(
     view: ViewQuery<(&ViewTarget, &PreparedUpscale, Option<&ViewPrepassTextures>, &TemporalJitter, &ExtractedView, Option<&PreviousViewData>)>,
     upscale: Res<UpscaleRenderer>,
     device: Res<RenderDevice>,
+    presenting: Option<Res<crate::anti_lag::Presenting>>,
     mut ctx: RenderContext,
 ) {
     let (target, prepared, prepass, jitter, extracted, previous) = view.into_inner();
@@ -746,6 +808,7 @@ pub(crate) fn dlss_pass(
             near: prepared.camera.near,
             fov: prepared.camera.fov,
             reset,
+            frame_index: frame_index(presenting.as_deref()),
         },
     );
     let encoder = ctx.command_encoder();
@@ -983,8 +1046,8 @@ mod tests {
         assert_eq!(spike_from(Some(OsStr::new("1"))), Ok(Some(FgSpike::Report)));
         assert_eq!(spike_from(Some(OsStr::new(" 1 "))), Ok(Some(FgSpike::Report)));
         assert_eq!(spike_from(Some(OsStr::new("loaded"))), Ok(Some(FgSpike::KeepLoaded)));
-        assert!(spike_from(Some(OsStr::new("on"))).unwrap_err().contains("NVF_DLSSG_SPIKE=on is a later stage"));
-        assert!(spike_from(Some(OsStr::new("yes"))).unwrap_err().contains("NVF_DLSSG_SPIKE=yes is none of 1 or loaded"));
+        assert_eq!(spike_from(Some(OsStr::new("on"))), Ok(Some(FgSpike::On)));
+        assert!(spike_from(Some(OsStr::new("yes"))).unwrap_err().contains("NVF_DLSSG_SPIKE=yes is none of 1, loaded or on"));
     }
 
     #[test]
