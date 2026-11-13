@@ -161,6 +161,9 @@ pub struct Session {
     pub first: usize,
     /// 0: the item itself; else the part at this place, less one.
     pub selected: usize,
+    /// Opened with Alt held under the player's Repair Items Preview tweak: it shows what
+    /// could repair the item, at full condition too, and repairs nothing.
+    pub preview: bool,
 }
 
 impl Session {
@@ -360,6 +363,7 @@ pub fn keys(
         }
     }
     let mut script = script.map(|s| s.into_inner());
+    let alt = keys.any_pressed([AltLeft, AltRight]);
     for step in steps {
         if let RepairInput::Click(i) = step {
             info!("pipboy repair: clicked row {i}");
@@ -368,6 +372,21 @@ pub fn keys(
         match (repair.0.as_mut(), step) {
             (None, RepairInput::Open) => {
                 let Some(o) = current(&active, &mut sim, script.as_deref()) else { continue };
+                // The player's tweak: with Alt held the list opens as a preview, also for an
+                // item at full condition [design: docs/design/tweaks.md].
+                let preview = alt && script.as_deref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.repair_preview);
+                if preview {
+                    if o.parts.is_empty() {
+                        info!("pipboy repair: preview of {}: nothing carried repairs it", o.name);
+                        sounds.write(UiSound { menu: UiMenu::Repair, event: UiEvent::Refused });
+                        continue;
+                    }
+                    info!("pipboy repair: preview of {} (tweak): {}", o.name, o.parts.iter().map(|p| p.name.clone()).collect::<Vec<_>>().join(", "));
+                    let skill = script.as_deref_mut().and_then(|s| s.rt.as_mut()).map_or(0.0, |rt| crate::script::with_world(rt, &mut sim, |rt| fnv_game::functions::actor_value_capped(&mut rt.game, FormId::PLAYER_REF, fnv_game::actor_values::REPAIR)) as f32);
+                    let settings = MergeSettings::from_settings(|n| sim.forms.setting_f32(n));
+                    repair.0 = Some(Session { offer: o, skill, settings, first: 0, selected: 0, preview: true });
+                    continue;
+                }
                 if !o.usable() {
                     info!("pipboy repair: {} at {}%: nothing to repair it with{}", o.name, fnv_combat::condition::percent(o.condition), if o.condition >= SHOWN_FULL { " (full condition)" } else { "" });
                     sounds.write(UiSound { menu: UiMenu::Repair, event: UiEvent::Refused });
@@ -390,7 +409,7 @@ pub fn keys(
                     o.parts.iter().map(|p| format!("{} {}%", p.name, fnv_combat::condition::percent(p.condition))).collect::<Vec<_>>().join(", ")
                 );
                 let settings = MergeSettings::from_settings(|n| sim.forms.setting_f32(n));
-                repair.0 = Some(Session { offer: o, skill, settings, first: 0, selected: 0 });
+                repair.0 = Some(Session { offer: o, skill, settings, first: 0, selected: 0, preview: false });
             }
             (None, _) => {}
             (Some(s), RepairInput::Up) => {
@@ -409,6 +428,10 @@ pub fn keys(
                 repair.0 = None;
             }
             (Some(_), RepairInput::Open) => {}
+            (Some(s), RepairInput::Use) if s.preview => {
+                info!("pipboy repair: a preview repairs nothing (tweak)");
+                sounds.write(UiSound { menu: UiMenu::Repair, event: UiEvent::Refused });
+            }
             (Some(s), RepairInput::Use) => {
                 let Some(part) = s.selected.checked_sub(1).and_then(|i| s.offer.parts.get(i)).cloned() else { continue };
                 let to = s.after(&part);
@@ -615,7 +638,7 @@ mod tests {
         let o = with_kits(offer(&groups, &forms, &[], gun, Pick::at(Some(0.4)), false).unwrap(), &groups, &forms, &is_kit);
         assert_eq!(o.parts.iter().map(|p| (p.item, p.kit, p.name.as_str())).collect::<Vec<_>>(), vec![(kit, true, "Item 3 (2)")]);
         assert!(o.usable());
-        let s = Session { offer: o.clone(), skill: 50.0, settings: MergeSettings::default(), first: 0, selected: 1 };
+        let s = Session { offer: o.clone(), skill: 50.0, settings: MergeSettings::default(), first: 0, selected: 1, preview: false };
         assert!((s.after(&o.parts[0]) - 0.6).abs() < 1e-6);
         // Armour gets none.
         let a = with_kits(offer(&groups, &forms, &[], coat, Pick::at(Some(0.4)), false).unwrap(), &groups, &forms, &is_kit);

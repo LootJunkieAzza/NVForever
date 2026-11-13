@@ -874,6 +874,7 @@ mod tests {
             settings: MergeSettings::default(),
             first: 0,
             selected,
+            preview: false,
         }
     }
 

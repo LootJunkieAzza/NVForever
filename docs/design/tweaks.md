@@ -615,6 +615,7 @@ unless the player binds them, so nothing changes until then.
 | Target Projectiles in V.A.T.S., Mines Too, Your Own Projectiles, Ignores Non-Explosive | `bTargetProjectilesInVATS`, `bVATSTargetPlayerProjectiles`, `bVATSIgnoreNonExplosiveProjectiles` | `vats_mode::projectile_under` picks from `Combat::vats_projectiles` by `ProjectileRules`; `mark_projectile` marks it (target FormId 0, `Spot::projectile`), `follow` tracks it and drops it when it ends; a landed shot asks `Combat::shoot_down`. Mines lying armed are marked as objects (`Mines::is_live`) and set off by the shot as destructibles. The switches: `Tweaks::vats_target_projectiles`, `vats_target_mines`, `vats_target_own_projectiles`, `vats_ignore_non_explosive` |
 | Revive Unconscious Companions | `bReviveUnconsciousCompanions` | `fnv_game::unconscious` (`can_revive`, `revive`: the master's Stimpak used up, then the usual getting up; `essential_down` for the time); `activate::actor_action_in` gives `Action::Revive`, Activate calls `revive`. The switches: `Tweaks::revive_companions`, `revive_down_seconds` |
 | Clicking the Tab Sorts | `bClickingActiveTabTogglesSorting` | `pipboy::apply_input` steps `PipBoy::item_sort` on a click on the open tab; `pipboy::items::keys` hands it to the model (`Command::SetSort`); `menu::model::SortBy::apply` orders the player's list after the category filter. The switch: `TweakSettings::tab_click_sorts` |
+| Repair Items Preview | `bRepairItemsPreview` | `pipboy::repair::keys` opens a `Session` with `preview` when Alt is held (the full-condition and skill checks skipped), and refuses Use in it. The switch: `Tweaks::repair_preview` |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -636,8 +637,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 551 |
-| to do | 49 |
+| done | 552 |
+| to do | 48 |
 | unsure, skipped | 19 |
 | n/a | 16 |
 | skipped: fix | 10 |
@@ -1118,6 +1119,7 @@ game's Data folder, read-only).
 | `bQuestTextVisibleInMenus` | done |  |  | Quest Text Over the Pip-Boy (and terminals; while sitting it already shows) |
 | `bRememberPipboyScrollPositions` | done | yes |  | Remember Item List Places (the Items lists' rows, each tab its own, kept with the save) |
 | `bRepairAllConfirmation` | done |  | 2 | Repair All Confirmation with From This Price: the first Repair All turns its button into the question, the next pays (hand-built and tile menus); the message text is ours |
+| `bRepairItemsPreview` | done |  | 1 | Repair Items Preview: Alt held with R opens the repair list as a preview, also for an item at full condition, its figures shown, Use refused. The hint's own label (sButtonLabel) is not built: the page's hints do not follow Alt |
 | `bReputationShowsFameInfamy` | done |  | 3 | Show Fame and Infamy (numbers; the percentage option not built) |
 | `bRightClickChangesToPreviousContainerCategory` | done |  |  | Right Click for the Previous Category (container and barter; not the recipe menu) |
 | `bSavingDoesntClosePauseMenu` | done |  |  | already so: saving leaves the pause menu open |
@@ -1159,7 +1161,6 @@ game's Data folder, read-only).
 | `bLocalMapRespawnedCellIndicator` | to do |  | 2 | not built: the local map has no cell grid |
 | `bNoteMenuShowSeparateMenu` | unsure, skipped |  | 1 | needs another mod (Book Menu Restored) |
 | `bQuantityMenuRespectsCompanionCarryCap` | to do |  |  | asks_quantity has no world |
-| `bRepairItemsPreview` | to do |  | 1 | a preview session in the repair list |
 | `bShowInventorySortButton` | unsure, skipped |  | 11 | needs the plugin's own menu XML |
 | `bVATSAPDisplayIncludesReloadCost` | to do |  |  | not built: V.A.T.S. queues never reload |
 

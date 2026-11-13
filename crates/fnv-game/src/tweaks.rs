@@ -394,6 +394,8 @@ pub struct Tweaks {
     /// `bUseWeaponRepairKitsInRepairMenu`: weapon repair kits are parts in a weapon's
     /// Pip-Boy repair list.
     pub repair_kits_in_list: bool,
+    /// `bRepairItemsPreview`: Alt held with R opens the repair list as a preview.
+    pub repair_preview: bool,
     /// `bNoSkillBooksAbove100`: a skill book whose skill is already at 100 is not read.
     pub no_skill_books_at_max: bool,
     /// `bLessFrequentPlayerPainSounds` (`iMinPlayerPainSoundIntervalMS`): seconds the
@@ -832,6 +834,7 @@ impl Default for Tweaks {
             repair_same_first: false,
             repair_low_first: false,
             repair_kits_in_list: false,
+            repair_preview: false,
             no_skill_books_at_max: false,
             player_pain_gap: 0.0,
             pause_on_load: false,
