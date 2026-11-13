@@ -1104,6 +1104,24 @@ pub fn dismember_mesh(cpu: &Mesh, partitions: &[Partition], keep: impl Fn(&Parti
     m
 }
 
+/// A skinned mesh made rigid: a copy without its joint indices and weights, for drawing
+/// a skinned shape with no skeleton (an item in the hand, `consume_anims.rs`); `None`
+/// for a mesh that has none. Bevy picks the skinned pipeline for a mesh that has joint
+/// attributes, while an entity with no `SkinnedMesh` is given the bind group without
+/// joint matrices; wgpu refuses every such draw as a validation error [observed: the
+/// owner's co-op guest, ship17, 2026-11-13: the B42 Loot pickup of the Exposed Prostitute
+/// Outfit held its skinned body, and the twenty errors let through closed the game].
+/// The vertices stay where the file has them, in the shape's own space.
+pub fn rigid_mesh(cpu: &Mesh) -> Option<Mesh> {
+    if cpu.attribute(Mesh::ATTRIBUTE_JOINT_INDEX).is_none() && cpu.attribute(Mesh::ATTRIBUTE_JOINT_WEIGHT).is_none() {
+        return None;
+    }
+    let mut m = cpu.clone();
+    m.remove_attribute(Mesh::ATTRIBUTE_JOINT_INDEX);
+    m.remove_attribute(Mesh::ATTRIBUTE_JOINT_WEIGHT);
+    Some(m)
+}
+
 /// Per vertex: four joint indices and their weights.
 pub type SkinWeights<'a> = (&'a [[u16; 4]], &'a [[f32; 4]]);
 
@@ -1271,6 +1289,28 @@ pub fn probe_skeleton(data: &GameData, path: &str) -> Result<PreparedSkeleton, S
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_skinned_mesh_made_rigid_keeps_its_vertices_and_triangles_but_no_joints() {
+        let mut m = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default());
+        m.insert_attribute(Mesh::ATTRIBUTE_POSITION, vec![[0.0f32, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]);
+        m.insert_attribute(Mesh::ATTRIBUTE_JOINT_INDEX, VertexAttributeValues::Uint16x4(vec![[0, 1, 0, 0]; 3]));
+        m.insert_attribute(Mesh::ATTRIBUTE_JOINT_WEIGHT, vec![[0.5f32, 0.5, 0.0, 0.0]; 3]);
+        m.insert_indices(Indices::U16(vec![0, 1, 2]));
+        let r = rigid_mesh(&m).unwrap();
+        assert!(r.attribute(Mesh::ATTRIBUTE_JOINT_INDEX).is_none() && r.attribute(Mesh::ATTRIBUTE_JOINT_WEIGHT).is_none());
+        assert!(skin_weights(&r).is_none());
+        assert_eq!(r.count_vertices(), 3);
+        assert_eq!(r.indices().map(Indices::len), Some(3));
+        assert_eq!(r.attribute(Mesh::ATTRIBUTE_POSITION).map(VertexAttributeValues::len), Some(3));
+    }
+
+    #[test]
+    fn a_rigid_mesh_needs_no_copy() {
+        let mut m = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default());
+        m.insert_attribute(Mesh::ATTRIBUTE_POSITION, vec![[0.0f32; 3]; 3]);
+        assert!(rigid_mesh(&m).is_none());
+    }
 
     #[test]
     fn a_severed_piece_takes_its_own_vertices_weighted_to_its_side_only() {

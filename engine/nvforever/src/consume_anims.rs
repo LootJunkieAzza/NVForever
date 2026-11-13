@@ -845,8 +845,12 @@ fn attach(commands: &mut Commands, ctx: &mut ActorCtx, clip: &Clip, t: f32, skel
     // the hand does (`player_body::arms_material`): the arms' depth is squeezed in front
     // of the world, and with the model's own the hands drew through it.
     let first_person = layer.as_ref().is_some_and(|l| *l == RenderLayers::layer(crate::sky::ARMS_LAYER));
+    // A skinned shape (a worn model, B42 Loot's `prosGO.nif` too) is drawn rigid: with no
+    // skeleton under it, its joint attributes made every draw a GPU validation error
+    // (`nvf_assets::actor::rigid_mesh`).
+    let shapes: Vec<_> = part.shapes.iter().filter(|s| !s.cap).map(|s| (s, nvf_assets::actor::rigid_mesh(&s.cpu).map_or_else(|| s.mesh.clone(), |m| ctx.models.meshes.add(m)))).collect();
     let mut material = |m: &Handle<nvf_assets::nif_material::NifMaterial>| if first_person { crate::player_body::arms_material(&mut ctx.models.materials, m) } else { m.clone() };
-    for s in part.shapes.iter().filter(|s| !s.cap) {
+    for (s, mesh) in shapes {
         // The outermost ancestor a track moves (`<name>_B42`).
         let found = s.ancestors.iter().enumerate().rev().find_map(|(k, (name, own))| {
             let name = name.as_deref()?;
@@ -854,7 +858,7 @@ fn attach(commands: &mut Commands, ctx: &mut ActorCtx, clip: &Clip, t: f32, skel
             Some((k, name.to_string(), *own, tr.clone()))
         });
         let Some((k, name, rest, tr)) = found else {
-            let x = commands.spawn((Mesh3d(s.mesh.clone()), MeshMaterial3d(material(&s.material)), Transform::from_matrix(Mat4::from(part.root * s.transform)))).id();
+            let x = commands.spawn((Mesh3d(mesh.clone()), MeshMaterial3d(material(&s.material)), Transform::from_matrix(Mat4::from(part.root * s.transform)))).id();
             with_layer(commands, x);
             commands.entity(point).add_child(x);
             entities.push(x);
@@ -873,7 +877,7 @@ fn attach(commands: &mut Commands, ctx: &mut ActorCtx, clip: &Clip, t: f32, skel
             }
         };
         let below = s.ancestors[..k].iter().rev().fold(Affine3A::IDENTITY, |acc, (_, a)| acc * *a) * s.own;
-        let x = commands.spawn((Mesh3d(s.mesh.clone()), MeshMaterial3d(material(&s.material)), Transform::from_matrix(Mat4::from(below)))).id();
+        let x = commands.spawn((Mesh3d(mesh.clone()), MeshMaterial3d(material(&s.material)), Transform::from_matrix(Mat4::from(below)))).id();
         with_layer(commands, x);
         commands.entity(node).add_child(x);
         entities.push(x);
@@ -1023,10 +1027,10 @@ fn interact(
 /// armour its world (ground) model, MOD2, else MODL; for anything else MODL. The mod's
 /// script takes `GetBipedModelPath 2` for armour (form type 24) and `GetModelPath`
 /// otherwise [observed: `ln_B42Loot.txt`, "SNATCH MODEL PATH"; index 2 is the male world
-/// model, `fnv_game::nvse`]. MODL is armour's male body model: picking up the Exposed
-/// Prostitute Outfit put the whole skinned outfit and body (`prosmale03.nif`, 7797
-/// vertices in its outfit shape) in the guest's hand instead of the folded clothes, and
-/// the guest's GPU stopped there (owner's co-op report, ship17).
+/// model, `fnv_game::nvse`]. MODL is armour's worn model: picking up the Exposed
+/// Prostitute Outfit put the whole outfit and body (`prosmale03.nif`) in the hand instead
+/// of the folded clothes (`prosGO.nif`), and the grip lookup, keyed by world models, found
+/// nothing for it.
 fn held_model(base: &fnv_world::placed::BaseObject) -> Option<String> {
     if &base.sig == b"ARMO" {
         base.world_model_path()
