@@ -148,3 +148,8 @@ Source-call implementation and owned combined-harness fixture ported to current 
 
 Implemented the focused behavior correction and authored synthetic regression coverage;
 contract and limits: [TypeOf missing-key inspection](spec-notes/typeof-missing-key.md). This entry does not establish full mod compatibility.
+
+### Script-unit extender variable kinds
+
+Implemented the focused behavior correction and authored synthetic regression coverage;
+contract and limits: [Script-unit extender variable kinds](spec-notes/extender-variable-kinds.md). This entry does not establish full mod compatibility.
