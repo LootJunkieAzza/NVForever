@@ -117,26 +117,36 @@ pub const BARS: &[Bar] = &[Bar {
     top: SALOON_COUNTER_TOP,
     heading: 0.6,
     floor: SALOON_FLOOR,
-    // Along the counter's front, facing it: two on its straight run by the bottle, two
-    // round its curve, either side of the saloon's stool 0x00106195 at (-134, -578)
-    // [observed: `fnvtool phys cell`, 2026-11-12: a character dropped on each mark stands
-    // on the floor at 3456.7 touching nothing else, and a ray from each mark along its
-    // heading meets the counter 0x00107D6F 36 to 43 away (a body's radius is 22); the
-    // stool is 38 from mark 1 and 50 from mark 2; design: a drinker who passes out falls
-    // backwards, away from the counter, onto open floor].
-    marks: [[-52.0, -598.0, 0.0], [-98.0, -598.0, 0.0], [-181.0, -560.0, 0.51], [-220.0, -530.0, 0.81]],
+    // A step back from the counter's front, facing across it toward the bottle, along
+    // the counter from its end round its curve: slot 0 west of the stool 0x00106195 at
+    // (-134, -578) by the straight run, slots 1 to 3 round the curve, slot 3 clear of the
+    // stool 0x00107D6C at about (-277, -428) [design: parity, 2026-11-13, "like standing
+    // at a bar: about a step back from the counter, facing across it"; the marks of
+    // 2026-11-12 stood 36 from the counter's end by the side wall, so the third-person
+    // camera, 40 right of the shoulder (`fOverShoulderPosX`), was pulled in against the
+    // wall 0x00107D89 and the view ran along it, drink-b's frame drink_tick_640].
+    // [observed: `fnvtool phys cell`, 2026-11-13: a character dropped on each mark stands
+    // on the floor at 3456.7; the third-person camera's legs from each mark (40 right,
+    // then 170 back, at 107 up) meet nothing; the level ray from each such camera along
+    // the heading first meets a wall 339 to 468 away, and its line to the bottle is clear;
+    // the wall's face (x -19.8) ends at y -656, the counter's outline at the waist runs
+    // from (-20, -562) by (-129, -550) and (-219, -470) to x -265 on its long run.]
+    marks: [[-125.0, -620.0, 0.42], [-205.0, -570.0, 0.89], [-245.0, -510.0, 1.40], [-300.0, -470.0, 1.05]],
     // The first number was the round table's (`RETIRED_TABLE_EDID`).
     refs: [FormId(0xFF7F_A100), FormId(0xFF7F_A101), FormId(0xFF7F_A102)],
-    // In front of the counter, between where the bodies of marks 1 and 2 fall, the camera
-    // south of it looking north, so the counter and the back bar, not a window, are behind
-    // the dancer [observed: `fnvtool phys cell`, 2026-11-12, rays at the waist from
-    // (-120, -660): the bar room is open floor west to x -496 and south to the wall
-    // NVGSWallDoor 0x00107D81 about 220 away, and opens east onto the main room south of y
-    // -656; its light BasementLightKeyNeutral 0x00106C17 hangs over the counter's end at
-    // (-96, -530, 3614); design: a dancer seen against the windows was a silhouette in
-    // drink-b's co-op frames, 2026-11-12].
-    stage: [-140.0, -680.0],
-    stage_bearing: std::f32::consts::PI,
+    // South-east of the marks, off where every passed-out body falls (backwards, away from
+    // the counter), the camera south-south-west of it looking up the room, so the counter's
+    // end with the bottle, the back bar and the side wall's end are behind the dancer, the
+    // wall's end hidden by the dancer [observed: `fnvtool phys cell`, 2026-11-13: a
+    // character dropped at the stage stands on the floor at 3456.7, nothing within 60 at
+    // the waist but the side wall's end 0x00107D89 at 59 to the north-east, the line from
+    // the chest to the camera is clear and nothing is within 60 of the camera round it,
+    // the wall NVGSWallDoor 0x00107D81 97 over it; the bar room's light
+    // BasementLightKeyNeutral 0x00106C17 hangs over the counter's end at (-96, -530,
+    // 3614); design: a dancer seen against the windows was a silhouette in drink-b's co-op
+    // frames, 2026-11-12].
+    stage: [-60.0, -700.0],
+    stage_bearing: std::f32::consts::PI + 0.35,
 }];
 
 /// The win camera's distance from the winner's feet, flat (game units) [design: the whole
@@ -359,7 +369,7 @@ mod tests {
             let (p, _) = mark(bar, slot);
             assert!(p[0] < -20.0 - 22.0, "slot {slot} is in the wall");
         }
-        assert!(mark(bar, 0).0[1] < -562.4 - 22.0 && mark(bar, 1).0[1] < -562.4 - 22.0);
+        assert!(mark(bar, 0).0[1] < -562.4 - 22.0 && mark(bar, 1).0[1] < -550.0 - 22.0);
     }
 
     #[test]
@@ -371,11 +381,18 @@ mod tests {
         let flat = dx.hypot(dy);
         assert!((flat - STAGE_CAMERA_DISTANCE).abs() < 1e-3);
         assert!((dx * st.heading.sin() + dy * st.heading.cos()) / flat > 0.999);
-        // Off the counter and a body's length from every mark.
+        // Off the counter, a body's length from every mark and off where each body falls:
+        // backwards from its mark, a body's height (130) long.
         assert!((st.feet[0] - bar.top[0]).hypot(st.feet[1] - bar.top[1]) > 100.0);
         for slot in 0..MARKS {
-            let (m, _) = mark(bar, slot);
+            let (m, h) = mark(bar, slot);
             assert!((st.feet[0] - m[0]).hypot(st.feet[1] - m[1]) > 60.0, "the stage is on mark {slot}");
+            let (s, c) = h.sin_cos();
+            let near = (0..=13)
+                .map(|k| k as f32 * 10.0)
+                .map(|t| (st.feet[0] - (m[0] - s * t)).hypot(st.feet[1] - (m[1] - c * t)))
+                .fold(f32::MAX, f32::min);
+            assert!(near > 60.0, "the stage is where slot {slot} falls ({near:.0})");
         }
         // The camera in the bar room (its side wall at x -20, its far wall about y -880,
         // open floor west to x -496), on the customers' side, above the head.

@@ -476,6 +476,107 @@ fn report(mut exit: MessageReader<AppExit>, world: Res<DrinkWorld>) {
 mod tests {
     use super::*;
 
+    /// The Prospector Saloon's bar end as `fnvtool phys cell` measured it, 2026-11-13
+    /// [observed]: the side wall `NVGSWallONLY` 0x00107D89, its face at x -19.8 from its
+    /// end at y -656 northwards (rays east at the waist and at 3564 hit it from y -650 to
+    /// -470, none at y -660 and south); the counter's outline at the waist (3500) from the
+    /// wall round its curve to its long run; its top at 3528.1; the stools 0x00106195 at
+    /// (-134, -578) and 0x00107D6C at about (-277, -428), both under 50 high.
+    const SIDE_WALL_X: f32 = -19.8;
+    const SIDE_WALL_END_Y: f32 = -656.0;
+    const COUNTER_OUTLINE: [[f32; 2]; 16] = [
+        [-20.0, -562.4],
+        [-66.0, -560.0],
+        [-129.0, -550.0],
+        [-144.0, -540.0],
+        [-158.0, -530.0],
+        [-172.0, -520.0],
+        [-186.0, -510.0],
+        [-197.0, -500.0],
+        [-204.0, -490.0],
+        [-211.0, -480.0],
+        [-219.0, -470.0],
+        [-226.0, -460.0],
+        [-237.0, -440.0],
+        [-254.0, -400.0],
+        [-265.0, -340.0],
+        [-265.0, -150.0],
+    ];
+    const COUNTER_TOP: f32 = 3528.1;
+
+    /// Where a level ray from `o` along `d` (flat, unit) first meets the side wall, or the
+    /// counter when it runs below the counter's top, if within `max`.
+    fn first_hit(o: [f32; 3], d: [f32; 2], max: f32) -> Option<f32> {
+        let mut best: Option<f32> = None;
+        let mut take = |t: f32| {
+            if t > 1e-3 && t <= max && best.is_none_or(|b| t < b) {
+                best = Some(t);
+            }
+        };
+        if d[0].abs() > 1e-6 {
+            let t = (SIDE_WALL_X - o[0]) / d[0];
+            if o[1] + d[1] * t >= SIDE_WALL_END_Y {
+                take(t);
+            }
+        }
+        if o[2] < COUNTER_TOP {
+            for w in COUNTER_OUTLINE.windows(2) {
+                let ([ax, ay], [bx, by]) = (w[0], w[1]);
+                let (ex, ey) = (bx - ax, by - ay);
+                let den = d[0] * ey - d[1] * ex;
+                if den.abs() < 1e-6 {
+                    continue;
+                }
+                let t = ((ax - o[0]) * ey - (ay - o[1]) * ex) / den;
+                let u = ((ax - o[0]) * d[1] - (ay - o[1]) * d[0]) / den;
+                if (0.0..=1.0).contains(&u) {
+                    take(t);
+                }
+            }
+        }
+        best
+    }
+
+    /// The contest view from each mark: the third-person camera (the shoulder offset, then
+    /// back along the view) is not pulled in by the side wall, its centre ray meets no
+    /// geometry within 60, the bottle is in the middle of the view and, for the two
+    /// players of a pair, no other drinker stands on the line to it [design: parity,
+    /// 2026-11-13, after drink-b's frame drink_tick_640 looked along the wall].
+    #[test]
+    fn the_contest_view_looks_across_the_counter_at_the_bottle_not_into_the_wall() {
+        let bar = &dt::BARS[0];
+        let bottle = bar.bottle_pos();
+        let body = 22.0;
+        for slot in 0..dt::MARKS {
+            let (feet, heading) = dt::mark(bar, slot);
+            let pivot = [feet[0], feet[1], feet[2] + crate::player::EYE_HEIGHT + 5.0];
+            let (base, camera) = crate::control::third_person_spot(pivot, heading, 0.0, crate::control::DEFAULT_SHOULDER, crate::control::DEFAULT_DISTANCE);
+            // Both legs of the camera stay this side of the wall, well off it.
+            for p in [base, camera] {
+                assert!(p[0] < SIDE_WALL_X - 45.0, "slot {slot}: the camera at {p:?} is near the side wall");
+            }
+            let (s, c) = heading.sin_cos();
+            let hit = first_hit(camera, [s, c], 2000.0);
+            assert!(hit.is_none_or(|t| t > 60.0), "slot {slot}: the view's centre ray meets geometry {hit:?} away");
+            // ... and from the body's own eye: it does not stand facing a wall.
+            let eye = [feet[0], feet[1], feet[2] + crate::player::EYE_HEIGHT];
+            assert!(first_hit(eye, [s, c], 2000.0).is_none_or(|t| t > 60.0), "slot {slot}: faces a wall");
+            // The bottle in the middle of the view.
+            let (bx, by) = (bottle[0] - camera[0], bottle[1] - camera[1]);
+            let off = (bx * c - by * s).atan2(bx * s + by * c).to_degrees();
+            assert!(off.abs() < 30.0, "slot {slot}: the bottle is {off:.0} deg off the view's centre");
+            // A pair's players see the bottle past each other.
+            if slot < 2 {
+                assert!(off.abs() < 15.0, "slot {slot}: the bottle is {off:.0} deg off the view's centre");
+                let (other, _) = dt::mark(bar, 1 - slot);
+                let len = bx.hypot(by);
+                let t = (((other[0] - camera[0]) * bx + (other[1] - camera[1]) * by) / len).clamp(0.0, len);
+                let gap = (other[0] - camera[0] - bx / len * t).hypot(other[1] - camera[1] - by / len * t);
+                assert!(gap > body + 10.0, "slot {slot}: slot {} stands on the line to the bottle ({gap:.0})", 1 - slot);
+            }
+        }
+    }
+
     /// A passed-out loser never gets up while the win shot is up: only at its release,
     /// or at once when there is no win shot (a draw, a contest gone).
     #[test]
