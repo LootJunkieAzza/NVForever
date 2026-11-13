@@ -180,6 +180,12 @@ impl RtVats {
         self.lock.as_ref().map(|l| l.target)
     }
 
+    /// Locked on `target`'s torso, for other modules' tests (`player::mouse_look`).
+    #[cfg(test)]
+    pub(crate) fn lock_for_test(&mut self, target: u32) {
+        self.lock = Some(Lock { target, name: String::new(), limb: Limb::Torso, part: None, limb_name: String::new(), point: [0.0; 3], chance: 50.0, condition: None, sight: Sight::default(), shots: 0, spent: 0.0, held: false });
+    }
+
     /// Whether the Action Points' regeneration is held: a lock is held and
     /// `bNoRegenWhileLocked` is on.
     pub fn holds_regen(&self) -> bool {

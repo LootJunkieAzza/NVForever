@@ -1532,6 +1532,43 @@ mod tests {
         (a[0] - b[0]).abs() < 1e-3 && (a[1] - b[1]).abs() < 1e-3
     }
 
+    /// One frame of mouse look, the cursor grabbed and the mouse moved, with `held`
+    /// inserted first: whether the view turned.
+    fn view_turns(held: impl FnOnce(&mut App)) -> bool {
+        let mut app = App::new();
+        app.add_plugins(bevy::state::app::StatesPlugin)
+            .insert_resource(AccumulatedMouseMotion { delta: Vec2::new(40.0, 0.0) })
+            .init_resource::<Time>()
+            .init_resource::<Bindings>()
+            .init_resource::<crate::control::ControlLocks>()
+            .init_resource::<PlayerControl>()
+            .init_resource::<crate::furniture::PlayerSeat>()
+            .insert_resource(Player { heading: 0.0, pitch: 0.0, eye_height: EYE_HEIGHT, feet: [0.0; 3], body_eye: None, body_view: None, placed: None })
+            .insert_state(PlayState::Playing)
+            .add_systems(Update, mouse_look);
+        app.world_mut().spawn((CursorOptions { grab_mode: CursorGrabMode::Locked, ..default() }, PrimaryWindow));
+        held(&mut app);
+        app.update();
+        app.world().resource::<Player>().heading != 0.0
+    }
+
+    #[test]
+    fn photo_mode_and_a_real_time_vats_lock_hold_the_view() {
+        assert!(view_turns(|_| {}), "the mouse turns the view");
+        // Photo mode open: its camera takes the mouse (`crate::photo_mode`).
+        assert!(!view_turns(|app| {
+            let mut photo = crate::photo_mode::PhotoMode::default();
+            photo.on = true;
+            app.insert_resource(photo);
+        }));
+        // Real-time VATS locked on a target holds the view on it (`crate::rt_vats`).
+        assert!(!view_turns(|app| {
+            let mut rt = crate::rt_vats::RtVats::default();
+            rt.lock_for_test(0x1234);
+            app.insert_resource(rt);
+        }));
+    }
+
     #[test]
     fn forward_follows_the_heading() {
         let fwd = MoveIntent { forward: 1.0, ..default() };
