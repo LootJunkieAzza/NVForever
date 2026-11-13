@@ -84,6 +84,39 @@ pub struct JipHandler {
     pub seq: u64,
 }
 
+/// Bounded values for diagnostics: no array dereference or unbounded string copy.
+fn diagnostic_value(value: &XVal) -> String {
+    match value {
+        XVal::Num(n) => format!("number:{n:?}"),
+        XVal::Ref(id) => format!("ref:0x{id:08X}"),
+        XVal::Array(id) => format!("array:{id}"),
+        XVal::Str(text) => {
+            let mut out = String::from("string:\"");
+            let mut chars = text.chars();
+            for c in chars.by_ref().take(32) {
+                out.extend(c.escape_debug());
+            }
+            if chars.next().is_some() {
+                out.push_str("<truncated>");
+            }
+            out.push('"');
+            out
+        }
+    }
+}
+
+impl JipHandler {
+    fn failure_context(&self, on: Option<FormId>, args: usize) -> String {
+        let filters = self.filters.iter().take(4).map(diagnostic_value).collect::<Vec<_>>().join(", ");
+        let omitted = if self.filters.len() > 4 { ", <truncated>" } else { "" };
+        let receiver = on.map_or_else(|| "none".into(), |r| format!("0x{:08X}", r.0));
+        format!(
+            "registration={} callable={} receiver={} args={} filters(total={})=[{}{}]",
+            self.seq, diagnostic_value(&self.func), receiver, args, self.filters.len(), filters, omitted,
+        )
+    }
+}
+
 /// One SetGameMainLoopCallback registration.
 #[derive(Debug, Clone, PartialEq)]
 pub struct MainLoop {
@@ -195,7 +228,7 @@ impl Game<'_> {
             }
             match self.run_function(&h.func, on.map(|f| Value::Ref(f.0)), args.clone(), None, ctx) {
                 Ok(_) => ran += 1,
-                Err(error) => self.handler_failed(format!("JIP {event} handler"), error),
+                Err(error) => self.handler_failed_with_context(format!("JIP {event} handler"), error, || Some(h.failure_context(on, args.len()))),
             }
         }
         ran

@@ -3149,9 +3149,17 @@ impl<'a> Game<'a> {
     /// reported once per handler kind and error, not on every frame it fires (#2280: up
     /// to 47,000 times a session in the player reports); other errors every time.
     pub(crate) fn handler_failed(&mut self, unit: String, error: String) {
+        self.handler_failed_with_context(unit, error, || None);
+    }
+
+    /// Optional diagnostic context never changes the error event or its dedup key.
+    pub(crate) fn handler_failed_with_context(&mut self, unit: String, error: String, context: impl FnOnce() -> Option<String>) {
         let unusable = error.ends_with(NOT_A_FUNCTION) || error.ends_with(NO_FUNCTION_BLOCK);
         if unusable && !self.unusable_reported.insert((unit.clone(), error.clone())) {
             return;
+        }
+        if let Some(context) = context() {
+            tracing::warn!(frame = self.frame, unit = %unit, error = %error, handler_context = %context, "extender handler failed");
         }
         self.emit(EventKind::ScriptError { unit, error });
     }
