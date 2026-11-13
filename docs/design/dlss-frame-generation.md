@@ -100,8 +100,12 @@ and calls after: at most three moves can happen meanwhile).
   (the render thread waits, the main thread's Reflex calls come after, the device poll thread is
   held off) the GPU drained, the window's surface released (wgpu waits for the device and
   destroys the swapchain), DLSS-G's resources freed when it goes off, `slSetFeatureLoaded`, and
-  Bevy's `create_surfaces` makes the surface and swapchain again that frame. Not covered: Bevy's
-  pipeline compiles on task threads.
+  Bevy's `create_surfaces` makes the surface and swapchain again that frame. Device polling and
+  pipeline creation on task threads hold the read side of one gate; the switch holds its write
+  side through the drain, surface release and feature load call [documented:
+  `gpu_poll.rs::quiet`, vendored `pipeline_cache.rs::create_pipeline_task`]. Queued compiles wait
+  at the gate; an in-progress compile finishes before the switch. No cache-task drain or
+  timeout is needed. Streamline's own present queue is drained with the device.
   [documented: `dlss/frame_gen.rs::toggle_switch`, `frame_gen.rs::ReleasePresenter`]
   Loading waits until FSR's extraction has joined every presenter thread and released its
   shared surface. A single shared loaded flag gates FSR and DLSS-G's pacing; it changes only

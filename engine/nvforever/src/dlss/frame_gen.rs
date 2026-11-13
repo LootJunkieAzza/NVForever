@@ -75,10 +75,11 @@
 //!   long-term off, §6.4), `slSetFeatureLoaded(DLSS-G, false)`, and Bevy's `create_surfaces`
 //!   makes the surface and swapchain again that frame, now native. On: the same with `true` and
 //!   nothing to free, so the new swapchain is Streamline's proxy. A reconfigure alone would not
-//!   do: wgpu makes the new swapchain before it destroys the old one. Not covered: Bevy compiles
-//!   pipelines on task threads, which may create Vulkan pipelines during the switch (no queue or
-//!   swapchain call; `slSetFeatureLoaded` asks for no Vulkan call at all in parallel,
-//!   `sl_core_api.h:130-131`) [hypothesis: harmless, as no swapchain or queue object is touched].
+//!   do: wgpu makes the new swapchain before it destroys the old one. Device polling and Bevy's
+//!   pipeline creation on task threads take the same gate's read side; the switch holds its
+//!   write side (`gpu_poll::quiet`) through the drain, surface release and feature load call
+//!   [documented: vendored `pipeline_cache.rs::create_pipeline_task`; `sl_core_api.h:130-131`
+//!   forbids parallel Vulkan calls during `slSetFeatureLoaded`].
 //!   While DLSS-G is unloaded frame generation does not run (`super::frame_generation_running`):
 //!   vsync and the frame cap are frame pacing's again.
 //! - **Exit** ([`exit_watch`], in the extraction before Bevy's `extract_windows`): on `AppExit`
@@ -1096,9 +1097,9 @@ fn toggle_switch(world: &mut World) {
         return;
     };
     // The main thread's Reflex calls come after the extraction (`anti_lag.rs`), the render thread
-    // waits during it; the device poll thread is held off (`gpu_poll::quiet`) from before the
-    // drain until after `slSetFeatureLoaded`. Not covered: Bevy's pipeline compiles on task
-    // threads, and Streamline's own present queue (DLSS-G's, drained with the device).
+    // waits during it; device polling and pipeline creation are held off (`gpu_poll::quiet`)
+    // from before the drain until after `slSetFeatureLoaded`. Streamline's own present queue
+    // is drained with the device.
     let quiet = crate::gpu_poll::quiet();
     let polled = world.resource::<bevy::render::renderer::RenderDevice>().wgpu_device().poll(wgpu::PollType::wait_indefinitely());
     if let Some(mut window) = world.get_mut::<ExtractedWindow>(entity) {

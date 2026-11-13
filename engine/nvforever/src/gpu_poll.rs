@@ -17,18 +17,18 @@
 //! [`quiet`]: a caller that needs no Vulkan call from this thread for a while (DLSS Frame
 //! Generation's live switch, `slSetFeatureLoaded`, "no other DXGI/D3D/Vulkan APIs should be
 //! invoked in parallel", Streamline's `sl_core_api.h:130-131`) holds the gate's write side; each
-//! poll holds its read side.
+//! poll holds its read side. Pipeline creation holds the same read side in vendored
+//! `bevy_render::render_resource::pipeline_cache::create_pipeline_task`.
 
 use bevy::prelude::*;
 use bevy::render::renderer::RenderDevice;
 use bevy::render::{Render, RenderApp, RenderSystems};
-use std::sync::{PoisonError, RwLock, RwLockWriteGuard};
+use std::sync::{PoisonError, RwLockWriteGuard};
 use std::time::Duration;
 
-/// The gate each poll passes ([`quiet`]).
-static GATE: RwLock<()> = RwLock::new(());
+use bevy::render::render_resource::RENDER_DEVICE_API_GATE as GATE;
 
-/// No poll from this thread until the guard is dropped (the module comment).
+/// No poll or pipeline creation from task threads until the guard is dropped (the module comment).
 #[cfg_attr(not(windows), allow(dead_code))]
 pub(crate) fn quiet() -> RwLockWriteGuard<'static, ()> {
     GATE.write().unwrap_or_else(PoisonError::into_inner)

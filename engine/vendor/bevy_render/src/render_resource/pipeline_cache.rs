@@ -38,6 +38,12 @@ pub enum Pipeline {
     MeshPipeline(RenderPipeline),
 }
 
+/// NVForever Streamline integration: pipeline compilation and external device polling hold
+/// the read side. DLSS-G's live load/unload holds the write side, excluding driver calls
+/// from task threads, including tasks cancelled by a shader reload.
+/// [documented: Streamline `sl_core_api.h:130-131`, `slSetFeatureLoaded`].
+pub static RENDER_DEVICE_API_GATE: std::sync::RwLock<()> = std::sync::RwLock::new(());
+
 pub struct CachedPipeline {
     pub descriptor: PipelineDescriptor,
     pub state: CachedPipelineState,
@@ -1064,6 +1070,14 @@ fn create_pipeline_task(
     task: impl Future<Output = Result<Pipeline, ShaderCacheError>> + Send + 'static,
     sync: bool,
 ) -> CachedPipelineState {
+    // NVForever Streamline integration: the compilation futures below contain synchronous
+    // driver work. Keep the guard inside the task, including while it waits to start.
+    let task = async move {
+        let _gate = RENDER_DEVICE_API_GATE
+            .read()
+            .unwrap_or_else(PoisonError::into_inner);
+        bevy_tasks::block_on(task)
+    };
     if !sync {
         return CachedPipelineState::Creating(bevy_tasks::AsyncComputeTaskPool::get().spawn(task));
     }
@@ -1083,6 +1097,9 @@ fn create_pipeline_task(
     task: impl Future<Output = Result<Pipeline, ShaderCacheError>> + Send + 'static,
     _sync: bool,
 ) -> CachedPipelineState {
+    let _gate = RENDER_DEVICE_API_GATE
+        .read()
+        .unwrap_or_else(PoisonError::into_inner);
     match bevy_tasks::block_on(task) {
         Ok(pipeline) => CachedPipelineState::Ok(pipeline),
         Err(err) => CachedPipelineState::Err(err),

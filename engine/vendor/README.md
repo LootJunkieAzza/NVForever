@@ -111,6 +111,14 @@ Upstream has no way to draw a light's shadow map less often than every frame.
 
 ## bevy_render 0.20.1 (MIT OR Apache-2.0, Bevy contributors)
 
+[documented: `src/render_resource/pipeline_cache.rs::create_pipeline_task`, #2317]
+`RENDER_DEVICE_API_GATE` gates pipeline creation on task threads (and synchronous creation).
+Each compilation holds its read side. NVForever's device poll thread shares it;
+`gpu_poll::quiet` takes its write side during DLSS-G's live load/unload, so no pipeline
+compile overlaps `slSetFeatureLoaded` (`sl_core_api.h:130-131` forbids parallel Vulkan calls).
+The guard is taken inside the task, covering even a compile whose cache entry was replaced
+by shader reload. Drop this patch if Bevy supplies an equivalent device-operation gate.
+
 Early finishing of command encoders (#1427, docs/design/frame-rate-audit.md §5). First
 change, in `src/renderer/render_context.rs`, each part marked by a comment starting
 `NVForever early finish`: when a render system is done (`RenderContextState`'s
