@@ -10,8 +10,9 @@
 //! and Doc Mitchell's 8, both what these rolls give]:
 //! - Chet at level 1: 32 to 41 stacks, about 37; ammunition of 15+ kinds (the nested
 //!   `0x001607C8` alone gives one of each of 16), 5 to 7 weapons, Leather Armor, chems,
-//!   weapon mods, Caravan cards, the two fixed ammo boxes, and 720 to 960 caps (the two
-//!   vendor caps lists, "each item in count").
+//!   weapon mods, Caravan cards, the two fixed ammo boxes, and caps from the two vendor
+//!   caps lists ("each item in count"): 630 to 870 from FalloutNV.esm alone, which these
+//!   tests load (720 to 960 with the owner's DLCs; the wiki's low end is 630).
 //! - Doc Mitchell at level 1: 6 to 10 stacks (100 caps, stimpaks, a doctor's bag, the
 //!   medical junk list rolled 7 times).
 //!
@@ -138,7 +139,7 @@ fn chets_chest_rolls_its_whole_stock() {
     }
     // Caps: `VendorCapsBaseMedium` x2 and the second caps list x3, each item in count.
     let one = stats(&forms, CHET, 1);
-    assert!(one.caps.iter().all(|c| (720..=960).contains(c)), "level 1 caps {:?}", one.caps);
+    assert!(one.caps.iter().all(|c| (630..=870).contains(c)), "level 1 caps {:?}", one.caps);
     let ten = stats(&forms, CHET, 10);
     assert!(ten.caps.iter().all(|c| *c >= 2400), "level 10 caps {:?}", ten.caps);
 }
