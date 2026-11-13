@@ -530,9 +530,9 @@ fn draw(mut commands: Commands, mut d: ResMut<Dialog>, roots: Query<Entity, With
     let Some(faces) = &d.faces else { return };
     let (bright, dim, faint) = (amber(255.0), amber(170.0), amber(90.0));
     let full = Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() };
-    commands.spawn((DialogRoot, full, BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.7)), GlobalZIndex(180))).with_children(|root| {
+    commands.spawn((DialogRoot, full, nvf_play::pause::form_shade(), GlobalZIndex(nvf_play::pause::FORM_Z))).with_children(|root| {
         let panel = Node { width: u(PANEL_WIDTH), flex_direction: FlexDirection::Column, padding: UiRect::all(u(24.0)), row_gap: u(10.0), border: UiRect::all(Val::Px(2.0)), ..default() };
-        root.spawn((panel, BackgroundColor(Color::srgba(0.02, 0.02, 0.02, 0.95)), BorderColor::all(dim))).with_children(|p| {
+        root.spawn((panel, nvf_play::pause::form_panel(), BorderColor::all(dim))).with_children(|p| {
             let (title, small) = (&faces.entry, &faces.small);
             match d.page {
                 Page::Licence => {

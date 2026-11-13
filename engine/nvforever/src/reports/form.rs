@@ -775,7 +775,7 @@ fn draw(mut commands: Commands, mut form: ResMut<Form>, roots: Query<Entity, Wit
     let (bright, dim, faint) = (amber(255.0), amber(170.0), amber(90.0));
     let open = matches!(f.phase, Phase::Open);
     let full = Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() };
-    commands.spawn((FormRoot, full, BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.7)), GlobalZIndex(180))).with_children(|root| {
+    commands.spawn((FormRoot, full, nvf_play::pause::form_shade(), GlobalZIndex(nvf_play::pause::FORM_Z))).with_children(|root| {
         let panel = Node {
             width: u(PANEL_WIDTH),
             flex_direction: FlexDirection::Column,
@@ -784,7 +784,7 @@ fn draw(mut commands: Commands, mut form: ResMut<Form>, roots: Query<Entity, Wit
             border: UiRect::all(Val::Px(2.0)),
             ..default()
         };
-        root.spawn((panel, BackgroundColor(Color::srgba(0.02, 0.02, 0.02, 0.95)), BorderColor::all(dim))).with_children(|p| {
+        root.spawn((panel, nvf_play::pause::form_panel(), BorderColor::all(dim))).with_children(|p| {
             p.spawn(text_bundle("Send a report", TEXT * 1.6, bright));
             p.spawn(text_bundle("What went wrong? What did you do, what happened, and what did you expect?", TEXT, dim));
             // The description.
