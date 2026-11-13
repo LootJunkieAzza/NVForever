@@ -7426,6 +7426,18 @@ expect = [
 ]
 
 [[scenario]]
+name = "quiet-clip-probes"
+source = "#2277 (engine/nvf-assets/src/actor.rs take_clip): the player reports' most common missing_asset events were KF clips the engine looks for and the base archives do not have (a creature folder's talking.kf, its unarmed stance h2h*.kf); a clip file the game does not have is no failure and logs no warning"
+note = "the Goodsprings geckos' spot of aggro-warning-look: the nvgecko folder has an unarmed stance but no talking.kf, so talk_clips.rs asks for a file that is not there"
+areas = ["actors", "reports"]
+paths = ["engine/nvf-assets/src/actor.rs", "engine/nvforever/src/talk_clips.rs", "engine/nvforever/src/creature_stance.rs"]
+env = { NVF_PLAY_TEST_GOD = "1" }
+args = ["--play", "--pos=-66099,-24341,7400", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 20
+expect = [{ re = 'creature stance: meshes\\creatures\\nvgecko: clips \[Equip, Aim, Unequip\]', label = "the gecko folder's stance clips were read" }]
+forbid = [{ re = 'actor file not loaded: meshes\\creatures\\[^:]*\.kf: not in any archive', label = "a warning for a creature clip the game does not have" }]
+
+[[scenario]]
 name = "warning-guard-draws"
 source = "owner 2026-10-25 (crates/fnv-game/src/aggro.rs, engine/nvforever/src/alert.rs Warning, crates/fnv-game/src/awareness.rs detection_bark): a person warning the player draws its weapon and holds it (the original drew and holstered in turn; owner: draw and hold), says a GuardTrespass line at each warning (no bark cooldown between them), then attacks"
 note = "Gomorrah's cash-room guard 0x00127950 (vGOMCashroomGuard: Aggressive, his own aggro radius 128, vGomorrahGuardPackage); the player is put 90 units from him, where the original's guard warned (capture warnings, cashroom_near, 2026-10-24)"
