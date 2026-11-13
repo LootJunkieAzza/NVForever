@@ -261,6 +261,28 @@ fn a_bare_me_is_the_tile_itself() {
     // A tile of that name is the one meant.
     assert_eq!(ui.get_float("B/Panel/_x1"), Some(7.0));
 }
+
+/// `src="parent"` and the other sources without an argument, brackets left off, are what
+/// they name unless a tile bears the name [observed: Vanilla UI Plus's MCM OptionRect.xml,
+/// `<y> <copy src="parent" trait="_y"/> </y>` on each option's title; issue #2298].
+#[test]
+fn a_bare_parent_is_the_parent() {
+    let src = MemSource::default().with(
+        "menus.xml",
+        r#"<menu name="A"> <rect name="Row"> <_y> 75 </_y> <text name="title"> <y> <copy src="parent" trait="_y"/> </y>
+            <_g> <copy src="Grandparent" trait="_n"/> </_g> <_s> <copy src="screen" trait="width"/> </_s> </text>
+            <text name="value"> <_b> <copy src="sibling" trait="y"/> </_b> </text> <_c> <copy src="child" trait="y"/> </_c> </rect> <_n> 3 </_n> </menu>"#,
+    );
+    let mut ui = Ui::new();
+    ui.load_menu(&src, "menus.xml").unwrap();
+    ui.set_trait(ui.screen(), "width", Value::Num(1280.0));
+    ui.update();
+    assert_eq!(ui.get_float("A/Row/title/y"), Some(75.0));
+    assert_eq!(ui.get_float("A/Row/title/_g"), Some(3.0));
+    assert_eq!(ui.get_float("A/Row/title/_s"), Some(1280.0));
+    assert_eq!(ui.get_float("A/Row/value/_b"), Some(75.0), "the tile before");
+    assert_eq!(ui.get_float("A/Row/_c"), Some(75.0), "the first child");
+}
 #[test]
 fn missing_files_are_reported_not_fatal() {
     let src = MemSource::default().with("menus\\m.xml", "<menu name=\"M\"><include src=\"gone.xml\"/><x> 1 </x></menu>");
@@ -952,4 +974,38 @@ fn trait_write_counts_tell_a_write_from_a_change() {
     ui.set_trait(screen, "width", Value::Num(1280.0));
     ui.set_trait(screen, "width", Value::Num(1920.0));
     assert_eq!(ui.trait_write_counts(), (writes + 3, changes + 2));
+}
+
+#[test]
+fn the_extenders_paths_count_from_the_first_child() {
+    use crate::Count::FromFirst;
+    // MCM's shape: a rect with its parts in file order, the options panel first with its
+    // rows [documented: MCM Guide v6, `StartMenu/MCM/*:1/*:2` is Option2 of MCM_Options,
+    // `*:9` MCM_Info; menu-xml.md §10.4].
+    let src = MemSource::default().with(
+        "m.xml",
+        r#"<menu name="StartMenu"> <rect name="MCM">
+            <rect name="MCM_Options"> <hotrect name="Option1"> <_value> 1 </_value> </hotrect>
+              <hotrect name="Option2"> <_value> 2 </_value> </hotrect> <hotrect name="Option3"> <_value> 3 </_value> </hotrect> </rect>
+            <rect name="MCM_Scale"> <_n> 2 </_n> </rect>
+            <rect name="MCM_List"> <_n> 3 </_n> </rect>
+        </rect> </menu>"#,
+    );
+    let mut ui = Ui::new();
+    ui.load_menu(&src, "m.xml").unwrap();
+    let get = |ui: &Ui, p: &str| ui.get_counted(p, FromFirst).map(Value::num);
+    assert_eq!(get(&ui, "StartMenu/MCM/*:1/*:2/_value"), Some(2.0), "the first child's second");
+    assert_eq!(get(&ui, "StartMenu/MCM/*:1/*:1/_value"), Some(1.0));
+    assert_eq!(get(&ui, "StartMenu/MCM/*:2/_n"), Some(2.0));
+    // 0 the last; none past the one before the last [observed: menu-xml.md §10.1].
+    assert_eq!(get(&ui, "StartMenu/MCM/*:0/_n"), Some(3.0));
+    assert_eq!(get(&ui, "StartMenu/MCM/*:1/*:0/_value"), Some(3.0));
+    assert_eq!(get(&ui, "StartMenu/MCM/*:3/_n"), None);
+    assert_eq!(get(&ui, "StartMenu/MCM/MCM_Options/Option3/_value"), Some(3.0), "names as ever");
+    // JIP's count from the last stays.
+    assert_eq!(ui.get_float("StartMenu/MCM/*:2/*:0/_value"), Some(3.0));
+    assert_eq!(ui.get_float("StartMenu/MCM/*:2/*:1/_value"), Some(2.0));
+    assert!(ui.set_counted("StartMenu/MCM/*:1/*:2/_value", FromFirst, Value::Num(0.0)));
+    assert_eq!(ui.get_float("StartMenu/MCM/MCM_Options/Option2/_value"), Some(0.0));
+    assert!(!ui.set_counted("StartMenu/MCM/*:7/_value", FromFirst, Value::Num(0.0)));
 }

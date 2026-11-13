@@ -890,16 +890,16 @@ pub(crate) fn feed(
     // the test aid, or with a script's HUD cursor (ToggleHUDCursor, `fnv_game::nvse_jip9`).
     let mut taking = Vec::new();
     let hud_cursor = rt.game.other.jip9.hud_cursor;
-    if (aid_at.is_some() || hud_cursor) && menus.hud {
+    // T11: the pause menu's Mods page takes the pointer and keys for the start menu's
+    // tiles (`super::mods`); the test aid's pointer is then the page's, not the HUD's.
+    let mods_page = menus.start && paused.as_ref().zip(page.as_ref()).is_some_and(|(p, pg)| crate::pause::mods_open(p, pg));
+    if (aid_at.is_some() || hud_cursor) && menus.hud && !mods_page {
         taking.extend(rt.game.ui_tree.menu(super::draw::HUD_MENU));
     }
     // The dialogue menu, under anything over the conversation (it does not take with one up).
     let dialog_menu = inputs.dialog.as_ref().and_then(|d| d.taking(&rt.game, paused.as_ref().is_some_and(|p| p.0)));
     taking.extend(dialog_menu);
     taking.extend(inputs.taking(*menus, &rt.game, inventory.as_ref().is_some_and(|i| i.ready.is_some())));
-    // T11: the pause menu's Mods page takes the pointer and keys for the start menu's
-    // tiles (`super::mods`).
-    let mods_page = menus.start && paused.as_ref().zip(page.as_ref()).is_some_and(|(p, pg)| crate::pause::mods_open(p, pg));
     if mods_page {
         taking.extend(rt.game.ui_tree.menu(super::mods::START_MENU));
     }

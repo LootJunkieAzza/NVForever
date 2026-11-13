@@ -202,11 +202,17 @@ pub fn call(g: &mut Game, name: &str, args: &[XVal]) -> Option<Result<XVal, Stri
         crate::ui_hud::flush(g);
     }
     Some(Ok(match lname.as_str() {
-        "getuifloat" | "getuifloatalt" => XVal::Num(g.ui_tree.get_float(&path).unwrap_or(NOT_FOUND)),
+        // The extender's own four count `*:N` from the first child, JIP's from the last
+        // (`fnv_ui::Count`) [observed: menu-xml.md §10.1; hud.md §14.8; documented: MCM
+        // Guide v6, menu-xml.md §10.4].
+        "getuifloat" => XVal::Num(g.ui_tree.get_counted(&path, fnv_ui::Count::FromFirst).map_or(NOT_FOUND, Value::num)),
+        "getuifloatalt" => XVal::Num(g.ui_tree.get_float(&path).unwrap_or(NOT_FOUND)),
         "getuifloatinherited" => XVal::Num(inherited(&g.ui_tree, &path, num(args, 1) != 0.0).unwrap_or(NOT_FOUND)),
         "getuistring" => XVal::Str(g.ui_tree.get_string(&path).unwrap_or_default()),
-        "setuifloat" | "setuifloatalt" => yes(g.ui_tree.set_float(&path, num(args, 1))),
-        "setuistring" | "setuistringalt" | "setuistringex" => yes(g.ui_tree.set_string(&path, &text(args, 1))),
+        "setuifloat" => yes(g.ui_tree.set_counted(&path, fnv_ui::Count::FromFirst, Value::Num(num(args, 1)))),
+        "setuifloatalt" => yes(g.ui_tree.set_float(&path, num(args, 1))),
+        "setuistring" | "setuistringex" => yes(g.ui_tree.set_counted(&path, fnv_ui::Count::FromFirst, Value::Str(text(args, 1)))),
+        "setuistringalt" => yes(g.ui_tree.set_string(&path, &text(args, 1))),
         "moduifloat" => yes(g.ui_tree.mod_float(&path, num(args, 1))),
         // MCM's shorthands for the traits of `StartMenu/MCM/*:child/*:grandchild/setting`
         // [documented: SetMCMFloat and SetMCMString give the SetUIFloat and SetUIString

@@ -79,6 +79,7 @@ pub mod holotapes;
 pub mod game;
 pub mod idles;
 pub mod intro;
+pub mod jip_ccc;
 pub mod jip_events;
 pub mod nvse;
 pub mod nvse_ttw;
