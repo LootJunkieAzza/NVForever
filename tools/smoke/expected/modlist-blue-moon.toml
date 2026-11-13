@@ -17,8 +17,9 @@ units_kept_bytes = 8
 # Functions the scripts call that NVForever has no entry for (their calls do nothing).
 # 46 -> 14 with the unlisted JIP commands (#2318, docs/spec-notes/ext-unlisted-commands.md);
 # the 14 left: 7 names no installed plugin registers (RemoveFac, GetRespawn, dATan2,
-# ClearModNVSEVars, ySIGetTagTrait, GetVATSLeftAreaFree, GetVATSRightAreaFree), 5 that are
+# ClearModNVSEVars, ySIGetTagTrait, GetVATSLeftAreaFree, GetVATSRightAreaFree), 4 that are
 # no command (an inline `short x = ...` declaration, the form Fists, the quest variables
-# fLuckSaveMult and GrabbedtheMoney, movetomarker), and GetContainerOpenSound and
+# fLuckSaveMult and GrabbedtheMoney), movetomarker (the editor compiles it as MoveTo: a
+# compiler alias, left to the Begin Again session), and GetContainerOpenSound and
 # GetContainerCloseSound (#2300).
 "unknown_functions.#" = 14
