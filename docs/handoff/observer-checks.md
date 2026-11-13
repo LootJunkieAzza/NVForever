@@ -1554,3 +1554,10 @@ to the decoded file by cross-correlation and a per-band transfer estimate.
     [hypothesis: all of it]. Throw a frag grenade near your feet, then one behind you, and
     take a frame of each: where is the mark, is it turned, does it show for one landing
     far off, and does it show for your own grenade?
+109. **What does the idle vanity camera do?** (P3; `nvf_play::vanity`.) The master sets
+    `fVanityModeAutoDelay` to 120 [observed]; NVForever takes it as the seconds without
+    input before the camera circles the player, turning 0.15 rad/s, ended by any input
+    with the view left in third person [hypothesis: all of it]. Stand still in first
+    person for two minutes: does the camera circle, how fast (time a full turn), which way,
+    at what distance and height, does mouse motion alone end it, and is the view first or
+    third person afterwards?

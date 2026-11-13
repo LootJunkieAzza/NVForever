@@ -412,6 +412,9 @@ pub struct TweakSettings {
     /// `bFasterControllerPOVRotate`: a controller circles the camera (Toggle POV held)
     /// twice as fast.
     pub faster_pad_orbit: bool,
+    /// `bVanityCamReturnsToFirstPerson`: after the vanity camera (idle, or Toggle POV
+    /// held) a first-person view goes back to first person.
+    pub vanity_returns_first: bool,
     /// `bSeparateHorizontalSensitivity`: a factor on the look's left and right speed only.
     pub horizontal_look: f64,
     /// `bRememberConsoleHistory`: the console's history is kept in NVForever's folder.
@@ -811,6 +814,7 @@ impl Default for TweakSettings {
             rt_dead_zone: 0.75,
             responsive_stick: false,
             faster_pad_orbit: false,
+            vanity_returns_first: false,
             horizontal_look: 1.0,
             remember_console_history: false,
             console_output_file: false,
@@ -1781,6 +1785,7 @@ impl Plugin for TweaksPlugin {
         part!(app, "rt-dead-zone", "Right Trigger Press Point", "How far RT goes down before it counts as pressed, with Trigger Dead Zones on. (Stewie's Tweaks iDeadzoneRT)", rt_dead_zone);
         switch!(app, "responsive-stick", "More Responsive Controller Aiming", "The right stick's turn grows in a straight line with the push past its dead zone instead of with its square, so small pushes answer at once. (Stewie's Tweaks bMoreResponsiveControllerAiming)", responsive_stick);
         switch!(app, "faster-pad-orbit", "Faster Controller Camera Circling", "With a controller, the camera circles the player twice as fast while Toggle POV is held. (Stewie's Tweaks bFasterControllerPOVRotate)", faster_pad_orbit);
+        switch!(app, "vanity-returns-first", "Vanity Camera Returns to First Person", "After the circling camera (idle, or Toggle POV held), a first-person view goes back to first person instead of staying third. (Stewie's Tweaks bVanityCamReturnsToFirstPerson)", vanity_returns_first);
         add_setting(
             app,
             Setting::slider(

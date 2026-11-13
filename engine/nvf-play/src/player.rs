@@ -356,6 +356,7 @@ impl Plugin for PlayerPlugin {
             .insert_resource(NearAid::from_env())
             .add_systems(Startup, (init_player, crate::control::init_settings))
             .add_systems(Update, (grab_cursor, read_input, crate::control::read_controls, mouse_look).chain().in_set(PlaySet::Input))
+            .add_plugins(crate::vanity::VanityPlugin)
             .init_resource::<RunPace>()
             .init_resource::<PerkSpeed>()
             .init_resource::<StatSpeed>()

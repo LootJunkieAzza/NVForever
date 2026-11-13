@@ -611,6 +611,7 @@ unless the player binds them, so nothing changes until then.
 | Weapon poisons, No Poison Confirmation, Show Weapon Poison Effects | `bNoPoisonConfirm`, `bShowWeaponPoisonEffects` | base: `fnv_game::weapon_poison` (`is_poison`, `use_poison`, `take_poison_hit`; `PlayerState::weapon_poisons`, saved); `aid::use_poison` from the script layer's item use gives a refused or asking poison back; `combat::hit_items` adds the poison to a landed player hit's items. The switches: `Tweaks::no_poison_confirm`, `pipboy::items` (the card's line) |
 | Grenade indicator, Hide Grenade Indicator, No Indicator for Harmless Blasts, Mark Objects About to Explode | `bDisableGrenadeIndicator`, `bHideGrenadeIndicatorForNoDamageExplosions`, `bExplodingDestructibleIndicator` | base: `grenade_indicator` draws the menu files' `template_explosive_indicator` for each live grenade (`Combat::live_grenades`) whose blast reaches the player, on the grenade or on the view's edge pointing at it (observer check 108). The switches: `TweakSettings::no_grenade_indicator`, `grenade_indicator_skip_harmless` (explosion damage 0), `grenade_indicator_destructibles` (`Game::burning_explosives`) |
 | Repair Kits in the Repair List | `bUseWeaponRepairKitsInRepairMenu` | `fnv_game::repair` (`is_weapon_repair_kit`, `kit_condition`, the kit script's rule); `pipboy::repair::with_kits` adds the carried kits to a weapon's offer, `Session::after` gives a kit's result, Use takes one kit. The switch: `Tweaks::repair_kits_in_list` |
+| Idle vanity camera, Vanity Camera Returns to First Person | `bVanityCamReturnsToFirstPerson` | base: `vanity` starts the circling camera (`control::Orbit`) after `fVanityModeAutoDelay` (120) s without input and ends it at any input (observer check 109). The switch: `TweakSettings::vanity_returns_first`, read by `vanity::end_view` from `vanity` and from `control::read_controls`'s Toggle POV release |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -632,8 +633,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 546 |
-| to do | 54 |
+| done | 547 |
+| to do | 53 |
 | unsure, skipped | 19 |
 | n/a | 16 |
 | skipped: fix | 10 |
@@ -1277,6 +1278,7 @@ game's Data folder, read-only).
 | `bSplashDamageTorsoGibbing` | done |  |  | Splash Kills Can Gib the Torso (one in four with Bloody Mess, ours) |
 | `bTogglePOVWhenHolsteringWeapon` | done |  |  | View Follows the Weapon |
 | `bUseConsoleOutputFile` | done |  | 1 | Console Output File (ConsoleOutput.txt in NVForever's folder; the name is ours, sFilename not offered) |
+| `bVanityCamReturnsToFirstPerson` | done |  |  | Vanity Camera Returns to First Person: after the idle vanity camera (now built, `vanity`) or Toggle POV held, a view that was first person goes back to it |
 | `bWeaponVisibleDuringDialogue` | done |  |  | already so by the code: nothing hides the player's weapon or hands while talking (not checked in game) |
 | `bAllowKeyboardAndMouseWithControllerConnected` | to do | yes |  | the Input Device setting picks one device; needs both at once |
 | `bArmorPreventsBloodDecals` | to do | yes |  | the impact is sent before DT is worked out |
@@ -1311,7 +1313,6 @@ game's Data folder, read-only).
 | `bUKKeyboard` | n/a |  |  | the original's keyboard handling |
 | `bUseFallout3AudioDistortion` | unsure, skipped |  |  | needs the original sequel's filter described first |
 | `bUseHitLocationInCinematicKillcams` | to do |  |  | not built: no cinematic kill camera outside V.A.T.S. |
-| `bVanityCamReturnsToFirstPerson` | to do |  |  | not built: no vanity camera |
 
 ### Fixes
 

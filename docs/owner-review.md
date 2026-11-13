@@ -188,6 +188,11 @@ the spec it links to.
     you, on the grenade or on the view's edge pointing at it, for everyone. Where the
     original puts it is a guess (observer check 108). The Tweaks tab's Hide Grenade
     Indicator turns it off. (`engine/nvf-play/src/grenade_indicator.rs`)
+54. **An idle vanity camera (#1891).** After 120 s with no input (the master's
+    `fVanityModeAutoDelay`), the camera goes to third person and slowly circles you (a
+    turn in about 42 s, our number); any input ends it and the view stays third person,
+    as after Toggle POV held. New for everyone. The Tweaks tab's Vanity Camera Returns to
+    First Person puts a first-person view back. (`engine/nvf-play/src/vanity.rs`)
 
 ## Tier 3: rules where we chose to differ, or that the original has no answer for
 

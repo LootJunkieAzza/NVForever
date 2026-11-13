@@ -687,7 +687,8 @@ pub fn read_controls(
             };
         } else {
             c.orbit = c.orbit.released();
-            c.pov = Pov::Third;
+            // The player's tweak puts a first-person view back [design: docs/design/tweaks.md].
+            c.pov = crate::vanity::end_view(c.pov == Pov::First, tweaks.as_ref().is_some_and(|t| t.vanity_returns_first));
         }
     }
     // Not while a script turned the vanity wheel off (ToggleVanityWheel,
