@@ -175,11 +175,14 @@ class Win32:
         self.user32.SetForegroundWindow(hwnd)
 
 
-def split(launches: list) -> tuple[list, list]:
-    """(the launches run as usual, the game launches holding their window in front), each in
-    plan order: the second run after the first, one at a time with the machine to themselves."""
-    fronts = [x for x in launches if getattr(x, "front", False)]
-    return [x for x in launches if x not in fronts], fronts
+def split(launches: list, chains: list[list[int]] | None = None) -> tuple[list, list]:
+    """(the launches run as usual, the ones run after them one at a time with the machine to
+    themselves), each in plan order. The second holds every launch that holds its window in
+    front, and with it the rest of its chain (`cli.chains`: launches sharing an NVFOREVER_HOME,
+    one writing what the next reads), so a chain's order is kept."""
+    chains = chains if chains is not None else [[i] for i in range(len(launches))]
+    moved = {i for chain in chains if any(getattr(launches[i], "front", False) for i in chain) for i in chain}
+    return [x for i, x in enumerate(launches) if i not in moved], [x for i, x in enumerate(launches) if i in moved]
 
 
 def last_line(path: Path) -> str | None:

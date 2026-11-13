@@ -276,7 +276,7 @@ def cmd_run(a, suite: Suite, say) -> int:
         say(f"nvforever: {env.exe}")
     # `front = true` launches need the screen to themselves: run after the others, one at a
     # time under both game locks (smoke/front.py).
-    rest, fronts = front.split(launches)
+    rest, fronts = front.split(launches, chains(launches))
     started = time.monotonic()
     verdicts = []
     if rest:
@@ -289,7 +289,7 @@ def cmd_run(a, suite: Suite, say) -> int:
             if locks:
                 locks.finish()
     if fronts:
-        say(f"{len(fronts)} launches hold their window in front (front = true): run last, one at a time with the machine to themselves")
+        say(f"{len(fronts)} launches run last, one at a time with the machine to themselves (front = true, and the rest of their NVFOREVER_HOME chains)")
         paths = default_lock_paths(a.repo)
         alone = None if a.no_locks or not paths else Locks(paths, poll=a.lock_poll, say=say)
         try:
@@ -297,7 +297,7 @@ def cmd_run(a, suite: Suite, say) -> int:
         finally:
             if alone:
                 alone.finish()
-        for x in fronts:
+        for x in [x for x in fronts if x.front]:
             line = front.last_line(env.out / f"{x.name}.front.txt")
             say(f"  {x.name}: {line or 'front: no record (not on Windows, or the launch did not start)'}")
     checks_ok = run_checks(checks, env, say) if (a.checks and checks) else True

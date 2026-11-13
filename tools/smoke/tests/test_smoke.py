@@ -354,6 +354,11 @@ class FrontTests(unittest.TestCase):
         rest, fronts = front.split(plan(suite, suite.scenarios))
         self.assertEqual([x.name for x in rest], ["a", "c"])
         self.assertEqual([x.name for x in fronts], ["b"])
+        # A chain (one NVFOREVER_HOME) with a front launch in it moves whole, in its order.
+        chained = load_text(game("a", env='{ NVFOREVER_HOME = "h" }') + game("b", env='{ NVFOREVER_HOME = "h" }', extra="front = true") + game("c"))
+        launches = plan(chained, chained.scenarios)
+        rest, fronts = front.split(launches, cli.chains(launches))
+        self.assertEqual(([x.name for x in rest], [x.name for x in fronts]), (["c"], ["a", "b"]))
 
     def test_what_it_did_goes_to_its_own_file(self):
         class Fake:
