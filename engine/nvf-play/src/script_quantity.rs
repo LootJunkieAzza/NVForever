@@ -45,12 +45,13 @@ type AmountPress = (&'static PointerState, &'static bevy::ui::RelativeCursorPosi
 
 #[allow(clippy::too_many_arguments)]
 fn keys(
-    keys: Res<ButtonInput<KeyCode>>,
+    keys: crate::pad::ActionButtons<KeyCode>,
     mut st: ResMut<ScriptQuantity>,
     script: Option<ResMut<ScriptState>>,
     mut sim: ResMut<SimState>,
     (buttons, meter): (Query<AmountButton, Changed<PointerState>>, Query<AmountPress, With<crate::menu::AmountMeter>>),
 ) {
+    let keys = keys.snapshot();
     let Some(rt) = script.and_then(|s| s.into_inner().rt.as_mut()) else { return };
     let asked = rt.game.quantity_ask().filter(|_| rt.game.menu == Some(menus::QUANTITY)).map(|a| (a.initial, a.max));
     let Some((initial, most)) = asked else {

@@ -1327,8 +1327,10 @@ pub fn spawn_parts(commands: &mut Commands, skel: &PreparedSkeleton, parts: &[Pa
                         e
                     }
                 };
+                // The shape's name as its model spells it, too: JIP's NIF block functions list
+                // an actor's nodes by name (nvforever nif_mirror.rs, #2132).
                 if let Some(n) = &s.name {
-                    commands.entity(e).insert((ShapeName(n.to_ascii_lowercase()), s.stored_look()));
+                    commands.entity(e).insert((ShapeName(n.to_ascii_lowercase()), Name::new(n.clone()), s.stored_look()));
                 }
                 commands.entity(e).insert(limb.clone());
                 out.drawn.push(e);

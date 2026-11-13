@@ -34,7 +34,6 @@ mod spt_cmd;
 mod esm_cmd;
 mod esm_fields;
 mod ext_cmd;
-mod ext_save;
 mod install_cmd;
 mod nav_cmd;
 mod nav_path;
@@ -987,6 +986,30 @@ pub enum EsmCmd {
     /// Schema coverage report (work queue of undecoded subrecords), over one plugin or
     /// several together.
     Coverage {
+        #[arg(required = true, num_args = 1..)]
+        plugins: Vec<PathBuf>,
+        #[arg(long)]
+        schema: PathBuf,
+        #[arg(long, default_value_t = 200)]
+        max_rows: usize,
+    },
+    /// Write a plugin moving placed references (the editor's writer, fnv_esm::edit): each
+    /// of `refs` (load-order FormIDs in hex) by `dx` units along X, after `plugins`.
+    EditMove {
+        #[arg(required = true, num_args = 1..)]
+        plugins: Vec<PathBuf>,
+        #[arg(long)]
+        schema: PathBuf,
+        #[arg(long, required = true, num_args = 1.., value_parser = parse_formid)]
+        refs: Vec<u32>,
+        #[arg(long, default_value_t = 100.0)]
+        dx: f32,
+        #[arg(long)]
+        out: PathBuf,
+    },
+    /// Decode every subrecord with the schema, encode it back and compare the bytes
+    /// (the editor's encoder, fnv_esm::encode); one report over all the plugins.
+    EncodeCheck {
         #[arg(required = true, num_args = 1..)]
         plugins: Vec<PathBuf>,
         #[arg(long)]

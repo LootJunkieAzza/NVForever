@@ -1910,3 +1910,61 @@ Fallout Behavior, Weapon Drawn, Continue During Combat).
      MoveTo it 2,000 units off, and sample its position for 60 s: does it walk back to the
      creation spot and wander there, or sandbox where it now stands? And
      `GetStartingPos X` on it before and after the move.
+
+## Added 2026-11-12 (dialogue zoom lock, issue #2254)
+
+121. **Does the original keep the camera on the speaker throughout dialogue, and can
+     the mouse turn the view?** (P2; dialogue-play.md §8.) Players report a locked camera
+     [hypothesis: player reports, not captured]. NVForever's dialogue zoom locks the view
+     and follows the face; without the zoom the player looks around freely [owner
+     decision 2026-11-13, #2254]; the split stays whatever the answer, which informs the
+     zoom's framing and follow. Record a conversation held beyond five seconds, first with
+     no input as the speaker finishes turning and idles, then moving the mouse during a
+     line and while choices wait.
+     Does the view keep following the face as the actor steps or walks? Does mouse
+     motion move only the cursor, or also the view? Repeat across a choices-to-line
+     transition without touching the mouse; record any camera motion on cursor capture.
+
+## Added 2026-11-12 (Lost fighters, issue #2010)
+
+122. **Why do some fighters remain in COMBAT for minutes without searching?** (P2;
+     alert.md section 2.) [observed: issue #2010 capture, 2026-11-10] Three placed Fiends
+     detected the player for 4.5 real seconds; after a 2,500-unit player move two
+     remained IsInCombat 1, procedure COMBAT, for the remaining 235 real seconds,
+     stationary with no reported target; the third ended combat immediately. In
+     contrast, eight actors ended combat 1.1-11.9 real seconds after detection loss
+     [observed: npc-behaviour-compare.md section 11]; later timer experiments are in
+     sections 15.6 and 16.1. Repeat with hostile actors placed by the data, both walking
+     away and teleporting, recording GetDetected, GetCombatTarget, IsInCombat,
+     procedure, positions, combat allies and the timer settings. Do stationary survivors
+     retain a target or an ally's fight, and do any actually complete searches? Our
+     two-sweep design and 300 s stall bound do not assert parity with those durations
+     [design, #2010]; relate any answer to observer check 6's target-retention question.
+
+## Added 2026-11-13 (the extender lab's engine sets, #2131, #2133, #2135)
+
+From the owner's save nvfairport (the airport runway, the player at 37000, −117160, 6057,
+heading 75) with NVFExtProbe.esp loaded, as the jip-probes sets run.
+
+123. **Does an explosion the player places hurt the player, and what decides it?** (P3;
+     jip-hit-info.md §2, #2131.) The jip-hits set registers eleven SetOnHitEventHandler
+     lambdas on the player, then `player.PlaceAtMe MineFragExplosion` (0x7078B). In the
+     2026-11-08 capture (the golden) nothing fired and Health stayed 1200; on 2026-10-26 the
+     same explosion fired twice and took 100 [observed]. NVForever: one hit, about 75 damage.
+     To check: Health and OnHit right after and 60 frames later; then the same explosion
+     placed from a marker beside the player instead of from the player [hypothesis: who
+     places the explosion owns it, or it went off after the job's 35 frames].
+124. **The player's pitch at the save's place** (P3; #2135.) GetReticleRange read 9384 in
+     the original, and after `player.SetAngle X 80` GetAngle X read 22.7151, while the
+     save's place rotation x reads 0 [observed: fnv_save::fos]. To check: player.GetAngle X
+     right after loading, with no input; then after SetAngle X 80 and SetAngle X −80 [hypothesis:
+     the camera's pitch is kept outside the place record, or SetAngle X is clamped].
+125. **What did GetP2PRayCastRange pass through above the runway?** (P3; #2135.) From 100
+     above the player to 1000 below, it read 998 in the original; NVForever hits the runway
+     (100). To check: the same cast 200 units off the runway over plain ground [hypothesis:
+     the cast leaves out the runway's static as it leaves out terrain, engine1].
+126. **The case of GetPlayingAnimSequencePaths' paths** (P3; #2133.) On the player the
+     first slot reads `Characters\_1stPerson\mtidle.kf` [observed]: mixed case, no
+     Locomotion folder. To check: the same on two NPCs (one standing, one walking) and on
+     the player in third person, beside the clips' names as the BSA stores them and as the
+     IDLE records spell them.

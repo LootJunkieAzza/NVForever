@@ -621,6 +621,37 @@ pub struct DlssUpscaling {
     pub quality: UpscaleQuality,
 }
 
+/// What the render world last drew the main camera with (the first view with an upscaler
+/// camera, `prep::prepare`), for the performance overlay's Upscaling row (#2242). The sizes
+/// exist only in the render world, which prepares the view a frame after the main world asked
+/// for it, so the row reads this and the main world's effective choice side by side.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DrawnUpscale {
+    /// The upscaler drew it: the scene at `render`, rebuilt to `output` (physical pixels).
+    Upscaled { choice: UpscalerChoice, render: UVec2, output: UVec2 },
+    /// The camera asked for `choice` but the view rendered natively at `output`: a view the
+    /// upscaler cannot use (multisampled, not HDR, offset), or a backend that gave no render
+    /// size (FSR below its smallest size, DLSS's optimal settings failing).
+    Native { choice: UpscalerChoice, output: UVec2 },
+}
+
+/// [`DrawnUpscale`] shared by the render world, which writes it each frame (`None`: no camera
+/// asked for an upscaler), and the main world's performance overlay, which reads it: one
+/// `Arc` on each side, as `frame_gen::GeneratedFrames` is.
+#[derive(Resource, Clone, Default)]
+pub struct UpscaleDrawn(pub std::sync::Arc<std::sync::Mutex<Option<DrawnUpscale>>>);
+
+impl UpscaleDrawn {
+    /// What was drawn last (a poisoned lock still reads: the value is a plain copy).
+    pub fn get(&self) -> Option<DrawnUpscale> {
+        *self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    pub fn set(&self, drawn: Option<DrawnUpscale>) {
+        *self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = drawn;
+    }
+}
+
 /// The temporal upscaler the main camera draws with: the status's effective choice, for every
 /// backend, once there is a status; without one (before [`follow_request`] makes it, and in
 /// tests) FSR's rule as it always was: FSR while it is asked for and `fsr_supported`, else off.
@@ -1043,6 +1074,18 @@ mod tests {
         assert_eq!(DlssModel::value_variants(), DlssModel::ALL);
         assert_eq!(DlssModel::from_str("L", true), Ok(DlssModel::L));
         assert!(DlssModel::from_str("a", true).is_err());
+    }
+
+    #[test]
+    fn what_was_drawn_is_shared_between_the_worlds() {
+        let main = UpscaleDrawn::default();
+        let render = main.clone();
+        assert_eq!(main.get(), None, "nothing drawn yet");
+        let drawn = DrawnUpscale::Upscaled { choice: UpscalerChoice::Dlss(Quality), render: UVec2::new(853, 480), output: UVec2::new(1280, 720) };
+        render.set(Some(drawn));
+        assert_eq!(main.get(), Some(drawn), "the render world's write is the main world's read");
+        render.set(None);
+        assert_eq!(main.get(), None, "no upscaler camera: none");
     }
 
     #[test]

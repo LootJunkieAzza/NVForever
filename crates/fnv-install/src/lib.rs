@@ -433,7 +433,7 @@ struct LegacyConfig {
     game_dir: Option<PathBuf>,
 }
 
-const INI_HEADER: &str = "; NVForever settings. Path is your Fallout: New Vegas folder (the one holding Data);\n; change it here, or delete this file to be asked again at the next start.\n";
+const INI_HEADER: &str = "; NVForever settings. Path is your Fallout: New Vegas folder (the one holding Data);\n; change it here, or delete this file to be asked again at the next start.\n; [design, #2215] Pip-Boy pages use their menu files by default.\n; To use hand-built Pip-Boy pages, add a [UI] section with an empty TileMenus= line.\n";
 
 impl Config {
     /// The INI, else the `nvforever.json` of an earlier build in the same folder, else
@@ -817,6 +817,23 @@ mod tests {
         assert_eq!(plain(Path::new(r"\\?\UNC\srv\share\FNV")), PathBuf::from(r"\\srv\share\FNV"));
         assert_eq!(plain(Path::new(r"\\?\Volume{x}\FNV")), PathBuf::from(r"\\?\Volume{x}\FNV"));
         assert_eq!(plain(Path::new("/home/x")), PathBuf::from("/home/x"));
+    }
+
+    #[test]
+    fn ini_keeps_missing_and_empty_tile_menu_lists_distinct() {
+        for (text, expected) in [
+            ("", None),
+            ("[UI]\n;TileMenus=MapMenu\n", None),
+            ("[UI]\nTileMenus=\n", Some("")),
+            ("[ui]\ntilemenus =   \n", Some("")),
+            ("[UI]\nTileMenus=MapMenu,StatsMenu\n", Some("MapMenu,StatsMenu")),
+        ] {
+            assert_eq!(ini_get(text, "UI", "TileMenus").as_deref(), expected);
+            let saved = Config::default().to_ini(text);
+            assert_eq!(ini_get(&saved, "UI", "TileMenus").as_deref(), expected);
+        }
+        let new = Config::default().to_ini("");
+        assert!(new.contains("add a [UI] section with an empty TileMenus= line"));
     }
 
     #[test]

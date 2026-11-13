@@ -25,6 +25,7 @@ pub mod combat;
 pub mod compass;
 pub mod compass_strip;
 pub mod console;
+pub mod editor;
 pub mod container_anim;
 pub mod control;
 pub mod corner_messages;
@@ -46,6 +47,7 @@ pub mod fade;
 pub mod drowning;
 pub mod falls;
 pub mod file_bytes;
+pub mod query_job;
 pub mod swing_traps;
 pub mod flashlight;
 pub mod free_cam;
@@ -396,6 +398,7 @@ impl Plugin for PlayPlugin {
             .add_plugins(poker::PokerPlugin)
             .add_plugins((crime::CrimePlugin, reputation::ReputationPlugin, knockouts::KnockoutsPlugin, after_combat::AfterCombatPlugin))
             .add_plugins(console::ConsolePlugin)
+            .add_plugins(editor::EditorPlugin)
             .add_plugins(location_markers::LocationMarkersPlugin)
             .add_plugins(free_cam::FreeCamPlugin)
             .add_plugins(script_camera::ScriptCameraPlugin)

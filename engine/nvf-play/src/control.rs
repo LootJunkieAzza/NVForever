@@ -202,6 +202,16 @@ impl Default for PlayerControl {
 }
 
 impl PlayerControl {
+    /// Cancel holds owned by the previous input device without performing their tap
+    /// actions. Keep intentional toggles and the camera's angles [design, #2200].
+    pub(crate) fn cancel_input_holds(&mut self) {
+        self.orbit.held = false;
+        self.orbit.moved = false;
+        self.ready_held = None;
+        self.aiming = false;
+        self.trigger = false;
+    }
+
     /// Whether the player's own view is from outside (third person, or circling), whatever a
     /// conversation's close-up does with the camera.
     pub fn own_third_person(&self) -> bool {

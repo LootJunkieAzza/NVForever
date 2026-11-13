@@ -33,7 +33,7 @@ Audio and Controls, observed in the original's pause menu, 2026-11-09].
 | Gameplay | Camera | `detached-camera`, `true-iron-sights`, `first-person-body`, `weapon-sway`, `head-bob`, `weapon-lower`, `field-of-view` |
 | Display | Screen | `resolution`, `borderless`, `monitor`, `display-sync`, `frame-cap`, `ui-scale` |
 | Display | Interface | `hud-colour`, `hud-red`, `hud-green`, `hud-blue`, `pipboy-colour`, `pipboy-red`, `pipboy-green`, `pipboy-blue`, `language`, `dynamic-crosshair`, `crosshair-style`, `sneak-gauges` |
-| Display | Performance | `fps-counter`, `fps-counter-fps`, `fps-counter-low`, `fps-counter-graph`, `fps-counter-split`, `fps-counter-cpu`, `fps-counter-gpu`, `fps-counter-vram`, `fps-counter-ram`, `fps-counter-loaded` |
+| Display | Performance | `fps-counter`, `fps-counter-fps`, `fps-counter-low`, `fps-counter-graph`, `fps-counter-split`, `fps-counter-cpu`, `fps-counter-gpu`, `fps-counter-vram`, `fps-counter-ram`, `fps-counter-loaded`, `fps-counter-upscaling` |
 | Audio | (none) | `volume-master`, `volume-music`, `volume-footstep`, `volume-voice`, `volume-effects`, `volume-radio`, `music`, `voice`, `reverb`, `voice-reverb` |
 | Controls | (none) | the Controls tab's own rows (§4), then `button-style`, `aim-assist`, `aim-slowdown`, `aim-lock` |
 | Graphics | Quality | `quality` (#1966; only when the install has its preset files: docs/spec-notes/quality-presets.md) |
@@ -43,8 +43,9 @@ Audio and Controls, observed in the original's pause menu, 2026-11-09].
 | Tweaks | (none) | none named yet |
 | Debug | (none) | `overlay`, `hit-markers`, `god-mode`, `navmesh`, `scope-3d` |
 
-The table names every row the registry can hold, 100 with #1966's `quality` and `enhanced`
-and #2014's nine `fps-counter-*` rows (`KNOWN` in `settings_layout.rs`); a test keeps
+The table names every row the registry can hold, 108 with #1966's `quality` and `enhanced`,
+#2014's nine `fps-counter-*` rows and #2242's `fps-counter-upscaling` (`KNOWN` in
+`settings_layout.rs`); a test keeps
 it so (`settings_layout.rs`, `the_table_names_each_key_once_in_one_of_the_tabs`). The
 original puts the HUD and Pip-Boy colours and the crosshair in its Display category
 [observed: #1953], hence Interface there.
@@ -128,9 +129,14 @@ what the keys, the pointer and the aids ask of a row, a registered row or a Cont
 alike, so the search and the Changed list act on their rows the same way, drawn by the
 same `row_line`.
 
-The Controls tab lists, as before, Input Device, the 29 controls, Invert Y, the device's
-sensitivity and with a controller Rumble, then the four controller rows. Its Defaults puts
-back the controls of the device in use (`bindings::reset`, as before) and the tab's
+[design, #2200; `settings_view.rs::ControlRow::rows`] The Controls tab lists Input Device,
+Automatic Input Switching (default ON), the 29 controls, Invert Y, the device's sensitivity
+and Vertical Sensitivity, and with a controller Rumble, then the four controller rows.
+Automatic Input Switching selects and saves Input Device on fresh use only when the old
+device was idle at frame start and has no release in that frame. Release its buttons and
+return sticks/triggers to neutral, then press again on a later frame. Only the switching
+press edge is ignored; later holds/repeats and all releases work (controller.md section 1).
+Turning it off keeps device selection manual. Its Defaults puts back the controls of the device in use (`bindings::reset`, as before) and the tab's
 registered rows; Defaults on every other tab puts back every registered row, as before
 (`pause menu: settings back to their defaults`). A control waiting for its new key is
 `pause::Listening` (the pad presses no menu keys meanwhile).
@@ -249,6 +255,7 @@ every tab, hidden and disabled rows too, in the page's order, under where each l
 | A list | its state as the INI keeps it (`ChoiceList::save`) differs from the start's (`StartChoices`; taken when the page is first shown when there is none) |
 | A control's key and mouse button; its controller button | it is not the game's (`Bindings::game_defaults`), each device's its own row |
 | Invert Y, Rumble, Input Device, each sensitivity | as the game has it by default |
+| Automatic Input Switching | OFF, away from its ON default [design, #2200; `bindings::changed_controls`] |
 
 (`settings::changed_rows`, `bindings::changed_controls`.) A disabled row counts by its
 saved state, not by the words shown in its place. A hidden row is listed as the row that
@@ -335,3 +342,58 @@ Smoke scenarios: `settings-layout`, `settings-headings`, `settings-scroll-headin
 `settings-changed`, `settings-heading-pointer`, `settings-search-language`,
 `settings-reopen`, `settings-tab-write` and `settings-tab-read` (a pair), `settings-rail-hover`
 (tools/smoke/scenarios.toml).
+
+
+## Performance usage availability (#2249)
+
+[design, #2249: `engine/nvforever/src/perf_overlay/{usage,readings,mod}.rs`,
+`engine/nvforever/src/settings.rs`] The existing switches and defaults stay the same.
+CPU and GPU rows each say **Not available** when their reading is missing, including
+while an initial rate awaits its second sample. A CPU row can still show the game's
+cores when the machine reading is missing. These are NVForever's own words; the new
+unavailable and game-GPU wording uses `lang/*.toml`.
+
+| Existing setting | Systems and scope [design: `perf_overlay/usage.rs`] |
+|---|---|
+| `fps-counter-cpu` | Windows PDH machine use and process time; Linux `/proc/stat` machine use and `/proc/self/stat` process time. Other systems show Not available. |
+| `fps-counter-gpu` | Windows PDH busiest engine over all programs. Linux tries runtime NVML, readable amdgpu `gpu_busy_percent`, then DRM client nanosecond counters. Unsupported telemetry shows Not available. |
+
+[design, #2249] `usage::linux::GPU_SOURCE_ORDER` prefers NVML then amdgpu to keep
+whole-device use where available; DRM is the fallback and shows **game 71%**, for
+example. NVML and amdgpu take the busiest readable device; these readers do not match
+a device to the renderer on a multi-GPU machine. Selection occurs at the first GPU
+request, logs once (including no available source), and keeps its reader. DRM rescans
+fdinfo each requested second so clients opened later can start reporting. A lost
+selected source shows unavailable; restarting retries the higher-priority sources.
+Hidden overlays and disabled GPU rows reset DRM rate baselines. The first numeric
+Windows usage log stays unchanged; a separate availability log waits at most ten
+half-second updates with both usage rows enabled, then spells out missing parts.
+
+[documented: Linux kernel, [DRM client usage stats](https://docs.kernel.org/gpu/drm-usage-stats.html)]
+The usage and identity fields are optional: `drm-engine-<name>` gives client busy nanoseconds,
+`drm-engine-capacity-<name>` gives grouped engine capacity (default one), and
+`drm-client-id` with `drm-pdev` identifies duplicate client descriptors. Counters can
+briefly decrease; readers must retain their high-water mark.
+[design, #2249: `perf_overlay/drm_usage.rs`] We sum distinct clients per device and
+engine, divide busy-time deltas by elapsed time and capacity, choose the busiest
+engine and clamp to 0-100%. New clients need two samples; unreadable files, malformed
+units, missing client IDs or unsupported counters cannot supply a percentage.
+Without a PCI device identity, clients are kept separate when choosing the busiest
+engine, so work on unknown devices is not added together [design, #2249].
+This applies to drivers exporting these fields (including supporting amdgpu, i915/xe
+and nouveau versions); a driver name alone does not guarantee telemetry.
+
+[documented: NVIDIA, [NVML Device Queries](https://docs.nvidia.com/deploy/nvml-api/620/api/group__nvmlDeviceQueries.html),
+[Initialization and Cleanup](https://docs.nvidia.com/deploy/nvml-api/620/api/group__nvmlInitializationAndCleanup.html),
+[nvmlUtilization_t](https://docs.nvidia.com/deploy/nvml-api/620/api/structnvmlUtilization__t.html)]
+NVML supplies device GPU utilization on supported NVIDIA proprietary drivers. We load
+`libnvidia-ml.so.1`, initialize with `nvmlInit_v2`, enumerate with
+`nvmlDeviceGetCount_v2` / `nvmlDeviceGetHandleByIndex_v2`, and read
+`nvmlDeviceGetUtilizationRates`; unavailable libraries, symbols, permissions and
+unsupported utilization allow fallback [design: `perf_overlay/nvml.rs`].
+
+[design, #2249] Synthetic fixtures test parser/arithmetic on every test platform.
+Smoke scenario `perf-overlay-usage-availability` accepts a numeric or explicit missing
+part independently. The older `fps-counter` numeric expectation is preserved.
+Linux validation still needs Intel/nouveau game-only rates and labels, NVIDIA with
+and without NVML, amdgpu fallback, no telemetry, and hide/show or GPU-row off/on.

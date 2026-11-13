@@ -508,7 +508,8 @@ impl Default for Music {
 pub struct MusicCues {
     pub combat: bool,
     pub alert: bool,
-    /// The hostile actor that made the battle, for the log.
+    /// The hostile actor that made the battle, for the log: the nearest one that has the
+    /// player detected (else the nearest that noticed the player).
     pub by: Option<u32>,
     /// The player is dead (`Game::is_dead`).
     pub dead: bool,
@@ -620,9 +621,13 @@ fn cues(
     let (Some(places), Some(player)) = (places, player) else { return };
     let reach = setting(&sim, NEAR_COMBAT);
     let feet = player.feet;
-    let near: Vec<u32> = actors.map_or(Vec::new(), |a| {
-        a.living.iter().filter(|(_, p)| (0..3).map(|k| (p[k] - feet[k]).powi(2)).sum::<f32>() <= reach * reach).map(|(id, _)| *id).collect()
+    // Nearest first, so the battle is put down to the nearest threat (`MusicCues::by`, the
+    // log's), not to whichever the list held first.
+    let mut near: Vec<(f32, u32)> = actors.map_or(Vec::new(), |a| {
+        a.living.iter().map(|(id, p)| ((0..3).map(|k| (p[k] - feet[k]).powi(2)).sum::<f32>(), *id)).filter(|(d2, _)| *d2 <= reach * reach).collect()
     });
+    near.sort_by(|a, b| a.0.total_cmp(&b.0));
+    let near: Vec<u32> = near.into_iter().map(|(_, id)| id).collect();
     let factions: Vec<u32> = places.forms.controllers.values().filter_map(|c| c.faction).collect();
     let cues = &mut *cues;
     with_world(rt, &mut sim, |rt| {

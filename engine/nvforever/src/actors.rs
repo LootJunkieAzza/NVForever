@@ -715,12 +715,14 @@ pub fn spawn_creature(
     let mut uses = Vec::with_capacity(c.parts.len());
     // Parts that move by themselves, drawn as playing models on their bone below.
     let mut playing: Vec<(String, Arc<nvf_assets::actor::PreparedPart>)> = Vec::new();
+    // The creature's idle, read only when a part would play by itself (#2282).
+    let mut idle: Option<Option<Arc<nvf_assets::anim_play::Clip>>> = None;
     for p in &c.parts {
         let Some(part) = ctx.part(&p.model) else {
             stats.parts_missing += 1;
             continue;
         };
-        if plays_on_bone(&part, &skel) {
+        if plays_on_bone(&part, &skel) && !idle.get_or_insert_with(|| ctx.clip(&idle_path(&c.skeleton))).as_deref().is_some_and(|clip| drives_part(clip, &part)) {
             playing.push((p.model.clone(), part));
             continue;
         }
@@ -823,6 +825,39 @@ fn first_creature_report(base: u32, what: &str) -> bool {
 /// one bone could not follow [design, #2228: Mister Handy's jet].
 fn plays_on_bone(part: &nvf_assets::actor::PreparedPart, skel: &PreparedSkeleton) -> bool {
     part.plays_itself && part.shapes.iter().all(|s| s.ancestors.iter().all(|(n, _)| n.as_ref().is_none_or(|n| !skel.by_name.contains_key(n))))
+}
+
+/// The creature's idle clip: `mtidle.kf` beside its skeleton (`locomotion::STANCE`).
+fn idle_path(skeleton: &str) -> String {
+    let folder = skeleton.rfind(['\\', '/']).map_or("", |i| &skeleton[..i]);
+    format!("{folder}\\{}idle.kf", crate::locomotion::STANCE)
+}
+
+/// Whether `clip` drives a shape of `part` (a material track naming the shape) or moves
+/// one of the part's named nodes (a transform track naming it). Such a part stays a
+/// part of the actor, posed and lit by the actor's clips, rather than playing its own
+/// controllers on its bone ([`plays_on_bone`]): the street Securitron's screen
+/// (`nvsecuritronpolicescreen01.nif`, `Screen01:0`) has looping controllers of its own,
+/// and its `mtidle.kf` keys `Screen01` and the shape's glow and texture too; drawn as a
+/// playing model it was not reached by the idle any more (#2282, after #2228)
+/// [observed: smoke securitron-screen; hypothesis: the idle's tracks are what the
+/// original shows on the screen, docs/spec-notes/effects-animation-audit.md §2].
+/// Visibility tracks do not count: Mister Handy's `mtidle.kf` shows and hides its jet's
+/// `##JetFlames01`/`02` (NiVisController) [observed: `fnvtool nif decode`], and the jet
+/// is the part #2228 plays by itself.
+fn drives_part(clip: &nvf_assets::anim_play::Clip, part: &nvf_assets::actor::PreparedPart) -> bool {
+    let shapes: Vec<&str> = part.shapes.iter().filter_map(|s| s.name.as_deref()).collect();
+    let nodes: Vec<&str> = part.shapes.iter().flat_map(|s| s.ancestors.iter().filter_map(|(n, _)| n.as_deref())).collect();
+    let material_shapes: Vec<&str> = clip.materials.iter().map(|m| m.shape.as_str()).collect();
+    let keyed_nodes: Vec<&str> = clip.tracks.iter().map(|(t, _)| t.as_str()).collect();
+    names_driven(&shapes, &nodes, &material_shapes, &keyed_nodes)
+}
+
+/// [`drives_part`] by names (case does not matter): a part's shape names and node names
+/// against the shapes a clip's material tracks name and the nodes its transform tracks
+/// name.
+fn names_driven(shapes: &[&str], nodes: &[&str], material_shapes: &[&str], keyed_nodes: &[&str]) -> bool {
+    shapes.iter().any(|s| material_shapes.iter().any(|m| m.eq_ignore_ascii_case(s))) || nodes.iter().any(|n| keyed_nodes.iter().any(|k| k.eq_ignore_ascii_case(n)))
 }
 
 /// Give an actor its weapon (part H, actors.md §9): the model under the skeleton's
@@ -942,6 +977,17 @@ pub(crate) fn arm_weapon(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_part_the_idle_drives_stays_a_part() {
+        assert_eq!(idle_path(r"meshes\creatures\nvsecuritron\skeleton.nif"), r"meshes\creatures\nvsecuritron\mtidle.kf");
+        // The street Securitron's screen: mtidle.kf keys the screen's glow and its node.
+        assert!(names_driven(&["Screen01:0"], &["Screen01"], &["screen01:0", "ScreenStatic:0"], &["Bip01 Wheel"]));
+        assert!(names_driven(&["Screen01:0"], &["Screen01"], &[], &["screen01"]));
+        // Mister Handy's jet: its idle moves none of the jet's nodes and lights none of
+        // its shapes (it only shows and hides `##JetFlames01`, not counted; #2228).
+        assert!(!names_driven(&["JetFlame01"], &["##JetFlames01"], &[], &["Bip01", "Bip01 Spine 01"]));
+    }
 
     #[test]
     fn phases_spread_within_the_clip() {

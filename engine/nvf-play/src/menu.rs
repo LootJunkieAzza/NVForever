@@ -234,7 +234,7 @@ impl DevKeys {
 /// Test aid: F10 opens the nearest container (F9 is the game's Quick Load), with the
 /// developer keys on ([`DevKeys`]); `OpenNearestContainer` always.
 fn f9_opens_nearest_container(
-    keys: Res<ButtonInput<KeyCode>>,
+    keys: crate::pad::ActionButtons<KeyCode>,
     dev: Res<DevKeys>,
     here: Res<Location>,
     sim: Res<SimState>,
@@ -242,6 +242,7 @@ fn f9_opens_nearest_container(
     mut requests: MessageReader<OpenNearestContainer>,
     mut out: MessageWriter<OpenContainer>,
 ) {
+    let keys = keys.snapshot();
     if !(dev.0 && keys.just_pressed(KeyCode::F10)) && requests.read().count() == 0 {
         return;
     }
@@ -468,7 +469,8 @@ fn close_menu(
     }
 }
 
-fn menu_keys(keys: Res<ButtonInput<KeyCode>>, active: Res<ActiveMenu>, mut fresh: ResMut<FreshMenu>, mut out: MessageWriter<MenuInput>) {
+fn menu_keys(keys: crate::pad::ActionButtons<KeyCode>, active: Res<ActiveMenu>, mut fresh: ResMut<FreshMenu>, mut out: MessageWriter<MenuInput>) {
+    let keys = keys.snapshot();
     use KeyCode::*;
     // The press that opened the menu is not one of its keys (see [`FreshMenu`]).
     if std::mem::take(&mut fresh.0) {
@@ -560,7 +562,7 @@ fn menu_mouse(
     rows: Query<(&PointerState, &RowButton), Changed<PointerState>>,
     buttons: Query<(&PointerState, &CmdButton), Changed<PointerState>>,
     titles: Query<(&PointerState, &CategoryTitle)>,
-    keys: Res<ButtonInput<KeyCode>>,
+    keys: crate::pad::ActionButtons<KeyCode>,
     active: Res<ActiveMenu>,
     hold: Res<WheelHold>,
     mut moved: MessageReader<CursorMoved>,
@@ -569,6 +571,7 @@ fn menu_mouse(
     mut out: MessageWriter<MenuInput>,
     (tile_menu, barter_tiles, tile_title): MouseTiles,
 ) {
+    let keys = keys.snapshot();
     let Some(m) = active.0.as_ref().filter(|m| m.mode != Mode::Inventory && m.quantity.is_none()) else {
         wheel.clear();
         return;
@@ -621,7 +624,8 @@ fn menu_mouse(
 }
 
 /// The "How many?" prompt's keys, while it is open (see the module's notes).
-fn quantity_keys(keys: Res<ButtonInput<KeyCode>>, active: Res<ActiveMenu>, mut held: ResMut<PromptKeys>, mut out: MessageWriter<MenuInput>) {
+fn quantity_keys(keys: crate::pad::ActionButtons<KeyCode>, active: Res<ActiveMenu>, mut held: ResMut<PromptKeys>, mut out: MessageWriter<MenuInput>) {
+    let keys = keys.snapshot();
     use KeyCode::*;
     held.0 = active.0.as_ref().is_some_and(|m| m.quantity.is_some());
     if !held.0 {

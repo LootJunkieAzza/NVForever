@@ -37,6 +37,12 @@ FSR runs on wgpu's Vulkan backend only (SPIR-V passthrough). On another backend,
 without the formats and limits it needs, the log says `FSR 3.1 unavailable: …` once, the
 frame is drawn natively, and the anti-aliasing row stays editable.
 
+The performance overlay's Upscaling row (`fps-counter-upscaling`, off by default; #2242) shows
+the effective upscaler with the render and output size the render world drew the main camera
+at (`upscaler::UpscaleDrawn`, written by `upscaler::prep::prepare`), for example
+`FSR 3.1 Balanced  1129x635 -> 1920x1080`, or `Off` and the window's size while it draws
+natively [design: `perf_overlay/readings.rs` `upscale_text`].
+
 ## Render contract
 
 `fsr.rs` (`FsrPlugin`), on the view preparation every temporal upscaler shares,

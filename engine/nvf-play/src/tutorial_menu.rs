@@ -342,13 +342,14 @@ impl Plugin for TutorialMenuPlugin {
 /// pages: a tile's Next or Previous that frame is dropped, its Close and scroll still act
 /// [design].
 pub fn keys(
-    keys: Res<ButtonInput<KeyCode>>,
+    keys: crate::pad::ActionButtons<KeyCode>,
     (mut wheel, mut tiles): (MessageReader<MouseWheel>, MessageReader<TutorialInput>),
     clicks: Query<(&PointerState, &TmButton), Changed<PointerState>>,
     mut view: ResMut<TutorialView>,
     mut script: ResMut<ScriptState>,
-    (sticks, bindings): (Option<Res<crate::pad::StickButtons>>, Option<Res<Bindings>>),
+    (sticks, bindings, pads): (Option<Res<crate::pad::StickButtons>>, Option<Res<Bindings>>, crate::pad::ActionPads),
 ) {
+    let keys = keys.snapshot();
     use KeyCode::*;
     let n = pages(&script, None).len();
     if n == 0 {
@@ -401,7 +402,8 @@ pub fn keys(
         }
     }
     let controller = bindings.is_some_and(|b| b.device == crate::bindings::InputDevice::Controller);
-    let mut by = stick_scroll(sticks.as_deref().filter(|_| controller));
+    let filtered_sticks = sticks.as_ref().map(|s| pads.filter_sticks(s));
+    let mut by = stick_scroll(filtered_sticks.as_ref().filter(|_| controller));
     if keys.just_pressed(ArrowDown) {
         by += STEP;
     }

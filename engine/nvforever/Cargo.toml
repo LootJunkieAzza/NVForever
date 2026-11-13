@@ -83,6 +83,8 @@ windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_
 # The Linux native crash handler (native_crash_unix.rs, #2167): sigaction, the altstack,
 # write(2) and /proc reads, no crate of our own. A version already in the build (MIT).
 libc = "0.2"
+# [design, #2249] Optional NVML at runtime; reuse engine/Cargo.lock's libloading.
+libloading = "0.8.9"
 
 [build-dependencies]
 # The program icon in the Windows executable (build.rs); MIT.
