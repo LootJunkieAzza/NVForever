@@ -233,7 +233,7 @@ which matches the original's capture only because its explosion did no harm eith
 #2131) and nvse.events' evn.onpackagechange.fired/arg1/arg2 (a gecko, 0x74FE6, changes
 package on the engine; in the original no OnPackageChange fired, #2134).
 
-Rows that varied from run to run on the real clock (hit.damage.0, proj.impact.type.0,
+Rows that varied from run to run on the real clock (proj.impact.type.0,
 kn.activate.active, kn.animplaying.idle, evn.onload.arg1/2 went between pass and fail;
 nb.rot.alt, nb.trans.alt and the kn.*bygroup clip paths between wrong values) no longer
 change result with the fixed frame time: two runs, the same 350 rows. Two failing rows

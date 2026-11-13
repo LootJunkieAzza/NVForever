@@ -26378,6 +26378,8 @@ paths = ["engine/nvf-play/src/query_job.rs", "crates/fnv-game/src/ext_probes.rs"
 env = { NVF_PLAY_TEST_QUERIES = "{repo}/tools/smoke/fixtures/query-job.steps.json", NVF_PLAY_TEST_QUERIES_AT = "1" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages"]
 run_seconds = 30
+# The job quits once its document is written, before run_seconds: no "run finished" line.
+ends = "run log: the game exited normally"
 expect = [
   "query job: smoke-query: 4 steps from",
   { re = 'query job: smoke-query: 4 steps, 3 rows, 1 errors, written to .*smoke-query\.probes\.json', label = "every step ran, one a frame; the one that does not compile is an error, not a row" },
