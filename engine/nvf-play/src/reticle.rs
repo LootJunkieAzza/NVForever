@@ -801,7 +801,7 @@ fn draw(
                 None => info!("reticle: prompt \"{}\" on \"{}\"", p.action, p.name),
             }
         } else if let Some(old) = shown.as_ref() {
-            let why = gone_reason(target.0.is_some(), locks.rollover, no_prompt, target.0.as_ref().is_some_and(|t| barred(t)));
+            let why = gone_reason(target.0.is_some(), locks.rollover, no_prompt, target.0.as_ref().is_some_and(barred));
             info!("reticle: prompt on \"{}\" gone: {why}", old.name);
         }
         *shown = want;
