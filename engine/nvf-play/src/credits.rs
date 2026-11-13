@@ -32,6 +32,11 @@
 //! main menu comes (`crate::pause::MainMenuRequest`). No music is played with it [not
 //! built: the original's credits music is not documented].
 //!
+//! After the file's last line come NVForever's own lines, [`ExtraCredits`] (the attribution
+//! a library's licence asks for, set by nvforever: NVIDIA's for DLSS while its files are
+//! there), two lines' height below it, centred, in the font and colour of the file's last
+//! line of text [design: #2250].
+//!
 //! Log: `credits: rolling <n> lines and <m> pictures (<seconds> s)`, `credits: ended
 //! (<how>)`.
 
@@ -147,6 +152,28 @@ pub fn parse(src: &str, height: impl Fn(u8) -> f32) -> (Vec<Item>, f32) {
     (out, y)
 }
 
+/// Lines NVForever adds after the credits file's own (module notes); empty: none. Read when
+/// the credits start.
+#[derive(Resource, Debug, Clone, Default, PartialEq, Eq)]
+pub struct ExtraCredits(pub Vec<String>);
+
+/// `lines` added after `items` (a credits file laid out, `total` high): two lines' height
+/// below, centred, in the font and colour of the last line of text (font 7 in white without
+/// one); the new height.
+pub fn append_lines(items: &mut Vec<Item>, total: f32, lines: &[String], height: impl Fn(u8) -> f32) -> f32 {
+    if lines.is_empty() {
+        return total;
+    }
+    let (font, color) = items.iter().rev().find_map(|i| if let Item::Text { font, color, .. } = i { Some((*font, *color)) } else { None }).unwrap_or((7, [255, 255, 255, 255]));
+    let step = height(font);
+    let mut y = total + 2.0 * step;
+    for line in lines {
+        items.push(Item::Text { x: 0.0, y, justify: 'C', font, color, text: line.clone() });
+        y += step;
+    }
+    y
+}
+
 /// The credits rolling: their items, how far they have rolled, the lines drawn now.
 #[derive(Resource, Default)]
 pub struct Credits {
@@ -164,6 +191,8 @@ pub struct Credits {
     phase: Option<crate::main_menu::Phase>,
     slide_age: f32,
     picture: Option<Entity>,
+    /// The [`ExtraCredits`] when they were last set (`sync_extra`).
+    extra: Vec<String>,
 }
 
 impl Credits {
@@ -244,7 +273,8 @@ fn slideshow(
 /// What [`start`] needs, as system parameters.
 pub type Start<'w> = (ResMut<'w, Credits>, Option<Res<'w, GameData>>, ResMut<'w, Assets<Image>>, Option<Res<'w, CompressedImageFormatSupport>>);
 
-/// Ask for the credits to roll (ExitGame). Whether they could be read.
+/// Ask for the credits to roll (ExitGame). Whether they could be read. The
+/// [`ExtraCredits`] come after the file's lines ([`append_lines`]).
 pub fn start(credits: &mut Credits, data: Option<&GameData>, images: &mut Assets<Image>, bc: bool) -> bool {
     // A top-level file of Data, outside the archives' namespace.
     let Some(src) = data.and_then(|d| std::fs::read(d.vfs.data_dir().join("Credits.txt")).ok()) else { return false };
@@ -254,7 +284,9 @@ pub fn start(credits: &mut Credits, data: Option<&GameData>, images: &mut Assets
         credits.faces.entry(n).or_insert_with(|| face(crate::interface::FONT_FILES[n as usize - 1], plain_font(24.0, 12.0), data, images, bc));
     }
     let faces = &credits.faces;
-    let (items, total) = parse(&src, |f| faces.get(&f).map_or(24.0, |x| x.font.size));
+    let height = |f: u8| faces.get(&f).map_or(24.0, |x| x.font.size);
+    let (mut items, total) = parse(&src, height);
+    let total = append_lines(&mut items, total, &credits.extra, height);
     let pictures = items.iter().filter(|i| matches!(i, Item::Picture { .. })).count();
     info!("credits: rolling {} lines and {pictures} pictures ({:.0} s)", items.len() - pictures, (total + 960.0) / SPEED);
     credits.items = items;
@@ -268,7 +300,15 @@ pub struct CreditsPlugin;
 
 impl Plugin for CreditsPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<Credits>().add_systems(Update, roll);
+        app.init_resource::<Credits>().init_resource::<ExtraCredits>().add_systems(Update, (sync_extra, roll).chain());
+    }
+}
+
+/// The [`ExtraCredits`] kept in [`Credits`], so [`start`] (called with the credits alone)
+/// has them.
+fn sync_extra(extra: Res<ExtraCredits>, mut credits: ResMut<Credits>) {
+    if extra.is_changed() && credits.extra != extra.0 {
+        credits.extra = extra.0.clone();
     }
 }
 
@@ -400,5 +440,19 @@ mod tests {
         assert_eq!(items[2], Item::Text { x: -500.0, y: 92.0, justify: 'L', font: 7, color: [1, 2, 3, 255], text: "Someone".into() });
         assert_eq!(items[3], Item::Text { x: -400.0, y: 112.0, justify: 'C', font: 7, color: [1, 2, 3, 255], text: "Centred".into() });
         assert_eq!(total, 132.0);
+    }
+
+    #[test]
+    fn the_extra_lines_come_after_the_file_in_its_last_lines_font_and_colour() {
+        let (mut items, total) = parse("<F:3><C:1,2,3,255>Last name\n", |_| 20.0);
+        assert_eq!(append_lines(&mut items, total, &[], |_| 20.0), total, "none: nothing added");
+        let extra = ["NVIDIA DLSS".to_string(), "Upscaling".to_string()];
+        let end = append_lines(&mut items, total, &extra, |_| 20.0);
+        assert_eq!(items[1], Item::Text { x: 0.0, y: total + 40.0, justify: 'C', font: 3, color: [1, 2, 3, 255], text: "NVIDIA DLSS".into() });
+        assert_eq!(items[2], Item::Text { x: 0.0, y: total + 60.0, justify: 'C', font: 3, color: [1, 2, 3, 255], text: "Upscaling".into() });
+        assert_eq!(end, total + 80.0);
+        let mut none = Vec::new();
+        append_lines(&mut none, 0.0, &extra, |_| 20.0);
+        assert!(matches!(&none[0], Item::Text { font: 7, color: [255, 255, 255, 255], .. }), "without a line of text: font 7 in white");
     }
 }

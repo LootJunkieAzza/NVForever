@@ -25,9 +25,6 @@
 
 // Off Windows the download never starts; its parts are compiled for the tests only.
 #![cfg_attr(not(windows), allow(dead_code))]
-// Until the settings' dialog (#2250) calls `start`, nothing outside the tests does: this line
-// goes with the dialog's commit.
-#![cfg_attr(windows, allow(dead_code))]
 
 #[cfg(any(windows, test))]
 use std::io::{self, Read, Write};
@@ -101,6 +98,8 @@ pub enum Failure {
     /// The archive's address answered with a redirect to a place not allowed (where).
     Redirect(String),
     /// DLSS, and so the download, is Windows only.
+    // Made only off Windows (`start`).
+    #[cfg_attr(windows, allow(dead_code))]
     NotWindows,
 }
 
