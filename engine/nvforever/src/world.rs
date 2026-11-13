@@ -1368,6 +1368,15 @@ pub fn spawn_model(
         };
         let m = Mat4::from(rt * shape);
         // External emittance: the reference's XEMI source drives the colour.
+        if let (Some(x), true) = (p.emittance, s.external_emittance) {
+            let m = models.materials.get(&s.material);
+            info!(
+                "emittance: 0x{r:08X} {path} shape {:?} XEMI {x:#010x}: glow map {}, emissive {:?}",
+                s.name,
+                m.is_some_and(|m| m.base.emissive_texture.is_some()),
+                m.map(|m| m.base.emissive)
+            );
+        }
         let material = p
             .emittance
             .filter(|_| s.external_emittance)

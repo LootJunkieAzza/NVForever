@@ -61,6 +61,8 @@ pub struct EmittanceState {
     hour: Option<f32>,
     /// The weather on screen (and the fade's progress) at the last update.
     shown: Option<(u32, Option<u32>, f32)>,
+    /// The whole hour whose source colours were last logged.
+    logged_hour: Option<i32>,
 }
 
 enum Source {
@@ -88,17 +90,14 @@ impl EmittanceState {
     fn source(&mut self, world: &WorldData, xemi: u32) -> bool {
         self.sources
             .entry(xemi)
-            .or_insert_with(|| match emittance(world.lo, world.schema, xemi)? {
-                Emittance::Weather(r) => {
-                    let ws: HashMap<u32, Weather> =
-                        r.listed.iter().filter_map(|&f| Some((f, weather(world.lo, world.schema, f)?))).collect();
-                    ws.contains_key(&r.best).then_some(Source::Weather(r, ws))
+            .or_insert_with(|| {
+                let s = resolve(world, xemi);
+                match &s {
+                    Some(Source::Weather(r, ws)) => info!("emittance: source {xemi:#010x} is a region, {} weathers loaded, likeliest {:#010x}", ws.len(), r.best),
+                    Some(Source::Color(c, _)) => info!("emittance: source {xemi:#010x} is a light, colour {c:?}"),
+                    None => info!("emittance: source {xemi:#010x} resolves to nothing"),
                 }
-                Emittance::Light { color: c, fade } => {
-                    let f = fade.max(0.0);
-                    let shown = c.map(|b| b as f32 / 255.0 * f);
-                    Some(Source::Color(LinearRgba::rgb(srgb_to_linear(c[0]) * f, srgb_to_linear(c[1]) * f, srgb_to_linear(c[2]) * f), LinearRgba::rgb(shown[0], shown[1], shown[2])))
-                }
+                s
             })
             .is_some()
     }
@@ -115,6 +114,11 @@ impl EmittanceState {
         let m = materials.get(shared)?.clone();
         let (base_color, unlit) = (m.base.base_color.to_linear(), m.base.unlit);
         let emissive = driven_emissive(m.base.emissive, m.base.emissive_texture.is_some());
+        info!(
+            "emittance: material copy for source {xemi:#010x}: unlit {unlit}, glow map {}, emissive {:?} driven {emissive:?}",
+            m.base.emissive_texture.is_some(),
+            m.base.emissive
+        );
         let copy = materials.add(m);
         self.copies.insert((shared.id(), xemi), copy.clone());
         self.driven.push(Driven { copy: copy.clone(), source: xemi, base_color, emissive, unlit });
@@ -206,6 +210,22 @@ fn color(source: &Source, sky: &SkyState) -> (LinearRgba, LinearRgba) {
     }
 }
 
+/// An XEMI target as a source: a region with the weathers that load (its likeliest among
+/// them), or a light's colour × fade; `None` for anything else.
+fn resolve(world: &WorldData, xemi: u32) -> Option<Source> {
+    match emittance(world.lo, world.schema, xemi)? {
+        Emittance::Weather(r) => {
+            let ws: HashMap<u32, Weather> = r.listed.iter().filter_map(|&f| Some((f, weather(world.lo, world.schema, f)?))).collect();
+            ws.contains_key(&r.best).then_some(Source::Weather(r, ws))
+        }
+        Emittance::Light { color: c, fade } => {
+            let f = fade.max(0.0);
+            let shown = c.map(|b| b as f32 / 255.0 * f);
+            Some(Source::Color(LinearRgba::rgb(srgb_to_linear(c[0]) * f, srgb_to_linear(c[1]) * f, srgb_to_linear(c[2]) * f), LinearRgba::rgb(shown[0], shown[1], shown[2])))
+        }
+    }
+}
+
 fn scale(a: LinearRgba, b: LinearRgba) -> LinearRgba {
     LinearRgba::new(a.red * b.red, a.green * b.green, a.blue * b.blue, a.alpha)
 }
@@ -227,6 +247,12 @@ fn update_emittance(
     state.shown = Some(shown);
     let colors: HashMap<u32, (LinearRgba, LinearRgba)> =
         state.sources.iter().filter_map(|(&k, s)| Some((k, color(s.as_ref()?, &sky)))).collect();
+    if state.logged_hour != Some(sky.hour as i32) && !colors.is_empty() {
+        state.logged_hour = Some(sky.hour as i32);
+        for (k, (e, _)) in &colors {
+            info!("emittance: source {k:#010x} at hour {:.2} weather {:#010x}: colour {e:?}", sky.hour, sky.weather.form_id);
+        }
+    }
     for d in &state.driven {
         let Some(&(e, _)) = colors.get(&d.source) else { continue };
         // Only a colour that changes is written: taking the material mutably marks it
