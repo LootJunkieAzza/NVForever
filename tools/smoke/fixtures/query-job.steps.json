@@ -1,0 +1,12 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "smoke_query",
+ "title": "smoke: the engine's query job (NVF_PLAY_TEST_QUERIES)",
+ "start": "any",
+ "steps": [
+  {"query": "Begin Function { }\nSetFunctionValue 1\nEnd\n", "label": "one", "field": "value"},
+  {"query": "ref rP\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (GetFormIDString rP)\nEnd\n", "label": "player.id", "field": "value", "text": true},
+  {"query": "ref rP\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.GetAV Health > 0)\nEnd\n", "label": "player.alive", "field": "value"},
+  {"query": "Begin Function { }\nSetFunctionValue (NoSuchFunctionAnywhere 1)\nEnd\n", "label": "broken", "field": "value"}
+ ]
+}

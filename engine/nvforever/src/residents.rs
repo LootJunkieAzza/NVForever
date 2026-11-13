@@ -2522,6 +2522,7 @@ impl Core {
                 | AiEvent::FleeArrived { .. }
                 | AiEvent::Cornered { .. }
                 | AiEvent::SearchOver { .. }
+                | AiEvent::PackageHolds { .. }
                 | AiEvent::SearchBack { .. }
                 | AiEvent::Resettles { .. }
                 | AiEvent::TakesUpAgain { .. }
@@ -2830,6 +2831,8 @@ fn describe(data: &GameData, world: &WorldData, e: &AiEvent) -> String {
             if *hides { "hides where it is, crouched" } else { "stands" }
         ),
         AiEvent::SearchOver { why } => format!("stops searching: {why}"),
+        AiEvent::PackageHolds { package, held: true } => format!("keeps to its package {} in the fight (Continue During Combat)", n(package)),
+        AiEvent::PackageHolds { package, held: false } => format!("is let go by its package {} to fight (Continue During Combat)", n(package)),
         AiEvent::SearchBack { package, away } => format!("has searched: back to the place of {}, {away:.0} units off", n(package)),
         AiEvent::Resettles { package } => format!("is back in the place of {}: settles there again", n(package)),
         AiEvent::TakesUpAgain { package } => format!("takes up {} afresh", n(package)),

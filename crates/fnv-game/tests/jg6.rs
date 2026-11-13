@@ -2,7 +2,7 @@
 //! actor values by code, actor states, karma, cells, lighting templates, radios, prompts,
 //! primitives, effect shaders and the per-reference calls.
 
-mod common;
+use crate::common;
 
 use common::*;
 use fnv_esm::{LoadOrder, Plugin, Schema};

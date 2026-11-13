@@ -1798,3 +1798,32 @@ fn () {
 ");
     assert_eq!(c.errors().next().map(|d| d.line), Some(4), "{:?}", c.diags);
 }
+
+/// Inside an expression an NVSE-aware function's argument stops at a comparison, which
+/// applies to the call's result [observed: Party Banter 2.esm ships `if eval Ar_HasKey
+/// aConvo, "Conditions" == 1` with bytes that compare the call with 1, #2275]; a range or
+/// a pair still continues it.
+#[test]
+fn a_comparison_after_an_aware_calls_argument_compares_its_result() {
+    let h = run("array_var a\nint r\nint s\nbegin GameMode\nlet a := ar_Map \"x\"::1\nif eval ar_HasKey a \"minMCMVersion\" == 0\nlet r := 5\nendif\nif eval ar_HasKey a \"x\" == 1 && ar_Size a == 1\nlet s := 7\nendif\nend");
+    assert_eq!(h.0[&2], Value::Num(5.0));
+    assert_eq!(h.0[&3], Value::Num(7.0));
+}
+
+#[test]
+fn typeof_absent_key_is_null_without_creating_it() {
+    let h = run("array_var a\nstring_var missing\nstring_var present\nint count\nbegin GameMode\nlet a := ar_Map \"present\"::7\nlet missing := TypeOf a[\"absent\"]\nlet present := TypeOf a[\"present\"]\nlet count := ar_Size a\nend");
+    assert_eq!(h.text(2), "NULL");
+    assert_eq!(h.text(3), "Number");
+    assert_eq!(h.0[&4], Value::Num(1.0));
+}
+
+#[test]
+fn typeof_does_not_hide_invalid_indexing_or_direct_missing_access() {
+    for expression in ["a[\"absent\"]", "TypeOf a[\"present\"][\"absent\"]", "TypeOf a[a]"] {
+        let (c, p) = build(&format!("array_var a\nstring_var result\nbegin GameMode\nlet a := ar_Map \"present\"::7\nlet result := {expression}\nend"));
+        let mut host = host_for(&c);
+        let error = Vm::new(&table(), &mut host, RunOpts { strict: true, ..Default::default() }).run(&p.blocks[0].body);
+        assert!(error.is_err(), "{expression}: {error:?}");
+    }
+}
