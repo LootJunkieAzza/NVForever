@@ -220,6 +220,52 @@ pub fn board_after(won: bool) -> f32 {
     }
 }
 
+/// What keeps an actor near the table out of a drinking contest. Only people drink
+/// (owner, 2026-11-12: "it lets cheyenne drink wtf"): no creature (its base, through its
+/// template, is a CREA record [documented: the Tes4Mod NPC_/CREA record pages]: dogs,
+/// robots, eyebots), no child (its race's Child flag, RACE DATA [documented: catalogue
+/// summary of IsChild]), and nobody dead, out cold (knocked out or set unconscious) or in
+/// a combat state (Alert, Combat or Lost [documented: GECK wiki Category:Detection]).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Fit {
+    pub creature: bool,
+    pub child: bool,
+    pub dead: bool,
+    pub out_cold: bool,
+    pub fighting: bool,
+}
+
+impl Fit {
+    pub fn may_drink(self) -> bool {
+        !(self.creature || self.child || self.dead || self.out_cold || self.fighting)
+    }
+}
+
+/// `r`'s [`Fit`] from the game: an actor with no actor record counts as no person.
+pub fn fit_of(g: &fnv_game::Game, r: FormId) -> Fit {
+    Fit {
+        creature: fnv_game::nvse_nx::is_creature(g, r) != Some(false),
+        child: g.actor_race(r).is_some_and(|race| g.data.child_races.contains(&race)),
+        dead: g.is_dead(r),
+        out_cold: g.is_out_cold(r),
+        fighting: g.awareness.state(r).in_combat(),
+    }
+}
+
+/// The `n` nearest actors of `near` (each with its place and [`Fit`]) that may drink,
+/// nearest first on the floor (distance across, not up), never the player.
+pub fn nearest_drinkers(near: Vec<(FormId, [f32; 3], Fit)>, me: [f32; 3], n: usize) -> Vec<FormId> {
+    let d2 = |p: &[f32; 3]| (p[0] - me[0]).powi(2) + (p[1] - me[1]).powi(2);
+    let mut ok: Vec<_> = near.into_iter().filter(|(r, _, f)| *r != FormId::PLAYER_REF && f.may_drink()).collect();
+    ok.sort_by(|a, b| d2(&a.1).total_cmp(&d2(&b.1)));
+    ok.into_iter().take(n).map(|(r, _, _)| r).collect()
+}
+
+/// The actors near the player in the loaded cells, each with its [`Fit`].
+pub fn near_with_fit(g: &fnv_game::Game) -> Vec<(FormId, [f32; 3], Fit)> {
+    crate::compass::actors_near(g, &Default::default()).into_iter().map(|(r, p)| (r, p, fit_of(g, r))).collect()
+}
+
 /// An NPC drinker: its name and Endurance from its record.
 pub fn npc_drinker(rt: &mut crate::script::Runtime, sim: &mut SimState, r: FormId) -> Drinker {
     let endurance = with_world(rt, sim, |rt| fnv_game::functions::actor_value(&mut rt.game, r, fnv_game::actor_values::ENDURANCE).unwrap_or(5.0));
@@ -619,14 +665,9 @@ fn test_aid(time: AidTime, mut done: Local<bool>, mut script: Option<ResMut<Scri
     let Some(rt) = script.as_mut().and_then(|s| s.rt.as_mut()) else { return };
     *done = true;
     let me = sim.world.peek(FormId::PLAYER_REF).map_or([0.0; 3], |s| s.pos);
-    let mut near = with_world(rt, &mut sim, |rt| {
-        let g = &rt.game;
-        crate::compass::actors_near(g, &Default::default()).into_iter().filter(|(r, _)| *r != FormId::PLAYER_REF && !g.is_dead(*r)).collect::<Vec<_>>()
-    });
-    let d2 = |p: &[f32; 3]| (p[0] - me[0]).powi(2) + (p[1] - me[1]).powi(2) + (p[2] - me[2]).powi(2);
-    near.sort_by(|a, b| d2(&a.1).total_cmp(&d2(&b.1)));
+    let near = with_world(rt, &mut sim, |rt| near_with_fit(&rt.game));
     let mut drinkers = vec![player_drinker(rt, &mut sim, 0, "You")];
-    for (r, _) in near.into_iter().take(a.npcs) {
+    for r in nearest_drinkers(near, me, a.npcs) {
         drinkers.push(npc_drinker(rt, &mut sim, r));
     }
     info!("drink contest: test aid starts a contest ({:?}) with {} NPCs", a.mode, drinkers.len() - 1);
@@ -707,8 +748,29 @@ mod tests {
         assert_eq!(board_after(true), crate::flourish::LIFE);
     }
 
-    /// A guest's screen follows the host: its link's slot, a follower's contest, the
-    /// host's places past the hard limit, its pass-outs and winner.
+    /// A dog, a robot and a child stand nearest the table; only the people drink, and
+    /// never the dead, the out cold or the fighting.
+    #[test]
+    fn only_people_are_picked_to_drink() {
+        let at = |x: f32| [x, 0.0, 0.0];
+        let person = Fit::default();
+        let near = vec![
+            (FormId(0x10), at(10.0), Fit { creature: true, ..person }),
+            (FormId(0x11), at(20.0), Fit { child: true, ..person }),
+            (FormId(0x12), at(30.0), Fit { dead: true, ..person }),
+            (FormId(0x13), at(40.0), Fit { out_cold: true, ..person }),
+            (FormId(0x14), at(50.0), Fit { fighting: true, ..person }),
+            (FormId(0x15), at(15.0), Fit { creature: true, fighting: true, ..person }),
+            (FormId(0x20), at(90.0), person),
+            (FormId::PLAYER_REF, at(0.0), person),
+            (FormId(0x21), at(60.0), person),
+            (FormId(0x22), at(200.0), person),
+        ];
+        assert_eq!(nearest_drinkers(near.clone(), at(0.0), 2), [FormId(0x21), FormId(0x20)]);
+        assert_eq!(nearest_drinkers(near, at(0.0), 9), [FormId(0x21), FormId(0x20), FormId(0x22)]);
+        assert!(person.may_drink());
+    }
+
     /// The drink a drinker passes out on is not counted; one who leaves or slips outside
     /// keeps every drink taken.
     #[test]
@@ -728,6 +790,8 @@ mod tests {
         assert_eq!(finished_drinks(s), 0);
     }
 
+    /// A guest's screen follows the host: its link's slot, a follower's contest, the
+    /// host's places past the hard limit, its pass-outs and winner.
     #[test]
     fn a_guest_follows_the_host() {
         let start = DrinkStart { bottle: 1, drinkers: drinkers(), seed: 5, stake: 10 };

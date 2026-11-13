@@ -444,13 +444,9 @@ fn test_aid(time: crate::pause::AidTime, mut done: Local<bool>, mut script: Opti
     let mut drinkers = vec![crate::drink_contest::player_drinker(rt, &mut sim, 0, "You")];
     if npcs > 0 {
         let me = sim.world.peek(FormId::PLAYER_REF).map_or([0.0; 3], |s| s.pos);
-        let mut near = with_world(rt, &mut sim, |rt| {
-            let g = &rt.game;
-            crate::compass::actors_near(g, &Default::default()).into_iter().filter(|(r, _)| *r != FormId::PLAYER_REF && !g.is_dead(*r)).collect::<Vec<_>>()
-        });
-        let d2 = |p: &[f32; 3]| (p[0] - me[0]).powi(2) + (p[1] - me[1]).powi(2);
-        near.sort_by(|a, b| d2(&a.1).total_cmp(&d2(&b.1)));
-        for (r, _) in near.into_iter().take(npcs.min(dt::MARKS - 1)) {
+        // Only people drink (no creature, child, dead, out cold or fighting actor).
+        let near = with_world(rt, &mut sim, |rt| crate::drink_contest::near_with_fit(&rt.game));
+        for r in crate::drink_contest::nearest_drinkers(near, me, npcs.min(dt::MARKS - 1)) {
             drinkers.push(crate::drink_contest::npc_drinker(rt, &mut sim, r));
         }
     }
