@@ -50,6 +50,7 @@ pub mod camera_paths;
 pub mod books;
 pub mod campfire;
 pub mod caravan;
+pub mod caravan_traders;
 pub mod challenges;
 pub mod casino;
 pub mod chargen;

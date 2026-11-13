@@ -36,6 +36,39 @@ owner, 2026-10-19), 43 screenshots of a game against Ringo taken by the owner
 - Refused, with a corner message, when the player owns fewer than 30 cards [hypothesis:
   the words and the refusal are NVForever's].
 
+### 1.1 Who plays (2026-11-12)
+
+- The original's Caravan entry is the top-level topic `CaravanOffer` ("Want to play a
+  hand of Caravan?"). Its quest `vCaravanQuest` has one condition, the speaker in
+  `CaravanPlayerFaction` (0x00157F77), so only that faction's members offer it [observed:
+  FalloutNV.esm QUST 0x00157F76, DIAL 0x00157F69].
+- Its lines name their players by GetIsID: Ringo, Johnson Nash, Cliff Briscoe, No-bark
+  Noonan, Carl Mayes, Poindexter, Jules, Dennis Crocker and Jake Erwin. Two lines are for
+  anyone else (0x00157F6D, 0x00157F6E, Goodbye). Their result script starts a game only
+  for Johnson Nash, Little Buster, Dale Barton and Isaac [observed: the INFOs' conditions
+  and result script]. A few more players have lines of their own topics (Keith, the
+  rematch lines) [observed].
+- The traveling merchants never offer it. They are the NPCs named "Traveling Merchant":
+  class `VendorTraveler` "Traveler Merchant" (0x0015C4D6), in vMojaveCivilianFaction,
+  vMojaveCivilianDialogueFaction, vMojaveCivilianTraderDialogueFaction and, for one,
+  `vMojaveMerchantFaction` "Mojave Traveler Merchants" (0x0016ACA6). None is in
+  CaravanPlayerFaction. Their barter line "I'd like to see your wares." asks for the three
+  dialogue factions and the class [observed: FalloutNV.esm NPC_ NVMerchantMale and the
+  rest, INFO 0x00163CA6]. The Crimson Caravan Traders are class Soldier with no barter
+  line [observed].
+- NVForever offers Caravan to every traveling merchant (the class or the faction) that is
+  not in CaravanPlayerFaction. It uses `CaravanOffer` with the line for anyone, placed
+  before Goodbye. Choosing it asks for a game against the merchant with Ringo's deck
+  (0x0015D7A2), betting at most a quarter of its money, Ringo's own terms
+  (`fnv_game::caravan_traders`) [design; owner request 2026-11-12, "you should be able to
+  play caravan with all traveling merchants"]. A merchant of another plugin counts when it
+  uses that class or faction.
+- The merchants' greeting, "Hey there. Need anything?" (0x00163CA9), carries its own
+  choice list: "I'd like to see your wares." and "Goodbye." [observed: a run talking to a
+  placed NVMerchantMale, 2026-11-13]. NVForever puts the Caravan entry into that list too,
+  before its closing goodbye choice. Only the greeting's list gets it; later lines' lists
+  stay as written [design].
+
 ## 2. Cards and decks
 
 - A caravan card is a CCRD record: name, model, `TX00` face and `TX01` back textures
