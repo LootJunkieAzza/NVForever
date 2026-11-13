@@ -2402,6 +2402,35 @@ fn hold_player(
     }
 }
 
+/// Script errors warned of so far this run, by unit and error, at most [`ERRORS_KEPT`].
+static ERRORS_SEEN: std::sync::Mutex<BTreeSet<(String, String)>> = std::sync::Mutex::new(BTreeSet::new());
+const ERRORS_KEPT: usize = 4096;
+
+/// Whether a script's error is new this run: a script that stops on the same line each
+/// frame is warned of once, the repeats go to debug (the trace keeps them all). Long 15's
+/// gate stopped every frame on an `if` that leaves two values, as the original stops it
+/// (fnv-script `long_15s_gate_marker_check_leaves_two_values_and_stops`), and the warning
+/// filled the run log [observed: host log 2026-11-13, thousands of lines].
+fn first_error(unit: &str, error: &str) -> bool {
+    let Ok(mut seen) = ERRORS_SEEN.lock() else { return true };
+    if seen.len() >= ERRORS_KEPT {
+        return !seen.contains(&(unit.to_string(), error.to_string()));
+    }
+    seen.insert((unit.to_string(), error.to_string()))
+}
+
+#[cfg(test)]
+mod first_error_tests {
+    #[test]
+    fn a_scripts_same_error_is_new_once() {
+        let unit = "Long15Reloaded.esm|SCPT 0x1E0025C2 (first_error test)";
+        assert!(super::first_error(unit, "malformed expression: 2 values left on the stack"));
+        assert!(!super::first_error(unit, "malformed expression: 2 values left on the stack"));
+        assert!(super::first_error(unit, "another error"));
+        assert!(super::first_error("Other.esp|SCPT 0x01000800 (first_error test)", "malformed expression: 2 values left on the stack"));
+    }
+}
+
 /// The trace events worth a log line.
 fn log_event(data: &GameData, e: &Event) {
     let n = |f: FormId| data.name(f);
@@ -2432,7 +2461,8 @@ fn log_event(data: &GameData, e: &Event) {
         EventKind::ItemAdded { to, item, count, .. } => debug!("script: {count} x {} added to {}", n(*item), n(*to)),
         EventKind::ItemRemoved { from, item, count, .. } => debug!("script: {count} x {} removed from {}", n(*item), n(*from)),
         EventKind::Unhandled { name, unit, .. } => debug!("script: unhandled {name} in {unit}"),
-        EventKind::ScriptError { unit, error } => warn!("script error in {unit}: {error}"),
+        EventKind::ScriptError { unit, error } if first_error(unit, error) => warn!("script error in {unit}: {error} (once a run; again at debug)"),
+        EventKind::ScriptError { unit, error } => debug!("script error in {unit}: {error}"),
         EventKind::ScriptPrint { unit, text } => info!("script: print {text:?} ({unit})"),
         EventKind::CallFailed { name, unit, error, .. } => debug!("script: {name} failed in {unit}: {error}"),
         EventKind::ArgUnread { name, unit, param, got, wanted, .. } => {
