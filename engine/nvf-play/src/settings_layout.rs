@@ -102,6 +102,7 @@ pub const SECTIONS: &[Section] = &[
             "dlss-model",
             "fsr-library",
             "frame-generation",
+            "frame-generation-frames",
             "anti-aliasing",
             "latency-reduction",
             "shadow-filter",
@@ -306,8 +307,9 @@ mod tests {
     /// Every row the registry can hold today (upstream main 9af0a4552 and f4015fae8, with #1966's
     /// quality and enhanced rows, #2014's counter rows, the two VATS rows and #2198's Upscaler
     /// and Upscaling mode rows in place of the one upscaling row, its DLSS model row and #2169's
-    /// FSR library row, and #2242's upscaling counter row), by the group it registers with.
-    const KNOWN: [(&str, &str); 108] = [
+    /// FSR library row, #2242's upscaling counter row and #2317's Generated frames row), by the group it
+    /// registers with.
+    const KNOWN: [(&str, &str); 109] = [
         ("detached-camera", "Gameplay"),
         ("menu-pause", "Gameplay"),
         ("dialogue-goodbye-hint", "Gameplay"),
@@ -386,6 +388,7 @@ mod tests {
         ("dlss-model", "Graphics"),
         ("fsr-library", "Graphics"),
         ("frame-generation", "Graphics"),
+        ("frame-generation-frames", "Graphics"),
         ("anti-aliasing", "Graphics"),
         ("latency-reduction", "Graphics"),
         ("shadow-filter", "Graphics"),
