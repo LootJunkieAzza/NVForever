@@ -462,6 +462,22 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   the OPEN sign white. The two string-light shapes are the only visible shapes with a
   `_n` texture in slot 2 and a non-black emissive colour; their shader flags equal the
   OPEN sign's (0x82000101), so no flag tells them apart [observed].
+
+  **Glow maps emit on their own** (2026-11-12, owner's ship17 frames). Long 15's Baker
+  thermometer (`Long15Reloaded - Main.bsa`, `bakerthermometer.nif`: `BakerThermo_Lo`,
+  BSShaderPPLightingProperty, shader flags 0x82000081, emissive white × 3; `Numbers_Lo`,
+  0xC0800041, white × 10; both with `bakerthermo_g.dds` in slot 2) paints its red neon
+  tubes (about (222, 20, 24)) and yellow numbers into the glow map over a diffuse that is
+  about 45/255 under the tubes and 13/255 under the numbers [observed, fnvtool nif decode
+  and the textures]. In the original at night the tubes are bright red outlines and the
+  numbers lit (owner's frame, `novac-thermometer-original.webp`); times the diffuse, ours
+  were a dark red tower with unlit numbers [observed]. Rule now [hypothesis]: a lit
+  shape with a glow map in slot 2 emits emissive colour × multiplier × glow map, not
+  times the diffuse (`glow_emits_alone`, `emissive_rule.z`). A slot 2 that is a normal
+  map (`_n`: the Prospector's string lights above, the only such emitters in the base
+  game) keeps the diffuse product, so their pastel bulbs and dark cord stay as they are.
+  Glow maps that repeat the diffuse's colours (the OPEN 24 HOURS tubes) come out
+  somewhat brighter where their diffuse is darker than white.
   The initial reading left BSShaderNoLightingProperty shapes unlit and ignored the
   emissive colour: 2,663 of them have a black emissive colour (hangar lights, casino
   stairs) yet show in game,

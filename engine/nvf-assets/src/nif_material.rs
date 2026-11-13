@@ -297,7 +297,8 @@ pub struct NifSurface {
     /// negative for down (module notes, "Fire refraction"); 0: it does not move.
     pub fire_period: f32,
     /// Unlit emissive rules: x 1 skips the image-space scale; y holds each light channel
-    /// to that value on the soft path (0: no hold); z, w unused. Zero keeps the default
+    /// to that value on the soft path (0: no hold); z 1: a lit shape's glow map alone
+    /// gives its light (nif_spawn.rs `glow_emits_alone`); w unused. Zero keeps the default
     /// [hypothesis, nif.md §6 "Unlit shapes that are pictures, and cut-out signs"].
     pub emissive_rule: Vec4,
     /// The shape refracts (module notes, "Refraction").

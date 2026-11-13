@@ -242,6 +242,19 @@ fn glow_map(shader_flags: i64, textures: &[String]) -> Option<String> {
     textures.get(2).filter(|t| !t.is_empty()).cloned()
 }
 
+/// A lit shape's emitted light comes from its glow map alone, not times its diffuse
+/// texture: it has a glow map in slot 2 ([`glow_map`]) that is not a normal map (`_n`)
+/// [hypothesis, docs/spec-notes/nif.md §6 "Glow maps emit on their own"]. Long 15's
+/// Baker thermometer (`bakerthermometer.nif` `BakerThermo_Lo`, white × 3, and
+/// `Numbers_Lo`, white × 10) paints red neon tubes and yellow numbers into
+/// `bakerthermo_g.dds` over a diffuse that is 45/255 and 13/255 there [observed]; in the
+/// original at night both burn bright (owner's frame, 2026-11-12), where times the
+/// diffuse they were dark. The Prospector Saloon's string lights, whose slot 2 is their
+/// normal map, keep the diffuse product their pastel bulbs need.
+pub(crate) fn glow_emits_alone(props: &Props) -> bool {
+    !props.unlit && props.glow.as_deref().is_some_and(|g| !g.to_ascii_lowercase().ends_with("_n.dds"))
+}
+
 /// The shape is a decal: BSShaderFlags bit 26 "Decal_Single_Pass" or bit 27
 /// "Dynamic_Decal_Single_Pass" [documented: nif.xml BSShaderFlags]. 2,130 visible shapes
 /// in `Fallout - Meshes.bsa` set one (41 only bit 26, none only bit 27): dirt, stains,
@@ -924,6 +937,10 @@ fn shape_material_inner(props: &Props, mesh: &mut Mesh, textures: &mut impl Text
     }
     material.extension.add_whole = if adds_whole(props) { 1.0 } else { 0.0 };
     material.extension.emissive_rule = shape_emissive_rule(props, alpha_mode);
+    // z: the loaded glow map alone gives the emitted light (`glow_emits_alone`).
+    if material.base.emissive_texture.is_some() && glow_emits_alone(props) {
+        material.extension.emissive_rule.z = 1.0;
+    }
     material.extension.decal = props.decal;
     if crate::nif_material::soft_intersections(alpha_mode, props.unlit, props.refraction.is_some(), burns(props)) {
         material.extension.soft.x = crate::nif_material::soft_distance(mesh_extent(mesh));
@@ -1754,6 +1771,22 @@ mod tests {
         assert!(!is_decal(0xffff_ffff & !(1 << 26 | 1 << 27)));
         // The flags reach the material's properties from the shader property.
         assert!(!Props::default().decal);
+    }
+
+    #[test]
+    fn glow_maps_emit_on_their_own() {
+        // Long 15's Baker thermometer: lit, emissive white × 3, `bakerthermo_g.dds` in
+        // slot 2 (shader flags 0x82000081): the glow map alone gives its light.
+        let tex = |s: &[&str]| s.iter().map(|t| t.to_string()).collect::<Vec<_>>();
+        let set = tex(&["BakerThermo_d.dds", "BakerThermo_n.dds", "BakerThermo_g.dds", "environment05.dds", "BakerThermo_m.dds", ""]);
+        let thermometer = Props { glow: glow_map(0x8200_0081, &set), emissive: Some([1.0; 3]), emissive_mult: Some(3.0), shader: true, has_properties: true, ..Default::default() };
+        assert!(glow_emits_alone(&thermometer));
+        // The Prospector's string lights carry their normal map in slot 2: times the diffuse.
+        let lights = tex(&["NVQueenPalmLights.dds", "NVQueenPalmLights_n.dds", "NVQueenPalmLights_N.dds"]);
+        assert!(!glow_emits_alone(&Props { glow: glow_map(0x8200_0101, &lights), ..thermometer.clone() }));
+        // No glow map, or an unlit shape: as before.
+        assert!(!glow_emits_alone(&Props { glow: None, ..thermometer.clone() }));
+        assert!(!glow_emits_alone(&Props { unlit: true, ..thermometer }));
     }
 
     #[test]

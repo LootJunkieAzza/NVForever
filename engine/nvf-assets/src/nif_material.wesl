@@ -593,7 +593,10 @@ fn nif_fragment(
     // to the 2026-11-06 frames; nif.md §6 "Unlit shapes that are pictures, and cut-out signs"].
     let emissive_scale = select(view_emissive_scale(), 1.0, surface.emissive_rule.x > 0.5 || (pbr_input.material.flags & STANDARD_MATERIAL_FLAGS_ALPHA_MODE_RESERVED_BITS) == STANDARD_MATERIAL_FLAGS_ALPHA_MODE_ADD);
     let e = vec4(pbr_input.material.emissive.rgb * emissive_scale, pbr_input.material.emissive.a);
-    pbr_input.material.emissive = vec4(e.rgb * pbr_input.material.base_color.rgb, e.a);
+    // A real glow map gives the light on its own (emissive_rule.z, nif_spawn.rs
+    // `glow_emits_alone`); otherwise the light is modulated by the surface like lit light.
+    let surface_tint = select(pbr_input.material.base_color.rgb, vec3(1.0), surface.emissive_rule.z > 0.5);
+    pbr_input.material.emissive = vec4(e.rgb * surface_tint, e.a);
 
     // Kept out of the lighting sum: multiply_factor adds it in display values.
     @if(BLEND_MULTIPLY) let multiply_emissive = pbr_input.material.emissive.rgb;
