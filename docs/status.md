@@ -80,7 +80,7 @@ counts them).
 
 ## 5. Scripting (Layer 5)
 
-Player script sequence bridge/lifecycle is at a documentation-only contract and owned-reproduction-plan stage; implementation, port and runtime tests are pending ([player sequences](spec-notes/player-script-sequence-bridge.md)).
+Player script sequence bridge/lifecycle has an isolated source-port candidate and authored controls; compilation and execution of this port are pending ([player sequences](spec-notes/player-script-sequence-bridge.md)).
 
 | System | State | Specifics | Notes |
 |---|---|---|---|

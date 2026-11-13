@@ -2,9 +2,10 @@
 
 [design] This is the initial documentation-only draft for the player-sequence
 slice of [issue #2133](https://github.com/LootJunkieAzza/NVForever/issues/2133),
-tracking repair items NVF-018 and NVF-020. Implementation, current-main port,
-owned executable regressions and runtime validation are pending. This note does
-not announce a working bridge or accept the wider issue.
+tracking repair items NVF-018 and NVF-020. An isolated current-main source port
+and authored executable fixtures are prepared. Compilation, paired regression
+execution and runtime validation of this port are pending. This note does not
+announce a validated bridge or accept the wider issue.
 
 ## 1. Current portable boundary
 
@@ -33,7 +34,7 @@ Existing [kNVSE design](../design/knvse-anim.md) and
 [second-slice notes](ext-knvse.md) retain their separately tagged observations
 and hypotheses; this note does not upgrade them.
 
-## 2. Bounded player bridge to implement
+## 2. Bounded player bridge candidate
 
 [design] Keep a request identity that distinguishes actor, selected player view
 and normalized path. Repeated requests, explicit restart, deactivation, clock
@@ -90,9 +91,10 @@ at an unrelated view/admission gate is not a lifecycle reproduction.
 ## 4. Owned reproduction and validation plan
 
 [design] Use newly authored sequence metadata and tiny transform tracks, without
-installed KFs, meshes, mod text or saves. No executable fixture is added by this
-first commit. The follow-up must list and execute actual tests, not certify the
-following plan as a pass:
+installed KFs, meshes, mod text or saves. The candidate includes four small-library
+controls and one blend control from the reviewed source packets. They have not
+been compiled or executed on this base. Validation must list and execute actual
+tests; the following plan is not a pass:
 
 | Control | Required observation | Excluded shortcut |
 |---|---|---|
@@ -132,3 +134,9 @@ own issue/validation boundaries.
 script-created actor is drawn and its mirror starts watching. Its placed-actor
 read-ahead/spawn-budget work remains with that owner. This draft adds no competing
 actor-spawn implementation and claims no resolution of all issue #2133 rows.
+
+## Source port preparation
+
+[design] An isolated implementation port is being prepared from the reviewed player-sequence request/layer model and its mandatory loop/transition correction. The current port has not been compiled or executed. Historical private runtime results do not qualify this source revision. Native defaults, transition/view forwarding, morph/additive/reference-pose composition and NPC rendering remain unqualified. Existing player-model view identity and independent IDLE/camera policies must remain separate.
+
+[design] The candidate reserves the script-layer tag tier `0x40000000` and rejects request serial overflow into it. Portable fallback values remain priority 1, weight 1 and a 0.2-second fade; they are engineering choices, not qualified native defaults. Weights are clamped to 0 through 1, and non-finite explicit inputs or a requested morph synchronization path are refused. The path admission guard accepts a relative path under meshes, optionally already prefixed with meshes, and rejects rooted, drive-qualified and parent-component paths. This lexical guard does not establish physical reparse-point containment.

@@ -532,3 +532,94 @@ fn cached_ini_file_quotes_are_removed_without_changing_default_or_cached_values(
     q(&mut g, "ReloadIniCache \"OwnedWarmQuotes.ini\"");
     assert_eq!(q(&mut g, "SetFunctionValue (GetINIString_Cached \"Template:Warm\" \"OwnedWarmQuotes.ini\")"), XVal::Str("Reloaded".into()));
 }
+
+#[test]
+fn explicit_player_sequences_keep_view_clocks_targets_and_release_state() {
+    files();
+    let f = fixture();
+    let mut g = game(&f);
+    g.cfg.frame_seconds = 0.1;
+    g.senses.first_person = true;
+    assert_eq!(q(&mut g,"SetFunctionValue (PlayerREF.ActivateAnim \"test\\a.kf\" 1 3 1 0.4 0.3)"),n(1.0));
+    let key = (FormId::PLAYER_REF,true,"test\\a.kf".into());
+    let requested = g.anim_paths.sequences.get(&key).unwrap();
+    assert_eq!(requested.priority,3);
+    assert_eq!(requested.weight,0.4);
+    assert_eq!(requested.ease_in,Some(0.3));
+    assert!(!requested.auto_finish);
+    g.tick();
+    let first_time = g.script_sequence_time(FormId::PLAYER_REF,"test\\a.kf");
+    assert!(first_time>0.09 && first_time<0.11);
+    assert_eq!(q(&mut g,"SetFunctionValue (PlayerREF.ActivateAnim \"test\\a.kf\" 1)"),n(0.0));
+    assert_eq!(q(&mut g,"SetFunctionValue (PlayerREF.ActivateAnim \"test\\a.kf\" 0 0 1 0.8)"),n(1.0));
+    assert_eq!(g.script_sequence_time(FormId::PLAYER_REF,"test\\a.kf"),first_time,"starting the other view must not restart this one");
+    assert_eq!(q(&mut g,"SetFunctionValue (Ar_Size (PlayerREF.GetActiveAnims 1))"),n(1.0));
+    assert_eq!(q(&mut g,"SetFunctionValue (Ar_Size (PlayerREF.GetActiveAnims 0))"),n(1.0));
+    q(&mut g,"PlayerREF.SetAnimCurrentTime \"test\\a.kf\" 0.6");
+    assert_eq!(g.script_sequence_time(FormId::PLAYER_REF,"test\\a.kf"),first_time);
+    g.tick();
+    // The deferred seek is applied before this tick advances the actor clock.
+    assert!((g.script_sequence_time(FormId::PLAYER_REF,"test\\a.kf")-0.7).abs()<1e-8);
+    q(&mut g,"PlayerREF.SetAnimWeight \"test\\a.kf\" 0.25");
+    assert_eq!(g.anim_paths.sequences[&key].weight,0.25);
+    assert_eq!(g.anim_paths.sequences[&(FormId::PLAYER_REF,false,"test\\a.kf".into())].weight,0.8);
+    assert_eq!(q(&mut g,"SetFunctionValue (PlayerREF.DeactivateAnim \"test\\a.kf\" 0.4)"),n(1.0));
+    assert!(g.anim_paths.sequences[&key].stopped.is_some(),"the renderer retains the fade request");
+    assert_eq!(q(&mut g,"SetFunctionValue (PlayerREF.IsAnimSequencePlaying \"test\\a.kf\")"),n(0.0));
+    for _ in 0..6 { g.tick(); }
+    assert!(!g.anim_paths.sequences.contains_key(&key));
+    assert_eq!(q(&mut g,"SetFunctionValue (PlayerREF.ActivateAnim \"test\\a.kf\" 1 1 0)"),n(1.0));
+    assert!((g.script_sequence_time(FormId::PLAYER_REF,"test\\a.kf")-0.7).abs()<1e-8,"resuming uses the paused time, not time spent inactive");
+}
+
+#[test]
+fn transition_helpers_preserve_explicit_weight_and_offset_readbacks() {
+    files();
+    let f = fixture();
+    let mut g = game(&f);
+    g.senses.first_person = false;
+    q(&mut g,"PlayerREF.ActivateAnim \"test\\a.kf\" 0");
+    assert_eq!(q(&mut g,"SetFunctionValue (PlayerREF.CrossFadeAnims \"test\\a.kf\" \"test\\b.kf\" 0 0.3 1 1 0.4)"),n(1.0));
+    assert_eq!(q(&mut g,"array_var a\nlet a := PlayerREF.GetAnimationAttributes \"test\\b.kf\"\nSetFunctionValue a[\"seqWeight\"]"),n(f64::from(0.4f32)));
+    assert_eq!(q(&mut g,"SetFunctionValue (PlayerREF.BlendToAnim \"test\\b.kf\" \"test\\c.kf\" 0 0.3 0.75 0 0.6)"),n(1.0));
+    assert_eq!(q(&mut g,"array_var a\nlet a := PlayerREF.GetAnimationAttributes \"test\\c.kf\"\nSetFunctionValue a[\"seqWeight\"]"),n(f64::from(0.6f32)));
+    assert_eq!(q(&mut g,"SetFunctionValue (PlayerREF.GetAnimCurrentTime \"test\\c.kf\")"),n(0.75));
+    assert_eq!(q(&mut g,"SetFunctionValue (PlayerREF.BlendToAnimFromPose \"test\\d.kf\" 0 0.3 0.5)"),n(1.0));
+    assert_eq!(q(&mut g,"SetFunctionValue (PlayerREF.GetAnimCurrentTime \"test\\d.kf\")"),n(0.5));
+}
+
+#[test]
+fn play_animation_path_preserves_loop_and_reverse_until_deactivated() {
+    use fnv_game::nvse_knvse::SequenceInfo;
+    files();
+    let f = fixture();
+    for cycle in [0, 1] {
+        let mut g = game(&f);
+        g.cfg.frame_seconds = 0.1;
+        g.set_sequence_info("test\\b.kf", SequenceInfo {
+            name:"Owned cycle".into(), accum_root:String::new(), frequency:2.0,
+            begin:0.0, end:0.25, cycle, text_keys:vec![],
+        });
+        assert_eq!(q(&mut g,"SetFunctionValue (PlayerREF.PlayAnimationPath \"test\\b.kf\" 1)"),n(1.0));
+        for _ in 0..20 { g.tick(); }
+        assert_eq!(q(&mut g,"SetFunctionValue (PlayerREF.IsAnimSequencePlaying \"test\\b.kf\")"),n(1.0),"cycle {cycle} must survive several full periods");
+        assert_eq!(q(&mut g,"SetFunctionValue (PlayerREF.DeactivateAnim \"test\\b.kf\" 0)"),n(1.0));
+        g.tick();
+        assert!(g.anim_paths.sequences.is_empty());
+    }
+}
+
+#[test]
+fn play_animation_path_stops_at_its_reported_end() {
+    use fnv_game::nvse_knvse::SequenceInfo;
+    files();
+    let f = fixture();
+    let mut g = game(&f);
+    g.cfg.frame_seconds = 0.1;
+    g.set_sequence_info("test\\b.kf",SequenceInfo {name:"Owned".into(),accum_root:String::new(),frequency:1.0,begin:0.0,end:0.25,cycle:2,text_keys:vec![]});
+    assert_eq!(q(&mut g,"SetFunctionValue (PlayerREF.PlayAnimationPath \"test\\b.kf\" 1)"),n(1.0));
+    assert_eq!(q(&mut g,"SetFunctionValue (PlayerREF.IsAnimSequencePlaying \"test\\b.kf\")"),n(1.0));
+    for _ in 0..7 { g.tick(); }
+    assert_eq!(q(&mut g,"SetFunctionValue (PlayerREF.IsAnimSequencePlaying \"test\\b.kf\")"),n(0.0));
+    assert!(g.anim_paths.sequences.is_empty());
+}

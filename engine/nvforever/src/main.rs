@@ -140,6 +140,7 @@ mod residents;
 mod resurrect;
 mod appearance;
 mod script_look;
+mod script_sequences;
 mod ripples;
 mod settings;
 mod iron_sights;
