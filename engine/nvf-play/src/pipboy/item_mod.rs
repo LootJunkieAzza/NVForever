@@ -299,7 +299,7 @@ pub fn effect_text(effect: Option<&str>, a: f32) -> Option<String> {
 #[allow(clippy::too_many_arguments)]
 pub fn keys(
     pip: Res<PipBoy>,
-    keys: Res<ButtonInput<KeyCode>>,
+    keys: crate::pad::ActionButtons<KeyCode>,
     mut aid: MessageReader<ModInput>,
     mut menu: ResMut<PipItemMod>,
     repair: Res<super::repair::PipRepair>,
@@ -309,6 +309,7 @@ pub fn keys(
     mut sounds: MessageWriter<UiSound>,
     prompt: Res<crate::menu::PromptKeys>,
 ) {
+    let keys = keys.snapshot();
     // Laid out in the Pip-Boy's screen texture, at its size whatever the UI scale (#1631).
     let _canvas = crate::interface::original_units();
     use KeyCode::*;

@@ -473,8 +473,8 @@ pub fn contain(size: Vec2, window: Vec2) -> (Vec2, Vec2) {
 #[allow(clippy::too_many_arguments)]
 fn play(
     real: Res<Time<Real>>,
-    keys: Res<ButtonInput<KeyCode>>,
-    mouse: Res<ButtonInput<MouseButton>>,
+    keys: crate::pad::ActionButtons<KeyCode>,
+    mouse: crate::pad::ActionButtons<MouseButton>,
     mut intro: ResMut<Intro>,
     mut images: ResMut<Assets<Image>>,
     mut sounds: ResMut<Assets<IntroSound>>,
@@ -484,6 +484,8 @@ fn play(
     mut paused: ResMut<Paused>,
     mut next: ResMut<NextState<PlayState>>,
 ) {
+    let keys = keys.snapshot();
+    let mouse = mouse.snapshot();
     let skip_after = intro.skip_after;
     let shot_at = intro.shot_at;
     let Some(p) = intro.playing.as_mut() else { return };

@@ -244,8 +244,10 @@ pub struct Readings {
     pub cpu: Option<f32>,
     /// The game's own processor use, cores ([`cores_busy`]).
     pub game_cores: Option<f32>,
-    /// The busiest GPU engine's use, percent.
+    /// [design, #2249] GPU use in percent, with scope given by `gpu_game` (`usage.rs`).
     pub gpu: Option<f32>,
+    /// [design, #2249] Whether this is game-only DRM client time (`usage::Shared`).
+    pub gpu_game: bool,
     /// This process's GPU memory and its budget, MB (`MemoryBudget::vram_use_mb`).
     pub vram_mb: Option<(u64, u64)>,
     /// The game's working set, MB.
@@ -292,8 +294,9 @@ pub struct Row {
 pub const LABELS: [&str; 8] = ["FPS", "", "SPLIT", "CPU", "GPU", "VRAM", "RAM", "LOADED"];
 
 /// The rows to show: those switched on, in [`LABELS`]' order, each left out when it has
-/// nothing to read. The frame rate row shows `--` until its first reading, so a showing
-/// starts with something on screen, as the counter's `-- FPS` did; the graph row shows
+/// nothing to read except CPU/GPU, which explain unavailable readings [design, #2249].
+/// The frame rate row shows `--` until its first reading, so a showing starts with
+/// something on screen, as the counter's `-- FPS` did; the graph row shows
 /// from the start (its line grows as frames come).
 pub fn rows(r: &Readings, on: &Rows) -> Vec<Row> {
     let fps = r.frame.as_ref().map_or_else(|| "--".to_string(), |f| fps_text(f, on.low));
@@ -301,8 +304,8 @@ pub fn rows(r: &Readings, on: &Rows) -> Vec<Row> {
         (on.fps, Some(fps), false),
         (on.graph, Some(String::new()), false),
         (on.split, r.split.as_ref().map(split_text), false),
-        (on.cpu, cpu_text(r.cpu, r.game_cores), false),
-        (on.gpu, r.gpu.map(percent), false),
+        (on.cpu, Some(cpu_text(r.cpu, r.game_cores)), false),
+        (on.gpu, Some(gpu_text(r.gpu, r.gpu_game)), false),
         (on.vram, r.vram_mb.map(|(used, budget)| vram_text(used, budget)), r.vram_warn),
         (on.ram, ram_text(r.game_ram_mb, r.ram_share), r.ram_warn),
         (on.loaded, r.loaded.as_ref().map(loaded_text), false),
@@ -386,12 +389,26 @@ pub fn percent(p: f32) -> String {
     format!("{p:>3.0}%")
 }
 
-/// ` 34%  game 1.6 cores`: the machine's use and the game's own, each when read.
-pub fn cpu_text(machine: Option<f32>, game_cores: Option<f32>) -> Option<String> {
-    let game = game_cores.map(|c| format!("game {c:.1} cores"));
-    match (machine.map(percent), game) {
-        (Some(m), Some(g)) => Some(format!("{m}  {g}")),
-        (m, g) => m.or(g),
+/// [design, #2249] Missing machine use remains explicit even when process time is read.
+pub fn cpu_text(machine: Option<f32>, game_cores: Option<f32>) -> String {
+    let mut text = machine.map_or_else(unavailable, percent);
+    if let Some(c) = game_cores {
+        text += &format!("  game {c:.1} cores");
+    }
+    text
+}
+
+/// [design, #2249] Own wording for unsupported host telemetry, translated like settings.
+fn unavailable() -> String {
+    fnv_util::words::tr("Not available").to_string()
+}
+
+/// [design, #2249] DRM time is the game's contribution; other GPU sources are device-wide.
+pub fn gpu_text(gpu: Option<f32>, game: bool) -> String {
+    match gpu {
+        None => unavailable(),
+        Some(p) if game => fnv_util::words::trf("game {percent}%", &[("percent", &format!("{p:>3.0}"))]),
+        Some(p) => percent(p),
     }
 }
 
@@ -720,10 +737,10 @@ mod tests {
 
     #[test]
     fn the_cpu_row_shows_what_was_read() {
-        assert_eq!(cpu_text(None, None), None);
-        assert_eq!(cpu_text(Some(34.4), Some(1.62)).as_deref(), Some(" 34%  game 1.6 cores"));
-        assert_eq!(cpu_text(Some(5.0), None).as_deref(), Some("  5%"));
-        assert_eq!(cpu_text(None, Some(0.04)).as_deref(), Some("game 0.0 cores"));
+        assert_eq!(cpu_text(None, None), "Not available");
+        assert_eq!(cpu_text(Some(34.4), Some(1.62)), " 34%  game 1.6 cores");
+        assert_eq!(cpu_text(Some(5.0), None), "  5%");
+        assert_eq!(cpu_text(None, Some(0.04)), "Not available  game 0.0 cores");
         assert_eq!(percent(100.0), "100%");
     }
 
@@ -745,14 +762,22 @@ mod tests {
     #[test]
     fn rows_are_those_switched_on_with_something_to_read() {
         let on = Rows::default();
-        // A showing's start: only the frame rate row, waiting.
+        // [design, #2249] A showing starts with waiting FPS and explicit unavailable usage.
         let waiting = rows(&Readings::default(), &on);
-        assert_eq!(waiting, vec![Row { label: "FPS", value: "--".into(), warn: false, graph: false }]);
+        assert_eq!(
+            waiting,
+            vec![
+                Row { label: "FPS", value: "--".into(), warn: false, graph: false },
+                Row { label: "CPU", value: "Not available".into(), warn: false, graph: false },
+                Row { label: "GPU", value: "Not available".into(), warn: false, graph: false }
+            ]
+        );
         let r = Readings {
             frame: Some(FrameReading { fps: 60.0, mean_ms: 16.7, worst_ms: 20.0, low_ms: 21.3, slowest_ms: 30.0, shown_fps: None }),
             cpu: Some(12.0),
             game_cores: Some(1.6),
             gpu: Some(71.0),
+            gpu_game: false,
             vram_mb: Some((2150, 11_673)),
             game_ram_mb: Some(4813),
             ram_share: Some(0.62),
@@ -765,6 +790,9 @@ mod tests {
         assert_eq!(defaults.iter().map(|r| r.label).collect::<Vec<_>>(), ["FPS", "CPU", "GPU", "VRAM", "RAM"]);
         assert_eq!(defaults[0].value, " 60  16.7 ms  1% low 21.3");
         assert_eq!(defaults[2].value, " 71%");
+        let game = rows(&Readings { gpu_game: true, ..r.clone() }, &on);
+        assert_eq!(game[2].value, "game  71%");
+        assert_eq!(gpu_text(None, true), "Not available");
         assert!(defaults[3].warn && !defaults[4].warn);
         // Every row: the graph under the frame rate, the split under it, the counts last.
         let every = Rows { graph: true, split: true, loaded: true, ..on };
@@ -779,10 +807,9 @@ mod tests {
         let none = Rows { fps: false, graph: false, split: false, cpu: false, gpu: false, vram: false, ram: false, loaded: false, low: Low::OnePercent };
         let fps_only = Rows { fps: true, ..none };
         assert_eq!(rows(&r, &fps_only).len(), 1);
-        // No GPU budget (an integrated GPU) and nothing from Windows: those rows go; the
-        // split and the counts wait for their first reading.
+        // [design, #2249] Missing usage stays explicit; budget, split and counts await data.
         let bare = Readings { frame: r.frame, ..Readings::default() };
-        assert_eq!(rows(&bare, &every).iter().map(|r| r.label).collect::<Vec<_>>(), ["FPS", ""]);
+        assert_eq!(rows(&bare, &every).iter().map(|r| r.label).collect::<Vec<_>>(), ["FPS", "", "CPU", "GPU"]);
         // Every row off: nothing to draw.
         assert!(rows(&r, &none).is_empty());
     }

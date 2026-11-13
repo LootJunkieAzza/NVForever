@@ -550,7 +550,7 @@ impl Plugin for PipBoyPlugin {
             .configure_sets(Update, WarmSet.after(follow_frame).before(reset_manager))
             .configure_sets(Update, PointerSet.after(crate::player::BodySet).before(PlaySet::Activation))
             .add_systems(Update, flat_pointer.in_set(PointerSet))
-            .add_systems(First, drive_pointer.in_set(PickingSystems::Input));
+            .add_systems(PreUpdate, drive_pointer.after(crate::pad::device::automatic).before(PickingSystems::ProcessInput));
         test_aid::setup(app);
         crate::save::add_save_hook(app, data::CUSTOM_MARKER_SAVE_HOOK);
         crate::settings::add_setting(
@@ -835,13 +835,14 @@ fn camera_on(pip: Res<PipBoy>, screen: Option<Res<PipBoyScreen>>, fx: Res<device
 /// the tabs; none while the menus' "How many?" prompt is open. The ITEMS page's own keys
 /// are in [`items`].
 fn close_keys(
-    keys: Res<ButtonInput<KeyCode>>,
+    keys: crate::pad::ActionButtons<KeyCode>,
     prompt: Res<crate::menu::PromptKeys>,
     active: Res<crate::menu::ActiveMenu>,
     repair: Res<repair::PipRepair>,
     modding: Res<item_mod::PipItemMod>,
     mut menu: MessageWriter<crate::menu::MenuInput>,
 ) {
+    let keys = keys.snapshot();
     use KeyCode::*;
     // "How many?" has the keys (`crate::menu`).
     if prompt.held(&active) {
@@ -854,7 +855,8 @@ fn close_keys(
     }
 }
 
-fn keys(keys: Res<ButtonInput<KeyCode>>, prompt: Res<crate::menu::PromptKeys>, active: Res<ActiveMenu>, pip: Res<PipBoy>, stats: Option<Res<stats::StatsView>>, mut out: MessageWriter<PipBoyInput>) {
+fn keys(keys: crate::pad::ActionButtons<KeyCode>, prompt: Res<crate::menu::PromptKeys>, active: Res<ActiveMenu>, pip: Res<PipBoy>, stats: Option<Res<stats::StatsView>>, mut out: MessageWriter<PipBoyInput>) {
+    let keys = keys.snapshot();
     use KeyCode::*;
     if prompt.held(&active) || keys.any_just_pressed([Tab, Escape]) {
         return;
@@ -1010,7 +1012,7 @@ fn drive_pointer(
     screen: Option<Res<PipBoyScreen>>,
     mut last: Local<Option<Vec2>>,
     mut spawned: Local<bool>,
-    mut window_events: MessageReader<WindowEvent>,
+    (mut window_events, switching): (MessageReader<WindowEvent>, Option<Res<crate::pad::SwitchingInput>>),
     mut out: MessageWriter<PointerInput>,
     mut aid: ResMut<PipBoyAid>,
 ) {
@@ -1031,6 +1033,9 @@ fn drive_pointer(
     }
     for e in window_events.read() {
         let WindowEvent::MouseButtonInput(input) = e else { continue };
+        if switching.as_ref().is_some_and(|s| !s.allows_mouse(input)) {
+            continue;
+        }
         if at.is_none() {
             continue;
         }

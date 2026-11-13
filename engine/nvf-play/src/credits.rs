@@ -277,8 +277,8 @@ fn roll(
     mut commands: Commands,
     time: Res<Time<Real>>,
     mut credits: ResMut<Credits>,
-    keys: Res<ButtonInput<KeyCode>>,
-    mouse: Res<ButtonInput<MouseButton>>,
+    keys: crate::pad::ActionButtons<KeyCode>,
+    mouse: crate::pad::ActionButtons<MouseButton>,
     windows: Query<&Window, With<PrimaryWindow>>,
     data: Option<Res<GameData>>,
     mut images: ResMut<Assets<Image>>,
@@ -288,6 +288,8 @@ fn roll(
     (mut lines, mut pictures): (Query<&mut Node, Without<CreditsPicture>>, Pictures),
     (play, textures): (Option<Res<crate::PlayWorld>>, Option<ResMut<nvf_assets::TextureCache>>),
 ) {
+    let keys = keys.snapshot();
+    let mouse = mouse.snapshot();
     if !credits.open {
         return;
     }

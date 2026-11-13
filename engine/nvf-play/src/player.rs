@@ -732,7 +732,7 @@ fn take_knockbacks(knocks: Option<MessageReader<crate::combat::Knockback>>, mut 
 #[allow(clippy::too_many_arguments)]
 fn mouse_look(
     motion: Res<AccumulatedMouseMotion>,
-    (pads, time, vats): (Query<&Gamepad>, Res<Time>, Option<Res<crate::vats_mode::VatsMode>>),
+    (pads, time, vats): (crate::pad::ActionPads, Res<Time>, Option<Res<crate::vats_mode::VatsMode>>),
     state: Res<State<PlayState>>,
     bindings: Res<Bindings>,
     cursor: Query<&CursorOptions, With<PrimaryWindow>>,

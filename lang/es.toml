@@ -6,6 +6,9 @@
 name = "Español"
 
 [words]
+# [design, #2200; engine/nvf-play/src/pause.rs] NVForever's device selection.
+"Automatic Input Switching" = "Cambio automático de dispositivo"
+"On: a controller button or a stick or trigger past its dead zone selects Controller; a key or mouse click selects Keyboard and Mouse. First release the current device's buttons and centre its sticks/triggers, then press again to switch on a later frame. Only the switching press is ignored; later holds/repeats and all releases work. Mouse motion does not switch. Off: choose Input Device manually. Saved in [Controls] of NVForever.ini." = "Activado: un botón del mando, una palanca o un gatillo fuera de su zona muerta selecciona Mando; una tecla o un clic selecciona Teclado y ratón. Primero suelta los botones del dispositivo actual y deja sus palancas/gatillos en reposo; después vuelve a pulsar en un fotograma posterior para cambiar. Solo se ignora la pulsación que cambia el dispositivo; mantener, repetir y soltar sigue funcionando. Mover el ratón no cambia nada. Desactivado: elige el dispositivo manualmente. Se guarda en [Controls] de NVForever.ini."
 "Dialogue voice" = "Voces en los diálogos"
 "On: lines are spoken. Off: they are silent from the next line on, and still last as long as their sound. (--no-voice)" = "Activado: las frases se oyen. Desactivado: desde la siguiente frase se callan, aunque duran lo mismo que su sonido. (--no-voice)"
 "Gameplay" = "Juego"
@@ -299,3 +302,9 @@ name = "Español"
 "Fast" = "Rápido"
 "Smooth" = "Suave"
 "Temporal" = "Temporal"
+
+# [design, #2249] Overlay availability and source scope (perf_overlay/readings.rs, settings.rs).
+"Not available" = "No disponible"
+"game {percent}%" = "juego {percent}%"
+"Machine and game CPU use, read once a second while shown. Windows uses performance counters; Linux uses /proc. Missing machine readings say Not available. Game use is cores kept busy: 1.0 is one full core." = "Uso de CPU del equipo y del juego, leído cada segundo mientras se muestra. Windows usa contadores de rendimiento; Linux usa /proc. Las lecturas del equipo que faltan indican No disponible. El uso del juego cuenta núcleos ocupados: 1.0 es un núcleo completo."
+"GPU use, read once a second while shown. Windows: busiest engine across programs. Linux: NVIDIA NVML, then amdgpu, then DRM client time. DRM reads game use and says game; the other Linux sources read whole-device use. Missing readings say Not available." = "Uso de GPU, leído cada segundo mientras se muestra. Windows: el motor más ocupado entre todos los programas. Linux: NVIDIA NVML, después amdgpu y después tiempo del cliente DRM. DRM mide el uso del juego y lo indica con juego; las otras fuentes de Linux miden todo el dispositivo. Las lecturas que faltan indican No disponible."

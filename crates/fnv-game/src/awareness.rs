@@ -22,9 +22,8 @@
 //! Only actors the detector would attack count ([`Game::would_attack`]): what others do
 //! is never a threat.
 //!
-//! The timers' lengths are not documented and no game setting in FalloutNV.esm names
-//! them; [`Timers`] holds NVForever's choices. Combat itself (attacking, cover, fleeing)
-//! is not built: an actor in Combat stands facing its target.
+//! [design, #2010] [`Timers::read`] reads detection timers from the load order;
+//! Lost searches finish through [`Game::searched_once`], with a separate stall bound.
 
 use crate::detection::{Band, Detection};
 use crate::functions::actor::{actor_value, faction_relation, factions_of};
@@ -185,19 +184,21 @@ pub struct Target {
     pub hidden_since: Option<f64>,
 }
 
-/// The timers of the detection states, seconds of `Game::time` [engineering choice: the
-/// documentation names the timers but not their lengths, and FalloutNV.esm has no game
-/// setting for them].
+/// Detection timers, seconds of `Game::time` [design, #2010: setting-to-timer mapping;
+/// observed defaults: issue #2010 capture, docs/spec-notes/npc-behaviour-compare.md §15.6].
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Timers {
-    /// An alarm runs out this long after it was last raised or refreshed.
+    /// An alarm (noticed, hurt, an ally's call, an event heard) runs out this long after
+    /// refresh [design: existing Alert policy]. fDetectionEventExpireTime is not read for
+    /// it: by its name it is how long an event itself can be heard, and ours are heard in
+    /// the round they are raised [hypothesis: the setting's name]; a 10 s alarm sent a
+    /// camp's alarmer back to Normal before the party it called had searched (smoke
+    /// `group-search`, #2010).
     pub alarm: f64,
-    /// A target hidden this long leaves the target list.
+    /// fCombatTargetLostRemoveTime; does not interrupt a Lost search [design, #2010].
     pub forget_target: f64,
-    /// In Combat, no target detected for this long: Lost [design: owner 2026-10-19,
-    /// fighters said CombatToLost almost as soon as they broke line of sight with 3 s;
-    /// shorter than `forget_target`, or a target hidden the whole time is forgotten before
-    /// it is lost and the fighter goes to Normal instead of searching].
+    /// fCombatDetectionLostTime: no target detected for this long enters Lost
+    /// [design, #2010; documented: GECK wiki Combat Search, a GameSetting delay].
     pub lost: f64,
     /// AlertIdle and LostIdle are said every this many seconds, a random time between the
     /// two [documented: Detection Tab, fCombatDetectionDialogueIdleMin/MaxElapsedTime;
@@ -214,19 +215,29 @@ pub struct Timers {
 
 impl Default for Timers {
     fn default() -> Timers {
-        Timers { alarm: 20.0, forget_target: 15.0, lost: 10.0, idle_bark: (5.0, 15.0), bark_cooldown: 15.0 }
+        Timers { alarm: 20.0, forget_target: 30.0, lost: 15.0, idle_bark: (5.0, 15.0), bark_cooldown: 15.0 }
     }
 }
 
 impl Timers {
-    /// The defaults, with the bark timer from the load order's game settings.
+    /// [design, #2010] Defaults overridden by the load order's game settings.
     pub fn read(g: &Game) -> Timers {
         let d = Timers::default();
         let s = |name: &str, v: f64| crate::combat::setting(g, name, v);
         let idle_bark = (s("fCombatDetectionDialogueIdleMinElapsedTime", d.idle_bark.0), s("fCombatDetectionDialogueIdleMaxElapsedTime", d.idle_bark.1));
-        Timers { idle_bark, bark_cooldown: idle_bark.1.max(idle_bark.0), ..d }
+        Timers {
+            lost: s("fCombatDetectionLostTime", d.lost),
+            forget_target: s("fCombatTargetLostRemoveTime", d.forget_target),
+            idle_bark,
+            bark_cooldown: idle_bark.1.max(idle_bark.0),
+            ..d
+        }
     }
 }
+
+/// A Lost search without a completed share for this many seconds may expire
+/// [design, #2010: safety for unavailable navigation/AI; not an original-game timer].
+pub const LOST_SEARCH_STALL_SECONDS: f64 = 300.0;
 
 /// Members of a group within this many game units of a Detection line's speaker do not
 /// say a line of the same kind while its cooldown lasts [design: one exterior cell's
@@ -362,7 +373,10 @@ impl Awareness {
     /// An alert actor that hears an event adds its owner to its target list (not
     /// detected) [documented: Category:Detection].
     pub fn alarm(&mut self, owner: FormId, at: [f32; 3], size: f64, cause: Cause, now: f64, t: &Timers) {
-        let expires = now + t.alarm;
+        let expires = now + match cause {
+            Cause::LostTarget => LOST_SEARCH_STALL_SECONDS,
+            _ => t.alarm,
+        };
         match self.alarms.iter_mut().find(|a| a.owner == owner && a.cause == cause) {
             Some(a) => {
                 a.at = at;
@@ -406,10 +420,17 @@ impl Awareness {
     /// become Alert (its package does not forbid it). Returns the change, if any.
     pub fn settle(&mut self, actor: FormId, now: f64, t: &Timers, may_alert: bool) -> Option<Change> {
         self.alarms.retain(|a| a.expires > now);
-        // A target a member of its group detected within the forget timer stays on the
-        // list (docs/spec-notes/combat-groups.md §3).
+        // [design, #2010] Previously detected targets survive the wait to enter Lost
+        // and their active search. Group sightings also retain targets (§3 of
+        // docs/spec-notes/combat-groups.md), even with inverted timer overrides.
         let shared = &self.shared;
-        self.targets.retain(|id, x| !x.hidden_since.is_some_and(|h| now - h >= t.forget_target) || shared.get(id).is_some_and(|s| now - s < t.forget_target));
+        let pending_lost = self.state == State::Combat && self.combat_target().is_none();
+        self.targets.retain(|id, x| {
+            (pending_lost && x.detected.is_some())
+                || self.alarms.iter().any(|a| a.owner == *id && a.cause == Cause::LostTarget)
+                || !x.hidden_since.is_some_and(|h| now - h >= t.forget_target)
+                || shared.get(id).is_some_and(|s| now - s < t.forget_target)
+        });
         self.shared.retain(|id, _| self.targets.contains_key(id));
         // Called by an ally and not fighting yet: it takes the alarm's owner, the first of
         // the foe's side to start, while it detects it (§2).
@@ -464,6 +485,10 @@ impl Awareness {
         self.state = to;
         self.since = now;
         self.next_idle_bark = None;
+        if to == State::Combat {
+            // [design, #2010] Re-detection ends this search; a later loss starts anew.
+            self.alarms.retain(|a| a.cause != Cause::LostTarget);
+        }
         if to == State::Combat && from != State::Lost {
             self.combat_began = Some(now);
         }
@@ -887,6 +912,7 @@ impl Game<'_> {
                 }
                 // When it first fought in this fight, for the alarms' first starter.
                 if c.to == State::Combat {
+                    self.awareness.tactics.searched.retain(|(actor, _), _| *actor != id);
                     self.awareness.tactics.started.entry(id).or_insert(now);
                 }
                 self.awareness.changes.push(c);
@@ -1462,14 +1488,15 @@ mod tests {
         let s = t.lost + 1.0;
         a.observe(FOE, &det(1.0), [30.0, 0.0, 0.0], s, &t);
         assert_eq!(step(&mut a, s), Some((State::Lost, State::Combat)));
-        // Hidden: Lost after the lost timer (the target still on the list), then the
-        // target is forgotten and the alarms run out: Normal.
+        // [design, #2010] Hidden: Lost after the lost timer, retained through a search;
+        // without AI progress the safety deadline eventually releases it.
         a.observe(FOE, &det(-50.0), [30.0, 0.0, 0.0], s + 1.0, &t);
         assert_eq!(step(&mut a, s + t.lost - 0.5), None);
         assert_eq!(step(&mut a, s + t.lost), Some((State::Combat, State::Lost)));
         assert!(a.targets.contains_key(&FOE), "lost before it is forgotten");
-        assert_eq!(step(&mut a, s + t.lost + t.alarm - 0.5), None, "the alarm still runs");
-        assert_eq!(step(&mut a, s + t.lost + t.alarm), Some((State::Lost, State::Normal)));
+        assert_eq!(step(&mut a, s + t.lost + 30.0), None, "ordinary timers cannot interrupt the search");
+        assert!(a.targets.contains_key(&FOE));
+        assert_eq!(step(&mut a, s + t.lost + LOST_SEARCH_STALL_SECONDS), Some((State::Lost, State::Normal)));
     }
 
     #[test]

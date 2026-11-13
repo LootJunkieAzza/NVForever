@@ -199,8 +199,12 @@ pub fn drive(
     let game = &mut rt.game;
     game.anims.driven = true;
     let requests = std::mem::take(&mut game.anims.requests);
-    let by_ref: HashMap<u32, Entity> = rigs.iter().map(|(e, r, ..)| (r.form_id, e)).collect();
-    let drawn_actors: std::collections::HashSet<u32> = actors.iter().map(|a| a.reference).collect();
+    // The rigs by reference and the drawn actors are needed only for a script's requests
+    // and resets, so most frames build neither (#1994: they were built every frame over
+    // every rig).
+    let busy = !requests.is_empty() || !game.anims.resets.is_empty();
+    let by_ref: HashMap<u32, Entity> = if busy { rigs.iter().map(|(e, r, ..)| (r.form_id, e)).collect() } else { HashMap::new() };
+    let drawn_actors: std::collections::HashSet<u32> = if requests.is_empty() { Default::default() } else { actors.iter().map(|a| a.reference).collect() };
     let is_actor = |r: FormId| {
         drawn_actors.contains(&r.0)
             || sim.as_deref().and_then(|s| s.refs.refs.get(&r).and_then(|p| s.forms.sig(p.base))).is_some_and(|b| &b == b"NPC_" || &b == b"CREA")
@@ -212,7 +216,7 @@ pub fn drive(
     // they were not, or asked of before (drawn again after a load or streaming). Not
     // `is_added`: rigs drawn before the scripts run (the first frames of a load) were
     // added while this returned early above.
-    if seen.len() > by_ref.len() {
+    if seen.len() > rigs.iter().count() {
         seen.retain(|e| rigs.contains(*e));
     }
     for (root, mut rig, _, mats, _) in &mut rigs {

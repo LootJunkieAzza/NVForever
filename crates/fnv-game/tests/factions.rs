@@ -734,7 +734,8 @@ fn a_fighter_keeps_a_target_its_group_still_detects() {
     let hidden = Detection { value: -40.0, band: Band::Hidden, ..Default::default() };
     g.awareness.actors.get_mut(&helper).unwrap().observe(player, &hidden, [0.0; 3], g.time, &t);
     let start = g.time;
-    for k in 1..=40 {
+    let rounds = (t.lost.max(t.forget_target) * 2.0).ceil() as u32 + 2;
+    for k in 1..=rounds {
         g.time = start + k as f64 * 0.5;
         let now = g.time;
         g.awareness.actors.get_mut(&own).unwrap().observe(player, &Detection { value: 5.0, band: Band::Detected, ..Default::default() }, [k as f32, 0.0, 0.0], now, &t);
@@ -744,7 +745,7 @@ fn a_fighter_keeps_a_target_its_group_still_detects() {
     assert!(g.time - start > t.lost.max(t.forget_target));
     let a = g.awareness.get(helper).expect("still fighting");
     assert_eq!(a.state, State::Combat);
-    assert_eq!(a.targets.get(&player).map(|x| x.at), Some([40.0, 0.0, 0.0]), "where Own saw it");
+    assert_eq!(a.targets.get(&player).map(|x| x.at), Some([rounds as f32, 0.0, 0.0]), "where Own saw it");
     assert_eq!(a.shared.get(&player), Some(&g.time));
     // Nobody detects it: Lost together, the lost timer after Own's last sighting.
     let seen = g.time;

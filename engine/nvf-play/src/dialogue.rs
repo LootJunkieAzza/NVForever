@@ -730,7 +730,7 @@ pub fn held(g: &Game) -> bool {
 /// The test aid's due steps and the player's keys and clicks, as actions on the runtime.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn input(
-    keys: Res<ButtonInput<KeyCode>>,
+    keys: crate::pad::ActionButtons<KeyCode>,
     controls: ControlInput,
     scroll: Res<AccumulatedMouseScroll>,
     time: (crate::pause::AidTime, Res<Time<Real>>),
@@ -743,6 +743,7 @@ pub(crate) fn input(
     mut sim: ResMut<SimState>,
     mut view_input: ResMut<ViewInput>,
 ) {
+    let keys = keys.snapshot();
     use KeyCode::*;
     // Taken whatever happens below: what a view asked is for this frame only.
     let asked = std::mem::take(&mut *view_input);

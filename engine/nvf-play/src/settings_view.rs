@@ -49,6 +49,8 @@ pub const WINDOW_ROWS: usize = 9;
 pub enum ControlRow {
     /// Input Device: keyboard and mouse, or a controller.
     Device,
+    /// Saved opt-out beside Input Device [design, #2200].
+    AutomaticInput,
     /// A control's key and mouse button (`KeyboardMouse`) or its controller button.
     Binding(Control, InputDevice),
     Invert,
@@ -61,10 +63,11 @@ pub enum ControlRow {
 }
 
 impl ControlRow {
-    /// The Controls tab's own rows with `device` in use: the device, every control, Invert
+    /// The Controls tab's own rows with `device` in use: the device, automatic switching
+    /// [design, #2200], every control, Invert
     /// Y, the device's sensitivity and vertical sensitivity, and with a controller Rumble.
     pub fn rows(device: InputDevice) -> Vec<ControlRow> {
-        let mut out = vec![ControlRow::Device];
+        let mut out = vec![ControlRow::Device, ControlRow::AutomaticInput];
         out.extend(GAME_CONTROLS.iter().map(|(c, _, _)| ControlRow::Binding(*c, device)));
         out.extend([ControlRow::Invert, ControlRow::Sensitivity(device), ControlRow::Vertical(device)]);
         if device == InputDevice::Controller {
@@ -77,7 +80,7 @@ impl ControlRow {
     /// the device, each control's key, each control's controller button, Invert Y, the
     /// mouse's sensitivity and vertical sensitivity, the stick's, Rumble [design: #1953].
     pub fn all() -> Vec<ControlRow> {
-        let mut out = vec![ControlRow::Device];
+        let mut out = vec![ControlRow::Device, ControlRow::AutomaticInput];
         for d in [InputDevice::KeyboardMouse, InputDevice::Controller] {
             out.extend(GAME_CONTROLS.iter().map(|(c, _, _)| ControlRow::Binding(*c, d)));
         }
@@ -94,11 +97,12 @@ impl ControlRow {
     fn ordinal(self) -> usize {
         match self {
             ControlRow::Device => 0,
-            ControlRow::Binding(c, _) => 1 + GAME_CONTROLS.iter().position(|(k, _, _)| *k == c).unwrap_or(0),
-            ControlRow::Invert => GAME_CONTROLS.len() + 1,
-            ControlRow::Sensitivity(_) => GAME_CONTROLS.len() + 2,
-            ControlRow::Vertical(_) => GAME_CONTROLS.len() + 3,
-            ControlRow::Rumble => GAME_CONTROLS.len() + 4,
+            ControlRow::AutomaticInput => 1,
+            ControlRow::Binding(c, _) => 2 + GAME_CONTROLS.iter().position(|(k, _, _)| *k == c).unwrap_or(0),
+            ControlRow::Invert => GAME_CONTROLS.len() + 2,
+            ControlRow::Sensitivity(_) => GAME_CONTROLS.len() + 3,
+            ControlRow::Vertical(_) => GAME_CONTROLS.len() + 4,
+            ControlRow::Rumble => GAME_CONTROLS.len() + 5,
         }
     }
 
@@ -107,6 +111,7 @@ impl ControlRow {
     pub fn name(self) -> String {
         match self {
             ControlRow::Device => "device".into(),
+            ControlRow::AutomaticInput => "automatic-input".into(),
             ControlRow::Binding(c, InputDevice::KeyboardMouse) => format!("bind:{}", Bindings::name(c)),
             ControlRow::Binding(c, InputDevice::Controller) => format!("padbind:{}", Bindings::name(c)),
             ControlRow::Invert => "invert".into(),
@@ -716,11 +721,11 @@ mod tests {
         // The Controls tab: its own rows first, the controller's rows with a controller only.
         let c = |device| names(&list, &project(&l, &list, SettingsScope::Tab(CONTROLS_TAB), Visibility { device, ..vis }, &NONE));
         let kb = c(InputDevice::KeyboardMouse);
-        assert_eq!(kb.len(), GAME_CONTROLS.len() + 4);
-        assert_eq!((kb[0].as_str(), kb[1].as_str(), kb.last().unwrap().as_str()), ("device", "bind:Forward", "vertical"));
+        assert_eq!(kb.len(), GAME_CONTROLS.len() + 5);
+        assert_eq!((kb[0].as_str(), kb[1].as_str(), kb[2].as_str(), kb.last().unwrap().as_str()), ("device", "automatic-input", "bind:Forward", "vertical"));
         let pad = c(InputDevice::Controller);
-        assert_eq!(pad[GAME_CONTROLS.len() + 1..], ["invert", "sensitivity", "vertical", "rumble", "button-style"]);
-        assert!(pad[1].starts_with("padbind:"));
+        assert_eq!(pad[GAME_CONTROLS.len() + 2..], ["invert", "sensitivity", "vertical", "rumble", "button-style"]);
+        assert!(pad[2].starts_with("padbind:"));
         // An empty tab, and a search that found nothing: nothing.
         assert!(project(&l, &list, SettingsScope::Tab("Tweaks"), vis, &NONE).is_empty());
         assert!(project(&l, &list, SettingsScope::Search, vis, &NONE).is_empty());
