@@ -14315,6 +14315,23 @@ expect = [
 ]
 
 [[scenario]]
+name = "pipboy-pad-pointer"
+source = "#2310: with Input Device = Controller the pointer sleeps (hidden, on nothing) until the mouse is used, and a Pip-Boy list redrawn under a resting pointer keeps the D-pad's choice: only a pointer that moved takes the selection (engine/nvf-play/src/pad/pointer.rs, pipboy.rs PointerMoved, pipboy/items.rs on_row_over; docs/design/controller.md section 3)"
+note = "the hand-built ITEMS page's Aid tab (four aid items added to what the General Store start carries, first rows Big Book of Science, Bleak Venom, Blood Pack, Doctor's Bag); the test aid's pointer (point=, the mouse's stand-in, not put to sleep) parked on the first row before three D-pad Downs; before the fix each step was taken back by the row redrawn under the pointer. A home of its own keeps the Controller choice away from the other scenarios"
+areas = ["pipboy", "controller"]
+paths = ["engine/nvf-play/src/pad/pointer.rs", "engine/nvf-play/src/pipboy.rs", "engine/nvf-play/src/pipboy/items.rs", "engine/nvf-play/src/pipboy/item_mod.rs", "engine/nvf-play/src/pipboy/repair.rs", "engine/nvf-play/src/ui_pointer.rs", "engine/nvf-play/src/player.rs"]
+env = { NVF_PLAY_TEST_TILE_MENUS = "", NVFOREVER_HOME = "pipboy-pad-pointer-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_PAUSE = "1:4", NVF_PLAY_TEST_SETTINGS = "2:device:Controller", NVF_PLAY_TEST_SCRIPT = "9:call:player:AddItem:MagazineNVScience:1,9.2:call:player:AddItem:BloodPack:1,9.4:call:player:AddItem:Stimpak:2,9.6:call:player:AddItem:BookSkillScience:1", NVF_PLAY_TEST_PIPBOY = "20:open,21:page=items,21.5:tab=2,22:point=260:150,28:close", NVF_PLAY_TEST_KEYS = "23:pad-D-Pad Down,24.5:pad-D-Pad Down,26:pad-D-Pad Down" }
+args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 30
+expect = [
+  { text = "controls: input device Controller", label = "the Controls tab picks the controller" },
+  { text = "pointer: asleep (the controller has the controls)", label = "the window's pointer sleeps with the controller" },
+  { text = "test aid: real input Pad(DPadDown) pressed", count = 3, label = "three D-pad Downs" },
+  { text = "pipboy items: Doctor's Bag selected", label = "the third D-pad Down reaches the fourth Aid row" },
+]
+order = [["pipboy items: Big Book of Science selected", "test aid: real input Pad(DPadDown) pressed", "pipboy items: Bleak Venom selected", "test aid: real input Pad(DPadDown) pressed", "pipboy items: Blood Pack selected", "test aid: real input Pad(DPadDown) pressed", "pipboy items: Doctor's Bag selected"]]
+
+[[scenario]]
 name = "pipboy-misc-folders"
 source = "owner's playtest list 7 items 6 and 8 (docs/spec-notes/pipboy.md §5, caravan.md §2): Ringo's Caravan Deck item, added to the player, moves the spare deck's 54 cards to the player with RemoveAllItems, and each card's OnAdd runs AddCardToPlayer; the Misc tab lists the keys in a Keyring row and the cards in a Caravan Cards row, each opening on its items with Back (and Backspace) to return; a game of Caravan against Ringo then opens with the 54 cards"
 areas = ["pipboy", "caravan", "menus"]
