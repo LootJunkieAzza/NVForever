@@ -185,6 +185,12 @@ pub const STAGE_CLEAR: f32 = 8.0;
 pub const STAGE_LIGHT_OUT: f32 = 110.0;
 pub const STAGE_LIGHT_UP: f32 = 30.0;
 
+/// The engine lock held with the win shot, locking no control: the corner and quest
+/// messages stay held while it is up (`crate::corner_messages::in_world_game`, as during
+/// the contest's screen), so a loser's held messages do not come back over the dance
+/// [design: drink-b's pair, 2026-11-12, the compass hint over P1's held shot].
+pub const STAGE_LOCK_KEY: &str = "nvforever:drink_stage";
+
 /// How long the win shot holds after the `Winner`: until the winner's contest screen
 /// closes (drink-a's highlight, then its leaderboard's hold), on every screen, so the
 /// losers' screens, which close sooner, let go of it with the winner's [design: parity,
@@ -307,6 +313,9 @@ fn events(
                 let view = stage_view(at.bar, phys.as_deref_mut());
                 w.stage = Some(view);
                 w.stage_until = time.elapsed_secs() + stage_seconds();
+                if let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) {
+                    rt.game.other.alt_locks.insert(STAGE_LOCK_KEY.to_string(), [false; 7]);
+                }
                 let ([cx, cy, cz], [lx, ly, lz]) = (view.camera, view.look_at);
                 info!("drink world: {}: player slot {winner} wins: the win camera at ({cx:.0}, {cy:.0}, {cz:.0}) looks at the stage ({lx:.0}, {ly:.0}, {lz:.0}), the fill light over it", at.bar.key);
                 if winner != at.slot || at.held {
@@ -388,7 +397,10 @@ fn ended(
         return;
     }
     if w.stage.take().is_some() {
-        info!("drink world: {}: the contest is over: the win camera lets go", at.bar.key);
+        if let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) {
+            rt.game.other.alt_locks.remove(STAGE_LOCK_KEY);
+        }
+        info!("drink world: {}: the contest is over: the win camera lets go, the messages with it", at.bar.key);
     }
     if std::mem::take(&mut at.dancing) {
         emotes.write(crate::emotes::EmoteAsk::Cancel);
