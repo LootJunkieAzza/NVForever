@@ -46,7 +46,7 @@ const RADIUS: f32 = 450.0;
 /// How far behind what the depth shows a surface is taken to reach (game units).
 const THICKNESS: f32 = 40.0;
 /// Strength of the bounced light [engineering choice, by eye].
-const BOUNCE: f32 = 2.0;
+const BOUNCE: f32 = 3.0;
 /// The most the ambient light is occluded (0..1): dim rooms lit mostly by their ambient
 /// light keep their detail in the corners.
 const OCCLUSION: f32 = 0.45;
