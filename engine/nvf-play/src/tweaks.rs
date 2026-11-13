@@ -238,6 +238,10 @@ pub struct TweakSettings {
     /// `bQuestTextVisibleInMenus`: the quest and location lines stay up over the Pip-Boy
     /// and a terminal.
     pub quest_text_in_menus: bool,
+    /// `bDetectedByWhom`: `[DETECTED]` names who detects the player, up to
+    /// `detected_names` names (0: only how many).
+    pub detected_by_whom: bool,
+    pub detected_names: f32,
     /// `bHideAmmoLabel`: no ammo counter on the HUD.
     pub hide_ammo_label: bool,
     /// `bNoFreeBarterItems`/`fFreeItemCost`: the price of things worth nothing in a
@@ -650,6 +654,8 @@ impl Default for TweakSettings {
             auto_continue: false,
             continue_shows_save: false,
             quest_text_in_menus: false,
+            detected_by_whom: false,
+            detected_names: 2.0,
             hide_ammo_label: false,
             free_item_price: 0.0,
             duplicate_binds: false,
@@ -1384,6 +1390,8 @@ impl Plugin for TweaksPlugin {
         );
         // ---- batch 25 ----
         switch!(app, "invert-title-wheel", "Reverse Category Wheel", "The mouse wheel over a container's category title steps the other way. (Stewie's Tweaks bInvertContainerTitleScrollwheelDirection)", invert_title_wheel);
+        switch!(app, "detected-by-whom", "Detected by Whom", "The sneak word [DETECTED] names who has detected the player. (Stewie's Tweaks bDetectedByWhom)", detected_by_whom);
+        amount!(app, "detected-names", "Detected by Whom: Names Shown", "How many names come before \"and N others\"; 0 shows only how many. (Stewie's Tweaks bDetectedByWhom)", 5.0, f32, detected_names);
         switch!(app, "quest-text-in-menus", "Quest Text Over the Pip-Boy", "The quest and location lines stay on screen, and go on, while the Pip-Boy or a terminal is open. (Stewie's Tweaks bQuestTextVisibleInMenus)", quest_text_in_menus);
         switch!(app, "continue-shows-save", "Continue Shows Its Save", "On the main menu, the picture of the save Continue loads is shown while Continue is chosen. (Stewie's Tweaks bMainMenuContinueIcon)", continue_shows_save);
         switch!(app, "auto-continue", "Continue at Start", "The main menu continues the newest save at once, the first time it opens; hold Shift to stay on the menu. (Stewie's Tweaks bAutoContinueGame)", auto_continue);

@@ -589,6 +589,7 @@ unless the player binds them, so nothing changes until then.
 | Keep Stations Out of Range | `bSelectUnavailableRadios` | `radio::Radio::received_once` holds every station the Pip-Boy has received (`RECEIVED_SAVE_HOOK`, remapped); under the switch `pipboy_list` adds those still enabled, so one can be tuned to out of range and the Pip-Boy plays it once it is received (the existing "tuned to X, which is not received here: silent" path). Turned on with no station it takes the first received here |
 | Continue Shows Its Save | `bMainMenuContinueIcon` | `main_menu::continue_picture` reads the newest save's thumbnail once (`save::decode_thumbnail`) and shows it under the logo (`ContinuePicture`) while Continue is the chosen entry on the main page |
 | Quest Text Over the Pip-Boy | `bQuestTextVisibleInMenus` | `quest_messages::over_menus`: in the Menu state with the Pip-Boy up or a terminal open the area is not held, is drawn at `OVER_MENUS_Z` above both, and its clock runs on real time; sitting is the Playing state, where the area already shows |
+| Detected by Whom | `bDetectedByWhom` | `Game::player_detectors_for_sneak` (`Detections::detected_by`: the detected band, not with the player, alive, most sure first) gives the names (`SimState::ref_name`); `hud::detected_word` writes `[DETECTED BY A, B and N others]` into `HudView::detected_by`, which the sneak word draws instead of `[DETECTED]` |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -610,8 +611,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 519 |
-| to do | 84 |
+| done | 520 |
+| to do | 83 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -950,6 +951,7 @@ game's Data folder, read-only).
 | `bCompassQuestHeightIndicator` | done |  |  | Quest Marker Height (a bar over or under it on the hand-built HUD's compass) |
 | `bCustomAddToInventoryMessageTimer` | done |  | 1 | Item Added Line Time (slider, seconds) |
 | `bCustomSubtitleDistance` | done |  | 1 | Subtitle Distance (slider, game units) |
+| `bDetectedByWhom` | done |  | 5 | Detected by Whom with Names Shown (0 to 5; our own words; hand-built HUD) |
 | `bDisableCompassEdgeAlpha` | done |  |  | already so: the marks are not faded at the edge |
 | `bDisableGrenadeIndicator` | done |  |  | already so: NVForever has no grenade indicator |
 | `bDisableHUDCrippledLimbIndicator` | done |  |  | No Crippled Limb Figure |
@@ -997,7 +999,6 @@ game's Data folder, read-only).
 | `bMorePreciseRadMeter` | to do | yes | 1 | unclear whether the HUD gain or the Pip-Boy total is meant |
 | `bArmorConditionLabel` | to do |  | 9 | no armour condition text on the HUD yet |
 | `bCriticalHitMessagesIncludeLimbName` | to do |  |  | not built: no critical-hit messages |
-| `bDetectedByWhom` | to do |  | 5 | Sneak is a Copy enum; names need a new type |
 | `bDisableNeedsMessages` | to do |  | 4 | those messages are the game's own scripts; needs a filter by message |
 | `bExplodingDestructibleIndicator` | to do |  |  | not built: no grenade indicator |
 | `bHUDFatigueIndicator` | to do |  |  | the needs words are a fixed five |

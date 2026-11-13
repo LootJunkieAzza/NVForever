@@ -260,13 +260,15 @@ pub struct HudView {
     pub weapon: HudWeapon,
     /// The sneak word, while the player sneaks (§9).
     pub sneak: Option<Sneak>,
+    /// `[DETECTED]` with who detects the player, under the Detected by Whom tweak.
+    pub detected_by: Option<String>,
     /// A kill camera has the view, which hides the HUD (`crate::kill_cam`).
     pub kill_cam: bool,
 }
 
 impl Default for HudView {
     fn default() -> Self {
-        HudView { shown: false, health: 1.0, action_points: 1.0, heading: 0.0, weapon: HudWeapon::default(), sneak: None, kill_cam: false }
+        HudView { shown: false, health: 1.0, action_points: 1.0, heading: 0.0, weapon: HudWeapon::default(), sneak: None, detected_by: None, kill_cam: false }
     }
 }
 
@@ -310,6 +312,27 @@ impl Sneak {
             Sneak::Hidden
         }
     }
+}
+
+/// `[DETECTED]` naming who detects the player, under the player's Detected by Whom tweak:
+/// the first `max` names, then how many more; with `max` 0 only how many [design: our
+/// own words, docs/design/tweaks.md].
+pub fn detected_word(names: &[String], max: usize) -> String {
+    if names.is_empty() {
+        return Sneak::Detected.word().to_string();
+    }
+    if max == 0 {
+        return format!("[DETECTED BY {}]", names.len());
+    }
+    let shown = &names[..names.len().min(max)];
+    let rest = names.len() - shown.len();
+    let list = match (shown, rest) {
+        ([one], 0) => one.clone(),
+        (many, 0) => format!("{} and {}", many[..many.len() - 1].join(", "), many[many.len() - 1]),
+        (some, 1) => format!("{} and 1 other", some.join(", ")),
+        (some, n) => format!("{} and {n} others", some.join(", ")),
+    };
+    format!("[DETECTED BY {list}]")
 }
 
 /// The sneak word from the game's detection states (`fnv_game::awareness`) and the
@@ -547,9 +570,14 @@ fn gather(
     // The player's tweak leaves the sneak label off [design: docs/design/tweaks.md].
     // The player's tweaks: the label off, or shown standing too [design: docs/design/tweaks.md].
     let standing = tweaks.as_ref().is_some_and(|t| t.sneak_label_standing);
-    let sneaking = (control.is_some_and(|c| c.sneak) || standing) && !tweaks.is_some_and(|t| t.no_sneak_label);
+    let sneaking = (control.is_some_and(|c| c.sneak) || standing) && !tweaks.as_ref().is_some_and(|t| t.no_sneak_label);
     if let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) {
         now.sneak = sneaking.then(|| sneak_now(&rt.game));
+        // The player's tweak names who detects the player [design: docs/design/tweaks.md].
+        now.detected_by = tweaks.as_ref().filter(|t| t.detected_by_whom && now.sneak == Some(Sneak::Detected)).map(|t| {
+            let names: Vec<String> = rt.game.player_detectors_for_sneak().into_iter().filter_map(|d| sim.ref_name(Some(&rt.game), d.0).map(str::to_string)).collect();
+            detected_word(&names, t.detected_names as usize)
+        });
         (now.health, now.action_points) = with_world(rt, &mut sim, |rt| {
             // An aid item's temporary modifier (Buffout's Health, Jet's Action Points) raises
             // the maximum with the value [hypothesis: the bar stays a share of the whole].
@@ -1201,7 +1229,7 @@ fn texts(
     mut images: ResMut<Assets<Image>>,
     formats: Option<Res<CompressedImageFormatSupport>>,
     mut face_: Local<Option<Face>>,
-    mut shown: Local<(Option<String>, Option<String>, Option<Sneak>, Option<String>)>,
+    mut shown: Local<(Option<String>, Option<String>, Option<(Sneak, Option<String>)>, Option<String>)>,
     ammo: Query<Entity, With<AmmoText>>,
     name: Query<Entity, With<EnemyName>>,
     stats: Query<Entity, With<EnemyStats>>,
@@ -1262,17 +1290,19 @@ fn texts(
             shown.3 = anatomy;
         }
     }
-    if shown.2 != view.sneak {
+    let sneak_now = view.sneak.map(|s| (s, view.detected_by.clone().filter(|_| s == Sneak::Detected)));
+    if shown.2 != sneak_now {
         if let Ok(e) = sneak.single() {
             commands.entity(e).despawn_related::<Children>().with_children(|p| {
-                if let Some(s) = view.sneak {
-                    if let Some(line) = font.lines(s.word(), None).into_iter().next() {
+                if let Some((s, by)) = &sneak_now {
+                    let s = *s;
+                    if let Some(line) = font.lines(by.as_deref().unwrap_or(s.word()), None).into_iter().next() {
                         let colour = if s.warning() { crime_colour() } else { amber(255.0) };
                         set_line(p, face_, &line, (SNEAK.x - line.width) / 2.0, SNEAK_BASE, colour);
                     }
                 }
             });
-            shown.2 = view.sneak;
+            shown.2 = sneak_now;
         }
     }
 }
@@ -1319,6 +1349,18 @@ fn enemy_colours(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn detected_names_the_first_detectors_then_counts_the_rest() {
+        let n = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert_eq!(detected_word(&[], 2), "[DETECTED]");
+        assert_eq!(detected_word(&n(&["Easy Pete"]), 2), "[DETECTED BY Easy Pete]");
+        assert_eq!(detected_word(&n(&["Easy Pete", "Sunny"]), 2), "[DETECTED BY Easy Pete and Sunny]");
+        assert_eq!(detected_word(&n(&["A", "B", "C"]), 3), "[DETECTED BY A, B and C]");
+        assert_eq!(detected_word(&n(&["A", "B", "C"]), 2), "[DETECTED BY A, B and 1 other]");
+        assert_eq!(detected_word(&n(&["A", "B", "C", "D"]), 1), "[DETECTED BY A and 3 others]");
+        assert_eq!(detected_word(&n(&["A", "B"]), 0), "[DETECTED BY 2]");
+    }
 
     #[test]
     fn the_place_ahead_is_the_nearest_bearing_within_the_angle() {

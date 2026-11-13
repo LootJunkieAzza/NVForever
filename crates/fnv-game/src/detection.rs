@@ -499,6 +499,14 @@ impl Detections {
         self.highest_among(target, |_| true)
     }
 
+    /// The detectors `keep` accepts that have `target` in the detected band, the highest
+    /// detection value first.
+    pub fn detected_by(&self, target: FormId, keep: impl Fn(FormId) -> bool) -> Vec<FormId> {
+        let mut v: Vec<(FormId, f32)> = self.pairs.iter().filter(|((d, t), (det, _))| *t == target && det.band == Band::Detected && keep(*d)).map(|((d, _), (det, _))| (*d, det.value as f32)).collect();
+        v.sort_by(|a, b| b.1.total_cmp(&a.1).then(a.0.cmp(&b.0)));
+        v.into_iter().map(|(d, _)| d).collect()
+    }
+
     /// [`Detections::highest`] among the detectors `keep` accepts.
     pub fn highest_among(&self, target: FormId, keep: impl Fn(FormId) -> bool) -> Option<(FormId, Detection)> {
         self.pairs
@@ -523,6 +531,13 @@ impl Game<'_> {
     /// Whether an actor not with the player ([`Game::with_player`]) has the player in the
     /// detected band at its latest measurement: the sneak word's `[DETECTED]`
     /// (docs/spec-notes/hud.md §9). A companion's own detection is kept for its AI (#1159).
+    /// The actors behind [`Game::player_detected_for_sneak`]: those not with the player
+    /// and alive that have the player in the detected band, the most sure first (the
+    /// player's Detected by Whom tweak, `nvf_play::hud`).
+    pub fn player_detectors_for_sneak(&self) -> Vec<FormId> {
+        self.detection.detected_by(FormId::PLAYER_REF, |d| !self.with_player(d) && !self.is_dead(d))
+    }
+
     pub fn player_detected_for_sneak(&self) -> bool {
         self.detection.highest_among(FormId::PLAYER_REF, |d| !self.with_player(d)).is_some_and(|(_, d)| d.band == Band::Detected)
     }
@@ -728,6 +743,19 @@ mod tests {
     /// An NPC of Perception 5, level 1, 500 units from a level 1 player outdoors.
     fn outdoors(light: f64) -> Situation {
         Situation { distance: 500.0, exterior: true, line_of_sight: true, in_view: true, light, ..Default::default() }
+    }
+
+    #[test]
+    fn detected_by_lists_the_detected_band_most_sure_first() {
+        let mut d = Detections::default();
+        let me = FormId::PLAYER_REF;
+        let pair = |value: f64, band: Band| (Detection { value, band, ..Default::default() }, 0.0);
+        d.pairs.insert((FormId(10), me), pair(40.0, Band::Detected));
+        d.pairs.insert((FormId(11), me), pair(90.0, Band::Detected));
+        d.pairs.insert((FormId(12), me), pair(60.0, Band::Noticed));
+        d.pairs.insert((FormId(13), FormId(99)), pair(99.0, Band::Detected));
+        assert_eq!(d.detected_by(me, |_| true), vec![FormId(11), FormId(10)]);
+        assert_eq!(d.detected_by(me, |x| x != FormId(11)), vec![FormId(10)]);
     }
 
     #[test]
