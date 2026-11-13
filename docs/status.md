@@ -78,6 +78,8 @@ counts them).
 
 ## 5. Scripting (Layer 5)
 
+Player script sequence bridge/lifecycle is at a documentation-only contract and owned-reproduction-plan stage; implementation, port and runtime tests are pending ([player sequences](spec-notes/player-script-sequence-bridge.md)).
+
 | System | State | Specifics | Notes |
 |---|---|---|---|
 | Script decoding, interpreter, quests, conditions, events | Done | Every compiled script decodes and decompiles (`fnv-script`); the runtime (`fnv-game`) runs quest, object, effect and result scripts in `--play`; L5 lab 28/32 against in-game captures (4 known fails). Disabled references run their object scripts' GameMode and an actor holds one script package (a second AddScriptPackage replaces the first), both confirmed in the original game 2026-10-18 (owner-decision-captures.md §4). Quest objective targets are marked only while their conditions pass, with the target as subject (claude/e17-quest-target-conditions, quests-dialogue.md §2). Every begin-block event of the shipped scripts runs except OnSell, which never ran in the original either: OnOpen, OnClose, OnActorEquip and OnMagicEffectHit since 2026-10-23 (claude/script-events-door-locks, script-functions.md §3.3) | [layer5](design/layer5.md), [layer5-play](design/layer5-play.md), [scripts](spec-notes/scripts.md) |
