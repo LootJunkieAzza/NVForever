@@ -170,6 +170,15 @@ fn march(in: FullscreenVertexOutput) -> MarchOut {
     }
     let ambient = pow(max(lights.ambient_color.rgb * view.exposure, vec3(0.0)), vec3(2.2)) * atmos.params2.z;
     let phase = phase_hg(atmos.params2.x, cos_sun);
+    // The cloud shadow at the ray's two ends, blended along it (the clouds are kilometres
+    // wide; once per step cost a quarter of the pass).
+    var cloud_near = 1.0;
+    var cloud_far = 1.0;
+    if sun_index >= 0 {
+        let to_sun = lights.directional_lights[u32(sun_index)].direction_to_light.xyz;
+        cloud_near = nvf_cloud_shadow(camera, to_sun, globals.time);
+        cloud_far = nvf_cloud_shadow(camera + dir * dist, to_sun, globals.time);
+    }
     var light = vec3(0.0);
     var transmittance = 1.0;
     var t0 = 0.0;
@@ -185,8 +194,7 @@ fn march(in: FullscreenVertexOutput) -> MarchOut {
         let dt = t1 - t0;
         var sun = vec3(0.0);
         if sun_index >= 0 {
-            let to_sun = lights.directional_lights[u32(sun_index)].direction_to_light.xyz;
-            sun = sun_colour * (phase * sun_visible(u32(sun_index), p) * nvf_cloud_shadow(p, to_sun, globals.time));
+            sun = sun_colour * (phase * sun_visible(u32(sun_index), p) * mix(cloud_near, cloud_far, t / max(dist, 1.0)));
         }
         let step_t = exp(-density * dt);
         // In-scattered light, integrated over the step (energy-conserving form).

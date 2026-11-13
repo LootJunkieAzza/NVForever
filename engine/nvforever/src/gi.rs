@@ -159,7 +159,7 @@ struct GiPipelines {
     layouts: [BindGroupLayoutDescriptor; 2],
     sampler: Sampler,
     /// trace, temporal, upsample, capture; by multisampling.
-    ids: [[CachedRenderPipelineId; 4]; 2],
+    ids: [[CachedRenderPipelineId; 7]; 2],
 }
 
 fn init_pipelines(mut commands: Commands, device: Res<RenderDevice>, assets: Res<AssetServer>, fullscreen: Res<FullscreenShader>, cache: Res<PipelineCache>) {
@@ -177,14 +177,17 @@ fn init_pipelines(mut commands: Commands, device: Res<RenderDevice>, assets: Res
     let layouts = [layout(false), layout(true)];
     let shader = assets.load("embedded://nvforever/gi.wesl");
     let target = |f: TextureFormat| Some(ColorTargetState { format: f, blend: None, write_mask: ColorWrites::ALL });
-    let entries: [(&str, Vec<Option<ColorTargetState>>); 4] = [
+    let entries: [(&str, Vec<Option<ColorTargetState>>); 7] = [
         ("trace", vec![target(LIGHT_FORMAT), target(DIST_FORMAT)]),
         ("temporal", vec![target(LIGHT_FORMAT)]),
         ("upsample", vec![target(LIGHT_FORMAT)]),
         ("capture", vec![target(LIGHT_FORMAT)]),
+        ("glow_down", vec![target(LIGHT_FORMAT)]),
+        ("glow_across", vec![target(LIGHT_FORMAT)]),
+        ("glow_down_blur", vec![target(LIGHT_FORMAT)]),
     ];
     let ids = [false, true].map(|multi| {
-        let mut out = [CachedRenderPipelineId::INVALID; 4];
+        let mut out = [CachedRenderPipelineId::INVALID; 7];
         for (i, (entry, targets)) in entries.iter().enumerate() {
             let mut shader_defs = Vec::new();
             if multi {
@@ -234,6 +237,9 @@ struct ViewTextures {
     full: Tex,
     /// Placeholder for unused bindings.
     blank: Tex,
+    /// The emissive glow field (gi.wesl `glow_*`), a sixteenth of the picture's size;
+    /// ping-ponged by the blur.
+    glow: [Tex; 2],
 }
 
 #[derive(Resource, Default)]
@@ -266,6 +272,7 @@ fn prepare(
                     accum: [make(&device, "gi_accum_0", half, LIGHT_FORMAT), make(&device, "gi_accum_1", half, LIGHT_FORMAT)],
                     full: make(&device, "gi_full", size, LIGHT_FORMAT),
                     blank: make(&device, "gi_blank", UVec2::ONE, LIGHT_FORMAT),
+                    glow: [make(&device, "gi_glow_0", (half + UVec2::splat(7)) / 8, LIGHT_FORMAT), make(&device, "gi_glow_1", (half + UVec2::splat(7)) / 8, LIGHT_FORMAT)],
                 },
             );
         }
@@ -311,6 +318,10 @@ fn gi_pass(
     let (Some(trace), Some(temporal), Some(upsample)) = (cache.get_render_pipeline(ids[0]), cache.get_render_pipeline(ids[1]), cache.get_render_pipeline(ids[2])) else {
         return;
     };
+    let (Some(g0), Some(g1), Some(g2)) = (cache.get_render_pipeline(ids[4]), cache.get_render_pipeline(ids[5]), cache.get_render_pipeline(ids[6])) else {
+        return;
+    };
+    let glow = [g0, g1, g2];
     let Some(binding) = uniforms.uniforms().binding() else { return };
     let layout = cache.get_bind_group_layout(&pipelines.layouts[multi as usize]);
     let parity = (uniform.proj.w as u32 % 2) as usize;
@@ -323,7 +334,13 @@ fn gi_pass(
     run(&mut ctx, trace, &bg, index.index(), "gi_trace", &[&t.trace.view, &t.dist.view]);
     let bg = device.create_bind_group("gi_temporal", &layout, &BindGroupEntries::sequential((depth, binding.clone(), &t.trace.view, s, accum_then, &t.dist.view, &t.history.view)));
     run(&mut ctx, temporal, &bg, index.index(), "gi_temporal", &[accum_now]);
-    let bg = device.create_bind_group("gi_upsample", &layout, &BindGroupEntries::sequential((depth, binding, accum_now, s, &t.dist.view, &t.blank.view, &t.blank.view)));
+    // The glow field from last frame's picture: bright texels, then blurred both ways.
+    let glow_steps = [(&t.history.view, &t.glow[0].view, "gi_glow_down"), (&t.glow[0].view, &t.glow[1].view, "gi_glow_across"), (&t.glow[1].view, &t.glow[0].view, "gi_glow_down_blur")];
+    for (pipeline, (from, to, label)) in glow.into_iter().zip(glow_steps) {
+        let bg = device.create_bind_group(label, &layout, &BindGroupEntries::sequential((depth, binding.clone(), from, s, &t.blank.view, &t.blank.view, &t.blank.view)));
+        run(&mut ctx, pipeline, &bg, index.index(), label, &[to]);
+    }
+    let bg = device.create_bind_group("gi_upsample", &layout, &BindGroupEntries::sequential((depth, binding, accum_now, s, &t.dist.view, &t.glow[0].view, &t.blank.view)));
     run(&mut ctx, upsample, &bg, index.index(), "gi_upsample", &[&t.full.view]);
     span.end(ctx.command_encoder());
 }

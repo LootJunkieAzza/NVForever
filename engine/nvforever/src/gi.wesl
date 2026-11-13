@@ -59,7 +59,7 @@ const STEPS: u32 = 8u;
 // The far cascade: more steps beyond the near reach, out to FAR times it, light only (a
 // screen-space take on radiance cascades: the near cascade fine and short, the far one
 // coarse and long, so a lit sign down the street still lights the pavement).
-const FAR_STEPS: u32 = 6u;
+const FAR_STEPS: u32 = 4u;
 const FAR: f32 = 8.0;
 // Distance written for the sky (depth 0) and the most a texel holds.
 const SKY: f32 = 60000.0;
@@ -302,10 +302,57 @@ fn upsample(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
         }
     }
     var v = select(sum / max(wsum, 1e-4), nearest, wsum < 1e-3);
+    // The glow field (glow_*), faded out with distance: light from signs and lamps on
+    // what is within a few dozen metres.
+    let glow = textureSampleLevel(input_c, linear_sampler, (vec2<f32>(px) + 0.5) / gi.size.xy, 0.0).rgb;
+    v = vec4(v.rgb + glow * GLOW_STRENGTH * (1.0 - smoothstep(3000.0, 9000.0, z)), v.a);
     // Indoors a little light fills what is open (dim rooms keep their detail; gi.rs
     // INTERIOR_FILL).
     v = vec4(v.rgb + vec3(gi.debug.z) * (1.0 - v.a), v.a);
     return v;
+}
+
+// The emissive glow field (gi.rs, third tier): last frame's light brighter than
+// GLOW_FLOOR (neon, bulbs, fire; never the sky) at an eighth of the half resolution,
+// then blurred wide, so a sign lights what is around it whatever the march found.
+const GLOW_FLOOR: f32 = 2.5;
+const GLOW_STRENGTH: f32 = 0.8;
+
+@fragment
+fn glow_down(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
+    let base = vec2<i32>(floor(in.position.xy)) * 8;
+    let dims = vec2<i32>(textureDimensions(input_a));
+    var c = vec3(0.0);
+    for (var y = 0; y < 8; y += 2) {
+        for (var x = 0; x < 8; x += 2) {
+            let h = textureLoad(input_a, min(base + vec2(x, y), dims - 1), 0);
+            if h.a < SKY * 0.99 {
+                let l = max(h.r, max(h.g, h.b));
+                c += h.rgb * (max(l - GLOW_FLOOR, 0.0) / max(l, 1e-4));
+            }
+        }
+    }
+    return vec4(min(c / 16.0, vec3(gi.params2.z)), 1.0);
+}
+
+fn glow_blur(uv: vec2<f32>, dir: vec2<f32>) -> vec4<f32> {
+    let w = array<f32, 5>(0.2270, 0.1945, 0.1216, 0.0540, 0.0162);
+    let texel = dir * 2.5 / vec2<f32>(textureDimensions(input_a));
+    var c = textureSampleLevel(input_a, linear_sampler, uv, 0.0).rgb * w[0];
+    for (var i = 1; i < 5; i++) {
+        c += (textureSampleLevel(input_a, linear_sampler, uv + texel * f32(i), 0.0).rgb + textureSampleLevel(input_a, linear_sampler, uv - texel * f32(i), 0.0).rgb) * w[i];
+    }
+    return vec4(c, 1.0);
+}
+
+@fragment
+fn glow_across(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
+    return glow_blur(in.uv, vec2(1.0, 0.0));
+}
+
+@fragment
+fn glow_down_blur(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
+    return glow_blur(in.uv, vec2(0.0, 1.0));
 }
 
 @fragment
