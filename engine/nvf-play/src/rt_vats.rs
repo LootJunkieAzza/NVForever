@@ -971,7 +971,9 @@ mod tests {
     #[test]
     fn aim_switches_targets_as_bound() {
         use crate::bindings::{Bindings, Control, Input};
-        let press = |b: &Bindings, m: MouseButton| move |c: Control| b.get(c).mouse == Some(m);
+        fn press(b: &Bindings, m: MouseButton) -> impl Fn(Control) -> bool + '_ {
+            move |c: Control| b.get(c).mouse == Some(m)
+        }
         let b = Bindings::game_defaults();
         let rmb = b.get(Control::Block).mouse.expect("Aim is on a mouse button by default");
         assert_eq!(lock_presses(true, press(&b, rmb)), (true, false), "Aim: the next target");
@@ -1012,7 +1014,7 @@ mod tests {
     fn no_action_points_come_back_while_a_lock_is_held() {
         let mut rt = RtVats::default();
         assert!(!rt.holds_regen());
-        rt.lock = Some(Lock { target: 1, name: String::new(), limb: Limb::Torso, part: None, limb_name: String::new(), point: [0.0; 3], chance: 50.0, condition: None, sight: Sight::default(), shots: 0, spent: 0.0 });
+        rt.lock = Some(Lock { target: 1, name: String::new(), limb: Limb::Torso, part: None, limb_name: String::new(), point: [0.0; 3], chance: 50.0, condition: None, sight: Sight::default(), shots: 0, spent: 0.0, held: false });
         assert!(rt.holds_regen());
         rt.cfg.no_regen_while_locked = false;
         assert!(!rt.holds_regen());
