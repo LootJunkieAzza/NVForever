@@ -1240,6 +1240,7 @@ pub struct Game<'a> {
     /// (lower case) to them.
     compiled_files: Vec<&'a Compiled>,
     compiled_paths: std::collections::HashMap<String, u32>,
+    compiled_origins: crate::jip_provenance::CompiledOrigins,
     /// JIP's Script Runner: its files and their units (`crate::script_runner`).
     pub(crate) sr: crate::script_runner::SrState<'a>,
     /// A lambda already made, by its unit, its number in the unit and whose variables it
@@ -2298,6 +2299,7 @@ impl<'a> Game<'a> {
             unusable_reported: Default::default(),
             compiled_files: Vec::new(),
             compiled_paths: std::collections::HashMap::new(),
+            compiled_origins: Default::default(),
             sr: Default::default(),
             lambda_ids: Default::default(),
             handlers: Vec::new(),
@@ -3075,6 +3077,7 @@ impl<'a> Game<'a> {
         // UTF-8 when it is, else 8-bit text in this run's code page (#1439).
         let src = std::str::from_utf8(&bytes).map_or_else(|_| fnv_util::text::decode(&bytes), str::to_owned);
         let id = self.compile_source(&format!("CompileScript {path}"), src)?;
+        self.compiled_origins.set(id, crate::jip_provenance::CompiledOrigin::File(crate::jip_provenance::Text::new(&key)));
         self.compiled_paths.insert(key, id);
         Some(id)
     }
@@ -3140,6 +3143,7 @@ impl<'a> Game<'a> {
         let unit: &'a Compiled = Box::leak(Box::new(Compiled::new(unit, d.program, d.report.raw_total())));
         let id = COMPILED_BASE + self.compiled_files.len() as u32;
         self.compiled_files.push(unit);
+        self.compiled_origins.set(id, crate::jip_provenance::CompiledOrigin::Dynamic);
         Some(id)
     }
 
@@ -3154,12 +3158,27 @@ impl<'a> Game<'a> {
 
     /// Optional diagnostic context never changes the error event or its dedup key.
     pub(crate) fn handler_failed_with_context(&mut self, unit: String, error: String, context: impl FnOnce() -> Option<String>) {
+        self.handler_failed_with_registrar(unit, error, context, None);
+    }
+
+    pub(crate) fn handler_failed_with_registrar(&mut self, unit: String, error: String, context: impl FnOnce() -> Option<String>, registrar: Option<&crate::jip_provenance::Registrar>) {
         let unusable = error.ends_with(NOT_A_FUNCTION) || error.ends_with(NO_FUNCTION_BLOCK);
         if unusable && !self.unusable_reported.insert((unit.clone(), error.clone())) {
             return;
         }
         if let Some(context) = context() {
-            tracing::warn!(frame = self.frame, unit = %unit, error = %error, handler_context = %context, "extender handler failed");
+            if let Some(registrar) = registrar {
+                let r = registrar.diagnostic();
+                tracing::warn!(frame = self.frame, unit = %unit, error = %error, handler_context = %context,
+                    registrar_kind = r.kind, registrar_unit = r.unit, registrar_plugin = r.plugin,
+                    registrar_source = r.source, registrar_source_status = r.source_status,
+                    registrar_compiled_id = r.compiled, registrar_owner_form = r.owner,
+                    registrar_self_ref = r.self_ref, registrar_action_ref = r.action_ref, registrar_quest = r.quest,
+                    "extender handler failed");
+            } else {
+                tracing::warn!(frame = self.frame, unit = %unit, error = %error, handler_context = %context,
+                    registrar_kind = "unavailable", "extender handler failed");
+            }
         }
         self.emit(EventKind::ScriptError { unit, error });
     }
@@ -3259,6 +3278,10 @@ impl<'a> Game<'a> {
     /// The event functions (tasks E1–E3; docs/spec-notes/ext-events.md). `sender` is the
     /// calling script's plugin, DispatchEvent's default sender.
     pub fn event_call(&mut self, c: fnv_script::vm::EventCall, sender: &str) -> Result<fnv_script::vm::XVal, String> {
+        self.event_call_with_registrar(c, sender, None)
+    }
+
+    fn event_call_with_registrar(&mut self, c: fnv_script::vm::EventCall, sender: &str, registrar: Option<std::sync::Arc<crate::jip_provenance::Registrar>>) -> Result<fnv_script::vm::XVal, String> {
         use fnv_script::vm::{EventCall, XKey, XVal};
         let key_text = |k: &XVal| if let XVal::Str(s) = k { s.to_ascii_lowercase() } else { String::new() };
         Ok(match c {
@@ -3353,7 +3376,7 @@ impl<'a> Game<'a> {
                 XVal::Num(1.0)
             }
             EventCall::CurrentName => XVal::Str(self.event_names.last().cloned().unwrap_or_default()),
-            EventCall::JipSet { event, func, add, filters } => XVal::Num(f64::from(u8::from(self.jip_set(event, func, add, filters)))),
+            EventCall::JipSet { event, func, add, filters } => XVal::Num(f64::from(u8::from(self.jip_set(event, func, add, filters, registrar)))),
             EventCall::MainLoop { func, add, delay, flags, on } => {
                 self.jip_main_loop(func, add, delay, flags, on.and_then(|v| v.as_form()).map(FormId));
                 XVal::Num(0.0)
@@ -6299,7 +6322,13 @@ impl Host for Exec<'_, '_> {
 
     fn event_call(&mut self, c: fnv_script::vm::EventCall) -> Result<fnv_script::vm::XVal, String> {
         let sender = self.unit.unit.plugin.clone();
-        self.game.event_call(c, &sender)
+        let registrar = if matches!(&c, fnv_script::vm::EventCall::JipSet { add: true, .. }) {
+            let plugin = self.calling_plugin();
+            let compiled = self.game.compiled_files.iter().position(|&unit| std::ptr::eq(unit, self.unit)).map(|i| COMPILED_BASE + i as u32);
+            let origin = compiled.and_then(|id| self.game.compiled_origins.get(id));
+            Some(std::sync::Arc::new(crate::jip_provenance::Registrar::capture(self.unit, self.ctx, plugin, compiled, origin)))
+        } else { None };
+        self.game.event_call_with_registrar(c, &sender, registrar)
     }
 
     fn members(&mut self, form: u32) -> Option<Vec<u32>> {
