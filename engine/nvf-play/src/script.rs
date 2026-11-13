@@ -372,7 +372,10 @@ impl ScriptState {
             info!("--no-messages: message boxes without a choice close at once");
         }
         let trace = std::env::var_os("NVF_PLAY_SCRIPT_TRACE").map(PathBuf::from).and_then(|p| match TraceLog::create(&p) {
-            Ok(t) => Some(t),
+            Ok(t) => {
+                info!("script trace: {} (process {})", t.path.display(), std::process::id());
+                Some(t)
+            },
             Err(e) => {
                 warn!("NVF_PLAY_SCRIPT_TRACE {}: {e}", p.display());
                 None
@@ -1503,17 +1506,75 @@ impl TraceLog {
         if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
             std::fs::create_dir_all(dir)?;
         }
-        let mut out = std::io::BufWriter::new(std::fs::File::create(path)?);
+        let (path, file) = Self::create_owned(path)?;
+        let mut out = std::io::BufWriter::new(file);
         let head = serde_json::json!({"format": "nvforever.play.script_log/1",
+            "processId": std::process::id(),
             "events": "one fnv.script.trace/1 event per line (frame, kind, ...), with t = seconds since scripts started and gt = game time (Game::time); aid, menu_answer and controls lines; a final line at exit"});
         writeln!(out, "{head}")?;
-        Ok(TraceLog { out, path: path.to_path_buf(), lines: 0 })
+        out.flush()?;
+        Ok(TraceLog { out, path, lines: 0 })
+    }
+
+    fn create_owned(requested: &std::path::Path) -> std::io::Result<(PathBuf, std::fs::File)> {
+        for attempt in 0..64 {
+            let path = if attempt == 0 {
+                requested.to_path_buf()
+            } else {
+                let mut name = requested.file_stem().unwrap_or_default().to_os_string();
+                name.push(format!("-{}-{attempt}", std::process::id()));
+                if let Some(ext) = requested.extension() {
+                    name.push(".");
+                    name.push(ext);
+                }
+                requested.with_file_name(name)
+            };
+            // create_new, rather than a prior exists check, is the ownership boundary.
+            match std::fs::OpenOptions::new().write(true).create_new(true).open(&path) {
+                Ok(file) => return Ok((path, file)),
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                Err(error) => return Err(error),
+            }
+        }
+        Err(std::io::Error::new(std::io::ErrorKind::AlreadyExists, "no unused process trace filename within the 64-file safety budget"))
     }
 
     fn write(&mut self, v: &serde_json::Value) {
         if writeln!(self.out, "{v}").is_ok() {
             self.lines += 1;
         }
+    }
+}
+
+#[cfg(test)]
+mod trace_ownership_tests {
+    use super::TraceLog;
+    use std::io::Write;
+
+    #[test]
+    fn overlapping_trace_writers_never_truncate_or_share_the_requested_file() {
+        let root = std::env::temp_dir().join(format!("nvf-owned-trace-{}-{}", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        let path = root.join("script-trace.jsonl");
+        let mut parent = TraceLog::create(&path).unwrap();
+        parent.write(&serde_json::json!({"kind":"before-load"}));
+        parent.out.flush().unwrap();
+        let mut child = TraceLog::create(&path).unwrap();
+        assert_ne!(parent.path, child.path);
+        child.write(&serde_json::json!({"kind":"successor"}));
+        parent.write(&serde_json::json!({"kind":"parent-exit"}));
+        parent.out.flush().unwrap();
+        child.out.flush().unwrap();
+        let parent_bytes = std::fs::read_to_string(&parent.path).unwrap();
+        let child_bytes = std::fs::read_to_string(&child.path).unwrap();
+        for bytes in [&parent_bytes, &child_bytes] {
+            assert!(!bytes.contains('\0'));
+            for line in bytes.lines() { serde_json::from_str::<serde_json::Value>(line).unwrap(); }
+        }
+        assert!(parent_bytes.contains("before-load") && parent_bytes.contains("parent-exit"));
+        assert!(!parent_bytes.contains("successor"));
+        assert!(child_bytes.contains("successor") && !child_bytes.contains("parent-exit"));
+        drop((parent, child));
+        std::fs::remove_dir_all(root).unwrap();
     }
 }
 
