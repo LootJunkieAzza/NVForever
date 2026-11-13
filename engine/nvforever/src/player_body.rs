@@ -502,12 +502,17 @@ struct WeaponPart {
 }
 
 /// Whether a weapon part (a `##` node) is shown: as the playing clips key it (`clip`),
-/// else as the model's own controllers leave it at rest (`rest`; a revolver's speed
-/// loader hidden, shown only while the reload keys it), else as it was (`was`: a part
-/// no clip and no controller of the model speaks for stays as the last clip left it,
-/// the minigun's gun) [hypothesis, model::part_rest_visibility].
+/// else hidden when the model's own controllers hide it at rest (`rest`: a revolver's
+/// speed loader, the C96's stripper clip, shown only while the reload keys them), else
+/// as it was (`was`: a part no clip speaks for stays as the last clip left it, the
+/// minigun's gun) [hypothesis, model::part_rest_visibility]. A part the model rests
+/// shown is not shown again by that: an empty launcher's round (`##NifRound`, which
+/// Another Millenia's RPG-7 rests shown) stays as the attack left it until the reload
+/// [observed: of Another Millenia's weapon models, only `##SpeedLoader` (29 models)
+/// and `##cmClip` (12) rest hidden; `##nmClip` (173), bullets, shells and casings rest
+/// shown].
 fn part_on(clip: Option<bool>, rest: Option<bool>, was: bool) -> bool {
-    clip.or(rest).unwrap_or(was)
+    clip.or(rest.filter(|shown| !shown)).unwrap_or(was)
 }
 
 /// One skeleton with its parts, clips and weapon.
@@ -3295,6 +3300,9 @@ mod tests {
         assert!(super::part_on(None, Some(true), true), "the casings");
         assert!(!super::part_on(None, None, false), "a part with no rest keeps the last clip's word");
         assert!(super::part_on(None, None, true));
+        // An RPG-7's round (rest shown) hidden by the attack stays hidden after it.
+        assert!(!super::part_on(None, Some(true), false), "an empty launcher's round");
+        assert!(super::part_on(Some(true), Some(true), false), "the reload puts it back");
     }
 
     #[test]

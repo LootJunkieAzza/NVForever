@@ -715,13 +715,14 @@ pub fn free_visibility_tracks(file: &NifFile, dec: &Decoded) -> Vec<(String, Boo
 /// The weapon parts (`##` nodes) a file's own visibility controllers (Active, clamped,
 /// not manager controlled) show or hide at rest: each node's value at its controller's
 /// stop time, where a clamped controller holds once it has run. The weapon's holder's
-/// clips speak for the node while they key it; a part they do not key is at this value.
+/// clips speak for the node while they key it; a part they do not key and that rests
+/// hidden is hidden (nvforever `player_body::part_on`, `weapons::spawn_model`).
 ///
 /// Another Millenia's revolvers (`weapons\AnotherMil\SW38S\SW38S.nif`,
 /// `SW38SUnique2.nif`, the Colt Anaconda's) are built so: `##SpeedLoader` keyed shown at
 /// -0.033 s and hidden at 0 s, `##swmCasing` the reverse, both flags 0x4C (Active,
 /// clamp), start -0.033 s, stop 0 s [observed: the files' blocks]; their reload
-/// (`Hit_S&WM10\_1stPersonhpReloadE.kf`) holds `##SpeedLoader` shown for its whole
+/// (`Hit_S&WM10\_1stPerson\1hpReloadE.kf`) holds `##SpeedLoader` shown for its whole
 /// 4.47 s [observed]. So the speed loader is seen only while the reload plays
 /// [hypothesis: the original lets the file's controller hide it at rest; the owner saw
 /// it in the cylinder the whole time when NVForever did not, ship17].
