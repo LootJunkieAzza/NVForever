@@ -50,8 +50,9 @@
 //!   before its end (a stand-in for fast travel, logged). With no path at all the player
 //!   is put at the place and a `no_path` finding kept.
 //! - Lines are skipped after [`SKIP_AFTER`] s, as a player in a hurry does. A conversation
-//!   still open when the next step is a walk is left first; an actor that came and
-//!   spoke first is the conversation a `talk` step asks for.
+//!   still open when the next step is a walk is left first, unless the walk is to the
+//!   actor talking; an actor that came and spoke first is the conversation a `talk`
+//!   step asks for.
 //! - **`kill` is a fight** [owner decision 2026-11-13]: the player walks to within
 //!   [`FIGHT_RANGE`] of the actor, draws ([`PILOT_WEAPON`], given once with its ammo),
 //!   keeps the view on the actor's trunk and pulls the trigger until it is dead, closer
@@ -66,6 +67,9 @@
 //!   without it says whether a fight can be.
 //! - Not yet: `hit` (the script call of the headless run) and the samplers
 //!   (`not_carried_out` findings).
+//!
+//! No step lasts longer than [`STEP_SECS`]: it is given up with a `step_timed_out`
+//! finding and the chain goes on.
 //!
 //! Log: `pilot: step <n> <op> ...`, `pilot: finding <kind>: ...`, `pilot: divergence at
 //! step <n> ...`, and at the end `pilot: done: <n> steps, <d> divergences, <f> findings,
@@ -110,6 +114,8 @@ const REPLANS: u8 = 3;
 /// to find it under the crosshair.
 const AIM_HEIGHTS: [f32; 4] = [80.0, 40.0, 110.0, 8.0];
 const AIM_SECS: f64 = 0.25;
+/// The longest any one step lasts, seconds: then it is given up, whatever it waits for.
+pub const STEP_SECS: f64 = 240.0;
 /// The longest any one wait lasts, seconds.
 const WAIT_CAP: f64 = 120.0;
 const ADVANCE_CAP: f64 = 20.0;
@@ -502,7 +508,14 @@ enum Walked {
 fn walk(p: &mut Pilot, w: &mut Walk, h: &mut Hands) -> Walked {
     let feet = h.feet();
     let here = h.here();
-    // A conversation holds the player: it is left first, as a player leaves one to go on.
+    // The actor walked to has come and is talking to the player: the player is with it.
+    let talker = h.game(|g| g.dialogue.as_ref().map(|c| c.actor)).flatten();
+    if talker.is_some() && talker == w.target {
+        info!("pilot: step {}: the actor walked to is talking to the player: the walk is over", p.i);
+        return Walked::There;
+    }
+    // Any other conversation holds the player: it is left first, as a player leaves one
+    // to go on.
     if h.game(|g| g.dialogue.is_some() && g.end_dialogue()) == Some(true) {
         info!("pilot: step {}: leaves the open conversation to walk on", p.i);
         w.seen = (p.now, feet);
@@ -641,6 +654,11 @@ fn aim(p: &Pilot, a: &mut Aim, h: &mut Hands) -> Option<bool> {
     if h.target.0.as_ref().is_some_and(|t| t.form_id == a.target.0) {
         return Some(true);
     }
+    // Already talking to it: there is no crosshair in a conversation, and nothing to ask.
+    let target = a.target;
+    if h.game(|g| g.dialogue.as_ref().is_some_and(|c| c.actor == target)) == Some(true) {
+        return Some(true);
+    }
     if let Some(t) = h.target.0.as_ref() {
         a.had = Some(format!("{} {:08X} at {:.0} units", t.name, t.form_id, t.distance));
     }
@@ -648,8 +666,8 @@ fn aim(p: &Pilot, a: &mut Aim, h: &mut Hands) -> Option<bool> {
         a.height += 1;
         a.since = p.now;
     }
-    let up = *AIM_HEIGHTS.get(a.height)?;
-    let target = a.target;
+    // Every height tried: the crosshair never took it.
+    let Some(&up) = AIM_HEIGHTS.get(a.height) else { return Some(false) };
     let pos = h.game(|g| where_is(g, target)).flatten()?.1;
     let cross: Option<Crosshair> = h.control.crosshair;
     (h.player.heading, h.player.pitch) = Crosshair::aim_at(cross.as_ref(), h.player.eye(), [pos[0], pos[1], pos[2] + up]);
@@ -716,9 +734,19 @@ fn step(p: &mut Pilot, h: &mut Hands) -> Option<Option<String>> {
     match &a {
         Action::Note { .. } => Some(None),
         Action::MovePlayer { to } => {
+            // The actor walked to came and is talking to the player: the player is with
+            // it (Sunny comes to Ringo's with her own package and line; leaving that
+            // conversation to walk to her lost her Say Once greeting and the fight).
+            if matches!(p.phase, Phase::Begin) {
+                let with_it = h.game(|g| runner::resolve(g, to).is_ok_and(|r| g.dialogue.as_ref().is_some_and(|c| c.actor == r)));
+                if with_it == Some(true) {
+                    info!("pilot: step {}: {to} is talking to the player: no walk", p.i);
+                    return Some(None);
+                }
+            }
             if matches!(p.phase, Phase::Begin) {
                 match h.place_of(to) {
-                    Ok((_, place)) => p.phase = new_walk(place, None, NEAR_MARKER, p.now, h.feet()),
+                    Ok((r, place)) => p.phase = new_walk(place, Some(r), NEAR_MARKER, p.now, h.feet()),
                     Err(e) => return Some(Some(e)),
                 }
             }
@@ -1228,6 +1256,12 @@ fn drive(
         }
         match step(p, &mut h) {
             Some(error) => p.next(error),
+            // No step holds the run up for good, whatever went wrong in it.
+            None if p.now - p.step_from > STEP_SECS => {
+                p.finding("step_timed_out", format!("the step was not over after {STEP_SECS:.0} s: given up"));
+                h.control.trigger = false;
+                p.next(Some("the step timed out".into()));
+            }
             None => return,
         }
     }
