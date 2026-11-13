@@ -1240,7 +1240,7 @@ fn barter_lists_every_stack_of_the_stock_and_scrolls_to_the_last() {
     }
     let mut m = barter(&mut w);
     assert_eq!(m.stock_rows(&w), Some((9, 9)));
-    assert!(9 > LIST_ROWS);
+    const { assert!(9 > LIST_ROWS) };
     m.apply(&mut w, Command::Focus(Side::Container));
     for _ in 0..8 {
         m.apply(&mut w, Command::Down);
