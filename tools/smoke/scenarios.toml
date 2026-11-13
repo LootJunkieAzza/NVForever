@@ -7287,6 +7287,25 @@ expect = [
 ]
 
 [[scenario]]
+name = "sleep-behind-raft-trip"
+source = "issue #2281: the raft between Cottonwood Cove and the Fort (vCCmovetothefortSCRIPT) calls MoveTo and then SetPCSleepHours 3 in one frame. The sleep's hours pass at once behind the trip's loading screen, and no menu is left open when it comes down (docs/spec-notes/wait-menu.md §5)"
+note = "Started from Goodsprings: the quest's script takes its Cottonwood Cove branch (the player is not in the Fort landing's cell). Before the fix the loading screen came down with the menu open, '0 hours passed', and the screen stayed black"
+areas = ["wait", "loading"]
+paths = ["engine/nvf-play/src/wait.rs", "engine/nvf-play/src/wait/**", "engine/nvf-play/src/loading.rs", "crates/fnv-game/src/rest.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "10:start:vCCmovetothefort" }
+args = ["--cell", "Goodsprings", "--pos=-43900,64896,7000", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 30
+expect = [
+  { re = 'wait summary: the menu was opened 1 times \(1 as sleep\), 3 hours passed', label = "all three hours passed" },
+]
+order = [[
+  { text = "wait menu: sleeping 3 hour(s) (a script's SetPCSleepHours)", label = "the raft's sleep" },
+  { text = "wait menu: a trip's loading screen is up: hours 1-3 of the sleep pass behind it at once", label = "the hours pass behind the screen" },
+  { text = "sleep: hour 3 of 3 passed", label = "the third hour" },
+  { re = 'loading screen down after [0-9.]+ s$', label = "the trip's screen comes down after the sleep" },
+]]
+
+[[scenario]]
 name = "activation-prompt-door"
 source = "ESM gap audit medium group 4 (docs/spec-notes/cells-refs.md §3): a reference's Activation Prompt (XATO) is the crosshair's action line"
 note = "the Goodsprings Cave door outside (0x001531FC, XATO 'Enter Goodsprings Cave'); the player put 170 units south of it, facing it"

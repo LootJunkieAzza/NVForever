@@ -162,6 +162,12 @@ In the interface file [documented: `menus\sleep_wait_menu.xml` and the files it 
     most 24), wherever the player is, with the fade of a sleep; no refusal applies
     [hypothesis: "forces the player to sleep" starts a sleep as if accepted in the
     menu]. Called during a sleep, the count starts again at `n`.
+  - A trip's loading screen that comes up while the menu is open passes the hours still
+    to go all at once behind it, and closes the menu unseen [design, issue #2281]. The
+    raft between Cottonwood Cove and the Fort (`vCCmovetothefortSCRIPT`, 0x001672C8)
+    calls `MoveTo` and then `SetPCSleepHours 3` in one frame [observed: `fnvtool script
+    decompile`], so the screen and the sleep come in together. How long the original's
+    trip takes on screen was not measured.
   - `WakeUpPC` stops a sleep as Cancel does; during a wait and outside the menu it
     does nothing [documented].
   - `ShowSleepWaitMenu isSleep [check]` opens the menu. With `check` set it is the
