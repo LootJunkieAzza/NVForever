@@ -23850,17 +23850,32 @@ forbid = ["FSR dispatch failed", "FSR 3.1 unavailable", "Shader validation error
 
 [[scenario]]
 name = "latency-reduction"
-source = "#1778, docs/design/latency-reduction.md: --latency-reduction turns the switch on; the start says whether the GPU's Vulkan driver offers VK_AMD_anti_lag or VK_NV_low_latency2, and the game runs on with either or neither"
+source = "#1778, #2317, docs/design/latency-reduction.md: --latency-reduction turns the switch on; the start names AMD Anti-Lag, direct NVIDIA low latency or NVIDIA Reflex through Streamline, or says neither is available"
 areas = ["graphics"]
-paths = ["engine/nvforever/src/anti_lag.rs", "engine/nvforever/src/nv_low_latency.rs", "engine/nvforever/src/frame_pace.rs", "engine/vendor/bevy_render/src/renderer/**", "engine/vendor/bevy_render/src/settings.rs", "engine/vendor/wgpu-hal/src/vulkan/**", "engine/Cargo.toml"]
+paths = ["engine/nvforever/src/anti_lag.rs", "engine/nvforever/src/nv_low_latency.rs", "engine/nvforever/src/frame_pace.rs", "engine/nvforever/src/dlss/**", "engine/nvforever/src/upscaler*", "engine/nvforever/src/main.rs", "engine/vendor/bevy_render/src/renderer/**", "engine/vendor/bevy_render/src/settings.rs", "engine/vendor/wgpu-hal/src/vulkan/**", "engine/Cargo.toml"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
 args = ["--cell", "GSDocMitchellHouse", "--play", "--size", "1280x720", "--latency-reduction", "--no-voice", "--no-lodgen"]
 run_seconds = 12
 expect = [
-  { re = 'latency reduction: (AMD Anti-Lag \(VK_AMD_anti_lag\) available|NVIDIA low latency \(VK_NV_low_latency2\) available|not available) on ', label = "the start says which technique the driver offers, or that it has neither" },
-  { re = 'latency reduction: on \((AMD Anti-Lag|NVIDIA low latency|not available on this GPU)\)', label = "--latency-reduction turns the switch on" },
+  { re = 'latency reduction: (AMD Anti-Lag \(VK_AMD_anti_lag\) available|NVIDIA low latency \(VK_NV_low_latency2\) available|NVIDIA Reflex through Streamline available|not available) on ', label = "the start says which technique the driver offers, or that it has neither" },
+  { re = 'latency reduction: on \((AMD Anti-Lag|NVIDIA low latency|NVIDIA Reflex \(Streamline\)|not available on this GPU)\)', label = "--latency-reduction turns the switch on" },
 ]
 forbid = [{ text = "Validation Error", label = "a Vulkan validation error" }, { text = "Caught rendering error", label = "a rendering error" }]
+
+[[scenario]]
+name = "latency-reduction-direct"
+source = "#2224, #2317, docs/design/latency-reduction.md: without Streamline the direct latency route retains its startup availability and on-switch messages"
+note = "[documented: upscaler.rs::UpscalerStartup::new] NVF_DLSS_PRELOAD=0 skips Streamline unless DLSS is chosen. Explicit Off choices and the empty DLSS fixture keep inherited files and saved choices out."
+areas = ["graphics"]
+paths = ["engine/nvforever/src/anti_lag.rs", "engine/nvforever/src/nv_low_latency.rs", "engine/nvforever/src/frame_pace.rs", "engine/nvforever/src/dlss/**", "engine/nvforever/src/upscaler*", "engine/nvforever/src/main.rs", "engine/vendor/bevy_render/src/renderer/**", "engine/vendor/bevy_render/src/settings.rs", "engine/vendor/wgpu-hal/src/vulkan/**", "engine/Cargo.toml"]
+env = { WGPU_BACKEND = "vulkan", NVF_DLSS_PRELOAD = "0", NVF_DLSS_DIR = "{repo}/tools/smoke/fixtures/dlss-empty", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--size", "1280x720", "--upscaler", "off", "--frame-generation", "off", "--latency-reduction", "--no-voice", "--no-lodgen"]
+run_seconds = 12
+expect = [
+  { re = 'latency reduction: (AMD Anti-Lag \(VK_AMD_anti_lag\) available|NVIDIA low latency \(VK_NV_low_latency2\) available|not available) on ', label = "the direct driver's availability without Streamline" },
+  { re = 'latency reduction: on \((AMD Anti-Lag|NVIDIA low latency|not available on this GPU)\)', label = "the direct latency switch on without Streamline" },
+]
+forbid = ["NVIDIA Reflex", "DLSS: slInit:", "DLSS: route:", "Validation Error", "Caught rendering error"]
 
 [[scenario]]
 name = "frame-generation"
@@ -23877,7 +23892,7 @@ expect = [
   { text = "frame generation: presenting on a thread of its own", label = "the presenter thread takes the window's images (h9x000/NVForever#1)" },
   { re = 'frame generation: \d+ real frames and (\d+) generated in ', range = [200, 1000000], label = "generated frames presented over ten seconds" },
   { text = "frame generation: … presents took … on the presenter thread", label = "presented from the presenter thread, not the render thread" },
-  { re = 'latency reduction: on \((AMD Anti-Lag|NVIDIA low latency|not available on this GPU), with frame generation\)', label = "frame generation turns latency reduction on" },
+  { re = 'latency reduction: on \((AMD Anti-Lag|NVIDIA low latency|NVIDIA Reflex \(Streamline\)|not available on this GPU), with frame generation\)', label = "frame generation turns latency reduction on" },
   { re = 'fps counter: FPS \d+ +\(\d+ rendered\) +[\d.]+ ms ', label = "the overlay's FPS row reads the frames shown and the rendered ones apart while generated frames are shown" },
 ]
 forbid = [
@@ -24347,7 +24362,7 @@ forbid = [
 
 [[scenario]]
 name = "dlssg-exit"
-source = "#2317, docs/design/dlss-frame-generation.md \"Exit\": the run ends in play with DLSS Frame Generation on: the mode off for the last frame, then at shutdown the mode off, null tags, the drain, DLSS's and DLSS-G's resources freed and slShutdown, in that order"
+source = "#2317, docs/design/dlss-frame-generation.md \"Exit\": the run ends in play with DLSS Frame Generation on: mode off for AppExit's last frame or immediately on WindowClosing, then shutdown mode off, null tags, the drain, DLSS's and DLSS-G's resources freed and slShutdown, in that order"
 note = "needs NVF_DLSS_DIR with the frame generation files; front = true as dlssg-on."
 areas = ["graphics"]
 paths = ["engine/nvforever/src/dlss/**"]
@@ -24358,14 +24373,14 @@ args = ["--cell", "Goodsprings", "--play", "--size", "1280x720", "--upscaler", "
 run_seconds = 24
 expect = [
   { re = 'DLSS-G: options: mode On, ', label = "on before the exit" },
-  { text = "DLSS-G: exit: DLSS-G's mode off for the last frame (AppExit)", label = "the mode off on AppExit" },
+  { re = "DLSS-G: exit: (DLSS-G's mode off for the last frame \\(AppExit\\)|the window closes: DLSS-G's mode off now: eOk)", label = "the mode off for AppExit or successfully before the closing window's surface is released" },
   "DLSS-G: shutdown: options mode eOff: eOk",
   { re = 'DLSS-G: shutdown: null tags \(frame \d+\): eOk' },
   "DLSS-G: shutdown: slFreeResources(DLSS-G, viewport 0) eOk",
   "DLSS: shutdown done: Streamline down before the Vulkan device and instance were released",
 ]
 order = [[
-  { text = "DLSS-G: exit: DLSS-G's mode off for the last frame (AppExit)" },
+  { re = "DLSS-G: exit: (DLSS-G's mode off for the last frame \\(AppExit\\)|the window closes: DLSS-G's mode off now: eOk)" },
   { text = "DLSS-G: shutdown: options mode eOff: eOk" },
   { re = 'DLSS-G: shutdown: null tags' },
   { text = "DLSS: shutdown: slFreeResources(DLSS, viewport 0) eOk" },
