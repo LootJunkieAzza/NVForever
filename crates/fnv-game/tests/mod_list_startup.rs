@@ -87,6 +87,11 @@ fn write_files(dir: std::path::PathBuf) {
     std::fs::write(dir.join("Config/keybinder/Keybinder.ini"), INI).unwrap();
     std::fs::write(dir.join("NVSE/user_defined_functions/keybinder/SetControl.gek"), SET_CONTROL).unwrap();
     std::fs::write(dir.join("NVSE/user_defined_functions/keybinder/SetKeybinds.gek"), SET_KEYBINDS).unwrap();
+    std::fs::write(dir.join("NVSE/user_defined_functions/keybinder/Twice.gek"), "int i
+begin function { i }
+    SetFunctionValue i * 2
+end
+").unwrap();
     // JIP's INI as a mod list sets it, and Stewie's Tweaks' INI with one override file.
     std::fs::create_dir_all(dir.join("NVSE/Plugins/Tweaks/INIs")).unwrap();
     std::fs::write(dir.join("NVSE/Plugins/jip_nvse.ini"), "[GamePatches]\r\nuNPCPerks=1\r\n").unwrap();
@@ -147,4 +152,55 @@ fn inis_named_from_config_with_dot_dot_and_tweaks_overrides_are_read() {
     assert_eq!(r, XVal::Num(1.0));
     let r = g.run_query("Begin Function { }\nSetFunctionValue (StewVal \"iOpenRadioKey:Hotkeys\") * 100 + (StewVal \"iOpenMapKey:Hotkeys\")\nEnd\n", RunCtx::default()).unwrap();
     assert_eq!(r, XVal::Num(2550.0));
+}
+
+#[test]
+fn a_compiled_script_is_a_valid_form() {
+    // A mod checks CompileScript's result with IsFormValid and reports "a problem
+    // compiling" when it is 0 (Scaled Recurring Challenges' start-up script does).
+    let _dir = files();
+    let f = fixture();
+    let world = World::new(&f.forms, &f.refs, SimConfig::default());
+    let mut g = Game::new(&f.data, world, GameConfig { strict: true, ..GameConfig::default() });
+    let src = "Begin Function { }
+ref r
+r = CompileScript \"keybinder/Twice.gek\"
+if eval !(IsFormValid r)
+    SetFunctionValue -1
+    return
+endif
+SetFunctionValue (call r 21)
+End
+";
+    assert_eq!(g.run_query(src, RunCtx::default()).unwrap(), XVal::Num(42.0));
+}
+
+#[test]
+fn the_players_first_person_model_is_asked_with_pc_model_2() {
+    // B42 Weapon Inertia checks `Player.GetNifScale "NeckController" 2`, a node only
+    // the first-person skeleton has, and reports a missing skeleton when it is not 1.
+    let _dir = files();
+    let f = fixture();
+    let world = World::new(&f.forms, &f.refs, SimConfig::default());
+    let mut g = Game::new(&f.data, world, GameConfig { strict: true, ..GameConfig::default() });
+    let node = |name: &str, parent: Option<usize>| fnv_game::nif_blocks::SceneNode {
+        name: name.into(),
+        parent,
+        translation: [0.0; 3],
+        rotation: [0.0; 3],
+        scale: 1.0,
+        flags: 0,
+        material: None,
+        info: None,
+        world: [0.0; 3],
+    };
+    g.scene.set_first_person_tree(Some(vec![node("Bip01", None), node("NeckController", Some(0))]));
+    let q = |g: &mut Game, s: &str| g.run_query(&format!("Begin Function {{ }}
+SetFunctionValue {s}
+End
+"), RunCtx::default()).unwrap();
+    assert_eq!(q(&mut g, "(PlayerREF.GetNifScale \"NeckController\" 2)"), XVal::Num(1.0));
+    // The third-person model (no tree told here) has no such node.
+    assert_eq!(q(&mut g, "(PlayerREF.GetNifScale \"NeckController\" 1)"), XVal::Num(0.0));
+    assert!(g.scene.first_person_wanted());
 }

@@ -303,6 +303,44 @@ pub fn size_texts(game: &mut Game) {
     }
 }
 
+/// Readies the trait a UI read names (`(tile, index)`, `None` when it names none or its
+/// trait is not known here) as [`size_texts`] would, doing less when it can: with every
+/// text of the [`TextSizer`] measured from what it shows now, only the trait and what it
+/// reads are worked out ([`fnv_ui::Ui::refresh`]); otherwise the whole tree and the texts.
+/// The values read are the same [design: owner's playtest 2026-11-11, the whole tree
+/// worked out before each of a HUD script's 36 reads a frame cost 4.7 ms a read].
+pub fn ready_read(game: &mut Game, read: Option<(fnv_ui::TileId, usize)>) {
+    let Some(sizer) = game.ui_sizer.as_ref() else { return };
+    if let Some((t, k)) = read {
+        let ui = &mut game.ui_tree;
+        let measured = sizer.texts.iter().all(|&tt| {
+            if !ui.is_live(tt) || ui.tile(tt).kind != "text" {
+                return true;
+            }
+            for name in ["string", "font", "wrapwidth", "width", "height"] {
+                if let Some(j) = ui.tile(tt).trait_index(name) {
+                    if !ui.refresh(tt, j) {
+                        return false;
+                    }
+                }
+            }
+            let tile = ui.tile(tt);
+            let computed = |name: &str| tile.trait_index(name).is_some_and(|j| tile.traits[j].expr.is_some());
+            if computed("width") && computed("height") {
+                return true;
+            }
+            let string = tile.get("string").map(Value::text).unwrap_or_default();
+            let font = tile.get("font").map_or(0.0, Value::num);
+            let wrap = tile.get("wrapwidth").map(Value::num).filter(|w| *w > 0.0);
+            sizer.last.get(&tt).is_some_and(|(s, f, w, _)| *s == string && *f == font && *w == wrap)
+        });
+        if measured && ui.refresh(t, k) {
+            return;
+        }
+    }
+    size_texts(game);
+}
+
 /// Makes the writes [`defer`] kept, before a UI function reads or changes the HUD, in a
 /// frame's order (the strings, then the widths measured from them), so a script reads
 /// this frame's values as it would had they been written [design].

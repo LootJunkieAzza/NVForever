@@ -729,6 +729,37 @@ fn skipping_finds_what_working_everything_out_finds() {
 }
 
 #[test]
+fn a_refresh_works_out_what_one_trait_reads_as_an_update_does() {
+    // [design: owner's playtest 2026-11-11] A read after a write works out only the trait
+    // read and its sources; the update after it finds the same as a tree never refreshed.
+    let mut fast = loaded();
+    let mut slow = loaded();
+    fast.update();
+    slow.update();
+    let at = |ui: &Ui, path: &str| ui.find_trait(path).unwrap();
+    let writes: [(&str, f64, &str, f64); 4] = [
+        ("TestMenu/_Selected", 1.0, "TestMenu/Panel/Title/alpha", 295.0),
+        // A chain: _Fill, the Bar's width, then its x.
+        ("TestMenu/Panel/Gauge:1/_Fill", 0.25, "TestMenu/Panel/Gauge:1/Bar/x", -47.5),
+        ("TestMenu/Panel/Gauge:1/_Fill", 0.25, "TestMenu/Panel/Gauge:1/Bar/width", 95.0),
+        ("TestMenu/_Selected", 0.0, "TestMenu/Panel/Title/visible", slow.get_float("TestMenu/Panel/Title/visible").unwrap()),
+    ];
+    for (n, &(write, v, read, want)) in writes.iter().enumerate() {
+        assert!(fast.set_float(write, v) && slow.set_float(write, v));
+        let (t, k) = at(&fast, read);
+        assert!(fast.refresh(t, k), "write {n}");
+        assert_eq!(fast.get_float(read), Some(want), "write {n}");
+        slow.update();
+        fast.update();
+        assert_eq!(all_values(&fast), all_values(&slow), "write {n}");
+    }
+    // A write that reshapes the tree: the trait's sources are not known, an update is due.
+    assert!(fast.inject_text(&files(), "TestMenu", "<rect name=\"New\"/>"));
+    let (t, k) = at(&fast, "TestMenu/Panel/Title/alpha");
+    assert!(!fast.refresh(t, k));
+}
+
+#[test]
 fn ids_from_a_replaced_tree_name_no_tile_of_the_new_one() {
     // [design: #1061] Two trees built alike have their tiles in the same slots.
     let old = loaded();

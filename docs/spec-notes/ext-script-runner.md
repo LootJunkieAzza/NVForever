@@ -47,7 +47,7 @@ A file with another prefix (or none) never runs [hypothesis].
 game restart comes again after every load, as GetGameRestarted does
 (docs/design/save-load.md). With a save: the save is restored, then the `gr_` files run,
 then the LoadGame and PostLoadGame events, then the `gl_` and `ln_` files. Without one:
-the `gr_` files, then the `gn_` and `ln_` files. Both come after the menus' tile tree is
+the `gr_` files, then the NewGame event, then the `gn_` and `ln_` files. Both come after the menus' tile tree is
 built, so a file can set UI traits [decision]. Without a save the `gn_` and `ln_` files
 wait for the first frame the scripts run, when the new game begins: the world behind the
 main menu is a new game held, and Continue or Load there starts another run, so running

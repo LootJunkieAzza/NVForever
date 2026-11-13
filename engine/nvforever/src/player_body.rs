@@ -998,6 +998,37 @@ impl PlayerBody {
         self.body.as_ref().and_then(|b| b.third.seen).is_some_and(|s| s.effect_part(part))
     }
 
+    /// The first-person arms rig's skeleton as the NIF block functions see it, in its
+    /// last pose (`nif_mirror.rs`, a script's `pcModel` 2); `None` without that rig.
+    pub fn first_person_tree(&self) -> Option<Vec<fnv_game::nif_blocks::SceneNode>> {
+        let a = &self.body.as_ref()?.first.as_ref()?.animator;
+        let skel = &a.skel;
+        let mut seen: HashMap<String, u32> = HashMap::new();
+        let nodes = (0..skel.names.len())
+            .map(|i| {
+                let base = skel.names[i].clone().unwrap_or_default();
+                // A name seen before gets ":0", ":1" … as in the mirror's trees.
+                let n = seen.entry(base.to_ascii_lowercase()).or_insert(0);
+                let name = if *n == 0 { base.clone() } else { format!("{base}:{}", *n - 1) };
+                *n += 1;
+                let t = a.locals.get(i).copied().unwrap_or(skel.locals[i]);
+                let (z, y, x) = t.rotation.to_euler(EulerRot::ZYX);
+                fnv_game::nif_blocks::SceneNode {
+                    name,
+                    parent: skel.parents[i],
+                    translation: t.translation.to_array(),
+                    rotation: [x.to_degrees(), y.to_degrees(), z.to_degrees()],
+                    scale: t.scale.x,
+                    flags: 0,
+                    material: None,
+                    info: None,
+                    world: [0.0; 3],
+                }
+            })
+            .collect();
+        Some(nodes)
+    }
+
     /// The landing clip after a jump or fall is playing (GetAnimAction 12, `anim_state`).
     pub fn landing(&self) -> bool {
         self.body.as_ref().is_some_and(|b| b.third.animator.layers.iter().any(|l| l.tag == TAG_LAND && !l.finished()))

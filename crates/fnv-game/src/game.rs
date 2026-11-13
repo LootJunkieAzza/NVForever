@@ -1918,6 +1918,9 @@ pub struct Game<'a> {
     pub unhandled: BTreeMap<u16, u64>,
     /// Calls per opcode that reached a Layer 6 stub.
     pub stubbed: BTreeMap<u16, u64>,
+    /// Processor time by script and by function, in a profiled run only
+    /// ([`Game::cost_report`]).
+    pub cost: Option<Box<CostTally>>,
     unhandled_seen: BTreeSet<(u16, String)>,
     arg_unread_seen: BTreeSet<(u16, String, usize)>,
     stubs_seen: BTreeSet<(u16, String, String)>,
@@ -2685,6 +2688,7 @@ impl<'a> Game<'a> {
             events: Vec::new(),
             unhandled: BTreeMap::new(),
             stubbed: BTreeMap::new(),
+            cost: None,
             coverage: None,
             unhandled_seen: BTreeSet::new(),
             arg_unread_seen: BTreeSet::new(),
@@ -3395,7 +3399,17 @@ impl<'a> Game<'a> {
     /// Defined Function; Lambda]. The function's strings and arrays go when it ends
     /// [documented: Ar Null, arrays of a function script are freed].
     pub fn run_function(&mut self, f: &fnv_script::vm::XVal, on: Option<Value>, args: Vec<fnv_script::vm::XVal>, caller: Option<FormId>, ctx: RunCtx) -> Result<fnv_script::vm::XVal, String> {
-        self.nested(move |g| g.run_function_here(f, on, args, caller, ctx))
+        let started = self.cost.is_some().then(std::time::Instant::now);
+        let r = self.nested(move |g| g.run_function_here(f, on, args, caller, ctx));
+        if let (Some(t), Some(c)) = (started, self.cost.as_mut()) {
+            let id = match f {
+                fnv_script::vm::XVal::Ref(id) => *id,
+                fnv_script::vm::XVal::Num(x) => *x as u32,
+                _ => 0,
+            };
+            c.add_script(id, t.elapsed());
+        }
+        r
     }
 
     fn run_function_here(&mut self, f: &fnv_script::vm::XVal, on: Option<Value>, args: Vec<fnv_script::vm::XVal>, caller: Option<FormId>, ctx: RunCtx) -> Result<fnv_script::vm::XVal, String> {
@@ -3822,7 +3836,11 @@ impl<'a> Game<'a> {
             ran = true;
             let outer = self.jip.wait_depth.replace(self.depth + 1);
             let outer_menu = std::mem::replace(&mut self.in_menu_block, menu_block);
+            let started = self.cost.is_some().then(std::time::Instant::now);
             let (returned, wait) = self.exec_at(unit, &b.body, Locals::Instance(key), ctx, resume.as_deref());
+            if let (Some(t), Some(c)) = (started, self.cost.as_mut()) {
+                c.add_script(script.0, t.elapsed());
+            }
             self.in_menu_block = outer_menu;
             self.jip.wait_depth = outer;
             // One waiting block per script: a new wait ends the old one [documented].
@@ -6136,6 +6154,41 @@ impl<'a> Game<'a> {
         self.call_function(&ctx, &c.params).num()
     }
 
+    /// Every [`CostTally::WINDOW`]: the scripts and functions that took the most processor
+    /// time since the last report, as two log lines' text, and a new window. Times include
+    /// what a script calls (a function script's time is in its caller's too).
+    pub fn cost_report(&mut self) -> Option<String> {
+        let c = self.cost.as_ref()?;
+        if c.since.elapsed() < CostTally::WINDOW {
+            return None;
+        }
+        let c = std::mem::take(self.cost.as_mut()?.as_mut());
+        let secs = c.since.elapsed().as_secs_f64();
+        let ms = |d: std::time::Duration| d.as_secs_f64() * 1000.0 / secs;
+        let mut scripts: Vec<_> = c.scripts.into_iter().collect();
+        scripts.sort_by_key(|s| std::cmp::Reverse(s.1 .1));
+        let script_name = |g: &Self, id: u32| -> String {
+            if id >= LAMBDA_BASE {
+                return g.lambdas.get((id - LAMBDA_BASE) as usize).map(|d| format!("lambda in {}", d.key)).unwrap_or_else(|| format!("lambda {id:08X}"));
+            }
+            if let Some(u) = id.checked_sub(COMPILED_BASE).filter(|_| id < TEMP_REF_BASE).and_then(|i| g.compiled_files.get(i as usize)) {
+                return u.key();
+            }
+            g.data.name(FormId(id))
+        };
+        let top: Vec<String> = scripts.iter().take(25).map(|(id, (n, d))| format!("{} {:.2} ms/s ({n})", script_name(self, *id), ms(*d))).collect();
+        let mut funcs: Vec<_> = c.functions.into_iter().collect();
+        funcs.sort_by_key(|f| std::cmp::Reverse(f.1 .1));
+        let data = self.data;
+        let fname = |op: u16| data.table.get(op).map(|f| f.name.clone()).unwrap_or_else(|| format!("0x{op:04X}"));
+        let mut topf: Vec<(String, u64, std::time::Duration)> = funcs.iter().map(|(op, (n, d))| (fname(*op), *n, *d)).collect();
+        topf.extend(c.named.into_iter().map(|(k, (n, d))| (k, n, d)));
+        topf.sort_by_key(|f| std::cmp::Reverse(f.2));
+        let topf: Vec<String> = topf.iter().take(25).map(|(f, n, d)| format!("{f} {:.2} ms/s ({n})", ms(*d))).collect();
+        Some(format!("script cost: {secs:.1} s; scripts (ms a second, runs): {}
+script cost: functions (ms a second, calls): {}", top.join(", "), topf.join(", ")))
+    }
+
     /// Dispatch a function by opcode (scripts and conditions share it).
     pub fn call_function(&mut self, ctx: &Ctx, args: &[ArgValue]) -> Value {
         let data = self.data;
@@ -6145,7 +6198,11 @@ impl<'a> Game<'a> {
         match functions::lookup(ctx.opcode).or_else(console) {
             Some(Kind::Impl(f)) => {
                 let outer = functions::begin_unread();
+                let started = self.cost.is_some().then(std::time::Instant::now);
                 let r = f(self, ctx, &Args(args));
+                if let (Some(t), Some(c)) = (started, self.cost.as_mut()) {
+                    c.add_function(ctx.opcode, t.elapsed());
+                }
                 self.call_result(ctx, r, functions::end_unread(outer))
             }
             Some(Kind::NoOp(_)) => Value::ZERO,
@@ -6823,6 +6880,12 @@ impl Host for Exec<'_, '_> {
         if self.game.temp_item(f).is_some() {
             return Some(*b"REFR");
         }
+        // CompileScript's script is a script form: a mod checks it with IsFormValid before
+        // using it [documented: CompileScript returns the script; observed: Scaled
+        // Recurring Challenges reports a failed compile when IsFormValid is 0].
+        if form.checked_sub(COMPILED_BASE).is_some_and(|i| form < TEMP_REF_BASE && (i as usize) < self.game.compiled_files.len()) {
+            return Some(*b"SCPT");
+        }
         let f = self.game.unclone(f);
         // The player reference is no record of a plugin [documented: PlayerREF, 00000014].
         if let Some(s) = self.game.data.sig(f).or_else(|| (f == FormId::PLAYER_REF).then_some(*b"ACHR")) {
@@ -6916,7 +6979,12 @@ impl Host for Exec<'_, '_> {
         // reads the calling script.
         self.game.other.plugin = self.calling_plugin().unwrap_or_default();
         self.game.other.script = self.current_script().map(FormId);
-        crate::nvse::call(self.game, &ctx, name, on, args)
+        let started = self.game.cost.is_some().then(std::time::Instant::now);
+        let r = crate::nvse::call(self.game, &ctx, name, on, args);
+        if let (Some(t), Some(c)) = (started, self.game.cost.as_mut()) {
+            c.add_named(name, t.elapsed());
+        }
+        r
     }
 
     fn game_setting(&mut self, name: &str) -> Option<fnv_script::vm::XVal> {
@@ -6998,5 +7066,49 @@ mod effect_lookup_tests {
         }
         assert_eq!(effect_index(&[], 3, Some(0)), None);
         assert_eq!(effect_from(&[], 3, 2), None);
+    }
+}
+
+/// Processor time by script (blocks and function scripts, by form id, lambda or compiled
+/// file id) and by function opcode, inclusive of what each calls; kept only in a profiled
+/// run (`Game::cost`), for finding which mod scripts cost the frames [design].
+#[derive(Debug)]
+pub struct CostTally {
+    pub since: std::time::Instant,
+    pub scripts: std::collections::HashMap<u32, (u64, std::time::Duration)>,
+    pub functions: std::collections::HashMap<u16, (u64, std::time::Duration)>,
+    /// The extender's functions called by name (`crate::nvse::call`).
+    pub named: std::collections::HashMap<String, (u64, std::time::Duration)>,
+}
+
+impl Default for CostTally {
+    fn default() -> CostTally {
+        CostTally { since: std::time::Instant::now(), scripts: std::collections::HashMap::new(), functions: std::collections::HashMap::new(), named: std::collections::HashMap::new() }
+    }
+}
+
+impl CostTally {
+    /// How often [`Game::cost_report`] reports.
+    pub const WINDOW: std::time::Duration = std::time::Duration::from_secs(10);
+
+    fn add_script(&mut self, id: u32, d: std::time::Duration) {
+        let e = self.scripts.entry(id).or_default();
+        e.0 += 1;
+        e.1 += d;
+    }
+
+    pub(crate) fn add_named(&mut self, name: &str, d: std::time::Duration) {
+        let e = match self.named.get_mut(name) {
+            Some(e) => e,
+            None => self.named.entry(name.to_string()).or_default(),
+        };
+        e.0 += 1;
+        e.1 += d;
+    }
+
+    fn add_function(&mut self, op: u16, d: std::time::Duration) {
+        let e = self.functions.entry(op).or_default();
+        e.0 += 1;
+        e.1 += d;
     }
 }

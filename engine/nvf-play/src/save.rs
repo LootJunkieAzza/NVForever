@@ -526,8 +526,11 @@ pub fn not_now(world: &World) -> Option<String> {
     if rt.game.dialogue.is_some() {
         return Some("in a conversation".into());
     }
-    // A box answered and never read by its script is not on screen (#1649).
-    if rt.game.menu.is_some() || rt.game.message_box.as_ref().is_some_and(|b| b.waiting()) {
+    // A box answered and never read by its script is not on screen (#1649). A queued box
+    // counts (`Game::boxes`): a form-less box (MessageBoxEx) saved there came back after
+    // the load without its words, as "(message 0x00000000)" [owner's playtest 2026-11-11,
+    // a Character Build Presets question].
+    if rt.game.menu.is_some() || rt.game.message_box.as_ref().is_some_and(|b| b.waiting()) || !rt.game.boxes.is_empty() {
         return Some("a script's menu or message box is open".into());
     }
     // ToggleDisableSaves 1 (`fnv_game::nvse_jam`).
