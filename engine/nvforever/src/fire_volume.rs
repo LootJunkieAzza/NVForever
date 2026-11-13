@@ -214,14 +214,10 @@ fn follow_emitters(
             continue;
         }
         let (scale, _, at) = g.to_scale_rotation_translation();
-        let s = scale.abs().max_element().clamp(0.1, 10.0);
-        let (r, h) = (f.radius * s, f.height * s);
-        let base = at - Vec3::Y * SINK * s;
-        let place = Transform::from_translation(base + Vec3::Y * h * 0.5).with_scale(Vec3::new(2.0 * r, h, 2.0 * r) * 1.02);
+        let (place, params, r) = flame_place(at, scale, f.radius, f.height);
         if *t != place {
             *t = place;
         }
-        let params = Vec4::new(base.x, base.y, base.z, h);
         if materials.get(&m.0).is_some_and(|mat| mat.params.base != params || mat.params.shape.x != r) {
             if let Some(mut mat) = materials.get_mut(&m.0) {
                 mat.params.base = params;
@@ -229,6 +225,18 @@ fn follow_emitters(
             }
         }
     }
+}
+
+/// A flame's box and its shader's base for an add-on node at `at` with world `scale`:
+/// the box (a unit cube scaled) stands upright on the node, its base [`SINK`] below it
+/// so the flame rises out of the fuel, its middle over the node; and the radius at the
+/// node's scale.
+fn flame_place(at: Vec3, scale: Vec3, radius: f32, height: f32) -> (Transform, Vec4, f32) {
+    let s = scale.abs().max_element().clamp(0.1, 10.0);
+    let (r, h) = (radius * s, height * s);
+    let base = at - Vec3::Y * SINK * s;
+    let place = Transform::from_translation(base + Vec3::Y * h * 0.5).with_scale(Vec3::new(2.0 * r, h, 2.0 * r) * 1.02);
+    (place, Vec4::new(base.x, base.y, base.z, h), r)
 }
 
 /// Whether ADDN `index` burns a volumetric flame (its own flame squares then stay
@@ -247,5 +255,26 @@ mod tests {
         let med = flame_size(r"meshes\mps\mpsfiremed01.nif");
         assert!(med.0 > small.0 && med.1 > small.1);
         assert!(small.1 > 2.0 * small.0, "taller than wide");
+    }
+
+    #[test]
+    fn the_flame_stands_on_its_fire_and_rises_from_it() {
+        // A campfire's add-on node somewhere in the world, at the node's scale 1 and 2.
+        let at = Vec3::new(-6352.0, 637.0, 2004.0);
+        let (r0, h0) = flame_size(r"meshes\mps\mpsfiresmall01.nif");
+        for k in [1.0, 2.0] {
+            let (place, base, r) = flame_place(at, Vec3::splat(k), r0, h0);
+            // Centred over the node across the ground: the flame is in the fire's spot.
+            assert!((place.translation.x - at.x).abs() < 1e-3 && (place.translation.z - at.z).abs() < 1e-3, "{place:?}");
+            // Its base just under the node, the box from there to the tip.
+            assert!((base.y - (at.y - SINK * k)).abs() < 1e-3);
+            assert!((base.w - h0 * k).abs() < 1e-3 && (r - r0 * k).abs() < 1e-3);
+            let (bottom, top) = (place.translation.y - place.scale.y * 0.5, place.translation.y + place.scale.y * 0.5);
+            assert!(bottom <= base.y && top >= base.y + base.w, "the box holds the whole flame");
+            assert!(place.scale.x >= 2.0 * r && place.scale.z >= 2.0 * r, "and its width");
+        }
+        // A node turned upside down or mirrored still burns upright at its size.
+        let (place, base, _) = flame_place(at, Vec3::new(-1.0, 1.0, -1.0), r0, h0);
+        assert!(base.y < at.y && place.translation.y > at.y);
     }
 }
