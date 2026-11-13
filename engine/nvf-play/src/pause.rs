@@ -405,8 +405,16 @@ pub(crate) fn tick_play_clock(virt: Res<Time<Virtual>>, real: Res<Time<Real>>, l
 /// Pause the virtual clock while the picture is held ([`picture_held`]), or while the
 /// console's free camera holds the world (`crate::free_cam`, mode 1), and let it run
 /// again after. Nothing else pauses it.
-fn freeze_picture(mode: Res<MenuPause>, paused: Res<Paused>, state: Res<State<PlayState>>, free_cam: Option<Res<crate::free_cam::FreeCam>>, mut clock: ResMut<Time<Virtual>>) {
-    let held_by_cam = free_cam.is_some_and(|f| f.holds_world());
+fn freeze_picture(
+    mode: Res<MenuPause>,
+    paused: Res<Paused>,
+    state: Res<State<PlayState>>,
+    free_cam: Option<Res<crate::free_cam::FreeCam>>,
+    photo: Option<Res<crate::photo_mode::PhotoMode>>,
+    mut clock: ResMut<Time<Virtual>>,
+) {
+    let held_by_photo = photo.is_some_and(|p| p.holds_world());
+    let held_by_cam = free_cam.is_some_and(|f| f.holds_world()) || held_by_photo;
     // In a co-op session only a loading screen holds the picture (`crate::coop_tables`).
     let coop = crate::coop_tables::keeps_world() && *state.get() != PlayState::Loading;
     let stop = (picture_held(*mode, paused.0, *state.get()) && !coop) || held_by_cam;
@@ -415,6 +423,8 @@ fn freeze_picture(mode: Res<MenuPause>, paused: Res<Paused>, state: Res<State<Pl
             "the pause menu"
         } else if *state.get() == PlayState::Loading {
             "a loading screen"
+        } else if held_by_photo {
+            "photo mode"
         } else if held_by_cam {
             "the free camera"
         } else {
@@ -760,6 +770,9 @@ enum Entry {
     Load,
     /// Co-op (private fork): the host's lobby screen, `crate::lobby`.
     Lobby,
+    /// Back to the world in photo mode (`crate::photo_mode`), the way a controller opens it
+    /// [design, owner request 2026-11-09].
+    Photo,
     Settings,
     /// Only with [`ModsEntry`], before Quit [design].
     Mods,
@@ -768,7 +781,7 @@ enum Entry {
 
 /// The column's entries, with the Mods entry when `mods` ([`ModsEntry`]).
 fn entries(mods: bool) -> Vec<Entry> {
-    let mut v = vec![Entry::Continue, Entry::Save, Entry::Load, Entry::Lobby, Entry::Settings];
+    let mut v = vec![Entry::Continue, Entry::Save, Entry::Load, Entry::Lobby, Entry::Photo, Entry::Settings];
     if mods {
         v.push(Entry::Mods);
     }
@@ -783,6 +796,7 @@ impl Entry {
             Entry::Save => "Save",
             Entry::Load => "Load",
             Entry::Lobby => "Lobby",
+            Entry::Photo => "Photo Mode",
             Entry::Settings => "Settings",
             Entry::Mods => MODS_LABEL,
             Entry::Quit => "Quit",
@@ -1978,6 +1992,7 @@ fn open(
     wheel: Option<Res<crate::weapon_wheel::WeaponWheel>>,
     social: Option<Res<crate::coop_social::Social>>,
     (script, mut seen, mut request): (Option<Res<crate::script::ScriptState>>, Local<u64>, ResMut<PageRequest>),
+    photo: Option<Res<crate::photo_mode::PhotoMode>>,
 ) {
     let by_aid = fire(&mut aid.open, time.elapsed_secs());
     // ShowOff's ShowPauseMenu: each new ask opens the menu, on the page its mode names
@@ -2003,8 +2018,8 @@ fn open(
     }
     // Esc closes the weapon wheel (`crate::weapon_wheel`), not the game; the co-op
     // interaction wheel and trade panel too (`crate::coop_social`), also on the frame the
-    // wheel shut on that Esc (its input runs first).
-    if (wheel.is_some_and(|w| w.holds_input()) || social.is_some_and(|s| s.holds_input() || s.closed_now())) && !by_aid && by_script.is_none() {
+    // wheel shut on that Esc (its input runs first), and photo mode (`crate::photo_mode`).
+    if (wheel.is_some_and(|w| w.holds_input()) || social.is_some_and(|s| s.holds_input() || s.closed_now()) || photo.is_some_and(|p| p.on)) && !by_aid && by_script.is_none() {
         return;
     }
     if by_aid {
@@ -2636,7 +2651,13 @@ fn choose(
         Option<Res<crate::ui_colour::CustomColours>>,
         Option<ResMut<crate::lobby::LobbyScreen>>,
     ),
-    (meters, pointed, mut tab_store, mut report): (Query<(&PauseButton, &RelativeCursorPosition)>, Query<(&PointerState, &PauseButton)>, Option<ResMut<SettingsTabStore>>, Option<ResMut<ReportEntry>>),
+    (meters, pointed, mut tab_store, mut report, mut photo_ask): (
+        Query<(&PauseButton, &RelativeCursorPosition)>,
+        Query<(&PointerState, &PauseButton)>,
+        Option<ResMut<SettingsTabStore>>,
+        Option<ResMut<ReportEntry>>,
+        Option<ResMut<crate::photo_mode::PhotoRequest>>,
+    ),
 ) {
     use crate::bindings::{Bindings, Input, InputDevice};
     use crate::pad::PadInput;
@@ -3278,6 +3299,8 @@ fn choose(
                 take = Some(Entry::Mods);
             } else if act("lobby") {
                 take = Some(Entry::Lobby);
+            } else if act("photo") {
+                take = Some(Entry::Photo);
             } else if keys.just_pressed(KeyCode::Escape) {
                 take = Some(Entry::Continue);
             }
@@ -3288,8 +3311,9 @@ fn choose(
                 }
             }
             // Any other choice while a resume waits ends the wait; the graphics change stays
-            // latched, so the next Continue waits again [design: graphics_resume.rs].
-            if take.is_some_and(|e| e != Entry::Continue) && resume.pending() {
+            // latched, so the next Continue waits again [design: graphics_resume.rs]. Photo
+            // Mode resumes as Continue does, so it rides a wait already under way.
+            if take.is_some_and(|e| !matches!(e, Entry::Continue | Entry::Photo)) && resume.pending() {
                 commands.queue(cancel_resume);
             }
             match take {
@@ -3333,6 +3357,18 @@ fn choose(
                 Some(Entry::Continue) if !resume.pending() => {
                     commands.queue(request_resume);
                 }
+                // Back to the world the way Continue goes (`crate::graphics_resume`); photo
+                // mode opens once play has resumed.
+                Some(Entry::Photo) => match photo_ask.as_mut() {
+                    Some(p) => {
+                        info!("pause menu: photo mode");
+                        p.0 = true;
+                        if !resume.pending() {
+                            commands.queue(request_resume);
+                        }
+                    }
+                    None => warn!("pause menu: photo mode is not in this build"),
+                },
                 // Continue while a resume is already pending does nothing, as no choice does.
                 Some(Entry::Continue) | None => {}
             }
@@ -4984,8 +5020,8 @@ mod tests {
     #[test]
     fn the_mods_entry_stands_before_quit_only_when_a_mod_added_one() {
         let labels = |mods| entries(mods).iter().map(|e| e.label()).collect::<Vec<_>>();
-        assert_eq!(labels(false), ["Continue", "Save", "Load", "Lobby", "Settings", "Quit"]);
-        assert_eq!(labels(true), ["Continue", "Save", "Load", "Lobby", "Settings", "Mods", "Quit"]);
+        assert_eq!(labels(false), ["Continue", "Save", "Load", "Lobby", "Photo Mode", "Settings", "Quit"]);
+        assert_eq!(labels(true), ["Continue", "Save", "Load", "Lobby", "Photo Mode", "Settings", "Mods", "Quit"]);
         assert!(Page::Mods.opened_by("Mods"));
         assert!(!Page::Mods.opened_by("Settings"));
         assert_eq!(Page::Mods.settings_row(), None);

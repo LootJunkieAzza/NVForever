@@ -2499,7 +2499,11 @@ fn blend_from_pose(rig: &Rig, from: &[Affine3A], k: f32, transforms: &mut Query<
 /// on ship + 841b9f9d0, its first third-person view after the win asked 14 pipelines,
 /// ready after 183 ms; the body missing at 43.5 s and flat brown at 43.25 s and 44.0 s].
 /// Compiled once, they stay in the pipeline cache for the run.
-fn show_rigs(body: &mut Body, commands: &mut Commands, visibility: &mut Query<&mut Visibility>, seen: Seen, first: bool, warm: bool) {
+///
+/// `hidden` (photo mode's Hide Player): neither is seen, whatever the view (a loading
+/// screen's `warm` still draws the whole body behind it).
+fn show_rigs(body: &mut Body, commands: &mut Commands, visibility: &mut Query<&mut Visibility>, seen: Seen, first: bool, warm: bool, hidden: bool) {
+    let (seen, first) = if hidden { (Seen { body: false, head: false, arms: false, weapon: false }, false) } else { (seen, first) };
     let third = &mut body.third;
     let seen = if warm { Seen { body: true, head: true, arms: true, weapon: true } } else { seen };
     if third.warm != warm {
@@ -2681,7 +2685,7 @@ fn drive_body(
     mut transforms: Query<&mut Transform>,
     mut visibility: Query<&mut Visibility>,
     mut anim: ResMut<WeaponAnim>,
-    (furniture, mut idles, mut seat, (pip, glance, mut check), cams, first_fov, limbs, (death, knock), (zoom, combat, mut true_sights, scope, mut lens3d, lens_sway), (ahead, mut lunge, s1st, script, vats)): (
+    (furniture, mut idles, mut seat, (pip, glance, mut check), cams, first_fov, limbs, (death, knock), (zoom, combat, mut true_sights, scope, mut lens3d, lens_sway), (ahead, mut lunge, s1st, script, vats, photo)): (
         Res<crate::furniture::BodyOverride>,
         ResMut<PlayerIdles>,
         ResMut<nvf_play::furniture::PlayerSeat>,
@@ -2691,13 +2695,15 @@ fn drive_body(
         Option<Res<nvf_play::combat::PlayerLimbs>>,
         (Res<crate::death_cam::DeathCam>, Res<crate::player_knockdown::PlayerKnockdown>),
         (Option<Res<nvf_play::aim_zoom::AimZoom>>, Option<Res<nvf_play::combat::Combat>>, Option<ResMut<nvf_play::aim_zoom::TrueSights>>, Option<Res<nvf_play::aim_zoom::Scope>>, Option<ResMut<nvf_play::aim_zoom::Scope3d>>, Option<Res<nvf_play::aim_zoom::LensSway>>),
-        (Res<crate::weapon_lower::Ahead>, ResMut<nvf_play::player::Lunge>, Option<Res<nvf_play::console::ShowFirstPerson>>, Option<Res<nvf_play::script::ScriptState>>, Option<Res<nvf_play::vats_mode::VatsMode>>),
+        (Res<crate::weapon_lower::Ahead>, ResMut<nvf_play::player::Lunge>, Option<Res<nvf_play::console::ShowFirstPerson>>, Option<Res<nvf_play::script::ScriptState>>, Option<Res<nvf_play::vats_mode::VatsMode>>, Option<Res<nvf_play::photo_mode::PhotoMode>>),
     ),
     mut driven: ResMut<nvf_play::player::ViewDriven>,
 ) {
     let state = &mut *state;
     // A loading screen is up: the whole body is drawn behind it ([`show_rigs`]).
     let warm = loading.as_deref().is_some_and(|l| l.active());
+    // Photo mode's Hide Player: no rig is drawn (the shadow stays).
+    let hidden = photo.as_deref().is_some_and(|p| p.hides_player());
     player.body_view = None;
     // Set again below while the body's attack clip carries the player.
     let was_carrying = std::mem::replace(&mut lunge.carrying, false);
@@ -2730,7 +2736,7 @@ fn drive_body(
         anim.casing = None;
         state.muzzle_entity = None;
         state.casing_entity = None;
-        show_rigs(body, &mut commands, &mut visibility, Seen { body: true, head: death.third_person() || knock.holds_pose(), arms: true, weapon: true }, false, warm);
+        show_rigs(body, &mut commands, &mut visibility, Seen { body: true, head: death.third_person() || knock.holds_pose(), arms: true, weapon: true }, false, warm, hidden);
         return;
     }
     // Turbo slows the world's clock, not the player's clips (magic-archetypes.md §2).
@@ -2855,7 +2861,7 @@ fn drive_body(
         // A weapon still in the hand is not drawn: the furniture's clips (and the fillet
         // table's, which put the mod's knife in that hand) do not hold it.
         let seen = Seen { body: (third_view || own_body) && !state.out_of_view, head: third_view, arms: true, weapon: !m.hands.in_hand };
-        show_rigs(body, &mut commands, &mut visibility, seen, false, warm);
+        show_rigs(body, &mut commands, &mut visibility, seen, false, warm, hidden);
         return;
     }
     if body.third.furniture.take().is_some() {
@@ -3304,7 +3310,7 @@ fn drive_body(
     // weapon in the picture].
     let targeting = vats.is_some_and(|v| v.selected().is_some());
     let seen = Seen { body: seen.body && !state.out_of_view, ..seen };
-    show_rigs(body, &mut commands, &mut visibility, seen, (!third_view || s1st) && !scoped && !vigor && !targeting, warm);
+    show_rigs(body, &mut commands, &mut visibility, seen, (!third_view || s1st) && !scoped && !vigor && !targeting, warm, hidden);
 
     m.log_elapsed += dt;
     if m.log_elapsed >= 1.0 {

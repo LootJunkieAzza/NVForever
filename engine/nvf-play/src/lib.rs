@@ -70,6 +70,7 @@ pub mod swing_traps;
 pub mod flashlight;
 pub mod free_cam;
 pub mod script_camera;
+pub mod photo_mode;
 pub mod game_start;
 pub mod furniture;
 pub mod grab;
@@ -457,6 +458,7 @@ impl Plugin for PlayPlugin {
             .add_plugins(safe_zone::SafeZonePlugin)
             .add_plugins(free_cam::FreeCamPlugin)
             .add_plugins(script_camera::ScriptCameraPlugin)
+            .add_plugins(photo_mode::PhotoModePlugin)
             .add_plugins(aim_zoom::AimZoomPlugin)
             .add_plugins(save::SavePlugin)
             .add_plugins(main_menu::MainMenuPlugin)

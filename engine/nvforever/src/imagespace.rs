@@ -97,6 +97,9 @@ pub struct ImageSpaceGrade {
     pub motion: Vec4,
     /// Clip space of this frame to clip space of the last one (`update_motion`).
     pub reproject: Mat4,
+    /// Photo mode's look (`nvf_play::photo_mode::PhotoLook`): warmth (-1 cool to 1 warm),
+    /// vignette (0 to 1), film grain (0 to 1), letterbox aspect (width over height, 0 none).
+    pub photo: Vec4,
 }
 
 /// VATS mode's grade for the interface's colour `rgb` (the settings page's HUD colour):
@@ -135,6 +138,7 @@ impl Default for ImageSpaceGrade {
             dof_mode: Vec4::ZERO,
             motion: Vec4::ZERO,
             reproject: Mat4::IDENTITY,
+            photo: Vec4::ZERO,
         }
     }
 }
@@ -561,7 +565,7 @@ fn update_grade(
         Option<Res<crate::death_cam::DeathCam>>,
         Option<Res<nvf_play::vats_mode::VatsMode>>,
     ),
-    (sim, aim, wheel, duel, real, talk, creator): (Option<Res<nvf_play::sim::SimState>>, Option<Res<nvf_play::aim_zoom::AimZoom>>, Option<Res<nvf_play::weapon_wheel::WeaponWheel>>, Option<Res<nvf_play::coop_social::Social>>, Res<Time<Real>>, Option<Res<nvf_play::dialogue_zoom::DialogueZoom>>, Option<Res<nvf_play::creator::CreatorMenu>>),
+    (sim, aim, wheel, duel, real, talk, creator, photo): (Option<Res<nvf_play::sim::SimState>>, Option<Res<nvf_play::aim_zoom::AimZoom>>, Option<Res<nvf_play::weapon_wheel::WeaponWheel>>, Option<Res<nvf_play::coop_social::Social>>, Res<Time<Real>>, Option<Res<nvf_play::dialogue_zoom::DialogueZoom>>, Option<Res<nvf_play::creator::CreatorMenu>>, Option<Res<nvf_play::photo_mode::PhotoMode>>),
     mut mods: ResMut<ScreenModifiers>,
     mut grades: Query<(&mut ImageSpaceGrade, Has<LensGrade>)>,
     sounds: Option<ResMut<Messages<nvf_play::sfx::PlaySound>>>,
@@ -623,6 +627,10 @@ fn update_grade(
             (dof, focus, source) = (d, f, name.to_string());
         }
     }
+    // Photo mode's own depth of field, while its Blur is up, wins over every other.
+    if let Some(p) = photo.as_deref().and_then(|p| p.depth_of_field()) {
+        (dof, focus, source) = (Dof { strength: p.strength, distance: p.sharp, range: p.full, use_target: true, flags: 0 }, p.focus, "photo mode".to_string());
+    }
     let text = dof_text(&dof, focus, &source);
     if text != mods.dof_shown {
         info!("depth of field: {text}");
@@ -645,15 +653,19 @@ fn update_grade(
         modifier_sounds(&mut mods, w, &forms, sounds);
     }
     let r = &effect.radial;
+    // Photo mode's sliders on top of the grade (`nvf_play::photo_mode`), and no motion blur
+    // while its camera moves for the shot [design].
+    let (photo_b, photo_s, photo_c) = photo.as_deref().and_then(|p| p.look()).unwrap_or((1.0, 1.0, 1.0));
+    let motion = if photo.as_deref().is_some_and(|p| p.on) { 0.0 } else { motion };
     let g = ImageSpaceGrade {
         tint: Vec4::new(c.tint[0], c.tint[1], c.tint[2], c.tint_amount),
         fade: Vec4::from_array(effect.fade),
         radial: Vec4::new(r.strength, r.ramp_up, r.start, r.ramp_down),
         radial2: Vec4::new(r.down_start, r.center[0], r.center[1], effect.double_vision),
-        saturation: c.saturation,
-        contrast: c.contrast,
+        saturation: c.saturation * photo_s,
+        contrast: c.contrast * photo_c,
         contrast_avg_lum: c.contrast_avg_lum,
-        brightness: c.brightness,
+        brightness: c.brightness * photo_b,
         // The world behind the wait menu is blurred (docs/spec-notes/wait-menu.md §2).
         // The dying player's view blurs (`death_cam.rs`), and the world behind the weapon
         // wheel (docs/design/weapon-wheel.md §5).
@@ -672,6 +684,7 @@ fn update_grade(
         dof_mode: Vec4::new(if dof.use_target { 1.0 } else { 0.0 }, f32::from(dof.flags), near.unwrap_or(1.0), 0.0),
         motion: Vec4::new(motion, near.map_or(0.0, |n| n / MOTION_SHARP), MOTION_MAX_REACH, 0.0),
         reproject: Mat4::IDENTITY,
+        photo: Vec4::from_array(photo.as_deref().map_or([0.0; 4], |p| p.finish())),
     };
     // A 3D scope's lens: a neutral grade with only the lens's modifiers on it.
     let lens = match &world {

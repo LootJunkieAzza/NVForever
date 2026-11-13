@@ -447,7 +447,7 @@ fn grab_cursor(
     look: Option<Res<crate::dialogue::FreeLook>>,
     over_lock: Option<Res<crate::lockpick::PointerOverLock>>,
     free_cam: Option<Res<crate::free_cam::FreeCam>>,
-    (intro, view, creator, vats): (Option<Res<crate::intro::Intro>>, Option<Res<ViewDriven>>, Option<Res<crate::creator::CreatorMenu>>, Option<Res<crate::vats_mode::VatsMode>>),
+    (intro, view, creator, vats, photo): (Option<Res<crate::intro::Intro>>, Option<Res<ViewDriven>>, Option<Res<crate::creator::CreatorMenu>>, Option<Res<crate::vats_mode::VatsMode>>, Option<Res<crate::photo_mode::PhotoMode>>),
     mut windows: Query<(&Window, &mut CursorOptions), With<PrimaryWindow>>,
     mut wanted_before: Local<Option<(bool, bool)>>,
     live: Option<Res<crate::menu::LiveMenu>>,
@@ -465,7 +465,8 @@ fn grab_cursor(
     let creating = creator.is_some_and(|c| c.is_open());
     // The Pip-Boy open live in co-op (`crate::menu::LiveMenu`) shows the pointer as a menu does.
     let live_menu = live.is_some_and(|l| l.open);
-    let playing = !creating && !live_menu && (matches!(*state.get(), PlayState::Playing | PlayState::Loading) || look.is_some_and(|l| l.0) || free_cam.is_some_and(|f| f.active));
+    // Photo mode turns its camera with the mouse, also while it holds the world.
+    let playing = !creating && !live_menu && (matches!(*state.get(), PlayState::Playing | PlayState::Loading) || look.is_some_and(|l| l.0) || free_cam.is_some_and(|f| f.active) || photo.is_some_and(|p| p.active));
     let film = intro.as_ref().is_some_and(|i| i.is_playing());
     let scene = view.is_some_and(|v| v.0) && *state.get() != PlayState::Menu && !boxed && !creating;
     // The classic VATS style's target screen has the pointer: its parts and arrows are
@@ -749,17 +750,18 @@ fn mouse_look(
     free_cam: Option<Res<crate::free_cam::FreeCam>>,
     kill_cam: Option<Res<crate::kill_cam::KillCam>>,
     assist: Option<Res<crate::aim_assist::AimAssistState>>,
-    (talk, switches, hold): (Option<Res<crate::dialogue_zoom::DialogueZoom>>, Option<Res<crate::script_switches::ScriptSwitches>>, Option<Res<crate::bindings::ControlHold>>),
+    (talk, switches, hold, photo): (Option<Res<crate::dialogue_zoom::DialogueZoom>>, Option<Res<crate::script_switches::ScriptSwitches>>, Option<Res<crate::bindings::ControlHold>>, Option<Res<crate::photo_mode::PhotoMode>>),
 ) {
     // The classic VATS style turns the view itself (`crate::vats_mode`, vats-classic.md §5).
     if vats.is_some_and(|v| v.holds_view()) {
         return;
     }
-    // The console's free camera takes the mouse (`crate::free_cam`), and so does the
-    // weapon wheel while it is open (`crate::weapon_wheel`); a playing kill camera holds
-    // it (`crate::kill_cam`), and so does the Pip-Boy open live in co-op (`crate::menu::LiveMenu`).
+    // The console's free camera takes the mouse (`crate::free_cam`), and so do photo mode
+    // (`crate::photo_mode`) and the weapon wheel while it is open (`crate::weapon_wheel`);
+    // a playing kill camera holds it (`crate::kill_cam`), and so does the Pip-Boy open
+    // live in co-op (`crate::menu::LiveMenu`).
     // A script's HUD cursor has the mouse too (ToggleHUDCursor, `crate::script_switches`).
-    if driven.is_some_and(|d| d.0) || free_cam.is_some_and(|f| f.on) || control.wheel || kill_cam.is_some_and(|k| k.active()) || hold.is_some_and(|h| h.all) || switches.as_deref().is_some_and(|s| s.hud_cursor) {
+    if driven.is_some_and(|d| d.0) || free_cam.is_some_and(|f| f.on) || photo.is_some_and(|p| p.on) || control.wheel || kill_cam.is_some_and(|k| k.active()) || hold.is_some_and(|h| h.all) || switches.as_deref().is_some_and(|s| s.hud_cursor) {
         return;
     }
     let grabbed = cursor.single().is_ok_and(|c| c.grab_mode != CursorGrabMode::None);
