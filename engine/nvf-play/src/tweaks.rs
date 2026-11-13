@@ -172,6 +172,9 @@ pub struct TweakSettings {
     pub no_sight_zoom: bool,
     /// `bHideMiscQuestItems`: quest items are left out of the Pip-Boy's Misc list.
     pub hide_misc_quest: bool,
+    /// `bClickingActiveTabTogglesSorting`: a click on the Pip-Boy ITEMS tab already open
+    /// steps the list's order (name, value, weight).
+    pub tab_click_sorts: bool,
     /// `bHotkeyHolstersWeaponIfEquipped`: the hotkey of the weapon in hand draws or
     /// holsters it.
     pub hotkey_toggles_in_hand: bool,
@@ -695,6 +698,7 @@ impl Default for TweakSettings {
             hold_to_wait: false,
             no_sight_zoom: false,
             hide_misc_quest: false,
+            tab_click_sorts: false,
             hotkey_toggles_in_hand: false,
             no_interior_fog: false,
             compass_pips_in_danger_only: false,
@@ -1400,6 +1404,7 @@ impl Plugin for TweaksPlugin {
         switch!(app, "hold-to-wait", "Hold to Wait", "The Wait key opens the menu when held half a second, not when tapped. (Stewie's Tweaks bHoldWaitKeyToShowMenu)", hold_to_wait);
         switch!(app, "no-sight-zoom", "No Iron Sight Zoom", "Aiming down iron sights does not zoom the view (scopes still do). (Stewie's Tweaks bDisableWeaponFOV)", no_sight_zoom);
         switch!(app, "hide-misc-quest", "Hide Quest Items in Misc", "The Pip-Boy's Misc list leaves quest items out. (Stewie's Tweaks bHideMiscQuestItems)", hide_misc_quest);
+        switch!(app, "tab-click-sorts", "Clicking the Tab Sorts", "In the Pip-Boy's item pages, clicking the tab already open sorts the list by name, then value, then weight, the most first. (Stewie's Tweaks bClickingActiveTabTogglesSorting)", tab_click_sorts);
         // ---- batch 16 ----
         switch!(app, "hotkey-toggles-in-hand", "Hotkey Draws and Holsters", "Pressing the hotkey of the weapon in hand draws or holsters it. (Stewie's Tweaks bHotkeyHolstersWeaponIfEquipped)", hotkey_toggles_in_hand);
         switch!(app, "no-interior-fog", "No Interior Fog", "Interiors have no fog (from the next room entered). (Stewie's Tweaks bDisableInteriorFog)", no_interior_fog);

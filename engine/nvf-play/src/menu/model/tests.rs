@@ -1148,3 +1148,26 @@ fn take_all_asks_first_under_the_tweak() {
     assert!(a.changed);
     assert!(m.list(Side::Container).rows.is_empty());
 }
+
+/// The Clicking the Tab Sorts tweak's orders: value, then weight, the most first, name
+/// order kept between equals; name brings the usual order back.
+#[test]
+fn the_player_list_sorts_by_value_or_weight() {
+    let f = fixture();
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    let m = MenuModel::open_inventory(&mut w).unwrap();
+    let row = m.list(Side::Player).rows[0].clone();
+    let mk = |name: &str, value, weight| Row { name: name.into(), value: Some(value), weight: Some(weight), ..row.clone() };
+    let base = vec![mk("a", 5, 1.0), mk("b", 20, 0.5), mk("c", 5, 9.0)];
+    let names = |rows: &[Row]| rows.iter().map(|r| r.name.clone()).collect::<Vec<_>>();
+    let mut rows = base.clone();
+    SortBy::Value.apply(&mut rows);
+    assert_eq!(names(&rows), ["b", "a", "c"]);
+    let mut rows = base.clone();
+    SortBy::Weight.apply(&mut rows);
+    assert_eq!(names(&rows), ["c", "a", "b"]);
+    let mut rows = base.clone();
+    SortBy::Name.apply(&mut rows);
+    assert_eq!(names(&rows), ["a", "b", "c"]);
+    assert_eq!(SortBy::Name.next().next().next(), SortBy::Name);
+}

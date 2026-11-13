@@ -269,6 +269,46 @@ fn units_pick(&(_, at, mods): &Units) -> Pick {
     Pick::row(at.map(f32::from_bits), mods)
 }
 
+/// The order of the player's inventory list under the Pip-Boy's Clicking the Tab Sorts
+/// tweak: by name (as always), by value or by weight, the most first [design:
+/// docs/design/tweaks.md; the readme names no orders].
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum SortBy {
+    #[default]
+    Name,
+    Value,
+    Weight,
+}
+
+impl SortBy {
+    /// The next order a click on the open tab gives.
+    pub fn next(self) -> SortBy {
+        match self {
+            SortBy::Name => SortBy::Value,
+            SortBy::Value => SortBy::Weight,
+            SortBy::Weight => SortBy::Name,
+        }
+    }
+
+    /// The corner line that says the order [design: our own words].
+    pub fn line(self) -> &'static str {
+        match self {
+            SortBy::Name => "Sorted by name",
+            SortBy::Value => "Sorted by value",
+            SortBy::Weight => "Sorted by weight",
+        }
+    }
+
+    /// Sort rows already in name order: stable, so equals keep it.
+    pub fn apply(self, rows: &mut [Row]) {
+        match self {
+            SortBy::Name => {}
+            SortBy::Value => rows.sort_by_key(|r| std::cmp::Reverse(r.value.unwrap_or(0))),
+            SortBy::Weight => rows.sort_by(|a, b| b.weight.unwrap_or(0.0).total_cmp(&a.weight.unwrap_or(0.0))),
+        }
+    }
+}
+
 /// The order rows are listed in: put-up rows first, then by name in byte order, then the
 /// best condition first.
 fn sort_rows(rows: &mut [Row]) {
@@ -524,6 +564,8 @@ pub enum Command {
     Category(Side, i32),
     /// Show this category in a column (the Pip-Boy's ITEMS tabs).
     SetCategory(Side, Category),
+    /// The order of the player's inventory list (the Clicking the Tab Sorts tweak).
+    SetSort(SortBy),
     /// Container menu: move one unit of the selected stack to the other column (take
     /// from the container, store from the player). Barter: put one unit up, or take one
     /// back. Inventory: equip or unequip it (aid items are used).
@@ -732,6 +774,9 @@ pub struct MenuModel {
     pub vendor_lists_both: bool,
     /// The Pip-Boy's Misc list leaves quest items out (the tweak, set by `crate::tweaks`).
     pub hide_misc_quest: bool,
+    /// The order of the player's inventory list ([`SortBy`]; the Pip-Boy's Clicking the
+    /// Tab Sorts tweak).
+    pub sort: SortBy,
     /// The player's menu tweaks, set by `crate::tweaks`: Take All leaves the menu open;
     /// equipped items are left out of the player's side in barter and containers;
     /// category titles in title case.
@@ -940,6 +985,7 @@ impl MenuModel {
             no_selling: false,
             vendor_lists_both: false,
             hide_misc_quest: false,
+            sort: SortBy::Name,
             take_all_stays: false,
             take_all_confirm: None,
             confirming_take_all: false,
@@ -1036,6 +1082,11 @@ impl MenuModel {
                 // within each part [design: docs/design/tweaks.md].
                 if self.mode == Mode::Inventory && !self.usable_ammo.is_empty() {
                     l.rows.sort_by_key(|r| !self.usable_ammo.contains(&r.item));
+                }
+                // The player's tweak: the list by value or weight, the most first, name
+                // order kept between equals [design: docs/design/tweaks.md].
+                if self.mode == Mode::Inventory {
+                    self.sort.apply(&mut l.rows);
                 }
                 if self.mode == Mode::Inventory && self.category[side as usize] == Category::Misc {
                     // The player's tweak leaves quest items out of Misc [design: docs/design/tweaks.md].
@@ -1298,6 +1349,17 @@ impl MenuModel {
                     self.selected[o] = 0;
                     self.scroll[o] = 0;
                 }
+                if let Err(e) = self.refresh(world) {
+                    self.status = Some(format!("Cannot list the inventories: {e}"));
+                }
+            }
+            Command::SetSort(sort) => {
+                if self.sort == sort {
+                    return out;
+                }
+                self.sort = sort;
+                self.selected[Side::Player as usize] = 0;
+                self.scroll[Side::Player as usize] = 0;
                 if let Err(e) = self.refresh(world) {
                     self.status = Some(format!("Cannot list the inventories: {e}"));
                 }

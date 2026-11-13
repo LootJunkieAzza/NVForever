@@ -294,6 +294,8 @@ pub struct PipBoy {
     pub open_at: Option<(Page, usize)>,
     /// [design: nvforever/player_body.rs] True until the borrowed pose is restored.
     pub pose_hidden: bool,
+    /// The order of the item pages' list (the Clicking the Tab Sorts tweak).
+    pub item_sort: crate::menu::model::SortBy,
 }
 
 /// One hidden draw interval [design: nvforever/pipboy_arm.rs].
@@ -886,8 +888,18 @@ fn keys(keys: Res<ButtonInput<KeyCode>>, prompt: Res<crate::menu::PromptKeys>, a
     }
 }
 
-fn apply_input(mut input: MessageReader<PipBoyInput>, mut pip: ResMut<PipBoy>) {
+fn apply_input(mut input: MessageReader<PipBoyInput>, mut pip: ResMut<PipBoy>, tweaks: Option<Res<crate::tweaks::TweakSettings>>, mut hud: Option<ResMut<crate::activate::HudMessage>>) {
     for &i in input.read() {
+        // The player's tweak: a click on the ITEMS tab already open changes the list's
+        // order [design: docs/design/tweaks.md].
+        if i == PipBoyInput::Tab(pip.tab()) && pip.page == Page::Items && tweaks.as_ref().is_some_and(|t| t.tab_click_sorts) {
+            pip.item_sort = pip.item_sort.next();
+            info!("pipboy: items {} (tweak)", pip.item_sort.line().to_lowercase());
+            if let Some(h) = hud.as_mut() {
+                h.show(pip.item_sort.line().to_string());
+            }
+            continue;
+        }
         let before = (pip.page, pip.tab());
         pip.apply(i);
         if (pip.page, pip.tab()) != before {

@@ -434,6 +434,10 @@ pub fn keys(
     if active.0.as_ref().is_some_and(|m| m.category[Side::Player as usize] != want) {
         send(Command::SetCategory(Side::Player, want));
     }
+    // The order the player's tweak chose (`super::PipBoy::item_sort`).
+    if active.0.as_ref().is_some_and(|m| m.sort != pip.item_sort) {
+        send(Command::SetSort(pip.item_sort));
+    }
     for (k, c) in [([ArrowUp, KeyW], Command::Up), ([ArrowDown, KeyS], Command::Down), ([PageUp, PageUp], Command::PageUp), ([PageDown, PageDown], Command::PageDown)] {
         if keys.any_just_pressed(k) {
             send(c);
