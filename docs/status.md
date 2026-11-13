@@ -171,3 +171,14 @@ contract and limits: [SLSD variable types](spec-notes/ext-bytecode.md#6-variable
 
 Implemented the focused behavior correction and authored synthetic regression coverage;
 contract and limits: [Cached INI file quote handling](spec-notes/cached-ini-quotes.md). This entry does not establish full mod compatibility.
+
+### UI external-write serial prerequisite
+
+[design] Per-trait opaque serials distinguish accepted external setters and XML
+replacement from value changes and expression evaluation, including equal writes.
+[observed: local validation checkout 54830c0, with exact f30 fnv-ui module/support
+continuity] Original 82 library tests passed; candidate 90 passed (unchanged 82
+plus eight authored controls); focused library/unit-test strict lint passed.
+Broader release/live checks remain unrun. This supplies no sink transaction,
+restoration, local-map provider/recipient/projection or native parity.
+Contract: [UI trait external-write serials](spec-notes/ui-trait-write-serial.md).
