@@ -504,12 +504,14 @@ pub struct FormOver(pub bool);
 /// menu (`PauseRoot`'s 110 and its boxes' 111-113) and the tile menus over it (Mods, 115),
 /// under the loading screen (200).
 pub const FORM_Z: i32 = 180;
+// Over the pause menu (110-113) and its Mods tiles (115), under the loading screen (200).
+const _: () = assert!(FORM_Z > 115 && FORM_Z < 200);
 
 /// How much of the light under a form its full-screen shade lets through, as the alpha of
 /// black. The interface blends in linear light, so an alpha keeps `1 - alpha` of the light and
 /// that reads far brighter than it sounds: 0.7 left the menu under it at 58 % of its
 /// brightness on screen [observed: #2250's pictures, the pause menu's amber (255, 182, 66)
-/// read (149, 105, 35) beside the dialog]. 0.93 leaves about 32 % on screen [design].
+/// read (149, 105, 35) beside the dialog]. 0.93 leaves about 29 % on screen [design].
 pub const FORM_SHADE: f32 = 0.93;
 
 /// The full-screen shade under a form ([`FORM_SHADE`]).
@@ -4305,13 +4307,12 @@ fn finish_resume(world: &mut World) {
 mod tests {
     #[test]
     fn a_form_shades_the_menu_under_it_and_its_panel_hides_it() {
-        use super::{form_panel, form_shade, shown_under, FORM_SHADE, FORM_Z};
+        use super::{form_panel, form_shade, shown_under, FORM_SHADE};
         // The pictures' numbers: 0.7 showed the menu's amber at 149 of 255, 0.95 at 14 % more.
         assert!((shown_under(0.7) * 255.0 - 149.0).abs() < 1.0, "{}", shown_under(0.7) * 255.0);
         assert!(shown_under(FORM_SHADE) <= 0.35, "the menu under a form reads at a third at most");
         assert_eq!(form_shade().0.alpha(), FORM_SHADE);
         assert_eq!(form_panel().0.alpha(), 1.0, "nothing shows through the panel");
-        assert!(FORM_Z > 115 && FORM_Z < 200, "over the pause menu and its Mods tiles, under the loading screen");
     }
 
     use super::*;
