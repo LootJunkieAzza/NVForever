@@ -109,7 +109,11 @@
 //!   with DLSS alone (today's path). Once the device exists, their support and versions are
 //!   logged and both are unloaded (`slSetFeatureLoaded`) before the window's swapchain is made,
 //!   so presents, latency reduction and DLSS run as without the spike (`win.rs`
-//!   `frame_generation_after_device` says where that is in Bevy's start-up).
+//!   `frame_generation_after_device` says where that is in Bevy's start-up). With
+//!   `NVF_DLSSG_SPIKE=loaded` DLSS-G stays loaded with its mode off and only Reflex is unloaded:
+//!   the window presents through Streamline's swapchain, `frame_gen.rs` sets the options once
+//!   and logs DLSS-G's state once a second, and NVIDIA low latency stays off
+//!   ([`frame_generation_loaded`]).
 //!
 //! Log lines start `DLSS:` (`DLSS-G spike:` for the spike's own); lines before the log is up
 //! wait in a buffer, written each frame (`First`) and at shutdown.
@@ -135,6 +139,8 @@ use crate::upscaler::{DlssModel, DlssState, UpscaleQuality, Unavailable, Upscale
 mod evaluate;
 #[cfg(windows)]
 mod ffi;
+#[cfg(windows)]
+mod frame_gen;
 #[cfg(any(windows, test))]
 mod preflight;
 #[cfg(windows)]
@@ -175,6 +181,9 @@ enum FgSpike {
     /// `1`: DLSS-G and Reflex requested in `slInit`, their support, versions and requirements
     /// logged, both unloaded before the window's swapchain exists (stage 1).
     Report,
+    /// `loaded`: as `Report`, but DLSS-G stays loaded with its mode off, so the window presents
+    /// through Streamline's swapchain; Reflex is unloaded (stage 1b, `frame_gen.rs`).
+    KeepLoaded,
 }
 
 /// `NVF_DLSSG_SPIKE`'s value read: `Ok(None)` unset or empty, `Err` with the line to log for a
@@ -184,9 +193,23 @@ fn spike_from(value: Option<&std::ffi::OsStr>) -> Result<Option<FgSpike>, String
     let Some(value) = value.map(|v| v.to_string_lossy().trim().to_string()).filter(|v| !v.is_empty()) else { return Ok(None) };
     match value.as_str() {
         "1" => Ok(Some(FgSpike::Report)),
-        "loaded" | "on" => Err(format!("{SPIKE_ENV}={value} is a later stage of the spike, not in this build; DLSS only as without the spike")),
-        other => Err(format!("{SPIKE_ENV}={other} is not 1; DLSS only as without the spike")),
+        "loaded" => Ok(Some(FgSpike::KeepLoaded)),
+        "on" => Err(format!("{SPIKE_ENV}=on is a later stage of the spike, not in this build; DLSS only as without the spike")),
+        other => Err(format!("{SPIKE_ENV}={other} is none of 1 or loaded; DLSS only as without the spike")),
     }
+}
+
+/// DLSS Frame Generation stays loaded this session (the spike's `loaded`, #2317): set at the
+/// start once DLSS-G was requested in `slInit` and the device check passed with it, before any
+/// plugin's `finish`, and cleared again if it is unloaded after all (`win.rs`) or at shutdown.
+static FG_KEPT_LOADED: AtomicBool = AtomicBool::new(false);
+
+/// Whether Streamline's DLSS Frame Generation is (or, before `Plugin::cleanup`, will stay)
+/// loaded, so the window's swapchain is Streamline's proxy: NVIDIA low latency's direct calls
+/// must not run then (`nv_low_latency::load`, which runs in `AntiLagPlugin::finish`, before this
+/// loader's `cleanup`). Always false off Windows and without `NVF_DLSSG_SPIKE=loaded`.
+pub(crate) fn frame_generation_loaded() -> bool {
+    FG_KEPT_LOADED.load(Ordering::Relaxed)
 }
 
 /// The files of [`FG_FILES`] that `folder` lacks, in that order.
@@ -591,6 +614,10 @@ impl Plugin for DlssPassPlugin {
             .init_resource::<DlssMainState>()
             .add_systems(ExtractSchedule, extract_main_state)
             .add_systems(Render, configure.in_set(RenderSystems::PrepareResources).after(prep::prepare))
+            // The Frame Generation spike's options and state (#2317): on the render thread, which
+            // presents, after Bevy's `render_system` has (where FSR's frame generation hands its
+            // frame over). It does nothing unless DLSS-G was kept loaded.
+            .add_systems(Render, frame_generation_state.in_set(RenderSystems::Render).after(bevy::render::renderer::render_system))
             .add_systems(
                 bevy::core_pipeline::Core3d,
                 // Where `fsr_pass` is for FSR: after the occlusion before the upscaler (ssao.rs
@@ -653,6 +680,15 @@ pub(crate) fn configure(views: Query<(&ExtractedView, &PreparedUpscale)>, sizes:
     #[cfg(not(windows))]
     let _ = (optimal, main.model);
 }
+
+/// The spike's DLSS-G options and state (`frame_gen.rs`); off Windows nothing.
+#[cfg(windows)]
+fn frame_generation_state() {
+    frame_gen::state_log();
+}
+
+#[cfg(not(windows))]
+fn frame_generation_state() {}
 
 /// DLSS's resources freed when options are set (`win::release`); off Windows nothing is held.
 #[cfg(windows)]
@@ -837,6 +873,7 @@ mod tests {
         // The tests never add DlssInitPlugin: no device came through the interposer.
         assert!(!streamline_loaded());
         assert!(!ready());
+        assert!(!frame_generation_loaded(), "no DLSS-G kept loaded: NVIDIA low latency may load");
     }
 
     #[test]
@@ -945,8 +982,9 @@ mod tests {
         assert_eq!(spike_from(Some(OsStr::new(""))), Ok(None), "empty counts as unset");
         assert_eq!(spike_from(Some(OsStr::new("1"))), Ok(Some(FgSpike::Report)));
         assert_eq!(spike_from(Some(OsStr::new(" 1 "))), Ok(Some(FgSpike::Report)));
+        assert_eq!(spike_from(Some(OsStr::new("loaded"))), Ok(Some(FgSpike::KeepLoaded)));
         assert!(spike_from(Some(OsStr::new("on"))).unwrap_err().contains("NVF_DLSSG_SPIKE=on is a later stage"));
-        assert!(spike_from(Some(OsStr::new("yes"))).unwrap_err().contains("NVF_DLSSG_SPIKE=yes is not 1"));
+        assert!(spike_from(Some(OsStr::new("yes"))).unwrap_err().contains("NVF_DLSSG_SPIKE=yes is none of 1 or loaded"));
     }
 
     #[test]

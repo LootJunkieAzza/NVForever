@@ -347,6 +347,13 @@ pub(crate) fn add_systems(app: &mut App) {
 /// The driver for the render device, when the device was made with the extension; with why
 /// not (for the start's log line) otherwise. `AntiLagPlugin::finish` calls this.
 pub(crate) fn load(app: &App) -> Result<NvLowLatency, &'static str> {
+    // The DLSS Frame Generation spike (#2317, `NVF_DLSSG_SPIKE=loaded`): with Streamline's DLSS-G
+    // loaded the window's swapchain is Streamline's proxy, which these direct calls must not
+    // reach [design: fork-notes `fg-spike-design.md`, Stage 1b; whether the handle wgpu holds is
+    // the driver's is unknown, `fg-facts.md` §2.2].
+    if crate::dlss::frame_generation_loaded() {
+        return Err("Streamline's DLSS Frame Generation is loaded");
+    }
     let world = app.get_sub_app(RenderApp).ok_or("there is no renderer")?.world();
     let enabled = world.get_resource::<AdditionalVulkanFeatures>().is_some_and(|f| f.has::<NvLowLatencyEnabled>());
     if !enabled {

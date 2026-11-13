@@ -733,6 +733,188 @@ impl Default for DlssOptimalSettings {
     }
 }
 
+// DLSS Frame Generation (`include/sl_dlss_g.h` at the tag; the spike's copy is
+// `fork-notes/dlss-streamline/sources/fg/sl_dlss_g.h`), and the error callback's types from
+// `sl_core_types.h`.
+
+/// `sl::DLSSGMode::eOff`, an `enum class : uint32_t` [documented: `sl_dlss_g.h:34-41`].
+pub const DLSSG_MODE_OFF: u32 = 0;
+
+/// `sl::DLSSGFlags::eRetainResourcesWhenOff`, a `uint32_t` bit [documented: `sl_dlss_g.h:43-53`].
+pub const DLSSG_FLAG_RETAIN_RESOURCES_WHEN_OFF: u32 = 1 << 3;
+
+/// `sl::DLSSGStatus` bits (`enum class : uint32_t`, `eOk = 0`) with their header names
+/// [documented: `sl_dlss_g.h:125-143`].
+pub const DLSSG_STATUS_NAMES: [(u32, &str); 6] = [
+    (1 << 0, "eFailResolutionTooLow"),
+    (1 << 1, "eFailReflexNotDetectedAtRuntime"),
+    (1 << 2, "eFailHDRFormatNotSupported"),
+    (1 << 3, "eFailCommonConstantsInvalid"),
+    (1 << 4, "eFailGetCurrentBackBufferIndexNotCalled"),
+    (1 << 5, "eReserved5"),
+];
+
+/// A `DLSSGStatus` for the log: `eOk`, or the set bits' names joined, an unknown bit as hex.
+pub fn dlssg_status_name(status: u32) -> String {
+    if status == 0 {
+        return "eOk".to_string();
+    }
+    let mut names: Vec<String> = DLSSG_STATUS_NAMES.iter().filter(|(bit, _)| status & bit != 0).map(|(_, name)| (*name).to_string()).collect();
+    let known = DLSSG_STATUS_NAMES.iter().fold(0, |all, (bit, _)| all | bit);
+    if status & !known != 0 {
+        names.push(format!("unknown bits {:#x}", status & !known));
+    }
+    names.join(" | ")
+}
+
+/// An `sl::Boolean` for the log [documented: `sl_consts.h:172-177`].
+pub fn boolean_name(value: u8) -> String {
+    match value {
+        BOOL_FALSE => "eFalse".to_string(),
+        BOOL_TRUE => "eTrue".to_string(),
+        BOOL_INVALID => "eInvalid".to_string(),
+        other => format!("unknown Boolean {other}"),
+    }
+}
+
+/// `sl::APIError`: a union of `HRESULT` (`long`, 32 bits on Windows) and `SL_VKResult`
+/// (`VkResult`, or `int` without Vulkan's headers) [documented: `sl_core_types.h:42-46,
+/// 508-515`]. On Vulkan the `VkResult` is the member to read.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub union ApiError {
+    pub hres: i32,
+    pub vk_res: i32,
+}
+
+/// `PFunOnAPIErrorCallback`: `void(const APIError& lastError)`, called "immediately upon return
+/// from the API call but ONLY if return code != 0" on DLSS-G's presenting thread, which it must
+/// not stall [documented: `sl_core_types.h:516-517`; `ProgrammingGuideDLSS_G.md` §6.7].
+pub type OnApiErrorCallback = unsafe extern "C" fn(*const ApiError);
+
+/// `sl::DLSSGOptions`, version 5, GUID {FAC5F1CB-2DFD-4F36-A1E6-3A9E865256C5} [documented:
+/// `sl_dlss_g.h:72-122`]. The formats are native format values (`VkFormat`), `Boolean` is a
+/// `char`.
+#[repr(C)]
+#[derive(Debug)]
+pub struct DlssgOptions {
+    pub base: BaseStructure,
+    pub mode: u32,
+    pub num_frames_to_generate: u32,
+    pub flags: u32,
+    pub dynamic_res_width: u32,
+    pub dynamic_res_height: u32,
+    pub num_back_buffers: u32,
+    pub mvec_depth_width: u32,
+    pub mvec_depth_height: u32,
+    pub color_width: u32,
+    pub color_height: u32,
+    pub color_buffer_format: u32,
+    pub mvec_buffer_format: u32,
+    pub depth_buffer_format: u32,
+    pub hud_less_buffer_format: u32,
+    pub ui_buffer_format: u32,
+    /// `PFunOnAPIErrorCallback*`.
+    pub on_error_callback: Option<OnApiErrorCallback>,
+    /// Version 2.
+    pub b_reserved15: u8,
+    /// Version 3: `DLSSGQueueParallelismMode` (`uint32_t`, `:55-66`).
+    pub queue_parallelism_mode: u32,
+    /// Version 4.
+    pub enable_user_interface_recomposition: u8,
+    /// Version 5.
+    pub dynamic_target_frame_rate: f32,
+}
+
+impl DlssgOptions {
+    const GUID: StructType = StructType { data1: 0xfac5_f1cb, data2: 0x2dfd, data3: 0x4f36, data4: [0xa1, 0xe6, 0x3a, 0x9e, 0x86, 0x52, 0x56, 0xc5] };
+
+    /// The member initialisers (`sl_dlss_g.h:73-120`): mode off, one frame to generate, every
+    /// other number zero, no callback, `bReserved15` `eInvalid`, the default queue mode
+    /// (`eBlockPresentingClientQueue`), recomposition `eFalse`, target rate 0.
+    pub fn new() -> Self {
+        Self {
+            base: BaseStructure::new(Self::GUID, 5),
+            mode: DLSSG_MODE_OFF,
+            num_frames_to_generate: 1,
+            flags: 0,
+            dynamic_res_width: 0,
+            dynamic_res_height: 0,
+            num_back_buffers: 0,
+            mvec_depth_width: 0,
+            mvec_depth_height: 0,
+            color_width: 0,
+            color_height: 0,
+            color_buffer_format: 0,
+            mvec_buffer_format: 0,
+            depth_buffer_format: 0,
+            hud_less_buffer_format: 0,
+            ui_buffer_format: 0,
+            on_error_callback: None,
+            b_reserved15: BOOL_INVALID,
+            queue_parallelism_mode: 0,
+            enable_user_interface_recomposition: BOOL_FALSE,
+            dynamic_target_frame_rate: 0.0,
+        }
+    }
+}
+
+impl Default for DlssgOptions {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// `sl::DLSSGState`, version 4, GUID {CC8AC8E1-A179-44F5-97FA-E74112F9BC61} [documented:
+/// `sl_dlss_g.h:149-183`].
+#[repr(C)]
+#[derive(Debug)]
+pub struct DlssgState {
+    pub base: BaseStructure,
+    pub estimated_vram_usage_in_bytes: u64,
+    /// `DLSSGStatus` bits ([`dlssg_status_name`]).
+    pub status: u32,
+    pub min_width_or_height: u32,
+    /// "Number of frames presented since the last 'slDLSSGGetState' call" (`:156-157`).
+    pub num_frames_actually_presented: u32,
+    /// Version 2.
+    pub num_frames_to_generate_max: u32,
+    pub b_reserved4: u8,
+    pub b_is_vsync_support_available: u8,
+    /// `void*`.
+    pub inputs_processing_completion_fence: *mut c_void,
+    pub last_present_inputs_processing_completion_fence_value: u64,
+    /// Version 4.
+    pub b_is_dynamic_mfg_supported: u8,
+}
+
+impl DlssgState {
+    const GUID: StructType = StructType { data1: 0xcc8a_c8e1, data2: 0xa179, data3: 0x44f5, data4: [0x97, 0xfa, 0xe7, 0x41, 0x12, 0xf9, 0xbc, 0x61] };
+
+    /// The member initialisers: every member `{}`, so zero, null and `eFalse` (`:150-181`).
+    pub fn new() -> Self {
+        Self {
+            base: BaseStructure::new(Self::GUID, 4),
+            estimated_vram_usage_in_bytes: 0,
+            status: 0,
+            min_width_or_height: 0,
+            num_frames_actually_presented: 0,
+            num_frames_to_generate_max: 0,
+            b_reserved4: BOOL_FALSE,
+            b_is_vsync_support_available: BOOL_FALSE,
+            inputs_processing_completion_fence: std::ptr::null_mut(),
+            last_present_inputs_processing_completion_fence_value: 0,
+            b_is_dynamic_mfg_supported: BOOL_FALSE,
+        }
+    }
+}
+
+impl Default for DlssgState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 // The interposer's exports [documented: `sl_core_api.h:50-65` (types), `:83-209`
 // (declarations); `src/exports.def:254-273`]. `SL_API` is `extern "C"` with no calling
 // convention named (`sl_core_api.h:36-44`): on x86-64 Windows there is one. C++ references are
@@ -779,6 +961,16 @@ pub type SlGetFeatureRequirements = unsafe extern "C" fn(u32, *mut FeatureRequir
 pub type SlDlssGetOptimalSettings = unsafe extern "C" fn(*const DlssOptions, *mut DlssOptimalSettings) -> SlResult;
 /// `slDLSSSetOptions(const ViewportHandle&, const DLSSOptions&)`.
 pub type SlDlssSetOptions = unsafe extern "C" fn(*const ViewportHandle, *const DlssOptions) -> SlResult;
+
+// DLSS Frame Generation's two functions, fetched the same way under `kFeatureDLSS_G`
+// [documented: `sl_dlss_g.h:197, 208` (types), `:212-222` (the helpers'
+// `SL_FEATURE_FUN_IMPORT_STATIC(sl::kFeatureDLSS_G, ...)`)]. Both "NOT thread safe".
+
+/// `slDLSSGGetState(const ViewportHandle&, DLSSGState&, const DLSSGOptions*)`; the options may
+/// be null (no VRAM estimate).
+pub type SlDlssgGetState = unsafe extern "C" fn(*const ViewportHandle, *mut DlssgState, *const DlssgOptions) -> SlResult;
+/// `slDLSSGSetOptions(const ViewportHandle&, const DLSSGOptions&)`.
+pub type SlDlssgSetOptions = unsafe extern "C" fn(*const ViewportHandle, *const DlssgOptions) -> SlResult;
 
 /// `s` as a NUL-terminated UTF-16 string for Windows.
 pub fn wide(s: &OsStr) -> Vec<u16> {
@@ -1094,6 +1286,88 @@ mod tests {
         assert_eq!((r.vk_num_device_extensions, r.vk_num_instance_extensions, r.vk_num_features12, r.vk_num_features13), (0, 0, 0, 0));
         assert!(r.required_tags.is_null() && r.vk_device_extensions.is_null() && r.vk_instance_extensions.is_null() && r.vk_features12.is_null() && r.vk_features13.is_null());
         assert_eq!(FEATURE_REQUIREMENT_VULKAN_SUPPORTED, 4, "eVulkanSupported = 1 << 2 (sl_core_types.h:630)");
+    }
+
+    /// Not from the probe table (it predates these structures): the Windows x64 layouts worked
+    /// out by hand from `sl_dlss_g.h:72-122` and `:149-183`, as for `FeatureRequirements`.
+    /// `DLSSGOptions`: `BaseStructure` (32 bytes), then fifteen `uint32_t`s/`enum class :
+    /// uint32_t`s at 32-88; the callback pointer 8-aligned at 96 after 4 bytes of padding;
+    /// `bReserved15` (`Boolean`, a `char`) at 104; `queueParallelismMode` 4-aligned at 108;
+    /// `enableUserInterfaceRecomposition` at 112; `dynamicTargetFrameRate` at 116; 120 bytes.
+    /// `DLSSGState`: the `uint64_t` at 32, four `uint32_t`s at 40-52, two `Boolean`s at 56 and
+    /// 57, the fence pointer 8-aligned at 64, its `uint64_t` value at 72, the last `Boolean` at
+    /// 80, rounded up to 88. No Streamline source pins these (the DLSS-G plugin is binary only,
+    /// fork-notes `fg-facts.md`), so a run is the check that they are right.
+    #[test]
+    fn frame_generation_layouts_from_the_header() {
+        assert_eq!((size_of::<DlssgOptions>(), align_of::<DlssgOptions>()), (120, 8));
+        check(
+            "DlssgOptions",
+            &[
+                (offset_of!(DlssgOptions, mode), 32),
+                (offset_of!(DlssgOptions, num_frames_to_generate), 36),
+                (offset_of!(DlssgOptions, flags), 40),
+                (offset_of!(DlssgOptions, dynamic_res_width), 44),
+                (offset_of!(DlssgOptions, dynamic_res_height), 48),
+                (offset_of!(DlssgOptions, num_back_buffers), 52),
+                (offset_of!(DlssgOptions, mvec_depth_width), 56),
+                (offset_of!(DlssgOptions, mvec_depth_height), 60),
+                (offset_of!(DlssgOptions, color_width), 64),
+                (offset_of!(DlssgOptions, color_height), 68),
+                (offset_of!(DlssgOptions, color_buffer_format), 72),
+                (offset_of!(DlssgOptions, mvec_buffer_format), 76),
+                (offset_of!(DlssgOptions, depth_buffer_format), 80),
+                (offset_of!(DlssgOptions, hud_less_buffer_format), 84),
+                (offset_of!(DlssgOptions, ui_buffer_format), 88),
+                (offset_of!(DlssgOptions, on_error_callback), 96),
+                (offset_of!(DlssgOptions, b_reserved15), 104),
+                (offset_of!(DlssgOptions, queue_parallelism_mode), 108),
+                (offset_of!(DlssgOptions, enable_user_interface_recomposition), 112),
+                (offset_of!(DlssgOptions, dynamic_target_frame_rate), 116),
+            ],
+        );
+        assert_eq!((size_of::<DlssgState>(), align_of::<DlssgState>()), (88, 8));
+        check(
+            "DlssgState",
+            &[
+                (offset_of!(DlssgState, estimated_vram_usage_in_bytes), 32),
+                (offset_of!(DlssgState, status), 40),
+                (offset_of!(DlssgState, min_width_or_height), 44),
+                (offset_of!(DlssgState, num_frames_actually_presented), 48),
+                (offset_of!(DlssgState, num_frames_to_generate_max), 52),
+                (offset_of!(DlssgState, b_reserved4), 56),
+                (offset_of!(DlssgState, b_is_vsync_support_available), 57),
+                (offset_of!(DlssgState, inputs_processing_completion_fence), 64),
+                (offset_of!(DlssgState, last_present_inputs_processing_completion_fence_value), 72),
+                (offset_of!(DlssgState, b_is_dynamic_mfg_supported), 80),
+            ],
+        );
+        // `APIError`: a union of two 4-byte integers (`sl_core_types.h:508-515`).
+        assert_eq!((size_of::<ApiError>(), align_of::<ApiError>()), (4, 4));
+        assert_eq!(size_of::<Option<OnApiErrorCallback>>(), 8, "a nullable function pointer, as `PFunOnAPIErrorCallback*`");
+    }
+
+    #[test]
+    fn frame_generation_constructors_match_the_header() {
+        // GUIDs and versions [documented: sl_dlss_g.h:72, 149].
+        let o = DlssgOptions::new();
+        assert_eq!(o.base.struct_type, StructType { data1: 0xfac5f1cb, data2: 0x2dfd, data3: 0x4f36, data4: [0xa1, 0xe6, 0x3a, 0x9e, 0x86, 0x52, 0x56, 0xc5] });
+        assert_eq!(o.base.struct_version, 5);
+        assert_eq!((o.mode, o.num_frames_to_generate, o.flags, o.num_back_buffers, o.queue_parallelism_mode), (0, 1, 0, 0, 0));
+        assert_eq!((o.b_reserved15, o.enable_user_interface_recomposition, o.dynamic_target_frame_rate), (BOOL_INVALID, BOOL_FALSE, 0.0));
+        assert!(o.on_error_callback.is_none());
+        let s = DlssgState::new();
+        assert_eq!(s.base.struct_type, StructType { data1: 0xcc8ac8e1, data2: 0xa179, data3: 0x44f5, data4: [0x97, 0xfa, 0xe7, 0x41, 0x12, 0xf9, 0xbc, 0x61] });
+        assert_eq!(s.base.struct_version, 4);
+        assert_eq!((s.status, s.num_frames_actually_presented, s.num_frames_to_generate_max, s.estimated_vram_usage_in_bytes), (0, 0, 0, 0));
+        assert!(s.inputs_processing_completion_fence.is_null());
+        // sl_dlss_g.h:36, 48, 125-139.
+        assert_eq!((DLSSG_MODE_OFF, DLSSG_FLAG_RETAIN_RESOURCES_WHEN_OFF), (0, 8));
+        assert_eq!(dlssg_status_name(0), "eOk");
+        assert_eq!(dlssg_status_name(0b1010), "eFailReflexNotDetectedAtRuntime | eFailCommonConstantsInvalid");
+        assert_eq!(dlssg_status_name((1 << 9) | 1), "eFailResolutionTooLow | unknown bits 0x200");
+        assert_eq!((boolean_name(0), boolean_name(1), boolean_name(2), boolean_name(7)), ("eFalse".to_string(), "eTrue".to_string(), "eInvalid".to_string(), "unknown Boolean 7".to_string()));
+        assert_eq!((size_of::<SlDlssgGetState>(), size_of::<SlDlssgSetOptions>()), (8, 8));
     }
 
     #[test]
