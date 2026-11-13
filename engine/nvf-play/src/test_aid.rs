@@ -75,7 +75,8 @@
 //!   digit (`e`, `2`), `f1`..`f12`, an arrow (`up`, `down`, `left`, `right`), `mouse-left` /
 //!   `mouse-right` / `mouse-middle`, or a notch of the wheel (`wheel-up`, `wheel-down`).
 //!   `pad-X` (or another button named by `crate::pad::parse_pad`) presses a synthetic
-//!   controller's button through `pad::menu_keys`; select Controller in the settings.
+//!   controller's button through `pad::menu_keys`; automatic switching consumes its
+//!   first press when it changes Input Device [design, #2200; `pad::device`].
 //!   Unlike `NVF_PLAY_TEST_CONTROL` it tests the key's path, not just what it does.
 //!
 //! - `NVF_PLAY_TEST_MELEE_KNOCKBACK=<target FormID hex>:<x>:<y>:<z>`: one player power blow
@@ -341,7 +342,7 @@ pub(crate) struct RealPresses {
 }
 
 /// Press and let go the `NVF_PLAY_TEST_KEYS` inputs, right after Bevy read the real ones.
-pub(crate) fn real_presses(time: crate::pause::AidTime, mut p: ResMut<RealPresses>, mut keys: ResMut<ButtonInput<KeyCode>>, mut mouse: ResMut<ButtonInput<MouseButton>>, mut wheel: MessageWriter<bevy::input::mouse::MouseWheel>, mut pads: Query<&mut Gamepad>) {
+pub(crate) fn real_presses(time: crate::pause::AidTime, mut p: ResMut<RealPresses>, mut keys: ResMut<ButtonInput<KeyCode>>, mut mouse: ResMut<ButtonInput<MouseButton>>, mut wheel: MessageWriter<bevy::input::mouse::MouseWheel>, mut pads: Query<&mut Gamepad>, mut switching: Option<ResMut<crate::pad::SwitchingInput>>) {
     let Some(now) = time.world_secs() else { return };
     let p = &mut *p;
     let mut pad = p.pad.and_then(|e| pads.get_mut(e).ok());
@@ -353,7 +354,12 @@ pub(crate) fn real_presses(time: crate::pause::AidTime, mut p: ResMut<RealPresse
             return true;
         }
         match input {
-            RealInput::Key(k) => keys.release(k),
+            RealInput::Key(k) => {
+                keys.release(k);
+                if let Some(s) = switching.as_mut() {
+                    s.keyboard_input(k, false);
+                }
+            }
             RealInput::Mouse(m) => mouse.release(m),
             RealInput::Pad(b) => {
                 if let Some(g) = pad.as_mut() {
@@ -372,7 +378,12 @@ pub(crate) fn real_presses(time: crate::pause::AidTime, mut p: ResMut<RealPresse
     });
     for (input, hold) in take_due(&mut p.due, now) {
         match input {
-            RealInput::Key(k) => keys.press(k),
+            RealInput::Key(k) => {
+                keys.press(k);
+                if let Some(s) = switching.as_mut() {
+                    s.keyboard_input(k, true);
+                }
+            }
             RealInput::Mouse(m) => mouse.press(m),
             RealInput::Pad(b) => {
                 if let Some(g) = pad.as_mut() {
@@ -537,7 +548,7 @@ pub(crate) fn setup(app: &mut App) {
             Ok(due) => {
                 let pad = due.iter().any(|(_, (i, _))| matches!(i, RealInput::Pad(_) | RealInput::Stick(_))).then(|| app.world_mut().spawn((Gamepad::default(), Name::new("Scripted controller"))).id());
                 app.insert_resource(RealPresses { due, down: Vec::new(), pad })
-                    .add_systems(PreUpdate, real_presses.after(bevy::input::InputSystems).before(crate::pad::menu_keys).before(crate::pad::update_stick_buttons).before(bevy::ui::UiSystems::Focus));
+                    .add_systems(PreUpdate, real_presses.after(bevy::input::InputSystems).before(crate::pad::device::automatic).before(crate::pad::menu_keys).before(crate::pad::update_stick_buttons).before(bevy::ui::UiSystems::Focus));
             }
             Err(e) => warn!("NVF_PLAY_TEST_KEYS: {e}"),
         }
@@ -904,6 +915,38 @@ mod tests {
         world.resource_mut::<Time>().advance_by(std::time::Duration::from_millis(1));
         world.run_system_once(real_presses).unwrap();
         assert_eq!(world.get::<Gamepad>(pad).unwrap().left_stick(), Vec2::ZERO);
+    }
+
+    #[test]
+    fn scripted_keyboard_switching_press_is_consumed_and_works_after_release() {
+        #[derive(Resource, Default)]
+        struct Seen([bool; 3]);
+        fn read(keys: crate::pad::ActionButtons<KeyCode>, mut seen: ResMut<Seen>) {
+            seen.0 = [keys.pressed(KeyCode::Enter), keys.just_pressed(KeyCode::Enter), keys.just_released(KeyCode::Enter)];
+        }
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, bevy::input::InputPlugin));
+        app.insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(std::time::Duration::from_millis(250)));
+        app.init_resource::<crate::pause::PlayClock>().init_resource::<crate::pad::SwitchingInput>();
+        let mut bindings = crate::bindings::Bindings::default();
+        bindings.device = crate::bindings::InputDevice::Controller;
+        app.insert_resource(bindings);
+        app.insert_resource(RealPresses {
+            due: vec![(0.0, (RealInput::Key(KeyCode::Enter), 0.5)), (1.0, (RealInput::Key(KeyCode::Enter), 0.5))],
+            down: Vec::new(), pad: None,
+        });
+        app.init_resource::<Seen>().add_systems(Update, read);
+        app.add_systems(PreUpdate, (crate::pad::device::read_keyboard, real_presses, crate::pad::device::automatic).chain().after(bevy::input::InputSystems));
+        app.update();
+        assert_eq!(app.world().resource::<crate::bindings::Bindings>().device, crate::bindings::InputDevice::KeyboardMouse);
+        assert_eq!(app.world().resource::<Seen>().0, [false; 3]);
+        app.update();
+        assert_eq!(app.world().resource::<Seen>().0, [true, false, false]);
+        app.update();
+        assert_eq!(app.world().resource::<Seen>().0, [false, false, true]);
+        app.update();
+        app.update();
+        assert!(app.world().resource::<ButtonInput<KeyCode>>().just_pressed(KeyCode::Enter));
     }
 
     #[test]

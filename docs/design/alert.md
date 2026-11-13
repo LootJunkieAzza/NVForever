@@ -31,7 +31,7 @@ Tags as in the spec notes: [documented: source], [observed], [hypothesis], and
        ▲  ╲______________hostile detected_______________________________________▲  │
        │                                                                           │ every target undetected
        │◀── alarms ran out ── Alert                    Lost ◀──────────────────────┘ for `lost` seconds
-       │◀── targets hidden and forgotten, alarms ran out ── Lost ──detected──▶ Combat
+       │◀── search party finished (or stalled) ── Lost ──detected──▶ Combat
        │◀── no targets and no alarms ── Combat
 
 [documented: Category:Detection, the transitions in actor-behaviour.md §2.3]. In words:
@@ -42,36 +42,66 @@ Tags as in the spec notes: [documented: source], [observed], [hypothesis], and
   documented re-centring). Normal → **Alert**.
 - A hostile **detected** (above 0) goes on the target list. From any state → **Combat**.
 - **Events** (§4) the actor hears and **hurts** from a hostile are alarms too.
-- An alarm runs out `alarm` seconds after it was last raised or refreshed; with no alarm
-  left, Alert → Normal.
-- A target hidden (−20 or below) for `forget_target` seconds leaves the target list. In
-  Combat, when no target has been detected for `lost` seconds, the actor is **Lost**: an
-  alarm at each target's last known position, and it searches there. Lost → Combat when
-  one is detected again; Lost → Normal when every target is hidden or gone and the alarms
-  have run out. Combat → Normal when the target list and the alert list are empty
-  (targets dead, gone, no longer hostile).
+- [design: `Awareness::alarm`] An alarm (noticed, hurt, an ally's call, an event
+  heard) runs out `alarm` seconds after refresh. With no alarm left, Alert → Normal.
+- [design, #2010; documented: GECK wiki Combat Search] A previously detected target
+  stays on the target list while Combat waits to enter **Lost** and while its Lost
+  search remains active. After `lost` seconds without detecting any target, the actor
+  searches each target's last detected position. Ordinary alarm expiry and the forget
+  timer cannot interrupt that search. Lost -> Combat on re-detection, clearing the old
+  search count. Lost -> Normal after every member searching that target has completed
+  `iCombatTargetLostRemoveSearchCount` shares and the target is hidden (-20 or below).
+  A member that finishes early waits for the others. Dead or gone targets still leave
+  immediately; Combat -> Normal when both lists are empty.
+  [design, #2010: `fnv_ai::alert::Search`, `Ai::alert_step`] Walk/look point progress
+  belongs to the selected alarm's owner. Switching owners starts a fresh search even
+  when their positions are nearby. Completing the shares replaces that progress with
+  a waiting state, preserving the return to the actor's package after Normal.
 - Both timers count a target as detected while a member of the actor's combat group in
   Combat still detects it (#972, docs/spec-notes/combat-groups.md §3) [hypothesis].
 - An event heard while searching puts its owner on the target list, undetected
   [documented].
 - Back in Normal the lists are cleared.
 
-The timers [engineering choice: the documentation names them, gives no lengths, and
-FalloutNV.esm has no game setting for them]: `alarm` 20 s, `forget_target` 15 s, `lost`
-10 s (3 s until 2026-10-19: fighters said CombatToLost almost as soon as they broke line
-of sight; `lost` stays below `forget_target` so a target hidden the whole time is lost
-and searched for, not forgotten). They are `fnv_game::awareness::Timers`. The state is not saved (the engine measures
-again after a load).
+[design, #2010: `fnv_game::awareness::Timers::read`] Timer defaults and load-order
+settings (seconds of `Game::time`):
 
-In the original, the running game reports fCombatDetectionLostTime 15 and
-fCombatTargetLostRemoveTime 30 as built-in values (not set by FalloutNV.esm). A target
-hidden outright was kept 20.7 s at those values and 64.8 s with four combat timers ×4,
-with no search procedure [observed: npc-behaviour-compare.md §15.6]. In a second round
-only raising fCombatDetectionLostTime made a large shift (about its value plus 5 to 8 s);
-raising fCombatTargetLostRemoveTime, or the two search settings together, stayed inside
-the default runs' spread [observed: npc-behaviour-compare.md §16.1; that
-fCombatDetectionLostTime governs it is a hypothesis from one run per setting]. How the original's timers map onto `alarm`,
-`forget_target` and `lost` is not established; the engineering choice above stands (#2010).
+| Timer | Game setting | Fallback |
+|---|---|---|
+| `lost` | `fCombatDetectionLostTime` | 15 s |
+| `forget_target` (outside an active Lost search) | `fCombatTargetLostRemoveTime` | 30 s |
+
+`fDetectionEventExpireTime` (10 in the #2010 capture [observed]) is not read: by its name it is how
+long an event itself can be heard [hypothesis: the setting's name], and our events are
+heard in the round they are raised. Used as the hearer's alarm length it sent Cook-Cook,
+who heard the player's shot and called the camp, back to Normal at 12 s, before the
+camp's first shares, and the party searched without him [observed: smoke
+`group-search`, NVForever on the #2010 branch, 2026-11-13]; heard-event alarms keep the
+`alarm` length [design, #2010].
+
+[observed: issue #2010 capture; npc-behaviour-compare.md sections 15.6, 16.1] These names
+exist in the running original; the later captures identify the first two as built-in
+values, not FalloutNV.esm overrides. The setting-to-timer mapping above is our design,
+not a claim of matching the original's timing. Noticed, hurt, ally and heard-event alarms
+retain our existing 20 s expiry [design: `Awareness::alarm`]. The never-detected 10-in-20 s
+exception documented by Combat Search is separate from Lost searches; this change
+adds no new never-detected policy [documented: GECK wiki Combat Search; design, #2010].
+The state is not saved; the engine measures again after loading [design: `Awarenesses`].
+
+[design, #2010] `LOST_SEARCH_STALL_SECONDS` is 300 s without a completed share. A
+LostTarget alarm uses that safety deadline, renewed by each completed share, instead
+of ordinary alarm expiry. Thus unavailable navigation/AI cannot hold a fight forever;
+working searches survive the 20/30 s ordinary timers. This is an owner-review choice,
+not a measurement of the original.
+
+[observed: npc-behaviour-compare.md sections 15.6, 16.1] A hidden target in the original
+was kept 20.7 s at default timers and 64.8 s with four combat timers multiplied by four,
+with no search procedure. Only increasing fCombatDetectionLostTime made a large shift
+in the second round (about its value plus 5-8 s); the other settings stayed within the
+default spread. [observed: issue #2010, 2026-11-10 capture] Two of three fighters instead
+remained in COMBAT for the remaining 235 real seconds without walking a search. These
+unresolved original behaviors remain observer check 122; our completion rule follows
+the stated design and the wiki, rather than those durations [design, #2010].
 
 **"No Combat Alert"** (package flag 27): an actor whose current package has it does not
 become Alert; it still goes to Combat [hypothesis: the flag's name; no source describes
@@ -147,10 +177,11 @@ docs/spec-notes/crime-karma.md); the player's reputation does not.
   actor leaves furniture, walks to its latest alarm, looks about there for 4 s, then
   searches on: at the alarm again if it has moved more than 64 units, else at a random
   point within fCombatSearchInteriorMinRadius (256) or fCombatSearchExteriorMinRadius
-  (512) of it [observed: the values in FalloutNV.esm; hypothesis: the nearest search
-  ring's radius; the Combat Search page is not in the export]. It walks. A walk that has
-  not arrived after 30 s ends where it is. [engineering choice for the times and
-  distances.]
+  (512) of it [design: `GroupSettings` fallback radii; documented: GECK wiki
+  Combat Search, minimum initial radius, medium radius for subsequent searches].
+  [design: `fnv_ai::alert`] It walks, looks for 4 s, and counts three points as its share
+  of one search. A walk that has not arrived after 30 s ends where it is; an unreachable
+  point becomes a look in place. Lost party members wait until all have finished (section 2).
 - **Combat**: it closes in to where it can attack and faces its target; the attacks are
   the combat AI's (docs/design/combat-ai.md). Cover and fleeing were built later (combat-ai.md §12.2, §12.6). A target
   it no longer detects (behind a rise, say) it keeps closing in on, whatever the
