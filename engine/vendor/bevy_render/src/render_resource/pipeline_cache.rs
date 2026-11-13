@@ -42,7 +42,32 @@ pub enum Pipeline {
 /// the read side. DLSS-G's live load/unload holds the write side, excluding driver calls
 /// from task threads, including tasks cancelled by a shader reload.
 /// [documented: Streamline `sl_core_api.h:130-131`, `slSetFeatureLoaded`].
+/// A switch waits without a time limit for driver compiles already running. Driver calls
+/// cannot safely be cancelled; delaying this user-requested switch preserves device safety.
 pub static RENDER_DEVICE_API_GATE: std::sync::RwLock<()> = std::sync::RwLock::new(());
+
+/// NVForever Streamline integration: an unclaimed task output is destroyed under the gate.
+/// async-task may discard a cancelled task's output after the compilation guard is released.
+/// Taking the value transfers it to the render thread's cache, as upstream does.
+#[derive(Debug)]
+pub struct PipelineTaskOutput<T>(Option<T>);
+
+impl<T> PipelineTaskOutput<T> {
+    fn into_inner(mut self) -> T {
+        self.0.take().unwrap()
+    }
+}
+
+impl<T> Drop for PipelineTaskOutput<T> {
+    fn drop(&mut self) {
+        if self.0.is_some() {
+            let _gate = RENDER_DEVICE_API_GATE
+                .read()
+                .unwrap_or_else(PoisonError::into_inner);
+            drop(self.0.take());
+        }
+    }
+}
 
 pub struct CachedPipeline {
     pub descriptor: PipelineDescriptor,
@@ -55,7 +80,8 @@ pub enum CachedPipelineState {
     /// The pipeline GPU object is queued for creation.
     Queued,
     /// The pipeline GPU object is being created.
-    Creating(Task<Result<Pipeline, ShaderCacheError>>),
+    // NVForever Streamline integration: protect cancelled task outputs too.
+    Creating(Task<PipelineTaskOutput<Result<Pipeline, ShaderCacheError>>>),
     /// The pipeline GPU object was created successfully and is available (allocated on the GPU).
     Ok(Pipeline),
     /// An error occurred while trying to create the pipeline GPU object.
@@ -397,7 +423,7 @@ impl PipelineCache {
 
         let state = &mut self.pipelines[id.id()].state;
         if let CachedPipelineState::Creating(task) = state {
-            *state = match bevy_tasks::block_on(task) {
+            *state = match bevy_tasks::block_on(task).into_inner() {
                 Ok(p) => CachedPipelineState::Ok(p),
                 Err(e) => CachedPipelineState::Err(e),
             };
@@ -905,7 +931,9 @@ impl PipelineCache {
                 };
             }
 
-            CachedPipelineState::Creating(task) => match bevy_tasks::futures::check_ready(task) {
+            CachedPipelineState::Creating(task) => match bevy_tasks::futures::check_ready(task)
+                .map(PipelineTaskOutput::into_inner)
+            {
                 Some(Ok(pipeline)) => {
                     cached_pipeline.state = CachedPipelineState::Ok(pipeline);
                     return;
@@ -1076,13 +1104,13 @@ fn create_pipeline_task(
         let _gate = RENDER_DEVICE_API_GATE
             .read()
             .unwrap_or_else(PoisonError::into_inner);
-        bevy_tasks::block_on(task)
+        PipelineTaskOutput(Some(bevy_tasks::block_on(task)))
     };
     if !sync {
         return CachedPipelineState::Creating(bevy_tasks::AsyncComputeTaskPool::get().spawn(task));
     }
 
-    match bevy_tasks::block_on(task) {
+    match bevy_tasks::block_on(task).into_inner() {
         Ok(pipeline) => CachedPipelineState::Ok(pipeline),
         Err(err) => CachedPipelineState::Err(err),
     }
@@ -1103,5 +1131,29 @@ fn create_pipeline_task(
     match bevy_tasks::block_on(task) {
         Ok(pipeline) => CachedPipelineState::Ok(pipeline),
         Err(err) => CachedPipelineState::Err(err),
+    }
+}
+
+// NVForever Streamline integration: no GPU or scheduler timing needed to check teardown.
+#[cfg(test)]
+mod task_output_tests {
+    use super::{PipelineTaskOutput, RENDER_DEVICE_API_GATE};
+    use core::sync::atomic::{AtomicBool, Ordering};
+
+    struct DropProbe<'a>(&'a AtomicBool);
+
+    impl Drop for DropProbe<'_> {
+        fn drop(&mut self) {
+            assert!(RENDER_DEVICE_API_GATE.try_write().is_err());
+            self.0.store(true, Ordering::Relaxed);
+        }
+    }
+
+    #[test]
+    fn discarded_task_output_is_destroyed_under_the_gate() {
+        let destroyed = AtomicBool::new(false);
+        drop(PipelineTaskOutput(Some(DropProbe(&destroyed))));
+        assert!(destroyed.load(Ordering::Relaxed));
+        assert!(RENDER_DEVICE_API_GATE.try_write().is_ok());
     }
 }

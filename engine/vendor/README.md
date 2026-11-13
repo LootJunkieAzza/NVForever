@@ -117,7 +117,13 @@ Each compilation holds its read side. NVForever's device poll thread shares it;
 `gpu_poll::quiet` takes its write side during DLSS-G's live load/unload, so no pipeline
 compile overlaps `slSetFeatureLoaded` (`sl_core_api.h:130-131` forbids parallel Vulkan calls).
 The guard is taken inside the task, covering even a compile whose cache entry was replaced
-by shader reload. Drop this patch if Bevy supplies an equivalent device-operation gate.
+by shader reload. `PipelineTaskOutput` also takes the read side when destroying an unclaimed
+output: async-task can discard a cancelled task's pipeline after its compilation guard was
+released. Outputs taken by the render thread are stored as upstream does. A switch waits
+without a time limit for running driver compiles: they cannot safely be cancelled, so a
+user-requested switch must wait to preserve device safety. A GPU-free unit test checks that
+discarded outputs are destroyed while the gate excludes writers. Drop this patch if Bevy
+supplies an equivalent device-operation gate.
 
 Early finishing of command encoders (#1427, docs/design/frame-rate-audit.md §5). First
 change, in `src/renderer/render_context.rs`, each part marked by a comment starting
