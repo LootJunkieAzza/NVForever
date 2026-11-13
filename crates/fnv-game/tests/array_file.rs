@@ -22,7 +22,7 @@ fn read_array_from_file_takes_strings_forms_and_skips_comments() {
     std::fs::create_dir_all(dir.join("data")).unwrap();
     std::fs::write(
         root.join("scraps.txt"),
-        "; [form]\t[item]\t[chance]\t\t; Item Name\r\n\r\n; ====\r\n@AF.esm:000800\t$tincan\t\t; Can\r\n@af.esm:000801\t\t@AF.esm:000800\t50\t; Other\r\n",
+        "; [form]\t[item]\t[chance]\t\t; Item Name\r\n\r\n; ====\r\n; @AF.esm:000801\t\t$milk\t\t40\r\n@AF.esm:000800\t$tincan\t\t; Can\r\n@af.esm:000801\t\t@AF.esm:000800\t50\t; Other\r\n@NotLoaded.esp:000123\t$soda\t7\r\n",
     )
     .unwrap();
     set_roots(Roots { read: vec![dir.join("data")], write: Some(dir.join("w")), ..Roots::default() });
@@ -41,10 +41,13 @@ fn read_array_from_file_takes_strings_forms_and_skips_comments() {
         g.run_query(&format!("array_var a\nBegin Function {{ }}\nlet a := ReadArrayFromFile \"scraps.txt\"\nSetFunctionValue ({expr})\nEnd\n"), Default::default()).unwrap()
     };
     // Two rows; columns first: form, item, chance.
-    assert_eq!(ask(&mut g, "Ar_Size a[0]"), XVal::Num(2.0));
+    assert_eq!(ask(&mut g, "Ar_Size a[0]"), XVal::Num(3.0));
     assert_eq!(ask(&mut g, "a[0][0]"), XVal::Ref(0x800));
     assert_eq!(ask(&mut g, "a[0][1]"), XVal::Ref(0x801));
     assert_eq!(ask(&mut g, "a[1][0]"), XVal::Str("tincan".into()));
     assert_eq!(ask(&mut g, "a[1][1]"), XVal::Ref(0x800));
     assert_eq!(ask(&mut g, "a[2][0]"), XVal::Num(50.0));
+    // A form of a file not loaded keeps its column, as the empty form.
+    assert_eq!(ask(&mut g, "a[0][2]"), XVal::Ref(0));
+    assert_eq!(ask(&mut g, "a[1][2]"), XVal::Str("soda".into()));
 }
