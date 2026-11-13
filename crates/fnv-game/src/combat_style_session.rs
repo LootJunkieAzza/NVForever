@@ -16,6 +16,18 @@ pub(crate) struct CombatStyleEdits {
 }
 
 impl<'a> Game<'a> {
+    /// Preview-only whole-save refusal, independent of scene-clone save guards.
+    /// Call after SaveGame callbacks and before constructing/encoding a snapshot.
+    pub fn ensure_combat_style_snapshot_supported(&self) -> Result<(), String> {
+        let unsupported = self.combat_style_edits.raw_clones.keys().copied()
+            .chain(self.clones.keys().copied().filter(|style| self.combat_style_origin(*style).is_some()))
+            .min();
+        match unsupported {
+            Some(style) => Err(format!("saving while temporary combat style {style} exists is not supported yet")),
+            None => Ok(()),
+        }
+    }
+
     /// A declared CSTY origin, including complete finite clone chains.
     pub(crate) fn combat_style_origin(&self, mut style: FormId) -> Option<FormId> {
         for _ in 0..=self.clones.len() {

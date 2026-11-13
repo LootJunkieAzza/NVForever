@@ -61,4 +61,9 @@ guards and save formats stay unchanged. An assigned clone ID in other saved stat
 still requires a separate complete persistence/lifetime solution. Passing session
 tests would not establish save/reload or full installed-mod/native compatibility.
 
+[hypothesis: preview safety correction] The save-corrected draft adds a separate
+[whole-save CSTY refusal](combat-style-save-preview.md) after engine SaveGame
+callbacks and before headless save encoding. It does not implement persistence or
+replace the independent scene-clone snapshot guard.
+
 No compilation, regression or native result is claimed by this source note alone.
