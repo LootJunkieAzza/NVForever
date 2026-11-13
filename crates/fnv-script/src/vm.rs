@@ -1698,9 +1698,22 @@ impl Vm<'_, '_> {
             args.push(match a {
                 XExpr::Enum { code } => ArgValue::Enum(*code),
                 XExpr::Axis { c } => ArgValue::Axis(*c),
-                other => match self.xeval(other)? {
-                    XVal::Str(s) if self.table.param_enc(opcode, k) == crate::table::ParamEnc::String => ArgValue::Str(s),
-                    v => ArgValue::Value(v.value()?),
+                other => match (self.xeval(other)?, self.table.param_enc(opcode, k)) {
+                    (XVal::Str(s), crate::table::ParamEnc::String) => ArgValue::Str(s),
+                    // A string in an enumeration's or an axis's place is the name, in any
+                    // case; an unknown name is an error, so a `let` leaves its variable
+                    // and the script goes on [observed: GetAV ("Strength"), GetAV (s),
+                    // GetAV ($s), SetAV ("Luck") 7 and GetPos ("Z") read and set as the
+                    // bare names; GetAV ("NoSuchAV") assigned nothing, #2276 job A].
+                    (XVal::Str(s), crate::table::ParamEnc::Enum(kind)) => {
+                        let code = self.table.enums.get(&kind).and_then(|m| m.iter().find(|(_, n)| n.eq_ignore_ascii_case(&s)).map(|(&c, _)| c));
+                        ArgValue::Enum(code.ok_or_else(|| VmError::Type(format!("no {kind} named {s:?}")))?)
+                    }
+                    (XVal::Str(s), crate::table::ParamEnc::Axis) => match s.to_ascii_uppercase().as_str() {
+                        a @ ("X" | "Y" | "Z") => ArgValue::Axis(a.chars().next().unwrap_or('X')),
+                        _ => return Err(VmError::Type(format!("no axis named {s:?}"))),
+                    },
+                    (v, _) => ArgValue::Value(v.value()?),
                 },
             });
         }
