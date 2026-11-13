@@ -775,8 +775,7 @@ fn pass_behind_screen(
     roots: Query<Entity, With<WaitRoot>>,
 ) {
     let Some(m) = menu.0.as_mut() else { return };
-    let left = m.take_left();
-    if !left.is_empty() {
+    if let Some(left) = m.take_left() {
         let (sleep, asked) = (m.sleep, *left.end());
         info!("wait menu: a trip's loading screen is up: hours {}-{asked} of the {} pass behind it at once", left.start(), if sleep { "sleep" } else { "wait" });
         let mut hours = Hours { sim: &mut sim, words: &words, stats: &mut stats, passed: &mut passed, script: script.as_deref_mut() };

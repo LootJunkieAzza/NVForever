@@ -113,17 +113,13 @@ impl Model {
     }
 
     /// The hours still to pass, all at once (behind a trip's loading screen): the hour
-    /// numbers they are, in order, from the first still to pass to the last asked; none
+    /// numbers they are, in order, from the first still to pass to the last asked; `None`
     /// when nothing passes.
-    pub fn take_left(&mut self) -> std::ops::RangeInclusive<u32> {
-        match self.passing.as_mut().filter(|p| p.left > 0) {
-            Some(p) => {
-                let first = p.asked - p.left + 1;
-                p.left = 0;
-                first..=p.asked
-            }
-            None => 1..=0,
-        }
+    pub fn take_left(&mut self) -> Option<std::ops::RangeInclusive<u32>> {
+        let p = self.passing.as_mut().filter(|p| p.left > 0)?;
+        let first = p.asked - p.left + 1;
+        p.left = 0;
+        Some(first..=p.asked)
     }
 
     /// The hours the slider shows: those chosen, or those left while they pass.
@@ -526,12 +522,12 @@ mod tests {
         m.sleep_for(3);
         assert!(m.tick(0.5, 0.5));
         // Hour 1 has passed: 2 and 3 are left, and then none.
-        assert_eq!(m.take_left(), 2..=3);
+        assert_eq!(m.take_left(), Some(2..=3));
         assert_eq!(m.passing.map(|p| (p.asked, p.left)), Some((3, 0)));
-        assert!(m.take_left().is_empty());
+        assert_eq!(m.take_left(), None);
         assert!(!m.tick(0.5, 0.5));
         // Nothing passing: nothing to take.
-        assert!(Model::open(true).take_left().is_empty());
+        assert_eq!(Model::open(true).take_left(), None);
     }
 
     #[test]
