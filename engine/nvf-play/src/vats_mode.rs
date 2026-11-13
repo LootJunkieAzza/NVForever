@@ -1487,7 +1487,7 @@ fn update(
             rechance(v, &combat, player.eye());
             let dt = time.delta_secs();
             // An attack whose target has died is not played ([`AFTER_KILL`]).
-            drop_dead_marks(v, script.as_deref());
+            drop_dead_marks(v, script.as_deref(), &parts);
             // A throw is in the hand until its clip's `Hit` key: the next waits for it.
             let held = v.throw_holds();
             // An explosive the marks sent holds the mode's end, not the next mark.
@@ -1771,12 +1771,17 @@ fn classic_hit_camera(v: &mut VatsMode, i: usize, player: &Player) {
 /// The attacks still to play whose target has died are dropped (their AP was only
 /// reserved), and a burst under way on it is cut short; with none left to play the mode
 /// ends [`AFTER_KILL`] later (`kill_end`) [design: the fork owner 2026-11-10; until then
-/// the queue played on at the body]. Attacks queued on other targets play on.
-fn drop_dead_marks(v: &mut VatsMode, script: Option<&ScriptState>) {
+/// the queue played on at the body]. Attacks queued on other targets play on. Under
+/// the player's V.A.T.S. Drops Shots at a Lost Weapon tweak, so are the attacks marked on
+/// an actor's weapon once it holds none (disarmed, its weapon shot from its hand)
+/// [design: docs/design/tweaks.md].
+fn drop_dead_marks(v: &mut VatsMode, script: Option<&ScriptState>, parts: &ActorParts) {
     if v.kill_end.is_some() {
         return;
     }
-    let gone: Vec<bool> = v.queue.marks().iter().map(|m| crate::combat::is_dead(script, m.target.0)).collect();
+    let lost_weapon = script.and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.vats_drops_disarmed_shots);
+    let disarmed = |m: &fnv_combat::vats::Mark| lost_weapon && m.part == Some(WEAPON_PART) && parts.by_ref.get(&m.target.0).is_some_and(|p| p.weapon.is_none());
+    let gone: Vec<bool> = v.queue.marks().iter().map(|m| crate::combat::is_dead(script, m.target.0) || disarmed(m)).collect();
     if !gone.contains(&true) {
         return;
     }
@@ -1811,8 +1816,12 @@ fn drop_dead_marks(v: &mut VatsMode, script: Option<&ScriptState>) {
         (v.cam_led, v.cam_wait, v.cam_ask, v.cam_released) = (None, None, None, false);
     }
     let who = dropped.first().and_then(|k| v.spots.get(*k).zip(v.queue.marks().get(*k))).map_or_else(|| "its target".to_string(), |(s, m)| format!("{} {}", s.name, m.target));
+    let why = match dropped.first().and_then(|k| v.queue.marks().get(*k)) {
+        Some(m) if !crate::combat::is_dead(script, m.target.0) => "holds no weapon",
+        _ => "is dead",
+    };
     info!(
-        "vats mode: {who} is dead: {} queued attacks dropped{}{}",
+        "vats mode: {who} {why}: {} queued attacks dropped{}{}",
         dropped.len(),
         if cut { ", the burst cut short" } else { "" },
         if none_left { format!("; none left to play, the mode ends in {AFTER_KILL:.0} s") } else { String::new() }
@@ -1930,6 +1939,7 @@ fn classic_frame(
     sounds: &mut Sounds,
 ) -> Option<(u32, usize)> {
     let eye = player.eye();
+    let auto_head = script.as_deref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.vats_auto_head);
     if v.now - v.classic.scanned_at >= CLASSIC_SCAN {
         v.classic.scanned_at = v.now;
         let (targets, first, missed) = classic_targets(v, combat, script, sim, phys, eye);
@@ -1975,7 +1985,12 @@ fn classic_frame(
     if parts > 0 {
         if v.classic.part_set != Some(actor) {
             v.classic.part_set = Some(actor);
-            v.classic.part = (0..parts).max_by(|&a, &b| v.preview.parts[a].spot.chance.total_cmp(&v.preview.parts[b].spot.chance)).unwrap_or(0);
+            let best = (0..parts).max_by(|&a, &b| v.preview.parts[a].spot.chance.total_cmp(&v.preview.parts[b].spot.chance)).unwrap_or(0);
+            // The player's V.A.T.S. Starts on the Head tweak: the head (the part whose
+            // condition is Perception Condition) when the target has one, for each target
+            // when it is first selected [design: docs/design/tweaks.md].
+            let head = auto_head.then(|| head_part(&v.preview.parts)).flatten();
+            v.classic.part = head.unwrap_or(best);
         }
         if keys.part_step != 0 && parts > 1 {
             v.classic.part = classic::cycle(v.classic.part, parts, keys.part_step);
@@ -2166,6 +2181,12 @@ struct PreviewPart {
     /// What one attack on it would take off the target's Health if it lands (a burst's
     /// rounds together), read as often as the parts are.
     damage: f32,
+}
+
+/// The head among a target's parts: the one whose condition actor value is Perception
+/// Condition (`fnv_game::combat::HEAD`).
+fn head_part(parts: &[PreviewPart]) -> Option<usize> {
+    parts.iter().position(|p| p.spot.condition == Some(fnv_game::combat::HEAD))
 }
 
 /// The actor whose parts' chances are shown before marking (§17.5).
@@ -3243,6 +3264,14 @@ impl Plugin for VatsModePlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_head_is_the_part_with_perception_condition() {
+        let part = |c: Option<u16>| PreviewPart { spot: Spot { condition: c, ..Default::default() }, ..Default::default() };
+        let parts = [part(Some(26)), part(None), part(Some(fnv_game::combat::HEAD)), part(Some(27))];
+        assert_eq!(head_part(&parts), Some(2));
+        assert_eq!(head_part(&parts[..2]), None);
+    }
 
     #[test]
     fn the_view_is_not_turned_back_after_a_load_or_a_door() {

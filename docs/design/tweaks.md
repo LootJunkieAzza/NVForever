@@ -582,6 +582,9 @@ unless the player binds them, so nothing changes until then.
 | Your Weapon Volume / Others' Weapon Volume | `bScaleWeaponVolume` | `combat::shot_sound` sends the shot's sound as a `sfx::ScaledSound` off 100%: the player's own 2D shot sound and others' heard where they fire; the gain multiplies the one-shot's loudness (`sfx::one_shot_ready`) |
 | Remember Item List Places | `bRememberPipboyScrollPositions` | `tweaks::ItemPlaces` keeps the inventory's selected and first row by category while it is open and puts them back when it opens or its category changes; `ITEM_PLACES_SAVE_HOOK` keeps them with the save |
 | Dim Read Terminal Entries | `bTerminalGreyReadNotes` | `terminal::ReadEntries` takes a terminal and item when its choice shows a note with the switch on; `terminal::screen::menu_page` draws those rows in `read_green`; `READ_ENTRIES_SAVE_HOOK` keeps them, the terminals remapped |
+| V.A.T.S. Drops Shots at a Lost Weapon | `bVATSDequeueWeaponShotsOnDisarm` | `vats_mode::drop_dead_marks` also drops marks on `hitvol::WEAPON_PART` once `ActorParts` shows the target holding no weapon (the renderer's segments, a frame after the drop) |
+| V.A.T.S. Starts on the Head | `bVATSAutoTargetHead` | `vats_mode::classic_frame` picks `head_part` (the part whose condition is Perception Condition) instead of the best chance when a target's part is first set |
+| Hide HUD key | `iHideHUDKey` | `bindings::Control::HideHud` toggles `hud::HudHidden`; `hud::hide_parts` (PostUpdate, before the tiles' hiding) hides the `HpPiece`, `ApPiece`, sneak word and needs words its switches choose; `HIDE_HUD_SAVE_HOOK` starts a load hidden under Hidden After Loading. The tile-drawn HUD is not hidden by it |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -603,8 +606,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 512 |
-| to do | 91 |
+| done | 515 |
+| to do | 88 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -730,6 +733,7 @@ game's Data folder, read-only).
 | `bUseCustomSniperZoomRate` | done |  | 2 | Scope Zoom Time (slider; the zoom-out option not built) |
 | `bUsingKeysRewardsXP` | done |  | 3 | Experience for Keys (a share of the picking XP; the base and skill options not built) |
 | `bUsingNotesRewardsXP` | done |  | 3 | Experience for Passwords (a share of the hacking XP, once; the base and skill options not built) |
+| `bVATSDequeueWeaponShotsOnDisarm` | done |  |  | V.A.T.S. Drops Shots at a Lost Weapon |
 | `bVATSHipFire` | done |  |  | V.A.T.S. Hip Fire (entered not aiming: every gun shot from the hip) |
 | `bVATSIgnoreNonExplosiveProjectiles` | done |  |  | already so: no projectile can be targeted in V.A.T.S. |
 | `bWeaponModdingSkillRequirement` | done |  |  | Weapon Mods Need the Skill (the Pip-Boy mod list) |
@@ -760,7 +764,6 @@ game's Data folder, read-only).
 | `bUseArmorRepairKitsInRepairMenu` | to do |  |  | the repair menu lists only parts |
 | `bUseCustomBarterPriceMultipliers` | to do |  | 13 | refresh_trade price; ten multipliers |
 | `bUseWeaponRepairKitsInRepairMenu` | to do |  | 2 | the repair menu lists only parts |
-| `bVATSDequeueWeaponShotsOnDisarm` | to do |  |  | vats_mode::shoot needs ActorParts |
 | `bVATSTargetPlayerProjectiles` | to do |  |  | not built: projectiles in flight are not targetable |
 | `bVATSThrowablesUseVisibility` | to do |  |  | not built: V.A.T.S. chance has no visibility term |
 
@@ -805,11 +808,11 @@ game's Data folder, read-only).
 | `bScaleCriticalDamage` | done |  | 1 | Critical Damage (x0 to x2) |
 | `bSneakCriticalsHeadshotsOnly` | done |  |  | Sneak Criticals Head Only |
 | `bSneakCriticalsOnlyMeleeWeapons` | done |  |  | Sneak Criticals Melee Only |
+| `bVATSAutoTargetHead` | done |  |  | V.A.T.S. Starts on the Head (the classic style; each target when first selected) |
 | `bVATSStopBurstIfTargetDead` | done |  |  | V.A.T.S. Burst Stops on a Kill |
 | `bWeaponRequirementsMatter` | done |  | 7 | Weapon Requirements Matter (Strength and skill both; the ignore options not built) |
 | `bHoldAndReleaseThrowables` | to do |  | 1 | not built: no hold-to-release throw |
 | `bNPCsCanDisarmPlayer` | to do |  |  | the player weapon lives in Combat; dropping it is new |
-| `bVATSAutoTargetHead` | to do |  |  | NVForever's V.A.T.S. marks the part under the crosshair; there is no default part to make the head |
 
 ### Quality-of-life
 
@@ -1140,6 +1143,7 @@ game's Data folder, read-only).
 | `iEquipLastWeaponKey` | done |  | 4 | Last Weapon key (Controls page; the weapon before the one now, put away) |
 | `iExitGameKey` | done |  | 1 | a Controls key: Quit Game |
 | `iExitToMainMenuKey` | done |  | 1 | a Controls key: Main Menu |
+| `iHideHUDKey` | done |  | 6 | Hide HUD key with four parts and Hidden After Loading (hand-built HUD) |
 | `iHolsterWeaponKey` | done |  | 1 | a Controls key: Holster Weapon (unbound until set; the hold to holster stays) |
 | `iNextRadioStationKey` | done |  | 1 | already so: ] steps to the next station in the Pip-Boy |
 | `iOpenLocalMapKey` | done |  | 1 | Pip-Boy: Local Map key |
@@ -1163,7 +1167,6 @@ game's Data folder, read-only).
 | `iToggleSneakIndicatorKey` | done |  | 1 | a Controls key: Show/Hide Sneak Label |
 | `iToggleTrueIronSightsKey` | done |  | 1 | True Iron Sights key |
 | `iVATSAcceptKey` | done |  | 1 | already so: accepting is the Activate control, rebindable on the Controls page |
-| `iHideHUDKey` | to do |  | 6 | the HUD parts have no roots of their own to hide; Toggle Menus already hides the whole HUD |
 | `iSkipRadioSongKey` | to do |  | 1 | the playing line and the broadcast both move |
 
 ### Cheat

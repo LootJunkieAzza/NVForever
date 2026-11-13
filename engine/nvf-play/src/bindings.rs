@@ -131,13 +131,15 @@ pub enum Control {
     ToggleSightingNode,
     /// The custom map marker where the player stands (iPlaceMapMarkerAtPlayerPosKey).
     PlaceMarkerHere,
+    /// Hide the chosen parts of the HUD or show them again (iHideHUDKey).
+    HideHud,
 }
 
 /// `[Controls]` of the owner's `FalloutPrefs.ini`: (control, INI name, value)
 /// [observed 2026-10-09], then NVForever's own controls (after [`GAME_INI_CONTROLS`],
 /// coded the same way): Lower Weapon on H [design: the owner 2026-10-27, moved off Ready
 /// Item tapped twice so a reload is not held back waiting for a second tap].
-pub const GAME_CONTROLS: [(Control, &str, u32); 53] = [
+pub const GAME_CONTROLS: [(Control, &str, u32); 54] = [
     (Control::Forward, "Forward", 0x0011FF13),
     (Control::Back, "Back", 0x001FFF14),
     (Control::SlideLeft, "Slide Left", 0x001EFF17),
@@ -191,6 +193,7 @@ pub const GAME_CONTROLS: [(Control, &str, u32); 53] = [
     (Control::RepeatActivate, "Repeat Activate", 0xFFFFFFFF),
     (Control::ToggleSightingNode, "Toggle Sighting Node", 0xFFFFFFFF),
     (Control::PlaceMarkerHere, "Place Marker Here", 0xFFFFFFFF),
+    (Control::HideHud, "Hide HUD", 0xFFFFFFFF),
 ];
 
 /// Where the Tweaks tab's keys start in [`GAME_CONTROLS`]: none is bound unless the
@@ -586,6 +589,7 @@ pub fn label(c: Control) -> &'static str {
         RepeatActivate => "Repeat Activate",
         ToggleSightingNode => "Second Iron Sights",
         PlaceMarkerHere => "Place Marker Here",
+        HideHud => "Hide HUD",
     }
 }
 

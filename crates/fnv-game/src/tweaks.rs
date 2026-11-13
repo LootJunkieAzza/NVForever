@@ -360,6 +360,11 @@ pub struct Tweaks {
     pub hide_read_notes: bool,
     /// `bVATSStopBurstIfTargetDead`: a V.A.T.S. burst stops once its target is dead.
     pub vats_burst_stops_on_kill: bool,
+    /// `bVATSDequeueWeaponShotsOnDisarm`: V.A.T.S. attacks marked on an actor's weapon
+    /// are dropped once it holds none.
+    pub vats_drops_disarmed_shots: bool,
+    /// `bVATSAutoTargetHead`: the classic V.A.T.S. selects a target's head first.
+    pub vats_auto_head: bool,
     /// `bRepairRequiresWeaponSkill`: the player repairs a weapon only with Repair at
     /// least its skill requirement.
     pub repair_needs_weapon_skill: bool,
@@ -748,6 +753,8 @@ impl Default for Tweaks {
             no_quest_set_on_complete: false,
             hide_read_notes: false,
             vats_burst_stops_on_kill: false,
+            vats_drops_disarmed_shots: false,
+            vats_auto_head: false,
             repair_needs_weapon_skill: false,
             hide_unknown_names: false,
             terminal_password_prompt: false,

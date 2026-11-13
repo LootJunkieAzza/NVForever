@@ -896,8 +896,9 @@ mod tests {
         let heads: Vec<String> = e.iter().filter_map(|e| if let ViewEntry::Heading(p) = e { Some(p.path()) } else { None }).collect();
         assert_eq!(heads, ["Gameplay > Game", "Gameplay > Dialogue", "Display > Interface", "Controls", "Debug"]);
         // A hidden colour channel is found as its colour, once; a controller's row as the Input Device row.
-        assert_eq!(searched(&list, "hud", vis), ["[Interface]", "hud-colour"]);
-        assert_eq!(searched(&list, "hud", Visibility { colours: [true, false], ..vis }), ["[Interface]", "hud-colour", "hud-red"]);
+        // (The Tweaks tab's Hide HUD control is found by its words too.)
+        assert_eq!(searched(&list, "hud", vis), ["[Interface]", "hud-colour", "[Controls]", "device", "bind:Hide HUD"]);
+        assert_eq!(searched(&list, "hud", Visibility { colours: [true, false], ..vis }), ["[Interface]", "hud-colour", "hud-red", "[Controls]", "device", "bind:Hide HUD"]);
         assert_eq!(searched(&list, "button-style", vis), ["[Controls]", "device"]);
         // A Controls row is found by its words; a control of the device not in use as the
         // Input Device row, first on the tab.

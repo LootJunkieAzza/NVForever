@@ -613,7 +613,9 @@ impl Plugin for HudPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<HudView>()
             .add_plugins((crate::hud_target::HudTargetPlugin, crate::hud_limbs::HudLimbsPlugin, crate::hud_needs::HudNeedsPlugin, crate::hud_breath::HudBreathPlugin))
-            .add_systems(Update, (gather, draw, pips, texts, enemy_colours).chain().in_set(HudSet).in_set(PlaySet::Ui));
+            .init_resource::<HudHidden>()
+            .add_systems(Update, (gather, draw, pips, texts, enemy_colours).chain().in_set(HudSet).in_set(PlaySet::Ui))
+            .add_systems(PostUpdate, hide_parts.before(crate::tiles::vanilla::hide_hand_built).before(bevy::camera::visibility::VisibilitySystems::VisibilityPropagate));
     }
 }
 
@@ -664,6 +666,66 @@ fn picture_node(picture: &Picture, color: Color) -> ImageNode {
 
 #[derive(Component)]
 pub(crate) struct HudRoot;
+
+/// The health and compass piece, bottom left.
+#[derive(Component)]
+struct HpPiece;
+
+/// The action points, condition and ammo piece, bottom right.
+#[derive(Component)]
+struct ApPiece;
+
+/// The parts of the HUD the player's Hide HUD key has hidden: `on` while hidden, and which
+/// parts it hides (the tweak's switches, set by `crate::tweaks`) [design:
+/// docs/design/tweaks.md].
+#[derive(Resource, Default, Clone, Copy, Debug, PartialEq)]
+pub struct HudHidden {
+    pub on: bool,
+    pub compass: bool,
+    pub ammo: bool,
+    pub needs: bool,
+    pub sneak: bool,
+}
+
+impl HudHidden {
+    /// The bottom-left and bottom-right pieces' visibility, which nothing else sets but
+    /// the tiles' hiding (after this).
+    fn corner(&self, part: bool) -> Visibility {
+        if self.on && part {
+            Visibility::Hidden
+        } else {
+            Visibility::Inherited
+        }
+    }
+}
+
+/// The Hide HUD key's parts hidden, after every drawer has set its pieces: the corner
+/// pieces and the sneak word given back (`Inherited`) otherwise, as nothing else sets
+/// theirs but the tiles' hiding (after this); the needs words' drawer shows them again
+/// itself.
+#[allow(clippy::type_complexity)]
+fn hide_parts(
+    hidden: Res<HudHidden>,
+    mut hp: Query<&mut Visibility, (With<HpPiece>, Without<ApPiece>, Without<SneakText>, Without<crate::tiles::vanilla::WordsRoot>)>,
+    mut ap: Query<&mut Visibility, (With<ApPiece>, Without<HpPiece>, Without<SneakText>, Without<crate::tiles::vanilla::WordsRoot>)>,
+    mut sneak: Query<&mut Visibility, (With<SneakText>, Without<HpPiece>, Without<ApPiece>, Without<crate::tiles::vanilla::WordsRoot>)>,
+    mut words: Query<&mut Visibility, (With<crate::tiles::vanilla::WordsRoot>, Without<HpPiece>, Without<ApPiece>, Without<SneakText>)>,
+) {
+    for mut v in &mut hp {
+        v.set_if_neq(hidden.corner(hidden.compass));
+    }
+    for mut v in &mut ap {
+        v.set_if_neq(hidden.corner(hidden.ammo));
+    }
+    for mut v in &mut sneak {
+        v.set_if_neq(hidden.corner(hidden.sneak));
+    }
+    if hidden.on && hidden.needs {
+        for mut v in &mut words {
+            v.set_if_neq(Visibility::Hidden);
+        }
+    }
+}
 
 #[derive(Component, Clone, Copy, PartialEq, Debug)]
 enum Bar {
@@ -757,7 +819,7 @@ fn spawn_hud(commands: &mut Commands, art: &mut Art, images: &mut Assets<Image>,
     commands.spawn((HudRoot, screen, Visibility::Hidden, Pickable::IGNORE)).with_children(|root| {
         // Health and compass, bottom left.
         let piece = Node { position_type: PositionType::Absolute, left: u(MARGIN_X), bottom: u(MARGIN_Y), width: u(HP_PANEL.x), height: u(HP_PANEL.y), ..default() };
-        root.spawn((piece, DrawnByTiles)).with_children(|p| {
+        root.spawn((HpPiece, piece, DrawnByTiles)).with_children(|p| {
             spawn_bracket(p, &art.left_bracket, 0.0, &[LEFT_UPRIGHT], color);
             label(p, HP, places.hp_label, UPPER_BASE);
             spawn_row(p, Bar::Health, places.hp_meter, places.meter_y, METER_WIDTH, PIPS, amber(METER_BRIGHTNESS));
@@ -801,7 +863,7 @@ fn spawn_hud(commands: &mut Commands, art: &mut Art, images: &mut Assets<Image>,
         });
         // Action points, condition and ammo, bottom right.
         let piece = Node { position_type: PositionType::Absolute, right: u(MARGIN_X), bottom: u(MARGIN_Y), width: u(AP_PANEL.x), height: u(AP_PANEL.y), ..default() };
-        root.spawn((piece, DrawnByTiles)).with_children(|p| {
+        root.spawn((ApPiece, piece, DrawnByTiles)).with_children(|p| {
             spawn_bracket(p, &art.right_bracket, RIGHT_BRACKET_X, &[RIGHT_UPRIGHT, DIVIDER], color);
             spawn_row(p, Bar::ActionPoints, places.ap_meter, places.meter_y, METER_WIDTH, PIPS, amber(METER_BRIGHTNESS));
             label(p, AP, places.ap_label, UPPER_BASE);
@@ -1185,6 +1247,14 @@ fn enemy_colours(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_hide_hud_key_hides_only_its_chosen_parts() {
+        let mut h = HudHidden { on: false, compass: true, ammo: false, needs: true, sneak: true };
+        assert_eq!((h.corner(h.compass), h.corner(h.ammo)), (Visibility::Inherited, Visibility::Inherited));
+        h.on = true;
+        assert_eq!((h.corner(h.compass), h.corner(h.ammo)), (Visibility::Hidden, Visibility::Inherited));
+    }
 
     #[test]
     fn enemy_ink_tracks_hostility_without_rebuilding_any_children() {

@@ -461,6 +461,14 @@ pub struct TweakSettings {
     /// `bRememberPipboyScrollPositions`: the Pip-Boy's item lists open where they were
     /// left, kept with the save ([`ItemPlaces`]).
     pub remember_item_places: bool,
+    /// `iHideHUDKey`: what the Hide HUD key hides: the health and compass piece, the
+    /// action points and ammo piece, the Hardcore needs words and the sneak word.
+    pub hide_hud_compass: bool,
+    pub hide_hud_ammo: bool,
+    pub hide_hud_needs: bool,
+    pub hide_hud_sneak: bool,
+    /// `iHideHUDKey` `bHideByDefault`: a loaded save starts with those parts hidden.
+    pub hide_hud_on_load: bool,
     /// `bTerminalGreyReadNotes`: terminal entries whose note was read are drawn dimmer.
     pub grey_read_notes: bool,
     /// `bScaleWeaponVolume`: the loudness of the player's shot sounds, a percentage.
@@ -727,6 +735,11 @@ impl Default for TweakSettings {
             keep_fall_height_on_load: false,
             remember_item_places: false,
             grey_read_notes: false,
+            hide_hud_compass: true,
+            hide_hud_ammo: true,
+            hide_hud_needs: true,
+            hide_hud_sneak: true,
+            hide_hud_on_load: false,
             player_weapon_volume: 100.0,
             npc_weapon_volume: 100.0,
             compass_quest_height: false,
@@ -866,11 +879,12 @@ pub struct TweaksPlugin;
 impl Plugin for TweaksPlugin {
     fn build(&self, app: &mut App) {
         crate::save::add_save_hook(app, ITEM_PLACES_SAVE_HOOK);
+        crate::save::add_save_hook(app, HIDE_HUD_SAVE_HOOK);
         app.init_resource::<TweakSettings>()
             .init_resource::<ItemPlaces>()
             .add_systems(Update, remember_item_places.after(crate::menu::MenuSystems))
             .add_systems(Update, sync.in_set(crate::PlaySet::Input))
-            .add_systems(Update, (keys, drop_weapon, radio_volume_keys, last_weapon, hold_breath, repeat_activate, toggle_sight, place_marker_here, clear_near_marker).in_set(crate::PlaySet::Input))
+            .add_systems(Update, (keys, drop_weapon, radio_volume_keys, last_weapon, hold_breath, repeat_activate, toggle_sight, place_marker_here, clear_near_marker, hide_hud_key).in_set(crate::PlaySet::Input))
             .add_systems(Update, objectives_on_arrival.in_set(crate::PlaySet::Ui))
             .add_systems(PreUpdate, trigger_dead_zones.before(bevy::input::InputSystems))
             .add_systems(Update, ap_costs.after(crate::PlaySet::Input).after(crate::player::encumbered_walks).before(crate::PlaySet::Physics));
@@ -1495,6 +1509,8 @@ impl Plugin for TweaksPlugin {
         switch!(app, "tab-closes-terminals", "Tab Closes Terminals", "Tab closes a terminal from any page instead of going back a page (Backspace still goes back). (Stewie's Tweaks bTabClosesTerminals)", tab_closes_terminals);
         switch!(app, "tab-back-in-pause", "Tab Goes Back in the Pause Menu", "Tab goes back a page in the pause menu, as Backspace does (the Settings and Controls pages keep Tab for their tabs). (Stewie's Tweaks bTabBackInStartMenu)", tab_back_in_pause);
         switch!(app, "unsafe-fast-travel", "Fast Travel From Anywhere", "Fast travel works from places flagged against it, such as interiors; leaving a scripted place this way can break it. (Stewie's Tweaks bAllowUnsafeFastTravel)", unsafe_fast_travel);
+        switch!(app, "vats-auto-head", "V.A.T.S. Starts on the Head", "In the classic V.A.T.S., a target's head is selected first rather than the part easiest to hit. (Stewie's Tweaks bVATSAutoTargetHead)", game.vats_auto_head);
+        switch!(app, "vats-drops-disarmed-shots", "V.A.T.S. Drops Shots at a Lost Weapon", "Attacks queued in V.A.T.S. on someone's weapon are not played once they no longer hold it. (Stewie's Tweaks bVATSDequeueWeaponShotsOnDisarm)", game.vats_drops_disarmed_shots);
         switch!(app, "vats-burst-stops-on-kill", "V.A.T.S. Burst Stops on a Kill", "The rest of a burst in V.A.T.S. is not fired once its target is dead. (Stewie's Tweaks bVATSStopBurstIfTargetDead)", game.vats_burst_stops_on_kill);
         switch!(app, "repair-needs-weapon-skill", "Repair Needs the Weapon's Skill", "The player can repair a weapon only with Repair at least the weapon's skill requirement. (Stewie's Tweaks bRepairRequiresWeaponSkill)", game.repair_needs_weapon_skill);
         add_setting(
@@ -1741,6 +1757,11 @@ impl Plugin for TweaksPlugin {
         switch!(app, "recent-markers-red", "New Places Red on the Map", "Places you found since starting NVForever are drawn red on the world map. (Stewie's Tweaks bColorRecentlyAddedMapMarkers)", game.recent_markers_red);
         switch!(app, "compass-quest-height", "Quest Marker Height", "A quest marker on the compass more than a storey above or below you has a short bar over or under it. (Stewie's Tweaks bCompassQuestHeightIndicator)", compass_quest_height);
         switch!(app, "compass-marker-height", "Your Marker's Height", "Your own map marker on the compass, more than a storey above or below you, has a short bar over or under it. (Stewie's Tweaks bPlacedMarkerHeightIndicator)", compass_marker_height);
+        switch!(app, "hide-hud-compass", "Hide HUD Key: Health and Compass", "The Hide HUD key (on the Controls page) hides the health bar and compass. (Stewie's Tweaks iHideHUDKey)", hide_hud_compass);
+        switch!(app, "hide-hud-ammo", "Hide HUD Key: Action Points and Ammo", "The Hide HUD key hides the action points, condition and ammo. (Stewie's Tweaks iHideHUDKey)", hide_hud_ammo);
+        switch!(app, "hide-hud-needs", "Hide HUD Key: Hardcore Needs", "The Hide HUD key hides the Hardcore needs words. (Stewie's Tweaks iHideHUDKey)", hide_hud_needs);
+        switch!(app, "hide-hud-sneak", "Hide HUD Key: Sneak", "The Hide HUD key hides the sneak word. (Stewie's Tweaks iHideHUDKey)", hide_hud_sneak);
+        switch!(app, "hide-hud-on-load", "Hide HUD Key: Hidden After Loading", "A loaded save starts with the Hide HUD key's parts hidden. (Stewie's Tweaks iHideHUDKey)", hide_hud_on_load);
         switch!(app, "grey-read-notes", "Dim Read Terminal Entries", "A terminal entry whose note the player has read is drawn dimmer from then on (entries read before it was switched on are not). (Stewie's Tweaks bTerminalGreyReadNotes)", grey_read_notes);
         switch!(app, "remember-item-places", "Remember Item List Places", "The Pip-Boy's item lists open on the row they were left on, each tab its own, and a save keeps them. (Stewie's Tweaks bRememberPipboyScrollPositions)", remember_item_places);
         amount!(app, "player-weapon-volume", "Your Weapon Volume", "How loud the player's shots are, in percent of the recorded sound; 100 changes nothing. (Stewie's Tweaks bScaleWeaponVolume)", 200.0, f32, player_weapon_volume);
@@ -1984,6 +2005,39 @@ fn place_marker_here(
 }
 
 /// The Clear Marker When Near tweak: the custom map marker goes when the player comes
+/// The Hide HUD key (`crate::bindings::Control::HideHud`) hides the parts of the HUD its
+/// switches choose, or shows them again (`crate::hud::HudHidden`); at the start, under
+/// Hidden After Loading, they start hidden [design: docs/design/tweaks.md].
+fn hide_hud_key(input: crate::bindings::ControlInput, state: Res<State<crate::PlayState>>, tweaks: Res<TweakSettings>, hidden: Option<ResMut<crate::hud::HudHidden>>, mut started: Local<bool>) {
+    let Some(mut hidden) = hidden else { return };
+    if !std::mem::replace(&mut *started, true) {
+        hidden.on = tweaks.hide_hud_on_load;
+    }
+    if *state.get() == crate::PlayState::Playing && input.just_pressed(crate::bindings::Control::HideHud) {
+        hidden.on = !hidden.on;
+        info!("hud: the Hide HUD key {} its parts (tweak)", if hidden.on { "hides" } else { "shows" });
+    }
+    let parts = (tweaks.hide_hud_compass, tweaks.hide_hud_ammo, tweaks.hide_hud_needs, tweaks.hide_hud_sneak);
+    if (hidden.compass, hidden.ammo, hidden.needs, hidden.sneak) != parts {
+        (hidden.compass, hidden.ammo, hidden.needs, hidden.sneak) = parts;
+    }
+}
+
+/// A loaded save starts with the Hide HUD key's parts hidden under Hidden After Loading,
+/// else shown: the save holds a mark only so that its load comes here (a save made before
+/// it leaves the HUD as it was).
+pub const HIDE_HUD_SAVE_HOOK: crate::save::SaveHook = crate::save::SaveHook {
+    key: "hide_hud",
+    save: |_| Some(serde_json::Value::Bool(true)),
+    load: |w, _| {
+        let on = w.get_resource::<TweakSettings>().is_some_and(|t| t.hide_hud_on_load);
+        if let Some(mut h) = w.get_resource_mut::<crate::hud::HudHidden>() {
+            h.on = on;
+        }
+    },
+    remap: None,
+};
+
 /// Where the player left each of the inventory's lists, by category: the selected row
 /// and the first row shown. Kept with the save; used under the Remember Item List Places
 /// tweak [design: docs/design/tweaks.md].
