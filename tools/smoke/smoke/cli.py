@@ -274,20 +274,32 @@ def cmd_run(a, suite: Suite, say) -> int:
     say(f"{len(chosen)} scenarios in {len(games)} game launches and {len(launches) - len(games)} tool runs; logs in {env.out}")
     if games:
         say(f"nvforever: {env.exe}")
-    # `front = true` launches need the screen to themselves (smoke/front.py).
-    slot_count = 1 if a.exclusive else (a.jobs if a.no_locks else (a.slots or slots.default_count()))
-    refused = front.refusal([x.name for x in games if x.front], slot_count or 1, a.exclusive)
-    if refused:
-        raise SystemExit(refused)
-    locks, jobs = game_gate(a, say, game_groups(launches))
-    if jobs > 1 and len(launches) > 1:
-        say(f"up to {jobs} launches at once (smoke slots: {locks.count if isinstance(locks, slots.Slots) else 'none'})")
+    # `front = true` launches need the screen to themselves: run after the others, one at a
+    # time under both game locks (smoke/front.py).
+    rest, fronts = front.split(launches)
     started = time.monotonic()
-    try:
-        verdicts = run_launches(launches, env, locks, jobs, a, say)
-    finally:
-        if locks:
-            locks.finish()
+    verdicts = []
+    if rest:
+        locks, jobs = game_gate(a, say, game_groups(rest))
+        if jobs > 1 and len(rest) > 1:
+            say(f"up to {jobs} launches at once (smoke slots: {locks.count if isinstance(locks, slots.Slots) else 'none'})")
+        try:
+            verdicts = run_launches(rest, env, locks, jobs, a, say)
+        finally:
+            if locks:
+                locks.finish()
+    if fronts:
+        say(f"{len(fronts)} launches hold their window in front (front = true): run last, one at a time with the machine to themselves")
+        paths = default_lock_paths(a.repo)
+        alone = None if a.no_locks or not paths else Locks(paths, poll=a.lock_poll, say=say)
+        try:
+            verdicts += run_launches(fronts, env, alone, 1, a, say)
+        finally:
+            if alone:
+                alone.finish()
+        for x in fronts:
+            line = front.last_line(env.out / f"{x.name}.front.txt")
+            say(f"  {x.name}: {line or 'front: no record (not on Windows, or the launch did not start)'}")
     checks_ok = run_checks(checks, env, say) if (a.checks and checks) else True
     return finish(verdicts, env, time.monotonic() - started, checks_ok, say)
 

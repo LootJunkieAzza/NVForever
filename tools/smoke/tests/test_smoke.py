@@ -349,11 +349,37 @@ class FrontTests(unittest.TestCase):
         with self.assertRaises(ScenarioError):
             load_text(game("a", extra='launch = "L"\nfront = true') + game("b", extra='launch = "L"'))
 
-    def test_refused_with_more_than_one_slot(self):
-        self.assertIn("--slots 1", front.refusal(["a"], 3, False))
-        self.assertIsNone(front.refusal(["a"], 1, False))
-        self.assertIsNone(front.refusal(["a"], 3, True))
-        self.assertIsNone(front.refusal([], 3, False))
+    def test_front_launches_run_last_on_their_own(self):
+        suite = load_text(game("a") + game("b", extra="front = true") + game("c"))
+        rest, fronts = front.split(plan(suite, suite.scenarios))
+        self.assertEqual([x.name for x in rest], ["a", "c"])
+        self.assertEqual([x.name for x in fronts], ["b"])
+
+    def test_what_it_did_goes_to_its_own_file(self):
+        class Fake:
+            def windows(self):
+                return [(4, 7, True, False)]
+
+            def foreground(self):
+                return 1
+
+            def bring_forward(self, hwnd):
+                pass
+
+        with tempfile.TemporaryDirectory() as d:
+            log = Path(d) / "x.front.txt"
+            holder = front.Front(7, api=Fake(), log=log)
+            holder.once()
+            holder.stop()
+            text = log.read_text(encoding="utf-8")
+            self.assertIn("front: process 7's window found", text)
+            self.assertIn("front: brought forward (1)", text)
+            self.assertEqual(front.last_line(log).split(" s ", 1)[1], "front: window held in front, brought forward 1 time(s) in 1 looks")
+            missing = front.Front(8, api=Fake(), log=Path(d) / "y.front.txt")
+            missing.once()
+            missing.stop()
+            self.assertIn("never found", front.last_line(Path(d) / "y.front.txt"))
+        self.assertIsNone(front.last_line(Path("no-such-dir") / "z.front.txt"))
 
     def test_only_the_processs_own_window_is_brought_forward(self):
         class Fake:
