@@ -513,6 +513,64 @@ PAGELESS += [
 ]
 
 
+
+# Batch 4 (#2326): ShowOff, SUP, One111, ITR and JohnnyGuitar's small families; shapes
+# from the compile-shape run (a shape no pattern compiled gets optional numbers),
+# behaviour from set rest4 (docs/spec-notes/ext-unlisted-rest.md §8).
+_ANY = [_p(f"arg{i}", "unknown", None, True) for i in range(1, 7)]
+for _a in _ANY:
+    _a["type"] = None
+_IT, _JG, _O1 = "ITR", "JohnnyGuitar", "One111"
+PAGELESS += [
+    _x("GetActorCoverState", _IT, "int", ref="reference"), _x("GetActorCoverInfo", _IT, "array", ref="reference"),
+    _x("GetCurrentDialogue", _IT, "int"), _x("GetEligiblePerksEx", _IT, "array", [_R("actor"), _I("flag", True)]),
+    _x("SetDismemberedLimbVelocity", _IT, "int", [_I("limb"), _F("x"), _F("y"), _F("z"), _I("a", True), _I("b", True)], ref="reference"),
+    _x("SpawnTempParticle", _IT, "int", [_F(f"v{i}") for i in range(1, 10)]),
+    _x("GetCameraShotPath", _JG, "int", [_p("cameraShot", "form")]),
+    _x("SetCameraShotPath", _JG, "int", [_p("cameraShot", "form"), _S("path")]),
+    _x("GetCasinoDeckTexture", _JG, "string_var", [_p("casino", "form"), _I("deck", True)]),
+    _x("SetCasinoDeckTexture", _JG, "int", [_p("casino", "form"), _I("deck", True), _I("flag", True)]),
+    _x("GetExtraAccuracyPenaltyMult", _JG, "float", [_S("key", True)], ref="reference"),
+    _x("SetExtraAccuracyPenaltyMult", _JG, "int", [_F("mult"), _S("key", True)], ref="reference"),
+    _x("RemoveExtraAccuracyPenaltyMult", _JG, "int", [_S("key", True)], ref="reference"),
+    _x("GetSwitchNodeIndex", _JG, "int", [_S("node"), _I("flag", True)], ref="reference"),
+    _x("SetMusicTypePath", _JG, "int", [_p("musicType", "form"), _S("path")]),
+    _x("SetMediaLocationControllerOverride", _JG, "int", [_p("controller", "form")], aliases=["SetMLCOverride"]),
+    _x("ClearMediaLocationControllerOverride", _JG, "int", aliases=["ClearMLCOverride"]),
+    _x("GetPackedPlayerFOV", _JG, "int", list(_ANY)), _x("JGLegacyWorldToScreen", _JG, "int", list(_ANY)),
+    _x("SetBlockTransform", _JG, "int", list(_ANY)), _x("SetDialogResponseOverrideValues", _JG, "int", list(_ANY)),
+    _x("GetWeapAdditionalFloat", _O1, "float", [_p("weapon", "form"), _I("which")]),
+    _x("SetWeapAdditionalFloat", _O1, "int", [_p("weapon", "form"), _I("which"), _F("value")]),
+    _x("SetWeapAdditionalFlag", _O1, "int", [_p("weapon", "form"), _I("flag"), _I("on")]),
+    _x("SetOnDamageCalcFlag", _O1, "int", [_I("flag")]), _x("AddPerkEntry", _O1, "int", list(_ANY)),
+    _x("IsTemporaryReference", _SO, "int", ref="reference", aliases=["IsTempRefr"]),
+    _x("GetWorldOffsetPosArray", _SO, "array", ref="reference"),
+    _x("GetLevelUpMenuUnspentPoints", _SO, "int", [_I("which")]), _x("SetLevelUpMenuPoints", _SO, "int", [_I("which"), _I("points")]),
+    _x("GetPipboyRadioVoiceEntryData", _SO, "array", [_I("index"), _I("flag", True)]),
+    _x("GetNoEquipShowOff", _SO, "int", [_p("item", "form"), _I("flag")], aliases=["GetNoEquipSO"]),
+    _x("SetNoEquipShowOff", _SO, "int", [_p("item", "form"), _I("noEquip")], aliases=["SetNoEquipSO"]),
+    _x("SayTo_GetSpeakingActor", _SO, "ref"), _x("SayTo_GetQuest", _SO, "ref"),
+    _x("GetLiveEffectBaseTrait", _SO, "float", [_I("trait")]),
+    _x("SetLiveEffectMagnitudeModifier", _SO, "int", [_I("effect"), _F("modifier")]),
+    _x("ShowingOffDisable", _SO, "int", [_I("value", True)], aliases=["DisableIFYouDidntNotice"]),
+    _x("ShowingOffEnable", _SO, "int", [_I("value", True)], aliases=["EnableIFYouDidntNotice"]),
+    _x("MessageExAltShowoff", _SO, "int", [_F("time"), _I("flag")] + [dict(p) for p in _FMT]),
+    _x("BaseCopyFaceGenFrom", _SO, "int", [_p("to", "form"), _p("from", "form")]),
+    _x("SetFactionCombatReactionTemp", _SO, "int", list(_ANY)),
+    _x("CompareNifBlocks", "SUP", "array", [_S("node"), _I("flag")], ref="reference"),
+    _x("GetNifChildrenIDsByName", "SUP", "array", [_S("node")], ref="reference"),
+    _x("GetNifChildrenIDsByID", "SUP", "array", [_I("id"), _I("flag")], ref="reference"),
+    _x("GetNifTypeByID", "SUP", "int", [_I("id"), _I("flag")], ref="reference"),
+    _x("GetNifStringByID", "SUP", "string_var", [_I("id"), _I("flag")], ref="reference"),
+    _x("SUPGetConditionVarFloat", "SUP", "float", [_I("index")]),
+    _x("TopicGetTopicInfoQuest", "SUP", "ref", [_p("info", "form")]),
+    _x("HudBarSetForceHide", "SUP", "int", [_I("bar"), _I("hide"), _S("name")], aliases=["HBSetForceHide"]),
+    _x("HudBarGetPos", "SUP", "int", list(_ANY), aliases=["HBGetPos"]),
+    _x("GetCalculatedPosFrame", "SUP", "int", list(_ANY)), _x("GetNifBlockTranslationToVars", "SUP", "int", list(_ANY)),
+    _x("TopicReplaceTopicInfo", "SUP", "int", list(_ANY)),
+]
+
+
 # Pages whose template `name` is another function's (copied from a sibling page): the
 # page title is the function's name [documented: each page's title and its example,
 # e.g. "GetConditionFormOneFloat HitReactionIdles 0 1"; the template says

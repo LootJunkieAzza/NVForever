@@ -193,8 +193,54 @@ crashed ran alone]. Code: `crates/fnv-game/src/nvse_unlisted2.rs`.
   (`knv2.dir.*`). NVForever lists Data through its read roots (NVForever's layer, then the
   game's Data) and nothing outside Data [decision].
 
-## 8. Left for the next batches
+## 8. ShowOff, SUP, One111, ITR and JohnnyGuitar: the small families (batch 4)
 
-JIP's (~50), JohnnyGuitar's (17), the rest of ShowOff's (~13), SUP's NIF and misc commands
-(~10), One111's (5) and ITR's (6). Their shapes are in the compile-shape run; each family
-gets its probe set.
+Probed on a placed Doc Mitchell, the player and vanilla forms [observed: set rest4; the
+setters that change the world ran one per launch]. Most of these answered a constant
+whatever was asked, and what they change was not seen. For those, NVForever gives the
+original's answer and changes nothing.
+
+**Answers with a meaning NVForever follows:**
+- **GetWorldOffsetPosArray** (ShowOff): `[x, y, z]`, the reference's position
+  (37198.9 -117368.7 6056.0 for Doc outside the airport) [hypothesis: the probed worldspace
+  has no offset].
+- **TopicGetTopicInfoQuest** `info` (SUP): the dialogue line's quest (0008D243); no form for
+  a topic.
+- **GetCasinoDeckTexture** `casino index` (JohnnyGuitar): the deck's back texture, the
+  casino's ICO2 entries in order (`terminals\NV_PlayingCards\DeckB\cardB_Back.dds` for the
+  Atomic Wrangler).
+
+**Constant answers** (each [observed] for the inputs probed; their meaning is open):
+
+| Answer | Commands |
+|---|---|
+| -1 | GetActorCoverState (ITR, Doc not in cover), GetWeapAdditionalFloat (One111, before and after the setter), HudBarSetForceHide (SUP) |
+| 1 | GetExtraAccuracyPenaltyMult (JG, no key); GetCameraShotPath (JG: 1, 3 after SetCameraShotPath); SetCameraShotPath, SetMusicTypePath, SetMediaLocationControllerOverride, ClearMediaLocationControllerOverride (JG); BaseCopyFaceGenFrom (ShowOff) |
+| 0 | SetDismemberedLimbVelocity (ITR); SetWeapAdditionalFloat, SetWeapAdditionalFlag, SetOnDamageCalcFlag (One111); IsTemporaryReference (ShowOff: 0 for the player, a placed Doc and a placed record reference alike); Get/SetLevelUpMenu…, Get/SetNoEquipShowOff (the getter read 0 after the setter), GetLiveEffectBaseTrait, SetLiveEffectMagnitudeModifier, MessageExAltShowoff (ShowOff) |
+| empty array | GetEligiblePerksEx (ITR), GetPipboyRadioVoiceEntryData (ShowOff), CompareNifBlocks (SUP) |
+| no form | SayTo_GetSpeakingActor, SayTo_GetQuest (ShowOff) outside a SayTo |
+
+**Answers NVForever does not match**, with what the original gave:
+- **GetActorCoverInfo** (ITR): a string map of five keys the probe did not read. NVForever
+  gives an empty one.
+- **GetNifChildrenIDsByName** (SUP): an array of 1 for `Bip01` and 2 for `Bip01 Head`;
+  NVForever gives an empty array. **GetNifChildrenIDsByID** gave no array, and
+  **GetNifTypeByID** and **GetNifStringByID** failed the call; NVForever gives no array, 0
+  and "".
+- **ShowingOffDisable / Enable** (ShowOff), **SpawnTempParticle** (ITR) and
+  **SUPGetConditionVarFloat** (SUP) failed the call. NVForever answers 0.
+- **GetCurrentDialogue** (ITR) did not compile as an array, and its return was not seen.
+  NVForever answers 0.
+- **SetExtraAccuracyPenaltyMult / RemoveExtraAccuracyPenaltyMult** (JG) and
+  GetExtraAccuracyPenaltyMult with a key did not compile in the probe. NVForever answers 1.
+
+**No argument pattern compiled**, so the shape is unknown. These get optional arguments
+and answer 0: AddPerkEntry (One111); GetPackedPlayerFOV, JGLegacyWorldToScreen,
+SetBlockTransform, SetDialogResponseOverrideValues (JG); SetFactionCombatReactionTemp
+(ShowOff); HudBarGetPos, GetCalculatedPosFrame, GetNifBlockTranslationToVars,
+TopicReplaceTopicInfo (SUP).
+
+## 9. Left for the next batch
+
+JIP's ~52 (CCCTaskPackageFlags and the container sound setters among them). Their shapes
+are in the compile-shape run.

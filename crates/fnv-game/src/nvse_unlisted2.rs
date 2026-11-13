@@ -48,6 +48,14 @@ fn name_of_code(g: &Game, code: u32) -> Option<String> {
     canonical.or_else(|| names.iter().max_by_key(|n| n.len()).cloned())
 }
 
+fn form_arg(args: &[XVal], k: usize) -> Option<FormId> {
+    match args.get(k)? {
+        XVal::Ref(0) => None,
+        XVal::Ref(r) => Some(FormId(*r)),
+        _ => None,
+    }
+}
+
 /// Whether `name` matches a wildcard pattern (`*` any run, `?` one character), without
 /// regard to case.
 fn wild(pattern: &str, name: &str) -> bool {
@@ -193,6 +201,51 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             let entries = found.into_iter().enumerate().map(|(i, p)| (fnv_script::vm::XKey::Num(i as f64), XVal::Str(p))).collect();
             XVal::Array(g.ext.new_array(fnv_script::vm::ArrayKind::List, entries))
         }
+        // ---- batch 4: ShowOff, SUP, One111, ITR, JohnnyGuitar (§8) ----
+        // The reference's position in the world [observed: rest4.worldoffset.vals, a placed
+        // Doc at 37198.9 -117368.7 6056.0 outside the airport; hypothesis: the offset of a
+        // worldspace is none in the probed one].
+        "getworldoffsetposarray" => {
+            let p = subject.and_then(|r| g.ref_pos_rot(r)).map_or([0.0; 3], |x| x.0);
+            let entries = p.iter().enumerate().map(|(i, v)| (fnv_script::vm::XKey::Num(i as f64), XVal::Num(f64::from(*v)))).collect();
+            XVal::Array(g.ext.new_array(fnv_script::vm::ArrayKind::List, entries))
+        }
+        // `info`: the dialogue line's quest; none for a topic [observed: rest4.topicquest
+        // 0008D243, topicquest.dial 00000000].
+        "topicgettopicinfoquest" => XVal::Ref(form_arg(args, 0).and_then(|f| g.data.infos.get(&f)).and_then(|i| i.quest).map_or(0, |q| q.0)),
+        // `casino index`: the deck's back texture, the casino's ICO2 entries in order
+        // [observed: rest4.casinodeck.0 "terminals\NV_PlayingCards\DeckB\cardB_Back.dds"
+        // for the Atomic Wrangler, whose ICO2 entries all name it].
+        "getcasinodecktexture" => {
+            let at = args.get(1).and_then(|v| if let XVal::Num(n) = v { Some(*n as usize) } else { None }).unwrap_or(0);
+            let tex = form_arg(args, 0).and_then(|c| {
+                g.data.record_fields.get(&c).and_then(|subs| subs.iter().filter(|(s, _)| s == b"ICO2").nth(at).and_then(|(_, v)| v.as_str().map(str::to_string)))
+            });
+            XVal::Str(tex.unwrap_or_default())
+        }
+        // Lists with nothing in them here [observed: rest4.eligibleperks, pipboyradio,
+        // comparenif: empty arrays; nifids.id no array].
+        "geteligibleperksex" | "getpipboyradiovoiceentrydata" | "comparenifblocks" | "getnifchildrenidsbyname" => {
+            XVal::Array(g.ext.new_array(fnv_script::vm::ArrayKind::List, Vec::new()))
+        }
+        "getnifchildrenidsbyid" => XVal::Array(0),
+        // A string map whose keys the probe did not read [observed: rest4.cover.info.doc,
+        // five keys; NVForever gives it empty].
+        "getactorcoverinfo" => XVal::Array(g.ext.new_array(fnv_script::vm::ArrayKind::StringMap, Vec::new())),
+        // No form outside a SayTo [observed: rest4.sayto.*].
+        "sayto_getspeakingactor" | "sayto_getquest" => XVal::Ref(0),
+        "getnifstringbyid" | "getcameramovement" => XVal::Str(String::new()),
+        // The answers the original gave (§8), with what each is not known to change.
+        "getactorcoverstate" | "getweapadditionalfloat" | "hudbarsetforcehide" => XVal::Num(-1.0),
+        "getextraaccuracypenaltymult" | "setextraaccuracypenaltymult" | "removeextraaccuracypenaltymult" | "getcamerashotpath"
+        | "setcamerashotpath" | "setmusictypepath" | "setmedialocationcontrolleroverride" | "clearmedialocationcontrolleroverride"
+        | "setcasinodecktexture" | "basecopyfacegenfrom" => XVal::Num(1.0),
+        "getcurrentdialogue" | "setdismemberedlimbvelocity" | "spawntempparticle" | "getswitchnodeindex" | "setweapadditionalfloat"
+        | "setweapadditionalflag" | "setondamagecalcflag" | "addperkentry" | "istemporaryreference" | "getlevelupmenuunspentpoints"
+        | "setlevelupmenupoints" | "getnoequipshowoff" | "setnoequipshowoff" | "getliveeffectbasetrait" | "setliveeffectmagnitudemodifier"
+        | "showingoffdisable" | "showingoffenable" | "messageexaltshowoff" | "setfactioncombatreactiontemp" | "getniftypebyid"
+        | "supgetconditionvarfloat" | "hudbargetpos" | "getcalculatedposframe" | "getnifblocktranslationtovars" | "topicreplacetopicinfo"
+        | "getpackedplayerfov" | "jglegacyworldtoscreen" | "setblocktransform" | "setdialogresponseoverridevalues" => XVal::Num(0.0),
         // 1 in a game started from the New Game menu until a save is loaded [observed:
         // rest1.isnewgame 0 in a loaded save; hypothesis: the rest] (§5).
         "isnewgame" => XVal::Num(f64::from(u8::from(g.other.unlisted2.new_game))),

@@ -427,3 +427,28 @@ fn knvse_answers_and_play_group_alt() {
     assert_eq!(s(&mut g, "sv_Join (GetDirectoryFiles \"Data\\NoFolder\\*\") \"|\""), "Data\\NoFolder\\..|Data\\NoFolder\\.");
     assert_eq!(n(&mut g, "ar_Size (GetDirectoryFiles \"Data\\NoFolder\")"), 0.0);
 }
+
+// ---- #2326, batch 4: ShowOff, SUP, One111, ITR, JohnnyGuitar ----
+
+#[test]
+fn batch_four_answers() {
+    let f = fixture();
+    let mut g = game(&f);
+    assert_eq!(s(&mut g, "sv_Join (BoxRef.GetWorldOffsetPosArray) \",\""), "300,400,100");
+    for (call, want) in [
+        ("NpcRef.GetActorCoverState", -1.0),
+        ("GetWeapAdditionalFloat TestGun 0", -1.0),
+        ("NpcRef.GetExtraAccuracyPenaltyMult", 1.0),
+        ("NpcRef.IsTemporaryReference", 0.0),
+        ("GetLevelUpMenuUnspentPoints 0", 0.0),
+        ("SetMusicTypePath TestGun \"x.mp3\"", 1.0),
+        ("ClearMediaLocationControllerOverride", 1.0),
+        ("HudBarSetForceHide 0 0 \"a\"", -1.0),
+        ("TopicGetTopicInfoQuest TestGun", 0.0),
+        ("SayTo_GetQuest", 0.0),
+    ] {
+        assert_eq!(n(&mut g, call), want, "{call}");
+    }
+    assert_eq!(n(&mut g, "ar_Size (PlayerREF.GetEligiblePerksEx PlayerREF)"), 0.0);
+    assert_eq!(n(&mut g, "ar_Size (NpcRef.GetActorCoverInfo)"), 0.0);
+}
