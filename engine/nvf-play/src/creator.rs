@@ -352,16 +352,18 @@ fn input(
     mut aid: ResMut<CreatorAid>,
     time: AidTime,
     real: Res<Time<Real>>,
-    keys: Res<ButtonInput<KeyCode>>,
-    mouse: Res<ButtonInput<MouseButton>>,
+    keys: crate::pad::ActionButtons<KeyCode>,
+    mouse: crate::pad::ActionButtons<MouseButton>,
     motion: Res<AccumulatedMouseMotion>,
     mut wheel: MessageReader<MouseWheel>,
     windows: Query<&Window, With<PrimaryWindow>>,
-    pads: Query<&Gamepad>,
+    pads: crate::pad::ActionPads,
     mut script: Option<ResMut<ScriptState>>,
     mut sim: Option<ResMut<SimState>>,
     mut sounds: MessageWriter<UiSound>,
 ) {
+    let keys = keys.snapshot();
+    let mouse = mouse.snapshot();
     let wheel: f32 = wheel.read().map(|w| if w.unit == MouseScrollUnit::Line { w.y } else { w.y / 40.0 }).sum();
     if st.model.is_none() || st.answered {
         return;
@@ -407,7 +409,7 @@ fn input(
         }
     }
     // The controller's own buttons [design].
-    for g in &pads {
+    for g in pads.iter() {
         for (b, op) in [
             (GamepadButton::West, Op::Act(Action::Randomise)),
             (GamepadButton::North, Op::Act(Action::Undo)),

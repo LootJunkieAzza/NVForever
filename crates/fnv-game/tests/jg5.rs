@@ -3,7 +3,7 @@
 //! region map names and the location name, camera shots, body part strings, sounds,
 //! equip types, recipe and weapon mod lookups, actor effect types and the time played.
 
-mod common;
+use crate::common;
 
 use common::*;
 use fnv_esm::{LoadOrder, Plugin, Schema};
