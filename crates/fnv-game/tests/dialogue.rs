@@ -1,7 +1,7 @@
 //! Conversations (docs/spec-notes/dialogue.md §4–§6) on a synthetic plugin built in
 //! memory, one small test per rule; no game data. Real-data checks: `dialogue_data.rs`.
 
-mod common;
+use crate::common;
 
 use common::*;
 use fnv_esm::raw::Subrecord;

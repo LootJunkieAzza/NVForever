@@ -2,7 +2,7 @@
 //! and actors out of fatigue are knocked out, answer the script functions as the wiki
 //! says, are left alone, and get up again; on a synthetic plugin.
 
-mod common;
+use crate::common;
 
 use common::*;
 use fnv_esm::{LoadOrder, Plugin, Schema};

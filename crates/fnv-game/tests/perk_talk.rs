@@ -2,7 +2,7 @@
 //! activators speaking for their talking actor, on a synthetic plugin (no game data).
 //! docs/spec-notes/perk-activation.md, docs/spec-notes/talking-activators.md.
 
-mod common;
+use crate::common;
 
 use common::*;
 use fnv_esm::raw::Subrecord;

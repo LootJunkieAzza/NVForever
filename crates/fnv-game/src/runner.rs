@@ -853,6 +853,21 @@ fn num_arg(x: f64) -> ArgValue {
     ArgValue::Value(Value::Num(x))
 }
 
+/// Apply `given` entries (the runner input's JSON, as `ext_save::save_given` writes them) to
+/// a game already running, in order; an entry that cannot be read or applied is returned
+/// with its index and the reason, and the rest still go in. The engine's query job uses it
+/// to give a run the original's save (#1024), as `fnvtool ext queries --save` does.
+pub fn apply_given_entries(g: &mut Game, given: &[Json]) -> Vec<Json> {
+    let mut errors = Vec::new();
+    for (i, v) in given.iter().enumerate() {
+        let r = serde_json::from_value::<Given>(v.clone()).map_err(|e| e.to_string()).and_then(|gv| apply_given(g, &gv));
+        if let Err(e) = r {
+            errors.push(json!({"given": i, "error": e}));
+        }
+    }
+    errors
+}
+
 fn apply_given(g: &mut Game, gv: &Given) -> Result<(), String> {
     match gv {
         Given::Quest { quest: name, running, completed, stage, done, not_done, objectives, vars, refs } => {
@@ -1317,18 +1332,8 @@ fn step(g: &mut Game, st: &mut RunState, a: &Action) -> Result<Observed, String>
             lab = l.clone();
         }
         Action::Query { script, label: l, text } => {
-            use fnv_script::vm::XVal;
-            // A runtime-compiled query runs on no reference [observed: GetSelfAlt gives none
-            // in the original's capture queries].
-            let ctx = crate::game::RunCtx::default();
-            match g.run_query(script, ctx) {
-                Ok(XVal::Str(s)) => obs.insert("value".into(), json!(s)),
-                Ok(XVal::Ref(r)) if !*text => obs.insert("value".into(), json!(FormId(r).to_string())),
-                Ok(v) if *text => obs.insert("value".into(), json!(query_text(&v))),
-                Ok(XVal::Num(n)) => obs.insert("value".into(), json!(n)),
-                Ok(v) => obs.insert("value".into(), json!(query_text(&v))),
-                Err(e) => obs.insert("error".into(), json!(e)),
-            };
+            let step = crate::ext_probes::QueryStep { script: script.clone(), label: l.clone(), text: *text };
+            obs.extend(crate::ext_probes::run_step(g, &step));
             lab = Some(l.clone());
         }
         Action::CallUntil { line, max_frames, label: l } => {
@@ -2525,13 +2530,3 @@ fn action_label(a: &Action) -> Option<String> {
     }
 }
 
-/// A query's value as text (`text: true`): numbers as the extender prints them.
-fn query_text(v: &fnv_script::vm::XVal) -> String {
-    use fnv_script::vm::XVal;
-    match v {
-        XVal::Num(n) => fnv_script::vm::number_text(*n),
-        XVal::Str(s) => s.clone(),
-        XVal::Ref(r) => FormId(*r).to_string(),
-        XVal::Array(id) => format!("array #{id}"),
-    }
-}

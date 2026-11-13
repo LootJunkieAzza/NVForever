@@ -8,7 +8,6 @@
 //!   event; hypothesis for the others, jip-events.md §1].
 
 use crate::game::{Game, RunCtx};
-use crate::trace::EventKind;
 use fnv_script::vm::{Value, XVal};
 use fnv_sim::FormId;
 
@@ -196,7 +195,7 @@ impl Game<'_> {
             }
             match self.run_function(&h.func, on.map(|f| Value::Ref(f.0)), args.clone(), None, ctx) {
                 Ok(_) => ran += 1,
-                Err(error) => self.emit(EventKind::ScriptError { unit: format!("JIP {event} handler"), error }),
+                Err(error) => self.handler_failed(format!("JIP {event} handler"), error),
             }
         }
         ran
@@ -294,7 +293,7 @@ impl Game<'_> {
             let on = m.on.unwrap_or(FormId::PLAYER_REF);
             let ctx = RunCtx { self_ref: Some(on), ..RunCtx::default() };
             if let Err(error) = self.run_function(&m.func, Some(Value::Ref(on.0)), Vec::new(), None, ctx) {
-                self.emit(EventKind::ScriptError { unit: "JIP main-loop callback".into(), error });
+                self.handler_failed("JIP main-loop callback".into(), error);
             }
         }
     }

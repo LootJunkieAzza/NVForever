@@ -262,6 +262,12 @@ pub mod type_flags {
     pub const HIDE_WHILE_AMBUSHING: u16 = 1 << 0;
     /// Guard.
     pub const REMAIN_NEAR_REFERENCE: u16 = 1 << 3;
+    /// Guard: bit 2 (value 4), which xEdit does not name. The three Guard packages with
+    /// Continue During Combat that did not hold their knife trooper outside the guard
+    /// radius all set it, the two that held it do not [observed: AI observer 2026-11-11
+    /// and 12, docs/handoff/observer-checks.md check 106; hypothesis: that the bit is
+    /// why] (docs/design/alert.md §5.2).
+    pub const GUARD_BIT_2: u16 = 1 << 2;
 }
 
 /// Where a package happens (PLDT, PLD2) [documented: xEdit wbPxDTLocationDecider;
@@ -599,6 +605,11 @@ impl PackageDef {
 
     pub fn remain_near_reference(&self) -> bool {
         self.type_flag(&[PackageType::Guard], type_flags::REMAIN_NEAR_REFERENCE)
+    }
+
+    /// A Guard with type-specific bit 2 set ([`type_flags::GUARD_BIT_2`]).
+    pub fn guard_bit_2(&self) -> bool {
+        self.type_flag(&[PackageType::Guard], type_flags::GUARD_BIT_2)
     }
 
     /// The names of the general flags that are set.

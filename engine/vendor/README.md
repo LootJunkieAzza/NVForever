@@ -76,7 +76,8 @@ unchanged, so nothing else behaves differently. Upstream has no way to get the s
 out of the prepass's own code; drop this when it has, or when the sampling is written in
 nvf-assets.
 
-Third change (#1803), in `src/material.rs`: `MaterialQueueProbe`, an optional resource
+Third change (#1803), in `src/material.rs`, each part marked by a comment starting
+`NVForever material queue probe`: `MaterialQueueProbe`, an optional resource
 that records watched main-pass entries and their pipeline IDs as `queue_material_meshes`
 queues them, for `nvforever/src/pipboy_ready.rs`; Bevy installs none, so without it the
 pass does what upstream does. Drop it when an upstream observation API replaces its
@@ -84,6 +85,29 @@ caller or that readiness check is retired. Retries for meshes not yet uploaded a
 per-view visibility filter of pending entries were tried with it and dropped: the
 `pipboy-first-open` scenarios passed with a clean first opening without them
 (2026-11-07).
+
+Another change (held shadow maps, docs/design/frame-rate-audit.md §9 and §10; the game's
+Sun shadows' Performance mode and staggered cascades, nvforever shadow_rate.rs), marked
+`NVForever held shadow maps`:
+
+- `src/render/light.rs`: the render-world resource `HoldDirectionalShadowMaps`, a bit per
+  cascade index (#2063: it was one switch for all of them). `per_view_shadow_pass` leaves
+  out the directional light views whose cascade's bit is set, so their shadow maps keep the
+  picture of the last frame that drew them. Point and spot lights' maps are drawn as ever.
+- `src/render/gpu_preprocess.rs`: `gather_shadow_cascades_for_view` leaves out the same
+  views, so `early_gpu_preprocess`, `allocate_uniforms` and `unpack_bins` prepare nothing
+  for those cascades that frame.
+- `src/render/light.rs` `prepare_lights`: when the directional shadow texture the cache hands
+  out is not the one of the frame before (a shadowed spot light such as the flashlight
+  switched on or off changes its layer count, or the old one was dropped), the render
+  world's hold is cleared for that frame, so every cascade is drawn into the new texture
+  instead of a held one sampling an empty or stale layer (#2182 review). It logs
+  `held shadow maps: a new directional shadow texture`.
+
+Bevy inserts no such resource, and without it (or with no bits set) nothing changes.
+Whoever sets it must hand the lights the held cascades as the frame that drew them had
+them, as the game does.
+Upstream has no way to draw a light's shadow map less often than every frame.
 
 ## bevy_render 0.20.1 (MIT OR Apache-2.0, Bevy contributors)
 
@@ -230,6 +254,31 @@ Review fixes (2026-11-09, h9x000/NVForever#6), marked `NVForever (2026-11-09)`:
   `prepare_windows` passed over (no camera draws to it) is not handed over a second time.
 
 Upstream Bevy has no way for a thread other than the render thread to present a window.
+
+Vulkan library for the instance (2026-11-12, DLSS spike, #2198), in
+`src/renderer/raw_vulkan_init.rs`, each part marked by a comment starting `NVForever
+(2026-11-12, DLSS spike #2198)`, and an optional `ash` 0.38 dependency (the version wgpu-hal
+30 uses) under the `raw_vulkan_init` feature in `Cargo.toml`:
+
+- `RawVulkanInitSettings::set_vulkan_library` (unsafe): the raw Vulkan instance is made from
+  that library (`ash::Entry::load_from`) instead of the system's loader, for NVIDIA
+  Streamline's interposer. wgpu-hal 30.0.1's `Instance::init_with_callback` loads the loader
+  itself, so its steps are done here with wgpu-hal's public `desired_extensions` and
+  `from_raw`: the same application info, extensions, validation layer and features, and the
+  loader's API version. Instance callbacks cannot run on that path (their argument type has a
+  private field), so with any registered it is not taken. wgpu-hal's debug messenger cannot be
+  handed over (private fields), so when the instance flags ask for `VK_EXT_debug_utils` the
+  file's own messenger writes the layers' messages as wgpu-hal does (same log target, levels,
+  wording and suppressed ids) and is destroyed before the instance. On success
+  `VulkanLibraryInstance` is set in `AdditionalVulkanFeatures`; on any failure the caller's
+  report hears why and upstream's path runs.
+
+Without `set_vulkan_library`, upstream's path runs unchanged. NVForever calls it only once
+its DLSS loader has passed every check (on Windows, with Vulkan among the renderer's
+backends). The loader runs when DLSS is chosen, when the four DLSS files are in the DLSS
+folder, or with `NVF_DLSS_PRELOAD=1`; `NVF_DLSS_PRELOAD=0` leaves out the files case
+(`engine/nvforever/src/upscaler.rs` `UpscalerStartup`, docs/design/dlss-upscaling.md, "Loaded
+whenever the files are there"). Every other run takes upstream's path. Drop it if wgpu-hal gains a way to pass the entry in.
 
 ## wgpu-hal 30.0.1 (MIT OR Apache-2.0, the gfx-rs developers)
 

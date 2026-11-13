@@ -2,7 +2,7 @@
 //! functions in fnv_game::mod_files) through compiled scripts, on a synthetic plugin
 //! written for the test (no game data, made-up names): docs/spec-notes/ext-pp.md.
 
-mod common;
+use crate::common;
 
 use common::*;
 use fnv_esm::{LoadOrder, Plugin, Schema};

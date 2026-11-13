@@ -53,7 +53,8 @@
 //! The angles and timings are NVForever's design choices unless tagged otherwise.
 //!
 //! Log, one line each, starting `dialogue look:`: an actor starts facing the player
-//! (head and body, head only and why, or nobody and why; the angles), and stops.
+//! (head and body, head only and why, or nobody and why; the angles, and how far its
+//! chest as posed is off the player), and stops.
 //!
 //! Test aid `NVF_PLAY_TEST_TALK_HEAD_ONLY=1`: no body turns (as if every actor were
 //! [`BodyHeld`]), to see the head at its limit. Not a game behaviour.
@@ -425,6 +426,15 @@ fn head_rig(rig: &ActorRig, combat: Option<&Combat>) -> Result<HeadRig, String> 
     })
 }
 
+/// How far (degrees, clockwise) the chest as posed faces from the player, who is `off`
+/// radians off the actor's front: where the bone above the turned neck faces
+/// ([`torso_yaw`]), against the player.
+fn chest_off(rig: &ActorRig, h: &HeadRig, off: f32, transforms: &Query<&mut Transform>) -> Option<f32> {
+    let top = rig.skel.parents.get(h.chain[0].0).copied().flatten().unwrap_or(0);
+    let m = in_actor_space(rig, top, transforms)?;
+    Some(wrap(torso_yaw(rotation(&m) * h.frame_bind.inverse()) - off).to_degrees())
+}
+
 /// The compass heading (degrees) a root's rotation faces.
 pub(crate) fn heading_deg(rotation: Quat) -> f32 {
     let f = rotation * Vec3::Y;
@@ -521,6 +531,13 @@ pub(crate) fn turn_speaker(
                         )
                     },
                 );
+                // Where the chest faces, against the player: a pose that turns the body
+                // away from the actor's heading shows here (#2246).
+                let chest = head.as_ref().ok().zip(off).and_then(|(h, off)| chest_off(rig, h, off, &transforms));
+                let reach = match chest {
+                    Some(c) => format!("{reach}; its chest is {c:+.0}° off the player"),
+                    None => reach,
+                };
                 let off_deg = off.map_or(f32::NAN, f32::to_degrees);
                 match (&turns, &body) {
                     (Turns::Nobody(why), _) => info!("dialogue look: {name} does not turn to the player: {why}"),
@@ -568,10 +585,17 @@ pub(crate) fn turn_speaker(
         };
         if look.active && talking != Some(r) {
             look.active = false;
-            if look.head.is_some() {
-                let heading = transforms.get(look.entity).map_or(f32::NAN, |t| heading_deg(t.rotation));
+            if let Some(h) = look.head.as_ref() {
+                let root = transforms.get(look.entity).ok().copied();
+                let heading = root.map_or(f32::NAN, |t| heading_deg(t.rotation));
+                // The player against the actor's front, and the chest against the player.
+                let off = root.zip(globals.get(child_of.parent()).ok()).map(|(root, parent)| {
+                    let to_actor = (parent.affine() * root.compute_affine()).inverse();
+                    yaw_pitch(to_actor.transform_point3(space::to_bevy(player.feet))).0
+                });
+                let chest = off.and_then(|off| chest_off(rig, h, off, &transforms)).map_or_else(String::new, |c| format!("; its chest is {c:+.0}° off the player"));
                 info!(
-                    "dialogue look: {} stops facing the player: the head (yaw {:+.0}°, pitch {:+.0}°) eases back over {HEAD_OUT_SECONDS:.2} s, the body keeps its heading {heading:.0}°",
+                    "dialogue look: {} stops facing the player: the head (yaw {:+.0}°, pitch {:+.0}°) eases back over {HEAD_OUT_SECONDS:.2} s, the body keeps its heading {heading:.0}°{chest}",
                     look.name,
                     look.shown.0.to_degrees(),
                     look.shown.1.to_degrees()

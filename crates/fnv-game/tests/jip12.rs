@@ -4,7 +4,7 @@
 //! menu, the item menus, the recipe menu and its conditions, the quantity and text input
 //! menus, GetWheelDisabled.
 
-mod common;
+use crate::common;
 
 use common::*;
 use fnv_esm::{LoadOrder, Plugin, Schema};
