@@ -610,6 +610,7 @@ unless the player binds them, so nothing changes until then.
 | Summon Companions from the Map | `bMapSelectableCompanions` | `pipboy::data::world_map` keeps the companions within `SUMMON_REACH` of the highlight box (`DataState::companions_under`); a map click on them sends `SummonCompanions` in place of a travel ask, and `summon_companions` calls `Game::summon_teammates`, which places them as `bring_teammates` does (`place_beside_player`) |
 | Weapon poisons, No Poison Confirmation, Show Weapon Poison Effects | `bNoPoisonConfirm`, `bShowWeaponPoisonEffects` | base: `fnv_game::weapon_poison` (`is_poison`, `use_poison`, `take_poison_hit`; `PlayerState::weapon_poisons`, saved); `aid::use_poison` from the script layer's item use gives a refused or asking poison back; `combat::hit_items` adds the poison to a landed player hit's items. The switches: `Tweaks::no_poison_confirm`, `pipboy::items` (the card's line) |
 | Grenade indicator, Hide Grenade Indicator, No Indicator for Harmless Blasts, Mark Objects About to Explode | `bDisableGrenadeIndicator`, `bHideGrenadeIndicatorForNoDamageExplosions`, `bExplodingDestructibleIndicator` | base: `grenade_indicator` draws the menu files' `template_explosive_indicator` for each live grenade (`Combat::live_grenades`) whose blast reaches the player, on the grenade or on the view's edge pointing at it (observer check 108). The switches: `TweakSettings::no_grenade_indicator`, `grenade_indicator_skip_harmless` (explosion damage 0), `grenade_indicator_destructibles` (`Game::burning_explosives`) |
+| Repair Kits in the Repair List | `bUseWeaponRepairKitsInRepairMenu` | `fnv_game::repair` (`is_weapon_repair_kit`, `kit_condition`, the kit script's rule); `pipboy::repair::with_kits` adds the carried kits to a weapon's offer, `Session::after` gives a kit's result, Use takes one kit. The switch: `Tweaks::repair_kits_in_list` |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -631,9 +632,9 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 545 |
-| to do | 56 |
-| unsure, skipped | 18 |
+| done | 546 |
+| to do | 54 |
+| unsure, skipped | 19 |
 | n/a | 16 |
 | skipped: fix | 10 |
 
@@ -761,6 +762,7 @@ game's Data folder, read-only).
 | `bUnequipWeaponMods` | done |  | 7 | already so: attached mods can be taken off and come back (item_mod detach) |
 | `bUseCustomBarterPriceMultipliers` | done |  | 13 | Barter Prices by Kind: twelve multipliers (selling and buying Armor, Weapon, Aid, Ammo, Misc, Weapon Mod) and Purified Water Unscaled |
 | `bUseCustomSniperZoomRate` | done |  | 2 | Scope Zoom Time (slider; the zoom-out option not built) |
+| `bUseWeaponRepairKitsInRepairMenu` | done |  | 2 | Repair Kits in the Repair List: Weapon Repair Kits (items with the master's Repairs Current Weapon effect) are parts in a weapon's Pip-Boy repair list and raise it by the kit script's own points (+10 to +30 by Repair). Its options sRepairText and sPerkEditorID are not built: our hint already says Repair, and a perk by editor ID needs a text field the Tweaks tab lacks |
 | `bUsingKeysRewardsXP` | done |  | 3 | Experience for Keys (a share of the picking XP; the base and skill options not built) |
 | `bUsingNotesRewardsXP` | done |  | 3 | Experience for Passwords (a share of the hacking XP, once; the base and skill options not built) |
 | `bVATSDequeueWeaponShotsOnDisarm` | done |  |  | V.A.T.S. Drops Shots at a Lost Weapon |
@@ -786,9 +788,8 @@ game's Data folder, read-only).
 | `bRunAndGunAPInCombatOnly` | to do |  |  | not built: no run-and-gun AP rule |
 | `bSneakingDoesntForcePowerAttacks` | unsure, skipped |  |  | depends on separate animations |
 | `bStrengthAffectsAllThrowables` | unsure, skipped |  |  | how fThrowingStrengthPenalty shortens a throw is not documented (the GECK wiki export names the setting but has no page for it), and NVForever applies it to no throw yet |
+| `bUseArmorRepairKitsInRepairMenu` | unsure, skipped |  |  | the masters have no armour repair kit, and nothing in the data marks a mod's item as one or says how much it repairs |
 | `bTargetProjectilesInVATS` | to do |  | 1 | not built: projectiles in flight are not targetable |
-| `bUseArmorRepairKitsInRepairMenu` | to do |  |  | the repair menu lists only parts |
-| `bUseWeaponRepairKitsInRepairMenu` | to do |  | 2 | the repair menu lists only parts |
 | `bVATSTargetPlayerProjectiles` | to do |  |  | not built: projectiles in flight are not targetable |
 | `bVATSThrowablesUseVisibility` | to do |  |  | not built: V.A.T.S. chance has no visibility term |
 

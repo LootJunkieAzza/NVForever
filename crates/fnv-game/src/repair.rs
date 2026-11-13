@@ -280,6 +280,39 @@ pub fn vendor_quote(s: &RepairSettings, value: i32, condition: f32, skill: f32) 
     Quote::Repair { to, cost: ((caps + 0.5).floor() as u32).max(1) }
 }
 
+/// The master's "Repairs Current Weapon" effect (`RepairKitEffect`), the Weapon Repair
+/// Kit's (`NVRepairKit`) one effect [observed: FalloutNV.esm].
+pub const REPAIR_KIT_EFFECT: FormId = FormId(0x0014_0A69);
+
+/// The condition (a fraction) a weapon at `condition` reaches with a Weapon Repair Kit at
+/// this Repair skill: the kit's own script's rule, +10 percentage points below Repair 25,
+/// +15 below 50, +20 below 75, +25 below 100, +30 at 100 [observed: FalloutNV.esm
+/// `RepairKitEffectSCRIPT`, GetWeaponHealthPerc plus the points, then SetWeaponHealthPerc],
+/// at most 99.83 % [documented: GECK wiki SetWeaponHealthPerc].
+pub fn kit_condition(condition: f32, skill: f32) -> f32 {
+    let points = if skill < 25.0 {
+        10.0
+    } else if skill < 50.0 {
+        15.0
+    } else if skill < 75.0 {
+        20.0
+    } else if skill < 100.0 {
+        25.0
+    } else {
+        30.0
+    };
+    (condition + points / 100.0).min(0.9983).max(condition)
+}
+
+impl crate::game::Game<'_> {
+    /// Whether `item` is a weapon repair kit: an ingestible with the master's Repairs
+    /// Current Weapon effect ([`REPAIR_KIT_EFFECT`]) [design: a mod's kit that reuses the
+    /// effect counts; one with its own effect does not].
+    pub fn is_weapon_repair_kit(&self, item: FormId) -> bool {
+        self.data.ingestibles.contains_key(&item) && self.data.effect_items.get(&item).is_some_and(|e| e.iter().any(|e| e.effect == REPAIR_KIT_EFFECT))
+    }
+}
+
 /// A condition gain as the menu shows it, in whole percent [observed: "+66 %" for the
 /// Varmint Rifle from 34 % to full].
 pub fn gain_percent(from: f32, to: f32) -> i32 {
@@ -289,6 +322,15 @@ pub fn gain_percent(from: f32, to: f32) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_kit_adds_its_scripts_points_by_skill() {
+        assert!((kit_condition(0.4, 10.0) - 0.5).abs() < 1e-6);
+        assert!((kit_condition(0.4, 50.0) - 0.6).abs() < 1e-6);
+        assert!((kit_condition(0.4, 100.0) - 0.7).abs() < 1e-6);
+        assert!((kit_condition(0.9, 100.0) - 0.9983).abs() < 1e-6);
+        assert_eq!(kit_condition(0.999, 100.0), 0.999);
+    }
 
     #[test]
     fn costs_fit_the_owners_screenshots() {

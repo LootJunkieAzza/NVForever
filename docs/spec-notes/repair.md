@@ -309,6 +309,17 @@ epairmenuPlayer, Repair 17]:
 - Scripts do not see MenuMode 1035 (`fnv_game::repair::REPAIR_MENU`) while the list is
   open [not built].
 
+- **Weapon Repair Kit** [observed: FalloutNV.esm]: `NVRepairKit` is an ingestible with one
+  effect, `RepairKitEffect` ("Repairs Current Weapon"), whose script `RepairKitEffectSCRIPT`
+  reads the player's GetWeaponHealthPerc, adds 10 points below Repair 25, 15 below 50, 20
+  below 75, 25 below 100 and 30 at 100, and sets the weapon in hand to that with
+  SetWeaponHealthPerc (at most 99.83 % [documented: GECK wiki]). Used from the inventory it
+  runs as any aid item. Under the Tweaks tab's Repair Kits in the Repair List
+  (`bUseWeaponRepairKitsInRepairMenu`) the kits carried are parts in any weapon's repair
+  list, after the others, and one raises that weapon by the same rule
+  (`fnv_game::repair::kit_condition`) [design: the kit's script is not run, so a mod's kit
+  that changes the script but keeps the effect repairs by the master's rule].
+
 ### 5.1 The page drawn from its file
 
 Behind `[UI] TileMenus=RepairMenu`, off by default, the repair list is drawn from

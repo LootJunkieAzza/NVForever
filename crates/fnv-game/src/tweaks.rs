@@ -387,6 +387,9 @@ pub struct Tweaks {
     pub repair_same_first: bool,
     /// `bInvertPipboyRepairMenuSorting`: lower condition parts first, high at the bottom.
     pub repair_low_first: bool,
+    /// `bUseWeaponRepairKitsInRepairMenu`: weapon repair kits are parts in a weapon's
+    /// Pip-Boy repair list.
+    pub repair_kits_in_list: bool,
     /// `bNoSkillBooksAbove100`: a skill book whose skill is already at 100 is not read.
     pub no_skill_books_at_max: bool,
     /// `bLessFrequentPlayerPainSounds` (`iMinPlayerPainSoundIntervalMS`): seconds the
@@ -815,6 +818,7 @@ impl Default for Tweaks {
             stats_xp_percent: false,
             repair_same_first: false,
             repair_low_first: false,
+            repair_kits_in_list: false,
             no_skill_books_at_max: false,
             player_pain_gap: 0.0,
             pause_on_load: false,

@@ -184,9 +184,9 @@ impl Shown {
         let o = &s.offer;
         let merged = |with: f32| merged_condition(&s.settings, o.condition, with, s.skill);
         let mut rows = vec![RowShown { key: (o.item, o.extra, true), text: o.name.clone(), equipped: o.extra.equipped, condition: o.condition, after: merged(o.condition) }];
-        rows.extend(o.parts.iter().map(|q| RowShown { key: (q.item, q.extra, false), text: q.name.clone(), equipped: q.extra.equipped, condition: q.condition, after: merged(q.condition) }));
+        rows.extend(o.parts.iter().map(|q| RowShown { key: (q.item, q.extra, false), text: q.name.clone(), equipped: q.extra.equipped, condition: q.condition, after: s.after(q) }));
         let part = s.selected.checked_sub(1).and_then(|i| o.parts.get(i));
-        let to = part.map(|q| merged(q.condition));
+        let to = part.map(|q| s.after(q));
         let now = stat_at(o.condition);
         // The card's title by the item's kind, not the figure's label: since #1902 that is
         // the load order's (localized) setting, no longer "DAM" [design].
@@ -867,7 +867,7 @@ mod tests {
     }
 
     fn session(selected: usize) -> Session {
-        let part = |id, c: f32| Part { item: FormId(id), extra: at(c), name: format!("Part {id}"), condition: c };
+        let part = |id, c: f32| Part { item: FormId(id), extra: at(c), name: format!("Part {id}"), condition: c, kit: false };
         Session {
             offer: Offer { item: FormId(1), extra: at(0.25), name: "Own item".into(), gear: Gear::Weapon, condition: 0.25, icon: Some("interface\\icons\\own.dds".into()), parts: vec![part(2, 0.5), part(1, 0.25)] },
             skill: 40.0,
