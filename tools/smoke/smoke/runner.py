@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .expect import Outcome, check_forbid, check_one, check_order, clean
+from .front import Front
 from .plan import Launch, fmt
 from .scenarios import GAME, Scenario
 from .stacks import dump as dump_stacks
@@ -576,6 +577,8 @@ def run_launch(launch: Launch, env: Env, locks: Locks | None) -> tuple[int | Non
                 p = subprocess.Popen(cmd, stdout=f, stderr=subprocess.STDOUT, cwd=env.out,
                                      env=aid_free_environ(aids), **launch_popen_kw())
                 exe = Path(env.exe).name
+                # `front = true`: the launch's own window held in front until it ends.
+                front = Front(p.pid).start() if launch.front else None
                 try:
                     code = p.wait(timeout=launch_timeout(launch))
                     # A load hands over to a new run that goes on writing to this log.
@@ -593,6 +596,9 @@ def run_launch(launch: Launch, env: Env, locks: Locks | None) -> tuple[int | Non
                     else:
                         wait_for_group(p.pid, time.monotonic())
                     code, err = None, f"timed out after {launch_timeout(launch):.0f} s; thread stacks in {stacks}"
+                finally:
+                    if front:
+                        front.stop()
         finally:
             if locks:
                 locks.release(held)

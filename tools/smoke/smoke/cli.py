@@ -36,7 +36,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from . import choose, integrity, slots
+from . import choose, front, integrity, slots
 from .expect import ScenarioError
 from .plan import Launch, plan
 from .runner import (Env, Locks, Verdict, default_lock_paths, exe_is_stale, judge, missing_requirements,
@@ -274,6 +274,11 @@ def cmd_run(a, suite: Suite, say) -> int:
     say(f"{len(chosen)} scenarios in {len(games)} game launches and {len(launches) - len(games)} tool runs; logs in {env.out}")
     if games:
         say(f"nvforever: {env.exe}")
+    # `front = true` launches need the screen to themselves (smoke/front.py).
+    slot_count = 1 if a.exclusive else (a.jobs if a.no_locks else (a.slots or slots.default_count()))
+    refused = front.refusal([x.name for x in games if x.front], slot_count or 1, a.exclusive)
+    if refused:
+        raise SystemExit(refused)
     locks, jobs = game_gate(a, say, game_groups(launches))
     if jobs > 1 and len(launches) > 1:
         say(f"up to {jobs} launches at once (smoke slots: {locks.count if isinstance(locks, slots.Slots) else 'none'})")

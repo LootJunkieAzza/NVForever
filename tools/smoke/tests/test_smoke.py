@@ -17,7 +17,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(HERE))
 
-from smoke import choose, cli  # noqa: E402
+from smoke import choose, cli, front  # noqa: E402
 from smoke.expect import Expect, ScenarioError, check_forbid, check_one, check_order  # noqa: E402
 from smoke.plan import merge, plan, shift  # noqa: E402
 from smoke.runner import FROM_SCRIPTS, Locks, Queue, aid_free_environ, game_env, judge  # noqa: E402
@@ -328,6 +328,62 @@ class PlanTests(unittest.TestCase):
         s = load_text(game("a") + game("b", env='{ NVF_PLAY_TEST_NEAR = "1" }', extra="offset = 3")).scenarios
         with self.assertRaises(ScenarioError):
             merge("L", s, {}, untimed=set())  # an offset member with an aid of unknown kind
+
+
+class FrontTests(unittest.TestCase):
+    """`front = true`: the launch's window held in front (smoke/front.py)."""
+
+    def test_parse_and_merge(self):
+        [a] = load_text(game("a", extra="front = true")).scenarios
+        self.assertTrue(a.front)
+        self.assertFalse(load_text(game("b")).scenarios[0].front)
+        with self.assertRaises(ScenarioError):
+            load_text(game("a", extra='front = "yes"'))
+        tool = '[[scenario]]\nname = "t"\nkind = "tool"\npaths = ["x"]\ncommands = [["a"]]\nfront = true\n'
+        with self.assertRaises(ScenarioError):
+            load_text(tool)
+        [x] = plan(load_text(game("a", extra="front = true")), load_text(game("a", extra="front = true")).scenarios)
+        self.assertTrue(x.front)
+        both = load_text(game("a", extra='launch = "L"\nfront = true') + game("b", extra='launch = "L"\nfront = true'))
+        self.assertTrue(plan(both, both.scenarios)[0].front)
+        with self.assertRaises(ScenarioError):
+            load_text(game("a", extra='launch = "L"\nfront = true') + game("b", extra='launch = "L"'))
+
+    def test_refused_with_more_than_one_slot(self):
+        self.assertIn("--slots 1", front.refusal(["a"], 3, False))
+        self.assertIsNone(front.refusal(["a"], 1, False))
+        self.assertIsNone(front.refusal(["a"], 3, True))
+        self.assertIsNone(front.refusal([], 3, False))
+
+    def test_only_the_processs_own_window_is_brought_forward(self):
+        class Fake:
+            def __init__(self, fg):
+                self.fg, self.brought = fg, []
+
+            def windows(self):
+                # (handle, process, visible, owned): another process's, an invisible one, an
+                # owned dialog, then the game's main window.
+                return [(1, 99, True, False), (2, 7, False, False), (3, 7, True, True), (4, 7, True, False)]
+
+            def foreground(self):
+                return self.fg
+
+            def bring_forward(self, hwnd):
+                self.brought.append(hwnd)
+                self.fg = hwnd
+
+        self.assertEqual(front.pick_window(7, Fake(1).windows()), 4)
+        self.assertIsNone(front.pick_window(8, Fake(1).windows()))
+        api = Fake(1)
+        holder = front.Front(7, api=api)
+        self.assertTrue(holder.once())
+        self.assertTrue(holder.once())
+        self.assertEqual(api.brought, [4], "brought forward once, then already in front")
+        self.assertFalse(front.Front(8, api=api).once(), "no window of that process")
+        holder = front.Front(7, period=0.01, api=Fake(1)).start()
+        time.sleep(0.05)
+        holder.stop()
+        self.assertGreaterEqual(holder.brought, 1)
 
 
 class JudgeTests(unittest.TestCase):

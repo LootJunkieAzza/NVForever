@@ -27,6 +27,7 @@ GAME, TOOL = "game", "tool"
 SCENARIO_KEYS = {
     "name", "kind", "source", "areas", "paths", "args", "run_seconds", "env", "launch", "offset",
     "expect", "expect_file", "order", "forbid", "manual", "requires", "commands", "exit", "note", "timeout", "ends",
+    "front",
 }
 
 
@@ -66,6 +67,9 @@ class Scenario:
     note: str = ""
     timeout: float = 0.0  # seconds; 0 = derived from run_seconds
     ends: str = "run finished"  # game scenarios: the line the run ends with (always expected)
+    # Game scenarios: hold the launch's window in front while it runs (smoke/front.py; Windows),
+    # for checks that need the foreground (DLSS Frame Generation); needs --slots 1.
+    front: bool = False
 
     def all_expectations(self):
         yield from self.expect
@@ -139,6 +143,10 @@ def parse_scenario(d: dict, base: Path | None = None) -> Scenario:
     s.commands = [[str(a) for a in c] for c in d.get("commands", [])]
     s.exit = int(d.get("exit", 0))
     s.timeout = float(d.get("timeout", 0))
+    front = d.get("front", False)
+    if not isinstance(front, bool):
+        raise ScenarioError(f"{name}: front must be true or false")
+    s.front = front
     s.expect = _expects(d.get("expect", []), f"{name}.expect")
     if "expect_file" in d:
         s.expect += _expect_file(name, d["expect_file"], base)
@@ -157,6 +165,8 @@ def parse_scenario(d: dict, base: Path | None = None) -> Scenario:
         s.expect.insert(0, Expect.parse(s.ends))
     elif not s.commands:
         raise ScenarioError(f"{name}: a tool scenario needs commands")
+    if s.front and s.kind != GAME:
+        raise ScenarioError(f"{name}: front applies to game scenarios only")
     if not s.paths and not s.areas:
         raise ScenarioError(f"{name}: needs paths or areas so it can be selected")
     return s
