@@ -97,7 +97,7 @@ fn nvf_value_noise(p: vec2<f32>) -> f32 {
 fn nvf_cloud_shadow(p: vec3<f32>, to_sun: vec3<f32>, time: f32) -> f32 {
     let up = max(to_sun.y, 0.08);
     let c = p.xz + to_sun.xz / up * (30000.0 - p.y);
-    var q = c / 32000.0 + vec2(time * 0.018, time * 0.007);
+    var q = c / 17000.0 + vec2(time * 0.03, time * 0.012);
     var v = 0.0;
     var a = 0.5;
     for (var o = 0; o < 3; o++) {
@@ -108,17 +108,18 @@ fn nvf_cloud_shadow(p: vec3<f32>, to_sun: vec3<f32>, time: f32) -> f32 {
     return 1.0 - 0.6 * smoothstep(0.42, 0.62, v);
 }
 
-// The cloud shadow on directional light `i` at `p`: only for a light that casts shadows
-// (the sun outdoors) and only in the remaster (SCREEN_INDIRECT).
+// The factor on directional light `i` at `p`: for a light that casts shadows (the sun
+// outdoors), in the remaster (SCREEN_INDIRECT), 1.2 x its cloud shadow; otherwise 2.
 @if(!PREPASS_FRAGMENT)
 fn nvf_sun_cloud(i: u32, p: vec3<f32>) -> f32 {
     @if(SCREEN_INDIRECT) {
         let light = &view_bindings::lights.directional_lights[i];
         if ((*light).flags & mesh_view_types::DIRECTIONAL_LIGHT_FLAGS_SHADOWS_ENABLED_BIT) != 0u {
-            return nvf_cloud_shadow(p, (*light).direction_to_light.xyz, view_bindings::globals.time);
+            return 1.2 * nvf_cloud_shadow(p, (*light).direction_to_light.xyz, view_bindings::globals.time);
         }
     }
-    return 1.0;
+    // 2: no cloud and no lean (the caller reads 1.5 or more as not the sun).
+    return 2.0;
 }
 
 // A directional light's diffuse light on a surface facing N, as display values.
@@ -153,6 +154,9 @@ const DISPLAY_EDITS: [(&str, &str); 7] = [
     // the light bounced onto it from the surfaces around it (linear, after exposure).
     // Point and spot lights cast no shadows, so they take part of the occlusion too.
     var nvf_open = vec3(1.0);
+    // A sun that casts shadows lights the view (outdoors): the remaster leans the outdoor
+    // light from the ambient towards the sun, a harder desert light (nvf_sun_cloud).
+    var nvf_sunlit = false;
     var nvf_local_open = 1.0;
     var nvf_bounce = vec3(0.0);
     @if(SCREEN_INDIRECT) {
@@ -183,7 +187,11 @@ const DISPLAY_EDITS: [(&str, &str); 7] = [
     (
         "        direct_light += light_contrib * shadow;",
         "        direct_light += light_contrib * shadow;
-        if nvf_display { nvf_direct += nvf_directional_display(i, in.N) * shadow * nvf_sun_cloud(i, in.world_position.xyz); }",
+        if nvf_display {
+            let nvf_cloud = nvf_sun_cloud(i, in.world_position.xyz);
+            nvf_sunlit = nvf_sunlit || nvf_cloud < 1.5;
+            nvf_direct += nvf_directional_display(i, in.N) * shadow * select(nvf_cloud, 1.0, nvf_cloud >= 1.5);
+        }",
     ),
     (
         "        indirect_light += ambient::ambient_light(in.world_position, in.N, in.V, NdotV, diffuse_color, F0, perceptual_roughness, diffuse_occlusion);",
@@ -213,7 +221,12 @@ const DISPLAY_EDITS: [(&str, &str); 7] = [
         indirect_light *= nvf_open;
     }
     if nvf_display {
-        let nvf_ambient = view_bindings::lights.ambient_color.rgb * view_bindings::view.exposure * diffuse_occlusion * nvf_open;
+        var nvf_ambient = view_bindings::lights.ambient_color.rgb * view_bindings::view.exposure * diffuse_occlusion * nvf_open;
+        @if(SCREEN_INDIRECT) {
+            if nvf_sunlit {
+                nvf_ambient *= 0.8;
+            }
+        }
         let nvf_sum = max(nvf_weights.x * nvf_ambient + nvf_weights.y * nvf_direct, vec3(0.0));
         // Held to 1 per channel, as the original's lit colour is (lights.rs GAME_CLIP).
         direct_light += min(diffuse_color * pow(nvf_sum, vec3(2.2)), vec3(1.0)) / view_bindings::view.exposure;

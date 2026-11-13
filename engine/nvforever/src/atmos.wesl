@@ -124,7 +124,7 @@ fn nvf_value_noise(p: vec2<f32>) -> f32 {
 fn nvf_cloud_shadow(p: vec3<f32>, to_sun: vec3<f32>, time: f32) -> f32 {
     let up = max(to_sun.y, 0.08);
     let c = p.xz + to_sun.xz / up * (30000.0 - p.y);
-    var q = c / 32000.0 + vec2(time * 0.018, time * 0.007);
+    var q = c / 17000.0 + vec2(time * 0.03, time * 0.012);
     var v = 0.0;
     var a = 0.5;
     for (var o = 0; o < 3; o++) {

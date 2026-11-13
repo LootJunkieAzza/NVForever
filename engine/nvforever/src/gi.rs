@@ -62,13 +62,17 @@ const MAX_LIGHT: f32 = 8.0;
 /// dimmest rooms crush to black under the occlusion and the grade [engineering choice, by
 /// eye on the Prospector Saloon].
 const INTERIOR_FILL: f32 = 0.07;
+/// Strength of the emissive glow field (gi.wesl `glow_*`): the light of bright
+/// emitters (neon, bulbs, fire) spread wide onto what is near them.
+const GLOW: f32 = 10.0;
 /// A camera that moved further than this in a frame (game units) starts again.
 const JUMP: f64 = 1500.0;
 
-/// Radius, thickness, bounce, occlusion, debug view and its scale; `NVF_GI="r,t,b,o,v,s"`
+/// Radius, thickness, bounce, occlusion, debug view, its scale and the glow field's
+/// strength; `NVF_GI="r,t,b,o,v,s,g"`
 /// overrides them (a test aid for tuning by eye; gi.wesl `Gi::debug`).
-static TUNING: std::sync::LazyLock<[f32; 6]> = std::sync::LazyLock::new(|| {
-    let mut t = [RADIUS, THICKNESS, BOUNCE, OCCLUSION, 0.0, 1.0];
+static TUNING: std::sync::LazyLock<[f32; 7]> = std::sync::LazyLock::new(|| {
+    let mut t = [RADIUS, THICKNESS, BOUNCE, OCCLUSION, 0.0, 1.0, GLOW];
     if let Ok(v) = std::env::var("NVF_GI") {
         for (slot, part) in t.iter_mut().zip(v.split(',')) {
             if let Ok(x) = part.trim().parse() {
@@ -145,7 +149,7 @@ fn follow_camera(sky: Option<Res<crate::sky::SkyState>>, mut cams: Query<(&Globa
             size: Vec4::new(size.x, size.y, half.x, half.y),
             params: Vec4::new(t[0], t[1], t[2], FADE_END),
             params2: Vec4::new(t[3], NEW_SHARE, MAX_LIGHT, valid),
-            debug: Vec4::new(t[4], t[5], if indoors { INTERIOR_FILL } else { 0.0 }, 0.0),
+            debug: Vec4::new(t[4], t[5], if indoors { INTERIOR_FILL } else { 0.0 }, t[6]),
         };
     }
 }
@@ -340,7 +344,7 @@ fn gi_pass(
         let bg = device.create_bind_group(label, &layout, &BindGroupEntries::sequential((depth, binding.clone(), from, s, &t.blank.view, &t.blank.view, &t.blank.view)));
         run(&mut ctx, pipeline, &bg, index.index(), label, &[to]);
     }
-    let bg = device.create_bind_group("gi_upsample", &layout, &BindGroupEntries::sequential((depth, binding, accum_now, s, &t.dist.view, &t.glow[0].view, &t.blank.view)));
+    let bg = device.create_bind_group("gi_upsample", &layout, &BindGroupEntries::sequential((depth, binding, accum_now, s, &t.dist.view, &t.glow[0].view, &t.history.view)));
     run(&mut ctx, upsample, &bg, index.index(), "gi_upsample", &[&t.full.view]);
     span.end(ctx.command_encoder());
 }

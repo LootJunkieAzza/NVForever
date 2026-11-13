@@ -35,7 +35,8 @@ struct Gi {
     // light a history texel gives; w: 1 when last frame's textures hold last frame.
     params2: vec4<f32>,
     // x: a debug view (1 distance, 2 openness, 3 bounced light), y: its scale; z: the
-    // interior fill light (linear, after exposure; 0 outdoors).
+    // interior fill light (linear, after exposure; 0 outdoors); w: the glow field's
+    // strength (gi.rs GLOW).
     debug: vec4<f32>,
 }
 
@@ -271,6 +272,12 @@ fn upsample(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
         let dd = textureLoad(input_b, hp, 0).r;
         if gi.debug.x < 1.5 { return vec4(vec3(dd / 3000.0), -1.0); }
         if gi.debug.x < 2.5 { return vec4(vec3(1.0 - acc.a), -1.0); }
+        if gi.debug.x > 3.5 {
+            let g = textureSampleLevel(input_c, linear_sampler, in.position.xy / gi.size.xy, 0.0).rgb;
+            // Mode 5: last frame's picture itself (its brightest values show the scale).
+            if gi.debug.x > 4.5 { return vec4(textureSampleLevel(input_d, linear_sampler, in.position.xy / gi.size.xy, 0.0).rgb * gi.debug.y, -1.0); }
+            return vec4(g * gi.debug.y, -1.0);
+        }
         return vec4(acc.rgb * gi.debug.y, -1.0);
     }
     let px = vec2<i32>(floor(in.position.xy));
@@ -305,7 +312,7 @@ fn upsample(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
     // The glow field (glow_*), faded out with distance: light from signs and lamps on
     // what is within a few dozen metres.
     let glow = textureSampleLevel(input_c, linear_sampler, (vec2<f32>(px) + 0.5) / gi.size.xy, 0.0).rgb;
-    v = vec4(v.rgb + glow * GLOW_STRENGTH * (1.0 - smoothstep(3000.0, 9000.0, z)), v.a);
+    v = vec4(v.rgb + glow * gi.debug.w * (1.0 - smoothstep(3000.0, 9000.0, z)), v.a);
     // Indoors a little light fills what is open (dim rooms keep their detail; gi.rs
     // INTERIOR_FILL).
     v = vec4(v.rgb + vec3(gi.debug.z) * (1.0 - v.a), v.a);
@@ -316,7 +323,6 @@ fn upsample(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
 // GLOW_FLOOR (neon, bulbs, fire; never the sky) at an eighth of the half resolution,
 // then blurred wide, so a sign lights what is around it whatever the march found.
 const GLOW_FLOOR: f32 = 2.5;
-const GLOW_STRENGTH: f32 = 0.8;
 
 @fragment
 fn glow_down(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
@@ -328,7 +334,7 @@ fn glow_down(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
             let h = textureLoad(input_a, min(base + vec2(x, y), dims - 1), 0);
             if h.a < SKY * 0.99 {
                 let l = max(h.r, max(h.g, h.b));
-                c += h.rgb * (max(l - GLOW_FLOOR, 0.0) / max(l, 1e-4));
+                c += h.rgb * smoothstep(GLOW_FLOOR * 0.6, GLOW_FLOOR * 1.6, l);
             }
         }
     }
@@ -337,7 +343,7 @@ fn glow_down(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
 
 fn glow_blur(uv: vec2<f32>, dir: vec2<f32>) -> vec4<f32> {
     let w = array<f32, 5>(0.2270, 0.1945, 0.1216, 0.0540, 0.0162);
-    let texel = dir * 2.5 / vec2<f32>(textureDimensions(input_a));
+    let texel = dir * 4.0 / vec2<f32>(textureDimensions(input_a));
     var c = textureSampleLevel(input_a, linear_sampler, uv, 0.0).rgb * w[0];
     for (var i = 1; i < 5; i++) {
         c += (textureSampleLevel(input_a, linear_sampler, uv + texel * f32(i), 0.0).rgb + textureSampleLevel(input_a, linear_sampler, uv - texel * f32(i), 0.0).rgb) * w[i];
