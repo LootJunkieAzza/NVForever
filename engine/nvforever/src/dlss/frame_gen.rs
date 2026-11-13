@@ -284,25 +284,40 @@ pub(super) fn install(get_state: SlDlssgGetState, set_options: SlDlssgSetOptions
     ACTIVE.store(true, Ordering::Relaxed);
 }
 
-/// At shutdown, with the render thread gone and the GPU drained (`win.rs` `shutdown`): mode
-/// `eOff` when it was on, then the functions dropped. Returns whether DLSS-G was installed, so
-/// the caller frees its resources (`slFreeResources(kFeatureDLSS_G)`) before `slShutdown`.
-pub(super) fn uninstall() -> bool {
+/// At shutdown (stage 4 item 6; `win.rs` `shutdown`, the render thread gone), the first steps of
+/// the order eOff, null tags, drain, `slFreeResources`, `slShutdown`: the mode set off and, with
+/// the spike's `on`, the three tags set null for the next frame number [documented:
+/// `ProgrammingGuide.md:1017-1025`, a tag set to null before the resource goes; fork-notes
+/// `fg-facts.md` §4], then the functions dropped. The render world, and with it the tagged
+/// textures, is gone already (Bevy drops it before `App::run` returns); no present has followed
+/// and Streamline keeps no reference to a Vulkan resource [documented:
+/// `ProgrammingGuideDLSS_G.md` §5.2, "This does not apply to Vulkan"]. Returns `None` when
+/// DLSS-G was not installed, else whether it is loaded (its resources are then freed by the
+/// caller after the drain).
+pub(super) fn uninstall() -> Option<bool> {
     ACTIVE.store(false, Ordering::Relaxed);
     ON.store(false, Ordering::Relaxed);
-    let Some(fg) = frame_gen().take() else { return false };
-    if fg.applied.is_some_and(|a| a.on) {
-        let mut options = off_options();
-        if let Some(a) = fg.applied {
-            fill_sizes(&mut options, a);
-        }
-        let viewport = ViewportHandle::new(VIEWPORT);
-        // SAFETY: DLSS-G's function with its header signature, options and viewport alive for the
-        // call; nothing else calls it now (the render thread is gone).
-        let result = unsafe { (fg.set_options)(&viewport, &options) };
-        note_fg(if result.is_ok() { Level::INFO } else { Level::WARN }, format!("shutdown: options mode eOff: {}", result.name()));
+    let fg = frame_gen().take()?;
+    if !fg.loaded {
+        note_fg(Level::INFO, "shutdown: DLSS-G unloaded (the live toggle); no options, tags or resources to release");
+        return Some(false);
     }
-    true
+    let mut options = off_options();
+    if let Some(a) = fg.applied {
+        fill_sizes(&mut options, a);
+    }
+    let viewport = ViewportHandle::new(VIEWPORT);
+    // SAFETY: DLSS-G's function with its header signature, options and viewport alive for the
+    // call; nothing else calls it now (the render thread is gone).
+    let result = unsafe { (fg.set_options)(&viewport, &options) };
+    note_fg(if result.is_ok() { Level::INFO } else { Level::WARN }, format!("shutdown: options mode eOff: {}", result.name()));
+    if matches!(fg.mode, Mode::On { .. }) {
+        let index = fg.last_index.map_or(0, |i| i.wrapping_add(1));
+        let null = |buffer| ResourceTag::new(std::ptr::null_mut(), buffer, LIFECYCLE_VALID_UNTIL_PRESENT, Extent::default());
+        let tagged = frame_token::set_tags(index, &[null(BUFFER_DEPTH), null(BUFFER_MOTION_VECTORS), null(BUFFER_HUDLESS_COLOR)]);
+        note_fg(if tagged.is_ok() { Level::INFO } else { Level::WARN }, format!("shutdown: null tags (frame {index}): {}", tagged.name()));
+    }
+    Some(true)
 }
 
 /// The render systems (`DlssPassPlugin`); each runs only while DLSS-G is installed.

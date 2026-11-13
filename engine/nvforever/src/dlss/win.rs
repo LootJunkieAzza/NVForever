@@ -1151,6 +1151,9 @@ pub(super) fn shutdown() {
     let Some(spike) = state().take() else { return };
     match spike.phase {
         Phase::Holding(held) => {
+            // 0. The Frame Generation spike's DLSS-G: mode off and null tags first
+            // (`frame_gen::uninstall`), before the drain.
+            let dlssg = super::frame_gen::uninstall();
             // 1. Rendering has stopped (the app and its render thread are gone); drain the GPU.
             let polled = held.device.poll(wgpu::PollType::wait_indefinitely());
             // SAFETY: only the device's handle is read; no other thread uses the device now.
@@ -1168,9 +1171,9 @@ pub(super) fn shutdown() {
                 }
                 eval.report();
             }
-            // The Frame Generation spike's DLSS-G: mode off (when it was on) and its resources for
-            // the viewport freed, after the drain, before slShutdown; then the frame calls go.
-            if super::frame_gen::uninstall() {
+            // DLSS-G's resources for the viewport freed after the drain, before slShutdown; then
+            // the frame calls go.
+            if dlssg == Some(true) {
                 let viewport = ViewportHandle::new(VIEWPORT);
                 // SAFETY: after the GPU drain; a viewport handle from its constructor.
                 let freed = unsafe { (spike.api.free_resources)(FEATURE_DLSS_G, &viewport) };
