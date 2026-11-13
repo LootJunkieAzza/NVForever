@@ -122,6 +122,7 @@ counts them).
 | `fnvtool` | Done | JSON command-line tool over every crate: `bsa`, `esm`, `nif`, `dds`, `spt`, `world`, `phys`, `collide`, `sim`, `script`, `dialogue`, `actor`, `combat`, `nav`, `ai`, `voice`, `setup`, `paths` | [cli-contract](cli-contract.md) |
 | Parity lab | Done | Oracle-vs-candidate tests per layer with holdouts and baselines (rules in `parity-lab/AGENT.md`) | [parity-lab/README](../parity-lab/README.md) |
 | Capture tools | Done | Independent Python readers (`oracle_*.py`), `nvf_capture` (xNVSE plugin running unattended jobs in the original game), reference frames, AI observer (plugin version 9: game events, timed scene actions, screenshots on a condition, more fields; ai-observer.md §12); an opt-in JIP tier (processing level, packages, detection, the arrays of targets and detecting actors, hit details) with an A/B compare tool and the JIP audit (#754, #772, [ai-observer-jip](spec-notes/ai-observer-jip.md), [observer-jip-audit](handoff/observer-jip-audit-2026-10-25.md)) | [tools/capture/README](../tools/capture/README.md), [xnvse-capture](spec-notes/xnvse-capture.md) |
+| In-game plugin editor | Partly built | Locked behind `editor=1` in `[Settings]` of NVForever.ini; `editor` in the console opens and closes it: select, move (mouse drag, set-down), place from a record picker (`editor find`, `editor place`), delete (saved as Initially Disabled) and undo references, save into an ESP through the schema encoder (`fnvtool esm encode-check`), under MO2 into the owning mod or overwrite; plugins in NVForever's mods folder load beside `Data`'s; the dialogue debugger `editor why [topic] [all]` explains an actor's lines from the game's own verdicts (`Game::line_verdict`). Not yet: terrain, navmeshes, record forms, the quest view | [editor](design/editor.md) |
 | Smoke runner | Done | `python tools/smoke run` picks the scenarios the changed files call for, shares launches, takes the game locks, one line per scenario; known-failing marks with reasons | `tools/smoke/scenarios.toml` |
 | Profiling option compatibility | Done | #1275: profile reporting (`NVF_PLAY_TEST_PROFILE`) and frame-time logging (`--log-frame-times`) share one guarded render diagnostics registration, so they can be used together; smoke scenarios `render-diagnostics-*` | [frame-rate-audit](design/frame-rate-audit.md#profiling-options-together) |
 | Performance diagnostics and stress comparisons | Partly | [design] Tour, battle and soak retain provenance and serial runs; `compare` adds repeated baseline/candidate ABBA launches, validated early schema-1 captures, per-run values and variation. The existing profile campaign ranks scenarios. Pending: continuous player movement, stationary comparison integration and a duration-controlled long-session memory case; later laps have coarse metrics only. Memory is read on both platforms (#2104): RAM from Win32 or `/proc/meminfo`, the card's VRAM from `VK_EXT_memory_budget` or amdgpu sysfs, this process's share of it from amdgpu's fdinfo, and the stress runner samples memory and CPU from `/proc` off Windows, so the GPU press check works on Linux. | [stress comparisons](design/stress-comparisons.md), #1277; `tools/profile/campaign.py` |
@@ -142,17 +143,17 @@ counts them).
 
 ### Container open and close sound getters
 
-Source-call implementation and owned combined-harness fixture ported to current main; refreshed release validation is pending. No native bytecode adapter or full mod-compatibility claim. Contract: [Container open and close sound getters](spec-notes/container-sound-getters.md).
+Source-compiled calls support the two legacy JIP container sound getter names through the shared reader and session overrides, with an owned combined-harness regression. No native bytecode adapter or full mod-compatibility claim. Contract: [Container sounds and legacy JIP getters](spec-notes/ext-jg1.md#legacy-jip-container-getters).
 
 ### TypeOf missing-key inspection
 
 Implemented the focused behavior correction and authored synthetic regression coverage;
-contract and limits: [TypeOf missing-key inspection](spec-notes/typeof-missing-key.md). This entry does not establish full mod compatibility.
+contract and limits: [TypeOf and absent string-map keys](spec-notes/ext-forms.md#1-validity-and-kind). This entry does not establish full mod compatibility.
 
 ### Script-unit extender variable kinds
 
 Implemented the focused behavior correction and authored synthetic regression coverage;
-contract and limits: [Script-unit extender variable kinds](spec-notes/extender-variable-kinds.md). This entry does not establish full mod compatibility.
+contract and limits: [SLSD variable types](spec-notes/ext-bytecode.md#6-variable-types-in-slsd). This entry does not establish full mod compatibility.
 
 ### Cached INI file quote handling
 

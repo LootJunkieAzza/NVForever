@@ -101,6 +101,23 @@ fn a_drop_becomes_a_spawn_and_a_take_a_despawn() {
 }
 
 #[test]
+fn a_shots_reference_is_neither_drawn_nor_collided() {
+    // A shot's reference for scripts (`fnv_game::nvse_proj`, #2186): its flying model is
+    // `shot_fx`'s, so the reference itself is not a dropped item; one put back from a save
+    // keeps the mark.
+    let ix = index();
+    let s = state(Some(CELL_INT), [1.0, 2.0, 3.0]);
+    let mut saved = serde_json::to_value(&s).expect("a state saves");
+    saved["shot"] = true.into();
+    let shot: RefState = serde_json::from_value(saved).expect("a whole saved state");
+    assert!(present(&s) && !present(&shot));
+    assert!(Placed::wanted(&ix, [(FormId(DROPPED), &shot)].into_iter()).is_empty());
+    let again: RefState = serde_json::from_value(serde_json::to_value(&shot).expect("saves")).expect("loads");
+    assert!(again.shot);
+    assert!(serde_json::to_value(&s).expect("saves").get("shot").is_none(), "not written for other references");
+}
+
+#[test]
 fn cells_streaming_out_and_in_and_rolling_into_the_next_square() {
     let ix = index();
     let c10 = RenderCell::Exterior { world: WORLD, x: 1, y: 0 };

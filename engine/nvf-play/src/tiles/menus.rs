@@ -698,8 +698,14 @@ mod tests {
         (10.0 * n.min(per), 30.0 * lines)
     }
 
-    /// [design] A message menu in the vanilla file's shape (the names, the `io()` traits,
-    /// the list and its template), its expressions cut down to what these tests read.
+    /// [design] A small layout written for these tests, with its own structure, numbers and
+    /// expressions; it does not come from the game's files and says nothing about them. It keeps
+    /// the tile and trait names the model looks up, which are the engine's interface
+    /// ([`message_built`], the menu's widths and buffer, the rows' spacing, the list's scroll
+    /// step), and only the dependencies the tests exercise: the text moves right while the
+    /// icon shows. Fonts 6 (the title) and 2 (the rows) are the numbers the measure and
+    /// baseline tests below are about. The real layout's numbers are checked by the smoke
+    /// scenario `tiles-message-box`.
     fn message() -> Ui {
         message_changed(str::to_string)
     }
@@ -707,23 +713,22 @@ mod tests {
     fn message_changed(change: impl FnOnce(&str) -> String) -> Ui {
         let src = MemSource::default().with(
             "message.xml",
-            &change(r#"<menu name="MessageMenu"><_MinMenuWidth>200</_MinMenuWidth><_MaxMenuWidth>700</_MaxMenuWidth><_horbuf>40</_horbuf><_verbuf>20</_verbuf>
+            &change(r#"<menu name="MessageMenu"><_MinMenuWidth>180</_MinMenuWidth><_MaxMenuWidth>600</_MaxMenuWidth><_horbuf>30</_horbuf>
   <rect name="NOGLOW_BRANCH">
-    <image name="MM_Background"><alpha>32</alpha></image>
-    <rect name="MM_MainRect"><width></width>
-      <text name="MM_Title"><font>6</font><string></string><x>60</x><y>-10</y></text>
-      <image name="MM_MessageIcon"><x>40</x><visible>&false;</visible></image>
-      <text name="MM_MessageText"><font>2</font><wrapwidth>620</wrapwidth>
-        <x><copy>40</copy><add><copy>120</copy><onlyif src="sibling(MM_MessageIcon)" trait="visible"/></add></x></text>
-      <hotrect name="MM_ButtonList"><_scroll_delta>26</_scroll_delta><_highlight_y>-1</_highlight_y>
-        <hotrect name="lb_highlight_box"/>
-        <image name="lb_scrollbar"><_number_of_items>1</_number_of_items></image>
-      </hotrect>
+    <image name="MM_Background"><alpha>10</alpha></image>
+    <rect name="MM_MainRect">
+      <text name="MM_Title"><font>6</font><x>50</x></text>
+      <image name="MM_MessageIcon"><visible>&false;</visible></image>
+      <text name="MM_MessageText"><font>2</font><wrapwidth>580</wrapwidth>
+        <x><copy src="sibling(MM_MessageIcon)" trait="visible"/><mul>90</mul><add>30</add></x></text>
+      <rect name="MM_ButtonList"><_scroll_delta>25</_scroll_delta>
+        <image name="lb_scrollbar"/>
+      </rect>
     </rect>
   </rect>
-  <template name="MM_ButtonTemplate"><hotrect name="MM_Button"><_VerticalSpacing>20</_VerticalSpacing><_y></_y>
-    <text name="ListItemText"><font>2</font><string><copy src="parent()" trait="string"/></string><wrapwidth>560</wrapwidth></text>
-  </hotrect></template>
+  <template name="MM_ButtonTemplate"><rect name="MM_Button"><_VerticalSpacing>16</_VerticalSpacing>
+    <text name="ListItemText"><font>2</font><wrapwidth>450</wrapwidth><string><copy src="parent()" trait="string"/></string></text>
+  </rect></template>
 </menu>"#),
         );
         let mut ui = Ui::new();
@@ -748,25 +753,25 @@ mod tests {
         assert_eq!(ui.get_string(&format!("{main}/MM_Title/string")).as_deref(), Some("Title"));
         assert_eq!(f(&ui, "MM_Title/visible"), 1.0);
         assert_eq!(ui.get_string(&format!("{main}/MM_MessageText/string")).as_deref(), Some("Hello there"));
-        // Two rows in the order of the buttons, each its text's height and 20.
+        // Two rows in the order of the buttons, each its text's height and the template's 16.
         let r = rows(&ui);
         assert_eq!(r.len(), 2);
         let row = |i: usize, t: &str| ui.tile(r[i]).get(t).map(Value::num).unwrap();
-        assert_eq!((row(0, "listindex"), row(0, "_y"), row(0, "height")), (0.0, 0.0, 50.0));
-        assert_eq!((row(1, "listindex"), row(1, "_y"), row(1, "height")), (1.0, 50.0, 50.0));
+        assert_eq!((row(0, "listindex"), row(0, "_y"), row(0, "height")), (0.0, 0.0, 46.0));
+        assert_eq!((row(1, "listindex"), row(1, "_y"), row(1, "height")), (1.0, 46.0, 46.0));
         assert_eq!(ui.tile(r[1]).get("string").map(Value::text).as_deref(), Some("No thanks"));
         // The list: the widest button ("No thanks", 90) and two _horbuf; the rows' height;
         // the chosen (second) row framed.
-        assert_eq!((f(&ui, "MM_ButtonList/width"), f(&ui, "MM_ButtonList/height")), (170.0, 100.0));
-        assert_eq!((f(&ui, "MM_ButtonList/_highlight_y"), f(&ui, "MM_ButtonList/_selected_height")), (50.0, 50.0));
-        // No overflow: the bar's counts equal, so the file hides it.
+        assert_eq!((f(&ui, "MM_ButtonList/width"), f(&ui, "MM_ButtonList/height")), (150.0, 92.0));
+        assert_eq!((f(&ui, "MM_ButtonList/_highlight_y"), f(&ui, "MM_ButtonList/_selected_height")), (46.0, 46.0));
+        // No overflow: the bar's counts equal (a file hides the bar then).
         assert_eq!(f(&ui, "MM_ButtonList/lb_scrollbar/_number_of_items"), f(&ui, "MM_ButtonList/lb_scrollbar/_number_of_visible_items"));
         // No row chosen (a box at open): no row framed.
         write_message(&mut ui, &view(Some("Title"), "Hello there", &["Yes", "No thanks"]), None, false, &size);
         assert_eq!((f(&ui, "MM_ButtonList/_highlight_y"), f(&ui, "MM_ButtonList/_selected_height")), (-1.0, 0.0));
-        // The box: the list's 170 and 80 is 250, over the text's 110 + 80 and the
-        // title's 60 + 50 + 10 + 60.
-        assert_eq!(ui.get_float(&format!("{main}/width")), Some(250.0));
+        // The box: the list's 150 and 60 is 210, over the text's 30 + 110 + 30, the
+        // title's 50 + 50 + 10 + 50 and the least width, 180.
+        assert_eq!(ui.get_float(&format!("{main}/width")), Some(210.0));
         assert_eq!(ui.get_float("MessageMenu/NOGLOW_BRANCH/MM_Background/alpha"), Some(background_alpha()));
         assert_eq!(row_button(&ui, child(&ui, r[1], "ListItemText").unwrap()), Some(1));
     }
@@ -778,19 +783,19 @@ mod tests {
         assert_eq!(rows(&ui).len(), 3);
         // No title: hidden, so the file draws the top line whole; the least width.
         assert_eq!(f(&ui, "MM_Title/visible"), 0.0);
-        assert_eq!(ui.get_float("MessageMenu/NOGLOW_BRANCH/MM_MainRect/width"), Some(200.0));
+        assert_eq!(ui.get_float("MessageMenu/NOGLOW_BRANCH/MM_MainRect/width"), Some(180.0));
         // Fewer buttons unload the extra rows; the kept ones are the same tiles.
         let before = rows(&ui);
         write_message(&mut ui, &view(None, "x", &["only"]), Some(0), false, &size);
         assert_eq!(rows(&ui), before[..1].to_vec());
-        // A long text: as wide as the box allows.
+        // A long text (30 + 580 + 30 at its wrap): as wide as the box allows.
         write_message(&mut ui, &view(None, &"w".repeat(200), &["OK"]), Some(0), true, &size);
-        assert_eq!(ui.get_float("MessageMenu/NOGLOW_BRANCH/MM_MainRect/width"), Some(700.0));
+        assert_eq!(ui.get_float("MessageMenu/NOGLOW_BRANCH/MM_MainRect/width"), Some(600.0));
     }
 
     #[test]
     fn oversized_boxes_fall_back_and_a_later_short_box_can_be_tiled() {
-        // [design] Twelve 50-unit rows exceed the file's 420-unit cap. Every reader of
+        // [design] Twelve 46-unit rows exceed the 420-unit cap. Every reader of
         // message_tiled takes this same status after the model has measured the rows.
         let mut ui = message();
         let many: Vec<String> = (0..12).map(|i| format!("button {i}")).collect();
@@ -799,7 +804,7 @@ mod tests {
         assert_eq!(message_status(&ui), Tiled::No("button rows exceed LIST_MOST (420); scrolling is not built".into()));
         assert!(!message_status(&ui).yes());
         // [design] The cap includes measured wrapping and spacing, not a button count.
-        write_message(&mut ui, &v, None, false, &|_, _, _| (10.0, 15.0));
+        write_message(&mut ui, &v, None, false, &|_, _, _| (10.0, 19.0));
         assert_eq!(f(&ui, "MM_ButtonList/height"), LIST_MOST);
         assert_eq!(message_status(&ui), Tiled::Yes, "exactly 420 fits");
         write_message(&mut ui, &view(None, "x", &["a"]), None, true, &size);
@@ -893,9 +898,10 @@ mod tests {
         write_message(&mut ui, &v, Some(0), true, &size);
         assert_eq!(f(&ui, "MM_MessageIcon/visible"), 1.0);
         assert_eq!(ui.get_string("MessageMenu/NOGLOW_BRANCH/MM_MainRect/MM_MessageIcon/filename").as_deref(), v.icon.as_deref());
-        // The file moves the text 120 right while the icon shows; the box keeps that room.
-        assert_eq!(f(&ui, "MM_MessageText/x"), 160.0);
-        assert_eq!(ui.get_float("MessageMenu/NOGLOW_BRANCH/MM_MainRect/width"), Some(50.0 + 80.0 + 120.0));
+        // The layout moves the text 90 right while the icon shows; the box keeps that room
+        // (the text's place, its 50 and the buffer).
+        assert_eq!(f(&ui, "MM_MessageText/x"), 120.0);
+        assert_eq!(ui.get_float("MessageMenu/NOGLOW_BRANCH/MM_MainRect/width"), Some(30.0 + 90.0 + 50.0 + 30.0));
     }
 
     #[test]
@@ -1081,35 +1087,37 @@ mod tests {
 
     #[test]
     fn the_prompt_writes_the_stack_and_the_amount() {
-        // [design] The quantity file's meter, its `_Value` and the amount text as the file
-        // works them out.
+        // [design] A small layout written for this test, with its own structure, numbers and
+        // expressions; it does not come from the game's files and says nothing about them. It
+        // keeps the paths and the traits the model writes (the stack `user0`, the amount
+        // `user2`), which are the engine's interface, and works a fill and the amount's text out
+        // of them, as a layout does. The real layout's numbers are checked by the smoke
+        // scenario `tiles-quantity`.
         let src = MemSource::default().with(
             "quantity.xml",
-            r#"<menu name="QuantityMenu"><rect name="NOGLOW_BRANCH"><image name="QM_Background"><alpha>32</alpha></image>
-  <hotrect name="QM_MainRect"><x>22</x><y>42</y>
-    <rect name="QM_AmountMeter"><x>149.5</x><y>115</y><width>391</width><height>24</height>
-      <_Value><copy>0</copy><add><copy src="me()" trait="user2"/><div src="me()" trait="user0"/></add></_Value>
-      <user0>1</user0><user2></user2>
-      <image name="MeterImage"><width><copy src="parent()" trait="width"/><mul src="parent()" trait="_Value"/></width></image></rect>
-    <text name="QM_AmountChosen"><string><copy src="sibling(QM_AmountMeter)" trait="_Value"/><mul src="sibling(QM_AmountMeter)" trait="user0"/><round>1</round></string></text>
-    <hotrect name="QM_OKButton"><text name="button_text"/></hotrect>
+            r#"<menu name="QuantityMenu"><rect name="NOGLOW_BRANCH"><image name="QM_Background"><alpha>10</alpha></image>
+  <rect name="QM_MainRect"><x>40</x><y>30</y>
+    <rect name="QM_AmountMeter"><x>100</x><y>80</y><width>300</width><height>20</height>
+      <image name="Fill"><width><copy src="parent()" trait="user2"/><div src="parent()" trait="user0"/><mul src="parent()" trait="width"/></width></image></rect>
+    <text name="QM_AmountChosen"><string><copy src="sibling(QM_AmountMeter)" trait="user2"/></string></text>
+    <rect name="QM_OKButton"><text name="Label"/></rect>
     <image name="QM_DecreaseArrow"/>
-  </hotrect></rect></menu>"#,
+  </rect></rect></menu>"#,
         );
         let mut ui = Ui::new();
         ui.load_menu(&src, "quantity.xml").unwrap();
         write_quantity(&mut ui, Amount { amount: 5, most: 20 });
         ui.update();
-        assert_eq!(ui.get_float(&format!("{METER}/MeterImage/width")), Some(391.0 * 0.25));
+        assert_eq!(ui.get_float(&format!("{METER}/Fill/width")), Some(300.0 * 0.25));
         assert_eq!(ui.get_string("QuantityMenu/NOGLOW_BRANCH/QM_MainRect/QM_AmountChosen/string").as_deref(), Some("5"));
         assert_eq!(describe_quantity(&ui), "tiles: QuantityMenu drawn from tiles: amount 5 of 20");
         assert_eq!(ui.get_float("QuantityMenu/NOGLOW_BRANCH/QM_Background/alpha"), Some(background_alpha()));
         // The meter's box from the places down the tree; the tiles by what they stand for.
         let b = meter_box(&ui).unwrap();
-        assert_eq!((b.left, b.top, b.width, b.height), (171.5, 157.0, 391.0, 24.0));
+        assert_eq!((b.left, b.top, b.width, b.height), (140.0, 110.0, 300.0, 20.0));
         let tile = |p: &str| ui.find_tile(&format!("QuantityMenu/NOGLOW_BRANCH/QM_MainRect/{p}")).unwrap();
-        assert_eq!(quantity_tile(&ui, tile("QM_OKButton/button_text")), Some(QuantityTile::Ok));
-        assert_eq!(quantity_tile(&ui, tile("QM_AmountMeter/MeterImage")), Some(QuantityTile::Meter));
+        assert_eq!(quantity_tile(&ui, tile("QM_OKButton/Label")), Some(QuantityTile::Ok));
+        assert_eq!(quantity_tile(&ui, tile("QM_AmountMeter/Fill")), Some(QuantityTile::Meter));
         assert_eq!(quantity_tile(&ui, tile("QM_DecreaseArrow")), Some(QuantityTile::Decrease));
         assert_eq!(quantity_tile(&ui, tile("QM_AmountChosen")), None);
     }

@@ -1004,7 +1004,10 @@ fn main() -> AppExit {
     };
     // The plugins, opened: a broken mod's plugin (and any that need it) is left out with
     // a warning, and the rest of the start uses the list without it (world.rs).
-    let opened = world::open_plugins(args.data(), &args.plugins);
+    // A plugin in NVForever's own mods folder is opened instead of Data's copy
+    // (fnv_install::plugins).
+    let mods = fnv_install::EngineHome::user().map(|h| h.mods());
+    let opened = world::open_plugins(args.data(), mods.as_deref(), &args.plugins);
     args.plugins = opened.plugins.iter().map(|p| p.name.clone()).collect();
     // No setting names the code page: the plugins' own text says it (#1443).
     if !code_page_named {
@@ -1053,7 +1056,8 @@ fn main() -> AppExit {
             }
         }
     }
-    let game = match GameData::open_for_plugins(args.data(), &args.plugins, &args.nif_schema) {
+    // The archives beside a plugin in the mods folder are mounted with it.
+    let game = match GameData::open_for_plugins_in(args.data(), mods.as_deref(), &args.plugins, &args.nif_schema) {
         Ok(g) => g,
         Err(e) => return fail(e),
     };
