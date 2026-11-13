@@ -1771,3 +1771,30 @@ set t to 1 + (GetVariable (\"bDo\" + $i)) TestQuest
 end");
     assert_eq!(call_args(&p, "GetVariable"), Some(2));
 }
+
+#[test]
+fn an_nvsescript_unit_compiles_through_the_first_grammar() {
+    // [observed: WeaponModCraftInfo.esp's four units, `name X;` and `fn (int i) { … }`,
+    // ship with bytes the extender's second compiler wrote; documented: NVSEScript.]
+    let src = "name Handler;
+
+fn (int iMenuId) {
+    TestQuest.bDone = iMenuId;
+    if (!TestQuest.bDone) {
+        return;
+    }
+    Print(\"menu ${iMenuId}\");
+}
+";
+    let (c, p) = mod_ok(src);
+    assert_eq!(c.variables.iter().map(|v| v.name.as_str()).collect::<Vec<_>>(), ["iMenuId"]);
+    assert_eq!(p.blocks.len(), 1);
+    // A diagnostic names the source's line.
+    let (c, _) = mod_source("name Bad;
+
+fn () {
+    NoSuchVar.x = 1;
+}
+");
+    assert_eq!(c.errors().next().map(|d| d.line), Some(4), "{:?}", c.diags);
+}

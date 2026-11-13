@@ -267,7 +267,7 @@ impl Gen<'_> {
                 let e = e?;
                 // A name nothing knows, taken as its text, is not such an expression: an
                 // operand after it means a call the catalogue lacks.
-                let unquoted = matches!(e, XExpr::Str { .. }) && p.i > 0 && p.t[p.i - 1].kind == XKind::Word;
+                let unquoted = ends_in_text(&e) && p.i > 0 && p.t[p.i - 1].kind == XKind::Word;
                 if p.peek().is_some_and(|c| c.kind == XKind::Comma || c.kind != XKind::Close && (ends_in_call(&e) || !unquoted && starts_operand(Some(c)))) {
                     // What is left before the `)` once the expression inside is whole and
                     // ends in a call, or from a comma on (a function's surplus argument, `,
@@ -359,7 +359,6 @@ impl Gen<'_> {
         let name = match &call.func {
             FuncId::Name(n) => n.clone(),
             FuncId::Opcode(op) => self.table.get(*op).map(|f| f.name.clone())?,
-            _ => return Some(()),
         };
         let Some(f) = self.xfunction(&name) else { return Some(()) };
         let left = match f.params {
@@ -831,6 +830,15 @@ fn lambda_at(p: &P<'_>) -> bool {
         }
     }
     false
+}
+
+/// The expression's last operand is text (`a || SomeName`, a name taken as its text).
+fn ends_in_text(e: &XExpr) -> bool {
+    match e {
+        XExpr::Str { .. } => true,
+        XExpr::Binary { r, .. } => ends_in_text(r),
+        _ => false,
+    }
 }
 
 /// The expression's last operand is a call (`a && GetWeaponSkill w`).

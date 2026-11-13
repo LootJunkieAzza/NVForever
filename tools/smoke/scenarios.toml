@@ -16023,6 +16023,20 @@ expect_file = "expected/modlist-blue-moon.toml"
 manual = "a rise: compare the report's per_plugin failed lists with main's; a drop: write the new summary into expected/modlist-blue-moon.toml"
 
 [[scenario]]
+name = "modlist-high-dry"
+kind = "tool"
+source = "issue #2275: a second real mod list's extender scripts as the game builds them at start (fnvtool ext report), read straight from its Mod Organizer 2 profile (--mo2-profile)"
+areas = ["scripts", "extender", "mods"]
+paths = ["crates/fnv-game/src/source_compile.rs", "crates/fnv-script/src/compile/", "crates/fnv-script/src/table.rs", "crates/fnv-script/src/unit.rs", "crates/fnv-script/data/encodings.json", "crates/fnvtool/src/ext_cmd.rs", "crates/fnvtool/src/mo2_args.rs", "crates/fnv-install/src/mo2.rs", "schemas/script/functions.json", "tools/smoke/expected/modlist-high-dry.toml"]
+requires = ["NVF_MODLIST_HIGH_DRY"]
+note = "NVF_MODLIST_HIGH_DRY: the folder of the High and Dry profile on this machine (<MO2 instance>\\profiles\\1 - Normal; the owner's). Plugins come from the instance's mods by modlist.txt priority and its game folder's Data; {data} is only the data folder argument"
+commands = [["ext", "report", "{data}", "--mo2-profile", "{env:NVF_MODLIST_HIGH_DRY}", "--schema", "schemas/fnv"]]
+# The totals live in expected/modlist-high-dry.toml: a branch that makes more units
+# compile lowers units_kept_bytes there; a rise fails this run.
+expect_file = "expected/modlist-high-dry.toml"
+manual = "a rise: compare the report's per_plugin failed lists with main's; a drop: write the new summary into expected/modlist-high-dry.toml"
+
+[[scenario]]
 name = "mq-old-world-blues"
 kind = "tool"
 source = "headless add-on walkthrough crates/fnv-game/walkthrough/old-world-blues.actions.json: Old World Blues from the drive-in satellite through the Think Tank, X-2, X-8, X-13, the Forbidden Zone and the Think Tank talked down, the end slides to NVDLC03MQ05 100"
