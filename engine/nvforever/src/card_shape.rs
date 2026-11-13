@@ -17,13 +17,14 @@
 //!   rectangle, so the picture's square corners outside the outline are not drawn [design].
 
 use bevy::asset::RenderAssetUsages;
-use bevy::mesh::{Indices, Mesh, PrimitiveTopology, VertexAttributeValues};
+use bevy::mesh::{Indices, Mesh, PrimitiveTopology};
 use bevy::prelude::*;
 
 /// The top right corner's three points from the right edge round to the top edge, each as
 /// (across, along): fractions of the half width and the half length [observed: the face of
-/// player_1_01.nif, half width 1.25 and half length 1.75].
-pub const CORNER: [Vec2; 3] = [Vec2::new(1.25 / 1.25, 1.597 / 1.75), Vec2::new(1.205 / 1.25, 1.705 / 1.75), Vec2::new(1.107 / 1.25, 1.75 / 1.75)];
+/// player_1_01.nif, half width 1.25 and half length 1.75; the points (1.25, 1.597),
+/// (1.205, 1.705), (1.107, 1.75)].
+pub const CORNER: [Vec2; 3] = [Vec2::new(1.0, 1.597 / 1.75), Vec2::new(1.205 / 1.25, 1.705 / 1.75), Vec2::new(1.107 / 1.25, 1.0)];
 
 /// The outline of a card `size` across (x) and long (y), about its middle, against the
 /// clock seen from +Z: 12 points, three to a corner.
@@ -78,6 +79,7 @@ pub fn card_mesh(size: Vec2, z: f32, up: bool) -> Mesh {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bevy::mesh::VertexAttributeValues;
 
     /// Whether a picture coordinate is drawn on a card mesh: inside one of its triangles.
     fn covers(mesh: &Mesh, at: Vec2) -> bool {
