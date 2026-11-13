@@ -172,9 +172,37 @@ impl Game<'_> {
     /// The files an actor's animations are replaced with, in the order they apply (a
     /// later file of a group wins): the folders' first, then SetActorAnimationPath's
     /// [hypothesis: a script's call wins over the files a mod installed].
+    ///
+    /// A script's path with a condition is left out here (no script can run from a
+    /// shared borrow): [`Game::anim_overrides_now`] runs the conditions. A folder path
+    /// gives its KF files.
     pub fn anim_overrides(&self, actor: FormId, first: bool) -> Vec<String> {
         let mut v = self.anim_folders.active.get(&(actor, first)).cloned().unwrap_or_default();
-        v.extend(self.anim_paths.actor.get(&(actor, first)).cloned().unwrap_or_default());
+        for p in self.anim_paths.actor.get(&(actor, first)).into_iter().flatten() {
+            if !self.anim_paths.conditions.contains_key(&(actor, first, crate::nvse_anim::path_key(p))) {
+                v.extend(crate::nvse_anim::kf_files(p));
+            }
+        }
+        v
+    }
+
+    /// As [`Game::anim_overrides`], with SetActorAnimationPath's conditional paths whose
+    /// condition holds now: each condition function runs on the actor (`this`) and a
+    /// true result keeps its path [documented: SetActorAnimationPath, the condition
+    /// function; hypothesis: evaluated each time the engine asks, every frame, which
+    /// covers `pollConditionFunction` 1]. A condition that fails to run counts false.
+    pub fn anim_overrides_now(&mut self, actor: FormId, first: bool) -> Vec<String> {
+        let mut v = self.anim_folders.active.get(&(actor, first)).cloned().unwrap_or_default();
+        let paths = self.anim_paths.actor.get(&(actor, first)).cloned().unwrap_or_default();
+        for p in paths {
+            let holds = match self.anim_paths.conditions.get(&(actor, first, crate::nvse_anim::path_key(&p))).cloned() {
+                None => true,
+                Some(c) => self.run_function(&c, Some(fnv_script::vm::Value::Ref(actor.0)), Vec::new(), Some(actor), Default::default()).is_ok_and(|r| r.truthy()),
+            };
+            if holds {
+                v.extend(crate::nvse_anim::kf_files(&p));
+            }
+        }
         v
     }
 

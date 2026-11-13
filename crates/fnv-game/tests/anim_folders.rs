@@ -129,3 +129,28 @@ fn folder_overrides_follow_the_weapon_and_the_condition() {
     q(&mut g, "CopyAnimationsToForm TestGun OtherGun");
     assert!(g.anim_folders.entries.iter().filter(|e| e.forms.contains(&FormId(WEAPON))).all(|e| e.forms.contains(&FormId(OTHER_GUN))));
 }
+
+/// SetActorAnimationPath takes a folder (its KF files) and a condition function: the
+/// path applies only while the condition holds [documented: SetActorAnimationPath].
+#[test]
+fn script_paths_take_folders_and_conditions() {
+    files();
+    let f = fixture();
+    let world = World::new(&f.forms, &f.refs, SimConfig::default());
+    let mut g = Game::new(&f.data, world, GameConfig::default());
+    g.player_entered(Some(FormId(ROOM)));
+    g.tick();
+    let gun = |v: Vec<String>| v.into_iter().map(|p| p.replace(char::from(92), "/")).filter(|p| p.contains("Gun")).collect::<Vec<_>>();
+    // A folder: its KF files, not the text file or the subfolder's.
+    q(&mut g, "player.SetActorAnimationPath 1 1 \"AnimGroupOverride/Gun/_1stPerson\"");
+    assert_eq!(gun(g.anim_overrides(FormId::PLAYER_REF, true)), ["AnimGroupOverride/Gun/_1stPerson/2hrAttack3.kf"]);
+    // A conditional folder: out while TestFlag is 0, in once it is 1.
+    q(&mut g, "player.SetActorAnimationPath 0 1 \"AnimGroupOverride/Gun/_male\" 1 ({} => TestFlag == 1)");
+    assert!(gun(g.anim_overrides(FormId::PLAYER_REF, false)).is_empty(), "the plain list leaves conditional paths out");
+    assert!(gun(g.anim_overrides_now(FormId::PLAYER_REF, false)).is_empty());
+    q(&mut g, "set TestFlag to 1");
+    assert_eq!(gun(g.anim_overrides_now(FormId::PLAYER_REF, false)), ["AnimGroupOverride/Gun/_male/2hrAttack3.kf"]);
+    // Disabled: gone.
+    q(&mut g, "player.SetActorAnimationPath 0 0 \"AnimGroupOverride/Gun/_male\"");
+    assert!(gun(g.anim_overrides_now(FormId::PLAYER_REF, false)).is_empty());
+}
