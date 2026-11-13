@@ -97,8 +97,19 @@ pub fn tokens(line: &str) -> Vec<Tok> {
         let (kind, len) = if c == '"' {
             let end = cs[i + 1..].iter().position(|&q| q == '"').map(|p| i + 1 + p);
             let text: String = cs[i + 1..end.unwrap_or(cs.len())].iter().collect();
-            out.push(Tok { kind: Kind::Str, text });
             i = end.map(|e| e + 1).unwrap_or(cs.len());
+            // `"Name".Function`: a quoted name right before a dot is the call's reference,
+            // one word that keeps the quotes (`Gen::form` reads them) [observed: Veronica
+            // Outfit Replacer.esp ships `"E32A9".GetItemCount …` with compiled bytes calling
+            // it on 0x000E32A9, #2275].
+            if end.is_some() && cs.get(i) == Some(&'.') && cs.get(i + 1).is_some_and(|c| c.is_ascii_alphabetic() || *c == '_') {
+                let n = cs[i..].iter().take_while(|&&w| word_char(w)).count();
+                let rest: String = cs[i..i + n].iter().collect();
+                out.push(Tok { kind: Kind::Word, text: format!("\"{text}\"{rest}") });
+                i += n;
+                continue;
+            }
+            out.push(Tok { kind: Kind::Str, text });
             continue;
         } else if matches!(two.as_str(), "==" | "!=" | "<=" | ">=" | "&&" | "||") {
             (Kind::Op, 2)
