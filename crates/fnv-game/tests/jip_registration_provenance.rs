@@ -73,7 +73,7 @@ fn fixture() -> Fixture {
     let table = FunctionTable::load(&root.join("script/functions.json")).unwrap();
     let scripts = [
         function(&table, REGISTRAR, "OwnedRegistrar", "SetOnHitEventHandler OwnedCallback 1 0"),
-        function(&table, CALLBACK, "OwnedCallback", &format!("Call {BAD_A}")),
+        function(&table, CALLBACK, "OwnedCallback", &format!("Call {BAD_A}.0")),
         function(&table, OUTER, "OwnedOuter", "Call OwnedRegistrar"),
     ].concat();
     let bytes = [tes4(), top(b"SCPT", &scripts)].concat();
@@ -95,7 +95,7 @@ fn query(g: &mut Game, body: &str) -> XVal {
     g.run_query(&format!("Begin Function {{}}\n{body}\nEnd\n"), RunCtx::default()).unwrap_or_else(|e| panic!("{body}: {e}"))
 }
 fn compile(g: &mut Game, path: &str, force: bool) -> u32 {
-    let value = fnv_game::nvse::call(g, &RunCtx::default(), "CompileScript", None, &[XVal::Str(path.into()), XVal::Num(if force { 1.0 } else { 0.0 })]).unwrap().unwrap();
+    let value = fnv_game::nvse::call(g, &RunCtx::default(), "compilescript", None, &[XVal::Str(path.into()), XVal::Num(if force { 1.0 } else { 0.0 })]).unwrap().unwrap();
     match value { XVal::Ref(id) if id != 0 => id, _ => panic!("compile failed: {path}: {value:?}") }
 }
 fn run(g: &mut Game, id: u32) {
@@ -114,19 +114,19 @@ fn files() {
     let root = INIT.get_or_init(|| {
         let root = std::env::temp_dir().join(format!("nvf-jip-provenance-{}", std::process::id()));
         let sr = root.join("nvse/plugins/scripts"); std::fs::create_dir_all(&sr).unwrap();
-        std::fs::write(sr.join("gr_owned_a.txt"), format!("SetOnHitEventHandler {BAD_A} 1 0\n")).unwrap();
-        std::fs::write(sr.join("gr_owned_b.txt"), format!("SetOnHitEventHandler {BAD_B} 1 0\n")).unwrap();
+        std::fs::write(sr.join("gr_owned_a.txt"), format!("SetOnHitEventHandler {BAD_A}.0 1 0\n")).unwrap();
+        std::fs::write(sr.join("gr_owned_b.txt"), format!("SetOnHitEventHandler {BAD_B}.0 1 0\n")).unwrap();
         root
     });
     let reader = Arc::new(|path: &str| {
         let short = path.strip_prefix("nvse\\user_defined_functions\\")?;
         let body = match short {
-            "owned_a.gek" => format!("SetOnHitEventHandler {BAD_A} 1 0"),
-            "owned_b.gek" => format!("SetOnHitEventHandler {BAD_B} 1 0"),
+            "owned_a.gek" => format!("SetOnHitEventHandler {BAD_A}.0 1 0"),
+            "owned_b.gek" => format!("SetOnHitEventHandler {BAD_B}.0 1 0"),
             "register_remover.gek" => "SetOnHitEventHandler (GetModLocalData \"callback\") 1 0".into(),
-            "removing_callback.gek" => format!("SetOnHitEventHandler (GetModLocalData \"callback\") 0 0\nCall {BAD_A}"),
-            "remove_pending_callback.gek" => format!("SetOnHitEventHandler {BAD_B} 0 0\nCall {BAD_A}"),
-            _ if short == long_path() => format!("SetOnHitEventHandler {BAD_A} 1 0"),
+            "removing_callback.gek" => format!("SetOnHitEventHandler (GetModLocalData \"callback\") 0 0\nCall {BAD_A}.0"),
+            "remove_pending_callback.gek" => format!("SetOnHitEventHandler {BAD_B}.0 0 0\nCall {BAD_A}.0"),
+            _ if short == long_path() => format!("SetOnHitEventHandler {BAD_A}.0 1 0"),
             _ => return None,
         };
         Some(format!("Begin Function {{}}\n{body}\nEnd\n").into_bytes())
@@ -189,14 +189,14 @@ fn nested_record_registration_identifies_the_registrar_not_its_caller_or_callbac
 fn duplicate_preserves_first_registrar_and_removal_allows_a_fresh_query_registration() {
     let f = fixture(); let mut g = game(&f);
     let file = compile(&mut g, "owned_a.gek", false); run(&mut g, file);
-    assert_eq!(query(&mut g, &format!("SetFunctionValue (SetOnHitEventHandler {BAD_A} 1 0)")), XVal::Num(1.0));
+    assert_eq!(query(&mut g, &format!("SetFunctionValue (SetOnHitEventHandler {BAD_A}.0 1 0)")), XVal::Num(1.0));
     let before = capture(|| { assert_eq!(fire(&mut g), 0); });
     assert_eq!(before.len(), 1); assert_eq!(before[0].get("registrar_compiled_id"), Some(&serde_json::json!(file)));
     for expected in [1.0, 0.0] {
-        assert_eq!(query(&mut g, &format!("SetFunctionValue (SetOnHitEventHandler {BAD_A} 0 0)")), XVal::Num(expected));
+        assert_eq!(query(&mut g, &format!("SetFunctionValue (SetOnHitEventHandler {BAD_A}.0 0 0)")), XVal::Num(expected));
     }
     assert!(capture(|| { assert_eq!(fire(&mut g), 0); }).is_empty());
-    query(&mut g, &format!("SetOnHitEventHandler {BAD_A} 1 0"));
+    query(&mut g, &format!("SetOnHitEventHandler {BAD_A}.0 1 0"));
     let after = capture(|| { assert_eq!(fire(&mut g), 0); });
     assert_eq!(after[0]["registrar_kind"], "query");
     assert_eq!(after[0]["registrar_plugin"], "<none>");
@@ -209,7 +209,7 @@ fn duplicate_preserves_first_registrar_and_removal_allows_a_fresh_query_registra
 fn nested_self_removal_preserves_attempt_provenance_without_preserving_registration() {
     let f = fixture(); let mut g = game(&f);
     let callback = compile(&mut g, "removing_callback.gek", false);
-    query(&mut g, &format!("SetModLocalData \"callback\" {callback}"));
+    query(&mut g, &format!("SetModLocalData \"callback\" {callback}.0"));
     let registrar = compile(&mut g, "register_remover.gek", false); run(&mut g, registrar);
     let rows = capture(|| { assert_eq!(fire(&mut g), 0); });
     assert_eq!(rows.len(), 1);
@@ -223,7 +223,7 @@ fn removing_an_older_pending_handler_keeps_its_dispatch_snapshot_origin() {
     let f = fixture(); let mut g = game(&f);
     let older = compile(&mut g, "owned_b.gek", false); run(&mut g, older);
     let remover = compile(&mut g, "remove_pending_callback.gek", false);
-    query(&mut g, &format!("SetOnHitEventHandler {remover} 1 0"));
+    query(&mut g, &format!("SetOnHitEventHandler {remover}.0 1 0"));
     let rows = capture(|| { assert_eq!(fire(&mut g), 0); });
     assert_eq!(rows.len(), 2, "the original handler snapshot still attempts the removed older handler");
     assert_eq!(rows[0].get("registrar_kind"), Some(&serde_json::json!("query")));
@@ -242,7 +242,7 @@ fn eviction_never_guesses_file_origin_or_changes_old_callable_execution() {
     for _ in 0..128 { compile(&mut g, "owned_b.gek", true); }
     let retained = capture(|| { assert_eq!(fire(&mut g), 0); });
     assert_eq!(retained[0].get("registrar_kind"), Some(&serde_json::json!("compiled_file")), "an active registration owns its bounded metadata");
-    query(&mut g, &format!("SetOnHitEventHandler {BAD_A} 0 0"));
+    query(&mut g, &format!("SetOnHitEventHandler {BAD_A}.0 0 0"));
     run(&mut g, old); // The old compiled unit remains executable after diagnostic eviction.
     let evicted = capture(|| { assert_eq!(fire(&mut g), 0); });
     assert_eq!(evicted[0]["registrar_kind"], "compiled_unavailable");
@@ -277,9 +277,9 @@ fn dynamic_evaluation_and_console_have_distinct_runtime_origins_without_plugin_g
     for (kind, register) in [("compiled_source", true), ("console", false)] {
         let mut g = game(&f);
         if register {
-            assert_eq!(query(&mut g, &format!("SetFunctionValue (EvaluateString \"SetOnHitEventHandler {BAD_A} 1 0\")")), XVal::Num(1.0));
+            assert_eq!(query(&mut g, &format!("SetFunctionValue (EvaluateString \"SetOnHitEventHandler {BAD_A}.0 1 0\")")), XVal::Num(1.0));
         } else {
-            assert!(g.run_source(&format!("SetOnHitEventHandler {BAD_A} 1 0"), RunCtx::default()).unwrap().is_empty());
+            assert!(g.run_source(&format!("SetOnHitEventHandler {BAD_A}.0 1 0"), RunCtx::default()).unwrap().is_empty());
         }
         let rows = capture(|| { assert_eq!(fire(&mut g), 0); });
         assert_eq!(rows.len(), 1);
