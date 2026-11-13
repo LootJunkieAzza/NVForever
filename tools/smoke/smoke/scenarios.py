@@ -33,6 +33,7 @@ GAME, TOOL = "game", "tool"
 SCENARIO_KEYS = {
     "name", "kind", "source", "areas", "paths", "args", "run_seconds", "env", "launch", "offset",
     "expect", "expect_file", "order", "forbid", "manual", "requires", "commands", "exit", "note", "timeout", "ends",
+    "front",
     "serve",
 }
 SERVE_KEYS = {"status", "body"}
@@ -74,6 +75,9 @@ class Scenario:
     note: str = ""
     timeout: float = 0.0  # seconds; 0 = derived from run_seconds
     ends: str = "run finished"  # game scenarios: the line the run ends with (always expected)
+    # Game scenarios: hold the launch's window in front while it runs (smoke/front.py; Windows),
+    # for checks that need the foreground (DLSS Frame Generation); needs --slots 1.
+    front: bool = False
     serve: dict = field(default_factory=dict)  # a loopback HTTP server for the launch: status, body
 
     def all_expectations(self):
@@ -163,6 +167,10 @@ def parse_scenario(d: dict, base: Path | None = None) -> Scenario:
     s.commands = [[str(a) for a in c] for c in d.get("commands", [])]
     s.exit = int(d.get("exit", 0))
     s.timeout = float(d.get("timeout", 0))
+    front = d.get("front", False)
+    if not isinstance(front, bool):
+        raise ScenarioError(f"{name}: front must be true or false")
+    s.front = front
     if "serve" in d:
         s.serve = _serve(name, d["serve"])
     s.expect = _expects(d.get("expect", []), f"{name}.expect")
@@ -183,6 +191,8 @@ def parse_scenario(d: dict, base: Path | None = None) -> Scenario:
         s.expect.insert(0, Expect.parse(s.ends))
     elif not s.commands:
         raise ScenarioError(f"{name}: a tool scenario needs commands")
+    if s.front and s.kind != GAME:
+        raise ScenarioError(f"{name}: front applies to game scenarios only")
     if s.serve and s.kind != GAME:
         raise ScenarioError(f"{name}: serve is for game scenarios")
     if not s.serve and any("{serve}" in v for v in s.env.values()):
