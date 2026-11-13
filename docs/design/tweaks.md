@@ -590,6 +590,9 @@ unless the player binds them, so nothing changes until then.
 | Continue Shows Its Save | `bMainMenuContinueIcon` | `main_menu::continue_picture` reads the newest save's thumbnail once (`save::decode_thumbnail`) and shows it under the logo (`ContinuePicture`) while Continue is the chosen entry on the main page |
 | Quest Text Over the Pip-Boy | `bQuestTextVisibleInMenus` | `quest_messages::over_menus`: in the Menu state with the Pip-Boy up or a terminal open the area is not held, is drawn at `OVER_MENUS_Z` above both, and its clock runs on real time; sitting is the Playing state, where the area already shows |
 | Detected by Whom | `bDetectedByWhom` | `Game::player_detectors_for_sneak` (`Detections::detected_by`: the detected band, not with the player, alive, most sure first) gives the names (`SimState::ref_name`); `hud::detected_word` writes `[DETECTED BY A, B and N others]` into `HudView::detected_by`, which the sneak word draws instead of `[DETECTED]` |
+| Skip Radio Song | `iSkipRadioSongKey` | `bindings::Control::SkipRadioSong` sets `radio::Radio::skip`; the radio puts the received Pip-Boy station's line at its end (`skip_to_end`: its last part's time run out), so the line's end script runs and the station's own order picks the next; a script's conversation is not skipped. The station's programme is shared, so receivers playing it move on too |
+| Per-Bullet Looping Reloads | `bPerBulletLoopingReloads` | `fnv_combat::attack::Cycle::reload_presses` (set each tick from the game's tweaks): a round-by-round reload starts wanting one press's rounds, each Reload press while it opens or loads queues more (`queue_press`, up to the most), and it closes once that many are in |
+| Doors on the Compass | `bShowDoorsOnCompass` | `compass::doors_of` lists the place's teleport doors (not Hidden From Local Map), cached per space; `gather` adds those present within the reach as `Mark::Door`, drawn with `icon_local_door.dds`, faded by `DOOR_RANGE` under the switch. The tile HUD leaves them out (no door template) |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -611,8 +614,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 520 |
-| to do | 83 |
+| done | 523 |
+| to do | 80 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -698,6 +701,7 @@ game's Data folder, read-only).
 | `bNPCsTakeLimbFallDamage` | done |  |  | already so: falls hit a leg for NPCs too |
 | `bOnlyAllowWaitWhileSitting` | done |  | 3 | Wait Only When Seated (NVForever's own refusal text) |
 | `bOverencumberedTweak` | done |  | 8 | Run While Overencumbered, with AP a second and a jump (the weight-scaled drain and speed options not built) |
+| `bPerBulletLoopingReloads` | done |  | 2 | Per-Bullet Looping Reloads with Rounds a Press and Most Queued |
 | `bPerksAffectFistWeaponSpeed` | done |  |  | already so: the fists are the weapon the perks are asked about |
 | `bPickLocksWithoutSkill` | done |  | 1 | Pick Any Lock (the lock plays as before; the difficulty option not built) |
 | `bPickpocketCaughtCausesDetection` | done |  |  | Caught Pickpocketing Means Detected |
@@ -757,7 +761,6 @@ game's Data folder, read-only).
 | `bMapSelectableCompanions` | to do |  | 2 | not built: companions are not on the map and cannot be summoned |
 | `bNoLockEncounterZoneLevels` | unsure, skipped |  |  | encounter-zone level locking not yet checked in NVForever |
 | `bNPCsDropLiveGrenades` | to do |  |  | not built: NPC grenades have no in-hand phase |
-| `bPerBulletLoopingReloads` | to do |  | 2 | a press counter on the attack Cycle |
 | `bPickpocketOverhaul` | to do |  | 15 | Steal::chance needs weight, Perception and detection |
 | `bPreventRepairIfNotAtWorkbench` | to do |  |  | workbenches are activators whose own scripts open the recipe menu; nothing marks one for the crosshair |
 | `bQuickUse` | to do |  | 9 | two input paths that do not exist yet |
@@ -986,6 +989,7 @@ game's Data folder, read-only).
 | `bRemoveQuestObjectiveAddedText` | done |  | 1 | No Objective List |
 | `bRemoveSneakLabel` | done |  |  | No Sneak Label (native and tile HUD) |
 | `bScopeVisibleAPHP` | done |  | 1 | already so: HP and AP stay up while scoped |
+| `bShowDoorsOnCompass` | done |  | 5 | Doors on the Compass with both reaches and Fade by Distance (the local map's door picture; hand-built HUD); the visited-cell colour is not built: no record of cells visited |
 | `bShowNearestUndiscoveredLocation` | done |  | 2 | Nearest Unfound Place (the compass; the map option not built) |
 | `bShowQuestObjectivesOnCellChange` | done |  | 1 | Objectives on Arrival, with the gap slider |
 | `bShowSneakLabelWhileStanding` | done |  |  | Sneak Label While Standing |
@@ -1004,7 +1008,6 @@ game's Data folder, read-only).
 | `bHUDFatigueIndicator` | to do |  |  | the needs words are a fixed five |
 | `bHUDShowRegionNames` | to do |  | 1 | not built: the HUD has no region text |
 | `bHUDWeaponNameLabel` | unsure, skipped |  | 5 | needs the plugin's own menu XML |
-| `bShowDoorsOnCompass` | to do |  | 5 | a door mark kind, icons and gathering |
 | `bWaterSourcesShowH2O` | to do |  | 1 | not built: water prompts carry no line |
 
 ### Menus
@@ -1164,6 +1167,7 @@ game's Data folder, read-only).
 | `iRadioVolumeUpKey` | done |  | 1 | Radio Volume Up key (a tenth of the Radio volume) |
 | `iRepeatActivateKey` | done |  | 2 | Repeat Activate key (Controls page) and Repeat Activate Takes Only |
 | `iScreenshotKey` | done |  | 1 | Screenshot Key (a choice of five) |
+| `iSkipRadioSongKey` | done |  | 1 | Skip Radio Song key (not a script's conversation) |
 | `iToggleCrosshairKey` | done |  | 1 | a Controls key: Show/Hide Crosshair |
 | `iToggleMenusKey` | done |  | 1 | a Controls key: Show/Hide HUD (as ToggleMenus) |
 | `iTogglePipboyLightKey` | done |  | 2 | a Controls key: Pip-Boy Light (the night vision part not built) |
@@ -1172,7 +1176,6 @@ game's Data folder, read-only).
 | `iToggleSneakIndicatorKey` | done |  | 1 | a Controls key: Show/Hide Sneak Label |
 | `iToggleTrueIronSightsKey` | done |  | 1 | True Iron Sights key |
 | `iVATSAcceptKey` | done |  | 1 | already so: accepting is the Activate control, rebindable on the Controls page |
-| `iSkipRadioSongKey` | to do |  | 1 | the playing line and the broadcast both move |
 
 ### Cheat
 

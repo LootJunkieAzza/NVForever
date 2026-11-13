@@ -440,6 +440,9 @@ impl HudTiles<'_> {
             marks: self.compass.as_ref().map_or_else(Vec::new, |view| {
                 view.0
                     .iter()
+                    // The tile HUD has no door icon: the Show Doors on Compass tweak's marks
+                    // are the hand-built HUD's.
+                    .filter(|(kind, _)| *kind != crate::compass::Mark::Door)
                     .map(|(kind, offset)| {
                         use crate::compass::Mark;
                         use fnv_game::ui_hud::MarkKind;
@@ -451,6 +454,7 @@ impl HudTiles<'_> {
                                 Mark::Found => MarkKind::Found,
                                 Mark::Quest => MarkKind::Quest,
                                 Mark::Player => MarkKind::Player,
+                                Mark::Door => MarkKind::Place,
                             },
                             heading: 139.0 + f64::from(*offset), // [observed: hud.md §14.5].
                             distance: 1.0,                       // [hypothesis: hud.md §14.6; drawing stores no distances].

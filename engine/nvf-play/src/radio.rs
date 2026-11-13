@@ -334,6 +334,14 @@ struct OnAir {
     started: f64,
 }
 
+/// A line on the air put at its end at radio clock `now`: on its last part, that part's
+/// time just run out.
+fn skip_to_end(on: &mut OnAir, now: f64) {
+    let Some(last) = on.parts.len().checked_sub(1) else { return };
+    on.part = last;
+    on.started = now - on.parts[last].seconds;
+}
+
 #[derive(Debug, Default)]
 struct Programme {
     on_air: Option<OnAir>,
@@ -449,6 +457,9 @@ pub struct Radio {
     pub refused: u32,
     pub conversations: u32,
     pub conversations_ignored: u32,
+    /// The Skip Radio Song key was pressed (`crate::tweaks`): the Pip-Boy's station ends
+    /// the line it is saying now [design: docs/design/tweaks.md].
+    pub skip: bool,
 }
 
 impl Radio {
@@ -900,6 +911,26 @@ fn play(
         }
     }
 
+    // The Skip Radio Song key: the Pip-Boy's station, received, ends its line now, so the
+    // line's end script runs and the station's own order picks the next. Not a
+    // conversation a script started (quests wait on those) [design: docs/design/tweaks.md].
+    if std::mem::take(&mut radio.skip) {
+        match pip_station.filter(|_| pip_share.is_some()) {
+            Some((_, base)) => {
+                let p = radio.programmes.entry(base).or_default();
+                let conversation = p.conversation;
+                match p.on_air.as_mut().filter(|_| !conversation) {
+                    Some(on) => {
+                        skip_to_end(on, now);
+                        info!("pipboy radio: {} skips {} (Skip Radio Song)", name(&places, base), on.info);
+                    }
+                    None => info!("pipboy radio: nothing to skip on {}", name(&places, base)),
+                }
+            }
+            None => info!("pipboy radio: nothing to skip (off or not received)"),
+        }
+    }
+
     // The programmes move on: of the stations heard, of every station heard before, and
     // of those a script started a conversation on.
     let mut stations: BTreeSet<u32> = heard.iter().map(|h| h.1).collect();
@@ -1221,6 +1252,16 @@ pub const RECEIVED_SAVE_HOOK: crate::save::SaveHook = crate::save::SaveHook {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A skipped line is put on its last part with that part's time run out at once.
+    #[test]
+    fn a_skipped_line_ends_now() {
+        let part = |seconds| Part { response: 0, path: None, stereo: None, seconds, song: true, gain: 1.0 };
+        let mut on = OnAir { info: FormId(7), parts: vec![part(3.0), part(180.0)], part: 0, started: 10.0 };
+        skip_to_end(&mut on, 12.0);
+        assert_eq!(on.part, 1);
+        assert!(12.0 >= on.started + on.parts[1].seconds - 1e-9);
+    }
 
     /// The stations received once go with the save and come back with it.
     #[test]

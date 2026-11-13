@@ -242,6 +242,13 @@ pub struct TweakSettings {
     /// `detected_names` names (0: only how many).
     pub detected_by_whom: bool,
     pub detected_names: f32,
+    /// `bShowDoorsOnCompass`: doors leading elsewhere on the compass, within
+    /// `compass_doors_exterior` / `compass_doors_interior` units, fading with distance
+    /// under `compass_doors_fade`.
+    pub compass_doors: bool,
+    pub compass_doors_exterior: f32,
+    pub compass_doors_interior: f32,
+    pub compass_doors_fade: bool,
     /// `bHideAmmoLabel`: no ammo counter on the HUD.
     pub hide_ammo_label: bool,
     /// `bNoFreeBarterItems`/`fFreeItemCost`: the price of things worth nothing in a
@@ -656,6 +663,10 @@ impl Default for TweakSettings {
             quest_text_in_menus: false,
             detected_by_whom: false,
             detected_names: 2.0,
+            compass_doors: false,
+            compass_doors_exterior: 2000.0,
+            compass_doors_interior: 1000.0,
+            compass_doors_fade: false,
             hide_ammo_label: false,
             free_item_price: 0.0,
             duplicate_binds: false,
@@ -910,7 +921,7 @@ impl Plugin for TweaksPlugin {
             .init_resource::<ItemPlaces>()
             .add_systems(Update, remember_item_places.after(crate::menu::MenuSystems))
             .add_systems(Update, sync.in_set(crate::PlaySet::Input))
-            .add_systems(Update, (keys, drop_weapon, radio_volume_keys, last_weapon, hold_breath, repeat_activate, toggle_sight, place_marker_here, clear_near_marker, hide_hud_key).in_set(crate::PlaySet::Input))
+            .add_systems(Update, (keys, drop_weapon, radio_volume_keys, last_weapon, hold_breath, repeat_activate, toggle_sight, place_marker_here, clear_near_marker, hide_hud_key, skip_radio_song).in_set(crate::PlaySet::Input))
             .add_systems(Update, objectives_on_arrival.in_set(crate::PlaySet::Ui))
             .add_systems(PreUpdate, trigger_dead_zones.before(bevy::input::InputSystems))
             .add_systems(Update, ap_costs.after(crate::PlaySet::Input).after(crate::player::encumbered_walks).before(crate::PlaySet::Physics));
@@ -1390,6 +1401,10 @@ impl Plugin for TweaksPlugin {
         );
         // ---- batch 25 ----
         switch!(app, "invert-title-wheel", "Reverse Category Wheel", "The mouse wheel over a container's category title steps the other way. (Stewie's Tweaks bInvertContainerTitleScrollwheelDirection)", invert_title_wheel);
+        switch!(app, "compass-doors", "Doors on the Compass", "Doors leading somewhere else show on the compass, as the local map draws them. (Stewie's Tweaks bShowDoorsOnCompass)", compass_doors);
+        amount!(app, "compass-doors-exterior", "Doors on the Compass: Reach Outside", "How far away a door outside still shows, in game units (70 a metre). (Stewie's Tweaks bShowDoorsOnCompass)", 10000.0, f32, compass_doors_exterior);
+        amount!(app, "compass-doors-interior", "Doors on the Compass: Reach Inside", "How far away a door inside still shows, in game units (70 a metre). (Stewie's Tweaks bShowDoorsOnCompass)", 5000.0, f32, compass_doors_interior);
+        switch!(app, "compass-doors-fade", "Doors on the Compass: Fade by Distance", "A door's mark is fainter the further away it is. (Stewie's Tweaks bShowDoorsOnCompass)", compass_doors_fade);
         switch!(app, "detected-by-whom", "Detected by Whom", "The sneak word [DETECTED] names who has detected the player. (Stewie's Tweaks bDetectedByWhom)", detected_by_whom);
         amount!(app, "detected-names", "Detected by Whom: Names Shown", "How many names come before \"and N others\"; 0 shows only how many. (Stewie's Tweaks bDetectedByWhom)", 5.0, f32, detected_names);
         switch!(app, "quest-text-in-menus", "Quest Text Over the Pip-Boy", "The quest and location lines stay on screen, and go on, while the Pip-Boy or a terminal is open. (Stewie's Tweaks bQuestTextVisibleInMenus)", quest_text_in_menus);
@@ -1419,6 +1434,9 @@ impl Plugin for TweaksPlugin {
         amount!(app, "mark-nearby-places", "Mark Nearby Places", "Map markers within this many units of the player are marked on the map; 0 changes nothing. (Stewie's Tweaks bMarkNearbyLocationsOnMap)", 10000.0, f32, game.mark_nearby_places);
         switch!(app, "scale-ash-piles", "Ash Piles Fit the Body", "An ash pile takes the size of the actor it was (between half and twice). (Stewie's Tweaks bScaleAshpileSize)", game.scale_ash_piles);
         switch!(app, "pipboy-buzz", "Pip-Boy Buzz", "A short controller buzz on each Pip-Boy page or tab change (with rumble on). (Stewie's Tweaks bHapticPipboy)", pipboy_buzz);
+        switch!(app, "per-bullet-reload", "Per-Bullet Looping Reloads", "A weapon loaded a round at a time (a shotgun, a revolver) loads only as many rounds as Reload is pressed for, pressed again while it loads. (Stewie's Tweaks bPerBulletLoopingReloads)", game.per_bullet_reload);
+        amount!(app, "reload-rounds-per-press", "Per-Bullet Reloads: Rounds a Press", "Rounds each Reload press loads. (Stewie's Tweaks bPerBulletLoopingReloads)", 5.0, u32, game.reload_rounds_per_press);
+        amount!(app, "reload-press-queue", "Per-Bullet Reloads: Most Queued", "The most rounds the presses can queue; 0 for no most. (Stewie's Tweaks bPerBulletLoopingReloads)", 20.0, u32, game.reload_press_queue);
         switch!(app, "reload-while-firing", "Reload While Firing", "A reload can start while the last shot's recovery still runs. (Stewie's Tweaks bReloadWhileFiring)", game.reload_while_firing);
         add_setting(
             app,
@@ -2073,6 +2091,16 @@ fn hide_hud_key(input: crate::bindings::ControlInput, state: Res<State<crate::Pl
     let parts = (tweaks.hide_hud_compass, tweaks.hide_hud_ammo, tweaks.hide_hud_needs, tweaks.hide_hud_sneak);
     if (hidden.compass, hidden.ammo, hidden.needs, hidden.sneak) != parts {
         (hidden.compass, hidden.ammo, hidden.needs, hidden.sneak) = parts;
+    }
+}
+
+/// The Skip Radio Song key (`crate::bindings::Control::SkipRadioSong`) asks the Pip-Boy's
+/// station to end its line (`crate::radio::Radio::skip`) [design: docs/design/tweaks.md].
+fn skip_radio_song(input: crate::bindings::ControlInput, state: Res<State<crate::PlayState>>, radio: Option<ResMut<crate::radio::Radio>>) {
+    if *state.get() == crate::PlayState::Playing && input.just_pressed(crate::bindings::Control::SkipRadioSong) {
+        if let Some(mut r) = radio {
+            r.skip = true;
+        }
     }
 }
 

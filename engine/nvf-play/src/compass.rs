@@ -88,6 +88,9 @@ const LANDMARK: &str = "textures\\interface\\hud\\glow_hud_compass_landmark.dds"
 const LANDMARK_FOUND: &str = "textures\\interface\\hud\\glow_hud_compass_landmark_discovered.dds";
 const QUEST: &str = "textures\\interface\\hud\\glow_hud_compass_objective_marker.dds";
 const PLAYER_MARKER: &str = "textures\\interface\\hud\\glow_hud_compass_pc_marker.dds";
+/// A door's mark under the Show Doors on Compass tweak: the local map's door picture
+/// (`crate::pipboy::data`'s) [design: the HUD file has no door icon].
+const DOOR: &str = "textures\\interface\\icons\\local map\\icon_local_door.dds";
 /// How far above or below the feet a mark is for the height tweaks' bar (game units, a
 /// storey) [design].
 pub const HEIGHT_STEP: f32 = 256.0;
@@ -114,6 +117,9 @@ pub enum Mark {
     Hostile,
     /// A companion, under the player's Companion Pip Colour tweak [design: docs/design/tweaks.md].
     Companion,
+    /// A door leading elsewhere, under the player's Show Doors on Compass tweak [design:
+    /// docs/design/tweaks.md].
+    Door,
     /// A map marker the player has not been to, and one it has.
     Place,
     Found,
@@ -243,6 +249,34 @@ const FARTHEST_PIP: f32 = 0.25;
 /// The reach places show on the compass at the last look (game units, as `f32` bits),
 /// for the Fade Places by Distance tweak [design: docs/design/tweaks.md].
 static PLACE_RANGE: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+/// The reach doors show at under the Show Doors on Compass tweak at the last look (game
+/// units, as `f32` bits), for its fade.
+static DOOR_RANGE: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+/// The doors leading elsewhere (placed references with a teleport) of the player's place:
+/// the interior's, or the worldspace's cells and its persistent cell; less those hidden
+/// from the local map. FormID and place.
+fn doors_of(refs: &fnv_sim::refs::RefTable, loc: &Location) -> Vec<(u32, [f32; 3])> {
+    let mut cells: Vec<FormId> = match loc.interior {
+        Some(c) => vec![FormId(c)],
+        None => refs.cell_world.iter().filter(|(_, w)| w.0 == loc.world).map(|(c, _)| *c).chain(refs.world_persistent.get(&FormId(loc.world)).copied()).collect(),
+    };
+    cells.sort();
+    cells.dedup();
+    cells
+        .iter()
+        .flat_map(|c| refs.by_cell.get(c).into_iter().flatten())
+        .filter_map(|id| {
+            let r = refs.get(*id)?;
+            r.teleport.as_ref()?;
+            (r.flags & crate::pipboy::data::read::HIDDEN_FROM_LOCAL_MAP == 0).then_some((id.0, r.pos))
+        })
+        .collect()
+}
+
+/// The doors of the place the compass last looked in ([`doors_of`]), by its space.
+type DoorCache = Option<(u32, Vec<(u32, [f32; 3])>)>;
 
 /// The reach places showed on the compass at the last look (game units; 0 before one).
 pub fn place_range() -> f32 {
@@ -381,7 +415,7 @@ fn gather(
     mut graph: Local<Option<DoorGraph>>,
     mut logged_quest: Local<Option<(usize, usize)>>,
     tweaks: Option<Res<crate::tweaks::TweakSettings>>,
-    (mut dead_seen, target): (Local<DeadSeen>, Option<Res<crate::activate::Target>>),
+    (mut dead_seen, target, mut door_cache): (Local<DeadSeen>, Option<Res<crate::activate::Target>>, Local<DoorCache>),
 ) {
     // The player's tweak leaves hostile actors off the compass [design: docs/design/tweaks.md].
     let hide_foes = tweaks.as_ref().is_some_and(|t| t.hide_enemy_markers);
@@ -517,6 +551,30 @@ fn gather(
             }
         }
     }
+    // The player's tweak: the doors of the player's place within its reach [design:
+    // docs/design/tweaks.md].
+    match (location.as_deref(), tweaks.as_deref().filter(|t| t.compass_doors)) {
+        (Some(loc), Some(t)) => {
+            let space = loc.interior.unwrap_or(loc.world);
+            let reach = if loc.interior.is_some() { t.compass_doors_interior } else { t.compass_doors_exterior };
+            DOOR_RANGE.store(if t.compass_doors_fade { reach } else { 0.0 }.to_bits(), std::sync::atomic::Ordering::Relaxed);
+            if door_cache.as_ref().is_none_or(|(s, _)| *s != space) {
+                let doors = doors_of(sim.refs, loc);
+                info!("compass: {} doors in {:08X} (Show Doors on Compass)", doors.len(), space);
+                *door_cache = Some((space, doors));
+            }
+            for &(form, pos) in door_cache.as_ref().map_or(&[][..], |(_, d)| d.as_slice()) {
+                if !sim.present(form) || (pos[0] - feet[0]).hypot(pos[1] - feet[1]) > reach {
+                    continue;
+                }
+                if on_compass(offset(heading, here, [pos[0], pos[1]])) {
+                    marks.push(Mark::Door);
+                }
+                found_near.push(Near { mark: Mark::Door, at: [pos[0], pos[1]], body: None, rise: 0 });
+            }
+        }
+        _ => *door_cache = None,
+    }
     // The active quest's targets: how many have a place (themselves or a door), and how
     // many of those are in the compass's window now.
     let (mut placed, mut shown) = (0, 0);
@@ -602,9 +660,11 @@ pub(crate) fn place(
     };
     // And its other tweak fades places over the reach they show at.
     let places = if tweaks.as_ref().is_some_and(|t| t.compass_places_fade) { f32::from_bits(PLACE_RANGE.load(std::sync::atomic::Ordering::Relaxed)) } else { 0.0 };
+    let doors = f32::from_bits(DOOR_RANGE.load(std::sync::atomic::Ordering::Relaxed));
     let shade = |&(m, _, d, _): &(Mark, f32, f32, i8)| match m {
         Mark::Actor | Mark::Hostile | Mark::Companion if range > 0.0 => (1.0 - d / range).clamp(FARTHEST_PIP, 1.0),
         Mark::Place | Mark::Found if places > 0.0 => (1.0 - d / places).clamp(FARTHEST_PIP, 1.0),
+        Mark::Door if doors > 0.0 => (1.0 - d / doors).clamp(FARTHEST_PIP, 1.0),
         _ => 1.0,
     };
     alpha.set_if_neq(CompassAlpha(far.iter().map(shade).collect()));
@@ -637,6 +697,7 @@ fn quest_mark_at(sim: &SimState, loc: &Location, graph: &DoorGraph, target: Form
 }
 
 struct Art {
+    door: Option<Handle<Image>>,
     tick: Option<Handle<Image>>,
     landmark: Option<Handle<Image>>,
     found: Option<Handle<Image>>,
@@ -711,7 +772,7 @@ fn draw(
     let art = art.get_or_insert_with(|| {
         let bc = bc_supported(formats.as_deref());
         let mut read = |p: &str| data.as_deref().and_then(|d| texture(p, d, &mut images, bc)).map(|t| t.0);
-        Art { tick: read(TICK), landmark: read(LANDMARK), found: read(LANDMARK_FOUND), quest: read(QUEST), player: read(PLAYER_MARKER) }
+        Art { tick: read(TICK), landmark: read(LANDMARK), found: read(LANDMARK_FOUND), quest: read(QUEST), player: read(PLAYER_MARKER), door: read(DOOR) }
     });
     let image_of = |mark: Mark| match mark {
         Mark::Actor | Mark::Hostile | Mark::Companion => &art.tick,
@@ -719,6 +780,7 @@ fn draw(
         Mark::Quest => &art.quest,
         Mark::Player => &art.player,
         Mark::Place => &art.landmark,
+        Mark::Door => &art.door,
     };
     // The same kinds in the same order: the nodes move, every frame while the player
     // turns, without being spawned again (T12d) [design].
@@ -755,7 +817,7 @@ fn draw(
                 }
                 // The quest marker in the map marker's box (the same 40 x 50 at y 5 in the
                 // HUD file) [hypothesis: its picture is laid out as the landmark's].
-                Mark::Place | Mark::Found | Mark::Quest | Mark::Player => (at(left, LANDMARK_Y - LANDMARK_MIDDLE.y * LANDMARK_SIZE, LANDMARK_SIZE, LANDMARK_SIZE), amber(255.0)),
+                Mark::Place | Mark::Found | Mark::Quest | Mark::Player | Mark::Door => (at(left, LANDMARK_Y - LANDMARK_MIDDLE.y * LANDMARK_SIZE, LANDMARK_SIZE, LANDMARK_SIZE), amber(255.0)),
             };
             let colour = if fade_left && !matches!(mark, Mark::Quest | Mark::Player) { colour.with_alpha(left_fade(x)) } else { colour };
             // The Fade Pips by Distance tweak (`CompassAlpha`).

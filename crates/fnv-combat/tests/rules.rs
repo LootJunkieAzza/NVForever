@@ -823,6 +823,37 @@ fn a_free_shot_leaves_from_an_emptied_magazine() {
 
 /// The .357 revolver's clips (`1hpreloadxstart.kf` 1.067 s; `1hpreloadx.kf` 1.767 s,
 /// `Hit` at 0.633 s): it opens, loads a round per pass up to `Hit`, and closes.
+/// Per-Bullet Looping Reloads: a round a press, presses while it loads queue more, up
+/// to the most.
+#[test]
+fn per_bullet_reloads_load_what_the_presses_queued() {
+    let t = CombatTuning::default();
+    let w = WeaponStats { clip_size: 6, ..gun(26) };
+    let clips = ClipTiming { reload_len: Some(1.767), reload_hit: Some(0.633), reload_open_len: Some(1.067), ..Default::default() };
+    let timing = Timing::of(&w, &clips, &t);
+    let dt = 0.01;
+    let run = |presses: &[usize], most: u32| {
+        let mut c = Cycle::new(&w, timing, false, 0);
+        c.reload_presses = Some((1, most));
+        let ev: Vec<Event> = (0..800).flat_map(|k| c.step(&t, Input { trigger: false, reload: presses.contains(&k), dt, carried: 20 })).collect();
+        (c.magazine, ev)
+    };
+    // One press: one round, then it closes.
+    let (mag, ev) = run(&[0], 0);
+    assert_eq!(mag, 1);
+    assert!(ev.contains(&Event::Reloaded { taken: 1 }));
+    // Two more presses while it opens and loads: three rounds.
+    assert_eq!(run(&[0, 50, 120], 0).0, 3);
+    // At most two queued.
+    assert_eq!(run(&[0, 50, 120, 130], 2).0, 2);
+    // Off: the whole magazine.
+    let mut c = Cycle::new(&w, timing, false, 0);
+    for k in 0..800 {
+        c.step(&t, Input { trigger: false, reload: k == 0, dt, carried: 20 });
+    }
+    assert_eq!(c.magazine, 6);
+}
+
 #[test]
 fn a_revolver_loads_round_by_round() {
     let t = CombatTuning::default();

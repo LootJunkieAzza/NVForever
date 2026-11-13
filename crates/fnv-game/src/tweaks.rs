@@ -295,6 +295,11 @@ pub struct Tweaks {
     pub scale_ash_piles: bool,
     /// `bReloadWhileFiring`: a reload may start during the last shot's recovery.
     pub reload_while_firing: bool,
+    /// `bPerBulletLoopingReloads`: a round-by-round reload loads `reload_rounds_per_press`
+    /// rounds a Reload press, up to `reload_press_queue` queued (0: no most).
+    pub per_bullet_reload: bool,
+    pub reload_rounds_per_press: u32,
+    pub reload_press_queue: u32,
     /// `bSemiAutoQueue`: a semi-automatic pull this many seconds before the weapon is
     /// ready again is kept and fired then; 0 changes nothing.
     pub semi_auto_queue: f32,
@@ -729,6 +734,9 @@ impl Default for Tweaks {
             mark_nearby_places: 0.0,
             scale_ash_piles: false,
             reload_while_firing: false,
+            per_bullet_reload: false,
+            reload_rounds_per_press: 1,
+            reload_press_queue: 0,
             semi_auto_queue: 0.0,
             repair_scales_crafting: false,
             no_healing_in_combat: false,
