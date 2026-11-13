@@ -1440,7 +1440,15 @@ fn drive(
     }
     // Another menu the scripts opened that no step waits for: the level-up menu is
     // answered as a player answers it, anything else closed after a while.
-    let menu = h.game(|g| g.menu).flatten().filter(|m| *m != fnv_game::game::menus::MESSAGE && !waited_for);
+    // Not one a step soon to come waits for: the game is often ahead of the chain (the
+    // opening's name menu was up 20 s before its wait_menu step, was closed here, and
+    // the step then waited a minute for it).
+    // Nor one the chain itself is about to close.
+    let coming = |m: u16| {
+        p.actions.iter().skip(p.i).take(24).any(|a| matches!(a, Action::WaitMenu { menu, .. } if *menu == m) || matches!(a, Action::GetMenus { menus, .. } if menus.contains(&m)))
+            || p.actions.iter().skip(p.i).take(6).any(|a| matches!(a, Action::CloseMenus { .. }))
+    };
+    let menu = h.game(|g| g.menu).flatten().filter(|m| *m != fnv_game::game::menus::MESSAGE && !waited_for && !coming(*m));
     match (menu, p.menu_since) {
         (Some(m), Some((was, t))) if m == was => {
             let up = p.now - t;
