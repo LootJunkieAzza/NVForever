@@ -78,6 +78,20 @@ pub struct Tweaks {
     pub weightless_worn_armor: bool,
     /// `bWeightlessWornPowerArmor`: worn power armour weighs nothing.
     pub weightless_worn_power_armor: bool,
+    /// `bHardcoreTweaks`: three of Hardcore's rules each set on their own, whatever the
+    /// Hardcore switch: ammunition weighs (`hardcore_ammo_weight`), companions are
+    /// essential (`hardcore_essential_companions`), sleep heals
+    /// (`hardcore_sleep_heals`; not a script's own bed healing).
+    pub hardcore_tweaks: bool,
+    pub hardcore_ammo_weight: bool,
+    pub hardcore_essential_companions: bool,
+    pub hardcore_sleep_heals: bool,
+    /// `bEquipBrokenItems`: the player may equip a broken weapon (to repair it with a kit,
+    /// or wear what it gives); it does not fire or swing until repaired.
+    pub equip_broken_items: bool,
+    /// `bKeepBrokenItemsEquipped`: a player's weapon that breaks stays in the hand, without
+    /// the message; it does not fire or swing until repaired.
+    pub keep_broken_equipped: bool,
     // ---- Action Points ----
     /// `bKillsRewardAP`/`iKillRewardAmount`: Action Points a kill by the player gives
     /// back; 0 changes nothing.
@@ -643,6 +657,12 @@ impl Default for Tweaks {
             weightless_kinds: 0,
             weightless_worn_armor: false,
             weightless_worn_power_armor: false,
+            hardcore_tweaks: false,
+            hardcore_ammo_weight: true,
+            hardcore_essential_companions: false,
+            hardcore_sleep_heals: false,
+            equip_broken_items: false,
+            keep_broken_equipped: false,
             kill_reward_ap: 0.0,
             wait_only_seated: false,
             skill_points: None,

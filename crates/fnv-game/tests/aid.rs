@@ -660,6 +660,20 @@ fn a_sleep_outside_hardcore_restores_health() {
     assert_eq!(av(&mut g, HEALTH), 100.0);
 }
 
+/// Hardcore Tweaks: sleep heals as its option says, in Hardcore or out of it.
+#[test]
+fn the_hardcore_tweaks_set_sleep_healing_apart_from_the_mode() {
+    let f = fixture();
+    let mut g = game(&f);
+    g.tweaks.hardcore_tweaks = true;
+    g.tweaks.hardcore_sleep_heals = false;
+    add_actor_value_damage(&mut g, P, HEALTH, 70.0);
+    assert_eq!(g.pass_hours(1.0, true).health_restored, 0.0);
+    g.player.hardcore = Some(true);
+    g.tweaks.hardcore_sleep_heals = true;
+    assert_eq!(g.pass_hours(1.0, true).health_restored, 70.0);
+}
+
 /// SetHardcore turns on the simulation's switch too (ammunition weighs), and turning it
 /// off marks the game as not always Hardcore.
 #[test]

@@ -1663,6 +1663,33 @@ pub fn reload_slows() -> bool {
     RELOAD_SLOWS.load(std::sync::atomic::Ordering::Relaxed)
 }
 
+/// The player's Equip Broken Items and Keep Broken Items Equipped tweaks: (either on, the
+/// latter on), set by `crate::tweaks` each frame [design: docs/design/tweaks.md].
+static BROKEN_KEPT: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+
+/// Set the broken-weapon tweaks: `equip` (Equip Broken Items), `keep` (Keep Broken Items
+/// Equipped).
+pub fn set_broken_kept(equip: bool, keep: bool) {
+    BROKEN_KEPT.store(u8::from(equip || keep) | (u8::from(keep) << 1), std::sync::atomic::Ordering::Relaxed);
+}
+
+/// A broken weapon may stay in the player's hand (either tweak).
+fn broken_kept() -> bool {
+    BROKEN_KEPT.load(std::sync::atomic::Ordering::Relaxed) & 1 != 0
+}
+
+/// A player's weapon that breaks stays in the hand, without the message (Keep Broken Items
+/// Equipped).
+fn keep_on_break() -> bool {
+    BROKEN_KEPT.load(std::sync::atomic::Ordering::Relaxed) & 2 != 0
+}
+
+/// The player's weapon in hand is broken (kept there by a tweak): it neither fires nor
+/// swings until repaired [design: docs/design/tweaks.md].
+fn broken_in_hand(sim: &SimState, id: FormId) -> bool {
+    broken_kept() && item_condition(sim, FormId::PLAYER_REF, id) <= 0.0
+}
+
 /// The player's Unequip Broken Armor tweak, set by `crate::tweaks` each frame [design: docs/design/tweaks.md].
 static UNEQUIP_BROKEN_ARMOR: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
@@ -2312,8 +2339,9 @@ fn equip_sync(mut c: ResMut<Combat>, mut sim: ResMut<SimState>, mut anim: ResMut
     let equipped = sim.world.peek(FormId::PLAYER_REF).and_then(|s| s.inventory.as_ref()).map(|i| i.equipped()).unwrap_or_default();
     let mut equipped = equipped.into_iter().find(|id| c.forms.weapons.contains_key(id));
     // A weapon at zero condition does not stay in the hand, however it got there (a
-    // script's SetWeaponHealthPerc) (§17).
-    if let Some(id) = equipped.filter(|&id| item_condition(&sim, FormId::PLAYER_REF, id) <= 0.0) {
+    // script's SetWeaponHealthPerc) (§17); under the player's Equip Broken Items or Keep
+    // Broken Items Equipped tweak it does, and does not fire (`broken_in_hand`).
+    if let Some(id) = equipped.filter(|&id| !broken_kept() && item_condition(&sim, FormId::PLAYER_REF, id) <= 0.0) {
         let _ = sim.world.unequip(FormId::PLAYER_REF, id);
         info!("combat: the player's {} ({id}) is broken: unequipped", item_name(&sim, id));
         equipped = None;
@@ -3077,7 +3105,7 @@ pub(crate) fn fire(
     // The weapon's cycle goes at the player's own pace while a VATS camera shot plays (its
     // Player time multiplier), as the body's clips do: a throw leaves at its clip's key.
     let own_dt = dt * vats.as_deref().map_or(1.0, |v| v.player_rate());
-    let events = cycle.step(&c.tuning, Input { trigger: control.trigger, reload: reload && !god, dt: own_dt, carried });
+    let events = cycle.step(&c.tuning, Input { trigger: control.trigger && !broken_in_hand(&sim, id), reload: reload && !god, dt: own_dt, carried });
     // VATS mode's throw that wound up leaves now, at its point; one that no longer winds
     // up (the weapon went) is forgotten. Either way the mode goes on.
     let fired_now = events.iter().any(|e| matches!(e, Event::Fired { .. }));
@@ -3600,6 +3628,10 @@ pub fn wear_weapon(
         }
         return Some(w);
     }
+    if actor == FormId::PLAYER_REF && keep_on_break() {
+        info!("combat: the player's {name} ({item}) broke: kept in the hand (Keep Broken Items Equipped)");
+        return Some(w);
+    }
     if actor == FormId::PLAYER_REF {
         let _ = sim.world.unequip(actor, item);
         if let Some(h) = hud {
@@ -3993,7 +4025,7 @@ fn melee(
     // §4): the swing takes the standing one.
     let (forward, right) = if limbs.both_legs() { (0.0, 0.0) } else { (intent.forward, intent.right) };
     // The weapon's power attack override plays for the standing power attack.
-    let input = MeleeInput { trigger: control.trigger || vats_tap, dt, forward, right, first: &first, rolls: [c.swing_rng.next_f32(), c.swing_rng.next_f32()], power_override: w.power_attack_override.as_deref(), instant_power: control.aiming && tweaks.as_ref().is_some_and(|t| t.power_attack_if_blocking) };
+    let input = MeleeInput { trigger: (control.trigger || vats_tap) && !broken_in_hand(&sim, id), dt, forward, right, first: &first, rolls: [c.swing_rng.next_f32(), c.swing_rng.next_f32()], power_override: w.power_attack_override.as_deref(), instant_power: control.aiming && tweaks.as_ref().is_some_and(|t| t.power_attack_if_blocking) };
     // (`instant_power`: the player's tweak, a power attack at once while blocking [design: docs/design/tweaks.md].)
     let mut strike = None;
     for e in c.swings.tick(input, &c.tuning, SwingTiming::of(None, None, None, speed, fallback)) {

@@ -1124,3 +1124,13 @@ fn a_modded_weapon_is_worth_its_mods_on_top() {
     assert_eq!(f.forms.mods_value(FormId(RIFLE), 1), 0);
     assert_eq!(f.forms.mods_value(FormId(RIFLE), 3), 125);
 }
+
+#[test]
+fn barter_kind_mults_pick_the_side_and_kind() {
+    let k = BarterKindMults { sell: [0.5, 0.6, 0.7, 0.8, 0.9, 1.1], buy: [2.0, 2.1, 2.2, 2.3, 2.4, 2.5], water_unscaled: true };
+    assert_eq!(k.of(false, Some(ItemKind::Weapon), false), 0.6);
+    assert_eq!(k.of(true, Some(ItemKind::ItemMod), false), 2.5);
+    assert_eq!(k.of(true, Some(ItemKind::Book), false), 2.4);
+    assert_eq!(k.of(true, Some(ItemKind::Aid), true), 1.0);
+    assert_eq!(BarterKindMults { water_unscaled: false, ..k }.of(true, Some(ItemKind::Aid), true), 2.2);
+}

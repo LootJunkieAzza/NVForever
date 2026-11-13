@@ -226,6 +226,11 @@ pub struct WeightRules {
     pub weightless_worn_armor: bool,
     #[serde(default)]
     pub weightless_worn_power_armor: bool,
+    /// The player's Hardcore Tweaks (`fnv_game::tweaks`): ammunition weighs (`Some(true)`)
+    /// or does not (`Some(false)`) whatever the Hardcore switch; `None` follows it
+    /// [design: docs/design/tweaks.md]. Absent from older saves.
+    #[serde(default)]
+    pub ammo_weight: Option<bool>,
 }
 
 /// [`WeightRules::weightless`]'s bits.
@@ -237,7 +242,7 @@ pub const WEIGHTLESS_MISC: u8 = 16;
 
 impl WeightRules {
     pub fn is_none(&self) -> bool {
-        self.light.is_none() && self.heavy_weapons.is_none() && self.weightless == 0 && !self.weightless_worn_armor && !self.weightless_worn_power_armor
+        self.light.is_none() && self.heavy_weapons.is_none() && self.weightless == 0 && !self.weightless_worn_armor && !self.weightless_worn_power_armor && self.ammo_weight.is_none()
     }
 
     /// Whether an item of `kind` weighs nothing under the weightless tweaks, `worn` and
@@ -487,6 +492,7 @@ impl Inventory {
 
     /// [`Inventory::totals`] with a carrier's [`WeightRules`].
     pub fn totals_with(&self, forms: &FormStore, hardcore: bool, rules: &WeightRules) -> Totals {
+        let hardcore = rules.ammo_weight.unwrap_or(hardcore);
         let mut t = Totals::default();
         for (id, s) in &self.items {
             let (id, n) = (*id, s.total());
@@ -551,6 +557,12 @@ mod tests {
         assert_eq!(rules.unit(1.0, ItemKind::Weapon), 0.5);
         assert!(WeightRules::default().is_none());
         assert_eq!(WeightRules::default().unit(3.0, ItemKind::Weapon), 3.0);
+    }
+
+    #[test]
+    fn the_hardcore_tweaks_rule_counts_as_a_rule() {
+        assert!(!WeightRules { ammo_weight: Some(false), ..Default::default() }.is_none());
+        assert!(WeightRules { ammo_weight: None, ..Default::default() }.is_none());
     }
 
     #[test]

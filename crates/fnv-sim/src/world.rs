@@ -509,6 +509,9 @@ pub struct World<'a> {
     /// The player may wear power armour (SetPCCanUsePowerArmor; the game layer keeps the
     /// flag and sets it here, [`World::set_power_armor_training`]).
     power_armor_training: bool,
+    /// The player may equip a broken weapon (the player's Equip Broken Items tweak, set by
+    /// the game layer, [`World::set_player_equips_broken`]) [design: docs/design/tweaks.md].
+    player_equips_broken: bool,
     /// The player's key is not used on a lock: the engine sets it while the player's
     /// Pick Locks Even With Key tweak and Shift are on (NVForever's tweaks,
     /// docs/design/tweaks.md); not saved.
@@ -575,6 +578,7 @@ impl<'a> World<'a> {
             created_inventory_sources: BTreeMap::new(),
             setting_changes: BTreeMap::new(),
             power_armor_training: false,
+            player_equips_broken: false,
             player_ignores_keys: false,
             zone_levels: BTreeMap::new(),
             zone_respawns: BTreeMap::new(),
@@ -622,6 +626,11 @@ impl<'a> World<'a> {
     /// Power Armor Training perk runs, observed].
     pub fn set_power_armor_training(&mut self, on: bool) {
         self.power_armor_training = on;
+    }
+
+    /// Whether the player may equip a broken weapon (else [`SimError::Broken`]).
+    pub fn set_player_equips_broken(&mut self, on: bool) {
+        self.player_equips_broken = on;
     }
 
     /// Whether the player's carried key is left unused on a lock ([`World::activate`]).
@@ -1408,7 +1417,7 @@ impl<'a> World<'a> {
         if inv.count(item) == 0 {
             return Err(SimError::NotCarried { actor, item });
         }
-        if it.kind == ItemKind::Weapon && !inv.has_sound_at(item, at) && !inv.is_equipped(item) {
+        if it.kind == ItemKind::Weapon && !inv.has_sound_at(item, at) && !inv.is_equipped(item) && !(actor == FormId::PLAYER_REF && self.player_equips_broken) {
             return Err(SimError::Broken(item));
         }
         if it.power_armor && actor == FormId::PLAYER_REF && !self.power_armor_training && !inv.is_equipped(item) {

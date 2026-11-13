@@ -206,7 +206,10 @@ impl Game<'_> {
             }
         }
         self.update_need_stages();
-        let healing = heal && sleeping && hours > 0.0 && !self.hardcore();
+        // The player's Hardcore Tweaks set that rule apart from the mode [design:
+        // docs/design/tweaks.md].
+        let sleep_heals = if self.tweaks.hardcore_tweaks { self.tweaks.hardcore_sleep_heals } else { !self.hardcore() };
+        let healing = heal && sleeping && hours > 0.0 && sleep_heals;
         let limbs_healed = if healing { self.heal_limbs(p) } else { Vec::new() };
         let health_restored = if healing { self.restore_health(p) } else { 0.0 };
         self.emit(EventKind::TimePassed { hours, seconds, sleeping });

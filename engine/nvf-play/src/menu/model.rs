@@ -759,6 +759,8 @@ pub struct MenuModel {
     pub title_case_categories: bool,
     /// The price of things worth nothing in a barter (the tweak; 0: as they are).
     pub free_item_price: f32,
+    /// The player's Barter Prices by Kind tweak (`None`: off), set by `crate::tweaks`.
+    pub barter_kind_mults: Option<BarterKindMults>,
     /// The player's weight in red when taking the selected row would put them over (the
     /// tweak, set by `crate::tweaks`).
     pub warn_encumbrance: bool,
@@ -946,6 +948,7 @@ impl MenuModel {
             usable_ammo: Vec::new(),
             title_case_categories: false,
             free_item_price: 0.0,
+            barter_kind_mults: None,
             warn_encumbrance: false,
             encumbrance: Err(String::new()),
             title,
@@ -1055,6 +1058,7 @@ impl MenuModel {
         let hide_equipped = self.hide_equipped_barter;
         let hotkeyed: Vec<FormId> = if self.hide_hotkeyed_barter { self.hotkeyed.clone() } else { Vec::new() };
         let free_price = self.free_item_price;
+        let kind_mults = self.barter_kind_mults;
         let Some(t) = self.trade.as_mut() else { return Ok(()) };
         let mut own: [Vec<Row>; 2] = [Vec::new(), Vec::new()];
         let mut weights = [0.0; 2];
@@ -1079,8 +1083,14 @@ impl MenuModel {
                     why.is_none()
                 })
                 .map(|mut r| {
+                    // The player's Barter Prices by Kind tweak: the merchant's things are
+                    // bought, the player's sold [design: docs/design/tweaks.md].
+                    let kind = kind_mults.map_or(1.0, |k| {
+                        let water = world.forms.get(r.item).and_then(|f| f.edid.as_deref()).is_some_and(|e| e.eq_ignore_ascii_case(PURIFIED_WATER));
+                        k.of(side == Side::Container, r.kind, water)
+                    });
                     // The player's tweak puts a price on things that are worth nothing [design: docs/design/tweaks.md].
-                    r.price = r.worth(&prices).map(|v| v * mult).map(|p| if p <= 0.0 && free_price > 0.0 { free_price } else { p });
+                    r.price = r.worth(&prices).map(|v| v * kind * mult).map(|p| if p <= 0.0 && free_price > 0.0 { free_price } else { p });
                     r
                 })
                 .collect();
@@ -1641,6 +1651,40 @@ pub fn enter_acts(world: &World<'_>, r: &Row) -> bool {
         world.unequip_check(PLAYER, r.item).is_ok()
     } else {
         world.equip_check(PLAYER, r.item, r.pick()).is_ok()
+    }
+}
+
+
+/// Purified water's Editor ID [observed: FalloutNV.esm ALCH `WaterPurified`], kept at its
+/// own price under the Barter Prices by Kind tweak's Purified Water Unscaled.
+const PURIFIED_WATER: &str = "WaterPurified";
+
+/// The player's Barter Prices by Kind tweak: a price multiplier for each kind of item,
+/// one set when the player sells and one when buying, before the barter skill's; Armor,
+/// Weapon, Aid, Ammo, Misc (every other kind) and Weapon Mod [design: docs/design/tweaks.md].
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct BarterKindMults {
+    pub sell: [f32; 6],
+    pub buy: [f32; 6],
+    /// Purified water keeps its price (multiplier 1).
+    pub water_unscaled: bool,
+}
+
+impl BarterKindMults {
+    /// The multiplier of an item of `kind` the player is `buying` (else selling).
+    pub fn of(&self, buying: bool, kind: Option<ItemKind>, water: bool) -> f32 {
+        if water && self.water_unscaled {
+            return 1.0;
+        }
+        let at = match kind {
+            Some(ItemKind::Armor) => 0,
+            Some(ItemKind::Weapon) => 1,
+            Some(ItemKind::Aid) => 2,
+            Some(ItemKind::Ammo) => 3,
+            Some(ItemKind::ItemMod) => 5,
+            _ => 4,
+        };
+        if buying { self.buy[at] } else { self.sell[at] }
     }
 }
 

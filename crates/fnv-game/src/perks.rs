@@ -441,6 +441,7 @@ impl Game<'_> {
             weightless: t.weightless_kinds,
             weightless_worn_armor: t.weightless_worn_armor,
             weightless_worn_power_armor: t.weightless_worn_power_armor,
+            ammo_weight: t.hardcore_tweaks.then_some(t.hardcore_ammo_weight),
         };
         if self.world.weight_rules(p) != rules {
             let light = rules.light.map_or("light items as they are".to_string(), |(w, m)| format!("items of {w} or less x {m}"));

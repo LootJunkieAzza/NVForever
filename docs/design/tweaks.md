@@ -594,6 +594,10 @@ unless the player binds them, so nothing changes until then.
 | Per-Bullet Looping Reloads | `bPerBulletLoopingReloads` | `fnv_combat::attack::Cycle::reload_presses` (set each tick from the game's tweaks): a round-by-round reload starts wanting one press's rounds, each Reload press while it opens or loads queues more (`queue_press`, up to the most), and it closes once that many are in |
 | Doors on the Compass | `bShowDoorsOnCompass` | `compass::doors_of` lists the place's teleport doors (not Hidden From Local Map), cached per space; `gather` adds those present within the reach as `Mark::Door`, drawn with `icon_local_door.dds`, faded by `DOOR_RANGE` under the switch. The tile HUD leaves them out (no door template) |
 | Armor Condition | `bArmorConditionLabel` | `combat::Combat::hud_armor` takes the lowest condition of the worn pieces a body hit strikes; `hud::armor_row` draws an `ARM` bar under the weapon's `CND` one (or in its place with no weapon), shown, red and flashing by `armor_look`'s thresholds |
+| Barter Prices by Kind | `bUseCustomBarterPriceMultipliers` | `menu::model::BarterKindMults` (set from the tweaks by `tweaks::sync`): `refresh_trade` multiplies each row's worth by its kind's multiplier, buying on the merchant's side and selling on the player's, before the barter multiplier; `WaterPurified` keeps 1 under the water option |
+| More Precise RAD Meter | `bMorePreciseRadMeter` | `radiation::set_rad_decimals` (0 off): `value_text` writes the resisted rads a second with that many places, for the hand-built and tile HUDs both |
+| Hardcore Rules One by One | `bHardcoreTweaks` | ammo: `fnv_sim::inventory::WeightRules::ammo_weight` (the player's, from `Game::sync_perk_weights`) overrides the Hardcore switch in `totals_with`; companions: `functions::actor::essential`; sleep: `Game::pass_hours_healing` |
+| Equip Broken Items, Keep Broken Items Equipped | `bEquipBrokenItems`, `bKeepBrokenItemsEquipped` | `fnv_sim::World::set_player_equips_broken` (set each frame by the game) lifts `SimError::Broken` for the player; `combat::set_broken_kept`: `equip_sync` leaves a broken weapon in the hand, `wear_weapon` keeps the player's on breaking without the message, and `broken_in_hand` holds the trigger (gun and melee) until it is repaired |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -615,9 +619,9 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 524 |
-| to do | 79 |
-| unsure, skipped | 17 |
+| done | 529 |
+| to do | 73 |
+| unsure, skipped | 18 |
 | n/a | 15 |
 | skipped: fix | 10 |
 
@@ -667,6 +671,7 @@ game's Data folder, read-only).
 | `bFrenzyGrantsPlayerXP` | done |  |  | Frenzied Kills Earn Experience (Aggression 3) |
 | `bGodModePreventsJamAnims` | done |  |  | No Jams in God Mode |
 | `bGrabbingItemsIsCrime` | done |  | 1 | Grabbing Is Stealing (any value; the minimum-value option not built) |
+| `bHardcoreTweaks` | done |  | 3 | Hardcore Rules One by One: Ammo Has Weight, Companions Cannot Die, Sleep Heals, each whatever the mode |
 | `bHittingWeaponsDoesntDamageThem` | done |  |  | Shots Spare Weapons |
 | `bHoldToHolsterMeleeWeapons` | done |  |  | already so: a tap reloads, holstering needs the hold, and melee drops the reload |
 | `bImprovedHacking` | done |  | 10 | four Hacking switches (symbols do nothing, no repeat guesses, dud when attempts full, duds spare tried words); the print options not built |
@@ -740,6 +745,7 @@ game's Data folder, read-only).
 | `bSpeedMultScalesJumpHeight` | done |  |  | Speed Scales the Jump (the player; NPCs do not jump) |
 | `bStealingSendsNoAlarm` | done |  |  | Quiet Theft |
 | `bUnequipWeaponMods` | done |  | 7 | already so: attached mods can be taken off and come back (item_mod detach) |
+| `bUseCustomBarterPriceMultipliers` | done |  | 13 | Barter Prices by Kind: twelve multipliers (selling and buying Armor, Weapon, Aid, Ammo, Misc, Weapon Mod) and Purified Water Unscaled |
 | `bUseCustomSniperZoomRate` | done |  | 2 | Scope Zoom Time (slider; the zoom-out option not built) |
 | `bUsingKeysRewardsXP` | done |  | 3 | Experience for Keys (a share of the picking XP; the base and skill options not built) |
 | `bUsingNotesRewardsXP` | done |  | 3 | Experience for Passwords (a share of the hacking XP, once; the base and skill options not built) |
@@ -755,7 +761,6 @@ game's Data folder, read-only).
 | `bMoreFrequentNPCLightUpdates` | unsure, skipped | yes | 1 | NVForever lights actors its own way; unclear what to change |
 | `bCharacterRadiation` | to do |  | 1 | not built: only the player takes environment radiation |
 | `bCrippledLimbsPlayPainSoundWhenFalling` | to do |  | 1 | falls::hurt with a crippled leg; NVForever has no pain sound, only the landing ones |
-| `bHardcoreTweaks` | to do |  | 3 | unsure which way each option goes outside Hardcore |
 | `bHipFireAnimsWhileScoped` | unsure, skipped |  |  | depends on alternate animations |
 | `bHoldToActivate` | to do |  | 9 | a hold on E is taken by grab; needs a timer and per-kind choices |
 | `bHostilesPrioritizePlayer` | to do |  | 3 | Awareness::combat_target has no game or rolls |
@@ -768,10 +773,9 @@ game's Data folder, read-only).
 | `bReviveUnconsciousCompanions` | to do |  | 3 | not built: no revive action |
 | `bRunAndGunAPInCombatOnly` | to do |  |  | not built: no run-and-gun AP rule |
 | `bSneakingDoesntForcePowerAttacks` | unsure, skipped |  |  | depends on separate animations |
-| `bStrengthAffectsAllThrowables` | to do |  |  | not built: fThrowingStrengthPenalty is not read |
+| `bStrengthAffectsAllThrowables` | unsure, skipped |  |  | how fThrowingStrengthPenalty shortens a throw is not documented (the GECK wiki export names the setting but has no page for it), and NVForever applies it to no throw yet |
 | `bTargetProjectilesInVATS` | to do |  | 1 | not built: projectiles in flight are not targetable |
 | `bUseArmorRepairKitsInRepairMenu` | to do |  |  | the repair menu lists only parts |
-| `bUseCustomBarterPriceMultipliers` | to do |  | 13 | refresh_trade price; ten multipliers |
 | `bUseWeaponRepairKitsInRepairMenu` | to do |  | 2 | the repair menu lists only parts |
 | `bVATSTargetPlayerProjectiles` | to do |  |  | not built: projectiles in flight are not targetable |
 | `bVATSThrowablesUseVisibility` | to do |  |  | not built: V.A.T.S. chance has no visibility term |
@@ -874,6 +878,7 @@ game's Data folder, read-only).
 | `bDontSetQuestWhenCompletingObjectives` | done |  |  | No Active Quest After Completing One |
 | `bDontSetQuestWhenObjectivesAdded` | done |  |  | No Active Quest From New Objectives (both quest tweaks keep the Pip-Boy from picking one) |
 | `bEnteringVATSDoesntUnholsterWeapon` | done |  |  | V.A.T.S. Puts the Weapon Back (when it drew it and nothing was fired) |
+| `bEquipBrokenItems` | done |  |  | Equip Broken Items (the player only); a broken weapon in hand does not fire or swing |
 | `bFireWhileAiming` | done |  |  | already so: the trigger does not wait for the zoom |
 | `bForceHiResWeaponModels` | done |  |  | Fine Weapon Models for Everyone (not checked in game) |
 | `bHideMiscQuestItems` | done |  | 1 | Hide Quest Items in Misc (the star caps option not built) |
@@ -882,6 +887,7 @@ game's Data folder, read-only).
 | `bHotkeyHolstersWeaponIfEquipped` | done |  | 1 | Hotkey Draws and Holsters (the never-holster option not built) |
 | `bHUDRotatesWithVanityCam` | done |  |  | already so: the compass follows the orbiting camera |
 | `bJumpingDoesntDropGrabbedItem` | done |  |  | already so: jumping does not let go |
+| `bKeepBrokenItemsEquipped` | done |  |  | Keep Broken Items Equipped, no message; a broken weapon in hand does not fire or swing |
 | `bKeepHolotapePlayingWhenSelectingOtherNotes` | done |  |  | already so: only voice and sound notes start playing |
 | `bKeepRouletteBetAmount` | done |  |  | already so: the bet stays between spins |
 | `bKeepXPBarWhenClosingMenus` | done |  |  | already so: the XP meter holds while a menu is up |
@@ -928,8 +934,6 @@ game's Data folder, read-only).
 | `bSkipDeathcamHotkey` | to do | yes | 2 | the death camera (nvforever death_cam) has no end but a load yet |
 | `bAddItemUsesItemIcon` | unsure, skipped |  |  | needs an icon replacer |
 | `bAddNightVisionToggle` | to do |  | 4 | a night vision state plus flashlight and scope_view |
-| `bEquipBrokenItems` | to do |  |  | broken weapons are refused in fnv_sim equip_at; needs a World flag like power armour |
-| `bKeepBrokenItemsEquipped` | to do |  |  | the break unequips at three sites; firing a broken weapon is undefined |
 | `bMoveDuringOpenPipboyAnim` | to do |  |  | the Pip-Boy is a menu; the game leaves Playing at once |
 | `bNoLTRTOnPipboy` | n/a |  |  | the original's controller texture swap |
 | `bNoPoisonConfirm` | to do |  |  | not built: no weapon poison |
@@ -972,6 +976,7 @@ game's Data folder, read-only).
 | `bHUDMarkerNameIndicator` | done |  | 7 | Place Name on the HUD, with Widest Angle, Only Places Found and Distance (none, metres, feet); hand-built HUD; the angle offset is not needed |
 | `bKeepCrosshairWhenAiming` | done |  |  | Crosshair Down the Sights |
 | `bLocationDiscoveredCornerMessage` | done |  |  | Discoveries in the Corner |
+| `bMorePreciseRadMeter` | done | yes | 1 | More Precise RAD Meter on the HUD's RAD/SEC number, with Decimal Places (a count in place of the readme's format text) |
 | `bMoveAmmoTypeLabel` | done |  |  | Ammo Label Under the Count |
 | `bNoCompassPipsIfNotInDanger` | done |  |  | Compass Pips Only in Danger |
 | `bNoCrippleCriticalMessages` | done |  | 3 | already so: no crippled or critical popups about the target are shown |
@@ -1002,7 +1007,6 @@ game's Data folder, read-only).
 | `iHUDMaxCompassNPCTicks` | done |  | 1 | already so: the compass has no cap on actors |
 | `bDescriptiveMarkerAddedMessage` | to do | yes |  | NVForever shows no marker-added popup |
 | `bHideGrenadeIndicatorForNoDamageExplosions` | to do | yes |  | not built: no grenade indicator |
-| `bMorePreciseRadMeter` | to do | yes | 1 | unclear whether the HUD gain or the Pip-Boy total is meant |
 | `bCriticalHitMessagesIncludeLimbName` | to do |  |  | not built: no critical-hit messages |
 | `bDisableNeedsMessages` | to do |  | 4 | those messages are the game's own scripts; needs a filter by message |
 | `bExplodingDestructibleIndicator` | to do |  |  | not built: no grenade indicator |

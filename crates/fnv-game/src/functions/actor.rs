@@ -746,7 +746,10 @@ pub fn essential(g: &Game, r: FormId) -> bool {
     // "Essential flagged teammates are not essential in Hardcore (New Vegas)"
     // [documented: GECK wiki SetPlayerTeammate notes]: a companion killed in Hardcore
     // dies, flag or not.
-    if g.hardcore() && g.is_teammate(r) {
+    // The player's Hardcore Tweaks set that rule apart from the mode [design:
+    // docs/design/tweaks.md].
+    let unprotected = if g.tweaks.hardcore_tweaks { !g.tweaks.hardcore_essential_companions } else { g.hardcore() };
+    if unprotected && g.is_teammate(r) {
         return false;
     }
     let base = base_of(g, r);

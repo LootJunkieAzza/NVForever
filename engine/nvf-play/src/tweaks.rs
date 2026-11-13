@@ -242,6 +242,9 @@ pub struct TweakSettings {
     /// `detected_names` names (0: only how many).
     pub detected_by_whom: bool,
     pub detected_names: f32,
+    /// `bMorePreciseRadMeter`: the HUD's RAD/SEC number with `rad_decimals` places.
+    pub precise_rad_meter: bool,
+    pub rad_decimals: u8,
     /// `bShowDoorsOnCompass`: doors leading elsewhere on the compass, within
     /// `compass_doors_exterior` / `compass_doors_interior` units, fading with distance
     /// under `compass_doors_fade`.
@@ -263,6 +266,22 @@ pub struct TweakSettings {
     /// `bNoFreeBarterItems`/`fFreeItemCost`: the price of things worth nothing in a
     /// barter; 0 changes nothing.
     pub free_item_price: f32,
+    /// `bUseCustomBarterPriceMultipliers`: a price multiplier for each kind of item, selling
+    /// and buying; purified water keeps its price under `barter_water_unscaled`.
+    pub barter_by_kind: bool,
+    pub barter_water_unscaled: bool,
+    pub barter_sell_armor: f32,
+    pub barter_sell_weapon: f32,
+    pub barter_sell_aid: f32,
+    pub barter_sell_ammo: f32,
+    pub barter_sell_misc: f32,
+    pub barter_sell_weapon_mod: f32,
+    pub barter_buy_armor: f32,
+    pub barter_buy_weapon: f32,
+    pub barter_buy_aid: f32,
+    pub barter_buy_ammo: f32,
+    pub barter_buy_misc: f32,
+    pub barter_buy_weapon_mod: f32,
     /// `bAllowDuplicateControlBinds`: one input may serve two controls.
     pub duplicate_binds: bool,
     /// `bTogglePOVWhenHolsteringWeapon`: drawing goes to first person, holstering to third.
@@ -672,6 +691,8 @@ impl Default for TweakSettings {
             quest_text_in_menus: false,
             detected_by_whom: false,
             detected_names: 2.0,
+            precise_rad_meter: false,
+            rad_decimals: 2,
             compass_doors: false,
             compass_doors_exterior: 2000.0,
             compass_doors_interior: 1000.0,
@@ -683,6 +704,20 @@ impl Default for TweakSettings {
             armor_in_weapon_place: true,
             hide_ammo_label: false,
             free_item_price: 0.0,
+            barter_by_kind: false,
+            barter_water_unscaled: false,
+            barter_sell_armor: 1.0,
+            barter_sell_weapon: 1.0,
+            barter_sell_aid: 1.0,
+            barter_sell_ammo: 1.0,
+            barter_sell_misc: 1.0,
+            barter_sell_weapon_mod: 1.0,
+            barter_buy_armor: 1.0,
+            barter_buy_weapon: 1.0,
+            barter_buy_aid: 1.0,
+            barter_buy_ammo: 1.0,
+            barter_buy_misc: 1.0,
+            barter_buy_weapon_mod: 1.0,
             duplicate_binds: false,
             pov_follows_weapon: false,
             kill_cam_chance: 1.0,
@@ -1081,6 +1116,12 @@ impl Plugin for TweaksPlugin {
         weightless!(app, "weightless-weapons", "Weightless Weapons", "Weapons weigh nothing. (Stewie's Tweaks bWeightlessItems, bWeapons)", fnv_sim::inventory::WEIGHTLESS_WEAPONS);
         weightless!(app, "weightless-misc", "Weightless Misc Items", "Misc items weigh nothing. (Stewie's Tweaks bWeightlessItems, bMisc)", fnv_sim::inventory::WEIGHTLESS_MISC);
         switch!(app, "weightless-worn-armor", "Worn Armor Weighs Nothing", "Armor weighs nothing while worn. (Stewie's Tweaks bWeightlessWornArmor)", game.weightless_worn_armor);
+        switch!(app, "equip-broken-items", "Equip Broken Items", "A broken weapon can be equipped, to repair it with a repair kit; it does not fire or swing until repaired. (Stewie's Tweaks bEquipBrokenItems)", game.equip_broken_items);
+        switch!(app, "keep-broken-equipped", "Keep Broken Items Equipped", "A weapon that breaks stays in the hand, with no message; it does not fire or swing until repaired. (Stewie's Tweaks bKeepBrokenItemsEquipped)", game.keep_broken_equipped);
+        switch!(app, "hardcore-tweaks", "Hardcore Rules One by One", "Three of Hardcore's rules are set below on their own, whatever the Hardcore setting. (Stewie's Tweaks bHardcoreTweaks)", game.hardcore_tweaks);
+        switch!(app, "hardcore-ammo-weight", "Hardcore Rules: Ammo Has Weight", "Ammunition counts toward the weight carried. (Stewie's Tweaks bHardcoreTweaks, bAmmoWeight)", game.hardcore_ammo_weight);
+        switch!(app, "hardcore-essential-companions", "Hardcore Rules: Companions Cannot Die", "Companions are knocked out instead of killed. (Stewie's Tweaks bHardcoreTweaks, bEssentialCompanions)", game.hardcore_essential_companions);
+        switch!(app, "hardcore-sleep-heals", "Hardcore Rules: Sleep Heals", "Sleeping restores Health and heals crippled limbs (a bed's own script may heal anyway). (Stewie's Tweaks bHardcoreTweaks, bSleepingHeals)", game.hardcore_sleep_heals);
         switch!(app, "weightless-worn-power-armor", "Worn Power Armor Weighs Nothing", "Power armor weighs nothing while worn. (Stewie's Tweaks bWeightlessWornPowerArmor)", game.weightless_worn_power_armor);
         // ---- batch 8 ----
         switch!(app, "no-travel-crippled-leg", "No Travel on a Crippled Leg", "Fast travel is refused while a leg is crippled. (Stewie's Tweaks bNoFastTravelIfLegsCrippled)", no_travel_crippled_leg);
@@ -1420,6 +1461,8 @@ impl Plugin for TweaksPlugin {
         part!(app, "armor-red-below", "Armor Condition: Red Below", "The armour's bar turns red below this condition; 0% never. (Stewie's Tweaks bArmorConditionLabel)", armor_red_below);
         part!(app, "armor-flash-below", "Armor Condition: Flashing Below", "The armour's bar flashes red below this condition; 0% never. (Stewie's Tweaks bArmorConditionLabel)", armor_flash_below);
         switch!(app, "armor-in-weapon-place", "Armor Condition: In the Weapon's Place", "With no weapon drawn the armour's row takes the weapon's place. (Stewie's Tweaks bArmorConditionLabel)", armor_in_weapon_place);
+        switch!(app, "precise-rad-meter", "More Precise RAD Meter", "The HUD's radiation meter shows its rads a second with decimal places. (Stewie's Tweaks bMorePreciseRadMeter)", precise_rad_meter);
+        amount!(app, "rad-decimals", "More Precise RAD Meter: Decimal Places", "How many places after the point the meter shows (1 to 9). (Stewie's Tweaks bMorePreciseRadMeter, sFormat)", 9.0, u8, rad_decimals);
         switch!(app, "compass-doors", "Doors on the Compass", "Doors leading somewhere else show on the compass, as the local map draws them. (Stewie's Tweaks bShowDoorsOnCompass)", compass_doors);
         amount!(app, "compass-doors-exterior", "Doors on the Compass: Reach Outside", "How far away a door outside still shows, in game units (70 a metre). (Stewie's Tweaks bShowDoorsOnCompass)", 10000.0, f32, compass_doors_exterior);
         amount!(app, "compass-doors-interior", "Doors on the Compass: Reach Inside", "How far away a door inside still shows, in game units (70 a metre). (Stewie's Tweaks bShowDoorsOnCompass)", 5000.0, f32, compass_doors_interior);
@@ -1431,6 +1474,20 @@ impl Plugin for TweaksPlugin {
         switch!(app, "auto-continue", "Continue at Start", "The main menu continues the newest save at once, the first time it opens; hold Shift to stay on the menu. (Stewie's Tweaks bAutoContinueGame)", auto_continue);
         // ---- batch 26 ----
         switch!(app, "hide-ammo-label", "No Ammo Counter", "The HUD shows no ammo counter. (Stewie's Tweaks bHideAmmoLabel)", hide_ammo_label);
+        switch!(app, "barter-by-kind", "Barter Prices by Kind", "Prices in a barter are multiplied by the kind of item and by whether the player sells or buys it. (Stewie's Tweaks bUseCustomBarterPriceMultipliers)", barter_by_kind);
+        switch!(app, "barter-water-unscaled", "Barter by Kind: Purified Water Unscaled", "Purified water keeps its price whatever the Aid multipliers. (Stewie's Tweaks bUseCustomBarterPriceMultipliers, bConstantPurifiedWaterPrice)", barter_water_unscaled);
+        amount!(app, "barter-sell-armor", "Barter by Kind: Selling Armor", "The price multiplier of armor items the player sells, before the Barter skill's. (Stewie's Tweaks bUseCustomBarterPriceMultipliers)", 5.0, f32, barter_sell_armor);
+        amount!(app, "barter-sell-weapon", "Barter by Kind: Selling Weapon", "The price multiplier of weapon items the player sells, before the Barter skill's. (Stewie's Tweaks bUseCustomBarterPriceMultipliers)", 5.0, f32, barter_sell_weapon);
+        amount!(app, "barter-sell-aid", "Barter by Kind: Selling Aid", "The price multiplier of aid items the player sells, before the Barter skill's. (Stewie's Tweaks bUseCustomBarterPriceMultipliers)", 5.0, f32, barter_sell_aid);
+        amount!(app, "barter-sell-ammo", "Barter by Kind: Selling Ammo", "The price multiplier of ammo items the player sells, before the Barter skill's. (Stewie's Tweaks bUseCustomBarterPriceMultipliers)", 5.0, f32, barter_sell_ammo);
+        amount!(app, "barter-sell-misc", "Barter by Kind: Selling Misc", "The price multiplier of misc items the player sells, before the Barter skill's. (Stewie's Tweaks bUseCustomBarterPriceMultipliers)", 5.0, f32, barter_sell_misc);
+        amount!(app, "barter-sell-weapon-mod", "Barter by Kind: Selling Weapon Mod", "The price multiplier of weapon mod items the player sells, before the Barter skill's. (Stewie's Tweaks bUseCustomBarterPriceMultipliers)", 5.0, f32, barter_sell_weapon_mod);
+        amount!(app, "barter-buy-armor", "Barter by Kind: Buying Armor", "The price multiplier of armor items the player buys, before the Barter skill's. (Stewie's Tweaks bUseCustomBarterPriceMultipliers)", 5.0, f32, barter_buy_armor);
+        amount!(app, "barter-buy-weapon", "Barter by Kind: Buying Weapon", "The price multiplier of weapon items the player buys, before the Barter skill's. (Stewie's Tweaks bUseCustomBarterPriceMultipliers)", 5.0, f32, barter_buy_weapon);
+        amount!(app, "barter-buy-aid", "Barter by Kind: Buying Aid", "The price multiplier of aid items the player buys, before the Barter skill's. (Stewie's Tweaks bUseCustomBarterPriceMultipliers)", 5.0, f32, barter_buy_aid);
+        amount!(app, "barter-buy-ammo", "Barter by Kind: Buying Ammo", "The price multiplier of ammo items the player buys, before the Barter skill's. (Stewie's Tweaks bUseCustomBarterPriceMultipliers)", 5.0, f32, barter_buy_ammo);
+        amount!(app, "barter-buy-misc", "Barter by Kind: Buying Misc", "The price multiplier of misc items the player buys, before the Barter skill's. (Stewie's Tweaks bUseCustomBarterPriceMultipliers)", 5.0, f32, barter_buy_misc);
+        amount!(app, "barter-buy-weapon-mod", "Barter by Kind: Buying Weapon Mod", "The price multiplier of weapon mod items the player buys, before the Barter skill's. (Stewie's Tweaks bUseCustomBarterPriceMultipliers)", 5.0, f32, barter_buy_weapon_mod);
         amount!(app, "free-item-price", "Price for Worthless Things", "What merchants pay or ask for things worth nothing (spent casings); 0 changes nothing. (Stewie's Tweaks bNoFreeBarterItems)", 10.0, f32, free_item_price);
         // ---- batch 27 ----
         switch!(app, "skip-easy-locks", "Skip Easy Locks", "A lock well under the player's Lockpick opens at once (with its experience); use it again to go through. (Stewie's Tweaks bSkipVeryEasyLocksAtMaxSkill)", game.skip_easy_locks);
@@ -2446,6 +2503,8 @@ fn sync(
 ) {
     crate::combat::set_unequip_broken_armor(tweaks.unequip_broken_armor);
     crate::terminal::set_grey_read(tweaks.grey_read_notes);
+    crate::combat::set_broken_kept(tweaks.game.equip_broken_items, tweaks.game.keep_broken_equipped);
+    crate::radiation::set_rad_decimals(if tweaks.precise_rad_meter { tweaks.rad_decimals.max(1) } else { 0 });
     crate::combat::set_weapon_volume(tweaks.player_weapon_volume / 100.0, tweaks.npc_weapon_volume / 100.0);
     crate::kill_cam::set_move_during(tweaks.move_during_kill_cam);
     crate::console::set_model_details(tweaks.console_model_details);
@@ -2490,6 +2549,14 @@ fn sync(
         }
         if m.free_item_price != tweaks.free_item_price {
             m.free_item_price = tweaks.free_item_price;
+        }
+        let kind_mults = tweaks.barter_by_kind.then_some(crate::menu::model::BarterKindMults {
+            sell: [tweaks.barter_sell_armor, tweaks.barter_sell_weapon, tweaks.barter_sell_aid, tweaks.barter_sell_ammo, tweaks.barter_sell_misc, tweaks.barter_sell_weapon_mod],
+            buy: [tweaks.barter_buy_armor, tweaks.barter_buy_weapon, tweaks.barter_buy_aid, tweaks.barter_buy_ammo, tweaks.barter_buy_misc, tweaks.barter_buy_weapon_mod],
+            water_unscaled: tweaks.barter_water_unscaled,
+        });
+        if m.barter_kind_mults != kind_mults {
+            m.barter_kind_mults = kind_mults;
         }
         if m.warn_encumbrance != tweaks.warn_encumbrance {
             m.warn_encumbrance = tweaks.warn_encumbrance;

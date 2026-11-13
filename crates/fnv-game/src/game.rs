@@ -3735,6 +3735,8 @@ impl<'a> Game<'a> {
         // The world refuses power armour on an untrained player (a loaded game's flag
         // reaches it here too); the player's tweak lets anyone wear it.
         self.world.set_power_armor_training(self.player.power_armor || self.tweaks.power_armor_needs_no_training);
+        // The player's Equip Broken Items tweak [design: docs/design/tweaks.md].
+        self.world.set_player_equips_broken(self.tweaks.equip_broken_items);
         // Cannibal's and Mister Sandman's acts that are over (`crate::activate_choices`).
         if !self.perk_acts.is_empty() {
             self.finish_perk_acts();
