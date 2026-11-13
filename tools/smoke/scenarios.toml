@@ -26421,6 +26421,58 @@ expect = [
 forbid = [{ text = "Caught rendering error" }]
 
 [[scenario]]
+name = "perf-overlay-upscaling-off"
+source = "[design, #2242] perf_overlay/{readings,mod}.rs, settings.rs: the settings page turns on the Upscaling row (fps-counter-upscaling, off by default); with no upscaler it reads Off and the window's size, logged once and in every NVF_FPS_LOG line"
+areas = ["renderer", "settings"]
+paths = ["engine/nvforever/src/perf_overlay/*", "engine/nvforever/src/upscaler*", "engine/nvforever/src/upscaler/**", "engine/nvforever/src/settings.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_FPS_LOG = "0.5", NVF_PLAY_TEST_PAUSE = "10:15", NVF_PLAY_TEST_SETTINGS = "11:fps-counter-upscaling" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--fps", "--size", "1280x720", "--upscaler", "off"]
+run_seconds = 16
+order = [[
+  { text = "settings: fps-counter-upscaling on", label = "the Upscaling row is turned on" },
+  { text = "fps counter: upscaling Off  1280x720", label = "its first text is logged: nothing upscales, the window's size" },
+  { re = 'fps counter: FPS .*; UPSCALING Off  1280x720$', label = "NVF_FPS_LOG logs it last with the other rows" },
+]]
+forbid = [{ text = "Caught rendering error", label = "a rendering error" }]
+
+[[scenario]]
+name = "perf-overlay-upscaling-fsr"
+source = "[design, #2242] perf_overlay/{readings,mod}.rs, upscaler/prep.rs: with FSR 3.1 Quality at 1280x720 the Upscaling row reads the render size the render world drew (853x480, as fsr-quality) and follows the settings page's switch to Performance (640x360, FSR's ratio of 2)"
+note = "Between the switch and the first frame the render world draws at the new mode, the row reads the effective choice and -- for a frame or two; only the sized line is expected"
+areas = ["renderer", "settings", "graphics"]
+paths = ["engine/nvforever/src/perf_overlay/*", "engine/nvforever/src/upscaler*", "engine/nvforever/src/upscaler/**", "engine/nvforever/src/settings.rs", "engine/nvforever/src/fsr*"]
+env = { WGPU_BACKEND = "vulkan", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_FPS_LOG = "0.5", NVF_PLAY_TEST_PAUSE = "10:16", NVF_PLAY_TEST_SETTINGS = "11:fps-counter-upscaling,13:upscaler-quality=Performance" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--fps", "--size", "1280x720", "--upscaler", "fsr", "--upscaler-quality", "quality"]
+run_seconds = 18
+order = [[
+  { text = "settings: fps-counter-upscaling on", label = "the Upscaling row is turned on" },
+  { re = 'fps counter: FPS .*; UPSCALING FSR 3\.1 Quality  853x480 -> 1280x720$', label = "FSR Quality: the size the render world drew, logged with the other rows" },
+  { text = "settings: upscaler-quality Performance", label = "Performance picked" },
+  { text = "fps counter: upscaling FSR 3.1 Performance  640x360 -> 1280x720", label = "the row follows the switch to Performance's render size" },
+]]
+forbid = [{ text = "Caught rendering error", label = "a rendering error" }, { text = "FSR 3.1 unavailable", label = "FSR not drawing" }]
+
+[[scenario]]
+name = "perf-overlay-upscaling-dlss"
+source = "[design, #2242] perf_overlay/{readings,mod}.rs, upscaler/prep.rs: with DLSS Quality at 1280x720 the Upscaling row reads the size DLSS reported (853x480, as dlss-quality) and the model asked for, follows the DLSS model row to K, then the Upscaler row to FSR 3.1, which draws at once through the interposer"
+note = "needs NVF_DLSS_DIR (NVIDIA's files), like dlss-quality. The model is the one asked for (Graphics::dlss_model); which preset NGX uses for Default is not known to the engine. The switch to FSR reads the effective choice and -- for a frame or two before the render world draws FSR; only the sized line is expected"
+areas = ["renderer", "settings", "graphics"]
+paths = ["engine/nvforever/src/perf_overlay/*", "engine/nvforever/src/upscaler*", "engine/nvforever/src/upscaler/**", "engine/nvforever/src/settings.rs", "engine/nvforever/src/dlss/**"]
+requires = ["NVF_DLSS_DIR"]
+env = { WGPU_BACKEND = "vulkan", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_FPS_LOG = "0.5", NVF_PLAY_TEST_PAUSE = "10:18", NVF_PLAY_TEST_SETTINGS = "11:fps-counter-upscaling,13:dlss-model=K,15:upscaler=FSR 3.1" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--fps", "--size", "1280x720", "--upscaler", "dlss", "--upscaler-quality", "quality"]
+run_seconds = 20
+order = [[
+  { text = "settings: fps-counter-upscaling on", label = "the Upscaling row is turned on" },
+  { re = 'fps counter: FPS .*; UPSCALING DLSS Quality  853x480 -> 1280x720  model Default$', label = "DLSS Quality at the size DLSS reported, the model asked for" },
+  { text = "settings: dlss-model K", label = "model K picked" },
+  { text = "fps counter: upscaling DLSS Quality  853x480 -> 1280x720  model K", label = "the row names model K" },
+  { text = "settings: upscaler FSR 3.1", label = "FSR 3.1 picked" },
+  { text = "fps counter: upscaling FSR 3.1 Quality  853x480 -> 1280x720", label = "the row follows the switch to FSR, without a model" },
+]]
+forbid = [{ text = "Caught rendering error", label = "a rendering error" }, { text = "frames running without DLSS's output", label = "DLSS given up on" }]
+
+[[scenario]]
 name = "main-menu-disabled-glyphs"
 source = "[design, #2247] main_menu::show_entries must reach glyphs under the line anchor (docs/spec-notes/fonts.md section 3.2), using the existing start_menu::color shades"
 areas = ["main-menu", "save"]
