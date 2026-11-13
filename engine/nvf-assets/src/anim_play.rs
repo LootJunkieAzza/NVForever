@@ -2070,10 +2070,10 @@ mod tests {
         let ix = |n: &str| ["Bip01", "Bip01 NonAccum", "Other"].iter().position(|x| *x == n).map(|i| i + 1);
         let q = |r: Quat| [r.w, r.x, r.y, r.z];
         let nonaccum = track(Channel::Static(Some([0.0, 0.0, 61.0])), Channel::Static(Some(q(z90))));
-        let idle = Arc::new(BoundClip::bind(prio_clip(4.0, vec![("Bip01 NonAccum", nonaccum.clone(), 10)]), &ix));
+        let idle = Arc::new(BoundClip::bind(prio_clip(4.0, vec![("Bip01 NonAccum", nonaccum.clone(), 10)]), ix));
         // Clips whose `Bip01` holds a static 90° about z, and Idle Variety's tilt.
         let tilted = [z90, Quat::from_xyzw(0.6533, 0.2706, 0.6533, 0.2706).normalize()].map(|r| {
-            Arc::new(BoundClip::bind(prio_clip(1.0, vec![("Bip01", track(Channel::Static(Some([0.0; 3])), Channel::Static(Some(q(r)))), 26), ("Bip01 NonAccum", nonaccum.clone(), 10)]), &ix))
+            Arc::new(BoundClip::bind(prio_clip(1.0, vec![("Bip01", track(Channel::Static(Some([0.0; 3])), Channel::Static(Some(q(r)))), 26), ("Bip01 NonAccum", nonaccum.clone(), 10)]), ix))
         });
         let body = |out: &Vec<(usize, Transform)>, p: &BlendPlayer| {
             let get = |i: usize| out.iter().find(|(j, _)| *j == i).map_or(p.bind[i], |(_, t)| *t);
