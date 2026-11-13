@@ -426,6 +426,7 @@ pub(crate) struct Pipelines {
     pub(crate) fallback_layout: wgpu::BindGroupLayout,
     prepare_depth: wgpu::RenderPipeline,
     expand_depth: wgpu::RenderPipeline,
+    depth_as_color: wgpu::RenderPipeline,
     fallback: wgpu::RenderPipeline,
     alpha: wgpu::RenderPipeline,
     /// Linear filtering.
@@ -453,6 +454,7 @@ impl Pipelines {
         Self {
             prepare_depth: fullscreen_pipeline(device, "fsr_prepare_depth", include_str!("../fsr_depth.wgsl"), &depth_layout, "prepare_depth", &[]),
             expand_depth: fullscreen_pipeline(device, "fsr_expand_depth", include_str!("../fsr_depth.wgsl"), &depth_layout, "expand_depth", &[]),
+            depth_as_color: fullscreen_pipeline(device, "fsr_depth_as_color", include_str!("../fsr_depth.wgsl"), &depth_layout, "depth_as_color", &[(wgpu::TextureFormat::R32Float, wgpu::ColorWrites::ALL)]),
             fallback: fullscreen_pipeline(device, "fsr_spatial_fallback", include_str!("../fsr_fallback.wgsl"), &fallback_layout, "fragment", &rgba),
             alpha: fullscreen_pipeline(device, "fsr_restore_alpha", include_str!("../fsr_fallback.wgsl"), &fallback_layout, "alpha", &alpha),
             sampler: device.create_sampler(&wgpu::SamplerDescriptor { mag_filter: wgpu::FilterMode::Linear, min_filter: wgpu::FilterMode::Linear, ..default() }),
@@ -493,6 +495,21 @@ impl Pipelines {
         let depth_view = depth.create_view(&default());
         let group = self.depth_group(device, prepared, &depth_view);
         Self::draw_depth(encoder, &prepared.depth.create_view(&default()), &self.prepare_depth, &group);
+    }
+
+    /// [`PreparedUpscale::depth`] (drawn by [`Self::corrected_depth`]) again as an R32Float
+    /// colour image, for an FSR given its images through a FidelityFX API library (fsr.rs,
+    /// ffx_api.rs `Frame::depth`; `fsr_depth.wgsl` `depth_as_color`).
+    pub(crate) fn depth_as_color(&self, device: &wgpu::Device, encoder: &mut wgpu::CommandEncoder, prepared: &PreparedUpscale, target: &wgpu::Texture) {
+        let group = self.depth_group(device, prepared, &prepared.depth.create_view(&default()));
+        let target = target.create_view(&default());
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("fsr_depth_as_color"), color_attachments: &[Some(wgpu::RenderPassColorAttachment { view: &target, depth_slice: None, resolve_target: None, ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color::BLACK), store: wgpu::StoreOp::Store } })],
+            depth_stencil_attachment: None, timestamp_writes: None, occlusion_query_set: None, multiview_mask: None,
+        });
+        pass.set_pipeline(&self.depth_as_color);
+        pass.set_bind_group(0, &group, &[]);
+        pass.draw(0..3, 0..1);
     }
 
     /// The depth prepass drawn at the render size expanded to the display size by nearest

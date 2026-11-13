@@ -158,6 +158,7 @@ mod swimming;
 mod ssao;
 mod taa;
 mod fg_presenter;
+mod ffx_api;
 mod frame_gen;
 mod fsr;
 mod upscaler;
