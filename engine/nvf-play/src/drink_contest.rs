@@ -101,6 +101,8 @@ pub struct SlotSnap {
     pub out: Option<u32>,
     /// Why, when `out` is set (the host's reason, so every screen names the same one).
     pub why: Why,
+    /// Drinks taken: the host's count, which the end's snapshot settles on every screen.
+    pub step: u32,
 }
 
 /// The co-op hook (drink-b fills it; the default, off, is one player alone).
@@ -438,6 +440,9 @@ fn step(time: AidTime, mut screen: ResMut<DrinkScreen>, mut link: ResMut<DrinkLi
 
 /// A follower's copy takes the host's places, pass-outs and winner.
 fn follow(d: &mut Drink, link: &mut DrinkLink) {
+    // The end's snapshot comes with the winner: a follower's own clock may have poured a
+    // drink after the host's last tick (the view's lag), so the host's counts stand.
+    let settled = link.winner.is_some();
     if let Some((_, snaps)) = link.snap.take() {
         for (i, (s, n)) in d.contest.slots.iter_mut().zip(&snaps).enumerate() {
             let off = (s.pos[0] - n.pos[0]).hypot(s.pos[1] - n.pos[1]);
@@ -446,6 +451,9 @@ fn follow(d: &mut Drink, link: &mut DrinkLink) {
                 s.drift = n.drift;
             }
             s.radius = n.radius;
+            if settled {
+                s.step = n.step;
+            }
         }
         for (i, n) in snaps.iter().enumerate() {
             if let Some(e) = n.out.and_then(|t| d.contest.mark_out(i, t, n.why)) {
@@ -839,7 +847,7 @@ mod tests {
         let mut d = Drink::new(&start, &link, 0.0);
         assert_eq!(d.me, Some(1));
         assert!(d.contest.follower);
-        let snap = |x: f32, out| SlotSnap { pos: [x, 0.0], drift: [0.0; 2], radius: 0.85, out, why: Why::Outside };
+        let snap = |x: f32, out| SlotSnap { pos: [x, 0.0], drift: [0.0; 2], radius: 0.85, out, why: Why::Outside, step: 3 };
         // Its own slot: near the host's place it keeps its own; slot 0 takes the host's.
         d.contest.slots[1].pos = [0.1, 0.0];
         let mut gone = snap(0.0, Some(79));
@@ -857,5 +865,26 @@ mod tests {
         follow(&mut d, &mut link);
         assert_eq!(d.inbox.last(), Some(&Event::Winner { slot: Some(0), pot: 30 }));
         assert_eq!(d.won(), Some(false));
+    }
+
+    /// A guest's own clock poured a drink after the host's last tick: the end's snapshot,
+    /// which comes with the winner, puts the host's count back on every slot.
+    #[test]
+    fn the_end_takes_the_hosts_drink_counts() {
+        let start = DrinkStart { bottle: 1, drinkers: drinkers(), seed: 5, stake: 10 };
+        let mut link = DrinkLink { on: true, authority: false, local: Some(1), ..default() };
+        let mut d = Drink::new(&start, &link, 0.0);
+        let snap = |step, out| SlotSnap { pos: [0.0; 2], drift: [0.0; 2], radius: 0.4, out, why: Why::Outside, step };
+        d.contest.slots[1].step = 7;
+        // While it runs the guest keeps its own count.
+        link.snap = Some((1100, vec![snap(6, None), snap(6, None), snap(6, None)]));
+        follow(&mut d, &mut link);
+        assert_eq!(d.contest.slots[1].step, 7);
+        // The end: the host's counts.
+        link.snap = Some((1159, vec![snap(6, Some(1159)), snap(6, None), snap(5, Some(900))]));
+        link.winner = Some(Some(1));
+        follow(&mut d, &mut link);
+        assert_eq!(d.contest.slots.iter().map(|s| s.step).collect::<Vec<_>>(), [6, 6, 5]);
+        assert_eq!(finished_drinks(&d.contest.slots[1]), 6);
     }
 }

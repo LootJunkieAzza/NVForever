@@ -1362,7 +1362,7 @@ fn why_of(c: u8) -> Why {
 
 /// A slot of the deciding game's view, as the screen's follower takes it.
 fn snap_of(s: &SlotView) -> SlotSnap {
-    SlotSnap { pos: s.pos, drift: s.drift, radius: s.radius, out: s.out, why: why_of(s.why) }
+    SlotSnap { pos: s.pos, drift: s.drift, radius: s.radius, out: s.out, why: why_of(s.why), step: u32::from(s.stage) }
 }
 
 /// The deciding game's ticks (see the module notes): this player's slot steered by its keys,
