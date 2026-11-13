@@ -287,6 +287,12 @@ docs/handoff/ui-tile-tree-tasks.md]: `x` `y` `width` `height` `depth` `alpha` `v
   `Title_BG`, `List_BG`, the colour previews) draw their box filled
   (`tiles::mods::fill_mcm_boxes`) [hypothesis: the original fills such a hotrect; the one
   vanilla case, the race menu's `RSM_Face_Grab`, is left as it was].
+  While the slider is open, MCM dims every other row to alpha 85 (`_selected` and each
+  row's `_alpha` 3) [observed: MCM's script and OptionRect.xml; the probe read 85]. With
+  Bevy's linear blend that shows a peak of 156 of 255. The Mods page puts its pieces'
+  alpha through `alpha^2.2` (`tiles::draw::gamma_alpha`) [hypothesis: the original blends
+  in gamma space, so the dimmed rows peak near 85; open until a vanilla half-alpha text is
+  compared with a frame of the original].
 - [hypothesis, T15a] A `hotrect`'s own `alpha` is not passed to its children: every
   vanilla text button is a hotrect of alpha 0 (`text_box.xml`) whose text sets its own
   alpha (128, or 255 while it is a target), the message box's list and its rows

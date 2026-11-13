@@ -945,3 +945,34 @@ fn trait_write_counts_tell_a_write_from_a_change() {
     ui.set_trait(screen, "width", Value::Num(1920.0));
     assert_eq!(ui.trait_write_counts(), (writes + 3, changes + 2));
 }
+
+/// MCM's option rows dim when another row is selected [observed: MCM 1.5's
+/// OptionRect.xml `_alpha`, a condition with nested `or`/`and` in an `onlyif`; the
+/// slider sets `MCM_Options/_selected` to its row].
+#[test]
+fn mcms_row_alpha_follows_the_selected_row() {
+    let src = MemSource::default().with(
+        "menus\\mcm.xml",
+        r#"<menu name="StartMenu"> <rect name="MCM"> <rect name="MCM_Options"> <_selected> 0 </_selected>
+          <hotrect name="Option1"> <_optionID> 1 </_optionID> <_enable> 1 </_enable>
+            <_alpha> <copy> 3 </copy> <sub> <copy> 2 </copy> <onlyif>
+              <copy src="MCM_Options" trait="_selected"/> <eq> 0 </eq>
+              <or> <copy src="MCM_Options" trait="_selected"/> <eq> <copy src="me()" trait="_OptionID"/> </eq> </or>
+              <and> <copy src="me()" trait="_enable"/> <eq> 1 </eq> </and>
+            </onlyif> </sub> </_alpha>
+            <text name="title"> <brightness> 255 </brightness> <alpha> <copy src="me()" trait="brightness"/> <div src="parent()" trait="_alpha"/> </alpha> </text>
+          </hotrect> </rect> </rect> </menu>"#,
+    );
+    let mut ui = Ui::new();
+    ui.load_menu(&src, "menus\\mcm.xml").unwrap();
+    ui.update();
+    let p = "StartMenu/MCM/MCM_Options";
+    assert_eq!(ui.get_float(&format!("{p}/Option1/_alpha")), Some(1.0), "nothing selected");
+    assert!(ui.set_float(&format!("{p}/_selected"), 24.0));
+    ui.update();
+    assert_eq!(ui.get_float(&format!("{p}/Option1/_alpha")), Some(3.0), "another row selected");
+    assert_eq!(ui.get_float(&format!("{p}/Option1/title/alpha")), Some(85.0));
+    assert!(ui.set_float(&format!("{p}/_selected"), 1.0));
+    ui.update();
+    assert_eq!(ui.get_float(&format!("{p}/Option1/_alpha")), Some(1.0), "this row selected");
+}

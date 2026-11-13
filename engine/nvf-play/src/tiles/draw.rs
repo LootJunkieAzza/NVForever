@@ -1357,7 +1357,9 @@ fn mods_page(commands: &mut Commands, script: &ScriptState, on: bool, kit: &mut 
             }
             let measured = |font: f64, text: &str, wrap: Option<f64>| kit.face(font).map_or((0.0, 0.0), |face| measure(&face.font, font_number(font), text, wrap));
             let vanilla = files.and_then(|files| archived_names(ui, menu, files, &mut drawn.vanilla));
-            pieces(ui, menu, &measured, Select::Mods { vanilla }, true)
+            let (mut pieces, roots) = pieces(ui, menu, &measured, Select::Mods { vanilla }, true);
+            gamma_alpha(ui, &mut pieces);
+            (pieces, roots)
         }
         None => (Vec::new(), 0),
     };
@@ -1368,6 +1370,24 @@ fn mods_page(commands: &mut Commands, script: &ScriptState, on: bool, kit: &mut 
     }
     // In the middle of the view, as the pause menu's page under it (`crate::pause`).
     paint(commands, drawn, pieces, Target::window(scale, super::mods::MODS_Z).in_frame(interface::MIDDLE), heading, ui, kit, nodes, glyphs);
+}
+
+/// The Mods page's pieces with their alpha put through the curve the hotrect fills already
+/// take (`alpha^2.2`, [`pieces`]), so a part-alpha piece over black reads as in a blend
+/// in display (gamma) space: MCM's rows dimmed to alpha 85 while its slider is open
+/// [observed: MCM 1.5's OptionRect.xml `_alpha`; the probe of 2026-11-12 read 85 in the
+/// tree and a peak of 156 of 255 on screen, the linear blend's] then peak near 85
+/// [hypothesis: the original blends in gamma space; not compared with a frame of it].
+/// Hotrect fills are left as they are (curved already). The Mods page only [design: parity's
+/// choice of 2026-11-12; the other tile menus wait on a check of a vanilla half-alpha text
+/// against the original].
+pub fn gamma_alpha(ui: &Ui, pieces: &mut [Piece]) {
+    for p in pieces.iter_mut() {
+        if matches!(p.look, Look::Box) && ui.tile(p.tile).kind == "hotrect" {
+            continue;
+        }
+        p.colour[3] = p.colour[3].powf(2.2);
+    }
 }
 
 /// The fonts of `pieces`' texts that are not loaded (`loaded` says which are), each once:
@@ -1935,6 +1955,52 @@ mod tests {
         assert_eq!(drawn.len(), 1);
         assert_eq!(drawn[0].look, Look::Box);
         assert!((drawn[0].colour[3] - (40.0f32 / 255.0).powf(2.2)).abs() < 1e-6, "the hand-built fill's curve");
+    }
+
+    /// MCM's option rows: a hotrect row whose title's `alpha` MCM drops to 85 while
+    /// another row is selected [observed: MCM 1.5's OptionRect.xml]. The piece draws at
+    /// that third.
+    #[test]
+    fn a_mods_row_title_draws_at_its_dimmed_alpha() {
+        let (mut ui, src) = hud();
+        let menu = ui.menu(HUD_MENU).unwrap();
+        assert!(ui.inject_text(
+            &src,
+            "HUDMainMenu/Piece",
+            r#"<rect name="Opts"><hotrect name="Row"><width>50</width><height>20</height>
+                <text name="title"><string>Enable</string><systemcolor>0</systemcolor><alpha>255</alpha></text></hotrect></rect>"#
+        ));
+        ui.update();
+        let title = ui.find_tile("HUDMainMenu/Piece/Opts/Row/title").unwrap();
+        let alpha = |ui: &Ui, t15: bool| pieces(ui, menu, &plain, Select::Mods { vanilla: None }, t15).0.into_iter().find(|p| p.tile == title).unwrap().colour[3];
+        assert_eq!((alpha(&ui, true), alpha(&ui, false)), (1.0, 1.0));
+        ui.set_trait(title, "alpha", Value::Num(85.0));
+        ui.update();
+        assert_eq!((alpha(&ui, true), alpha(&ui, false)), (85.0 / 255.0, 85.0 / 255.0));
+        // The Mods page's curve: the third drawn at a third to the 2.2; full stays full.
+        let mut drawn = pieces(&ui, menu, &plain, Select::Mods { vanilla: None }, true).0;
+        gamma_alpha(&ui, &mut drawn);
+        let a = drawn.iter().find(|p| p.tile == title).unwrap().colour[3];
+        assert!((a - (85.0f32 / 255.0).powf(2.2)).abs() < 1e-6, "{a}");
+    }
+
+    #[test]
+    fn the_mods_page_curve_leaves_hotrect_fills_and_full_alpha() {
+        let (mut ui, src) = hud();
+        let menu = ui.menu(HUD_MENU).unwrap();
+        assert!(ui.inject_text(
+            &src,
+            "HUDMainMenu/Piece",
+            r#"<rect name="M"><hotrect name="H"><alpha>128</alpha><red>0</red><width>9</width><height>9</height></hotrect>
+                <text name="T"><string>t</string></text></rect>"#
+        ));
+        let h = ui.find_tile("HUDMainMenu/Piece/M/H").unwrap();
+        ui.set_trait(h, layout::HOTRECT_FILL, Value::Num(1.0));
+        ui.update();
+        let before = pieces(&ui, menu, &plain, Select::Mods { vanilla: None }, false).0;
+        let mut after = before.clone();
+        gamma_alpha(&ui, &mut after);
+        assert_eq!(before, after, "a hotrect fill is curved once already; alpha 1 stays 1");
     }
 
     #[test]

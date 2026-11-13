@@ -119,6 +119,8 @@ pub struct ModsPage {
     pub closed: bool,
     /// MCM's trigger is held clicked, until its window opens.
     pub clicking: bool,
+    /// MCM's slider window and row dimming as last told (`tick`'s log line).
+    pub dim_told: String,
 }
 
 /// The original's column as MCM reads it, written into `StartMenu` when it was (re)built:
@@ -235,6 +237,27 @@ pub fn tick(game: &mut fnv_game::Game<'_>, page: &mut ModsPage) {
         page.clicking = false;
     }
     game.page_tick(menus::START);
+    // MCM's slider window and how MCM dims the other rows with it (its OptionRect.xml
+    // `_alpha`, 3 on a row that is not the one selected): told when any of it changes, as the
+    // tree last worked it out (a frame behind a script's write).
+    {
+        let ui = &game.ui_tree;
+        let read = |p: &str| ui.get_float(&format!("StartMenu/MCM/{p}")).map_or("none".to_string(), |v| v.to_string());
+        let told = format!(
+            "slider window visible {}: _selected {}, Option1 _alpha {} title alpha {} brightness {}, _optionID {} _enable {}",
+            read("MCM_Scale/visible"),
+            read("MCM_Options/_selected"),
+            read("MCM_Options/Option1/_alpha"),
+            read("MCM_Options/Option1/title/alpha"),
+            read("MCM_Options/Option1/title/brightness"),
+            read("MCM_Options/Option1/_optionID"),
+            read("MCM_Options/Option1/_enable")
+        );
+        if told != page.dim_told {
+            info!("tiles: MCM's {told}");
+            page.dim_told = told;
+        }
+    }
     // The frames around the click, as MCM's scripts see them: the trigger's traits and the
     // quest variables its stage 2 and main script read (a window that stays shut says why).
     if (CLICK_AT..CLICK_AT + 4).contains(&page.frames) {
