@@ -1109,6 +1109,18 @@ sequences): 70 directly in it, 9 in `male\`, 9 in `female\`, 8 in `child\` and 2
   2–7 units per step, and turned about 90° about z (as in `mtidle.kf`, §7.2) [observed].
 - Turn clips carry no root rotation, so their turn speed is not in the clip [observed:
   no `Bip01` track, or a static one in `2hhturn*`; hypothesis: the game sets it].
+- Mod clips can hold `Bip01` at a static rotation that is not the identity: Idle
+  Variety's `meshes\AnimGroupOverride\IV_Cool_F\_male\human\locomotion\mtturnleft.kf`
+  and `mtturnright.kf` drive `Bip01` at priority 26 with a static rotation (w 0.2706,
+  x 0.6533, y 0.2706, z 0.6533), translation 0 and no keys, over `Bip01 NonAccum` at
+  priority 10 turned 90° about z [observed: `fnvtool nif decode`]; all 86 of the mod's
+  `mtturn*.kf` (43 folders, `_F` and `_M`) hold that same `Bip01` rotation
+  [observed, Idle Variety 1.40e]. Shown as is, that
+  rotation takes the body's up axis to its side. **Engine rule**: a static rotation on a
+  driven accumulation root is dropped (the root is held at the identity, as for a clip
+  that does not drive it); keyed root rotations play [design; hypothesis that the game
+  does the same, as the mod's NPCs turn upright in it; the owner saw ours lie sideways
+  as an NPC turned to face the player at a conversation's start and end, 2026-11-13].
 - **Playback**: the engine extracts the root motion and moves the actor itself. While a
   clip with a `Bip01` track plays, `Bip01` takes the sampled translation minus the
   linear accumulation `(t − start) / length × per-cycle offset`, which keeps the small

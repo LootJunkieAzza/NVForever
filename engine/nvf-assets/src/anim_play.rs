@@ -987,7 +987,20 @@ impl BlendPlayer {
                         t.z -= start_z;
                     }
                 }
-                let r = track.rotation_after(time, cycles).map_or(b.rotation, |[w, x, y, z]| Quat::from_xyzw(x, y, z, w).normalize());
+                // A static rotation on the accumulation root is the actor's heading, not
+                // the pose's: the root is held at the identity, as for a clip that does
+                // not drive it. Vanilla's driven roots are all a static identity (actors.md
+                // §8.2), so they are unchanged; Idle Variety's `IV_Cool_F` turn clips hold
+                // `Bip01` at a static (0.27, 0.65, 0.27, 0.65), which laid the body on its
+                // side while an NPC turned to face the player at a conversation's start
+                // and back at its end (owner's report, 2026-11-13). Keyed root rotations
+                // still play [hypothesis: none seen in the data yet].
+                let static_root_turn = is_root && matches!(track.rotation, Channel::Static(_));
+                let r = if static_root_turn {
+                    Quat::IDENTITY
+                } else {
+                    track.rotation_after(time, cycles).map_or(b.rotation, |[w, x, y, z]| Quat::from_xyzw(x, y, z, w).normalize())
+                };
                 // The accumulation root keeps its own scale: Animated Greetings'
                 // `AG_ChinFlick.kf` gives `Bip01` a scale of 10, which grew a puppet to ten
                 // times its size (laptop run 140b, 2026-11-09); the player's body, which
@@ -2010,6 +2023,39 @@ mod tests {
         let get = |i: usize| out.iter().find(|(j, _)| *j == i).unwrap().1.translation;
         assert_eq!(get(1), Vec3::ZERO);
         assert_eq!(get(2).z, 61.0);
+    }
+
+    #[test]
+    fn a_static_root_rotation_does_not_turn_the_body() {
+        // Idle Variety's `IV_Cool_F\...\mtturnleft.kf` / `mtturnright.kf`: `Bip01` at
+        // priority 26 with a static rotation (w 0.2706, x 0.6533, y 0.2706, z 0.6533) and
+        // no travel, over `Bip01 NonAccum` at 90° about z. Played while an NPC turns to
+        // the player as a conversation opens, and back as it closes, it laid the body on
+        // its side. The root stays at the identity going into the turn, through it and
+        // coming out of it, with the turn blended over an idle at any weight.
+        let (mut p, ix) = player();
+        let tilt = [0.2706, 0.6533, 0.2706, 0.6533];
+        let nonaccum = [std::f32::consts::FRAC_1_SQRT_2, 0.0, 0.0, std::f32::consts::FRAC_1_SQRT_2];
+        let turn = Arc::new(BoundClip::bind(
+            prio_clip(1.0, vec![("Bip01", track(Channel::Static(Some([0.0; 3])), Channel::Static(Some(tilt))), 26), ("Bip01 NonAccum", track(Channel::Static(Some([0.0, 0.0, 61.0])), Channel::Static(Some(nonaccum))), 10)]),
+            &ix,
+        ));
+        let idle = Arc::new(BoundClip::bind(prio_clip(1.0, vec![("Bip01 NonAccum", track(Channel::Static(Some([0.0, 0.0, 61.0])), Channel::Static(Some(nonaccum))), 10)]), &ix));
+        let mut out = Vec::new();
+        for w in [0.0, 0.1, 0.5, 0.9, 1.0] {
+            p.layers = [Some(Layer { clip: idle.clone(), phase: 0.5, weight: 1.0 - w }), Some(Layer { clip: turn.clone(), phase: 0.5, weight: w }), None, None, None, None, None, None];
+            p.sample(&mut out);
+            let root = out.iter().find(|(j, _)| *j == 1).unwrap().1;
+            assert!(root.rotation.angle_between(Quat::IDENTITY) < 1e-4, "turn weight {w}: root turned {:?}", root.rotation);
+            assert_eq!(root.translation, Vec3::ZERO);
+        }
+        // A keyed root rotation still plays.
+        let keyed = Channel::Keys(Keys { kind: KeyKind::Linear, keys: [0.0, 1.0].map(|time| Key { time, value: tilt, forward: [0.0; 4], backward: [0.0; 4], tbc: [0.0; 3] }).to_vec() });
+        let roll = Arc::new(BoundClip::bind(prio_clip(1.0, vec![("Bip01", track(Channel::Static(Some([0.0; 3])), keyed), 26)]), &ix));
+        p.layers = [Some(Layer { clip: roll, phase: 0.5, weight: 1.0 }), None, None, None, None, None, None, None];
+        p.sample(&mut out);
+        let root = out.iter().find(|(j, _)| *j == 1).unwrap().1;
+        assert!(root.rotation.angle_between(Quat::from_xyzw(0.6533, 0.2706, 0.6533, 0.2706).normalize()) < 1e-3);
     }
 
     #[test]
