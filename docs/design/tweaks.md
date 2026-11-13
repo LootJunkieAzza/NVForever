@@ -631,6 +631,7 @@ unless the player binds them, so nothing changes until then.
 | Hold to Activate | `bHoldToActivate` | `activate::activate` counts E held on a target `HoldKinds::needs` names and acts at `HOLD_ACTIVATE`. The switches: `Tweaks::hold_activate`, `hold_containers`, `hold_furniture`, `hold_water` |
 | Quick Use | `bQuickUse` | `activate::activate` runs `hotkeys::use_slot` on a picked-up item with Shift held (an aid item's `ItemUsed` sent). The switch: `Tweaks::quick_use` |
 | V.A.T.S. Throwables Use Visibility | `bVATSThrowablesUseVisibility` | `vats_mode::throw_sees` (a thrown weapon whose projectile lands as a weapon), `part_seen` (seven lines), `Spot::seen` multiplies `chance_of` in the preview and the mark. The switch: `Tweaks::vats_throw_visibility` |
+| Quiet Companions | `bRemoveFollowerTopics` | `Game::combat_line` refuses `combat_lines::FOLLOWER_COMMENTS` to teammates. The switch: `Tweaks::quiet_followers` |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -652,8 +653,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 567 |
-| to do | 28 |
+| done | 568 |
+| to do | 27 |
 | unsure, skipped | 22 |
 | n/a | 18 |
 | skipped: fix | 10 |
@@ -950,6 +951,7 @@ game's Data folder, read-only).
 | `bQuestTextVisibleWhileAiming` | done |  |  | already so: aiming hides only the reticle |
 | `bRandomizeKillcamMode` | done |  |  | n/a: NVForever has one kill camera kind |
 | `bRemoveChemWarnOffIMOD` | done |  |  | No Chem Wore-Off Effect |
+| `bRemoveFollowerTopics` | done |  |  | Quiet Companions: teammates do not say the Combat topics HealthHalf, HealthQuarter, Crippled and NoAmmo (our reading of the readme's injured, needing ammo, weapons) |
 | `bRemoveLandingAnim` | done |  |  | No Landing Animation (the player) |
 | `bRepairRequiresWeaponSkill` | done |  |  | Repair Needs the Weapon's Skill (Pip-Boy repair) |
 | `bRepeatJumping` | done |  |  | Hold to Keep Jumping |
@@ -974,7 +976,6 @@ game's Data folder, read-only).
 | `bAddNightVisionToggle` | to do |  | 4 | a night vision state plus flashlight and scope_view |
 | `bMoveDuringOpenPipboyAnim` | to do |  |  | the Pip-Boy is a menu; the game leaves Playing at once |
 | `bNoLTRTOnPipboy` | n/a |  |  | the original's controller texture swap |
-| `bRemoveFollowerTopics` | to do |  |  | not built: companions make no such comments |
 
 ### HUD
 
