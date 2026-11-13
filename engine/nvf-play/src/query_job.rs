@@ -14,6 +14,14 @@
 //! - `NVF_PLAY_TEST_QUERIES_AT=<seconds>`: when the first step runs on the world aids'
 //!   clock (`crate::pause::AidTime::world_secs`, from the scripts' first run with
 //!   `NVF_PLAY_AIDS_FROM_SCRIPTS=1`); default 3, so the start cell has settled.
+//! - With `NVF_PLAY_TEST_START_FOS=<save.fos>` (the run starts where the save stands,
+//!   nvforever's fos_start.rs), the save's state goes in too, on the first frame the world
+//!   is up, before any step: the same `given` entries as `fnvtool ext queries --save`
+//!   (`fnv_game::ext_save`: globals, quests, SPECIAL, skills, inventory and worn items, the
+//!   player's name, references' flags and places, faction reactions), except the player's
+//!   place, which the start already took. What was left out or failed goes in the
+//!   document's `save`, as headless. Log line: `query job: <set>: the save's state, <n>
+//!   entries, <e> not applied`.
 //!
 //! The run quits once the document is written. Log lines: `query job: <set>: <n> steps
 //! from <file>`, `query job: <set>: <n> steps, <r> rows, <e> errors, written to <file>`,
@@ -36,8 +44,14 @@ pub struct QueryJob {
     at: f32,
     out: PathBuf,
     observations: Vec<Json>,
-    /// The document is written; the run may end.
+    /// The save whose state goes in before the first step (`NVF_PLAY_TEST_START_FOS`).
+    save: Option<PathBuf>,
+    /// What giving the save's state left out or could not apply (the document's `save`).
+    save_notes: Option<Json>,
+    /// The job is over (its document written, or the write failed); the run may end.
     pub finished: bool,
+    /// The document could not be written: the run ends with an error code.
+    pub write_failed: bool,
 }
 
 impl QueryJob {
@@ -65,18 +79,26 @@ impl QueryJob {
         };
         let out = std::env::var_os("NVF_PLAY_TEST_QUERIES_OUT").filter(|v| !v.is_empty()).map_or_else(|| PathBuf::from(format!("{set}.probes.json")), PathBuf::from);
         info!("query job: {set}: {} steps from {}, the first at {at} s", steps.len(), path.display());
-        Some(QueryJob::new(set, steps, at, out))
+        let mut job = QueryJob::new(set, steps, at, out);
+        job.save = std::env::var_os("NVF_PLAY_TEST_START_FOS").filter(|v| !v.is_empty()).map(PathBuf::from);
+        Some(job)
     }
 
     pub fn new(set: String, steps: Vec<QueryStep>, at: f32, out: PathBuf) -> QueryJob {
-        QueryJob { set, steps, next: 0, at, out, observations: Vec::new(), finished: false }
+        QueryJob { set, steps, next: 0, at, out, observations: Vec::new(), save: None, save_notes: None, finished: false, write_failed: false }
     }
 
     /// Run the next step if it is due (`world_secs` on the world aids' clock, none while
     /// the world is loading); after the last one, write the document. True when it ran a
     /// step.
     pub fn frame(&mut self, game: &mut Game<'_>, world_secs: Option<f32>, loading: bool) -> bool {
-        if self.finished || loading || world_secs.is_none_or(|w| w < self.at) {
+        if self.finished || loading || world_secs.is_none() {
+            return false;
+        }
+        if let Some(path) = self.save.take() {
+            self.give_save(game, &path);
+        }
+        if world_secs.is_none_or(|w| w < self.at) {
             return false;
         }
         let Some(step) = self.steps.get(self.next) else {
@@ -94,10 +116,38 @@ impl QueryJob {
         true
     }
 
+    /// The save's state, as `fnvtool ext queries --save` gives it, but for the player's
+    /// place (the run already starts there).
+    fn give_save(&mut self, game: &mut Game<'_>, path: &std::path::Path) {
+        let given = std::fs::read(path).map_err(|e| e.to_string()).and_then(|b| fnv_save::fos::Fos::parse(&b).map_err(|e| e.0)).and_then(|fos| {
+            let look = fnv_game::ext_save::Loaded { data: game.data, forms: game.world.forms, refs: game.world.placed };
+            fnv_game::ext_save::save_given(&fos, &look, &game.data.load_order)
+        });
+        let (given, mut notes) = match given {
+            Ok(g) => g,
+            Err(e) => {
+                warn!("query job: {}: the save {}: {e}", self.set, path.display());
+                self.save_notes = Some(json!({"error": e}));
+                return;
+            }
+        };
+        let given: Vec<Json> = given.into_iter().filter(|g| !(g["kind"] == "place" && g["ref"] == "player")).collect();
+        let errors = fnv_game::runner::apply_given_entries(game, &given);
+        info!("query job: {}: the save's state, {} entries, {} not applied", self.set, given.len(), errors.len());
+        for e in &errors {
+            debug!("query job: save entry {}: {}", given[e["given"].as_u64().unwrap_or(0) as usize], e["error"]);
+        }
+        notes["given_errors"] = json!(errors);
+        self.save_notes = Some(notes);
+    }
+
     /// The fnv.ext.probes/1 document of the steps run so far.
     pub fn document(&self) -> Json {
         let mut doc = probes_doc(&self.set, &self.observations, "nvforever --play (NVF_PLAY_TEST_QUERIES)");
         doc["steps"] = json!({"run": self.next, "of": self.steps.len()});
+        if let Some(notes) = &self.save_notes {
+            doc["save"] = notes.clone();
+        }
         doc
     }
 
@@ -112,17 +162,27 @@ impl QueryJob {
         let errors = doc["errors"].as_array().map_or(0, Vec::len);
         match written {
             Ok(()) => info!("query job: {}: {} steps, {rows} rows, {errors} errors, written to {}", self.set, self.next, self.out.display()),
-            Err(e) => warn!("query job: {}: {}: {e}", self.set, self.out.display()),
+            Err(e) => {
+                self.write_failed = true;
+                warn!("query job: {}: {}: {e}", self.set, self.out.display());
+            }
         }
     }
 }
 
-/// The job is done: the run ends (a test aid drives it).
+/// The job is done: the run ends (a test aid drives it), with an error code when its
+/// document could not be written.
 pub fn exit_when_done(script: Res<crate::script::ScriptState>, mut exit: MessageWriter<AppExit>, mut told: Local<bool>) {
-    if !*told && script.query_job.as_ref().is_some_and(|j| j.finished) {
+    let Some(job) = script.query_job.as_ref().filter(|j| j.finished) else { return };
+    if !*told {
         *told = true;
-        info!("query job: done, quitting");
-        exit.write(AppExit::Success);
+        if job.write_failed {
+            warn!("query job: done, its document not written; quitting with an error");
+            exit.write(AppExit::error());
+        } else {
+            info!("query job: done, quitting");
+            exit.write(AppExit::Success);
+        }
     }
 }
 
@@ -148,11 +208,19 @@ mod tests {
         let mut job = QueryJob::new("empty".into(), Vec::new(), 2.0, out.clone());
         assert_eq!(job.document()["steps"], json!({"run": 0, "of": 0}));
         job.finish();
-        assert!(job.finished);
+        assert!(job.finished && !job.write_failed);
         let doc: Json = serde_json::from_str(&std::fs::read_to_string(&out).unwrap()).unwrap();
         assert_eq!(doc["format"], "fnv.ext.probes/1");
         assert_eq!(doc["set"], "empty");
         assert_eq!(doc["rows"], json!([]));
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_document_that_cannot_be_written_is_marked() {
+        let out = std::env::temp_dir().join(format!("nvf-query-job-missing-{}", std::process::id())).join("no-such-folder").join("x.probes.json");
+        let mut job = QueryJob::new("unwritten".into(), Vec::new(), 0.0, out);
+        job.finish();
+        assert!(job.finished && job.write_failed);
     }
 }

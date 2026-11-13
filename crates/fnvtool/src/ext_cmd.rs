@@ -186,7 +186,7 @@ pub fn run(cmd: ExtCmd) -> anyhow::Result<Value> {
             let start = match &save {
                 Some(p) => {
                     let fos = fnv_save::fos::Fos::parse(&std::fs::read(p).with_context(|| p.display().to_string())?).with_context(|| p.display().to_string())?;
-                    Some(crate::ext_save::save_given(&fos, &crate::ext_save::Loaded { data: &data, forms: &forms, refs: &refs }, &lo.plugins)?)
+                    Some(fnv_game::ext_save::save_given(&fos, &fnv_game::ext_save::Loaded { data: &data, forms: &forms, refs: &refs }, &lo.plugins).map_err(anyhow::Error::msg)?)
                 }
                 None => None,
             };
@@ -267,7 +267,7 @@ pub fn run(cmd: ExtCmd) -> anyhow::Result<Value> {
             }
             let mut save_notes = None;
             if let Some(fos) = &fos {
-                let (given, notes) = crate::ext_save::save_given(fos, &crate::ext_save::Loaded { data: &data, forms: &forms, refs: &refs }, &lo.plugins)?;
+                let (given, notes) = fnv_game::ext_save::save_given(fos, &fnv_game::ext_save::Loaded { data: &data, forms: &forms, refs: &refs }, &lo.plugins).map_err(anyhow::Error::msg)?;
                 input["given"] = json!(given);
                 input["new_game"] = json!(true);
                 save_notes = Some(notes);

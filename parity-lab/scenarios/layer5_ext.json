@@ -1481,7 +1481,7 @@
    "candidate": {
     "kind": "game",
     "argv": ["{engine_candidate}", "--data", "{data_dir}", "--plugins", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm", "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm", "NVFExtProbe.esp", "--play", "--run-seconds", "300"],
-    "env": {"NVF_PLAY_TEST_QUERIES": "{lab_root}/../tools/capture/jip-probes/jip_hits.steps.json", "NVF_PLAY_TEST_QUERIES_OUT": "{lab_root}/runs/engine/jip-hits.probes.json", "NVF_PLAY_TEST_START_FOS": "{save_path}", "NVF_PLAY_AIDS_FROM_SCRIPTS": "1"},
+    "env": {"NVF_PLAY_TEST_QUERIES": "{lab_root}/../tools/capture/jip-probes/jip_hits.steps.json", "NVF_PLAY_TEST_QUERIES_OUT": "{lab_root}/runs/engine/jip-hits.probes.json", "NVF_PLAY_TEST_START_FOS": "{save_path}", "NVF_PLAY_AIDS_FROM_SCRIPTS": "1", "NVF_FIXED_FRAME_TIME_MS": "16.667"},
     "output_file": "{lab_root}/runs/engine/jip-hits.probes.json",
     "timeout_s": 900
    },
@@ -1496,7 +1496,7 @@
    "candidate": {
     "kind": "game",
     "argv": ["{engine_candidate}", "--data", "{data_dir}", "--plugins", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm", "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm", "NVFExtProbe.esp", "--play", "--run-seconds", "300"],
-    "env": {"NVF_PLAY_TEST_QUERIES": "{lab_root}/../tools/capture/jip-probes/projectile.steps.json", "NVF_PLAY_TEST_QUERIES_OUT": "{lab_root}/runs/engine/projectile.probes.json", "NVF_PLAY_TEST_START_FOS": "{save_path}", "NVF_PLAY_AIDS_FROM_SCRIPTS": "1"},
+    "env": {"NVF_PLAY_TEST_QUERIES": "{lab_root}/../tools/capture/jip-probes/projectile.steps.json", "NVF_PLAY_TEST_QUERIES_OUT": "{lab_root}/runs/engine/projectile.probes.json", "NVF_PLAY_TEST_START_FOS": "{save_path}", "NVF_PLAY_AIDS_FROM_SCRIPTS": "1", "NVF_FIXED_FRAME_TIME_MS": "16.667"},
     "output_file": "{lab_root}/runs/engine/projectile.probes.json",
     "timeout_s": 900
    },
@@ -1511,7 +1511,7 @@
    "candidate": {
     "kind": "game",
     "argv": ["{engine_candidate}", "--data", "{data_dir}", "--plugins", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm", "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm", "NVFExtProbe.esp", "--play", "--run-seconds", "300"],
-    "env": {"NVF_PLAY_TEST_QUERIES": "{lab_root}/../tools/capture/jip-probes/knvse_anim.steps.json", "NVF_PLAY_TEST_QUERIES_OUT": "{lab_root}/runs/engine/knvse-anim.probes.json", "NVF_PLAY_TEST_START_FOS": "{save_path}", "NVF_PLAY_AIDS_FROM_SCRIPTS": "1"},
+    "env": {"NVF_PLAY_TEST_QUERIES": "{lab_root}/../tools/capture/jip-probes/knvse_anim.steps.json", "NVF_PLAY_TEST_QUERIES_OUT": "{lab_root}/runs/engine/knvse-anim.probes.json", "NVF_PLAY_TEST_START_FOS": "{save_path}", "NVF_PLAY_AIDS_FROM_SCRIPTS": "1", "NVF_FIXED_FRAME_TIME_MS": "16.667"},
     "output_file": "{lab_root}/runs/engine/knvse-anim.probes.json",
     "timeout_s": 900
    },
@@ -1526,7 +1526,7 @@
    "candidate": {
     "kind": "game",
     "argv": ["{engine_candidate}", "--data", "{data_dir}", "--plugins", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm", "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm", "NVFExtProbe.esp", "--play", "--run-seconds", "300"],
-    "env": {"NVF_PLAY_TEST_QUERIES": "{lab_root}/../tools/capture/jip-probes/nif_blocks.steps.json", "NVF_PLAY_TEST_QUERIES_OUT": "{lab_root}/runs/engine/nif-blocks.probes.json", "NVF_PLAY_TEST_START_FOS": "{save_path}", "NVF_PLAY_AIDS_FROM_SCRIPTS": "1"},
+    "env": {"NVF_PLAY_TEST_QUERIES": "{lab_root}/../tools/capture/jip-probes/nif_blocks.steps.json", "NVF_PLAY_TEST_QUERIES_OUT": "{lab_root}/runs/engine/nif-blocks.probes.json", "NVF_PLAY_TEST_START_FOS": "{save_path}", "NVF_PLAY_AIDS_FROM_SCRIPTS": "1", "NVF_FIXED_FRAME_TIME_MS": "16.667"},
     "output_file": "{lab_root}/runs/engine/nif-blocks.probes.json",
     "timeout_s": 900
    },
@@ -1541,7 +1541,7 @@
    "candidate": {
     "kind": "game",
     "argv": ["{engine_candidate}", "--data", "{data_dir}", "--plugins", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm", "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm", "NVFExtProbe.esp", "--play", "--run-seconds", "300"],
-    "env": {"NVF_PLAY_TEST_QUERIES": "{lab_root}/../tools/capture/jip-probes/nvse_events.steps.json", "NVF_PLAY_TEST_QUERIES_OUT": "{lab_root}/runs/engine/nvse-events.probes.json", "NVF_PLAY_TEST_START_FOS": "{save_path}", "NVF_PLAY_AIDS_FROM_SCRIPTS": "1"},
+    "env": {"NVF_PLAY_TEST_QUERIES": "{lab_root}/../tools/capture/jip-probes/nvse_events.steps.json", "NVF_PLAY_TEST_QUERIES_OUT": "{lab_root}/runs/engine/nvse-events.probes.json", "NVF_PLAY_TEST_START_FOS": "{save_path}", "NVF_PLAY_AIDS_FROM_SCRIPTS": "1", "NVF_FIXED_FRAME_TIME_MS": "16.667"},
     "output_file": "{lab_root}/runs/engine/nvse-events.probes.json",
     "timeout_s": 900
    },
@@ -1556,7 +1556,7 @@
    "candidate": {
     "kind": "game",
     "argv": ["{engine_candidate}", "--data", "{data_dir}", "--plugins", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm", "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm", "NVFExtProbe.esp", "--play", "--run-seconds", "300"],
-    "env": {"NVF_PLAY_TEST_QUERIES": "{lab_root}/../tools/capture/jip-probes/jip_events2.steps.json", "NVF_PLAY_TEST_QUERIES_OUT": "{lab_root}/runs/engine/jip-events2.probes.json", "NVF_PLAY_TEST_START_FOS": "{save_path}", "NVF_PLAY_AIDS_FROM_SCRIPTS": "1"},
+    "env": {"NVF_PLAY_TEST_QUERIES": "{lab_root}/../tools/capture/jip-probes/jip_events2.steps.json", "NVF_PLAY_TEST_QUERIES_OUT": "{lab_root}/runs/engine/jip-events2.probes.json", "NVF_PLAY_TEST_START_FOS": "{save_path}", "NVF_PLAY_AIDS_FROM_SCRIPTS": "1", "NVF_FIXED_FRAME_TIME_MS": "16.667"},
     "output_file": "{lab_root}/runs/engine/jip-events2.probes.json",
     "timeout_s": 900
    },
@@ -1571,7 +1571,7 @@
    "candidate": {
     "kind": "game",
     "argv": ["{engine_candidate}", "--data", "{data_dir}", "--plugins", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm", "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm", "NVFExtProbe.esp", "--play", "--run-seconds", "300"],
-    "env": {"NVF_PLAY_TEST_QUERIES": "{lab_root}/../tools/capture/jip-probes/gaps8.steps.json", "NVF_PLAY_TEST_QUERIES_OUT": "{lab_root}/runs/engine/gaps8.probes.json", "NVF_PLAY_TEST_START_FOS": "{save_path}", "NVF_PLAY_AIDS_FROM_SCRIPTS": "1"},
+    "env": {"NVF_PLAY_TEST_QUERIES": "{lab_root}/../tools/capture/jip-probes/gaps8.steps.json", "NVF_PLAY_TEST_QUERIES_OUT": "{lab_root}/runs/engine/gaps8.probes.json", "NVF_PLAY_TEST_START_FOS": "{save_path}", "NVF_PLAY_AIDS_FROM_SCRIPTS": "1", "NVF_FIXED_FRAME_TIME_MS": "16.667"},
     "output_file": "{lab_root}/runs/engine/gaps8.probes.json",
     "timeout_s": 900
    },
@@ -1586,7 +1586,7 @@
    "candidate": {
     "kind": "game",
     "argv": ["{engine_candidate}", "--data", "{data_dir}", "--plugins", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm", "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm", "NVFExtProbe.esp", "--play", "--run-seconds", "300"],
-    "env": {"NVF_PLAY_TEST_QUERIES": "{lab_root}/../tools/capture/jip-probes/gaps10.steps.json", "NVF_PLAY_TEST_QUERIES_OUT": "{lab_root}/runs/engine/gaps10.probes.json", "NVF_PLAY_TEST_START_FOS": "{save_path}", "NVF_PLAY_AIDS_FROM_SCRIPTS": "1"},
+    "env": {"NVF_PLAY_TEST_QUERIES": "{lab_root}/../tools/capture/jip-probes/gaps10.steps.json", "NVF_PLAY_TEST_QUERIES_OUT": "{lab_root}/runs/engine/gaps10.probes.json", "NVF_PLAY_TEST_START_FOS": "{save_path}", "NVF_PLAY_AIDS_FROM_SCRIPTS": "1", "NVF_FIXED_FRAME_TIME_MS": "16.667"},
     "output_file": "{lab_root}/runs/engine/gaps10.probes.json",
     "timeout_s": 900
    },

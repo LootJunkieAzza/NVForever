@@ -853,6 +853,21 @@ fn num_arg(x: f64) -> ArgValue {
     ArgValue::Value(Value::Num(x))
 }
 
+/// Apply `given` entries (the runner input's JSON, as `ext_save::save_given` writes them) to
+/// a game already running, in order; an entry that cannot be read or applied is returned
+/// with its index and the reason, and the rest still go in. The engine's query job uses it
+/// to give a run the original's save (#1024), as `fnvtool ext queries --save` does.
+pub fn apply_given_entries(g: &mut Game, given: &[Json]) -> Vec<Json> {
+    let mut errors = Vec::new();
+    for (i, v) in given.iter().enumerate() {
+        let r = serde_json::from_value::<Given>(v.clone()).map_err(|e| e.to_string()).and_then(|gv| apply_given(g, &gv));
+        if let Err(e) = r {
+            errors.push(json!({"given": i, "error": e}));
+        }
+    }
+    errors
+}
+
 fn apply_given(g: &mut Game, gv: &Given) -> Result<(), String> {
     match gv {
         Given::Quest { quest: name, running, completed, stage, done, not_done, objectives, vars, refs } => {
