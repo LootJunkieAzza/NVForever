@@ -466,6 +466,20 @@ impl<'a> Gen<'a> {
     }
 
     fn form(&self, name: &str) -> Option<FormInfo> {
+        // A quoted reference (`"Name".Function`, lex::tokens): the name inside, or a FormID
+        // in hex of any length when the load order has it [observed: Veronica Outfit
+        // Replacer.esp, `"E32A9".GetItemCount` calls on 0x000E32A9, #2275; hypothesis:
+        // the editor reads a quoted name as an Editor ID first].
+        if let Some(inner) = name.strip_prefix('"').and_then(|n| n.strip_suffix('"')) {
+            if let Some(f) = self.form(inner) {
+                return Some(f);
+            }
+            if !(1..=8).contains(&inner.len()) || !inner.bytes().all(|b| b.is_ascii_hexdigit()) {
+                return None;
+            }
+            let g = self.env.local_form(u32::from_str_radix(inner, 16).ok()?)?;
+            return self.env.info(g);
+        }
         let low = name.to_ascii_lowercase();
         if PLAYER_NAMES.contains(&low.as_str()) {
             return Some(FormInfo { form: PLAYER, sig: *b"REFR" });
@@ -1257,7 +1271,17 @@ impl<'a> Gen<'a> {
                 // udf.return_value, ext-bytecode.md].
                 self.emit(None, op::RETURN, &[]);
             }
-            Kw::Set { target, expr } => {
+            Kw::Set { target, expr, on } => {
+                let on = match on {
+                    Some(h) => match self.reference(h) {
+                        Some(r) => Some(r),
+                        None => {
+                            self.diag("unresolved_name", true, h.clone());
+                            return;
+                        }
+                    },
+                    None => None,
+                };
                 let mut body = Vec::new();
                 let tv = if target.len() == 1 { self.atom(&target[0]) } else { None };
                 match tv {
@@ -1271,7 +1295,7 @@ impl<'a> Gen<'a> {
                 let e = self.expr(expr);
                 put16(&mut body, e.len() as u16);
                 body.extend_from_slice(&e);
-                self.emit(None, op::SET, &body);
+                self.emit(on, op::SET, &body);
             }
             Kw::Call(toks) if self.co || self.x_call_line(toks) => {
                 // An inline expression among the arguments, or an extender function: the

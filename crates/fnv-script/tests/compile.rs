@@ -1712,4 +1712,46 @@ fn spellings_the_extender_registers_are_names_too() {
     let t = table();
     assert_eq!(t.unnumbered.get("readfromjsonfile").map(|u| u.name.as_str()), Some("ReadFromJSON"));
     assert!(t.unnumbered.contains_key("getedid") || t.by_name("getedid").is_some());
+    // [observed: TTW No Hardcore Sacrifice.esp's bytes call MoveTo for `MoveToMarker`.]
+    assert_eq!(t.by_name("movetomarker"), t.by_name("moveto"));
+    assert!(t.by_name("moveto").is_some());
+}
+
+#[test]
+fn a_quoted_form_id_before_a_dot_is_the_reference() {
+    // [observed: Veronica Outfit Replacer.esp ships `If "E32A9".GetItemCount X == 0` and
+    // `"E32A9".AddItemAlt X 1 100 1` with compiled bytes calling both on 0x000E32A9.]
+    let src = "short i
+begin GameMode
+If \"1003000\".GetItemCount Caps001 == 0
+\"1003000\".AddItem Caps001 1
+endif
+end";
+    let (c, _) = mod_ok(src);
+    assert!(c.refs.contains(&RefSlot::Form(DOOR)), "{:?}", c.refs);
+    // A quoted Editor ID before a dot names its form too.
+    let (c, _) = mod_ok("begin GameMode
+\"TestDoorREF\".Disable
+end");
+    assert_eq!(c.refs, [RefSlot::Form(DOOR)]);
+}
+
+#[test]
+fn set_after_a_reference_sets_the_scripts_own_variable() {
+    // [observed: Fallout3.esm and RAD.esp, `MS14ArmorVoiceRef.Set SayTimer to
+    // GameDaysPassed + 0.1` compiles to `1C 00 <ref> 15 00 …`, a set of the local SayTimer
+    // with the reference as its prefix.]
+    let src = "float SayTimer
+begin GameMode
+TestDoorREF.Set SayTimer to 2 + 0.1
+end";
+    let (c, p) = build(src);
+    assert_eq!(c.refs, [RefSlot::Form(DOOR)]);
+    let set = [0x1Cu8, 0x00, 0x01, 0x00, 0x15, 0x00];
+    assert!(c.bytes.windows(set.len()).any(|w| w == set), "{:02X?}", c.bytes);
+    let (_, q) = build("float SayTimer
+begin GameMode
+Set SayTimer to 2 + 0.1
+end");
+    assert_eq!(body(&p), body(&q), "decoded as the plain set");
 }
