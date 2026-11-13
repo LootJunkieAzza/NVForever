@@ -606,6 +606,15 @@ struct NpcTrack {
     attacked_at: Option<f32>,
 }
 
+/// The host's NPCs whose every state heard and pose drawn a guest logs
+/// (`NVF_COOP_NPC_TRACE`: hex references, comma-separated), to see how the states of one
+/// come in (item 187 (a): the Dead Horses put about 150 units on every 0.36 s on a guest).
+fn traced(r: u32) -> bool {
+    static LIST: std::sync::OnceLock<Vec<u32>> = std::sync::OnceLock::new();
+    LIST.get_or_init(|| std::env::var("NVF_COOP_NPC_TRACE").map(|v| v.split(',').filter_map(|s| u32::from_str_radix(s.trim(), 16).ok()).collect()).unwrap_or_default())
+        .contains(&r)
+}
+
 impl NpcTrack {
     /// A state heard at `now`. States heard in one frame (one late, the next on time) are
     /// spaced [`NPC_SPACING`] of a round apart, not given the same time: blended over no
@@ -1830,6 +1839,10 @@ fn take_events(
                         }
                     }
                     track.heard(now, n);
+                    if traced(n.reference) {
+                        let at = track.samples.back().map_or(now, |(at, _)| *at);
+                        info!("co-op trace: {:08X} heard at {now:.3} as {at:.3}: ({:.0}, {:.0}, {:.0}) flags {}", n.reference, n.feet[0], n.feet[1], n.feet[2], n.flags);
+                    }
                 }
             }
             // A guest's, as its actor's in this world (module notes).
@@ -2852,7 +2865,11 @@ fn follow_npcs(
             // and the Legion sniper's enables and first states at the Hoover Dam were
             // blended from where they were placed at 1165-1399 units/s (laptop 1110d).
             let top = residents.as_deref().and_then(|res| res.top_speed(r)).map_or(NPC_JUMP_SPEED, |run| (run * NPC_RUN_ROOM).min(NPC_JUMP_SPEED));
-            t.pose(now - NPC_DELAY, top).map(|(feet, heading, moving)| (r, RemotePose { feet, heading, moving, furniture, space }))
+            let pose = t.pose(now - NPC_DELAY, top);
+            if let (true, Some((feet, _, moving))) = (traced(r), pose) {
+                info!("co-op trace: {r:08X} drawn at {now:.3} for {:.3} (top {top:.0}): ({:.0}, {:.0}, {:.0}) moving {moving}", now - NPC_DELAY, feet[0], feet[1], feet[2]);
+            }
+            pose.map(|(feet, heading, moving)| (r, RemotePose { feet, heading, moving, furniture, space }))
         })
         .collect();
     if poses.len().abs_diff(*told) >= 5 || (*told == 0) != poses.is_empty() {
