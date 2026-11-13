@@ -12,6 +12,13 @@
 # - `launch = "<name>"`: scenarios that share one game run (same arguments; test aids
 #   in [timed] are joined, others must agree). Only shares checked by running both ways
 #   are written here. `offset` moves a member's timed test aids in a shared run.
+# - `requires = ["VAR", …]`: the scenario is skipped unless these environment variables
+#   are set (NVIDIA's files: NVF_DLSS_DIR).
+# - `front = true` (game scenarios): the runner holds the launch's window in front while it
+#   runs (tools/smoke/smoke/front.py, Windows), for checks that need the foreground (DLSS
+#   Frame Generation generates only there). Front launches, with the rest of their
+#   NVFOREVER_HOME chains, run last, one at a time with the machine to themselves; the
+#   window's foreground is logged beside the run log (`<launch>.front.txt`).
 # - Expectation syntax: tools/smoke/smoke/expect.py. "run finished" and exit code 0 are
 #   always expected of a game run.
 # - Test-aid times: the runner sets NVF_PLAY_AIDS_FROM_SCRIPTS=1 for every `--play`
@@ -24202,6 +24209,197 @@ expect = [
 forbid = [{ text = "DLSS: evaluate active", label = "a DLSS evaluate with FSR chosen" }, { re = 'graphics: DLSS \w+ active', label = "DLSS put on the camera" }, { text = "frame generation: on but not running", label = "frame generation held off" }, { text = "FSR dispatch failed", label = "FSR failing" }, { text = "FSR 3.1 unavailable", label = "FSR unavailable through the interposer" }, { text = "Validation Error", label = "a Vulkan validation error" }, { text = "Caught rendering error", label = "a rendering error" }]
 
 # [design: issue #1803] Compare identical first raises with and without hidden draws.
+[[scenario]]
+name = "dlssg-on"
+source = "#2317, docs/design/dlss-frame-generation.md: DLSS Frame Generation chosen at the start over DLSS Quality in play: DLSS-G kept loaded, Reflex through Streamline, one generated frame per real frame presented, about two frames shown per real frame; the performance overlay (--fps, NVF_FPS_LOG) reads the frames shown and the rendered ones apart"
+note = "needs NVF_DLSS_DIR with the four DLSS Frame Generation files (docs/dlss.md), an RTX 40 series or newer and Windows' GPU scheduling on. front = true: DLSS-G generates only while its window is in front, so the launch runs last with the machine to itself. --log-frame-times keeps vsync off (DLSS-G needs Display sync Off on Vulkan); the home of its own keeps a stored Display sync out."
+areas = ["graphics"]
+paths = ["engine/nvforever/src/dlss/**", "engine/nvforever/src/frame_gen.rs", "engine/nvforever/src/frame_pace.rs", "engine/nvforever/src/nv_low_latency.rs", "engine/nvforever/src/anti_lag.rs", "engine/nvforever/src/perf_overlay/*", "engine/vendor/bevy_render/src/view/window/**"]
+requires = ["NVF_DLSS_DIR"]
+front = true
+env = { WGPU_BACKEND = "vulkan", NVFOREVER_HOME = "dlssg-on-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_FPS_LOG = "2" }
+args = ["--cell", "Goodsprings", "--play", "--size", "1280x720", "--upscaler", "dlss", "--upscaler-quality", "quality", "--frame-generation", "dlss", "--log-frame-times", "10", "--fps", "--no-voice", "--no-lodgen"]
+run_seconds = 32
+expect = [
+  { re = 'DLSS: slInit: eOk \(SDK 2\.14\.16, Vulkan, DLSS \+ DLSS Frame Generation \+ Reflex, frame-based tagging,', label = "slInit with DLSS, DLSS-G and Reflex, frame-based tagging" },
+  { re = 'DLSS-G: supported: DLSS-G eOk, Reflex eOk, PCL eOk;', label = "DLSS-G, Reflex and PCL supported on the adapter" },
+  { re = 'DLSS-G: ready: DLSS-G and Reflex set up .*, Reflex eLowLatency \(eOk\), .*DLSS-G kept loaded: the start.s Frame generation choice is DLSS', label = "DLSS-G kept loaded for the start's choice" },
+  { text = "frame generation: DLSS Frame Generation (NVIDIA, through Streamline;", label = "the row's choice running" },
+  { re = 'latency reduction: NVIDIA Reflex through Streamline \(sl\.reflex, eLowLatency\) on the window', label = "latency calls through Streamline's Reflex" },
+  { re = 'DLSS-G: options: mode On, 1 generated frame\(s\) per real frame \(at most \d+\), 1280x720, depth and motion 853x480, back buffers left to DLSS-G, user interface recomposition on: eOk', label = "frame generation on in play at 2x" },
+  { re = 'DLSS-G: 1\d\.\d s: \d+ real frames, \d+ presented \((1\.[89]|2\.[0-2])\d* per real frame\), status eOk', label = "about two presented per real frame over ten seconds" },
+  { re = 'fps counter: FPS \d+ +\(\d+ rendered\) +[\d.]+ ms ', label = "the overlay's FPS row reads the frames shown and the rendered ones apart" },
+  { re = 'DLSS: evaluates: ([1-9]\d*) ok, 0 failed', label = "DLSS's evaluates with the shared frame numbers, none failed" },
+  "DLSS-G: shutdown: slFreeResources(DLSS-G, viewport 0) eOk",
+]
+forbid = [
+  { text = "Validation Error", label = "a Vulkan validation error" },
+  { text = "common constants cannot be found", label = "frame numbers out of step between the markers and the constants" },
+  { text = "DLSS-G: status ", label = "a DLSS-G status other than eOk" },
+  { text = "DLSS-G: not started", label = "DLSS-G or Reflex unsupported or a function missing" },
+  { text = "tried again each frame", label = "slDLSSGSetOptions failing" },
+  { re = 'slSetTagForFrame \(|slSetConstants \(', label = "tags or constants refused" },
+  { re = 'present and acquire errors since last: [1-9]', label = "a VkResult error from DLSS-G's error callback" },
+  { text = "Couldn't get swap chain texture", label = "an acquire timeout or failure" },
+  { text = "frame generation: DLSS chosen but not running", label = "the DLSS choice held off" },
+  { text = "slEvaluateFeature: ", label = "a failed evaluate" },
+  { text = "the driver refused NVIDIA low latency", label = "the direct low latency calls" },
+]
+
+[[scenario]]
+name = "dlssg-4x"
+source = "#2317, docs/design/dlss-frame-generation.md: Generated frames 4x picked on the settings page during play: three generated frames per real frame where the GPU offers them (DLSSGState::numFramesToGenerateMax), else as many as it offers"
+note = "needs NVF_DLSS_DIR with the frame generation files; front = true as dlssg-on. Tolerant of the GPU by the state line's limit: with 'frames to generate at most 1' (RTX 40 series) 4x is held back and 2x runs; from 3 up (RTX 50 series) 4x runs. The home of its own keeps the choice between runs, so the settings line is not expected."
+areas = ["graphics", "settings"]
+paths = ["engine/nvforever/src/dlss/**", "engine/nvforever/src/frame_gen.rs", "engine/nvforever/src/settings.rs", "engine/nvf-play/src/settings_layout.rs"]
+requires = ["NVF_DLSS_DIR"]
+front = true
+env = { WGPU_BACKEND = "vulkan", NVFOREVER_HOME = "dlssg-4x-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:13", NVF_PLAY_TEST_SETTINGS = "11:frame-generation-frames=4x" }
+args = ["--cell", "Goodsprings", "--play", "--size", "1280x720", "--upscaler", "dlss", "--upscaler-quality", "quality", "--frame-generation", "dlss", "--log-frame-times", "10", "--no-voice", "--no-lodgen"]
+run_seconds = 36
+expect = [
+  { re = 'DLSS-G: options: mode On, (3 generated frame\(s\) per real frame \(at most ([3-9]|\d\d+)\)|1 generated frame\(s\) per real frame \(at most 1\)), 1280x720, depth and motion 853x480, .*: eOk', label = "on with 3 generated frames, or 1 where the GPU offers 1" },
+  { re = 'DLSS-G: state: status eOk, frames to generate at most (1, .*presented for the last frame 2|([3-9]|\d\d+), .*presented for the last frame 4);', min = 10, label = "four frames presented per real frame (two where the GPU offers one)" },
+  { re = 'DLSS: evaluates: ([1-9]\d*) ok, 0 failed', label = "evaluates ok" },
+]
+forbid = [
+  { text = "Validation Error", label = "a Vulkan validation error" },
+  { text = "common constants cannot be found", label = "frame numbers out of step" },
+  { text = "DLSS-G: status ", label = "a DLSS-G status other than eOk" },
+  { text = "tried again each frame", label = "slDLSSGSetOptions failing" },
+  { text = "Couldn't get swap chain texture", label = "an acquire timeout or failure" },
+  { re = 'present and acquire errors since last: [1-9]', label = "a VkResult error from DLSS-G's error callback" },
+  { text = "settings: frame-generation-frames has no such choice", label = "the Generated frames row without 4x" },
+]
+
+[[scenario]]
+name = "dlssg-resize"
+source = "#2317, docs/design/dlss-frame-generation.md \"Window changes\": the window resized during play with DLSS Frame Generation on (test aid NVF_DLSSG_RESIZE): DLSS-G's mode off and presented once before Bevy reconfigures the surface (the vendored HoldSurfaceReconfigure), on again at the new size, and back"
+note = "needs NVF_DLSS_DIR with the frame generation files; front = true as dlssg-on. NVF_DLSSG_RESIZE's seconds count from the app's start, so 16 s is a few seconds into play."
+areas = ["graphics"]
+paths = ["engine/nvforever/src/dlss/**", "engine/vendor/bevy_render/src/view/window/**", "engine/nvforever/src/window_mode.rs"]
+requires = ["NVF_DLSS_DIR"]
+front = true
+env = { WGPU_BACKEND = "vulkan", NVFOREVER_HOME = "dlssg-resize-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_DLSSG_RESIZE = "16:1600x900,26:1280x720" }
+args = ["--cell", "Goodsprings", "--play", "--size", "1280x720", "--upscaler", "dlss", "--upscaler-quality", "quality", "--frame-generation", "dlss", "--log-frame-times", "10", "--no-voice", "--no-lodgen"]
+run_seconds = 40
+expect = [
+  { re = 'test aid: window resized to 1600x900 \(NVF_DLSSG_RESIZE' },
+  { re = "DLSS-G: window change \\(size 1600x900\\): DLSS-G off first; the surface's reconfigure held", label = "the reconfigure held, DLSS-G off first" },
+  { re = 'DLSS-G: window change: the surface reconfigured after [1-3] held frame\(s\) \(DLSS-G off at the last present\)', min = 2, label = "reconfigured once an off frame was presented (both resizes)" },
+  { re = 'DLSS-G: options: mode On, .*1600x900, depth and motion 1067x600', label = "on again at 1600x900" },
+  { re = 'DLSS: evaluate active: Quality \(MaxQuality\).*, 1067x600 -> 1600x900', label = "DLSS at the new size" },
+  { re = 'DLSS-G: state: status eOk, ', min = 10, label = "status eOk throughout" },
+]
+order = [[
+  { re = 'DLSS-G: options: mode On, .*1280x720' },
+  { re = "DLSS-G: window change \\(size 1600x900\\): DLSS-G off first" },
+  { re = 'DLSS-G: options: mode Off \(resources kept\)' },
+  { re = 'DLSS-G: window change: the surface reconfigured after' },
+  { re = 'DLSS-G: options: mode On, .*1600x900' },
+]]
+forbid = [
+  { text = "Validation Error", label = "a Vulkan validation error" },
+  { text = "slEvaluateFeature: ", label = "a failed evaluate" },
+  { text = "no frame was presented with DLSS-G off", label = "reconfigured with DLSS-G not presented off" },
+  { text = "Couldn't get swap chain texture", label = "an acquire timeout or failure" },
+  { re = 'present and acquire errors since last: [1-9]', label = "a present or acquire error (out of date is counted apart)" },
+  { text = "DLSS-G: status ", label = "a DLSS-G status other than eOk" },
+]
+
+[[scenario]]
+name = "dlssg-switch"
+source = "#2317, docs/design/dlss-frame-generation.md \"Switching it on and off\": Frame generation Off then DLSS again on the settings page during play: each time DLSS-G's mode off and presented, the GPU drained, the swapchain released, slSetFeatureLoaded, the swapchain made again in the same frame; generated frames again after"
+note = "needs NVF_DLSS_DIR with the frame generation files; front = true as dlssg-on. Streamline's own lines around each switch (sl.dlss_g unloaded and loaded, the proxy swapchain made again) are worth a look by eye."
+areas = ["graphics", "settings"]
+paths = ["engine/nvforever/src/dlss/**", "engine/nvforever/src/frame_gen.rs", "engine/nvforever/src/settings.rs", "engine/nvforever/src/gpu_poll.rs", "engine/vendor/bevy_render/src/view/window/**"]
+requires = ["NVF_DLSS_DIR"]
+front = true
+env = { WGPU_BACKEND = "vulkan", NVFOREVER_HOME = "dlssg-switch-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "12:20", NVF_PLAY_TEST_SETTINGS = "13:frame-generation=Off,16:frame-generation=DLSS" }
+args = ["--cell", "Goodsprings", "--play", "--size", "1280x720", "--upscaler", "dlss", "--upscaler-quality", "quality", "--frame-generation", "dlss", "--log-frame-times", "10", "--no-voice", "--no-lodgen"]
+run_seconds = 42
+expect = [
+  { text = "settings: frame-generation Off", label = "Off picked on the page" },
+  { text = "settings: frame-generation DLSS", label = "DLSS picked again" },
+  { text = "DLSS-G: switch: frame generation off asked (the Frame generation row)" },
+  { re = "DLSS-G: switch: frame generation off: GPU drained \\(ok\\), the swapchain released, slFreeResources\\(DLSS-G, viewport 0\\) eOk, slSetFeatureLoaded\\(DLSS-G, false\\) eOk, the swapchain made again this frame \\(native\\)", label = "off: the swapchain released, DLSS-G freed and unloaded, made again" },
+  { text = "DLSS-G: switch: frame generation on asked (the Frame generation row)" },
+  { re = "DLSS-G: switch: frame generation on: GPU drained \\(ok\\), the swapchain released, slSetFeatureLoaded\\(DLSS-G, true\\) eOk, the swapchain made again this frame \\(Streamline's proxy\\)", label = "on: the swapchain released, DLSS-G loaded, made again" },
+  { re = 'DLSS: evaluates: ([1-9]\d*) ok, 0 failed', label = "evaluates ok through both switches" },
+]
+order = [[
+  { re = 'DLSS-G: options: mode On, ', label = "on at the start" },
+  { re = 'DLSS-G: switch: frame generation off: ' },
+  { re = 'DLSS-G: switch: frame generation on: ' },
+  { re = 'DLSS-G: options: mode On, ', label = "on again after the switch and the pause menu" },
+  { re = 'DLSS-G: 1\d\.\d s: \d+ real frames, \d+ presented \((1\.[89]|2\.[0-2])\d* per real frame\), status eOk', label = "about two presented per real frame after" },
+]]
+forbid = [
+  { text = "slEvaluateFeature: ", label = "a failed evaluate" },
+  { text = "Validation Error", label = "a Vulkan validation error" },
+  { text = "Couldn't get swap chain texture", label = "an acquire timeout or failure" },
+  { text = "DLSS-G: status ", label = "a DLSS-G status other than eOk" },
+  { re = 'present and acquire errors since last: [1-9]', label = "a VkResult error from DLSS-G's error callback" },
+  { re = 'slSetFeatureLoaded\(DLSS-G, (true|false)\) e(?!Ok)', label = "slSetFeatureLoaded refused" },
+  { text = "DLSS-G: switch: no window surface", label = "a switch with no surface to make again" },
+  { text = "frame generation: presenting on a thread of its own", label = "FSR's presenter started in a DLSS session" },
+]
+
+[[scenario]]
+name = "dlssg-exit"
+source = "#2317, docs/design/dlss-frame-generation.md \"Exit\": the run ends in play with DLSS Frame Generation on: the mode off for the last frame, then at shutdown the mode off, null tags, the drain, DLSS's and DLSS-G's resources freed and slShutdown, in that order"
+note = "needs NVF_DLSS_DIR with the frame generation files; front = true as dlssg-on."
+areas = ["graphics"]
+paths = ["engine/nvforever/src/dlss/**"]
+requires = ["NVF_DLSS_DIR"]
+front = true
+env = { WGPU_BACKEND = "vulkan", NVFOREVER_HOME = "dlssg-exit-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
+args = ["--cell", "Goodsprings", "--play", "--size", "1280x720", "--upscaler", "dlss", "--upscaler-quality", "quality", "--frame-generation", "dlss", "--log-frame-times", "10", "--no-voice", "--no-lodgen"]
+run_seconds = 24
+expect = [
+  { re = 'DLSS-G: options: mode On, ', label = "on before the exit" },
+  { text = "DLSS-G: exit: DLSS-G's mode off for the last frame (AppExit)", label = "the mode off on AppExit" },
+  "DLSS-G: shutdown: options mode eOff: eOk",
+  { re = 'DLSS-G: shutdown: null tags \(frame \d+\): eOk' },
+  "DLSS-G: shutdown: slFreeResources(DLSS-G, viewport 0) eOk",
+  "DLSS: shutdown done: Streamline down before the Vulkan device and instance were released",
+]
+order = [[
+  { text = "DLSS-G: exit: DLSS-G's mode off for the last frame (AppExit)" },
+  { text = "DLSS-G: shutdown: options mode eOff: eOk" },
+  { re = 'DLSS-G: shutdown: null tags' },
+  { text = "DLSS: shutdown: slFreeResources(DLSS, viewport 0) eOk" },
+  { text = "DLSS-G: shutdown: slFreeResources(DLSS-G, viewport 0) eOk" },
+  { text = "DLSS: shutdown: slShutdown eOk" },
+  { text = "DLSS: shutdown done" },
+]]
+forbid = [{ text = "Validation Error", label = "a Vulkan validation error" }, { text = "shutdown finished with failures", label = "a failed step at shutdown" }, { text = "DLSS-G: status ", label = "a DLSS-G status other than eOk" }]
+
+[[scenario]]
+name = "dlssg-ui"
+source = "#2317, docs/design/dlss-frame-generation.md \"Per frame\" item 3: the UI alpha (R8Unorm, 1 where the frame differs from its HUD-less copy) tagged with the HUD-less copy and user interface recomposition on, while turning with the HUD up"
+note = "needs NVF_DLSS_DIR with the frame generation files; front = true as dlssg-on."
+manual = "Watch the HUD while the view turns (13 to 14 s into play): it should stay sharp, without the smear generated frames gave it before the UI buffer. Screenshots cannot show it: they take the real frame, never a generated one."
+areas = ["graphics"]
+paths = ["engine/nvforever/src/dlss/**"]
+requires = ["NVF_DLSS_DIR"]
+front = true
+env = { WGPU_BACKEND = "vulkan", NVFOREVER_HOME = "dlssg-ui-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_LOOK = "13:220:-6.4,13.2:235:-6.4,13.4:250:-6.4,13.6:265:-6.4" }
+args = ["--cell", "Goodsprings", "--pos=-69814,774,8451", "--heading", "205.5", "--pitch=-6.4", "--play", "--hour", "12", "--size", "1280x720", "--upscaler", "dlss", "--upscaler-quality", "quality", "--frame-generation", "dlss", "--log-frame-times", "10", "--no-voice", "--no-lodgen"]
+run_seconds = 22
+expect = [
+  { re = 'DLSS-G: UI buffer: 1280x720 R8Unorm UI alpha \(1 where the frame differs from its HUD-less copy, 0 elsewhere\), tagged eValidUntilPresent with the HUD-less copy; user interface recomposition on', label = "the UI alpha tagged" },
+  { re = 'DLSS-G: options: mode On, .*user interface recomposition on: eOk', label = "recomposition asked for" },
+  { re = 'DLSS: evaluates: ([1-9]\d*) ok, 0 failed', label = "evaluates ok" },
+]
+forbid = [
+  { text = "Validation Error", label = "a Vulkan validation error" },
+  { text = "Shader validation error", label = "a shader validation error" },
+  { re = 'DLSS-G: UI buffer \(frame \d+\): ', label = "the UI buffer refused or not drawn" },
+  { re = 'present and acquire errors since last: [1-9]', label = "a VkResult error from DLSS-G's error callback" },
+  { text = "DLSS-G: status ", label = "a DLSS-G status other than eOk" },
+]
+
 [[scenario]]
 name = "pipboy-first-open"
 source = "issue #1803; docs/spec-notes/pipboy.md section 8: hidden start warm-up and the first visible raise"
