@@ -2059,6 +2059,50 @@ mod tests {
     }
 
     #[test]
+    fn a_root_rotation_never_turns_the_body_on_a_clips_first_frame_or_at_load() {
+        // The skeleton's binds: `Bip01` (0, 0.657, 67.771) turned 90° about z, `Bip01
+        // NonAccum` at the identity; the clips hold `Bip01` at the identity and turn
+        // `Bip01 NonAccum` 90° about z instead (actors.md §7.2, §8.2). The body's turn is
+        // the two together: 90° about z in the bind pose, and so in every frame.
+        let z90 = Quat::from_rotation_z(std::f32::consts::FRAC_PI_2);
+        let nodes = (1..=4).map(|i| Entity::from_raw_u32(i).unwrap()).collect();
+        let bind = vec![Transform::IDENTITY, Transform::from_xyz(0.0, 0.657, 67.771).with_rotation(z90), Transform::IDENTITY, Transform::IDENTITY];
+        let ix = |n: &str| ["Bip01", "Bip01 NonAccum", "Other"].iter().position(|x| *x == n).map(|i| i + 1);
+        let q = |r: Quat| [r.w, r.x, r.y, r.z];
+        let nonaccum = track(Channel::Static(Some([0.0, 0.0, 61.0])), Channel::Static(Some(q(z90))));
+        let idle = Arc::new(BoundClip::bind(prio_clip(4.0, vec![("Bip01 NonAccum", nonaccum.clone(), 10)]), &ix));
+        // Clips whose `Bip01` holds a static 90° about z, and Idle Variety's tilt.
+        let tilted = [z90, Quat::from_xyzw(0.6533, 0.2706, 0.6533, 0.2706).normalize()].map(|r| {
+            Arc::new(BoundClip::bind(prio_clip(1.0, vec![("Bip01", track(Channel::Static(Some([0.0; 3])), Channel::Static(Some(q(r)))), 26), ("Bip01 NonAccum", nonaccum.clone(), 10)]), &ix))
+        });
+        let body = |out: &Vec<(usize, Transform)>, p: &BlendPlayer| {
+            let get = |i: usize| out.iter().find(|(j, _)| *j == i).map_or(p.bind[i], |(_, t)| *t);
+            get(1).rotation * get(2).rotation
+        };
+        let mut out = Vec::new();
+        for clip in &tilted {
+            // At load: a player that has posed nothing yet starts the clip, alone, fading
+            // in from nothing, and at full weight.
+            for w in [0.01, 0.05, 0.5, 1.0] {
+                let mut fresh = BlendPlayer::new(nodes.clone(), Arc::new(bind.clone()));
+                fresh.layers[0] = Some(Layer { clip: clip.clone(), phase: 0.0, weight: w });
+                fresh.sample(&mut out);
+                assert!(body(&out, &fresh).angle_between(z90) < 1e-3, "at load, weight {w}: {:?}", body(&out, &fresh));
+            }
+            // A clip's first frame over the idle the body was showing.
+            let mut p = BlendPlayer::new(nodes.clone(), Arc::new(bind.clone()));
+            p.layers[0] = Some(Layer { clip: idle.clone(), phase: 0.3, weight: 1.0 });
+            p.sample(&mut out);
+            assert!(body(&out, &p).angle_between(z90) < 1e-3);
+            for w in [0.0, 0.02, 0.5, 1.0] {
+                p.layers[4] = Some(Layer { clip: clip.clone(), phase: 0.0, weight: w });
+                p.sample(&mut out);
+                assert!(body(&out, &p).angle_between(z90) < 1e-3, "first frame over the idle, weight {w}: {:?}", body(&out, &p));
+            }
+        }
+    }
+
+    #[test]
     fn broken_layers_and_overflowing_keys_give_finite_bones() {
         let (mut p, ix) = player();
         // Keys finite each (Clip::check passes them) but far enough apart to overflow
