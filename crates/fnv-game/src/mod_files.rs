@@ -91,6 +91,26 @@ pub fn data_files(folder: &str) -> Vec<(String, PathBuf)> {
     out
 }
 
+/// CompileScript paths are UDF-relative; normalize only this API lexically within Data.
+/// Physical symlink/junction containment remains the existing reader policy
+/// (compilescript-relative-paths.md).
+pub(crate) fn udf_data_path(path: &str) -> Option<String> {
+    if path.is_empty() || path.contains([':', '\0']) || path.starts_with(['/', '\\']) {
+        return None;
+    }
+    let mut parts = vec!["nvse", "user_defined_functions"];
+    for part in path.split(['/', '\\']) {
+        match part {
+            "" | "." => {}
+            ".." => {
+                parts.pop()?;
+            }
+            _ => parts.push(part),
+        }
+    }
+    (!parts.is_empty()).then(|| parts.join("\\").to_ascii_lowercase())
+}
+
 /// A Data file's bytes: the first read root's loose copy (NVForever's layer before the
 /// game's Data), else through the host (archives included).
 pub fn read_data_file(path: &str) -> Option<Vec<u8>> {

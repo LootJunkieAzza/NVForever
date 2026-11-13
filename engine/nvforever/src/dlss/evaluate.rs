@@ -20,7 +20,11 @@
 //! 1. The options checked: set for this frame's mode, output size and HDR-ness, and the render
 //!    size within the range DLSS reported; otherwise the spatial fallback draws the frame (said
 //!    once per size).
-//! 2. `slGetNewFrameToken` (Streamline counts the frames) and `slSetConstants` with it.
+//! 2. `slGetNewFrameToken` (Streamline counts the frames) and `slSetConstants` with it. With the
+//!    DLSS Frame Generation and Reflex set up (#2317, `frame_token.rs` installed) neither: the frame's
+//!    constants were set before the frame was recorded (`frame_gen.rs` `set_constants`, once a
+//!    frame for whichever upscaler draws), and the evaluate takes the token of our own frame
+//!    number (`Frame::frame_index`) in step 5.
 //! 3. On Bevy's encoder: the output cleared by a render pass with Clear + Store (so wgpu counts
 //!    it as written and never clears it lazily after DLSS has written it: wgpu clears a texture
 //!    it thinks uninitialised at submit, in front of the command buffer that first reads it
@@ -657,21 +661,24 @@ impl Evaluator {
             return self.fallback();
         };
 
-        // 2. Frame token and constants.
+        // 2. Frame token and constants, unless the frame numbers are ours (the module comment).
+        let ours = frame.frame_index.filter(|_| super::frame_token::active());
         let mut token: *mut FrameToken = std::ptr::null_mut();
-        // SAFETY: an out pointer; a null frame index lets Streamline count frames.
-        let r = unsafe { (api.get_new_frame_token)(&mut token, std::ptr::null()) };
-        if !r.is_ok() || token.is_null() {
-            return self.failed_call("slGetNewFrameToken", r);
-        }
-        let reset = frame.reset || !self.previous_was_dlss;
-        let constants = constants(frame, previous, reset);
         let viewport = ViewportHandle::new(VIEWPORT);
-        // SAFETY: constants from their constructor; the token is Streamline's own, valid for
-        // the next MAX_FRAMES_IN_FLIGHT tokens [documented: src/sl.cpp:1120-1146].
-        let r = unsafe { (api.set_constants)(&constants, token, &viewport) };
-        if !r.is_ok() {
-            return self.failed_call("slSetConstants", r);
+        if ours.is_none() {
+            // SAFETY: an out pointer; a null frame index lets Streamline count frames.
+            let r = unsafe { (api.get_new_frame_token)(&mut token, std::ptr::null()) };
+            if !r.is_ok() || token.is_null() {
+                return self.failed_call("slGetNewFrameToken", r);
+            }
+            let reset = frame.reset || !self.previous_was_dlss;
+            let constants = constants(frame, previous, reset);
+            // SAFETY: constants from their constructor; the token is Streamline's own, valid for
+            // the next MAX_FRAMES_IN_FLIGHT tokens [documented: src/sl.cpp:1120-1146].
+            let r = unsafe { (api.set_constants)(&constants, token, &viewport) };
+            if !r.is_ok() {
+                return self.failed_call("slSetConstants", r);
+            }
         }
 
         // 3. Clear and transitions on Bevy's encoder.
@@ -754,7 +761,16 @@ impl Evaluator {
                         )
                     };
                     full_barrier();
-                    let r = (api.evaluate_feature)(FEATURE_DLSS, token, inputs.as_ptr(), inputs.len() as u32, handle_ptr(command_buffer.as_raw()));
+                    let evaluate = |token: *const FrameToken| (api.evaluate_feature)(FEATURE_DLSS, token, inputs.as_ptr(), inputs.len() as u32, handle_ptr(command_buffer.as_raw()));
+                    // Our frame number's token, taken under its lock and used after it is
+                    // released, so the main thread's sleep and markers do not wait for NGX's
+                    // recording (`frame_token.rs` `token` says why the slot still holds the
+                    // number); not installed reads as eErrorNotInitialized.
+                    let r = match ours.map(super::frame_token::token) {
+                        Some(Ok(ours)) => evaluate(ours),
+                        Some(Err(e)) => e.unwrap_or(SlResult(21)),
+                        None => evaluate(token),
+                    };
                     full_barrier();
                     r
                 })
@@ -938,6 +954,13 @@ impl Evaluator {
         }
     }
 
+    /// Whether the next evaluate resets: the last frame was not DLSS's evaluate (a fallback, new
+    /// options, DLSS stopped drawing). DLSS Frame Generation's constants OR it in
+    /// (`frame_gen.rs` `set_constants`), as step 2 does.
+    pub(super) fn history_stale(&self) -> bool {
+        !self.previous_was_dlss
+    }
+
     /// The counts, for the shutdown.
     pub(super) fn report(&self) {
         let mut line = format!("evaluates: {} ok, {} failed; options set again {} times; resources freed {} times when DLSS stopped drawing", self.ok, self.failed, self.recreated, self.released);
@@ -1019,13 +1042,13 @@ impl Readback {
 }
 
 /// A Vulkan handle (a `u64`) as the `void*` Streamline takes.
-fn handle_ptr(raw: u64) -> *mut c_void {
+pub(super) fn handle_ptr(raw: u64) -> *mut c_void {
     std::ptr::with_exposed_provenance_mut(raw as usize)
 }
 
 /// The `Resource` Streamline reads on Vulkan: image, view, the layout it is in at the
 /// evaluate, size, format, mips and layers [documented: `src/vulkan.cpp:2779-2844`].
-fn describe(adapter: &wgpu::hal::vulkan::Adapter, texture: &wgpu::Texture, view: &wgpu::TextureView, layout: vk::ImageLayout) -> Option<Resource> {
+pub(super) fn describe(adapter: &wgpu::hal::vulkan::Adapter, texture: &wgpu::Texture, view: &wgpu::TextureView, layout: vk::ImageLayout) -> Option<Resource> {
     // SAFETY: the handles are only read; texture and view outlive the GPU's use (`Kept`, held
     // by the raw command buffer's completion callback).
     let image = unsafe { texture.as_hal::<wgpu::hal::api::Vulkan>() }.map(|t| unsafe { t.raw_handle() })?;
@@ -1075,9 +1098,28 @@ fn vk_usage(usage: wgpu::TextureUsages, depth: bool) -> u32 {
 /// with camera motion in the motion vectors DLSS passes none of the matrices to NGX
 /// [documented: `src/dlssEntry.cpp:683-736`], so a mistake here would not show].
 fn constants(frame: &Frame, previous: &PreviousViewData, reset: bool) -> Constants {
-    let clip_from_view = frame.view.clip_from_view;
+    constants_for(&ConstantsInput { view: frame.view, previous, jitter: frame.jitter, near: frame.near, fov: frame.fov, render_size: frame.render_size, reset })
+}
+
+/// What the common constants are made of: the camera's view and previous view, Bevy's jitter
+/// (render pixels), near plane, vertical field of view, the render size and the reset.
+pub(super) struct ConstantsInput<'a> {
+    pub view: &'a bevy::render::view::ExtractedView,
+    pub previous: &'a PreviousViewData,
+    pub jitter: Vec2,
+    pub near: f32,
+    pub fov: f32,
+    pub render_size: UVec2,
+    pub reset: bool,
+}
+
+/// The common constants for any upscaler's camera ([`constants`] for DLSS's evaluate;
+/// `frame_gen.rs` `set_constants` for DLSS Frame Generation, FSR or DLSS drawing).
+pub(super) fn constants_for(input: &ConstantsInput) -> Constants {
+    let clip_from_view = input.view.clip_from_view;
     let view_from_clip = clip_from_view.inverse();
-    let world = frame.view.world_from_view;
+    let world = input.view.world_from_view;
+    let previous = input.previous;
     // Camera-centred in double precision: the world's coordinates run to hundreds of thousands
     // of units.
     let prev_view_from_view = previous.view_from_world.as_dmat4() * world.to_matrix().as_dmat4();
@@ -1090,7 +1132,7 @@ fn constants(frame: &Frame, previous: &PreviousViewData, reset: bool) -> Constan
     c.prev_clip_to_clip = rows(prev_clip_from_clip.inverse().as_mat4());
     // Pixels of the render size, Bevy's sign reversed as FSR and Bevy's own DLSS node give it
     // (fsr.rs `jitter_offset`).
-    c.jitter_offset = (-frame.jitter).to_array();
+    c.jitter_offset = (-input.jitter).to_array();
     // Bevy's motion is current minus previous in render-viewport UV; Streamline multiplies the
     // scale by the render size for NGX [documented: src/dlssEntry.cpp:684-685], matching FSR's
     // `-render_size` (fsr.rs `motion_vector_scale`).
@@ -1100,17 +1142,17 @@ fn constants(frame: &Frame, previous: &PreviousViewData, reset: bool) -> Constan
     c.camera_up = world.up().to_array();
     c.camera_right = world.right().to_array();
     c.camera_fwd = world.forward().to_array();
-    c.camera_near = frame.near;
+    c.camera_near = input.near;
     // Finite, unlike FSR's infinite-far convention (`f32::MAX` is INVALID_FLOAT); DLSS SR does
     // not read near or far [documented: src/dlssEntry.cpp:683-736]. The outdoor far plane
     // (sky.rs `OUTDOOR_FAR`).
     c.camera_far = crate::sky::OUTDOOR_FAR;
-    c.camera_fov = frame.fov;
-    c.camera_aspect_ratio = frame.render_size.x as f32 / frame.render_size.y.max(1) as f32;
+    c.camera_fov = input.fov;
+    c.camera_aspect_ratio = input.render_size.x as f32 / input.render_size.y.max(1) as f32;
     c.depth_inverted = BOOL_TRUE;
     c.camera_motion_included = BOOL_TRUE;
     c.motion_vectors_3d = BOOL_FALSE;
-    c.reset = if reset { BOOL_TRUE } else { BOOL_FALSE };
+    c.reset = if input.reset { BOOL_TRUE } else { BOOL_FALSE };
     c.orthographic_projection = BOOL_FALSE;
     c.motion_vectors_dilated = BOOL_FALSE;
     c.motion_vectors_jittered = BOOL_FALSE;

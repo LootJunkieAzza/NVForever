@@ -111,6 +111,20 @@ Upstream has no way to draw a light's shadow map less often than every frame.
 
 ## bevy_render 0.20.1 (MIT OR Apache-2.0, Bevy contributors)
 
+[documented: `src/render_resource/pipeline_cache.rs::create_pipeline_task`, #2317]
+`RENDER_DEVICE_API_GATE` gates pipeline creation on task threads (and synchronous creation).
+Each compilation holds its read side. NVForever's device poll thread shares it;
+`gpu_poll::quiet` takes its write side during DLSS-G's live load/unload, so no pipeline
+compile overlaps `slSetFeatureLoaded` (`sl_core_api.h:130-131` forbids parallel Vulkan calls).
+The guard is taken inside the task, covering even a compile whose cache entry was replaced
+by shader reload. `PipelineTaskOutput` also takes the read side when destroying an unclaimed
+output: async-task can discard a cancelled task's pipeline after its compilation guard was
+released. Outputs taken by the render thread are stored as upstream does. A switch waits
+without a time limit for running driver compiles: they cannot safely be cancelled, so a
+user-requested switch must wait to preserve device safety. A GPU-free unit test checks that
+discarded outputs are destroyed while the gate excludes writers. Drop this patch if Bevy
+supplies an equivalent device-operation gate.
+
 Early finishing of command encoders (#1427, docs/design/frame-rate-audit.md §5). First
 change, in `src/renderer/render_context.rs`, each part marked by a comment starting
 `NVForever early finish`: when a render system is done (`RenderContextState`'s
@@ -254,6 +268,27 @@ Review fixes (2026-11-09, h9x000/NVForever#6), marked `NVForever (2026-11-09)`:
   `prepare_windows` passed over (no camera draws to it) is not handed over a second time.
 
 Upstream Bevy has no way for a thread other than the render thread to present a window.
+
+Window changes held for one frame (2026-11-13, the DLSS Frame Generation spike, #2317), in
+`src/view/window/mod.rs`, each part marked `NVForever (2026-11-13)`:
+
+- `HoldSurfaceReconfigure`, a render-world resource (default `false`). While `true`,
+  `create_surfaces` does not reconfigure a window whose size or present mode changed or whose
+  surface is outdated: it marks the surface outdated (the 2026-11-09 mark) and reconfigures it
+  on the first frame after the hold is released; `prepare_windows` gives a window whose image
+  comes back `Outdated` no image that frame (marked the same way) instead of configuring the
+  surface there.
+- `SurfaceData::reconfigure_pending`: whether `create_surfaces` would reconfigure the surface
+  this frame, for the system that decides the hold.
+- `extract_windows` is public, so a system can be ordered around it (DLSS Frame Generation sets
+  its mode off before a closing window's surface is removed there, and switches DLSS-G on or
+  off after it).
+
+NVIDIA's DLSS Frame Generation must be off (its mode set off and presented once) before the
+swapchain changes [documented: Streamline 2.14.16 `ProgrammingGuideDLSS_G.md` §12.0, §17],
+and upstream reconfigures in the frame the change is extracted. NVForever's
+`engine/nvforever/src/dlss/frame_gen.rs` holds the reconfigure for that one frame. Nothing
+else sets it, so every other run takes upstream's path.
 
 Vulkan library for the instance (2026-11-12, DLSS spike, #2198), in
 `src/renderer/raw_vulkan_init.rs`, each part marked by a comment starting `NVForever
