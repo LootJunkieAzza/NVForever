@@ -491,9 +491,6 @@ pub fn arms(
         // Leaning in over the table first, the shoulder over its planted elbow: the arm
         // hangs from the leaned chest.
         let follow = if both { shown.follow[k] } else { 0.0 };
-        if log && follow > 0.01 {
-            info!("arm wrestle arm: side {k}'s upper body follows its losing arm by {follow:.2}");
-        }
         match lean_in(*root, rig, pl.elbows[k], toward, follow, w, &parents, &mut transforms, &globals) {
             Ok(Some(head)) if log => info!("arm wrestle arm: side {k}'s head {head:.1?}: {:.1} over the top, {:.1} over the clasp, {:.1} from it", head.y - top, head.y - clasp_now.y, head.distance(clasp_now)),
             Ok(_) => {}
@@ -501,6 +498,14 @@ pub fn arms(
                 if !std::mem::replace(&mut shown.noted, true) {
                     warn!("arm wrestle arm: side {k} does not lean in: {why}");
                 }
+            }
+        }
+        // The shoulders' line as posed: losing, it tips down to the playing arm's side
+        // (owner 2026-11-12: "the shoulders and upper torso should tilt to the side of the
+        // playing arm the more they lose").
+        if log && both {
+            if let Some(t) = shoulder_tilt(*root, rig, &parents, &transforms, &globals) {
+                info!("arm wrestle arm: side {k} follows its losing arm by {follow:.2}: the shoulders' line {t:+.1} deg (negative: down to the right arm)");
             }
         }
         // The free hand braced flat on the table (`armwrestle_free_arm`).
@@ -576,7 +581,11 @@ const MAX_BEND: f32 = 0.75;
 /// head down at the table, run 2026-11-11 15:3x; 1.0, all of it, with the twist: the face
 /// looks straight across, ship14 pvp run].
 const NECK: &str = "Bip01 Head";
-const HEAD_UP: f32 = 1.0;
+/// 0.5: half the bend kept, the face tipped down to the hands; at 1.0 the wrestlers looked
+/// level across at each other (owner 2026-11-12: "players should be looking at their hands";
+/// the head bone turns at its own joint, so its place, 10 over the clasp and 25 from it in
+/// b-win-view15, does not change) [design].
+const HEAD_UP: f32 = 0.5;
 /// The upper body's twist about the vertical, right shoulder forward, radians (about 34
 /// degrees) [design: arm wrestlers set the right shoulder in behind the arm and keep the
 /// head back over their own side; bending in alone to bring the shoulder over the elbow
@@ -622,15 +631,30 @@ const THUMB_DIRS: [[f32; 3]; 3] = [[0.5, 0.6, 0.6], [0.75, 0.05, 0.65], [0.35, -
 /// The losing side's upper body follows its arm a little [design: owner 2026-11-12, "when
 /// someone is losing the torso should follow a little bit, keep the elbow anchored"; with
 /// only the arm bent, nothing on the body supported it]: at most this much rolled down to
-/// its own right (where the clasp goes), radians (about 17 degrees; 0.2 hardly showed from
-/// over the table, pvpwb run b-win-view12) ...
-const FOLLOW_ROLL: f32 = 0.3;
-/// ... and turned, the right shoulder opening back and out after the hand, radians (about
-/// 14 degrees) [design].
-const FOLLOW_TWIST: f32 = 0.25;
+/// its own right (where the clasp goes), radians (about 34 degrees; 0.2 hardly showed from
+/// over the table, pvpwb run b-win-view12; at 0.3 the Settler's chest, seen from the front
+/// mid-bout, still slanted away from his arm, owner 2026-11-12 drawing on b-win-view15
+/// watch-close; at 0.5 the loser still read as going forward, not to the side, owner
+/// 2026-11-12 on b-win-view16; 0.8 laid one seat's loser over the table, b-win-view18,
+/// even with the bend held, so 0.6) ...
+const FOLLOW_ROLL: f32 = 0.6;
+/// ... and turned, the right shoulder brought a little forward after its hand, radians
+/// (about 6 degrees) [design: turned back (0.25 the other way), it took the shoulder away
+/// from its planted elbow and the bend in made that up by pitching the chest forward over
+/// the table, the loser going forward, not to the side (owner 2026-11-12, b-win-view16);
+/// with this turn, the bend for the full roll is about the plain lean's, the test below].
+const FOLLOW_TWIST: f32 = 0.1;
 /// How fast the upper body takes up the follow (per second) [design: it lags the hands a
 /// little, so the 0.25 s slam does not snap the chest].
 const BODY_FOLLOW: f32 = 6.0;
+/// How far the leaned shoulder may miss an upper arm from its planted elbow before the
+/// follow is taken back (world units) [design: the elbow is drawn as near its plant as
+/// the arm's lengths allow, so this is about how far it may come off it].
+const FOLLOW_MISS: f32 = 0.5;
+/// How much further in than the plain lean the follow may bend the losing chest
+/// (radians, about 6 degrees) [design: owner 2026-11-12, the loser goes to the side, not
+/// forward].
+const FOLLOW_PITCH: f32 = 0.1;
 
 /// How far side `k` is losing at the lean `theta` (0 even or winning, 1 at the pin `pin`),
 /// eased in: the clasp is going down towards that side's right.
@@ -642,13 +666,23 @@ pub fn losing(theta: f32, k: usize, pin: f32) -> f32 {
 
 /// The turn of the upper body (world) for a wrestler facing `toward` (level) that follows
 /// its losing arm by `follow` (0 to 1): rolled down towards its own right and twisted, the
-/// right shoulder opening back.
+/// right shoulder coming a little forward.
 pub fn follow_turn(toward: Vec3, follow: f32) -> Quat {
     // About the way in, a positive turn takes up towards the wrestler's right; about up, a
-    // negative one takes its right back.
+    // positive one brings its right forward.
     let roll = Quat::from_axis_angle(toward, FOLLOW_ROLL * follow);
-    let twist = Quat::from_axis_angle(Vec3::Y, -FOLLOW_TWIST * follow);
+    let twist = Quat::from_axis_angle(Vec3::Y, FOLLOW_TWIST * follow);
     twist * roll
+}
+
+/// The shoulders' line as posed, degrees from level: positive with the right shoulder
+/// higher than the left.
+fn shoulder_tilt(root: Entity, rig: &ActorRig, parents: &Query<&ChildOf>, transforms: &Query<&mut Transform>, globals: &Query<&GlobalTransform>) -> Option<f32> {
+    let node = |name: &str| rig.skel.names.iter().position(|n| n.as_deref() == Some(name)).and_then(|i| rig.nodes.get(i).copied());
+    let r = world_of(node(UPPER)?, root, parents, transforms, globals)?.translation();
+    let l = world_of(node("Bip01 L UpperArm")?, root, parents, transforms, globals)?.translation();
+    let level = Vec2::new(r.x - l.x, r.z - l.z).length();
+    Some((r.y - l.y).atan2(level).to_degrees())
 }
 
 /// Turns the upper body about the spine so the shoulder comes over its planted elbow
@@ -667,10 +701,6 @@ fn lean_in(root: Entity, rig: &ActorRig, spot: Vec3, toward: Vec3, follow: f32, 
     let sh = world_of(upper, root, parents, transforms, globals).ok_or("the arm is not under the body")?.translation();
     let el = world_of(fore, root, parents, transforms, globals).ok_or("the arm is not under the body")?.translation();
     let pivot = gs.translation();
-    let qf = follow_turn(toward, follow * w);
-    let sh_f = pivot + qf * (sh - pivot);
-    let twist = twist_towards(pivot, sh_f, spot, TWIST * w);
-    let sh_t = pivot + twist * (sh_f - pivot);
     // Towards the planted elbow, not only straight at the table: a body seated off the
     // table's middle line rolls its shoulder in over the elbow [design: the player sat
     // with the right shoulder 16 to the right of the middle, run 2026-11-11 18:26].
@@ -681,8 +711,39 @@ fn lean_in(root: Entity, rig: &ActorRig, spot: Vec3, toward: Vec3, follow: f32, 
     // the shoulder an upper arm from the elbow.
     let sh_0 = pivot + twist_towards(pivot, sh, spot, TWIST * w) * (sh - pivot);
     let to_spot = Vec3::new(spot.x - sh_0.x, 0.0, spot.z - sh_0.z).normalize_or(toward);
+    // Losing, the bend goes straight in over the table: bent along a way in with a part
+    // to the side, it rolled the shoulders back up and took the follow's tilt away (side 1
+    // of pvpwb, b-win-view16: the shoulders' line went only from +4.5 to -4.3 deg, while side
+    // 0 of pvpwb2 went from -5 to -32). The distance to the elbow is still solved, so the
+    // elbow stays on its plant.
+    let level_in = Vec3::new(toward.x, 0.0, toward.z).normalize_or(to_spot);
+    let to_spot = to_spot.lerp(level_in, (follow * w).clamp(0.0, 1.0)).normalize_or(level_in);
     let axis = Vec3::Y.cross(to_spot).normalize_or(Vec3::X);
-    let bend = lean_bend(pivot, sh_t, sh.distance(el), spot, axis) * w;
+    let ua = sh.distance(el);
+    // The follow, then the twist, then the bend for what those leave; and how far the
+    // shoulder still misses an upper arm from the elbow.
+    let solve = |f: f32| {
+        let qf = follow_turn(toward, f * w);
+        let sh_f = pivot + qf * (sh - pivot);
+        let twist = twist_towards(pivot, sh_f, spot, TWIST * w);
+        let sh_t = pivot + twist * (sh_f - pivot);
+        let bend = lean_bend(pivot, sh_t, ua, spot, axis);
+        let miss = ((pivot + Quat::from_axis_angle(axis, bend) * (sh_t - pivot)).distance(spot) - ua).abs();
+        (qf, twist, bend, miss)
+    };
+    // The most of the follow that still lets the shoulder reach its elbow, and goes to the
+    // side, not forward: rolled all the way, a seat whose shoulder sits low over the top
+    // took it under the table's height and the elbow came 10 to 15 off its plant (side 1
+    // of pvpwb, b-win-view17); on the other seat the bend in followed the roll down and the
+    // loser lay over the table, his head on the top (side 0 of pvpwb2, b-win-view18).
+    let plain = solve(0.0).2;
+    let mut f = follow;
+    let (mut qf, mut twist, mut bend, mut miss) = solve(f);
+    while (miss > FOLLOW_MISS || bend > plain + FOLLOW_PITCH) && f > 0.0 {
+        f = (f - 0.05).max(0.0);
+        (qf, twist, bend, miss) = solve(f);
+    }
+    let bend = bend * w;
     // About Y x the way in, a positive turn takes up towards it.
     let q = Quat::from_axis_angle(axis, bend) * twist * qf;
     let rp = rot(&gp);
@@ -695,8 +756,9 @@ fn lean_in(root: Entity, rig: &ActorRig, spot: Vec3, toward: Vec3, follow: f32, 
     let above = parents.get(neck).map_err(|_| "the neck hangs from nothing")?.parent();
     let gn = world_of(above, root, parents, transforms, globals).ok_or("the neck is not under the body")?;
     let rn = rot(&gn);
-    // Half the follow's roll is taken back too, the eyes kept nearer level.
-    let back = Quat::from_axis_angle(axis, -bend * HEAD_UP) * twist.inverse().slerp(Quat::IDENTITY, 1.0 - HEAD_ROUND) * Quat::from_axis_angle(toward, -FOLLOW_ROLL * follow * w * 0.5);
+    // The follow's roll is not taken back: the head goes over with the shoulders (owner
+    // 2026-11-12).
+    let back = Quat::from_axis_angle(axis, -bend * HEAD_UP) * twist.inverse().slerp(Quat::IDENTITY, 1.0 - HEAD_ROUND);
     if let Ok(mut t) = transforms.get_mut(neck) {
         t.rotation = (rn.inverse() * back * rn * t.rotation).normalize();
     }
@@ -1011,14 +1073,15 @@ mod tests {
         assert_eq!(losing(0.5, 0, 1.2), 0.0);
         assert!(losing(-0.6, 0, 1.2) > 0.3 && losing(-0.6, 0, 1.2) < 0.7);
         assert!((losing(1.2, 1, 1.2) - 1.0).abs() < 1e-6);
-        // Facing -Z (right is +X): the right shoulder goes down, out to the right and back.
+        // Facing -Z (right is +X): the right shoulder goes down, out to the right and a little
+        // forward.
         let toward = Vec3::NEG_Z;
         let right = toward.cross(Vec3::Y);
         assert!(right.x > 0.99);
         let pivot = Vec3::new(0.0, 40.0, 0.0);
         let sh = Vec3::new(8.0, 58.0, -2.0);
         let moved = pivot + follow_turn(toward, 1.0) * (sh - pivot);
-        assert!(moved.y < sh.y && (moved - sh).dot(right) > 0.0 && (moved - sh).dot(toward) < 0.0, "{moved}");
+        assert!(moved.y < sh.y && (moved - sh).dot(right) > 0.0 && (moved - sh).dot(toward) > 0.0, "{moved}");
         // The bend in, solved from where the follow left the shoulder, still puts it an
         // upper arm from the planted elbow.
         // Bent along the way in from the unrolled shoulder (as lean_in does), the roll stays:
@@ -1031,6 +1094,10 @@ mod tests {
         let b0 = lean_bend(pivot, sh, 18.0, spot, axis);
         let plain = pivot + Quat::from_axis_angle(axis, b0) * (sh - pivot);
         assert!((at - plain).dot(right) > 2.0, "{at} {plain}");
+        // To the side, not forward: losing, the chest pitches in no further than the plain
+        // lean (owner 2026-11-12: it went forward, not to the side), and the shoulder is
+        // lower than the plain lean leaves it.
+        assert!(b <= b0 + 1e-3 && at.y < plain.y - 5.0, "{b} {b0} {at} {plain}");
     }
 
     #[test]
