@@ -4648,6 +4648,60 @@ fn a_campfire_is_lit_once_and_its_fires_do_not_stack() {
     assert!(matches!(g.light_campfire(fire_place).unwrap(), fnv_game::campfire::Lit::Placed(_)), "out: lit anew");
 }
 
+/// The plugin edits `VCG03CraftingCampfireRecipesScript` to place its fire but leaves the
+/// Goodsprings campfire `VCG03CampfireCrafting03` out of its list (owner's report "you
+/// broke fires", 2026-11-13): an activator whose script names the plugin's fire is a
+/// campfire for the second action; one whose script does not stays an activator.
+#[test]
+fn a_campfire_whose_script_places_the_fire_is_lit_off_the_list() {
+    const LISTED: u32 = 0xC00;
+    const VCG03: u32 = 0xC01;
+    const OTHER: u32 = 0xC02;
+    const FIRE: u32 = 0xC03;
+    const QUIET: u32 = 0xC04;
+    const LIST: u32 = 0xC05;
+    const FIRE_SCRIPT: u32 = 0xC06;
+    const OTHER_SCRIPT: u32 = 0xC07;
+    let acti = |id: u32, edid: &str, scri: Option<u32>| {
+        let mut subs = vec![sub(b"EDID", z(edid))];
+        subs.extend(scri.map(|s| sub(b"SCRI", s.to_le_bytes().to_vec())));
+        record(b"ACTI", 0, id, &subs)
+    };
+    let scpt = |id: u32, edid: &str, refs: &[u32]| record(b"SCPT", 0, id, &[vec![sub(b"EDID", z(edid))], unit(0, &script(&[]), &[], refs)].concat());
+    let list = record(b"FLST", 0, LIST, &[sub(b"EDID", z(fnv_game::campfire::VALID_LIST)), sub(b"LNAM", LISTED.to_le_bytes().to_vec())]);
+    let actis = [
+        acti(LISTED, "CampfireCrafting03", Some(FIRE_SCRIPT)),
+        acti(VCG03, "VCG03CampfireCrafting03", Some(FIRE_SCRIPT)),
+        acti(OTHER, "ScriptedSign", Some(OTHER_SCRIPT)),
+        acti(FIRE, fnv_game::campfire::FIRE_SOUND, None),
+        acti(QUIET, fnv_game::campfire::FIRE_QUIET, None),
+    ]
+    .concat();
+    let scpts = [scpt(FIRE_SCRIPT, "VCG03CraftingCampfireRecipesScript", &[LIST, FIRE, QUIET]), scpt(OTHER_SCRIPT, "SignScript", &[LIST])].concat();
+    let bytes = [tes4(), top(b"SCPT", &scpts), top(b"ACTI", &actis), top(b"FLST", &list)].concat();
+    let plugins = vec![Plugin::parse(&bytes, "Test.esm".into()).unwrap()];
+    let lo = LoadOrder::new(&plugins).unwrap();
+    let schema = schema();
+    let (table, j) = catalogue();
+    let forms = FormStore::build(&lo, &schema);
+    let refs = RefTable::build(&lo, &schema);
+    let d = GameData::build(&lo, &schema, table, &j, &refs);
+    let world = World::new(&forms, &refs, SimConfig::default());
+    let mut g = Game::new(&d, world, GameConfig { strict: true, ..GameConfig::default() });
+    g.new_game();
+    assert_eq!(g.campfire_bases(), vec![FormId(LISTED), FormId(VCG03)], "the list's first, then the scripted one");
+    let vcg03 = g.create_at(FormId(VCG03), None, [100.0, 200.0, 0.0], [0.0; 3]).unwrap();
+    let other = g.create_at(FormId(OTHER), None, [500.0, 200.0, 0.0], [0.0; 3]).unwrap();
+    assert!(g.is_campfire(vcg03) && !g.is_campfire(other));
+    let placed = match g.light_campfire(vcg03).unwrap() {
+        fnv_game::campfire::Lit::Placed(p) => p,
+        lit => panic!("{lit:?}"),
+    };
+    assert_eq!(placed.len(), 1 + fnv_game::campfire::QUIET_COUNT);
+    assert_eq!(g.campfire_fires(vcg03), placed);
+    assert!(g.light_campfire(other).is_err());
+}
+
 /// Co-op replication, phase 4 (docs/design/coop-replication.md §11): a guest's game runs
 /// none of the world's logic. The story's quests (its plugins in `story_plugins`) and the
 /// world references' GameMode and OnLoad blocks stop; a mod's quest goes on; with the gate
