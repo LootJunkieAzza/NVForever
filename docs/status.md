@@ -105,6 +105,11 @@ counts them).
 | Crafting | Partly, awaiting owner | ShowRecipeMenu opens the recipe menu (workbench, campfire, reloading bench) from the RCPE/RCCT records: list by name, subcategory filter, skill and ingredient counts, the output's picture and effects line, making once or several at once (How many?, 2026-10-19) | [crafting](spec-notes/crafting.md) |
 | Repair, Caravan, casino games | Partly, awaiting owner | Blackjack, roulette, the slot machines and a vendor's repair services are built; Texas Hold'em poker at a casino table is NVForever's own addition (the original has none; #402). Roulette: the casinos' roulette tables open it (ShowRouletteMenuParams), the game's table, wheel spin sequences (the spun pocket brought under the ball), bet points, marker and chips; payouts and limits are guesses ([roulette](spec-notes/roulette.md)). Blackjack: the casinos' tables open it (ShowBlackJackMenuParams), the casino's own decks, payout, soft-17 rule and max winnings, the game's table and card models and sounds, earnings and bans per casino. Repair services: ShowRepairMenu opens the vendor's menu from the game's file (worn weapons and armour, cost from the item's value, up to the vendor's skill; items at full condition not listed, owner's rule; the cost formula and the skill limit are fitted guesses, [repair](spec-notes/repair.md)); repair from the Pip-Boy: R on the ITEMS page uses a like item or one on the item's repair list, by the GECK wiki's formula. Caravan: ShowCaravanMenu opens it against the speaker (the bet, the deck builder, the game, the results; the game's rules from its help messages and the owner's rulings; an opponent of NVForever's own whose skill follows the face cards in its deck; bets in caps, NCR dollars and Legion coins; drawn flat from the game's textures, [caravan](spec-notes/caravan.md)); AddCardToPlayer keeps the player's cards. Slot machines (2026-10-21): the casinos' machines open it (ShowSlotMachineMenuParams), three reels laid out from the casino record's reel stops, the payouts of the machine model's payout screen (how they are read is a guess), bet, Bet Max, the payout list, earnings and bans per casino, the game's slot sounds; drawn flat from the record's symbol pictures, the machine's model not drawn ([slots](spec-notes/slots.md)) | [blackjack](spec-notes/blackjack.md), [slots](spec-notes/slots.md), [repair](spec-notes/repair.md), [caravan](spec-notes/caravan.md), [script-stubs](design/script-stubs.md) §4 |
 
+### Built-in luck setting getter fallback
+
+Implemented the focused behavior correction and authored synthetic regression coverage;
+contract and limits: [Built-in luck setting getter fallback](spec-notes/builtin-luck-setting.md). This entry does not establish full mod compatibility.
+
 ## 7. Interface and audio (Layer 7)
 
 | System | State | Specifics | Notes |
@@ -139,8 +144,3 @@ counts them).
   combat style's attack chance).
 - Not reproduced from the playtest lists: shadow flicker after leaving an interior (debug
   lines kept); the Crimson Caravan crash (the next one leaves a report).
-
-### Built-in luck setting getter fallback
-
-Implemented the focused behavior correction and authored synthetic regression coverage;
-contract and limits: [Built-in luck setting getter fallback](spec-notes/builtin-luck-setting.md). This entry does not establish full mod compatibility.
