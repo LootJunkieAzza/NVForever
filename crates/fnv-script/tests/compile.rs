@@ -1724,3 +1724,13 @@ fn a_comparison_after_an_aware_calls_argument_compares_its_result() {
     assert_eq!(h.0[&2], Value::Num(5.0));
     assert_eq!(h.0[&3], Value::Num(7.0));
 }
+
+/// An assignment to a string variable in the place of the variable an Sv_ function edits:
+/// the assignment runs and the function edits that variable (AguaFria.esm's
+/// `sv_Replace " (GRA)|" (sText = $rForm) 0 99 0 1`, #2275).
+#[test]
+fn sv_replace_edits_the_variable_an_assignment_in_its_place_sets() {
+    let h = run("string_var s\nstring_var t\nfloat n\nbegin GameMode\nlet t := \"Rifle (GRA)\"\nlet n := Sv_Replace \" (GRA)|\" (s = t)\nend");
+    assert_eq!(h.text(1), "Rifle");
+    assert_eq!(h.0[&3], Value::Num(1.0));
+}

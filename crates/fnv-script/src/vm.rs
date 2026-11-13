@@ -1653,6 +1653,25 @@ impl Vm<'_, '_> {
         })
     }
 
+    /// The string variable a function edits in place: the variable itself, or the one an
+    /// assignment in its place sets, after the assignment runs (`Sv_Replace "a|b" (sText =
+    /// $rForm)` [hypothesis: AguaFria.esm ships such lines with compiled bytes and edits
+    /// sText with the next line, #2275]).
+    fn string_var_arg(&mut self, e: Option<&XExpr>) -> Result<Option<crate::ir::VarRef>, VmError> {
+        Ok(match e {
+            Some(XExpr::Var { var, .. }) => Some(*var),
+            Some(a @ XExpr::Assign { target, .. }) => match &**target {
+                XExpr::Var { var, .. } => {
+                    let var = *var;
+                    self.xeval(a)?;
+                    Some(var)
+                }
+                _ => None,
+            },
+            _ => None,
+        })
+    }
+
     fn xcall(&mut self, c: &XCall) -> Result<XVal, VmError> {
         let opcode = match &c.func {
             FuncId::Opcode(o) => *o,
@@ -2552,7 +2571,8 @@ impl Vm<'_, '_> {
             // case by default; the number replaced.
             "sv_replace" => {
                 let (pair, k) = self.format_arg(c, 0)?;
-                let Some(XExpr::Var { var, .. }) = c.args.get(k) else { return Err(VmError::Type("Sv_Replace needs a string variable".into())) };
+                let Some(var) = self.string_var_arg(c.args.get(k))? else { return Err(VmError::Type("Sv_Replace needs a string variable".into())) };
+                let var = &var;
                 let s = text(self.read_var(var)?).unwrap_or_default();
                 let start = opt(self, k + 1)?.map(|v| v.num()).transpose()?.unwrap_or(0.0).max(0.0) as usize;
                 let case = opt(self, k + 3)?.is_some_and(|v| v.truthy());
@@ -2583,7 +2603,8 @@ impl Vm<'_, '_> {
             // end: at the end [hypothesis]).
             "sv_insert" => {
                 let (ins, k) = self.format_arg(c, 0)?;
-                let Some(XExpr::Var { var, .. }) = c.args.get(k) else { return Err(VmError::Type("Sv_Insert needs a string variable".into())) };
+                let Some(var) = self.string_var_arg(c.args.get(k))? else { return Err(VmError::Type("Sv_Insert needs a string variable".into())) };
+                let var = &var;
                 let s = text(self.read_var(var)?).unwrap_or_default();
                 let at = opt(self, k + 1)?.map(|v| v.num()).transpose()?.unwrap_or(0.0).max(0.0) as usize;
                 let chars: Vec<char> = s.chars().collect();
@@ -2599,7 +2620,8 @@ impl Vm<'_, '_> {
             // [documented: Sv Erase] `count` characters from the position, to the end when
             // left out or past it.
             "sv_erase" => {
-                let Some(XExpr::Var { var, .. }) = c.args.first() else { return Err(VmError::Type("Sv_Erase needs a string variable".into())) };
+                let Some(var) = self.string_var_arg(c.args.first())? else { return Err(VmError::Type("Sv_Erase needs a string variable".into())) };
+                let var = &var;
                 let s = text(self.read_var(var)?).unwrap_or_default();
                 let at = opt(self, 1)?.map(|v| v.num()).transpose()?.unwrap_or(0.0).max(0.0) as usize;
                 let n = opt(self, 2)?.map(|v| v.num()).transpose()?;
