@@ -10,20 +10,27 @@ shaders, as SPIR-V, vendored with its shader sources and compile tool
 is called when one is in the game's folder ("The FidelityFX API path"). Frame generation,
 built on top of it, is
 [frame-generation](frame-generation.md). What FSR
-needs and what the engine gives it: [spec notes](../spec-notes/fsr-upscaling.md).
+needs and what the engine gives it: [spec notes](../spec-notes/fsr-upscaling.md). NVIDIA DLSS
+is the other upscaler of the same settings row, on the same common preparation:
+[dlss-upscaling](dlss-upscaling.md).
 
 ## Using it
 
-**Settings > Graphics > Picture > FSR 3.1 upscaling** offers Off (the default), Native AA, Quality,
-Balanced, Performance and Ultra Performance, saved by name. `--fsr <mode>` (`off`,
-`native-aa`, `quality`, `balanced`, `performance`, `ultra-performance`) sets the starting
-choice; a saved setting wins in play, as for every setting. The render size per axis is 1,
-1/1.5, 1/1.7, 1/2 or 1/3 of the window's [documented: AMD's FSR 3.1 guide, see the spec
-notes].
+**Settings > Graphics > Picture > Upscaler** offers Off (the default), FSR 3.1 and DLSS
+([dlss-upscaling](dlss-upscaling.md)); **Upscaling mode** below it, Native AA, Quality,
+Balanced, Performance and Ultra Performance, for either (dimmed while Upscaler is Off). They
+are saved as `upscaler` and `upscaler-quality`; an older INI's single `fsr-upscaling` line,
+with the names FSR's choices were always saved by (`Off`, `Native AA`, `Quality`, …), still
+loads into both, and the test aids still take `fsr-upscaling=<choice>`. `--fsr <mode>`
+(`off`, `native-aa`, `quality`, `balanced`, `performance`, `ultra-performance`), or
+`--upscaler fsr --upscaler-quality <mode>`, sets the starting choice; a saved setting wins in
+play, as for every setting. Every change is live; only DLSS asked for in a session that
+started without NVIDIA's files takes a restart. The render size per axis is 1, 1/1.5, 1/1.7, 1/2 or 1/3 of the window's
+[documented: AMD's FSR 3.1 guide, see the spec notes].
 
 FSR does its own anti-aliasing, so while it is on, the anti-aliasing row is dimmed, reads
-`Off (FSR active)` and takes no edits. The saved choice (MSAA, FXAA, SMAA or TAA) comes back
-when FSR is off. The Sharpening switch drives FSR's own RCAS sharpening in place of the
+`Off (upscaling active)` (the same for DLSS) and takes no edits. The saved choice (MSAA,
+FXAA, SMAA or TAA) comes back when Upscaler is Off. The Sharpening switch drives FSR's own RCAS sharpening in place of the
 separate pass. The HUD and menus are drawn after FSR, at the window's resolution.
 
 FSR runs on wgpu's Vulkan backend only (SPIR-V passthrough). On another backend, or a GPU
@@ -32,8 +39,15 @@ frame is drawn natively, and the anti-aliasing row stays editable.
 
 ## Render contract
 
-`fsr.rs` (`FsrPlugin`). The FSR context is made the first time a view uses it. Each view
-with `FsrUpscaling` (the player's camera) has its own history and textures.
+`fsr.rs` (`FsrPlugin`), on the view preparation every temporal upscaler shares,
+`upscaler/prep.rs` (`PrepPlugin`, split out of `fsr.rs` unchanged for DLSS, #2198): the
+history cuts, the render-size override, the jitter and mip bias on the camera, the corrected
+and expanded depth, the resolution uniform, the spatial fallback and the alpha copy are
+there, with FSR's own numbers (`fsr::policy`); FSR's context, masks and history textures
+(`PreparedFsr`) stay in `fsr.rs` and are made for FSR's cameras only. The FSR context is made
+the first time a view uses it; while a FidelityFX API library reconstructs the view (below),
+neither it nor the port's dilation buffers are made. Each view with `FsrUpscaling` (the player's camera) has its
+own history and textures.
 
 - **Size.** Bevy's `MainPassResolutionOverride` draws the main passes into the top-left,
   render-size part of the display-size HDR target, and FSR fills the whole target. Native
@@ -51,7 +65,8 @@ with `FsrUpscaling` (the player's camera) has its own history and textures.
     `tree.wesl`);
   - a reactive mask and a transparency/composition mask (below);
   - the frame time.
-- **History resets** (`FsrCamera::cut_from`): a quality or size change, a skipped frame, a
+- **History resets** (`UpscaleCamera::cut_from`, `upscaler/prep.rs`): a change of upscaler,
+  a quality or size change, a skipped frame, a
   frame over 250 ms, a move of 400 units or more or a turn over 45° in one frame, a
   near-plane change, a magnification (tan(fov/2)) that changes by more than twice either
   way (`LENS_CUT_RATIO`), a new loading screen, and going into or out of dialogue or a
@@ -321,7 +336,8 @@ Performance, 1280x720] This laid a grey veil over the scene: a mean AO factor of
 against 0.993 without FSR.
 
 The normals now come from the neighbouring texels as drawn, at their centres (`normal_at`).
-`fsr.rs` sets `AmbientOcclusion::render_scale` while it upscales. At 1:1 the pass is
+The common preparation (`upscaler/prep.rs`) sets `AmbientOcclusion::render_scale` while an
+upscaler draws. At 1:1 the pass is
 unchanged.
 
 ## Performance
@@ -474,8 +490,9 @@ libraries' sources and headers.
   hooks the load compares [observed 2026-11-12: OptiScaler's source,
   `LibraryLoad_Hooks.cpp`, `DllNames.h`], and such a tool may answer the load with a library
   of its own. NVForever ships no such file; without one the port runs as before.
-- **The setting.** Settings > Graphics > Picture > FSR library (`fsr-library`): Built-in, or
-  Game folder, shown with the library found (`Game folder (amd_fidelityfx_vk.dll)`, `(none
+- **The setting.** Settings > Graphics > Picture > FSR library (`fsr-library`, under DLSS
+  model; dimmed, reading `FSR only`, while FSR is not the upscaler that draws, as DLSS model is
+  for DLSS): Built-in, or Game folder, shown with the library found (`Game folder (amd_fidelityfx_vk.dll)`, `(none
   found)`, or the library's name and `failed`). Game folder is the default; with no library
   there the port runs. Switching makes the view again with the other upscaler, and
   switching back to Game folder tries a library that failed once more. `NVF_FFX_API=0`
@@ -497,7 +514,7 @@ libraries' sources and headers.
 - **The inputs** are the port's: the colour (the display-sized main texture, the render
   rectangle top-left), Bevy's motion vectors, both masks, the jitter, the motion scale, the
   frame time, the reset, reversed infinite depth. The depth goes as an `R32Float` colour
-  copy (`fsr_depth.wgsl` `depth_as_color`): the API has no depth formats, and OptiScaler
+  copy of the common corrected depth (`upscaler/prep.rs` `depth_as_color`, `fsr_depth.wgsl`): the API has no depth formats, and OptiScaler
   makes its view under the format the API names, which a depth image does not allow
   [observed: OptiScaler's source, `FfxApi_Vk.cpp` `CreateIVandNVRes`].
 - **Three command buffers a frame.** wgpu 30 allows no raw commands in an encoder that has
@@ -530,7 +547,9 @@ libraries' sources and headers.
 - **Licence.** No AMD file is in the build or the package; what a player puts in the folder
   is theirs. LEGAL.md and [dependencies](dependencies.md) stand as they are.
 - **Not covered.** The library's GPU memory in the memory budget; translations of the
-  settings row; a smoke scenario (it needs a library to load). AMD's backend
+  settings row; a smoke scenario (it needs a library to load). With DLSS's files in the
+  folder Vulkan is made through Streamline's interposer ([dlss-upscaling](dlss-upscaling.md)),
+  and a FidelityFX API library is then given that device's handles: not run. AMD's backend
   picks its shader variants from what the GPU supports, not from what the device enabled
   [documented: SDK 1.1.4 `ffx_vk.cpp` `GetDeviceCapabilitiesVK`]: untested on an AMD GPU.
 - **What the log says.** Which library loaded and the file it came from (a tool that

@@ -107,17 +107,33 @@ sep = ","
 [[check]]
 name = "root cargo test"
 paths = ["crates/", "Cargo.toml", "Cargo.lock", "schemas/", "deny.toml"]
-cmd = ["cargo", "test", "--workspace", "--release"]
+cmd = ["cargo", "test", "--workspace", "--release", "--locked"]
 
 [[check]]
 name = "root clippy"
 paths = ["crates/", "Cargo.toml", "Cargo.lock", "schemas/", "deny.toml"]
-cmd = ["cargo", "clippy", "--workspace", "--all-targets", "--release", "--", "-D", "warnings"]
+cmd = ["cargo", "clippy", "--workspace", "--all-targets", "--release", "--locked", "--", "-D", "warnings"]
+
+[[check]]
+name = "cargo deny"
+paths = ["Cargo.toml", "Cargo.lock", "deny.toml"]
+cmd = ["cargo", "deny", "check", "licenses", "advisories", "bans", "sources"]
+
+[[check]]
+name = "engine cargo deny"
+paths = ["engine/Cargo.toml", "engine/Cargo.lock", "deny.toml"]
+cmd = ["cargo", "deny", "--manifest-path", "engine/Cargo.toml", "check", "licenses", "advisories", "bans", "sources"]
+
+[[check]]
+name = "engine cargo test"
+paths = ["engine/", "crates/", "Cargo.toml", "schemas/"]
+cmd = ["cargo", "test", "--release", "--locked"]
+cwd = "engine"
 
 [[check]]
 name = "engine clippy"
 paths = ["engine/", "crates/", "Cargo.toml", "schemas/"]
-cmd = ["cargo", "clippy", "--release", "--all-targets", "--", "-D", "warnings"]
+cmd = ["cargo", "clippy", "--release", "--locked", "--all-targets", "--", "-D", "warnings"]
 cwd = "engine"
 
 [[check]]
@@ -930,6 +946,67 @@ order = [[
   "settings: field-of-view 75",
 ]]
 forbid = [{ text = "Caught rendering error", label = "a rendering (validation) error while anti-aliasing or the filters change" }]
+
+[[scenario]]
+name = "sun-shadows-performance"
+source = "docs/design/frame-rate-audit.md §9 and §10 (nvforever shadow_rate.rs, #2062, #2063): on Quality the sun's farther cascades keep their maps on a staggered schedule; the settings page's Sun shadows row goes to Performance and back to Quality while the game runs: two cascades, the sun's shadow maps kept on alternate frames, three staggered cascades again, without a rendering error"
+areas = ["renderer", "graphics", "settings"]
+paths = [
+  "engine/nvforever/src/shadow_rate.rs", "engine/nvforever/src/sky.rs", "engine/nvforever/src/player_body.rs",
+  "engine/nvforever/src/tree.rs", "engine/vendor/bevy_pbr/src/render/light.rs", "engine/vendor/bevy_pbr/src/render/gpu_preprocess.rs",
+  "engine/nvf-play/src/settings_layout.rs",
+]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:12,17:19", NVF_PLAY_TEST_SETTINGS = "11:sun-shadows=0.5,18:sun-shadows=1" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--sun-shadows"]
+run_seconds = 23
+order = [[
+  { text = "sun shadows: a frame kept its farther cascades' maps (staggered schedule", label = "on Quality from the start, the farther cascades are held" },
+  "sun shadows: performance (maps drawn every other frame, trees cast near the camera only, no arms shade light), 2 cascades",
+  "settings: sun-shadows Performance",
+  "sun shadows: a frame kept the shadow maps of the frame before",
+  "sun shadows: cascades on a staggered schedule (the nearest every frame, the farther ones less often), 3 cascades",
+  { text = "sun shadows: a frame kept its farther cascades' maps (staggered schedule", label = "Quality again: the staggered schedule holds cascades again" },
+]]
+forbid = [
+  { text = "Caught rendering error", label = "a rendering (validation) error while the shadow maps are kept or the cascades change" },
+  { re = 'NVF_PLAY_TEST_(SETTINGS|PAUSE_MENU): ("|no switch|\S+ is a (list|slider):)', label = "every aid step is understood" },
+]
+
+[[scenario]]
+name = "sun-shadow-hold-flashlight"
+source = "#2182 review (vendored bevy_pbr light.rs prepare_lights, nvforever shadow_rate.rs): the player's flashlight casts shadows, so switching it on or off gives the sun a new shadow texture; that frame draws every cascade instead of holding one, outdoors at noon with the staggered schedule"
+areas = ["renderer", "flashlight"]
+paths = ["engine/nvforever/src/shadow_rate.rs", "engine/vendor/bevy_pbr/src/render/light.rs", "engine/nvforever/src/flashlight.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONTROL = "8:flashlight,14:flashlight" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--sun-shadows"]
+run_seconds = 20
+order = [[
+  { text = "sun shadows: a frame kept its farther cascades' maps (staggered schedule", label = "the staggered schedule holds cascades" },
+  "flashlight: on",
+  { text = "held shadow maps: a new directional shadow texture", label = "the flashlight on: a new shadow texture, every cascade drawn" },
+  "flashlight: off",
+  { text = "held shadow maps: a new directional shadow texture", label = "the flashlight off: a new shadow texture, every cascade drawn" },
+]]
+forbid = [{ text = "Caught rendering error", label = "a rendering (validation) error while the shadow texture changes under held cascades" }]
+
+[[scenario]]
+name = "sun-shadow-stagger-off"
+source = "#2063 (nvforever shadow_rate.rs): the test aid NVF_PLAY_TEST_SHADOW_STAGGER=0 draws every cascade every frame on Quality; Performance still holds its maps"
+areas = ["renderer", "graphics", "settings"]
+paths = ["engine/nvforever/src/shadow_rate.rs", "engine/vendor/bevy_pbr/src/render/light.rs", "engine/vendor/bevy_pbr/src/render/gpu_preprocess.rs"]
+env = { NVF_PLAY_TEST_SHADOW_STAGGER = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:12,17:19", NVF_PLAY_TEST_SETTINGS = "11:sun-shadows=0.5,18:sun-shadows=1" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--sun-shadows"]
+run_seconds = 23
+order = [[
+  "sun shadows: performance (maps drawn every other frame, trees cast near the camera only, no arms shade light), 2 cascades",
+  "settings: sun-shadows Performance",
+  "sun shadows: a frame kept the shadow maps of the frame before",
+  "sun shadows: drawn every frame, 3 cascades",
+]]
+forbid = [
+  { text = "staggered schedule", label = "with the aid, no cascade is held on the staggered schedule" },
+  { text = "Caught rendering error", label = "a rendering (validation) error while the shadow maps are kept or the cascades change" },
+]
 
 [[scenario]]
 name = "settings-resume-pipelines"
@@ -9104,6 +9181,32 @@ expect = [
 ]
 
 [[scenario]]
+name = "novac-broken-road-walk"
+source = "owner 2026-11-12, issue #2256 (video NVForever 2026-11-12 21-01-47, docs/spec-notes/physics.md §6.11): walking west over Novac's broken road from the owner's save (cell -13,-13) the view still bobbed: the feet drop off the broken road pieces' edges in quick 8-10 unit drops, eased at a walk as fast as at a run, and every change of the drawn ground (the road model's drawn floor, drawn_sink) moved the view at once and eased it back"
+areas = ["physics", "controls"]
+paths = ["engine/nvf-play/src/phys/step_lift.rs", "engine/nvf-play/src/phys.rs", "engine/nvf-play/src/player.rs"]
+env = { NVF_PLAY_TEST_MOVE = "8:1:0:walk,18:0:0" }
+args = ["--play", "--pos=-52595,-52475,5810", "--heading", "269.2", "--hour", "12", "--no-actors", "--no-voice", "--no-messages"]
+run_seconds = 20
+expect = [
+  { re = 'physics: walking on the ground for (\d+) steps', range = [300, 2000], label = "walked over the broken road on the ground" },
+  { re = 'the view.s vertical acceleration while walking (\d+) units', range = [0, 100], label = "the view smooth over the broken road (61 on 2026-11-12; 203 before the view left out the drawn ground's share and the walk's slower ease)" },
+]
+
+[[scenario]]
+name = "rock-run-smooth"
+source = "player feedback 2026-11-12, issue #2256 (docs/spec-notes/physics.md §6.11): running over the small rocks south of Goodsprings the controller leaves the ground for a few steps off each rock (16-20 units down); the view dropped with the feet and stopped dead on landing. Those drops now count as the ground for the drawn height (`step_lift::footing`), so it must stay much smoother than the feet"
+areas = ["physics", "controls"]
+paths = ["engine/nvf-play/src/phys/step_lift.rs", "engine/nvf-play/src/player.rs", "crates/fnv-phys/src/character.rs"]
+env = { NVF_PLAY_TEST_MOVE = "8:1:0,13:0:0" }
+args = ["--play", "--pos=-70500,-2500,8140", "--heading", "121", "--hour", "12", "--no-actors", "--no-voice", "--no-messages"]
+run_seconds = 16
+expect = [
+  { re = 'physics: walking on the ground for (\d+) steps', range = [150, 2000], label = "ran over the rocks, counted as the ground" },
+  { re = 'drawn/feet (\d+\.\d+)', range = [0.0, 0.3], label = "the drawn height's vertical acceleration under a third of the feet's (drops off rocks eased)" },
+]
+
+[[scenario]]
 name = "repconn-catwalk-stairs"
 source = "owner's playtest 2026-10-23 (docs/spec-notes/physics.md §6.9.1): the REPCONN Facility's catwalk stairs up to Chris Haversam's and Jason Bright's intercom (RocketLabMid); walking east up the 312-448 flight (24-unit risers and treads), then left up the 450-504 flight onto the intercom catwalk, without a jump (the feral ghouls left out: they block the stairs and fight)"
 areas = ["physics", "controls"]
@@ -10422,7 +10525,7 @@ expect = [
 ]
 order = [[
   "settings: shadow-distance 25%",
-  "settings: sun-shadows off",
+  { text = "settings: sun-shadows Off", label = "bDrawShadows=0: Sun shadows Off" },
   "settings: shadow-filter Fast",
   "settings: actor-distance 20%",
   "settings: object-distance 40%",
@@ -10434,7 +10537,7 @@ order = [[
   "settings: quality Low",
   "quality presets: the Quality row reads Low",
   "settings: shadow-distance 50%",
-  "settings: sun-shadows on",
+  { text = "settings: sun-shadows Quality", label = "bDrawShadows=1: Sun shadows Quality (the row is a choice now, #2182)" },
   "settings: actor-distance 40%",
   "settings: object-distance 50%",
   "settings: item-distance 60%",
@@ -10464,7 +10567,7 @@ order = [[
 forbid = [
   { re = 'NVF_PLAY_TEST_(SETTINGS|PAUSE_MENU): ("|no switch|\S+ is a (list|slider):)', label = "every aid step is understood" },
   { re = 'quality presets: .*(is not offered|not a key|not a number|above 0 in no)', label = "every made-up file is read and every key known" },
-  { re = 'settings: (ambient-occlusion|fine-shadows|bloom|sharpen|anisotropic|light-shafts|water-reflections|anti-aliasing|fsr-upscaling) ', label = "a preset touches no enhanced effect, anti-aliasing or FSR" },
+  { re = 'settings: (ambient-occlusion|fine-shadows|bloom|sharpen|anisotropic|light-shafts|water-reflections|anti-aliasing|fsr-upscaling|upscaler|upscaler-quality) ', label = "a preset touches no enhanced effect, anti-aliasing or FSR" },
 ]
 
 [[scenario]]
@@ -10541,7 +10644,7 @@ order = [[
 ]]
 forbid = [
   { re = 'NVF_PLAY_TEST_(SETTINGS|PAUSE_MENU): ("|no switch|\S+ is a (list|slider):)', label = "every aid step is understood" },
-  { re = 'settings: (glow|eye-adaptation|neon-glow|water-mirror|shadow-filter|anti-aliasing|fsr-upscaling) ', label = "the row touches only the enhanced effects" },
+  { re = 'settings: (glow|eye-adaptation|neon-glow|water-mirror|shadow-filter|anti-aliasing|fsr-upscaling|upscaler|upscaler-quality) ', label = "the row touches only the enhanced effects" },
 ]
 
 [[scenario]]
@@ -23587,7 +23690,7 @@ expect = [
 name = "fsr-quality"
 source = "docs/design/fsr-upscaling.md: real FSR dispatch with skinned/alpha-tested inputs, full-resolution postprocessing and HUD"
 areas = ["graphics"]
-paths = ["engine/nvforever/src/fsr*", "engine/nvf-assets/src/nif_prepass.wesl", "engine/nvforever/src/grass*", "engine/nvforever/src/tree*", "engine/vendor/wgpu-ffx/**"]
+paths = ["engine/nvforever/src/fsr*", "engine/nvforever/src/upscaler*", "engine/nvforever/src/upscaler/**", "engine/nvforever/src/dlss/**", "engine/nvf-assets/src/nif_prepass.wesl", "engine/nvforever/src/grass*", "engine/nvforever/src/tree*", "engine/vendor/wgpu-ffx/**"]
 env = { WGPU_BACKEND = "vulkan" }
 args = ["--cell", "Goodsprings", "--size", "1280x720", "--fsr", "quality", "--graphics", "enhanced", "--no-voice", "--no-lodgen"]
 run_seconds = 18
@@ -23598,7 +23701,7 @@ forbid = ["FSR dispatch failed", "FSR 3.1 unavailable", "Shader validation error
 name = "fsr-settings"
 source = "docs/design/fsr-upscaling.md: live native AA, quality, performance and off transitions; rebuild histories without stacking AA"
 areas = ["graphics", "ui"]
-paths = ["engine/nvforever/src/fsr*", "engine/nvforever/src/graphics.rs", "engine/nvforever/src/settings.rs", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings_layout.rs", "engine/nvf-play/src/settings_view.rs"]
+paths = ["engine/nvforever/src/fsr*", "engine/nvforever/src/upscaler*", "engine/nvforever/src/upscaler/**", "engine/nvforever/src/dlss/**", "engine/nvforever/src/graphics.rs", "engine/nvforever/src/settings.rs", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings_layout.rs", "engine/nvf-play/src/settings_view.rs"]
 env = { WGPU_BACKEND = "vulkan", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:18", NVF_PLAY_TEST_SETTINGS = "11:fsr-upscaling=Native AA,12:fsr-upscaling=Quality,13:fsr-upscaling=Performance,14:fsr-upscaling=Off,15:fsr-upscaling=Quality" }
 args = ["--cell", "GSDocMitchellHouse", "--play", "--size", "1280x720", "--fsr", "off", "--no-voice", "--no-lodgen"]
 run_seconds = 20
@@ -23609,7 +23712,7 @@ forbid = ["FSR dispatch failed", "FSR 3.1 unavailable", "Shader validation error
 name = "fsr-water"
 source = "docs/design/fsr-upscaling.md: render-scale transmission and water screen/depth coordinates, reactive inputs"
 areas = ["graphics", "water"]
-paths = ["engine/nvforever/src/fsr*", "engine/nvforever/src/water.wesl", "engine/vendor/bevy_pbr/src/transmission/node.rs"]
+paths = ["engine/nvforever/src/fsr*", "engine/nvforever/src/upscaler*", "engine/nvforever/src/upscaler/**", "engine/nvforever/src/dlss/**", "engine/nvforever/src/water.wesl", "engine/vendor/bevy_pbr/src/transmission/node.rs"]
 env = { WGPU_BACKEND = "vulkan" }
 args = ["--pos=59500,38500,2350", "--heading", "90", "--pitch", "-15", "--hour", "12", "--size", "1280x720", "--fsr", "balanced", "--graphics", "enhanced", "--no-lodgen", "--radius", "1"]
 run_seconds = 16
@@ -23620,7 +23723,7 @@ forbid = ["FSR dispatch failed", "FSR 3.1 unavailable", "Shader validation error
 name = "fsr-resize"
 source = "docs/design/fsr-upscaling.md: window resize and Ultra Performance recreate histories and output-sized resources"
 areas = ["graphics", "ui"]
-paths = ["engine/nvforever/src/fsr*", "engine/nvforever/src/window_mode.rs", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings_layout.rs", "engine/nvf-play/src/settings_view.rs"]
+paths = ["engine/nvforever/src/fsr*", "engine/nvforever/src/upscaler*", "engine/nvforever/src/upscaler/**", "engine/nvforever/src/dlss/**", "engine/nvforever/src/window_mode.rs", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings_layout.rs", "engine/nvf-play/src/settings_view.rs"]
 env = { WGPU_BACKEND = "vulkan", NVFOREVER_HOME = "fsr-resize-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:21", NVF_PLAY_TEST_SETTINGS = "11:resolution=1600x900,15:fsr-upscaling=Ultra Performance,17:fsr-upscaling=Quality", NVF_PLAY_TEST_PAUSE_MENU = "13:keep" }
 args = ["--cell", "GSDocMitchellHouse", "--play", "--size", "1280x720", "--fsr", "quality", "--no-voice", "--no-lodgen"]
 run_seconds = 23
@@ -23631,7 +23734,7 @@ forbid = ["FSR dispatch failed", "FSR 3.1 unavailable", "Shader validation error
 name = "fsr-restart"
 source = "docs/design/fsr-upscaling.md: a cold process restores Quality and the kept resolution from fsr-resize; no --size or --fsr is given, as in a test run a given switch wins over the INI (#1382)"
 areas = ["graphics", "ui"]
-paths = ["engine/nvforever/src/fsr*", "engine/nvforever/src/settings.rs"]
+paths = ["engine/nvforever/src/fsr*", "engine/nvforever/src/upscaler*", "engine/nvforever/src/upscaler/**", "engine/nvforever/src/dlss/**", "engine/nvforever/src/settings.rs"]
 env = { WGPU_BACKEND = "vulkan", NVFOREVER_HOME = "fsr-resize-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
 args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-lodgen"]
 run_seconds = 12
@@ -23640,13 +23743,14 @@ forbid = ["FSR dispatch failed", "FSR 3.1 unavailable", "Shader validation error
 
 [[scenario]]
 name = "fsr-dropdown"
-source = "docs/design/fsr-upscaling.md: the native dropdown presents all six FSR choices and keyboard selection applies Balanced"
+source = "docs/design/fsr-upscaling.md: the native dropdown presents the five upscaling qualities and keyboard selection applies Balanced"
 areas = ["graphics", "ui"]
-paths = ["engine/nvforever/src/settings.rs", "engine/nvforever/src/graphics.rs", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings_layout.rs", "engine/nvf-play/src/settings_view.rs"]
-env = { WGPU_BACKEND = "vulkan", NVFOREVER_HOME = "fsr-dropdown-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:19", NVF_PLAY_TEST_SETTINGS = "11:fsr-upscaling=Quality", NVF_PLAY_TEST_PAUSE_MENU = "12:pick,13:down,14:shot,15:pick" }
+paths = ["engine/nvforever/src/settings.rs", "engine/nvforever/src/graphics.rs", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings_layout.rs", "engine/nvf-play/src/settings_view.rs", "engine/nvforever/src/upscaler*", "engine/nvforever/src/upscaler/**", "engine/nvforever/src/dlss/**"]
+env = { WGPU_BACKEND = "vulkan", NVFOREVER_HOME = "fsr-dropdown-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:19", NVF_PLAY_TEST_SETTINGS = "11:fsr-upscaling=Quality,11.5:select:upscaler-quality", NVF_PLAY_TEST_PAUSE_MENU = "12:pick,13:down,14:shot,15:pick" }
 args = ["--cell", "GSDocMitchellHouse", "--play", "--size", "1280x720", "--fsr", "off", "--no-voice", "--no-lodgen"]
 run_seconds = 21
-expect = ["pause menu: the list of 6 choice(s) open", "pause menu: screenshot pause_settings.png", "settings: fsr-upscaling Balanced", "FSR 3.1.4: Balanced"]
+note = "since #2198's play-test the one Upscaling list of 11 is two rows, Upscaler (Off, FSR 3.1, DLSS) and Upscaling mode (Native AA, Quality, Balanced, Performance, Ultra Performance; engine/nvforever/src/settings.rs). fsr-upscaling=Quality (the older key, still taken by the test aid) turns FSR Quality on and shows the Upscaler row; select:upscaler-quality moves to the quality row, whose list of 5 opens with Quality chosen, so Down and Enter still take Balanced. The pick is logged under the quality row's key"
+expect = ["pause menu: the list of 5 choice(s) open", "pause menu: screenshot pause_settings.png", "settings: fsr-upscaling Quality", "settings: upscaler-quality Balanced", "FSR 3.1.4: Balanced"]
 forbid = ["FSR dispatch failed", "FSR 3.1 unavailable", "Shader validation error", "Validation Error"]
 
 [[scenario]]
@@ -23654,7 +23758,7 @@ name = "fsr-night-lights"
 ends = "Screenshot saved to fsr-night-lights.png"
 source = "docs/design/fsr-upscaling.md: clustered point/spot lights use normalized main-pass viewport coordinates at reduced render resolution"
 areas = ["graphics", "lights"]
-paths = ["engine/vendor/bevy_pbr/src/render/clustered_forward.wesl", "engine/nvforever/src/fsr*", "engine/nvforever/src/lights.rs"]
+paths = ["engine/vendor/bevy_pbr/src/render/clustered_forward.wesl", "engine/nvforever/src/fsr*", "engine/nvforever/src/upscaler*", "engine/nvforever/src/upscaler/**", "engine/nvforever/src/dlss/**", "engine/nvforever/src/lights.rs"]
 env = { WGPU_BACKEND = "vulkan" }
 args = ["--world", "TheStripWorldNew", "--pos=-250,8600,1150", "--heading", "185", "--pitch", "0", "--hour", "21", "--graphics", "enhanced", "--size", "1280x720", "--fsr", "quality", "--no-voice", "--no-lodgen", "--screenshot", "fsr-night-lights.png", "--screenshot-delay", "6"]
 run_seconds = 20
@@ -23665,7 +23769,7 @@ forbid = ["FSR dispatch failed", "FSR 3.1 unavailable", "Shader validation error
 name = "fsr-aa-lock"
 source = "docs/design/fsr-upscaling.md: Native AA explicitly disables the engine AA row, ignores edits while locked, and restores saved 8x when FSR is disabled"
 areas = ["graphics", "ui"]
-paths = ["engine/nvforever/src/graphics.rs", "engine/nvforever/src/settings.rs", "engine/nvf-play/src/settings.rs", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings_layout.rs", "engine/nvf-play/src/settings_view.rs"]
+paths = ["engine/nvforever/src/graphics.rs", "engine/nvforever/src/settings.rs", "engine/nvf-play/src/settings.rs", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings_layout.rs", "engine/nvf-play/src/settings_view.rs", "engine/nvforever/src/upscaler*", "engine/nvforever/src/upscaler/**", "engine/nvforever/src/dlss/**"]
 env = { WGPU_BACKEND = "vulkan", NVFOREVER_HOME = "fsr-aa-lock-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:19", NVF_PLAY_TEST_SETTINGS = "11:anti-aliasing=0,14:fsr-upscaling=Off", NVF_PLAY_TEST_PAUSE_MENU = "12:shot" }
 args = ["--cell", "GSDocMitchellHouse", "--play", "--size", "1280x720", "--msaa", "8", "--fsr", "native-aa", "--no-voice", "--no-lodgen"]
 run_seconds = 21
@@ -23676,7 +23780,7 @@ forbid = ["settings: anti-aliasing Off", "FSR dispatch failed", "FSR 3.1 unavail
 name = "fsr-moving-weapon"
 source = "docs/design/fsr-upscaling.md revision 2: moving camera, animated first-person weapon and NPC rigs exercise real temporal inputs after correcting the motion-buffer binding"
 areas = ["graphics", "player-body", "animation"]
-paths = ["engine/vendor/wgpu-ffx/wgpu-ffx/src/pass.rs", "engine/nvf-assets/src/nif_prepass.wesl", "engine/nvforever/src/fsr*"]
+paths = ["engine/vendor/wgpu-ffx/wgpu-ffx/src/pass.rs", "engine/nvf-assets/src/nif_prepass.wesl", "engine/nvforever/src/fsr*", "engine/nvforever/src/upscaler*", "engine/nvforever/src/upscaler/**", "engine/nvforever/src/dlss/**"]
 env = { WGPU_BACKEND = "vulkan", NVFOREVER_HOME = "fsr-moving-weapon-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_EQUIP = "000E3778", NVF_PLAY_TEST_GIVE = "0008ED03:50", NVF_PLAY_TEST_CONTROL = "8:weapon,11:fire,13:reload,17:view,19:fire", NVF_PLAY_TEST_LOOK = "9:0:-10,9.1:5:-10,9.2:10:-10,9.3:15:-10,9.4:20:-10,9.5:25:-10,9.6:30:-10", NVF_PLAY_TEST_MOVE = "10:0:1,12:0:0", NVF_PLAY_TEST_SHOTS = "14:fsr-moving-weapon.png" }
 args = ["--cell", "Goodsprings", "--play", "--hour", "12", "--no-voice", "--no-messages", "--no-lodgen", "--actor-weapons", "drawn", "--fsr", "quality", "--size", "1280x720"]
 run_seconds = 24
@@ -23687,7 +23791,7 @@ forbid = ["FSR dispatch failed", "FSR 3.1 unavailable", "Shader validation error
 name = "fsr-foliage"
 source = "docs/design/fsr-upscaling.md revision 3 and after revision 4: the reactive mask's opaque reference includes the terrain's blended texture layers and the sky's blended parts, so FSR keeps history on the ground under grass, bushes and trees, and against the sky"
 areas = ["graphics", "world"]
-paths = ["engine/nvforever/src/fsr*", "engine/nvforever/src/terrain.rs", "engine/nvforever/src/sky.rs", "engine/nvf-assets/src/nif_material.rs", "engine/nvforever/src/grass*", "engine/nvforever/src/tree*"]
+paths = ["engine/nvforever/src/fsr*", "engine/nvforever/src/upscaler*", "engine/nvforever/src/upscaler/**", "engine/nvforever/src/dlss/**", "engine/nvforever/src/terrain.rs", "engine/nvforever/src/sky.rs", "engine/nvf-assets/src/nif_material.rs", "engine/nvforever/src/grass*", "engine/nvforever/src/tree*"]
 env = { WGPU_BACKEND = "vulkan" }
 args = ["--cell", "Goodsprings", "--heading", "0", "--pitch=-8", "--hour", "12", "--size", "1280x720", "--fsr", "native-aa", "--no-voice", "--no-lodgen"]
 run_seconds = 16
@@ -23698,7 +23802,7 @@ forbid = ["FSR reactive reference: terrain layers not drawn", "FSR reactive refe
 name = "fsr-corn-cutouts"
 source = "docs/design/fsr-upscaling.md revision 3: Goodsprings' corn rows (blended, cut-out alpha) are drawn alpha-tested while FSR is on and blended again when it is off"
 areas = ["graphics", "world"]
-paths = ["engine/nvforever/src/fsr*", "engine/nvforever/src/graphics.rs", "engine/nvf-assets/src/nif_material.rs", "engine/nvf-assets/src/nif_spawn.rs", "engine/nvf-assets/src/texture.rs", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings_layout.rs", "engine/nvf-play/src/settings_view.rs"]
+paths = ["engine/nvforever/src/fsr*", "engine/nvforever/src/upscaler*", "engine/nvforever/src/upscaler/**", "engine/nvforever/src/dlss/**", "engine/nvforever/src/graphics.rs", "engine/nvf-assets/src/nif_material.rs", "engine/nvf-assets/src/nif_spawn.rs", "engine/nvf-assets/src/texture.rs", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings_layout.rs", "engine/nvf-play/src/settings_view.rs"]
 env = { WGPU_BACKEND = "vulkan", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:16", NVF_PLAY_TEST_SETTINGS = "11:fsr-upscaling=Native AA,14:fsr-upscaling=Off" }
 args = ["--cell", "Goodsprings", "--pos=-69814,774,8451", "--heading", "205.5", "--pitch=-6.4", "--play", "--hour", "12", "--size", "1280x720", "--fsr", "off", "--no-voice", "--no-messages", "--no-lodgen"]
 run_seconds = 18
@@ -23724,7 +23828,7 @@ forbid = [{ text = "Validation Error", label = "a Vulkan validation error" }, { 
 name = "frame-generation"
 source = "#1778, docs/design/frame-generation.md: --frame-generation with FSR Quality while walking outdoors: generated frames presented between the real ones, the HUD kept, latency reduction turned on with it, no validation errors; the performance overlay (--fps, its readings logged by NVF_FPS_LOG) reads the frames shown and the rendered ones apart"
 areas = ["graphics"]
-paths = ["engine/nvforever/src/frame_gen.rs", "engine/nvforever/src/fg_presenter.rs", "engine/nvforever/src/fsr.rs", "engine/nvforever/src/frame_pace.rs", "engine/nvforever/src/anti_lag.rs", "engine/nvforever/src/nv_low_latency.rs", "engine/nvforever/src/perf_overlay/*", "engine/vendor/wgpu-ffx/**", "engine/vendor/bevy_render/src/view/window/**", "engine/vendor/wgpu-hal/src/vulkan/swapchain/**"]
+paths = ["engine/nvforever/src/frame_gen.rs", "engine/nvforever/src/fg_presenter.rs", "engine/nvforever/src/fsr.rs", "engine/nvforever/src/frame_pace.rs", "engine/nvforever/src/anti_lag.rs", "engine/nvforever/src/nv_low_latency.rs", "engine/nvforever/src/perf_overlay/*", "engine/vendor/wgpu-ffx/**", "engine/vendor/bevy_render/src/view/window/**", "engine/vendor/wgpu-hal/src/vulkan/swapchain/**", "engine/nvforever/src/upscaler*", "engine/nvforever/src/upscaler/**", "engine/nvforever/src/dlss/**"]
 env = { WGPU_BACKEND = "vulkan", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_MOVE = "4:0:1,9:0.5:-1", NVF_FPS_LOG = "2" }
 args = ["--cell", "Goodsprings", "--play", "--size", "1280x720", "--fsr", "quality", "--frame-generation", "--graphics", "enhanced", "--no-voice", "--no-lodgen", "--fps"]
 run_seconds = 26
@@ -23749,7 +23853,7 @@ forbid = [
 name = "frame-generation-switch"
 source = "h9x000/NVForever#1, docs/design/frame-generation.md \"Presentation and pacing\": frame generation switched off and on again on the settings page: its presenter thread ends before Bevy takes the window's images again, a new one starts and presents, no validation errors"
 areas = ["graphics", "ui"]
-paths = ["engine/nvforever/src/frame_gen.rs", "engine/nvforever/src/fg_presenter.rs", "engine/vendor/bevy_render/src/view/window/**"]
+paths = ["engine/nvforever/src/frame_gen.rs", "engine/nvforever/src/fg_presenter.rs", "engine/vendor/bevy_render/src/view/window/**", "engine/nvforever/src/upscaler*", "engine/nvforever/src/upscaler/**", "engine/nvforever/src/dlss/**"]
 env = { WGPU_BACKEND = "vulkan", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "8:10,13:15", NVF_PLAY_TEST_SETTINGS = "9:frame-generation,14:frame-generation" }
 args = ["--cell", "GSDocMitchellHouse", "--play", "--size", "1280x720", "--fsr", "quality", "--frame-generation", "--no-voice", "--no-lodgen"]
 run_seconds = 32
@@ -23769,7 +23873,7 @@ forbid = [{ text = "Validation Error", label = "a Vulkan validation error" }, { 
 name = "frame-generation-needs-fsr"
 source = "#1778, docs/design/frame-generation.md: frame generation on with FSR off says it is held off, and starts when FSR is chosen on the settings page"
 areas = ["graphics", "ui"]
-paths = ["engine/nvforever/src/frame_gen.rs", "engine/nvforever/src/settings.rs", "engine/nvforever/src/fsr.rs"]
+paths = ["engine/nvforever/src/frame_gen.rs", "engine/nvforever/src/settings.rs", "engine/nvforever/src/fsr.rs", "engine/nvforever/src/upscaler*", "engine/nvforever/src/upscaler/**", "engine/nvforever/src/dlss/**"]
 env = { WGPU_BACKEND = "vulkan", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "8:11", NVF_PLAY_TEST_SETTINGS = "9:fsr-upscaling=Quality" }
 args = ["--cell", "GSDocMitchellHouse", "--play", "--size", "1280x720", "--fsr", "off", "--frame-generation", "--no-voice", "--no-lodgen"]
 run_seconds = 20
@@ -23780,6 +23884,291 @@ expect = [
 ]
 order = [["frame generation: on but not running (Needs FSR 3.1)", "frame generation active: 1280x720"]]
 forbid = [{ text = "Validation Error", label = "a Vulkan validation error" }, { text = "Caught rendering error", label = "a rendering error" }]
+
+# DLSS through NVIDIA Streamline (#2198, docs/design/dlss-upscaling.md). dlss-no-files runs on every
+# machine; the others need NVIDIA's four DLSS files, which NVForever does not ship: set NVF_DLSS_DIR
+# (an absolute path to their folder) in the runner's environment and the game inherits it. Without it
+# they are skipped (`requires`), not failed.
+[[scenario]]
+name = "dlss-no-files"
+source = "#2198, docs/design/dlss-upscaling.md: DLSS asked for with a DLSS folder that holds none of its files: the loader says so, the status says DLSS is unavailable and why, Streamline is never initialised and the camera draws natively"
+note = "NVF_DLSS_DIR names the empty fixture folder (tools/smoke/fixtures/dlss-empty) and NVF_DLSS_PRELOAD=0 keeps a preload in the runner's environment out. On Windows the loader finds the four files missing (dlss/win.rs `start`); elsewhere DLSS is Windows only (dlss/mod.rs `start`), so each expectation takes either reason"
+areas = ["graphics"]
+paths = ["engine/nvforever/src/dlss/**", "engine/nvforever/src/upscaler*", "engine/nvforever/src/upscaler/**", "engine/nvforever/src/graphics.rs", "engine/nvforever/src/main.rs"]
+env = { WGPU_BACKEND = "vulkan", NVF_DLSS_DIR = "{repo}/tools/smoke/fixtures/dlss-empty", NVF_DLSS_PRELOAD = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SHOT_FLATNESS = "1", NVF_PLAY_TEST_SHOTS = "8:dlss-no-files.png" }
+args = ["--cell", "Goodsprings", "--play", "--hour", "12", "--size", "1280x720", "--upscaler", "dlss", "--upscaler-quality", "quality", "--no-voice", "--no-messages", "--no-lodgen"]
+run_seconds = 10
+expect = [
+  { text = "upscaler: DLSS Quality chosen at start: Streamline loaded before the renderer", label = "DLSS asked for at start loads the DLSS loader" },
+  { re = "DLSS: inactive: (the folder lacks sl\\.interposer\\.dll, sl\\.common\\.dll, sl\\.dlss\\.dll, nvngx_dlss\\.dll; the stock Vulkan path|Windows only \\(Streamline.s libraries are Windows DLLs\\))", label = "the loader says why: the empty folder lacks all four files (Windows), or DLSS is Windows only" },
+  { re = 'upscaler: DLSS Quality asked for, Off draws \((files-missing|not-windows)\)', label = "the status: DLSS unavailable with the reason, the camera drawn natively" },
+  { re = 'test aid: dlss-no-files\.png: (\d+) % of the view is one colour', range = [0, 80], label = "the world is drawn" },
+]
+forbid = [{ text = "DLSS: slInit:", label = "Streamline initialised" }, { text = "DLSS: route:", label = "a Vulkan route through Streamline" }, { text = "DLSS: evaluate active", label = "a DLSS evaluate" }, { re = 'graphics: DLSS \w+ active', label = "DLSS put on the camera" }, { text = "FSR dispatch active", label = "FSR drawing in DLSS's place" }, { text = "Validation Error", label = "a Vulkan validation error" }, { text = "Caught rendering error", label = "a rendering error" }]
+
+[[scenario]]
+name = "dlss-quality"
+source = "#2198, docs/design/dlss-upscaling.md: DLSS Quality at 1280x720 outdoors: Streamline loaded and its device check passed, the instance made through the interposer, DLSS drawing the camera in its own pass at the size DLSS reports, every evaluate ok, and Streamline shut down in order"
+note = "needs NVF_DLSS_DIR (NVIDIA's files). 853x480 is the render size DLSS reported for Quality at 1280x720 in the spike's runs (2026-11-12)."
+areas = ["graphics"]
+paths = ["engine/nvforever/src/dlss/**", "engine/nvforever/src/upscaler*", "engine/nvforever/src/upscaler/**", "engine/nvforever/src/graphics.rs", "engine/nvforever/src/main.rs", "engine/nvforever/src/ssao.rs"]
+requires = ["NVF_DLSS_DIR"]
+env = { WGPU_BACKEND = "vulkan" }
+args = ["--cell", "Goodsprings", "--size", "1280x720", "--upscaler", "dlss", "--upscaler-quality", "quality", "--graphics", "enhanced", "--no-voice", "--no-lodgen"]
+run_seconds = 18
+expect = [{ re = 'DLSS: output observed: .*, generation 1, mean RGB', label = "DLSS's output seen after the black pre-clear, so NGX wrote it (dlss/evaluate.rs output proof)" }, 
+  "upscaler: DLSS Quality chosen at start: Streamline loaded before the renderer",
+  { re = 'DLSS: device check: passed for .+ \(every GPU Vulkan exposes\)', label = "the device check passed" },
+  "DLSS: route: interposer (the Vulkan instance was made through sl.interposer.dll)",
+  { re = 'DLSS: adapter check: the renderer made its device on .+, (the pinned GPU|a GPU the device check passed)', label = "the device is on a GPU the check saw" },
+  { re = 'DLSS: supported=true sl=\S+ dlss=\S+', label = "DLSS supported here" },
+  "DLSS: active: slDLSSGetOptimalSettings and slDLSSSetOptions fetched",
+  "upscaler: DLSS Quality asked for, DLSS Quality draws",
+  "graphics: DLSS Quality active; native anti-aliasing off",
+  { re = 'DLSS: evaluate active: Quality \(MaxQuality\), 1280x720 output, HDR on, 853x480 -> 1280x720, optimal 853x480, min \d+x\d+ max \d+x\d+', label = "DLSS draws Quality at the size it reports" },
+  { re = 'DLSS: evaluates: ([1-9]\d*) ok, 0 failed', label = "evaluates ok, none failed" },
+  "DLSS: shutdown: slFreeResources(DLSS, viewport 0) eOk",
+  "DLSS: shutdown done: Streamline down before the Vulkan device and instance were released",
+]
+forbid = [{ re = 'DLSS: output not (observed|valid)' }, "DLSS: NGX reported an evaluate error", "dlss_output_proof", { text = "FSR dispatch active", label = "FSR drawing in DLSS's place" }, { text = "slEvaluateFeature: ", label = "a failed evaluate" }, { text = "frames running without DLSS's output", label = "DLSS given up on" }, { text = "DLSS: evaluate off", label = "DLSS's functions missing" }, { text = "Shader validation error", label = "a shader validation error" }, { text = "Validation Error", label = "a Vulkan validation error" }]
+
+[[scenario]]
+name = "dlss-modes"
+source = "#2198, docs/design/dlss-upscaling.md: all five DLSS modes picked in turn on the settings page; each sets DLSS's options again after the GPU is drained and DLSS's resources are freed, and draws in DLSS's own mode; FSR picked in the same session then draws at once, through Streamline's interposer"
+note = "needs NVF_DLSS_DIR (NVIDIA's files). The picks use the older key fsr-upscaling, which the test aid still takes for the Upscaler and Upscaling mode rows (logged under it). Since every switch is live with Streamline loaded (#2198's play-test), the last pick, FSR Quality, draws FSR: the expectation that it waited for a restart and the forbid on FSR drawing became expectations that FSR draws at once"
+areas = ["graphics", "ui"]
+paths = ["engine/nvforever/src/dlss/**", "engine/nvforever/src/upscaler*", "engine/nvforever/src/upscaler/**", "engine/nvforever/src/graphics.rs", "engine/nvforever/src/settings.rs", "engine/nvf-play/src/settings.rs"]
+requires = ["NVF_DLSS_DIR"]
+env = { WGPU_BACKEND = "vulkan", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:23", NVF_PLAY_TEST_SETTINGS = "11:fsr-upscaling=DLSS Native AA,13:fsr-upscaling=DLSS Balanced,15:fsr-upscaling=DLSS Performance,17:fsr-upscaling=DLSS Ultra Performance,19:fsr-upscaling=DLSS Quality,21:fsr-upscaling=Quality" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--size", "1280x720", "--upscaler", "dlss", "--upscaler-quality", "quality", "--no-voice", "--no-lodgen"]
+run_seconds = 24
+expect = [{ re = 'DLSS: output observed: .*, generation 1, mean RGB', label = "DLSS's output seen after the black pre-clear, so NGX wrote it (dlss/evaluate.rs output proof)" }, { re = 'DLSS: output observed: .*, generation [2-9]\d*, mean RGB', label = "and again after the options were set again" }, 
+  "settings: fsr-upscaling DLSS Native AA",
+  "settings: fsr-upscaling DLSS Ultra Performance",
+  "upscaler: DLSS Balanced asked for, DLSS Balanced draws",
+  { re = 'DLSS: recreate: Quality \(MaxQuality\), 1280x720 output, HDR on -> Native AA \(DLAA\), 1280x720 output, HDR on: GPU drained, slFreeResources\(DLSS, viewport 0\) eOk', label = "Quality to Native AA: drained and freed before the options are set again" },
+  { re = 'DLSS: recreate: .* -> Ultra Performance \(UltraPerformance\), 1280x720 output, HDR on: GPU drained, slFreeResources\(DLSS, viewport 0\) eOk', label = "to Ultra Performance: drained and freed" },
+  { text = "upscaler: FSR 3.1 Quality asked for, FSR 3.1 Quality draws", label = "FSR picked with Streamline loaded draws at once" },
+  { text = "FSR dispatch active: 3.1.4, 853x480 -> 1280x720", label = "FSR draws through the interposer after DLSS" },
+  { re = 'DLSS: evaluates: [1-9]\d* ok, 0 failed; options set again (\d+) times', range = [5, 1000], label = "every evaluate ok, the options set again at least once per mode change" },
+]
+order = [[{ re = 'DLSS: output observed: Quality \(MaxQuality\), 1280x720 output, HDR on, generation 1,' }, { re = 'DLSS: output observed: Native AA \(DLAA\), 1280x720 output, HDR on, generation 2,' }, { re = 'DLSS: output observed: Balanced \(Balanced\), 1280x720 output, HDR on, generation 3,' }, { re = 'DLSS: output observed: Performance \(MaxPerformance\), 1280x720 output, HDR on, generation 4,' }, { re = 'DLSS: output observed: Ultra Performance \(UltraPerformance\), 1280x720 output, HDR on, generation 5,' }, { re = 'DLSS: output observed: Quality \(MaxQuality\), 1280x720 output, HDR on, generation 6,' }], [
+  { re = 'DLSS: evaluate active: Quality \(MaxQuality\), 1280x720 output, HDR on, \d+x\d+ -> 1280x720', label = "Quality at start" },
+  { re = 'DLSS: evaluate active: Native AA \(DLAA\), 1280x720 output, HDR on, \d+x\d+ -> 1280x720', label = "Native AA (DLAA)" },
+  { re = 'DLSS: evaluate active: Balanced \(Balanced\), 1280x720 output, HDR on, \d+x\d+ -> 1280x720', label = "Balanced" },
+  { re = 'DLSS: evaluate active: Performance \(MaxPerformance\), 1280x720 output, HDR on, \d+x\d+ -> 1280x720', label = "Performance" },
+  { re = 'DLSS: evaluate active: Ultra Performance \(UltraPerformance\), 1280x720 output, HDR on, \d+x\d+ -> 1280x720', label = "Ultra Performance, in DLSS's own mode" },
+  { re = 'DLSS: evaluate active: Quality \(MaxQuality\), 1280x720 output, HDR on, \d+x\d+ -> 1280x720', label = "Quality again" },
+  { text = "upscaler: FSR 3.1 Quality asked for, FSR 3.1 Quality draws", label = "then FSR, at once" },
+  { text = "FSR dispatch active: 3.1.4, 853x480 -> 1280x720", label = "FSR drawing only after DLSS's last mode" },
+]]
+forbid = [{ re = 'DLSS: output not (observed|valid)' }, "DLSS: NGX reported an evaluate error", "dlss_output_proof", { text = "until the next start", label = "a switch waiting for a restart with Streamline loaded" }, { text = "FSR dispatch failed", label = "FSR failing through the interposer" }, { text = "slEvaluateFeature: ", label = "a failed evaluate" }, { text = "slDLSSSetOptions: ", label = "options refused" }, { text = "frames running without DLSS's output", label = "DLSS given up on" }, { re = 'DLSS: optimal settings: .*; the view renders natively', label = "a mode DLSS gave no usable size for" }, { text = "Shader validation error", label = "a shader validation error" }, { text = "Validation Error", label = "a Vulkan validation error" }]
+
+[[scenario]]
+name = "dlss-model"
+source = "#2198, docs/design/dlss-upscaling.md \"The DLSS model\": DLSS Quality, then the DLSS model row walked through J, K, L, M and back to Default on the settings page; each pick sets DLSS's options again with that preset in every mode's field, after the GPU is drained and DLSS's resources are freed, and DLSS's output is seen for each generation"
+note = "needs NVF_DLSS_DIR (NVIDIA's files). The lines are dlss/evaluate.rs's (options:, recreate:, evaluate active:, output observed:, each naming the model). The models are named by their letters since the user's rename (2026-11-12; upscaler.rs DlssModel::name), so the picks, the settings: lines and the patterns say J, not Preset J; the walk keeps its J, K, L, M order (the picks go by name, not by the row's order). 853x480 is the render size DLSS reported for Quality at 1280x720 (dlss-quality); the model does not enter the optimal settings (dlss/sizing.rs Key), so it stays. Which model NGX then uses is NGX's to say in Streamline's log, not checked here"
+areas = ["graphics", "ui"]
+paths = ["engine/nvforever/src/dlss/**", "engine/nvforever/src/upscaler*", "engine/nvforever/src/upscaler/**", "engine/nvforever/src/graphics.rs", "engine/nvforever/src/settings.rs", "engine/nvforever/src/main.rs", "engine/nvf-play/src/settings.rs", "engine/nvf-play/src/settings_layout.rs"]
+requires = ["NVF_DLSS_DIR"]
+env = { WGPU_BACKEND = "vulkan", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:23", NVF_PLAY_TEST_SETTINGS = "11:dlss-model=J,13:dlss-model=K,15:dlss-model=L,17:dlss-model=M,19:dlss-model=Default" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--size", "1280x720", "--upscaler", "dlss", "--upscaler-quality", "quality", "--no-voice", "--no-lodgen"]
+run_seconds = 24
+expect = [
+  "upscaler: DLSS Quality asked for, DLSS Quality draws",
+  "settings: dlss-model J",
+  "settings: dlss-model M",
+  "settings: dlss-model Default",
+  { re = 'DLSS: evaluates: [1-9]\d* ok, 0 failed; options set again (\d+) times; resources freed 0 times when DLSS stopped drawing', range = [5, 1000], label = "every evaluate ok, the options set again at least once per model; nothing freed for a model change" },
+  "DLSS: shutdown: slFreeResources(DLSS, viewport 0) eOk",
+]
+order = [[
+  { re = 'DLSS: options: Quality \(MaxQuality\), 1280x720 output, HDR on, model Default \(auto exposure on, alpha upscaling off\)', label = "options with Default at start" },
+  { re = 'DLSS: evaluate active: Quality \(MaxQuality\), 1280x720 output, HDR on, 853x480 -> 1280x720, optimal 853x480, min \d+x\d+ max \d+x\d+, model Default', label = "DLSS draws with Default at start" },
+  { re = 'DLSS: output observed: Quality \(MaxQuality\), 1280x720 output, HDR on, generation 1, mean RGB .* texels, model Default', label = "its output seen (generation 1)" },
+  { text = "settings: dlss-model J", label = "J picked" },
+  { re = 'DLSS: recreate: Quality \(MaxQuality\), 1280x720 output, HDR on -> Quality \(MaxQuality\), 1280x720 output, HDR on: GPU drained, slFreeResources\(DLSS, viewport 0\) eOk \(model Default -> J\)', label = "Default to J: drained and freed before the options are set again" },
+  { re = 'DLSS: options: Quality \(MaxQuality\), 1280x720 output, HDR on, model J \(auto exposure on, alpha upscaling off\)', label = "options with J" },
+  { re = 'DLSS: evaluate active: Quality \(MaxQuality\), 1280x720 output, HDR on, 853x480 -> 1280x720, optimal 853x480, min \d+x\d+ max \d+x\d+, model J', label = "DLSS draws with J" },
+  { re = 'DLSS: output observed: Quality \(MaxQuality\), 1280x720 output, HDR on, generation 2, mean RGB .* texels, model J', label = "its output seen (generation 2)" },
+  { text = "settings: dlss-model K", label = "K picked" },
+  { re = 'DLSS: recreate: Quality \(MaxQuality\), 1280x720 output, HDR on -> Quality \(MaxQuality\), 1280x720 output, HDR on: GPU drained, slFreeResources\(DLSS, viewport 0\) eOk \(model J -> K\)', label = "J to K: drained and freed before the options are set again" },
+  { re = 'DLSS: options: Quality \(MaxQuality\), 1280x720 output, HDR on, model K \(auto exposure on, alpha upscaling off\)', label = "options with K" },
+  { re = 'DLSS: evaluate active: Quality \(MaxQuality\), 1280x720 output, HDR on, 853x480 -> 1280x720, optimal 853x480, min \d+x\d+ max \d+x\d+, model K', label = "DLSS draws with K" },
+  { re = 'DLSS: output observed: Quality \(MaxQuality\), 1280x720 output, HDR on, generation 3, mean RGB .* texels, model K', label = "its output seen (generation 3)" },
+  { text = "settings: dlss-model L", label = "L picked" },
+  { re = 'DLSS: recreate: Quality \(MaxQuality\), 1280x720 output, HDR on -> Quality \(MaxQuality\), 1280x720 output, HDR on: GPU drained, slFreeResources\(DLSS, viewport 0\) eOk \(model K -> L\)', label = "K to L: drained and freed before the options are set again" },
+  { re = 'DLSS: options: Quality \(MaxQuality\), 1280x720 output, HDR on, model L \(auto exposure on, alpha upscaling off\)', label = "options with L" },
+  { re = 'DLSS: evaluate active: Quality \(MaxQuality\), 1280x720 output, HDR on, 853x480 -> 1280x720, optimal 853x480, min \d+x\d+ max \d+x\d+, model L', label = "DLSS draws with L" },
+  { re = 'DLSS: output observed: Quality \(MaxQuality\), 1280x720 output, HDR on, generation 4, mean RGB .* texels, model L', label = "its output seen (generation 4)" },
+  { text = "settings: dlss-model M", label = "M picked" },
+  { re = 'DLSS: recreate: Quality \(MaxQuality\), 1280x720 output, HDR on -> Quality \(MaxQuality\), 1280x720 output, HDR on: GPU drained, slFreeResources\(DLSS, viewport 0\) eOk \(model L -> M\)', label = "L to M: drained and freed before the options are set again" },
+  { re = 'DLSS: options: Quality \(MaxQuality\), 1280x720 output, HDR on, model M \(auto exposure on, alpha upscaling off\)', label = "options with M" },
+  { re = 'DLSS: evaluate active: Quality \(MaxQuality\), 1280x720 output, HDR on, 853x480 -> 1280x720, optimal 853x480, min \d+x\d+ max \d+x\d+, model M', label = "DLSS draws with M" },
+  { re = 'DLSS: output observed: Quality \(MaxQuality\), 1280x720 output, HDR on, generation 5, mean RGB .* texels, model M', label = "its output seen (generation 5)" },
+  { text = "settings: dlss-model Default", label = "Default picked" },
+  { re = 'DLSS: recreate: Quality \(MaxQuality\), 1280x720 output, HDR on -> Quality \(MaxQuality\), 1280x720 output, HDR on: GPU drained, slFreeResources\(DLSS, viewport 0\) eOk \(model M -> Default\)', label = "M to Default: drained and freed before the options are set again" },
+  { re = 'DLSS: options: Quality \(MaxQuality\), 1280x720 output, HDR on, model Default \(auto exposure on, alpha upscaling off\)', label = "options with Default again" },
+  { re = 'DLSS: evaluate active: Quality \(MaxQuality\), 1280x720 output, HDR on, 853x480 -> 1280x720, optimal 853x480, min \d+x\d+ max \d+x\d+, model Default', label = "DLSS draws with Default again" },
+  { re = 'DLSS: output observed: Quality \(MaxQuality\), 1280x720 output, HDR on, generation 6, mean RGB .* texels, model Default', label = "its output seen (generation 6)" }
+]]
+forbid = [{ re = 'DLSS: output not (observed|valid)' }, "DLSS: NGX reported an evaluate error", "dlss_output_proof", { text = "DLSS: free:", label = "DLSS's resources freed as if it stopped drawing" }, { text = "settings: dlss-model has no such choice", label = "a model not taken" }, { text = "slEvaluateFeature: ", label = "a failed evaluate" }, { text = "slDLSSSetOptions: ", label = "options refused" }, { text = "frames running without DLSS's output", label = "DLSS given up on" }, { text = "FSR dispatch active", label = "FSR drawing in a DLSS session" }, { re = 'DLSS: render size .* outside the range DLSS reports', label = "a render size DLSS does not take" }, { text = "Shader validation error", label = "a shader validation error" }, { text = "Validation Error", label = "a Vulkan validation error" }]
+
+[[scenario]]
+name = "dlss-resize"
+source = "#2198, docs/design/dlss-upscaling.md: the window resized to 1600x900 with DLSS on, then Ultra Performance and back to Quality: DLSS's options set again for each output size and mode after the GPU is drained, as fsr-resize does for FSR"
+note = "needs NVF_DLSS_DIR (NVIDIA's files)."
+areas = ["graphics", "ui"]
+paths = ["engine/nvforever/src/dlss/**", "engine/nvforever/src/upscaler*", "engine/nvforever/src/upscaler/**", "engine/nvforever/src/window_mode.rs", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings_layout.rs", "engine/nvf-play/src/settings_view.rs"]
+requires = ["NVF_DLSS_DIR"]
+env = { WGPU_BACKEND = "vulkan", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:21", NVF_PLAY_TEST_SETTINGS = "11:resolution=1600x900,15:fsr-upscaling=DLSS Ultra Performance,17:fsr-upscaling=DLSS Quality", NVF_PLAY_TEST_PAUSE_MENU = "13:keep" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--size", "1280x720", "--upscaler", "dlss", "--upscaler-quality", "quality", "--no-voice", "--no-lodgen"]
+run_seconds = 23
+expect = [{ re = 'DLSS: output observed: .*, generation 1, mean RGB', label = "DLSS's output seen after the black pre-clear, so NGX wrote it (dlss/evaluate.rs output proof)" }, { re = 'DLSS: output observed: .*, generation [2-9]\d*, mean RGB', label = "and again after the options were set again" }, 
+  { re = 'DLSS: evaluate active: Quality \(MaxQuality\), 1280x720 output, HDR on, 853x480 -> 1280x720', label = "Quality at 1280x720" },
+  { re = 'DLSS: recreate: .* -> Quality \(MaxQuality\), 1600x900 output, HDR on: GPU drained, slFreeResources\(DLSS, viewport 0\) eOk', label = "the new output size: drained and freed before the options are set again" },
+  { re = 'DLSS: evaluate active: Quality \(MaxQuality\), 1600x900 output, HDR on, \d+x\d+ -> 1600x900', label = "Quality at 1600x900" },
+  { re = 'DLSS: recreate: .* -> Ultra Performance \(UltraPerformance\), 1600x900 output, HDR on: GPU drained, slFreeResources\(DLSS, viewport 0\) eOk', label = "to Ultra Performance at 1600x900" },
+  { re = 'DLSS: evaluate active: Ultra Performance \(UltraPerformance\), 1600x900 output, HDR on, \d+x\d+ -> 1600x900', label = "Ultra Performance in DLSS's own mode, no fallback" },
+  { re = 'DLSS: evaluates: ([1-9]\d*) ok, 0 failed', label = "evaluates ok, none failed" },
+  "DLSS: shutdown: slFreeResources(DLSS, viewport 0) eOk",
+]
+order = [[{ re = 'DLSS: output observed: Quality \(MaxQuality\), 1280x720 output, HDR on, generation 1,' }, { re = 'DLSS: output observed: Quality \(MaxQuality\), 1600x900 output, HDR on, generation 2,' }, { re = 'DLSS: output observed: Ultra Performance \(UltraPerformance\), 1600x900 output, HDR on, generation 3,' }, { re = 'DLSS: output observed: Quality \(MaxQuality\), 1600x900 output, HDR on, generation 4,' }]]
+forbid = [{ re = 'DLSS: output not (observed|valid)' }, "DLSS: NGX reported an evaluate error", "dlss_output_proof", { text = "FSR dispatch active", label = "FSR drawing in a DLSS session" }, { text = "slEvaluateFeature: ", label = "a failed evaluate" }, { text = "frames running without DLSS's output", label = "DLSS given up on" }, { re = 'DLSS: render size .* outside the range DLSS reports', label = "a render size DLSS does not take" }, { text = "Shader validation error", label = "a shader validation error" }, { text = "Validation Error", label = "a Vulkan validation error" }]
+
+[[scenario]]
+name = "dlss-frame-generation"
+source = "#2198, docs/design/frame-generation.md: frame generation asked for with DLSS drawing is held off (FSR's frame generation runs only with FSR drawing); DLSS draws as usual"
+note = "needs NVF_DLSS_DIR (NVIDIA's files)"
+areas = ["graphics"]
+paths = ["engine/nvforever/src/dlss/**", "engine/nvforever/src/upscaler*", "engine/nvforever/src/upscaler/**", "engine/nvforever/src/frame_gen.rs", "engine/nvforever/src/fg_presenter.rs"]
+requires = ["NVF_DLSS_DIR"]
+env = { WGPU_BACKEND = "vulkan", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--size", "1280x720", "--upscaler", "dlss", "--upscaler-quality", "quality", "--frame-generation", "--no-voice", "--no-lodgen"]
+run_seconds = 14
+expect = [
+  { text = "frame generation: on but not running (Not with DLSS)", label = "held off while DLSS draws" },
+  { re = 'DLSS: evaluate active: Quality \(MaxQuality\), 1280x720 output, HDR on, 853x480 -> 1280x720', label = "DLSS draws" },
+  { re = 'DLSS: evaluates: ([1-9]\d*) ok, 0 failed', label = "evaluates ok, none failed" },
+]
+forbid = [{ text = "frame generation active", label = "frame generation running with DLSS" }, { text = "frame generation: presenting on a thread of its own", label = "a frame generation presenter with DLSS" }, { text = "FSR dispatch active", label = "FSR drawing in a DLSS session" }, { text = "slEvaluateFeature: ", label = "a failed evaluate" }, { text = "Validation Error", label = "a Vulkan validation error" }, { text = "Caught rendering error", label = "a rendering error" }]
+
+[[scenario]]
+name = "dlss-aa-lock"
+source = "#2198, docs/design/dlss-upscaling.md: DLSS Native AA (DLAA) turns the engine's anti-aliasing off and locks its row as FSR does (fsr-aa-lock); Off picked then draws natively at once and the saved 8x multisampling comes back, as fsr-aa-lock has it for FSR"
+note = "needs NVF_DLSS_DIR (NVIDIA's files). Since every switch is live with Streamline loaded (#2198's play-test), Off no longer waits for a restart: the expectation that DLSS kept drawing and the forbid on 8x coming back became the expectations that native draws and 8x is back, as in fsr-aa-lock. fsr-upscaling=Off is the older key, still taken by the test aid (logged under it)"
+areas = ["graphics", "ui"]
+paths = ["engine/nvforever/src/dlss/**", "engine/nvforever/src/upscaler*", "engine/nvforever/src/upscaler/**", "engine/nvforever/src/graphics.rs", "engine/nvforever/src/settings.rs", "engine/nvf-play/src/settings.rs", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings_layout.rs", "engine/nvf-play/src/settings_view.rs"]
+requires = ["NVF_DLSS_DIR"]
+env = { WGPU_BACKEND = "vulkan", NVFOREVER_HOME = "dlss-aa-lock-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:19", NVF_PLAY_TEST_SETTINGS = "11:anti-aliasing=0,14:fsr-upscaling=Off", NVF_PLAY_TEST_PAUSE_MENU = "12:shot" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--size", "1280x720", "--msaa", "8", "--upscaler", "dlss", "--upscaler-quality", "native-aa", "--no-voice", "--no-lodgen"]
+run_seconds = 21
+expect = [{ re = 'DLSS: output observed: .*, generation 1, mean RGB', label = "DLSS's output seen after the black pre-clear, so NGX wrote it (dlss/evaluate.rs output proof)" }, 
+  "graphics: DLSS NativeAa active; native anti-aliasing off",
+  { re = 'DLSS: evaluate active: Native AA \(DLAA\), 1280x720 output, HDR on, \d+x\d+ -> 1280x720', label = "DLAA draws" },
+  "pause menu: screenshot pause_settings.png",
+  "settings: fsr-upscaling Off",
+  { text = "upscaler: Off asked for, Off draws", label = "Off draws natively at once" },
+  { text = "graphics: multisampling 8x", label = "the saved 8x is back once DLSS is off" },
+  { text = "DLSS: free: DLSS stopped drawing: GPU drained, slFreeResources(DLSS, viewport 0) eOk", label = "DLSS's resources freed once Off draws (dlss/evaluate.rs `Evaluator::release`)" },
+  { re = 'DLSS: evaluates: ([1-9]\d*) ok, 0 failed', label = "evaluates ok, none failed" },
+]
+order = [["graphics: DLSS NativeAa active; native anti-aliasing off", "settings: fsr-upscaling Off", "graphics: multisampling 8x"]]
+forbid = [{ re = 'DLSS: output not (observed|valid)' }, "DLSS: NGX reported an evaluate error", "dlss_output_proof", { text = "settings: anti-aliasing Off", label = "the locked anti-aliasing row taking an edit" }, { text = "until the next start", label = "a switch waiting for a restart with Streamline loaded" }, { text = "FSR dispatch active", label = "FSR drawing in a DLSS session" }, { text = "slEvaluateFeature: ", label = "a failed evaluate" }, { text = "Shader validation error", label = "a shader validation error" }, { text = "Validation Error", label = "a Vulkan validation error" }]
+
+[[scenario]]
+name = "dlss-live-switch"
+source = "#2198's play-test, docs/design/dlss-upscaling.md \"Switching\": with NVIDIA's files in the folder the start loads Streamline although FSR is chosen; DLSS picked on the Upscaler row then draws at once (its output observed), FSR picked again draws at once and DLSS's resources are freed, and DLSS picked once more sets its options again and draws (its output observed again, generation 2), without a restart"
+note = "needs NVF_DLSS_DIR (NVIDIA's files): the files alone load the loader (no NVF_DLSS_PRELOAD). The picks use the two rows' own keys (settings: upscaler <name>). Leaving DLSS for FSR frees DLSS's resources at once (dlss/evaluate.rs `Evaluator::release`, the free: line). Back to DLSS after that release: the options are set again without a recreate (nothing held, so options set again stays 0), a new output-proof generation (2) is observed, and the shutdown frees the resources DLSS holds again; the forbid on a shutdown free became that expectation when the return to DLSS was added (2026-11-12, the review's coverage gap)"
+areas = ["graphics", "ui"]
+paths = ["engine/nvforever/src/dlss/**", "engine/nvforever/src/upscaler*", "engine/nvforever/src/upscaler/**", "engine/nvforever/src/settings.rs", "engine/nvforever/src/main.rs", "engine/nvforever/src/fsr*", "engine/nvf-play/src/settings.rs", "engine/nvf-play/src/pause.rs"]
+requires = ["NVF_DLSS_DIR"]
+env = { WGPU_BACKEND = "vulkan", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:24", NVF_PLAY_TEST_SETTINGS = "12:upscaler=DLSS,16:upscaler=FSR 3.1,19:upscaler=DLSS" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--size", "1280x720", "--upscaler", "fsr", "--upscaler-quality", "quality", "--no-voice", "--no-lodgen"]
+run_seconds = 27
+expect = [
+  "upscaler: FSR 3.1 Quality chosen at start; the DLSS files are in the dlss folder: Streamline loaded before the renderer, so DLSS switches without a restart",
+  "DLSS: route: interposer (the Vulkan instance was made through sl.interposer.dll)",
+  { re = 'DLSS: output observed: Quality \(MaxQuality\), 1280x720 output, HDR on, generation 1, mean RGB', label = "DLSS's output seen after the live switch" },
+  "settings: upscaler DLSS",
+  "settings: upscaler FSR 3.1",
+  { re = 'DLSS: evaluates: ([1-9]\d*) ok, 0 failed; options set again 0 times; resources freed 1 times when DLSS stopped drawing', label = "evaluates ok, none failed; freed once on leaving DLSS" },
+  { text = "DLSS: shutdown: slFreeResources(DLSS, viewport 0) eOk", label = "the resources DLSS holds again after the return freed at shutdown" },
+  "DLSS: shutdown done: Streamline down before the Vulkan device and instance were released",
+]
+order = [[
+  { text = "upscaler: FSR 3.1 Quality asked for, FSR 3.1 Quality draws", label = "FSR at start" },
+  { text = "FSR dispatch active: 3.1.4, 853x480 -> 1280x720", label = "FSR draws through the interposer" },
+  { text = "upscaler: DLSS Quality asked for, DLSS Quality draws", label = "DLSS at once" },
+  { re = 'DLSS: evaluate active: Quality \(MaxQuality\), 1280x720 output, HDR on, 853x480 -> 1280x720', label = "DLSS draws in its own pass" },
+  { text = "upscaler: FSR 3.1 Quality asked for, FSR 3.1 Quality draws", label = "FSR again at once" },
+  { text = "DLSS: free: DLSS stopped drawing: GPU drained, slFreeResources(DLSS, viewport 0) eOk", label = "DLSS's resources freed once DLSS stopped drawing" },
+  { text = "upscaler: DLSS Quality asked for, DLSS Quality draws", label = "DLSS again at once after the release" },
+  { re = 'DLSS: options: Quality \(MaxQuality\), 1280x720 output, HDR on, model Default \(auto exposure on, alpha upscaling off\)', label = "the options set again after the release" },
+  { re = 'DLSS: evaluate active: Quality \(MaxQuality\), 1280x720 output, HDR on, 853x480 -> 1280x720', label = "DLSS draws again in its own pass" },
+  { re = 'DLSS: output observed: Quality \(MaxQuality\), 1280x720 output, HDR on, generation 2, mean RGB', label = "its output seen again (generation 2)" },
+]]
+forbid = [{ text = "until the next start", label = "a switch waiting for a restart" }, { text = "settings: upscaler DLSS not taken", label = "DLSS held out of reach" }, { re = 'DLSS: recreate: ', label = "a recreate on the return: the release left nothing to free first" }, { re = 'DLSS: output not (observed|valid)' }, "DLSS: NGX reported an evaluate error", "dlss_output_proof", { text = "slEvaluateFeature: ", label = "a failed evaluate" }, { text = "frames running without DLSS's output", label = "DLSS given up on" }, { text = "FSR dispatch failed", label = "FSR failing" }, { text = "Validation Error", label = "a Vulkan validation error" }, { text = "Caught rendering error", label = "a rendering error" }]
+
+[[scenario]]
+name = "dlss-restart-pick"
+source = "#2198, docs/design/dlss-upscaling.md \"Switching\": the restart that remains: a session that started without Streamline (NVF_DLSS_PRELOAD=0, as when the files were put in the folder after the start) keeps DLSS Quality picked in the INI and waits for the next start; FSR keeps drawing and Streamline is not loaded. dlss-restart starts in the same home"
+note = "the first half of a pair with dlss-restart (they share NVFOREVER_HOME, so they run in this order). Gated on NVF_DLSS_DIR with it: the files must be there for a restart to bring DLSS (without them DLSS is held out as files-missing), and without dlss-restart it proves only half. NVF_DLSS_PRELOAD=0 keeps the loader out although the files are there; since #2198's play-test the files alone load it, so the start's line names the aid. The Upscaler row shows DLSS (restart) (settings.rs `upscaler_label`); the log's line is the status's. fsr-upscaling=DLSS Quality is the older key, still taken by the test aid; the INI gets the rows' own keys"
+areas = ["graphics", "ui"]
+paths = ["engine/nvforever/src/dlss/**", "engine/nvforever/src/upscaler*", "engine/nvforever/src/upscaler/**", "engine/nvforever/src/settings.rs", "engine/nvf-play/src/settings.rs", "engine/nvforever/src/main.rs"]
+requires = ["NVF_DLSS_DIR"]
+env = { WGPU_BACKEND = "vulkan", NVFOREVER_HOME = "dlss-restart-home", NVF_DLSS_PRELOAD = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:15", NVF_PLAY_TEST_SETTINGS = "11:fsr-upscaling=DLSS Quality" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--size", "1280x720", "--upscaler", "fsr", "--upscaler-quality", "quality", "--no-voice", "--no-lodgen"]
+run_seconds = 17
+expect = [
+  "upscaler: FSR 3.1 Quality chosen at start; NVF_DLSS_PRELOAD=0: Streamline not loaded (DLSS takes a restart)",
+  "FSR dispatch active: 3.1.4, 853x480 -> 1280x720",
+  "settings: fsr-upscaling DLSS Quality",
+  { text = "upscaler: DLSS Quality asked for, FSR 3.1 Quality draws until the next start", label = "DLSS waits for the next start; FSR keeps drawing" },
+]
+forbid = [{ text = "settings: fsr-upscaling DLSS Quality not taken", label = "the DLSS choice held out of reach" }, { re = 'DLSS: (folder |inactive:|slInit:|route:)', label = "the DLSS loader run without DLSS chosen at start" }, { re = 'graphics: DLSS \w+ active', label = "DLSS put on the camera in a session without Streamline" }, { text = "FSR dispatch failed", label = "FSR failing" }, { text = "Validation Error", label = "a Vulkan validation error" }]
+
+[[scenario]]
+name = "dlss-restart"
+source = "#2198, docs/design/dlss-upscaling.md \"Switching\": a cold start in dlss-restart-pick's home starts with DLSS Quality from the INI's upscaler and upscaler-quality lines (no --upscaler or --fsr given: in a test run a given switch wins over the INI) and DLSS draws"
+note = "runs after dlss-restart-pick in the same home; needs NVF_DLSS_DIR (NVIDIA's files)."
+areas = ["graphics", "ui"]
+paths = ["engine/nvforever/src/dlss/**", "engine/nvforever/src/upscaler*", "engine/nvforever/src/upscaler/**", "engine/nvforever/src/settings.rs", "engine/nvf-play/src/settings.rs", "engine/nvforever/src/main.rs"]
+requires = ["NVF_DLSS_DIR"]
+env = { WGPU_BACKEND = "vulkan", NVFOREVER_HOME = "dlss-restart-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--size", "1280x720", "--no-voice", "--no-lodgen"]
+run_seconds = 12
+expect = [{ re = 'DLSS: output observed: .*, generation 1, mean RGB', label = "DLSS's output seen after the black pre-clear, so NGX wrote it (dlss/evaluate.rs output proof)" }, 
+  { text = "upscaler: DLSS Quality chosen at start: Streamline loaded before the renderer", label = "the INI's DLSS Quality read before the renderer" },
+  "DLSS: route: interposer (the Vulkan instance was made through sl.interposer.dll)",
+  "upscaler: DLSS Quality asked for, DLSS Quality draws",
+  { re = 'DLSS: evaluate active: Quality \(MaxQuality\), 1280x720 output, HDR on, 853x480 -> 1280x720', label = "DLSS draws Quality, as the INI asked" },
+  { re = 'DLSS: evaluates: ([1-9]\d*) ok, 0 failed', label = "evaluates ok after the restart, none failed" },
+]
+forbid = [{ re = 'DLSS: output not (observed|valid)' }, "DLSS: NGX reported an evaluate error", "dlss_output_proof", { text = "FSR dispatch active", label = "FSR drawing in a DLSS session" }, { text = "slEvaluateFeature: ", label = "a failed evaluate" }, { text = "Validation Error", label = "a Vulkan validation error" }]
+
+[[scenario]]
+name = "dlss-preload-fsr"
+source = "#2198, docs/design/dlss-upscaling.md: NVF_DLSS_PRELOAD=1 loads Streamline with FSR chosen; FSR Quality and FSR's frame generation then run with the device made through Streamline's interposer, and DLSS never evaluates"
+note = "needs NVF_DLSS_DIR (NVIDIA's files)"
+areas = ["graphics"]
+paths = ["engine/nvforever/src/dlss/**", "engine/nvforever/src/upscaler*", "engine/nvforever/src/upscaler/**", "engine/nvforever/src/fsr*", "engine/nvforever/src/frame_gen.rs", "engine/nvforever/src/fg_presenter.rs", "engine/vendor/wgpu-ffx/**"]
+requires = ["NVF_DLSS_DIR"]
+env = { WGPU_BACKEND = "vulkan", NVF_DLSS_PRELOAD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_MOVE = "4:0:1,9:0.5:-1" }
+args = ["--cell", "Goodsprings", "--play", "--size", "1280x720", "--fsr", "quality", "--frame-generation", "--no-voice", "--no-lodgen"]
+run_seconds = 20
+expect = [
+  "upscaler: FSR 3.1 Quality chosen at start; NVF_DLSS_PRELOAD=1: Streamline loaded before the renderer all the same",
+  "DLSS: route: interposer (the Vulkan instance was made through sl.interposer.dll)",
+  "upscaler: FSR 3.1 Quality asked for, FSR 3.1 Quality draws",
+  "FSR 3.1.4: Quality, 853x480 -> 1280x720, frame generation on",
+  "FSR dispatch active: 3.1.4, 853x480 -> 1280x720",
+  "frame generation active: 1280x720, generated frame presented first, the real frame second",
+  { re = 'frame generation: [1-9]\d* real frames and [1-9]\d* generated in ', label = "generated frames presented through the interposer's device" },
+  { text = "DLSS: evaluates: 0 ok, 0 failed", label = "DLSS never evaluated" },
+  "DLSS: shutdown done: Streamline down before the Vulkan device and instance were released",
+]
+forbid = [{ text = "DLSS: evaluate active", label = "a DLSS evaluate with FSR chosen" }, { re = 'graphics: DLSS \w+ active', label = "DLSS put on the camera" }, { text = "frame generation: on but not running", label = "frame generation held off" }, { text = "FSR dispatch failed", label = "FSR failing" }, { text = "FSR 3.1 unavailable", label = "FSR unavailable through the interposer" }, { text = "Validation Error", label = "a Vulkan validation error" }, { text = "Caught rendering error", label = "a rendering error" }]
 
 # [design: issue #1803] Compare identical first raises with and without hidden draws.
 [[scenario]]
@@ -25948,4 +26337,35 @@ expect = [
   { json = "errors.#", schema = "fnv.bsa.listing/1", equals = 0, label = "every file decodes (no path stripped from a block)" },
   { json = "roundtrip_identical", schema = "fnv.bsa.verify/1", equals = true, label = "it rewrites as 103, byte for byte" },
   { json = "decode_errors.#", schema = "fnv.bsa.verify/1", equals = 0, label = "no decode errors" },
+]
+
+[[scenario]]
+name = "audio-reads-off-main-thread"
+source = "issue #1993: music and ambient loop files are read on the IO pool, not in the frame that starts them; each read logs its size and time (the stall the main thread used to take), and the track starts once its files are in (engine/nvf-play/src/file_bytes.rs)"
+note = "The music scenario's place: Goodsprings at noon, where musSetLOCDesExplBothABC plays three stems and the placed and background loops start"
+areas = ["audio", "music"]
+paths = ["engine/nvf-play/src/file_bytes.rs", "engine/nvf-play/src/music.rs", "engine/nvf-play/src/ambient.rs", "engine/nvf-play/src/radio.rs"]
+args = ["--cell", "Goodsprings", "--play", "--pos=-69000,3500,8900", "--hour", "12"]
+run_seconds = 40
+expect = [
+  { re = 'music: read music.+ off the main thread: \d+ KB in [0-9.]+ ms', count = 3, label = "the track's three stems are read off the main thread" },
+  { re = 'ambient: read sound.+ off the main thread: \d+ KB in [0-9.]+ ms', label = "the loops' files too" },
+  { text = "music summary: 1 started, 0 changes of layers, 0 files not played", label = "the track still starts, with every file played" },
+]
+order = [[
+  { re = 'music: read music.+ off the main thread', label = "its files are read first" },
+  { text = "music: musSetLOCDesExplBothABC day started, layers outer+middle+inner", label = "then the track starts, with its three layers" },
+]]
+
+[[scenario]]
+name = "holster-turn-faces-player"
+source = "issue #2246 (TTW: Lucas Simms, a holstered 2ha rifle, talked with his chest 90° off the player): the 2ha/2hh Holster clips turn Bip01 90° with no Bip01 NonAccum track, doubling the idle's pelvis turn; docs/spec-notes/floating-actors.md §8. Sunny Smiles is given a flamer (2hh, holstered) and greets the player at the saloon door: her chest stays on the player (-86° before the fix, +4° after)"
+areas = ["actors", "animation", "dialogue"]
+paths = ["engine/nvf-assets/src/anim_play.rs", "engine/nvforever/src/dialogue_look.rs", "engine/nvforever/src/weapons.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "2:call:SunnyRef:AddItem:WeapFlamer:1,2.5:call:SunnyRef:EquipItem:WeapFlamer,14:activate:ProspectorSaloonDoor", NVF_PLAY_TEST_TALK = "5:*=0", NVF_PLAY_TEST_TALK_DELAY = "3" }
+args = ["--cell", "Goodsprings", "--play", "--npc-packages", "SunnyRef", "--no-voice"]
+run_seconds = 45
+expect = [
+  "dialogue: conversation with SunnyRef started (topic GREETING)",
+  { re = 'dialogue look: SunnyRef stops facing the player: .*; its chest is (?P<n>[+-]?\d+)° off the player', range = [-20, 20], label = "Sunny's chest on the player after the conversation (holstered 2hh)" },
 ]

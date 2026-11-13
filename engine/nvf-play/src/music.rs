@@ -392,8 +392,12 @@ pub fn incidental_wait(set: &audio::MediaSet, day: bool, r: f32) -> f32 {
 struct Track {
     key: Key,
     name: String,
-    /// `None`: no file of it could be played.
+    /// `None`: no file of it could be played, or its files are still being read
+    /// ([`Track::waiting`]).
     entity: Option<Entity>,
+    /// The stems still to come off the IO pool (layer, archive path) and whether it
+    /// loops: the track's sound starts when they are all in (#1993).
+    waiting: Option<(Vec<(usize, String)>, bool)>,
     levels: Arc<[AtomicU32; 3]>,
     /// How far each layer is faded in, 0–1.
     level: [f32; 3],
@@ -662,64 +666,40 @@ impl Music {
         Some(files[k.min(files.len() - 1)].clone())
     }
 
-    fn bytes(&mut self, vfs: &fnv_vfs::Vfs, file: &str) -> Option<Arc<[u8]>> {
-        let Some(path) = self.path(vfs, file) else {
-            if self.reported.insert(file.to_string()) {
-                warn!("music: no files in music\\{file}");
-            }
-            return None;
-        };
-        self.files.get_or_read(&path, || match vfs.read(&path) {
-            Some(Ok(b)) => Some(Arc::<[u8]>::from(b)),
-            Some(Err(e)) => {
-                warn!("music: {path}: {e}");
-                None
-            }
-            None => {
-                warn!("music: {path}: not in the game's files");
-                None
-            }
-        })
+    /// The archive path of a music file, warning once when a folder has none.
+    fn file_path(&mut self, vfs: &fnv_vfs::Vfs, file: &str) -> Option<String> {
+        let path = self.path(vfs, file);
+        if path.is_none() && self.reported.insert(file.to_string()) {
+            warn!("music: no files in music\\{file}");
+        }
+        path
     }
 
-    /// Start what is wanted, silent, with its layers fading in.
-    fn start(&mut self, commands: &mut Commands, vfs: &fnv_vfs::Vfs, assets: &mut Assets<LayeredMusic>, w: &Wanted, now: f32) -> Track {
+    /// Whether a music file is there to be played (its folder has a file, the archives
+    /// have it and it was not found unreadable), without reading it.
+    fn playable(&mut self, vfs: &fnv_vfs::Vfs, file: &str) -> bool {
+        self.file_path(vfs, file).is_some_and(|p| vfs.exists(&p) && !matches!(self.files.peek(&p), Some(None)))
+    }
+
+    /// Start what is wanted, silent, with its layers fading in. Its files are read off
+    /// the main thread (`FileBytes::fetch`); the sound starts once they are all in
+    /// ([`Music::finish`]), this frame when they were kept already.
+    fn start(&mut self, commands: &mut Commands, vfs: &Arc<fnv_vfs::Vfs>, assets: &mut Assets<LayeredMusic>, w: &Wanted, now: f32) -> Track {
         let levels: Arc<[AtomicU32; 3]> = Arc::new([AtomicU32::new(0), AtomicU32::new(0), AtomicU32::new(0)]);
-        let mut stems: Vec<(usize, Arc<[u8]>)> = Vec::new();
-        let mut format: Option<(ChannelCount, SampleRate)> = None;
+        let mut paths = Vec::new();
         for (k, file) in w.files.iter().enumerate() {
             let Some(file) = file else { continue };
-            let Some(bytes) = self.bytes(vfs, file) else {
-                self.failed += 1;
-                continue;
-            };
-            match (open(&bytes).map(|d| (d.channels(), d.sample_rate())), format) {
-                (Some(f), None) => format = Some(f),
-                (Some(f), Some(first)) if f == first => {}
-                (f, _) => {
-                    self.failed += 1;
-                    if self.reported.insert(file.clone()) {
-                        warn!("music: {file}: {}", if f.is_some() { "another format than the set's first file" } else { "not decoded" });
-                    }
-                    continue;
-                }
+            match self.file_path(vfs, file) {
+                Some(p) => paths.push((k, p)),
+                None => self.failed += 1,
             }
-            stems.push((k, bytes));
         }
-        let entity = format.map(|(channels, rate)| {
-            let music = assets.add(LayeredMusic { stems, levels: levels.clone(), channels, rate, looping: w.looping, start: 0.0 });
-            commands.spawn((AudioPlayer::<LayeredMusic>(music), PlaybackSettings::DESPAWN, MusicSound, SoundCategory::Music)).id()
-        });
         self.started += 1;
-        let layers: Vec<&str> = (0..3).filter(|&k| w.on[k] && w.files[k].is_some()).map(|k| w.layers[k]).collect();
-        match entity {
-            Some(_) => info!("music: {} started, layers {}", w.name, layers.join("+")),
-            None => info!("music: {}: none of its files can be played", w.name),
-        }
-        Track {
+        let mut t = Track {
             key: w.key,
             name: w.name.clone(),
-            entity,
+            entity: None,
+            waiting: Some((paths, w.looping)),
             levels,
             level: [0.0; 3],
             target: w.on.map(|on| on as u8 as f32),
@@ -728,7 +708,63 @@ impl Music {
             min_on: w.min_on,
             on_since: [now; 3],
             layer_names: w.layers,
+        };
+        let layers: Vec<&str> = (0..3).filter(|&k| w.on[k] && w.files[k].is_some()).map(|k| w.layers[k]).collect();
+        t.layer_names = w.layers;
+        self.finish(commands, vfs, assets, &mut t, &layers.join("+"));
+        t
+    }
+
+    /// Start `t`'s sound if its files are all in (logging it started, with `layers`, or
+    /// that none of its files can be played); else leave it waiting.
+    fn finish(&mut self, commands: &mut Commands, vfs: &Arc<fnv_vfs::Vfs>, assets: &mut Assets<LayeredMusic>, t: &mut Track, layers: &str) {
+        let Some((paths, looping)) = t.waiting.as_ref() else { return };
+        // Every stem is asked for, so their reads run side by side.
+        let (mut got, mut waiting) = (Vec::new(), false);
+        for (k, p) in paths {
+            match self.files.fetch(p, vfs, "music") {
+                crate::file_bytes::Got::Pending => waiting = true,
+                crate::file_bytes::Got::Ready(b) => got.push((*k, p.clone(), b)),
+            }
         }
+        if waiting {
+            return;
+        }
+        let looping = *looping;
+        t.waiting = None;
+        let mut stems: Vec<(usize, Arc<[u8]>)> = Vec::new();
+        let mut format: Option<(ChannelCount, SampleRate)> = None;
+        for (k, path, bytes) in got {
+            let Some(bytes) = bytes else {
+                self.failed += 1;
+                continue;
+            };
+            match (open(&bytes).map(|d| (d.channels(), d.sample_rate())), format) {
+                (Some(f), None) => format = Some(f),
+                (Some(f), Some(first)) if f == first => {}
+                (f, _) => {
+                    self.failed += 1;
+                    if self.reported.insert(path.clone()) {
+                        warn!("music: {path}: {}", if f.is_some() { "another format than the set's first file" } else { "not decoded" });
+                    }
+                    continue;
+                }
+            }
+            stems.push((k, bytes));
+        }
+        t.entity = format.map(|(channels, rate)| {
+            let music = assets.add(LayeredMusic { stems, levels: t.levels.clone(), channels, rate, looping, start: 0.0 });
+            commands.spawn((AudioPlayer::<LayeredMusic>(music), PlaybackSettings::DESPAWN, MusicSound, SoundCategory::Music)).id()
+        });
+        match t.entity {
+            Some(_) => info!("music: {} started, layers {layers}", t.name),
+            None => info!("music: {}: none of its files can be played", t.name),
+        }
+    }
+
+    /// The layers `t` plays now, for [`Music::finish`]'s log of a track that waited.
+    fn layers_on(t: &Track) -> String {
+        (0..3).filter(|&k| t.target[k] > 0.0).map(|k| t.layer_names[k]).collect::<Vec<_>>().join("+")
     }
 
     /// Pick one of `sets` at random.
@@ -958,7 +994,7 @@ fn play(
             // music plays (docs/spec-notes/default-objects.md); FalloutNV.esm's names
             // `special\death.mp3`, which is not shipped, so the SOUN below plays.
             let dobj = places.forms.default_objects.get(audio::DEFAULT_DEATH_MUSIC).copied().filter(|&m| m != 0).and_then(|m| places.forms.music.get(&m));
-            if let Some((ty, mut w)) = dobj.and_then(|t| Some((t, wanted_type(t)?))).filter(|(_, w)| w.files.iter().flatten().any(|f| music.bytes(&data.vfs, f).is_some())) {
+            if let Some((ty, mut w)) = dobj.and_then(|t| Some((t, wanted_type(t)?))).filter(|(_, w)| w.files.iter().flatten().any(|f| music.playable(&data.vfs, f))) {
                 info!("music: the player died: the music stops, the default objects' death music {} plays", ty.edid.as_deref().unwrap_or("?"));
                 if audible {
                     w.fade = SCRIPT_FADE;
@@ -991,7 +1027,7 @@ fn play(
     // data nothing plays and the level-up sound alone is heard (default-objects.md).
     if std::mem::take(&mut cues.level_up) && !music.dead {
         let dobj = places.forms.default_objects.get(audio::DEFAULT_LEVEL_UP_MUSIC).copied().filter(|&m| m != 0).and_then(|m| places.forms.music.get(&m));
-        match dobj.and_then(|t| Some((t, wanted_type(t)?))).filter(|(_, w)| w.files.iter().flatten().any(|f| music.bytes(&data.vfs, f).is_some())) {
+        match dobj.and_then(|t| Some((t, wanted_type(t)?))).filter(|(_, w)| w.files.iter().flatten().any(|f| music.playable(&data.vfs, f))) {
             Some((ty, mut w)) => {
                 info!("music: level up: the default objects' level-up music {} plays{}", ty.edid.as_deref().unwrap_or("?"), if audible { "" } else { " [silent: music is off]" });
                 if audible {
@@ -1140,6 +1176,25 @@ fn play(
             }
         }
         None => music.incidental = None,
+    }
+
+    // Tracks whose files were still being read start once they are in (#1993); one
+    // that fades out before then never starts.
+    for slot in [0, 1] {
+        let taken = if slot == 0 { music.current.take() } else { music.script.take() };
+        let Some(mut t) = taken else { continue };
+        if t.waiting.is_some() {
+            let layers = Music::layers_on(&t);
+            music.finish(&mut commands, &data.vfs, &mut assets, &mut t, &layers);
+        }
+        if slot == 0 {
+            music.current = Some(t);
+        } else {
+            music.script = Some(t);
+        }
+    }
+    for t in &mut music.leaving {
+        t.waiting = None;
     }
 
     let dt = time.delta_secs();

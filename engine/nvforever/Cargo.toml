@@ -61,18 +61,23 @@ tracy-client = { version = "0.19", optional = true, default-features = false, fe
 # The first-start dialogs that ask for the game's folder (setup.rs); MIT.
 [target.'cfg(windows)'.dependencies]
 # Player reports (reports/upload.rs): HTTPS through the system's TLS (SChannel, the system's
-# certificates), not rustls, whose ring and webpki parts are ISC/CDLA, outside deny.toml.
-# ureq and native-tls MIT/Apache-2.0, schannel MIT.
-ureq = { version = "3", default-features = false, features = ["native-tls"] }
+# certificates), not rustls. `native-tls-no-default`, not `native-tls`: the latter also
+# bundles webpki's root certificates (webpki-root-certs, CDLA-Permissive-2.0, outside
+# deny.toml), which the reports never use (they ask for RootCerts::PlatformVerifier, the
+# system's roots) (#1998). ureq and native-tls MIT/Apache-2.0, schannel MIT.
+ureq = { version = "3", default-features = false, features = ["native-tls-no-default"] }
 # `common-controls-v6`: the Task Dialog, whose buttons can carry words of our own (the
 # reports popup's "Send reports" / "Not now"); needs the manifest build.rs embeds.
 rfd = { version = "0.15", default-features = false, features = ["common-controls-v6"] }
 # The generated-terrain bake threads' priority (lodgen.rs) and the span profile's processor time
 # (profile.rs), the machine's RAM (memory_budget.rs) and the performance overlay's CPU/GPU use
-# and working set (perf_overlay/usage.rs: performance counters, process memory counters), and a
-# FidelityFX API library loaded from the game's folder (ffx_api.rs: the library loader; its
-# development trace also reads memory regions); a version already in the build; MIT/Apache-2.0.
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Threading", "Win32_System_SystemInformation", "Win32_System_Performance", "Win32_System_ProcessStatus", "Win32_System_Diagnostics_Debug", "Win32_System_Kernel", "Win32_System_LibraryLoader", "Win32_System_Memory"] }
+# and working set (perf_overlay/usage.rs: performance counters, process memory counters),
+# DLSS's library loading and signature check (dlss/: LibraryLoader, WinTrust,
+# Cryptography; the functions themselves are looked up at run time, not linked; FileSystem
+# for the share flag the checked file is opened with) and a FidelityFX API library loaded
+# from the game's folder (ffx_api.rs: LibraryLoader); a version already in the build;
+# MIT/Apache-2.0.
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Threading", "Win32_System_SystemInformation", "Win32_System_Performance", "Win32_System_ProcessStatus", "Win32_System_Diagnostics_Debug", "Win32_System_Kernel", "Win32_System_LibraryLoader", "Win32_Security_WinTrust", "Win32_Security_Cryptography", "Win32_Storage_FileSystem"] }
 
 [build-dependencies]
 # The program icon in the Windows executable (build.rs); MIT.
