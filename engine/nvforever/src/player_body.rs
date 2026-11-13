@@ -3359,7 +3359,7 @@ mod tests {
         assert_eq!(crate::anim_overrides::order_of("1hpattackright_order_x"), ("1hpattackright_order_x".to_string(), 0));
         let up = super::ordered_aim_variant("meshes\\AnimGroupOverride\\J\\_male\\1hpAttackRight_order_1.kf", Aim::Up);
         assert_eq!(up, "meshes\\AnimGroupOverride\\J\\_male\\1hpAttackRightup_order_1.kf");
-        assert_eq!(super::ordered_aim_variant("a\\2hrattackleft.kf", Aim::Up), aim_variant("a\\2hrattackleft.kf", Aim::Up));
+        assert_eq!(super::ordered_aim_variant("a\\2hrattackleft.kf", Aim::Up), fnv_actor::player_clips::aim_variant("a\\2hrattackleft.kf", Aim::Up));
     }
 
     use super::*;
