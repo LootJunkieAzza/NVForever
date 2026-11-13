@@ -37,6 +37,20 @@
 //!     `crate::frame_gen::GeneratedFrames` (the performance overlay's count); a line every ten
 //!     seconds with real and presented frames; a status other than `eOk` while on turns frame
 //!     generation off for the session, said once with the flags' names [documented: §14.3].
+//! - **UI buffer** ([`ui_buffer`], stage 4 item 2; after the UI, before Bevy's upscaling blit,
+//!   where FSR's frame generation's `generate` sits): on a tagged frame a full-screen pass writes
+//!   a display-sized `Rgba16Float` UI colour and alpha from the frame (with the UI) and its
+//!   HUD-less copy: where they differ, the frame's colour with alpha 1; elsewhere 0. That meets
+//!   the guide's rules: 0 where there is no UI, alpha above 0 where there is, colour
+//!   premultiplied by alpha, and `Final = UI.RGB + (1 - UI.A) * Hudless` exactly [documented:
+//!   `ProgrammingGuideDLSS_G.md` §5.1, "UI Alpha OR UI Color and Alpha"], at the cost of taking
+//!   a see-through HUD pixel as opaque UI (AMD's HUD-less mode in FSR's frame generation makes
+//!   the same choice, `crate::frame_gen`). It is tagged `kBufferTypeUIColorAndAlpha`
+//!   `eValidUntilPresent`, and the options ask for user interface recomposition, which needs the
+//!   HUD-less and a UI buffer (§6.6). Not asked for: `eEnableFullscreenMenuDetection` (§6.5):
+//!   the mode goes off in every menu, loading and pause already (`may_generate`). The guide
+//!   prefers `kBufferTypeUIAlpha` for speed (§5.1); colour and alpha was the design's choice and
+//!   carries the same information here (alpha is 0 or 1).
 //! - **Window changes** ([`window_changes`], stage 4, an exclusive system before Bevy's
 //!   `create_surfaces`): DLSS-G must be off before the swapchain is resized or its present mode
 //!   changes [documented: `ProgrammingGuideDLSS_G.md` §12.0, §17]. When a window change is
@@ -94,7 +108,7 @@ use std::time::{Duration, Instant};
 use ash::vk;
 use bevy::camera::{CameraMainTextureUsages, NormalizedRenderTarget};
 use bevy::core_pipeline::prepass::{PreviousViewData, ViewPrepassTextures};
-use bevy::core_pipeline::{Core3d, Core3dSystems};
+use bevy::core_pipeline::{upscaling::upscaling, Core3d, Core3dSystems};
 use bevy::log::Level;
 use bevy::prelude::*;
 use bevy::render::camera::{ExtractedCamera, TemporalJitter};
@@ -108,7 +122,7 @@ use bevy::ui_render::ui_pass;
 use super::evaluate::{constants_for, describe, ConstantsInput, VIEWPORT};
 use super::ffi::{
     boolean_name, dlssg_status_name, ApiError, BaseStructure, DlssgOptions, DlssgState, Extent, ResourceTag, SlDlssgGetState, SlDlssgSetOptions, SubresourceRange, ViewportHandle,
-    BUFFER_DEPTH, BUFFER_HUDLESS_COLOR, BUFFER_MOTION_VECTORS, DLSSG_FLAG_RETAIN_RESOURCES_WHEN_OFF, DLSSG_MODE_OFF, DLSSG_MODE_ON, LIFECYCLE_VALID_UNTIL_PRESENT,
+    BOOL_TRUE, BUFFER_DEPTH, BUFFER_HUDLESS_COLOR, BUFFER_MOTION_VECTORS, BUFFER_UI_COLOR_AND_ALPHA, DLSSG_FLAG_RETAIN_RESOURCES_WHEN_OFF, DLSSG_MODE_OFF, DLSSG_MODE_ON, LIFECYCLE_VALID_UNTIL_PRESENT,
 };
 use super::{frame_token, note_fg};
 use crate::upscaler::prep::{PreparedUpscale, UpscaleCamera};
@@ -217,7 +231,44 @@ struct FrameGen {
     pending_load: Option<bool>,
     /// The app is exiting: the mode stays off ([`exit_watch`]).
     exiting: bool,
+    /// This frame's HUD-less copy, for the UI buffer ([`ui_buffer`]); set by a tagged frame.
+    ui_source: Option<wgpu::TextureView>,
+    /// The UI buffer's pass and its two textures.
+    ui: Option<UiPass>,
+    /// The UI buffer was tagged once (said).
+    ui_said: bool,
 }
+
+/// The UI buffer's full-screen pass and its textures (two used in turn, as the HUD-less).
+struct UiPass {
+    pipeline: wgpu::RenderPipeline,
+    layout: wgpu::BindGroupLayout,
+    textures: Option<([wgpu::Texture; 2], [wgpu::TextureView; 2])>,
+    next: usize,
+}
+
+/// The UI buffer from the frame and its HUD-less copy (the module comment's "UI buffer").
+const UI_BUFFER_WGSL: &str = "
+@group(0) @binding(0) var final_color: texture_2d<f32>;
+@group(0) @binding(1) var hudless: texture_2d<f32>;
+
+@vertex
+fn vertex(@builtin(vertex_index) index: u32) -> @builtin(position) vec4<f32> {
+    let uv = vec2<f32>(f32((index << 1u) & 2u), f32(index & 2u));
+    return vec4<f32>(uv * 2.0 - 1.0, 0.0, 1.0);
+}
+
+@fragment
+fn fragment(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
+    let p = vec2<i32>(position.xy);
+    let f = textureLoad(final_color, p, 0);
+    let h = textureLoad(hudless, p, 0);
+    if (any(f.rgb != h.rgb)) {
+        return vec4<f32>(f.rgb, 1.0);
+    }
+    return vec4<f32>(0.0);
+}
+";
 
 impl FrameGen {
     fn new(get_state: SlDlssgGetState, set_options: SlDlssgSetOptions, mode: Mode, toggle_plan: Vec<(f64, bool)>) -> Self {
@@ -247,6 +298,9 @@ impl FrameGen {
             last_index: None,
             pending_load: None,
             exiting: false,
+            ui_source: None,
+            ui: None,
+            ui_said: false,
         }
     }
 }
@@ -350,7 +404,7 @@ pub(super) fn uninstall() -> Option<bool> {
     if matches!(fg.mode, Mode::On { .. }) {
         let index = fg.last_index.map_or(0, |i| i.wrapping_add(1));
         let null = |buffer| ResourceTag::new(std::ptr::null_mut(), buffer, LIFECYCLE_VALID_UNTIL_PRESENT, Extent::default());
-        let tagged = frame_token::set_tags(index, &[null(BUFFER_DEPTH), null(BUFFER_MOTION_VECTORS), null(BUFFER_HUDLESS_COLOR)]);
+        let tagged = frame_token::set_tags(index, &[null(BUFFER_DEPTH), null(BUFFER_MOTION_VECTORS), null(BUFFER_HUDLESS_COLOR), null(BUFFER_UI_COLOR_AND_ALPHA)]);
         note_fg(if tagged.is_ok() { Level::INFO } else { Level::WARN }, format!("shutdown: null tags (frame {index}): {}", tagged.name()));
     }
     Some(true)
@@ -365,6 +419,7 @@ pub(super) fn add_systems(render_app: &mut SubApp) {
         .add_systems(ExtractSchedule, toggle_switch.after(extract_windows).run_if(on))
         .add_systems(ExtractSchedule, exit_watch.before(extract_windows).run_if(active))
         .add_systems(Core3d, tag.after(Core3dSystems::PostProcess).before(ui_pass).run_if(on))
+        .add_systems(Core3d, ui_buffer.after(ui_pass).before(upscaling).run_if(on))
         .add_systems(RenderGraph, options.after(RenderGraphSystems::Finish).run_if(active))
         .add_systems(Render, state.in_set(RenderSystems::Render).after(render_system).run_if(active));
 }
@@ -413,6 +468,8 @@ fn options_for(applied: Applied) -> DlssgOptions {
     let mut options = off_options();
     if applied.on {
         options.mode = DLSSG_MODE_ON;
+        // The HUD-less and the UI buffer are tagged on every frame that is on (§6.6).
+        options.enable_user_interface_recomposition = BOOL_TRUE;
     }
     options.num_frames_to_generate = applied.frames;
     fill_sizes(&mut options, applied);
@@ -500,6 +557,7 @@ fn tag(
     let Some(fg) = guard.as_mut() else { return };
     let Some(presenting) = presenting else { return };
     let index = frame_token::index_of(presenting.frame);
+    fg.ui_source = None;
     let motion = prepass.and_then(|p| p.motion_vectors.as_ref());
     let main: &wgpu::Texture = target.main_texture();
     // Where the camera draws: the window's image, or a screenshot's texture (as
@@ -526,7 +584,7 @@ fn tag(
         Some(motion) => tag_inputs(fg, &mut ctx, &adapter, index, prepared, main, &motion.texture.texture, &motion.texture.default_view),
         None => {
             let null = |buffer| ResourceTag::new(std::ptr::null_mut(), buffer, LIFECYCLE_VALID_UNTIL_PRESENT, Extent::default());
-            let tags = [null(BUFFER_DEPTH), null(BUFFER_MOTION_VECTORS), null(BUFFER_HUDLESS_COLOR)];
+            let tags = [null(BUFFER_DEPTH), null(BUFFER_MOTION_VECTORS), null(BUFFER_HUDLESS_COLOR), null(BUFFER_UI_COLOR_AND_ALPHA)];
             let result = frame_token::set_tags(index, &tags);
             if !result.is_ok() && !fg.said.contains(&"null tags") {
                 fg.said.push("null tags");
@@ -615,6 +673,9 @@ fn tag_inputs(
         ResourceTag::new(&raw mut hudless_res, BUFFER_HUDLESS_COLOR, LIFECYCLE_VALID_UNTIL_PRESENT, output),
     ];
     let result = frame_token::set_tags(index, &tags);
+    if result.is_ok() {
+        fg.ui_source = Some(hudless_view.clone());
+    }
     fg.kept.push_back((vec![depth.clone(), motion.clone(), hudless_texture], vec![depth_view, motion_view.clone(), hudless_view]));
     while fg.kept.len() > KEEP_FRAMES {
         fg.kept.pop_front();
@@ -678,7 +739,7 @@ fn options(_world: &mut World) {
     let text = match fg.mode {
         Mode::KeptOff => format!("options: mode eOff, flags eRetainResourcesWhenOff, the API error callback set, viewport {VIEWPORT}: {}", result.name()),
         Mode::On { .. } if want.on => format!(
-            "options: mode On, {} generated frame(s) per real frame (at most {}), {}x{}, depth and motion {}x{}, back buffers left to DLSS-G: {}",
+            "options: mode On, {} generated frame(s) per real frame (at most {}), {}x{}, depth and motion {}x{}, back buffers left to DLSS-G, user interface recomposition on: {}",
             want.frames,
             fg.max_frames,
             want.output.x,
@@ -760,6 +821,133 @@ fn state(world: &mut World) {
             note_fg(Level::INFO, line);
         }
     }
+}
+
+/// The UI buffer's pass for the main texture's format.
+fn ui_pass_for(device: &wgpu::Device, format: wgpu::TextureFormat) -> UiPass {
+    let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor { label: Some("dlssg_ui_buffer"), source: wgpu::ShaderSource::Wgsl(UI_BUFFER_WGSL.into()) });
+    let texture = |binding| wgpu::BindGroupLayoutEntry {
+        binding,
+        visibility: wgpu::ShaderStages::FRAGMENT,
+        ty: wgpu::BindingType::Texture { sample_type: wgpu::TextureSampleType::Float { filterable: false }, view_dimension: wgpu::TextureViewDimension::D2, multisampled: false },
+        count: None,
+    };
+    let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor { label: Some("dlssg_ui_buffer"), entries: &[texture(0), texture(1)] });
+    let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: Some("dlssg_ui_buffer"), bind_group_layouts: &[Some(&layout)], immediate_size: 0 });
+    let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some("dlssg_ui_buffer"),
+        layout: Some(&pipeline_layout),
+        vertex: wgpu::VertexState { module: &shader, entry_point: Some("vertex"), compilation_options: default(), buffers: &[] },
+        fragment: Some(wgpu::FragmentState {
+            module: &shader,
+            entry_point: Some("fragment"),
+            compilation_options: default(),
+            targets: &[Some(wgpu::ColorTargetState { format, blend: None, write_mask: wgpu::ColorWrites::ALL })],
+        }),
+        primitive: default(),
+        depth_stencil: None,
+        multisample: default(),
+        multiview_mask: None,
+        cache: None,
+    });
+    UiPass { pipeline, layout, textures: None, next: 0 }
+}
+
+/// The UI buffer on a tagged frame (the module comment's "UI buffer"): the pass, the move to
+/// `RESOURCE`, the tag. When it cannot be made, the frame is not generated: its tags go null.
+fn ui_buffer(view: ViewQuery<(&ViewTarget, &PreparedUpscale)>, adapter: Res<RenderAdapter>, mut ctx: RenderContext) {
+    let (target, prepared) = view.into_inner();
+    let mut guard = frame_gen();
+    let Some(fg) = guard.as_mut() else { return };
+    let Some(hudless_view) = fg.ui_source.take() else { return };
+    let (Some(index), Some(decision)) = (fg.last_index, fg.decision.filter(|d| d.generate)) else { return };
+    let main: &wgpu::Texture = target.main_texture();
+    let main_view: &wgpu::TextureView = target.main_texture_view();
+    let device = ctx.render_device().wgpu_device().clone();
+    let format = wgpu::TextureFormat::Rgba16Float;
+    let pass = fg.ui.get_or_insert_with(|| ui_pass_for(&device, format));
+    if pass.textures.as_ref().is_none_or(|(t, _)| t[0].size() != main.size()) {
+        let textures: [wgpu::Texture; 2] = std::array::from_fn(|_| {
+            device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("dlssg_ui_color_and_alpha"),
+                size: main.size(),
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
+            })
+        });
+        let views = std::array::from_fn(|i| textures[i].create_view(&wgpu::TextureViewDescriptor::default()));
+        pass.textures = Some((textures, views));
+    }
+    let Some((textures, views)) = pass.textures.as_ref() else { return };
+    let at = pass.next;
+    pass.next = 1 - at;
+    let (ui_texture, ui_view) = (textures[at].clone(), views[at].clone());
+    let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("dlssg_ui_buffer"),
+        layout: &pass.layout,
+        entries: &[wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(main_view) }, wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(&hudless_view) }],
+    });
+    let described = {
+        // SAFETY: only read.
+        let Some(hal) = (unsafe { adapter.as_hal::<wgpu::hal::api::Vulkan>() }) else { return };
+        describe(&hal, &ui_texture, &ui_view, vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+    };
+    let Some(mut ui_res) = described else { return };
+    {
+        let encoder = ctx.command_encoder();
+        {
+            let mut render = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("dlssg_ui_buffer"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &ui_view,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT), store: wgpu::StoreOp::Store },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            render.set_pipeline(&pass.pipeline);
+            render.set_bind_group(0, &bind_group, &[]);
+            render.draw(0..3, 0..1);
+        }
+        encoder.transition_resources(std::iter::empty(), std::iter::once(wgpu::TextureTransition { texture: &ui_texture, selector: None, state: wgpu::TextureUses::RESOURCE }));
+    }
+    let output = Extent { top: 0, left: 0, width: prepared.output_size.x, height: prepared.output_size.y };
+    let tag = [ResourceTag::new(&raw mut ui_res, BUFFER_UI_COLOR_AND_ALPHA, LIFECYCLE_VALID_UNTIL_PRESENT, output)];
+    let result = frame_token::set_tags(index, &tag);
+    if let Some(kept) = fg.kept.back_mut() {
+        kept.0.push(ui_texture);
+        kept.1.push(ui_view);
+    }
+    if result.is_ok() {
+        if !fg.ui_said {
+            fg.ui_said = true;
+            note_fg(
+                Level::INFO,
+                format!(
+                    "UI buffer: {}x{} Rgba16Float (the frame where it differs from its HUD-less copy, alpha 1; 0 elsewhere), tagged eValidUntilPresent with the HUD-less copy; user interface recomposition on",
+                    main.width(),
+                    main.height()
+                ),
+            );
+        }
+        return;
+    }
+    // No UI buffer: the frame is not generated, its tags null.
+    if !fg.said.contains(&"ui tag") {
+        fg.said.push("ui tag");
+        note_fg(Level::WARN, format!("slSetTagForFrame (UI buffer, frame {index}): {}; those frames are not generated (said once)", result.name()));
+    }
+    let null = |buffer| ResourceTag::new(std::ptr::null_mut(), buffer, LIFECYCLE_VALID_UNTIL_PRESENT, Extent::default());
+    frame_token::set_tags(index, &[null(BUFFER_DEPTH), null(BUFFER_MOTION_VECTORS), null(BUFFER_HUDLESS_COLOR), null(BUFFER_UI_COLOR_AND_ALPHA)]);
+    fg.decision = Some(Decision { generate: false, ..decision });
 }
 
 /// `NVF_DLSSG_TOGGLE` read: `<seconds>:off` and `<seconds>:on` steps, in time order.
@@ -1016,6 +1204,7 @@ mod tests {
         assert_eq!((o.mode, o.flags, o.num_frames_to_generate, o.num_back_buffers), (1, 8, 3, 3));
         assert_eq!((o.mvec_depth_width, o.mvec_depth_height, o.color_width, o.color_height), (853, 480, 1280, 720));
         assert_eq!((o.dynamic_res_width, o.queue_parallelism_mode), (0, 0), "no dynamic resolution, the default queue mode");
+        assert_eq!(o.enable_user_interface_recomposition, BOOL_TRUE, "the HUD-less and the UI buffer tagged (§6.6)");
         let off = options_for(Applied { on: false, ..applied });
         assert_eq!((off.mode, off.flags), (0, 8));
     }

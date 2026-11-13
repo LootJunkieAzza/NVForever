@@ -405,6 +405,9 @@ pub const BUFFER_SCALING_INPUT_COLOR: u32 = 3;
 pub const BUFFER_SCALING_OUTPUT_COLOR: u32 = 4;
 /// `kBufferTypeHUDLessColor` [documented: `sl_core_types.h:70`].
 pub const BUFFER_HUDLESS_COLOR: u32 = 2;
+/// `kBufferTypeUIColorAndAlpha`: "UI/HUD color and alpha", alpha with enough precision
+/// [documented: `sl_core_types.h:111-113`].
+pub const BUFFER_UI_COLOR_AND_ALPHA: u32 = 23;
 
 /// `sl::Extent`: top **before** left [documented: `sl_consts.h:143-169`]; all zero = the whole
 /// resource (`sl_core_types.h:425`).
@@ -1589,6 +1592,7 @@ mod tests {
         );
         // sl_core_types.h:70, 397-405, 547-549; sl_dlss_g.h:34-41.
         assert_eq!((BUFFER_HUDLESS_COLOR, LIFECYCLE_VALID_UNTIL_PRESENT, PREFERENCE_USE_FRAME_BASED_RESOURCE_TAGGING, DLSSG_MODE_ON), (2, 1, 0x80, 1));
+        assert_eq!(BUFFER_UI_COLOR_AND_ALPHA, 23, "sl_core_types.h:113");
         assert_eq!((size_of::<SlSetTagForFrame>(), size_of::<SlReflexSleep>(), size_of::<SlReflexSetOptions>(), size_of::<SlPclSetMarker>()), (8, 8, 8, 8));
     }
 
