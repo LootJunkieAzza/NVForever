@@ -3,7 +3,7 @@
 //! CopyFaceGenFrom and its undo, perk ranks and perk entries, SetBaseForm, the cell
 //! events, GetCellRefs, SetVariableFloat and BaseAddItemHealth.
 
-mod common;
+use crate::common;
 
 use common::*;
 use fnv_esm::{LoadOrder, Plugin, Schema};

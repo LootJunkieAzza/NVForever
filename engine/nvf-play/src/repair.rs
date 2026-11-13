@@ -356,7 +356,7 @@ fn scripts_open(
 
 #[allow(clippy::too_many_arguments)]
 fn keys(
-    keys: Res<ButtonInput<KeyCode>>,
+    keys: crate::pad::ActionButtons<KeyCode>,
     time: AidTime,
     mut aid: ResMut<RepairAid>,
     mut menu: ResMut<RepairServices>,
@@ -371,6 +371,7 @@ fn keys(
     mut commands: Commands,
     mut on_tiles: MessageReader<RepairServicesInput>,
 ) {
+    let keys = keys.snapshot();
     // Only a pointer that moves takes the selection: the rows drawn when the menu opens
     // (or redrawn) under a resting pointer leave the keys' choice alone (as `crate::menu`).
     let pointer_moved = moved.read().count() > 0;

@@ -398,7 +398,8 @@ fn open(
     next.set(PlayState::Menu);
 }
 
-fn keys(keys: Res<ButtonInput<KeyCode>>, screen: Res<SlotsScreen>, mut out: MessageWriter<SlotsInput>) {
+fn keys(keys: crate::pad::ActionButtons<KeyCode>, screen: Res<SlotsScreen>, mut out: MessageWriter<SlotsInput>) {
+    let keys = keys.snapshot();
     let Some(s) = screen.0.as_ref() else { return };
     if s.help.is_some() {
         if keys.any_just_pressed([KeyCode::KeyE, KeyCode::Escape, KeyCode::Tab, KeyCode::Enter]) {

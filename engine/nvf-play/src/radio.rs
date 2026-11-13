@@ -453,6 +453,14 @@ impl Radio {
         self.playing.get(&PIPBOY).or_else(|| self.playing.get(&PIPBOY_STATIC)).map_or(0.0, |p| f32::from_bits(p.meter.load(Ordering::Relaxed)))
     }
 
+    /// A file to play, read off the main thread (#1993): `Got::Pending` until it is in.
+    fn fetch(&mut self, vfs: &Arc<fnv_vfs::Vfs>, path: &str) -> crate::file_bytes::Got {
+        self.files.fetch(path, vfs, "radio")
+    }
+
+    /// A file read at once, for its length when a station's broadcast is laid out (that
+    /// needs every part's length in the same frame; the song's playback then finds it
+    /// kept).
     fn bytes(&mut self, vfs: &fnv_vfs::Vfs, path: &str) -> Option<Arc<[u8]>> {
         self.files.get_or_read(path, || match vfs.read(path) {
             Some(Ok(b)) => Some(b.into()),
@@ -628,13 +636,14 @@ fn pipboy_list(sim: &SimState, places: &RadioPlaces, l: &Listener) -> Vec<u32> {
 /// off), and the test aid.
 #[allow(clippy::too_many_arguments)]
 fn pipboy_controls(
-    keys: Res<ButtonInput<KeyCode>>,
+    keys: crate::pad::ActionButtons<KeyCode>,
     state: Res<State<PlayState>>,
     locks: Option<Res<ControlLocks>>,
     mut radio: ResMut<Radio>,
     places: Option<Res<RadioPlaces>>,
     mut script: ResMut<ScriptState>,
 ) {
+    let keys = keys.snapshot();
     let (Some(places), Some(rt)) = (places, script.rt.as_mut()) else { return };
     // The placed stations, for scripts' GetAvailableRadios (`fnv_game::nvse_gaps`).
     if rt.game.gaps.radio_sites.is_none() {
@@ -1035,7 +1044,8 @@ fn play(
             continue;
         }
         let looping = matches!(w.track, Track::Loop(_));
-        let Some(bytes) = radio.bytes(&data.vfs, &w.path) else { continue };
+        // Tried again next frame while the file is being read.
+        let crate::file_bytes::Got::Ready(Some(bytes)) = radio.fetch(&data.vfs, &w.path) else { continue };
         let from = if w.into > JOIN { w.into } else { 0.0 };
         let Some((sound, level)) = RadioSound::new(bytes, from, looping) else {
             if radio.reported.insert(w.path.clone()) {

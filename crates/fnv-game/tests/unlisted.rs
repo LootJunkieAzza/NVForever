@@ -3,7 +3,7 @@
 //! and reputation getters, position strings, the centre of the bounds, ListToArray,
 //! KillActorAlt, AttachLight on the node mirror and the answers of the rest.
 
-mod common;
+use crate::common;
 
 use common::*;
 use fnv_esm::{LoadOrder, Plugin, Schema};
