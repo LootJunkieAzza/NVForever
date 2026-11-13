@@ -5,7 +5,13 @@
 //! brightness, level-design.md §2), drives them [hypothesis]. It scales:
 //! - shapes whose shader property sets BSShaderFlags bit 29 "External_Emittance": the
 //!   surface colour of unlit shapes (light beams and rays), the emitted light of lit ones
-//!   (glowing windows);
+//!   (glowing windows). A lit one with a glow map and a black emissive colour emits its
+//!   glow map in the source's colour, as if its emissive colour were white
+//!   ([`driven_emissive`]): Long 15's "The Mad Roman" sign by Baker's thermometer
+//!   (`advertfallen1.nif` shape `AD`, emissive 0, 0, 0, the Mad Roman texture set's glow
+//!   map `L15PostersRoman_gl.dds`, XEMI InvertedDaylightRegion) glows warm orange at
+//!   night in the original and stayed dark here [observed: the files, the owner's frame
+//!   of 2026-11-12; hypothesis: the rule];
 //! - the colour of LIGH references.
 //!
 //! The Prospector Saloon shows why: its porch lamp beam and the two lights above the porch
@@ -107,7 +113,8 @@ impl EmittanceState {
             return Some(h.clone());
         }
         let m = materials.get(shared)?.clone();
-        let (base_color, emissive, unlit) = (m.base.base_color.to_linear(), m.base.emissive, m.base.unlit);
+        let (base_color, unlit) = (m.base.base_color.to_linear(), m.base.unlit);
+        let emissive = driven_emissive(m.base.emissive, m.base.emissive_texture.is_some());
         let copy = materials.add(m);
         self.copies.insert((shared.id(), xemi), copy.clone());
         self.driven.push(Driven { copy: copy.clone(), source: xemi, base_color, emissive, unlit });
@@ -253,9 +260,27 @@ fn update_emittance(
     }
 }
 
+/// The emitted light a lit shape's emittance source scales: its emissive colour, or white
+/// when that is black and the shape has a glow map (the module's doc) [hypothesis].
+fn driven_emissive(emissive: LinearRgba, glow: bool) -> LinearRgba {
+    let black = emissive.red <= 0.0 && emissive.green <= 0.0 && emissive.blue <= 0.0;
+    if black && glow { LinearRgba::WHITE } else { emissive }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_glow_map_with_a_black_emissive_colour_takes_the_sources_colour() {
+        // The Mad Roman sign: emissive black, a glow map: white, so the source colours it.
+        assert_eq!(driven_emissive(LinearRgba::BLACK, true), LinearRgba::WHITE);
+        let warm = LinearRgba::rgb(0.4, 0.33, 0.15);
+        assert_eq!(driven_emissive(warm, true), warm, "a colour of its own stays");
+        assert_eq!(driven_emissive(LinearRgba::BLACK, false), LinearRgba::BLACK, "no glow map: nothing to emit");
+        let s = scale(driven_emissive(LinearRgba::BLACK, true), LinearRgba::rgb(0.9, 0.5, 0.1));
+        assert!(s.red > s.green && s.green > s.blue && s.blue > 0.0);
+    }
 
     #[test]
     fn scales_per_channel() {

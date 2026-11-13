@@ -1472,8 +1472,15 @@ Textures2.bsa`, `Fallout - Misc.bsa`, DLC archives]:
   colour times its fade (the GECK tutorials: emittance takes the light's colour and
   brightness, level-design.md section 2) and scales by its sunlight colour at the current
   hour (that colour times fade for a LIGH): the surface colour of unlit shapes with bit 29, the emitted light of lit ones,
-  and the colour of LIGH references [hypothesis]. Shapes on references without XEMI are
-  unchanged. Before this the beam drew at full strength day and night and the rays were
+  and the colour of LIGH references [hypothesis]. A lit shape with bit 29 and a glow map
+  but a black emissive colour emits its glow map in the source's colour, as if its
+  emissive colour were white [hypothesis, 2026-11-13]: Long 15's "The Mad Roman" sign by
+  Baker's thermometer (REFR 0x060052CA, base ALAdvertBakerFallen,
+  `advertfallen1.nif` shape `AD`: BSShaderPPLightingProperty flags 0xA2000100,
+  NiMaterialProperty emissive (0, 0, 0) × 1; MODS swaps in TXST ALTextPosterMadRoman,
+  whose TX03 is `L15PostersRoman_gl.dds`; XEMI InvertedDaylightRegion) glows warm orange
+  at night in the original (owner's frame, 2026-11-12) [observed]. Times the black
+  colour it stayed dark here. Shapes on references without XEMI are unchanged. Before this the beam drew at full strength day and night and the rays were
   white. References that scripts enable at run time (`nvf_play::script_draw`) take the
   same driven material (2026-10-23): the Strip's 32 street lamp beams
   (`StripLightBeamAct`, enable parents 0x0013BAE1-3, switched on at night) name the light
