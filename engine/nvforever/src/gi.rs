@@ -58,6 +58,10 @@ const NEW_SHARE: f32 = 0.12;
 /// The most light a texel of last frame's picture bounces (HDR, after exposure): the
 /// Strip's neon still tints the walls beside it, a sun glint does not flash.
 const MAX_LIGHT: f32 = 8.0;
+/// Light added indoors where the surroundings are open (linear, after exposure): FNV's
+/// dimmest rooms crush to black under the occlusion and the grade [engineering choice, by
+/// eye on the Prospector Saloon].
+const INTERIOR_FILL: f32 = 0.07;
 /// A camera that moved further than this in a frame (game units) starts again.
 const JUMP: f64 = 1500.0;
 
@@ -118,7 +122,8 @@ impl Plugin for GiPlugin {
 }
 
 /// The camera's motion since last frame and its projection into the uniform.
-fn follow_camera(mut cams: Query<(&GlobalTransform, &Projection, &Camera, &mut GlobalIllumination, &mut GiUniform), With<FlyCam>>) {
+fn follow_camera(sky: Option<Res<crate::sky::SkyState>>, mut cams: Query<(&GlobalTransform, &Projection, &Camera, &mut GlobalIllumination, &mut GiUniform), With<FlyCam>>) {
+    let indoors = sky.as_ref().is_some_and(|s| s.interior.is_some());
     for (transform, projection, camera, mut gi, mut uniform) in &mut cams {
         let Projection::Perspective(p) = projection else { continue };
         let a = transform.affine();
@@ -140,7 +145,7 @@ fn follow_camera(mut cams: Query<(&GlobalTransform, &Projection, &Camera, &mut G
             size: Vec4::new(size.x, size.y, half.x, half.y),
             params: Vec4::new(t[0], t[1], t[2], FADE_END),
             params2: Vec4::new(t[3], NEW_SHARE, MAX_LIGHT, valid),
-            debug: Vec4::new(t[4], t[5], 0.0, 0.0),
+            debug: Vec4::new(t[4], t[5], if indoors { INTERIOR_FILL } else { 0.0 }, 0.0),
         };
     }
 }

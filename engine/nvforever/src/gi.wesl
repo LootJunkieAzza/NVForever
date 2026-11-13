@@ -34,7 +34,8 @@ struct Gi {
     // x: occlusion strength; y: the share of the new frame in `temporal`; z: the most
     // light a history texel gives; w: 1 when last frame's textures hold last frame.
     params2: vec4<f32>,
-    // x: a debug view (1 distance, 2 openness, 3 bounced light), y: its scale.
+    // x: a debug view (1 distance, 2 openness, 3 bounced light), y: its scale; z: the
+    // interior fill light (linear, after exposure; 0 outdoors).
     debug: vec4<f32>,
 }
 
@@ -55,6 +56,11 @@ const PI: f32 = 3.14159265;
 const HALF_PI: f32 = 1.5707963;
 const SLICES: u32 = 2u;
 const STEPS: u32 = 8u;
+// The far cascade: more steps beyond the near reach, out to FAR times it, light only (a
+// screen-space take on radiance cascades: the near cascade fine and short, the far one
+// coarse and long, so a lit sign down the street still lights the pavement).
+const FAR_STEPS: u32 = 6u;
+const FAR: f32 = 8.0;
 // Distance written for the sky (depth 0) and the most a texel holds.
 const SKY: f32 = 60000.0;
 
@@ -150,6 +156,7 @@ fn trace(in: FullscreenVertexOutput) -> TraceOut {
     // The radius on the screen, in the picture's pixels.
     let radius_px = clamp(gi.params.x * gi.proj.y * 0.5 * gi.size.y / z, f32(STEPS), 0.3 * gi.size.y);
     let thickness = gi.params.y * max(1.0, z / 1500.0);
+    let far_px = min(radius_px * FAR, 0.45 * gi.size.y);
     var light = vec3(0.0);
     var closed = 0.0;
     for (var s = 0u; s < SLICES; s++) {
@@ -163,12 +170,20 @@ fn trace(in: FullscreenVertexOutput) -> TraceOut {
         let sign_n = select(-1.0, 1.0, dot(ortho, proj_n) >= 0.0);
         let n_angle = sign_n * acos(clamp(dot(proj_n, v) / proj_len, -1.0, 1.0));
         var mask = 0u;
+        var far_mask = 0u;
         for (var side = 0u; side < 2u; side++) {
             let sgn = select(-1.0, 1.0, side == 0u);
-            for (var i = 0u; i < STEPS; i++) {
-                var t = (f32(i) + fract(noise_b + f32(i) * 0.618034)) / f32(STEPS);
-                t = t * t;
-                let off = max(t * radius_px, f32(i) + 1.5);
+            for (var i = 0u; i < STEPS + FAR_STEPS; i++) {
+                let far = i >= STEPS;
+                var off: f32;
+                if far {
+                    var t = (f32(i - STEPS) + fract(noise_b + f32(i) * 0.618034)) / f32(FAR_STEPS);
+                    off = radius_px + t * t * max(far_px - radius_px, 0.0);
+                } else {
+                    var t = (f32(i) + fract(noise_b + f32(i) * 0.618034)) / f32(STEPS);
+                    t = t * t;
+                    off = max(t * radius_px, f32(i) + 1.5);
+                }
                 let sp = vec2<f32>(px) + 0.5 + sgn * dir * off;
                 if any(sp < vec2(0.0)) || any(sp >= gi.size.xy) {
                     break;
@@ -185,7 +200,7 @@ fn trace(in: FullscreenVertexOutput) -> TraceOut {
                     continue;
                 }
                 let front = delta * inverseSqrt(len2);
-                let back = normalize(delta - v * thickness);
+                let back = normalize(delta - v * select(thickness, thickness * 4.0, far));
                 let a_front = sgn * acos(clamp(dot(front, v), -1.0, 1.0));
                 let a_back = sgn * acos(clamp(dot(back, v), -1.0, 1.0));
                 // Sectors equal in projected solid angle (cosine-weighted): sin of the
@@ -194,7 +209,9 @@ fn trace(in: FullscreenVertexOutput) -> TraceOut {
                 let t_front = 0.5 + 0.5 * sin(clamp(a_front - n_angle, -HALF_PI, HALF_PI));
                 let t_back = 0.5 + 0.5 * sin(clamp(a_back - n_angle, -HALF_PI, HALF_PI));
                 let m = sector_mask(t_front, t_back);
-                let fresh = m & ~mask;
+                // The far cascade lights only sectors nothing nearer has closed, and leaves
+                // the occlusion to the near one (no darkening of whole valleys).
+                let fresh = m & ~(mask | far_mask);
                 if fresh != 0u && gi.params2.w > 0.5 {
                     if dot(n, front) > 0.0 {
                         let h = prev_uv(q);
@@ -202,13 +219,17 @@ fn trace(in: FullscreenVertexOutput) -> TraceOut {
                             let hist = textureSampleLevel(input_a, linear_sampler, h.xy, 0.0);
                             // Only light from the same surface last frame (not what moved in front).
                             if abs(hist.a - h.z) < 0.1 * h.z + 20.0 {
-                                let falloff = 1.0 - smoothstep(0.6, 1.0, sqrt(len2) / (gi.params.x * 1.5));
+                                let falloff = select(1.0 - smoothstep(0.6, 1.0, sqrt(len2) / (gi.params.x * 1.5)), 1.0, far);
                                 light += min(hist.rgb, vec3(gi.params2.z)) * (f32(countOneBits(fresh)) / 32.0) * falloff;
                             }
                         }
                     }
                 }
-                mask |= m;
+                if far {
+                    far_mask |= m;
+                } else {
+                    mask |= m;
+                }
             }
         }
         closed += f32(countOneBits(mask)) / 32.0;
@@ -280,10 +301,11 @@ fn upsample(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
             }
         }
     }
-    if wsum < 1e-3 {
-        return nearest;
-    }
-    return sum / wsum;
+    var v = select(sum / max(wsum, 1e-4), nearest, wsum < 1e-3);
+    // Indoors a little light fills what is open (dim rooms keep their detail; gi.rs
+    // INTERIOR_FILL).
+    v = vec4(v.rgb + vec3(gi.debug.z) * (1.0 - v.a), v.a);
+    return v;
 }
 
 @fragment

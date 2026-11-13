@@ -82,6 +82,45 @@ fn nvf_ambient_ratio() -> vec3<f32> {
     return pow(max(view_bindings::lights.ambient_color.rgb * view_bindings::view.exposure, vec3(1e-6)), vec3(1.2));
 }
 
+// NVForever remaster (graphics-remaster.md §4): drifting cloud shadows on the sun's light,
+// from value noise at a cloud layer 30,000 units up, where the ray to the sun crosses it
+// [engineering choice, by eye]. 1 open sky, down to 0.4 under a cloud.
+fn nvf_hash(p: vec2<f32>) -> f32 {
+    return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+}
+fn nvf_value_noise(p: vec2<f32>) -> f32 {
+    let i = floor(p);
+    let f = fract(p);
+    let u = f * f * (3.0 - 2.0 * f);
+    return mix(mix(nvf_hash(i), nvf_hash(i + vec2(1.0, 0.0)), u.x), mix(nvf_hash(i + vec2(0.0, 1.0)), nvf_hash(i + vec2(1.0, 1.0)), u.x), u.y);
+}
+fn nvf_cloud_shadow(p: vec3<f32>, to_sun: vec3<f32>, time: f32) -> f32 {
+    let up = max(to_sun.y, 0.08);
+    let c = p.xz + to_sun.xz / up * (30000.0 - p.y);
+    var q = c / 32000.0 + vec2(time * 0.018, time * 0.007);
+    var v = 0.0;
+    var a = 0.5;
+    for (var o = 0; o < 3; o++) {
+        v += a * nvf_value_noise(q);
+        q = q * 2.03 + vec2(1.7, 9.2);
+        a *= 0.5;
+    }
+    return 1.0 - 0.6 * smoothstep(0.42, 0.62, v);
+}
+
+// The cloud shadow on directional light `i` at `p`: only for a light that casts shadows
+// (the sun outdoors) and only in the remaster (SCREEN_INDIRECT).
+@if(!PREPASS_FRAGMENT)
+fn nvf_sun_cloud(i: u32, p: vec3<f32>) -> f32 {
+    @if(SCREEN_INDIRECT) {
+        let light = &view_bindings::lights.directional_lights[i];
+        if ((*light).flags & mesh_view_types::DIRECTIONAL_LIGHT_FLAGS_SHADOWS_ENABLED_BIT) != 0u {
+            return nvf_cloud_shadow(p, (*light).direction_to_light.xyz, view_bindings::globals.time);
+        }
+    }
+    return 1.0;
+}
+
 // A directional light's diffuse light on a surface facing N, as display values.
 @if(!PREPASS_FRAGMENT)
 fn nvf_directional_display(i: u32, N: vec3<f32>) -> vec3<f32> {
@@ -144,7 +183,7 @@ const DISPLAY_EDITS: [(&str, &str); 7] = [
     (
         "        direct_light += light_contrib * shadow;",
         "        direct_light += light_contrib * shadow;
-        if nvf_display { nvf_direct += nvf_directional_display(i, in.N) * shadow; }",
+        if nvf_display { nvf_direct += nvf_directional_display(i, in.N) * shadow * nvf_sun_cloud(i, in.world_position.xyz); }",
     ),
     (
         "        indirect_light += ambient::ambient_light(in.world_position, in.N, in.V, NdotV, diffuse_color, F0, perceptual_roughness, diffuse_occlusion);",

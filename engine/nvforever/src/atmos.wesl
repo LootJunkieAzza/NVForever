@@ -15,7 +15,7 @@
 // about the pixel's distance weighed most.
 
 import bevy_core_pipeline::fullscreen_vertex_shader::FullscreenVertexOutput;
-import bevy_pbr::render::mesh_view_bindings::{view, lights};
+import bevy_pbr::render::mesh_view_bindings::{view, lights, globals};
 import bevy_pbr::render::mesh_view_types::DIRECTIONAL_LIGHT_FLAGS_SHADOWS_ENABLED_BIT;
 import bevy_pbr::render::shadow_sampling::sample_shadow_map_hardware;
 import bevy_pbr::render::shadows::{get_cascade_index, world_to_directional_light_local};
@@ -109,6 +109,32 @@ fn find_sun() -> i32 {
     return best;
 }
 
+// NVForever remaster (graphics-remaster.md §4): drifting cloud shadows on the sun's light,
+// from value noise at a cloud layer 30,000 units up, where the ray to the sun crosses it
+// [engineering choice, by eye]. 1 open sky, down to 0.4 under a cloud.
+fn nvf_hash(p: vec2<f32>) -> f32 {
+    return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+}
+fn nvf_value_noise(p: vec2<f32>) -> f32 {
+    let i = floor(p);
+    let f = fract(p);
+    let u = f * f * (3.0 - 2.0 * f);
+    return mix(mix(nvf_hash(i), nvf_hash(i + vec2(1.0, 0.0)), u.x), mix(nvf_hash(i + vec2(0.0, 1.0)), nvf_hash(i + vec2(1.0, 1.0)), u.x), u.y);
+}
+fn nvf_cloud_shadow(p: vec3<f32>, to_sun: vec3<f32>, time: f32) -> f32 {
+    let up = max(to_sun.y, 0.08);
+    let c = p.xz + to_sun.xz / up * (30000.0 - p.y);
+    var q = c / 32000.0 + vec2(time * 0.018, time * 0.007);
+    var v = 0.0;
+    var a = 0.5;
+    for (var o = 0; o < 3; o++) {
+        v += a * nvf_value_noise(q);
+        q = q * 2.03 + vec2(1.7, 9.2);
+        a *= 0.5;
+    }
+    return 1.0 - 0.6 * smoothstep(0.42, 0.62, v);
+}
+
 struct MarchOut {
     @location(0) light: vec4<f32>,
     @location(1) dist: vec4<f32>,
@@ -159,7 +185,8 @@ fn march(in: FullscreenVertexOutput) -> MarchOut {
         let dt = t1 - t0;
         var sun = vec3(0.0);
         if sun_index >= 0 {
-            sun = sun_colour * (phase * sun_visible(u32(sun_index), p));
+            let to_sun = lights.directional_lights[u32(sun_index)].direction_to_light.xyz;
+            sun = sun_colour * (phase * sun_visible(u32(sun_index), p) * nvf_cloud_shadow(p, to_sun, globals.time));
         }
         let step_t = exp(-density * dt);
         // In-scattered light, integrated over the step (energy-conserving form).
