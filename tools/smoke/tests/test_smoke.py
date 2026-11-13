@@ -674,6 +674,72 @@ class StackTests(unittest.TestCase):
 
 
 
+class ServeTests(unittest.TestCase):
+    """`serve`: a loopback HTTP server for one launch, its address in `{serve}` (the DLSS
+    download's failure paths without the network)."""
+
+    def test_parse_and_errors(self):
+        s = load_text(game("s", env='{ URL = "{serve}/x.zip" }', extra="serve = { status = 404 }")).scenarios[0]
+        self.assertEqual(s.serve, {"status": 404, "body": ""})
+        for extra in ('serve = { status = 99 }', 'serve = { status = "404" }', 'serve = { status = 404, x = 1 }',
+                      'serve = 404', 'serve = { status = 200, body = 3 }'):
+            with self.assertRaises(ScenarioError, msg=extra):
+                load_text(game("s", extra=extra))
+        with self.assertRaises(ScenarioError):  # {serve} without a server
+            load_text(game("s", env='{ URL = "{serve}/x.zip" }'))
+        with self.assertRaises(ScenarioError):  # a shared launch serving two ways
+            load_text(game("a", extra='launch = "L"\nserve = { status = 404 }')
+                      + game("b", extra='launch = "L"\nserve = { status = 500 }'))
+        suite = load_text(game("a", extra='launch = "L"\nserve = { status = 404 }') + game("b", extra='launch = "L"'))
+        self.assertEqual(len(plan(suite, suite.scenarios)), 1)
+
+    def test_the_server_answers_every_request_and_stops(self):
+        import urllib.error
+        import urllib.request
+        from smoke.runner import serving
+        with serving({}) as none:
+            self.assertIsNone(none)
+        with serving({"status": 404, "body": "gone"}) as url:
+            self.assertRegex(url, r"^http://127\.0\.0\.1:\d+$")
+            with self.assertRaises(urllib.error.HTTPError) as e:
+                urllib.request.urlopen(url + "/streamline.zip", timeout=10)
+            self.assertEqual(e.exception.code, 404)
+            self.assertEqual(e.exception.read(), b"gone")
+            e.exception.close()
+        with self.assertRaises(OSError):
+            urllib.request.urlopen(url + "/again", timeout=2)
+
+    def test_the_launch_gets_the_address(self):
+        from smoke.runner import Env, run_launch
+        suite = load_text(game("served", env='{ NVF_SMOKE_SELFTEST_URL = "{serve}/x.zip" }',
+                               extra="serve = { status = 404 }"))
+        launch = plan(suite, suite.scenarios)[0]
+        fetch = "\n".join([
+            "import os, urllib.request, urllib.error",
+            "u = os.environ['NVF_SMOKE_SELFTEST_URL']",
+            "try:",
+            "    urllib.request.urlopen(u, timeout=10)",
+            "except urllib.error.HTTPError as e:",
+            "    print('answer', e.code, u)",
+            "",
+        ])
+        with tempfile.TemporaryDirectory() as d:
+            out = Path(d)
+            (out / "fetch.py").write_text(fetch, encoding="utf-8")
+            if os.name == "nt":
+                exe = out / "fetch.cmd"
+                exe.write_text(f'@"{sys.executable}" "{out / "fetch.py"}"\n')
+            else:
+                exe = out / "fetch.sh"
+                exe.write_text(f'#!/bin/sh\nexec "{sys.executable}" "{out / "fetch.py"}"\n')
+                exe.chmod(0o755)
+            code, err, _ = run_launch(launch, Env(repo=out, out=out, exe=exe, data="D", fnvtool=None), None)
+            self.assertEqual((code, err), (0, ""))
+            self.assertRegex((out / "served.log").read_text(encoding="utf-8"),
+                             r"answer 404 http://127\.0\.0\.1:\d+/x\.zip")
+            self.assertIn("NVF_SMOKE_SELFTEST_URL=http://127.0.0.1:", (out / "served.cmd.txt").read_text())
+
+
 @unittest.skipUnless(os.name == "nt", "Windows process ids")
 class ChildProcessTests(unittest.TestCase):
     """A load's new run outlives the run the runner started (engine/nvforever/src/handoff.rs):
