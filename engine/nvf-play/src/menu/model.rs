@@ -114,6 +114,9 @@ pub struct Row {
     pub price: Option<f32>,
     /// Barter: units the other side puts up, listed here until the trade is accepted.
     pub bartered: bool,
+    /// The ammo the player's weapon loads: marked as equipped is (it is not equipped in
+    /// the inventory's sense).
+    pub loaded: bool,
     /// A weapon's attached mods (`Extra::mods`): its units are a row of their own, named
     /// with " +" (docs/spec-notes/weapon-mods.md §3).
     pub mods: u8,
@@ -175,7 +178,7 @@ impl Row {
             FolderRow::Open(f) => f.name().to_string(),
             FolderRow::Back => BACK.to_string(),
         };
-        Row { item: FormId(0), at: None, name, count, weight: None, value: None, kind: None, equipped: false, quest: false, condition: None, icon: None, price: None, bartered: false, mods: 0, mods_value: 0, folder: Some(f), reference: None }
+        Row { item: FormId(0), at: None, name, count, weight: None, value: None, kind: None, equipped: false, quest: false, condition: None, icon: None, price: None, bartered: false, loaded: false, mods: 0, mods_value: 0, folder: Some(f), reference: None }
     }
 }
 
@@ -366,7 +369,7 @@ pub fn listing(world: &mut World<'_>, holder: FormId) -> Result<Listing, SimErro
             condition: at,
             icon: it.and_then(|i| i.icon.clone()),
             price: None,
-            bartered: false,
+            bartered: false, loaded: false,
             mods: extra.mods,
             mods_value: forms.mods_value(item, extra.mods),
             folder: None,
@@ -409,7 +412,7 @@ fn add_dropped_beside(world: &World<'_>, holder: FormId, l: &mut Listing) {
             condition: at,
             icon: it.and_then(|i| i.icon.clone()),
             price: None,
-            bartered: false,
+            bartered: false, loaded: false,
             mods: s.extra.mods,
             mods_value: forms.mods_value(s.base, s.extra.mods),
             folder: None,
@@ -819,6 +822,12 @@ pub struct MenuModel {
     /// The ammo the player's carried weapons can fire, listed first in the inventory
     /// under the player's Sort Equipable Ammo tweak (empty: no such order) [design: docs/design/tweaks.md].
     pub usable_ammo: Vec<FormId>,
+    /// The ammo the player's weapon loads now (`crate::combat::Combat::player_ammo`, set by
+    /// `crate::tweaks` each frame): its row in the player's inventory carries the
+    /// equipped mark; in a container's player column too under the player's Containers
+    /// Show Equipped Ammo tweak (`ammo_mark_in_containers`).
+    pub current_ammo: Option<FormId>,
+    pub ammo_mark_in_containers: bool,
     pub title_case_categories: bool,
     /// The price of things worth nothing in a barter (the tweak; 0: as they are).
     pub free_item_price: f32,
@@ -1018,6 +1027,8 @@ impl MenuModel {
             hide_hotkeyed_repair: false,
             hotkeyed: Vec::new(),
             usable_ammo: Vec::new(),
+            current_ammo: None,
+            ammo_mark_in_containers: false,
             title_case_categories: false,
             free_item_price: 0.0,
             barter_kind_mults: None,
@@ -1101,6 +1112,15 @@ impl MenuModel {
                 // within each part [design: docs/design/tweaks.md].
                 if self.mode == Mode::Inventory && !self.usable_ammo.is_empty() {
                     l.rows.sort_by_key(|r| !self.usable_ammo.contains(&r.item));
+                }
+                // The ammo loaded now carries the equipped mark [hypothesis: as the original's
+                // Pip-Boy shows it; observer check 111], in a container's player column under
+                // the player's tweak [design: docs/design/tweaks.md].
+                let mark_ammo = side == Side::Player && (self.mode == Mode::Inventory || (matches!(self.mode, Mode::Container(_)) && self.ammo_mark_in_containers));
+                if let (true, Some(a)) = (mark_ammo, self.current_ammo) {
+                    for r in l.rows.iter_mut().filter(|r| r.item == a) {
+                        r.loaded = true;
+                    }
                 }
                 // The player's tweak: the list by value or weight, the most first, name
                 // order kept between equals [design: docs/design/tweaks.md].
@@ -1243,7 +1263,7 @@ impl MenuModel {
                                 condition: None,
                                 icon: forms.item(card).and_then(|i| i.icon.clone()),
                                 price: None,
-                                bartered: false,
+                                bartered: false, loaded: false,
                                 mods: 0,
                                 mods_value: 0,
                                 folder: None,

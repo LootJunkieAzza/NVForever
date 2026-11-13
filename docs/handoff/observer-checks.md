@@ -1567,3 +1567,9 @@ to the decoded file by cross-correlation and a per-band transfer estimate.
     and that B is not used]. Take damage down slowly (falls): at what health share does
     a heartbeat start, does a second, faster one take over lower down, and does it stop
     the moment health rises past the line?
+111. **Does the Pip-Boy mark the loaded ammo?** (P3; `nvf_play::menu::model`, `Row::loaded`.)
+    NVForever now gives the ammo the equipped weapon loads the equipped square in the
+    Pip-Boy's ammo list [hypothesis: as the original; Stewie's Tweaks' bContainersShowEquippedAmmo
+    speaks of "equipped ammos" in containers]. With a 10mm pistol in hand, open the
+    Pip-Boy's AMMO list: does 10mm Round have the filled square, and does it move to JHP
+    after switching ammo?

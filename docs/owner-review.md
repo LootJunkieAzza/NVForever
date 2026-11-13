@@ -197,6 +197,10 @@ the spec it links to.
     `UIHealthHeartbeatALP` loops until you heal, for everyone. The threshold is ours (no
     setting names one); observer check 110 asks the original's. The Tweaks tab's
     Heartbeat Fades lets it fade. (`engine/nvf-play/src/heartbeat.rs`)
+56. **Loaded ammo marked (#1891).** The Pip-Boy's ammo list now gives the ammo your weapon
+    loads the equipped square, for everyone (observer check 111); the Tweaks tab's
+    Containers Show Equipped Ammo shows it in containers too. Terminals also fade out as
+    they close now (the menu file's 0.25 s). (`menu/model.rs`, `terminal.rs`)
 
 ## Tier 3: rules where we chose to differ, or that the original has no answer for
 

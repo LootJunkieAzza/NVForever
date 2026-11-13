@@ -514,7 +514,7 @@ fn list(p: &mut ChildSpawnerCommands, c: &mut Ctx, m: &MenuModel, side: Side, x0
                 }
                 // [documented] A filled square for an equipped item, an open one for an
                 // item put up for the trade.
-                let mark = if r.bartered { Some("square.dds") } else if r.equipped { Some("square_filled.dds") } else { None };
+                let mark = if r.bartered { Some("square.dds") } else if r.equipped || r.loaded { Some("square_filled.dds") } else { None };
                 if let Some(mark) = mark {
                     c.image(row, mark, at(MARK_AT, MARK_AT, MARK, MARK), bright);
                 }

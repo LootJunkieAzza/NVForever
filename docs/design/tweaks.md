@@ -634,6 +634,7 @@ unless the player binds them, so nothing changes until then.
 | Quiet Companions | `bRemoveFollowerTopics` | `Game::combat_line` refuses `combat_lines::FOLLOWER_COMMENTS` to teammates. The switch: `Tweaks::quiet_followers` |
 | Low-health heartbeat, Heartbeat Fades | `bHeatbeatSoundsFade` | base: `heartbeat` loops `UIHealthHeartbeatALP` under `LOW`; `sfx::LoopScale` sets a loop's share of its volume. The switch: `TweakSettings::heartbeat_fade`, `heartbeat_fade_seconds` (`heartbeat::faded`) |
 | Terminal close fade, Terminal Fade Time | `bTerminalFadeTime` | base: `terminal::close` marks the backdrop and screen `FadeOut`, `fade_out` dims and removes them, `draw` keeps the picture while it fades. The switch: `TweakSettings::terminal_fade`, `terminal_fade_seconds` |
+| Loaded ammo marked, Containers Show Equipped Ammo | `bContainersShowEquippedAmmo` | `MenuModel::current_ammo` (set by `tweaks::sync` from `Combat::player_ammo`) marks `Row::loaded`, drawn as the equipped square (`pipboy::items`, `menu::look`). The switch: `TweakSettings::containers_show_ammo` |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -655,8 +656,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 570 |
-| to do | 25 |
+| done | 571 |
+| to do | 24 |
 | unsure, skipped | 22 |
 | n/a | 18 |
 | skipped: fix | 10 |
@@ -1092,6 +1093,7 @@ game's Data folder, read-only).
 | `bContainerEncumbranceIndicator` | done |  |  | Weight Warning (the selected row, the whole stack) |
 | `bContainerMenuStoreAllHotkey` | done |  | 1 | Store All (Shift with Take All; worn and quest items stay) |
 | `bContainerQuantityMenuShowsWeight` | done |  |  | Quantity Box Shows the Weight (the hand-built box; the tiles box not yet) |
+| `bContainersShowEquippedAmmo` | done |  |  | Containers Show Equipped Ammo: the Pip-Boy now marks the loaded ammo with the equipped square (`Row::loaded`, owner-review 56, observer check 111); the tweak marks it in a container's player column too. The tile-drawn menus are unchanged |
 | `bContainerTakeAllDoesntCloseMenu` | done |  |  | Take All Stays Open |
 | `bDialogueKeepVoiceActingNotes` | done |  |  | Keep Acting Notes (spoken lines; topics as before) |
 | `bDisableInventoryRightClickDrop` | done |  |  | No Right-Click Drop |
@@ -1174,7 +1176,6 @@ game's Data folder, read-only).
 | `bVATSAPDisplayIncludesReloadCost` | n/a |  |  | NVForever's V.A.T.S. takes no more marks than the rounds loaded allow (`fnv_combat::vats::MarkQueue`), so no queued attack reloads and there is no reload cost to show |
 | `bSaveCharacterSelector` | unsure, skipped | yes | 1 | needs the plugin's own menu XML |
 | `bAmmoLabelUseLongName` | unsure, skipped |  | 1 | needs a UI mod |
-| `bContainersShowEquippedAmmo` | to do |  |  | not built: ammo is never equipped |
 | `bControllerBackButtonDoesntClosePipBoy` | to do |  |  | unsure which pad button is meant: East (B) works as Esc in every menu, View/Select opens nothing there |
 | `bCustomPopupIcons` | to do |  | 17 | per-kind icons at each message |
 | `bLocalMapRespawnedCellIndicator` | to do |  | 2 | not built: the local map has no cell grid |

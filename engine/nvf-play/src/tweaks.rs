@@ -227,6 +227,9 @@ pub struct TweakSettings {
     /// seconds instead of the menu file's 0.25.
     pub terminal_fade: bool,
     pub terminal_fade_seconds: f32,
+    /// `bContainersShowEquippedAmmo`: the loaded ammo has the equipped mark in a
+    /// container's player column too.
+    pub containers_show_ammo: bool,
     /// `bDisableGrenadeIndicator`: no grenade indicator on the HUD.
     pub no_grenade_indicator: bool,
     /// `bHideGrenadeIndicatorForNoDamageExplosions`: grenades whose explosion does no
@@ -765,6 +768,7 @@ impl Default for TweakSettings {
             heartbeat_fade_seconds: 5.0,
             terminal_fade: false,
             terminal_fade_seconds: 1.0,
+            containers_show_ammo: false,
             no_grenade_indicator: false,
             grenade_indicator_skip_harmless: false,
             grenade_indicator_destructibles: false,
@@ -1513,6 +1517,7 @@ impl Plugin for TweaksPlugin {
         amount!(app, "heartbeat-fade-seconds", "Heartbeat Fades: Seconds", "How long the heartbeat takes to fade away. (Stewie's Tweaks bHeatbeatSoundsFade, fDuration)", 30.0, f32, heartbeat_fade_seconds);
         switch!(app, "terminal-fade", "Terminal Fade Time", "A terminal's screen fades out over the time below when it closes, instead of a quarter second. (Stewie's Tweaks bTerminalFadeTime)", terminal_fade);
         amount!(app, "terminal-fade-seconds", "Terminal Fade Time: Seconds", "How long a closing terminal takes to fade out; 0 closes it at once. (Stewie's Tweaks bTerminalFadeTime, fFadeLength)", 5.0, f32, terminal_fade_seconds);
+        switch!(app, "containers-show-ammo", "Containers Show Equipped Ammo", "In a container, the ammo your weapon loads has the equipped square, as in the Pip-Boy. (Stewie's Tweaks bContainersShowEquippedAmmo)", containers_show_ammo);
         switch!(app, "no-grenade-indicator", "Hide Grenade Indicator", "No mark on the HUD for a grenade about to go off nearby. (Stewie's Tweaks bDisableGrenadeIndicator)", no_grenade_indicator);
         switch!(app, "grenade-indicator-harmless", "No Indicator for Harmless Blasts", "Grenades whose explosion does no damage get no mark. (Stewie's Tweaks bHideGrenadeIndicatorForNoDamageExplosions)", grenade_indicator_skip_harmless);
         switch!(app, "grenade-indicator-destructibles", "Mark Objects About to Explode", "Burning objects that will explode, such as cars on fire, get a grenade mark too. (Stewie's Tweaks bExplodingDestructibleIndicator)", grenade_indicator_destructibles);
@@ -2845,6 +2850,12 @@ fn sync(
         };
         if m.usable_ammo != usable {
             m.usable_ammo = usable;
+        }
+        // The loaded ammo's mark, and the player's tweak for containers.
+        let loaded = combat.as_deref().and_then(|c| c.player_ammo());
+        if (m.current_ammo, m.ammo_mark_in_containers) != (loaded, tweaks.containers_show_ammo) {
+            // The rows take it at the list's next refresh (opening, any change).
+            (m.current_ammo, m.ammo_mark_in_containers) = (loaded, tweaks.containers_show_ammo);
         }
         let hotkeyed: Vec<fnv_sim::FormId> = hotkeys.as_deref().map(|h| h.0.iter().flatten().map(|s| fnv_sim::FormId(s.item)).collect()).unwrap_or_default();
         let hide = (tweaks.hide_hotkeyed_containers, tweaks.hide_hotkeyed_barter, tweaks.hide_hotkeyed_repair);

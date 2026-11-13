@@ -808,7 +808,7 @@ fn list(p: &mut ChildSpawnerCommands, c: &mut Ctx, m: &MenuModel, first: usize, 
         if i == selected {
             c.boxed(p, Rect::new(x0, y, x0 + ROW_W, y + h), line, None);
         }
-        if r.equipped {
+        if r.equipped || r.loaded {
             let mk = Rect::new(x0 + MARK.min.x, y + MARK.min.y, x0 + MARK.max.x, y + MARK.max.y);
             if c.image(p, "square_filled.dds", at(mk.min.x, mk.min.y, mk.width(), mk.height()), bright).is_none() {
                 p.spawn((at(mk.min.x, mk.min.y, mk.width(), mk.height()), BackgroundColor(bright)));
@@ -859,7 +859,7 @@ mod tests {
             condition: None,
             icon: None,
             price: None,
-            bartered: false,
+            bartered: false, loaded: false,
             mods: 0,
             mods_value: 0,
             folder: None,
@@ -871,7 +871,7 @@ mod tests {
     }
 
     fn row(kind: Option<fnv_sim::forms::ItemKind>) -> Row {
-        Row { item: FormId(1), at: None, name: "Thing".into(), count: 1, weight: None, value: None, kind, equipped: false, quest: false, condition: None, icon: None, price: None, bartered: false, mods: 0, mods_value: 0, folder: None, reference: None }
+        Row { item: FormId(1), at: None, name: "Thing".into(), count: 1, weight: None, value: None, kind, equipped: false, quest: false, condition: None, icon: None, price: None, bartered: false, loaded: false, mods: 0, mods_value: 0, folder: None, reference: None }
     }
 
     fn shown(h: &[Hint]) -> Vec<(String, bool)> {
