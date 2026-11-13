@@ -793,20 +793,49 @@ fn draw(
                 spawn_texts(p, kit, prompt);
             }
         });
-        // What the prompt says, once per change (docs/spec-notes/cells-refs.md §3).
+        // What the prompt says, once per change (docs/spec-notes/cells-refs.md §3), and why
+        // a shown one went away.
         if let Some(p) = &want {
             match &p.second {
                 Some((key, second)) => info!("reticle: prompt \"{}\" and \"{key} {second}\" on \"{}\"", p.action, p.name),
                 None => info!("reticle: prompt \"{}\" on \"{}\"", p.action, p.name),
             }
+        } else if let Some(old) = shown.as_ref() {
+            let why = gone_reason(target.0.is_some(), locks.rollover, no_prompt, target.0.as_ref().is_some_and(|t| barred(t)));
+            info!("reticle: prompt on \"{}\" gone: {why}", old.name);
         }
         *shown = want;
+    }
+}
+
+/// Why the prompt under the crosshair went away, for the log: no reference within reach
+/// along the view (`activate::pick::REACH` from the eye), or one of the rules that keep the
+/// texts off with a target.
+fn gone_reason(target: bool, rollover_locked: bool, script_hides: bool, under_bar: bool) -> &'static str {
+    if !target {
+        "no activatable reference within reach along the view"
+    } else if rollover_locked {
+        "a script's DisablePlayerControls holds the rollover text"
+    } else if script_hides {
+        "a script hid the HUD's prompt tile"
+    } else if under_bar {
+        "the health bar over the same actor"
+    } else {
+        "hidden"
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_prompt_that_goes_says_why() {
+        assert_eq!(gone_reason(false, true, true, false), "no activatable reference within reach along the view");
+        assert_eq!(gone_reason(true, true, false, false), "a script's DisablePlayerControls holds the rollover text");
+        assert_eq!(gone_reason(true, false, true, false), "a script hid the HUD's prompt tile");
+        assert_eq!(gone_reason(true, false, false, true), "the health bar over the same actor");
+    }
 
     /// Every character 17 wide: about the game's font 7.
     fn font() -> Font {
