@@ -1449,6 +1449,23 @@ expect = [
 ]
 
 [[scenario]]
+name = "softlock-controls-held"
+source = "issue #2365 (fnv_game softlock.rs, nvf-play softlock.rs): scripts holding the movement controls outside any conversation or menu with no story event are a soft lock, logged once per hold (the hold #2309 leaves the player in); the test aid shortens the 30 s limit to 5 s"
+note = "Goodsprings, free at first: no finding in the 6 s before the console turns the controls off, then one"
+areas = ["scripts", "quests"]
+paths = ["crates/fnv-game/src/softlock.rs", "engine/nvf-play/src/softlock.rs", "engine/nvforever/src/reports/anomaly.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SOFTLOCK_SECS = "5", NVF_PLAY_TEST_CONSOLE = "6:DisablePlayerControls;6.3:close" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice"]
+run_seconds = 25
+order = [[
+  { re = 'player controls: movement, Pip-Boy, fighting, POV disabled by scripts', label = "the console turns the controls off" },
+  { re = 'softlock: controls_held for 5 s: scripts hold the controls \(movement, Pip-Boy, fighting, POV\), outside any conversation or menu, and no story event has happened', label = "5 s later the hold is reported" },
+]]
+expect = [
+  { re = 'softlock: ', count = 1, label = "one finding for the one hold, none while the player was free" },
+]
+
+[[scenario]]
 name = "crucified-stay"
 source = "owner's playtest list 7 item 34: the crucified Powder Gangers of Nipton get on their crosses (a Travel package to the linked cross, goal::package_furniture) and stay (their script restrains them on it)"
 areas = ["ai", "furniture"]

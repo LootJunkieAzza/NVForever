@@ -1811,6 +1811,8 @@ pub struct Game<'a> {
     /// of their packages that asks for the current package gets the one they had
     /// rather than starting the choice again (`Game::current_package`). Not saved.
     pub(crate) choosing_package: Vec<FormId>,
+    /// What the soft-lock watchdog reads of the events (`crate::softlock`). Not saved.
+    pub softlock_seen: crate::softlock::Seen,
 }
 
 /// A lambda in a save: the unit it is written in (by key), the lambda, the instance whose
@@ -2502,6 +2504,7 @@ impl<'a> Game<'a> {
             empty_ref_traced: BTreeSet::new(),
             package_scan_due: 0.0,
             choosing_package: Vec::new(),
+            softlock_seen: Default::default(),
         }
     }
 
@@ -2512,6 +2515,14 @@ impl<'a> Game<'a> {
         };
         // JohnnyGuitar's failed-quest and reputation handlers (`crate::nvse_jg8`).
         let jg8 = self.jg8_from_event(&kind);
+        // The soft-lock watchdog's count of the events that say a scene goes on.
+        if let EventKind::StageSet { quest, stage, .. } = &kind {
+            self.softlock_seen.stage = Some((*quest, *stage));
+        }
+        let hello = if matches!(kind, EventKind::LineStarted { .. }) { self.hello_topic() } else { None };
+        if crate::softlock::story(&kind, hello) {
+            self.softlock_seen.story += 1;
+        }
         self.events.push(Event { frame: self.frame, kind });
         // Items coming to the player count towards the acquire challenges (`crate::challenges`).
         if let Some((item, count)) = acquired {
