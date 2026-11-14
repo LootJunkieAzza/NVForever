@@ -30,7 +30,7 @@ type Applied = HashMap<u32, (Vec<String>, Arc<crate::locomotion::ClipSet>)>;
 fn apply(script: Option<Res<ScriptState>>, parts: Option<ResMut<ActorParts>>, mut models: ModelCtx, mut actors: Query<(&ActorRig, &mut Locomotion)>, mut applied: Local<Applied>) {
     let Some(rt) = script.as_deref().and_then(|s| s.rt.as_ref()) else { return };
     let game = &rt.game;
-    if game.anim_paths.actor.is_empty() && game.anim_folders.active.is_empty() && applied.is_empty() {
+    if game.anim_paths.actor.is_empty() && game.anim_paths.weapon.is_empty() && game.anim_folders.active.is_empty() && applied.is_empty() {
         return;
     }
     let Some(mut parts) = parts else { return };

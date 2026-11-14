@@ -21,6 +21,9 @@ pub struct AnimPaths {
     /// the condition function; the path applies only while it returns true
     /// [documented: SetActorAnimationPath, `pollConditionFunction conditionFunction`].
     pub conditions: HashMap<(FormId, bool, String), XVal>,
+    /// The played sequences ActivateAnim added (actor, path in lower case), layered over
+    /// what the actor plays rather than played in its place.
+    pub layered: std::collections::HashSet<(FormId, String)>,
     /// Sequences a script played on an actor (PlayAnimationPath, ActivateAnim), in the
     /// script's spelling [observed: "sequences loaded by a script keep the script's
     /// spelling"].
@@ -139,6 +142,14 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
         "playanimationpath" | "activateanim" => {
             let path = text(args, 0);
             if file_exists(&path) {
+                // ActivateAnim's sequences are layered over what plays [documented:
+                // ActivateAnim, "adds a sequence to the active ones"]; the engine plays
+                // PlayAnimationPath's and leaves these to a later slice.
+                if name == "activateanim" {
+                    g.anim_paths.layered.insert((a, path_key(&path)));
+                } else {
+                    g.anim_paths.layered.remove(&(a, path_key(&path)));
+                }
                 let p = g.anim_paths.played.entry(a).or_default();
                 if !p.iter().any(|x| same(x, &path)) {
                     p.push(path.clone());

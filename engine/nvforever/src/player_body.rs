@@ -2306,7 +2306,7 @@ fn show_rigs(body: &mut Body, commands: &mut Commands, visibility: &mut Query<&m
 /// the new files and forgets the clips it chose, so the next pick finds them.
 fn apply_anim_overrides(mut script: Option<ResMut<nvf_play::script::ScriptState>>, sim: Option<ResMut<nvf_play::sim::SimState>>, mut state: ResMut<PlayerBody>, mut current: Local<[(Vec<String>, Overrides); 2]>) {
     let (Some(rt), Some(mut sim)) = (script.as_deref_mut().and_then(|s| s.rt.as_mut()), sim) else { return };
-    let empty = rt.game.anim_paths.actor.is_empty() && rt.game.anim_folders.active.is_empty() && current.iter().all(|c| c.0.is_empty());
+    let empty = rt.game.anim_paths.actor.is_empty() && rt.game.anim_paths.weapon.is_empty() && rt.game.anim_folders.active.is_empty() && current.iter().all(|c| c.0.is_empty());
     if empty {
         return;
     }

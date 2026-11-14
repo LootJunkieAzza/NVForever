@@ -599,6 +599,75 @@ impl Default for Idles {
     }
 }
 
+/// A sequence a script played on the player that [`play_script_sequences`] started:
+/// its path, the rig (first person or not) and the idle's serial there.
+#[derive(Debug, Clone)]
+pub struct ScriptSequence {
+    path: String,
+    first: bool,
+    serial: u32,
+}
+
+/// kNVSE's PlayAnimationPath on the player (docs/design/knvse-anim.md §5): a sequence a
+/// script played (`AnimPaths::played`) starts as an idle does, on the first-person rig
+/// when its clip drives the camera node, else on the body; once if the clip says so
+/// (cycle type Clamp), else looping until a script takes it back (DeactivateAnim). A
+/// clip still loading waits for a later frame; one that cannot be read is not tried
+/// again. ActivateAnim's sequences are layered in the original and are left out here.
+pub fn play_script_sequences(script: Option<Res<ScriptState>>, mut pi: ResMut<PlayerIdles>, mut parts: ResMut<ActorParts>, mut models: ModelCtx, mut started: Local<Vec<ScriptSequence>>) {
+    let Some(game) = script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game) else { return };
+    let me = FormId::PLAYER_REF;
+    let played: Vec<String> = game
+        .anim_paths
+        .played
+        .get(&me)
+        .into_iter()
+        .flatten()
+        .filter(|p| !game.anim_paths.layered.contains(&(me, p.replace('/', "\\").to_ascii_lowercase())))
+        .cloned()
+        .collect();
+    if played.is_empty() && started.is_empty() {
+        return;
+    }
+    let same = |a: &str, b: &str| a.replace('/', "\\").eq_ignore_ascii_case(&b.replace('/', "\\"));
+    // Taken back: its idle stops (fading out as an idle does).
+    started.retain(|s| {
+        if played.iter().any(|p| same(p, &s.path)) {
+            return true;
+        }
+        let slot = if s.first { &mut pi.first } else { &mut pi.third };
+        if let Some(c) = slot.cur.as_mut().filter(|c| c.serial == s.serial) {
+            c.play.stop();
+        }
+        info!("anim sequence: the player's {} stops", s.path);
+        false
+    });
+    let mut ctx = ActorCtx { cache: &mut parts, models: &mut models };
+    for p in played {
+        if started.iter().any(|s| same(&s.path, &p)) {
+            continue;
+        }
+        let path = meshes_path(&p);
+        if !ctx.clip_ready(&path) {
+            continue;
+        }
+        let Some(clip) = ctx.clip(&path) else {
+            warn!("anim sequence: the player's {p} does not load");
+            started.push(ScriptSequence { path: p, first: false, serial: 0 });
+            continue;
+        };
+        let keys = IdleKeys::read(clip.start, clip.stop, &clip.text_keys);
+        let once = clip.cycle_type == 2;
+        let play = IdlePlay::new(keys, once.then_some(1));
+        let first = clip.tracks.iter().any(|(n, _)| n == CAMERA_NODE);
+        let slot = if first { &mut pi.first } else { &mut pi.third };
+        slot.start(0, IdleSource::Script, None, clip, play);
+        let serial = slot.serial;
+        info!("anim sequence: the player plays {p} ({}) on the {} rig", if once { "once" } else { "looping" }, if first { "first-person" } else { "third-person" });
+        started.push(ScriptSequence { path: p, first, serial });
+    }
+}
+
 /// The clip of an idle and its playback, as its record and text keys say; a creature's
 /// standing look loops until replaced (`IdleSource::Standing`).
 fn load(ctx: &mut ActorCtx, game: &Game, idle: FormId, rng: &mut Rng, endless: bool) -> Result<(Arc<Clip>, IdlePlay), String> {

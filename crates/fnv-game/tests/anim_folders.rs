@@ -154,3 +154,38 @@ fn script_paths_take_folders_and_conditions() {
     q(&mut g, "player.SetActorAnimationPath 0 0 \"AnimGroupOverride/Gun/_male\"");
     assert!(gun(g.anim_overrides_now(FormId::PLAYER_REF, false)).is_empty());
 }
+
+/// SetWeaponAnimationPath's files apply to whoever holds the weapon, a folder giving its
+/// KF files [documented: SetWeaponAnimationPath; hypothesis: the holder].
+#[test]
+fn weapon_paths_follow_the_weapon_in_hand() {
+    files();
+    let f = fixture();
+    let world = World::new(&f.forms, &f.refs, SimConfig::default());
+    let mut g = Game::new(&f.data, world, GameConfig::default());
+    g.player_entered(Some(FormId(ROOM)));
+    g.tick();
+    let gun = |v: Vec<String>| v.into_iter().map(|p| p.replace(char::from(92), "/")).filter(|p| p.contains("Gun/_male")).collect::<Vec<_>>();
+    q(&mut g, "SetWeaponAnimationPath OtherGun 0 1 \"AnimGroupOverride/Gun/_male\"");
+    assert!(gun(g.anim_overrides(FormId::PLAYER_REF, false)).is_empty(), "not held");
+    q(&mut g, "player.AddItem OtherGun 1\nplayer.EquipItem OtherGun");
+    assert_eq!(gun(g.anim_overrides(FormId::PLAYER_REF, false)), ["AnimGroupOverride/Gun/_male/2hrAttack3.kf"]);
+    assert_eq!(gun(g.anim_overrides_now(FormId::PLAYER_REF, false)), ["AnimGroupOverride/Gun/_male/2hrAttack3.kf"]);
+    assert!(gun(g.anim_overrides(FormId::PLAYER_REF, true)).is_empty(), "the third-person path only");
+}
+
+/// PlayAnimationPath's sequences are played in place of what the actor plays; ActivateAnim's
+/// are marked layered (the engine leaves those for later) [documented: ActivateAnim].
+#[test]
+fn activate_anim_sequences_are_marked_layered() {
+    files();
+    let f = fixture();
+    let world = World::new(&f.forms, &f.refs, SimConfig::default());
+    let mut g = Game::new(&f.data, world, GameConfig::default());
+    g.player_entered(Some(FormId(ROOM)));
+    q(&mut g, "player.PlayAnimationPath \"AnimGroupOverride/Gun/_male/2hrAttack3.kf\"\nplayer.ActivateAnim \"AnimGroupOverride/Gun/_1stPerson/2hrAttack3.kf\"");
+    let played = g.anim_paths.played.get(&FormId::PLAYER_REF).cloned().unwrap_or_default();
+    assert_eq!(played.len(), 2);
+    let layered: Vec<String> = g.anim_paths.layered.iter().map(|(_, p)| p.replace(char::from(92), "/")).collect();
+    assert_eq!(layered, ["animgroupoverride/gun/_1stperson/2hrattack3.kf"]);
+}

@@ -82,6 +82,15 @@ player does not read their state yet.
   (third person) and `EM_Sprint_1stPerson\mtfastforward.kf` (first) while sprinting, the
   vanilla ones otherwise; Titans of the New West's power armour puts 408 third-person
   files on the player (`AnimGroupOverride\TNW\_male\…`), and its walk plays them.
-- **Still not built:** SetWeaponAnimationPath's paths (kept, not played); idles and
-  script-played sequences (PlayAnimationPath, ActivateAnim) on any actor; NPCs'
-  conditional paths and anything but their standing locomotion.
+- **Weapon paths** [documented: SetWeaponAnimationPath; hypothesis: they apply to
+  whoever holds the weapon]: the files of the weapon an actor has equipped come after
+  the folders' and before the actor's own paths (`Game::weapon_overrides`), for NPCs and
+  the player alike.
+- **Script-played sequences on the player** (`nvforever` idles.rs,
+  `play_script_sequences`): PlayAnimationPath's sequence starts as an idle does, on the
+  first-person rig when its clip drives the camera node, else on the body; once when the
+  clip's cycle type is Clamp, else looping until DeactivateAnim takes it back.
+- **Still not built:** ActivateAnim's sequences, which the original layers over what plays
+  (the game marks them, `AnimPaths::layered`; the engine leaves them out, as a full idle
+  would hold the arms still under a camera-only layer); script-played sequences on NPCs;
+  NPCs' conditional paths and anything but their standing locomotion.
