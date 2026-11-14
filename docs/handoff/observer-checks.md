@@ -1985,7 +1985,7 @@ heading 75) with NVFExtProbe.esp loaded, as the jip-probes sets run.
 
 ## Added 2026-11-14 (shots through the Transparent layer, #2340)
 
-128. **Does a 9mm round pass a chain link on the plain Transparent layer (3)?** (P2;
+130. **Does a 9mm round pass a chain link on the plain Transparent layer (3)?** (P2;
      #2340, combat-rules.md "The world".) The road gate door 0x0008D5B8 (CLFenceGateRoad01,
      WastelandNV, -4576, -30616, 6819, not rotated) has its chain link on layer 3 east of
      the gate leaves (model x 45..246, 13..224 high); the gate leaves themselves are on

@@ -508,7 +508,7 @@ Examples [observed, seed 1, skill 50, 100 HP target]:
     ray through the world, so they are unchanged. Blast cover lines already passed layer 3,
     and so does sight (`detection.rs` `see_through`; the same wiki line: actors see
     through it). Whether the original lets a 9mm through a layer-3 chain link is observer
-    check 128 [hypothesis until then: the wiki holds for mesh bodies].
+    check 130 [hypothesis until then: the wiki holds for mesh bodies].
   - **Reach of the change** [documented: `fnvtool collide objects` over the eleven mesh
     archives of the base game and its add-ons, `fnvtool world refs` over every worldspace
     and the interior cells of FalloutNV.esm with its nine add-on masters, 2026-11-14]:
