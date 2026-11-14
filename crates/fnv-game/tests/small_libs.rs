@@ -573,6 +573,45 @@ fn ini_sibling_paths_read_owned_files_and_share_session_cache_values() {
 }
 
 #[test]
+fn objective_links_are_nested_paths_while_alt_is_a_flat_marker_list() {
+    use fnv_game::quest::ObjectiveState;
+    use fnv_sim::refs::Teleport;
+    let mut f = fixture();
+    // Typed, owned graph metadata uses only baseline public structures, so this
+    // identical fixture also compiles before the new cache field exists.
+    let template = f.refs.get(FormId(BOX_REF)).unwrap().clone();
+    for (id, cell, destination) in [(0x900, INSIDE, 0x902), (0x902, 0xFFFF, 0x900), (0x901, 0xFFFF, 0x903), (0x903, OUTSIDE, 0x901)] {
+        let mut door = template.clone();
+        door.id = FormId(id);
+        door.edid = None;
+        door.cell = Some(FormId(cell));
+        door.stored_in = Some(FormId(cell));
+        door.teleport = Some(Teleport { door: FormId(destination), pos: [0.0; 3], rot: [0.0; 3], no_alarm: false });
+        f.refs.refs.insert(door.id, door);
+        f.refs.by_cell.entry(FormId(cell)).or_default().push(FormId(id));
+    }
+    let mut g = game(&f);
+    let query = |g: &mut Game, source: &str| g.run_query(source, Default::default()).unwrap_or_else(|e| panic!("{source}: {e}"));
+    assert_eq!(q(&mut g, "SetFunctionValue (Ar_Size (GetCurrentQuestObjectiveTeleportLinks))"), n(0.0));
+    g.ui.active_quest = Some(FormId(QUEST));
+    g.quests.entry(FormId(QUEST)).or_default().objectives.insert(10, ObjectiveState { displayed:true, completed:false });
+    g.other.jip10.objective_targets.insert((FormId(QUEST),10), vec![FormId(BOX_REF)]);
+    g.world.get(FormId::PLAYER_REF).unwrap().cell = Some(FormId(INSIDE));
+    assert_eq!(g.check_quest_targets(FormId(QUEST)).len(), 1);
+    assert_eq!(g.cell_of(FormId(BOX_REF)), Some(FormId(INSIDE)));
+    assert_eq!(query(&mut g, "array_var paths\nBegin Function {}\nlet paths := GetCurrentQuestObjectiveTeleportLinks\nSetFunctionValue paths[0][0]\nEnd"), XVal::Ref(BOX_REF));
+    assert_eq!(query(&mut g, "array_var markers\nBegin Function {}\nlet markers := GetCurrentQuestObjectiveTeleportLinksAlt\nSetFunctionValue markers[0]\nEnd"), XVal::Ref(BOX_REF));
+    // Two rooms away: the first marker is the local door, and the nested row
+    // keeps both doors followed by the actual objective reference.
+    g.world.get(FormId(BOX_REF)).unwrap().cell = Some(FormId(OUTSIDE));
+    assert_eq!(query(&mut g, "array_var paths\nBegin Function {}\nlet paths := GetCurrentQuestObjectiveTeleportLinks\nSetFunctionValue (Ar_Size paths[0])\nEnd"), n(3.0));
+    assert_eq!(query(&mut g, "array_var paths\nBegin Function {}\nlet paths := GetCurrentQuestObjectiveTeleportLinks\nSetFunctionValue paths[0][2]\nEnd"), XVal::Ref(BOX_REF));
+    assert_eq!(query(&mut g, "array_var markers\nBegin Function {}\nlet markers := GetCurrentQuestObjectiveTeleportLinksAlt\nSetFunctionValue markers[0]\nEnd"), XVal::Ref(0x900));
+    g.quests.get_mut(&FormId(QUEST)).unwrap().objectives.get_mut(&10).unwrap().completed = true;
+    assert_eq!(q(&mut g, "SetFunctionValue (Ar_Size (GetCurrentQuestObjectiveTeleportLinks))"), n(0.0));
+}
+
+#[test]
 fn explicit_player_sequences_keep_view_clocks_targets_and_release_state() {
     files();
     let f = fixture();

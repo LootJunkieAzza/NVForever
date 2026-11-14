@@ -89,6 +89,7 @@ mod sup4;
 mod sup6;
 mod sup7;
 mod sweep;
+mod temporary_scene_bases;
 mod traps;
 mod ui_functions;
 mod ui_hud;

@@ -5806,6 +5806,24 @@ impl<'a> Game<'a> {
 
     // ---- snapshots -----------------------------------------------------------------
 
+    /// Actual save boundaries must refuse unsupported temporary scene references
+    /// before serializing/enqueueing, rather than dropping their reference closure.
+    /// Native placed-clone save semantics are not established by this preview guard.
+    pub fn checked_snapshot(&self) -> Result<GameSnapshot, String> {
+        let snapshot = self.snapshot();
+        let unsupported = snapshot
+            .sim
+            .refs
+            .iter()
+            .map(|(&id, state)| (id, state.base))
+            .chain(snapshot.sim.deleted_created.iter().map(|(&id, &base)| (id, base)))
+            .find(|(_, base)| self.clones.contains_key(base) || self.world.temporary_scene_base(*base).is_some());
+        if let Some((reference, base)) = unsupported {
+            return Err(format!("saving reference {reference} of temporary cloned base {base} is not supported yet"));
+        }
+        Ok(snapshot)
+    }
+
     pub fn snapshot(&self) -> GameSnapshot {
         let mut sim = self.world.snapshot();
         // SetOwnershipTemp's owners are not saved: the owner before it is (`nvse_showoff4`).

@@ -41,6 +41,7 @@ counts them).
 | Runtime script origin | In progress | Ordinary AuxVar no-plugin origin for ScriptRunner/CompileScript; real ESM/ESP ownership retained. Runtime-origin interfaces have owned regression controls; no string-map or full-mod acceptance. | [runtime script origin](spec-notes/runtime-script-origin.md) |
 | Archives (BSA) and plugins (ESM/ESP), load order | Done | Read and rewritten byte for byte; 92 of the masters' 107 record types have their own layout in the schema (`schemas/fnv`), the others decode only their shared subrecords (NAVI and NAVM are read by hand in `fnv-nav`); of the masters' 3,056,241 subrecords 98.1 % decode, 0 with trailing bytes, 2 errors (smoke `esm-coverage` pins the totals, #1000); what the engine still does nothing with: [esm-audit-2026-10-25](handoff/esm-audit-2026-10-25.md), nothing undecoded at the end of a record in the 10 masters; xEdit cross-check agrees on 465,016 records | [layer1](design/layer1.md), [bsa](spec-notes/bsa.md), [esm](spec-notes/esm.md) |
 | Assets: NIF, KF, DDS | Done | 160/160 NIF block types, every block of the game decodes and re-encodes exactly; all textures agree with an independent reader; archive precedence settled in game (#101) Worker texture producer/failure coordination has an initial candidate with current-port checks pending ([worker loading](spec-notes/worker-texture-load-coordination.md)). | [layer2](design/layer2.md), [nif](spec-notes/nif.md), [dds](spec-notes/dds.md) |
+| UI texture content | In progress | Bounded 24/32-bit true-color TGA content under any suffix; DDS dispatch retained. Six codec controls and a qualified private Pictures/VFS baseline failure to candidate pass; public whole-tree and rendered/native checks pending. | [UI TGA content](spec-notes/ui-tga-content.md) |
 | Install layout | Done | NVForever's home is `Documents\My Games\NVForever` (or `NVFOREVER_HOME`; caches in `%LOCALAPPDATA%\NVForever\cache`); `NVForever.ini` keeps the game's folder, asked for in a folder dialog at the first start; its own `plugins.txt` in the home says which plugins load and in what order (`*` turns one on; new plugins in Data are added off); the game's required files are checked before every start; never writes into the game folder or `My Games\FalloutNV` | [install-layout](design/install-layout.md) |
 | SpeedTree | Done, awaiting owner | `.spt` trees generated (`fnv-spt`), leaf dimming and wind; field meanings are hypotheses checked against billboards | [speedtree](spec-notes/speedtree.md) |
 
@@ -102,6 +103,8 @@ World-coordinate NIF translation getter has an initial source candidate; current
 
 Runtime IDLE file replacement and replay identity have an initial candidate; current-port execution and lifetime qualification remain pending ([IDLE paths](spec-notes/local-idle-path-replacement.md)).
 
+Nested objective teleport-link paths are being qualified with owned headless regressions; complete consumer acceptance remains separate ([notes](spec-notes/objective-teleport-paths.md)).
+
 ### CompileScript sibling paths
 
 Implemented the focused behavior correction and authored synthetic regression coverage;
@@ -109,7 +112,7 @@ contract and limits: [CompileScript sibling paths](spec-notes/compilescript-rela
 
 Temporary cloned-projectile getter/setter identity is being qualified separately from scene placement and physics ([clone record access](spec-notes/cloned-projectile-records.md)).
 
-TempCloneForm omitted-caller-base handling has an initial source candidate; scene admission and current-port execution remain pending ([clone caller](spec-notes/clone-calling-reference.md)).
+`TempCloneForm` uses the calling reference's base when its argument is omitted ([clone caller](spec-notes/clone-calling-reference.md)). Direct nonscripted STAT/MSTT/PROJ aliases support inert scene placement with frozen model paths; whole saves containing temporary scene bases, including deleted-created tombstones, are deliberately refused. Playable persistence, temporary-reference lifetime and rendered/collision parity remain unqualified ([temporary scene bases](spec-notes/temporary-scene-bases.md)).
 
 INI sibling paths within Data are being qualified for existing Config-relative readers and caches; physical containment and complete configuration consumers remain separate ([INI paths](spec-notes/local-ini-sibling-paths.md)).
 
