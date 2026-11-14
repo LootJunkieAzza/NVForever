@@ -105,3 +105,16 @@ enabled, Try drawer offers an isolated swipe exercise without opening inventory.
 Reset returns to the guide; Close or Escape returns to the paused Settings page.
 The active session is never saved and practice does not change a gameplay save.
 This source increment still needs Rust execution and rendered device validation.
+
+## Mobile performance
+
+Display > Performance offers Battery (30 FPS, 50% world resolution), Balanced
+(60 FPS, 67%) and Quality (60 FPS, native). The frame limit and world resolution
+can also be selected separately. Smaller world resolutions require FSR support;
+unsupported choices explain why they are unavailable. Menus stay at display resolution.
+
+Automatic thermal adjustment starts off. When enabled, warming temporarily limits
+frames to 45 or 30 FPS and may lower an already-selected FSR resolution. Native
+rendering stays native. The status row shows the effective limit and world resolution.
+Settings recover gradually after sustained cooling; your latest choices remain saved.
+Unavailable thermal feedback uses manual settings. Performance varies by phone and scene.

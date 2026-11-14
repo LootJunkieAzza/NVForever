@@ -63,6 +63,8 @@ pub(super) struct Practice {
     toggle_aim: bool,
     dead_zone: f32,
     floating: bool,
+    analog: bool,
+    fire_drag: bool,
 }
 impl Practice {
     pub(super) fn blocking(&self) -> bool {
@@ -98,19 +100,27 @@ impl Practice {
             .find(|c| c.target == Target::Move)
             .map_or(stick(size).0, |c| c.origin)
     }
+    fn speed_feedback(&self, radius: f32) -> String {
+        if !self.analog { return "Legacy directional movement".into(); }
+        let v = super::movement::axes(self.move_delta, radius, self.dead_zone);
+        format!("Analog {:.0}%: {} with Always Run", v.length()*100.0,
+            if v.length() < nvf_play::pad::STICK_WALK_BELOW { "walk" } else { "run" })
+    }
     fn direction(&self, radius: f32) -> String {
-        let d = self.move_delta / radius.max(1.0);
+        let d = if self.analog { super::movement::axes(self.move_delta, radius, self.dead_zone) * Vec2::new(1.0,-1.0) }
+            else { self.move_delta / radius.max(1.0) };
+        let threshold = if self.analog { 0.001 } else { self.dead_zone };
         let mut words = Vec::new();
-        if d.y < -self.dead_zone {
+        if d.y < -threshold {
             words.push("Forward");
         }
-        if d.y > self.dead_zone {
+        if d.y > threshold {
             words.push("Back");
         }
-        if d.x < -self.dead_zone {
+        if d.x < -threshold {
             words.push("left");
         }
-        if d.x > self.dead_zone {
+        if d.x > threshold {
             words.push("right");
         }
         if words.is_empty() {
@@ -151,6 +161,7 @@ impl Practice {
                     } else {
                         t.position
                     };
+                    if target == Target::Fire && self.fire_drag { self.fire = true; }
                     if target == Target::Aim {
                         let already_down = self.contacts.values().any(|c| c.target == Target::Aim);
                         if self.toggle_aim {
@@ -179,7 +190,7 @@ impl Practice {
             }
             TouchPhase::Moved => {
                 if let Some(c) = self.contacts.get_mut(&t.id) {
-                    if c.target == Target::Look {
+                    if c.target == Target::Look || (c.target == Target::Fire && self.fire_drag) {
                         self.look = (self.look + t.position - c.at)
                             .clamp(Vec2::splat(-70.0), Vec2::splat(70.0));
                         self.looked |= (t.position - c.start).length() >= 8.0;
@@ -187,7 +198,7 @@ impl Practice {
                     let delta = t.position - c.start;
                     if c.target == Target::Drawer {
                         c.canceled |= delta.x.abs() > 32.0 || delta.y > 24.0;
-                    } else if !matches!(c.target, Target::Move | Target::Look) {
+                    } else if !matches!(c.target, Target::Move | Target::Look) && !(c.target == Target::Fire && self.fire_drag) {
                         c.canceled |= delta.length() > 18.0;
                     }
                     c.at = t.position;
@@ -448,6 +459,7 @@ fn open(world: &mut World, name: &str) -> bool {
             layout.config.aiming.toggle_aim,
         )
     };
+    let movement = world.get_resource::<super::movement::Options>().copied().unwrap_or_default();
     let viewport = world.resource::<Practice>().viewport;
     let drawer = *world.resource::<super::drawer::Options>();
     *world.resource_mut::<Practice>() = Practice {
@@ -459,6 +471,7 @@ fn open(world: &mut World, name: &str) -> bool {
         toggle_aim,
         dead_zone,
         floating,
+        analog: movement.analog, fire_drag: movement.fire_drag,
         ..default()
     };
     world.resource_mut::<FormOver>().0 = true;
@@ -606,16 +619,19 @@ fn show(
     let centre = state.stick_centre(size);
     for (v, mut node, mut text, mut font, mut visible, label) in &mut nodes {
         let control_page = state.page == PageKind::Controls;
+        if matches!(v, Visual::DeadZone) { node.border_radius = if state.analog { BorderRadius::MAX } else { BorderRadius::default() }; }
         let (shown, rect, words) = match v {
             Visual::Header => (true, Rect::from_corners(Vec2::new(16.0, 8.0), Vec2::new(size.x-232.0, 88.0)), "Touch guide\nGame paused.".into()),
             Visual::Close => (true, header(size,true), "Close".into()), Visual::Reset => (true,header(size,false),"Reset".into()),
             Visual::Guide => (!control_page && state.page != PageKind::Drawer, Rect::from_corners(Vec2::new(20.0,84.0),Vec2::new(size.x-20.0,size.y-100.0)), match state.page {
-                PageKind::Guide => format!("LEFT THUMB MOVES\nInner box = no movement.\nDrag out to move; lift to stop.\n{}", if state.floating { "Floating: starts at your thumb." } else { "Fixed: start on the ring." }),
-                PageKind::GuideLook => "RIGHT THUMB LOOKS\nDrag right area to turn.\nLift to stop.\nUse both thumbs together.".into(),
+                PageKind::Guide => format!("MOVEMENT THUMB\n{} = no movement.\n{}\n{}", if state.analog { "Inner circle" } else { "Inner box" },
+                    if state.analog { "Push gently to walk; farther to run with Always Run. Lift to stop." } else { "Drag out for directional movement; lift to stop." },
+                    if state.floating { "Floating: starts at your thumb." } else { "Fixed: start on the ring." }),
+                PageKind::GuideLook => format!("LOOKING\nDrag empty look space to turn.\n{}\nUse both thumbs together.", if state.fire_drag { "Fire also looks while dragged; try it in practice." } else { "Lift to stop looking." }),
                 _ => "SAFE PRACTICE\nTry Fire, Aim and Jump next.\nOnly this guide changes.\nNo ammo/AP used. Close exits.".into(),
             }),
             Visual::Begin => (!control_page && state.page != PageKind::Drawer,begin(size),match state.page { PageKind::Guide => "Next: looking", PageKind::GuideLook => "Next: actions", _ => "Begin practice" }.into()),
-            Visual::Left => (control_page,area(size,true),format!("{}\n{}",if state.floating {"Touch left"} else {"Drag ring"},state.direction(r))),
+            Visual::Left => (control_page,area(size,true),format!("{}\n{}\n{}",if state.floating {"Touch left"} else {"Drag ring"},state.direction(r),state.speed_feedback(r))),
             Visual::Right => (control_page,area(size,false),format!("LOOK: drag\n{}",if state.looked {"Look practised"} else {"Drag the dot"})),
             Visual::Ring => (control_page,Rect::from_center_size(centre,Vec2::splat(r*2.0)),String::new()),
             Visual::DeadZone => (control_page,Rect::from_center_size(centre,Vec2::splat((r*2.0*state.dead_zone).max(2.0))),String::new()),
@@ -687,6 +703,7 @@ mod tests {
     fn scene() -> (App, Entity) {
         let mut app = App::new();
         app.add_plugins((MinimalPlugins, InputPlugin, StatesPlugin));
+        app.insert_resource(super::super::movement::Options::legacy());
         app.init_state::<PlayState>()
             .insert_resource(Bindings::default())
             .insert_resource(Paused(true))
@@ -952,6 +969,8 @@ mod tests {
                     origin: Vec2::ZERO,
                     position: Vec2::ZERO,
                     role: Role::Button(index),
+                    started: 0.0,
+                    dragged: false,
                 },
             );
             sync_touch(&mut state, Some(&bindings), false);
@@ -1400,4 +1419,23 @@ mod tests {
             assert_eq!(p.direction(r), "Back left");
         }
     }
+    #[test]
+    fn practice_uses_current_analog_radial_feedback_and_fire_drag_without_live_actions() {
+        let (mut app,w)=scene();
+        app.world_mut().resource_mut::<super::super::movement::Options>().analog=true;
+        app.world_mut().resource_mut::<super::super::movement::Options>().fire_drag=true;
+        launch(&mut app);controls(&mut app,w);
+        let size=Vec2::new(900.0,450.0);let (origin,r)=stick(size);
+        send(&mut app,w,10,TouchPhase::Started,origin);
+        send(&mut app,w,10,TouchPhase::Moved,origin+Vec2::new(0.15,-0.15)*r);app.update();
+        assert_eq!(app.world().resource::<Practice>().direction(r),"Forward right","radial diagonal can leave dead zone before either axis alone");
+        assert!(app.world().resource::<Practice>().speed_feedback(r).starts_with("Analog "));
+        let fire=action(size,0,app.world().resource::<Practice>().drawer_enabled).center();
+        send(&mut app,w,11,TouchPhase::Started,fire);app.update();
+        send(&mut app,w,11,TouchPhase::Moved,fire+Vec2::new(25.0,0.0));app.update();
+        assert!(app.world().resource::<Practice>().fire && app.world().resource::<Practice>().looked);
+        assert!(app.world().resource::<Practice>().look.x>0.0);
+        isolated(&app);
+    }
+
 }

@@ -24,19 +24,19 @@ class SvgTests(unittest.TestCase):
     def parse(self, data, label="Pause", style=None):
         return svg.parse_svg(data, label, style or self.style)
 
-    def test_four_families_have_same_26_stable_semantic_routes(self):
+    def test_four_families_have_same_27_stable_semantic_routes(self):
         families, digest = svg.compile_manifest(MANIFEST)
         self.assertEqual([f["id"] for f in families], ["precise-line", "bold-filled", "rounded", "industrial"])
         self.assertEqual(len(digest), 64)
-        expected = ["pause", "pip-boy", "vats", "reload", "jump", "interact", "aim", "fire", "sneak", "menu-up", "menu-down", "menu-left", "menu-right", "confirm", "back", "tab-next", "page-up", "page-down", "settings", "help", "sprint", "quickwheel", "close", "companion", "aid", "block"]
+        expected = ["pause", "pip-boy", "vats", "reload", "jump", "interact", "aim", "fire", "sneak", "menu-up", "menu-down", "menu-left", "menu-right", "confirm", "back", "tab-next", "page-up", "page-down", "settings", "help", "sprint", "quickwheel", "close", "companion", "aid", "block", "gyro"]
         for family in families:
             self.assertEqual([i["id"] for i in family["icons"]], expected)
-            self.assertEqual(len({json.dumps(i["primitives"], sort_keys=True) for i in family["icons"]}), 26)
-        self.assertEqual([i["legacyIndex"] for i in MANIFEST_DATA["icons"]], list(range(26)))
+            self.assertEqual(len({json.dumps(i["primitives"], sort_keys=True) for i in family["icons"]}), 27)
+        self.assertEqual([i["legacyIndex"] for i in MANIFEST_DATA["icons"]], list(range(27)))
 
     def test_primary_family_drawings_differ_in_geometry_not_just_stroke_or_fill(self):
         families, _ = svg.compile_manifest(MANIFEST)
-        for key in ["fire", "aim", "sneak", "jump", "pip-boy", "vats", "quickwheel", "companion", "aid", "block"]:
+        for key in ["fire", "aim", "sneak", "jump", "pip-boy", "vats", "quickwheel", "companion", "aid", "block", "gyro"]:
             geometry = []
             for family in families:
                 icon = next(i for i in family["icons"] if i["id"] == key)
@@ -50,7 +50,7 @@ class SvgTests(unittest.TestCase):
         self.assertEqual(text, svg.rust_geometry(*svg.compile_manifest(MANIFEST)))
         self.assertIn(digest, text)
         self.assertEqual(text.count("IconFamily {"), 4)
-        self.assertEqual(text.count("IconSource {"), 104)
+        self.assertEqual(text.count("IconSource {"), 108)
         self.assertIn("fill: true, stroke: false", text)
         self.assertIn("fill: false, stroke: true", text)
         self.assertNotIn("64 * 64", text)
@@ -151,7 +151,7 @@ class SvgTests(unittest.TestCase):
                 text = svg.preview_svg(MANIFEST, family["id"], backdrop)
                 root = ET.fromstring(text)
                 groups = [e for e in root.findall(svg.NS + "g") if "data-icon-size" in e.attrib]
-                self.assertEqual(len(groups), 78)
+                self.assertEqual(len(groups), 81)
                 self.assertEqual({e.attrib["data-icon-size"] for e in groups}, {"24", "32", "48"})
                 self.assertIn("synthetic backdrop / not a game capture", text)
                 self.assertIn("GPL-3.0-or-later", text)

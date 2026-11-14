@@ -100,10 +100,90 @@ fn analog_active(g: &Gamepad) -> [bool; 4] {
         g.get(GamepadButton::RightTrigger2).unwrap_or(0.0) > STICK_DEAD]
 }
 
+/// Optional platform-owned cover. Action views are neutral while covered and held
+/// hardware remains quarantined through its release/neutral frame. Raw state is intact.
+#[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum PlatformInputSystems { Publish, Remember }
+
+#[derive(Resource, Default)]
+pub struct PlatformInputGate {
+    active: bool,
+    cancel_pending: bool,
+    touches: HashSet<u64>,
+    keys: HashSet<KeyCode>,
+    mouse: HashSet<MouseButton>,
+    pads: HashMap<Entity, PlatformPadHold>,
+}
+#[derive(Default)]
+struct PlatformPadHold { buttons: HashSet<GamepadButton>, analog: [bool; 4] }
+impl PlatformInputGate {
+    pub fn set_blocked(&mut self, blocked: bool) { self.cancel_pending |= blocked && !self.active; self.active = blocked; }
+    pub fn allows_actions(&self) -> bool { !self.active }
+    pub fn allows_touch(&self, id: u64) -> bool { !self.active && !self.touches.contains(&id) }
+}
+fn publish_platform_gate(
+    gate: Option<ResMut<PlatformInputGate>>,
+    (keys, mouse, touches): (Res<ButtonInput<KeyCode>>, Res<ButtonInput<MouseButton>>, Res<bevy::input::touch::Touches>), pads: Query<(Entity, &Gamepad)>,
+    switching: Option<ResMut<SwitchingInput>>, mut commands: Commands,
+) {
+    let mut active = false; let mut held_keys = HashSet::new(); let mut held_mouse = HashSet::new();
+    if let Some(mut gate) = gate {
+        active = gate.active;
+        // Before InputSystems: last frame's neutral state releases quarantine, while
+        // the following real press may act immediately. Release frames stayed masked.
+        if !active {
+            gate.touches.retain(|id| touches.get_pressed(*id).is_some());
+            gate.keys.retain(|k| keys.pressed(*k)); gate.mouse.retain(|b| mouse.pressed(*b));
+            for (entity, raw) in &pads {
+                if let Some(held) = gate.pads.get_mut(&entity) {
+                    held.buttons.retain(|b| raw.pressed(*b));
+                    let now = analog_active(raw); for (i, value) in now.into_iter().enumerate() { held.analog[i] &= value; }
+                }
+            }
+        }
+        held_keys.clone_from(&gate.keys); held_mouse.clone_from(&gate.mouse);
+        if std::mem::take(&mut gate.cancel_pending) { commands.queue(crate::bindings::cancel_input_holds); }
+    }
+    if let Some(mut switching) = switching {
+        switching.platform_blocked = active; switching.platform_keys = held_keys; switching.platform_mouse = held_mouse;
+    }
+}
+fn remember_platform_holds(
+    gate: Option<ResMut<PlatformInputGate>>,
+    touches: Res<bevy::input::touch::Touches>,
+    keys: Res<ButtonInput<KeyCode>>,
+    mouse: Res<ButtonInput<MouseButton>>,
+    pads: Query<(Entity, &Gamepad)>,
+) {
+    let Some(mut gate) = gate else { return };
+    let active = gate.active;
+    gate.touches.retain(|id| touches.get_pressed(*id).is_some() || touches.just_released(*id) || touches.just_canceled(*id));
+    if active { gate.touches.extend(touches.iter().chain(touches.iter_just_pressed()).map(|t| t.id())); }
+    gate.keys.retain(|k| keys.pressed(*k) || keys.just_released(*k));
+    gate.mouse.retain(|b| mouse.pressed(*b) || mouse.just_released(*b));
+    if active {
+        gate.keys.extend(keys.get_pressed().copied());
+        gate.mouse.extend(mouse.get_pressed().copied());
+    }
+    gate.pads.retain(|e, _| pads.get(*e).is_ok());
+    for (entity, pad) in &pads {
+        let now = analog_active(pad);
+        let held = gate.pads.entry(entity).or_default();
+        held.buttons.retain(|b| pad.pressed(*b) || pad.just_released(*b));
+        if active { held.buttons.extend(pad.get_pressed().copied()); }
+        for (i, value) in now.into_iter().enumerate() {
+            held.analog[i] = if active { held.analog[i] || value } else { held.analog[i] && value };
+        }
+    }
+}
+
 /// The switching press is ignored by actions for one frame; releases and subsequent
 /// holds/repeats are always available. No hardware state is masked [design, #2200].
 #[derive(Resource, Default)]
 pub struct SwitchingInput {
+    platform_blocked: bool,
+    platform_keys: HashSet<KeyCode>,
+    platform_mouse: HashSet<MouseButton>,
     physical_keys: ButtonInput<KeyCode>,
     physical_mouse: ButtonInput<MouseButton>,
     keys: Vec<KeyCode>,
@@ -126,12 +206,12 @@ impl SwitchingInput {
     /// Shared raw-message filter, including text/repeats on the switching frame.
     /// Releases pass even when a press/release pair arrives together [design, #2200].
     pub fn allows(&self, event: &bevy::input::keyboard::KeyboardInput) -> bool {
-        !event.state.is_pressed() || !self.keys.contains(&event.key_code)
+        !self.platform_blocked && !self.platform_keys.contains(&event.key_code) && (!event.state.is_pressed() || !self.keys.contains(&event.key_code))
     }
 
     /// Raw picking events use exactly the same press filter [design, #2200].
     pub fn allows_mouse(&self, event: &bevy::input::mouse::MouseButtonInput) -> bool {
-        !event.state.is_pressed() || !self.mouse.contains(&event.button)
+        !self.platform_blocked && !self.platform_mouse.contains(&event.button) && (!event.state.is_pressed() || !self.mouse.contains(&event.button))
     }
 
     /// A derived action view; the original release bits survive unchanged, including
@@ -155,12 +235,15 @@ impl SwitchingInput {
 /// Types accepted by the central action filter [design, #2200].
 pub trait ActionButton: Copy + Eq + Hash + Send + Sync + 'static {
     fn blocked(filter: &SwitchingInput) -> &[Self];
+    fn platform_held(gate: &PlatformInputGate) -> &HashSet<Self>;
 }
 impl ActionButton for KeyCode {
     fn blocked(filter: &SwitchingInput) -> &[Self] { &filter.keys }
+    fn platform_held(gate: &PlatformInputGate) -> &HashSet<Self> { &gate.keys }
 }
 impl ActionButton for MouseButton {
     fn blocked(filter: &SwitchingInput) -> &[Self] { &filter.mouse }
+    fn platform_held(gate: &PlatformInputGate) -> &HashSet<Self> { &gate.mouse }
 }
 
 /// Action readers use this parameter instead of raw ButtonInput. Tests/tools without
@@ -169,29 +252,40 @@ impl ActionButton for MouseButton {
 pub struct ActionButtons<'w, T: ActionButton> {
     raw: Res<'w, ButtonInput<T>>,
     filter: Option<Res<'w, SwitchingInput>>,
+    platform: Option<Res<'w, PlatformInputGate>>,
 }
 impl<T: ActionButton> ActionButtons<'_, T> {
     pub fn snapshot(&self) -> Cow<'_, ButtonInput<T>> {
-        self.filter.as_ref().map_or_else(|| Cow::Borrowed(&*self.raw), |f| f.filter(&self.raw))
+        if self.platform.as_ref().is_some_and(|g| g.active) { return Cow::Owned(ButtonInput::default()); }
+        let filtered = self.filter.as_ref().map_or_else(|| Cow::Borrowed(&*self.raw), |f| f.filter(&self.raw));
+        if let Some(gate) = self.platform.as_ref().filter(|g| !T::platform_held(g).is_empty()) {
+            let mut view = filtered.into_owned();
+            for &button in T::platform_held(gate) { view.reset(button); }
+            Cow::Owned(view)
+        } else { filtered }
     }
     pub fn pressed(&self, b: T) -> bool { self.raw.pressed(b) && !self.blocked(b) }
     pub fn just_pressed(&self, b: T) -> bool { self.raw.just_pressed(b) && !self.blocked(b) }
-    pub fn just_released(&self, b: T) -> bool { self.raw.just_released(b) }
-    fn blocked(&self, b: T) -> bool { self.filter.as_ref().is_some_and(|f| T::blocked(f).contains(&b)) }
+    pub fn just_released(&self, b: T) -> bool { self.raw.just_released(b) && !self.platform_blocked(b) }
+    fn platform_blocked(&self, b: T) -> bool { self.platform.as_ref().is_some_and(|g| g.active || T::platform_held(g).contains(&b)) }
+    fn blocked(&self, b: T) -> bool { self.platform_blocked(b) || self.filter.as_ref().is_some_and(|f| T::blocked(f).contains(&b)) }
     pub fn any_pressed(&self, buttons: impl IntoIterator<Item = T>) -> bool { buttons.into_iter().any(|b| self.pressed(b)) }
     pub fn any_just_pressed(&self, buttons: impl IntoIterator<Item = T>) -> bool { buttons.into_iter().any(|b| self.just_pressed(b)) }
     pub fn get_pressed(&self) -> impl Iterator<Item = &T> { self.raw.get_pressed().filter(|b| !self.blocked(**b)) }
     pub fn get_just_pressed(&self) -> impl Iterator<Item = &T> { self.raw.get_just_pressed().filter(|b| !self.blocked(**b)) }
-    pub fn get_just_released(&self) -> impl Iterator<Item = &T> { self.raw.get_just_released() }
+    pub fn get_just_released(&self) -> impl Iterator<Item = &T> { self.raw.get_just_released().filter(|b| !self.platform_blocked(**b)) }
 }
 
 /// Pad action view, using the same filter as keys/mouse [design, #2200].
 #[derive(SystemParam)]
 pub struct ActionPads<'w, 's> {
     raw: Query<'w, 's, (Entity, &'static Gamepad)>,
+    aim: Option<Res<'w, crate::controller_aim::Options>>,
     filter: Option<Res<'w, SwitchingInput>>,
+    platform: Option<Res<'w, PlatformInputGate>>,
 }
 impl ActionPads<'_, '_> {
+    pub(crate) fn dead_zone(&self) -> f32 {self.aim.as_deref().map_or(super::STICK_DEAD, |o|o.dead_zone)}
     /// Filter current stick activity while retaining physical previous edges
     /// [design, #2200; super::update_stick_buttons].
     pub fn filter_sticks(&self, raw: &super::StickButtons) -> super::StickButtons {
@@ -208,24 +302,27 @@ impl ActionPads<'_, '_> {
     }
 
     pub fn iter(&self) -> impl Iterator<Item = ActionPad<'_>> {
-        self.raw.iter().map(|(entity, raw)| ActionPad { entity, raw, filter: self.filter.as_deref() })
+        self.raw.iter().map(|(entity, raw)| ActionPad { entity, raw, filter: self.filter.as_deref(), platform: self.platform.as_deref() })
     }
 }
 pub struct ActionPad<'a> {
     entity: Entity,
     raw: &'a Gamepad,
     filter: Option<&'a SwitchingInput>,
+    platform: Option<&'a PlatformInputGate>,
 }
 impl ActionPad<'_> {
-    fn blocked(&self, b: GamepadButton) -> bool { self.filter.and_then(|f| f.buttons.get(&self.entity)).is_some_and(|v| v.contains(&b)) }
+    fn platform_blocked(&self, b: GamepadButton) -> bool { self.platform.is_some_and(|g| g.active || g.pads.get(&self.entity).is_some_and(|p| p.buttons.contains(&b))) }
+    fn blocked(&self, b: GamepadButton) -> bool { self.platform_blocked(b) || self.filter.and_then(|f| f.buttons.get(&self.entity)).is_some_and(|v| v.contains(&b)) }
     pub fn pressed(&self, b: GamepadButton) -> bool { self.raw.pressed(b) && !self.blocked(b) }
     pub fn just_pressed(&self, b: GamepadButton) -> bool { self.raw.just_pressed(b) && !self.blocked(b) }
-    pub fn just_released(&self, b: GamepadButton) -> bool { self.raw.just_released(b) }
-    fn analog_blocked(&self, i: usize) -> bool { self.filter.and_then(|f| f.analog.get(&self.entity)).is_some_and(|a| a[i]) }
+    pub fn just_released(&self, b: GamepadButton) -> bool { self.raw.just_released(b) && !self.platform_blocked(b) }
+    fn analog_blocked(&self, i: usize) -> bool { self.platform.is_some_and(|g| g.active || g.pads.get(&self.entity).is_some_and(|p| p.analog[i])) || self.filter.and_then(|f| f.analog.get(&self.entity)).is_some_and(|a| a[i]) }
     pub fn left_stick(&self) -> Vec2 { if self.analog_blocked(0) { Vec2::ZERO } else { self.raw.left_stick() } }
     pub fn right_stick(&self) -> Vec2 { if self.analog_blocked(1) { Vec2::ZERO } else { self.raw.right_stick() } }
     pub fn get(&self, input: impl Into<GamepadInput>) -> Option<f32> {
         let input = input.into();
+        if self.platform.is_some_and(|g| g.active) { return Some(0.0); }
         let blocked = match input {
             GamepadInput::Button(b) => self.blocked(b) || match b {
                 GamepadButton::LeftTrigger2 => self.analog_blocked(2),
@@ -340,6 +437,9 @@ pub struct InputSwitchPlugin;
 impl Plugin for InputSwitchPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<SwitchingInput>()
+            .add_systems(PreUpdate, publish_platform_gate.in_set(PlatformInputSystems::Publish).before(bevy::input::InputSystems))
+            .add_systems(PreUpdate, remember_platform_holds.in_set(PlatformInputSystems::Remember).after(InputSwitchSystems::Switch)
+                .after(crate::pad::menu_keys).before(bevy::ui::UiSystems::Focus))
             .add_message::<bevy::window::AppLifecycle>()
             .add_systems(PreUpdate, (read_keyboard, read_touch).chain()
                 .in_set(InputSwitchSystems::ReadActivity)
@@ -1013,4 +1113,103 @@ pub(crate) mod tests {
             assert_eq!(app.world().resource::<Bindings>().device, InputDevice::Controller);
         }
     }
+    #[test]
+    fn platform_cover_filters_real_keys_mouse_pad_and_axes_until_neutral_without_mutating_hardware() {
+        use bevy::input::{gamepad::{RawGamepadAxisChangedEvent, RawGamepadEvent}, mouse::MouseButtonInput, ButtonState};
+        let (mut app, pad) = observed_app(InputDevice::Controller);
+        app.world_mut().resource_mut::<Bindings>().automatic_input_switching = false;
+        app.init_resource::<PlatformInputGate>();
+        app.world_mut().resource_mut::<PlatformInputGate>().set_blocked(true);
+        keyboard(&mut app, KeyCode::ArrowRight, true, false);
+        app.world_mut().write_message(MouseButtonInput { window: Entity::PLACEHOLDER, button: MouseButton::Left, state: ButtonState::Pressed });
+        button(&mut app, pad, true);
+        app.world_mut().write_message(RawGamepadEvent::Axis(RawGamepadAxisChangedEvent::new(pad, GamepadAxis::LeftStickX, 0.8)));
+        app.update();
+        let seen = app.world().resource::<Seen>();
+        assert!(!seen.keys.pressed(KeyCode::ArrowRight) && !seen.mouse.pressed(MouseButton::Left));
+        assert_eq!(seen.pad, [false; 3]); assert_eq!(seen.stick, Vec2::ZERO); assert!(seen.repeats.is_empty());
+        assert!(app.world().resource::<ButtonInput<KeyCode>>().pressed(KeyCode::ArrowRight));
+        assert!(app.world().resource::<ButtonInput<MouseButton>>().pressed(MouseButton::Left));
+        assert!(app.world().get::<Gamepad>(pad).unwrap().pressed(GamepadButton::South));
+        assert!(app.world().get::<Gamepad>(pad).unwrap().left_stick().x > 0.5);
+        app.world_mut().resource_mut::<PlatformInputGate>().set_blocked(false);
+        keyboard(&mut app, KeyCode::ArrowRight, true, true);
+        app.update();
+        assert!(app.world().resource::<Seen>().repeats.is_empty());
+        assert!(!app.world().resource::<Seen>().keys.pressed(KeyCode::ArrowRight));
+        assert_eq!(app.world().resource::<Seen>().pad, [false; 3]);
+        assert_eq!(app.world().resource::<Seen>().stick, Vec2::ZERO);
+        keyboard(&mut app, KeyCode::ArrowRight, false, false);
+        app.world_mut().write_message(MouseButtonInput { window: Entity::PLACEHOLDER, button: MouseButton::Left, state: ButtonState::Released });
+        button(&mut app, pad, false);
+        app.world_mut().write_message(RawGamepadEvent::Axis(RawGamepadAxisChangedEvent::new(pad, GamepadAxis::LeftStickX, 0.0)));
+        app.update();
+        let seen = app.world().resource::<Seen>();
+        assert!(!seen.keys.just_released(KeyCode::ArrowRight) && !seen.mouse.just_released(MouseButton::Left));
+        assert_eq!(seen.pad, [false; 3]);
+        keyboard(&mut app, KeyCode::ArrowRight, true, false);
+        app.world_mut().write_message(MouseButtonInput { window: Entity::PLACEHOLDER, button: MouseButton::Left, state: ButtonState::Pressed });
+        button(&mut app, pad, true);
+        app.world_mut().write_message(RawGamepadEvent::Axis(RawGamepadAxisChangedEvent::new(pad, GamepadAxis::LeftStickX, 0.8)));
+        app.update();
+        let seen = app.world().resource::<Seen>();
+        assert!(seen.keys.just_pressed(KeyCode::ArrowRight) && seen.mouse.just_pressed(MouseButton::Left));
+        assert!(seen.pad[0] && seen.pad[1]); assert!(seen.stick.x > 0.5);
+    }
+    #[test]
+    fn platform_cover_uses_real_control_input_and_cancels_pending_releases_before_unlock() {
+        use crate::{bindings::Control, control::PlayerControl};
+        for device in [InputDevice::KeyboardMouse, InputDevice::Controller] {
+            let (mut app, pad) = playing_app(device);
+            app.world_mut().resource_mut::<Bindings>().automatic_input_switching = false;
+            app.world_mut().resource_mut::<PlayerControl>().weapon_out = true;
+            app.init_resource::<PlatformInputGate>();
+            control_button(&mut app, pad, device, Control::ReadyItem, true); app.update();
+            assert!(app.world().resource::<PlayerControl>().ready_held.is_some());
+            app.world_mut().resource_mut::<PlatformInputGate>().set_blocked(true);
+            control_button(&mut app, pad, device, Control::Use, true); app.update();
+            assert!(app.world().resource::<PlayerControl>().ready_held.is_none());
+            assert!(!app.world().resource::<PlayerControl>().trigger);
+            app.world_mut().resource_mut::<PlatformInputGate>().set_blocked(false); app.update();
+            assert!(!app.world().resource::<PlayerControl>().trigger);
+            control_button(&mut app, pad, device, Control::ReadyItem, false);
+            control_button(&mut app, pad, device, Control::Use, false); app.update();
+            assert!(app.world().resource::<PlayerControl>().weapon_out, "masked release cannot holster/reload");
+            control_button(&mut app, pad, device, Control::Use, true); app.update();
+            assert!(app.world().resource::<PlayerControl>().trigger, "fresh post-neutral action works");
+        }
+    }
+    #[test]
+    fn absent_platform_gate_preserves_the_existing_action_views() {
+        let (mut app, pad) = observed_app(InputDevice::KeyboardMouse);
+        app.world_mut().resource_mut::<Bindings>().automatic_input_switching = false;
+        key(&mut app, true, false); button(&mut app, pad, true); app.update();
+        assert!(!app.world().contains_resource::<PlatformInputGate>());
+        assert!(app.world().resource::<Seen>().keys.just_pressed(KeyCode::Enter));
+        assert_eq!(app.world().resource::<Seen>().pad, [true, true, false]);
+    }
+
+    #[test]
+    fn platform_cover_quarantines_real_touch_ids_through_release_without_losing_a_fresh_finger() {
+        use bevy::input::touch::{TouchInput, TouchPhase, Touches};
+        let (mut app, _) = observed_app(InputDevice::KeyboardMouse);
+        app.world_mut().resource_mut::<Bindings>().automatic_input_switching = false;
+        app.init_resource::<PlatformInputGate>();
+        let touch = |app: &mut App, id, phase| { app.world_mut().write_message(TouchInput {
+            window: Entity::PLACEHOLDER, id, phase, position: Vec2::ONE, force: None,
+        }); };
+        app.world_mut().resource_mut::<PlatformInputGate>().set_blocked(true);
+        touch(&mut app, 7, TouchPhase::Started); app.update();
+        app.world_mut().resource_mut::<PlatformInputGate>().set_blocked(false); app.update();
+        assert!(!app.world().resource::<PlatformInputGate>().allows_touch(7));
+        assert!(app.world().resource::<Touches>().get_pressed(7).is_some());
+        touch(&mut app, 8, TouchPhase::Started); app.update();
+        assert!(!app.world().resource::<PlatformInputGate>().allows_touch(7));
+        assert!(app.world().resource::<PlatformInputGate>().allows_touch(8));
+        touch(&mut app, 7, TouchPhase::Ended); app.update();
+        assert!(!app.world().resource::<PlatformInputGate>().allows_touch(7), "old release cannot click a menu");
+        touch(&mut app, 7, TouchPhase::Started); app.update();
+        assert!(app.world().resource::<PlatformInputGate>().allows_touch(7), "fresh post-neutral press works without an idle frame");
+    }
+
 }

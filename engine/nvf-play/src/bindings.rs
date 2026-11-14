@@ -833,6 +833,7 @@ pub fn rebind(world: &mut World, c: Control, input: Input) {
     let gave: Vec<String> = swapped.iter().map(|&o| format!("{} now {}", Bindings::name(o), b.get(o).text())).collect();
     let gave = if gave.is_empty() { String::new() } else { format!(" ({})", gave.join(", ")) };
     info!("controls: {} bound to {after} (was {before}){gave}", Bindings::name(c));
+    cancel_input_holds(world);
     store(world);
 }
 
@@ -844,6 +845,7 @@ pub fn rebind_pad(world: &mut World, c: Control, p: PadInput) {
     let gave: Vec<String> = swapped.iter().map(|&o| format!("{} now {}", Bindings::name(o), pad_text(b.pad(o)))).collect();
     let gave = if gave.is_empty() { String::new() } else { format!(" ({})", gave.join(", ")) };
     info!("controls: {} bound to controller {} (was {before}){gave}", Bindings::name(c), crate::pad::pad_name(p));
+    cancel_input_holds(world);
     store(world);
 }
 
@@ -862,6 +864,7 @@ pub fn set_device(world: &mut World, d: InputDevice) {
 /// Cancel release-triggered actions after a device is lost or input is invalidated.
 /// Input backends use this without changing the player's saved device choice.
 pub fn cancel_input_holds(world: &mut World) {
+    crate::controller_aim::cancel(world);
     if let Some(mut control) = world.get_resource_mut::<crate::control::PlayerControl>() {
         control.cancel_input_holds();
     }
@@ -1124,6 +1127,9 @@ pub struct ControlInput<'w, 's> {
     pub kill_cam: Option<Res<'w, crate::kill_cam::KillCam>>,
     /// A text field has the keyboard ([`KeyboardCapture`]).
     pub capture: Option<Res<'w, KeyboardCapture>>,
+    pub platform_capture: Option<Res<'w, crate::pad::PlatformInputGate>>,
+    pub touch_movement: Option<Res<'w, crate::touch_movement::TouchMovementInput>>,
+    pub touch_switch: Option<Res<'w, crate::pad::TouchDeviceSwitch>>,
 }
 
 /// How a controller input is asked about.
@@ -1142,7 +1148,7 @@ impl ControlInput<'_, '_> {
 
     /// A text field has the keyboard ([`KeyboardCapture`]).
     pub fn captured(&self) -> bool {
-        self.capture.as_ref().is_some_and(|c| c.0)
+        self.capture.as_ref().is_some_and(|c| c.0) || self.platform_capture.as_ref().is_some_and(|p| !p.allows_actions())
     }
 
     /// A playing kill camera holds `c`: every control but those that open a menu or
@@ -1197,7 +1203,29 @@ impl ControlInput<'_, '_> {
         (self.controller() && on_stick && !self.suppressed() && !self.held(Control::Forward)).then(|| crate::pad::stick(&self.pads, true))
     }
 
-    pub fn pressed(&self, c: Control) -> bool {
+    /// Digital movement for player arbitration: analog must not quantize itself.
+    pub fn digital_movement_pressed(&self, c: Control) -> bool {
+        matches!(c, Control::Forward | Control::Back | Control::SlideLeft | Control::SlideRight) && self.button_pressed(c)
+    }
+
+    pub fn touch_movement_pressed(&self, c: Control) -> bool { self.touch_direction(c, Ask::Pressed) }
+
+    fn touch_direction(&self, c: Control, ask: Ask) -> bool {
+        if !matches!(c, Control::Forward | Control::Back | Control::SlideLeft | Control::SlideRight) { return false; }
+        let amount = |v: Vec2| match c {
+            Control::Forward => v.y, Control::Back => -v.y,
+            Control::SlideRight => v.x, Control::SlideLeft => -v.x, _ => 0.0,
+        };
+        let Some(sample) = self.touch_movement.as_deref() else { return false };
+        let current = amount(sample.admitted(self, self.touch_switch.as_deref())) > 0.0001;
+        let previous = crate::touch_movement::TouchMovementInput { axes: sample.previous_axes, ..default() };
+        let previous = amount(previous.admitted(self, self.touch_switch.as_deref())) > 0.0001;
+        match ask { Ask::Pressed => current, Ask::JustPressed => current && !previous, Ask::JustReleased => previous && !current }
+    }
+
+    pub fn pressed(&self, c: Control) -> bool { self.button_pressed(c) || self.touch_direction(c, Ask::Pressed) }
+
+    fn button_pressed(&self, c: Control) -> bool {
         if self.suppressed() || self.held(c) {
             return false;
         }
@@ -1224,7 +1252,7 @@ impl ControlInput<'_, '_> {
             return self.pad_is(c, Ask::JustPressed);
         }
         let b = self.bindings.get(c);
-        b.key.is_some_and(|k| self.keys.just_pressed(k) && self.open_key(k)) || b.mouse.is_some_and(|m| self.mouse.just_pressed(m) && self.open_button(m))
+        b.key.is_some_and(|k| self.keys.just_pressed(k) && self.open_key(k)) || b.mouse.is_some_and(|m| self.mouse.just_pressed(m) && self.open_button(m)) || self.touch_direction(c, Ask::JustPressed)
     }
 
     /// Released this frame, and neither of its inputs is still down.
@@ -1233,7 +1261,7 @@ impl ControlInput<'_, '_> {
             return false;
         }
         let b = self.bindings.get(c);
-        let released = self.pad_is(c, Ask::JustReleased) || b.key.is_some_and(|k| self.keys.just_released(k)) || b.mouse.is_some_and(|m| self.mouse.just_released(m));
+        let released = self.touch_direction(c, Ask::JustReleased) || self.pad_is(c, Ask::JustReleased) || b.key.is_some_and(|k| self.keys.just_released(k)) || b.mouse.is_some_and(|m| self.mouse.just_released(m));
         released && !self.pressed(c)
     }
 }

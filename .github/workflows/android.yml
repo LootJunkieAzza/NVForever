@@ -58,13 +58,23 @@ jobs:
       - name: LAN diagnostics archive, queue and HTTP controls
         shell: bash
         run: |
-          "$JAVA_HOME/bin/javac" --add-modules jdk.httpserver -encoding UTF-8 -d "$RUNNER_TEMP/java-tests" android/app/src/main/java/org/nvforever/android/DiagnosticsArchive.java android/app/src/main/java/org/nvforever/android/DiagnosticsQueue.java android/app/src/main/java/org/nvforever/android/DiagnosticsTransport.java android/app/src/main/java/org/nvforever/android/DiagnosticsSession.java android/tests/*.java
+          "$JAVA_HOME/bin/javac" --add-modules jdk.httpserver -encoding UTF-8 -d "$RUNNER_TEMP/java-tests" android/app/src/main/java/org/nvforever/android/DiagnosticsArchive.java android/app/src/main/java/org/nvforever/android/DiagnosticsQueue.java android/app/src/main/java/org/nvforever/android/DiagnosticsTransport.java android/app/src/main/java/org/nvforever/android/DiagnosticsSession.java android/tests/Diagnostics*Test.java
           for control in DiagnosticsArchiveTest DiagnosticsQueueTest DiagnosticsTransportTest DiagnosticsSessionTest; do
             "$JAVA_HOME/bin/java" --add-modules jdk.httpserver -cp "$RUNNER_TEMP/java-tests" "org.nvforever.android.$control"
+          done
+      - name: Loading handoff, gyro math and thermal state controls
+        shell: bash
+        run: |
+          "$JAVA_HOME/bin/javac" -encoding UTF-8 -d "$RUNNER_TEMP/java-tests" android/app/src/main/java/org/nvforever/android/HandoffCoordinator.java android/app/src/main/java/org/nvforever/android/LoadingState.java android/app/src/main/java/org/nvforever/android/GyroMotion.java android/app/src/main/java/org/nvforever/android/PerformanceThermals.java android/tests/HandoffCoordinatorTest.java android/tests/GyroMotionTest.java android/tests/AndroidPerformanceTest.java
+          for control in HandoffCoordinatorTest GyroMotionTest AndroidPerformanceTest; do
+            "$JAVA_HOME/bin/java" -cp "$RUNNER_TEMP/java-tests" "org.nvforever.android.$control"
           done
       - name: Cross-check engine and authored input tests
         shell: bash
         run: python3 tools/android/build.py --check --tests --jobs 2
+      - name: Skinning WESL, SPIR-V and matrix layout controls
+        shell: bash
+        run: cargo test --manifest-path tools/android/skinning-check/Cargo.toml --target-dir target-android-cpu --locked --jobs 6
       - name: Build the signed development APK
         shell: bash
         run: python3 tools/android/build.py --jobs 2

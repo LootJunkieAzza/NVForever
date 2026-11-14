@@ -2066,7 +2066,9 @@ fn weapon_state(anim: Res<WeaponAnim>, mut script: Option<ResMut<ScriptState>>) 
     }
 }
 
-fn init_combat(mut commands: Commands, d: Res<PlayWorld>) {
+/// Production ECS entry point exposed for authored headless integration fixtures.
+#[doc(hidden)]
+pub fn init_combat(mut commands: Commands, d: Res<PlayWorld>) {
     let t = std::time::Instant::now();
     let tracer_hold = std::env::var("NVF_PLAY_TEST_TRACERS").ok().and_then(|v| v.trim().parse().ok()).filter(|s: &f32| *s > 0.0);
     let forms = CombatForms::build(d.lo, d.schema);
@@ -2231,7 +2233,9 @@ fn hud_ammo(magazine: u32, carried: u32, regenerates: bool) -> (u32, u32) {
 }
 
 /// Follow the equipped weapon: a new weapon gets a new cycle, loaded from what is carried.
-fn equip_sync(mut c: ResMut<Combat>, mut sim: ResMut<SimState>, mut anim: ResMut<WeaponAnim>) {
+/// Production ECS entry point exposed for authored headless integration fixtures.
+#[doc(hidden)]
+pub fn equip_sync(mut c: ResMut<Combat>, mut sim: ResMut<SimState>, mut anim: ResMut<WeaponAnim>) {
     let c = &mut *c;
     let equipped = sim.world.peek(FormId::PLAYER_REF).and_then(|s| s.inventory.as_ref()).map(|i| i.equipped()).unwrap_or_default();
     let mut equipped = equipped.into_iter().find(|id| c.forms.weapons.contains_key(id));

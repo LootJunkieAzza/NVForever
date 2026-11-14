@@ -399,7 +399,7 @@ pub fn reflex_frame_limit_us(cap: u32, multiplier: u32) -> u32 {
 fn wait_for_cap(world: &mut World) {
     let Some(pace) = world.get_resource::<FramePace>() else { return };
     if crate::dlss::frame_generation_running() {
-        let cap = effective_cap(pace.cap, world.get_resource::<Refresh>().map_or(0, |r| r.vrr_cap));
+        let cap = effective_cap(crate::mobile_performance::runtime_cap(world, pace.cap), world.get_resource::<Refresh>().map_or(0, |r| r.vrr_cap));
         crate::dlss::set_reflex_frame_limit(reflex_frame_limit_us(cap, crate::dlss::frame_generation_multiplier()));
         if let Some(mut clock) = world.get_resource_mut::<CapClock>() {
             clock.0 = None;
@@ -412,7 +412,7 @@ fn wait_for_cap(world: &mut World) {
     }
     // Frame generation shows each real frame twice: at most half the refresh rate of them.
     let cap = effective_cap(
-        effective_cap(pace.cap, world.get_resource::<Refresh>().map_or(0, |r| r.vrr_cap)),
+        effective_cap(crate::mobile_performance::runtime_cap(world, pace.cap), world.get_resource::<Refresh>().map_or(0, |r| r.vrr_cap)),
         world.get_resource::<crate::frame_gen::FrameGenCap>().map_or(0, |c| c.0),
     );
     let lag = Duration::from_nanos(PRESENTER_LAG_NANOS.swap(0, Ordering::Relaxed));

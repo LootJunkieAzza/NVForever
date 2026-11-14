@@ -52,6 +52,7 @@ pub mod device_screen;
 pub mod frame;
 pub mod hotkey_panel;
 pub mod items;
+pub mod touch_items;
 pub mod item_mod;
 pub mod labels;
 pub mod repair;
@@ -1007,13 +1008,17 @@ pub fn flat_pointer(
     flat: Query<(&ComputedNode, &UiGlobalTransform), With<FlatScreen>>,
     windows: Query<&Window, With<PrimaryWindow>>,
     aid: Res<PipBoyAid>,
-    pad_pointer: Option<Res<crate::pad::pointer::PadPointer>>,
+    (pad_pointer, mut touch): (Option<Res<crate::pad::pointer::PadPointer>>, Option<ResMut<touch_items::TouchItems>>),
 ) {
     let Some(mut screen) = screen else { return };
     if pointer_source(pip.frame, screen.on_model) != PointerSource::Flat {
         return;
     }
     let Some((computed, at)) = flat.iter().next().filter(|_| pip.phase == Phase::Up) else { return };
+    if let Some(touch) = touch.as_deref_mut() {
+        let scale = windows.single().map_or(1.0, |w| w.scale_factor());
+        touch.project(|position| crop_point(position * scale, at.translation, computed.size()));
+    }
     let now = flat_point(&aid, &windows, crate::pad::pointer::asleep(pad_pointer.as_deref()), computed, at);
     if screen.pointer != now {
         screen.pointer = now;
@@ -1033,6 +1038,7 @@ fn drive_pointer(
     mut out: MessageWriter<PointerInput>,
     mut aid: ResMut<PipBoyAid>,
     mut moved: ResMut<PointerMoved>,
+    (mut touch, touch_admission): (Option<ResMut<touch_items::TouchItems>>, touch_items::Admission),
 ) {
     moved.set_if_neq(PointerMoved(false));
     let Some(screen) = screen else { return };
@@ -1042,6 +1048,25 @@ fn drive_pointer(
     }
     let target = RenderTarget::Image(screen.target());
     let Some(target) = target.normalize(None) else { return };
+    if let Some(touch) = touch.as_deref_mut() {
+        if !touch_admission.allows() {touch.cancel();}
+        // Spawning an existing PointerId twice would split press ownership.
+        // The independent touch entity is installed by the mobile plugin.
+        if touch.take_cancel() {
+            out.write(PointerInput::new(touch_items::POINTER, Location { target: target.clone(), position: Vec2::splat(-1.0) }, PointerAction::Cancel));
+        }
+        if let Some((point, at)) = touch.take_projected() {
+            let position=at.unwrap_or(Vec2::splat(-1.0));
+            moved.set_if_neq(PointerMoved(true));
+            out.write(PointerInput::new(touch_items::POINTER,Location{target:target.clone(),position},PointerAction::Move{delta:Vec2::ZERO}));
+            let action=match point.phase {
+                bevy::input::touch::TouchPhase::Started if at.is_some()=>Some(PointerAction::Press(PointerButton::Primary)),
+                bevy::input::touch::TouchPhase::Ended=>Some(PointerAction::Release(PointerButton::Primary)),
+                bevy::input::touch::TouchPhase::Canceled=>Some(PointerAction::Cancel),_=>None,
+            };
+            if let Some(action)=action {out.write(PointerInput::new(touch_items::POINTER,Location{target:target.clone(),position},action));}
+        }
+    }
     let at = screen.pointer.filter(|_| pip.open());
     // Off the screen the pointer goes to a corner no node is in.
     let position = at.unwrap_or(Vec2::new(TARGET.x as f32 - 1.0, TARGET.y as f32 - 1.0));

@@ -615,6 +615,7 @@ fn keys_and_controls(
         aids.held = Some(m);
     }
     if let Some(m) = aids.held {
+        intent.analog_scale = m.analog_scale;
         (intent.forward, intent.right, intent.walk) = (m.forward, m.right, m.walk);
     }
     let presses = take_due(&mut aids.presses, now);

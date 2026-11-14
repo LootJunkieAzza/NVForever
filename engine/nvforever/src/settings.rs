@@ -301,6 +301,9 @@ pub fn register(app: &mut App) {
     register_display(app);
     register_distances(app);
     register_graphics(app);
+    if crate::mobile_performance::enabled() {
+        crate::mobile_performance::register(app);
+    }
     // The Quality and Enhanced effects rows over the rows above (#1966).
     crate::quality::register(app, GROUP_GRAPHICS);
     // Renderer edits are latched by the shared settings setters, including Defaults.
@@ -430,6 +433,10 @@ fn register_display(app: &mut App) {
         },
     );
     app.add_systems(PostStartup, read_old_vsync.after(nvf_play::settings::apply_stored));
+    register_frame_cap(app);
+}
+
+fn register_frame_cap(app: &mut App) {
     let caps = frame_pace::CAPS.len();
     add_setting(
         app,
@@ -2131,4 +2138,10 @@ dlss-model=Preset K
         assert_eq!(upscaler_after_ini(fsr_q, Some(&UpscalerIni::read("[Settings]\nupscaler=DLSS\n")), None), fsr_q);
         let _ = std::fs::remove_dir_all(&dir);
     }
+}
+
+#[cfg(test)]
+pub(crate) fn register_mobile_test_rows(app: &mut App) {
+    register_graphics(app);
+    register_frame_cap(app);
 }

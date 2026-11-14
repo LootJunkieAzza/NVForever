@@ -187,6 +187,7 @@ pub(super) fn input(
     windows: Query<(Entity, &Window), With<PrimaryWindow>>,
     bindings: Option<Res<crate::bindings::Bindings>>,
     touch_switch: Option<Res<crate::pad::TouchDeviceSwitch>>,
+    platform: Option<Res<crate::pad::PlatformInputGate>>,
     mut out: MessageWriter<WheelInput>,
 ) {
     let mut interrupted = false;
@@ -238,6 +239,7 @@ pub(super) fn input(
         || !window.focused
         || state.focused == Some(false)
         || !device_allows_actions
+        || platform.as_ref().is_some_and(|gate| !gate.allows_actions())
         || bindings.is_some_and(|b| b.device == crate::bindings::InputDevice::Controller)
     {
         state.gesture = None;
@@ -252,7 +254,8 @@ pub(super) fn input(
     };
     let size = Vec2::new(window.width(), window.height());
     let mut sent = false;
-    for touch in touches.read().filter(|e| e.window == window_id) {
+    for touch in touches.read().filter(|e| e.window == window_id
+        && platform.as_ref().is_none_or(|gate| gate.allows_touch(e.id))) {
         if !touch.position.is_finite() {
             state.gesture = None;
             state.contacts.remove(&touch.id);
@@ -527,6 +530,27 @@ mod tests {
         event(app, w, 1, TouchPhase::Started, p);
         event(app, w, 1, TouchPhase::Ended, p);
         app.update();
+    }
+    #[test]
+    fn loading_cover_cancels_a_wheel_gesture_without_executing_it() {
+        let (mut app, w) = scene();
+        app.init_resource::<crate::pad::PlatformInputGate>();
+        let p = at(Command::BackUp);
+        event(&mut app, w, 79, TouchPhase::Started, p);
+        app.update();
+        assert!(app.world().resource::<TouchState>().gesture.is_some());
+        app.world_mut().resource_mut::<crate::pad::PlatformInputGate>().set_blocked(true);
+        event(&mut app, w, 79, TouchPhase::Ended, p);
+        app.update();
+        assert!(app.world().resource::<TouchState>().gesture.is_none());
+        assert!(app.world().resource::<TouchState>().contacts.is_empty());
+        assert!(app.world().resource::<WheelStats>().commands.is_empty());
+        app.world_mut().resource_mut::<crate::pad::PlatformInputGate>().set_blocked(false);
+        event(&mut app, w, 79, TouchPhase::Ended, p);
+        app.update();
+        assert!(app.world().resource::<WheelStats>().commands.is_empty());
+        tap(&mut app, w, p);
+        assert_eq!(app.world().resource::<WheelStats>().commands, vec![Command::BackUp.name().to_string()]);
     }
     #[test]
     fn v1_settings_roundtrip_and_unknown_versions_never_rewrite_the_existing_file() {

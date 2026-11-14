@@ -440,6 +440,10 @@ pub fn tell_load_failed(mut commands: Commands, failed: Option<Res<LoadFailed>>,
         return;
     }
     tell_player(&failed.0);
+    #[cfg(target_os = "android")]
+    if crate::android::activity_string("loadRefused", Some(&failed.0)).is_err() {
+        warn!("load: the Android load refusal view could not be opened");
+    }
     commands.remove_resource::<LoadFailed>();
 }
 

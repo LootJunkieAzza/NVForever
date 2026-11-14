@@ -376,6 +376,7 @@ pub(super) fn input(
     rows: Res<MenuRows>,
     bindings: Option<Res<crate::bindings::Bindings>>,
     touch_switch: Option<Res<crate::pad::TouchDeviceSwitch>>,
+    platform: Option<Res<crate::pad::PlatformInputGate>>,
     mut out: MessageWriter<TerminalInput>,
     script: Option<Res<ScriptState>>,
 ) {
@@ -438,6 +439,7 @@ pub(super) fn input(
         || state.focused == Some(false)
         || controller
         || !device_allows_actions
+        || platform.as_ref().is_some_and(|gate| !gate.allows_actions())
     {
         state.gesture = None;
         state.contacts.clear();
@@ -478,7 +480,8 @@ pub(super) fn input(
         .for_pan(state.pan_x);
     state.first_row = state.first_row.min(ROWS.saturating_sub(geometry.visible));
     let mut drop_tail = false;
-    for touch in touches.read().filter(|e| e.window == window_id) {
+    for touch in touches.read().filter(|e| e.window == window_id
+        && platform.as_ref().is_none_or(|gate| gate.allows_touch(e.id))) {
         if !touch.position.is_finite() {
             state.gesture = None;
             state.contacts.remove(&touch.id);
@@ -1030,6 +1033,27 @@ mod tests {
             panic!()
         };
         h
+    }
+    #[test]
+    fn loading_cover_discards_a_terminal_gesture_before_reveal() {
+        let (mut app, w) = scene();
+        app.init_resource::<crate::pad::PlatformInputGate>();
+        let p = at(&app, 0);
+        event(&mut app, w, 78, TouchPhase::Started, p);
+        app.update();
+        assert!(app.world().resource::<TouchState>().gesture.is_some());
+        app.world_mut().resource_mut::<crate::pad::PlatformInputGate>().set_blocked(true);
+        event(&mut app, w, 78, TouchPhase::Ended, p);
+        app.update();
+        assert!(app.world().resource::<TouchState>().gesture.is_none());
+        assert!(app.world().resource::<TouchState>().contacts.is_empty());
+        assert!(hacking(&app).hidden);
+        app.world_mut().resource_mut::<crate::pad::PlatformInputGate>().set_blocked(false);
+        event(&mut app, w, 78, TouchPhase::Ended, p);
+        app.update();
+        assert!(hacking(&app).hidden);
+        tap(&mut app, w, p);
+        assert!(!hacking(&app).hidden);
     }
     #[test]
     fn v1_settings_roundtrip_and_unknown_versions_never_rewrite_the_existing_file() {

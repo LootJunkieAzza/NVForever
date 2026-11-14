@@ -184,6 +184,18 @@ pub struct MainMenu {
     theme: Option<Theme>,
 }
 
+/// Optional Android cover admission. Keep the existing menu until Java's own
+/// request/epoch cover frame commits; desktop routes have no such resource.
+#[derive(Resource, Default)]
+pub struct NewGameCover { requested: bool, ready: bool, active: bool }
+impl NewGameCover {
+    pub fn requested(&self) -> bool { self.requested }
+    pub fn active(&self) -> bool { self.active }
+    pub fn allow_start(&mut self) { if self.requested { self.ready = true; } }
+    pub fn finish(&mut self) { *self = Self::default(); }
+    pub fn request(&mut self) { self.requested = true; self.active = true; }
+}
+
 /// The theme playing: its level (changed while it plays) and how loud it is now.
 struct Theme {
     levels: std::sync::Arc<[std::sync::atomic::AtomicU32; 3]>,
@@ -413,6 +425,7 @@ fn choose(
     time: AidTime,
     mut aid: ResMut<MenuAid>,
     mut menu: ResMut<MainMenu>,
+    mut cover: Option<ResMut<NewGameCover>>,
     page: Res<Page>,
     mut request: ResMut<PageRequest>,
     entries: Query<(&PointerState, &EntryNode), Changed<PointerState>>,
@@ -442,6 +455,8 @@ fn choose(
     if *page != Page::Main || request.0.is_some() || came_back {
         return;
     }
+    let cover_ready = cover.as_ref().is_some_and(|c| c.requested && c.ready);
+    if cover.as_ref().is_some_and(|c| c.requested && !c.ready) { return; }
     let saves = menu.saves;
     let before = menu.selected;
     let mut take = None;
@@ -481,7 +496,14 @@ fn choose(
     if menu.selected != before {
         sounds.write(UiSound { menu: UiMenu::MainMenu, event: UiEvent::Focus });
     }
+    if cover_ready { take = Some(Entry::New); }
     let Some(e) = take else { return };
+    if e == Entry::New {
+        if let Some(cover) = cover.as_deref_mut() {
+            if !cover.ready { cover.request(); return; }
+            cover.requested = false; cover.ready = false;
+        }
+    }
     info!("main menu: {}", e.label());
     sounds.write(UiSound { menu: UiMenu::MainMenu, event: UiEvent::Picked });
     match e {
@@ -736,4 +758,37 @@ mod tests {
         assert_eq!(Phase::Hold(1.0).alpha(), 1.0);
         assert!((Phase::Out(FADE_SECS / 2.0).alpha() - 0.5).abs() < 1e-6);
     }
+    #[test]
+    fn new_game_keeps_the_actual_menu_until_cover_commit_and_emits_intro_once() {
+        use bevy::input::{keyboard::{Key, KeyboardInput}, ButtonState, InputPlugin};
+        for platform_cover in [false, true] {
+            let mut app = App::new();
+            app.add_plugins((MinimalPlugins, InputPlugin))
+                .insert_resource(MainMenu { open: true, selected: 1, ..default() })
+                .init_resource::<Page>().init_resource::<PageRequest>()
+                .init_resource::<crate::pause::PlayClock>().init_resource::<MenuAid>()
+                .add_message::<crate::save::LoadRequest>().add_message::<crate::intro::PlayIntro>()
+                .add_message::<crate::ui_sounds::UiSound>().add_systems(Update, choose);
+            if platform_cover { app.init_resource::<NewGameCover>(); }
+            let root = app.world_mut().spawn(MenuRoot).id();
+            let mut reader = bevy::ecs::message::MessageCursor::<crate::intro::PlayIntro>::default();
+            app.world_mut().write_message(KeyboardInput { key_code: KeyCode::Enter, logical_key: Key::Enter,
+                state: ButtonState::Pressed, repeat: false, text: None, window: Entity::PLACEHOLDER });
+            app.update();
+            let emitted = reader.read(app.world().resource::<Messages<crate::intro::PlayIntro>>()).count();
+            if platform_cover {
+                assert_eq!(emitted, 0);
+                assert!(app.world().resource::<MainMenu>().open && app.world().get_entity(root).is_ok());
+                assert!(app.world().resource::<NewGameCover>().requested());
+                app.update();
+                assert_eq!(reader.read(app.world().resource::<Messages<crate::intro::PlayIntro>>()).count(), 0);
+                app.world_mut().resource_mut::<NewGameCover>().allow_start(); app.update();
+                assert_eq!(reader.read(app.world().resource::<Messages<crate::intro::PlayIntro>>()).count(), 1);
+            } else { assert_eq!(emitted, 1, "ordinary desktop admission remains immediate"); }
+            assert!(!app.world().resource::<MainMenu>().open && app.world().get_entity(root).is_err());
+            app.update();
+            assert_eq!(reader.read(app.world().resource::<Messages<crate::intro::PlayIntro>>()).count(), 0);
+        }
+    }
+
 }

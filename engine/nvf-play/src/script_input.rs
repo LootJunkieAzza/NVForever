@@ -5,7 +5,7 @@
 //! `bindings::ControlInput` leaves out, so the player's controls ignore them), and the
 //! keys scripts tapped are pressed for one frame.
 
-use crate::bindings::{dik_key, Binding, Bindings, GAME_CONTROLS, GAME_INI_CONTROLS};
+use crate::bindings::{dik_key, Binding, Bindings, Control, ControlInput, GAME_CONTROLS, GAME_INI_CONTROLS};
 use bevy::prelude::*;
 use fnv_sim::FormId;
 use fnv_game::script_input::MOUSE_BASE;
@@ -17,6 +17,7 @@ impl Plugin for ScriptInputPlugin {
         app.init_resource::<ScriptBlocked>()
             // [design, #2200] Scripts see consumed switching presses as absent too.
             .add_systems(PreUpdate, script_input.after(bevy::input::InputSystems).after(crate::pad::device::automatic))
+            .add_systems(PreUpdate, publish_virtual_controls.after(script_input).after(crate::pad::PlatformInputSystems::Remember).before(bevy::ui::UiSystems::Focus))
             // The player's state the scripts read (sights up, for the HUD bars' aiming
             // condition) is handed over after combat has updated it this frame and before
             // the scripts run [design]. `tell_magazine` keeps its own place: it also
@@ -32,6 +33,18 @@ impl Plugin for ScriptInputPlugin {
 pub struct ScriptBlocked {
     pub keys: Vec<KeyCode>,
     pub mouse: Vec<MouseButton>,
+}
+
+/// The actual non-key movement view used by IsControlPressed, without inventing
+/// physical keys. Both the publisher and App regression use this central admission.
+pub fn admitted_virtual_controls(input: &ControlInput) -> std::collections::BTreeSet<u8> {
+    GAME_CONTROLS[..GAME_INI_CONTROLS].iter().enumerate().filter_map(|(i,(c,_,_))|
+        (matches!(c,Control::Forward|Control::Back|Control::SlideLeft|Control::SlideRight) && input.touch_movement_pressed(*c)).then_some(i as u8)).collect()
+}
+fn publish_virtual_controls(input: ControlInput, mut script: Option<ResMut<crate::script::ScriptState>>) {
+    if let Some(rt)=script.as_deref_mut().and_then(|s|s.rt.as_mut()) {
+        rt.game.input.virtual_controls=admitted_virtual_controls(&input);
+    }
 }
 
 /// The extender's code of a mouse button: 256 left, 257 right, 258 middle, then the extra
@@ -175,6 +188,7 @@ fn script_moves(
     // The flags as the keys: forward and back, left and right, walking, running and
     // sneaking, jumping (SetPlayerMovementFlags' page lists them).
     if let (Some(f), Some(i)) = (st.move_flags.take(), intent.as_deref_mut()) {
+        i.analog_scale = 1.0; // An explicit script movement request owns its native pace.
         let axis = |plus: u32, minus: u32| f32::from(u8::from(f & plus != 0)) - f32::from(u8::from(f & minus != 0));
         i.forward = axis(1, 2);
         i.right = axis(8, 4);

@@ -9,8 +9,8 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
-        <activity android:name=".RestartActivity" android:exported="false" android:excludeFromRecents="true" />
-        <activity android:name=".GameActivity" android:exported="false" android:launchMode="singleTask" android:taskAffinity="org.nvforever.android.game" android:process=":game" android:screenOrientation="sensorLandscape" android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|keyboard|navigation|density|uiMode">
+        <activity android:name=".RestartActivity" android:exported="false" android:excludeFromRecents="true" android:launchMode="singleTop" android:theme="@style/NvfLoadingTheme" android:screenOrientation="sensorLandscape" android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|keyboard|navigation|density|uiMode|fontScale|locale|layoutDirection" />
+        <activity android:name=".GameActivity" android:theme="@style/NvfLoadingTheme" android:exported="false" android:launchMode="singleTask" android:taskAffinity="org.nvforever.android.game" android:process=":game" android:screenOrientation="sensorLandscape" android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|keyboard|navigation|density|uiMode|fontScale|locale|layoutDirection">
             <meta-data android:name="android.app.lib_name" android:value="nvf_android" />
         </activity>
     </application>

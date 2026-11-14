@@ -576,11 +576,12 @@ pub fn init_settings(mut commands: Commands, sim: Res<SimState>) {
     commands.insert_resource(s);
 }
 
-/// Optional momentary sneak source (Android touch hold). Native toggle input stays
+/// Optional momentary touch/controller sneak sources. Native toggle input stays
 /// independent underneath it; no resource means the ordinary behavior is unchanged.
 #[derive(Resource, Default, Debug)]
 pub struct HeldSneakInput {
     pub active: bool,
+    pub(crate) controller_active: bool,
     base: Option<bool>,
     applied: bool,
 }
@@ -591,14 +592,14 @@ impl HeldSneakInput {
         self.base.filter(|_| visible == self.applied).unwrap_or(visible)
     }
     pub(crate) fn effective(&self, visible: bool, permitted: bool) -> bool {
-        self.base(visible) || (self.active && permitted)
+        self.base(visible) || (self.active && permitted) || self.controller_active
     }
     fn record_base(&mut self, value: bool) {
         // Explicit script requests matter even if they equal the visible held state.
         if self.base.is_some() { self.base = Some(value); self.applied = value; }
     }
     fn apply(&mut self, base: bool, permitted: bool) -> bool {
-        let held = self.active && permitted;
+        let held = (self.active && permitted) || self.controller_active;
         self.base = held.then_some(base);
         self.applied = base || held;
         self.applied
@@ -608,13 +609,19 @@ impl HeldSneakInput {
 /// The controls that are bound but not built yet.
 const NOT_BUILT: [Control; 0] = [];
 
+type ControlContext<'w> = (
+    ResMut<'w, PlayerControl>, Option<ResMut<'w, HeldSneakInput>>,
+    Option<Res<'w, crate::pad::TouchDeviceSwitch>>, Option<Res<'w, crate::controller_aim::Options>>,
+    Option<Res<'w, crate::controller_aim::Gestures>>,
+);
+
 /// Toggles, holds, the third-person zoom; see the module notes.
 pub fn read_controls(
     input: ControlInput,
     time: Res<Time>,
     scroll: Res<AccumulatedMouseScroll>,
     state: Res<State<PlayState>>,
-    (mut control, mut held_sneak, touch_switch): (ResMut<PlayerControl>, Option<ResMut<HeldSneakInput>>, Option<Res<crate::pad::TouchDeviceSwitch>>),
+    (mut control, mut held_sneak, touch_switch, controller_options, controller_gestures): ControlContext<'_>,
     hud: Option<ResMut<HudMessage>>,
     switches: Option<Res<crate::script_switches::ScriptSwitches>>,
 ) {
@@ -623,6 +630,7 @@ pub fn read_controls(
     }
     if *state.get() != PlayState::Playing {
         if let Some(held) = held_sneak.as_deref_mut() {
+            held.controller_active = false;
             control.sneak = held.apply(control.sneak, false);
         }
         control.aiming = false;
@@ -633,7 +641,8 @@ pub fn read_controls(
     }
     let mut message: Option<String> = None;
     let c = &mut *control;
-    if input.just_pressed(Control::CrouchSneak) {
+    if input.just_pressed(Control::CrouchSneak)
+        && !(input.controller() && controller_options.as_deref().is_some_and(|o|o.hold_sneak)) {
         c.sneak = !c.sneak;
         info!("Crouch/Sneak pressed: sneaking {} asked", if c.sneak { "on" } else { "off" });
     }
@@ -687,7 +696,9 @@ pub fn read_controls(
             message = Some(format!("{}: not available yet", Bindings::name(ctl)));
         }
     }
-    c.aiming = input.pressed(Control::Block) && !c.wheel;
+    c.aiming = if input.controller() {
+        controller_gestures.as_deref().map_or_else(||input.pressed(Control::Block),|g|g.aim_requested)
+    } else {input.pressed(Control::Block)} && !c.wheel;
     if c.lowered && (c.aiming || c.trigger || !c.weapon_out) {
         c.lowered = false;
     }
@@ -1255,7 +1266,7 @@ mod tests {
 
     /// Everything a player can ask for at once.
     fn busy() -> (MoveIntent, PlayerControl) {
-        let intent = MoveIntent { forward: 1.0, right: -1.0, walk: true, sneak: true, jump: true };
+        let intent = MoveIntent { forward: 1.0, right: -1.0, walk: true, sneak: true, jump: true, ..default() };
         let control = PlayerControl {
             sneak: true,
             weapon_out: true,

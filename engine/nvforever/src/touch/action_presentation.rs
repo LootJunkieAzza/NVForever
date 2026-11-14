@@ -66,8 +66,10 @@ mod tests {
         pressed: bool,
         released: bool,
     }
-    fn model(wanted: Res<Wanted>, mut model: ResMut<AimPresentation>) {
-        model.0 = wanted.0;
+    fn model(wanted: Option<Res<Wanted>>, mut model: ResMut<AimPresentation>) {
+        if let Some(wanted) = wanted {
+            model.0 = wanted.0;
+        }
     }
     fn observe(input: ControlInput, mut seen: ResMut<Seen>) {
         seen.down = input.pressed(Control::Block);
@@ -97,6 +99,10 @@ mod tests {
             ))
             .id();
         app.update();
+        // Test geometry must not inherit a developer's persisted hide/position choices.
+        app.world_mut()
+            .resource_mut::<super::super::Layout>()
+            .config = Default::default();
         // Publish physical image boxes without requiring a renderer/GPU in this model test.
         let mut query = app
             .world_mut()
@@ -455,5 +461,306 @@ mod tests {
             !app.world().resource::<Seen>().down,
             "discarded touch must not replay next frame"
         );
+    }
+    fn authored_weapon_world(app: &mut App) -> (fnv_sim::FormId, fnv_sim::FormId) {
+        use fnv_sim::{
+            forms::{ActorBase, BaseData, BaseForm, Item, ItemKind},
+            FormId, FormStore, RefTable, SimConfig,
+        };
+        let pistol = FormId(0xF001);
+        let melee = FormId(0xF002);
+        let mut forms = FormStore::default();
+        let actor = BaseForm {
+            id: FormId::PLAYER_BASE,
+            sig: *b"NPC_",
+            edid: Some("AuthoredPlayer".into()),
+            name: None,
+            script: None,
+            prompt: None,
+            voice_filter: false,
+            data: BaseData::Actor(ActorBase {
+                entries: vec![],
+                attributes: None,
+            }),
+        };
+        forms.sigs.insert(actor.id, actor.sig);
+        forms.bases.insert(actor.id, actor);
+        for id in [pistol, melee] {
+            let item = Item {
+                kind: ItemKind::Weapon,
+                value: Some(1),
+                money: None,
+                weight: Some(1.0),
+                slots: None,
+                projectile: None,
+                health: Some(100),
+                non_playable: false,
+                cant_drop: false,
+                armor_class: Default::default(),
+                power_armor: false,
+                armor_dr: None,
+                armor_dt: None,
+                weapon_damage: Some(1.0),
+                weight_mods: [0.0; 3],
+                drawable: true,
+                not_for_npcs: false,
+                thrown: false,
+                quest_item: false,
+                icon: None,
+                placed_count: None,
+                teaches: None,
+                cant_be_taken: false,
+                modulates_voice: false,
+                weapon_traits: None,
+            };
+            let base = BaseForm {
+                id,
+                sig: *b"WEAP",
+                edid: Some(format!("AuthoredWeapon{}", id.0)),
+                name: None,
+                script: None,
+                prompt: None,
+                voice_filter: false,
+                data: BaseData::Item(item),
+            };
+            forms.sigs.insert(id, base.sig);
+            forms.bases.insert(id, base);
+        }
+        let forms = Box::leak(Box::new(forms));
+        let refs = Box::leak(Box::new(RefTable::default()));
+        let mut sim = nvf_play::sim::SimState {
+            forms,
+            refs,
+            world: fnv_sim::World::new(forms, refs, SimConfig::default()),
+        };
+        for id in [pistol, melee] {
+            sim.world.add_item(FormId::PLAYER_REF, id, 1).unwrap();
+        }
+        app.insert_resource(sim)
+            .insert_resource(nvf_play::PlayWorld(nvf_play::PlayData {
+                lo: Box::leak(Box::new(fnv_esm::LoadOrder::new(&[]).unwrap())),
+                schema: Box::leak(Box::default()),
+                index: Box::leak(Box::default()),
+                world: 1,
+                interior: None,
+                eye: [0.0; 3],
+                heading_deg: 0.0,
+                pitch_deg: 0.0,
+                auto_walk: 0.0,
+                start_at_cell_spot: false,
+                packages: false,
+            }))
+            .insert_resource(nvf_play::control::PlayerControl {
+                weapon_out: true,
+                ..default()
+            })
+            .insert_resource(nvf_play::combat::WeaponAnim {
+                ready: true,
+                ..default()
+            });
+        app.world_mut()
+            .run_system_cached(nvf_play::combat::init_combat)
+            .unwrap();
+        {
+            let mut combat = app.world_mut().resource_mut::<nvf_play::combat::Combat>();
+            combat.forms.weapons.insert(
+                pistol,
+                fnv_combat::data::WeaponStats {
+                    edid: Some("AuthoredPistol".into()),
+                    anim_type: Some("One Hand Pistol".into()),
+                    sight_fov: 35.0,
+                    health: 100,
+                    clip_size: 12,
+                    ..default()
+                },
+            );
+            combat.forms.weapons.insert(
+                melee,
+                fnv_combat::data::WeaponStats {
+                    edid: Some("AuthoredMelee".into()),
+                    anim_type: Some("Melee (1 Hand)".into()),
+                    health: 100,
+                    ..default()
+                },
+            );
+        }
+        app.world_mut().remove_resource::<Wanted>();
+        app.add_systems(
+            Update,
+            nvf_play::control::read_controls.before(PublishPresentation),
+        );
+        (pistol, melee)
+    }
+    fn equip_authored(app: &mut App, weapon: fnv_sim::FormId) {
+        app.world_mut()
+            .resource_mut::<nvf_play::sim::SimState>()
+            .world
+            .equip(fnv_sim::FormId::PLAYER_REF, weapon)
+            .unwrap();
+        app.world_mut()
+            .run_system_cached(nvf_play::combat::equip_sync)
+            .unwrap();
+        app.update();
+        assert_eq!(
+            app.world()
+                .resource::<nvf_play::combat::Combat>()
+                .player_weapon(),
+            Some(weapon)
+        );
+    }
+    #[test]
+    fn equipping_an_actual_pistol_keeps_the_aim_target_visible_rasterized_and_actionable() {
+        let (mut app, w, p) = scene();
+        let (pistol, melee) = authored_weapon_world(&mut app);
+        equip_authored(&mut app, melee);
+        assert_eq!(app.world().resource::<AimPresentation>().0, AimRole::Block);
+        let block = shown(&mut app);
+        let old_handle = app.world().get::<ImageNode>(block.2).unwrap().image.clone();
+        let old_pixels = app
+            .world()
+            .resource::<Assets<Image>>()
+            .get(&old_handle)
+            .unwrap()
+            .data
+            .clone();
+        let layout = app
+            .world()
+            .resource::<super::super::Layout>()
+            .config
+            .encode();
+        equip_authored(&mut app, pistol);
+        let aim = shown(&mut app);
+        assert_eq!(app.world().resource::<AimPresentation>().0, AimRole::Aim);
+        assert_eq!(
+            app.world()
+                .resource::<nvf_play::combat::Combat>()
+                .sight_fov(),
+            Some((pistol, 35.0))
+        );
+        assert_eq!(aim.0, block.0);
+        assert_eq!(aim.2, block.2);
+        assert_eq!(
+            *app.world().get::<Visibility>(aim.0).unwrap(),
+            Visibility::Inherited
+        );
+        let node = app.world().get::<Node>(aim.0).unwrap();
+        assert!(matches!(node.width,Val::Px(width) if width>=48.0));
+        assert_eq!(aim.4, icons::semantic_index("aim").unwrap());
+        let handle = app.world().get::<ImageNode>(aim.2).unwrap().image.clone();
+        let image = app
+            .world()
+            .resource::<Assets<Image>>()
+            .get(&handle)
+            .unwrap();
+        assert!(image
+            .data
+            .as_ref()
+            .unwrap()
+            .chunks_exact(4)
+            .any(|p| p[3] > 0));
+        assert_ne!(
+            image.data, old_pixels,
+            "the raster really changed from shield to aim"
+        );
+        assert_eq!(
+            app.world()
+                .resource::<super::super::Layout>()
+                .config
+                .encode(),
+            layout
+        );
+        finger(&mut app, w, p, TouchPhase::Started);
+        app.update();
+        assert!(app.world().resource::<Seen>().down && app.world().resource::<Seen>().pressed);
+        assert!(
+            app.world()
+                .resource::<nvf_play::control::PlayerControl>()
+                .aiming
+        );
+        assert!(
+            !app.world()
+                .resource::<nvf_play::control::PlayerControl>()
+                .trigger
+        );
+        finger(&mut app, w, p, TouchPhase::Ended);
+        app.update();
+        assert!(!app.world().resource::<Seen>().down && app.world().resource::<Seen>().released);
+    }
+
+    #[test]
+    fn a_persisted_hidden_aim_is_an_explicit_layout_choice_not_a_pistol_capability_rule() {
+        let (mut app, _, _) = scene();
+        let (pistol, melee) = authored_weapon_world(&mut app);
+        let mut saved = app
+            .world()
+            .resource::<super::super::Layout>()
+            .config
+            .encode();
+        saved["buttons"]["Aim"]["visible"] = serde_json::json!(false);
+        app.world_mut()
+            .resource_mut::<super::super::Layout>()
+            .config = super::super::layout::Config::decode(&saved).unwrap();
+        for weapon in [melee, pistol] {
+            equip_authored(&mut app, weapon);
+            let now = shown(&mut app);
+            assert_eq!(
+                *app.world().get::<Visibility>(now.0).unwrap(),
+                Visibility::Hidden
+            );
+            assert_eq!(
+                app.world()
+                    .resource::<super::super::Layout>()
+                    .config
+                    .encode()["buttons"]["Aim"]["visible"],
+                false
+            );
+        }
+        app.world_mut()
+            .resource_mut::<super::super::Layout>()
+            .config
+            .buttons[6]
+            .visible = true;
+        app.update();
+        let now = shown(&mut app);
+        assert_eq!(
+            *app.world().get::<Visibility>(now.0).unwrap(),
+            Visibility::Inherited
+        );
+    }
+    #[test]
+    fn pistol_aim_participates_in_global_controller_autohide_and_the_consumed_return_touch() {
+        let (mut app, w, p) = scene();
+        let (pistol, _) = authored_weapon_world(&mut app);
+        equip_authored(&mut app, pistol);
+        app.add_plugins(nvf_play::pad::InputSwitchPlugin);
+        app.world_mut().spawn(Gamepad::default());
+        app.world_mut().resource_mut::<Bindings>().device = InputDevice::Controller;
+        app.update();
+        let aim = shown(&mut app);
+        assert_eq!(
+            *app.world().get::<Visibility>(aim.0).unwrap(),
+            Visibility::Hidden
+        );
+        let world = app.world_mut();
+        let mut q = world.query::<(&TouchVisual, &Visibility)>();
+        assert!(q
+            .iter(world)
+            .any(|(v, visibility)| matches!(v, TouchVisual::Button(7))
+                && *visibility == Visibility::Hidden));
+        finger(&mut app, w, p, TouchPhase::Started);
+        finger(&mut app, w, p, TouchPhase::Ended);
+        app.update();
+        assert_eq!(
+            app.world().resource::<Bindings>().device,
+            InputDevice::KeyboardMouse
+        );
+        assert!(!app.world().resource::<Seen>().down);
+        assert_eq!(
+            *app.world().get::<Visibility>(aim.0).unwrap(),
+            Visibility::Inherited
+        );
+        finger(&mut app, w, p, TouchPhase::Started);
+        app.update();
+        assert!(app.world().resource::<Seen>().down);
     }
 }

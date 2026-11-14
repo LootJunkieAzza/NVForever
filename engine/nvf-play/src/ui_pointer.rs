@@ -157,14 +157,20 @@ fn update_pointer_state(
     ui_stack: Res<UiStack>,
     nodes: Query<NodeData>,
     mut states: Query<(Entity, &mut PointerState)>,
-    pad_pointer: Option<Res<crate::pad::pointer::PadPointer>>,
+    (pad_pointer, platform): (Option<Res<crate::pad::pointer::PadPointer>>, Option<Res<crate::pad::PlatformInputGate>>),
 ) {
+    if platform.as_ref().is_some_and(|g| !g.allows_actions()) {
+        to_reset.clear(); places.clear();
+        for (_, mut state) in &mut states { state.set_if_neq(PointerState::None); }
+        return;
+    }
     let mouse = mouse.snapshot();
     // A pointer asleep under the controller is on nothing (`crate::pad::pointer`, #2310).
     let sleeping = crate::pad::pointer::asleep(pad_pointer.as_deref());
     let primary_window = primary_window.iter().next();
-    let released = mouse.just_released(MouseButton::Left) || touches.any_just_released();
-    let clicked = mouse.just_pressed(MouseButton::Left) || touches.any_just_pressed();
+    let touch_allowed = |id| platform.as_ref().is_none_or(|g| g.allows_touch(id));
+    let released = mouse.just_released(MouseButton::Left) || touches.iter_just_released().any(|t| touch_allowed(t.id()));
+    let clicked = mouse.just_pressed(MouseButton::Left) || touches.iter_just_pressed().any(|t| touch_allowed(t.id()));
 
     // The pointer in each window camera's viewport, in physical pixels.
     let cursor: EntityHashMap<Vec2> = cameras
@@ -178,7 +184,7 @@ fn update_pointer_state(
             window
                 .physical_cursor_position()
                 .filter(|_| !sleeping)
-                .or_else(|| touches.first_pressed_position().map(|p| p * window.scale_factor()))
+                .or_else(|| touches.iter().chain(touches.iter_just_pressed()).find(|t| touch_allowed(t.id())).map(|t| t.position() * window.scale_factor()))
                 .map(|p| (entity, p - origin))
         })
         .collect();
@@ -283,4 +289,20 @@ mod tests {
         // `Changed` fires.
         assert_eq!(next_state(Pressed, Frame { clicked: true, released: true, ..f(Place::Top) }), (Pressed, true, true));
     }
+    #[test]
+    fn platform_cover_blocks_real_touch_pointer_admission_without_clearing_touch_hardware() {
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, bevy::input::InputPlugin, UiPointerPlugin))
+            .init_resource::<UiStack>().init_resource::<crate::pad::PlatformInputGate>();
+        app.world_mut().resource_mut::<crate::pad::PlatformInputGate>().set_blocked(true);
+        let button = app.world_mut().spawn((Button, PointerState::Pressed)).id();
+        app.world_mut().write_message(bevy::input::touch::TouchInput {
+            window: Entity::PLACEHOLDER, id: 7, phase: bevy::input::touch::TouchPhase::Started,
+            position: Vec2::ONE, force: std::option::Option::None,
+        });
+        app.update();
+        assert_eq!(*app.world().get::<PointerState>(button).unwrap(), PointerState::None);
+        assert!(app.world().resource::<Touches>().any_just_pressed(), "hardware touch ownership is preserved");
+    }
+
 }

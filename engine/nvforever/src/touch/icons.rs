@@ -80,6 +80,13 @@ pub(super) fn install(app: &mut App) {
     );
 }
 
+pub(super) fn next_family(current: Option<&str>) -> Option<&'static str> {
+    let index = current.and_then(|name| FAMILIES.iter().position(|f| f.id == name));
+    match index {
+        None => Some(FAMILIES[0].id),
+        Some(i) => FAMILIES.get(i+1).map(|family|family.id),
+    }
+}
 fn pick_family(world: &mut World, name: &str) -> bool {
     let Some(index) = FAMILIES
         .iter()
@@ -209,11 +216,20 @@ fn cache_visible(node: &ComputedNode, visibility: &InheritedVisibility) -> bool 
 
 fn update(
     family: Res<FamilyChoice>,
+    layout: Option<Res<super::Layout>>,
     mut cache: ResMut<IconCache>,
     mut images: ResMut<Assets<Image>>,
     icons: Query<(Entity, &TouchIcon, &ComputedNode, &InheritedVisibility)>,
     mut nodes: Query<&mut ImageNode>,
 ) {
+    let family = FamilyChoice(
+        layout
+            .as_ref()
+            .and_then(|l| l.config.appearance.family.as_deref())
+            .and_then(|name| FAMILIES.iter().position(|f| f.id == name))
+            .unwrap_or(family.0),
+    );
+
     // Retire hidden and removed nodes before any new allocation, independent of
     // query order. Visibility::Hidden keeps nonzero layout geometry; the propagated
     // hierarchy visibility, not that geometry alone, decides whether a glyph draws.
@@ -723,10 +739,13 @@ mod tests {
         assert_eq!(FAMILIES.len(), 4);
         assert_eq!(semantic_index("aim"), Some(6));
         assert_eq!(semantic_index("block"), Some(25));
+        assert_eq!(semantic_index("gyro"), Some(26));
+        assert_eq!(semantic_index("settings"), Some(18));
+        assert_eq!(semantic_index("help"), Some(19));
         assert_eq!(semantic_index("unknown"), None);
         assert_eq!(SVG_SOURCE_SHA256.len(), 64);
         for (family, art) in FAMILIES.iter().enumerate() {
-            assert_eq!(art.icons.len(), 26);
+            assert_eq!(art.icons.len(), 27);
             for (index, source) in art.icons.iter().enumerate() {
                 assert!(!source.id.is_empty() && !source.label.is_empty());
                 for size in [UVec2::splat(24), UVec2::splat(32), UVec2::splat(48)] {

@@ -124,6 +124,10 @@ pub const SECTIONS: &[Section] = &[
             "dialogue-recentre",
             "dialogue-zoom",
             "lip-sync",
+            "touch-dialogue",
+            "dialogue-choice-text-size",
+            "dialogue-subtitle-text-size",
+            "dialogue-touch-choice",
         ],
     ),
     section(
@@ -181,6 +185,7 @@ pub const SECTIONS: &[Section] = &[
         "Display",
         Some("Performance"),
         &[
+            "mobile-performance", "mobile-fps", "mobile-resolution", "mobile-thermal-auto", "mobile-thermal-status",
             "fps-counter",
             "fps-counter-fps",
             "fps-counter-low",
@@ -216,10 +221,24 @@ pub const SECTIONS: &[Section] = &[
         Some("Touch"),
         &[
             "touch-practice-v1",
+            "touch-hotbar", "touch-hotbar-slots", "touch-hotbar-size", "touch-hotbar-tray",
             "touch-pipboy-swipe-v1",
             "touch-pipboy-distance-v1",
             "touch-icon-family",
             "adaptive-touch-actions",
+            "lockpick-touch",
+            "lockpick-touch-size",
+            "touch-gyro-v1",
+            "touch-gyro-sensitivity-v1",
+            "touch-gyro-ads-v1",
+            "touch-gyro-toggle-v1",
+            "touch-gyro-ads-only-v1",
+            "touch-gyro-recenter-v1",
+            "touch-analog-movement-v1",
+            "touch-fire-drag-look-v1",
+            "touch-auto-move-lock-v1",
+            "touch-vats-double-tap-v1",
+
         ],
     ),
     // The quality presets over the rows they set, under a heading of their own; the
@@ -281,7 +300,8 @@ pub const SECTIONS: &[Section] = &[
 
 /// The Controls tab's rows that are shown only while the input device is a controller
 /// (`crate::bindings::InputDevice`), after the controls' own [design: #1953].
-pub const CONTROLLER_KEYS: [&str; 4] = ["button-style", "aim-assist", "aim-slowdown", "aim-lock"];
+pub const CONTROLLER_KEYS: [&str; 8] = ["button-style", "aim-assist", "aim-slowdown", "aim-lock",
+    "controller-ads-v1", "controller-dead-zone-v1", "controller-toggle-aim-v1", "controller-hold-sneak-v1"];
 
 /// Whether row `key` is shown only with a controller ([`CONTROLLER_KEYS`]).
 pub fn controller_only(key: &str) -> bool {
@@ -502,8 +522,12 @@ mod tests {
     /// and Upscaling mode rows in place of the one upscaling row, its DLSS model row and #2169's
     /// FSR library row, #2242's upscaling counter row and #2317's Generated frames row), by the group it
     /// registers with.
-    const KNOWN: [(&str, &str); 117] = [
+    const KNOWN: [(&str, &str); 146] = [
         ("touch-practice-v1", "Controller"),
+        ("touch-hotbar", "Controls"),
+        ("touch-hotbar-slots", "Controls"),
+        ("touch-hotbar-size", "Controls"),
+        ("touch-hotbar-tray", "Controls"),
         ("touch-pipboy-swipe-v1", "Controller"),
         ("touch-pipboy-distance-v1", "Controller"),
         ("detached-camera", "Gameplay"),
@@ -525,11 +549,33 @@ mod tests {
         ("difficulty", "Gameplay"),
         ("hardcore", "Gameplay"),
         ("lip-sync", "Gameplay"),
+        ("touch-dialogue", "Gameplay"),
+        ("dialogue-choice-text-size", "Gameplay"),
+        ("dialogue-subtitle-text-size", "Gameplay"),
+        ("dialogue-touch-choice", "Gameplay"),
         ("true-iron-sights", "Gameplay"),
         ("scope-3d", "Gameplay"),
         ("button-style", "Controller"),
+        ("controller-ads-v1", "Controller"),
+        ("controller-dead-zone-v1", "Controller"),
+        ("controller-toggle-aim-v1", "Controller"),
+        ("controller-hold-sneak-v1", "Controller"),
         ("touch-icon-family", "Touch"),
         ("adaptive-touch-actions", "Touch"),
+        ("lockpick-touch", "Touch"),
+        ("lockpick-touch-size", "Touch"),
+        ("touch-gyro-v1", "Controller"),
+        ("touch-gyro-sensitivity-v1", "Controller"),
+        ("touch-gyro-ads-v1", "Controller"),
+        ("touch-gyro-toggle-v1", "Controller"),
+        ("touch-gyro-ads-only-v1", "Controller"),
+        ("touch-gyro-recenter-v1", "Controller"),
+        ("touch-analog-movement-v1", "Touch"),
+        ("touch-fire-drag-look-v1", "Touch"),
+        ("touch-auto-move-lock-v1", "Touch"),
+        ("touch-vats-double-tap-v1", "Touch"),
+
+
         ("aim-assist", "Controller"),
         ("aim-slowdown", "Controller"),
         ("aim-lock", "Controller"),
@@ -566,6 +612,11 @@ mod tests {
         ("hud-health-size-v1", "Display"),
         ("hud-action-points-size-v1", "Display"),
         ("hud-compass-size-v1", "Display"),
+        ("mobile-performance", "Display"),
+        ("mobile-fps", "Display"),
+        ("mobile-resolution", "Display"),
+        ("mobile-thermal-auto", "Display"),
+        ("mobile-thermal-status", "Display"),
         ("fps-counter", "Display"),
         ("fps-counter-fps", "Display"),
         ("fps-counter-low", "Display"),
@@ -675,6 +726,11 @@ mod tests {
                 "[Saving]"
             ]
         );
+        let gameplay = keys(&list, &l, "Gameplay");
+        let dialogue = gameplay.iter().position(|k| k == "[Dialogue]").unwrap();
+        assert_eq!(&gameplay[dialogue..dialogue+11], &["[Dialogue]", "menu-pause", "dialogue-goodbye-hint",
+            "dialogue-look", "dialogue-recentre", "dialogue-zoom", "lip-sync", "touch-dialogue",
+            "dialogue-choice-text-size", "dialogue-subtitle-text-size", "dialogue-touch-choice"]);
         assert_eq!(
             keys(&list, &l, "Audio"),
             [
@@ -697,10 +753,24 @@ mod tests {
                 .chain([
                     "[Touch]",
                     "touch-practice-v1",
+                    "touch-hotbar", "touch-hotbar-slots", "touch-hotbar-size", "touch-hotbar-tray",
                     "touch-pipboy-swipe-v1",
                     "touch-pipboy-distance-v1",
                     "touch-icon-family",
-                    "adaptive-touch-actions"
+                    "adaptive-touch-actions",
+                    "lockpick-touch",
+                    "lockpick-touch-size",
+                    "touch-gyro-v1",
+                    "touch-gyro-sensitivity-v1",
+                    "touch-gyro-ads-v1",
+                    "touch-gyro-toggle-v1",
+                    "touch-gyro-ads-only-v1",
+                    "touch-gyro-recenter-v1",
+                    "touch-analog-movement-v1",
+                    "touch-fire-drag-look-v1",
+                    "touch-auto-move-lock-v1",
+                    "touch-vats-double-tap-v1"
+
                 ])
                 .collect::<Vec<_>>()
         );
@@ -718,6 +788,7 @@ mod tests {
                 .path()
         };
         assert_eq!(at("menu-pause"), "Gameplay > Dialogue");
+        for key in ["touch-dialogue","dialogue-choice-text-size","dialogue-subtitle-text-size","dialogue-touch-choice"] {assert_eq!(at(key), "Gameplay > Dialogue");}
         assert_eq!(at("head-bob"), "Gameplay > Camera");
         assert_eq!(at("hud-red"), "Display > Interface");
         for key in [
@@ -726,6 +797,9 @@ mod tests {
             "hud-compass-size-v1",
         ] {
             assert_eq!(at(key), "Display > Interface");
+        }
+        for key in ["mobile-performance", "mobile-fps", "mobile-resolution", "mobile-thermal-auto", "mobile-thermal-status"] {
+            assert_eq!(at(key), "Display > Performance");
         }
         assert_eq!(at("sky-clock"), "Graphics > World");
         assert_eq!(at("quality"), "Graphics > Quality");
@@ -736,11 +810,24 @@ mod tests {
             "the presets first, under their own heading (#1966)"
         );
         assert_eq!(at("button-style"), "Controls");
+        for key in ["controller-ads-v1", "controller-dead-zone-v1", "controller-toggle-aim-v1", "controller-hold-sneak-v1"] {
+            assert_eq!(at(key), "Controls");
+            assert!(controller_only(key));
+        }
         assert_eq!(at("touch-pipboy-swipe-v1"), "Controls > Touch");
         assert_eq!(at("touch-practice-v1"), "Controls > Touch");
         assert_eq!(at("touch-pipboy-distance-v1"), "Controls > Touch");
         assert_eq!(at("touch-icon-family"), "Controls > Touch");
         assert_eq!(at("adaptive-touch-actions"), "Controls > Touch");
+        for key in ["touch-gyro-v1","touch-gyro-sensitivity-v1","touch-gyro-ads-v1","touch-gyro-toggle-v1","touch-gyro-ads-only-v1","touch-gyro-recenter-v1"] {
+            assert_eq!(at(key), "Controls > Touch");
+        }
+        assert_eq!(at("touch-analog-movement-v1"), "Controls > Touch");
+        assert_eq!(at("touch-fire-drag-look-v1"), "Controls > Touch");
+        assert_eq!(at("touch-auto-move-lock-v1"), "Controls > Touch");
+        assert_eq!(at("touch-vats-double-tap-v1"), "Controls > Touch");
+
+
         // The registry itself is left as it was: its order and each row's group.
         let again = registry(&KNOWN);
         assert!(list.iter().zip(&again).all(|(a, b)| a.key == b.key

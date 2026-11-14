@@ -164,6 +164,12 @@
       "label": "Block",
       "file": "block.svg",
       "legacyIndex": 25
+    },
+    {
+      "id": "gyro",
+      "label": "Gyro",
+      "file": "gyro.svg",
+      "legacyIndex": 26
     }
   ],
   "families": [

@@ -433,6 +433,10 @@ fn on_row_over(over: On<PointerOver>, rows: Query<&RowButton>, active: Res<Activ
 /// A left click selects the row (and on the selected row acts on it); with a hotkey's key
 /// held, it puts the row's item in that slot instead (`super::hotkey_panel`). A right
 /// click selects the row without acting and drops one, with Shift the stack (module notes).
+fn on_touch_row_press(press: On<PointerPress>, rows: Query<&RowButton>, active: Res<ActiveMenu>, mut touch: Option<ResMut<super::touch_items::TouchItems>>, admission: super::touch_items::Admission) {
+    if press.pointer.id!=super::touch_items::POINTER || press.button!=PointerButton::Primary || !admission.allows() {return;}
+    if let (Some(touch),Ok(row),Some(menu))=(touch.as_deref_mut(),rows.get(press.entity),active.0.as_ref()) {touch.capture_row(menu,row.0);}
+}
 fn on_row_click(
     click: On<PointerClick>,
     rows: Query<&RowButton>,
@@ -440,7 +444,9 @@ fn on_row_click(
     keys: crate::pad::ActionButtons<KeyCode>,
     (mut hold, mut hotkeys): (ResMut<HotkeyHold>, ResMut<Hotkeys>),
     mut out: MessageWriter<MenuInput>,
+    (touch,admission): (Option<Res<super::touch_items::TouchItems>>,super::touch_items::Admission),
 ) {
+    if click.pointer.id==super::touch_items::POINTER && (!admission.allows() || touch.as_ref().is_some_and(|t|t.suppress_click())) {return;}
     let keys = keys.snapshot();
     let Ok(r) = rows.get(click.entity) else { return };
     if click.button == PointerButton::Secondary {
@@ -751,7 +757,7 @@ fn list(p: &mut ChildSpawnerCommands, c: &mut Ctx, m: &MenuModel, first: usize, 
         for (k, l) in lines.iter().enumerate() {
             c.set(p, 2, l, x0 + NAME_X, y + NAME_Y - THICK + LINE_PITCH * k as f32, Align::Left, bright);
         }
-        p.spawn((at(x0, y, ROW_W, h), RowButton(i), Pickable::default())).observe(on_row_over).observe(on_row_click);
+        p.spawn((at(x0, y, ROW_W, h), RowButton(i), Pickable::default())).observe(on_row_over).observe(on_touch_row_press).observe(on_row_click);
         y += h;
     }
     // The scroll bar, only while some rows do not show.

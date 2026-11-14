@@ -1,7 +1,7 @@
 //! Owned, versioned touch layouts. Coordinates are fractions of the current window.
 use super::BUTTONS;
 use bevy::prelude::*;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Placement {
@@ -9,7 +9,7 @@ pub struct Placement {
     pub scale: f32,
     pub visible: bool,
 }
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug)]
 pub struct Config {
     pub buttons: Vec<Placement>,
     pub stick: Placement,
@@ -18,6 +18,10 @@ pub struct Config {
     pub opacity: f32,
     pub hints: bool,
     pub aiming: super::aiming::Aiming,
+    pub appearance: super::profiles::Appearance,
+    pub preset_name: String,
+    // Preserve newer action IDs, fields and saved slots when an older editor writes.
+    pub(super) extra: Value,
 }
 impl Default for Config {
     fn default() -> Self {
@@ -40,7 +44,35 @@ impl Default for Config {
             opacity: 0.7,
             hints: true,
             aiming: super::aiming::Aiming::default(),
+            appearance: super::profiles::Appearance::default(),
+            preset_name: "classic".into(),
+            extra: json!({}),
         }
+    }
+}
+impl PartialEq for Config {
+    fn eq(&self, other: &Self) -> bool {
+        self.encode() == other.encode()
+    }
+}
+fn overlay(mut previous: Value, known: Value) -> Value {
+    if !previous.is_object() {
+        previous = json!({});
+    }
+    if let Some(fields) = known.as_object() {
+        for (key, value) in fields {
+            previous[key] = value.clone();
+        }
+    }
+    previous
+}
+fn merge_profile(previous: &mut Value, saved: &Value) {
+    if let (Some(a), Some(b)) = (previous.as_object_mut(), saved.as_object()) {
+        for (key, value) in b {
+            merge_profile(a.entry(key.clone()).or_insert(Value::Null), value);
+        }
+    } else {
+        *previous = saved.clone();
     }
 }
 impl Config {
@@ -92,7 +124,11 @@ impl Config {
                 continue;
             }
             let d = point.distance(self.center(t, size));
-            if d <= self.diameter(t, size) * 0.5 && d < distance {
+            let inside = self
+                .appearance
+                .geometry(self.diameter(t, size))
+                .contains((point - self.center(t, size)).to_array());
+            if inside && d < distance {
                 nearest = Some(t);
                 distance = d;
             }
@@ -121,14 +157,142 @@ impl Config {
         }
     }
     pub fn encode(&self) -> Value {
-        let place = |p: &Placement| json!({"x":p.center.x,"y":p.center.y,"scale":p.scale,"visible":p.visible});
-        json!({"version":1,"buttons":BUTTONS.iter().zip(&self.buttons).map(|(b,p)| (b.text.to_string(),place(p))).collect::<serde_json::Map<_,_>>(),"stick":place(&self.stick),"floating":self.floating,"southpaw":self.southpaw,"opacity":self.opacity,"hints":self.hints,"aiming":self.aiming.encode()})
+        let place = |old: Value, p: &Placement| {
+            overlay(
+                old,
+                json!({"x":p.center.x,"y":p.center.y,"scale":p.scale,"visible":p.visible}),
+            )
+        };
+        let mut value = self.extra.clone();
+        if !value.is_object() {
+            value = json!({});
+        }
+        if !value["buttons"].is_object() {
+            value["buttons"] = json!({});
+        }
+        for (b, p) in BUTTONS.iter().zip(&self.buttons) {
+            value["buttons"][b.text] = place(value["buttons"][b.text].clone(), p);
+        }
+        value["stick"] = place(value["stick"].clone(), &self.stick);
+        value["aiming"] = overlay(value["aiming"].clone(), self.aiming.encode());
+        value["appearance"] = overlay(
+            value["appearance"].clone(),
+            json!({
+            "theme":self.appearance.theme,"shape":self.appearance.shape,"family":self.appearance.family}),
+        );
+        overlay(
+            value,
+            json!({"version":1,"floating":self.floating,"southpaw":self.southpaw,
+            "opacity":self.opacity,"hints":self.hints,"preset":self.preset_name}),
+        )
+    }
+    pub fn apply_preset(&mut self, name: &str) {
+        let mut fresh = Self::default();
+        for (i, p) in self.buttons.iter_mut().enumerate().take(9) {
+            let mut next = fresh.buttons[i].clone();
+            next.center = Vec2::from_array(super::profiles::position(
+                name,
+                i,
+                [next.center.x, next.center.y],
+            ));
+            *p = next;
+        }
+        if name == "left" {
+            fresh.stick.center.x = 1.0 - fresh.stick.center.x;
+        }
+        self.stick = fresh.stick;
+        self.southpaw = name == "left";
+        self.preset_name = name.into();
+        // A preset is placement only: aiming, appearance, unknown actions and slots survive.
+    }
+    pub fn slot_name(&self, slot: usize) -> Option<&str> {
+        self.extra.get("profiles")?.get(slot)?.get("name")?.as_str()
+    }
+    pub fn store_slot(&mut self, slot: usize) -> Result<(), String> {
+        if slot >= super::profiles::MAX_SLOTS {
+            return Err("Invalid profile slot".into());
+        }
+        let mut snapshot = self.encode();
+        snapshot.as_object_mut().unwrap().remove("profiles");
+        let mut slots = self.extra["profiles"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
+        while slots.len() <= slot {
+            slots.push(Value::Null);
+        }
+        if slots[slot]
+            .get("layout")
+            .is_some_and(|v| v["version"].as_u64() != Some(1))
+        {
+            return Err("This slot uses a newer layout version; kept unchanged".into());
+        }
+        let name = slots[slot]["name"]
+            .as_str()
+            .map(str::to_owned)
+            .unwrap_or_else(|| format!("My layout {}", slot + 1));
+        slots[slot] = overlay(slots[slot].clone(), json!({"name":name,"layout":snapshot}));
+        self.extra["profiles"] = Value::Array(slots);
+        Ok(())
+    }
+    pub fn load_slot(&mut self, slot: usize) -> Result<(), String> {
+        let value = &self.extra["profiles"][slot]["layout"];
+        if value.get("profiles").is_some() {
+            return Err("Nested profile libraries are not supported".into());
+        }
+        let mut merged = self.encode();
+        merge_profile(&mut merged, value);
+        *self = Self::decode(&merged)?;
+        Ok(())
+    }
+    pub fn rename_slot(&mut self, slot: usize) -> Result<(), String> {
+        let name = self
+            .slot_name(slot)
+            .ok_or("Store a layout in this slot first")?;
+        let next = super::profiles::cycle(name, super::profiles::SLOT_NAMES.iter().copied());
+        self.extra["profiles"][slot]["name"] = json!(next);
+        Ok(())
     }
     pub fn decode(v: &Value) -> Result<Self, String> {
         if v["version"].as_u64() != Some(1) {
             return Err("Unknown touch-layout version".into());
         }
+        if v.get("profiles").is_some_and(|p| {
+            !p.is_array() || p.as_array().unwrap().len() > super::profiles::MAX_SLOTS
+        }) {
+            return Err("Invalid saved-profile library".into());
+        }
+        if v["profiles"].as_array().is_some_and(|slots| {
+            slots.iter().any(|slot| {
+                !slot.is_null()
+                    && (!slot["layout"].is_object()
+                        || !slot["name"].as_str().is_some_and(|name| {
+                            !name.is_empty()
+                                && name.chars().count() <= 32
+                                && !name.chars().any(char::is_control)
+                        }))
+            })
+        }) {
+            return Err("Invalid saved-profile entry".into());
+        }
         let mut c = Self::default();
+        c.extra = v.clone();
+        let identity = |key: &str| {
+            v["appearance"][key]
+                .as_str()
+                .filter(|s| s.len() <= 64 && !s.chars().any(char::is_control))
+                .map(str::to_owned)
+        };
+        if let Some(t) = identity("theme") {
+            c.appearance.theme = t;
+        }
+        if let Some(t) = identity("shape") {
+            c.appearance.shape = t;
+        }
+        c.appearance.family = identity("family");
+        if let Some(name) = v["preset"].as_str().filter(|n| n.len() <= 64) {
+            c.preset_name = name.into();
+        }
         let read = |v: &Value, p: &mut Placement| {
             let number = |key: &str, lo: f32, hi: f32| {
                 v[key]
@@ -173,7 +337,25 @@ impl Config {
         fnv_install::guard_write(path, None).map_err(|e| e.to_string())?;
         let tmp = path.with_extension("json.tmp");
         fnv_install::guard_write(&tmp, None).map_err(|e| e.to_string())?;
+        // Never silently downgrade or replace an unknown newer on-disk schema.
+        if path.exists() {
+            if std::fs::metadata(path).map_err(|e| e.to_string())?.len()
+                > super::profiles::MAX_FILE_BYTES
+            {
+                return Err("Existing touch settings exceed the size limit; kept unchanged".into());
+            }
+            let old: Value =
+                serde_json::from_slice(&std::fs::read(path).map_err(|e| e.to_string())?)
+                    .map_err(|e| e.to_string())?;
+            if old["version"].as_u64() != Some(1) {
+                return Err("Newer touch settings kept unchanged".into());
+            }
+            Self::decode(&old)?;
+        }
         let bytes = serde_json::to_vec_pretty(&self.encode()).map_err(|e| e.to_string())?;
+        if bytes.len() as u64 > super::profiles::MAX_FILE_BYTES {
+            return Err("Touch settings exceed the size limit".into());
+        }
         let mut file = std::fs::File::create(&tmp).map_err(|e| e.to_string())?;
         file.write_all(&bytes)
             .and_then(|()| file.sync_all())
@@ -201,6 +383,8 @@ pub struct Editor {
     pub playing: bool,
     pub selected: Target,
     pub aiming: bool,
+    pub styles: bool,
+    pub slot: usize,
     drag: Option<(u64, Vec2)>,
 }
 #[derive(Resource, Default)]
@@ -209,7 +393,7 @@ pub struct Layout {
     pub editor: Option<Editor>,
     pub message: String,
 }
-pub const EDIT_ACTIONS: [&str; 12] = [
+pub const EDIT_ACTIONS: [&str; 13] = [
     "Smaller",
     "Larger",
     "Opacity",
@@ -222,12 +406,13 @@ pub const EDIT_ACTIONS: [&str; 12] = [
     "Save",
     "Cancel",
     "Aiming",
+    "Style / profiles",
 ];
 pub fn editor_rect(index: usize, size: Vec2) -> Rect {
     let width = (size.x * 0.4).max(288.0).min(size.x * 0.75);
     let h = 52.0_f32.min(size.y * 0.15);
     let x = (size.x - width) * 0.5 + (index % 3) as f32 * width / 3.0;
-    let y = (size.y - h * 4.0) * 0.5 + (index / 3) as f32 * h;
+    let y = (size.y - h * 5.0) * 0.5 + (index / 3) as f32 * h;
     Rect::from_corners(
         Vec2::new(x + 2.0, y + 2.0),
         Vec2::new(x + width / 3.0 - 2.0, y + h - 2.0),
@@ -244,6 +429,8 @@ impl Layout {
             playing,
             selected: Target::Stick,
             aiming: false,
+            styles: false,
+            slot: 0,
             drag: None,
         });
         self.message = "Drag a control to move it. Select it, then change its size.".into();
@@ -256,7 +443,12 @@ impl Layout {
         let mut done = false;
         match t.phase {
             TouchPhase::Started => {
-                if let Some(action) = (0..EDIT_ACTIONS.len()).find(|&i| {
+                let actions = if e.aiming || e.styles {
+                    12
+                } else {
+                    EDIT_ACTIONS.len()
+                };
+                if let Some(action) = (0..actions).find(|&i| {
                     let rect = if e.aiming {
                         super::aiming::editor_rect(i, size)
                     } else {
@@ -266,7 +458,46 @@ impl Layout {
                 }) {
                     // A toolbar tap ends the previous finger's drag before changing its target/layout.
                     e.drag = None;
-                    if e.aiming && action < 9 {
+                    if e.styles && action < 9 {
+                        let result = match action {
+                            0 => {
+                                self.config.appearance.next_theme();
+                                Ok(())
+                            }
+                            1 => {
+                                self.config.appearance.next_shape();
+                                Ok(())
+                            }
+                            2 => {
+                                self.config.appearance.family = super::icons::next_family(
+                                    self.config.appearance.family.as_deref(),
+                                )
+                                .map(str::to_owned);
+                                Ok(())
+                            }
+                            3 => {
+                                let name = super::profiles::cycle(
+                                    &self.config.preset_name,
+                                    super::profiles::PRESETS.iter().map(|p| p.0),
+                                );
+                                self.config.apply_preset(name);
+                                Ok(())
+                            }
+                            4 => {
+                                e.slot = (e.slot + 1) % super::profiles::MAX_SLOTS;
+                                Ok(())
+                            }
+                            5 => self.config.load_slot(e.slot),
+                            6 => self.config.store_slot(e.slot),
+                            7 => self.config.rename_slot(e.slot),
+                            _ => {
+                                let name = self.config.preset_name.clone();
+                                self.config.apply_preset(&name);
+                                Ok(())
+                            }
+                        };
+                        self.message=match result{Ok(())=>"Preview changes here. Save keeps them; Cancel restores your layout and slots.".into(),Err(err)=>err};
+                    } else if e.aiming && action < 9 {
                         self.config.aiming.adjust(action);
                         self.message = if action == 5 {
                             "Look scales touch swipes. ADS uses actual sight state; dead zone is a share of stick radius.".into()
@@ -313,8 +544,12 @@ impl Layout {
                             7 => self.config.hints = !self.config.hints,
                             8 => {
                                 let aiming = self.config.aiming;
+                                let appearance = self.config.appearance.clone();
+                                let extra = self.config.extra.clone();
                                 self.config = Config::preset(self.config.southpaw);
                                 self.config.aiming = aiming;
+                                self.config.appearance = appearance;
+                                self.config.extra = extra;
                             }
                             9 => {
                                 // Tests use Layout without a home and never write player settings.
@@ -341,8 +576,17 @@ impl Layout {
                                 self.message = "Changes cancelled.".into();
                                 done = true;
                             }
+                            12 => {
+                                e.styles = true;
+                                e.aiming = false;
+                                self.message="Choose a theme, shape or layout. Store captures a slot; Load previews it.".into();
+                            }
                             _ => {
-                                e.aiming = !e.aiming;
+                                if e.styles {
+                                    e.styles = false;
+                                } else {
+                                    e.aiming = !e.aiming;
+                                }
                                 self.message = if e.aiming {
                                     "Adjust touch aiming, then Save or Cancel."
                                 } else {
@@ -355,7 +599,7 @@ impl Layout {
                 } else if let Some(target) = self
                     .config
                     .hit(t.position, size, e.playing, true)
-                    .filter(|_| !e.aiming)
+                    .filter(|_| !e.aiming && !e.styles)
                 {
                     e.selected = target;
                     e.drag = Some((t.id, self.config.center(target, size) - t.position));
@@ -393,6 +637,10 @@ pub fn load(mut layout: ResMut<Layout>) {
         return;
     };
     let path = std::path::PathBuf::from(home).join("touch-controls.json");
+    if std::fs::metadata(&path).is_ok_and(|m| m.len() > super::profiles::MAX_FILE_BYTES) {
+        warn!("touch layout exceeds size limit; kept unchanged");
+        return;
+    }
     if let Ok(text) = std::fs::read_to_string(path) {
         match serde_json::from_str(&text)
             .map_err(|e| e.to_string())
@@ -407,6 +655,249 @@ pub fn load(mut layout: ResMut<Layout>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn tap_editor(layout: &mut Layout, action: usize) {
+        use bevy::input::touch::{TouchInput, TouchPhase};
+        let size = Vec2::new(792.0, 363.0);
+        let position = editor_rect(action, size).center();
+        for phase in [TouchPhase::Started, TouchPhase::Ended] {
+            layout.event(
+                &TouchInput {
+                    phase,
+                    position,
+                    window: Entity::PLACEHOLDER,
+                    id: 77,
+                    force: None,
+                },
+                size,
+            );
+        }
+    }
+    #[test]
+    fn editor_cancel_restores_profiles_appearance_and_original_settings() {
+        let mut layout = Layout::default();
+        layout.config.extra["foreign"] = json!({"keep":true});
+        layout.config.store_slot(0).unwrap();
+        let original = layout.config.clone();
+        layout.open(true);
+        for action in [12, 0, 1, 2, 3, 4, 6, 7] {
+            tap_editor(&mut layout, action);
+        }
+        assert!(layout.editor.as_ref().unwrap().styles);
+        assert_ne!(layout.config, original);
+        assert!(layout.config.slot_name(1).is_some());
+        tap_editor(&mut layout, 10);
+        assert!(layout.editor.is_none());
+        assert_eq!(layout.config, original);
+    }
+    #[test]
+    fn layout_reset_keeps_profile_library_and_does_not_change_aiming() {
+        let mut layout = Layout::default();
+        layout.config.appearance.next_theme();
+        layout.config.aiming.look = 1.9;
+        layout.config.store_slot(0).unwrap();
+        let slots = layout.config.extra["profiles"].clone();
+        let appearance = layout.config.appearance.clone();
+        layout.open(true);
+        tap_editor(&mut layout, 8);
+        assert_eq!(layout.config.extra["profiles"], slots);
+        assert_eq!(layout.config.appearance, appearance);
+        assert_eq!(layout.config.aiming.look, 1.9);
+    }
+    #[test]
+    fn square_controls_admit_their_visible_corners() {
+        let size = Vec2::new(792.0, 363.0);
+        let mut c = Config::default();
+        let target = Target::Button(7);
+        let corner = c.center(target, size) + Vec2::splat(c.diameter(target, size) * 0.46);
+        assert_eq!(c.hit(corner, size, true, false), None);
+        c.appearance.shape = "square".into();
+        assert_eq!(c.hit(corner, size, true, false), Some(target));
+    }
+    #[test]
+    fn button_hits_follow_visible_edges_and_cut_corners_for_every_shape() {
+        let size = Vec2::new(1600.0, 900.0);
+        let target = Target::Button(7);
+        for (shape, _) in super::super::profiles::SHAPES {
+            let mut c = Config::default();
+            c.appearance.shape = (*shape).into();
+            let center = c.center(target, size);
+            let d = c.diameter(target, size);
+            let hit = |x, y| c.hit(center + Vec2::new(x * d, y * d), size, true, false);
+            assert_eq!(hit(0.0, 0.0), Some(target), "{shape}: centre");
+            assert_eq!(hit(0.5, 0.0), Some(target), "{shape}: visible right edge");
+            assert_eq!(hit(0.51, 0.0), None, "{shape}: beyond right edge");
+            if *shape == "square" {
+                assert_eq!(hit(0.48, 0.48), Some(target));
+            } else {
+                assert_eq!(hit(0.48, 0.48), None, "{shape}: invisible corner");
+            }
+            if *shape == "capsule" {
+                assert_eq!(hit(0.0, 0.35), Some(target));
+                assert_eq!(hit(0.0, 0.49), None, "capsule: invisible circle above top");
+                assert_eq!(hit(0.48, 0.30), None, "capsule: clipped corner");
+            } else {
+                assert_eq!(hit(0.0, 0.49), Some(target));
+            }
+        }
+    }
+    #[test]
+    fn capsule_hit_ends_at_the_visible_top_instead_of_the_old_circle() {
+        let size = Vec2::new(1600.0, 900.0);
+        let target = Target::Button(7);
+        let mut c = Config::default();
+        c.appearance.shape = "capsule".into();
+        let centre = c.center(target, size);
+        let d = c.diameter(target, size);
+        assert_eq!(
+            c.hit(centre + Vec2::new(0.0, d * 0.35), size, true, false),
+            Some(target)
+        );
+        assert_eq!(
+            c.hit(centre + Vec2::new(0.0, d * 0.49), size, true, false),
+            None
+        );
+    }
+    #[test]
+    fn button_shape_never_changes_the_joysticks_circular_grab_region() {
+        let size = Vec2::new(1600.0, 900.0);
+        for (shape, _) in super::super::profiles::SHAPES {
+            let mut c = Config::default();
+            c.appearance.shape = (*shape).into();
+            let center = c.center(Target::Stick, size);
+            let d = c.diameter(Target::Stick, size);
+            assert_eq!(
+                c.hit(center, size, true, false),
+                Some(Target::Stick),
+                "{shape}"
+            );
+            // Preserve the existing circular 0.65D grab padding, not a square corner.
+            assert_eq!(
+                c.hit(center + Vec2::new(d * 0.60, 0.0), size, true, false),
+                Some(Target::Stick),
+                "{shape}"
+            );
+            assert_eq!(
+                c.hit(center + Vec2::splat(d * 0.48), size, true, false),
+                None,
+                "{shape}"
+            );
+        }
+    }
+    #[test]
+    fn all_registered_auxiliary_actions_keep_custom_positions_and_visibility() {
+        for (preset, _) in super::super::profiles::PRESETS {
+            let mut c = Config::default();
+            for p in &mut c.buttons[9..] {
+                p.center = Vec2::new(0.42, 0.31);
+                p.scale = 1.3;
+                p.visible = false;
+            }
+            let before = c.buttons[9..].to_vec();
+            c.apply_preset(preset);
+            assert_eq!(
+                c.buttons[9..],
+                before,
+                "{preset}: menus and any registered Gyro ID18"
+            );
+        }
+    }
+    #[test]
+    fn older_slots_keep_actions_and_settings_added_after_the_slot_was_saved() {
+        let mut c = Config::default();
+        c.store_slot(0).unwrap();
+        c.extra["buttons"]["NewAction"] = json!({"x":0.4,"y":0.5,"keep":true});
+        c.extra["later_feature"] = json!({"enabled":true});
+        let future = c.extra["buttons"]["NewAction"].clone();
+        c.load_slot(0).unwrap();
+        assert_eq!(c.encode()["buttons"]["NewAction"], future);
+        assert_eq!(c.encode()["later_feature"]["enabled"], true);
+    }
+    #[test]
+    fn future_actions_and_fields_survive_presets_and_roundtrip() {
+        let value = json!({"version":1,"future":{"keep":true},"buttons":{"FutureGyro":{"x":0.4,"future":9},"Fire":{"future":7}},"aiming":{"future_gyro_metadata":{"keep":true}},"appearance":{"theme":"unknown-theme","shape":"unknown-shape","future":3}});
+        let mut config = Config::decode(&value).unwrap();
+        config.apply_preset("left");
+        let next = config.encode();
+        assert_eq!(
+            next["buttons"]["FutureGyro"],
+            value["buttons"]["FutureGyro"]
+        );
+        assert_eq!(next["buttons"]["Fire"]["future"], 7);
+        assert_eq!(
+            next["aiming"]["future_gyro_metadata"],
+            value["aiming"]["future_gyro_metadata"]
+        );
+        assert_eq!(next["future"], value["future"]);
+        for key in ["theme", "shape", "future"] {
+            assert_eq!(next["appearance"][key], value["appearance"][key]);
+        }
+    }
+    #[test]
+    fn saved_slots_capture_appearance_without_recursive_libraries() {
+        let mut c = Config::default();
+        c.appearance.next_theme();
+        c.appearance.next_shape();
+        let saved = c.clone();
+        c.store_slot(0).unwrap();
+        c.apply_preset("claw");
+        c.appearance.next_theme();
+        c.store_slot(1).unwrap();
+        c.load_slot(0).unwrap();
+        assert_eq!(c.buttons, saved.buttons);
+        assert_eq!(c.appearance, saved.appearance);
+        assert!(
+            c.encode()["profiles"][0]["layout"]
+                .get("profiles")
+                .is_none()
+        );
+        assert_eq!(c.encode()["profiles"].as_array().unwrap().len(), 2);
+        c.rename_slot(0).unwrap();
+        assert_eq!(c.slot_name(0), Some("My layout"));
+        assert!(c.store_slot(super::super::profiles::MAX_SLOTS).is_err());
+        assert_eq!(Config::decode(&c.encode()).unwrap(), c);
+    }
+    #[test]
+    fn unknown_slot_versions_and_unknown_disk_versions_are_kept() {
+        let mut c=Config::decode(&json!({"version":1,"profiles":[{"name":"Future","layout":{"version":99,"keep":true}}]})).unwrap();
+        let old = c.encode();
+        assert!(c.load_slot(0).is_err());
+        assert!(c.store_slot(0).is_err());
+        assert_eq!(c.encode(), old);
+        let root = std::env::temp_dir().join(format!("nvf-touch-future-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir(&root).unwrap();
+        let path = root.join("touch-controls.json");
+        let bytes = b"{\"version\":99,\"keep\":true}";
+        std::fs::write(&path, bytes).unwrap();
+        assert!(Config::default().save_to(&path).is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), bytes);
+        std::fs::remove_file(path).unwrap();
+        std::fs::remove_dir(root).unwrap();
+    }
+    #[test]
+    fn preset_controls_keep_menu_customizations_and_do_not_overlap_on_phone() {
+        let size = Vec2::new(792.0, 363.0);
+        for (name, _) in super::super::profiles::PRESETS {
+            let mut c = Config::default();
+            c.buttons[9].center = Vec2::new(0.4, 0.4);
+            c.aiming.look = 2.0;
+            c.apply_preset(name);
+            assert_eq!(c.buttons[9].center, Vec2::new(0.4, 0.4));
+            assert_eq!(c.aiming.look, 2.0);
+            for i in 0..9 {
+                for j in i + 1..9 {
+                    let a = c.center(Target::Button(i), size);
+                    let b = c.center(Target::Button(j), size);
+                    assert!(
+                        a.distance(b) + 0.01
+                            >= (c.diameter(Target::Button(i), size)
+                                + c.diameter(Target::Button(j), size))
+                                * 0.5,
+                        "{name}: {i}/{j}"
+                    );
+                }
+            }
+        }
+    }
     #[test]
     fn saved_layout_roundtrips_and_clamps_untrusted_values() {
         let mut c = Config::preset(true);
