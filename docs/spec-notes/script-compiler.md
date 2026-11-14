@@ -422,6 +422,15 @@ From the Begin Again list (Tale of Two Wastelands, 203 plugins, smoke scenario
   RAD.esp's MS14PowerArmorScript]. The decoder reads it as the set [hypothesis: the
   reference does nothing in the original].
 - `MoveToMarker` is MoveTo, 0x109E [observed: TTW No Hardcore Sacrifice.esp's bytes].
+- In an extender function's form parameter, a bare word or number of hex digits that
+  names nothing is the form with that FormID, when the load order has one: `f` is the
+  caps (0xF), `a` the bobby pin (0xA), `14` the player's reference [observed 2026-11-14,
+  the stock game's runtime compiler: `AuxVarSetFlt "*_q" 7 0 f` read back 7 under
+  Caps001; `g` and `FFFFFF` (no form) did not compile, nor did `let rX := f`; Armor
+  Damage Fix's gr_CondDamFix.txt ships `… 0 f`]. Any other undeclared word there failed
+  the whole script's compile in the original (`AuxVarSetRef "*_r" BobbyPin -1`; MCM
+  Extender's gr_MCMExtender.txt line 76, and no plugin of the list has that Editor ID).
+  NVForever keeps it as its own text, so only that statement is skipped (#2275).
 
 Left with their bytes, as the source cannot be compiled to them: five result scripts whose
 classic `if` has a surplus argument (`GetObjectiveDisplayed Q 30 1 && …`), which stop the

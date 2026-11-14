@@ -509,6 +509,20 @@ impl<'a> Gen<'a> {
         self.env.info(self.env.local_form(u32::from_str_radix(name, 16).ok()?)?)
     }
 
+    /// A FormID of 1 to 8 hex digits, when the load order has that form (the player's
+    /// reference 0x14 included): an extender function's form parameter takes one
+    /// written bare ([`x`]'s xargs).
+    fn hex_form_id(&self, name: &str) -> Option<FormInfo> {
+        if !(1..=8).contains(&name.len()) || !name.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return None;
+        }
+        let id = self.env.local_form(u32::from_str_radix(name, 16).ok()?)?;
+        if id == PLAYER {
+            return Some(FormInfo { form: PLAYER, sig: *b"REFR" });
+        }
+        self.env.info(id)
+    }
+
     /// The reference list entry for `slot` named as `spelling`. One form named two ways
     /// (`player`, `PlayerREF`) gets an entry per spelling, in order of first use
     /// [observed: script-compiler.md §3].

@@ -1670,6 +1670,26 @@ fn a_short_form_id_names_its_form_in_mod_source() {
 }
 
 #[test]
+fn a_short_form_id_names_its_form_in_an_extender_functions_form_parameter() {
+    // [observed 2026-11-14, nvse-cmd-probes in the stock game, xNVSE's runtime compiler:
+    // `AuxVarSetFlt "*_q" 7 0 f` reads back under Caps001 (0xF); `g` and `FFFFFF` (no
+    // form) fail the compile; shipped in Armor Damage Fix's gr_CondDamFix.txt.]
+    let (c, _) = mod_ok("begin GameMode
+AuxVarSetFlt \"*_q\" 7 0 f
+end");
+    assert!(c.refs.contains(&RefSlot::Form(CAPS)), "{:?}", c.refs);
+    let (c, _) = mod_ok("begin GameMode
+AuxVarSetFlt \"*_q\" 7 0 14
+end");
+    assert!(c.refs.contains(&RefSlot::Form(fnv_script::compile::PLAYER)), "14 is the player's reference: {:?}", c.refs);
+    // The value and the index are no forms, whatever they look like.
+    let (c, _) = mod_ok("begin GameMode
+AuxVarSetFlt \"*_q\" 7 0
+end");
+    assert!(c.refs.is_empty(), "{:?}", c.refs);
+}
+
+#[test]
 fn set_string_setting_is_lus_function_not_the_console_command() {
     let (_, p) = mod_ok("begin GameMode\nSetStringSetting \"sTargetTypeOpen\" \"Open\"\nend");
     assert_eq!(call_args(&p, "SetStringSetting"), Some(2));
