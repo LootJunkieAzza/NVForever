@@ -189,6 +189,36 @@ pub fn lines(src: &str, long: &mut Vec<usize>) -> Vec<Line> {
     out
 }
 
+/// An `if`/`elseif` line whose parentheses are still open at its end takes the next lines
+/// that start with `||`, `&&` or `)` until they close [observed: NpcCombatChem.esp ships
+/// `If (( iConf == 4 && … )` with `|| ( iConf == 3 && … )` and more on the lines below, and
+/// compiled bytes testing all of them in one condition, #2275; hypothesis: other lines do
+/// not continue, and a continuation starts so].
+pub fn join_open_conditions(lines: Vec<Line>) -> Vec<Line> {
+    let depth = |t: &str| t.chars().fold(0i32, |d, c| match c {
+        '(' => d + 1,
+        ')' => d - 1,
+        _ => d,
+    });
+    let mut out: Vec<Line> = Vec::new();
+    let mut open = 0i32;
+    for l in lines {
+        let starts = |p: &str| l.text.starts_with(p);
+        if open > 0 && (starts("||") || starts("&&") || starts(")")) {
+            if let Some(prev) = out.last_mut() {
+                prev.text = format!("{} {}", prev.text, l.text);
+                prev.toks = tokens(&prev.text);
+                open += depth(&l.text);
+                continue;
+            }
+        }
+        let head = l.toks.first().map(|t| t.text.to_ascii_lowercase());
+        open = if matches!(head.as_deref(), Some("if" | "elseif")) { depth(&l.text) } else { 0 };
+        out.push(l);
+    }
+    out
+}
+
 /// What a token of the extender's expressions is ([`xtokens`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum XKind {
@@ -217,6 +247,27 @@ pub struct XTok {
     /// arguments it starts the next one [observed: maxof.neg, aux.append.* in the
     /// original with JIP; `- 5` with spaces stays a subtraction, probe expressions/08].
     pub sign: bool,
+}
+
+/// `toks` without the one pair of parentheses that wraps all of it, if there is one
+/// (`(a <- b)`; not `(a) <- (b)`).
+pub fn unwrapped(toks: &[XTok]) -> &[XTok] {
+    let wraps = toks.len() >= 2 && toks[0].kind == XKind::Open && toks[toks.len() - 1].kind == XKind::Close && {
+        let mut depth = 0i32;
+        toks[..toks.len() - 1].iter().all(|t| {
+            match t.kind {
+                XKind::Open => depth += 1,
+                XKind::Close => depth -= 1,
+                _ => {}
+            }
+            depth > 0
+        })
+    };
+    if wraps {
+        &toks[1..toks.len() - 1]
+    } else {
+        toks
+    }
 }
 
 impl XTok {
@@ -259,7 +310,12 @@ pub fn xtokens(line: &str) -> Vec<XTok> {
         }
         let rest: String = cs[i..(i + 2).min(cs.len())].iter().collect();
         if let Some(op) = XOPS.iter().find(|o| rest.starts_with(**o)) {
-            let sign = *op == "-" && i > 0 && cs[i - 1].is_whitespace() && cs.get(i + 1).is_some_and(|d| d.is_ascii_digit() || *d == '.');
+            let spaced = i > 0 && cs[i - 1].is_whitespace();
+            // `*` and `&` with a space before and a name or `(` right after are the unbox
+            // and box prefixes (`Ar_Size *aKeybinds`, keybinder's ConstructModAddedJson.gek)
+            // [hypothesis: the only reading in which the line works].
+            let sign = (*op == "-" && spaced && cs.get(i + 1).is_some_and(|d| d.is_ascii_digit() || *d == '.'))
+                || (matches!(*op, "*" | "&") && spaced && cs.get(i + 1).is_some_and(|d| d.is_alphabetic() || *d == '_' || *d == '('));
             out.push(XTok { kind: XKind::Op, text: op.to_string(), sign });
             i += op.chars().count();
             continue;
