@@ -392,6 +392,7 @@ fn input(
     volume: Option<Res<nvf_play::audio_out::SoundVolumes>>,
     window: Query<(Entity, &Window), With<PrimaryWindow>>,
     play: Option<Res<State<nvf_play::PlayState>>>,
+    next_play: Option<Res<NextState<nvf_play::PlayState>>>,
     bindings: Option<Res<Bindings>>,
     mut motion: MessageWriter<MouseMotion>,
 ) {
@@ -399,7 +400,13 @@ fn input(
         return;
     };
     let size = Vec2::new(window.width().max(1.0), window.height().max(1.0));
-    let playing = play.is_some_and(|s| *s.get() == nvf_play::PlayState::Playing);
+    // Bevy applies StateTransition after PreUpdate. Release old-mode contacts for
+    // the pending transition now, before the new state's gameplay/UI reads input.
+    let effective_play = match next_play.as_deref() {
+        Some(NextState::Pending(next) | NextState::PendingIfDifferent(next)) => Some(*next),
+        _ => play.map(|state| *state.get()),
+    };
+    let playing = effective_play == Some(nvf_play::PlayState::Playing);
     let mut just_suspended = false;
     for event in lifecycle.read() {
         match event {
