@@ -3407,6 +3407,35 @@ fn jip_hit_handlers_run_before_the_damage_and_read_the_hit() {
 }
 
 #[test]
+fn player_value_changes_cripples_and_ragdolls_reach_their_handlers() {
+    // #2134 [documented: SetOnActorValueChangeEventHandler, the player's changes, whole
+    // numbers without flag bit 0; SetOnRagdollEventHandler, death; observed: jip_events2,
+    // DamageAV LeftAttackCondition 200 fired the crippled-limb handler with limb 2].
+    use fnv_script::vm::XVal;
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let ctx = || fnv_game::game::RunCtx { self_ref: Some(FormId::PLAYER_REF), ..Default::default() };
+    let reg = "Begin Function { }\nSetOnActorValueChangeEventHandler 1 (Begin Function {int iAV, float fOld, float fNew}\nPlayerREF.AuxVarSetFlt \"*av\" iAV -1\nPlayerREF.AuxVarSetFlt \"*avd\" (fNew - fOld) -1\nEnd) 0\nSetOnCrippledLimbEventHandler (Begin Function {int iLimb}\nPlayerREF.AuxVarSetFlt \"*limb\" iLimb -1\nEnd) 1 PlayerREF\nSetOnRagdollEventHandler (Begin Function { }\nPlayerREF.AuxVarSetFlt \"*rag\" (GetSelf == PlayerREF) -1\nEnd) 1\nEnd\n";
+    assert_eq!(g.run_query(reg, ctx()), Ok(XVal::Num(0.0)));
+    let size = |g: &mut Game, s: &str| g.run_query(&format!("Begin Function {{ }}\nSetFunctionValue (PlayerREF.AuxVarSize \"{s}\")\nEnd\n"), ctx()).unwrap();
+    let read = |g: &mut Game, s: &str, i: u32| g.run_query(&format!("Begin Function {{ }}\nSetFunctionValue (PlayerREF.AuxVarGetFlt \"{s}\" {i})\nEnd\n"), ctx()).unwrap();
+    // A hit is no script function, and the handler still hears of it, once, rounded.
+    g.hit(FormId::PLAYER_REF, 5.4, fnv_game::combat::HitInfo { location: -1, ..Default::default() });
+    assert_eq!(size(&mut g, "*av"), XVal::Num(1.0));
+    assert_eq!((read(&mut g, "*av", 0), read(&mut g, "*avd", 0)), (XVal::Num(16.0), XVal::Num(-5.0)));
+    // DamageAV takes the left arm to 0: crippled, limb 2; the change is told once more.
+    g.run_query("Begin Function { }\nPlayerREF.DamageAV LeftAttackCondition 200\nEnd\n", ctx()).unwrap();
+    assert_eq!((size(&mut g, "*limb"), read(&mut g, "*limb", 0)), (XVal::Num(1.0), XVal::Num(2.0)));
+    assert_eq!((size(&mut g, "*av"), read(&mut g, "*av", 1)), (XVal::Num(2.0), XVal::Num(27.0)));
+    // Already crippled: no second firing.
+    g.run_query("Begin Function { }\nPlayerREF.DamageAV LeftAttackCondition 10\nEnd\n", ctx()).unwrap();
+    assert_eq!(size(&mut g, "*limb"), XVal::Num(1.0));
+    // Death ragdolls.
+    assert!(g.kill(FormId::PLAYER_REF, None));
+    assert_eq!((size(&mut g, "*rag"), read(&mut g, "*rag", 0)), (XVal::Num(1.0), XVal::Num(1.0)));
+}
+
+#[test]
 fn message_ex_box_ex_and_debug_print() {
     // Task D4 [documented: MessageEx; MessageBoxEx; DebugPrint; SetDebugMode].
     let f = udf_fixture();

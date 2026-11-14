@@ -493,3 +493,20 @@ fn object_under_reticle_casts_the_crosshairs_ray_between_its_ranges() {
     });
     assert_eq!((near, far, beyond, short), (1.0, 1.0, 0.0, 0.0));
 }
+
+/// In an extender expression a string in parentheses names an actor value or an axis,
+/// in any case; an unknown name leaves a `let`'s variable as it was [observed: #2276
+/// job A, GetAV ("Strength"), GetAV (s), GetAV ($s), SetAV ("Luck") 7, GetPos ("Z")].
+#[test]
+fn a_string_names_an_actor_value_or_an_axis() {
+    let f = fixture();
+    let mut g = game(&f);
+    let bare = num(&mut g, "player.GetAV Strength");
+    assert_eq!(num(&mut g, "player.GetAV (\"strength\")"), bare);
+    assert_eq!(query(&mut g, "string_var s\nlet s := \"Strength\"\nSetFunctionValue (player.GetAV (s))"), XVal::Num(bare));
+    query(&mut g, "player.SetAV (\"Luck\") 7");
+    assert_eq!(num(&mut g, "player.GetAV Luck"), 7.0);
+    query(&mut g, "player.SetPos Z 12");
+    assert_eq!(num(&mut g, "player.GetPos (\"Z\")"), 12.0);
+    assert_eq!(query(&mut g, "float fA\nlet fA := -99\nlet fA := player.GetAV (\"NoSuchAV\")\nSetFunctionValue fA"), XVal::Num(-99.0));
+}

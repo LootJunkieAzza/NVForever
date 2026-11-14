@@ -211,34 +211,43 @@ mod tests {
     use super::*;
     use fnv_ui::MemSource;
 
-    /// [design] A menu in the vanilla file's shape (its names, the slider's pieces and the
-    /// prefab's marker place and step width), cut down to what these tests read.
+    /// [design] A small layout written for these tests, with its own structure, numbers and
+    /// expressions; it does not come from the game's files and says nothing about them. It
+    /// keeps the tile and trait names the model and the input look up, which are the engine's
+    /// interface ([`built`], [`wait_tile`], the marker's `x`, `width` and `_step_width`, the
+    /// slider's `_current_value`), and only the dependencies the tests exercise: the marker
+    /// placed by the value and its step, and a value counting the right arrow's clicks. The
+    /// real layout's numbers are checked by the smoke scenario `tiles-sleep-wait`.
     fn menu() -> Ui {
         menu_changed(str::to_string)
     }
+
+    /// The marker's width and its step between values in the test layout.
+    const MARKER: f64 = 40.0;
+    const STEP: f64 = 20.0;
+    /// The slider's left edge on the screen: the main rect's 30 and the slider's 70.
+    const LEFT: f64 = 100.0;
 
     fn menu_changed(change: impl FnOnce(&str) -> String) -> Ui {
         let src = MemSource::default().with(
             "swm.xml",
             &change(
                 r#"<menu name="SleepWaitMenu"><rect name="NOGLOW_BRANCH">
-  <image name="SWM_Background"><alpha>32</alpha></image>
-  <hotrect name="SWM_MainRect"><x>50</x><y>100</y><width>860</width><height>400</height>
-    <text name="SWM_HowManyText"><string></string></text>
-    <text name="SWM_HoursChosen"><string></string></text>
-    <text name="SWM_CurrentTime"><string></string></text>
-    <hotrect name="SWM_Scrollbar"><x>112.5</x><y>145</y><width>640</width><height>64</height>
-      <_number_of_items>24</_number_of_items><_number_of_visible_items>1</_number_of_visible_items>
-      <_current_value><copy>0</copy><add src="child(scrollbar_horiz_right)" trait="clicked"/></_current_value>
-      <image name="scrollbar_horiz_page_left"/><image name="scrollbar_horiz_page_right"/>
-      <image name="scrollbar_horiz_marker"><width>48</width>
-        <x><copy src="parent()" trait="_current_value"/><mul src="me()" trait="_step_width"/></x>
-        <_step_width><copy src="parent()" trait="width"/><sub src="me()" trait="width"/><div>23</div></_step_width></image>
-      <image name="scrollbar_horiz_left"/><image name="scrollbar_horiz_right"/>
-    </hotrect>
-    <hotrect name="SWM_WaitButton"><string> </string><text name="button_text"/></hotrect>
-    <hotrect name="SWM_CancelButton"><string>Cancel</string><text name="button_text"/></hotrect>
-  </hotrect></rect></menu>"#,
+  <image name="SWM_Background"><alpha>10</alpha></image>
+  <rect name="SWM_MainRect"><x>30</x><y>60</y>
+    <text name="SWM_HowManyText"/>
+    <text name="SWM_HoursChosen"/>
+    <text name="SWM_CurrentTime"/>
+    <rect name="SWM_WaitButton"><text name="Label"/></rect>
+    <rect name="SWM_CancelButton"><string>Leave</string><text name="Label"/></rect>
+    <rect name="SWM_Scrollbar"><x>70</x><y>120</y><width>600</width><height>40</height>
+      <_current_value><copy src="child(scrollbar_horiz_right)" trait="clicked"/></_current_value>
+      <image name="scrollbar_horiz_left"/><image name="scrollbar_horiz_page_left"/>
+      <image name="scrollbar_horiz_marker"><width>40</width><_step_width>20</_step_width>
+        <x><copy src="me()" trait="_step_width"/><mul src="parent()" trait="_current_value"/></x></image>
+      <image name="scrollbar_horiz_page_right"/><image name="scrollbar_horiz_right"/>
+    </rect>
+  </rect></rect></menu>"#,
             ),
         );
         let mut ui = Ui::new();
@@ -264,12 +273,11 @@ mod tests {
         assert!(s("SWM_CurrentTime").ends_with("10:30"), "{}", s("SWM_CurrentTime"));
         // The bare verb: the file shows the key hint itself.
         assert_eq!(s("SWM_WaitButton"), "Wait");
-        assert_eq!(s("SWM_CancelButton"), "Cancel", "the file's own word");
-        // Hour 5 is value 4; the marker stands 4 steps of (640 - 48) / 23 in.
+        assert_eq!(s("SWM_CancelButton"), "Leave", "the layout's own word, not written");
+        // Hour 5 is value 4; the marker stands 4 steps in.
         assert_eq!(ui.get_float(&format!("{SLIDER}/_current_value")), Some(4.0));
         assert_eq!(ui.get_float(&format!("{SLIDER}/_SetInCode")), Some(1.0));
-        let x = ui.get_float(&format!("{SLIDER}/scrollbar_horiz_marker/x")).unwrap();
-        assert!((x - 4.0 * 592.0 / 23.0).abs() < 1e-9);
+        assert_eq!(ui.get_float(&format!("{SLIDER}/scrollbar_horiz_marker/x")), Some(4.0 * STEP));
         assert_eq!(ui.get_float(&format!("{BACKGROUND}/alpha")), Some(super::super::menus::background_alpha()));
         assert!(describe(&ui).contains("slider 4"));
     }
@@ -279,9 +287,9 @@ mod tests {
         let mut ui = menu();
         write(&mut ui, &view(1));
         ui.update();
-        // The slider's left edge: the main rect's 50 and the bar's 112.5; the marker 48 wide,
-        // centred on value v at 162.5 + 24 + v × 592/23.
-        let at = |v: f64| 162.5 + 24.0 + v * 592.0 / 23.0;
+        // The marker, centred on value v at the slider's left edge, half its width and v steps.
+        let at = |v: f64| LEFT + MARKER / 2.0 + v * STEP;
+        assert_eq!(slider_left(&ui), Some(LEFT));
         assert_eq!(hours_under(&ui, at(0.0)), Some(1));
         assert_eq!(hours_under(&ui, at(11.0) + 3.0), Some(12));
         assert_eq!(hours_under(&ui, at(23.0)), Some(24));
@@ -291,7 +299,7 @@ mod tests {
         let tile = |p: &str| ui.find_tile(&format!("{SLIDER}/{p}")).unwrap();
         assert_eq!(wait_tile(&ui, tile("scrollbar_horiz_page_right")), Some(WaitTile::PageRight));
         assert_eq!(wait_tile(&ui, tile("scrollbar_horiz_marker")), Some(WaitTile::Slider));
-        assert_eq!(wait_tile(&ui, ui.find_tile(&format!("{MAIN}/SWM_CancelButton/button_text")).unwrap()), Some(WaitTile::Cancel));
+        assert_eq!(wait_tile(&ui, ui.find_tile(&format!("{MAIN}/SWM_CancelButton/Label")).unwrap()), Some(WaitTile::Cancel));
         assert_eq!(wait_tile(&ui, ui.find_tile(TITLE).unwrap()), None);
         assert_eq!(slider_command(WaitTile::PageLeft, None), Some(Command::Step(-6)));
         assert_eq!(slider_command(WaitTile::StepRight, None), Some(Command::Step(1)));
@@ -314,8 +322,8 @@ mod tests {
 
     #[test]
     fn a_click_counted_by_the_file_is_put_back_to_the_models_value() {
-        // [design] The prefab's value sums clicks from 0 here; the value written after the
-        // command is the model's.
+        // [design] The layout's value counts the right arrow's clicks from 0 here; the value
+        // written after the command is the model's.
         let mut ui = menu();
         write(&mut ui, &view(10));
         ui.update();

@@ -62,6 +62,10 @@ name = "nvse_itr1"
 path = "tests/nvse_itr1.rs"
 
 [[test]]
+name = "array_file"
+path = "tests/array_file.rs"
+
+[[test]]
 name = "script_runner"
 path = "tests/script_runner.rs"
 
@@ -80,3 +84,20 @@ path = "tests/sup5.rs"
 [[test]]
 name = "synthetic"
 path = "tests/synthetic.rs"
+
+# CompileScript path fixtures replace the process-wide file reader.
+[[test]]
+name = "compile_script_paths"
+path = "tests/compile_script_paths.rs"
+
+[[test]]
+name = "runtime_origin"
+path = "tests/runtime_origin.rs"
+
+[[test]]
+name = "jip_cloned_list_wildcard"
+path = "tests/jip_cloned_list_wildcard.rs"
+
+[[test]]
+name = "jip_required_animation_codes"
+path = "tests/jip_required_animation_codes.rs"

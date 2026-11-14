@@ -169,6 +169,9 @@ pub trait Host {
     fn call(&mut self, opcode: u16, on: Option<Value>, args: &[ArgValue]) -> Result<Value, String>;
     /// An opcode that is not in the function table was skipped (non-strict runs).
     fn skipped(&mut self, _what: &VmError) {}
+    /// The statement whose run caused the skips reported since the last call: the
+    /// innermost that holds them (for the mod log, which names the line).
+    fn skipped_in(&mut self, _stmt: &Stmt) {}
     /// Whether the last call ended the run the way `Return` does (a function such as
     /// `RemoveMe`, which "acts like a return" [documented: catalogue notes]). The VM
     /// asks after every statement; answering true also clears the request.
@@ -394,11 +397,19 @@ pub struct Vm<'t, 'h> {
     /// Inside a loop or a chain of stray markers, where a place cannot be kept: a
     /// ScriptWait there does not wait [decision: JIP's pages say nothing of loops].
     no_wait: u32,
+    /// Skips so far, and how many of them a statement was told for ([`Host::skipped_in`]).
+    skips: u64,
+    skips_told: u64,
 }
 
 impl<'t, 'h> Vm<'t, 'h> {
     pub fn new(table: &'t FunctionTable, host: &'h mut dyn Host, opts: RunOpts) -> Self {
-        Vm { table, host, opts, steps: 0, wait: None, no_wait: 0 }
+        Vm { table, host, opts, steps: 0, wait: None, no_wait: 0, skips: 0, skips_told: 0 }
+    }
+
+    fn skip(&mut self, e: &VmError) {
+        self.skips += 1;
+        self.host.skipped(e);
     }
 
     /// After a run that ended [`Exit::Waiting`]: the cycles to wait and the place to
@@ -478,7 +489,7 @@ impl<'t, 'h> Vm<'t, 'h> {
                 Token::X { e } => match self.xeval(e).and_then(|v| v.value()) {
                     Ok(v) => v,
                     Err(err @ (VmError::Type(_) | VmError::MissingElement(_) | VmError::NotBuilt(_) | VmError::Expression(_) | VmError::Host(_))) if !self.opts.strict => {
-                        self.host.skipped(&err);
+                        self.skip(&err);
                         Value::ZERO
                     }
                     Err(err) => return Err(err),
@@ -499,7 +510,7 @@ impl<'t, 'h> Vm<'t, 'h> {
                     if self.opts.strict {
                         return Err(e);
                     }
-                    self.host.skipped(&e);
+                    self.skip(&e);
                     // The rest of the expression is unknown: the value is 0.
                     return Ok(Value::ZERO);
                 }
@@ -558,6 +569,7 @@ impl<'t, 'h> Vm<'t, 'h> {
         let mut i = start;
         while i < stmts.len() {
             self.step()?;
+            let mark = self.skips;
             match &stmts[i] {
                 Stmt::Set { target, expr } => {
                     let v = self.eval(expr)?;
@@ -612,7 +624,7 @@ impl<'t, 'h> Vm<'t, 'h> {
                     match self.xeval(expr) {
                         Ok(_) => {}
                         Err(e @ (VmError::Type(_) | VmError::MissingElement(_) | VmError::NotBuilt(_) | VmError::Expression(_) | VmError::Host(_))) if !self.opts.strict => {
-                            self.host.skipped(&e)
+                            self.skip(&e)
                         }
                         Err(e) => return Err(e),
                     }
@@ -690,7 +702,7 @@ impl<'t, 'h> Vm<'t, 'h> {
                     if self.opts.strict {
                         return Err(e);
                     }
-                    self.host.skipped(&e);
+                    self.skip(&e);
                 }
             }
             if self.host.take_return() {
@@ -698,6 +710,10 @@ impl<'t, 'h> Vm<'t, 'h> {
             }
             if let Some(x) = self.host.ext() {
                 x.sweep();
+            }
+            if self.skips > mark && self.skips > self.skips_told {
+                self.skips_told = self.skips;
+                self.host.skipped_in(&stmts[i]);
             }
             if let Some(n) = self.host.take_wait() {
                 if self.no_wait == 0 {
@@ -758,7 +774,7 @@ impl<'t, 'h> Vm<'t, 'h> {
             if self.opts.strict {
                 return Err(e);
             }
-            self.host.skipped(&e);
+            self.skip(&e);
             return Ok(Value::ZERO);
         }
         let on = match c.on {
@@ -774,7 +790,7 @@ impl<'t, 'h> Vm<'t, 'h> {
                     if self.opts.strict {
                         return Err(e);
                     }
-                    self.host.skipped(&e);
+                    self.skip(&e);
                     return Ok(Value::ZERO);
                 }
             }
@@ -1686,7 +1702,7 @@ impl Vm<'_, '_> {
             if self.opts.strict {
                 return Err(e);
             }
-            self.host.skipped(&e);
+            self.skip(&e);
             return Ok(XVal::Num(0.0));
         }
         let on = match &c.on {
@@ -1698,9 +1714,22 @@ impl Vm<'_, '_> {
             args.push(match a {
                 XExpr::Enum { code } => ArgValue::Enum(*code),
                 XExpr::Axis { c } => ArgValue::Axis(*c),
-                other => match self.xeval(other)? {
-                    XVal::Str(s) if self.table.param_enc(opcode, k) == crate::table::ParamEnc::String => ArgValue::Str(s),
-                    v => ArgValue::Value(v.value()?),
+                other => match (self.xeval(other)?, self.table.param_enc(opcode, k)) {
+                    (XVal::Str(s), crate::table::ParamEnc::String) => ArgValue::Str(s),
+                    // A string in an enumeration's or an axis's place is the name, in any
+                    // case; an unknown name is an error, so a `let` leaves its variable
+                    // and the script goes on [observed: GetAV ("Strength"), GetAV (s),
+                    // GetAV ($s), SetAV ("Luck") 7 and GetPos ("Z") read and set as the
+                    // bare names; GetAV ("NoSuchAV") assigned nothing, #2276 job A].
+                    (XVal::Str(s), crate::table::ParamEnc::Enum(kind)) => {
+                        let code = self.table.enums.get(&kind).and_then(|m| m.iter().find(|(_, n)| n.eq_ignore_ascii_case(&s)).map(|(&c, _)| c));
+                        ArgValue::Enum(code.ok_or_else(|| VmError::Type(format!("no {kind} named {s:?}")))?)
+                    }
+                    (XVal::Str(s), crate::table::ParamEnc::Axis) => match s.to_ascii_uppercase().as_str() {
+                        a @ ("X" | "Y" | "Z") => ArgValue::Axis(a.chars().next().unwrap_or('X')),
+                        _ => return Err(VmError::Type(format!("no axis named {s:?}"))),
+                    },
+                    (v, _) => ArgValue::Value(v.value()?),
                 },
             });
         }

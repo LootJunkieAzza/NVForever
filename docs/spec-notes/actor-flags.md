@@ -115,7 +115,15 @@ this voice type: GetIsVoiceType, GetIsID, GetInFaction, GetIsClass, GetIsRace, I
 xEdit; observed: every generic adult voice has bit 0; the unique, super mutant, robot and
 four MaleAdult09–12 voices do not; 61 of 100 lack it]. An actor whose voice type (from the
 definition supplying its traits) lacks the bit says no line unless the line has one of
-those six functions among its conditions. A line whose INFO names its speaker (ANAM) is
+those six functions among its conditions, or its quest has one among the quest's
+conditions (which gate every line of the quest and have to pass too) [observed: ED-E's
+greetings 0x001579D7 and 0x001579D8 have no conditions of their own, their quest
+vDialogueEDE has GetIsID on the three ED-Es, and the voice type RobotEDE lacks the bit;
+hypothesis: the original counts the quest's conditions, since its ED-E says these lines.
+Without it the first greeting, whose result script gives the controls back after the
+repair in Primm, was never said: #2378; checks: unit test `voice_gate`, smoke
+`ede-repair-greeting` and `mq-companion-ede`; what the original does for the Generic
+quest's voice-type list is observer check 127]. A line whose INFO names its speaker (ANAM) is
 allowed too, since it is said by that actor only [hypothesis]. A VTYP without DNAM
 (9 records) is not restricted [hypothesis]. The player's own lines are not gated.
 
