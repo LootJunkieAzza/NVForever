@@ -1982,3 +1982,16 @@ heading 75) with NVFExtProbe.esp loaded, as the jip-probes sets run.
      what does she say on it? The same for one actor each of MaleAdult10-12 and
      FemaleAdult12 without a Goodbye line of their own. If she offers none, the gate
      takes a quest's GetIsID (and what else?) but not its voice-type list.
+
+## Added 2026-11-14 (the Boomers' barrage after Pearl, #2449)
+
+128. **Does the barrage stop for a player standing in the field when Volare! starts?**
+     (P3; #2449.) NellisArtilleryScript (SCPT 0x000FF29C) counts the player in on
+     OnTriggerEnter and out on OnTriggerLeave, but passes over the player in both blocks
+     once VMS15 runs or is done [observed: the record's source text]; VMS15 starts with
+     stage 20, set by the end script of Pearl's Goodbye line 0x001050FD
+     (VFreeformNellisNellisPearlTopic010) [observed]. So a player counted in before stage 20
+     and still inside when it is set should be shelled on and on [hypothesis]. To check, on
+     a save before Pearl's talk: stand in the field (trigger 0x0015A378) with `tgm`, then
+     `setstage VMS15 20` from the console; walk out and back. Does the shelling stop, at
+     once, on leaving, or never? And does a save and load inside the field reset it?

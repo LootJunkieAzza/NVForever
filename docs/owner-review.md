@@ -223,6 +223,16 @@ the spec it links to.
   DRM first would make supporting Linux drivers show the game's contribution consistently.
   [Settings usage note](design/settings-page.md#performance-usage-availability-2249).
 
+- **Goodbye lines finished in the world run their end script late (#2449).** [design,
+  #2449] With `goodbye_at_once` (the v0.7.0 rule, a switch that is off since #2157) a
+  chosen Goodbye line's end result script still runs when the actor finishes the line,
+  not when the menu closes. That is what kept the Boomers shelling the player in v0.7.0:
+  Pearl's last line (0x001050FD) starts Volare! from its end script about 40 s after the
+  menu closed, and a player back in the artillery field by then is never counted out
+  (NellisArtilleryScript passes over the player on leaving once Volare! runs). Kept as it
+  is because the switch is off; if you turn it back on, the end script should run as the
+  menu closes ([dialogue §5](spec-notes/dialogue.md)).
+
 19. **Walking away from a conversation.** The world freezes while you talk, as in the
     original, and walking off does not end it. Should walking off end it where the line
     allows leaving? ([dialogue](design/dialogue.md))
