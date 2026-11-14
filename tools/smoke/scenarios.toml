@@ -22356,6 +22356,22 @@ expect = [
 ]
 
 [[scenario]]
+name = "missile-shot-one-model"
+source = "#2470: firing the missile launcher showed a second missile or one lying sideways. Before #2327 the shot's reference for scripts was drawn as a dropped item, unturned (rotation 0), beside the flying model shot_fx draws; this checks the missile launcher on main: one flying model, turned along its flight, and no dropped item for the shot's reference"
+note = "as missile-explosion: the missile launcher (00004340) with two missiles (00029383), fired once at the ground by the Prospector Saloon; MLProjectile.NIF is built along +y with its exhaust flame at -y (fnvtool nif decode), so its +y must lie along the shot"
+areas = ["combat"]
+paths = ["engine/nvforever/src/shot_fx.rs", "crates/fnv-game/src/nvse_proj.rs", "engine/nvf-play/src/dropped.rs"]
+env = { NVF_PLAY_TEST_EQUIP = "00004340", NVF_PLAY_TEST_GIVE = "00029383:2", NVF_PLAY_TEST_LOOK = "2:46:-8", NVF_PLAY_TEST_CONTROL = "3:weapon,6:fire" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--pos=-67900,1400,8500", "--hour", "12"]
+run_seconds = 14
+expect = [
+  { re = 'combat: explosion MissileExplosion at', label = "the missile is fired and goes off" },
+  { re = '(?i)shot fx: projectile MissileProjectile meshes.projectiles.mlprojectile.nif drawn along its flight: its \+y (?P<n>[\d.]+) degrees off the shot.s direction, its long axis y', range = [0, 1], label = "the flying missile points along its flight (the model's long axis and nose are +y)" },
+  { re = 'shot fx: \d+ muzzle flashes \(\d+ with a light\), 1 projectile models drawn', label = "one projectile model for the one shot" },
+  { re = '(?i)dropped reference 0x[0-9A-F]{8} drawn: meshes.projectiles', count = 0, label = "the shot's reference is not drawn as a dropped item (#2327)" },
+]
+
+[[scenario]]
 name = "jip-raycast-points"
 source = "JIP's GetPointRayCastPos through the engine's physics (fnv_game::ray::cast_hit, the terrain included) and GetAnglesBetweenPoints, both writing script variables (the VM's out_call)"
 areas = ["scripts", "physics"]
