@@ -573,3 +573,22 @@ fn activating_placeable_water_picks_the_drinking_idle() {
     assert_eq!(g.activate_idle(p, folder, &|_| false), None, "no longer activating");
     assert_eq!(call(&mut g, 0x1103, p, &[]).num(), 0.0);
 }
+
+/// #2349 review: a `held_back` that panics during the activation walk lets the panic go on,
+/// and GetUsedItemActivate gives its ordinary answer afterwards (the walk's scope is put
+/// back on unwinding).
+#[test]
+fn a_panicking_walk_puts_get_used_item_activate_back() {
+    let f = fixture();
+    let mut g = game(&f);
+    let p = FormId::PLAYER_REF;
+    let folder = "characters\\_male";
+    g.default_activation_by_hand(FormId(SINK_REF)).unwrap().expect("not refused");
+    assert_eq!(call(&mut g, 0x1103, p, &[]).num(), 0.0, "outside the walk");
+    let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        g.activate_idle(p, folder, &|_| panic!("held_back fails"));
+    }));
+    assert!(caught.is_err(), "the panic goes on to the caller");
+    assert_eq!(call(&mut g, 0x1103, p, &[]).num(), 0.0, "the walk's scope was put back");
+    assert_eq!(g.activate_idle(p, folder, &|_| false).map(|(i, _)| i), Some(FormId(IDLE_WATER_1ST)), "and the next walk works");
+}

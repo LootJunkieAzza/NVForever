@@ -458,9 +458,12 @@ impl<'a> Game<'a> {
     /// [`Game::fidget`].
     pub fn activate_idle(&mut self, actor: FormId, folder: &str, held_back: &dyn Fn(FormId) -> bool) -> Option<(FormId, Vec<FormId>)> {
         let before = self.activate_walk.replace(actor);
-        let pick = self.activate_walk_tree(actor, folder, held_back);
+        // Put back even when the walk panics (a caller's `held_back`), so a caller that
+        // catches it does not leave GetUsedItemActivate answering for the activation;
+        // the panic goes on.
+        let pick = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.activate_walk_tree(actor, folder, held_back)));
         self.activate_walk = before;
-        pick
+        pick.unwrap_or_else(|p| std::panic::resume_unwind(p))
     }
 
     /// [`Game::activate_idle`]'s walk, with the activation known to GetUsedItemActivate.
