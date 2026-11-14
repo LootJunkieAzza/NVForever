@@ -10,9 +10,11 @@ public final class GameActivity extends NativeActivity {
     private volatile float touchBottomDp = 24.0f;
     private final ViewTreeObserver.OnGlobalLayoutListener touchInsetsObserver = this::refreshTouchInsets;
     @Override public void onCreate(Bundle state) {
+        LanDiagnostics.record(this, "GAME_CREATE_STARTED", -1);
         // Metadata must exist before NativeActivity starts its native thread.
         controllers = new ControllerDevices((android.hardware.input.InputManager) getSystemService(INPUT_SERVICE));
         super.onCreate(state);
+        LanDiagnostics.record(this, "GAME_CREATED", -1);
         getWindow().getDecorView().getViewTreeObserver().addOnGlobalLayoutListener(touchInsetsObserver);
         refreshTouchInsets();
     }
@@ -23,6 +25,7 @@ public final class GameActivity extends NativeActivity {
     @Override protected void onResume() {
         if (controllers != null) controllers.cancelHeldInput();
         super.onResume();
+        LanDiagnostics.record(this, "GAME_RESUMED", -1);
         refreshTouchInsets();
     }
     @Override public void onWindowFocusChanged(boolean focused) {
@@ -30,6 +33,7 @@ public final class GameActivity extends NativeActivity {
         super.onWindowFocusChanged(focused);
     }
     @Override protected void onDestroy() {
+        LanDiagnostics.record(this, "GAME_DESTROYED", -1);
         getWindow().getDecorView().getViewTreeObserver().removeOnGlobalLayoutListener(touchInsetsObserver);
         if (controllers != null) controllers.close();
         super.onDestroy();
@@ -53,11 +57,16 @@ public final class GameActivity extends NativeActivity {
         return args == null ? "[]" : args;
     }
     public String restartEngine(String args) {
-        runOnUiThread(() -> startActivity(new Intent(this, RestartActivity.class)
-            .putExtra("args", args).putExtra("pid", android.os.Process.myPid())));
+        LanDiagnostics.record(this, "RESTART_REQUESTED", android.os.Process.myPid());
+        runOnUiThread(() -> {
+            startActivity(new Intent(this, RestartActivity.class)
+                .putExtra("args", args).putExtra("pid", android.os.Process.myPid()));
+            LanDiagnostics.record(this, "RESTART_ACTIVITY_QUEUED", android.os.Process.myPid());
+        });
         return "";
     }
     public String engineStopped(String reason) {
+        LanDiagnostics.record(this, reason.isEmpty() ? "ENGINE_EXITED" : "ENGINE_STOPPED_WITH_ERROR", -1);
         runOnUiThread(() -> {
             if (!reason.isEmpty()) startActivity(new Intent(this, LauncherActivity.class)
                 .putExtra("error", reason).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP));

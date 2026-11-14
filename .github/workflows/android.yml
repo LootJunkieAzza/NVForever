@@ -55,6 +55,13 @@ jobs:
           mkdir -p "$RUNNER_TEMP/java-tests"
           "$JAVA_HOME/bin/javac" -d "$RUNNER_TEMP/java-tests" android/app/src/main/java/org/nvforever/android/InstallConfig.java android/app/src/test/java/org/nvforever/android/InstallConfigTest.java
           "$JAVA_HOME/bin/java" -cp "$RUNNER_TEMP/java-tests" org.nvforever.android.InstallConfigTest
+      - name: LAN diagnostics archive, queue and HTTP controls
+        shell: bash
+        run: |
+          "$JAVA_HOME/bin/javac" --add-modules jdk.httpserver -encoding UTF-8 -d "$RUNNER_TEMP/java-tests" android/app/src/main/java/org/nvforever/android/DiagnosticsArchive.java android/app/src/main/java/org/nvforever/android/DiagnosticsQueue.java android/app/src/main/java/org/nvforever/android/DiagnosticsTransport.java android/app/src/main/java/org/nvforever/android/DiagnosticsSession.java android/tests/*.java
+          for control in DiagnosticsArchiveTest DiagnosticsQueueTest DiagnosticsTransportTest DiagnosticsSessionTest; do
+            "$JAVA_HOME/bin/java" --add-modules jdk.httpserver -cp "$RUNNER_TEMP/java-tests" "org.nvforever.android.$control"
+          done
       - name: Cross-check engine and authored input tests
         shell: bash
         run: python3 tools/android/build.py --check --tests --jobs 2

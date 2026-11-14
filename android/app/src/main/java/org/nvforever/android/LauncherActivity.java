@@ -21,8 +21,10 @@ import java.util.Set;
 public final class LauncherActivity extends Activity {
     private TextView status;
     private Button start, select;
+    private Button diagnostics;
     private boolean busy;
     private static final int PICK_GAME = 1;
+    private static final int PICK_LOG_PAIRING = 2;
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
@@ -39,6 +41,11 @@ public final class LauncherActivity extends Activity {
         start = new Button(this); start.setText("Start NVForever");
         start.setOnClickListener(v -> prepareAndStart()); layout.addView(start);
         status = new TextView(this); layout.addView(status); setContentView(layout);
+        if (LanDiagnostics.available(this)) {
+            LanDiagnostics.launcher(this);
+            diagnostics = new Button(this); diagnostics.setText("LAN test logs");
+            diagnostics.setOnClickListener(v -> showDiagnostics()); layout.addView(diagnostics);
+        }
     }
     @Override public void onResume() {
         super.onResume();
@@ -50,6 +57,48 @@ public final class LauncherActivity extends Activity {
         }
     }
     @Override protected void onNewIntent(Intent intent) { super.onNewIntent(intent); setIntent(intent); }
+    private void showDiagnostics() { showDiagnostics(null, null); }
+    private void showDiagnostics(String importedEndpoint, String importedToken) {
+        LanDiagnostics support = LanDiagnostics.launcher(this);
+        LinearLayout form = new LinearLayout(this); form.setOrientation(LinearLayout.VERTICAL);
+        int padding = (int)(16 * getResources().getDisplayMetrics().density);
+        form.setPadding(padding, padding, padding, padding);
+        TextView explanation = new TextView(this);
+        explanation.setText("Optional testing support. Sends filtered NVForever technical logs and app exit/restart details to your paired PC over private Wi-Fi. Saves and game files are excluded. Your PC must be reachable. Local logs stay on this phone. Turn off to stop uploads.");
+        form.addView(explanation);
+        android.widget.CheckBox enabled = new android.widget.CheckBox(this);
+        enabled.setText("Send test logs to my PC"); enabled.setChecked(support.enabled()); form.addView(enabled);
+        android.widget.EditText endpoint = new android.widget.EditText(this);
+        endpoint.setSingleLine(true); endpoint.setHint("Private PC upload URL");
+        endpoint.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(256)});
+        endpoint.setText(importedEndpoint == null ? support.endpoint() : importedEndpoint); form.addView(endpoint);
+        android.widget.EditText token = new android.widget.EditText(this);
+        token.setSingleLine(true); token.setHint("PC pairing token");
+        token.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        token.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(128)});
+        token.setText(importedToken == null ? support.token() : importedToken); form.addView(token);
+        TextView state = new TextView(this); state.setText(support.status()); form.addView(state);
+        android.widget.ScrollView scroll = new android.widget.ScrollView(this); scroll.addView(form);
+        android.app.AlertDialog dialog = new android.app.AlertDialog.Builder(this).setTitle("LAN test logs")
+            .setNeutralButton("Import pairing file", (d, which) -> startActivityForResult(
+                new Intent(Intent.ACTION_OPEN_DOCUMENT).setType("application/json").addCategory(Intent.CATEGORY_OPENABLE), PICK_LOG_PAIRING))
+            .setView(scroll).setNegativeButton("Cancel", null).setPositiveButton("Save", null).create();
+        android.os.Handler handler = new android.os.Handler(android.os.Looper.getMainLooper());
+        Runnable refresh = new Runnable() { @Override public void run() {
+            state.setText(support.status()); handler.postDelayed(this, 2000);
+        }};
+        dialog.setOnDismissListener(d -> handler.removeCallbacks(refresh));
+        dialog.setOnShowListener(d -> {
+            handler.post(refresh);
+            dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+                try {
+                    support.configure(enabled.isChecked(), endpoint.getText().toString().trim(), token.getText().toString().trim());
+                    diagnostics.setText("LAN test logs · " + support.status()); dialog.dismiss();
+                } catch (Exception error) { state.setText("Check the private PC URL and pairing token; settings could not be applied."); }
+            });
+        });
+        dialog.show();
+    }
     private boolean runningGame() {
         android.app.ActivityManager manager = (android.app.ActivityManager) getSystemService(ACTIVITY_SERVICE);
         var processes = manager.getRunningAppProcesses();
@@ -63,6 +112,10 @@ public final class LauncherActivity extends Activity {
     }
     @Override public void onActivityResult(int request, int result, Intent data) {
         super.onActivityResult(request, result, data);
+        if (request == PICK_LOG_PAIRING) {
+            if (result == RESULT_OK && data != null && data.getData() != null) importLogPairing(data.getData());
+            return;
+        }
         if (request != PICK_GAME || result != RESULT_OK || data == null || data.getData() == null) return;
         Uri tree = data.getData();
         if (runningGame()) { status.setText("Close the game before importing another install."); return; }
@@ -117,6 +170,27 @@ public final class LauncherActivity extends Activity {
             } catch (Exception e) { runOnUiThread(() -> working(false, "Import failed: " + e.getMessage() + ". The previous import is still selected.")); }
             finally { if (!selected && imported != null) removeImport(imported); }
         }, "nvf-import").start();
+    }
+    private void importLogPairing(Uri uri) {
+        new Thread(() -> {
+            try (InputStream input = getContentResolver().openInputStream(uri)) {
+                if (input == null) throw new IOException("No pairing data");
+                java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
+                byte[] buffer = new byte[1024]; int count;
+                while ((count = input.read(buffer)) != -1) {
+                    if (bytes.size() + count > 4096) throw new IOException("Pairing data too large");
+                    bytes.write(buffer, 0, count);
+                }
+                org.json.JSONObject config = new org.json.JSONObject(bytes.toString("UTF-8"));
+                if (config.getInt("protocol") != 1) throw new IOException("Unknown pairing format");
+                String endpoint = config.getString("endpoint"), token = config.getString("token");
+                DiagnosticsTransport.validateEndpoint(endpoint);
+                if (endpoint.length() > 256 || !token.matches("[A-Za-z0-9_-]{32,128}")) throw new IOException("Invalid pairing settings");
+                runOnUiThread(() -> showDiagnostics(endpoint, token));
+            } catch (Exception error) {
+                runOnUiThread(() -> status.setText("Could not read pairing settings. Choose the private JSON file from your PC."));
+            }
+        }, "nvf-log-pairing-import").start();
     }
     private void removeImport(File root) {
         try {
