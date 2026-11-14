@@ -1262,6 +1262,22 @@ pub(crate) fn restore_custom_marker(game: &mut fnv_game::Game, pending: Option<&
     }
 }
 
+/// The distance a map marker without its own radius is found within, when no plugin sets
+/// `iMapMarkerRevealDistance` [documented: GECK wiki "Complete List of GameSettings", its
+/// Fallout: New Vegas default 1000; not in FalloutNV.esm]. That this setting is that
+/// distance is a [hypothesis] (#2338; observer check 128): the wiki does not describe it.
+const REVEAL_DISTANCE: f32 = 1000.0;
+
+/// The radius a map marker is found within: its own (`XRDS`), else `reveal`. No marker in
+/// the masters carries an `XRDS` of 0 [documented: fnvtool esm decode of every named map
+/// marker of FalloutNV.esm and the four story DLCs; docs/spec-notes/pipboy.md §5.3], so an
+/// absent radius (read as 0) and a non-positive one are treated alike (#2338). A radius
+/// that comes out 0 or less (a plugin's `iMapMarkerRevealDistance` of 0) finds nothing by
+/// walking [design, #2338].
+fn discovery_radius(radius: f32, reveal: f32) -> f32 {
+    if radius > 0.0 { radius } else { reveal }
+}
+
 fn track(st: &mut DataState, game: &Game) {
     if let Some(rt) = game.script.as_ref().and_then(|s| s.rt.as_ref()) {
         let mut new: Vec<u32> = rt.game.quests.iter().filter(|(q, s)| listed(&rt.game, **q, s) && !st.seen.contains_key(&q.0)).map(|(q, _)| q.0).collect();
@@ -1278,10 +1294,15 @@ fn track(st: &mut DataState, game: &Game) {
         st.outdoors = Some((loc.world, player.feet, player.heading));
         let feet = player.feet;
         let world = loc.world;
+        // A plugin's value as it is (0 included); the default only when none sets it.
+        let reveal = game.sim.as_ref().and_then(|s| s.forms.setting_f32("iMapMarkerRevealDistance")).unwrap_or(REVEAL_DISTANCE);
         let found: Vec<u32> = markers(st, game)
             .into_iter()
             .flatten()
-            .filter(|m| m.world == world && m.radius > 0.0 && (m.pos[0] - feet[0]).hypot(m.pos[1] - feet[1]) <= m.radius)
+            .filter(|m| {
+                let r = discovery_radius(m.radius, reveal);
+                m.world == world && r > 0.0 && (m.pos[0] - feet[0]).hypot(m.pos[1] - feet[1]) <= r
+            })
             .map(|m| m.form)
             .collect();
         for f in found {
@@ -2838,7 +2859,12 @@ fn on_popup_click(e: On<PointerClick>, hits: Query<&PopupHit>, state: Option<Res
     }
 }
 
-fn on_row_over(e: On<PointerOver>, rows: Query<&RowHit>, state: Option<ResMut<DataState>>) {
+/// A row the pointer moved onto (`super::hover_takes`, #2310): one redrawn under a resting
+/// pointer as the keys or the D-pad step leaves their choice alone.
+fn on_row_over(e: On<PointerOver>, rows: Query<&RowHit>, state: Option<ResMut<DataState>>, moved: Option<Res<super::PointerMoved>>) {
+    if !super::hover_takes(moved.as_deref()) {
+        return;
+    }
     if let (Ok(r), Some(mut s)) = (rows.get(e.entity), state) {
         s.acts.push(Act::Hover(r.0, r.1));
     }
@@ -3552,6 +3578,29 @@ fn highlight(p: &mut ChildSpawnerCommands, c: &mut Ctx, centre: Vec2, label: Opt
 mod tests {
     use super::*;
 
+    /// #2310: a row that comes under a resting pointer (the list redrawn as the D-pad or the
+    /// keys step it) takes nothing; one the pointer moved onto takes the selection.
+    #[test]
+    fn only_a_pointer_that_moved_takes_a_row() {
+        use bevy::camera::NormalizedRenderTarget;
+        use bevy::picking::backend::HitData;
+        use bevy::picking::events::Pointer;
+        use bevy::picking::pointer::{Location, PointerId};
+        let mut app = App::new();
+        app.init_resource::<DataState>().init_resource::<super::super::PointerMoved>();
+        let row = app.world_mut().spawn(RowHit(QUESTS, 2)).observe(on_row_over).id();
+        let over = || PointerOver {
+            entity: row,
+            pointer: Pointer::new(PointerId::Mouse, Location { target: NormalizedRenderTarget::None { width: 1, height: 1 }, position: Vec2::ZERO }),
+            hit: HitData::new(Entity::PLACEHOLDER, 0.0, None, None),
+        };
+        app.world_mut().trigger(over());
+        assert!(app.world().resource::<DataState>().acts.is_empty(), "a resting pointer");
+        app.world_mut().insert_resource(super::super::PointerMoved(true));
+        app.world_mut().trigger(over());
+        assert_eq!(app.world().resource::<DataState>().acts, vec![Act::Hover(QUESTS, 2)], "the pointer moved onto it");
+    }
+
     /// A world with what the page's systems read, the DATA page's state fresh, `MapMenu` on or off
     /// and the Pip-Boy as given; no hand-built body (the frame did not run).
     fn page_world(map: bool, pip: PipBoy) -> World {
@@ -3765,6 +3814,62 @@ mod tests {
         let shown = world_map(&mut st, &game, None, false);
         assert_eq!(shown.marks.len(), 2);
         assert_eq!(st.world_logged, Some((1, 2, 2, 1, 1)));
+    }
+
+    /// #2338: a marker without `XRDS` (read as radius 0) is found within the default
+    /// distance (`iMapMarkerRevealDistance`, 1000 when no plugin sets it); a marker with its
+    /// own radius keeps it, smaller or larger than the default.
+    #[test]
+    fn a_marker_without_a_radius_is_found_within_the_default_distance() {
+        use bevy::ecs::system::SystemState;
+
+        assert_eq!(discovery_radius(0.0, 1000.0), 1000.0);
+        assert_eq!(discovery_radius(-5.0, 1000.0), 1000.0);
+        assert_eq!(discovery_radius(250.0, 1000.0), 250.0);
+        assert_eq!(discovery_radius(2500.0, 1000.0), 2500.0);
+
+        // Along x from the player at 0: 10 none (999 away, so found), 20 none (1001 away),
+        // 30 with its own 250 (600 away), 40 with its own 2500 (2000 away).
+        let marker = |form, x: f32, radius| read::Marker { form, world: 1, pos: [x, 0.0, 0.0], name: format!("Place {form}"), kind: 5, flags: 0, radius, reputation: None };
+        let mut st = DataState { markers: Some(vec![marker(10, 999.0, 0.0), marker(20, -1001.0, 0.0), marker(30, 600.0, 250.0), marker(40, -2000.0, 2500.0)]), ..DataState::default() };
+        let mut world = World::new();
+        world.insert_resource(Location { world: 1, interior: None });
+        world.insert_resource(Player { heading: 0.0, pitch: 0.0, eye_height: 0.0, feet: [0.0; 3], body_eye: None, body_view: None, placed: None });
+        let mut state = SystemState::<Game>::new(&mut world);
+        let game = state.get_mut(&mut world).unwrap();
+        track(&mut st, &game);
+        assert_eq!(st.discovered, BTreeSet::from([10, 40]));
+        assert_eq!(st.newly_found, vec![10, 40]);
+    }
+
+    /// #2338: a plugin's `iMapMarkerRevealDistance` is used as it is: 0 finds no marker
+    /// without `XRDS` by walking (not even one under the player's feet), while markers with
+    /// their own radius are still found; a positive value replaces the default 1000.
+    #[test]
+    fn a_plugins_reveal_distance_is_used_as_it_is_zero_included() {
+        use bevy::ecs::system::SystemState;
+        use fnv_sim::settings::Setting;
+
+        let found_with = |setting: Setting| {
+            let mut forms = fnv_sim::FormStore::default();
+            forms.settings.insert("imapmarkerrevealdistance".into(), setting);
+            let forms: &'static fnv_sim::FormStore = Box::leak(Box::new(forms));
+            let refs: &'static fnv_sim::RefTable = Box::leak(Box::new(fnv_sim::RefTable::default()));
+            // Along x from the player at 0: 10 none (on the spot), 20 none (1200 away),
+            // 30 with its own 250 (200 away), 40 none (1600 away).
+            let marker = |form, x: f32, radius| read::Marker { form, world: 1, pos: [x, 0.0, 0.0], name: format!("Place {form}"), kind: 5, flags: 0, radius, reputation: None };
+            let mut st = DataState { markers: Some(vec![marker(10, 0.0, 0.0), marker(20, 1200.0, 0.0), marker(30, -200.0, 250.0), marker(40, -1600.0, 0.0)]), ..DataState::default() };
+            let mut world = World::new();
+            world.insert_resource(SimState { forms, refs, world: fnv_sim::World::new(forms, refs, fnv_sim::SimConfig::default()) });
+            world.insert_resource(Location { world: 1, interior: None });
+            world.insert_resource(Player { heading: 0.0, pitch: 0.0, eye_height: 0.0, feet: [0.0; 3], body_eye: None, body_view: None, placed: None });
+            let mut state = SystemState::<Game>::new(&mut world);
+            let game = state.get_mut(&mut world).unwrap();
+            track(&mut st, &game);
+            st.discovered
+        };
+        assert_eq!(found_with(Setting::Int(0)), BTreeSet::from([30]), "an authored 0: only the marker with its own radius");
+        assert_eq!(found_with(Setting::Int(1500)), BTreeSet::from([10, 20, 30]), "an authored 1500 reaches 1200, not 1600");
     }
 
     /// [design] The World Map's parts as the page drawn from the file writes them: each marker by

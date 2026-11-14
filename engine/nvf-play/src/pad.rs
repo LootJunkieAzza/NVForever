@@ -33,6 +33,7 @@
 use bevy::prelude::*;
 
 pub(crate) mod device;
+pub mod pointer;
 pub use device::{ActionButtons, ActionPads, InputSwitchPlugin, SwitchingInput};
 
 /// A controller input a control can be bound to: a button, or the left stick pushed one
@@ -1426,7 +1427,11 @@ impl Plugin for PadPlugin {
             .init_resource::<ButtonStyle>()
             .init_resource::<PadInUse>()
             .init_resource::<PadGlyphs>()
+            .init_resource::<pointer::PadPointer>()
+            .add_message::<bevy::window::CursorMoved>()
             .add_systems(PreUpdate, (track_pad, update_stick_buttons, menu_keys, sync_labels).chain().after(InputSystems).after(device::automatic))
+            // The pointer sleeps with the controller (#2310): before UI focus and picking read it.
+            .add_systems(PreUpdate, pointer::follow.after(InputSystems).after(device::automatic).before(bevy::ui::UiSystems::Focus).before(bevy::picking::PickingSystems::ProcessInput))
             .add_systems(Update, (log_pads, load_pad_glyphs.before(crate::PlaySet::Ui)));
         crate::settings::add_choice_list(
             app,
@@ -1434,7 +1439,8 @@ impl Plugin for PadPlugin {
                 key: "button-style",
                 group: crate::aim_assist::GROUP,
                 label: "Button style",
-                note: "Which names and pictures the controller's buttons go by in prompts, menu hints and the Controls tab. Auto: a PlayStation controller's (Cross, Circle, Square, Triangle, L1, R2, Select…) when the controller in use says it is one, else an Xbox controller's. Xbox or PlayStation: always those. The INI keeps the Xbox names either way.",
+                note: "The names and pictures of the controller's buttons in prompts and hints. Auto: a PlayStation's when the controller says it is one, else an Xbox's.",
+                switches: "",
                 get: |_| false,
                 set: |_, _| {},
                 slider: None,

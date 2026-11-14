@@ -196,6 +196,8 @@ pub(crate) struct Devices<'w, 's> {
     pub(super) mouse: crate::pad::ActionButtons<'w, MouseButton>,
     pads: crate::pad::ActionPads<'w, 's>,
     windows: Query<'w, 's, &'static Window, With<PrimaryWindow>>,
+    /// The window's pointer asleep under the controller is on nothing (#2310).
+    pad_pointer: Option<Res<'w, crate::pad::pointer::PadPointer>>,
 }
 
 /// T15a: the message box button the pointer or a script clicked on its tiles this frame,
@@ -890,18 +892,21 @@ pub(crate) fn feed(
     // the test aid, or with a script's HUD cursor (ToggleHUDCursor, `fnv_game::nvse_jip9`).
     let mut taking = Vec::new();
     let hud_cursor = rt.game.other.jip9.hud_cursor;
-    if (aid_at.is_some() || hud_cursor) && menus.hud {
+    // T11: the pause menu's Mods page takes the pointer and keys for the start menu's
+    // tiles (`super::mods`); the test aid's pointer is then the page's, not the HUD's.
+    let mods_page = menus.start && paused.as_ref().zip(page.as_ref()).is_some_and(|(p, pg)| crate::pause::mods_open(p, pg));
+    if (aid_at.is_some() || hud_cursor) && menus.hud && !mods_page {
         taking.extend(rt.game.ui_tree.menu(super::draw::HUD_MENU));
     }
     // The dialogue menu, under anything over the conversation (it does not take with one up).
     let dialog_menu = inputs.dialog.as_ref().and_then(|d| d.taking(&rt.game, paused.as_ref().is_some_and(|p| p.0)));
     taking.extend(dialog_menu);
     taking.extend(inputs.taking(*menus, &rt.game, inventory.as_ref().is_some_and(|i| i.ready.is_some())));
-    // T11: the pause menu's Mods page takes the pointer and keys for the start menu's
-    // tiles (`super::mods`).
-    if menus.start && paused.as_ref().zip(page.as_ref()).is_some_and(|(p, pg)| crate::pause::mods_open(p, pg)) {
+    if mods_page {
         taking.extend(rt.game.ui_tree.menu(super::mods::START_MENU));
     }
+    // MCM reads a click in two frames running (`fnv_ui::input::Pointer::click_steps`).
+    rt.game.ui_pointer.click_steps = if mods_page { 2 } else { 1 };
     // T15b: a drag on the tutorial menu's marker ends with its press or that menu, whether or
     // not any menu takes input this frame.
     let tutorial = super::tutorial_menu::tiled_menu(menus.tutorial, &rt.game);
@@ -938,9 +943,10 @@ pub(crate) fn feed(
     let anchor = super::draw::menu_anchor(dialog_menu.is_some() && taking.len() == 1);
     // The HUD alone under a script's cursor is hit where its tiles stand, in no frame.
     let hud_alone = hud_cursor && aid_at.is_none() && taking.len() == 1 && rt.game.ui_tree.menu(super::draw::HUD_MENU) == taking.first().copied();
+    let sleeping = crate::pad::pointer::asleep(devices.pad_pointer.as_deref());
     let cursor = || {
         aid_at.or_else(|| {
-            devices.windows.single().ok().and_then(|w| {
+            devices.windows.single().ok().filter(|_| !sleeping).and_then(|w| {
                 let p = w.cursor_position()?;
                 Some(if hud_alone { to_units(p, w.height()) } else { to_menu_units(p, Vec2::new(w.width(), w.height()), anchor) })
             })
@@ -1041,6 +1047,11 @@ pub(crate) fn feed(
         if let Some(candidates) = super::barter_menu::pointer_candidates(&mut rt.game.ui_tree, st, &taking, at) {
             input.resolved = Some(candidates);
         }
+    }
+    // The Mods page is drawn by the `locus` rule (`super::layout::layout_by_locus`): the
+    // pointer is matched against the same places.
+    if let (true, [menu]) = (mods_page, taking.as_slice()) {
+        input.resolved = Some(fnv_ui::input::hit_candidates_by_locus(&rt.game.ui_tree, *menu, &no_measure));
     }
     // A frame's own clicks are for the screen up now; a script's kept theirs when queued.
     rt.game.ui_pointer.stamp = crate::dialogue::stamp_now(&rt.game);
