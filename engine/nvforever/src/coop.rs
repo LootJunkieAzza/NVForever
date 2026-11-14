@@ -1724,6 +1724,7 @@ fn take_events(
             Event::State { id, state } => {
                 if id == 0 {
                     coop.host = Some(state);
+                    coop.scene.host_heard(now);
                     if coop.host_place.is_none_or(|(p, _)| p != state.place) {
                         coop.host_place = Some((state.place, now));
                     }
@@ -1818,10 +1819,12 @@ fn take_events(
             }
             Event::HostLost => {
                 coop.host_lost = true;
+                coop.scene.hold_gear(time.elapsed_secs());
                 notes.push("Lost the host: reconnecting".into());
             }
             Event::HostBack => {
                 coop.host_lost = false;
+                coop.scene.hold_gear(time.elapsed_secs());
                 notes.push("Reconnected to the host".into());
             }
             Event::HostGone => {
@@ -1935,7 +1938,13 @@ fn take_events(
             // For `progress` (crate::coop_progress).
             Event::Progress { id, what } => coop.progress_in.push((id, what)),
             // For `replication::replicate`.
-            e @ (Event::Reliable { .. } | Event::RelReset { .. } | Event::Actors { .. }) => coop.repl.inbox.push(e),
+            e @ (Event::Reliable { .. } | Event::RelReset { .. } | Event::Actors { .. }) => {
+                // A new stream from the host (it restarted): its story gear comes again.
+                if !is_host && matches!(e, Event::RelReset { id: 0 }) {
+                    coop.scene.hold_gear(time.elapsed_secs());
+                }
+                coop.repl.inbox.push(e)
+            }
             Event::Hit { hit, .. } => match decode_hurt(&hit) {
                 Some((by, h)) => {
                     info!("co-op: {} hit this player for {:.1} in the host's world", by.map_or("something".to_string(), |b| b.to_string()), h.dealt);
