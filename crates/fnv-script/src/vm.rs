@@ -169,6 +169,11 @@ pub trait Host {
     fn call(&mut self, opcode: u16, on: Option<Value>, args: &[ArgValue]) -> Result<Value, String>;
     /// An opcode that is not in the function table was skipped (non-strict runs).
     fn skipped(&mut self, _what: &VmError) {}
+    /// Diagnostic-only notification before a fatal no-reference call is returned.
+    /// `on` is already evaluated; implementations must not evaluate the call again.
+    /// Other hosts keep the default no-op and the original error contract.
+    fn no_reference_call(&mut self, _name: &str, _on: Option<Value>, _call: &XCall) {}
+
     /// The statement whose run caused the skips reported since the last call: the
     /// innermost that holds them (for the mod log, which names the line).
     fn skipped_in(&mut self, _stmt: &Stmt) {}
@@ -3387,6 +3392,7 @@ impl Vm<'_, '_> {
         // Called on no reference, the function fails and stops the script [observed:
         // nvse-inv foreach.read.after, "script call failed"].
         if on.is_some_and(|v| v.as_form().is_none()) {
+            self.host.no_reference_call(lname, on, c);
             return Err(VmError::NoReference(lname.to_string()));
         }
         let mut args = Vec::with_capacity(c.args.len());
@@ -3400,7 +3406,10 @@ impl Vm<'_, '_> {
             // The host words a calling object that is no reference (a base form) as
             // NoReference does: that stops the script too [observed: jipppln clamp.base,
             // "script call failed"].
-            Some(Err(e)) if e == VmError::NoReference(lname.to_string()).to_string() => Err(VmError::NoReference(lname.to_string())),
+            Some(Err(e)) if e == VmError::NoReference(lname.to_string()).to_string() => {
+                self.host.no_reference_call(lname, on, c);
+                Err(VmError::NoReference(lname.to_string()))
+            },
             Some(r) => r.map(Some).map_err(VmError::Host),
             None => Ok(None),
         }
