@@ -563,8 +563,9 @@ def run_launch(launch: Launch, env: Env, locks: Locks | None) -> tuple[int | Non
     log = env.out / f"{launch.name}.log"
     started = time.monotonic()
     if launch.kind == GAME:
-        cmd = [str(env.exe), "--data", str(env.data), *launch.args, "--run-seconds", fmt(launch.run_seconds)]
-        # `{repo}` in a value: the repository (a fixture's path).
+        # `{repo}` in an argument or a value: the repository (a fixture's path).
+        args = [a.replace("{repo}", str(env.repo)) for a in launch.args]
+        cmd = [str(env.exe), "--data", str(env.data), *args, "--run-seconds", fmt(launch.run_seconds)]
         aids = {k: v.replace("{repo}", str(env.repo)) for k, v in game_env(launch).items()}
         (env.out / f"{launch.name}.cmd.txt").write_text(
             "".join(f"{k}={v}\n" for k, v in sorted(aids.items())) + subprocess.list2cmdline(cmd) + "\n")

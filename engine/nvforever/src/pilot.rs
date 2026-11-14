@@ -504,6 +504,10 @@ struct Pilot {
     resume_at: f64,
     /// The other menu up, and since when.
     menu_since: Option<(u16, f64)>,
+    /// Times the actor of a `talk` step was woken in this step.
+    woke: u8,
+    /// Attackers the player could not kill: left alone for the rest of the chain.
+    given_up: Vec<FormId>,
     /// How many of an `add_item`'s item the player had when the step began.
     mark_items: i32,
     /// For a `say_info` kept company: how many lines had been begun when the chain (in
@@ -565,6 +569,8 @@ impl Pilot {
             saved: false,
             resume_at: 0.0,
             menu_since: None,
+            woke: 0,
+            given_up: Vec::new(),
             mark_items: 0,
             mark: 0,
             still: (0.0, [0.0; 3]),
@@ -631,7 +637,7 @@ impl Pilot {
         }
         self.i += 1;
         (self.phase, self.part, self.step_from) = (Phase::Begin, 0, self.now);
-        (self.waited, self.waiting) = (0, None);
+        (self.waited, self.waiting, self.woke) = (0, None, 0);
     }
 
     /// A step, or a fallback, done as the headless run does it: counted.
@@ -1177,11 +1183,11 @@ fn new_walk(goal: Place, target: Option<FormId>, radius: f32, now: f64, feet: [f
 
 /// The nearest living actor in combat whose target is the player or `friend`, within
 /// [`THREAT_RANGE`] of `feet`, and where it is.
-fn threat(g: &Game, friend: Option<FormId>, feet: [f32; 3]) -> Option<(FormId, Option<FormId>, [f32; 3])> {
+fn threat(g: &Game, friend: Option<FormId>, feet: [f32; 3], given_up: &[FormId]) -> Option<(FormId, Option<FormId>, [f32; 3])> {
     g.awareness
         .actors
         .iter()
-        .filter(|(a, _)| **a != FormId::PLAYER_REF && Some(**a) != friend && !g.is_dead(**a) && g.awareness.state(**a) == fnv_game::awareness::State::Combat)
+        .filter(|(a, _)| **a != FormId::PLAYER_REF && Some(**a) != friend && !given_up.contains(a) && !g.is_dead(**a) && g.awareness.state(**a) == fnv_game::awareness::State::Combat)
         .filter(|(_, w)| w.combat_target().is_some_and(|(t, _)| t == FormId::PLAYER_REF || Some(t) == friend))
         .filter_map(|(a, _)| where_is(g, *a).map(|(cell, pos)| (*a, cell, pos)))
         .filter(|(_, _, pos)| hdist(*pos, feet) < THREAT_RANGE)
@@ -1269,7 +1275,15 @@ fn engage(p: &mut Pilot, h: &mut Hands, name: &str, f: &mut Fight, w: &mut Walk)
     keep_weapon(p, h);
     let target = f.target;
     h.control.weapon_out = true;
-    match walk(p, w, h) {
+    // In range with a clear line: it shoots from where it stands, as a player does, and
+    // does not chase a target that moves about (Joe Cobb ran round the saloon and the walk
+    // was planned again and again, the trigger never pulled).
+    let in_range = h.phys.world.actor_aim_point(target.0).is_some_and(|at| {
+        let eye = h.player.eye();
+        hdist(eye, at) <= w.radius && (eye[2] - at[2]).abs() < 400.0 && crate::combat_tactics::shot_clear(Some(&mut *h.phys), eye, None, at, [at[0], at[1], at[2] + 40.0]).is_some()
+    });
+    let walked = if in_range { Walked::There } else { walk(p, w, h) };
+    match walked {
         Walked::No(why) => {
             f.shooting = None;
             h.control.trigger = false;
@@ -1560,6 +1574,12 @@ fn step(p: &mut Pilot, h: &mut Hands) -> Option<Option<String>> {
             }
         }
         Action::Talk { actor, topic, label } => {
+            if p.part == 0 && matches!(p.phase, Phase::Wait { until } if p.now < until) {
+                return None;
+            }
+            if p.part == 0 && matches!(p.phase, Phase::Wait { .. }) {
+                p.phase = Phase::Begin;
+            }
             // The actor came and spoke first (a force greet): that is the conversation.
             if p.part == 0 && matches!(p.phase, Phase::Begin) {
                 let with_it = h.game(|g| runner::resolve(g, actor).is_ok_and(|r| g.dialogue.as_ref().is_some_and(|c| c.actor == r)));
@@ -1582,12 +1602,20 @@ fn step(p: &mut Pilot, h: &mut Hands) -> Option<Option<String>> {
                                     // A script may start the conversation itself, a moment later.
                                     // (So may its default action: the conversation is waited for.)
                                     ByHand::Talk | ByHand::Greeted | ByHand::Choices | ByHand::Script | ByHand::Default(_) => Ok(()),
+                                    // Asleep: the first press wakes it; the player presses again.
+                                    ByHand::Woken => Err("woken".to_string()),
                                     other => Err(format!("activating {actor} did not start a conversation: {}", by_hand(&other))),
                                 })
                             }),
                         };
-                        if let Some(Err(e)) = started {
-                            return Some(Some(e));
+                        if let Some(Err(e)) = &started {
+                            if e == "woken" && p.woke < 3 {
+                                p.woke += 1;
+                                info!("pilot: step {}: {actor} was asleep and is woken: the player talks to it again", p.i);
+                                (p.part, p.phase) = (0, Phase::Wait { until: p.now + 1.5 });
+                                return None;
+                            }
+                            return Some(Some(if e == "woken" { format!("{actor} woke but would not talk") } else { e.clone() }));
                         }
                         (p.part, p.phase) = (2, Phase::Wait { until: p.now + 5.0 });
                     }
@@ -2581,7 +2609,8 @@ fn drive(
             };
             let feet = h.feet();
             let world = h.world;
-            if let Some((who, cell, pos)) = h.game(|g| threat(g, friend, feet)).flatten() {
+            let given_up = p.given_up.clone();
+            if let Some((who, cell, pos)) = h.game(|g| threat(g, friend, feet, &given_up)).flatten() {
                 let space = cell.and_then(|c| crate::nav::space_of_cell(world, c.0)).unwrap_or(space_of(h.location));
                 arm(p, &mut h);
                 info!("pilot: step {}: {who} attacks {}: fought before the step goes on", p.i, if friend.is_some() { "the player or the actor it is with" } else { "the player" });
@@ -2598,13 +2627,14 @@ fn drive(
                     info!("pilot: step {}: the attacker {who} is dead after {:.1} s", p.i, p.now - p.defend_from);
                     search_later(p, &mut h, who);
                 } else {
-                    p.finding("fight_not_won", format!("the attacker {who} still lives after {DEFEND_SECS:.0} s of shooting at it: the step goes on"));
-                    p.threat_check = p.now + 20.0;
+                    p.finding("fight_not_won", format!("the attacker {who} still lives after {DEFEND_SECS:.0} s of shooting at it: left alone from now on, the step goes on"));
+                    p.given_up.push(who);
                 }
             } else {
                 if engage(p, &mut h, "the attacker", &mut f, &mut w).is_some() {
-                    // Out of reach: left alone for a while.
-                    p.threat_check = p.now + 20.0;
+                    // Out of reach: left alone from now on.
+                    p.given_up.push(who);
+                    h.control.trigger = false;
                     return;
                 }
                 p.defend = Some((f, w));

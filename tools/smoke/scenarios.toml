@@ -1481,6 +1481,26 @@ expect = [
 ]
 
 [[scenario]]
+name = "pilot-goodsprings-fight"
+source = "issue #2365, docs/design/quest-pilot.md: the quest pilot walks the player from the Goodsprings start through the saloon's door on the navmesh, draws the pistol it gives and shoots Joe Cobb with the player's own weapon until he dies, then writes its summary and exits"
+note = "A tiny chain kept beside the smoke tests (tools/smoke/pilot/), not a walkthrough: the pilot's walk, door, fight and report in one short run"
+areas = ["quests", "combat", "ai"]
+paths = ["engine/nvforever/src/pilot.rs", "tools/smoke/pilot/goodsprings-fight.actions.json"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "900", NVF_PLAY_TEST_UNATTENDED = "1" }
+args = ["--cell", "Goodsprings", "--play", "--hour", "12", "--no-voice", "--no-music", "--pilot", "{repo}/tools/smoke/pilot/goodsprings-fight.actions.json"]
+run_seconds = 150
+ends = "pilot: done:"
+order = [[
+  { re = 'pilot: the player is given WeapNV9mmPistol', label = "the pilot arms the player" },
+  { re = 'pilot: step 0: goes through door ', label = "it walks through the saloon's door" },
+  { re = 'pilot: step 0: GSJoeCobbRef is dead after ', label = "Joe Cobb dies to the player's shots" },
+  { re = 'pilot: done: 1 chain\(s\), 2 steps \(0 failed\)', label = "the run ends with no failed step" },
+]]
+expect = [
+  { re = 'combat: hit 0x00104C68 ', min = 3, label = "the player's shots hit him" },
+]
+
+[[scenario]]
 name = "crucified-stay"
 source = "owner's playtest list 7 item 34: the crucified Powder Gangers of Nipton get on their crosses (a Travel package to the linked cross, goal::package_furniture) and stay (their script restrains them on it)"
 areas = ["ai", "furniture"]
