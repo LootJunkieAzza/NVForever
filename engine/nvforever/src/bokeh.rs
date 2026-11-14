@@ -6,20 +6,25 @@
 //! - **The blur's size** is a circle of confusion from a thin lens [documented: the thin
 //!   lens equation, any optics text]: a point at distance `z` with the lens focused at `f`
 //!   is drawn as a disc whose diameter is proportional to `|z - f| / z`, taken here as the
-//!   disc's radius in pixels, `max * aperture * |z - f| / z`, held to `max`. What lies
-//!   behind the focus reaches `max * aperture` at the horizon; what lies in front grows
-//!   faster, as through a lens. The Blur slider is the aperture (0 to 1), the Focus slider
+//!   disc's radius in pixels, `max * aperture * |z - f| / z`, held to `max * aperture`
+//!   (the reach of the pass's search). What lies behind the focus reaches that at the
+//!   horizon; what lies in front grows faster, as through a lens. The Blur slider is the aperture (0 to 1), the Focus slider
 //!   (or Auto) is `f`.
 //! - **Round discs**: each point gathers the points round it on a disc (a golden-angle
 //!   spiral, even over the disc), each taken in where its own disc reaches the point, so a
 //!   bright point spreads as a round disc of even brightness. The picture is already
 //!   tonemapped (the grade runs after tonemapping), so near-white points are weighted up
 //!   ([`highlight`]): they make the bright discs a real lens shows in the dark.
-//! - **No bleeding behind**: a point behind the one gathering (farther from the eye) can
-//!   reach it only as far as the gathering point's own disc ([`tap_weight`]): a sharp
-//!   subject is not covered by the blurred background behind it. A point in front reaches
-//!   as far as its own disc: a blurred foreground covers what is behind it, as it does
-//!   through a lens.
+//! - **No bleeding behind**: a point behind the one gathering (farther from the eye) is
+//!   seen in it only as far as the gathering point's own disc ([`tap_weight`]): a sharp
+//!   subject is not covered by the blurred background behind it, and the edge of a blurred
+//!   foreground object lets what is behind it show through, as through a lens.
+//! - **A blurred foreground spreads soft**: a point in front that is more blurred than the
+//!   one gathering goes to a near layer ([`near_share`]). Each such tap stands for its
+//!   share of its own disc's area ([`coverage`]); their sum is how much of the gathering
+//!   point the foreground covers, and the near layer is laid over the rest by it. So just
+//!   past a blurred near object's edge it covers half, fading to nothing a disc away,
+//!   instead of a few taps outweighing the point and moving a hard edge outwards.
 //! - A second, small pass (`bokeh_fill`) smooths the spiral's grain in what is blurred,
 //!   from neighbours at least half as blurred.
 //!
@@ -53,7 +58,8 @@ mod tests {
         let focus = focus.max(1.0);
         let z = z.max(1e-3);
         let spread = if z.is_finite() { (z - focus).abs() / z } else { 1.0 };
-        let r = (max_px * aperture.clamp(0.0, 1.0) * spread).min(max_px);
+        let reach = max_px * aperture.clamp(0.0, 1.0);
+        let r = (reach * spread).min(reach);
         if r < SHARP_PX {
             0.0
         } else {
@@ -62,11 +68,64 @@ mod tests {
     }
 
     /// How much a tap `dist` pixels from the point gathering is taken in: by its own disc
-    /// `tap_coc`, or, when it lies behind the point (`tap_behind`), by no more than the
-    /// point's own disc `centre_coc`. The edge of a disc is softened over a pixel.
+    /// `tap_coc`, or, when it lies behind the point (`tap_behind`), as far as the point's
+    /// own disc `centre_coc`. The edge of a disc is softened over a pixel.
     fn tap_weight(centre_coc: f32, tap_coc: f32, tap_behind: bool, dist: f32) -> f32 {
-        let reach = if tap_behind { tap_coc.min(centre_coc) } else { tap_coc };
+        let reach = if tap_behind { centre_coc } else { tap_coc };
         (reach - dist + 0.5).clamp(0.0, 1.0)
+    }
+
+    /// How much of a tap goes to the near layer: a tap in front that is more blurred than
+    /// the point gathering, all of it from 2 pixels more.
+    fn near_share(centre_coc: f32, tap_coc: f32, tap_in_front: bool) -> f32 {
+        if tap_in_front {
+            ((tap_coc - centre_coc) * 0.5).clamp(0.0, 1.0)
+        } else {
+            0.0
+        }
+    }
+
+    /// The share of a near point's disc (radius `tap_coc`) one of the [`TAPS`] taps over the
+    /// search disc (radius `reach`) stands for: the taps' area over the disc's. Discs under
+    /// the taps' spacing count as that spacing.
+    fn coverage(tap_coc: f32, reach: f32) -> f32 {
+        let c = tap_coc.max(reach * 1.8 / (TAPS as f32).sqrt());
+        reach * reach / (c * c * TAPS as f32)
+    }
+
+    /// A point of a test scene: its grey and its distance.
+    type Scene = dyn Fn(f32, f32) -> (f32, f32);
+
+    /// The main pass on a scene at pixel `p`: the gather, the near layer and their mix
+    /// (`imagespace_blur.wesl` `bokeh`). Greys stay under [`HIGHLIGHT_FROM`], so the
+    /// highlight weight is left out.
+    fn shade(scene: &Scene, p: [f32; 2], focus: f32, aperture: f32) -> f32 {
+        let reach = MAX * aperture;
+        let (grey, z0) = scene(p[0], p[1]);
+        let c0 = coc_px(z0, focus, aperture, MAX);
+        let (mut acc, mut total) = (grey, 1.0);
+        let (mut near_acc, mut near_total, mut cover) = (0.0, 0.0, 0.0);
+        for i in 0..TAPS {
+            let s = spiral(i, TAPS);
+            let off = [s[0] * reach, s[1] * reach];
+            let (g, z) = scene(p[0] + off[0], p[1] + off[1]);
+            let tc = coc_px(z, focus, aperture, MAX);
+            let w = tap_weight(c0, tc, z > z0, off[0].hypot(off[1]));
+            if w <= 0.0 {
+                continue;
+            }
+            let f = near_share(c0, tc, z < z0);
+            acc += g * w * (1.0 - f);
+            total += w * (1.0 - f);
+            near_acc += g * w * f;
+            near_total += w * f;
+            cover += w * f * coverage(tc, reach);
+        }
+        let far = acc / total;
+        if near_total <= 0.0 {
+            return far;
+        }
+        far + (near_acc / near_total - far) * cover.min(1.0)
     }
 
     /// The weight of a point by its luminance (tonemapped, 0 to 1): 1, rising to
@@ -127,9 +186,63 @@ mod tests {
         assert_eq!(tap_weight(0.0, 15.0, true, 5.0), 0.0);
         // The same point in front of it does cover it: a blurred foreground spreads.
         assert_eq!(tap_weight(0.0, 15.0, false, 5.0), 1.0);
-        // Two blurred background points cover each other as far as both discs reach.
+        // Behind a blurred point, what lies behind is seen as far as that point's disc.
         assert_eq!(tap_weight(15.0, 15.0, true, 5.0), 1.0);
+        assert_eq!(tap_weight(15.0, 0.0, true, 5.0), 1.0);
         assert_eq!(tap_weight(3.0, 15.0, true, 5.0), 0.0);
+    }
+
+    /// A wall (grey 0.1) near the eye, left of x = 0, over a field (grey 0.6) in focus.
+    fn wall_over_field(x: f32, _y: f32) -> (f32, f32) {
+        if x < 0.0 {
+            (0.1, 100.0)
+        } else {
+            (0.6, 2000.0)
+        }
+    }
+
+    /// Across a blurred near object's edge the picture goes soft both ways over its disc,
+    /// with no step: no hard edge moved out over what lies behind.
+    #[test]
+    fn a_blurred_foreground_spreads_soft_over_what_is_behind() {
+        let row: Vec<f32> = (-30..=30).map(|x| shade(&wall_over_field, [x as f32, 0.0], 2000.0, 1.0)).collect();
+        // Far from the edge: the wall and the field as they are.
+        assert!((row[0] - 0.1).abs() < 0.01, "{row:?}");
+        assert!((row[60] - 0.6).abs() < 0.01, "{row:?}");
+        // At the edge, about half of each; half a disc away, a part of the other.
+        assert!((row[30] - 0.35).abs() < 0.08, "{row:?}");
+        assert!(row[30 + 10] > 0.4 && row[30 + 10] < 0.58, "{row:?}");
+        assert!(row[30 - 10] > 0.12 && row[30 - 10] < 0.3, "{row:?}");
+        // Brighter all the way across, and no step bigger than 8% of the change (a pixel
+        // of a 40-pixel ramp is 2.5%, the spiral's grain adds some).
+        for w in row.windows(2) {
+            assert!(w[1] >= w[0] - 1e-3, "{row:?}");
+            assert!(w[1] - w[0] < 0.08 * 0.5, "a step of {} in {row:?}", w[1] - w[0]);
+        }
+    }
+
+    /// A subject in focus (grey 0.1, left of x = 0) in front of a blurred background
+    /// (grey 0.6): the subject keeps its edge, the background does not spill over it.
+    #[test]
+    fn a_sharp_subject_keeps_its_edge_over_a_blurred_background() {
+        let scene = |x: f32, _y: f32| if x < 0.0 { (0.1, 500.0) } else { (0.6, 50_000.0) };
+        for x in [-1.0, -3.0, -10.0] {
+            assert!((shade(&scene, [x, 0.0], 500.0, 1.0) - 0.1).abs() < 1e-4, "{x}");
+        }
+        assert!((shade(&scene, [1.0, 0.0], 500.0, 1.0) - 0.6).abs() < 1e-4);
+    }
+
+    #[test]
+    fn only_a_more_blurred_point_in_front_goes_to_the_near_layer() {
+        assert_eq!(near_share(0.0, 15.0, true), 1.0);
+        assert_eq!(near_share(10.0, 11.0, true), 0.5);
+        assert_eq!(near_share(15.0, 10.0, true), 0.0);
+        assert_eq!(near_share(0.0, 15.0, false), 0.0);
+        // The taps inside a near disc stand for all of it.
+        let r = |i: u32| spiral(i, TAPS)[0].hypot(spiral(i, TAPS)[1]) * 20.0;
+        let inside = (0..TAPS).filter(|&i| r(i) <= 10.0).count();
+        let sum = inside as f32 * coverage(10.0, 20.0);
+        assert!((sum - 1.0).abs() < 0.05, "{sum}");
     }
 
     #[test]

@@ -249,18 +249,29 @@ fn coc_px(z: f32) -> f32 {
     if z < 1.0e29 {
         spread = abs(z - focus) / max(z, 1.0e-3);
     }
-    let most = grade.bokeh.z * f32(textureDimensions(screen).y);
-    let r = min(most * clamp(grade.bokeh.x, 0.0, 1.0) * spread, most);
+    let reach = bokeh_reach();
+    let r = min(reach * spread, reach);
     return select(r, 0.0, r < SHARP_PX);
 }
 
-// bokeh.rs tap_weight: a point behind reaches no farther than the gathering point's disc.
+// bokeh.rs tap_weight: a point behind is seen as far as the gathering point's own disc.
 fn tap_weight(centre_coc: f32, tap_coc: f32, behind: bool, dist: f32) -> f32 {
     var reach = tap_coc;
     if behind {
-        reach = min(tap_coc, centre_coc);
+        reach = centre_coc;
     }
     return clamp(reach - dist + 0.5, 0.0, 1.0);
+}
+
+// bokeh.rs near_share: how much of a tap goes to the near layer (in front, more blurred).
+fn near_share(centre_coc: f32, tap_coc: f32, in_front: bool) -> f32 {
+    return select(0.0, clamp((tap_coc - centre_coc) * 0.5, 0.0, 1.0), in_front);
+}
+
+// bokeh.rs coverage: the share of a near point's disc one tap stands for.
+fn coverage(tap_coc: f32, reach: f32) -> f32 {
+    let c = max(tap_coc, tap_spacing(reach));
+    return (reach * reach) / (c * c * f32(BOKEH_TAPS));
 }
 
 // bokeh.rs highlight: near-white points weigh more.
@@ -328,6 +339,11 @@ fn bokeh(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
     let h0 = highlight(centre.rgb);
     var acc = centre.rgb * h0;
     var total = h0;
+    // The near layer: points in front, more blurred than this one, each spread over its
+    // own disc's area, laid over the rest by how much of this point they cover.
+    var near_acc = vec3(0.0);
+    var near_total = 0.0;
+    var cover = 0.0;
     for (var i = 0; i < BOKEH_TAPS; i++) {
         let off = spiral(i, BOKEH_TAPS) * reach;
         let at = uv + off / dims;
@@ -335,16 +351,25 @@ fn bokeh(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
             continue;
         }
         let z = view_distance(at);
-        let w = tap_weight(c0, coc_px(z), z > z0, length(off));
+        let tc = coc_px(z);
+        let w = tap_weight(c0, tc, z > z0, length(off));
         if w <= 0.0 {
             continue;
         }
         let s = textureSampleLevel(screen, screen_sampler, at, 0.0).rgb;
+        let f = near_share(c0, tc, z < z0);
         let hw = w * highlight(s);
-        acc += s * hw;
-        total += hw;
+        acc += s * hw * (1.0 - f);
+        total += hw * (1.0 - f);
+        near_acc += s * hw * f;
+        near_total += hw * f;
+        cover += w * f * coverage(tc, reach);
     }
-    return vec4(acc / total, centre.a);
+    let far = acc / total;
+    if near_total <= 0.0 {
+        return vec4(far, centre.a);
+    }
+    return vec4(mix(far, near_acc / near_total, min(cover, 1.0)), centre.a);
 }
 
 @fragment
