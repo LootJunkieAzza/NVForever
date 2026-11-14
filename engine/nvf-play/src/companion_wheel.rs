@@ -408,7 +408,6 @@ fn apply(
                 info!("companion wheel: closed (the player)");
                 screen.0 = None;
                 next.set(PlayState::Playing);
-                return;
             }
             WheelInput::Use(command) => {
                 let label = s.buttons.iter().find(|b| b.command == command).map_or("?", |b| b.label);
@@ -450,7 +449,6 @@ fn apply(
                 }
                 // All producers share one actual command per frame; the full input
                 // batch was already drained, so duplicate taps cannot run next frame.
-                return;
             }
         }
     }
