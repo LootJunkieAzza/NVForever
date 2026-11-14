@@ -358,6 +358,31 @@ fn a_guest_wears_what_the_hosts_story_put_on_and_gives_it_back() {
     assert!(!worn(&g));
 }
 
+#[test]
+fn a_guest_keeps_on_what_it_already_wore_when_the_hosts_story_lets_it_go() {
+    // Owner's playtest 2026-11-13 (item 203): the host's Pip-Boy is story gear (Doc
+    // Mitchell's script equips it); the guest wore its own. When the host's list no
+    // longer had it, the guest's was taken off and its Pip-Boy fell back to the
+    // screen-only frame.
+    let f = fixture();
+    let suit = FormId(SUIT);
+    let mut g = game(&f, true);
+    let count = |g: &mut Game| g.world.item_count(FormId::PLAYER_REF, suit).unwrap();
+    let worn = |g: &Game| g.world.peek(FormId::PLAYER_REF).and_then(|s| s.inventory.as_ref()).is_some_and(|i| i.is_equipped(suit));
+    g.world.add_item(FormId::PLAYER_REF, suit, 1).unwrap();
+    g.world.equip(FormId::PLAYER_REF, suit).unwrap();
+    assert_eq!(g.follow_story_gear(&[(suit, false)]), (vec![], vec![]), "worn already: nothing put on");
+    assert_eq!(g.follow_story_gear(&[(suit, false)]), (vec![], vec![]));
+    assert_eq!(g.follow_story_gear(&[]), (vec![], vec![]), "the host's goes: nothing taken off");
+    assert!(worn(&g), "the guest's own stays on");
+    assert_eq!(count(&mut g), 1);
+    // Heard again after that, and the guest leaving: still its own, still on.
+    g.follow_story_gear(&[(suit, true)]);
+    assert_eq!(g.world.equip_lock(FormId::PLAYER_REF, suit), None, "its own is not locked on");
+    g.follow_story_gear(&[]);
+    assert!(worn(&g));
+}
+
 /// Owner, 2026-11-09: a co-op host cannot start a conversation with a story NPC (one with
 /// lines of the main quest or a DLC's main quest) while another player is not within
 /// sight of it; it can once every player is near, and an NPC of no story quest is never

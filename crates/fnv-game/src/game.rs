@@ -1698,6 +1698,12 @@ pub struct Game<'a> {
     /// wears it or the guest leaves; a save must leave the added ones out (overnight item
     /// 81). Not saved.
     pub coop_story_gear: BTreeMap<FormId, bool>,
+    /// A co-op guest's: items of the host's story gear the guest already wore when the
+    /// host's came (its own Pip-Boy, which Doc Mitchell's script equips on the host): the
+    /// guest's own, left on when the host's player no longer wears it (owner's playtest
+    /// 2026-11-13, item 203: taken off, the guest's Pip-Boy fell back to the screen-only
+    /// frame). Not saved.
+    pub coop_story_kept: BTreeSet<FormId>,
     /// A co-op session is on (host or guest), with another player in it: the co-op
     /// perks can be taken (`crate::coop_perks`).
     pub coop_session: bool,
@@ -2626,6 +2632,7 @@ impl<'a> Game<'a> {
             story_locked: [false; 7],
             script_worn: BTreeMap::new(),
             coop_story_gear: BTreeMap::new(),
+            coop_story_kept: BTreeSet::new(),
             coop_session: false,
             coop_story: Default::default(),
             coop_from_others: Default::default(),

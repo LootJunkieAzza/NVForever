@@ -537,13 +537,22 @@ impl Game<'_> {
     /// [observed: `fnvtool script decompile`; design: the owner's rule]. An item the
     /// player lacks is added (as AddItem gives it, 99.9% health); a locked one is locked
     /// on here too. Taken off, an added item is taken away again, so nothing the host's
-    /// story gave stays with the guest ([`Game::coop_story_gear`]). `host` empty takes
-    /// everything off (the guest left). Returns the items put on and taken off.
+    /// story gave stays with the guest ([`Game::coop_story_gear`]). An item the guest
+    /// already wears is its own and is left as it is, on and off ([`Game::coop_story_kept`]).
+    /// `host` empty takes everything off (the guest left). Returns the items put on and
+    /// taken off.
     pub fn follow_story_gear(&mut self, host: &[(FormId, bool)]) -> (Vec<FormId>, Vec<FormId>) {
         let me = FormId::PLAYER_REF;
         let mut on = Vec::new();
+        let wears = |g: &Self, item: FormId| g.world.peek(me).and_then(|s| s.inventory.as_ref()).is_some_and(|i| i.is_equipped(item));
         for &(item, locked) in host {
-            if self.coop_story_gear.contains_key(&item) {
+            if self.coop_story_gear.contains_key(&item) || self.coop_story_kept.contains(&item) {
+                continue;
+            }
+            // Worn already (the guest's own Pip-Boy): its own, nothing to put on and
+            // nothing to take off later.
+            if wears(self, item) {
+                self.coop_story_kept.insert(item);
                 continue;
             }
             let had = self.world.item_count(me, item).unwrap_or(0) > 0;
@@ -559,6 +568,7 @@ impl Game<'_> {
             }
             self.coop_story_gear.insert(item, !had);
         }
+        self.coop_story_kept.retain(|i| host.iter().any(|(h, _)| h == i));
         let gone: Vec<FormId> = self.coop_story_gear.keys().copied().filter(|i| !host.iter().any(|(h, _)| h == i)).collect();
         for &item in &gone {
             let added = self.coop_story_gear.remove(&item).unwrap_or(false);
