@@ -99,7 +99,7 @@ counts them).
 Implemented the focused behavior correction and authored synthetic regression coverage;
 contract and limits: [CompileScript sibling paths](spec-notes/compilescript-relative-paths.md). This entry does not establish full mod compatibility.
 
-TempCloneForm omitted-caller-base handling has an initial source candidate; scene admission and current-port execution remain pending ([clone caller](spec-notes/clone-calling-reference.md)).
+`TempCloneForm` uses the calling reference's base when its argument is omitted ([clone caller](spec-notes/clone-calling-reference.md)). Direct nonscripted STAT/MSTT/PROJ aliases support inert scene placement with frozen model paths; whole saves containing temporary scene bases, including deleted-created tombstones, are deliberately refused. Playable persistence, temporary-reference lifetime and rendered/collision parity remain unqualified ([temporary scene bases](spec-notes/temporary-scene-bases.md)).
 
 ## 6. Gameplay (Layer 6)
 
