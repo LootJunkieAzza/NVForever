@@ -232,7 +232,7 @@ fn blur_down(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
 
 const BOKEH_TAPS: i32 = 96;
 const PREFILTER_TAPS: i32 = 12;
-const GOLDEN_ANGLE: f32 = 2.3999631;
+const GOLDEN_ANGLE: f32 = 2.399963;
 const SHARP_PX: f32 = 0.5;
 const HIGHLIGHT_GAIN: f32 = 6.0;
 const HIGHLIGHT_FROM: f32 = 0.7;
