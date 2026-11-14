@@ -222,6 +222,13 @@ the spec it links to.
   prefers whole-device NVML, then amdgpu, then game-only DRM client time. Choosing
   DRM first would make supporting Linux drivers show the game's contribution consistently.
   [Settings usage note](design/settings-page.md#performance-usage-availability-2249).
+- **Map markers on the compass at the original's fixed range (#2348).** Your playtest
+  list 5 item 12 asked for markers on the compass with a "range by Perception", built as
+  Perception × 2048 (10,240 units at Perception 5, 20,480 at 10). Since #2348 the range is
+  the original's: the game setting `iMapMarkerVisibleDistance` (10000 by default), found
+  and unfound alike, whatever the Perception; quest targets stay at any distance. If the
+  Perception scaling should stay, say so on #2348: it can come back, as the default or as
+  an opt-in. ([hud §11](spec-notes/hud.md); observer check 134)
 
 19. **Walking away from a conversation.** The world freezes while you talk, as in the
     original, and walking off does not end it. Should walking off end it where the line
