@@ -248,7 +248,13 @@ pub fn update(rt: &mut Runtime, play: &PlayWorld, phys: &PhysState, player: Opti
     for &t in &running {
         g.trigger_frame(t);
     }
+    // The runs for the second and later actors inside one trigger come 0 s after its
+    // first (`Game::trigger_again`, issue #2455).
+    let mut ran = BTreeSet::new();
     for &(t, a) in &ch.inside {
+        if !ran.insert(t) {
+            g.trigger_again(t);
+        }
         g.ref_event(t, event::ON_TRIGGER, Some(Value::Ref(a.0)), Some(a));
     }
     for &(t, a) in &ch.left {
