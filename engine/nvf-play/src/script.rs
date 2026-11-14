@@ -2054,9 +2054,14 @@ pub(crate) fn run_scripts(
             rt.pick_activate_choice(i);
         }
         let from = rt.game.events.len();
-        // A conversation with the player pauses the game: nobody moves, and no trigger
-        // block runs (OnTrigger would, every frame) until it is over.
-        if rt.game.dialogue.is_none() {
+        // A conversation with the player, a menu or a message box pauses the game:
+        // nobody moves, and no trigger block runs (OnTrigger would, every frame) until it
+        // is over. Under a message box GetSecondsPassed gave each OnTrigger run the time
+        // since the last frame before it, again every frame, so a countdown kept in an
+        // OnTrigger block ran down while the game stood still (Hidden Valley's virus
+        // purge, issue #2455) [hypothesis: OnTrigger is a game-mode block, as GameMode's
+        // are held under menus, scripts.md §7.7].
+        if !rt.game.paused() {
             crate::script_trigger::update(rt, &play, &phys, player_capsule);
         }
         rt.game.loading = loading;

@@ -36,6 +36,12 @@
 //! are where their packages have them; one that was on furniture and is to be elsewhere
 //! is off it at once. [engineering choice: what the original does is not sourced.]
 //!
+//! **A script moving the clock** (`set GameHour to 8`, more than an hour on the clock
+//! face; issue #2353, docs/spec-notes/packages.md §9) is handled like the end of a wait:
+//! everybody chooses its package at once, and the residents out of sight are put where
+//! their new packages have them, as on arrival; those in view walk there
+//! ([`Core::after_hour_jump`]) [design, #2353].
+//!
 //! **Movement.** With `--play`, an actor walking where the collision world is loaded
 //! (around the player) is moved by the character controller ([`PhysMover`]): it steers
 //! along its path and physics decides where it ends up, so it goes round furniture and
@@ -828,6 +834,25 @@ fn next_seat(seat: Seat, drawn: bool, on: bool, frame: &retry::Now, restart: boo
     }
 }
 
+/// The seat of a resident put at its package's place after a script moved the clock
+/// ([`Core::after_hour_jump`]): the furniture it is to use now (`None` at a standing
+/// place) and its seat. On new furniture it is sat on at once (no walk up, no sitting-down
+/// clip); otherwise the old seat stays for [`stale_seat`] to drop in the same frame
+/// (`Resident::jumped`), which also has a body still on the old furniture let go of it.
+fn seat_after_jump(seat: Seat, furniture: Option<u32>) -> (Option<u32>, Seat) {
+    match furniture {
+        Some(f) => (Some(f), Seat::Wanted(f, true)),
+        None => (None, seat),
+    }
+}
+
+/// After hours passed in the Wait menu, a script's MoveTo or a jump of the clock
+/// (`changed`): the furniture of `seat` the resident is to be off at once, when its AI
+/// no longer has it use that one (`wants`).
+fn stale_seat(seat: Seat, wants: Option<u32>, changed: bool) -> Option<u32> {
+    seat.furniture().filter(|f| changed && wants != Some(*f))
+}
+
 struct Resident {
     actor: FormId,
     base: u32,
@@ -870,6 +895,9 @@ struct Resident {
     last_drawn: Option<(f32, [f32; 3])>,
     /// A script put it somewhere (MoveTo) this frame: off its furniture at once.
     moved: bool,
+    /// Put at its package's place this frame after a script moved the clock
+    /// ([`Core::after_hour_jump`]): off its furniture at once, as `moved`.
+    jumped: bool,
     /// Whether it cannot walk ([`cannot_walk`]), once looked up.
     rooted: Option<bool>,
     /// It cannot walk and its base has the Flies flag: a perched bird, in nobody's way
@@ -1243,7 +1271,11 @@ fn set_global(g: &mut Game, edid: &str, v: f32) -> Result<(), String> {
 }
 
 fn clock_text(g: &Game) -> String {
-    let h = g.world.calendar().map(|c| c.hour).unwrap_or(0.0);
+    hour_text(g.world.calendar().map(|c| c.hour).unwrap_or(0.0))
+}
+
+/// `h` (GameHour) as HH:MM.
+fn hour_text(h: f32) -> String {
     format!("{:02}:{:02}", h.floor() as u32, ((h.fract() * 60.0).floor() as u32).min(59))
 }
 
@@ -1593,6 +1625,7 @@ impl Core {
             perched: false,
             immobile: false,
             moved: false,
+            jumped: false,
             last_space: None,
             aim_heading: None,
             lock_held: None,
@@ -1944,6 +1977,66 @@ impl Core {
         if trip.settled >= TRIP_SETTLE_FRAMES {
             info!("ai [{}] trip over: {} residents put at their package's place, {} seated at once", self.clock_text, trip.put[0], trip.put[1]);
             self.trip = None;
+        }
+    }
+
+    /// A script moved the clock by more than [`fnv_game::ai::SCRIPT_HOUR_JUMP`] since the
+    /// last frame (`Game::take_hour_jump`; issue #2353: VCG01 stage 200's `set GameHour to
+    /// 8` after the player rushed out of Doc Mitchell's house, Goodsprings already placed
+    /// for the early morning, Easy Pete in bed): as at the end of a wait, everybody
+    /// chooses its package now, and the residents the player cannot see (in the cell
+    /// buffer or an interior behind a door of the loaded cells, not in a drawn cell) are
+    /// put where their new package's walk ends, on its furniture, as on arrival
+    /// (`fnv_ai::Ai::hour_jumped`). Residents in view are not moved: they walk to their
+    /// new packages in sight [design, #2353]. Runs while a menu holds the game too (the
+    /// console's `set GameHour to`).
+    fn after_hour_jump(&mut self, game: &mut Game, nav: &NavState, world: &WorldData, streamer: &Streamer, mut phys: Option<&mut PhysState>) {
+        let Some(jump) = game.take_hour_jump() else { return };
+        self.join(game);
+        let doors = interiors_behind_doors(world, streamer, game.world.placed);
+        let unseen = |p: fnv_nav::Place| !drawn(world, streamer, p.space, p.pos) && (streamer.buffer.holds(p.space, p.pos) || matches!(p.space, Space::Interior(c) if doors.contains(&c)));
+        let arrivals = self.ai.hour_jumped(game, &nav.graph, &unseen);
+        self.clock_text = clock_text(game);
+        info!(
+            "ai [{}] the clock was set from {} to {} by a script: packages chosen again; {} of {} residents out of sight put at their package's place",
+            self.clock_text,
+            hour_text(jump.from),
+            hour_text(jump.to),
+            arrivals.len(),
+            self.ai.agents.len()
+        );
+        for (actor, arr) in arrivals {
+            let Some(r) = self.list.iter_mut().find(|r| r.actor == actor) else { continue };
+            r.present = game.present(actor);
+            r.jumped = true;
+            // Its character, if it had one, is made again where it is now (as on arrival).
+            if let Some(p) = phys.as_deref_mut() {
+                p.remove_npc(actor.0);
+            }
+            self.unstuck.remove(&actor.0);
+            self.skip_until.remove(&actor.0);
+            self.skip_refusals.forget(actor.0);
+            // The furniture it is to use now, none at a standing place: set for every one,
+            // as `note` does not run while a menu holds the game (the console's jump), and
+            // an old wish would sit it back on its old furniture once drawn.
+            (r.wants, r.seat) = seat_after_jump(r.seat, arr.furniture.map(|f| f.0));
+            // Every one: a jump puts few, and the smoke tests read where they came from.
+            info!(
+                "ai [{}] {}: put at its package's place after the clock was set ({}): ({:.0}, {:.0}, {:.0}) in {}, from ({:.0}, {:.0}, {:.0}) in {}, {} walk(s) skipped{}",
+                self.clock_text,
+                r.label,
+                game.data.name(arr.package),
+                arr.to.pos[0],
+                arr.to.pos[1],
+                arr.to.pos[2],
+                nav::space_name(world, arr.to.space),
+                arr.from.pos[0],
+                arr.from.pos[1],
+                arr.from.pos[2],
+                nav::space_name(world, arr.from.space),
+                arr.walks,
+                arr.furniture.map_or_else(String::new, |f| format!(", seated on {}", game.data.name(f)))
+            );
         }
     }
 
@@ -3030,6 +3123,7 @@ pub fn drive(
                 res.core.take_created(game);
             }
             res.core.process_levels(game, &world, &streamer);
+            res.core.after_hour_jump(game, &nav, &world, &streamer, None);
             res.core.arrive(game, &nav, &world, &streamer, None);
             res.core.switch_navmeshes(game, &mut nav);
             let _span = info_span!("ai::think").entered();
@@ -3067,6 +3161,7 @@ pub fn drive(
                 core.process_levels(&rt.game, world_ref, streamer_ref);
                 drop(span);
                 let span = info_span!("ai::arrive").entered();
+                core.after_hour_jump(&mut rt.game, &nav, world_ref, streamer_ref, phys.as_deref_mut());
                 core.arrive(&mut rt.game, &nav, world_ref, streamer_ref, phys.as_deref_mut());
                 drop(span);
                 let span = info_span!("ai::switch_navmeshes").entered();
@@ -3125,22 +3220,22 @@ pub fn drive(
         if moved {
             r.first_steps = Some(FirstSteps::new("its move by a script"));
         }
-        if let (true, Some(f)) = (waited > 0 || moved, r.seat.furniture()) {
-            if wants != Some(f) {
-                r.seat = Seat::None;
-                match entity {
-                    Some(e) if on => {
-                        commands.entity(e).insert(LeaveNow);
-                        core.seats[1] += 1;
-                        // Its visual stays for the furniture to let go of it; from the
-                        // next frame it is drawn where it is now, or not at all.
-                        continue;
-                    }
-                    Some(e) => {
-                        commands.entity(e).remove::<(SitOn, GetUp)>();
-                    }
-                    None => {}
+        // Or it was put at its package's place after a script moved the clock.
+        let moved = moved || std::mem::take(&mut r.jumped);
+        if stale_seat(r.seat, wants, waited > 0 || moved).is_some() {
+            r.seat = Seat::None;
+            match entity {
+                Some(e) if on => {
+                    commands.entity(e).insert(LeaveNow);
+                    core.seats[1] += 1;
+                    // Its visual stays for the furniture to let go of it; from the
+                    // next frame it is drawn where it is now, or not at all.
+                    continue;
                 }
+                Some(e) => {
+                    commands.entity(e).remove::<(SitOn, GetUp)>();
+                }
+                None => {}
             }
         }
         // The furniture's answer to the last order, acted on once. Only an answer says it
@@ -3504,6 +3599,7 @@ pub fn report(
         p.coming_updates,
         p.reached_loaded
     );
+    info!("far script summary: {} GameMode runs of residents out of the loaded cells (at their low-process updates and in waited hours)", p.far_scripts);
     info!(
         "arrival summary: {} residents put at their package's place behind a loading screen, {} seated at once on their furniture; {} left where they were (in the loaded area before the trip)",
         core.arrivals[0], core.arrivals[1], core.arrivals[2]
@@ -3712,6 +3808,40 @@ mod tests {
         let other = Now { wants: Some(8), ..now };
         assert_eq!(next_seat(Seat::Ordered(7, true), true, true, &other, true), (Seat::GettingUp(7), Some(SeatOrder::GetUp)));
         assert_eq!(next_seat(Seat::Ordered(7, true), true, true, &other, false), (Seat::GettingUp(7), Some(SeatOrder::GetUp)));
+    }
+
+    /// Review of #2353: a resident that was seated (its visual gone, so `Wanted` at once)
+    /// and is put at a standing place by a jump of the clock while the console stays open
+    /// (no `note` to refresh what it wants) ends standing: it is not sat back on its old
+    /// furniture once drawn. One put on new furniture is sat on that at once.
+    #[test]
+    fn a_seated_resident_put_at_a_standing_place_by_a_jump_is_not_seated_again() {
+        use super::{next_seat, retry::Now, seat_after_jump, stale_seat, Seat};
+        for before in [Seat::Wanted(7, true), Seat::Ordered(7, true)] {
+            // The jump's frame: nothing to use at the new place.
+            let (wants, seat) = seat_after_jump(before, None);
+            assert_eq!(wants, None);
+            // The same frame's cleanup (`Resident::jumped`) drops the old seat.
+            assert_eq!(stale_seat(seat, wants, true), Some(7));
+            let mut seat = Seat::None;
+            // Held by the console for a while, then drawn and free: never told to sit.
+            for (drawn, eligible) in [(false, false), (false, false), (true, false), (true, true), (true, true)] {
+                let frame = Now { wants, eligible, seconds: 0.1, changed: false };
+                let (next, order) = next_seat(seat, drawn, false, &frame, false);
+                assert_eq!(order, None, "{before:?}");
+                seat = next;
+            }
+            assert_eq!(seat, Seat::None, "{before:?}");
+        }
+        // Before the fix the old wish stayed: drawn, it would be sat on its old seat again.
+        let stale = Now { wants: Some(7), eligible: true, seconds: 0.1, changed: false };
+        assert!(next_seat(Seat::Wanted(7, true), true, false, &stale, false).1.is_some());
+        // To new furniture: on it at once, and the old seat is not left (it is replaced).
+        let (wants, seat) = seat_after_jump(Seat::Wanted(7, true), Some(9));
+        assert_eq!((wants, seat), (Some(9), Seat::Wanted(9, true)));
+        assert_eq!(stale_seat(seat, wants, true), None);
+        // Nothing changed this frame: no seat is dropped.
+        assert_eq!(stale_seat(Seat::Ordered(7, true), None, false), None);
     }
 
     #[test]
