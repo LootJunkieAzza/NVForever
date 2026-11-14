@@ -303,7 +303,10 @@ pub const PILOT_AMMO: &str = "Ammo9mm";
 /// How near the player goes to shoot, then nearer when the target still lives.
 pub const FIGHT_RANGE: f32 = 700.0;
 pub const FIGHT_NEAR: f32 = 220.0;
-pub const FIGHT_CLOSER_SECS: f64 = 12.0;
+pub const FIGHT_CLOSER_SECS: f64 = 6.0;
+/// The farthest the player shoots from where it stands without walking nearer: a 9mm
+/// pistol's spread missed Joe Cobb with every one of 25 shots from the saloon's door.
+pub const SHOOT_FROM: f32 = 450.0;
 pub const FIGHT_SECS: f64 = 75.0;
 /// Seconds between looks at the weapon in a fight.
 pub const WEAPON_SECS: f64 = 2.0;
@@ -1280,7 +1283,7 @@ fn engage(p: &mut Pilot, h: &mut Hands, name: &str, f: &mut Fight, w: &mut Walk)
     // was planned again and again, the trigger never pulled).
     let in_range = h.phys.world.actor_aim_point(target.0).is_some_and(|at| {
         let eye = h.player.eye();
-        hdist(eye, at) <= w.radius && (eye[2] - at[2]).abs() < 400.0 && crate::combat_tactics::shot_clear(Some(&mut *h.phys), eye, None, at, [at[0], at[1], at[2] + 40.0]).is_some()
+        hdist(eye, at) <= w.radius.min(SHOOT_FROM) && (eye[2] - at[2]).abs() < 400.0 && crate::combat_tactics::shot_clear(Some(&mut *h.phys), eye, None, at, [at[0], at[1], at[2] + 40.0]).is_some()
     });
     let walked = if in_range { Walked::There } else { walk(p, w, h) };
     match walked {

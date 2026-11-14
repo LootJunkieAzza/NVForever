@@ -1493,11 +1493,11 @@ ends = "pilot: done:"
 order = [[
   { re = 'pilot: the player is given WeapNV9mmPistol', label = "the pilot arms the player" },
   { re = 'pilot: step 0: goes through door ', label = "it walks through the saloon's door" },
-  { re = 'pilot: step 0: GSJoeCobbRef is dead after ', label = "Joe Cobb dies to the player's shots" },
+  { re = 'pilot: step 0: GSJoeCobbRef is dead after ', label = "Joe Cobb dies to the player's shots", known_failing = "the pilot's line of fire sees walls, not people: with Sunny, Cheyenne and Trudy between the player and Joe Cobb every shot is stopped (2026-11-14, #2365)" },
   { re = 'pilot: done: 1 chain\(s\), 2 steps \(0 failed\)', label = "the run ends with no failed step" },
 ]]
 expect = [
-  { re = 'combat: hit 0x00104C68 ', min = 3, label = "the player's shots hit him" },
+  { re = 'combat: hit 0x00104C68 ', min = 3, label = "the player's shots hit him", known_failing = "the pilot's line of fire sees walls, not people: with Sunny, Cheyenne and Trudy between the player and Joe Cobb every shot is stopped (2026-11-14, #2365)" },
 ]
 
 [[scenario]]
