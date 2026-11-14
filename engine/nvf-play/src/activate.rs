@@ -461,7 +461,11 @@ fn actor_action_in(g: &mut fnv_game::Game, creature: bool, id: u32, talkers: &mu
         return Action::Search;
     }
     let fighting_player = g.awareness.get(r).is_some_and(|a| a.state.in_combat() && a.targets.contains_key(&FormId::PLAYER_REF));
-    if fighting_player || g.would_attack(r, FormId::PLAYER_REF) {
+    // On a guest, the host's word too (`Game::coop_hostile`, as the compass and VATS read
+    // it): the host's quest stages turn people hostile (VMS16 stage 70's SetEnemy) in its
+    // world, which the guest's own factions don't know (run 2026-11-14: the Powder
+    // Gangers fighting in Goodsprings showed "E) Wait for Host" on guest B).
+    if fighting_player || g.coop_hostile.contains(&r) || g.would_attack(r, FormId::PLAYER_REF) {
         return Action::Name;
     }
     // A co-op guest talks only to trade, to play and to change chips at a cashier
