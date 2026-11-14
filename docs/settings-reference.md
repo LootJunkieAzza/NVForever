@@ -240,6 +240,19 @@ are at the end.
 - Command-line switches: `--fov`
 - Registered in `engine/nvforever/src/settings.rs`
 
+### `viewmodel-field-of-view`: Viewmodel field of view
+
+- On the page: The angle the first-person arms and weapon are drawn with, in degrees (55 as
+  the original's default): lower draws them bigger and closer.
+- In full: The field of view the first-person arms and weapon are drawn with, from 30 to 90 in
+  steps of 5, in degrees as the field of view counts them (across a 4:3 picture; 55 as the
+  original's `fDefault1stPersonFOV`). Lower draws them bigger and closer, higher smaller and
+  further off; it takes effect at once. The world's view, the Pip-Boy's own 47 and the
+  console's `fov` first-person angle are left as they are. Not on the original's settings
+  page.
+- Command-line switches: `--viewmodel-fov`
+- Registered in `engine/nvforever/src/settings.rs`
+
 ## Display › Screen
 
 ### `resolution`: Resolution
