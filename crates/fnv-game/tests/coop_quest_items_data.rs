@@ -379,8 +379,9 @@ const DM_CHECKPOINT: FormId = FormId(0x0100_EFCC);
 /// Dead Money's gear lives in the Sierra Madre only (item 211; owner, 2026-11-14): the
 /// collar, jumpsuit, holorifle and cells NVDLC01MQ01 stage 5 gives the host reach a
 /// guest only while Dead Money's checkpoint holds that guest's items, as hand-outs and as
-/// story gear; the checkpoint giving the items back takes the gear away; a guest outside
-/// (a host that set the stage in Goodsprings, a guest that joins later) gets none.
+/// story gear; on the way out the guest loses the collar with the host's and keeps the
+/// rest, its own items back (the original); a guest outside (a host that set the stage
+/// in Goodsprings, a guest that joins later) gets none.
 #[test]
 fn dead_moneys_gear_stays_in_the_sierra_madre() {
     let Some(dir) = data_dir() else { return };
@@ -436,15 +437,39 @@ fn dead_moneys_gear_stays_in_the_sierra_madre() {
     let back: Vec<String> = host.coop_rewards.gifts.iter().map(|g| l.data.name(g.item)).collect();
     assert!(back.is_empty(), "the host's own items given back are no hand-outs: {back:?}");
 
-    // The way out: the checkpoint gives the items back and takes the gear.
+    // The way out as the original: NVDLC01MQ03 stage 100 takes the host's collar (its
+    // story gear now lacks it), the guest loses it too; the checkpoint gives the guest's
+    // own items back; the jumpsuit, holorifle and cells stay, the guest's own now.
+    let gear_out = host.story_gear();
+    assert!(!gear_out.iter().any(|g| g.0 == collar), "stage 100 takes the host's collar: {:?}", names(&gear_out.iter().map(|g| g.0).collect::<Vec<_>>()));
+    inside.follow_story_gear(&gear_out);
+    assert_eq!(held(&mut inside, collar), 0, "the collar goes with the host's");
     assert!(inside.coop_check_out(DM_CHECKPOINT) > 0);
     assert_eq!(held(&mut inside, pistol), 1, "the guest's own pistol is back");
-    // The host still wears the jumpsuit in the Mojave (the original takes only the
-    // collar, NVDLC01MQ03 stage 100): the guest follows none of it now.
-    inside.follow_story_gear(&gear);
+    inside.follow_story_gear(&gear_out);
+    let jumpsuit = FormId(0x0100_F3A4);
     for g in &gifts {
-        if kind(&inside, g.item) != Some(ItemKind::Note) {
-            assert_eq!(held(&mut inside, g.item), 0, "out: no {} left", l.data.name(g.item));
+        let k = kind(&inside, g.item);
+        if g.item != collar && k != Some(ItemKind::Note) {
+            assert!(held(&mut inside, g.item) > 0, "out: the guest keeps {}", l.data.name(g.item));
         }
+    }
+    let worn = |g: &Game, i: FormId| g.world.peek(FormId::PLAYER_REF).and_then(|s| s.inventory.as_ref()).is_some_and(|inv| inv.is_equipped(i));
+    assert!(worn(&inside, jumpsuit), "the jumpsuit stays on, as the host's");
+    // A guest that wore its own collar into the checkpoint (a quest item RemoveAllItems
+    // leaves it, [documented: GECK wiki RemoveAllItems]) loses it with the host's too.
+    let mut own = game(&l);
+    own.world.add_item(FormId::PLAYER_REF, collar, 1).unwrap();
+    own.world.equip(FormId::PLAYER_REF, collar).unwrap();
+    own.coop_check_in(DM_CHECKPOINT, -1, None);
+    own.follow_story_gear(&gear);
+    assert_eq!(held(&mut own, collar), 1, "its own collar, kept on");
+    own.follow_story_gear(&gear_out);
+    assert_eq!(held(&mut own, collar), 0, "its own collar goes with the host's");
+    // A guest that joins after the way out: none of it.
+    let mut late = game(&l);
+    let mut last = None;
+    for g in &gifts {
+        assert_eq!(late.take_coop_gift(g, &mut last).unwrap(), 0, "a late guest gets no {}", l.data.name(g.item));
     }
 }

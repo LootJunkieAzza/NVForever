@@ -571,13 +571,34 @@ impl Game<'_> {
             }
             self.coop_story_gear.insert(item, !had);
         }
-        self.coop_story_kept.retain(|i| host.iter().any(|(h, _)| h == i));
+        // The guest's own copy of an add-on checkpoint's gear the host's story took off
+        // inside it goes too: NVDLC01MQ03 stage 100 takes the player's collar, whoever's
+        // it is (item 211; tri9: guest B kept its own collar from its save).
+        let dropped: Vec<FormId> = self.coop_story_kept.iter().copied().filter(|i| !host.iter().any(|(h, _)| h == i)).collect();
+        for item in dropped {
+            self.coop_story_kept.remove(&item);
+            if matches!(self.coop_checkpoint_of(item), CheckpointGear::In(_)) {
+                let _ = self.world.lock_equip(me, item, None);
+                let _ = self.world.unequip(me, item);
+                let _ = self.world.remove_item(me, item, 1);
+                tracing::info!("co-op: {} taken from this player: the host's story took its own off inside the checkpoint", self.data.name(item));
+            }
+        }
         let gone: Vec<FormId> = self.coop_story_gear.keys().copied().filter(|i| !host.iter().any(|(h, _)| h == i)).collect();
         for &item in &gone {
             let added = self.coop_story_gear.remove(&item).unwrap_or(false);
+            // An add-on checkpoint's gear the host's story took off inside it (Dead
+            // Money's collar, NVDLC01MQ03 stage 100) goes from this player too (item 211).
+            let mut checkpoint = false;
+            for held in self.coop_checkpoint_gear.values_mut() {
+                if let Some(i) = held.iter().position(|(h, _)| *h == item) {
+                    held.remove(i);
+                    checkpoint = true;
+                }
+            }
             let _ = self.world.lock_equip(me, item, None);
             let _ = self.world.unequip(me, item);
-            if added {
+            if added || checkpoint {
                 let _ = self.world.remove_item(me, item, 1);
             }
         }
@@ -833,17 +854,17 @@ impl Game<'_> {
     /// checkpoint's gear it was handed meanwhile goes first ([`Game::coop_checkpoint_of`]).
     pub fn coop_check_out(&mut self, container: FormId) -> i32 {
         let me = FormId::PLAYER_REF;
+        // What the checkpoint's story handed this player and the host's story did not take
+        // back is its own now, as the original leaves it with the host (item 211).
         let gear = self.coop_checkpoint_gear.remove(&container).unwrap_or_default();
-        for (item, n) in gear {
-            let have = self.world.item_count(me, item).unwrap_or(0).min(n);
-            if have > 0 {
+        for (item, _) in gear {
+            if self.coop_story_gear.remove(&item).is_some() {
                 let _ = self.world.lock_equip(me, item, None);
-                let _ = self.world.unequip(me, item);
-                let _ = self.world.remove_item(me, item, have);
-                tracing::info!("co-op: {} x{have} taken away: the gear of the checkpoint {container}, which gives this player's items back", self.data.name(item));
+            }
+            if self.world.item_count(me, item).unwrap_or(0) > 0 {
+                tracing::info!("co-op: {} is this player's now: the checkpoint {container} gives its items back", self.data.name(item));
             }
         }
-        self.sync_actor_effects(me);
         let Some(held) = self.coop_checked.remove(&container) else { return 0 };
         let mut gave = 0;
         for (item, c, extra) in held {
@@ -900,11 +921,14 @@ pub fn strip_containers_of(data: &GameData) -> BTreeSet<FormId> {
 /// player's from the bunker on, where the player's own items are taken (SCPT
 /// 0x0100C59E), to the way out, where NVDLC01MQ03 stage 100 takes the collar and the
 /// container gives the player's items back (SCPT 0x01013FB4) [observed: `fnvtool script
-/// decompile`]. So a co-op guest gets it only while that checkpoint holds its own items
-/// (`Game::coop_check_in`, item 182) and loses it when the checkpoint gives them back
-/// (the owner's rule: no Dead Money gear on a guest in the Mojave; the original keeps the
-/// jumpsuit and the holorifle). A guest that joins later, or a host that set the stage
-/// outside (a console `SetStage NVDLC01MQ01 5` in Goodsprings), hands it to no guest.
+/// decompile`]; nothing else on the way out takes the jumpsuit, the holorifle, the cells
+/// or the Sierra Madre chips (0x01011236; only dialogue lines that exchange chips take
+/// them) [observed: the same]. So a co-op guest gets that gear only while that
+/// checkpoint holds its own items (`Game::coop_check_in`, item 182), loses what the
+/// host's story takes off inside (the collar), and keeps the rest as its own when the
+/// checkpoint gives its items back, as the host does (owner, 2026-11-14, via parity: the
+/// original wins). A guest that joins later, or a host that set the stage outside (a
+/// console `SetStage NVDLC01MQ01 5` in Goodsprings), hands it to no guest.
 /// The base game's own such container (0x000E3669) makes no gear of its quests.
 impl Game<'_> {
     /// Where `form` (a hand-out's quest, or an item of the host's story gear) may go on

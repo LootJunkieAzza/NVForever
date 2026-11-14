@@ -396,8 +396,8 @@ impl Game<'_> {
         };
         // Lent by the host's story (`Game::follow_story_gear`: Sunny's script equips the
         // varmint rifle on the host): handed out too, it is this player's to keep.
-        // An add-on checkpoint's gear stays that checkpoint's: taken away on the way out
-        // (item 211; tri7: the collar, jumpsuit and holorifle stayed after it).
+        // An add-on checkpoint's gear stays that checkpoint's until the way out: what the
+        // host's story takes off inside (the collar) goes from here too (item 211).
         if let Some(lent) = self.coop_story_gear.get_mut(&item).filter(|l| **l) {
             *lent = false;
             if let Some(c) = held_in {
