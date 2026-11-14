@@ -1990,7 +1990,13 @@ mod tests {
         drawing.list.lists[Side::Player as usize].rows=model.list(Side::Player).rows.iter().enumerate().map(|(i,r)|item_menu::RowShown{
             key:RowKey::at(&model.list(Side::Player).rows,i).unwrap(),name:r.name.clone(),text:r.name.clone(),equipped:false}).collect();
         let (mut ui,mut tiles)=(tree(),InventoryTiles::default());let menu=run(&mut ui,Some(drawing),&mut tiles).unwrap();tiles.shown=Some(menu);
-        let row_point=middle(&tiles,rows(&tiles)[0].tile);let tab_point=middle(&tiles,tiles.written.tabs.iter().find(|t|t.key==4).unwrap().tile);
+        let row_text=list::child(&ui,rows(&tiles)[0].tile,ROW_TEXT).unwrap();
+        let tab_text=find_named(&ui,tiles.written.tabs.iter().find(|t|t.key==4).unwrap().tile,TAB_TEXT).unwrap();
+        let row_point=middle(&tiles,row_text);let tab_point=middle(&tiles,tab_text);
+        for (point,want) in [(row_point,ItemsTile::Row(0)),(tab_point,ItemsTile::Tab(4))] {
+            let hit=fnv_ui::input::hit(&ui,&[menu],point,&fnv_ui::input::no_measure).unwrap();
+            assert_eq!(items_tile(&ui,&tiles.view,&tiles.written.tabs,hit.tile),Some(want),"fixture's painted text center must reach its actual native target");
+        }
         let mut script=ScriptState::over_no_plugins();{let game=&mut script.rt.as_mut().unwrap().game;game.ui_files=Some(Box::new(MemSource::default()));game.ui_tree=ui;game.menu=Some(fnv_game::game::menus::INVENTORY);}
         let mut pip=PipBoy::default();pip.phase=pipboy::Phase::Up;pip.page=Page::Items;pip.tabs=[0,2,0];
         let mut app=App::new();app.add_plugins((MinimalPlugins,InputPlugin)).init_resource::<bevy::picking::pointer::PointerMap>()
@@ -2097,7 +2103,9 @@ mod tests {
     fn native_row_hover_cannot_upgrade_an_initial_select_into_use_on_release(){
         use bevy::input::touch::TouchPhase;
         let NativeInventoryFixture{mut app,..}=native_inventory_fixture();
-        let point={let t=app.world().resource::<InventoryTiles>();let p=middle(t,rows(t)[1].tile);Vec2::new(p.0 as f32,p.1 as f32)};
+        let point={let t=app.world().resource::<InventoryTiles>();let script=app.world().resource::<ScriptState>();
+            let ui=&script.rt.as_ref().unwrap().game.ui_tree;let text=list::child(ui,rows(t)[1].tile,ROW_TEXT).unwrap();
+            let p=middle(t,text);Vec2::new(p.0 as f32,p.1 as f32)};
         assert_eq!(app.world().resource::<ActiveMenu>().0.as_ref().unwrap().selected[Side::Player as usize],0);
         native_guard_event(&mut app,105,TouchPhase::Started,point);app.update();app.update();
         native_guard_event(&mut app,105,TouchPhase::Ended,point);for _ in 0..4{app.update();}
