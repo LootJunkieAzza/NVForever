@@ -236,8 +236,13 @@ pub fn statement(l: &Line) -> Result<Statement, ParseError> {
     };
     // A call's inline expressions may declare (`Fn (float f)`); the code generator reads
     // the line again and drops the type word there.
+    // So may a declaration's value (`int n = Ar_Size (array_var a = GetFiles …)`): the
+    // inline one is declared with the line's, so that a lambda's later lines find it
+    // [observed: B42 Interact's ln_B42Interact.txt runs in the original with such a line
+    // in an event handler's lambda and `xkR = ar_null` after it].
     let decls = match &kw {
         Kw::Call(_) if toks.iter().any(|t| t.kind == Kind::Open) => inline_decls(&mut xtokens(&l.text)),
+        Kw::Decl { init: Some(x), .. } => inline_decls(&mut x[1..].to_vec()),
         _ => Vec::new(),
     };
     Ok(Statement { line: l.no, kw, text: l.text.clone(), decls })

@@ -22698,6 +22698,36 @@ expect = [
 ]
 
 [[scenario]]
+name = "knvse-player-sequences"
+source = "kNVSE on the player (docs/design/knvse-anim.md §5): PlayAnimationPath's and ActivateAnim's sequences are requests the player's rigs play beside locomotion (script_sequences.rs, #2395); DeactivateAnim takes each back"
+areas = ["scripts", "player"]
+paths = ["crates/fnv-game/src/nvse_anim.rs", "engine/nvforever/src/script_sequences.rs", "engine/nvforever/src/player_body.rs"]
+env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_CONSOLE = "9:player.PlayAnimationPath \"characters/_male/idleanims/specialidle_nvopen_benny_smoking.kf\";9.5:player.ActivateAnim \"characters/_male/idleanims/eatidle.kf\";10:close;13:player.DeactivateAnim \"characters/_male/idleanims/eatidle.kf\";player.DeactivateAnim \"characters/_male/idleanims/specialidle_nvopen_benny_smoking.kf\";13.5:close" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
+run_seconds = 16
+expect = [
+  { re = 'script sequence: player (first|third) "characters/_male/idleanims/specialidle_nvopen_benny_smoking[.]kf", priority', label = "PlayAnimationPath's sequence is played on the player" },
+  { re = 'script sequence: player (first|third) "characters/_male/idleanims/eatidle[.]kf", priority', label = "ActivateAnim's sequence is played on the player" },
+  { text = "could not load; not rendered", count = 0, label = "both clips load" },
+]
+
+[[scenario]]
+name = "knvse-npc-sequences"
+source = "kNVSE on NPCs (docs/design/knvse-anim.md §5): PlayAnimationPath starts the sequence on the actor's idle slot (idles::play_npc_sequences) and DeactivateAnim stops it; a conditional SetActorAnimationPath applies while its condition holds (anim_paths.rs, Game::anim_overrides_now) and is taken off when it no longer does"
+areas = ["scripts", "actors"]
+paths = ["crates/fnv-game/src/nvse_anim.rs", "crates/fnv-game/src/nvse_anim_folders.rs", "engine/nvforever/src/idles.rs", "engine/nvforever/src/anim_paths.rs"]
+env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_CONSOLE = "9:RingoRef.MoveTo player 0 200 0;11:RingoRef.PlayAnimationPath \"characters/_male/idleanims/specialidle_nvopen_benny_smoking.kf\";11.5:close;14:RingoRef.DeactivateAnim \"characters/_male/idleanims/specialidle_nvopen_benny_smoking.kf\";14.5:close;15:player.SetAV Strength 9;PrintC \"nvf cond %g\", (RingoRef.SetActorAnimationPath 0 1 \"characters/_male/locomotion/mtidle.kf\" 1 ({} => (player.GetAV Strength) > 5));15.5:close;18:player.SetAV Strength 2;18.5:close" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
+run_seconds = 21
+expect = [
+  { re = 'anim sequence: 00104C7D plays characters/_male/idleanims/specialidle_nvopen_benny_smoking[.]kf [(]once[)]', label = "PlayAnimationPath starts the sequence on Ringo" },
+  { re = "anim sequence: 00104C7D's characters/_male/idleanims/specialidle_nvopen_benny_smoking[.]kf stops", label = "DeactivateAnim stops it" },
+  { re = 'script: print "nvf cond 1"', label = "the conditional path is taken" },
+  { re = 'anim paths: 00104C7D plays 1 replaced move', label = "the condition holds: Ringo plays the replaced Idle" },
+  { re = 'anim paths: 00104C7D plays its shared set again', label = "the condition fails: the shared set returns" },
+]
+
+[[scenario]]
 name = "tiles-hud-hardcore"
 source = "[design] T12b part A; hud.md §14.8 [observed: private job hud_hardcore2 hc2-hc11]: tile-drawn needs use captured alphas/colours and fixed positions in both modes, last-child indexing puts LMB at *:0"
 areas = ["ui", "hud", "hardcore"]

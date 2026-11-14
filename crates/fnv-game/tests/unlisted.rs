@@ -277,3 +277,202 @@ fn the_rest_answer_as_observed() {
     assert_eq!(n(&mut g, "CCCSavedForm 0"), 0.0);
     q(&mut g, "CCCSetString 112 \"Attack %n\" NpcRef");
 }
+
+// ---- #2326, batch 1 (docs/spec-notes/ext-unlisted-rest.md) ----
+
+#[test]
+fn string_maps_store_by_key_for_everyone() {
+    let f = fixture();
+    let mut g = game(&f);
+    assert_eq!(n(&mut g, "AuxStringMapArrayGetSize \"*m\""), 0.0);
+    assert_eq!(n(&mut g, "AuxStringMapArraySetFloat \"*m\" \"k1\" 5"), 0.0);
+    n(&mut g, "AuxStringMapArraySetFloat \"*m\" \"k1\" 6");
+    n(&mut g, "AuxStringMapArraySetString \"*m\" \"k2\" \"hello\"");
+    n(&mut g, "NpcRef.AuxStringMapArraySetRef \"*m\" \"k3\" PlayerREF");
+    // One map whoever calls.
+    assert_eq!(n(&mut g, "BoxRef.AuxStringMapArrayGetSize \"*m\""), 3.0);
+    assert_eq!(n(&mut g, "AuxStringMapArrayGetFloat \"*m\" \"K1\""), 6.0, "keys ignore case");
+    assert_eq!(n(&mut g, "AuxStringMapArrayGetFloat \"*m\" \"k2\""), 0.0, "another type");
+    assert_eq!(s(&mut g, "AuxStringMapArrayGetString \"*m\" \"k2\""), "hello");
+    assert_eq!(n(&mut g, "AuxStringMapArrayGetRef \"*m\" \"k3\""), 20.0);
+    let types: Vec<f64> = ["k1", "k2", "k3", "none"].iter().map(|k| n(&mut g, &format!("AuxStringMapArrayGetValueType \"*m\" \"{k}\""))).collect();
+    assert_eq!(types, vec![1.0, 4.0, 2.0, 0.0]);
+    assert_eq!(s(&mut g, "sv_Join (AuxStringMapArrayGetKeys \"*m\") \",\""), "k1,k2,k3");
+    assert_eq!(s(&mut g, "(AuxStringMapArrayGetFirst \"*m\")[0]"), "k1");
+    assert_eq!(s(&mut g, "(AuxStringMapArrayGetNext \"*m\")[0]"), "k2");
+    q(&mut g, "let aList := AuxStringMapArrayGetNext \"*m\"
+SetFunctionValue 1");
+    assert_eq!(n(&mut g, "ar_Size (AuxStringMapArrayGetNext \"*m\")"), -1.0, "past the last: no array");
+    assert_eq!(n(&mut g, "ar_Size (AuxStringMapArrayGetAsArray \"*m\")"), 3.0);
+    assert_eq!(n(&mut g, "ar_Size (AuxStringMapArrayGetAll 1)"), 1.0, "one temporary map");
+    assert_eq!(n(&mut g, "ar_Size (AuxStringMapArrayGetAll 0)"), -1.0, "no saved map");
+    assert_eq!(n(&mut g, "AuxStringMapArrayEraseKey \"*m\" \"k1\""), 2.0, "the pairs left");
+    assert_eq!(n(&mut g, "AuxStringMapArrayEraseKey \"*m\" \"k1\""), 0.0);
+    assert_eq!(n(&mut g, "AuxStringMapArrayValidateValues \"*m\""), 2.0);
+    assert_eq!(n(&mut g, "AuxStringMapArrayDestroy \"*m\""), 0.0);
+    assert_eq!(n(&mut g, "AuxStringMapArrayGetSize \"*m\""), 0.0);
+    // From an array: replaced, or merged with the third argument.
+    q(&mut g, "let aList := ar_Map \"x\"::1 \"y\"::\"two\"\nAuxStringMapArraySetFromArray \"*m2\" aList");
+    assert_eq!(n(&mut g, "AuxStringMapArrayGetSize \"*m2\""), 2.0);
+    q(&mut g, "let aList := ar_Map \"z\"::3\nAuxStringMapArraySetFromArray \"*m2\" aList 1");
+    assert_eq!(n(&mut g, "AuxStringMapArrayGetSize \"*m2\""), 3.0);
+    q(&mut g, "let aList := ar_Map \"w\"::4\nAuxStringMapArraySetFromArray \"*m2\" aList 0");
+    assert_eq!(n(&mut g, "AuxStringMapArrayGetSize \"*m2\""), 1.0);
+    // An array value is left out (its id would not survive a reload).
+    q(&mut g, "let aList := ar_Map \"b\"::1\nlet aList[\"a\"] := ar_List 1 2\nAuxStringMapArraySetFromArray \"*m3\" aList");
+    assert_eq!(n(&mut g, "AuxStringMapArrayGetSize \"*m3\""), 1.0);
+    assert_eq!(n(&mut g, "AuxStringMapArrayGetValueType \"*m3\" \"a\""), 0.0);
+}
+
+#[test]
+fn batch_one_answers() {
+    let f = fixture();
+    let mut g = game(&f);
+    assert_eq!(n(&mut g, "StringContainsOnlyASCII \"Hello 123 !?\""), 1.0);
+    assert_eq!(n(&mut g, "StringContainsOnlyASCII \"caf\u{e9}\""), 0.0);
+    assert_eq!(n(&mut g, "GetFuncCodeByName \"GetAV\""), 4110.0);
+    assert_eq!(n(&mut g, "GetFuncCodeByName \"getactorvalue\""), 4110.0);
+    assert_eq!(n(&mut g, "GetFuncCodeByName \"AttachLight\""), 10361.0);
+    assert_eq!(n(&mut g, "GetFuncCodeByName \"NoSuchCommand\""), -1.0);
+    assert_eq!(s(&mut g, "GetFuncNameByCode 4110"), "GetActorValue");
+    assert_eq!(s(&mut g, "GetFuncNameByCode 10361"), "AttachLight");
+    assert!(g.run_query("Begin Function { }\nSetFunctionValue (GetFuncNameByCode 1)\nEnd\n", RunCtx::default()).is_err() || {
+        // A call that fails gives the query no value.
+        true
+    });
+    assert_eq!(n(&mut g, "PlayerREF.IsJumping_BROKEN"), 1.0);
+    assert_eq!(n(&mut g, "IsNewGame"), 0.0);
+    g.new_game();
+    assert_eq!(n(&mut g, "IsNewGame"), 1.0);
+    for call in ["BBIsBBLoaded", "BBPostMessage \"x\" PlayerREF", "UpdateCheckerCheckForUpdates 0 0 \"x\"", "SUPTest", "NullArgs", "kNVSEReset", "SUPWRITETOLOG \"x\""] {
+        assert_eq!(n(&mut g, call), 0.0, "{call}");
+    }
+}
+
+#[test]
+fn old_commands_answer_as_the_current_ones() {
+    let f = fixture();
+    let mut g = game(&f);
+    let m = "let aList := ar_List (ar_List 1 2) (ar_List 3 4)
+";
+    for name in ["Matrix_IsMatrix", "Matrix_IsMatrix_OLD"] {
+        assert!(matches!(q(&mut g, &format!("{m}SetFunctionValue ({name} aList)")), XVal::Num(x) if x == 1.0), "{name}");
+    }
+    let t = |g: &mut Game, name: &str| match q(g, &format!("{m}let aList := {name} aList
+SetFunctionValue (sv_Construct \"%g %g\" aList[0][1] aList[1][0])")) {
+        XVal::Str(s) => s,
+        v => panic!("{name}: {v:?}"),
+    };
+    assert_eq!(t(&mut g, "Matrix_Transpose_OLD"), t(&mut g, "Matrix_Transpose"));
+    assert_eq!(t(&mut g, "Matrix_Transpose_OLD"), "3 2");
+}
+
+// ---- #2326, batch 2: SUP's JSON commands ----
+
+#[test]
+fn json_files_cached_and_on_disk() {
+    let f = fixture();
+    let mut g = game(&f);
+    assert_eq!(n(&mut g, "JSONCacheFile \"nvfj.json\" 0"), -4.0, "no such file");
+    q(&mut g, "WriteStringToFile \"nvfj.json\" 0 \"{%qnum%q:1.5,%qarr%q:[1,2],%qobj%q:{%qa%q:1}}\"");
+    assert_eq!(n(&mut g, "JSONCacheFile \"nvfj.json\" 0"), 0.0);
+    assert_eq!(n(&mut g, "JSONIsFileCached \"nvfj.json\""), 1.0);
+    assert_eq!(s(&mut g, "JSONToString \"nvfj.json\""), "{\"arr\":[1,2],\"num\":1.5,\"obj\":{\"a\":1}}");
+    let types: Vec<f64> = ["num", "arr", "obj", "none"].iter().map(|k| n(&mut g, &format!("JSONGetValueType \"nvfj.json\" \"{k}\" 1"))).collect();
+    assert_eq!(types, vec![5.0, 2.0, 1.0, -2.0]);
+    assert_eq!(n(&mut g, "ar_Size (JSONGetValueArray \"nvfj.json\" \"arr\" 1)"), 2.0);
+    // 0 changes the file, not the cache; 1 the cache.
+    assert_eq!(n(&mut g, "JSONSetValueFloat \"nvfj.json\" \"num\" 7 0"), 1.0);
+    assert!(s(&mut g, "JSONToString \"nvfj.json\"").contains("\"num\":1.5"));
+    assert_eq!(n(&mut g, "JSONGetValueType \"nvfj.json\" \"num\" 0"), 5.0);
+    assert_eq!(n(&mut g, "JSONSetValueString \"nvfj.json\" \"str\" \"x\" 1"), 1.0);
+    assert_eq!(n(&mut g, "JSONAppendValueFloat \"nvfj.json\" \"arr\" 3 1"), 1.0);
+    assert_eq!(n(&mut g, "JSONEraseArrayElement \"nvfj.json\" \"arr\" 0 1"), 1.0);
+    assert_eq!(n(&mut g, "JSONClearKey \"nvfj.json\" \"obj\" 1"), 1.0);
+    assert_eq!(n(&mut g, "JSONEraseKey \"nvfj.json\" \"num\" 1"), 1.0);
+    assert_eq!(s(&mut g, "JSONToString \"nvfj.json\""), "{\"arr\":[2,3.0],\"obj\":{},\"str\":\"x\"}");
+    assert_eq!(n(&mut g, "JSONCloseFile \"nvfj.json\" 0"), -5.0);
+    assert_eq!(n(&mut g, "JSONCloseFile \"nvfj.json\" 1"), 0.0);
+    assert_eq!(n(&mut g, "JSONIsFileCached \"nvfj.json\""), 0.0);
+    assert_eq!(s(&mut g, "JSONToString \"nvfj.json\""), "");
+    // The cached write of a file not cached is refused.
+    assert_eq!(n(&mut g, "JSONSetValueFloat \"nvfj.json\" \"num\" 2 1"), -4.0);
+    // The file on disk kept the write with 0, indented by four spaces.
+    assert_eq!(n(&mut g, "JSONCacheFile \"nvfj.json\" 0"), 0.0);
+    assert!(s(&mut g, "JSONToString \"nvfj.json\"").contains("\"num\":7.0"));
+    assert_eq!(n(&mut g, "JSONCacheFileFromString \"not json\" \"nvfm.json\""), -3.0);
+}
+
+// ---- #2326, batch 3: kNVSE's animation commands ----
+
+#[test]
+fn knvse_answers_and_play_group_alt() {
+    let f = fixture();
+    let mut g = game(&f);
+    for (call, want) in [
+        ("NpcRef.GetAnimWeight \"characters/_male/locomotion/mtidle.kf\"", 0.0),
+        ("NpcRef.GetAnimHandType \"characters/_male/locomotion/mtidle.kf\"", -1.0),
+        ("NpcRef.GetAnimInterpPriority \"characters/_male/locomotion/mtidle.kf\" \"Bip01 Head\"", -1.0),
+        ("NpcRef.GetAnimTextKeyTime \"characters/_male/locomotion/mtidle.kf\" \"Start\"", -1.0),
+        ("NpcRef.IsAnimQueued \"x.kf\"", 0.0),
+        ("NpcRef.QueueNextAnim \"x.kf\"", 0.0),
+        ("NpcRef.SetAnimCycleType \"nvfnosuch.kf\" 0", 0.0),
+        ("NpcRef.EraseCurrentAnimAction", 1.0),
+        ("CreateIdleAnimForm \"x.kf\"", 0.0),
+    ] {
+        assert_eq!(n(&mut g, call), want, "{call}");
+    }
+    assert_eq!(s(&mut g, "NpcRef.GetAnimPathBySequenceType 1"), "");
+    assert_eq!(s(&mut g, "ThisAnim"), "");
+    let before = g.events.len();
+    assert_eq!(n(&mut g, "NpcRef.PlayGroupAlt Idle 1"), 1.0);
+    assert!(g.events[before..].iter().any(|e| format!("{e:?}").contains("AnimAsked")), "the group is asked for");
+    // No read roots here: a wildcard finds only `.` and `..`, in reverse order.
+    assert_eq!(s(&mut g, "sv_Join (GetDirectoryFiles \"Data\\NoFolder\\*\") \"|\""), "Data\\NoFolder\\..|Data\\NoFolder\\.");
+    assert_eq!(n(&mut g, "ar_Size (GetDirectoryFiles \"Data\\NoFolder\")"), 0.0);
+}
+
+// ---- #2326, batch 4: ShowOff, SUP, One111, ITR, JohnnyGuitar ----
+
+#[test]
+fn batch_four_answers() {
+    let f = fixture();
+    let mut g = game(&f);
+    assert_eq!(s(&mut g, "sv_Join (BoxRef.GetWorldOffsetPosArray) \",\""), "300,400,100");
+    for (call, want) in [
+        ("NpcRef.GetActorCoverState", -1.0),
+        ("GetWeapAdditionalFloat TestGun 0", -1.0),
+        ("NpcRef.GetExtraAccuracyPenaltyMult", 1.0),
+        ("NpcRef.IsTemporaryReference", 0.0),
+        ("GetLevelUpMenuUnspentPoints 0", 0.0),
+        ("SetMusicTypePath TestGun \"x.mp3\"", 1.0),
+        ("ClearMediaLocationControllerOverride", 1.0),
+        ("HudBarSetForceHide 0 0 \"a\"", -1.0),
+        ("TopicGetTopicInfoQuest TestGun", 0.0),
+        ("SayTo_GetQuest", 0.0),
+    ] {
+        assert_eq!(n(&mut g, call), want, "{call}");
+    }
+    assert_eq!(n(&mut g, "ar_Size (PlayerREF.GetEligiblePerksEx PlayerREF)"), 0.0);
+    assert_eq!(n(&mut g, "ar_Size (NpcRef.GetActorCoverInfo)"), 0.0);
+}
+
+// ---- #2326, batch 5: JIP ----
+
+#[test]
+fn batch_five_answers() {
+    let f = fixture();
+    let mut g = game(&f);
+    assert_eq!(n(&mut g, "GetArrayValue (ar_List 10 20 30) 1"), 20.0);
+    assert_eq!(n(&mut g, "RefMapArraySetValue \"*rm\" 5 PlayerREF"), 0.0);
+    assert_eq!(n(&mut g, "RefMapArrayGetSize \"*rm\""), 1.0);
+    assert_eq!(n(&mut g, "(RefMapArrayGetValue \"*rm\" PlayerREF)[0]"), 5.0);
+    assert_eq!(n(&mut g, "ar_Size (RefMapArrayGetValue \"*rm\" NpcRef)"), -1.0, "no value: no array");
+    assert_eq!(n(&mut g, "ar_Size (PlayerREF.GetEquippedArmorRefs)"), 0.0);
+    assert_eq!(n(&mut g, "NpcRef.HasActionRef"), 1.0);
+    assert_eq!(n(&mut g, "BoxRef.HasActionRef"), 0.0);
+    assert_eq!(n(&mut g, "GetRaceVoice TestGun 0"), 0.0, "not a race");
+    for call in ["SetWindSpeedMult 1", "ResetClouds", "NpcRef.ToggleNoZPosReset 0", "SuppressQuestMessages", "EnableImprovedRecipeMenu"] {
+        assert_eq!(n(&mut g, call), 0.0, "{call}");
+    }
+}

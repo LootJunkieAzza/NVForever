@@ -139,6 +139,10 @@ pub struct OtherState {
     pub jip14: crate::nvse_jip14::Jip14State,
     /// The unlisted JIP commands' locks, switches and lights (`nvse_unlisted`).
     pub unlisted: crate::nvse_unlisted::UnlistedState,
+    /// The New Game flag of the unlisted commands' batch 1 (`nvse_unlisted2`).
+    pub unlisted2: crate::nvse_unlisted2::Unlisted2State,
+    /// SUP's cached JSON files (`nvse_json`).
+    pub json: crate::nvse_json::JsonState,
     /// JIP batch 11's actor overrides and engine requests (`nvse_jip11`).
     pub jip11: crate::nvse_jip11::Jip11State,
     /// JIP batch 13's physics view, requests and follows (`nvse_jip13`).
@@ -578,7 +582,8 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             }
             zero
         }
-        "getplayercontrolsdisabledalt" | "getplayercontrolsdisabledaltex" => {
+        // GPCDEx answers as the Ex form [observed: #2430 probe, script_functions.py].
+        "getplayercontrolsdisabledalt" | "getplayercontrolsdisabledaltex" | "gpcdex" => {
             let how = num(args, 0, 0.0) as i64;
             let which = alt_groups(name.ends_with("ex"), args.get(1..).unwrap_or(&[]), [true; 7], [false; 7]);
             let mut locked = [false; 7];

@@ -1806,6 +1806,7 @@ fn main() -> AppExit {
         app.init_resource::<anim_objects::AnimObjects>()
             .add_systems(Startup, anim_objects::read)
             .add_systems(Update, anim_objects::hold.after(idles::drive))
+            .add_systems(Update, idles::play_npc_sequences.after(idles::drive))
             .add_systems(Last, anim_objects::report);
     }
     app.init_resource::<idles::PlayerIdles>();

@@ -704,7 +704,7 @@ pub fn get_is_race(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
 
 pub fn get_is_class(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
-    yes(g.traits_def(r).and_then(|d| d.class) == Some(a.form(0)?))
+    yes(g.traits_class(r) == Some(a.form(0)?))
 }
 
 macro_rules! flag {

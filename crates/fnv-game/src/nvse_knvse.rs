@@ -355,6 +355,9 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         "copyanimationstoform" => {
             let (Some(from), Some(to)) = (form(args, 0), form(args, 1)) else { return Some(Ok(zero)) };
             g.copy_folder_entries(from, to);
+            // A copied path keeps its condition (SetActorAnimationPath's).
+            let conds: Vec<_> = g.anim_paths.conditions.iter().filter(|((a, _, _), _)| *a == from).map(|((_, first, p), c)| ((to, *first, p.clone()), c.clone())).collect();
+            g.anim_paths.conditions.extend(conds);
             for map in [&mut g.anim_paths.actor, &mut g.anim_paths.weapon] {
                 for first in [false, true] {
                     let Some(src) = map.get(&(from, first)).cloned() else { continue };

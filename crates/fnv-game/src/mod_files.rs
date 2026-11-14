@@ -242,6 +242,24 @@ pub fn files_under(rel: &str) -> Vec<String> {
     list_files(rel, true)
 }
 
+/// The files and folders directly in a Data folder, through every read root (an earlier
+/// root hides the same name, compared without regard to case); kNVSE's GetDirectoryFiles
+/// (`crate::nvse_unlisted2`).
+pub fn entries_in(rel: &str) -> Vec<String> {
+    let (mut seen, mut out) = (std::collections::HashSet::new(), Vec::new());
+    for root in roots().read {
+        let Some(dir) = find_dir(&root, rel) else { continue };
+        let Ok(rd) = std::fs::read_dir(&dir) else { continue };
+        for e in rd.flatten() {
+            let name = e.file_name().to_string_lossy().to_string();
+            if seen.insert(name.to_ascii_lowercase()) {
+                out.push(name);
+            }
+        }
+    }
+    out
+}
+
 /// The loose files directly in a Data folder (no subfolders), as [`files_under`].
 pub fn files_in(rel: &str) -> Vec<String> {
     list_files(rel, false)

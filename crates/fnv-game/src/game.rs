@@ -573,6 +573,9 @@ pub struct FormChanges {
     /// SetEssential on actor bases.
     #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
     pub essential: BTreeMap<FormId, bool>,
+    /// SetClass: actor base → its class in place of the record's (`Game::traits_class`).
+    #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
+    pub classes: BTreeMap<FormId, FormId>,
     /// SetActorFullName: base → the message whose title is the new name.
     #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
     pub names: BTreeMap<FormId, FormId>,
@@ -1656,6 +1659,12 @@ pub struct Game<'a> {
     /// Actors whose race or sex changed since the engine last took them
     /// ([`Game::take_appearance_changes`], `crate::appearance`). Not saved.
     pub appearance_changes: Vec<crate::appearance::AppearanceChange>,
+    /// ShowOff's BaseCopyFaceGenFrom: an NPC base whose look comes from another for the
+    /// session (`crate::appearance`). Not saved [documented: CopyFaceGenFrom, other NPCs'
+    /// changes "will not be saved"].
+    pub face_from_base: std::collections::BTreeMap<FormId, FormId>,
+    /// Inside [`Game::came_through_start_menu`]: MenuMode blocks for any menu run too.
+    start_frames: bool,
     /// The perks' choice list open for an activation (`crate::activate_choices`). Not
     /// saved.
     pub activate_menu: Option<crate::activate_choices::ActivateMenu>,
@@ -2494,6 +2503,8 @@ impl<'a> Game<'a> {
             level_news: Vec::new(),
             resurrections: Vec::new(),
             appearance_changes: Vec::new(),
+            face_from_base: std::collections::BTreeMap::new(),
+            start_frames: false,
             activate_menu: None,
             perk_acts: Vec::new(),
             challenge_queue: Default::default(),
@@ -2635,6 +2646,8 @@ impl<'a> Game<'a> {
     /// "New Game" menu starts is a separate input, scripts.md §8]; the placed actors that
     /// start as corpses are dead ([`Game::lay_out_corpses`]).
     pub fn new_game(&mut self) {
+        // IsNewGame (`crate::nvse_unlisted2`): until a save is loaded.
+        self.other.unlisted2.new_game = true;
         // Placed corpses (Base Health 0) lie dead from the start.
         self.lay_out_corpses();
         let start: Vec<FormId> = self.data.quests.values().filter(|q| q.start_enabled()).map(|q| q.form).collect();
@@ -4099,6 +4112,7 @@ impl<'a> Game<'a> {
         if self.toggles.scripts_off {
             return;
         }
+        let any = self.start_frames;
         let subject = Some(Value::Num(code as f64));
         let data = self.data;
         let wants = |script: FormId| {
@@ -4108,6 +4122,12 @@ impl<'a> Game<'a> {
                         Some([Arg::Int(c), ..]) => *c as f64,
                         Some([Arg::Enum(c), ..]) => *c as f64,
                         Some([Arg::Float(c), ..]) => *c,
+                        // A MenuMode block for any menu runs under the start menu before a
+                        // game, where nothing else runs it [documented: MenuMode, no
+                        // argument "ANY menu"; hypothesis: under the original's main menu
+                        // too, as Enhanced Movement registers its NewGame handler from
+                        // such a block on GetGameRestarted, #2275].
+                        None | Some([]) if any => return b.event == event::MENU_MODE,
                         _ => return false,
                     };
                     b.event == event::MENU_MODE && c == code as f64
@@ -4126,14 +4146,14 @@ impl<'a> Game<'a> {
             if page {
                 self.mark_page_run(InstKey::Quest { quest: q }, Some(script));
             }
-            self.run_blocks(InstKey::Quest { quest: q }, script, event::MENU_MODE, subject, RunCtx { quest: Some(q), ..Default::default() }, true);
+            self.run_blocks(InstKey::Quest { quest: q }, script, event::MENU_MODE, subject, RunCtx { quest: Some(q), ..Default::default() }, !any);
         }
         for r in self.active_refs() {
             let Some(script) = self.ref_script(r).filter(|s| wants(*s)) else { continue };
             if page {
                 self.mark_page_run(InstKey::Ref { reference: r }, Some(script));
             }
-            self.run_blocks(InstKey::Ref { reference: r }, script, event::MENU_MODE, subject, RunCtx { self_ref: Some(r), ..Default::default() }, true);
+            self.run_blocks(InstKey::Ref { reference: r }, script, event::MENU_MODE, subject, RunCtx { self_ref: Some(r), ..Default::default() }, !any);
         }
     }
 
@@ -4172,14 +4192,17 @@ impl<'a> Game<'a> {
     /// first pause after loading (job mcm976e, menu-xml.md §10.1), and the mod adds it only
     /// from its own MenuMode 1013 block after half a second; the main menu is the only
     /// start menu before that]. `frames` page frames of `dt` seconds ([`Game::page_tick`]);
-    /// no shipped script has such a block, so the plain game is unchanged [observed:
-    /// fnvtool script decompile of the masters]. NVForever runs it once when a game starts.
+    /// no shipped script has a `MenuMode 1013` block [observed: fnvtool script decompile
+    /// of the masters]. MenuMode blocks for any menu run in these frames too (side_blocks),
+    /// the masters' included. NVForever runs it once when a game starts.
     pub fn came_through_start_menu(&mut self, frames: u32, dt: f64) {
         let keep = self.cfg.frame_seconds;
         self.cfg.frame_seconds = dt;
+        self.start_frames = true;
         for _ in 0..frames {
             self.page_tick(menus::START);
         }
+        self.start_frames = false;
         self.cfg.frame_seconds = keep;
     }
 

@@ -164,6 +164,7 @@ fn authored_rig(world: &mut World, view: View, root_x: f32) -> OwnedRig {
         animator: Animator::new(skel, vec![root, driven, unbound], None),
         clips,
         variants: HashMap::new(),
+        overrides: Arc::default(),
         head: None,
         eye_local: Vec3::ZERO,
         looking: None,
