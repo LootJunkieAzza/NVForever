@@ -670,6 +670,36 @@ pub(super) struct Requirements {
     pub optical_flow_queues: u32,
 }
 
+impl Requirements {
+    /// `other`'s requirements added, as Streamline's `vkCreateDevice` adds every loaded plugin's
+    /// for DLSS Frame Generation's merged device check (#2317, `win.rs`
+    /// `device_check`): the extension and feature lists joined (each name once; the proxy keeps
+    /// them in sets), the extra graphics and compute queues summed (it adds each plugin's count
+    /// to the last, `extraGraphicsQueues += ...`), the optical flow queues the larger (it keeps
+    /// one plugin's count) [documented: `src/wrapper.cpp:307-411`]. The flags: Vulkan only when
+    /// both list it, every other bit when either sets it [design: the device must suit every
+    /// feature asked for].
+    #[cfg_attr(not(windows), allow(dead_code))]
+    pub(super) fn merge(&mut self, other: &Requirements) {
+        let vulkan = self.flags & other.flags & FEATURE_REQUIREMENT_VULKAN_SUPPORTED;
+        self.flags = ((self.flags | other.flags) & !FEATURE_REQUIREMENT_VULKAN_SUPPORTED) | vulkan;
+        let join = |into: &mut Vec<String>, from: &[String]| {
+            for name in from {
+                if !into.contains(name) {
+                    into.push(name.clone());
+                }
+            }
+        };
+        join(&mut self.instance_extensions, &other.instance_extensions);
+        join(&mut self.device_extensions, &other.device_extensions);
+        join(&mut self.features12, &other.features12);
+        join(&mut self.features13, &other.features13);
+        self.graphics_queues = self.graphics_queues.saturating_add(other.graphics_queues);
+        self.compute_queues = self.compute_queues.saturating_add(other.compute_queues);
+        self.optical_flow_queues = self.optical_flow_queues.max(other.optical_flow_queues);
+    }
+}
+
 impl fmt::Display for Requirements {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let list = |items: &[String]| if items.is_empty() { "none".to_string() } else { items.join(", ") };
@@ -836,9 +866,11 @@ pub(super) fn judge(snapshot: &Snapshot, req: &Requirements) -> Result<Vec<Strin
     }
     let mut unknown: Vec<String> = req.features12.iter().filter(|f| !FEATURES_12.contains(&f.as_str())).map(|f| format!("1.2 feature {f}")).collect();
     unknown.extend(req.features13.iter().filter(|f| !FEATURES_13.contains(&f.as_str())).map(|f| format!("1.3 feature {f}")));
-    if req.optical_flow_queues > 0 {
-        unknown.push(format!("{} optical flow queue(s)", req.optical_flow_queues));
-    }
+    // Optical flow queues (DLSS Frame Generation asks for one) are not judged: the interposer
+    // adds them, from their own queue family, only when the GPU flows natively and the family has
+    // room, and otherwise leaves them out without failing [documented: Streamline 2.14.16
+    // `source/core/sl.interposer/vulkan/wrapper.cpp:950-959`]; DLSS Frame Generation then runs its
+    // optical flow in interop mode [documented: `docs/ProgrammingGuideDLSS_G.md` §3.1 note].
     if !unknown.is_empty() {
         return Err(unsuitable(format!("DLSS asks for what this check does not know: {}", unknown.join(", "))));
     }
@@ -1158,18 +1190,64 @@ mod tests {
         for req in [
             Requirements { features12: vec!["shaderTimeTravel".into()], ..dlss_requirements() },
             Requirements { features13: vec!["robustBufferAccess2".into()], ..dlss_requirements() },
-            Requirements { optical_flow_queues: 1, ..dlss_requirements() },
         ] {
             let err = judge(&snapshot(vec![rtx()]), &req).unwrap_err();
             assert_eq!(err.reason, Unavailable::DeviceUnsuitable);
             assert!(err.why.contains("does not know"), "{}", err.why);
         }
+        // Optical flow queues are the interposer's to add or leave out, never a reason to decline.
+        assert!(judge(&snapshot(vec![rtx()]), &Requirements { optical_flow_queues: 1, ..dlss_requirements() }).is_ok());
         let no_vulkan = Requirements { flags: 0b011, ..dlss_requirements() };
         assert_eq!(judge(&snapshot(vec![rtx()]), &no_vulkan).unwrap_err().reason, Unavailable::NotVulkan);
         let mut loader = snapshot(vec![rtx()]);
         loader.instance_extensions.remove("VK_KHR_external_memory_capabilities");
         let err = judge(&loader, &dlss_requirements()).unwrap_err();
         assert!(err.why.contains("lacks the instance extension(s) VK_KHR_external_memory_capabilities"), "{}", err.why);
+    }
+
+    /// DLSS Frame Generation's merged check (#2317): the lists joined, queues summed,
+    /// Vulkan only when every feature lists it, and a GPU lacking a name only another feature
+    /// asks for (here Reflex's `VK_NV_low_latency`, `reflexEntry.cpp:282-286`) declined.
+    #[test]
+    fn merged_requirements_join_lists_and_sum_queues() {
+        let mut merged = dlss_requirements();
+        // Requirements written for the test in the shape `slGetFeatureRequirements` reports.
+        let frame_generation = Requirements {
+            flags: 0b1_1100,
+            device_extensions: vec!["VK_KHR_push_descriptor".into(), "VK_NV_optical_flow".into()],
+            features13: vec!["synchronization2".into()],
+            graphics_queues: 1,
+            compute_queues: 1,
+            ..Requirements::default()
+        };
+        let reflex = Requirements { flags: 0b111, device_extensions: vec!["VK_NV_low_latency".into(), "VK_NV_low_latency2".into()], graphics_queues: 1, ..Requirements::default() };
+        merged.merge(&frame_generation);
+        merged.merge(&reflex);
+        assert_eq!(merged.flags, 0b1_1111, "Vulkan kept (all three list it), vsync off and scheduling bits from DLSS-G, D3D bits from either");
+        assert_eq!(
+            merged.device_extensions,
+            ["VK_NVX_binary_import", "VK_NVX_image_view_handle", "VK_EXT_buffer_device_address", "VK_KHR_push_descriptor", "VK_NV_optical_flow", "VK_NV_low_latency", "VK_NV_low_latency2"].map(String::from).to_vec(),
+            "each name once, in the order first asked"
+        );
+        assert_eq!(merged.instance_extensions, dlss_requirements().instance_extensions);
+        assert_eq!(merged.features13, vec!["synchronization2".to_string()]);
+        assert_eq!((merged.graphics_queues, merged.compute_queues, merged.optical_flow_queues), (2, 1, 0));
+        let mut no_vulkan = dlss_requirements();
+        no_vulkan.merge(&Requirements { flags: 0b011, ..Requirements::default() });
+        assert_eq!(no_vulkan.flags & FEATURE_REQUIREMENT_VULKAN_SUPPORTED, 0, "one feature without Vulkan clears it");
+        let mut flow = Requirements { optical_flow_queues: 1, ..dlss_requirements() };
+        flow.merge(&Requirements { optical_flow_queues: 2, ..Requirements::default() });
+        assert_eq!(flow.optical_flow_queues, 2);
+
+        // The RTX test GPU lacks Reflex's and DLSS-G's extensions: the merged check names them.
+        let mut lists_only = dlss_requirements();
+        lists_only.merge(&Requirements { flags: 0b111, device_extensions: vec!["VK_NV_low_latency".into()], ..Requirements::default() });
+        let err = judge(&snapshot(vec![rtx()]), &lists_only).unwrap_err();
+        assert_eq!(err.reason, Unavailable::DeviceUnsuitable);
+        assert!(err.why.contains("lacks VK_NV_low_latency"), "{}", err.why);
+        let mut d = rtx();
+        d.extensions.insert("VK_NV_low_latency".into());
+        assert!(judge(&snapshot(vec![d]), &lists_only).is_ok());
     }
 
     /// A CPU device (a software renderer) with Vulkan 1.3 but none of NVIDIA's extensions.
