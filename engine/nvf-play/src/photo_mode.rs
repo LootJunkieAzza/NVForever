@@ -1702,13 +1702,15 @@ mod tests {
         let mut app = camera_app(sight);
         app.insert_resource(crate::aim_zoom::AimZoom::down_the_sights(gameplay(), sight));
         frames(&mut app, 2);
-        assert_eq!(fov(&mut app), sight);
+        // The sights' zoom as it writes it (`zoomed_fov` at a blend of 1, within a rounding).
+        let before = fov(&mut app);
+        assert!((before - sight).abs() < 1e-5);
         open(&mut app);
         photo_zoom(&mut app, 90.0);
         frames(&mut app, 10);
         close(&mut app);
         frames(&mut app, 1);
-        assert_eq!(fov(&mut app), sight);
+        assert_eq!(fov(&mut app), before);
         assert_eq!(app.world().resource::<crate::aim_zoom::AimZoom>().blend, 1.0);
     }
 
