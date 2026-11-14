@@ -302,7 +302,14 @@ pub(crate) fn find_target(
                 describe(&sim, play.index, id).map(|(n, a)| match a {
                     // An ash or goo pile is searched as the body was (ash-piles.md §3).
                     Action::Activate if pile => (n, Action::Search),
-                    Action::Activate if rt.as_deref().is_some_and(|rt| rt.game.drink_water(FormId(id)).is_some()) => (n, Action::Drink),
+                    Action::Activate if rt.as_deref().is_some_and(|rt| rt.game.drink_water(FormId(id)).is_some()) => {
+                        // The player's tweak: the prompt says the H2O a drink takes off [design: docs/design/tweaks.md].
+                        let h2o = rt.as_deref_mut().filter(|rt| rt.game.tweaks.water_shows_h2o).and_then(|rt| {
+                            let spell = rt.game.drink_water(FormId(id)).and_then(|w| rt.game.water_effect(w))?;
+                            crate::script::with_world(rt, &mut sim, |rt| rt.game.aid_preview(FormId::PLAYER_REF, spell)).into_iter().find(|(c, _)| *c == fnv_game::aid::DEHYDRATION).map(|(_, a)| a)
+                        });
+                        (water_label(&n, h2o), Action::Drink)
+                    }
                     Action::Talk => {
                         let name = sim.ref_name(rt.as_deref().map(|rt| &rt.game), id).map_or(n, str::to_string);
                         // The player's tweak marks someone not yet spoken to [design: docs/design/tweaks.md].
@@ -509,6 +516,15 @@ impl AutoActivate {
         let before = self.times.len();
         self.times.retain(|&t| t > now);
         self.times.len() < before
+    }
+}
+
+/// A water source's prompt name with the H2O a drink takes off (the player's Water Sources
+/// Show H2O tweak): "Faucet (H2O -15)" [design: our own words, as the Pip-Boy's figures].
+pub fn water_label(name: &str, h2o: Option<f64>) -> String {
+    match h2o.filter(|a| a.abs() >= 0.5) {
+        Some(a) => format!("{name} (H2O {:+.0})", a),
+        None => name.to_string(),
     }
 }
 

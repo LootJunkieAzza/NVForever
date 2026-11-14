@@ -638,6 +638,8 @@ unless the player binds them, so nothing changes until then.
 | Critical-hit message, Name the Limb | `bCriticalHitMessagesIncludeLimbName` | base: `combat::hit_actor` emits a `NoteShown` with the `sCriticalStrikeIcon` icon for the player's critical; the switch `Tweaks::crit_message_limb` adds `limb_name` of the part |
 | Map marker added, Names the Place | `bDescriptiveMarkerAddedMessage` | base: `marker_added::watch` notes markers joining `PlayerState::map_markers` while played; the switch `TweakSettings::descriptive_marker_added` adds the name from `pipboy::data::read::markers` |
 | Hardcore need messages, Disable Needs Messages | `bDisableNeedsMessages` | base: `Game::update_need_stages` shows the masters' sDehydration/sSleepDeprevation Increase, Decrease or NotSick (`needs::need_change`); the switches `Tweaks::no_dehydration_messages`, `no_sleep_messages` |
+| Water Sources Show H2O | `bWaterSourcesShowH2O` | `activate`'s prompt for a water source adds `water_label` with the Dehydration change of its water's effect. The switch: `Tweaks::water_shows_h2o` |
+| Double-Tap Reload Changes Ammo | `bDoubleTapReloadToChangeAmmoType` | `control::read_controls` holds a tap in `PlayerControl::reload_wait` for `DOUBLE_TAP`: a second tap sets `ammo_swap`, else `reload`. The switch: `TweakSettings::double_tap_ammo` |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -659,9 +661,9 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 574 |
-| to do | 22 |
-| unsure, skipped | 22 |
+| done | 576 |
+| to do | 18 |
+| unsure, skipped | 24 |
 | n/a | 17 |
 | skipped: fix | 10 |
 
@@ -917,6 +919,7 @@ game's Data folder, read-only).
 | `bDisableWeaponFOV` | done |  | 1 | No Iron Sight Zoom (the non-sighted option not built) |
 | `bDontSetQuestWhenCompletingObjectives` | done |  |  | No Active Quest After Completing One |
 | `bDontSetQuestWhenObjectivesAdded` | done |  |  | No Active Quest From New Objectives (both quest tweaks keep the Pip-Boy from picking one) |
+| `bDoubleTapReloadToChangeAmmoType` | done | yes | 2 | Double-Tap Reload Changes Ammo: a second Ready Item tap within 0.3 s (ours) swaps the ammo; a single tap reloads once that wait is over. The wait is why Lower Weapon left the double tap, so it is only there with the switch on |
 | `bEnteringVATSDoesntUnholsterWeapon` | done |  |  | V.A.T.S. Puts the Weapon Back (when it drew it and nothing was fired) |
 | `bEquipBrokenItems` | done |  |  | Equip Broken Items (the player only); a broken weapon in hand does not fire or swing |
 | `bFireWhileAiming` | done |  |  | already so: the trigger does not wait for the zoom |
@@ -976,7 +979,6 @@ game's Data folder, read-only).
 | `bUnspokenNPCIndicator` | done |  |  | Mark Strangers |
 | `bUseFirstPersonEmptyClipSound` | done |  |  | already so: one empty-clip sound, played at the listener |
 | `bWeaponCycleUpDownHotkeys` | done |  |  | D-Pad Changes Weapon: with a controller the D-pad's right takes out the next hotkeyed weapon and its left the one before (the Mouse Wheel Changes Weapon stepping); while it is on, those two presses are not Ammo Swap and hotkey 4 |
-| `bDoubleTapReloadToChangeAmmoType` | to do | yes | 2 | the owner moved Lower Weapon off a double tap because it held reloads back; ask first |
 | `bRestore2Hotkey` | unsure, skipped | yes | 2 | needs the plugin's own menu XML |
 | `bAddItemUsesItemIcon` | unsure, skipped |  |  | needs an icon replacer |
 | `bAddNightVisionToggle` | to do |  | 4 | a night vision state plus flashlight and scope_view |
@@ -1049,11 +1051,11 @@ game's Data folder, read-only).
 | `bShowUsePasswordOnTerminalsWithNote` | done |  | 1 | Show Use Password (until first opened this session; sUsePassword is our words) |
 | `bSubtitlesShowActorNames` | done |  |  | Subtitles Name the Speaker |
 | `bTalkWhileSneakingIfShiftIsHeld` | done |  |  | Shift to Talk While Sneaking |
+| `bWaterSourcesShowH2O` | done |  | 1 | Water Sources Show H2O: a tap's or puddle's prompt reads "Faucet (H2O -15)", the Dehydration its water's effect takes off (`aid_preview`); NVForever's water prompt shows no HP, so nothing is replaced; its Shift option is not built |
 | `iDateFormat` | done |  | 1 | Date Format (four styles of ours) |
 | `iHUDMaxCompassNPCTicks` | done |  | 1 | already so: the compass has no cap on actors |
 | `bHUDShowRegionNames` | to do |  | 1 | not built: the HUD has no region text |
 | `bHUDWeaponNameLabel` | unsure, skipped |  | 5 | needs the plugin's own menu XML |
-| `bWaterSourcesShowH2O` | to do |  | 1 | not built: water prompts carry no line |
 
 ### Menus
 
@@ -1179,12 +1181,12 @@ game's Data folder, read-only).
 | `bVATSAPDisplayIncludesReloadCost` | n/a |  |  | NVForever's V.A.T.S. takes no more marks than the rounds loaded allow (`fnv_combat::vats::MarkQueue`), so no queued attack reloads and there is no reload cost to show |
 | `bSaveCharacterSelector` | unsure, skipped | yes | 1 | needs the plugin's own menu XML |
 | `bAmmoLabelUseLongName` | unsure, skipped |  | 1 | needs a UI mod |
-| `bControllerBackButtonDoesntClosePipBoy` | to do |  |  | unsure which pad button is meant: East (B) works as Esc in every menu, View/Select opens nothing there |
 | `bLocalMapRespawnedCellIndicator` | to do |  | 2 | not built: the local map has no cell grid |
 | `bCustomPopupIcons` | to do |  | 17 | per-kind icons for the need messages (built for dehydration and sleep, owner-review 59) need a picture chosen for each; the archives hold no Hardcore need icons, and the Tweaks tab has no picture list yet |
 | `bNoteMenuShowSeparateMenu` | unsure, skipped |  | 1 | needs another mod (Book Menu Restored) |
 | `bShowInventorySortButton` | unsure, skipped |  | 11 | needs the plugin's own menu XML |
 | `bCustomHackingAnswerLength` | unsure, skipped |  | 8 | the readme gives no defaults and does not say how its options change the attempts or the words; built from it, every figure would be a guess |
+| `bControllerBackButtonDoesntClosePipBoy` | unsure, skipped |  |  | which pad button the readme means is unclear: East (B) works as Esc in every menu, and View/Select opens nothing there |
 
 ### Hotkeys
 
@@ -1239,8 +1241,8 @@ game's Data folder, read-only).
 | `bSleepWaitAnywhere` | done |  | 6 | Wait Anywhere (one switch for all; a script ban still refuses) |
 | `bWeightlessAidItems` | done |  |  | covered by Weightless Aid (in Hardcore too) |
 | `bWeightlessItems` | done |  | 5 | Weightless Armor / Aid / Ammo / Weapons / Misc Items (five rows) |
-| `bDebugLockpickMenu` | to do |  |  | the meter is a developer aid; developer escape hatches stay out of player builds (owner rule), ask first |
 | `bReallocateSkillPointsOnLevelup` | to do |  |  | earlier levels spent points are not recorded |
+| `bDebugLockpickMenu` | unsure, skipped |  |  | it shows the lock's sweet spot, a developer aid; the owner's rule keeps developer aids out of player builds |
 
 ### Misc
 

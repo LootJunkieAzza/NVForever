@@ -447,3 +447,10 @@ fn e_on_a_chest_opens_the_container_menu_and_it_stays_open() {
     app.update();
     assert_eq!(*app.world().resource::<State<PlayState>>().get(), PlayState::Playing);
 }
+
+#[test]
+fn a_water_prompt_carries_its_h2o() {
+    assert_eq!(water_label("Faucet", Some(-15.0)), "Faucet (H2O -15)");
+    assert_eq!(water_label("Faucet", Some(0.2)), "Faucet");
+    assert_eq!(water_label("Faucet", None), "Faucet");
+}

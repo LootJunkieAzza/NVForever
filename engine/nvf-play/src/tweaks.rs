@@ -554,6 +554,9 @@ pub struct TweakSettings {
     /// `bAllowKeyboardAndMouseWithControllerConnected`: with the controller as the input
     /// device, the keyboard and mouse still move, look and act (not in menus).
     pub keys_with_pad: bool,
+    /// `bDoubleTapReloadToChangeAmmoType`: a second Ready Item tap swaps the ammo; a single
+    /// tap reloads after a short wait for it.
+    pub double_tap_ammo: bool,
     /// `bCustomLocationDiscoveredSound` (`sEditorID`): the sound a discovered place plays,
     /// by Editor ID; empty: the game's own.
     pub discovered_sound: String,
@@ -926,6 +929,7 @@ impl Default for TweakSettings {
             wheel_cycles_hotkeys: false,
             dpad_cycles_hotkeys: false,
             keys_with_pad: false,
+            double_tap_ammo: false,
             discovered_sound: String::new(),
             level_sound_every_a: 0.0,
             level_sound_a: String::new(),
@@ -1814,6 +1818,7 @@ impl Plugin for TweaksPlugin {
         switch!(app, "crit-message-limb", "Critical Hit Messages Name the Limb", "The critical-hit message names the part you struck, as \"Critical hit on Easy Pete's torso\". (Stewie's Tweaks bCriticalHitMessagesIncludeLimbName)", game.crit_message_limb);
         switch!(app, "no-dehydration-messages", "No Dehydration Messages", "No corner message when your dehydration gets better or worse. (Stewie's Tweaks bDisableNeedsMessages, bDehydration)", game.no_dehydration_messages);
         switch!(app, "no-sleep-messages", "No Sleep Deprivation Messages", "No corner message when your sleep deprivation gets better or worse. (Stewie's Tweaks bDisableNeedsMessages, bSleep)", game.no_sleep_messages);
+        switch!(app, "water-shows-h2o", "Water Sources Show H2O", "A tap's or puddle's prompt shows how much H2O a drink takes off. (Stewie's Tweaks bWaterSourcesShowH2O)", game.water_shows_h2o);
         switch!(app, "robots-heal-with-scrap", "Robot Companions Heal With Scrap Metal", "The companion wheel's Use Stimpak gives a robot companion Scrap Metal instead. (Stewie's Tweaks bRobotCompanionsHealWithScrapMetal)", game.robots_heal_with_scrap);
         amount!(app, "robot-heal-base", "Scrap Metal: Health Each", "Health one Scrap Metal gives a robot companion. (Stewie's Tweaks bRobotCompanionsHealWithScrapMetal, fBase)", 200.0, f32, game.robot_heal_base);
         amount!(app, "robot-heal-per-repair", "Scrap Metal: Health per 10 Repair", "Health added for each 10 points of your Repair skill. (Stewie's Tweaks bRobotCompanionsHealWithScrapMetal, fRepairMult)", 50.0, f32, game.robot_heal_per_repair);
@@ -2102,6 +2107,7 @@ impl Plugin for TweaksPlugin {
         switch!(app, "wheel-cycles-hotkeys", "Mouse Wheel Changes Weapon", "In first person, rolling the mouse wheel takes out the next (up) or previous weapon on your hotkeys. (Stewie's Tweaks bMousewheelScrollsWeaponHotkeys)", wheel_cycles_hotkeys);
         switch!(app, "dpad-cycles-hotkeys", "D-Pad Changes Weapon", "With a controller, the D-pad's right takes out the next weapon on your hotkeys and its left the one before, instead of Ammo Swap and hotkey 4. (Stewie's Tweaks bWeaponCycleUpDownHotkeys)", dpad_cycles_hotkeys);
         switch!(app, "keys-with-pad", "Keyboard and Mouse With a Controller", "With the controller as the input device, the keyboard and mouse still move you, look and act; the menus keep the controller's. (Stewie's Tweaks bAllowKeyboardAndMouseWithControllerConnected)", keys_with_pad);
+        switch!(app, "double-tap-ammo", "Double-Tap Reload Changes Ammo", "Tapping Reload twice quickly swaps the ammo type; one tap reloads after a third of a second, the wait for a second tap. (Stewie's Tweaks bDoubleTapReloadToChangeAmmoType)", double_tap_ammo);
         switch!(app, "compass-pips-fade", "Fade Pips by Distance", "People and creatures on the compass grow fainter the further away they are, over the distance they could notice you sneaking. (Stewie's Tweaks bCompassNPCDistanceBasedAlpha)", compass_pips_fade);
         switch!(app, "compass-places-fade", "Fade Places by Distance", "Places on the compass grow fainter the further away they are, over the distance they show at. (Stewie's Tweaks bCompassLocationDistanceBasedAlpha)", compass_places_fade);
         switch!(app, "buffed-health-bars", "Health Bars Count Buffs", "A target's health bar includes Health raised by chems and effects, so a buffed enemy's bar shows how much it can take. (Stewie's Tweaks bEnemyHealthbarShowBuffedHP)", game.buffed_health_bars);

@@ -148,6 +148,9 @@ pub struct PlayerControl {
     pub orbit: Orbit,
     /// How long Ready Item has been held with the weapon out (a hold holsters).
     pub ready_held: Option<f32>,
+    /// A Ready Item tap waiting [`DOUBLE_TAP`] for a second one (the player's Double-Tap
+    /// Reload Changes Ammo tweak): seconds since it.
+    pub reload_wait: Option<f32>,
     /// Use held with the weapon out (the trigger; `crate::combat` reads it).
     pub trigger: bool,
     /// A reload was asked for (Ready Item tapped with the weapon out); `crate::combat`
@@ -188,6 +191,7 @@ impl Default for PlayerControl {
             distance: DEFAULT_DISTANCE,
             orbit: Orbit::default(),
             ready_held: None,
+            reload_wait: None,
             trigger: false,
             reload: false,
             lowered: false,
@@ -500,6 +504,9 @@ pub fn report_locks(mut exit: MessageReader<AppExit>, locks: Res<ControlLocks>, 
 /// the eye the view counts as first person, so the body goes while the camera is still
 /// behind the head, not through it [design].
 pub const TALK_CAMERA_CLOSE: f32 = 0.85;
+/// Under the player's Double-Tap Reload Changes Ammo tweak, a second Ready Item tap within
+/// this many seconds swaps the ammo instead of reloading, seconds [design].
+pub const DOUBLE_TAP: f32 = 0.3;
 /// Holding Ready Item this long with the weapon out holsters it, seconds [hypothesis].
 pub const HOLSTER_HOLD: f32 = 0.5;
 /// The circling camera swings back behind the player with this time constant, seconds
@@ -634,8 +641,26 @@ pub fn read_controls(
             info!("Ready Item held: the weapon holstered");
         } else if input.just_released(Control::ReadyItem) || !input.pressed(Control::ReadyItem) {
             c.ready_held = None;
-            c.reload = true;
             c.lowered = false;
+            // The player's tweak: a second tap within [`DOUBLE_TAP`] swaps the ammo, so a
+            // tap waits for it before reloading [design: docs/design/tweaks.md].
+            if tweaks.as_ref().is_some_and(|t| t.double_tap_ammo) {
+                if c.reload_wait.take().is_some() {
+                    c.ammo_swap = true;
+                    info!("Ready Item tapped twice: ammo swap (tweak)");
+                } else {
+                    c.reload_wait = Some(0.0);
+                }
+            } else {
+                c.reload = true;
+            }
+        }
+    }
+    if let Some(t) = c.reload_wait.as_mut() {
+        *t += time.delta_secs();
+        if *t >= DOUBLE_TAP && c.ready_held.is_none() {
+            c.reload_wait = None;
+            c.reload = true;
         }
     }
     // The Tweaks tab's Holster Weapon key [design: docs/design/tweaks.md].
