@@ -22863,6 +22863,24 @@ expect = [
 ]
 
 [[scenario]]
+name = "hour-jump-unseen-placed"
+source = "issue #2353: a script's write that moves GameHour more than an hour (VCG01 stage 200's set GameHour to 8 on a new game) has everybody choose its package at once and puts the residents out of sight where their new package has them; those in view walk there (Core::after_hour_jump, fnv_ai Ai::hour_jumped; docs/spec-notes/packages.md §9)"
+note = "Goodsprings at 06:00 by Easy Pete's porch; at 3 s he is moved to his bed 00176ACE in GSHouseInterior03 (behind a door of the loaded cells, out of sight), where EasyPeteSleepPackage keeps him. At 20 s the console sets GameHour to 8, a script's write as VCG01 stage 200's: EasyPeteChairPackage8x4 is chosen at once and he is put on his porch chair 0010634A without walking out of the house. Before #2353 he chose at his next periodic turn and walked out from the bed (the issue's Easy Pete out of place). The aids cannot drive the new game's opening into Doc Mitchell's last line, so the console stands in for the quest stage"
+areas = ["ai", "residents", "clock"]
+paths = ["crates/fnv-ai/src/arrive.rs", "engine/nvforever/src/residents.rs", "crates/fnv-game/src/functions/console.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:moveto:EasyPeteRef:0x00176ACE:0:60:0", NVF_PLAY_TEST_CONSOLE = "20:set GameHour to 8;20.5:close" }
+args = ["--play", "--cell", "Goodsprings", "--pos=-68375,4800,8700", "--hour", "6", "--npc-packages", "EasyPeteRef", "--no-voice", "--no-messages"]
+run_seconds = 40
+order = [[
+  { re = 'the clock was set from 06:\d\d to 08:00 by a script: packages chosen again; 1 of \d+ residents out of sight put', label = "the jump is taken: one resident out of sight is put" },
+  { re = 'EasyPeteRef: put at its package.s place after the clock was set \(EasyPeteChairPackage8x4\): .* in WastelandNV, from .* in GSHouseInterior03', label = "Easy Pete is put at his porch chair from his bed" },
+  { re = 'furniture: 00104C80 is (back )?on 0010634A', label = "drawn on his porch chair" },
+]]
+expect = [
+  { text = "EasyPeteRef: used door", count = 0, label = "he walks through no door in sight" },
+]
+
+[[scenario]]
 name = "pause-mods-page"
 source = "issue #976 T11 (engine/nvf-play/src/tiles/mods.rs, pause.rs; docs/handoff/ui-tile-tree-tasks.md T11, ui-tile-tree.md §7): with a mod's tiles in StartMenu (the switch on by default), the pause menu has a Mods entry; its page writes the original column's traits MCM waits for (menu-xml.md §10.1), clicks MCM's trigger so MCM's window opens, runs the start menu's MenuMode 1013 blocks each frame, in the played world, and Back closes it"
 note = "needs MCM in Data: its loose menu files (menus/options/start_menu.xml and menus/prefabs/MCM) give StartMenu its mod tiles, and its plugin (The Mod Configuration Menu.esp, loaded with --plugins) has the blocks. MCM's quest sets iInstallCheck to 1 in GameMode at the start and its MenuMode 1013 block sets it to 0, so the variable read before and after the page shows the block ran. With no mod registered with MCM its script stops at its 'No MCM Mods' check, so its window stays shut (pause-mods-page-jam opens it); pause_mods.png shows the page"

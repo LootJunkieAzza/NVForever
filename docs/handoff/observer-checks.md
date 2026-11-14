@@ -1982,3 +1982,17 @@ heading 75) with NVFExtProbe.esp loaded, as the jip-probes sets run.
      what does she say on it? The same for one actor each of MaleAdult10-12 and
      FemaleAdult12 without a Goodbye line of their own. If she offers none, the gate
      takes a quest's GetIsID (and what else?) but not its voice-type list.
+
+## Added 2026-11-14 (a script moving the clock, issue #2353)
+
+128. **Where are actors after a script sets GameHour?** (P2; packages.md §9.) NVForever,
+     on a script's GameHour write of more than an hour, has everybody choose its package
+     at once and puts the actors out of sight at their new package's place; those in view
+     walk there [design, #2353]. To check, the issue's way: on a new game skip Doc
+     Mitchell's last line, answer the Hardcore box and go through the door at once. Note
+     the hour on arrival (GetCurrentTime every frame for the first ten seconds), and Easy
+     Pete's place, GetCurrentAIPackage and GetSitting at arrival and 1, 5 and 15 s after
+     the clock reads 8:00; then the same waiting inside for the window to turn light. Also:
+     at 06:00 on the street by Easy Pete's porch, with him in bed in his house,
+     `set GameHour to 8` from the console and the same samples: is he on his porch chair
+     at once, does he walk out of his door, or does he stay in bed until his next choice?

@@ -36,6 +36,12 @@
 //! are where their packages have them; one that was on furniture and is to be elsewhere
 //! is off it at once. [engineering choice: what the original does is not sourced.]
 //!
+//! **A script moving the clock** (`set GameHour to 8`, more than an hour on the clock
+//! face; issue #2353, docs/spec-notes/packages.md §9) is handled like the end of a wait:
+//! everybody chooses its package at once, and the residents out of sight are put where
+//! their new packages have them, as on arrival; those in view walk there
+//! ([`Core::after_hour_jump`]) [design, #2353].
+//!
 //! **Movement.** With `--play`, an actor walking where the collision world is loaded
 //! (around the player) is moved by the character controller ([`PhysMover`]): it steers
 //! along its path and physics decides where it ends up, so it goes round furniture and
@@ -870,6 +876,9 @@ struct Resident {
     last_drawn: Option<(f32, [f32; 3])>,
     /// A script put it somewhere (MoveTo) this frame: off its furniture at once.
     moved: bool,
+    /// Put at its package's place this frame after a script moved the clock
+    /// ([`Core::after_hour_jump`]): off its furniture at once, as `moved`.
+    jumped: bool,
     /// Whether it cannot walk ([`cannot_walk`]), once looked up.
     rooted: Option<bool>,
     /// It cannot walk and its base has the Flies flag: a perched bird, in nobody's way
@@ -1223,7 +1232,11 @@ fn set_global(g: &mut Game, edid: &str, v: f32) -> Result<(), String> {
 }
 
 fn clock_text(g: &Game) -> String {
-    let h = g.world.calendar().map(|c| c.hour).unwrap_or(0.0);
+    hour_text(g.world.calendar().map(|c| c.hour).unwrap_or(0.0))
+}
+
+/// `h` (GameHour) as HH:MM.
+fn hour_text(h: f32) -> String {
     format!("{:02}:{:02}", h.floor() as u32, ((h.fract() * 60.0).floor() as u32).min(59))
 }
 
@@ -1570,6 +1583,7 @@ impl Core {
             perched: false,
             immobile: false,
             moved: false,
+            jumped: false,
             last_space: None,
             aim_heading: None,
             lock_held: None,
@@ -1930,6 +1944,67 @@ impl Core {
         if trip.settled >= TRIP_SETTLE_FRAMES {
             info!("ai [{}] trip over: {} residents put at their package's place, {} seated at once", self.clock_text, trip.put[0], trip.put[1]);
             self.trip = None;
+        }
+    }
+
+    /// A script moved the clock by more than [`fnv_game::ai::SCRIPT_HOUR_JUMP`] since the
+    /// last frame (`Game::take_hour_jump`; issue #2353: VCG01 stage 200's `set GameHour to
+    /// 8` after the player rushed out of Doc Mitchell's house, Goodsprings already placed
+    /// for the early morning, Easy Pete in bed): as at the end of a wait, everybody
+    /// chooses its package now, and the residents the player cannot see (in the cell
+    /// buffer or an interior behind a door of the loaded cells, not in a drawn cell) are
+    /// put where their new package's walk ends, on its furniture, as on arrival
+    /// (`fnv_ai::Ai::hour_jumped`). Residents in view are not moved: they walk to their
+    /// new packages in sight [design, #2353]. Runs while a menu holds the game too (the
+    /// console's `set GameHour to`).
+    fn after_hour_jump(&mut self, game: &mut Game, nav: &NavState, world: &WorldData, streamer: &Streamer, mut phys: Option<&mut PhysState>) {
+        let Some(jump) = game.take_hour_jump() else { return };
+        self.join(game);
+        let doors = interiors_behind_doors(world, streamer, game.world.placed);
+        let unseen = |p: fnv_nav::Place| !drawn(world, streamer, p.space, p.pos) && (streamer.buffer.holds(p.space, p.pos) || matches!(p.space, Space::Interior(c) if doors.contains(&c)));
+        let arrivals = self.ai.hour_jumped(game, &nav.graph, &unseen);
+        self.clock_text = clock_text(game);
+        info!(
+            "ai [{}] the clock was set from {} to {} by a script: packages chosen again; {} of {} residents out of sight put at their package's place",
+            self.clock_text,
+            hour_text(jump.from),
+            hour_text(jump.to),
+            arrivals.len(),
+            self.ai.agents.len()
+        );
+        for (actor, arr) in arrivals {
+            let Some(r) = self.list.iter_mut().find(|r| r.actor == actor) else { continue };
+            r.present = game.present(actor);
+            r.jumped = true;
+            // Its character, if it had one, is made again where it is now (as on arrival).
+            if let Some(p) = phys.as_deref_mut() {
+                p.remove_npc(actor.0);
+            }
+            self.unstuck.remove(&actor.0);
+            self.skip_until.remove(&actor.0);
+            self.skip_refusals.forget(actor.0);
+            if let Some(f) = arr.furniture {
+                // Sat down at once, as found sitting (no walk up, no sitting-down clip).
+                r.wants = Some(f.0);
+                r.seat = Seat::Wanted(f.0, true);
+            }
+            // Every one: a jump puts few, and the smoke tests read where they came from.
+            info!(
+                "ai [{}] {}: put at its package's place after the clock was set ({}): ({:.0}, {:.0}, {:.0}) in {}, from ({:.0}, {:.0}, {:.0}) in {}, {} walk(s) skipped{}",
+                self.clock_text,
+                r.label,
+                game.data.name(arr.package),
+                arr.to.pos[0],
+                arr.to.pos[1],
+                arr.to.pos[2],
+                nav::space_name(world, arr.to.space),
+                arr.from.pos[0],
+                arr.from.pos[1],
+                arr.from.pos[2],
+                nav::space_name(world, arr.from.space),
+                arr.walks,
+                arr.furniture.map_or_else(String::new, |f| format!(", seated on {}", game.data.name(f)))
+            );
         }
     }
 
@@ -3016,6 +3091,7 @@ pub fn drive(
                 res.core.take_created(game);
             }
             res.core.process_levels(game, &world, &streamer);
+            res.core.after_hour_jump(game, &nav, &world, &streamer, None);
             res.core.arrive(game, &nav, &world, &streamer, None);
             res.core.switch_navmeshes(game, &mut nav);
             let _span = info_span!("ai::think").entered();
@@ -3053,6 +3129,7 @@ pub fn drive(
                 core.process_levels(&rt.game, world_ref, streamer_ref);
                 drop(span);
                 let span = info_span!("ai::arrive").entered();
+                core.after_hour_jump(&mut rt.game, &nav, world_ref, streamer_ref, phys.as_deref_mut());
                 core.arrive(&mut rt.game, &nav, world_ref, streamer_ref, phys.as_deref_mut());
                 drop(span);
                 let span = info_span!("ai::switch_navmeshes").entered();
@@ -3108,6 +3185,8 @@ pub fn drive(
         if moved {
             r.first_steps = Some(FirstSteps::new("its move by a script"));
         }
+        // Or it was put at its package's place after a script moved the clock.
+        let moved = moved || std::mem::take(&mut r.jumped);
         if let (true, Some(f)) = (waited > 0 || moved, r.seat.furniture()) {
             if wants != Some(f) {
                 r.seat = Seat::None;
