@@ -2109,3 +2109,20 @@ heading 75) with NVFExtProbe.esp loaded, as the jip-probes sets run.
      Record how often a limb explodes or is severed and how many parts go per blast. The
      answer fits the mine source-weapon gate (`nvf_play::mines`) and the On Hit rule for
      blasts; it goes into dismemberment.md §4.
+
+## Added 2026-11-14 (the Boomers' barrage after Pearl, #2449)
+
+137. **Does the barrage stop for a player standing in the field when Volare! starts?**
+     (P3; #2449.) NellisArtilleryScript (SCPT 0x000FF29C) counts the player in on
+     OnTriggerEnter and out on OnTriggerLeave, but passes over the player in both blocks
+     once VMS15 runs or is done [observed: the record's source text]; VMS15 starts with
+     stage 20, set by the end script of Pearl's Goodbye line 0x001050FD
+     (VFreeformNellisNellisPearlTopic010) [observed]. So a player counted in before stage 20
+     and still inside when it is set should be shelled on and on [hypothesis]. To check, on
+     a save before Pearl's talk: stand in the field (trigger 0x0015A378) with `tgm`, then
+     `setstage VMS15 20` from the console; walk out and back. Does the shelling stop, at
+     once, on leaving, or never? And does a save and load inside the field reset it?
+     Also, before Pearl: fast travel out of the field while shelled and back. Does the
+     trigger run its OnTriggerLeave for a player who travels away (ours does since #2449,
+     engine/nvf-play/src/script_trigger.rs `leave_reported`, [design]): does the barrage
+     start afresh on the return, or never stop?

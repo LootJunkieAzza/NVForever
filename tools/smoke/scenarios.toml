@@ -23193,6 +23193,40 @@ expect = [
 ]
 
 [[scenario]]
+name = "nellis-artillery-holds-fire-accepted"
+source = "issue #2449 (owner): the Boomers' artillery kept shelling the player after Pearl took them in. NellisArtilleryScript's OnTriggerEnter passes over the player while VMS15 (Volare!) is running or done, and its OnTriggerLeave then passes over the player too, so a player counted in before VMS15 started is never counted out. In v0.7.0 a chosen Goodbye line closed the conversation at once and Pearl's line 0x001050FD (whose end script sets VMS15 stage 20) finished in the world some 40 s later, after the player could be back in the field; since #2157 the line holds the player until it is said"
+note = "the player starts at the Nellis fast-travel marker, outside the artillery's triggers; the console sets VMS15 stage 20 (Pearl's line) and puts the player inside NellisArtilleryActivatorREF (0x000FF806, as nellis-artillery-fires does); god mode. No shell may come"
+areas = ["scripts", "dialogue"]
+paths = ["crates/fnv-game/src/game.rs", "crates/fnv-game/src/dialogue.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_CONSOLE = "8:setstage 000FF5DF 20;8.3:getquestrunning 000FF5DF;8.6:player.setpos x 28955;player.setpos y 121500;player.setpos z 6000;9:close" }
+args = ["--world", "WastelandNV", "--pos=34322,125976,4400", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 40
+order = [[
+  { re = 'console: GetQuestRunning >> 1\.00', label = "Volare! runs (the stage Pearl's line sets)" },
+  { text = "script: player entered trigger NellisArtilleryActivatorREF", label = "the player is in the artillery's trigger" },
+]]
+expect = [
+  { re = 'script: ArtillerySoundMarkerREF moved to', max = 0, label = "the barrage does not start for a player the Boomers took in" },
+  { re = 'combat: explosion NellisArtilleryExplosion at', max = 0, label = "no shell lands" },
+]
+
+[[scenario]]
+name = "nellis-artillery-leave-by-travel"
+source = "issue #2449 (owner): the Boomers' artillery kept shelling the player after they took the player in. NellisArtilleryScript counts the actors in its field in (OnTriggerEnter) and out (OnTriggerLeave); a player who fast-travelled out of the field got no OnTriggerLeave (the trigger's cell unloaded), stayed counted, and once Volare! runs the script no longer counts the player in or out, so the barrage never stopped. The player now leaves a trigger whose cell unloads with an OnTriggerLeave (engine/nvf-play/src/script_trigger.rs leave_reported)"
+note = "the player starts inside NellisArtilleryActivatorREF (0x000FF806) under fire, god mode; the console moves the player 90,000 units west (the field's cells unload), sets VMS15 stage 20 (Pearl's line), then puts the player back in the field"
+areas = ["scripts", "combat"]
+paths = ["engine/nvf-play/src/script_trigger.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_CONSOLE = "14:player.setpos x -60000;player.setpos y 121500;player.setpos z 12000;14.5:close;20:setstage 000FF5DF 20;20.5:player.setpos x 28955;player.setpos y 121500;player.setpos z 6000;21:close" }
+args = ["--world", "WastelandNV", "--pos=28955,121500,6000", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 45
+order = [[
+  { text = "script: player entered trigger NellisArtilleryActivatorREF", label = "the player is in the artillery's trigger" },
+  { re = 'combat: explosion NellisArtilleryExplosion at', label = "shells land around the player" },
+  { text = "script: player left trigger NellisArtilleryActivatorREF", label = "travelling away (the field's cells unload) runs the trigger's OnTriggerLeave: the script counts the player out" },
+  { text = "script: player entered trigger NellisArtilleryActivatorREF", label = "back in the field once Volare! runs" },
+]]
+
+[[scenario]]
 name = "script-move-dynamic-clutter"
 source = "issue #1311: SetPos on a reference whose collision is one dynamic body (clutter, dropped or placed items) snapped back at once, the settle write-back copying the body's old pose over the move; console moves were never seen (the tick cleared Game::turned first)"
 note = "A bottle (0x0010A1F6) placed by the console at the player in Goodsprings, moved sideways 3 s later to x = -68150 with SetPos; GetPos x half a second and two seconds later reads the new x"

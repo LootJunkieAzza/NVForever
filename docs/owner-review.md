@@ -239,6 +239,15 @@ the spec it links to.
   (as scripted first-person idles do) or apply the effect at its end. The original's
   behaviour is observer check 131. ([idles section 16](spec-notes/idles.md))
 
+- **Goodbye lines finished in the world run their end script late (#2449).** [design,
+  #2449] With `goodbye_at_once` (the v0.7.0 rule, a switch that is off since #2157) a
+  chosen Goodbye line's end result script still runs when the actor finishes the line,
+  not when the menu closes. That is what kept the Boomers shelling the player in v0.7.0:
+  Pearl's last line (0x001050FD) starts Volare! from its end script about 40 s after the
+  menu closed, and a player back in the artillery field by then is never counted out
+  (NellisArtilleryScript passes over the player on leaving once Volare! runs). Kept as it
+  is because the switch is off; if you turn it back on, the end script should run as the
+  menu closes ([dialogue §5](spec-notes/dialogue.md)).
 - **Texture scrolls drive every shape sharing the property (#2450).** [design, #2450]
   A sequence's texture offset, scale or rotation track now moves every shape that lists
   the same `NiTexturingProperty`, as material tracks already did for a shared
