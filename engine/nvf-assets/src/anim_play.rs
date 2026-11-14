@@ -748,9 +748,29 @@ struct Contrib {
     s: f32,
     w: f32,
     p: i32,
+    /// The [`BlendPlayer`] slot the sample came from.
+    k: u8,
 }
 
-const CONTRIB_NONE: Contrib = Contrib { t: Vec3::ZERO, r: Quat::IDENTITY, s: 1.0, w: 0.0, p: 0 };
+const CONTRIB_NONE: Contrib = Contrib { t: Vec3::ZERO, r: Quat::IDENTITY, s: 1.0, w: 0.0, p: 0, k: 0 };
+
+/// The movement slots ([`BlendPlayer::over_movement`]): locomotion's clip and the one it
+/// fades out of.
+const MOVEMENT_SLOTS: u8 = 0b11;
+
+/// [`BlendPlayer::over_movement`] for one node's samples: a sample of a slot in `over`
+/// whose priority is below the highest of the movement slots' samples of that node is
+/// lifted just above it, so the idle shows there in place of the base idle; the identity
+/// an undriven accumulation root takes is left as it is.
+fn lift_over_movement(c: &mut [Contrib], over: u8) {
+    if over == 0 {
+        return;
+    }
+    let Some(top) = c.iter().filter(|x| MOVEMENT_SLOTS >> x.k & 1 == 1 && x.p != UNDRIVEN_ROOT_PRIORITY).map(|x| x.p).max() else { return };
+    for x in c.iter_mut().filter(|x| over >> x.k & 1 == 1 && x.p != UNDRIVEN_ROOT_PRIORITY && x.p <= top) {
+        x.p = top.saturating_add(1);
+    }
+}
 
 /// A running weighted average of transforms (rotations nlerped along the shorter arc).
 #[derive(Debug, Clone, Copy)]
@@ -861,6 +881,11 @@ pub struct BlendPlayer {
     /// Nodes beyond the skeleton's ([`Self::add_part_node`]): name and node index (in
     /// `nodes`), driven by the layers' [`BoundClip::unbound`] tracks of that name.
     part_nodes: Vec<(String, usize)>,
+    /// The slots (bit k: slot k) whose clips show over the movement slots (0 and 1) on
+    /// every node they drive, whatever their tracks' priorities ([`lift_over_movement`]):
+    /// a special idle of a standing actor in place of its base idle (`mtidle.kf`). The
+    /// caller sets it each frame; 0 leaves the priorities alone.
+    pub over_movement: u8,
 }
 
 /// How many whole cycles the clip in one [`BlendPlayer`] slot has looped, for the tracks
@@ -955,6 +980,7 @@ impl BlendPlayer {
             posed_from: None,
             loops: Default::default(),
             part_nodes: Vec::new(),
+            over_movement: 0,
         }
     }
 
@@ -1046,7 +1072,7 @@ impl BlendPlayer {
                 let r = track.rotation_after(time, cycles).map_or(b.rotation, |[w, x, y, z]| Quat::from_xyzw(x, y, z, w).normalize());
                 let r = turn_out.map_or(r, |q| (q.inverse() * r).normalize());
                 let s = track.scale.sample(time).map_or(b.scale.x, |[s]| s);
-                self.add(*i, Contrib { t, r, s, w, p: *p });
+                self.add(*i, Contrib { t, r, s, w, p: *p, k: k as u8 });
                 sampled += 1;
             }
             // The player's part nodes, by the names the skeleton lacks.
@@ -1057,12 +1083,12 @@ impl BlendPlayer {
                     let t = track.translation.sample(time).map_or(b.translation, Vec3::from_array);
                     let r = track.rotation_after(time, cycles).map_or(b.rotation, |[w, x, y, z]| Quat::from_xyzw(x, y, z, w).normalize());
                     let s = track.scale.sample(time).map_or(b.scale.x, |[s]| s);
-                    self.add(i, Contrib { t, r, s, w, p: *p });
+                    self.add(i, Contrib { t, r, s, w, p: *p, k: k as u8 });
                     sampled += 1;
                 }
             }
             if let (Some(root), None) = (bc.root, bc.root_track) {
-                self.add(root, Contrib { t: Vec3::ZERO, r: Quat::IDENTITY, s: 1.0, w, p: UNDRIVEN_ROOT_PRIORITY });
+                self.add(root, Contrib { t: Vec3::ZERO, r: Quat::IDENTITY, s: 1.0, w, p: UNDRIVEN_ROOT_PRIORITY, k: k as u8 });
             }
         }
         self.layers = layers;
@@ -1070,6 +1096,7 @@ impl BlendPlayer {
             let i = self.touched[k];
             let rest = self.rest_of(i);
             let (slots, n) = &mut self.contribs[i];
+            lift_over_movement(&mut slots[..*n as usize], self.over_movement);
             out.push((i, blend_by_priority(&mut slots[..*n as usize], rest)));
             *n = 0;
             self.driven[i] = true;
@@ -2166,6 +2193,32 @@ mod tests {
         assert!(prio_clip(1.0, Vec::new()).as_ref().clone().check().is_ok());
         let long = Clip { start: -3.0e38, stop: 3.0e38, ..prio_clip(1.0, Vec::new()).as_ref().clone() };
         assert!(long.check().is_err());
+    }
+
+    /// A slot in `over_movement` shows over the movement slots on the nodes it drives,
+    /// whatever its priority, and leaves the others to them; a weapon slot above both
+    /// keeps its own (issue #2425: Mr. House's sleeping idle at 40 under his base idle at
+    /// 50).
+    #[test]
+    fn an_idle_over_the_movement_shows_whatever_its_priority() {
+        let (mut p, ix) = player();
+        let base = Arc::new(BoundClip::bind(prio_clip(1.0, vec![("Other", pose([1.0, 0.0, 0.0]), 50), ("Bip01 NonAccum", pose([0.0, 0.0, 1.0]), 50)]), &ix));
+        let idle = Arc::new(BoundClip::bind(prio_clip(1.0, vec![("Other", pose([4.0, 0.0, 0.0]), 40)]), &ix));
+        let weapon = Arc::new(BoundClip::bind(prio_clip(1.0, vec![("Other", pose([9.0, 0.0, 0.0]), 70)]), &ix));
+        let mut out = Vec::new();
+        let get = |out: &Vec<(usize, Transform)>, i: usize| out.iter().find(|(j, _)| *j == i).unwrap().1.translation;
+        let layer = |c: &Arc<BoundClip>| Some(Layer { clip: c.clone(), phase: 0.0, weight: 1.0 });
+        p.layers = [layer(&base), None, None, None, layer(&idle), None, None, None];
+        p.sample(&mut out);
+        assert_eq!(get(&out, 3).x, 1.0, "by priority the base idle wins");
+        p.layers = [layer(&base), None, None, None, layer(&idle), None, None, None];
+        p.over_movement = 1 << 4;
+        p.sample(&mut out);
+        assert_eq!(get(&out, 3).x, 4.0, "over the movement the idle shows");
+        assert_eq!(get(&out, 2).z, 1.0, "a node it does not drive keeps the base idle");
+        p.layers = [layer(&base), None, layer(&weapon), None, layer(&idle), None, None, None];
+        p.sample(&mut out);
+        assert_eq!(get(&out, 3).x, 9.0, "a higher weapon slot is not overridden");
     }
 
     #[test]

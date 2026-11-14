@@ -27654,3 +27654,20 @@ expect = [
   { re = 'phys: 0x000ED565 \S*skeletonmale50scasual\.nif: collision posed from XRGD \(16 bodies\)', label = "its collision lies with the drawing" },
   { re = 'clutter pose: \S*skeletonmale50scasual\.nif: its XRGD does not fit', count = 0, label = "its XRGD fits its model" },
 ]
+
+[[scenario]]
+name = "house-pod-sealed"
+source = "issue #2425 (engine/nvforever/src/locomotion.rs, nvf-assets anim_play.rs over_movement): Mr. House's life-support chamber is his own creature NVCRMrHouse (NVCRMrHouse01REF 0x0014B095, Lucky38ControlRoom). NVCRMrHouseSCRIPT (SCPT 0x00144627) seals it on load (housestate 1, PlayIdle MRHouseSleepingLoop, DynamicIdle_Sleeping.kf: Bip01 Shell turned about 126 degrees over him, Bip01 Yaw 0) and the terminal's unsealing item (Lucky38ControlTerminalWarning, TERM 0x0015C1A5) sets housestate 0 and plays MrHouseOpen (WakeUp.kf, 19.4 s, to the shell at about 25 degrees and Yaw 90, his mtidle.kf). Both idles' tracks are under mtidle.kf's priority, so before the fix the base idle's open pod showed throughout"
+note = "the player starts on the catwalk 1,300 units from the chamber looking at it (a 15 degree view); the node angles are read with GetNifBlockRotation (the first read only asks for the node tree); at 13 s the terminal item's two lines are stood in by the test aids (housestate 0, PlayIdle MrHouseOpen). Shots house_pod_sealed.png (12 s: the chamber closed, House not seen) and house_pod_opened.png (34 s: open, House seen)"
+areas = ["idles", "actors", "animation"]
+paths = ["engine/nvforever/src/locomotion.rs", "engine/nvf-assets/src/anim_play.rs", "engine/nvforever/src/idles.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SHOTS = "12:house_pod_sealed.png,34:house_pod_opened.png", NVF_PLAY_TEST_SCRIPT = "13:var:NVCRMrHouse01REF:housestate:0,13:play_idle:NVCRMrHouse01REF:MrHouseOpen", NVF_PLAY_TEST_CONSOLE = "9.5:PrintC \"nvf pod warmup shell %.0f yaw %.0f\", (NVCRMrHouse01REF.GetNifBlockRotation \"Bip01 Shell\" \"X\"), (NVCRMrHouse01REF.GetNifBlockRotation \"Bip01 Yaw\" \"Z\");10:PrintC \"nvf pod sealed shell %.0f yaw %.0f\", (NVCRMrHouse01REF.GetNifBlockRotation \"Bip01 Shell\" \"X\"), (NVCRMrHouse01REF.GetNifBlockRotation \"Bip01 Yaw\" \"Z\");10.3:close;36:PrintC \"nvf pod opened shell %.0f yaw %.0f\", (NVCRMrHouse01REF.GetNifBlockRotation \"Bip01 Shell\" \"X\"), (NVCRMrHouse01REF.GetNifBlockRotation \"Bip01 Yaw\" \"Z\");36.3:close" }
+args = ["--cell", "Lucky38ControlRoom", "--play", "--pos=1024,-2400,8010", "--heading", "180", "--pitch", "1.5", "--fov", "15", "--hour", "12", "--no-voice", "--no-messages", "--size", "1280x720"]
+run_seconds = 38
+order = [[
+  { re = 'idle: NVCRMrHouse01REF plays MRHouseSleepingLoop', label = "the chamber plays its sealed loop from the start" },
+  { re = 'console: nvf pod sealed shell (?P<n>-?\d+) ', range = [110, 140], label = "the shell is closed over him (about 126 degrees; 25, open, before the fix)" },
+  { re = 'idle: NVCRMrHouse01REF plays MrHouseOpen', label = "the unsealing plays the opening" },
+  { re = 'console: nvf pod opened shell (?P<n>-?\d+) ', range = [15, 35], label = "and leaves the shell open (about 25 degrees)" },
+]]
+manual = "house_pod_sealed.png: the chamber closed, House not to be seen; house_pod_opened.png: open, House in it"

@@ -2077,3 +2077,14 @@ heading 75) with NVFExtProbe.esp loaded, as the jip-probes sets run.
      Record how often a limb explodes or is severed and how many parts go per blast. The
      answer fits the mine source-weapon gate (`nvf_play::mines`) and the On Hit rule for
      blasts; it goes into dismemberment.md §4.
+
+## Added 2026-11-14 (Mr. House's chamber, #2425)
+
+138. **Does a special idle replace the base idle on its bones, whatever the priorities?**
+     (P3; #2425, animation.md §9.4.) Ours: an idle of a standing actor shows on every bone
+     it drives, above the base idle (`mtidle.kf`), though Mr. House's sleeping idle (40)
+     and opening (30) are under his base idle (50) [hypothesis]. To check: in
+     Lucky38ControlRoom before the terminal is used, a screenshot of the chamber from the
+     catwalk (sealed, House hidden?); then a Protectron playing `mtspecialidle_lookleft`
+     (11 of its 35 tracks under its base idle's priority): does its whole upper body turn,
+     or only the bones above the base idle's priority?
