@@ -1802,9 +1802,10 @@ pub(crate) fn fight(
                         }
                     }
                 }
-                None if fighter.flee_check_in <= 0.0 => {
+                // A coward checks at once, hurt or not (`Game::always_flees`).
+                None if fighter.flee_check_in <= 0.0 || g.always_flees(me) => {
                     fighter.flee_check_in = g.threat_ratio_update_time() as f32 * next_unit(&mut f.rng);
-                    if health < full {
+                    if health < full || g.always_flees(me) {
                         f.stats.flee_checks += 1;
                         let check = g.flee_check(me, fighter.confidence_mod);
                         if check.flees {
@@ -1815,14 +1816,18 @@ pub(crate) fn fight(
                             f.stats.flees += 1;
                             let side = battle.side_of(g, id);
                             battle.sides[side].flights += 1;
-                            let (kind, ratio) = if check.personal { ("personal survival", check.personal_ratio) } else { ("group", check.group_ratio) };
-                            info!(
-                                "npc combat: {me_name} flees from {target_name}: {kind} threat ratio {:.3} below its confidence {:.4} (rating {}, modifier {:+.2}; health {health:.0} of {full:.0})",
-                                ratio.unwrap_or(0.0),
-                                check.threshold,
-                                check.rating,
-                                fighter.confidence_mod
-                            );
+                            if check.rating <= 0 {
+                                info!("npc combat: {me_name} flees from {target_name}: its confidence is Cowardly (health {health:.0} of {full:.0})");
+                            } else {
+                                let (kind, ratio) = if check.personal { ("personal survival", check.personal_ratio) } else { ("group", check.group_ratio) };
+                                info!(
+                                    "npc combat: {me_name} flees from {target_name}: {kind} threat ratio {:.3} below its confidence {:.4} (rating {}, modifier {:+.2}; health {health:.0} of {full:.0})",
+                                    ratio.unwrap_or(0.0),
+                                    check.threshold,
+                                    check.rating,
+                                    fighter.confidence_mod
+                                );
+                            }
                         }
                     }
                 }

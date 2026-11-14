@@ -401,7 +401,22 @@ impl Game<'_> {
         let survival = self.combat_style(actor).is_some_and(|s| s.flee_personal_survival);
         let by_group = group_ratio.is_some_and(|r| flees(r, threshold, modifier));
         let by_self = !by_group && survival && personal_ratio.is_some_and(|r| flees(r, threshold, modifier));
-        FleeCheck { group_ratio, personal_ratio, threshold, rating, flees: !frenzied && (by_group || by_self), personal: by_self }
+        // Cowardly, its confidence not raised in this fight: it flees whatever the ratios
+        // (`Game::always_flees`).
+        let coward = rating <= 0;
+        FleeCheck { group_ratio, personal_ratio, threshold, rating, flees: !frenzied && (coward || by_group || by_self), personal: by_self }
+    }
+
+    /// Whether `actor` flees from every fight from its start, hurt or not: its confidence
+    /// is Cowardly and was not raised in this fight (at a flee spot), and it is not
+    /// frenzied [documented: GECK wiki Confidence, "Cowardly … I will always flee from
+    /// combat"; hypothesis: from the start, not only once hurt and checked as other
+    /// ratings are; a foe with no damage made the ratio infinite, so the Silver Rush
+    /// customer given StartCombat swung at the player instead, #2520].
+    pub fn always_flees(&mut self, actor: FormId) -> bool {
+        let base = actor_value(self, actor, crate::actor_values::CONFIDENCE).unwrap_or(2.0).round() as i64;
+        let rating = base + self.awareness.tactics.boosts.get(&actor).copied().unwrap_or(0) as i64;
+        rating <= 0 && actor_value(self, actor, crate::actor_values::AGGRESSION).unwrap_or(0.0) < 3.0
     }
 
     /// `actor` starts fleeing from `from`, at `at` (again, from its flee spot, when it
@@ -539,6 +554,11 @@ impl Game<'_> {
         let hearers = self.alarm_hearers(near);
         for c in changes {
             let (Some(about), Some(from)) = (c.about, near.get(&c.actor).copied()) else { continue };
+            // A fight a script gave it against a player who did not provoke it: its allies
+            // stay out (`crate::provocation`, "Assistance").
+            if self.allies_stay_out(c.actor, about) {
+                continue;
+            }
             let at = c.at.or_else(|| near.get(&about).copied()).unwrap_or(from);
             let starter = self.first_starter(about);
             let starter_at = hearers.get(&starter).copied().unwrap_or(at);

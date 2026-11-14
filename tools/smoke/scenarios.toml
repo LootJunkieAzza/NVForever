@@ -28048,3 +28048,25 @@ order = [[
 expect = [
   { re = 'far script summary: (?P<n>\d+) GameMode runs of residents out of the loaded cells', range = [1, 100000], label = "scripts of residents out of the loaded cells ran" },
 ]
+
+[[scenario]]
+name = "silver-rush-intro-customer-flees"
+source = "issue #2520: the Silver Rush intro ends with VFSVanGraffCustomerREF.startcombat player (INFO 0x0012423E); the customer (Cowardly, Unaggressive, Helps Nobody) runs out on his OnStartCombat flee package, and no Van Graff takes up his fight against a player who did nothing (crates/fnv-game/src/awareness.rs unprovoked_scripted_fight, provocation.rs call_allies, combat_group.rs raise_alarms and always_flees; engine/nvforever/src/npc_combat.rs). Before the fix Jean-Baptiste and a thug helped him, Jean-Baptiste's OnStartCombat set VMS29a stage 200 (Birds of a Feather failed on every first visit), and the customer swung at the player"
+note = "From the new-game state (VMS29a not started) the player stands still inside the Silver Rush door, where the quest pilot stood (chain birds-of-a-feather), and the intro plays by itself: Gloria and the customer, Jean-Baptiste and the volunteer, then the customer's startcombat about 50 s in. He reaches the trigger by the door that disables him. Nothing touches the customer, so his OnHit (SetEnemy VanGraffFaction PlayerFaction) never runs"
+areas = ["combat", "quests", "ai"]
+paths = ["crates/fnv-game/src/provocation.rs", "crates/fnv-game/src/combat_group.rs", "crates/fnv-game/src/awareness.rs", "engine/nvforever/src/provoked.rs", "engine/nvforever/src/npc_combat.rs"]
+env = { NVFOREVER_HOME = "silver-rush-intro-home" }
+args = ["--cell", "FreesideSilverRush", "--pos=2884,-3479,780", "--heading", "45", "--play", "--no-voice", "--no-messages", "--npc-packages", "all"]
+run_seconds = 100
+expect = [
+  { re = 'script: OnStartCombat of FalloutNV\.esm\|SCPT 0x0012424C ran', label = "the intro's startcombat reaches the customer's OnStartCombat" },
+  { re = "provocation: VFSVanGraffCustomer.*'s allies stay out of its fight against the player", label = "his allies leave the scripted fight alone" },
+  { re = 'npc combat: VFSVanGraffCustomer.* flees from the player: its confidence is Cowardly', label = "the coward flees, unhurt" },
+  { re = 'script: VFSVanGraffCustomerREF disabled', label = "he runs out to the trigger that disables him" },
+]
+forbid = [
+  { re = 'provocation: .* helps VFSVanGraffCustomer', label = "no one helps the customer against the player" },
+  { re = 'script: VMS29a stage 200 set', label = "Birds of a Feather is not failed" },
+  { re = 'npc combat: VFSVanGraffCustomerREF .* swings at the player', label = "the customer does not swing at the player" },
+]
+order = [["script: OnStartCombat of FalloutNV.esm|SCPT 0x0012424C ran", "script: VFSVanGraffCustomerREF disabled"]]

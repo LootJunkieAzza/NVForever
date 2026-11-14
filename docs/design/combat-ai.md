@@ -300,6 +300,20 @@ Goodsprings' settlers share GoodspringsFaction and have Assistance 2 [observed:
 `fnvtool actor values`], so shooting one brings the others that see it; Violet's dogs
 share FiendsFactionNV with her (Assistance 2), so they now join her fights.
 
+**A fight a script gave** (#2520): an ally's fight is taken up only when the ally was
+attacked. A StartCombat on the player, who has not hit the actor and whom it would leave
+alone otherwise (no grudge, no hostility by its records), is the actor's own: no ally
+takes it up and it sends no alarm (`Game::unprovoked_scripted_fight`; log `provocation:
+…'s allies stay out of its fight against the player: a script started it …`)
+[hypothesis: Assistance answers an ally being attacked; observer-checks.md question 140].
+The case: the Silver Rush intro ends with `VFSVanGraffCustomerREF.startcombat player`
+(INFO 0012423E); the customer (Cowardly, Unaggressive, Helps Nobody) is meant to run out
+on his OnStartCombat flee package, and his script's OnHit player alone sets the Van
+Graffs against the player (SCPT 0012424C) [observed: `fnvtool esm decode`]. Before,
+Jean-Baptiste took up the fight and his own OnStartCombat failed Birds of a Feather
+(VMS29a stage 200) on every first visit. Once the player hits him, the fight counts as
+provoked (his Hurt alarm) and his allies help as before.
+
 ### 10.3.1 An Evil faction's area (#1538, owner decision 2026-11-13)
 
 **Owner decision** 2026-11-13, on #1538: "attacking the fiends should alert all fiends
@@ -615,6 +629,13 @@ a way that stops short.
 
 ### 12.2 Fleeing [documented: GECK wiki Confidence, Combat Flee]
 
+- **Cowards**: a Cowardly fighter (confidence 0, not raised in this fight) that is not
+  frenzied flees at once, hurt or not, whatever the ratios (`Game::always_flees`; log
+  `npc combat: … flees from …: its confidence is Cowardly`) [documented: Confidence,
+  "Cowardly … I will always flee from combat"; hypothesis: from the fight's start]. A
+  package that continues during combat still has it first (alert.md §5.2); the flight
+  takes over where the package lets go. Before (#2520), a foe that does no damage (an
+  unarmed player standing still) made the ratio infinite and the coward swung at it.
 - **When**: once hurt, every random 0 to fCombatThreatRatioUpdateTime (7.5 s) a fighter
   makes a flee check: its **group threat ratio** (the sum of its group's combat
   strengths, health × damage per second, over the sum of its foes') below its confidence

@@ -39,14 +39,20 @@
 //!   itself an ally or friend of that actor. It holds a grudge as an assaulted actor does
 //!   and is alarmed at the attacker's position. Actors sharing a faction, or placed from
 //!   the same base form, count as allies [engineering choice, as `would_attack` never
-//!   lets them fight each other].
+//!   lets them fight each other]. Only a fight the ally did not start alone is taken
+//!   up: not one a script gave it (StartCombat) against a player who has not hit it and
+//!   whom it would leave alone otherwise (`Game::unprovoked_scripted_fight`; no alarm
+//!   either, `crate::combat_group`) [hypothesis: Assistance answers an ally being
+//!   attacked; the Silver Rush intro's customer is made to run out by his StartCombat and
+//!   only his OnHit player sets the Van Graffs against the player, #2520; observer-checks
+//!   question 140].
 //! - **Cowards stay out** [documented: GECK wiki Confidence, "Cowardly … I will always
 //!   flee from combat"; owner's playtest list 4, item 14: confidence and aggression must
 //!   override the helps-allies join]: an actor whose Confidence is Cowardly never takes up
-//!   another's fight, by assistance here or by an alarm (`crate::combat_group`); it
-//!   still fights whom its own records make it attack, and whoever attacks it. Avoiding
-//!   the fight (running from it) is not built (combat-ai.md §11, "Avoiding threats out of
-//!   combat") [design: Unaggressive alone does not keep a helper out; the wiki's
+//!   another's fight, by assistance here or by an alarm (`crate::combat_group`). In a
+//!   fight of its own it flees from the start (`Game::always_flees`, #2520). Avoiding a
+//!   fight before it starts (running from a threat out of combat) is not built
+//!   (combat-ai.md §11, "Avoiding threats out of combat") [design: Unaggressive alone does not keep a helper out; the wiki's
 //!   Unaggressive only says whom an actor might avoid].
 //! - **A danger to itself** [design: owner's playtest list 5 item 35, "Sunny and her dog
 //!   should fight as soon as the geckos aggro on the player"]: an actor that detects an
@@ -205,6 +211,10 @@ pub enum Note {
     AreaAlert { victim: FormId, faction: FormId, alerted: u32 },
     /// `actor` turns on the player, who attacked `victim` of its Evil faction.
     Alerted { actor: FormId, victim: FormId },
+    /// `victim`'s allies stay out of its fight against `foe`: a script gave it the fight
+    /// and `foe` (the player) did not provoke it (module notes, "Assistance"); noted once
+    /// per pair.
+    Unprovoked { victim: FormId, foe: FormId },
 }
 
 /// The grudges, friendly hits and forgiveness of every actor. The grudges and the
@@ -229,6 +239,9 @@ pub struct Provocations {
     pub aggro_inside: std::collections::BTreeSet<FormId>,
     /// (helper, victim) pairs whose staying out was noted ([`Note::StaysOut`], once).
     pub stayed_out: std::collections::BTreeSet<(FormId, FormId)>,
+    /// (victim, foe) pairs whose unprovoked scripted fight was noted ([`Note::Unprovoked`],
+    /// once).
+    pub unprovoked: std::collections::BTreeSet<(FormId, FormId)>,
 }
 
 impl Provocations {
@@ -311,6 +324,17 @@ impl Game<'_> {
             self.provocations.notes.push(Note::StaysOut { helper, victim });
         }
         cowardly
+    }
+
+    /// Whether `victim`'s allies leave its fight against `foe` alone (module notes,
+    /// "Assistance": a scripted fight against a player who did not provoke it); the first
+    /// time for the pair it is noted ([`Note::Unprovoked`]).
+    pub fn allies_stay_out(&mut self, victim: FormId, foe: FormId) -> bool {
+        let out = self.unprovoked_scripted_fight(victim, foe);
+        if out && self.provocations.unprovoked.insert((victim, foe)) {
+            self.provocations.notes.push(Note::Unprovoked { victim, foe });
+        }
+        out
     }
 
     /// `actor` was hit by `by` (and lives): it may turn on `by` (module notes). Returns
@@ -498,7 +522,11 @@ impl Game<'_> {
         // a 50-a-side battle's measurement: ~12,000 asks for ~2,500 pairs [observed
         // 2026-11-07, #1799].
         let mut attacks: HashMap<(FormId, FormId), bool> = HashMap::new();
-        for (victim, foes) in fights {
+        for (victim, mut foes) in fights {
+            foes.retain(|&(foe, _)| !self.allies_stay_out(victim, foe));
+            if foes.is_empty() {
+                continue;
+            }
             let watchers = watching.get(&victim).cloned().unwrap_or_default();
             for helper in watchers {
                 if helper == FormId::PLAYER_REF || self.is_dead(helper) || !self.present(helper) {
