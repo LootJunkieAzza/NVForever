@@ -22,9 +22,12 @@ playthrough, is gathered in [outstanding.md](outstanding.md).
   guess is still in its spec note.
 
 Experimental Android platform work (#2436): [ARM64 app, read-only game import,
-startup, process restart and touch controls](design/android.md). Device installation,
-gameplay, lifecycle and performance acceptance remain pending; this is not a qualified
-Android release. [Build instructions](android.md).
+startup, process restart and icon touch controls with layout editing](design/android.md).
+The first test APK was installed and reached the opening interior. An exterior-arrival
+physics assertion exposed a [query-refresh registration defect](spec-notes/query-refresh-island-lifecycle.md);
+the bounded repair passes seven CPU controls, with device confirmation pending. Full
+gameplay, lifecycle and performance acceptance remain open. This is not a qualified
+Android release. [Build and touch-control instructions](android.md).
 
 Qualified private CPU host: [explicitly cleared cloned form-list JIP
 wildcards](spec-notes/jip-cloned-list-wildcard.md). Exact f30 original/candidate
