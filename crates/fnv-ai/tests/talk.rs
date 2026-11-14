@@ -578,12 +578,12 @@ fn a_player_within_the_activate_distance_is_greeted_on_the_spot() {
     assert!((s.game.world.peek(FormId(R_GREET)).unwrap().rot[2] - heading).abs() < 1e-4);
 }
 
-/// Case 2 with "Do Not Control Target Movement" off: the target is to be in the trigger
-/// location as the conversation opens (the original walks it there; we wait for it).
-/// Paladin Ramos's "Follow me" leaves the escort to the trigger box's OnTrigger block,
-/// which runs only with the player inside it (issue #2453).
+/// Case 2 with "Do Not Control Target Movement" off: the player is walked into the
+/// trigger location (`Game::player_lead`, which the engine carries out) and the
+/// conversation opens there. Paladin Ramos's "Follow me" leaves the escort to the
+/// trigger box's OnTrigger block, which runs only with the player inside it (#2453).
 #[test]
-fn a_controlled_target_is_greeted_only_inside_the_trigger_location() {
+fn a_controlled_target_is_walked_into_the_trigger_location_and_greeted_there() {
     let f = fixture();
     // Within the activate distance (212 units) but outside the box (it ends at y 950).
     let mut s = sim(&f, R_HOLD, [750.0, 1050.0, 0.0]);
@@ -591,11 +591,17 @@ fn a_controlled_target_is_greeted_only_inside_the_trigger_location() {
     assert_eq!(s.talks(), 0, "{:?}", s.events());
     assert!(s.game.dialogue.is_none());
     assert_eq!(s.agent(R_HOLD).talk, Some(Talking::Waiting));
-    // One step into the box: the greeting comes.
-    s.player_to([750.0, 900.0, 0.0]);
+    // The lead: 48 units inside the box's north side, the player's x and height kept.
+    let lead = s.game.player_lead.expect("the player is led");
+    assert_eq!(lead.by, FormId(R_HOLD));
+    assert!((lead.to[0] - 750.0).abs() < 0.01 && (lead.to[1] - 902.0).abs() < 0.01 && lead.to[2] == 0.0, "{:?}", lead.to);
+    assert_eq!(s.events().iter().filter(|e| matches!(e, AiEvent::LeadsPlayer { .. })).count(), 1, "logged once: {:?}", s.events());
+    // There (the engine's walk): the greeting comes and the lead is over.
+    s.player_to(lead.to);
     s.run(1.0);
     assert_eq!(s.talks(), 1, "{:?}", s.events());
     assert_eq!(s.game.dialogue.as_ref().map(|c| c.actor), Some(FormId(R_HOLD)));
+    assert!(s.game.player_lead.is_none());
 }
 
 /// A wall or a closed door between the actor and the player holds the force greet back

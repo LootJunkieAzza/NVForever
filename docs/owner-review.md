@@ -222,6 +222,13 @@ the spec it links to.
   prefers whole-device NVML, then amdgpu, then game-only DRM client time. Choosing
   DRM first would make supporting Linux drivers show the game's contribution consistently.
   [Settings usage note](design/settings-page.md#performance-usage-availability-2249).
+- **Dialogue packages walk you into their trigger area (#2453).**
+  [hypothesis, #2453] With "Do Not Control Target Movement" off the original walks the
+  player into the package's trigger location; ours does it once you are close enough
+  and in the NPC's sight: you walk (your movement keys set aside) to a point 48 units
+  inside the area, then the NPC greets you. Ramos at Hidden Valley needs it (his escort
+  runs only with you inside his box). Check in game that the walk feels right as you
+  come down into the bunker's first room, and at Davison's door in REPCONN's basement. ([packages §3](spec-notes/packages.md))
 
 19. **Walking away from a conversation.** The world freezes while you talk, as in the
     original, and walking off does not end it. Should walking off end it where the line

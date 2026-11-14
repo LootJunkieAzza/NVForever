@@ -270,6 +270,12 @@ pub enum Trigger {
     Never,
 }
 
+/// How far inside a trigger box's sides a target is walked to ([`Trigger::lead_point`])
+/// [our choice].
+const LEAD_MARGIN: f32 = 48.0;
+/// The share of a trigger radius a target is walked to within [our choice].
+const LEAD_INSIDE_RADIUS: f32 = 0.75;
+
 /// How much of an actor is tested against a trigger location's volume: its feet, its
 /// middle and its head, this far apart [our choice; the game tests the actor's
 /// collision object against trigger volumes, docs/spec-notes/level-design.md §11.2].
@@ -312,6 +318,54 @@ impl Trigger {
             Trigger::NearActor { radius } => near(feet, *radius),
             Trigger::InCell(cell) => cell_of_place(game.world.placed, &target) == Some(*cell),
             Trigger::Never => false,
+        }
+    }
+
+    /// Where to walk a target standing at `target` so that it is in the trigger
+    /// location: the nearest point a little inside its volume, or inside its radius,
+    /// at the target's height. `None` for a cell or no room.
+    pub fn lead_point(&self, game: &Game, feet: Place, target: Place) -> Option<[f32; 3]> {
+        let toward = |centre: Place, radius: f32| -> Option<[f32; 3]> {
+            if centre.space != target.space || radius <= 0.0 {
+                return None;
+            }
+            let (dx, dy) = (target.pos[0] - centre.pos[0], target.pos[1] - centre.pos[1]);
+            let len = dx.hypot(dy);
+            let keep = radius * LEAD_INSIDE_RADIUS;
+            if len <= keep {
+                return Some(target.pos);
+            }
+            Some([centre.pos[0] + dx / len * keep, centre.pos[1] + dy / len * keep, target.pos[2]])
+        };
+        match self {
+            Trigger::NearReference { reference, radius } => {
+                let place = place_of_ref(game, *reference)?;
+                if place.space != target.space {
+                    return None;
+                }
+                match game.world.placed.get(*reference).and_then(|p| p.primitive.map(|prim| (p, prim))) {
+                    Some((placed, prim)) if !prim.sphere => {
+                        let (pos, rot) = game.world.peek(*reference).map_or((placed.pos, placed.rot), |s| (s.pos, s.rot));
+                        let r = fnv_world::transform::ref_rotation(rot);
+                        let scale = placed.scale.filter(|s| *s > 0.0).unwrap_or(1.0);
+                        let d = [target.pos[0] - pos[0], target.pos[1] - pos[1], target.pos[2] - pos[2]];
+                        let mut local = [0, 1, 2].map(|i| (r[i] * d[0] + r[3 + i] * d[1] + r[6 + i] * d[2]) / scale);
+                        // x and y into the box, a margin inside its sides; the height kept.
+                        for (i, l) in local.iter_mut().enumerate().take(2) {
+                            let half = prim.bounds[i];
+                            let keep = (half - LEAD_MARGIN.min(half / 2.0)).max(0.0);
+                            *l = l.clamp(-keep, keep);
+                        }
+                        let w = [0, 1, 2].map(|i| (r[3 * i] * local[0] + r[3 * i + 1] * local[1] + r[3 * i + 2] * local[2]) * scale);
+                        Some([pos[0] + w[0], pos[1] + w[1], target.pos[2]])
+                    }
+                    Some((_, prim)) => toward(place, prim.bounds[0]),
+                    None => toward(place, *radius),
+                }
+            }
+            Trigger::Near { place, radius } => toward(*place, *radius),
+            Trigger::NearActor { radius } => toward(feet, *radius),
+            Trigger::None | Trigger::InCell(_) | Trigger::Never => None,
         }
     }
 

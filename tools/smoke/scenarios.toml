@@ -1456,6 +1456,26 @@ expect = [
 ]
 
 [[scenario]]
+name = "hv-ramos-escort"
+source = "issue #2453: Paladin Ramos's Dialogue package (HVRamosEntryDialogPackage: wait at RamosWaitingMarker, trigger location the box HVRamosTargetDialogTriggerREF, the player within 300, Do Not Control Target Movement off) walks the player into the box before he greets (fnv_ai lead_player, nvf-play dialogue_lead_walks; GECK wiki Dialogue Package), so the box's OnTrigger block (SCPT 0015E57A) can end the escort his line 000A3CE0 starts: controls back, the player moved to NolanXMarkerRef in HiddenValley02 (docs/spec-notes/packages.md section 3)"
+note = "Hidden Valley bunker L1 from the new-game state: the console makes the Brotherhood and the player neutral (SetEnemy 0001D3FE 0001B2A4 1 1, as the bunker's entry trigger SCPT 000E27E0 and the line 000A3CE0 do) and sets VDialogueHiddenValley's HowPlayerEntered to 5 (sneaked in), which Ramos's greeting 000E4B65 needs. The player starts on the stairs 28 units outside the box and within 300 of the marker, where Ramos greeted before the fix and the escort never ended; the talk aid answers 'I'll speak to your Elder'"
+areas = ["ai", "dialogue-packages"]
+paths = ["crates/fnv-ai/src/carry.rs", "crates/fnv-ai/src/goal.rs", "engine/nvf-play/src/player.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_CONSOLE = "0.2:setenemy 0001D3FE 0001B2A4 1 1;set 000E327C.howplayerentered to 5;0.7:close", NVF_PLAY_TEST_TALK = "1:*=HVRamosExplainSneakedIn" }
+args = ["--cell", "HiddenValley01", "--play", "--pos=5022,-5380,15100", "--npc-packages", "000E2807", "--no-voice"]
+run_seconds = 50
+order = [[
+  { re = 'dialogue lead: the player walks to \(\d+, -5\d\d\d, \d+\) for 0x000E2807', label = "Ramos's package walks the player into the box" },
+  { re = 'dialogue: conversation with RamosREF started \(topic GREETING\)', label = "he greets the player there" },
+  { re = 'dialogue: choice \d+ made: .*\[HVRamosExplainSneakedIn\]', label = "the player agrees to see the Elder" },
+  { re = 'player controls: .*disabled by scripts', label = "his line takes the controls" },
+  { re = 'player controls: all enabled', label = "the box's OnTrigger block gives them back" },
+]]
+expect = [
+  { re = 'travel to interior 000D7505', label = "the player is moved to HiddenValley02" },
+]
+
+[[scenario]]
 name = "restrained-dialogue-package"
 source = "issue #2309: a restrained actor's Dialogue package still starts its conversation, without moving (fnv_ai begin_in_place, step_actor_inner) [documented: GECK wiki SetRestrained, restrained actors still go into dialogue]"
 note = "Hidden Valley bunker L2: the console runs the end script of Hardin's line INFO 001633C9 (both restrained, controls off, the trigger 000AD6A1's HardinTraining set to 1); its GameMode block moves both to the markers 001633EF/001633EE after 2 s and gives Hardin HVHardinPowerArmorTrainingPackage (Dialogue, PlayerRef within 200) after 4 s. His line 001633C0 gives the controls back (begin script) and releases both (end script)"

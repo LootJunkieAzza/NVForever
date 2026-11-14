@@ -1982,3 +1982,15 @@ heading 75) with NVFExtProbe.esp loaded, as the jip-probes sets run.
      what does she say on it? The same for one actor each of MaleAdult10-12 and
      FemaleAdult12 without a Goodbye line of their own. If she offers none, the gate
      takes a quest's GetIsID (and what else?) but not its voice-type list.
+
+## Added 2026-11-14 (Dialogue packages that control the target, #2453)
+
+128. **Does a Dialogue package walk the player into its trigger location?** (P2; #2453,
+     packages.md §3.) The GECK wiki says the target "will walk towards that location when
+     the dialogue package starts" when Do Not Control Target Movement is off [documented];
+     ours walks the player, once within the activate distance and in sight, to 48 units
+     inside the trigger box at walking pace and greets there [hypothesis]. On a save before the Hidden Valley bunker, sneak past the
+     intercom into HiddenValley01 and stop on the stairs about 300 units from Ramos's
+     RamosWaitingMarker: record the player's position every frame, whether the controls
+     are taken, the pace, and when the dialogue menu opens, relative to the box
+     HVRamosTargetDialogTriggerREF (y from -6132 to -5408).

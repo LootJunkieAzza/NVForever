@@ -342,11 +342,15 @@ location, in cell (radius ignored), near reference; the radius is editable.
   - **Do Not Control Target Movement** off: with a trigger location the target "will
     walk towards that location when the dialogue package starts", without one it "will
     stand still and wait for the actor to reach the activation distance". NVForever
-    does not walk the player; for case 2 with the flag off and the player as the
-    target, the actor waits until the player is in the trigger location (a box, a
-    radius or a cell) as well as within the activate distance, so the player stands
-    in it when the conversation opens [hypothesis: the same end state as the
-    original's walk]. Scripts count on it: Paladin Ramos's "Follow me" (INFO
+    walks the player for case 2 (a wait location of radius 0) with the flag off and
+    the player as the target: once the player is within the activate distance and in
+    the actor's sight but outside the trigger location (a box or a radius), the player
+    walks, at walking pace and with the movement keys set aside, to the nearest point
+    48 units inside the box (or within three quarters of the radius), and the
+    conversation opens there (`fnv_ai` `lead_player`, `Game::player_lead`, nvf-play
+    `dialogue_lead_walks`) [hypothesis: when the walk starts, its pace and where it
+    ends; observer check 128]. A trigger location that is a cell, or a reference with
+    neither radius nor box, keeps the plain case 2. Scripts count on it: Paladin Ramos's "Follow me" (INFO
     000A3CE0, HVRamosEntryDialogPackage, activate distance 300) disables the controls
     and leaves the escort to the OnTrigger block of HVRamosTargetDialogTrigger, which
     moves Ramos and the player to HiddenValley02 and gives the controls back only

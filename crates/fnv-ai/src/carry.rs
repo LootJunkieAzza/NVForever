@@ -286,6 +286,10 @@ pub enum AiEvent {
     /// It is near enough to force-greet `target`, `away` units off, but something solid
     /// is between them (a wall, a closed door): it waits ([`Game::greet_sight`]).
     TalkUnseen { package: FormId, target: FormId, away: f32 },
+    /// Its Dialogue package walks the player, `away` units off, into its trigger location
+    /// before it talks, to `to` (`Game::player_lead`; "Do Not Control Target Movement"
+    /// off).
+    LeadsPlayer { package: FormId, to: [f32; 3], away: f32 },
     /// A script's StartConversation sent it to the player (`Game::walk_up_greet`): it sets
     /// off, `away` units from the player, a way of `length` units.
     WalkUp { away: Option<f32>, length: f32 },
@@ -1682,8 +1686,8 @@ impl Ai {
     ///
     /// The wait location's radius is not wandered in; the target is not made to stand
     /// still or to walk to the trigger location ("Do Not Control Target Movement" off).
-    /// Instead, with that flag off and the player as the target, case 2 waits for the
-    /// player to be in the trigger location too (issue #2453, below).
+    /// Except that with that flag off, in case 2 a player within the activate distance
+    /// but outside the trigger location is walked into it first (issue #2453, below).
     fn talk_step(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId, dt: f32) {
         let a = &self.agents[&actor];
         let (Some(package), Some(Goal::Talk(talk)), Some(phase)) = (a.package, a.goal.clone(), a.talk) else { return };
@@ -1734,20 +1738,25 @@ impl Ai {
             Talking::Waiting => {
                 let triggered = talk.trigger.holds(game, feet, target);
                 // Case 2: a trigger location and a wait location without a radius.
+                let on_the_spot = talk.trigger != goal::Trigger::None && talk.wait_radius == 0.0;
                 // With "Do Not Control Target Movement" off the target "will walk
                 // towards that location [the trigger location] when the dialogue
-                // package starts" [documented: GECK wiki, Dialogue Package], so the
-                // player stands in it as the conversation opens, and end scripts count
-                // on that: Ramos's "Follow me" (INFO 000A3CE0) fades the screen and
-                // leaves the escort to an OnTrigger block of the trigger location
-                // itself (HVRamosTargetDialogTrigger), which runs only with the player
-                // inside it (issue #2453). We do not walk the player; the actor waits
-                // instead until the player is in the trigger location as well as
-                // within the activate distance [hypothesis: the same end state as the
-                // original's walk; docs/spec-notes/packages.md §3].
-                let held_to_trigger = talk.control_target && talk.target == FormId::PLAYER_REF && talk.trigger.has_room(game);
-                let on_the_spot = talk.trigger != goal::Trigger::None && talk.wait_radius == 0.0 && !held_to_trigger;
-                if near && (triggered || on_the_spot) {
+                // package starts" [documented: GECK wiki, Dialogue Package]. End scripts
+                // count on the player standing in it: Ramos's "Follow me" (INFO
+                // 000A3CE0) leaves the escort to an OnTrigger block of the trigger
+                // location itself (HVRamosTargetDialogTrigger), which runs only with the
+                // player inside it (issue #2453). So once the player is within the
+                // activate distance (and in sight, as for the greeting itself) but not
+                // in the trigger location, the player is walked into it
+                // (`Game::player_lead`) and the conversation opens there [hypothesis:
+                // when the walk starts, and that it ends inside the location;
+                // docs/spec-notes/packages.md §3].
+                let leads = on_the_spot && talk.control_target && talk.target == FormId::PLAYER_REF && talk.trigger.has_room(game);
+                if near && triggered {
+                    self.talk_start(game, actor, package, &talk, away);
+                } else if near && leads {
+                    self.lead_player(game, actor, package, &talk, feet, target, away);
+                } else if near && on_the_spot {
                     self.talk_start(game, actor, package, &talk, away);
                 } else if triggered && !stays {
                     self.approach(game, nav, actor, package, &talk, target, true);
@@ -2053,6 +2062,7 @@ impl Ai {
         // (`Game::force_greet`).
         match game.force_greet(actor, talk.topic) {
             Ok(line) => {
+                Self::end_lead(game, actor);
                 self.agents.get_mut(&actor).expect("listed").talk = Some(Talking::Speaking);
                 let greeting = greets(game, actor);
                 self.log(game, actor, AiEvent::Talk { package, target: talk.target, line, away, say_to: false, greeting });
@@ -2070,7 +2080,39 @@ impl Ai {
     /// Must Complete Dialogue package "will not reevaluate until actor has engaged in
     /// dialogue with the target"]. The actor stays in the package until it chooses
     /// another; it does not start over [our choice].
+    /// Walk the player into the trigger location of `actor`'s Dialogue package
+    /// ([`Self::talk_step`]): set [`Game::player_lead`] again, once the actor sees the
+    /// player (as for a force greet, `Game::greet_sight`). Without a point to walk to,
+    /// the actor talks where the player is.
+    #[allow(clippy::too_many_arguments)]
+    fn lead_player(&mut self, game: &mut Game, actor: FormId, package: FormId, talk: &Talk, feet: Place, target: Place, away: f32) {
+        if !game.greet_sight(actor, talk.target) {
+            if self.unseen_greets.insert(actor) {
+                self.log(game, actor, AiEvent::TalkUnseen { package, target: talk.target, away });
+            }
+            return;
+        }
+        self.unseen_greets.remove(&actor);
+        let Some(to) = talk.trigger.lead_point(game, feet, target) else {
+            self.talk_start(game, actor, package, talk, away);
+            return;
+        };
+        let new = !game.player_lead.is_some_and(|l| l.by == actor && l.fresh(game.time));
+        game.player_lead = Some(fnv_game::game::PlayerLead { by: actor, to, at: game.time });
+        if new {
+            self.log(game, actor, AiEvent::LeadsPlayer { package, to, away });
+        }
+    }
+
+    /// The lead of `actor`'s package is over ([`Self::lead_player`]).
+    fn end_lead(game: &mut Game, actor: FormId) {
+        if game.player_lead.is_some_and(|l| l.by == actor) {
+            game.player_lead = None;
+        }
+    }
+
     fn talk_done(&mut self, game: &mut Game, actor: FormId) {
+        Self::end_lead(game, actor);
         let a = self.agents.get_mut(&actor).expect("listed");
         a.talk = Some(Talking::Done);
         a.activity = Activity::There;

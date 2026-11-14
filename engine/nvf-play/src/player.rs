@@ -362,7 +362,7 @@ impl Plugin for PlayerPlugin {
             .init_resource::<crate::control::DetachedCamera>()
             .add_systems(
                 Update,
-                (crate::control::enforce_locks, aiming_walks, encumbered_walks, flinch_holds_walk, crate::control::detach_camera).chain().after(PlaySet::Input).before(PlaySet::Physics),
+                (crate::control::enforce_locks, aiming_walks, encumbered_walks, flinch_holds_walk, dialogue_lead_walks, crate::control::detach_camera).chain().after(PlaySet::Input).before(PlaySet::Physics),
             )
             .add_systems(Update, crate::control::tell_scripts.after(PlaySet::Input).before(PlaySet::Scripts))
             .add_systems(Last, crate::control::report_locks)
@@ -626,6 +626,48 @@ pub fn flinch_holds_walk(combat: Option<Res<crate::combat::Combat>>, mut intent:
         (intent.forward, intent.right, intent.jump) = (0.0, 0.0, false);
     }
 }
+
+/// A Dialogue package walks the player into its trigger location before its actor talks
+/// ("Do Not Control Target Movement" off; `fnv_game::game::PlayerLead`, set by `fnv_ai`):
+/// while the lead holds, the player walks to its point, facing that way, and the
+/// movement keys are set aside [documented: GECK wiki, Dialogue Package, the target
+/// "will walk towards that location when the dialogue package starts"; at walking pace
+/// is our choice; issue #2453].
+pub fn dialogue_lead_walks(
+    script: Option<Res<crate::script::ScriptState>>,
+    state: Res<State<PlayState>>,
+    mut player: ResMut<Player>,
+    mut intent: ResMut<MoveIntent>,
+    mut was: Local<bool>,
+) {
+    let lead = script
+        .as_ref()
+        .and_then(|s| s.rt.as_ref())
+        .and_then(|rt| rt.game.player_lead.filter(|l| l.fresh(rt.game.time)))
+        .filter(|_| *state.get() == PlayState::Playing);
+    let walking = match lead {
+        Some(l) => {
+            let (dx, dy) = (l.to[0] - player.feet[0], l.to[1] - player.feet[1]);
+            let far = dx.hypot(dy) > LEAD_ARRIVE;
+            if far {
+                player.heading = dx.atan2(dy);
+            }
+            *intent = MoveIntent { forward: if far { 1.0 } else { 0.0 }, walk: true, sneak: intent.sneak, ..Default::default() };
+            far
+        }
+        None => false,
+    };
+    if walking != *was {
+        *was = walking;
+        match lead.filter(|_| walking) {
+            Some(l) => info!("dialogue lead: the player walks to ({:.0}, {:.0}, {:.0}) for 0x{:08X}'s Dialogue package", l.to[0], l.to[1], l.to[2], l.by.0),
+            None => info!("dialogue lead: over"),
+        }
+    }
+}
+
+/// How near the lead's point the player stops ([`dialogue_lead_walks`]) [our choice].
+const LEAD_ARRIVE: f32 = 16.0;
 
 /// Seconds between reads of the player's carried weight ([`encumbered_walks`]).
 const ENCUMBRANCE_CHECK: f32 = 0.5;

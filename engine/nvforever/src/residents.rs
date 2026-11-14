@@ -2494,6 +2494,7 @@ impl Core {
                 | AiEvent::Talk { .. }
                 | AiEvent::NoTalk { .. }
                 | AiEvent::TalkUnseen { .. }
+                | AiEvent::LeadsPlayer { .. }
                 | AiEvent::WalkUp { .. }
                 | AiEvent::WalkedUp { .. }
                 | AiEvent::PushedBack { .. }
@@ -2715,6 +2716,7 @@ fn describe(data: &GameData, world: &WorldData, e: &AiEvent) -> String {
         ),
         AiEvent::CaughtUp { target, away, stop_at, .. } => format!("has caught up with {}: {away:.0} units away, stops within {stop_at:.0}", n(target)),
         AiEvent::NoTalk { package, why } => format!("does not talk ({}): {why}", n(package)),
+        AiEvent::LeadsPlayer { package, to, away } => format!("walks the player into its trigger location ({}): {away:.0} units away, to ({:.0}, {:.0}, {:.0})", n(package), to[0], to[1], to[2]),
         AiEvent::TalkUnseen { package, target, away } => format!("waits to talk to {} ({}): {away:.0} units away, with something solid between", n(target), n(package)),
         AiEvent::Hello { line, away } => format!("says hello to the player from {away:.0} units, line {line}"),
         AiEvent::IdleChatter { line, away } => format!("chatters ({away:.0} units from the player), line {line}"),
