@@ -24,11 +24,8 @@ fn activity_string(method: &str, argument: Option<&str>) -> Result<String, Strin
     .and_then(|v| v.l())
     .map_err(|e| e.to_string())?;
     let value = value.into();
-    let result = env
-        .get_string(&value)
-        .map(|v| v.into())
-        .map_err(|e| e.to_string());
-    result
+    let text: String = env.get_string(&value).map_err(|e| e.to_string())?.into();
+    Ok(text)
 }
 
 /// The Java launcher has extracted this APK's schemas and imported the user's game.

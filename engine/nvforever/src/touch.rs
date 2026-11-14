@@ -1,7 +1,7 @@
-//! Touch controls feed the same key/mouse messages as desktop input (#2436).
+//! Touch and physical input share aggregate key/mouse state without releasing each other (#2436).
 //! Positions and sensitivity are NVForever design choices, not original-game facts.
 use bevy::input::{
-    keyboard::{Key, KeyboardInput},
+    keyboard::{KeyboardFocusLost, KeyboardInput},
     mouse::{MouseButtonInput, MouseMotion},
     touch::{TouchInput, TouchPhase},
     ButtonState, InputSystems,
@@ -15,7 +15,16 @@ pub struct TouchControlsPlugin;
 impl Plugin for TouchControlsPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<TouchState>()
-            .add_systems(PreUpdate, input.before(InputSystems))
+            .add_systems(
+                PreUpdate,
+                (capture_physical, input).chain().before(InputSystems),
+            )
+            .add_systems(
+                PreUpdate,
+                merge_sources
+                    .after(InputSystems)
+                    .before(bevy::ui::UiSystems::Focus),
+            )
             .add_systems(Startup, labels)
             .add_systems(Update, show_labels);
     }
@@ -40,6 +49,12 @@ struct TouchState {
     playing: bool,
     suspended: bool,
     saved_volume: Option<f32>,
+    physical_keys: HashSet<KeyCode>,
+    physical_mouse: HashSet<MouseButton>,
+    managed_keys: HashSet<KeyCode>,
+    managed_mouse: HashSet<MouseButton>,
+    previous_keys: HashSet<KeyCode>,
+    previous_mouse: HashSet<MouseButton>,
 }
 #[derive(Clone, Copy)]
 struct ButtonSpec {
@@ -202,6 +217,81 @@ fn button_at(p: Vec2, playing: bool) -> Option<usize> {
     })
 }
 
+/// Record only real hardware events, before Bevy consumes them. Touch never injects
+/// fake release messages into this stream; raw typing and rebinding stay physical.
+fn capture_physical(
+    mut state: ResMut<TouchState>,
+    mut keys: MessageReader<KeyboardInput>,
+    mut mouse: MessageReader<MouseButtonInput>,
+    mut focus_lost: MessageReader<KeyboardFocusLost>,
+    previous_keys: Res<ButtonInput<KeyCode>>,
+    previous_mouse: Res<ButtonInput<MouseButton>>,
+) {
+    state.previous_keys = previous_keys.get_pressed().copied().collect();
+    state.previous_mouse = previous_mouse.get_pressed().copied().collect();
+    for event in keys.read() {
+        if event.state == ButtonState::Pressed {
+            state.physical_keys.insert(event.key_code);
+        } else {
+            state.physical_keys.remove(&event.key_code);
+        }
+    }
+    for event in mouse.read() {
+        if event.state == ButtonState::Pressed {
+            state.physical_mouse.insert(event.button);
+        } else {
+            state.physical_mouse.remove(&event.button);
+        }
+    }
+    if focus_lost.read().next().is_some() {
+        state.physical_keys.clear();
+        state.physical_mouse.clear();
+    }
+}
+
+/// Reconstruct aggregate edges for keys touch has owned. A physical release cannot
+/// cancel a held finger, and lifting a finger cannot release a physical key.
+fn aggregate<T: Copy + Eq + std::hash::Hash + Send + Sync + 'static>(
+    input: &mut ButtonInput<T>,
+    managed: &HashSet<T>,
+    previous: &HashSet<T>,
+    physical: &HashSet<T>,
+    touch: &HashSet<T>,
+) {
+    for &button in managed {
+        input.reset(button);
+        if previous.contains(&button) {
+            input.press(button);
+            input.clear_just_pressed(button);
+        }
+        if physical.contains(&button) || touch.contains(&button) {
+            input.press(button);
+        } else {
+            input.release(button);
+        }
+    }
+}
+fn merge_sources(
+    state: Res<TouchState>,
+    mut keys: ResMut<ButtonInput<KeyCode>>,
+    mut mouse: ResMut<ButtonInput<MouseButton>>,
+) {
+    aggregate(
+        &mut keys,
+        &state.managed_keys,
+        &state.previous_keys,
+        &state.physical_keys,
+        &state.keys,
+    );
+    aggregate(
+        &mut mouse,
+        &state.managed_mouse,
+        &state.previous_mouse,
+        &state.physical_mouse,
+        &state.mouse,
+    );
+}
+
 #[allow(clippy::too_many_arguments)]
 fn input(
     mut state: ResMut<TouchState>,
@@ -212,8 +302,6 @@ fn input(
     window: Query<(Entity, &Window), With<PrimaryWindow>>,
     play: Option<Res<State<nvf_play::PlayState>>>,
     bindings: Option<Res<Bindings>>,
-    mut keys: MessageWriter<KeyboardInput>,
-    mut mouse: MessageWriter<MouseButtonInput>,
     mut motion: MessageWriter<MouseMotion>,
 ) {
     let Ok((window_id, window)) = window.single() else {
@@ -227,6 +315,8 @@ fn input(
             AppLifecycle::Suspended => {
                 just_suspended = !state.suspended;
                 state.suspended = true;
+                state.physical_keys.clear();
+                state.physical_mouse.clear();
                 if let Some(volume) = &volume {
                     if state.saved_volume.is_none() {
                         state.saved_volume = Some(volume.master());
@@ -343,31 +433,8 @@ fn input(
             }
         }
     }
-    for &key in state.keys.symmetric_difference(&wanted_keys) {
-        keys.write(KeyboardInput {
-            key_code: key,
-            logical_key: Key::Unidentified(bevy::input::keyboard::NativeKey::Unidentified),
-            state: if wanted_keys.contains(&key) {
-                ButtonState::Pressed
-            } else {
-                ButtonState::Released
-            },
-            text: None,
-            repeat: false,
-            window: window_id,
-        });
-    }
-    for &button in state.mouse.symmetric_difference(&wanted_mouse) {
-        mouse.write(MouseButtonInput {
-            button,
-            state: if wanted_mouse.contains(&button) {
-                ButtonState::Pressed
-            } else {
-                ButtonState::Released
-            },
-            window: window_id,
-        });
-    }
+    state.managed_keys.extend(wanted_keys.iter().copied());
+    state.managed_mouse.extend(wanted_mouse.iter().copied());
     state.keys = wanted_keys;
     state.mouse = wanted_mouse;
 }
@@ -429,7 +496,7 @@ fn show_labels(state: Res<TouchState>, mut labels: Query<(&TouchLabel, &mut Visi
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bevy::input::{mouse::AccumulatedMouseMotion, InputPlugin};
+    use bevy::input::{keyboard::Key, mouse::AccumulatedMouseMotion, InputPlugin};
     use bevy::state::app::StatesPlugin;
 
     fn scene() -> (App, Entity) {
@@ -537,5 +604,95 @@ mod tests {
             .world()
             .resource::<ButtonInput<KeyCode>>()
             .pressed(KeyCode::Escape));
+    }
+    fn physical_key(app: &mut App, window: Entity, state: ButtonState) {
+        app.world_mut().write_message(KeyboardInput {
+            key_code: KeyCode::KeyW,
+            logical_key: Key::Character("w".into()),
+            state,
+            text: None,
+            repeat: false,
+            window,
+        });
+    }
+    fn physical_mouse(app: &mut App, window: Entity, state: ButtonState) {
+        app.world_mut().write_message(MouseButtonInput {
+            button: MouseButton::Left,
+            state,
+            window,
+        });
+    }
+    fn move_finger(app: &mut App, w: Entity) {
+        touch(app, w, 1, TouchPhase::Started, 200.0, 800.0);
+        touch(app, w, 1, TouchPhase::Moved, 200.0, 700.0);
+    }
+    #[test]
+    fn lifting_movement_touch_preserves_a_physical_key_and_its_edges() {
+        let (mut app, w) = scene();
+        physical_key(&mut app, w, ButtonState::Pressed);
+        app.update();
+        move_finger(&mut app, w);
+        app.update();
+        touch(&mut app, w, 1, TouchPhase::Ended, 200.0, 700.0);
+        app.update();
+        let keys = app.world().resource::<ButtonInput<KeyCode>>();
+        assert!(keys.pressed(KeyCode::KeyW));
+        assert!(!keys.just_released(KeyCode::KeyW) && !keys.just_pressed(KeyCode::KeyW));
+        physical_key(&mut app, w, ButtonState::Released);
+        app.update();
+        assert!(app
+            .world()
+            .resource::<ButtonInput<KeyCode>>()
+            .just_released(KeyCode::KeyW));
+    }
+    #[test]
+    fn releasing_physical_key_preserves_movement_touch_without_false_edges() {
+        let (mut app, w) = scene();
+        move_finger(&mut app, w);
+        app.update();
+        physical_key(&mut app, w, ButtonState::Pressed);
+        app.update();
+        physical_key(&mut app, w, ButtonState::Released);
+        app.update();
+        let keys = app.world().resource::<ButtonInput<KeyCode>>();
+        assert!(keys.pressed(KeyCode::KeyW));
+        assert!(!keys.just_released(KeyCode::KeyW) && !keys.just_pressed(KeyCode::KeyW));
+        touch(&mut app, w, 1, TouchPhase::Ended, 200.0, 700.0);
+        app.update();
+        assert!(app
+            .world()
+            .resource::<ButtonInput<KeyCode>>()
+            .just_released(KeyCode::KeyW));
+    }
+    #[test]
+    fn touch_and_mouse_attack_holds_release_only_after_both_sources_release() {
+        for touch_releases_first in [false, true] {
+            let (mut app, w) = scene();
+            physical_mouse(&mut app, w, ButtonState::Pressed);
+            app.update();
+            touch(&mut app, w, 1, TouchPhase::Started, 920.0, 900.0);
+            app.update();
+            if touch_releases_first {
+                touch(&mut app, w, 1, TouchPhase::Ended, 920.0, 900.0);
+            } else {
+                physical_mouse(&mut app, w, ButtonState::Released);
+            }
+            app.update();
+            let mouse = app.world().resource::<ButtonInput<MouseButton>>();
+            assert!(mouse.pressed(MouseButton::Left));
+            assert!(
+                !mouse.just_pressed(MouseButton::Left) && !mouse.just_released(MouseButton::Left)
+            );
+            if touch_releases_first {
+                physical_mouse(&mut app, w, ButtonState::Released);
+            } else {
+                touch(&mut app, w, 1, TouchPhase::Ended, 920.0, 900.0);
+            }
+            app.update();
+            assert!(app
+                .world()
+                .resource::<ButtonInput<MouseButton>>()
+                .just_released(MouseButton::Left));
+        }
     }
 }
