@@ -2739,9 +2739,10 @@ impl<'a> Game<'a> {
         // Caps for the player: part of a completed quest's reward for co-op guests.
         match acquired {
             Some((crate::coop_rewards::CAPS, count)) => self.coop_rewards.gain(self.frame, 0.0, count),
-            // Anything else a result script hands the player goes to the guests too
-            // (`crate::coop_rewards`, items 112 and 114); quest items stay the host's.
-            Some((item, count)) if self.coop_rewards.on && !self.world.is_quest_item(item) => self.coop_rewards.hand_out(item, count),
+            // Anything else a result script hands the player goes to the guests too,
+            // quest items included (`crate::coop_rewards`, items 112 and 114; owner,
+            // 2026-11-14).
+            Some((item, count)) if self.coop_rewards.on => self.coop_rewards.hand_out(item, count),
             _ => {}
         }
         // JohnnyGuitar's failed-quest and reputation handlers (`crate::nvse_jg8`).
@@ -2785,6 +2786,9 @@ impl<'a> Game<'a> {
         if !self.player.notes.insert(note) {
             return false;
         }
+        // A result script's AddNote is a hand-out for co-op guests like an AddItem
+        // (`crate::coop_rewards`; a carried note filed later is outside any script).
+        self.coop_rewards.hand_out(note, 1);
         self.jip_event("noteadded", None, vec![fnv_script::vm::XVal::Ref(note.0)]);
         self.note_notices.push(note);
         true
@@ -2920,7 +2924,11 @@ impl<'a> Game<'a> {
         for i in ran {
             let e = &entries[i];
             if let Some(u) = e.unit.filter(|_| !skip) {
+                // Its hand-outs name this stage: a guest that did it keeps its own
+                // (`crate::coop_rewards::Gift`).
+                let outer = self.coop_rewards.stage.replace((q, stage));
                 self.run_result(u, RunCtx { quest: Some(q), ..Default::default() });
+                self.coop_rewards.stage = outer;
             }
             if e.flags & STAGE_COMPLETE != 0 {
                 let s = self.quest(q);

@@ -3851,7 +3851,7 @@ fn progress(mut coop: ResMut<Coop>, mut p: ResMut<nvf_play::coop_progress::CoopP
                 net::Progress::Reward { quest, xp, caps } => Shared::Reward { quest, xp, caps },
                 net::Progress::Save { stamp, kind } => Shared::Save { stamp, kind: kind_in(kind) },
                 net::Progress::Reload { stamp } => Shared::Reload { stamp },
-                net::Progress::Gift { batch, item, count } => Shared::Gift { batch, item, count },
+                net::Progress::Gift { batch, item, count, quest, stage } => Shared::Gift { batch, item, count, quest, stage },
             },
         ));
     }
@@ -3860,7 +3860,7 @@ fn progress(mut coop: ResMut<Coop>, mut p: ResMut<nvf_play::coop_progress::CoopP
     for what in out {
         link.send_progress(match what {
             Shared::Reward { quest, xp, caps } => net::Progress::Reward { quest, xp, caps },
-            Shared::Gift { batch, item, count } => net::Progress::Gift { batch, item, count },
+            Shared::Gift { batch, item, count, quest, stage } => net::Progress::Gift { batch, item, count, quest, stage },
             Shared::Save { stamp, kind } => net::Progress::Save {
                 stamp,
                 kind: match kind {
