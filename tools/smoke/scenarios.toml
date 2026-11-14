@@ -2438,6 +2438,22 @@ expect = [
   { re = '1950stylecasual01\\f\\outfit\.nif: texture swap: 4 entr\(ies\), 4 shape\(s\) retextured: .*UpperBody → textures\\armor\\1950stylecasual01\\outfit02fold\.dds', label = "her dress takes the dirty texture set" },
 ]
 
+# ------------------------------------------------------------------ editor geometry
+
+[[scenario]]
+name = "furniture-marker-shapes"
+source = "issue #2469: white figures and capsules were drawn around the Tops lounge chairs at Red Rock Canyon; the property-less MarkerSource, MarkerTarget, Capsule01 and ChairBoundary shapes of loungechair_tops.nif are editor geometry (nif_spawn Props::is_helper, docs/spec-notes/nif.md §6 'Shapes with no property at all')"
+note = "The Great Khans' campfire at Red Rock Canyon, where the owner's screenshot was taken (cell -20,19, 10:00). The model loader names the shapes it left out, once per model. A Khan getting on one of the two chairs (0013F0E9, 0013F0EA) shows the chairs' entry points (their BSFurnitureMarker) still work"
+areas = ["renderer", "furniture"]
+paths = ["engine/nvf-assets/src/nif_spawn.rs", "engine/nvf-assets/src/model.rs", "engine/nvf-assets/src/actor.rs", "engine/nvf-play/src/phys/drawn.rs"]
+env = { NVF_PLAY_TEST_GOD = "1" }
+args = ["--play", "--pos=-77977,78079,4426", "--hour", "10", "--no-voice", "--no-messages"]
+run_seconds = 40
+expect = [
+  { re = '(?i)loungechair_tops\.nif: 8 editor shape\(s\) without any property left out: MarkerSource:0, Capsule01:0, MarkerTarget:0, ChairBoundary:0, ChairBoundary:0, Capsule01:0, MarkerTarget:0, MarkerSource:0', label = "the chair's marker figures, capsules and boundaries are not drawn" },
+  { re = 'furniture: [0-9A-F]{8} is on 0013F0E[9A]', label = "a Khan sits on a lounge chair" },
+]
+
 # ------------------------------------------------------------------ audio
 
 [[scenario]]
