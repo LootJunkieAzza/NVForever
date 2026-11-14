@@ -218,6 +218,13 @@ the spec it links to.
 
 ## Tier 3: rules where we chose to differ, or that the original has no answer for
 
+- **An intercom nobody has set up speaks for the actor its script names (#2454).**
+  [hypothesis, #2454] When a talking activator starts a conversation before any script
+  told it who speaks, ours lets the one actor its scripts name speak (Ramos for the
+  Hidden Valley intercom), instead of saying nothing. Without it, sneaking into the
+  bunker and being sent out for your gear by McNamara left your controls off for good.
+  Check in game that Ramos speaks on the intercom there on a sneak-in save.
+  ([talking-activators §2](spec-notes/talking-activators.md))
 - **Linux overlay GPU source priority (#2249).** [design, #2249] `GPU_SOURCE_ORDER`
   prefers whole-device NVML, then amdgpu, then game-only DRM client time. Choosing
   DRM first would make supporting Linux drivers show the game's contribution consistently.
