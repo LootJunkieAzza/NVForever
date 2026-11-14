@@ -22532,6 +22532,20 @@ expect = [
 ]
 
 [[scenario]]
+name = "hv-sandstorm-scroll"
+source = "#2450 (docs/spec-notes/activators.md §6.1): the Hidden Valley dust storm (HVSandStormNight, effects/nv/nvsandstormnight.nif) scrolls all 18 of its dust sheets: SpecialIdle's texture scroll names NVSandstorm01:0 only, the other 17 list the same NiTexturingProperty and move with it"
+note = "HVDustStorm forced at the owner's spot in Hidden Valley (-5,-2) at 22:00; the console enables the storm references 0x000E18D7 and 0x000E18D9 (initially disabled, enabled by VHiddenValleyDustStormQuestScript in a playthrough); a frame at 14 s in target/smoke"
+areas = ["activators", "effects"]
+paths = ["engine/nvf-assets/src/model.rs", "engine/nvf-assets/src/material_anim.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_CONSOLE = "4:000E18D7.enable;000E18D9.enable;4.3:close", NVF_PLAY_TEST_SHOTS = "14:hv_sandstorm.png" }
+args = ["--cell", "HiddenValley", "--pos=-17863,-4814,6498", "--heading", "200", "--play", "--hour", "22", "--weather", "HVDustStorm", "--no-voice", "--no-messages"]
+run_seconds = 18
+expect = [
+  { re = 'nvsandstormnight[.]nif: shapes sharing a driven texturing property move their texture with it: NVSandstorm02:0, .*NVSandstorm18:0', label = "the storm's other 17 dust sheets scroll with NVSandstorm01:0" },
+  { re = 'test aid: screenshot .*hv_sandstorm[.]png', label = "the frame is saved" },
+]
+
+[[scenario]]
 name = "victor-talk-glow"
 source = "#1081 (docs/spec-notes/lipsync.md §6.1): a Securitron's Talking sequence (talking.kf) plays while it says a line, its time from the line's .lip, so Victor's chest light ##VoiceBox_talk:0 (nvsecuritronvoicebox.nif), dark under his idle, lights and flickers with his words"
 note = "Goodsprings' Victor (GSVictorRef 0x001073E8; VictorREF 0x00103DFE is not drawn yet at the start) is put 200 units in front of the player at 3 s, the player faces him at 5 s and talks to him at 7 s (his greeting is voiced); frames at 9 to 9.4 s (lit while he speaks, flickering) and at 21 s, faced again after his lines (dark under the idle) in target/smoke"
