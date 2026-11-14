@@ -100,6 +100,8 @@ World-coordinate NIF translation getter has an initial source candidate; current
 
 Runtime IDLE file replacement and replay identity have an initial candidate; current-port execution and lifetime qualification remain pending ([IDLE paths](spec-notes/local-idle-path-replacement.md)).
 
+Nested objective teleport-link paths are being qualified with owned headless regressions; complete consumer acceptance remains separate ([notes](spec-notes/objective-teleport-paths.md)).
+
 ### CompileScript sibling paths
 
 Implemented the focused behavior correction and authored synthetic regression coverage;
