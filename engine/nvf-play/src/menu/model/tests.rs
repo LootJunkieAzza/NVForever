@@ -1309,3 +1309,24 @@ fn cancelled_touch_assignment_cannot_cross_a_menu_session_or_replace_ammo_swap()
         let mut keys=crate::hotkeys::Hotkeys::default();assert!(!touch.assign_pending(&crate::menu::ActiveMenu(Some(m.clone())),&mut keys));assert!(keys.0.iter().all(Option::is_none));
     }
 }
+
+#[test]
+fn vertical_touch_browsing_cannot_assign_a_captured_row_even_when_released_over_a_hotkey(){
+    use crate::pipboy::touch_items::TouchItems;
+    use bevy::{prelude::{Res,ResMut,Entity,Vec2},input::touch::{TouchInput,TouchPhase}};
+    fn assign(active:Res<crate::menu::ActiveMenu>,mut touch:ResMut<TouchItems>,mut keys:ResMut<crate::hotkeys::Hotkeys>){touch.assign_pending(&active,&mut keys);}
+    let f=fixture();let mut world=World::new(&f.forms,&f.refs,SimConfig::default());
+    let model=MenuModel::open_inventory(&mut world).unwrap();let index=model.list(Side::Player).rows.iter().position(|r|r.item==FormId(AID)).unwrap();
+    let before=count(&mut world,0x14,AID);
+    for deliberate in [false,true] {
+        let mut touch=TouchItems::default();let mut t=TouchInput{window:Entity::PLACEHOLDER,id:44,position:Vec2::new(100.,100.),phase:TouchPhase::Started,force:None};
+        touch.event(&t,0);touch.project(Some);touch.take_projected();touch.capture_row(&model,index);
+        if deliberate {touch.update_hold(500);}
+        t.phase=TouchPhase::Moved;t.position.y+=100.;touch.event(&t,if deliberate{550}else{50});
+        t.phase=TouchPhase::Ended;touch.event(&t,700);touch.release_over(Some(2));
+        let mut app=App::new();app.insert_resource(touch).insert_resource(crate::menu::ActiveMenu(Some(model.clone())))
+            .init_resource::<crate::hotkeys::Hotkeys>().add_systems(Update,assign);app.update();
+        assert_eq!(app.world().resource::<crate::hotkeys::Hotkeys>().0[2],deliberate.then_some(crate::hotkeys::Slot{item:AID,mods:0}));
+        assert_eq!(count(&mut world,0x14,AID),before);
+    }
+}

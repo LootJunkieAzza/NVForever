@@ -8,7 +8,7 @@ use nvf_play::{
     bindings::ControlInput,
     hotkeys::{Hotkeys, AMMO_SWAP, SLOTS},
     menu::{model::Mode, ActiveMenu},
-    pipboy::{touch_items::TouchItems, Phase, PipBoy},
+    pipboy::{touch_items::{TouchItems, OverlayCapture}, Frame, Page, Phase, PipBoy},
     settings::{self, ChoiceList, Setting, Slider},
 };
 use std::collections::HashSet;
@@ -104,6 +104,13 @@ impl Placement {
         }
     }
 }
+/// The input session is independent of the opt-in bar and its fitted geometry.
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct MenuTouchSession {
+    page: Page,
+    tab: usize,
+    frame: Frame,
+}
 #[derive(Resource, Default)]
 struct Bar {
     placement: Placement,
@@ -118,6 +125,7 @@ struct Bar {
     safe_bottom: f32,
     size: Vec2,
     mode: u8,
+    menu_touch: Option<MenuTouchSession>,
     fitting_key: Option<FittingKey>,
     resolved: Option<packing::Resolved>,
     occupied: Vec<packing::Occupied>,
@@ -133,8 +141,21 @@ impl Bar {
             self.capture_drain = 2;
         }
     }
+    fn captures_actions(&self) -> bool {
+        self.context.is_some()
+            || self.moving
+            || self.tray_open
+            || self.capture_drain > 0
+            || self.outcomes.iter().any(|o| {
+                matches!(
+                    o,
+                    Outcome::Context(_) | Outcome::Tap(Target::Context(_) | Target::Tray)
+                )
+            })
+    }
     fn cancel(&mut self) {
         self.mode = 0;
+        self.menu_touch = None;
         self.gesture.cancel();
         self.ignored.clear();
         self.outcomes.clear();
@@ -299,7 +320,7 @@ fn box2(r: Rect) -> Box2 {
 }
 
 #[derive(SystemParam)]
-pub(super) struct Bridge<'w> {
+pub(super) struct Bridge<'w, 's> {
     bar: ResMut<'w, Bar>,
     prefs: Res<'w, Preferences>,
     items: ResMut<'w, TouchItems>,
@@ -309,23 +330,36 @@ pub(super) struct Bridge<'w> {
     time: Res<'w, Time<Real>>,
     safe: Option<Res<'w, super::drawer::SafeBottom>>,
     occlusion: ResMut<'w, Occlusion>,
+    capture: ResMut<'w, OverlayCapture>,
+    requests: MessageReader<'w, 's, UtilityTrayRequest>,
 }
-impl Bridge<'_> {
+impl Bridge<'_, '_> {
     pub fn cancel(&mut self) {
+        self.requests.clear();
         self.bar.cancel();
         self.items.cancel();
+        self.publish_capture();
+        self.occlusion.rects.clear();
     }
     pub fn captures_actions(&self) -> bool {
-        self.bar.context.is_some()
-            || self.bar.moving
-            || self.bar.tray_open
-            || self.bar.capture_drain > 0
-            || self.bar.outcomes.iter().any(|o| {
-                matches!(
-                    o,
-                    Outcome::Context(_) | Outcome::Tap(Target::Context(_) | Target::Tray)
-                )
-            })
+        self.bar.captures_actions()
+    }
+    fn publish_capture(&mut self) {
+        publish_capture(
+            &self.bar,
+            &mut self.items,
+            &mut self.capture,
+            &mut self.occlusion,
+        );
+    }
+    pub fn apply_tray_request(&mut self, open: bool) -> bool {
+        if open && (self.bar.mode == 0 || !self.prefs.tray_available()) { return false; }
+        if self.bar.tray_open != open {
+            self.bar.tray_open = open;
+            self.bar.capture_drain = 2;
+        }
+        self.publish_capture();
+        true
     }
     pub fn blocks(&self, rect: Rect) -> bool {
         self.occlusion.blocks(rect)
@@ -345,6 +379,9 @@ impl Bridge<'_> {
             .and_then(|a| a.0.as_ref())
             .is_some_and(|m| m.mode == Mode::Inventory)
             && self.pip.as_ref().is_some_and(|p| p.phase == Phase::Up);
+        let menu_touch = self.pip.as_ref().filter(|_| {
+            allowed && !playing && inventory && size.is_finite() && size.min_element() >= 64.
+        }).map(|pip| MenuTouchSession { page: pip.page, tab: pip.tab(), frame: pip.frame });
         let mode = if !allowed || !self.prefs.enabled {
             0
         } else if playing {
@@ -409,6 +446,7 @@ impl Bridge<'_> {
             occupied: occupied.clone(),
         };
         if mode != self.bar.mode
+            || menu_touch != self.bar.menu_touch
             || self.bar.size != size
             || self.bar.safe_bottom != safe
             || self.fresh.as_ref().is_some_and(|f| f.0)
@@ -426,8 +464,15 @@ impl Bridge<'_> {
             self.bar.fitting_key = Some(key);
         }
         self.bar.mode = mode;
+        self.bar.menu_touch = menu_touch;
         self.bar.size = size;
         self.bar.safe_bottom = safe;
+        // Single request reader: use this frame's admitted mode before the parent
+        // snapshots capture or routes generic touch. The drawer calls the same
+        // method directly, so it needs no competing writer/reader in this system.
+        if let Some(open) = self.requests.read().last().map(|request| request.0) {
+            self.apply_tray_request(open);
+        }
         if mode != 0 {
             let now = self
                 .time
@@ -450,30 +495,36 @@ impl Bridge<'_> {
                 g.slots.into_iter().map(|(_, r)| r).chain(g.tray).collect()
             })
         };
-        self.occlusion.capturing = self.captures_actions();
+        self.publish_capture();
     }
     pub fn event(&mut self, event: &TouchInput, unclaimed: bool) -> bool {
-        if self.bar.mode == 0 {
-            return false;
-        }
+        self.publish_capture();
+        let consumed = self.route_event(event, unclaimed);
+        self.publish_capture();
+        consumed
+    }
+    fn route_event(&mut self, event: &TouchInput, unclaimed: bool) -> bool {
         let now = self
             .time
             .elapsed()
             .as_millis()
             .try_into()
             .unwrap_or(u64::MAX);
-        if self.items.owns(event.id) {
+        if self.bar.menu_touch.is_some() && !self.captures_actions() && self.items.owns(event.id) {
             self.items.event(event, now);
             if event.phase == TouchPhase::Ended {
-                let target = geometry(self.bar.size, &self.prefs, &self.bar).and_then(|g| {
-                    g.slots
-                        .into_iter()
-                        .find(|(_, r)| r.contains(event.position))
-                        .map(|(i, _)| i)
-                });
+                // Assignment is an opt-in visible bar operation. Basic navigation
+                // keeps its ordinary release even with no bar or fitted slots.
+                let target = (self.bar.mode == 2).then(|| geometry(self.bar.size, &self.prefs, &self.bar))
+                    .flatten().and_then(|g| {
+                        g.slots.into_iter().find(|(_, r)| r.contains(event.position)).map(|(i, _)| i)
+                    });
                 self.items.release_over(target);
             }
             return true;
+        }
+        if self.bar.mode == 0 {
+            return self.menu_start(event, unclaimed, now);
         }
         if self.bar.ignored.contains(&event.id) {
             if matches!(event.phase, TouchPhase::Ended | TouchPhase::Canceled) {
@@ -504,7 +555,7 @@ impl Bridge<'_> {
             return true;
         }
         let Some(g) = geometry(self.bar.size, &self.prefs, &self.bar) else {
-            return false;
+            return self.menu_start(event, unclaimed, now);
         };
         if self.bar.gesture.owns(event.id) {
             let size = self.bar.size.to_array();
@@ -604,10 +655,29 @@ impl Bridge<'_> {
             self.bar.capture_drain = 2;
             return true;
         }
-        if self.bar.mode == 2 && unclaimed && !self.items.busy() {
+        self.menu_start(event, unclaimed, now)
+    }
+    fn menu_start(&mut self, event: &TouchInput, unclaimed: bool, now: u64) -> bool {
+        if self.bar.menu_touch.is_some() && event.phase == TouchPhase::Started
+            && unclaimed && !self.captures_actions() && !self.items.busy()
+        {
             return self.items.event(event, now);
         }
         false
+    }
+}
+
+fn publish_capture(
+    bar: &Bar,
+    items: &mut TouchItems,
+    capture: &mut OverlayCapture,
+    occlusion: &mut Occlusion,
+) {
+    let captured = bar.captures_actions();
+    capture.0 = captured;
+    occlusion.capturing = captured;
+    if captured {
+        items.cancel();
     }
 }
 
@@ -617,6 +687,7 @@ pub(super) fn install(app: &mut App) {
         .init_resource::<Preferences>()
         .init_resource::<Bar>()
         .init_resource::<TouchItems>()
+        .init_resource::<OverlayCapture>()
         .init_resource::<bevy::picking::pointer::PointerMap>()
         .add_message::<UtilityTrayRequest>()
         .add_message::<nvf_play::weapon_wheel::TouchHotkey>()
@@ -624,7 +695,9 @@ pub(super) fn install(app: &mut App) {
         .add_systems(
             Update,
             dispatch
+                .before(draw)
                 .before(nvf_play::PlaySet::Input)
+                .before(nvf_play::pipboy::PointerSet)
                 .run_if(resource_exists::<nvf_play::sim::SimState>)
                 .run_if(resource_exists::<Hotkeys>)
                 .run_if(resource_exists::<nvf_play::bindings::Bindings>),
@@ -750,15 +823,13 @@ fn load(mut commands: Commands, mut bar: ResMut<Bar>) {
 fn dispatch(
     input: ControlInput,
     (mut bar, mut items): (ResMut<Bar>, ResMut<TouchItems>),
+    (mut capture, mut occlusion): (ResMut<OverlayCapture>, ResMut<Occlusion>),
     (mut hotkeys, sim): (ResMut<Hotkeys>, Res<nvf_play::sim::SimState>),
     (touch, time): (
         Option<Res<nvf_play::pad::TouchDeviceSwitch>>,
         Res<Time<Real>>,
     ),
-    (mut out, mut tray): (
-        MessageWriter<nvf_play::weapon_wheel::TouchHotkey>,
-        MessageReader<UtilityTrayRequest>,
-    ),
+    mut out: MessageWriter<nvf_play::weapon_wheel::TouchHotkey>,
 ) {
     if input.controller()
         || input.suppressed()
@@ -766,11 +837,8 @@ fn dispatch(
     {
         bar.cancel();
         items.cancel();
-        tray.clear();
+        publish_capture(&bar, &mut items, &mut capture, &mut occlusion);
         return;
-    }
-    for request in tray.read() {
-        bar.tray_open = request.0;
     }
     let now = time.elapsed().as_millis().try_into().unwrap_or(u64::MAX);
     items.update_hold(now);
@@ -826,6 +894,7 @@ fn dispatch(
             }
         }
     }
+    publish_capture(&bar, &mut items, &mut capture, &mut occlusion);
 }
 fn assign(
     active: Option<Res<ActiveMenu>>,
@@ -1268,5 +1337,125 @@ untouched=keep me
         }
         std::fs::remove_file(path).unwrap();
         std::fs::remove_dir(dir).unwrap();
+    }
+    #[derive(Resource, Default)]
+    struct ItemCaptureReceipt {
+        admitted: bool,
+        projected: bool,
+        canceled: bool,
+    }
+    fn capture_fixture_route(mut bridge: Bridge, mut touches: MessageReader<TouchInput>) {
+        bridge.prepare(
+            Vec2::new(1000., 1000.),
+            true,
+            true,
+            &super::super::layout::Config::default(),
+            false,
+            &[],
+        );
+        for event in touches.read() {
+            bridge.event(event, true);
+        }
+    }
+    fn capture_fixture_pointer(
+        admission: nvf_play::pipboy::touch_items::Admission,
+        mut items: ResMut<TouchItems>,
+        mut receipt: ResMut<ItemCaptureReceipt>,
+    ) {
+        receipt.admitted = admission.allows();
+        receipt.canceled = items.take_cancel();
+        items.project(Some);
+        receipt.projected = items.take_projected().is_some();
+    }
+    fn item_capture_app() -> App {
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, bevy::input::InputPlugin));
+        app.insert_resource(nvf_play::bindings::Bindings::default());
+        let forms = Box::leak(Box::new(fnv_sim::FormStore::default()));
+        let refs = Box::leak(Box::new(fnv_sim::RefTable::default()));
+        app.insert_resource(nvf_play::sim::SimState {
+            forms,
+            refs,
+            world: fnv_sim::World::new(forms, refs, fnv_sim::SimConfig::default()),
+        });
+        app.init_resource::<Hotkeys>()
+            .init_resource::<ItemCaptureReceipt>();
+        install(&mut app);
+        app.add_systems(PreUpdate, capture_fixture_route.in_set(super::super::TouchInputSystems).before(bevy::input::InputSystems))
+            .add_systems(PreUpdate, capture_fixture_pointer.in_set(nvf_play::pipboy::TouchPointerSet).after(bevy::input::InputSystems));
+        app.world_mut().resource_mut::<Preferences>().enabled = true;
+        app.update();
+        app
+    }
+    fn item_event(id: u64, phase: TouchPhase, point: Vec2) -> TouchInput {
+        TouchInput {
+            id,
+            phase,
+            position: point,
+            window: Entity::PLACEHOLDER,
+            force: None,
+        }
+    }
+    #[test]
+    fn actual_tray_request_and_idle_hold_cancel_already_projected_item_before_picking() {
+        for hold in [false, true] {
+            let mut app = item_capture_app();
+            if hold {
+                let slot = test_slot_center(app.world(), 0);
+                app.world_mut()
+                    .write_message(item_event(91, TouchPhase::Started, slot));
+                app.update();
+            }
+            app.world_mut()
+                .resource_mut::<ButtonInput<KeyCode>>()
+                .press(KeyCode::KeyW);
+            {
+                let mut items = app.world_mut().resource_mut::<TouchItems>();
+                assert!(items.event(&item_event(90, TouchPhase::Started, Vec2::splat(200.)), 0));
+                items.release_over(Some(0));
+                items.project(Some); // Real projected press existed before overlay admission.
+            }
+            if hold {
+                app.insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(
+                    std::time::Duration::from_millis(500),
+                ));
+            } else {
+                app.world_mut().write_message(UtilityTrayRequest(true));
+            }
+            app.update();
+            assert!(app.world().resource::<Bar>().captures_actions());
+            let receipt = app.world().resource::<ItemCaptureReceipt>();
+            assert!(
+                !receipt.admitted && !receipt.projected && receipt.canceled,
+                "hold={hold}: old press survived actual capture before picking"
+            );
+            assert!(!app.world().resource::<TouchItems>().owns(90));
+            assert!(app
+                .world()
+                .resource::<ButtonInput<KeyCode>>()
+                .pressed(KeyCode::KeyW));
+            assert!(app
+                .world()
+                .resource::<Hotkeys>()
+                .0
+                .iter()
+                .all(Option::is_none));
+            // Old release cannot re-enter the item route during the captured UI.
+            app.world_mut()
+                .write_message(item_event(90, TouchPhase::Ended, Vec2::splat(200.)));
+            app.update();
+            assert!(!app.world().resource::<ItemCaptureReceipt>().projected);
+            assert!(!app.world().resource::<TouchItems>().busy());
+        }
+    }
+    #[test]
+    fn disabled_bar_rejects_tray_request_without_hidden_pointer_capture() {
+        let mut app = item_capture_app();
+        app.world_mut().resource_mut::<Preferences>().enabled = false;
+        app.world_mut().write_message(UtilityTrayRequest(true));
+        app.update();
+        assert!(!app.world().resource::<Bar>().tray_open);
+        assert!(!app.world().resource::<OverlayCapture>().0);
+        assert!(app.world().resource::<ItemCaptureReceipt>().admitted);
     }
 }

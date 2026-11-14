@@ -659,9 +659,9 @@ fn input(
                 }
                 sync_touch(&mut state, bindings.as_deref(), pause);
                 if opened {
-                    // The tray request is dispatched in Update; admit its shared
-                    // capture now so the later raw gyro reader also drops the tail.
-                    state.ui_capture = drawer.opens_tray();
+                    // Share queued-request admission before leaving this input
+                    // batch, including its projected item pointer and raw gyro.
+                    state.ui_capture = drawer.opens_tray() && bar.apply_tray_request(true);
                     drawer_committed = true;
                     break;
                 }
@@ -1563,6 +1563,8 @@ mod tests {
             .world()
             .resource::<nvf_play::pad::TouchDeviceSwitch>()
             .allows_actions());
+        assert!(!app.world().resource::<TouchState>().interactive_actions,
+            "the switching touch is consumed even while the overlay is restored");
         assert_eq!(drawer_visibility(&mut app), Visibility::Inherited);
         assert_eq!(
             app.world()
@@ -3070,6 +3072,9 @@ mod tests {
                 "focus" => {
                     app.world_mut().get_mut::<Window>(w).unwrap().focused = false;
                     app.world_mut().write_message(WindowFocused { window: w, focused: false });
+                    // Winit's focus-loss adapter emits this as well as WindowFocused;
+                    // InputPlugin's keyboard system releases raw keys on this message.
+                    app.world_mut().write_message(KeyboardFocusLost);
                 }
                 "modal" => {
                     app.init_resource::<nvf_play::terminal::touch::Settings>();
@@ -3091,7 +3096,14 @@ mod tests {
             let hardware_survives = scenario != "focus";
             assert_eq!(app.world().resource::<ButtonInput<KeyCode>>().pressed(KeyCode::KeyW), hardware_survives,
                 "{scenario}: preserve hardware except the existing focus-loss release contract");
-            assert_eq!(app.world().resource::<ButtonInput<MouseButton>>().pressed(MouseButton::Middle), hardware_survives);
+            // Bevy's mouse input system consumes actual MouseButtonInput only;
+            // focus loss cancels wrapper tracking without inventing a raw release.
+            assert!(app.world().resource::<ButtonInput<MouseButton>>().pressed(MouseButton::Middle));
+            if scenario == "focus" {
+                let state = app.world().resource::<TouchState>();
+                assert!(state.physical_keys.is_empty() && state.physical_mouse.is_empty(),
+                    "focus loss must clear wrapper ownership, independently of raw hardware state");
+            }
             match scenario {
                 "disabled" => {
                     let row = app.world().resource::<settings::Settings>().index("touch-hotbar").unwrap();
@@ -3137,6 +3149,273 @@ mod tests {
             assert!(app.world().resource::<ButtonInput<KeyCode>>().pressed(KeyCode::KeyW));
             assert!(app.world().resource::<ButtonInput<MouseButton>>().pressed(MouseButton::Middle));
         }
+    }
+
+    #[test]
+    fn queued_utility_capture_precedes_same_frame_fire_run_lock_vats_and_analog() {
+        let size=Vec2::new(640.,360.);
+        for action in 0..4 {
+            let (mut app,w)=mixed_hotbar_phone_scene(size,"classic",4);
+            app.init_resource::<VatsPresses>().add_systems(Update,count_vats);
+            app.world_mut().resource_mut::<movement::Options>().vats_taps=true;
+            app.world_mut().resource_mut::<nvf_play::control::PlayerControl>().weapon_out=true;
+            app.update();
+            let look=Vec2::new(600.,180.);
+            if action==2 {
+                touch(&mut app,w,851,TouchPhase::Started,look.x,look.y);
+                touch(&mut app,w,851,TouchPhase::Ended,look.x,look.y);app.update();
+                assert_eq!(app.world().resource::<VatsPresses>().0,0);
+            }
+            if action==3 {
+                let stick=app.world().resource::<Layout>().config.center(Target::Stick,size);
+                touch(&mut app,w,852,TouchPhase::Started,stick.x,stick.y);app.update();
+                touch(&mut app,w,852,TouchPhase::Moved,stick.x,stick.y-40.);app.update();
+                assert!(native_velocity(&app)[1]>0.,"fixture must move before capture");
+            }
+            raw_key(&mut app,w,KeyCode::F12,ButtonState::Pressed);
+            app.world_mut().write_message(hotbar::UtilityTrayRequest(true));
+            match action {
+                0=>{
+                    let i=BUTTONS.iter().position(|b|b.control==Some(Control::Use)).unwrap();
+                    let p=app.world().resource::<Layout>().config.center(Target::Button(i),size);
+                    touch(&mut app,w,853,TouchPhase::Started,p.x,p.y);
+                }
+                1=>{
+                    let p=movement::fixed_lock_rect(app.world().resource::<Layout>(),size).center();
+                    touch(&mut app,w,853,TouchPhase::Started,p.x,p.y);
+                    touch(&mut app,w,853,TouchPhase::Ended,p.x,p.y);
+                }
+                2=>{
+                    touch(&mut app,w,853,TouchPhase::Started,look.x,look.y);
+                    touch(&mut app,w,853,TouchPhase::Ended,look.x,look.y);
+                }
+                _=>{
+                    let p=app.world().resource::<Layout>().config.center(Target::Stick,size);
+                    touch(&mut app,w,852,TouchPhase::Moved,p.x,p.y-48.);
+                }
+            }
+            app.update();
+            assert!(hotbar::tray_open_collision_fixture(app.world()));
+            assert!(app.world().resource::<TouchState>().ui_capture);
+            let control=app.world().resource::<nvf_play::control::PlayerControl>();
+            assert!(!control.trigger && !control.auto_move,"case{action}: queued capture leaked a touch action");
+            assert_eq!(app.world().resource::<VatsPresses>().0,0,"case{action}: VATS history leaked");
+            assert_eq!(native_velocity(&app),[0.;2],"case{action}: analog sample leaked");
+            let hardware=app.world().resource::<ButtonInput<KeyCode>>();
+            assert!(hardware.pressed(KeyCode::F12) && hardware.just_pressed(KeyCode::F12),"real physical edge must remain");
+        }
+    }
+
+    #[test]
+    fn missing_window_cancels_queued_tray_request_without_replaying_it_on_return() {
+        let (mut app, w) = mixed_hotbar_phone_scene(Vec2::new(640., 360.), "classic", 4);
+        raw_key(&mut app, w, KeyCode::F12, ButtonState::Pressed);
+        app.update();
+        assert!(app.world().resource::<ButtonInput<KeyCode>>().pressed(KeyCode::F12));
+        app.world_mut().write_message(hotbar::UtilityTrayRequest(true));
+        app.world_mut().entity_mut(w).remove::<PrimaryWindow>();
+        app.update();
+        assert!(!hotbar::tray_open_collision_fixture(app.world()));
+        assert!(!app.world().resource::<nvf_play::pipboy::touch_items::OverlayCapture>().0);
+        app.world_mut().entity_mut(w).insert(PrimaryWindow);
+        app.update();
+        app.update();
+        assert!(!hotbar::tray_open_collision_fixture(app.world()), "old request cannot replay after window restoration");
+        assert!(!app.world().resource::<TouchState>().ui_capture);
+        assert!(app.world().resource::<ButtonInput<KeyCode>>().pressed(KeyCode::F12));
+        app.world_mut().write_message(hotbar::UtilityTrayRequest(true));
+        app.update();
+        assert!(hotbar::tray_open_collision_fixture(app.world()), "a fresh stable-frame request still opens the tray");
+        assert!(app.world().resource::<TouchState>().ui_capture);
+        assert!(app.world().resource::<nvf_play::pipboy::touch_items::OverlayCapture>().0);
+        assert!(app.world().resource::<ButtonInput<KeyCode>>().pressed(KeyCode::F12));
+    }
+
+
+    #[derive(Resource, Default)]
+    struct DefaultMenuTouchSeen { presses: usize, releases: usize, scrolls: usize, cancels: usize }
+    fn observe_default_menu_touch(
+        mut events: MessageReader<bevy::picking::pointer::PointerInput>,
+        mut seen: ResMut<DefaultMenuTouchSeen>,
+    ) {
+        use bevy::picking::pointer::PointerAction;
+        for event in events.read().filter(|e| e.pointer_id == nvf_play::pipboy::touch_items::POINTER) {
+            match event.action {
+                PointerAction::Press(_) => seen.presses += 1,
+                PointerAction::Release(_) => seen.releases += 1,
+                PointerAction::Scroll { y, .. } if y != 0. => seen.scrolls += 1,
+                PointerAction::Cancel => seen.cancels += 1,
+                _ => {}
+            }
+        }
+    }
+    fn default_menu_touch_scene(page: nvf_play::pipboy::Page, bar_enabled: bool) -> (App, Entity) {
+        use nvf_play::pipboy::{self, touch_scroll::TouchPointerPlugin};
+        let (mut app, window) = scene();
+        app.insert_resource(nvf_play::settings::SettingsFile(None));
+        // Authored empty player inventory, no installed game content or production test helper.
+        let mut forms = fnv_sim::FormStore::default();
+        let base = fnv_sim::forms::BaseForm {
+            id: fnv_sim::FormId::PLAYER_BASE, sig: *b"NPC_", edid: None, name: None,
+            script: None, prompt: None, voice_filter: false,
+            data: fnv_sim::forms::BaseData::Actor(fnv_sim::forms::ActorBase { entries: Vec::new(), attributes: None }),
+        };
+        forms.sigs.insert(base.id, base.sig);
+        forms.bases.insert(base.id, base);
+        let forms = Box::leak(Box::new(forms));
+        let refs = Box::leak(Box::new(fnv_sim::RefTable::default()));
+        let mut sim = nvf_play::sim::SimState {
+            forms, refs, world: fnv_sim::World::new(forms, refs, fnv_sim::SimConfig::default()),
+        };
+        let menu = nvf_play::menu::model::MenuModel::open_inventory(&mut sim.world).unwrap();
+        app.insert_resource(sim).insert_resource(nvf_play::menu::ActiveMenu(Some(menu)));
+        let mut pip = pipboy::PipBoy::default();
+        pip.phase = pipboy::Phase::Up; pip.frame = pipboy::Frame::Screen; pip.page = page;
+        app.insert_resource(pip).init_resource::<pipboy::PipBoyAid>()
+            .init_resource::<pipboy::PointerMoved>().init_resource::<nvf_play::hotkeys::Hotkeys>()
+            .init_resource::<DefaultMenuTouchSeen>();
+        let camera = app.world_mut().spawn_empty().id();
+        app.insert_resource(pipboy::PipBoyScreen {
+            image: Handle::default(), camera, on_model: false, pointer: None, scale: 1.,
+        });
+        app.world_mut().spawn((pipboy::FlatScreen,
+            ComputedNode { size: Vec2::splat(1000.), ..default() }, UiGlobalTransform::from_xy(500., 500.)));
+        app.add_plugins(TouchPointerPlugin)
+            .add_systems(Last, pipboy::flat_pointer)
+            .add_systems(Update, observe_default_menu_touch);
+        app.world_mut().resource_mut::<Layout>().config = layout::Config::default();
+        let row = app.world().resource::<nvf_play::settings::Settings>().index("touch-hotbar").unwrap();
+        assert!(!(app.world().resource::<nvf_play::settings::Settings>().list()[row].get)(app.world()),
+            "basic menu test must start with actual default-OFF preference");
+        if bar_enabled { assert_eq!(nvf_play::settings::flip(app.world_mut(), row), Some(true)); }
+        app.world_mut().resource_mut::<NextState<nvf_play::PlayState>>().set(nvf_play::PlayState::Menu);
+        app.update(); app.update();
+        (app, window)
+    }
+    fn default_menu_point(app: &mut App) -> Vec2 {
+        let size = Vec2::splat(1000.);
+        let tiles = mixed_hotbar_tiles(app);
+        let config = &app.world().resource::<Layout>().config;
+        for y in [0.35, 0.45, 0.55, 0.65] {
+            for x in [0.35, 0.45, 0.55, 0.65] {
+                let point = Vec2::new(x, y) * size;
+                if config.hit(point, size, false, false).is_none()
+                    && !layout::utility_rect(false, size).contains(point)
+                    && !layout::utility_rect(true, size).contains(point)
+                    && tiles.iter().all(|(_, r)| !r.contains(point)) { return point; }
+            }
+        }
+        panic!("actual menu configuration must leave an unclaimed canvas point");
+    }
+    fn flush_default_menu_touch(app: &mut App) { for _ in 0..5 { app.update(); } }
+    #[test]
+    fn default_off_hotbar_preserves_raw_pipboy_taps_on_all_pages_and_existing_menu_controls() {
+        use nvf_play::pipboy::{self, touch_items::TouchItems};
+        for enabled in [false, true] {
+            for page in pipboy::Page::ALL {
+                let (mut app, w) = default_menu_touch_scene(page, enabled);
+                assert_eq!(!mixed_hotbar_tiles(&mut app).is_empty(), enabled, "bar presentation remains opt-in");
+                let point = default_menu_point(&mut app);
+                touch(&mut app, w, 950, TouchPhase::Started, point.x, point.y);
+                touch(&mut app, w, 950, TouchPhase::Ended, point.x, point.y);
+                app.update();
+                assert!(app.world().resource::<TouchItems>().owns(950), "raw wrapper reader must admit {page:?}, enabled={enabled}");
+                assert!(app.world().resource::<TouchState>().contacts.is_empty(), "menu pointer must not become gameplay/look input");
+                flush_default_menu_touch(&mut app);
+                let seen = app.world().resource::<DefaultMenuTouchSeen>();
+                assert_eq!((seen.presses, seen.releases, seen.scrolls), (1, 1, 0), "real pointer tap {page:?}, enabled={enabled}");
+                assert!(app.world().resource::<nvf_play::hotkeys::Hotkeys>().0.iter().all(Option::is_none));
+                assert_eq!(app.world().resource::<Messages<nvf_play::weapon_wheel::TouchHotkey>>().len(), 0);
+                let i = BUTTONS.iter().position(|b| !b.playing && b.key == Some(KeyCode::Enter)).unwrap();
+                let point = app.world().resource::<Layout>().config.center(Target::Button(i), Vec2::splat(1000.));
+                touch(&mut app, w, 951, TouchPhase::Started, point.x, point.y); app.update();
+                assert!(app.world().resource::<ButtonInput<KeyCode>>().pressed(KeyCode::Enter), "existing Select control still owns its hit target");
+                assert!(!app.world().resource::<TouchItems>().owns(951));
+            }
+        }
+    }
+    #[test]
+    fn default_off_hotbar_raw_vertical_swipes_reach_real_scroll_on_every_pipboy_page() {
+        use nvf_play::pipboy;
+        for page in pipboy::Page::ALL {
+            let (mut app, w) = default_menu_touch_scene(page, false);
+            // Data maps intentionally reject vertical wheel input. Exercise real
+            // list tabs (Stats Skills / Data Notes), rather than map zoom.
+            app.world_mut().resource_mut::<pipboy::PipBoy>().tabs[page.index()] = match page {
+                pipboy::Page::Stats => 2,
+                pipboy::Page::Items => 0,
+                pipboy::Page::Data => 3,
+            };
+            app.update();
+            let point = default_menu_point(&mut app);
+            touch(&mut app, w, 960, TouchPhase::Started, point.x, point.y); app.update();
+            touch(&mut app, w, 960, TouchPhase::Moved, point.x, point.y - 80.); app.update();
+            touch(&mut app, w, 960, TouchPhase::Ended, point.x, point.y - 80.); app.update();
+            flush_default_menu_touch(&mut app);
+            let seen = app.world().resource::<DefaultMenuTouchSeen>();
+            assert!(seen.scrolls > 0, "raw {page:?} swipe must reach real projected scroll with bar OFF");
+            assert_eq!(seen.releases, 0, "scroll cannot become an item use/tab click");
+            assert!(mixed_hotbar_tiles(&mut app).is_empty());
+            assert!(app.world().resource::<nvf_play::hotkeys::Hotkeys>().0.iter().all(Option::is_none));
+        }
+    }
+    #[test]
+    fn default_off_menu_touch_session_changes_cancel_old_release_then_accept_a_fresh_contact() {
+        use nvf_play::pipboy::{self, touch_items::TouchItems};
+        for cause in 0..3 {
+            let (mut app, w) = default_menu_touch_scene(pipboy::Page::Items, false);
+            let point = default_menu_point(&mut app);
+            touch(&mut app, w, 970, TouchPhase::Started, point.x, point.y); app.update(); app.update();
+            assert_eq!(app.world().resource::<DefaultMenuTouchSeen>().presses, 1);
+            match cause {
+                0 => app.world_mut().resource_mut::<pipboy::PipBoy>().page = pipboy::Page::Stats,
+                1 => app.world_mut().resource_mut::<pipboy::PipBoy>().tabs[pipboy::Page::Items.index()] = 1,
+                _ => app.world_mut().resource_mut::<pipboy::PipBoy>().frame = pipboy::Frame::Device,
+            }
+            touch(&mut app, w, 970, TouchPhase::Ended, point.x, point.y); app.update();
+            flush_default_menu_touch(&mut app);
+            assert!(!app.world().resource::<TouchItems>().owns(970));
+            let seen = app.world().resource::<DefaultMenuTouchSeen>();
+            assert_eq!(seen.releases, 0, "old release must not cross session cause{cause}");
+            assert!(seen.cancels > 0);
+            // Restore the flat presentation only after the stale contact has been drained.
+            app.world_mut().resource_mut::<pipboy::PipBoy>().frame = pipboy::Frame::Screen;
+            app.update();
+            touch(&mut app, w, 971, TouchPhase::Started, point.x, point.y);
+            touch(&mut app, w, 971, TouchPhase::Ended, point.x, point.y); app.update();
+            flush_default_menu_touch(&mut app);
+            assert_eq!(app.world().resource::<DefaultMenuTouchSeen>().releases, 1, "fresh session cause{cause}");
+        }
+    }
+
+
+    #[test]
+    fn drawer_stays_hidden_through_real_practice_close_drain_during_return_to_playing() {
+        use nvf_play::{pause::{Page, Paused}, settings};
+        let (mut app, _) = controls_scene();
+        app.world_mut().resource_mut::<drawer::Options>().enabled = true;
+        app.update();
+        assert_eq!(drawer_visibility(&mut app), Visibility::Inherited);
+        app.insert_resource(Paused(true)).insert_resource(Page::Settings { selected: None });
+        app.world_mut().resource_mut::<NextState<nvf_play::PlayState>>().set(nvf_play::PlayState::Menu);
+        app.update();
+        let row = app.world().resource::<settings::Settings>().index("touch-practice-v1").unwrap();
+        assert!(settings::pick(app.world_mut(), row, "Open practice"));
+        app.update();
+        assert!(app.world().resource::<practice::Practice>().blocking());
+        assert_eq!(drawer_visibility(&mut app), Visibility::Hidden);
+        app.world_mut().resource_mut::<Paused>().0 = false;
+        app.world_mut().resource_mut::<NextState<nvf_play::PlayState>>().set(nvf_play::PlayState::Playing);
+        app.update();
+        assert!(app.world().resource::<TouchState>().playing);
+        assert!(app.world().resource::<practice::Practice>().blocking(), "practice close owns its drain frames");
+        assert_eq!(drawer_visibility(&mut app), Visibility::Hidden, "returning gameplay must not paint a handle through the closing lesson");
+        app.update();
+        assert!(app.world().resource::<practice::Practice>().blocking());
+        assert_eq!(drawer_visibility(&mut app), Visibility::Hidden);
+        app.update(); app.update();
+        assert!(!app.world().resource::<practice::Practice>().blocking());
+        assert_eq!(drawer_visibility(&mut app), Visibility::Inherited, "fresh gameplay restores the visible handle");
     }
 
 }

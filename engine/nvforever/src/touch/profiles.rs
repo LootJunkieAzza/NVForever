@@ -130,11 +130,11 @@ pub const SHAPES: &[(&str, &str)] = &[
 ];
 pub const PRESETS: &[(&str, &str)] = &[
     ("classic", "Classic"),
-    ("explorer", "Explorer"),
+    ("explorer", "Two thumbs"),
     ("combat", "Combat"),
     ("left", "Left handed"),
-    ("claw", "Claw"),
-    ("compact", "Compact"),
+    ("claw", "Four fingers"),
+    ("compact", "Compact grid"),
     ("wide", "Wide reach"),
     ("controller", "Controller"),
 ];
@@ -220,24 +220,110 @@ impl Appearance {
 }
 /// Only established gameplay IDs are repositioned; menu and future actions keep their positions.
 pub fn position(preset: &str, id: usize, original: [f32; 2]) -> [f32; 2] {
-    let mut p = original;
-    match preset {
-        "explorer" if (3..=8).contains(&id) => {
-            p[0] -= 0.025;
-            p[1] -= 0.025;
-        }
-        "combat" if (3..=8).contains(&id) && id.is_multiple_of(2) => p[0] -= 0.04,
-        "claw" if id == 7 => p = [0.10, 0.23],
-        "claw" if id == 6 => p = [0.25, 0.23],
-        "compact" if (3..=8).contains(&id) => p[0] -= 0.045,
-        "wide" if (3..=8).contains(&id) && id.is_multiple_of(2) => p[0] -= 0.08,
-        "controller" if id < 3 => p[0] -= 0.08,
-        _ => {}
-    }
+    // Order is the existing Pause/Pip-Boy/VATS/Reload/Jump/Use/Aim/Fire/Sneak IDs.
+    // Keep every action reachable. These are opt-in placement templates, not new bindings.
+    let positions: Option<&[[f32; 2]; 9]> = match preset {
+        "explorer" => Some(&[
+            [0.95, 0.10],
+            [0.82, 0.10],
+            [0.69, 0.10],
+            [0.94, 0.51],
+            [0.80, 0.64],
+            [0.94, 0.69],
+            [0.80, 0.84],
+            [0.94, 0.85],
+            [0.66, 0.84],
+        ]),
+        "combat" => Some(&[
+            [0.95, 0.10],
+            [0.82, 0.10],
+            [0.69, 0.10],
+            [0.95, 0.48],
+            [0.77, 0.65],
+            [0.95, 0.86],
+            [0.77, 0.85],
+            [0.92, 0.69],
+            [0.64, 0.85],
+        ]),
+        // Two index-finger targets, leaving the right thumb a broad empty look area.
+        "claw" => Some(&[
+            [0.95, 0.10],
+            [0.82, 0.10],
+            [0.69, 0.10],
+            [0.94, 0.50],
+            [0.80, 0.65],
+            [0.94, 0.85],
+            [0.91, 0.25],
+            [0.09, 0.25],
+            [0.67, 0.85],
+        ]),
+        "compact" => Some(&[
+            [0.95, 0.10],
+            [0.82, 0.10],
+            [0.69, 0.10],
+            [0.72, 0.66],
+            [0.84, 0.66],
+            [0.96, 0.66],
+            [0.72, 0.84],
+            [0.84, 0.84],
+            [0.96, 0.84],
+        ]),
+        "wide" => Some(&[
+            [0.95, 0.10],
+            [0.82, 0.10],
+            [0.69, 0.10],
+            [0.94, 0.46],
+            [0.74, 0.57],
+            [0.94, 0.66],
+            [0.74, 0.79],
+            [0.94, 0.85],
+            [0.60, 0.85],
+        ]),
+        // Larger fallback touch targets; physical-controller detection stays authoritative.
+        "controller" => Some(&[
+            [0.95, 0.10],
+            [0.82, 0.10],
+            [0.69, 0.10],
+            [0.94, 0.43],
+            [0.76, 0.43],
+            [0.94, 0.64],
+            [0.76, 0.64],
+            [0.94, 0.85],
+            [0.76, 0.85],
+        ]),
+        _ => None,
+    };
+    let mut p = positions
+        .and_then(|p| p.get(id))
+        .copied()
+        .unwrap_or(original);
+
     if preset == "left" && id < 9 {
         p[0] = 1.0 - p[0];
     }
     p
+}
+pub fn scale(preset: &str, id: usize) -> f32 {
+    match (preset, id) {
+        ("combat", 7) => 1.25,
+        ("combat", 6) | ("claw", 6) | ("claw", 7) => 1.1,
+        ("compact", 7) => 1.1,
+        ("controller", 3..=8) => 1.15,
+        _ => 1.0,
+    }
+}
+pub fn stick_position(preset: &str, original: [f32; 2]) -> [f32; 2] {
+    match preset {
+        "left" => [0.83, 0.74],
+        "compact" => [0.14, 0.74],
+        "claw" => [0.115, 0.76],
+        "explorer" | "combat" | "wide" | "controller" => [0.17, 0.74],
+        _ => original,
+    }
+}
+pub fn stick_scale(preset: &str) -> f32 {
+    // Keep a useful thumb target while reserving room for an eight-slot tray on short screens.
+    if preset == "claw" { 0.85 } else { 1.0 }
 }
 
 #[cfg(test)]

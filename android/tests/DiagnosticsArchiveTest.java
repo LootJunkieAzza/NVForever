@@ -92,7 +92,8 @@ public final class DiagnosticsArchiveTest {
             + "model not loaded: C:\\Users\\ExamplePerson\\private-folder\\model.nif: unsupported synthetic mesh\n"
             + "model not loaded: /storage/emulated/0/saves/private-save-detail\n"
             + "INFO nvforever::world: its model did not load; drawn as the error marker (each reference of it)\n"
-            + "refs_no_model=3 refs_error_marker=3\n";
+            + "refs_no_model=3 refs_error_marker=3\n"
+            + "render: model_counts_v1 phase=WORLD transition=2 refs_no_model=3 refs_error_marker=2 skinned_meshes=7\n";
         Path original = logs.resolve(name("nvforever", 1));
         Files.writeString(original, data);
         Files.writeString(logs.resolve(name("events", 1)), "render: lifecycle ready\n");
@@ -127,6 +128,8 @@ public final class DiagnosticsArchiveTest {
             && text.contains("its model did not load; drawn as the error marker")
             && text.contains("refs_no_model=3 refs_error_marker=3\n"),
             "specific model-failure and marker diagnostics survive with private paths removed");
+        require(text.contains("render: model_counts_v1 phase=WORLD transition=2 refs_no_model=3 refs_error_marker=2 skinned_meshes=7\n"),
+            "exact numeric loading-transition discriminator survives unchanged");
         require(text.contains("source_revision=" + REVISION) && text.contains("event=ENGINE_START"),
             "strict build and restart identity retained");
         require(one.snapshotId.matches("[a-f0-9]{64}") && one.archiveSha256.matches("[a-f0-9]{64}"),

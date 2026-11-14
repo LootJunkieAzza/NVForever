@@ -656,7 +656,9 @@ mod tests {
             .data
             .as_ref()
             .unwrap()
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .any(|p| p[3] > 0));
         assert_ne!(
             image.data, old_pixels,

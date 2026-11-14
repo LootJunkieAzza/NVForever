@@ -53,6 +53,7 @@ pub mod frame;
 pub mod hotkey_panel;
 pub mod items;
 pub mod touch_items;
+pub mod touch_scroll;
 pub mod item_mod;
 pub mod labels;
 pub mod repair;
@@ -71,7 +72,6 @@ use bevy::asset::{uuid::Uuid, RenderAssetUsages};
 use bevy::camera::{ImageRenderTarget, RenderTarget};
 use bevy::input::ButtonState;
 use bevy::picking::pointer::{Location, PointerAction, PointerId, PointerInput};
-use bevy::picking::PickingSystems;
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat, TextureUsages};
 use bevy::window::{PrimaryWindow, WindowEvent};
@@ -515,6 +515,7 @@ pub struct PipBoyPlugin;
 
 impl Plugin for PipBoyPlugin {
     fn build(&self, app: &mut App) {
+        app.add_plugins(touch_scroll::TouchPointerPlugin);
         app.init_resource::<PipBoy>()
             .init_resource::<UsePipBoy>()
             .init_resource::<PipBoyAid>()
@@ -568,8 +569,8 @@ impl Plugin for PipBoyPlugin {
             )
             .configure_sets(Update, WarmSet.after(follow_frame).before(reset_manager))
             .configure_sets(Update, PointerSet.after(crate::player::BodySet).before(PlaySet::Activation))
-            .add_systems(Update, flat_pointer.in_set(PointerSet))
-            .add_systems(PreUpdate, drive_pointer.in_set(TouchPointerSet).after(crate::pad::device::automatic).after(crate::pad::pointer::follow).before(PickingSystems::ProcessInput));
+            .add_systems(Update, flat_pointer.in_set(PointerSet));
+
         test_aid::setup(app);
         crate::save::add_save_hook(app, data::CUSTOM_MARKER_SAVE_HOOK);
         crate::settings::add_setting(
@@ -896,7 +897,7 @@ fn keys(keys: crate::pad::ActionButtons<KeyCode>, prompt: Res<crate::menu::Promp
     }
 }
 
-fn apply_input(mut input: MessageReader<PipBoyInput>, mut pip: ResMut<PipBoy>) {
+pub(crate) fn apply_input(mut input: MessageReader<PipBoyInput>, mut pip: ResMut<PipBoy>) {
     for &i in input.read() {
         let before = (pip.page, pip.tab());
         pip.apply(i);
@@ -1020,6 +1021,7 @@ pub fn flat_pointer(
     let Some((computed, at)) = flat.iter().next().filter(|_| pip.phase == Phase::Up) else { return };
     if let Some(touch) = touch.as_deref_mut() {
         let scale = windows.single().map_or(1.0, |w| w.scale_factor());
+        touch.flat_geometry(computed.size(),at.translation);
         touch.project(|position| crop_point(position * scale, at.translation, computed.size()));
     }
     let now = flat_point(&aid, &windows, crate::pad::pointer::asleep(pad_pointer.as_deref()), computed, at);
@@ -1030,8 +1032,13 @@ pub fn flat_pointer(
 
 /// Pass the pointer on the screen, and the mouse's buttons, to the menus' nodes (as Bevy's
 /// `render_ui_to_texture` example does).
+type TouchPointerContext<'w> = (
+    Option<ResMut<'w,touch_items::TouchItems>>,touch_items::Admission<'w>,
+    Option<ResMut<'w,touch_scroll::WheelFrame>>,touch_scroll::Routing<'w>,
+    Option<Res<'w,touch_scroll::PhysicalPriority>>,
+);
 #[allow(clippy::too_many_arguments)]
-fn drive_pointer(
+pub(crate) fn drive_pointer(
     mut commands: Commands,
     pip: Res<PipBoy>,
     screen: Option<Res<PipBoyScreen>>,
@@ -1041,10 +1048,12 @@ fn drive_pointer(
     mut out: MessageWriter<PointerInput>,
     mut aid: ResMut<PipBoyAid>,
     mut moved: ResMut<PointerMoved>,
-    (mut touch, touch_admission): (Option<ResMut<touch_items::TouchItems>>, touch_items::Admission),
+    (mut touch, touch_admission, mut touch_wheel, touch_routing, physical_priority): TouchPointerContext<'_>,
 ) {
     moved.set_if_neq(PointerMoved(false));
-    let Some(screen) = screen else { return };
+    if let Some(wheel)=touch_wheel.as_deref_mut() {wheel.clear();}
+    if let Some(touch)=touch.as_deref_mut() {touch.begin_frame();}
+    let Some(screen) = screen else {if let Some(touch)=touch.as_deref_mut(){touch.cancel();} return };
     if !*spawned {
         commands.spawn(PIPBOY_POINTER);
         *spawned = true;
@@ -1052,18 +1061,29 @@ fn drive_pointer(
     let target = RenderTarget::Image(screen.target());
     let Some(target) = target.normalize(None) else { return };
     if let Some(touch) = touch.as_deref_mut() {
-        if !touch_admission.allows() {touch.cancel();}
+        touch.session(&pip,&screen);
+        if !touch_admission.allows_contact(touch.contact_id()) || physical_priority.as_ref().is_some_and(|p|p.active) {touch.cancel();}
         // Spawning an existing PointerId twice would split press ownership.
         // The independent touch entity is installed by the mobile plugin.
         if touch.take_cancel() {
             out.write(PointerInput::new(touch_items::POINTER, Location { target: target.clone(), position: Vec2::splat(-1.0) }, PointerAction::Cancel));
         }
         if let Some((point, at)) = touch.take_projected() {
-            let position=at.unwrap_or(Vec2::splat(-1.0));
+            let scroll=touch.take_scroll();
+            let position=scroll.map(|(anchor,_)|anchor).or(at).unwrap_or(Vec2::splat(-1.0));
             moved.set_if_neq(PointerMoved(true));
             out.write(PointerInput::new(touch_items::POINTER,Location{target:target.clone(),position},PointerAction::Move{delta:Vec2::ZERO}));
+            if let Some((anchor,pixels))=scroll.filter(|_|pip.page!=Page::Data || pip.tab()>data::WORLD) {
+                if let Some(wheel)=touch_wheel.as_deref_mut() {wheel.set(&pip,anchor,pixels);}
+                out.write(PointerInput::new(touch_items::POINTER,Location{target:target.clone(),position:anchor},PointerAction::Scroll {
+                    unit:bevy::input::mouse::MouseScrollUnit::Pixel,x:0.0,y:pixels,phase:point.phase,
+                }));
+            }
+            let native=touch.route_native(touch_routing.native_at(&pip,touch.pointer_frame().at));
             let action=match point.phase {
+                _ if native=>Some(PointerAction::Cancel),
                 bevy::input::touch::TouchPhase::Started if at.is_some()=>Some(PointerAction::Press(PointerButton::Primary)),
+                bevy::input::touch::TouchPhase::Moved | bevy::input::touch::TouchPhase::Ended if touch.suppress_click()=>Some(PointerAction::Cancel),
                 bevy::input::touch::TouchPhase::Ended=>Some(PointerAction::Release(PointerButton::Primary)),
                 bevy::input::touch::TouchPhase::Canceled=>Some(PointerAction::Cancel),_=>None,
             };

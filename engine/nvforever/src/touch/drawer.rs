@@ -147,7 +147,6 @@ pub(super) struct Bridge<'w> {
     pub safe: Res<'w, SafeBottom>,
     pub capture: Option<Res<'w, nvf_play::bindings::KeyboardCapture>>,
     open: MessageWriter<'w, nvf_play::menu::OpenInventory>,
-    tray: MessageWriter<'w, super::hotbar::UtilityTrayRequest>,
     hotbar: Option<Res<'w, super::hotbar::Preferences>>,
 }
 impl Bridge<'_> {
@@ -187,9 +186,7 @@ impl Bridge<'_> {
                 Destination::Inventory => {
                     self.open.write(nvf_play::menu::OpenInventory);
                 }
-                Destination::UtilityTray => {
-                    self.tray.write(super::hotbar::UtilityTrayRequest(true));
-                }
+                Destination::UtilityTray => {}
             }
         }
         result
@@ -247,12 +244,14 @@ type VisualState<'w> = (
     Res<'w, super::Layout>,
     Res<'w, super::modal::Capture>,
     Option<Res<'w, super::hotbar::Preferences>>,
+    Option<Res<'w, nvf_play::pad::PlatformInputGate>>,
+    Res<'w, super::practice::Practice>,
 );
 
 type HintFilter = (With<Hint>, Without<Handle>);
 
 fn visual(
-    (options, drawer, safe, state, layout, modal, hotbar): VisualState<'_>,
+    (options, drawer, safe, state, layout, modal, hotbar, platform, practice): VisualState<'_>,
     capture: Option<Res<nvf_play::bindings::KeyboardCapture>>,
     bindings: Option<Res<nvf_play::bindings::Bindings>>,
     pads: Query<&Gamepad>,
@@ -269,7 +268,10 @@ fn visual(
     let show = options.enabled
         && (options.destination == Destination::Inventory
             || hotbar.as_ref().is_some_and(|p| p.tray_available()))
-        && state.interactive_actions
+        // A consumed controller-return touch restores visible controls immediately.
+        // Input admission remains gated independently until the next fresh contact.
+        && platform.as_ref().is_none_or(|gate| gate.allows_actions())
+        && !practice.blocking()
         && !state.ui_capture
         && !modal.blocking()
         && !controller

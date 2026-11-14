@@ -352,7 +352,7 @@ pub fn keys(
     (repair, modding): (Res<super::repair::PipRepair>, Res<super::item_mod::PipItemMod>),
     active: Res<ActiveMenu>,
     keys: crate::pad::ActionButtons<KeyCode>,
-    mut wheel: MessageReader<MouseWheel>,
+    (mut wheel,touch_wheel,physical): (MessageReader<MouseWheel>,Option<Res<super::touch_scroll::WheelFrame>>,Option<Res<super::touch_scroll::PhysicalPriority>>),
     mut lines: Local<f32>,
     mut out: MessageWriter<MenuInput>,
     (mut hold, mut hotkeys): (ResMut<HotkeyHold>, ResMut<Hotkeys>),
@@ -409,6 +409,7 @@ pub fn keys(
             MouseScrollUnit::Pixel => w.y / 20.0,
         };
     }
+    if physical.as_ref().is_none_or(|p|!p.active) {*lines += touch_wheel.as_ref().map_or(0.0,|w|w.lines(&pip));}
     let whole = lines.trunc();
     if whole != 0.0 {
         send(Command::Scroll(-whole as i32));

@@ -32,6 +32,8 @@ mod touch;
 mod android_controller;
 #[cfg(any(target_os = "android", test))]
 mod android_loading;
+#[cfg(any(target_os = "android", test))]
+mod android_render_diagnostics;
 mod mobile_performance;
 mod fos_start;
 mod reports;
@@ -1414,7 +1416,7 @@ fn run_with_args(line: Vec<String>) -> AppExit {
     #[cfg(target_os = "android")]
     {
         app.insert_resource(bevy::winit::WinitSettings::mobile());
-        app.add_plugins((touch::TouchControlsPlugin, android_controller::AndroidControllersPlugin::native(), android_loading::AndroidLoadingPlugin));
+        app.add_plugins((touch::TouchControlsPlugin, android_controller::AndroidControllersPlugin::native(), android_loading::AndroidLoadingPlugin, android_render_diagnostics::AndroidRenderDiagnosticsPlugin));
     }
     // NVF_FIXED_FRAME_TIME_MS=<ms>: every frame moves the clocks on by that much, whatever the
     // real frame took (Bevy's `TimeUpdateStrategy::ManualDuration`, set before Bevy's time

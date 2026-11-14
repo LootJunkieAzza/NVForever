@@ -199,18 +199,25 @@ impl Config {
     }
     pub fn apply_preset(&mut self, name: &str) {
         let mut fresh = Self::default();
+        let positions = if name == "left" { "explorer" } else { name };
         for (i, p) in self.buttons.iter_mut().enumerate().take(9) {
             let mut next = fresh.buttons[i].clone();
             next.center = Vec2::from_array(super::profiles::position(
-                name,
+                positions,
                 i,
                 [next.center.x, next.center.y],
             ));
+            next.scale = super::profiles::scale(positions, i);
+            if name == "left" {
+                next.center.x = 1.0 - next.center.x;
+            }
             *p = next;
         }
-        if name == "left" {
-            fresh.stick.center.x = 1.0 - fresh.stick.center.x;
-        }
+        fresh.stick.center = Vec2::from_array(super::profiles::stick_position(
+            name,
+            fresh.stick.center.to_array(),
+        ));
+        fresh.stick.scale = super::profiles::stick_scale(name);
         self.stick = fresh.stick;
         self.southpaw = name == "left";
         self.preset_name = name.into();
@@ -810,6 +817,93 @@ mod tests {
                 "{preset}: menus and any registered Gyro ID18"
             );
         }
+    }
+    #[test]
+    fn thumb_and_index_finger_templates_have_distinct_deliberate_zones() {
+        let mut thumbs = Config::default();
+        thumbs.apply_preset("explorer");
+        let mut combat = Config::default();
+        combat.apply_preset("combat");
+        let mut claw = Config::default();
+        claw.apply_preset("claw");
+        let mut left = Config::default();
+        left.apply_preset("left");
+        assert!(thumbs.buttons[7].center.x > 0.9 && thumbs.buttons[7].center.y > 0.8);
+        assert!(combat.buttons[7].scale > combat.buttons[4].scale);
+        assert!(claw.buttons[7].center.x < 0.2 && claw.buttons[7].center.y < 0.3);
+        assert!(claw.buttons[6].center.x > 0.8 && claw.buttons[6].center.y < 0.3);
+        for i in 0..9 {
+            assert_eq!(
+                left.buttons[i].center,
+                Vec2::new(1.0 - thumbs.buttons[i].center.x, thumbs.buttons[i].center.y)
+            );
+        }
+        for c in [&thumbs, &combat, &claw] {
+            let size = Vec2::new(640.0, 360.0);
+            let look = Vec2::new(0.58, 0.42);
+            assert!(c.look_area(look));
+            assert_eq!(c.hit(look * size, size, true, false), None);
+            assert!(c.buttons[..9].iter().all(|p| p.visible));
+        }
+    }
+    #[test]
+    fn explicit_templates_avoid_each_other_utilities_and_a_24_pixel_bottom_inset() {
+        let overlaps = |a: Rect, b: Rect| {
+            a.min.x < b.max.x && a.max.x > b.min.x && a.min.y < b.max.y && a.max.y > b.min.y
+        };
+        for size in [
+            Vec2::new(640.0, 360.0),
+            Vec2::new(792.0, 363.0),
+            Vec2::new(1280.0, 720.0),
+        ] {
+            for (preset, _) in super::super::profiles::PRESETS {
+                if *preset == "classic" {
+                    continue;
+                } // Existing default is preserved, not silently repositioned.
+                let mut c = Config::default();
+                c.apply_preset(preset);
+                let mut controls = Vec::new();
+                for i in 0..9 {
+                    let target = Target::Button(i);
+                    let d = c.diameter(target, size);
+                    let rect = Rect::from_center_size(c.center(target, size), Vec2::splat(d));
+                    assert!(rect.max.y <= size.y - 24.0, "{preset}/{i} {size:?}");
+                    for help in [false, true] {
+                        assert!(
+                            !overlaps(rect, utility_rect(help, size)),
+                            "utility {preset}/{i} {size:?}"
+                        );
+                    }
+                    for (j, other) in &controls {
+                        assert!(!overlaps(rect, *other), "buttons {preset}/{i}/{j} {size:?}");
+                    }
+                    controls.push((i, rect));
+                }
+                let grab = c.diameter(Target::Stick, size) * 0.65;
+                let stick =
+                    Rect::from_center_size(c.center(Target::Stick, size), Vec2::splat(grab * 2.0));
+                assert!(stick.max.y <= size.y - 24.0, "stick {preset} {size:?}");
+                for (i, button) in controls {
+                    assert!(!overlaps(stick, button), "stick/{i} {preset} {size:?}");
+                }
+            }
+        }
+    }
+    #[test]
+    fn new_templates_never_reapply_themselves_when_loading_saved_coordinates() {
+        let mut c = Config {
+            preset_name: "claw".into(),
+            ..Config::default()
+        };
+        c.buttons[7].center = Vec2::new(0.63, 0.58);
+        c.stick.center = Vec2::new(0.22, 0.71);
+        let saved = c.encode();
+        let loaded = Config::decode(&saved).unwrap();
+        assert_eq!(loaded, c);
+        let classic = Config::default();
+        let mut selected = classic.clone();
+        selected.apply_preset("classic");
+        assert_eq!(classic, selected);
     }
     #[test]
     fn older_slots_keep_actions_and_settings_added_after_the_slot_was_saved() {
