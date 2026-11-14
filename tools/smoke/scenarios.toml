@@ -7858,6 +7858,23 @@ run_seconds = 16
 expect = [{ re = 'compass: 2 quest target\(s\) placed', label = "both targets marked at the first door of the way out" }]
 
 [[scenario]]
+name = "quest-marker-dam-from-strip"
+source = "#2458 (docs/spec-notes/quests-dialogue.md §2, targets several doors deep): For the Republic, Part 2 (VMQ05) objective 10 marks Colonel Moore, who stands in HooverDamIntPowerPlant01b, an interior no door outdoors leads into straight; from the Strip the World Map marks her at a door of the dam outdoors in the Mojave (before: no marker at all), the compass and Local Map at the Strip's gate to Freeside (0x0013BB0D), and sqt names the dam's door outdoors"
+areas = ["quests", "pipboy", "hud", "console"]
+paths = ["crates/fnv-game/src/quest_targets.rs", "engine/nvf-play/src/pipboy/data.rs", "engine/nvf-play/src/compass.rs", "crates/fnv-game/src/functions/console.rs"]
+env = { NVF_PLAY_TEST_TILE_MENUS = "", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "7:startquest VMQ05;7.5:setobjectivedisplayed VMQ05 10 1;8:forceactivequest VMQ05;8.5:sqt;9:close", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=data,14:tab=1,17:close" }
+args = ["--play", "--world", "TheStripWorldNew", "--pos=1004,8722,1030", "--no-voice", "--no-messages", "--hour", "12"]
+run_seconds = 22
+expect = [
+  { re = 'quest targets: VMQ05 objective 10 target 0x001206FE VHDColonelMooreREF marked', label = "Moore is marked from the Strip (her conditions: not in the Mojave, not on the observation deck)" },
+  { re = 'console: VMQ05 objective 10: target 0x001206FE .* in 0x00175D68 ', label = "sqt finds her in the power plant" },
+  { re = 'console:\s+load door outdoors in 0x[0-9A-F]{8} .*\(exterior\)', label = "sqt names a door outdoors in the Mojave" },
+  { re = 'compass: quest target 0x001206FE placed at \(\S+ \S+ \S+\) at door 0x0013BB0D', label = "the compass marks the Strip's gate to Freeside" },
+  { re = 'quest targets: 0x001206FE in cell 0x00175D68 marked on the world map at door 0x[0-9A-F]{8} in worldspace 0x000DA726 ', label = "the World Map marks her at the dam's door in the Mojave" },
+  { re = 'pipboy data: world map draws [1-9]\d* quest marker\(s\)', label = "the World Map draws a quest marker (before: none for her)" },
+]
+
+[[scenario]]
 name = "end-credits"
 source = "GECK wiki ExitGame: \"plays credits and returns the game to the main menu\" (nvf-play credits.rs): the game's Credits.txt laid out by its own commands and rolled over credits_menu.xml's background (the run ends while they roll: their end starts the program again for the main menu)"
 areas = ["menus"]

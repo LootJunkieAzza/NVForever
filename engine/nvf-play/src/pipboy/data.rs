@@ -81,6 +81,7 @@ use bevy::ecs::system::SystemParam;
 use bevy::image::CompressedImageFormatSupport;
 use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
 use bevy::prelude::*;
+use fnv_game::quest_targets::{DoorGraph, Place as QuestPlace};
 use fnv_sim::FormId;
 use marker::{CustomMarker, LineTo, Piece};
 use model::{ObjectiveLine, QuestKey, WorldMap};
@@ -450,6 +451,15 @@ pub struct DataState {
     last_tab: Option<usize>,
     /// The doors outdoors into each interior a quest target is in (`Game::doors_into`).
     doors_into: HashMap<u32, Vec<FormId>>,
+    /// The places joined by load doors, built once, for the ways to targets several doors
+    /// away (`fnv_game::quest_targets::DoorGraph`, #2458).
+    door_graph: Option<fnv_game::quest_targets::DoorGraph>,
+    /// Each marked target check's (quest, objective, place in its list) door on the maps
+    /// last logged: the world map's door outdoors and the local map's first door of the
+    /// way (`None`: the target itself, or no way).
+    target_doors_logged: HashMap<(u32, i32, usize), (Option<FormId>, Option<FormId>)>,
+    /// The references the World Map's quest markers stand for, last logged.
+    world_quests_logged: Option<Vec<u32>>,
     /// The active quest's targets of the objectives shown and not done, with whether their
     /// conditions passed when last evaluated (`refresh_quest_targets`).
     target_checks: Vec<fnv_game::quest_targets::TargetCheck>,
@@ -2407,13 +2417,19 @@ fn world_map(st: &mut DataState, game: &Game, pointer: Option<Vec2>, aiming: boo
     let mut quests = Vec::new();
     let mut targets = Vec::new();
     let mut target_uvs = Vec::new();
-    for t in quest_targets(st, game).into_iter().filter(|t| t.interior.is_none()) {
+    for t in quest_targets(st, game).into_iter().filter(|t| t.interior.is_none() && t.world_map) {
         let Some(projection) = map_for(st, game, t.world).filter(|p| p.root == m.root) else { continue };
         let uv = projection.uv(t.pos[0], t.pos[1]);
         let at = on_map(uv);
         targets.push(at);
         target_uvs.push((t.form, uv));
         quests.push(quest_corner(at));
+    }
+    let drawn: Vec<u32> = target_uvs.iter().map(|t| t.0).collect();
+    if st.world_quests_logged.as_ref() != Some(&drawn) {
+        let list: Vec<String> = drawn.iter().map(|&f| FormId(f).to_string()).collect();
+        info!("pipboy data: world map draws {} quest marker(s): [{}]", drawn.len(), list.join(", "));
+        st.world_quests_logged = Some(drawn);
     }
     // The custom marker, placed in any worldspace of this map's family.
     let custom_uv = st.custom.and_then(|c| {
@@ -2752,6 +2768,9 @@ struct Target {
     world: u32,
     pos: [f32; 3],
     form: u32,
+    /// Drawn on the World Map too (outdoors); `false` for the door of the player's place
+    /// that starts the way to a target elsewhere, which only the Local Map shows.
+    world_map: bool,
 }
 
 /// How often the active quest's target conditions are evaluated, in seconds [hypothesis:
@@ -2789,16 +2808,34 @@ pub(crate) fn refresh_quest_targets(time: Res<Time<Real>>, state: Option<ResMut<
 }
 
 /// The targets of the active quest's objectives shown and not done whose conditions pass
-/// (`refresh_quest_targets`), where they are now; a target indoors also at a door
-/// outdoors into its interior (`quest_targets::marker_door`: one not locked, unless the target
-/// ignores locks) [hypothesis: as the owner's screenshots show the marker of "Talk to
-/// Sunny Smiles in the Prospector Saloon" outdoors in Goodsprings].
+/// (`refresh_quest_targets`), where they are now; a target indoors also at a door outdoors
+/// for the World Map (`quest_targets::outdoor_marker_door`: a door straight into its
+/// interior, one not locked unless the target ignores locks, else the door outdoors that
+/// starts the way through other interiors, #2458) [hypothesis: as the owner's screenshots
+/// show the marker of "Talk to Sunny Smiles in the Prospector Saloon" outdoors in
+/// Goodsprings]; and a target in another place than the player's also at the door of the
+/// player's place that starts the way there, for the Local Map, as the compass marks it
+/// (`crate::compass`) [hypothesis: observer-checks.md question 140].
 fn quest_targets(st: &mut DataState, game: &Game) -> Vec<Target> {
     let mut out = Vec::new();
     let (Some(q), Some(sim)) = (st.active_quest, game.sim.as_ref()) else { return out };
     let Some(rt) = game.script.as_ref().and_then(|s| s.rt.as_ref()) else { return out };
     let refs = sim.refs;
+    let here = game.location.as_deref().map(|l| match l.interior {
+        Some(c) => QuestPlace::Interior(FormId(c)),
+        None => QuestPlace::World(FormId(l.world)),
+    });
     let checks: Vec<_> = st.target_checks.iter().filter(|c| c.quest.0 == q && c.shown).copied().collect();
+    let graph = st.door_graph.get_or_insert_with(|| DoorGraph::build(refs));
+    // A door's place now: its interior (or `None`), its worldspace, where it stands.
+    let door_at = |d: FormId| {
+        let pos = sim.world.peek(d).map(|s| s.pos).or_else(|| refs.get(d).map(|p| p.pos))?;
+        let cell = refs.get(d)?.cell?;
+        Some(match refs.cell_world.get(&cell) {
+            Some(w) => (None, w.0, pos),
+            None => (Some(cell.0), 0, pos),
+        })
+    };
     for c in checks {
         let r = c.target;
         let (cell, pos) = match sim.world.peek(r) {
@@ -2809,15 +2846,37 @@ fn quest_targets(st: &mut DataState, game: &Game) -> Vec<Target> {
             },
         };
         let Some(cell) = cell else { continue };
-        if let Some(w) = refs.cell_world.get(&cell) {
-            out.push(Target { interior: None, world: w.0, pos, form: r.0 });
-            continue;
+        let there = QuestPlace::of_cell(refs, cell);
+        let mut outdoors = None;
+        match refs.cell_world.get(&cell) {
+            Some(w) => out.push(Target { interior: None, world: w.0, pos, form: r.0, world_map: true }),
+            None => {
+                out.push(Target { interior: Some(cell.0), world: 0, pos, form: r.0, world_map: true });
+                let direct = st.doors_into.entry(cell.0).or_insert_with(|| rt.game.doors_into(cell));
+                outdoors = fnv_game::quest_targets::outdoor_marker_door(&sim.world, graph, direct, cell, c.ignores_locks);
+                if let Some((d, (None, w, p))) = outdoors.and_then(|d| Some((d, door_at(d)?))) {
+                    out.push(Target { interior: None, world: w, pos: p, form: d.0, world_map: true });
+                }
+            }
         }
-        out.push(Target { interior: Some(cell.0), world: 0, pos, form: r.0 });
-        let doors = st.doors_into.entry(cell.0).or_insert_with(|| rt.game.doors_into(cell));
-        let door = fnv_game::quest_targets::marker_door(&sim.world, doors, c.ignores_locks).and_then(|d| Some((d, refs.get(d)?))).and_then(|(id, d)| Some((refs.cell_world.get(&d.cell?)?.0, d.pos, id)));
-        if let Some((w, p, id)) = door {
-            out.push(Target { interior: None, world: w, pos: p, form: id.0 });
+        let first = here.filter(|&h| h != there).and_then(|h| graph.first_door(&sim.world, h, there, c.ignores_locks));
+        if let Some((d, (interior, w, p))) = first.filter(|&d| Some(d) != outdoors).and_then(|d| Some((d, door_at(d)?))) {
+            out.push(Target { interior, world: w, pos: p, form: d.0, world_map: false });
+        }
+        let key = (c.quest.0, c.objective, c.index);
+        if st.target_doors_logged.get(&key) != Some(&(outdoors, first)) {
+            st.target_doors_logged.insert(key, (outdoors, first));
+            let world_map = match outdoors.and_then(|d| Some((d, door_at(d)?))) {
+                Some((d, (_, w, p))) => format!("at door {d} in worldspace {} ({:.0}, {:.0})", FormId(w), p[0], p[1]),
+                None if refs.cell_world.contains_key(&cell) => format!("itself ({:.0}, {:.0})", pos[0], pos[1]),
+                None => "nowhere (no way outdoors)".to_string(),
+            };
+            let local = match first {
+                Some(d) => format!("at door {d}, the first of the way there"),
+                None if here == Some(there) => "itself".to_string(),
+                None => "nowhere (no way from here)".to_string(),
+            };
+            info!("quest targets: {r} in cell {cell} marked on the world map {world_map}; on the local map {local}");
         }
     }
     out
