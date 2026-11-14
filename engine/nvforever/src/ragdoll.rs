@@ -879,7 +879,7 @@ mod tests {
 
     #[test]
     fn the_failing_build_aid_names_references_in_hex() {
-        assert_eq!(forced_failures(Some("00104C79, 0xFF000001,bad,")), HashSet::from([0x0010_4C79, 0xFF00_0001]));
+        assert_eq!(forced_failures(Some("00104C79, 0xFF000001,invalid,")), HashSet::from([0x0010_4C79, 0xFF00_0001]));
         assert!(forced_failures(None).is_empty());
         assert!(forced_failures(Some("")).is_empty());
     }
