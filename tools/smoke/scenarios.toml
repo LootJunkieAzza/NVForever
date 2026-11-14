@@ -8176,7 +8176,7 @@ env = { NVFOREVER_HOME = "save-refused-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3"
 args = ["--play", "--load", "smoke-refused", "--no-voice"]
 run_seconds = 12
 expect = [
-  { re = 'load: --load smoke-refused: .*unsupported snapshot format "fnv\.game\.state/2"; opening the main menu', count = 1, label = "the save is refused and the main menu opens instead" },
+  { re = 'load: --load smoke-refused: .*unsupported snapshot format "fnv\.game\.state/unsupported-test"; opening the main menu', count = 1, label = "the save is refused and the main menu opens instead" },
   { re = 'main menu: open \(', label = "the main menu is open" },
   { re = 'load: message box not shown \(unattended run\): the save could not be loaded: --load smoke-refused: .*unsupported snapshot format', count = 1, label = "the player is told why" },
   { re = 'smoke-refused\.nvfsave .*starting at', count = 0, label = "the world does not start at the save's place" },

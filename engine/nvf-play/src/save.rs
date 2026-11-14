@@ -592,9 +592,9 @@ fn save_now(world: &mut World, r: &SaveRequest) -> Result<(), String> {
             rt.game.checked_snapshot()
         })
     })?;
-    // Test aid: this save reads as one from a later version (smoke `save-refused-load`).
+    // Test aid: an explicitly unsupported game-state format (smoke `save-refused-load`).
     if std::env::var("NVF_PLAY_TEST_SAVE_UNKNOWN_FORMAT").is_ok_and(|n| n == name) {
-        game.format = "fnv.game.state/2".into();
+        game.format = "fnv.game.state/unsupported-test".into();
     }
     let engine = engine_snapshot(world);
     let header = header(world, r.kind, &game, &engine);
@@ -938,6 +938,11 @@ pub fn read_for_load(path: &std::path::Path, current: &[PluginEntry]) -> Result<
         }
         return Ok((f.header, body_of(raw)?, None));
     }
+    // Proposed conservative policy: generic JSON remapping cannot distinguish
+    // saved lambda tokens from real FE record references (high-fe-callables.md).
+    if !body_of(raw.clone())?.game.lambdas.is_empty() {
+        return Err(format!("{}: remapping a save with runtime lambdas to a changed load order is not supported", path.display()));
+    }
     let missing = remap.missing();
     if !missing.is_empty() && current.len() > fnv_save::GONE_INDEX as usize {
         return Err(format!("{} was made with plugins that are not loaded now ({missing:?}) and the load order has 255 plugins: unload one to load it", path.display()));
@@ -1177,7 +1182,7 @@ mod tests {
         let changed: [(&str, BodyChange, &str); 6] = [
             ("body", |b| b.format = "nvf.save.body/2".into(), "body format"),
             ("engine", |b| b.engine.format = "nvf.engine.state/2".into(), "engine format"),
-            ("game", |b| b.game.format = "fnv.game.state/2".into(), "unsupported snapshot format \"fnv.game.state/2\""),
+            ("game", |b| b.game.format = "fnv.game.state/unsupported-test".into(), "unsupported snapshot format \"fnv.game.state/unsupported-test\""),
             ("sim", |b| b.game.sim.format = "fnv.sim.state/2".into(), "unsupported snapshot format \"fnv.sim.state/2\""),
             ("game-rng", |b| b.game.rng_word_pos = "x".into(), "bad rng_word_pos"),
             ("sim-rng", |b| b.game.sim.rng_word_pos = "y".into(), "bad rng_word_pos"),
@@ -1210,5 +1215,167 @@ mod tests {
         assert!(world.resource::<SaveLog>().0.is_empty());
         assert_eq!(world.resource::<SaveQueue>().0.len(), 1);
         assert!(!world.resource::<SaveWrites>().busy());
+    }
+
+    // Proposed high-FE persistence policy: reader boundaries only. These authored
+    // records and real allocated tokens are not native save-format observations.
+    struct OwnedLambdaReader {
+        header: SaveHeader,
+        plain: SaveBody,
+        with_lambda: SaveBody,
+        token: u32,
+        inner: u32,
+        outer: u32,
+    }
+
+    fn owned_lambda_reader() -> OwnedLambdaReader {
+        use crate::script_draw::tests::{record, sub, top};
+        use fnv_script::compile::{Env, FormInfo};
+        use fnv_script::vm::{ArrayKind, Value, XKey, XVal};
+        struct NoForms;
+        impl Env for NoForms {
+            fn form(&self, _: &str) -> Option<FormInfo> { None }
+            fn info(&self, _: u32) -> Option<FormInfo> { None }
+            fn editor_id(&self, _: u32) -> Option<String> { None }
+            fn local_form(&self, form: u32) -> Option<u32> { Some(form) }
+            fn script_vars(&self, _: u32) -> Option<Vec<fnv_script::VarDecl>> { None }
+        }
+        const MAKER: u32 = 0x901;
+        let catalogue = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/script/functions.json");
+        let table = fnv_script::FunctionTable::load(&catalogue).unwrap();
+        let source = "scn OwnedSaveMaker\nref held\nBegin Function {}\nSetFunctionValue (Begin Function {}\nSetFunctionValue 17\nEnd)\nEnd\n";
+        let c = fnv_script::compile::compile(source, &table, &NoForms, None);
+        assert!(c.errors().next().is_none(), "{:?}", c.diags);
+        assert!(c.refs.is_empty());
+        assert_eq!(c.variables.len(), 1);
+        assert_eq!(c.variables[0].index, 1, "the saved scalar slot is really declared");
+        let mut schr = vec![0; 4];
+        schr.extend(0u32.to_le_bytes());
+        schr.extend((c.bytes.len() as u32).to_le_bytes());
+        schr.extend((c.variables.len() as u32).to_le_bytes());
+        schr.extend(0u16.to_le_bytes());
+        schr.extend(1u16.to_le_bytes());
+        let string = |sig: &[u8; 4], value: &str| sub(sig, [value.as_bytes(), &[0]].concat());
+        let mut fields = vec![string(b"EDID", "OwnedSaveMaker"), sub(b"SCHR", schr), sub(b"SCDA", c.bytes.clone())];
+        for v in &c.variables {
+            let mut slsd = v.index.to_le_bytes().to_vec();
+            slsd.extend([0; 12]);
+            slsd.push(u8::from(v.ty == fnv_script::VarType::Int));
+            slsd.extend([0; 7]);
+            fields.push(sub(b"SLSD", slsd));
+            fields.push(string(b"SCVR", &v.name));
+        }
+        fields.push(sub(b"SCTX", source.as_bytes().to_vec()));
+        let hedr = [1.34f32.to_le_bytes(), 0i32.to_le_bytes(), 0x800u32.to_le_bytes()].concat();
+        let header_bytes = record(b"TES4", 1, 0, &[sub(b"HEDR", hedr)]);
+        let bytes_a = [header_bytes.clone(), top(b"NPC_", &record(b"NPC_", 0, 7, &[string(b"EDID", "Player")])), top(b"SCPT", &record(b"SCPT", 0, MAKER, &fields))].concat();
+        let bytes_b = [header_bytes.clone(), top(b"QUST", &record(b"QUST", 0, 0x42, &[string(b"EDID", "OwnedSaveQuest")]))].concat();
+        let bytes_c = header_bytes;
+        let inputs = [("OwnedSaveA.esm", bytes_a), ("OwnedSaveB.esm", bytes_b), ("OwnedSaveC.esm", bytes_c)];
+        let plugins: Vec<_> = inputs.iter().map(|(name, bytes)| fnv_esm::Plugin::parse(bytes, name.to_string()).unwrap()).collect();
+        let mut state = ScriptState::over_plugins(&plugins);
+        let g = &mut state.rt.as_mut().unwrap().game;
+        assert_eq!(g.data.load_order.iter().map(String::as_str).collect::<Vec<_>>(), vec!["OwnedSaveA.esm", "OwnedSaveB.esm", "OwnedSaveC.esm"]);
+        assert_eq!(g.data.sig(fnv_sim::FormId(0x0100_0042)), Some(*b"QUST"));
+        let unit = g.data.script(fnv_sim::FormId(MAKER)).unwrap();
+        assert_eq!(unit.unit.owner, fnv_script::UnitOwner::Script { form: MAKER });
+        assert_eq!(unit.unit.plugin, "OwnedSaveA.esm");
+        assert_eq!(unit.unit.source.as_deref(), Some(source));
+        let key = unit.key();
+        let engine = EngineSnapshot { format: ENGINE_FORMAT.into(), active_quest: Some(0x0100_0042), ..default() };
+        let plain = SaveBody { format: BODY_FORMAT.into(), game: g.checked_snapshot().unwrap(), engine: engine.clone() };
+        assert!(plain.game.lambdas.is_empty());
+        let XVal::Ref(token) = g.run_function(&XVal::Ref(MAKER), None, vec![], None, Default::default()).unwrap() else { panic!("the actual maker returns a lambda") };
+        assert_eq!(g.run_function(&XVal::Ref(token), None, vec![], None, Default::default()).unwrap(), XVal::Num(17.0));
+        let owner = fnv_game::game::InstKey::Ref { reference: fnv_sim::FormId::PLAYER_REF };
+        g.store(owner, Some(fnv_sim::FormId(MAKER)), 1, Value::Ref(token), "owned reader fixture", false);
+        let inner = g.ext.new_array(ArrayKind::List, vec![(XKey::Num(0.0), XVal::Ref(token))]);
+        let outer = g.ext.new_array(ArrayKind::List, vec![(XKey::Num(0.0), XVal::Array(inner))]);
+        g.ext.retain(&XVal::Array(outer));
+        let with_lambda = SaveBody { format: BODY_FORMAT.into(), game: g.checked_snapshot().unwrap(), engine };
+        assert_eq!(with_lambda.game.lambdas.len(), 1);
+        assert_eq!(with_lambda.game.lambdas[0].id, Some(token));
+        assert_eq!(with_lambda.game.lambdas[0].unit, key);
+        plain.check().unwrap();
+        with_lambda.check().unwrap();
+        let mut header = SaveHeader::new(SaveKind::Manual);
+        header.plugins = inputs.iter().map(|(name, bytes)| PluginEntry { name: name.to_string(), size: bytes.len() as u64 }).collect();
+        OwnedLambdaReader { header, plain, with_lambda, token, inner, outer }
+    }
+
+    struct OwnedReaderDir(PathBuf);
+    impl OwnedReaderDir {
+        fn new(label: &str) -> Self {
+            let path = std::env::temp_dir().join(format!("nvf-high-fe-reader-{label}-{}", std::process::id()));
+            assert!(!path.exists(), "use a fresh owned test output");
+            std::fs::create_dir(&path).unwrap();
+            Self(path)
+        }
+        fn write(&self, name: &str, fixture: &OwnedLambdaReader, body: &SaveBody) -> PathBuf {
+            body.check().unwrap();
+            let path = self.0.join(format!("{name}.nvfsave"));
+            fnv_save::write(&path, &fixture.header, &[], &serde_json::to_vec(body).unwrap(), false).unwrap();
+            path
+        }
+    }
+    impl Drop for OwnedReaderDir {
+        fn drop(&mut self) { std::fs::remove_dir_all(&self.0).unwrap(); }
+    }
+
+    fn assert_owned_lambda_tokens(body: &SaveBody, fixture: &OwnedLambdaReader) {
+        use fnv_script::vm::{Value, XVal};
+        assert_eq!(body.game.lambdas[0].id, Some(fixture.token));
+        let owner = fnv_game::game::InstKey::Ref { reference: fnv_sim::FormId::PLAYER_REF };
+        let instance = &body.game.instances.iter().find(|(key, _)| *key == owner).unwrap().1;
+        assert_eq!(instance.vars.get(&1), Some(&Value::Ref(fixture.token)));
+        assert_eq!(body.game.ext.array(fixture.outer).unwrap().entries[0].1, XVal::Array(fixture.inner));
+        assert_eq!(body.game.ext.array(fixture.inner).unwrap().entries[0].1, XVal::Ref(fixture.token));
+    }
+
+    #[test]
+    fn lambda_save_reader_preserves_identity_and_appended_plugin_tokens() {
+        let fixture = owned_lambda_reader();
+        let dir = OwnedReaderDir::new("identity");
+        let path = dir.write("lambda", &fixture, &fixture.with_lambda);
+        let original_file = std::fs::read(&path).unwrap();
+        let mut appended = fixture.header.plugins.clone();
+        appended.push(PluginEntry { name: "OwnedSaveD.esm".into(), size: fixture.header.plugins[2].size });
+        for current in [&fixture.header.plugins, &appended] {
+            assert!(fnv_save::PluginRemap::new(&fixture.header.plugins, current).is_identity());
+            let (_, body, order) = read_for_load(&path, current).unwrap();
+            assert!(order.is_none());
+            assert_owned_lambda_tokens(&body, &fixture);
+            assert_eq!(serde_json::to_value(&body).unwrap(), serde_json::to_value(&fixture.with_lambda).unwrap(), "the persisted body is unchanged through the identity reader");
+            assert_eq!(std::fs::read(&path).unwrap(), original_file);
+        }
+    }
+
+    #[test]
+    fn lambda_save_reader_refuses_reorder_but_no_lambda_reader_still_remaps() {
+        let fixture = owned_lambda_reader();
+        let dir = OwnedReaderDir::new("reorder");
+        let lambda_path = dir.write("lambda", &fixture, &fixture.with_lambda);
+        let original_file = std::fs::read(&lambda_path).unwrap();
+        // Establish valid structural/save admission before the refusal check.
+        let (_, admitted, order) = read_for_load(&lambda_path, &fixture.header.plugins).unwrap();
+        assert!(order.is_none());
+        assert_owned_lambda_tokens(&admitted, &fixture);
+        // Keep the base plugin and its player/maker IDs fixed; move two small mods.
+        let reordered = vec![fixture.header.plugins[0].clone(), fixture.header.plugins[2].clone(), fixture.header.plugins[1].clone()];
+        assert!(!fnv_save::PluginRemap::new(&fixture.header.plugins, &reordered).is_identity());
+        let error = read_for_load(&lambda_path, &reordered).unwrap_err();
+        assert!(error.contains("remapping a save with runtime lambdas") && error.contains("changed load order"), "{error}");
+        assert_eq!(std::fs::read(&lambda_path).unwrap(), original_file, "refusal does not rewrite saved scalar or array tokens");
+        assert!(fixture.plain.game.lambdas.is_empty(), "independent pre-allocation body, not dangling tokens with lambdas erased");
+        let plain_path = dir.write("no-lambda", &fixture, &fixture.plain);
+        let (_, unchanged, order) = read_for_load(&plain_path, &fixture.header.plugins).unwrap();
+        assert!(order.is_none());
+        assert_eq!(unchanged.engine.active_quest, Some(0x0100_0042));
+        let (_, remapped, order) = read_for_load(&plain_path, &reordered).unwrap();
+        let order = order.expect("a no-lambda nonidentity order still follows generic remapping");
+        assert_eq!(order.remap.map(0x0100_0042), Some(0x0200_0042));
+        assert!(order.missing.is_empty());
+        assert!(remapped.game.lambdas.is_empty());
+        assert_eq!(remapped.engine.active_quest, Some(0x0200_0042));
     }
 }

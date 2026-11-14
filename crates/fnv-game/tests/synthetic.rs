@@ -872,7 +872,7 @@ fn a_snapshot_says_whether_the_restores_take_it() {
     assert_eq!(good.check(), Ok(()));
     assert_eq!(restores(&good), Ok(()));
     let bad: [(&str, SnapshotChange<'_>); 6] = [
-        ("unsupported snapshot format \"fnv.game.state/2\"", Box::new(|s| s.format = "fnv.game.state/2".into())),
+        ("unsupported snapshot format \"fnv.game.state/unsupported-test\"", Box::new(|s| s.format = "fnv.game.state/unsupported-test".into())),
         ("unsupported snapshot format \"fnv.sim.state/2\"", Box::new(|s| s.sim.format = "fnv.sim.state/2".into())),
         ("bad rng_word_pos \"x\"", Box::new(|s| s.rng_word_pos = "x".into())),
         ("bad rng_word_pos \"y\"", Box::new(|s| s.sim.rng_word_pos = "y".into())),

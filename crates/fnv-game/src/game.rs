@@ -1264,8 +1264,10 @@ pub struct Game<'a> {
     /// The user-defined functions running, innermost last (script-compiler.md §9).
     udf: Vec<UdfFrame>,
     /// The lambdas scripts made: the unit, the lambda, the instance whose variables it
-    /// shares; named by `LAMBDA_BASE + index`.
+    /// shares. Each definition retains its allocated scalar ID.
     lambdas: Vec<LambdaDef<'a>>,
+    lambda_by_id: std::collections::HashMap<u32, usize>,
+    next_lambda_id: u32,
     /// Extender handlers and queued calls whose function cannot run, by (where, error),
     /// reported once each ([`Game::handler_failed`], #2280).
     unusable_reported: std::collections::HashSet<(String, String)>,
@@ -1877,6 +1879,9 @@ pub struct Game<'a> {
 /// variables it shares.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SavedLambda {
+    /// Explicit in state/2; state/1 derives the historical base plus vector position.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<u32>,
     pub unit: String,
     pub lambda: fnv_script::ir::XExpr,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1894,7 +1899,7 @@ pub struct QueuedBox {
     pub serial: u64,
 }
 
-/// Snapshot of the Layer 5 state plus the world's (`fnv.game.state/1`).
+/// Snapshot of the Layer 5 state plus the world's (`fnv.game.state/2`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GameSnapshot {
     pub format: String,
@@ -2062,13 +2067,42 @@ impl GameSnapshot {
     /// Whether [`Game::restore`] and `World::restore` can take this snapshot: a load asks
     /// before it starts anything from the save (docs/design/save-load.md §6).
     pub fn check(&self) -> Result<(), String> {
-        if self.format != SNAPSHOT_FORMAT {
+        if self.format != SNAPSHOT_FORMAT && self.format != LEGACY_SNAPSHOT_FORMAT {
             return Err(format!("unsupported snapshot format {:?}", self.format));
         }
+        self.checked_lambda_ids()?;
         self.sim.check()?;
         crate::coop::checked(self.coop.clone()).map_err(|e| e.to_string())?;
         self.rng_word_pos.parse::<u128>().map_err(|_| format!("bad rng_word_pos {:?}", self.rng_word_pos))?;
         Ok(())
+    }
+
+    /// Resolve saved scalar identities without rewriting any embedded reference.
+    fn checked_lambda_ids(&self) -> Result<Vec<u32>, String> {
+        let mut seen = BTreeSet::new();
+        self.lambdas.iter().enumerate().map(|(index, l)| {
+            let id = match (self.format.as_str(), l.id) {
+                (LEGACY_SNAPSHOT_FORMAT, None) => u32::try_from(index).ok().and_then(|i| LAMBDA_BASE.checked_add(i)),
+                (SNAPSHOT_FORMAT, Some(id)) => Some(id),
+                _ => return Err(format!("saved lambda {index} has an ID encoding inconsistent with {}", self.format)),
+            }.filter(|id| (LAMBDA_BASE..LAMBDA_END).contains(id))
+                .ok_or_else(|| format!("saved lambda {index} has an out-of-range ID"))?;
+            if !seen.insert(id) {
+                return Err(format!("saved lambda {index} repeats ID 0x{id:08X}"));
+            }
+            Ok(id)
+        }).collect()
+    }
+
+    /// Refuse ambiguous identities before constructing a replacement Game.
+    fn lambda_ids_for_data(&self, data: &GameData) -> Result<Vec<u32>, String> {
+        let ids = self.checked_lambda_ids()?;
+        for (index, &id) in ids.iter().enumerate() {
+            if data.sig(FormId(id)).is_some() || self.form_instances.iter().any(|(other, _)| other.0 == id) {
+                return Err(format!("saved lambda {index} ID 0x{id:08X} conflicts with an occupied form"));
+            }
+        }
+        Ok(ids)
     }
 
     /// After a save made with another load order was remapped (`fnv_save::remap_json`,
@@ -2145,7 +2179,8 @@ impl GameSnapshot {
     }
 }
 
-pub const SNAPSHOT_FORMAT: &str = "fnv.game.state/1";
+pub const SNAPSHOT_FORMAT: &str = "fnv.game.state/2";
+const LEGACY_SNAPSHOT_FORMAT: &str = "fnv.game.state/1";
 
 /// The fields of this crate whose value is a tuple of form IDs alone
 /// (`Option<(FormId, FormId)>`, `Option<(FormId, Option<FormId>)>`), by name, for
@@ -2231,6 +2266,7 @@ fn unit_lambda(unit: &Compiled, l: &fnv_script::ir::XExpr) -> Option<fnv_script:
 /// and that unit's key, the lambda, and the instance whose variables it shares.
 #[derive(Clone)]
 struct LambdaDef<'a> {
+    id: u32,
     unit: Option<&'a Compiled>,
     key: String,
     lambda: fnv_script::ir::XExpr,
@@ -2294,15 +2330,15 @@ pub const MAX_UDF_DEPTH: usize = 30;
 const NOT_A_FUNCTION: &str = " is not a function script";
 const NO_FUNCTION_BLOCK: &str = " has no Function block";
 
-/// Lambdas are named by values from here on, in a `ref` variable's slot [decision: a
-/// FormID this high needs a 255th plugin, which NVForever's load order never gives a
-/// lambda's place to; script-compiler.md §9].
 /// Ids of foreach's temporary inventory references (B5), below the lambdas'.
 pub const TEMP_REF_BASE: u32 = 0xFE40_0000;
 /// Ids of the scripts CompileScript made from text files, below the temporary
 /// references' [decision, as the lambdas'].
 pub const COMPILED_BASE: u32 = 0xFE20_0000;
+/// Proposed bounded runtime namespace; actual membership and occupied records decide
+/// allocation/dispatch, not this numeric boundary (high-fe-callables.md).
 pub const LAMBDA_BASE: u32 = 0xFE80_0000;
+const LAMBDA_END: u32 = 0xFF00_0000;
 
 /// What a script run is attached to.
 #[derive(Debug, Clone, Copy, Default)]
@@ -2359,6 +2395,8 @@ impl<'a> Game<'a> {
             ext: Default::default(),
             udf: Vec::new(),
             lambdas: Vec::new(),
+            lambda_by_id: Default::default(),
+            next_lambda_id: LAMBDA_BASE,
             unusable_reported: Default::default(),
             compiled_files: Vec::new(),
             compiled_paths: std::collections::HashMap::new(),
@@ -3320,8 +3358,9 @@ impl<'a> Game<'a> {
         let data = self.data;
         let opts = self.opts();
         let self_ref = on.and_then(|v| v.as_form()).map(FormId);
-        let (unit, params, body, value, locals): (&Compiled, Vec<VarRef>, Vec<Stmt>, Option<fnv_script::ir::XExpr>, Locals) = if id >= LAMBDA_BASE {
-            let d = self.lambdas.get((id - LAMBDA_BASE) as usize).cloned().ok_or("an unknown lambda")?;
+        let lambda_index = self.lambda_by_id.get(&id).copied();
+        let (unit, params, body, value, locals): (&Compiled, Vec<VarRef>, Vec<Stmt>, Option<fnv_script::ir::XExpr>, Locals) = if let Some(index) = lambda_index {
+            let d = self.lambdas.get(index).cloned().ok_or("an unknown lambda")?;
             let (unit, l, inst) = (d.unit.ok_or_else(|| format!("the lambda's script {} is gone", d.key))?, d.lambda, d.inst);
             let fnv_script::ir::XExpr::Lambda { params, body, value, .. } = l else { return Err("an unknown lambda".into()) };
             let locals = match inst {
@@ -3333,7 +3372,7 @@ impl<'a> Game<'a> {
             let compiled = id.checked_sub(COMPILED_BASE).filter(|_| id < TEMP_REF_BASE).and_then(|i| self.compiled_files.get(i as usize).copied());
             let unit = match compiled {
                 Some(u) => u,
-                None => data.script(FormId(id)).ok_or_else(|| format!("{}{NOT_A_FUNCTION}", data.name(FormId(id))))?,
+                None => data.script(FormId(id)).ok_or_else(|| if id >= LAMBDA_BASE { "an unknown lambda".into() } else { format!("{}{NOT_A_FUNCTION}", data.name(FormId(id))) })?,
             };
             let block = unit.program.blocks.iter().find(|b| b.event == fnv_script::ir::FUNCTION_BLOCK).ok_or_else(|| format!("{}{NO_FUNCTION_BLOCK}", data.name(FormId(id))))?;
             let params = block.params.iter().flatten().filter_map(|a| if let Arg::Var(v) = a { Some(*v) } else { None }).collect();
@@ -3369,17 +3408,17 @@ impl<'a> Game<'a> {
         // variables, for its next call and for the maker's run (`Exec::call_function`)
         // [documented: Lambda, its variables are its maker's; observed: the High and Dry
         // session's repro, `({x} => c += x)` called in its maker's query left `c` 1, #2275].
-        if id >= LAMBDA_BASE {
+        if let Some(index) = lambda_index {
             if let Locals::Temp(m) = &ex.locals {
                 let m = m.clone();
-                if let Some(d) = ex.game.lambdas.get_mut((id - LAMBDA_BASE) as usize).filter(|d| d.inst.is_none()) {
+                if let Some(d) = ex.game.lambdas.get_mut(index).filter(|d| d.inst.is_none()) {
                     d.captured = Some(m);
                 }
             }
         }
         // A function script's own strings and arrays go with it (a lambda's variables are
         // its maker's).
-        if let (true, Locals::Temp(m)) = (id < LAMBDA_BASE, &ex.locals) {
+        if let (true, Locals::Temp(m)) = (lambda_index.is_none(), &ex.locals) {
             for (&index, v) in m {
                 match unit.var_type(index) {
                     Some(VarType::Other(t)) if t == "string_var" => ex.game.ext.destroy(v.num() as u32),
@@ -3535,14 +3574,32 @@ impl<'a> Game<'a> {
             XVal::Num(x) => *x as u32,
             _ => return None,
         };
-        if id >= LAMBDA_BASE {
-            let d = self.lambdas.get((id - LAMBDA_BASE) as usize)?;
+        if let Some(&index) = self.lambda_by_id.get(&id) {
+            let d = self.lambdas.get(index)?;
             let fnv_script::ir::XExpr::Lambda { params, .. } = &d.lambda else { return None };
             return Some(params.len());
         }
         let unit = self.data.script(FormId(id))?;
         let block = unit.program.blocks.iter().find(|b| b.event == fnv_script::ir::FUNCTION_BLOCK)?;
         Some(block.params.iter().flatten().count())
+    }
+
+    /// Preserve the existing low-ID transfer policy, also recognizing actual high
+    /// record scripts. CompileScript/invalid low-token eligibility is unchanged.
+    pub(crate) fn session_function(&self, f: &fnv_script::vm::XVal) -> bool {
+        matches!(f, fnv_script::vm::XVal::Ref(id) if !self.lambda_by_id.contains_key(id)
+            && (*id < LAMBDA_BASE || self.data.script(FormId(*id)).is_some()))
+    }
+
+    fn allocate_lambda_id(&mut self) -> Result<u32, String> {
+        while self.next_lambda_id < LAMBDA_END {
+            let id = self.next_lambda_id;
+            self.next_lambda_id = id.checked_add(1).ok_or("runtime lambda IDs exhausted")?;
+            if self.data.sig(FormId(id)).is_none() && !self.lambda_by_id.contains_key(&id) && !self.clones.contains_key(&FormId(id)) {
+                return Ok(id);
+            }
+        }
+        Err("runtime lambda IDs exhausted".into())
     }
 
     /// What lasts for the session across a load (task E3): the SetEventHandler
@@ -3555,7 +3612,7 @@ impl<'a> Game<'a> {
             .handlers
             .iter()
             .filter(|h| !h.alt)
-            .filter(|h| matches!(h.func, fnv_script::vm::XVal::Ref(f) if f < LAMBDA_BASE))
+            .filter(|h| self.session_function(&h.func))
             .filter(|h| h.filters.iter().all(|(_, v)| !matches!(v, fnv_script::vm::XVal::Array(_))))
             .cloned()
             .collect();
@@ -3563,7 +3620,7 @@ impl<'a> Game<'a> {
             .jip
             .main_loop
             .iter()
-            .filter(|m| m.flags & 8 == 0 && matches!(m.func, fnv_script::vm::XVal::Ref(f) if f < LAMBDA_BASE))
+            .filter(|m| m.flags & 8 == 0 && self.session_function(&m.func))
             .cloned()
             .map(|mut m| {
                 m.due = 0;
@@ -6094,7 +6151,7 @@ impl<'a> Game<'a> {
         GameSnapshot {
             format: SNAPSHOT_FORMAT.into(),
             ext: self.ext.clone(),
-            lambdas: self.lambdas.iter().map(|d| SavedLambda { unit: d.key.clone(), lambda: d.lambda.clone(), inst: d.inst }).collect(),
+            lambdas: self.lambdas.iter().map(|d| SavedLambda { id: Some(d.id), unit: d.key.clone(), lambda: d.lambda.clone(), inst: d.inst }).collect(),
             // A created reference deleted since keeps no variables: its FormID is not
             // used again, so they could never be read.
             nx: crate::nvse_nx::NxVars(self.nx.0.iter().filter(|(id, _)| !sim.deleted_created.contains_key(id)).map(|(k, v)| (*k, v.clone())).collect()),
@@ -6159,9 +6216,10 @@ impl<'a> Game<'a> {
 
     pub fn restore(data: &'a GameData, world: World<'a>, cfg: GameConfig, s: &GameSnapshot) -> Result<Game<'a>, String> {
         s.check()?;
+        let lambda_ids = s.lambda_ids_for_data(data)?;
         let mut g = Game::new(data, world, cfg);
         g.ext = s.ext.clone();
-        for l in &s.lambdas {
+        for (l, id) in s.lambdas.iter().zip(lambda_ids) {
             // A lambda whose unit is gone (a plugin removed, a console line) keeps its place,
             // so the later ones keep their names; calling it fails.
             let unit = data.unit_by_key.get(&l.unit).map(|&i| &data.units[i]);
@@ -6170,9 +6228,11 @@ impl<'a> Game<'a> {
             // reads every lambda as number 0, and an edited plugin can number other code
             // the same; those get a new ID with the current code when made.
             if let Some(u) = unit.filter(|u| unit_lambda(u, &l.lambda).is_some_and(|now| now == l.lambda)) {
-                g.lambda_ids.entry(lambda_key(u, &l.lambda, l.inst)).or_insert(LAMBDA_BASE + g.lambdas.len() as u32);
+                g.lambda_ids.entry(lambda_key(u, &l.lambda, l.inst)).or_insert(id);
             }
-            g.lambdas.push(LambdaDef { unit, key: l.unit.clone(), lambda: l.lambda.clone(), inst: l.inst, captured: None });
+            g.lambda_by_id.insert(id, g.lambdas.len());
+            g.next_lambda_id = g.next_lambda_id.max(id + 1); // preflight bounds id below FF
+            g.lambdas.push(LambdaDef { id, unit, key: l.unit.clone(), lambda: l.lambda.clone(), inst: l.inst, captured: None });
         }
         g.nx = s.nx.clone();
         g.quests = s.quests.clone();
@@ -6682,17 +6742,19 @@ impl Host for Exec<'_, '_> {
         if let Some(&id) = self.game.lambda_ids.get(&key) {
             // Made again by a maker with no instance: it reads that run's variables
             // [hypothesis, script-compiler.md §9 Lambdas].
-            if let (Locals::Temp(m), Some(d)) = (&self.locals, self.game.lambdas.get_mut((id - LAMBDA_BASE) as usize)) {
+            let index = self.game.lambda_by_id.get(&id).copied().ok_or("an unknown lambda")?;
+            if let (Locals::Temp(m), Some(d)) = (&self.locals, self.game.lambdas.get_mut(index)) {
                 d.captured = Some(m.clone());
             }
             return Ok(fnv_script::vm::XVal::Ref(id));
         }
-        let id = LAMBDA_BASE + self.game.lambdas.len() as u32;
+        let id = self.game.allocate_lambda_id()?;
         let captured = match &self.locals {
             Locals::Temp(m) => Some(m.clone()),
             Locals::Instance(_) => None,
         };
-        self.game.lambdas.push(LambdaDef { unit: Some(self.unit), key: self.unit.key(), lambda: l.clone(), inst: key.2, captured });
+        self.game.lambda_by_id.insert(id, self.game.lambdas.len());
+        self.game.lambdas.push(LambdaDef { id, unit: Some(self.unit), key: self.unit.key(), lambda: l.clone(), inst: key.2, captured });
         self.game.lambda_ids.insert(key, id);
         Ok(fnv_script::vm::XVal::Ref(id))
     }
@@ -6721,11 +6783,11 @@ impl Host for Exec<'_, '_> {
         // A lambda this run made, called in it, runs on this run's variables and leaves
         // them as it wrote them (`Game::run_function_here`).
         let mine = match (f, &self.locals) {
-            (fnv_script::vm::XVal::Ref(id), Locals::Temp(m)) if *id >= LAMBDA_BASE => {
-                let i = (*id - LAMBDA_BASE) as usize;
+            (fnv_script::vm::XVal::Ref(id), Locals::Temp(m)) => {
+                let i = self.game.lambda_by_id.get(id).copied();
                 let unit = self.unit as *const Compiled;
-                match self.game.lambdas.get_mut(i) {
-                    Some(d) if d.inst.is_none() && d.unit.is_some_and(|u| std::ptr::eq(u, unit)) => {
+                match i.and_then(|i| self.game.lambdas.get_mut(i).map(|d| (i, d))) {
+                    Some((i, d)) if d.inst.is_none() && d.unit.is_some_and(|u| std::ptr::eq(u, unit)) => {
                         d.captured = Some(m.clone());
                         Some(i)
                     }
