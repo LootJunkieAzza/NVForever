@@ -3402,7 +3402,7 @@ fn place_like_host(world: &mut fnv_sim::World, g: &mut fnv_game::Game, npcs: &Ha
                 s.space,
                 was.map_or_else(|| "no state".to_string(), |p| format!("at ({:.0}, {:.0}, {:.0})", p[0], p[1], p[2]))
             );
-            g.resurrect(id, false);
+            g.coop_revive(id);
             // It stands up where the host has it: its place here may be the corpse's own,
             // or none at all (item 201, 2026-11-14: GSPG05/06 0x00104C72/73, dead in the
             // guest's save, revived "standing at (0, 0, 0)"). In this player's space only;

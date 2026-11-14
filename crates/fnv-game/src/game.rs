@@ -1617,6 +1617,13 @@ pub struct Game<'a> {
     /// ([`Game::story_gate`]); the far players, and when it was last asked (game
     /// seconds). Not saved.
     pub coop_story_wait: Option<crate::coop::StoryWait>,
+    /// Talkers a script activated with the player as the activator (`X.Activate
+    /// Player`, not by the player's hand) since the runtime last looked: their
+    /// conversation is the script's scene, which the co-op story gate does not hold, as
+    /// it does not hold a script's StartConversation ([`Game::story_gate`];
+    /// [observed: DeadMoney.esm NVDLC01FountainStartSequenceSCRIPT activates
+    /// NVDLC01ElijahTalkingActivatorREF with the player]). Not saved.
+    pub script_talks: Vec<FormId>,
     /// The speakers (base or reference) of lines that belong to, or set a stage of, a story
     /// quest, found once ([`Game::story_npc`]). Not saved.
     pub(crate) story_speakers: Option<std::collections::HashMap<FormId, Vec<FormId>>>,
@@ -1629,6 +1636,12 @@ pub struct Game<'a> {
     /// host's world (`fighting one or ready to attack one`), which this game's compass marks
     /// hostile as its own would be; this game runs none of the scripts that turned them.
     pub coop_hostile: BTreeSet<FormId>,
+    /// A co-op guest's: deaths of each base this game counts (`PlayerState::dead_count`)
+    /// that the host's world doesn't have, taken back by [`Game::coop_revive`] while in
+    /// the host's world, so GetDeadCount reads as there. Never saved: the count itself is
+    /// left as it is, and it is what goes back to the guest's own game (its character,
+    /// `coop::Character`), whose world still has them dead.
+    pub coop_deaths_taken_back: BTreeMap<FormId, u32>,
     /// The host's: checkpoints that took the player's items of a form type into a
     /// container (`RemoveAllTypedItems` on the player: a Strip casino's weapon check) or
     /// gave them back (the container's `RemoveAllItems player`), for the guests to do the
@@ -2618,9 +2631,11 @@ impl<'a> Game<'a> {
             coop: Vec::new(),
             coop_actors: BTreeMap::new(),
             coop_story_wait: None,
+            script_talks: Vec::new(),
             story_speakers: None,
             coop_guest: false,
             coop_hostile: BTreeSet::new(),
+            coop_deaths_taken_back: BTreeMap::new(),
             coop_checkpoints: Vec::new(),
             coop_checkpoint_holds: BTreeSet::new(),
             script_image_modifiers: BTreeSet::new(),
@@ -5500,6 +5515,9 @@ impl<'a> Game<'a> {
         let v = serde_json::to_value(&act).map_err(|e| e.to_string())?;
         self.note_activating(actor, target);
         let activated_event = self.events.len();
+        if let (false, true, Outcome::Talk { actor: talker }) = (by_hand, actor == FormId::PLAYER_REF, &act.outcome) {
+            self.script_talks.push(*talker);
+        }
         self.emit(EventKind::Activated { reference: target, by: actor, outcome: Some(v) });
         let mut item_added_event = None;
         if matches!(act.outcome, Outcome::Activated) {

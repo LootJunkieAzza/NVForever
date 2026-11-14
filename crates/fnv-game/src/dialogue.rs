@@ -611,6 +611,13 @@ impl<'a> Game<'a> {
         self.open_dialogue(actor, topic, false)
     }
 
+    /// A script's activation of a talker with the player as the activator opens the
+    /// conversation as [`Game::start_dialogue`] does, except that the co-op story gate
+    /// does not hold it: it is the script's scene ([`Game::script_talks`]).
+    pub fn start_script_dialogue(&mut self, actor: FormId, topic: Option<FormId>) -> Result<FormId, String> {
+        self.open_dialogue(actor, topic, false)
+    }
+
     /// The actor starts the conversation with the player: a force greet, by
     /// StartConversation or by its Dialogue package (not Say To). As
     /// [`Game::start_dialogue`], except that **a greeting with the Goodbye flag opens a

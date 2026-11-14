@@ -561,7 +561,7 @@ pub fn resurrect_actor(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, Strin
 
 pub fn get_dead_count(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let b = a.form(0)?;
-    Ok(Value::Num(g.player.dead_count.get(&b).copied().unwrap_or(0) as f64))
+    Ok(Value::Num(g.dead_count(b) as f64))
 }
 
 /// The factions and ranks the records give an actor: its base's `SNAM` list, or its

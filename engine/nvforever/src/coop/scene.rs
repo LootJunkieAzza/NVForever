@@ -38,8 +38,9 @@
 //!   (Dead Money's RemoveAllItems) is not followed: the owner's Mojave and DLC
 //!   inventories come first (morning-report designs\coop-dlc-inventory.md).
 //!
-//! - **Bodies hidden.** While a scene holds a player's movement and looking, the other
-//!   players' bodies are not drawn ([`hide_players_in_scene`], item 116). Not for an
+//! - **Bodies hidden.** While a scene holds a player's movement and looking, an idle's
+//!   camera node drives its view or a script drives its camera, the other players' bodies
+//!   are not drawn on its screen ([`hide_players_in_scene`], items 116 and 214). Not for an
 //!   NVForever mini-game's own lock (`Game::scene_locks`): at a drinking contest's table
 //!   the other drinkers are seen.
 //!
@@ -564,35 +565,82 @@ fn scene_holds_view(locks: [bool; 7]) -> bool {
     locks[0] && locks[4]
 }
 
-/// While a scene holds the view, the other players' bodies are not drawn: every player
-/// watches from the scene's spot in first person (the POV lock), and a body standing on
-/// that spot would fill the screen (playtest list 7 item 116: in the original the camera
-/// stays on the slideshow's screen with no body in view [the owner, 2026-11-09]). They are
-/// drawn again when the scene lets go.
+/// Why the other players' bodies are not drawn on this screen, if they are not: while
+/// something other than the player drives this player's camera, every other body is
+/// hidden. In the original only one player stands in such a shot, and a co-op player in
+/// it filled the screen with a face (item 214, the owner watching Dead Money in co-op
+/// on 2026-11-14: "players should be invis so they dont see eachothers faces"):
+///
+/// - a scene holds the view: its movement and its looking held (a DLC's opening or
+///   ending slideshow, Elijah's broadcast; every player watches from the scene's spot in
+///   first person, and a body on that spot would fill the screen; playtest list 7 item
+///   116: in the original the camera stays on the slideshow's screen with no body in view
+///   [the owner, 2026-11-09]);
+/// - an idle's camera node drives the view (`nvf_play::player::ViewDriven`: the opening's
+///   and the Sierra Madre villa's wake-up);
+/// - a script places or turns the camera (JohnnyGuitar's SetCameraTranslate,
+///   SetCameraRotate, SetCameraRotateToRef: `CameraRequests`' overrides).
+///
+/// They are drawn again when it ends.
+fn hidden_because(locks: [bool; 7], idle_drives_view: bool, script_camera: bool) -> Option<&'static str> {
+    if scene_holds_view(locks) {
+        Some("the scene holds the view")
+    } else if idle_drives_view {
+        Some("an idle's camera node drives the view")
+    } else if script_camera {
+        Some("a script drives the camera")
+    } else {
+        None
+    }
+}
+
+/// Whether a script has placed or turned the camera (`CameraRequests`).
+fn script_camera(c: &fnv_game::functions::camera::CameraRequests) -> bool {
+    c.translate_override.is_some() || c.rotate_override.iter().any(Option::is_some) || c.rotate_track.is_some()
+}
+
+/// Hides the other players' bodies on this screen while [`hidden_because`] says so (a
+/// scene, an idle's camera, a script's camera), and draws them again after.
 pub(super) fn hide_players_in_scene(
     coop: Res<Coop>,
     script: Option<Res<nvf_play::script::ScriptState>>,
+    driven: Option<Res<nvf_play::player::ViewDriven>>,
     mut bodies: Query<&mut Visibility, With<super::Puppet>>,
-    mut hidden: Local<bool>,
+    mut hidden: Local<Option<&'static str>>,
     mut blocks: Option<ResMut<nvf_play::blocking::ActorBlocks>>,
 ) {
-    let held = (coop.is_host() || coop.is_guest()) && script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| scene_holds_view(rt.game.scene_locks()));
-    if held != *hidden {
-        *hidden = held;
-        info!("co-op: scene: the other players' bodies {}", if held { "hidden while the scene holds the view" } else { "drawn again" });
+    let game = script.as_ref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game);
+    let why = (coop.is_host() || coop.is_guest())
+        .then(|| {
+            hidden_because(
+                game.map_or([false; 7], |g| g.scene_locks()),
+                driven.as_deref().is_some_and(|d| d.0),
+                game.is_some_and(|g| script_camera(&g.ui.camera)),
+            )
+        })
+        .flatten();
+    if why != *hidden {
+        let (was, now) = (hidden.is_some(), why.is_some());
+        *hidden = why;
+        match why {
+            Some(w) => info!("co-op: scene: the other players' bodies hidden while {w}"),
+            None => info!("co-op: scene: the other players' bodies drawn again"),
+        }
         // Nor in anybody's way: the guests stand on the host's spot meanwhile, and a
         // body there pushed the host aside (laptop run story-near, 2026-11-09).
-        if let Some(b) = blocks.as_deref_mut() {
-            for r in coop.peers.iter().flat_map(|(&id, p)| p.references(id)) {
-                if held {
-                    b.in_nobodys_way.insert(r);
-                } else {
-                    b.in_nobodys_way.remove(&r);
+        if was != now {
+            if let Some(b) = blocks.as_deref_mut() {
+                for r in coop.peers.iter().flat_map(|(&id, p)| p.references(id)) {
+                    if now {
+                        b.in_nobodys_way.insert(r);
+                    } else {
+                        b.in_nobodys_way.remove(&r);
+                    }
                 }
             }
         }
     }
-    let want = if held { Visibility::Hidden } else { Visibility::Inherited };
+    let want = if why.is_some() { Visibility::Hidden } else { Visibility::Inherited };
     for mut v in &mut bodies {
         v.set_if_neq(want);
     }
@@ -626,6 +674,33 @@ mod tests {
         s.host_heard(20.0);
         s.host_heard(21.0);
         assert_eq!(s.host_in_world, Some(20.0));
+    }
+
+    #[test]
+    fn other_players_are_hidden_while_anything_but_the_player_drives_the_camera() {
+        // Item 214: slides, the villa wake-up's idle camera, a script's camera.
+        let free = [false; 7];
+        assert_eq!(hidden_because(free, false, false), None, "the player's own view: drawn");
+        let mut slides = free;
+        slides[0] = true;
+        slides[4] = true;
+        assert_eq!(hidden_because(slides, false, false), Some("the scene holds the view"));
+        assert_eq!(hidden_because(free, true, false), Some("an idle's camera node drives the view"));
+        assert_eq!(hidden_because(free, false, true), Some("a script drives the camera"));
+        // Movement alone held (a talk): the others are seen.
+        let mut talk = free;
+        talk[0] = true;
+        assert_eq!(hidden_because(talk, false, false), None);
+        let mut c = fnv_game::functions::camera::CameraRequests::default();
+        assert!(!script_camera(&c));
+        c.rotate_override[2] = Some(90.0);
+        assert!(script_camera(&c));
+        c = Default::default();
+        c.rotate_track = Some(FormId(0x14));
+        assert!(script_camera(&c));
+        c = Default::default();
+        c.translate_override = Some([0.0, -200.0, 50.0]);
+        assert!(script_camera(&c));
     }
 
     #[test]

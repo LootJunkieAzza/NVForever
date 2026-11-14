@@ -475,6 +475,43 @@ impl Game<'_> {
         self.check_quest_targets(q).iter().any(|t| t.target == actor)
     }
 
+    /// `actor` is in a conversation with another player of the co-op game, not with this
+    /// one ([`Game::coop_talking`] holds it, this game's own conversation does not): it
+    /// offers no second conversation, "Wait for <host>" as a story NPC does (parity,
+    /// 2026-11-14: guest B was offered "Talk" on Sarah Weintraub while the host talked
+    /// to her) [design: one conversation per NPC].
+    pub fn in_another_players_talk(&self, actor: FormId) -> bool {
+        let actor = self.talker(actor).0;
+        let own = self.dialogue.as_ref().map(|c| self.talker(c.actor).0);
+        own != Some(actor) && self.coop_talking.iter().any(|t| self.talker(*t).0 == actor)
+    }
+
+    /// A guest: `actor`, dead in this game and alive in the host's world, stands up again
+    /// here (nvforever `coop::place_like_host`), and its death is taken back while in the
+    /// host's world ([`Game::coop_deaths_taken_back`]), so GetDeadCount reads as it does
+    /// in the world being played: guest B, whose own save had killed the Goodsprings
+    /// Powder Gangers, marked none of VMS16 objective 70's targets, each conditioned on
+    /// GetDeadCount of its ganger's base being 0 [observed: FalloutNV.esm QUST VMS16
+    /// QSTA/CTDA; run 2026-11-14]. The count itself stays, for the guest's own game. A
+    /// script's ResurrectActor keeps the count [hypothesis].
+    pub fn coop_revive(&mut self, actor: FormId) {
+        if let Some(b) = crate::functions::base_of(self, actor) {
+            let counted = self.player.dead_count.get(&b).copied().unwrap_or(0);
+            let back = self.coop_deaths_taken_back.entry(b).or_default();
+            if *back < counted {
+                *back += 1;
+            }
+        }
+        self.resurrect(actor, false);
+    }
+
+    /// The deaths of `base` GetDeadCount reads: the player's count less those a co-op
+    /// guest took back ([`Game::coop_revive`]).
+    pub fn dead_count(&self, base: FormId) -> u32 {
+        let counted = self.player.dead_count.get(&base).copied().unwrap_or(0);
+        counted.saturating_sub(self.coop_deaths_taken_back.get(&base).copied().unwrap_or(0))
+    }
+
     /// Whether a guest's conversation with `actor` would offer anything but Goodbye.
     pub fn guest_can_talk(&mut self, actor: FormId) -> bool {
         let Some(greeting) = self.data.greeting else { return false };

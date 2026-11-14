@@ -2033,3 +2033,29 @@ Fallout Behavior, Weapon Drawn, Continue During Combat).
      it is still on screen, and take screenshots at 0.1, 0.5 and 2 s after Tab and 0.2 s
      after closing. Note whether the HP and AP bars, the compass or the message draw at
      any of those times, and whether the message comes back after the Pip-Boy closes.
+
+## Added 2026-11-14 (a script package's begin idle and its idle collection, Dead Money's wake-up)
+
+122. **Does a script package whose idle collection lists its begin idle play that idle
+     again after it ends?** (P2; idles.md §1 "Collections", packages.md.) Every package a
+     script gives the player in the five masters with an idle collection lists the begin
+     idle in it, Run In Sequence (all but two), timer 0 [observed: FalloutNV.esm,
+     DeadMoney.esm, OldWorldBlues.esm, CG00PlayerSection1, VCG00PlayerSection0-2,
+     VCG01PlayerSection0-2, NVDLC01PlayerWakesUp, NVDLC01PlayerKnockedOut,
+     NVDLC03PlayerKnockoutPackage]. Dead Money's NVDLC01PlayerWakesUp (begin and collection
+     NVDLC01CameraVillaWakeUp, a 4.13 s clip that doesn't loop) stays on the player 5 s
+     (NVDLC01FountainStartSequenceSCRIPT's timer, then RemoveScriptPackage). NVForever
+     plays the collection's first idle as soon as the begin idle ends
+     [hypothesis: idles.md "The first idle is not waited for"], so the player wakes up a
+     second time at 4.1 s (laptop solo run dm1, 2026-11-14: `idle: the player plays
+     NVDLC01CameraVillaWakeUp ... (PackageBegin)`, then `(PackageIdles)` 4.13 s later).
+     The looping begin idles of the others hide it, except where a short begin idle
+     ends while the package is still on (VCG00PlayerSection0, VCG01PlayerSection2,
+     whose collection is Situp after Standup). To check, in the original: start Dead
+     Money (the bunker, or `coc NVDLC01fountain` on a save with it installed) and record
+     the first 8 s; count the wake-ups. Then, for the rule: give the player
+     VCG01PlayerSection2 by console (`player.AddScriptPackage VCG01PlayerSection2`) and
+     watch 20 s: does the player sit up after standing up? If neither repeats, the
+     collection doesn't start after a begin idle (or waits a timer that 0 doesn't mean
+     "none"); the fix is in `IdlePicker::next` and the collection loop in
+     `engine/nvforever/src/idles.rs`.

@@ -432,6 +432,50 @@ fn a_host_waits_for_every_player_to_talk_to_a_story_npc() {
     assert!(talked && wait.is_none());
 }
 
+/// A script's `X.Activate Player` on a story NPC is the script's scene: the co-op story
+/// gate does not hold it, as it does not hold a script's StartConversation. Dead Money's
+/// fountain script activates the hologram NVDLC01ElijahTalkingActivatorREF with the
+/// player [observed: DeadMoney.esm NVDLC01FountainStartSequenceSCRIPT; desktop co-op run
+/// 2026-11-14, where the host's talk waited for a guest and never started]. The player's
+/// own activation is still held.
+#[test]
+fn a_scripts_activate_player_on_a_story_npc_is_not_held() {
+    let f = fixture_of(plugin_bytes_quest(false, "NVDLC02MQ99"));
+    let mut g = game(&f, false);
+    let cashier = FormId(CASHIER_REF);
+    let cell = Some(FormId(CELL));
+    g.world.get(cashier).unwrap().cell = cell;
+    let other = g.world.place(FormId::PLAYER_BASE, cell, [3000.0, 0.0, 0.0], [0.0; 3], 1).unwrap();
+    g.coop_actors.insert(other, "P2".into());
+    // By hand: no scripted talk is noted, and the talk waits.
+    g.activate(FormId::PLAYER_REF, cashier, fnv_game::game::ActMode::Hand).unwrap();
+    assert!(g.script_talks.is_empty(), "the player's hand is not a script's");
+    assert!(g.start_dialogue(cashier, None).is_err());
+    // A script's Activate with the player: noted, and its conversation opens.
+    g.activate(FormId::PLAYER_REF, cashier, fnv_game::game::ActMode::Default).unwrap();
+    assert_eq!(g.script_talks, vec![cashier]);
+    assert!(g.start_script_dialogue(cashier, None).is_ok());
+    assert!(g.dialogue.is_some());
+}
+
+/// An NPC in a conversation with another player offers no second conversation: the
+/// guest (or the host) waits ([`Game::in_another_players_talk`]); its own conversation
+/// with it is not another player's.
+#[test]
+fn an_npc_talking_to_another_player_offers_no_second_talk() {
+    let f = fixture();
+    let mut g = game(&f, true);
+    let cashier = FormId(CASHIER_REF);
+    assert!(!g.in_another_players_talk(cashier), "nobody talks to it");
+    g.coop_talking.insert(cashier);
+    assert!(g.in_another_players_talk(cashier), "the host talks to it");
+    g.coop_talking.clear();
+    // This player's own conversation, told back in the set: not another's.
+    g.start_dialogue(cashier, None).unwrap();
+    g.coop_talking.insert(cashier);
+    assert!(!g.in_another_players_talk(cashier));
+}
+
 /// A line of an ordinary quest whose compiled end script names a story quest makes its
 /// speaker a story NPC: Jed's greeting at Zion (NVDLC02DialogueCaravanMaster) starts
 /// NVDLC02MQ01 [observed: HonestHearts.esm INFO 0x0100F195; laptop run story-far,
