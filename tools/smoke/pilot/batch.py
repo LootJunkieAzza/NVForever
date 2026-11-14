@@ -56,6 +56,8 @@ WEIGHTS = {
     "wait_timed_out": 6,
     "step_timed_out": 5,
     "fight_not_won": 3,
+    "run_ended": 10,
+    "ai_kill_not_done": 8,
     "stuck": 2,
 }
 
@@ -197,16 +199,24 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--start", default="pilot-after-intro", help="save to start each chain from (in <home>/saves); --new-game when absent")
     ap.add_argument("--out", default=str(REPO / "target" / "pilot-batch"))
     ap.add_argument("--jobs", type=int, default=2)
-    ap.add_argument("--minutes", type=int, default=30)
+    ap.add_argument("--minutes", type=int, default=40)
     ap.add_argument("--only", nargs="*", default=[])
     ap.add_argument("--skip-fail", action="store_true", help="leave out the fail-* chains (a quest's failure paths)")
     ap.add_argument("--save-load", action="store_true", help="the game's state through a save and a load before each milestone")
+    ap.add_argument("--resume", action="store_true", help="keep the chains that already have a report in --out; run the others")
     args = ap.parse_args(argv)
     todo = [c for c in chains(args.only) if not (args.skip_fail and c.name.startswith("fail-"))]
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
-    print(f"pilot batch: {len(todo)} chains, {args.jobs} at once, at most {args.minutes} min each; out {out}", flush=True)
     results: list[dict] = []
+    if args.resume:
+        kept = [c for c in todo if (out / "reports" / f"{name_of(c)}.report.json").exists()]
+        for c in kept:
+            rep = json.loads((out / "reports" / f"{name_of(c)}.report.json").read_text(encoding="utf-8"))
+            results.append({"chain": name_of(c), "report": rep, "kept": True})
+        todo = [c for c in todo if c not in kept]
+        print(f"pilot batch: {len(kept)} chains kept from an earlier run", flush=True)
+    print(f"pilot batch: {len(todo)} chains, {args.jobs} at once, at most {args.minutes} min each; out {out}", flush=True)
     with concurrent.futures.ThreadPoolExecutor(max_workers=args.jobs) as pool:
         free = list(range(args.jobs))
         futures = {}

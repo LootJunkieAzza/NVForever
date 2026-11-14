@@ -211,6 +211,8 @@
 //!   takes no damage and its magazine stays full (`nvf_play::combat::set_god_mode`). The
 //!   pilot looks for quests that cannot go on, not for fights that cannot be won; a run
 //!   without it says whether a fight can be.
+//! - A `kill` whose killer is another actor is that actor's fight: the player waits up to
+//!   [`AI_KILL_SECS`] for the death (`ai_kill_not_done` otherwise, and the headless kill).
 //! - Not yet: `hit` (the script call of the headless run) and the samplers
 //!   (`not_carried_out` findings).
 //!
@@ -329,6 +331,8 @@ pub const FIGHT_CLOSER_SECS: f64 = 6.0;
 /// pistol's spread missed Joe Cobb with every one of 25 shots from the saloon's door.
 pub const SHOOT_FROM: f32 = 450.0;
 pub const FIGHT_SECS: f64 = 75.0;
+/// Seconds a kill by another actor is waited for.
+pub const AI_KILL_SECS: f64 = 60.0;
 /// Seconds between looks at the weapon in a fight.
 pub const WEAPON_SECS: f64 = 2.0;
 /// Seconds without a clear line of fire before the player goes nearer, and how near at
@@ -381,7 +385,7 @@ impl Plugin for PilotPlugin {
                         Err(e) => error!("pilot: {}: {e}", path.display()),
                     }
                 }
-                app.insert_resource(pilot).add_systems(Update, (drive.in_set(PlaySet::Input).after(nvf_play::control::read_controls).before(nvf_play::control::enforce_locks), held));
+                app.insert_resource(pilot).add_systems(Update, (drive.in_set(PlaySet::Input).after(nvf_play::control::read_controls).before(nvf_play::control::enforce_locks), held)).add_systems(Last, report_on_exit);
             }
             Ok(_) => error!("pilot: no chain"),
             Err(e) => error!("pilot: {e}"),
@@ -1549,6 +1553,10 @@ fn leave_talk(p: &mut Pilot, h: &mut Hands) -> bool {
     enum Way {
         Goodbye(usize),
         TopicList,
+        /// A choice whose line has no choices of its own and links nowhere: the
+        /// conversation ends after it (the Ultra-Luxe's White Glove greeter offers only
+        /// such answers, no Goodbye).
+        Ending(usize),
         None,
         NotYet,
     }
@@ -1558,7 +1566,10 @@ fn leave_talk(p: &mut Pilot, h: &mut Hands) -> bool {
             Some(c) => match c.choices.iter().position(|x| x.goodbye) {
                 Some(i) => Way::Goodbye(i),
                 None if c.topic_list => Way::TopicList,
-                None => Way::None,
+                None => match c.choices.iter().position(|x| g.data.infos.get(&x.info).is_some_and(|d| d.choices.is_empty() && d.follow_ups.is_empty() && d.add_topics.is_empty())) {
+                    Some(i) => Way::Ending(i),
+                    None => Way::None,
+                },
             },
             None => Way::NotYet,
         })
@@ -1570,6 +1581,12 @@ fn leave_talk(p: &mut Pilot, h: &mut Hands) -> bool {
                 Some(Err(e)) => format!(": {e}"),
                 _ => String::new(),
             });
+            p.stuck_talk = None;
+        }
+        Way::Ending(i) => {
+            let text = h.game(|g| g.dialogue_choices().get(i).map(|c| g.choice_text(c).to_string())).flatten().unwrap_or_default();
+            h.game(|g| g.choose(i).ok());
+            info!("pilot: step {}: no Goodbye: leaves by {text:?}, a line that ends the conversation", p.i);
             p.stuck_talk = None;
         }
         Way::TopicList => {
@@ -1875,6 +1892,29 @@ fn step(p: &mut Pilot, h: &mut Hands) -> Option<Option<String>> {
                     p.observe(&label, &read, true);
                     Some(None)
                 }
+            }
+        }
+        // Killed by someone else: the AI's fight, watched from where the player is. The
+        // player does not join in (Ricky, killed by a White Leg at Zion's northern
+        // passage: the pilot went to fight him and was caught in the passage).
+        Action::Kill { target, actor, killer: Some(killer) } if (target.is_some() || actor.is_some()) && !killer.eq_ignore_ascii_case("player") && !killer.eq_ignore_ascii_case("playerref") => {
+            let name = target.clone().or_else(|| actor.clone()).expect("checked");
+            match h.game(|g| runner::resolve(g, &name).map(|r| g.is_dead(r))) {
+                Some(Ok(true)) => {
+                    info!("pilot: step {}: {name} is dead ({killer}'s fight, {:.0} s)", p.i, p.now - p.step_from);
+                    Some(None)
+                }
+                Some(Ok(false)) if p.now - p.step_from < AI_KILL_SECS => None,
+                Some(Ok(false)) => {
+                    p.finding("ai_kill_not_done", format!("{killer} did not kill {name} in {AI_KILL_SECS:.0} s: killed as the headless run kills it"));
+                    p.headless("kill (by an actor, not done)");
+                    let mut applier = std::mem::take(&mut p.applier);
+                    let r = h.game(|g| runner::apply_now(g, &mut applier, &a));
+                    p.applier = applier;
+                    Some(r.and_then(|r| r.err()))
+                }
+                Some(Err(e)) => Some(Some(e)),
+                None => Some(Some("the scripts are not running".into())),
             }
         }
         Action::Kill { target, actor, .. } if target.is_some() || actor.is_some() => {
@@ -2560,6 +2600,27 @@ fn walk_phase(p: &mut Pilot, h: &mut Hands) -> Option<Option<String>> {
     };
     p.phase = phase;
     out
+}
+
+/// The game exits before the pilot is done (`--run-seconds`, a script's ExitGame at the
+/// end slides, the window closed): the report is written all the same, with where it
+/// stopped.
+fn report_on_exit(mut exits: MessageReader<AppExit>, mut pilot: ResMut<Pilot>, watch: Option<Res<nvf_play::softlock::SoftlockWatch>>) {
+    if exits.read().next().is_none() || pilot.done {
+        return;
+    }
+    let p = &mut *pilot;
+    p.done = true;
+    let (i, total) = (p.i, p.actions.len());
+    p.finding("run_ended", format!("the game exited at step {i} of {total} of chain {} (the time limit, or a script's ExitGame): the steps after it were not played", p.chain));
+    let softlocks = watch.map_or(0, |w| w.found);
+    if let Some(out) = &p.out {
+        if let Err(e) = serde_json::to_string_pretty(&p.report(softlocks)).map_err(|e| e.to_string()).and_then(|t| std::fs::write(out, t).map_err(|e| e.to_string())) {
+            error!("pilot: report {}: {e}", out.display());
+        } else {
+            info!("pilot: report written to {} (the game exited at step {i})", out.display());
+        }
+    }
 }
 
 /// The run ends when the pilot has not been able to act for [`HELD_SECS`] of real time.
