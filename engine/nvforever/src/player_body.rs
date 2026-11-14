@@ -1002,7 +1002,7 @@ impl PlayerBody {
             Rig {
                 view, root, lens: None, folder: String::new(), skeleton: actor.skeleton,
                 animator: Animator::new(actor.skel, actor.nodes, None),
-                clips: HashMap::new(), variants: HashMap::new(), head: None,
+                clips: HashMap::new(), variants: HashMap::new(), overrides: Arc::default(), head: None,
                 eye_local: Vec3::ZERO, looking: None, camera: None, translate: None,
                 weapon_node: None, weapon_parent: None, attached: None,
                 weapon_model: None, weapon_emitter: None, weapon_parts: Vec::new(),
