@@ -16599,6 +16599,20 @@ expect_file = "expected/modlist-blue-moon.toml"
 manual = "a rise: compare the report's per_plugin failed lists with main's; a drop: write the new summary into expected/modlist-blue-moon.toml"
 
 [[scenario]]
+name = "modlist-begin-again"
+kind = "tool"
+source = "issue #2335: the Begin Again mod list (Tale of Two Wastelands, MO2 game TTW, 203 plugins) as modlist-blue-moon reads Blue Moon: its extender scripts as the game builds them at start (fnvtool ext report), from its Mod Organizer 2 profile"
+areas = ["scripts", "extender", "mods"]
+paths = ["crates/fnv-game/src/source_compile.rs", "crates/fnv-script/src/compile/", "crates/fnv-script/src/decode.rs", "crates/fnv-script/src/table.rs", "crates/fnv-script/data/encodings.json", "crates/fnvtool/src/ext_cmd.rs", "crates/fnvtool/src/mo2_args.rs", "crates/fnv-install/src/mo2.rs", "schemas/script/functions.json", "tools/smoke/expected/modlist-begin-again.toml"]
+requires = ["NVF_MODLIST_BEGIN_AGAIN"]
+note = "NVF_MODLIST_BEGIN_AGAIN: the folder of the Begin Again profile on this machine (<MO2 instance>\\profiles\\Begin Again; the owner's). Plugins come from the instance's mods by modlist.txt priority (the Fallout 3 masters from the TTW mod) and its game folder's Data; {data} is only the data folder argument"
+commands = [["ext", "report", "{data}", "--mo2-profile", "{env:NVF_MODLIST_BEGIN_AGAIN}", "--schema", "schemas/fnv"]]
+# The totals live in expected/modlist-begin-again.toml: a branch that makes more units
+# compile lowers units_kept_bytes there; a rise fails this run.
+expect_file = "expected/modlist-begin-again.toml"
+manual = "a rise: compare the report's per_plugin failed lists with main's; a drop: write the new summary into expected/modlist-begin-again.toml"
+
+[[scenario]]
 name = "modlist-high-dry"
 kind = "tool"
 source = "issue #2275: a second real mod list's extender scripts as the game builds them at start (fnvtool ext report), read straight from its Mod Organizer 2 profile (--mo2-profile)"
@@ -16611,6 +16625,7 @@ commands = [["ext", "report", "{data}", "--mo2-profile", "{env:NVF_MODLIST_HIGH_
 # compile lowers units_kept_bytes there; a rise fails this run.
 expect_file = "expected/modlist-high-dry.toml"
 manual = "a rise: compare the report's per_plugin failed lists with main's; a drop: write the new summary into expected/modlist-high-dry.toml"
+
 
 [[scenario]]
 name = "mq-old-world-blues"
@@ -22623,6 +22638,19 @@ expect = [
 ]
 
 [[scenario]]
+name = "nif-blocks-player"
+source = "issue #2335: the player's nodes in the NIF block mirror. 360Movement.esp (Begin Again list) reads `Player.GetNifBlockTranslation \"Bip01 NonAccum\"` every frame; the player's third-person body is no ActorRig, so the mirror had no tree for it and every call gave ar_Null"
+areas = ["scripts", "actors"]
+paths = ["crates/fnv-game/src/nif_blocks.rs", "engine/nvforever/src/nif_mirror.rs", "engine/nvforever/src/player_body.rs"]
+env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_CONSOLE = "11:PrintC \"nvf player first %g\", (Ar_Size (Player.GetChildBlocks \"\"));12:PrintC \"nvf player nonaccum %g\", (Ar_Size (Player.GetNifBlockTranslation \"Bip01 NonAccum\"));12.5:PrintC \"nvf player blocks %g\", (Ar_Size (Player.GetChildBlocks \"\"))" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
+run_seconds = 15
+expect = [
+  { re = 'script: print "nvf player nonaccum 3"', label = "the player's Bip01 NonAccum translation is three numbers" },
+  { re = 'script: print "nvf player blocks [1-9][0-9]*"', label = "the player's skeleton nodes are in the mirror" },
+]
+
+[[scenario]]
 name = "nif-player-model-selection"
 source = "#2387 (docs/spec-notes/nif-player-model-selection.md): both separately built player skeletons remain available through explicit JIP selectors before and after a view switch; read-only scene queries"
 areas = ["scripts", "actors"]
@@ -22689,6 +22717,7 @@ expect = [
   { re = 'script: print "nvf head lit [1-9][0-9]*"', label = "the head's children read with the light's node" },
   { re = 'script: print "nvf head after [0-9]+"', label = "RemoveLight leaves the head readable" },
 ]
+
 [[scenario]]
 name = "knvse-anim-replace"
 source = "N5 slice 2 (docs/design/knvse-anim.md): SetActorAnimationPath with a standing-stance file replaces that move in the actor's own copy of its set; taking it back restores the shared set"
