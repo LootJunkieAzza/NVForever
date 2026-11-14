@@ -103,7 +103,9 @@ def main() -> None:
     command = [gradle, "--no-daemon", "--max-workers=2"]
     if args.gradle_build_dir:
         command.extend(["--project-cache-dir", str(args.gradle_build_dir / "project-cache")])
-    command.append(":app:assembleDebug")
+    # Incremental APK updates can retain an obsolete native payload outside the
+    # active ZIP directory. Recreate app packaging, preserving the Rust cache.
+    command.extend([":app:clean", ":app:assembleDebug"])
     subprocess.run(command, cwd=ROOT / "android", env=env, check=True)
     print((args.gradle_build_dir / "app" if args.gradle_build_dir else ROOT / "android/app/build") / "outputs/apk/debug/app-debug.apk")
 

@@ -17,6 +17,8 @@ python tools/android/build.py
 `--gradle PATH` selects a Gradle executable; `--gradle-build-dir PATH` keeps Gradle output
 and its project cache outside the source tree, useful on hosts protecting Documents.
 The build uses a separate `android-dev` profile. It leaves release profiles unchanged.
+The helper recreates Gradle app packaging outputs to avoid retaining obsolete native
+payloads inside incrementally updated APKs; it preserves the Rust target cache.
 The final command prints the debug APK path. This is a development signing key, not
 an official release signature. A release distribution needs its own protected signing
 configuration and device qualification.
