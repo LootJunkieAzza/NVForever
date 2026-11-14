@@ -10221,17 +10221,17 @@ env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:15", NVF_P
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--pos=-68375,4800,8700"]
 run_seconds = 17
 order = [[
-  { re = 'pause menu: rows 2-10 of \d+ shown', label = "a notch of the wheel shows the next row" },
-  { re = 'pause menu: rows 3-11 of \d+ shown' },
-  { re = 'pause menu: rows 4-12 of \d+ shown' },
-  { re = 'pause menu: rows 3-11 of \d+ shown', label = "a notch up shows the row before again" },
+  { re = 'pause menu: rows 2-13 of \d+ shown', label = "a notch of the wheel shows the next row (a window of 12 lines, #2377)" },
+  { re = 'pause menu: rows 3-14 of \d+ shown' },
+  { re = 'pause menu: rows 4-15 of \d+ shown' },
+  { re = 'pause menu: rows 3-14 of \d+ shown', label = "a notch up shows the row before again" },
 ]]
 
 
 [[scenario]]
 name = "settings-scroll-headings"
 source = "#1953: the mouse wheel moves the window of a tab with headings (Gameplay) as of one without, the chosen row brought into the window (the top row once the chosen one leaves it) and the window not pulled back to the chosen row's heading; a notch up moves it back one line"
-note = "Gameplay's first lines: [Game], difficulty, hardcore, kill-camera, vats-style, vats-slowdown, reload-slows, UsePipBoy, [Saving], the autosave rows; the window is nine lines"
+note = "Gameplay's first lines: [Game], difficulty, hardcore, kill-camera, vats-style, vats-slowdown, reload-slows, UsePipBoy, [Saving], the five autosave rows, [Dialogue] (line 15); the window is twelve lines (#2377), and a heading on its last line is drawn with its first row in the next window, so the window from line 4 draws lines 4-14"
 areas = ["settings"]
 paths = ["engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings_view.rs", "engine/nvf-play/src/settings_layout.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:18", NVF_PLAY_TEST_SETTINGS = "11:tab:Gameplay", NVF_PLAY_TEST_PAUSE_MENU = "12:wheel-down,12.3:wheel-down,12.6:wheel-down,13.5:inspect,14:wheel-up,15:inspect" }
@@ -10239,16 +10239,18 @@ args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
 run_seconds = 20
 order = [[
   "pause menu: tab Gameplay; selected difficulty",
-  { re = 'pause menu: rows 2-10 of \d+ shown', label = "a notch of the wheel shows the next line" },
-  { re = 'pause menu: rows 3-11 of \d+ shown' },
-  { re = 'pause menu: rows 4-12 of \d+ shown', label = "three notches, three lines down" },
-  { re = 'pause menu: inspect: Gameplay, keys on the rows, selected kill-camera, lines 4-12 of \d+', label = "the window stays moved, the chosen row its top row" },
-  { re = 'pause menu: rows 3-11 of \d+ shown', label = "a notch up moves it back one line" },
-  { re = 'pause menu: inspect: Gameplay, keys on the rows, selected kill-camera, lines 3-11 of \d+', label = "the chosen row still in the window" },
+  { re = 'pause menu: rows 2-13 of \d+ shown', label = "a notch of the wheel shows the next line" },
+  { re = 'pause menu: rows 3-14 of \d+ shown' },
+  { re = 'pause menu: rows 4-15 of \d+ shown', label = "three notches, three lines down" },
+  { re = 'pause menu: inspect: Gameplay, keys on the rows, selected kill-camera, lines 4-14 of \d+', label = "the window stays moved, the chosen row its top row ([Dialogue] on its last line left for the next window)" },
+  "pause menu: inspect: window 12 lines, 11 drawn",
+  { re = 'pause menu: rows 3-14 of \d+ shown', label = "a notch up moves it back one line" },
+  { re = 'pause menu: inspect: Gameplay, keys on the rows, selected kill-camera, lines 3-14 of \d+', label = "the chosen row still in the window" },
+  "pause menu: inspect: window 12 lines, 12 drawn",
 ]]
 forbid = [
   { re = 'NVF_PLAY_TEST_(SETTINGS|PAUSE_MENU): ("|no switch|\S+ is a (list|slider):)', label = "every aid step is understood" },
-  { re = 'pause menu: rows 1-9 of \d+ shown', label = "the window is never pulled back to the top (to the chosen row's heading)" },
+  { re = 'pause menu: rows 1-12 of \d+ shown', label = "the window is never pulled back to the top (to the chosen row's heading)" },
   { re = 'nvf_play::settings: settings: [a-zA-Z][\w-]* \S', label = "scrolling changes no setting" },
 ]
 
@@ -10364,6 +10366,9 @@ expect = [
   { text = "pause menu: tab Tweaks; selected none", label = "the empty Tweaks tab opens on no row" },
   { text = "pause menu: inspect: Tweaks, keys on the rows, selected none, lines 0-0 of 0", label = "it lists nothing" },
   { re = 'pause menu: inspect: words Search \| Changed \| Gameplay \| Display \| Audio \| Controls \| Graphics \| Tweaks \| Debug \| No settings here\.', label = "the rail and the empty tab's words" },
+  { text = "pause menu: settings window of 12 lines", count = 1, label = "the window's lines worked out from the layout, once (#2377)" },
+  { re = 'pause menu: settings list (\d+) wide from \d+ in a view \d+ wide, band \d+-\d+', label = "the list's width from the view, logged (#2377)" },
+  "pause menu: inspect: window 12 lines, 0 drawn",
 ]
 order = [[
   "settings layout: tabs Gameplay",
@@ -10378,6 +10383,41 @@ order = [[
   "pause menu: tab Tweaks; selected none",
 ]]
 forbid = [{ re = 'NVF_PLAY_TEST_(SETTINGS|PAUSE_MENU): ("|no switch|\S+ is a (list|slider):)', label = "every aid step is understood" }]
+
+[[scenario]]
+name = "settings-layout-ultrawide"
+source = "#2377: at 3440x1440 (a view 2293 units wide) the settings list is as wide as it may be (1300 units), centred in the room left of the rail, the window twelve lines"
+note = "the window must open at 3440x1440 (a monitor that size); a smaller one gives a narrower view and list, which the second line then misses"
+areas = ["settings"]
+paths = ["engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings_view.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:15", NVF_PLAY_TEST_SETTINGS = "11:page,12:tab:Graphics", NVF_PLAY_TEST_PAUSE_MENU = "13:inspect" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages", "--size", "3440x1440"]
+run_seconds = 17
+expect = [
+  { text = "pause menu: settings window of 12 lines", count = 1 },
+  { re = 'pause menu: settings list 1300 wide from \d+ in a view 2293 wide, band \d+-\d+', label = "the list capped at 1300 units in a 21:9 view" },
+  { re = 'pause menu: inspect: Graphics, keys on the rows, selected \S+, lines 1-1[12] of \d+', label = "twelve lines (less a heading left for the next window)" },
+]
+forbid = [{ re = 'NVF_PLAY_TEST_(SETTINGS|PAUSE_MENU): ("|no switch|\S+ is a (list|slider):)', label = "every aid step is understood" }]
+
+[[scenario]]
+name = "settings-note-budget"
+source = "#2377: every settings note within the budget (200 characters, no command-line switch) once every row is registered, and two lines at the page's width in a 16:9 view once the pause menu's fonts are loaded; the rows' labels and values laid out at that width, a row whose text had to be cut logged"
+note = "`cut to fit` is reported, not failed: a row cut there is drawn with \"...\" and logs `settings: text of `<key>` cut to fit: ...`"
+areas = ["settings"]
+paths = ["engine/nvf-play/src/settings.rs", "engine/nvf-play/src/pause.rs", "engine/nvforever/src/settings.rs", "engine/nvforever/src/quality.rs", "lang/"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:14", NVF_PLAY_TEST_SETTINGS = "11:page,12:tab:Graphics" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 15
+expect = [
+  { re = 'settings: \d+ notes checked, 0 over the budget \(200 characters\)', count = 1, label = "every registered note within 200 characters, no switch in it (at the start)" },
+  { re = 'settings: \d+ notes checked, 0 over the budget \(200 characters, two lines\)', count = 1, label = "and two lines at the page's 16:9 width (once the pause menu's fonts are loaded)" },
+  { re = 'settings: \d+ rows laid out, \d+ cut to fit', count = 1, label = "the rows' labels and values laid out at that width" },
+]
+forbid = [
+  { re = 'settings: note of `\S+` over the budget:', label = "no note over the budget" },
+  { re = 'NVF_PLAY_TEST_(SETTINGS|PAUSE_MENU): ("|no switch|\S+ is a (list|slider):)', label = "every aid step is understood" },
+]
 
 [[scenario]]
 name = "settings-headings"
