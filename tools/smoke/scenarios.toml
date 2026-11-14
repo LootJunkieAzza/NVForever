@@ -9400,6 +9400,18 @@ expect = [
 ]
 
 [[scenario]]
+name = "caravan-door-walk-out"
+source = "issue #2494 (docs/spec-notes/physics.md §6.9.2): walking out of the wrecked caravan 0x001070C1 by Goodsprings (STAT MobileHomeASNV, cell -17,-1) the player stopped on the threshold's zero-thickness lip until a jump; the original walks out at walk and run pace"
+areas = ["physics", "controls"]
+paths = ["crates/fnv-phys/src/character.rs", "engine/nvf-play/src/phys.rs", "engine/nvf-play/src/player.rs", "engine/nvforever/src/player_body.rs"]
+env = { NVF_PLAY_TEST_MOVE = "10:1:0:walk,16:0:0" }
+args = ["--play", "--pos=-67342,-2237,8160", "--heading", "183.2", "--hour", "12", "--no-actors", "--no-voice", "--no-messages"]
+run_seconds = 19
+expect = [
+  { re = 'physics: the player stepped up [1-9]\d* times, feet at \(-6\d{4}, -(2[5-9]|3\d)\d\d, 8\d{3}\)', label = "walked over the threshold's lip and out of the caravan (lip at y -2386, outside past -2410)" },
+]
+
+[[scenario]]
 name = "road-run-smooth"
 source = "owner 2026-11-07, issue #1805 (docs/spec-notes/physics.md §6.11): running east down the Goodsprings main street over the broken side of the road piece 0x00104FB5 (WastelandRoadStraightLongB), the body and camera followed every ripple of the road models' collision; the drawn height must be much smoother than the feet"
 areas = ["physics", "controls"]
