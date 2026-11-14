@@ -240,6 +240,19 @@ are at the end.
 - Command-line switches: `--fov`
 - Registered in `engine/nvforever/src/settings.rs`
 
+### `viewmodel-field-of-view`: Viewmodel field of view
+
+- On the page: The angle the first-person arms and weapon are drawn with, in degrees (55 as
+  the original's default): lower draws them bigger and closer.
+- In full: The field of view the first-person arms and weapon are drawn with, from 30 to 90 in
+  steps of 5, in degrees as the field of view counts them (across a 4:3 picture; 55 as the
+  original's `fDefault1stPersonFOV`). Lower draws them bigger and closer, higher smaller and
+  further off; it takes effect at once. The world's view, the Pip-Boy's own 47 and the
+  console's `fov` first-person angle are left as they are. Not on the original's settings
+  page.
+- Command-line switches: `--viewmodel-fov`
+- Registered in `engine/nvforever/src/settings.rs`
+
 ## Display › Screen
 
 ### `resolution`: Resolution
@@ -284,16 +297,24 @@ are at the end.
   limit). A lower limit keeps the computer cooler and quieter.
 - Registered in `engine/nvforever/src/settings.rs`
 
-### `ui-scale`: UI scale
+### `ui-scale`: HUD scale
 
-- On the page: The size of the HUD and the menus, as a part of the original's. Above 100%
-  only the HUD grows. Takes effect at the next start.
-- In full: The size of the HUD and the menus, as a part of the original's (100%): smaller
-  leaves more of the picture free, each HUD piece kept at its edge of the screen and each
-  menu in the middle. Above 100% only the HUD grows: the menus stay at the original's size,
-  so they keep on the screen. Takes effect at the next start (loading a save starts the game
-  again). Not in the original.
+- On the page: Size of the in-game HUD, independent of menu scale. Takes effect at the next start.
+- In full: The in-game HUD keeps each piece at its screen edge, from 50% to 150%.
+  The existing `ui-scale` INI key is retained. Menu scale is independent. Loading a
+  save starts the game again and applies the next-start settings.
 - Registered in `engine/nvf-play/src/interface.rs`
+
+### `menu-scale`: Menu scale
+
+- On the page: Size of the main, pause and other menus, independent of HUD scale. Takes effect at the next start.
+- In full: Main, pause/settings and other menus stay centred, from 50% to 100%.
+  This retains the existing fixed-layout cap; larger menus would need reflow.
+  A missing key starts with the old effective menu size. Any settings edit saves
+  that independent value, including when only HUD scale changed; it will not
+  follow the HUD on restart. Explicit menu values win. See
+  [HUD/menu scale](spec-notes/hud-menu-scale.md) for normalized INI slider units.
+- Registered in `engine/nvf-play/src/menu_scale.rs`
 
 ## Display › Interface
 

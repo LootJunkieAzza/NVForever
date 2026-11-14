@@ -978,6 +978,97 @@ pub fn read_for_load(path: &std::path::Path, current: &[PluginEntry]) -> Result<
 mod tests {
     use super::*;
 
+    fn csty_save_world(name: &str, callback_body: &str) -> (World, PathBuf, Vec<u8>) {
+        use crate::script_draw::tests::{play_over, record, sub, top};
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let string = |sig: &[u8; 4], text: &str| sub(sig, [text.as_bytes(), &[0]].concat());
+        let play = play_over(&[
+            top(b"NPC_", &record(b"NPC_", 0, 7, &[string(b"EDID", "Player"), sub(b"ZNAM", 0xD20u32.to_le_bytes().to_vec())])),
+            top(b"CSTY", &record(b"CSTY", 0, 0xD20, &[string(b"EDID", "OwnedSaveStyle")])),
+        ]);
+        // The assigned and unused cases may run concurrently in the same binary.
+        let serial = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let dir = std::env::temp_dir().join(format!("nvf-csty-save-{}-{serial}-{name}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(format!("{name}.nvfsave"));
+        let previous = b"authored previous save bytes, not a player save".to_vec();
+        std::fs::write(&path, &previous).unwrap();
+        let mut scripts = ScriptState::over_plugins(play.lo.plugins);
+        let game = &mut scripts.rt.as_mut().unwrap().game;
+        game.run_source(&format!("SetEventHandler \"SaveGame\" (begin function {{string_var ownName}}\nSetModLocalData \"owned.callback\" 1\n{callback_body}\nend)"), Default::default()).unwrap();
+        game.checked_snapshot().unwrap();
+        let sim = SimState::new(play.lo, play.schema, play.index);
+        let mut world = World::new();
+        world.insert_resource(play);
+        world.insert_resource(sim);
+        world.insert_resource(scripts);
+        world.insert_resource(SaveConfig::with_dir(Some(dir)));
+        world.init_resource::<SaveHooks>();
+        world.init_resource::<SaveWrites>();
+        (world, path, previous)
+    }
+
+    fn csty_save_query(world: &mut World, expression: &str) -> fnv_script::vm::XVal {
+        world.resource_mut::<ScriptState>().rt.as_mut().unwrap().game.run_query(
+            &format!("Begin Function {{ }}\nSetFunctionValue ({expression})\nEnd\n"), Default::default(),
+        ).unwrap()
+    }
+
+    fn assert_csty_callback_save_keeps_main_degradation(assign: bool) {
+        use fnv_sim::FormId;
+        for (kind, name) in [(SaveKind::Manual, "clone"), (SaveKind::Auto, fnv_save::AUTO_NAME)] {
+            let mut callback = "SetModLocalData \"owned.clone\" (TempCloneForm OwnedSaveStyle 0)".to_string();
+            if assign { callback.push_str("\nSetCombatStyleTraitNumeric (GetModLocalData \"owned.clone\") 42 7\nplayer.SetCombatStyle (GetModLocalData \"owned.clone\")"); }
+            let (mut world, path, previous) = csty_save_world(name, &callback);
+            save_now(&mut world, &SaveRequest { name: name.into(), kind }).unwrap();
+            assert_eq!(csty_save_query(&mut world, "GetModLocalData \"owned.callback\""), fnv_script::vm::XVal::Num(1.0));
+            let fnv_script::vm::XVal::Ref(alias) = csty_save_query(&mut world, "GetModLocalData \"owned.clone\"") else { panic!("SaveGame must create an actual alias") };
+            assert_ne!(alias, 0);
+            let game = &world.resource::<ScriptState>().rt.as_ref().unwrap().game;
+            assert_eq!(game.combat_style(FormId::PLAYER_REF).unwrap().rushing_attack_distance_mult, if assign { 7.0 } else { 0.0 }, "the callback's assignment must be observable");
+            let writes = world.resource::<SaveWrites>();
+            assert_eq!(writes.waiting.len(), 1);
+            assert!(writes.busy());
+            assert_eq!(writes.waiting[0].path, path);
+            let body: SaveBody = serde_json::from_slice(&writes.waiting[0].body).unwrap();
+            let saved_style = body.game.extra.get(&FormId::PLAYER_REF).and_then(|extra| extra.combat_style);
+            assert_eq!(saved_style, assign.then_some(FormId(alias)), "save preserves the carrier without silently dropping/remapping it");
+            let sim = fnv_sim::World::restore(game.world.forms, game.world.placed, &body.game.sim).unwrap();
+            let back = fnv_game::Game::restore(game.data, sim, game.cfg, &body.game).unwrap();
+            assert_eq!(back.extra.get(&FormId::PLAYER_REF).and_then(|extra| extra.combat_style), saved_style);
+            assert_eq!(back.combat_style_id(FormId::PLAYER_REF), Some(FormId(0xD20)));
+            assert_eq!(back.combat_style(FormId::PLAYER_REF).unwrap().rushing_attack_distance_mult, 0.0, "loading uses the original authored style, not the session copy");
+            assert_eq!(std::fs::read(&path).unwrap(), previous, "enqueueing alone must not overwrite the previous file");
+            drop(back);
+            drop(world);
+            std::fs::remove_file(&path).unwrap();
+            std::fs::remove_dir(path.parent().unwrap()).unwrap();
+        }
+    }
+
+    #[test]
+    fn an_unused_csty_clone_created_by_savegame_still_enqueues_manual_and_auto_saves() {
+        assert_csty_callback_save_keeps_main_degradation(false);
+    }
+
+    #[test]
+    fn an_assigned_csty_clone_created_by_savegame_loads_with_authored_fallback() {
+        assert_csty_callback_save_keeps_main_degradation(true);
+    }
+
+    #[test]
+    fn an_authored_style_edit_from_savegame_still_enqueues_without_overwriting_early() {
+        let (mut world, path, previous) = csty_save_world("authored", "SetCombatStyleTraitNumeric OwnedSaveStyle 42 2");
+        save_now(&mut world, &SaveRequest { name: "authored".into(), kind: SaveKind::Manual }).unwrap();
+        assert_eq!(csty_save_query(&mut world, "GetModLocalData \"owned.callback\""), fnv_script::vm::XVal::Num(1.0));
+        assert_eq!(csty_save_query(&mut world, "GetCombatStyleTraitNumeric OwnedSaveStyle 42"), fnv_script::vm::XVal::Num(2.0));
+        assert_eq!(world.resource::<SaveWrites>().waiting.len(), 1);
+        assert_eq!(std::fs::read(&path).unwrap(), previous, "enqueueing alone must not overwrite the existing owned file");
+        drop(world);
+        std::fs::remove_file(&path).unwrap();
+        std::fs::remove_dir(path.parent().unwrap()).unwrap();
+    }
+
     /// Exercise the real save entry point, including its SaveGame callback. A
     /// callback can introduce unsupported state after a preflight check.
     #[test]
