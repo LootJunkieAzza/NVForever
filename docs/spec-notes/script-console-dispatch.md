@@ -39,4 +39,5 @@ runtime failures never trigger a second dispatch attempt.
 Authored source controls retain the original eight regressions and add 300 changing
 negative SetPos/SetAngle pairs, the complete remaining expression budget, word calls
 after that budget, and an unquoted hyphen/slash argument with a single host refusal.
-These new controls are not yet compiled or executed; current results belong in the PR.
+At initial source preparation these controls were authored; subsequent source-bound
+execution results are recorded in the PR.
