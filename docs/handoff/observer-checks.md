@@ -1982,3 +1982,15 @@ heading 75) with NVFExtProbe.esp loaded, as the jip-probes sets run.
      what does she say on it? The same for one actor each of MaleAdult10-12 and
      FemaleAdult12 without a Goodbye line of their own. If she offers none, the gate
      takes a quest's GetIsID (and what else?) but not its voice-type list.
+
+## Added 2026-11-14 (Hidden Valley dust storm, #2450)
+
+133. **Which way and how fast does the Hidden Valley dust storm blow?** (P3; #2450,
+     activators.md §6.1.) Ours: all 18 dust sheets of `nvsandstormnight.nif` scroll their
+     texture by SpecialIdle, U 0 to 2 in 4 s, along +U [hypothesis: the sign of the
+     offset; every sheet of a property moves, as Gamebryo properties are shared by
+     reference]. To check: `ForceWeather HVDustStorm 1` at Hidden Valley (-17863, -4814)
+     at 22:00 with the storm references enabled (`000E18D7.enable`), two screenshots of
+     the same view 1 s apart: do all the dust banks move, in which direction across the
+     view, and about how far? Also whether the weather's own cloud layer 3
+     (`NVCloudlight.dds`, ONAM speed 0) stands still there.
