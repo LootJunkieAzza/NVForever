@@ -612,7 +612,9 @@ is the top left 85 × 92 of `head.dds`) [observed].
     of type Apparel) of each worn piece of apparel, named by the enchantment's FULL
     ("Vault Jumpsuit"), its Value Modifier effects written "Speech +2, Melee Weap. +2"
     with the actor values' short names (AVIF `ANAM`) [observed: the screenshot and the
-    records]; then aid items (ALCH) with active effects. A detrimental effect (MGEF flag)
+    records], read from the game's active effects (aid-items.md §13): an effect whose
+    conditions fail or that a Dispel took off is not listed [design: #2495]; then aid
+    items (ALCH) with active effects. A detrimental effect (MGEF flag)
     is written with a minus [hypothesis]. "No Effects" when there is none [hypothesis:
     the words].
 - **Lists** (S.P.E.C.I.A.L., Skills, Perks): 35, 110, 325 / 350 / 420 wide (25 / 50 more
@@ -620,8 +622,9 @@ is the top left 85 × 92 of `head.dds`) [observed].
   15 in and 20 down, its number right-aligned 10 before a right buffer of 20 (55 when
   marked), the mark 10 after [documented]. Skills are in name order [observed: Guns
   between Explosives and Lockpick], Big Guns left out [observed: thirteen; its AVIF is
-  "Big Guns - OBSOLETE"]. A value shown is the current value plus worn apparel's changes
-  [design: the game does not apply worn enchantments to actor values yet], skills kept to
+  "Big Guns - OBSOLETE"]. A value shown is the game's actor value (base, permanent and
+  temporary modifiers, less damage), which holds the worn apparel's enchantments in the
+  temporary pool [documented: GECK wiki ActorValue; aid-items.md §13; #2495], skills kept to
   0–100; "(+)" or "(-)" when it differs from the permanent value [observed: "34 (+)";
   hypothesis: "(-)"]. Perks: the player's perks, playable and not hidden by PERK DATA
   [hypothesis: its bytes as trait, minimum level, ranks, playable, hidden], traits
@@ -684,8 +687,7 @@ is the top left 85 × 92 of `head.dds`) [observed].
   reaches `pad::menu_keys` and chooses the head, then torso on CND.
 - **Open**: the game settings the page's words come from (`sStatsCrippled`,
   `sStatsNoEffects`, `sPCMenuHint*`) are not in the masters; when each face shows;
-  whether the hints count 0 and when they are bright; whether worn enchantments should
-  change the actor values themselves (then the page needs no sum of its own); the
+  whether the hints count 0 and when they are bright; the
   highlight box's rule; General's list height, order and right buffer, the reputation
   list's rule and second line, the karma titles. (The misc statistics' codes: misc-stats.md §1.)
 

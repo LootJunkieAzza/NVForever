@@ -42,6 +42,20 @@ fn text(args: &[XVal], k: usize) -> String {
     }
 }
 
+/// A game setting's name, as a setting function's first argument: the text, or, written
+/// without quotes, the setting's own record, whose Editor ID is the name. The compiler
+/// reads a bare word that is an Editor ID as that form, and every setting of the load
+/// order is a GMST record named for itself [observed: JustAssortedMods.esp 4.6 writes
+/// `GetNumericGameSetting fVATSShotLongBurstTime` and its like 17 times, and divides by
+/// the result; `fnvtool ext queries` read 1.75 quoted and 0 unquoted until this].
+pub(crate) fn setting_name(g: &Game, args: &[XVal], k: usize) -> String {
+    match args.get(k) {
+        Some(XVal::Str(s)) => s.clone(),
+        Some(XVal::Ref(f)) if g.data.sig(FormId(*f)) == Some(*b"GMST") => g.data.edid_of.get(&FormId(*f)).cloned().unwrap_or_default(),
+        _ => String::new(),
+    }
+}
+
 fn yes(b: bool) -> XVal {
     XVal::Num(f64::from(u8::from(b)))
 }
@@ -112,14 +126,14 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
             }
         )),
         // [documented: GetNumericGameSetting; GetStringGameSetting; SetNumericGameSetting].
-        "getnumericgamesetting" => XVal::Num(g.world.setting_f32(&text(args, 0)).map_or(0.0, f64::from)),
-        "getstringgamesetting" => XVal::Str(match g.world.setting_value(&text(args, 0)) {
+        "getnumericgamesetting" => XVal::Num(g.world.setting_f32(&setting_name(g, args, 0)).map_or(0.0, f64::from)),
+        "getstringgamesetting" => XVal::Str(match g.world.setting_value(&setting_name(g, args, 0)) {
             Some(fnv_sim::settings::Setting::Str(s)) => s.clone(),
             _ => String::new(),
         }),
         "setnumericgamesetting" => {
             use fnv_sim::settings::Setting;
-            let n = text(args, 0);
+            let n = setting_name(g, args, 0);
             let x = match args.get(1) {
                 Some(XVal::Num(x)) => *x,
                 _ => 0.0,

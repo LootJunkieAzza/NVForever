@@ -100,7 +100,28 @@ pub const JIP_NAMES: [&str; 1] = ["JIP NVSE Plugin"];
 /// Stewie's Tweaks is reported at 941, the lowest TTW 3.4 accepts, and ttw_nvse at 1,
 /// as TTW only asks whether it is there. Most of Stewie's tweaks themselves are not
 /// built (ext-small.md).
-pub const PLUGINS: [(&str, f64); 8] = [
+///
+/// The same holds for every other plugin whose functions the engine builds: a mod that
+/// asks `IsPluginInstalled "SUP NVSE Plugin"` before calling SUP's functions got 0 and
+/// stopped, although every SUP function of the catalogue runs here [observed: `fnvtool
+/// ext queries`, 2026-11-12, 0 and -1 for the six names below]. They are reported under
+/// the names the wiki's list gives [documented: ext-version.md §2a]:
+///
+/// - CacheUI (`CUI`) and hNVSE at the highest version their function pages name, times
+///   100 [documented: the pages' "added in" versions, the catalogue's `origin_version`,
+///   1.2 for both; GetPluginVersion, "usually the version times 100"]. The numbers read
+///   on the owner's install for the plugins above are at or over the same figure for
+///   theirs (JIP 57.30 = 57.30, JohnnyGuitar 528 = 5.28, ShowOff 184 ≥ 1.83, kNVSE 37 ≥ 30).
+/// - SUP, JIP PP LN, AnhNVSE, NX and UIO at [`UNOBSERVED_VERSION`]: their pages name no
+///   version and none was read in the original.
+///
+/// UIO has no script functions: the engine reads its `uio\public` lists itself
+/// (`fnv_ui`), which is all the plugin does for a mod that asks whether it is there.
+/// Not reported, though the catalogue has functions of theirs: yUI (its two ySI trait
+/// functions are built, its menus are not, and a mod that finds it goes on to read its
+/// tiles), and the plugins whose registered name no page gives (ITR, One111, ppNVSE,
+/// vheyes-nvse and the smaller ones): ext-version.md §6.
+pub const PLUGINS: [(&str, f64); 15] = [
     ("JIP NVSE Plugin", JIP_VERSION),
     ("JIP LN NVSE", JIP_VERSION),
     ("ShowOffNVSE Plugin", 184.0),
@@ -109,7 +130,22 @@ pub const PLUGINS: [(&str, f64); 8] = [
     ("MCM Extensions", 1.0),
     ("lStewieAl's Tweaks", 941.0),
     ("ttw_nvse", 1.0),
+    ("CUI", 120.0),
+    ("hNVSE", 120.0),
+    ("SUP NVSE Plugin", UNOBSERVED_VERSION),
+    ("JIP PP LN", UNOBSERVED_VERSION),
+    ("AnhNVSE", UNOBSERVED_VERSION),
+    ("Extensions for NVSE", UNOBSERVED_VERSION),
+    ("UI Organizer Plugin", UNOBSERVED_VERSION),
 ];
+
+/// The version reported for a plugin the engine builds whose own number is neither
+/// documented nor read in the original: higher than any a mod asks for, since mods
+/// compare with "at least" and a number too low shows their "update the plugin" message
+/// [design; ext-version.md §4, "reporting a version that is too high is safer than too
+/// low"]. To be replaced, plugin by plugin, by the number read in the original
+/// (docs/handoff/observer-checks.md).
+pub const UNOBSERVED_VERSION: f64 = 9999.0;
 
 impl Vm<'_, '_> {
     /// A JIP LN function by catalogue name; `None` when it is not built yet.
