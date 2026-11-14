@@ -643,6 +643,7 @@ unless the player binds them, so nothing changes until then.
 | No Character Remake Offer | `bDisableCharacterRespec` | `Game::activate` returns before any block or default action for a reference running `VCG04ActivatorScript`. The switch: `Tweaks::no_respec` |
 | Improved Weather | `bImprovedWeather` | `pipboy::data::travel::depart` sets `WeatherHold` for a short trip; nvforever `sky_follows_game` asks `SkyState::keep_weather_once`, and the next `follow_climate` keeps the weather. The switches: `TweakSettings::improved_weather`, `weather_trip_distance` |
 | V.A.T.S. Stops Following the Dead | `bVATSStopFollowingDeadTargets` | `kill_cam::update` leaves `show.seen` (the followed place) as it was once the target is dead. The switch: `TweakSettings::vats_stop_following_dead` |
+| Weapon Impact Effects | `bWeaponImpactEffects` | the projectile hit path in `combat.rs` picks the impact data set's metal impact for a hit on `hitvol::WEAPON_PART` and refuses its blood. The switch: `Tweaks::weapon_impacts` |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -664,8 +665,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 579 |
-| to do | 15 |
+| done | 580 |
+| to do | 14 |
 | unsure, skipped | 24 |
 | n/a | 17 |
 | skipped: fix | 10 |
@@ -1320,6 +1321,7 @@ game's Data folder, read-only).
 | `bUseConsoleOutputFile` | done |  | 1 | Console Output File (ConsoleOutput.txt in NVForever's folder; the name is ours, sFilename not offered) |
 | `bVanityCamReturnsToFirstPerson` | done |  |  | Vanity Camera Returns to First Person: after the idle vanity camera (now built, `vanity`) or Toggle POV held, a view that was first person goes back to it |
 | `bVATSStopFollowingDeadTargets` | done | yes |  | V.A.T.S. Stops Following the Dead: a kill camera's place and look stop following its target once it is dead, held where they last saw it alive |
+| `bWeaponImpactEffects` | done | yes |  | Weapon Impact Effects: a shot on the weapon in an actor's hand (its hit volume's weapon part) takes the weapon's metal impact, with no blood spray or decal; holstered weapons have no hit volume in NVForever, so they are not struck |
 | `bWeaponVisibleDuringDialogue` | done |  |  | already so by the code: nothing hides the player's weapon or hands while talking (not checked in game) |
 | `bConsoleBackground` | unsure, skipped | yes |  | needs the plugin's own menu XML |
 | `bCustomScreenshotFormat` | n/a | yes | 1 | NVForever writes its own screenshots |
@@ -1327,7 +1329,6 @@ game's Data folder, read-only).
 | `bMultithreadedHackingMenu` | n/a | yes |  | performance work on the original |
 | `bPartialReloads` | unsure, skipped | yes |  | depends on animation file naming conventions not yet checked |
 | `bUseAnimVariants` | unsure, skipped | yes | 3 | depends on animation file naming conventions not yet checked |
-| `bWeaponImpactEffects` | to do | yes |  | hits on the hand weapon use the flesh impact; holstered weapons have no hit part |
 | `bAnimDebugging` | n/a |  |  | a mod-author debug print |
 | `bAutoReadNotes` | unsure, skipped |  | 3 | needs another mod (Book Menu Restored) |
 | `bContinueGameHotkey` | n/a |  |  | a mod-author debug key |

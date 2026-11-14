@@ -5386,10 +5386,18 @@ fn fly(
         // leaves no blood on it [design: docs/design/tweaks.md].
         let wanted = script.as_deref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.armor_blocks_blood);
         let stopped = wanted && p.actor.is_some_and(|a| blood_stopped(w.base_damage as f32, target_armor(c, script.as_deref_mut(), &mut sim, FormId(a as u32)).0));
+        // The player's tweak: a shot on the weapon in an actor's hand strikes metal, sparks
+        // and no blood [design: docs/design/tweaks.md].
+        let on_weapon = p.part == Some(crate::hitvol::WEAPON_PART) && script.as_deref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.weapon_impacts);
         if let Some(s) = sfx.as_deref() {
-            let (impact, material) = impact_for(s, script.as_deref(), &sim, id, p.actor, p.material);
+            let (impact, material) = if on_weapon {
+                let set = s.forms.weapons.get(&id).and_then(|w| w.impact_dataset);
+                (set.and_then(|set| s.forms.impact_id(set, "metal")), "metal")
+            } else {
+                impact_for(s, script.as_deref(), &sim, id, p.actor, p.material)
+            };
             if let Some(impact) = impact {
-                show_impact(s, script.as_deref(), &sim, ImpactFx { impact, shooter, point: p.point, normal: p.normal, dir: p.dir, actor: p.actor.map(|a| a as u32), no_spray: false, no_decal: stopped }, &mut effects.0, &mut effects.1);
+                show_impact(s, script.as_deref(), &sim, ImpactFx { impact, shooter, point: p.point, normal: p.normal, dir: p.dir, actor: p.actor.map(|a| a as u32), no_spray: on_weapon, no_decal: stopped || on_weapon }, &mut effects.0, &mut effects.1);
             }
             let hit = p.actor.map(|a| a as u32).or(p.object.map(|o| o as u32));
             effects.4.write(crate::world_sounds::log_impact(s, hit, p.actor.is_some(), p.material, material, impact));
