@@ -383,8 +383,7 @@ pub struct RefreshStats {
     pub hitvol_skipped: u64,
     /// Colliders in the world, summed over the refreshes (divide by `refreshes`).
     pub colliders: u64,
-    /// Bodies added since the last step, summed over the refreshes (re-flagged after
-    /// the detection).
+    /// New bodies presented to registration refreshes (historical field name).
     pub repair_new: u64,
     /// Bodies added asleep, summed over the refreshes (put back to sleep).
     pub repair_sleep: u64,
@@ -431,7 +430,7 @@ pub struct PhysWorld {
     dirty_by: u8,
     /// Diagnostics only ([`PhysWorld::refresh_stats`]).
     refresh_stats: RefreshStats,
-    /// Bodies inserted since the last step (see [`PhysWorld::update_queries`]).
+    /// Bodies inserted since the last step or no-time registration refresh.
     new_bodies: Vec<RigidBodyHandle>,
     /// Bodies struck ([`PhysWorld::push_ref`], [`PhysWorld::push_dynamic`]) or moved by
     /// setting their position ([`PhysWorld::body_placed`]) since the last step (see
@@ -1006,24 +1005,15 @@ impl PhysWorld {
             // Standalone hit volumes written since the last refresh (`crate::actors`).
             self.flush_hit_volumes();
             {
-                // The collision-only broad- and narrow-phase update.
+                // Apply user changes and update contacts without integrating time.
                 let _span = tracing::info_span!("phys::refresh_detect").entered();
                 self.detect();
             }
-            // The repairs after it: bodies added since the last step, bodies added asleep,
-            // bodies struck since the last step.
+            // The supported refresh already registered newly inserted bodies. Do not
+            // re-arm them with set_position: that would erase queued kinematic targets.
+            self.new_bodies.clear();
+            // Preserve explicit asleep and struck-body intent after contact updates.
             let _repair = tracing::info_span!("phys::refresh_repair").entered();
-            // rapier 0.36's collision-only pipeline consumes the change flags of bodies
-            // inserted since the last step without registering them with the island
-            // manager, so they would never move [observed: a dynamic box added, queried
-            // and stepped stays put; test `bodies_added_then_queried_still_simulate`].
-            // Flag them changed again so the next step registers them.
-            for &h in &self.new_bodies {
-                if let Some(b) = self.w.bodies.get_mut(h) {
-                    let p = *b.position();
-                    b.set_position(p, false);
-                }
-            }
             // A body added asleep wakes when its first contacts are found: rapier wakes
             // both sides of every contact that starts [rapier 0.36.0, `NarrowPhase`'s
             // pair transitions], so clutter placed on a shelf, touching it or its
@@ -1536,3 +1526,7 @@ fn probe(shape: &Shape, at: &Iso, k: f32) -> Result<(Pose, SharedShape), Convert
         _ => Err(ConvertError::NotSingleShape),
     }
 }
+
+#[cfg(test)]
+#[path = "world_query_refresh_tests.rs"]
+mod query_refresh_tests;
