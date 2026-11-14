@@ -291,9 +291,31 @@ pub fn mcm_list_line(ui: &fnv_ui::Ui) -> Option<String> {
         .take(3)
         .map(|n| {
             let title = ui.get_string(&format!("{OPTIONS}/{n}/title/string")).unwrap_or_default();
-            format!("{n} {:?} x {} y {} visible {}", title.trim(), option(&format!("{n}/x")), option(&format!("{n}/y")), option(&format!("{n}/visible")))
+            let value = ui.get_string(&format!("{OPTIONS}/{n}/value/text/string")).unwrap_or_default();
+            format!(
+                "{n} {:?} x {} y {} visible {} title y {} _type {} _value {} shown {:?}",
+                title.trim(),
+                option(&format!("{n}/x")),
+                option(&format!("{n}/y")),
+                option(&format!("{n}/visible")),
+                option(&format!("{n}/title/y")),
+                option(&format!("{n}/_type")),
+                option(&format!("{n}/_value")),
+                value.trim()
+            )
         })
         .collect();
+    // The rows with a suffix: its text and measured width, and where the value's text
+    // stands left of it (OptionRect.xml: `_xSuffix` is minus the suffix's width).
+    let suffixes: Vec<String> = on
+        .iter()
+        .filter(|n| ui.get_float(&format!("{OPTIONS}/{n}/_suffix")).unwrap_or(0.0) != 0.0)
+        .map(|n| {
+            let text = ui.get_string(&format!("{OPTIONS}/{n}/value/suffix/string")).unwrap_or_default();
+            format!("{n} suffix {text:?} width {} value x {}", option(&format!("{n}/value/suffix/width")), option(&format!("{n}/value/text/x")))
+        })
+        .collect();
+    let shown = if suffixes.is_empty() { shown } else { [shown, vec![format!("suffixes: {}", suffixes.join(", "))]].concat() };
     let options = format!(
         "options: panel x {} y {} width {} visible {}, _x1 {}, _x2 {}, _columns {}; MCM x {} y {} width {}; {} rows on{}{}",
         option("x"),
@@ -310,8 +332,17 @@ pub fn mcm_list_line(ui: &fnv_ui::Ui) -> Option<String> {
         if shown.is_empty() { "" } else { ": " },
         shown.join("; ")
     );
+    let values = format!(
+        "MCM _ActiveOption {}, _Value {}, _NewValue {}, _Reset {}, _ShowList {}, _ShowScale {}",
+        read("StartMenu/MCM/_ActiveOption"),
+        read("StartMenu/MCM/_Value"),
+        read("StartMenu/MCM/_NewValue"),
+        read("StartMenu/MCM/_Reset"),
+        read("StartMenu/MCM/_ShowList"),
+        read("StartMenu/MCM/_ShowScale")
+    );
     Some(format!(
-        "MCM's list: _selected {}, _subCount {}, clicked row _index {} _modID {}, ArrowUp y {}, ArrowDown y {}, row height {}, _spacing {}, _listY {}; MCM _ActiveMod {}, _ActiveSubMenu {}, _UnClick {}, _AltInput {}; rows on: {}; {options}",
+        "MCM's list: _selected {}, _subCount {}, clicked row _index {} _modID {}, ArrowUp y {}, ArrowDown y {}, row height {}, _spacing {}, _listY {}; MCM _ActiveMod {}, _ActiveSubMenu {}, _UnClick {}, _AltInput {}; rows on: {}; {options}; {values}",
         list("_selected"),
         list("_subCount"),
         list("_index"),

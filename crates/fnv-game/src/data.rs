@@ -57,6 +57,29 @@ impl Compiled {
         self.program.blocks.iter().any(|b| b.event == event)
     }
 
+    /// Whether a GameMode block of the script tests that a reference is not in the
+    /// player's cell: an If condition with `GetInSameCell … 0 ==` or `GetInSameCell … 1 !=`
+    /// (`Game::run_far_frame`'s rule). Such a branch can only do anything while the
+    /// actor is somewhere the player is not, so the script was written to run then.
+    pub fn tests_away_from_player(&self) -> bool {
+        use fnv_script::ir::{Op, Stmt, Token};
+        const GET_IN_SAME_CELL: u16 = 0x1020;
+        fn away(tokens: &[Token]) -> bool {
+            tokens.windows(3).any(|w| match w {
+                [Token::Call { call }, Token::Num { value, .. }, Token::Op { op }] if call.opcode == GET_IN_SAME_CELL => (*value == 0.0 && *op == Op::Eq) || (*value == 1.0 && *op == Op::Ne),
+                _ => false,
+            })
+        }
+        fn rec(body: &[Stmt]) -> bool {
+            body.iter().any(|st| match st {
+                Stmt::If { arms, otherwise } => arms.iter().any(|a| away(&a.cond.0) || rec(&a.body)) || otherwise.as_deref().is_some_and(rec),
+                Stmt::While { body, .. } | Stmt::ForEach { body, .. } => rec(body),
+                _ => false,
+            })
+        }
+        self.program.blocks.iter().filter(|b| b.event == crate::game::event::GAME_MODE).any(|b| rec(&b.body))
+    }
+
     /// Declared type of a local variable.
     pub fn var_type(&self, index: u16) -> Option<&VarType> {
         self.unit.var(index as u32).map(|v| &v.ty)
@@ -1601,7 +1624,7 @@ const BOUNDS_SIGS: [[u8; 4]; 20] = [
 ];
 
 /// The record types whose fields [`GameData::record_fields`] keeps.
-pub const FIELD_SIGS: [[u8; 4]; 51] = [
+pub const FIELD_SIGS: [[u8; 4]; 56] = [
     *b"PROJ", *b"EXPL", *b"AMMO", *b"WEAP", *b"ARMO", *b"LSCR", *b"NOTE", *b"PERK", *b"MESG", *b"TERM", *b"IMOD", *b"CHAL", *b"BOOK", *b"BPTD", *b"MISC", *b"ALCH", *b"KEYM",
     *b"NPC_", *b"CREA", *b"FACT", *b"RACE", *b"HAIR", *b"EYES", *b"SOUN", *b"WTHR", *b"IMGS", *b"IMAD", *b"AMEF", *b"CLMT", *b"CELL", *b"WRLD", *b"IPDS", *b"IPCT", *b"IDLE", *b"ACTI",
     // JIP batch 4 (`crate::nvse_jip4`).
@@ -1616,6 +1639,9 @@ pub const FIELD_SIGS: [[u8; 4]; 51] = [
     *b"SPEL", *b"ENCH",
     // Lutana batch 3 (`crate::nvse_lu3`): the Anim Object's idle, the loading screen type.
     *b"ANIO", *b"LSCT",
+    // GetModelPath also reads these world objects' authored MODL. Keep the winning
+    // record handles here; their fields are still decoded only when a getter asks.
+    *b"STAT", *b"MSTT", *b"FURN", *b"DOOR", *b"TACT",
 ];
 
 /// The winning records of the [`FIELD_SIGS`] types, each decoded by

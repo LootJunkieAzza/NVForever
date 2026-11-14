@@ -416,10 +416,12 @@ pub fn keys(
     }
 }
 
-/// The row the pointer comes onto takes the selection, unless the wheel holds it
+/// The row the pointer comes onto takes the selection, if the pointer moved onto it
+/// (`super::hover_takes`: the list redrawn under a resting pointer as the keys or the D-pad
+/// step it leaves their choice alone, #2310) and the wheel does not hold it
 /// (`crate::menu::WheelHold`: a list redrawn under a resting pointer would undo the wheel).
-fn on_row_over(over: On<PointerOver>, rows: Query<&RowButton>, active: Res<ActiveMenu>, hold: Option<Res<crate::menu::WheelHold>>, mut out: MessageWriter<MenuInput>) {
-    if hold.is_some_and(|h| h.held()) {
+fn on_row_over(over: On<PointerOver>, rows: Query<&RowButton>, active: Res<ActiveMenu>, hold: Option<Res<crate::menu::WheelHold>>, moved: Option<Res<super::PointerMoved>>, mut out: MessageWriter<MenuInput>) {
+    if hold.is_some_and(|h| h.held()) || !super::hover_takes(moved.as_deref()) {
         return;
     }
     let (Ok(r), Some(m)) = (rows.get(over.entity), active.0.as_ref()) else { return };
@@ -527,7 +529,7 @@ pub fn draw(
     // the player meets (worn armour at its condition and the DT actor value,
     // `crate::combat::target_armor`) [observed: "HP 205/205", "DT 8.0" on the owner's
     // screenshots; hypothesis: the figure is the one combat uses].
-    let hp = forms.as_mut().and_then(|f| super::stats::read::player_hp(f, sim, script.as_deref_mut()));
+    let hp = super::stats::read::player_hp(sim, script.as_deref_mut());
     let dt = combat.as_deref().map(|c| crate::combat::target_armor(c, script.as_deref_mut(), sim, FormId::PLAYER_REF).0);
     let (hp, dt) = (hp_text(hp), dt_text(dt));
     let offer = super::repair::current(&active, sim, script.as_deref());

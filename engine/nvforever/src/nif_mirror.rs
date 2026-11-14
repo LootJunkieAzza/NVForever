@@ -1,11 +1,16 @@
 //! The drawn nodes for JIP's NIF block functions (fnv_game::nif_blocks;
 //! docs/design/nif-blocks.md): each frame the scripts' node changes are applied to the
 //! entities of the reference they name, and the node tree of every reference a script
-//! asked about is told back. A reference's root is its actor rig, else the topmost
-//! entity drawing it. A shape's NiMaterialProperty values (JIP's Get/SetMaterialPropertyValue)
+//! asked about is told back. A reference's root is its actor rig (the player's: the
+//! third-person body, `PlayerBody::third_rig`), told as the skeleton's root node
+//! (`Scene Root` [observed: the original's head parents end there, #2132]), else the
+//! topmost entity drawing it. A shape's NiMaterialProperty values (JIP's Get/SetMaterialPropertyValue)
 //! are read from the reference's model file, once per model, with the scripts' changes
 //! over them; a change draws the shape with its own copy of the material. The vertices of
 //! the shapes a script asked for (SUP's NifBlockGetVerticles) are told back each frame.
+//! A created item drawn as flat shapes (`nvf_play::dropped`, a weapon on the ground) has
+//! no node entities: its tree is told from its model file (names, parents, local
+//! transforms), with the scripts' set transforms over it (#2132).
 
 use crate::limbs::ActorRig;
 use bevy::prelude::*;
@@ -37,6 +42,46 @@ struct Memory {
     owned: HashMap<Entity, Handle<NifMaterial>>,
     /// Each model's shapes' NiAlphaProperty and NiStencilProperty values, by shape name.
     props: HashMap<String, HashMap<String, Props>>,
+    /// Each model's node tree as its file holds it, for items drawn as flat shapes.
+    files: HashMap<String, Vec<FileNode>>,
+}
+
+/// A node of a model file: its name, its parent's index, its local transform.
+#[derive(Clone)]
+struct FileNode {
+    name: String,
+    parent: Option<usize>,
+    translation: Vec3,
+    rotation: Quat,
+    scale: f32,
+}
+
+/// A model file's nodes and shapes (under meshes), depth first from its root, children in
+/// stored order, as `walk` tells drawn ones.
+fn file_tree(data: &GameData, model: &str) -> Vec<FileNode> {
+    let mut out = Vec::new();
+    if model.is_empty() {
+        return out;
+    }
+    let Some(bytes) = data.read(&format!("meshes\\{model}")) else { return out };
+    let Ok(file) = fnv_nif::NifFile::parse(&bytes, Some(&data.schema)) else { return out };
+    let dec = fnv_nif::scene::Decoded::new(&file, &bytes, &data.schema);
+    let objects = fnv_nif::scene::scene_objects(&file, &dec);
+    let by_block: HashMap<usize, &fnv_nif::scene::SceneObject> = objects.iter().map(|o| (o.block, o)).collect();
+    let mut stack: Vec<(usize, Option<usize>)> = objects.iter().filter(|o| o.parent.is_none()).map(|o| (o.block, None)).rev().collect();
+    let mut seen = std::collections::HashSet::new();
+    while let Some((b, parent)) = stack.pop() {
+        let Some(o) = by_block.get(&b).filter(|_| seen.insert(b)) else { continue };
+        let t = &o.transform;
+        // The stored rows taken as columns: the angles the original reads of a file's node
+        // [observed: GetNifBlockRotation of the 10mm pistol's ProjectileNode, 90 0 90, is
+        // this matrix's; the transpose nvf_assets::nif_spawn draws with gives its inverse].
+        let m = Mat3::from_cols_array(&t.rotation);
+        let at = out.len();
+        out.push(FileNode { name: o.name.clone().unwrap_or_default(), parent, translation: Vec3::from_array(t.translation), rotation: Quat::from_mat3(&m), scale: t.scale });
+        stack.extend(o.children.iter().rev().map(|&c| (c, Some(at))));
+    }
+    out
 }
 
 /// A shape's alpha (flags, threshold) and stencil (flags, reference, mask) properties.
@@ -165,20 +210,38 @@ type Visuals<'w, 's> = Query<'w, 's, (Entity, &'static RefVisual, Option<&'stati
 
 type NodeQuery<'w, 's> = Query<'w, 's, (Option<&'static Name>, &'static mut Transform, Option<&'static Children>, Has<NifHidden>)>;
 
-/// The root entity of a reference's drawing.
-fn root_of(r: u32, actors: &Query<(Entity, &ActorRig)>, visuals: &Visuals) -> Option<Entity> {
-    if let Some((e, _)) = actors.iter().find(|(_, a)| a.reference == r) {
-        return Some(e);
+/// The actors' rigs: the placed actors' and the player's third-person body.
+type Rigs<'w, 's> = (Query<'w, 's, (Entity, &'static ActorRig)>, Option<Res<'w, crate::player_body::PlayerBody>>);
+
+/// A reference's rig: its root entity and the rig.
+fn rig_of(r: u32, (actors, player): &Rigs) -> Option<(Entity, ActorRig)> {
+    if r == FormId::PLAYER_REF.0 {
+        return player.as_deref().and_then(crate::player_body::PlayerBody::third_rig);
     }
-    visuals.iter().filter(|(_, v, _)| v.0 == r).find(|(_, _, p)| p.is_none_or(|p| visuals.get(p.parent()).is_ok_and(|(_, v, _)| v.0 != r))).map(|(e, _, _)| e)
+    actors.iter().find(|(_, a)| a.reference == r).map(|(e, a)| (e, a.clone()))
 }
 
-/// The node entities under `root`, depth first, with their parent's index.
-fn walk(root: Entity, nodes: &NodeQuery) -> Vec<(Entity, Option<usize>)> {
+/// The root entity of a reference's drawing.
+fn root_of(r: u32, rigs: &Rigs, visuals: &Visuals) -> Option<Entity> {
+    if let Some((e, _)) = rig_of(r, rigs) {
+        return Some(e);
+    }
+    visuals.iter().filter(|(_, v, _)| v.0 == r).find(|(_, _, p)| p.is_none_or(|p| visuals.get(p.parent()).map_or(true, |(_, v, _)| v.0 != r))).map(|(e, _, _)| e)
+}
+
+/// The node entities under `root`, depth first, with their parent's index; an actor's
+/// root first (its skeleton's root node), the rest under it.
+fn walk(root: Entity, nodes: &NodeQuery, rig: &RigNames) -> Vec<(Entity, Option<usize>)> {
     let mut out = Vec::new();
     let mut stack: Vec<(Entity, Option<usize>)> = Vec::new();
+    let top = if rig.root == Some(root) {
+        out.push((root, None));
+        Some(0)
+    } else {
+        None
+    };
     if let Ok((_, _, Some(ch), _)) = nodes.get(root) {
-        stack.extend(ch.iter().rev().map(|c| (c, None)));
+        stack.extend(ch.iter().rev().map(|c| (c, top)));
     }
     while let Some((e, parent)) = stack.pop() {
         let at = out.len();
@@ -190,28 +253,51 @@ fn walk(root: Entity, nodes: &NodeQuery) -> Vec<(Entity, Option<usize>)> {
     out
 }
 
-/// An actor's skeleton node names, by entity (its node entities carry no `Name`).
-fn rig_names(r: u32, actors: &Query<(Entity, &ActorRig)>) -> HashMap<Entity, String> {
-    actors
-        .iter()
-        .find(|(_, a)| a.reference == r)
-        .map(|(_, a)| a.nodes.iter().zip(&a.skel.names).filter_map(|(e, n)| n.clone().map(|n| (*e, n))).collect())
+/// An actor's skeleton node names, by entity (its node entities carry no `Name`), and its
+/// root entity (named by the skeleton, not by the `Name` the spawn gives it).
+#[derive(Default)]
+struct RigNames {
+    root: Option<Entity>,
+    names: HashMap<Entity, String>,
+}
+
+fn rig_names(r: u32, rigs: &Rigs) -> RigNames {
+    rig_of(r, rigs)
+        .map(|(root, a)| RigNames { root: Some(root), names: a.nodes.iter().zip(&a.skel.names).filter_map(|(e, n)| n.clone().map(|n| (*e, n))).collect() })
         .unwrap_or_default()
 }
 
-/// A node's name: its `Name`, else the rig's.
-fn name_of(e: Entity, nodes: &NodeQuery, rig: &HashMap<Entity, String>) -> String {
-    nodes.get(e).ok().and_then(|n| n.0.map(|n| n.as_str().to_string())).or_else(|| rig.get(&e).cloned()).unwrap_or_default()
+/// A node's name: an actor root's from its skeleton, else its `Name`, else the rig's.
+fn name_of(e: Entity, nodes: &NodeQuery, rig: &RigNames) -> String {
+    if rig.root == Some(e) {
+        if let Some(n) = rig.names.get(&e) {
+            return n.clone();
+        }
+    }
+    nodes.get(e).ok().and_then(|n| n.0.map(|n| n.as_str().to_string())).or_else(|| rig.names.get(&e).cloned()).unwrap_or_default()
 }
 
 /// The node of that name under `root`: exactly, else without regard to case.
-fn find(root: Entity, name: &str, nodes: &NodeQuery, rig: &HashMap<Entity, String>) -> Option<Entity> {
-    let all = walk(root, nodes);
+fn find(root: Entity, name: &str, nodes: &NodeQuery, rig: &RigNames) -> Option<Entity> {
+    let all = walk(root, nodes, rig);
     all.iter().map(|(e, _)| *e).find(|&e| name_of(e, nodes, rig) == name).or_else(|| all.iter().map(|(e, _)| *e).find(|&e| name_of(e, nodes, rig).eq_ignore_ascii_case(name)))
 }
 
 /// The material side of [`mirror`]: the data files, the shapes' materials, the assets.
 type Materials<'w, 's> = (Option<Res<'w, GameData>>, Query<'w, 's, &'static MeshMaterial3d<NifMaterial>>, Option<ResMut<'w, Assets<NifMaterial>>>);
+
+/// The roots of created items (`nvf_play::dropped`) and the entities with children: an
+/// item whose shapes hang straight from its root is drawn flat.
+type Dropped<'w, 's> = (Query<'w, 's, (&'static nvf_play::dropped::DroppedRoot, Option<&'static nvf_play::dropped::DroppedModel>, Option<&'static Children>)>, Query<'w, 's, (), With<Children>>);
+
+/// The model of `r` when it is a created item drawn as flat shapes (no node entities).
+fn drawn_flat(r: u32, (roots, nested): &Dropped) -> Option<String> {
+    roots.iter().find(|(d, _, ch)| d.0 == r && ch.is_some_and(|c| c.iter().all(|e| !nested.contains(e)))).map(|(_, m, _)| {
+        // The drop's path is under meshes already; the tables here take it without.
+        let m = m.map(|m| m.0.as_str()).unwrap_or_default();
+        m.get(..7).filter(|p| p.eq_ignore_ascii_case("meshes\\")).map_or(m, |_| &m[7..]).to_string()
+    })
+}
 
 /// The shapes' meshes, for SUP's NifBlockGetVerticles.
 type Shapes<'w, 's> = (Query<'w, 's, &'static Mesh3d>, Option<Res<'w, Assets<Mesh>>>);
@@ -219,7 +305,7 @@ type Shapes<'w, 's> = (Query<'w, 's, &'static Mesh3d>, Option<Res<'w, Assets<Mes
 #[allow(clippy::too_many_arguments)]
 fn mirror(
     mut script: Option<ResMut<ScriptState>>,
-    actors: Query<(Entity, &ActorRig)>,
+    rigs: Rigs,
     visuals: Visuals,
     parents: Query<&ChildOf>,
     mut nodes: NodeQuery,
@@ -228,25 +314,41 @@ fn mirror(
     (data, drawn, mut assets): Materials,
     (shapes, meshes): Shapes,
     (globals, boxes, mut particles, world): Extra,
+    dropped: Dropped,
 ) {
-    let Memory { logged, held, tables, materials, owned, props } = &mut *mem;
+    let Memory { logged, held, tables, materials, owned, props, files } = &mut *mem;
     let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else { return };
     let edits = rt.game.scene.take_edits();
+    let mut edits_rest = Vec::new();
     for edit in edits {
+        // A transform a script sets holds over the animation, frame after frame
+        // [observed: set-then-read stays exact on an animated bone]; kept for a model
+        // drawn flat too, whose tree is its file's.
+        match edit {
+            SceneEdit::Translation { r, node, v } => {
+                held.entry((r.0, node)).or_default().translation = Some(Vec3::from(v));
+                continue;
+            }
+            SceneEdit::Rotation { r, node, v } => {
+                let [x, y, z] = v.map(f32::to_radians);
+                held.entry((r.0, node)).or_default().rotation = Some(Quat::from_euler(EulerRot::ZYX, z, y, x));
+                continue;
+            }
+            SceneEdit::Scale { r, node, v } => {
+                held.entry((r.0, node)).or_default().scale = Some(v);
+                continue;
+            }
+            edit => edits_rest.push(edit),
+        }
+    }
+    for edit in edits_rest {
         let r = match &edit {
             SceneEdit::Translation { r, .. } | SceneEdit::Rotation { r, .. } | SceneEdit::Scale { r, .. } | SceneEdit::Flags { r, .. } | SceneEdit::ChildFlags { r, .. } | SceneEdit::Rename { r, .. } | SceneEdit::Remove { r, .. } | SceneEdit::Insert { r, .. } | SceneEdit::Attach { r, .. } | SceneEdit::Light { r, .. } | SceneEdit::Material { r, .. } | SceneEdit::Particle { r, .. } => *r,
         };
-        let Some(root) = root_of(r.0, &actors, &visuals) else { continue };
-        let rig = rig_names(r.0, &actors);
+        let Some(root) = root_of(r.0, &rigs, &visuals) else { continue };
+        let rig = rig_names(r.0, &rigs);
         match edit {
-            // A transform a script sets holds over the animation, frame after frame
-            // [observed: set-then-read stays exact on an animated bone].
-            SceneEdit::Translation { node, v, .. } => held.entry((r.0, node)).or_default().translation = Some(Vec3::from(v)),
-            SceneEdit::Rotation { node, v, .. } => {
-                let [x, y, z] = v.map(f32::to_radians);
-                held.entry((r.0, node)).or_default().rotation = Some(Quat::from_euler(EulerRot::ZYX, z, y, x));
-            }
-            SceneEdit::Scale { node, v, .. } => held.entry((r.0, node)).or_default().scale = Some(v),
+            SceneEdit::Translation { .. } | SceneEdit::Rotation { .. } | SceneEdit::Scale { .. } => {}
             SceneEdit::Flags { node, flags, .. } => {
                 if let Some(e) = find(root, &node, &nodes, &rig) {
                     if flags & 1 != 0 {
@@ -356,8 +458,8 @@ fn mirror(
     // The held transforms, over this frame's pose.
     let keys: Vec<(u32, String)> = held.keys().cloned().collect();
     for (r, node) in keys {
-        let Some(root) = root_of(r, &actors, &visuals) else { continue };
-        let rig = rig_names(r, &actors);
+        let Some(root) = root_of(r, &rigs, &visuals) else { continue };
+        let rig = rig_names(r, &rigs);
         let h = held[&(r, node.clone())];
         if let Some(mut t) = find(root, &node, &nodes, &rig).and_then(|e| nodes.get_mut(e).ok()) {
             if let Some(v) = h.translation {
@@ -372,16 +474,60 @@ fn mirror(
         }
     }
     // The trees of the references scripts asked about.
-    let watched: Vec<FormId> = rt.game.scene.watched().collect();
+    // Once scripts use the NIF functions, the player's tree is told too, watched or not:
+    // the original has the player's 3D at once, so a script's first read finds it
+    // [observed: player.GetChildBlocks in the nif-blocks set, #2132].
+    let mut watched: Vec<FormId> = rt.game.scene.watched().collect();
+    // So are created items drawn flat, whose 3D the original has a frame after
+    // PlaceAtMe (the nif-blocks set's first read of the pistol finds it).
+    if !watched.is_empty() {
+        for r in std::iter::once(FormId::PLAYER_REF).chain(dropped.0.iter().map(|(d, _, _)| FormId(d.0))) {
+            if !watched.contains(&r) {
+                watched.push(r);
+            }
+        }
+    }
     for r in watched {
-        let Some(root) = root_of(r.0, &actors, &visuals) else {
+        if let Some(model) = drawn_flat(r.0, &dropped) {
+            let Some(d) = data.as_deref() else { continue };
+            let file = files.entry(model.clone()).or_insert_with(|| file_tree(d, &model));
+            let table = tables.entry(model.clone()).or_insert_with(|| material_table(d, &model));
+            let mut seen: HashMap<String, u32> = HashMap::new();
+            let tree: Vec<SceneNode> = file
+                .iter()
+                .map(|f| {
+                    let n = seen.entry(f.name.to_ascii_lowercase()).or_insert(0);
+                    let shown = if *n == 0 { f.name.clone() } else { format!("{}:{}", f.name, *n - 1) };
+                    *n += 1;
+                    let h = held.get(&(r.0, shown.clone())).copied().unwrap_or_default();
+                    let (z, y, x) = h.rotation.unwrap_or(f.rotation).to_euler(EulerRot::ZYX);
+                    let material = materials.get(&(r.0, shown.clone())).or_else(|| table.get(&f.name)).copied();
+                    SceneNode {
+                        name: shown,
+                        parent: f.parent,
+                        translation: h.translation.unwrap_or(f.translation).to_array(),
+                        rotation: [x.to_degrees(), y.to_degrees(), z.to_degrees()],
+                        scale: h.scale.unwrap_or(f.scale),
+                        flags: 0,
+                        material,
+                        info: None,
+                    }
+                })
+                .collect();
+            if logged.insert(r.0 ^ 0x4000_0000) {
+                info!("nif mirror: {:08X} told from its model file {model:?} (drawn flat), {} nodes, first {:?}", r.0, tree.len(), tree.iter().take(4).map(|n| n.name.as_str()).collect::<Vec<_>>());
+            }
+            rt.game.scene.set_tree(r, tree);
+            continue;
+        }
+        let Some(root) = root_of(r.0, &rigs, &visuals) else {
             if logged.insert(r.0) {
                 info!("nif mirror: {:08X} watched, not drawn", r.0);
             }
             rt.game.scene.forget(r);
             continue;
         };
-        let rig = rig_names(r.0, &actors);
+        let rig = rig_names(r.0, &rigs);
         let mut seen: HashMap<String, u32> = HashMap::new();
         let model = fnv_game::nif_blocks::model_of(&rt.game, r).unwrap_or_default();
         let table = match data.as_deref() {
@@ -396,7 +542,7 @@ fn mirror(
             .as_deref_mut()
             .map(|p| crate::particles::placed_systems(p, r.0).into_iter().map(|d| (d.name.clone(), d.emitter.object.clone(), crate::particles::script_values(d))).collect())
             .unwrap_or_default();
-        let walked = walk(root, &nodes);
+        let walked = walk(root, &nodes, &rig);
         let tree: Vec<SceneNode> = walked
             .iter()
             .enumerate()
@@ -435,8 +581,8 @@ fn mirror(
     // [hypothesis: a skinned shape's are its bind pose].
     let wanted: Vec<(FormId, String)> = rt.game.scene.wanted_vertices().cloned().collect();
     for (r, node) in wanted {
-        let verts = root_of(r.0, &actors, &visuals)
-            .and_then(|root| find(root, &node, &nodes, &rig_names(r.0, &actors)))
+        let verts = root_of(r.0, &rigs, &visuals)
+            .and_then(|root| find(root, &node, &nodes, &rig_names(r.0, &rigs)))
             .and_then(|e| shapes.get(e).ok())
             .and_then(|m| meshes.as_deref()?.get(&m.0))
             // `try_`: a mesh extracted to the render world gives none, where `attribute` panics (#2202).
@@ -458,7 +604,7 @@ mod tests {
     fn a_light_source_is_not_a_references_root() {
         const R: u32 = 0x301;
         fn root(world: &mut World) -> Option<Entity> {
-            world.run_system_once(|actors: Query<(Entity, &ActorRig)>, visuals: Visuals| root_of(R, &actors, &visuals)).unwrap()
+            world.run_system_once(|rigs: Rigs, visuals: Visuals| root_of(R, &rigs, &visuals)).unwrap()
         }
         // Without a parent, so that each entity passes the test on its parent and only the
         // filter on light sources can leave it out.

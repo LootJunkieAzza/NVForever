@@ -9,6 +9,7 @@ use crate::xml::{self, Element, Node};
 use std::cell::RefCell;
 use std::cmp::Reverse;
 use std::collections::{BTreeMap, BinaryHeap, HashMap, HashSet};
+use std::num::NonZeroU64;
 use std::panic::Location;
 use std::sync::atomic::{AtomicU32, Ordering};
 
@@ -199,6 +200,11 @@ impl Origin {
     }
 }
 
+/// An external write's opaque identity within its Ui, not writable authority.
+/// Pair with the full TileId and trait name, never a value or vector index.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TraitWriteSerial(NonZeroU64);
+
 /// One trait of a tile.
 #[derive(Clone, Debug)]
 pub struct Trait {
@@ -209,6 +215,8 @@ pub struct Trait {
     pub expr: Option<Vec<Op>>,
     /// The tree's change count when the value last changed.
     pub changed: u64,
+    /// Every external setter/XML replacement, even equal values; never expression work.
+    write_serial: Option<TraitWriteSerial>,
     /// The change count when the expression was last worked out (0: never).
     evaluated: u64,
     /// [design] The lower-case setting whose built-in label this trait holds, as the file
@@ -224,7 +232,7 @@ pub struct Trait {
 
 impl Trait {
     fn new(name: String, value: Value, expr: Option<Vec<Op>>, changed: u64) -> Trait {
-        Trait { name, value, expr, changed, evaluated: 0, built_in_label: None, sources: Vec::new(), seen: 0 }
+        Trait { name, value, expr, changed, write_serial: None, evaluated: 0, built_in_label: None, sources: Vec::new(), seen: 0 }
     }
 }
 
@@ -279,6 +287,21 @@ impl Tile {
     }
 }
 
+/// How a path's `name:N` / `*:N` counts the children that match (`Ui::find_trait_counted`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Count {
+    /// From the last child, from 0: JIP's functions (GetUIFloatAlt and the rest) [observed:
+    /// private jobs hud_hardcore hc0, hud_xp_limbs, hud_prompt2 p0-p8; hud.md §14.8].
+    FromLast,
+    /// From the first child, from 1, with 0 the last and nothing past the one before the
+    /// last: the extender's GetUIFloat, SetUIFloat, SetUIString and SetUIStringEx
+    /// [observed: GetUIFloat under the pause column, `*:1` its first child, `*:0` its last,
+    /// `*:8` of 8 nothing, menu-xml.md §10.1; documented: MCM Guide v6, Introduction and The
+    /// Options Panel: `StartMenu/MCM/*:4` is MCM's fourth child, `*:1/*:2` the options
+    /// panel's Option2, `*:9` MCM_Info, the ninth; menu-xml.md §10.4].
+    FromFirst,
+}
+
 /// The menus' tile tree.
 #[derive(Default)]
 pub struct Ui {
@@ -327,6 +350,8 @@ pub struct Ui {
     /// read a flag in the same place.
     trait_writes: u64,
     trait_changes: u64,
+    /// Ui-local external-write clock; exhausted writes are unownable, never wrapped.
+    last_write_serial: u64,
     /// How many live mod-added tiles (an `Injected`, `Template` or loose file origin, or
     /// a loose UIO include's) each root tile holds, itself included, by root: kept where
     /// tiles are made, unloaded or change origin, so [`Ui::has_mod_added_tiles`] walks
@@ -766,8 +791,10 @@ impl Ui {
         }
         self.gen += 1;
         let gen = self.gen;
+        let write_serial = self.next_write_serial();
         let t = self.tile_mut(tile);
         let mut new = Trait::new(e.name.clone(), value, expr, gen);
+        new.write_serial = write_serial;
         new.built_in_label = built_in_label;
         match t.trait_index(&e.name) {
             Some(k) => t.traits[k] = new,
@@ -825,17 +852,36 @@ impl Ui {
         let segs = split(path);
         let (first, rest) = segs.split_first()?;
         let root = self.root_named(first)?;
-        self.walk(root, rest)
+        self.walk(root, rest, Count::FromLast)
     }
 
     /// The tile and trait a path names: [`Ui::find_tile`] of all but the last segment,
     /// and the last a trait of it.
     pub fn find_trait(&self, path: &str) -> Option<(TileId, usize)> {
+        self.find_trait_counted(path, Count::FromLast)
+    }
+
+    /// [`Ui::find_trait`] with `name:N` / `*:N` counted as `count` says (the extender's
+    /// GetUIFloat and SetUIFloat count from the first child, [`Count::FromFirst`]).
+    pub fn find_trait_counted(&self, path: &str, count: Count) -> Option<(TileId, usize)> {
         let segs = split(path);
         let (name, tiles) = segs.split_last()?;
         let (first, rest) = tiles.split_first()?;
         let root = self.root_named(first)?;
-        self.walk_to_trait(root, rest, name)
+        self.walk_to_trait(root, rest, name, count)
+    }
+
+    /// A trait's value by a path counted as `count` says ([`Ui::find_trait_counted`]).
+    pub fn get_counted(&self, path: &str, count: Count) -> Option<&Value> {
+        let (t, k) = self.find_trait_counted(path, count)?;
+        Some(&self.tile(t).traits[k].value)
+    }
+
+    /// Sets a trait by a path counted as `count` says, as [`Ui::set`] does.
+    pub fn set_counted(&mut self, path: &str, count: Count, v: Value) -> bool {
+        let Some((t, k)) = self.find_trait_counted(path, count) else { return false };
+        self.set_at(t, k, v);
+        true
     }
 
     /// A trait by a path under a tile: `Tile/…/trait` from `at`'s children, or a trait of
@@ -844,7 +890,7 @@ impl Ui {
     pub fn find_trait_in(&self, at: TileId, path: &str) -> Option<(TileId, usize)> {
         let segs = split(path);
         let (name, tiles) = segs.split_last()?;
-        self.walk_to_trait(at, tiles, name)
+        self.walk_to_trait(at, tiles, name, Count::FromLast)
     }
 
     fn root_named(&self, seg: &str) -> Option<TileId> {
@@ -852,28 +898,31 @@ impl Ui {
     }
 
     /// The children of `at` a segment matches, in order.
-    fn matching(&self, at: TileId, seg: &str) -> Vec<TileId> {
+    fn matching(&self, at: TileId, seg: &str, count: Count) -> Vec<TileId> {
         let (name, index) = match seg.rsplit_once(':') {
             Some((n, k)) if k.trim().parse::<usize>().is_ok() => (n, k.trim().parse::<usize>().ok()),
             _ => (seg, None),
         };
         let all = self.tile(at).children.iter().copied();
         let named: Vec<TileId> = all.filter(|&c| name == "*" || self.tile(c).name.eq_ignore_ascii_case(name)).collect();
-        match index {
-            Some(k) => named.iter().rev().nth(k).copied().into_iter().collect(),
-            None => named,
+        match (index, count) {
+            (Some(k), Count::FromLast) => named.iter().rev().nth(k).copied().into_iter().collect(),
+            // 0 the last, 1 the first, N the N-th, none past the one before the last.
+            (Some(0), Count::FromFirst) => named.last().copied().into_iter().collect(),
+            (Some(k), Count::FromFirst) => named.get(k - 1).filter(|_| k < named.len()).copied().into_iter().collect(),
+            (None, _) => named,
         }
     }
 
-    fn walk(&self, at: TileId, segs: &[&str]) -> Option<TileId> {
+    fn walk(&self, at: TileId, segs: &[&str], count: Count) -> Option<TileId> {
         let Some((seg, rest)) = segs.split_first() else { return Some(at) };
-        self.matching(at, seg).into_iter().find_map(|c| self.walk(c, rest))
+        self.matching(at, seg, count).into_iter().find_map(|c| self.walk(c, rest, count))
     }
 
-    fn walk_to_trait(&self, at: TileId, segs: &[&str], name: &str) -> Option<(TileId, usize)> {
+    fn walk_to_trait(&self, at: TileId, segs: &[&str], name: &str, count: Count) -> Option<(TileId, usize)> {
         match segs.split_first() {
             None => self.tile(at).trait_index(name).map(|k| (at, k)),
-            Some((seg, rest)) => self.matching(at, seg).into_iter().find_map(|c| self.walk_to_trait(c, rest, name)),
+            Some((seg, rest)) => self.matching(at, seg, count).into_iter().find_map(|c| self.walk_to_trait(c, rest, name, count)),
         }
     }
 
@@ -983,11 +1032,27 @@ impl Ui {
         (self.trait_writes, self.trait_changes)
     }
 
+    /// Last accepted external setter/XML insertion or replacement, including equal values.
+    /// None for a missing/stale target or an exhausted clock. Expression evaluation does
+    /// not advance it; an expression may have a serial but is not thereby a writable sink.
+    pub fn trait_write_serial(&self, tile: TileId, name: &str) -> Option<TraitWriteSerial> {
+        let t = self.tile(tile);
+        t.traits.get(t.trait_index(name)?)?.write_serial
+    }
+
+    fn next_write_serial(&mut self) -> Option<TraitWriteSerial> {
+        let next = self.last_write_serial.checked_add(1)?;
+        self.last_write_serial = next;
+        NonZeroU64::new(next).map(TraitWriteSerial)
+    }
+
     fn set_at(&mut self, t: TileId, k: usize, v: Value) {
         self.gen += 1;
         self.trait_writes += 1;
         let gen = self.gen;
+        let write_serial = self.next_write_serial();
         let tr = &mut self.tiles[t.index as usize].traits[k];
+        tr.write_serial = write_serial;
         if v.differs(&tr.value) {
             tr.changed = gen;
             self.dirty = true;
@@ -1298,6 +1363,10 @@ impl Ui {
             }
             Src::Child(None) => self.tile(me).children.first().copied(),
             Src::Child(Some(n)) => child_named(me, n),
+            // A menu's siblings are the other menus [observed: Vanilla UI Plus's start menu
+            // reads `<copy src="sibling(HUDMainMenu)" trait="_VUI+"/>` on its root, and its
+            // own check shows an "installation error" unless that gives its 1, #2298].
+            Src::Sibling(Some(n)) if parent(me).is_none() => self.root_named(n).filter(|&r| r != me),
             Src::Sibling(n) => {
                 let p = parent(me)?;
                 let kids = &self.tile(p).children;
@@ -1320,7 +1389,20 @@ impl Ui {
                 // trait="x"/> <add> 20 </add> </_x1>` on MCM_Options, whose rows stand in
                 // the right pane in the original; read as a name it gave 0 and the rows
                 // stood at the screen's left, the owner's run of 2026-11-12].
-                self.find_named(root, n).or_else(|| self.root_named(n)).or_else(|| n.eq_ignore_ascii_case("me").then_some(me))
+                // Likewise every source that takes no argument: `parent`, `grandparent`,
+                // `child`, `sibling`, `globals`, `screen`, `io` and `strings` [observed:
+                // Vanilla UI Plus writes them so throughout its menus, `parent` 1,739 times,
+                // `sibling` 614, `child` 15 in the Blue Moon list's files; its MCM
+                // OptionRect.xml places each option's title by `<copy src="parent"
+                // trait="_y"/>`, and read as a name every title stood at y 0, one over the
+                // other at the top of the screen, the owner's run of 2026-11-13, #2298].
+                self.find_named(root, n).or_else(|| self.root_named(n)).or_else(|| {
+                    let bare = Src::parse(&format!("{n}()"));
+                    match bare {
+                        Src::Me | Src::Parent | Src::Grandparent | Src::Child(None) | Src::Sibling(None) | Src::Globals | Src::Screen | Src::Io | Src::Strings => self.resolve(me, &bare),
+                        _ => None,
+                    }
+                })
             }
         }
     }
@@ -1477,5 +1559,40 @@ fn apply(kind: OpKind, acc: Value, a: Value, me: TileId, k: usize) -> Value {
                 acc
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod write_serial_tests {
+    use super::*;
+
+    #[test]
+    fn trait_write_serial_exhaustion_keeps_legacy_values_without_reusing_tokens() {
+        let mut ui = Ui::new();
+        let screen = ui.screen();
+        ui.set_trait(screen, "x", Value::Num(12.0));
+        let old = ui.trait_write_serial(screen, "x").unwrap();
+        let clock = ui.last_write_serial;
+        assert!(!ui.set_float("screen()/missing", 1.0));
+        assert!(!ui.set_existing(screen, "missing", Value::Num(1.0)));
+        assert_eq!(ui.last_write_serial, clock);
+        ui.last_write_serial = u64::MAX - 1;
+        ui.set_trait(screen, "x", Value::Num(12.0));
+        let last = ui.trait_write_serial(screen, "x").unwrap();
+        assert_ne!(old, last);
+        assert_eq!(ui.last_write_serial, u64::MAX);
+        ui.set_trait(screen, "x", Value::Num(13.0));
+        assert_eq!(ui.trait_write_serial(screen, "x"), None);
+        assert_eq!(ui.tile(screen).get("x"), Some(&Value::Num(13.0)));
+        ui.set_trait(screen, "x", Value::Num(14.0));
+        assert_eq!(ui.tile(screen).get("x"), Some(&Value::Num(14.0)));
+        assert_eq!(ui.trait_write_serial(screen, "x"), None);
+        let src = MemSource::default();
+        assert!(ui.inject_text(&src, "screen()", "<x>15</x><y>24</y>"));
+        assert_eq!(ui.tile(screen).get("x"), Some(&Value::Num(15.0)));
+        assert_eq!(ui.tile(screen).get("y"), Some(&Value::Num(24.0)));
+        assert_eq!(ui.trait_write_serial(screen, "x"), None);
+        assert_eq!(ui.trait_write_serial(screen, "y"), None);
+        assert_eq!(ui.last_write_serial, u64::MAX);
     }
 }

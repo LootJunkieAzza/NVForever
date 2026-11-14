@@ -399,10 +399,17 @@ impl Game<'_> {
             self.count_kill(r);
             self.challenge_kill(r);
         }
+        // A body already lying knocked out is a ragdoll already [hypothesis].
+        let lying = self.knockout(r).is_some_and(|k| k.lying());
         let e = self.extra.entry(r).or_default();
         e.dead = true;
         e.killer = killer;
         e.killing_hit = fatal;
+        // JIP's ragdoll handlers: any actor ragdolled on death [documented:
+        // SetOnRagdollEventHandler].
+        if !lying {
+            self.jip_event("ragdoll", Some(r), Vec::new());
+        }
         if let Some(b) = base_of(self, r) {
             *self.player.dead_count.entry(b).or_default() += 1;
         }
@@ -688,6 +695,19 @@ impl Game<'_> {
             ran |= self.ref_event(target, event::ON_HIT_WITH, Some(Value::Ref(w.0)), info.attacker);
         }
         ran
+    }
+
+    /// A hit that deals no damage: a Use Weapon package's or UseWeapon's Do No Damage
+    /// ("prevent all damage", "for scripted protracted fake combat" [documented: GECK
+    /// wiki UseWeapon, docs/spec-notes/use-weapon.md §1]). The target's OnHit and
+    /// OnHitWith blocks run with the attacker and the weapon, as for any hit; nothing else
+    /// changes: no Health, limb or fatigue damage, no hit lines, no last hit, no JIP hit
+    /// event. Returns whether a block ran. [observed: G.I. Blues' thugs fall only in their
+    /// OnHit block for Orris (SCPT 0x00118A77), whose Use Weapon packages are Always Hit and
+    /// Do No Damage, so the scene goes on only if such a hit runs it (#2433); hypothesis:
+    /// that is what the original does, observer check 134.]
+    pub fn harmless_hit(&mut self, target: FormId, info: HitInfo) -> bool {
+        self.hit_object(target, info)
     }
 
     /// Tell the rules which weapon the animating side draws for `actor`

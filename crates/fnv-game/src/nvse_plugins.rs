@@ -511,9 +511,10 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         "setonactorvaluechangeeventhandler" => {
             let Some(f) = args.get(1).cloned() else { return Some(Ok(zero)) };
             let code = args.get(3).and_then(|v| v.num().ok()).map(|c| c as u16);
-            g.gaps.av_handlers.retain(|(h, c)| !(*h == f && *c == code));
+            let exact = (num(args, 2, 0.0) as i64) & 1 != 0;
+            g.gaps.av_handlers.retain(|(h, c, _)| !(*h == f && *c == code));
             if num(args, 0, 1.0) != 0.0 {
-                g.gaps.av_handlers.push((f, code));
+                g.gaps.av_handlers.push((f, code, exact));
             }
             zero
         }

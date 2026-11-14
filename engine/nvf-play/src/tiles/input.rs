@@ -196,6 +196,8 @@ pub(crate) struct Devices<'w, 's> {
     pub(super) mouse: crate::pad::ActionButtons<'w, MouseButton>,
     pads: crate::pad::ActionPads<'w, 's>,
     windows: Query<'w, 's, &'static Window, With<PrimaryWindow>>,
+    /// The window's pointer asleep under the controller is on nothing (#2310).
+    pad_pointer: Option<Res<'w, crate::pad::pointer::PadPointer>>,
 }
 
 /// T15a: the message box button the pointer or a script clicked on its tiles this frame,
@@ -890,16 +892,16 @@ pub(crate) fn feed(
     // the test aid, or with a script's HUD cursor (ToggleHUDCursor, `fnv_game::nvse_jip9`).
     let mut taking = Vec::new();
     let hud_cursor = rt.game.other.jip9.hud_cursor;
-    if (aid_at.is_some() || hud_cursor) && menus.hud {
+    // T11: the pause menu's Mods page takes the pointer and keys for the start menu's
+    // tiles (`super::mods`); the test aid's pointer is then the page's, not the HUD's.
+    let mods_page = menus.start && paused.as_ref().zip(page.as_ref()).is_some_and(|(p, pg)| crate::pause::mods_open(p, pg));
+    if (aid_at.is_some() || hud_cursor) && menus.hud && !mods_page {
         taking.extend(rt.game.ui_tree.menu(super::draw::HUD_MENU));
     }
     // The dialogue menu, under anything over the conversation (it does not take with one up).
     let dialog_menu = inputs.dialog.as_ref().and_then(|d| d.taking(&rt.game, paused.as_ref().is_some_and(|p| p.0)));
     taking.extend(dialog_menu);
     taking.extend(inputs.taking(*menus, &rt.game, inventory.as_ref().is_some_and(|i| i.ready.is_some())));
-    // T11: the pause menu's Mods page takes the pointer and keys for the start menu's
-    // tiles (`super::mods`).
-    let mods_page = menus.start && paused.as_ref().zip(page.as_ref()).is_some_and(|(p, pg)| crate::pause::mods_open(p, pg));
     if mods_page {
         taking.extend(rt.game.ui_tree.menu(super::mods::START_MENU));
     }
@@ -941,9 +943,10 @@ pub(crate) fn feed(
     let anchor = super::draw::menu_anchor(dialog_menu.is_some() && taking.len() == 1);
     // The HUD alone under a script's cursor is hit where its tiles stand, in no frame.
     let hud_alone = hud_cursor && aid_at.is_none() && taking.len() == 1 && rt.game.ui_tree.menu(super::draw::HUD_MENU) == taking.first().copied();
+    let sleeping = crate::pad::pointer::asleep(devices.pad_pointer.as_deref());
     let cursor = || {
         aid_at.or_else(|| {
-            devices.windows.single().ok().and_then(|w| {
+            devices.windows.single().ok().filter(|_| !sleeping).and_then(|w| {
                 let p = w.cursor_position()?;
                 Some(if hud_alone { to_units(p, w.height()) } else { to_menu_units(p, Vec2::new(w.width(), w.height()), anchor) })
             })

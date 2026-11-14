@@ -174,18 +174,24 @@ fn weapon_paths_follow_the_weapon_in_hand() {
     assert!(gun(g.anim_overrides(FormId::PLAYER_REF, true)).is_empty(), "the third-person path only");
 }
 
-/// PlayAnimationPath's sequences are played in place of what the actor plays; ActivateAnim's
-/// are marked layered (the engine leaves those for later) [documented: ActivateAnim].
+/// PlayAnimationPath's sequences finish by themselves; ActivateAnim's stay until a script
+/// takes them back [documented: ActivateAnim, "adds a sequence to the active ones"]. Both
+/// are requests in `AnimPaths::sequences`, which the renderer layers on the actor.
 #[test]
-fn activate_anim_sequences_are_marked_layered() {
+fn activate_anim_sequences_stay_until_taken_back() {
     files();
     let f = fixture();
     let world = World::new(&f.forms, &f.refs, SimConfig::default());
     let mut g = Game::new(&f.data, world, GameConfig::default());
     g.player_entered(Some(FormId(ROOM)));
-    q(&mut g, "player.PlayAnimationPath \"AnimGroupOverride/Gun/_male/2hrAttack3.kf\"\nplayer.ActivateAnim \"AnimGroupOverride/Gun/_1stPerson/2hrAttack3.kf\"");
+    q(&mut g, "player.PlayAnimationPath \"AnimGroupOverride/Gun/_male/2hrAttack3.kf\"
+player.ActivateAnim \"AnimGroupOverride/Gun/_1stPerson/2hrAttack3.kf\"");
     let played = g.anim_paths.played.get(&FormId::PLAYER_REF).cloned().unwrap_or_default();
     assert_eq!(played.len(), 2);
-    let layered: Vec<String> = g.anim_paths.layered.iter().map(|(_, p)| p.replace(char::from(92), "/")).collect();
-    assert_eq!(layered, ["animgroupoverride/gun/_1stperson/2hrattack3.kf"]);
+    let mut kept: Vec<(String, bool)> = g.anim_paths.sequences.iter()
+        .filter(|((a, _, _), _)| *a == FormId::PLAYER_REF)
+        .map(|((_, _, p), s)| (p.replace(char::from(92), "/"), s.auto_finish))
+        .collect();
+    kept.sort();
+    assert_eq!(kept, [("animgroupoverride/gun/_1stperson/2hrattack3.kf".to_string(), false), ("animgroupoverride/gun/_male/2hrattack3.kf".to_string(), true)]);
 }

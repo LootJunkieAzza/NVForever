@@ -86,18 +86,14 @@ player does not read their state yet.
   whoever holds the weapon]: the files of the weapon an actor has equipped come after
   the folders' and before the actor's own paths (`Game::weapon_overrides`), for NPCs and
   the player alike.
-- **Script-played sequences on the player** (`nvforever` idles.rs,
-  `play_script_sequences`): PlayAnimationPath's sequence starts as an idle does, on the
-  first-person rig when its clip drives the camera node, else on the body; once when the
-  clip's cycle type is Clamp, else looping until DeactivateAnim takes it back.
-- **ActivateAnim on the player** (`PlayerIdles::layered`, player_body.rs `Posed::layered`):
-  the sequences the game marks (`AnimPaths::layered`) play over the rig's own clips
-  [documented: ActivateAnim, "adds a sequence to the active ones"], on the rig whose
-  camera node they drive or else the body, at full weight on the nodes they have tracks
-  for and by the clip's own cycle type [hypothesis: as one more active sequence of its
-  priorities]; a camera-only clip such as Enhanced Movement's `EM_NoBob.kf` (1 track)
-  leaves the arms to the rest. DeactivateAnim takes the layer back (smoke
-  `knvse-player-sequences`).
+- **Script-played sequences on the player** (`nvforever` script_sequences.rs,
+  docs/spec-notes/player-script-sequence-bridge.md): PlayAnimationPath's and
+  ActivateAnim's sequences are requests in `AnimPaths::sequences`, played on the player's
+  rigs beside locomotion; PlayAnimationPath's finish by themselves, ActivateAnim's stay
+  until DeactivateAnim takes them back [documented: ActivateAnim, "adds a sequence to the
+  active ones"] (smoke `knvse-player-sequences`). An earlier slice of this branch played
+  them through the idle slot and a layer list of its own; that went when the request
+  model reached main (#2395), so one sequence is not played twice.
 - **Script-played sequences on NPCs** (`nvforever` idles.rs, `play_npc_sequences`):
   PlayAnimationPath's sequence starts on the drawn actor's idle slot, bound to its
   skeleton, once or looping as on the player; DeactivateAnim stops it; an actor out of

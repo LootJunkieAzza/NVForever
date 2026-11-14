@@ -47,6 +47,18 @@ IsArmorAddon tells them apart; CLOT (26), INGR (29) and TLOD (68) are unused; 20
 "Form"; TypeOf does not tell form types apart (that is GetType's job) [documented:
 TypeOf, by its list of results].
 
+[observed: own `native_typeof_missing_26` public-script job, 2026-11-12,
+xNVSE 6.4.9] `TypeOf` on an absent string-map key returns `"NULL"`; a present numeric
+key returns `"Number"`; directly indexing an absent key fails. All three result
+rows completed. The reference process later faulted during automatic shutdown;
+this is API evidence, not native-client stability acceptance.
+
+[hypothesis: absent-element handling boundary] Handle only the missing-element
+condition in `TypeOf`, without inserting a key or suppressing unrelated expression
+errors. The authored regression covers absent/present values, non-insertion,
+ordinary indexing and invalid holder/key, host and budget errors. It does not
+establish complete mod compatibility.
+
 ## 2. Form IDs as text
 
 **GetFormIDString** `GetFormIDString refVar` (NVSE): the form ID in hexadecimal; compiles
@@ -254,4 +266,4 @@ One row per function the plan lists for this task (docs/handoff/extender-core-ta
 | GetFormFromMod | GFFM | plugin name string; hex form ID string (no mod index) | form | the form with that ID in that plugin (LU plugin, not core) | leading zeros optional; does not resolve unloaded non-persistent references; unloaded plugin: open |
 | GetModIndex | — | plugin file name string | int | the plugin's load-order index | 255 when not loaded; name matching rules: open |
 | GetSourceModIndex | — | form? (or calling reference) | int | load-order index of the plugin the form belongs to | run-time (FF) forms: open |
-| TypeOf | — | expression | string | "Number", "Form", "String", "Array", "Map" or "StringMap" | all forms are "Form" |
+| TypeOf | — | expression | string | "Number", "Form", "String", "Array", "Map" or "StringMap"; absent string-map key: "NULL" [observed: native_typeof_missing_26] | all forms are "Form"; absent-key limits in §1 |

@@ -149,8 +149,6 @@ pub fn arms_magnification(view_vfov: f32, arms_fov: f32) -> f32 {
 /// Idles (`idles.rs`): one role per idle started, so an idle keeps its layer while the
 /// next one fades in over it.
 const TAG_SPECIAL: u32 = 1000;
-/// ActivateAnim's sequences (`Posed::layered`), + their place in the list.
-const TAG_LAYERED: u32 = 2000;
 
 /// Biped slots of headgear hidden in first person when the third-person body has to stand
 /// in for the first-person rig: Head, Hair, Headband, Hat, Eye Glasses, Nose Ring,
@@ -998,6 +996,9 @@ impl PlayerBody {
     }
 }
 
+#[path = "player_sequence_pose_aid.rs"]
+mod sequence_pose_aid;
+
 pub struct PlayerBodyPlugin {
     /// `--first-person-body`.
     pub first_person_body: bool,
@@ -1019,8 +1020,10 @@ impl Plugin for PlayerBodyPlugin {
             .init_resource::<crate::furniture::PlayerUse>()
             .init_resource::<crate::weapon_lower::Ahead>()
             .init_resource::<WarmPose>()
-            .add_systems(Update, (restore_warm_pose, crate::furniture::drive_player, ensure_body, crate::weapon_lower::sense, apply_anim_overrides, drive_body, drive_weapon_emitters, shade_light, draw_warm_pose).chain().in_set(nvf_play::player::BodySet))
+            .init_resource::<crate::script_sequences::PlayerSequences>()
+            .add_systems(Update, (restore_warm_pose, crate::furniture::drive_player, ensure_body, crate::weapon_lower::sense, apply_anim_overrides, crate::script_sequences::prepare, drive_body, drive_weapon_emitters, shade_light, draw_warm_pose).chain().in_set(nvf_play::player::BodySet))
             .add_systems(PostUpdate, near_shade_casters.after(bevy::light::SimulationLightSystems::CheckLightVisibility))
+            .add_systems(PostUpdate, sequence_pose_aid::observe.after(bevy::transform::TransformSystems::Propagate))
             .add_systems(Last, report);
     }
 }
@@ -1641,10 +1644,9 @@ struct Posed<'a> {
     look_pitch: f32,
     /// The idles the rig plays (`idles.rs`).
     special: &'a IdleSlot<Arc<Clip>>,
+    sequences: &'a [crate::script_sequences::Sample],
     /// The Pip-Boy shows: seconds into its clip (first person).
     pipboy: Option<f32>,
-    /// ActivateAnim's sequences on this rig (`idles::PlayerIdles::layered`).
-    layered: &'a [(String, Arc<Clip>)],
     /// The sway of the arms (first person, `view_sway.rs`).
     sway: SwayPose,
     /// True iron sights (first person, `iron_sights.rs`): how far in (0–1), and the
@@ -1669,7 +1671,7 @@ fn land_mine_grip() -> (Quat, Vec3) {
 /// would do by itself [hypothesis: the clips of the opening share track priorities with
 /// the standing idle, so both cannot play; idles.md §4].
 fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &mut ActorCtx, transforms: &mut Query<&mut Transform>) -> Option<(Vec3, Option<Quat>)> {
-    let Posed { root, look_pitch, special, pipboy, layered: posed_layered, sway, sights } = posed;
+    let Posed { root, look_pitch, special, sequences, pipboy, sway, sights } = posed;
     rig.carry = None;
     let pipboy = pipboy.filter(|_| rig.view == View::First).and_then(|t| Some((rig.clip(ctx, ClipKey::PipBoy(f.female))?, t)));
     let draw = rig.clip(ctx, ClipKey::Equip(f.stance, f.prefix, true));
@@ -1912,18 +1914,28 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &
         }
         view_driven |= rig.camera.is_some() && p.clip.tracks.iter().any(|(n, _)| n == crate::idles::CAMERA_NODE);
     }
+    for sequence in sequences {
+        let tag = 0x4000_0000 | sequence.request.serial;
+        if sequence.request.stopped.is_some() {
+            if let Some(layer) = a.layers.iter_mut().find(|l| l.tag == tag) {
+                layer.fade_out = sequence.request.ease_out;
+            }
+            continue;
+        }
+        let mode = if sequence.clip.cycle_type != 2 { Mode::Loop } else { Mode::Once };
+        let i = a.want(&sequence.clip, tag, sequence.weight, mode, sequence.fade_in);
+        let layer = &mut a.layers[i];
+        layer.rate = 0.0;
+        layer.time = sequence.time;
+        layer.sequence_priority = sequence.request.priority;
+        layer.fade_out = sequence.request.ease_out;
+    }
     // The Pip-Boy: its clip at the time the Pip-Boy is at, over the rest (its tracks'
     // priority is above the others' [observed: 98]); it does not turn the view.
     if let Some((c, t)) = &pipboy {
         let i = a.want(&c.clip, TAG_PIPBOY, 1.0, Mode::Once, 0.0);
         let l = &mut a.layers[i];
         (l.rate, l.time) = (0.0, *t);
-    }
-    // ActivateAnim's sequences, over the rest on the nodes they have tracks for, by the
-    // clip's own cycle type [documented: ActivateAnim, "adds a sequence to the active
-    // ones"; hypothesis: at full weight, as one more sequence of its priorities].
-    for (k, (_, c)) in posed_layered.iter().enumerate() {
-        a.want(c, TAG_LAYERED + k as u32, 1.0, Mode::Loop, DEFAULT_FADE);
     }
     a.end();
     // Movement clips play at the speed the character actually moves [hypothesis: the
@@ -2264,6 +2276,17 @@ impl Seen {
         }
     }
 
+    /// Seen with the body in first person: the arms rig's arms stand in for the body's
+    /// own while they are up, with the weapon out (in hand, drawing or putting away) or
+    /// the Pip-Boy raised, so the body's arms and hands are hidden then and one pair of
+    /// hands is drawn (#1523) [hypothesis, from reading this file: the Pip-Boy clip plays
+    /// on the arms rig only, and the body's hands were still seen beside it]. The body's
+    /// weapon is hidden while the arms rig holds it.
+    fn upright(in_hand: bool, weapon_moving: bool, pipboy_up: bool) -> Self {
+        let arms_up = in_hand || weapon_moving || pipboy_up;
+        Seen { body: true, head: false, arms: !arms_up, weapon: !in_hand }
+    }
+
     /// The render layer of a drawn entity: the seen body's when the camera sees it, else
     /// the one only the sun's shadows are cast from. Neither is the world's, so the
     /// flashlight casts no shadow from the player (`flashlight.rs`).
@@ -2374,7 +2397,7 @@ fn drive_weapon_emitters(state: Res<PlayerBody>, mut emitters: Query<&mut crate:
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn drive_body(
     mut commands: Commands,
-    (time, turbo, sim, mut told_scale): (Res<Time>, Option<Res<nvf_play::script::PlayerTimeScale>>, Option<Res<nvf_play::sim::SimState>>, Local<Option<f32>>),
+    (time, turbo, sim, mut told_scale, sequences): (Res<Time>, Option<Res<nvf_play::script::PlayerTimeScale>>, Option<Res<nvf_play::sim::SimState>>, Local<Option<f32>>, Res<crate::script_sequences::PlayerSequences>),
     d: Res<PlayWorld>,
     intent: Res<MoveIntent>,
     control: Res<PlayerControl>,
@@ -2725,7 +2748,7 @@ fn drive_body(
         *told_scale = Some(script_scale);
     }
     let root = Transform { translation: Vec3::from_array(feet) - sink, rotation: Quat::from_rotation_z(-player.heading), scale: Vec3::splat(body.scale * script_scale) };
-    let third = Posed { root, look_pitch: player.pitch, special: &idles.third, pipboy: None, layered: &idles.layered[0], sway: SwayPose::NONE, sights: None };
+    let third = Posed { root, look_pitch: player.pitch, special: &idles.third, sequences:&sequences.third, pipboy: None, sway: SwayPose::NONE, sights: None };
     let third_eye = pose_rig(&mut body.third, &frame, &events, third, &mut ctx, &mut transforms).map(|(e, _)| e + eye_sink);
     // The third-person body's melee attack clip carries the player by its root's travel
     // (actors.md §8.13), turned by the heading and scaled with the body.
@@ -2830,7 +2853,7 @@ fn drive_body(
         m.sights_told = !m.sights_told;
         info!("true iron sights: {}", if m.sights_told { "the sights are on the eye" } else { "off the eye" });
     }
-    let first = Posed { root: Transform { translation: Vec3::from_array(at), rotation: Quat::from_rotation_z(-held), ..root }, look_pitch: pitch, special: &idles.first, pipboy, layered: &idles.layered[1], sway, sights };
+    let first = Posed { root: Transform { translation: Vec3::from_array(at), rotation: Quat::from_rotation_z(-held), ..root }, look_pitch: pitch, special: &idles.first, sequences:&sequences.first, pipboy, sway, sights };
     let first = body.first.as_mut().and_then(|f| pose_rig(f, &frame, &events, first, &mut ctx, &mut transforms));
     let first_eye = first.map(|(e, _)| e);
     // The arms and the weapon are drawn as through the first-person view, narrower than
@@ -2940,7 +2963,8 @@ fn drive_body(
     }
     // Which rig is seen; without a first-person rig the third-person head is hidden
     // from inside. With the body in first person, the arms rig's arms and weapon stand
-    // in for the body's own while they are up (weapon out, drawing or putting away).
+    // in for the body's own while they are up (weapon out, drawing or putting away, or
+    // the Pip-Boy raised: `Seen::upright`).
     let has_first = body.first.is_some();
     // The muzzle of the weapon in hand, for combat (shots are drawn from it;
     // `WeaponAnim::muzzle`): in the first-person rig while that view is on (its weapon
@@ -2956,9 +2980,8 @@ fn drive_body(
     if seen.ejected && m.hands.in_hand {
         anim.ejects = anim.ejects.wrapping_add(1);
     }
-    let arms_up = m.hands.in_hand || m.hands.phase != WeaponPhase::Holstered;
     let seen = if frame.upright {
-        Seen { body: true, head: false, arms: !arms_up, weapon: !m.hands.in_hand }
+        Seen::upright(m.hands.in_hand, m.hands.phase != WeaponPhase::Holstered, pipboy.is_some())
     } else {
         Seen { body: third_view || !has_first, head: third_view || has_first, arms: true, weapon: true }
     };
@@ -3026,6 +3049,17 @@ mod tests {
         assert!(world.get::<NoFrustumCulling>(existing).is_some());
         assert!(world.resource::<WarmPose>().transforms.is_empty());
         assert!(!world.resource::<nvf_play::pipboy::PipBoy>().pose_hidden);
+    }
+
+    #[test]
+    fn the_raised_pip_boy_hides_the_bodys_arms_in_first_person() {
+        // Weapon away, Pip-Boy down: the body's own arms are seen.
+        assert!(Seen::upright(false, false, false).arms);
+        // Weapon away, Pip-Boy up: the arms rig's raised arm stands in for them (#1523).
+        assert_eq!(Seen::upright(false, false, true), Seen { body: true, head: false, arms: false, weapon: true });
+        // Weapon out or moving, as before.
+        assert_eq!(Seen::upright(true, true, false), Seen { body: true, head: false, arms: false, weapon: false });
+        assert!(!Seen::upright(false, true, false).arms);
     }
 
     #[test]
@@ -3212,3 +3246,6 @@ mod tests {
         assert_eq!(loop_time(3.0, 2.5, 2.5), 3.0);
     }
 }
+
+#[cfg(test)]
+mod sequence_consumer_tests;

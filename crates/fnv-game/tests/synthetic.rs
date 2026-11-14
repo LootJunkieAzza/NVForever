@@ -611,6 +611,34 @@ fn get_seconds_passed_counts_frames_in_a_trigger_script_without_game_mode() {
 }
 
 #[test]
+fn get_seconds_passed_counts_a_trigger_frame_once_however_many_runs_it_has() {
+    // Two references inside a trigger: its OnTrigger runs twice a frame, and only the
+    // first run gets the frame's time (`Game::trigger_again`; Hidden Valley's virus
+    // purge, issue #2455, ran out several times too fast).
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    let t = FormId(TRIG_REF);
+    let run = |g: &mut Game| assert!(g.ref_event(t, fnv_game::game::event::ON_TRIGGER, Some(Value::Ref(FormId::PLAYER_REF.0)), Some(FormId::PLAYER_REF)));
+    let inside_twice = |g: &mut Game| {
+        g.trigger_frame(t);
+        run(g);
+        g.trigger_again(t);
+        run(g);
+    };
+    inside_twice(&mut g);
+    let first = g.time;
+    for _ in 0..60 {
+        g.frames(1);
+        inside_twice(&mut g);
+    }
+    let elapsed = g.time - first;
+    let Value::Num(sum) = g.var(InstKey::Ref { reference: t }, 1) else { panic!("fSum is not a number") };
+    assert!(elapsed > 0.5, "{elapsed}");
+    assert!((sum - elapsed).abs() <= 2.0 / 64.0, "sum {sum}, elapsed {elapsed}");
+}
+
+#[test]
 fn stage_entries_run_when_their_conditions_pass_and_done_stages_do_not_rerun() {
     let f = fixture();
     let mut g = game(&f);
@@ -3407,6 +3435,35 @@ fn jip_hit_handlers_run_before_the_damage_and_read_the_hit() {
 }
 
 #[test]
+fn player_value_changes_cripples_and_ragdolls_reach_their_handlers() {
+    // #2134 [documented: SetOnActorValueChangeEventHandler, the player's changes, whole
+    // numbers without flag bit 0; SetOnRagdollEventHandler, death; observed: jip_events2,
+    // DamageAV LeftAttackCondition 200 fired the crippled-limb handler with limb 2].
+    use fnv_script::vm::XVal;
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let ctx = || fnv_game::game::RunCtx { self_ref: Some(FormId::PLAYER_REF), ..Default::default() };
+    let reg = "Begin Function { }\nSetOnActorValueChangeEventHandler 1 (Begin Function {int iAV, float fOld, float fNew}\nPlayerREF.AuxVarSetFlt \"*av\" iAV -1\nPlayerREF.AuxVarSetFlt \"*avd\" (fNew - fOld) -1\nEnd) 0\nSetOnCrippledLimbEventHandler (Begin Function {int iLimb}\nPlayerREF.AuxVarSetFlt \"*limb\" iLimb -1\nEnd) 1 PlayerREF\nSetOnRagdollEventHandler (Begin Function { }\nPlayerREF.AuxVarSetFlt \"*rag\" (GetSelf == PlayerREF) -1\nEnd) 1\nEnd\n";
+    assert_eq!(g.run_query(reg, ctx()), Ok(XVal::Num(0.0)));
+    let size = |g: &mut Game, s: &str| g.run_query(&format!("Begin Function {{ }}\nSetFunctionValue (PlayerREF.AuxVarSize \"{s}\")\nEnd\n"), ctx()).unwrap();
+    let read = |g: &mut Game, s: &str, i: u32| g.run_query(&format!("Begin Function {{ }}\nSetFunctionValue (PlayerREF.AuxVarGetFlt \"{s}\" {i})\nEnd\n"), ctx()).unwrap();
+    // A hit is no script function, and the handler still hears of it, once, rounded.
+    g.hit(FormId::PLAYER_REF, 5.4, fnv_game::combat::HitInfo { location: -1, ..Default::default() });
+    assert_eq!(size(&mut g, "*av"), XVal::Num(1.0));
+    assert_eq!((read(&mut g, "*av", 0), read(&mut g, "*avd", 0)), (XVal::Num(16.0), XVal::Num(-5.0)));
+    // DamageAV takes the left arm to 0: crippled, limb 2; the change is told once more.
+    g.run_query("Begin Function { }\nPlayerREF.DamageAV LeftAttackCondition 200\nEnd\n", ctx()).unwrap();
+    assert_eq!((size(&mut g, "*limb"), read(&mut g, "*limb", 0)), (XVal::Num(1.0), XVal::Num(2.0)));
+    assert_eq!((size(&mut g, "*av"), read(&mut g, "*av", 1)), (XVal::Num(2.0), XVal::Num(27.0)));
+    // Already crippled: no second firing.
+    g.run_query("Begin Function { }\nPlayerREF.DamageAV LeftAttackCondition 10\nEnd\n", ctx()).unwrap();
+    assert_eq!(size(&mut g, "*limb"), XVal::Num(1.0));
+    // Death ragdolls.
+    assert!(g.kill(FormId::PLAYER_REF, None));
+    assert_eq!((size(&mut g, "*rag"), read(&mut g, "*rag", 0)), (XVal::Num(1.0), XVal::Num(1.0)));
+}
+
+#[test]
 fn message_ex_box_ex_and_debug_print() {
     // Task D4 [documented: MessageEx; MessageBoxEx; DebugPrint; SetDebugMode].
     let f = udf_fixture();
@@ -4499,6 +4556,23 @@ fn jip_menu_key_crafting_and_discovery_events_reach_their_handlers() {
 }
 
 #[test]
+fn the_mods_page_sends_the_start_menus_open_and_close() {
+    // MCM Extender adds its menus from a handler for the start menu, 1013 [observed:
+    // its OnPauseMenuOpen.gek; Begin Again list 2026-11-13].
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let run = |g: &mut Game<'_>, src: &str| g.run_source(src, Default::default()).expect("compiles");
+    let global = |g: &Game| g.world.global(FormId(0x0000_0800)).unwrap();
+    run(&mut g, "SetOnMenuOpenEventHandler (begin function {int i}\nlet TestGlobal := i + MenuMode 1013\nend) 1 1013");
+    run(&mut g, "SetOnMenuCloseEventHandler (begin function {int i}\nlet TestGlobal := 0 - i\nend) 1 1013");
+    g.page_menu_event(1013, true);
+    assert_eq!(global(&g), 1014.0, "the handler runs with MenuMode 1013 true");
+    assert_eq!(g.menu, None, "no menu is opened");
+    g.page_menu_event(1013, false);
+    assert_eq!(global(&g), -1013.0);
+}
+
+#[test]
 fn extra_misc_stats_music_states_eaten_corpses_and_terminal_art() {
     let f = udf_fixture();
     let mut g = game(&f);
@@ -4658,4 +4732,20 @@ fn plugin_questions_are_kept_only_when_asked_for() {
         read,
         [("isplugininstalled", "yUI", 0.0, true), ("getpluginversion", "JIP NVSE Plugin", 57.3, false), ("isdllloaded", "no_such", 0.0, true), ("ismodloaded", "Nothing.esp", 0.0, true), ("getmodindex", "Nothing.esp", 255.0, true)]
     );
+}
+
+#[test]
+fn a_clone_of_an_item_goes_into_a_container_by_its_own_id() {
+    // MCM marks each mod it listed by adding it to a container; MCM Extender's menus are
+    // temporary clones of an item [observed: MCM's script source, MCM Extender's
+    // OnPauseMenuOpen.gek; Begin Again list 2026-11-13].
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    let src = "ref r
+let r := TempCloneForm TestWeapon
+TestNpcREF.AddItem r 1
+set TestGlobal to TestNpcREF.GetItemCount r * 10 + TestNpcREF.GetItemCount TestWeapon";
+    g.run_source(src, Default::default()).expect("runs");
+    assert_eq!(g.world.global(FormId(GLOBAL)).unwrap(), 10.0, "the clone counted, the weapon not");
 }

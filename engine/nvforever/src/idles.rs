@@ -87,6 +87,13 @@
 //!   (`Game::idle_picks`); the actor's folder walked as for its fidgets, with no branch
 //!   kept out (`Game::pick_idle`), and the pick played as a script's idle.
 //!
+//! - **Activating** (idles.md §16, #2349). The player's activation asks the tree's
+//!   activation root (`Game::activate_idles`, `Game::activate_idle`: `ActivateIdles`,
+//!   whose conditions choose): drinking from placeable water plays `1stPersonActWater`
+//!   on the first-person rig in first person, `3rdPersonActWater` on the body in third.
+//!   It holds nothing: unlike a scripted idle that drives the camera node, the player
+//!   keeps mouse look, movement and the HUD [design, #2349].
+//!
 //! - **Creatures' combat idles** (idles.md §14). A creature standing still with its
 //!   stance drawn (`Game::draws_weapon`: fighting, alerted, or warning the player) is
 //!   checked every [`FIDGET_CHECK_SECONDS`] for an idle from the tree's branch that
@@ -209,6 +216,8 @@ pub struct Playing<C> {
     fresh: bool,
     /// Holds its actor in place until it ends ([`holds_in_place`]).
     pub holds: bool,
+    /// The normalized source file, when this is an IDLE loaded from a file.
+    file: Option<String>,
 }
 
 /// The idles of one rig: the one playing and, while that fades in, the one before it.
@@ -238,8 +247,12 @@ impl<C> IdleSlot<C> {
     /// fidget started in the step the scripted idle ended and the next line's speaker
     /// idle, asked for a frame later, handed the mirror over a second time].
     fn start(&mut self, idle: u32, source: IdleSource, owner: Option<FormId>, clip: C, play: IdlePlay) -> bool {
+        self.start_file(idle, source, owner, clip, play, None)
+    }
+
+    fn start_file(&mut self, idle: u32, source: IdleSource, owner: Option<FormId>, clip: C, play: IdlePlay, file: Option<String>) -> bool {
         let asked = matches!(source, IdleSource::Script | IdleSource::Speaker | IdleSource::Listener);
-        let same = |c: &Playing<C>| idle != 0 && c.idle == idle && c.group.is_none() && !c.play.gone();
+        let same = |c: &Playing<C>| idle != 0 && c.idle == idle && c.file == file && c.group.is_none() && !c.play.gone();
         let picked = |c: &Playing<C>| !matches!(c.source, IdleSource::Script | IdleSource::Speaker | IdleSource::Listener);
         if asked && self.cur.as_ref().is_some_and(picked) && self.prev.as_ref().is_some_and(same) {
             self.cur = self.prev.take();
@@ -253,7 +266,7 @@ impl<C> IdleSlot<C> {
             self.prev = Some(old);
         }
         self.serial = self.serial.wrapping_add(1);
-        self.cur = Some(Playing { idle, group: None, source, owner, clip, play, serial: self.serial, fresh: true, holds: false });
+        self.cur = Some(Playing { idle, group: None, source, owner, clip, play, serial: self.serial, fresh: true, holds: false, file });
         true
     }
 
@@ -425,10 +438,6 @@ pub struct PlayerIdles {
     pub third: IdleSlot<Arc<Clip>>,
     /// The player when an idle began to turn the view ([`Held`]).
     pub held: Option<Held>,
-    /// ActivateAnim's sequences on the player ([`play_script_sequences`]), by rig (third
-    /// person, first person): played over the rig's own clips on the nodes they have
-    /// tracks for, looping until a script takes them back.
-    pub layered: [Vec<(String, Arc<Clip>)>; 2],
 }
 
 /// The player as an idle that turns the view found them. While such idles play, the
@@ -603,99 +612,6 @@ impl Default for Idles {
     }
 }
 
-/// A sequence a script played on the player that [`play_script_sequences`] started:
-/// its path, the rig (first person or not) and the idle's serial there.
-#[derive(Debug, Clone)]
-pub struct ScriptSequence {
-    path: String,
-    first: bool,
-    serial: u32,
-}
-
-/// kNVSE's PlayAnimationPath on the player (docs/design/knvse-anim.md §5): a sequence a
-/// script played (`AnimPaths::played`) starts as an idle does, on the first-person rig
-/// when its clip drives the camera node, else on the body; once if the clip says so
-/// (cycle type Clamp), else looping until a script takes it back (DeactivateAnim). A
-/// clip still loading waits for a later frame; one that cannot be read is not tried
-/// again. ActivateAnim's sequences are layered over what the rig plays instead
-/// (`PlayerIdles::layered`) [documented: ActivateAnim, "adds a sequence to the active
-/// ones"]: on the rig whose camera node they drive or else the body, the same way.
-pub fn play_script_sequences(script: Option<Res<ScriptState>>, mut pi: ResMut<PlayerIdles>, mut parts: ResMut<ActorParts>, mut models: ModelCtx, mut started: Local<Vec<ScriptSequence>>) {
-    let Some(game) = script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game) else { return };
-    let me = FormId::PLAYER_REF;
-    let is_layered = |p: &str| game.anim_paths.layered.contains(&(me, p.replace('/', "\\").to_ascii_lowercase()));
-    let all = game.anim_paths.played.get(&me).map(Vec::as_slice).unwrap_or_default();
-    let (layered, played): (Vec<String>, Vec<String>) = all.iter().cloned().partition(|p| is_layered(p));
-    let same = |a: &str, b: &str| a.replace('/', "\\").eq_ignore_ascii_case(&b.replace('/', "\\"));
-    let mut ctx = ActorCtx { cache: &mut parts, models: &mut models };
-    // The layers: taken back ones go, new ones join once their clip has loaded.
-    for rig in &mut pi.layered {
-        rig.retain(|(p, _)| {
-            let keep = layered.iter().any(|q| same(p, q));
-            if !keep {
-                info!("anim sequence: the player's layered {p} stops");
-            }
-            keep
-        });
-    }
-    for p in &layered {
-        if pi.layered.iter().flatten().any(|(q, _)| same(p, q)) || started.iter().any(|s| same(&s.path, p)) {
-            continue;
-        }
-        let path = meshes_path(p);
-        if !ctx.clip_ready(&path) {
-            continue;
-        }
-        let Some(clip) = ctx.clip(&path) else {
-            warn!("anim sequence: the player's layered {p} does not load");
-            // Not tried again while the script keeps it.
-            started.push(ScriptSequence { path: p.clone(), first: false, serial: 0 });
-            continue;
-        };
-        let first = clip.tracks.iter().any(|(n, _)| n == CAMERA_NODE);
-        info!("anim sequence: the player layers {p} ({} tracks) on the {} rig", clip.tracks.len(), if first { "first-person" } else { "third-person" });
-        pi.layered[usize::from(first)].push((p.clone(), clip));
-    }
-    if played.is_empty() && started.is_empty() {
-        return;
-    }
-    // Taken back: its idle stops (fading out as an idle does).
-    started.retain(|s| {
-        if all.iter().any(|p| same(p, &s.path)) {
-            return true;
-        }
-        let slot = if s.first { &mut pi.first } else { &mut pi.third };
-        if let Some(c) = slot.cur.as_mut().filter(|c| c.serial == s.serial) {
-            c.play.stop();
-        }
-        info!("anim sequence: the player's {} stops", s.path);
-        false
-    });
-    for p in played {
-        if started.iter().any(|s| same(&s.path, &p)) {
-            continue;
-        }
-        let path = meshes_path(&p);
-        if !ctx.clip_ready(&path) {
-            continue;
-        }
-        let Some(clip) = ctx.clip(&path) else {
-            warn!("anim sequence: the player's {p} does not load");
-            started.push(ScriptSequence { path: p, first: false, serial: 0 });
-            continue;
-        };
-        let keys = IdleKeys::read(clip.start, clip.stop, &clip.text_keys);
-        let once = clip.cycle_type == 2;
-        let play = IdlePlay::new(keys, once.then_some(1));
-        let first = clip.tracks.iter().any(|(n, _)| n == CAMERA_NODE);
-        let slot = if first { &mut pi.first } else { &mut pi.third };
-        slot.start(0, IdleSource::Script, None, clip, play);
-        let serial = slot.serial;
-        info!("anim sequence: the player plays {p} ({}) on the {} rig", if once { "once" } else { "looping" }, if first { "first-person" } else { "third-person" });
-        started.push(ScriptSequence { path: p, first, serial });
-    }
-}
-
 /// A sequence a script played on an NPC that [`play_npc_sequences`] started: the actor,
 /// the path and the idle's serial in its slot (0: its clip could not be played).
 #[derive(Debug, Clone)]
@@ -721,7 +637,9 @@ pub fn play_npc_sequences(mut commands: Commands, script: Option<Res<ScriptState
         .iter()
         .filter(|(a, _)| **a != me)
         .flat_map(|(a, ps)| ps.iter().map(move |p| (a.0, p)))
-        .filter(|(a, p)| !game.anim_paths.layered.contains(&(FormId(*a), p.replace('/', "\\").to_ascii_lowercase())))
+        // ActivateAnim's requests (they stay until taken back, `auto_finish` false) are
+        // layered sequences, not idles.
+        .filter(|(a, p)| !game.anim_paths.sequences.get(&(FormId(*a), false, p.replace('/', "\\").to_ascii_lowercase())).is_some_and(|s| !s.auto_finish))
         .collect();
     if wanted.is_empty() && started.is_empty() {
         return;
@@ -798,7 +716,8 @@ fn load(ctx: &mut ActorCtx, game: &Game, idle: FormId, rng: &mut Rng, endless: b
 
 /// The KF file an idle plays, as its record names it.
 fn clip_path(game: &Game, idle: FormId) -> Option<String> {
-    Some(meshes_path(game.data.idles.get(&idle)?.model.as_deref()?))
+    let model = game.idle_animation_path(idle)?;
+    (!model.trim().is_empty()).then(||meshes_path(model))
 }
 
 /// Whether the clip of `idle` is loaded (or known not to load), so starting it reads no
@@ -1383,6 +1302,33 @@ pub fn drive(
         }
     }
 
+    // Activating: the player's activation asks the idle tree's activation root, whose
+    // conditions choose (`Game::activate_idle`: drinking from placeable water; idles.md
+    // §16, #2349). Played as any idle asked for: a clip that drives the first-person
+    // camera node on the first-person rig, any other on the third-person body.
+    for actor in std::mem::take(&mut game.activate_idles) {
+        let folder = if actor.0 == player_ref { Some(PEOPLE_FOLDER.to_string()) } else { actors.iter().find(|(_, v, ..)| v.0 == actor.0).and_then(|(_, _, rig, ..)| skeleton_folder(&rig.skeleton)) };
+        let Some(folder) = folder else { continue };
+        let what = game.activating(actor).map_or_else(|| "nothing".to_string(), |t| t.to_string());
+        let (clock, last, data) = (st.clock, &st.fidget_last, game.data);
+        let held_back = |idle: FormId| {
+            let delay = data.idles.get(&idle).map_or(0.0, |d| d.replay_delay.max(0) as f32);
+            delay > 0.0 && last.get(&(actor.0, idle.0)).is_some_and(|t| clock - t < delay)
+        };
+        let mut pick = None;
+        with_world(game, &mut |game| pick = game.activate_idle(actor, &folder, &held_back));
+        let name = game.data.name(actor);
+        match pick {
+            Some((idle, way)) => {
+                let way: Vec<String> = way.iter().map(|i| game.data.name(*i)).collect();
+                info!("activate idle: {name} activating {what}: {} by {}", game.data.name(idle), way.join(" > "));
+                st.fidget_last.insert((actor.0, idle.0), st.clock);
+                game.ask_idle(actor, idle, IdleSource::Activate);
+            }
+            None => debug!("activate idle: {name} activating {what}: the tree has no idle for it"),
+        }
+    }
+
     // Start what was asked for: those that waited for their clip first, in the order
     // asked. An actor's later asks wait behind one that waits, so its idles start in
     // the order asked, as they did in one frame.
@@ -1405,7 +1351,7 @@ pub fn drive(
                     IdleSource::PackageBegin | IdleSource::PackageEnd | IdleSource::PackageChange => st.stats.package += 1,
                     IdleSource::PackageIdles | IdleSource::MarkerIdles => st.stats.collection += 1,
                     IdleSource::Speaker | IdleSource::Listener => st.stats.dialogue += 1,
-                    IdleSource::Fidget | IdleSource::HolsteredFidget | IdleSource::FurnitureFidget | IdleSource::CombatIdle | IdleSource::CalmIdle | IdleSource::Gesture | IdleSource::Cower | IdleSource::Stimpak | IdleSource::PickUp | IdleSource::Standing | IdleSource::Panic => {}
+                    IdleSource::Fidget | IdleSource::HolsteredFidget | IdleSource::FurnitureFidget | IdleSource::CombatIdle | IdleSource::CalmIdle | IdleSource::Gesture | IdleSource::Cower | IdleSource::Stimpak | IdleSource::PickUp | IdleSource::Standing | IdleSource::Panic | IdleSource::Activate => {}
                 }
             }
             let name = game.data.name(actor);
@@ -1448,13 +1394,19 @@ pub fn drive(
                 }
             };
             let owner = owner_now(game, actor.0, source).filter(|_| source.of_package());
+            let file = clip_path(game, idle);
             let what = describe(game, idle, &play);
             if actor.0 == player_ref {
                 let first = clip.tracks.iter().any(|(n, _)| n == CAMERA_NODE);
-                if first && pi.held.is_none() {
+                // An activation's idle (the drink) holds nothing: mouse look, movement
+                // and the HUD stay with the player while the camera node moves the view
+                // (`Camera1st` hangs under `Bip01 Looking`, so the player's pitch still
+                // applies) [design, #2349: whether the original holds the player is
+                // observer check 131; documented: `_1stperson\skeleton.nif`].
+                if first && pi.held.is_none() && source != IdleSource::Activate {
                     pi.held = player.as_deref().map(|p| Held { feet: p.placed.unwrap_or(p.feet), free: p.feet, heading: p.heading, pitch: p.pitch });
                 }
-                let started = if first { &mut pi.first } else { &mut pi.third }.start(idle.0, source, owner, clip, play);
+                let started = if first { &mut pi.first } else { &mut pi.third }.start_file(idle.0, source, owner, clip, play, file);
                 match source {
                     IdleSource::Fidget => st.stats.player_fidgets += 1,
                     IdleSource::FurnitureFidget => st.stats.player_furniture_fidgets += 1,
@@ -1483,7 +1435,7 @@ pub fn drive(
             let bound = Arc::new(bound);
             let started = match slot {
                 Some(mut s) => {
-                    let started = s.0.start(idle.0, source, owner, bound, play);
+                    let started = s.0.start_file(idle.0, source, owner, bound, play, file);
                     if let Some(c) = s.0.cur.as_mut() {
                         c.holds = holds;
                     }
@@ -1491,7 +1443,7 @@ pub fn drive(
                 }
                 None => {
                     let mut s = ActorIdle::default();
-                    s.0.start(idle.0, source, owner, bound, play);
+                    s.0.start_file(idle.0, source, owner, bound, play, file);
                     if let Some(c) = s.0.cur.as_mut() {
                         c.holds = holds;
                     }
@@ -1720,6 +1672,26 @@ pub fn report(mut exit: MessageReader<AppExit>, st: Res<Idles>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn renderer_idle_path_reads_the_script_setter_override() {
+        use fnv_script::vm::XVal;
+        let empty = crate::outfits::tests::empty_world_data();
+        let forms = crate::outfits::tests::actor_forms(vec![]);
+        let refs = fnv_sim::RefTable::default();
+        let functions = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/script/functions.json");
+        let table = fnv_script::FunctionTable::load(&functions).unwrap();
+        let json = serde_json::from_str(&std::fs::read_to_string(functions).unwrap()).unwrap();
+        let mut data = fnv_game::GameData::build(empty.lo,empty.schema,table,&json,&refs);
+        let idle = FormId(0x7A00);
+        data.idles.insert(idle,fnv_game::data::IdleDef {model:Some("Owned/Loop.kf".into()),..Default::default()});
+        let mut game = Game::new(&data,fnv_sim::World::new(&forms,&refs,Default::default()),Default::default());
+        assert_eq!(clip_path(&game,idle).as_deref(),Some("meshes\\owned\\loop.kf"));
+        fnv_game::nvse::call(&mut game,&Default::default(),"setidleanimpath",None,&[XVal::Ref(idle.0),XVal::Str("Owned/Stop.kf".into())]).unwrap().unwrap();
+        assert_eq!(clip_path(&game,idle).as_deref(),Some("meshes\\owned\\stop.kf"));
+        fnv_game::nvse::call(&mut game,&Default::default(),"setidleanimpath",None,&[XVal::Ref(idle.0),XVal::Str("Owned/Loop.kf".into())]).unwrap().unwrap();
+        assert_eq!(clip_path(&game,idle).as_deref(),Some("meshes\\owned\\loop.kf"));
+    }
 
     #[test]
     fn a_fidget_with_the_weapon_away_plays_on_while_its_actor_stands_holstered() {
@@ -1986,6 +1958,21 @@ mod tests {
         s.start(1, IdleSource::Script, None, 1, play(1.0, 0.0, None));
         s.check_owner(|_| q);
         assert!(s.playing().unwrap().play.endless());
+    }
+
+    #[test]
+    fn replacing_an_idle_file_restarts_but_repeating_that_file_does_not() {
+        let mut slot: IdleSlot<u8> = IdleSlot::default();
+        assert!(slot.start_file(7,IdleSource::Script,None,1,play(3.0,0.0,None),Some("owned\\loop.kf".into())));
+        slot.advance(0.5);
+        assert!(!slot.start_file(7,IdleSource::Script,None,2,play(3.0,0.0,None),Some("owned\\loop.kf".into())));
+        assert_eq!(slot.playing().unwrap().clip,1);
+        assert_eq!(slot.playing().unwrap().play.time(),0.5);
+        assert!(slot.start_file(7,IdleSource::Script,None,3,play(0.75,0.0,Some(1)),Some("owned\\stop.kf".into())));
+        assert_eq!(slot.playing().unwrap().clip,3);
+        assert_eq!(slot.playing().unwrap().play.time(),0.0);
+        slot.advance(0.8);
+        assert!(slot.playing().is_none());
     }
 
     #[test]

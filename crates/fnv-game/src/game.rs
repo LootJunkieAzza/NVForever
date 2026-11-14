@@ -846,9 +846,20 @@ pub struct PlayerState {
     pub challenges: BTreeMap<FormId, ChallengeState>,
     #[serde(skip_serializing_if = "FastTravel::is_default", default)]
     pub fast_travel: FastTravel,
-    /// Factions the player is an enemy of after a crime (SetPCEnemyOfFaction).
+    /// Factions the player is an enemy of (GetPCEnemyOfFaction): those a script made so
+    /// ([`Self::enemy_of_script`]) and those a crime did ([`Self::enemy_of_crimes`])
+    /// (`crate::crime`).
     #[serde(skip_serializing_if = "BTreeSet::is_empty", default)]
     pub enemy_of: BTreeSet<FormId>,
+    /// For each faction a crime made the player an enemy of: GameDaysPassed at the last
+    /// such crime. The flag ends iCoolDownTimerSetting game days after it
+    /// (`Game::expire_crimes`). Absent in saves from before #2467 (`Game::date_crimes`).
+    #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
+    pub enemy_of_crimes: BTreeMap<FormId, f64>,
+    /// Factions a script made the player an enemy of (SetPCEnemyOfFaction 1): kept until
+    /// a script clears them [design].
+    #[serde(skip_serializing_if = "BTreeSet::is_empty", default)]
+    pub enemy_of_script: BTreeSet<FormId>,
     /// SetInCharGen.
     #[serde(skip_serializing_if = "std::ops::Not::not", default)]
     pub in_chargen: bool,
@@ -911,6 +922,19 @@ pub struct PlayerState {
     /// them (GetActorCrimePlayerEnemy; `crate::crime`).
     #[serde(skip_serializing_if = "BTreeSet::is_empty", default)]
     pub crime_enemies: BTreeSet<FormId>,
+    /// For each of [`Self::crime_enemies`]: GameDaysPassed at the last crime that made it
+    /// one. It ends iCoolDownTimerSetting game days after it (`Game::expire_crimes`).
+    /// Absent in saves from before #2467 (`Game::date_crimes`).
+    #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
+    pub crime_enemy_since: BTreeMap<FormId, f64>,
+}
+
+/// A jump of the clock a script made ([`Game::hour_jump`]): GameHour before the first
+/// write since the engine last looked, and after the last.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct HourJump {
+    pub from: f32,
+    pub to: f32,
 }
 
 /// A message box waiting for a button (`ShowMessage` of a message with buttons).
@@ -1163,6 +1187,12 @@ pub struct Speech {
     /// (`Game::next_conversation_line`).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub leads_on: bool,
+    /// The talking activator the speaker says this line of a conversation between
+    /// actors through (`Game::next_conversation_line`): Ramos through Hidden Valley's
+    /// intercom to Veronica (issue #2451). The activator stands for the speaker in the
+    /// world: the next line is said to it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub through: Option<FormId>,
 }
 
 /// Who a line said to someone ([`Speech::target`]) turns to whom ([`Game::facings`]).
@@ -1243,6 +1273,7 @@ pub struct Game<'a> {
     /// (lower case) to them.
     compiled_files: Vec<&'a Compiled>,
     compiled_paths: std::collections::HashMap<String, u32>,
+    compiled_origins: crate::jip_provenance::CompiledOrigins,
     /// JIP's Script Runner: its files and their units (`crate::script_runner`).
     pub(crate) sr: crate::script_runner::SrState<'a>,
     /// A lambda already made, by its unit, its number in the unit and whose variables it
@@ -1445,6 +1476,16 @@ pub struct Game<'a> {
     /// (`crate::idles::pick_idle`), for the layer that animates actors to take: it knows
     /// their animation folder. Each actor once. Not part of the saved state.
     pub idle_picks: Vec<FormId>,
+    /// Actors whose activation asks the idle tree's activation root
+    /// (`Game::activate_idle`: drinking from placeable water, #2349), for the layer that
+    /// animates actors to take, as [`Game::idle_picks`]: it knows their animation folder.
+    /// Only the player is put here [design, #2349]. Each actor once. Not part of the
+    /// saved state.
+    pub activate_idles: Vec<FormId>,
+    /// The actor whose activation idle the tree is being walked for
+    /// (`Game::activate_idle`): only then does GetUsedItemActivate answer for an
+    /// activation (`functions::furniture::get_used_item_activate`, #2349). Not saved.
+    pub(crate) activate_walk: Option<FormId>,
     /// Actors' weapon uses (`crate::use_weapon`: UseWeapon, Use Weapon packages), and
     /// the last number given to one. Not part of the saved state.
     pub weapon_uses: BTreeMap<FormId, crate::use_weapon::WeaponUse>,
@@ -1511,6 +1552,9 @@ pub struct Game<'a> {
     /// Doors locked or unlocked by packages' door flags (`crate::ai`), for the engine's
     /// log: actor, package, locked (else unlocked), how many. Not part of the saved state.
     pub package_door_notes: Vec<(FormId, FormId, bool, usize)>,
+    /// A script moved the clock by more than [`crate::ai::SCRIPT_HOUR_JUMP`] since the
+    /// engine last took it ([`Game::take_hour_jump`], #2353). Not part of the saved state.
+    pub hour_jump: Option<HourJump>,
     /// Sleeping and waiting as scripts see and ask for them (`crate::rest`); the menu is
     /// the engine's. Not part of the saved state.
     pub rest: crate::rest::Rest,
@@ -2302,6 +2346,8 @@ impl<'a> Game<'a> {
         // A new game: nothing rolled again yet, every pick seeded by its reference.
         let sources = data.inventory_sources_at(world.placed, |r| (r, world.level_at(r, player_level)));
         world.set_inventory_sources(sources);
+        // JIP LN's write for JIP Companions Command & Control's MCM page (`crate::jip_ccc`).
+        crate::jip_ccc::write_globals(&data.load_order, &mut world);
         Game {
             data,
             ext: Default::default(),
@@ -2310,6 +2356,7 @@ impl<'a> Game<'a> {
             unusable_reported: Default::default(),
             compiled_files: Vec::new(),
             compiled_paths: std::collections::HashMap::new(),
+            compiled_origins: Default::default(),
             sr: Default::default(),
             lambda_ids: Default::default(),
             handlers: Vec::new(),
@@ -2390,6 +2437,8 @@ impl<'a> Game<'a> {
             magic_news: Vec::new(),
             idle_requests: Vec::new(),
             idle_picks: Vec::new(),
+            activate_idles: Vec::new(),
+            activate_walk: None,
             weapon_uses: BTreeMap::new(),
             weapon_use_seq: 0,
             walk_up_greets: BTreeMap::new(),
@@ -2411,6 +2460,7 @@ impl<'a> Game<'a> {
             rearms: Default::default(),
             brought_along: BTreeSet::new(),
             package_door_notes: Vec::new(),
+            hour_jump: None,
             rest: Default::default(),
             detection: Default::default(),
             detection_round: None,
@@ -3086,16 +3136,17 @@ impl<'a> Game<'a> {
     /// performance", forceRecompile]; `None` when the file is missing or does not compile
     /// [hypothesis: the function then gives no form].
     pub(crate) fn compile_file(&mut self, path: &str, force: bool) -> Option<u32> {
-        let key = path.replace('/', "\\").trim_start_matches('\\').to_ascii_lowercase();
+        let key = crate::mod_files::udf_data_path(path)?;
         if !force {
             if let Some(&id) = self.compiled_paths.get(&key) {
                 return Some(id);
             }
         }
-        let bytes = crate::mod_files::read_data_file(&format!("nvse\\user_defined_functions\\{key}"))?;
+        let bytes = crate::mod_files::read_data_file(&key)?;
         // UTF-8 when it is, else 8-bit text in this run's code page (#1439).
         let src = std::str::from_utf8(&bytes).map_or_else(|_| fnv_util::text::decode(&bytes), str::to_owned);
         let id = self.compile_source(&format!("CompileScript {path}"), src)?;
+        self.compiled_origins.set(id, crate::jip_provenance::CompiledOrigin::File(crate::jip_provenance::Text::new(&key)));
         self.compiled_paths.insert(key, id);
         Some(id)
     }
@@ -3161,6 +3212,7 @@ impl<'a> Game<'a> {
         let unit: &'a Compiled = Box::leak(Box::new(Compiled::new(unit, d.program, d.report.raw_total())));
         let id = COMPILED_BASE + self.compiled_files.len() as u32;
         self.compiled_files.push(unit);
+        self.compiled_origins.set(id, crate::jip_provenance::CompiledOrigin::Dynamic);
         Some(id)
     }
 
@@ -3170,9 +3222,32 @@ impl<'a> Game<'a> {
     /// reported once per handler kind and error, not on every frame it fires (#2280: up
     /// to 47,000 times a session in the player reports); other errors every time.
     pub(crate) fn handler_failed(&mut self, unit: String, error: String) {
+        self.handler_failed_with_context(unit, error, || None);
+    }
+
+    /// Optional diagnostic context never changes the error event or its dedup key.
+    pub(crate) fn handler_failed_with_context(&mut self, unit: String, error: String, context: impl FnOnce() -> Option<String>) {
+        self.handler_failed_with_registrar(unit, error, context, None);
+    }
+
+    pub(crate) fn handler_failed_with_registrar(&mut self, unit: String, error: String, context: impl FnOnce() -> Option<String>, registrar: Option<&crate::jip_provenance::Registrar>) {
         let unusable = error.ends_with(NOT_A_FUNCTION) || error.ends_with(NO_FUNCTION_BLOCK);
         if unusable && !self.unusable_reported.insert((unit.clone(), error.clone())) {
             return;
+        }
+        if let Some(context) = context() {
+            if let Some(registrar) = registrar {
+                let r = registrar.diagnostic();
+                tracing::warn!(frame = self.frame, unit = %unit, error = %error, handler_context = %context,
+                    registrar_kind = r.kind, registrar_unit = r.unit, registrar_plugin = r.plugin,
+                    registrar_source = r.source, registrar_source_status = r.source_status,
+                    registrar_compiled_id = r.compiled, registrar_owner_form = r.owner,
+                    registrar_self_ref = r.self_ref, registrar_action_ref = r.action_ref, registrar_quest = r.quest,
+                    "extender handler failed");
+            } else {
+                tracing::warn!(frame = self.frame, unit = %unit, error = %error, handler_context = %context,
+                    registrar_kind = "unavailable", "extender handler failed");
+            }
         }
         self.emit(EventKind::ScriptError { unit, error });
     }
@@ -3284,6 +3359,10 @@ impl<'a> Game<'a> {
     /// The event functions (tasks E1–E3; docs/spec-notes/ext-events.md). `sender` is the
     /// calling script's plugin, DispatchEvent's default sender.
     pub fn event_call(&mut self, c: fnv_script::vm::EventCall, sender: &str) -> Result<fnv_script::vm::XVal, String> {
+        self.event_call_with_registrar(c, sender, None)
+    }
+
+    fn event_call_with_registrar(&mut self, c: fnv_script::vm::EventCall, sender: &str, registrar: Option<std::sync::Arc<crate::jip_provenance::Registrar>>) -> Result<fnv_script::vm::XVal, String> {
         use fnv_script::vm::{EventCall, XKey, XVal};
         let key_text = |k: &XVal| if let XVal::Str(s) = k { s.to_ascii_lowercase() } else { String::new() };
         Ok(match c {
@@ -3378,7 +3457,7 @@ impl<'a> Game<'a> {
                 XVal::Num(1.0)
             }
             EventCall::CurrentName => XVal::Str(self.event_names.last().cloned().unwrap_or_default()),
-            EventCall::JipSet { event, func, add, filters } => XVal::Num(f64::from(u8::from(self.jip_set(event, func, add, filters)))),
+            EventCall::JipSet { event, func, add, filters } => XVal::Num(f64::from(u8::from(self.jip_set(event, func, add, filters, registrar)))),
             EventCall::MainLoop { func, add, delay, flags, on } => {
                 self.jip_main_loop(func, add, delay, flags, on.and_then(|v| v.as_form()).map(FormId));
                 XVal::Num(0.0)
@@ -4107,6 +4186,23 @@ impl<'a> Game<'a> {
         }
     }
 
+    /// The trigger runs its OnTrigger block again in the same frame, for one more actor
+    /// inside it ([`Game::trigger_frame`] before the first): GetSecondsPassed in that run
+    /// is 0, the time since the script last ran [documented: GECK wiki
+    /// GetSecondsPassed, "the time since the script last ran"; hypothesis: that the
+    /// original runs a trigger's OnTrigger once per reference inside, as we do]. Without
+    /// it every run got the whole frame's time: Hidden Valley's virus purge
+    /// (HVHuntingVirusTrigger, SCPT 0x0015A154, `Begin OnTrigger` with no actor) counts
+    /// its 20 s down by GetSecondsPassed on each run, and with the scribes in the room it
+    /// ran out several times too fast (issue #2455).
+    pub fn trigger_again(&mut self, trigger: FormId) {
+        let Some(script) = self.ref_script(trigger) else { return };
+        let per_frame = self.data.script(script).is_some_and(|u| u.has_block(event::ON_TRIGGER) && !u.has_block(event::GAME_MODE));
+        if per_frame && !self.paused() {
+            self.mark_run(InstKey::Ref { reference: trigger }, Some(script));
+        }
+    }
+
     /// The scripted items `holder` carries whose script has a block for `ev`, in FormID
     /// order. Only the player's inventory runs per-frame item scripts here [observed: a
     /// jar of pistol powder's GameMode ran in the player's inventory by the frame after
@@ -4203,6 +4299,21 @@ impl<'a> Game<'a> {
         let before = self.page_menu.replace(code);
         self.side_blocks(code);
         self.page_menu = before;
+    }
+
+    /// The page standing in for the original's menu `code` opened or closed (the pause
+    /// menu's Mods page for the start menu, 1013): JIP's menu-open or menu-close handlers
+    /// for that code run, with `MenuMode <code>` true, and the open menu is left as it is
+    /// [documented: SetOnMenuOpenEventHandler, the handler gets the menu ID; hypothesis:
+    /// the original's pause menu is its start menu, 1013, whose opening MCM Extender's
+    /// handler waits for to add its JSON menus to MCM's list (its OnPauseMenuOpen.gek);
+    /// observed: the Begin Again list 2026-11-13, MCM listed none of the 23 it loaded].
+    /// How many handlers ran.
+    pub fn page_menu_event(&mut self, code: u16, open: bool) -> usize {
+        let before = self.page_menu.replace(code);
+        let ran = self.jip_event(if open { "menuopen" } else { "menuclose" }, None, vec![fnv_script::vm::XVal::Num(f64::from(code))]);
+        self.page_menu = before;
+        ran
     }
 
     /// A function asks the running script to stop as `Return` does (RemoveMe).
@@ -4343,6 +4454,36 @@ impl<'a> Game<'a> {
     /// it the same way [observed: layer5-captures.md §10.1, §10.3]; the name menu keeps
     /// the name it has). A message box waiting for a button gets button 0 (OK). The next
     /// waiting message box then opens [hypothesis]. Returns the menu closed.
+    /// A script (or the console) writes global `id`: as [`World::set_global`], and a
+    /// write to GameHour that moves the clock face by more than
+    /// [`crate::ai::SCRIPT_HOUR_JUMP`] is noted for the engine ([`Game::note_hour_jump`]):
+    /// VCG01 stage 200's `set GameHour to 8` on a new game (#2353).
+    pub fn set_global_by_script(&mut self, id: FormId, value: f32) -> Result<(), fnv_sim::world::SimError> {
+        let hour = self.world.forms.global_by_edid(fnv_sim::clock::GAME_HOUR).map(|(g, _)| g).filter(|g| *g == id);
+        let before = hour.and_then(|g| self.world.global(g).ok());
+        self.world.set_global(id, value)?;
+        if let Some(from) = before {
+            self.note_hour_jump(from, value);
+        }
+        Ok(())
+    }
+
+    /// The clock was moved from hour `from` to hour `to` by a script: kept for the engine
+    /// when it moved more than [`crate::ai::SCRIPT_HOUR_JUMP`] on the clock face, taken
+    /// with [`Game::take_hour_jump`]. Several moves before the engine looks are one jump,
+    /// from the first hour to the last (one that comes back near where it started is
+    /// none).
+    pub fn note_hour_jump(&mut self, from: f32, to: f32) {
+        let from = self.hour_jump.map_or(from, |j| j.from);
+        self.hour_jump = (crate::ai::clock_face_hours(from, to) > crate::ai::SCRIPT_HOUR_JUMP).then_some(HourJump { from, to });
+    }
+
+    /// For the engine that carries packages out: the jump of the clock a script made since
+    /// it last asked, if any; cleared.
+    pub fn take_hour_jump(&mut self) -> Option<HourJump> {
+        self.hour_jump.take()
+    }
+
     pub fn close_menu(&mut self) -> Option<u16> {
         let m = self.menu.take()?;
         if m == menus::TUTORIAL {
@@ -4541,7 +4682,7 @@ impl<'a> Game<'a> {
         let (say_to, greeting, hello) = (kind == LineKind::SayTo, kind == LineKind::Greeting, kind == LineKind::Hello);
         // [design] Mark this line before callbacks can finish it or replace it.
         let immediate = def.has(crate::data::info_flag::RUN_IMMEDIATELY);
-        self.speech.push(Speech { speaker, target, topic, info, remaining: seconds, say_to, greeting, farewell: false, conversation, earlier_topics: Vec::new(), hello, look: LineLook::Both, response: 0, force_subtitles: false, two_d: false, end_ran: immediate, leads_on: false });
+        self.speech.push(Speech { speaker, target, topic, info, remaining: seconds, say_to, greeting, farewell: false, conversation, earlier_topics: Vec::new(), hello, look: LineLook::Both, response: 0, force_subtitles: false, two_d: false, end_ran: immediate, leads_on: false, through: None });
         if let Some(&first) = def.response_order().first() {
             self.ask_response_idles(speaker, target, info, first);
         }
@@ -4802,6 +4943,41 @@ impl<'a> Game<'a> {
         self.extra.get(&r).is_some_and(|e| crate::functions::objects::critical_stage_culls(e.critical_stage))
     }
 
+    /// One run of the GameMode block of `actor`, an actor out of the loaded cells that the
+    /// AI processes now and then (`fnv_ai::process`: its low-process update, an hour of a
+    /// wait): its script goes on where it is. Returns whether the block ran. Not for an
+    /// actor in a loaded cell (the frame's own run has it), a deleted one, or one whose
+    /// script has no GameMode block that tests "not in the player's cell"
+    /// ([`crate::data::Compiled::tests_away_from_player`]): the other scripts stay as they
+    /// were, run in the loaded cells only. GetSecondsPassed in it gives the time since its
+    /// last run, as for any per-frame run ([`Game::mark_run`]).
+    ///
+    /// [hypothesis from the data, observer check 135: the original runs the scripts of
+    /// actors it processes out of the loaded cells. Beyond the Beef's informant Chauncey
+    /// (SCPT 0x0011689F) leaves his Must Complete patrol of the casino only through his
+    /// own GameMode block, "not in the player's cell, not in the bathhouse, 15 to 18 h,
+    /// the player has the Matchbook" → MoveToMarkerWithFade to the bathhouse and
+    /// EvaluatePackage; it can only run while he is in a cell the player is not in
+    /// (issue #2445). Narrowed to such scripts [design, #2493 review]: of FalloutNV.esm's
+    /// object scripts only eight have a GameMode branch for "not in the player's cell"
+    /// (Chauncey's, ED-E's, the Hidden Valley scribe's and Watkins's, the Vault 22 spore
+    /// carriers', TecMineHostage, an SDO handler), where 16 object scripts call MoveTo in
+    /// a GameMode block beside other cell or distance tests [observed: `fnvtool script
+    /// decompile`, 2026-11-14].]
+    pub fn run_far_frame(&mut self, actor: FormId) -> bool {
+        if self.cell_of(actor).is_none_or(|c| self.loaded_cells.contains(&c)) || self.world.peek(actor).is_some_and(|s| s.deleted()) {
+            return false;
+        }
+        let Some(script) = self.ref_script(actor) else { return false };
+        if !self.data.script(script).is_some_and(|u| u.tests_away_from_player()) {
+            return false;
+        }
+        let key = InstKey::Ref { reference: actor };
+        self.mark_run(key, Some(script));
+        self.run_event(key, script, event::GAME_MODE, None, RunCtx { self_ref: Some(actor), ..Default::default() });
+        true
+    }
+
     /// Scripted references that run per-frame blocks now: in a loaded cell and not
     /// deleted, disabled ones included [documented: GECK wiki Object scripts, owner
     /// export: object scripts run even for disabled references; observed: capture job
@@ -5059,6 +5235,14 @@ impl<'a> Game<'a> {
         };
         let v = serde_json::to_value(&act).map_err(|e| e.to_string())?;
         self.note_activating(actor, target);
+        // The player's activation asks the idle tree's activation root, whose conditions
+        // choose (the drinking idles, docs/spec-notes/idles.md §16, #2349). The drink's
+        // effect (`drink_from`) still applies now, at the activation [design, #2349:
+        // whether the original applies it at the idle's start or end is observer check
+        // 131].
+        if actor == FormId::PLAYER_REF && !self.activate_idles.contains(&actor) {
+            self.activate_idles.push(actor);
+        }
         let activated_event = self.events.len();
         self.emit(EventKind::Activated { reference: target, by: actor, outcome: Some(v) });
         let mut item_added_event = None;
@@ -5619,10 +5803,17 @@ impl<'a> Game<'a> {
 
     /// Evaluate a condition list (`subject` and `target` for the run-on choices).
     pub fn conditions_pass(&mut self, conds: &[Condition], subject: Option<FormId>, target: Option<FormId>, label: &str) -> bool {
-        if conds.is_empty() {
-            return true;
-        }
+        conds.is_empty() || cond::combine_results(&self.eval_conditions(conds, subject, target, label))
+    }
+
+    /// Each condition of a list evaluated, in order: **the one evaluation** that
+    /// [`Game::conditions_pass`] and the editor's debugger share, so the debugger can never
+    /// disagree with the game (docs/design/editor.md §14.3).
+    pub fn eval_conditions(&mut self, conds: &[Condition], subject: Option<FormId>, target: Option<FormId>, label: &str) -> Vec<cond::CondResult> {
         let mut results = Vec::with_capacity(conds.len());
+        if conds.is_empty() {
+            return results;
+        }
         let outer = std::mem::replace(&mut self.condition_target, target);
         for c in conds {
             let on = match c.run_on {
@@ -5633,16 +5824,16 @@ impl<'a> Game<'a> {
                 RunOn::CombatTarget => subject.and_then(|s| self.combat_target_of(s)),
                 RunOn::Other(_) => None,
             };
-            let v = self.condition_value(c, on, label);
+            let value = self.condition_value(c, on, label);
             let rhs = match c.rhs {
                 Operand::Value(x) => x,
                 Operand::Global(Some(g)) => self.world.global(FormId(g)).map(|v| v as f64).unwrap_or(0.0),
                 Operand::Global(None) => 0.0,
             };
-            results.push((c.cmp.test(v, rhs), c.or));
+            results.push(cond::CondResult { value, rhs, passed: c.cmp.test(value, rhs), or: c.or, on: on.map(|f| f.0) });
         }
         self.condition_target = outer;
-        cond::combine(&results)
+        results
     }
 
     /// The buttons of a message (indices in record order) whose conditions fail when it
@@ -5666,30 +5857,18 @@ impl<'a> Game<'a> {
         hidden
     }
 
-    /// Each condition with its value, for diagnostics ("GetStage(0x…) = 10 == 20: false").
+    /// Each condition with its value, for diagnostics ("GetStage(0x…) = 10 Eq 20: false").
     pub fn explain_conditions(&mut self, conds: &[Condition], subject: Option<FormId>, target: Option<FormId>) -> Vec<String> {
+        let results = self.eval_conditions(conds, subject, target, "explain");
+        conds.iter().zip(&results).map(|(c, r)| self.condition_text(c, r)).collect()
+    }
+
+    /// One evaluated condition as a line: "GetStage(0x… (VMS38)) = 10 Eq 20: false OR".
+    pub fn condition_text(&self, c: &Condition, r: &cond::CondResult) -> String {
         let data = self.data;
-        let mut out = Vec::new();
-        for c in conds {
-            let on = match c.run_on {
-                RunOn::Subject => subject,
-                RunOn::Target => target,
-                RunOn::Reference(r) => r.map(FormId),
-                RunOn::LinkedReference => subject.and_then(|s| self.world.placed.get(s)).and_then(|p| p.linked),
-                RunOn::CombatTarget => subject.and_then(|s| self.combat_target_of(s)),
-                RunOn::Other(_) => None,
-            };
-            let v = self.condition_value(c, on, "explain");
-            let rhs = match c.rhs {
-                Operand::Value(x) => x,
-                Operand::Global(Some(g)) => self.world.global(FormId(g)).map(|v| v as f64).unwrap_or(0.0),
-                Operand::Global(None) => 0.0,
-            };
-            let name = data.table.get(c.opcode()).map(|f| f.name.clone()).unwrap_or_else(|| format!("0x{:04X}", c.opcode()));
-            let args: Vec<String> = c.params.iter().map(|a| arg_json(data, a).to_string()).collect();
-            out.push(format!("{name}({}) = {v} {:?} {rhs}: {}{}", args.join(", "), c.cmp, c.cmp.test(v, rhs), if c.or { " OR" } else { "" }));
-        }
-        out
+        let name = data.table.get(c.opcode()).map(|f| f.name.clone()).unwrap_or_else(|| format!("0x{:04X}", c.opcode()));
+        let args: Vec<String> = c.params.iter().map(|a| arg_json(data, a).to_string()).collect();
+        format!("{name}({}) = {} {:?} {}: {}{}", args.join(", "), r.value, c.cmp, r.rhs, r.passed, if c.or { " OR" } else { "" })
     }
 
     pub(crate) fn condition_value(&mut self, c: &Condition, on: Option<FormId>, label: &str) -> f64 {
@@ -5716,6 +5895,32 @@ impl<'a> Game<'a> {
         // GetQuestVariable, dialogue.md "A null form parameter"; hypothesis for the rest].
         if c.params.iter().any(|p| matches!(p, ArgValue::Value(Value::Ref(0)))) {
             return 0.0;
+        }
+        // Only these two CTDA aliases use the already built named extender handlers.
+        // This is not a fallback for arbitrary unknown opcodes. Keep the established
+        // null-form condition rule above, and form remapping in cond::ParamTypes.
+        let native = match c.function {
+            cond::GET_PERK_RANK => Some("getperkrank"),
+            cond::GET_PC_USING_IRON_SIGHTS => Some("getpcusingironsights"),
+            _ => None,
+        };
+        if let Some(name) = native {
+            use fnv_script::vm::XVal;
+            let args = if c.function == cond::GET_PERK_RANK {
+                match c.params.first() {
+                    Some(ArgValue::Value(Value::Ref(r))) => vec![XVal::Ref(*r)],
+                    Some(ArgValue::Value(Value::Num(n))) => vec![XVal::Num(*n)],
+                    _ => Vec::new(),
+                }
+            } else { Vec::new() };
+            return match crate::nvse::call(self, &RunCtx { self_ref: on, ..RunCtx::default() }, name, on, &args) {
+                Some(Ok(XVal::Num(value))) => value,
+                Some(Err(error)) => {
+                    self.emit(EventKind::CallFailed { opcode: format!("0x{:04X}", ctx.opcode), name: name.into(), unit: ctx.unit.to_string(), error });
+                    0.0
+                }
+                _ => 0.0,
+            };
         }
         self.call_function(&ctx, &c.params).num()
     }
@@ -5796,6 +6001,24 @@ impl<'a> Game<'a> {
     }
 
     // ---- snapshots -----------------------------------------------------------------
+
+    /// Actual save boundaries must refuse unsupported temporary scene references
+    /// before serializing/enqueueing, rather than dropping their reference closure.
+    /// Native placed-clone save semantics are not established by this preview guard.
+    pub fn checked_snapshot(&self) -> Result<GameSnapshot, String> {
+        let snapshot = self.snapshot();
+        let unsupported = snapshot
+            .sim
+            .refs
+            .iter()
+            .map(|(&id, state)| (id, state.base))
+            .chain(snapshot.sim.deleted_created.iter().map(|(&id, &base)| (id, base)))
+            .find(|(_, base)| self.clones.contains_key(base) || self.world.temporary_scene_base(*base).is_some());
+        if let Some((reference, base)) = unsupported {
+            return Err(format!("saving reference {reference} of temporary cloned base {base} is not supported yet"));
+        }
+        Ok(snapshot)
+    }
 
     pub fn snapshot(&self) -> GameSnapshot {
         let mut sim = self.world.snapshot();
@@ -5970,6 +6193,8 @@ impl<'a> Game<'a> {
         for r in &s.fading_out {
             let _ = g.world.set_enabled(*r, false);
         }
+        // Crime enmities an older save holds undated start their cooldown now (#2467).
+        g.date_crimes();
         let pos: u128 = s.rng_word_pos.parse().map_err(|_| format!("bad rng_word_pos {:?}", s.rng_word_pos))?;
         g.rng.set_word_pos(pos);
         Ok(g)
@@ -6071,6 +6296,13 @@ impl Exec<'_, '_> {
         let f = self.ref_value(r)?.as_form().ok_or_else(|| format!("reference slot {} is empty", r.0))?;
         self.game.instance_of(FormId(f)).ok_or_else(|| format!("{} runs no script", self.game.data.name(FormId(f))))
     }
+
+    /// The running unit's plugin in lower case (a Script Runner file by its path); None
+    /// for the console and a query.
+    fn unit_plugin(&self) -> Option<String> {
+        let p = &self.unit.unit.plugin;
+        (!matches!(p.as_str(), "query" | "console")).then(|| p.to_ascii_lowercase())
+    }
 }
 
 impl Host for Exec<'_, '_> {
@@ -6136,7 +6368,8 @@ impl Host for Exec<'_, '_> {
             (_, VarSlot::Global { global }) => {
                 let g = self.global_form(global)?;
                 let v = value.num() as f32;
-                self.game.world.set_global(g, v).map_err(|e| e.to_string())?;
+                // A jump of GameHour is noted for the engine (#2353).
+                self.game.set_global_by_script(g, v).map_err(|e| e.to_string())?;
                 self.game.emit(EventKind::GlobalSet { global: g, value: v });
             }
             (None, VarSlot::Local { index, letter }) => match &mut self.locals {
@@ -6265,7 +6498,7 @@ impl Host for Exec<'_, '_> {
         if self.game.plugin_questions.is_none() {
             return;
         }
-        let (unit, plugin) = (self.unit.key(), self.calling_plugin().unwrap_or_default());
+        let (unit, plugin) = (self.unit.key(), self.unit_plugin().unwrap_or_default());
         if let Some(q) = self.game.plugin_questions.as_mut() {
             q.record(function, name, answer, unit, plugin);
         }
@@ -6377,7 +6610,13 @@ impl Host for Exec<'_, '_> {
 
     fn event_call(&mut self, c: fnv_script::vm::EventCall) -> Result<fnv_script::vm::XVal, String> {
         let sender = self.unit.unit.plugin.clone();
-        self.game.event_call(c, &sender)
+        let registrar = if matches!(&c, fnv_script::vm::EventCall::JipSet { add: true, .. }) {
+            let plugin = self.calling_plugin();
+            let compiled = self.game.compiled_files.iter().position(|&unit| std::ptr::eq(unit, self.unit)).map(|i| COMPILED_BASE + i as u32);
+            let origin = compiled.and_then(|id| self.game.compiled_origins.get(id));
+            Some(std::sync::Arc::new(crate::jip_provenance::Registrar::capture(self.unit, self.ctx, plugin, compiled, origin)))
+        } else { None };
+        self.game.event_call_with_registrar(c, &sender, registrar)
     }
 
     fn members(&mut self, form: u32) -> Option<Vec<u32>> {
@@ -6427,19 +6666,9 @@ impl Host for Exec<'_, '_> {
     }
 
     fn record_field(&mut self, form: u32, sub: &str, path: &str) -> Option<fnv_script::vm::XVal> {
-        use fnv_script::vm::XVal;
-        // A script's change of the field for the session first (SetFormDescription …).
-        if let Some(v) = self.game.field_overrides.get(&(FormId(form), format!("{sub}/{path}"))) {
-            return Some(v.clone());
-        }
-        let v = self.game.data.record_field(FormId(form), sub, path)?;
-        Some(match v {
-            serde_json::Value::Number(n) => XVal::Num(crate::nvse::record_float(n.as_f64()?)),
-            // Form IDs decode as "0x0007EA31"; the null form is no form.
-            serde_json::Value::String(s) if s.starts_with("0x") => XVal::Ref(u32::from_str_radix(&s[2..], 16).ok()?),
-            serde_json::Value::String(s) => XVal::Str(s.clone()),
-            _ => return None,
-        })
+        // The VM's built-in record getters need the same clone inheritance and
+        // per-clone overrides as the host's extender getters.
+        crate::nvse::record_value(self.game, FormId(form), sub, path)
     }
 
     fn hit_value(&mut self, actor: u32, what: &str, k: i64) -> Option<fnv_script::vm::XVal> {
@@ -6451,9 +6680,19 @@ impl Host for Exec<'_, '_> {
         self.game.body_part_text(FormId(form), part, "BPTN").or_else(|| self.game.data.body_part_name(FormId(form), part))
     }
 
+    /// The plugin whose private auxiliary variables a script uses: None for a script
+    /// compiled at run time, the console's, a query's, a Script Runner file's and
+    /// CompileScript's, which all share one set [hypothesis: they have no plugin of their
+    /// own; observed: MCM Extender's Script Runner file writes `*MCMExt_ModName` and its
+    /// CompileScript'd OnPauseMenuOpen.gek reads it back to list its menus, Begin Again
+    /// list 2026-11-13].
     fn calling_plugin(&mut self) -> Option<String> {
         let p = &self.unit.unit.plugin;
-        (!matches!(p.as_str(), "query" | "console")).then(|| p.to_ascii_lowercase())
+        // Diagnostic runtime unit names are not load-order plugin identities.
+        let runtime = matches!(p.as_str(), "query" | "console" | "CompileScript")
+            || p.starts_with("ScriptRunner\\")
+            || matches!(&self.unit.unit.owner, fnv_script::UnitOwner::Other { sig, .. } if sig == "SR");
+        (!runtime).then(|| p.to_ascii_lowercase())
     }
 
     fn current_script(&mut self) -> Option<u32> {
@@ -6496,7 +6735,7 @@ impl Host for Exec<'_, '_> {
         let ctx = self.ctx;
         // Who calls: DisablePlayerControlsAlt keeps its locks by plugin, GetNthExplicitRef
         // reads the calling script.
-        self.game.other.plugin = self.calling_plugin().unwrap_or_default();
+        self.game.other.plugin = self.unit_plugin().unwrap_or_default();
         self.game.other.script = self.current_script().map(FormId);
         let out = crate::nvse::call(self.game, &ctx, name, on, args);
         // The host's own plugin questions (IsDLLLoaded, IsModLoaded), for the test aid.

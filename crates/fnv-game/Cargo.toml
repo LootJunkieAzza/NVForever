@@ -84,3 +84,28 @@ path = "tests/sup5.rs"
 [[test]]
 name = "synthetic"
 path = "tests/synthetic.rs"
+
+# CompileScript path fixtures replace the process-wide file reader.
+[[test]]
+name = "compile_script_paths"
+path = "tests/compile_script_paths.rs"
+
+[[test]]
+name = "runtime_origin"
+path = "tests/runtime_origin.rs"
+
+[[test]]
+name = "jip_cloned_list_wildcard"
+path = "tests/jip_cloned_list_wildcard.rs"
+
+[[test]]
+name = "jip_required_animation_codes"
+path = "tests/jip_required_animation_codes.rs"
+
+[[test]]
+name = "jip_handler_context"
+path = "tests/jip_handler_context.rs"
+
+[[test]]
+name = "jip_registration_provenance"
+path = "tests/jip_registration_provenance.rs"
