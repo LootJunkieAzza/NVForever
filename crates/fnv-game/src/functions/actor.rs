@@ -1160,7 +1160,21 @@ pub fn add_script_package(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, St
     // An actor holds one script package: a second call replaces the first
     // [documented: GECK wiki AddScriptPackage notes, actor-behaviour.md §1.4; observed:
     // od_08_script_packages, owner-decision-captures.md item 8].
-    g.extra.entry(r).or_default().script_package = Some(p);
+    let e = g.extra.entry(r).or_default();
+    // The package added again while it is still the current one and its goal was met
+    // begins afresh: its goal is forgotten and the AI takes it up anew
+    // (`RefExtra::ai_reset`), as for a package it did not have [hypothesis: the GECK
+    // wiki's "takes precedence over all other packages until it is done" read for each
+    // call; the Lucky 38 elevator's OnActivate adds its Dialogue package
+    // Lucky38VictorElevatorTalkToPlayer on every talk and waits for the conversation
+    // (delaycounter 1 until MenuMode 1009), so a second talk after Stay Here never
+    // opened one and the floor box never came back, issue #2424]. A call while it
+    // still runs changes nothing, so a script adding it every frame does not restart it.
+    if e.current_package == Some(p) && e.package_goal_met {
+        e.package_goal_met = false;
+        e.ai_reset = true;
+    }
+    e.script_package = Some(p);
     if g.runs_packages() {
         g.set_package(r, Some(p));
     } else {

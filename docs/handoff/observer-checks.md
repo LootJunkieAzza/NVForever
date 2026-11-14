@@ -2077,3 +2077,15 @@ heading 75) with NVFExtProbe.esp loaded, as the jip-probes sets run.
      Record how often a limb explodes or is severed and how many parts go per blast. The
      answer fits the mine source-weapon gate (`nvf_play::mines`) and the On Hit rule for
      blasts; it goes into dismemberment.md §4.
+
+## Added 2026-11-14 (Lucky 38 elevator, #2424)
+
+137. **Does AddScriptPackage of a package an actor has just finished start it again?**
+     (P3; #2424, packages.md.) Ours: the same package added again after its goal was met,
+     before the actor chose another, begins afresh; added while it still runs, nothing
+     changes [hypothesis]. To check: on the Lucky 38 casino floor, talk to the elevator
+     Victor (Lucky38VictorElevatorREF 0x0015725F), pick Stay Here, and talk to him again
+     at once (within a few seconds): does he greet again and show "Choose A Floor"? And
+     in the console, `Lucky38VictorElevatorREF.AddScriptPackage
+     Lucky38VictorElevatorTalkToPlayer` twice, the second right after his greeting ends:
+     does he greet twice?
