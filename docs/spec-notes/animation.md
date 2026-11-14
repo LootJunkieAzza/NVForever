@@ -438,6 +438,22 @@ the Aim group, whose level clip's weight falls as the view pitches (§9.6): the 
 which only the level clip drives for rifles, slid to the idle pose. Nothing here was
 compared with the game frame by frame; §7 lists the captures that could.
 
+**An idle over a standing actor's base idle** (issue #2425). A special or dynamic idle
+of an actor standing still shows on every bone it drives, whatever the priorities of
+its tracks against the movement clip's (the base idle, `mtidle.kf`); bones it does not
+drive keep the base idle, and slots above the movement (a drawn weapon's, an attack's)
+keep their own priorities (`BlendPlayer::over_movement`). Over a walk the priorities
+decide as before. [hypothesis, from the data and the owner's sight of the original:
+Mr. House's chamber (`creatures/nvmrhouse`) is closed by `DynamicIdle_Sleeping.kf`
+(its tracks at priority 40, `Bip01 Shell` turned about 126 degrees about x over him,
+`Bip01 Yaw` 0) and opened by `WakeUp.kf` (30), both under his `mtidle.kf` (50), whose
+pose is the open pod (shell at about 25 degrees, Yaw 90); the original shows the chamber
+sealed until the terminal opens it [observed: the owner, #2425]. By priority alone the
+pod stood open throughout. In the base archive 129 of the 556 idle files under an
+`IdleAnims` folder have some tracks under their base idle's priority (Protectron,
+Robobrain and the penthouse screens among them) [observed: survey 2026-11-14]; those
+tracks now show too. Observer check 138.]
+
 ### 9.6 Aiming up and down [observed unless tagged]
 
 Measured with the diagnostic `crates/fnv-nif/examples/kf_pose_compare.rs` (clips side by

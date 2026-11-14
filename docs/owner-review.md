@@ -446,6 +446,18 @@ the spec it links to.
     no version]. No other engine change was made; the smoke scenarios
     `freeside-fort-residents-door` and `freeside-north-residents-door` keep it fixed.
 
+67. **Idles now show over a standing actor's base idle whatever their priorities
+    (#2425).** Mr. House's chamber was drawn open from the start because his sealed and
+    opening idles carry lower track priorities than his base idle, whose pose is the open
+    pod; the blend by priority kept the base idle. Now an idle of an actor standing still
+    shows on every bone it drives (a drawn weapon's or an attack's clip still keeps its
+    own priority; over a walk nothing changes). That also changes 128 other idle files of
+    the base archive (Protectron, Robobrain, the penthouse screens' idles, the Hill Folk
+    dances' fingers): bones they drive at a lower priority than the base idle now move
+    with the idle. Please look at House's chamber (closed until the terminal, then
+    opening) and, if you see one, a Protectron or Robobrain playing an idle.
+    ([animation §9.4](spec-notes/animation.md))
+
 ## Not a gameplay decision: what the extender work needs from you (2026-10-25)
 
 
