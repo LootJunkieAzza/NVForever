@@ -1353,6 +1353,13 @@ impl RemotePose {
     }
 }
 
+/// Whether [`Core::first_seats`] looks at newly joined residents this frame: not during
+/// a trip (its arrival puts them), nor before the AI's first think has read the clock
+/// (the packages of the start's hour, not of a choice made before it).
+fn first_seats_now(trip: bool, clock_text: &str) -> bool {
+    !trip && !clock_text.is_empty()
+}
+
 /// The furniture an actor's AI has it on ([`Residents::furniture_of`]): the one it
 /// uses, once it is there; none while it travels (on its way to it, or away).
 fn seated_by_ai(activity: Activity, using: Option<u32>) -> Option<u32> {
@@ -2029,7 +2036,10 @@ impl Core {
     /// player came]. Not while a trip is under way (that puts them), nor one a script
     /// has just moved; others walk as before.
     fn first_seats(&mut self, game: &mut Game, nav: &NavState, world: &WorldData, streamer: &Streamer) {
-        if self.trip.is_some() {
+        // Not before the clock is read (the first think): the packages of the hour it is.
+        // Before, the Goodsprings settler and Easy Pete were seated on the furniture of
+        // the start's first choice and walked off at once at 12:00 (laptop 204c run).
+        if !first_seats_now(self.trip.is_some(), &self.clock_text) {
             return;
         }
         // Joined here, before the AI's first think sets it walking.
@@ -4029,6 +4039,16 @@ mod tests {
         let (seat, order) = next_seat(seat, true, false, &now, false);
         assert_eq!((seat, order), (Seat::Wanted(7, false), None));
         assert_eq!(next_seat(seat, true, false, &now, false), (Seat::Ordered(7, false), Some(SeatOrder::Sit(7, false))));
+    }
+
+    /// First seats wait for the clock (Easy Pete and the Goodsprings settler were seated
+    /// by the start's first choice and walked off at 12:00, laptop 204c) and for a trip
+    /// to end.
+    #[test]
+    fn first_seats_wait_for_the_clock_and_a_trip() {
+        assert!(!super::first_seats_now(false, ""));
+        assert!(!super::first_seats_now(true, "12:15"));
+        assert!(super::first_seats_now(false, "12:15"));
     }
 
     /// Furniture its package gives it while it is not drawn: it got there unseen, so
