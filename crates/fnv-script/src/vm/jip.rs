@@ -676,6 +676,20 @@ impl Vm<'_, '_> {
         self.host.calling_ref().ok_or_else(|| VmError::Type(format!("{n} without a reference or a form")))
     }
 
+    /// As [`Self::jowner`], `None` when there is no owner: a form argument that is empty
+    /// (a ref variable holding nothing) on a script with no calling reference. The
+    /// function then gives what a variable that is not set gives [documented:
+    /// AuxiliaryVariableGetFloat, "will (presumably) return 0 if the variable is not
+    /// defined"; hypothesis: the same with no owner, JIP's functions failing to 0 rather
+    /// than stopping the script].
+    fn jowner_opt(&mut self, c: &XCall, k: usize) -> Result<Option<u32>, VmError> {
+        match self.jowner("", c, k) {
+            Ok(o) => Ok(Some(o)),
+            Err(VmError::Type(_)) => Ok(None),
+            Err(e) => Err(e),
+        }
+    }
+
     /// Argument `k` as an index (`dflt` when left out).
     fn jindex(&mut self, c: &XCall, k: usize, dflt: i64) -> Result<i64, VmError> {
         Ok(match self.jarg(c, k)? {
@@ -886,7 +900,7 @@ impl Vm<'_, '_> {
         let v = match op {
             "setfloat" | "setref" | "setstring" => {
                 let v = self.jvalue(n, c, kind_of(op))?;
-                let key = self.jowner(n, c, 2)?;
+                let Some(key) = self.jowner_opt(c, 2)? else { return Ok(Some(XVal::Num(0.0))) };
                 let m = stores(self.store()?, &name).refmaps.entry(name.clone()).or_default();
                 // Kept in FormID order [documented: RefMap Array Functions (JIP), "the
                 // elements in a RefMap are ordered by FormID (ascending)"].
@@ -905,7 +919,7 @@ impl Vm<'_, '_> {
                     XVal::Array(_) => return Ok(Some(XVal::Num(0.0))),
                     other => other,
                 };
-                let key = self.jowner(n, c, 2)?;
+                let Some(key) = self.jowner_opt(c, 2)? else { return Ok(Some(XVal::Num(0.0))) };
                 let m = stores(self.store()?, &name).refmaps.entry(name.clone()).or_default();
                 match m.binary_search_by_key(&key, |(k, _)| *k) {
                     Ok(i) => m[i].1 = v,
@@ -916,7 +930,7 @@ impl Vm<'_, '_> {
             // `name key`: a one-element list of the key's value, no array without one
             // [observed: rest5.refmap.get, a list of one].
             "getvalue" => {
-                let key = self.jowner(n, c, 1)?;
+                let Some(key) = self.jowner_opt(c, 1)? else { return Ok(Some(XVal::Array(0))) };
                 let v = stores(self.store()?, &name).refmaps.get(&name).and_then(|m| m.iter().find(|(k, _)| *k == key)).map(|(_, v)| v.clone());
                 match v {
                     Some(v) => self.jlist(vec![v])?,
@@ -924,7 +938,7 @@ impl Vm<'_, '_> {
                 }
             }
             "getfloat" | "getref" | "getstring" | "gettype" => {
-                let key = self.jowner(n, c, 1)?;
+                let Some(key) = self.jowner_opt(c, 1)? else { return Ok(Some(if op == "gettype" { XVal::Num(type_code(None)) } else { typed(None, kind_of(op)) })) };
                 let m = stores(self.store()?, &name).refmaps.get(&name);
                 let v = m.and_then(|m| m.iter().find(|(k, _)| *k == key)).map(|(_, v)| v);
                 if op == "gettype" { XVal::Num(type_code(v)) } else { typed(v, kind_of(op)) }
@@ -953,7 +967,7 @@ impl Vm<'_, '_> {
             }
             // The pairs left [observed: gaps6, erasing the only key gives 0].
             "erase" => {
-                let key = self.jowner(n, c, 1)?;
+                let Some(key) = self.jowner_opt(c, 1)? else { return Ok(Some(XVal::Num(0.0))) };
                 let s = stores(self.store()?, &name);
                 let mut left = 0;
                 if let Some(m) = s.refmaps.get_mut(&name) {
@@ -1003,7 +1017,7 @@ impl Vm<'_, '_> {
                     return Ok(Some(XVal::Num(0.0)));
                 }
                 let i = self.jindex(c, 2, 0)?;
-                let o = self.jowner(n, c, 3)?;
+                let Some(o) = self.jowner_opt(c, 3)? else { return Ok(Some(XVal::Num(0.0))) };
                 let s = stores(self.store()?, name);
                 let list = s.aux.entry(o).or_default().entry(name.to_string()).or_default();
                 let ok = match usize::try_from(i) {
@@ -1026,20 +1040,20 @@ impl Vm<'_, '_> {
             }
             "getfloat" | "getref" | "getstring" | "gettype" => {
                 let i = self.jindex(c, 1, 0)?;
-                let o = self.jowner(n, c, 2)?;
+                let Some(o) = self.jowner_opt(c, 2)? else { return Ok(Some(if op == "gettype" { XVal::Num(type_code(None)) } else { typed(None, kind_of(op)) })) };
                 let list = stores(self.store()?, name).aux.get(&o).and_then(|m| m.get(name));
                 let v = list.and_then(|l| if i == -1 { l.last() } else { usize::try_from(i).ok().and_then(|i| l.get(i)) });
                 if op == "gettype" { XVal::Num(type_code(v)) } else { typed(v, kind_of(op)) }
             }
             "getsize" => {
-                let o = self.jowner(n, c, 1)?;
+                let Some(o) = self.jowner_opt(c, 1)? else { return Ok(Some(XVal::Num(0.0))) };
                 XVal::Num(stores(self.store()?, name).aux.get(&o).and_then(|m| m.get(name)).map_or(0, Vec::len) as f64)
             }
             // [documented: AuxiliaryVariableErase; observed: the new count, later elements
             // move down; the whole variable gives -1].
             "erase" => {
                 let i = self.jindex(c, 1, -1)?;
-                let o = self.jowner(n, c, 2)?;
+                let Some(o) = self.jowner_opt(c, 2)? else { return Ok(Some(XVal::Num(if i == -1 { -1.0 } else { 0.0 }))) };
                 let s = stores(self.store()?, name);
                 let left = match s.aux.get_mut(&o) {
                     Some(m) if i == -1 => {
@@ -1064,7 +1078,7 @@ impl Vm<'_, '_> {
             // `name array [owner]`: the variable becomes the array's values; returns how
             // many [observed: gaps6, ar_List 5 6 7 gives 3, size 3, element 2 is 7].
             "setfromarray" => {
-                let o = self.jowner(n, c, 2)?;
+                let Some(o) = self.jowner_opt(c, 2)? else { return Ok(Some(XVal::Num(0.0))) };
                 let id = match self.jarg(c, 1)? {
                     Some(XVal::Array(id)) => id,
                     _ => return Ok(Some(XVal::Num(0.0))),
@@ -1083,7 +1097,7 @@ impl Vm<'_, '_> {
                 XVal::Num(count as f64)
             }
             "getasarray" => {
-                let o = self.jowner(n, c, 1)?;
+                let Some(o) = self.jowner_opt(c, 1)? else { return self.jlist(Vec::new()).map(Some) };
                 let l = stores(self.store()?, name).aux.get(&o).and_then(|m| m.get(name)).cloned().unwrap_or_default();
                 self.jlist(l)?
             }
