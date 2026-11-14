@@ -1,6 +1,7 @@
 //! Owned behavioral fixture for the existing idle, body and player systems.
-//! This file uses only interfaces present on 9cb7cf70; no new hold predicate or
-//! per-Playing policy flag is called or written by the fixture.
+//! The original two Script cases use interfaces present on 9cb7cf70; they do not
+//! call the new hold predicates or write the per-Playing policy flag.
+//! The Activation case uses IdleSource::Activate from upstream 805454db.
 
 use super::*;
 use bevy::ecs::system::RunSystemOnce;
