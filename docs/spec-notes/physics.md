@@ -2322,6 +2322,70 @@ z 506) are hard to walk up and usually need a jump.
   at (847, 4060, −127) with and without the fix: its path cuts under the stairs and never
   reaches them (NPC path following, not this controller).
 
+### 6.9.2 Caravan thresholds: lips with no top and ramp crests (issue #2494, 2026-11-14)
+
+Players reported that walking out of the wrecked caravans (STAT `MobileHomeASNV`
+0x000928F3, placed 46 times in WastelandNV) stops at the door: the player stands on the
+threshold or sits in its gap until a jump.
+
+- **The threshold** [observed: `fnvtool phys cell --ray` and the mesh's collision, issue
+  #2494]: the floor inside ends at the door, where the inner skin rises past it as a
+  zero-thickness lip 10.3 above the floor (no top face); between the inner and the outer
+  skin the space is open down to the terrain, about 10-22 wide and about 50 deep. At
+  0x001070C1 (cell −17, −1) the floor ends at y −2385.7 and the terrain outside lies 48
+  below it. Where a plank ramp stands at the door (0x00137E77, cell −8, −25, ramp
+  0x00177D7C) the ramp's upper end hangs over the gap about 17.5 above the floor and slopes
+  down outwards at about 24°.
+- **The original** [observed: capture of the original, 2026-11-14; the player placed on
+  the floor, facing out, Forward held, positions every 10 loops]: walks out of both
+  caravans without a jump at walk and at run pace. At 0x001070C1 the feet pass y −2384 at
+  z 8159 and peak at 8166.5 running (+14.2 over the floor at 8152.3) and 8167.6 walking
+  (+15.3), then drop to the terrain (8107.8) and walk on. At 0x00137E77 the feet peak at
+  6856.4 running (+8.7 over the floor at 6847.7) and 6863.7 walking (+16.0), then go down
+  the ramp to the terrain (6804). The feet rise about 9-16 over the floor while crossing.
+- **Cause** [observed: `fnvtool phys walk` and a debug trace of `move_character`]:
+  rapier's autostep refuses the lip (the cone meets its edge with its own 57.7° face,
+  §6.9), and the step-up (§6.9) climbs only onto a walkable top within 4 below to 26
+  above the feet under the axis or 19 ahead. Perched on the lip's edge the floor under the
+  axis lies more than 4 below the feet and 19 ahead is the gap; perched in the gap the
+  ramp 19 ahead lies more than 4 lower. So the cone rested on the lip's edge (0 of 30
+  walks out at 0x001070C1, 2 of 30 at 0x00137E77). Walking along a door jamb into the
+  corner it makes with the lip, the wedge rule (§6.1) also stopped the step's motion
+  before the step-up was tried.
+- **Fix** (`fnv_phys::character::on_crest`, `step_up_move`) [design]: the shape the
+  step-up puts down may also rest on a **crest**: the contact it came down on holds it up
+  (its normal points up), lies at most `step_height` above the feet the step started from,
+  and 2 units beyond it along the motion the surface falls away by more than 2 (steeper
+  than 45°) or is walkable and no higher than the edge. A lip with no top, the top edge of
+  a thin board and a ramp's upper end count; a steep slope does not (it goes on rising
+  beyond the contact, and across it sideways the surface stays about as high and is not
+  walkable), nor a thin wall higher than `step_height` (the test
+  `a_thin_wall_higher_than_a_step_still_blocks`). An edge met by the cone's face (off the
+  flat tip by more than 0.5) that is a crest counts even when the shape comes down up to 2
+  lower than it was held: crossing the gap onto a ramp's end it sinks a little. A step the
+  wedge rule stopped is tried by the step-up too. The cone stays (§6.4.1's fence-edge fit),
+  as do the step height (24) and the other rules of §6.9.
+- **Checked** [observed: `fnvtool phys walk`, `CharacterParams::default()`, 5 offsets
+  across the door (−15 to +15) × 3 headings (−10°, 0, +10°), 6 s at walk (115.5) and run
+  (344) from the floor]:
+
+  | Run | Before | After | Peak over the floor (after) |
+  |---|---|---|---|
+  | 0x001070C1, walk | 0/15 out | 15/15 | 11.3-13.7 (straight 11.4) |
+  | 0x001070C1, run | 0/15 out | 15/15 | 11.3-14.8 (straight 11.4) |
+  | 0x001070C1, from the gap (3 offsets), walk and run | 0/6 out | 6/6 | |
+  | 0x00137E77 with the ramp, walk | 0/15 out | 15/15 | 15.4-17.7 (straight 17.5) |
+  | 0x00137E77 with the ramp, run | 2/15 out | 15/15 | 15.3-17.7 (straight 17.5) |
+
+  The peaks lie within the original's 9-16 at 0x001070C1 and up to 1.7 above it at the
+  ramp. Unchanged: the parity lab's ten `L4.phys.walk.*` scripts and the `diag_fence_edge`
+  / `diag_fence_low` drops give byte-identical traces before and after; the camper's door
+  steps (§6.9) from x −53760 end at the same place, and from 5 starts further east the
+  player now steps over the corner of the floor mattress `BedMattress01FloorL` 0x0010771B
+  (13.6 high) inside the camper instead of stopping at it. Tests
+  `character_walks_out_over_a_threshold_lip` (fails before the fix) and
+  `a_thin_wall_higher_than_a_step_still_blocks`; smoke scenario `caravan-door-walk-out`.
+
 ### 6.8.1 Dead actors' characters, small actors' characters (playtest list 7 items 14 and 35, 2026-10-23)
 
 - **Item 14** [observed: owner, "bodies glide along the floor ... like they are still

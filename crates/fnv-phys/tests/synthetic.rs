@@ -426,6 +426,75 @@ fn character_climbs_shallow_steps_without_jumping() {
     assert!(steps.iter().all(|s| s.landed_speed.is_none_or(|v| v < 100.0)), "no fall onto the steps");
 }
 
+/// A caravan's doorway like `MobileHomeASNV`'s (issue #2494): a floor 50 above the ground
+/// ending at x = 100, where a zero-thickness lip `lip` units high rises from its edge,
+/// door jambs either side (90 apart), and an open gap 15 wide down to the ground beyond;
+/// with `ramp`, a plank ramp whose upper end hangs over the gap's far side 18 above the
+/// floor and slopes down outwards at 24 degrees.
+fn caravan_door(lip: f32, ramp: bool) -> PhysWorld {
+    let mut w = ground();
+    let floor = 50.0;
+    w.add_ref(&at(1, [-100.0, 0.0, floor / 2.0]), &[object(boxed([200.0, 200.0, floor / 2.0]), Motion::Static)]);
+    let vertices = vec![[100.0, -200.0, floor], [100.0, 200.0, floor], [100.0, 200.0, floor + lip], [100.0, -200.0, floor + lip]];
+    w.add_ref(&at(2, [0.0, 0.0, 0.0]), &[object(Shape::TriMesh { vertices, triangles: vec![[0, 1, 2], [0, 2, 3]], materials: vec![0; 2] }, Motion::Static)]);
+    for (id, y) in [(3, 55.0), (4, -55.0)] {
+        w.add_ref(&at(id, [100.0, y, floor + 75.0]), &[object(boxed([20.0, 10.0, 75.0]), Motion::Static)]);
+    }
+    if ramp {
+        let (s, c) = 24f32.to_radians().sin_cos();
+        // Rotation about y tilting +x downwards; the top face's west end at (115, 0, 68).
+        let rot = [c, 0.0, s, 0.0, 1.0, 0.0, -s, 0.0, c];
+        let half = [100.0, 40.0, 3.0];
+        let top_west = [-c * half[0] + s * half[2], s * half[0] + c * half[2]];
+        let pos = [115.0 - top_west[0], 0.0, floor + 18.0 - top_west[1]];
+        w.add_ref(&RefPose { form_id: 5, position: pos, rotation: rot, scale: 1.0 }, &[object(boxed(half), Motion::Static)]);
+    }
+    w
+}
+
+#[test]
+fn character_walks_out_over_a_threshold_lip() {
+    // Issue #2494: walking out of a caravan the cone bottom rests on the lip's edge, which
+    // has no top, and the step-up found no walkable top to climb onto (the floor under the
+    // axis more than 4 below the perched feet, the gap or the ramp ahead), so the player
+    // stood on the threshold until a jump.
+    for ramp in [false, true] {
+        for speed in [115.5f32, 344.0] {
+            // Straight out, and 10 degrees off into the door jamb's corner with the lip.
+            for (y, deg) in [(0.0f32, 0.0f32), (10.0, 10.0), (-10.0, -10.0)] {
+                let mut w = caravan_door(10.3, ramp);
+                let mut c = w.add_character(1, CharacterParams::default(), [0.0, y, 51.0]);
+                settle(&mut w, &mut c, 30);
+                let (s, co) = deg.to_radians().sin_cos();
+                let steps = walk(&mut w, &mut c, [speed * co, speed * s], 360);
+                let peak = steps.iter().map(|s| s.feet[2]).fold(f32::MIN, f32::max);
+                assert!(c.feet[0] > 200.0 && c.feet[2] < 10.0, "ramp {ramp}, speed {speed}, {deg} degrees: {:?}, peak {peak}", c.feet);
+                // Over the lip (or onto the ramp's upper end, 18 above the floor), not
+                // lifted above it.
+                let top = if ramp { 18.0 } else { 10.3 };
+                assert!(peak < 50.0 + top + 2.0, "ramp {ramp}, speed {speed}, {deg} degrees: peak {peak}");
+            }
+        }
+    }
+}
+
+#[test]
+fn a_thin_wall_higher_than_a_step_still_blocks() {
+    // The crest rule of the step-up (issue #2494) climbs an edge with no top only up to
+    // `step_height` above the feet: a zero-thickness wall 30 high stays a wall.
+    let p = CharacterParams::default();
+    for speed in [115.5f32, 344.0] {
+        let mut w = caravan_door(30.0, false);
+        let mut c = w.add_character(1, p, [0.0, 0.0, 51.0]);
+        settle(&mut w, &mut c, 30);
+        let steps = walk(&mut w, &mut c, [speed, 0.0], 240);
+        let peak = steps.iter().map(|s| s.feet[2]).fold(f32::MIN, f32::max);
+        // The cone may rest on the wall's edge low on its face, as before (the floor under
+        // the axis is then a walkable top within reach), never climb it.
+        assert!(c.feet[0] < 100.0 && peak < 50.0 + 6.0, "speed {speed}: {:?}, peak {peak}", c.feet);
+    }
+}
+
 #[test]
 fn character_climbs_steep_stairs_without_jumping() {
     // Catwalk stairs like the REPCONN Facility's flights up to the intercom (RocketLabMid,

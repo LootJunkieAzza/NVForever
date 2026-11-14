@@ -666,7 +666,11 @@ impl PhysWorld {
                 }
             }
         }
+        // The motion a wedged step gave up, for the step-up below: a wedge of a door jamb
+        // and a threshold's lip is a step, not a corner (issue #2494).
+        let mut wedged_from = None;
         if may_wedge && wedged(horizontal, &walls) {
+            wedged_from = Some(horizontal);
             horizontal = [0.0, 0.0];
             collisions.clear();
             let q = self.w.query_pipeline_with_filter(filter);
@@ -696,12 +700,13 @@ impl PhysWorld {
         }
         // Up a step the controller's own autostep refused (`step_up_move`).
         let blocked = {
-            let want = Vector::new(horizontal[0], horizontal[1], 0.0) * k;
+            let [x, y] = wedged_from.unwrap_or(horizontal);
+            let want = Vector::new(x, y, 0.0) * k;
             let got = Vector::new(moved.translation.x, moved.translation.y, 0.0);
             want.length() > 1e-6 && got.dot(want) < STEP_BLOCKED * want.length_squared()
         };
         let may_step = !c.swimming && !jumping && c.vertical_speed <= 0.0 && (c.grounded || on_walkable) && c.params.step_height > 0.0;
-        if may_step && blocked && collisions.iter().any(|h| h.hit.normal1.z < walkable && h.hit.normal1.z > -walkable) {
+        if may_step && blocked && (wedged_from.is_some() || collisions.iter().any(|h| h.hit.normal1.z < walkable && h.hit.normal1.z > -walkable)) {
             let q = self.w.query_pipeline_with_filter(filter);
             // Lifted by the headroom above the head, at most `step_height`: a doorway's
             // lintel or a roof's edge leaves less.
@@ -1011,9 +1016,14 @@ const STEP_PROBE: f32 = 19.0;
 /// horizontal `want` (sliding along walls), and put it down again onto what is below. It
 /// climbs only onto a walkable top: straight down from the axis, or from `STEP_PROBE`
 /// ahead of it (the cone resting on the edge, the tip short of the top), a walkable
-/// surface within a few units of where the feet came down; a steep slope rising less than
-/// a step per frame is not climbed so [hypothesis: the original climbs such ledges
-/// without a jump, the owner's playtest; its step height is not measured].
+/// surface within a few units of where the feet came down; or onto a crest no higher
+/// than `step_height` above the feet ([`on_crest`]: a threshold's lip with no top, a
+/// ramp's upper end beyond a gap, which the original walks over without a jump [observed:
+/// capture of the original, 2026-11-14, physics.md §6.9.2]); a steep slope rising less
+/// than a step per frame is not climbed so [hypothesis: the original climbs such ledges
+/// without a jump, the owner's playtest; its step height is not measured]. A step the
+/// wedge rule stopped ([`wedged`]) is tried too: a door jamb and the lip beside it wedged
+/// the character in the doorway's corner.
 /// Returns the translation (rapier units) and the contacts.
 #[allow(clippy::too_many_arguments)]
 fn step_up_move(
@@ -1043,7 +1053,13 @@ fn step_up_move(
     // Higher than flat ground would put it: a step, not flat ground or a descent. The
     // shape comes down onto the bare surface, the feet rest the support's gap above it.
     let rise = lift * k - drop + c.gap * k;
-    if rise < MIN_STEP_RISE * k {
+    // Or an edge met by the cone's face, off its flat tip, which the shape crossing a gap
+    // comes down onto a little lower than it was held before: a plank ramp's upper end
+    // beyond a threshold's lip (issue #2494). It must then be a crest (`on_crest`).
+    let off_axis = (down.witness1.x - ahead.translation.x).hypot(down.witness1.y - ahead.translation.y) / k;
+    let low = rise < MIN_STEP_RISE * k;
+    let sunk_onto_edge = off_axis > c.params.bottom_flat + CREST_OFF_TIP && rise > -CREST_SINK * k;
+    if low && !sunk_onto_edge {
         return None;
     }
     let feet = ahead.translation - Vector::Z * (drop + c.params.height / 2.0 * k);
@@ -1054,13 +1070,61 @@ fn step_up_move(
     };
     let feet_z = feet.z / k;
     let on_top = [feet, feet + dir * (STEP_PROBE * k)].into_iter().any(|p| top(p).is_some_and(|z| z > feet_z - STEP_TOP_BELOW && z < feet_z + STEP_TOP_ABOVE));
-    if !on_top {
+    if (low || !on_top) && !on_crest(q, c, pos, &down, dir, k) {
         return None;
     }
     let lowered = Vector::new(across.x, across.y, lift * k - drop);
     // The step's contacts, for pushing and the touched list.
     Some((lowered, hits))
 }
+
+/// Whether the shape [`step_up_move`] put down rests on a crest: an edge with no walkable
+/// top behind it, such as the zero-thickness lip of a caravan's threshold (issue #2494,
+/// physics.md §6.9.2) or the upper end of a plank ramp hanging over a gap. The cone
+/// bottom meets such an edge with its own steep face, so the contact is not a walkable
+/// top and the step's other checks find none (the floor under the axis lies more than
+/// [`STEP_TOP_BELOW`] under the perched feet, beyond the edge is a gap). It counts when
+/// the contact `down` holds the shape up, lies at most `step_height` above the feet the
+/// step started from (a higher edge stays a wall, however thin), and just beyond it along
+/// `dir` the surface falls away more steeply than the slope limit or is walkable and no
+/// higher than the edge: a steep slope continues upwards beyond its contact, and across
+/// one sideways the surface stays about as high and is not walkable, so neither counts
+/// [design].
+fn on_crest(q: &rapier3d::pipeline::QueryPipeline, c: &Character, pos: &Pose, down: &ShapeCastHit, dir: Vector, k: f32) -> bool {
+    let p = &c.params;
+    let edge = down.witness1;
+    let start_feet = pos.translation.z / k - p.height / 2.0;
+    if down.normal1.z <= 0.0 || edge.z / k > start_feet + p.step_height {
+        return false;
+    }
+    let beyond = Vector::new(edge.x, edge.y, edge.z + p.step_height * k) + dir * (CREST_PROBE * k);
+    let ray = rapier3d::geometry::Ray::new(beyond, -Vector::Z);
+    let reach = p.step_height + CREST_PROBE + CREST_DROP;
+    match q.cast_ray_and_get_normal(&ray, reach * k, true) {
+        None => true,
+        Some((_, r)) => {
+            let z = (beyond.z - r.time_of_impact) / k;
+            let edge_z = edge.z / k;
+            z < edge_z - CREST_DROP || (r.normal.z >= p.max_slope_deg.to_radians().cos() && z <= edge_z + CREST_LEVEL)
+        }
+    }
+}
+
+/// How far beyond the edge [`on_crest`] looks, and how much lower the surface there must be
+/// to fall away (steeper than 45° over that distance), game units [design: past a
+/// zero-thickness lip, short of the 10-22 units of gap behind a caravan's threshold].
+const CREST_PROBE: f32 = 2.0;
+const CREST_DROP: f32 = 2.0;
+/// How much higher than the edge a walkable surface beyond it may lie and still count as
+/// the edge's own top (a rounding allowance), game units [design].
+const CREST_LEVEL: f32 = 0.25;
+/// How far off the flat tip a crest's contact must lie, and how much lower than it was held
+/// before the shape may come down onto it, game units [design: the shape crossing a
+/// threshold's gap onto a ramp's end sank 0.56 (the test
+/// `character_walks_out_over_a_threshold_lip`); on flat ground the contact lies under the
+/// tip, so a slide along a wall corner is not taken as a step].
+const CREST_OFF_TIP: f32 = 0.5;
+const CREST_SINK: f32 = 2.0;
 
 /// How far a step's top may lie below and above the feet set down on it (the cone
 /// resting on the edge holds the feet up to `STEP_TOP_BELOW` under the top), game units
