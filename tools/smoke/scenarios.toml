@@ -16297,6 +16297,27 @@ expect_file = "expected/script-sweep.toml"
 manual = "a rise: run the command with --detail and compare the causes with main's; a drop: write the new summary into expected/script-sweep.toml"
 
 [[scenario]]
+name = "quest-sweep"
+kind = "tool"
+source = "docs/design/quest-sweep.md (issue #2365 item 5): the static soft-lock sweep over the ten masters (fnvtool quest sweep): conversations with no way out, controls taken by one script and given back by another, stages only hard-to-reach things set, keyless doors only scripts open; the known cases Ramos (#2453), Hardin (#2309) and REPCONN's door are among the hits"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnvtool/src/quest_sweep.rs", "crates/fnv-game/src/data.rs", "crates/fnv-game/src/quest.rs", "crates/fnv-game/src/package.rs", "crates/fnv-script/src/decode.rs", "crates/fnv-script/src/unit.rs"]
+commands = [["quest", "sweep", "{data}", "{masters}", "--schema", "schemas/fnv"]]
+expect = [
+  # The counts on main 2026-11-14 (docs/handoff/quest-sweep-2026-11-14.md): a change says why.
+  { json = "summary.conversation_traps", schema = "fnv.quest.sweep/1", equals = 0, label = "no conversation of the ten masters without a way out" },
+  { json = "summary.goodbye_less_top_levels", schema = "fnv.quest.sweep/1", equals = 9, label = "9 actors with no Goodbye shown open to them" },
+  { json = "summary.control_verdicts.waits", schema = "fnv.quest.sweep/1", equals = 89, label = "89 control holds released only behind a package, line, trigger or timer" },
+  { json = "summary.control_verdicts.unreleased", schema = "fnv.quest.sweep/1", equals = 22, label = "22 control holds with no release found" },
+  { json = "summary.controls_waiting_beyond_a_timer", schema = "fnv.quest.sweep/1", equals = 23, label = "23 of them wait on more than a fade's timer" },
+  { json = "summary.stages_hard_to_reach", schema = "fnv.quest.sweep/1", equals = 14, label = "14 stages only hard-to-reach things set" },
+  { json = "summary.doors.opened_by_script", schema = "fnv.quest.sweep/1", equals = 72, label = "72 keyless Requires Key doors only scripts open" },
+  { json = "controls.*.by.line", schema = "fnv.quest.sweep/1", equals = "0x000A3CE0", label = "Ramos' line (#2453) holds the controls" },
+  { json = "controls.*.releases.*.by.line", schema = "fnv.quest.sweep/1", equals = "0x001633C0", label = "Hardin's training (#2309) is released by the package's line" },
+  { json = "doors.*.opened_by.*.line", schema = "fnv.quest.sweep/1", equals = "0x000CD87E", label = "REPCONMidToTopDoor opened by INFO 0x000CD87E" },
+]
+
+[[scenario]]
 name = "mq-old-world-blues"
 kind = "tool"
 source = "headless add-on walkthrough crates/fnv-game/walkthrough/old-world-blues.actions.json: Old World Blues from the drive-in satellite through the Think Tank, X-2, X-8, X-13, the Forbidden Zone and the Think Tank talked down, the end slides to NVDLC03MQ05 100"
