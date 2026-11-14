@@ -2137,3 +2137,13 @@ heading 75) with NVFExtProbe.esp loaded, as the jip-probes sets run.
      two scribes in the room and record VirusTimer every frame; then again with a
      message box open for 5 s (ShowMessage) in the middle: does VirusTimer move while the
      box is up, and does Ibsen's 10-seconds line come 10 s of game time after the start?
+
+## Added 2026-11-14 (Goodbye lines between NPCs, #2451)
+
+139. **Does a conversation between NPCs go on past a Goodbye line that links on?** (P2;
+     #2451, dialogue.md §5.1.) Ours: yes, a Goodbye line ends it only when it has no
+     Link To or follow-up [hypothesis]. To check: with Veronica hired, walk into
+     VHiddenValleyVeronicaEnterTrigger (0015B6D7) at the Hidden Valley bunker and record
+     which of INFO 0015B6D1-0015B6D4 are said, by whom, and when the inner door
+     HVOuterLockedDoor opens; or watch Jason Bright's speech at REPCONN (are parts 5-9,
+     INFO 000CD8A9 and after, said after part 4, 0008D401?).
