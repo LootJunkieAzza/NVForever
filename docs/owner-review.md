@@ -222,6 +222,31 @@ the spec it links to.
   prefers whole-device NVML, then amdgpu, then game-only DRM client time. Choosing
   DRM first would make supporting Linux drivers show the game's contribution consistently.
   [Settings usage note](design/settings-page.md#performance-usage-availability-2249).
+- **Explosion-hit handlers on corpses (#2346).** [design, #2346] A blast now reaches a corpse
+  whose ragdoll has taken over, so ShowOff's OnExplosionHit handlers also run for corpses
+  it catches (no damage is taken). Whether the original calls them for a corpse is not
+  observed. Leave them out for corpses instead?
+  ([combat-rules §11](spec-notes/combat-rules.md))
+- **A script jumping the clock (#2353).** [design, #2353] A script's GameHour write of more
+  than `SCRIPT_HOUR_JUMP` (1 game hour) is handled like the end of a wait: everyone chooses
+  its package at once, residents out of sight are put at their new place, those in view
+  walk. The original's handling is unknown (observer check 132); a smaller threshold would
+  catch shorter jumps, a larger one fewer. ([packages §9](spec-notes/packages.md))
+- **Drinking from water holds nothing (#2349).** [design, #2349] Drinking from a sink or
+  pump now plays the tree's drinking idle (first or third person), but the player keeps
+  moving, looking and the HUD while it plays, and the water's healing and rads apply at
+  the activation, before it. Ruling otherwise would hold the player for the clip's 2.4 s
+  (as scripted first-person idles do) or apply the effect at its end. The original's
+  behaviour is observer check 131. ([idles section 16](spec-notes/idles.md))
+
+- **Texture scrolls drive every shape sharing the property (#2450).** [design, #2450]
+  A sequence's texture offset, scale or rotation track now moves every shape that lists
+  the same `NiTexturingProperty`, as material tracks already did for a shared
+  `NiMaterialProperty`: the Hidden Valley storm's 18 dust sheets all scroll (only the
+  first did). This applies to every model whose sequences scroll a shared texture, not
+  only the storm; if some model should scroll one shape only, it would need its own
+  property, and ruling otherwise means a per-model exception. Check the storm in game at
+  night in HVDustStorm ([activators section 6.1](spec-notes/activators.md)).
 
 19. **Walking away from a conversation.** The world freezes while you talk, as in the
     original, and walking off does not end it. Should walking off end it where the line
@@ -411,6 +436,15 @@ the spec it links to.
     observer check 116. Until it is answered: keep 2 s, or ask more often (1 s would
     double every tree fidget, the drawn-weapon and furniture ones too)?
     ([idles §11.4](spec-notes/idles.md))
+62. **Freeside's missing residents (#2432, #2434) taken as fixed by #2239; please
+    retest on a build from 2026-11-13 or later.** Both reproduce in the engine only with
+    #2239's reset of the handed-over grid squares on a change of worldspace taken out
+    (Freeside's three worldspaces lie on the same squares): then the fort has 0 people
+    drawn and Orris and his bodyguard are missing at the north gate, as reported. Main
+    has them all, on your way there too (fast travel, King's School, bus door). v0.7.0
+    (2026-11-11) predates #2239 [hypothesis: your build was older than it; the log names
+    no version]. No other engine change was made; the smoke scenarios
+    `freeside-fort-residents-door` and `freeside-north-residents-door` keep it fixed.
 
 ## Not a gameplay decision: what the extender work needs from you (2026-10-25)
 
