@@ -3195,6 +3195,17 @@ fn place_like_host(world: &mut fnv_sim::World, g: &mut fnv_game::Game, npcs: &Ha
         if g.is_dead(id) {
             info!("co-op: {} is alive in the host's world: up again here", g.data.name(id));
             g.resurrect(id, false);
+            // It stands up where the host has it: its place here may be the corpse's own,
+            // or none at all (item 201, 2026-11-14: GSPG05/06 0x00104C72/73, dead in the
+            // guest's save, revived "standing at (0, 0, 0)"). In this player's space only;
+            // another space is left to the rest below.
+            let my_space = player_space.map_or(cell.0, |w| w.0);
+            if s.space == 0 || s.space == my_space {
+                if let Ok(st) = world.get(id) {
+                    st.pos = s.feet;
+                    st.rot = [0.0, 0.0, s.heading];
+                }
+            }
         }
         // Shown already, by its own flag or its enable parent's: left as it is. One
         // shown through its enable parent keeps its own flag as the host's does (the
@@ -4070,7 +4081,8 @@ mod tests {
         assert!(world.is_enabled(FormId(ALIVE)).unwrap() && !g.is_dead(FormId(ALIVE)), "alive and drawn as in the host's world");
         assert!(!world.is_enabled(FormId(KILLED)).unwrap() && g.is_dead(FormId(KILLED)), "dead on the host: left to the deaths");
         assert!(!world.is_enabled(FormId(GONE)).unwrap(), "the host disabled it");
-        assert_eq!(world.peek(FormId(ALIVE)).map(|s| s.pos), Some([0.0; 3]), "in this player's cell already: not moved (the drawing puts it at the host's feet)");
+        // Revived where the host has it, not where the corpse (or nothing) put it here.
+        assert_eq!(world.peek(FormId(ALIVE)).map(|s| s.pos), Some([10.0, 20.0, 30.0]), "stands up at the host's feet");
     }
 
     /// The host's doors reach a guest's: a door the host opened opens, one only the
