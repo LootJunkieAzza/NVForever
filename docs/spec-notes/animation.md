@@ -653,12 +653,14 @@ tracks that are not transforms) on `Fallout - Meshes.bsa` and `Update.bsa`.
     `1hpreloadb.kf` shows it from 1.333 s, `_male` 1.0 s).
   - Reading [hypothesis]: the round is shown while one is loaded; the first-person aim
     clip's track would show it again in an empty launcher once the attack clip ends,
-    unless a reload follows the shot at once.
-  - Engine (`nvforever::player_body`, since 2026-11-14): as the clips say, but not drawn
-    while nothing is loaded and no reload is under way (`WeaponAnim::empty`) [design:
-    our reload of an empty magazine waits for the next pull, so before this the missile
-    came back in the tube 0.67 s after the shot, while the fired one flew; #2470]. NPC
-    weapons play no clips on their parts: their round always shows [not built].
+    unless a reload follows the shot at once. How the original hides it in an empty
+    weapon is not known.
+  - Engine: the round is drawn as the clips say; an empty weapon's round is not hidden
+    [design]. It is not seen from the player's cameras [observed: NVForever on main,
+    2026-11-14, pictures kept privately: first person after the shot, third person after
+    the shot and an empty launcher drawn in third person, the back of the tube dark].
+    NPC weapons play no clips on their parts (`nvforever::weapons`): an NPC's launcher
+    always shows its round.
 
 ### 9.8 The moving parts of a weapon [observed unless tagged]
 

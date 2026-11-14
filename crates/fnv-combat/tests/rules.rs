@@ -456,30 +456,6 @@ fn semi_automatic_cycle_and_reload() {
 }
 
 #[test]
-fn a_one_round_launcher_is_empty_from_its_shot_until_its_reload() {
-    // The missile launcher: one round in the magazine, fired; empty until the next pull
-    // starts the reload, not empty while it runs, loaded after (#2470).
-    let t = CombatTuning::default();
-    let w = WeaponStats { clip_size: 1, ..gun(125) };
-    let timing = Timing::of(&w, &ClipTiming::default(), &t);
-    let mut c = Cycle::new(&w, timing, false, 1);
-    assert!(!c.empty());
-    assert_eq!(shots(&run(&mut c, &t, 20, 0.05, |k| k == 0, 3)), 1);
-    assert_eq!(c.magazine, 0);
-    assert!(c.empty(), "after the shot, with none loaded");
-    let ev = run(&mut c, &t, 1, 0.05, |_| true, 3);
-    assert_eq!(ev, vec![Event::ReloadStarted]);
-    assert!(c.reloading() && !c.empty(), "the reload's clips show the round going in");
-    let ev = run(&mut c, &t, 60, 0.05, |_| false, 3);
-    assert!(ev.contains(&Event::Reloaded { taken: 1 }), "{ev:?}");
-    assert!(!c.empty());
-    // A weapon that uses no ammo is never empty.
-    assert!(!Cycle::new(&w, timing, true, 0).empty());
-    // Nothing carried: empty from the start.
-    assert!(Cycle::new(&w, timing, false, 0).empty());
-}
-
-#[test]
 fn every_fourth_shot_is_free_with_a_regenerate_ammo_shots_mod() {
     // weapon-data-fields.md §5: shots 4 and 8 of eight use no ammunition.
     let t = CombatTuning::default();

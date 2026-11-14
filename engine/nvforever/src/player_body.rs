@@ -476,33 +476,6 @@ struct WeaponPart {
     shown: Option<bool>,
 }
 
-/// The weapon-model node holding the round seen in the weapon: the missile in the
-/// missile launcher's tube, the Fat Man's mini nuke, the dart gun's dart [observed:
-/// `fnvtool nif nodes`, 7 models]. The attack clips hide it at their `Hit` key and the
-/// reload clips show it part way through (`2hlattackright.kf` from 0.067 s,
-/// `2hlreloade.kf` from 1.833 s in first person); the first-person aim clips
-/// (`2hlaim.kf`, `1hpaim.kf`) show it throughout [observed: their `NiVisController`
-/// tracks], so once the attack clip ended it came back in the empty tube while the
-/// missile flew (#2470).
-const ROUND_NODE: &str = "##NifRound";
-
-/// Whether a shape of the weapon model is drawn: not when `never`, and while every `##`
-/// node above it is shown by the clips (`tags`), except the round ([`ROUND_NODE`]) while
-/// nothing is loaded and no reload is under way (`empty`, `WeaponAnim::empty`) [design:
-/// our reload of an empty magazine waits for the next pull (`auto_reload`), so the aim
-/// clip alone speaks for the round between the shot and that pull; how the original
-/// hides it then is not known, hypothesis: by a reload that follows the shot at once].
-fn part_shown(never: bool, tags: &[(String, bool)], empty: bool) -> bool {
-    !never && tags.iter().all(|(name, on)| *on && !(empty && name.eq_ignore_ascii_case(ROUND_NODE)))
-}
-
-/// Whether the weapon drawn (`drawn`, the model's weapon) is the empty one combat names
-/// (`WeaponAnim::empty`): a flag for another weapon, or none, is "loaded" [design: a
-/// loaded weapon is never hidden by a stale flag, #2470].
-fn drawn_empty(empty: Option<FormId>, drawn: Option<FormId>) -> bool {
-    empty.is_some() && empty == drawn
-}
-
 /// One skeleton with its parts, clips and weapon.
 struct Rig {
     view: View,
@@ -538,9 +511,6 @@ struct Rig {
     weapon_emitter: Option<(Entity, Vec<String>)>,
     /// The weapon model's shapes.
     weapon_parts: Vec<WeaponPart>,
-    /// The weapon has a round ([`ROUND_NODE`]) and nothing is loaded: the round is not
-    /// drawn, whatever the clips say ([`part_shown`]; logged as it changes).
-    round_held: bool,
     /// The weapon is in the hand with no draw, attack or reload clip playing, and the
     /// parts' pose then was logged ([`pose_rig`]).
     idle_logged: bool,
@@ -1566,7 +1536,6 @@ fn build_rig(commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &
         weapon_model: None,
         weapon_emitter: None,
         weapon_parts: Vec::new(),
-        round_held: false,
         idle_logged: false,
         sights_turned: None,
         muzzle: None,
@@ -2881,35 +2850,21 @@ fn drive_body(
     }
 
     // The weapon nodes' parents, and the weapon parts the clips show or hide (a part
-    // no playing clip speaks for stays as it was), less the round of an empty weapon.
-    // Combat's flag counts only for the weapon whose model is drawn (`m.weapon`): a flag
-    // left from the launcher just put away never hides a loaded Fat Man's mini nuke.
-    let empty = drawn_empty(anim.empty, m.weapon);
+    // no playing clip speaks for stays as it was).
     for rig in std::iter::once(&mut body.third).chain(body.first.as_mut()) {
-        let held = empty && rig.weapon_parts.iter().any(|p| p.tags.iter().any(|(n, _)| n.eq_ignore_ascii_case(ROUND_NODE)));
         for p in &mut rig.weapon_parts {
             for (tag, on) in &mut p.tags {
                 if let Some(v) = rig.animator.visible(tag) {
                     *on = v;
                 }
             }
-            let shown = part_shown(p.never, &p.tags, empty);
+            let shown = !p.never && p.tags.iter().all(|(_, on)| *on);
             if p.shown != Some(shown) {
                 if let Ok(mut v) = visibility.get_mut(p.entity) {
                     *v = if shown { Visibility::Inherited } else { Visibility::Hidden };
                     p.shown = Some(shown);
                 }
             }
-        }
-        if rig.round_held != held {
-            // Smoke tests read it (`missile-shot-one-model`): the first-person aim clip
-            // would show the launcher's missile again after the shot.
-            info!(
-                "player {:?} rig weapon round {ROUND_NODE}: {}",
-                rig.view,
-                if held { "not drawn, nothing loaded" } else { "as the clips say again" }
-            );
-            rig.round_held = held;
         }
         if rig.attached != rig.weapon_parent {
             if let (Some(w), Some(p)) = (rig.weapon_node, rig.weapon_parent) {
@@ -3014,43 +2969,6 @@ mod tests {
         assert!(world.get::<NoFrustumCulling>(existing).is_some());
         assert!(world.resource::<WarmPose>().transforms.is_empty());
         assert!(!world.resource::<nvf_play::pipboy::PipBoy>().pose_hidden);
-    }
-
-    #[test]
-    fn the_round_of_an_empty_launcher_is_not_drawn_where_the_aim_clip_shows_it() {
-        // The missile launcher's shapes: the missile under `##mlLoader` > `##NifRound`,
-        // the barrel under `##mlLoader` alone, the body with no `##` node above it.
-        let tag = |n: &str, on: bool| (n.to_string(), on);
-        let missile = |round_on: bool| vec![tag("##mlLoader", true), tag("##NifRound", round_on)];
-        let barrel = vec![tag("##mlLoader", true), tag("##mlBarrel", true)];
-        // Loaded: the clips decide (the first-person aim clip shows the missile, the
-        // attack clip hides it from its `Hit` key).
-        assert!(part_shown(false, &missile(true), false));
-        assert!(!part_shown(false, &missile(false), false));
-        // After the shot, the attack clip over: the aim clip shows it again, but nothing
-        // is loaded, so it is not drawn (#2470); the rest of the launcher is.
-        assert!(!part_shown(false, &missile(true), true));
-        assert!(part_shown(false, &barrel, true));
-        assert!(part_shown(false, &[], true));
-        // The name as the files spell it, in any case; a part never shown stays hidden.
-        assert!(!part_shown(false, &[tag("##nifround", true)], true));
-        assert!(!part_shown(true, &barrel, false));
-    }
-
-    #[test]
-    fn a_flag_for_another_weapon_never_hides_the_drawn_ones_round() {
-        let (launcher, fat_man) = (Some(FormId(0x4340)), Some(FormId(0x432C)));
-        let nuke = vec![("##NifRound".to_string(), true)];
-        // The empty launcher drawn: its missile is not.
-        assert!(drawn_empty(launcher, launcher));
-        assert!(!part_shown(false, &nuke, drawn_empty(launcher, launcher)));
-        // Switched to a loaded Fat Man: the body runs before combat, so for a frame the
-        // flag still names the launcher; the Fat Man's mini nuke shows all the same.
-        assert!(!drawn_empty(launcher, fat_man));
-        assert!(part_shown(false, &nuke, drawn_empty(launcher, fat_man)));
-        // No flag, or no weapon drawn: loaded.
-        assert!(!drawn_empty(None, launcher));
-        assert!(!drawn_empty(None, None));
     }
 
     #[test]
