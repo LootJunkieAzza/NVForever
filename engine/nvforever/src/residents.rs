@@ -834,7 +834,13 @@ fn next_seat(seat: Seat, drawn: bool, on: bool, frame: &retry::Now, restart: boo
                 (Seat::None, Some(SeatOrder::Cancel))
             }
         }
-        (Seat::None, _) => (wants.map_or(Seat::None, |f| Seat::Wanted(f, false)), None),
+        // Its package's furniture: walked up to and got on in sight when drawn; when not
+        // drawn it got there unseen, so it is put on at once once it is (item 204b: the
+        // crucified at Nipton, walked to their crosses by the low process while the host
+        // was in the general store, climbed on in front of it when it came out; in the
+        // original they hang there from the start) [observed; the rule: design, as
+        // `Ordered` going out of sight on its furniture comes back on at once].
+        (Seat::None, _) => (wants.map_or(Seat::None, |f| Seat::Wanted(f, !drawn)), None),
         // The order goes out in the frame that found it eligible, not through `Wanted`:
         // by the next frame its AI may be off, or it may be held or out cold.
         (Seat::Waiting(f, so_far), _) => match (retry::waiting(f, so_far, frame), drawn) {
@@ -904,6 +910,9 @@ struct Resident {
     last_drawn: Option<(f32, [f32; 3])>,
     /// A script put it somewhere (MoveTo) this frame: off its furniture at once.
     moved: bool,
+    /// Not yet looked at for furniture its package names, as it first joins the AI
+    /// ([`Core::first_seats`]).
+    first_look: bool,
     /// Whether it cannot walk ([`cannot_walk`]), once looked up.
     rooted: Option<bool>,
     /// It cannot walk and its base has the Flies flag: a perched bird, in nobody's way
@@ -1282,6 +1291,14 @@ impl Residents {
         Some((a.walker.space, a.walker.feet, a.walker.heading))
     }
 
+    /// The furniture actor `id`'s AI has it on where it stands (a seat, a bed, a cross),
+    /// when it is a resident this game runs and is there, not on its way: the host sends
+    /// it for one it does not draw (`coop::share_npcs`), so a guest seats it there.
+    pub fn furniture_of(&self, id: u32) -> Option<u32> {
+        let a = self.core.ai.agents.get(&FormId(id))?;
+        seated_by_ai(a.activity, a.using.map(|f| f.0))
+    }
+
     /// Co-op replication, the host's: the residents it simulates in its guests'
     /// surroundings (`Streamer::coop_areas`) and does not draw itself, each as
     /// (reference, base, space, feet, heading, walking). A guest draws them by these.
@@ -1334,6 +1351,19 @@ impl RemotePose {
             Activity::There
         }
     }
+}
+
+/// Whether [`Core::first_seats`] looks at newly joined residents this frame: not during
+/// a trip (its arrival puts them), nor before the AI's first think has read the clock
+/// (the packages of the start's hour, not of a choice made before it).
+fn first_seats_now(trip: bool, clock_text: &str) -> bool {
+    !trip && !clock_text.is_empty()
+}
+
+/// The furniture an actor's AI has it on ([`Residents::furniture_of`]): the one it
+/// uses, once it is there; none while it travels (on its way to it, or away).
+fn seated_by_ai(activity: Activity, using: Option<u32>) -> Option<u32> {
+    using.filter(|_| activity == Activity::There)
 }
 
 /// Standalone packages own their simulation; in play mode `SimState` owns it
@@ -1695,6 +1725,7 @@ impl Core {
             perched: false,
             immobile: false,
             moved: false,
+            first_look: true,
             last_space: None,
             aim_heading: None,
             lock_held: None,
@@ -1996,6 +2027,41 @@ impl Core {
         self.trip = Some(Trip { before, seen: HashSet::new(), settled: 0, put: [0; 2], doors: None });
     }
 
+    /// Each resident as it first joins the AI, not drawn yet, whose current package names
+    /// a furniture reference as its place (`fnv_ai::Ai::package_names_furniture`: the
+    /// crucified at Nipton, linked to their crosses) is put on it at once, as a trip puts
+    /// the actors near the player's arrival (`arrive`), not walked up to it and got on in
+    /// sight [observed, owner, item 204b: in the original they hang on their crosses from
+    /// the start; ours walked 46-81 units to them and played the enter clip as the
+    /// player came]. Not while a trip is under way (that puts them), nor one a script
+    /// has just moved; others walk as before.
+    fn first_seats(&mut self, game: &mut Game, nav: &NavState, world: &WorldData, streamer: &Streamer) {
+        // Not before the clock is read (the first think): the packages of the hour it is.
+        // Before, the Goodsprings settler and Easy Pete were seated on the furniture of
+        // the start's first choice and walked off at once at 12:00 (laptop 204c run).
+        if !first_seats_now(self.trip.is_some(), &self.clock_text) {
+            return;
+        }
+        // Joined here, before the AI's first think sets it walking.
+        self.join(game);
+        let near = |p: fnv_nav::Place| drawn(world, streamer, p.space, p.pos) || streamer.buffer.holds(p.space, p.pos);
+        for r in self.list.iter_mut().filter(|r| r.joined && !r.failed && r.first_look) {
+            r.first_look = false;
+            if r.spawned || r.moved || r.seat != Seat::None || !self.ai.agents.contains_key(&r.actor) || game.ai_off(r.actor) {
+                continue;
+            }
+            if fnv_ai::Ai::package_names_furniture(game, r.actor).is_none() {
+                continue;
+            }
+            let Some(arr) = self.ai.arrive(game, &nav.graph, r.actor, &near) else { continue };
+            let Some(f) = arr.furniture else { continue };
+            r.wants = Some(f.0);
+            r.seat = Seat::Wanted(f.0, true);
+            self.arrivals[1] += 1;
+            info!("ai [{}] {}: on {} from the start: put on it at once ({:.0} units from where it stood)", self.clock_text, r.label, game.data.name(f), arr.skipped);
+        }
+    }
+
     /// While a trip is under way: the residents near the player (in the loaded area, the
     /// cell buffer, or an interior behind a door of the loaded cells) whose package's
     /// walk starts there are put where that walk ends, on its furniture (seated at once),
@@ -2028,6 +2094,7 @@ impl Core {
             if trip.before.contains(&r.actor) || !trip.seen.insert(r.actor) || r.moved {
                 continue;
             }
+            r.first_look = false;
             let Some(a) = self.ai.agents.get(&r.actor) else { continue };
             if !near(fnv_nav::Place { space: a.walker.space, pos: a.walker.feet }) {
                 continue;
@@ -3267,6 +3334,7 @@ pub fn drive(
             }
             res.core.process_levels(game, &world, &streamer);
             res.core.arrive(game, &nav, &world, &streamer, None);
+            res.core.first_seats(game, &nav, &world, &streamer);
             res.core.switch_navmeshes(game, &mut nav);
             let _span = info_span!("ai::think").entered();
             res.core.think(game, true, false, &nav, &world, &mut doors, None, None, dt, now, 0);
@@ -3305,6 +3373,7 @@ pub fn drive(
                 drop(span);
                 let span = info_span!("ai::arrive").entered();
                 core.arrive(&mut rt.game, &nav, world_ref, streamer_ref, phys.as_deref_mut());
+                core.first_seats(&mut rt.game, &nav, world_ref, streamer_ref);
                 drop(span);
                 let span = info_span!("ai::switch_navmeshes").entered();
                 core.switch_navmeshes(&mut rt.game, &mut nav);
@@ -3880,6 +3949,18 @@ mod tests {
     use fnv_sim::FormId;
     use std::collections::HashMap;
 
+    /// The furniture the host sends for a resident it does not draw: the crucified at
+    /// Nipton, there on their crosses, keep them; on its way, it is not on one yet
+    /// (item 204: sent as none, a guest took them off their crosses while the host was
+    /// in the general store and put them back on at once when it came out).
+    #[test]
+    fn an_undrawn_resident_keeps_its_furniture() {
+        use fnv_ai::Activity;
+        assert_eq!(super::seated_by_ai(Activity::There, Some(0x0013_9FD7)), Some(0x0013_9FD7));
+        assert_eq!(super::seated_by_ai(Activity::Travelling, Some(0x0013_9FD7)), None);
+        assert_eq!(super::seated_by_ai(Activity::There, None), None);
+    }
+
     /// A guest keeps a host's actor seated while getting on moves it (no get up and
     /// sit again at once off the seat), getting on too; a walk is still a walk.
     #[test]
@@ -3958,6 +4039,32 @@ mod tests {
         let (seat, order) = next_seat(seat, true, false, &now, false);
         assert_eq!((seat, order), (Seat::Wanted(7, false), None));
         assert_eq!(next_seat(seat, true, false, &now, false), (Seat::Ordered(7, false), Some(SeatOrder::Sit(7, false))));
+    }
+
+    /// First seats wait for the clock (Easy Pete and the Goodsprings settler were seated
+    /// by the start's first choice and walked off at 12:00, laptop 204c) and for a trip
+    /// to end.
+    #[test]
+    fn first_seats_wait_for_the_clock_and_a_trip() {
+        assert!(!super::first_seats_now(false, ""));
+        assert!(!super::first_seats_now(true, "12:15"));
+        assert!(super::first_seats_now(false, "12:15"));
+    }
+
+    /// Furniture its package gives it while it is not drawn: it got there unseen, so
+    /// it is put on at once when drawn (the crucified at Nipton, item 204b); while
+    /// drawn, it walks up and gets on by the enter clip, as before.
+    #[test]
+    fn furniture_reached_unseen_is_got_on_at_once() {
+        use super::{next_seat, retry::Now, Seat, SeatOrder};
+        let now = Now { wants: Some(0x0013_9FD7), eligible: true, seconds: 0.1, changed: false };
+        let (seat, order) = next_seat(Seat::None, false, false, &now, false);
+        assert_eq!((seat, order), (Seat::Wanted(0x0013_9FD7, true), None));
+        // Still not drawn: it waits; drawn: put on at once.
+        assert_eq!(next_seat(seat, false, false, &now, false), (seat, None));
+        assert_eq!(next_seat(seat, true, false, &now, false), (Seat::Ordered(0x0013_9FD7, false), Some(SeatOrder::Sit(0x0013_9FD7, true))));
+        // Drawn when its package gave it the cross: the enter clip in sight.
+        assert_eq!(next_seat(Seat::None, true, false, &now, false), (Seat::Wanted(0x0013_9FD7, false), None));
     }
 
     /// A reset of an actor not yet on its chair takes the order back (it is given again

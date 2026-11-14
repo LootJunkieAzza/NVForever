@@ -2418,6 +2418,11 @@ fn share_npcs(
             // One fighting a guest away from the host (`far_combat`): its weapon out.
             let far = coop.far.fighters.get(&r);
             flags |= if far.is_some_and(|f| f.weapon.is_some()) { npc_flag::AIMING } else { 0 };
+            // On the furniture its AI has it on: the crucified at Nipton stay on their
+            // crosses on a guest while the host is in the general store (item 204: sent
+            // as none, they were taken off and put back on at once when it came out).
+            let furniture = residents.as_deref().and_then(|res| res.furniture_of(r)).filter(|_| !dead);
+            flags |= if furniture.is_some() { npc_flag::SEATED } else { 0 };
             npcs.push(NpcState {
                 reference: r,
                 feet,
@@ -2426,7 +2431,7 @@ fn share_npcs(
                 flags,
                 weapon: fighters.weapon(r).or(far.and_then(|f| f.weapon)).map_or(0, |w| w.0),
                 attacks: coop.npc_attacks.get(&r).copied().unwrap_or(0),
-                furniture: 0,
+                furniture: furniture.unwrap_or(0),
                 base: sim.as_deref().and_then(|s| s.base_of(r)).map_or(base, |b| b.0),
                 level: level.level,
                 all_levels: level.all_levels,
@@ -2456,15 +2461,17 @@ fn share_npcs(
             let Some((space, feet, heading)) = res.walker_of(r) else { continue };
             let dead = script.as_deref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.is_dead(FormId(r)));
             let level = actor_world.as_deref().map_or(fnv_sim::zones::LevelAt::plain(0), |w| w.level(r));
+            // Its furniture as its AI has it, as for the undrawn above (item 204).
+            let furniture = res.furniture_of(r).filter(|_| !dead);
             npcs.push(NpcState {
                 reference: r,
                 feet,
                 heading,
                 pitch: 0.0,
-                flags: if dead { npc_flag::DEAD } else { 0 },
+                flags: if dead { npc_flag::DEAD } else if furniture.is_some() { npc_flag::SEATED } else { 0 },
                 weapon: 0,
                 attacks: coop.npc_attacks.get(&r).copied().unwrap_or(0),
-                furniture: 0,
+                furniture: furniture.unwrap_or(0),
                 base: sim.as_deref().and_then(|s| s.base_of(r)).map_or(0, |b| b.0),
                 level: level.level,
                 all_levels: level.all_levels,
