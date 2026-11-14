@@ -73,6 +73,11 @@ pub struct HostQuestState {
     pub ended: bool,
     /// The highest stages done, at most [`HOST_STAGES_DONE`], in order.
     pub done: Vec<i32>,
+    /// Failed (a Fail Quest stage, FailQuest); `ended` too.
+    pub failed: bool,
+    /// Its objectives shown or done, by index: whether each is done. A guest's quest list
+    /// and objectives are the host's from these (item 205).
+    pub objectives: BTreeMap<i32, bool>,
 }
 
 impl HostQuestState {
@@ -406,6 +411,43 @@ pub fn checked(mut players: Vec<CoopPlayer>) -> Result<Vec<CoopPlayer>, CoopErro
 }
 
 impl Game<'_> {
+    /// On a guest: the host's quest view is `new` now (nvforever `coop`). The quest it
+    /// showed before keeps its objectives, for that quest's page once it ended.
+    pub fn coop_set_host_quest(&mut self, new: Option<HostQuest>) {
+        if self.coop_host_quest == new {
+            return;
+        }
+        if let Some(old) = self.coop_host_quest.take() {
+            self.coop_host_objectives.insert(old.quest, old.objectives);
+        }
+        self.coop_host_quest = new;
+    }
+
+    /// On a guest: the host's `quest` ended, failed or completed (item 205). The guest's
+    /// quest list shows it as done, as the host's own does ([`HostQuest`]). Whether this
+    /// is news: a quest failed once is not told again; a completed quest that fails after
+    /// is (a Fail Quest stage also reads as completed, `Game::set_stage`).
+    pub fn coop_host_quest_ended(&mut self, quest: FormId, failed: bool) -> bool {
+        match self.coop_host_ended.iter().position(|(q, _)| *q == quest) {
+            Some(i) if self.coop_host_ended[i].1 || !failed => false,
+            Some(i) => {
+                self.coop_host_ended[i].1 = true;
+                true
+            }
+            None => {
+                self.coop_host_ended.push((quest, failed));
+                true
+            }
+        }
+    }
+
+    /// The host's quest view and ended quests are forgotten: this game is no guest now.
+    pub fn coop_forget_host_quests(&mut self) {
+        self.coop_host_quest = None;
+        self.coop_host_ended.clear();
+        self.coop_host_objectives.clear();
+    }
+
     /// The host's: its story now, for the guests ([`HostStory`]): each quest with a state
     /// (running, ended or with a stage done) and every variable of the quests' scripts.
     pub fn story_view(&self) -> HostStory {
@@ -415,7 +457,8 @@ impl Game<'_> {
             .filter(|(_, s)| s.running || s.completed || s.failed || !s.stages_done.is_empty())
             .map(|(q, s)| {
                 let skip = s.stages_done.len().saturating_sub(HOST_STAGES_DONE);
-                (*q, HostQuestState { stage: s.stage(), running: s.running, ended: s.completed || s.failed, done: s.stages_done.iter().skip(skip).copied().collect() })
+                let objectives = s.objectives.iter().filter(|(_, o)| o.displayed || o.completed).map(|(i, o)| (*i, o.completed)).collect();
+                (*q, HostQuestState { stage: s.stage(), running: s.running, ended: s.completed || s.failed, done: s.stages_done.iter().skip(skip).copied().collect(), failed: s.failed, objectives })
             })
             .collect();
         let vars = self
@@ -1000,11 +1043,11 @@ mod tests {
     #[test]
     fn the_hosts_stages_done_are_read_from_what_came() {
         use super::{HostQuestState, HOST_STAGES_DONE};
-        let few = HostQuestState { stage: 20, running: true, ended: false, done: vec![10, 20] };
+        let few = HostQuestState { stage: 20, running: true, ended: false, done: vec![10, 20], ..Default::default() };
         assert!(few.stage_done(10) && few.stage_done(20));
         assert!(!few.stage_done(5) && !few.stage_done(30));
         // A quest of more stages than came: the ones below the lowest carried were done.
-        let many = HostQuestState { stage: 400, running: true, ended: false, done: (0..HOST_STAGES_DONE as i32).map(|i| 100 + 10 * i).collect() };
+        let many = HostQuestState { stage: 400, running: true, ended: false, done: (0..HOST_STAGES_DONE as i32).map(|i| 100 + 10 * i).collect(), ..Default::default() };
         assert!(many.stage_done(50));
         assert!(many.stage_done(110));
         assert!(!many.stage_done(105));

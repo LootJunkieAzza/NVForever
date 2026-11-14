@@ -136,6 +136,13 @@ pub struct RewardLedger {
     pub stage: Option<(FormId, i32)>,
     /// Hand-outs ready for the guests.
     pub gifts: Vec<Gift>,
+    /// Quests that ended in the host's game, in the order they did: completed (`false`)
+    /// or failed (`true`, a Fail Quest stage or FailQuest), for the guests' quest lines
+    /// and lists (item 205). Each goes at once, apart from the completion's reward, which
+    /// waits for its window ([`RewardLedger::due`]) and is left out when it gives nothing:
+    /// a quest that pays nothing and fails a second after it completes (VMS39 on the
+    /// laptop's duo b4) showed neither line on the guest when the line rode the reward.
+    pub ended: Vec<(FormId, bool)>,
     batch: u32,
     /// The quest or object script running now outside any result script
     /// ([`RewardLedger::open_script`]).
@@ -268,6 +275,7 @@ impl RewardLedger {
         if !self.on {
             return;
         }
+        self.ended.push((quest, false));
         let mut r = QuestReward { quest, xp: 0.0, caps: 0 };
         self.held.retain(|&(f, q, xp, caps)| {
             let mine = q == quest || f + BEFORE >= frame;

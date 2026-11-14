@@ -23,6 +23,9 @@ use std::ops::Bound::{Excluded, Included, Unbounded};
 pub const PAGE_BYTES: usize = 1000;
 /// Stages done one quest entry carries at most (the highest).
 pub const STAGES: usize = 32;
+/// Objectives one quest entry carries at most (the lowest indices; the masters' named
+/// quests show far fewer [hypothesis]).
+pub const OBJECTIVES: usize = 48;
 
 /// A variable's value as the host has it.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -35,8 +38,10 @@ pub enum StoryValue {
 #[derive(Debug, Clone, PartialEq)]
 pub enum StoryEntry {
     /// A quest's state: its stage (GetStage), the highest stages done (at most [`STAGES`]),
-    /// whether it runs and whether it ended (completed or failed).
-    Quest { quest: u32, stage: i16, running: bool, ended: bool, done: Vec<i16> },
+    /// whether it runs, whether it ended (completed or failed) and failed, and its
+    /// objectives shown or done (index, done; at most [`OBJECTIVES`]): a guest's quest list
+    /// is the host's from these (item 205).
+    Quest { quest: u32, stage: i16, running: bool, ended: bool, done: Vec<i16>, failed: bool, objectives: Vec<(i16, bool)> },
     /// A variable of a quest's script.
     Var { quest: u32, index: u16, value: StoryValue },
 }
@@ -53,7 +58,7 @@ impl StoryEntry {
     /// Bytes it takes on the wire (`net::encode`).
     pub fn wire_len(&self) -> usize {
         match self {
-            StoryEntry::Quest { done, .. } => 1 + 4 + 2 + 1 + 1 + 2 * done.len().min(STAGES),
+            StoryEntry::Quest { done, objectives, .. } => 1 + 4 + 2 + 1 + 1 + 2 * done.len().min(STAGES) + 1 + 3 * objectives.len().min(OBJECTIVES),
             StoryEntry::Var { value: StoryValue::Num(_), .. } => 1 + 4 + 2 + 1 + 8,
             StoryEntry::Var { value: StoryValue::Ref(_), .. } => 1 + 4 + 2 + 1 + 4,
         }
@@ -134,7 +139,7 @@ mod tests {
     }
 
     fn quest(quest: u32, stage: i16) -> StoryEntry {
-        StoryEntry::Quest { quest, stage, running: true, ended: false, done: vec![stage] }
+        StoryEntry::Quest { quest, stage, running: true, ended: false, done: vec![stage], failed: false, objectives: Vec::new() }
     }
 
     #[test]
@@ -189,8 +194,8 @@ mod tests {
 
     #[test]
     fn a_quest_entry_counts_its_stages() {
-        let e = StoryEntry::Quest { quest: 1, stage: 20, running: true, ended: false, done: vec![10, 20] };
-        assert_eq!(e.wire_len(), 9 + 4);
+        let e = StoryEntry::Quest { quest: 1, stage: 20, running: true, ended: false, done: vec![10, 20], failed: false, objectives: vec![(10, true)] };
+        assert_eq!(e.wire_len(), 9 + 4 + 1 + 3);
         assert!(e.key() < var(1, 0, 0.0).key());
     }
 }

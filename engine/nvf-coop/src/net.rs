@@ -517,6 +517,11 @@ pub enum Progress {
     /// ([`Progress::NO_STAGE`]: none) name the result script's quest stage, so a guest
     /// that did it in its own game keeps its own (owner, 2026-11-14).
     Gift { batch: u32, item: u32, count: u32, quest: u32, stage: u32 },
+    /// The host's `quest` ended: completed, or `failed` (a Fail Quest stage, FailQuest).
+    /// Every guest shows its line and lists it as the host does, in the order they came
+    /// (a quest completed and failed in one frame: both; item 205). Only the host's are
+    /// taken.
+    QuestEnded { quest: u32, failed: bool },
 }
 
 impl Progress {
@@ -2347,15 +2352,21 @@ fn encode(msg: &Msg) -> Vec<u8> {
             b.extend_from_slice(&(entries.len() as u16).to_le_bytes());
             for e in entries {
                 match e {
-                    StoryEntry::Quest { quest, stage, running, ended, done } => {
+                    StoryEntry::Quest { quest, stage, running, ended, done, failed, objectives } => {
                         b.push(0);
                         b.extend_from_slice(&quest.to_le_bytes());
                         b.extend_from_slice(&stage.to_le_bytes());
-                        b.push(u8::from(*running) | (u8::from(*ended) << 1));
+                        b.push(u8::from(*running) | (u8::from(*ended) << 1) | (u8::from(*failed) << 2));
                         let done = &done[done.len().saturating_sub(story::STAGES)..];
                         b.push(done.len() as u8);
                         for d in done {
                             b.extend_from_slice(&d.to_le_bytes());
+                        }
+                        let objectives = &objectives[..objectives.len().min(story::OBJECTIVES)];
+                        b.push(objectives.len() as u8);
+                        for (i, done) in objectives {
+                            b.extend_from_slice(&i.to_le_bytes());
+                            b.push(u8::from(*done));
                         }
                     }
                     StoryEntry::Var { quest, index, value } => {
@@ -2445,6 +2456,11 @@ fn encode(msg: &Msg) -> Vec<u8> {
                     for v in [batch, item, count, quest, stage] {
                         b.extend_from_slice(&v.to_le_bytes());
                     }
+                }
+                Progress::QuestEnded { quest, failed } => {
+                    b.push(5);
+                    b.extend_from_slice(&quest.to_le_bytes());
+                    b.push(*failed as u8);
                 }
             }
         }
@@ -2640,6 +2656,7 @@ fn decode(b: &[u8]) -> Option<Msg> {
                 // Before quest and stage were sent (a build of 2026-11-13 or older).
                 3 => Progress::Gift { batch: r.u32()?, item: r.u32()?, count: r.u32()?, quest: 0, stage: Progress::NO_STAGE },
                 4 => Progress::Gift { batch: r.u32()?, item: r.u32()?, count: r.u32()?, quest: r.u32()?, stage: r.u32()? },
+                5 => Progress::QuestEnded { quest: r.u32()?, failed: r.u8()? != 0 },
                 _ => return None,
             };
             Msg::Progress { id, seq, what }
@@ -2738,7 +2755,15 @@ fn decode(b: &[u8]) -> Option<Msg> {
                         for _ in 0..k {
                             done.push(r.u16()? as i16);
                         }
-                        StoryEntry::Quest { quest, stage, running: flags & 1 != 0, ended: flags & 2 != 0, done }
+                        let o = r.u8()? as usize;
+                        if o > story::OBJECTIVES {
+                            return None;
+                        }
+                        let mut objectives = Vec::with_capacity(o);
+                        for _ in 0..o {
+                            objectives.push((r.u16()? as i16, r.u8()? != 0));
+                        }
+                        StoryEntry::Quest { quest, stage, running: flags & 1 != 0, ended: flags & 2 != 0, done, failed: flags & 4 != 0, objectives }
                     }
                     1 => {
                         let (quest, index) = (r.u32()?, r.u16()?);
@@ -2857,8 +2882,8 @@ mod tests {
             Msg::Story { entries: Vec::new() },
             Msg::Story {
                 entries: vec![
-                    StoryEntry::Quest { quest: 0x1E00_2B11, stage: 20, running: true, ended: false, done: vec![10, 20] },
-                    StoryEntry::Quest { quest: 0x0010_4C1D, stage: -1, running: false, ended: true, done: Vec::new() },
+                    StoryEntry::Quest { quest: 0x1E00_2B11, stage: 20, running: true, ended: false, done: vec![10, 20], failed: false, objectives: vec![(10, true), (20, false)] },
+                    StoryEntry::Quest { quest: 0x0010_4C1D, stage: -1, running: false, ended: true, done: Vec::new(), failed: true, objectives: Vec::new() },
                     StoryEntry::Var { quest: 0x1E00_2B11, index: 1, value: StoryValue::Num(1.0) },
                     StoryEntry::Var { quest: 0x1E00_2B11, index: 2, value: StoryValue::Num(-0.125) },
                     StoryEntry::Var { quest: 0x1E00_2B11, index: 900, value: StoryValue::Ref(0x0010_C0DE) },
@@ -2883,6 +2908,8 @@ mod tests {
             Msg::Progress { id: 0, seq: 9, what: Progress::Reward { quest: 0x0010_4C1D, xp: 250, caps: 100 } },
             Msg::Progress { id: 0, seq: 10, what: Progress::Gift { batch: 3, item: 0x0011_A208, count: 24, quest: 0x0010_4C1E, stage: 50 } },
             Msg::Progress { id: 0, seq: 11, what: Progress::Gift { batch: 4, item: 0x0015_9E04, count: 1, quest: 0, stage: Progress::NO_STAGE } },
+            Msg::Progress { id: 0, seq: 12, what: Progress::QuestEnded { quest: 0x0010_4C1F, failed: false } },
+            Msg::Progress { id: 0, seq: 13, what: Progress::QuestEnded { quest: 0x0010_4C1F, failed: true } },
             Msg::Progress { id: 2, seq: 65_535, what: Progress::Save { stamp: u32::MAX, kind: Progress::SYSTEM } },
             Msg::Progress { id: 0, seq: 0, what: Progress::Reload { stamp: 7 } },
             Msg::Npcs {

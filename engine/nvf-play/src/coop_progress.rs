@@ -4,6 +4,14 @@
 //!   and caps (`fnv_game::coop_rewards`: the host's game measures what its scripts gave
 //!   for it; a guest takes it with `Game::take_coop_reward`). Item rewards stay the
 //!   host's: they belong to a later "synced progression" option, not built.
+//! - **Quests ended** (item 205). Each quest the host completes or fails (a Fail Quest
+//!   stage, FailQuest) reaches each guest at once and in order ([`Shared::QuestEnded`]),
+//!   apart from the completion's reward: its "Quest completed" or "Quest failed" line
+//!   ("Quest failed" is NVForever's own words with no sound: the data has neither,
+//!   docs/spec-notes/quest-messages.md §5) and a done row in the guest's quest list,
+//!   beside the host's active quest (`Game::coop_host_ended`).
+//!   Objectives have no failed state in this game (no SetObjectiveFailed among the
+//!   functions [observed: schemas/script/functions.json]), so none is sent.
 //! - **A save by anyone saves everyone** (anti-exploit: nobody keeps a save the others
 //!   lack). A save this game makes is announced ([`Shared::Save`] out), and a save
 //!   another player made is followed: this game saves the same kind as soon as saving is
@@ -74,6 +82,8 @@ pub enum Shared {
     /// A hand-out of the host's scripts (`fnv_game::coop_rewards`, items 112 and 114):
     /// `quest` 0 and `stage` `u32::MAX` for none (`nvf_coop::net::Progress::Gift`).
     Gift { batch: u32, item: u32, count: u32, quest: u32, stage: u32 },
+    /// The host's quest completed or failed (`nvf_coop::net::Progress::QuestEnded`, item 205).
+    QuestEnded { quest: u32, failed: bool },
 }
 
 /// The mailbox between this module and nvforever's `coop`.
@@ -304,20 +314,8 @@ fn take_inbox(
                     // Script XP no completion claimed (`fnv_game::coop_rewards::SCRIPT_XP`).
                     Ok(gained) if FormId(quest) == fnv_game::coop_rewards::SCRIPT_XP => say(&mut corner, format!("+{gained} XP, earned with {host}")),
                     // The host by its character's name (`coop_social::SocialMates`).
-                    Ok(gained) => {
-                        say(&mut corner, format!("{host} completed {name}: +{gained} XP{}", if caps > 0 { format!(", +{caps} caps") } else { String::new() }));
-                        // The quest's COMPLETED line too, as the host's own game showed it
-                        // (item 180: Come Fly With Me, not the host's active quest, showed
-                        // none on the guest); not twice when the host's quest view told it.
-                        let quest_name = rt.game.data.quests.get(&FormId(quest)).and_then(|q| q.name.clone()).filter(|n| !n.trim().is_empty());
-                        if let (Some(lines), Some(qn)) = (quest_lines.as_deref_mut(), quest_name) {
-                            let n = crate::script_events::QuestNotice::Completed(qn);
-                            if !lines.holds(&n) {
-                                info!("co-op: the host's quest: {}", crate::quest_messages::describe(&n));
-                                lines.push(n);
-                            }
-                        }
-                    }
+                    // The quest's COMPLETED line came with its own message ([`Shared::QuestEnded`]).
+                    Ok(gained) => say(&mut corner, format!("{host} completed {name}: +{gained} XP{}", if caps > 0 { format!(", +{caps} caps") } else { String::new() })),
                     Err(e) => warn!("co-op: the reward for {name} could not be given: {e}"),
                 }
             }
@@ -345,6 +343,36 @@ fn take_inbox(
                     Ok(_) if card => say(&mut corner, format!("{} handed out Caravan cards", mates.as_deref().and_then(|m| m.get(0)).map_or("The host's quest", |m| m.name.as_str()))),
                     Ok(n) => say(&mut corner, format!("{} handed out {name}{}", mates.as_deref().and_then(|m| m.get(0)).map_or("The host's quest", |m| m.name.as_str()), if n > 1 { format!(" ({n})") } else { String::new() })),
                     Err(e) => warn!("co-op: the hand-out {name} could not be given: {e}"),
+                }
+            }
+            // The host's quest completed or failed: listed as done, and its line, in the
+            // order the host's quests ended (item 205; sweep-duo-b2: the host showed 10
+            // failed quests, the guest none; duo b4: VMS39, completed and failed a second
+            // apart, showed neither). Item 180: Come Fly With Me, not the host's active
+            // quest, showed no COMPLETED line on the guest before such lines were sent.
+            Shared::QuestEnded { quest, failed } if p.role == Role::Guest && id == 0 => {
+                let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else {
+                    warn!("co-op: the host's quest {} ended before the scripts run", FormId(quest));
+                    continue;
+                };
+                let name = rt.game.data.name(FormId(quest));
+                let how = if failed { "failed" } else { "completed" };
+                if !rt.game.coop_host_quest_ended(FormId(quest), failed) {
+                    info!("co-op: the host {how} {name}: told already");
+                    continue;
+                }
+                let quest_name = rt.game.data.quests.get(&FormId(quest)).and_then(|q| q.name.clone()).filter(|n| !n.trim().is_empty());
+                match (quest_lines.as_deref_mut(), quest_name) {
+                    (Some(lines), Some(qn)) => {
+                        let n = if failed { crate::script_events::QuestNotice::Failed(qn) } else { crate::script_events::QuestNotice::Completed(qn) };
+                        if !lines.holds(&n) {
+                            info!("co-op: the host's quest: {}", crate::quest_messages::describe(&n));
+                            lines.push(n);
+                        }
+                    }
+                    // A quest the Pip-Boy does not list (no name) shows no line in the
+                    // host's game either (docs/spec-notes/quest-messages.md §5).
+                    _ => info!("co-op: the host {how} {name}: no quest line"),
                 }
             }
             Shared::Save { kind, .. } if p.role != Role::Solo => {
@@ -387,6 +415,10 @@ fn rewards(mut p: ResMut<CoopProgress>, script: Option<ResMut<ScriptState>>) {
         };
         info!("co-op: a script handed the player {} ({}){of}: to the guests too", rt.game.data.name(g.item), g.count);
         p.outbox.push(Shared::Gift { batch: g.batch, item: g.item.0, count: g.count.max(0) as u32, quest: g.quest.map_or(0, |q| q.0), stage: g.stage.map_or(u32::MAX, |s| s as u32) });
+    }
+    for (q, failed) in std::mem::take(&mut rt.game.coop_rewards.ended) {
+        info!("co-op: {} {}: to the guests", rt.game.data.name(q), if failed { "failed" } else { "completed" });
+        p.outbox.push(Shared::QuestEnded { quest: q.0, failed });
     }
     for r in rt.game.coop_rewards.due(rt.game.frame) {
         if r.quest == fnv_game::coop_rewards::SCRIPT_XP {

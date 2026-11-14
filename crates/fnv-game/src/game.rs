@@ -1735,6 +1735,12 @@ pub struct Game<'a> {
     /// On a guest: the host's active quest, which its quest list, objectives and markers
     /// show in place of this game's own (`None`: the host has none).
     pub coop_host_quest: Option<crate::coop::HostQuest>,
+    /// On a guest: the host's quests that ended while this guest played, oldest first,
+    /// and whether each failed ([`Game::coop_host_quest_ended`]). Not saved.
+    pub coop_host_ended: Vec<(FormId, bool)>,
+    /// On a guest: the objectives the host's quest view last showed for each quest
+    /// ([`Game::coop_set_host_quest`]), for an ended quest's page. Not saved.
+    pub coop_host_objectives: BTreeMap<FormId, BTreeMap<i32, bool>>,
     /// A co-op guest's: the host's story, read by the world's scripts ([`crate::coop::HostStory`]).
     /// Not saved.
     pub coop_host_story: crate::coop::HostStory,
@@ -2666,6 +2672,8 @@ impl<'a> Game<'a> {
             coop_story: Default::default(),
             coop_from_others: Default::default(),
             coop_host_quest: None,
+            coop_host_ended: Vec::new(),
+            coop_host_objectives: BTreeMap::new(),
             coop_host_story: crate::coop::HostStory::default(),
             coop_host_name: None,
             shot_for_player: None,
@@ -2764,6 +2772,8 @@ impl<'a> Game<'a> {
         match kind {
             EventKind::ItemRemoved { from: FormId::PLAYER_REF, .. } => self.coop_rewards.took_from_player(),
             EventKind::StageSet { quest, stage, .. } => self.coop_rewards.quest_moved(quest, Some(stage)),
+            // A co-op host's failed quest, for its guests (item 205).
+            EventKind::QuestFailed { quest } if self.coop_rewards.on => self.coop_rewards.ended.push((quest, true)),
             _ => {}
         }
         // Caps for the player: part of a completed quest's reward for co-op guests.

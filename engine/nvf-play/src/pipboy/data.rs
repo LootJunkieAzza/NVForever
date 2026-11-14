@@ -89,7 +89,7 @@ use travel::{Ask, FastTravelAsk, FastTravelGo, Popup};
 pub(crate) use view::MapView;
 use nvf_assets::GameData;
 use std::collections::hash_map::Entry;
-use std::collections::{BTreeSet, HashMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 use std::sync::Arc;
 
 // ---- the tabs ---------------------------------------------------------------------------
@@ -1362,11 +1362,19 @@ pub(crate) fn restore_custom_marker(game: &mut fnv_game::Game, pending: Option<&
 
 fn track(st: &mut DataState, game: &Game) {
     if let Some(rt) = game.script.as_ref().and_then(|s| s.rt.as_ref()) {
-        // A co-op guest lists the host's quest only.
-        let mut new: Vec<u32> = rt.game.quests.iter().filter(|(q, s)| !rt.game.coop_guest && listed(&rt.game, **q, s) && !st.seen.contains_key(&q.0)).map(|(q, _)| q.0).collect();
+        // A co-op guest lists the host's quests (`guest_quests`), as they first come.
+        let mut new: Vec<u32> = if rt.game.coop_guest {
+            guest_quests(None, &rt.game).into_iter().map(|k| k.form).filter(|q| !st.seen.contains_key(q)).collect()
+        } else {
+            rt.game.quests.iter().filter(|(q, s)| listed(&rt.game, **q, s) && !st.seen.contains_key(&q.0)).map(|(q, _)| q.0).collect()
+        };
         if !new.is_empty() {
             st.seen_count += 1;
             new.sort_unstable();
+            if rt.game.coop_guest {
+                let names: Vec<String> = new.iter().map(|q| rt.game.data.name(FormId(*q))).collect();
+                info!("pipboy data: the host's quests listed here now: {}", names.join(", "));
+            }
             for q in new {
                 st.seen.insert(q, st.seen_count);
             }
@@ -1425,6 +1433,33 @@ pub fn active_quest(st: Option<&DataState>, g: &fnv_game::game::Game) -> Option<
     chosen.or(running.first().copied()).map(FormId)
 }
 
+/// A co-op guest's quest list, the host's (item 205; the laptop's duo b3: the guest
+/// listed only the host's active quest): each quest of the host's story with a name and an
+/// objective shown or done, as [`listed`] has the host's own (`Game::coop_host_story`,
+/// which reaches a guest that joins later within a round of its pages); the host's active
+/// quest; the quests that ended while this guest played (`Game::coop_host_ended`, at
+/// once, before the story's next page). Done when completed or failed. In order as
+/// [`player_quests`], `st` giving when this guest first listed each.
+fn guest_quests(st: Option<&DataState>, g: &fnv_game::game::Game) -> Vec<QuestKey> {
+    let named = |q: FormId| g.data.quests.get(&q).and_then(|d| d.name.as_deref()).is_some_and(|n| !n.trim().is_empty());
+    let seen = |q: u32| st.map_or(0, |st| st.seen.get(&q).copied().unwrap_or(st.seen_count + 1));
+    let mut done: BTreeMap<u32, bool> = BTreeMap::new();
+    for (q, s) in &g.coop_host_story.quests {
+        if named(*q) && !s.objectives.is_empty() {
+            done.insert(q.0, s.ended);
+        }
+    }
+    if let Some(h) = g.coop_host_quest.as_ref().filter(|h| named(h.quest)) {
+        *done.entry(h.quest.0).or_default() |= h.completed || h.failed;
+    }
+    for (q, _) in g.coop_host_ended.iter().filter(|(q, _)| named(*q)) {
+        done.insert(q.0, true);
+    }
+    let mut out: Vec<QuestKey> = done.into_iter().map(|(form, done)| QuestKey { seen: seen(form), form, done }).collect();
+    model::sort_quests(&mut out);
+    out
+}
+
 /// Whether a quest is in the player's list: it has a name and an objective shown or done
 /// (docs/spec-notes/quest-messages.md §5).
 fn listed(g: &fnv_game::game::Game, q: FormId, s: &fnv_game::quest::QuestState) -> bool {
@@ -1480,8 +1515,9 @@ fn lists(st: &mut DataState, game: &Game) -> Lists {
     let Some(rt) = game.script.as_ref().and_then(|s| s.rt.as_ref()) else { return out };
     let g = &rt.game;
     if g.coop_guest {
-        // A co-op guest's list is the host's active quest alone (`Game::coop_host_quest`).
-        out.quests = g.coop_host_quest.iter().map(|h| QuestKey { seen: 0, form: h.quest.0, done: h.completed || h.failed }).collect();
+        // A co-op guest's list is the host's (item 205): its quests as the host's story
+        // carries them, its active quest and the quests that ended while it played.
+        out.quests = guest_quests(Some(st), g);
         st.active_quest = g.coop_host_quest.as_ref().map(|h| h.quest.0);
     } else {
         out.quests = player_quests(Some(st), g);
@@ -2499,7 +2535,12 @@ fn objectives(game: &Game, q: u32) -> Vec<Row> {
     let Some(def) = g.data.quests.get(&FormId(q)) else { return Vec::new() };
     let shown: Vec<(i32, bool)> = match (&g.coop_host_quest, g.quests.get(&FormId(q))) {
         (Some(h), _) if g.coop_guest && h.quest.0 == q => h.objectives.iter().map(|(i, done)| (*i, *done)).collect(),
-        _ if g.coop_guest => Vec::new(),
+        // Another quest of the host's: its objectives as the host's story carries them,
+        // else as the host's quest view last showed them (item 205).
+        _ if g.coop_guest => match g.coop_host_story.quests.get(&FormId(q)).filter(|s| !s.objectives.is_empty()) {
+            Some(s) => s.objectives.iter().map(|(i, done)| (*i, *done)).collect(),
+            None => g.coop_host_objectives.get(&FormId(q)).map(|o| o.iter().map(|(i, done)| (*i, *done)).collect()).unwrap_or_default(),
+        },
         (_, Some(state)) => state.objectives.iter().filter(|(_, o)| o.displayed || o.completed).map(|(i, o)| (*i, o.completed)).collect(),
         (_, None) => Vec::new(),
     };
