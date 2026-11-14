@@ -2,3 +2,6 @@
 # turn the driver on; without it git merges as usual). Never merge=union: it keeps both
 # sides of a conflict and drops the lines they share, fusing or doubling scenarios.
 tools/smoke/scenarios.toml merge=smoke-scenarios
+
+# NVIDIA's licence text, kept byte for byte (its SHA-256 is pinned by a test): no line-ending conversion.
+engine/nvforever/src/dlss_download/nvngx_dlss.license.txt -text

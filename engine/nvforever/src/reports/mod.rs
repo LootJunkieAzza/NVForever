@@ -69,6 +69,11 @@ static ACTIVE: OnceLock<Option<Active>> = OnceLock::new();
 /// `--data` / `NVFOREVER_DATA` was given (a developer or smoke run; [`decide`]).
 static DEVELOPER_DATA: OnceLock<bool> = OnceLock::new();
 
+/// Whether this run supplied `--data` / `NVFOREVER_DATA` ([`decide`]).
+pub(crate) fn developer_data() -> bool {
+    DEVELOPER_DATA.get().copied().unwrap_or(false)
+}
+
 /// Folders hidden in everything a report sends, besides the home folder that
 /// `crash::redact` hides: the Data folder, the game folder and NVForever's own folder (a
 /// game folder outside the home can still carry a name). Set by [`ReportsPlugin`] before

@@ -12,6 +12,13 @@
 # - `launch = "<name>"`: scenarios that share one game run (same arguments; test aids
 #   in [timed] are joined, others must agree). Only shares checked by running both ways
 #   are written here. `offset` moves a member's timed test aids in a shared run.
+# - `requires = ["VAR", …]`: the scenario is skipped unless these environment variables
+#   are set (NVIDIA's files: NVF_DLSS_DIR).
+# - `front = true` (game scenarios): the runner holds the launch's window in front while it
+#   runs (tools/smoke/smoke/front.py, Windows), for checks that need the foreground (DLSS
+#   Frame Generation generates only there). Front launches, with the rest of their
+#   NVFOREVER_HOME chains, run last, one at a time with the machine to themselves; the
+#   window's foreground is logged beside the run log (`<launch>.front.txt`).
 # - Expectation syntax: tools/smoke/smoke/expect.py. "run finished" and exit code 0 are
 #   always expected of a game run.
 # - Test-aid times: the runner sets NVF_PLAY_AIDS_FROM_SCRIPTS=1 for every `--play`
@@ -1449,6 +1456,26 @@ expect = [
 ]
 
 [[scenario]]
+name = "restrained-dialogue-package"
+source = "issue #2309: a restrained actor's Dialogue package still starts its conversation, without moving (fnv_ai begin_in_place, step_actor_inner) [documented: GECK wiki SetRestrained, restrained actors still go into dialogue]"
+note = "Hidden Valley bunker L2: the console runs the end script of Hardin's line INFO 001633C9 (both restrained, controls off, the trigger 000AD6A1's HardinTraining set to 1); its GameMode block moves both to the markers 001633EF/001633EE after 2 s and gives Hardin HVHardinPowerArmorTrainingPackage (Dialogue, PlayerRef within 200) after 4 s. His line 001633C0 gives the controls back (begin script) and releases both (end script)"
+areas = ["ai", "dialogue-packages"]
+paths = ["crates/fnv-ai/src/carry.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_CONSOLE = "6:player.setrestrained 1;000E2F88.setrestrained 1;disableplayercontrols;set 000AD6A1.hardintraining to 1;6.5:close;64:player.getrestrained;000E2F88.getrestrained;player.hasperk 00058FDF;64.5:close" }
+args = ["--cell", "HiddenValley02", "--play", "--pos=3300,-3300,15560", "--npc-packages", "000E2F88", "--no-voice"]
+run_seconds = 72
+order = [[
+  { re = 'player controls: .*disabled by scripts', label = "the training holds the player" },
+  { re = 'dialogue: conversation with .* started \(topic HardinPowerArmorTraining\)', label = "restrained Hardin's Dialogue package opens the conversation" },
+  { re = 'player controls: all enabled', label = "his line gives the controls back" },
+  { re = 'console: GetRestrained on player >> 0\.00', label = "the player is released" },
+]]
+expect = [
+  { re = 'console: GetRestrained on EdgarHardinREF >> 0\.00', label = "Hardin is released" },
+  { re = 'console: HasPerk on player >> 1\.00', label = "the player has Power Armor Training" },
+]
+
+[[scenario]]
 name = "crucified-stay"
 source = "owner's playtest list 7 item 34: the crucified Powder Gangers of Nipton get on their crosses (a Travel package to the linked cross, goal::package_furniture) and stay (their script restrains them on it)"
 areas = ["ai", "furniture"]
@@ -2857,7 +2884,7 @@ env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TE
 args = ["--play", "--world", "FreesideFortWorld", "--pos=7915,2120,1000", "--heading", "0", "--hour", "12", "--no-voice", "--no-messages"]
 run_seconds = 30
 expect = [
-  { re = "dialogue: test aid .*leaves 0x00115C5F's topic list, which offers no Goodbye", count = 1, label = "the aid's leave at her top level ends the conversation" },
+  { re = "dialogue: test aid .*leaves 0x00115C5F's topic list, which offers no Goodbye", count = 1, label = "the aid's leave at her top level ends the conversation", known_failing = "since #2378 (2026-11-13): a quest's conditions count for a voice type without Allow Default Dialog, and the Generic quest's list names FemaleAdult11, so Julie's top level offers Generic's Goodbye 0x00177392 and the aid picks it instead of leaving a list without one. The scenario needs another actor whose top level has no Goodbye, or observer check 127 says the original gives her none" },
   { re = 'dialogue: Tab refused', count = 0, label = "Tab is not refused at her topic list" },
 ]
 
@@ -5306,7 +5333,7 @@ expect = [
 name = "securitron-expression"
 source = "docs/spec-notes/effect-shaders.md §5: SetSecuritronExpression puts victor_alert.dds on the screen (Screen01:0) of a street Securitron by the Strip's north gate (VStreetSecuritron 0x0013BB1F, the test aid call:); frames before (7 s) and after (11 s) in target/smoke"
 areas = ["scripts", "effect-shaders"]
-paths = ["engine/nvforever/src/texture_swap.rs", "engine/nvf-assets/src/actor.rs", "crates/fnv-game/src/functions/misc.rs"]
+paths = ["engine/nvforever/src/texture_swap.rs", "engine/nvf-assets/src/actor.rs", "crates/fnv-game/src/functions/misc.rs", "engine/nvforever/src/actors.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_FACE = "5:0013BB1F", NVF_PLAY_TEST_SCRIPT = '8:call:-:SetSecuritronExpression:0x0013BB1F:"Victor":"Alert"', NVF_PLAY_TEST_SHOTS = "7:securitron_before.png,11:securitron_after.png" }
 args = ["--play", "--world", "TheStripWorldNew", "--pos=-112,3100,1030", "--hour", "12", "--no-voice", "--no-messages"]
 run_seconds = 14
@@ -5319,7 +5346,7 @@ order = [[
 name = "securitron-screen"
 source = "docs/spec-notes/effects-animation-audit.md §2-§3: the street Securitron 0x0013BB1F on the Strip plays its idle's screen tracks (Screen01:0 glow, squash and roll; ScreenStatic:0 noise drifting); frames every 0.5 s over one idle cycle in target/smoke (securitron_screen_NN.png); the Strip's own free controllers (Ultra-Luxe sign glow moving, Tops sign materials); the Securitron's walk binds its wheel track, a BSRotAccumTransfInterpolator whose rotation adds up per cycle (docs/spec-notes/animation.md §9.12)"
 areas = ["effects", "effect-shaders", "animation"]
-paths = ["engine/nvforever/src/actor_materials.rs", "engine/nvf-assets/src/material_anim.rs", "engine/nvf-assets/src/anim_play.rs", "engine/nvf-assets/src/model.rs", "crates/fnv-nif/src/anim.rs", "engine/nvforever/src/locomotion.rs"]
+paths = ["engine/nvforever/src/actor_materials.rs", "engine/nvf-assets/src/material_anim.rs", "engine/nvf-assets/src/anim_play.rs", "engine/nvf-assets/src/model.rs", "crates/fnv-nif/src/anim.rs", "engine/nvforever/src/locomotion.rs", "engine/nvforever/src/actors.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_FACE = "5:0013BB1F", NVF_PLAY_TEST_SHOTS = "6:securitron_screen_00.png,6.5:securitron_screen_01.png,7:securitron_screen_02.png,7.5:securitron_screen_03.png,8:securitron_screen_04.png,8.5:securitron_screen_05.png,9:securitron_screen_06.png,9.5:securitron_screen_07.png,10:securitron_screen_08.png,10.5:securitron_screen_09.png,11:securitron_screen_10.png,11.5:securitron_screen_11.png,12:securitron_screen_12.png,12.5:securitron_screen_13.png,13:securitron_screen_14.png,13.5:securitron_screen_15.png,14:securitron_screen_16.png,14.5:securitron_screen_17.png,15:securitron_screen_18.png,15.5:securitron_screen_19.png,16:securitron_screen_20.png,16.5:securitron_screen_21.png,17:securitron_screen_22.png,17.5:securitron_screen_23.png,18:securitron_screen_24.png,18.5:securitron_screen_25.png,19:securitron_screen_26.png,19.5:securitron_screen_27.png" }
 args = ["--play", "--world", "TheStripWorldNew", "--pos=-112,3100,1030", "--hour", "12", "--no-voice", "--no-messages"]
 run_seconds = 21
@@ -8483,6 +8510,24 @@ expect = [
   "repair menu: closed",
 ]
 order = [["repair menu: open", "repair menu: repaired 9mm Pistol", "repair menu: done", "repair menu: closed"]]
+
+[[scenario]]
+name = "repair-from-dialogue"
+source = "issue #2308: asking a vendor whose repair line has no Goodbye flag (Mick, VFreeformFreesideVFSMickTopic008, INFO 0x0011BCA6: its end script calls ShowRepairMenu) opens the repair services over the conversation, and closing them returns to his topic list (engine/nvf-play/src/repair.rs scripts_open and after_close, dialogue.rs sync_state); before the fix the conversation was held under a menu that never opened"
+note = "Mick (0x0010D8E3) offers the repair topic in his first topic list from the new-game state (fnvtool dialogue talk); the repair aid's done at 30 s acts once the menu is open (a step past its time runs on the menu's first frame), then the talk aid leaves by Goodbye. The topic list is offered (logged) as the line ends, before the menu opens; the Goodbye chosen after the menu closed shows the conversation went on under it"
+areas = ["repair", "dialogue", "menus"]
+paths = ["engine/nvf-play/src/repair.rs", "engine/nvf-play/src/crafting.rs", "engine/nvf-play/src/dialogue.rs", "crates/fnv-game/src/functions/misc.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_TALK = "10:0x0010D8E3=VFreeformFreesideVFSMickTopic008|leave", NVF_PLAY_TEST_REPAIR = "30:done" }
+args = ["--cell", "FreesideMickandRalphs", "--play", "--no-voice"]
+run_seconds = 50
+expect = [
+  { re = 'dialogue: choice \d+ made: .*\[VFreeformFreesideVFSMickTopic008\]', label = "the player asks Mick for repairs" },
+  { re = 'repair menu: open, vendor FreesideMickREF', label = "his line's end script opens the repair services over the conversation" },
+  "repair menu: done",
+  "repair menu: closed",
+  { re = 'dialogue: conversation with .* ended \(', label = "the conversation goes on after the menu and ends by Goodbye" },
+]
+order = [["dialogue: choice …VFreeformFreesideVFSMickTopic008", "repair menu: open, vendor FreesideMickREF", "repair menu: done", "repair menu: closed", "dialogue: choice …[GOODBYE]", "dialogue: conversation with … ended ("]]
 
 [[scenario]]
 name = "pipboy-items-extras"
@@ -11829,6 +11874,79 @@ expect = [
 forbid = [{ text = "vats mode: firing", label = "nothing was fired" }]
 
 [[scenario]]
+name = "vats-dead-eye-pad-b-leaves"
+source = "issue #2311: on a controller B (Menu Mode) leaves Dead Eye VATS and must not also open the Pip-Boy on its release or switch the flashlight when held (docs/design/vats-mode.md §11.8)"
+note = "vats-mode-actions-leave's setup with Input Device = Controller (pause menu 1 s to 2.5 s, the device picked at 2 s, a scratch home for the INI). RB at 10 s enters VATS, RT at 10.32 marks the aimed dog, B at 10.45 held 1.5 s (past the flashlight's 1 s) leaves with the mark dropped: no Pip-Boy, no light. B at 14 s, out of the mode, opens the Pip-Boy as usual, the only open of the run. Before the fix the held B switched the light on and nothing opened; a tap opened the Pip-Boy on the release"
+areas = ["combat", "vats", "controller"]
+paths = ["engine/nvf-play/src/vats_mode.rs", "engine/nvf-play/src/flashlight.rs"]
+env = { NVFOREVER_HOME = "vats-dead-eye-pad-b-home", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_PAUSE = "1:2.5", NVF_PLAY_TEST_SETTINGS = "2:device:Controller", NVF_PLAY_TEST_SCRIPT = "3:combat:0x000F573F:player,3:combat:0x0013E5BB:player", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,10.3:aimvats", NVF_PLAY_TEST_KEYS = "10:pad-RB,10.32:pad-RT,10.45:pad-B:1.5,14:pad-B", NVF_PLAY_TEST_VATS_STYLE = "dead-eye" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
+run_seconds = 20
+order = [[
+  { text = "controls: input device Controller", label = "the controller is picked" },
+  { re = 'vats mode: on \(WeapNV357Revolver', label = "RB enters VATS mode" },
+  { re = 'vats mode: marked .* mark 1; 26 AP reserved', label = "RT marks" },
+  { re = 'vats mode: off \(0 shots fired, 0 AP spent; Pip-Boy pressed\)', label = "B ends the mode, nothing spent" },
+  { text = "test aid: real input Pad(East) pressed", label = "B again, out of the mode" },
+  { re = 'menu: open Inventory', label = "the second B opens the Pip-Boy" },
+]]
+expect = [
+  { re = 'menu: open Inventory', count = 1, label = "the B that left opened no Pip-Boy" },
+]
+forbid = [
+  { text = "flashlight: on", label = "the held B switched the flashlight" },
+  { text = "vats mode: firing", label = "nothing was fired" },
+]
+
+[[scenario]]
+name = "vats-dead-eye-tab-leaves"
+source = "issue #2311: Tab (Menu Mode) leaves Dead Eye VATS and must not also open the Pip-Boy on its release or switch the flashlight when held (docs/design/vats-mode.md §11.8)"
+note = "vats-mode-actions-leave's setup on the keyboard: V at 10 s enters, a mark at 10.32, Tab at 10.36 held 1.5 s (past the flashlight's 1 s) leaves with the mark dropped: no Pip-Boy, no light. Tab at 14 s, out of the mode, opens the Pip-Boy as usual, the only open of the run"
+areas = ["combat", "vats"]
+paths = ["engine/nvf-play/src/vats_mode.rs", "engine/nvf-play/src/flashlight.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:combat:0x000F573F:player,3:combat:0x0013E5BB:player", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,10.3:aimvats", NVF_PLAY_TEST_KEYS = "10:v,10.32:mouse-left,10.36:tab:1.5,14:tab", NVF_PLAY_TEST_VATS_STYLE = "dead-eye" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
+run_seconds = 20
+order = [[
+  { re = 'vats mode: on \(WeapNV357Revolver', label = "V enters VATS mode for Tab to leave" },
+  { re = 'vats mode: marked .* mark 1; 26 AP reserved', label = "a mark is made before Tab" },
+  { re = 'vats mode: off \(0 shots fired, 0 AP spent; Pip-Boy pressed\)', label = "Tab ends the mode, nothing spent" },
+  { text = "test aid: real input Key(Tab) pressed", label = "Tab again, out of the mode" },
+  { re = 'menu: open Inventory', label = "the second Tab opens the Pip-Boy" },
+]]
+expect = [
+  { re = 'menu: open Inventory', count = 1, label = "the Tab that left opened no Pip-Boy" },
+]
+forbid = [
+  { text = "flashlight: on", label = "the held Tab switched the flashlight" },
+  { text = "vats mode: firing", label = "nothing was fired" },
+]
+
+[[scenario]]
+name = "vats-classic-pad-b-returns"
+source = "issue #2311: on the controller's classic VATS screen B is both Menu Mode and the screen's Return; its press returns (with nothing queued, leaves) and must not also open the Pip-Boy on its release or switch the flashlight when held (docs/design/vats-mode.md §11.8)"
+note = "vats-dead-eye-pad-b-leaves' setup in the classic style: RB at 10 s finds the targets and stops the clock (the aids' clock then counts real time), B at 11 s held 1.5 s (past the flashlight's 1 s) with nothing queued leaves the screen: no Pip-Boy, no light. B at 14 s, out of the mode, opens the Pip-Boy as usual, the only open of the run"
+areas = ["combat", "vats", "controller"]
+paths = ["engine/nvf-play/src/vats_mode.rs", "engine/nvf-play/src/flashlight.rs"]
+env = { NVFOREVER_HOME = "vats-classic-pad-b-home", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_PAUSE = "1:2.5", NVF_PLAY_TEST_SETTINGS = "2:device:Controller", NVF_PLAY_TEST_SCRIPT = "3:combat:0x000F573F:player,3:combat:0x0013E5BB:player", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,9.8:aimvats", NVF_PLAY_TEST_KEYS = "10:pad-RB,11:pad-B:1.5,14:pad-B", NVF_PLAY_TEST_VATS_STYLE = "classic" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
+run_seconds = 20
+order = [[
+  { text = "controls: input device Controller", label = "the controller is picked" },
+  { re = 'vats mode: classic: \d+ targets, [0-9A-F]{8} selected; the clock at 0\.00', label = "RB opens the classic screen" },
+  { re = 'vats mode: off \(0 shots fired, 0 AP spent; right click with no marks\)', label = "B with nothing queued leaves the screen" },
+  { text = "test aid: real input Pad(East) pressed", label = "B again, off the classic screen" },
+  { re = 'menu: open Inventory', label = "the second B opens the Pip-Boy as usual" },
+]]
+expect = [
+  { re = 'menu: open Inventory', count = 1, label = "the B that returned opened no Pip-Boy" },
+]
+forbid = [
+  { text = "flashlight: on", label = "the held B on the screen switched the flashlight" },
+  { text = "vats mode: firing", label = "no queued attack was played" },
+]
+
+[[scenario]]
 name = "vats-mode-two-marks"
 source = "owner's todo 6: VATS mode, a Dead Eye-style mark and fire (docs/design/vats-mode.md §13)"
 note = "the two Goodsprings dogs (combat-dogs' spot) attack the player, who cannot die (GOD) and holds a .357 (WeapNV357Revolver 0008F216: 26 AP a shot from its DNAM override, 6 rounds; god mode keeps the magazine full). V at 10 s enters VATS mode (after the add-on packs' start-up boxes, about 6.5 s of game time: any menu ends the mode, and one cut the firing short at 6 s, coordinator run 2026-10-18); the clock then runs at 0.05, so the aids 10.3-10.42 s (game time) come about 1 s apart in real time; aimvats turns to the nearest unmarked living actor, the left button marks it, twice; E fires both at half speed. 2 x 26 = 52 AP"
@@ -14195,6 +14313,23 @@ expect = [
   { re = 'pipboy items: Blood Pack selected: .*effects: Some\("[^",]+ \+1"\)', label = "one HP +1 for the Blood Pack" },
   { re = 'pipboy items: Stimpak selected: .*effects: Some\("[^",]+ \+\d+"\)', label = "one HP line for the Stimpak" },
 ]
+
+[[scenario]]
+name = "pipboy-pad-pointer"
+source = "#2310: with Input Device = Controller the pointer sleeps (hidden, on nothing) until the mouse is used, and a Pip-Boy list redrawn under a resting pointer keeps the D-pad's choice: only a pointer that moved takes the selection (engine/nvf-play/src/pad/pointer.rs, pipboy.rs PointerMoved, pipboy/items.rs on_row_over; docs/design/controller.md section 3)"
+note = "the hand-built ITEMS page's Aid tab (four aid items added to what the General Store start carries, first rows Big Book of Science, Bleak Venom, Blood Pack, Doctor's Bag); the test aid's pointer (point=, the mouse's stand-in, not put to sleep) parked on the first row before three D-pad Downs; before the fix each step was taken back by the row redrawn under the pointer. A home of its own keeps the Controller choice away from the other scenarios"
+areas = ["pipboy", "controller"]
+paths = ["engine/nvf-play/src/pad/pointer.rs", "engine/nvf-play/src/pipboy.rs", "engine/nvf-play/src/pipboy/items.rs", "engine/nvf-play/src/pipboy/item_mod.rs", "engine/nvf-play/src/pipboy/repair.rs", "engine/nvf-play/src/ui_pointer.rs", "engine/nvf-play/src/player.rs"]
+env = { NVF_PLAY_TEST_TILE_MENUS = "", NVFOREVER_HOME = "pipboy-pad-pointer-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_PAUSE = "1:4", NVF_PLAY_TEST_SETTINGS = "2:device:Controller", NVF_PLAY_TEST_SCRIPT = "9:call:player:AddItem:MagazineNVScience:1,9.2:call:player:AddItem:BloodPack:1,9.4:call:player:AddItem:Stimpak:2,9.6:call:player:AddItem:BookSkillScience:1", NVF_PLAY_TEST_PIPBOY = "20:open,21:page=items,21.5:tab=2,22:point=260:150,28:close", NVF_PLAY_TEST_KEYS = "23:pad-D-Pad Down,24.5:pad-D-Pad Down,26:pad-D-Pad Down" }
+args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 30
+expect = [
+  { text = "controls: input device Controller", label = "the Controls tab picks the controller" },
+  { text = "pointer: asleep (the controller has the controls)", label = "the window's pointer sleeps with the controller" },
+  { text = "test aid: real input Pad(DPadDown) pressed", count = 3, label = "three D-pad Downs" },
+  { text = "pipboy items: Doctor's Bag selected", label = "the third D-pad Down reaches the fourth Aid row" },
+]
+order = [["pipboy items: Big Book of Science selected", "test aid: real input Pad(DPadDown) pressed", "pipboy items: Bleak Venom selected", "test aid: real input Pad(DPadDown) pressed", "pipboy items: Blood Pack selected", "test aid: real input Pad(DPadDown) pressed", "pipboy items: Doctor's Bag selected"]]
 
 [[scenario]]
 name = "pipboy-misc-folders"
@@ -16565,6 +16700,8 @@ areas = ["quests", "scripts", "dialogue"]
 paths = ["crates/fnv-game/walkthrough/companion-ede.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs", "crates/fnv-game/src/functions/player.rs", "crates/fnv-game/src/perks.rs"]
 commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/companion-ede.actions.json"]]
 expect = [
+  { json = "observations.?label=ed-e greets.info", equals = "0x001579D7", label = "companion-ede, ED-E says its first greeting (voice type without Allow Default Dialog, the quest names the speaker: #2378)" },
+  { json = "observations.?label=milestone: controls back after the greeting.value", equals = 0.0, label = "companion-ede, milestone: controls back after the greeting: GetPlayerControlsDisabled = 0.0 (the repair script turned them off)" },
   { json = "observations.?label=milestone: ED-E hired.var.bEDEHired", equals = 1.0, label = "companion-ede, milestone: ED-E hired: var.bEDEHired = 1.0" },
   { json = "observations.?label=milestone: ED-E hired.var.bCritterInParty", equals = 1.0, label = "companion-ede, milestone: ED-E hired: var.bCritterInParty = 1.0" },
   { json = "observations.?label=milestone: vDialogueEDE 10 (first log due).stage", equals = 10, label = "companion-ede, milestone: vDialogueEDE 10 (first log due): stage = 10" },
@@ -24116,17 +24253,32 @@ forbid = ["FSR dispatch failed", "FSR 3.1 unavailable", "Shader validation error
 
 [[scenario]]
 name = "latency-reduction"
-source = "#1778, docs/design/latency-reduction.md: --latency-reduction turns the switch on; the start says whether the GPU's Vulkan driver offers VK_AMD_anti_lag or VK_NV_low_latency2, and the game runs on with either or neither"
+source = "#1778, #2317, docs/design/latency-reduction.md: --latency-reduction turns the switch on; the start names AMD Anti-Lag, direct NVIDIA low latency or NVIDIA Reflex through Streamline, or says neither is available"
 areas = ["graphics"]
-paths = ["engine/nvforever/src/anti_lag.rs", "engine/nvforever/src/nv_low_latency.rs", "engine/nvforever/src/frame_pace.rs", "engine/vendor/bevy_render/src/renderer/**", "engine/vendor/bevy_render/src/settings.rs", "engine/vendor/wgpu-hal/src/vulkan/**", "engine/Cargo.toml"]
+paths = ["engine/nvforever/src/anti_lag.rs", "engine/nvforever/src/nv_low_latency.rs", "engine/nvforever/src/frame_pace.rs", "engine/nvforever/src/dlss/**", "engine/nvforever/src/upscaler*", "engine/nvforever/src/main.rs", "engine/vendor/bevy_render/src/renderer/**", "engine/vendor/bevy_render/src/settings.rs", "engine/vendor/wgpu-hal/src/vulkan/**", "engine/Cargo.toml"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
 args = ["--cell", "GSDocMitchellHouse", "--play", "--size", "1280x720", "--latency-reduction", "--no-voice", "--no-lodgen"]
 run_seconds = 12
 expect = [
-  { re = 'latency reduction: (AMD Anti-Lag \(VK_AMD_anti_lag\) available|NVIDIA low latency \(VK_NV_low_latency2\) available|not available) on ', label = "the start says which technique the driver offers, or that it has neither" },
-  { re = 'latency reduction: on \((AMD Anti-Lag|NVIDIA low latency|not available on this GPU)\)', label = "--latency-reduction turns the switch on" },
+  { re = 'latency reduction: (AMD Anti-Lag \(VK_AMD_anti_lag\) available|NVIDIA low latency \(VK_NV_low_latency2\) available|NVIDIA Reflex through Streamline available|not available) on ', label = "the start says which technique the driver offers, or that it has neither" },
+  { re = 'latency reduction: on \((AMD Anti-Lag|NVIDIA low latency|NVIDIA Reflex \(Streamline\)|not available on this GPU)\)', label = "--latency-reduction turns the switch on" },
 ]
 forbid = [{ text = "Validation Error", label = "a Vulkan validation error" }, { text = "Caught rendering error", label = "a rendering error" }]
+
+[[scenario]]
+name = "latency-reduction-direct"
+source = "#2224, #2317, docs/design/latency-reduction.md: without Streamline the direct latency route retains its startup availability and on-switch messages"
+note = "[documented: upscaler.rs::UpscalerStartup::new] NVF_DLSS_PRELOAD=0 skips Streamline unless DLSS is chosen. Explicit Off choices and the empty DLSS fixture keep inherited files and saved choices out."
+areas = ["graphics"]
+paths = ["engine/nvforever/src/anti_lag.rs", "engine/nvforever/src/nv_low_latency.rs", "engine/nvforever/src/frame_pace.rs", "engine/nvforever/src/dlss/**", "engine/nvforever/src/upscaler*", "engine/nvforever/src/main.rs", "engine/vendor/bevy_render/src/renderer/**", "engine/vendor/bevy_render/src/settings.rs", "engine/vendor/wgpu-hal/src/vulkan/**", "engine/Cargo.toml"]
+env = { WGPU_BACKEND = "vulkan", NVF_DLSS_PRELOAD = "0", NVF_DLSS_DIR = "{repo}/tools/smoke/fixtures/dlss-empty", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--size", "1280x720", "--upscaler", "off", "--frame-generation", "off", "--latency-reduction", "--no-voice", "--no-lodgen"]
+run_seconds = 12
+expect = [
+  { re = 'latency reduction: (AMD Anti-Lag \(VK_AMD_anti_lag\) available|NVIDIA low latency \(VK_NV_low_latency2\) available|not available) on ', label = "the direct driver's availability without Streamline" },
+  { re = 'latency reduction: on \((AMD Anti-Lag|NVIDIA low latency|not available on this GPU)\)', label = "the direct latency switch on without Streamline" },
+]
+forbid = ["NVIDIA Reflex", "DLSS: slInit:", "DLSS: route:", "Validation Error", "Caught rendering error"]
 
 [[scenario]]
 name = "frame-generation"
@@ -24143,7 +24295,7 @@ expect = [
   { text = "frame generation: presenting on a thread of its own", label = "the presenter thread takes the window's images (h9x000/NVForever#1)" },
   { re = 'frame generation: \d+ real frames and (\d+) generated in ', range = [200, 1000000], label = "generated frames presented over ten seconds" },
   { text = "frame generation: … presents took … on the presenter thread", label = "presented from the presenter thread, not the render thread" },
-  { re = 'latency reduction: on \((AMD Anti-Lag|NVIDIA low latency|not available on this GPU), with frame generation\)', label = "frame generation turns latency reduction on" },
+  { re = 'latency reduction: on \((AMD Anti-Lag|NVIDIA low latency|NVIDIA Reflex \(Streamline\)|not available on this GPU), with frame generation\)', label = "frame generation turns latency reduction on" },
   { re = 'fps counter: FPS \d+ +\(\d+ rendered\) +[\d.]+ ms ', label = "the overlay's FPS row reads the frames shown and the rendered ones apart while generated frames are shown" },
 ]
 forbid = [
@@ -24158,7 +24310,7 @@ name = "frame-generation-switch"
 source = "h9x000/NVForever#1, docs/design/frame-generation.md \"Presentation and pacing\": frame generation switched off and on again on the settings page: its presenter thread ends before Bevy takes the window's images again, a new one starts and presents, no validation errors"
 areas = ["graphics", "ui"]
 paths = ["engine/nvforever/src/frame_gen.rs", "engine/nvforever/src/fg_presenter.rs", "engine/vendor/bevy_render/src/view/window/**", "engine/nvforever/src/upscaler*", "engine/nvforever/src/upscaler/**", "engine/nvforever/src/dlss/**"]
-env = { WGPU_BACKEND = "vulkan", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "8:10,13:15", NVF_PLAY_TEST_SETTINGS = "9:frame-generation,14:frame-generation" }
+env = { WGPU_BACKEND = "vulkan", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "8:10,13:15", NVF_PLAY_TEST_SETTINGS = "9:frame-generation=Off,14:frame-generation=FSR 3.1" }
 args = ["--cell", "GSDocMitchellHouse", "--play", "--size", "1280x720", "--fsr", "quality", "--frame-generation", "--no-voice", "--no-lodgen"]
 run_seconds = 32
 expect = [
@@ -24474,7 +24626,300 @@ expect = [
 ]
 forbid = [{ text = "DLSS: evaluate active", label = "a DLSS evaluate with FSR chosen" }, { re = 'graphics: DLSS \w+ active', label = "DLSS put on the camera" }, { text = "frame generation: on but not running", label = "frame generation held off" }, { text = "FSR dispatch failed", label = "FSR failing" }, { text = "FSR 3.1 unavailable", label = "FSR unavailable through the interposer" }, { text = "Validation Error", label = "a Vulkan validation error" }, { text = "Caught rendering error", label = "a rendering error" }]
 
+# Download DLSS... from the settings (#2250, docs/dlss.md): the Upscaler row's choice, NVIDIA's licence in a dialog, the
+# download of the four files from NVIDIA's release. dlss-download-decline, -offline and -404 need no network and no NVIDIA
+# file: their NVF_DLSS_DIR names a folder under target/ that holds none (so the choice is offered), and their download address
+# is the test aid's loopback one (NVF_DLSS_DOWNLOAD_URL, taken only for http on this machine). Off Windows the choice is not
+# offered (DLSS is Windows only; picking it logs "not taken"), so each expectation takes either outcome, as dlss-no-files does. dlss-download-real and
+# -real-restart fetch the real files from GitHub (about 60 MB): only with NVF_DLSS_DOWNLOAD_REAL set.
+[[scenario]]
+name = "dlss-download-decline"
+source = "#2250, docs/dlss.md \"Download DLSS…\": Download DLSS... picked on the Upscaler row opens NVIDIA's licence; Cancel closes it and nothing is downloaded: no network access before I accept"
+note = "NVF_DLSS_DIR names target/smoke-dlss-decline, which holds no DLSS file, and NVF_DLSS_PRELOAD=0 keeps a preload in the runner's environment out, so DLSS is out of reach as files-missing and the row offers the download. The download address is a closed loopback port, so even a wrong acceptance would not reach the network. Off Windows the row does not offer it (the settings say it is not taken). Its own NVFOREVER_HOME: the pick is an action and writes no INI, but a run's settings stay out of the player's home all the same"
+areas = ["graphics", "ui"]
+paths = ["engine/nvforever/src/dlss_download/**", "engine/nvforever/src/dlss/download/**", "engine/nvforever/src/settings.rs", "engine/nvforever/src/upscaler*", "engine/nvf-play/src/settings.rs", "engine/nvf-play/src/pause.rs"]
+env = { WGPU_BACKEND = "vulkan", NVFOREVER_HOME = "dlss-download-decline-home", NVF_DLSS_DIR = "{repo}/target/smoke-dlss-decline", NVF_DLSS_PRELOAD = "0", NVF_DLSS_DOWNLOAD_URL = "http://127.0.0.1:9/streamline-sdk-v2.14.16.zip", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "8:16", NVF_PLAY_TEST_SETTINGS = "9:upscaler=Download DLSS...", NVF_PLAY_TEST_DLSS_DOWNLOAD = "cancel" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--size", "1280x720", "--upscaler", "off", "--no-voice", "--no-lodgen"]
+run_seconds = 19
+expect = [
+  { re = '(DLSS download: licence shown \(\d+ lines\)|settings: upscaler Download DLSS\.\.\. not taken)', label = "the licence shown (Windows), or not taken (DLSS is Windows only)" },
+  { re = '(DLSS download: licence not accepted; nothing downloaded|settings: upscaler Download DLSS\.\.\. not taken)', label = "Cancel closes it with nothing downloaded" },
+]
+forbid = [{ text = "DLSS download: licence accepted", label = "a download started without I accept" }, { text = "settings: upscaler Off", label = "the action taken as a change of the row (kept and stored)" }, { re = 'DLSS download: \d+ entries', label = "the archive read" }, { text = "DLSS download: failed", label = "a download tried" }, { text = "Validation Error", label = "a Vulkan validation error" }]
+
+[[scenario]]
+name = "dlss-download-offline"
+source = "#2250, docs/dlss.md \"Download DLSS…\": I accept starts the download; with no answer from the server it fails, nothing is written, and the dialog shows the result with the manual way"
+note = "NVF_DLSS_DOWNLOAD_URL is a closed port on this machine (http://127.0.0.1:9), which refuses the connection: the offline failure without the network. NVF_DLSS_DIR names target/smoke-dlss-offline (no DLSS file in it; the download writes nothing there). The aid closes the dialog a second after the result. Off Windows the row does not offer it. Its own NVFOREVER_HOME"
+areas = ["graphics", "ui"]
+paths = ["engine/nvforever/src/dlss_download/**", "engine/nvforever/src/dlss/download/**", "engine/nvforever/src/settings.rs", "engine/nvforever/src/upscaler*", "engine/nvf-play/src/settings.rs"]
+env = { WGPU_BACKEND = "vulkan", NVFOREVER_HOME = "dlss-download-offline-home", NVF_DLSS_DIR = "{repo}/target/smoke-dlss-offline", NVF_DLSS_PRELOAD = "0", NVF_DLSS_DOWNLOAD_URL = "http://127.0.0.1:9/streamline-sdk-v2.14.16.zip", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "8:22", NVF_PLAY_TEST_SETTINGS = "9:upscaler=Download DLSS...", NVF_PLAY_TEST_DLSS_DOWNLOAD = "accept" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--size", "1280x720", "--upscaler", "off", "--no-voice", "--no-lodgen"]
+run_seconds = 25
+expect = [
+  { re = '(test aid NVF_PLAY_TEST_DLSS_DOWNLOAD: I accept pressed|settings: upscaler Download DLSS\.\.\. not taken)', label = "I accept pressed on the licence (Windows)" },
+  { re = '(DLSS download: licence accepted|settings: upscaler Download DLSS\.\.\. not taken)', label = "the download starts only now" },
+  { re = '(DLSS download: failed: no answer from the server \(.+\); nothing written|settings: upscaler Download DLSS\.\.\. not taken)', label = "no answer: failed, nothing written" },
+  { re = '(DLSS download: result shown \(failed\)|settings: upscaler Download DLSS\.\.\. not taken)', label = "the dialog shows the failure and the manual way" },
+]
+order = [[{ re = '(DLSS download: licence shown|settings: upscaler Download DLSS\.\.\. not taken)' }, { re = '(DLSS download: licence accepted|settings: upscaler Download DLSS\.\.\. not taken)' }]]
+forbid = [{ text = "DLSS download: installed in", label = "anything installed" }, { re = 'DLSS download: \S+ \d+ bytes, SHA-256 ok', label = "a file fetched" }, { text = "panicked", label = "a panic" }, { text = "Validation Error", label = "a Vulkan validation error" }]
+
+[[scenario]]
+name = "dlss-download-404"
+source = "#2250, docs/dlss.md \"Download DLSS…\": the archive's address answering 404 fails the download with the status, nothing written"
+note = "The runner's loopback server (serve) answers every request 404; NVF_DLSS_DOWNLOAD_URL points the download at it. NVF_DLSS_DIR names target/smoke-dlss-404 (no DLSS file in it). Off Windows the row does not offer it. Its own NVFOREVER_HOME"
+areas = ["graphics", "ui"]
+paths = ["engine/nvforever/src/dlss_download/**", "engine/nvforever/src/dlss/download/**", "engine/nvforever/src/settings.rs", "tools/smoke/smoke/runner.py"]
+serve = { status = 404 }
+env = { WGPU_BACKEND = "vulkan", NVFOREVER_HOME = "dlss-download-404-home", NVF_DLSS_DIR = "{repo}/target/smoke-dlss-404", NVF_DLSS_PRELOAD = "0", NVF_DLSS_DOWNLOAD_URL = "{serve}/streamline-sdk-v2.14.16.zip", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "8:20", NVF_PLAY_TEST_SETTINGS = "9:upscaler=Download DLSS...", NVF_PLAY_TEST_DLSS_DOWNLOAD = "accept" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--size", "1280x720", "--upscaler", "off", "--no-voice", "--no-lodgen"]
+run_seconds = 23
+expect = [
+  { re = '(DLSS download: licence accepted|settings: upscaler Download DLSS\.\.\. not taken)', label = "accepted (Windows)" },
+  { re = '(DLSS download: failed: the server answered HTTP 404; nothing written|settings: upscaler Download DLSS\.\.\. not taken)', label = "a 404: failed with the status, nothing written" },
+  { re = '(DLSS download: result shown \(failed\)|settings: upscaler Download DLSS\.\.\. not taken)', label = "the dialog shows the failure" },
+]
+forbid = [{ text = "DLSS download: installed in", label = "anything installed" }, { re = 'DLSS download: \d+ entries', label = "an archive read from a 404" }, { text = "is not an http address on this machine", label = "the loopback address refused" }, { text = "panicked", label = "a panic" }, { text = "Validation Error", label = "a Vulkan validation error" }]
+
+[[scenario]]
+name = "dlss-download-real"
+source = "#2250, docs/dlss.md \"Download DLSS…\": the real download from NVIDIA's Streamline 2.14.16 release: only the four entries fetched by ranges, each SHA-256 checked, installed in the DLSS folder, the dialog says to restart; NVIDIA's attribution joins the credits. dlss-download-real-restart then loads DLSS from them"
+note = "needs the network and NVF_DLSS_DOWNLOAD_REAL=1 (about 60 MB from GitHub). The first half of a pair with dlss-download-real-restart (they share NVFOREVER_HOME and NVF_DLSS_DIR, so they run in this order). The aid's clear deletes the four files from target/smoke-dlss-real at the start (it touches only a smoke-dlss-* folder), so the choice is offered every run; NVF_DLSS_PRELOAD=0 and --upscaler off keep the DLSS loader from holding a file left by the last run"
+areas = ["graphics", "ui"]
+paths = ["engine/nvforever/src/dlss_download/**", "engine/nvforever/src/dlss/download/**"]
+requires = ["NVF_DLSS_DOWNLOAD_REAL"]
+env = { WGPU_BACKEND = "vulkan", NVFOREVER_HOME = "dlss-download-real-home", NVF_DLSS_DIR = "{repo}/target/smoke-dlss-real", NVF_DLSS_PRELOAD = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "8:170", NVF_PLAY_TEST_SETTINGS = "9:upscaler=Download DLSS...", NVF_PLAY_TEST_DLSS_DOWNLOAD = "clear,accept" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--size", "1280x720", "--upscaler", "off", "--no-voice", "--no-lodgen"]
+run_seconds = 175
+expect = [
+  { re = 'test aid NVF_PLAY_TEST_DLSS_DOWNLOAD: clear: \d of the listed files deleted', label = "the folder emptied of the four files" },
+  "DLSS download: licence accepted",
+  { re = 'DLSS download: 4 entries, \d+ bytes to fetch from https://github\.com/NVIDIA-RTX/Streamline/releases/download/v2\.14\.16/streamline-sdk-v2\.14\.16\.zip', label = "the four entries, from the pinned address" },
+  "DLSS download: sl.interposer.dll 652928 bytes, SHA-256 ok",
+  "DLSS download: sl.common.dll 843904 bytes, SHA-256 ok",
+  "DLSS download: sl.dlss.dll 422016 bytes, SHA-256 ok",
+  "DLSS download: nvngx_dlss.dll 58956912 bytes, SHA-256 ok",
+  { re = 'DLSS download: installed in .*smoke-dlss-real; restart NVForever to use DLSS', label = "installed in the folder" },
+  "DLSS download: result shown (ready)",
+  { text = "DLSS download: NVIDIA's attribution added to the credits", label = "the attribution once the files are there" },
+]
+forbid = [{ text = "DLSS download: failed", label = "a failed download" }, { text = "nvngx_update.exe", label = "the updater named" }, { text = "panicked", label = "a panic" }, { text = "Validation Error", label = "a Vulkan validation error" }]
+
+[[scenario]]
+name = "dlss-download-real-restart"
+source = "#2250, docs/dlss.md \"Download DLSS…\": after dlss-download-real, a restart with DLSS chosen loads Streamline from the downloaded files and DLSS draws"
+note = "runs after dlss-download-real in the same NVFOREVER_HOME and NVF_DLSS_DIR; needs NVF_DLSS_DOWNLOAD_REAL (and that run's files)"
+areas = ["graphics"]
+paths = ["engine/nvforever/src/dlss_download/**", "engine/nvforever/src/dlss/download/**"]
+requires = ["NVF_DLSS_DOWNLOAD_REAL"]
+env = { WGPU_BACKEND = "vulkan", NVFOREVER_HOME = "dlss-download-real-home", NVF_DLSS_DIR = "{repo}/target/smoke-dlss-real" }
+args = ["--cell", "Goodsprings", "--size", "1280x720", "--upscaler", "dlss", "--upscaler-quality", "quality", "--no-voice", "--no-lodgen"]
+run_seconds = 18
+expect = [
+  "DLSS: route: interposer (the Vulkan instance was made through sl.interposer.dll)",
+  { re = 'DLSS: output observed: .*, generation 1, mean RGB', label = "DLSS's output seen, so NGX drew from the downloaded files" },
+  "upscaler: DLSS Quality asked for, DLSS Quality draws",
+]
+forbid = [{ re = 'DLSS: output not (observed|valid)' }, { text = "DLSS: inactive:", label = "the loader refusing the downloaded folder" }, { text = "slEvaluateFeature: ", label = "a failed evaluate" }, { text = "Validation Error", label = "a Vulkan validation error" }]
+
 # [design: issue #1803] Compare identical first raises with and without hidden draws.
+[[scenario]]
+name = "dlssg-on"
+source = "#2317, docs/design/dlss-frame-generation.md: DLSS Frame Generation chosen at the start over DLSS Quality in play: DLSS-G kept loaded, Reflex through Streamline, one generated frame per real frame presented, about two frames shown per real frame; the performance overlay (--fps, NVF_FPS_LOG) reads the frames shown and the rendered ones apart"
+note = "needs NVF_DLSS_DIR with the four DLSS Frame Generation files (docs/dlss.md), an RTX 40 series or newer and Windows' GPU scheduling on. front = true: DLSS-G generates only while its window is in front, so the launch runs last with the machine to itself. --log-frame-times keeps vsync off (DLSS-G needs Display sync Off on Vulkan); the home of its own keeps a stored Display sync out."
+areas = ["graphics"]
+paths = ["engine/nvforever/src/dlss/**", "engine/nvforever/src/frame_gen.rs", "engine/nvforever/src/frame_pace.rs", "engine/nvforever/src/nv_low_latency.rs", "engine/nvforever/src/anti_lag.rs", "engine/nvforever/src/perf_overlay/*", "engine/vendor/bevy_render/src/view/window/**"]
+requires = ["NVF_DLSS_DIR"]
+front = true
+env = { WGPU_BACKEND = "vulkan", NVFOREVER_HOME = "dlssg-on-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_FPS_LOG = "2" }
+args = ["--cell", "Goodsprings", "--play", "--size", "1280x720", "--upscaler", "dlss", "--upscaler-quality", "quality", "--frame-generation", "dlss", "--log-frame-times", "10", "--fps", "--no-voice", "--no-lodgen"]
+run_seconds = 32
+expect = [
+  { re = 'DLSS: slInit: eOk \(SDK 2\.14\.16, Vulkan, DLSS \+ DLSS Frame Generation \+ Reflex, frame-based tagging,', label = "slInit with DLSS, DLSS-G and Reflex, frame-based tagging" },
+  { re = 'DLSS-G: supported: DLSS-G eOk, Reflex eOk, PCL eOk;', label = "DLSS-G, Reflex and PCL supported on the adapter" },
+  { re = 'DLSS-G: ready: DLSS-G and Reflex set up .*, Reflex eLowLatency \(eOk\), .*DLSS-G kept loaded: the start.s Frame generation choice is DLSS', label = "DLSS-G kept loaded for the start's choice" },
+  { text = "frame generation: DLSS Frame Generation (NVIDIA, through Streamline;", label = "the row's choice running" },
+  { re = 'latency reduction: NVIDIA Reflex through Streamline \(sl\.reflex, eLowLatency\) on the window', label = "latency calls through Streamline's Reflex" },
+  { re = 'DLSS-G: options: mode On, 1 generated frame\(s\) per real frame \(at most \d+\), 1280x720, depth and motion 853x480, back buffers left to DLSS-G, user interface recomposition on: eOk', label = "frame generation on in play at 2x" },
+  { re = 'DLSS-G: 1\d\.\d s: \d+ real frames, \d+ presented \((1\.[89]|2\.[0-2])\d* per real frame\), status eOk', label = "about two presented per real frame over ten seconds" },
+  { re = 'fps counter: FPS \d+ +\(\d+ rendered\) +[\d.]+ ms ', label = "the overlay's FPS row reads the frames shown and the rendered ones apart" },
+  { re = 'DLSS: evaluates: ([1-9]\d*) ok, 0 failed', label = "DLSS's evaluates with the shared frame numbers, none failed" },
+  "DLSS-G: shutdown: slFreeResources(DLSS-G, viewport 0) eOk",
+]
+forbid = [
+  { re = '\]\[streamline\]\[error\]', label = "an error from Streamline in dlssg-on (e.g. a tagged image's format it cannot read)" },
+  { text = "Validation Error", label = "a Vulkan validation error" },
+  { text = "common constants cannot be found", label = "frame numbers out of step between the markers and the constants" },
+  { text = "DLSS-G: status ", label = "a DLSS-G status other than eOk" },
+  { text = "DLSS-G: not started", label = "DLSS-G or Reflex unsupported or a function missing" },
+  { text = "tried again each frame", label = "slDLSSGSetOptions failing" },
+  { re = 'slSetTagForFrame \(|slSetConstants \(', label = "tags or constants refused" },
+  { re = 'present and acquire errors since last: [1-9]', label = "a VkResult error from DLSS-G's error callback" },
+  { text = "Couldn't get swap chain texture", label = "an acquire timeout or failure" },
+  { text = "frame generation: DLSS chosen but not running", label = "the DLSS choice held off" },
+  { text = "slEvaluateFeature: ", label = "a failed evaluate" },
+  { text = "the driver refused NVIDIA low latency", label = "the direct low latency calls" },
+]
+
+[[scenario]]
+name = "dlssg-4x"
+source = "#2317, docs/design/dlss-frame-generation.md: Generated frames 4x picked on the settings page during play: three generated frames per real frame where the GPU offers them (DLSSGState::numFramesToGenerateMax), else as many as it offers"
+note = "needs NVF_DLSS_DIR with the frame generation files; front = true as dlssg-on. Tolerant of the GPU by the state line's limit: with 'frames to generate at most 1' (RTX 40 series) 4x is held back and 2x runs; from 3 up (RTX 50 series) 4x runs. The home of its own keeps the choice between runs, so the settings line is not expected."
+areas = ["graphics", "settings"]
+paths = ["engine/nvforever/src/dlss/**", "engine/nvforever/src/frame_gen.rs", "engine/nvforever/src/settings.rs", "engine/nvf-play/src/settings_layout.rs"]
+requires = ["NVF_DLSS_DIR"]
+front = true
+env = { WGPU_BACKEND = "vulkan", NVFOREVER_HOME = "dlssg-4x-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:13", NVF_PLAY_TEST_SETTINGS = "11:frame-generation-frames=4x" }
+args = ["--cell", "Goodsprings", "--play", "--size", "1280x720", "--upscaler", "dlss", "--upscaler-quality", "quality", "--frame-generation", "dlss", "--log-frame-times", "10", "--no-voice", "--no-lodgen"]
+run_seconds = 36
+expect = [
+  { re = 'DLSS-G: options: mode On, (3 generated frame\(s\) per real frame \(at most ([3-9]|\d\d+)\)|1 generated frame\(s\) per real frame \(at most 1\)), 1280x720, depth and motion 853x480, .*: eOk', label = "on with 3 generated frames, or 1 where the GPU offers 1" },
+  { re = 'DLSS-G: state: status eOk, frames to generate at most (1, .*presented for the last frame 2|([3-9]|\d\d+), .*presented for the last frame 4);', min = 10, label = "four frames presented per real frame (two where the GPU offers one)" },
+  { re = 'DLSS: evaluates: ([1-9]\d*) ok, 0 failed', label = "evaluates ok" },
+]
+forbid = [
+  { re = '\]\[streamline\]\[error\]', label = "an error from Streamline in dlssg-4x (e.g. a tagged image's format it cannot read)" },
+  { text = "Validation Error", label = "a Vulkan validation error" },
+  { text = "common constants cannot be found", label = "frame numbers out of step" },
+  { text = "DLSS-G: status ", label = "a DLSS-G status other than eOk" },
+  { text = "tried again each frame", label = "slDLSSGSetOptions failing" },
+  { text = "Couldn't get swap chain texture", label = "an acquire timeout or failure" },
+  { re = 'present and acquire errors since last: [1-9]', label = "a VkResult error from DLSS-G's error callback" },
+  { text = "settings: frame-generation-frames has no such choice", label = "the Generated frames row without 4x" },
+]
+
+[[scenario]]
+name = "dlssg-resize"
+source = "#2317, docs/design/dlss-frame-generation.md \"Window changes\": the window resized during play with DLSS Frame Generation on (test aid NVF_DLSSG_RESIZE): DLSS-G's mode off and presented once before Bevy reconfigures the surface (the vendored HoldSurfaceReconfigure), on again at the new size, and back"
+note = "needs NVF_DLSS_DIR with the frame generation files; front = true as dlssg-on. NVF_DLSSG_RESIZE's seconds count from the app's start, so 16 s is a few seconds into play."
+areas = ["graphics"]
+paths = ["engine/nvforever/src/dlss/**", "engine/vendor/bevy_render/src/view/window/**", "engine/nvforever/src/window_mode.rs"]
+requires = ["NVF_DLSS_DIR"]
+front = true
+env = { WGPU_BACKEND = "vulkan", NVFOREVER_HOME = "dlssg-resize-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_DLSSG_RESIZE = "16:1600x900,26:1280x720" }
+args = ["--cell", "Goodsprings", "--play", "--size", "1280x720", "--upscaler", "dlss", "--upscaler-quality", "quality", "--frame-generation", "dlss", "--log-frame-times", "10", "--no-voice", "--no-lodgen"]
+run_seconds = 40
+expect = [
+  { re = 'test aid: window resized to 1600x900 \(NVF_DLSSG_RESIZE' },
+  { re = "DLSS-G: window change \\(size 1600x900\\): DLSS-G off first; the surface's reconfigure held", label = "the reconfigure held, DLSS-G off first" },
+  { re = 'DLSS-G: window change: the surface reconfigured after [1-3] held frame\(s\) \(DLSS-G off at the last present\)', min = 2, label = "reconfigured once an off frame was presented (both resizes)" },
+  { re = 'DLSS-G: options: mode On, .*1600x900, depth and motion 1067x600', label = "on again at 1600x900" },
+  { re = 'DLSS: evaluate active: Quality \(MaxQuality\).*, 1067x600 -> 1600x900', label = "DLSS at the new size" },
+  { re = 'DLSS-G: state: status eOk, ', min = 10, label = "status eOk throughout" },
+]
+order = [[
+  { re = 'DLSS-G: options: mode On, .*1280x720' },
+  { re = "DLSS-G: window change \\(size 1600x900\\): DLSS-G off first" },
+  { re = 'DLSS-G: options: mode Off \(resources kept\)' },
+  { re = 'DLSS-G: window change: the surface reconfigured after' },
+  { re = 'DLSS-G: options: mode On, .*1600x900' },
+]]
+forbid = [
+  { re = '\]\[streamline\]\[error\]', label = "an error from Streamline in dlssg-resize (e.g. a tagged image's format it cannot read)" },
+  { text = "Validation Error", label = "a Vulkan validation error" },
+  { text = "slEvaluateFeature: ", label = "a failed evaluate" },
+  { text = "no frame was presented with DLSS-G off", label = "reconfigured with DLSS-G not presented off" },
+  { text = "Couldn't get swap chain texture", label = "an acquire timeout or failure" },
+  { re = 'present and acquire errors since last: [1-9]', label = "a present or acquire error (out of date is counted apart)" },
+  { text = "DLSS-G: status ", label = "a DLSS-G status other than eOk" },
+]
+
+[[scenario]]
+name = "dlssg-switch"
+source = "#2317, docs/design/dlss-frame-generation.md \"Switching it on and off\": Frame generation Off then DLSS again on the settings page during play: each time DLSS-G's mode off and presented, the GPU drained, the swapchain released, slSetFeatureLoaded, the swapchain made again in the same frame; generated frames again after"
+note = "needs NVF_DLSS_DIR with the frame generation files; front = true as dlssg-on. Streamline's own lines around each switch (sl.dlss_g unloaded and loaded, the proxy swapchain made again) are worth a look by eye."
+areas = ["graphics", "settings"]
+paths = ["engine/nvforever/src/dlss/**", "engine/nvforever/src/frame_gen.rs", "engine/nvforever/src/settings.rs", "engine/nvforever/src/gpu_poll.rs", "engine/vendor/bevy_render/src/view/window/**"]
+requires = ["NVF_DLSS_DIR"]
+front = true
+env = { WGPU_BACKEND = "vulkan", NVFOREVER_HOME = "dlssg-switch-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "12:20", NVF_PLAY_TEST_SETTINGS = "13:frame-generation=Off,16:frame-generation=DLSS" }
+args = ["--cell", "Goodsprings", "--play", "--size", "1280x720", "--upscaler", "dlss", "--upscaler-quality", "quality", "--frame-generation", "dlss", "--log-frame-times", "10", "--no-voice", "--no-lodgen"]
+run_seconds = 42
+expect = [
+  { text = "settings: frame-generation Off", label = "Off picked on the page" },
+  { text = "settings: frame-generation DLSS", label = "DLSS picked again" },
+  { text = "DLSS-G: switch: frame generation off asked (the Frame generation row)" },
+  { re = "DLSS-G: switch: frame generation off: GPU drained \\(ok\\), the swapchain released, slFreeResources\\(DLSS-G, viewport 0\\) eOk, slSetFeatureLoaded\\(DLSS-G, false\\) eOk, the swapchain made again this frame \\(native\\)", label = "off: the swapchain released, DLSS-G freed and unloaded, made again" },
+  { text = "DLSS-G: switch: frame generation on asked (the Frame generation row)" },
+  { re = "DLSS-G: switch: frame generation on: GPU drained \\(ok\\), the swapchain released, slSetFeatureLoaded\\(DLSS-G, true\\) eOk, the swapchain made again this frame \\(Streamline's proxy\\)", label = "on: the swapchain released, DLSS-G loaded, made again" },
+  { re = 'DLSS: evaluates: ([1-9]\d*) ok, 0 failed', label = "evaluates ok through both switches" },
+]
+order = [[
+  { re = 'DLSS-G: options: mode On, ', label = "on at the start" },
+  { re = 'DLSS-G: switch: frame generation off: ' },
+  { re = 'DLSS-G: switch: frame generation on: ' },
+  { re = 'DLSS-G: options: mode On, ', label = "on again after the switch and the pause menu" },
+  { re = 'DLSS-G: 1\d\.\d s: \d+ real frames, \d+ presented \((1\.[89]|2\.[0-2])\d* per real frame\), status eOk', label = "about two presented per real frame after" },
+]]
+forbid = [
+  { re = '\]\[streamline\]\[error\]', label = "an error from Streamline in dlssg-switch (e.g. a tagged image's format it cannot read)" },
+  { text = "slEvaluateFeature: ", label = "a failed evaluate" },
+  { text = "Validation Error", label = "a Vulkan validation error" },
+  { text = "Couldn't get swap chain texture", label = "an acquire timeout or failure" },
+  { text = "DLSS-G: status ", label = "a DLSS-G status other than eOk" },
+  { re = 'present and acquire errors since last: [1-9]', label = "a VkResult error from DLSS-G's error callback" },
+  { re = 'slSetFeatureLoaded\(DLSS-G, (true|false)\) e(?!Ok)', label = "slSetFeatureLoaded refused" },
+  { text = "DLSS-G: switch: no window surface", label = "a switch with no surface to make again" },
+  { text = "frame generation: presenting on a thread of its own", label = "FSR's presenter started in a DLSS session" },
+]
+
+[[scenario]]
+name = "dlssg-exit"
+source = "#2317, docs/design/dlss-frame-generation.md \"Exit\": the run ends in play with DLSS Frame Generation on: mode off for AppExit's last frame or immediately on WindowClosing, then shutdown mode off, null tags, the drain, DLSS's and DLSS-G's resources freed and slShutdown, in that order"
+note = "needs NVF_DLSS_DIR with the frame generation files; front = true as dlssg-on."
+areas = ["graphics"]
+paths = ["engine/nvforever/src/dlss/**"]
+requires = ["NVF_DLSS_DIR"]
+front = true
+env = { WGPU_BACKEND = "vulkan", NVFOREVER_HOME = "dlssg-exit-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
+args = ["--cell", "Goodsprings", "--play", "--size", "1280x720", "--upscaler", "dlss", "--upscaler-quality", "quality", "--frame-generation", "dlss", "--log-frame-times", "10", "--no-voice", "--no-lodgen"]
+run_seconds = 24
+expect = [
+  { re = 'DLSS-G: options: mode On, ', label = "on before the exit" },
+  { re = "DLSS-G: exit: (DLSS-G's mode off for the last frame \\(AppExit\\)|the window closes: DLSS-G's mode off now: eOk)", label = "the mode off for AppExit or successfully before the closing window's surface is released" },
+  "DLSS-G: shutdown: options mode eOff: eOk",
+  { re = 'DLSS-G: shutdown: null tags \(frame \d+\): eOk' },
+  "DLSS-G: shutdown: slFreeResources(DLSS-G, viewport 0) eOk",
+  "DLSS: shutdown done: Streamline down before the Vulkan device and instance were released",
+]
+order = [[
+  { re = "DLSS-G: exit: (DLSS-G's mode off for the last frame \\(AppExit\\)|the window closes: DLSS-G's mode off now: eOk)" },
+  { text = "DLSS-G: shutdown: options mode eOff: eOk" },
+  { re = 'DLSS-G: shutdown: null tags' },
+  { text = "DLSS: shutdown: slFreeResources(DLSS, viewport 0) eOk" },
+  { text = "DLSS-G: shutdown: slFreeResources(DLSS-G, viewport 0) eOk" },
+  { text = "DLSS: shutdown: slShutdown eOk" },
+  { text = "DLSS: shutdown done" },
+]]
+forbid = [{ text = "Validation Error", label = "a Vulkan validation error" }, { text = "shutdown finished with failures", label = "a failed step at shutdown" }, { text = "DLSS-G: status ", label = "a DLSS-G status other than eOk" }, { re = '\]\[streamline\]\[error\]', label = "an error from Streamline in dlssg-exit (e.g. a tagged image's format it cannot read)" }]
+
+[[scenario]]
+name = "dlssg-ui"
+source = "#2317, docs/design/dlss-frame-generation.md \"Per frame\" item 3: the UI alpha (R16Float, 1 where the frame differs from its HUD-less copy) tagged with the HUD-less copy and user interface recomposition on, while turning with the HUD up"
+note = "needs NVF_DLSS_DIR with the frame generation files; front = true as dlssg-on."
+manual = "Watch the HUD while the view turns (13 to 14 s into play): it should stay sharp, without the smear generated frames gave it before the UI buffer. Screenshots cannot show it: they take the real frame, never a generated one."
+areas = ["graphics"]
+paths = ["engine/nvforever/src/dlss/**"]
+requires = ["NVF_DLSS_DIR"]
+front = true
+env = { WGPU_BACKEND = "vulkan", NVFOREVER_HOME = "dlssg-ui-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_LOOK = "13:220:-6.4,13.2:235:-6.4,13.4:250:-6.4,13.6:265:-6.4" }
+args = ["--cell", "Goodsprings", "--pos=-69814,774,8451", "--heading", "205.5", "--pitch=-6.4", "--play", "--hour", "12", "--size", "1280x720", "--upscaler", "dlss", "--upscaler-quality", "quality", "--frame-generation", "dlss", "--log-frame-times", "10", "--no-voice", "--no-lodgen"]
+run_seconds = 22
+expect = [
+  { re = 'DLSS-G: UI buffer: 1280x720 R16Float UI alpha \(1 where the frame differs from its HUD-less copy, 0 elsewhere\), tagged eValidUntilPresent with the HUD-less copy; user interface recomposition on', label = "the UI alpha tagged" },
+  { re = 'DLSS-G: options: mode On, .*user interface recomposition on: eOk', label = "recomposition asked for" },
+  { re = 'DLSS: evaluates: ([1-9]\d*) ok, 0 failed', label = "evaluates ok" },
+]
+forbid = [
+  { re = '\]\[streamline\]\[error\]', label = "an error from Streamline in dlssg-ui (e.g. a tagged image's format it cannot read)" },
+  { text = "Validation Error", label = "a Vulkan validation error" },
+  { text = "Shader validation error", label = "a shader validation error" },
+  { re = 'DLSS-G: UI buffer \(frame \d+\): ', label = "the UI buffer refused or not drawn" },
+  { re = 'present and acquire errors since last: [1-9]', label = "a VkResult error from DLSS-G's error callback" },
+  { text = "DLSS-G: status ", label = "a DLSS-G status other than eOk" },
+]
+
 [[scenario]]
 name = "pipboy-first-open"
 source = "issue #1803; docs/spec-notes/pipboy.md section 8: hidden start warm-up and the first visible raise"
@@ -26203,6 +26648,8 @@ name = "native-crash-dump"
 source = "#2055, docs/design/player-reports.md section 3.2 (#1425, #1825): a native crash leaves a minidump beside the run log (engine/nvforever/src/native_crash.rs)"
 areas = ["crash"]
 paths = ["engine/nvforever/src/native_crash.rs", "engine/nvforever/src/crash.rs"]
+# Windows only: the minidump is that side's evidence; native-crash-signal covers Linux.
+requires = ["WINDIR"]
 # A thread of its own writes to an unmapped address 5 s after the first frame: the process ends with 0xC0000005.
 env = { NVFOREVER_HOME = "native-crash-home", NVF_PLAY_TEST_NATIVE_CRASH = "5" }
 args = ["--cell", "Goodsprings"]
@@ -26213,6 +26660,38 @@ ends = "test aid NVF_PLAY_TEST_NATIVE_CRASH: an access violation now"
 expect = [
   { re = 'native crash, exception 0xC0000005; dump written to .*crash-\d{8}-\d{6}-\d+\.dmp', label = "the dump beside the run log" },
 ]
+
+[[scenario]]
+name = "native-crash-signal"
+source = "#2167, docs/design/player-reports.md section 3.2 (#1425, #1825): on Linux a native crash writes the signal, the fault address and the top frames into the run log, and the process still ends by the same signal (engine/nvforever/src/native_crash_unix.rs)"
+areas = ["crash"]
+paths = ["engine/nvforever/src/native_crash_unix.rs", "engine/nvforever/src/crash.rs"]
+# Linux only: the signal line is the Unix handler's. On Windows the same aid ends the process
+# with 0xC0000005 and the minidump scenario above judges it, so this one must not run there
+# (nor on any later change to crash.rs, which is on both paths).
+platforms = ["linux"]
+# The same aid as the Windows check: a write to an unmapped address 5 s after the first frame.
+env = { NVFOREVER_HOME = "native-crash-signal-home", NVF_PLAY_TEST_NATIVE_CRASH = "5" }
+args = ["--cell", "Goodsprings"]
+run_seconds = 30
+# -11: the handler re-raises SIGSEGV, so a crash still reads as a crash.
+exit = -11
+ends = "test aid NVF_PLAY_TEST_NATIVE_CRASH: an access violation now"
+expect = [
+  { re = 'native crash, signal SIGSEGV \(11\), fault address 0x[0-9a-f]+; at 0x[0-9a-f]+ \S+\+0x[0-9a-f]+', label = "the signal, the fault address and the module" },
+  { re = 'frame 1: 0x[0-9a-f]+ \S+\+0x[0-9a-f]+', label = "the top frames" },
+]
+
+[[scenario]]
+name = "native-crash-clean-log"
+source = "#2167: a clean --run-seconds exit writes only the clean-exit line, so the previous-run check (crash.rs) still reads it and nothing looks like a crash (engine/nvforever/src/native_crash_unix.rs)"
+areas = ["crash"]
+paths = ["engine/nvforever/src/native_crash_unix.rs"]
+env = { NVFOREVER_HOME = "native-crash-clean-home" }
+args = ["--cell", "Goodsprings"]
+run_seconds = 10
+expect = ["run log: the game exited normally"]
+forbid = [{ re = 'native crash, signal ', label = "a native crash line in a clean run" }]
 
 [[scenario]]
 name = "reports-delete-unreachable"
@@ -26940,3 +27419,20 @@ order = [[
   { re = 'ai \[[\d:]+\] 00157B38: keeps to its package EvergreenMillsSniperStayAtPosition01 in the fight', label = "the player 700 units off: its Guard holds it" },
   { re = 'ai \[[\d:]+\] 00157B38: is let go by its package EvergreenMillsSniperStayAtPosition01 to fight', label = "the player 150 units off: it fights" },
 ]]
+
+[[scenario]]
+name = "ede-repair-greeting"
+source = "issue #2378 (a player's soft lock, v0.7.0): repairing ED-E in Johnson Nash's house turned the controls off for good. EDEScriptDisabled calls DisablePlayerControls and leaves it to ED-E's first greeting (INFO 0x001579D7, started by EDEDialoguePackage) to turn them on again; the line has no conditions of its own, and the RobotEDE voice type (no Allow Default Dialog) was refused it although its quest vDialogueEDE names the three ED-Es (Game::line_verdict, docs/spec-notes/actor-flags.md §9)"
+note = "the player stands beside the broken eyebot with Repair 100 (console, 3 s); it is activated at 6 s and its boxes answered with button 1 at 8, 10 and 12 s (the first box comes twice, once from each of the script's two OnActivate blocks: Try To Fix It, the same again, Run the repair). Two seconds later EDE1Ref is enabled, five seconds after that its script lets it move, and its Dialogue package starts the conversation"
+areas = ["dialogue", "scripts", "ai"]
+paths = ["crates/fnv-game/src/dialogue.rs", "crates/fnv-ai/src/carry.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "off", NVF_PLAY_TEST_CONSOLE = "3:player.setav repair 100;3.3:close", NVF_PLAY_TEST_SCRIPT = "6:activate:0x001572E6,8:button:1,10:button:1,12:button:1" }
+args = ["--play", "--cell", "PrimmNashResidence", "--pos=2018,1484,7649", "--no-voice", "--no-messages"]
+run_seconds = 45
+order = [[
+  { text = "player controls: movement, Pip-Boy, fighting, POV disabled by scripts", label = "the repair script turns the controls off" },
+  { text = "script: EDE1Ref enabled", label = "the working ED-E is enabled" },
+  { text = "conversation with EDE1Ref started (topic GREETING)", label = "ED-E's Dialogue package starts the conversation" },
+  { text = "player controls: all enabled", label = "the greeting's result script gives the controls back" },
+]]
+forbid = [{ text = "EDE1Ref: does not talk", label = "ED-E has a greeting to say" }]
