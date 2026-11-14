@@ -1456,6 +1456,24 @@ expect = [
 ]
 
 [[scenario]]
+name = "hv-veronica-intercom"
+source = "issue #2451: a Dialogue package whose target is a talking activator is carried out (fnv_ai goal.rs talk, carry.rs talk_start: Game::start_actor_conversation); the activator says its talking actor's lines and Goodbye lines that link on go on (fnv-game dialogue.rs next_conversation_line): Veronica's FollowersVeronicaForceGreetIntercom walks her to HVIntercomREF and she and Ramos (through it) say HVVeronicaEnter 0015B6D1, 0015B6D2, 0015B6D3 (its end script opens the bunker's inner door) and 0015B6D4"
+note = "HiddenValleyBunker1 from the new-game state: the console hires Veronica (bVeronicaHired 1 on the companion quest 000B16D0, VeronicaREF moved to the player) and the goto aid puts the player in VHiddenValleyVeronicaEnterTrigger (0015B6D7) at 6 s, whose OnTriggerEnter (SCPT 0015B6D5) makes Ramos the intercom's talking actor, has her say 'Hold on, I've got this.' and sets her bIntercomConversationActive"
+areas = ["ai", "dialogue-packages", "talking-activators"]
+paths = ["crates/fnv-ai/src/goal.rs", "crates/fnv-ai/src/carry.rs", "crates/fnv-game/src/dialogue.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_CONSOLE = "1:set 000B16D0.bveronicahired to 1;000E32A9.moveto player;1.3:close", NVF_PLAY_TEST_GOTO = "6:-702:1585:11700" }
+args = ["--cell", "HiddenValleyBunker1", "--play", "--pos=-200,2000,11700", "--npc-packages", "000E32A9", "--no-voice", "--no-messages"]
+run_seconds = 60
+order = [[
+  { re = 'VeronicaREF says 0x0015B6D0', label = "Veronica: 'Hold on, I've got this.'" },
+  { re = 'VeronicaREF: starts a conversation with .*FollowersVeronicaForceGreetIntercom', label = "her package starts the conversation with the intercom" },
+  { re = 'VeronicaREF says 0x0015B6D1', label = "she orders at the intercom" },
+  { re = 'RamosREF says 0x0015B6D2', label = "Ramos answers through it" },
+  { re = 'VeronicaREF says 0x0015B6D3', label = "she insists" },
+  { re = 'RamosREF says 0x0015B6D4', label = "Ramos opens up" },
+]]
+
+[[scenario]]
 name = "restrained-dialogue-package"
 source = "issue #2309: a restrained actor's Dialogue package still starts its conversation, without moving (fnv_ai begin_in_place, step_actor_inner) [documented: GECK wiki SetRestrained, restrained actors still go into dialogue]"
 note = "Hidden Valley bunker L2: the console runs the end script of Hardin's line INFO 001633C9 (both restrained, controls off, the trigger 000AD6A1's HardinTraining set to 1); its GameMode block moves both to the markers 001633EF/001633EE after 2 s and gives Hardin HVHardinPowerArmorTrainingPackage (Dialogue, PlayerRef within 200) after 4 s. His line 001633C0 gives the controls back (begin script) and releases both (end script)"

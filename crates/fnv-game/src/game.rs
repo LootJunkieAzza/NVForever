@@ -1160,6 +1160,12 @@ pub struct Speech {
     /// (`Game::next_conversation_line`).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub leads_on: bool,
+    /// The talking activator the speaker says this line of a conversation between
+    /// actors through (`Game::next_conversation_line`): Ramos through Hidden Valley's
+    /// intercom to Veronica (issue #2451). The activator stands for the speaker in the
+    /// world: the next line is said to it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub through: Option<FormId>,
 }
 
 /// Who a line said to someone ([`Speech::target`]) turns to whom ([`Game::facings`]).
@@ -4498,7 +4504,7 @@ impl<'a> Game<'a> {
         let (say_to, greeting, hello) = (kind == LineKind::SayTo, kind == LineKind::Greeting, kind == LineKind::Hello);
         // [design] Mark this line before callbacks can finish it or replace it.
         let immediate = def.has(crate::data::info_flag::RUN_IMMEDIATELY);
-        self.speech.push(Speech { speaker, target, topic, info, remaining: seconds, say_to, greeting, farewell: false, conversation, earlier_topics: Vec::new(), hello, look: LineLook::Both, response: 0, force_subtitles: false, two_d: false, end_ran: immediate, leads_on: false });
+        self.speech.push(Speech { speaker, target, topic, info, remaining: seconds, say_to, greeting, farewell: false, conversation, earlier_topics: Vec::new(), hello, look: LineLook::Both, response: 0, force_subtitles: false, two_d: false, end_ran: immediate, leads_on: false, through: None });
         if let Some(&first) = def.response_order().first() {
             self.ask_response_idles(speaker, target, info, first);
         }
