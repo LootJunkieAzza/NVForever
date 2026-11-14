@@ -122,7 +122,31 @@ pub fn damage(g: &Game, actor: FormId, code: u16) -> f64 {
     g.extra.get(&actor).and_then(|e| e.av_damage.get(&code)).copied().unwrap_or(0.0)
 }
 
+/// A change of one of `actor`'s values, with JohnnyGuitar's actor value change
+/// handlers told of it: every change of one of the player's values, whatever made it
+/// (a script, an aid item's effect, a hit), and never another actor's [documented:
+/// SetOnActorValueChangeEventHandler, "limited to Player's actor value changes"; the
+/// derived skills, which do not dispatch it, are worked out on reading here and never
+/// stored]. A change a handler itself makes is not told again [our choice: no loop].
+fn told<R>(g: &mut Game, actor: FormId, code: u16, change: impl FnOnce(&mut Game) -> R) -> R {
+    if actor != FormId::PLAYER_REF || g.gaps.av_handlers.is_empty() || g.gaps.av_telling {
+        return change(g);
+    }
+    let before = actor_value(g, actor, code).ok();
+    let out = change(g);
+    if let (Some(old), Ok(new)) = (before, actor_value(g, actor, code)) {
+        if new != old {
+            g.av_event(actor, code, old, new);
+        }
+    }
+    out
+}
+
 fn set_damage(g: &mut Game, actor: FormId, code: u16, d: f64) {
+    told(g, actor, code, |g| set_damage_untold(g, actor, code, d));
+}
+
+fn set_damage_untold(g: &mut Game, actor: FormId, code: u16, d: f64) {
     let e = g.extra.entry(actor).or_default();
     if d > 0.0 {
         e.av_damage.insert(code, d);
@@ -158,6 +182,10 @@ pub fn temporary(g: &Game, actor: FormId, code: u16) -> f64 {
 
 /// Add `d` to the temporary modifier.
 pub(crate) fn add_temporary(g: &mut Game, actor: FormId, code: u16, d: f64) {
+    told(g, actor, code, |g| add_temporary_untold(g, actor, code, d));
+}
+
+fn add_temporary_untold(g: &mut Game, actor: FormId, code: u16, d: f64) {
     let e = g.extra.entry(actor).or_default();
     let m = e.av_temporary.get(&code).copied().unwrap_or(0.0) + d;
     if m.abs() > 1e-9 {
@@ -199,6 +227,10 @@ pub fn actor_value_parts(g: &mut Game, actor: FormId, code: u16) -> Result<[f64;
 /// Put `v` in the base's place (as SetActorValue). An attribute's permanent value goes
 /// to the world when the world holds attributes for the actor.
 fn set_base(g: &mut Game, actor: FormId, code: u16, v: f64) -> Result<(), String> {
+    told(g, actor, code, |g| set_base_untold(g, actor, code, v))
+}
+
+fn set_base_untold(g: &mut Game, actor: FormId, code: u16, v: f64) -> Result<(), String> {
     if let Some(name) = special(code) {
         // Something that has no attributes takes none.
         base(g, actor, code)?;
@@ -214,6 +246,10 @@ fn set_base(g: &mut Game, actor: FormId, code: u16, v: f64) -> Result<(), String
 
 /// Add `d` to the permanent modifier (as ModActorValue).
 pub(crate) fn add_modifier(g: &mut Game, actor: FormId, code: u16, d: f64) -> Result<(), String> {
+    told(g, actor, code, |g| add_modifier_untold(g, actor, code, d))
+}
+
+fn add_modifier_untold(g: &mut Game, actor: FormId, code: u16, d: f64) -> Result<(), String> {
     let before = permanent(g, actor, code)?;
     let e = g.extra.entry(actor).or_default();
     let m = e.av_permanent.get(&code).copied().unwrap_or(0.0) + d;
@@ -296,19 +332,17 @@ pub fn set_actor_value(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, Strin
     none()
 }
 
-/// The actor value functions with JohnnyGuitar's actor value change handlers told of a
-/// change: (code, old value, new value) [observed: data3, ModAV Luck +1 gave (11, 10,
+/// The actor value functions with JohnnyGuitar's NPC actor value change handlers told
+/// of a change: (actor, code, old value, new value). The player's handlers are told
+/// where the value is written ([`told`]) [observed: data3, ModAV Luck +1 gave (11, 10,
 /// 11), -1 (11, 11, 10)].
 fn watched(g: &mut Game, ctx: &Ctx, a: &Args, f: fn(&mut Game, &Ctx, &Args) -> Result<Value, String>) -> Result<Value, String> {
-    let target = ctx.subject().ok().zip(a.code(0).ok()).filter(|_| !g.gaps.av_handlers.is_empty() || g.jg8_listening(crate::nvse_jg8::Ev::NpcActorValue));
+    let target = ctx.subject().ok().zip(a.code(0).ok()).filter(|_| g.jg8_listening(crate::nvse_jg8::Ev::NpcActorValue));
     let before = target.and_then(|(r, c)| actor_value(g, r, c).ok());
     let out = f(g, ctx, a)?;
     if let (Some((r, c)), Some(old)) = (target, before) {
         if let Ok(new) = actor_value(g, r, c) {
             if new != old {
-                if !g.gaps.av_handlers.is_empty() {
-                    g.av_event(r, c, old, new);
-                }
                 g.jg8_actor_value(r, c, old, new);
             }
         }
@@ -379,6 +413,7 @@ pub fn damage_actor_value(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, St
         return none();
     }
     let amount = a.num(1)?;
+    let limb_before = if crate::actor_values::LIMB_CONDITIONS.contains(&code) { Some(actor_value(g, r, code)?) } else { None };
     let d = damage(g, r, code) + amount;
     set_damage(g, r, code, d);
     // JIP's health-damage handlers see DamageAV too, with no source [documented:
@@ -391,6 +426,15 @@ pub fn damage_actor_value(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, St
     // Out of fatigue: knocked out (docs/spec-notes/unconscious.md §2.3).
     if code == crate::actor_values::FATIGUE {
         g.fatigue_changed(r);
+    }
+    // A limb's condition brought to 0 cripples it, and JIP's crippled-limb handlers are
+    // told as for a hit's [observed: jip_events2, `DamageAV LeftAttackCondition 200` on
+    // a placed NPC fired its handler with limb 2; docs/spec-notes/jip-events.md §5].
+    if let Some(before) = limb_before {
+        if before > 0.0 && actor_value(g, r, code)? <= 0.0 {
+            let limb = code - crate::actor_values::LIMB_CONDITIONS.start();
+            g.jip_event("crippledlimb", Some(r), vec![fnv_script::vm::XVal::Num(f64::from(limb))]);
+        }
     }
     none()
 }

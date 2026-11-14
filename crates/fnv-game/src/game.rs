@@ -3065,13 +3065,13 @@ impl<'a> Game<'a> {
     /// performance", forceRecompile]; `None` when the file is missing or does not compile
     /// [hypothesis: the function then gives no form].
     pub(crate) fn compile_file(&mut self, path: &str, force: bool) -> Option<u32> {
-        let key = path.replace('/', "\\").trim_start_matches('\\').to_ascii_lowercase();
+        let key = crate::mod_files::udf_data_path(path)?;
         if !force {
             if let Some(&id) = self.compiled_paths.get(&key) {
                 return Some(id);
             }
         }
-        let bytes = crate::mod_files::read_data_file(&format!("nvse\\user_defined_functions\\{key}"))?;
+        let bytes = crate::mod_files::read_data_file(&key)?;
         // UTF-8 when it is, else 8-bit text in this run's code page (#1439).
         let src = std::str::from_utf8(&bytes).map_or_else(|_| fnv_util::text::decode(&bytes), str::to_owned);
         let id = self.compile_source(&format!("CompileScript {path}"), src)?;
@@ -5576,10 +5576,17 @@ impl<'a> Game<'a> {
 
     /// Evaluate a condition list (`subject` and `target` for the run-on choices).
     pub fn conditions_pass(&mut self, conds: &[Condition], subject: Option<FormId>, target: Option<FormId>, label: &str) -> bool {
-        if conds.is_empty() {
-            return true;
-        }
+        conds.is_empty() || cond::combine_results(&self.eval_conditions(conds, subject, target, label))
+    }
+
+    /// Each condition of a list evaluated, in order: **the one evaluation** that
+    /// [`Game::conditions_pass`] and the editor's debugger share, so the debugger can never
+    /// disagree with the game (docs/design/editor.md §14.3).
+    pub fn eval_conditions(&mut self, conds: &[Condition], subject: Option<FormId>, target: Option<FormId>, label: &str) -> Vec<cond::CondResult> {
         let mut results = Vec::with_capacity(conds.len());
+        if conds.is_empty() {
+            return results;
+        }
         let outer = std::mem::replace(&mut self.condition_target, target);
         for c in conds {
             let on = match c.run_on {
@@ -5590,16 +5597,16 @@ impl<'a> Game<'a> {
                 RunOn::CombatTarget => subject.and_then(|s| self.combat_target_of(s)),
                 RunOn::Other(_) => None,
             };
-            let v = self.condition_value(c, on, label);
+            let value = self.condition_value(c, on, label);
             let rhs = match c.rhs {
                 Operand::Value(x) => x,
                 Operand::Global(Some(g)) => self.world.global(FormId(g)).map(|v| v as f64).unwrap_or(0.0),
                 Operand::Global(None) => 0.0,
             };
-            results.push((c.cmp.test(v, rhs), c.or));
+            results.push(cond::CondResult { value, rhs, passed: c.cmp.test(value, rhs), or: c.or, on: on.map(|f| f.0) });
         }
         self.condition_target = outer;
-        cond::combine(&results)
+        results
     }
 
     /// The buttons of a message (indices in record order) whose conditions fail when it
@@ -5623,30 +5630,18 @@ impl<'a> Game<'a> {
         hidden
     }
 
-    /// Each condition with its value, for diagnostics ("GetStage(0x…) = 10 == 20: false").
+    /// Each condition with its value, for diagnostics ("GetStage(0x…) = 10 Eq 20: false").
     pub fn explain_conditions(&mut self, conds: &[Condition], subject: Option<FormId>, target: Option<FormId>) -> Vec<String> {
+        let results = self.eval_conditions(conds, subject, target, "explain");
+        conds.iter().zip(&results).map(|(c, r)| self.condition_text(c, r)).collect()
+    }
+
+    /// One evaluated condition as a line: "GetStage(0x… (VMS38)) = 10 Eq 20: false OR".
+    pub fn condition_text(&self, c: &Condition, r: &cond::CondResult) -> String {
         let data = self.data;
-        let mut out = Vec::new();
-        for c in conds {
-            let on = match c.run_on {
-                RunOn::Subject => subject,
-                RunOn::Target => target,
-                RunOn::Reference(r) => r.map(FormId),
-                RunOn::LinkedReference => subject.and_then(|s| self.world.placed.get(s)).and_then(|p| p.linked),
-                RunOn::CombatTarget => subject.and_then(|s| self.combat_target_of(s)),
-                RunOn::Other(_) => None,
-            };
-            let v = self.condition_value(c, on, "explain");
-            let rhs = match c.rhs {
-                Operand::Value(x) => x,
-                Operand::Global(Some(g)) => self.world.global(FormId(g)).map(|v| v as f64).unwrap_or(0.0),
-                Operand::Global(None) => 0.0,
-            };
-            let name = data.table.get(c.opcode()).map(|f| f.name.clone()).unwrap_or_else(|| format!("0x{:04X}", c.opcode()));
-            let args: Vec<String> = c.params.iter().map(|a| arg_json(data, a).to_string()).collect();
-            out.push(format!("{name}({}) = {v} {:?} {rhs}: {}{}", args.join(", "), c.cmp, c.cmp.test(v, rhs), if c.or { " OR" } else { "" }));
-        }
-        out
+        let name = data.table.get(c.opcode()).map(|f| f.name.clone()).unwrap_or_else(|| format!("0x{:04X}", c.opcode()));
+        let args: Vec<String> = c.params.iter().map(|a| arg_json(data, a).to_string()).collect();
+        format!("{name}({}) = {} {:?} {}: {}{}", args.join(", "), r.value, c.cmp, r.rhs, r.passed, if c.or { " OR" } else { "" })
     }
 
     pub(crate) fn condition_value(&mut self, c: &Condition, on: Option<FormId>, label: &str) -> f64 {
@@ -6372,7 +6367,10 @@ impl Host for Exec<'_, '_> {
 
     fn calling_plugin(&mut self) -> Option<String> {
         let p = &self.unit.unit.plugin;
-        (!matches!(p.as_str(), "query" | "console")).then(|| p.to_ascii_lowercase())
+        // Diagnostic runtime unit names are not load-order plugin identities.
+        let runtime = matches!(p.as_str(), "query" | "console" | "CompileScript")
+            || matches!(&self.unit.unit.owner, fnv_script::UnitOwner::Other { sig, .. } if sig == "SR");
+        (!runtime).then(|| p.to_ascii_lowercase())
     }
 
     fn current_script(&mut self) -> Option<u32> {
