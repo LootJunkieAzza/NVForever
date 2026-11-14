@@ -361,6 +361,16 @@ impl Game<'_> {
         if self.coop_gift_done_here(gift) {
             return Ok(0);
         }
+        // An add-on checkpoint's gear (Dead Money's collar): only while its checkpoint
+        // holds this player's items (`Game::coop_checkpoint_of`, item 211).
+        let held_in = match self.coop_checkpoint_of(gift.quest.unwrap_or(item)) {
+            crate::coop::CheckpointGear::Free => None,
+            crate::coop::CheckpointGear::In(c) => Some(c),
+            crate::coop::CheckpointGear::Out => {
+                tracing::info!("co-op: the host's hand-out {}: its add-on checkpoint does not hold this player's items, so not here", self.data.name(item));
+                return Ok(0);
+            }
+        };
         let inv = self.world.peek(FormId::PLAYER_REF).and_then(|s| s.inventory.as_ref());
         let has = inv.map_or(0, |i| i.count(item));
         let kind = self.world.forms.item(item).map(|i| i.kind);
@@ -411,6 +421,9 @@ impl Game<'_> {
         let added = self.world.add_item(FormId::PLAYER_REF, item, n).map_err(|e| e.to_string())?;
         for (item, count) in added {
             self.emit(crate::trace::EventKind::ItemAdded { to: FormId::PLAYER_REF, item, count, silent: false });
+        }
+        if let Some(c) = held_in {
+            self.coop_checkpoint_gear.entry(c).or_default().push((item, n));
         }
         Ok(n)
     }

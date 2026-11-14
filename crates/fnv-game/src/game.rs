@@ -1704,6 +1704,13 @@ pub struct Game<'a> {
     /// 2026-11-13, item 203: taken off, the guest's Pip-Boy fell back to the screen-only
     /// frame). Not saved.
     pub coop_story_kept: BTreeSet<FormId>,
+    /// A co-op guest's: the gear of an add-on's checkpoint it was handed while that
+    /// checkpoint held its items, by the checkpoint's container, taken away again when the
+    /// checkpoint gives its items back (`Game::coop_checkpoint_of`, item 211). Not saved.
+    pub coop_checkpoint_gear: BTreeMap<FormId, Vec<(FormId, i32)>>,
+    /// The containers the load order's scripts put the player's whole inventory in
+    /// (`player.RemoveAllItems <container>`), found once ([`crate::coop::strip_containers_of`]).
+    pub strip_containers: Option<BTreeSet<FormId>>,
     /// A co-op session is on (host or guest), with another player in it: the co-op
     /// perks can be taken (`crate::coop_perks`).
     pub coop_session: bool,
@@ -2638,6 +2645,8 @@ impl<'a> Game<'a> {
             script_worn: BTreeMap::new(),
             coop_story_gear: BTreeMap::new(),
             coop_story_kept: BTreeSet::new(),
+            coop_checkpoint_gear: BTreeMap::new(),
+            strip_containers: None,
             coop_session: false,
             coop_story: Default::default(),
             coop_from_others: Default::default(),

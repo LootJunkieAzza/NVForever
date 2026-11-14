@@ -18,6 +18,7 @@
 //! why it was skipped and passes.
 
 use fnv_esm::{LoadOrder, Plugin, Schema};
+use fnv_game::coop::CheckpointGear;
 use fnv_game::coop_rewards::Gift;
 use fnv_game::game::{Game, GameConfig, RunCtx};
 use fnv_game::GameData;
@@ -185,10 +186,14 @@ fn the_hosts_quest_items_reach_a_fresh_guest_and_not_one_that_played_them() {
             // Guest A: fresh, takes everything (a Caravan card goes to its cards, a note
             // to its notes).
             let before = held(&mut a, gift.item);
+            let checkpoint = a.coop_checkpoint_of(*q);
             let n = a.take_coop_gift(gift, &mut a_last).unwrap();
             let k = kind(&a, gift.item);
             let card = k == Some(ItemKind::CaravanCard) || l.data.caravan_cards.contains_key(&gift.item);
-            if card {
+            if checkpoint == CheckpointGear::Out {
+                // Dead Money's gear: guest A is not in the Sierra Madre (item 211).
+                assert_eq!((n, held(&mut a, gift.item)), (0, before), "{name}: guest A outside gets no {}", l.data.name(gift.item));
+            } else if card {
                 assert!(n > 0 || !a.player.caravan.cards.is_empty(), "{name}: guest A gets the deck");
             } else if k == Some(ItemKind::Note) {
                 assert!(a.player.notes.contains(&gift.item), "{name}: guest A has the note {}", l.data.name(gift.item));
@@ -210,6 +215,9 @@ fn the_hosts_quest_items_reach_a_fresh_guest_and_not_one_that_played_them() {
             let gun = items.iter().find(|g| kind(&a, g.item) == Some(ItemKind::Weapon));
             let ammo = items.iter().find(|g| kind(&a, g.item) == Some(ItemKind::Ammo));
             if let (Some(gun), Some(ammo)) = (gun, ammo) {
+                if a.coop_checkpoint_of(*q) == CheckpointGear::Out {
+                    continue;
+                }
                 assert!(held(&mut a, gun.item) > 0 && held(&mut a, ammo.item) >= ammo.count, "{name}: guest A has {} and its rounds", l.data.name(gun.item));
                 gun_and_rounds.push(format!("{} + {} x{}", l.data.name(gun.item), l.data.name(ammo.item), ammo.count));
             }
@@ -352,12 +360,79 @@ fn quest_objects_scripts_hand_out_for_their_quest() {
     eprintln!("add-on object scripts:\n  {}", out.join("\n  "));
     let dm = dm.expect("Dead Money's Tampico prop is placed");
     assert!(!dm.is_empty() && dm.iter().all(|g| g.quest == Some(FormId(0x0101_3A43))), "the Tampico props hand out for NVDLC01MQ03b: {dm:?}");
-    // Guest A takes them; guest B, whose game completed NVDLC01MQ03b, keeps its own.
+    // Guest A takes them inside the Sierra Madre (its items in Dead Money's checkpoint,
+    // item 211); guest B, whose game completed NVDLC01MQ03b, keeps its own.
     let (mut a, mut b) = (game(&l), game(&l));
+    a.coop_check_in(DM_CHECKPOINT, -1, None);
     b.quest(FormId(0x0101_3A43)).completed = true;
     let (mut la, mut lb) = (None, None);
     for g in &dm {
         assert!(a.take_coop_gift(g, &mut la).unwrap() > 0, "guest A gets {}", l.data.name(g.item));
         assert_eq!(b.take_coop_gift(g, &mut lb).unwrap(), 0, "guest B keeps its own {}", l.data.name(g.item));
+    }
+}
+
+/// Dead Money's checkpoint: the bunker's `player.RemoveAllItems` into
+/// NVDLC01PlayerEquipmentContainerRef (SCPT 0x0100C59E) [observed: the data].
+const DM_CHECKPOINT: FormId = FormId(0x0100_EFCC);
+
+/// Dead Money's gear lives in the Sierra Madre only (item 211; owner, 2026-11-14): the
+/// collar, jumpsuit, holorifle and cells NVDLC01MQ01 stage 5 gives the host reach a
+/// guest only while Dead Money's checkpoint holds that guest's items, as hand-outs and as
+/// story gear; the checkpoint giving the items back takes the gear away; a guest outside
+/// (a host that set the stage in Goodsprings, a guest that joins later) gets none.
+#[test]
+fn dead_moneys_gear_stays_in_the_sierra_madre() {
+    let Some(dir) = data_dir() else { return };
+    let l = load(&dir);
+    let strip = fnv_game::coop::strip_containers_of(&l.data);
+    eprintln!("whole-inventory checkpoints: {strip:?}");
+    assert!(strip.contains(&DM_CHECKPOINT), "the bunker's container is found from the scripts");
+    let mq01 = FormId(0x0100_0FBF);
+    let mut host = game(&l);
+    host.coop_rewards.on = true;
+    host.set_stage(mq01, 5);
+    let gifts = std::mem::take(&mut host.coop_rewards.gifts);
+    let gear = host.story_gear();
+    let names = |v: &[FormId]| v.iter().map(|i| l.data.name(*i)).collect::<Vec<_>>();
+    eprintln!("stage 5 hands out {:?}; the host wears {:?}", names(&gifts.iter().map(|g| g.item).collect::<Vec<_>>()), names(&gear.iter().map(|g| g.0).collect::<Vec<_>>()));
+    let collar = FormId(0x0100_6E8F);
+    assert!(gifts.iter().any(|g| g.item == collar) && gear.iter().any(|g| g.0 == collar), "stage 5 gives and locks on the collar");
+
+    // Outside the Sierra Madre (Goodsprings): nothing, as hand-out or story gear.
+    let mut out = game(&l);
+    let mut last = None;
+    for g in &gifts {
+        assert_eq!(out.take_coop_gift(g, &mut last).unwrap(), 0, "outside: no {}", l.data.name(g.item));
+    }
+    let (on, _) = out.follow_story_gear(&gear);
+    assert!(on.iter().all(|i| !gear.iter().any(|g| g.0 == *i && i.0 >> 24 == 1)), "outside: no Dead Money gear worn: {:?}", names(&on));
+    for g in &gifts {
+        assert_eq!(held(&mut out, g.item), 0, "outside: {} not held", l.data.name(g.item));
+    }
+
+    // Through the bunker: the guest's own items go into the checkpoint, the gear comes.
+    let mut inside = game(&l);
+    let pistol = FormId(0x000E_3778);
+    inside.world.add_item(FormId::PLAYER_REF, pistol, 1).unwrap();
+    assert!(inside.coop_check_in(DM_CHECKPOINT, -1, None) > 0, "the guest hands over its own");
+    assert_eq!(held(&mut inside, pistol), 0);
+    let mut last = None;
+    for g in &gifts {
+        assert!(inside.take_coop_gift(g, &mut last).unwrap() > 0 || held(&mut inside, g.item) > 0, "inside: {} comes", l.data.name(g.item));
+    }
+    inside.follow_story_gear(&gear);
+    assert!(held(&mut inside, collar) > 0, "inside: the collar");
+
+    // The way out: the checkpoint gives the items back and takes the gear.
+    assert!(inside.coop_check_out(DM_CHECKPOINT) > 0);
+    assert_eq!(held(&mut inside, pistol), 1, "the guest's own pistol is back");
+    // The host still wears the jumpsuit in the Mojave (the original takes only the
+    // collar, NVDLC01MQ03 stage 100): the guest follows none of it now.
+    inside.follow_story_gear(&gear);
+    for g in &gifts {
+        if kind(&inside, g.item) != Some(ItemKind::Note) {
+            assert_eq!(held(&mut inside, g.item), 0, "out: no {} left", l.data.name(g.item));
+        }
     }
 }
