@@ -312,6 +312,7 @@ impl Plugin for AimAssistPlugin {
                 group: GROUP,
                 label: "Aim assist",
                 note: "Controller only, never the mouse. On: the right stick turns slower while the crosshair is on a nearby hostile, and aiming down the sights turns the view onto one near the crosshair for a moment. Off: neither.",
+                switches: "",
                 get: |w| w.resource::<AimAssist>().on,
                 set: |w, on| w.resource_mut::<AimAssist>().on = on,
                 slider: None,

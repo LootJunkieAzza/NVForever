@@ -946,6 +946,7 @@ impl Plugin for KillCamPlugin {
                 group: crate::pause::GROUP_MENUS,
                 label: "Kill camera",
                 note: "When a VATS shot kills its last mark, a cinematic camera can show the kill. Last enemy: only when no other enemy is still fighting you. Every kill: whoever is left. Off: never.",
+                switches: "",
                 get: |_| false,
                 set: |_, _| {},
                 slider: None,

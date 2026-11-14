@@ -587,11 +587,11 @@ pub fn haystack(parts: &[&str]) -> String {
     parts.join("\n").to_lowercase()
 }
 
-/// A registered row's words: its label and note in the language shown and in English, and
-/// its key as the INI keeps it (a tweak's note names its Stewie's Tweaks key) [design:
-/// #1953].
+/// A registered row's words: its label and note in the language shown and in English, its
+/// key as the INI keeps it (a tweak's note names its Stewie's Tweaks key) [design: #1953]
+/// and its command-line switches (`--msaa` finds Anti-aliasing, #2377).
 pub fn setting_haystack(s: &Setting) -> String {
-    haystack(&[tr(s.label), s.label, tr(s.note), s.note, s.key])
+    haystack(&[tr(s.label), s.label, tr(s.note), s.note, s.key, s.switches])
 }
 
 /// Whether `hay` holds every term somewhere (terms may match different words; no
@@ -672,7 +672,7 @@ mod tests {
     fn registry(rows: &[(&'static str, &'static str)]) -> Vec<Setting> {
         let mut s = Settings::default();
         for (key, group) in rows {
-            s.add(Setting { key, group, label: key, note: "", get: |_| false, set: |_, _| {}, slider: None });
+            s.add(Setting { key, group, label: key, note: "", switches: "", get: |_| false, set: |_, _| {}, slider: None });
         }
         s.list().to_vec()
     }
@@ -867,22 +867,22 @@ mod tests {
         assert_eq!(rail(&l).len(), 2 + TAB_ORDER.len() + 2);
     }
 
-    /// A registry with the rows' own words.
-    fn worded(rows: &[(&'static str, &'static str, &'static str, &'static str)]) -> Vec<Setting> {
+    /// A registry with the rows' own words: key, group, label, note, switches.
+    fn worded(rows: &[(&'static str, &'static str, &'static str, &'static str, &'static str)]) -> Vec<Setting> {
         let mut s = Settings::default();
-        for (key, group, label, note) in rows {
-            s.add(Setting { key, group, label, note, get: |_| false, set: |_, _| {}, slider: None });
+        for (key, group, label, note, switches) in rows {
+            s.add(Setting { key, group, label, note, switches, get: |_| false, set: |_, _| {}, slider: None });
         }
         s.list().to_vec()
     }
 
-    const WORDED: [(&str, &str, &str, &str); 6] = [
-        ("difficulty", "Gameplay", "Difficulty", "How hard the fights are."),
-        ("menu-pause", "Gameplay", "Freeze the picture in dialogue and menus", "While the inventory is open, animations stand still. (--menu-pause original|living)"),
-        ("hud-colour", "Interface", "HUD colour", "The colour of the HUD."),
-        ("hud-red", "Interface", "HUD red", "Its red."),
-        ("button-style", "Controller", "Button style", "The controller's buttons."),
-        ("god-mode", "Debug", "God mode", "Nothing hurts the player."),
+    const WORDED: [(&str, &str, &str, &str, &str); 6] = [
+        ("difficulty", "Gameplay", "Difficulty", "How hard the fights are.", ""),
+        ("menu-pause", "Gameplay", "Freeze the picture in dialogue and menus", "While the inventory is open, animations stand still; the world lives on otherwise.", "--menu-pause, --still-world"),
+        ("hud-colour", "Interface", "HUD colour", "The colour of the HUD.", ""),
+        ("hud-red", "Interface", "HUD red", "Its red.", ""),
+        ("button-style", "Controller", "Button style", "The controller's buttons.", ""),
+        ("god-mode", "Debug", "God mode", "Nothing hurts the player.", ""),
     ];
 
     /// What the search lists for `query` with `vis`, as names (a Controls row's words: its name).
@@ -900,7 +900,10 @@ mod tests {
         assert_eq!(searched(&list, "menu-pause", vis), ["[Dialogue]", "menu-pause"]);
         assert_eq!(searched(&list, "FREEZE", vis), ["[Dialogue]", "menu-pause"]);
         assert_eq!(searched(&list, "  inventory   animations ", vis), ["[Dialogue]", "menu-pause"]);
-        assert_eq!(searched(&list, "freeze living", vis), ["[Dialogue]", "menu-pause"], "terms in the label and the note");
+        assert_eq!(searched(&list, "freeze lives", vis), ["[Dialogue]", "menu-pause"], "terms in the label and the note");
+        // A row's command-line switches, though the page does not show them (#2377).
+        assert_eq!(searched(&list, "--Still-World", vis), ["[Dialogue]", "menu-pause"]);
+        assert_eq!(searched(&list, "--menu-pause", vis), ["[Dialogue]", "menu-pause"]);
         assert!(searched(&list, "freeze nothing", vis).is_empty(), "every term must be found");
         assert!(searched(&list, "zzz", vis).is_empty());
         // Rows of several tabs, in the page's order, each under where it lives.

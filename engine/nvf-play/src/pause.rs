@@ -1353,7 +1353,8 @@ impl Plugin for PausePlugin {
                 key: "menu-pause",
                 group: GROUP_MENUS,
                 label: "Freeze the picture in dialogue and menus",
-                note: "On: while a conversation, the inventory, a container or a message box is open, animations, wind, water and sky stand still, as in the original. Off: only game logic waits and the world lives on. This menu always holds everything. (--menu-pause original|living)",
+                note: "On: while a conversation, the inventory, a container or a message box is open, animations, wind, water and sky stand still, as in the original. Off: only game logic waits and the world lives on. This menu always holds everything.",
+                switches: "--menu-pause",
                 get: |w| *w.resource::<MenuPause>() == MenuPause::Original,
                 set: |w, on| *w.resource_mut::<MenuPause>() = if on { MenuPause::Original } else { MenuPause::Living },
                 slider: None,
@@ -4656,7 +4657,7 @@ mod tests {
         let mut app = App::new();
         app.init_resource::<Lamp>().init_resource::<Paused>().insert_resource(page);
         for (key, group) in rows {
-            add_setting(&mut app, Setting { key, group, label: key, note: "", get: |w| w.resource::<Lamp>().0, set: |w, on| w.resource_mut::<Lamp>().0 = on, slider: None });
+            add_setting(&mut app, Setting { key, group, label: key, note: "", switches: "", get: |w| w.resource::<Lamp>().0, set: |w, on| w.resource_mut::<Lamp>().0 = on, slider: None });
         }
         app.init_resource::<PauseView>().init_resource::<LoadList>().init_resource::<PauseStatus>().init_resource::<crate::pad::PadGlyphs>().insert_resource(PauseLook::plain());
         app.world_mut().resource_mut::<Paused>().0 = true;
@@ -4812,7 +4813,7 @@ mod tests {
         assert_eq!(parse_point("choice:2"), Some(PointAt::Choice(2)));
         assert_eq!(parse_point("choice:x"), None);
         assert_eq!(parse_point("nowhere"), None);
-        let list = [Setting { key: "lamp", group: "Test", label: "Lamp", note: "", get: |_| false, set: |_, _| {}, slider: None }];
+        let list = [Setting { key: "lamp", group: "Test", label: "Lamp", note: "", switches: "", get: |_| false, set: |_, _| {}, slider: None }];
         assert!(points_at(&PointAt::Tab("debug".into()), PauseButton::Rail(RailItem::Tab("Debug")), &list));
         assert!(points_at(&PointAt::Row("lamp".into()), PauseButton::Row(RowId::Setting(0)), &list));
         let jump = RowId::Control(ControlRow::Binding(crate::bindings::Control::Jump, crate::bindings::InputDevice::KeyboardMouse));
@@ -4911,8 +4912,8 @@ mod tests {
         // Listed before the row that disables it (the anti-aliasing under FSR).
         let slider = crate::settings::Slider { get: |w| w.resource::<Reach>().0, set: |w, v| w.resource_mut::<Reach>().0 = v, min: 0.1, step: 0.05, shown: None };
         add_setting(&mut app, Setting::slider("aa", "Test", "AA", "", slider));
-        add_setting(&mut app, Setting { key: "fsr", group: "Test", label: "FSR", note: "", get: |w| w.resource::<Fsr>().0, set: |w, on| w.resource_mut::<Fsr>().0 = on, slider: None });
-        add_setting(&mut app, Setting { key: "torch", group: "Test", label: "Torch", note: "", get: |w| w.resource::<Torch>().0, set: |w, on| w.resource_mut::<Torch>().0 = on, slider: None });
+        add_setting(&mut app, Setting { key: "fsr", group: "Test", label: "FSR", note: "", switches: "", get: |w| w.resource::<Fsr>().0, set: |w, on| w.resource_mut::<Fsr>().0 = on, slider: None });
+        add_setting(&mut app, Setting { key: "torch", group: "Test", label: "Torch", note: "", switches: "", get: |w| w.resource::<Torch>().0, set: |w, on| w.resource_mut::<Torch>().0 = on, slider: None });
         crate::settings::set_disabled_status(&mut app, "aa", |w| w.resource::<Fsr>().0.then_some("Off (FSR active)"));
         app.init_resource::<PauseView>();
         {
@@ -4944,7 +4945,7 @@ mod tests {
         app.init_resource::<LoadList>().init_resource::<Assets<Image>>().init_resource::<crate::save::SaveConfig>().init_resource::<PauseStatus>().init_resource::<SearchKeys>();
         app.add_message::<AppExit>().add_message::<crate::ui_sounds::UiSound>().add_message::<crate::save::SaveRequest>().add_message::<crate::save::LoadRequest>().add_message::<MainMenuRequest>();
         for (key, group) in rows {
-            add_setting(&mut app, Setting { key, group, label: key, note: "", get: |w| w.resource::<Lamp>().0, set: |w, on| w.resource_mut::<Lamp>().0 = on, slider: None });
+            add_setting(&mut app, Setting { key, group, label: key, note: "", switches: "", get: |w| w.resource::<Lamp>().0, set: |w, on| w.resource_mut::<Lamp>().0 = on, slider: None });
         }
         app.insert_resource(Paused(true)).insert_resource(Page::Settings { selected: None });
         let god = RowId::Setting(rows.iter().position(|r| r.0 == "god-mode").unwrap());
@@ -5321,7 +5322,7 @@ mod tests {
     fn the_settings_page_shows_each_switch_as_the_game_has_it() {
         let mut app = App::new();
         app.init_resource::<Lamp>().init_resource::<Paused>().insert_resource(Page::Settings { selected: Some(RowId::Setting(0)) });
-        add_setting(&mut app, Setting { key: "lamp", group: "Test", label: "Lamp", note: "A lamp.", get: |w| w.resource::<Lamp>().0, set: |w, on| w.resource_mut::<Lamp>().0 = on, slider: None });
+        add_setting(&mut app, Setting { key: "lamp", group: "Test", label: "Lamp", note: "A lamp.", switches: "", get: |w| w.resource::<Lamp>().0, set: |w, on| w.resource_mut::<Lamp>().0 = on, slider: None });
         app.init_resource::<PauseView>().init_resource::<LoadList>().init_resource::<PauseStatus>().init_resource::<crate::pad::PadGlyphs>().insert_resource(PauseLook::plain());
         app.world_mut().resource_mut::<Paused>().0 = true;
         app.add_systems(Update, draw);
@@ -5489,7 +5490,7 @@ mod tests {
         app.init_resource::<LoadList>().init_resource::<Assets<Image>>().init_resource::<crate::save::SaveConfig>().init_resource::<PauseStatus>();
         app.init_resource::<crate::pad::PadGlyphs>().insert_resource(PauseLook::plain());
         app.add_message::<AppExit>().add_message::<crate::ui_sounds::UiSound>().add_message::<crate::save::SaveRequest>().add_message::<crate::save::LoadRequest>().add_message::<MainMenuRequest>();
-        let row = Setting { key: "size", group: "Test", label: "Size", note: "How big.", get: |_| false, set: |_, _| {}, slider: None };
+        let row = Setting { key: "size", group: "Test", label: "Size", note: "How big.", switches: "", get: |_| false, set: |_, _| {}, slider: None };
         let list = crate::settings::ChoiceList {
             names: |_| NAMES.map(String::from).to_vec(),
             chosen: |w| w.resource::<ListSize>().0.clone(),

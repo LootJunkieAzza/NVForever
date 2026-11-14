@@ -477,6 +477,7 @@ impl Plugin for DialogueMenuPlugin {
                 group: crate::pause::GROUP_MENUS,
                 label: "Goodbye hint",
                 note: "On: while a conversation offers a Goodbye choice, \"[Tab] Goodbye\" stands at the left of the dialogue box. Off: the words are hidden; Tab still says goodbye.",
+                switches: "",
                 get: |w| w.resource::<GoodbyeHint>().0,
                 set: |w, on| w.resource_mut::<GoodbyeHint>().0 = on,
                 slider: None,

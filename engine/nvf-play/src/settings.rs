@@ -19,8 +19,8 @@
 //! aids) leave the INI of the player's home alone, neither read nor written; with
 //! `NVFOREVER_HOME` set they use that home's INI, so a test can check the round trip.
 //!
-//! A row whose note names a command-line switch (`--msaa`, `--no-lip`; not one it is "a
-//! part of") counts as set by the command line when that switch was given
+//! A row whose [`Setting::switches`] names a command-line switch (`--msaa`, `--no-lip`)
+//! counts as set by the command line when that switch was given
 //! ([`GivenSwitches`], filled by the program from its command line). When the INI holds
 //! another state for such a row, the log says so (#1382): in a test run (a timed or
 //! measured run, [`GivenSwitches::win`]) the command line's state is kept and the stored
@@ -86,7 +86,7 @@ impl SettingsFile {
     }
 }
 
-/// The command-line switches given this run (`--msaa`, as named in the rows' notes) and
+/// The command-line switches given this run (`--msaa`, as named in the rows' `switches`) and
 /// whether they win over the INI's states (a test run); module notes. Absent: none given.
 #[derive(Resource, Clone, Debug, Default)]
 pub struct GivenSwitches {
@@ -95,20 +95,21 @@ pub struct GivenSwitches {
 }
 
 impl GivenSwitches {
-    /// The switches of `note` that were given, as `--a, --b`; `None`: none of them. Only
-    /// the switch's name is matched, not its value: `--graphics-only no-glow` given counts
-    /// for every row whose note names `--graphics-only`, whatever it turns off.
-    fn named_in(&self, note: &str) -> Option<String> {
-        let hits: Vec<&str> = note_switches(note).into_iter().filter(|n| self.given.iter().any(|g| g == n)).collect();
+    /// The switches of a row's `switches` ([`Setting::switches`]) that were given, as
+    /// `--a, --b`; `None`: none of them. Only the switch's name is matched, not its value:
+    /// `--graphics-only no-glow` given counts for every row that names `--graphics-only`,
+    /// whatever it turns off.
+    fn named_in(&self, switches: &str) -> Option<String> {
+        let hits: Vec<&str> = note_switches(switches).into_iter().filter(|n| self.given.iter().any(|g| g == n)).collect();
         (!hits.is_empty()).then(|| hits.join(", "))
     }
 
-    /// The switches of `note` that keep the command line's state over the INI's: those
-    /// given, in a test run ([`GivenSwitches::win`]); `None`: the stored state applies
-    /// ([`apply_stored`], [`switch_after_ini`]).
-    pub fn keeping(&self, note: &str) -> Option<String> {
+    /// The switches of a row's `switches` that keep the command line's state over the
+    /// INI's: those given, in a test run ([`GivenSwitches::win`]); `None`: the stored state
+    /// applies ([`apply_stored`], [`switch_after_ini`]).
+    pub fn keeping(&self, switches: &str) -> Option<String> {
         if self.win {
-            self.named_in(note)
+            self.named_in(switches)
         } else {
             None
         }
@@ -120,23 +121,26 @@ impl GivenSwitches {
 /// ([`GivenSwitches::keeping`]); the command line's state otherwise. For what has to be
 /// decided when the app is built, before `apply_stored` runs (nvforever's frame split
 /// takes its GPU timestamps from the start or not at all), so the two cannot disagree.
-pub fn switch_after_ini(command_line: bool, stored: Option<bool>, given: &GivenSwitches, note: &str) -> bool {
-    after_ini(command_line, stored, given, note)
+/// `switches` is the row's [`Setting::switches`].
+pub fn switch_after_ini(command_line: bool, stored: Option<bool>, given: &GivenSwitches, switches: &str) -> bool {
+    after_ini(command_line, stored, given, switches)
 }
 
 /// [`switch_after_ini`] for a row of any kind, a list's too: `stored` is the INI's text
 /// already read by the row's own `load` rule (`None`: no such key, or text the row would
 /// skip as not one of its states, so the command line's state stays, as [`apply_stored`]
 /// leaves it). nvforever's upscaler is chosen with it before the renderer starts.
-pub fn after_ini<T>(command_line: T, stored: Option<T>, given: &GivenSwitches, note: &str) -> T {
+pub fn after_ini<T>(command_line: T, stored: Option<T>, given: &GivenSwitches, switches: &str) -> T {
     match stored {
-        Some(v) if given.keeping(note).is_none() => v,
+        Some(v) if given.keeping(switches).is_none() => v,
         _ => command_line,
     }
 }
 
-/// The command-line switches a row's note names (`--no-lip`, `--msaa`), leaving out one
-/// the row is "a part of" (a slider scaling `--shadow-distance` does not replace it).
+/// The command-line switches a row's [`Setting::switches`] names (`--no-lip`, `--msaa`),
+/// leaving out one the row is "a part of" (a slider scaling `--shadow-distance` does not
+/// replace it). The parse is the one the rows' notes had while they named their switches,
+/// so a text written for a note still reads the same.
 pub fn note_switches(note: &str) -> Vec<&str> {
     let mut out = Vec::new();
     let mut at = 0;
@@ -160,8 +164,12 @@ pub struct Setting {
     /// The heading it is listed under; a new group goes after the ones before it.
     pub group: &'static str,
     pub label: &'static str,
-    /// What it does, in a line, and the command-line switch it starts from.
+    /// What it does, in a line or two; no command-line switch in it ([`Setting::switches`]).
     pub note: &'static str,
+    /// The command-line switches whose state the row replaces, as `--a, --b` ([`note_switches`]
+    /// reads them; [`GivenSwitches`]); empty: none. Not shown on the page (the search finds
+    /// them).
+    pub switches: &'static str,
     pub get: fn(&World) -> bool,
     pub set: fn(&mut World, bool),
     /// A slider instead of a switch (`get` and `set` then do nothing).
@@ -256,7 +264,12 @@ pub fn choice_index(v: f32, n: usize) -> usize {
 impl Setting {
     /// A slider row.
     pub fn slider(key: &'static str, group: &'static str, label: &'static str, note: &'static str, slider: Slider) -> Setting {
-        Setting { key, group, label, note, get: |_| false, set: |_, _| {}, slider: Some(slider) }
+        Setting { key, group, label, note, switches: "", get: |_| false, set: |_, _| {}, slider: Some(slider) }
+    }
+
+    /// The row with these command-line switches ([`Setting::switches`]).
+    pub const fn with_switches(self, switches: &'static str) -> Setting {
+        Setting { switches, ..self }
     }
 
     /// The row's state as a number: a slider's value, a switch's 1 or 0.
@@ -933,8 +946,8 @@ pub fn apply_stored(world: &mut World) {
             listed += 1;
             continue;
         }
-        let flags = given.named_in(list[i].note);
-        if let Some(f) = given.keeping(list[i].note) {
+        let flags = given.named_in(list[i].switches);
+        if let Some(f) = given.keeping(list[i].switches) {
             listed += 1;
             kept += 1;
             kept_rows.push((i, v.to_string()));
@@ -959,8 +972,8 @@ pub fn apply_stored(world: &mut World) {
         if now == v {
             continue;
         }
-        let flags = given.named_in(s.note);
-        if let Some(f) = given.keeping(s.note) {
+        let flags = given.named_in(s.switches);
+        if let Some(f) = given.keeping(s.switches) {
             kept += 1;
             kept_rows.push((i, s.stored_text(v)));
             info!("settings: {} kept at {} as {f} on the command line set it; [{SECTION}] {}={} of {} is not applied in a test run", s.key, shown(&s, now), s.key, s.stored_text(v), path.display());
@@ -1062,7 +1075,7 @@ mod tests {
     struct Lamp(bool);
 
     fn setting(key: &'static str, group: &'static str) -> Setting {
-        Setting { key, group, label: key, note: "", get: |w| w.resource::<Lamp>().0, set: |w, on| w.resource_mut::<Lamp>().0 = on, slider: None }
+        Setting { key, group, label: key, note: "", switches: "", get: |w| w.resource::<Lamp>().0, set: |w, on| w.resource_mut::<Lamp>().0 = on, slider: None }
     }
 
     #[derive(Resource)]
@@ -1196,11 +1209,36 @@ ui-scale={stored}
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// #2377: a row's switches are read as its note's were, the same parse: each `--name`
+    /// once, in order, a value after it ignored, one the text is "a part of" left out.
     #[test]
-    fn a_switch_given_on_the_command_line_wins_in_a_test_run_only() {
-        assert_eq!(note_switches("On: a lamp. (--lamp, --no-lamp)"), ["--lamp", "--no-lamp"]);
+    fn switches_are_read_as_the_notes_named_them() {
+        assert_eq!(note_switches("--lamp, --no-lamp"), ["--lamp", "--no-lamp"]);
+        assert_eq!(note_switches("On: a lamp. (--lamp, --no-lamp)"), ["--lamp", "--no-lamp"], "as a note named them");
         assert_eq!(note_switches("Off: --no-reverb."), ["--no-reverb"]);
         assert_eq!(note_switches("as a part of --shadow-distance. (--graphics-only no-glow)"), ["--graphics-only"]);
+        assert_eq!(note_switches("--sun-shadows, --sun-shadows=performance, --no-sun-shadows"), ["--sun-shadows", "--no-sun-shadows"]);
+        assert!(note_switches("").is_empty());
+        // The rows of nvf-play that name switches, as their notes did before #2377.
+        for (switches, want) in [
+            ("--no-reverb", &["--no-reverb"][..]),
+            ("--no-dialogue-look", &["--no-dialogue-look"]),
+            ("--dialogue-recentre", &["--dialogue-recentre"]),
+            ("--no-dialogue-zoom", &["--no-dialogue-zoom"]),
+            ("--no-music", &["--no-music"]),
+            ("--no-voice", &["--no-voice"]),
+            ("--menu-pause", &["--menu-pause"]),
+        ] {
+            assert_eq!(note_switches(switches), want);
+        }
+        // A row built as a slider takes its switches by `with_switches`.
+        let s = slider("reach").with_switches("--reach");
+        assert_eq!((s.switches, s.key, s.slider.is_some()), ("--reach", "reach", true));
+        assert_eq!(slider("reach").switches, "");
+    }
+
+    #[test]
+    fn a_switch_given_on_the_command_line_wins_in_a_test_run_only() {
         let dir = std::env::temp_dir().join(format!("nvf-settings-given-{}", std::process::id()));
         let path = dir.join("NVForever.ini");
         let _ = std::fs::remove_dir_all(&dir);
@@ -1211,7 +1249,7 @@ ui-scale={stored}
             app.insert_resource(Lamp(true));
             app.insert_resource(SettingsFile(Some(path.clone())));
             app.insert_resource(GivenSwitches { given: given.iter().map(|g| g.to_string()).collect(), win });
-            add_setting(&mut app, Setting { note: "On: a lamp. (--lamp)", ..setting("lamp", "Test") });
+            add_setting(&mut app, Setting { note: "On: a lamp.", switches: "--lamp", ..setting("lamp", "Test") });
             app.add_systems(PostStartup, apply_stored);
             app.update();
             app.world().resource::<Lamp>().0
@@ -1224,7 +1262,7 @@ ui-scale={stored}
 
     #[test]
     fn after_ini_is_the_same_precedence_for_any_kind_of_row() {
-        let note = "Which one. (--pick)";
+        let note = "--pick";
         let given = |win: bool| GivenSwitches { given: vec!["--pick".into()], win };
         assert_eq!(after_ini("cli", Some("ini"), &given(false), note), "ini", "normal play: the INI wins");
         assert_eq!(after_ini("cli", Some("ini"), &given(true), note), "cli", "a test run keeps a switch it was given");
@@ -1249,7 +1287,7 @@ reach=0.5
         app.insert_resource(Lamp(true)).insert_resource(Reach(1.0));
         app.insert_resource(SettingsFile(Some(path.clone())));
         app.insert_resource(GivenSwitches { given: vec!["--lamp".into()], win: true });
-        add_setting(&mut app, Setting { note: "On: a lamp. (--lamp)", ..setting("lamp", "Test") });
+        add_setting(&mut app, Setting { note: "On: a lamp.", switches: "--lamp", ..setting("lamp", "Test") });
         add_setting(&mut app, slider("reach"));
         app.add_systems(PostStartup, apply_stored);
         app.update();
@@ -1666,7 +1704,7 @@ size=1920x1080;kept
             ] {
                 add_choice_list(
                     &mut app,
-                    Setting { key, group: "Test", label: key, note: "(--pair)", get: |_| false, set: |_, _| {}, slider: None },
+                    Setting { key, group: "Test", label: key, note: "", switches: "--pair", get: |_| false, set: |_, _| {}, slider: None },
                     ChoiceList { names: |_| vec!["a".into(), "b".into(), "x".into(), "y".into()], chosen: get, pick: set, save: get, load: set, ask_keep: false },
                 );
             }

@@ -256,6 +256,7 @@ pub fn register(app: &mut App) {
             // Advanced" (`fnvtool esm inventory`); #1740, LEGAL.md]; "style" is ours.
             label: "V.A.T.S. style",
             note: "What the V.A.T.S. key starts. Classic: the world stops, you pick a target and its body parts from their chances to hit, then the queued attacks play. Mark and Fire: time runs very slowly while you mark targets under the crosshair.",
+            switches: "",
             get: |_| false,
             set: |_, _| {},
             slider: None,

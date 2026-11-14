@@ -1568,6 +1568,7 @@ impl Plugin for CombatPlugin {
                 group: crate::pause::GROUP_MENUS,
                 label: "Slower while reloading",
                 note: "On: you and the NPCs move at 75% of your speed while a reload runs. Off: reloading does not slow anyone, as in the original.",
+                switches: "",
                 get: |_| reload_slows(),
                 set: |_, on| set_reload_slows(on),
                 slider: None,

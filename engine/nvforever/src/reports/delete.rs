@@ -151,6 +151,7 @@ pub fn add_row(app: &mut App) {
             group: "Reports",
             label: "Reports already sent",
             note: "Delete them now asks the server to delete every report this PC sent (done within 7 days) and drops the ones not sent yet; later reports, this session's too, get a new ID",
+            switches: "",
             get: |_| false,
             set: |_, _| {},
             slider: None,

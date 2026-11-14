@@ -39,6 +39,7 @@ impl Plugin for HardcorePlugin {
                 group: crate::pause::GROUP_MENUS,
                 label: "Hardcore mode",
                 note: "On: you need water, food and sleep, stimpaks heal over time, ammunition has weight and crippled limbs heal only with a doctor's bag or a doctor. Off: none of that; turning it off clears your thirst, hunger and tiredness and their effects. (console: SetHardcore 1/0)",
+                switches: "",
                 get: |_| on(),
                 set: |_, v| set_on(v),
                 slider: None,

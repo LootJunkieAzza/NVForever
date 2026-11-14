@@ -575,6 +575,7 @@ impl Plugin for PipBoyPlugin {
                 group: crate::pause::GROUP_MENUS,
                 label: "Use Pip-Boy",
                 note: "On: the Pip-Boy and its glove are worn and the menus come up on the arm. Off: both are taken off and the menus show full screen. Without a Pip-Boy worn the menus are always full screen.",
+                switches: "",
                 get: |w| w.resource::<UsePipBoy>().on,
                 set: |w, on| w.resource_mut::<UsePipBoy>().set(on),
                 slider: None,

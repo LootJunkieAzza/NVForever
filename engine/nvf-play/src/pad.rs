@@ -1387,6 +1387,7 @@ impl Plugin for PadPlugin {
                 group: crate::aim_assist::GROUP,
                 label: "Button style",
                 note: "Which names and pictures the controller's buttons go by in prompts, menu hints and the Controls tab. Auto: a PlayStation controller's (Cross, Circle, Square, Triangle, L1, R2, Select…) when the controller in use says it is one, else an Xbox controller's. Xbox or PlayStation: always those. The INI keeps the Xbox names either way.",
+                switches: "",
                 get: |_| false,
                 set: |_, _| {},
                 slider: None,
