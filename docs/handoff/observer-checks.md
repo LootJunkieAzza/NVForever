@@ -1983,6 +1983,19 @@ heading 75) with NVFExtProbe.esp loaded, as the jip-probes sets run.
      FemaleAdult12 without a Goodbye line of their own. If she offers none, the gate
      takes a quest's GetIsID (and what else?) but not its voice-type list.
 
+## Added 2026-11-14 (map markers without XRDS, #2338)
+
+128. **How near must the player come to a map marker without `XRDS` to find it?** (P2;
+     pipboy.md §5.3, hud.md §11, #2338.) 65 of WastelandNV's 186 named markers carry no
+     radius (Coyote Den 0x00154A69, the four Powder Ganger Camps 0x0015354F-0x00153552).
+     Ours since #2338: `iMapMarkerRevealDistance`, 1000 when no plugin sets it [documented:
+     the GECK wiki's list of FNV defaults; hypothesis: that this is the distance]. To check:
+     walk straight towards Coyote Den from the south-west (flat ground) and from two other
+     sides, and note the player's distance from the marker (GetDistance to the marker
+     reference, or the player's GetPos) when "You have discovered" appears: about 1000
+     expected. Then `setgs iMapMarkerRevealDistance 3000` before approaching a Powder
+     Ganger Camp, and see whether the distance follows.
+
 ## Added 2026-11-14 (Hidden Valley dust storm, #2450)
 
 133. **Which way and how fast does the Hidden Valley dust storm blow?** (P3; #2450,
