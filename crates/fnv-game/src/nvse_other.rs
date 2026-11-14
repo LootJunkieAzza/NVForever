@@ -479,6 +479,9 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             let set = name == "setscript";
             let new = if set { form(args, 0) } else { None };
             let b = form(args, usize::from(set)).or(subject).map(|f| base(g, f)).unwrap_or(FormId(0));
+            if g.world.has_placed_temporary_base(b) {
+                return Some(Err("script changes after temporary scene placement are not supported yet".into()));
+            }
             let before = g.base_script(b);
             if before.is_some() || set {
                 g.other.scripts.insert(b, new);
@@ -754,6 +757,9 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             };
             let f = form(args, if biped { 2 } else { 1 }).or(subject).map(|f| base(g, f));
             if let (Some(f), false) = (f, sub.is_empty()) {
+                if sub == "MODL" && g.world.has_placed_temporary_base(f) {
+                    return Some(Err("model replacement after temporary scene placement is not supported yet".into()));
+                }
                 g.field_overrides.insert((f, format!("{sub}/")), XVal::Str(path));
             }
             zero
