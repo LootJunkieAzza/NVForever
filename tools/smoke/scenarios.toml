@@ -12805,10 +12805,10 @@ forbid = [{ re = 'vats mode: marked ', label = "the turret is marked" }]
 [[scenario]]
 name = "bean-bag-fatigue"
 source = "ESM audit low-impact list, Logic (docs/spec-notes/logic-fields.md §3): bean bag shells (AMEF AmmoEffectBeanBagFatigue, Fatigue Mod Add 250) take 250 fatigue a hit"
-note = "a gecko (NVCrGecko) placed at the player (GOD) at 3 s; the player shoots it with the hunting shotgun loaded with Ammo12GaBeanBag, the only 12 gauge carried"
+note = "a gecko (NVCrGecko) placed at the player (GOD) at 3 s and held (SetRestrained: unheld it runs off to fight the coyotes 2,150 units away, issue #2513, as sneak-attack-critical's does); the player shoots it with the hunting shotgun loaded with Ammo12GaBeanBag, the only 12 gauge carried"
 areas = ["combat"]
 paths = ["engine/nvf-play/src/combat.rs", "crates/fnv-game/src/unconscious.rs", "crates/fnv-game/src/functions/actor.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_NO_SPREAD = "1", NVF_PLAY_TEST_SCRIPT = "3:call:player:PlaceAtMe:NVCrGecko:1:300:0", NVF_PLAY_TEST_EQUIP = "0008ED0B", NVF_PLAY_TEST_GIVE = "0013E446:20", NVF_PLAY_TEST_CONTROL = "4:weapon,9:aimactor,9.1:fire,10.1:fire,11.1:fire" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_NO_SPREAD = "1", NVF_PLAY_TEST_SCRIPT = "3:call:player:PlaceAtMe:NVCrGecko:1:300:0,3.2:call:0xFF000000:SetRestrained:1", NVF_PLAY_TEST_EQUIP = "0008ED0B", NVF_PLAY_TEST_GIVE = "0013E446:20", NVF_PLAY_TEST_CONTROL = "4:weapon,9:aimactor,9.1:fire,10.1:fire,11.1:fire" }
 args = ["--cell", "Goodsprings", "--pos=-61000,4500,8500", "--play", "--hour", "12", "--no-voice", "--no-messages"]
 run_seconds = 18
 expect = [
