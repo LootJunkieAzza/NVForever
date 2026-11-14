@@ -247,6 +247,18 @@ fn interior(g: &Game, cell: FormId) -> bool {
 /// cell is in, in CELL XCLR order [observed: a name SetRegionMapName gave Goodsprings'
 /// first region won over VMapGoodspringsRegion's at priority 50; hypothesis: the list's
 /// order decides, not the priority], else the worldspace's name.
+/// The map name of the region the player stands in, outdoors only (the regions of the
+/// player's cell, the first with a map name): the player's HUD Region Names tweak
+/// [design: docs/design/tweaks.md].
+pub fn player_region_name(g: &Game) -> Option<String> {
+    let cell = g.cell_of(FormId::PLAYER_REF)?;
+    if interior(g, cell) {
+        return None;
+    }
+    let regions = g.data.record_fields.get(&cell).into_iter().flatten().filter(|(s, _)| s == b"XCLR").flat_map(|(_, v)| v.as_array().cloned().unwrap_or_else(|| vec![v.clone()])).filter_map(|v| hex_form(Some(&v)));
+    regions.into_iter().find_map(|reg| region_map(g, reg).map(|m| m.0).filter(|n| !n.trim().is_empty()))
+}
+
 fn location_name(g: &Game, r: FormId) -> String {
     let Some(cell) = g.cell_of(r) else { return String::new() };
     let name = |f: FormId| match crate::nvse::record_value(g, f, "FULL", "") {

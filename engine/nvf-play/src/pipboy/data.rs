@@ -214,6 +214,8 @@ const LOCAL_SCALE: f32 = 28.0;
 /// The local map reads the doors of the cells this many across and down from the one at
 /// its middle (enough for the window at a magnification of 1).
 const LOCAL_CELLS: (i32, i32) = (3, 2);
+/// How strong the Local Map Shows Reset Areas tweak's red is [design].
+const RESET_CELL_ALPHA: f32 = 0.18;
 /// Each wheel step zooms a map by this factor, between 1 and 4 times [design].
 const ZOOM_STEP: f32 = 1.25;
 const ZOOM: (f32, f32) = (1.0, 4.0);
@@ -583,6 +585,9 @@ pub(crate) struct MapShown {
     picture: Option<(String, Rect)>,
     /// The Local Map's outline picture and where it lies in the window.
     outline: Option<(Handle<Image>, Rect)>,
+    /// The Local Map's squares that will reset at their next load, in the window (the
+    /// player's Local Map Shows Reset Areas tweak).
+    reset_cells: Arc<Vec<Rect>>,
     marks: Vec<MapMark>,
     /// The player's arrow: its middle and heading (radians).
     player: Option<(Vec2, f32)>,
@@ -2402,6 +2407,7 @@ fn world_map(st: &mut DataState, game: &Game, pointer: Option<Vec2>, aiming: boo
         companion_font: if location_font { LOCATION_FONT } else { COMPANION_FONT },
         picture: Some((m.texture.clone(), Rect::from_corners(left, left + size))),
         outline: None,
+        reset_cells: Arc::default(),
         marks,
         player: arrow.zip(player).map(|(a, (_, h))| (a, h)),
         quests,
@@ -2423,7 +2429,7 @@ fn standing(game: &Game, rep: u32) -> Option<&'static str> {
 }
 
 fn empty_map() -> MapShown {
-    MapShown { picture: None, outline: None, marks: Vec::new(), player: None, quests: Vec::new(), custom: None, nodes: Arc::default(), lines: Arc::default(), cursor: MAP_MID, label: None, detail: None, companions: Vec::new(), companion_font: COMPANION_FONT }
+    MapShown { picture: None, outline: None, reset_cells: Arc::default(), marks: Vec::new(), player: None, quests: Vec::new(), custom: None, nodes: Arc::default(), lines: Arc::default(), cursor: MAP_MID, label: None, detail: None, companions: Vec::new(), companion_font: COMPANION_FONT }
 }
 
 /// The local map's scale, game units to a canvas unit at a magnification of 1: outdoors
@@ -2526,6 +2532,23 @@ fn local_map(st: &mut DataState, game: &Game, pointer: Option<Vec2>) -> MapShown
         info!("pipboy data: local map: {} doors leading elsewhere", doors.len());
         e.insert(doors);
     }
+    // The player's tweak: the squares around that will reset at their next load, tinted
+    // [design: docs/design/tweaks.md].
+    let rt = game.script.as_ref().and_then(|s| s.rt.as_ref());
+    let reset_cells: Vec<Rect> = match (rt.filter(|rt| rt.game.tweaks.local_map_reset_cells), loc.interior, game.world.as_ref()) {
+        (Some(rt), None, Some(w)) => {
+            let g = w.index.worldspaces.get(&loc.world).map(|ws| &ws.grid);
+            (-LOCAL_CELLS.0 - 1..=LOCAL_CELLS.0 + 1)
+                .flat_map(|dx| (-LOCAL_CELLS.1 - 1..=LOCAL_CELLS.1 + 1).map(move |dy| (grid.0 + dx, grid.1 + dy)))
+                .filter(|k| g.and_then(|g| g.get(k)).is_some_and(|&c| rt.game.cell_expired(FormId(c)) == Some(true)))
+                .map(|(x, y)| {
+                    let (x0, y0) = (x as f32 * model::CELL, y as f32 * model::CELL);
+                    Rect::from_corners(on_map(x0, y0 + model::CELL), on_map(x0 + model::CELL, y0))
+                })
+                .collect()
+        }
+        _ => Vec::new(),
+    };
     let mut marks = Vec::new();
     let mut names = Vec::new();
     // A door disabled now (a script's Disable, an enable parent off) is not drawn
@@ -2571,7 +2594,7 @@ fn local_map(st: &mut DataState, game: &Game, pointer: Option<Vec2>) -> MapShown
     log_custom(st, LOCAL, custom);
     st.custom_on_map[LOCAL] = custom.map(|c| on_map(c.pos[0], c.pos[1]));
     let custom = custom.map(|c| local_quest_corner(on_map(c.pos[0], c.pos[1])));
-    MapShown { picture: None, outline, marks, player: Some((on_map(feet[0], feet[1]), heading)), quests, custom, nodes: Arc::default(), lines: Arc::default(), cursor, label, detail: None, companions: Vec::new(), companion_font: COMPANION_FONT }
+    MapShown { picture: None, outline, reset_cells: Arc::new(reset_cells), marks, player: Some((on_map(feet[0], feet[1]), heading)), quests, custom, nodes: Arc::default(), lines: Arc::default(), cursor, label, detail: None, companions: Vec::new(), companion_font: COMPANION_FONT }
 }
 
 /// A quest marker's top left for a target at `at` in the window.
@@ -3253,6 +3276,11 @@ fn map(p: &mut ChildSpawnerCommands, c: &mut Ctx, m: &MapShown) {
         }
         if let Some((image, r)) = &m.outline {
             p.spawn((at(r.min.x, r.min.y, r.width(), r.height()), ImageNode { color: c.bright(), image_mode: NodeImageMode::Stretch, ..ImageNode::new(image.clone()) }, Pickable::IGNORE));
+        }
+        // The player's Local Map Shows Reset Areas tweak: a faint red over each square
+        // [design: docs/design/tweaks.md].
+        for r in m.reset_cells.iter() {
+            p.spawn((at(r.min.x, r.min.y, r.width(), r.height()), BackgroundColor(Color::srgba(1.0, 0.2, 0.15, RESET_CELL_ALPHA)), Pickable::IGNORE));
         }
         // In the menu file's depth order: markers 1, quest markers 4, the player's arrow
         // 7, the highlighted marker 11 [documented: map_menu.xml].

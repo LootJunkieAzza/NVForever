@@ -358,7 +358,7 @@ pub(crate) fn open_menus(
         inv = false;
     }
     // The player's tweak: no Pip-Boy while something fights the player [design: docs/design/tweaks.md].
-    if inv && tweaks.is_some_and(|t| t.no_pipboy_in_combat) && after.is_some_and(|a| a.fighting) {
+    if inv && tweaks.as_ref().is_some_and(|t| t.no_pipboy_in_combat) && after.is_some_and(|a| a.fighting) {
         info!("menu: the Pip-Boy stays shut in combat (tweak)");
         if let Some(c) = corner.as_deref_mut() {
             c.push(crate::tweaks::NO_PIPBOY_LINE.into());
@@ -439,9 +439,14 @@ pub(crate) fn open_menus(
             info!("menu: open {:?} \"{}\"{}", m.mode, m.title, if hidden > 0 { format!(" ({hidden} non-playable stacks hidden)") } else { String::new() });
             // Scripts run MenuMode 1008 / 1002 / 1053 from now on (layer5-play.md).
             crate::script::engine_menu_opened(script, m.mode);
+            // The player's tweak: the world (and the player) runs on while the Pip-Boy comes
+            // up; `keep_menu_state` stops it once the arm is up [design: docs/design/tweaks.md].
+            let walk_on = matches!(m.mode, Mode::Inventory) && tweaks.as_ref().is_some_and(|t| t.move_during_pipboy_raise);
             active.0 = Some(m);
             fresh.0 = true;
-            if !talking {
+            if walk_on {
+                info!("menu: the player moves on while the Pip-Boy comes up (tweak)");
+            } else if !talking {
                 next.set(PlayState::Menu);
             }
         }
@@ -456,11 +461,38 @@ pub(crate) fn open_menus(
 
 /// A barter menu opened over a conversation stays a menu when the conversation ends
 /// under it.
-fn keep_menu_state(active: Res<ActiveMenu>, state: Res<State<PlayState>>, mut next: ResMut<NextState<PlayState>>) {
-    if active.0.is_some() && *state.get() == PlayState::Playing {
-        next.set(PlayState::Menu);
+/// Under the player's Move During the Pip-Boy's Opening tweak, the inventory's Pip-Boy
+/// is let come up first: the state stays Playing while its arm is raising, and for at
+/// most [`RAISE_START_FRAMES`] frames before it starts (the arm follows the menu later in
+/// the frame) [design: docs/design/tweaks.md].
+fn keep_menu_state(
+    active: Res<ActiveMenu>,
+    state: Res<State<PlayState>>,
+    mut next: ResMut<NextState<PlayState>>,
+    (pip, tweaks): (Option<Res<crate::pipboy::PipBoy>>, Option<Res<crate::tweaks::TweakSettings>>),
+    mut waited: Local<u8>,
+) {
+    if active.0.is_none() || *state.get() != PlayState::Playing {
+        *waited = 0;
+        return;
     }
+    let inventory = active.0.as_ref().is_some_and(|m| m.mode == Mode::Inventory);
+    if inventory && tweaks.is_some_and(|t| t.move_during_pipboy_raise) {
+        match pip.map(|p| p.phase) {
+            Some(crate::pipboy::Phase::Raising) => return,
+            Some(crate::pipboy::Phase::Down) if *waited < RAISE_START_FRAMES => {
+                *waited += 1;
+                return;
+            }
+            _ => {}
+        }
+    }
+    *waited = 0;
+    next.set(PlayState::Menu);
 }
+
+/// Frames the Move During the Pip-Boy's Opening tweak waits for the arm to start up.
+const RAISE_START_FRAMES: u8 = 3;
 
 fn release_cursor(mut cursor: Query<&mut CursorOptions, With<PrimaryWindow>>) {
     if let Ok(mut c) = cursor.single_mut() {

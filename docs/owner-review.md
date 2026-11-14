@@ -213,6 +213,12 @@ the spec it links to.
     now shows the masters' own line ("Your dehydration level has increased." and the
     rest), for everyone; which change says which is our reading (observer check 112). The
     Tweaks tab can turn each off. (`crates/fnv-game/src/needs.rs`)
+60. **World borders (#1891).** A region flagged Border Region now keeps the player inside
+    its areas: step past and you are put back with the masters' "You cannot proceed in
+    that direction" line in the corner. No master flags a region of a played worldspace,
+    so only plugins meet it; how the original stops you is a guess (observer check 113).
+    The Tweaks tab's World Borders: Warning Only keeps the line without the stop.
+    (`crates/fnv-game/src/borders.rs`, `engine/nvf-play/src/borders.rs`)
 
 ## Tier 3: rules where we chose to differ, or that the original has no answer for
 

@@ -321,6 +321,19 @@ struct Show {
     /// ([`FOLLOW_SECONDS`]). The camera stays about that place when the target cannot
     /// be found, not about the attacker.
     seen: Option<Vec3>,
+    /// Up (+) or down from the actor's middle the camera looks, game units: the part a
+    /// kill struck under the player's Focus on the Hit Location tweak ([`part_rise`]).
+    focus: f32,
+}
+
+/// How far above (+) or below the actor's middle the part with condition `code` is, game
+/// units [design: a person's head, chest and legs from the aim point].
+pub fn part_rise(code: Option<u16>) -> f32 {
+    match code {
+        Some(25 | 31) => 22.0,
+        Some(29 | 30) => -38.0,
+        _ => 0.0,
+    }
 }
 
 /// The last mark's actor being watched.
@@ -349,6 +362,9 @@ pub struct KillCam {
     angle_side: f32,
     angle_for: f32,
     linger: Option<Linger>,
+    /// Game seconds before a kill outside VATS mode may play a camera again (the
+    /// player's Kill Camera Outside V.A.T.S. tweak).
+    outside_wait: f32,
 }
 
 /// When kill cameras play: the settings page's Kill camera (`kill-camera` in
@@ -586,8 +602,26 @@ fn update(
             cam.watch = None;
         }
     }
+    // The player's kills outside VATS mode: one may have its own kill camera under the
+    // player's tweak, no sooner than fKillCameraCooldown after the last
+    // [observed: FalloutNV.esm fKillCameraCooldown 20; design: docs/design/tweaks.md].
+    let outside: Vec<(FormId, FormId, Option<u16>)> = crate::combat::PLAYER_KILLS.lock().map(|mut k| std::mem::take(&mut *k)).unwrap_or_default();
+    cam.outside_wait = (cam.outside_wait - virt.delta_secs()).max(0.0);
+    let outside_shot = tweaks.as_ref().filter(|t| t.kill_cam_outside_vats).and_then(|_| {
+        if vats.phase != Phase::Off || cam.watch.is_some() || !free || cam.outside_wait > 0.0 {
+            return None;
+        }
+        let &(target, weapon, condition) = outside.last()?;
+        let at = middle(&phys, &player, target)?;
+        let eye = player_middle(&player);
+        Some(VatsShot { weapon, target, distance: f64::from(eye.distance(at)), condition, success: true, height: f64::from(at.z - player.feet[2]) })
+    });
+    if outside_shot.is_some() {
+        cam.outside_wait = rt.game.world.setting_f32("fKillCameraCooldown").unwrap_or(20.0);
+        info!("kill camera: a kill outside VATS mode (tweak)");
+    }
     // A kill: whether the setting and the fight leave room for a camera.
-    let mut killed = cam.watch.as_ref().filter(|w| free && rt.game.is_dead(w.shot.target)).map(|w| w.shot);
+    let mut killed = cam.watch.as_ref().filter(|w| free && rt.game.is_dead(w.shot.target)).map(|w| w.shot).or(outside_shot);
     if let Some(shot) = killed {
         cam.watch = None;
         let others = enemies_in_combat(&rt.game, shot.target);
@@ -649,7 +683,9 @@ fn update(
                     rt.game.remove_image_modifier(m);
                 }
                 cam.linger = None;
-                cam.show = Some(Show { kind: Kind::Kill, target: shot.target, shots, next: 0, playing: None, real: 0.0, held: 0, angle: None, fallback: None, seen: None });
+                // The player's Focus on the Hit Location tweak [design: docs/design/tweaks.md].
+                let focus = if tweaks.as_ref().is_some_and(|t| t.kill_cam_hit_location) { part_rise(shot.condition) } else { 0.0 };
+                cam.show = Some(Show { kind: Kind::Kill, target: shot.target, shots, next: 0, playing: None, real: 0.0, held: 0, angle: None, fallback: None, seen: None, focus });
                 cam.shown += 1;
             }
             None => info!("kill camera: {} killed by the last mark: no camera path chosen", shot.target),
@@ -704,7 +740,7 @@ fn update(
                         None => "no path with such a shot, NVForever's own clocks".to_string(),
                     }
                 );
-                cam.show = Some(Show { kind: Kind::Attack(ask.stage), target: ask.shot.target, shots, next: 0, playing: None, real: 0.0, held: 0, angle: Some((angle, side)), fallback, seen: None });
+                cam.show = Some(Show { kind: Kind::Attack(ask.stage), target: ask.shot.target, shots, next: 0, playing: None, real: 0.0, held: 0, angle: Some((angle, side)), fallback, seen: None, focus: 0.0 });
                 cam.attacks += 1;
             }
         }
@@ -731,7 +767,8 @@ fn update(
     let frozen = show.seen.is_some()
         && tweaks.as_ref().is_some_and(|t| t.vats_stop_following_dead)
         && rt.game.is_dead(show.target);
-    if let Some(at) = middle(&phys, &player, show.target).filter(|_| !frozen) {
+    let focus = show.focus;
+    if let Some(at) = middle(&phys, &player, show.target).map(|m| m + Vec3::new(0.0, 0.0, focus)).filter(|_| !frozen) {
         show.seen = Some(match show.seen {
             Some(was) if was.distance(at) <= FOLLOW_JUMP => was.lerp(at, 1.0 - (-real.delta_secs().min(0.25) / FOLLOW_SECONDS).exp()),
             _ => at,
@@ -1099,7 +1136,7 @@ mod tests {
         app.update();
         assert_eq!(app.world().resource::<MoveIntent>().forward, 1.0);
         assert!(app.world().resource::<PlayerControl>().trigger);
-        app.world_mut().resource_mut::<KillCam>().show = Some(Show { kind: Kind::Kill, target: FormId(0x1234), shots: Vec::new(), next: 0, playing: None, real: 0.0, held: 0, angle: None, fallback: None, seen: None });
+        app.world_mut().resource_mut::<KillCam>().show = Some(Show { kind: Kind::Kill, target: FormId(0x1234), shots: Vec::new(), next: 0, playing: None, real: 0.0, held: 0, angle: None, fallback: None, seen: None, focus: 0.0 });
         ask(&mut app);
         app.update();
         let (i, c) = (*app.world().resource::<MoveIntent>(), *app.world().resource::<PlayerControl>());

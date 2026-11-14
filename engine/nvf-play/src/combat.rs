@@ -183,6 +183,10 @@ pub struct WeaponAnim {
     /// start it again (the owner's playtest list 7 item 22: the clip used to start at the
     /// shot, so dynamite waited, left, and only then was lit and thrown).
     pub wind_ups: u32,
+    /// Set by combat: the player holds a thrown weapon at its release under the Hold and
+    /// Release Throwables tweak; the body holds the attack clip at its `Hit` key
+    /// [design: docs/design/tweaks.md].
+    pub throw_held: bool,
     /// Set by combat: the weapon's jam animation (`JamA` for reload animation
     /// `ReloadA`: the game's `1hpjama.kf` beside `1hpreloada.kf` [observed: file lists]),
     /// and counted up when a shot jams the weapon; the body plays the jam clip.
@@ -1143,6 +1147,10 @@ pub struct Combat {
     cycle: Option<Cycle>,
     kick: Kick,
     flying: Vec<Flying>,
+    /// Actors whose next shot is a live grenade dropped as they died (the player's NPCs
+    /// Drop Live Grenades tweak, `death_drops`): it leaves at [`LIVE_DROP_SPEED`] of its
+    /// speed.
+    dropped_live: Vec<FormId>,
     /// Thrown mines that came to rest this frame, for `crate::mines` to place.
     settled: Vec<SettledMine>,
     /// Thrown weapons that landed this frame, for `crate::thrown` to put down.
@@ -2066,9 +2074,31 @@ fn player_flinch(mut c: ResMut<Combat>, mut feedback: ResMut<HitFeedback>, mut p
 /// of it, out of its inventory. A weapon with the "Can't Drop" flag stays in the hand
 /// [documented: GECK wiki Weapon, "the weapon cannot be shot out from the hands of
 /// actors"].
-fn disarm(mut feedback: ResMut<HitFeedback>, mut sim: ResMut<SimState>, mut stats: ResMut<CombatStats>, parts: Res<ActorParts>, mut broken: MessageWriter<WeaponBroken>) {
+///
+/// The player is disarmed too under the player's NPCs Can Disarm the Player tweak: the
+/// weapon in hand falls in front of them as an actor's does [design: docs/design/tweaks.md].
+#[allow(clippy::too_many_arguments)]
+fn disarm(
+    mut feedback: ResMut<HitFeedback>,
+    mut sim: ResMut<SimState>,
+    mut stats: ResMut<CombatStats>,
+    parts: Res<ActorParts>,
+    (c, script): (Res<Combat>, Option<Res<ScriptState>>),
+    mut hud: Option<ResMut<HudMessage>>,
+    mut broken: MessageWriter<WeaponBroken>,
+) {
+    let player_too = script.as_deref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.npcs_disarm_player);
     for actor in std::mem::take(&mut feedback.disarms) {
-        let Some(item) = parts.by_ref.get(&actor.0).and_then(|p| p.weapon) else { continue };
+        let item = if actor == FormId::PLAYER_REF {
+            if !player_too {
+                continue;
+            }
+            // Not the Fists, nor a body weapon.
+            c.weapon.filter(|w| sim.world.inventory_mut(actor).is_ok_and(|i| i.count(*w) > 0))
+        } else {
+            parts.by_ref.get(&actor.0).and_then(|p| p.weapon)
+        };
+        let Some(item) = item else { continue };
         if sim.forms.item(item).is_some_and(|it| it.cant_drop) {
             info!("combat: {actor}'s arm crippled: its {} ({item}) can't be dropped and stays in its hand", item_name(&sim, item));
             continue;
@@ -2084,12 +2114,30 @@ fn disarm(mut feedback: ResMut<HitFeedback>, mut sim: ResMut<SimState>, mut stat
             Ok(refs) => {
                 stats.disarmed += 1;
                 let dropped = refs.first().copied();
+                if actor == FormId::PLAYER_REF {
+                    if let Some(h) = hud.as_deref_mut() {
+                        h.show(format!("{} knocked from your hand", item_name(&sim, item)));
+                    }
+                }
                 info!("combat: {actor}'s arm crippled: it drops its {} ({item}){}", item_name(&sim, item), dropped.map_or(String::new(), |r| format!(": reference {r}")));
                 broken.write(WeaponBroken { form_id: actor.0, weapon: item, dropped });
             }
             Err(e) => warn!("combat: {actor}'s arm crippled: its {} could not be dropped: {e}", item_name(&sim, item)),
         }
     }
+}
+
+/// The share of a throw's speed a grenade dropped live by its dying holder leaves at, and
+/// the height over the feet it leaves from, units [design].
+const LIVE_DROP_SPEED: f32 = 0.05;
+const LIVE_DROP_HEIGHT: f32 = 60.0;
+
+/// Whether `weapon` is a grenade: of the animation type "Grenade Throw (1 Hand)"
+/// [documented: GECK wiki Weapons, Animation Type] and its projectile explodes (as
+/// nvforever's `npc_grenades::carried`).
+fn is_grenade(forms: &fnv_combat::data::CombatForms, weapon: FormId) -> bool {
+    forms.weapons.get(&weapon).is_some_and(|w| w.anim_type.as_deref() == Some("Grenade Throw (1 Hand)"))
+        && forms.chain(weapon, None).and_then(|ch| ch.projectile).and_then(|p| forms.projectiles.get(&p)).and_then(|p| p.explodes()).and_then(|e| forms.explosions.get(&e)).is_some_and(|e| e.radius > 0.0)
 }
 
 /// The default of `iDeathDropWeaponChance`, percent [observed: FalloutNV.esm, 100].
@@ -2114,12 +2162,19 @@ struct DeathDrops {
 /// original's corpses list the weapon lying beside them; owner's report]. Only deaths seen in play count: an actor dead when it
 /// is drawn was never seen holding a weapon, so a corpse laid out by the game keeps its
 /// own (`Game::starts_dead`).
+///
+/// Under the player's NPCs Drop Live Grenades tweak, one that dies holding a grenade (a
+/// thrown weapon that explodes, as `npc_grenades` throws) lets it fall live at its feet
+/// instead: one taken from its inventory leaves its hand at [`LIVE_DROP_SPEED`] of a
+/// throw's speed, downwards, and goes off as a thrown one [design: docs/design/tweaks.md].
+#[allow(clippy::too_many_arguments)]
 fn death_drops(
     mut st: Local<DeathDrops>,
     mut sim: ResMut<SimState>,
     mut stats: ResMut<CombatStats>,
     parts: Res<ActorParts>,
     script: Option<Res<ScriptState>>,
+    (mut c, mut fire): (ResMut<Combat>, MessageWriter<ActorFire>),
     mut broken: MessageWriter<WeaponBroken>,
 ) {
     let Some(rt) = script.as_deref().and_then(|s| s.rt.as_ref()) else { return };
@@ -2146,7 +2201,17 @@ fn death_drops(
         return;
     }
     let chance = sim.forms.setting_f32("iDeathDropWeaponChance").unwrap_or(DEATH_DROP_CHANCE);
+    let live = rt.game.tweaks.npcs_drop_live_grenades;
     for (actor, item) in died {
+        if live && is_grenade(&c.forms, item) && sim.world.remove_item(actor, item, 1).is_ok() {
+            let at = sim.world.peek(actor).map_or([0.0; 3], |s| s.pos);
+            let origin = [at[0], at[1], at[2] + LIVE_DROP_HEIGHT];
+            fire.write(ActorFire { shooter: actor, weapon: item, origin, aim: [0.0, 0.0, -1.0], cone: 0.0, muzzle: None, harmless: false });
+            c.dropped_live.push(actor);
+            stats.death_drops += 1;
+            info!("combat: {actor} died holding its {} ({item}): it falls live (tweak)", item_name(&sim, item));
+            continue;
+        }
         let roll = st.rng.get_or_insert(SplitMix(5)).next_f32() * 100.0;
         if roll >= chance {
             info!("combat: {actor} died holding its {} ({item}): kept (roll {roll:.0} against iDeathDropWeaponChance {chance:.0})", item_name(&sim, item));
@@ -2258,6 +2323,7 @@ fn init_combat(mut commands: Commands, d: Res<PlayWorld>) {
         cycle: None,
         kick: Kick::default(),
         flying: Vec::new(),
+        dropped_live: Vec::new(),
         settled: Vec::new(),
         landed: Vec::new(),
         splashes: Vec::new(),
@@ -3166,6 +3232,19 @@ pub(crate) fn fire(
     // The weapon's cycle goes at the player's own pace while a VATS camera shot plays (its
     // Player time multiplier), as the body's clips do: a throw leaves at its clip's key.
     let own_dt = dt * vats.as_deref().map_or(1.0, |v| v.player_rate());
+    // The player's Hold and Release Throwables tweak: a throw wound up to its release waits
+    // there while the trigger is held, and leaves when it is let go [design:
+    // docs/design/tweaks.md]. Not VATS mode's throws.
+    let hold_throw = c.self_ammo && control.trigger && c.vats_throw.is_none() && script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.hold_release_throws);
+    let held_left = match cycle.phase {
+        fnv_combat::attack::Phase::WindUp { left } if hold_throw && left <= own_dt => Some(left),
+        _ => None,
+    };
+    if held_left.is_some() != anim.throw_held {
+        info!("combat: {} {} (tweak)", w.edid.as_deref().unwrap_or("?"), if held_left.is_some() { "held at its release" } else { "let go" });
+    }
+    anim.throw_held = held_left.is_some();
+    let own_dt = held_left.map_or(own_dt, |left| (left - 1e-4).max(0.0));
     let events = cycle.step(&c.tuning, Input { trigger: control.trigger && !broken_in_hand(&sim, id), reload: reload && !god, dt: own_dt, carried });
     // VATS mode's throw that wound up leaves now, at its point; one that no longer winds
     // up (the weapon went) is forgotten. Either way the mode goes on.
@@ -3933,6 +4012,10 @@ fn hit_actor(
     }
     if r.died {
         if mine {
+            // For a kill camera outside VATS mode (`crate::kill_cam`, the player's tweak).
+            if let Ok(mut k) = PLAYER_KILLS.lock() {
+                k.push((target, info.weapon.unwrap_or(FormId(0)), r.limb.map(|l| l.0)));
+            }
             stats.kills += 1;
             stats.xp += r.xp;
             if let Some(h) = hud.as_deref_mut() {
@@ -3955,7 +4038,10 @@ fn hit_actor(
     };
     // The player's tweak keeps teammates armed [design: docs/design/tweaks.md].
     let spared = (rt.game.tweaks.no_disarm_companions && rt.game.is_teammate(target)) || rt.game.tweaks.crippling_never_disarms;
-    if !spared && !r.died && !r.knocked_out && crippled.iter().any(|c| matches!(*c, fnv_game::combat::LEFT_ARM | fnv_game::combat::RIGHT_ARM)) {
+    // The player's own blast does not disarm the player (the NPCs Can Disarm the Player
+    // tweak, `disarm`) [design].
+    let own = target == FormId::PLAYER_REF && mine;
+    if !spared && !own && !r.died && !r.knocked_out && crippled.iter().any(|c| matches!(*c, fnv_game::combat::LEFT_ARM | fnv_game::combat::RIGHT_ARM)) {
         feedback.disarms.push(target);
     }
     for &code in &crippled {
@@ -3977,6 +4063,10 @@ fn hit_actor(
 }
 
 /// A limb's name by its condition code (25–31).
+/// The player's kills this frame: the actor, the weapon and the condition of the part
+/// struck (`crate::kill_cam` takes them for its camera outside VATS mode).
+pub(crate) static PLAYER_KILLS: std::sync::Mutex<Vec<(FormId, FormId, Option<u16>)>> = std::sync::Mutex::new(Vec::new());
+
 /// How long the critical-hit corner message shows, seconds [design].
 const CRIT_NOTE_SECONDS: f32 = 2.0;
 
@@ -4569,6 +4659,11 @@ fn actor_attacks(
         let mods = sim.world.peek(s.shooter).and_then(|st| st.inventory.as_ref()).map_or(0, |i| i.mods_in_use(s.weapon));
         if let Some(m) = c.forms.weapons.get(&s.weapon).filter(|_| mods != 0).and_then(|w| w.modded(mods).projectile_speed_mult) {
             ps.iter_mut().for_each(|p| p.speed_up(m));
+        }
+        // A grenade dropped live by its dying holder falls rather than flies (`death_drops`).
+        if let Some(i) = c.dropped_live.iter().position(|a| *a == s.shooter) {
+            c.dropped_live.swap_remove(i);
+            ps.iter_mut().for_each(|p| p.speed_up(LIVE_DROP_SPEED));
         }
         let probe_created = ps.len();
         let (tracer_over, draw_hitscan) = shot_switches(script.as_deref());

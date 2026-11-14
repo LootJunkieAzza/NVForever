@@ -340,6 +340,70 @@ impl Game<'_> {
             self.effect_health_damage(p, water_damage, None);
         }
         self.senses.radiation = Exposure { water, markers, marker, zone, from_water, level, resisted, rate, resist, water_damage, water_clock, water_hits };
+        if self.tweaks.character_radiation && dt > 0.0 {
+            self.tick_actor_radiation(dt);
+        }
+    }
+
+    /// The player's Character Radiation tweak: every loaded living actor takes the rads of
+    /// the markers and explosion zones where it stands, as the player does (no water),
+    /// cut by its Rad Resistance; with its stages option the radiation stages' effects
+    /// follow its Rads [design: docs/design/tweaks.md; NVForever gives no actor but the
+    /// player radiation otherwise].
+    fn tick_actor_radiation(&mut self, dt: f64) {
+        let data = self.data;
+        let accumulation = setting(self, "fRadiationAccumulationRate", 1.0);
+        let actors: Vec<FormId> = self.awareness.actors.keys().copied().filter(|&a| a != FormId::PLAYER_REF).collect();
+        for a in actors {
+            if self.is_dead(a) {
+                continue;
+            }
+            let Some((Some(cell), pos)) = self.world.peek(a).map(|s| (s.cell, s.pos)) else { continue };
+            let space = self.world.placed.world_of(cell).unwrap_or(cell);
+            let list = data.radiation_markers.get(&space).map(Vec::as_slice).unwrap_or_default();
+            let world = &self.world;
+            let (m, _) = marker_level(list, pos, |id| world.is_enabled(id).unwrap_or(true));
+            let (z, _) = zone_level(&self.senses.rad_zones, space, pos);
+            let level = m.max(z);
+            if level <= 0.0 {
+                continue;
+            }
+            let resist = fa::actor_value(self, a, RAD_RESISTANCE).unwrap_or(0.0);
+            let rate = taken(level, resist, accumulation);
+            if rate <= 0.0 {
+                continue;
+            }
+            let _ = fa::shift_base(self, a, RAD_LEVEL, rate * dt);
+            if self.tweaks.character_radiation_stages {
+                self.actor_radiation_stage(a);
+            }
+        }
+    }
+
+    /// The radiation stage effect `actor`'s Rads call for, on it alone (the tweak's stages
+    /// option): the masters' stages by their thresholds, as the player's (`crate::needs`).
+    fn actor_radiation_stage(&mut self, actor: FormId) {
+        let Some(stages) = self.data.need_stages.get(&RAD_LEVEL) else { return };
+        let rads = fa::actor_value(self, actor, RAD_LEVEL).unwrap_or(0.0);
+        let want = stages.iter().rev().find(|s| rads >= s.threshold as f64).map(|s| s.spell);
+        let all: Vec<FormId> = stages.iter().map(|s| s.spell).collect();
+        let has: Vec<FormId> = self.extra.get(&actor).map(|e| e.spells.iter().copied().filter(|s| all.contains(s)).collect()).unwrap_or_default();
+        if has.len() == usize::from(want.is_some()) && want.is_none_or(|w| has.contains(&w)) {
+            return;
+        }
+        let gone: Vec<FormId> = has.into_iter().filter(|s| Some(*s) != want).collect();
+        if !gone.is_empty() {
+            if let Some(x) = self.extra.get_mut(&actor) {
+                x.spells.retain(|s| !gone.contains(s));
+            }
+            self.dispel(actor, None, |e| gone.contains(&e.source));
+        }
+        if let Some(w) = want {
+            if !self.extra.get(&actor).is_some_and(|e| e.spells.contains(&w)) {
+                self.add_spell(actor, w);
+                tracing::info!("radiation: {} reaches {} (tweak)", self.data.name(actor), self.data.name(w));
+            }
+        }
     }
 }
 

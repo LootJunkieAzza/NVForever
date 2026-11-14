@@ -126,13 +126,18 @@ pub struct SkillSheet {
     /// The most each skill may reach in this menu: [`SKILL_MAX`], or under the player's
     /// Cap Skills by S.P.E.C.I.A.L. tweak less [design: docs/design/tweaks.md].
     pub caps: Vec<i32>,
+    /// What earlier level-ups put into each skill (`PlayerState::skill_points`), which
+    /// this menu may take back under the player's Reallocate Skill Points tweak; all 0
+    /// without it [design: docs/design/tweaks.md].
+    pub earlier: Vec<i32>,
 }
 
 impl SkillSheet {
     pub fn new(skills: Vec<u16>, start: Vec<i32>, per_point: Vec<i32>, points: i32) -> SkillSheet {
         let spent = vec![0; skills.len()];
         let caps = vec![SKILL_MAX; skills.len()];
-        SkillSheet { skills, start, spent, per_point, points, caps }
+        let earlier = vec![0; skills.len()];
+        SkillSheet { skills, start, spent, per_point, points, caps, earlier }
     }
 
     /// Row `i`'s most ([`SkillSheet::caps`]).
@@ -150,6 +155,10 @@ impl SkillSheet {
         // The player's tweak: each skill's most is its base and its governing attribute's
         // share and Luck's, at most the cap, tagged skills spared when asked [design: docs/design/tweaks.md].
         let t = g.tweaks.clone();
+        // The player's Reallocate Skill Points tweak [design: docs/design/tweaks.md].
+        if t.reallocate_skill_points {
+            sheet.earlier = sheet.skills.iter().map(|s| g.player.skill_points.get(s).copied().unwrap_or(0.0).max(0.0).floor() as i32).collect();
+        }
         if t.cap_skills_by_special {
             for (i, &skill) in sheet.skills.clone().iter().enumerate() {
                 if t.cap_skills_spare_tagged && g.player.tag_skills.contains(&skill) {
@@ -186,7 +195,11 @@ impl SkillSheet {
     /// never goes under its value at the start) [documented: LUM_Template_LeftArrow's
     /// `visible` and its comment].
     pub fn can_lower(&self, i: usize) -> bool {
-        self.spent.get(i).is_some_and(|&n| n > 0)
+        let Some(&n) = self.spent.get(i) else { return false };
+        // Under the player's Reallocate Skill Points tweak a point of an earlier level
+        // comes back too, while what is taken stays within what earlier levels put in
+        // ([`SkillSheet::earlier`]).
+        n > 0 || (1 - n) * self.per_point.get(i).copied().unwrap_or(1) <= self.earlier.get(i).copied().unwrap_or(0)
     }
 
     pub fn raise(&mut self, i: usize) -> bool {
@@ -430,6 +443,19 @@ mod tests {
 
     /// The owner's screenshots: twelve points, all spent on Science (17 → 22 with seven
     /// left, then 29 with none).
+    #[test]
+    fn earlier_points_come_back_only_under_the_tweak() {
+        let mut sheet = SkillSheet::new(vec![1, 2], vec![40, 30], vec![1, 2], 3);
+        assert!(!sheet.lower(0), "nothing taken below the start without the tweak");
+        sheet.earlier = vec![2, 3];
+        assert!(sheet.lower(0) && sheet.lower(0) && !sheet.lower(0));
+        assert_eq!((sheet.value(0), sheet.remaining()), (38, 5));
+        // A tagged skill's point is worth 2: one of its 3 earlier comes back.
+        assert!(sheet.lower(1) && !sheet.lower(1));
+        assert_eq!((sheet.value(1), sheet.remaining()), (28, 6));
+        assert_eq!(sheet.gains(), vec![(1, -2), (2, -2)]);
+    }
+
     #[test]
     fn the_screenshot_sheet() {
         let mut s = SkillSheet::new(vec![32, 40], vec![17, 17], vec![1, 1], 12);

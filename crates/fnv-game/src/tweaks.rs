@@ -448,6 +448,23 @@ pub struct Tweaks {
     /// `bPreventRepairIfNotAtWorkbench`: the Pip-Boy repairs only while the player looks
     /// at a workbench.
     pub repair_at_workbench: bool,
+    /// `bCharacterRadiation` (`bAllowRadiationStages`): every actor takes the world's
+    /// radiation; its stages' effects follow too.
+    pub character_radiation: bool,
+    pub character_radiation_stages: bool,
+    /// `bReallocateSkillPointsOnLevelup`: the level-up menu may take back points earlier
+    /// level-ups put into skills.
+    pub reallocate_skill_points: bool,
+    /// `bLocalMapRespawnedCellIndicator`: the local map tints the squares that will
+    /// reset at their next load.
+    pub local_map_reset_cells: bool,
+    /// `bHoldAndReleaseThrowables`: a throw waits at its release while the attack is held.
+    pub hold_release_throws: bool,
+    /// `bNPCsCanDisarmPlayer`: a hit that cripples the player's arm knocks the weapon
+    /// from their hand, as an actor's.
+    pub npcs_disarm_player: bool,
+    /// `bNPCsDropLiveGrenades`: an NPC that dies holding a grenade lets it fall live.
+    pub npcs_drop_live_grenades: bool,
     /// `bWaterSourcesShowH2O`: a water source's prompt shows the H2O a drink takes off.
     pub water_shows_h2o: bool,
     /// `bDisableCharacterRespec`: leaving the start offers no remake of the character.
@@ -928,6 +945,13 @@ impl Default for Tweaks {
             no_sleep_messages: false,
             need_icons: false,
             repair_at_workbench: false,
+            character_radiation: false,
+            character_radiation_stages: false,
+            reallocate_skill_points: false,
+            local_map_reset_cells: false,
+            hold_release_throws: false,
+            npcs_disarm_player: false,
+            npcs_drop_live_grenades: false,
             water_shows_h2o: false,
             no_respec: false,
             weapon_impacts: false,

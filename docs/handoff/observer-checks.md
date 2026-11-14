@@ -1579,3 +1579,13 @@ to the decoded file by cross-correlation and a per-band transfer estimate.
     when it goes down to another stage, NotSick when it leaves the last [hypothesis]; hunger
     and radiation say nothing (no such settings). In Hardcore, let dehydration rise past a
     stage and drink back down: which lines show, and is there one for hunger or rads?
+113. **How does a border region stop the player?** (P3; `fnv_game::borders`,
+    `nvf_play::borders`.) NVForever reads REGN header flag 0x40 (Border Region
+    [documented: GECK wiki form flags]) as the area the player is kept inside, puts a
+    player who steps out back where they last stood inside and shows
+    `sPlayerLeavingBorderRegion` as a corner message, at most every 3 s [hypothesis: all
+    of it]. No master flags a region of a played worldspace [observed], so this needs a
+    test plugin: flag a region around Goodsprings as Border Region, walk out of it. Is the
+    player stopped at the edge like a wall, or pushed back; is the line a corner message
+    or a message box, and how often does it repeat? Does Edge Fall-off (RPLI) move the
+    edge?

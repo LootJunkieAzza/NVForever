@@ -647,6 +647,17 @@ unless the player binds them, so nothing changes until then.
 | Night Vision Toggle | `bAddNightVisionToggle` | `flashlight::menu_key` switches `aim_zoom::switch_night_vision` while `night_scope_up`; `aim_zoom::zoom` gives the `Scope` night vision only when wanted; nvforever `scope_view::night_vision` counts day as night under By Day Too. The switches: `TweakSettings::night_vision_toggle`, `night_vision_off_first`, `night_vision_by_day` |
 | Custom Popup Icons | `bCustomPopupIcons` | `needs::need_icon` gives the `NoteShown` its picture. The switch: `Tweaks::need_icons` |
 | Repair Only at a Workbench | `bPreventRepairIfNotAtWorkbench` | `Game::at_workbench` (the crosshair reference runs `CraftingWorkbenchRecipesScript`); `pipboy::repair::keys` refuses Open without it. The switch: `Tweaks::repair_at_workbench` |
+| Character Radiation | `bCharacterRadiation` | `Game::tick_actor_radiation` (after the player's `tick_radiation`) shifts each actor's Rads; `actor_radiation_stage` keeps its stage spell. The switches: `Tweaks::character_radiation`, `character_radiation_stages` |
+| Kill Camera Outside V.A.T.S., Focuses on the Hit Location | `bUseHitLocationInCinematicKillcams` | `combat::PLAYER_KILLS` (the player's kills, `hit_actor`); `kill_cam::update` makes a shot of one outside VATS mode after `fKillCameraCooldown`; `part_rise` sets `Show::focus`. The switches: `TweakSettings::kill_cam_outside_vats`, `kill_cam_hit_location` |
+| (already so) | `bReloadSoundsAffectedByTimescale` | `audio_out::SoundSpeed` (from `script::time_multiplier`) sets the speed of every slowed category's sound, the `Sound:` keys of reload clips among them (`anim_sounds::sound_heard`) |
+| Region Name on the HUD | `bHUDShowRegionNames` | `fnv_game::nvse_jg5::player_region_name` (the player's cell's XCLR regions, the first with an RDMP map name, outdoors); `hud::place_name` draws it over the compass, kept per cell. The switch: `TweakSettings::hud_region_names` |
+| Move While the Pip-Boy Comes Up | `bMoveDuringOpenPipboyAnim` | `menu::open_menus` does not enter `PlayState::Menu` for the inventory; `menu::keep_menu_state` enters it once the Pip-Boy's phase is past Raising (at most 3 frames waiting for it to start). The switch: `TweakSettings::move_during_pipboy_raise` |
+| Reallocate Skill Points on Level-Up | `bReallocateSkillPointsOnLevelup` | `SkillSheet::earlier` from `PlayerState::skill_points`; `SkillSheet::can_lower` lets `spent` go below 0 within it; `apply` takes the negative gains off `skill_points`. The switch: `Tweaks::reallocate_skill_points` |
+| World Borders: Warning Only | `bDisableRegionBordersKeepMessage` | `RegionDef::border` (header flag 0x40); `Game::past_border`, `border_message` (`fnv_game::borders`); `nvf_play::borders::keep_inside` puts the player back or, with the switch, only warns. The switch: `TweakSettings::region_borders_message_only` |
+| Local Map Shows Reset Areas | `bLocalMapRespawnedCellIndicator` | `Game::cell_expired` (`fnv_game::respawn`, IsCellExpired's rule, now shared with it); `pipboy::data::local_map` gathers `MapShown::reset_cells`, `map` draws each a faint red. The switch: `Tweaks::local_map_reset_cells` |
+| Hold and Release Throws | `bHoldAndReleaseThrowables` | `combat::fire`: the cycle's `WindUp` is not let reach 0 while the trigger is held (`WeaponAnim::throw_held`); nvforever `player_body` keeps the wound-up clip at its `Hit` key (`wound_hit`). The switch: `Tweaks::hold_release_throws` |
+| Enemies Can Disarm You | `bNPCsCanDisarmPlayer` | `hit_actor` pushes the player's crippled arm to `HitFeedback::disarms` (not their own hits); `combat::disarm` drops `Combat::weapon` with `drop_equipped` and says so on the HUD. The switch: `Tweaks::npcs_disarm_player` |
+| NPCs Drop Live Grenades | `bNPCsDropLiveGrenades` | `combat::death_drops`: a held grenade (`is_grenade`) is fired as an `ActorFire` straight down from 60 units up, its holder noted in `Combat::dropped_live`, so `actor_attacks` slows the projectile to `LIVE_DROP_SPEED`. The switch: `Tweaks::npcs_drop_live_grenades` |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -668,8 +679,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 583 |
-| to do | 11 |
+| done | 594 |
+| to do | 0 |
 | unsure, skipped | 24 |
 | n/a | 17 |
 | skipped: fix | 10 |
@@ -694,6 +705,7 @@ game's Data folder, read-only).
 | `bBarterCheckActorBuySellFlags` | done |  | 2 | Merchants Keep to Their Lists (the ammo and perk options not built) |
 | `bBillyGoatMode` | done |  | 3 | Steepest Walkable Slope (30-80 degrees; one angle for walking, jumping and auto-walk) |
 | `bCapSkillsBySPECIAL` | done |  | 5 | Skills Capped by S.P.E.C.I.A.L. (defaults ours: 50 + 5 per attribute point, cap 100) |
+| `bCharacterRadiation` | done |  | 1 | Character Radiation (with Sickness Too, its bAllowRadiationStages): every loaded living actor takes the rads of the markers and explosion zones where it stands, cut by its Rad Resistance; with the option the masters' radiation stages' effects follow its Rads. NVForever gives no actor but the player radiation otherwise, creatures included, so the switch covers creatures too |
 | `bClearNearbyPlayerMarker` | done |  | 1 | Clear Marker When Near (0 to 2000 units; goes once the player has been farther) |
 | `bCompanionsDontUseAmmo` | done |  |  | already so: NPCs carry no ammo and reload without spending any |
 | `bContactMines` | done |  | 2 | Contact Mines (Player) and (Others): a mine stood on, within 24 units of the body's axis, goes off with no fuse |
@@ -756,6 +768,7 @@ game's Data folder, read-only).
 | `bNoPlayerStaggerAnims` | done |  |  | No Player Stagger |
 | `bNoSkillTags` | done |  | 6 | No Skill Tags (the outline, percent and XP options not built) |
 | `bNPCsDetectMineExplosions` | done |  |  | Mine Blasts Are Heard |
+| `bNPCsDropLiveGrenades` | done |  |  | NPCs Drop Live Grenades: an NPC that dies holding a grenade (the only ones that throw, `npc_grenades`) lets one fall live from its hand, a throw at 5 % of its speed downwards, in place of the dead weapon dropped |
 | `bNPCsEarnAmmoCasings` | done |  |  | NPCs Keep Spent Cases (the ammo's own chance, no perks) |
 | `bNPCsTakeLimbFallDamage` | done |  |  | already so: falls hit a leg for NPCs too |
 | `bOnlyAllowWaitWhileSitting` | done |  | 3 | Wait Only When Seated (NVForever's own refusal text) |
@@ -819,10 +832,8 @@ game's Data folder, read-only).
 | `iMaxCharacterLevel` | done |  | 1 | Level Cap (0 to 100; no add-on levels) |
 | `iPerksPerLevel` | done |  | 1 | Perks per Level (1 to 5) |
 | `bMoreFrequentNPCLightUpdates` | unsure, skipped | yes | 1 | NVForever lights actors its own way; unclear what to change |
-| `bCharacterRadiation` | to do |  | 1 | not built: only the player takes environment radiation |
 | `bHipFireAnimsWhileScoped` | unsure, skipped |  |  | depends on alternate animations |
 | `bNoLockEncounterZoneLevels` | unsure, skipped |  |  | encounter-zone level locking not yet checked in NVForever |
-| `bNPCsDropLiveGrenades` | to do |  |  | not built: NPC grenades have no in-hand phase |
 | `bSneakingDoesntForcePowerAttacks` | unsure, skipped |  |  | depends on separate animations |
 | `bStrengthAffectsAllThrowables` | unsure, skipped |  |  | how fThrowingStrengthPenalty shortens a throw is not documented (the GECK wiki export names the setting but has no page for it), and NVForever applies it to no throw yet |
 | `bUseArmorRepairKitsInRepairMenu` | unsure, skipped |  |  | the masters have no armour repair kit, and nothing in the data marks a mod's item as one or says how much it repairs |
@@ -846,6 +857,7 @@ game's Data folder, read-only).
 | `bFatalNonSneakCritsAlwaysGib` | done |  | 1 | Fatal Criticals Always Gib (melee and shots; bOnlyCritsGib not offered) |
 | `bFirstPersonVATS` | done |  |  | First Person V.A.T.S. |
 | `bHideEnemyMarkers` | done |  | 1 | No Enemies on the Compass (the firing-enemies option is not built) |
+| `bHoldAndReleaseThrowables` | done |  | 1 | Hold and Release Throws: a throw wound up to its release waits there (the cycle and the body's clip at its Hit key) while attack is held, and leaves when it is let go; not V.A.T.S. throws |
 | `bIgnoreCompanionsVATS` | done |  | 1 | V.A.T.S. Ignores Companions (always; bCombatOnly not done) |
 | `bKillsRewardAP` | done |  | 1 | Action Points per Kill (slider 0-50; given in VATS too) |
 | `bLocationalMeleeDamage` | done |  | 3 | Enemy Blows Hit Where They Land (the player's blows already did; NPC on NPC not built) |
@@ -862,6 +874,7 @@ game's Data folder, read-only).
 | `bNoSneakAttacksCriticals` | done |  |  | No Sneak Criticals |
 | `bNoVATSTargetInvisible` | done |  |  | already so: cloaked actors are barred without Enhanced Sensors |
 | `bNoWeaponConditionDamagePenalty` | done |  |  | No Condition Damage Penalty |
+| `bNPCsCanDisarmPlayer` | done |  |  | Enemies Can Disarm You: a hit that cripples one of the player's arms drops the weapon in hand as an actor's does (the Crippling Never Disarms switch and the player's own blasts spare it) |
 | `bNPCsCanSneakCritPlayer` | done |  |  | NPCs Sneak Attack the Player (when the player has measured them below Detected) |
 | `bPlayerMeleeDamageIgnoresScale` | done |  |  | already so: no damage formula reads actor scale |
 | `bPlayerNonMeleeDamageIgnoresScale` | done |  |  | already so: no damage formula reads actor scale |
@@ -873,8 +886,6 @@ game's Data folder, read-only).
 | `bVATSAutoTargetHead` | done |  |  | V.A.T.S. Starts on the Head (the classic style; each target when first selected) |
 | `bVATSStopBurstIfTargetDead` | done |  |  | V.A.T.S. Burst Stops on a Kill |
 | `bWeaponRequirementsMatter` | done |  | 7 | Weapon Requirements Matter (Strength and skill both; the ignore options not built) |
-| `bHoldAndReleaseThrowables` | to do |  | 1 | not built: no hold-to-release throw |
-| `bNPCsCanDisarmPlayer` | to do |  |  | the player weapon lives in Combat; dropping it is new |
 
 ### Quality-of-life
 
@@ -947,6 +958,7 @@ game's Data folder, read-only).
 | `bMidairFastTravel` | done |  |  | Fast Travel in the Air |
 | `bMinBloodSplatterHealthDamage` | done |  | 1 | Blood Only on Big Hits (slider) |
 | `bMinigamesPlayXPSoundAtMaxLevel` | done |  |  | XP Sound at the Level Cap (any XP at the cap, not only minigames) |
+| `bMoveDuringOpenPipboyAnim` | done |  |  | Move While the Pip-Boy Comes Up: the inventory's state stays Playing while the arm rises (0.33 s), and the world stops once it is up |
 | `bMoveDuringVATSPlayback` | done |  |  | Move During V.A.T.S. Camera (walk and run only) |
 | `bNoAutoContinueDialog` | done |  |  | Click to Continue Dialogue |
 | `bNoDropWeaponSoundOnPlayerDeath` | done |  |  | already so: the player weapon is not put away at death |
@@ -989,7 +1001,6 @@ game's Data folder, read-only).
 | `bWeaponCycleUpDownHotkeys` | done |  |  | D-Pad Changes Weapon: with a controller the D-pad's right takes out the next hotkeyed weapon and its left the one before (the Mouse Wheel Changes Weapon stepping); while it is on, those two presses are not Ammo Swap and hotkey 4 |
 | `bRestore2Hotkey` | unsure, skipped | yes | 2 | needs the plugin's own menu XML |
 | `bAddItemUsesItemIcon` | unsure, skipped |  |  | needs an icon replacer |
-| `bMoveDuringOpenPipboyAnim` | to do |  |  | the Pip-Boy is a menu; the game leaves Playing at once |
 | `bNoLTRTOnPipboy` | n/a |  |  | the original's controller texture swap |
 
 ### HUD
@@ -1029,6 +1040,7 @@ game's Data folder, read-only).
 | `bHostilesUseNeutralColorOnCompass` | done |  |  | Foes in the Usual Colour |
 | `bHUDFatigueIndicator` | done |  |  | Fatigue Indicator: an FTG word (our own) after LMB on the hand-built HUD, below full Fatigue; red below half, flashing below a quarter |
 | `bHUDMarkerNameIndicator` | done |  | 7 | Place Name on the HUD, with Widest Angle, Only Places Found and Distance (none, metres, feet); hand-built HUD; the angle offset is not needed |
+| `bHUDShowRegionNames` | done |  | 1 | Region Name on the HUD: outdoors, the map name of the region the player stands in (the cell's regions, the first with one) over the compass, above the Place Name line when both show (ours) |
 | `bKeepCrosshairWhenAiming` | done |  |  | Crosshair Down the Sights |
 | `bLocationDiscoveredCornerMessage` | done |  |  | Discoveries in the Corner |
 | `bMorePreciseRadMeter` | done | yes | 1 | More Precise RAD Meter on the HUD's RAD/SEC number, with Decimal Places (a count in place of the readme's format text) |
@@ -1061,7 +1073,6 @@ game's Data folder, read-only).
 | `bWaterSourcesShowH2O` | done |  | 1 | Water Sources Show H2O: a tap's or puddle's prompt reads "Faucet (H2O -15)", the Dehydration its water's effect takes off (`aid_preview`); NVForever's water prompt shows no HP, so nothing is replaced; its Shift option is not built |
 | `iDateFormat` | done |  | 1 | Date Format (four styles of ours) |
 | `iHUDMaxCompassNPCTicks` | done |  | 1 | already so: the compass has no cap on actors |
-| `bHUDShowRegionNames` | to do |  | 1 | not built: the HUD has no region text |
 | `bHUDWeaponNameLabel` | unsure, skipped |  | 5 | needs the plugin's own menu XML |
 
 ### Menus
@@ -1132,6 +1143,7 @@ game's Data folder, read-only).
 | `bInvertPipboyRepairMenuSorting` | done |  |  | Repair List: Low Condition First |
 | `bKarmaTitleShowsValue` | done |  |  | already so: the karma number is under its title |
 | `bKeyRepeatAcceleration` | done |  | 4 | Key Repeat Acceleration with both delays and speeds (in seconds, not milliseconds); held menu keys now repeat for everyone (`key_repeat`, docs/owner-review.md) |
+| `bLocalMapRespawnedCellIndicator` | done |  | 2 | Local Map Shows Reset Areas: outdoors, the local map tints red each world square (the squares it shows and one more around) that will reset at its next load, by IsCellExpired's rule (`Game::cell_expired`); one look, not the INI's modes |
 | `bLockpickAllowMouse` | done |  |  | Mouse Turns the Lock |
 | `bLockPickMenuKeyboardMovement` | done |  | 3 | Lockpicking With the Movement Keys (Shift x2, Ctrl x0.5: ours) |
 | `bMainMenuContinueIcon` | done | yes |  | Continue Shows Its Save (the newest save's picture under the logo while Continue is chosen) |
@@ -1189,7 +1201,6 @@ game's Data folder, read-only).
 | `bVATSAPDisplayIncludesReloadCost` | n/a |  |  | NVForever's V.A.T.S. takes no more marks than the rounds loaded allow (`fnv_combat::vats::MarkQueue`), so no queued attack reloads and there is no reload cost to show |
 | `bSaveCharacterSelector` | unsure, skipped | yes | 1 | needs the plugin's own menu XML |
 | `bAmmoLabelUseLongName` | unsure, skipped |  | 1 | needs a UI mod |
-| `bLocalMapRespawnedCellIndicator` | to do |  | 2 | not built: the local map has no cell grid |
 | `bNoteMenuShowSeparateMenu` | unsure, skipped |  | 1 | needs another mod (Book Menu Restored) |
 | `bShowInventorySortButton` | unsure, skipped |  | 11 | needs the plugin's own menu XML |
 | `bCustomHackingAnswerLength` | unsure, skipped |  | 8 | the readme gives no defaults and does not say how its options change the attempts or the words; built from it, every figure would be a guess |
@@ -1244,11 +1255,11 @@ game's Data folder, read-only).
 | `bNoHackingRetryDelay` | done |  |  | already so: no retry delay (a failed hack locks out) |
 | `bNoMaxCasinoBet` | done |  |  | No Casino Bet Limit (no limit; the 500-step option not built) |
 | `bPickpocketWornItems` | done |  | 1 | Pickpocket Worn Items (the holstered-weapons-only option not built) |
+| `bReallocateSkillPointsOnLevelup` | done |  |  | Reallocate Skill Points on Level-Up: the level-up menu's minus also takes back what earlier level-ups put into a skill (`skill_points`, which the save keeps), a point at a time |
 | `bSleepInOwnedBeds` | done |  |  | Sleep in Owned Beds |
 | `bSleepWaitAnywhere` | done |  | 6 | Wait Anywhere (one switch for all; a script ban still refuses) |
 | `bWeightlessAidItems` | done |  |  | covered by Weightless Aid (in Hardcore too) |
 | `bWeightlessItems` | done |  | 5 | Weightless Armor / Aid / Ammo / Weapons / Misc Items (five rows) |
-| `bReallocateSkillPointsOnLevelup` | to do |  |  | earlier levels spent points are not recorded |
 | `bDebugLockpickMenu` | unsure, skipped |  |  | it shows the lock's sweet spot, a developer aid; the owner's rule keeps developer aids out of player builds |
 
 ### Misc
@@ -1282,6 +1293,7 @@ game's Data folder, read-only).
 | `bDisableCharacterRespec` | done |  |  | No Character Remake Offer: the activator whose script is VCG04ActivatorScript (the masters' offer to remake the character on leaving the start, MESG 0x001164A1) does nothing when activated |
 | `bDisableControllerDeadzones` | done |  | 2 | Controller Dead Zones (ours on top of Bevy's own small dead zone) |
 | `bDisableGodmodeOnLoad` | done |  |  | God Mode Off on Load |
+| `bDisableRegionBordersKeepMessage` | done |  |  | World Borders: Warning Only. World borders are now built (a REGN with the Border Region flag, 0x40, keeps the player inside its areas, with the masters' sPlayerLeavingBorderRegion line; owner-review 60, observer check 113); the switch gives the line without the stop. No master flags a region of a played worldspace, so only plugins' borders |
 | `bDisableSellingItems` | done |  |  | No Selling |
 | `bDisableStealthEffectInPipboy` | done |  |  | No Stealth Shimmer in the Pip-Boy |
 | `bDisableWeaponHotkeys` | done |  |  | No Weapon Hotkeys (the wheel still picks) |
@@ -1313,6 +1325,7 @@ game's Data folder, read-only).
 | `bPreventTeammateFootstepSounds` | done |  |  | Quiet Companion Footsteps |
 | `bRadiationCausesRadioStatic` | done |  | 1 | Radiation Brings Radio Static (whole at 10 rads/s, at most 80%: ours) |
 | `bRadioKeepPositionWhenLoading` | done |  |  | already so: the radio's programmes are not part of a save and run on through a load, so a song playing is never rewound |
+| `bReloadSoundsAffectedByTimescale` | done |  |  | already so: every effect sound, a reload's too, follows the engine's slow motion and SetGlobalTimeMultiplier (`audio_out::SoundSpeed`) |
 | `bReplaceHelpWithConsole` | done |  |  | Console in the Pause Menu: a Console entry where the original has Help (NVForever leaves Help out); it resumes the game and the console opens once the world is played. The label option (sButtonLabel) is not built: the entry says Console |
 | `bRestoreLockedDoorSound` | done |  |  | already so: a refused lock plays DRSLocked |
 | `bScaleAshpileSize` | done |  | 2 | Ash Piles Fit the Body (the actor's scale, half to twice; not its bounds) |
@@ -1322,6 +1335,7 @@ game's Data folder, read-only).
 | `bTerminalFadeTime` | done |  | 1 | Terminal Fade Time (fFadeLength as its seconds): a closing terminal now fades out over the menu file's menufade, 0.25 s, for everyone (`terminal::CLOSE_FADE`); the tweak sets its own length, however the terminal was closed |
 | `bTogglePOVWhenHolsteringWeapon` | done |  |  | View Follows the Weapon |
 | `bUseConsoleOutputFile` | done |  | 1 | Console Output File (ConsoleOutput.txt in NVForever's folder; the name is ours, sFilename not offered) |
+| `bUseHitLocationInCinematicKillcams` | done |  |  | Kill Camera Focuses on the Hit Location: a kill camera looks at the part struck (head up, legs down, ours). The camera it speaks of, the original's outside V.A.T.S., is built as our own Kill Camera Outside V.A.T.S. switch (off by default: no setting gives its chance), with the masters' fKillCameraCooldown (20 s) between them and the Kill camera setting's rules |
 | `bVanityCamReturnsToFirstPerson` | done |  |  | Vanity Camera Returns to First Person: after the idle vanity camera (now built, `vanity`) or Toggle POV held, a view that was first person goes back to it |
 | `bVATSStopFollowingDeadTargets` | done | yes |  | V.A.T.S. Stops Following the Dead: a kill camera's place and look stop following its target once it is dead, held where they last saw it alive |
 | `bWeaponImpactEffects` | done | yes |  | Weapon Impact Effects: a shot on the weapon in an actor's hand (its hit volume's weapon part) takes the weapon's metal impact, with no blood spray or decal; holstered weapons have no hit volume in NVForever, so they are not struck |
@@ -1341,13 +1355,10 @@ game's Data folder, read-only).
 | `bNoPipboyOnAltTab` | n/a |  |  | the original's alt-tab handling |
 | `bPrintErrorsToConsole` | n/a |  | 5 | the original's error log |
 | `bPrintNewModsOnLoad` | n/a |  |  | the plugin's own load report |
-| `bReloadSoundsAffectedByTimescale` | to do |  |  | one global sound speed |
 | `bSwapKeyboardYZKeys` | n/a |  |  | the original's keyboard handling; NVForever's keys can be rebound |
 | `bUKKeyboard` | n/a |  |  | the original's keyboard handling |
 | `bNoDespawnVisibleStuckProjectiles` | n/a | yes |  | projectiles do not stick in NVForever: a landed shot ends (thrown weapons lie as items, `crate::thrown`), so nothing stuck despawns |
 | `bUseFallout3AudioDistortion` | unsure, skipped |  |  | needs the original sequel's filter described first |
-| `bUseHitLocationInCinematicKillcams` | to do |  |  | not built: no cinematic kill camera outside V.A.T.S. |
-| `bDisableRegionBordersKeepMessage` | to do |  |  | NVForever has no world borders yet (nothing stops the player at a border region); when they are built, this keeps the warning without the stop |
 
 ### Fixes
 

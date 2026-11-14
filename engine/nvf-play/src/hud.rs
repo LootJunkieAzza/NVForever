@@ -745,10 +745,10 @@ fn place_name(
     mut commands: Commands,
     view: Res<HudView>,
     (tweaks, markers, location, player, control): (Option<Res<crate::tweaks::TweakSettings>>, Option<Res<crate::pipboy::data::DataState>>, Option<Res<crate::Location>>, Option<Res<Player>>, Option<Res<crate::control::PlayerControl>>),
-    sim: Res<SimState>,
+    (sim, script): (Res<SimState>, Option<Res<crate::script::ScriptState>>),
     (data, mut images, formats): (Option<Res<GameData>>, ResMut<Assets<Image>>, Option<Res<CompressedImageFormatSupport>>),
     mut face_: Local<Option<Face>>,
-    mut shown: Local<Option<String>>,
+    (mut shown, mut region): (Local<(Option<String>, Option<String>)>, Local<(Option<fnv_sim::FormId>, Option<String>)>),
     text: Query<Entity, With<PlaceNameText>>,
 ) {
     let _hud = crate::interface::hud_units();
@@ -762,14 +762,36 @@ fn place_name(
         let list = list.iter().filter(|m| sim.present(m.0)).map(|m| ([m.1[0], m.1[1]], m.2, m.3));
         place_ahead(list, [player.feet[0], player.feet[1]], heading, range, t.marker_name_angle, t.marker_name_hide_unfound, t.marker_name_units)
     })();
-    if *shown == words {
+    // The HUD Region Names tweak: the map name of the region the player stands in, kept
+    // per cell [design: docs/design/tweaks.md].
+    let region_words = (|| {
+        tweaks.as_deref().filter(|t| t.hud_region_names && view.shown)?;
+        let game = &script.as_deref()?.rt.as_ref()?.game;
+        let cell = game.cell_of(fnv_sim::FormId::PLAYER_REF);
+        if region.0 != cell || cell.is_none() {
+            *region = (cell, fnv_game::nvse_jg5::player_region_name(game));
+        }
+        region.1.clone()
+    })();
+    let now = (region_words, words);
+    if *shown == now {
         return;
     }
-    *shown = words.clone();
+    if now.0 != shown.0 {
+        info!("hud: region name {:?}", now.0);
+    }
+    *shown = now.clone();
+    let (region_words, words) = now;
     let face_ = face_.get_or_insert_with(|| face(FONT, plain_font(36.0, 15.0), data.as_deref(), &mut images, bc_supported(formats.as_deref())));
     commands.entity(e).despawn_related::<Children>().with_children(|p| {
-        if let Some(line) = words.as_deref().and_then(|w| face_.font.lines(w, None).into_iter().next()) {
+        let marker = words.as_deref().and_then(|w| face_.font.lines(w, None).into_iter().next());
+        // The region's line over the marker's when both show [design].
+        let region_y = if marker.is_some() { -28.0 } else { -8.0 };
+        if let Some(line) = marker {
             set_line(p, face_, &line, COMPASS_AT.x + COMPASS_HEADING - line.width / 2.0, -8.0, amber(255.0));
+        }
+        if let Some(line) = region_words.as_deref().and_then(|w| face_.font.lines(w, None).into_iter().next()) {
+            set_line(p, face_, &line, COMPASS_AT.x + COMPASS_HEADING - line.width / 2.0, region_y, amber(255.0));
         }
     });
 }

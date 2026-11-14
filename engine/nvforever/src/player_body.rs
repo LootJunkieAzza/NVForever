@@ -554,6 +554,8 @@ struct Rig {
     /// The attack clip a wind-up started, until its shot leaves: the shot plays on in
     /// it rather than starting it again.
     wound_up: Option<Arc<Clip>>,
+    /// The wound-up clip's `Hit` key, from its start (where a held throw waits).
+    wound_hit: Option<f32>,
     /// The attack clip last started and its `Eject` key, seconds into the clip, when it
     /// has one; and whether its layer passed the key in the last pose.
     attack_eject: Option<(Arc<Clip>, f32)>,
@@ -1570,6 +1572,7 @@ fn build_rig(commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &
         since_attack: f32::INFINITY,
         attack_loop: None,
         wound_up: None,
+        wound_hit: None,
         attack_eject: None,
         ejected: false,
         carry: None,
@@ -1624,6 +1627,9 @@ struct Frame {
     /// attack clip plays from the start now, and the shot does not restart it
     /// (`nvf_play::combat::WeaponAnim::wind_ups`).
     wind_now: bool,
+    /// The throw is held at its release (`nvf_play::combat::WeaponAnim::throw_held`): the
+    /// wound-up clip waits at its `Hit` key.
+    throw_held: bool,
 }
 
 /// Where a rig stands in the frame and what it plays beside its own clips.
@@ -1815,6 +1821,7 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &
             let going = !f.spin_now && !f.wind_now && (wound || (rig.attack_loop.is_some() && playing));
             if f.wind_now {
                 rig.wound_up = Some(c.clip.clone());
+                rig.wound_hit = c.keys.hit.map(|h| h - c.clip.start);
                 info!("player {:?} rig: {} starts at the pull; the shot leaves at its Hit key", rig.view, c.path);
             }
             if !going {
@@ -1925,6 +1932,12 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &
     let carried = if matches!(f.prefix, "h2h" | "1hm" | "2hm") { a.layers.iter().rev().find(|l| l.tag == TAG_ATTACK && !l.finished()).map(|l| (l.clip.clone(), l.time)) } else { None };
     let carried = carried.filter(|(c, _)| c.root_reach() > nvf_assets::anim_play::CARRY_MIN);
     a.advance(f.dt, rate);
+    // A throw held at its release waits at the wound-up clip's `Hit` key.
+    if let (true, Some(clip), Some(hit)) = (f.throw_held, rig.wound_up.as_ref(), rig.wound_hit) {
+        for l in a.layers.iter_mut().filter(|l| (TAG_ATTACK..TAG_ATTACK + 3).contains(&l.tag) && Arc::ptr_eq(&l.clip, clip)) {
+            l.time = l.time.min(hit);
+        }
+    }
     rig.carry = carried.and_then(|(c, from)| Some(c.root_travel(from, a.layers.iter().find(|l| l.tag == TAG_ATTACK && Arc::ptr_eq(&l.clip, &c))?.time)));
     // The attack clip passing its `Eject` key: the casing leaves now (combat throws it).
     rig.ejected = match (before, attack_time(a), &rig.attack_eject) {
@@ -2657,6 +2670,7 @@ fn drive_body(
         equip_rate: if anim.equip_rate > 0.0 { anim.equip_rate } else { 1.0 },
         spin_now,
         wind_now,
+        throw_held: anim.throw_held,
     };
     // The body stands on the drawn ground under the feet (`nvf_play::phys::drawn_sink`);
     // its eye counts from the feet as before.

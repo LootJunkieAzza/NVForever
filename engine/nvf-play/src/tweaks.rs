@@ -569,6 +569,11 @@ pub struct TweakSettings {
     pub night_vision_toggle: bool,
     pub night_vision_off_first: bool,
     pub night_vision_by_day: bool,
+    /// A kill camera for the player's kills outside VATS mode (ours; Stewie's
+    /// `bUseHitLocationInCinematicKillcams` speaks of that camera), and
+    /// `bUseHitLocationInCinematicKillcams`: kill cameras look at the part struck.
+    pub kill_cam_outside_vats: bool,
+    pub kill_cam_hit_location: bool,
     pub weather_trip_distance: f32,
     /// `bCustomLocationDiscoveredSound` (`sEditorID`): the sound a discovered place plays,
     /// by Editor ID; empty: the game's own.
@@ -623,6 +628,12 @@ pub struct TweakSettings {
     /// `marker_name_hide_unfound`, its distance in `marker_name_units` (0 none, 1 metres,
     /// 2 feet).
     pub hud_marker_name: bool,
+    /// `bHUDShowRegionNames`: the region the player stands in, named over the compass.
+    pub hud_region_names: bool,
+    /// `bMoveDuringOpenPipboyAnim`: the player moves on while the Pip-Boy comes up.
+    pub move_during_pipboy_raise: bool,
+    /// `bDisableRegionBordersKeepMessage`: world borders warn but do not stop the player.
+    pub region_borders_message_only: bool,
     pub marker_name_angle: f32,
     pub marker_name_hide_unfound: bool,
     pub marker_name_units: u8,
@@ -948,6 +959,8 @@ impl Default for TweakSettings {
             night_vision_toggle: false,
             night_vision_off_first: false,
             night_vision_by_day: false,
+            kill_cam_outside_vats: false,
+            kill_cam_hit_location: false,
             weather_trip_distance: 30000.0,
             discovered_sound: String::new(),
             level_sound_every_a: 0.0,
@@ -971,6 +984,9 @@ impl Default for TweakSettings {
             remember_item_places: false,
             grey_read_notes: false,
             hud_marker_name: false,
+            hud_region_names: false,
+            move_during_pipboy_raise: false,
+            region_borders_message_only: false,
             marker_name_angle: 10.0,
             marker_name_hide_unfound: true,
             marker_name_units: 0,
@@ -1839,6 +1855,13 @@ impl Plugin for TweaksPlugin {
         switch!(app, "no-sleep-messages", "No Sleep Deprivation Messages", "No corner message when your sleep deprivation gets better or worse. (Stewie's Tweaks bDisableNeedsMessages, bSleep)", game.no_sleep_messages);
         switch!(app, "need-icons", "Custom Popup Icons", "The dehydration and sleep messages carry a picture: the game's water, and its Healing Rate for sleep. (Stewie's Tweaks bCustomPopupIcons)", game.need_icons);
         switch!(app, "repair-at-workbench", "Repair Only at a Workbench", "The Pip-Boy repairs items only when you opened it looking at a workbench. (Stewie's Tweaks bPreventRepairIfNotAtWorkbench)", game.repair_at_workbench);
+        switch!(app, "character-radiation", "Character Radiation", "People and creatures take the radiation where they stand, as you do. (Stewie's Tweaks bCharacterRadiation)", game.character_radiation);
+        switch!(app, "character-radiation-stages", "Character Radiation: Sickness Too", "With Character Radiation, their rads bring on radiation sickness's effects as yours do. (Stewie's Tweaks bCharacterRadiation, bAllowRadiationStages)", game.character_radiation_stages);
+        switch!(app, "reallocate-skill-points", "Reallocate Skill Points on Level-Up", "In the level-up menu, the minus also takes back points you put into a skill at earlier levels, to spend again. (Stewie's Tweaks bReallocateSkillPointsOnLevelup)", game.reallocate_skill_points);
+        switch!(app, "local-map-reset-cells", "Local Map Shows Reset Areas", "Outdoors, the local map tints red the squares of the world that will reset the next time you come near them: their people who respawn are back and their containers refilled. (Stewie's Tweaks bLocalMapRespawnedCellIndicator)", game.local_map_reset_cells);
+        switch!(app, "hold-release-throws", "Hold and Release Throws", "A grenade or thrown weapon is wound up and held while you hold attack, and thrown when you let go. (Stewie's Tweaks bHoldAndReleaseThrowables)", game.hold_release_throws);
+        switch!(app, "npcs-disarm-player", "Enemies Can Disarm You", "A hit that cripples one of your arms knocks the weapon from your hand to the ground, as yours does to them. (Stewie's Tweaks bNPCsCanDisarmPlayer)", game.npcs_disarm_player);
+        switch!(app, "npcs-drop-live-grenades", "NPCs Drop Live Grenades", "Someone killed with a grenade in hand drops it live at their feet, where it goes off. (Stewie's Tweaks bNPCsDropLiveGrenades)", game.npcs_drop_live_grenades);
         switch!(app, "water-shows-h2o", "Water Sources Show H2O", "A tap's or puddle's prompt shows how much H2O a drink takes off. (Stewie's Tweaks bWaterSourcesShowH2O)", game.water_shows_h2o);
         switch!(app, "no-respec", "No Character Remake Offer", "Leaving Doc Mitchell's area does not offer to change your character. (Stewie's Tweaks bDisableCharacterRespec)", game.no_respec);
         switch!(app, "weapon-impacts", "Weapon Impact Effects", "A shot that strikes the weapon in someone's hands sparks and sounds like metal, with no blood. (Stewie's Tweaks bWeaponImpactEffects)", game.weapon_impacts);
@@ -2136,6 +2159,8 @@ impl Plugin for TweaksPlugin {
         switch!(app, "night-vision-toggle", "Night Vision Toggle", "With a night-vision scope up, the light's key (holding Tab, or its own key) switches the scope's night vision on and off. (Stewie's Tweaks bAddNightVisionToggle)", night_vision_toggle);
         switch!(app, "night-vision-off-first", "Night Vision Toggle: Off Until Switched On", "A night-vision scope gives no night vision until you switch it on. (bDisableVisionByDefault)", night_vision_off_first);
         switch!(app, "night-vision-by-day", "Night Vision Toggle: By Day Too", "A night-vision scope gives its night vision by day as well. (bAllowNightVisionDuringDay)", night_vision_by_day);
+        switch!(app, "kill-cam-outside-vats", "Kill Camera Outside V.A.T.S.", "Your kills outside V.A.T.S. can play a kill camera too, by the Kill camera setting's rules, no sooner than 20 seconds after the last. (Ours; Stewie's Tweaks bUseHitLocationInCinematicKillcams speaks of the original's)", kill_cam_outside_vats);
+        switch!(app, "kill-cam-hit-location", "Kill Camera Focuses on the Hit Location", "A kill camera looks at the part your shot struck: the head, the chest, the legs. (Stewie's Tweaks bUseHitLocationInCinematicKillcams)", kill_cam_hit_location);
         amount!(app, "weather-trip-distance", "Improved Weather: Short Trip", "How far a fast travel may go and keep the weather, in game units (about 4,100 to a cell). (Stewie's Tweaks bImprovedWeather, fFastTravelWeatherChangeDistanceThreshold)", 100000.0, f32, weather_trip_distance);
         switch!(app, "compass-pips-fade", "Fade Pips by Distance", "People and creatures on the compass grow fainter the further away they are, over the distance they could notice you sneaking. (Stewie's Tweaks bCompassNPCDistanceBasedAlpha)", compass_pips_fade);
         switch!(app, "compass-places-fade", "Fade Places by Distance", "Places on the compass grow fainter the further away they are, over the distance they show at. (Stewie's Tweaks bCompassLocationDistanceBasedAlpha)", compass_places_fade);
@@ -2151,6 +2176,9 @@ impl Plugin for TweaksPlugin {
         switch!(app, "compass-quest-height", "Quest Marker Height", "A quest marker on the compass more than a storey above or below you has a short bar over or under it. (Stewie's Tweaks bCompassQuestHeightIndicator)", compass_quest_height);
         switch!(app, "compass-marker-height", "Your Marker's Height", "Your own map marker on the compass, more than a storey above or below you, has a short bar over or under it. (Stewie's Tweaks bPlacedMarkerHeightIndicator)", compass_marker_height);
         switch!(app, "hud-marker-name", "Place Name on the HUD", "The name of the map marker the player faces is shown over the compass. (Stewie's Tweaks bHUDMarkerNameIndicator)", hud_marker_name);
+        switch!(app, "hud-region-names", "Region Name on the HUD", "Outdoors, the name of the region you stand in (its map name, as the Pip-Boy's map gives it) is shown over the compass. (Stewie's Tweaks bHUDShowRegionNames)", hud_region_names);
+        switch!(app, "move-during-pipboy-raise", "Move While the Pip-Boy Comes Up", "You can keep walking and looking about while the Pip-Boy rises to your eyes; the world stops once it is up. (Stewie's Tweaks bMoveDuringOpenPipboyAnim)", move_during_pipboy_raise);
+        switch!(app, "region-borders-message-only", "World Borders: Warning Only", "At a world border (a plugin's border region) you are warned but not stopped. (Stewie's Tweaks bDisableRegionBordersKeepMessage)", region_borders_message_only);
         amount!(app, "marker-name-angle", "Place Name: Widest Angle", "How far off straight ahead, in degrees, a place's name is still shown. (Stewie's Tweaks bHUDMarkerNameIndicator)", 45.0, f32, marker_name_angle);
         switch!(app, "marker-name-hide-unfound", "Place Name: Only Places Found", "Places the player has not found are not named. (Stewie's Tweaks bHUDMarkerNameIndicator)", marker_name_hide_unfound);
         add_setting(
