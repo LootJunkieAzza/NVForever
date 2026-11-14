@@ -11,7 +11,8 @@ The tiny `nvf-android` package supplies that entry; `nvforever` is a shared Rust
 with its ordinary desktop binary. Desktop builds do not produce an Android shared library.
 
 [design] The initial package targets ARM64, Android 10/API 29 or later, and Vulkan 1.1.
-This is a build target, not a supported-device or frame-rate guarantee. It starts with
+This is a build target, not a supported-device or frame-rate guarantee. Android UI uses
+the device's display density; the desktop's fixed screenshot scale is retained on desktop. It starts with
 MSAA off and the existing vanilla graphics preset. APKs contain engine code, owned
 schemas and translation text only. They contain no game content. Player reports are off.
 

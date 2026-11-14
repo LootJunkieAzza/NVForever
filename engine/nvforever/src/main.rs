@@ -1491,11 +1491,15 @@ fn run_with_args(line: Vec<String>) -> AppExit {
             // The console's lines go to the run log too (crash.rs).
             .set(bevy::log::LogPlugin { custom_layer: crash::file_layer, fmt_layer: crash::console_layer, filter: reports::log_filter(), ..default() })
             .set(WindowPlugin {
-                // Scale factor 1 so screenshots are exactly --size pixels on any display.
+                // Desktop screenshots use exact pixels; Android UI follows its display density.
                 primary_window: Some(Window {
                     title: "NVForever".into(),
                     mode: args.window.mode(),
-                    resolution: bevy::window::WindowResolution::new(w, h).with_scale_factor_override(1.0),
+                    resolution: if cfg!(target_os = "android") {
+                        bevy::window::WindowResolution::new(w, h)
+                    } else {
+                        bevy::window::WindowResolution::new(w, h).with_scale_factor_override(1.0)
+                    },
                     position: args.window_at.map_or(WindowPosition::Automatic, WindowPosition::At),
                     // Taking over a load: shown once its loading screen is up (handoff.rs).
                     visible: args.handoff.is_none(),
