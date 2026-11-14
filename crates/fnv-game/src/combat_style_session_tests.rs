@@ -80,56 +80,103 @@ fn a_removed_alias_is_not_kept_valid_by_a_stale_typed_copy_or_explicit_assignmen
     assert_eq!(*g.combat_style(FormId::PLAYER_REF).unwrap(), f.data.combat_styles[&FormId(0x3D)]);
 }
 
+fn restored_roundtrip<'a>(g: &Game<'a>) -> Game<'a> {
+    let bytes = serde_json::to_vec(&g.checked_snapshot().unwrap()).unwrap();
+    let snapshot: crate::game::GameSnapshot = serde_json::from_slice(&bytes).unwrap();
+    let world = World::restore(g.world.forms, g.world.placed, &snapshot.sim).unwrap();
+    Game::restore(g.data, world, g.cfg, &snapshot).unwrap()
+}
+
 #[test]
-fn an_unassigned_style_clone_in_an_extender_array_refuses_the_whole_save() {
+fn an_unassigned_style_clone_in_an_extender_array_saves_without_rewriting_its_carrier() {
     use fnv_script::vm::{ArrayKind, XKey};
     let f = fixture(); let mut g = game(&f);
-    g.ensure_combat_style_snapshot_supported().unwrap();
     let alias = g.run_query("Begin Function { }\nSetFunctionValue (TempCloneForm OwnedStyle 0)\nEnd\n", Default::default()).unwrap();
     assert!(matches!(&alias, XVal::Ref(id) if *id != 0), "the actual source must create a style alias");
-    // An explicit internal holder owns this real extender array. Returning an
-    // unowned ar_List from run_query would let statement cleanup free the array.
     let array = g.ext.new_array(ArrayKind::List, vec![(XKey::Num(0.0), alias.clone())]);
     let carrier = XVal::Array(array);
     g.ext.retain(&carrier);
     g.ext.sweep();
-    assert_eq!(g.ext.array(array).expect("the retained carrier must survive temporary cleanup").get(&XKey::Num(0.0)), Some(&alias));
-    assert!(g.extra.values().all(|extra| extra.combat_style.is_none()), "there is no assigned actor for a live-reference-only check to find");
-    assert!(g.ensure_combat_style_snapshot_supported().unwrap_err().contains("temporary combat style"));
+    assert_eq!(g.ext.array(array).unwrap().get(&XKey::Num(0.0)), Some(&alias));
+    assert!(g.extra.values().all(|extra| extra.combat_style.is_none()));
+    let back = restored_roundtrip(&g);
+    assert_eq!(back.ext.array(array).unwrap().get(&XKey::Num(0.0)), Some(&alias), "saved carriers are not filtered or remapped");
+    let XVal::Ref(id) = alias else { unreachable!() };
+    assert!(back.combat_style_form(FormId(id)).is_none(), "temporary copies are session-only");
+    assert!(g.combat_style_form(FormId(id)).is_some(), "saving does not reset the running session");
     g.ext.release(&carrier);
-    assert!(g.ext.array(array).is_none(), "releasing the explicit holder must destroy this array");
-    assert!(g.ensure_combat_style_snapshot_supported().is_err(), "the clone remains tracked even after this carrier is released");
+    assert!(g.ext.array(array).is_none());
+    assert!(g.checked_snapshot().is_ok(), "an unused tracked clone must not disable saving");
 }
 
 #[test]
-fn a_style_alias_carried_by_a_deleted_created_reference_still_refuses() {
+fn a_style_alias_carried_by_a_deleted_created_reference_is_preserved_in_the_save() {
     let f = fixture(); let mut g = game(&f);
     let value = g.run_query("Begin Function { }\nSetFunctionValue (TempCloneForm OwnedStyle 0)\nEnd\n", Default::default()).unwrap();
     let XVal::Ref(alias) = value else { panic!("a real style alias is required") };
     let reference = g.world.place(FormId(0xD10), None, [0.0; 3], [0.0; 3], 1).unwrap();
-    // A serialized reference-extra carrier, independent of which actor happens to
-    // be live. This is an authored structural control, not an AI assignment claim.
     g.extra.entry(reference).or_default().combat_style = Some(FormId(alias));
     g.world.set_deleted(reference, true).unwrap();
-    let sim = g.world.snapshot();
-    assert_eq!(sim.deleted_created.get(&reference), Some(&FormId(0xD10)));
-    assert!(!sim.refs.contains_key(&reference));
-    assert_eq!(g.extra[&reference].combat_style, Some(FormId(alias)));
-    assert!(g.ensure_combat_style_snapshot_supported().unwrap_err().contains("temporary combat style"));
+    let snapshot = g.checked_snapshot().unwrap();
+    assert_eq!(snapshot.sim.deleted_created.get(&reference), Some(&FormId(0xD10)));
+    assert!(!snapshot.sim.refs.contains_key(&reference));
+    assert_eq!(snapshot.extra[&reference].combat_style, Some(FormId(alias)));
+    let back = restored_roundtrip(&g);
+    assert_eq!(back.extra[&reference].combat_style, Some(FormId(alias)));
+    assert_eq!(back.world.snapshot().deleted_created.get(&reference), Some(&FormId(0xD10)));
+    assert!(back.combat_style_form(FormId(alias)).is_none());
 }
 
 #[test]
-fn either_declared_aliases_or_retained_copy_metadata_keep_the_preview_guard_closed() {
+fn retained_copy_metadata_or_aliases_do_not_turn_the_save_into_a_refusal() {
     let f = fixture();
     for remove_relation in [false, true] {
         let mut g = game(&f);
         g.snapshot_combat_style(STYLE, ALIAS);
         g.clones.insert(ALIAS, STYLE);
-        if remove_relation {
-            g.clones.remove(&ALIAS);
-        } else {
-            g.combat_style_edits.raw_clones.clear();
-        }
-        assert!(g.ensure_combat_style_snapshot_supported().unwrap_err().contains("temporary combat style"));
+        if remove_relation { g.clones.remove(&ALIAS); }
+        else { g.combat_style_edits.raw_clones.clear(); }
+        let back = restored_roundtrip(&g);
+        assert!(back.combat_style_edits.typed.is_empty());
+        assert!(back.combat_style_edits.raw_clones.is_empty());
+        assert!(back.clones.is_empty());
     }
+}
+
+#[test]
+fn checked_style_snapshots_warn_without_clearing_session_state() {
+    use std::sync::{Arc, Mutex};
+    use tracing::{field::{Field, Visit}, Event, Subscriber};
+    use tracing_subscriber::{layer::{Context, Layer}, prelude::*};
+    #[derive(Clone, Default)]
+    struct Warnings(Arc<Mutex<Vec<String>>>);
+    struct Message(String);
+    impl Visit for Message {
+        fn record_debug(&mut self, field: &Field, value: &dyn std::fmt::Debug) {
+            if field.name() == "message" { self.0 = format!("{value:?}"); }
+        }
+    }
+    impl<S: Subscriber> Layer<S> for Warnings {
+        fn on_event(&self, event: &Event<'_>, _: Context<'_, S>) {
+            let mut text = Message(String::new());
+            event.record(&mut text);
+            if *event.metadata().level() == tracing::Level::WARN && text.0.contains("combat-style") {
+                self.0.lock().unwrap().push(text.0);
+            }
+        }
+    }
+    let f = fixture(); let mut g = game(&f);
+    let warnings = Warnings::default();
+    tracing::subscriber::with_default(tracing_subscriber::registry().with(warnings.clone()), || {
+        g.checked_snapshot().unwrap();
+        assert!(warnings.0.lock().unwrap().is_empty(), "a clean session needs no warning");
+        g.run_query("Begin Function { }\nSetCombatStyleTraitNumeric OwnedStyle 42 7\nEnd\n", Default::default()).unwrap();
+        g.checked_snapshot().unwrap();
+    });
+    let messages = warnings.0.lock().unwrap();
+    assert_eq!(messages.len(), 1);
+    assert!(messages[0].contains("session-only") && messages[0].contains("loading resets"));
+    drop(messages);
+    assert_eq!(g.combat_style_form(STYLE).unwrap().rushing_attack_distance_mult, 7.0);
+    assert_eq!(restored_roundtrip(&g).combat_style_form(STYLE).unwrap().rushing_attack_distance_mult, 0.0);
 }

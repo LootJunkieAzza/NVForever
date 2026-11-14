@@ -32,14 +32,11 @@
   typed defaults. Session setter values remain f64 for public reads, while typed
   consumers retain the existing f32/u32 representation. This is not new native
   quantization parity.
-- [documented: repository source f30fb730; observed: unchanged-source probe,
-  2026-11-13] RecordFields uses numeric_fields/enums_to_numbers before the public
-  numeric getter. The authored CSSD weapon-restrictions enum 2 therefore reads
-  as 2.0, not zero from the decoder's intermediate label. An independent run of
-  the exact failing authored fixture against the unchanged f30 reader confirmed
-  2.0 before any clone or setter. Correct both authored and copied-value test
-  expectations; preserve the runtime getter and all other fixture expectations.
-  This is repository-source compatibility evidence, not a native-engine probe.
+- [documented: repository source f30fb730] RecordFields uses numeric_fields and
+  enums_to_numbers before the public numeric getter. The authored CSSD weapon
+  restrictions enum 2 therefore reads as 2.0, rather than zero from an intermediate
+  decoder label. This is an NVForever source fact, not an original-game observation.
+  The corresponding authored/copy expectations preserve that existing reader.
 - [documented: current data model] Trait 40 (acrobatic dodge chance) has a public raw
   getter/setter but no CombatStyleDef consumer field. Preserve its raw behavior and
   clone value; do not claim an acrobatic-dodge AI implementation. Unconsumed flag
@@ -63,15 +60,17 @@ non-CSTY/invalid assignment; package/set/base/default precedence; and a real cor
 weapon-selection or melee-decision consumer. Fixtures contain no installed mod
 scripts or game assets. Raw getter assertions alone are insufficient AI acceptance.
 
-[documented: current save boundary] Clone IDs, raw session field overrides and the
-new typed session store are not persisted by this candidate. Existing snapshot
-guards and save formats stay unchanged. An assigned clone ID in other saved state
-still requires a separate complete persistence/lifetime solution. Passing session
-tests would not establish save/reload or full installed-mod/native compatibility.
+[documented: repository source 805454db] Alias graphs and raw overrides are not
+part of the existing snapshot format. The new typed session store is likewise
+not serialized. Saved ExtStore and reference-extra FormIDs are not filtered or
+remapped. On load unresolved combat-style copies fall back through the existing
+package/set/base/default selection. This preserves main's session degradation;
+it does not implement temporary-style persistence or native save behavior.
 
-[hypothesis: preview safety correction] The save-corrected draft adds a separate
-[whole-save CSTY refusal](combat-style-save-preview.md) after engine SaveGame
-callbacks and before headless save encoding. It does not implement persistence or
-replace the independent scene-clone snapshot guard.
+[hypothesis: diagnostic policy] The revised
+[save policy](combat-style-save-preview.md) warns about session-only state and
+allows saving, while retaining the independent scene-clone checked-snapshot
+refusal. The previous draft's CSTY whole-save refusal is withdrawn in response
+to the maintainer's compatibility request.
 
 No compilation, regression or native result is claimed by this source note alone.

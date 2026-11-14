@@ -99,10 +99,6 @@ name = "jip_required_animation_codes"
 path = "tests/jip_required_animation_codes.rs"
 
 [[test]]
-name = "csty_session"
-path = "tests/csty_session.rs"
-
-[[test]]
 name = "jip_handler_context"
 path = "tests/jip_handler_context.rs"
 

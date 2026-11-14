@@ -5886,6 +5886,7 @@ impl<'a> Game<'a> {
         if let Some((reference, base)) = unsupported {
             return Err(format!("saving reference {reference} of temporary cloned base {base} is not supported yet"));
         }
+        self.log_combat_style_snapshot_loss();
         Ok(snapshot)
     }
 

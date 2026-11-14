@@ -506,7 +506,6 @@ fn close_container(g: &mut Game) {
 
 /// [`Action::SaveLoad`]: the save's size in bytes.
 fn save_and_load(g: &mut Game) -> Result<usize, String> {
-    g.ensure_combat_style_snapshot_supported()?;
     let snap = g.checked_snapshot()?;
     let body = serde_json::to_vec(&snap).map_err(|e| e.to_string())?;
     let bytes = fnv_save::encode(&fnv_save::SaveHeader::new(fnv_save::SaveKind::Quick), &[], &body);
@@ -2539,12 +2538,17 @@ mod combat_style_save_tests {
     use fnv_sim::FormId;
 
     #[test]
-    fn headless_save_load_rejects_a_temporary_style_before_roundtrip() {
+    fn headless_save_load_allows_a_temporary_style_and_resets_its_session_copy() {
         let f = fixture(); let mut g = game(&f);
         let value = g.run_query("Begin Function { }\nSetFunctionValue (TempCloneForm OwnedStyle 0)\nEnd\n", Default::default()).unwrap();
         let XVal::Ref(alias) = value else { panic!("the source must create a real alias") };
-        assert!(save_and_load(&mut g).unwrap_err().contains("temporary combat style"));
-        assert!(g.combat_style_form(FormId(alias)).is_some(), "the rejected roundtrip must not replace Game or discard its aliases");
+        g.extra.entry(FormId::PLAYER_REF).or_default().combat_style = Some(FormId(alias));
+        assert!(g.combat_style_form(FormId(alias)).is_some());
+        assert!(save_and_load(&mut g).unwrap() > 0);
+        assert_eq!(g.extra[&FormId::PLAYER_REF].combat_style, Some(FormId(alias)), "the serialized carrier is preserved");
+        assert!(g.combat_style_form(FormId(alias)).is_none());
+        assert_eq!(g.combat_style_id(FormId::PLAYER_REF), None);
+        assert_eq!(*g.combat_style(FormId::PLAYER_REF).unwrap(), f.data.combat_styles[&FormId(0x3D)], "the old authored default remains the fallback");
     }
 
     #[test]

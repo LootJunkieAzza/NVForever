@@ -1,6 +1,5 @@
 //! Authored source calls and real typed combat consumers; no installed mod data.
-mod common;
-use common::*;
+use crate::common::*;
 use fnv_esm::{LoadOrder, Plugin, Schema};
 use fnv_game::{data::CombatStyleDef, game::RunCtx, package::PackageDef, trace::EventKind, Game, GameConfig, GameData};
 use fnv_script::{vm::XVal, FunctionTable};

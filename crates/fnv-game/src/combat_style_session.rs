@@ -16,15 +16,14 @@ pub(crate) struct CombatStyleEdits {
 }
 
 impl<'a> Game<'a> {
-    /// Preview-only whole-save refusal, independent of scene-clone save guards.
-    /// Call after SaveGame callbacks and before constructing/encoding a snapshot.
-    pub fn ensure_combat_style_snapshot_supported(&self) -> Result<(), String> {
-        let unsupported = self.combat_style_edits.raw_clones.keys().copied()
-            .chain(self.clones.keys().copied().filter(|style| self.combat_style_origin(*style).is_some()))
-            .min();
-        match unsupported {
-            Some(style) => Err(format!("saving while temporary combat style {style} exists is not supported yet")),
-            None => Ok(()),
+    /// Keep main's session-only save degradation; never discard saved carriers.
+    /// The caller has already checked independent scene-reference save safety.
+    pub(crate) fn log_combat_style_snapshot_loss(&self) {
+        if !self.combat_style_edits.typed.is_empty()
+            || !self.combat_style_edits.raw_clones.is_empty()
+            || self.clones.keys().any(|style| self.combat_style_origin(*style).is_some())
+        {
+            tracing::warn!("save: combat-style edits and temporary copies are session-only; loading resets them and uses authored fallback styles");
         }
     }
 

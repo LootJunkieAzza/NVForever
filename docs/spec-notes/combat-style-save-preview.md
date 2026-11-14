@@ -1,35 +1,38 @@
-# Whole-save refusal for the temporary CSTY preview
+# Saving session combat-style edits and temporary copies
 
-- [documented: source f30fb730] GameSnapshot saves reference extras, script state
-  and ExtStore contents but not TempCloneForm's alias graph. The private R2 session
-  style maps likewise have no persistence closure. A style alias may appear in an
-  extender array or other carrier even when no actor is assigned it.
-- [hypothesis: preview safety policy] Refuse a whole save while any temporary CSTY
-  copy is tracked. Check both retained copy metadata and declared clone origins;
-  do not infer support from a live-reference-only scan. Keep known copies unsafe
-  even if their alias relation was removed. Do not filter/remap aliases, discard
-  tombstones or exempt the generic FE namespace.
-- [hypothesis: implementation policy] Expose the uniquely named
-  ensure_combat_style_snapshot_supported guard. Engine saving invokes it after
-  SaveGame callbacks and before snapshot construction, encoding or enqueueing.
-  Headless SaveLoad invokes it before its existing snapshot/encode path; that path
-  has no SaveGame callback on f30 and this change does not add one.
-- [hypothesis: composition policy] The guard is independent of the scene-clone
-  checked_snapshot work (#2416). When both are present, preserve both guards after
-  callbacks; never replace the scene check with a CSTY-only policy. Raw snapshot
-  construction remains a diagnostic primitive, not an approved save boundary.
-- [documented: source policy] Plain authored style field edits remain session-only:
-  the existing snapshot/restore path omits raw/typed overrides and resets them.
-  No alias graph or new style state is serialized by this preview.
+- [documented: repository source 805454db] `Game::snapshot` does not serialize
+  `clones` or raw record-field overrides; `Game::restore` starts from `Game::new`.
+  Existing saved ExtStore and reference-extra values are restored without filtering
+  their numeric FormIDs. `combat_style_id` skips a style absent from the loaded
+  records and uses the existing package/set/base/default selection instead.
+  Sources: `crates/fnv-game/src/game.rs`, `combat_style.rs` and `nvse_data.rs`.
+- [documented: maintainer compatibility request]
+  <https://github.com/LootJunkieAzza/NVForever/pull/2452#issuecomment-6874991648>
+  requires retaining that save degradation instead of refusing every save after
+  an unused temporary CSTY copy. The previous draft's whole-session refusal is
+  withdrawn; no separate owner decision is invented.
+- [hypothesis: implementation policy] A supported checked snapshot warns when
+  combat-style session edits or copies exist, but continues saving. Do not clear
+  live session state while saving, serialize a new alias graph, or rewrite saved
+  reference extras, arrays or deleted-reference metadata. On load the raw/typed
+  session stores reset and unresolved styles use the existing authored fallback.
+- [documented: repository source 805454db] The independent `checked_snapshot`
+  scene-reference scan rejects temporary cloned scene bases, including deleted
+  created references. Preserve that scan and its error behavior. Both the actual
+  engine save entry point after SaveGame callbacks and headless SaveLoad use it.
+- [hypothesis: diagnostic policy] Emit the session-state warning only after the
+  scene snapshot check succeeds. Logging does not imply that the background save
+  writer has finished or that temporary combat-style persistence is implemented.
 
-Creating a temporary style, even one never assigned to an actor, consequently
-makes this preview unsaveable until the session resets. That is a conservative
-draft limitation, not finished mod compatibility or native save behavior.
+## Authored controls
 
-[hypothesis: owned controls] Direct guard controls retain aliases in actual
-ExtStore arrays, deleted-reference extras and retained copy metadata. The real
-engine save entry point must reject a clone created by its SaveGame callback,
-without enqueueing or replacing an existing owned test file; an authored-edit
-neighbor must still enqueue. The actual headless SaveLoad helper must reject a
-clone before roundtrip, while plain authored edits still roundtrip with the old
-reset policy. All new controls are unrun until separately qualified.
+[hypothesis: test design] Replace the old CSTY refusal expectations explicitly.
+An unused copy in a retained extender array and a copy carried by a deleted
+reference must still permit a checked snapshot, preserving the carrier values.
+Restoration resets the session copies without changing those saved values. A
+headless SaveLoad must round-trip an unused copy. The engine SaveGame callback
+must be able to create and assign a copy, enqueue a snapshot without immediately
+overwriting the previous file, and restore its authored fallback. The existing
+scene-clone callback refusal and plain-authored-edit neighbors remain unchanged.
+These corrected controls and the new diagnostic are unrun until separately
+qualified; old refusal passes are historical evidence of the withdrawn policy.
