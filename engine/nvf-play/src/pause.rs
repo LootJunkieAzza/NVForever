@@ -2059,35 +2059,35 @@ impl ListBox {
 struct RowX(f32);
 
 impl RowX {
-    fn from_right(self, at: f32) -> f32 {
+    fn kept_from_right(self, at: f32) -> f32 {
         self.0 - (ROW_BASE - at)
     }
 
     /// A switch's state's and a reason's centre.
     fn value_at(self) -> f32 {
-        self.from_right(VALUE_AT)
+        self.kept_from_right(VALUE_AT)
     }
 
     /// The left edge of the row's value part: a slider's left arrow, a list's box.
     fn value_left(self) -> f32 {
-        self.from_right(LIST_LEFT)
+        self.kept_from_right(LIST_LEFT)
     }
 
     fn meter_left(self) -> f32 {
-        self.from_right(METER_LEFT)
+        self.kept_from_right(METER_LEFT)
     }
 
     fn arrows(self) -> [f32; 2] {
-        METER_ARROWS.map(|a| self.from_right(a))
+        METER_ARROWS.map(|a| self.kept_from_right(a))
     }
 
     /// A slider's value's centre.
     fn percent_at(self) -> f32 {
-        self.from_right(PERCENT_AT)
+        self.kept_from_right(PERCENT_AT)
     }
 
     fn list_left(self) -> f32 {
-        self.from_right(LIST_LEFT)
+        self.kept_from_right(LIST_LEFT)
     }
 }
 
