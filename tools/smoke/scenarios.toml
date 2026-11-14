@@ -10430,17 +10430,17 @@ env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:15", NVF_P
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--pos=-68375,4800,8700"]
 run_seconds = 17
 order = [[
-  { re = 'pause menu: rows 2-10 of \d+ shown', label = "a notch of the wheel shows the next row" },
-  { re = 'pause menu: rows 3-11 of \d+ shown' },
-  { re = 'pause menu: rows 4-12 of \d+ shown' },
-  { re = 'pause menu: rows 3-11 of \d+ shown', label = "a notch up shows the row before again" },
+  { re = 'pause menu: rows 2-13 of \d+ shown', label = "a notch of the wheel shows the next row (a window of 12 lines, #2377)" },
+  { re = 'pause menu: rows 3-14 of \d+ shown' },
+  { re = 'pause menu: rows 4-15 of \d+ shown' },
+  { re = 'pause menu: rows 3-14 of \d+ shown', label = "a notch up shows the row before again" },
 ]]
 
 
 [[scenario]]
 name = "settings-scroll-headings"
 source = "#1953: the mouse wheel moves the window of a tab with headings (Gameplay) as of one without, the chosen row brought into the window (the top row once the chosen one leaves it) and the window not pulled back to the chosen row's heading; a notch up moves it back one line"
-note = "Gameplay's first lines: [Game], difficulty, hardcore, kill-camera, vats-style, vats-slowdown, reload-slows, UsePipBoy, [Saving], the autosave rows; the window is nine lines"
+note = "Gameplay's first lines: [Game], difficulty, hardcore, kill-camera, vats-style, vats-slowdown, reload-slows, UsePipBoy, [Saving], the five autosave rows, [Dialogue] (line 15); the window is twelve lines (#2377), and a heading on its last line is drawn with its first row in the next window, so the window from line 4 draws lines 4-14"
 areas = ["settings"]
 paths = ["engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings_view.rs", "engine/nvf-play/src/settings_layout.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:18", NVF_PLAY_TEST_SETTINGS = "11:tab:Gameplay", NVF_PLAY_TEST_PAUSE_MENU = "12:wheel-down,12.3:wheel-down,12.6:wheel-down,13.5:inspect,14:wheel-up,15:inspect" }
@@ -10448,16 +10448,18 @@ args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
 run_seconds = 20
 order = [[
   "pause menu: tab Gameplay; selected difficulty",
-  { re = 'pause menu: rows 2-10 of \d+ shown', label = "a notch of the wheel shows the next line" },
-  { re = 'pause menu: rows 3-11 of \d+ shown' },
-  { re = 'pause menu: rows 4-12 of \d+ shown', label = "three notches, three lines down" },
-  { re = 'pause menu: inspect: Gameplay, keys on the rows, selected kill-camera, lines 4-12 of \d+', label = "the window stays moved, the chosen row its top row" },
-  { re = 'pause menu: rows 3-11 of \d+ shown', label = "a notch up moves it back one line" },
-  { re = 'pause menu: inspect: Gameplay, keys on the rows, selected kill-camera, lines 3-11 of \d+', label = "the chosen row still in the window" },
+  { re = 'pause menu: rows 2-13 of \d+ shown', label = "a notch of the wheel shows the next line" },
+  { re = 'pause menu: rows 3-14 of \d+ shown' },
+  { re = 'pause menu: rows 4-15 of \d+ shown', label = "three notches, three lines down" },
+  { re = 'pause menu: inspect: Gameplay, keys on the rows, selected kill-camera, lines 4-14 of \d+', label = "the window stays moved, the chosen row its top row ([Dialogue] on its last line left for the next window)" },
+  "pause menu: inspect: window 12 lines, 11 drawn",
+  { re = 'pause menu: rows 3-14 of \d+ shown', label = "a notch up moves it back one line" },
+  { re = 'pause menu: inspect: Gameplay, keys on the rows, selected kill-camera, lines 3-14 of \d+', label = "the chosen row still in the window" },
+  "pause menu: inspect: window 12 lines, 12 drawn",
 ]]
 forbid = [
   { re = 'NVF_PLAY_TEST_(SETTINGS|PAUSE_MENU): ("|no switch|\S+ is a (list|slider):)', label = "every aid step is understood" },
-  { re = 'pause menu: rows 1-9 of \d+ shown', label = "the window is never pulled back to the top (to the chosen row's heading)" },
+  { re = 'pause menu: rows 1-12 of \d+ shown', label = "the window is never pulled back to the top (to the chosen row's heading)" },
   { re = 'nvf_play::settings: settings: [a-zA-Z][\w-]* \S', label = "scrolling changes no setting" },
 ]
 
@@ -10573,6 +10575,9 @@ expect = [
   { text = "pause menu: tab Tweaks; selected none", label = "the empty Tweaks tab opens on no row" },
   { text = "pause menu: inspect: Tweaks, keys on the rows, selected none, lines 0-0 of 0", label = "it lists nothing" },
   { re = 'pause menu: inspect: words Search \| Changed \| Gameplay \| Display \| Audio \| Controls \| Graphics \| Tweaks \| Debug \| No settings here\.', label = "the rail and the empty tab's words" },
+  { text = "pause menu: settings window of 12 lines", count = 1, label = "the window's lines worked out from the layout, once (#2377)" },
+  { re = 'pause menu: settings list (\d+) wide from \d+ in a view \d+ wide, band \d+-\d+', label = "the list's width from the view, logged (#2377)" },
+  "pause menu: inspect: window 12 lines, 0 drawn",
 ]
 order = [[
   "settings layout: tabs Gameplay",
@@ -10587,6 +10592,42 @@ order = [[
   "pause menu: tab Tweaks; selected none",
 ]]
 forbid = [{ re = 'NVF_PLAY_TEST_(SETTINGS|PAUSE_MENU): ("|no switch|\S+ is a (list|slider):)', label = "every aid step is understood" }]
+
+[[scenario]]
+name = "settings-layout-ultrawide"
+source = "#2377: at 3440x1440 (a view 2293 units wide) the settings list is as wide as it may be (1300 units), centred in the room left of the rail, the window twelve lines"
+note = "the window must open at 3440x1440 (a monitor that size); a smaller one gives a narrower view and list, which the second line then misses. Opt-in: runs only with NVF_SMOKE_ULTRAWIDE set (any value) on a machine with such a monitor; elsewhere the unit test `the_settings_page_fits_the_view` covers the 2293-unit view"
+requires = ["NVF_SMOKE_ULTRAWIDE"]
+areas = ["settings"]
+paths = ["engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings_view.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:15", NVF_PLAY_TEST_SETTINGS = "11:page,12:tab:Graphics", NVF_PLAY_TEST_PAUSE_MENU = "13:inspect" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages", "--size", "3440x1440"]
+run_seconds = 17
+expect = [
+  { text = "pause menu: settings window of 12 lines", count = 1 },
+  { re = 'pause menu: settings list 1300 wide from \d+ in a view 2293 wide, band \d+-\d+', label = "the list capped at 1300 units in a 21:9 view" },
+  { re = 'pause menu: inspect: Graphics, keys on the rows, selected \S+, lines 1-1[12] of \d+', label = "twelve lines (less a heading left for the next window)" },
+]
+forbid = [{ re = 'NVF_PLAY_TEST_(SETTINGS|PAUSE_MENU): ("|no switch|\S+ is a (list|slider):)', label = "every aid step is understood" }]
+
+[[scenario]]
+name = "settings-note-budget"
+source = "#2377: every settings note within the budget (200 characters, no command-line switch) once every row is registered, and two lines at the page's width in a 16:9 view once the pause menu's fonts are loaded; the rows' labels and values laid out at that width, a row whose text had to be cut logged"
+note = "`cut to fit` is reported, not failed: a row cut there is drawn with \"...\" and logs `settings: text of `<key>` cut to fit: ...`"
+areas = ["settings"]
+paths = ["engine/nvf-play/src/settings.rs", "engine/nvf-play/src/pause.rs", "engine/nvforever/src/settings.rs", "engine/nvforever/src/quality.rs", "lang/"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:14", NVF_PLAY_TEST_SETTINGS = "11:page,12:tab:Graphics" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 15
+expect = [
+  { re = 'settings: \d+ notes checked, 0 over the budget \(200 characters\)', count = 1, label = "every registered note within 200 characters, no switch in it (at the start)" },
+  { re = 'settings: \d+ notes checked, 0 over the budget \(200 characters, two lines\)', count = 1, label = "and two lines at the page's 16:9 width (once the pause menu's fonts are loaded)" },
+  { re = 'settings: \d+ rows laid out, \d+ cut to fit', count = 1, label = "the rows' labels and values laid out at that width" },
+]
+forbid = [
+  { re = 'settings: note of `\S+` over the budget:', label = "no note over the budget" },
+  { re = 'NVF_PLAY_TEST_(SETTINGS|PAUSE_MENU): ("|no switch|\S+ is a (list|slider):)', label = "every aid step is understood" },
+]
 
 [[scenario]]
 name = "settings-headings"
@@ -16575,6 +16616,20 @@ expect_file = "expected/modlist-blue-moon.toml"
 manual = "a rise: compare the report's per_plugin failed lists with main's; a drop: write the new summary into expected/modlist-blue-moon.toml"
 
 [[scenario]]
+name = "modlist-begin-again"
+kind = "tool"
+source = "issue #2335: the Begin Again mod list (Tale of Two Wastelands, MO2 game TTW, 203 plugins) as modlist-blue-moon reads Blue Moon: its extender scripts as the game builds them at start (fnvtool ext report), from its Mod Organizer 2 profile"
+areas = ["scripts", "extender", "mods"]
+paths = ["crates/fnv-game/src/source_compile.rs", "crates/fnv-script/src/compile/", "crates/fnv-script/src/decode.rs", "crates/fnv-script/src/table.rs", "crates/fnv-script/data/encodings.json", "crates/fnvtool/src/ext_cmd.rs", "crates/fnvtool/src/mo2_args.rs", "crates/fnv-install/src/mo2.rs", "schemas/script/functions.json", "tools/smoke/expected/modlist-begin-again.toml"]
+requires = ["NVF_MODLIST_BEGIN_AGAIN"]
+note = "NVF_MODLIST_BEGIN_AGAIN: the folder of the Begin Again profile on this machine (<MO2 instance>\\profiles\\Begin Again; the owner's). Plugins come from the instance's mods by modlist.txt priority (the Fallout 3 masters from the TTW mod) and its game folder's Data; {data} is only the data folder argument"
+commands = [["ext", "report", "{data}", "--mo2-profile", "{env:NVF_MODLIST_BEGIN_AGAIN}", "--schema", "schemas/fnv"]]
+# The totals live in expected/modlist-begin-again.toml: a branch that makes more units
+# compile lowers units_kept_bytes there; a rise fails this run.
+expect_file = "expected/modlist-begin-again.toml"
+manual = "a rise: compare the report's per_plugin failed lists with main's; a drop: write the new summary into expected/modlist-begin-again.toml"
+
+[[scenario]]
 name = "modlist-high-dry"
 kind = "tool"
 source = "issue #2275: a second real mod list's extender scripts as the game builds them at start (fnvtool ext report), read straight from its Mod Organizer 2 profile (--mo2-profile)"
@@ -16587,6 +16642,7 @@ commands = [["ext", "report", "{data}", "--mo2-profile", "{env:NVF_MODLIST_HIGH_
 # compile lowers units_kept_bytes there; a rise fails this run.
 expect_file = "expected/modlist-high-dry.toml"
 manual = "a rise: compare the report's per_plugin failed lists with main's; a drop: write the new summary into expected/modlist-high-dry.toml"
+
 
 [[scenario]]
 name = "mq-old-world-blues"
@@ -22599,6 +22655,19 @@ expect = [
 ]
 
 [[scenario]]
+name = "nif-blocks-player"
+source = "issue #2335: the player's nodes in the NIF block mirror. 360Movement.esp (Begin Again list) reads `Player.GetNifBlockTranslation \"Bip01 NonAccum\"` every frame; the player's third-person body is no ActorRig, so the mirror had no tree for it and every call gave ar_Null"
+areas = ["scripts", "actors"]
+paths = ["crates/fnv-game/src/nif_blocks.rs", "engine/nvforever/src/nif_mirror.rs", "engine/nvforever/src/player_body.rs"]
+env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_CONSOLE = "11:PrintC \"nvf player first %g\", (Ar_Size (Player.GetChildBlocks \"\"));12:PrintC \"nvf player nonaccum %g\", (Ar_Size (Player.GetNifBlockTranslation \"Bip01 NonAccum\"));12.5:PrintC \"nvf player blocks %g\", (Ar_Size (Player.GetChildBlocks \"\"))" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
+run_seconds = 15
+expect = [
+  { re = 'script: print "nvf player nonaccum 3"', label = "the player's Bip01 NonAccum translation is three numbers" },
+  { re = 'script: print "nvf player blocks [1-9][0-9]*"', label = "the player's skeleton nodes are in the mirror" },
+]
+
+[[scenario]]
 name = "player-script-sequence-pose-release-owned"
 source = "[design: player-script-sequence-pose-aid.md] Optional actual post-propagation first/third rig observation using two externally authored owned KFs and a declared numeric manifest. NOT RUN; no native or pixel comparison."
 areas = ["scripts", "player"]
@@ -22630,6 +22699,7 @@ expect = [
   { re = 'script: print "nvf head lit [1-9][0-9]*"', label = "the head's children read with the light's node" },
   { re = 'script: print "nvf head after [0-9]+"', label = "RemoveLight leaves the head readable" },
 ]
+
 [[scenario]]
 name = "knvse-anim-replace"
 source = "N5 slice 2 (docs/design/knvse-anim.md): SetActorAnimationPath with a standing-stance file replaces that move in the actor's own copy of its set; taking it back restores the shared set"

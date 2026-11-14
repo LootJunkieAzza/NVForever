@@ -45,7 +45,8 @@ pub enum Kw {
     Else,
     EndIf,
     Return,
-    Set { target: Vec<Tok>, expr: Vec<Tok> },
+    /// `on`: the reference written before `.Set`, kept as the statement's prefix.
+    Set { target: Vec<Tok>, expr: Vec<Tok>, on: Option<String> },
     /// `[Ref.]Function args…`, or a line the code generator reports as unknown.
     Call(Vec<Tok>),
     /// `let <assignment>`, or the Let macro (`x = 1`, `x += 1`), in the extender's tokens
@@ -187,7 +188,16 @@ pub fn statement(l: &Line) -> Result<Statement, ParseError> {
     let kw = if head.kind != Kind::Word {
         Kw::Call(toks.clone())
     } else {
-        match head.text.to_ascii_lowercase().as_str() {
+        let word = head.text.to_ascii_lowercase();
+        // `Ref.Set x to v`: a set of the script's own `x` with the reference as its
+        // calling-reference prefix [observed: Fallout3.esm and RAD.esp ship
+        // `MS14ArmorVoiceRef.Set SayTimer to GameDaysPassed + 0.1` with compiled bytes
+        // `1C 00 <ref> 15 00 …` whose target is the local SayTimer, #2335].
+        let (word, on) = match word.strip_suffix(".set") {
+            Some(r) if !r.is_empty() && !r.contains('.') => ("set", Some(head.text[..r.len()].to_string())),
+            _ => (word.as_str(), None),
+        };
+        match word {
             "scn" | "scriptname" => Kw::ScriptName(rest.first().map(|t| t.text.clone())),
             "begin" => {
                 let Some(b) = rest.first().filter(|t| t.kind == Kind::Word) else { return Err(err("Begin without a block name")) };
@@ -204,7 +214,7 @@ pub fn statement(l: &Line) -> Result<Statement, ParseError> {
                 if k == 0 {
                     return Err(err("Set without a variable"));
                 }
-                Kw::Set { target: rest[..k].to_vec(), expr: rest[k + 1..].to_vec() }
+                Kw::Set { target: rest[..k].to_vec(), expr: rest[k + 1..].to_vec(), on }
             }
             w => match DeclType::from_word(w) {
                 Some(ty) => {
@@ -279,7 +289,7 @@ mod tests {
         assert_eq!(k[1], Kw::Decl { ty: DeclType::Int, names: vec!["a".into()], init: None });
         assert_eq!(k[2], Kw::Decl { ty: DeclType::Ref, names: vec!["r".into()], init: None });
         assert!(matches!(&k[3], Kw::Begin { block, args } if block == "OnTrigger" && args.len() == 1));
-        assert!(matches!(&k[4], Kw::Set { target, expr } if target.len() == 1 && expr.len() == 3));
+        assert!(matches!(&k[4], Kw::Set { target, expr, .. } if target.len() == 1 && expr.len() == 3));
         assert!(matches!(&k[5], Kw::If(e) if e.len() == 1));
         assert_eq!(k[6], Kw::Else);
         assert_eq!(k[7], Kw::EndIf);

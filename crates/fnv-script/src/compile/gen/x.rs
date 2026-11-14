@@ -717,6 +717,21 @@ impl Gen<'_> {
                         continue;
                     }
                 }
+                // A word or number of hex digits that names nothing, given alone to a form
+                // parameter, is the form with that FormID when the load order has one
+                // [observed 2026-11-14, nvse-cmd-probes in the stock game, the runtime
+                // compiler: `AuxVarSetFlt "*_q" 7 0 f` reads back 7 under Caps001 (0xF),
+                // `a` under Lockpick (0xA), `14` under PlayerRef; `g` and `FFFFFF` (no form)
+                // do not compile; Armor Damage Fix's gr_CondDamFix.txt ships `… 0 f`].
+                if let Some(t) = p.peek().filter(|t| matches!(t.kind, XKind::Word | XKind::Num) && !t.text.contains('.')).cloned() {
+                    let alone = !p.peek2().is_some_and(|n| matches!(n.kind, XKind::LBracket | XKind::Op));
+                    let named = self.var(&t.text).is_some() || self.form(&t.text).is_some();
+                    if let (true, false, Some(fi)) = (alone, named, self.hex_form_id(&t.text)) {
+                        p.next();
+                        args.push(val_expr(self.form_val(fi, &t.text)));
+                        continue;
+                    }
+                }
             }
             let enc = match f.opcode {
                 Some(o) => self.table.param_enc(o, args.len()),
