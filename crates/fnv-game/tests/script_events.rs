@@ -438,6 +438,25 @@ fn an_actor_out_of_the_loaded_cells_runs_its_game_mode_when_processed() {
     assert_eq!(count(&g, NEAR_REF, 1), 0.0);
 }
 
+/// #2433: a harmless hit (a Use Weapon package's Do No Damage) runs the target's OnHit
+/// block, which may do what it likes (G.I. Blues' thugs fall in theirs), and deals no
+/// damage of its own; a target without the block is not touched.
+#[test]
+fn a_harmless_hit_runs_on_hit_and_deals_no_damage() {
+    let f = fixture();
+    let mut g = game(&f);
+    let by = HitInfo { attacker: Some(FormId(NPC_REF)), weapon: None, location: -1, critical: false, limb: None };
+    let health = |g: &mut Game, r: u32| fnv_game::functions::actor_value(g, FormId(r), HEALTH).unwrap();
+    // No OnHit block: nothing runs and its Health stays.
+    let before = health(&mut g, NPC_REF);
+    assert!(!g.harmless_hit(FormId(NPC_REF), by), "NPC_REF's script has no OnHit block");
+    assert_eq!(health(&mut g, NPC_REF), before);
+    assert!(!g.is_dead(FormId(NPC_REF)));
+    // The block runs, with the attacker as OnHit's subject: its Kill is the hit's effect.
+    assert!(g.harmless_hit(FormId(KILL_ON_HIT_REF), by), "its OnHit block runs");
+    assert!(g.is_dead(FormId(KILL_ON_HIT_REF)), "the block's Kill ran");
+}
+
 fn ask(g: &mut Game, on: u32, opcode: u16) -> f64 {
     let ctx = Ctx { unit: "test".into(), opcode, on: Some(FormId(on)), self_ref: None, action_ref: None, quest: None, inst: None, in_condition: false };
     g.call_function(&ctx, &[]).num()
