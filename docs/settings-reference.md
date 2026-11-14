@@ -112,8 +112,8 @@ are at the end.
 
 ### `menu-pause`: Freeze the picture in dialogue and menus
 
-- On the page: On: animations, wind, water and sky stand still in conversations and menus,
-  as in the original. Off: only game logic waits. This menu holds everything.
+- On the page: On: animations, wind, water and sky stand still in conversations, the
+  inventory and other menus, as in the original. Off: only game logic waits.
 - In full: On: while a conversation, the inventory, a container or a message box is open,
   animations, wind, water and sky stand still, as in the original. Off: only game logic
   waits and the world lives on. This menu always holds everything.

@@ -1438,7 +1438,7 @@ impl Plugin for PausePlugin {
                 key: "menu-pause",
                 group: GROUP_MENUS,
                 label: "Freeze the picture in dialogue and menus",
-                note: "On: animations, wind, water and sky stand still in conversations and menus, as in the original. Off: only game logic waits. This menu holds everything.",
+                note: "On: animations, wind, water and sky stand still in conversations, the inventory and other menus, as in the original. Off: only game logic waits.",
                 switches: "--menu-pause",
                 get: |w| *w.resource::<MenuPause>() == MenuPause::Original,
                 set: |w, on| *w.resource_mut::<MenuPause>() = if on { MenuPause::Original } else { MenuPause::Living },
