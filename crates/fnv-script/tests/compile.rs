@@ -1690,6 +1690,16 @@ end");
 }
 
 #[test]
+fn pc1st_in_parentheses_is_the_call_not_text() {
+    // [observed: ln_B42Core.txt, `Goo1.AuxVarSetFlt "*_CrPOV" (PC1st)`; Enhanced FOV.esp's
+    // bytes call IsPC1stPerson for `if PC1st`.]
+    let (c, _) = mod_ok("begin GameMode
+AuxVarSetFlt \"*_q\" (PC1st)
+end");
+    assert!(warnings(&c, "unquoted_argument").is_empty(), "{:?}", c.diags);
+}
+
+#[test]
 fn set_string_setting_is_lus_function_not_the_console_command() {
     let (_, p) = mod_ok("begin GameMode\nSetStringSetting \"sTargetTypeOpen\" \"Open\"\nend");
     assert_eq!(call_args(&p, "SetStringSetting"), Some(2));
@@ -1734,6 +1744,7 @@ fn spellings_the_extender_registers_are_names_too() {
     assert!(t.unnumbered.contains_key("getedid") || t.by_name("getedid").is_some());
     // [observed: TTW No Hardcore Sacrifice.esp's bytes call MoveTo for `MoveToMarker`.]
     assert_eq!(t.by_name("movetomarker"), t.by_name("moveto"));
+    assert_eq!(t.by_name("pc1st"), t.by_name("ispc1stperson"), "[observed: Enhanced FOV.esp's bytes]");
     assert!(t.by_name("moveto").is_some());
 }
 
