@@ -1985,7 +1985,7 @@ heading 75) with NVFExtProbe.esp loaded, as the jip-probes sets run.
 
 ## Added 2026-11-14 (bloatflies' distance, shots and bite, issue #2351)
 
-128. **How does a bloatfly fight the player: its distance, its shots and its bite?** (P2;
+129. **How does a bloatfly fight the player: its distance, its shots and its bite?** (P2;
      combat-ai.md §12.6 and §19, #2351.) A player reports that in the original bloatflies
      keep their distance, fire on a cooldown and bite when in range [hypothesis: a
      player's report in #2351, not yet captured]. CrBloatFly 0x0009189C carries
