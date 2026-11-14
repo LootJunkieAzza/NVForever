@@ -188,15 +188,16 @@ fn spawn(mut commands: Commands) {
         });
 }
 type HandleFilter = (With<Handle>, Without<Hint>);
+type VisualState<'w> = (
+    Res<'w, Options>,
+    Res<'w, Drawer>,
+    Res<'w, SafeBottom>,
+    Res<'w, super::TouchState>,
+    Res<'w, super::Layout>,
+);
 
 fn visual(
-    (options, drawer, safe, state, layout): (
-        Res<Options>,
-        Res<Drawer>,
-        Res<SafeBottom>,
-        Res<super::TouchState>,
-        Res<super::Layout>,
-    ),
+    (options, drawer, safe, state, layout): VisualState<'_>,
     capture: Option<Res<nvf_play::bindings::KeyboardCapture>>,
     bindings: Option<Res<nvf_play::bindings::Bindings>>,
     pads: Query<&Gamepad>,
