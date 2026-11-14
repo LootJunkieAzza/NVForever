@@ -104,6 +104,9 @@ pub const LOOK_MAX: usize = 1200;
 pub const LOOK_EVERY: Duration = Duration::from_secs(2);
 /// States this far behind the last are from a game started again (10 s of them).
 const RESTARTED: u32 = 200;
+/// A reliable frame of a stream this few behind the guest's is one late on the way (each
+/// Hello the host hears starts one more); any other number is a new stream [design].
+const EPOCHS_LATE: u16 = 8;
 pub const MAX_WORN: usize = 10;
 
 /// An NPC of the host's world as the host draws it (module notes).
@@ -1508,8 +1511,10 @@ impl Session {
                     self.sock_send(&Msg::Full, from);
                     return;
                 };
-                // A stream number unlike a guest's last one in this slot.
-                let epoch = (token as u16) | 1;
+                // A stream number unlike a guest's last one in this slot, and unlike the
+                // one a host game before this one gave it (a guest coming back to a host
+                // started again kept that one: queue item 201).
+                let epoch = ((token as u16) ^ (new_token() as u16)) | 1;
                 self.peers.push(Peer { addr: Some(from), token, name: truncate(&name), epoch, ..Peer::new(id, now) });
                 self.last_names = None;
                 self.sock_send(&Msg::Welcome { id }, from);
@@ -1667,6 +1672,27 @@ impl Session {
         }
     }
 
+    /// A guest welcomed (again): what it heard from the host so far counts from the start
+    /// again. The reliable stream both ways (the host's end is new too), the host's epoch,
+    /// the newest rounds of actors, NPCs and lines, and the copies of hits, animations,
+    /// progression and table actions taken (the copies go out at once, so none of an
+    /// older stream is still on the way after the silence a Hello follows).
+    fn hear_anew(&mut self) {
+        // Before any stream was heard (the first Welcome), what is queued keeps (as the
+        // first stream keeps it, `Msg::Rel`).
+        if self.host_epoch.take().is_some() {
+            self.rel = Reliable::new();
+        }
+        self.heard_actors = None;
+        self.heard_npcs = None;
+        self.heard_lines = None;
+        self.heard_quest = None;
+        self.heard_hits.clear();
+        self.anims.heard.clear();
+        self.progress.heard.clear();
+        self.table_heard.clear();
+    }
+
     fn guest_handle(&mut self, msg: Msg, from: SocketAddr, now: Instant) {
         let Role::Guest { host, id, last_heard, last_hello, host_lost, asked, gone, .. } = &mut self.role else { return };
         // Before an answer, whoever answers the Hello is the host (a broadcast's answer
@@ -1697,6 +1723,13 @@ impl Session {
                     }
                     self.events.push(Event::Welcomed(given));
                 }
+                // A Welcome answers a Hello, and the host starts this guest's streams
+                // again for each one (a known token), or never had them (a host started
+                // again): so does this game (queue item 201: after the owner's host game
+                // was closed and started again, the guest kept its old reliable stream and
+                // its newest actor round, took nothing from the new host for 33 minutes,
+                // and drew its own game's NPCs).
+                self.hear_anew();
             }
             Msg::Full => self.events.push(Event::Refused),
             Msg::Who => {
@@ -1783,10 +1816,13 @@ impl Session {
             }
             Msg::Rel { epoch, frame } => {
                 // A new stream (the host heard this guest's Hello): what was on the old
-                // one is gone; an older stream's frame, late on the way, is dropped.
+                // one is gone; a frame of one of the last few streams, late on the way, is
+                // dropped. Any other number is a new stream (a host game started again
+                // numbers its own, `host_handle`), so a Welcome lost on the way does not
+                // leave this guest on the old one.
                 match self.host_epoch {
                     Some(e) if e == epoch => {}
-                    Some(e) if epoch.wrapping_sub(e) > u16::MAX / 2 => return,
+                    Some(e) if (1..=EPOCHS_LATE).contains(&e.wrapping_sub(epoch)) => return,
                     was => {
                         // The first stream keeps what was queued before it was heard
                         // (nothing of it went yet).
@@ -1802,7 +1838,9 @@ impl Session {
                 }
             }
             Msg::Actors { seq, ms, poses } => {
-                if self.heard_actors.is_some_and(|h| newer(h, seq)) {
+                // An older round is dropped; one far behind the last is a host started
+                // again (as the NPC rounds and states take it, `fresh`).
+                if self.heard_actors.is_some_and(|h| !fresh(seq, h) && seq != h) {
                     return;
                 }
                 self.heard_actors = Some(seq);
@@ -3461,6 +3499,53 @@ mod tests {
         });
         assert_eq!(back.id(), Some(id), "same slot");
         assert!(!seen[0].iter().any(|e| matches!(e, Event::Joined { .. })), "not a new guest: {:?}", seen[0]);
+    }
+
+    /// Queue item 201: the host's game closed and started again (a new session on the same
+    /// port, knowing nobody) while a guest stayed in. The guest says Hello, is welcomed as
+    /// the same player, and hears the new host's reliable items and actor rounds, and the
+    /// new host hears its own: before, the guest kept the old stream (the new one came with
+    /// the same number) and the old host's newest actor round, and took nothing more.
+    #[test]
+    fn a_guest_back_with_a_host_started_again_hears_its_streams() {
+        let (mut host, mut g, addr) = host_and(1);
+        let mut a = g.pop().unwrap();
+        let mut clock = Instant::now();
+        let step = Duration::from_millis(10);
+        run(&mut [&mut host, &mut a], &mut clock, step, |seen| seen[1].iter().any(|e| matches!(e, Event::Welcomed(_))));
+        let id = a.id().unwrap();
+        // The old host's streams, well along: reliable items, and many actor rounds.
+        let pose = |r: u32| ActorPose { reference: r, feet: [1.0, 2.0, 3.0], heading: 0.0, pitch: 0.0, flags: 0, attacks: 0 };
+        for i in 0..30u8 {
+            host.send_reliable(Some(id), vec![1, i]);
+        }
+        for _ in 0..500 {
+            host.send_actors(id, &[pose(0x10)]);
+        }
+        run(&mut [&mut host, &mut a], &mut clock, step, |seen| seen[1].iter().filter(|e| matches!(e, Event::Reliable { .. })).count() == 30);
+
+        // The host's game closes; another starts on the same port.
+        drop(host);
+        let mut host = Session::host(addr.port()).unwrap();
+        clock += LOST_AFTER + Duration::from_secs(1);
+        a.tick(clock);
+        assert!(a.take_events().contains(&Event::HostLost));
+        run(&mut [&mut host, &mut a], &mut clock, step, |seen| seen[1].contains(&Event::HostBack) && seen[0].iter().any(|e| matches!(e, Event::Joined { .. })));
+        assert_eq!(a.id(), Some(id), "the same player again");
+
+        for i in 0..5u8 {
+            host.send_reliable(Some(id), vec![2, i]);
+        }
+        host.send_actors(id, &[pose(0x20)]);
+        a.send_reliable(None, vec![9]);
+        let seen = run(&mut [&mut host, &mut a], &mut clock, step, |seen| {
+            seen[1].iter().filter(|e| matches!(e, Event::Reliable { item, .. } if item[0] == 2)).count() == 5
+                && seen[1].iter().any(|e| matches!(e, Event::Actors { poses, .. } if poses[0].reference == 0x20))
+                && seen[0].iter().any(|e| *e == Event::Reliable { id, item: vec![9] })
+        });
+        let items: Vec<Vec<u8>> = seen[1].iter().filter_map(|e| if let Event::Reliable { item, .. } = e { Some(item.clone()) } else { None }).collect();
+        assert_eq!(items, (0..5u8).map(|i| vec![2, i]).collect::<Vec<_>>(), "the new host's items, once and in order");
+        assert!(seen[1].iter().any(|e| matches!(e, Event::RelReset { id: 0 })), "the guest starts the host's stream again");
     }
 
     /// A guest that stops hearing the host reports it lost, keeps saying Hello, and
