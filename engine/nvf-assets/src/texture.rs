@@ -869,7 +869,7 @@ mod tests {
         let block = [0, 0, 0, 0, 255, 255, 255, 255];
         for srgb in [false, true] {
             let image = dds_image(&dds(b"DXT1", 4, 4, &block), srgb, false).unwrap();
-            assert!(image.data.unwrap().chunks_exact(4).all(|pixel| pixel == [0, 0, 0, 0]));
+            assert_eq!(image.data.unwrap(), vec![0; 4 * 4 * 4]);
         }
     }
     #[test]
