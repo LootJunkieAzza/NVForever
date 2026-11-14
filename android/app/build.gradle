@@ -46,5 +46,6 @@ def stageLegalAssets = tasks.register('stageLegalAssets', Exec) {
     }
 }
 tasks.configureEach {
-    if (name.startsWith('merge') && name.endsWith('Assets')) dependsOn(stageLegalAssets)
+    if ((name.startsWith('merge') && name.endsWith('Assets'))
+            || (name.startsWith('generate') && name.contains('Lint'))) dependsOn(stageLegalAssets)
 }
