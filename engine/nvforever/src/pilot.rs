@@ -20,6 +20,11 @@
 //!   them (the player's means everywhere), but each from its own `given` state, set as
 //!   the headless run sets it. For a chain far into the game that no campaign has
 //!   reached yet; what it finds carries the false alarms a thin `given` brings.
+//! - **An actor the player cannot walk to is waited for** (`Phase::Await`, up to
+//!   [`AWAIT_SECS`]): it may come out and start the conversation itself, or come near
+//!   enough to walk to. The Nellis gate guard is behind the locked gate and comes out to
+//!   the player; Raquel then walks out to take the player to Pearl. A `move_player` to an
+//!   actor ends there too, and is not asked the crosshair.
 //! - **A line the headless run says for an actor** (`say_info` with a speaker) is, in a
 //!   campaign, the player bringing that line about: the chains use it for what an actor
 //!   says of its own accord, often at the end of a walk (Sunny goes behind the saloon
@@ -309,6 +314,10 @@ pub const WAIT_HOURS: u32 = 24;
 pub const ERRAND_SECS: f64 = 90.0;
 /// Seconds a message box nobody waits for stays up before the pilot closes it.
 pub const BOX_SECS: f64 = 1.5;
+/// Seconds an actor the player cannot walk to is waited for, and how many times the walk
+/// is tried again when it comes near.
+pub const AWAIT_SECS: f64 = 60.0;
+pub const AWAIT_TRIES: u8 = 3;
 /// Seconds the next chain waits for the save after the one before it.
 pub const SAVE_SECS: f64 = 3.0;
 /// Seconds a menu the pilot has no answer for stays up before it is closed.
@@ -464,6 +473,8 @@ struct Walk {
     tried: Vec<(u32, String)>,
     /// Hops taken along the path when stuck.
     skips: u8,
+    /// Times the actor walked to was waited for (`Phase::Await`).
+    awaited: u8,
     /// Where the player last stood stuck: [`UNSTUCK_UNITS`] on from there the count of
     /// new paths starts again (a long walk with fights on it got stuck three times in
     /// three places and was given up).
@@ -513,6 +524,11 @@ enum Phase {
     Aim(Aim),
     /// Until `until` (seconds), or sooner by the step's own test.
     Wait { until: f64 },
+    /// An actor the player cannot walk to now is waited for: it may come out and start
+    /// the conversation itself (the Nellis gate guard behind the locked gate, then Raquel
+    /// coming out to take the player to Pearl), or come near enough to walk to. Until
+    /// `until`; `why` is what the walk said.
+    Await { target: FormId, until: f64, why: String, tries: u8 },
 }
 
 #[derive(Resource)]
@@ -1019,6 +1035,34 @@ fn walk(p: &mut Pilot, w: &mut Walk, h: &mut Hands) -> Walked {
                 let mut forced = params.clone();
                 forced.open_locked = true;
                 match nav.graph.find_path(here, w.goal, &forced) {
+                    // A long way up to the locked door: its stretch out of doors before the
+                    // door is cut short as any long way is (from Goodsprings to the Nellis
+                    // gate the player walked it all, fighting all the way).
+                    Ok(path) if path.length > WALK_MAX && !w.cut => {
+                        w.cut = true;
+                        let locked = |d: u32| nav.graph.door_locks.contains_key(&d);
+                        let mut upto: Option<(Space, Vec<[f32; 3]>)> = None;
+                        for leg in &path.legs {
+                            if let Some(stop) = leg.door_stops.iter().find(|st| locked(st.door)) {
+                                upto = Some((leg.space, leg.points[..=stop.point.min(leg.points.len() - 1)].to_vec()));
+                                break;
+                            }
+                            if leg.door.is_some_and(|d| locked(d.door)) {
+                                upto = Some((leg.space, leg.points.clone()));
+                                break;
+                            }
+                        }
+                        match upto.filter(|(space, pts)| matches!(space, Space::World(_)) && pts.len() > 1) {
+                            Some((space, pts)) => {
+                                let at = Place { space, pos: tail_point(&pts, WALK_TAIL) };
+                                info!("pilot: step {}: the way to the locked door is {:.0} units: starts {WALK_TAIL:.0} units before the door (a stand-in for fast travel)", p.i, path.length);
+                                h.put(at);
+                                w.seen = (p.now, at.pos);
+                            }
+                            None => w.cut = false,
+                        }
+                        return Walked::Going;
+                    }
                     Ok(path) => {
                         if !w.locked_way {
                             info!("pilot: step {}: the only way to ({:.0}, {:.0}, {:.0}) is through a locked door: the player goes as far as it can", p.i, w.goal.pos[0], w.goal.pos[1], w.goal.pos[2]);
@@ -1166,7 +1210,7 @@ fn walk(p: &mut Pilot, w: &mut Walk, h: &mut Hands) -> Walked {
 }
 
 fn walk_to(goal: Place, target: Option<FormId>, radius: f32, now: f64, feet: [f32; 3]) -> Walk {
-    Walk { goal, target, radius, follower: None, door_since: None, seen: (now, feet), replans: 0, cut: false, talking_at_start: None, keep_talk: false, locked_way: false, tried: Vec::new(), skips: 0, stuck_at: None, poked: Vec::new(), errand: None, side: None, told_talking: false, dodge: None, snapped: None }
+    Walk { goal, target, radius, follower: None, door_since: None, seen: (now, feet), replans: 0, cut: false, talking_at_start: None, keep_talk: false, locked_way: false, tried: Vec::new(), skips: 0, awaited: 0, stuck_at: None, poked: Vec::new(), errand: None, side: None, told_talking: false, dodge: None, snapped: None }
 }
 
 /// What a player would use to open a door that stays locked (module notes), not used
@@ -1443,7 +1487,8 @@ fn engage(p: &mut Pilot, h: &mut Hands, name: &str, f: &mut Fight, w: &mut Walk)
             f.blocked = None;
             // Someone between the player and its target: no shot; a step to the side to
             // get a line past them (the side changes every second).
-            if let Some(who) = at.and_then(|at| person_in_the_way(h.phys, eye, at, target)) {
+            let hostile = |h: &mut Hands, who: u32| h.game(|g| g.awareness.state(FormId(who)) == fnv_game::awareness::State::Combat).unwrap_or(false);
+            if let Some(who) = at.and_then(|at| person_in_the_way(h.phys, eye, at, target)).filter(|w| !hostile(h, *w)) {
                 h.control.trigger = false;
                 let side = if (p.now as i64) % 2 == 0 { 1.0 } else { -1.0 };
                 h.intent.right = side;
@@ -1644,13 +1689,53 @@ fn approach(p: &mut Pilot, h: &mut Hands, name: &str, what: &str) -> Result<Opti
     let out = match &mut phase {
         Phase::Walk(w) => match walk(p, w, h) {
             Walked::Going => Ok(None),
-            Walked::No(why) => Err(why),
+            Walked::No(why) => {
+                let target = w.target.expect("an approach walks to a reference");
+                let tries = w.awaited;
+                if tries < AWAIT_TRIES {
+                    info!("pilot: step {}: {name} cannot be walked to now: the player waits for it to come ({why})", p.i);
+                    phase = Phase::Await { target, until: p.now + AWAIT_SECS, why, tries: tries + 1 };
+                    Ok(None)
+                } else {
+                    Err(why)
+                }
+            }
             Walked::There | Walked::Put => {
                 let target = w.target.expect("an approach walks to a reference");
                 phase = Phase::Aim(Aim { target, height: 0, since: p.now, had: None });
                 Ok(None)
             }
         },
+        Phase::Await { target, until, why, tries } => {
+            let (target, until, tries) = (*target, *until, *tries);
+            let feet = h.feet();
+            let (talking, near) = h
+                .game(|g| {
+                    let talking = g.dialogue.as_ref().is_some_and(|c| c.actor == target);
+                    let near = where_is(g, target).zip(where_is(g, FormId::PLAYER_REF)).is_some_and(|((ca, a), (cp, _))| ca == cp && hdist(a, feet) < 1500.0);
+                    (talking, near)
+                })
+                .unwrap_or((false, false));
+            if talking {
+                info!("pilot: step {}: {name} came and is talking to the player", p.i);
+                return Ok(Some(target));
+            }
+            if near && p.now > until - AWAIT_SECS + 3.0 {
+                // Near now: walked to again.
+                let world = h.world;
+                let place = h.game(|g| where_is(g, target).and_then(|(cell, pos)| Some(Place { space: crate::nav::space_of_cell(world, cell?.0)?, pos }))).flatten();
+                if let Some(place) = place {
+                    let mut w = walk_to(place, Some(target), NEAR_TARGET, p.now, feet);
+                    w.awaited = tries;
+                    phase = Phase::Walk(w);
+                }
+                Ok(None)
+            } else if p.now > until {
+                Err(format!("{why}; and it did not come in {AWAIT_SECS:.0} s of waiting"))
+            } else {
+                Ok(None)
+            }
+        }
         Phase::Aim(a) => match aim(p, a, h) {
             None => Ok(None),
             Some(ok) => {
@@ -1695,6 +1780,20 @@ fn step(p: &mut Pilot, h: &mut Hands) -> Option<Option<String>> {
                     }
                     Err(e) => return Some(Some(e)),
                 }
+            }
+            // An actor that cannot be walked to now is waited for, as for a `talk`.
+            let is_actor = h.game(|g| runner::resolve(g, to).is_ok_and(|r| g.world.placed.get(r).is_some_and(|pl| g.data.actors.contains_key(&pl.base)))) == Some(true);
+            if is_actor && !matches!(p.phase, Phase::Wait { .. }) {
+                return match approach(p, h, to, "go to") {
+                    // There (the crosshair is not asked for a walk): the step is over.
+                    Ok(None) if matches!(p.phase, Phase::Aim(_)) => {
+                        p.phase = Phase::Begin;
+                        Some(None)
+                    }
+                    Ok(None) => None,
+                    Ok(Some(_)) => Some(None),
+                    Err(why) => Some(Some(why)),
+                };
             }
             walk_phase(p, h)
         }
@@ -1743,6 +1842,7 @@ fn step(p: &mut Pilot, h: &mut Hands) -> Option<Option<String>> {
             if p.part == 0 && matches!(p.phase, Phase::Wait { .. }) {
                 p.phase = Phase::Begin;
             }
+            // Talking already (it came and greeted while waited for): the conversation.
             // The actor came and spoke first (a force greet): that is the conversation.
             if p.part == 0 && matches!(p.phase, Phase::Begin) {
                 let with_it = h.game(|g| runner::resolve(g, actor).is_ok_and(|r| g.dialogue.as_ref().is_some_and(|c| c.actor == r)));
