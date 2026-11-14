@@ -2509,6 +2509,12 @@ fn fight(p: &mut Pilot, h: &mut Hands, name: &str, a: &Action) -> Option<Option<
     }
     let Phase::Fight(mut f, mut w) = std::mem::replace(&mut p.phase, Phase::Begin) else { return Some(None) };
     let target = f.target;
+    // Not in the world (disabled, or not yet enabled by the quest): nothing a player could
+    // fight. Shooting at where it would stand hit only the saloon's walls.
+    if h.game(|g| runner::reference_field(g, &format!("0x{:08X}", target.0), "disabled").ok() == Some(json!(true))) == Some(true) {
+        h.control.trigger = false;
+        return Some(Some(format!("{name} is disabled: not in the world for the player to fight")));
+    }
     if h.game(|g| g.is_dead(target)) == Some(true) {
         info!("pilot: step {}: {name} is dead after {:.1} s of the fight", p.i, p.now - p.step_from);
         h.control.trigger = false;

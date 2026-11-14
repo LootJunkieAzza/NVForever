@@ -2,11 +2,49 @@
   "format": "fnv.script.actions/1",
   "title": "Pilot smoke: walk into the Prospector Saloon and fight Joe Cobb with the player's own weapon",
   "given": [
-    {"kind": "quest", "quest": "VCG01", "running": false, "completed": true, "stage": 200, "done": [115, 200]},
-    {"kind": "quest", "quest": "VCG02", "running": true, "completed": false}
+    {
+      "kind": "quest",
+      "quest": "VCG01",
+      "running": false,
+      "completed": true,
+      "stage": 200,
+      "done": [
+        115,
+        200
+      ]
+    },
+    {
+      "kind": "quest",
+      "quest": "VCG02",
+      "running": true,
+      "completed": false
+    }
   ],
   "actions": [
-    {"op": "kill", "target": "GSJoeCobbRef"},
-    {"op": "get_ref", "of": "GSJoeCobbRef", "fields": ["dead"], "label": "joe cobb dead"}
+    {
+      "op": "note",
+      "text": "Sunny's last tutorial line enables Trudy, Joe Cobb and his trigger in the saloon (as in ghost-town-gunfight.actions.json): without it Joe Cobb is not in the world to fight."
+    },
+    {
+      "op": "say_info",
+      "info": "0x0015F8B6",
+      "speaker": "SunnyRef"
+    },
+    {
+      "op": "advance_seconds",
+      "seconds": 1
+    },
+    {
+      "op": "kill",
+      "target": "GSJoeCobbRef"
+    },
+    {
+      "op": "get_ref",
+      "of": "GSJoeCobbRef",
+      "fields": [
+        "dead"
+      ],
+      "label": "joe cobb dead"
+    }
   ]
 }
