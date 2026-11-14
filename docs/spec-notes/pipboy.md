@@ -1399,7 +1399,8 @@ fonts) and the owner's five DATA screenshots (§1), compared at 1280 × 720 with
     [hypothesis]. A marker without `XRDS` is found within `iMapMarkerRevealDistance`
     [documented: GECK wiki "Complete List of GameSettings", the Fallout: New Vegas default
     1000; no master sets it], that setting being this distance a [hypothesis] (#2338;
-    observer check 128); before #2338 such a marker was never found by walking up to it.
+    observer check 128); a plugin's value is used as it is, and 0 finds no such marker by
+    walking [design]; before #2338 such a marker was never found by walking up to it.
     Named markers (`XMRK` and `FULL`) in each master's own worldspaces, and how many have no
     `XRDS` [documented: fnvtool esm decode of each placed MapMarker reference]:
     FalloutNV.esm 189 / 66 (WastelandNV 186 / 65, Coyote Den 0x00154A69 and the four
