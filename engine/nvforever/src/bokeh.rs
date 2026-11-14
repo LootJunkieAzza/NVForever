@@ -7,8 +7,10 @@
 //!   lens equation, any optics text]: a point at distance `z` with the lens focused at `f`
 //!   is drawn as a disc whose diameter is proportional to `|z - f| / z`, taken here as the
 //!   disc's radius in pixels, `max * aperture * |z - f| / z`, held to `max * aperture`
-//!   (the reach of the pass's search). What lies behind the focus reaches that at the
-//!   horizon; what lies in front grows faster, as through a lens. The Blur slider is the aperture (0 to 1), the Focus slider
+//!   (the reach of the main search) behind the focus and to [`NEAR_SCALE`] times that in
+//!   front of it. What lies behind reaches the reach at the horizon; what lies in front
+//!   grows faster, as through a lens, so a wall by the lens spreads far wider than the
+//!   distance is blurred. The Blur slider is the aperture (0 to 1), the Focus slider
 //!   (or Auto) is `f`.
 //! - **Round discs**: each point gathers the points round it on a disc (a golden-angle
 //!   spiral, even over the disc), each taken in where its own disc reaches the point, so a
@@ -24,7 +26,10 @@
 //!   share of its own disc's area ([`coverage`]); their sum is how much of the gathering
 //!   point the foreground covers, and the near layer is laid over the rest by it. So just
 //!   past a blurred near object's edge it covers half, fading to nothing a disc away,
-//!   instead of a few taps outweighing the point and moving a hard edge outwards.
+//!   instead of a few taps outweighing the point and moving a hard edge outwards. Discs
+//!   past the main reach are found by a second, wider spiral ([`NEAR_TAPS`] taps over
+//!   [`NEAR_SCALE`] times the reach), which also gathers the rest of a large disc past the
+//!   reach, each of its taps weighing the area it stands for.
 //! - A second, small pass (`bokeh_fill`) smooths the spiral's grain in what is blurred,
 //!   from neighbours at least half as blurred.
 //!
@@ -46,6 +51,12 @@ mod tests {
     const SHARP_PX: f32 = 0.5;
     /// The taps on the spiral of the main pass (`imagespace_blur.wesl` `BOKEH_TAPS`).
     const TAPS: u32 = 96;
+    /// The taps on the wide spiral (`NEAR_TAPS`).
+    const NEAR_TAPS: u32 = 64;
+    /// How much larger than the reach a disc in front of the focus may grow, and the wide
+    /// spiral's radius [design: 3, a wall by the lens spread over about 5% of the screen
+    /// height at Blur 100%].
+    const NEAR_SCALE: f32 = 3.0;
     /// How much more a near-white point weighs ([`highlight`]) [design].
     const HIGHLIGHT_GAIN: f32 = 6.0;
     /// The luminance (0 to 1, tonemapped) from which a point starts to weigh more [design].
@@ -53,13 +64,15 @@ mod tests {
 
     /// The radius in pixels of the disc a point `z` game units away is drawn as, with the lens
     /// focused at `focus` and opened to `aperture` (0 to 1); `max_px` the largest disc. Under
-    /// [`SHARP_PX`] it is 0 (sharp). The sky (`z` infinite) is the farthest point.
+    /// [`SHARP_PX`] it is 0 (sharp). The sky (`z` infinite) is the farthest point. In front
+    /// of the focus the disc may grow to [`NEAR_SCALE`] times the reach.
     fn coc_px(z: f32, focus: f32, aperture: f32, max_px: f32) -> f32 {
         let focus = focus.max(1.0);
         let z = z.max(1e-3);
         let spread = if z.is_finite() { (z - focus).abs() / z } else { 1.0 };
         let reach = max_px * aperture.clamp(0.0, 1.0);
-        let r = (reach * spread).min(reach);
+        let cap = if z < focus { reach * NEAR_SCALE } else { reach };
+        let r = (reach * spread).min(cap);
         if r < SHARP_PX {
             0.0
         } else {
@@ -85,19 +98,19 @@ mod tests {
         }
     }
 
-    /// The share of a near point's disc (radius `tap_coc`) one of the [`TAPS`] taps over the
-    /// search disc (radius `reach`) stands for: the taps' area over the disc's. Discs under
-    /// the taps' spacing count as that spacing.
-    fn coverage(tap_coc: f32, reach: f32) -> f32 {
-        let c = tap_coc.max(reach * 1.8 / (TAPS as f32).sqrt());
-        reach * reach / (c * c * TAPS as f32)
+    /// The share of a near point's disc (radius `tap_coc`) one of `n` taps over a search
+    /// disc of `radius` stands for: the tap's area over the disc's. Discs under the taps'
+    /// spacing count as that spacing.
+    fn coverage(tap_coc: f32, radius: f32, n: u32) -> f32 {
+        let c = tap_coc.max(radius * 1.8 / (n as f32).sqrt());
+        radius * radius / (c * c * n as f32)
     }
 
     /// A point of a test scene: its grey and its distance.
     type Scene = dyn Fn(f32, f32) -> (f32, f32);
 
-    /// The main pass on a scene at pixel `p`: the gather, the near layer and their mix
-    /// (`imagespace_blur.wesl` `bokeh`). Greys stay under [`HIGHLIGHT_FROM`], so the
+    /// The main pass on a scene at pixel `p`: the gather over both spirals, the near layer
+    /// and their mix (`imagespace_blur.wesl` `bokeh`). Greys stay under [`HIGHLIGHT_FROM`], so the
     /// highlight weight is left out.
     fn shade(scene: &Scene, p: [f32; 2], focus: f32, aperture: f32) -> f32 {
         let reach = MAX * aperture;
@@ -117,9 +130,35 @@ mod tests {
             let f = near_share(c0, tc, z < z0);
             acc += g * w * (1.0 - f);
             total += w * (1.0 - f);
-            near_acc += g * w * f;
-            near_total += w * f;
-            cover += w * f * coverage(tc, reach);
+            // Discs past the reach are the wide spiral's.
+            if tc <= reach {
+                near_acc += g * w * f;
+                near_total += w * f;
+                cover += w * f * coverage(tc, reach, TAPS);
+            }
+        }
+        let wide = reach * NEAR_SCALE;
+        let k = wide * wide * TAPS as f32 / (reach * reach * NEAR_TAPS as f32);
+        for i in 0..NEAR_TAPS {
+            let s = spiral(i, NEAR_TAPS);
+            let off = [s[0] * wide, s[1] * wide];
+            let (g, z) = scene(p[0] + off[0], p[1] + off[1]);
+            let tc = coc_px(z, focus, aperture, MAX);
+            let d = off[0].hypot(off[1]);
+            let w = tap_weight(c0, tc, z > z0, d);
+            if w <= 0.0 || (d <= reach && tc <= reach) {
+                continue;
+            }
+            let f = near_share(c0, tc, z < z0);
+            if d > reach {
+                acc += g * w * (1.0 - f) * k;
+                total += w * (1.0 - f) * k;
+            }
+            if tc > reach {
+                near_acc += g * w * f;
+                near_total += w * f;
+                cover += w * f * coverage(tc, wide, NEAR_TAPS);
+            }
         }
         let far = acc / total;
         if near_total <= 0.0 {
@@ -168,8 +207,10 @@ mod tests {
         let front = coc_px(400.0, 500.0, 0.5, MAX);
         let back = coc_px(600.0, 500.0, 0.5, MAX);
         assert!(front > back, "{front} {back}");
-        // Very near: held to the largest disc.
-        assert_eq!(coc_px(10.0, 500.0, 1.0, MAX), MAX);
+        // Very near: held to the largest near disc; behind, to the reach.
+        assert_eq!(coc_px(10.0, 500.0, 1.0, MAX), MAX * NEAR_SCALE);
+        assert_eq!(coc_px(10.0, 500.0, 0.5, MAX), MAX * 0.5 * NEAR_SCALE);
+        assert!(coc_px(1e6, 500.0, 1.0, MAX) <= MAX);
     }
 
     #[test]
@@ -201,24 +242,35 @@ mod tests {
         }
     }
 
-    /// Across a blurred near object's edge the picture goes soft both ways over its disc,
-    /// with no step: no hard edge moved out over what lies behind.
+    /// Across a blurred near object's edge the picture goes soft both ways over its disc
+    /// (here the largest near disc, 60 pixels), with no step: no hard edge moved out over
+    /// what lies behind.
     #[test]
     fn a_blurred_foreground_spreads_soft_over_what_is_behind() {
-        let row: Vec<f32> = (-30..=30).map(|x| shade(&wall_over_field, [x as f32, 0.0], 2000.0, 1.0)).collect();
-        // Far from the edge: the wall and the field as they are.
-        assert!((row[0] - 0.1).abs() < 0.01, "{row:?}");
-        assert!((row[60] - 0.6).abs() < 0.01, "{row:?}");
-        // At the edge, about half of each; half a disc away, a part of the other.
-        assert!((row[30] - 0.35).abs() < 0.08, "{row:?}");
-        assert!(row[30 + 10] > 0.4 && row[30 + 10] < 0.58, "{row:?}");
-        assert!(row[30 - 10] > 0.12 && row[30 - 10] < 0.3, "{row:?}");
+        let row: Vec<f32> = (-80..=80).map(|x| shade(&wall_over_field, [x as f32, 0.0], 2000.0, 1.0)).collect();
+        let at = |x: i32| row[(x + 80) as usize];
+        // A disc away from the edge: the wall and the field as they are.
+        assert!((at(-65) - 0.1).abs() < 0.01, "{row:?}");
+        assert!((at(65) - 0.6).abs() < 0.01, "{row:?}");
+        // At the edge, about half of each; half a disc away on either side, a part of the
+        // other: the spread is as wide as the near disc, both ways.
+        assert!((at(0) - 0.35).abs() < 0.06, "{row:?}");
+        assert!(at(30) > 0.42 && at(30) < 0.56, "{row:?}");
+        assert!(at(-30) > 0.15 && at(-30) < 0.28, "{row:?}");
         // Brighter all the way across, and no step bigger than 8% of the change (a pixel
-        // of a 40-pixel ramp is 2.5%, the spiral's grain adds some).
+        // of a 120-pixel ramp is under 1%, the spirals' grain adds some).
         for w in row.windows(2) {
             assert!(w[1] >= w[0] - 1e-3, "{row:?}");
             assert!(w[1] - w[0] < 0.08 * 0.5, "a step of {} in {row:?}", w[1] - w[0]);
         }
+    }
+
+    /// Far from any edge a blurred near wall is itself, though its disc reaches past the
+    /// main spiral.
+    #[test]
+    fn a_large_disc_of_one_colour_stays_that_colour() {
+        let wall = |_x: f32, _y: f32| (0.1, 100.0);
+        assert!((shade(&wall, [0.0, 0.0], 2000.0, 1.0) - 0.1).abs() < 1e-4);
     }
 
     /// A subject in focus (grey 0.1, left of x = 0) in front of a blurred background
@@ -238,11 +290,13 @@ mod tests {
         assert_eq!(near_share(10.0, 11.0, true), 0.5);
         assert_eq!(near_share(15.0, 10.0, true), 0.0);
         assert_eq!(near_share(0.0, 15.0, false), 0.0);
-        // The taps inside a near disc stand for all of it.
-        let r = |i: u32| spiral(i, TAPS)[0].hypot(spiral(i, TAPS)[1]) * 20.0;
-        let inside = (0..TAPS).filter(|&i| r(i) <= 10.0).count();
-        let sum = inside as f32 * coverage(10.0, 20.0);
-        assert!((sum - 1.0).abs() < 0.05, "{sum}");
+        // The taps inside a near disc stand for all of it, on either spiral.
+        for (n, radius, disc) in [(TAPS, 20.0, 10.0), (NEAR_TAPS, 60.0, 40.0)] {
+            let r = |i: u32| spiral(i, n)[0].hypot(spiral(i, n)[1]) * radius;
+            let inside = (0..n).filter(|&i| r(i) <= disc).count();
+            let sum = inside as f32 * coverage(disc, radius, n);
+            assert!((sum - 1.0).abs() < 0.05, "{n} {sum}");
+        }
     }
 
     #[test]
@@ -279,6 +333,8 @@ mod tests {
         let shader = include_str!("imagespace_blur.wesl");
         for line in [
             format!("const BOKEH_TAPS: i32 = {TAPS};"),
+            format!("const NEAR_TAPS: i32 = {NEAR_TAPS};"),
+            format!("const NEAR_SCALE: f32 = {NEAR_SCALE:?};"),
             format!("const SHARP_PX: f32 = {SHARP_PX:?};"),
             format!("const HIGHLIGHT_GAIN: f32 = {HIGHLIGHT_GAIN:?};"),
             format!("const HIGHLIGHT_FROM: f32 = {HIGHLIGHT_FROM:?};"),

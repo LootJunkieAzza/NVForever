@@ -231,6 +231,8 @@ fn blur_down(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
 // the taps), `bokeh` gathers each point's disc, `bokeh_fill` smooths the spiral's grain.
 
 const BOKEH_TAPS: i32 = 96;
+const NEAR_TAPS: i32 = 64;
+const NEAR_SCALE: f32 = 3.0;
 const PREFILTER_TAPS: i32 = 12;
 const GOLDEN_ANGLE: f32 = 2.399963;
 const SHARP_PX: f32 = 0.5;
@@ -250,7 +252,8 @@ fn coc_px(z: f32) -> f32 {
         spread = abs(z - focus) / max(z, 1.0e-3);
     }
     let reach = bokeh_reach();
-    let r = min(reach * spread, reach);
+    // In front of the focus a disc may grow to NEAR_SCALE times the reach.
+    let r = min(reach * spread, select(reach, reach * NEAR_SCALE, z < focus));
     return select(r, 0.0, r < SHARP_PX);
 }
 
@@ -268,10 +271,11 @@ fn near_share(centre_coc: f32, tap_coc: f32, in_front: bool) -> f32 {
     return select(0.0, clamp((tap_coc - centre_coc) * 0.5, 0.0, 1.0), in_front);
 }
 
-// bokeh.rs coverage: the share of a near point's disc one tap stands for.
-fn coverage(tap_coc: f32, reach: f32) -> f32 {
-    let c = max(tap_coc, tap_spacing(reach));
-    return (reach * reach) / (c * c * f32(BOKEH_TAPS));
+// bokeh.rs coverage: the share of a near point's disc one of `n` taps over a search disc
+// of `radius` stands for.
+fn coverage(tap_coc: f32, radius: f32, n: i32) -> f32 {
+    let c = max(tap_coc, radius * 1.8 / sqrt(f32(n)));
+    return (radius * radius) / (c * c * f32(n));
 }
 
 // bokeh.rs highlight: near-white points weigh more.
@@ -361,9 +365,42 @@ fn bokeh(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
         let hw = w * highlight(s);
         acc += s * hw * (1.0 - f);
         total += hw * (1.0 - f);
-        near_acc += s * hw * f;
-        near_total += hw * f;
-        cover += w * f * coverage(tc, reach);
+        // Discs past the reach are the wide spiral's.
+        if tc <= reach {
+            near_acc += s * hw * f;
+            near_total += hw * f;
+            cover += w * f * coverage(tc, reach, BOKEH_TAPS);
+        }
+    }
+    // The wide spiral (NEAR_SCALE times the reach): the near discs past the reach, and,
+    // past the reach, the rest of a large disc, each tap weighing the area it stands for.
+    let wide = reach * NEAR_SCALE;
+    let k = (wide * wide * f32(BOKEH_TAPS)) / (reach * reach * f32(NEAR_TAPS));
+    for (var i = 0; i < NEAR_TAPS; i++) {
+        let off = spiral(i, NEAR_TAPS) * wide;
+        let at = uv + off / dims;
+        if !inside(at) {
+            continue;
+        }
+        let z = view_distance(at);
+        let tc = coc_px(z);
+        let d = length(off);
+        let w = tap_weight(c0, tc, z > z0, d);
+        if w <= 0.0 || (d <= reach && tc <= reach) {
+            continue;
+        }
+        let s = textureSampleLevel(screen, screen_sampler, at, 0.0).rgb;
+        let f = near_share(c0, tc, z < z0);
+        let hw = w * highlight(s);
+        if d > reach {
+            acc += s * hw * (1.0 - f) * k;
+            total += hw * (1.0 - f) * k;
+        }
+        if tc > reach {
+            near_acc += s * hw * f;
+            near_total += hw * f;
+            cover += w * f * coverage(tc, wide, NEAR_TAPS);
+        }
     }
     let far = acc / total;
     if near_total <= 0.0 {
