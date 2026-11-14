@@ -54,6 +54,15 @@ topology that replaces a model underneath the same surviving root without an
 observable root lifetime change cannot be distinguished while the pending name
 has never bound a node. That case is not qualified as a replacement safeguard.
 
+[documented: producer source] A retained rig resource can name a root whose
+Transform no longer satisfies NodeQuery. Publication forgets that model instead
+of emitting an empty-tree Model token. An edit queued after that observed absence
+remains Missing even if Transform returns before consumption. A new setter after
+valid republication still binds normally. This is an observed publication boundary,
+not the separately excluded removal/reinsertion between publications. An authored
+producer control covers both the negative and fresh-setter positive; execution
+of this R3 addition is pending.
+
 [hypothesis: portable engineering policy] A published model with a missing name
 permits a pending TRS write only with that model's captured identity. It may bind
 a node added after publication, including a node created by deferred Insert in

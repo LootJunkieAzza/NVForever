@@ -430,6 +430,23 @@ fn cold_transform_writes_survive_frames_before_the_first_actor_is_drawn() {
 }
 
 #[test]
+fn observed_missing_root_transform_cannot_grant_a_later_pending_write() {
+    let (mut app, _files, _third, first) = naming_fixture();
+    app.world_mut().entity_mut(first.0).remove::<Transform>();
+    app.update(); // A publication actually observes the unavailable root query.
+    assert_eq!(scale(&mut app, Some(2.0)), XVal::Num(0.0));
+    call(&mut app, "setnifblockscale", &[XVal::Str("SharedBone".into()), XVal::Num(15.0), XVal::Num(2.0)]);
+    app.world_mut().entity_mut(first.0).insert(Transform::IDENTITY);
+    app.update(); // Transform returns before that queued request is consumed.
+    assert_eq!(app.world().get::<Transform>(first.1.nodes[1]).unwrap().scale, Vec3::ONE,
+        "an observed invalid root must not publish a Model token for future binding");
+    // A new request after a valid republication still addresses the actual node.
+    call(&mut app, "setnifblockscale", &[XVal::Str("SharedBone".into()), XVal::Num(4.0), XVal::Num(2.0)]);
+    app.update();
+    assert_eq!(app.world().get::<Transform>(first.1.nodes[1]).unwrap().scale, Vec3::splat(4.0));
+}
+
+#[test]
 fn published_empty_model_request_cannot_bind_a_replacement_root() {
     let (mut app, _files, _third, _first) = naming_fixture();
     let reference = FormId(0x938);

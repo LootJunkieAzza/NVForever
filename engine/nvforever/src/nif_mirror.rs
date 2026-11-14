@@ -727,6 +727,12 @@ fn mirror_game(
                 game.scene.forget_model(r, view);
                 continue;
             };
+            // A rig resource can outlive the root's drawable Transform query.
+            // Observing that absence must not publish authority for a later node.
+            if nodes.get(root).is_err() {
+                game.scene.forget_model(r, view);
+                continue;
+            }
             let rig = rig_names(r.0, view, &rigs);
             let mut seen: HashMap<String, u32> = HashMap::new();
             // Per-view cache keys do not establish per-view file ownership. Until
