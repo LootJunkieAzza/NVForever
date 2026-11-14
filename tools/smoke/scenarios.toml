@@ -27436,3 +27436,25 @@ order = [[
   { text = "player controls: all enabled", label = "the greeting's result script gives the controls back" },
 ]]
 forbid = [{ text = "EDE1Ref: does not talk", label = "ED-E has a greeting to say" }]
+
+[[scenario]]
+name = "orris-escort-thugs"
+source = "issue #2433 (crates/fnv-game/src/combat.rs Game::harmless_hit; engine/nvf-play/src/combat.rs): G.I. Blues' staged ambush. Orris's Use Weapon packages VFSOrrisShootThug01-03Package are Always Hit and Do No Damage, and each thug falls only in its OnHit block for Orris (SCPT 0x00118A77), which sets his shootingthugsstate on to the next package. A harmless shot ran no OnHit, so he fired once at the first thug, his Once Per Day package was over, and he stood for good (the owner's soft lock)"
+note = "the player in FreesideWorld by Orris's detour; G.I. Blues at stage 10, Orris put beside the player at 3 s and hired by his line 0x00115C2C at 4 s (200 caps given: the thugs go to their first markers), his detourstage set to 1 at 5 s (the warning conversation skipped); the player is put beside him every 3 s from 9 s. His detour trigger sends the thugs to the alley, the ambush trigger knocks the fourth thug down and he says Leave them to me"
+areas = ["ai", "combat", "scripts"]
+paths = ["engine/nvf-play/src/combat.rs", "engine/nvforever/src/use_weapon.rs", "crates/fnv-game/src/combat.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_GIVE = "0000000F:200", NVF_PLAY_TEST_SCRIPT = "2:start:VMS19,2.5:stage:VMS19:10,3:moveto:VFSOrrisREF:player:150:0:0,4:info:0x00115C2C:VFSOrrisREF,5:var:VFSOrrisREF:detourstage:1,9:walk:VFSOrrisREF,12:walk:VFSOrrisREF,15:walk:VFSOrrisREF,18:walk:VFSOrrisREF,21:walk:VFSOrrisREF,24:walk:VFSOrrisREF,27:walk:VFSOrrisREF,30:walk:VFSOrrisREF,33:walk:VFSOrrisREF,36:walk:VFSOrrisREF,39:walk:VFSOrrisREF,42:walk:VFSOrrisREF,45:walk:VFSOrrisREF,48:walk:VFSOrrisREF,51:walk:VFSOrrisREF,54:walk:VFSOrrisREF,57:walk:VFSOrrisREF,60:walk:VFSOrrisREF,63:walk:VFSOrrisREF,66:walk:VFSOrrisREF,69:walk:VFSOrrisREF,72:walk:VFSOrrisREF,75:walk:VFSOrrisREF,78:walk:VFSOrrisREF,81:walk:VFSOrrisREF,84:walk:VFSOrrisREF,87:walk:VFSOrrisREF" }
+args = ["--play", "--world", "FreesideWorld", "--pos=1700,-7000,1030", "--heading", "200", "--hour", "14", "--no-voice", "--no-messages", "--npc-packages", "all,VFSOrrisREF"]
+run_seconds = 100
+order = [[
+  { text = "VFSOrrisREF: package VFSOrrisDetour02Package", label = "his detour trigger sends him on, running (Speed Mult 150)" },
+  { text = "VFSOrrisREF: package VFSOrrisShootThug01Package", label = "at the ambush he takes up the first shot" },
+  { text = "combat: a harmless shot by 0x00115C60 hits 0x00118A9A: its hit blocks ran, no damage", label = "the shot runs the first thug's OnHit: he falls" },
+  { text = "VFSOrrisREF: package VFSOrrisShootThug02Package", label = "the second thug next" },
+  { text = "combat: a harmless shot by 0x00115C60 hits 0x00118A9B: its hit blocks ran, no damage" },
+  { text = "VFSOrrisREF: package VFSOrrisShootThug03Package", label = "and the third" },
+  { text = "combat: a harmless shot by 0x00115C60 hits 0x00118A99: its hit blocks ran, no damage" },
+  { text = "VFSOrrisREF: package VFSOrrisAfterCombatDialogPackage", label = "the third thug's OnHit adds his after-fight talk" },
+  { text = "VFSOrrisREF: package VFSOrrisDetour03Package", label = "its end script sends him on to the south gate" },
+  { text = "script: VFSOrrisREF says 0x00118A71", label = "where he ends the escort (his line's end script)" },
+]]

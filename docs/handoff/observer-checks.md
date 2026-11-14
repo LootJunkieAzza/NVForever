@@ -1982,3 +1982,16 @@ heading 75) with NVFExtProbe.esp loaded, as the jip-probes sets run.
      what does she say on it? The same for one actor each of MaleAdult10-12 and
      FemaleAdult12 without a Goodbye line of their own. If she offers none, the gate
      takes a quest's GetIsID (and what else?) but not its voice-type list.
+
+## Added 2026-11-14 (harmless Use Weapon hits, #2433)
+
+134. **Does a Do No Damage hit run the target's OnHit block?** (P1; #2433,
+     use-weapon.md §3.) Ours since #2433: yes, OnHit and OnHitWith run with the shooter as
+     attacker, and nothing else happens (no Health, limb or fatigue damage, no hit line)
+     [hypothesis from the data: G.I. Blues' thugs fall only in their OnHit block for
+     Orris (SCPT 0x00118A77), and his three Use Weapon packages VFSOrrisShootThug01-03Package
+     are Always Hit and Do No Damage, so the staged ambush goes on only if such a hit runs
+     it]. To check: hire Orris and follow him into the ambush; record each thug's Health
+     and fatigue before and after his shot, how many shots he fires at each, and whether he
+     raises the revolver to aim first. Also whether a hit the target was not meant to take
+     (another actor in the line of fire) runs that actor's OnHit too.
