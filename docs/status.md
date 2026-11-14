@@ -101,6 +101,8 @@ World-coordinate NIF translation getter has an initial source candidate; current
 Implemented the focused behavior correction and authored synthetic regression coverage;
 contract and limits: [CompileScript sibling paths](spec-notes/compilescript-relative-paths.md). This entry does not establish full mod compatibility.
 
+Temporary cloned-projectile getter/setter identity is being qualified separately from scene placement and physics ([clone record access](spec-notes/cloned-projectile-records.md)).
+
 TempCloneForm omitted-caller-base handling has an initial source candidate; scene admission and current-port execution remain pending ([clone caller](spec-notes/clone-calling-reference.md)).
 
 ## 6. Gameplay (Layer 6)
