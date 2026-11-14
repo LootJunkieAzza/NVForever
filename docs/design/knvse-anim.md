@@ -90,7 +90,13 @@ player does not read their state yet.
   `play_script_sequences`): PlayAnimationPath's sequence starts as an idle does, on the
   first-person rig when its clip drives the camera node, else on the body; once when the
   clip's cycle type is Clamp, else looping until DeactivateAnim takes it back.
-- **Still not built:** ActivateAnim's sequences, which the original layers over what plays
-  (the game marks them, `AnimPaths::layered`; the engine leaves them out, as a full idle
-  would hold the arms still under a camera-only layer); script-played sequences on NPCs;
-  NPCs' conditional paths and anything but their standing locomotion.
+- **ActivateAnim on the player** (`PlayerIdles::layered`, player_body.rs `Posed::layered`):
+  the sequences the game marks (`AnimPaths::layered`) play over the rig's own clips
+  [documented: ActivateAnim, "adds a sequence to the active ones"], on the rig whose
+  camera node they drive or else the body, at full weight on the nodes they have tracks
+  for and by the clip's own cycle type [hypothesis: as one more active sequence of its
+  priorities]; a camera-only clip such as Enhanced Movement's `EM_NoBob.kf` (1 track)
+  leaves the arms to the rest. DeactivateAnim takes the layer back (smoke
+  `knvse-player-sequences`).
+- **Still not built:** script-played sequences on NPCs; NPCs' conditional paths and
+  anything but their standing locomotion.

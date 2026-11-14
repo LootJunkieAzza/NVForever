@@ -425,6 +425,10 @@ pub struct PlayerIdles {
     pub third: IdleSlot<Arc<Clip>>,
     /// The player when an idle began to turn the view ([`Held`]).
     pub held: Option<Held>,
+    /// ActivateAnim's sequences on the player ([`play_script_sequences`]), by rig (third
+    /// person, first person): played over the rig's own clips on the nodes they have
+    /// tracks for, looping until a script takes them back.
+    pub layered: [Vec<(String, Arc<Clip>)>; 2],
 }
 
 /// The player as an idle that turns the view found them. While such idles play, the
@@ -613,26 +617,51 @@ pub struct ScriptSequence {
 /// when its clip drives the camera node, else on the body; once if the clip says so
 /// (cycle type Clamp), else looping until a script takes it back (DeactivateAnim). A
 /// clip still loading waits for a later frame; one that cannot be read is not tried
-/// again. ActivateAnim's sequences are layered in the original and are left out here.
+/// again. ActivateAnim's sequences are layered over what the rig plays instead
+/// (`PlayerIdles::layered`) [documented: ActivateAnim, "adds a sequence to the active
+/// ones"]: on the rig whose camera node they drive or else the body, the same way.
 pub fn play_script_sequences(script: Option<Res<ScriptState>>, mut pi: ResMut<PlayerIdles>, mut parts: ResMut<ActorParts>, mut models: ModelCtx, mut started: Local<Vec<ScriptSequence>>) {
     let Some(game) = script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game) else { return };
     let me = FormId::PLAYER_REF;
-    let played: Vec<String> = game
-        .anim_paths
-        .played
-        .get(&me)
-        .into_iter()
-        .flatten()
-        .filter(|p| !game.anim_paths.layered.contains(&(me, p.replace('/', "\\").to_ascii_lowercase())))
-        .cloned()
-        .collect();
+    let is_layered = |p: &str| game.anim_paths.layered.contains(&(me, p.replace('/', "\\").to_ascii_lowercase()));
+    let all = game.anim_paths.played.get(&me).map(Vec::as_slice).unwrap_or_default();
+    let (layered, played): (Vec<String>, Vec<String>) = all.iter().cloned().partition(|p| is_layered(p));
+    let same = |a: &str, b: &str| a.replace('/', "\\").eq_ignore_ascii_case(&b.replace('/', "\\"));
+    let mut ctx = ActorCtx { cache: &mut parts, models: &mut models };
+    // The layers: taken back ones go, new ones join once their clip has loaded.
+    for rig in &mut pi.layered {
+        rig.retain(|(p, _)| {
+            let keep = layered.iter().any(|q| same(p, q));
+            if !keep {
+                info!("anim sequence: the player's layered {p} stops");
+            }
+            keep
+        });
+    }
+    for p in &layered {
+        if pi.layered.iter().flatten().any(|(q, _)| same(p, q)) || started.iter().any(|s| same(&s.path, p)) {
+            continue;
+        }
+        let path = meshes_path(p);
+        if !ctx.clip_ready(&path) {
+            continue;
+        }
+        let Some(clip) = ctx.clip(&path) else {
+            warn!("anim sequence: the player's layered {p} does not load");
+            // Not tried again while the script keeps it.
+            started.push(ScriptSequence { path: p.clone(), first: false, serial: 0 });
+            continue;
+        };
+        let first = clip.tracks.iter().any(|(n, _)| n == CAMERA_NODE);
+        info!("anim sequence: the player layers {p} ({} tracks) on the {} rig", clip.tracks.len(), if first { "first-person" } else { "third-person" });
+        pi.layered[usize::from(first)].push((p.clone(), clip));
+    }
     if played.is_empty() && started.is_empty() {
         return;
     }
-    let same = |a: &str, b: &str| a.replace('/', "\\").eq_ignore_ascii_case(&b.replace('/', "\\"));
     // Taken back: its idle stops (fading out as an idle does).
     started.retain(|s| {
-        if played.iter().any(|p| same(p, &s.path)) {
+        if all.iter().any(|p| same(p, &s.path)) {
             return true;
         }
         let slot = if s.first { &mut pi.first } else { &mut pi.third };
@@ -642,7 +671,6 @@ pub fn play_script_sequences(script: Option<Res<ScriptState>>, mut pi: ResMut<Pl
         info!("anim sequence: the player's {} stops", s.path);
         false
     });
-    let mut ctx = ActorCtx { cache: &mut parts, models: &mut models };
     for p in played {
         if started.iter().any(|s| same(&s.path, &p)) {
             continue;

@@ -149,6 +149,8 @@ pub fn arms_magnification(view_vfov: f32, arms_fov: f32) -> f32 {
 /// Idles (`idles.rs`): one role per idle started, so an idle keeps its layer while the
 /// next one fades in over it.
 const TAG_SPECIAL: u32 = 1000;
+/// ActivateAnim's sequences (`Posed::layered`), + their place in the list.
+const TAG_LAYERED: u32 = 2000;
 
 /// Biped slots of headgear hidden in first person when the third-person body has to stand
 /// in for the first-person rig: Head, Hair, Headband, Hat, Eye Glasses, Nose Ring,
@@ -1641,6 +1643,8 @@ struct Posed<'a> {
     special: &'a IdleSlot<Arc<Clip>>,
     /// The Pip-Boy shows: seconds into its clip (first person).
     pipboy: Option<f32>,
+    /// ActivateAnim's sequences on this rig (`idles::PlayerIdles::layered`).
+    layered: &'a [(String, Arc<Clip>)],
     /// The sway of the arms (first person, `view_sway.rs`).
     sway: SwayPose,
     /// True iron sights (first person, `iron_sights.rs`): how far in (0–1), and the
@@ -1665,7 +1669,7 @@ fn land_mine_grip() -> (Quat, Vec3) {
 /// would do by itself [hypothesis: the clips of the opening share track priorities with
 /// the standing idle, so both cannot play; idles.md §4].
 fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &mut ActorCtx, transforms: &mut Query<&mut Transform>) -> Option<(Vec3, Option<Quat>)> {
-    let Posed { root, look_pitch, special, pipboy, sway, sights } = posed;
+    let Posed { root, look_pitch, special, pipboy, layered: posed_layered, sway, sights } = posed;
     rig.carry = None;
     let pipboy = pipboy.filter(|_| rig.view == View::First).and_then(|t| Some((rig.clip(ctx, ClipKey::PipBoy(f.female))?, t)));
     let draw = rig.clip(ctx, ClipKey::Equip(f.stance, f.prefix, true));
@@ -1914,6 +1918,12 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &
         let i = a.want(&c.clip, TAG_PIPBOY, 1.0, Mode::Once, 0.0);
         let l = &mut a.layers[i];
         (l.rate, l.time) = (0.0, *t);
+    }
+    // ActivateAnim's sequences, over the rest on the nodes they have tracks for, by the
+    // clip's own cycle type [documented: ActivateAnim, "adds a sequence to the active
+    // ones"; hypothesis: at full weight, as one more sequence of its priorities].
+    for (k, (_, c)) in posed_layered.iter().enumerate() {
+        a.want(c, TAG_LAYERED + k as u32, 1.0, Mode::Loop, DEFAULT_FADE);
     }
     a.end();
     // Movement clips play at the speed the character actually moves [hypothesis: the
@@ -2715,7 +2725,7 @@ fn drive_body(
         *told_scale = Some(script_scale);
     }
     let root = Transform { translation: Vec3::from_array(feet) - sink, rotation: Quat::from_rotation_z(-player.heading), scale: Vec3::splat(body.scale * script_scale) };
-    let third = Posed { root, look_pitch: player.pitch, special: &idles.third, pipboy: None, sway: SwayPose::NONE, sights: None };
+    let third = Posed { root, look_pitch: player.pitch, special: &idles.third, pipboy: None, layered: &idles.layered[0], sway: SwayPose::NONE, sights: None };
     let third_eye = pose_rig(&mut body.third, &frame, &events, third, &mut ctx, &mut transforms).map(|(e, _)| e + eye_sink);
     // The third-person body's melee attack clip carries the player by its root's travel
     // (actors.md §8.13), turned by the heading and scaled with the body.
@@ -2820,7 +2830,7 @@ fn drive_body(
         m.sights_told = !m.sights_told;
         info!("true iron sights: {}", if m.sights_told { "the sights are on the eye" } else { "off the eye" });
     }
-    let first = Posed { root: Transform { translation: Vec3::from_array(at), rotation: Quat::from_rotation_z(-held), ..root }, look_pitch: pitch, special: &idles.first, pipboy, sway, sights };
+    let first = Posed { root: Transform { translation: Vec3::from_array(at), rotation: Quat::from_rotation_z(-held), ..root }, look_pitch: pitch, special: &idles.first, pipboy, layered: &idles.layered[1], sway, sights };
     let first = body.first.as_mut().and_then(|f| pose_rig(f, &frame, &events, first, &mut ctx, &mut transforms));
     let first_eye = first.map(|(e, _)| e);
     // The arms and the weapon are drawn as through the first-person view, narrower than
