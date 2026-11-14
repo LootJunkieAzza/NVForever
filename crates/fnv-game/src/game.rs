@@ -1314,6 +1314,8 @@ pub struct Game<'a> {
     pub(crate) nx: crate::nvse_nx::NxVars,
     /// TempCloneForm's clones and their originals (`crate::nvse_data`).
     pub(crate) clones: std::collections::HashMap<FormId, FormId>,
+    /// Effective CSTY edits and copy-time raw clone values; session only.
+    pub(crate) combat_style_edits: crate::combat_style_session::CombatStyleEdits,
     pub(crate) clone_seq: u32,
     /// Lines for the console: what scripts print (PrintC, Print …) and script errors;
     /// the engine's console takes them each frame.
@@ -2353,6 +2355,7 @@ impl<'a> Game<'a> {
             compiled_paths: std::collections::HashMap::new(),
             compiled_origins: Default::default(),
             console_sources: Default::default(),
+            combat_style_edits: Default::default(),
             sr: Default::default(),
             lambda_ids: Default::default(),
             handlers: Vec::new(),
@@ -6031,6 +6034,7 @@ impl<'a> Game<'a> {
         if let Some((reference, base)) = unsupported {
             return Err(format!("saving reference {reference} of temporary cloned base {base} is not supported yet"));
         }
+        self.log_combat_style_snapshot_loss();
         Ok(snapshot)
     }
 
