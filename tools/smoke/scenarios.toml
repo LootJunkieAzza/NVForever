@@ -7711,6 +7711,34 @@ run_seconds = 16
 expect = [{ re = 'compass: 2 quest target\(s\) placed', label = "both targets marked at the first door of the way out" }]
 
 [[scenario]]
+name = "compass-marker-range-near"
+source = "#2348 (docs/spec-notes/hud.md §11): the compass shows map markers within iMapMarkerVisibleDistance (10000 without it, the masters lack it), whatever the Perception; at Perception 1 a marker 9,000 units ahead stays on the compass (Perception x 2048 before #2348 gave 2,048 units and took it off)"
+note = "the Goodsprings map marker (REFR 0x000CDF51, FULL Goodsprings, at -70992, 2560 [fnvtool esm decode]) stands 9,000 units due west of the player, who faces west (heading 270); the ground there is bare terrain at z 8432 (fnvtool phys walk). Of the WastelandNV map markers (fnvtool world refs, every master and the test plugins) the others within 10,600 units are 112 and 148 degrees off the heading, outside the compass's band (about 49 degrees either side), so exactly one is on the compass. Perception goes to 1 at 6 s"
+areas = ["hud", "map"]
+paths = ["engine/nvf-play/src/compass.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "6:set_av:player:Perception:1" }
+args = ["--play", "--world", "WastelandNV", "--pos=-61992,2560,8500", "--heading", "270", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 14
+order = [[
+  { re = 'test aid: .* Perception set to 1\b', label = "Perception set to 1" },
+  { re = 'compass: map markers within 10000 units \(Perception 1\): \d+ in range, 1 on the compass', label = "at Perception 1 the range is still 10,000 and Goodsprings, 9,000 units ahead, is on the compass" },
+]]
+
+[[scenario]]
+name = "compass-marker-range-far"
+source = "#2348 (docs/spec-notes/hud.md §11): the compass shows map markers within iMapMarkerVisibleDistance (10000 without it), whatever the Perception; at Perception 10 a marker 11,000 units ahead is not on the compass (Perception x 2048 before #2348 gave 20,480 units and showed it)"
+note = "as compass-marker-range-near, 2,000 units farther east: the Goodsprings map marker (0x000CDF51) 11,000 units due west of the player facing west (heading 270), bare terrain at z 8055 (fnvtool phys walk); no other WastelandNV map marker within 10,600 units is within 78 degrees of the heading. Perception goes to 10 at 6 s"
+areas = ["hud", "map"]
+paths = ["engine/nvf-play/src/compass.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "6:set_av:player:Perception:10" }
+args = ["--play", "--world", "WastelandNV", "--pos=-59992,2560,8150", "--heading", "270", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 14
+order = [[
+  { re = 'test aid: .* Perception set to 10\b', label = "Perception set to 10" },
+  { re = 'compass: map markers within 10000 units \(Perception 10\): \d+ in range, 0 on the compass', label = "at Perception 10 the range is still 10,000 and Goodsprings, 11,000 units ahead, is not on the compass" },
+]]
+
+[[scenario]]
 name = "end-credits"
 source = "GECK wiki ExitGame: \"plays credits and returns the game to the main menu\" (nvf-play credits.rs): the game's Credits.txt laid out by its own commands and rolled over credits_menu.xml's background (the run ends while they roll: their end starts the program again for the main menu)"
 areas = ["menus"]
