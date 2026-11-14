@@ -977,6 +977,7 @@ fn stand(
     script: Option<Res<nvf_play::script::ScriptState>>,
     mut phys: Option<ResMut<nvf_play::phys::PhysState>>,
     mut player: Option<ResMut<Player>>,
+    mut opponent: Option<ResMut<nvf_play::darts_foes::DartsOpponent>>,
 ) {
     let Phase::Result { kind, table, since } = st.phase else { return };
     if st.stood || real.elapsed_secs() - since < STAND_AFTER {
@@ -1015,6 +1016,16 @@ fn stand(
     st.view = Some(nvf_play::table_spots::portrait(pick));
     let (seat, n) = st.seat;
     let (spots, heading) = nvf_play::table_spots::spots(f, pick, n);
+    // Darts against the game's opponent: it takes the row's other seat, beside the player
+    // in the shot, and reacts there (`darts_opponent_walk` walks it over) [owner 2026-11-14
+    // via parity, ship18: Sunny Smiles stayed by the wall, out of the end view].
+    if kind == Kind::Darts && n == 2 {
+        let theirs = spots.get(1 - seat.min(1)).copied();
+        if let (Some(xy), Some(o)) = (theirs, opponent.as_deref_mut().and_then(|o| o.0.as_mut()).filter(|o| o.board == table && !o.gone)) {
+            o.end_spot = Some((xy, heading));
+            info!("match end: {} takes seat {} of 2 beside {table:08X} ({:.0}, {:.0})", o.name, 1 - seat.min(1), xy[0], xy[1]);
+        }
+    }
     // A narrow row holds fewer: the players past it keep their place.
     let Some(xy) = spots.get(seat) else {
         info!("match end: the row beside {table:08X} holds {}; seat {seat} keeps its place", spots.len());

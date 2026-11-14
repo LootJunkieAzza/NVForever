@@ -1078,18 +1078,12 @@ fn darts_opponent_walk(
     // the menus after a match included, and goes home only once they leave it (playtest
     // 2026-11-06: it walked off as the match ended). In play it throws from the line and
     // waits beside it; otherwise it waits beside it, the player being at the line.
-    let at_board = screen.0.as_ref().filter(|d| d.board == o.board);
-    o.to = match at_board {
-        Some(d) if d.page == Page::Play && d.foe == Foe::Opponent && d.m.winner.is_none() && (d.m.up == 1 || o.release.is_some()) => darts_foes::Spot::Line,
-        Some(_) => darts_foes::Spot::Waiting,
-        None => darts_foes::Spot::Home,
-    };
-    let f = o.frame;
-    let (target, face) = match o.to {
-        darts_foes::Spot::Line => (f.to_world(UP), f.theta),
-        darts_foes::Spot::Waiting => (f.to_world(darts_foes::OPP_WAIT), f.theta),
-        darts_foes::Spot::Home => (o.home, o.home_heading),
-    };
+    let at_board = screen.0.as_ref().filter(|d| d.board == o.board).map(|d| darts_foes::AtBoard {
+        throws: d.page == Page::Play && d.foe == Foe::Opponent && d.m.winner.is_none() && (d.m.up == 1 || o.release.is_some()),
+        over: d.m.winner.is_some(),
+    });
+    let (to, target, face) = darts_foes::where_to(o, at_board);
+    o.to = to;
     // On the floor there (the line's points are at the bull's height put down).
     let z = if o.to == darts_foes::Spot::Home { target[2] } else { phys.as_deref_mut().and_then(|p| p.ground_below([target[0], target[1], o.home[2]], 60.0, 200.0)).map_or(o.home[2], |h| h.point[2]) };
     darts_foes::follow(o, [target[0], target[1], z], face, time.delta_secs());
