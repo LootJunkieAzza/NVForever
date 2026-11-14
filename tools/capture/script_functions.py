@@ -612,6 +612,17 @@ PAGELESS += [
 ]
 
 
+# A short command of xNVSE's with no page and no RegisterCommand line, called by a mod's
+# loose script (B42 Interact's ln_B42Interact.txt: `if GPCDEx 2 4 && GPCDEx 2 8 ...`):
+# it compiled in the original and answered as GetPlayerControlsDisabledAltEx does,
+# `disabledHow flags` [observed: #2430 probe 2026-11-14, Blue Moon sandbox: 2 4 gave 0,
+# 1 after DisablePlayerControlsAltEx 4, 0 after EnablePlayerControlsAltEx 4; 2 8 gave 0
+# and 1 4 gave 1 while 4 was disabled].
+PAGELESS += [
+    _x("GPCDEx", "NVSE", "int", [_I("disabledHow", True), _I("flags", True)]),
+]
+
+
 # Pages whose template `name` is another function's (copied from a sibling page): the
 # page title is the function's name [documented: each page's title and its example,
 # e.g. "GetConditionFormOneFloat HitReactionIdles 0 1"; the template says

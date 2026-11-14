@@ -546,7 +546,8 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             }
             zero
         }
-        "getplayercontrolsdisabledalt" | "getplayercontrolsdisabledaltex" => {
+        // GPCDEx answers as the Ex form [observed: #2430 probe, script_functions.py].
+        "getplayercontrolsdisabledalt" | "getplayercontrolsdisabledaltex" | "gpcdex" => {
             let how = num(args, 0, 0.0) as i64;
             let which = alt_groups(name.ends_with("ex"), args.get(1..).unwrap_or(&[]), [true; 7], [false; 7]);
             let mut locked = [false; 7];
