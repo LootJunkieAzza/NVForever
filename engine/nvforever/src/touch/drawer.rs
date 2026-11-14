@@ -194,10 +194,11 @@ type VisualState<'w> = (
     Res<'w, SafeBottom>,
     Res<'w, super::TouchState>,
     Res<'w, super::Layout>,
+    Res<'w, super::modal::Capture>,
 );
 
 fn visual(
-    (options, drawer, safe, state, layout): VisualState<'_>,
+    (options, drawer, safe, state, layout, modal): VisualState<'_>,
     capture: Option<Res<nvf_play::bindings::KeyboardCapture>>,
     bindings: Option<Res<nvf_play::bindings::Bindings>>,
     pads: Query<&Gamepad>,
@@ -212,6 +213,7 @@ fn visual(
         .is_some_and(|b| b.device == nvf_play::bindings::InputDevice::Controller)
         && !pads.is_empty();
     let show = options.enabled
+        && !modal.blocking()
         && !controller
         && state.playing
         && window.focused

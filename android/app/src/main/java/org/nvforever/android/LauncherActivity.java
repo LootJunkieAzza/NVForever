@@ -22,6 +22,13 @@ public final class LauncherActivity extends Activity {
     private TextView status;
     private Button start, select;
     private Button diagnostics;
+    private final android.os.Handler diagnosticsUi = new android.os.Handler(android.os.Looper.getMainLooper());
+    private final Runnable refreshDiagnostics = new Runnable() { @Override public void run() {
+        if (diagnostics != null) {
+            diagnostics.setText("LAN test logs · " + LanDiagnostics.launcher(LauncherActivity.this).status());
+            diagnosticsUi.postDelayed(this, 2000);
+        }
+    }};
     private boolean busy;
     private static final int PICK_GAME = 1;
     private static final int PICK_LOG_PAIRING = 2;
@@ -49,12 +56,20 @@ public final class LauncherActivity extends Activity {
     }
     @Override public void onResume() {
         super.onResume();
+        if (diagnostics != null) {
+            diagnosticsUi.removeCallbacks(refreshDiagnostics);
+            diagnosticsUi.post(refreshDiagnostics);
+        }
         String error = getIntent().getStringExtra("error");
         if (error != null && !error.isEmpty()) { status.setText(error); getIntent().removeExtra("error"); }
         if (!busy) {
             start.setEnabled(new File(getFilesDir(), "home/NVForever.ini").isFile());
             select.setEnabled(!runningGame());
         }
+    }
+    @Override protected void onPause() {
+        diagnosticsUi.removeCallbacks(refreshDiagnostics);
+        super.onPause();
     }
     @Override protected void onNewIntent(Intent intent) { super.onNewIntent(intent); setIntent(intent); }
     private void showDiagnostics() { showDiagnostics(null, null); }

@@ -238,7 +238,7 @@ pub fn canvas_point(uv: Vec2) -> Option<Vec2> {
 /// left click on the power button leaves the terminal. The test aid `power` clicks the
 /// button's middle.
 fn follow_pointer(
-    monitor: Option<Res<Monitor>>,
+    (monitor, touch, screen): (Option<Res<Monitor>>, Option<Res<nvf_play::terminal::touch::Settings>>, Option<Res<TerminalScreen>>),
     cams: Query<(&Camera, &GlobalTransform)>,
     windows: Query<&Window, With<PrimaryWindow>>,
     mouse: nvf_play::pad::ActionButtons<MouseButton>,
@@ -246,6 +246,12 @@ fn follow_pointer(
     mut pointer: ResMut<TerminalPointer>,
     mut out: MessageWriter<TerminalInput>,
 ) {
+    if touch.as_deref().zip(screen.as_deref())
+        .is_some_and(|(settings, screen)| nvf_play::terminal::touch::captures(settings, screen)) {
+        pointer.canvas = None;
+        aid.0 = false;
+        return;
+    }
     let mouse = mouse.snapshot();
     let Some(m) = monitor else { return };
     let Ok((cam, at)) = cams.get(m.camera) else { return };
@@ -285,4 +291,25 @@ mod tests {
         assert_eq!(canvas_point(Vec2::new(0.767, 0.755)), None);
         assert!(canvas_point(Vec2::new(0.7, 0.7)).is_some());
     }
+    #[test]
+    fn flat_terminal_capture_clears_stale_monitor_pointer_and_power_aid_without_exit() {
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, bevy::input::InputPlugin))
+            .init_resource::<nvf_play::bindings::Bindings>()
+            .init_resource::<nvf_play::terminal::touch::Settings>()
+            .insert_resource(PowerAid(true))
+            .insert_resource(TerminalPointer { canvas: Some(Vec2::ONE) })
+            .insert_resource(TerminalScreen(Some(nvf_play::terminal::Session {
+                reference: fnv_sim::FormId(1), base: fnv_sim::FormId(2),
+                page: nvf_play::terminal::Page::LockedOut(["Synthetic".into(), "Fixture".into()]),
+            })))
+            .add_message::<TerminalInput>()
+            .add_systems(Update, follow_pointer);
+        app.world_mut().resource_mut::<nvf_play::terminal::touch::Settings>().enabled = true;
+        app.update();
+        assert!(app.world().resource::<TerminalPointer>().canvas.is_none());
+        assert!(!app.world().resource::<PowerAid>().0);
+        assert_eq!(app.world().resource::<Messages<TerminalInput>>().len(), 0);
+    }
+
 }

@@ -16,6 +16,7 @@ mod aiming;
 mod drawer;
 mod icons;
 mod layout;
+mod modal;
 mod practice;
 use layout::{Layout, Target};
 
@@ -28,6 +29,7 @@ impl Plugin for TouchControlsPlugin {
         practice::install(app);
         app.init_resource::<TouchState>()
             .init_resource::<Layout>()
+            .init_resource::<modal::Capture>()
             .init_resource::<nvf_play::pad::TouchDeviceSwitch>()
             .init_resource::<nvf_play::control::HeldSneakInput>()
             .init_resource::<Assets<Image>>()
@@ -437,7 +439,9 @@ fn input(
     mut motion: MessageWriter<MouseMotion>,
     mut drawer: drawer::Bridge,
     mut practice: practice::Bridge,
+    mut modal: modal::Bridge,
 ) {
+    let modal_captures = modal.refresh();
     let Ok((window_id, window)) = window.single() else {
         practice.cancel();
         drawer.drawer.cancel();
@@ -518,6 +522,14 @@ fn input(
         state.cancel_touch();
         held_sneak.active = false;
         sync_touch(&mut state, bindings.as_deref(), false);
+        return;
+    }
+    if modal_captures {
+        drawer.drawer.cancel();
+        state.cancel_touch();
+        held_sneak.active = false;
+        sync_touch(&mut state, bindings.as_deref(), false);
+        touches.clear();
         return;
     }
     // The first touch restores the overlay/device; do not let it also fire or open
@@ -817,7 +829,7 @@ fn labels(mut commands: Commands) {
 }
 #[allow(clippy::type_complexity)]
 fn show_labels(
-    (state, layout, practice): (Res<TouchState>, Res<Layout>, Res<practice::Practice>),
+    (state, layout, practice, modal): (Res<TouchState>, Res<Layout>, Res<practice::Practice>, Res<modal::Capture>),
     control: Option<Res<nvf_play::control::PlayerControl>>,
     window: Query<&Window, With<PrimaryWindow>>,
     bindings: Option<Res<Bindings>>,
@@ -1059,7 +1071,7 @@ fn show_labels(
                 }
             }
         }
-        *visibility = if visible && !practice.blocking() && (!controller || editing) {
+        *visibility = if visible && !practice.blocking() && !modal.blocking() && (!controller || editing) {
             Visibility::Inherited
         } else {
             Visibility::Hidden
@@ -2249,4 +2261,52 @@ mod tests {
         assert!(!mouse.pressed(MouseButton::Left));
         assert!(mouse.just_pressed(MouseButton::Left) && mouse.just_released(MouseButton::Left));
     }
+    #[test]
+    fn dedicated_terminal_capture_releases_touch_only_owners_before_state_transition_and_drains_close() {
+        for native_sneak in [false, true] {
+            let (mut app, w) = controls_scene();
+            app.world_mut().resource_mut::<Layout>().config.aiming.toggle_aim = true;
+            app.world_mut().resource_mut::<Layout>().config.aiming.hold_sneak = true;
+            app.world_mut().resource_mut::<drawer::Options>().enabled = true;
+            if native_sneak {
+                let key = app.world().resource::<Bindings>().get(Control::CrouchSneak).key.unwrap();
+                raw_key(&mut app, w, key, ButtonState::Pressed);
+                app.update();
+                raw_key(&mut app, w, key, ButtonState::Released);
+                app.update();
+            }
+            tap_control(&mut app, w, 41, Control::Block);
+            button_touch(&mut app, w, 42, TouchPhase::Started, Control::CrouchSneak);
+            app.update();
+            assert!(aim_requested(&app));
+            assert!(app.world().resource::<nvf_play::control::HeldSneakInput>().active);
+            raw_key(&mut app, w, KeyCode::KeyW, ButtonState::Pressed);
+            app.world_mut().write_message(MouseButtonInput { window: w, button: MouseButton::Middle, state: ButtonState::Pressed });
+            app.init_resource::<nvf_play::terminal::touch::Settings>();
+            app.world_mut().resource_mut::<nvf_play::terminal::touch::Settings>().enabled = true;
+            app.insert_resource(nvf_play::terminal::TerminalScreen(Some(nvf_play::terminal::Session {
+                reference: fnv_sim::FormId(1), base: fnv_sim::FormId(2),
+                page: nvf_play::terminal::Page::LockedOut(["Local fixture".into(), "No game data".into()]),
+            })));
+            button_touch(&mut app, w, 43, TouchPhase::Started, Control::Use);
+            app.update();
+            assert_eq!(*app.world().resource::<State<nvf_play::PlayState>>().get(), nvf_play::PlayState::Playing);
+            let state = app.world().resource::<TouchState>();
+            assert!(state.contacts.is_empty() && !state.aim_latched && state.keys.is_empty() && state.mouse.is_empty());
+            assert!(state.physical_keys.contains(&KeyCode::KeyW) && state.physical_mouse.contains(&MouseButton::Middle));
+            assert!(!aim_requested(&app));
+            assert!(!app.world().resource::<nvf_play::control::HeldSneakInput>().active);
+            assert_eq!(sneak_requested(&app), native_sneak);
+            assert!(app.world().resource::<ButtonInput<KeyCode>>().pressed(KeyCode::KeyW));
+            assert!(app.world().resource::<ButtonInput<MouseButton>>().pressed(MouseButton::Middle));
+            assert!(!app.world().resource::<ButtonInput<MouseButton>>().pressed(MouseButton::Left));
+            assert_eq!(drawer_visibility(&mut app), Visibility::Hidden);
+            app.world_mut().resource_mut::<nvf_play::terminal::TerminalScreen>().0 = None;
+            tap_control(&mut app, w, 44, Control::Block);
+            assert!(!aim_requested(&app), "the first closing batch still belongs to the modal screen");
+            tap_control(&mut app, w, 45, Control::Block);
+            assert!(aim_requested(&app), "a fresh subsequent input returns to the normal layout");
+        }
+    }
+
 }

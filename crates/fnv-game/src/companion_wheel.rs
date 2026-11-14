@@ -320,6 +320,20 @@ Stimpak {}", now.max(0.0).ceil(), full, carried.map_or(0, |(_, n)| n)));
         out
     }
 
+    /// Why an existing wheel button cannot be selected now, from its actual gates.
+    /// This is interface explanation, not a second command implementation.
+    pub fn wheel_unavailable_reason(&mut self, command: Command) -> Option<String> {
+        let Some(companion) = self.wheel_companion() else { return Some("The companion wheel is closed.".into()) };
+        if command == Command::UseStimpak {
+            if self.wheel_stimpak().is_none() { return Some("You have no stimpaks.".into()); }
+            let (now, full) = self.health_now_and_full(companion);
+            if now >= full { return Some("The companion is already at full health.".into()); }
+            return None;
+        }
+        self.wheel_buttons(companion).into_iter().find(|b| b.command == command)
+            .filter(|b| !b.enabled).map(|_| "No eligible companion response is available.".into())
+    }
+
     /// The player picks a command on the open wheel. Talk closes the wheel and starts the
     /// conversation (the greeting); Open Inventory's line asks for the container menu,
     /// which the engine opens once the wheel is closed (`Game::teammate_containers`).

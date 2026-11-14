@@ -222,7 +222,10 @@ pub fn checked_image(w: u32, h: u32, mips: u32, format: TextureFormat, data: Vec
     if data.len() != expected {
         return Err(format!("{} bytes of data for a {w}x{h} texture of {mips} levels ({expected} expected)", data.len()));
     }
-    let mut img = Image::new(Extent3d { width: w, height: h, depth_or_array_layers: 1 }, TextureDimension::D2, data, format, RenderAssetUsages::RENDER_WORLD);
+    // Image::new validates only the base level in debug builds. The complete mip
+    // chain has been validated above, so initialize its descriptor and bytes here.
+    let mut img = Image::new_uninit(Extent3d { width: w, height: h, depth_or_array_layers: 1 }, TextureDimension::D2, format, RenderAssetUsages::RENDER_WORLD);
+    img.data = Some(data);
     img.texture_descriptor.mip_level_count = mips;
     img.texture_descriptor.label = Some("dds texture");
     Ok(img)
@@ -936,4 +939,16 @@ mod tests {
         }
     }
 
+    #[test]
+    fn checked_image_keeps_validated_multi_level_rgba_data() {
+        // Authored bytes for an 8x8, 4x4, 2x2, 1x1 chain. Image::new's debug-only
+        // base-level assertion must not reject this valid 340-byte payload.
+        let data: Vec<u8> = (0..340).map(|i| (i % 251) as u8).collect();
+        for format in [TextureFormat::Rgba8Unorm, TextureFormat::Rgba8UnormSrgb] {
+            let image = super::checked_image(8, 8, 4, format, data.clone()).unwrap();
+            assert_eq!((image.width(), image.height(), image.texture_descriptor.mip_level_count), (8, 8, 4));
+            assert_eq!(image.texture_descriptor.format, format);
+            assert_eq!(image.data.as_ref().unwrap(), &data);
+        }
+    }
 }
