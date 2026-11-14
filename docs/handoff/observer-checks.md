@@ -1983,6 +1983,23 @@ heading 75) with NVFExtProbe.esp loaded, as the jip-probes sets run.
      FemaleAdult12 without a Goodbye line of their own. If she offers none, the gate
      takes a quest's GetIsID (and what else?) but not its voice-type list.
 
+## Added 2026-11-14 (the Boomers' barrage after Pearl, #2449)
+
+129. **Does the barrage stop for a player standing in the field when Volare! starts?**
+     (P3; #2449.) NellisArtilleryScript (SCPT 0x000FF29C) counts the player in on
+     OnTriggerEnter and out on OnTriggerLeave, but passes over the player in both blocks
+     once VMS15 runs or is done [observed: the record's source text]; VMS15 starts with
+     stage 20, set by the end script of Pearl's Goodbye line 0x001050FD
+     (VFreeformNellisNellisPearlTopic010) [observed]. So a player counted in before stage 20
+     and still inside when it is set should be shelled on and on [hypothesis]. To check, on
+     a save before Pearl's talk: stand in the field (trigger 0x0015A378) with `tgm`, then
+     `setstage VMS15 20` from the console; walk out and back. Does the shelling stop, at
+     once, on leaving, or never? And does a save and load inside the field reset it?
+     Also, before Pearl: fast travel out of the field while shelled and back. Does the
+     trigger run its OnTriggerLeave for a player who travels away (ours does since #2449,
+     engine/nvf-play/src/script_trigger.rs `leave_reported`, [design]): does the barrage
+     start afresh on the return, or never stop?
+
 ## Added 2026-11-14 (OnTrigger timing, #2455)
 
 131. **How does an OnTrigger block count time?** (P2; #2455, scripts.md §5.) Ours: it
@@ -1993,3 +2010,15 @@ heading 75) with NVFExtProbe.esp loaded, as the jip-probes sets run.
      two scribes in the room and record VirusTimer every frame; then again with a
      message box open for 5 s (ShowMessage) in the middle: does VirusTimer move while the
      box is up, and does Ibsen's 10-seconds line come 10 s of game time after the start?
+
+## Added 2026-11-14 (Hidden Valley dust storm, #2450)
+
+133. **Which way and how fast does the Hidden Valley dust storm blow?** (P3; #2450,
+     activators.md §6.1.) Ours: all 18 dust sheets of `nvsandstormnight.nif` scroll their
+     texture by SpecialIdle, U 0 to 2 in 4 s, along +U [hypothesis: the sign of the
+     offset; every sheet of a property moves, as Gamebryo properties are shared by
+     reference]. To check: `ForceWeather HVDustStorm 1` at Hidden Valley (-17863, -4814)
+     at 22:00 with the storm references enabled (`000E18D7.enable`), two screenshots of
+     the same view 1 s apart: do all the dust banks move, in which direction across the
+     view, and about how far? Also whether the weather's own cloud layer 3
+     (`NVCloudlight.dds`, ONAM speed 0) stands still there.
