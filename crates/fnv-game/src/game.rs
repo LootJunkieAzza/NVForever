@@ -2293,6 +2293,8 @@ impl<'a> Game<'a> {
         // A new game: nothing rolled again yet, every pick seeded by its reference.
         let sources = data.inventory_sources_at(world.placed, |r| (r, world.level_at(r, player_level)));
         world.set_inventory_sources(sources);
+        // JIP LN's write for JIP Companions Command & Control's MCM page (`crate::jip_ccc`).
+        crate::jip_ccc::write_globals(&data.load_order, &mut world);
         Game {
             data,
             ext: Default::default(),
@@ -4182,6 +4184,21 @@ impl<'a> Game<'a> {
         self.page_menu = before;
     }
 
+    /// The page standing in for the original's menu `code` opened or closed (the pause
+    /// menu's Mods page for the start menu, 1013): JIP's menu-open or menu-close handlers
+    /// for that code run, with `MenuMode <code>` true, and the open menu is left as it is
+    /// [documented: SetOnMenuOpenEventHandler, the handler gets the menu ID; hypothesis:
+    /// the original's pause menu is its start menu, 1013, whose opening MCM Extender's
+    /// handler waits for to add its JSON menus to MCM's list (its OnPauseMenuOpen.gek);
+    /// observed: the Begin Again list 2026-11-13, MCM listed none of the 23 it loaded].
+    /// How many handlers ran.
+    pub fn page_menu_event(&mut self, code: u16, open: bool) -> usize {
+        let before = self.page_menu.replace(code);
+        let ran = self.jip_event(if open { "menuopen" } else { "menuclose" }, None, vec![fnv_script::vm::XVal::Num(f64::from(code))]);
+        self.page_menu = before;
+        ran
+    }
+
     /// A function asks the running script to stop as `Return` does (RemoveMe).
     pub fn request_return(&mut self) {
         self.stop_run = true;
@@ -6043,6 +6060,13 @@ impl Exec<'_, '_> {
         let f = self.ref_value(r)?.as_form().ok_or_else(|| format!("reference slot {} is empty", r.0))?;
         self.game.instance_of(FormId(f)).ok_or_else(|| format!("{} runs no script", self.game.data.name(FormId(f))))
     }
+
+    /// The running unit's plugin in lower case (a Script Runner file by its path); None
+    /// for the console and a query.
+    fn unit_plugin(&self) -> Option<String> {
+        let p = &self.unit.unit.plugin;
+        (!matches!(p.as_str(), "query" | "console")).then(|| p.to_ascii_lowercase())
+    }
 }
 
 impl Host for Exec<'_, '_> {
@@ -6237,7 +6261,7 @@ impl Host for Exec<'_, '_> {
         if self.game.plugin_questions.is_none() {
             return;
         }
-        let (unit, plugin) = (self.unit.key(), self.calling_plugin().unwrap_or_default());
+        let (unit, plugin) = (self.unit.key(), self.unit_plugin().unwrap_or_default());
         if let Some(q) = self.game.plugin_questions.as_mut() {
             q.record(function, name, answer, unit, plugin);
         }
@@ -6423,10 +6447,17 @@ impl Host for Exec<'_, '_> {
         self.game.body_part_text(FormId(form), part, "BPTN").or_else(|| self.game.data.body_part_name(FormId(form), part))
     }
 
+    /// The plugin whose private auxiliary variables a script uses: None for a script
+    /// compiled at run time, the console's, a query's, a Script Runner file's and
+    /// CompileScript's, which all share one set [hypothesis: they have no plugin of their
+    /// own; observed: MCM Extender's Script Runner file writes `*MCMExt_ModName` and its
+    /// CompileScript'd OnPauseMenuOpen.gek reads it back to list its menus, Begin Again
+    /// list 2026-11-13].
     fn calling_plugin(&mut self) -> Option<String> {
         let p = &self.unit.unit.plugin;
         // Diagnostic runtime unit names are not load-order plugin identities.
         let runtime = matches!(p.as_str(), "query" | "console" | "CompileScript")
+            || p.starts_with("ScriptRunner\\")
             || matches!(&self.unit.unit.owner, fnv_script::UnitOwner::Other { sig, .. } if sig == "SR");
         (!runtime).then(|| p.to_ascii_lowercase())
     }
@@ -6471,7 +6502,7 @@ impl Host for Exec<'_, '_> {
         let ctx = self.ctx;
         // Who calls: DisablePlayerControlsAlt keeps its locks by plugin, GetNthExplicitRef
         // reads the calling script.
-        self.game.other.plugin = self.calling_plugin().unwrap_or_default();
+        self.game.other.plugin = self.unit_plugin().unwrap_or_default();
         self.game.other.script = self.current_script().map(FormId);
         let out = crate::nvse::call(self.game, &ctx, name, on, args);
         // The host's own plugin questions (IsDLLLoaded, IsModLoaded), for the test aid.

@@ -741,10 +741,22 @@ pages]
 - A path is `MenuName/Tile/…/Tile/trait`, segments split by `/` or `\`, names without
   case.
 - `*` matches any child; `name:N` matches the N-th child of that name and `*:N` the
-  N-th child [documented: "`*:0/*:5/*:9`"]. Both count from zero **from the last
-  matching child**, reversing file/creation order [observed: private jobs hud_hardcore
-  hc0, hud_xp_limbs all, hud_prompt2 p0-p8; hud.md §14.8]. Unindexed matching still
-  searches in file order [hypothesis].
+  N-th child [documented: "`*:0/*:5/*:9`"]. How N counts depends on the function:
+  - JIP's functions (`GetUIFloatAlt` and the rest) count from zero **from the last
+    matching child**, reversing file/creation order [observed: private jobs hud_hardcore
+    hc0, hud_xp_limbs all, hud_prompt2 p0-p8, all read with GetUIFloatAlt; hud.md §14.8].
+  - The extender's own `GetUIFloat`, `SetUIFloat`, `SetUIString` and `SetUIStringEx`
+    count **from the first child, from 1**, with 0 the last and nothing past the one
+    before the last [observed: GetUIFloat under the pause column, `*:1` its first child,
+    `*:3`-`*:7` the rows Continue to Help, `*:0` Quit, `*:8` of eight nothing, §10.1;
+    documented: MCM Guide v6, `StartMenu/MCM/*:4` is MCM's fourth child and `*:1/*:2`
+    Option2, mcm.md §2.1] (`fnv_ui::Count`, #2298). MCM mods write their pages by these
+    places; counted from the last they reached the wrong tiles.
+  Unindexed matching still searches in file order [hypothesis; the pause column's
+  `lb_item_hotrect` read Quit, the last, with GetUIFloat, §10.1: open].
+- A source written without brackets (`src="parent"`, `src="me"`, `src="sibling"`,
+  `src="globals"`, …) is the source it names when no tile bears the name [observed:
+  Vanilla UI Plus writes them so throughout its menus; mcm.md §2.5].
 - With `*`, the first child that leads to a full match is taken [hypothesis].
 - GetUIFloat returns -999 when the trait is not found [documented: GetUIFloat];
   SetUIFloatAlt, ModUIFloat return 1 on a change and 0 otherwise [documented].
@@ -1087,10 +1099,9 @@ read.
   trait only the `MCM` rect has) and `GetMCMFloat 1 0 "_optionID"` (the row under the
   pointer) and sets `SetMCMFloat 0 0 "_NewValue" 0`. The GECK wiki writes `SetMCMFloat
   1 1 "_enable" 1` as `SetUIFloat "StartMenu/MCM/*:1/*:1/_enable" 1` [documented:
-  SetMCMFloat], but NVForever's `*:N` counts from the last child (§5, observed on the
-  HUD), which would reach `MCM_Version`, so the shorthands do not go through `*:N`
-  (`fnv_game::ui_functions::mcm_trait`). Which of the two the original's `*:N` really does
-  for MCM is an observer check (§8). A trait or place that is not there reads 0; the
+  SetMCMFloat]; the extender's GetUIFloat and SetUIFloat count `*:N` from the first child
+  (§5, #2298), JIP's from the last; the shorthands find their tile by place directly
+  (`fnv_game::ui_functions::mcm_trait`). A trait or place that is not there reads 0; the
   setters make nothing (as SetUIFloat, §5) [hypothesis].
 - **A mod's menu script** [observed: FOV Slider's source]: a quest script with a
   `Begin MenuMode 1013` block (the start menu, `fnv_game::game::menus::START`). It
@@ -1265,3 +1276,12 @@ Found in the owner's runs with MCM 1.5, CASM with MCM, B42 Quickthrow and Projec
   from inside [hypothesis: nothing in the plugin writes either]. Left at 0 it equals "no
   mod selected". Not built: it needs those values and the mod's `CCC…` functions read in
   the original.
+
+### 10.4 The MCM author's guide, item by item (#2298)
+
+The guide's contract for a mod's page (its traits, option types 0-9, lists, sliders,
+sub-menus, columns, colours) is checked against NVForever in mcm.md, with the faults the
+Blue Moon list showed: `*:N` counted from the last child, `_Has360Controller` never
+written (MCM took the pointer for a controller), bracket-less sources read as names
+(Vanilla UI Plus's option titles all at y 0), and JIP CCC's sub-menu lines with no mod
+chosen.
