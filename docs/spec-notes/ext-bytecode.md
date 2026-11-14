@@ -6,8 +6,10 @@ owner into a private test plugin (2026-10-25) and lined up statement by statemen
 their source (`SCTX`), the same method that named the base game's opcodes
 (script-functions.md §3). This is the G2 evidence of the extender plan
 ([extender-compat.md](../design/extender-compat.md) §4.1 item 3: bytes the editor wrote
-for our own scripts). Every fact is tagged `[observed: case NN]`; a reading of what a byte
-*means* beyond what the cases show is `[hypothesis]`. The plugin and full hex dumps stay
+for our own scripts). Those editor observations are tagged `[observed: case NN]`;
+§6 separately attributes a maintainer's released-plugin counts and the existing schema.
+A reading of what a byte *means* beyond the observations is `[hypothesis]`. The
+plugin and full hex dumps stay
 private (`C:\fnv-private\ext\`); the excerpts here are from our own scripts.
 
 Statement framing is the base game's: opcode u16, body length u16, body; `0x001C` +
@@ -121,8 +123,35 @@ u16 length, an extender expression** (here a call of 0x100E on reference 1, `B 5
 | **`string_var`** | **1**, as an integer | [observed: case 12] |
 | **`array_var`** | **0**, as a ref/float | [observed: cases 10, 13] |
 
-So the variable list does not tell a string_var from an int, nor an array_var from a
-ref; only the source or the expressions' variable tokens (type 02 / 03) do.
+For these editor cases, kinds 0 and 1 alone do not distinguish a string_var from an
+int, nor an array_var from a ref; their source or expressions' variable tokens
+(type 02 / 03) supply that distinction [observed: cases above]. This does not exhaust
+the kind bytes found in released plugins.
+
+[observed: LootJunkieAzza's public maintainer review of
+PR #2290](https://github.com/LootJunkieAzza/NVForever/pull/2290#issuecomment-6848307721)
+reports a scan of SLSD bytes across one 211-plugin list: 46 variables with kind 2,
+88 with kind 3 and 714 with kind 4, spread across about 30 plugins. The reported
+examples include S6S Base Game Perks Redux, Enhanced Movement and Food Scraps.
+These are the maintainer's counts, not a scan performed for this change; they do
+not identify which tool or version wrote those variables.
+
+The existing ScriptVariableType definitions in
+[common.json](../../schemas/fnv/common.json) name these additional bytes
+`String (xNVSE)`, `Array (xNVSE)` and `Ref (xNVSE)` [documented: that schema].
+
+| SLSD type byte | Schema label | Unit-reader representation |
+|---|---|---|
+| 2 | `String (xNVSE)` | `string_var` |
+| 3 | `Array (xNVSE)` | `array_var` |
+| 4 | `Ref (xNVSE)` | `FloatOrRef`, as for legacy reference metadata |
+
+[observed: `crates/fnv-script/src/unit.rs` and its authored
+`serialized_extender_variable_kinds` regression] The reader preserves these
+recognized schema meanings instead of treating the labels as generic types. The
+owned SLSD/SCVR fixture also checks unknown-kind preservation, names, indices and
+slot order. It is a reader regression, not an independent producer/version survey
+or full-mod execution result.
 
 ## 7. What the GECK refused (compile messages)
 

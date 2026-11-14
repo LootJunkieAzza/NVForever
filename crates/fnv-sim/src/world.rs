@@ -220,6 +220,11 @@ pub struct RefState {
     /// that a placed reference answers from the plugins (#2278) [hypothesis].
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub made_at: Option<(Option<FormId>, [f32; 3])>,
+    /// A shot's temporary reference for scripts (`fnv_game::nvse_proj`): the engine draws
+    /// the shot's flying model along its flight, so this reference is neither drawn nor
+    /// given collision as a dropped item (#2186).
+    #[serde(skip_serializing_if = "std::ops::Not::not", default)]
+    pub shot: bool,
 }
 
 impl RefState {
@@ -757,6 +762,7 @@ impl<'a> World<'a> {
             equip_locks: BTreeMap::new(),
             dropped_by: None,
             made_at: None,
+            shot: false,
             outfitted: false,
         })
     }
@@ -1337,6 +1343,7 @@ impl<'a> World<'a> {
                     equip_locks: BTreeMap::new(),
                     dropped_by: None,
                     made_at: None,
+                    shot: false,
                 },
             );
             out.push(id);
@@ -1983,6 +1990,7 @@ impl<'a> World<'a> {
                 equip_locks: BTreeMap::new(),
                 dropped_by: None,
                 made_at: Some((cell, pos)),
+                shot: false,
             },
         );
         Ok(id)

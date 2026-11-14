@@ -1,7 +1,3 @@
 # Container sound getters
 
-[observed] own native_prep_container_46, 2026-11-12, xNVSE 6.4.9/JIP 57.30/JohnnyGuitar 528 public scripting interface: An authored CONT with distinct opening/closing SOUN links returns the corresponding form through GetContainerOpenSound/GetContainerCloseSound. A placed reference without an argument uses its base. An explicit container overrides that receiver; an explicit null or wrong-kind form returns no sound even when a valid receiver exists. A missing sound, an omitted form without a receiver, and explicit null without a receiver return no sound. Updating the opening sound with SetContainerSound is visible to the legacy getter. All eleven rows completed; the native process later faulted on automatic shutdown, not during a probe.
-
-[documented] existing ext-jg1.md, GetContainerSound/SetContainerSound; https://geckwiki.com/index.php?title=Container: The existing container sound path maps opening/closing to SNAM/QNAM and keeps session overrides. [design] Reuse that path for the two legacy getter names. Native command metadata is provenance only; this change does not add a native bytecode adapter or mod overlays.
-
-[observed] own public command reflection, original native API repair jobs 19/19b, 2026-11-12: The two commands have an optional form argument and form result, with reflected opcodes 0x2305 and 0x2307. Those values are not installed as engine bytecode opcodes by this source-call compatibility patch.
+See [Legacy JIP container getters](ext-jg1.md#legacy-jip-container-getters) for the contract and provenance.

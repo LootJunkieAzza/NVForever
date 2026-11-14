@@ -243,6 +243,12 @@ impl Game<'_> {
         let facing_up = old.filter(|k| k.lying()).and_then(|k| k.facing_up);
         self.extra.entry(r).or_default().knocked_out = Some(KnockOut { cause, at: now, facing_up, held: false, rising: None, pushed, shove });
         self.emit(EventKind::KnockedOut { actor: r, cause: cause.name() });
+        // JIP's ragdoll handlers: knocked down, knocked out, out of fatigue or paralysed,
+        // when the body was not already lying [documented: SetOnRagdollEventHandler;
+        // hypothesis: a stronger cause on a body lying already is no new ragdoll].
+        if !old.is_some_and(|k| k.lying()) {
+            self.jip_event("ragdoll", Some(r), Vec::new());
+        }
         self.knockout_news.push(News { actor: r, cause, what: Happened::Down });
         if !cause.awake() {
             self.combat_line(r, by, "KOed");

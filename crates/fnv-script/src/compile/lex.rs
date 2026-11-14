@@ -310,7 +310,12 @@ pub fn xtokens(line: &str) -> Vec<XTok> {
         }
         let rest: String = cs[i..(i + 2).min(cs.len())].iter().collect();
         if let Some(op) = XOPS.iter().find(|o| rest.starts_with(**o)) {
-            let sign = *op == "-" && i > 0 && cs[i - 1].is_whitespace() && cs.get(i + 1).is_some_and(|d| d.is_ascii_digit() || *d == '.');
+            let spaced = i > 0 && cs[i - 1].is_whitespace();
+            // `*` and `&` with a space before and a name or `(` right after are the unbox
+            // and box prefixes (`Ar_Size *aKeybinds`, keybinder's ConstructModAddedJson.gek)
+            // [hypothesis: the only reading in which the line works].
+            let sign = (*op == "-" && spaced && cs.get(i + 1).is_some_and(|d| d.is_ascii_digit() || *d == '.'))
+                || (matches!(*op, "*" | "&") && spaced && cs.get(i + 1).is_some_and(|d| d.is_alphabetic() || *d == '_' || *d == '('));
             out.push(XTok { kind: XKind::Op, text: op.to_string(), sign });
             i += op.chars().count();
             continue;

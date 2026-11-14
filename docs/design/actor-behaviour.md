@@ -809,8 +809,15 @@ FFCaptiveMarker in the Bison Steve hotel); farther, it stays. Released, its pack
 begins again. A package placed at "Near linked reference" whose linked reference is
 furniture gives that furniture, as a specific reference does (the crucified Powder
 Gangers' crosses in Nipton). A patrol point that is furniture is used for the point's
-idle time (Gomorrah's courtesans on DanceMarker03, 800 s) [hypothesis]. Smoke:
-`restrained-furniture`, `crucified-stay`, `patrol-point-furniture`.
+idle time (Gomorrah's courtesans on DanceMarker03, 800 s) [hypothesis]. A restrained
+actor's Dialogue package still runs: it waits where it stands (on its wait location's
+furniture when that is within reach) and talks once the target is within the activate
+distance, never going up to it [documented: GECK wiki SetRestrained, restrained actors
+still "go into dialogue"]; one restrained on its way waits where it stopped, and one
+released in the conversation it opened does not greet again [our choice]. Hardin's power
+armor training (HVHardinPowerArmorTrainingPackage) depends on it: only the line it opens
+releases him and the player (#2309). Smoke:
+`restrained-furniture`, `crucified-stay`, `patrol-point-furniture`, `restrained-dialogue-package`.
 
 **Talking to a sleeper** (list 7 item 38): the player activating an actor asleep in its
 bed (GetSleeping 3) wakes it (`Game::wake`): it gets off the bed and the conversation

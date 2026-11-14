@@ -501,6 +501,38 @@ pub struct Paused(pub bool);
 #[derive(Resource, Default, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FormOver(pub bool);
 
+/// Where a form over the pause menu stands among the interface's roots: above the pause
+/// menu (`PauseRoot`'s 110 and its boxes' 111-113) and the tile menus over it (Mods, 115),
+/// under the loading screen (200).
+pub const FORM_Z: i32 = 180;
+// Over the pause menu (110-113) and its Mods tiles (115), under the loading screen (200).
+const _: () = assert!(FORM_Z > 115 && FORM_Z < 200);
+
+/// How much of the light under a form its full-screen shade lets through, as the alpha of
+/// black. The interface blends in linear light, so an alpha keeps `1 - alpha` of the light and
+/// that reads far brighter than it sounds: 0.7 left the menu under it at 58 % of its
+/// brightness on screen [observed: #2250's pictures, the pause menu's amber (255, 182, 66)
+/// read (149, 105, 35) beside the dialog]. 0.93 leaves about 29 % on screen [design].
+pub const FORM_SHADE: f32 = 0.93;
+
+/// The full-screen shade under a form ([`FORM_SHADE`]).
+pub fn form_shade() -> BackgroundColor {
+    BackgroundColor(Color::srgba(0.0, 0.0, 0.0, FORM_SHADE))
+}
+
+/// A form's panel: opaque, so no text of the menu under it shows through [design: an alpha of
+/// 0.95 still let it show at about 14 % of its brightness over the shade, #2250's pictures].
+pub fn form_panel() -> BackgroundColor {
+    BackgroundColor(Color::srgb(0.02, 0.02, 0.02))
+}
+
+/// What share of a colour's value on screen is left under black of `alpha`, blending in linear
+/// light (the sRGB encoding of `1 - alpha`).
+pub fn shown_under(alpha: f32) -> f32 {
+    let linear = (1.0 - alpha).clamp(0.0, 1.0);
+    if linear <= 0.003_130_8 { linear * 12.92 } else { 1.055 * linear.powf(1.0 / 2.4) - 0.055 }
+}
+
 /// The "Report a bug" entry at the pause menu's bottom left, over the version (owner
 /// 2026-11-12): `shown` when nvforever's hand-report form is there to open
 /// (`reports/form.rs` sets it); a click sets `asked`, which the form takes. Only over a
@@ -4302,6 +4334,16 @@ fn finish_resume(world: &mut World) {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_form_shades_the_menu_under_it_and_its_panel_hides_it() {
+        use super::{form_panel, form_shade, shown_under, FORM_SHADE};
+        // The pictures' numbers: 0.7 showed the menu's amber at 149 of 255, 0.95 at 14 % more.
+        assert!((shown_under(0.7) * 255.0 - 149.0).abs() < 1.0, "{}", shown_under(0.7) * 255.0);
+        assert!(shown_under(FORM_SHADE) <= 0.35, "the menu under a form reads at a third at most");
+        assert_eq!(form_shade().0.alpha(), FORM_SHADE);
+        assert_eq!(form_panel().0.alpha(), 1.0, "nothing shows through the panel");
+    }
+
     use super::*;
 
     /// Issue #1893: Back carries its hint, the keyboard's Esc or the controller's B.

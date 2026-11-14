@@ -19,7 +19,7 @@ setting. Code: `engine/nvforever/src/upscaler.rs` and `upscaler/prep.rs` (shared
 - [documented] Bevy 0.20.1's own DLSS (`bevy_anti_alias`, feature `dlss`) uses `dlss_wgpu`
   6.0.0, whose `build.rs` links NVIDIA's NGX SDK libraries statically into the program; NVIDIA's
   RTX SDKs licence forbids using the SDK in a way that would put it under an open-source licence
-  (§3e; NVIDIA/DLSS `LICENSE.txt`). [design] So it cannot sit inside the GPL program. Streamline
+  (§4e; NVIDIA/DLSS `LICENSE.txt`). [design] So it cannot sit inside the GPL program. Streamline
   is MIT-licensed headers over DLLs loaded at run time: NVForever translates the few declarations
   it calls (`engine/nvforever/src/dlss/ffi.rs`, `security.rs`; the MIT notice beside them in
   `dlss/LICENSE-MIT`, carried into the releases' `THIRD-PARTY-LICENSES.txt` by
@@ -317,6 +317,73 @@ detail in the module notes of the file named.
   tagging API assumes one swap chain (spec notes, "Viewports and resize").
 - DLSS's Ultra Quality mode, its dynamic resolution and its own sharpness value: not used.
 - DLSS Frame Generation and Reflex through Streamline: not built (later issues).
+
+## Download (#2250)
+
+[design], code in `engine/nvforever/src/dlss/download/` (module notes there). The player can
+fetch the four files from the settings (Download DLSS..., the dialog of #2250) instead of
+copying them by hand; the manual way stays ([dlss.md](../dlss.md)).
+
+- **The player's acceptance first.** The download starts only from the dialog's accept
+  button, after NVIDIA's licence was shown: `download::start` takes a `LicenceAccepted`,
+  which only that button makes, so no code path reaches the network without it (the
+  maintainer's condition on #2250). NVForever still hosts, mirrors and ships none of NVIDIA's
+  files: they come from NVIDIA's own release, on the player's click. Why the files cannot be
+  shipped: NVIDIA's RTX SDKs licence (its §1c, §4b, §4e [documented: the licence as published
+  with the files, `bin/x64/nvngx_dlss.license.txt` of the archive below]); the three `sl.*`
+  files are Streamline's, MIT.
+- **One pinned source.** The official asset of NVIDIA-RTX/Streamline's release v2.14.16,
+  `streamline-sdk-v2.14.16.zip`, 276,016,170 bytes [observed: the archive, 2026-11-13]. Only
+  the four entries `bin/x64/<name>` are fetched, by HTTP range requests: the archive's last
+  64 KiB and a little more for its end record and central directory, then each entry from its
+  local header to the next (the four unpack to about 61 MB). The asset's address answers with a
+  redirect, followed only to `https` on GitHub's asset hosts; every answer must be a `206`
+  whose `Content-Range` names the range asked for out of that size; a `200` (no ranges), any
+  other status or size, and the download fails. A connect and a per-read timeout, and each
+  answer's body a bound scaled by its size (a minute plus a second per 8 KiB), so a trickling
+  server cannot hold the download for ever. Test aid: `NVF_DLSS_DOWNLOAD_URL`, taken only in
+  developer runs (`--data` / `NVFOREVER_DATA`) and only for `http` on this machine
+  (`127.0.0.1`, `localhost`, `[::1]`), with every pin still checked. NVForever's own message for a refused
+  redirect names only its scheme and host, never its signed path or query; HTTP trace logging
+  of the HTTP library itself (`RUST_LOG=ureq=trace`, off by default) prints whole addresses
+  [documented: ureq 3.5.1 `src/util.rs`, its debug header and URI formatting].
+- **Every file pinned.** Each entry's size and the SHA-256 of its unpacked bytes are pinned
+  in the source (`download/files.rs`: the `sl.*` hashes are the loader's `RELEASE_DLLS`;
+  `nvngx_dlss.dll` 310.9.16, which the loader leaves unpinned so players may bring another
+  DLSS, has its own pin there), changed only with an NVForever release. While unpacking
+  (stored or deflated) the size may not pass the declared one and the CRC-32 must be the
+  directory's. On the staged files, before any move, the hashes are read again and the
+  loader's own checks run: the interposer's signature and tested hash
+  (`security::check_interposer`) and the NGX runtime's NVIDIA signature (`check_ngx`).
+- **Nothing written unless all pass.** The files are unpacked into `.dlss-download-<process
+  id>` beside the DLSS folder (same volume), removed on a failure or a cancel and after the
+  install; staging folders an earlier run left (`.dlss-download-<digits>`, of an NVForever that is no
+  longer running) are removed at the next start. An absent DLSS
+  folder is made by renaming the staging folder; a present one gets only the listed files it
+  lacks, moved one by one and taken back if a later move fails. A folder that holds
+  `nvngx_update.exe` (any case) or a listed file with other bytes is left as it is: no file of
+  the player's is overwritten. Only the listed names are ever written; `nvngx_update.exe`
+  never is.
+- **The install guard first.** `fnv_install::guard_write(path, None)` checks the target,
+  its parent and the staging folder before anything is created or cleaned up, then checks
+  file destinations before writing or moving them. `None` still checks the game install
+  remembered at startup (`engine/nvforever/src/main.rs:971`), as well as the original game's
+  user folders. This applies to `NVF_DLSS_DIR` too: never the game folder. A refusal ends in
+  `Failure::Write` with nothing created. Open dlss folder checks the same guard before
+  creating its folder, logs a refusal and opens nothing.
+- **Developer test aids only.** `NVF_PLAY_TEST_DLSS_DOWNLOAD` (`accept`, `cancel`,
+  `cancel-at:<seconds>` and `clear`) and `NVF_DLSS_DOWNLOAD_URL` use the same developer-run
+  flag as player reports (`reports::decide`: `--data` / `NVFOREVER_DATA` supplied). In a
+  normal player run the aids are ignored with one warning. The smoke runner always supplies
+  `--data` (`tools/smoke/smoke/runner.py:614`), so its download scenarios keep their aids.
+- **After it.** The settings' DLSS entry reads "DLSS (restart)" (`upscaler::state_now` sees
+  the files within a second); Streamline must be loaded before the Vulkan device exists, so
+  the restart loads DLSS and later switches are live. No automatic update and no background
+  check: nothing is fetched except on the player's click. Windows only, as DLSS is.
+- **Log lines**: `DLSS download: licence accepted`; `DLSS download: <n> entries, <bytes>
+  bytes to fetch from <url>`; `DLSS download: <name> <size> bytes, SHA-256 ok`; `DLSS
+  download: installed in <folder>; restart NVForever to use DLSS`; `DLSS download: failed:
+  <why>; nothing written`; `DLSS download: cancelled; nothing written`.
 
 ## Internal interfaces
 

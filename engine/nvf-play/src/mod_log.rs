@@ -148,6 +148,8 @@ pub struct ModLog {
     asked: usize,
     /// MCM's list as last said ([`mcm_list_line`]).
     mcm_list: String,
+    /// What was skipped since the last statement the VM named (`SkippedAt`).
+    pending: Vec<String>,
 }
 
 impl ModLog {
@@ -165,6 +167,20 @@ impl ModLog {
     /// The line for a trace event, when it is the first of its kind in a mod's script;
     /// every one is counted.
     pub fn event(&mut self, e: &Event) -> Option<String> {
+        // Each statement that skipped something is said once, with what it skipped, so
+        // the lines behind a reason can be found.
+        if let EventKind::SkippedAt { unit, line } = &e.kind {
+            let mut whats = std::mem::take(&mut self.pending);
+            whats.dedup();
+            let (plugin, label) = split(unit);
+            if !is_mod(plugin) {
+                return None;
+            }
+            return self.said.insert((unit.clone(), format!("at {line}"))).then(|| format!("{plugin}: {label}: skipped at: {line} ({})", whats.join("; ")));
+        }
+        if let EventKind::Skipped { what, .. } = &e.kind {
+            self.pending.push(what.clone());
+        }
         let (unit, what, line) = match &e.kind {
             EventKind::Unhandled { name, unit, .. } => (unit, format!("unbuilt {name}"), format!("{name} is not built: its calls do nothing")),
             EventKind::CallFailed { name, unit, error, .. } => (unit, format!("failed {name}"), format!("{name} failed: {error}")),
@@ -411,6 +427,12 @@ mod tests {
         assert_eq!(log.event(&failed("FalloutNV.esm|script 1")), None);
         let skipped = Event { frame: 0, kind: EventKind::Skipped { unit: "A.esp|script 1".into(), what: "division by zero".into() } };
         assert_eq!(log.event(&skipped).as_deref(), Some("A.esp: script 1: skipped: division by zero"));
+        let at = |line: &str| Event { frame: 0, kind: EventKind::SkippedAt { unit: "A.esp|script 1".into(), line: line.into() } };
+        assert_eq!(log.event(&at("let x := 1 / 0")).as_deref(), Some("A.esp: script 1: skipped at: let x := 1 / 0 (division by zero)"));
+        assert_eq!(log.event(&skipped), None);
+        assert_eq!(log.event(&at("let x := 1 / 0")), None, "a statement is said once");
+        assert_eq!(log.event(&skipped), None);
+        assert_eq!(log.event(&at("let y := 2 / 0")).as_deref(), Some("A.esp: script 1: skipped at: let y := 2 / 0 (division by zero)"));
         let mut q = fnv_game::plugin_questions::Questions::default();
         q.record("isplugininstalled", "yUI", 0.0, "A.esp|script 1".into(), "a.esp".into());
         q.record("getpluginversion", "JIP NVSE Plugin", 57.3, "A.esp|script 1".into(), "a.esp".into());
@@ -418,7 +440,7 @@ mod tests {
         assert_eq!(asked, ["a.esp asks IsPluginInstalled \"yUI\": 0, not there (first in script 1)", "a.esp asks GetPluginVersion \"JIP NVSE Plugin\": 57.3 (first in script 1)"]);
         assert_eq!(
             log.final_lines(),
-            ["at exit: A.esp: 0 script errors, 3 failed calls, 1 skipped statements, 0 functions not built", "at exit: 2 questions about plugins, asked for and not there: IsPluginInstalled \"yUI\" (a.esp)"]
+            ["at exit: A.esp: 0 script errors, 3 failed calls, 3 skipped statements, 0 functions not built", "at exit: 2 questions about plugins, asked for and not there: IsPluginInstalled \"yUI\" (a.esp)"]
         );
     }
 
