@@ -234,11 +234,17 @@ pub fn canvas_point(uv: Vec2) -> Option<Vec2> {
     (p.x >= 0.0 && p.y >= 0.0 && p.x < CANVAS.x && p.y < CANVAS.y).then_some(p)
 }
 
+type MonitorTouchContext<'w> = (
+    Option<Res<'w, Monitor>>,
+    Option<Res<'w, nvf_play::terminal::touch::Settings>>,
+    Option<Res<'w, TerminalScreen>>,
+);
+
 /// Follow the window's pointer onto the monitor: on the glass it goes to the screen, a
 /// left click on the power button leaves the terminal. The test aid `power` clicks the
 /// button's middle.
 fn follow_pointer(
-    (monitor, touch, screen): (Option<Res<Monitor>>, Option<Res<nvf_play::terminal::touch::Settings>>, Option<Res<TerminalScreen>>),
+    (monitor, touch, screen): MonitorTouchContext<'_>,
     cams: Query<(&Camera, &GlobalTransform)>,
     windows: Query<&Window, With<PrimaryWindow>>,
     mouse: nvf_play::pad::ActionButtons<MouseButton>,

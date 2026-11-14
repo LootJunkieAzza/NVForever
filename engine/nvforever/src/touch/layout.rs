@@ -275,8 +275,7 @@ impl Config {
         }) {
             return Err("Invalid saved-profile entry".into());
         }
-        let mut c = Self::default();
-        c.extra = v.clone();
+        let mut c = Self { extra: v.clone(), ..Self::default() };
         let identity = |key: &str| {
             v["appearance"][key]
                 .as_str()

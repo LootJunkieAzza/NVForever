@@ -803,8 +803,7 @@ mod tests {
     use super::*;
     #[test]
     fn placement_roundtrips_bounded_geometry_and_reserved_pin() {
-        let mut p = Placement::default();
-        p.center = Vec2::new(0.3, 0.7);
+        let mut p = Placement { center: Vec2::new(0.3, 0.7), ..Placement::default() };
         p.pins[2] = true;
         assert_eq!(Placement::decode(&p.encode()), Some(p));
         let bad = serde_json::json!({"version":1,"center":[999,-50],"pins":[true,true,false,false,false,false,false,false]});
@@ -820,8 +819,7 @@ mod tests {
     }
     #[test]
     fn geometry_resizes_visible_and_hit_bounds_together_without_overlapping_tray() {
-        let mut bar = Bar::default();
-        bar.tray_open = true;
+        let mut bar = Bar { tray_open: true, ..Bar::default() };
         bar.placement.pins = [true; SLOTS];
         for size in [Vec2::new(1280., 720.), Vec2::new(640., 360.)] {
             for count in [4, 6, 8] {

@@ -226,11 +226,11 @@ pub fn position(preset: &str, id: usize, original: [f32; 2]) -> [f32; 2] {
             p[0] -= 0.025;
             p[1] -= 0.025;
         }
-        "combat" if (3..=8).contains(&id) && id % 2 == 0 => p[0] -= 0.04,
+        "combat" if (3..=8).contains(&id) && id.is_multiple_of(2) => p[0] -= 0.04,
         "claw" if id == 7 => p = [0.10, 0.23],
         "claw" if id == 6 => p = [0.25, 0.23],
         "compact" if (3..=8).contains(&id) => p[0] -= 0.045,
-        "wide" if (3..=8).contains(&id) && id % 2 == 0 => p[0] -= 0.08,
+        "wide" if (3..=8).contains(&id) && id.is_multiple_of(2) => p[0] -= 0.08,
         "controller" if id < 3 => p[0] -= 0.08,
         _ => {}
     }
@@ -247,8 +247,7 @@ mod tests {
     fn every_shape_uses_its_analytic_visible_boundary() {
         let d = 120.0;
         for (shape, _) in SHAPES {
-            let mut appearance = Appearance::default();
-            appearance.shape = (*shape).into();
+            let appearance = Appearance { shape: (*shape).into(), ..Appearance::default() };
             let g = appearance.geometry(d);
             assert!(g.contains([0.0, 0.0]), "{shape}");
             assert!(g.contains([g.width * 0.5, 0.0]), "{shape}");
@@ -282,8 +281,7 @@ mod tests {
     }
     #[test]
     fn capsule_does_not_accept_the_invisible_circle_above_its_top() {
-        let mut a = Appearance::default();
-        a.shape = "capsule".into();
+        let a = Appearance { shape: "capsule".into(), ..Appearance::default() };
         assert!(!a.geometry(120.0).contains([0.0, 55.0]));
         assert_eq!(a.geometry(120.0).height, 86.4);
         for d in [24.0, 48.0, 60.0] {
@@ -362,8 +360,7 @@ mod tests {
     }
     #[test]
     fn unknown_shapes_fall_back_without_destroying_the_stored_identity() {
-        let mut a = Appearance::default();
-        a.shape = "future-shape".into();
+        let a = Appearance { shape: "future-shape".into(), ..Appearance::default() };
         assert_eq!(a.geometry(80.0).radius, 40.0);
         assert_eq!(a.shape, "future-shape");
     }

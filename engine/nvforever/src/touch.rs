@@ -688,8 +688,9 @@ fn input(
                     let multiple = !state.contacts.is_empty();
                     if !matches!(role, Role::Look) || multiple { state.taps.clear(); }
                     if multiple { for c in state.contacts.values_mut() { if matches!(c.role, Role::Look) { c.dragged = true; } } }
-                    if matches!(role, Role::Look) || (options.fire_drag && matches!(role, Role::Button(i) if BUTTONS[i].control == Some(Control::Use))) {
-                        if state.look_owner.is_none() { state.look_owner = Some(t.id); }
+                    if (matches!(role, Role::Look) || (options.fire_drag && matches!(role, Role::Button(i) if BUTTONS[i].control == Some(Control::Use))))
+                        && state.look_owner.is_none() {
+                        state.look_owner = Some(t.id);
                     }
                     if let Role::Button(i) = role {
                         if state.toggle_aim
@@ -741,8 +742,9 @@ fn input(
                 if let Some(c) = contact {
                     let dragged = c.dragged || ((p-c.origin)*size).length() > 12.0;
                     if playing && interactive && options.run_lock && lock_available && lock.contains(t.position)
-                        && ((matches!(c.role, Role::Move) && !movement.auto_move()) || (matches!(c.role, Role::RunLock) && !dragged)) {
-                        if !state.pulses.contains(&Control::AutoMove) { state.pulses.push(Control::AutoMove); }
+                        && ((matches!(c.role, Role::Move) && !movement.auto_move()) || (matches!(c.role, Role::RunLock) && !dragged))
+                        && !state.pulses.contains(&Control::AutoMove) {
+                        state.pulses.push(Control::AutoMove);
                     }
                     if playing && interactive && options.vats_taps && matches!(c.role, Role::Look) && !dragged
                         && state.contacts.is_empty() && movement.now() - c.started <= 0.25 {
@@ -2725,8 +2727,7 @@ mod tests {
     #[derive(Resource,Default)]
     struct MovementQueries { control:bool, digital:bool, fresh:bool, script:bool, raw_held:bool }
     fn observe_movement(input:nvf_play::bindings::ControlInput,keys:Res<ButtonInput<KeyCode>>,mut seen:ResMut<MovementQueries>) {
-        let mut script=fnv_game::script_input::ScriptInput::default();
-        script.virtual_controls=nvf_play::script_input::admitted_virtual_controls(&input);
+        let script=fnv_game::script_input::ScriptInput { virtual_controls:nvf_play::script_input::admitted_virtual_controls(&input), ..Default::default() };
         seen.control=input.pressed(Control::Forward);seen.digital=input.digital_movement_pressed(Control::Forward);
         seen.fresh=input.just_pressed(Control::Forward);seen.script=script.control_pressed(0,false);
         seen.raw_held=keys.pressed(KeyCode::KeyW);

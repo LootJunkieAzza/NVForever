@@ -521,6 +521,12 @@ fn grab_cursor(
     }
 }
 
+type MovementContext<'w> = (
+    Option<Res<'w, crate::control::HeldSneakInput>>,
+    Option<Res<'w, crate::pad::TouchDeviceSwitch>>,
+    Option<Res<'w, crate::touch_movement::TouchMovementInput>>,
+);
+
 /// The movement controls: Forward, Back, Slide Left and Right; running unless Run is held
 /// while Always Run is on (and the other way round); Auto Move walks forward until
 /// Forward or Back is pressed [hypothesis]; Jump.
@@ -531,7 +537,7 @@ pub fn read_input(
     mut intent: ResMut<MoveIntent>,
     mut seat: ResMut<crate::furniture::PlayerSeat>,
     driven: Option<Res<ViewDriven>>,
-    (held_sneak, touch_switch, touch_move): (Option<Res<crate::control::HeldSneakInput>>, Option<Res<crate::pad::TouchDeviceSwitch>>, Option<Res<crate::touch_movement::TouchMovementInput>>),
+    (held_sneak, touch_switch, touch_move): MovementContext<'_>,
 ) {
     if *state.get() != PlayState::Playing || input.platform_capture.as_ref().is_some_and(|g| !g.allows_actions()) {
         *intent = MoveIntent::default();

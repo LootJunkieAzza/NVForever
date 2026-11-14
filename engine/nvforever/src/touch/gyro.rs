@@ -398,11 +398,7 @@ fn poll(
                         state.held = None;
                     }
                 }
-                TouchPhase::Canceled => {
-                    if state.contacts.contains(&t.id) {
-                        state.cancel();
-                    }
-                }
+                TouchPhase::Canceled if state.contacts.contains(&t.id) => state.cancel(),
                 _ => {}
             }
         }

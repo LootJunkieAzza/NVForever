@@ -1412,6 +1412,12 @@ fn set_overlay(world: &mut World, on: bool) {
 }
 
 #[cfg(test)]
+pub(crate) fn register_mobile_test_rows(app: &mut App) {
+    register_graphics(app);
+    register_frame_cap(app);
+}
+
+#[cfg(test)]
 mod fsr_settings_tests {
     use super::*;
 
@@ -2138,10 +2144,4 @@ dlss-model=Preset K
         assert_eq!(upscaler_after_ini(fsr_q, Some(&UpscalerIni::read("[Settings]\nupscaler=DLSS\n")), None), fsr_q);
         let _ = std::fs::remove_dir_all(&dir);
     }
-}
-
-#[cfg(test)]
-pub(crate) fn register_mobile_test_rows(app: &mut App) {
-    register_graphics(app);
-    register_frame_cap(app);
 }

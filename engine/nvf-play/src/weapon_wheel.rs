@@ -375,6 +375,12 @@ fn run_aid(time: AidTime, mut aid: ResMut<WheelAid>, mut hotkeys: ResMut<Hotkeys
 /// Real time, the game clock and the play state.
 type Clocks<'w> = (Res<'w, Time<Real>>, Res<'w, Time<Virtual>>, Res<'w, State<PlayState>>);
 
+type Availability<'w> = (
+    Option<Res<'w, crate::vats_mode::VatsMode>>,
+    Res<'w, WheelAid>,
+    Option<Res<'w, NextState<PlayState>>>,
+);
+
 /// The frame's keys, mouse and stick into the wheel; its outcomes carried out.
 #[allow(clippy::too_many_arguments)]
 fn read(
@@ -384,7 +390,7 @@ fn read(
     ),
     (real, clock, state): Clocks,
     windows: Query<&Window, With<PrimaryWindow>>,
-    (vats, aid, next_play): (Option<Res<crate::vats_mode::VatsMode>>, Res<WheelAid>, Option<Res<NextState<PlayState>>>),
+    (vats, aid, next_play): Availability<'_>,
     mut wheel: ResMut<WeaponWheel>,
     mut control: ResMut<PlayerControl>,
     (hotkeys, mut sim, mut used, mut stats): (Res<Hotkeys>, ResMut<SimState>, MessageWriter<ItemUsed>, ResMut<WheelStats>),
