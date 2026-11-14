@@ -2466,7 +2466,7 @@ fn share_npcs(
     let out_cold = |r: u32| script.as_deref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.knockout(FormId(r)).is_some() && !rt.game.is_dead(FormId(r)));
     for (v, t, lo, hold, dying, seen, on, dressed) in &actors {
         // The dead too, out of sight or not: a guest lays its own body down.
-        if (!seen.get() && !dying) || is_puppet(v.0) || players.contains(&v.0) {
+        if (!seen.get() && !dying) || is_puppet(v.0) || players.contains(&v.0) || !feet_placed(t.translation.to_array()) {
             continue;
         }
         let r = v.0;
@@ -3363,6 +3363,14 @@ fn share_doors(
     }
 }
 
+/// Whether an actor's feet are a place: a body just drawn is at the origin until it is
+/// put where it stands, and a sample of it then would put the guest's copy there (item
+/// 201, 2026-11-14: GSPG05/06 revived "standing at (0, 0, 0)" on the guest, the host's
+/// gangers enabled that frame) [hypothesis: no actor stands at the exact origin].
+fn feet_placed(feet: [f32; 3]) -> bool {
+    feet != [0.0; 3]
+}
+
 /// A guest in the host's place: each NPC the host draws, enabled here and put in this
 /// cell when the host's story enabled it or moved it (module notes). Only states heard
 /// after `after` and lately: the ones before are the place the host left (the host's NPCs
@@ -3375,7 +3383,7 @@ fn place_like_host(world: &mut fnv_sim::World, g: &mut fnv_game::Game, npcs: &Ha
     let player_space = world.placed.world_of(cell);
     for (&r, t) in npcs {
         let Some(&(at, s)) = t.samples.back() else { continue };
-        if at < after || now - at > 1.0 || r >= 0xFF00_0000 || s.has(npc_flag::DEAD) || host_disabled.contains(&r) {
+        if at < after || now - at > 1.0 || r >= 0xFF00_0000 || s.has(npc_flag::DEAD) || host_disabled.contains(&r) || !feet_placed(s.feet) {
             continue;
         }
         let id = FormId(r);
@@ -3384,8 +3392,28 @@ fn place_like_host(world: &mut fnv_sim::World, g: &mut fnv_game::Game, npcs: &Ha
             continue;
         }
         if g.is_dead(id) {
-            info!("co-op: {} is alive in the host's world: up again here", g.data.name(id));
+            let was = world.peek(id).map(|st| st.pos);
+            info!(
+                "co-op: {} is alive in the host's world: up again here (the host's sample: feet ({:.0}, {:.0}, {:.0}), space {:08X}; here {})",
+                g.data.name(id),
+                s.feet[0],
+                s.feet[1],
+                s.feet[2],
+                s.space,
+                was.map_or_else(|| "no state".to_string(), |p| format!("at ({:.0}, {:.0}, {:.0})", p[0], p[1], p[2]))
+            );
             g.resurrect(id, false);
+            // It stands up where the host has it: its place here may be the corpse's own,
+            // or none at all (item 201, 2026-11-14: GSPG05/06 0x00104C72/73, dead in the
+            // guest's save, revived "standing at (0, 0, 0)"). In this player's space only;
+            // another space is left to the rest below.
+            let my_space = player_space.map_or(cell.0, |w| w.0);
+            if s.space == 0 || s.space == my_space {
+                if let Ok(st) = world.get(id) {
+                    st.pos = s.feet;
+                    st.rot = [0.0, 0.0, s.heading];
+                }
+            }
         }
         // Shown already, by its own flag or its enable parent's: left as it is. One
         // shown through its enable parent keeps its own flag as the host's does (the
@@ -4345,8 +4373,9 @@ mod tests {
         const ALIVE: u32 = 0x0010_4C70;
         const KILLED: u32 = 0x0010_4C72;
         const GONE: u32 = 0x0010_4C73;
+        const UNPLACED: u32 = 0x0010_4C75;
         let mut table = fnv_sim::RefTable::default();
-        for (id, disabled) in [(FormId::PLAYER_REF.0, false), (ALIVE, true), (KILLED, true), (GONE, true)] {
+        for (id, disabled) in [(FormId::PLAYER_REF.0, false), (ALIVE, true), (KILLED, true), (GONE, true), (UNPLACED, true)] {
             let mut p = placed(id, disabled);
             p.cell = Some(FormId(CELL));
             table.refs.insert(p.id, p);
@@ -4363,7 +4392,7 @@ mod tests {
         let data: &'static fnv_game::GameData = Box::leak(Box::new(fnv_game::GameData::build(empty.lo, empty.schema, functions, &json, no_refs)));
         let mut g = fnv_game::Game::new(data, fnv_sim::World::new(no_forms, no_refs, Default::default()), Default::default());
         // The guest's own game: every ganger killed.
-        for r in [ALIVE, KILLED, GONE] {
+        for r in [ALIVE, KILLED, GONE, UNPLACED] {
             g.extra.entry(FormId(r)).or_default().dead = true;
         }
         let sample = |r: u32, flags: u8| net::NpcState { reference: r, feet: [10.0, 20.0, 30.0], heading: 0.0, pitch: 0.0, flags, weapon: 0, attacks: 0, furniture: 0, base: 0, level: 0, all_levels: false, rolls: 0, hostile: true, space: 0 };
@@ -4373,13 +4402,19 @@ mod tests {
             t.samples.push_back((10.0, sample(r, flags)));
             npcs.insert(r, t);
         }
+        // One the host drew this frame, its body not put where it stands yet: at the origin.
+        let mut t = NpcTrack::default();
+        t.samples.push_back((10.0, net::NpcState { feet: [0.0; 3], ..sample(UNPLACED, 0) }));
+        npcs.insert(UNPLACED, t);
         let host_disabled = HashSet::from([GONE]);
         let enabled = place_like_host(&mut world, &mut g, &npcs, &host_disabled, 5.0, 10.2);
         assert_eq!(enabled, vec![FormId(ALIVE)]);
         assert!(world.is_enabled(FormId(ALIVE)).unwrap() && !g.is_dead(FormId(ALIVE)), "alive and drawn as in the host's world");
         assert!(!world.is_enabled(FormId(KILLED)).unwrap() && g.is_dead(FormId(KILLED)), "dead on the host: left to the deaths");
         assert!(!world.is_enabled(FormId(GONE)).unwrap(), "the host disabled it");
-        assert_eq!(world.peek(FormId(ALIVE)).map(|s| s.pos), Some([0.0; 3]), "in this player's cell already: not moved (the drawing puts it at the host's feet)");
+        assert!(!world.is_enabled(FormId(UNPLACED)).unwrap() && g.is_dead(FormId(UNPLACED)), "a sample at the origin is no place: left for the next");
+        // Revived where the host has it, not where the corpse (or nothing) put it here.
+        assert_eq!(world.peek(FormId(ALIVE)).map(|s| s.pos), Some([10.0, 20.0, 30.0]), "stands up at the host's feet");
     }
 
     /// The host's doors reach a guest's: a door the host opened opens, one only the
