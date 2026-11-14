@@ -948,7 +948,14 @@ impl PlayerBody {
     /// The third-person rig as an actor's rig of the player's reference, for its ragdoll
     /// (`death_cam.rs`): its root entity and the rig.
     pub fn third_rig(&self) -> Option<(Entity, crate::limbs::ActorRig)> {
-        let r = &self.body.as_ref()?.third;
+        self.script_rig(false)
+    }
+
+    /// Each built player rig separately, including a hidden rig, for script model
+    /// selection. Its names and entities must stay with the same model (#2387).
+    pub fn script_rig(&self, first_person: bool) -> Option<(Entity, crate::limbs::ActorRig)> {
+        let body = self.body.as_ref()?;
+        let r = if first_person { body.first.as_ref()? } else { &body.third };
         let rig = crate::limbs::ActorRig {
             reference: FormId::PLAYER_REF.0,
             base: FormId::PLAYER_BASE.0,
@@ -959,6 +966,38 @@ impl PlayerBody {
             base_scale: 1.0,
         };
         Some((r.root, rig))
+    }
+
+    /// Authored CPU-only rigs for the real scene-mirror pipeline controls. This
+    /// bypasses asset loading, not script_rig/root/name/publication or edit dispatch.
+    #[cfg(test)]
+    pub(crate) fn synthetic_script_models(
+        third: (Entity, crate::limbs::ActorRig),
+        first: Option<(Entity, crate::limbs::ActorRig)>,
+    ) -> Self {
+        fn rig((root, actor): (Entity, crate::limbs::ActorRig), view: View) -> Rig {
+            Rig {
+                view, root, lens: None, folder: String::new(), skeleton: actor.skeleton,
+                animator: Animator::new(actor.skel, actor.nodes, None),
+                clips: HashMap::new(), variants: HashMap::new(), head: None,
+                eye_local: Vec3::ZERO, looking: None, camera: None, translate: None,
+                weapon_node: None, weapon_parent: None, attached: None,
+                weapon_model: None, weapon_emitter: None, weapon_parts: Vec::new(),
+                idle_logged: false, sights_turned: None, muzzle: None, muzzle_entity: None,
+                casing: None, casing_entity: None, sighting: None, scope_eye: None,
+                use_lens: false, drawn: Vec::new(), shown: Some(false), seen: None,
+                furniture: None, since_attack: f32::INFINITY, attack_loop: None,
+                wound_up: None, attack_eject: None, ejected: false, carry: None,
+            }
+        }
+        Self {
+            body: Some(Body {
+                worn: Vec::new(), look: None, change: fnv_actor::Change::default(),
+                female: false, scale: 1.0, third: rig(third, View::Third),
+                first: first.map(|r| rig(r, View::First)),
+            }),
+            ..Self::default()
+        }
     }
 
     /// The clips heard (`anim_sounds.rs`): the animator of the rig in view (the

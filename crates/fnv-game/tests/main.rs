@@ -63,6 +63,7 @@ mod jip8;
 mod jip9;
 mod knockdowns;
 mod lutana;
+mod nif_player_models;
 mod lutana2;
 mod lutana3;
 mod magic_archetypes;

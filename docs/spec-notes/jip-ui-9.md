@@ -58,8 +58,10 @@ nothing of saves].
 | GetNifBlockRotationAlt `block x y z [which] [pcModel]` | 0 the angles about the parent's fixed axes (GetNifBlockRotation's), 1 the same in the world, 2 about the turning axes (X, then Y, then Z) to the parent, 3 the same in the world [documented: the table]; a missing block 0 |
 
 The NIF block values use the scene mirror (docs/design/nif-blocks.md): the tree is the
-engine's, told once a script asks, so the first call on a reference reads 0. pcModel is
-not read: the mirror has the drawn model. The world place turns the model by the
+engine's, told once a script asks, so the first call on a reference reads 0. At the
+original implementation, pcModel was not read and the mirror held one model. A provisional
+implementation now separates JIP player-model selection; its checks and limitations
+are in [Player model selection](nif-player-model-selection.md). The world place turns the model by the
 reference's angles as a node's are turned [hypothesis]. A block name with a `:n` suffix
 the mirror gave a repeated name reads the material of its unsuffixed name in the file
 [hypothesis].

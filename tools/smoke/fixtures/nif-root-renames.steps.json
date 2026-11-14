@@ -1,0 +1,14 @@
+{
+  "format": "fnv.capture.steps/1",
+  "name": "nif_script_root_renames",
+  "title": "Authored root names survive model mirror publication",
+  "start": "any",
+  "steps": [
+    {"query": "array_var roots\nstring_var rootName\nfloat ok\nBegin Function { }\nlet roots := player.GetChildBlocks \"\" 2\nlet rootName := roots[0]\nlet ok := player.RenameNifBlock rootName \"NVFScriptFirstRoot\" 2\nPrintC \"nvf root first rename %g\" ok\nSetFunctionValue ok\nEnd\n", "label": "first.rename", "field": "value"},
+    {"query": "Begin Function { }\nSetFunctionValue 0\nEnd\n", "label": "first.deferred-frame", "field": "value"},
+    {"query": "array_var roots\nfloat comparison\nBegin Function { }\nlet roots := player.GetChildBlocks \"\" 2\nlet comparison := sv_Compare roots[0] \"NVFScriptFirstRoot\"\nPrintC \"nvf root first kept %g\" (comparison == 0)\nSetFunctionValue (comparison == 0)\nEnd\n", "label": "first.kept", "field": "value"},
+    {"query": "array_var roots\nstring_var rootName\nfloat ok\nBegin Function { }\nlet roots := player.GetChildBlocks \"\" 1\nlet rootName := roots[0]\nlet ok := player.RenameNifBlock rootName \"NVFScriptThirdRoot\" 1\nPrintC \"nvf root third rename %g\" ok\nSetFunctionValue ok\nEnd\n", "label": "third.rename", "field": "value"},
+    {"query": "Begin Function { }\nSetFunctionValue 0\nEnd\n", "label": "third.deferred-frame", "field": "value"},
+    {"query": "array_var roots\nfloat firstComparison\nfloat thirdComparison\nBegin Function { }\nlet roots := player.GetChildBlocks \"\" 2\nlet firstComparison := sv_Compare roots[0] \"NVFScriptFirstRoot\"\nlet roots := player.GetChildBlocks \"\" 1\nlet thirdComparison := sv_Compare roots[0] \"NVFScriptThirdRoot\"\nPrintC \"nvf root first still kept %g\" (firstComparison == 0)\nPrintC \"nvf root third kept %g\" (thirdComparison == 0)\nSetFunctionValue ((firstComparison == 0) && (thirdComparison == 0))\nEnd\n", "label": "both.kept", "field": "value"}
+  ]
+}
