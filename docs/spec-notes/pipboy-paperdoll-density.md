@@ -38,6 +38,12 @@ The five CPU controls cover normalized read caching, a fresh Pictures/cache inst
 incomplete DDS input, proportional and clipped crop geometry, and the actual
 VFS-to-GameData-to-Ctx-to-condition producer. The producer creates synthetic DDS
 bytes in its own temporary directory and compares the head crop plus all six
-interaction regions at densities one and four. No game data is used. These tests
-are authored but have not yet been compiled or run for this contribution; full UI
-scheduling, GPU output, installed scenes and native comparison remain untested.
+interaction regions at densities one and four. No game data is used. [observed: [hosted CI run 43546257565](https://github.com/LootJunkieAzza/NVForever/actions/runs/43546257565),
+source `f36d9dd72a9146ade99625acbfae8f4300e50b88`]
+All five controls compiled and passed on the public source. The root workspace
+passed 2,760 tests with four ignored, and the engine workspace passed 2,787 tests;
+both strict Clippy checks, both cargo-deny workspaces, six Python suites and the
+repository guard passed. These are CPU/source checks. Full UI scheduling, GPU
+output, installed scenes and native comparison remain untested. A separate
+private affected-source consumer comparison is recorded in the pull request;
+it is not a pristine public-main or native baseline.
