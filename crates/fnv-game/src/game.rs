@@ -2736,6 +2736,12 @@ impl<'a> Game<'a> {
             EventKind::ItemAdded { to: FormId::PLAYER_REF, item, count, .. } => Some((item, count)),
             _ => None,
         };
+        // A script run's quest and exchanges, for its co-op hand-outs.
+        match kind {
+            EventKind::ItemRemoved { from: FormId::PLAYER_REF, .. } => self.coop_rewards.took_from_player(),
+            EventKind::StageSet { quest, stage, .. } => self.coop_rewards.quest_moved(quest, Some(stage)),
+            _ => {}
+        }
         // Caps for the player: part of a completed quest's reward for co-op guests.
         match acquired {
             Some((crate::coop_rewards::CAPS, count)) => self.coop_rewards.gain(self.frame, 0.0, count),
@@ -2975,6 +2981,7 @@ impl<'a> Game<'a> {
         if displayed == Some(true) {
             self.start_quest(q);
         }
+        self.coop_rewards.quest_moved(q, None);
         let o = self.quest(q).objectives.entry(index).or_default();
         let (d0, c0) = (o.displayed, o.completed);
         if let Some(d) = displayed {
@@ -3818,9 +3825,34 @@ impl<'a> Game<'a> {
             _ => None,
         };
         let before = std::mem::replace(&mut self.other.jip14.item_running, item);
+        // A quest's script, or an object's that names a quest, hands out to co-op guests
+        // (`crate::coop_rewards::RewardLedger::open_script`).
+        let opened = self.coop_rewards.on && self.open_coop_script(key, script);
         let ran = self.run_blocks(key, script, event, subject, ctx, false);
+        if opened {
+            self.coop_rewards.close_script();
+        }
         self.other.jip14.item_running = before;
         ran
+    }
+
+    /// [`Game::run_event`]'s co-op hand-out run: the quest and stage of `script` run as
+    /// `key` (module notes of `crate::coop_rewards`).
+    fn open_coop_script(&mut self, key: InstKey, script: FormId) -> bool {
+        let quest = match key {
+            InstKey::Quest { quest } => Some(quest),
+            InstKey::Ref { .. } | InstKey::Item { .. } => {
+                let data = self.data;
+                let Some(unit) = data.script(script) else { return false };
+                unit.unit.refs.iter().find_map(|r| match r {
+                    fnv_script::unit::RefSlot::Form(f) if data.quests.contains_key(&FormId(*f)) => Some(FormId(*f)),
+                    _ => None,
+                })
+            }
+            _ => return false,
+        };
+        let owner = quest.map(|q| (q, self.quests.get(&q).filter(|s| !s.stages_done.is_empty() || s.stage_override.is_some()).map(|s| s.stage())));
+        self.coop_rewards.open_script(owner)
     }
 
     /// [`Game::run_event`]; with `coded_only`, only the blocks with a parameter run (the
