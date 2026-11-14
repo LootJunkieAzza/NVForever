@@ -3953,7 +3953,7 @@ fn script_console_runtime_and_syntax_failures_are_diagnostic_and_do_not_end_the_
 }
 
 #[test]
-fn script_console_changing_signed_number_words_do_not_consume_the_source_cache() {
+fn script_console_changing_signed_number_words_preserve_word_dispatch() {
     use fnv_script::vm::XVal;
     let f = udf_fixture();
     let mut g = game(&f);
@@ -3966,6 +3966,21 @@ fn script_console_changing_signed_number_words_do_not_consume_the_source_cache()
         let player = g.world.get(FormId::PLAYER_REF).unwrap();
         assert_eq!(player.pos[2], -(i as f32), "negative SetPos word {i}");
         assert!((player.rot[2].to_degrees() + i as f32 / 10.0).abs() < 0.001, "negative SetAngle word {i}");
+    }
+    assert!(g.console_out.is_empty(), "ordinary numeric words: {:?}", g.console_out);
+}
+
+#[test]
+fn script_console_numeric_words_leave_the_expression_budget_and_post_budget_dispatch_available() {
+    use fnv_script::vm::XVal;
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let run = |g: &mut fnv_game::Game, line: String| {
+        fnv_game::nvse::call(g, &Default::default(), "console", None, &[XVal::Str(line)]).unwrap().unwrap();
+    };
+    for i in 1..=300 {
+        run(&mut g, format!("player.SetPos z -{i}"));
+        run(&mut g, format!("player.SetAngle z -{}", f64::from(i) / 10.0));
     }
     assert!(g.console_out.is_empty(), "ordinary numeric words: {:?}", g.console_out);
     // All expression slots remain available after more than 256 changing commands.
