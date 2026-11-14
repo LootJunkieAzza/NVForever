@@ -1982,3 +1982,17 @@ heading 75) with NVFExtProbe.esp loaded, as the jip-probes sets run.
      what does she say on it? The same for one actor each of MaleAdult10-12 and
      FemaleAdult12 without a Goodbye line of their own. If she offers none, the gate
      takes a quest's GetIsID (and what else?) but not its voice-type list.
+
+## Added 2026-11-14 (a murder's faction enemies, #2456)
+
+136. **Which of a murder victim's factions does the player become an enemy of?** (P2;
+     #2456, crime-karma.md §3.4.) Ours: every crime-tracking faction of the victim, once a
+     witness who cares turned, except one whose members include enemies of each other
+     (ArmorVCaesarsLegionFaction, which also holds the four NCR troopers of the Strip
+     scene VStripSS3) [hypothesis]. To check, with a character neutral to the Legion: kill
+     a Legionary in front of another (Cottonwood Cove), then read
+     `GetPCEnemyOfFaction VCaesarsLegionFaction` and `GetPCEnemyOfFaction
+     ArmorVCaesarsLegionFaction` (0x00134B6E); then enter the Strip by the north gate and
+     watch the four troopers (VStripSS3Girl01REF/02REF, VStripSS3Watcher01REF/02REF) and
+     the Securitrons. If neither flag is set, the original sets no faction enemy on
+     murder and only the witnesses turn.

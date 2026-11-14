@@ -716,7 +716,8 @@ impl Game<'_> {
         }
         // A major crime against a crime-tracking faction makes the player its enemy
         // [documented: GECK wiki SetPCEnemyOfFaction; hypothesis: when a witness who
-        // cares saw it].
+        // cares saw it]; not a faction that is no side ([`Game::faction_is_one_side`],
+        // #2456).
         if !hostile.is_empty() {
             for f in factions_of(self, victim) {
                 let tracks = self.data.faction_flags.get(&f).is_some_and(|x| x & faction_flags::TRACK_CRIME != 0);
@@ -728,9 +729,54 @@ impl Game<'_> {
         self.crimes.notes.push(Note::Crime { kind: Kind::Murder, victim: Some(victim), seen_by, hostile });
     }
 
+    /// Whether `faction` stands for one side, so that a crime against one of its members
+    /// can make the player an enemy of all of them: no two of the other factions its
+    /// members' records name (NPC_/CREA SNAM) are enemies of each other by their records
+    /// (FACT XNAM) [design, #2456]. A faction whose members fight each other is a tag,
+    /// not a side: FalloutNV.esm's ArmorVCaesarsLegionFaction 0x00134B6E (Hidden, Track
+    /// Crime, naming only itself, Friend) holds the Legion's people and also the four
+    /// NCR troopers of the Strip's scene VStripSS3 (VStripSS3TrooperDancerGomorrah01/02,
+    /// VStripSS3Watcher01/02, also in NCRFactionNV, which names VCaesarsLegionFaction
+    /// Enemy) [observed: FalloutNV.esm records]. A Legionary's murder made the player
+    /// its enemy, and so those four attacked the player on sight on the Strip, with the
+    /// Securitrons (their friends by VStreetSecuritronFaction's XNAM) helping them, for
+    /// good. In FalloutNV.esm's NPC_ and CREA records only that faction and
+    /// FeralGhoulFaction (raiders and super mutants among its members; creatures are
+    /// never murdered) are no side [observed]. Whether the original makes the player an
+    /// enemy of a murder victim's factions at all is open (observer check 136).
+    pub fn faction_is_one_side(&self, faction: FormId) -> bool {
+        let mut others: std::collections::BTreeSet<FormId> = std::collections::BTreeSet::new();
+        for d in self.data.actors.values() {
+            if d.factions.iter().any(|(f, _)| *f == faction) {
+                others.extend(d.factions.iter().map(|(f, _)| *f).filter(|f| *f != faction));
+            }
+        }
+        let enemy = |a: &FormId, b: &FormId| self.data.faction_reactions.get(a).is_some_and(|l| l.iter().any(|(x, r)| x == b && *r == crate::provocation::ENEMY));
+        !others.iter().any(|a| others.iter().any(|b| enemy(a, b)))
+    }
+
+    /// A save made before #2456 may hold the player as an enemy of a faction that is no
+    /// side ([`Game::faction_is_one_side`]), from a murder: on load the player is not
+    /// any more [design]. Returns the factions dropped.
+    pub(crate) fn drop_no_side_enemies(&mut self) -> Vec<FormId> {
+        let gone: Vec<FormId> = self.player.enemy_of.iter().copied().filter(|&f| !self.faction_is_one_side(f)).collect();
+        for f in &gone {
+            self.player.enemy_of.remove(f);
+            tracing::info!("crime: the player is no longer an enemy of {} ({f}): its members fight each other, it is no side (#2456)", self.data.name(*f));
+        }
+        if !gone.is_empty() {
+            crate::functions::actor::forget_relations(self);
+        }
+        gone
+    }
+
     /// The player is an enemy of `faction` from now on (a crime against it it tracks,
-    /// `crate::provocation`'s Evil faction area); noted the first time.
+    /// `crate::provocation`'s Evil faction area); noted the first time. Never of a
+    /// faction that is no side ([`Game::faction_is_one_side`], #2456).
     pub(crate) fn make_player_enemy_of(&mut self, faction: FormId) {
+        if !self.faction_is_one_side(faction) {
+            return;
+        }
         if self.player.enemy_of.insert(faction) {
             self.crimes.notes.push(Note::FactionEnemy { faction });
             crate::functions::actor::forget_relations(self);

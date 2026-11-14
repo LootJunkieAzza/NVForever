@@ -177,6 +177,22 @@ a terminal that opens at its menu (unlocked, hacked before, password held) is no
   major crime against a crime-tracking faction"; hypothesis: when a witness saw it]:
   every member attacks on sight (GetActorFactionPlayerEnemy), until
   ClearFactionPlayerEnemyFlag.
+- **Not a faction that is no side** (#2456) [design]: one whose members' records (NPC_
+  and CREA SNAM) also name two factions that are enemies of each other by their records
+  (FACT XNAM) is a tag, not a side, and a crime never makes the player its enemy
+  (`Game::faction_is_one_side`; the Evil faction area of combat-ai.md §10.3.1 too). In
+  FalloutNV.esm that is ArmorVCaesarsLegionFaction 0x00134B6E (Hidden, Track Crime,
+  naming only itself): it holds the Legion's people and the four NCR troopers of the
+  Strip scene VStripSS3 (VStripSS3TrooperDancerGomorrah01/02, VStripSS3Watcher01/02, also
+  in NCRFactionNV, which names VCaesarsLegionFaction an enemy); and FeralGhoulFaction
+  (raiders and super mutants among its members) [observed: the records]. Before, a
+  Legionary murdered in front of another made those troopers attack the player on sight
+  whenever the Strip's north gate started their scene, and House's Securitrons helped
+  them (VStreetSecuritronFaction names VNCRStreetFaction a Friend; the messenger
+  Securitron helps friends and allies and alarms the street Securitrons, its kin). A save
+  holding such an enemy flag loses it on load (log `crime: the player is no longer an
+  enemy of …`). Whether the original sets the flag on murder at all, and for which of the
+  victim's factions: [hypothesis], observer check 136.
 
 ### 3.5 Assault
 

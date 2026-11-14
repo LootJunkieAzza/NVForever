@@ -412,6 +412,17 @@ the spec it links to.
     double every tree fidget, the drawn-weapon and furniture ones too)?
     ([idles §11.4](spec-notes/idles.md))
 
+65. **A murder no longer makes the player an enemy of a faction that is no side (#2456).**
+    A witnessed murder still makes the player an enemy of the victim's crime-tracking
+    factions, except one whose members' records also name factions that are enemies of
+    each other: in FalloutNV.esm only ArmorVCaesarsLegionFaction (Legionaries and the four
+    NCR troopers of the Strip scene VStripSS3) and FeralGhoulFaction [observed]. Killing
+    a Legionary in front of another had turned those four troopers on the player for
+    good, and House's Securitrons with them. A save holding such an enemy loses it on
+    load. If you rule otherwise: name the factions by hand, or stop making the player a
+    faction's enemy on murder at all (observer check 136 asks what the original does).
+    ([crime-karma §3.4](spec-notes/crime-karma.md))
+
 ## Not a gameplay decision: what the extender work needs from you (2026-10-25)
 
 
