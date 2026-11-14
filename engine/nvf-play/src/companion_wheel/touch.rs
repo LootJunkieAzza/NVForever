@@ -473,7 +473,6 @@ mod tests {
             enabled: true,
             drag_release: false,
             allow_write: false,
-            ..default()
         })
         .insert_resource(WheelScreen(Some(Session {
             companion,

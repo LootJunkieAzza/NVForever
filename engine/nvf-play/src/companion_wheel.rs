@@ -338,10 +338,9 @@ fn keys(
     mouse: crate::pad::ActionButtons<MouseButton>,
     windows: Query<&Window, With<PrimaryWindow>>,
     exit: Query<&PointerState, (Changed<PointerState>, With<ExitButton>)>,
-    mut screen: ResMut<WheelScreen>,
+    (mut screen, touch): (ResMut<WheelScreen>, Option<Res<touch::Settings>>),
     mut out: MessageWriter<WheelInput>,
     mut last_pointer: Local<Option<Vec2>>,
-    touch: Option<Res<touch::Settings>>,
 ) {
     let keys = keys.snapshot();
     let mouse = mouse.snapshot();
@@ -401,7 +400,7 @@ fn apply(
 ) {
     let inputs: Vec<WheelInput> = input.read().copied().collect();
     let Some(rt) = script.as_mut().and_then(|s| s.rt.as_mut()) else { return };
-    for i in inputs {
+    if let Some(i) = inputs.into_iter().next() {
         let Some(s) = screen.0.as_mut() else { return };
         match i {
             WheelInput::Close => {

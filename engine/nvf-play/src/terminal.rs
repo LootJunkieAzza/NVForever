@@ -788,10 +788,9 @@ fn keys(keys: crate::pad::ActionButtons<KeyCode>, screen: Res<TerminalScreen>, m
 /// The pointer on the screen's canvas ([`TerminalPointer`]) puts the cursor on the dump
 /// character or the menu row under it, and a click enters that.
 fn mouse(
-    screen: Res<TerminalScreen>,
+    (screen, touch): (Res<TerminalScreen>, Res<touch::Settings>),
     buttons: crate::pad::ActionButtons<MouseButton>,
     pointer: Res<TerminalPointer>,
-    touch: Res<touch::Settings>,
     rows: Res<MenuRows>,
     mut last: Local<Option<usize>>,
     mut last_row: Local<Option<usize>>,

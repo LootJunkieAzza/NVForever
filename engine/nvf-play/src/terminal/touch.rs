@@ -143,9 +143,10 @@ struct Gesture {
     pan: f32,
     dragged: bool,
 }
+type SessionKey = (FormId, (u8, u32, Option<FormId>));
 #[derive(Resource, Default)]
 pub(super) struct TouchState {
-    session: Option<(FormId, (u8, u32, Option<FormId>))>,
+    session: Option<SessionKey>,
     gesture: Option<Gesture>,
     contacts: std::collections::HashSet<u64>,
     suspended: bool,
@@ -623,7 +624,7 @@ pub(super) fn input(
                         if size.min_element() <= 0.0 {
                             return None;
                         }
-                        let p = (touch.position * window.scale_factor() as f32
+                        let p = (touch.position * window.scale_factor()
                             - (at.translation - size / 2.0))
                             / size
                             * screen::CANVAS;
@@ -851,7 +852,7 @@ pub(super) fn draw(
                         }),
                     ));
                 }
-                for index in 0..h.puzzle.chars.len() {
+                for (index, character) in h.puzzle.chars.iter().enumerate() {
                     if let Some(rect) = g.cell_rect(index, state.first_row) {
                         let lit = selected.as_ref().is_some_and(|span| span.contains(&index));
                         if lit {
@@ -869,7 +870,7 @@ pub(super) fn draw(
                         }
                         label(
                             root,
-                            &h.puzzle.chars[index].to_string(),
+                            &character.to_string(),
                             rect,
                             24.0 + settings.zoom as f32 * 4.0,
                             if lit { Color::BLACK } else { color },
