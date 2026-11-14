@@ -889,6 +889,19 @@ const OPTIONS_MAX: f32 = 1300.0;
 /// place is kept as its distance from the row's right end ([`RowX`]), so a row of this width
 /// is drawn as before and a wider row gives its extra room to the label [design: #2377].
 const ROW_BASE: f32 = 820.0;
+/// The least room between a row's label and its value; a label keeps at least
+/// [`LABEL_MIN`] where a value is wide (a long reason or binding), and text that still does
+/// not fit is cut with [`CUT_MARK`] at its measured width instead of running into its
+/// neighbour [design: #2377].
+const LABEL_GAP: f32 = 16.0;
+const LABEL_MIN: f32 = 160.0;
+const CUT_MARK: &str = "...";
+/// A value's text keeps this far from the row's right end, and a slider's words this far
+/// from its right arrow [design: #2377].
+const VALUE_PAD: f32 = 6.0;
+const ARROW_PAD: f32 = 4.0;
+/// A slider's meter gives room to wide value words down to this width [design: #2377].
+const METER_MIN: f32 = 100.0;
 /// The settings page's rows' top: higher than the column's (360 with the pause menu's
 /// five entries), where nine rows and the note under them ran off the bottom [design:
 /// #1210]. The rail starts there too: Search, Changed and seven tabs are nine lines
@@ -1696,7 +1709,8 @@ fn settings_page(root: &mut ChildSpawnerCommands, d: &Drawn, look: &PauseLook, l
     let (line, _) = highlight_colors();
     root.spawn((Node { border: UiRect::all(u(LINE)), ..from_middle(left + lb.row().list_left(), y, LIST_WIDTH, h) }, BorderColor::all(line), BackgroundColor(Color::BLACK), GlobalZIndex(111))).with_children(|b| {
         for (k, name) in names.iter().enumerate().skip(o.first).take(shown) {
-            let name = tr_str(d.choice_words(o.row, k, name));
+            let name = fit_text(|t| f.entry.font.width(t), tr_str(d.choice_words(o.row, k, name)), LIST_WIDTH - 2.0 * LINE - 2.0 * VALUE_PAD);
+            let name = name.as_str();
             let shade = if d.choice_reason(o.row, k).is_some() { Shade::Dim } else { Shade::Bright };
             let nw = f.entry.font.width(name);
             b.spawn((Button, PauseButton::Choice(o.row, k), boxed(at(0.0, (k - o.first) as f32 * DROP_ITEM, LIST_WIDTH - 2.0 * LINE, DROP_ITEM), k == o.at)))
@@ -1708,7 +1722,8 @@ fn settings_page(root: &mut ChildSpawnerCommands, d: &Drawn, look: &PauseLook, l
 /// A heading's line: its words dim in the page's font, nothing to choose [design: #1953].
 fn heading_line(root: &mut ChildSpawnerCommands, f: &Faces, words: &str, lb: ListBox, y: f32) {
     root.spawn((HeadingLine, Text::new(words), Node { display: Display::None, ..default() }));
-    root.spawn(from_middle(lb.left, y, lb.width, OPTION_ROW)).with_children(|t| sm_text(t, &f.entry, words, 10.0, BASE + 2.0, color(Shade::Dim)));
+    let words = fit_text(|t| f.entry.font.width(t), words, lb.width - 20.0);
+    root.spawn(from_middle(lb.left, y, lb.width, OPTION_ROW)).with_children(|t| sm_text(t, &f.entry, &words, 10.0, BASE + 2.0, color(Shade::Dim)));
 }
 
 /// A heading's words, translated: on a tab its heading's (`Saving`); on the search and the
@@ -1770,47 +1785,62 @@ fn heading_links(root: &mut ChildSpawnerCommands, f: &Faces, lb: ListBox, glyphs
 fn row_line(root: &mut ChildSpawnerCommands, d: &Drawn, look: &PauseLook, list: &[Setting], id: RowId, on: bool, lb: ListBox, y: f32, glyphs: &crate::pad::PadGlyphs) {
     let f = &look.faces;
     let x = lb.row();
+    let width = |t: &str| f.entry.font.width(t);
     let node = boxed(from_middle(lb.left, y, lb.width, OPTION_ROW), on);
     match id {
         RowId::Setting(i) => {
             let Some(s) = list.get(i) else { return };
             let v = d.states.get(i).copied().unwrap_or(0.0);
             let disabled = d.disabled.get(i).copied().flatten();
+            let label = tr(s.label);
+            let label_shade = color(if disabled.is_some() { Shade::Dim } else { Shade::Bright });
             root.spawn((Button, PauseButton::Row(id), node)).with_children(|r| {
-                sm_text(r, &f.entry, tr(s.label), 10.0, BASE + 2.0, color(if disabled.is_some() { Shade::Dim } else { Shade::Bright }));
                 if let Some(reason) = disabled {
                     let reason = tr(reason);
                     r.spawn((SwitchState(id), Text::new(reason), Node { display: Display::None, ..default() }));
-                    let vw = f.entry.font.width(reason);
-                    sm_text(r, &f.entry, reason, x.value_at() - vw / 2.0, BASE + 2.0, color(Shade::Dim));
+                    let parts = row_parts(x, ValueKind::Centred(width(reason)));
+                    let (label, reason) = fit_row(width, &parts, label, reason, true);
+                    sm_text(r, &f.entry, &label, parts.label.0, BASE + 2.0, label_shade);
+                    sm_text(r, &f.entry, &reason, parts.text_x(width(&reason)), BASE + 2.0, color(Shade::Dim));
                     return;
                 }
                 if let Some(slider) = &s.slider {
-                    slider_row(r, look, x, id, v, &slider.text(v));
+                    let value = slider.text(v);
+                    let parts = row_parts(x, ValueKind::Slider(width(tr_str(&value))));
+                    sm_text(r, &f.entry, &fit_text(width, label, parts.label_room()), parts.label.0, BASE + 2.0, label_shade);
+                    slider_row(r, look, &parts, id, v, &value);
                     return;
                 }
                 if let Some((_, chosen)) = d.list(i) {
-                    list_row(r, look, x, id, chosen, d.chosen_words(i, chosen), d.dropdown.is_some_and(|o| o.row == i));
+                    let shown = d.chosen_words(i, chosen);
+                    let parts = row_parts(x, ValueKind::List(width(tr_str(shown.0))));
+                    sm_text(r, &f.entry, &fit_text(width, label, parts.label_room()), parts.label.0, BASE + 2.0, label_shade);
+                    list_row(r, look, &parts, id, chosen, shown, d.dropdown.is_some_and(|o| o.row == i));
                     return;
                 }
                 let value = tr(if v > 0.5 { "ON" } else { "OFF" });
-                let vw = f.entry.font.width(value);
                 r.spawn((SwitchState(id), Text::new(value), Node { display: Display::None, ..default() }));
-                sm_text(r, &f.entry, value, x.value_at() - vw / 2.0, BASE + 2.0, color(Shade::Bright));
+                let parts = row_parts(x, ValueKind::Centred(width(value)));
+                let (label, value) = fit_row(width, &parts, label, value, true);
+                sm_text(r, &f.entry, &label, parts.label.0, BASE + 2.0, label_shade);
+                sm_text(r, &f.entry, &value, parts.text_x(width(&value)), BASE + 2.0, color(Shade::Bright));
             });
         }
         RowId::Control(c) => {
             let (name, value) = control_line(d, c);
             root.spawn((Button, PauseButton::Row(id), node)).with_children(|r| {
-                sm_text(r, &f.entry, name, 10.0, BASE + 2.0, color(Shade::Bright));
                 if let ControlRow::Sensitivity(_) | ControlRow::Vertical(_) = c {
                     let m = if matches!(c, ControlRow::Vertical(_)) { d.vertical } else { d.sensitivity };
-                    slider_row(r, look, x, id, crate::bindings::sensitivity_part(m), &value);
+                    let parts = row_parts(x, ValueKind::Slider(width(tr_str(&value))));
+                    sm_text(r, &f.entry, &fit_text(width, name, parts.label_room()), parts.label.0, BASE + 2.0, color(Shade::Bright));
+                    slider_row(r, look, &parts, id, crate::bindings::sensitivity_part(m), &value);
                     return;
                 }
                 let vw = crate::pad::button_width(&f.entry, &value, glyphs);
+                let parts = row_parts(x, ValueKind::Binding(vw));
+                sm_text(r, &f.entry, &fit_text(width, name, parts.label_room()), parts.label.0, BASE + 2.0, color(Shade::Bright));
                 r.spawn((SwitchState(id), Text::new(value.clone()), Node { display: Display::None, ..default() }));
-                crate::pad::set_button(r, &f.entry, &value, (x.value_at() - vw / 2.0).min(x.0 - vw - 14.0), BASE + 2.0, color(Shade::Bright), glyphs);
+                crate::pad::set_button(r, &f.entry, &value, parts.text.0, BASE + 2.0, color(Shade::Bright), glyphs);
             });
         }
     }
@@ -1888,19 +1918,20 @@ fn row_note(list: &[Setting], id: RowId, d: &Drawn) -> String {
 }
 
 /// A list's row: its choice in a box with a down arrow (lit while its dropdown is open),
-/// shown by its words (`shown`), dim when out of reach now.
-fn list_row(r: &mut ChildSpawnerCommands, look: &PauseLook, x: RowX, i: RowId, chosen: &str, shown: (&str, bool), open: bool) {
+/// shown by its words (`shown`, cut to the box where they do not fit), dim when out of reach
+/// now.
+fn list_row(r: &mut ChildSpawnerCommands, look: &PauseLook, parts: &RowParts, i: RowId, chosen: &str, shown: (&str, bool), open: bool) {
     let bright = color(Shade::Bright);
     let (line, fill) = highlight_colors();
-    let list_left = x.list_left();
+    let list_left = parts.value.0;
     r.spawn((Node { border: UiRect::all(u(LINE)), ..at(list_left, 6.0, LIST_WIDTH, OPTION_ROW - 12.0) }, BorderColor::all(line.with_alpha(if open { 1.0 } else { 0.6 })), BackgroundColor(if open { fill } else { Color::NONE })));
     // The state kept as text stays the English name (tests and aids read it); the page
     // shows it in the language chosen.
     r.spawn((SwitchState(i), Text::new(chosen), Node { display: Display::None, ..default() }));
     let (words, out_of_reach) = shown;
-    let words = tr_str(words);
-    let vw = look.faces.entry.font.width(words);
-    sm_text(r, &look.faces.entry, words, list_left + (LIST_WIDTH - 30.0 - vw) / 2.0, BASE + 2.0, if out_of_reach { color(Shade::Dim) } else { bright });
+    let font = &look.faces.entry.font;
+    let words = fit_text(|t| font.width(t), tr_str(words), parts.text_room());
+    sm_text(r, &look.faces.entry, &words, parts.text_x(font.width(&words)), BASE + 2.0, if out_of_reach { color(Shade::Dim) } else { bright });
     // The right arrow turned to point down.
     let node = at(list_left + LIST_WIDTH - 30.0, (OPTION_ROW - METER_ARROW.y) / 2.0, METER_ARROW.x, METER_ARROW.y);
     let turned = UiTransform { rotation: Rot2::degrees(90.0), ..default() };
@@ -2042,6 +2073,121 @@ impl RowX {
     }
 }
 
+/// `text` as it fits in `room` units measured by `width_of` (a face's font): itself, or cut
+/// at the end with [`CUT_MARK`]; only the mark, or nothing, where even that does not fit.
+/// What is cut is only what is drawn: the search, the log and the hidden texts the aids read
+/// keep the full words [design: #2377].
+fn fit_text(width_of: impl Fn(&str) -> f32, text: &str, room: f32) -> String {
+    if width_of(text) <= room {
+        return text.to_string();
+    }
+    let mut chars: Vec<char> = text.chars().collect();
+    while chars.pop().is_some() {
+        let cut = format!("{}{CUT_MARK}", chars.iter().collect::<String>().trim_end());
+        if !chars.is_empty() && width_of(&cut) <= room {
+            return cut;
+        }
+    }
+    if width_of(CUT_MARK) <= room {
+        CUT_MARK.to_string()
+    } else {
+        String::new()
+    }
+}
+
+/// A row's value, for its layout ([`row_parts`]): what it is and its words' measured width.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum ValueKind {
+    /// A switch's state or a reason, centred at [`RowX::value_at`].
+    Centred(f32),
+    /// A slider's meter and arrows, its value's words right of them.
+    Slider(f32),
+    /// A list's box, the chosen one's words in it.
+    List(f32),
+    /// A Controls binding: its key's words and button pictures (never cut).
+    Binding(f32),
+}
+
+/// Where a row's label and value are drawn, from the row's left edge: the one place that
+/// lays a row out, for the drawing and the checks ([`check_page_text`]) [design: #2377].
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct RowParts {
+    /// The label's room: from its left edge to where it must end, [`LABEL_GAP`] before the
+    /// value.
+    label: (f32, f32),
+    /// The value's part of the row.
+    value: (f32, f32),
+    /// The room of the value's words and the point they are centred on (kept inside the
+    /// room); words wider than the room are cut.
+    text: (f32, f32),
+    centre: f32,
+    /// A slider's meter (its left edge and width) and its right arrow's left edge (the
+    /// meter gives room to wide words).
+    meter: (f32, f32),
+    right_arrow: f32,
+}
+
+impl RowParts {
+    /// Where words `w` wide (cut to the room first) start.
+    fn text_x(&self, w: f32) -> f32 {
+        (self.centre - w / 2.0).clamp(self.text.0, (self.text.1 - w).max(self.text.0))
+    }
+
+    fn text_room(&self) -> f32 {
+        (self.text.1 - self.text.0).max(0.0)
+    }
+
+    fn label_room(&self) -> f32 {
+        (self.label.1 - self.label.0).max(0.0)
+    }
+}
+
+/// The parts of a row laid out at `x` for a value of `kind` ([`RowParts`]): the value's
+/// place as before #2377 where its words fit, a wide reason or binding taking room from the
+/// label down to [`LABEL_MIN`], wide slider words from the meter down to [`METER_MIN`].
+fn row_parts(x: RowX, kind: ValueKind) -> RowParts {
+    let w = x.0;
+    let label_left = 10.0;
+    let fixed = x.value_left();
+    // A wide value never starts left of this (unless the row is too narrow for its usual
+    // value part already).
+    let floor = (label_left + LABEL_MIN + LABEL_GAP).min(fixed);
+    let right = w - VALUE_PAD;
+    let [left_arrow, right_arrow] = x.arrows();
+    let (value, text, centre, meter_w, right_arrow) = match kind {
+        ValueKind::Centred(vw) => {
+            let left = fixed.min(right - vw).max(floor);
+            ((left, right), (left, right), x.value_at(), METER_WIDTH, right_arrow)
+        }
+        ValueKind::Slider(vw) => {
+            let room = right - (right_arrow + METER_ARROW.x + ARROW_PAD);
+            let extra = (vw - room).clamp(0.0, METER_WIDTH - METER_MIN);
+            let arrow = right_arrow - extra;
+            let text = (arrow + METER_ARROW.x + ARROW_PAD, right);
+            let centre = if extra > 0.0 { (text.0 + text.1) / 2.0 } else { x.percent_at() };
+            ((left_arrow, right), text, centre, METER_WIDTH - extra, arrow)
+        }
+        ValueKind::List(_) => {
+            let left = x.list_left();
+            let text = (left + VALUE_PAD, left + LIST_WIDTH - 30.0 - VALUE_PAD);
+            ((left, left + LIST_WIDTH), text, left + (LIST_WIDTH - 30.0) / 2.0, METER_WIDTH, right_arrow)
+        }
+        ValueKind::Binding(vw) => {
+            let left = (x.value_at() - vw / 2.0).min(w - vw - 14.0).max(floor);
+            ((left.min(fixed), right.max(left + vw)), (left, left + vw), left + vw / 2.0, METER_WIDTH, right_arrow)
+        }
+    };
+    RowParts { label: (label_left, (value.0 - LABEL_GAP).max(label_left)), value, text, centre, meter: (x.meter_left(), meter_w), right_arrow }
+}
+
+/// A row's label and value words as drawn in `parts`, each cut to its room where it does
+/// not fit (`cut_value` false: a binding's, never cut).
+fn fit_row(width_of: impl Fn(&str) -> f32 + Copy, parts: &RowParts, label: &str, value: &str, cut_value: bool) -> (String, String) {
+    let l = fit_text(width_of, label, parts.label_room());
+    let v = if cut_value { fit_text(width_of, value, parts.text_room()) } else { value.to_string() };
+    (l, v)
+}
+
 /// The settings page's scroll bar, right of its window of `lines` rows.
 fn scroll_bar(root: &mut ChildSpawnerCommands, look: &PauseLook, rows: usize, first: usize, top: f32, lb: ListBox, lines: usize) {
     let w = settings_window(lines);
@@ -2093,31 +2239,31 @@ fn at(x: f32, y: f32, w: f32, h: f32) -> Node {
     Node { position_type: PositionType::Absolute, left: u(x), top: u(y), width: u(w), height: u(h), ..default() }
 }
 
-/// How many ticks of a slider's meter show for value `v` (a tick partly in shows, cut).
-fn meter_ticks(v: f32) -> usize {
-    (METER_WIDTH * v.clamp(0.0, 1.0) / METER_TICK).ceil() as usize
+/// How many ticks of a slider's meter `meter_w` wide show for value `v` (a tick partly in
+/// shows, cut).
+fn meter_ticks(v: f32, meter_w: f32) -> usize {
+    (meter_w * v.clamp(0.0, 1.0) / METER_TICK).ceil() as usize
 }
 
 /// A slider's meter, arrows and value (`value`: `v` as shown, e.g. a percentage) in its
-/// row `i`.
-fn slider_row(r: &mut ChildSpawnerCommands, look: &PauseLook, x: RowX, i: RowId, v: f32, value: &str) {
+/// row `i`, laid out by `parts` (wide words take room from the meter, then are cut).
+fn slider_row(r: &mut ChildSpawnerCommands, look: &PauseLook, parts: &RowParts, i: RowId, v: f32, value: &str) {
     let bright = color(Shade::Bright);
     let my = (OPTION_ROW - METER_HEIGHT) / 2.0;
-    let meter_left = x.meter_left();
+    let (meter_left, meter_w) = parts.meter;
     // The ground, then the ticks as far as the value.
-    r.spawn((at(meter_left, my, METER_WIDTH, METER_HEIGHT), BackgroundColor(bright.with_alpha(0.25))));
-    for t in 0..meter_ticks(v) {
+    r.spawn((at(meter_left, my, meter_w, METER_HEIGHT), BackgroundColor(bright.with_alpha(0.25))));
+    for t in 0..meter_ticks(v, meter_w) {
         let x = meter_left + t as f32 * METER_TICK;
-        let w = METER_TICK.min(meter_left + METER_WIDTH - x);
+        let w = METER_TICK.min(meter_left + meter_w - x);
         match &look.tick {
             Some(image) => r.spawn((at(x, my, w, METER_HEIGHT), ImageNode { rect: Some(Rect::new(0.0, 0.0, w, 20.0)), color: bright, ..ImageNode::new(image.clone()) })),
             None => r.spawn((at(x, my, (w - 3.0).max(1.0), METER_HEIGHT), BackgroundColor(bright))),
         };
     }
     // Over them what takes the pointer, a little taller than the meter.
-    r.spawn((Button, PauseButton::Meter(i), RelativeCursorPosition::default(), at(meter_left, my - 6.0, METER_WIDTH, METER_HEIGHT + 12.0)));
-    let arrows = x.arrows();
-    for (k, (x, step)) in [(arrows[0], -1), (arrows[1], 1)].into_iter().enumerate() {
+    r.spawn((Button, PauseButton::Meter(i), RelativeCursorPosition::default(), at(meter_left, my - 6.0, meter_w, METER_HEIGHT + 12.0)));
+    for (k, (x, step)) in [(parts.value.0, -1), (parts.right_arrow, 1)].into_iter().enumerate() {
         let node = at(x, (OPTION_ROW - METER_ARROW.y) / 2.0, METER_ARROW.x, METER_ARROW.y);
         match &look.arrows[k] {
             Some(image) => r.spawn((Button, PauseButton::SliderStep(i, step), node, ImageNode { color: bright, ..ImageNode::new(image.clone()) })),
@@ -2126,9 +2272,9 @@ fn slider_row(r: &mut ChildSpawnerCommands, look: &PauseLook, x: RowX, i: RowId,
     }
     r.spawn((SwitchState(i), Text::new(value), Node { display: Display::None, ..default() }));
     // A value with words ("Off" on the frame rate limit) in the language shown.
-    let value = tr_str(value);
-    let vw = look.faces.entry.font.width(value);
-    sm_text(r, &look.faces.entry, value, x.percent_at() - vw / 2.0, BASE + 2.0, bright);
+    let font = &look.faces.entry.font;
+    let value = fit_text(|t| font.width(t), tr_str(value), parts.text_room());
+    sm_text(r, &look.faces.entry, &value, parts.text_x(font.width(&value)), BASE + 2.0, bright);
 }
 
 /// The load page: the chosen save's thumbnail and details over the saves' rows (a window
@@ -4374,6 +4520,75 @@ fn changed_now(world: &mut World, list: &[Setting]) {
     world.resource_mut::<PauseView>().found.changed = changed;
 }
 
+/// The values a registered row can show, as the page draws them (translated): a switch's ON
+/// and OFF, a slider's value at each of its steps, a list's choices by their words, and the
+/// reason it is dimmed now, each with its kind for [`row_parts`] (`width_of`: the entries'
+/// font).
+fn row_values(world: &World, settings: &Settings, i: usize, width_of: impl Fn(&str) -> f32) -> Vec<(ValueKind, String)> {
+    let s = settings.list()[i];
+    let mut out = Vec::new();
+    if let Some(reason) = settings.disabled_status(world, i) {
+        let reason = tr(reason).to_string();
+        out.push((ValueKind::Centred(width_of(&reason)), reason));
+    }
+    if let Some(sl) = s.slider {
+        let steps = (((1.0 - sl.min) / sl.step.max(1e-3)).round() as usize).min(1000);
+        for k in 0..=steps {
+            let words = tr_str(&sl.text(sl.fit(sl.min + k as f32 * sl.step))).to_string();
+            out.push((ValueKind::Slider(width_of(&words)), words));
+        }
+    } else if let Some(c) = settings.choices(i) {
+        for name in (c.names)(world) {
+            let words = tr_str(&settings.choice_label(world, i, &name)).to_string();
+            out.push((ValueKind::List(width_of(&words)), words));
+        }
+    } else {
+        for v in ["ON", "OFF"] {
+            out.push((ValueKind::Centred(width_of(tr(v))), tr(v).to_string()));
+        }
+    }
+    out.dedup_by(|a, b| a.1 == b.1);
+    out
+}
+
+/// The settings page's words checked with its faces `f`, once they are loaded (the first time
+/// the pause menu draws) [design: #2377]: every registered row laid out at the page's width
+/// in a 16:9 view, the rail as wide as its words; a row whose label or one of its values has
+/// to be cut to fit logs `settings: text of `<key>` cut to fit: …`, then `settings: <n> rows
+/// laid out, <cut> cut to fit`. Cutting is how the page keeps text from running into its
+/// neighbour; the log says where a label or a value's words are too long for the page.
+fn check_page_text(world: &mut World, f: &Faces) {
+    let Some(list) = world.get_resource::<Settings>().map(|s| s.list().to_vec()) else { return };
+    if !world.contains_resource::<SettingsLayout>() {
+        world.init_resource::<SettingsLayout>();
+    }
+    let rail = world.resource_scope(|_, mut layout: Mut<SettingsLayout>| crate::settings_view::rail(layout.refresh(&list)));
+    let lb = ListBox::of(VIEW_W, rail_width(f, &rail, false));
+    let x = lb.row();
+    let width = |t: &str| f.entry.font.width(t);
+    let settings = world.resource::<Settings>();
+    let mut cut = 0;
+    for (i, s) in list.iter().enumerate() {
+        let label = tr(s.label);
+        let mut what = Vec::new();
+        for (kind, value) in row_values(world, settings, i, width) {
+            let parts = row_parts(x, kind);
+            let (l, v) = fit_row(width, &parts, label, &value, !matches!(kind, ValueKind::Binding(_)));
+            if l != label && !what.iter().any(|w: &String| w.starts_with("label")) {
+                what.push(format!("label \"{label}\" ({:.0} of {:.0} units)", width(label), parts.label_room()));
+            }
+            if v != value {
+                what.push(format!("value \"{value}\" ({:.0} of {:.0} units)", width(&value), parts.text_room()));
+            }
+        }
+        if !what.is_empty() {
+            cut += 1;
+            warn!("settings: text of `{}` cut to fit: {}", s.key, what.join(", "));
+        }
+    }
+    info!("settings: {} rows laid out, {cut} cut to fit (a list {:.0} units wide in a 16:9 view)", list.len(), lb.width);
+}
+
 /// The settings list's place, logged when it changes (a new window size, a translated rail):
 /// `pause menu: settings list <width> wide from <left> in a view <w> wide, band <l>-<r>`, in
 /// interface units from the view's left edge [design: #2377].
@@ -4400,6 +4615,8 @@ fn draw(world: &mut World) {
     if !world.contains_resource::<PauseLook>() {
         let look = PauseLook::load(world);
         world.insert_resource(look);
+        // The page's words checked once with the faces they are drawn in (#2377).
+        world.resource_scope(|world, look: Mut<PauseLook>| check_page_text(world, &look.faces));
     }
     let roots: Vec<Entity> = world.query_filtered::<Entity, With<PauseRoot>>().iter(world).collect();
     for e in roots {
@@ -5418,6 +5635,74 @@ mod tests {
         assert_eq!(step_row(0, 1, 0), 0);
     }
 
+    /// #2377: text cut to fit is cut at its measured width, with the mark, never into
+    /// nothing while the mark fits; text that fits is left whole.
+    #[test]
+    fn text_that_does_not_fit_is_cut_with_a_mark() {
+        let chars = |t: &str| t.chars().count() as f32;
+        assert_eq!(fit_text(chars, "Bloom", 5.0), "Bloom");
+        assert_eq!(fit_text(chars, "Anisotropic", 6.0), "Ani...");
+        assert_eq!(fit_text(chars, "ab cdef", 5.0), "ab...", "no space before the mark");
+        assert_eq!(fit_text(chars, "Größenänderung", 7.0), "Größ...", "by characters, not bytes");
+        assert_eq!(fit_text(chars, "Anisotropic", 3.0), "...");
+        assert_eq!(fit_text(chars, "Anisotropic", 2.0), "");
+        assert_eq!(fit_text(chars, "", 0.0), "");
+        let wide = |t: &str| t.chars().map(|c| if c == 'W' { 3.0 } else { 1.0 }).sum::<f32>();
+        assert_eq!(fit_text(wide, "WWWW", 7.0), "W...", "measured, not counted");
+    }
+
+    /// #2377: no text runs into its neighbour: at every view width and rail, for every kind
+    /// of value and long words, the label ends LABEL_GAP before the value, the value stays in
+    /// its row, words drawn stay in their room, a slider's meter and arrows keep their order;
+    /// a row of the width before #2377 draws a usual value where it did.
+    #[test]
+    fn a_rows_label_and_value_never_overlap() {
+        let font = Faces::plain().entry.font;
+        let width = |t: &str| font.width(t);
+        let long = "An extremely long translated label that cannot fit in any settings row at all";
+        let values = ["ON", "Off (upscaling active)", "Controlled by another setting entirely, with more words", "Performance", "Ultra Performance mode at a very long name", "50%"];
+        for view_w in VIEW_WIDTHS {
+            for tabs_w in [SUB_WIDTH, 220.0] {
+                let lb = ListBox::of(view_w, tabs_w);
+                let x = lb.row();
+                for value in values {
+                    let vw = width(value);
+                    for kind in [ValueKind::Centred(vw), ValueKind::Slider(vw), ValueKind::List(vw), ValueKind::Binding(vw.min(300.0))] {
+                        let p = row_parts(x, kind);
+                        let at = format!("{view_w}/{tabs_w} {kind:?} {value:?}");
+                        assert!(p.label_room() >= LABEL_MIN.min(x.value_left() - 10.0 - LABEL_GAP) - 0.01, "{at}: label room {}", p.label_room());
+                        assert!(p.label.1 + LABEL_GAP <= p.value.0 + 0.01, "{at}: label to {}, value from {}", p.label.1, p.value.0);
+                        assert!(p.value.1 <= lb.width + 0.01 && p.text.0 >= p.value.0 - 0.01 && p.text.1 <= p.value.1 + 0.01, "{at}: {p:?}");
+                        let (l, v) = fit_row(width, &p, long, value, !matches!(kind, ValueKind::Binding(_)));
+                        assert!(width(&l) <= p.label_room() + 0.01 && p.label.0 + width(&l) + LABEL_GAP <= p.value.0 + 0.01, "{at}: label {l:?}");
+                        if !matches!(kind, ValueKind::Binding(_)) {
+                            let tx = p.text_x(width(&v));
+                            assert!(width(&v) <= p.text_room() + 0.01 && tx >= p.text.0 - 0.01 && tx + width(&v) <= p.text.1 + 0.01, "{at}: value {v:?} at {tx}");
+                        }
+                        if let ValueKind::Slider(_) = kind {
+                            let (ml, mw) = p.meter;
+                            assert!(p.value.0 + METER_ARROW.x <= ml && ml + mw < p.right_arrow && p.right_arrow + METER_ARROW.x <= p.text.0 && mw >= METER_MIN, "{at}: {p:?}");
+                        }
+                    }
+                }
+            }
+        }
+        // A row 820 wide, as before #2377: usual values where they were.
+        let x = RowX(ROW_BASE);
+        assert_eq!(row_parts(x, ValueKind::Centred(34.0)).text_x(34.0), VALUE_AT - 17.0);
+        let p = row_parts(x, ValueKind::Slider(51.0));
+        assert_eq!((p.text_x(51.0), p.right_arrow, p.meter), (PERCENT_AT - 25.5, METER_ARROWS[1], (METER_LEFT, METER_WIDTH)));
+        assert_eq!(row_parts(x, ValueKind::List(100.0)).text_x(100.0), LIST_LEFT + (LIST_WIDTH - 30.0 - 100.0) / 2.0);
+        assert_eq!(row_parts(x, ValueKind::Binding(60.0)).text.0, VALUE_AT - 30.0);
+        assert_eq!(row_parts(x, ValueKind::Centred(34.0)).label, (10.0, LIST_LEFT - LABEL_GAP));
+        // Wide words: a slider's meter gives room ("Performance" at 17 units a letter), a
+        // reason takes room from the label, both within their row.
+        let p = row_parts(x, ValueKind::Slider(187.0));
+        assert!(p.meter.1 < METER_WIDTH && p.text_room() >= 187.0, "{p:?}");
+        let p = row_parts(x, ValueKind::Centred(500.0));
+        assert!(p.value.0 < LIST_LEFT && p.label_room() >= LABEL_MIN && p.text_room() >= 500.0, "{p:?}");
+    }
+
     #[test]
     fn the_window_moves_only_as_far_as_keeps_the_choice_in_view() {
         // A list of rows without headings (the Controls tab's): as before #1953.
@@ -5612,9 +5897,9 @@ mod tests {
         crate::settings::step_slider(app.world_mut(), 0, -2);
         assert_eq!(shown(&mut app), "40%");
         assert_eq!(app.world().resource::<PauseView>().defaults, Some(vec![0.5]));
-        assert_eq!(meter_ticks(1.0), 30);
-        assert_eq!(meter_ticks(0.5), 15);
-        assert_eq!(meter_ticks(0.0), 0);
+        assert_eq!(meter_ticks(1.0, METER_WIDTH), 30);
+        assert_eq!(meter_ticks(0.5, METER_WIDTH), 15);
+        assert_eq!(meter_ticks(0.0, METER_WIDTH), 0);
     }
 
     #[test]
