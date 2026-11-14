@@ -17,3 +17,22 @@ android {
     buildTypes { release { minifyEnabled false } }
     compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
 }
+
+// Binary distributions carry the same licence notices as desktop release archives.
+def legalAssets = layout.buildDirectory.dir('generated/legal-assets')
+android.sourceSets.main.assets.srcDir(legalAssets)
+def stageLegalAssets = tasks.register('stageLegalAssets', Exec) {
+    outputs.dir(legalAssets)
+    // Regenerate with the exact resolved native dependency graph and source revision.
+    outputs.upToDateWhen { false }
+    doFirst {
+        def ndk = providers.environmentVariable('ANDROID_NDK_HOME').orNull
+        if (ndk == null) throw new GradleException('Set ANDROID_NDK_HOME or build with tools/android/build.py')
+        commandLine providers.environmentVariable('NVF_PYTHON').getOrElse('python3'),
+            rootProject.file('../tools/android/legal_assets.py'), '--ndk', ndk,
+            '--out', legalAssets.get().asFile
+    }
+}
+tasks.configureEach {
+    if (name.startsWith('merge') && name.endsWith('Assets')) dependsOn(stageLegalAssets)
+}

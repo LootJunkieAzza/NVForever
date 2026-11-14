@@ -10,6 +10,7 @@ from pathlib import Path
 import platform
 import shutil
 import subprocess
+import sys
 
 ROOT = Path(__file__).resolve().parents[2]
 TARGET = "aarch64-linux-android"
@@ -67,6 +68,7 @@ def main() -> None:
         parser.error("set ANDROID_NDK_HOME or --ndk, and a positive --jobs")
     args.target_dir = args.target_dir.resolve()
     env = build_environment(args.ndk, args.target_dir, args.jobs)
+    env["NVF_PYTHON"] = sys.executable
     if args.gradle_build_dir:
         args.gradle_build_dir = args.gradle_build_dir.resolve()
         env["NVF_ANDROID_BUILD_DIR"] = str(args.gradle_build_dir)

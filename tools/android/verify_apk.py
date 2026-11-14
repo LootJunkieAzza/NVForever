@@ -15,6 +15,8 @@ REQUIRED = {
     "lib/arm64-v8a/libnvf_android.so", "lib/arm64-v8a/libc++_shared.so",
     "assets/schemas/fnv/common.json", "assets/schemas/nif/core.json",
     "assets/schemas/script/functions.json",
+    "assets/LICENSE.txt", "assets/LEGAL.txt", "assets/THIRD-PARTY-LICENSES.txt",
+    "assets/NDK-NOTICE.txt", "assets/NDK-NOTICE.toolchain.txt", "assets/SOURCE.txt",
 }
 GAME_SUFFIXES = {".esm", ".esp", ".esl", ".bsa", ".dds", ".nif", ".kf", ".bik", ".fnt", ".lip", ".fos", ".ogg", ".wav", ".mp3"}
 
