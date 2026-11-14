@@ -1242,7 +1242,7 @@ PLAYERLAYMINE 56; the other PLAYER… topics have none.
   the issue's chain, not seen in a run; players reported Easy Pete out of place].
 - **What the original does**: not known. The GECK wiki's "How Are Packages Evaluated"
   lists the periodic choice, EvaluatePackage, ResetAI and the end of a wait, and says
-  nothing about a script setting GameHour [documented: GECK wiki]. Observer check 128.
+  nothing about a script setting GameHour [documented: GECK wiki]. Observer check 132.
 - **What is built** [design, #2353]: a script's write to GameHour (`set GameHour to`, the
   console's `set`, JIP's SetGameHour) that moves the clock face by more than
   `fnv_game::ai::SCRIPT_HOUR_JUMP` (1 game hour; 23:00 to 01:00 is 2) is noted for the

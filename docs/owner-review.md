@@ -225,7 +225,7 @@ the spec it links to.
 - **A script jumping the clock (#2353).** [design, #2353] A script's GameHour write of more
   than `SCRIPT_HOUR_JUMP` (1 game hour) is handled like the end of a wait: everyone chooses
   its package at once, residents out of sight are put at their new place, those in view
-  walk. The original's handling is unknown (observer check 128); a smaller threshold would
+  walk. The original's handling is unknown (observer check 132); a smaller threshold would
   catch shorter jumps, a larger one fewer. ([packages §9](spec-notes/packages.md))
 
 19. **Walking away from a conversation.** The world freezes while you talk, as in the

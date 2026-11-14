@@ -1985,7 +1985,7 @@ heading 75) with NVFExtProbe.esp loaded, as the jip-probes sets run.
 
 ## Added 2026-11-14 (a script moving the clock, issue #2353)
 
-128. **Where are actors after a script sets GameHour?** (P2; packages.md §9.) NVForever,
+132. **Where are actors after a script sets GameHour?** (P2; packages.md §9.) NVForever,
      on a script's GameHour write of more than an hour, has everybody choose its package
      at once and puts the actors out of sight at their new package's place; those in view
      walk there [design, #2353]. To check, the issue's way: on a new game skip Doc
