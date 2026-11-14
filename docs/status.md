@@ -89,6 +89,8 @@ counts them).
 
 ## 5. Scripting (Layer 5)
 
+Player script sequence bridge/lifecycle has authored source-request controls and a prepared-sample CPU consumer fixture; validation results are recorded in its PR. An optional owned-input GAME observer remains unrun; asynchronous KF loading, native parity and rendered pixels remain unqualified ([player sequences](spec-notes/player-script-sequence-bridge.md), [pose observer](spec-notes/player-script-sequence-pose-aid.md)).
+
 World-coordinate NIF translation getter has an initial source candidate; current-port checks and rendered consumer qualification remain pending ([node translation](spec-notes/local-node-translation-world.md)).
 
 | System | State | Specifics | Notes |
