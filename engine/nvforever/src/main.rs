@@ -916,6 +916,15 @@ fn task_pools(placed: Option<usize>) -> TaskPoolPlugin {
         task_pool_options.async_compute.max_threads = n;
         info!("test aid NVF_PLAY_TEST_ASYNC_THREADS: {n}");
     }
+    // Test aid `NVF_PLAY_TEST_COMPUTE_THREADS=<n>`: the compute pool's size (Bevy gives it
+    // the threads left after I/O and async compute, clamped to its min and max [documented:
+    // bevy_app 0.20.1 `task_pool_plugin.rs`]), to measure how frame time follows it.
+    if let Some(n) = std::env::var("NVF_PLAY_TEST_COMPUTE_THREADS").ok().and_then(|v| v.parse::<usize>().ok()).filter(|&n| n > 0) {
+        task_pool_options.compute.min_threads = n;
+        task_pool_options.compute.max_threads = n;
+        task_pool_options.max_total_threads = task_pool_options.max_total_threads.max(n + task_pool_options.io.max_threads + task_pool_options.async_compute.max_threads);
+        info!("test aid NVF_PLAY_TEST_COMPUTE_THREADS: {n}");
+    }
     TaskPoolPlugin { task_pool_options }
 }
 
