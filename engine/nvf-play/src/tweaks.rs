@@ -557,6 +557,10 @@ pub struct TweakSettings {
     /// `bDoubleTapReloadToChangeAmmoType`: a second Ready Item tap swaps the ammo; a single
     /// tap reloads after a short wait for it.
     pub double_tap_ammo: bool,
+    /// `bImprovedWeather` (`fFastTravelWeatherChangeDistanceThreshold`): a fast travel
+    /// shorter than this many units keeps the weather.
+    pub improved_weather: bool,
+    pub weather_trip_distance: f32,
     /// `bCustomLocationDiscoveredSound` (`sEditorID`): the sound a discovered place plays,
     /// by Editor ID; empty: the game's own.
     pub discovered_sound: String,
@@ -930,6 +934,8 @@ impl Default for TweakSettings {
             dpad_cycles_hotkeys: false,
             keys_with_pad: false,
             double_tap_ammo: false,
+            improved_weather: false,
+            weather_trip_distance: 30000.0,
             discovered_sound: String::new(),
             level_sound_every_a: 0.0,
             level_sound_a: String::new(),
@@ -2109,6 +2115,8 @@ impl Plugin for TweaksPlugin {
         switch!(app, "dpad-cycles-hotkeys", "D-Pad Changes Weapon", "With a controller, the D-pad's right takes out the next weapon on your hotkeys and its left the one before, instead of Ammo Swap and hotkey 4. (Stewie's Tweaks bWeaponCycleUpDownHotkeys)", dpad_cycles_hotkeys);
         switch!(app, "keys-with-pad", "Keyboard and Mouse With a Controller", "With the controller as the input device, the keyboard and mouse still move you, look and act; the menus keep the controller's. (Stewie's Tweaks bAllowKeyboardAndMouseWithControllerConnected)", keys_with_pad);
         switch!(app, "double-tap-ammo", "Double-Tap Reload Changes Ammo", "Tapping Reload twice quickly swaps the ammo type; one tap reloads after a third of a second, the wait for a second tap. (Stewie's Tweaks bDoubleTapReloadToChangeAmmoType)", double_tap_ammo);
+        switch!(app, "improved-weather", "Improved Weather", "A short fast travel keeps the weather instead of rolling a new one for the trip. (Stewie's Tweaks bImprovedWeather)", improved_weather);
+        amount!(app, "weather-trip-distance", "Improved Weather: Short Trip", "How far a fast travel may go and keep the weather, in game units (about 4,100 to a cell). (Stewie's Tweaks bImprovedWeather, fFastTravelWeatherChangeDistanceThreshold)", 100000.0, f32, weather_trip_distance);
         switch!(app, "compass-pips-fade", "Fade Pips by Distance", "People and creatures on the compass grow fainter the further away they are, over the distance they could notice you sneaking. (Stewie's Tweaks bCompassNPCDistanceBasedAlpha)", compass_pips_fade);
         switch!(app, "compass-places-fade", "Fade Places by Distance", "Places on the compass grow fainter the further away they are, over the distance they show at. (Stewie's Tweaks bCompassLocationDistanceBasedAlpha)", compass_places_fade);
         switch!(app, "buffed-health-bars", "Health Bars Count Buffs", "A target's health bar includes Health raised by chems and effects, so a buffed enemy's bar shows how much it can take. (Stewie's Tweaks bEnemyHealthbarShowBuffedHP)", game.buffed_health_bars);

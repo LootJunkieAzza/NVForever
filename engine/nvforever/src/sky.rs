@@ -255,6 +255,9 @@ pub struct SkyState {
     pub clock_running: bool,
     /// Game days passed at midnight of the current day (moon phase).
     pub days_passed: f32,
+    /// The next change the sky would make is skipped (a short fast travel under the
+    /// player's Improved Weather tweak, [`SkyState::keep_weather_once`]).
+    keep_once: bool,
     /// The weather being faded out, while a change is in progress.
     pub prev: Option<Weather>,
     /// Progress of the fade from `prev` to `weather` (1 = done).
@@ -483,6 +486,7 @@ impl SkyState {
             time_scale: 0.0,
             clock_running: false,
             days_passed: 0.0,
+            keep_once: false,
             prev: None,
             fade: 1.0,
             choices,
@@ -609,6 +613,17 @@ impl SkyState {
         let src = self.source.map(|i| self.regions[i].region.form_id);
         let el = self.eligible_now();
         let key = (src, el.iter().map(|w| w.weather).collect::<Vec<u32>>());
+        // The player's Improved Weather tweak: after a short fast travel nothing rolls,
+        // the hours it took and a new region alike, and the weather shown stays
+        // [design: docs/design/tweaks.md].
+        if self.keep_once && self.clock_seen {
+            self.keep_once = false;
+            self.rolled_for = Some(key);
+            self.hour_index = Some((self.days_passed as f64 * 24.0 + self.hour as f64).floor() as i64);
+            self.pick = self.weather.form_id;
+            info!("weather: kept through a short fast travel (tweak)");
+            return;
+        }
         let mut why = None;
         if self.rolled_for.as_ref() != Some(&key) {
             why = Some(match &self.rolled_for {
@@ -753,6 +768,12 @@ impl SkyState {
         self.hour = hour.rem_euclid(24.0);
         self.follow_climate(instant);
         self.changed = true;
+    }
+
+    /// Keep the weather through the next change the sky would make (the Improved Weather
+    /// tweak's short trip).
+    pub fn keep_weather_once(&mut self) {
+        self.keep_once = true;
     }
 
     /// `--play`: the sky shows the game's time of day (GameHour, which the simulation
@@ -2037,6 +2058,7 @@ mod tests {
             time_scale: 0.0,
             clock_running: false,
             days_passed: sky_day,
+            keep_once: false,
             prev: None,
             fade: 1.0,
             choices: vec![choice(SAVED), choice(2)],
@@ -2102,6 +2124,7 @@ mod tests {
             time_scale: 0.0,
             clock_running: false,
             days_passed: 25.0,
+            keep_once: false,
             prev: None,
             fade: 1.0,
             choices: vec![Choice { weather: weather(LISTED), chance: 100, global: None }, Choice { weather: weather(GATED), chance: 100, global: Some(gate) }],

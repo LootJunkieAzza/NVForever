@@ -342,9 +342,16 @@ pub fn answer(
 #[derive(Resource, Default)]
 pub struct Pending(Option<Trip>);
 
+/// A short fast travel under the player's Improved Weather tweak: the sky keeps its weather
+/// through the next change it would make (nvforever `sky`), then clears this.
+#[derive(Resource, Default, Debug)]
+pub struct WeatherHold(pub bool);
+
 #[derive(Debug, Clone, Copy)]
 struct Trip {
     travel: Travel,
+    /// How far the trip goes, units (the player's Improved Weather tweak).
+    distance: f32,
     /// The destination reference (the marker's linked one, or the marker) and its cell.
     to: u32,
     cell: Option<u32>,
@@ -403,7 +410,7 @@ pub fn go(
             info!("fast travel: one {} taken for the trip (tweak)", sim.name(b).unwrap_or("bottle"));
         }
     }
-    pending.0 = Some(Trip { travel, to: dest.id.0, cell: dest.cell.map(|c| c.0), rot: dest.rot, hours });
+    pending.0 = Some(Trip { travel, distance, to: dest.id.0, cell: dest.cell.map(|c| c.0), rot: dest.rot, hours });
     menu.write(MenuInput(Command::Close));
 }
 
@@ -419,6 +426,7 @@ pub fn depart(
     mut passed: MessageWriter<HourPassed>,
     landing: Option<ResMut<crate::save::FastTravelLanding>>,
     screen: Option<ResMut<crate::loading::Loading>>,
+    (tweaks, hold): (Option<Res<crate::tweaks::TweakSettings>>, Option<ResMut<WeatherHold>>),
 ) {
     if *state.get() != PlayState::Playing {
         return;
@@ -430,6 +438,14 @@ pub fn depart(
         s.arriving = true;
     }
     travel.write(TravelRequest(t.travel));
+    // The player's Improved Weather tweak: a short trip keeps the weather [design:
+    // docs/design/tweaks.md].
+    if tweaks.as_ref().is_some_and(|tw| tw.improved_weather && t.distance < tw.weather_trip_distance) {
+        info!("fast travel: {:.0} units, short: the weather stays (tweak)", t.distance);
+        if let Some(mut h) = hold {
+            h.0 = true;
+        }
+    }
     if let Some(mut l) = landing {
         l.0 = true;
     }

@@ -641,6 +641,7 @@ unless the player binds them, so nothing changes until then.
 | Water Sources Show H2O | `bWaterSourcesShowH2O` | `activate`'s prompt for a water source adds `water_label` with the Dehydration change of its water's effect. The switch: `Tweaks::water_shows_h2o` |
 | Double-Tap Reload Changes Ammo | `bDoubleTapReloadToChangeAmmoType` | `control::read_controls` holds a tap in `PlayerControl::reload_wait` for `DOUBLE_TAP`: a second tap sets `ammo_swap`, else `reload`. The switch: `TweakSettings::double_tap_ammo` |
 | No Character Remake Offer | `bDisableCharacterRespec` | `Game::activate` returns before any block or default action for a reference running `VCG04ActivatorScript`. The switch: `Tweaks::no_respec` |
+| Improved Weather | `bImprovedWeather` | `pipboy::data::travel::depart` sets `WeatherHold` for a short trip; nvforever `sky_follows_game` asks `SkyState::keep_weather_once`, and the next `follow_climate` keeps the weather. The switches: `TweakSettings::improved_weather`, `weather_trip_distance` |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -662,8 +663,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 577 |
-| to do | 17 |
+| done | 578 |
+| to do | 16 |
 | unsure, skipped | 24 |
 | n/a | 17 |
 | skipped: fix | 10 |
@@ -1285,6 +1286,7 @@ game's Data folder, read-only).
 | `bExtraConsoleDetails (enabled by default)` | done |  | 4 | Console Shows Models (cell name and Editor ID were already shown; full help not built) |
 | `bHapticPipboy` | done |  |  | Pip-Boy Buzz (with rumble on) |
 | `bHeatbeatSoundsFade` | done | yes | 2 | Heartbeat Fades (fDuration as its seconds): NVForever now plays the master's low-health heartbeat (`heartbeat`, under 25 % health, owner-review 55, observer check 110); the tweak fades it over the seconds, whole again at each loss of health; the easing choice (iEasingFunction) is not built: straight |
+| `bImprovedWeather` | done | yes | 1 | Improved Weather (its fFastTravelWeatherChangeDistanceThreshold as Short Trip, 30,000 units ours): a fast travel shorter than that keeps the weather, nothing rolling for the trip's hours or a new region |
 | `bInvertCameraX` | done |  |  | Invert Look Left/Right |
 | `bKeepPipboyLightOnCellChange` | done |  | 1 | already so: the light stays on through cell changes |
 | `bKeepSelectedConsoleRef` | done |  |  | already so: closing the console keeps the selection |
@@ -1320,7 +1322,6 @@ game's Data folder, read-only).
 | `bConsoleBackground` | unsure, skipped | yes |  | needs the plugin's own menu XML |
 | `bCustomScreenshotFormat` | n/a | yes | 1 | NVForever writes its own screenshots |
 | `bDontAllowConsoleTillLoadingIsDone` | n/a | yes |  | the original's start-up order |
-| `bImprovedWeather` | to do | yes | 1 | the renderer does not know a fast travel happened |
 | `bMultithreadedHackingMenu` | n/a | yes |  | performance work on the original |
 | `bPartialReloads` | unsure, skipped | yes |  | depends on animation file naming conventions not yet checked |
 | `bUseAnimVariants` | unsure, skipped | yes | 3 | depends on animation file naming conventions not yet checked |

@@ -523,6 +523,7 @@ impl Plugin for PipBoyPlugin {
             .add_systems(Update, data::summon_companions.in_set(crate::PlaySet::Sync))
             .add_message::<data::travel::FastTravelGo>()
             .init_resource::<data::travel::Pending>()
+            .init_resource::<data::travel::WeatherHold>()
             .init_resource::<data::WaveScope>()
             .add_systems(Startup, setup_screen)
             .add_systems(
