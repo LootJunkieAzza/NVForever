@@ -573,6 +573,9 @@ pub struct FormChanges {
     /// SetEssential on actor bases.
     #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
     pub essential: BTreeMap<FormId, bool>,
+    /// SetClass: actor base → its class in place of the record's (`Game::traits_class`).
+    #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
+    pub classes: BTreeMap<FormId, FormId>,
     /// SetActorFullName: base → the message whose title is the new name.
     #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
     pub names: BTreeMap<FormId, FormId>,

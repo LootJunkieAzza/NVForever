@@ -143,6 +143,20 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
         }
         // [documented: GetClass] the actor's class (`Game::traits_class`).
         "getclass" => XVal::Ref(form(args, 0).or(subject).and_then(|f| g.traits_class(f)).map_or(0, |c| c.0)),
+        // `actor.SetClass class` (a base-game function scripts reach by name: the
+        // catalogue has no opcode for it): the actor's base takes the class, kept in the
+        // save (`FormChanges::classes`) [documented: SetClass, "Changes the class of the
+        // actor to the parameter"; hypothesis: on the base form, as SetEssential]. The
+        // autocalc the page names for actors with autocalc on is not run: NVForever reads
+        // the record's stats. A form that is no class changes nothing.
+        "setclass" => {
+            let (Some(r), Some(class)) = (subject, form(args, 0)) else { return Some(Ok(XVal::Num(0.0))) };
+            if g.data.sig(class) == Some(*b"CLAS") {
+                let b = crate::functions::base_of(g, r).unwrap_or(r);
+                g.forms.classes.insert(b, class);
+            }
+            XVal::Num(0.0)
+        }
         // [documented: GetRefCount] the count of a stacked reference (1 without one).
         "getrefcount" => {
             let r = subject.unwrap_or(FormId(0));

@@ -79,6 +79,7 @@ mod save_pairs;
 mod script_events;
 mod script_stack;
 mod showoff3;
+mod set_class;
 mod showoff4;
 mod showoff5;
 mod step_budget;
