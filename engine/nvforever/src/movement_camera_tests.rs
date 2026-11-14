@@ -231,3 +231,37 @@ fn movement_camera_ecs_preserves_then_releases_a_cinematic_fade() {
     assert!(f.app.world().resource::<PlayerIdles>().first.is_empty());
     assert!(!f.held());
 }
+
+#[test]
+fn activation_camera_ecs_keeps_a_cinematic_section_free_to_step() {
+    let mut f = Fixture::new();
+    f.forward();
+    // Enter the real request/start consumer at the public queue boundary. The
+    // water interaction and activation-tree picker are deliberately not claimed.
+    let asked = f.app.world_mut().resource_mut::<crate::residents::Residents>().own_game().unwrap()
+        .ask_idle(FormId::PLAYER_REF, FormId(CINEMATIC), fnv_game::idles::IdleSource::Activate);
+    assert!(asked);
+    f.frame(0.0);
+    {
+        let idles = f.app.world().resource::<PlayerIdles>();
+        let playing = idles.first.playing().expect("the Camera1st request reached the first-person slot");
+        assert_eq!(playing.idle, CINEMATIC);
+        assert_eq!(playing.source, fnv_game::idles::IdleSource::Activate);
+        assert!(!playing.holds, "Activate must not mark a cinematic-section camera slot as holding");
+        assert!(idles.held.is_none(), "Activate must not capture a player position");
+    }
+    assert!(!f.held(), "the actual Activation idle/body systems must not acquire a seat hold");
+    let before = f.feet();
+    let steps = f.app.world().resource::<PhysState>().world.steps();
+    for _ in 0..20 { f.frame(0.05); }
+    let idles = f.app.world().resource::<PlayerIdles>();
+    let playing = idles.first.playing().expect("the owned looping Activation clip remains active");
+    assert_eq!(playing.source, fnv_game::idles::IdleSource::Activate);
+    assert!(!playing.holds);
+    assert!(idles.held.is_none());
+    assert!(!f.held());
+    assert!(f.app.world().resource::<PhysState>().world.steps() > steps);
+    assert!(f.moves() > 0, "the real player character-controller path ran");
+    assert!(f.feet()[1] - before[1] > 40.0, "Activation leaves physical movement free: {:?} -> {:?}", before, f.feet());
+    assert!(f.app.world().resource::<PhysState>().player.as_ref().unwrap().grounded);
+}

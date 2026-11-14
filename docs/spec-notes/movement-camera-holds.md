@@ -9,7 +9,8 @@ whether it owns the player's position.
 
 [design] A first-person clip with a `Camera1st` track in the Movement section may
 animate the view while physics moves the player. It does not acquire a position
-hold. Camera clips in other sections keep the existing position hold, including
+hold. Camera clips from non-Activation sources in other sections keep the existing
+position hold, including
 unknown or unavailable section metadata (the existing default is section 0).
 Third-person clips and NPC hold policy are unchanged.
 
@@ -19,6 +20,32 @@ weight is positive. Once no holding idle is active or contributes to the blend,
 the existing player-body release path restores the free position and clears the
 seat hold. Thus a Movement replacement cannot release a still-visible cinematic
 early, and a looping Movement overlay cannot retain a finished cinematic's hold.
+
+## Activation integration
+
+[observed: upstream source `805454db21c5a4388cb7ee3e1002747acefb56c8`,
+`engine/nvforever/src/idles.rs`, issue #2349] Main queues activation-tree picks as
+`IdleSource::Activate` and excludes this source from first-person hold capture.
+Its comment explicitly leaves the original game's hold policy to observer check
+131. This source observation is not a native measurement.
+
+[hypothesis: composition policy] A first-person slot owns a position hold only
+when its source is not Activate and its section is not Movement. Use this same
+predicate for initial capture and the slot's `holds` flag. An Activation slot
+therefore cannot acquire its own hold even in an otherwise cinematic section;
+an already visible outgoing cinematic retains its existing fade ownership.
+Keep main's activation selection/queue paths and file-aware replay unchanged.
+
+[design: owned CPU regression] A sixth ECS case directly queues the public
+`Game::ask_idle` request with source Activate, a cinematic section and an authored
+`Camera1st` clip. It checks actual first-slot/source identity, the slot's hold flag,
+held origin, `PlayerSeat` and subsequent physical-controller movement. The common
+fixture and all five older test functions stay unchanged. This directly tests the
+idle-start/body/player consumer boundary, not water interaction, activation-tree
+selection, complete application ordering, rendered mouse look or native behavior.
+This new condition and regression are source preparation only and have not run.
+The earlier qualified private R5 comparison used Script requests and does not
+execute or qualify this new Activation exclusion.
 
 ## Evidence and checks
 
@@ -39,7 +66,10 @@ zero-weight starts and repeated requests, and a cinematic-to-Movement fade/relea
 The behavioral fixture uses existing interfaces on unchanged main; it does not call
 the new hold predicates or write the per-playing policy flag. Three additional
 candidate-only slot tests cover classification and empty/third-person negatives.
-All five tests are authored. This port is based on main `19c0f08a`; no tests or metadata compilation have been run on this port. Behavioral execution remains pending. The ECS
+
+[observed: historical `19c0f08a` source-preparation checkpoint]
+All five original tests were authored. At that checkpoint, no tests or metadata
+compilation had run and behavioral execution was pending. The ECS
 fixture does not verify the full application's plugin ordering. Release tests,
 strict Clippy and selected engine smoke remain required before acceptance.
 

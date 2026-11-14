@@ -540,6 +540,9 @@ controller type, with the models, bases and references whose sequences have one:
   the healing and the rads of drinking it, radiation.md §3) to the player, after its
   script if it has one [hypothesis]. The log says `activate 0x… <name>: the player
   drinks from it`.
-- Not built: a drinking sound (no record names one), NPCs drinking (IsWaterObject is
-  a stub).
+- The drinking idle (#2349): the player's activation asks the idle tree's
+  `ActivateIdles` root, whose `ActWaterSource` branch (IsWaterObject) plays
+  `1stPersonActWater` in first person and `3rdPersonActWater` in third, holding nothing;
+  the effect still applies at the activation [design, #2349] (idles.md §16).
+- Not built: a drinking sound (no record names one), NPCs drinking.
 

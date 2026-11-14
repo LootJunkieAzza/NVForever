@@ -123,7 +123,8 @@ shape (scaled by the actor's scale), mass and damping; friction capped at 1; no 
 continuous collision detection. Colliders carry `Owner::Actor` on DEAD_BIP with the body
 part (BPTD index) of their bone, so shots, the crosshair and **Search** find the corpse
 on its ragdoll; the actor's kinematic hit volume is removed while the ragdoll is in the
-world.
+world. Blasts reach the corpse by its ragdoll's bounds and bodies instead
+(`PhysWorld::ragdoll_bounds`, `ragdoll_body_centers`; combat-rules.md §11, #2346) [design].
 
 **Joints.** Body 1 is the constraint's b, body 2 its a; the joint frames are
 (twist, plane, twist × plane) or (axis, perp1, axis × perp1) at the pivots.

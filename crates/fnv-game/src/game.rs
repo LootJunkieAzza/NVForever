@@ -910,6 +910,14 @@ pub struct PlayerState {
     pub crime_enemies: BTreeSet<FormId>,
 }
 
+/// A jump of the clock a script made ([`Game::hour_jump`]): GameHour before the first
+/// write since the engine last looked, and after the last.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct HourJump {
+    pub from: f32,
+    pub to: f32,
+}
+
 /// A message box waiting for a button (`ShowMessage` of a message with buttons).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MessageBox {
@@ -1440,6 +1448,16 @@ pub struct Game<'a> {
     /// (`crate::idles::pick_idle`), for the layer that animates actors to take: it knows
     /// their animation folder. Each actor once. Not part of the saved state.
     pub idle_picks: Vec<FormId>,
+    /// Actors whose activation asks the idle tree's activation root
+    /// (`Game::activate_idle`: drinking from placeable water, #2349), for the layer that
+    /// animates actors to take, as [`Game::idle_picks`]: it knows their animation folder.
+    /// Only the player is put here [design, #2349]. Each actor once. Not part of the
+    /// saved state.
+    pub activate_idles: Vec<FormId>,
+    /// The actor whose activation idle the tree is being walked for
+    /// (`Game::activate_idle`): only then does GetUsedItemActivate answer for an
+    /// activation (`functions::furniture::get_used_item_activate`, #2349). Not saved.
+    pub(crate) activate_walk: Option<FormId>,
     /// Actors' weapon uses (`crate::use_weapon`: UseWeapon, Use Weapon packages), and
     /// the last number given to one. Not part of the saved state.
     pub weapon_uses: BTreeMap<FormId, crate::use_weapon::WeaponUse>,
@@ -1506,6 +1524,9 @@ pub struct Game<'a> {
     /// Doors locked or unlocked by packages' door flags (`crate::ai`), for the engine's
     /// log: actor, package, locked (else unlocked), how many. Not part of the saved state.
     pub package_door_notes: Vec<(FormId, FormId, bool, usize)>,
+    /// A script moved the clock by more than [`crate::ai::SCRIPT_HOUR_JUMP`] since the
+    /// engine last took it ([`Game::take_hour_jump`], #2353). Not part of the saved state.
+    pub hour_jump: Option<HourJump>,
     /// Sleeping and waiting as scripts see and ask for them (`crate::rest`); the menu is
     /// the engine's. Not part of the saved state.
     pub rest: crate::rest::Rest,
@@ -2379,6 +2400,8 @@ impl<'a> Game<'a> {
             magic_news: Vec::new(),
             idle_requests: Vec::new(),
             idle_picks: Vec::new(),
+            activate_idles: Vec::new(),
+            activate_walk: None,
             weapon_uses: BTreeMap::new(),
             weapon_use_seq: 0,
             walk_up_greets: BTreeMap::new(),
@@ -2400,6 +2423,7 @@ impl<'a> Game<'a> {
             rearms: Default::default(),
             brought_along: BTreeSet::new(),
             package_door_notes: Vec::new(),
+            hour_jump: None,
             rest: Default::default(),
             detection: Default::default(),
             detection_round: None,
@@ -4331,6 +4355,36 @@ impl<'a> Game<'a> {
     /// it the same way [observed: layer5-captures.md §10.1, §10.3]; the name menu keeps
     /// the name it has). A message box waiting for a button gets button 0 (OK). The next
     /// waiting message box then opens [hypothesis]. Returns the menu closed.
+    /// A script (or the console) writes global `id`: as [`World::set_global`], and a
+    /// write to GameHour that moves the clock face by more than
+    /// [`crate::ai::SCRIPT_HOUR_JUMP`] is noted for the engine ([`Game::note_hour_jump`]):
+    /// VCG01 stage 200's `set GameHour to 8` on a new game (#2353).
+    pub fn set_global_by_script(&mut self, id: FormId, value: f32) -> Result<(), fnv_sim::world::SimError> {
+        let hour = self.world.forms.global_by_edid(fnv_sim::clock::GAME_HOUR).map(|(g, _)| g).filter(|g| *g == id);
+        let before = hour.and_then(|g| self.world.global(g).ok());
+        self.world.set_global(id, value)?;
+        if let Some(from) = before {
+            self.note_hour_jump(from, value);
+        }
+        Ok(())
+    }
+
+    /// The clock was moved from hour `from` to hour `to` by a script: kept for the engine
+    /// when it moved more than [`crate::ai::SCRIPT_HOUR_JUMP`] on the clock face, taken
+    /// with [`Game::take_hour_jump`]. Several moves before the engine looks are one jump,
+    /// from the first hour to the last (one that comes back near where it started is
+    /// none).
+    pub fn note_hour_jump(&mut self, from: f32, to: f32) {
+        let from = self.hour_jump.map_or(from, |j| j.from);
+        self.hour_jump = (crate::ai::clock_face_hours(from, to) > crate::ai::SCRIPT_HOUR_JUMP).then_some(HourJump { from, to });
+    }
+
+    /// For the engine that carries packages out: the jump of the clock a script made since
+    /// it last asked, if any; cleared.
+    pub fn take_hour_jump(&mut self) -> Option<HourJump> {
+        self.hour_jump.take()
+    }
+
     pub fn close_menu(&mut self) -> Option<u16> {
         let m = self.menu.take()?;
         if m == menus::TUTORIAL {
@@ -5047,6 +5101,14 @@ impl<'a> Game<'a> {
         };
         let v = serde_json::to_value(&act).map_err(|e| e.to_string())?;
         self.note_activating(actor, target);
+        // The player's activation asks the idle tree's activation root, whose conditions
+        // choose (the drinking idles, docs/spec-notes/idles.md §16, #2349). The drink's
+        // effect (`drink_from`) still applies now, at the activation [design, #2349:
+        // whether the original applies it at the idle's start or end is observer check
+        // 131].
+        if actor == FormId::PLAYER_REF && !self.activate_idles.contains(&actor) {
+            self.activate_idles.push(actor);
+        }
         let activated_event = self.events.len();
         self.emit(EventKind::Activated { reference: target, by: actor, outcome: Some(v) });
         let mut item_added_event = None;
@@ -5806,6 +5868,24 @@ impl<'a> Game<'a> {
 
     // ---- snapshots -----------------------------------------------------------------
 
+    /// Actual save boundaries must refuse unsupported temporary scene references
+    /// before serializing/enqueueing, rather than dropping their reference closure.
+    /// Native placed-clone save semantics are not established by this preview guard.
+    pub fn checked_snapshot(&self) -> Result<GameSnapshot, String> {
+        let snapshot = self.snapshot();
+        let unsupported = snapshot
+            .sim
+            .refs
+            .iter()
+            .map(|(&id, state)| (id, state.base))
+            .chain(snapshot.sim.deleted_created.iter().map(|(&id, &base)| (id, base)))
+            .find(|(_, base)| self.clones.contains_key(base) || self.world.temporary_scene_base(*base).is_some());
+        if let Some((reference, base)) = unsupported {
+            return Err(format!("saving reference {reference} of temporary cloned base {base} is not supported yet"));
+        }
+        Ok(snapshot)
+    }
+
     pub fn snapshot(&self) -> GameSnapshot {
         let mut sim = self.world.snapshot();
         // SetOwnershipTemp's owners are not saved: the owner before it is (`nvse_showoff4`).
@@ -6145,7 +6225,8 @@ impl Host for Exec<'_, '_> {
             (_, VarSlot::Global { global }) => {
                 let g = self.global_form(global)?;
                 let v = value.num() as f32;
-                self.game.world.set_global(g, v).map_err(|e| e.to_string())?;
+                // A jump of GameHour is noted for the engine (#2353).
+                self.game.set_global_by_script(g, v).map_err(|e| e.to_string())?;
                 self.game.emit(EventKind::GlobalSet { global: g, value: v });
             }
             (None, VarSlot::Local { index, letter }) => match &mut self.locals {
