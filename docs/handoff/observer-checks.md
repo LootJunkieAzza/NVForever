@@ -1989,7 +1989,9 @@ heading 75) with NVFExtProbe.esp loaded, as the jip-probes sets run.
      `fnv_ai::process`.) Ours since #2445: an actor the AI processes out of the loaded
      cells (the cell buffer, interiors behind the loaded cells' doors, farther away) runs
      its GameMode block at each of its low-process updates (about every 18 s, or 120 s
-     beyond the cell buffer) and once in each hour of a wait [hypothesis from the data:
+     beyond the cell buffer) and once in each hour of a wait, when that block tests
+     "not in the player's cell" (eight object scripts in FalloutNV.esm); the others run
+     in the loaded cells only [hypothesis from the data:
      Beyond the Beef's Chauncey (SCPT 0x0011689F) warps to the bathhouse and re-evaluates
      his package only in a GameMode block that tests "not in the player's cell", and his
      casino patrol is Must Complete, so nothing else moves him]. To check: with the

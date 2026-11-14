@@ -38,7 +38,8 @@
 //!     arrives when it would have walking in sight.
 //!
 //!   At each such update, and once in each hour of a wait, the actor's script runs its
-//!   GameMode block where it is ([`Game::run_far_frame`]) before the walk: a MoveTo or an
+//!   GameMode block where it is ([`Game::run_far_frame`], only for a block that tests
+//!   "not in the player's cell") before the walk: a MoveTo or an
 //!   EvaluatePackage there is what the update goes on from [hypothesis from the data,
 //!   observer check 135: Beyond the Beef's Chauncey leaves his Must Complete patrol only
 //!   through his own GameMode block, written for when the player is in another cell,

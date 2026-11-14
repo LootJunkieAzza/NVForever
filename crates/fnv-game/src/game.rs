@@ -4763,8 +4763,10 @@ impl<'a> Game<'a> {
     /// AI processes now and then (`fnv_ai::process`: its low-process update, an hour of a
     /// wait): its script goes on where it is. Returns whether the block ran. Not for an
     /// actor in a loaded cell (the frame's own run has it), a deleted one, or one whose
-    /// script has no GameMode block. GetSecondsPassed in it gives the time since its last
-    /// run, as for any per-frame run ([`Game::mark_run`]).
+    /// script has no GameMode block that tests "not in the player's cell"
+    /// ([`crate::data::Compiled::tests_away_from_player`]): the other scripts stay as they
+    /// were, run in the loaded cells only. GetSecondsPassed in it gives the time since its
+    /// last run, as for any per-frame run ([`Game::mark_run`]).
     ///
     /// [hypothesis from the data, observer check 135: the original runs the scripts of
     /// actors it processes out of the loaded cells. Beyond the Beef's informant Chauncey
@@ -4772,13 +4774,18 @@ impl<'a> Game<'a> {
     /// own GameMode block, "not in the player's cell, not in the bathhouse, 15 to 18 h,
     /// the player has the Matchbook" → MoveToMarkerWithFade to the bathhouse and
     /// EvaluatePackage; it can only run while he is in a cell the player is not in
-    /// (issue #2445).]
+    /// (issue #2445). Narrowed to such scripts [design, #2493 review]: of FalloutNV.esm's
+    /// object scripts only eight have a GameMode branch for "not in the player's cell"
+    /// (Chauncey's, ED-E's, the Hidden Valley scribe's and Watkins's, the Vault 22 spore
+    /// carriers', TecMineHostage, an SDO handler), where 16 object scripts call MoveTo in
+    /// a GameMode block beside other cell or distance tests [observed: `fnvtool script
+    /// decompile`, 2026-11-14].]
     pub fn run_far_frame(&mut self, actor: FormId) -> bool {
         if self.cell_of(actor).is_none_or(|c| self.loaded_cells.contains(&c)) || self.world.peek(actor).is_some_and(|s| s.deleted()) {
             return false;
         }
         let Some(script) = self.ref_script(actor) else { return false };
-        if !self.data.script(script).is_some_and(|u| u.has_block(event::GAME_MODE)) {
+        if !self.data.script(script).is_some_and(|u| u.tests_away_from_player()) {
             return false;
         }
         let key = InstKey::Ref { reference: actor };
