@@ -308,6 +308,14 @@ impl Cycle {
         self.no_ammo || self.magazine >= self.ammo_use
     }
 
+    /// Nothing is loaded for the next shot and no reload is under way: a weapon that
+    /// uses ammo, its magazine short of a shot's rounds. The round seen in such a weapon
+    /// (the missile in the launcher's tube) is not drawn then (nvforever `player_body`,
+    /// #2470).
+    pub fn empty(&self) -> bool {
+        !self.has_round() && !self.reloading()
+    }
+
     fn can_reload(&self, carried: u32) -> bool {
         !self.no_ammo && self.regen.is_none() && self.magazine < self.clip_size && carried > 0
     }

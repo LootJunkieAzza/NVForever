@@ -212,6 +212,11 @@ pub struct WeaponAnim {
     /// Counted up by the body when the attack clip of the rig in view passes its
     /// `Eject` key; combat throws a casing from [`Self::casing`] then.
     pub ejects: u32,
+    /// Set by combat: the weapon in hand has nothing loaded for its next shot and no
+    /// reload is under way (`fnv_combat::attack::Cycle::empty`). The body does not draw
+    /// the round seen in the weapon then (`##NifRound`: the missile launcher's missile,
+    /// the Fat Man's mini nuke), which the first-person aim clips show (#2470).
+    pub empty: bool,
 }
 
 /// The player fired a shot this frame: the PROJ it fires. The renderer shows the
@@ -2828,6 +2833,8 @@ pub(crate) fn fire(
     // Scripts' EjectCasing requests (`fnv_game::nvse_jg10`) are taken every frame, so
     // those made with no gun out (or for other actors) do not pile up or fire later.
     let asked = script.as_deref_mut().and_then(|s| s.rt.as_mut()).map(|rt| rt.game.take_casing_requests()).unwrap_or_default();
+    // The body hides the round in an empty weapon (`WeaponAnim::empty`).
+    anim.empty = c.cycle.as_ref().is_some_and(Cycle::empty);
     if c.melee {
         c.vats_cone = None;
         return;
