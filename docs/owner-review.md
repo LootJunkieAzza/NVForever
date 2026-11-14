@@ -227,7 +227,7 @@ the spec it links to.
   moving, looking and the HUD while it plays, and the water's healing and rads apply at
   the activation, before it. Ruling otherwise would hold the player for the clip's 2.4 s
   (as scripted first-person idles do) or apply the effect at its end. The original's
-  behaviour is observer check 128. ([idles section 16](spec-notes/idles.md))
+  behaviour is observer check 131. ([idles section 16](spec-notes/idles.md))
 
 19. **Walking away from a conversation.** The world freezes while you talk, as in the
     original, and walking off does not end it. Should walking off end it where the line

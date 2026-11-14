@@ -1307,7 +1307,7 @@ pub fn drive(
                 // and the HUD stay with the player while the camera node moves the view
                 // (`Camera1st` hangs under `Bip01 Looking`, so the player's pitch still
                 // applies) [design, #2349: whether the original holds the player is
-                // observer check 128; documented: `_1stperson\skeleton.nif`].
+                // observer check 131; documented: `_1stperson\skeleton.nif`].
                 if first && pi.held.is_none() && source != IdleSource::Activate {
                     pi.held = player.as_deref().map(|p| Held { feet: p.placed.unwrap_or(p.feet), free: p.feet, heading: p.heading, pitch: p.pitch });
                 }

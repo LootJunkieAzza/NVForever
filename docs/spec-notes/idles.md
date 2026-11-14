@@ -1010,11 +1010,11 @@ the original plays one. The tree holds it under a root of its own that nothing a
 - **Playing**: asked as `IdleSource::Activate` and played like any idle asked for:
   `1stPersonActWater` in first person on the first-person rig, `3rdPersonActWater` in
   third person on the body.
-- **Nothing held** [design, #2349; observer check 128]: unlike a scripted idle that
+- **Nothing held** [design, #2349; observer check 131]: unlike a scripted idle that
   drives the camera node (§4), an activation's idle does not hold the player
   (`PlayerIdles::held` stays empty): mouse look, movement and the HUD stay; the camera
   node moves the view from where the player looks.
-- **The effect** [design, #2349; observer check 128]: the water's actor effect still
+- **The effect** [design, #2349; observer check 131]: the water's actor effect still
   applies at the activation (activators.md §9), not at the idle's start or end.
 - **Log**: `activate idle: the player activating 0x…: 1stPersonActWater by
   ActivateIdles > ActWaterSource > 1stPersonActWater`, then `idle: the player plays
@@ -1022,6 +1022,6 @@ the original plays one. The tree holds it under a root of its own that nothing a
 
 ### 16.3 Open
 
-- Observer check 128: the idle's length in the original, whether movement and looking
+- Observer check 131: the idle's length in the original, whether movement and looking
   are held while it plays, and when the healing and the rads apply.
 - NPCs drinking (no package makes them drink from placeable water here).

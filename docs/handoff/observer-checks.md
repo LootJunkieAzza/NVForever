@@ -1985,7 +1985,7 @@ heading 75) with NVFExtProbe.esp loaded, as the jip-probes sets run.
 
 ## Added 2026-11-14 (the drinking idle, #2349)
 
-128. **How does the original play drinking from placeable water?** (P2; #2349, idles.md
+131. **How does the original play drinking from placeable water?** (P2; #2349, idles.md
      §16.) Drink from Goodsprings' water pump, once in first person and once in third
      person. Note: how long the animation runs (ours: the clips are 2.37 s and 2.70 s);
      whether movement and mouse look are held while it plays (ours holds neither); and

@@ -5032,7 +5032,7 @@ impl<'a> Game<'a> {
         // choose (the drinking idles, docs/spec-notes/idles.md §16, #2349). The drink's
         // effect (`drink_from`) still applies now, at the activation [design, #2349:
         // whether the original applies it at the idle's start or end is observer check
-        // 128].
+        // 131].
         if actor == FormId::PLAYER_REF && !self.activate_idles.contains(&actor) {
             self.activate_idles.push(actor);
         }
