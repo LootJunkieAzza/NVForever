@@ -125,6 +125,14 @@ impl LensSway {
     }
 }
 
+impl AimZoom {
+    /// Zoomed all the way down the sights: `base` unzoomed, `sight` on the camera (tests).
+    #[cfg(test)]
+    pub(crate) fn down_the_sights(base: f32, sight: f32) -> AimZoom {
+        AimZoom { blend: 1.0, aimed: true, sight: Some(sight), base: Some(base), main: 1.0, applied: Some(sight), told: true }
+    }
+}
+
 pub struct AimZoomPlugin;
 
 impl Plugin for AimZoomPlugin {
@@ -157,7 +165,7 @@ pub(crate) fn zoom(
         z.base = Some(seen);
         z.applied = None;
     }
-    let playing = *state.get() == PlayState::Playing && !free.is_some_and(|f| f.on) && !photo.is_some_and(|p| p.on);
+    let playing = *state.get() == PlayState::Playing && !free.is_some_and(|f| f.on) && !photo.as_deref().is_some_and(|p| p.on);
     // A reload or a jam holds the sights down (`combat::sights_held_down`): the zoom and a
     // scope go, and come back after it while Block is still held.
     let sight = combat.as_deref().filter(|c| !c.player_sights_held_down()).and_then(Combat::sight_fov).filter(|_| playing && control.aiming && control.weapon_out && anim.ready);
@@ -167,7 +175,15 @@ pub(crate) fn zoom(
     z.aimed = sight.is_some();
     let step = time.delta_secs().min(0.25) / ZOOM_SECONDS;
     let was = z.blend;
-    z.blend = if sight.is_some() { (z.blend + step).min(1.0) } else { (z.blend - step).max(0.0) };
+    // Photo mode holds the zoom where it opened: it closes on the view it opened on (#202).
+    let held = photo.as_deref().is_some_and(|p| p.on);
+    z.blend = if held {
+        z.blend
+    } else if sight.is_some() {
+        (z.blend + step).min(1.0)
+    } else {
+        (z.blend - step).max(0.0)
+    };
     // The scope: up at full zoom in first person, down as soon as the aim is let go.
     let scoped = sight.filter(|_| !control.third_person_view()).and_then(|(w, deg)| {
         let stats = combat.as_deref()?.player_stats(w)?;

@@ -11,6 +11,18 @@ description. This page is the summary.
   Photo Mode entry, which is how a controller opens it: every controller button already
   has a control. Esc, P, or B on a controller close it. The view goes back to the player
   as it was (first or third person, the field of view).
+- **The zoom is a layer on top** (#202, owner playtest of ship18 d2b501ce6: the view
+  stayed narrow after photo mode). Each frame photo mode takes its zoom off the camera
+  before the game's own writers of the field of view run (the sights' zoom, a
+  conversation's zoom), and lays it on again after them. Those writers take any field of
+  view they did not write for the unzoomed view, so before this they took photo mode's
+  zoom as the gameplay view [observed: log 030136, a conversation's zoom eased out to
+  vertical 22.7° under photo mode, and the close put back that zoomed angle]. The close
+  leaves what the game's writers have on the camera: the view it opened on, or the
+  gameplay view if a conversation ended meanwhile, or a field of view the settings set
+  while open. The sights' zoom holds where it was while photo mode is open, so a view
+  down the sights comes back down the sights. Photo mode never writes the field-of-view
+  setting.
 - **The view**: the HUD, the crosshair, quest lines and every other piece of the interface
   hide.
 - **The camera** (owner, 2026-11-10: "camera shouldnt be locked to player"): **Free** by
