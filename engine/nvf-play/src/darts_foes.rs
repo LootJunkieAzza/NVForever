@@ -12,8 +12,10 @@
 //!   original game's generic records for the area ([`CITY`], [`WASTELAND`]): made for the
 //!   match and removed after it [design].
 //! - **The walk** ([`follow`]): the opponent walks from where it was to the line on its
-//!   turn, to [`OPP_WAIT`] beside it on the player's, and back to where it came from when
-//!   the match is over or the player leaves; its AI does not walk it meanwhile
+//!   turn, to [`OPP_WAIT`] beside it on the player's, to its seat in the end view's row
+//!   beside the player once the match is won ([`where_to`], the seat given by `nvforever`
+//!   `match_end.rs`), and back to where it came from when the player leaves; its AI does
+//!   not walk it meanwhile
 //!   (`nvforever` `residents.rs` `Residents::hold_pose`, applied by `darts_world.rs`).
 //!   It goes the navmesh's way ([`Opponent::route`], planned by `darts_world.rs`), round
 //!   the pool tables, stools and counters between, not straight through them; one sitting
@@ -166,6 +168,8 @@ pub fn throw_gap(skill: f32, roll: u32) -> f32 {
 pub enum Spot {
     Line,
     Waiting,
+    /// Its seat in the end view's row beside the board ([`Opponent::end_spot`]).
+    EndView,
     Home,
 }
 
@@ -207,12 +211,46 @@ pub struct Opponent {
     pub route_for: Option<[f32; 3]>,
     /// Seconds waited for a way to the target.
     pub route_wait: f32,
+    /// Its seat in the end view's row beside the board (game space x, y) and the heading
+    /// the row faces, set by the engine's end view (`nvforever` `match_end.rs`) once the
+    /// match has a winner; it walks there and reacts in the shot beside the player
+    /// [owner 2026-11-14 via parity, ship18: Sunny Smiles stood off by the wall in the end
+    /// view, "why is she over there"].
+    pub end_spot: Option<([f32; 2], f32)>,
 }
 
 impl Opponent {
     /// Standing at the line, facing the board, ready to throw.
     pub fn at_line(&self) -> bool {
         self.to == Spot::Line && !self.moving
+    }
+}
+
+/// The player's darts screen at the opponent's board, as the walk reads it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AtBoard {
+    /// The opponent's turn in a match (or its throw still leaving the hand).
+    pub throws: bool,
+    /// The match has a winner (the result and the menus after it).
+    pub over: bool,
+}
+
+/// Where the opponent goes, its spot (game space; the line's spots at the bull's height,
+/// for the floor to be found under them) and the heading it faces there: the line on its
+/// turn; its seat in the end view's row once the match is over and the end view has given
+/// it one ([`Opponent::end_spot`]); beside the line otherwise while the player is at the
+/// board; home once they have left it. A match not over clears the last end view's seat
+/// (a rematch from the menu).
+pub fn where_to(o: &mut Opponent, at_board: Option<AtBoard>) -> (Spot, [f32; 3], f32) {
+    if at_board.is_some_and(|b| !b.over) {
+        o.end_spot = None;
+    }
+    let f = o.frame;
+    match (at_board, o.end_spot) {
+        (Some(b), _) if b.throws => (Spot::Line, f.to_world(UP), f.theta),
+        (Some(b), Some((xy, heading))) if b.over => (Spot::EndView, [xy[0], xy[1], o.home[2]], heading),
+        (Some(_), _) => (Spot::Waiting, f.to_world(OPP_WAIT), f.theta),
+        (None, _) => (Spot::Home, o.home, o.home_heading),
     }
 }
 
@@ -270,6 +308,7 @@ pub fn bring(g: &mut Game, board: FormId, frame: BoardFrame, nth: usize, bet_ski
         route: Vec::new(),
         route_for: None,
         route_wait: 0.0,
+        end_spot: None,
     })
 }
 
@@ -383,6 +422,7 @@ mod tests {
             route: Vec::new(),
             route_for: None,
             route_wait: 0.0,
+            end_spot: None,
         };
         let target = f.to_world(UP);
         step_to(&mut o, target, 0.5, 0.1);
@@ -393,6 +433,54 @@ mod tests {
             step_to(&mut o, target, 0.5, 0.1);
         }
         assert!(!o.moving && o.feet == target && o.heading == 0.5);
+    }
+
+    /// The opponent's spots through a match: the line on its turn, beside it on the
+    /// player's, its end-view seat once the match is won, home once the player has left;
+    /// a rematch takes the seat away [owner 2026-11-14 via parity, ship18: Sunny Smiles
+    /// stayed by the wall, out of the end view].
+    #[test]
+    fn the_opponent_takes_its_end_view_seat_once_the_match_is_over() {
+        let f = BoardFrame::of([0.0, 0.0, 0.0], [0.0, 0.0, 0.0], None);
+        let mut o = Opponent {
+            actor: FormId(1),
+            spawned: false,
+            name: String::new(),
+            own: 0.5,
+            skill: 0.5,
+            board: 2,
+            frame: f,
+            feet: [0.0, -300.0, 0.0],
+            heading: 0.0,
+            moving: false,
+            home: [10.0, -300.0, 5.0],
+            home_heading: 1.0,
+            to: Spot::Line,
+            throws: 0,
+            release: None,
+            gone: false,
+            seated: false,
+            target: [0.0; 3],
+            route: Vec::new(),
+            route_for: None,
+            route_wait: 0.0,
+            end_spot: None,
+        };
+        let playing = |throws| Some(AtBoard { throws, over: false });
+        let over = Some(AtBoard { throws: false, over: true });
+        assert_eq!(where_to(&mut o, playing(true)), (Spot::Line, f.to_world(UP), f.theta));
+        assert_eq!(where_to(&mut o, playing(false)), (Spot::Waiting, f.to_world(OPP_WAIT), f.theta));
+        // Over, before the end view has given it a seat: it waits beside the line.
+        assert_eq!(where_to(&mut o, over).0, Spot::Waiting);
+        // The end view's seat: there, facing the row's way, on its own floor.
+        o.end_spot = Some(([140.0, -5.0], 2.5));
+        assert_eq!(where_to(&mut o, over), (Spot::EndView, [140.0, -5.0, 5.0], 2.5));
+        // The player leaves: home.
+        assert_eq!(where_to(&mut o, None), (Spot::Home, [10.0, -300.0, 5.0], 1.0));
+        // A rematch: the seat goes, and it plays from the line again.
+        assert_eq!(where_to(&mut o, playing(true)).0, Spot::Line);
+        assert_eq!(o.end_spot, None);
+        assert_eq!(where_to(&mut o, over).0, Spot::Waiting);
     }
 
     #[test]
@@ -420,6 +508,7 @@ mod tests {
             route: Vec::new(),
             route_for: None,
             route_wait: 0.0,
+            end_spot: None,
         };
         let target = [0.0, -72.0, 0.0];
         // Seated: it stays put.

@@ -977,6 +977,7 @@ fn stand(
     script: Option<Res<nvf_play::script::ScriptState>>,
     mut phys: Option<ResMut<nvf_play::phys::PhysState>>,
     mut player: Option<ResMut<Player>>,
+    mut opponent: Option<ResMut<nvf_play::darts_foes::DartsOpponent>>,
 ) {
     let Phase::Result { kind, table, since } = st.phase else { return };
     if st.stood || real.elapsed_secs() - since < STAND_AFTER {
@@ -1015,6 +1016,16 @@ fn stand(
     st.view = Some(nvf_play::table_spots::portrait(pick));
     let (seat, n) = st.seat;
     let (spots, heading) = nvf_play::table_spots::spots(f, pick, n);
+    // Darts against the game's opponent: it takes the row's other seat, beside the player
+    // in the shot, and reacts there (`darts_opponent_walk` walks it over) [owner 2026-11-14
+    // via parity, ship18: Sunny Smiles stayed by the wall, out of the end view].
+    if kind == Kind::Darts && n == 2 {
+        let theirs = spots.get(1 - seat.min(1)).copied();
+        if let (Some(xy), Some(o)) = (theirs, opponent.as_deref_mut().and_then(|o| o.0.as_mut()).filter(|o| o.board == table && !o.gone)) {
+            o.end_spot = Some((xy, heading));
+            info!("match end: {} takes seat {} of 2 beside {table:08X} ({:.0}, {:.0})", o.name, 1 - seat.min(1), xy[0], xy[1]);
+        }
+    }
     // A narrow row holds fewer: the players past it keep their place.
     let Some(xy) = spots.get(seat) else {
         info!("match end: the row beside {table:08X} holds {}; seat {seat} keeps its place", spots.len());
@@ -1260,6 +1271,24 @@ fn cards(real: Res<Time<Real>>, mut st: ResMut<MatchEnd>, mut moods: MessageRead
 /// Seconds after the result before this player steps to its spot [design].
 const STAND_AFTER: f32 = 0.3;
 
+/// How near its end-view seat (game units, across the floor) the darts opponent counts as
+/// there [design].
+const SEAT_NEAR: f32 = 4.0;
+
+/// How long (seconds after the result) the darts opponent's reaction waits for it to reach
+/// its end-view seat [design]. Longer than [`BODY_WAIT`]: from wherever it stood at the
+/// result the walk took about 7 s in the Prospector (laptop run of 4542c6452, 2026-11-14:
+/// the 4 s wait ran out mid-walk and only the defeat's tail showed at the seat).
+const SEAT_WAIT: f32 = 15.0;
+
+/// Whether the darts opponent is where its reaction may play: not walking, the end view's
+/// row placed (`stood`), and, when the row gave it a seat, at that seat. Without a seat
+/// (a row too narrow for two) it reacts where it stands.
+fn npc_settled(o: &nvf_play::darts_foes::Opponent, stood: bool) -> bool {
+    let at_seat = o.end_spot.is_none_or(|(xy, _)| o.to == nvf_play::darts_foes::Spot::EndView && (o.feet[0] - xy[0]).hypot(o.feet[1] - xy[1]) <= SEAT_NEAR);
+    stood && !o.moving && at_seat
+}
+
 /// Start the reactions asked for, once their clip is read and their body is there.
 #[allow(clippy::too_many_arguments)]
 fn react(
@@ -1309,15 +1338,24 @@ fn react(
                 r
             }
             Who::Npc(r) => {
-                // Not while it walks to its spot: the clip's legs would slide.
-                let walking = opponent.as_deref().and_then(|o| o.0.as_ref()).is_some_and(|o| o.actor.0 == r && o.moving);
+                // Not while it walks to its spot, nor before it has set off for its end-view
+                // seat: the walk takes the body over and the clip was lost (laptop run of
+                // 293bbe7a0, 2026-11-14: the defeat began the frame the seat was given, 8 ms
+                // before the walk, and never showed).
+                let walking = opponent.as_deref().and_then(|o| o.0.as_ref()).is_some_and(|o| o.actor.0 == r && !npc_settled(o, st.stood));
                 // Nor while it gets up from its chair: over the getting-off clip the
                 // standing clip popped it upright and slid it (the arm-wrestling Settler,
                 // armwrestle-c's desktop run 2026-11-12).
                 let seated = rigs.iter().any(|(_, g, _, on)| g.reference == r && on);
-                if (walking || seated) && now - p.since < BODY_WAIT {
+                let cap = if walking { SEAT_WAIT } else { BODY_WAIT };
+                if (walking || seated) && now - p.since < cap {
                     waiting.push(p);
                     continue;
+                }
+                if walking {
+                    info!("match end: {:?} ({r:08X}) has not reached its seat after {SEAT_WAIT} s; it reacts where it is", p.who);
+                } else {
+                    info!("match end: {:?} ({r:08X}) is at its spot {:.1} s after the result", p.who, now - p.since);
                 }
                 r
             }
@@ -1579,6 +1617,54 @@ fn blackout(real: Res<Time<Real>>, st: Res<MatchEnd>, mut q: Query<(&mut Backgro
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The darts opponent's reaction waits for the row to be placed and for the opponent
+    /// to reach its seat: started the frame the seat was given, the walk took the body over
+    /// and the defeat never showed (laptop run of 293bbe7a0, 2026-11-14).
+    #[test]
+    fn the_darts_opponent_reacts_only_once_at_its_seat() {
+        use nvf_play::darts_foes::{Opponent, Spot};
+        let mut o = Opponent {
+            actor: fnv_sim::FormId(0x104F08),
+            spawned: false,
+            name: "Goodsprings Settler".into(),
+            own: 0.5,
+            skill: 0.5,
+            board: 0x0100_0DBB,
+            frame: nvf_play::minigames::BoardFrame::of([0.0; 3], [0.0; 3], None),
+            feet: [40.0, 30.0, 0.0],
+            heading: 0.0,
+            moving: false,
+            home: [0.0; 3],
+            home_heading: 0.0,
+            to: Spot::Waiting,
+            throws: 0,
+            release: None,
+            gone: false,
+            seated: false,
+            target: [0.0; 3],
+            route: Vec::new(),
+            route_for: None,
+            route_wait: 0.0,
+            end_spot: None,
+        };
+        // The row not placed yet.
+        assert!(!npc_settled(&o, false));
+        // Placed, but no seat (a narrow row): it reacts where it stands.
+        assert!(npc_settled(&o, true));
+        // Given its seat, still standing beside the line: the frame the clip was lost.
+        o.end_spot = Some(([97.0, -16.0], 3.1));
+        assert!(!npc_settled(&o, true));
+        // On its way.
+        o.to = Spot::EndView;
+        o.moving = true;
+        o.feet = [70.0, 0.0, 0.0];
+        assert!(!npc_settled(&o, true));
+        // There.
+        o.moving = false;
+        o.feet = [97.0, -16.0, 0.0];
+        assert!(npc_settled(&o, true));
+    }
 
     #[test]
     fn the_arm_wrestling_end_view_looks_from_the_open_side() {
