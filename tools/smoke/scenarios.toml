@@ -685,10 +685,10 @@ forbid = [{ text = "Caught rendering error", label = "a rendering (validation) e
 [[scenario]]
 name = "ui-scale-write"
 source = "issue #1631: the settings page's Display row UI scale (ui-scale) sets the HUD's size, kept in NVForever.ini; the first half of the round trip, ui-scale-read starts with what this run keeps"
-note = "The home's INI may hold any scale from an earlier run, so the row is set to 100% first and then to 75%: the second is always a change and is written"
+note = "The home's INI may hold any scales from an earlier run: set both rows to 100%, then both to 75%. #2519 makes the menu row independent; the existing three following 75% drawing/pointer oracles are unchanged."
 areas = ["hud", "settings"]
 paths = ["engine/nvf-play/src/interface.rs", "engine/nvf-play/src/settings.rs", "engine/nvforever/src/settings.rs", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings_layout.rs", "engine/nvf-play/src/settings_view.rs"]
-env = { NVFOREVER_HOME = "ui-scale-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:14", NVF_PLAY_TEST_SETTINGS = "11:ui-scale=0.5,12:ui-scale=0.25" }
+env = { NVFOREVER_HOME = "ui-scale-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:14", NVF_PLAY_TEST_SETTINGS = "10.5:menu-scale=1,11:ui-scale=0.5,12:ui-scale=0.25,12.5:menu-scale=0.5" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12"]
 run_seconds = 16
 expect = [
@@ -752,6 +752,70 @@ expect = [
   { text = "tiles: SleepWaitMenu Step(6) on its tiles", count = 1, label = "the real press on the drawn page area pages the slider" },
 ]
 manual = "ui_scale_75_tiles_wait.png: the tile-drawn wait menu three quarters of the size of tiles_sleep_wait.png, in the middle of the view, the slider at 7 hours"
+
+
+[[scenario]]
+name = "hud-menu-scale-write"
+source = "#2519: persist HUD 75% with menus 100%; changing HUD alone must not make menus follow on restart"
+note = "Set menu 50% then 100% and HUD 100% then 75%, so both independent keys are written even if this disposable home was used before. The following cases read this same home."
+areas = ["hud", "settings", "menus"]
+paths = ["engine/nvf-play/src/menu_scale.rs", "engine/nvf-play/src/interface.rs", "engine/nvf-play/src/settings.rs", "engine/nvf-play/src/settings_layout.rs", "engine/nvforever/src/settings.rs"]
+env = { NVFOREVER_HOME = "hud-menu-scale-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:14", NVF_PLAY_TEST_SETTINGS = "10.5:menu-scale=0,11:menu-scale=1,11.5:ui-scale=0.5,12:ui-scale=0.25" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12"]
+run_seconds = 16
+expect = [
+  { text = "settings: menu-scale 100%", label = "menus saved independently at full size" },
+  { text = "settings: ui-scale 75%", label = "HUD alone is subsequently reduced" },
+]
+
+[[scenario]]
+name = "hud-menu-scale-menus"
+source = "#2519: after hud-menu-scale-write, HUD 75% and handbuilt menus 100%; unchanged 100% wait pointer coordinates must still hit"
+note = "The slider and Accept points are wait-pointer-press's authored 100% positions, not the legacy 75% positions. Main/pause/settings/HUD screenshots require visual review."
+areas = ["hud", "settings", "menus", "wait"]
+paths = ["engine/nvf-play/src/menu_scale.rs", "engine/nvf-play/src/interface.rs", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/wait.rs", "engine/nvf-play/src/ui_pointer.rs", "engine/nvf-play/src/settings_layout.rs"]
+env = { NVFOREVER_HOME = "hud-menu-scale-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:14", NVF_PLAY_TEST_SETTINGS = "11:page,12:layout", NVF_PLAY_TEST_SHOTS = "12.5:hud75_menu100_settings.png,17:hud75_menu100_wait.png", NVF_PLAY_TEST_WAIT = "16:open,17.5:point=0.584:0.47,18:press,18.5:release,19:point=0.677:0.576,19.5:press,20.5:release" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--no-messages", "--size", "1280x720"]
+run_seconds = 24
+expect = [
+  { text = "interface: UI scale 75% (the HUD drawn at 75%, the menus at 100% of the original's size)", label = "restart keeps distinct sizes" },
+  "settings layout: ui-scale -> Display > Screen",
+  "settings layout: menu-scale -> Display > Screen",
+  "pause menu: open",
+  "wait menu: open",
+  { re = 'wait menu: waiting (?P<n>\d+) hour', range = [17, 19], label = "the unscaled menu slider and Accept receive their drawn presses" },
+]
+manual = "hud75_menu100_settings.png and hud75_menu100_wait.png: full-size centred menus, settings rows HUD scale and Menu scale in Display > Screen, smaller HUD kept at its edges. Compare 100% menu screenshots and ui_scale_75_settings/wait screenshots; no clipped Back/Defaults rows."
+
+[[scenario]]
+name = "hud-menu-scale-tile-menus"
+source = "#2519: HUD 75% with tile menu 100%; the original 1100:457 tile-unit pointer must page the actual menu once"
+note = "Reads hud-menu-scale-write's home. At 100%, 1100:457 units is 825:342.75 pixels of 1280x720, or 0.64453125:0.47604167."
+areas = ["hud", "menus", "tiles", "wait"]
+paths = ["engine/nvf-play/src/menu_scale.rs", "engine/nvf-play/src/interface.rs", "engine/nvf-play/src/tiles/draw.rs", "engine/nvf-play/src/tiles/input.rs", "engine/nvf-play/src/tiles/wait_menu.rs"]
+env = { NVFOREVER_HOME = "hud-menu-scale-home", NVF_PLAY_TEST_TILE_MENUS = "SleepWaitMenu", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_WAIT = "10:open,11:point=0.64453125:0.47604167,11.5:press,12:release", NVF_PLAY_TEST_SHOTS = "13:hud75_menu100_tiles_wait.png" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--no-messages", "--size", "1280x720"]
+run_seconds = 16
+expect = [
+  { text = "interface: UI scale 75% (the HUD drawn at 75%, the menus at 100% of the original's size)", label = "restart retains full-size menus independently" },
+  { re = 'tiles: SleepWaitMenu drawn from tiles \(\d+ file tiles, 0 code tiles\)', label = "the actual menu tree draws" },
+  { text = "tiles: SleepWaitMenu Step(6) on its tiles", count = 1, label = "the press on the full-size page area reaches the tiles" },
+]
+manual = "hud75_menu100_tiles_wait.png: full-size centred tile wait menu at 7 hours with HUD still 75%; compare tiles_sleep_wait.png and ui_scale_75_tiles_wait.png."
+
+[[scenario]]
+name = "hud-menu-scale-main-menu"
+source = "#2519: independent full-size main menu after the HUD-only reduction saved by hud-menu-scale-write"
+areas = ["menus", "settings"]
+paths = ["engine/nvf-play/src/menu_scale.rs", "engine/nvf-play/src/interface.rs", "engine/nvf-play/src/main_menu.rs"]
+env = { NVFOREVER_HOME = "hud-menu-scale-home", NVF_PLAY_TEST_SHOTS = "6:hud75_menu100_main.png" }
+args = ["--play", "--menu", "--no-voice", "--no-messages", "--size", "1280x720"]
+run_seconds = 8
+expect = [
+  { text = "interface: UI scale 75% (the HUD drawn at 75%, the menus at 100% of the original's size)", label = "main menu uses independently persisted size" },
+  { re = 'main menu: open \(\d+ loading screens', label = "the actual main menu opens" },
+]
+manual = "hud75_menu100_main.png: full-size main menu with all labels and buttons on screen; the saved HUD reduction must not shrink it."
 
 [[scenario]]
 name = "draw-distance-sliders"
@@ -27934,6 +27998,20 @@ order = [[
 forbid = [{ text = "EDE1Ref: does not talk", label = "ED-E has a greeting to say" }]
 
 [[scenario]]
+name = "android-start-options"
+source = "NVForever design, issue #2436 (docs/design/android.md): the Android launch defaults reach the shared game's main menu with MSAA off. This desktop scenario checks the shared argument path only, not NativeActivity, touch input or Android GPU behavior."
+areas = ["main-menu", "android"]
+paths = ["engine/nvf-android/**", "engine/nvforever/src/android.rs", "engine/nvforever/src/bin/nvforever.rs", "engine/nvforever/src/main.rs", "android/**"]
+env = { NVFOREVER_HOME = "android-start-options-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_MAIN_MENU = "5:continue" }
+args = ["--play", "--menu", "--msaa", "1", "--window", "borderless"]
+run_seconds = 12
+expect = [
+  { re = 'main menu: open \(\d+ loading screens, 0 saves\)', label = "the Android default arguments open the shared main menu" },
+  { text = "main menu: Continue is greyed out", label = "the main menu accepts the existing navigation input" },
+]
+forbid = [{ text = "explore: the free-camera explorer", label = "the port defaults do not select the explorer" }]
+
+[[scenario]]
 name = "mccarran-boyd-one-body"
 source = "issue #2461 (owner): after the Silus interrogation Lt. Carrie Boyd (LieutenantBoydREF 0x000F0678, CampMCTermInt02) was drawn twice, one body in the room and one outside the door, and the one in the room talked as the other. The scene's records: Silus's GREETING (INFO 0x000F1873) MoveTo's her to BoydExitREF 0x000FA73E (325, 719); the assassin trick's line (INFO 0x000F2DDE) MoveTo's her to XMarker 0x000FB4E1 (467, 1386) by the room's door and its end script sets bBoydEnter, so VFreeformMcCarran2BoydPatrolReturn walks her to her linked ref 0x000FA73D (296, 1665) in the room; the trigger 0x000FA742 there starts the POW2Int exchange with Silus, whose last line sets bBoydExit, and VFreeformMcCarran2BoydPatrolExit walks her back to BoydExitREF. One body per reference throughout (engine/nvforever/src/residents.rs drawn_twice, nav.rs show_actor)"
 note = "the player stands in the interrogation room; Silus's greeting is said at 3 s and the trick's line at 8 s (as the dialogue would, conditions not required). The census is taken at exit; the warnings name a body spawned and lost before it was found"
@@ -28024,6 +28102,7 @@ order = [[
   { re = 'dismember: Mrs\. Weathers 0x00130B99: Head exploded \(KillActor\)', label = "and its KillActor explodes her head" },
   { text = "script: test aid calls GetDead on vCCMrsWeathersREF = 1", label = "she is dead" },
 ]]
+
 
 [[scenario]]
 name = "freeside-fort-residents-door"

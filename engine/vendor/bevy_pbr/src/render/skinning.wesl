@@ -4,7 +4,11 @@ import package::render::mesh_bindings::mesh;
 @if(SKINNED && SKINS_USE_UNIFORM_BUFFERS)
 @group(2) @binding(1) var<uniform> joint_matrices: SkinnedMesh;
 @if(SKINNED && !SKINS_USE_UNIFORM_BUFFERS)
-@group(2) @binding(1) var<storage> joint_matrices: array<mat4x4<f32>>;
+struct StorageJointMatrices {
+    data: array<mat4x4<f32>>,
+}
+@if(SKINNED && !SKINS_USE_UNIFORM_BUFFERS)
+@group(2) @binding(1) var<storage> joint_matrices: StorageJointMatrices;
 
 /// An array of matrices specifying the joint positions from the previous frame.
 ///
@@ -15,7 +19,7 @@ import package::render::mesh_bindings::mesh;
 @if(SKINNED && SKINS_USE_UNIFORM_BUFFERS)
 @group(2) @binding(6) var<uniform> prev_joint_matrices: SkinnedMesh;
 @if(SKINNED && !SKINS_USE_UNIFORM_BUFFERS)
-@group(2) @binding(6) var<storage> prev_joint_matrices: array<mat4x4<f32>>;
+@group(2) @binding(6) var<storage> prev_joint_matrices: StorageJointMatrices;
 
 @if(SKINNED)
 fn skin_model(
@@ -31,10 +35,10 @@ fn skin_model(
 @if(!SKINS_USE_UNIFORM_BUFFERS)
     var skin_index = mesh[instance_index].current_skin_index;
 @if(!SKINS_USE_UNIFORM_BUFFERS)
-    return weights.x * joint_matrices[skin_index + indexes.x]
-        + weights.y * joint_matrices[skin_index + indexes.y]
-        + weights.z * joint_matrices[skin_index + indexes.z]
-        + weights.w * joint_matrices[skin_index + indexes.w];
+    return weights.x * joint_matrices.data[skin_index + indexes.x]
+        + weights.y * joint_matrices.data[skin_index + indexes.y]
+        + weights.z * joint_matrices.data[skin_index + indexes.z]
+        + weights.w * joint_matrices.data[skin_index + indexes.w];
 }
 
 /// Returns the skinned position of a vertex with the given weights from the
@@ -55,10 +59,10 @@ fn skin_prev_model(
 @if(!SKINS_USE_UNIFORM_BUFFERS)
     let skin_index = mesh[instance_index].current_skin_index;
 @if(!SKINS_USE_UNIFORM_BUFFERS)
-    return weights.x * prev_joint_matrices[skin_index + indexes.x]
-        + weights.y * prev_joint_matrices[skin_index + indexes.y]
-        + weights.z * prev_joint_matrices[skin_index + indexes.z]
-        + weights.w * prev_joint_matrices[skin_index + indexes.w];
+    return weights.x * prev_joint_matrices.data[skin_index + indexes.x]
+        + weights.y * prev_joint_matrices.data[skin_index + indexes.y]
+        + weights.z * prev_joint_matrices.data[skin_index + indexes.z]
+        + weights.w * prev_joint_matrices.data[skin_index + indexes.w];
 }
 
 @if(SKINNED)

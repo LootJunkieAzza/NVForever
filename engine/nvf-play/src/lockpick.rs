@@ -36,6 +36,10 @@
 //! held; F forces the lock; E leaves (Esc and Tab too [design]). The buttons can be
 //! clicked.
 //!
+//! [design, #2436] Dedicated Android arc/precision-slider and held Turn controls use the
+//! same rule-gated Turn/step paths. A selected controller uses left-stick X for the pin
+//! and its right trigger for torque, with neutral-on-open gating (touch module).
+//!
 //! A picked lock is a crime when the door or container is owned: a [`LockOpened`]
 //! message names the owner and a line is logged ("crime hook"); `crate::crime` judges it
 //! (`fnv_game::Game::player_opened_lock`).
@@ -56,6 +60,7 @@
 
 pub mod help;
 pub mod screen;
+pub mod touch;
 
 use crate::bindings::{Bindings, Control, ControlInput};
 use crate::pause::{AidTime, Paused};
@@ -343,6 +348,7 @@ pub struct LockpickPlugin;
 
 impl Plugin for LockpickPlugin {
     fn build(&self, app: &mut App) {
+        touch::install(app);
         let steps = match std::env::var("NVF_PLAY_TEST_LOCKPICK").map(|v| parse_aid(&v)) {
             Ok(Ok(a)) => a,
             Ok(Err(e)) => {
@@ -366,14 +372,14 @@ impl Plugin for LockpickPlugin {
             .add_message::<LockOpened>()
             .add_systems(
                 Update,
-                (run_aid, open, (keys, buttons, apply, step).chain().run_if(in_state(PlayState::Menu)), pointer, screen::draw, screen::draw_debug, screen::fade)
+                (run_aid, open, (touch::input, keys, buttons, apply, step).chain().run_if(in_state(PlayState::Menu)), pointer, screen::draw, screen::draw_debug, screen::fade)
                     .chain()
                     .after(crate::menu::open_menus)
                     .in_set(PlaySet::Ui),
             )
             // The help box's scrolling, for every menu that shows it.
             .add_systems(Update, help::scroll.in_set(PlaySet::Ui))
-            .add_systems(OnExit(PlayState::Menu), close)
+            .add_systems(OnExit(PlayState::Menu), (close, touch::clear))
             .add_systems(Last, report);
     }
 }
@@ -568,6 +574,13 @@ fn keys(
     }
 }
 
+/// All ordinary angle devices share the same rule-gated movement/sound accounting.
+fn turn_pin(game: &mut Picking, moved: &mut f32, delta: f32) {
+    if !delta.is_finite() { return; }
+    let at = game.pin;
+    if game.set_pin(at + delta) { *moved += (game.pin - at).abs(); }
+}
+
 /// Whether torque is held: any of the four movement controls [documented: the help
 /// message].
 fn torque_held(input: &ControlInput) -> bool {
@@ -637,12 +650,7 @@ fn apply(
             }
             // The help box is on top of the menu until it is closed.
             _ if s.ended.is_some() || s.help.is_some() => {}
-            LockpickInput::Turn(d) => {
-                let at = g.pin;
-                if g.set_pin(at + d) {
-                    s.moved += (g.pin - at).abs();
-                }
-            }
+            LockpickInput::Turn(d) => turn_pin(g, &mut s.moved, d),
             LockpickInput::Pin(a) => {
                 g.set_pin(a);
                 info!("lockpick: pin at {:.1}° (sweet spot {:.1}° ± {:.1}°): the lock turns {:.0}°", g.pin, g.sweet, g.half, g.max_turn());
@@ -710,6 +718,7 @@ fn crime_hook(out: &mut MessageWriter<LockOpened>, reference: FormId, owner: Opt
 #[allow(clippy::too_many_arguments)]
 fn step(
     input: ControlInput,
+    held: Res<touch::HeldTorque>,
     time: AidTime,
     mut screen: ResMut<LockpickScreen>,
     mut next: ResMut<NextState<PlayState>>,
@@ -752,7 +761,7 @@ fn step(
     if s.aid_torque_until.is_some() && !aid {
         s.aid_torque_until = None;
     }
-    let torque = torque_held(&input) || aid;
+    let torque = touch::torque(torque_held(&input), input.controller(), &held, aid);
     let strained = s.game.stopped;
     let reference = s.reference;
     let events = s.game.step(dt, torque);

@@ -679,10 +679,63 @@ impl PhysWorld {
     /// Update the collision pairs with the ragdolls' contact filter.
     pub(crate) fn detect(&mut self) {
         if self.ragdolls.is_empty() && self.gore.is_empty() {
-            self.w.detect_collisions(&(), &());
+            refresh_without_integration(&mut self.w, &());
         } else {
             let hooks = RagdollHooks { ragdolls: &self.ragdolls, of_body: &self.ragdoll_of, passes: &self.passes_ragdoll };
-            self.w.detect_collisions(&hooks, &());
+            refresh_without_integration(&mut self.w, &hooks);
         }
+    }
+}
+
+/// Rapier's documented zero-dt path registers modified bodies in the real islands
+/// before computing contacts; CollisionPipeline alone does not. Keep persistent dt.
+fn refresh_without_integration(world: &mut PhysicsWorld, hooks: &dyn PhysicsHooks) {
+    let parameters = IntegrationParameters { dt: 0.0, ..world.integration_parameters };
+    world.physics_pipeline.step(
+        world.gravity, &parameters, &mut world.islands, &mut world.broad_phase,
+        &mut world.narrow_phase, &mut world.bodies, &mut world.colliders,
+        &mut world.impulse_joints, &mut world.multibody_joints, &mut world.soft_bodies,
+        &mut world.ccd_solver, hooks, &(),
+    );
+}
+
+#[cfg(test)]
+mod query_refresh_lifecycle_tests {
+    use super::*;
+    use fnv_collide::{CollisionObject, Motion, Shape};
+
+    fn one_body() -> (PhysWorld, RigidBodyHandle) {
+        let mut world=PhysWorld::new(crate::PhysParams {gravity:0.,..Default::default()});
+        let pose=crate::RefPose {form_id:99,position:[0.,0.,100.],rotation:[1.,0.,0.,0.,1.,0.,0.,0.,1.],scale:1.};
+        let shape=CollisionObject {node:None,node_block:0,node_transform:Iso::IDENTITY,body_transform:Iso::IDENTITY,motion:Motion::Dynamic,
+            layer:1,mass:10.,friction:0.5,restitution:0.,shape:Shape::Box {half_extents:[10.;3]}.into(),shell:0.,material:None,wind:false};
+        world.add_ref(&pose,&[shape]);world.step();
+        let handle=world.refs[&99][0];(world,handle)
+    }
+
+    #[test]
+    fn zero_dt_refresh_keeps_persistent_dt_pose_velocity_and_pending_user_force() {
+        let (mut world,handle)=one_body();
+        world.w.bodies[handle].add_force(rapier3d::math::Vector::new(3.,4.,5.),true);
+        let force=world.w.bodies[handle].user_force();let torque=world.w.bodies[handle].user_torque();
+        let body=world.ref_bodies(99)[0];let steps=world.steps();
+        let dt=world.w.integration_parameters.dt.to_bits();let configured=world.params.dt.to_bits();
+        for _ in 0..3 {
+            world.mark_dirty_bodies();world.update_queries();
+            assert_eq!(world.w.integration_parameters.dt.to_bits(),dt);assert_eq!(world.params.dt.to_bits(),configured);
+            assert_eq!(world.steps(),steps);assert_eq!(world.ref_bodies(99)[0],body);
+            assert_eq!(world.w.bodies[handle].user_force(),force);assert_eq!(world.w.bodies[handle].user_torque(),torque);
+        }
+        world.step();assert!(world.ref_bodies(99)[0].linvel[0]>body.linvel[0]);
+    }
+
+    #[test]
+    fn actual_disabled_then_reenabled_body_is_registered_without_time_advancement() {
+        let (mut world,handle)=one_body();let body=world.ref_bodies(99)[0];let steps=world.steps();
+        world.w.bodies[handle].set_enabled(false);world.mark_dirty_bodies();world.update_queries();
+        assert!(!world.w.bodies[handle].is_enabled());assert_eq!(world.steps(),steps);
+        world.w.bodies[handle].set_enabled(true);world.mark_dirty_bodies();world.update_queries();
+        assert!(world.w.bodies[handle].is_enabled());assert_eq!(world.steps(),steps);
+        assert_eq!(world.ref_bodies(99)[0],body);assert_eq!(world.stats().bodies_awake,1);
     }
 }

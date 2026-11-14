@@ -385,6 +385,8 @@ pub struct Sources<'w> {
 pub struct Input<'w, 's> {
     keys: crate::pad::ActionButtons<'w, KeyCode>,
     wheel: MessageReader<'w, 's, MouseWheel>,
+    touch_wheel: Option<Res<'w,super::touch_scroll::WheelFrame>>,
+    physical:Option<Res<'w,super::touch_scroll::PhysicalPriority>>,
     time: crate::pause::AidTime<'w>,
     asks: MessageWriter<'w, UseHint>,
     tiles: Option<Res<'w, crate::tiles::stats_menu::StatsTiles>>,
@@ -498,7 +500,10 @@ pub fn prepare(
         if let Some(a) = ask {
             input.asks.write(a);
         }
-        let pointer = screen.as_ref().and_then(|s| s.pointer);
+        let touch_lines=if input.physical.as_ref().is_some_and(|p|p.active) {0.0} else {input.touch_wheel.as_ref().map_or(0.0,|w|w.lines(&pip))};
+        let pointer = input.touch_wheel.as_ref().filter(|_|touch_lines!=0.0).and_then(|w|w.at)
+            .or_else(||screen.as_ref().and_then(|s|s.pointer));
+        mem.wheel+=touch_lines;
         for w in input.wheel.read() {
             mem.wheel += match w.unit {
                 MouseScrollUnit::Line => w.y,

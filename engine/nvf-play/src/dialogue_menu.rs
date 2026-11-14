@@ -469,6 +469,7 @@ pub struct DialogueMenuPlugin;
 
 impl Plugin for DialogueMenuPlugin {
     fn build(&self, app: &mut App) {
+        crate::dialogue_touch::install(app);
         app.init_resource::<DialogueMenu>().init_resource::<GoodbyeHint>().add_systems(Update, draw.in_set(crate::PlaySet::Ui).in_set(DrawMenu));
         crate::settings::add_setting(
             app,
@@ -616,7 +617,13 @@ fn draw(
     mut buttons: Query<&mut ChoiceButton>,
     hint: Res<GoodbyeHint>,
     glyphs: Res<crate::pad::PadGlyphs>,
+    touch: Res<crate::dialogue_touch::TouchDialogue>,
 ) {
+    if touch.enabled {
+        for e in &roots { commands.entity(e).despawn(); }
+        *shown = None;
+        return;
+    }
     // Drawn from its file: all of the menu, none of it here (`crate::tiles::dialog_menu`).
     if tiles.is_some_and(|t| t.by_tiles()) {
         for e in &roots {

@@ -724,6 +724,9 @@ pub struct Game<'w> {
 pub struct Input<'w, 's> {
     keys: crate::pad::ActionButtons<'w, KeyCode>,
     wheel: MessageReader<'w, 's, MouseWheel>,
+    touch_wheel: Option<Res<'w,super::touch_scroll::WheelFrame>>,
+    physical:Option<Res<'w,super::touch_scroll::PhysicalPriority>>,
+    touch_pip: Option<Res<'w,super::PipBoy>>,
     menu: MessageReader<'w, 's, MenuInput>,
     pip_out: MessageWriter<'w, PipBoyInput>,
     time: Res<'w, Time<Real>>,
@@ -1058,6 +1061,25 @@ fn hold_input(st: &mut DataState, tab: usize, l: &Lists, input: &mut Input) {
 /// Note the order quests are listed in, the markers the player finds, and where the
 /// player was last outdoors.
 impl DataState {
+    #[cfg(test)]
+    pub(crate) fn take_touch_test_actions(&mut self) -> Vec<Act> { std::mem::take(&mut self.acts) }
+
+    /// Identity of actions deferred by a native touch contact. No action or state changes here.
+    pub(crate) fn touch_action_context(&self, tab: usize) -> super::touch_scroll::DataActionContext {
+        let marker = |m: CustomMarker| (m.space, m.pos.map(f32::to_bits));
+        let selection = self.sel.get(tab).copied().unwrap_or(0);
+        super::touch_scroll::DataActionContext {
+            selection,
+            key: self.prepared.as_ref().filter(|p| p.view.tab == tab).and_then(|p| p.keys.get(selection)).copied(),
+            challenges: self.challenges,
+            filtered: self.notes_of_active,
+            quest: self.active_quest,
+            travel: self.travel_marker,
+            custom: self.custom.map(marker),
+            spot: self.spot.get(tab).copied().flatten().map(marker),
+        }
+    }
+
     /// What the page shows as last prepared, for the drawing from the file
     /// (`crate::tiles::map_menu`).
     pub(crate) fn prepared(&self) -> Option<&Prepared> {
@@ -1515,7 +1537,8 @@ fn take_input(st: &mut DataState, tab: usize, l: &Lists, game: &mut Game, input:
         }
     }
     // The wheel zooms a map, scrolls the right pane under the pointer, else the list.
-    let mut notches = 0.0;
+    let mut notches = if input.physical.as_ref().is_some_and(|p|p.active) {0.0} else {input.touch_wheel.as_ref().zip(input.touch_pip.as_deref()).map_or(0.0,|(w,pip)|w.lines(pip))};
+    let pointer=input.touch_wheel.as_ref().filter(|_|notches!=0.0).and_then(|w|w.at).or(pointer);
     for w in input.wheel.read() {
         notches += match w.unit {
             MouseScrollUnit::Line => w.y,
@@ -4975,4 +4998,20 @@ mod tests {
         assert_eq!(marker_from_save(&v, Some(&gone)), None);
         assert_eq!(marker_from_save(&serde_json::to_value(m).unwrap(), Some(&gone)), Some(m));
     }
+
+    #[test]
+    fn projected_mobile_wheel_reaches_native_data_list_channel_and_stale_tab_is_refused(){
+        use bevy::ecs::system::RunSystemOnce;
+        fn read(mut st:ResMut<DataState>,mut game:Game,mut input:Input){
+            take_input(&mut st,NOTES,&Lists::default(),&mut game,&mut input,None,true);
+        }
+        let mut world=page_world(true,data_open(NOTES));
+        let mut wheel=super::super::touch_scroll::WheelFrame::default();
+        wheel.set(world.resource::<PipBoy>(),Vec2::new(100.,100.),-60.);world.insert_resource(wheel);
+        world.run_system_once(read).unwrap();assert_eq!(world.resource_mut::<DataState>().take_list_notches(),-3.0);
+        world.resource_mut::<PipBoy>().tabs[Page::Data.index()]=QUESTS;
+        world.run_system_once(read).unwrap();assert_eq!(world.resource_mut::<DataState>().take_list_notches(),0.0);
+        assert!(world.resource::<Messages<FastTravelAsk>>().is_empty());
+    }
+
 }

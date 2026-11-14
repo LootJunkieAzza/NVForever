@@ -1292,6 +1292,12 @@ impl Combat {
         self.weapon
     }
 
+    /// The current weapon uses the gameplay melee/Fists blocking route.
+    /// Presentation reads this capability rather than guessing weapon IDs or names.
+    pub fn player_weapon_blocks(&self) -> bool {
+        self.melee && self.weapon.is_some_and(|id| self.forms.weapons.contains_key(&id))
+    }
+
     /// The ammunition the player's weapon loads now (`None`: none, or melee).
     pub fn player_ammo(&self) -> Option<FormId> {
         self.ammo
@@ -2061,7 +2067,9 @@ fn weapon_state(anim: Res<WeaponAnim>, mut script: Option<ResMut<ScriptState>>) 
     }
 }
 
-fn init_combat(mut commands: Commands, d: Res<PlayWorld>) {
+/// Production ECS entry point exposed for authored headless integration fixtures.
+#[doc(hidden)]
+pub fn init_combat(mut commands: Commands, d: Res<PlayWorld>) {
     let t = std::time::Instant::now();
     let tracer_hold = std::env::var("NVF_PLAY_TEST_TRACERS").ok().and_then(|v| v.trim().parse().ok()).filter(|s: &f32| *s > 0.0);
     let forms = CombatForms::build(d.lo, d.schema);
@@ -2226,7 +2234,9 @@ fn hud_ammo(magazine: u32, carried: u32, regenerates: bool) -> (u32, u32) {
 }
 
 /// Follow the equipped weapon: a new weapon gets a new cycle, loaded from what is carried.
-fn equip_sync(mut c: ResMut<Combat>, mut sim: ResMut<SimState>, mut anim: ResMut<WeaponAnim>) {
+/// Production ECS entry point exposed for authored headless integration fixtures.
+#[doc(hidden)]
+pub fn equip_sync(mut c: ResMut<Combat>, mut sim: ResMut<SimState>, mut anim: ResMut<WeaponAnim>) {
     let c = &mut *c;
     let equipped = sim.world.peek(FormId::PLAYER_REF).and_then(|s| s.inventory.as_ref()).map(|i| i.equipped()).unwrap_or_default();
     let mut equipped = equipped.into_iter().find(|id| c.forms.weapons.contains_key(id));
@@ -5422,6 +5432,66 @@ fn sound_edid(sfx: Option<&Sfx>, sound: FormId) -> String {
 mod tests {
     use super::*;
     use crate::phys::NpcBody;
+
+    fn presentation_fixture() -> Combat {
+        let mut app=App::new();
+        app.add_plugins(MinimalPlugins).insert_resource(PlayWorld(crate::PlayData {
+            lo:Box::leak(Box::new(fnv_esm::LoadOrder::new(&[]).unwrap())),schema:Box::leak(Box::default()),index:Box::leak(Box::default()),
+            world:1,interior:None,eye:[0.0;3],heading_deg:0.0,pitch_deg:0.0,auto_walk:0.0,start_at_cell_spot:false,packages:false,
+        })).add_systems(Startup,init_combat);
+        app.update();app.world_mut().remove_resource::<Combat>().unwrap()
+    }
+
+    #[test]
+    fn touch_aim_presentation_uses_current_melee_fists_and_real_scoped_capability() {
+        use crate::touch_action_presentation::{aim_role,AimRole};
+        let mut c=presentation_fixture();let melee=FormId(1);let gun=FormId(2);let fists=FormId(3);
+        c.forms.weapons.insert(melee,WeaponStats::default());c.forms.weapons.insert(fists,WeaponStats::default());c.fists=Some(fists);
+        c.forms.weapons.insert(gun,WeaponStats {sight_fov:35.0,scope_nif:Some("fixture-scope.nif".into()),flags:vec!["Has Scope".into()],..default()});
+        let mut control=PlayerControl {weapon_out:true,..default()};let mut anim=WeaponAnim {ready:true,..default()};
+        c.weapon=Some(melee);c.equipped=Some(Some(melee));c.melee=true;
+        assert_eq!(aim_role(Some(&c),Some(&control),Some(&anim),true),AimRole::Block);
+        c.weapon=Some(fists);c.equipped=Some(None);
+        assert_eq!(aim_role(Some(&c),Some(&control),Some(&anim),true),AimRole::Block,"runtime fists fallback, not an ID guess");
+        c.weapon=Some(gun);c.equipped=Some(Some(gun));c.melee=false;
+        for aiming in [false,true] {control.aiming=aiming;assert_eq!(aim_role(Some(&c),Some(&control),Some(&anim),true),AimRole::Scope,"scope capability is independent of a held aim key");}
+        c.forms.weapons.get_mut(&gun).unwrap().scope_nif=None;
+        assert_eq!(aim_role(Some(&c),Some(&control),Some(&anim),true),AimRole::Aim,"a flag without a real scope model is not scoped");
+        c.weapon=Some(melee);c.melee=true;
+        anim.ready=false;assert_eq!(aim_role(Some(&c),Some(&control),Some(&anim),true),AimRole::Aim);
+        anim.ready=true;control.weapon_out=false;assert_eq!(aim_role(Some(&c),Some(&control),Some(&anim),true),AimRole::Aim);
+        control.weapon_out=true;assert_eq!(aim_role(Some(&c),Some(&control),Some(&anim),false),AimRole::Aim,"modal context is generic");
+        c.weapon=None;assert_eq!(aim_role(Some(&c),Some(&control),Some(&anim),true),AimRole::Aim);
+    }
+
+    #[test]
+    fn touch_scope_caption_follows_the_equipped_units_actual_scope_mod() {
+        use crate::touch_action_presentation::{aim_role,AimRole};
+        let mut c=presentation_fixture();let gun=FormId(5);
+        c.forms.weapons.insert(gun,WeaponStats {sight_fov:55.0,scope_nif:Some("fixture-scope.nif".into()),flags:vec!["Has Scope".into(),"Scope from Mod".into()],
+            mods:vec![fnv_combat::data::WeaponMod {slot:1,item:None,effect:Some("Increase Zoom".into()),value_a:10.0,value_b:0.0}],..default()});
+        c.weapon=Some(gun);c.equipped=Some(Some(gun));c.melee=false;
+        let control=PlayerControl {weapon_out:true,..default()};let anim=WeaponAnim {ready:true,..default()};
+        assert_eq!(aim_role(Some(&c),Some(&control),Some(&anim),true),AimRole::Aim);
+        c.mods=fnv_combat::data::mod_flag(1);
+        assert_eq!(aim_role(Some(&c),Some(&control),Some(&anim),true),AimRole::Scope);
+        c.mods=0;assert_eq!(aim_role(Some(&c),Some(&control),Some(&anim),true),AimRole::Aim);
+    }
+
+    #[test]
+    fn published_touch_role_clears_modal_state_without_mutating_the_input_owner() {
+        use crate::touch_action_presentation::{AimPresentation,AimRole,TouchActionPresentationPlugin};
+        let mut c=presentation_fixture();let weapon=FormId(8);c.weapon=Some(weapon);c.melee=true;c.forms.weapons.insert(weapon,WeaponStats::default());
+        let mut app=App::new();app.add_plugins((MinimalPlugins,bevy::state::app::StatesPlugin,TouchActionPresentationPlugin))
+            .insert_state(PlayState::Playing).insert_resource(c).insert_resource(PlayerControl {weapon_out:true,aiming:true,..default()})
+            .insert_resource(WeaponAnim {ready:true,..default()}).insert_resource(crate::pause::Paused(false));
+        app.update();assert_eq!(app.world().resource::<AimPresentation>().0,AimRole::Block);
+        app.world_mut().resource_mut::<crate::pause::Paused>().0=true;app.update();assert_eq!(app.world().resource::<AimPresentation>().0,AimRole::Aim);
+        assert!(app.world().resource::<PlayerControl>().aiming,"presentation never cancels somebody else's held action");
+        app.world_mut().resource_mut::<crate::pause::Paused>().0=false;app.insert_state(PlayState::Menu);app.update();assert_eq!(app.world().resource::<AimPresentation>().0,AimRole::Aim);
+        app.insert_state(PlayState::Playing);app.update();assert_eq!(app.world().resource::<AimPresentation>().0,AimRole::Block);
+        app.world_mut().resource_mut::<WeaponAnim>().ready=false;app.update();assert_eq!(app.world().resource::<AimPresentation>().0,AimRole::Aim);
+    }
 
     #[test]
     fn melee_hold_refuses_switch_without_starting_a_swing() {

@@ -3604,4 +3604,23 @@ mod tests {
         v.weapon.as_mut().unwrap().style = AttackStyle::Thrown;
         assert_eq!(v.melee_mark(), None, "a throw is no blow");
     }
+    #[test]
+    fn touch_gesture_binding_pulse_uses_native_vats_draw_admission_and_all_locks() {
+        use bevy::input::{keyboard::{Key, KeyboardInput}, ButtonState};
+        use crate::bindings::Bindings;
+        for barrier in 0..4 {
+            let (mut app, _) = menu_key_app(crate::bindings::InputDevice::KeyboardMouse, VatsMode::default());
+            app.world_mut().resource_mut::<Bindings>().rebind(Control::Vats, crate::bindings::Input::Key(KeyCode::F9));
+            if barrier == 1 { app.insert_resource(crate::script_input::ScriptBlocked { keys: vec![KeyCode::F9], ..default() }); }
+            if barrier == 2 { app.world_mut().resource_mut::<ControlLocks>().fighting = true; }
+            if barrier == 3 { app.init_resource::<crate::pad::PlatformInputGate>(); app.world_mut().resource_mut::<crate::pad::PlatformInputGate>().set_blocked(true); }
+            app.world_mut().write_message(KeyboardInput { key_code: KeyCode::F9, logical_key: Key::Character("VATS gesture fixture".into()),
+                state: ButtonState::Pressed, repeat: false, text: None, window: Entity::PLACEHOLDER });
+            app.update();
+            assert_eq!(app.world().resource::<VatsMode>().phase, if barrier == 0 { Phase::Drawing } else { Phase::Off });
+            assert_eq!(app.world().resource::<PlayerControl>().weapon_out, barrier == 0);
+            assert_eq!(app.world().resource::<VatsMode>().stats.shots, 0, "gesture does not invent a shot/AP action");
+        }
+    }
+
 }

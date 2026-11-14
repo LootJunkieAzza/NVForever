@@ -1,0 +1,93 @@
+name: android-test-apk
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'android/**'
+      - 'engine/**'
+      - 'crates/**'
+      - 'schemas/**'
+      - 'lang/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'tools/android/**'
+      - '.github/workflows/android.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: stable
+          targets: aarch64-linux-android
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          workspaces: engine -> target-android
+          shared-key: android-arm64-dev
+      - name: Java 17 and pinned Android SDK/NDK
+        shell: bash
+        run: |
+          echo "JAVA_HOME=$JAVA_HOME_17_X64" >> "$GITHUB_ENV"
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-35' 'build-tools;35.0.1' 'ndk;28.2.13676358'
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/28.2.13676358" >> "$GITHUB_ENV"
+      - name: Verified Gradle 8.11.1
+        shell: bash
+        run: |
+          curl --fail --location --retry 3 https://services.gradle.org/distributions/gradle-8.11.1-bin.zip --output "$RUNNER_TEMP/gradle.zip"
+          echo "f397b287023acdba1e9f6fc5ea72d22dd63669d59ed4a289a29b1a76eee151c6  $RUNNER_TEMP/gradle.zip" | sha256sum --check
+          unzip -q "$RUNNER_TEMP/gradle.zip" -d "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/gradle-8.11.1/bin" >> "$GITHUB_PATH"
+      - name: Import and APK tooling controls
+        shell: bash
+        run: |
+          python3 -m unittest discover -s tools/android/tests
+          mkdir -p "$RUNNER_TEMP/java-tests"
+          "$JAVA_HOME/bin/javac" -d "$RUNNER_TEMP/java-tests" android/app/src/main/java/org/nvforever/android/InstallConfig.java android/app/src/test/java/org/nvforever/android/InstallConfigTest.java
+          "$JAVA_HOME/bin/java" -cp "$RUNNER_TEMP/java-tests" org.nvforever.android.InstallConfigTest
+      - name: LAN diagnostics archive, queue and HTTP controls
+        shell: bash
+        run: |
+          "$JAVA_HOME/bin/javac" --add-modules jdk.httpserver -encoding UTF-8 -d "$RUNNER_TEMP/java-tests" android/app/src/main/java/org/nvforever/android/DiagnosticsArchive.java android/app/src/main/java/org/nvforever/android/DiagnosticsQueue.java android/app/src/main/java/org/nvforever/android/DiagnosticsTransport.java android/app/src/main/java/org/nvforever/android/DiagnosticsSession.java android/tests/Diagnostics*Test.java
+          for control in DiagnosticsArchiveTest DiagnosticsQueueTest DiagnosticsTransportTest DiagnosticsSessionTest; do
+            "$JAVA_HOME/bin/java" --add-modules jdk.httpserver -cp "$RUNNER_TEMP/java-tests" "org.nvforever.android.$control"
+          done
+      - name: Loading handoff, gyro math and thermal state controls
+        shell: bash
+        run: |
+          "$JAVA_HOME/bin/javac" -encoding UTF-8 -d "$RUNNER_TEMP/java-tests" android/app/src/main/java/org/nvforever/android/HandoffCoordinator.java android/app/src/main/java/org/nvforever/android/LoadingState.java android/app/src/main/java/org/nvforever/android/GyroMotion.java android/app/src/main/java/org/nvforever/android/PerformanceThermals.java android/tests/HandoffCoordinatorTest.java android/tests/GyroMotionTest.java android/tests/AndroidPerformanceTest.java
+          for control in HandoffCoordinatorTest GyroMotionTest AndroidPerformanceTest; do
+            "$JAVA_HOME/bin/java" -cp "$RUNNER_TEMP/java-tests" "org.nvforever.android.$control"
+          done
+      - name: Cross-check engine and authored input tests
+        shell: bash
+        run: python3 tools/android/build.py --check --tests --jobs 2
+      - name: Skinning WESL, SPIR-V and matrix layout controls
+        shell: bash
+        run: cargo test --manifest-path tools/android/skinning-check/Cargo.toml --target-dir target-android-cpu --locked --jobs 6
+      - name: Build the signed development APK
+        shell: bash
+        run: python3 tools/android/build.py --jobs 2
+      - name: Android lint and signature
+        shell: bash
+        run: |
+          gradle -p android --no-daemon --max-workers=2 :app:lintDebug
+          "$ANDROID_HOME/build-tools/35.0.1/apksigner" verify --verbose android/app/build/outputs/apk/debug/app-debug.apk
+          python3 tools/android/verify_apk.py android/app/build/outputs/apk/debug/app-debug.apk > android-apk-verification.json
+      - uses: actions/upload-artifact@v7
+        with:
+          name: NVForever-Android-arm64-test
+          path: |
+            android/app/build/outputs/apk/debug/app-debug.apk
+            android-apk-verification.json
+          if-no-files-found: error

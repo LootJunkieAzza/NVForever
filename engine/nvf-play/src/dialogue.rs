@@ -651,7 +651,7 @@ pub struct ViewInput {
 impl ViewInput {
     /// This input if it was for the list `now`, else nothing: the list on screen was replaced
     /// after the view read it.
-    fn for_list(self, now: Option<&ListId>) -> ViewInput {
+    pub(crate) fn for_list(self, now: Option<&ListId>) -> ViewInput {
         if self.list.as_ref() == now {
             self
         } else {
@@ -745,11 +745,16 @@ pub(crate) fn input(
     mut script: ResMut<ScriptState>,
     mut sim: ResMut<SimState>,
     mut view_input: ResMut<ViewInput>,
+    touch: Option<ResMut<crate::dialogue_touch::TouchFrame>>,
 ) {
     let keys = keys.snapshot();
     use KeyCode::*;
     // Taken whatever happens below: what a view asked is for this frame only.
-    let asked = std::mem::take(&mut *view_input);
+    let mut asked = std::mem::take(&mut *view_input);
+    let touch_active = touch.as_ref().is_some_and(|t| t.active);
+    if let Some(mut touch) = touch.filter(|t| t.active) {
+        asked = std::mem::take(&mut touch.asked);
+    }
     // Like the scripts: not under the pause menu, not before the player stands in the
     // world.
     if paused.0 || phys.player.is_none() {
@@ -833,7 +838,7 @@ pub(crate) fn input(
     let list_now = list_id(&rt.game);
     let mut asked = asked.for_list(list_now.as_ref());
     // What the view asked is held to its list; the hand-built buttons carry theirs below.
-    let by_tiles = asked.list.is_some();
+    let by_tiles = asked.list.is_some() && !touch_active;
     let offered = offers(&rt.game, &conv.choices);
     let chosen_for = |since: Option<f32>, limit: f32| since.is_some_and(|t| now - t >= limit);
 
@@ -915,7 +920,7 @@ pub(crate) fn input(
             let wheel = scroll.delta.y;
             // The hand-built buttons ask as the tiles do, for the list they were spawned or last
             // brought up to date for.
-            for (i, b) in clicks.iter().filter(|(_, b)| b.1 == list_now) {
+            for (i, b) in clicks.iter().filter(|(_, b)| !touch_active && b.1 == list_now) {
                 match i {
                     PointerState::Pressed => asked.pick = Some(b.0),
                     PointerState::Hovered => asked.hover = Some(b.0),

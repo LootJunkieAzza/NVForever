@@ -135,7 +135,7 @@ impl MoveSpeeds {
 }
 
 /// What the player asks for this frame.
-#[derive(Resource, Debug, Clone, Copy, Default, PartialEq)]
+#[derive(Resource, Debug, Clone, Copy, PartialEq)]
 pub struct MoveIntent {
     /// +1 forward (W, or Auto Move), −1 back (S).
     pub forward: f32,
@@ -149,6 +149,11 @@ pub struct MoveIntent {
     pub sneak: bool,
     /// Jump (Space) on the next fixed step; kept until a step uses it.
     pub jump: bool,
+    /// Touch analog speed share. One preserves legacy keyboard/controller speed.
+    pub analog_scale: f32,
+}
+impl Default for MoveIntent {
+    fn default() -> Self { Self { forward: 0.0, right: 0.0, walk: false, sneak: false, jump: false, analog_scale: 1.0 } }
 }
 
 /// The player's toggles: Always Run (Caps Lock), sneaking (Ctrl), Auto Move (Q).
@@ -196,6 +201,7 @@ pub mod keys {
 /// capture mv_values], Q flips Auto Move, which walks forward until Forward or Back is
 /// pressed [hypothesis]. `jump` is only ever set here (a step clears it).
 pub fn read_keys(c: &mut Controls, intent: &mut MoveIntent, pressed: impl Fn(KeyCode) -> bool, just: impl Fn(KeyCode) -> bool) {
+    intent.analog_scale = 1.0;
     if just(keys::ALWAYS_RUN) {
         c.always_run = !c.always_run;
         info!("always run {}", if c.always_run { "on" } else { "off" });
@@ -249,7 +255,12 @@ pub fn velocity(intent: &MoveIntent, heading: f32, speeds: MoveSpeeds) -> [f32; 
     if intent.sneak {
         speed *= SNEAK_SPEED_FRACTION;
     }
+    let speed = speed * analog_scale(intent);
     [v[0] / len * speed, v[1] / len * speed]
+}
+
+fn analog_scale(intent: &MoveIntent) -> f32 {
+    if intent.analog_scale.is_finite() { intent.analog_scale.clamp(0.0, 1.0) } else { 0.0 }
 }
 
 /// Swimming speeds, units/s, before the stroke cycle (`fnv_phys::swim`): run (Always Run)
@@ -271,7 +282,7 @@ pub fn swim_velocity(intent: &MoveIntent, heading: f32, pitch: f32, speeds: Move
     if len < 1e-6 {
         return [0.0, 0.0, 0.0];
     }
-    let speed = if intent.walk { speeds.walk } else { speeds.run };
+    let speed = (if intent.walk { speeds.walk } else { speeds.run }) * analog_scale(intent);
     [v[0] / len * speed, v[1] / len * speed, v[2] / len * speed]
 }
 
@@ -495,32 +506,41 @@ fn grab_cursor(
     }
     let grab = playing && !driven && !boxed && window.focused && !hud_cursor && !targeting;
     // Windows cannot lock the cursor in place; confining it still gives raw motion.
-    let mode = match (grab, cfg!(target_os = "windows")) {
+    // NativeActivity has no desktop pointer-lock API. Touch supplies look deltas
+    // directly; repeatedly requesting a lock makes winit retry/log every frame.
+    let mode = match (grab && !cfg!(target_os = "android"), cfg!(target_os = "windows")) {
         (false, _) => CursorGrabMode::None,
         (true, true) => CursorGrabMode::Confined,
         (true, false) => CursorGrabMode::Locked,
     };
     // Out of focus or under a test aid the mouse is the desktop's: its pointer stays. The
     // lockpicking menu hides the pointer over the lock (`crate::lockpick`).
-    let visible = !grab && (wanted || driven || !window.focused || hud_cursor) && !over_lock.is_some_and(|o| o.0);
+    let visible = cfg!(target_os = "android") || (!grab && (wanted || driven || !window.focused || hud_cursor) && !over_lock.is_some_and(|o| o.0));
     if cursor.grab_mode != mode || cursor.visible != visible {
         cursor.grab_mode = mode;
         cursor.visible = visible;
     }
 }
 
+type MovementContext<'w> = (
+    Option<Res<'w, crate::control::HeldSneakInput>>,
+    Option<Res<'w, crate::pad::TouchDeviceSwitch>>,
+    Option<Res<'w, crate::touch_movement::TouchMovementInput>>,
+);
+
 /// The movement controls: Forward, Back, Slide Left and Right; running unless Run is held
 /// while Always Run is on (and the other way round); Auto Move walks forward until
 /// Forward or Back is pressed [hypothesis]; Jump.
-fn read_input(
+pub fn read_input(
     input: ControlInput,
     state: Res<State<PlayState>>,
     mut control: ResMut<PlayerControl>,
     mut intent: ResMut<MoveIntent>,
     mut seat: ResMut<crate::furniture::PlayerSeat>,
     driven: Option<Res<ViewDriven>>,
+    (held_sneak, touch_switch, touch_move): MovementContext<'_>,
 ) {
-    if *state.get() != PlayState::Playing {
+    if *state.get() != PlayState::Playing || input.platform_capture.as_ref().is_some_and(|g| !g.allows_actions()) {
         *intent = MoveIntent::default();
         return;
     }
@@ -540,7 +560,9 @@ fn read_input(
         *intent = MoveIntent::default();
         return;
     }
-    let axis = |plus: Control, minus: Control| input.pressed(plus) as i32 as f32 - input.pressed(minus) as i32 as f32;
+    intent.analog_scale = 1.0;
+    let touch_axes = touch_move.as_deref().map_or(Vec2::ZERO, |m| m.admitted(&input, touch_switch.as_deref()));
+    let axis = |plus: Control, minus: Control| input.digital_movement_pressed(plus) as i32 as f32 - input.digital_movement_pressed(minus) as i32 as f32;
     if control.auto_move && (input.just_pressed(Control::Forward) || input.just_pressed(Control::Back)) {
         control.auto_move = false;
     }
@@ -558,7 +580,19 @@ fn read_input(
             intent.walk = true;
         }
     }
-    intent.sneak = control.sneak;
+    // Even opposing physical directions own movement rather than reviving touch.
+    let digital_direction = [Control::Forward, Control::Back, Control::SlideLeft, Control::SlideRight].into_iter().any(|c| input.digital_movement_pressed(c));
+    if touch_axes != Vec2::ZERO && !digital_direction {
+        if !control.auto_move {
+            intent.forward = touch_axes.y; intent.right = touch_axes.x;
+            intent.analog_scale = touch_axes.length().min(1.0);
+            if control.always_run && touch_axes.length() < crate::pad::STICK_WALK_BELOW { intent.walk = true; }
+        } else { intent.right = touch_axes.x; }
+    }
+    intent.sneak = held_sneak.as_deref().map_or(control.sneak, |held| {
+        held.effective(control.sneak, input.virtual_action_allowed(Control::CrouchSneak)
+            && touch_switch.as_deref().is_none_or(crate::pad::TouchDeviceSwitch::allows_actions))
+    });
     if input.just_pressed(Control::Jump) {
         intent.jump = true;
     }
@@ -733,6 +767,24 @@ fn take_knockbacks(knocks: Option<MessageReader<crate::combat::Knockback>>, mut 
     }
 }
 
+/// Optional mobile sensor contribution, in view radians (+x right, +y down).
+/// The producer replaces it each frame; it never changes physical input ownership.
+#[derive(Resource, Default, Clone, Copy)]
+pub struct GyroLook {
+    pub radians: Vec2,
+}
+
+type LookContext<'w, 's> = (
+    Option<Res<'w, crate::dialogue_zoom::DialogueZoom>>,
+    Option<Res<'w, crate::script_switches::ScriptSwitches>>,
+    Local<'s, DialogueMouseGuard>,
+    Option<Res<'w, GyroLook>>,
+    Option<Res<'w, crate::pad::PlatformInputGate>>,
+    Option<Res<'w, crate::pad::TouchDeviceSwitch>>,
+    Option<Res<'w, crate::controller_aim::Options>>,
+    Option<Res<'w, crate::aim_zoom::AimZoom>>,
+);
+
 /// Mouse look while the cursor is grabbed, or with a controller working the controls the
 /// right stick's (`crate::pad`); while Toggle POV is held it circles the camera instead
 /// (control.rs). Not while a script has locked looking: the view stays where it is
@@ -753,14 +805,12 @@ pub(crate) fn mouse_look(
     free_cam: Option<Res<crate::free_cam::FreeCam>>,
     kill_cam: Option<Res<crate::kill_cam::KillCam>>,
     assist: Option<Res<crate::aim_assist::AimAssistState>>,
-    (talk, switches, mut mouse_guard): (
-        Option<Res<crate::dialogue_zoom::DialogueZoom>>,
-        Option<Res<crate::script_switches::ScriptSwitches>>,
-        Local<DialogueMouseGuard>,
-    ),
+    (talk, switches, mut mouse_guard, gyro, platform, touch_switch, controller_aim, ads): LookContext<'_, '_>,
 ) {
+    if platform.as_deref().is_some_and(|gate| !gate.allows_actions()) { return; }
     let dialogue = *state.get() == PlayState::Dialogue;
-    let grabbed = cursor.single().is_ok_and(|c| c.grab_mode != CursorGrabMode::None);
+    // Android touch-look is available without an unsupported OS cursor lock.
+    let grabbed = cfg!(target_os = "android") || cursor.single().is_ok_and(|c| c.grab_mode != CursorGrabMode::None);
     let playing = *state.get() == PlayState::Playing || look.is_some_and(|l| l.0);
     let mouse_delta = mouse_guard.filter(motion.delta, grabbed && playing, dialogue);
     // A zoomed conversation locks the view: the mouse moves only the cursor, even if the
@@ -789,7 +839,8 @@ pub(crate) fn mouse_look(
         let v = crate::pad::stick(&pads, false);
         let curve = |x: f32| x * x.abs();
         // The Controls tab's Stick Sensitivity scales the stick's look speeds.
-        let dt = time.delta_secs() * assist.map_or(1.0, |a| a.look_scale) * bindings.stick_sensitivity;
+        let ads_scale = controller_aim.as_deref().map_or(1.0, |o|o.look_scale(ads.as_deref().is_some_and(|a|a.aimed)));
+        let dt = time.delta_secs() * assist.map_or(1.0, |a| a.look_scale) * bindings.stick_sensitivity * ads_scale;
         (Vec2::new(curve(v.x) * bindings.look_speed[0] * dt, -curve(v.y) * bindings.look_speed[1] * dt), STICK_LOOK_RADIANS)
     } else {
         // The axes ToggleMouseMovement left on (`crate::script_switches`).
@@ -797,6 +848,21 @@ pub(crate) fn mouse_look(
     };
     // The Controls tab's Vertical Sensitivity of the device in use (#2201).
     let delta = vertical_scaled(delta, bindings.vertical_sensitivity());
+    let gyro_radians = if bindings.device == crate::bindings::InputDevice::KeyboardMouse
+        && !dialogue
+        && touch_switch.as_deref().is_none_or(crate::pad::TouchDeviceSwitch::allows_actions)
+    {
+        gyro.as_deref()
+            .filter(|g| g.radians.is_finite() && g.radians.abs().max_element() <= 1.0)
+            .map_or(Vec2::ZERO, |g| switches.as_deref().map_or(g.radians, |s| s.look(g.radians)))
+    } else {
+        Vec2::ZERO
+    };
+    let (delta, s) = if gyro_radians != Vec2::ZERO {
+        (delta * s + gyro_radians, 1.0)
+    } else {
+        (delta, s)
+    };
     if !grabbed || !playing || locks.looking || delta == Vec2::ZERO {
         return;
     }
@@ -1567,6 +1633,73 @@ mod tests {
     use super::*;
     use std::f32::consts::{FRAC_PI_2, PI};
 
+    fn gyro_look_app() -> App {
+        let mut app = App::new();
+        app.insert_resource(State::new(PlayState::Playing))
+            .insert_resource(Time::<()>::default())
+            .init_resource::<Bindings>()
+            .init_resource::<crate::control::ControlLocks>()
+            .init_resource::<PlayerControl>()
+            .init_resource::<crate::furniture::PlayerSeat>()
+            .insert_resource(AccumulatedMouseMotion { delta: Vec2::ZERO })
+            .insert_resource(GyroLook { radians: Vec2::new(0.02, -0.01) })
+            .insert_resource(Player { heading: 1.0, pitch: 0.0, eye_height: 112.0,
+                feet: [0.0; 3], body_eye: None, body_view: None, placed: None })
+            .add_systems(Update, mouse_look);
+        app.world_mut().spawn((PrimaryWindow, CursorOptions {
+            grab_mode: CursorGrabMode::Confined, ..default()
+        }));
+        app
+    }
+    #[test]
+    fn gyro_uses_the_live_look_route_with_independent_gain_and_preserves_script_axes() {
+        let mut app = gyro_look_app();
+        app.world_mut().resource_mut::<Bindings>().mouse_sensitivity = 0.01;
+        app.world_mut().resource_mut::<AccumulatedMouseMotion>().delta = Vec2::new(10.0, 5.0);
+        app.init_resource::<crate::script_switches::ScriptSwitches>();
+        app.world_mut().resource_mut::<crate::script_switches::ScriptSwitches>().mouse_axes = 1;
+        let switches = *app.world().resource::<crate::script_switches::ScriptSwitches>();
+        app.update();
+        let player = app.world().resource::<Player>();
+        assert!((player.heading - 1.12).abs() < 1e-6);
+        assert_eq!(player.pitch, 0.0);
+        assert_eq!(*app.world().resource::<crate::script_switches::ScriptSwitches>(), switches);
+    }
+    #[test]
+    fn gyro_respects_modal_controller_script_and_camera_look_ownership() {
+        for case in 0..5 {
+            let mut app = gyro_look_app();
+            match case {
+                0 => app.insert_resource(State::new(PlayState::Menu)),
+                1 => { app.world_mut().resource_mut::<Bindings>().device = crate::bindings::InputDevice::Controller; &mut app },
+                2 => { app.world_mut().resource_mut::<crate::control::ControlLocks>().looking = true; &mut app },
+                3 => app.insert_resource(ViewDriven(true)),
+                _ => { app.world_mut().resource_mut::<PlayerControl>().wheel = true; &mut app },
+            };
+            app.update();
+            let player = app.world().resource::<Player>();
+            assert_eq!((player.heading, player.pitch), (1.0, 0.0), "case {case}");
+        }
+    }
+    #[test]
+    fn platform_loading_blocks_physical_mouse_and_gyro_without_changing_hardware_motion() {
+        let mut app = gyro_look_app();
+        app.init_resource::<crate::pad::PlatformInputGate>();
+        app.world_mut().resource_mut::<crate::pad::PlatformInputGate>().set_blocked(true);
+        app.world_mut().resource_mut::<AccumulatedMouseMotion>().delta = Vec2::new(100.0, 50.0);
+        app.update();
+        assert_eq!(app.world().resource::<Player>().heading, 1.0);
+        assert_eq!(app.world().resource::<AccumulatedMouseMotion>().delta, Vec2::new(100.0, 50.0));
+        app.world_mut().resource_mut::<crate::pad::PlatformInputGate>().set_blocked(false);
+        app.world_mut().resource_mut::<AccumulatedMouseMotion>().delta = Vec2::ZERO;
+        app.world_mut().resource_mut::<GyroLook>().radians = Vec2::ZERO;
+        app.update();
+        assert_eq!(app.world().resource::<Player>().heading, 1.0);
+        app.world_mut().resource_mut::<GyroLook>().radians = Vec2::new(0.03, 0.0);
+        app.update();
+        assert!((app.world().resource::<Player>().heading - 1.03).abs() < 1e-6);
+    }
+
     const SPEEDS: MoveSpeeds = MoveSpeeds { walk: 77.0, run: 308.0 };
 
     /// #2201: at the default Vertical Sensitivity (1) the mouse and the right stick turn the
@@ -1667,6 +1800,53 @@ mod tests {
         assert_eq!(swim_velocity(&MoveIntent::default(), 1.0, 0.5, SWIM_SPEEDS), [0.0, 0.0, 0.0]);
     }
 
+    #[test]
+    fn first_touch_consumption_gates_both_movement_and_control_sneak_without_erasing_native_base() {
+        for native_base in [false, true] {
+            let mut app = App::new();
+            app.add_plugins((MinimalPlugins, bevy::input::InputPlugin, bevy::state::app::StatesPlugin,
+                crate::pad::InputSwitchPlugin))
+                .init_resource::<Bindings>().init_resource::<PlayerControl>().init_resource::<MoveIntent>()
+                .init_resource::<crate::furniture::PlayerSeat>().init_resource::<crate::control::HeldSneakInput>()
+                .init_resource::<crate::pad::TouchDeviceSwitch>()
+                .insert_state(PlayState::Playing)
+                .add_systems(Update, (read_input, crate::control::read_controls).chain());
+            app.world_mut().spawn(Gamepad::default());
+            app.world_mut().resource_mut::<Bindings>().device = crate::bindings::InputDevice::Controller;
+            app.world_mut().resource_mut::<PlayerControl>().sneak = native_base;
+            // Simulates source cleanup arriving after selection, so both readers
+            // must honor the actual switch-frame gate rather than a stale hold.
+            app.world_mut().resource_mut::<crate::control::HeldSneakInput>().active = true;
+            app.world_mut().write_message(bevy::input::touch::TouchInput {
+                phase: bevy::input::touch::TouchPhase::Started, position: Vec2::splat(10.0),
+                window: Entity::PLACEHOLDER, force: None, id: 1,
+            });
+            app.update();
+            assert_eq!(app.world().resource::<Bindings>().device, crate::bindings::InputDevice::KeyboardMouse);
+            assert!(!app.world().resource::<crate::pad::TouchDeviceSwitch>().allows_actions());
+            assert_eq!(app.world().resource::<PlayerControl>().sneak, native_base);
+            assert_eq!(app.world().resource::<MoveIntent>().sneak, native_base);
+            app.update();
+            assert!(app.world().resource::<PlayerControl>().sneak && app.world().resource::<MoveIntent>().sneak);
+            app.world_mut().resource_mut::<crate::control::HeldSneakInput>().active = false;
+            app.update();
+            assert_eq!(app.world().resource::<PlayerControl>().sneak, native_base);
+            assert_eq!(app.world().resource::<MoveIntent>().sneak, native_base);
+        }
+    }
+    #[test]
+    fn momentary_touch_sneak_releases_in_the_same_movement_input_phase() {
+        let mut app=App::new();
+        app.add_plugins((MinimalPlugins,bevy::input::InputPlugin,bevy::state::app::StatesPlugin))
+            .init_resource::<Bindings>().init_resource::<PlayerControl>().init_resource::<MoveIntent>()
+            .init_resource::<crate::furniture::PlayerSeat>().init_resource::<crate::control::HeldSneakInput>()
+            .insert_state(PlayState::Playing)
+            .add_systems(Update,(read_input,crate::control::read_controls).chain());
+        app.world_mut().resource_mut::<crate::control::HeldSneakInput>().active=true;app.update();
+        assert!(app.world().resource::<PlayerControl>().sneak && app.world().resource::<MoveIntent>().sneak);
+        app.world_mut().resource_mut::<crate::control::HeldSneakInput>().active=false;app.update();
+        assert!(!app.world().resource::<PlayerControl>().sneak && !app.world().resource::<MoveIntent>().sneak);
+    }
     #[test]
     fn toggles_and_the_run_key() {
         let mut c = Controls::default();

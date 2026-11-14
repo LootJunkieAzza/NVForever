@@ -647,7 +647,7 @@ fn follow_pointer(
     mut aid: ResMut<PipBoyAid>,
     mut aid_over: Local<Option<Page>>,
     mut out: MessageWriter<PipBoyInput>,
-    pad_pointer: Option<Res<nvf_play::pad::pointer::PadPointer>>,
+    (pad_pointer, mut touch): (Option<Res<nvf_play::pad::pointer::PadPointer>>, Option<ResMut<nvf_play::pipboy::touch_items::TouchItems>>),
 ) {
     let mouse = mouse.snapshot();
     let Some(mut screen) = screen else { return };
@@ -682,6 +682,13 @@ fn follow_pointer(
     });
     if aid.target.is_some() && target.is_none() {
         warn!("test aid: pipboy target {:?} is not in view", aid.target);
+    }
+    if let Some(touch) = touch.as_deref_mut() {
+        touch.project(|position| {
+            let ray=cam.viewport_to_world(at,position).ok()?;
+            let hit=posed.iter().filter_map(|(part,mesh)|mesh.hit(ray.origin,Vec3::from(ray.direction)).map(|(distance,uv)|(distance,*part,uv))).min_by(|a,b|a.0.total_cmp(&b.0));
+            match hit {Some((_,PipBoyPart::Screen,uv))=>canvas_point(uv),_=>None}
+        });
     }
     let sleeping = nvf_play::pad::pointer::asleep(pad_pointer.as_deref());
     let cursor = if aid.target.is_some() { target } else { window.cursor_position().filter(|_| !sleeping) };

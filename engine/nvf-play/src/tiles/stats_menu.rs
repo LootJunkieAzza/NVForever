@@ -1840,8 +1840,21 @@ pub(crate) struct FeedPip<'w> {
     screen: Option<Res<'w, PipBoyScreen>>,
     aid: Res<'w, PipBoyAid>,
     paused: Option<Res<'w, crate::pause::Paused>>,
+    touch:Option<Res<'w,crate::pipboy::touch_items::TouchItems>>,
+
 }
 
+pub(crate) fn touch_target(tiles:&StatsTiles,ui:&Ui,menu:TileId,point:Vec2,view:&StatsView)->Option<crate::pipboy::touch_scroll::NativeTarget>{
+    use crate::pipboy::touch_scroll::{NativeRow,NativeTarget};
+    NativeTarget::at(ui,menu,point,|tile| {
+        let paths=tiles.written.paths?;
+        match stats_tile(ui,&paths,&tiles.written.rows,tile) {
+            Some(StatsTile::Row(index))=>tiles.written.rows.get(index).map(|r|NativeRow::Stats(r.key)),
+            Some(StatsTile::Hint(hint))=>Some(NativeRow::StatsHint{hint,status:view.status,limb:if hint==stats::model::STIMPAK {view.limb}else{None}}),
+            _=>None,
+        }
+    },|_|None,|_|true)
+}
 /// The page's tile input, on a frame it takes it ([`takes`]): see the module notes.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn feed(
@@ -1854,7 +1867,7 @@ pub(crate) fn feed(
     (mut tabs, mut hovered, mut asks): (MessageWriter<PipBoyInput>, MessageWriter<TabHovered>, MessageWriter<stats::UseHint>),
     mut state: Local<Feed>,
 ) {
-    let FeedPip { pip, screen, aid, paused } = from;
+    let FeedPip { pip, screen, aid, paused, touch } = from;
     let Some(rt) = script.rt.as_mut() else { return };
     let game = &mut rt.game;
     let modal = eligible(*switch, &pip) && pip.open() && modal_over(game.menu);
@@ -1869,7 +1882,12 @@ pub(crate) fn feed(
         *state = Feed::default();
         return;
     };
-    let pointer = screen.as_ref().and_then(|s| s.pointer);
+    let mut mobile=crate::pipboy::touch_scroll::native_frame(touch.as_deref(),&devices.mouse);
+    if mobile.tap {
+        let target=mobile.at.and_then(|at|touch_target(&tiles,&game.ui_tree,menu,at,&view));
+        mobile.tap=touch.as_ref().is_some_and(|t|t.native_release_valid(target));
+    }
+    let pointer = mobile.at.or_else(||screen.as_ref().and_then(|s| s.pointer));
     let taking = (pip.frame, tab, view.reputation);
     if state.taking != Some(taking) {
         *state = Feed { taking: Some(taking), drawn_at: pointer, ..Default::default() };
@@ -1880,11 +1898,11 @@ pub(crate) fn feed(
     let settled = state.drawn_at.is_none() || pointer.is_none();
     // The test aid's click (`crate::pipboy::drive_pointer`): 1 is its press's frame.
     let aid_press = aid.click == 1 && !aid.right;
-    let held = aid_press || devices.mouse.pressed(MouseButton::Left);
+    let held = mobile.held || aid_press || devices.mouse.pressed(MouseButton::Left);
     let at = pointer.map(|p| (f64::from(p.x), f64::from(p.y)));
     let mut input = fnv_ui::input::Input {
         at,
-        press: aid_press || devices.mouse.just_pressed(MouseButton::Left),
+        press: mobile.tap || aid_press || devices.mouse.just_pressed(MouseButton::Left),
         shift: devices.keys.pressed(KeyCode::ShiftLeft) || devices.keys.pressed(KeyCode::ShiftRight),
         ..Default::default()
     };
@@ -3539,4 +3557,89 @@ mod tests {
         word.karma = Some((5.0, "Another", "a_picture"));
         assert!(!shown.same(&word, at, &key));
     }
+
+    #[test]
+    fn projected_touch_release_uses_native_tab_route_once_and_swipe_or_overlay_cannot_click_it() {
+        use bevy::{prelude::*,input::{InputPlugin,touch::{TouchInput,TouchPhase}},picking::pointer::{PointerInput,PointerAction}};
+        use crate::pipboy::{self,touch_items::TouchItems};
+        #[derive(Resource,Default)] struct Seen {tabs:usize,bevy_presses:usize,bevy_releases:usize}
+        fn project(mut touch:ResMut<TouchItems>){touch.project(Some);}
+        fn read(mut tabs:MessageReader<PipBoyInput>,mut pointers:MessageReader<PointerInput>,mut seen:ResMut<Seen>){
+            seen.tabs+=tabs.read().count();
+            for p in pointers.read().filter(|p|p.pointer_id==pipboy::touch_items::POINTER){match p.action{PointerAction::Press(_)=>seen.bevy_presses+=1,PointerAction::Release(_)=>seen.bevy_releases+=1,_=>{}}}
+        }
+        for mode in 0..4 {
+            let (mut ui,mut view,mut tiles)=(tree(),view(),StatsTiles::default());
+            let menu=run(&mut ui,&snap(),&mut view,true,&mut tiles).unwrap();tiles.shown=Some(menu);
+            let mut script=ScriptState::over_no_plugins();{
+                let game=&mut script.rt.as_mut().unwrap().game;game.ui_files=Some(Box::new(MemSource::default()));game.ui_tree=ui;game.menu=Some(fnv_game::game::menus::STATS);
+            }
+            let mut pip=stats_page_up(PAGE);pip.phase=pipboy::Phase::Up;
+            let mut app=App::new();app.add_plugins((MinimalPlugins,InputPlugin))
+                .init_resource::<bevy::picking::pointer::PointerMap>().init_resource::<TouchItems>()
+                .init_resource::<pipboy::touch_scroll::WheelFrame>().init_resource::<pipboy::PipBoyAid>()
+                .init_resource::<pipboy::PointerMoved>().init_resource::<Seen>()
+                .add_message::<PointerInput>().add_message::<bevy::window::WindowEvent>()
+                .add_message::<PipBoyInput>().add_message::<TabHovered>().add_message::<stats::UseHint>()
+                .insert_resource(script).insert_resource(view).insert_resource(tiles).insert_resource(pip)
+                .insert_resource(TileMenus{stats:true,..Default::default()});
+            let camera=app.world_mut().spawn_empty().id();
+            app.insert_resource(PipBoyScreen{image:Handle::default(),camera,on_model:false,pointer:None,scale:1.0})
+                .add_systems(PreUpdate,pipboy::drive_pointer)
+                .add_systems(Update,(feed,pipboy::apply_input,read).chain()).add_systems(Last,project);
+            app.update();
+            let point=Vec2::new(200.0,505.0);let mut event=TouchInput{window:Entity::PLACEHOLDER,id:92,phase:TouchPhase::Started,position:point,force:None};
+            app.world_mut().resource_mut::<TouchItems>().event(&event,0);
+            if mode==1 {event.phase=TouchPhase::Moved;event.position.y-=40.;app.world_mut().resource_mut::<TouchItems>().event(&event,20);}
+            event.phase=TouchPhase::Ended;event.position=point;app.world_mut().resource_mut::<TouchItems>().event(&event,80);
+            if mode==2 {app.insert_resource(pipboy::touch_items::OverlayCapture(true));}
+            if mode==3 {app.world_mut().resource_mut::<ButtonInput<MouseButton>>().press(MouseButton::Left);}
+            for _ in 0..5 {app.update();}
+            assert_eq!(app.world().resource::<PipBoy>().tab(),if mode==0 {3}else{PAGE});
+            let seen=app.world().resource::<Seen>();assert_eq!(seen.tabs,usize::from(mode==0));
+            assert_eq!((seen.bevy_presses,seen.bevy_releases),(0,0),"native target has exactly one action owner");
+            if mode==3 {assert!(app.world().resource::<ButtonInput<MouseButton>>().pressed(MouseButton::Left));}
+        }
+    }
+
+    #[test]
+    fn native_hint_release_cannot_retarget_a_limb_changed_during_a_real_repaint() {
+        use bevy::{prelude::*, input::{InputPlugin, touch::{TouchInput, TouchPhase}}};
+        use crate::pipboy::{self, touch_items::TouchItems};
+        #[derive(Resource, Default)] struct Seen(Vec<stats::UseHint>);
+        #[derive(Resource)] struct Repaint(bool);
+        fn project(mut touch: ResMut<TouchItems>) { touch.project(Some); }
+        fn change(mut change: ResMut<Repaint>, touch: Res<TouchItems>, mut view: ResMut<StatsView>, mut script: ResMut<ScriptState>, mut tiles: ResMut<StatsTiles>) {
+            if change.0 && touch.pointer_frame().tap {
+                change.0 = false; view.limb = Some(2);
+                let menu = run_tab(&mut script.rt.as_mut().unwrap().game.ui_tree, &status_snap(), &mut view, STATUS_TAB, &mut tiles).unwrap();
+                tiles.shown = Some(menu);
+            }
+        }
+        fn read(mut asks: MessageReader<stats::UseHint>, mut seen: ResMut<Seen>) { seen.0.extend(asks.read().copied()); }
+        let (mut ui, mut view, mut tiles) = (tree(), view(), status_tiles()); view.limb = Some(1);
+        let menu = run_tab(&mut ui, &status_snap(), &mut view, STATUS_TAB, &mut tiles).unwrap(); tiles.shown = Some(menu);
+        let point = Vec2::new(705., 205.);
+        assert!(matches!(stats_tile(&ui, &paths(&ui, STATUS_TAB, None).unwrap(), &[], fnv_ui::input::hit(&ui, &[menu], (705.,205.), &no_measure).unwrap().tile), Some(StatsTile::Hint(0))));
+        let mut script = ScriptState::over_no_plugins(); { let game = &mut script.rt.as_mut().unwrap().game; game.ui_files = Some(Box::new(MemSource::default())); game.ui_tree = ui; game.menu = Some(fnv_game::game::menus::STATS); }
+        let mut pip = stats_page_up(STATUS_TAB); pip.phase = pipboy::Phase::Up;
+        let mut app = App::new(); app.add_plugins((MinimalPlugins, InputPlugin))
+            .init_resource::<TouchItems>().init_resource::<pipboy::PipBoyAid>().init_resource::<pipboy::PointerMoved>()
+            .init_resource::<Seen>().insert_resource(Repaint(true))
+            .add_message::<PipBoyInput>().add_message::<TabHovered>().add_message::<stats::UseHint>()
+            .insert_resource(script).insert_resource(view).insert_resource(tiles).insert_resource(pip)
+            .insert_resource(TileMenus { stats: true, ..Default::default() });
+        let camera = app.world_mut().spawn_empty().id();
+        app.insert_resource(PipBoyScreen { image: Handle::default(), camera, on_model: false, pointer: None, scale: 1. })
+            .add_plugins(pipboy::touch_scroll::TouchPointerPlugin)
+            .add_systems(Update, (change, feed, read).chain()).add_systems(Last, project);
+        app.update();
+        let send = |app: &mut App, id, phase| { assert!(app.world_mut().resource_mut::<TouchItems>().event(&TouchInput { window: Entity::PLACEHOLDER, id, phase, position: point, force: None }, 100)); };
+        send(&mut app, 201, TouchPhase::Started); app.update(); app.update();
+        send(&mut app, 201, TouchPhase::Ended); for _ in 0..4 { app.update(); }
+        assert!(!app.world().resource::<Repaint>().0); assert!(app.world().resource::<Seen>().0.is_empty());
+        send(&mut app, 202, TouchPhase::Started); send(&mut app, 202, TouchPhase::Ended); for _ in 0..4 { app.update(); }
+        assert_eq!(app.world().resource::<Seen>().0, vec![stats::UseHint { hint: stats::model::STIMPAK, limb: Some(2) }]);
+    }
+
 }

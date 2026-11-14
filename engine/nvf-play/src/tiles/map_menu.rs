@@ -2181,6 +2181,8 @@ pub(crate) struct FeedPip<'w> {
     aid: Res<'w, PipBoyAid>,
     paused: Option<Res<'w, crate::pause::Paused>>,
     bindings: Option<Res<'w, crate::bindings::Bindings>>,
+    touch:Option<Res<'w,crate::pipboy::touch_items::TouchItems>>,
+
 }
 
 /// What the page's tile input sends: where the hand-built page sends the same.
@@ -2204,12 +2206,21 @@ fn pane_part(piece: BarPiece) -> Option<BarPart> {
     })
 }
 
+pub(crate) fn touch_target(tiles:&MapTiles,ui:&Ui,menu:TileId,point:Vec2,data:&DataState)->Option<crate::pipboy::touch_scroll::NativeTarget>{
+    use crate::pipboy::touch_scroll::{NativeRow,NativeTarget};
+    NativeTarget::at(ui,menu,point,|tile|match data_tile(ui,&tiles.written,tile) {
+        Some(DataTile::Row(index))=> {let list=tiles.written.list().index();tiles.written.rows[list].get(index).map(|r|NativeRow::Data{list,key:r.key})},
+        Some(DataTile::Button(slot))=> {let shown=tiles.written.shown.as_ref()?;let hint=shown.hints.iter().find(|h|h.slot==slot)?;
+            Some(NativeRow::DataButton{kind:hint.kind as u8,list:shown.list.index(),group:shown.group,key:shown.selected.and_then(|i|shown.rows.get(i)).map(|r|r.key),context:data.touch_action_context(shown.tab)})},
+        _=>None,
+    },|_|None,|_|true)
+}
 /// The page's tile input, on a frame it takes it ([`takes`]): see the module notes.
 pub(crate) fn feed(mut script: ResMut<ScriptState>, switch: Res<TileMenus>, from: FeedPip, mut tiles: ResMut<MapTiles>, devices: Devices, mut out: FeedOut, mut state: Local<Feed>) {
     if !switch.map {
         return;
     }
-    let FeedPip { pip, screen, aid, paused, bindings } = from;
+    let FeedPip { pip, screen, aid, paused, bindings, touch } = from;
     let Some(rt) = script.rt.as_mut() else { return };
     let game = &mut rt.game;
     let over_data = pip.open() && pip.page == Page::Data && modal_over(game.menu);
@@ -2238,14 +2249,19 @@ pub(crate) fn feed(mut script: ResMut<ScriptState>, switch: Res<TileMenus>, from
     };
     // With Controller chosen the hand-built page ignores the mouse pointer; so does this one.
     let controller = bindings.as_ref().is_some_and(|b| b.device == crate::bindings::InputDevice::Controller);
-    let pointer = screen.as_ref().and_then(|s| s.pointer).filter(|_| !controller);
+    let mut mobile=crate::pipboy::touch_scroll::native_frame(touch.as_deref(),&devices.mouse);
+    if mobile.tap {
+        let target=mobile.at.and_then(|at|touch_target(&tiles,&game.ui_tree,menu,at,data));
+        mobile.tap=touch.as_ref().is_some_and(|t|t.native_release_valid(target));
+    }
+    let pointer = mobile.at.or_else(||screen.as_ref().and_then(|s| s.pointer)).filter(|_| !controller);
     let at = pointer.map(|p| (f64::from(p.x), f64::from(p.y)));
     if state.taking != Some(pip.frame) {
         *state = Feed { taking: Some(pip.frame) };
     }
     let aid_press = aid.click == 1 && !aid.right;
-    let held = aid_press || devices.mouse.pressed(MouseButton::Left);
-    let mut input = fnv_ui::input::Input { at, press: aid_press || devices.mouse.just_pressed(MouseButton::Left), ..Default::default() };
+    let held = mobile.held || aid_press || devices.mouse.pressed(MouseButton::Left);
+    let mut input = fnv_ui::input::Input { at, press: mobile.tap || aid_press || devices.mouse.just_pressed(MouseButton::Left), ..Default::default() };
     let pad_menu = crate::pad::MenuAt { code: Some(fnv_game::game::menus::MAP), tab: pip.tab() };
     let physical = frame_keys(&mut input, &devices, game, pad_menu);
     let report = fnv_game::ui_input::step(game, &[menu], &input, &fnv_ui::input::no_measure);
@@ -3834,4 +3850,51 @@ mod tests {
         let text = Prepared { view: data::View { body: Body::List { rows: Vec::new(), first: 0, boxed: None, right: Right::Text { text: "x".into(), first: 0.0 } }, ..view }, keys: Vec::new(), ..p };
         assert_eq!(Shown::of(&text, true), Err("the right pane is not the tab's".to_string()));
     }
+    #[test]
+    fn native_data_button_release_keeps_its_original_selected_record_and_action() {
+        use bevy::{prelude::*, input::{InputPlugin, touch::{TouchInput, TouchPhase}}};
+        use crate::pipboy::{self, touch_items::TouchItems};
+        #[derive(Resource, Default)] struct Seen(Vec<Act>);
+        #[derive(Resource)] struct Repaint(Option<bool>);
+        fn project(mut touch: ResMut<TouchItems>) { touch.project(Some); }
+        fn change(mut change: ResMut<Repaint>, touch: Res<TouchItems>, mut script: ResMut<ScriptState>, mut tiles: ResMut<MapTiles>) {
+            if touch.pointer_frame().tap {
+                if let Some(kind_change) = change.0.take() {
+                    let mut drawing = tiles.written.shown.as_ref().unwrap().clone();
+                    if kind_change { drawing.hints[0].kind = ButtonKind::NotesFilter; } else { drawing.selected = Some(1); }
+                    let menu = run(&mut script.rt.as_mut().unwrap().game.ui_tree, Some(drawing), &mut tiles).unwrap(); tiles.shown = Some(menu);
+                }
+            }
+        }
+        fn read(mut data: ResMut<DataState>, mut seen: ResMut<Seen>) { seen.0.extend(data.take_touch_test_actions().into_iter().filter(|a| matches!(a, Act::Button(_)))); }
+        for kind_change in [false, true] {
+            let (mut ui, mut tiles) = (tree(), MapTiles::default()); let menu = run(&mut ui, Some(shown(2,0,2)), &mut tiles).unwrap(); tiles.shown = Some(menu);
+            let hits = fnv_ui::input::hit_candidates(&ui, menu, &fnv_ui::input::no_measure);
+            let region = hits.iter().find(|h| matches!(data_tile(&ui, &tiles.written, h.under), Some(DataTile::Button(Slot::X)))).unwrap().region();
+            let point = Vec2::new((region.left+region.width*0.5) as f32, (region.top+region.height*0.5) as f32);
+            let button = fnv_ui::input::hit(&ui, &[menu], (point.x as f64, point.y as f64), &fnv_ui::input::no_measure).unwrap().tile;
+            let mut script = ScriptState::over_no_plugins(); { let game = &mut script.rt.as_mut().unwrap().game; game.ui_files = Some(Box::new(MemSource::default())); game.ui_tree = ui; game.menu = Some(fnv_game::game::menus::MAP); }
+            let mut pip = PipBoy::default(); pip.phase = pipboy::Phase::Up; pip.page = Page::Data; pip.tabs[Page::Data.index()] = data::QUESTS;
+            let mut app = App::new(); app.add_plugins((MinimalPlugins, InputPlugin))
+                .init_resource::<TouchItems>().init_resource::<DataState>().init_resource::<pipboy::PipBoyAid>().init_resource::<pipboy::PointerMoved>()
+                .init_resource::<Seen>().insert_resource(Repaint(Some(kind_change)))
+                .add_message::<PipBoyInput>().add_message::<TabHovered>()
+                .insert_resource(script).insert_resource(tiles).insert_resource(pip)
+                .insert_resource(TileMenus { map: true, ..Default::default() });
+            let camera = app.world_mut().spawn_empty().id();
+            app.insert_resource(PipBoyScreen { image: Handle::default(), camera, on_model: false, pointer: None, scale: 1. })
+                .add_plugins(pipboy::touch_scroll::TouchPointerPlugin)
+                .add_systems(Update, (change, feed, read).chain()).add_systems(Last, project);
+            app.update();
+            let send = |app: &mut App, id, phase| { assert!(app.world_mut().resource_mut::<TouchItems>().event(&TouchInput { window: Entity::PLACEHOLDER, id, phase, position: point, force: None }, 100)); };
+            send(&mut app, 203, TouchPhase::Started); app.update(); app.update();
+            send(&mut app, 203, TouchPhase::Ended); for _ in 0..4 { app.update(); }
+            assert!(app.world().resource::<Repaint>().0.is_none()); assert!(app.world().resource::<Seen>().0.is_empty());
+            let ui = &app.world().resource::<ScriptState>().rt.as_ref().unwrap().game.ui_tree;
+            assert_eq!(fnv_ui::input::hit(ui, &[menu], (point.x as f64,point.y as f64), &fnv_ui::input::no_measure).unwrap().tile, button, "the same native button tile survives the repaint");
+            send(&mut app, 204, TouchPhase::Started); send(&mut app, 204, TouchPhase::Ended); for _ in 0..4 { app.update(); }
+            assert_eq!(app.world().resource::<Seen>().0, vec![Act::Button(if kind_change {ButtonKind::NotesFilter} else {ButtonKind::ShowLocation})]);
+        }
+    }
+
 }

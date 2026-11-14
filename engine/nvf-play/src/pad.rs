@@ -32,7 +32,7 @@ use bevy::prelude::*;
 
 pub(crate) mod device;
 pub mod pointer;
-pub use device::{ActionButtons, ActionPads, InputSwitchPlugin, SwitchingInput};
+pub use device::{ActionButtons, ActionPads, InputSwitchPlugin, InputSwitchSystems, SwitchingInput, TouchDeviceSwitch, PlatformInputGate, PlatformInputSystems};
 
 /// A controller input a control can be bound to: a button, or the left stick pushed one
 /// way (the movement controls).
@@ -918,14 +918,17 @@ impl StickButtons {
 /// The furthest-pushed stick of the connected controllers (`left` or right), dead zone
 /// taken off.
 pub fn stick(pads: &crate::pad::ActionPads, left: bool) -> Vec2 {
-    stick_vector(pads.iter().map(|g| if left { g.left_stick() } else { g.right_stick() }))
+    stick_vector_at(pads.iter().map(|g| if left { g.left_stick() } else { g.right_stick() }), pads.dead_zone())
 }
 
 // Physical history and filtered actions share the existing stick normalization
 // [design, #2200; stick, update_stick_buttons].
 fn stick_vector(sticks: impl Iterator<Item = Vec2>) -> Vec2 {
+    stick_vector_at(sticks, STICK_DEAD)
+}
+fn stick_vector_at(sticks: impl Iterator<Item = Vec2>, dead_zone: f32) -> Vec2 {
     let v = sticks.max_by(|a, b| a.length_squared().total_cmp(&b.length_squared())).unwrap_or(Vec2::ZERO);
-    if v.length() < STICK_DEAD {
+    if v.length() < dead_zone {
         Vec2::ZERO
     } else {
         v.clamp_length_max(1.0)
@@ -1369,7 +1372,7 @@ pub struct PadPlugin;
 impl Plugin for PadPlugin {
     fn build(&self, app: &mut App) {
         use bevy::input::InputSystems;
-        app.add_plugins(InputSwitchPlugin).init_resource::<StickButtons>()
+        app.add_plugins((InputSwitchPlugin, crate::controller_aim::ControllerAimPlugin)).init_resource::<StickButtons>()
             .init_resource::<MenuKeys>()
             .init_resource::<ButtonStyle>()
             .init_resource::<PadInUse>()

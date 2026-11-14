@@ -1087,6 +1087,8 @@ pub(crate) struct FeedPip<'w> {
     repair: Option<Res<'w, PipRepair>>,
     modding: Option<Res<'w, PipItemMod>>,
     wheel: Option<Res<'w, crate::menu::WheelHold>>,
+    touch:Option<ResMut<'w,crate::pipboy::touch_items::TouchItems>>,
+
 }
 
 /// What the page's tile input sends: where the hand-built page sends the same.
@@ -1112,13 +1114,31 @@ fn send_on_row(out: &mut FeedOut<'_>, view: &MenuTiles, index: usize, on_it: boo
     }
 }
 
+pub(crate) fn touch_target(tiles:&InventoryTiles,ui:&Ui,menu:TileId,point:Vec2,model:&crate::menu::model::MenuModel)->Option<crate::pipboy::touch_scroll::NativeTarget>{
+    use crate::pipboy::touch_scroll::{NativeRow,NativeTarget};
+    NativeTarget::at(ui,menu,point,|tile| {
+        let surface=|needs_selection|Some(NativeRow::InventorySurface{mode:model.mode,folder:model.folder,category:model.category,needs_selection});
+        match items_tile(ui,&tiles.view,&tiles.written.tabs,tile) {
+            Some(ItemsTile::Row(index))=>tiles.view.guard(Mode::Inventory,Side::Player,index,false,0)
+                .map(|guard|NativeRow::Inventory{guard,folder:model.folder,category:model.category}),
+            Some(ItemsTile::Button(Button::Equip|Button::Drop|Button::Repair|Button::Mod))=> {
+                // A button acts on the row the painted page showed selected at press.
+                let guard=tiles.written.shown.as_ref().and_then(|s|s.list.lists[Side::Player as usize].selected)
+                    .and_then(|index|tiles.view.guard(Mode::Inventory,Side::Player,index,true,0));
+                guard.map(|guard|NativeRow::Inventory{guard,folder:model.folder,category:model.category}).or_else(||surface(true))
+            }
+            _=>surface(false),
+        }
+    },|row|match row {Some(NativeRow::Inventory{guard,..}) if !guard.selected=>Some(model.focus==guard.side && model.selected[guard.side as usize]==guard.index),_=>None},
+    |row|match row {Some(NativeRow::Inventory{guard,..})=>model.row_is(&guard),Some(NativeRow::InventorySurface{needs_selection,..})=>!needs_selection,_=>true})
+}
 /// The page's tile input, on a frame it takes it ([`takes`]): see the module notes. The Pip-Boy's
 /// pointer and its test aid are only read here.
 pub(crate) fn feed(mut script: ResMut<ScriptState>, switch: Res<TileMenus>, from: FeedPip, mut tiles: ResMut<InventoryTiles>, devices: Devices, mut out: FeedOut, mut state: Local<Feed>) {
     if !switch.inventory {
         return;
     }
-    let FeedPip { pip, screen, aid, paused, active, repair, modding, wheel } = from;
+    let FeedPip { pip, screen, aid, paused, active, repair, modding, wheel, mut touch } = from;
     let Some(rt) = script.rt.as_mut() else { return };
     let game = &mut rt.game;
     let closed = lists_closed(repair.as_deref(), modding.as_deref());
@@ -1135,7 +1155,12 @@ pub(crate) fn feed(mut script: ResMut<ScriptState>, switch: Res<TileMenus>, from
         tiles.view.drag = None;
         return;
     };
-    let pointer = screen.as_ref().and_then(|s| s.pointer);
+    let mut mobile=crate::pipboy::touch_scroll::native_frame(touch.as_deref(),&devices.mouse);
+    if mobile.tap {
+        let target=mobile.at.and_then(|at|touch_target(&tiles,&game.ui_tree,menu,at,m));
+        mobile.tap=touch.as_ref().is_some_and(|t|t.native_release_valid(target));
+    }
+    let pointer = mobile.at.or_else(||screen.as_ref().and_then(|s| s.pointer));
     let at = pointer.map(|p| (f64::from(p.x), f64::from(p.y)));
     if state.taking != Some(pip.frame) {
         // Where the pointer rests when the page comes up is no move onto a row.
@@ -1144,13 +1169,19 @@ pub(crate) fn feed(mut script: ResMut<ScriptState>, switch: Res<TileMenus>, from
     // The test aid's click (`crate::pipboy::drive_pointer`): 1 is its press's frame.
     let aid_press = aid.click == 1 && !aid.right;
     let aid_right = aid.click == 1 && aid.right;
-    let held = aid_press || devices.mouse.pressed(MouseButton::Left);
+    let held = mobile.held || aid_press || devices.mouse.pressed(MouseButton::Left);
     let mut input = fnv_ui::input::Input {
         at,
-        press: aid_press || devices.mouse.just_pressed(MouseButton::Left),
+        press: mobile.tap || aid_press || devices.mouse.just_pressed(MouseButton::Left),
         shift: devices.keys.pressed(KeyCode::ShiftLeft) || devices.keys.pressed(KeyCode::ShiftRight),
         ..Default::default()
     };
+    if mobile.started {
+        let index=at.and_then(|at|fnv_ui::input::hit(&game.ui_tree,&[menu],at,&fnv_ui::input::no_measure))
+            .and_then(|hit|items_tile(&game.ui_tree,&tiles.view,&tiles.written.tabs,hit.tile))
+            .and_then(|what|match what {ItemsTile::Row(index)=>tiles.view.row_at(m,Side::Player,index),_=>None});
+        if let Some((touch,index))=touch.as_deref_mut().zip(index) {touch.capture_row(m,index);}
+    }
     let shift = input.shift;
     let pad_menu = crate::pad::MenuAt { code: Some(fnv_game::game::menus::INVENTORY), tab: 0 };
     let physical = frame_keys(&mut input, &devices, game, pad_menu);
@@ -1200,8 +1231,13 @@ pub(crate) fn feed(mut script: ResMut<ScriptState>, switch: Res<TileMenus>, from
                         }
                     }
                     None => {
-                        let on_it = m.selected[Side::Player as usize] == index;
-                        send_on_row(&mut out, &tiles.view, index, on_it, &[Command::Select(Side::Player, index)]);
+                        if mobile.tap && mobile.initially_selected==Some(false) {
+                            // Hover after the finger went down must not upgrade a select into use.
+                            send_on_row(&mut out,&tiles.view,index,false,&[Command::Hover(Side::Player,index)]);
+                        } else {
+                            let on_it = m.selected[Side::Player as usize] == index;
+                            send_on_row(&mut out, &tiles.view, index, on_it, &[Command::Select(Side::Player, index)]);
+                        }
                     }
                 }
             }
@@ -1930,4 +1966,193 @@ mod tests {
         // The two lists read as closed without their resources.
         assert!(lists_closed(None, None));
     }
+
+    struct NativeInventoryFixture {app:bevy::prelude::App,row:Vec2,tab:Vec2}
+    #[derive(bevy::prelude::Resource,Default)]
+    struct NativeGuardSeen {selects:usize,used:usize,tabs:usize,ones:usize}
+    fn native_inventory_fixture()->NativeInventoryFixture {
+        use bevy::{prelude::*,input::InputPlugin,picking::pointer::PointerInput};
+        use crate::pipboy::{self,touch_items::TouchItems};
+        fn project(mut touch:ResMut<TouchItems>){touch.project(Some);}
+        fn apply(mut input:MessageReader<MenuInput>,mut active:ResMut<ActiveMenu>,mut sim:ResMut<crate::sim::SimState>,mut touch:ResMut<TouchItems>,mut keys:ResMut<Hotkeys>,mut seen:ResMut<NativeGuardSeen>,mut tabs:MessageReader<PipBoyInput>){
+            seen.tabs+=tabs.read().count();
+            for cmd in input.read(){if let Some(m)=active.0.as_mut(){
+                if matches!(cmd.0,crate::menu::model::Command::Select(..)){seen.selects+=1;}
+                if matches!(cmd.0,crate::menu::model::Command::One){seen.ones+=1;}
+                seen.used+=usize::from(m.apply(&mut sim.world,cmd.0).used.is_some());
+            }}
+            touch.assign_pending(&active,&mut keys);
+        }
+        let mut sim=crate::sim::test_world::sim((1..=12).map(|i|{let mut b=crate::sim::test_world::item_base(0xF200+i);b.name=Some(format!("Item {i:02}"));b}).collect(),vec![]);
+        for i in 1..=12 {sim.world.add_item(FormId::PLAYER_REF,FormId(0xF200+i),3).unwrap();}
+        let mut model=crate::menu::model::MenuModel::open_inventory(&mut sim.world).unwrap();model.apply(&mut sim.world,crate::menu::model::Command::SetCategory(Side::Player,Category::Aid));
+        let mut drawing=shown(12,0);drawing.tab=2;drawing.list.lists[Side::Player as usize].category=Category::Aid;
+        drawing.list.lists[Side::Player as usize].rows=model.list(Side::Player).rows.iter().enumerate().map(|(i,r)|item_menu::RowShown{
+            key:RowKey::at(&model.list(Side::Player).rows,i).unwrap(),name:r.name.clone(),text:r.name.clone(),equipped:false}).collect();
+        let (mut ui,mut tiles)=(tree(),InventoryTiles::default());let menu=run(&mut ui,Some(drawing),&mut tiles).unwrap();tiles.shown=Some(menu);
+        let row_text=list::child(&ui,rows(&tiles)[0].tile,ROW_TEXT).unwrap();
+        let tab_text=find_named(&ui,tiles.written.tabs.iter().find(|t|t.key==4).unwrap().tile,TAB_TEXT).unwrap();
+        let row_point=middle(&tiles,row_text);let tab_point=middle(&tiles,tab_text);
+        for (point,want) in [(row_point,ItemsTile::Row(0)),(tab_point,ItemsTile::Tab(4))] {
+            let hit=fnv_ui::input::hit(&ui,&[menu],point,&fnv_ui::input::no_measure).unwrap();
+            assert_eq!(items_tile(&ui,&tiles.view,&tiles.written.tabs,hit.tile),Some(want),"fixture's painted text center must reach its actual native target");
+        }
+        let mut script=ScriptState::over_no_plugins();{let game=&mut script.rt.as_mut().unwrap().game;game.ui_files=Some(Box::new(MemSource::default()));game.ui_tree=ui;game.menu=Some(fnv_game::game::menus::INVENTORY);}
+        let mut pip=PipBoy::default();pip.phase=pipboy::Phase::Up;pip.page=Page::Items;pip.tabs=[0,2,0];
+        let mut app=App::new();app.add_plugins((MinimalPlugins,InputPlugin)).init_resource::<bevy::picking::pointer::PointerMap>()
+            .init_resource::<TouchItems>().init_resource::<pipboy::touch_scroll::WheelFrame>().init_resource::<NativeGuardSeen>()
+            .init_resource::<pipboy::PipBoyAid>().init_resource::<pipboy::PointerMoved>()
+            .init_resource::<PipRepair>().init_resource::<PipItemMod>().init_resource::<HotkeyHold>().init_resource::<Hotkeys>()
+            .add_message::<PointerInput>().add_message::<bevy::window::WindowEvent>().add_message::<PipBoyInput>()
+            .add_message::<TabHovered>().add_message::<MenuInput>().add_message::<RepairInput>().add_message::<ModInput>()
+            .insert_resource(script).insert_resource(sim).insert_resource(ActiveMenu(Some(model))).insert_resource(tiles)
+            .insert_resource(TileMenus{inventory:true,..default()})
+            .insert_resource(pip);
+
+        let camera=app.world_mut().spawn_empty().id();app.insert_resource(PipBoyScreen{image:Handle::default(),camera,on_model:false,pointer:None,scale:1.0})
+            .add_plugins(pipboy::touch_scroll::TouchPointerPlugin)
+            .add_systems(Update,(feed,pipboy::apply_input,pipboy::items::keys,apply).chain()).add_systems(Last,project);
+        app.update();
+        NativeInventoryFixture {app,row:Vec2::new(row_point.0 as f32,row_point.1 as f32),tab:Vec2::new(tab_point.0 as f32,tab_point.1 as f32)}
+    }
+    #[test]
+    fn actual_mobile_inventory_swipe_scrolls_without_using_or_assigning_and_native_tab_tap_dispatches_once(){
+        use crate::pipboy::touch_items::TouchItems;
+        use bevy::{prelude::*,input::touch::{TouchInput,TouchPhase}};
+        let NativeInventoryFixture{mut app,row:row_point,tab:tab_point}=native_inventory_fixture();
+        let mut e=TouchInput{window:Entity::PLACEHOLDER,id:94,phase:TouchPhase::Started,position:Vec2::new(row_point.x,row_point.y),force:None};
+        app.world_mut().resource_mut::<TouchItems>().event(&e,0);app.update();app.update();
+        e.phase=TouchPhase::Moved;e.position.y-=60.;app.world_mut().resource_mut::<TouchItems>().event(&e,50);
+        e.phase=TouchPhase::Ended;app.world_mut().resource_mut::<TouchItems>().event(&e,100);app.world_mut().resource_mut::<TouchItems>().release_over(Some(2));
+        for _ in 0..4 {app.update();}
+        assert_eq!(app.world().resource::<ActiveMenu>().0.as_ref().unwrap().selected[Side::Player as usize],3);
+        assert!(app.world().resource::<Hotkeys>().0.iter().all(Option::is_none));
+        for i in 1..=12 {assert_eq!(app.world_mut().resource_mut::<crate::sim::SimState>().world.item_count(FormId::PLAYER_REF,FormId(0xF200+i)).unwrap(),3);}
+        app.world_mut().resource_mut::<Messages<PipBoyInput>>().clear();
+        e.id=95;e.position=Vec2::new(tab_point.x,tab_point.y);e.phase=TouchPhase::Started;app.world_mut().resource_mut::<TouchItems>().event(&e,200);
+        e.phase=TouchPhase::Ended;app.world_mut().resource_mut::<TouchItems>().event(&e,250);for _ in 0..4 {app.update();}
+        assert_eq!(app.world().resource::<PipBoy>().tab(),4);
+        let tabs:Vec<_>=app.world_mut().resource_mut::<Messages<PipBoyInput>>().drain().collect();
+        assert_eq!(tabs.iter().filter(|i|**i==PipBoyInput::Tab(4)).count(),1);
+    }
+
+
+    fn redraw_mobile_inventory(model:&crate::menu::model::MenuModel,script:&mut ScriptState,tiles:&mut InventoryTiles){
+        let mut drawing=shown(model.list(Side::Player).rows.len(),model.selected[Side::Player as usize]);
+        drawing.tab=2;drawing.list.lists[Side::Player as usize].category=Category::Aid;
+        drawing.list.lists[Side::Player as usize].rows=model.list(Side::Player).rows.iter().enumerate().map(|(i,r)|item_menu::RowShown{
+            key:RowKey::at(&model.list(Side::Player).rows,i).unwrap(),name:r.name.clone(),text:r.name.clone(),equipped:false}).collect();
+        let ui=&mut script.rt.as_mut().unwrap().game.ui_tree;
+        let menu=run(ui,Some(drawing),tiles).unwrap();tiles.shown=Some(menu);
+    }
+    fn native_guard_event(app:&mut bevy::prelude::App,id:u64,phase:bevy::input::touch::TouchPhase,point:Vec2){
+        use crate::pipboy::touch_items::TouchItems;
+        assert!(app.world_mut().resource_mut::<TouchItems>().event(&bevy::input::touch::TouchInput{
+            window:Entity::PLACEHOLDER,id,phase,position:point,force:None},100));
+    }
+    #[test]
+    fn native_row_release_cannot_use_a_repainted_neighbor_and_a_fresh_tap_uses_only_that_row_once(){
+        use bevy::prelude::*;use bevy::input::touch::TouchPhase;
+        use crate::pipboy::touch_items::TouchItems;
+        #[derive(Resource)]struct Refresh(bool);
+        fn refresh(mut flag:ResMut<Refresh>,touch:Res<TouchItems>,mut active:ResMut<ActiveMenu>,mut script:ResMut<ScriptState>,mut tiles:ResMut<InventoryTiles>){
+            if flag.0 && touch.pointer_frame().tap {
+                flag.0=false;
+                let model=active.0.as_mut().unwrap();model.lists[Side::Player as usize].rows.swap(0,1);
+                model.selected[Side::Player as usize]=0;
+                redraw_mobile_inventory(model,&mut script,&mut tiles);
+            }
+        }
+        let NativeInventoryFixture{mut app,row,..}=native_inventory_fixture();
+        app.insert_resource(Refresh(true)).add_systems(Update,refresh.before(feed));
+        native_guard_event(&mut app,101,TouchPhase::Started,row);app.update();app.update();
+        native_guard_event(&mut app,101,TouchPhase::Ended,row);for _ in 0..4{app.update();}
+        assert!(!app.world().resource::<Refresh>().0,"actual page repaint must have run after projected release but before native feed");
+        assert_eq!((app.world().resource::<NativeGuardSeen>().selects,app.world().resource::<NativeGuardSeen>().used),(0,0));
+        for id in [0xF201,0xF202] {assert_eq!(app.world_mut().resource_mut::<crate::sim::SimState>().world.item_count(FormId::PLAYER_REF,FormId(id)).unwrap(),3);}
+        assert!(app.world().resource::<Hotkeys>().0.iter().all(Option::is_none));
+        native_guard_event(&mut app,102,TouchPhase::Started,row);native_guard_event(&mut app,102,TouchPhase::Ended,row);
+        for _ in 0..4{app.update();}
+        assert_eq!((app.world().resource::<NativeGuardSeen>().selects,app.world().resource::<NativeGuardSeen>().used),(1,1));
+        assert_eq!(app.world_mut().resource_mut::<crate::sim::SimState>().world.item_count(FormId::PLAYER_REF,FormId(0xF202)).unwrap(),2);
+        assert_eq!(app.world_mut().resource_mut::<crate::sim::SimState>().world.item_count(FormId::PLAYER_REF,FormId(0xF201)).unwrap(),3);
+    }
+    #[test]
+    fn native_tab_border_jitter_cannot_choose_an_unpressed_tab_but_a_fresh_matching_tap_works(){
+        use bevy::prelude::*;use bevy::input::touch::TouchPhase;
+        let NativeInventoryFixture{mut app,..}=native_inventory_fixture();
+        let (start,end)={
+            let tiles=app.world().resource::<InventoryTiles>();let script=app.world().resource::<ScriptState>();let ui=&script.rt.as_ref().unwrap().game.ui_tree;
+            let menu=tiles.shown.unwrap();let hits=fnv_ui::input::hit_candidates(ui,menu,&fnv_ui::input::no_measure);
+            let rect=|key|{let tile=tiles.written.tabs.iter().find(|t|t.key==key).unwrap().tile;hits.iter().find(|h|h.under==tile).unwrap().region()};
+            let a=rect(3);let b=rect(4);let y=(a.top.max(b.top)+(a.top+a.height).min(b.top+b.height))*0.5;
+            (Vec2::new((a.left+a.width-1.)as f32,y as f32),Vec2::new((b.left+1.)as f32,y as f32))
+        };
+        assert!(start.distance(end)<12.0,"fixture must remain below the drag threshold");
+        native_guard_event(&mut app,103,TouchPhase::Started,start);app.update();app.update();
+        native_guard_event(&mut app,103,TouchPhase::Ended,end);for _ in 0..4{app.update();}
+        assert_eq!(app.world().resource::<PipBoy>().tab(),2);
+        assert_eq!(app.world().resource::<NativeGuardSeen>().tabs,0);
+        native_guard_event(&mut app,104,TouchPhase::Started,end);native_guard_event(&mut app,104,TouchPhase::Ended,end);for _ in 0..4{app.update();}
+        assert_eq!(app.world().resource::<PipBoy>().tab(),4);
+        assert_eq!(app.world().resource::<NativeGuardSeen>().tabs,1);
+    }
+
+
+    #[test]
+    fn native_row_hover_cannot_upgrade_an_initial_select_into_use_on_release(){
+        use bevy::input::touch::TouchPhase;
+        let NativeInventoryFixture{mut app,..}=native_inventory_fixture();
+        let point={let t=app.world().resource::<InventoryTiles>();let script=app.world().resource::<ScriptState>();
+            let ui=&script.rt.as_ref().unwrap().game.ui_tree;let text=list::child(ui,rows(t)[1].tile,ROW_TEXT).unwrap();
+            let p=middle(t,text);Vec2::new(p.0 as f32,p.1 as f32)};
+        assert_eq!(app.world().resource::<ActiveMenu>().0.as_ref().unwrap().selected[Side::Player as usize],0);
+        native_guard_event(&mut app,105,TouchPhase::Started,point);app.update();app.update();
+        native_guard_event(&mut app,105,TouchPhase::Ended,point);for _ in 0..4{app.update();}
+        assert_eq!(app.world().resource::<ActiveMenu>().0.as_ref().unwrap().selected[Side::Player as usize],1);
+        assert_eq!((app.world().resource::<NativeGuardSeen>().selects,app.world().resource::<NativeGuardSeen>().used),(0,0));
+        assert_eq!(app.world_mut().resource_mut::<crate::sim::SimState>().world.item_count(FormId::PLAYER_REF,FormId(0xF202)).unwrap(),3);
+        native_guard_event(&mut app,106,TouchPhase::Started,point);native_guard_event(&mut app,106,TouchPhase::Ended,point);for _ in 0..4{app.update();}
+        assert_eq!((app.world().resource::<NativeGuardSeen>().selects,app.world().resource::<NativeGuardSeen>().used),(1,1));
+        assert_eq!(app.world_mut().resource_mut::<crate::sim::SimState>().world.item_count(FormId::PLAYER_REF,FormId(0xF202)).unwrap(),2);
+    }
+
+
+    #[test]
+    fn native_inventory_action_button_keeps_its_painted_selected_row_until_release(){
+        use bevy::prelude::*;use bevy::input::touch::TouchPhase;
+        use crate::pipboy::touch_items::TouchItems;
+        #[derive(Resource)]struct ChangeSelection(bool);
+        fn enable_button(ui:&mut Ui)->TileId {
+            // Script-authored visibility is a supported native tile path. The stock
+            // writer hides Equip/Drop, but a visible native target must still be guarded.
+            let tile=ui.find_tile(&button_path("IM_EquipButton")).unwrap();
+            ui.set_trait(tile,"visible",Value::Num(1.));ui.set_trait(tile,"target",Value::Num(1.));ui.update();tile
+        }
+        fn change(mut flag:ResMut<ChangeSelection>,touch:Res<TouchItems>,mut active:ResMut<ActiveMenu>,mut script:ResMut<ScriptState>,mut tiles:ResMut<InventoryTiles>){
+            if flag.0 && touch.pointer_frame().tap {
+                flag.0=false;let model=active.0.as_mut().unwrap();model.selected[Side::Player as usize]=1;
+                redraw_mobile_inventory(model,&mut script,&mut tiles);enable_button(&mut script.rt.as_mut().unwrap().game.ui_tree);
+            }
+        }
+        let NativeInventoryFixture{mut app,..}=native_inventory_fixture();
+        let (button,point)={
+            let mut script=app.world_mut().resource_mut::<ScriptState>();let ui=&mut script.rt.as_mut().unwrap().game.ui_tree;
+            let button=enable_button(ui);let menu=ui.menu(INVENTORY_MENU).unwrap();
+            let hits=fnv_ui::input::hit_candidates(ui,menu,&fnv_ui::input::no_measure);let r=hits.iter().find(|h|h.under==button).unwrap().region();
+            (button,Vec2::new((r.left+r.width*0.5)as f32,(r.top+r.height*0.5)as f32))
+        };
+        app.insert_resource(ChangeSelection(true)).add_systems(Update,change.before(feed));
+        native_guard_event(&mut app,107,TouchPhase::Started,point);app.update();app.update();
+        native_guard_event(&mut app,107,TouchPhase::Ended,point);for _ in 0..4{app.update();}
+        assert!(!app.world().resource::<ChangeSelection>().0);
+        assert_eq!(app.world().resource::<ScriptState>().rt.as_ref().unwrap().game.ui_tree.find_tile(&button_path("IM_EquipButton")),Some(button),"the same button tile survives the actual selected-row repaint");
+        assert_eq!((app.world().resource::<NativeGuardSeen>().ones,app.world().resource::<NativeGuardSeen>().used),(0,0));
+        for id in [0xF201,0xF202] {assert_eq!(app.world_mut().resource_mut::<crate::sim::SimState>().world.item_count(FormId::PLAYER_REF,FormId(id)).unwrap(),3);}
+        native_guard_event(&mut app,108,TouchPhase::Started,point);native_guard_event(&mut app,108,TouchPhase::Ended,point);for _ in 0..4{app.update();}
+        assert_eq!((app.world().resource::<NativeGuardSeen>().ones,app.world().resource::<NativeGuardSeen>().used),(1,1));
+        assert_eq!(app.world_mut().resource_mut::<crate::sim::SimState>().world.item_count(FormId::PLAYER_REF,FormId(0xF202)).unwrap(),2);
+        assert_eq!(app.world_mut().resource_mut::<crate::sim::SimState>().world.item_count(FormId::PLAYER_REF,FormId(0xF201)).unwrap(),3);
+    }
+
 }
