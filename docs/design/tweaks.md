@@ -645,6 +645,8 @@ unless the player binds them, so nothing changes until then.
 | V.A.T.S. Stops Following the Dead | `bVATSStopFollowingDeadTargets` | `kill_cam::update` leaves `show.seen` (the followed place) as it was once the target is dead. The switch: `TweakSettings::vats_stop_following_dead` |
 | Weapon Impact Effects | `bWeaponImpactEffects` | the projectile hit path in `combat.rs` picks the impact data set's metal impact for a hit on `hitvol::WEAPON_PART` and refuses its blood. The switch: `Tweaks::weapon_impacts` |
 | Night Vision Toggle | `bAddNightVisionToggle` | `flashlight::menu_key` switches `aim_zoom::switch_night_vision` while `night_scope_up`; `aim_zoom::zoom` gives the `Scope` night vision only when wanted; nvforever `scope_view::night_vision` counts day as night under By Day Too. The switches: `TweakSettings::night_vision_toggle`, `night_vision_off_first`, `night_vision_by_day` |
+| Custom Popup Icons | `bCustomPopupIcons` | `needs::need_icon` gives the `NoteShown` its picture. The switch: `Tweaks::need_icons` |
+| Repair Only at a Workbench | `bPreventRepairIfNotAtWorkbench` | `Game::at_workbench` (the crosshair reference runs `CraftingWorkbenchRecipesScript`); `pipboy::repair::keys` refuses Open without it. The switch: `Tweaks::repair_at_workbench` |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -666,8 +668,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 581 |
-| to do | 13 |
+| done | 583 |
+| to do | 11 |
 | unsure, skipped | 24 |
 | n/a | 17 |
 | skipped: fix | 10 |
@@ -772,6 +774,7 @@ game's Data folder, read-only).
 | `bPreventHittingHolsteredWeapons` | done |  | 2 | already so: only a drawn weapon has a hit part |
 | `bPreventNPCAddiction` | done |  |  | No NPC Addiction |
 | `bPreventReloadWeaponUnholstering` | done |  |  | Ready Does Not Draw |
+| `bPreventRepairIfNotAtWorkbench` | done |  |  | Repair Only at a Workbench: the Pip-Boy's repair (R) is refused unless the crosshair was on a workbench (a reference running the masters' CraftingWorkbenchRecipesScript) when the Pip-Boy came up |
 | `bPreventStealingCapsAfterRepair` | done |  | 1 | Repair Caps Go to the Till |
 | `bQuickUse` | done |  | 9 | Quick Use: Shift held while taking an item uses it or puts it on at once as its hotkey would (a weapon in hand, aid taken; armour only taken). Its other options (the container's right click and F key, books, notes, stats while Shift is held, re-read, the controller) are not built |
 | `bReduceXP` | done |  | 2 | Experience Earned (slider, x0 to x2) |
@@ -820,7 +823,6 @@ game's Data folder, read-only).
 | `bHipFireAnimsWhileScoped` | unsure, skipped |  |  | depends on alternate animations |
 | `bNoLockEncounterZoneLevels` | unsure, skipped |  |  | encounter-zone level locking not yet checked in NVForever |
 | `bNPCsDropLiveGrenades` | to do |  |  | not built: NPC grenades have no in-hand phase |
-| `bPreventRepairIfNotAtWorkbench` | to do |  |  | workbenches are activators whose own scripts open the recipe menu; nothing marks one for the crosshair |
 | `bSneakingDoesntForcePowerAttacks` | unsure, skipped |  |  | depends on separate animations |
 | `bStrengthAffectsAllThrowables` | unsure, skipped |  |  | how fThrowingStrengthPenalty shortens a throw is not documented (the GECK wiki export names the setting but has no page for it), and NVForever applies it to no throw yet |
 | `bUseArmorRepairKitsInRepairMenu` | unsure, skipped |  |  | the masters have no armour repair kit, and nothing in the data marks a mod's item as one or says how much it repairs |
@@ -1105,6 +1107,7 @@ game's Data folder, read-only).
 | `bContainerQuantityMenuShowsWeight` | done |  |  | Quantity Box Shows the Weight (the hand-built box; the tiles box not yet) |
 | `bContainersShowEquippedAmmo` | done |  |  | Containers Show Equipped Ammo: the Pip-Boy now marks the loaded ammo with the equipped square (`Row::loaded`, owner-review 56, observer check 111); the tweak marks it in a container's player column too. The tile-drawn menus are unchanged |
 | `bContainerTakeAllDoesntCloseMenu` | done |  |  | Take All Stays Open |
+| `bCustomPopupIcons` | done |  | 17 | Custom Popup Icons: the dehydration and sleep messages (the only need messages the masters have words for) carry the masters' water picture and Healing Rate picture (our picks); the per-message path options are not built, the radiation and hunger ones have no message |
 | `bDialogueKeepVoiceActingNotes` | done |  |  | Keep Acting Notes (spoken lines; topics as before) |
 | `bDisableInventoryRightClickDrop` | done |  |  | No Right-Click Drop |
 | `bDisableLoadingScreenTips` | done |  |  | No Loading Tips |
@@ -1187,7 +1190,6 @@ game's Data folder, read-only).
 | `bSaveCharacterSelector` | unsure, skipped | yes | 1 | needs the plugin's own menu XML |
 | `bAmmoLabelUseLongName` | unsure, skipped |  | 1 | needs a UI mod |
 | `bLocalMapRespawnedCellIndicator` | to do |  | 2 | not built: the local map has no cell grid |
-| `bCustomPopupIcons` | to do |  | 17 | per-kind icons for the need messages (built for dehydration and sleep, owner-review 59) need a picture chosen for each; the archives hold no Hardcore need icons, and the Tweaks tab has no picture list yet |
 | `bNoteMenuShowSeparateMenu` | unsure, skipped |  | 1 | needs another mod (Book Menu Restored) |
 | `bShowInventorySortButton` | unsure, skipped |  | 11 | needs the plugin's own menu XML |
 | `bCustomHackingAnswerLength` | unsure, skipped |  | 8 | the readme gives no defaults and does not say how its options change the attempts or the words; built from it, every figure would be a guess |

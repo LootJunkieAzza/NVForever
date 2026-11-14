@@ -371,6 +371,12 @@ pub fn keys(
         let step = resolve(repair.0.as_ref().map(|s| s.selected), step);
         match (repair.0.as_mut(), step) {
             (None, RepairInput::Open) => {
+                // The player's tweak: repairing only at a workbench [design: docs/design/tweaks.md].
+                if script.as_deref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.repair_at_workbench && !rt.game.at_workbench()) {
+                    info!("pipboy repair: refused, not at a workbench (tweak)");
+                    sounds.write(UiSound { menu: UiMenu::Repair, event: UiEvent::Refused });
+                    continue;
+                }
                 let Some(o) = current(&active, &mut sim, script.as_deref()) else { continue };
                 // The player's tweak: with Alt held the list opens as a preview, also for an
                 // item at full condition [design: docs/design/tweaks.md].

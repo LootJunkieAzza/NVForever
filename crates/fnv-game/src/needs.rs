@@ -289,11 +289,24 @@ impl Game<'_> {
                 let name = format!("{prefix}{change}");
                 if let Some(fnv_sim::settings::Setting::Str(text)) = self.world.setting_value(&name).cloned() {
                     if !text.trim().is_empty() {
-                        self.emit(EventKind::NoteShown { text, icon: None, seconds: NEED_NOTE_SECONDS });
+                        // The player's Custom Popup Icons tweak gives the line a picture.
+                        let icon = self.tweaks.need_icons.then(|| need_icon(code)).flatten().map(str::to_string);
+                        self.emit(EventKind::NoteShown { text, icon, seconds: NEED_NOTE_SECONDS });
                     }
                 }
             }
         }
+    }
+}
+
+/// The picture a need's message has under the player's Custom Popup Icons tweak: the
+/// masters' water for dehydration, their Healing Rate for sleep (rest heals) [design: our
+/// picks among the interface's icons; the tweak names none].
+pub fn need_icon(code: u16) -> Option<&'static str> {
+    match code {
+        DEHYDRATION => Some(r"Interface\Icons\PipboyImages_small\Items_small\glow_items_water.dds"),
+        SLEEP_DEPRIVATION => Some(r"Interface\Icons\PipboyImages_small\Derived Statistics_small\glow_healing_rate.dds"),
+        _ => None,
     }
 }
 

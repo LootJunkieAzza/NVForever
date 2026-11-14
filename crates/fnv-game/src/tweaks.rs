@@ -443,6 +443,11 @@ pub struct Tweaks {
     /// dehydration or sleep stage changes.
     pub no_dehydration_messages: bool,
     pub no_sleep_messages: bool,
+    /// `bCustomPopupIcons`: the need messages carry a picture.
+    pub need_icons: bool,
+    /// `bPreventRepairIfNotAtWorkbench`: the Pip-Boy repairs only while the player looks
+    /// at a workbench.
+    pub repair_at_workbench: bool,
     /// `bWaterSourcesShowH2O`: a water source's prompt shows the H2O a drink takes off.
     pub water_shows_h2o: bool,
     /// `bDisableCharacterRespec`: leaving the start offers no remake of the character.
@@ -921,6 +926,8 @@ impl Default for Tweaks {
             crit_message_limb: false,
             no_dehydration_messages: false,
             no_sleep_messages: false,
+            need_icons: false,
+            repair_at_workbench: false,
             water_shows_h2o: false,
             no_respec: false,
             weapon_impacts: false,

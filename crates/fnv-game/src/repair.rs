@@ -47,6 +47,9 @@ pub const REPAIR_MENU: u16 = 1035;
 /// MenuMode of the repair services menu [documented: GECK wiki GetMenuTargetRef].
 pub const REPAIR_SERVICES_MENU: u16 = 1058;
 
+/// The masters' workbench script [observed: FalloutNV.esm SCPT 0x0013E11C].
+const WORKBENCH_SCRIPT: &str = "CraftingWorkbenchRecipesScript";
+
 /// The caps item (`Caps001`).
 pub const CAPS: FormId = FormId(0xF);
 
@@ -192,6 +195,15 @@ impl crate::game::Game<'_> {
             ArmorClass::Heavy => 2,
         };
         Some(JuryKind::Armor { class, place: ArmorPlace::of(it.slots.unwrap_or(0)) })
+    }
+
+    /// Whether the player is at a workbench: the crosshair (as it last was in play) on a
+    /// reference running the masters' workbench script, the one that opens the Workbench
+    /// recipes [observed: FalloutNV.esm `CraftingWorkbenchRecipesScript`, ShowRecipeMenu
+    /// `WorkbenchRecipes`]. For the player's Prevent Repair Away From a Workbench tweak.
+    pub fn at_workbench(&self) -> bool {
+        let bench = self.data.by_edid(WORKBENCH_SCRIPT);
+        bench.is_some() && self.senses.crosshair_ref.is_some_and(|r| self.ref_script(r) == bench)
     }
 
     /// The items the player may repair `item` with: its repair list, and with Jury
