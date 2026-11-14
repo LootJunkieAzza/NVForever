@@ -1,0 +1,13 @@
+{
+  "format": "fnv.script.actions/1",
+  "title": "Hidden Valley: McNamara sends the player out for the equipment on a route that never used the bunker intercom (sneaked in): Ramos speaks through it (#2454)",
+  "actions": [
+    {"op": "note", "text": "Stand-in for sneaking into the bunker and Ramos's escort to McNamara: nothing has activated HVIntercomREF, so no SetTalkingActivatorActor has run."},
+    {"op": "go_to_cell", "cell": "HiddenValley02"},
+    {"op": "move_player", "to": "NolanMcNamaraREF"},
+    {"op": "note", "text": "McNamara's line sending the player out (INFO 0016329B): its end script disables the controls, moves the player to the inner door after 1 s (SCPT 000ACD50) and sets the door's PushScene, whose GameMode block (SCPT 000E3665) has the intercom start a conversation 1.5 s later."},
+    {"op": "say_info", "info": "0x0016329B", "speaker": "NolanMcNamaraREF", "force": true},
+    {"op": "wait_talk", "start": true, "max_frames": 600, "label": "intercom push"},
+    {"op": "wait_talk", "max_frames": 600, "label": "intercom push over"}
+  ]
+}

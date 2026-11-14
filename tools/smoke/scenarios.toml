@@ -7130,6 +7130,19 @@ expect = [
 ]
 
 [[scenario]]
+name = "hv-intercom-push"
+kind = "tool"
+source = "issue #2454: a talking activator no SetTalkingActivatorActor has reached speaks for the one actor its scripts name (fnv-game talking_activators.rs scripted_talking_actor [hypothesis]): sent out of the Hidden Valley bunker by McNamara (INFO 0016329B: controls off) on a route that never used the intercom, the inner door's script (SCPT 000E3665) has HVIntercomREF start a conversation and Ramos says 000E3664, whose end script gives the controls back; before, the intercom spoke for itself, had no line (no_line) and the controls stayed off"
+areas = ["dialogue", "talking-activators"]
+paths = ["crates/fnv-game/src/talking_activators.rs", "crates/fnv-game/src/dialogue.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "tools/smoke/actions/hv-intercom-push.actions.json"]]
+expect = [
+  { json = "observations.?label=intercom push.actor", equals = "0x000E2807" },
+  { json = "events.?kind=line_started.info", equals = "0x000E3664" },
+  { json = "events.?kind=result_script.unit", equals = "FalloutNV.esm|INFO 0x000E3664 end" },
+]
+
+[[scenario]]
 name = "falling-loading"
 source = "playtest list 4 items 8, 9, 10, 2-3 (physics.md §6.4.2, docs/design/loading-screen.md §1): leaving the Goodsprings gas station the loading screen waits for the arrival's own cells and the player stands (no jump loop or landing after it); running down the owner's steep road at heading 150 keeps the ground; walking residents are drawn between physics steps"
 note = "Ringo greets at about 4 s and the door at 5 s waits for that conversation to end; --no-dialogue-look keeps the view on the door whether the greeting comes before or after the 4 s face aid (with the view turned to Ringo the door was behind the player and never used, run 2026-10-16); the hill run is at 40-50 s (heading 150 left the ground for 22 steps before the fix, `fnvtool phys walk`)"

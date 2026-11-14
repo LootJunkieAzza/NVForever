@@ -54,6 +54,18 @@ activator; the actor does not turn). Tests: `crates/fnv-game/tests/perk_talk.rs`
   counts as none — the scripts test GetDead before setting it]. Its lines are chosen with
   the actor as the speaker and said in its voice; the activator must be there, the actor
   need not be (Ramos is in the bunker, Benny in his suite).
+- **No talking actor set yet**: a talking activator no SetTalkingActivatorActor has
+  reached speaks for the one actor the load order's scripts give it, when they name
+  exactly one: the calls in its base's own script (on itself) and the calls of any
+  script on that reference by name; several actors named, or none: itself
+  (`Game::scripted_talking_actor`) [hypothesis, issue #2454; observer check 130]. The
+  Hidden Valley intercom (HVIntercomREF) needs it: after McNamara sends the player out
+  for the equipment (INFO 0016329B, controls off) the inner door's script (SCPT
+  000E3665) has the intercom start a conversation, and only Ramos's line 000E3664
+  gives the controls back. Its OnActivate (SCPT 000A418A) and Veronica's trigger (SCPT
+  0015B6D5) are the only calls that set Ramos, so a player who came in without using
+  the intercom (sneaking in) met an intercom with no line and kept the controls off
+  [observed: `fnvtool script run`, smoke `hv-intercom-push`].
 - **IsActorTalkingThroughActivator** is 1 on that actor while its lines are chosen and
   while that conversation runs, else 0 [documented: "returns true if the actor is
   speaking via an activator; the actor must first be registered through the
