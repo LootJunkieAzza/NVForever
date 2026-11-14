@@ -27436,3 +27436,23 @@ order = [[
   { text = "player controls: all enabled", label = "the greeting's result script gives the controls back" },
 ]]
 forbid = [{ text = "EDE1Ref: does not talk", label = "ED-E has a greeting to say" }]
+
+[[scenario]]
+name = "chauncey-steam-room"
+source = "issue #2445 (crates/fnv-game/src/game.rs Game::run_far_frame; crates/fnv-ai/src/process.rs low_update, carry.rs pass_time): Beyond the Beef's informant. Chauncey (VMS18ChaunceyREF) patrols the Ultra-Luxe casino on a Must Complete package; only his own GameMode block (SCPT 0x0011689F: not in the player's cell, not in the bathhouse, 15 to 18 h, the player has the Matchbook) warps him to the bathhouse and re-evaluates his package, and it runs only while he is in a cell the player is not in. Our scripts ran in the loaded cells alone, so he never came (objective 40 stalled)"
+note = "the player starts in the casino at 14:12 (Chauncey becomes a resident), VMS18 with objective 40 and the Matchbook note at 2-3 s, goes to the bathhouse at 8 s, stands in the steam room at 10 s and waits 3 hours at 16 s; the hour from 15:17 runs Chauncey's script; he walks to the steam room and the player talks to him at 85 s"
+areas = ["ai", "scripts", "wait"]
+paths = ["crates/fnv-game/src/game.rs", "crates/fnv-ai/src/process.rs", "crates/fnv-ai/src/carry.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT = "2:start:VMS18,2.5:objective:VMS18:40", NVF_PLAY_TEST_CONSOLE = "3:player.addnote 00112015;3.3:close;8:coc ULBath;8.3:close", NVF_PLAY_TEST_GOTO = "10:540:1650:1210", NVF_PLAY_TEST_WAIT = "16:open,17:hours=3,18:accept", NVF_PLAY_TEST_TALK = "85:VMS18ChaunceyREF=leave" }
+args = ["--play", "--cell", "ULCasino", "--hour", "14.2", "--no-voice", "--no-messages", "--npc-packages", "all,VMS18ChaunceyREF"]
+run_seconds = 100
+order = [[
+  { re = 'ai \[15:\d\d\] VMS18ChaunceyREF: package VMS18ChaunceyTravelToSteamRoom', label = "in the waited hour from 15:00 his script re-evaluates his package: he sets off for the steam room" },
+  { text = "script: VMS18ChaunceyREF moved to Some(0x0010CDA6)", label = "his script's MoveToMarkerWithFade puts him in the bathhouse" },
+  { re = 'VMS18ChaunceyREF: walks to \(601, 1836, 1235\) in ULBath', label = "and he walks to the steam room" },
+  { re = 'dialogue: conversation with VMS18ChaunceyREF started', label = "the player talks to him there" },
+  { text = "script: VMS18 objective 40 completed", label = "his greeting completes the meeting" },
+]]
+expect = [
+  { re = 'process summary: (?P<n>\d+) script runs of residents out of the loaded cells', range = [1, 100000], label = "scripts of residents out of the loaded cells ran" },
+]

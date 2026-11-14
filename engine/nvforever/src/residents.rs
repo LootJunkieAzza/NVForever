@@ -3474,6 +3474,7 @@ pub fn report(
         p.coming_updates,
         p.reached_loaded
     );
+    info!("process summary: {} script runs of residents out of the loaded cells (GameMode at their low-process updates and in waited hours)", p.far_scripts);
     info!(
         "arrival summary: {} residents put at their package's place behind a loading screen, {} seated at once on their furniture; {} left where they were (in the loaded area before the trip)",
         core.arrivals[0], core.arrivals[1], core.arrivals[2]

@@ -411,6 +411,13 @@ the spec it links to.
     observer check 116. Until it is answered: keep 2 s, or ask more often (1 s would
     double every tree fidget, the drawn-weapon and furniture ones too)?
     ([idles §11.4](spec-notes/idles.md))
+64. **Scripts of actors out of the loaded cells now run (#2445).** An actor the AI
+    processes out of the loaded cells runs its GameMode block at each low-process update
+    (about every 18 s, every 120 s beyond the cell buffer) and once in each waited hour.
+    Beyond the Beef needs it: Chauncey reaches the steam room only through his own
+    script's warp. Every resident's script now also runs out of the loaded cells, for
+    example the "not in the player's cell: MoveTo" kind. Observer check 135 asks whether
+    the original runs them and how often. (`fnv_ai::process`)
 
 ## Not a gameplay decision: what the extender work needs from you (2026-10-25)
 
