@@ -956,6 +956,20 @@ order = [[
 forbid = [{ text = "Caught rendering error", label = "a rendering (validation) error while anti-aliasing or the filters change" }]
 
 [[scenario]]
+name = "viewmodel-fov-setting"
+source = "docs/design/graphics-enhanced.md §3.10: the settings page's Viewmodel field of view row, under Field of view, changes the first-person arms' and weapon's angle while the game runs (70, then back to the default 55), without a rendering error"
+areas = ["settings", "player-body"]
+paths = ["engine/nvforever/src/settings.rs", "engine/nvforever/src/player_body.rs", "engine/nvf-play/src/settings_layout.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:14", NVF_PLAY_TEST_SETTINGS = "11:viewmodel-field-of-view=0.667,12.5:viewmodel-field-of-view=0.417" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 16
+order = [[
+  "settings: viewmodel-field-of-view 70",
+  "settings: viewmodel-field-of-view 55",
+]]
+forbid = [{ text = "Caught rendering error", label = "a rendering (validation) error while the viewmodel field of view changes" }]
+
+[[scenario]]
 name = "sun-shadows-performance"
 source = "docs/design/frame-rate-audit.md §9 and §10 (nvforever shadow_rate.rs, #2062, #2063): on Quality the sun's farther cascades keep their maps on a staggered schedule; the settings page's Sun shadows row goes to Performance and back to Quality while the game runs: two cascades, the sun's shadow maps kept on alternate frames, three staggered cascades again, without a rendering error"
 areas = ["renderer", "graphics", "settings"]

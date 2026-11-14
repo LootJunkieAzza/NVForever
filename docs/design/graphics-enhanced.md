@@ -354,6 +354,13 @@ Settings rows that are not improvements and do not change the vanilla picture un
   `--fov`, default 75) from 50 to 110 in steps of 5, shown in degrees. It sets the player
   camera's projection at once; aiming down sights zooms from it (aim_zoom.rs takes a changed
   angle as its new base).
+- **Viewmodel field of view** (`viewmodel-field-of-view`, under Field of view): the angle the
+  first-person arms and weapon are drawn with (as `--viewmodel-fov`, degrees as `--fov` counts
+  them, default 55, the INI's `fDefault1stPersonFOV` [documented: `Fallout_default.ini`]) from
+  30 to 90 in steps of 5. `player_body` reads it each frame for the arms' magnification
+  (`arms_magnification`), so it takes effect at once; the world's view is left alone, the
+  Pip-Boy keeps its own 47, and the console's `fov` with a first-person angle still wins
+  [design].
 - **Display sync** (`display-sync`, a dropdown; #1082): Vertical sync, on as Bevy's default
   (`PresentMode::AutoVsync`); Off is `AutoNoVsync`; Variable refresh (G-Sync, FreeSync) is
   vsync with the frame rate capped a few frames under the monitor's refresh rate (winit's

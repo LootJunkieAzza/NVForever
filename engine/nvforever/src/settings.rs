@@ -405,9 +405,15 @@ const FOV_MIN: f32 = 50.0;
 const FOV_MAX: f32 = 110.0;
 const FOV_CHOICES: usize = 13;
 
-/// The field of view (`--fov`), the frame rate counter (the performance overlay,
-/// `perf_overlay/`: its switch and a switch per row) and how fast frames are
-/// shown (`frame_pace.rs`; not while `--log-frame-times` measures, which wants vsync off).
+/// The viewmodel field of view's least and greatest degrees, in steps of 5 (the original's
+/// 55, `player_body::FIRST_PERSON_FOV`, among them).
+const VIEWMODEL_FOV_MIN: f32 = 30.0;
+const VIEWMODEL_FOV_MAX: f32 = 90.0;
+const VIEWMODEL_FOV_CHOICES: usize = 13;
+
+/// The field of view (`--fov`) and under it the arms' and weapon's (`--viewmodel-fov`), the
+/// frame rate counter (the performance overlay, `perf_overlay/`: its switch and a switch per
+/// row) and how fast frames are shown (`frame_pace.rs`; not while `--log-frame-times` measures, which wants vsync off).
 fn register_display(app: &mut App) {
     add_setting(
         app,
@@ -419,6 +425,17 @@ fn register_display(app: &mut App) {
             Slider::choice(FOV_CHOICES, |w| fov_part(w.resource::<Args>().fov), set_fov, |v| format!("{:.0}", fov_degrees(v))),
         )
         .with_switches("--fov"),
+    );
+    add_setting(
+        app,
+        Setting::slider(
+            "viewmodel-field-of-view",
+            GROUP_PICTURE,
+            "Viewmodel field of view",
+            "The angle the first-person arms and weapon are drawn with, in degrees (55 as the original's default): lower draws them bigger and closer.",
+            Slider::choice(VIEWMODEL_FOV_CHOICES, |w| viewmodel_fov_part(w.resource::<Args>().viewmodel_fov), set_viewmodel_fov, |v| format!("{:.0}", viewmodel_fov_degrees(v))),
+        )
+        .with_switches("--viewmodel-fov"),
     );
     // The HUD's size (#1631), kept by nvf-play's interface and fixed for the run at start.
     add_setting(app, nvf_play::interface::ui_scale_row(GROUP_PICTURE));
@@ -642,14 +659,24 @@ fn read_old_vsync(world: &mut World) {
     }
 }
 
+/// Whole degrees from `min` to `max` for a slider part.
+fn slider_degrees(v: f32, min: f32, max: f32) -> f32 {
+    (min + v.clamp(0.0, 1.0) * (max - min)).round()
+}
+
+/// The slider part for `deg` degrees of `min` to `max`, as `Slider::fit` keeps parts.
+fn degrees_part(deg: f32, min: f32, max: f32) -> f32 {
+    ((deg - min) / (max - min) * 1000.0).round().clamp(0.0, 1000.0) / 1000.0
+}
+
 /// The field of view's degrees for a slider part, whole.
 fn fov_degrees(v: f32) -> f32 {
-    (FOV_MIN + v.clamp(0.0, 1.0) * (FOV_MAX - FOV_MIN)).round()
+    slider_degrees(v, FOV_MIN, FOV_MAX)
 }
 
 /// The slider part for `deg` degrees, as `Slider::fit` keeps parts.
 fn fov_part(deg: f32) -> f32 {
-    ((deg - FOV_MIN) / (FOV_MAX - FOV_MIN) * 1000.0).round().clamp(0.0, 1000.0) / 1000.0
+    degrees_part(deg, FOV_MIN, FOV_MAX)
 }
 
 /// A new field of view: kept in `Args` and put on the camera.
@@ -662,6 +689,21 @@ fn set_fov(world: &mut World, v: f32) {
             p.fov = nvf_play::free_cam::vertical_fov(deg);
         }
     }
+}
+
+/// The viewmodel field of view's degrees for a slider part, whole.
+fn viewmodel_fov_degrees(v: f32) -> f32 {
+    slider_degrees(v, VIEWMODEL_FOV_MIN, VIEWMODEL_FOV_MAX)
+}
+
+/// The slider part for a viewmodel field of view of `deg` degrees, as `Slider::fit` keeps parts.
+fn viewmodel_fov_part(deg: f32) -> f32 {
+    degrees_part(deg, VIEWMODEL_FOV_MIN, VIEWMODEL_FOV_MAX)
+}
+
+/// A new viewmodel field of view: kept in `Args`, where `player_body` reads it each frame.
+fn set_viewmodel_fov(world: &mut World, v: f32) {
+    world.resource_mut::<Args>().viewmodel_fov = viewmodel_fov_degrees(v);
 }
 
 /// The draw-distance sliders (`draw_distance.rs`): each a part of its full distance, the
@@ -2246,5 +2288,25 @@ dlss-model=Preset K
         // No settings page (not --play): the INI is not applied, the command line decides.
         assert_eq!(upscaler_after_ini(fsr_q, Some(&UpscalerIni::read("[Settings]\nupscaler=DLSS\n")), None), fsr_q);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+#[cfg(test)]
+mod viewmodel_fov_tests {
+    use super::*;
+
+    #[test]
+    fn the_viewmodel_slider_reaches_the_originals_55_and_its_ends() {
+        let slider = Slider::choice(VIEWMODEL_FOV_CHOICES, |_| 0.0, |_, _| {}, |_| String::new());
+        for deg in [VIEWMODEL_FOV_MIN, crate::player_body::FIRST_PERSON_FOV, VIEWMODEL_FOV_MAX] {
+            let part = viewmodel_fov_part(deg);
+            assert_eq!(slider.fit(part), part, "{deg} is a stop of the slider");
+            assert_eq!(viewmodel_fov_degrees(part), deg);
+        }
+        // Each step is 5 degrees.
+        assert_eq!(viewmodel_fov_degrees(slider.fit(viewmodel_fov_part(55.0) + slider.step)), 60.0);
+        // Out of range stays at the ends.
+        assert_eq!(viewmodel_fov_part(10.0), 0.0);
+        assert_eq!(viewmodel_fov_part(120.0), 1.0);
     }
 }
