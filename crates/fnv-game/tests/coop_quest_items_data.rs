@@ -417,12 +417,24 @@ fn dead_moneys_gear_stays_in_the_sierra_madre() {
     inside.world.add_item(FormId::PLAYER_REF, pistol, 1).unwrap();
     assert!(inside.coop_check_in(DM_CHECKPOINT, -1, None) > 0, "the guest hands over its own");
     assert_eq!(held(&mut inside, pistol), 0);
+    // The story gear first, then the hand-outs, as in the game (tri7).
+    inside.follow_story_gear(&gear);
     let mut last = None;
     for g in &gifts {
         assert!(inside.take_coop_gift(g, &mut last).unwrap() > 0 || held(&mut inside, g.item) > 0, "inside: {} comes", l.data.name(g.item));
     }
-    inside.follow_story_gear(&gear);
     assert!(held(&mut inside, collar) > 0, "inside: the collar");
+
+    // The host's way out: NVDLC01MQ03 stage 100, then the return trigger (SCPT
+    // 0x01013FB4 on REFR 0x01013FB3) gives the host's own items back: no hand-outs.
+    host.world.add_item(DM_CHECKPOINT, pistol, 1).unwrap();
+    host.set_stage(FormId(0x0100_0FC1), 100);
+    std::mem::take(&mut host.coop_rewards.gifts);
+    let ctx = RunCtx { self_ref: Some(FormId(0x0101_3FB3)), action_ref: Some(FormId::PLAYER_REF), quest: None };
+    host.run_event(fnv_game::game::InstKey::Ref { reference: FormId(0x0101_3FB3) }, FormId(0x0101_3FB4), fnv_game::game::event::ON_TRIGGER, Some(fnv_script::vm::Value::Ref(FormId::PLAYER_REF.0)), ctx);
+    assert!(held(&mut host, pistol) > 0, "the return trigger gives the host its items back");
+    let back: Vec<String> = host.coop_rewards.gifts.iter().map(|g| l.data.name(g.item)).collect();
+    assert!(back.is_empty(), "the host's own items given back are no hand-outs: {back:?}");
 
     // The way out: the checkpoint gives the items back and takes the gear.
     assert!(inside.coop_check_out(DM_CHECKPOINT) > 0);
