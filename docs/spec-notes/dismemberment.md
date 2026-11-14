@@ -322,7 +322,7 @@ blasts looked only at volumes); it now reaches it by its ragdoll's bodies and ju
 facing it, and logs for each corpse it catches whether the part was checked or why not (no
 source weapon, no part facing it) [design]. A blast with no source weapon rolls nothing: a
 placed explosion, and a mine with no actor owner (`nvf_play::mines`). Both that gate and the
-mines' No Dismember/Explode are open until observer check 128 (a frag mine and a frag grenade
+mines' No Dismember/Explode are open until observer check 133 (a frag mine and a frag grenade
 beside a settled corpse in the original) says what the original does. Then
 one roll decides, with these odds [observed, §4.1, unless tagged]:
 
@@ -455,7 +455,7 @@ The engine (`engine/nvforever/src/dismember.rs`) [design]:
 
 - A blast takes several parts at once in the original (§4.1); NVForever judges one part per blast.
 - Blasts on corpses (§4.2, #2346): whether a mine or grenade beside a settled corpse takes its
-  parts in the original, how often and how many, is not known (observer check 128); the mine
+  parts in the original, how often and how many, is not known (observer check 133); the mine
   source-weapon gate and the weapon's On Hit for blasts stay as they are until then.
 - Melee odds (blades, hammers) are not measured (§4.1; the owner set them aside, 2026-10-25).
   How to drive them: `player.PlayGroup AttackRight 1` / `AttackPower 1` play the swing but never

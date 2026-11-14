@@ -1985,7 +1985,7 @@ heading 75) with NVFExtProbe.esp loaded, as the jip-probes sets run.
 
 ## Added 2026-11-14 (blasts on corpses, #2346)
 
-128. **Does a blast beside a settled corpse take its parts, and how many?** (P2; #2346,
+133. **Does a blast beside a settled corpse take its parts, and how many?** (P2; #2346,
      dismemberment.md §4.2.) NVForever now lets a blast reach a corpse whose ragdoll has been
      built and judges the one part facing it by the weapon's On Hit [design]. Two gates
      stand: a placed explosion or a mine with no actor owner has no source weapon and rolls
