@@ -1,7 +1,5 @@
 //! Authored real Game source/VM controls. No installed script or game data.
-#[path = "common/mod.rs"]
-mod common;
-use common::*;
+use crate::common::*;
 use fnv_esm::{LoadOrder, Plugin, Schema};
 use fnv_game::{game::RunCtx, trace::EventKind, Game, GameConfig, GameData};
 use fnv_script::{vm::XVal, FunctionTable};
