@@ -45,6 +45,7 @@ untimed = [
   "NVF_PLAY_AIDS_FROM_SCRIPTS", "NVF_PLAY_TEST_HELD_GRENADE",
   "NVF_PLAY_TEST_SANDBOX_INTERRUPT",
   "NVF_PLAY_TEST_MELEE_KNOCKBACK",
+  "NVF_PLAY_TEST_RAGDOLL_FAIL",
 ]
 
 # Test aids whose value is a list of timed items (`<seconds>:<what>`), joined with sep.
@@ -4083,6 +4084,20 @@ expect = [
 ]
 
 [[scenario]]
+name = "bloatfly-holds-distance"
+source = "issue #2351 (engine/nvforever/src/combat_tactics.rs back_off_band; docs/design/combat-ai.md §12.6): a short-reach gun's step back ends short of where it stops closing in. A bloatfly (Bloatfly1HP: Max Range 250, Min Range 100) stops 225 units from its target; it stepped back from any target within 256 to 320 and closed in again beyond 225, back and forth for the whole fight. Now it holds and fires, and steps back only from a target within its Min Range"
+note = "a bloatfly (CrBloatFly 0x0009189C, the first created reference 0xFF000000) created at 3 s at a Joshua tree about 580 units from the god-mode player (TreeJoshBNV 0x00122CCA, as npc-burst-fire places its sentry bot) and set on the player at 6 s; the coyotes (VERGSCoyote1-6REF) are disabled first, so it fights the player alone (in the first run two of them helped the player and killed it before it fired). The player stands still for the rest of the 25 s run, so on main every stop at 225 was followed by a step back (each logged once as it begins). A created reference has no Editor ID: the combat log names it by its base's Editor ID or by its FormID, then its FormID (`combat_tactics::who`). Its distance is in its `opens fire on` line; the steps back are counted by their log lines"
+areas = ["combat", "creatures"]
+paths = ["engine/nvforever/src/combat_tactics.rs", "engine/nvforever/src/body_weapons.rs", "crates/fnv-combat/src/body_weapon.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "2:call:VERGSCoyote1REF:Disable,2.1:call:VERGSCoyote2REF:Disable,2.2:call:VERGSCoyote3REF:Disable,2.3:call:VERGSCoyote4REF:Disable,2.4:call:VERGSCoyote5REF:Disable,2.5:call:VERGSCoyote6REF:Disable,3:call:0x00122CCA:PlaceAtMe:CrBloatFly:1,6:combat:0xFF000000:player" }
+args = ["--cell", "Goodsprings", "--pos=-61000,4500,8500", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 25
+expect = [
+  { re = 'npc combat: (\S+ )?0xFF[0-9A-F]{6} opens fire on the player from \d+ units \(reach 250\)', label = "the bloatfly fires its dart gun at the player" },
+  { re = 'npc combat: (\S+ )?0xFF[0-9A-F]{6} steps back from the player', max = 2, label = "it holds its distance: few steps back (before #2351 one after each stop at 225)" },
+]
+
+[[scenario]]
 name = "worn-addons-lucky"
 source = "playtest list 7 items 3 and 28 (fnv_actor::records Armor::addons, held_world_model): the CaravanPack's Lightweight Leather Armor wears its biped model list's gloves; Lucky is held in third person as its own engraved model"
 note = "the player equips PreordArmorLeather (0x001735E0, CaravanPack.esm; BIPL ArmorLeatherList: LeatherArmorGloveR/L) and Lucky (WeapNV357RevolverUnique 0x000E2C86; MOD4 357revolverCustom.nif)"
@@ -5144,6 +5159,23 @@ expect = [
   { re = "death poses: \\d+ actor frames held without sampling \\((?P<n>\\d+) at the clip's end\\)", range = [100, 1000000000], label = "death poses: at least 100 actor frames in all held at the clip's end without sampling (a sum over all dead actors; says nothing of which)" },
   { re = "death poses: .*\\), (?P<n>\\d+) more at the clip's end sampled", range = [1, 1000000000], label = "death poses: at least one actor frame in all sampled at the clip's end (a sum; not one per corpse)" },
 ]
+
+[[scenario]]
+name = "ragdoll-fail-laid-out"
+source = "#2347: a fresh corpse whose ragdoll failed to build kept the last frame of its clip and stood (a legionary killed running, Nipton); it is now shown dead as an actor without a ragdoll: its death pose from its first frame, or laid on its back (engine/nvforever/src/ragdoll.rs unbuilt) [design]"
+note = "the hit aid kills Chet at 8 s (500 damage with a knife on the torso: Dismember Only, and the torso cannot be severed, so he stays whole); NVF_PLAY_TEST_RAGDOLL_FAIL refuses his ragdoll build as if it had failed, standing in for ragdoll data that breaks the build (none in the data is known to). The issue's Nipton dynamite scene needs a build that really fails, so this aid stands in for it"
+areas = ["combat"]
+paths = ["engine/nvforever/src/ragdoll.rs", "engine/nvforever/src/deaths.rs", "engine/nvforever/src/knockouts.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_RAGDOLL_FAIL = "00104C79", NVF_PLAY_TEST_HIT = "8:GSChetRef:500:WeapKnife:limb=EnduranceCondition", NVF_PLAY_TEST_GOTO = "5:-583:440:700", NVF_PLAY_TEST_LOOK = "5.5:0:-10,9:0:-35", NVF_PLAY_TEST_SHOTS = "7:ragdoll_fail_before.png,12:ragdoll_fail_after.png" }
+args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 14
+order = [[
+  { re = 'combat: .* 0x00104C79 killed', label = "the hit aid kills Chet" },
+  { re = 'ragdoll: actor 00104C79: not built \(refused by the test aid NVF_PLAY_TEST_RAGDOLL_FAIL\)$', label = "the aid refuses his ragdoll build" },
+  { re = 'ragdoll: actor 00104C79: not built; shown dead without it: (its death pose, from its first frame|laid on its back)$', label = "and he is shown dead as one without a ragdoll" },
+]]
+forbid = [{ re = 'ragdoll: actor 00104C79 at rest', label = "no ragdoll of his is in the world" }]
+manual = "ragdoll_fail_after.png: Chet lies on the floor (his death pose's end, or on his back), not standing"
 
 [[scenario]]
 name = "corpse-respawn"
@@ -8128,6 +8160,21 @@ expect = [
 ]
 
 [[scenario]]
+name = "marker-no-xrds-walk"
+source = "issue #2338: a map marker without XRDS (Coyote Den 0x00154A69) is found by walking up to it, within iMapMarkerRevealDistance (1000 by default; docs/spec-notes/pipboy.md section 5.3)"
+note = "The start is 1750 units south-west of the marker on flat ground (heights 7944-7984 along the line, fnvtool world land), facing it (heading 45). The start-up message boxes (the DLC packs' items added) are closed after 0.05 s each, and the keys go down at 14 s, after them: on the first run (SCRIPT_MENUS 1, keys at 8 s) the boxes opened one after another and the player hardly moved. Running at about 344 units/s for 5 s (about 1720 units) the player crosses 1000 units from the marker about 2 s after the keys go down and stops near it. Nothing is found before the keys go down (the order)."
+areas = ["map", "hud"]
+paths = ["engine/nvf-play/src/pipboy/data.rs", "engine/nvf-play/src/pipboy/data/read.rs", "engine/nvf-play/src/compass.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_MOVE = "14:1:0,19:0:0" }
+args = ["--play", "--world", "WastelandNV", "--pos=-30141,-78629,8000", "--heading", "45", "--hour", "12", "--no-voice"]
+run_seconds = 26
+expect = [
+  { re = 'test aid: movement keys forward 1 right 0', label = "the player runs towards Coyote Den" },
+  { re = 'compass: discovered Coyote Den \(.*\+10 XP', count = 1, label = "Coyote Den (no XRDS) is found on the way, 10 XP" },
+]
+order = [["test aid: movement keys forward 1 right 0", "compass: discovered Coyote Den"]]
+
+[[scenario]]
 name = "seated-save-write"
 source = "issue #1573: after loading a save made while seated the player stands and GetSitting reads 0; the first half: sit (Goodsprings bench 0010634A), GetSitting reads 3, save (seated-save-load reads this save, so run them together)"
 areas = ["save", "furniture"]
@@ -9349,7 +9396,7 @@ expect = [
 name = "cave-skeletons"
 source = "owner's playtest list 5, item 71 (docs/spec-notes/dead-on-spawn.md §5.1): the Goodsprings cave's four clutter skeletons (MSTT with XRGD) drawn lying in their stored pose, their collision posed with them (2026-10-20)"
 areas = ["world", "ragdoll", "physics"]
-paths = ["engine/nvforever/src/clutter_pose.rs", "engine/nvforever/src/authored_pose.rs", "engine/nvforever/src/world.rs", "engine/nvf-play/src/phys/prepare.rs", "crates/fnv-world/src/xrgd.rs", "crates/fnv-collide/src/nif.rs"]
+paths = ["engine/nvf-play/src/clutter_pose.rs", "engine/nvforever/src/authored_pose.rs", "engine/nvforever/src/world.rs", "engine/nvf-play/src/phys/prepare.rs", "crates/fnv-world/src/xrgd.rs", "crates/fnv-collide/src/nif.rs"]
 args = ["--cell", "SLGoodspringsCaveINT", "--play", "--no-voice", "--no-messages"]
 run_seconds = 14
 expect = [
@@ -9367,7 +9414,7 @@ expect = [
 name = "posed-clutter-torso"
 source = "issue #1400 (docs/spec-notes/dead-on-spawn.md §5.2): a skeleton torso copied with the whole clothed skeleton's 15-entry XRGD poses from its first five entries, and a single body with more entries than it holds is refused and logged once per model"
 areas = ["world", "ragdoll", "physics"]
-paths = ["engine/nvforever/src/clutter_pose.rs", "engine/nvforever/src/world.rs", "engine/nvf-play/src/phys/prepare.rs", "crates/fnv-world/src/xrgd.rs"]
+paths = ["engine/nvf-play/src/clutter_pose.rs", "engine/nvforever/src/world.rs", "engine/nvf-play/src/phys/prepare.rs", "crates/fnv-world/src/xrgd.rs"]
 args = ["--cell", "BisonSteve02", "--play", "--no-voice", "--no-messages"]
 run_seconds = 14
 expect = [
@@ -9380,7 +9427,7 @@ expect = [
 name = "posed-clutter-container-skeleton"
 source = "issue #1400 (docs/spec-notes/dead-on-spawn.md §5.2): a whole clothed skeleton placed as a CONT (container) poses from its XRGD now that CONT is a posable type"
 areas = ["world", "ragdoll", "physics"]
-paths = ["engine/nvforever/src/clutter_pose.rs", "engine/nvforever/src/world.rs", "engine/nvf-play/src/phys/prepare.rs", "crates/fnv-world/src/xrgd.rs"]
+paths = ["engine/nvf-play/src/clutter_pose.rs", "engine/nvforever/src/world.rs", "engine/nvf-play/src/phys/prepare.rs", "crates/fnv-world/src/xrgd.rs"]
 args = ["--cell", "NVDLC01Vault", "--play", "--no-voice", "--no-messages"]
 run_seconds = 14
 expect = [
@@ -13396,6 +13443,23 @@ expect = [
 ]
 
 [[scenario]]
+name = "water-drink-idle"
+source = "#2349 (docs/spec-notes/idles.md section 16): drinking from placeable water plays the idle tree's ActivateIdles > ActWaterSource idle: 1stPersonActWater on the first-person rig in first person, 3rdPersonActWater on the body in third; it holds nothing"
+note = "drink-sink's sink in Doc Mitchell's house (0x00103E58) drunk from at 6 s in first person, the view switched at 9 s, drunk from again at 12 s in third person. The view must not be driven (an activation's idle does not hold the player)"
+areas = ["activation", "idles"]
+paths = ["crates/fnv-game/src/idles.rs", "crates/fnv-game/src/functions/furniture.rs", "engine/nvforever/src/idles.rs"]
+env = { NVF_PLAY_TEST_SCRIPT = "6:activate:0x00103E58,12:activate:0x00103E58", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_CONTROL = "9:view" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 18
+expect = [
+  { re = 'activate idle: .* activating 0x00103E58: 1stPersonActWater by ActivateIdles > ActWaterSource > 1stPersonActWater', label = "first person: the tree gives the first-person drinking idle" },
+  { re = 'idle: the player plays 1stPersonActWater .* on the first-person rig \(Activate\)', label = "it plays on the first-person rig" },
+  { re = 'activate idle: .* activating 0x00103E58: 3rdPersonActWater by ActivateIdles > ActWaterSource > 3rdPersonActWater', label = "third person: the third-person drinking idle" },
+  { re = 'idle: the player plays 3rdPersonActWater .* on the third-person rig \(Activate\)', label = "it plays on the body" },
+  { re = 'player view: driven by an idle', count = 0, label = "the drink holds neither the view nor movement" },
+]
+
+[[scenario]]
 name = "interior-clip"
 source = "ESM audit group 7 (docs/spec-notes/world.md §6 Interior clip distance): indoors the camera's far plane is the cell's fog clip distance; Doc Mitchell's house stores one"
 areas = ["sky", "world"]
@@ -13887,6 +13951,23 @@ expect = [
   { re = 'dismember: gore of 00104C79 at rest: [0-9]+ pieces lie', label = "the pieces come to rest (how far from the corpse: the line)" },
 ]
 manual = "dismember_head.png and dismember_after.png: Chet's head gone with a neck cap, bits about; his left arm lying apart with caps at both ends; his left leg gone with a cap"
+
+[[scenario]]
+name = "blast-ragdoll-corpse"
+source = "#2346: a blast never reached a corpse whose ragdoll had been built (its hit volume is dropped then, and blasts asked only the volumes); blasts now reach it by its ragdoll's bounds and bodies (engine/nvf-play/src/combat.rs view, blast_targets_near; PhysWorld::ragdoll_bounds) [design]"
+note = "the hit aid kills Chet at 8 s (500 damage with a knife on the torso: Dismember Only, and the torso cannot be severed, so he stays whole); his ragdoll settles (it is set at rest by MAX_AWAKE, 3 s of physics time, at the latest); at 20 s, twelve seconds after the kill, a frag grenade's explosion is placed at his corpse. The aids cannot wait for the rest line itself, so the margin covers physics running at a quarter of real time. The blast's lines come in the code's order: the corpse's roll reason, then the blast on him, then the explosion's summary (engine/nvf-play/src/combat.rs fly). A placed explosion has no source weapon, so the corpse line gives that reason instead of a roll (the source-weapon gate is left as it is until observer check 136)"
+areas = ["combat"]
+paths = ["crates/fnv-combat/src/projectile.rs", "engine/nvf-play/src/combat.rs", "crates/fnv-phys/src/ragdoll.rs", "engine/nvf-play/src/hitvol.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_HIT = "8:GSChetRef:500:WeapKnife:limb=EnduranceCondition", NVF_PLAY_TEST_CONSOLE = "20:GSChetRef.PlaceAtMe GrenadeFragExplosion 1;20.5:close", NVF_PLAY_TEST_GOTO = "5:-583:440:700", NVF_PLAY_TEST_LOOK = "5.5:0:-10,9:0:-35" }
+args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 24
+order = [[
+  { re = 'combat: .* 0x00104C79 killed', label = "the hit aid kills Chet" },
+  { re = 'ragdoll: actor 00104C79 at rest at ', label = "his ragdoll settles (its hit volume is gone)" },
+  { re = 'combat: blast GrenadeFragExplosion on corpse 0x00104C79: no dismemberment roll \(no source weapon\)', label = "the blast catches the settled corpse and says why no part is rolled for" },
+  { re = 'combat: blast GrenadeFragExplosion on 0x00104C79 at \d+', label = "its result on him" },
+  { re = 'combat: explosion GrenadeFragExplosion at ', label = "then the placed explosion's summary" },
+]]
 
 [[scenario]]
 name = "b3-killing-blow"
@@ -22916,6 +22997,24 @@ expect = [
 ]
 
 [[scenario]]
+name = "hour-jump-unseen-placed"
+source = "issue #2353: a script's write that moves GameHour more than an hour (VCG01 stage 200's set GameHour to 8 on a new game) has everybody choose its package at once and puts the residents out of sight where their new package has them; those in view walk there (Core::after_hour_jump, fnv_ai Ai::hour_jumped; docs/spec-notes/packages.md §9)"
+note = "Goodsprings at 06:00 by Easy Pete's porch; at 3 s he is moved to his bed 00176ACE in GSHouseInterior03 (behind a door of the loaded cells, out of sight), where EasyPeteSleepPackage keeps him. At 20 s the console sets GameHour to 8, a script's write as VCG01 stage 200's: EasyPeteChairPackage8x4 is chosen at once and he is put on his porch chair 0010634A without walking out of the house. Before #2353 he chose at his next periodic turn and walked out from the bed (the issue's Easy Pete out of place). The aids cannot drive the new game's opening into Doc Mitchell's last line, so the console stands in for the quest stage"
+areas = ["ai", "residents", "clock"]
+paths = ["crates/fnv-ai/src/arrive.rs", "engine/nvforever/src/residents.rs", "crates/fnv-game/src/functions/console.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:moveto:EasyPeteRef:0x00176ACE:0:60:0", NVF_PLAY_TEST_CONSOLE = "20:set GameHour to 8;20.5:close" }
+args = ["--play", "--cell", "Goodsprings", "--pos=-68375,4800,8700", "--hour", "6", "--npc-packages", "EasyPeteRef", "--no-voice", "--no-messages"]
+run_seconds = 40
+order = [[
+  { re = 'the clock was set from 06:\d\d to 08:00 by a script: packages chosen again; 1 of \d+ residents out of sight put', label = "the jump is taken: one resident out of sight is put" },
+  { re = 'EasyPeteRef: put at its package.s place after the clock was set \(EasyPeteChairPackage8x4\): .* in WastelandNV, from .* in GSHouseInterior03', label = "Easy Pete is put at his porch chair from his bed" },
+  { re = 'furniture: 00104C80 is (back )?on 0010634A', label = "drawn on his porch chair" },
+]]
+expect = [
+  { text = "EasyPeteRef: used door", count = 0, label = "he walks through no door in sight" },
+]
+
+[[scenario]]
 name = "pause-mods-page"
 source = "issue #976 T11 (engine/nvf-play/src/tiles/mods.rs, pause.rs; docs/handoff/ui-tile-tree-tasks.md T11, ui-tile-tree.md §7): with a mod's tiles in StartMenu (the switch on by default), the pause menu has a Mods entry; its page writes the original column's traits MCM waits for (menu-xml.md §10.1), clicks MCM's trigger so MCM's window opens, runs the start menu's MenuMode 1013 blocks each frame, in the played world, and Back closes it"
 note = "needs MCM in Data: its loose menu files (menus/options/start_menu.xml and menus/prefabs/MCM) give StartMenu its mod tiles, and its plugin (The Mod Configuration Menu.esp, loaded with --plugins) has the blocks. MCM's quest sets iInstallCheck to 1 in GameMode at the start and its MenuMode 1013 block sets it to 0, so the variable read before and after the page shows the block ran. With no mod registered with MCM its script stops at its 'No MCM Mods' check, so its window stays shut (pause-mods-page-jam opens it); pause_mods.png shows the page"
@@ -22997,6 +23096,20 @@ run_seconds = 16
 expect = [
   { re = 'combat: 1 shots .*, 1 world hits', label = "one shot, which strikes the world" },
   { text = "impacts by material: dirt 1 (0 on collision without a material)", label = "it passes the collision marker and strikes the dirt behind it" },
+]
+
+[[scenario]]
+name = "shot-passes-transparent-mesh"
+source = "issue #2340: a mesh body on the plain Transparent layer (3) stopped every shot; the original lets projectiles through it [documented: GECK wiki Collision layer, TRANSPARENT]. layers::shot_ignores now holds Transparent (crates/fnv-phys/src/layers.rs; combat-rules.md, The world)"
+note = "WastelandNV: the road gate door 0x0008D5B8 (CLFenceGateRoad01, -4576, -30616, 6819, not rotated) has its chain link CLFenceGateRoad01Link on layer 3 east of the gate leaves (model x 45..246, 13..224 high, material metal); the player stands 150 units south of it at x -4420, faces north, looks 10 degrees down and fires the 9mm pistol (no Pass Through Small Transparent) once at 12 s: the shot crosses the link about 30 units above its bottom edge and lands on the ground about 485 units beyond it. Before the change it stopped on the link: a metal impact"
+areas = ["combat", "physics"]
+paths = ["crates/fnv-phys/src/layers.rs", "engine/nvf-play/src/combat.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_EQUIP = "000E3778", NVF_PLAY_TEST_GIVE = "0008ED03:50", NVF_PLAY_TEST_LOOK = "9:0:-10", NVF_PLAY_TEST_CONTROL = "8:weapon,12:fire,12.2:fire" }
+args = ["--world", "WastelandNV", "--pos=-4420,-30766,6900", "--heading", "0", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 16
+expect = [
+  { re = 'combat: 1 shots .*, 1 world hits', label = "one shot, which strikes the world" },
+  { re = 'impacts by material: (?!metal )[a-z_]+ 1 \(', label = "it passes the layer-3 chain link (metal) and strikes the ground beyond it" },
 ]
 
 [[scenario]]
@@ -27524,6 +27637,22 @@ order = [[
 expect = [
   { re = 'detection: VFSKingBodyguardNorth 0013EF08 → the player', label = "the King's bodyguard beside him too" },
   { re = 'ai summary at .*, (?P<n>\d+) drawn;', range = [6, 1000], label = "the north side's residents are drawn (2026-11-14: 17; 0 without the fix)" },
+]
+
+[[scenario]]
+name = "wild-wasteland-fridge-skeleton"
+source = "issue #2339 (docs/spec-notes/dead-on-spawn.md §5.3): the Wild Wasteland refrigerator skeleton 0x000ED565 (MSTT Skeleton50sCasualMale, XRGD) hangs on WildWastelandEnabler 0x000ED563, which starts disabled, so render streaming leaves it to script_draw; enabled the way the trait's script does (0x000ED563.enable 1), it is drawn in its stored pose like a skeleton enabled from the start, its collision posed with it; a frame in target/smoke (wild_wasteland_fridge_skeleton.png)"
+note = "the player stands about 220 units east of the skeleton and the open fridge 0x000ED566, looking west and down; the enabler is enabled from the console at 8 s, the frame taken at 12 s"
+areas = ["world", "scripts", "ragdoll", "physics"]
+paths = ["engine/nvf-play/src/script_draw.rs", "engine/nvf-play/src/clutter_pose.rs", "crates/fnv-world/src/xrgd.rs"]
+env = { NVF_PLAY_TEST_CONSOLE = "8:000ED563.enable 1;8.3:close", NVF_PLAY_TEST_SHOTS = "12:wild_wasteland_fridge_skeleton.png" }
+args = ["--play", "--world", "WastelandNV", "--pos=-62000,-10520,7150", "--heading", "270", "--pitch", "-20", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 15
+expect = [
+  { re = 'reference 0x000ED565 drawn \(enabled at run time\): \S*skeletonmale50scasual\.nif', label = "the enabler's child is drawn by script_draw" },
+  { re = 'clutter pose: 0x000ED565 \S*skeletonmale50scasual\.nif drawn in its stored pose, enabled at run time \(16 bodies\)', count = 1, label = "drawn in its stored pose, logged once" },
+  { re = 'phys: 0x000ED565 \S*skeletonmale50scasual\.nif: collision posed from XRGD \(16 bodies\)', label = "its collision lies with the drawing" },
+  { re = 'clutter pose: \S*skeletonmale50scasual\.nif: its XRGD does not fit', count = 0, label = "its XRGD fits its model" },
 ]
 
 [[scenario]]
