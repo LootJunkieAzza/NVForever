@@ -16,6 +16,10 @@
 //!   left out altogether: the game is where New Game put it. A chain started from a thin
 //!   `given` gave false alarms: Doc Mitchell, activated with his opening only marked
 //!   done, started the opening again.
+//! - `--pilot-given` with `--pilot-campaign`: the chains are played as a campaign plays
+//!   them (the player's means everywhere), but each from its own `given` state, set as
+//!   the headless run sets it. For a chain far into the game that no campaign has
+//!   reached yet; what it finds carries the false alarms a thin `given` brings.
 //! - **A line the headless run says for an actor** (`say_info` with a speaker) is, in a
 //!   campaign, the player bringing that line about: the chains use it for what an actor
 //!   says of its own accord, often at the end of a walk (Sunny goes behind the saloon
@@ -55,6 +59,29 @@
 //!   [`TERMINAL_SECS`] s: the step fails and says which. The terminal is left (Exit)
 //!   when a step that is no `terminal` step follows. Not yet: a terminal found by the
 //!   pilot itself for a locked door.
+//! - **Quest items are picked up** [owner, 2026-11-14]. After a fight the player goes to
+//!   the body and takes what it carries that is a quest item (the record's flag, or a
+//!   script's SetQuestObject) or a key. An `add_item` to the player, which in the chains
+//!   stands for the player finding something, is in a campaign the player getting it:
+//!   already carried, nothing to do; else from whoever in the cells loaded holds it (a
+//!   body, a container) or where it lies, walked to and taken; found nowhere, an
+//!   `item_not_found` finding and the headless gift, so that the chain goes on.
+//! - **The player waits** [owner, 2026-11-14: some stages only go on at certain hours].
+//!   A chain's `X.MoveTo marker` stands for an actor arriving of its own accord, often
+//!   by the clock (Beyond the Beef: "waiting until 4 pm and Chauncey's walk to the steam
+//!   room"). In a campaign the player goes to that marker and, while the actor is not
+//!   within [`ARRIVED`] units of it, waits an hour at a time on the game's own Wait menu
+//!   (`nvf_play::wait`), up to [`WAIT_HOURS`] hours. An actor that has not come by then
+//!   is a `never_came` finding (issue #2445 is one), and the headless MoveTo is done so
+//!   that the chain goes on. A wait the game refuses (enemies near) is tried again.
+//! - **Errands** are what the pilot does of its own accord between a chain's steps: a
+//!   body to search, and a terminal that opens a locked door (an entry whose result
+//!   script names the door: walked to, opened, the entry taken). The step's own time
+//!   stands still meanwhile.
+//! - **What is still done the headless way** is counted, by kind of step, in the
+//!   report's `headless` (`pilot: headless: <op>` in the log): steps with no player
+//!   means yet (`set_stage`, `set_quest_var`, `enable`, `hit`, ...), and every
+//!   fallback named above. A chain whose count is high tests less than it seems to.
 //! - Menus: `wait_menu`, `get_menus`, `close_menus`, `press_button` and
 //!   `dismiss_message_boxes` act on the game's menu as the headless run does. A message
 //!   box no step is waiting for is answered after [`BOX_SECS`] s (headless such a box
@@ -254,6 +281,11 @@ const TURN_RATE: f32 = 6.0;
 /// Seconds a terminal's screen may take to come up, and between two inputs to it.
 pub const TERMINAL_SECS: f64 = 15.0;
 pub const TERMINAL_INPUT_SECS: f64 = 0.6;
+/// How near its marker an awaited actor has arrived, and the hours waited for it.
+pub const ARRIVED: f32 = 500.0;
+pub const WAIT_HOURS: u32 = 24;
+/// Seconds an errand may take.
+pub const ERRAND_SECS: f64 = 90.0;
 /// Seconds a message box nobody waits for stays up before the pilot closes it.
 pub const BOX_SECS: f64 = 1.5;
 /// Seconds the next chain waits for the save after the one before it.
@@ -288,6 +320,8 @@ pub struct PilotPlugin {
     pub expect: Vec<PathBuf>,
     pub out: Option<PathBuf>,
     pub campaign: bool,
+    /// With `campaign`: each chain's given state is set, not checked.
+    pub set_given: bool,
     pub god: bool,
 }
 
@@ -309,6 +343,7 @@ impl Plugin for PilotPlugin {
                 nvf_play::dialogue::set_piloted(true);
                 let mut pilot = Pilot::new(chains, self.out.clone(), self.campaign);
                 pilot.god = self.god;
+                pilot.set_given = self.set_given;
                 app.insert_resource(pilot).add_systems(Update, (drive.in_set(PlaySet::Input).after(nvf_play::control::read_controls).before(nvf_play::control::enforce_locks), held));
             }
             Ok(_) => error!("pilot: no chain"),
@@ -350,6 +385,18 @@ impl Chain {
     }
 }
 
+/// Something the pilot does of its own accord (module notes).
+#[derive(Debug, Clone, PartialEq)]
+enum Errand {
+    /// Search a body for quest items and keys.
+    Search(FormId),
+    /// Take an item from a holder, or where it lies (`from` is then the item's own
+    /// reference).
+    Take { from: FormId, item: FormId, count: i32, lying: bool },
+    /// Use the entry of a terminal that works a locked door.
+    Terminal { reference: FormId, base: FormId, item: usize, door: u32 },
+}
+
 /// A walk to a place.
 struct Walk {
     goal: Place,
@@ -378,6 +425,8 @@ struct Walk {
     stuck_at: Option<[f32; 3]>,
     /// What was used to open a locked door, with the door.
     poked: Vec<(u32, u32)>,
+    /// An errand the walk asks for (a terminal that works a door): the pilot takes it.
+    errand: Option<(Errand, Place)>,
     /// A switch being walked to, for the door, before the walk goes on.
     side: Option<(FormId, u32, Box<Walk>)>,
     /// Said that the actor walked to is talking (once a conversation).
@@ -430,11 +479,23 @@ struct Pilot {
     box_picked: bool,
     /// When the terminal screen was last given an input.
     terminal_at: f64,
+    /// What the pilot does of its own accord before the step goes on, the one in hand
+    /// (with its walk, when it began and how far it is), and the bodies searched.
+    errands: std::collections::VecDeque<Errand>,
+    errand: Option<(Errand, Walk, f64, u8)>,
+    searched: Vec<FormId>,
+    /// Hours waited in this step, and the wait under way: when the menu was asked for.
+    waited: u32,
+    waiting: Option<f64>,
+    /// Steps done the headless way, by kind.
+    headless: std::collections::BTreeMap<String, u32>,
     /// Failed steps one after the other, and the real time the pilot last could act.
     failed_in_a_row: u32,
     acted_at: Option<f64>,
     /// Since when the open conversation has offered no way out.
     stuck_talk: Option<f64>,
+    /// A campaign's chains have their given state set all the same (`--pilot-given`).
+    set_given: bool,
     /// God mode is on, and when the weapon is looked at next.
     god: bool,
     weapon_check: f64,
@@ -443,6 +504,8 @@ struct Pilot {
     resume_at: f64,
     /// The other menu up, and since when.
     menu_since: Option<(u16, f64)>,
+    /// How many of an `add_item`'s item the player had when the step began.
+    mark_items: i32,
     /// For a `say_info` kept company: how many lines had been begun when the chain (in
     /// a campaign, the first chain) began, and since when the speaker has stood where it stands.
     mark: u64,
@@ -487,14 +550,22 @@ impl Pilot {
             box_since: None,
             box_picked: false,
             terminal_at: 0.0,
+            errands: Default::default(),
+            errand: None,
+            searched: Vec::new(),
+            waited: 0,
+            waiting: None,
+            headless: Default::default(),
             failed_in_a_row: 0,
             acted_at: None,
             stuck_talk: None,
+            set_given: false,
             god: false,
             weapon_check: 0.0,
             saved: false,
             resume_at: 0.0,
             menu_since: None,
+            mark_items: 0,
             mark: 0,
             still: (0.0, [0.0; 3]),
             defend: None,
@@ -560,6 +631,13 @@ impl Pilot {
         }
         self.i += 1;
         (self.phase, self.part, self.step_from) = (Phase::Begin, 0, self.now);
+        (self.waited, self.waiting) = (0, None);
+    }
+
+    /// A step, or a fallback, done as the headless run does it: counted.
+    fn headless(&mut self, op: &str) {
+        info!("pilot: headless: {op} (step {})", self.i);
+        *self.headless.entry(op.to_string()).or_default() += 1;
     }
 
     /// A labelled read, against the headless one of the same step. Whether they agree.
@@ -588,6 +666,7 @@ impl Pilot {
         json!({
             "format": REPORT_FORMAT, "campaign": self.campaign, "chains": self.chains_done, "last_title": self.title, "seconds": self.now.round(),
             "steps": self.steps, "observations": self.observations, "divergences": self.divergences, "findings": self.findings, "softlocks": softlocks,
+            "headless": self.headless,
         })
     }
 }
@@ -675,6 +754,10 @@ struct Hands<'a, 'w> {
     doors: &'a nvf_play::doors::Doors,
     /// A menu holds the game this frame: the player cannot move.
     in_menu: bool,
+    /// The Wait menu and the ways to ask for it and work it.
+    wait_menu: &'a nvf_play::wait::WaitMenu,
+    wait_open: &'a mut MessageWriter<'w, nvf_play::wait::OpenWait>,
+    wait_input: &'a mut MessageWriter<'w, nvf_play::wait::WaitInput>,
     /// The terminal screen that is up, and the way to work it.
     terminal: &'a nvf_play::terminal::TerminalScreen,
     terminal_input: &'a mut MessageWriter<'w, nvf_play::terminal::TerminalInput>,
@@ -735,6 +818,12 @@ enum Walked {
 fn walk(p: &mut Pilot, w: &mut Walk, h: &mut Hands) -> Walked {
     let feet = h.feet();
     let here = h.here();
+    // An errand the walk asked for: handed to the pilot, and a new path afterwards.
+    if let Some((errand, place)) = w.errand.take() {
+        p.errand = Some((errand, walk_to(place, None, NEAR_TARGET, p.now, feet), p.now, 0));
+        (w.follower, w.door_since, w.seen) = (None, None, (p.now, feet));
+        return Walked::Going;
+    }
     // To a switch for a locked door first; then the walk goes on with a new path.
     if let Some((switch, door, mut side)) = w.side.take() {
         match walk(p, &mut side, h) {
@@ -922,7 +1011,7 @@ fn walk(p: &mut Pilot, w: &mut Walk, h: &mut Hands) -> Walked {
                 w.door_since = Some(p.now);
                 let r = h.script.rt.as_mut().map(|rt| with_world(rt, h.sim, |rt| rt.activate_as_player(FormId(door))));
                 info!("pilot: step {}: opens door {door:08X}: {}", p.i, outcome(r.as_ref()));
-            } else if lock_words(nav, door).is_some() && w.door_since.is_some_and(|t| p.now - t > LOCKED_SECS) && try_beside(p, &mut w.poked, &mut w.side, h, door, feet) {
+            } else if lock_words(nav, door).is_some() && w.door_since.is_some_and(|t| p.now - t > LOCKED_SECS) && try_beside(p, &mut w.poked, &mut w.side, &mut w.errand, h, door, feet) {
                 w.door_since = Some(p.now);
                 return Walked::Going;
             } else if let Some(lock) = lock_words(nav, door).filter(|_| w.door_since.is_some_and(|t| p.now - t > LOCKED_SECS)) {
@@ -953,7 +1042,7 @@ fn walk(p: &mut Pilot, w: &mut Walk, h: &mut Hands) -> Walked {
                     p.finding("unreachable", why.clone());
                     return Walked::No(why);
                 };
-                if try_beside(p, &mut w.poked, &mut w.side, h, d.door, feet) {
+                if try_beside(p, &mut w.poked, &mut w.side, &mut w.errand, h, d.door, feet) {
                     w.door_since = Some(p.now);
                     return Walked::Going;
                 }
@@ -979,7 +1068,7 @@ fn walk(p: &mut Pilot, w: &mut Walk, h: &mut Hands) -> Walked {
 }
 
 fn walk_to(goal: Place, target: Option<FormId>, radius: f32, now: f64, feet: [f32; 3]) -> Walk {
-    Walk { goal, target, radius, follower: None, door_since: None, seen: (now, feet), replans: 0, cut: false, talking_at_start: None, keep_talk: false, locked_way: false, tried: Vec::new(), stuck_at: None, poked: Vec::new(), side: None, told_talking: false, dodge: None, snapped: None }
+    Walk { goal, target, radius, follower: None, door_since: None, seen: (now, feet), replans: 0, cut: false, talking_at_start: None, keep_talk: false, locked_way: false, tried: Vec::new(), stuck_at: None, poked: Vec::new(), errand: None, side: None, told_talking: false, dodge: None, snapped: None }
 }
 
 /// What a player would use to open a door that stays locked (module notes), not used
@@ -1018,11 +1107,49 @@ fn door_switch(g: &Game, door: u32, used: &[(u32, u32)]) -> Option<(FormId, Opti
     found.first().map(|&(_, away, r, pos, what)| (r, cell, pos, away, what))
 }
 
+/// A terminal of the door's cell with an entry whose result script names the door: the
+/// terminal, the menu the entry is on, the entry, and where the terminal is.
+fn door_terminal(g: &Game, door: u32, used: &[(u32, u32)]) -> Option<(FormId, FormId, usize, Option<FormId>, [f32; 3])> {
+    use fnv_script::unit::RefSlot;
+    let (cell, at) = where_is(g, FormId(door))?;
+    let refs = g.world.placed.by_cell.get(&cell?)?;
+    let mut found: Vec<(f32, FormId, FormId, usize, [f32; 3])> = Vec::new();
+    for &r in refs {
+        let Some(base) = g.world.placed.get(r).map(|pl| pl.base).filter(|b| g.data.terminals.contains_key(b)) else { continue };
+        if used.iter().any(|(u, d)| *u == r.0 && *d == door) {
+            continue;
+        }
+        let Some((_, pos)) = where_is(g, r) else { continue };
+        // The terminal's own menu and the sub menus its entries open, one level down.
+        let mut menus = vec![base];
+        menus.extend((0..fnv_game::terminal::item_count(g, base)).filter_map(|i| fnv_game::terminal::item(g, base, i).and_then(|it| it.submenu)));
+        for menu in menus {
+            for i in 0..fnv_game::terminal::item_count(g, menu) {
+                let names = fnv_game::terminal::item(g, menu, i).and_then(|it| it.unit).is_some_and(|u| g.data.unit(u).unit.refs.iter().any(|s| matches!(s, RefSlot::Form(f) if *f == door)));
+                if names {
+                    found.push((hdist(pos, at), r, menu, i, pos));
+                }
+            }
+        }
+    }
+    found.sort_by(|a, b| a.0.total_cmp(&b.0));
+    found.first().map(|&(_, r, menu, i, pos)| (r, menu, i, cell, pos))
+}
+
 /// A door stays locked: what opens it is used, or walked to first (`Walk::side`).
 /// Whether there was something to use.
-fn try_beside(p: &Pilot, poked: &mut Vec<(u32, u32)>, side: &mut Option<(FormId, u32, Box<Walk>)>, h: &mut Hands, door: u32, feet: [f32; 3]) -> bool {
+fn try_beside(p: &Pilot, poked: &mut Vec<(u32, u32)>, side: &mut Option<(FormId, u32, Box<Walk>)>, errands: &mut Option<(Errand, Place)>, h: &mut Hands, door: u32, feet: [f32; 3]) -> bool {
     let used = poked.clone();
-    let Some((r, cell, pos, away, what)) = h.game(|g| door_switch(g, door, &used)).flatten() else { return false };
+    let Some((r, cell, pos, away, what)) = h.game(|g| door_switch(g, door, &used)).flatten() else {
+        // No switch: a terminal with an entry for the door is an errand of its own.
+        let Some((terminal, menu, item, cell, pos)) = h.game(|g| door_terminal(g, door, &used)).flatten() else { return false };
+        poked.push((terminal.0, door));
+        let space = cell.and_then(|c| crate::nav::space_of_cell(h.world, c.0)).unwrap_or(space_of(h.location));
+        let name = h.game(|g| g.data.name(terminal)).unwrap_or_default();
+        info!("pilot: step {}: door {door:08X} stays locked: the terminal {name} has an entry for it: the player goes to it", p.i);
+        *errands = Some((Errand::Terminal { reference: terminal, base: menu, item, door }, Place { space, pos }));
+        return true;
+    };
     poked.push((r.0, door));
     let name = h.game(|g| g.data.name(r)).unwrap_or_default();
     if hdist(pos, feet) > 2.0 * NEAR_TARGET {
@@ -1617,6 +1744,7 @@ fn step(p: &mut Pilot, h: &mut Hands) -> Option<Option<String>> {
             }
             if p.now - p.step_from > LINE_SECS {
                 p.finding("line_not_said", format!("{speaker} did not say {info} in {LINE_SECS:.0} s with the player beside it: said as the headless run says it"));
+                p.headless("say_info (a line not said)");
                 let mut applier = std::mem::take(&mut p.applier);
                 let r = h.game(|g| runner::apply_now(g, &mut applier, &a));
                 p.applier = applier;
@@ -1666,10 +1794,105 @@ fn step(p: &mut Pilot, h: &mut Hands) -> Option<Option<String>> {
             p.phase = phase;
             None
         }
-        // A console line that moves another actor stands in for its walk (Beagle's run
-        // back to Primm): the AI's to make.
+        // A console line that moves another actor stands in for its coming of its own
+        // accord (Beagle's run back to Primm, Chauncey at 4 pm): the player goes to the
+        // place and waits for it there, an hour at a time.
         Action::Call { line, .. } if p.campaign && line.to_ascii_lowercase().contains(".moveto") && !line.to_ascii_lowercase().starts_with("player") => {
-            info!("pilot: step {}: left to the AI: {line}", p.i);
+            let mut words = line.split_whitespace();
+            let (Some(who), Some(marker)) = (words.next().and_then(|w| w.split('.').next()).map(str::to_string), words.next().map(str::to_string)) else {
+                info!("pilot: step {}: left to the AI: {line}", p.i);
+                return Some(None);
+            };
+            // (A bare hex FormID in a console line has no 0x.)
+            let named = |g: &Game, n: &str| runner::resolve(g, n).or_else(|_| runner::resolve(g, &format!("0x{n}")));
+            let world = h.world;
+            let places = h.game(|g| {
+                let actor = named(g, &who).ok()?;
+                let m = named(g, &marker).ok()?;
+                let (cell, pos) = where_is(g, m)?;
+                let space = crate::nav::space_of_cell(world, cell?.0)?;
+                Some((actor, Place { space, pos }, where_is(g, actor).map(|(_, at)| at)))
+            });
+            let Some(Some((_actor, place, actor_at))) = places else {
+                info!("pilot: step {}: left to the AI: {line} (the actor or the place is not known)", p.i);
+                return Some(None);
+            };
+            if actor_at.is_some_and(|at| hdist(at, place.pos) <= ARRIVED) {
+                info!("pilot: step {}: {who} is at {marker} after {} hour(s) of waiting", p.i, p.waited);
+                return Some(None);
+            }
+            if matches!(p.phase, Phase::Begin) {
+                info!("pilot: step {}: {who} is to come to {marker}: the player goes there and waits", p.i);
+                p.phase = new_walk(place, None, NEAR_TARGET, p.now, h.feet());
+            }
+            // There first; then an hour at a time.
+            if p.part == 0 {
+                match walk_phase(p, h) {
+                    None => return None,
+                    Some(Some(why)) => info!("pilot: step {}: {marker} is not reached ({why}): the player waits where it is", p.i),
+                    Some(None) => {}
+                }
+                p.part = 1;
+            }
+            if p.waited >= WAIT_HOURS {
+                p.finding("never_came", format!("{who} did not come to {marker} in {WAIT_HOURS} hours of waiting there: moved as the headless run moves it"));
+                p.headless("call (an actor that never came)");
+                let mut applier = std::mem::take(&mut p.applier);
+                let r = h.game(|g| runner::apply_now(g, &mut applier, &a));
+                p.applier = applier;
+                return Some(r.and_then(|r| r.err()));
+            }
+            if wait_an_hour(p, h) == Some(false) {
+                // Refused (enemies near, or not now): a moment, then again; the step's
+                // own limit ends it.
+                p.phase = Phase::Wait { until: p.now + 5.0 };
+            }
+            p.step_from = p.now - 1.0;
+            None
+        }
+        // An item the chain gives the player stands for the player finding it.
+        Action::AddItem { to, item, count } if p.campaign && (to.eq_ignore_ascii_case("player") || to.eq_ignore_ascii_case("playerref")) => {
+            let feet = h.feet();
+            let world = h.world;
+            let state = h.game(|g| {
+                let it = runner::resolve(g, item).ok()?;
+                let have = g.world.item_count(FormId::PLAYER_REF, it).unwrap_or(0);
+                Some((it, have, find_item(g, it, feet)))
+            });
+            let Some(Some((it, have, found))) = state else { return Some(Some(format!("{item}: no such item"))) };
+            if p.part == 0 {
+                // What the player had when the step began decides when it has enough.
+                p.mark_items = have;
+                p.part = 1;
+            }
+            if have >= p.mark_items + *count as i32 || (p.part == 1 && have >= *count as i32 && find_item_none(&found)) {
+                info!("pilot: step {}: the player carries {have} {item}", p.i);
+                return Some(None);
+            }
+            match found {
+                Some((from, cell, pos, lying)) if p.part == 1 => {
+                    let space = cell.and_then(|c| crate::nav::space_of_cell(world, c.0)).unwrap_or(space_of(h.location));
+                    info!("pilot: step {}: {item} is to be found: the player goes for it", p.i);
+                    p.errand = Some((Errand::Take { from, item: it, count: *count as i32, lying }, walk_to(Place { space, pos }, None, NEAR_TARGET, p.now, feet), p.now, 0));
+                    p.part = 2;
+                    None
+                }
+                _ => {
+                    if p.part == 1 {
+                        p.finding("item_not_found", format!("{item} is not on any body, in any container or lying anywhere in the cells loaded: given as the headless run gives it"));
+                    }
+                    p.headless("add_item (not found in the world)");
+                    let mut applier = std::mem::take(&mut p.applier);
+                    let r = h.game(|g| runner::apply_now(g, &mut applier, &a));
+                    p.applier = applier;
+                    Some(r.and_then(|r| r.err()))
+                }
+            }
+        }
+        // The player's own stance: its control, not the script's flag.
+        Action::PlayerSneak { sneaking } => {
+            h.control.sneak = *sneaking;
+            info!("pilot: step {}: the player {}", p.i, if *sneaking { "sneaks" } else { "stands up" });
             Some(None)
         }
         Action::SayFirst { .. } | Action::SayToDone { .. } if p.campaign => {
@@ -1756,6 +1979,11 @@ fn step(p: &mut Pilot, h: &mut Hands) -> Option<Option<String>> {
         }
         // Everything else is the headless run's own step on the running game.
         _ => {
+            // Reads change nothing; the rest is a step with no player means yet.
+            let op = p.ops.get(p.i).cloned().unwrap_or_default();
+            if !(op.starts_with("get_") || op == "note" || op == "start_stopwatch" || op == "query") {
+                p.headless(&op);
+            }
             let mut applier = std::mem::take(&mut p.applier);
             let r = h.game(|g| runner::apply_now(g, &mut applier, &a));
             p.applier = applier;
@@ -1775,6 +2003,185 @@ fn step(p: &mut Pilot, h: &mut Hands) -> Option<Option<String>> {
             }
         }
     }
+}
+
+/// One frame of waiting an hour on the game's Wait menu. `Some(true)`: the hour has
+/// passed; `Some(false)`: the game would not have it (refused, or the menu never came).
+fn wait_an_hour(p: &mut Pilot, h: &mut Hands) -> Option<bool> {
+    use nvf_play::wait::{OpenWait, WaitInput};
+    match p.waiting {
+        None => {
+            h.wait_open.write(OpenWait::default());
+            p.waiting = Some(p.now);
+            None
+        }
+        Some(since) if h.wait_menu.is_open() => {
+            // Asked for an hour once the menu is up; it closes when the hour has passed.
+            if p.now - since < 100.0 {
+                h.wait_input.write(WaitInput(nvf_play::wait::model::Command::Hours(1)));
+                h.wait_input.write(WaitInput(nvf_play::wait::model::Command::Accept));
+                p.waiting = Some(p.now - 100.0);
+            } else if p.now - since > 160.0 {
+                h.wait_input.write(WaitInput(nvf_play::wait::model::Command::Cancel));
+                p.waiting = None;
+                return Some(false);
+            }
+            None
+        }
+        // The menu is gone again: the hour passed, or it never opened.
+        Some(since) if p.now - since >= 100.0 => {
+            p.waiting = None;
+            p.waited += 1;
+            Some(true)
+        }
+        Some(since) if p.now - since > 4.0 => {
+            p.waiting = None;
+            Some(false)
+        }
+        Some(_) => None,
+    }
+}
+
+/// What a body carries that a player would take: quest items and keys.
+fn worth_taking(g: &Game, body: FormId) -> Vec<(FormId, i32)> {
+    let Some(inv) = g.world.peek(body).and_then(|s| s.inventory.as_ref()) else { return Vec::new() };
+    inv.iter().filter(|&(item, n)| n > 0 && (g.world.is_quest_item(item) || g.world.forms.item(item).is_some_and(|it| it.kind == fnv_sim::forms::ItemKind::Key))).collect()
+}
+
+/// Who holds `item` in the cells the game has materialised, nearest first, or where it
+/// lies: the holder (or the item's own reference), its cell and place, and whether it
+/// lies in the world.
+fn find_item(g: &Game, item: FormId, feet: [f32; 3]) -> Option<(FormId, Option<FormId>, [f32; 3], bool)> {
+    let mut found: Vec<(f32, FormId, Option<FormId>, [f32; 3], bool)> = Vec::new();
+    for (r, state) in g.world.changed() {
+        if r == FormId::PLAYER_REF {
+            continue;
+        }
+        let holds = state.inventory.as_ref().is_some_and(|inv| inv.iter().any(|(i, n)| i == item && n > 0));
+        let lies = state.base == item && state.inventory.is_none();
+        // A living actor's things are not there for the taking.
+        let living_actor = g.data.actors.contains_key(&state.base) && !g.is_dead(r);
+        if (holds && !living_actor) || lies {
+            found.push((hdist(state.pos, feet), r, state.cell, state.pos, lies));
+        }
+    }
+    for placed in g.world.placed.refs.values().filter(|pl| pl.base == item && g.world.peek(pl.id).is_none()) {
+        found.push((hdist(placed.pos, feet), placed.id, placed.cell, placed.pos, true));
+    }
+    found.sort_by(|a, b| a.0.total_cmp(&b.0));
+    found.first().map(|&(_, r, cell, pos, lies)| (r, cell, pos, lies))
+}
+
+/// One frame of the errand in hand. Whether it is over.
+fn run_errand(p: &mut Pilot, h: &mut Hands) -> bool {
+    use nvf_play::terminal::{AidPick, TerminalInput};
+    let Some((errand, mut w, began, mut stage)) = p.errand.take() else { return true };
+    if p.now - began > ERRAND_SECS {
+        info!("pilot: step {}: errand given up after {ERRAND_SECS:.0} s: {errand:?}", p.i);
+        if h.terminal.0.is_some() {
+            h.terminal_input.write(TerminalInput::Exit);
+        }
+        return true;
+    }
+    if stage == 0 {
+        match walk(p, &mut w, h) {
+            Walked::Going => {
+                p.errand = Some((errand, w, began, stage));
+                return false;
+            }
+            Walked::No(why) => {
+                info!("pilot: step {}: errand not reached ({why}): {errand:?}", p.i);
+                return true;
+            }
+            Walked::There | Walked::Put => stage = 1,
+        }
+    }
+    match &errand {
+        Errand::Search(body) => {
+            let body = *body;
+            let taken = h.game(|g| {
+                let take = worth_taking(g, body);
+                take.iter().filter(|(item, n)| g.world.remove_item(body, *item, *n).is_ok() && g.world.add_item(FormId::PLAYER_REF, *item, *n).is_ok()).map(|(item, n)| format!("{n} {}", g.data.name(*item))).collect::<Vec<_>>()
+            });
+            let taken = taken.unwrap_or_default();
+            if !taken.is_empty() {
+                let name = h.game(|g| g.data.name(body)).unwrap_or_default();
+                info!("pilot: step {}: searches the body of {name} and takes {}", p.i, taken.join(", "));
+            }
+            true
+        }
+        Errand::Take { from, item, count, lying } => {
+            let (from, item, count, lying) = (*from, *item, *count, *lying);
+            let name = h.game(|g| g.data.name(item)).unwrap_or_default();
+            if lying {
+                let done = h.script.rt.as_mut().map(|rt| with_world(rt, h.sim, |rt| rt.activate_as_player(from)));
+                info!("pilot: step {}: picks up {name} where it lies: {}", p.i, outcome(done.as_ref()));
+            } else {
+                let ok = h.game(|g| {
+                    let have = g.world.item_count(from, item).unwrap_or(0).min(count.max(1));
+                    have > 0 && g.world.remove_item(from, item, have).is_ok() && g.world.add_item(FormId::PLAYER_REF, item, have).is_ok()
+                });
+                let holder = h.game(|g| g.data.name(from)).unwrap_or_default();
+                info!("pilot: step {}: takes {name} from {holder}: {}", p.i, if ok == Some(true) { "taken" } else { "not there any more" });
+            }
+            true
+        }
+        Errand::Terminal { reference, base, item, door } => {
+            let (reference, base, item, door) = (*reference, *base, *item, *door);
+            if p.now - p.terminal_at < TERMINAL_INPUT_SECS {
+                p.errand = Some((errand, w, began, stage));
+                return false;
+            }
+            p.terminal_at = p.now;
+            match (stage, screen_of(h.terminal, reference)) {
+                (1, Screen::None) | (1, Screen::Other) => {
+                    let done = h.script.rt.as_mut().map(|rt| with_world(rt, h.sim, |rt| rt.activate_as_player(reference)));
+                    info!("pilot: step {}: uses the terminal that works door {door:08X}: {}", p.i, outcome(done.as_ref()));
+                    stage = 2;
+                }
+                (_, Screen::Hacking) => h.terminal_input.write(TerminalInput::Aid(AidPick::Right)).into_unit(),
+                (_, Screen::Menu(_, _, _, true)) => h.terminal_input.write(TerminalInput::Back).into_unit(),
+                (_, Screen::Menu(shown, listed, _, false)) if stage < 3 => {
+                    let row = if shown == base {
+                        listed.iter().position(|i| *i == item)
+                    } else {
+                        h.game(|g| listed.iter().position(|i| fnv_game::terminal::item(g, shown, *i).is_some_and(|it| it.submenu == Some(base)))).flatten()
+                    };
+                    match row {
+                        Some(row) => {
+                            h.terminal_input.write(TerminalInput::Aid(AidPick::Item(row)));
+                            if shown == base {
+                                info!("pilot: step {}: takes the entry that works door {door:08X}", p.i);
+                                stage = 3;
+                            }
+                        }
+                        None => {
+                            info!("pilot: step {}: the entry that works door {door:08X} is not listed on the terminal now", p.i);
+                            h.terminal_input.write(TerminalInput::Exit);
+                            return true;
+                        }
+                    }
+                }
+                (3, Screen::Menu(..)) => h.terminal_input.write(TerminalInput::Exit).into_unit(),
+                (3, _) => return true,
+                (_, Screen::LockedOut) => {
+                    h.terminal_input.write(TerminalInput::Exit);
+                    return true;
+                }
+                _ => {}
+            }
+            p.errand = Some((errand, w, began, stage));
+            false
+        }
+    }
+}
+
+/// `()` from a message's id, for the match arms above.
+trait IntoUnit {
+    fn into_unit(self);
+}
+impl<T> IntoUnit for T {
+    fn into_unit(self) {}
 }
 
 /// What the terminal screen shows, as far as the pilot needs it.
@@ -1918,6 +2325,15 @@ fn terminal_step(p: &mut Pilot, h: &mut Hands, target: &str, item: usize, menu: 
     }
 }
 
+/// A body with something worth taking is searched before the step goes on, once.
+fn search_later(p: &mut Pilot, h: &mut Hands, body: FormId) {
+    if p.searched.contains(&body) || h.game(|g| worth_taking(g, body).is_empty()) != Some(false) {
+        return;
+    }
+    p.searched.push(body);
+    p.errands.push_back(Errand::Search(body));
+}
+
 /// One frame of a `kill` step fought out (module notes).
 fn fight(p: &mut Pilot, h: &mut Hands, name: &str, a: &Action) -> Option<Option<String>> {
     if matches!(p.phase, Phase::Begin) {
@@ -1934,10 +2350,12 @@ fn fight(p: &mut Pilot, h: &mut Hands, name: &str, a: &Action) -> Option<Option<
     if h.game(|g| g.is_dead(target)) == Some(true) {
         info!("pilot: step {}: {name} is dead after {:.1} s of the fight", p.i, p.now - p.step_from);
         h.control.trigger = false;
+        search_later(p, h, target);
         return Some(None);
     }
     if p.now - p.step_from > FIGHT_SECS {
         p.finding("fight_not_won", format!("{name} still lives after {FIGHT_SECS:.0} s of shooting at it with {PILOT_WEAPON}: killed as the headless run kills it"));
+        p.headless("kill (a fight not won)");
         h.control.trigger = false;
         let mut applier = std::mem::take(&mut p.applier);
         let r = h.game(|g| runner::apply_now(g, &mut applier, a));
@@ -1949,6 +2367,11 @@ fn fight(p: &mut Pilot, h: &mut Hands, name: &str, a: &Action) -> Option<Option<
     }
     p.phase = Phase::Fight(f, w);
     None
+}
+
+/// Whether nothing was found (for the `add_item` rule's reading).
+fn find_item_none(found: &Option<(FormId, Option<FormId>, [f32; 3], bool)>) -> bool {
+    found.is_none()
 }
 
 fn wait_for(p: &mut Pilot, seconds: f64) -> Option<Option<String>> {
@@ -2006,12 +2429,13 @@ fn drive(
     watch: Option<Res<nvf_play::softlock::SoftlockWatch>>,
     (mut travel, mut save): (MessageWriter<TravelRequest>, MessageWriter<nvf_play::save::SaveRequest>),
     (terminal, mut terminal_input): (Res<nvf_play::terminal::TerminalScreen>, MessageWriter<nvf_play::terminal::TerminalInput>),
+    (wait_menu, mut wait_open, mut wait_input): (Res<nvf_play::wait::WaitMenu>, MessageWriter<nvf_play::wait::OpenWait>, MessageWriter<nvf_play::wait::WaitInput>),
     mut exit: MessageWriter<AppExit>,
 ) {
     let p = &mut *pilot;
     // In play, in a conversation, and in a menu the scripts opened (the opening's menus,
     // a message box): not behind the pause menu or a loading screen.
-    let scripts_menu = *state.get() == PlayState::Menu && !paused.0 && script.rt.as_ref().is_some_and(|rt| rt.game.menu.is_some());
+    let scripts_menu = *state.get() == PlayState::Menu && !paused.0 && (wait_menu.is_open() || script.rt.as_ref().is_some_and(|rt| rt.game.menu.is_some()));
     if p.done || loading.active() || !(matches!(*state.get(), PlayState::Playing | PlayState::Dialogue) || scripts_menu) || script.rt.is_none() {
         return;
     }
@@ -2035,6 +2459,9 @@ fn drive(
         world: &world,
         doors: &doors,
         in_menu: scripts_menu,
+        wait_menu: &wait_menu,
+        wait_open: &mut wait_open,
+        wait_input: &mut wait_input,
         terminal: &terminal,
         terminal_input: &mut terminal_input,
         travel: &mut travel,
@@ -2044,7 +2471,7 @@ fn drive(
         p.given_applied = true;
         let all = p.given.clone();
         // In a campaign the given state is a precondition (module notes).
-        let (given, checked): (Vec<Json>, Vec<Json>) = match (p.campaign, p.chains_done) {
+        let (given, checked): (Vec<Json>, Vec<Json>) = match (p.campaign && !p.set_given, p.chains_done) {
             (false, _) => (all, Vec::new()),
             (true, 0) => (Vec::new(), Vec::new()),
             (true, _) => all.into_iter().filter(|e| e["kind"] != "menu" && e["kind"] != "place" && e["kind"] != "ref" && e["kind"] != "disabled").partition(|e| e["kind"] != "quest"),
@@ -2125,7 +2552,7 @@ fn drive(
             || p.actions.iter().skip(p.i).take(6).any(|a| matches!(a, Action::CloseMenus { .. }))
     };
     // (A terminal's pages are the `terminal` steps' and the rule above's.)
-    let menu = h.game(|g| g.menu).flatten().filter(|m| *m != fnv_game::game::menus::MESSAGE && *m != nvf_play::terminal::MENU_HACKING && *m != nvf_play::terminal::MENU_TERMINAL && !waited_for && !coming(*m));
+    let menu = h.game(|g| g.menu).flatten().filter(|m| *m != fnv_game::game::menus::MESSAGE && *m != nvf_play::script::MENU_SLEEP_WAIT && *m != nvf_play::terminal::MENU_HACKING && *m != nvf_play::terminal::MENU_TERMINAL && !waited_for && !coming(*m));
     match (menu, p.menu_since) {
         (Some(m), Some((was, t))) if m == was => {
             let up = p.now - t;
@@ -2169,6 +2596,7 @@ fn drive(
                 h.control.trigger = false;
                 if dead {
                     info!("pilot: step {}: the attacker {who} is dead after {:.1} s", p.i, p.now - p.defend_from);
+                    search_later(p, &mut h, who);
                 } else {
                     p.finding("fight_not_won", format!("the attacker {who} still lives after {DEFEND_SECS:.0} s of shooting at it: the step goes on"));
                     p.threat_check = p.now + 20.0;
@@ -2183,6 +2611,28 @@ fn drive(
                 // The step's own time stands still meanwhile.
                 p.step_from += dt as f64;
                 p.still.0 += dt as f64;
+                return;
+            }
+        }
+    }
+    // Errands (module notes): the one in hand, else the next, before the step goes on.
+    if *state.get() != PlayState::Dialogue && p.defend.is_none() {
+        if p.errand.is_none() {
+            if let Some(next) = p.errands.pop_front() {
+                let feet = h.feet();
+                let world = h.world;
+                let target = match &next {
+                    Errand::Search(r) | Errand::Take { from: r, .. } | Errand::Terminal { reference: r, .. } => *r,
+                };
+                let place = h.game(|g| where_is(g, target)).flatten().and_then(|(cell, pos)| Some(Place { space: crate::nav::space_of_cell(world, cell?.0)?, pos }));
+                if let Some(place) = place {
+                    p.errand = Some((next, walk_to(place, None, NEAR_TARGET, p.now, feet), p.now, 0));
+                }
+            }
+        }
+        if p.errand.is_some() {
+            if !run_errand(p, &mut h) {
+                p.step_from += dt as f64;
                 return;
             }
         }
@@ -2240,6 +2690,7 @@ fn drive(
     let softlocks = watch.map_or(0, |w| w.found);
     let failed = p.steps.iter().filter(|s| s.get("error").is_some()).count();
     info!("pilot: done: {} chain(s), {} steps ({failed} failed), {} divergences, {} findings, {softlocks} soft locks in {:.0} s", p.chains_done, p.steps.len(), p.divergences.len(), p.findings.len(), p.now);
+    info!("pilot: done the headless way: {}", if p.headless.is_empty() { "nothing".to_string() } else { p.headless.iter().map(|(op, n)| format!("{op} x{n}")).collect::<Vec<_>>().join(", ") });
     if let Some(out) = &p.out {
         match serde_json::to_string_pretty(&p.report(softlocks)).map_err(|e| e.to_string()).and_then(|t| std::fs::write(out, t).map_err(|e| e.to_string())) {
             Ok(()) => info!("pilot: report written to {}", out.display()),

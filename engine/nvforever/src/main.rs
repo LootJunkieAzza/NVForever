@@ -599,6 +599,10 @@ struct Args {
     /// given states are checked as preconditions, not set.
     #[arg(long, requires = "pilot")]
     pilot_campaign: bool,
+    /// With --pilot-campaign: each chain's given state is set as the headless run sets
+    /// it, instead of being checked (a chain no campaign has reached yet).
+    #[arg(long, requires = "pilot_campaign")]
+    pilot_given: bool,
     /// The pilot's player can be hurt and runs out of ammunition (god mode is on for
     /// the pilot otherwise).
     #[arg(long, requires = "pilot")]
@@ -1819,7 +1823,7 @@ fn main() -> AppExit {
             .add_systems(Last, furniture::report);
     }
     if !args.pilot.is_empty() {
-        app.add_plugins(pilot::PilotPlugin { chains: args.pilot.clone(), expect: args.pilot_expect.clone(), out: args.pilot_out.clone(), campaign: args.pilot_campaign, god: !args.pilot_no_god });
+        app.add_plugins(pilot::PilotPlugin { chains: args.pilot.clone(), expect: args.pilot_expect.clone(), out: args.pilot_out.clone(), campaign: args.pilot_campaign, set_given: args.pilot_given, god: !args.pilot_no_god });
     }
     if let Some(n) = nav_state {
         let follow = n.follow;
