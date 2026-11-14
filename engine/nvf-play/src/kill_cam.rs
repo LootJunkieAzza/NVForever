@@ -726,7 +726,12 @@ fn update(
     // corpse's place is its ragdoll's, which moves a physics step at a time while the
     // picture is drawn every frame, and a camera hung on it shook with every step
     // [observed: the fork owner's playtest 2026-11-10, "the kill camera jitters a lot"].
-    if let Some(at) = middle(&phys, &player, show.target) {
+    // The player's tweak: once the target is dead the camera stops following it, held
+    // where it last saw it alive [design: docs/design/tweaks.md].
+    let frozen = show.seen.is_some()
+        && tweaks.as_ref().is_some_and(|t| t.vats_stop_following_dead)
+        && rt.game.is_dead(show.target);
+    if let Some(at) = middle(&phys, &player, show.target).filter(|_| !frozen) {
         show.seen = Some(match show.seen {
             Some(was) if was.distance(at) <= FOLLOW_JUMP => was.lerp(at, 1.0 - (-real.delta_secs().min(0.25) / FOLLOW_SECONDS).exp()),
             _ => at,

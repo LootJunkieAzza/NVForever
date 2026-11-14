@@ -560,6 +560,9 @@ pub struct TweakSettings {
     /// `bImprovedWeather` (`fFastTravelWeatherChangeDistanceThreshold`): a fast travel
     /// shorter than this many units keeps the weather.
     pub improved_weather: bool,
+    /// `bVATSStopFollowingDeadTargets`: a kill camera stops following its target once it
+    /// is dead.
+    pub vats_stop_following_dead: bool,
     pub weather_trip_distance: f32,
     /// `bCustomLocationDiscoveredSound` (`sEditorID`): the sound a discovered place plays,
     /// by Editor ID; empty: the game's own.
@@ -935,6 +938,7 @@ impl Default for TweakSettings {
             keys_with_pad: false,
             double_tap_ammo: false,
             improved_weather: false,
+            vats_stop_following_dead: false,
             weather_trip_distance: 30000.0,
             discovered_sound: String::new(),
             level_sound_every_a: 0.0,
@@ -2116,6 +2120,7 @@ impl Plugin for TweaksPlugin {
         switch!(app, "keys-with-pad", "Keyboard and Mouse With a Controller", "With the controller as the input device, the keyboard and mouse still move you, look and act; the menus keep the controller's. (Stewie's Tweaks bAllowKeyboardAndMouseWithControllerConnected)", keys_with_pad);
         switch!(app, "double-tap-ammo", "Double-Tap Reload Changes Ammo", "Tapping Reload twice quickly swaps the ammo type; one tap reloads after a third of a second, the wait for a second tap. (Stewie's Tweaks bDoubleTapReloadToChangeAmmoType)", double_tap_ammo);
         switch!(app, "improved-weather", "Improved Weather", "A short fast travel keeps the weather instead of rolling a new one for the trip. (Stewie's Tweaks bImprovedWeather)", improved_weather);
+        switch!(app, "vats-stop-following-dead", "V.A.T.S. Stops Following the Dead", "A kill camera stops turning after its target once it is dead, holding where it last saw it alive. (Stewie's Tweaks bVATSStopFollowingDeadTargets)", vats_stop_following_dead);
         amount!(app, "weather-trip-distance", "Improved Weather: Short Trip", "How far a fast travel may go and keep the weather, in game units (about 4,100 to a cell). (Stewie's Tweaks bImprovedWeather, fFastTravelWeatherChangeDistanceThreshold)", 100000.0, f32, weather_trip_distance);
         switch!(app, "compass-pips-fade", "Fade Pips by Distance", "People and creatures on the compass grow fainter the further away they are, over the distance they could notice you sneaking. (Stewie's Tweaks bCompassNPCDistanceBasedAlpha)", compass_pips_fade);
         switch!(app, "compass-places-fade", "Fade Places by Distance", "Places on the compass grow fainter the further away they are, over the distance they show at. (Stewie's Tweaks bCompassLocationDistanceBasedAlpha)", compass_places_fade);
