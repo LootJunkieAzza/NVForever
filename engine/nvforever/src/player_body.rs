@@ -868,6 +868,9 @@ struct Motion {
     turn_rate: f32,
     /// The view an idle gave the first-person camera last frame (`Player::body_view`).
     idle_view: Option<Quat>,
+    /// The heading and pitch the game gave the player when it moved them while an idle
+    /// held the view ([`after_idle_view`]).
+    moved_in_idle: Option<(f32, f32)>,
     /// Seconds until the line saying where the character stands after an idle let it
     /// go.
     after_idle: Option<f32>,
@@ -937,6 +940,7 @@ impl Default for Motion {
             last_heading: None,
             turn_rate: 0.0,
             idle_view: None,
+            moved_in_idle: None,
             after_idle: None,
             log_elapsed: 0.0,
             seat_settled: false,
@@ -2957,6 +2961,7 @@ fn drive_body(
     if let Some(h) = idles.held.and_then(|h| h.moved(player.placed, player.heading, player.pitch)) {
         info!("player view: the game moved the player while an idle holds them: held at ({:.0}, {:.0}, {:.0}) now", h.feet[0], h.feet[1], h.feet[2]);
         idles.held = Some(h);
+        m.moved_in_idle = Some((h.heading, h.pitch));
     }
     // A second later: where the collision has left the character (a smoke check).
     if let Some(t) = m.after_idle.as_mut() {
@@ -3184,13 +3189,18 @@ fn drive_body(
             player.body_view = Some(v);
             m.idle_view = Some(v);
         }
-        // The idle is over: the view goes on from where it left it.
+        // The idle is over: the view goes on from where it left it, or looks where the
+        // game's move put it ([`after_idle_view`]).
         None => {
             if let Some(v) = m.idle_view.take() {
                 let fwd = v * Vec3::Y;
-                player.heading = fwd.x.atan2(fwd.y);
-                player.pitch = fwd.z.clamp(-1.0, 1.0).asin();
+                let moved = m.moved_in_idle;
+                (player.heading, player.pitch) = after_idle_view(fwd.x.atan2(fwd.y), fwd.z.clamp(-1.0, 1.0).asin(), moved);
+                if moved.is_some() {
+                    info!("player view: idle over; looking where the game's move put the view ({:.0} deg, pitch {:.0} deg)", player.heading.to_degrees(), player.pitch.to_degrees());
+                }
             }
+            m.moved_in_idle = None;
         }
     }
     m.events = events;
@@ -3330,6 +3340,18 @@ fn drive_body(
     }
 }
 
+/// The heading and pitch (radians) the first-person view has when an idle that turned
+/// it ends: where the idle left it (`idle`, the opening's wake-up goes on from where the
+/// character sat up), unless the game moved the player while the idle held them (`moved`:
+/// a script's MoveTo, which arrives looking level along the marker, `Loading::level_view`)
+/// [design]. Dead Money's bunker trigger starts an idle and NVDLC01IntroSCRIPT moves the
+/// player to NVDLC01SlideshowMarker, which faces the slides' screen (DeadMoney.esm); when
+/// the idle ended its last look, 40 degrees up, stood for the whole slideshow and the
+/// slides lay along the bottom edge of the screen (item 214, solo run 2026-11-14).
+fn after_idle_view(idle_heading: f32, idle_pitch: f32, moved: Option<(f32, f32)>) -> (f32, f32) {
+    moved.unwrap_or((idle_heading, idle_pitch))
+}
+
 #[cfg(test)]
 mod tests {
     /// The Colt Anaconda's speed loader (`##SpeedLoader`, rest hidden): hidden drawn and
@@ -3337,6 +3359,14 @@ mod tests {
     /// (`1hpReloadE.kf`, which holds it shown) plays; hidden again once the reload ends.
     /// Its casings (`##swmCasing`, rest shown) stay shown; the minigun's gun, which the
     /// model has no rest for, stays as the last clip left it.
+    #[test]
+    fn a_move_during_an_idle_sets_the_view_after_it() {
+        // Item 214: the slideshow marker's level view, not the idle's last look up.
+        assert_eq!(after_idle_view(1.0, 0.7, Some((0.0, 0.0))), (0.0, 0.0));
+        // No move: the view goes on from where the idle left it (the opening's wake-up).
+        assert_eq!(after_idle_view(1.0, 0.7, None), (1.0, 0.7));
+    }
+
     #[test]
     fn a_speed_loader_shows_only_while_the_reload_keys_it() {
         let loader = Some(false);
