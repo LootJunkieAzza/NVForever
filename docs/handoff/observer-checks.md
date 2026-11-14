@@ -1995,3 +1995,15 @@ heading 75) with NVFExtProbe.esp loaded, as the jip-probes sets run.
      reference, or the player's GetPos) when "You have discovered" appears: about 1000
      expected. Then `setgs iMapMarkerRevealDistance 3000` before approaching a Powder
      Ganger Camp, and see whether the distance follows.
+
+## Added 2026-11-14 (Hidden Valley dust storm, #2450)
+
+133. **Which way and how fast does the Hidden Valley dust storm blow?** (P3; #2450,
+     activators.md §6.1.) Ours: all 18 dust sheets of `nvsandstormnight.nif` scroll their
+     texture by SpecialIdle, U 0 to 2 in 4 s, along +U [hypothesis: the sign of the
+     offset; every sheet of a property moves, as Gamebryo properties are shared by
+     reference]. To check: `ForceWeather HVDustStorm 1` at Hidden Valley (-17863, -4814)
+     at 22:00 with the storm references enabled (`000E18D7.enable`), two screenshots of
+     the same view 1 s apart: do all the dust banks move, in which direction across the
+     view, and about how far? Also whether the weather's own cloud layer 3
+     (`NVCloudlight.dds`, ONAM speed 0) stands still there.
