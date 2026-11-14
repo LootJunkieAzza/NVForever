@@ -2650,7 +2650,7 @@ fn drive_body(
     // ignored (`nvf_play::player::ViewDriven`) [design: the owner's wish, playtest of
     // 2026-10-11; the opening's scripts leave looking on, so the original may let the
     // view turn; hypothesis that the body does not swing round with the view].
-    if idles.first.is_empty() {
+    if !idles.holds_camera() {
         if let Some(h) = idles.held.take() {
             seat.hold = None;
             // The character stands where it stood before the idles held it, clear of what
@@ -3246,6 +3246,10 @@ mod tests {
         assert_eq!(loop_time(3.0, 2.5, 2.5), 3.0);
     }
 }
+
+#[cfg(test)]
+#[path = "movement_camera_tests.rs"]
+mod movement_camera_tests;
 
 #[cfg(test)]
 mod sequence_consumer_tests;

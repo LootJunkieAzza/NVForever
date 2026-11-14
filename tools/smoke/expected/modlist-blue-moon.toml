@@ -22,6 +22,6 @@ units_kept_bytes = 8
 # is no command of xNVSE 6.4.9 either: it compiled in no form in the original, read as a bare
 # string [observed: #2430 probe 2026-11-14]), 4 that are
 # no command (an inline `short x = ...` declaration, the form Fists, the quest variables
-# fLuckSaveMult and GrabbedtheMoney), movetomarker (the editor compiles it as MoveTo: a
-# compiler alias, left to the Begin Again session).
-"unknown_functions.#" = 12
+# fLuckSaveMult and GrabbedtheMoney). -> 11: movetomarker is MoveTo (the compiler alias
+# from the Begin Again list, #2335).
+"unknown_functions.#" = 11

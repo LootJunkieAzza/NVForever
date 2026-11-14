@@ -17,4 +17,6 @@ units_picked = 1730
 units_from_source = 1721
 units_kept_bytes = 9
 # Functions the scripts call that NVForever has no entry for (their calls do nothing).
-"unknown_functions.#" = 39
+# -> 10 measured after the base took in #2320's unlisted JIP commands and #2335's
+# MoveToMarker alias; the 10 left are Blue Moon's 11 without fLuckSaveMult.
+"unknown_functions.#" = 10

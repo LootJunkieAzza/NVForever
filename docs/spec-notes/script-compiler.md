@@ -429,6 +429,29 @@ The owner's 232-plugin High and Dry list (smoke scenario `modlist-high-dry`) add
   all its arguments takes the ones after it: `set t to 1 + (GetVariable (…)) Quest` reads
   the quest's variable [observed: Animated Ingestibles.esp].
 
+From the Begin Again list (Tale of Two Wastelands, 203 plugins, smoke scenario
+`modlist-begin-again`, #2335):
+
+- A quoted name right before a dot is the call's reference (`"E32A9".GetItemCount X`),
+  and a quoted hex FormID of any length names that form when the load order has it
+  [observed: Veronica Outfit Replacer.esp's bytes call both lines on 0x000E32A9; YUP's
+  and YUPTTW's units that write quoted Editor IDs that way became byte-equal too;
+  hypothesis: an Editor ID is tried first].
+- `Ref.Set x to v` is a set of the script's own `x` with the reference as its
+  calling-reference prefix, `1C 00 <ref> 15 00 …` [observed: Fallout3.esm's, TTW's and
+  RAD.esp's MS14PowerArmorScript]. The decoder reads it as the set [hypothesis: the
+  reference does nothing in the original].
+- `MoveToMarker` is MoveTo, 0x109E [observed: TTW No Hardcore Sacrifice.esp's bytes].
+- In an extender function's form parameter, a bare word or number of hex digits that
+  names nothing is the form with that FormID, when the load order has one: `f` is the
+  caps (0xF), `a` the bobby pin (0xA), `14` the player's reference [observed 2026-11-14,
+  the stock game's runtime compiler: `AuxVarSetFlt "*_q" 7 0 f` read back 7 under
+  Caps001; `g` and `FFFFFF` (no form) did not compile, nor did `let rX := f`; Armor
+  Damage Fix's gr_CondDamFix.txt ships `… 0 f`]. Any other undeclared word there failed
+  the whole script's compile in the original (`AuxVarSetRef "*_r" BobbyPin -1`; MCM
+  Extender's gr_MCMExtender.txt line 76, and no plugin of the list has that Editor ID).
+  NVForever keeps it as its own text, so only that statement is skipped (#2275).
+
 Left with their bytes, as the source cannot be compiled to them: five result scripts whose
 classic `if` has a surplus argument (`GetObjectiveDisplayed Q 30 1 && …`), which stop the
 script in the original as in the VM (observer-checks.md check 32); and three units whose
