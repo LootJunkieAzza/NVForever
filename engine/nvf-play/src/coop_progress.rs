@@ -274,6 +274,7 @@ fn take_inbox(
     mut load: MessageWriter<LoadRequest>,
     mates: Option<Res<crate::coop_social::SocialMates>>,
     mut quest_lines: Option<ResMut<crate::quest_messages::QuestMessages>>,
+    mut sim: Option<ResMut<crate::sim::SimState>>,
 ) {
     let p = &mut *p;
     let mut script = script;
@@ -292,7 +293,14 @@ fn take_inbox(
                     info!("co-op: the host completed {name} ({xp} XP, {caps} caps): this player completed it in its own game");
                     continue;
                 }
-                match rt.game.take_coop_reward(xp as f64, caps as i32) {
+                // Into the played world (`crate::script::with_world`): outside it the
+                // runtime holds a stand-in, whose caps no menu shows (a guest's +50 caps
+                // never reached its Pip-Boy, 2026-11-14).
+                let taken = match sim.as_deref_mut() {
+                    Some(sim) => crate::script::with_world(rt, sim, |rt| rt.game.take_coop_reward(xp as f64, caps as i32)),
+                    None => Err("no simulation world".to_string()),
+                };
+                match taken {
                     // Script XP no completion claimed (`fnv_game::coop_rewards::SCRIPT_XP`).
                     Ok(gained) if FormId(quest) == fnv_game::coop_rewards::SCRIPT_XP => say(&mut corner, format!("+{gained} XP, earned with {host}")),
                     // The host by its character's name (`coop_social::SocialMates`).
@@ -325,7 +333,12 @@ fn take_inbox(
                 let first_card = card && rt.game.player.caravan.cards.is_empty();
                 let gift = fnv_game::coop_rewards::Gift { batch, item: FormId(item), count: count as i32, quest: (quest != 0).then_some(FormId(quest)), stage: (stage != u32::MAX).then_some(stage as i32) };
                 let done_here = rt.game.coop_gift_done_here(&gift);
-                match rt.game.take_coop_gift(&gift, &mut p.gift_batch) {
+                // Into the played world, as the reward above.
+                let taken = match sim.as_deref_mut() {
+                    Some(sim) => crate::script::with_world(rt, sim, |rt| rt.game.take_coop_gift(&gift, &mut p.gift_batch)),
+                    None => Err("no simulation world".to_string()),
+                };
+                match taken {
                     Ok(0) if done_here => info!("co-op: the host's hand-out {name} ({count}): this player did {} in its own game", rt.game.data.name(FormId(quest))),
                     Ok(0) => info!("co-op: the host's hand-out {name} ({count}): this player has its own"),
                     Ok(_) if card && !first_card => {}
