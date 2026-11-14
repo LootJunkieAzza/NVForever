@@ -130,6 +130,7 @@ impl Fixture {
             .insert_resource(MoveSpeeds { walk: 80.0, run: 160.0 })
             .add_message::<nvf_play::Travel>().add_message::<nvf_play::falls::Fell>()
             .init_resource::<PlayerBody>().init_resource::<PlayerIdles>()
+            .init_resource::<crate::script_sequences::PlayerSequences>()
             .init_resource::<crate::idles::Idles>().init_resource::<crate::idles::IdleHolds>()
             .init_resource::<crate::furniture::BodyOverride>().init_resource::<PlayerSeat>()
             .init_resource::<nvf_play::pipboy::PipBoy>().init_resource::<WeaponAnim>()

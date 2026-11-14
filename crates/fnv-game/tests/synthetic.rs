@@ -611,6 +611,34 @@ fn get_seconds_passed_counts_frames_in_a_trigger_script_without_game_mode() {
 }
 
 #[test]
+fn get_seconds_passed_counts_a_trigger_frame_once_however_many_runs_it_has() {
+    // Two references inside a trigger: its OnTrigger runs twice a frame, and only the
+    // first run gets the frame's time (`Game::trigger_again`; Hidden Valley's virus
+    // purge, issue #2455, ran out several times too fast).
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    let t = FormId(TRIG_REF);
+    let run = |g: &mut Game| assert!(g.ref_event(t, fnv_game::game::event::ON_TRIGGER, Some(Value::Ref(FormId::PLAYER_REF.0)), Some(FormId::PLAYER_REF)));
+    let inside_twice = |g: &mut Game| {
+        g.trigger_frame(t);
+        run(g);
+        g.trigger_again(t);
+        run(g);
+    };
+    inside_twice(&mut g);
+    let first = g.time;
+    for _ in 0..60 {
+        g.frames(1);
+        inside_twice(&mut g);
+    }
+    let elapsed = g.time - first;
+    let Value::Num(sum) = g.var(InstKey::Ref { reference: t }, 1) else { panic!("fSum is not a number") };
+    assert!(elapsed > 0.5, "{elapsed}");
+    assert!((sum - elapsed).abs() <= 2.0 / 64.0, "sum {sum}, elapsed {elapsed}");
+}
+
+#[test]
 fn stage_entries_run_when_their_conditions_pass_and_done_stages_do_not_rerun() {
     let f = fixture();
     let mut g = game(&f);
@@ -3986,7 +4014,14 @@ fn extender_census() {
     let enc: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(format!("{root}/crates/fnv-script/data/encodings.json")).unwrap()).unwrap();
     let not_commands: Vec<String> = enc["compiler"]["not_commands"].as_array().into_iter().flatten().filter_map(|v| v.as_str()).map(str::to_ascii_lowercase).collect();
     let mut not_registered = Vec::new();
-    for x in fs.iter().filter(|x| x["family"] == "extender") {
+    // `NVF_CENSUS_FAMILY=vanilla`: the base game's functions the catalogue has no opcode
+    // for (no shipped script calls them). A mod's source reaches them by name, as it
+    // reaches an extender's, so an unbuilt one is skipped the same way; the extender
+    // count alone did not show them (the owner's run of 2026-11-12: SetDefaultOpen and
+    // IsActorDetected "not built yet" in Just Assorted Mods and CASM). The list then goes
+    // to `target/tmp/vanilla-census.txt`.
+    let family = std::env::var("NVF_CENSUS_FAMILY").unwrap_or_else(|_| "extender".to_string());
+    for x in fs.iter().filter(|x| x["family"] == family.as_str() && (family == "extender" || x["opcodes"].is_null())) {
         let n = x["name"].as_str().unwrap_or_default();
         if not_commands.contains(&n.to_ascii_lowercase()) {
             not_registered.push(n.to_string());
@@ -4033,7 +4068,7 @@ fn extender_census() {
     out += &format!("not registered by the original, left out {}: {}\n", not_registered.len(), not_registered.join(", "));
     let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../target/tmp");
     std::fs::create_dir_all(dir).unwrap();
-    std::fs::write(format!("{dir}/extender-census.txt"), &out).unwrap();
+    std::fs::write(format!("{dir}/{family}-census.txt"), &out).unwrap();
     println!("unbuilt: {}", unbuilt.values().map(Vec::len).sum::<usize>());
 }
 
@@ -4521,6 +4556,23 @@ fn jip_menu_key_crafting_and_discovery_events_reach_their_handlers() {
 }
 
 #[test]
+fn the_mods_page_sends_the_start_menus_open_and_close() {
+    // MCM Extender adds its menus from a handler for the start menu, 1013 [observed:
+    // its OnPauseMenuOpen.gek; Begin Again list 2026-11-13].
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let run = |g: &mut Game<'_>, src: &str| g.run_source(src, Default::default()).expect("compiles");
+    let global = |g: &Game| g.world.global(FormId(0x0000_0800)).unwrap();
+    run(&mut g, "SetOnMenuOpenEventHandler (begin function {int i}\nlet TestGlobal := i + MenuMode 1013\nend) 1 1013");
+    run(&mut g, "SetOnMenuCloseEventHandler (begin function {int i}\nlet TestGlobal := 0 - i\nend) 1 1013");
+    g.page_menu_event(1013, true);
+    assert_eq!(global(&g), 1014.0, "the handler runs with MenuMode 1013 true");
+    assert_eq!(g.menu, None, "no menu is opened");
+    g.page_menu_event(1013, false);
+    assert_eq!(global(&g), -1013.0);
+}
+
+#[test]
 fn extra_misc_stats_music_states_eaten_corpses_and_terminal_art() {
     let f = udf_fixture();
     let mut g = game(&f);
@@ -4637,4 +4689,63 @@ fn an_activator_plays_open_and_close_with_its_open_state() {
     g.default_activation(FormId::PLAYER_REF, r, false).unwrap();
     assert!(!g.world.get(r).unwrap().open);
     assert_eq!(g.anims.asked(r).map(|(_, n)| n), Some("Close"));
+}
+
+/// The plugins whose functions the engine builds answer as installed, the others do not
+/// (docs/spec-notes/ext-version.md §5): a mod's start-up check passes for what is here.
+#[test]
+fn built_in_plugins_report_installed() {
+    use fnv_script::vm::XVal;
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let q = |g: &mut fnv_game::Game, body: &str| g.run_query(&format!("Begin Function {{ }}\nSetFunctionValue ({body})\nEnd\n"), Default::default());
+    for name in ["JIP NVSE Plugin", "JohnnyGuitarNVSE", "ShowOffNVSE Plugin", "SUP NVSE Plugin", "JIP PP LN", "CUI", "AnhNVSE", "Extensions for NVSE", "UI Organizer Plugin", "hNVSE", "sup nvse plugin"] {
+        assert_eq!(q(&mut g, &format!("IsPluginInstalled \"{name}\"")), Ok(XVal::Num(1.0)), "{name}");
+        let Ok(XVal::Num(v)) = q(&mut g, &format!("GetPluginVersion \"{name}\"")) else { panic!("{name}") };
+        assert!(v > 0.0, "{name}: {v}");
+    }
+    // A version a mod asks for "at least" is met where none was read in the original.
+    assert_eq!(q(&mut g, "GetPluginVersion \"SUP NVSE Plugin\" >= 250"), Ok(XVal::Num(1.0)));
+    assert_eq!(q(&mut g, "GetPluginVersion \"CUI\""), Ok(XVal::Num(120.0)));
+    for name in ["yUI", "NVTF", "No Such Plugin"] {
+        assert_eq!(q(&mut g, &format!("IsPluginInstalled \"{name}\"")), Ok(XVal::Num(0.0)), "{name}");
+        assert_eq!(q(&mut g, &format!("GetPluginVersion \"{name}\"")), Ok(XVal::Num(-1.0)), "{name}");
+    }
+}
+
+/// The test aid's list of what scripts ask about plugins (`fnv_game::plugin_questions`):
+/// nothing is kept by default; switched on, each question comes once with its answer.
+#[test]
+fn plugin_questions_are_kept_only_when_asked_for() {
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let q = |g: &mut fnv_game::Game, body: &str| g.run_query(&format!("Begin Function {{ }}\nSetFunctionValue ({body})\nEnd\n"), Default::default()).unwrap();
+    q(&mut g, "IsPluginInstalled \"yUI\"");
+    assert!(g.plugin_questions.is_none());
+    g.plugin_questions = Some(Default::default());
+    for body in ["IsPluginInstalled \"yUI\"", "IsPluginInstalled \"yUI\"", "GetPluginVersion \"JIP NVSE Plugin\"", "IsDLLLoaded \"no_such\"", "IsModLoaded \"Nothing.esp\"", "GetModIndex \"Nothing.esp\""] {
+        q(&mut g, body);
+    }
+    let got = g.plugin_questions.as_mut().unwrap().take();
+    let read: Vec<(&str, &str, f64, bool)> = got.iter().map(|x| (x.function.as_str(), x.name.as_str(), x.answer, x.absent())).collect();
+    assert_eq!(
+        read,
+        [("isplugininstalled", "yUI", 0.0, true), ("getpluginversion", "JIP NVSE Plugin", 57.3, false), ("isdllloaded", "no_such", 0.0, true), ("ismodloaded", "Nothing.esp", 0.0, true), ("getmodindex", "Nothing.esp", 255.0, true)]
+    );
+}
+
+#[test]
+fn a_clone_of_an_item_goes_into_a_container_by_its_own_id() {
+    // MCM marks each mod it listed by adding it to a container; MCM Extender's menus are
+    // temporary clones of an item [observed: MCM's script source, MCM Extender's
+    // OnPauseMenuOpen.gek; Begin Again list 2026-11-13].
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    let src = "ref r
+let r := TempCloneForm TestWeapon
+TestNpcREF.AddItem r 1
+set TestGlobal to TestNpcREF.GetItemCount r * 10 + TestNpcREF.GetItemCount TestWeapon";
+    g.run_source(src, Default::default()).expect("runs");
+    assert_eq!(g.world.global(FormId(GLOBAL)).unwrap(), 10.0, "the clone counted, the weapon not");
 }
