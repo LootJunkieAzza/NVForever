@@ -1,11 +1,33 @@
-# Script trace file ownership across process handoffs
+# Script trace ownership and sequential reuse
 
-[observed: baseline19c0f08a portable source] TraceLog::create opens the configured path with File::create. Two live processes inheriting that path can truncate one another's buffered output; an older writer can later flush at its previous offset. This source path is independent of game scripts and assets.
+The documented `NVF_PLAY_SCRIPT_TRACE=<path>` contract writes trace events to that
+path (script.rs and docs/design/layer5-play.md). Maintainer review of6507c5f,
+PR2383 comment6875026800, identifies that treating every existing file as a live
+writer violates this contract and leaves readers looking at a finished older run.
 
-[observed: earlier private local run, separate source] A save-load handoff left two processes with the same trace destination. The surviving JSONL had a22395989-byte NUL gap and lost preceding events. The log itself stays private. The earlier independently authored overlapping-writer regression passed after the local correction; it is historical proof, not this current-main port's execution.
+[documented] Rust1.89 introduced [File::try_lock](https://doc.rust-lang.org/std/fs/struct.File.html#method.try_lock)
+and [TryLockError](https://doc.rust-lang.org/std/fs/enum.TryLockError.html).
+`WouldBlock` means another handle/process holds the lock. The lock remains owned
+by the file handle; closing it releases ownership. Platform locking behavior differs;
+this code does not promise live unlocked readers on Windows.
 
-[hypothesis: engineering design] Atomically create the requested trace with create_new, falling back on a PID/attempt-suffixed sibling when occupied. Retry at most64 names, propagate non-collision I/O errors, and fail visibly when exhausted. Include processId in the unchanged-format header, flush it immediately, and log the actual filename. Never truncate an existing trace.
+[design] Open the requested file without truncating, acquire its exclusive OS lock,
+then truncate and write the header. Keep the locked File inside BufWriter through
+the writer's entire lifetime. Only WouldBlock selects a PID/attempt sibling; other
+open, lock or truncate errors remain visible. Finished requested files are reused
+at the exact path rather than accumulating suffixes. Do not delete an old pathname
+as a cleanup trick: it could be another writer's identity. Retain the64-name bound,
+format/processId header, immediate header flush and actual-path log.
 
-[observed: this source candidate] The owned regression keeps two writers alive, verifies different paths, writes after their overlap, parses every line as JSON, checks no NUL and verifies each writer's events remain in its own file. It uses only temporary files and authored event labels. It does not itself execute a real multiprocess game/save handoff. Current-port listing, compilation, tests, lint, smoke and actual handoff acceptance are pending.
+The authored controls cover overlapping same-process handles, a real independently
+opened child-process writer while the requested file is locked, and sequential
+reuse of a stale requested path. All content/JSONL/no-NUL/separation assertions
+remain; completed files are inspected after close because Windows locks may exclude
+other read handles. The child test is isolated through its own exact test entrypoint.
+These revised controls are not yet compiled or executed; report results in the PR.
 
-[hypothesis: limits] Failure after file creation may leave a partial new file; directory permissions, name exhaustion and unrelated filesystem failures remain visible. No gameplay, native parity, whole-mod support, FPS or crash repair is asserted.
+Earlier private trace-corruption evidence and the original overlapping-writer test
+are historical regression context, not original-game behavior observations or proof
+of this revision. No real game/save-load handoff, native parity, full-mod, FPS or
+crash repair is claimed. A creation/header failure may leave a partial file, and
+uncooperative writers that ignore OS locking remain outside the ownership protocol.
