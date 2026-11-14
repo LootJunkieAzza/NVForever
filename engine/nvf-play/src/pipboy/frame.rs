@@ -683,6 +683,14 @@ fn on_header_out(out: On<PointerOut>, children: Query<&Children>, mut boxes: Que
 // ---- Added for the STATS page ------------------------------------------------------
 
 impl Ctx<'_> {
+    /// Logical units per source pixel, before atlas padding or packing.
+    /// A missing/invalid anchor retains the existing one-pixel layout behavior.
+    pub fn picture_zoom(&mut self, path: &str, logical_height: f32) -> f32 {
+        let size = self.data.and_then(|data| self.kit.pictures.as_mut()?.source_size(path, &|path| data.read(path)));
+        size.filter(|s| s.y > 0.0 && s.y.is_finite())
+            .map_or(1.0, |s| logical_height / s.y)
+    }
+
     /// A picture's size in its file's pixels: its atlas piece's, or the whole file's.
     pub fn picture_size(&mut self, path: &str) -> Option<Vec2> {
         let (image, rect) = self.picture(path)?;
@@ -705,16 +713,47 @@ impl Ctx<'_> {
             Some(r) => r,
             None => Rect::from_corners(Vec2::ZERO, self.images.get(&image)?.size().as_vec2()),
         };
-        let cut = Rect::new(full.min.x, full.min.y, (full.min.x + w / zoom).min(full.max.x), (full.min.y + h / zoom).min(full.max.y));
-        let size = cut.size() * zoom;
+        let (cut, size) = cut_picture(full, w, h, zoom);
         p.spawn((at(x, y, size.x, size.y), ImageNode { rect: Some(cut), color, image_mode: NodeImageMode::Stretch, ..ImageNode::new(image) }));
         Some(size)
     }
 }
 
+fn cut_picture(full: Rect, w: f32, h: f32, zoom: f32) -> (Rect, Vec2) {
+    let cut = Rect::new(full.min.x, full.min.y, (full.min.x + w / zoom).min(full.max.x), (full.min.y + h / zoom).min(full.max.y));
+    (cut, cut.size() * zoom)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn paperdoll_hd_cut_keeps_logical_size_and_samples_the_same_art() {
+        // Authored atlas rectangles with the same normalized art at 1x and 4x.
+        let native = Rect::new(128.0, 256.0, 255.0, 383.0);
+        let hd = Rect::new(512.0, 1024.0, 1020.0, 1532.0);
+        let (a, sa) = cut_picture(native, 85.0 * 1.45, 92.0 * 1.45, 1.45);
+        let (b, sb) = cut_picture(hd, 85.0 * 1.45, 92.0 * 1.45, 1.45 / 4.0);
+        assert!((sa - sb).length() < 0.001);
+        assert!((b.min - a.min * 4.0).length() < 0.001);
+        assert!((b.max - a.max * 4.0).length() < 0.001);
+        // The old 1px/unit zoom on HD samples only a quarter of each intended edge.
+        let (wrong, _) = cut_picture(hd, 85.0 * 1.45, 92.0 * 1.45, 1.45);
+        assert!((wrong.width() * 4.0 - b.width()).abs() < 0.001);
+    }
+
+    #[test]
+    fn paperdoll_density_adjustment_retains_partial_piece_clipping_and_native_rectangles() {
+        let native = Rect::new(9.0, 7.0, 29.0, 17.0);
+        let hd = Rect::new(36.0, 28.0, 116.0, 68.0);
+        let (a, sa) = cut_picture(native, 50.0, 50.0, 1.0);
+        let (b, sb) = cut_picture(hd, 50.0, 50.0, 0.25);
+        assert_eq!(a, native);
+        assert_eq!(b, hd);
+        assert_eq!(sa, Vec2::new(20.0, 10.0));
+        assert_eq!(sb, sa);
+    }
 
     /// A hint column's words end at the heading's right end while every key fits in the
     /// room past it (a controller's short keys); a longer key (the keyboard's "Enter)")

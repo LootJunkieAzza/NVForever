@@ -864,16 +864,20 @@ fn condition(p: &mut ChildSpawnerCommands, c: &mut Ctx, v: &StatsView, s: &Snaps
     let crippled = |i: usize| s.limbs[i] <= 0.0;
     // A crippled piece by its "_broken" picture [hypothesis: the files' names].
     let piece = boy_picture;
-    c.image_cut(p, &piece("head", crippled(0)), head.x, head.y, head_size.x, head_size.y, z, c.bright());
+    // Keep the existing logical metrics when replacement art has denser texels.
+    // Own-file height supplies density; atlas padding and packing do not.
+    // See docs/spec-notes/pipboy-paperdoll-density.md for the uniform-density policy.
+    let texture_zoom = z * c.picture_zoom(&piece("torso", true), 128.0);
+    c.image_cut(p, &piece("head", crippled(0)), head.x, head.y, head_size.x, head_size.y, texture_zoom, c.bright());
     // The face [hypothesis: face_00, the smile on the owner's screenshot; when the
     // others (01–04, 10) show is not known], centred in the head's height and 16 lower.
     let face_size = FACE.1 * z;
-    c.image_cut(p, BOY_FACE, head.x + FACE.0.x, head.y + (head_size.y - face_size.y) / 2.0 + FACE.0.y * z, face_size.x, face_size.y, z, c.bright());
+    c.image_cut(p, BOY_FACE, head.x + FACE.0.x, head.y + (head_size.y - face_size.y) / 2.0 + FACE.0.y * z, face_size.x, face_size.y, texture_zoom, c.bright());
     let torso = head + TORSO.0 * z;
-    c.image_cut(p, &piece("torso", crippled(1)), torso.x, torso.y, TORSO.1.x * z, TORSO.1.y * z, z, c.bright());
+    c.image_cut(p, &piece("torso", crippled(1)), torso.x, torso.y, TORSO.1.x * z, TORSO.1.y * z, texture_zoom, c.bright());
     for (i, (place, size, name)) in LIMB_PIECES.iter().enumerate() {
         let y = if i == 0 { place.y } else { place.y * z };
-        c.image_cut(p, &piece(name, crippled(i + 2)), torso.x + place.x * z, torso.y + y, size.x * z, size.y * z, z, c.bright());
+        c.image_cut(p, &piece(name, crippled(i + 2)), torso.x + place.x * z, torso.y + y, size.x * z, size.y * z, texture_zoom, c.bright());
     }
     // The bars, from the head: its bracket's file, place, the bar's x in it, and where
     // "Crippled" goes (right of the bracket's x, and down by the bar's y or not).
@@ -1329,6 +1333,66 @@ fn apply_aid(view: &mut StatsView, tab: usize, s: AidStep) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn paperdoll_actual_condition_draw_uses_source_density_without_moving_hit_regions() {
+        use bevy::ecs::system::RunSystemOnce;
+        use crate::interface::u;
+        use std::sync::{Arc, atomic::{AtomicU64, Ordering}};
+        static SERIAL: AtomicU64 = AtomicU64::new(0);
+        #[derive(Resource)]
+        struct ObservedHits(Vec<Rect>);
+        struct Owned(std::path::PathBuf);
+        impl Drop for Owned {
+            fn drop(&mut self) {
+                if let (Ok(path), Ok(temp)) = (self.0.canonicalize(), std::env::temp_dir().canonicalize()) {
+                    if path.parent() == Some(temp.as_path()) && path.file_name().is_some_and(|n| n.to_string_lossy().starts_with("nvf-owned-paperdoll-")) {
+                        let _ = std::fs::remove_dir_all(path);
+                    }
+                }
+            }
+        }
+        let _canvas = crate::interface::original_units();
+        let render = |scale: u32| {
+            let root = std::env::temp_dir().join(format!("nvf-owned-paperdoll-{}-{}", std::process::id(), SERIAL.fetch_add(1, Ordering::Relaxed)));
+            std::fs::create_dir(&root).unwrap();
+            let owned = Owned(root);
+            let dir = owned.0.join("textures/interface/stats");
+            std::fs::create_dir_all(&dir).unwrap();
+            for name in ["head", "face_00", "torso", "torso_broken", "left_arm", "right_arm", "left_leg", "right_leg"] {
+                std::fs::write(dir.join(format!("{name}.dds")), crate::interface::tests::authored_rgba_dds(128 * scale, 128 * scale)).unwrap();
+            }
+            let data = nvf_assets::GameData {
+                vfs: Arc::new(fnv_vfs::Vfs::open(&owned.0, &[]).unwrap()),
+                schema: Arc::new(fnv_nif::Schema::default()),
+            };
+            let mut world = World::new();
+            world.run_system_once(move |mut commands: Commands| {
+                let mut kit = Kit::default();
+                let mut images = Assets::<Image>::default();
+                let glyphs = crate::pad::PadGlyphs::default();
+                let mut c = Ctx::new(&mut kit, Some(&data), &mut images, None, &glyphs);
+                let snap = Snapshot { limbs: [1.0; 6], ..default() };
+                let mut spots = Vec::new();
+                commands.spawn(Node::default()).with_children(|p| condition(p, &mut c, &StatsView::default(), &snap, &mut spots));
+                commands.insert_resource(ObservedHits(spots.into_iter().map(|(r, _)| r).collect()));
+            }).unwrap();
+            let head = world.query::<(&Node, &ImageNode)>().iter(&world)
+                .find(|(node, _)| node.width == u(HEAD.x * BOY_ZOOM) && node.height == u(HEAD.y * BOY_ZOOM))
+                .map(|(node, image)| (node.left, node.top, node.width, node.height, image.rect.unwrap()))
+                .expect("actual condition producer must draw the head at its logical dimensions");
+            (head, world.resource::<ObservedHits>().0.clone())
+        };
+        let (native, native_hits) = render(1);
+        let (hd, hd_hits) = render(4);
+        assert_eq!(native_hits.len(), 6);
+        assert_eq!(native_hits, hd_hits);
+        assert_eq!((native.0, native.1, native.2, native.3), (hd.0, hd.1, hd.2, hd.3));
+        assert!((native.4.width() - HEAD.x).abs() < 0.001);
+        assert!((native.4.height() - HEAD.y).abs() < 0.001);
+        assert!((hd.4.width() - HEAD.x * 4.0).abs() < 0.001);
+        assert!((hd.4.height() - HEAD.y * 4.0).abs() < 0.001);
+    }
 
     #[test]
     fn the_test_aid_reads_its_steps() {
