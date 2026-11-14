@@ -1282,6 +1282,14 @@ impl Residents {
         Some((a.walker.space, a.walker.feet, a.walker.heading))
     }
 
+    /// The furniture actor `id`'s AI has it on where it stands (a seat, a bed, a cross),
+    /// when it is a resident this game runs and is there, not on its way: the host sends
+    /// it for one it does not draw (`coop::share_npcs`), so a guest seats it there.
+    pub fn furniture_of(&self, id: u32) -> Option<u32> {
+        let a = self.core.ai.agents.get(&FormId(id))?;
+        seated_by_ai(a.activity, a.using.map(|f| f.0))
+    }
+
     /// Co-op replication, the host's: the residents it simulates in its guests'
     /// surroundings (`Streamer::coop_areas`) and does not draw itself, each as
     /// (reference, base, space, feet, heading, walking). A guest draws them by these.
@@ -1334,6 +1342,12 @@ impl RemotePose {
             Activity::There
         }
     }
+}
+
+/// The furniture an actor's AI has it on ([`Residents::furniture_of`]): the one it
+/// uses, once it is there; none while it travels (on its way to it, or away).
+fn seated_by_ai(activity: Activity, using: Option<u32>) -> Option<u32> {
+    using.filter(|_| activity == Activity::There)
 }
 
 /// Standalone packages own their simulation; in play mode `SimState` owns it
@@ -3879,6 +3893,18 @@ mod tests {
     use fnv_ai::ProcessLevel;
     use fnv_sim::FormId;
     use std::collections::HashMap;
+
+    /// The furniture the host sends for a resident it does not draw: the crucified at
+    /// Nipton, there on their crosses, keep them; on its way, it is not on one yet
+    /// (item 204: sent as none, a guest took them off their crosses while the host was
+    /// in the general store and put them back on at once when it came out).
+    #[test]
+    fn an_undrawn_resident_keeps_its_furniture() {
+        use fnv_ai::Activity;
+        assert_eq!(super::seated_by_ai(Activity::There, Some(0x0013_9FD7)), Some(0x0013_9FD7));
+        assert_eq!(super::seated_by_ai(Activity::Travelling, Some(0x0013_9FD7)), None);
+        assert_eq!(super::seated_by_ai(Activity::There, None), None);
+    }
 
     /// A guest keeps a host's actor seated while getting on moves it (no get up and
     /// sit again at once off the seat), getting on too; a walk is still a walk.
