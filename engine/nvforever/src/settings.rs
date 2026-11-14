@@ -392,6 +392,7 @@ fn register_display(app: &mut App) {
     );
     // The HUD's size (#1631), kept by nvf-play's interface and fixed for the run at start.
     add_setting(app, nvf_play::interface::ui_scale_row(GROUP_PICTURE));
+    nvf_play::menu_scale::register(app, GROUP_PICTURE);
     add_setting(
         app,
         Setting {
