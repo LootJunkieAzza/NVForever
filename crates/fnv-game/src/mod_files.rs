@@ -468,6 +468,32 @@ impl ModFiles {
     }
 }
 
+/// Normalize only Config-relative INI names, bounded lexically by Data.
+/// Ordinary file APIs keep their strict plain-name policy (local-ini-sibling-paths.md).
+fn ini_data_path(file: &str) -> Option<String> {
+    if file.is_empty() || file.starts_with(['\\', '/']) || file.contains([':', '\0']) {
+        return None;
+    }
+    let mut parts = vec!["Config"];
+    for part in file.split(['\\', '/']).filter(|p| !p.is_empty()) {
+        match part {
+            "." => {}
+            ".." => { parts.pop()?; }
+            _ => parts.push(part),
+        }
+    }
+    if parts.is_empty() { return None; }
+    let path = parts.join("\\");
+    on_disk(Path::new(""), &path)?;
+    Some(path)
+}
+
+// Keep a parent marker for invalid input so the existing disk reader and writer
+// reject it. Prepending Config to a rooted name would hide the leading root.
+fn ini_access_path(file: &str) -> String {
+    ini_data_path(file).unwrap_or_else(|| format!("..\\{file}"))
+}
+
 /// The INI file a function names, under `Data\Config`, ".ini" added when it has no
 /// extension [observed: "NVFExtProbe\probe" and "…\probe.ini" both read]; none given:
 /// the calling mod's own, `<plugin name>.ini` [documented: GetINISection, "the name of
@@ -481,7 +507,7 @@ fn ini_path(g: &Game, file: Option<&str>) -> String {
         }
     };
     let f = if f.to_ascii_lowercase().ends_with(".ini") { f } else { format!("{f}.ini") };
-    format!("Config\\{f}")
+    ini_access_path(&f)
 }
 
 /// `Section:Key` with ":", "/" or "\" between [observed: all three work], lower case.
@@ -1314,6 +1340,28 @@ mod path_tests {
         assert_eq!(on_disk_any_case(&base, "nvse\\plugins\\missing.txt"), None);
         assert_eq!(on_disk_any_case(&base, "..\\x"), None, "the plain-name rule of on_disk still holds");
         let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn ini_relative_paths_are_bounded_by_data() {
+        use super::ini_data_path;
+        assert_eq!(ini_data_path("../NVSE/Plugins/Owned.ini").as_deref(), Some("NVSE\\Plugins\\Owned.ini"));
+        assert_eq!(ini_data_path("Group/../Owned.ini").as_deref(), Some("Config\\Owned.ini"));
+        assert_eq!(ini_data_path("./Owned.ini"), ini_data_path("Owned.ini"));
+        for bad in ["../../escape.ini", "../", "C:/x.ini", "C:x.ini", "/x.ini", "\\x.ini", "\\\\server\\x.ini", "x:stream", "x\0.ini", ""] {
+            assert_eq!(ini_data_path(bad), None, "{bad:?}");
+        }
+        assert!(on_disk(Path::new("layer"), "Config\\..\\NVSE\\Plugins\\Owned.ini").is_none(), "ordinary file APIs remain strict");
+    }
+
+    #[test]
+    fn invalid_ini_names_are_rejected_by_disk_access_after_resolution() {
+        use super::ini_access_path;
+        let base = Path::new("owned-layer");
+        assert_eq!(on_disk(base, &ini_access_path("Group/../Owned.ini")), Some(base.join("Config").join("Owned.ini")));
+        for bad in ["/Owned.ini", "\\Owned.ini", "\\\\server\\Owned.ini", "C:/Owned.ini", "Owned.ini:stream", "../../Owned.ini", "Owned\0.ini"] {
+            assert_eq!(on_disk(base, &ini_access_path(bad)), None, "{bad:?}");
+        }
     }
 
     #[test]
