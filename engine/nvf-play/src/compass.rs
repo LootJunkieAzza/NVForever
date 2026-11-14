@@ -295,7 +295,7 @@ fn gather(
     mut logged: Local<[usize; 5]>,
     mut graph: Local<Option<DoorGraph>>,
     mut logged_quest: Local<Option<(usize, usize)>>,
-    mut logged_places: Local<std::collections::HashMap<u32, (Option<FormId>, [f32; 3])>>,
+    mut logged_places: Local<PlacesLogged>,
 ) {
     *poll += time.delta_secs();
     if *poll < POLL || *state.get() != PlayState::Playing {
@@ -385,9 +385,7 @@ fn gather(
             // Where each target is marked (itself or a door), logged when the door
             // changes or the place moves [`PLACE_LOG_STEP`] (#2464, #2458): with the body
             // the mark follows when it is the target itself.
-            let moved = logged_places.get(&c.target.0).is_none_or(|(d, at)| *d != door || (at[0] - pos[0]).hypot(at[1] - pos[1]) > PLACE_LOG_STEP);
-            if moved {
-                logged_places.insert(c.target.0, (door, pos));
+            if place_moved(&mut logged_places, (c.quest.0, c.objective, c.index), door, pos) {
                 let how = match door {
                     Some(d) => format!("at door {d}, the first of the way there"),
                     None => match bodies.get(&c.target.0) {
@@ -440,6 +438,22 @@ pub(crate) fn place(
     let here = [player.feet[0], player.feet[1]];
     let body = |id: u32| phys.as_deref().and_then(|p| p.npcs.get(&id)).map(|b| [b.ch.feet[0], b.ch.feet[1]]);
     view.set_if_neq(CompassView(marks(&near.0, heading, here, &body)));
+}
+
+/// Each target check's (quest, objective, place in its list) last logged mark place: the
+/// door, or `None` for the target itself, and where. Keyed by the check, not by the
+/// target: two objectives may mark one reference, one ignoring locks and one not, at
+/// two doors.
+type PlacesLogged = std::collections::HashMap<(u32, i32, usize), (Option<FormId>, [f32; 3])>;
+
+/// Whether target check `key`'s mark place is new: never logged, at another door, or
+/// moved more than [`PLACE_LOG_STEP`]; then it is noted as logged.
+fn place_moved(logged: &mut PlacesLogged, key: (u32, i32, usize), door: Option<FormId>, pos: [f32; 3]) -> bool {
+    let moved = logged.get(&key).is_none_or(|(d, at)| *d != door || (at[0] - pos[0]).hypot(at[1] - pos[1]) > PLACE_LOG_STEP);
+    if moved {
+        logged.insert(key, (door, pos));
+    }
+    moved
 }
 
 /// Where the compass marks quest target `target` for a player at `loc` (see the module
@@ -560,6 +574,23 @@ fn draw(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Two objectives marking one reference at two doors (one ignores locks) each keep
+    /// their own logged place: logged once each, not again every look while nothing
+    /// moves; a move past the step is logged again (Sol review of #2461/#2464).
+    #[test]
+    fn two_objectives_on_one_target_log_their_places_once() {
+        let mut logged = PlacesLogged::new();
+        let (a, b) = ((0x1234, 10, 0), (0x1234, 20, 0));
+        let (door_a, door_b) = (Some(FormId(0x501)), Some(FormId(0x502)));
+        for first in [true, false, false] {
+            assert_eq!(place_moved(&mut logged, a, door_a, [0.0, 0.0, 0.0]), first);
+            assert_eq!(place_moved(&mut logged, b, door_b, [100.0, 0.0, 0.0]), first);
+        }
+        assert!(!place_moved(&mut logged, a, door_a, [PLACE_LOG_STEP - 1.0, 0.0, 0.0]));
+        assert!(place_moved(&mut logged, a, None, [0.0, 0.0, 0.0]), "another door, or the target itself");
+        assert!(place_moved(&mut logged, b, door_b, [100.0 + PLACE_LOG_STEP + 1.0, 0.0, 0.0]));
+    }
 
     #[test]
     fn a_mark_stands_at_its_bearing_from_the_heading() {
