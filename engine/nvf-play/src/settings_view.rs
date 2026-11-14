@@ -453,6 +453,20 @@ pub fn drawn_slots(entries: &[ViewEntry], first: usize, shown: usize) -> std::op
     first..end
 }
 
+/// The first line of a window of `shown` lines the wheel or the scroll bar moved to `first`
+/// (`step`: the way it moved, down for 0): a one-line window that would show only a heading
+/// goes on past it to the row beyond (else back to the row before), so the window always
+/// draws a row the choice can move to and the wheel crosses headings [design: #2377].
+pub fn land(entries: &[ViewEntry], first: usize, step: i64, shown: usize) -> usize {
+    let is_heading = |k: usize| matches!(entries.get(k), Some(ViewEntry::Heading(_)));
+    if shown > 1 || !is_heading(first) {
+        return first;
+    }
+    let ahead = if step < 0 { first.checked_sub(1) } else { Some(first + 1) };
+    let back = if step < 0 { Some(first + 1) } else { first.checked_sub(1) };
+    [ahead, back].into_iter().flatten().find(|k| *k < entries.len() && !is_heading(*k)).unwrap_or(first)
+}
+
 /// The chosen row once the window moved to `first` (the wheel, the scroll bar): itself when
 /// still drawn, else the drawn row nearest to it.
 /// `shown`: the window's lines.
@@ -845,18 +859,31 @@ mod tests {
                     if drawn.len() > 1 {
                         assert!(matches!(list[drawn.end - 1], ViewEntry::Row(_)), "{shown} lines from {first}: ends on a heading");
                     }
-                    // The wheel put the window here: the choice is a drawn row (or kept when
-                    // the one line drawn is a heading).
-                    let picked = clamp_into_window(list, first, Some(RowId::Setting(0)), shown);
-                    let k = picked.and_then(|id| slot_of(list, id)).expect("a row");
-                    assert!(drawn.contains(&k) || (drawn.len() == 1 && picked == Some(RowId::Setting(0))), "{shown} lines from {first}: {picked:?}");
+                    // The wheel put the window here (landing past a heading a one-line
+                    // window would show alone): the choice is a drawn row.
+                    for step in [-1, 1] {
+                        let landed = land(list, first, step, shown);
+                        let picked = clamp_into_window(list, landed, Some(RowId::Setting(0)), shown);
+                        let k = picked.and_then(|id| slot_of(list, id)).expect("a row");
+                        assert!(drawn_slots(list, landed, shown).contains(&k), "{shown} lines from {first} ({step}): {picked:?}");
+                    }
                 }
             }
         }
         // One line: the row, not its heading; two: both.
         assert_eq!(follow(&e, 0, Some(7), 1), 7);
         assert_eq!(follow(&e, 0, Some(7), 2), 6);
-        assert_eq!(drawn_slots(&e, 6, 1), 6..7, "a heading alone on a one-line window (the wheel put it there)");
+        assert_eq!(drawn_slots(&e, 6, 1), 6..7, "a heading alone on a one-line window");
+        // The wheel crosses a heading in a one-line window: [A], a0, [B], b0 (a list of
+        // [row, heading, row] after the first heading).
+        let ab = vec![h("A"), r(0), h("B"), r(5)];
+        let down = land(&ab, 2, 1, 1);
+        assert_eq!((down, clamp_into_window(&ab, down, Some(RowId::Setting(0)), 1)), (3, Some(RowId::Setting(5))), "down from a0 past [B] onto b0");
+        let up = land(&ab, 2, -1, 1);
+        assert_eq!((up, clamp_into_window(&ab, up, Some(RowId::Setting(5)), 1)), (1, Some(RowId::Setting(0))), "up from b0 past [B] onto a0");
+        assert_eq!(land(&ab, 0, -1, 1), 1, "the top heading: on to the row after it");
+        assert_eq!(land(&ab, 2, 1, 2), 2, "two lines show the heading with its row");
+        assert_eq!(land(&[h("A")], 0, 1, 1), 0, "a heading alone: nowhere to go");
         // Thirteen lines: from the top, line 12 (C) would be last; it is left out.
         assert_eq!(drawn_slots(&e, 0, 13), 0..12);
         assert_eq!(follow(&e, 0, Some(13), 13), 1, "C's first row brings C into view: the window from 1, C on its 12th line");

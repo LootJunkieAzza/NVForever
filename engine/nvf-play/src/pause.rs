@@ -1804,7 +1804,7 @@ fn row_line(root: &mut ChildSpawnerCommands, d: &Drawn, look: &PauseLook, list: 
                     let reason = tr(reason);
                     r.spawn((SwitchState(id), Text::new(reason), Node { display: Display::None, ..default() }));
                     let parts = row_parts(x, ValueKind::Centred(width(reason)));
-                    let (label, reason) = fit_row(width, &parts, label, reason, true);
+                    let (label, reason) = fit_row(width, &parts, label, reason);
                     sm_text(r, &f.entry, &label, parts.label.0, BASE + 2.0, label_shade);
                     sm_text(r, &f.entry, &reason, parts.text_x(width(&reason)), BASE + 2.0, color(Shade::Dim));
                     return;
@@ -1826,7 +1826,7 @@ fn row_line(root: &mut ChildSpawnerCommands, d: &Drawn, look: &PauseLook, list: 
                 let value = tr(if v > 0.5 { "ON" } else { "OFF" });
                 r.spawn((SwitchState(id), Text::new(value), Node { display: Display::None, ..default() }));
                 let parts = row_parts(x, ValueKind::Centred(width(value)));
-                let (label, value) = fit_row(width, &parts, label, value, true);
+                let (label, value) = fit_row(width, &parts, label, value);
                 sm_text(r, &f.entry, &label, parts.label.0, BASE + 2.0, label_shade);
                 sm_text(r, &f.entry, &value, parts.text_x(width(&value)), BASE + 2.0, color(Shade::Bright));
             });
@@ -1844,8 +1844,17 @@ fn row_line(root: &mut ChildSpawnerCommands, d: &Drawn, look: &PauseLook, list: 
                 let vw = crate::pad::button_width(&f.entry, &value, glyphs);
                 let parts = row_parts(x, ValueKind::Binding(vw));
                 sm_text(r, &f.entry, &fit_text(width, name, parts.label_room()), parts.label.0, BASE + 2.0, color(Shade::Bright));
+                // The full words stay in the state the aids read; what is drawn is cut to the
+                // row (a button's picture is narrow and always fits).
                 r.spawn((SwitchState(id), Text::new(value.clone()), Node { display: Display::None, ..default() }));
-                crate::pad::set_button(r, &f.entry, &value, parts.text.0, BASE + 2.0, color(Shade::Bright), glyphs);
+                let (shown, sw) = if vw > parts.text_room() + 0.01 {
+                    let cut = fit_text(width, &value, parts.text_room());
+                    let w = width(&cut);
+                    (cut, w)
+                } else {
+                    (value.clone(), vw)
+                };
+                crate::pad::set_button(r, &f.entry, &shown, parts.text_x(sw), BASE + 2.0, color(Shade::Bright), glyphs);
             });
         }
     }
@@ -1961,7 +1970,7 @@ fn rail_column(root: &mut ChildSpawnerCommands, f: &Faces, d: &Drawn, glyphs: &c
 /// to the lines that are drawn ([`note_fit`]).
 fn note_lines(root: &mut ChildSpawnerCommands, f: &Faces, note: &str, lb: ListBox, top: f32) {
     let (left, width) = (lb.left, note_width(lb));
-    let lines = f.small.font.lines(note, Some(width));
+    let lines = note_wrapped(&f.small.font, note, width);
     let fit = note_fit(lines.len(), top);
     let bright = color(Shade::Bright);
     root.spawn(from_middle(left + 10.0, top, width, fit as f32 * NOTE_STEP)).with_children(|t| {
@@ -1969,6 +1978,22 @@ fn note_lines(root: &mut ChildSpawnerCommands, f: &Faces, note: &str, lb: ListBo
             crate::interface::set_line(t, &f.small, line, 0.0, NOTE_STEP * (i as f32 + 0.8), bright);
         }
     });
+}
+
+/// A note wrapped at `width` in `font`: a line still wider (a word longer than the line,
+/// which wrapping leaves whole) cut with [`CUT_MARK`] to the width, so it never runs past
+/// the list [design: #2377]. The full note stays in the hidden text the aids read.
+fn note_wrapped(font: &fnv_font::Font, note: &str, width: f32) -> Vec<fnv_font::Line> {
+    font.lines(note, Some(width))
+        .into_iter()
+        .map(|line| {
+            if line.width <= width {
+                return line;
+            }
+            let cut = fit_text(|t| font.width(t), &line.text(), width);
+            font.lines(&cut, None).into_iter().next().unwrap_or_default()
+        })
+        .collect()
 }
 
 /// The note's width in a list `lb`: the rows' less 10 at each side.
@@ -2097,7 +2122,8 @@ enum ValueKind {
     Slider(f32),
     /// A list's box, the chosen one's words in it.
     List(f32),
-    /// A Controls binding: its key's words and button pictures (never cut).
+    /// A Controls binding: its keys' words (cut like other words where they do not fit) or a
+    /// button's picture.
     Binding(f32),
 }
 
@@ -2166,19 +2192,19 @@ fn row_parts(x: RowX, kind: ValueKind) -> RowParts {
             ((left, left + LIST_WIDTH), text, left + (LIST_WIDTH - 30.0) / 2.0, METER_WIDTH, right_arrow)
         }
         ValueKind::Binding(vw) => {
+            // Within the row: words wider than from `floor` to its right end are cut.
             let left = (x.value_at() - vw / 2.0).min(w - vw - 14.0).max(floor);
-            ((left.min(fixed), right.max(left + vw)), (left, left + vw), left + vw / 2.0, METER_WIDTH, right_arrow)
+            let text = (left, (left + vw).min(right));
+            ((left.min(fixed), right), text, (text.0 + text.1) / 2.0, METER_WIDTH, right_arrow)
         }
     };
     RowParts { label: (label_left, (value.0 - LABEL_GAP).max(label_left)), value, text, centre, meter: (x.meter_left(), meter_w), right_arrow }
 }
 
 /// A row's label and value words as drawn in `parts`, each cut to its room where it does
-/// not fit (`cut_value` false: a binding's, never cut).
-fn fit_row(width_of: impl Fn(&str) -> f32 + Copy, parts: &RowParts, label: &str, value: &str, cut_value: bool) -> (String, String) {
-    let l = fit_text(width_of, label, parts.label_room());
-    let v = if cut_value { fit_text(width_of, value, parts.text_room()) } else { value.to_string() };
-    (l, v)
+/// not fit.
+fn fit_row(width_of: impl Fn(&str) -> f32 + Copy, parts: &RowParts, label: &str, value: &str) -> (String, String) {
+    (fit_text(width_of, label, parts.label_room()), fit_text(width_of, value, parts.text_room()))
 }
 
 /// The settings page's scroll bar, right of its window of `lines` rows.
@@ -4140,6 +4166,7 @@ fn choose(
         }
         match &mut *page {
             Page::Settings { selected } if scrolled => {
+                first = sv::land(&rows, first, by, w.shown);
                 *selected = sv::clamp_into_window(&rows, first, *selected, w.shown);
                 view.followed = *selected;
             }
@@ -4572,7 +4599,7 @@ fn check_page_text(world: &mut World, f: &Faces) {
         let mut what = Vec::new();
         for (kind, value) in row_values(world, settings, i, width) {
             let parts = row_parts(x, kind);
-            let (l, v) = fit_row(width, &parts, label, &value, !matches!(kind, ValueKind::Binding(_)));
+            let (l, v) = fit_row(width, &parts, label, &value);
             if l != label && !what.iter().any(|w: &String| w.starts_with("label")) {
                 what.push(format!("label \"{label}\" ({:.0} of {:.0} units)", width(label), parts.label_room()));
             }
@@ -4591,8 +4618,11 @@ fn check_page_text(world: &mut World, f: &Faces) {
     let mut bad = 0;
     for s in &list {
         let note = tr(s.note);
-        let lines = f.small.font.lines(note, Some(note_width(lb))).len();
-        let reason = crate::settings::note_over_budget(note).or_else(|| (lines > NOTE_ROW_LINES).then(|| format!("{lines} lines at the page's width")));
+        let lines = f.small.font.lines(note, Some(note_width(lb)));
+        let widest = lines.iter().map(|l| l.width).fold(0.0, f32::max);
+        let reason = crate::settings::note_over_budget(note)
+            .or_else(|| (lines.len() > NOTE_ROW_LINES).then(|| format!("{} lines at the page's width", lines.len())))
+            .or_else(|| (widest > note_width(lb)).then(|| format!("a word {widest:.0} units wide, wider than the page's {:.0}", note_width(lb))));
         if let Some(reason) = reason {
             bad += 1;
             warn!("settings: note of `{}` over the budget: {reason}", s.key);
@@ -5674,6 +5704,19 @@ mod tests {
         assert!(note_of(&[], id, &d).starts_with("Stands for: A, B, C and 2 more. "), "{}", note_of(&[], id, &d));
     }
 
+    /// #2377: a note line wider than the page (a word longer than the line, which wrapping
+    /// leaves whole) is cut to the page's width with the mark.
+    #[test]
+    fn a_note_wider_than_the_page_is_cut() {
+        let font = Faces::plain().small.font;
+        let width = 300.0;
+        let note = format!("Short words then {} and more words after it.", "x".repeat(80));
+        let lines = note_wrapped(&font, &note, width);
+        assert!(lines.len() >= 2 && lines.iter().all(|l| l.width <= width), "{:?}", lines.iter().map(|l| l.width).collect::<Vec<_>>());
+        assert!(lines.iter().any(|l| l.text().ends_with(CUT_MARK)));
+        assert_eq!(note_wrapped(&font, "Two short words.", width).len(), 1);
+    }
+
     /// #2377: text cut to fit is cut at its measured width, with the mark, never into
     /// nothing while the mark fits; text that fits is left whole.
     #[test]
@@ -5699,25 +5742,23 @@ mod tests {
         let font = Faces::plain().entry.font;
         let width = |t: &str| font.width(t);
         let long = "An extremely long translated label that cannot fit in any settings row at all";
-        let values = ["ON", "Off (upscaling active)", "Controlled by another setting entirely, with more words", "Performance", "Ultra Performance mode at a very long name", "50%"];
+        let values = ["ON", "Off (upscaling active)", "Controlled by another setting entirely, with more words", "Performance", "Ultra Performance mode at a very long name", "50%", "Right Bracket, Middle Mouse", "Left Shift, Right Bracket, Middle Mouse, Mouse Wheel Down"];
         for view_w in VIEW_WIDTHS {
             for tabs_w in [SUB_WIDTH, 220.0] {
                 let lb = ListBox::of(view_w, tabs_w);
                 let x = lb.row();
                 for value in values {
                     let vw = width(value);
-                    for kind in [ValueKind::Centred(vw), ValueKind::Slider(vw), ValueKind::List(vw), ValueKind::Binding(vw.min(300.0))] {
+                    for kind in [ValueKind::Centred(vw), ValueKind::Slider(vw), ValueKind::List(vw), ValueKind::Binding(vw)] {
                         let p = row_parts(x, kind);
                         let at = format!("{view_w}/{tabs_w} {kind:?} {value:?}");
                         assert!(p.label_room() >= LABEL_MIN.min(x.value_left() - 10.0 - LABEL_GAP) - 0.01, "{at}: label room {}", p.label_room());
                         assert!(p.label.1 + LABEL_GAP <= p.value.0 + 0.01, "{at}: label to {}, value from {}", p.label.1, p.value.0);
                         assert!(p.value.1 <= lb.width + 0.01 && p.text.0 >= p.value.0 - 0.01 && p.text.1 <= p.value.1 + 0.01, "{at}: {p:?}");
-                        let (l, v) = fit_row(width, &p, long, value, !matches!(kind, ValueKind::Binding(_)));
+                        let (l, v) = fit_row(width, &p, long, value);
                         assert!(width(&l) <= p.label_room() + 0.01 && p.label.0 + width(&l) + LABEL_GAP <= p.value.0 + 0.01, "{at}: label {l:?}");
-                        if !matches!(kind, ValueKind::Binding(_)) {
-                            let tx = p.text_x(width(&v));
-                            assert!(width(&v) <= p.text_room() + 0.01 && tx >= p.text.0 - 0.01 && tx + width(&v) <= p.text.1 + 0.01, "{at}: value {v:?} at {tx}");
-                        }
+                        let tx = p.text_x(width(&v));
+                        assert!(width(&v) <= p.text_room() + 0.01 && tx >= p.text.0 - 0.01 && tx + width(&v) <= p.text.1 + 0.01 && tx + width(&v) <= lb.width, "{at}: value {v:?} at {tx}");
                         if let ValueKind::Slider(_) = kind {
                             let (ml, mw) = p.meter;
                             assert!(p.value.0 + METER_ARROW.x <= ml && ml + mw < p.right_arrow && p.right_arrow + METER_ARROW.x <= p.text.0 && mw >= METER_MIN, "{at}: {p:?}");
