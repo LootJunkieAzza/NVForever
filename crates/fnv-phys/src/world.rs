@@ -53,6 +53,14 @@ impl Default for PhysParams {
 /// the bare surface.
 pub const TERRAIN_SHELL: f32 = 3.5;
 
+/// `NVF_PHYS_INDOOR_PREDICTION=0` (a test aid for comparing, read once): the contact
+/// prediction distance stays raised by [`TERRAIN_SHELL`] with no terrain too, as before
+/// 2026-11-13 (`PhysWorld::new`, `PhysWorld::fit_prediction`).
+fn raised_prediction_always() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("NVF_PHYS_INDOOR_PREDICTION").is_ok_and(|v| v == "0"))
+}
+
 /// Where [`Owner::encode_segment`] puts the segment in `user_data` (above the owner's
 /// 104 bits).
 const SEGMENT_SHIFT: u32 = 104;
@@ -465,9 +473,20 @@ impl PhysWorld {
         // default 0.02 m, 1.4 units) never fell asleep and crept along the ground at about
         // 10 units a second [observed: the terrain's 3.5-unit skin under Goodsprings'
         // motorcycles and crates; a skin of 1.4 rested, 2 crept; test
-        // `clutter_on_the_terrain_shell_falls_asleep`]. Why is not known; a prediction
-        // distance of the default plus the skin rests them (asleep within 2 s).
-        w.integration_parameters.normalized_prediction_distance += TERRAIN_SHELL * k;
+        // `clutter_on_the_terrain_shell_falls_asleep`]. rapier keeps at most four points of
+        // a contact, the deepest and then those spread farthest from it among the points
+        // whose distance, skins not taken off, is within the prediction distance
+        // [documented: rapier3d 0.36.1 `reduce_manifold_naive`]: on a skin wider than the
+        // prediction distance only the deepest point is left. A prediction distance of the
+        // default plus the skin rests them (asleep within 2 s). It is raised only while the
+        // world holds terrain (`fit_prediction`): indoors it let points of a surface a unit
+        // or two below the one a body lies on (a shelf board's lower edge) displace the
+        // points it lies on, and clutter trembled and stayed awake (test
+        // `a_book_over_a_lower_lip_falls_asleep_indoors`).
+        // rapier's own until terrain is added, unless the test aid asks for the raised one.
+        if raised_prediction_always() {
+            w.integration_parameters.normalized_prediction_distance += TERRAIN_SHELL * k;
+        }
         #[cfg(feature = "solver-timers")]
         w.physics_pipeline.counters.enable();
         PhysWorld {
@@ -515,14 +534,28 @@ impl PhysWorld {
         let c = t.collider.user_data(Owner::Terrain { x: grid.0, y: grid.1 }.encode()).contact_skin(TERRAIN_SHELL * self.k);
         let h = self.w.insert_collider(c, None);
         self.terrain.insert(grid, h);
+        self.fit_prediction();
         self.mark_dirty(DirtyBy::Bodies);
     }
 
     pub fn remove_terrain(&mut self, grid: (i32, i32)) -> bool {
         let Some(h) = self.terrain.remove(&grid) else { return false };
         self.w.remove_collider(h);
+        self.fit_prediction();
         self.mark_dirty(DirtyBy::Bodies);
         true
+    }
+
+    /// rapier's own contact prediction distance while the world holds no terrain, raised
+    /// by the terrain's shell while it does (see `PhysWorld::new`). With
+    /// `NVF_PHYS_INDOOR_PREDICTION=0` it stays raised.
+    fn fit_prediction(&mut self) {
+        if raised_prediction_always() {
+            return;
+        }
+        let own = IntegrationParameters::default().normalized_prediction_distance;
+        let raised = if self.terrain.is_empty() { 0.0 } else { TERRAIN_SHELL * self.k };
+        self.w.integration_parameters.normalized_prediction_distance = own + raised;
     }
 
     /// Add the collision objects of a placed reference: one body per object, placed at
@@ -1130,7 +1163,9 @@ impl PhysWorld {
             }
         }
         for (_, c) in self.w.colliders.iter() {
-            *s.colliders.entry(shape_name(c.shape().shape_type())).or_default() += 1;
+            // A hull with large faces (`crate::hull`) counts as the hull it is.
+            let t = if c.shape().as_shape::<crate::hull::Hull>().is_some() { ShapeType::ConvexPolyhedron } else { c.shape().shape_type() };
+            *s.colliders.entry(shape_name(t)).or_default() += 1;
         }
         s.bodies_awake = self.w.islands.num_active_bodies();
         for pair in self.w.narrow_phase.contact_pairs().filter(|p| p.has_any_active_contact()) {
