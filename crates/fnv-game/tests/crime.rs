@@ -727,11 +727,16 @@ fn a_later_crime_restarts_the_count() {
 }
 
 #[test]
-fn an_older_save_dates_its_crimes_at_the_load_and_keeps_its_scripts_flags() {
+fn an_older_save_dates_its_crime_enemies_at_the_load_and_keeps_every_faction_flag() {
     let f = fixture();
     let mut g = game(&f);
+    // A crime's flag (the town: its member murdered, a counted major crime), a quest's
+    // flag on the same faction and a quest's flag alone (the market), and an assault
+    // counted against a stranger: none of it tells the old save's flags apart.
     murder_townsman(&mut g);
+    set_faction_flag(&mut g, TOWN, 1.0);
     set_faction_flag(&mut g, MARKET, 1.0);
+    g.player_assaulted(FormId(STRANGER_REF));
     // Saved a day after the crime, as a save from before #2467: flags and crime enemies
     // undated.
     set_days(&mut g, DAYS_PASSED_START + 1.0);
@@ -745,23 +750,56 @@ fn an_older_save_dates_its_crimes_at_the_load_and_keeps_its_scripts_flags() {
     let mut h = Game::restore(&f.data, world, g.cfg, &old).unwrap();
     let load_day = days(&h);
     assert!((load_day - (DAYS_PASSED_START + 1.0)).abs() < 1e-3);
-    // The town's flag (a member murdered, a counted major crime) and the witness are a
-    // crime's, dated at the load; the market's (no crime against it) a script's.
-    assert_eq!(h.player.enemy_of_crimes.get(&FormId(TOWN)).copied(), Some(load_day));
+    // The witness is dated at the load; every faction flag is kept as a script's.
     assert_eq!(h.player.crime_enemy_since.get(&FormId(SHOPKEEPER_REF)).copied(), Some(load_day));
-    assert!(h.player.enemy_of_script.contains(&FormId(MARKET)) && !h.player.enemy_of_crimes.contains_key(&FormId(MARKET)));
-    // Three days after the crime, two after the load: still enemies.
+    assert!(h.player.enemy_of_crimes.is_empty());
+    assert!(h.player.enemy_of_script.contains(&FormId(TOWN)) && h.player.enemy_of_script.contains(&FormId(MARKET)));
+    // Three days after the crime, two after the load: the witness is still a crime enemy.
     pass_hours(&mut h, 48.0);
-    assert!(h.would_attack(FormId(WATCHMAN_REF), FormId::PLAYER_REF));
-    assert!(h.would_attack(FormId(SHOPKEEPER_REF), FormId::PLAYER_REF));
-    // Three days after the load: the crime's end, the script's stays.
+    assert_eq!(call(&mut h, GET_ACTOR_CRIME_PLAYER_ENEMY, Some(SHOPKEEPER_REF), &[]), 1.0);
+    // Three days after the load the witness forgives its own crime (it still fights by the
+    // town's flag, kept); the flags stay.
     pass_hours(&mut h, 25.0);
-    assert!(!h.would_attack(FormId(WATCHMAN_REF), FormId::PLAYER_REF));
-    assert!(!h.would_attack(FormId(SHOPKEEPER_REF), FormId::PLAYER_REF));
+    assert_eq!(call(&mut h, GET_ACTOR_CRIME_PLAYER_ENEMY, Some(SHOPKEEPER_REF), &[]), 0.0);
+    assert!(h.would_attack(FormId(SHOPKEEPER_REF), FormId::PLAYER_REF));
+    pass_hours(&mut h, 24.0 * 10.0);
+    assert!(h.would_attack(FormId(WATCHMAN_REF), FormId::PLAYER_REF), "the town's flag is kept");
+    assert_eq!(faction_flag(&mut h, TOWN), 1.0);
     assert_eq!(faction_flag(&mut h, MARKET), 1.0);
     // A save made now keeps the dates as they are.
     let snap = h.snapshot();
     let world = World::restore(&f.forms, &f.refs, &snap.sim).unwrap();
     let k = Game::restore(&f.data, world, h.cfg, &snap).unwrap();
     assert_eq!(k.player, h.player);
+}
+
+/// A second murder seen only by witnesses already hostile is still a crime against the
+/// faction: its flag's count restarts (#2467 review).
+#[test]
+fn a_murder_seen_only_by_hostile_witnesses_restarts_the_count() {
+    let f = fixture();
+    let mut g = game(&f);
+    // Day 0: the townsman murdered in front of the shopkeeper and the second townsman;
+    // both turn.
+    sees(&mut g, TOWNSMAN2_REF);
+    murder_townsman(&mut g);
+    assert!(g.player.crime_enemies.contains(&FormId(TOWNSMAN2_REF)));
+    // Day 2: the second townsman (a crime enemy: still murder) killed in front of the
+    // shopkeeper alone, who is a crime enemy already and turns no further.
+    pass_hours(&mut g, 48.0);
+    g.detection.pairs.clear();
+    sees(&mut g, SHOPKEEPER_REF);
+    g.crimes.take_notes();
+    assert!(g.kill(FormId(TOWNSMAN2_REF), Some(FormId::PLAYER_REF)));
+    assert!(g.crimes.take_notes().iter().any(|n| matches!(n, Note::Crime { kind: Kind::Murder, hostile, .. } if hostile.is_empty())));
+    assert!((g.player.enemy_of_crimes[&FormId(TOWN)] - (DAYS_PASSED_START + 2.0)).abs() < 1e-3, "the town's count restarts");
+    assert!((g.player.crime_enemy_since[&FormId(SHOPKEEPER_REF)] - (DAYS_PASSED_START + 2.0)).abs() < 1e-3, "so does the witness's");
+    // Four days after the first murder, two after the second: still enemies.
+    pass_hours(&mut g, 48.0);
+    assert!(g.would_attack(FormId(WATCHMAN_REF), FormId::PLAYER_REF));
+    assert!(g.would_attack(FormId(SHOPKEEPER_REF), FormId::PLAYER_REF));
+    // Three days after the second: no more.
+    pass_hours(&mut g, 25.0);
+    assert!(!g.would_attack(FormId(WATCHMAN_REF), FormId::PLAYER_REF));
+    assert!(!g.would_attack(FormId(SHOPKEEPER_REF), FormId::PLAYER_REF));
 }

@@ -223,9 +223,9 @@ faction given) on the player and makes it say Assault [documented].
   after the last murder). The setting is read from the load order, 3 when no plugin sets
   it (FalloutNV.esm does not) [documented: Complete List of GameSettings; observed].
 - **What NVForever keeps** [design: the wiki's crime list reduced to what it decides]:
-  for each faction a crime made the player an enemy of (a seen murder, §3.4; the Evil
-  faction's area alert, combat-ai.md), the game day (GameDaysPassed) of the last such
-  crime; for each crime enemy (§3.6: theft, opened lock, trespass, murder witnessed,
+  for each faction a crime made the player an enemy of (a seen murder, §3.4, also one
+  seen only by witnesses already hostile; the Evil faction's area alert, combat-ai.md),
+  the game day (GameDaysPassed) of the last such crime; for each crime enemy (§3.6: theft, opened lock, trespass, murder witnessed,
   SendTrespassAlarm, SendAssaultAlarm), the day of the last crime that made it one. A
   later crime restarts the count. When the count reaches `iCoolDownTimerSetting` days the
   crime enemy forgives the player and the faction flag is cleared (`Game::expire_crimes`).
@@ -241,10 +241,11 @@ faction given) on the player and makes it say Assault [documented].
   any route counts: play, waiting, sleeping, fast travel, a script setting the clock.
   Moving the clock back ends nothing.
 - **Saves** [design]: the dates are saved with the player. A save from before #2467 has
-  none: at the load its crime enemies, and each faction flag of a crime-tracking faction
-  with a member the player committed a counted major crime against (GetMajorCrimeCount),
-  are dated at the load, so they end three days after it; every other flag of such a
-  save is taken as a script's and kept (the Evil-area alert's flags among them).
+  none: at the load its crime enemies (actors) are dated at the load, so they end three
+  days after it; its faction flags are all kept as a script's and never end by the
+  cooldown, because such a save cannot tell a crime's flag from a quest's
+  SetPCEnemyOfFaction, and a quest's hostility must not end. A flag a crime set in such
+  a save stays until a script clears it, as before #2467.
 - **Log**: `crime: the player is no longer an enemy of <faction>: the last crime against
   it is <d> game days old`, `crime: <actor> no longer counts the player's crimes: the last
   is <d> game days old`.

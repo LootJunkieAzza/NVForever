@@ -6082,11 +6082,13 @@ env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_T
 args = ["--cell", "GSProspectorSaloonInterior", "--play", "--hour", "12", "--day", "30", "--no-voice"]
 run_seconds = 40
 order = [[
-  { re = 'test aid: the player killed ', label = "the player kills Alexus (Game::kill)" },
-  { re = 'crime: murder against .*turned on the player: \[\S', label = "a murder the Legionaries saw: they turn" },
-  { re = 'crime: the player is now an enemy of Caesars Legion Armor Faction', label = "the flag lands on the armour faction, Karl's" },
+  { re = 'crime: the player is now an enemy of ArmorVCaesarsLegionFaction$', label = "the flag lands on the armour faction, Karl's (faction lines name the Editor ID)" },
   { re = 'alert: VRRCKarl 00140E71 \w+ → Combat', label = "Karl fights in the longhouse, by the flag alone" },
 ]]
+expect = [
+  { re = 'test aid: the player killed ', label = "the player kills Alexus (Game::kill)" },
+  { re = 'crime: murder against .*turned on the player: \[\S', label = "a murder the Legionaries saw: they turn" },
+]
 forbid = [{ re = 'crime: the player is no longer an enemy of ', label = "no crime expires within the run" }]
 
 [[scenario]]
@@ -6099,11 +6101,11 @@ env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_T
 args = ["--cell", "GSProspectorSaloonInterior", "--play", "--hour", "12", "--day", "30", "--no-voice"]
 run_seconds = 40
 order = [[
-  { re = 'test aid: the player killed ', label = "the player kills Alexus (Game::kill)" },
-  { re = 'crime: the player is now an enemy of Caesars Legion Armor Faction', label = "the murder sets the armour faction's flag" },
-  { re = 'crime: the player is no longer an enemy of Caesars Legion Armor Faction: the last crime against it is 4\.\d\d game days old', label = "four days on, the crime's flag is cleared" },
+  { re = 'crime: the player is now an enemy of ArmorVCaesarsLegionFaction$', label = "the murder sets the armour faction's flag (faction lines name the Editor ID)" },
+  { re = 'crime: the player is no longer an enemy of ArmorVCaesarsLegionFaction: the last crime against it is 4\.\d\d game days old', label = "four days on, the crime's flag is cleared" },
 ]]
 expect = [
+  { re = 'test aid: the player killed ', label = "the player kills Alexus (Game::kill)" },
   { re = "crime: .* no longer counts the player's crimes: the last is 4\\.\\d\\d game days old", label = "the witnesses forgive too" },
 ]
 forbid = [{ re = 'alert: VRRCKarl 00140E71 \w+ → (Alert|Combat)', label = "Karl does not fight or search for the player at Red Rock" }]

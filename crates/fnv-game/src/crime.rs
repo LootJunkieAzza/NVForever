@@ -731,15 +731,21 @@ impl Game<'_> {
             }
         }
         let mut hostile = Vec::new();
+        // A witness who cares, turned now or a crime enemy already.
+        let mut cared = false;
         for &w in &seen_by {
-            if matches!(self.reaction_to(w, victim), ALLY | FRIEND) && self.turn_on_player(w, Kind::Murder) {
-                hostile.push(w);
+            if matches!(self.reaction_to(w, victim), ALLY | FRIEND) {
+                cared = true;
+                if self.turn_on_player(w, Kind::Murder) {
+                    hostile.push(w);
+                }
             }
         }
         // A major crime against a crime-tracking faction makes the player its enemy
         // [documented: GECK wiki SetPCEnemyOfFaction; hypothesis: when a witness who
-        // cares saw it].
-        if !hostile.is_empty() {
+        // cares saw it]. Seen by witnesses already hostile, it is still a crime: the flag's
+        // count restarts (§3.7, #2467).
+        if cared {
             for f in factions_of(self, victim) {
                 let tracks = self.data.faction_flags.get(&f).is_some_and(|x| x & faction_flags::TRACK_CRIME != 0);
                 if tracks {
@@ -841,13 +847,11 @@ impl Game<'_> {
         any
     }
 
-    /// After a load: crime enmities a save from before #2467 holds undated are dated now,
-    /// so they end iCoolDownTimerSetting game days after the load [design]. Such a save
-    /// does not say who set a faction flag: one that tracks crime and that has a member
-    /// the player committed a counted major crime against (GetMajorCrimeCount) is taken as
-    /// a crime's; any other as a script's, kept [design: a murder, the only crime that
-    /// sets the flag, counts against its victim first; the Evil-area alert's flags count
-    /// no crime and are kept].
+    /// After a load: a save from before #2467 holds its crime enmities undated. Its crime
+    /// enemies (actors) are dated now, so they end iCoolDownTimerSetting game days after
+    /// the load. Its faction flags are all kept as a script's, never ending by the
+    /// cooldown: such a save does not say whether a crime or a quest's SetPCEnemyOfFaction
+    /// set one, and a quest's hostility must not end [design].
     pub(crate) fn date_crimes(&mut self) {
         let now = self.crime_day();
         let undated: Vec<FormId> = self.player.crime_enemies.iter().copied().filter(|a| !self.player.crime_enemy_since.contains_key(a)).collect();
@@ -855,19 +859,7 @@ impl Game<'_> {
             self.player.crime_enemy_since.insert(a, now);
         }
         let undated: Vec<FormId> = self.player.enemy_of.iter().copied().filter(|f| !self.player.enemy_of_crimes.contains_key(f) && !self.player.enemy_of_script.contains(f)).collect();
-        if undated.is_empty() {
-            return;
-        }
-        let victims: Vec<FormId> = self.player.crime_counts.iter().filter(|(_, c)| c[1] > 0).map(|(&v, _)| v).collect();
-        for f in undated {
-            let tracks = self.data.faction_flags.get(&f).is_some_and(|x| x & faction_flags::TRACK_CRIME != 0);
-            let by_crime = tracks && victims.iter().any(|&v| v == f || factions_of(self, v).contains(&f));
-            if by_crime {
-                self.player.enemy_of_crimes.insert(f, now);
-            } else {
-                self.player.enemy_of_script.insert(f);
-            }
-        }
+        self.player.enemy_of_script.extend(undated);
     }
 
     /// The player assaulted `victim` (provocation turned it on the player): a major crime

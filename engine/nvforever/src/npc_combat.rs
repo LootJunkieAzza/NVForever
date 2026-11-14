@@ -1499,10 +1499,11 @@ pub(crate) fn fight(
     f.player_swings = swings;
     let player_close = matches!(player_arm(c), Arm::Melee(_));
     let player_blocking = player_close && control.as_deref().is_some_and(|k| k.aiming);
-    // Each actor's factions, read by every comrade and hostility check below, are kept
-    // for the frame (`Game::begin_faction_frame`).
-    rt.game.begin_faction_frame();
     with_world(rt, &mut sim, |rt| {
+        // Each actor's factions, read by every comrade and hostility check below, are kept
+        // for the frame (`Game::begin_faction_frame`). Begun on the played world: it reads
+        // the clock there for crimes that expired (#2467).
+        rt.game.begin_faction_frame();
         let g = &mut rt.game;
         // Blocked blows: the attacker recoils, the blocker plays its block hit (§14.3).
         for b in &blocked_blows {
