@@ -1987,9 +1987,12 @@ heading 75) with NVFExtProbe.esp loaded, as the jip-probes sets run.
 
 128. **Does a blast beside a settled corpse take its parts, and how many?** (P2; #2346,
      dismemberment.md §4.2.) NVForever now lets a blast reach a corpse whose ragdoll has been
-     built and judges the one part facing it by the weapon's On Hit; a mine (every base-game
-     mine is No Dismember/Explode, dismemberment.md §2.1) or a placed explosion (no source
-     weapon) rolls nothing [design]. To check: kill an actor, let it settle, set off a frag
+     built and judges the one part facing it by the weapon's On Hit [design]. Two gates
+     stand: a placed explosion or a mine with no actor owner has no source weapon and rolls
+     nothing (`nvf_play::mines` keeps the weapon only for an actor-owned mine); an
+     actor-owned mine reaches the check, where its No Dismember/Explode (every base-game
+     mine, dismemberment.md §2.1) gives no odds without Bloody Mess and half the odds with
+     it (§4.2). To check: kill an actor, let it settle, set off a frag
      mine and then a frag grenade next to it, without and with Bloody Mess, several times each.
      Record how often a limb explodes or is severed and how many parts go per blast. The
      answer fits the mine source-weapon gate (`nvf_play::mines`) and the On Hit rule for

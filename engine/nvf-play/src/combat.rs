@@ -772,6 +772,19 @@ pub(crate) fn facing_part(world: &dyn CombatWorld, actor: ActorId, from: V3, to:
     Some((hit.part?, hit.point))
 }
 
+/// What a blast at `at` (radius `radius`) that caught `actor` (the reference `target`)
+/// does towards dismembering it (`fly`): the part facing the blast, and the check made
+/// there with the blast's source weapon `w` for hit `r` (dismemberment.md §4.2). Without a
+/// source weapon, neither. A corpse is found among the blast's targets by its ragdoll (#2346).
+#[allow(clippy::too_many_arguments)]
+fn blast_gore(world: &dyn CombatWorld, target: FormId, actor: ActorId, at: V3, radius: f32, w: Option<&WeaponStats>, r: &HitResult, by: Option<FormId>, push: V3) -> (Option<(u8, V3)>, Option<crate::dismember::Check>) {
+    let Some(w) = w else { return (None, None) };
+    let center = world.blast_targets_near(at, radius.max(1.0)).into_iter().find(|(a, _)| *a == actor).map(|(_, p)| p);
+    let facing = center.and_then(|p| facing_part(world, actor, at, p));
+    let check = facing.and_then(|(part, point)| dismember_check(target, Some(part), w, r, by, point, push));
+    (facing, check)
+}
+
 /// Whether the script runtime has the actor dead.
 pub fn is_dead(script: Option<&ScriptState>, form_id: u32) -> bool {
     script.and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.is_dead(FormId(form_id)))
@@ -4914,12 +4927,10 @@ fn fly(
             // no source weapon (a placed explosion, a mine without an actor owner) rolls none.
             if let Some(rr) = r.as_ref().filter(|r| r.died || r.corpse) {
                 let w = cause.and_then(|k| c.forms.weapons.get(&k.weapon)).cloned();
-                let facing = w.as_ref().and_then(|_| {
-                    let world = view(&mut phys, script.as_deref(), Some(&sim));
-                    let center = world.blast_targets_near(at, x.radius.max(1.0)).into_iter().find(|(a, _)| *a == b.actor).map(|(_, p)| p);
-                    center.and_then(|p| facing_part(&world, b.actor, at, p))
-                });
-                let check = w.as_ref().zip(facing).and_then(|(w, (part, point))| dismember_check(target, Some(part), w, rr, info.attacker, point, b.push));
+                let (facing, check) = match w.as_ref() {
+                    Some(_) => blast_gore(&view(&mut phys, script.as_deref(), Some(&sim)), target, b.actor, at, x.radius, w.as_ref(), rr, info.attacker, b.push),
+                    None => (None, None),
+                };
                 // A corpse caught by a blast says whether it reached the roll (#2346).
                 if rr.corpse {
                     let why = match (&w, facing, &check) {
@@ -5734,22 +5745,51 @@ mod tests {
         let (_, trunk) = world.blast_targets_near(center, 200.0).into_iter().find(|(a, _)| *a == id as ActorId).expect("the corpse is near");
         assert!(vec::len(vec::sub(trunk, [100.0, 0.0, 10.0])) < 1.0, "its trunk's centre: {trunk:?}");
         assert!(world.aim_points(id as ActorId).len() == 2, "its bodies are its aim points");
-        // The part facing the blast is the trunk, and a blast with a weapon reaches the check.
-        let (part, point) = facing_part(&world, id as ActorId, center, trunk).expect("a part faces the blast");
-        assert_eq!(part, 0);
+        // Its body part data: part 0 the torso (explodable only), part 1 the head.
+        let part = |kind: &str, flags: &[&str], health: u32, av: &str| BodyPart { part_type: Some(kind.into()), flags: flags.iter().map(|f| f.to_string()).collect(), health_percent: health, explodable_chance_percent: 30, actor_value: Some(av.into()), ..BodyPart::default() };
+        let bptd = fnv_combat::data::BodyPartData { parts: vec![part("Torso", &["Explodable"], 60, "Endurance Condition"), part("Head 1", &["Severable", "Explodable"], 20, "Perception Condition")], edid: None, model: None, ragdoll: None };
         let corpse = HitResult { corpse: true, immune: true, overkill: 60.0, max_health: 100.0, ..HitResult::default() };
-        let check = dismember_check(FormId(id), Some(part), &WeaponStats::default(), &corpse, None, point, [0.0, 1.0, 0.0]).expect("a corpse's part is checked");
-        assert!(check.corpse && check.part == 0 && check.on_hit == OnHit::Normal);
-        // The rolls, fixed: a severable part on a corpse goes 75 % of the time, 30 % of that
-        // severed (dismemberment.md §4.2); a No Dismember/Explode weapon (every mine) takes
-        // nothing without Bloody Mess, the gate left as it is.
-        let head = BodyPart { part_type: Some("Head 1".into()), flags: vec!["Severable".into(), "Explodable".into()], health_percent: 20, explodable_chance_percent: 30, actor_value: Some("Perception Condition".into()), ..BodyPart::default() };
-        let blow = Blow { on_hit: check.on_hit, corpse: true, crippled: check.crippled, overkill: check.overkill, max_health: check.max_health, bloody_mess: false };
         let s = Settings::default();
-        assert_eq!(decide(&head, &blow, &s, 0.0), Some(Fate::Explode));
-        assert_eq!(decide(&head, &blow, &s, 0.6), Some(Fate::Sever));
-        assert_eq!(decide(&head, &blow, &s, 0.9), None);
-        assert_eq!(decide(&head, &Blow { on_hit: OnHit::Neither, ..blow }, &s, 0.0), None);
+        // From each blast's hit on the corpse, as `fly` does: the part facing it, the check
+        // made there, then the rolls (fixed) on that part of its data, as `dismember::resolve`
+        // makes them.
+        let gore = |at: V3, w: &WeaponStats| {
+            let hits = blast(&world, &CombatTuning::default(), &e, at, None);
+            let b = hits.iter().find(|h| h.actor == id as ActorId).expect("the blast catches the corpse");
+            let (facing, check) = blast_gore(&world, FormId(id), b.actor, at, e.radius, Some(w), &corpse, None, b.push);
+            let check = check.expect("a corpse's facing part is checked");
+            assert_eq!(facing.map(|f| f.0 as usize), Some(check.part));
+            assert!(check.corpse && check.target == FormId(id));
+            check
+        };
+        let roll = |check: &crate::dismember::Check, bloody_mess: bool, r: f32| {
+            let blow = Blow { on_hit: check.on_hit, corpse: check.corpse, crippled: check.crippled, overkill: check.overkill, max_health: check.max_health, bloody_mess };
+            decide(&bptd.parts[check.part], &blow, &s, r)
+        };
+        // Beside its trunk: the torso faces it, and goes only with Bloody Mess (80 % on a
+        // corpse, dismemberment.md §4.2).
+        let normal = WeaponStats::default();
+        let torso = gore(center, &normal);
+        assert_eq!((torso.part, torso.on_hit), (0, OnHit::Normal));
+        assert_eq!(roll(&torso, false, 0.0), None);
+        assert_eq!(roll(&torso, true, 0.0), Some(Fate::Explode));
+        assert_eq!(roll(&torso, true, 0.9), None);
+        // Past its head: the head faces it; a severable part goes 75 % of the time, 30 % of
+        // that severed. A No Dismember/Explode weapon (every mine) takes nothing without
+        // Bloody Mess and explodes at half the odds with it: the gate left as it is.
+        let head = gore([200.0, 0.0, 10.0], &normal);
+        assert_eq!(head.part, 1);
+        assert_eq!(roll(&head, false, 0.0), Some(Fate::Explode));
+        assert_eq!(roll(&head, false, 0.6), Some(Fate::Sever));
+        assert_eq!(roll(&head, false, 0.9), None);
+        let mine = WeaponStats { on_hit: Some("No Dismember/Explode".into()), ..WeaponStats::default() };
+        let mined = gore([200.0, 0.0, 10.0], &mine);
+        assert_eq!(mined.on_hit, OnHit::Neither);
+        assert_eq!(roll(&mined, false, 0.0), None);
+        assert_eq!(roll(&mined, true, 0.4), Some(Fate::Explode));
+        assert_eq!(roll(&mined, true, 0.6), None);
+        // Without a source weapon (a placed explosion, a mine with no actor owner): no check.
+        assert_eq!(blast_gore(&world, FormId(id), id as ActorId, center, e.radius, None, &corpse, None, [0.0; 3]).1.map(|c| c.part), None);
         // A bullet still strikes the corpse on its part (the control).
         let shot = world.ray([140.0, -300.0, 10.0], [140.0, 300.0, 10.0], &[PLAYER]).expect("the corpse's head is struck");
         assert_eq!((shot.actor, shot.part), (Some(id as ActorId), Some(1)));

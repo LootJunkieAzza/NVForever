@@ -222,6 +222,11 @@ the spec it links to.
   prefers whole-device NVML, then amdgpu, then game-only DRM client time. Choosing
   DRM first would make supporting Linux drivers show the game's contribution consistently.
   [Settings usage note](design/settings-page.md#performance-usage-availability-2249).
+- **Explosion-hit handlers on corpses (#2346).** [design, #2346] A blast now reaches a corpse
+  whose ragdoll has taken over, so ShowOff's OnExplosionHit handlers also run for corpses
+  it catches (no damage is taken). Whether the original calls them for a corpse is not
+  observed. Leave them out for corpses instead?
+  ([combat-rules §11](spec-notes/combat-rules.md))
 
 19. **Walking away from a conversation.** The world freezes while you talk, as in the
     original, and walking off does not end it. Should walking off end it where the line
