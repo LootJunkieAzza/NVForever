@@ -215,6 +215,7 @@ pub const SECTIONS: &[Section] = &[
         "Controls",
         Some("Touch"),
         &[
+            "touch-practice-v1",
             "touch-pipboy-swipe-v1",
             "touch-pipboy-distance-v1",
             "touch-icon-family",
@@ -501,7 +502,8 @@ mod tests {
     /// and Upscaling mode rows in place of the one upscaling row, its DLSS model row and #2169's
     /// FSR library row, #2242's upscaling counter row and #2317's Generated frames row), by the group it
     /// registers with.
-    const KNOWN: [(&str, &str); 116] = [
+    const KNOWN: [(&str, &str); 117] = [
+        ("touch-practice-v1", "Controller"),
         ("touch-pipboy-swipe-v1", "Controller"),
         ("touch-pipboy-distance-v1", "Controller"),
         ("detached-camera", "Gameplay"),
@@ -694,6 +696,7 @@ mod tests {
                 .into_iter()
                 .chain([
                     "[Touch]",
+                    "touch-practice-v1",
                     "touch-pipboy-swipe-v1",
                     "touch-pipboy-distance-v1",
                     "touch-icon-family",
@@ -734,6 +737,7 @@ mod tests {
         );
         assert_eq!(at("button-style"), "Controls");
         assert_eq!(at("touch-pipboy-swipe-v1"), "Controls > Touch");
+        assert_eq!(at("touch-practice-v1"), "Controls > Touch");
         assert_eq!(at("touch-pipboy-distance-v1"), "Controls > Touch");
         assert_eq!(at("touch-icon-family"), "Controls > Touch");
         assert_eq!(at("adaptive-touch-actions"), "Controls > Touch");

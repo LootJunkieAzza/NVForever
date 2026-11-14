@@ -94,3 +94,14 @@ The choice is saved for the next start. It changes artwork without changing posi
 bindings, hit targets or tint. Companion and Aid artwork is available for future controls.
 This source follow-up still needs rendered Android validation; the
 [family design](design/android-icon-families.md) records the remaining checks.
+
+### Optional touch practice
+
+[design] Settings > Controls > Touch > Touch practice offers a short movement,
+look and action guide before Begin practice. Touch the left panel to place a floating ring, or start at the fixed ring, matching
+your movement mode. Drag to see directions and its inner dead-zone box; drag the right area to move a pretend
+look marker. Fire, Aim and Jump only update this screen. If Swipe to Pip-Boy is
+enabled, Try drawer offers an isolated swipe exercise without opening inventory.
+Reset returns to the guide; Close or Escape returns to the paused Settings page.
+The active session is never saved and practice does not change a gameplay save.
+This source increment still needs Rust execution and rendered device validation.

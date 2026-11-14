@@ -25,12 +25,15 @@ Experimental Android platform work (#2436): [ARM64 app, read-only game import,
 startup, process restart and icon touch controls with layout editing](design/android.md).
 The first test APK was installed and reached the opening interior. An exterior-arrival
 physics assertion exposed a [query-refresh registration defect](spec-notes/query-refresh-island-lifecycle.md);
-the bounded repair passes seven CPU controls, with device confirmation pending. Full
+the bounded repair passes all 114 physics fixtures and the animated-collision regression,
+with device confirmation pending. Full
 gameplay, lifecycle and performance acceptance remain open. This is not a qualified
 Android release. [Build and touch-control instructions](android.md).
-Touch aiming settings are authored in a separate follow-up: independent look/ADS scales,
-dead zone and hold/toggle choices with a bottom-sheet UI. Compilation, authored test
-execution and rendered device acceptance are pending ([design](design/android-touch-aiming.md)).
+Controller switching, independent look/ADS scales, dead zone and hold/toggle choices,
+four original SVG icon families, adaptive Aim/Block/Scope captions and individual HUD
+scales are implemented. Optional [touch practice](design/android-touch-practice.md)
+teaches movement and actions through isolated synthetic input. These library/test
+targets pass ARM64 compilation; rendered device acceptance remains pending.
 
 Qualified private CPU host: [explicitly cleared cloned form-list JIP
 wildcards](spec-notes/jip-cloned-list-wildcard.md). Exact f30 original/candidate

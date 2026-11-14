@@ -16,6 +16,7 @@ mod aiming;
 mod drawer;
 mod icons;
 mod layout;
+mod practice;
 use layout::{Layout, Target};
 
 pub struct TouchControlsPlugin;
@@ -24,6 +25,7 @@ impl Plugin for TouchControlsPlugin {
         drawer::install(app);
         icons::install(app);
         action_presentation::install(app);
+        practice::install(app);
         app.init_resource::<TouchState>()
             .init_resource::<Layout>()
             .init_resource::<nvf_play::pad::TouchDeviceSwitch>()
@@ -329,9 +331,10 @@ fn merge_sources(
     mut mouse: ResMut<ButtonInput<MouseButton>>,
     touch_device: Option<ResMut<nvf_play::pad::TouchDeviceSwitch>>,
     layout: Res<Layout>,
+    practice: Res<practice::Practice>,
 ) {
     if let Some(mut touch_device) = touch_device {
-        touch_device.set_editor_active(layout.editor.is_some());
+        touch_device.set_editor_active(layout.editor.is_some() || practice.blocking());
         touch_device.set_actions(state.keys.iter().copied(), state.mouse.iter().copied());
     }
     aggregate(&mut keys, &state.managed_keys, &state.combined_keys);
@@ -433,8 +436,10 @@ fn input(
     bindings: Option<Res<Bindings>>,
     mut motion: MessageWriter<MouseMotion>,
     mut drawer: drawer::Bridge,
+    mut practice: practice::Bridge,
 ) {
     let Ok((window_id, window)) = window.single() else {
+        practice.cancel();
         drawer.drawer.cancel();
         touches.clear();
         state.cancel_touch();
@@ -507,6 +512,14 @@ fn input(
     ) / size;
     let mut pause = just_suspended && playing;
     sync_touch(&mut state, bindings.as_deref(), pause);
+    if practice.capture(&mut touches, window_id, size, interactive,
+        effective_play == Some(nvf_play::PlayState::Menu)) {
+        drawer.drawer.cancel();
+        state.cancel_touch();
+        held_sneak.active = false;
+        sync_touch(&mut state, bindings.as_deref(), false);
+        return;
+    }
     // The first touch restores the overlay/device; do not let it also fire or open
     // an editor whose pause edge is consumed by the switching frame.
     if controller {
@@ -810,6 +823,7 @@ fn show_labels(
     window: Query<&Window, With<PrimaryWindow>>,
     bindings: Option<Res<Bindings>>,
     pads: Query<&Gamepad>,
+    practice: Res<practice::Practice>,
     mut visuals: Query<(
         &TouchVisual,
         &mut Node,
@@ -1047,7 +1061,7 @@ fn show_labels(
                 }
             }
         }
-        *visibility = if visible && (!controller || editing) {
+        *visibility = if visible && !practice.blocking() && (!controller || editing) {
             Visibility::Inherited
         } else {
             Visibility::Hidden
