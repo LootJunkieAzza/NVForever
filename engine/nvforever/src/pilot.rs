@@ -78,6 +78,16 @@
 //!   body to search, and a terminal that opens a locked door (an entry whose result
 //!   script names the door: walked to, opened, the entry taken). The step's own time
 //!   stands still meanwhile.
+//! - **Save and load at milestones** (`--pilot-save-load`): before each labelled
+//!   milestone (`milestone…`, `final…`) is read, the game's state (`fnv_game`'s snapshot,
+//!   not the engine's) goes through a save and a load, as the headless `save_load` step
+//!   does; what a save loses then shows as a divergence. The drawn world is not rebuilt
+//!   from it: a reference the load moved is drawn where it was until it moves again.
+//!   A finding `save_load` when the round trip fails.
+//! - **Known differences** (`--pilot-known <file>`, the batch's
+//!   `tools/smoke/pilot/known-differences.json`): a list of `{chain, label, reason}`; a
+//!   labelled read that differs from the headless one and is on it is reported apart
+//!   (`known_differences`), not as a divergence. Each entry says why it is no bug.
 //! - **What is still done the headless way** is counted, by kind of step, in the
 //!   report's `headless` (`pilot: headless: <op>` in the log): steps with no player
 //!   means yet (`set_stage`, `set_quest_var`, `enable`, `hit`, ...), and every
@@ -172,7 +182,8 @@
 //!   headless run kills it, so the chain goes on. The line of fire is the NPCs' own
 //!   judgement (`combat_tactics::shot_clear`: the eye to the target's trunk, else its
 //!   head): with none for [`NO_SHOT_SECS`] s the player goes nearer, by a third each
-//!   time, instead of firing into what is in the way. Not yet: the NPCs' reach by
+//!   time, instead of firing into what is in the way. Someone standing between the player
+//!   and its target is not shot through: the player steps aside until the line is free. Not yet: the NPCs' reach by
 //!   weapon and their cover (`npc_combat::gun_reach`, `combat_tactics::find_cover`),
 //!   melee.
 //! - **The player defends itself and whoever it is with.** An actor in combat whose
@@ -336,6 +347,11 @@ pub struct PilotPlugin {
     /// With `campaign`: each chain's given state is set, not checked.
     pub set_given: bool,
     pub god: bool,
+    /// Differences from the headless runs known not to be bugs (a JSON list of
+    /// `{chain, label, reason}`).
+    pub known: Option<PathBuf>,
+    /// The game's state goes through a save and a load before each milestone is read.
+    pub save_load: bool,
 }
 
 impl Plugin for PilotPlugin {
@@ -357,6 +373,14 @@ impl Plugin for PilotPlugin {
                 let mut pilot = Pilot::new(chains, self.out.clone(), self.campaign);
                 pilot.god = self.god;
                 pilot.set_given = self.set_given;
+                pilot.save_load = self.save_load;
+                if let Some(path) = &self.known {
+                    match std::fs::read_to_string(path).map_err(|e| e.to_string()).and_then(|t| serde_json::from_str::<Json>(&t).map_err(|e| e.to_string())) {
+                        Ok(Json::Array(list)) => pilot.known = list,
+                        Ok(_) => error!("pilot: {}: expected a list of known differences", path.display()),
+                        Err(e) => error!("pilot: {}: {e}", path.display()),
+                    }
+                }
                 app.insert_resource(pilot).add_systems(Update, (drive.in_set(PlaySet::Input).after(nvf_play::control::read_controls).before(nvf_play::control::enforce_locks), held));
             }
             Ok(_) => error!("pilot: no chain"),
@@ -471,6 +495,8 @@ struct Fight {
     blocked: Option<f64>,
     /// When the fight began: the weapon goes up a tier as it lasts ([`ARMS`]).
     began: f64,
+    /// Someone standing in the line of fire, last seen.
+    in_the_way: Option<u32>,
 }
 
 enum Phase {
@@ -521,6 +547,11 @@ struct Pilot {
     resume_at: f64,
     /// The other menu up, and since when.
     menu_since: Option<(u16, f64)>,
+    /// The game's state goes through a save and a load before each milestone is read.
+    save_load: bool,
+    /// Differences known not to be bugs (`--pilot-known`), and the ones met.
+    known: Vec<Json>,
+    known_seen: Vec<Json>,
     /// Times the actor of a `talk` step was woken in this step.
     woke: u8,
     /// Attackers the player could not kill: left alone for the rest of the chain.
@@ -586,6 +617,9 @@ impl Pilot {
             saved: false,
             resume_at: 0.0,
             menu_since: None,
+            save_load: false,
+            known: Vec::new(),
+            known_seen: Vec::new(),
             woke: 0,
             given_up: Vec::new(),
             mark_items: 0,
@@ -680,6 +714,13 @@ impl Pilot {
         if differing.is_empty() {
             return true;
         }
+        // A difference known not to be a bug (`--pilot-known`): kept apart, with its reason.
+        let known = self.known.iter().find(|k| k["chain"].as_str() == Some(self.chain.as_str()) && k["label"].as_str() == Some(label)).and_then(|k| k["reason"].as_str()).map(str::to_string);
+        if let Some(reason) = known {
+            info!("pilot: known difference at step {} ({label}): {reason}", self.i);
+            self.known_seen.push(json!({"chain": self.chain, "step": self.i, "label": label, "fields": differing, "reason": reason}));
+            return false;
+        }
         warn!("pilot: divergence at step {} ({label}): {}", self.i, Json::Array(differing.clone()));
         self.divergences.push(json!({"chain": self.chain, "step": self.i, "label": label, "fields": differing}));
         false
@@ -689,7 +730,7 @@ impl Pilot {
         json!({
             "format": REPORT_FORMAT, "campaign": self.campaign, "chains": self.chains_done, "last_title": self.title, "seconds": self.now.round(),
             "steps": self.steps, "observations": self.observations, "divergences": self.divergences, "findings": self.findings, "softlocks": softlocks,
-            "headless": self.headless,
+            "headless": self.headless, "known_differences": self.known_seen,
         })
     }
 }
@@ -1313,6 +1354,28 @@ fn keep_weapon(p: &mut Pilot, h: &mut Hands, fighting_for: f64) {
     }
 }
 
+/// The first actor a shot from `eye` to `at` would meet, when it is not `target`: someone
+/// standing in the line of fire. Walls are `combat_tactics::shot_clear`'s.
+fn person_in_the_way(phys: &mut PhysState, eye: [f32; 3], at: [f32; 3], target: FormId) -> Option<u32> {
+    use fnv_phys::world::{Filter, Owner};
+    let d = [at[0] - eye[0], at[1] - eye[1], at[2] - eye[2]];
+    let len = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
+    if len < 1.0 {
+        return None;
+    }
+    let mut filter = Filter::default();
+    filter.exclude_layers.insert(fnv_phys::layers::TRIGGER);
+    filter.exclude_layers.insert(fnv_phys::layers::INVISIBLE_WALL);
+    let hits = phys.ray_all(eye, [d[0] / len, d[1] / len, d[2] / len], len, filter);
+    // The first actor along the line, nearest first: the target itself, or someone else.
+    let first = hits.iter().find_map(|h| match h.owner {
+        Owner::Actor { form_id, .. } => Some(form_id),
+        Owner::Character { id } => Some(id),
+        _ => None,
+    })?;
+    (first != target.0).then_some(first)
+}
+
 /// One frame of shooting at an actor: nearer while it is out of range, the view on its
 /// trunk and the trigger pulled when in range. `Some(why)`: the actor cannot be reached.
 fn engage(p: &mut Pilot, h: &mut Hands, name: &str, f: &mut Fight, w: &mut Walk) -> Option<String> {
@@ -1358,6 +1421,19 @@ fn engage(p: &mut Pilot, h: &mut Hands, name: &str, f: &mut Fight, w: &mut Walk)
                 return None;
             }
             f.blocked = None;
+            // Someone between the player and its target: no shot; a step to the side to
+            // get a line past them (the side changes every second).
+            if let Some(who) = at.and_then(|at| person_in_the_way(h.phys, eye, at, target)) {
+                h.control.trigger = false;
+                let side = if (p.now as i64) % 2 == 0 { 1.0 } else { -1.0 };
+                h.intent.right = side;
+                if f.in_the_way != Some(who) {
+                    info!("pilot: step {}: {who:08X} stands between the player and {name}: no shot, a step aside", p.i);
+                    f.in_the_way = Some(who);
+                }
+                return None;
+            }
+            f.in_the_way = None;
             // The trigger is pulled and let go, as for a weapon that fires once a pull.
             h.control.trigger = ((p.now - since) * 6.0) as i64 % 2 == 0;
             if !f.near && p.now - since > FIGHT_CLOSER_SECS {
@@ -1761,6 +1837,20 @@ fn step(p: &mut Pilot, h: &mut Hands) -> Option<Option<String>> {
             (p.now - p.step_from > 60.0).then(|| Some("the conversation could not be left in 60 s".to_string()))
         }
         Action::GetQuest { quest, fields, label } => {
+            // A milestone with `--pilot-save-load`: the game's state goes through a save
+            // and a load first, as the headless `save_load` does it, and is read after it.
+            let milestone = label.as_deref().is_some_and(|l| l.starts_with("milestone") || l.starts_with("final"));
+            if p.save_load && milestone && p.part == 0 {
+                p.part = 1;
+                let mut applier = std::mem::take(&mut p.applier);
+                let r = h.game(|g| runner::apply_now(g, &mut applier, &Action::SaveLoad { label: None }));
+                p.applier = applier;
+                match r {
+                    Some(Ok(_)) => info!("pilot: step {}: the game's state saved and loaded before the milestone is read", p.i),
+                    Some(Err(e)) => p.finding("save_load", format!("the save and load before the milestone failed: {e}")),
+                    None => {}
+                }
+            }
             let read = h.game(|g| fields.iter().map(|f| runner::quest_field(g, quest, f).map(|v| (f.clone(), v))).collect::<Result<Map<String, Json>, String>>());
             match read {
                 None => Some(Some("the scripts are not running".into())),
@@ -2415,7 +2505,7 @@ fn fight(p: &mut Pilot, h: &mut Hands, name: &str, a: &Action) -> Option<Option<
         };
         arm(p, h);
         let Phase::Walk(w) = new_walk(place, Some(r), FIGHT_RANGE, p.now, h.feet()) else { unreachable!() };
-        p.phase = Phase::Fight(Fight { target: r, shooting: None, near: false, blocked: None, began: p.now }, w);
+        p.phase = Phase::Fight(Fight { target: r, shooting: None, near: false, blocked: None, began: p.now, in_the_way: None }, w);
     }
     let Phase::Fight(mut f, mut w) = std::mem::replace(&mut p.phase, Phase::Begin) else { return Some(None) };
     let target = f.target;
@@ -2646,7 +2736,7 @@ fn drive(
                 let space = cell.and_then(|c| crate::nav::space_of_cell(world, c.0)).unwrap_or(space_of(h.location));
                 arm(p, &mut h);
                 info!("pilot: step {}: {who} attacks {}: fought before the step goes on", p.i, if friend.is_some() { "the player or the actor it is with" } else { "the player" });
-                p.defend = Some((Fight { target: who, shooting: None, near: false, blocked: None, began: p.now }, walk_to(Place { space, pos }, Some(who), FIGHT_RANGE, p.now, feet)));
+                p.defend = Some((Fight { target: who, shooting: None, near: false, blocked: None, began: p.now, in_the_way: None }, walk_to(Place { space, pos }, Some(who), FIGHT_RANGE, p.now, feet)));
                 p.defend_from = p.now;
             }
         }

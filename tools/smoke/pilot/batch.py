@@ -111,6 +111,11 @@ def run_one(chain: Path, args: argparse.Namespace, slot: int) -> dict:
     cmd += ["--pilot", str(chain), "--pilot-campaign", "--pilot-given", "--pilot-out", str(report)]
     if trace:
         cmd += ["--pilot-expect", str(trace)]
+    if args.save_load:
+        cmd += ["--pilot-save-load"]
+    known = Path(__file__).with_name("known-differences.json")
+    if known.exists():
+        cmd += ["--pilot-known", str(known)]
     env = dict(os.environ, NVFOREVER_HOME=str(home), **AIDS)
     env.pop("NVF_REPORTS", None)
     report.unlink(missing_ok=True)
@@ -195,6 +200,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--minutes", type=int, default=30)
     ap.add_argument("--only", nargs="*", default=[])
     ap.add_argument("--skip-fail", action="store_true", help="leave out the fail-* chains (a quest's failure paths)")
+    ap.add_argument("--save-load", action="store_true", help="the game's state through a save and a load before each milestone")
     args = ap.parse_args(argv)
     todo = [c for c in chains(args.only) if not (args.skip_fail and c.name.startswith("fail-"))]
     out = Path(args.out)

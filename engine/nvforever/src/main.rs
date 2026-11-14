@@ -607,6 +607,13 @@ struct Args {
     /// the pilot otherwise).
     #[arg(long, requires = "pilot")]
     pilot_no_god: bool,
+    /// Differences from the headless runs known not to be bugs (a JSON list of
+    /// `{chain, label, reason}`): reported apart, not as divergences.
+    #[arg(long, requires = "pilot")]
+    pilot_known: Option<PathBuf>,
+    /// The game's state goes through a save and a load before each milestone is read.
+    #[arg(long, requires = "pilot")]
+    pilot_save_load: bool,
     /// Where the pilot writes its report (`fnv.pilot.report/1`).
     #[arg(long, requires = "pilot")]
     pilot_out: Option<PathBuf>,
@@ -1823,7 +1830,7 @@ fn main() -> AppExit {
             .add_systems(Last, furniture::report);
     }
     if !args.pilot.is_empty() {
-        app.add_plugins(pilot::PilotPlugin { chains: args.pilot.clone(), expect: args.pilot_expect.clone(), out: args.pilot_out.clone(), campaign: args.pilot_campaign, set_given: args.pilot_given, god: !args.pilot_no_god });
+        app.add_plugins(pilot::PilotPlugin { chains: args.pilot.clone(), expect: args.pilot_expect.clone(), out: args.pilot_out.clone(), campaign: args.pilot_campaign, set_given: args.pilot_given, god: !args.pilot_no_god, known: args.pilot_known.clone(), save_load: args.pilot_save_load });
     }
     if let Some(n) = nav_state {
         let follow = n.follow;
