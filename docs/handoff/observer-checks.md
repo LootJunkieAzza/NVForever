@@ -1983,6 +1983,19 @@ heading 75) with NVFExtProbe.esp loaded, as the jip-probes sets run.
      FemaleAdult12 without a Goodbye line of their own. If she offers none, the gate
      takes a quest's GetIsID (and what else?) but not its voice-type list.
 
+## Added 2026-11-14 (map markers without XRDS, #2338)
+
+128. **How near must the player come to a map marker without `XRDS` to find it?** (P2;
+     pipboy.md §5.3, hud.md §11, #2338.) 65 of WastelandNV's 186 named markers carry no
+     radius (Coyote Den 0x00154A69, the four Powder Ganger Camps 0x0015354F-0x00153552).
+     Ours since #2338: `iMapMarkerRevealDistance`, 1000 when no plugin sets it [documented:
+     the GECK wiki's list of FNV defaults; hypothesis: that this is the distance]. To check:
+     walk straight towards Coyote Den from the south-west (flat ground) and from two other
+     sides, and note the player's distance from the marker (GetDistance to the marker
+     reference, or the player's GetPos) when "You have discovered" appears: about 1000
+     expected. Then `setgs iMapMarkerRevealDistance 3000` before approaching a Powder
+     Ganger Camp, and see whether the distance follows.
+
 ## Added 2026-11-14 (bloatflies' distance, shots and bite, issue #2351)
 
 129. **How does a bloatfly fight the player: its distance, its shots and its bite?** (P2;
@@ -1999,3 +2012,15 @@ heading 75) with NVFExtProbe.esp loaded, as the jip-probes sets run.
      time between its darts, whether it backs away and from how near, and whether it
      bites, from how near, and which clip plays then (`1hpattackright_2`, which moves it
      about 30 units forward, is one candidate [hypothesis]).
+
+## Added 2026-11-14 (Hidden Valley dust storm, #2450)
+
+133. **Which way and how fast does the Hidden Valley dust storm blow?** (P3; #2450,
+     activators.md §6.1.) Ours: all 18 dust sheets of `nvsandstormnight.nif` scroll their
+     texture by SpecialIdle, U 0 to 2 in 4 s, along +U [hypothesis: the sign of the
+     offset; every sheet of a property moves, as Gamebryo properties are shared by
+     reference]. To check: `ForceWeather HVDustStorm 1` at Hidden Valley (-17863, -4814)
+     at 22:00 with the storm references enabled (`000E18D7.enable`), two screenshots of
+     the same view 1 s apart: do all the dust banks move, in which direction across the
+     view, and about how far? Also whether the weather's own cloud layer 3
+     (`NVCloudlight.dds`, ONAM speed 0) stands still there.

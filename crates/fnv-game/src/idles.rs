@@ -218,6 +218,16 @@ impl IdlePicker {
 }
 
 impl<'a> Game<'a> {
+    /// The current model file of an IDLE, including SetIdleAnimPath's session
+    /// replacement. The renderer must use the same path as script getters.
+    pub fn idle_animation_path(&self, idle: FormId) -> Option<&str> {
+        let def = self.data.idles.get(&idle)?;
+        match self.field_overrides.get(&(idle,"MODL/".into())) {
+            Some(fnv_script::vm::XVal::Str(path)) => Some(path.as_str()),
+            _ => def.model.as_deref(),
+        }
+    }
+
     /// `actor` is to play `idle`: queued for the animating layer and traced. An IDLE
     /// that names no animation file (an inner node of the idle tree) is not played
     /// [hypothesis: only idles with a file can be listed or played by name; the editor
