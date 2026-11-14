@@ -437,7 +437,7 @@ fn stage_tests_of(data: &GameData, conds: &[Condition], into: &mut BTreeSet<(u32
         let n = lower_name(data, c.opcode());
         if n == "getstage" || n == "getstagedone" {
             if let Some(q) = cond_form(c, 0) {
-                into.insert((q, cond_num(c, 1).map(|s| s as i32).or_else(|| if n == "getstage" { None } else { None })));
+                into.insert((q, cond_num(c, 1).map(|s| s as i32)));
             }
         }
     }
@@ -708,10 +708,10 @@ fn atom_may(f: &Facts, a: &Atom, actor: Option<u32>) -> bool {
     let act = f.actors.get(&id);
     match a {
         Atom::Id(ids, w) => ids.contains(&id) == *w,
-        Atom::Voice(vs, w) => act.and_then(|x| x.voice).map_or(true, |v| vs.contains(&v) == *w),
-        Atom::Faction(fa, w) => act.map_or(true, |x| x.factions_templated || x.factions.contains(fa) == *w),
-        Atom::Female(fe) => act.map_or(true, |x| x.female == *fe),
-        Atom::Race(r, w) => act.and_then(|x| x.race).map_or(true, |rr| (rr == *r) == *w),
+        Atom::Voice(vs, w) => act.and_then(|x| x.voice).is_none_or(|v| vs.contains(&v) == *w),
+        Atom::Faction(fa, w) => act.is_none_or(|x| x.factions_templated || x.factions.contains(fa) == *w),
+        Atom::Female(fe) => act.is_none_or(|x| x.female == *fe),
+        Atom::Race(r, w) => act.and_then(|x| x.race).is_none_or(|rr| (rr == *r) == *w),
         Atom::Unknown => true,
     }
 }
@@ -1195,8 +1195,11 @@ fn wait_tags_of_path(path: &[String]) -> BTreeSet<&'static str> {
 // ------------------------------------------------------------------------- 3. stages
 
 /// Every SetStage with a quest and a stage written out: (quest, stage) → (unit, call).
-fn stage_setters(f: &Facts) -> (BTreeMap<(u32, i32), Vec<(usize, usize)>>, usize) {
-    let mut out: BTreeMap<(u32, i32), Vec<(usize, usize)>> = BTreeMap::new();
+/// (quest, stage) → the (unit, call) pairs that set it.
+type Setters = BTreeMap<(u32, i32), Vec<(usize, usize)>>;
+
+fn stage_setters(f: &Facts) -> (Setters, usize) {
+    let mut out: Setters = BTreeMap::new();
     let mut dynamic = 0;
     for (ui, u) in f.units.iter().enumerate() {
         for (ci, c) in u.calls.iter().enumerate() {
@@ -1521,8 +1524,7 @@ mod tests {
 
     #[test]
     fn julie_shape_a_top_level_without_goodbye() {
-        let mut f = Facts::default();
-        f.goodbye = Some(5);
+        let mut f = Facts { goodbye: Some(5), ..Default::default() };
         f.actors.insert(1, ActorFacts { placed: true, voice: Some(50), ..Default::default() });
         f.actors.insert(2, ActorFacts { placed: true, voice: Some(51), ..Default::default() });
         f.topics.insert(5, TopicFacts { lines: vec![500], topic_type: topic_type::TOPIC, ..Default::default() });
