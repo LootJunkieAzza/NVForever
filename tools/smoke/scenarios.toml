@@ -9382,7 +9382,7 @@ expect = [
 name = "cave-skeletons"
 source = "owner's playtest list 5, item 71 (docs/spec-notes/dead-on-spawn.md §5.1): the Goodsprings cave's four clutter skeletons (MSTT with XRGD) drawn lying in their stored pose, their collision posed with them (2026-10-20)"
 areas = ["world", "ragdoll", "physics"]
-paths = ["engine/nvforever/src/clutter_pose.rs", "engine/nvforever/src/authored_pose.rs", "engine/nvforever/src/world.rs", "engine/nvf-play/src/phys/prepare.rs", "crates/fnv-world/src/xrgd.rs", "crates/fnv-collide/src/nif.rs"]
+paths = ["engine/nvf-play/src/clutter_pose.rs", "engine/nvforever/src/authored_pose.rs", "engine/nvforever/src/world.rs", "engine/nvf-play/src/phys/prepare.rs", "crates/fnv-world/src/xrgd.rs", "crates/fnv-collide/src/nif.rs"]
 args = ["--cell", "SLGoodspringsCaveINT", "--play", "--no-voice", "--no-messages"]
 run_seconds = 14
 expect = [
@@ -9400,7 +9400,7 @@ expect = [
 name = "posed-clutter-torso"
 source = "issue #1400 (docs/spec-notes/dead-on-spawn.md §5.2): a skeleton torso copied with the whole clothed skeleton's 15-entry XRGD poses from its first five entries, and a single body with more entries than it holds is refused and logged once per model"
 areas = ["world", "ragdoll", "physics"]
-paths = ["engine/nvforever/src/clutter_pose.rs", "engine/nvforever/src/world.rs", "engine/nvf-play/src/phys/prepare.rs", "crates/fnv-world/src/xrgd.rs"]
+paths = ["engine/nvf-play/src/clutter_pose.rs", "engine/nvforever/src/world.rs", "engine/nvf-play/src/phys/prepare.rs", "crates/fnv-world/src/xrgd.rs"]
 args = ["--cell", "BisonSteve02", "--play", "--no-voice", "--no-messages"]
 run_seconds = 14
 expect = [
@@ -9413,7 +9413,7 @@ expect = [
 name = "posed-clutter-container-skeleton"
 source = "issue #1400 (docs/spec-notes/dead-on-spawn.md §5.2): a whole clothed skeleton placed as a CONT (container) poses from its XRGD now that CONT is a posable type"
 areas = ["world", "ragdoll", "physics"]
-paths = ["engine/nvforever/src/clutter_pose.rs", "engine/nvforever/src/world.rs", "engine/nvf-play/src/phys/prepare.rs", "crates/fnv-world/src/xrgd.rs"]
+paths = ["engine/nvf-play/src/clutter_pose.rs", "engine/nvforever/src/world.rs", "engine/nvf-play/src/phys/prepare.rs", "crates/fnv-world/src/xrgd.rs"]
 args = ["--cell", "NVDLC01Vault", "--play", "--no-voice", "--no-messages"]
 run_seconds = 14
 expect = [
@@ -27557,4 +27557,20 @@ order = [[
 expect = [
   { re = 'detection: VFSKingBodyguardNorth 0013EF08 → the player', label = "the King's bodyguard beside him too" },
   { re = 'ai summary at .*, (?P<n>\d+) drawn;', range = [6, 1000], label = "the north side's residents are drawn (2026-11-14: 17; 0 without the fix)" },
+]
+
+[[scenario]]
+name = "wild-wasteland-fridge-skeleton"
+source = "issue #2339 (docs/spec-notes/dead-on-spawn.md §5.3): the Wild Wasteland refrigerator skeleton 0x000ED565 (MSTT Skeleton50sCasualMale, XRGD) hangs on WildWastelandEnabler 0x000ED563, which starts disabled, so render streaming leaves it to script_draw; enabled the way the trait's script does (0x000ED563.enable 1), it is drawn in its stored pose like a skeleton enabled from the start, its collision posed with it; a frame in target/smoke (wild_wasteland_fridge_skeleton.png)"
+note = "the player stands about 220 units east of the skeleton and the open fridge 0x000ED566, looking west and down; the enabler is enabled from the console at 8 s, the frame taken at 12 s"
+areas = ["world", "scripts", "ragdoll", "physics"]
+paths = ["engine/nvf-play/src/script_draw.rs", "engine/nvf-play/src/clutter_pose.rs", "crates/fnv-world/src/xrgd.rs"]
+env = { NVF_PLAY_TEST_CONSOLE = "8:000ED563.enable 1;8.3:close", NVF_PLAY_TEST_SHOTS = "12:wild_wasteland_fridge_skeleton.png" }
+args = ["--play", "--world", "WastelandNV", "--pos=-62000,-10520,7150", "--heading", "270", "--pitch", "-20", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 15
+expect = [
+  { re = 'reference 0x000ED565 drawn \(enabled at run time\): \S*skeletonmale50scasual\.nif', label = "the enabler's child is drawn by script_draw" },
+  { re = 'clutter pose: 0x000ED565 \S*skeletonmale50scasual\.nif drawn in its stored pose, enabled at run time \(16 bodies\)', count = 1, label = "drawn in its stored pose, logged once" },
+  { re = 'phys: 0x000ED565 \S*skeletonmale50scasual\.nif: collision posed from XRGD \(16 bodies\)', label = "its collision lies with the drawing" },
+  { re = 'clutter pose: \S*skeletonmale50scasual\.nif: its XRGD does not fit', count = 0, label = "its XRGD fits its model" },
 ]
